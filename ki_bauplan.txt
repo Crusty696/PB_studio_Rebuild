@@ -1,0 +1,12 @@
+Projekt: PB_studio (Native Video- und Audio-Produktionssoftware)
+Sprache: Python
+GUI: PySide6
+Umgebung: Poetry
+
+Architektur-Plan:
+1. GUI: Hauptfenster mit Tabs (Media Ingest, Director's Desk, Production), Statusleiste, System-Konsole.
+2. Backend: SQLite Datenbank für Metadaten, duckdb für Analysen.
+3. Audio: Stem-Separation (Demucs), Beat-Detektion.
+4. Video: Szenenschnitt, Proxies, NVENC Export.
+
+Regel für die KI: Arbeite strikt Zug um Zug. Verändere immer nur den Teil, nach dem der Benutzer fragt. Behalte bestehenden, funktionierenden Code bei.
