@@ -15,8 +15,9 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QThread, Signal, QObject, QRectF, QPointF, QTimer, QRunnable, QThreadPool
 from PySide6.QtGui import QPainter, QColor, QFont, QBrush, QPen, QPixmap, QImage
 
-APP_VERSION = "0.3.0"
+APP_VERSION = "0.3.1"
 STYLE_DIR = Path(__file__).parent / "styles"
+RESOURCE_DIR = Path(__file__).parent / "resources"
 
 from database import init_db, engine, AudioTrack, VideoClip, TimelineEntry
 from sqlalchemy.orm import Session as DBSession
@@ -343,7 +344,7 @@ class InteractiveTimeline(QGraphicsView):
         self.setScene(self._scene)
         self.setRenderHint(QPainter.RenderHint.Antialiasing)
         self.setMinimumHeight(200)
-        self.setStyleSheet("background-color: #1e1e1e; border: 1px solid #333;")
+        self.setStyleSheet("background-color: #121212; border: 1px solid #2A2A2A;")
         self.setDragMode(QGraphicsView.DragMode.NoDrag)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -358,19 +359,19 @@ class InteractiveTimeline(QGraphicsView):
     def _draw_track_backgrounds(self):
         audio_bg = self._scene.addRect(
             QRectF(0, AUDIO_TRACK_Y, 2000, TRACK_HEIGHT),
-            QPen(Qt.PenStyle.NoPen), QBrush(QColor(40, 40, 55))
+            QPen(Qt.PenStyle.NoPen), QBrush(QColor(18, 22, 28))
         )
         audio_bg.setZValue(-10)
         video_bg = self._scene.addRect(
             QRectF(0, VIDEO_TRACK_Y, 2000, TRACK_HEIGHT),
-            QPen(Qt.PenStyle.NoPen), QBrush(QColor(55, 40, 40))
+            QPen(Qt.PenStyle.NoPen), QBrush(QColor(28, 18, 18))
         )
         video_bg.setZValue(-10)
 
     def _draw_labels(self):
         for label_text, y in [("Audio", AUDIO_TRACK_Y), ("Video", VIDEO_TRACK_Y)]:
             txt = self._scene.addText(label_text, QFont("Segoe UI", 9))
-            txt.setDefaultTextColor(QColor(150, 150, 150))
+            txt.setDefaultTextColor(QColor(112, 112, 112))
             txt.setPos(-50, y + 15)
             txt.setZValue(10)
 
@@ -591,17 +592,17 @@ class AboutDialog(QDialog):
 
         title = QLabel("PB_studio")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title.setStyleSheet("font-size: 28px; font-weight: 800; color: #00d4ff;")
+        title.setStyleSheet("font-size: 28px; font-weight: 800; color: #00F0FF;")
         layout.addWidget(title)
 
         subtitle = QLabel("Director's Cockpit")
         subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        subtitle.setStyleSheet("font-size: 14px; color: #7c3aed; font-weight: 600;")
+        subtitle.setStyleSheet("font-size: 14px; color: #00B8D4; font-weight: 600;")
         layout.addWidget(subtitle)
 
         line = QFrame()
         line.setFrameShape(QFrame.Shape.HLine)
-        line.setStyleSheet("background-color: #2a2d35;")
+        line.setStyleSheet("background-color: #2A2A2A;")
         layout.addWidget(line)
 
         info = QLabel(
@@ -611,7 +612,7 @@ class AboutDialog(QDialog):
             "Built with PySide6 + FFmpeg + Demucs + librosa"
         )
         info.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        info.setStyleSheet("color: #808899; font-size: 12px; line-height: 1.5;")
+        info.setStyleSheet("color: #707070; font-size: 12px; line-height: 1.5;")
         layout.addWidget(info)
 
         btn = QPushButton("Schliessen")
@@ -635,8 +636,8 @@ class TaskManagerWidget(QTreeWidget):
         self.setAlternatingRowColors(True)
         self.setMaximumHeight(150)
         self.setStyleSheet(
-            "QTreeWidget { background-color: #1b1d23; color: #ccc; border: 1px solid #333; }"
-            "QTreeWidget::item:alternate { background-color: #22242a; }"
+            "QTreeWidget { background-color: #141414; color: #E0E0E0; border: 1px solid #2A2A2A; }"
+            "QTreeWidget::item:alternate { background-color: #1A1A1A; }"
         )
         header = self.header()
         header.setStretchLastSection(True)
@@ -938,7 +939,7 @@ class PBWindow(QMainWindow):
 
         self.preview_time_label = QLabel("00:00 / 00:00")
         self.preview_time_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.preview_time_label.setStyleSheet("color: #808899; font-size: 11px;")
+        self.preview_time_label.setStyleSheet("color: #707070; font-size: 11px;")
         preview_layout.addWidget(self.preview_time_label)
 
         top_splitter.addWidget(preview_group)
@@ -956,7 +957,7 @@ class PBWindow(QMainWindow):
         timeline_layout.addWidget(self.timeline_view)
 
         self.cut_info_label = QLabel("Noch keine Timeline generiert.")
-        self.cut_info_label.setStyleSheet("color: #808899; padding: 4px;")
+        self.cut_info_label.setStyleSheet("color: #707070; padding: 4px;")
         timeline_layout.addWidget(self.cut_info_label)
 
         main_layout.addWidget(timeline_group, stretch=1)
@@ -1045,7 +1046,7 @@ class PBWindow(QMainWindow):
         self.effects_preview = QLabel("Effekt-Vorschau wird hier angezeigt")
         self.effects_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.effects_preview.setMinimumHeight(200)
-        self.effects_preview.setStyleSheet("background-color: #1e1e1e; border: 1px solid #333; color: #808899;")
+        self.effects_preview.setStyleSheet("background-color: #121212; border: 1px solid #2A2A2A; color: #707070;")
         layout.addWidget(self.effects_preview)
 
         layout.addStretch()
@@ -1063,7 +1064,7 @@ class PBWindow(QMainWindow):
         info_group = QGroupBox("Timeline-Status")
         info_layout = QVBoxLayout(info_group)
         self.production_info = QLabel("Timeline laden...")
-        self.production_info.setStyleSheet("color: #ccc; font-size: 14px;")
+        self.production_info.setStyleSheet("color: #E0E0E0; font-size: 14px;")
         info_layout.addWidget(self.production_info)
         layout.addWidget(info_group)
 
@@ -1870,14 +1871,18 @@ def main():
     init_db()
     app = QApplication(sys.argv)
 
-    qss_path = STYLE_DIR / "dark_steel.qss"
+    # Deep Space Dark Theme (Cinematic UI)
+    qss_path = RESOURCE_DIR / "styles.qss"
+    if not qss_path.exists():
+        # Fallback auf altes Theme
+        qss_path = STYLE_DIR / "dark_steel.qss"
     if qss_path.exists():
         app.setStyleSheet(qss_path.read_text(encoding="utf-8"))
 
     window = PBWindow()
     window.console_text.append("[System] SQLite Datenbank (pb_studio.db) erfolgreich initialisiert.")
-    window.console_text.append(f"[System] Dark Steel Theme geladen.")
-    window.console_text.append(f"[System] Version {APP_VERSION} mit KI-Stems, Auto-Ducking, Effects und Task-Manager.")
+    window.console_text.append("[System] Deep Space Dark Theme geladen.")
+    window.console_text.append(f"[System] Version {APP_VERSION} — Cinematic UI + Multi-Action KI.")
     window.timeline_view.load_from_db()
     window.show()
     sys.exit(app.exec())
