@@ -1,8 +1,14 @@
 """
-Vision Agent — Spezialisiert auf Video- und Bildanalyse.
+Vision Agent — Spezialisiert auf Video- und Bildanalyse mit KI.
 
-Zuständig für: analyze_video, Szenen-Erkennung, Frame-Analyse.
-Kann ein eigenes Vision-Modell laden (z.B. CLIP, BLIP).
+Zuständig für:
+- analyze_video: FFprobe-basierte Metadaten (bestehend)
+- analyze_video_content: KI-basierte visuelle Szenenanalyse mit Moondream2
+
+Moondream2 (vikhyatk/moondream2):
+- Kleines, effizientes Vision-Language-Modell
+- Extrahiert Frames aus Video und beschreibt visuelle Inhalte
+- Läuft über den ModelManager (VRAM-geschützt)
 """
 
 from __future__ import annotations
@@ -20,20 +26,22 @@ VISION_KEYWORDS = [
     "video", "clip", "szene", "scene", "bild", "image", "frame",
     "visuell", "visual", "kamera", "camera", "auflösung", "resolution",
     "analyse video", "analyze video", "analysiere video",
+    "was passiert", "was ist zu sehen", "beschreibe", "describe",
+    "inhalt", "content", "zeigt", "shows",
 ]
 
 
 class VisionAgent(BaseAgent):
-    """Agent für Video- und Bildanalyse-Aufgaben.
+    """Agent für Video- und Bildanalyse mit KI (Moondream2).
 
-    Routet intern an die passende Action-Registry-Aktion
-    (z.B. analyze_video) und kann in Zukunft ein eigenes
-    Vision-Modell (CLIP/BLIP) verwalten.
+    Unterscheidet zwischen:
+    - Metadaten-Analyse (FFprobe) → analyze_video
+    - KI-Inhaltsanalyse (Moondream2) → analyze_video_content
     """
 
     name = "vision"
     domain = "vision"
-    model_id = None  # Wird gesetzt wenn ein Vision-Modell benötigt wird
+    model_id = "vikhyatk/moondream2"
 
     def __init__(self):
         super().__init__()
@@ -47,8 +55,17 @@ class VisionAgent(BaseAgent):
         matches = self._pattern.findall(text_lower)
         if not matches:
             return 0.0
-        # Mehr Matches = höhere Konfidenz, max 0.95
         return min(0.3 + 0.15 * len(matches), 0.95)
+
+    def _wants_content_analysis(self, text_lower: str) -> bool:
+        """Erkennt ob KI-Inhaltsanalyse gewünscht ist (statt nur Metadaten)."""
+        content_keywords = [
+            "was passiert", "was ist zu sehen", "beschreibe", "describe",
+            "inhalt", "content", "zeigt", "shows", "szene",
+            "visuell", "visual", "ki analyse", "ai analy",
+            "was sieht man", "was zeigt",
+        ]
+        return any(kw in text_lower for kw in content_keywords)
 
     def process(self, user_text: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
         from services.action_registry import action_registry
@@ -64,25 +81,49 @@ class VisionAgent(BaseAgent):
             "error": None,
         }
 
-        # Versuche clip_id aus Kontext oder Text zu extrahieren
+        text_lower = user_text.lower()
+
+        # Entscheide: Metadaten oder KI-Inhaltsanalyse
+        wants_content = self._wants_content_analysis(text_lower)
+
+        # Suche clip_id oder file_path
         clip_id = None
+        file_path = None
         if context:
             clip_id = context.get("clip_id")
+            file_path = context.get("file_path")
 
         if clip_id is None:
-            # Suche nach Zahlen im Text
             numbers = re.findall(r'\d+', user_text)
             if numbers:
                 clip_id = int(numbers[0])
 
-        if clip_id is not None:
-            try:
-                result["action"] = "analyze_video"
-                result["params"] = {"clip_id": clip_id}
-                result["result"] = action_registry.execute("analyze_video", {"clip_id": clip_id})
-            except Exception as e:
-                result["error"] = str(e)
+        if wants_content:
+            # KI-basierte Inhaltsanalyse mit Moondream2
+            if clip_id is not None or file_path is not None:
+                params = {}
+                if file_path:
+                    params["file_path"] = file_path
+                elif clip_id is not None:
+                    params["clip_id"] = clip_id
+                try:
+                    result["action"] = "analyze_video_content"
+                    result["params"] = params
+                    result["result"] = action_registry.execute("analyze_video_content", params)
+                except Exception as e:
+                    result["error"] = str(e)
+            else:
+                result["message"] = "Video-Inhaltsanalyse benötigt eine clip_id oder file_path."
         else:
-            result["message"] = "Video-Analyse benötigt eine clip_id. Bitte einen Clip importieren."
+            # Standard-Metadaten-Analyse (FFprobe)
+            if clip_id is not None:
+                try:
+                    result["action"] = "analyze_video"
+                    result["params"] = {"clip_id": clip_id}
+                    result["result"] = action_registry.execute("analyze_video", {"clip_id": clip_id})
+                except Exception as e:
+                    result["error"] = str(e)
+            else:
+                result["message"] = "Video-Analyse benötigt eine clip_id. Bitte einen Clip importieren."
 
         return result

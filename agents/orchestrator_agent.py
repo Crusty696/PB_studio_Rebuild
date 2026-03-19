@@ -6,6 +6,12 @@ Entscheidet anhand der Benutzeranfrage, ob:
 2. Direkt das Action-Registry angesprochen wird (Fuzzy-Matching)
 3. Das Text-LLM für freie Antworten gefragt wird
 
+NEU: Multi-Step-Analyse — Kann Prompts wie "Was passiert in Video 1
+und was wird gesagt?" in parallele Agent-Aufrufe zerlegen:
+  1. Vision-Agent → Szenen beschreiben
+  2. Audio-Agent → Text transkribieren
+  3. Ergebnisse zusammenfassen
+
 Verwaltet das Modell-Swapping über den ModelManager.
 """
 
@@ -29,12 +35,21 @@ ANALYZE_ALL_KEYWORDS = [
     "alles analysieren", "alles prüfen",
 ]
 
+# Multi-Step Keywords: Sowohl Bild ALS AUCH Ton
+MULTI_STEP_KEYWORDS = [
+    ("bild", "ton"), ("video", "audio"), ("visual", "audio"),
+    ("sehen", "gesagt"), ("sieht", "hört"), ("visuell", "akustisch"),
+    ("szene", "sprache"), ("zeigt", "sagt"), ("passiert", "gesagt"),
+    ("inhalt", "transkri"), ("bild und ton", None),
+    ("video und audio", None), ("analysiere bild und ton", None),
+]
+
 
 class OrchestratorAgent(BaseAgent):
     """Orchestrator: Verteilt Anfragen an spezialisierte Agenten oder das Action-Registry.
 
     Architektur:
-        User-Input → Orchestrator → [VisionAgent | AudioAgent | EditorAgent | ActionRegistry | LLM]
+        User-Input → Orchestrator → [VisionAgent | AudioAgent | EditorAgent | Multi-Step | ActionRegistry | LLM]
     """
 
     name = "orchestrator"
@@ -83,6 +98,146 @@ class OrchestratorAgent(BaseAgent):
                 return True
 
         return False
+
+    def _detect_multi_step(self, user_text: str) -> bool:
+        """Erkennt ob eine Multi-Step-Analyse (Vision + Audio) gewünscht ist."""
+        text_lower = user_text.lower()
+
+        for pair in MULTI_STEP_KEYWORDS:
+            if pair[1] is None:
+                # Direktes Keyword
+                if pair[0] in text_lower:
+                    return True
+            else:
+                # Beide Keywords müssen vorkommen
+                if pair[0] in text_lower and pair[1] in text_lower:
+                    return True
+
+        return False
+
+    def _extract_id_from_text(self, user_text: str) -> int | None:
+        """Extrahiert eine ID (Zahl) aus dem Text."""
+        numbers = re.findall(r'\d+', user_text)
+        if numbers:
+            return int(numbers[0])
+        return None
+
+    def _handle_multi_step(self, user_text: str) -> dict[str, Any]:
+        """Führt eine Multi-Step-Analyse durch: Vision + Audio auf dasselbe Medien-Objekt.
+
+        Schritt 1: Vision-Agent → Visuelle Szenenanalyse
+        Schritt 2: Audio-Agent → Transkription
+        Schritt 3: Ergebnisse zusammenfassen
+        """
+        from services.action_registry import action_registry
+
+        media_id = self._extract_id_from_text(user_text)
+        results = []
+        errors = []
+
+        logger.info("Multi-Step-Analyse gestartet für ID: %s", media_id)
+
+        # Schritt 1: Vision-Agent (Moondream2)
+        try:
+            vision_params = {}
+            if media_id is not None:
+                vision_params["clip_id"] = media_id
+
+            vision_result = action_registry.execute("analyze_video_content", vision_params)
+            results.append({
+                "agent": "vision",
+                "action": "analyze_video_content",
+                "params": vision_params,
+                "result": vision_result,
+                "error": None,
+            })
+        except Exception as e:
+            error_msg = f"Vision-Analyse fehlgeschlagen: {e}"
+            logger.error(error_msg)
+            errors.append(error_msg)
+            results.append({
+                "agent": "vision",
+                "action": "analyze_video_content",
+                "params": {"clip_id": media_id},
+                "result": None,
+                "error": error_msg,
+            })
+
+        # Schritt 2: Audio-Agent (faster-whisper)
+        # Versuche zuerst mit track_id, dann mit file_path des VideoClips
+        try:
+            audio_params = {}
+            if media_id is not None:
+                # Versuche file_path des VideoClips für Whisper
+                try:
+                    from sqlalchemy.orm import Session as SASession
+                    from database import engine, VideoClip
+                    with SASession(engine) as session:
+                        clip = session.get(VideoClip, media_id)
+                        if clip and clip.file_path:
+                            audio_params["file_path"] = clip.file_path
+                except Exception:
+                    audio_params["track_id"] = media_id
+
+            if not audio_params:
+                audio_params["track_id"] = media_id
+
+            audio_result = action_registry.execute("transcribe_audio", audio_params)
+            results.append({
+                "agent": "audio",
+                "action": "transcribe_audio",
+                "params": audio_params,
+                "result": audio_result,
+                "error": None,
+            })
+        except Exception as e:
+            error_msg = f"Audio-Transkription fehlgeschlagen: {e}"
+            logger.error(error_msg)
+            errors.append(error_msg)
+            results.append({
+                "agent": "audio",
+                "action": "transcribe_audio",
+                "params": audio_params,
+                "result": None,
+                "error": error_msg,
+            })
+
+        # Schritt 3: Zusammenfassung erstellen
+        summary_parts = []
+
+        # Vision-Zusammenfassung
+        vision_data = results[0].get("result") if results else None
+        if vision_data and not vision_data.get("error"):
+            scenes = vision_data.get("scenes", [])
+            if scenes:
+                summary_parts.append(f"🎬 VISUELLE ANALYSE ({len(scenes)} Szenen):")
+                for scene in scenes[:5]:  # Max 5 für Zusammenfassung
+                    summary_parts.append(
+                        f"  [{scene['timestamp_sec']}s] {scene['description'][:100]}"
+                    )
+
+        # Audio-Zusammenfassung
+        audio_data = results[1].get("result") if len(results) > 1 else None
+        if audio_data and not audio_data.get("error"):
+            full_text = audio_data.get("full_text", "")
+            lang = audio_data.get("language", "?")
+            summary_parts.append(f"\n🎤 TRANSKRIPTION (Sprache: {lang}):")
+            if full_text:
+                summary_parts.append(f"  {full_text[:300]}")
+            else:
+                summary_parts.append("  (Kein gesprochener Text erkannt)")
+
+        summary = "\n".join(summary_parts) if summary_parts else "Keine Ergebnisse."
+
+        return {
+            "agent": self.name,
+            "action": "multi",
+            "params": {"media_id": media_id},
+            "result": None,
+            "message": summary,
+            "error": " | ".join(errors) if errors else None,
+            "actions": results,
+        }
 
     def _get_imported_ids(self) -> dict[str, list[int]]:
         """Holt alle importierten Audio-Track- und Video-Clip-IDs aus der Datenbank."""
@@ -180,7 +335,6 @@ class OrchestratorAgent(BaseAgent):
         from services.action_registry import action_registry
 
         # Extrahiere mögliche Aktionsnamen aus dem Text
-        # Suche nach Wörtern die wie Aktionsnamen aussehen
         words = re.findall(r'[a-z_]+', user_text.lower())
 
         for word in words:
@@ -189,12 +343,10 @@ class OrchestratorAgent(BaseAgent):
             matched_name, score = action_registry.fuzzy_match(word)
             if matched_name and score >= 60:
                 logger.info("Registry-Routing: '%s' → '%s' (Score: %d%%)", word, matched_name, score)
-                # Extrahiere Parameter (IDs) aus dem Text
                 params = {}
                 numbers = re.findall(r'\d+', user_text)
                 action_def = action_registry.get(matched_name)
                 if action_def and numbers:
-                    # Versuche die erste Zahl dem ersten required-Parameter zuzuordnen
                     schema = action_def.param_schema
                     required = schema.get("required", [])
                     props = schema.get("properties", {})
@@ -229,9 +381,10 @@ class OrchestratorAgent(BaseAgent):
 
         Routing-Priorität:
         1. "Analysiere alle" → Spezialbehandlung (alle importierten Dateien)
-        2. Spezialisierter Agent (höchster can_handle-Score)
-        3. Direktes Action-Registry (Fuzzy-Matching auf Aktionsnamen)
-        4. Fallback: Weiterleitung an das Text-LLM
+        2. Multi-Step-Analyse → Vision + Audio gleichzeitig
+        3. Spezialisierter Agent (höchster can_handle-Score)
+        4. Direktes Action-Registry (Fuzzy-Matching auf Aktionsnamen)
+        5. Fallback: Weiterleitung an das Text-LLM
         """
         logger.info("Orchestrator empfängt: '%s'", user_text[:100])
 
@@ -240,26 +393,31 @@ class OrchestratorAgent(BaseAgent):
             logger.info("Erkannt: 'Analysiere alle importierten Dateien'")
             return self._handle_analyze_all()
 
-        # 2. Spezialisierter Agent
+        # 2. Multi-Step-Analyse (Vision + Audio)
+        if self._detect_multi_step(user_text):
+            logger.info("Erkannt: Multi-Step-Analyse (Vision + Audio)")
+            return self._handle_multi_step(user_text)
+
+        # 3. Spezialisierter Agent
         agent = self._route_to_agent(user_text)
         if agent is not None:
             # ModelManager: Agent-Modell laden falls nötig
             if self._model_manager and agent.model_id:
-                self._model_manager.ensure_loaded(agent.model_id)
+                self._model_manager.ensure_loaded(agent.model_id, "vision")
             return agent.process(user_text, context)
 
-        # 3. Direktes Action-Registry (Fuzzy)
+        # 4. Direktes Action-Registry (Fuzzy)
         registry_result = self._route_to_registry(user_text)
         if registry_result is not None:
             return registry_result
 
-        # 4. Fallback: Kein passender Agent/Action gefunden
+        # 5. Fallback: Kein passender Agent/Action gefunden
         return {
             "agent": self.name,
             "action": "none",
             "params": {},
             "result": None,
             "message": f"Ich konnte keinen passenden Agenten oder Aktion finden für: '{user_text[:80]}'. "
-                       "Verfügbare Agenten: Vision, Audio, Editor.",
+                       "Verfügbare Agenten: Vision (Szenen-KI), Audio (Transkription), Editor.",
             "error": None,
         }

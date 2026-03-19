@@ -7,7 +7,7 @@ um App-Funktionen per natürlicher Sprache auszuführen.
 Unterstützt Multi-Action: Die KI kann mehrere Aktionen als
 JSON-Array zurückgeben, wenn der User mehrere Dinge verlangt.
 
-Enthält den ModelManager für Ressourcen-Schutz:
+Nutzt den zentralen Singleton-ModelManager für Ressourcen-Schutz:
 Nur EIN Modell darf gleichzeitig im RAM/VRAM liegen.
 """
 
@@ -17,97 +17,14 @@ import re
 from typing import Any
 
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
 
 from services.action_registry import ActionRegistry, action_registry
+from services.model_manager import ModelManager
 
 logger = logging.getLogger(__name__)
 
 # Standard-Modell: winzig, schnell, Instruction-tuned
 DEFAULT_MODEL_ID = "Qwen/Qwen2.5-0.5B-Instruct"
-
-
-class ModelManager:
-    """Verwaltet Modell-Ressourcen: Nur EIN Modell gleichzeitig im RAM/VRAM.
-
-    Wenn ein neues Modell geladen werden soll, wird das aktuelle zuerst
-    entladen. Verhindert OOM auf GPUs mit wenig VRAM (z.B. GTX 1060 6GB).
-    """
-
-    def __init__(self, device: str | None = None):
-        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-        self._current_model_id: str | None = None
-        self._model = None
-        self._tokenizer = None
-        self._pipe = None
-
-    @property
-    def current_model_id(self) -> str | None:
-        return self._current_model_id
-
-    @property
-    def is_loaded(self) -> bool:
-        return self._current_model_id is not None
-
-    def unload(self) -> None:
-        """Entlädt das aktuelle Modell und gibt GPU/RAM frei."""
-        if self._current_model_id is None:
-            return
-
-        logger.info("ModelManager: Entlade '%s'...", self._current_model_id)
-        self._pipe = None
-        self._model = None
-        self._tokenizer = None
-
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-
-        old_id = self._current_model_id
-        self._current_model_id = None
-        logger.info("ModelManager: '%s' entladen. GPU-Cache geleert.", old_id)
-
-    def load(self, model_id: str) -> tuple:
-        """Lädt ein Modell. Entlädt vorher das aktuelle falls nötig.
-
-        Returns:
-            (tokenizer, model, pipeline)
-        """
-        if self._current_model_id == model_id:
-            logger.info("ModelManager: '%s' bereits geladen.", model_id)
-            return self._tokenizer, self._model, self._pipe
-
-        # Altes Modell entladen
-        if self._current_model_id is not None:
-            self.unload()
-
-        logger.info("ModelManager: Lade '%s' auf %s...", model_id, self.device)
-
-        self._tokenizer = AutoTokenizer.from_pretrained(
-            model_id, trust_remote_code=True,
-        )
-        self._model = AutoModelForCausalLM.from_pretrained(
-            model_id,
-            torch_dtype=torch.float32 if self.device == "cpu" else torch.float16,
-            trust_remote_code=True,
-        )
-        self._model.to(self.device)
-        self._model.eval()
-
-        self._pipe = pipeline(
-            "text-generation",
-            model=self._model,
-            tokenizer=self._tokenizer,
-            device=self.device if self.device != "cpu" else -1,
-        )
-
-        self._current_model_id = model_id
-        logger.info("ModelManager: '%s' geladen.", model_id)
-
-        return self._tokenizer, self._model, self._pipe
-
-    def ensure_loaded(self, model_id: str) -> tuple:
-        """Stellt sicher, dass das angegebene Modell geladen ist."""
-        return self.load(model_id)
 
 SYSTEM_PROMPT_TEMPLATE = """\
 Du bist der KI-Assistent von PB Studio, einer Video- und Audio-Produktionssoftware.
@@ -134,7 +51,7 @@ class LocalAgentService:
     Lädt das Modell lazy beim ersten Aufruf, um Startzeit zu sparen.
     Unterstützt Single- und Multi-Action-Ausgabe.
 
-    Nutzt den zentralen ModelManager für Ressourcen-Schutz:
+    Nutzt den zentralen Singleton-ModelManager für Ressourcen-Schutz:
     Nur EIN Modell gleichzeitig im RAM/VRAM.
 
     Enthält den OrchestratorAgent für intelligentes Routing.
@@ -150,7 +67,7 @@ class LocalAgentService:
         self.model_id = model_id
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
 
-        # Zentraler ModelManager — nur 1 Modell im RAM/VRAM
+        # Zentraler Singleton-ModelManager
         self.model_manager = ModelManager(device=self.device)
 
         self._tokenizer = None
@@ -180,7 +97,9 @@ class LocalAgentService:
 
         logger.info("Lade lokales KI-Modell: %s auf %s ...", self.model_id, self.device)
 
-        self._tokenizer, self._model, self._pipe = self.model_manager.load(self.model_id)
+        self._tokenizer, self._model, self._pipe = self.model_manager.load_transformers(
+            self.model_id
+        )
         self._loaded = True
         logger.info("KI-Modell geladen: %s", self.model_id)
 
