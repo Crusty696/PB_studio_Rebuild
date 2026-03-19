@@ -28,6 +28,7 @@ from services.audio_service import AudioAnalyzer
 from services.video_service import VideoAnalyzer
 from services.pacing_service import PacingSettings, calculate_cut_points, CutPoint, auto_edit_to_beats
 from services.export_service import export_timeline, get_timeline_summary
+from ui.chat_dock import ChatDock
 
 
 # ======================================================================
@@ -743,6 +744,9 @@ class PBWindow(QMainWindow):
 
         # System-Konsole
         self.setup_console()
+
+        # KI-Assistent Chat-Dock
+        self.setup_chat_dock()
 
         self._refresh_media_table()
 
@@ -1841,6 +1845,25 @@ class PBWindow(QMainWindow):
 
         dock.setWidget(self.console_text)
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, dock)
+
+    def setup_chat_dock(self):
+        """KI-Assistent Dock-Widget einrichten."""
+        self.chat_dock = ChatDock(self)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.chat_dock)
+
+        # Agent lazy initialisieren (Modell wird erst beim ersten Befehl geladen)
+        try:
+            import services.register_actions  # noqa: F401 – Aktionen registrieren
+            from services.local_agent_service import LocalAgentService
+            self._ai_agent = LocalAgentService()
+            self.chat_dock.set_agent(self._ai_agent)
+            self.chat_dock.append_system(
+                "Lokaler Agent bereit. Was kann ich tun?"
+            )
+            self.console_text.append("[KI] Chat-Assistent initialisiert (Modell wird bei erster Anfrage geladen).")
+        except Exception as e:
+            self.chat_dock.append_error(f"Agent konnte nicht initialisiert werden: {e}")
+            self.console_text.append(f"[KI-Fehler] {e}")
 
 
 def main():
