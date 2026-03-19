@@ -9,7 +9,6 @@ VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".wmv", ".webm", ".flv", ".m
 
 
 def _file_meta(path: Path) -> dict:
-    """Liest Basis-Metadaten einer Datei (Größe, Endung)."""
     stat = path.stat()
     return {
         "file_path": str(path.resolve()),
@@ -20,7 +19,6 @@ def _file_meta(path: Path) -> dict:
 
 
 def ingest_audio(file_path: str, project_id: int = 1) -> AudioTrack | None:
-    """Importiert eine Audiodatei in die Datenbank. Gibt None zurück bei Duplikat."""
     path = Path(file_path)
     resolved = str(path.resolve())
 
@@ -42,7 +40,6 @@ def ingest_audio(file_path: str, project_id: int = 1) -> AudioTrack | None:
 
 
 def ingest_video(file_path: str, project_id: int = 1) -> VideoClip | None:
-    """Importiert eine Videodatei in die Datenbank. Gibt None zurück bei Duplikat."""
     path = Path(file_path)
     resolved = str(path.resolve())
 
@@ -63,17 +60,25 @@ def ingest_video(file_path: str, project_id: int = 1) -> VideoClip | None:
 
 
 def get_all_audio(project_id: int = 1) -> list[dict]:
-    """Gibt alle Audiotracks als dict-Liste zurück."""
     with Session(engine) as session:
         tracks = session.query(AudioTrack).filter_by(project_id=project_id).all()
-        return [
-            {"id": t.id, "title": t.title, "file_path": t.file_path, "type": "Audio", "bpm": t.bpm}
-            for t in tracks
-        ]
+        result = []
+        for t in tracks:
+            # Stem-Status berechnen
+            stem_count = sum(1 for p in [
+                t.stem_vocals_path, t.stem_drums_path,
+                t.stem_bass_path, t.stem_other_path
+            ] if p)
+            stems = f"{stem_count}/4" if stem_count > 0 else "-"
+
+            result.append({
+                "id": t.id, "title": t.title, "file_path": t.file_path,
+                "type": "Audio", "bpm": t.bpm, "stems": stems,
+            })
+        return result
 
 
 def get_all_video(project_id: int = 1) -> list[dict]:
-    """Gibt alle Videoclips als dict-Liste zurück."""
     with Session(engine) as session:
         clips = session.query(VideoClip).filter_by(project_id=project_id).all()
         result = []
@@ -86,10 +91,10 @@ def get_all_video(project_id: int = 1) -> list[dict]:
                 "type": "Video",
                 "resolution": res,
                 "fps": c.fps,
+                "stems": "-",
             })
         return result
 
 
 def get_all_media(project_id: int = 1) -> list[dict]:
-    """Gibt alle importierten Medien (Audio + Video) zurück."""
     return get_all_audio(project_id) + get_all_video(project_id)

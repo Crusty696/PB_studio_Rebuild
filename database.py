@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, String, Float, ForeignKey, Text
+from sqlalchemy import create_engine, Column, Integer, String, Float, ForeignKey, Text, Boolean
 from sqlalchemy.orm import DeclarativeBase, Session, relationship
 
 # Datenbank-Engine: SQLite-Datei im Projektordner
@@ -38,6 +38,12 @@ class AudioTrack(Base):
     bpm = Column(Float, nullable=True)
     key = Column(String, nullable=True)
     energy_curve = Column(Text, nullable=True)
+
+    # Stem-Pfade (Phase 1: AI Stem Separation)
+    stem_vocals_path = Column(String, nullable=True)
+    stem_drums_path = Column(String, nullable=True)
+    stem_bass_path = Column(String, nullable=True)
+    stem_other_path = Column(String, nullable=True)
 
     project = relationship("Project", back_populates="audio_tracks")
     beatgrid = relationship("Beatgrid", back_populates="audio_track", uselist=False)
@@ -136,6 +142,13 @@ class TimelineEntry(Base):
     start_time = Column(Float, nullable=False, default=0.0)
     end_time = Column(Float, nullable=True)
     lane = Column(Integer, nullable=False, default=0)
+
+    # Phase 3: Crossfade-Dauer in Sekunden (0 = harter Cut)
+    crossfade_duration = Column(Float, nullable=True, default=0.0)
+
+    # Phase 3: Farbkorrektur-Parameter (FFmpeg-Filter)
+    brightness = Column(Float, nullable=True, default=0.0)   # -1.0 bis 1.0
+    contrast = Column(Float, nullable=True, default=1.0)     # 0.0 bis 3.0
 
     def __repr__(self):
         return f"<TimelineEntry(id={self.id}, track='{self.track}', start={self.start_time})>"
