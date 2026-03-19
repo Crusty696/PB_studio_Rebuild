@@ -125,6 +125,22 @@ class AudioVideoAnchor(Base):
         return f"<AudioVideoAnchor(id={self.id}, type='{self.anchor_type}')>"
 
 
+class TimelineEntry(Base):
+    """Ein Clip auf der Timeline mit Position und Spur."""
+    __tablename__ = "timeline_entries"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
+    track = Column(String, nullable=False)          # "audio" oder "video"
+    media_id = Column(Integer, nullable=False)       # AudioTrack.id oder VideoClip.id
+    start_time = Column(Float, nullable=False, default=0.0)
+    end_time = Column(Float, nullable=True)
+    lane = Column(Integer, nullable=False, default=0)
+
+    def __repr__(self):
+        return f"<TimelineEntry(id={self.id}, track='{self.track}', start={self.start_time})>"
+
+
 def init_db():
     """Erstellt alle Tabellen und ein Default-Projekt, falls noch keines existiert."""
     Base.metadata.create_all(engine)

@@ -76,10 +76,18 @@ def get_all_video(project_id: int = 1) -> list[dict]:
     """Gibt alle Videoclips als dict-Liste zurück."""
     with Session(engine) as session:
         clips = session.query(VideoClip).filter_by(project_id=project_id).all()
-        return [
-            {"id": c.id, "title": Path(c.file_path).stem, "file_path": c.file_path, "type": "Video"}
-            for c in clips
-        ]
+        result = []
+        for c in clips:
+            res = f"{c.width}x{c.height}" if c.width and c.height else None
+            result.append({
+                "id": c.id,
+                "title": Path(c.file_path).stem,
+                "file_path": c.file_path,
+                "type": "Video",
+                "resolution": res,
+                "fps": c.fps,
+            })
+        return result
 
 
 def get_all_media(project_id: int = 1) -> list[dict]:
