@@ -3,11 +3,22 @@ Dynamisches Action-Registry für den lokalen KI-Agenten.
 
 Jede App-Funktion registriert sich hier mit Name, Beschreibung und Parameter-Schema.
 Die KI nutzt dieses Registry, um verfügbare Aktionen zu kennen und auszuführen.
+
+Fuzzy Matching: Wenn die KI einen ungenauen Aktionsnamen liefert (z.B. 'analyse_files'
+statt 'analyze_audio'), findet das Registry per thefuzz die beste Übereinstimmung.
 """
 
 import json
+import logging
 from dataclasses import dataclass, field
 from typing import Any, Callable
+
+from thefuzz import fuzz, process
+
+logger = logging.getLogger(__name__)
+
+# Minimaler Score (0-100) für Fuzzy-Matching. Darunter wird keine Aktion akzeptiert.
+FUZZY_THRESHOLD = 55
 
 
 @dataclass
@@ -95,6 +106,55 @@ class ActionRegistry:
         """Gibt die ActionDef zurück oder None."""
         return self._actions.get(name)
 
+    def fuzzy_match(self, name: str) -> tuple[str | None, int]:
+        """Findet die ähnlichste registrierte Aktion per Fuzzy-Matching.
+
+        Returns:
+            (best_match_name, score) oder (None, 0) wenn kein Match über Threshold.
+        """
+        if not self._actions:
+            return None, 0
+
+        choices = list(self._actions.keys())
+
+        # Exakter Treffer → sofort zurück
+        if name in choices:
+            return name, 100
+
+        result = process.extractOne(
+            name, choices, scorer=fuzz.token_sort_ratio
+        )
+        if result is None:
+            return None, 0
+
+        best_name, score, *_ = result
+        if score >= FUZZY_THRESHOLD:
+            return best_name, score
+        return None, score
+
+    def resolve(self, name: str) -> ActionDef | None:
+        """Löst einen (evtl. ungenauen) Aktionsnamen auf.
+
+        Gibt die ActionDef zurück oder None.
+        Loggt Fuzzy-Korrekturen als Warnung.
+        """
+        # 1. Exakter Treffer
+        action = self._actions.get(name)
+        if action is not None:
+            return action
+
+        # 2. Fuzzy-Matching
+        matched_name, score = self.fuzzy_match(name)
+        if matched_name is not None:
+            logger.warning(
+                "Fuzzy-Match: '%s' → '%s' (Score: %d%%)",
+                name, matched_name, score,
+            )
+            return self._actions[matched_name]
+
+        logger.warning("Keine Aktion gefunden für '%s' (bester Score: %d%%)", name, score)
+        return None
+
     def list_actions(self) -> list[str]:
         """Gibt alle registrierten Aktionsnamen zurück."""
         return list(self._actions.keys())
@@ -102,17 +162,34 @@ class ActionRegistry:
     def execute(self, name: str, params: dict | None = None) -> Any:
         """Führt eine registrierte Aktion aus.
 
+        Nutzt Fuzzy-Matching: Wenn der exakte Name nicht existiert,
+        wird die ähnlichste registrierte Aktion verwendet.
+
         Raises:
-            KeyError: Wenn die Aktion nicht existiert.
+            KeyError: Wenn auch per Fuzzy kein Match gefunden wird.
             TypeError: Wenn die Parameter nicht zum Handler passen.
         """
-        action = self._actions.get(name)
+        action = self.resolve(name)
         if action is None:
-            raise KeyError(f"Aktion '{name}' nicht registriert. "
+            raise KeyError(f"Aktion '{name}' nicht registriert (auch kein Fuzzy-Match). "
                            f"Verfügbar: {self.list_actions()}")
         if params is None:
             params = {}
-        return action.handler(**params)
+
+        # Tolerante Parameter: Unbekannte Keys werden still entfernt
+        import inspect
+        sig = inspect.signature(action.handler)
+        valid_params = set(sig.parameters.keys())
+        filtered = {k: v for k, v in params.items() if k in valid_params}
+
+        if filtered != params:
+            removed = set(params.keys()) - valid_params
+            logger.warning(
+                "Parameter bereinigt für '%s': entfernt %s, behalten %s",
+                action.name, removed, set(filtered.keys()),
+            )
+
+        return action.handler(**filtered)
 
     def get_schema_for_prompt(self) -> str:
         """Erzeugt eine kompakte Beschreibung aller Aktionen für den KI-System-Prompt.

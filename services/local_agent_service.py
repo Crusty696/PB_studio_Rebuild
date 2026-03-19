@@ -6,6 +6,9 @@ um App-Funktionen per natürlicher Sprache auszuführen.
 
 Unterstützt Multi-Action: Die KI kann mehrere Aktionen als
 JSON-Array zurückgeben, wenn der User mehrere Dinge verlangt.
+
+Enthält den ModelManager für Ressourcen-Schutz:
+Nur EIN Modell darf gleichzeitig im RAM/VRAM liegen.
 """
 
 import json
@@ -22,6 +25,89 @@ logger = logging.getLogger(__name__)
 
 # Standard-Modell: winzig, schnell, Instruction-tuned
 DEFAULT_MODEL_ID = "Qwen/Qwen2.5-0.5B-Instruct"
+
+
+class ModelManager:
+    """Verwaltet Modell-Ressourcen: Nur EIN Modell gleichzeitig im RAM/VRAM.
+
+    Wenn ein neues Modell geladen werden soll, wird das aktuelle zuerst
+    entladen. Verhindert OOM auf GPUs mit wenig VRAM (z.B. GTX 1060 6GB).
+    """
+
+    def __init__(self, device: str | None = None):
+        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+        self._current_model_id: str | None = None
+        self._model = None
+        self._tokenizer = None
+        self._pipe = None
+
+    @property
+    def current_model_id(self) -> str | None:
+        return self._current_model_id
+
+    @property
+    def is_loaded(self) -> bool:
+        return self._current_model_id is not None
+
+    def unload(self) -> None:
+        """Entlädt das aktuelle Modell und gibt GPU/RAM frei."""
+        if self._current_model_id is None:
+            return
+
+        logger.info("ModelManager: Entlade '%s'...", self._current_model_id)
+        self._pipe = None
+        self._model = None
+        self._tokenizer = None
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+        old_id = self._current_model_id
+        self._current_model_id = None
+        logger.info("ModelManager: '%s' entladen. GPU-Cache geleert.", old_id)
+
+    def load(self, model_id: str) -> tuple:
+        """Lädt ein Modell. Entlädt vorher das aktuelle falls nötig.
+
+        Returns:
+            (tokenizer, model, pipeline)
+        """
+        if self._current_model_id == model_id:
+            logger.info("ModelManager: '%s' bereits geladen.", model_id)
+            return self._tokenizer, self._model, self._pipe
+
+        # Altes Modell entladen
+        if self._current_model_id is not None:
+            self.unload()
+
+        logger.info("ModelManager: Lade '%s' auf %s...", model_id, self.device)
+
+        self._tokenizer = AutoTokenizer.from_pretrained(
+            model_id, trust_remote_code=True,
+        )
+        self._model = AutoModelForCausalLM.from_pretrained(
+            model_id,
+            torch_dtype=torch.float32 if self.device == "cpu" else torch.float16,
+            trust_remote_code=True,
+        )
+        self._model.to(self.device)
+        self._model.eval()
+
+        self._pipe = pipeline(
+            "text-generation",
+            model=self._model,
+            tokenizer=self._tokenizer,
+            device=self.device if self.device != "cpu" else -1,
+        )
+
+        self._current_model_id = model_id
+        logger.info("ModelManager: '%s' geladen.", model_id)
+
+        return self._tokenizer, self._model, self._pipe
+
+    def ensure_loaded(self, model_id: str) -> tuple:
+        """Stellt sicher, dass das angegebene Modell geladen ist."""
+        return self.load(model_id)
 
 SYSTEM_PROMPT_TEMPLATE = """\
 Du bist der KI-Assistent von PB Studio, einer Video- und Audio-Produktionssoftware.
@@ -47,6 +133,11 @@ class LocalAgentService:
 
     Lädt das Modell lazy beim ersten Aufruf, um Startzeit zu sparen.
     Unterstützt Single- und Multi-Action-Ausgabe.
+
+    Nutzt den zentralen ModelManager für Ressourcen-Schutz:
+    Nur EIN Modell gleichzeitig im RAM/VRAM.
+
+    Enthält den OrchestratorAgent für intelligentes Routing.
     """
 
     def __init__(
@@ -59,52 +150,47 @@ class LocalAgentService:
         self.model_id = model_id
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
 
+        # Zentraler ModelManager — nur 1 Modell im RAM/VRAM
+        self.model_manager = ModelManager(device=self.device)
+
         self._tokenizer = None
         self._model = None
         self._pipe = None
         self._loaded = False
+
+        # Multi-Agenten-Orchestrator
+        self._orchestrator = None
+
+    def _get_orchestrator(self):
+        """Lazy-Init des Orchestrators."""
+        if self._orchestrator is None:
+            from agents.orchestrator_agent import OrchestratorAgent
+            self._orchestrator = OrchestratorAgent()
+            self._orchestrator.set_model_manager(self.model_manager)
+        return self._orchestrator
 
     @property
     def is_loaded(self) -> bool:
         return self._loaded
 
     def load_model(self) -> None:
-        """Lädt Modell und Tokenizer. Wird beim ersten process()-Aufruf automatisch aufgerufen."""
+        """Lädt Modell und Tokenizer über den ModelManager."""
         if self._loaded:
             return
 
         logger.info("Lade lokales KI-Modell: %s auf %s ...", self.model_id, self.device)
 
-        self._tokenizer = AutoTokenizer.from_pretrained(
-            self.model_id,
-            trust_remote_code=True,
-        )
-        self._model = AutoModelForCausalLM.from_pretrained(
-            self.model_id,
-            torch_dtype=torch.float32 if self.device == "cpu" else torch.float16,
-            trust_remote_code=True,
-        )
-        self._model.to(self.device)
-        self._model.eval()
-
-        self._pipe = pipeline(
-            "text-generation",
-            model=self._model,
-            tokenizer=self._tokenizer,
-            device=self.device if self.device != "cpu" else -1,
-        )
-
+        self._tokenizer, self._model, self._pipe = self.model_manager.load(self.model_id)
         self._loaded = True
         logger.info("KI-Modell geladen: %s", self.model_id)
 
     def unload_model(self) -> None:
-        """Gibt GPU/RAM frei."""
+        """Gibt GPU/RAM frei über den ModelManager."""
+        self.model_manager.unload()
         self._pipe = None
         self._model = None
         self._tokenizer = None
         self._loaded = False
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
         logger.info("KI-Modell entladen.")
 
     def _build_system_prompt(self) -> str:
@@ -192,7 +278,11 @@ class LocalAgentService:
         return [{"action": "none", "params": {}, "message": raw}]
 
     def _execute_single_action(self, parsed: dict) -> dict[str, Any]:
-        """Führt eine einzelne geparste Aktion aus und gibt das Ergebnis zurück."""
+        """Führt eine einzelne geparste Aktion aus und gibt das Ergebnis zurück.
+
+        Nutzt Fuzzy-Matching: Wenn die KI einen ungenauen Aktionsnamen liefert,
+        wird automatisch die ähnlichste registrierte Aktion verwendet.
+        """
         action_name = parsed.get("action", "none")
         params = parsed.get("params", {})
 
@@ -205,23 +295,28 @@ class LocalAgentService:
         }
 
         if action_name != "none":
-            action_def = self.registry.get(action_name)
+            # Fuzzy-Auflösung: 'analyse_files' → 'analyze_audio' etc.
+            action_def = self.registry.resolve(action_name)
             if action_def is None:
-                result["error"] = f"Unbekannte Aktion: {action_name}"
+                result["error"] = f"Unbekannte Aktion: {action_name} (auch kein Fuzzy-Match)"
                 result["action"] = "none"
             else:
+                # Aktualisiere den Aktionsnamen auf den aufgelösten
+                result["action"] = action_def.name
                 try:
-                    result["result"] = self.registry.execute(action_name, params)
+                    result["result"] = self.registry.execute(action_def.name, params)
                 except Exception as e:
-                    result["error"] = f"Fehler bei '{action_name}': {e}"
+                    result["error"] = f"Fehler bei '{action_def.name}': {e}"
 
         return result
 
     def process(self, user_text: str) -> dict[str, Any]:
-        """Verarbeitet eine Benutzeranfrage und gibt das Ergebnis zurück.
+        """Verarbeitet eine Benutzeranfrage über das Multi-Agenten-System.
 
-        Unterstützt Multi-Action: Wenn die KI mehrere Aktionen vorschlägt,
-        werden alle sequenziell ausgeführt.
+        Routing-Reihenfolge:
+        1. Orchestrator prüft, ob ein spezialisierter Agent zuständig ist
+        2. Falls nicht, wird das LLM für JSON-Action-Parsing genutzt
+        3. Fuzzy-Matching korrigiert ungenaue Aktionsnamen
 
         Rückgabe:
             {
@@ -243,13 +338,23 @@ class LocalAgentService:
         }
 
         try:
+            # --- Phase 1: Orchestrator versucht direkte Zuordnung ---
+            orchestrator = self._get_orchestrator()
+            orch_result = orchestrator.process(user_text)
+
+            # Wenn der Orchestrator eine Aktion gefunden hat (nicht "none"-Fallback)
+            if orch_result.get("action") != "none":
+                response.update(orch_result)
+                return response
+
+            # --- Phase 2: LLM-basierte Verarbeitung (Fallback) ---
             raw_output = self._generate(user_text)
             logger.debug("KI-Rohantwort: %s", raw_output)
 
             parsed_list = self._extract_json(raw_output)
 
             if len(parsed_list) == 1:
-                # Single Action
+                # Single Action (mit Fuzzy-Matching)
                 single = self._execute_single_action(parsed_list[0])
                 response.update(single)
             else:
