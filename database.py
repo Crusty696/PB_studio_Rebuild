@@ -47,6 +47,7 @@ class AudioTrack(Base):
 
     project = relationship("Project", back_populates="audio_tracks")
     beatgrid = relationship("Beatgrid", back_populates="audio_track", uselist=False)
+    waveform_data = relationship("WaveformData", back_populates="audio_track", uselist=False)
 
     def __repr__(self):
         return f"<AudioTrack(id={self.id}, title='{self.title}', bpm={self.bpm})>"
@@ -101,6 +102,28 @@ class Beatgrid(Base):
 
     def __repr__(self):
         return f"<Beatgrid(id={self.id}, bpm={self.bpm})>"
+
+
+class WaveformData(Base):
+    """Frequenz-basierte Wellenform-Daten (Rekordbox-Style) pro Audio-Track."""
+    __tablename__ = "waveform_data"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    audio_track_id = Column(Integer, ForeignKey("audio_tracks.id"), nullable=False)
+
+    # Anzahl der Samples (Zeitschritte) — typisch 1 pro ~23ms (hop_length=512 bei sr=22050)
+    num_samples = Column(Integer, nullable=False, default=0)
+    duration = Column(Float, nullable=False, default=0.0)
+
+    # JSON-Arrays mit Amplituden [0.0 .. 1.0] pro Zeitschritt
+    band_low = Column(Text, nullable=False)    # Bass: 20-250 Hz (blau)
+    band_mid = Column(Text, nullable=False)    # Mitten: 250-4000 Hz (rosa/rot)
+    band_high = Column(Text, nullable=False)   # Höhen: 4000-20000 Hz (weiß/gelb)
+
+    audio_track = relationship("AudioTrack", back_populates="waveform_data")
+
+    def __repr__(self):
+        return f"<WaveformData(id={self.id}, samples={self.num_samples})>"
 
 
 class PacingBlueprint(Base):

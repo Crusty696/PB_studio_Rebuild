@@ -28,8 +28,9 @@ APP_VERSION = "0.4.0"
 STYLE_DIR = Path(__file__).parent / "styles"
 RESOURCE_DIR = Path(__file__).parent / "resources"
 
-from database import init_db, engine, AudioTrack, VideoClip, TimelineEntry
+from database import init_db, engine, AudioTrack, VideoClip, TimelineEntry, Beatgrid, WaveformData
 from sqlalchemy.orm import Session as DBSession
+import json as _json
 from services.ingest_service import (
     ingest_audio, ingest_video, get_all_media,
     AUDIO_EXTENSIONS, VIDEO_EXTENSIONS,
@@ -39,6 +40,7 @@ from services.video_service import VideoAnalyzer
 from services.pacing_service import PacingSettings, calculate_cut_points, CutPoint, auto_edit_to_beats
 from services.export_service import export_timeline, get_timeline_summary
 from ui.chat_dock import ChatDock
+from ui.waveform_item import WaveformGraphicsItem
 
 
 # ======================================================================
@@ -284,17 +286,42 @@ class AutoEditWorker(QObject):
             self.error.emit(str(e))
 
 
+class WaveformAnalysisWorker(QObject):
+    """Background Worker: Rekordbox-Style Frequenzanalyse + Beatgrid."""
+    finished = Signal(int, dict)   # track_id, result
+    error = Signal(int, str)       # track_id, error_msg
+    progress = Signal(int, int, str)
+
+    def __init__(self, track_id: int):
+        super().__init__()
+        self.track_id = track_id
+
+    def run(self):
+        try:
+            from services.ai_audio_service import FrequencyAnalyzer
+            analyzer = FrequencyAnalyzer()
+            result = analyzer.analyze_and_store(
+                self.track_id,
+                progress_cb=lambda s, t, m: self.progress.emit(s, t, m),
+            )
+            self.finished.emit(self.track_id, result)
+        except Exception as e:
+            self.error.emit(self.track_id, str(e))
+
+
 # ======================================================================
 # Draggable Timeline Clip (QGraphicsRectItem)
 # ======================================================================
 
 class TimelineClipItem(QGraphicsRectItem):
-    AUDIO_COLOR = QColor(70, 130, 220, 200)
+    # Audio-Clips: halbtransparent, damit Rekordbox-Wellenform durchscheint
+    AUDIO_COLOR = QColor(30, 60, 120, 60)
+    AUDIO_COLOR_NO_WAVEFORM = QColor(70, 130, 220, 200)
     VIDEO_COLOR = QColor(230, 140, 50, 200)
 
     def __init__(self, entry_id: int, media_id: int, track_type: str,
                  title: str, x: float, y: float, width: float, height: float,
-                 on_moved=None):
+                 on_moved=None, has_waveform: bool = False):
         super().__init__(QRectF(0, 0, width, height))
         self.entry_id = entry_id
         self.media_id = media_id
@@ -306,9 +333,13 @@ class TimelineClipItem(QGraphicsRectItem):
         self.setFlag(QGraphicsRectItem.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(QGraphicsRectItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
 
-        color = self.AUDIO_COLOR if track_type == "audio" else self.VIDEO_COLOR
+        if track_type == "audio":
+            color = self.AUDIO_COLOR if has_waveform else self.AUDIO_COLOR_NO_WAVEFORM
+        else:
+            color = self.VIDEO_COLOR
         self.setBrush(QBrush(color))
         self.setPen(QPen(color.darker(150), 1))
+        self.setZValue(2)  # Über der Wellenform
 
         label = QGraphicsTextItem(title[:30], self)
         label.setDefaultTextColor(QColor(255, 255, 255))
@@ -365,6 +396,7 @@ class InteractiveTimeline(QGraphicsView):
         self.console_log = console_log
         self.clip_items: list[TimelineClipItem] = []
         self.cut_lines: list[QGraphicsLineItem] = []
+        self.waveform_items: list[WaveformGraphicsItem] = []
 
         self._draw_track_backgrounds()
         self._draw_labels()
@@ -392,6 +424,9 @@ class InteractiveTimeline(QGraphicsView):
         for item in self.clip_items:
             self._scene.removeItem(item)
         self.clip_items.clear()
+        for wf in self.waveform_items:
+            self._scene.removeItem(wf)
+        self.waveform_items.clear()
 
         with DBSession(engine) as session:
             entries = (
@@ -400,11 +435,18 @@ class InteractiveTimeline(QGraphicsView):
                 .all()
             )
             for entry in entries:
+                has_waveform = False
                 if entry.track == "audio":
                     track = session.get(AudioTrack, entry.media_id)
                     title = track.title if track else "?"
                     dur = track.duration if track and track.duration else 30.0
                     y = AUDIO_TRACK_Y
+
+                    # Rekordbox Waveform laden (falls vorhanden)
+                    if track and track.waveform_data:
+                        has_waveform = True
+                        self._load_waveform_for_track(session, track, entry, dur, y)
+
                 elif entry.track == "video":
                     clip = session.get(VideoClip, entry.media_id)
                     title = Path(clip.file_path).stem if clip else "?"
@@ -424,11 +466,34 @@ class InteractiveTimeline(QGraphicsView):
                     x=x, y=y,
                     width=width, height=TRACK_HEIGHT,
                     on_moved=self._on_clip_moved,
+                    has_waveform=has_waveform,
                 )
                 self._scene.addItem(item)
                 self.clip_items.append(item)
 
         self._update_scene_rect()
+
+    def _load_waveform_for_track(self, session, track, entry, dur, y):
+        """Lädt Rekordbox-Wellenform aus DB und fügt sie zur Scene hinzu."""
+        if track is None or track.waveform_data is None:
+            return
+
+        wd = track.waveform_data
+        beat_json = "[]"
+        if track.beatgrid and track.beatgrid.beat_positions:
+            beat_json = track.beatgrid.beat_positions
+
+        wf_item = WaveformGraphicsItem.from_db_data(
+            waveform_data=wd,
+            beat_positions_json=beat_json,
+            pixels_per_second=PIXELS_PER_SECOND,
+            height=TRACK_HEIGHT,
+        )
+        x = entry.start_time * PIXELS_PER_SECOND
+        wf_item.setPos(x, y)
+        wf_item.setZValue(1)  # Über dem Track-Background, unter dem Clip-Label
+        self._scene.addItem(wf_item)
+        self.waveform_items.append(wf_item)
 
     def add_clip(self, entry_id: int, media_id: int, track_type: str,
                  title: str, start_time: float, duration: float):
@@ -436,10 +501,20 @@ class InteractiveTimeline(QGraphicsView):
         width = duration * PIXELS_PER_SECOND
         x = start_time * PIXELS_PER_SECOND
 
+        # Rekordbox Waveform für Audio-Clips laden
+        has_waveform = False
+        if track_type == "audio":
+            with DBSession(engine) as session:
+                track = session.get(AudioTrack, media_id)
+                if track and track.waveform_data:
+                    has_waveform = True
+                    entry_stub = type("E", (), {"start_time": start_time})()
+                    self._load_waveform_for_track(session, track, entry_stub, duration, y)
+
         item = TimelineClipItem(
             entry_id=entry_id, media_id=media_id, track_type=track_type,
             title=title, x=x, y=y, width=width, height=TRACK_HEIGHT,
-            on_moved=self._on_clip_moved,
+            on_moved=self._on_clip_moved, has_waveform=has_waveform,
         )
         self._scene.addItem(item)
         self.clip_items.append(item)
@@ -1036,6 +1111,12 @@ class PBWindow(QMainWindow):
         self.btn_analyze_video.setToolTip("Aufloesung, FPS, Codec + Proxy erstellen")
         self.btn_analyze_video.clicked.connect(self._analyze_selected_video)
         analyze_layout.addWidget(self.btn_analyze_video)
+
+        self.btn_waveform = QPushButton("Rekordbox Wellenform")
+        self.btn_waveform.setToolTip("Frequenz-Wellenform (Low/Mid/High) + Beatgrid berechnen")
+        self.btn_waveform.setStyleSheet("font-weight: bold; color: #3C8CFF;")
+        self.btn_waveform.clicked.connect(self._analyze_waveform)
+        analyze_layout.addWidget(self.btn_waveform)
 
         left_layout.addWidget(analyze_group)
 
@@ -1960,6 +2041,83 @@ class PBWindow(QMainWindow):
         self.btn_analyze.setText("Audio analysieren")
         self.progress_bar.setVisible(False)
         self.status_bar.showMessage("Analyse-Fehler | System bereit")
+        if task_id:
+            task_manager.finish_task(task_id, "error", error_msg)
+
+    # ==================================================================
+    # Rekordbox Waveform-Analyse
+    # ==================================================================
+
+    def _analyze_waveform(self):
+        """Startet Rekordbox-Style Frequenzanalyse für den ausgewählten Audio-Track."""
+        row = self.media_table.currentRow()
+        if row < 0:
+            self.console_text.append("[Warnung] Keine Zeile ausgewaehlt.")
+            return
+        media_type = self.media_table.item(row, 1).text()
+        if media_type != "Audio":
+            self.console_text.append("[Warnung] Wellenform-Analyse nur fuer Audio-Dateien.")
+            return
+        track_id = int(self.media_table.item(row, 0).text())
+        title = self.media_table.item(row, 2).text()
+
+        task = task_manager.create_task(
+            f"Waveform: {title}", "Rekordbox Frequenz-Wellenform + Beatgrid"
+        )
+
+        worker = WaveformAnalysisWorker(track_id)
+        worker.progress.connect(
+            lambda s, t, m: self._on_waveform_progress(s, t, m, task.task_id)
+        )
+        worker.finished.connect(
+            lambda tid, r: self._on_waveform_finished(tid, r, title, task.task_id)
+        )
+        worker.error.connect(
+            lambda tid, err: self._on_waveform_error(tid, err, task.task_id)
+        )
+
+        self.btn_waveform.setEnabled(False)
+        self.btn_waveform.setText("Analyse laeuft...")
+        self.progress_bar.setVisible(True)
+        self.console_text.append(f"[Waveform] Starte Rekordbox-Analyse fuer '{title}'...")
+
+        self._start_worker_thread(worker)
+
+    def _on_waveform_progress(self, step: int, total: int, msg: str, task_id: str):
+        task_manager.update_task(task_id, step, total, msg)
+        self.console_text.append(f"[Waveform] {msg} ({step}/{total})")
+
+    def _on_waveform_finished(self, track_id: int, result: dict, title: str, task_id: str):
+        bpm = result["bpm"]
+        beats = len(result.get("beat_positions", []))
+        samples = result["num_samples"]
+        self.console_text.append(
+            f"[Waveform] Rekordbox-Analyse fertig: '{title}' | {bpm} BPM | "
+            f"{beats} Beats | {samples} Wellenform-Samples (Low/Mid/High)"
+        )
+        self.btn_waveform.setEnabled(True)
+        self.btn_waveform.setText("Rekordbox Wellenform")
+        self.progress_bar.setVisible(False)
+        self.status_bar.showMessage(f"Wellenform fertig: {title} | {bpm} BPM")
+        self._refresh_media_table()
+
+        # Timeline neu laden, damit die Wellenform sichtbar wird
+        self.timeline_view.load_from_db()
+
+        if task_id:
+            task_manager.finish_task(
+                task_id, "finished",
+                f"{bpm} BPM, {beats} Beats, {samples} Samples"
+            )
+
+    def _on_waveform_error(self, track_id: int, error_msg: str, task_id: str):
+        self.console_text.append(
+            f"[Fehler] Wellenform-Analyse fehlgeschlagen (ID {track_id}): {error_msg}"
+        )
+        self.btn_waveform.setEnabled(True)
+        self.btn_waveform.setText("Rekordbox Wellenform")
+        self.progress_bar.setVisible(False)
+        self.status_bar.showMessage("Wellenform-Fehler | System bereit")
         if task_id:
             task_manager.finish_task(task_id, "error", error_msg)
 

@@ -1,4 +1,4 @@
-"""AI Audio Service: Demucs Stem Separation + Auto-Ducking."""
+"""AI Audio Service: Demucs Stem Separation + Auto-Ducking + Rekordbox Frequency Analysis."""
 
 import json
 import subprocess
@@ -6,10 +6,11 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import librosa
 from scipy.io import wavfile
 from sqlalchemy.orm import Session
 
-from database import engine, AudioTrack
+from database import engine, AudioTrack, Beatgrid, WaveformData
 
 STEMS_DIR = Path("storage/stems")
 
@@ -215,3 +216,171 @@ class AutoDucker:
             progress_cb(4, 4, "Ducking abgeschlossen")
 
         return str(out.resolve())
+
+
+class FrequencyAnalyzer:
+    """Rekordbox-Style Frequenzband-Analyse: Zerlegt Audio in Low/Mid/High Bänder.
+
+    Frequenzbereiche (wie Rekordbox/CDJ):
+        Low  (Bass/Kicks):   20 - 250 Hz   → Blau
+        Mid  (Vocals/Snare): 250 - 4000 Hz → Rosa/Rot
+        High (HiHats/Air):   4000 - 20000 Hz → Weiß/Gelb
+    """
+
+    # Grenzfrequenzen in Hz
+    LOW_MAX = 250
+    MID_MAX = 4000
+    SR = 22050
+    HOP_LENGTH = 512      # ~23ms pro Frame → hochauflösend
+    N_FFT = 2048          # Frequenzauflösung: ~10.7 Hz pro Bin
+
+    def analyze(self, file_path: str, progress_cb=None) -> dict:
+        """Berechnet Frequenzband-Amplituden + präzises Beatgrid.
+
+        Returns dict mit:
+            band_low:  list[float]   Normalisierte Bass-Amplituden [0..1]
+            band_mid:  list[float]   Normalisierte Mitten-Amplituden [0..1]
+            band_high: list[float]   Normalisierte Höhen-Amplituden [0..1]
+            num_samples: int         Anzahl der Zeitschritte
+            duration: float          Track-Dauer in Sekunden
+            bpm: float               Erkannte BPM
+            beat_positions: list[float]  Beat-Zeitstempel in Sekunden
+        """
+        if progress_cb:
+            progress_cb(1, 5, "Lade Audio...")
+
+        y, sr = librosa.load(file_path, sr=self.SR, mono=True)
+        duration = librosa.get_duration(y=y, sr=sr)
+
+        if progress_cb:
+            progress_cb(2, 5, "STFT Frequenzanalyse...")
+
+        # Short-Time Fourier Transform → Magnitude-Spektrogramm
+        S = np.abs(librosa.stft(y, n_fft=self.N_FFT, hop_length=self.HOP_LENGTH))
+
+        # Frequenz-Bins zu Hz mappen
+        freqs = librosa.fft_frequencies(sr=sr, n_fft=self.N_FFT)
+
+        # Frequenzband-Masken
+        low_mask = freqs <= self.LOW_MAX
+        mid_mask = (freqs > self.LOW_MAX) & (freqs <= self.MID_MAX)
+        high_mask = freqs > self.MID_MAX
+
+        # Mittlere Energie pro Band über alle Frequenz-Bins im Band
+        band_low = np.mean(S[low_mask, :], axis=0)
+        band_mid = np.mean(S[mid_mask, :], axis=0)
+        band_high = np.mean(S[high_mask, :], axis=0)
+
+        # Normalisierung: Jedes Band auf [0..1] skalieren (Peak = 1.0)
+        def _normalize(arr):
+            peak = arr.max()
+            if peak > 0:
+                return arr / peak
+            return arr
+
+        band_low = _normalize(band_low)
+        band_mid = _normalize(band_mid)
+        band_high = _normalize(band_high)
+
+        if progress_cb:
+            progress_cb(3, 5, "Beatgrid-Erkennung...")
+
+        # Präzises Beatgrid via librosa
+        tempo, beat_frames = librosa.beat.beat_track(y=y, sr=sr, hop_length=self.HOP_LENGTH)
+        if isinstance(tempo, np.ndarray):
+            bpm = float(tempo.flat[0])
+        else:
+            bpm = float(tempo)
+        bpm = round(bpm, 1)
+
+        beat_times = librosa.frames_to_time(beat_frames, sr=sr, hop_length=self.HOP_LENGTH)
+        beat_positions = [round(float(t), 4) for t in beat_times]
+
+        if progress_cb:
+            progress_cb(4, 5, "Daten komprimieren...")
+
+        # Downsampling für Speichereffizienz: max ~2000 Samples für DB
+        num_samples = len(band_low)
+        max_db_samples = 4000
+        if num_samples > max_db_samples:
+            factor = num_samples / max_db_samples
+            indices = np.round(np.arange(0, num_samples, factor)).astype(int)
+            indices = indices[indices < num_samples]
+            band_low_store = band_low[indices]
+            band_mid_store = band_mid[indices]
+            band_high_store = band_high[indices]
+            store_samples = len(indices)
+        else:
+            band_low_store = band_low
+            band_mid_store = band_mid
+            band_high_store = band_high
+            store_samples = num_samples
+
+        # Auf 4 Dezimalstellen runden für kompakte JSON-Speicherung
+        result = {
+            "band_low": [round(float(v), 4) for v in band_low_store],
+            "band_mid": [round(float(v), 4) for v in band_mid_store],
+            "band_high": [round(float(v), 4) for v in band_high_store],
+            "num_samples": store_samples,
+            "duration": round(duration, 3),
+            "bpm": bpm,
+            "beat_positions": beat_positions,
+        }
+
+        if progress_cb:
+            progress_cb(5, 5, "Frequenzanalyse abgeschlossen")
+
+        return result
+
+    def analyze_and_store(self, track_id: int, progress_cb=None) -> dict:
+        """Analysiert einen AudioTrack und speichert Waveform + Beatgrid in der DB."""
+        with Session(engine) as session:
+            track = session.get(AudioTrack, track_id)
+            if track is None:
+                raise ValueError(f"AudioTrack {track_id} nicht gefunden")
+            file_path = track.file_path
+
+        result = self.analyze(file_path, progress_cb=progress_cb)
+
+        with Session(engine) as session:
+            track = session.get(AudioTrack, track_id)
+
+            # BPM + Duration updaten
+            track.bpm = result["bpm"]
+            track.duration = result["duration"]
+
+            # Beatgrid speichern/aktualisieren
+            if track.beatgrid:
+                track.beatgrid.bpm = result["bpm"]
+                track.beatgrid.beat_positions = json.dumps(result["beat_positions"])
+                track.beatgrid.offset = result["beat_positions"][0] if result["beat_positions"] else 0.0
+            else:
+                bg = Beatgrid(
+                    audio_track_id=track_id,
+                    bpm=result["bpm"],
+                    offset=result["beat_positions"][0] if result["beat_positions"] else 0.0,
+                    beat_positions=json.dumps(result["beat_positions"]),
+                )
+                session.add(bg)
+
+            # WaveformData speichern/aktualisieren
+            if track.waveform_data:
+                track.waveform_data.num_samples = result["num_samples"]
+                track.waveform_data.duration = result["duration"]
+                track.waveform_data.band_low = json.dumps(result["band_low"])
+                track.waveform_data.band_mid = json.dumps(result["band_mid"])
+                track.waveform_data.band_high = json.dumps(result["band_high"])
+            else:
+                wd = WaveformData(
+                    audio_track_id=track_id,
+                    num_samples=result["num_samples"],
+                    duration=result["duration"],
+                    band_low=json.dumps(result["band_low"]),
+                    band_mid=json.dumps(result["band_mid"]),
+                    band_high=json.dumps(result["band_high"]),
+                )
+                session.add(wd)
+
+            session.commit()
+
+        return result
