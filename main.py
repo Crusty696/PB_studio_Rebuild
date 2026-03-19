@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
     QSizePolicy, QSpacerItem,
 )
 from PySide6.QtCore import Qt, QThread, Signal, QObject, QRectF, QPointF, QTimer
-from PySide6.QtGui import QPainter, QColor, QFont, QBrush, QPen, QPixmap, QImage
+from PySide6.QtGui import QPainter, QPainterPath, QColor, QFont, QBrush, QPen, QPixmap, QImage
 
 APP_VERSION = "0.4.0"
 STYLE_DIR = Path(__file__).parent / "styles"
@@ -508,6 +508,136 @@ class InteractiveTimeline(QGraphicsView):
 
 
 # ======================================================================
+# Manual Pacing Curve Widget (drawable density over time)
+# ======================================================================
+
+class PacingCurveWidget(QWidget):
+    """Drawable pacing density curve for manual cut-density override."""
+    curve_changed = Signal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setMinimumHeight(55)
+        self.setMaximumHeight(75)
+        self.setToolTip(
+            "Pacing-Kurve: Klicke und ziehe um die Schnitt-Dichte ueber die Zeit "
+            "zu zeichnen. Oben = viele Schnitte, Unten = wenige"
+        )
+        self._num_samples = 200
+        self._density = [0.5] * self._num_samples
+        self._drawing = False
+        self._total_duration = 60.0
+        self.setCursor(Qt.CursorShape.CrossCursor)
+        self.setMouseTracking(True)
+
+    def set_duration(self, duration: float):
+        self._total_duration = max(1.0, duration)
+        self.update()
+
+    def reset_curve(self):
+        self._density = [0.5] * self._num_samples
+        self.curve_changed.emit()
+        self.update()
+
+    def get_density_at(self, time_sec: float) -> float:
+        if self._total_duration <= 0:
+            return 0.5
+        idx = int((time_sec / self._total_duration) * (self._num_samples - 1))
+        idx = max(0, min(idx, self._num_samples - 1))
+        return self._density[idx]
+
+    def get_all_densities(self) -> list[float]:
+        return list(self._density)
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        w, h = self.width(), self.height()
+
+        p.fillRect(0, 0, w, h, QColor(10, 10, 10))
+
+        # Subtle grid
+        p.setPen(QPen(QColor(25, 25, 25), 1))
+        for i in range(1, 4):
+            y = int(h * i / 4)
+            p.drawLine(0, y, w, y)
+
+        # Time markers
+        p.setPen(QPen(QColor(50, 50, 50), 1))
+        p.setFont(QFont("Segoe UI", 7))
+        if self._total_duration > 0:
+            step = max(5.0, self._total_duration / 10)
+            t = 0.0
+            while t <= self._total_duration:
+                x = int((t / self._total_duration) * w)
+                p.drawLine(x, h - 8, x, h)
+                p.drawText(x + 2, h - 1, f"{t:.0f}s")
+                t += step
+
+        # Filled area under curve
+        path = QPainterPath()
+        path.moveTo(0, h)
+        for i, d in enumerate(self._density):
+            x = (i / (self._num_samples - 1)) * w
+            y = h - (d * (h - 10))
+            path.lineTo(x, y)
+        path.lineTo(w, h)
+        path.closeSubpath()
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor(0, 180, 212, 35))
+        p.drawPath(path)
+
+        # Curve line
+        line_path = QPainterPath()
+        for i, d in enumerate(self._density):
+            x = (i / (self._num_samples - 1)) * w
+            y = h - (d * (h - 10))
+            if i == 0:
+                line_path.moveTo(x, y)
+            else:
+                line_path.lineTo(x, y)
+        p.setPen(QPen(QColor(0, 212, 230, 160), 1.5))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawPath(line_path)
+
+        # Label
+        p.setPen(QColor(60, 60, 60))
+        p.setFont(QFont("Segoe UI", 8))
+        p.drawText(4, 11, "PACING DENSITY")
+        p.end()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drawing = True
+            self._paint_at(event.position())
+
+    def mouseMoveEvent(self, event):
+        if self._drawing:
+            self._paint_at(event.position())
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drawing = False
+            self.curve_changed.emit()
+
+    def _paint_at(self, pos):
+        w, h = self.width(), self.height()
+        if w <= 0 or h <= 0:
+            return
+        x_ratio = max(0.0, min(1.0, pos.x() / w))
+        y_ratio = max(0.0, min(1.0, 1.0 - (pos.y() / h)))
+        idx = int(x_ratio * (self._num_samples - 1))
+        idx = max(0, min(idx, self._num_samples - 1))
+        # Brush radius for smooth drawing
+        for offset in range(-3, 4):
+            j = idx + offset
+            if 0 <= j < self._num_samples:
+                weight = 1.0 - abs(offset) / 4.0
+                self._density[j] = self._density[j] * (1 - weight) + y_ratio * weight
+        self.update()
+
+
+# ======================================================================
 # Video Preview Widget
 # ======================================================================
 
@@ -882,14 +1012,12 @@ class PBWindow(QMainWindow):
         import_layout = QVBoxLayout(import_group)
 
         btn_video = QPushButton("Video importieren")
-        btn_video.setMinimumHeight(38)
-        btn_video.setToolTip("Oeffnet einen Datei-Dialog, um eine oder mehrere Video-Dateien (MP4, MOV, AVI, MKV) zu importieren und in die Mediathek aufzunehmen")
+        btn_video.setToolTip("Video-Dateien (MP4, MOV, AVI, MKV) importieren")
         btn_video.clicked.connect(self._import_video)
         import_layout.addWidget(btn_video)
 
         btn_audio = QPushButton("Audio importieren")
-        btn_audio.setMinimumHeight(38)
-        btn_audio.setToolTip("Oeffnet einen Datei-Dialog, um Audio-Dateien (WAV, MP3, FLAC, OGG) zu importieren und in die Mediathek aufzunehmen")
+        btn_audio.setToolTip("Audio-Dateien (WAV, MP3, FLAC, OGG) importieren")
         btn_audio.clicked.connect(self._import_audio)
         import_layout.addWidget(btn_audio)
 
@@ -900,14 +1028,12 @@ class PBWindow(QMainWindow):
         analyze_layout = QVBoxLayout(analyze_group)
 
         self.btn_analyze = QPushButton("Audio analysieren")
-        self.btn_analyze.setMinimumHeight(38)
-        self.btn_analyze.setToolTip("Analysiert die ausgewaehlte Audio-Datei: Erkennt BPM (Tempo), Beat-Positionen und Energie-Verlauf fuer automatischen Schnitt")
+        self.btn_analyze.setToolTip("BPM, Beats und Energie-Verlauf erkennen")
         self.btn_analyze.clicked.connect(self._analyze_selected_audio)
         analyze_layout.addWidget(self.btn_analyze)
 
         self.btn_analyze_video = QPushButton("Video analysieren")
-        self.btn_analyze_video.setMinimumHeight(38)
-        self.btn_analyze_video.setToolTip("Analysiert das ausgewaehlte Video: Erkennt Aufloesung, FPS, Codec und erstellt ggf. einen Proxy fuer fluessige Vorschau")
+        self.btn_analyze_video.setToolTip("Aufloesung, FPS, Codec + Proxy erstellen")
         self.btn_analyze_video.clicked.connect(self._analyze_selected_video)
         analyze_layout.addWidget(self.btn_analyze_video)
 
@@ -918,14 +1044,12 @@ class PBWindow(QMainWindow):
         ki_layout = QVBoxLayout(ki_group)
 
         self.btn_stem_separate = QPushButton("KI Stem Separation")
-        self.btn_stem_separate.setMinimumHeight(38)
-        self.btn_stem_separate.setToolTip("Trennt die ausgewaehlte Audio-Datei mit KI (Demucs) in einzelne Spuren: Vocals, Drums, Bass und Other. Benoetigt GPU fuer schnelle Verarbeitung")
+        self.btn_stem_separate.setToolTip("Demucs: Vocals, Drums, Bass, Other trennen")
         self.btn_stem_separate.clicked.connect(self._start_stem_separation)
         ki_layout.addWidget(self.btn_stem_separate)
 
         self.btn_auto_duck = QPushButton("Auto-Ducking")
-        self.btn_auto_duck.setMinimumHeight(38)
-        self.btn_auto_duck.setToolTip("Senkt die Musik automatisch ab, wenn Sprache/Vocals erkannt werden. Benoetigt vorherige Stem Separation (Vocals + Other muessen vorhanden sein)")
+        self.btn_auto_duck.setToolTip("Musik bei Sprache automatisch absenken")
         self.btn_auto_duck.clicked.connect(self._start_auto_ducking)
         ki_layout.addWidget(self.btn_auto_duck)
 
@@ -934,8 +1058,7 @@ class PBWindow(QMainWindow):
         # Timeline-Aktion
         self.btn_add_to_timeline = QPushButton("Zur Timeline hinzufuegen")
         self.btn_add_to_timeline.setObjectName("btn_accent")
-        self.btn_add_to_timeline.setMinimumHeight(40)
-        self.btn_add_to_timeline.setToolTip("Fuegt die in der Tabelle markierte Datei am Ende der Timeline ein. Audio-Dateien landen auf der Audio-Spur, Videos auf der Video-Spur")
+        self.btn_add_to_timeline.setToolTip("Markierte Datei auf Timeline legen")
         self.btn_add_to_timeline.clicked.connect(self._add_selected_to_timeline)
         left_layout.addWidget(self.btn_add_to_timeline)
 
@@ -985,137 +1108,177 @@ class PBWindow(QMainWindow):
     def _build_edit_workspace(self) -> QWidget:
         workspace = QWidget()
         layout = QVBoxLayout(workspace)
-        layout.setContentsMargins(8, 8, 8, 4)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
 
-        # ── Oberer Bereich: Steuerung + Vorschau ──
+        # Main vertical splitter: top (preview+inspector) / bottom (curve+timeline)
+        main_splitter = QSplitter(Qt.Orientation.Vertical)
+
+        # ── Top: Video Preview + Inspector Panel ──
         top_splitter = QSplitter(Qt.Orientation.Horizontal)
 
-        # Pacing-Steuerung
-        control_group = QGroupBox("Pacing-Steuerung")
-        control_layout = QVBoxLayout(control_group)
-
-        # Stimmung
-        vibe_row = QHBoxLayout()
-        vibe_label = QLabel("Stimmung / Vibe:")
-        vibe_label.setToolTip("Beschreibe die gewuenschte Stimmung des Videos in eigenen Worten")
-        vibe_row.addWidget(vibe_label)
-        self.vibe_input = QLineEdit()
-        self.vibe_input.setPlaceholderText("z.B. energetisch, melancholisch, aggressiv...")
-        self.vibe_input.setToolTip("Gib hier die gewuenschte Stimmung ein. Die KI nutzt diese Beschreibung, um passende Schnittpunkte und Clip-Auswahl zu berechnen")
-        vibe_row.addWidget(self.vibe_input)
-        control_layout.addLayout(vibe_row)
-
-        # Quellen
-        sliders_layout = QHBoxLayout()
-
-        source_layout = QVBoxLayout()
-        audio_label = QLabel("Audio-Track:")
-        audio_label.setToolTip("Waehle den Audio-Track, dessen BPM und Beats fuer den Schnitt verwendet werden sollen")
-        source_layout.addWidget(audio_label)
-        self.audio_combo = QComboBox()
-        self.audio_combo.setToolTip("Waehle einen analysierten Audio-Track aus der Mediathek. Nur Tracks mit BPM-Erkennung sind hier verfuegbar")
-        source_layout.addWidget(self.audio_combo)
-
-        video_label = QLabel("Video-Clip:")
-        video_label.setToolTip("Waehle den Video-Clip fuer die Vorschau und den automatischen Schnitt")
-        source_layout.addWidget(video_label)
-        self.video_combo = QComboBox()
-        self.video_combo.setToolTip("Waehle ein importiertes Video aus. Die Vorschau rechts zeigt den ersten Frame an")
-        self.video_combo.currentIndexChanged.connect(self._on_video_combo_changed)
-        source_layout.addWidget(self.video_combo)
-        sliders_layout.addLayout(source_layout)
-
-        # Slider
-        self.tempo_slider, tempo_box = self._create_slider(
-            "Tempo", 0, 100, 50,
-            "Regelt die Grundgeschwindigkeit der Schnitte. Niedrig = langsame, ruhige Schnitte. Hoch = schnelle, hektische Schnitte"
-        )
-        sliders_layout.addWidget(tempo_box)
-
-        self.energy_slider, energy_box = self._create_slider(
-            "Energie", 0, 100, 50,
-            "Bestimmt, wie stark energetische Audio-Peaks den Schnitt beeinflussen. Hoch = Schnitte auf Energie-Spitzen"
-        )
-        sliders_layout.addWidget(energy_box)
-
-        self.density_slider, density_box = self._create_slider(
-            "Schnitt-Dichte", 0, 100, 50,
-            "Regelt die Anzahl der Schnitte pro Zeiteinheit. Niedrig = wenige Schnitte, Hoch = viele kurze Clips"
-        )
-        sliders_layout.addWidget(density_box)
-
-        # Action Buttons
-        btn_col = QVBoxLayout()
-        btn_col.addStretch()
-
-        self.btn_generate = QPushButton("Timeline\ngenerieren")
-        self.btn_generate.setObjectName("btn_accent")
-        self.btn_generate.setMinimumHeight(56)
-        self.btn_generate.setMinimumWidth(120)
-        self.btn_generate.setToolTip("Berechnet automatische Schnittpunkte basierend auf BPM, Energie und deinen Slider-Einstellungen. Die Schnittmarker erscheinen auf der Timeline")
-        self.btn_generate.clicked.connect(self._generate_timeline)
-        btn_col.addWidget(self.btn_generate)
-
-        self.btn_auto_edit = QPushButton("Auto-Edit\nto Beat")
-        self.btn_auto_edit.setObjectName("btn_accent")
-        self.btn_auto_edit.setMinimumHeight(56)
-        self.btn_auto_edit.setMinimumWidth(120)
-        self.btn_auto_edit.setToolTip("Schneidet alle Video-Clips automatisch auf die Drum-Beats des ausgewaehlten Audio-Tracks. Erstellt eine komplette Timeline in Sekunden")
-        self.btn_auto_edit.clicked.connect(self._auto_edit_to_beat)
-        btn_col.addWidget(self.btn_auto_edit)
-
-        btn_col.addStretch()
-        sliders_layout.addLayout(btn_col)
-
-        control_layout.addLayout(sliders_layout)
-        top_splitter.addWidget(control_group)
-
-        # Video-Vorschau
-        preview_group = QGroupBox("Vorschau")
-        preview_layout = QVBoxLayout(preview_group)
+        # Large Video Preview (no GroupBox — clean)
+        preview_container = QWidget()
+        preview_layout = QVBoxLayout(preview_container)
+        preview_layout.setContentsMargins(4, 4, 4, 2)
+        preview_layout.setSpacing(2)
 
         self.video_preview = VideoPreviewWidget()
-        preview_layout.addWidget(self.video_preview)
+        self.video_preview.setMinimumSize(480, 270)
+        self.video_preview.setMaximumHeight(16777215)
+        preview_layout.addWidget(self.video_preview, stretch=1)
 
-        preview_btn_row = QHBoxLayout()
-        self.btn_preview_play = QPushButton("Play")
-        self.btn_preview_play.setToolTip("Startet oder pausiert die Video-Vorschau des ausgewaehlten Clips")
+        # Compact transport bar
+        transport_row = QHBoxLayout()
+        transport_row.setSpacing(4)
+        self.btn_preview_play = QPushButton("\u25B6")
+        self.btn_preview_play.setFixedSize(28, 24)
+        self.btn_preview_play.setToolTip("Play / Pause")
         self.btn_preview_play.clicked.connect(self._toggle_preview_play)
-        preview_btn_row.addWidget(self.btn_preview_play)
+        transport_row.addWidget(self.btn_preview_play)
 
-        self.btn_preview_stop = QPushButton("Stop")
-        self.btn_preview_stop.setToolTip("Stoppt die Video-Vorschau und setzt die Position zurueck")
+        self.btn_preview_stop = QPushButton("\u25A0")
+        self.btn_preview_stop.setFixedSize(28, 24)
+        self.btn_preview_stop.setToolTip("Stop")
         self.btn_preview_stop.clicked.connect(self.video_preview.stop)
-        preview_btn_row.addWidget(self.btn_preview_stop)
-        preview_layout.addLayout(preview_btn_row)
+        transport_row.addWidget(self.btn_preview_stop)
 
         self.preview_time_label = QLabel("00:00 / 00:00")
-        self.preview_time_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.preview_time_label.setStyleSheet("color: #505050; font-size: 11px;")
-        self.preview_time_label.setToolTip("Aktuelle Wiedergabeposition / Gesamtdauer des Clips")
-        preview_layout.addWidget(self.preview_time_label)
+        self.preview_time_label.setStyleSheet("color: #505050; font-size: 10px;")
+        transport_row.addWidget(self.preview_time_label)
+        transport_row.addStretch()
 
-        top_splitter.addWidget(preview_group)
-        top_splitter.setStretchFactor(0, 3)
-        top_splitter.setStretchFactor(1, 1)
+        # Inspector toggle button (always visible)
+        self.btn_toggle_inspector = QPushButton("\u25B6")
+        self.btn_toggle_inspector.setFixedSize(22, 22)
+        self.btn_toggle_inspector.setToolTip("Inspector Panel ein-/ausklappen")
+        self.btn_toggle_inspector.setStyleSheet("font-size: 9px; padding: 0;")
+        self.btn_toggle_inspector.clicked.connect(self._toggle_inspector)
+        transport_row.addWidget(self.btn_toggle_inspector)
 
-        layout.addWidget(top_splitter)
+        preview_layout.addLayout(transport_row)
+        top_splitter.addWidget(preview_container)
 
-        # ── Timeline ──
-        timeline_group = QGroupBox("Timeline (Drag & Drop)")
-        timeline_layout = QVBoxLayout(timeline_group)
+        # ── Inspector Panel (collapsible, narrow right side) ──
+        self.inspector_panel = QWidget()
+        self.inspector_panel.setObjectName("inspector_panel")
+        self.inspector_panel.setMaximumWidth(260)
+        self.inspector_panel.setMinimumWidth(200)
+        insp = QVBoxLayout(self.inspector_panel)
+        insp.setContentsMargins(6, 6, 6, 6)
+        insp.setSpacing(5)
 
+        # Header
+        hdr = QLabel("INSPECTOR")
+        hdr.setStyleSheet(
+            "color: #00D4E6; font-weight: 700; font-size: 10px; letter-spacing: 2px;"
+        )
+        insp.addWidget(hdr)
+        self._add_separator(insp)
+
+        # Source selectors
+        src_lbl = QLabel("QUELLEN")
+        src_lbl.setStyleSheet("color: #505050; font-size: 9px; font-weight: 600; letter-spacing: 1px;")
+        insp.addWidget(src_lbl)
+
+        self.audio_combo = QComboBox()
+        self.audio_combo.setToolTip("Audio-Track fuer BPM-Pacing")
+        insp.addWidget(self.audio_combo)
+
+        self.video_combo = QComboBox()
+        self.video_combo.setToolTip("Video-Clip fuer Vorschau")
+        self.video_combo.currentIndexChanged.connect(self._on_video_combo_changed)
+        insp.addWidget(self.video_combo)
+
+        self.vibe_input = QLineEdit()
+        self.vibe_input.setPlaceholderText("Stimmung / Vibe...")
+        self.vibe_input.setToolTip("Freitext: energetisch, melancholisch, aggressiv...")
+        insp.addWidget(self.vibe_input)
+
+        self._add_separator(insp)
+
+        # Pacing sliders (horizontal, compact)
+        pacing_lbl = QLabel("PACING")
+        pacing_lbl.setStyleSheet("color: #505050; font-size: 9px; font-weight: 600; letter-spacing: 1px;")
+        insp.addWidget(pacing_lbl)
+
+        self.tempo_slider, tempo_row = self._create_compact_slider("Tempo", 0, 100, 50)
+        insp.addLayout(tempo_row)
+
+        self.energy_slider, energy_row = self._create_compact_slider("Energie", 0, 100, 50)
+        insp.addLayout(energy_row)
+
+        self.density_slider, density_row = self._create_compact_slider("Dichte", 0, 100, 50)
+        insp.addLayout(density_row)
+
+        self._add_separator(insp)
+
+        # Action buttons
+        self.btn_generate = QPushButton("Timeline generieren")
+        self.btn_generate.setObjectName("btn_accent")
+        self.btn_generate.setFixedHeight(30)
+        self.btn_generate.setToolTip("Berechnet Schnittpunkte (BPM + Pacing-Kurve)")
+        self.btn_generate.clicked.connect(self._generate_timeline)
+        insp.addWidget(self.btn_generate)
+
+        self.btn_auto_edit = QPushButton("Auto-Edit to Beat")
+        self.btn_auto_edit.setObjectName("btn_accent")
+        self.btn_auto_edit.setFixedHeight(30)
+        self.btn_auto_edit.setToolTip("Schneidet Videos automatisch auf Drum-Beats")
+        self.btn_auto_edit.clicked.connect(self._auto_edit_to_beat)
+        insp.addWidget(self.btn_auto_edit)
+
+        insp.addStretch()
+
+        top_splitter.addWidget(self.inspector_panel)
+        top_splitter.setStretchFactor(0, 5)
+        top_splitter.setStretchFactor(1, 0)
+
+        main_splitter.addWidget(top_splitter)
+
+        # ── Bottom: Manual Pacing Curve + Timeline ──
+        bottom_widget = QWidget()
+        bottom_layout = QVBoxLayout(bottom_widget)
+        bottom_layout.setContentsMargins(4, 2, 4, 2)
+        bottom_layout.setSpacing(1)
+
+        # Pacing curve header
+        curve_hdr = QHBoxLayout()
+        curve_hdr.setSpacing(4)
+        curve_lbl = QLabel("MANUAL PACING")
+        curve_lbl.setStyleSheet("color: #505050; font-size: 9px; font-weight: 600; letter-spacing: 1px;")
+        curve_hdr.addWidget(curve_lbl)
+        btn_reset = QPushButton("Reset")
+        btn_reset.setFixedHeight(16)
+        btn_reset.setFixedWidth(44)
+        btn_reset.setStyleSheet("font-size: 8px; padding: 0 3px;")
+        btn_reset.setToolTip("Pacing-Kurve zuruecksetzen auf 50%")
+        btn_reset.clicked.connect(lambda: self.pacing_curve.reset_curve())
+        curve_hdr.addWidget(btn_reset)
+        curve_hdr.addStretch()
+        bottom_layout.addLayout(curve_hdr)
+
+        # Drawable pacing density curve
+        self.pacing_curve = PacingCurveWidget()
+        bottom_layout.addWidget(self.pacing_curve)
+
+        # Timeline (full width, maximum space)
         self.timeline_view = InteractiveTimeline()
-        self.timeline_view.setToolTip("Timeline: Ziehe Clips per Drag & Drop an die gewuenschte Position. Mausrad zum Zoomen. Audio-Clips sind blau, Video-Clips orange")
+        self.timeline_view.setToolTip("Timeline: Drag & Drop, Mausrad zum Zoomen")
         self.timeline_view.clip_moved.connect(self._on_timeline_clip_moved)
-        timeline_layout.addWidget(self.timeline_view)
+        bottom_layout.addWidget(self.timeline_view, stretch=1)
 
-        self.cut_info_label = QLabel("Noch keine Timeline generiert.")
-        self.cut_info_label.setStyleSheet("color: #505050; padding: 4px;")
-        self.cut_info_label.setToolTip("Zusammenfassung der berechneten Schnittpunkte nach Typ (Beat, Szene, Energie, Drum)")
-        timeline_layout.addWidget(self.cut_info_label)
+        self.cut_info_label = QLabel("")
+        self.cut_info_label.setStyleSheet("color: #404040; font-size: 10px; padding: 1px 4px;")
+        bottom_layout.addWidget(self.cut_info_label)
 
-        layout.addWidget(timeline_group, stretch=1)
+        main_splitter.addWidget(bottom_widget)
+
+        # Preview ~35%, Timeline area ~65% — timeline dominates
+        main_splitter.setStretchFactor(0, 2)
+        main_splitter.setStretchFactor(1, 3)
+
+        layout.addWidget(main_splitter)
 
         self._refresh_director_combos()
         return workspace
@@ -1295,14 +1458,14 @@ class PBWindow(QMainWindow):
 
         self.btn_export = QPushButton("Video exportieren")
         self.btn_export.setObjectName("btn_accent")
-        self.btn_export.setMinimumHeight(50)
-        self.btn_export.setToolTip("Startet den finalen Video-Export. Alle Clips von der Timeline werden mit FFmpeg zu einem Video zusammengefuegt. Dies kann je nach Laenge mehrere Minuten dauern")
+        self.btn_export.setMinimumHeight(36)
+        self.btn_export.setToolTip("Finales Video mit FFmpeg rendern")
         self.btn_export.clicked.connect(self._start_export)
         export_row.addWidget(self.btn_export)
 
         self.btn_refresh_production = QPushButton("Aktualisieren")
-        self.btn_refresh_production.setMinimumHeight(50)
-        self.btn_refresh_production.setToolTip("Aktualisiert die Timeline-Status-Anzeige oben (Anzahl Clips, geschaetzte Dauer)")
+        self.btn_refresh_production.setMinimumHeight(36)
+        self.btn_refresh_production.setToolTip("Timeline-Status aktualisieren")
         self.btn_refresh_production.clicked.connect(self._refresh_production_info)
         export_row.addWidget(self.btn_refresh_production)
 
@@ -1331,23 +1494,44 @@ class PBWindow(QMainWindow):
     # Helper: Slider erstellen
     # ==================================================================
 
-    def _create_slider(self, label: str, min_val: int, max_val: int,
-                       default: int, tooltip: str = ""):
-        box = QGroupBox(label)
-        box_layout = QVBoxLayout(box)
-        value_label = QLabel(str(default))
-        value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        slider = QSlider(Qt.Orientation.Vertical)
+    def _create_compact_slider(self, label: str, min_val: int, max_val: int,
+                               default: int):
+        """Compact horizontal slider row: [Label] [=====o=====] [Value]"""
+        row = QHBoxLayout()
+        row.setSpacing(4)
+        lbl = QLabel(label)
+        lbl.setFixedWidth(46)
+        lbl.setStyleSheet("color: #707070; font-size: 10px;")
+        row.addWidget(lbl)
+        slider = QSlider(Qt.Orientation.Horizontal)
         slider.setRange(min_val, max_val)
         slider.setValue(default)
-        slider.setMinimumHeight(80)
-        if tooltip:
-            slider.setToolTip(tooltip)
-            box.setToolTip(tooltip)
-        slider.valueChanged.connect(lambda v: value_label.setText(str(v)))
-        box_layout.addWidget(value_label)
-        box_layout.addWidget(slider, alignment=Qt.AlignmentFlag.AlignHCenter)
-        return slider, box
+        slider.setFixedHeight(16)
+        row.addWidget(slider, stretch=1)
+        val_lbl = QLabel(str(default))
+        val_lbl.setFixedWidth(26)
+        val_lbl.setAlignment(Qt.AlignmentFlag.AlignRight)
+        val_lbl.setStyleSheet("color: #00D4E6; font-size: 10px;")
+        slider.valueChanged.connect(lambda v: val_lbl.setText(str(v)))
+        row.addWidget(val_lbl)
+        return slider, row
+
+    def _toggle_inspector(self):
+        """Toggle inspector panel visibility."""
+        if self.inspector_panel.isVisible():
+            self.inspector_panel.hide()
+            self.btn_toggle_inspector.setText("\u25C0")
+        else:
+            self.inspector_panel.show()
+            self.btn_toggle_inspector.setText("\u25B6")
+
+    @staticmethod
+    def _add_separator(layout):
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setFixedHeight(1)
+        sep.setStyleSheet("background-color: #1E1E1E;")
+        layout.addWidget(sep)
 
     # ==================================================================
     # Helper: Thread starten
@@ -1501,11 +1685,15 @@ class PBWindow(QMainWindow):
         audio_id = self.audio_combo.currentData()
         video_id = self.video_combo.currentData()
 
+        # Collect manual density curve from pacing widget
+        densities = self.pacing_curve.get_all_densities()
+
         settings = PacingSettings(
             tempo=self.tempo_slider.value(),
             energy=self.energy_slider.value(),
             cut_density=self.density_slider.value(),
             vibe=self.vibe_input.text(),
+            manual_density_curve=densities,
         )
 
         audio_dur = 0.0
@@ -1523,6 +1711,9 @@ class PBWindow(QMainWindow):
 
         total_dur = max(audio_dur, video_dur, 30.0)
 
+        # Update pacing curve duration
+        self.pacing_curve.set_duration(total_dur)
+
         cuts = calculate_cut_points(audio_id, video_id, settings, total_dur)
 
         self.timeline_view.load_from_db()
@@ -1533,12 +1724,11 @@ class PBWindow(QMainWindow):
         energy_cuts = sum(1 for c in cuts if c.source == "energy")
         drum_cuts = sum(1 for c in cuts if c.source == "drum")
         self.cut_info_label.setText(
-            f"{len(cuts)} Schnittpunkte | Beat: {beat_cuts} | Szene: {scene_cuts} | "
-            f"Energie: {energy_cuts} | Drum: {drum_cuts} | Dauer: {total_dur:.1f}s"
+            f"{len(cuts)} Cuts | Beat:{beat_cuts} Szene:{scene_cuts} "
+            f"Energie:{energy_cuts} Drum:{drum_cuts} | {total_dur:.0f}s"
         )
         self.console_text.append(
-            f"[Pacing] Timeline generiert: {len(cuts)} Cuts "
-            f"(Tempo={settings.tempo}, Energie={settings.energy}, Dichte={settings.cut_density})"
+            f"[Pacing] {len(cuts)} Cuts generiert (Manual Curve aktiv)"
         )
 
     # ==================================================================
@@ -2057,6 +2247,7 @@ class PBWindow(QMainWindow):
 
     def setup_chat_dock(self):
         self.chat_dock = ChatDock(self)
+        self.chat_dock.setMinimumWidth(220)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.chat_dock)
 
         try:

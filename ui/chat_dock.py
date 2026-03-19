@@ -46,7 +46,7 @@ class ChatDock(QDockWidget):
             Qt.DockWidgetArea.RightDockWidgetArea
             | Qt.DockWidgetArea.BottomDockWidgetArea
         )
-        self.setMinimumWidth(340)
+        self.setMinimumWidth(240)
 
         self._agent = None
         self._thread: QThread | None = None

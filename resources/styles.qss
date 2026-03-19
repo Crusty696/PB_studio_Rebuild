@@ -618,3 +618,16 @@ QFrame[frameShape="5"] {
 QStackedWidget {
     background-color: #111111;
 }
+
+/* ── Pacing Curve Widget ──────────────────────────────────────── */
+PacingCurveWidget {
+    background-color: #0A0A0A;
+    border: 1px solid #1A1A1A;
+    border-radius: 2px;
+}
+
+/* ── Inspector Panel ──────────────────────────────────────────── */
+QWidget#inspector_panel {
+    background-color: #0E0E0E;
+    border-left: 1px solid #1A1A1A;
+}

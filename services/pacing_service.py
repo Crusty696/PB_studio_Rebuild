@@ -18,6 +18,7 @@ class PacingSettings:
     energy: int = 50         # 0-100: ruhig -> energetisch
     cut_density: int = 50    # 0-100: wenig Schnitte -> viele Schnitte
     vibe: str = ""           # Freitext-Stimmung
+    manual_density_curve: list[float] | None = None  # Per-sample density override (0.0-1.0)
 
 
 @dataclass
@@ -73,6 +74,15 @@ def calculate_cut_points(
             source="scene",
             strength=min(1.0, (scene.energy or 0.5) + 0.2),
         ))
+
+    # Apply manual density curve modulation
+    if settings.manual_density_curve:
+        curve = settings.manual_density_curve
+        num_samples = len(curve)
+        for cut in cuts:
+            idx = int((cut.time / total_duration) * (num_samples - 1))
+            idx = max(0, min(idx, num_samples - 1))
+            cut.strength *= curve[idx]
 
     # Filtern nach Cut-Density
     threshold = 1.0 - (settings.cut_density / 100.0)
