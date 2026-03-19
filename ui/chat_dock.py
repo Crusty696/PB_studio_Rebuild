@@ -62,6 +62,7 @@ class ChatDock(QDockWidget):
         self.chat_log = QTextEdit()
         self.chat_log.setReadOnly(True)
         self.chat_log.setFont(QFont("Cascadia Code", 10))
+        self.chat_log.setToolTip("Chat-Verlauf: Hier siehst du alle Nachrichten zwischen dir und dem KI-Assistenten sowie ausgefuehrte Aktionen")
         layout.addWidget(self.chat_log)
 
         # Eingabezeile + Button
@@ -72,12 +73,14 @@ class ChatDock(QDockWidget):
         self.input_field.setPlaceholderText("Nachricht an KI-Assistent...")
         self.input_field.setFont(QFont("Segoe UI", 10))
         self.input_field.setMinimumHeight(34)
+        self.input_field.setToolTip("Gib hier deine Nachricht oder deinen Befehl an den KI-Assistenten ein. Druecke Enter oder klicke Senden")
         self.input_field.returnPressed.connect(self._on_send)
         input_row.addWidget(self.input_field)
 
         self.btn_send = QPushButton("Senden")
         self.btn_send.setMinimumHeight(34)
         self.btn_send.setMinimumWidth(80)
+        self.btn_send.setToolTip("Sendet deine Nachricht an den lokalen KI-Assistenten. Der Agent verarbeitet die Anfrage im Hintergrund")
         self.btn_send.clicked.connect(self._on_send)
         input_row.addWidget(self.btn_send)
 

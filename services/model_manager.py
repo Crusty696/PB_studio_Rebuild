@@ -226,7 +226,7 @@ class ModelManager:
             return {"device": "cpu", "vram_used_mb": 0, "vram_total_mb": 0}
 
         used = torch.cuda.memory_allocated() / 1024 / 1024
-        total = torch.cuda.get_device_properties(0).total_mem / 1024 / 1024
+        total = torch.cuda.get_device_properties(0).total_memory / 1024 / 1024
         return {
             "device": torch.cuda.get_device_name(0),
             "vram_used_mb": round(used, 1),
