@@ -154,6 +154,25 @@ class AudioVideoAnchor(Base):
         return f"<AudioVideoAnchor(id={self.id}, type='{self.anchor_type}')>"
 
 
+class ClipAnchor(Base):
+    """Ein manueller Anker-Marker auf einem Timeline-Clip (Audio oder Video).
+
+    Wird fuer die manuelle Synchronisation genutzt: Wenn ein Audio- und ein
+    Video-Clip jeweils einen Anker haben, koennen sie exakt aufeinander
+    ausgerichtet werden.
+    """
+    __tablename__ = "clip_anchors"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    timeline_entry_id = Column(Integer, ForeignKey("timeline_entries.id"), nullable=False)
+    time_offset = Column(Float, nullable=False)  # Offset in Sekunden relativ zum Clip-Start
+    label = Column(String, nullable=True, default="")
+    color = Column(String, nullable=True, default="#FF3333")
+
+    def __repr__(self):
+        return f"<ClipAnchor(id={self.id}, entry={self.timeline_entry_id}, offset={self.time_offset})>"
+
+
 class TimelineEntry(Base):
     """Ein Clip auf der Timeline mit Position und Spur."""
     __tablename__ = "timeline_entries"

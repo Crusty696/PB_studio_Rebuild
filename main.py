@@ -19,16 +19,16 @@ from PySide6.QtWidgets import (
     QComboBox, QGraphicsView, QGraphicsScene, QGraphicsRectItem,
     QGraphicsTextItem, QGraphicsLineItem, QDialog, QFrame,
     QTreeWidget, QTreeWidgetItem, QCheckBox, QStackedWidget,
-    QSizePolicy, QSpacerItem,
+    QSizePolicy, QSpacerItem, QMenu, QGraphicsPolygonItem,
 )
 from PySide6.QtCore import Qt, QThread, Signal, QObject, QRectF, QPointF, QTimer
-from PySide6.QtGui import QPainter, QPainterPath, QColor, QFont, QBrush, QPen, QPixmap, QImage
+from PySide6.QtGui import QPainter, QPainterPath, QColor, QFont, QBrush, QPen, QPixmap, QImage, QPolygonF, QAction
 
 APP_VERSION = "0.4.0"
 STYLE_DIR = Path(__file__).parent / "styles"
 RESOURCE_DIR = Path(__file__).parent / "resources"
 
-from database import init_db, engine, AudioTrack, VideoClip, TimelineEntry, Beatgrid, WaveformData
+from database import init_db, engine, AudioTrack, VideoClip, TimelineEntry, Beatgrid, WaveformData, ClipAnchor
 from sqlalchemy.orm import Session as DBSession
 import json as _json
 from services.ingest_service import (
@@ -270,16 +270,20 @@ class AutoEditWorker(QObject):
     finished = Signal(list)
     error = Signal(str)
 
-    def __init__(self, audio_id: int, video_ids: list[int], total_duration: float):
+    def __init__(self, audio_id: int, video_ids: list[int], total_duration: float,
+                 pacing_curve: list[float] | None = None, tempo: int = 50):
         super().__init__()
         self.audio_id = audio_id
         self.video_ids = video_ids
         self.total_duration = total_duration
+        self.pacing_curve = pacing_curve
+        self.tempo = tempo
 
     def run(self):
         try:
             segments = auto_edit_to_beats(
-                self.audio_id, self.video_ids, self.total_duration
+                self.audio_id, self.video_ids, self.total_duration,
+                pacing_curve=self.pacing_curve, tempo=self.tempo,
             )
             self.finished.emit(segments)
         except Exception as e:
@@ -313,6 +317,35 @@ class WaveformAnalysisWorker(QObject):
 # Draggable Timeline Clip (QGraphicsRectItem)
 # ======================================================================
 
+class AnchorMarkerItem(QGraphicsPolygonItem):
+    """Visueller Anker-Marker: Rotes Dreieck + vertikale Linie auf dem Clip."""
+
+    def __init__(self, x_offset: float, height: float, anchor_id: int, parent=None):
+        # Dreieck-Polygon (Pfeil nach unten)
+        triangle = QPolygonF([
+            QPointF(x_offset - 5, 0),
+            QPointF(x_offset + 5, 0),
+            QPointF(x_offset, 8),
+        ])
+        super().__init__(triangle, parent)
+        self.anchor_id = anchor_id
+        self.setBrush(QBrush(QColor(255, 50, 50, 230)))
+        self.setPen(QPen(QColor(255, 100, 100), 1))
+        self.setZValue(10)
+
+        # Vertikale rote Linie durch den ganzen Clip
+        self._line = QGraphicsLineItem(x_offset, 8, x_offset, height, parent)
+        self._line.setPen(QPen(QColor(255, 50, 50, 180), 1, Qt.PenStyle.DashLine))
+        self._line.setZValue(9)
+        self.line_item = self._line
+
+    def remove_from_scene(self):
+        """Entfernt Dreieck und Linie."""
+        if self.scene():
+            self.scene().removeItem(self._line)
+            self.scene().removeItem(self)
+
+
 class TimelineClipItem(QGraphicsRectItem):
     # Audio-Clips: halbtransparent, damit Rekordbox-Wellenform durchscheint
     AUDIO_COLOR = QColor(30, 60, 120, 60)
@@ -327,6 +360,8 @@ class TimelineClipItem(QGraphicsRectItem):
         self.media_id = media_id
         self.track_type = track_type
         self.on_moved = on_moved
+        self._clip_width = width
+        self._clip_height = height
 
         self.setPos(x, y)
         self.setFlag(QGraphicsRectItem.GraphicsItemFlag.ItemIsMovable, True)
@@ -347,6 +382,89 @@ class TimelineClipItem(QGraphicsRectItem):
         label.setPos(4, 2)
 
         self._track_y = y
+        self._anchor_markers: list[AnchorMarkerItem] = []
+        self._load_anchors()
+
+    def _load_anchors(self):
+        """Laedt bestehende Anker aus der DB und zeichnet sie."""
+        with DBSession(engine) as session:
+            anchors = session.query(ClipAnchor).filter_by(
+                timeline_entry_id=self.entry_id
+            ).all()
+            for anchor in anchors:
+                x_px = anchor.time_offset * PIXELS_PER_SECOND
+                if 0 <= x_px <= self._clip_width:
+                    marker = AnchorMarkerItem(x_px, self._clip_height, anchor.id, parent=self)
+                    self._anchor_markers.append(marker)
+
+    def add_anchor_at(self, local_x: float) -> int | None:
+        """Setzt einen neuen Anker an der lokalen X-Position (in Pixeln).
+        Gibt die Anchor-ID zurueck oder None bei Fehler.
+        """
+        time_offset = local_x / PIXELS_PER_SECOND
+        if time_offset < 0:
+            time_offset = 0.0
+
+        with DBSession(engine) as session:
+            anchor = ClipAnchor(
+                timeline_entry_id=self.entry_id,
+                time_offset=round(time_offset, 4),
+            )
+            session.add(anchor)
+            session.commit()
+            anchor_id = anchor.id
+
+        marker = AnchorMarkerItem(local_x, self._clip_height, anchor_id, parent=self)
+        self._anchor_markers.append(marker)
+        return anchor_id
+
+    def remove_all_anchors(self):
+        """Entfernt alle Anker dieses Clips."""
+        with DBSession(engine) as session:
+            session.query(ClipAnchor).filter_by(
+                timeline_entry_id=self.entry_id
+            ).delete()
+            session.commit()
+        for m in self._anchor_markers:
+            if m.line_item.parentItem():
+                # Kinder werden mit Parent entfernt
+                pass
+        self._anchor_markers.clear()
+
+    def get_first_anchor_time(self) -> float | None:
+        """Gibt den Zeitstempel des ersten Ankers zurueck (relativ zum Clip-Start)."""
+        with DBSession(engine) as session:
+            anchor = session.query(ClipAnchor).filter_by(
+                timeline_entry_id=self.entry_id
+            ).order_by(ClipAnchor.time_offset).first()
+            if anchor:
+                return anchor.time_offset
+        return None
+
+    def contextMenuEvent(self, event):
+        """Rechtsklick-Kontextmenue mit Anker-Optionen."""
+        menu = QMenu()
+        menu.setStyleSheet(
+            "QMenu { background: #1A1A1A; color: #E0E0E0; border: 1px solid #333; }"
+            "QMenu::item:selected { background: #00B4D8; color: white; }"
+        )
+
+        # Anker setzen an Mausposition
+        local_x = event.pos().x()
+        time_offset = local_x / PIXELS_PER_SECOND
+        set_anchor_action = menu.addAction(f"Anker setzen ({time_offset:.2f}s)")
+        set_anchor_action.triggered.connect(lambda: self.add_anchor_at(local_x))
+
+        # Alle Anker entfernen
+        if self._anchor_markers:
+            remove_action = menu.addAction("Alle Anker entfernen")
+            remove_action.triggered.connect(self.remove_all_anchors)
+
+        menu.addSeparator()
+        info_action = menu.addAction(f"Clip: {self.track_type} | ID: {self.media_id}")
+        info_action.setEnabled(False)
+
+        menu.exec(event.screenPos())
 
     def itemChange(self, change, value):
         if change == QGraphicsRectItem.GraphicsItemChange.ItemPositionChange:
@@ -641,10 +759,12 @@ class InteractiveTimeline(QGraphicsView):
         super().mouseReleaseEvent(event)
 
     def keyPressEvent(self, event):
-        """Space gedrückt → Panning-Modus aktivieren."""
+        """Space gedrückt → Panning-Modus. M → Anker setzen auf selektiertem Clip."""
         if event.key() == Qt.Key.Key_Space and not event.isAutoRepeat():
             self._space_held = True
             self.setCursor(Qt.CursorShape.OpenHandCursor)
+        elif event.key() == Qt.Key.Key_M and not event.isAutoRepeat():
+            self._set_anchor_on_selected()
         super().keyPressEvent(event)
 
     def keyReleaseEvent(self, event):
@@ -654,6 +774,72 @@ class InteractiveTimeline(QGraphicsView):
             if not self._panning:
                 self.setCursor(Qt.CursorShape.ArrowCursor)
         super().keyReleaseEvent(event)
+
+    def _set_anchor_on_selected(self):
+        """Setzt einen Anker in der Mitte des aktuell selektierten Clips (Taste M)."""
+        selected = [item for item in self._scene.selectedItems()
+                    if isinstance(item, TimelineClipItem)]
+        if not selected:
+            if self.console_log:
+                self.console_log("[Anchor] Kein Clip ausgewaehlt — waehle zuerst einen Clip.")
+            return
+        for clip_item in selected:
+            # Anker in der Clip-Mitte setzen
+            mid_x = clip_item._clip_width / 2.0
+            anchor_id = clip_item.add_anchor_at(mid_x)
+            if self.console_log and anchor_id:
+                time_offset = mid_x / PIXELS_PER_SECOND
+                self.console_log(
+                    f"[Anchor] Anker #{anchor_id} gesetzt auf {clip_item.track_type}-Clip "
+                    f"bei {time_offset:.2f}s (Taste M)"
+                )
+
+    def sync_anchors(self) -> bool:
+        """Anker synchronisieren: Verschiebt Video-Clips so, dass ihr Anker
+        exakt über dem Audio-Anker liegt.
+
+        Returns True wenn mindestens ein Sync durchgefuehrt wurde.
+        """
+        audio_clips = [c for c in self.clip_items if c.track_type == "audio"]
+        video_clips = [c for c in self.clip_items if c.track_type == "video"]
+
+        if not audio_clips or not video_clips:
+            return False
+
+        synced = False
+        for audio_clip in audio_clips:
+            audio_anchor_offset = audio_clip.get_first_anchor_time()
+            if audio_anchor_offset is None:
+                continue
+
+            # Absoluter Zeitpunkt des Audio-Ankers auf der Timeline
+            audio_clip_start = audio_clip.pos().x() / PIXELS_PER_SECOND
+            audio_anchor_abs = audio_clip_start + audio_anchor_offset
+
+            for video_clip in video_clips:
+                video_anchor_offset = video_clip.get_first_anchor_time()
+                if video_anchor_offset is None:
+                    continue
+
+                # Video-Clip verschieben: Anker soll auf audio_anchor_abs landen
+                new_video_start = audio_anchor_abs - video_anchor_offset
+                new_x = max(0, new_video_start * PIXELS_PER_SECOND)
+
+                video_clip.setPos(new_x, video_clip._track_y)
+
+                # DB aktualisieren
+                with DBSession(engine) as session:
+                    entry = session.get(TimelineEntry, video_clip.entry_id)
+                    if entry:
+                        entry.start_time = round(new_video_start, 4)
+                        if entry.end_time is not None:
+                            duration = entry.end_time - entry.start_time
+                            entry.end_time = round(new_video_start + duration, 4)
+                        session.commit()
+
+                synced = True
+
+        return synced
 
 
 # ======================================================================
@@ -1379,9 +1565,27 @@ class PBWindow(QMainWindow):
         self.btn_auto_edit = QPushButton("Auto-Edit to Beat")
         self.btn_auto_edit.setObjectName("btn_accent")
         self.btn_auto_edit.setFixedHeight(30)
-        self.btn_auto_edit.setToolTip("Schneidet Videos automatisch auf Drum-Beats")
+        self.btn_auto_edit.setToolTip(
+            "Intelligenter Schnitt: Beatgrid + Pacing-Kurve bestimmen die Cuts"
+        )
         self.btn_auto_edit.clicked.connect(self._auto_edit_to_beat)
         insp.addWidget(self.btn_auto_edit)
+
+        self._add_separator(insp)
+
+        # Anchor section
+        anchor_lbl = QLabel("ANKER")
+        anchor_lbl.setStyleSheet("color: #505050; font-size: 9px; font-weight: 600; letter-spacing: 1px;")
+        insp.addWidget(anchor_lbl)
+
+        self.btn_sync_anchors = QPushButton("Anker synchronisieren")
+        self.btn_sync_anchors.setFixedHeight(28)
+        self.btn_sync_anchors.setToolTip(
+            "Verschiebt Video-Clips so, dass Audio- und Video-Anker exakt uebereinander liegen.\n"
+            "Setze Anker mit Rechtsklick oder Taste M."
+        )
+        self.btn_sync_anchors.clicked.connect(self._sync_anchors)
+        insp.addWidget(self.btn_sync_anchors)
 
         insp.addStretch()
 
@@ -1891,6 +2095,7 @@ class PBWindow(QMainWindow):
     # ==================================================================
 
     def _auto_edit_to_beat(self):
+        """SEKTOR 2+3: Intelligenter Auto-Edit mit Beatgrid + Pacing-Kurve."""
         audio_id = self.audio_combo.currentData()
         if audio_id is None:
             self.console_text.append("[Auto-Edit] Kein Audio-Track ausgewaehlt.")
@@ -1906,12 +2111,23 @@ class PBWindow(QMainWindow):
             self.console_text.append("[Auto-Edit] Keine Video-Clips vorhanden.")
             return
 
-        task = task_manager.create_task("Auto-Edit to Beat", "Drum-basierter Automatik-Schnitt")
-        self.console_text.append("[Auto-Edit] Starte drum-basierten Automatik-Schnitt...")
+        # Pacing-Kurve und Tempo-Slider auslesen
+        pacing_curve = self.pacing_curve.get_all_densities()
+        tempo = self.tempo_slider.value()
+
+        task = task_manager.create_task(
+            "Auto-Edit to Beat",
+            "Intelligenter Beatgrid-Schnitt mit Pacing-Kurve"
+        )
+        self.console_text.append(
+            f"[Auto-Edit] Starte intelligenten Beat-Edit "
+            f"(Tempo={tempo}, Kurve aktiv, {len(video_ids)} Clips)..."
+        )
         self.btn_auto_edit.setEnabled(False)
         self.btn_auto_edit.setText("Auto-Edit\nlaeuft...")
 
-        worker = AutoEditWorker(audio_id, video_ids, total_dur)
+        worker = AutoEditWorker(audio_id, video_ids, total_dur,
+                                pacing_curve=pacing_curve, tempo=tempo)
         worker.finished.connect(lambda segs: self._on_auto_edit_finished(segs, task.task_id))
         worker.error.connect(lambda err: self._on_auto_edit_error(err, task.task_id))
 
@@ -1955,6 +2171,20 @@ class PBWindow(QMainWindow):
         self.btn_auto_edit.setText("Auto-Edit\nto Beat")
         self.console_text.append(f"[Auto-Edit Fehler] {error_msg}")
         task_manager.finish_task(task_id, "error", error_msg)
+
+    def _sync_anchors(self):
+        """SEKTOR 1: Anker synchronisieren — richtet Video-Clips an Audio-Ankern aus."""
+        synced = self.timeline_view.sync_anchors()
+        if synced:
+            self.timeline_view.load_from_db()
+            self.console_text.append(
+                "[Anchor] Anker synchronisiert — Video-Clips an Audio-Ankern ausgerichtet."
+            )
+        else:
+            self.console_text.append(
+                "[Anchor] Keine Anker gefunden. Setze Anker auf Audio- und Video-Clips "
+                "(Rechtsklick oder Taste M), dann klicke erneut."
+            )
 
     def _on_timeline_clip_moved(self, entry_id: int, new_start: float):
         self.console_text.append(
