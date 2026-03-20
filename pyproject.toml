@@ -23,7 +23,11 @@ dependencies = [
     "faster-whisper (>=1.2.1,<2.0.0)",
     "einops (>=0.8.2,<0.9.0)",
     "pillow (>=12.1.1,<13.0.0)",
-    "accelerate (>=1.13.0,<2.0.0)"
+    "accelerate (>=1.13.0,<2.0.0)",
+    "opentimelineio (>=0.18.0,<1.0.0)",
+    "lancedb (>=0.20.0)",
+    "beat-this @ git+https://github.com/CPJKU/beat_this.git",
+    "pyarrow (>=18.0.0)"
 ]
 
 
