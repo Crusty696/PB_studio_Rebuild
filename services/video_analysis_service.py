@@ -110,7 +110,11 @@ def _load_raft_model():
         import torch
         import torchvision.models.optical_flow as of
 
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        # GPU-ZWANG: RAFT MUSS auf CUDA laufen wenn verfügbar
+        cuda_ok = torch.cuda.is_available()
+        device = torch.device("cuda" if cuda_ok else "cpu")
+        if cuda_ok:
+            logger.info("GPU-ZWANG: RAFT wird auf CUDA geladen (%s)", torch.cuda.get_device_name(0))
         raft = of.raft_small(weights=of.Raft_Small_Weights.DEFAULT)
         raft = raft.to(device).eval()
         logger.info("RAFT Optical Flow geladen auf %s", device)

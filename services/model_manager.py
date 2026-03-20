@@ -25,10 +25,12 @@ class ModelManager:
     """Singleton-Manager: Nur EIN Modell gleichzeitig im RAM/VRAM.
 
     Thread-safe durch Lock. Wird von allen Agenten geteilt.
+    GPU-ZWANG: Wenn CUDA verfügbar ist, wird IMMER die GPU genutzt.
     """
 
     _instance = None
     _lock = threading.Lock()
+    _gpu_logged = False  # Einmalig GPU-Status loggen
 
     def __new__(cls, *args, **kwargs):
         if cls._instance is None:
@@ -43,7 +45,18 @@ class ModelManager:
             return
         self._initialized = True
 
-        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+        # GPU-ZWANG: Wenn CUDA da ist, wird CUDA erzwungen — kein stiller CPU-Fallback
+        cuda_available = torch.cuda.is_available()
+        if cuda_available:
+            self.device = "cuda"
+            if device and device != "cuda":
+                logger.warning(
+                    "GPU-ZWANG: Device '%s' überschrieben → 'cuda' (CUDA ist verfügbar!)",
+                    device,
+                )
+        else:
+            self.device = "cpu"
+
         self._current_model_id: str | None = None
         self._model: Any = None
         self._tokenizer: Any = None
@@ -52,7 +65,52 @@ class ModelManager:
         self._extras: dict[str, Any] = {}  # Zusätzliche Objekte (Processor etc.)
         self._swap_lock = threading.RLock()  # Reentrant — erlaubt nested acquire
 
+        # Prominenten GPU-Status loggen (einmalig)
+        self._log_gpu_hardware()
         logger.info("ModelManager initialisiert auf Device: %s", self.device)
+
+    def _log_gpu_hardware(self) -> None:
+        """Loggt den GPU-Hardware-Status prominent ins Terminal und speichert ihn."""
+        with ModelManager._lock:
+            if ModelManager._gpu_logged:
+                return
+            ModelManager._gpu_logged = True
+
+        if torch.cuda.is_available():
+            gpu_name = torch.cuda.get_device_name(0)
+            props = torch.cuda.get_device_properties(0)
+            vram_total = props.total_memory / 1024 / 1024
+            self._gpu_info = {
+                "name": gpu_name,
+                "vram_total_mb": round(vram_total, 0),
+                "cuda_version": torch.version.cuda or "N/A",
+            }
+            banner = (
+                f"\n{'=' * 60}\n"
+                f"  HARDWARE AKTIV: {gpu_name}\n"
+                f"  VRAM: {vram_total:.0f} MB | CUDA: {self._gpu_info['cuda_version']}\n"
+                f"  GPU-ZWANG: Alle KI-Modelle laufen auf CUDA\n"
+                f"{'=' * 60}\n"
+            )
+            # Direkt auf stdout für maximale Sichtbarkeit
+            print(banner)
+            logger.info("HARDWARE AKTIV: %s (%.0f MB VRAM, CUDA %s)",
+                        gpu_name, vram_total, self._gpu_info['cuda_version'])
+        else:
+            self._gpu_info = {"name": "CPU", "vram_total_mb": 0, "cuda_version": None}
+            banner = (
+                f"\n{'=' * 60}\n"
+                f"  WARNUNG: Keine CUDA-GPU erkannt!\n"
+                f"  Alle KI-Modelle laufen auf CPU (langsam)\n"
+                f"{'=' * 60}\n"
+            )
+            print(banner)
+            logger.warning("Keine CUDA-GPU erkannt — CPU-Modus aktiv")
+
+    @property
+    def gpu_info(self) -> dict:
+        """Gibt GPU-Hardware-Info zurück (für UI-Anzeige)."""
+        return getattr(self, '_gpu_info', {"name": "unbekannt", "vram_total_mb": 0})
 
     @property
     def current_model_id(self) -> str | None:
@@ -127,7 +185,7 @@ class ModelManager:
                 "text-generation",
                 model=self._model,
                 tokenizer=self._tokenizer,
-                device=self.device if self.device != "cpu" else -1,
+                device=self.device if self.device != "cpu" else None,
             )
 
             self._current_model_id = model_id

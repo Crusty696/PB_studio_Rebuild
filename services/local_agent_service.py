@@ -65,9 +65,13 @@ class LocalAgentService:
     ):
         self.registry = registry or action_registry
         self.model_id = model_id
-        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+        # GPU-ZWANG: Wenn CUDA da ist, immer CUDA nutzen
+        cuda_available = torch.cuda.is_available()
+        self.device = "cuda" if cuda_available else "cpu"
+        if device and device != self.device and cuda_available:
+            logger.warning("GPU-ZWANG: Device '%s' → 'cuda' erzwungen", device)
 
-        # Zentraler Singleton-ModelManager
+        # Zentraler Singleton-ModelManager (erzwingt ebenfalls GPU)
         self.model_manager = ModelManager(device=self.device)
 
         self._tokenizer = None
@@ -127,7 +131,9 @@ class LocalAgentService:
 
     def _generate(self, user_text: str, max_new_tokens: int = 512) -> str:
         """Erzeugt die rohe Modellantwort."""
-        if not self._loaded:
+        # Stale-Reference-Schutz: ModelManager könnte extern entladen haben
+        if not self._loaded or self._pipe is None or not self.model_manager.is_loaded:
+            self._loaded = False
             self.load_model()
 
         messages = self._build_messages(user_text)
@@ -149,7 +155,6 @@ class LocalAgentService:
             prompt_text,
             max_new_tokens=max_new_tokens,
             do_sample=False,
-            temperature=0.1,
             return_full_text=False,
         )
 

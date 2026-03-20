@@ -41,6 +41,7 @@ class BeatAnalysisService:
     def device(self) -> str:
         if self._device is None:
             import torch
+            # GPU-ZWANG: beat_this MUSS auf CUDA laufen wenn verfügbar
             self._device = "cuda" if torch.cuda.is_available() else "cpu"
         return self._device
 
@@ -49,6 +50,9 @@ class BeatAnalysisService:
         if self._model is not None:
             return
         from beat_this.inference import File2Beats
+        import torch
+        if torch.cuda.is_available():
+            logger.info("GPU-ZWANG: beat_this wird auf CUDA geladen (%s)", torch.cuda.get_device_name(0))
         logger.info("Lade beat_this Modell (device=%s, dbn=False)...", self.device)
         self._model = File2Beats(device=self.device, dbn=False)
         logger.info("beat_this Modell geladen.")

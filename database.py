@@ -1,8 +1,16 @@
-from sqlalchemy import create_engine, Column, Integer, String, Float, ForeignKey, Text, Boolean
+from sqlalchemy import create_engine, event, Column, Integer, String, Float, ForeignKey, Text, Boolean
 from sqlalchemy.orm import DeclarativeBase, Session, relationship
 
 # Datenbank-Engine: SQLite-Datei im Projektordner
 engine = create_engine("sqlite:///pb_studio.db", echo=False)
+
+
+# FK-Enforcement: SQLite Foreign Keys aktivieren (standardmäßig OFF!)
+@event.listens_for(engine, "connect")
+def _set_sqlite_pragma(dbapi_connection, connection_record):
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.close()
 
 
 class Base(DeclarativeBase):

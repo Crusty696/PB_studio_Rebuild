@@ -3757,14 +3757,34 @@ class PBWindow(QMainWindow):
         self.chat_dock.setMinimumWidth(220)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.chat_dock)
 
+        # MainWindow-Referenz für direkte Kommandos (analysiere, schneide, etc.)
+        self.chat_dock.set_main_window(self)
+
         try:
             import services.register_actions  # noqa: F401
             from services.local_agent_service import LocalAgentService
             self._ai_agent = LocalAgentService()
             self.chat_dock.set_agent(self._ai_agent)
-            self.chat_dock.append_system(
-                "Lokaler Agent bereit. Was kann ich tun?"
-            )
+
+            # GPU-Status in Konsole und Chat anzeigen
+            gpu_info = self._ai_agent.model_manager.gpu_info
+            gpu_name = gpu_info.get("name", "unbekannt")
+            vram = gpu_info.get("vram_total_mb", 0)
+
+            if gpu_name != "CPU" and vram > 0:
+                hw_msg = f"HARDWARE AKTIV: {gpu_name} ({vram:.0f} MB VRAM)"
+                self.console_text.append(f"[GPU] {hw_msg}")
+                self.chat_dock.append_system(
+                    f"Agent bereit. {hw_msg}\n"
+                    "Befehle: 'analysiere', 'schneide', 'gpu status'"
+                )
+            else:
+                self.console_text.append("[GPU] Keine CUDA-GPU — CPU-Modus")
+                self.chat_dock.append_system(
+                    "Agent bereit (CPU-Modus).\n"
+                    "Befehle: 'analysiere', 'schneide', 'gpu status'"
+                )
+
             self.console_text.append("[KI] Chat-Assistent initialisiert (Modell wird bei erster Anfrage geladen).")
         except Exception as e:
             self.chat_dock.append_error(f"Agent konnte nicht initialisiert werden: {e}")

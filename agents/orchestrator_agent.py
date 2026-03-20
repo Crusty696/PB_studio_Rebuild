@@ -401,9 +401,12 @@ class OrchestratorAgent(BaseAgent):
         # 3. Spezialisierter Agent
         agent = self._route_to_agent(user_text)
         if agent is not None:
-            # ModelManager: Agent-Modell laden falls nötig
+            # ModelManager: Agent-Modell laden falls nötig (mit korrektem model_type)
             if self._model_manager and agent.model_id:
-                self._model_manager.ensure_loaded(agent.model_id, "vision")
+                # model_type aus der Agent-Domain ableiten
+                model_type_map = {"vision": "vision", "audio": "whisper"}
+                model_type = model_type_map.get(agent.domain, "transformers")
+                self._model_manager.ensure_loaded(agent.model_id, model_type)
             return agent.process(user_text, context)
 
         # 4. Direktes Action-Registry (Fuzzy)
