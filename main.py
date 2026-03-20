@@ -1,7 +1,7 @@
 """
 PB_studio v0.4.0 — DaVinci Resolve Style UI Rebuild
 =====================================================
-4 Arbeitsbereiche: MEDIA | EDIT | EFFECTS | DELIVER
+4 Arbeitsbereiche: MEDIA | EDIT | CONVERT | DELIVER
 Bottom-Navigationsleiste wie DaVinci Resolve.
 Optimierte Timeline mit Caching.
 """
@@ -32,9 +32,10 @@ from database import init_db, engine, AudioTrack, VideoClip, TimelineEntry, Beat
 from sqlalchemy.orm import Session as DBSession
 import json as _json
 from services.ingest_service import (
-    ingest_audio, ingest_video, get_all_media,
-    AUDIO_EXTENSIONS, VIDEO_EXTENSIONS,
+    ingest_audio, ingest_video, get_all_media, get_all_audio, get_all_video,
+    delete_all_media, AUDIO_EXTENSIONS, VIDEO_EXTENSIONS,
 )
+import os
 from services.audio_service import AudioAnalyzer
 from services.video_service import VideoAnalyzer
 from services.pacing_service import PacingSettings, calculate_cut_points, CutPoint, auto_edit_to_beats
@@ -116,13 +117,25 @@ task_manager = GlobalTaskManager()
 # Background Workers
 # ======================================================================
 
-class AnalysisWorker(QObject):
+class CancellableMixin:
+    """Mixin for workers: adds a _cancelled flag checked via should_stop()."""
+    _cancelled = False
+
+    def cancel(self):
+        self._cancelled = True
+
+    def should_stop(self) -> bool:
+        return self._cancelled
+
+
+class AnalysisWorker(QObject, CancellableMixin):
     finished = Signal(int, dict)
     error = Signal(int, str)
     started = Signal(int, str)
 
     def __init__(self, track_id: int, title: str):
         super().__init__()
+        self._cancelled = False
         self.track_id = track_id
         self.title = title
         self.analyzer = AudioAnalyzer()
@@ -136,7 +149,7 @@ class AnalysisWorker(QObject):
             self.error.emit(self.track_id, str(e))
 
 
-class VideoAnalysisWorker(QObject):
+class VideoAnalysisWorker(QObject, CancellableMixin):
     finished = Signal(int, dict)
     error = Signal(int, str)
     started = Signal(int, str)
@@ -156,7 +169,7 @@ class VideoAnalysisWorker(QObject):
             self.error.emit(self.clip_id, str(e))
 
 
-class StemSeparationWorker(QObject):
+class StemSeparationWorker(QObject, CancellableMixin):
     finished = Signal(int, dict)
     error = Signal(int, str)
     progress = Signal(int, int, str)
@@ -178,7 +191,7 @@ class StemSeparationWorker(QObject):
             self.error.emit(self.track_id, str(e))
 
 
-class AutoDuckingWorker(QObject):
+class AutoDuckingWorker(QObject, CancellableMixin):
     finished = Signal(str)
     error = Signal(str)
     progress = Signal(int, int, str)
@@ -202,7 +215,7 @@ class AutoDuckingWorker(QObject):
             self.error.emit(str(e))
 
 
-class ExportWorker(QObject):
+class ExportWorker(QObject, CancellableMixin):
     finished = Signal(str)
     error = Signal(str)
     progress = Signal(int, int, str)
@@ -266,7 +279,7 @@ class FrameExtractWorker(QObject):
             self.error.emit(str(e))
 
 
-class AutoEditWorker(QObject):
+class AutoEditWorker(QObject, CancellableMixin):
     finished = Signal(list)
     error = Signal(str)
 
@@ -290,7 +303,7 @@ class AutoEditWorker(QObject):
             self.error.emit(str(e))
 
 
-class WaveformAnalysisWorker(QObject):
+class WaveformAnalysisWorker(QObject, CancellableMixin):
     """Background Worker: Rekordbox-Style Frequenzanalyse + Beatgrid."""
     finished = Signal(int, dict)   # track_id, result
     error = Signal(int, str)       # track_id, error_msg
@@ -852,8 +865,8 @@ class PacingCurveWidget(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setMinimumHeight(55)
-        self.setMaximumHeight(75)
+        self.setMinimumHeight(180)
+        self.setMaximumHeight(16777215)  # no max — resizable via QSplitter
         self.setToolTip(
             "Pacing-Kurve: Klicke und ziehe um die Schnitt-Dichte ueber die Zeit "
             "zu zeichnen. Oben = viele Schnitte, Unten = wenige"
@@ -909,28 +922,38 @@ class PacingCurveWidget(QWidget):
                 p.drawText(x + 2, h - 1, f"{t:.0f}s")
                 t += step
 
-        # Filled area under curve
-        path = QPainterPath()
-        path.moveTo(0, h)
+        # Build smooth point list
+        points = []
         for i, d in enumerate(self._density):
             x = (i / (self._num_samples - 1)) * w
             y = h - (d * (h - 10))
-            path.lineTo(x, y)
-        path.lineTo(w, h)
+            points.append((x, y))
+
+        # Filled area under curve (smooth cubic spline)
+        path = QPainterPath()
+        path.moveTo(0, h)
+        if points:
+            path.lineTo(points[0][0], points[0][1])
+            for i in range(1, len(points)):
+                x0, y0 = points[i - 1]
+                x1, y1 = points[i]
+                cx = (x0 + x1) / 2.0
+                path.cubicTo(cx, y0, cx, y1, x1, y1)
+            path.lineTo(w, h)
         path.closeSubpath()
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(QColor(0, 180, 212, 35))
         p.drawPath(path)
 
-        # Curve line
+        # Curve line (smooth cubic spline)
         line_path = QPainterPath()
-        for i, d in enumerate(self._density):
-            x = (i / (self._num_samples - 1)) * w
-            y = h - (d * (h - 10))
-            if i == 0:
-                line_path.moveTo(x, y)
-            else:
-                line_path.lineTo(x, y)
+        if points:
+            line_path.moveTo(points[0][0], points[0][1])
+            for i in range(1, len(points)):
+                x0, y0 = points[i - 1]
+                x1, y1 = points[i]
+                cx = (x0 + x1) / 2.0
+                line_path.cubicTo(cx, y0, cx, y1, x1, y1)
         p.setPen(QPen(QColor(0, 212, 230, 160), 1.5))
         p.setBrush(Qt.BrushStyle.NoBrush)
         p.drawPath(line_path)
@@ -963,11 +986,13 @@ class PacingCurveWidget(QWidget):
         y_ratio = max(0.0, min(1.0, 1.0 - (pos.y() / h)))
         idx = int(x_ratio * (self._num_samples - 1))
         idx = max(0, min(idx, self._num_samples - 1))
-        # Brush radius for smooth drawing
-        for offset in range(-3, 4):
+        # Wider brush radius for organic, smooth drawing
+        radius = 6
+        for offset in range(-radius, radius + 1):
             j = idx + offset
             if 0 <= j < self._num_samples:
-                weight = 1.0 - abs(offset) / 4.0
+                weight = 1.0 - abs(offset) / (radius + 1.0)
+                weight = weight * weight  # quadratic falloff for smoother feel
                 self._density[j] = self._density[j] * (1 - weight) + y_ratio * weight
         self.update()
 
@@ -1109,22 +1134,53 @@ class AboutDialog(QDialog):
 # Task Manager Widget
 # ======================================================================
 
-class TaskManagerWidget(QTreeWidget):
-    """Zeigt alle laufenden Hintergrund-Prozesse an."""
+class TaskManagerWidget(QWidget):
+    """Zeigt alle laufenden Hintergrund-Prozesse an — mit Abbrechen-Button."""
+    cancel_requested = Signal(str)  # task_id
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setHeaderLabels(["Task", "Status", "Fortschritt", "Zeit"])
-        self.setColumnCount(4)
-        self.setAlternatingRowColors(True)
-        self.setMaximumHeight(120)
-        self.setToolTip("Hintergrund-Prozesse: Zeigt den Status aller laufenden Aufgaben wie Analyse, Export und KI-Verarbeitung")
+        self.setMaximumHeight(140)
 
-        header = self.header()
-        header.setStretchLastSection(True)
-        header.resizeSection(0, 200)
-        header.resizeSection(1, 80)
-        header.resizeSection(2, 120)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(2)
+
+        # Header with cancel button
+        header_row = QHBoxLayout()
+        header_row.setContentsMargins(4, 2, 4, 0)
+        header_label = QLabel("TASKS")
+        header_label.setStyleSheet("color: #505050; font-size: 9px; font-weight: 600; letter-spacing: 1px;")
+        header_row.addWidget(header_label)
+        header_row.addStretch()
+
+        self.btn_cancel = QPushButton("Abbrechen")
+        self.btn_cancel.setFixedHeight(20)
+        self.btn_cancel.setFixedWidth(90)
+        self.btn_cancel.setStyleSheet(
+            "QPushButton { background: #3A1010; color: #FF5050; border: 1px solid #FF3030; "
+            "font-size: 10px; font-weight: bold; border-radius: 3px; padding: 0 6px; }"
+            "QPushButton:hover { background: #FF3030; color: #FFFFFF; }"
+        )
+        self.btn_cancel.setToolTip("Laufenden Task abbrechen")
+        self.btn_cancel.clicked.connect(self._on_cancel_clicked)
+        header_row.addWidget(self.btn_cancel)
+
+        layout.addLayout(header_row)
+
+        self._tree = QTreeWidget()
+        self._tree.setHeaderLabels(["Task", "Status", "Fortschritt", "Zeit"])
+        self._tree.setColumnCount(4)
+        self._tree.setAlternatingRowColors(True)
+        self._tree.setToolTip("Hintergrund-Prozesse: Zeigt den Status aller laufenden Aufgaben")
+
+        tree_header = self._tree.header()
+        tree_header.setStretchLastSection(True)
+        tree_header.resizeSection(0, 200)
+        tree_header.resizeSection(1, 80)
+        tree_header.resizeSection(2, 120)
+
+        layout.addWidget(self._tree)
 
         self._items: dict[str, QTreeWidgetItem] = {}
 
@@ -1137,13 +1193,33 @@ class TaskManagerWidget(QTreeWidget):
         task_manager.task_updated.connect(self._on_task_updated)
         task_manager.task_finished.connect(self._on_task_finished)
 
+    def _on_cancel_clicked(self):
+        """Cancel the currently selected (or first running) task."""
+        item = self._tree.currentItem()
+        task_id = None
+        if item:
+            for tid, it in self._items.items():
+                if it is item:
+                    task_id = tid
+                    break
+        if not task_id:
+            # fallback: cancel first running task
+            for tid in self._items:
+                task = task_manager.get_task(tid)
+                if task and task.status == "running":
+                    task_id = tid
+                    break
+        if task_id:
+            self.cancel_requested.emit(task_id)
+            task_manager.finish_task(task_id, status="cancelled", message="Abgebrochen")
+
     def _on_task_added(self, task_id: str):
         task = task_manager.get_task(task_id)
         if not task:
             return
         item = QTreeWidgetItem([task.name, "Running", "", "0s"])
         item.setForeground(1, QBrush(QColor(100, 200, 100)))
-        self.addTopLevelItem(item)
+        self._tree.addTopLevelItem(item)
         self._items[task_id] = item
 
     def _on_task_updated(self, task_id: str):
@@ -1164,6 +1240,9 @@ class TaskManagerWidget(QTreeWidget):
         if task.status == "finished":
             item.setText(1, "Done")
             item.setForeground(1, QBrush(QColor(100, 200, 255)))
+        elif task.status == "cancelled":
+            item.setText(1, "Cancelled")
+            item.setForeground(1, QBrush(QColor(255, 180, 50)))
         else:
             item.setText(1, "Error")
             item.setForeground(1, QBrush(QColor(255, 100, 100)))
@@ -1185,7 +1264,7 @@ class WorkspaceNavBar(QWidget):
     """Bottom navigation bar — DaVinci Resolve Style."""
     workspace_changed = Signal(int)
 
-    WORKSPACE_NAMES = ["MEDIA", "EDIT", "EFFECTS", "DELIVER"]
+    WORKSPACE_NAMES = ["MEDIA", "EDIT", "CONVERT", "DELIVER"]
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1204,7 +1283,7 @@ class WorkspaceNavBar(QWidget):
         tooltips = [
             "MEDIA: Dateien importieren, verwalten und analysieren",
             "EDIT: Timeline bearbeiten, Clips schneiden, KI-Pacing",
-            "EFFECTS: Farbkorrektur, Video-Filter und Ueberblendungen",
+            "CONVERT: Videos standardisieren (Aufloesung, FPS, Format)",
             "DELIVER: Finales Video exportieren und rendern",
         ]
 
@@ -1295,6 +1374,7 @@ class PBWindow(QMainWindow):
 
         # ── Task Manager (kompakt, immer sichtbar) ──
         self.task_manager_widget = TaskManagerWidget()
+        self.task_manager_widget.cancel_requested.connect(self._cancel_worker_for_task)
         main_layout.addWidget(self.task_manager_widget)
 
         # ── Bottom Navigation Bar (DaVinci Style) ──
@@ -1356,7 +1436,24 @@ class PBWindow(QMainWindow):
         btn_audio.clicked.connect(self._import_audio)
         import_layout.addWidget(btn_audio)
 
+        btn_folder = QPushButton("Ordner importieren")
+        btn_folder.setToolTip("Alle Audio- und Video-Dateien aus einem Ordner (inkl. Unterordner) importieren")
+        btn_folder.clicked.connect(self._import_folder)
+        import_layout.addWidget(btn_folder)
+
         left_layout.addWidget(import_group)
+
+        # Verwaltung
+        manage_group = QGroupBox("Verwaltung")
+        manage_layout = QVBoxLayout(manage_group)
+
+        btn_clear_all = QPushButton("Sammlung bereinigen")
+        btn_clear_all.setToolTip("Alle Medien aus Datenbank und Ansicht entfernen")
+        btn_clear_all.setStyleSheet("color: #FF6060; font-weight: bold;")
+        btn_clear_all.clicked.connect(self._clear_all_media)
+        manage_layout.addWidget(btn_clear_all)
+
+        left_layout.addWidget(manage_group)
 
         # Analyse-Gruppe
         analyze_group = QGroupBox("Analyse")
@@ -1414,28 +1511,88 @@ class PBWindow(QMainWindow):
         left_layout.addStretch()
         splitter.addWidget(left_panel)
 
-        # ── Rechte Seite: Media-Tabelle ──
+        # ── Rechte Seite: Video Pool + Audio Pool (vertikal getrennt) ──
+        right_panel = QWidget()
+        right_layout = QVBoxLayout(right_panel)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(4)
+
+        pool_splitter = QSplitter(Qt.Orientation.Vertical)
+
+        # --- Video Pool ---
+        video_pool_widget = QWidget()
+        video_pool_layout = QVBoxLayout(video_pool_widget)
+        video_pool_layout.setContentsMargins(0, 0, 0, 0)
+        video_pool_layout.setSpacing(2)
+
+        video_pool_header = QLabel("VIDEO POOL")
+        video_pool_header.setStyleSheet("color: #00F0FF; font-weight: 700; font-size: 11px; padding: 2px 4px; background: #0A0A0A;")
+        video_pool_layout.addWidget(video_pool_header)
+
+        self.video_pool_table = QTableWidget()
+        self.video_pool_table.setColumnCount(6)
+        self.video_pool_table.setHorizontalHeaderLabels(["ID", "Titel", "Aufloesung", "FPS", "Codec", "Dateipfad"])
+        self.video_pool_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.video_pool_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.video_pool_table.setAlternatingRowColors(True)
+        self.video_pool_table.setToolTip("Video Pool: Alle importierten Video-Dateien")
+        vh = self.video_pool_table.horizontalHeader()
+        vh.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        vh.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        vh.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        vh.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        vh.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        vh.setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
+        video_pool_layout.addWidget(self.video_pool_table)
+
+        pool_splitter.addWidget(video_pool_widget)
+
+        # --- Audio Pool ---
+        audio_pool_widget = QWidget()
+        audio_pool_layout = QVBoxLayout(audio_pool_widget)
+        audio_pool_layout.setContentsMargins(0, 0, 0, 0)
+        audio_pool_layout.setSpacing(2)
+
+        audio_pool_header = QLabel("AUDIO POOL")
+        audio_pool_header.setStyleSheet("color: #FF6AC1; font-weight: 700; font-size: 11px; padding: 2px 4px; background: #0A0A0A;")
+        audio_pool_layout.addWidget(audio_pool_header)
+
+        self.audio_pool_table = QTableWidget()
+        self.audio_pool_table.setColumnCount(6)
+        self.audio_pool_table.setHorizontalHeaderLabels(["ID", "Titel", "BPM", "Key", "Stems", "Dateipfad"])
+        self.audio_pool_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.audio_pool_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.audio_pool_table.setAlternatingRowColors(True)
+        self.audio_pool_table.setToolTip("Audio Pool: Alle importierten Audio-Dateien")
+        ah = self.audio_pool_table.horizontalHeader()
+        ah.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        ah.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        ah.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        ah.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        ah.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        ah.setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
+        audio_pool_layout.addWidget(self.audio_pool_table)
+
+        pool_splitter.addWidget(audio_pool_widget)
+
+        pool_splitter.setStretchFactor(0, 1)
+        pool_splitter.setStretchFactor(1, 1)
+
+        right_layout.addWidget(pool_splitter)
+
+        # Legacy media_table kept as hidden proxy for selection-based functions
         self.media_table = QTableWidget()
         self.media_table.setColumnCount(8)
         self.media_table.setHorizontalHeaderLabels(
             ["ID", "Typ", "Titel", "BPM", "Aufloesung", "FPS", "Stems", "Dateipfad"]
         )
-        self.media_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.media_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.media_table.setAlternatingRowColors(True)
-        self.media_table.setToolTip("Mediathek: Alle importierten Dateien. Klicke eine Zeile an, um sie fuer Analyse oder Timeline auszuwaehlen")
+        self.media_table.setVisible(False)
 
-        header = self.media_table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(7, QHeaderView.ResizeMode.Stretch)
+        # Sync pool table selections to hidden media_table
+        self.video_pool_table.currentCellChanged.connect(self._on_video_pool_selected)
+        self.audio_pool_table.currentCellChanged.connect(self._on_audio_pool_selected)
 
-        splitter.addWidget(self.media_table)
+        splitter.addWidget(right_panel)
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 4)
 
@@ -1643,7 +1800,7 @@ class PBWindow(QMainWindow):
         return workspace
 
     # ==================================================================
-    # Workspace 3: EFFECTS
+    # Workspace 3: CONVERT (Video-Standardisierung)
     # ==================================================================
 
     def _build_effects_workspace(self) -> QWidget:
@@ -1651,114 +1808,98 @@ class PBWindow(QMainWindow):
         layout = QVBoxLayout(workspace)
         layout.setContentsMargins(8, 8, 8, 4)
 
-        # ── Oberer Bereich: Einstellungen + Vorschau ──
         top_splitter = QSplitter(Qt.Orientation.Horizontal)
 
-        # Linke Seite: Effekt-Einstellungen
+        # ── Linke Seite: Konvertierungs-Einstellungen ──
         settings_panel = QWidget()
         settings_layout = QVBoxLayout(settings_panel)
 
-        # Clip-Auswahl
-        select_group = QGroupBox("Clip auswaehlen")
-        select_layout = QHBoxLayout(select_group)
-        clip_label = QLabel("Timeline-Clip:")
-        clip_label.setToolTip("Waehle den Video-Clip aus der Timeline, auf den die Effekte angewendet werden sollen")
-        select_layout.addWidget(clip_label)
+        # Ziel-Format
+        format_group = QGroupBox("Ziel-Format")
+        format_layout = QVBoxLayout(format_group)
+
+        res_row = QHBoxLayout()
+        res_row.addWidget(QLabel("Aufloesung:"))
+        self.convert_resolution = QComboBox()
+        self.convert_resolution.addItems(["1920x1080 (1080p)", "2560x1440 (2K)", "3840x2160 (4K)", "1280x720 (720p)"])
+        self.convert_resolution.setToolTip("Ziel-Aufloesung fuer alle Videos")
+        res_row.addWidget(self.convert_resolution)
+        format_layout.addLayout(res_row)
+
+        fps_row = QHBoxLayout()
+        fps_row.addWidget(QLabel("Framerate:"))
+        self.convert_fps = QComboBox()
+        self.convert_fps.addItems(["30 fps", "24 fps", "25 fps", "50 fps", "60 fps"])
+        self.convert_fps.setToolTip("Ziel-Framerate fuer alle Videos")
+        fps_row.addWidget(self.convert_fps)
+        format_layout.addLayout(fps_row)
+
+        fmt_row = QHBoxLayout()
+        fmt_row.addWidget(QLabel("Container:"))
+        self.convert_format = QComboBox()
+        self.convert_format.addItems(["mp4 (H.264)", "mp4 (H.265/HEVC)", "mov (ProRes)", "mkv (H.264)"])
+        self.convert_format.setToolTip("Ziel-Containerformat")
+        fmt_row.addWidget(self.convert_format)
+        format_layout.addLayout(fmt_row)
+
+        settings_layout.addWidget(format_group)
+
+        # Konvertierungs-Aktionen
+        action_group = QGroupBox("Aktionen")
+        action_layout = QVBoxLayout(action_group)
+
+        self.btn_standardize_all = QPushButton("Alle Videos standardisieren")
+        self.btn_standardize_all.setObjectName("btn_accent")
+        self.btn_standardize_all.setMinimumHeight(46)
+        self.btn_standardize_all.setToolTip(
+            "Konvertiert alle Videos im Video Pool in das gewaehlte Standardformat (per ffmpeg)"
+        )
+        self.btn_standardize_all.clicked.connect(self._standardize_all_videos)
+        action_layout.addWidget(self.btn_standardize_all)
+
+        self.convert_progress = QProgressBar()
+        self.convert_progress.setVisible(False)
+        self.convert_progress.setTextVisible(True)
+        self.convert_progress.setFormat("Konvertierung...")
+        action_layout.addWidget(self.convert_progress)
+
+        settings_layout.addWidget(action_group)
+
+        # Legacy effects controls (hidden but keep refs for existing code)
         self.effects_clip_combo = QComboBox()
-        self.effects_clip_combo.setToolTip("Liste aller Video-Clips auf der Timeline. Waehle einen Clip, um seine Effekt-Einstellungen zu laden und zu bearbeiten")
-        self.effects_clip_combo.currentIndexChanged.connect(self._on_effects_clip_changed)
-        select_layout.addWidget(self.effects_clip_combo)
-        btn_refresh_effects = QPushButton("Aktualisieren")
-        btn_refresh_effects.setToolTip("Laedt die Clip-Liste neu, z.B. nach dem Hinzufuegen neuer Clips zur Timeline")
-        btn_refresh_effects.clicked.connect(self._refresh_effects_combos)
-        select_layout.addWidget(btn_refresh_effects)
-        settings_layout.addWidget(select_group)
-
-        # Farbkorrektur
-        color_group = QGroupBox("Farbkorrektur")
-        color_layout = QVBoxLayout(color_group)
-
-        bright_row = QHBoxLayout()
-        bright_label = QLabel("Helligkeit:")
-        bright_label.setToolTip("Regelt die Gesamthelligkeit des Clips. Negativ = dunkler, Positiv = heller")
-        bright_row.addWidget(bright_label)
+        self.effects_clip_combo.setVisible(False)
         self.brightness_slider = QSlider(Qt.Orientation.Horizontal)
-        self.brightness_slider.setRange(-100, 100)
-        self.brightness_slider.setValue(0)
-        self.brightness_slider.setToolTip("Helligkeit anpassen: -1.00 (schwarz) bis +1.00 (weiss). Standard ist 0.00 (keine Aenderung)")
-        self.brightness_label = QLabel("0.00")
-        self.brightness_slider.valueChanged.connect(
-            lambda v: self.brightness_label.setText(f"{v / 100:.2f}")
-        )
-        bright_row.addWidget(self.brightness_slider)
-        bright_row.addWidget(self.brightness_label)
-        color_layout.addLayout(bright_row)
-
-        contrast_row = QHBoxLayout()
-        contrast_label = QLabel("Kontrast:")
-        contrast_label.setToolTip("Regelt den Kontrast des Clips. Unter 1.0 = flacher, Ueber 1.0 = knackiger")
-        contrast_row.addWidget(contrast_label)
+        self.brightness_slider.setVisible(False)
+        self.brightness_label = QLabel()
         self.contrast_slider = QSlider(Qt.Orientation.Horizontal)
-        self.contrast_slider.setRange(0, 300)
-        self.contrast_slider.setValue(100)
-        self.contrast_slider.setToolTip("Kontrast anpassen: 0.00 (grau) bis 3.00 (extrem). Standard ist 1.00 (keine Aenderung)")
-        self.contrast_label = QLabel("1.00")
-        self.contrast_slider.valueChanged.connect(
-            lambda v: self.contrast_label.setText(f"{v / 100:.2f}")
-        )
-        contrast_row.addWidget(self.contrast_slider)
-        contrast_row.addWidget(self.contrast_label)
-        color_layout.addLayout(contrast_row)
-
-        settings_layout.addWidget(color_group)
-
-        # Crossfade
-        crossfade_group = QGroupBox("Ueberblendung (Crossfade)")
-        crossfade_layout = QHBoxLayout(crossfade_group)
-        cf_label = QLabel("Dauer:")
-        cf_label.setToolTip("Dauer der Ueberblendung zwischen zwei aufeinanderfolgenden Clips")
-        crossfade_layout.addWidget(cf_label)
+        self.contrast_slider.setVisible(False)
+        self.contrast_label = QLabel()
         self.crossfade_slider = QSlider(Qt.Orientation.Horizontal)
-        self.crossfade_slider.setRange(0, 30)
-        self.crossfade_slider.setValue(0)
-        self.crossfade_slider.setToolTip("Crossfade-Dauer in Sekunden: 0.0s (harter Schnitt) bis 3.0s (langsame Ueberblendung)")
-        self.crossfade_label = QLabel("0.0s")
-        self.crossfade_slider.valueChanged.connect(
-            lambda v: self.crossfade_label.setText(f"{v / 10:.1f}s")
-        )
-        crossfade_layout.addWidget(self.crossfade_slider)
-        crossfade_layout.addWidget(self.crossfade_label)
-        settings_layout.addWidget(crossfade_group)
-
-        # Anwenden
-        btn_apply = QPushButton("Effekte auf Clip anwenden")
-        btn_apply.setObjectName("btn_accent")
-        btn_apply.setMinimumHeight(46)
-        btn_apply.setToolTip("Speichert die eingestellten Effekte (Helligkeit, Kontrast, Crossfade) fuer den ausgewaehlten Clip in der Datenbank und zeigt eine Vorschau")
-        btn_apply.clicked.connect(self._apply_effects)
-        settings_layout.addWidget(btn_apply)
+        self.crossfade_slider.setVisible(False)
+        self.crossfade_label = QLabel()
 
         settings_layout.addStretch()
         top_splitter.addWidget(settings_panel)
 
-        # Rechte Seite: Effekt-Vorschau
-        preview_panel = QWidget()
-        preview_layout = QVBoxLayout(preview_panel)
+        # ── Rechte Seite: Konvertierungs-Log ──
+        log_panel = QWidget()
+        log_layout = QVBoxLayout(log_panel)
 
-        preview_title = QLabel("Effekt-Vorschau")
-        preview_title.setStyleSheet("color: #00F0FF; font-weight: 600; font-size: 12px;")
-        preview_layout.addWidget(preview_title)
+        log_title = QLabel("CONVERT LOG")
+        log_title.setStyleSheet("color: #00F0FF; font-weight: 700; font-size: 11px; padding: 2px 4px;")
+        log_layout.addWidget(log_title)
 
-        self.effects_preview = QLabel("Waehle einen Clip und passe die Effekte an")
-        self.effects_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.effects_preview.setMinimumSize(400, 300)
-        self.effects_preview.setStyleSheet("background-color: #0A0A0A; border: 1px solid #1E1E1E; color: #404040;")
-        self.effects_preview.setToolTip("Zeigt eine Vorschau des aktuellen Clips mit den angewendeten Farbkorrekturen. Aktualisiert sich nach Klick auf 'Effekte anwenden'")
-        preview_layout.addWidget(self.effects_preview)
+        self.convert_log = QTextEdit()
+        self.convert_log.setReadOnly(True)
+        self.convert_log.setStyleSheet("background-color: #0A0A0A; border: 1px solid #1E1E1E; color: #C0C0C0; font-family: 'Consolas';")
+        self.convert_log.setToolTip("Protokoll der Video-Konvertierungen")
+        self.convert_log.append("[Convert] Bereit. Waehle Ziel-Format und klicke 'Alle Videos standardisieren'.")
+        log_layout.addWidget(self.convert_log)
 
-        preview_layout.addStretch()
-        top_splitter.addWidget(preview_panel)
+        self.effects_preview = QLabel("")
+        self.effects_preview.setVisible(False)
 
+        top_splitter.addWidget(log_panel)
         top_splitter.setStretchFactor(0, 2)
         top_splitter.setStretchFactor(1, 3)
 
@@ -1915,6 +2056,19 @@ class PBWindow(QMainWindow):
         thread.start()
         return thread
 
+    def _cancel_worker_for_task(self, task_id: str):
+        """Cancel running workers by setting their _cancelled flag and quitting the thread."""
+        for worker in list(self._active_workers):
+            if hasattr(worker, 'cancel'):
+                worker.cancel()
+        # Quit threads that are still running
+        for thread in list(self._active_threads):
+            if thread.isRunning():
+                thread.quit()
+                if not thread.wait(2000):
+                    thread.terminate()
+        self.console_text.append(f"[System] Task abgebrochen: {task_id}")
+
     # ==================================================================
     # Combos aktualisieren
     # ==================================================================
@@ -2017,6 +2171,92 @@ class PBWindow(QMainWindow):
     def _on_effect_frame_ready(self, raw_data: bytes, width: int, height: int):
         img = QImage(raw_data, width, height, width * 3, QImage.Format.Format_RGB888)
         self.effects_preview.setPixmap(QPixmap.fromImage(img))
+
+    # ==================================================================
+    # CONVERT: Video-Standardisierung
+    # ==================================================================
+
+    def _standardize_all_videos(self):
+        """Konvertiert alle Videos im Video Pool ins gewaehlte Format per ffmpeg."""
+        videos = get_all_video()
+        if not videos:
+            self.convert_log.append("[Convert] Keine Videos im Pool.")
+            return
+
+        # Parse settings
+        res_text = self.convert_resolution.currentText()
+        resolution = res_text.split(" ")[0]  # e.g. "1920x1080"
+        w_res, h_res = resolution.split("x")
+
+        fps_text = self.convert_fps.currentText()
+        fps = fps_text.split(" ")[0]  # e.g. "30"
+
+        fmt_text = self.convert_format.currentText()
+        if "H.265" in fmt_text or "HEVC" in fmt_text:
+            vcodec = "libx265"
+            ext = ".mp4"
+        elif "ProRes" in fmt_text:
+            vcodec = "prores_ks"
+            ext = ".mov"
+        elif "mkv" in fmt_text:
+            vcodec = "libx264"
+            ext = ".mkv"
+        else:
+            vcodec = "libx264"
+            ext = ".mp4"
+
+        self.convert_progress.setVisible(True)
+        self.convert_progress.setRange(0, len(videos))
+        self.convert_progress.setValue(0)
+
+        task = task_manager.create_task("Video Convert", f"{len(videos)} Videos → {resolution} {fps}fps")
+
+        converted = 0
+        for i, v in enumerate(videos):
+            src = v["file_path"]
+            stem = Path(src).stem
+            out_dir = Path(src).parent / "converted"
+            out_dir.mkdir(exist_ok=True)
+            dst = str(out_dir / f"{stem}_std{ext}")
+
+            cmd = [
+                "ffmpeg", "-y", "-i", src,
+                "-vf", f"scale={w_res}:{h_res}:force_original_aspect_ratio=decrease,pad={w_res}:{h_res}:(ow-iw)/2:(oh-ih)/2",
+                "-r", fps,
+                "-c:v", vcodec,
+                "-c:a", "aac",
+                "-preset", "medium",
+                "-v", "quiet",
+                dst,
+            ]
+            self.convert_log.append(f"[Convert] {i+1}/{len(videos)}: {Path(src).name} → {resolution} @ {fps}fps")
+            QApplication.processEvents()
+
+            try:
+                result = subprocess.run(
+                    cmd, capture_output=True, timeout=600,
+                    creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+                )
+                if result.returncode == 0:
+                    self.convert_log.append(f"  OK: {dst}")
+                    converted += 1
+                else:
+                    stderr = result.stderr.decode(errors="replace")[:200]
+                    self.convert_log.append(f"  FEHLER: {stderr}")
+            except subprocess.TimeoutExpired:
+                self.convert_log.append(f"  TIMEOUT: Konvertierung hat zu lange gedauert")
+            except FileNotFoundError:
+                self.convert_log.append(f"  FEHLER: ffmpeg nicht gefunden!")
+                break
+
+            self.convert_progress.setValue(i + 1)
+            task_manager.update_task(task.task_id, progress=i + 1, total=len(videos),
+                                     message=f"{Path(src).name}")
+            QApplication.processEvents()
+
+        self.convert_progress.setVisible(False)
+        task_manager.finish_task(task.task_id, message=f"{converted}/{len(videos)} konvertiert")
+        self.convert_log.append(f"[Convert] Fertig: {converted}/{len(videos)} Videos konvertiert.")
 
     # ==================================================================
     # Video Combo Changed
@@ -2256,6 +2496,40 @@ class PBWindow(QMainWindow):
         self.nav_bar.set_workspace(1)
 
     # ==================================================================
+    # Pool-Selection → Hidden media_table Sync
+    # ==================================================================
+
+    def _on_video_pool_selected(self, row, col, prev_row, prev_col):
+        """Sync video pool selection to hidden media_table."""
+        if row < 0:
+            return
+        vid_id_item = self.video_pool_table.item(row, 0)
+        if not vid_id_item:
+            return
+        vid_id = vid_id_item.text()
+        for r in range(self.media_table.rowCount()):
+            item = self.media_table.item(r, 0)
+            type_item = self.media_table.item(r, 1)
+            if item and type_item and item.text() == vid_id and type_item.text() == "Video":
+                self.media_table.setCurrentCell(r, 0)
+                break
+
+    def _on_audio_pool_selected(self, row, col, prev_row, prev_col):
+        """Sync audio pool selection to hidden media_table."""
+        if row < 0:
+            return
+        aud_id_item = self.audio_pool_table.item(row, 0)
+        if not aud_id_item:
+            return
+        aud_id = aud_id_item.text()
+        for r in range(self.media_table.rowCount()):
+            item = self.media_table.item(r, 0)
+            type_item = self.media_table.item(r, 1)
+            if item and type_item and item.text() == aud_id and type_item.text() == "Audio":
+                self.media_table.setCurrentCell(r, 0)
+                break
+
+    # ==================================================================
     # Import-Logik
     # ==================================================================
 
@@ -2288,6 +2562,46 @@ class PBWindow(QMainWindow):
             self._refresh_media_table()
             self._refresh_director_combos()
             self.status_bar.showMessage(f"{added} Datei(en) importiert | System bereit")
+
+    def _import_folder(self):
+        """Importiert alle unterstuetzten Medien aus einem Ordner (rekursiv)."""
+        folder = QFileDialog.getExistingDirectory(self, "Ordner importieren")
+        if not folder:
+            return
+        all_exts = AUDIO_EXTENSIONS | VIDEO_EXTENSIONS
+        paths_audio: list[str] = []
+        paths_video: list[str] = []
+        for root, _dirs, files in os.walk(folder):
+            for f in files:
+                ext = Path(f).suffix.lower()
+                full = os.path.join(root, f)
+                if ext in AUDIO_EXTENSIONS:
+                    paths_audio.append(full)
+                elif ext in VIDEO_EXTENSIONS:
+                    paths_video.append(full)
+        total = len(paths_audio) + len(paths_video)
+        if total == 0:
+            self.console_text.append(f"[Warnung] Keine unterstuetzten Medien in: {folder}")
+            return
+        self.console_text.append(f"[Ordner] {total} Dateien gefunden in: {folder}")
+        self._process_imports(paths_audio, "audio")
+        self._process_imports(paths_video, "video")
+
+    def _clear_all_media(self):
+        """Loescht alle Medien aus Datenbank und UI."""
+        from PySide6.QtWidgets import QMessageBox
+        reply = QMessageBox.question(
+            self, "Sammlung bereinigen",
+            "Alle Medien aus der Datenbank entfernen?\nDie Original-Dateien bleiben erhalten.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            count = delete_all_media()
+            self._refresh_media_table()
+            self._refresh_director_combos()
+            self.console_text.append(f"[System] {count} Medien-Eintraege geloescht.")
+            self.status_bar.showMessage(f"Sammlung bereinigt ({count} Eintraege) | System bereit")
 
     # ==================================================================
     # Audio-Analyse
@@ -2674,6 +2988,31 @@ class PBWindow(QMainWindow):
     # ==================================================================
 
     def _refresh_media_table(self):
+        # Video Pool
+        videos = get_all_video()
+        self.video_pool_table.setRowCount(len(videos))
+        for row, item in enumerate(videos):
+            self.video_pool_table.setItem(row, 0, QTableWidgetItem(str(item["id"])))
+            self.video_pool_table.setItem(row, 1, QTableWidgetItem(item["title"]))
+            self.video_pool_table.setItem(row, 2, QTableWidgetItem(item.get("resolution") or "-"))
+            fps_str = str(item.get("fps", "")) if item.get("fps") else "-"
+            self.video_pool_table.setItem(row, 3, QTableWidgetItem(fps_str))
+            self.video_pool_table.setItem(row, 4, QTableWidgetItem("-"))
+            self.video_pool_table.setItem(row, 5, QTableWidgetItem(item["file_path"]))
+
+        # Audio Pool
+        audios = get_all_audio()
+        self.audio_pool_table.setRowCount(len(audios))
+        for row, item in enumerate(audios):
+            self.audio_pool_table.setItem(row, 0, QTableWidgetItem(str(item["id"])))
+            self.audio_pool_table.setItem(row, 1, QTableWidgetItem(item["title"]))
+            bpm_str = str(item["bpm"]) if item.get("bpm") else "-"
+            self.audio_pool_table.setItem(row, 2, QTableWidgetItem(bpm_str))
+            self.audio_pool_table.setItem(row, 3, QTableWidgetItem("-"))
+            self.audio_pool_table.setItem(row, 4, QTableWidgetItem(item.get("stems", "-")))
+            self.audio_pool_table.setItem(row, 5, QTableWidgetItem(item["file_path"]))
+
+        # Hidden proxy table (for legacy selection-based functions)
         media = get_all_media()
         self.media_table.setRowCount(len(media))
         for row, item in enumerate(media):

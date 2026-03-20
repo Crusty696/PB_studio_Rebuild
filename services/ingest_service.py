@@ -98,3 +98,12 @@ def get_all_video(project_id: int = 1) -> list[dict]:
 
 def get_all_media(project_id: int = 1) -> list[dict]:
     return get_all_audio(project_id) + get_all_video(project_id)
+
+
+def delete_all_media(project_id: int = 1) -> int:
+    """Loescht alle Audio- und Video-Eintraege aus der Datenbank."""
+    with Session(engine) as session:
+        count_a = session.query(AudioTrack).filter_by(project_id=project_id).delete()
+        count_v = session.query(VideoClip).filter_by(project_id=project_id).delete()
+        session.commit()
+        return count_a + count_v
