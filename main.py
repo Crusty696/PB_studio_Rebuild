@@ -384,6 +384,10 @@ class InteractiveTimeline(QGraphicsView):
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
+        # Sektor 2: Zoom zur Mausposition (Ableton Feel)
+        self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+        self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+
         # Performance: Caching und Optimierung (Sektor 3)
         self.setCacheMode(QGraphicsView.CacheModeFlag.CacheBackground)
         self.setOptimizationFlags(
@@ -392,6 +396,18 @@ class InteractiveTimeline(QGraphicsView):
         self.setViewportUpdateMode(
             QGraphicsView.ViewportUpdateMode.SmartViewportUpdate
         )
+
+        # Sektor 3: Hardware-beschleunigtes Rendering (OpenGL)
+        try:
+            from PySide6.QtOpenGLWidgets import QOpenGLWidget
+            self.setViewport(QOpenGLWidget())
+        except (ImportError, RuntimeError):
+            pass  # Fallback: Software-Rendering mit Tile-Cache
+
+        # Panning-State
+        self._panning = False
+        self._pan_start = QPointF()
+        self._space_held = False
 
         self.console_log = console_log
         self.clip_items: list[TimelineClipItem] = []
@@ -577,9 +593,67 @@ class InteractiveTimeline(QGraphicsView):
         self._scene.setSceneRect(r)
 
     def wheelEvent(self, event):
-        """Zoom mit Mausrad fuer smoothes Zoomen."""
-        factor = 1.15 if event.angleDelta().y() > 0 else 1.0 / 1.15
+        """Zoom mit Mausrad — sanfter Faktor, nur horizontal, zur Mausposition."""
+        delta = event.angleDelta().y()
+        if delta == 0:
+            return
+        # Sanfterer Zoom-Faktor (1.08 statt 1.15) für flüssigeres Gefühl
+        factor = 1.08 if delta > 0 else 1.0 / 1.08
+        # Begrenze Zoom-Bereich
+        current_scale = self.transform().m11()
+        new_scale = current_scale * factor
+        if new_scale < 0.01 or new_scale > 200.0:
+            return
         self.scale(factor, 1.0)
+
+    def mousePressEvent(self, event):
+        """Mittlere Maustaste oder Space+Links → Panning starten."""
+        if (event.button() == Qt.MouseButton.MiddleButton or
+                (self._space_held and event.button() == Qt.MouseButton.LeftButton)):
+            self._panning = True
+            self._pan_start = event.position()
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        """Panning: Timeline verschieben."""
+        if self._panning:
+            delta = event.position() - self._pan_start
+            self._pan_start = event.position()
+            hs = self.horizontalScrollBar()
+            vs = self.verticalScrollBar()
+            hs.setValue(int(hs.value() - delta.x()))
+            vs.setValue(int(vs.value() - delta.y()))
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        """Panning beenden."""
+        if self._panning and (event.button() == Qt.MouseButton.MiddleButton or
+                              event.button() == Qt.MouseButton.LeftButton):
+            self._panning = False
+            self.setCursor(Qt.CursorShape.ArrowCursor)
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+    def keyPressEvent(self, event):
+        """Space gedrückt → Panning-Modus aktivieren."""
+        if event.key() == Qt.Key.Key_Space and not event.isAutoRepeat():
+            self._space_held = True
+            self.setCursor(Qt.CursorShape.OpenHandCursor)
+        super().keyPressEvent(event)
+
+    def keyReleaseEvent(self, event):
+        """Space losgelassen → Panning-Modus deaktivieren."""
+        if event.key() == Qt.Key.Key_Space and not event.isAutoRepeat():
+            self._space_held = False
+            if not self._panning:
+                self.setCursor(Qt.CursorShape.ArrowCursor)
+        super().keyReleaseEvent(event)
 
 
 # ======================================================================
