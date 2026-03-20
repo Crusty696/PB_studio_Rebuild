@@ -347,33 +347,70 @@ class WaveformAnalysisWorker(QObject, CancellableMixin):
 # ======================================================================
 
 class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
-    """Führt die 3-Schritt Video-Analyse-Pipeline im Hintergrund aus."""
-    finished = Signal(int, dict)   # clip_id, result_dict
+    """Führt die 3-Schritt Video-Analyse-Pipeline im Hintergrund aus.
+
+    Unterstützt Batch-Verarbeitung: Nimmt eine Liste von (clip_id, video_path)
+    und arbeitet diese STRIKT SEQUENZIELL ab (6GB VRAM Limit).
+    """
+    finished = Signal(int, dict)   # last_clip_id, batch_result_dict
     error = Signal(int, str)       # clip_id, error_msg
     progress = Signal(int, int, str)  # step, total, message
 
-    def __init__(self, clip_id: int, video_path: str):
+    def __init__(self, clip_id: int = 0, video_path: str = "",
+                 batch: list | None = None):
+        """Args:
+            clip_id / video_path: Einzelnes Video (Rückwärtskompatibel).
+            batch: Liste von (clip_id, video_path, title) Tupeln für Batch-Modus.
+        """
         super().__init__()
         self._cancelled = False
-        self.clip_id = clip_id
-        self.video_path = video_path
+        if batch:
+            self._batch = batch
+        else:
+            self._batch = [(clip_id, video_path, "")]
 
     def run(self):
-        try:
-            from services.video_analysis_service import run_full_pipeline
-            result = run_full_pipeline(
-                video_path=self.video_path,
-                video_clip_id=self.clip_id,
-                progress_cb=lambda s, t, m: self.progress.emit(s, t, m),
-                should_stop=self.should_stop,
+        from services.video_analysis_service import run_full_pipeline
+
+        total_videos = len(self._batch)
+        total_scenes = 0
+        total_embeddings = 0
+        last_clip_id = self._batch[-1][0]
+
+        for idx, (clip_id, video_path, title) in enumerate(self._batch, start=1):
+            if self.should_stop():
+                break
+
+            label = title or Path(video_path).stem
+            self.progress.emit(
+                idx, total_videos,
+                f"Video {idx}/{total_videos}: '{label}' wird analysiert..."
             )
-            self.finished.emit(self.clip_id, {
-                "scenes": len(result.scenes),
-                "embeddings": result.embeddings_stored,
-                "duration": result.total_duration,
-            })
-        except Exception as e:
-            self.error.emit(self.clip_id, str(e))
+
+            try:
+                result = run_full_pipeline(
+                    video_path=video_path,
+                    video_clip_id=clip_id,
+                    progress_cb=lambda s, t, m, _i=idx, _tv=total_videos: (
+                        self.progress.emit(
+                            _i, _tv,
+                            f"[{_i}/{_tv}] {m}"
+                        )
+                    ),
+                    should_stop=self.should_stop,
+                )
+                total_scenes += len(result.scenes)
+                total_embeddings += result.embeddings_stored
+
+            except Exception as e:
+                self.error.emit(clip_id, f"Video {idx}/{total_videos} '{label}': {e}")
+                return
+
+        self.finished.emit(last_clip_id, {
+            "scenes": total_scenes,
+            "embeddings": total_embeddings,
+            "videos_processed": total_videos,
+        })
 
 
 # ======================================================================
@@ -1697,6 +1734,7 @@ class PBWindow(QMainWindow):
         self.video_pool_table.setHorizontalHeaderLabels(["ID", "Titel", "Aufloesung", "FPS", "Codec", "Dateipfad"])
         self.video_pool_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.video_pool_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.video_pool_table.setSelectionMode(QTableWidget.SelectionMode.ExtendedSelection)
         self.video_pool_table.setAlternatingRowColors(True)
         self.video_pool_table.setToolTip("Video Pool: Alle importierten Video-Dateien")
         vh = self.video_pool_table.horizontalHeader()
@@ -3267,45 +3305,71 @@ class PBWindow(QMainWindow):
     # ==================================================================
 
     def _start_video_pipeline(self):
-        """Startet die 3-Schritt Video-Analyse-Pipeline für das ausgewählte Video."""
-        row = self.media_table.currentRow()
-        if row < 0:
-            self.console_text.append("[Warnung] Keine Zeile ausgewaehlt.")
-            return
-        media_type = self.media_table.item(row, 1).text()
-        if media_type != "Video":
-            self.console_text.append("[Warnung] Nur Video-Dateien können per Pipeline analysiert werden.")
-            return
-        clip_id = int(self.media_table.item(row, 0).text())
-        title = self.media_table.item(row, 2).text()
+        """Startet die 3-Schritt Video-Analyse-Pipeline für ALLE ausgewählten Videos.
 
+        Liest alle markierten Zeilen im Video Pool aus und übergibt sie
+        als Batch an den Worker. Sequenzielle Abarbeitung (6GB VRAM).
+        """
+        # SEKTOR 1: Alle selektierten Zeilen im Video Pool auslesen
+        selected_rows = set()
+        for index in self.video_pool_table.selectionModel().selectedRows():
+            selected_rows.add(index.row())
+        if not selected_rows:
+            # Fallback: aktuelle Zeile
+            row = self.video_pool_table.currentRow()
+            if row >= 0:
+                selected_rows.add(row)
+        if not selected_rows:
+            self.console_text.append("[Warnung] Keine Zeile im Video Pool ausgewaehlt.")
+            return
+
+        # Clip-IDs und Pfade aus der Video Pool Tabelle sammeln
+        batch = []
         with DBSession(engine) as session:
-            clip = session.get(VideoClip, clip_id)
-            if not clip:
-                self.console_text.append(f"[Fehler] VideoClip {clip_id} nicht gefunden.")
-                return
-            video_path = clip.file_path
+            for row in sorted(selected_rows):
+                id_item = self.video_pool_table.item(row, 0)
+                title_item = self.video_pool_table.item(row, 1)
+                if not id_item:
+                    continue
+                clip_id = int(id_item.text())
+                title = title_item.text() if title_item else f"Clip {clip_id}"
 
+                clip = session.get(VideoClip, clip_id)
+                if not clip:
+                    self.console_text.append(f"[Fehler] VideoClip {clip_id} nicht gefunden.")
+                    continue
+                batch.append((clip_id, clip.file_path, title))
+
+        if not batch:
+            self.console_text.append("[Warnung] Keine gültigen Videos in der Auswahl.")
+            return
+
+        # SEKTOR 2: Batch-Task erstellen
+        count = len(batch)
+        label = batch[0][2] if count == 1 else f"{count} Videos"
         task = task_manager.create_task(
-            f"Pipeline: {title}",
-            "Szenen + Motion + SigLIP Embeddings"
+            f"Pipeline: {label}",
+            f"Batch-Analyse: {count} Video(s) — Szenen + Motion + SigLIP"
         )
 
         self.btn_video_pipeline.setEnabled(False)
-        self.btn_video_pipeline.setText("Pipeline laeuft...")
+        self.btn_video_pipeline.setText(f"Pipeline laeuft ({count})...")
         self.progress_bar.setVisible(True)
 
+        titles_str = ", ".join(t for _, _, t in batch[:3])
+        if count > 3:
+            titles_str += f" (+{count - 3} weitere)"
         self.console_text.append(
-            f"[Pipeline] Starte 3-Schritt Analyse fuer '{title}' "
+            f"[Pipeline] Starte Batch-Analyse fuer {count} Video(s): {titles_str} "
             f"(SceneDetect → Keyframes → SigLIP)..."
         )
 
-        worker = VideoAnalysisPipelineWorker(clip_id, video_path)
+        worker = VideoAnalysisPipelineWorker(batch=batch)
         worker.progress.connect(
             lambda s, t, m: self._on_pipeline_progress(s, t, m, task.task_id)
         )
         worker.finished.connect(
-            lambda cid, r: self._on_pipeline_finished(cid, r, title, task.task_id)
+            lambda cid, r: self._on_pipeline_finished(cid, r, label, task.task_id)
         )
         worker.error.connect(
             lambda cid, err: self._on_pipeline_error(cid, err, task.task_id)
@@ -3320,21 +3384,23 @@ class PBWindow(QMainWindow):
     def _on_pipeline_finished(self, clip_id: int, result: dict, title: str, task_id: str):
         scenes = result.get("scenes", 0)
         embeddings = result.get("embeddings", 0)
+        videos_done = result.get("videos_processed", 1)
         self.console_text.append(
-            f"[Pipeline] Fertig: '{title}' — {scenes} Szenen, "
-            f"{embeddings} Embeddings in LanceDB"
+            f"[Pipeline] Fertig: {title} — {videos_done} Video(s), "
+            f"{scenes} Szenen, {embeddings} Embeddings in LanceDB"
         )
         self.btn_video_pipeline.setEnabled(True)
         self.btn_video_pipeline.setText("Video-Pipeline (Szenen + KI)")
         self.progress_bar.setVisible(False)
         self.status_bar.showMessage(
-            f"Pipeline fertig: {title} | {scenes} Szenen, {embeddings} Embeddings"
+            f"Pipeline fertig: {title} | {videos_done} Video(s), "
+            f"{scenes} Szenen, {embeddings} Embeddings"
         )
         self._refresh_media_table()
         if task_id:
             task_manager.finish_task(
                 task_id, "finished",
-                f"{scenes} Szenen, {embeddings} Embeddings"
+                f"{videos_done} Video(s), {scenes} Szenen, {embeddings} Embeddings"
             )
 
     def _on_pipeline_error(self, clip_id: int, error_msg: str, task_id: str):

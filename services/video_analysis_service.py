@@ -100,14 +100,68 @@ def detect_scenes(
     return scenes
 
 
+def _load_raft_model():
+    """Lädt RAFT Optical Flow Modell auf CUDA (falls verfügbar).
+
+    Returns:
+        (raft_model, device) oder (None, None) bei Fehler.
+    """
+    try:
+        import torch
+        import torchvision.models.optical_flow as of
+
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        raft = of.raft_small(weights=of.Raft_Small_Weights.DEFAULT)
+        raft = raft.to(device).eval()
+        logger.info("RAFT Optical Flow geladen auf %s", device)
+        return raft, device
+    except Exception as e:
+        logger.warning("RAFT nicht verfügbar (%s) — nutze CPU-Fallback", e)
+        return None, None
+
+
+def _raft_motion_score(
+    raft_model, device, frame1_bgr: np.ndarray, frame2_bgr: np.ndarray,
+) -> float:
+    """Berechnet Motion-Score via RAFT auf GPU.
+
+    Nimmt zwei BGR-Frames, skaliert auf 520x320, berechnet Optical Flow
+    und gibt einen normalisierten Score (0.0 – 1.0) zurück.
+    """
+    import torch
+    import torchvision.transforms.functional as F
+
+    def prep(bgr: np.ndarray) -> torch.Tensor:
+        rgb = bgr[..., ::-1].copy()  # BGR → RGB
+        t = torch.from_numpy(rgb).permute(2, 0, 1).float()  # HWC → CHW
+        # Auf 520x320 skalieren (RAFT braucht durch 8 teilbare Dimensionen)
+        t = torch.nn.functional.interpolate(
+            t.unsqueeze(0), size=(320, 520), mode="bilinear", align_corners=False
+        )
+        return t.to(device)
+
+    img1 = prep(frame1_bgr)
+    img2 = prep(frame2_bgr)
+
+    with torch.no_grad():
+        flows = raft_model(img1, img2)
+        flow = flows[-1]  # Letzte Iteration = bester Flow
+        magnitude = torch.sqrt(flow[:, 0] ** 2 + flow[:, 1] ** 2)
+        raw = float(magnitude.mean().cpu())
+
+    # Normalisierung: typische Werte 0-50px → 0.0-1.0
+    return round(min(1.0, raw / 40.0), 4)
+
+
 def compute_motion_scores(
     video_path: str,
     scenes: list[SceneInfo],
     progress_cb: Callable[[int, int, str], None] | None = None,
 ) -> list[SceneInfo]:
-    """Berechnet Motion-Scores via RAFT Optical Flow (oder Fallback).
+    """Berechnet Motion-Scores via RAFT Optical Flow auf CUDA (oder CPU-Fallback).
 
-    RAFT wird nur geladen wenn verfügbar. Fallback: Frame-Differenz-basiert.
+    RAFT wird auf device='cuda' geladen wenn verfügbar.
+    Fallback: Frame-Differenz-basiert (CPU).
     Motion wird nur innerhalb der Szenen-Grenzen berechnet.
     """
     if progress_cb:
@@ -126,6 +180,10 @@ def compute_motion_scores(
 
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
 
+    # RAFT auf CUDA laden (einmal für alle Szenen)
+    raft_model, raft_device = _load_raft_model()
+    use_raft = raft_model is not None
+
     for scene in scenes:
         start_frame = int(scene.start_time * fps)
         end_frame = int(scene.end_time * fps)
@@ -137,30 +195,59 @@ def compute_motion_scores(
             min(end_frame - 1, mid_frame + int(fps * 0.5)),
         ]
 
-        frames = []
+        frames_bgr = []
         for fnum in sample_frames:
             cap.set(cv2.CAP_PROP_POS_FRAMES, fnum)
             ret, frame = cap.read()
             if ret:
-                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                # Auf 320px Breite skalieren für Speed
-                h, w = gray.shape
-                if w > 320:
-                    scale = 320 / w
-                    gray = cv2.resize(gray, (320, int(h * scale)))
-                frames.append(gray.astype(np.float32))
+                frames_bgr.append(frame)
 
-        if len(frames) == 2:
-            diff = np.abs(frames[1] - frames[0])
-            # Normalisierter Motion-Score (0.0 - 1.0)
-            raw_score = float(np.mean(diff)) / 255.0
-            scene.motion_score = round(min(1.0, raw_score * 3.0), 4)
+        if len(frames_bgr) == 2:
+            if use_raft:
+                # GPU-beschleunigte RAFT Motion-Analyse
+                try:
+                    scene.motion_score = _raft_motion_score(
+                        raft_model, raft_device, frames_bgr[0], frames_bgr[1]
+                    )
+                except Exception as e:
+                    logger.warning("RAFT Fehler bei Szene %d: %s — CPU-Fallback", scene.index, e)
+                    scene.motion_score = _cpu_motion_score(frames_bgr[0], frames_bgr[1])
+            else:
+                scene.motion_score = _cpu_motion_score(frames_bgr[0], frames_bgr[1])
         else:
             scene.motion_score = 0.0
 
     cap.release()
-    logger.info("Motion-Scores berechnet für %d Szenen", len(scenes))
+
+    # RAFT entladen um VRAM freizugeben für SigLIP
+    if use_raft:
+        import torch
+        del raft_model
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        logger.info("RAFT entladen, GPU-Cache geleert")
+
+    logger.info("Motion-Scores berechnet für %d Szenen (%s)", len(scenes),
+                "RAFT/CUDA" if use_raft else "CPU-Fallback")
     return scenes
+
+
+def _cpu_motion_score(frame1_bgr: np.ndarray, frame2_bgr: np.ndarray) -> float:
+    """CPU-Fallback: Frame-Differenz-basierter Motion-Score."""
+    import cv2
+
+    gray1 = cv2.cvtColor(frame1_bgr, cv2.COLOR_BGR2GRAY)
+    gray2 = cv2.cvtColor(frame2_bgr, cv2.COLOR_BGR2GRAY)
+    # Auf 320px Breite skalieren für Speed
+    h, w = gray1.shape
+    if w > 320:
+        scale = 320 / w
+        gray1 = cv2.resize(gray1, (320, int(h * scale)))
+        gray2 = cv2.resize(gray2, (320, int(h * scale)))
+    diff = np.abs(gray1.astype(np.float32) - gray2.astype(np.float32))
+    raw_score = float(np.mean(diff)) / 255.0
+    return round(min(1.0, raw_score * 3.0), 4)
 
 
 def _fallback_single_scene(video_path: str) -> list[SceneInfo]:
