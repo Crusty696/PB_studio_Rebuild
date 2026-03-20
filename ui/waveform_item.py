@@ -11,13 +11,12 @@ Performance-optimiert: Tile-basiertes Caching, Culling, LOD-Beatgrid.
 
 import bisect
 import json
-import math
 from typing import Optional
 
 from PySide6.QtWidgets import QGraphicsItem, QStyleOptionGraphicsItem, QWidget
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import (
-    QPainter, QPixmap, QColor, QPen, QImage,
+    QPainter, QPixmap, QColor, QPen, QImage, QPainterPath, QBrush,
 )
 
 
@@ -41,23 +40,6 @@ LOD_BEAT_DOWNBEAT_ONLY_PX = 12 # Unter 12px: nur Downbeats (jeder 4.) zeichnen
 LOD_DOWNSAMPLE_THRESHOLD = 2   # Ab 2 Samples/Pixel wird downgesampled
 
 
-# Vorberechnete Farben für Performance (vermeidet QColor-Erstellung in der Schleife)
-def _precompute_band_colors(base: QColor, bright: QColor, alpha_base: int, alpha_range: int, steps: int = 32):
-    """Erzeugt eine LUT (Lookup Table) für Band-Farben nach Intensität."""
-    lut = []
-    for i in range(steps):
-        t = i / max(1, steps - 1)
-        r = int(base.red() + (bright.red() - base.red()) * t)
-        g = int(base.green() + (bright.green() - base.green()) * t)
-        b = int(base.blue() + (bright.blue() - base.blue()) * t)
-        a = int(alpha_base + alpha_range * t)
-        lut.append(QColor(min(255, r), min(255, g), min(255, b), min(255, a)))
-    return lut
-
-_LUT_LOW = _precompute_band_colors(COLOR_LOW, COLOR_LOW_BRIGHT, 180, 75)
-_LUT_MID = _precompute_band_colors(COLOR_MID, COLOR_MID_BRIGHT, 140, 80)
-_LUT_HIGH = _precompute_band_colors(COLOR_HIGH, COLOR_HIGH_BRIGHT, 120, 100)
-_LUT_STEPS = len(_LUT_LOW)
 
 
 class WaveformGraphicsItem(QGraphicsItem):
@@ -68,7 +50,8 @@ class WaveformGraphicsItem(QGraphicsItem):
     - Culling: paint() zeichnet nur den sichtbaren Ausschnitt (exposedRect)
     - LOD-Beatgrid: Beats werden bei starkem Zoom-Out ausgeblendet
     - Farb-LUT: Keine QColor-Erstellung pro Pixel
-    - Downsampling: Bei Zoom-Out werden Samples gemittelt statt übereinander gezeichnet
+    - Peak-Downsampling: Bei Zoom-Out wird max() statt Durchschnitt verwendet (Peaks bleiben)
+    - QPainterPath: 3 gefüllte Pfade statt tausender drawLine-Aufrufe
     """
 
     def __init__(self, band_low: list[float], band_mid: list[float],
@@ -146,13 +129,37 @@ class WaveformGraphicsItem(QGraphicsItem):
         visible_right = min(w, int(clip_rect.right()))
         painter.drawLine(visible_left, half_h, visible_right, half_h)
 
+    def _get_peak_values(self, band: list[float], global_x: int,
+                         w_total: int, num_samples: int,
+                         samples_per_pixel: float) -> float:
+        """Ermittelt den Peak-Wert (Maximum) für ein Pixel — bewahrt Transienten."""
+        if samples_per_pixel <= LOD_DOWNSAMPLE_THRESHOLD:
+            # 1:1 oder weniger → direktes Sample
+            t_frac = global_x / max(1, w_total - 1)
+            idx = min(int(t_frac * (num_samples - 1)), num_samples - 1)
+            return band[idx]
+        else:
+            # Downsampling: MAX statt Durchschnitt → Peaks bleiben erhalten
+            sample_start = int((global_x / w_total) * num_samples)
+            sample_end = int(((global_x + 1) / w_total) * num_samples)
+            sample_start = max(0, min(sample_start, num_samples - 1))
+            sample_end = max(sample_start + 1, min(sample_end, num_samples))
+            return max(band[sample_start:sample_end])
+
     def _render_tile(self, tile_idx: int, tile_w: int, h: int) -> Optional[QPixmap]:
-        """Rendert ein einzelnes Tile der Wellenform."""
+        """Rendert ein Tile via QPainterPath — performant UND detailliert.
+
+        Zeichnet drei überlappende Frequenz-Schichten als gefüllte Pfade:
+        1. Bass (Blau) — hinterste Schicht, größte Amplitude
+        2. Mitten (Rosa) — mittlere Schicht
+        3. Höhen (Weiß) — vorderste Schicht, kleinste Amplitude
+        Jede Schicht besteht aus zwei Pfaden (oben + unten), die zusammen
+        eine symmetrische Wellenform um die Mittellinie bilden.
+        """
         num_samples = len(self._band_low)
         if num_samples == 0:
             return None
 
-        # Lokale Referenzen für schnelleren Zugriff in der Schleife
         band_low = self._band_low
         band_mid = self._band_mid
         band_high = self._band_high
@@ -160,69 +167,65 @@ class WaveformGraphicsItem(QGraphicsItem):
         tile_x_start = tile_idx * TILE_WIDTH
         w_total = max(1, int(self._width))
         half_h = h / 2.0
+        samples_per_pixel = num_samples / max(1, w_total)
 
         img = QImage(tile_w, h, QImage.Format.Format_ARGB32_Premultiplied)
         img.fill(COLOR_BG)
 
         p = QPainter(img)
         p.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+        p.setPen(Qt.PenStyle.NoPen)
 
-        # Berechne Samples-pro-Pixel Verhältnis für Downsampling
-        samples_per_pixel = num_samples / max(1, w_total)
+        # --- Peak-Werte für alle Pixel im Tile berechnen ---
+        low_peaks = []
+        mid_peaks = []
+        high_peaks = []
 
         for local_x in range(tile_w):
             global_x = tile_x_start + local_x
+            low_peaks.append(self._get_peak_values(band_low, global_x, w_total, num_samples, samples_per_pixel))
+            mid_peaks.append(self._get_peak_values(band_mid, global_x, w_total, num_samples, samples_per_pixel))
+            high_peaks.append(self._get_peak_values(band_high, global_x, w_total, num_samples, samples_per_pixel))
 
-            if samples_per_pixel <= LOD_DOWNSAMPLE_THRESHOLD:
-                # Normales Sampling: 1 Sample pro Pixel
-                t_frac = global_x / max(1, w_total - 1)
-                idx = min(int(t_frac * (num_samples - 1)), num_samples - 1)
-                low_val = band_low[idx]
-                mid_val = band_mid[idx]
-                high_val = band_high[idx]
-            else:
-                # Downsampling: Mittelwert über alle Samples in diesem Pixel
-                # Optimiert: list slicing + sum() statt manueller Schleife
-                sample_start = int((global_x / w_total) * num_samples)
-                sample_end = int(((global_x + 1) / w_total) * num_samples)
-                sample_start = max(0, min(sample_start, num_samples - 1))
-                sample_end = max(sample_start + 1, min(sample_end, num_samples))
+        # --- QPainterPath pro Band erstellen ---
+        # Jedes Band: oberer Rand (links→rechts), dann unterer Rand (rechts→links)
+        # → ergibt ein geschlossenes Polygon, das mit fillPath gefüllt wird.
 
-                count = sample_end - sample_start
-                if count > 0:
-                    inv_count = 1.0 / count
-                    low_val = sum(band_low[sample_start:sample_end]) * inv_count
-                    mid_val = sum(band_mid[sample_start:sample_end]) * inv_count
-                    high_val = sum(band_high[sample_start:sample_end]) * inv_count
-                else:
-                    low_val = mid_val = high_val = 0.0
+        # Skalierungsfaktoren: Bass nutzt volle Höhe, Mitten 70%, Höhen 45%
+        # So entsteht die typische Rekordbox-Schichtung
+        band_configs = [
+            (low_peaks,  0.95, COLOR_LOW,  COLOR_LOW_BRIGHT,  200),   # Bass: blau, groß
+            (mid_peaks,  0.65, COLOR_MID,  COLOR_MID_BRIGHT,  180),   # Mitten: rosa, mittel
+            (high_peaks, 0.40, COLOR_HIGH, COLOR_HIGH_BRIGHT, 160),   # Höhen: weiß, klein
+        ]
 
-            # Höhen (hinterste Schicht — weiß/gelb)
-            if high_val > 0.02:
-                h_px = max(1, int(high_val * half_h * 0.7))
-                lut_idx = min(int(min(1.0, high_val * 1.3) * (_LUT_STEPS - 1)), _LUT_STEPS - 1)
-                p.setPen(QPen(_LUT_HIGH[lut_idx], 1))
-                y_top = int(half_h - h_px)
-                y_bot = int(half_h + h_px)
-                p.drawLine(local_x, y_top, local_x, y_bot)
+        for peaks, scale, color_base, color_bright, alpha in band_configs:
+            path = QPainterPath()
 
-            # Mitten (mittlere Schicht — rosa/rot)
-            if mid_val > 0.02:
-                m_px = max(1, int(mid_val * half_h * 0.85))
-                lut_idx = min(int(min(1.0, mid_val * 1.2) * (_LUT_STEPS - 1)), _LUT_STEPS - 1)
-                p.setPen(QPen(_LUT_MID[lut_idx], 1))
-                y_top = int(half_h - m_px)
-                y_bot = int(half_h + m_px)
-                p.drawLine(local_x, y_top, local_x, y_bot)
+            # Oberer Rand: links → rechts (von Mittellinie nach oben)
+            path.moveTo(0.0, half_h)
+            for x in range(tile_w):
+                val = min(1.0, peaks[x])
+                y_offset = val * half_h * scale
+                path.lineTo(float(x), half_h - y_offset)
 
-            # Bass (vorderste Schicht — blau, dominant)
-            if low_val > 0.02:
-                l_px = max(1, int(low_val * half_h * 1.0))
-                lut_idx = min(int(min(1.0, low_val * 1.1) * (_LUT_STEPS - 1)), _LUT_STEPS - 1)
-                p.setPen(QPen(_LUT_LOW[lut_idx], 1))
-                y_top = int(half_h - l_px)
-                y_bot = int(half_h + l_px)
-                p.drawLine(local_x, y_top, local_x, y_bot)
+            # Unterer Rand: rechts → links (von Mittellinie nach unten, gespiegelt)
+            for x in range(tile_w - 1, -1, -1):
+                val = min(1.0, peaks[x])
+                y_offset = val * half_h * scale
+                path.lineTo(float(x), half_h + y_offset)
+
+            path.closeSubpath()
+
+            # Farbe: Blend zwischen base und bright, mit Alpha
+            fill_color = QColor(
+                (color_base.red() + color_bright.red()) // 2,
+                (color_base.green() + color_bright.green()) // 2,
+                (color_base.blue() + color_bright.blue()) // 2,
+                alpha,
+            )
+            p.setBrush(QBrush(fill_color))
+            p.drawPath(path)
 
         p.end()
         return QPixmap.fromImage(img)
