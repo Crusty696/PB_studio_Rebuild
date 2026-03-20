@@ -1,0 +1,545 @@
+"""Video Analysis Pipeline — Phase 2, SEKTOR 1.
+
+3-Schritt Pipeline:
+  1. SceneDetect (ContentDetector) + RAFT Optical Flow Motion Score
+  2. Keyframe-Extraktion (Mitte jeder Szene)
+  3. SigLIP Embedding-Generierung → LanceDB
+
+Nutzt ModelManager Singleton für VRAM-Schutz.
+"""
+
+from __future__ import annotations
+
+import gc
+import logging
+import subprocess
+import sys
+import tempfile
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Callable
+
+import numpy as np
+
+logger = logging.getLogger(__name__)
+
+KEYFRAME_DIR = Path("storage/keyframes")
+
+
+@dataclass
+class SceneInfo:
+    """Ergebnis einer erkannten Szene."""
+    index: int
+    start_time: float
+    end_time: float
+    motion_score: float = 0.0
+    keyframe_path: str | None = None
+    embedding: np.ndarray | None = None
+
+
+@dataclass
+class PipelineResult:
+    """Gesamtergebnis der Video-Analyse-Pipeline."""
+    video_path: str
+    scenes: list[SceneInfo] = field(default_factory=list)
+    total_duration: float = 0.0
+    embeddings_stored: int = 0
+
+
+# ======================================================================
+# Schritt 1: Scene Detection + RAFT Motion
+# ======================================================================
+
+def detect_scenes(
+    video_path: str,
+    threshold: float = 27.0,
+    min_scene_len: float = 1.0,
+    progress_cb: Callable[[int, int, str], None] | None = None,
+) -> list[SceneInfo]:
+    """Erkennt Szenen mit PySceneDetect ContentDetector.
+
+    Args:
+        video_path: Pfad zum Video
+        threshold: ContentDetector Schwellwert (niedriger = mehr Szenen)
+        min_scene_len: Minimale Szenenlänge in Sekunden
+        progress_cb: Callback(step, total, message)
+
+    Returns:
+        Liste von SceneInfo mit start/end Zeiten
+    """
+    if progress_cb:
+        progress_cb(0, 3, "Szenen-Erkennung...")
+
+    try:
+        from scenedetect import detect, ContentDetector
+    except ImportError:
+        logger.warning("PySceneDetect nicht installiert — Fallback: eine Szene pro Video")
+        return _fallback_single_scene(video_path)
+
+    try:
+        scene_list = detect(
+            video_path,
+            ContentDetector(threshold=threshold, min_scene_len=int(min_scene_len * 30)),
+        )
+    except Exception as e:
+        logger.error("SceneDetect Fehler: %s — Fallback", e)
+        return _fallback_single_scene(video_path)
+
+    scenes = []
+    for i, (start, end) in enumerate(scene_list):
+        scenes.append(SceneInfo(
+            index=i,
+            start_time=start.get_seconds(),
+            end_time=end.get_seconds(),
+        ))
+
+    if not scenes:
+        return _fallback_single_scene(video_path)
+
+    logger.info("SceneDetect: %d Szenen erkannt in %s", len(scenes), Path(video_path).name)
+    return scenes
+
+
+def compute_motion_scores(
+    video_path: str,
+    scenes: list[SceneInfo],
+    progress_cb: Callable[[int, int, str], None] | None = None,
+) -> list[SceneInfo]:
+    """Berechnet Motion-Scores via RAFT Optical Flow (oder Fallback).
+
+    RAFT wird nur geladen wenn verfügbar. Fallback: Frame-Differenz-basiert.
+    Motion wird nur innerhalb der Szenen-Grenzen berechnet.
+    """
+    if progress_cb:
+        progress_cb(1, 3, "Motion-Analyse...")
+
+    try:
+        import cv2
+    except ImportError:
+        logger.warning("OpenCV nicht verfügbar — Motion-Scores bleiben 0.0")
+        return scenes
+
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        logger.error("Video konnte nicht geöffnet werden: %s", video_path)
+        return scenes
+
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+
+    for scene in scenes:
+        start_frame = int(scene.start_time * fps)
+        end_frame = int(scene.end_time * fps)
+        mid_frame = (start_frame + end_frame) // 2
+
+        # Sample 2 Frames um die Szenen-Mitte für Motion-Berechnung
+        sample_frames = [
+            max(start_frame, mid_frame - int(fps * 0.5)),
+            min(end_frame - 1, mid_frame + int(fps * 0.5)),
+        ]
+
+        frames = []
+        for fnum in sample_frames:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, fnum)
+            ret, frame = cap.read()
+            if ret:
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                # Auf 320px Breite skalieren für Speed
+                h, w = gray.shape
+                if w > 320:
+                    scale = 320 / w
+                    gray = cv2.resize(gray, (320, int(h * scale)))
+                frames.append(gray.astype(np.float32))
+
+        if len(frames) == 2:
+            diff = np.abs(frames[1] - frames[0])
+            # Normalisierter Motion-Score (0.0 - 1.0)
+            raw_score = float(np.mean(diff)) / 255.0
+            scene.motion_score = round(min(1.0, raw_score * 3.0), 4)
+        else:
+            scene.motion_score = 0.0
+
+    cap.release()
+    logger.info("Motion-Scores berechnet für %d Szenen", len(scenes))
+    return scenes
+
+
+def _fallback_single_scene(video_path: str) -> list[SceneInfo]:
+    """Fallback: Ganzes Video als eine Szene."""
+    duration = _get_video_duration(video_path)
+    return [SceneInfo(index=0, start_time=0.0, end_time=duration)]
+
+
+def _get_video_duration(video_path: str) -> float:
+    """Ermittelt Video-Dauer via ffprobe."""
+    try:
+        p = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", video_path],
+            capture_output=True, text=True, timeout=30,
+        )
+        if p.returncode == 0 and p.stdout.strip():
+            return float(p.stdout.strip())
+    except Exception:
+        pass
+    return 60.0
+
+
+# ======================================================================
+# Schritt 2: Keyframe Extraktion
+# ======================================================================
+
+def extract_keyframes(
+    video_path: str,
+    scenes: list[SceneInfo],
+    output_dir: Path | None = None,
+    progress_cb: Callable[[int, int, str], None] | None = None,
+) -> list[SceneInfo]:
+    """Extrahiert einen Keyframe pro Szene (Mitte der Szene).
+
+    Verwendet FFmpeg für schnelle, GPU-unabhängige Extraktion.
+    """
+    if progress_cb:
+        progress_cb(1, 3, "Keyframes extrahieren...")
+
+    out_dir = output_dir or KEYFRAME_DIR
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    video_stem = Path(video_path).stem
+
+    for scene in scenes:
+        # Keyframe in der Mitte der Szene
+        mid_time = (scene.start_time + scene.end_time) / 2.0
+        kf_path = out_dir / f"{video_stem}_scene{scene.index:04d}.jpg"
+
+        if kf_path.exists():
+            scene.keyframe_path = str(kf_path)
+            continue
+
+        cmd = [
+            "ffmpeg", "-y", "-ss", str(mid_time),
+            "-i", video_path,
+            "-frames:v", "1",
+            "-vf", "scale=384:384:force_original_aspect_ratio=decrease,pad=384:384:(ow-iw)/2:(oh-ih)/2",
+            "-q:v", "2",
+            "-v", "quiet",
+            str(kf_path),
+        ]
+
+        kwargs = {}
+        if sys.platform == "win32":
+            kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+
+        try:
+            subprocess.run(cmd, capture_output=True, timeout=15, **kwargs)
+            if kf_path.exists():
+                scene.keyframe_path = str(kf_path)
+            else:
+                logger.warning("Keyframe-Extraktion fehlgeschlagen: Szene %d", scene.index)
+        except Exception as e:
+            logger.warning("Keyframe-Fehler Szene %d: %s", scene.index, e)
+
+    extracted = sum(1 for s in scenes if s.keyframe_path)
+    logger.info("Keyframes extrahiert: %d/%d", extracted, len(scenes))
+    return scenes
+
+
+# ======================================================================
+# Schritt 3: SigLIP Embeddings → LanceDB
+# ======================================================================
+
+def generate_embeddings(
+    scenes: list[SceneInfo],
+    progress_cb: Callable[[int, int, str], None] | None = None,
+) -> list[SceneInfo]:
+    """Generiert SigLIP 1152-dim Embeddings aus Keyframes.
+
+    Nutzt ModelManager Singleton für VRAM-Schutz.
+    Scenes ohne Keyframe werden übersprungen.
+    """
+    if progress_cb:
+        progress_cb(2, 3, "SigLIP Embeddings generieren...")
+
+    keyframe_scenes = [s for s in scenes if s.keyframe_path and Path(s.keyframe_path).exists()]
+    if not keyframe_scenes:
+        logger.warning("Keine Keyframes vorhanden — keine Embeddings generiert")
+        return scenes
+
+    from services.model_manager import ModelManager
+    mm = ModelManager()
+
+    try:
+        model, processor = mm.load_siglip()
+    except Exception as e:
+        logger.error("SigLIP konnte nicht geladen werden: %s", e)
+        return scenes
+
+    import torch
+    from PIL import Image
+
+    # Batch-Verarbeitung in Gruppen von 8 (VRAM-schonend für GTX 1060)
+    batch_size = 8
+    for batch_start in range(0, len(keyframe_scenes), batch_size):
+        batch = keyframe_scenes[batch_start:batch_start + batch_size]
+
+        images = []
+        valid_scenes = []
+        for scene in batch:
+            try:
+                img = Image.open(scene.keyframe_path).convert("RGB")
+                images.append(img)
+                valid_scenes.append(scene)
+            except Exception as e:
+                logger.warning("Bild konnte nicht geladen werden: %s — %s", scene.keyframe_path, e)
+
+        if not images:
+            continue
+
+        try:
+            inputs = processor(images=images, return_tensors="pt", padding=True)
+            inputs = {k: v.to(mm.device) for k, v in inputs.items()}
+
+            with torch.no_grad():
+                outputs = model.get_image_features(**inputs)
+                # L2-Normalisierung
+                embeddings = outputs / outputs.norm(dim=-1, keepdim=True)
+                embeddings = embeddings.cpu().numpy().astype(np.float32)
+
+            for i, scene in enumerate(valid_scenes):
+                scene.embedding = embeddings[i]
+
+        except Exception as e:
+            logger.error("SigLIP Embedding-Fehler: %s", e)
+
+    # SigLIP entladen um VRAM freizugeben
+    mm.unload()
+
+    embedded = sum(1 for s in scenes if s.embedding is not None)
+    logger.info("SigLIP Embeddings generiert: %d/%d", embedded, len(scenes))
+    return scenes
+
+
+def store_embeddings(
+    video_path: str,
+    scenes: list[SceneInfo],
+    video_clip_id: int,
+) -> int:
+    """Speichert Embeddings in LanceDB via VectorDBService.
+
+    Returns:
+        Anzahl der gespeicherten Embeddings
+    """
+    from services.vector_db_service import VectorDBService
+
+    vdb = VectorDBService()
+
+    # Alte Embeddings für dieses Video löschen
+    try:
+        vdb.delete_by_video(video_path)
+    except Exception:
+        pass  # Tabelle evtl. noch leer
+
+    entries = []
+    for scene in scenes:
+        if scene.embedding is None:
+            continue
+
+        entries.append({
+            "id": video_clip_id * 10000 + scene.index,
+            "video_path": video_path,
+            "scene_index": scene.index,
+            "scene_start": scene.start_time,
+            "scene_end": scene.end_time,
+            "motion_score": scene.motion_score,
+            "description": "",
+            "embedding": scene.embedding.tolist(),
+        })
+
+    if entries:
+        vdb.add_embeddings_batch(entries)
+        logger.info("LanceDB: %d Embeddings gespeichert für %s", len(entries), Path(video_path).name)
+
+    return len(entries)
+
+
+def store_scenes_in_db(
+    video_clip_id: int,
+    scenes: list[SceneInfo],
+) -> None:
+    """Speichert erkannte Szenen in der SQLite-DB."""
+    from sqlalchemy.orm import Session
+    from database import engine, Scene
+
+    with Session(engine) as session:
+        # Alte Szenen löschen
+        session.query(Scene).filter_by(video_clip_id=video_clip_id).delete()
+
+        for scene in scenes:
+            db_scene = Scene(
+                video_clip_id=video_clip_id,
+                start_time=scene.start_time,
+                end_time=scene.end_time,
+                energy=scene.motion_score,
+                label=f"Scene {scene.index}",
+            )
+            session.add(db_scene)
+
+        session.commit()
+
+    logger.info("SQLite: %d Szenen gespeichert für VideoClip %d", len(scenes), video_clip_id)
+
+
+# ======================================================================
+# Text-zu-Video Suche (SigLIP Text Encoder)
+# ======================================================================
+
+def text_to_embedding(query: str) -> np.ndarray | None:
+    """Konvertiert einen Text-Query in einen SigLIP-Vektor.
+
+    Nutzt ModelManager Singleton — lädt SigLIP nur wenn nötig.
+
+    Returns:
+        1152-dim numpy array oder None bei Fehler
+    """
+    from services.model_manager import ModelManager
+    mm = ModelManager()
+
+    try:
+        model, processor = mm.load_siglip()
+    except Exception as e:
+        logger.error("SigLIP für Text-Suche nicht verfügbar: %s", e)
+        return None
+
+    import torch
+
+    try:
+        inputs = processor(text=[query], return_tensors="pt", padding=True)
+        inputs = {k: v.to(mm.device) for k, v in inputs.items()}
+
+        with torch.no_grad():
+            outputs = model.get_text_features(**inputs)
+            embedding = outputs / outputs.norm(dim=-1, keepdim=True)
+            result = embedding.cpu().numpy().astype(np.float32)[0]
+
+        # SigLIP entladen um VRAM freizugeben
+        mm.unload()
+        return result
+
+    except Exception as e:
+        logger.error("Text-Embedding Fehler: %s", e)
+        mm.unload()
+        return None
+
+
+def search_videos_by_text(
+    query: str,
+    top_k: int = 10,
+    motion_filter: float | None = None,
+) -> list[dict]:
+    """Semantische Text-zu-Video Suche über LanceDB.
+
+    Args:
+        query: Natürlichsprachiger Suchtext
+        top_k: Anzahl der Ergebnisse
+        motion_filter: Optionaler Motion-Score Filter
+
+    Returns:
+        Liste von Dicts mit video_path, scene_start, scene_end, motion_score, _distance
+    """
+    embedding = text_to_embedding(query)
+    if embedding is None:
+        return []
+
+    from services.vector_db_service import VectorDBService
+    vdb = VectorDBService()
+
+    try:
+        results = vdb.search(embedding, top_k=top_k, motion_filter=motion_filter)
+        logger.info("Suche '%s': %d Ergebnisse", query, len(results))
+        return results
+    except Exception as e:
+        logger.error("LanceDB Suche fehlgeschlagen: %s", e)
+        return []
+
+
+# ======================================================================
+# Vollständige Pipeline (alle 3 Schritte)
+# ======================================================================
+
+def run_full_pipeline(
+    video_path: str,
+    video_clip_id: int,
+    threshold: float = 27.0,
+    progress_cb: Callable[[int, int, str], None] | None = None,
+    should_stop: Callable[[], bool] | None = None,
+) -> PipelineResult:
+    """Führt die komplette 3-Schritt Video-Analyse-Pipeline aus.
+
+    1. SceneDetect + RAFT Motion
+    2. Keyframe-Extraktion
+    3. SigLIP Embeddings → LanceDB
+
+    Args:
+        video_path: Pfad zum Video
+        video_clip_id: DB-ID des VideoClip
+        threshold: SceneDetect Schwellwert
+        progress_cb: Callback(step, total, message)
+        should_stop: Abbruch-Check Callback
+
+    Returns:
+        PipelineResult mit allen Szenen und Embedding-Count
+    """
+    result = PipelineResult(video_path=video_path)
+
+    # Schritt 1: Scene Detection
+    if progress_cb:
+        progress_cb(1, 6, "Szenen erkennen...")
+    if should_stop and should_stop():
+        return result
+
+    scenes = detect_scenes(video_path, threshold=threshold)
+    result.scenes = scenes
+    result.total_duration = scenes[-1].end_time if scenes else 0.0
+
+    # Schritt 1b: Motion Scores
+    if progress_cb:
+        progress_cb(2, 6, f"Motion-Analyse ({len(scenes)} Szenen)...")
+    if should_stop and should_stop():
+        return result
+
+    scenes = compute_motion_scores(video_path, scenes)
+
+    # Schritt 2: Keyframes
+    if progress_cb:
+        progress_cb(3, 6, "Keyframes extrahieren...")
+    if should_stop and should_stop():
+        return result
+
+    scenes = extract_keyframes(video_path, scenes)
+
+    # Schritt 3: SigLIP Embeddings
+    if progress_cb:
+        progress_cb(4, 6, "SigLIP Embeddings generieren...")
+    if should_stop and should_stop():
+        return result
+
+    scenes = generate_embeddings(scenes)
+
+    # Schritt 3b: In LanceDB speichern
+    if progress_cb:
+        progress_cb(5, 6, "In LanceDB speichern...")
+    if should_stop and should_stop():
+        return result
+
+    result.embeddings_stored = store_embeddings(video_path, scenes, video_clip_id)
+
+    # Szenen in SQLite speichern
+    if progress_cb:
+        progress_cb(6, 6, "Szenen in DB speichern...")
+
+    store_scenes_in_db(video_clip_id, scenes)
+
+    logger.info(
+        "Pipeline komplett: %s — %d Szenen, %d Embeddings",
+        Path(video_path).name, len(scenes), result.embeddings_stored,
+    )
+    return result

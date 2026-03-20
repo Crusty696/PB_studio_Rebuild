@@ -327,6 +327,98 @@ class WaveformAnalysisWorker(QObject, CancellableMixin):
 
 
 # ======================================================================
+# Phase 2: Video Analysis Pipeline Worker (SEKTOR 1)
+# ======================================================================
+
+class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
+    """Führt die 3-Schritt Video-Analyse-Pipeline im Hintergrund aus."""
+    finished = Signal(int, dict)   # clip_id, result_dict
+    error = Signal(int, str)       # clip_id, error_msg
+    progress = Signal(int, int, str)  # step, total, message
+
+    def __init__(self, clip_id: int, video_path: str):
+        super().__init__()
+        self._cancelled = False
+        self.clip_id = clip_id
+        self.video_path = video_path
+
+    def run(self):
+        try:
+            from services.video_analysis_service import run_full_pipeline
+            result = run_full_pipeline(
+                video_path=self.video_path,
+                video_clip_id=self.clip_id,
+                progress_cb=lambda s, t, m: self.progress.emit(s, t, m),
+                should_stop=self.should_stop,
+            )
+            self.finished.emit(self.clip_id, {
+                "scenes": len(result.scenes),
+                "embeddings": result.embeddings_stored,
+                "duration": result.total_duration,
+            })
+        except Exception as e:
+            self.error.emit(self.clip_id, str(e))
+
+
+# ======================================================================
+# Phase 2: Proxy Creation Worker (SEKTOR 2)
+# ======================================================================
+
+class ProxyCreationWorker(QObject, CancellableMixin):
+    """Erstellt NVENC 540p Edit-Proxy für ein Video."""
+    finished = Signal(int, str)    # clip_id, proxy_path
+    error = Signal(int, str)       # clip_id, error_msg
+    progress = Signal(float, str)  # progress_0_to_1, status_text
+
+    def __init__(self, clip_id: int, video_path: str):
+        super().__init__()
+        self._cancelled = False
+        self.clip_id = clip_id
+        self.video_path = video_path
+
+    def run(self):
+        try:
+            from services.convert_service import convert
+            proxy_path = convert(
+                self.video_path,
+                preset_name="edit_proxy",
+                progress_cb=lambda p, s: self.progress.emit(p, s),
+            )
+            # Proxy-Pfad in SQLite speichern
+            with DBSession(engine) as session:
+                clip = session.get(VideoClip, self.clip_id)
+                if clip:
+                    clip.proxy_path = proxy_path
+                    session.commit()
+            self.finished.emit(self.clip_id, proxy_path)
+        except Exception as e:
+            self.error.emit(self.clip_id, str(e))
+
+
+# ======================================================================
+# Phase 2: Semantic Search Worker (SEKTOR 3)
+# ======================================================================
+
+class SemanticSearchWorker(QObject):
+    """SigLIP Text-zu-Video Suche im Hintergrund."""
+    finished = Signal(list)   # list of result dicts
+    error = Signal(str)
+
+    def __init__(self, query: str, top_k: int = 20):
+        super().__init__()
+        self.query = query
+        self.top_k = top_k
+
+    def run(self):
+        try:
+            from services.video_analysis_service import search_videos_by_text
+            results = search_videos_by_text(self.query, top_k=self.top_k)
+            self.finished.emit(results)
+        except Exception as e:
+            self.error.emit(str(e))
+
+
+# ======================================================================
 # Draggable Timeline Clip (QGraphicsRectItem)
 # ======================================================================
 
@@ -1469,6 +1561,18 @@ class PBWindow(QMainWindow):
         self.btn_analyze_video.clicked.connect(self._analyze_selected_video)
         analyze_layout.addWidget(self.btn_analyze_video)
 
+        self.btn_video_pipeline = QPushButton("Video-Pipeline (Szenen + KI)")
+        self.btn_video_pipeline.setToolTip(
+            "Vollständige 3-Schritt Pipeline:\n"
+            "1. Szenen-Erkennung + Motion-Analyse\n"
+            "2. Keyframe-Extraktion\n"
+            "3. SigLIP Embeddings → LanceDB\n\n"
+            "Ermöglicht anschließend semantische Text-Suche."
+        )
+        self.btn_video_pipeline.setStyleSheet("font-weight: bold; color: #00D4E6;")
+        self.btn_video_pipeline.clicked.connect(self._start_video_pipeline)
+        analyze_layout.addWidget(self.btn_video_pipeline)
+
         self.btn_waveform = QPushButton("Rekordbox Wellenform")
         self.btn_waveform.setToolTip("Frequenz-Wellenform (Low/Mid/High) + Beatgrid berechnen")
         self.btn_waveform.setStyleSheet("font-weight: bold; color: #3C8CFF;")
@@ -1516,6 +1620,47 @@ class PBWindow(QMainWindow):
         right_layout = QVBoxLayout(right_panel)
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(4)
+
+        # --- Semantic Search Bar (Phase 2, SEKTOR 3) ---
+        search_row = QHBoxLayout()
+        search_row.setContentsMargins(0, 0, 0, 0)
+        search_row.setSpacing(4)
+
+        search_icon = QLabel("SigLIP")
+        search_icon.setStyleSheet(
+            "color: #00D4E6; font-weight: 700; font-size: 9px; padding: 2px 6px; "
+            "background: #0A1520; border: 1px solid #00607A; border-radius: 3px;"
+        )
+        search_icon.setFixedWidth(46)
+        search_row.addWidget(search_icon)
+
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("Semantische Suche: z.B. 'person dancing on stage'...")
+        self.search_input.setToolTip(
+            "SigLIP Text-zu-Video Suche: Beschreibe was du suchst, "
+            "und die relevantesten Szenen werden angezeigt"
+        )
+        self.search_input.returnPressed.connect(self._run_semantic_search)
+        search_row.addWidget(self.search_input, stretch=1)
+
+        self.btn_search = QPushButton("Suchen")
+        self.btn_search.setFixedHeight(26)
+        self.btn_search.setFixedWidth(70)
+        self.btn_search.setToolTip("Semantische Suche starten (SigLIP + LanceDB)")
+        self.btn_search.clicked.connect(self._run_semantic_search)
+        search_row.addWidget(self.btn_search)
+
+        self.btn_search_clear = QPushButton("X")
+        self.btn_search_clear.setFixedSize(26, 26)
+        self.btn_search_clear.setToolTip("Suche zurücksetzen — alle Videos anzeigen")
+        self.btn_search_clear.setStyleSheet(
+            "QPushButton { color: #FF6060; font-weight: bold; border: 1px solid #333; border-radius: 3px; }"
+            "QPushButton:hover { background: #3A1010; }"
+        )
+        self.btn_search_clear.clicked.connect(self._clear_search)
+        search_row.addWidget(self.btn_search_clear)
+
+        right_layout.addLayout(search_row)
 
         pool_splitter = QSplitter(Qt.Orientation.Vertical)
 
@@ -2547,6 +2692,7 @@ class PBWindow(QMainWindow):
         if not paths:
             return
         added = 0
+        new_video_clips = []  # (clip_id, file_path, title) for proxy creation
         for p in paths:
             if media_type == "audio":
                 result = ingest_audio(p)
@@ -2558,10 +2704,17 @@ class PBWindow(QMainWindow):
             else:
                 self.console_text.append(f"[Ingest] {media_type.capitalize()} importiert: {name}")
                 added += 1
+                # Phase 2: Proxy-Erstellung für neue Videos triggern
+                if media_type == "video" and hasattr(result, 'id'):
+                    new_video_clips.append((result.id, str(Path(p).resolve()), name))
         if added:
             self._refresh_media_table()
             self._refresh_director_combos()
             self.status_bar.showMessage(f"{added} Datei(en) importiert | System bereit")
+
+            # Phase 2 (SEKTOR 2): Auto-Proxy für jedes neue Video
+            for clip_id, video_path, title in new_video_clips:
+                self._start_proxy_creation(clip_id, video_path, title)
 
     def _import_folder(self):
         """Importiert alle unterstuetzten Medien aus einem Ordner (rekursiv)."""
@@ -2797,6 +2950,182 @@ class PBWindow(QMainWindow):
         self.status_bar.showMessage("Video-Analyse-Fehler | System bereit")
         if task_id:
             task_manager.finish_task(task_id, "error", error_msg)
+
+    # ==================================================================
+    # Phase 2: Video Analysis Pipeline (SEKTOR 1)
+    # ==================================================================
+
+    def _start_video_pipeline(self):
+        """Startet die 3-Schritt Video-Analyse-Pipeline für das ausgewählte Video."""
+        row = self.media_table.currentRow()
+        if row < 0:
+            self.console_text.append("[Warnung] Keine Zeile ausgewaehlt.")
+            return
+        media_type = self.media_table.item(row, 1).text()
+        if media_type != "Video":
+            self.console_text.append("[Warnung] Nur Video-Dateien können per Pipeline analysiert werden.")
+            return
+        clip_id = int(self.media_table.item(row, 0).text())
+        title = self.media_table.item(row, 2).text()
+
+        with DBSession(engine) as session:
+            clip = session.get(VideoClip, clip_id)
+            if not clip:
+                self.console_text.append(f"[Fehler] VideoClip {clip_id} nicht gefunden.")
+                return
+            video_path = clip.file_path
+
+        task = task_manager.create_task(
+            f"Pipeline: {title}",
+            "Szenen + Motion + SigLIP Embeddings"
+        )
+
+        self.btn_video_pipeline.setEnabled(False)
+        self.btn_video_pipeline.setText("Pipeline laeuft...")
+        self.progress_bar.setVisible(True)
+
+        self.console_text.append(
+            f"[Pipeline] Starte 3-Schritt Analyse fuer '{title}' "
+            f"(SceneDetect → Keyframes → SigLIP)..."
+        )
+
+        worker = VideoAnalysisPipelineWorker(clip_id, video_path)
+        worker.progress.connect(
+            lambda s, t, m: self._on_pipeline_progress(s, t, m, task.task_id)
+        )
+        worker.finished.connect(
+            lambda cid, r: self._on_pipeline_finished(cid, r, title, task.task_id)
+        )
+        worker.error.connect(
+            lambda cid, err: self._on_pipeline_error(cid, err, task.task_id)
+        )
+
+        self._start_worker_thread(worker)
+
+    def _on_pipeline_progress(self, step: int, total: int, msg: str, task_id: str):
+        task_manager.update_task(task_id, step, total, msg)
+        self.console_text.append(f"[Pipeline] {msg} ({step}/{total})")
+
+    def _on_pipeline_finished(self, clip_id: int, result: dict, title: str, task_id: str):
+        scenes = result.get("scenes", 0)
+        embeddings = result.get("embeddings", 0)
+        self.console_text.append(
+            f"[Pipeline] Fertig: '{title}' — {scenes} Szenen, "
+            f"{embeddings} Embeddings in LanceDB"
+        )
+        self.btn_video_pipeline.setEnabled(True)
+        self.btn_video_pipeline.setText("Video-Pipeline (Szenen + KI)")
+        self.progress_bar.setVisible(False)
+        self.status_bar.showMessage(
+            f"Pipeline fertig: {title} | {scenes} Szenen, {embeddings} Embeddings"
+        )
+        self._refresh_media_table()
+        if task_id:
+            task_manager.finish_task(
+                task_id, "finished",
+                f"{scenes} Szenen, {embeddings} Embeddings"
+            )
+
+    def _on_pipeline_error(self, clip_id: int, error_msg: str, task_id: str):
+        self.console_text.append(f"[Pipeline-Fehler] VideoClip {clip_id}: {error_msg}")
+        self.btn_video_pipeline.setEnabled(True)
+        self.btn_video_pipeline.setText("Video-Pipeline (Szenen + KI)")
+        self.progress_bar.setVisible(False)
+        self.status_bar.showMessage("Pipeline-Fehler | System bereit")
+        if task_id:
+            task_manager.finish_task(task_id, "error", error_msg)
+
+    # ==================================================================
+    # Phase 2: Proxy Creation (SEKTOR 2)
+    # ==================================================================
+
+    def _start_proxy_creation(self, clip_id: int, video_path: str, title: str):
+        """Startet NVENC Proxy-Erstellung im Hintergrund."""
+        task = task_manager.create_task(
+            f"Proxy: {title}", "NVENC 540p Edit-Proxy"
+        )
+        self.console_text.append(f"[Proxy] Erstelle Edit-Proxy fuer '{title}'...")
+
+        worker = ProxyCreationWorker(clip_id, video_path)
+        worker.progress.connect(
+            lambda p, s: task_manager.update_task(
+                task.task_id, int(p * 100), 100, s
+            )
+        )
+        worker.finished.connect(
+            lambda cid, path: self._on_proxy_finished(cid, path, title, task.task_id)
+        )
+        worker.error.connect(
+            lambda cid, err: self._on_proxy_error(cid, err, title, task.task_id)
+        )
+
+        self._start_worker_thread(worker)
+
+    def _on_proxy_finished(self, clip_id: int, proxy_path: str, title: str, task_id: str):
+        self.console_text.append(f"[Proxy] Fertig: '{title}' → {proxy_path}")
+        self._refresh_media_table()
+        task_manager.finish_task(task_id, "finished", proxy_path)
+
+    def _on_proxy_error(self, clip_id: int, error_msg: str, title: str, task_id: str):
+        self.console_text.append(f"[Proxy-Fehler] '{title}': {error_msg}")
+        task_manager.finish_task(task_id, "error", error_msg)
+
+    # ==================================================================
+    # Phase 2: Semantic Search (SEKTOR 3)
+    # ==================================================================
+
+    def _run_semantic_search(self):
+        """Startet SigLIP Text-zu-Video Suche."""
+        query = self.search_input.text().strip()
+        if not query:
+            self.console_text.append("[Suche] Bitte Suchbegriff eingeben.")
+            return
+
+        self.btn_search.setEnabled(False)
+        self.btn_search.setText("...")
+        self.console_text.append(f"[Suche] SigLIP-Suche: '{query}'...")
+
+        worker = SemanticSearchWorker(query, top_k=20)
+        worker.finished.connect(self._on_search_finished)
+        worker.error.connect(self._on_search_error)
+
+        self._start_worker_thread(worker)
+
+    def _on_search_finished(self, results: list):
+        self.btn_search.setEnabled(True)
+        self.btn_search.setText("Suchen")
+
+        if not results:
+            self.console_text.append("[Suche] Keine Ergebnisse gefunden.")
+            return
+
+        self.console_text.append(f"[Suche] {len(results)} Ergebnisse gefunden.")
+
+        # Video Pool mit Suchergebnissen aktualisieren
+        self.video_pool_table.setRowCount(len(results))
+        for row, r in enumerate(results):
+            video_name = Path(r["video_path"]).stem
+            scene_info = f"Sz{r['scene_index']} ({r['scene_start']:.1f}-{r['scene_end']:.1f}s)"
+            distance = f"{r['_distance']:.3f}"
+            motion = f"{r['motion_score']:.2f}"
+
+            self.video_pool_table.setItem(row, 0, QTableWidgetItem(str(r.get("id", ""))))
+            self.video_pool_table.setItem(row, 1, QTableWidgetItem(video_name))
+            self.video_pool_table.setItem(row, 2, QTableWidgetItem(scene_info))
+            self.video_pool_table.setItem(row, 3, QTableWidgetItem(motion))
+            self.video_pool_table.setItem(row, 4, QTableWidgetItem(distance))
+            self.video_pool_table.setItem(row, 5, QTableWidgetItem(r["video_path"]))
+
+    def _on_search_error(self, error_msg: str):
+        self.btn_search.setEnabled(True)
+        self.btn_search.setText("Suchen")
+        self.console_text.append(f"[Suche-Fehler] {error_msg}")
+
+    def _clear_search(self):
+        """Suche zurücksetzen — normale Video-Pool Anzeige."""
+        self.search_input.clear()
+        self._refresh_media_table()
+        self.console_text.append("[Suche] Zurückgesetzt — alle Videos angezeigt.")
 
     # ==================================================================
     # Stem Separation

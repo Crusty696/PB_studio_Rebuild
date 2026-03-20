@@ -206,6 +206,37 @@ class ModelManager:
 
             return self._model, self._tokenizer
 
+    def load_siglip(self, model_id: str = "google/siglip-base-patch16-384") -> tuple:
+        """Lädt SigLIP Vision+Text Encoder für 1152-dim Embeddings.
+
+        Returns:
+            (model, processor) — SigLIP-spezifisch
+        """
+        with self._swap_lock:
+            if self._current_model_id == model_id and self._model_type == "siglip":
+                return self._model, self._extras.get("processor")
+
+            self.unload()
+
+            logger.info("ModelManager: Lade SigLIP '%s' auf %s...", model_id, self.device)
+
+            from transformers import AutoModel, AutoProcessor
+
+            self._extras["processor"] = AutoProcessor.from_pretrained(model_id)
+            dtype = torch.float32 if self.device == "cpu" else torch.float16
+            self._model = AutoModel.from_pretrained(
+                model_id,
+                torch_dtype=dtype,
+            )
+            self._model.to(self.device)
+            self._model.eval()
+
+            self._current_model_id = model_id
+            self._model_type = "siglip"
+            logger.info("ModelManager: SigLIP '%s' geladen.", model_id)
+
+            return self._model, self._extras["processor"]
+
     def ensure_loaded(self, model_id: str, model_type: str = "transformers") -> Any:
         """Stellt sicher, dass das angegebene Modell geladen ist.
 
@@ -217,6 +248,8 @@ class ModelManager:
             return self.load_whisper(model_id)
         elif model_type == "vision":
             return self.load_vision(model_id)
+        elif model_type == "siglip":
+            return self.load_siglip(model_id)
         else:
             return self.load_transformers(model_id)
 
