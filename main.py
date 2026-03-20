@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
     QComboBox, QGraphicsView, QGraphicsScene, QGraphicsRectItem,
     QGraphicsTextItem, QGraphicsLineItem, QDialog, QFrame,
     QTreeWidget, QTreeWidgetItem, QCheckBox, QStackedWidget,
-    QSizePolicy, QSpacerItem, QMenu, QGraphicsPolygonItem,
+    QSizePolicy, QSpacerItem, QMenu, QGraphicsPolygonItem, QSpinBox,
 )
 from PySide6.QtCore import Qt, QThread, Signal, QObject, QRectF, QPointF, QTimer
 from PySide6.QtGui import QPainter, QPainterPath, QColor, QFont, QBrush, QPen, QPixmap, QImage, QPolygonF, QAction
@@ -38,8 +38,12 @@ from services.ingest_service import (
 import os
 from services.audio_service import AudioAnalyzer
 from services.video_service import VideoAnalyzer
-from services.pacing_service import PacingSettings, calculate_cut_points, CutPoint, auto_edit_to_beats
+from services.pacing_service import (
+    PacingSettings, calculate_cut_points, CutPoint, auto_edit_to_beats,
+    AdvancedPacingSettings, auto_edit_phase3, TimelineSegment,
+)
 from services.export_service import export_timeline, get_timeline_summary
+from services.timeline_service import TimelineService, PB_NS
 from ui.chat_dock import ChatDock
 from ui.waveform_item import WaveformGraphicsItem
 
@@ -280,25 +284,37 @@ class FrameExtractWorker(QObject):
 
 
 class AutoEditWorker(QObject, CancellableMixin):
-    finished = Signal(list)
+    """Phase 3: Auto-Edit Worker mit AdvancedPacingSettings + OTIO."""
+    finished = Signal(list, list)   # (segments_as_dicts, cut_points_as_dicts)
     error = Signal(str)
 
-    def __init__(self, audio_id: int, video_ids: list[int], total_duration: float,
-                 pacing_curve: list[float] | None = None, tempo: int = 50):
+    def __init__(self, audio_id: int, video_ids: list[int],
+                 settings: AdvancedPacingSettings):
         super().__init__()
         self.audio_id = audio_id
         self.video_ids = video_ids
-        self.total_duration = total_duration
-        self.pacing_curve = pacing_curve
-        self.tempo = tempo
+        self.settings = settings
 
     def run(self):
         try:
-            segments = auto_edit_to_beats(
-                self.audio_id, self.video_ids, self.total_duration,
-                pacing_curve=self.pacing_curve, tempo=self.tempo,
+            segments, cut_points = auto_edit_phase3(
+                self.audio_id, self.video_ids, self.settings,
             )
-            self.finished.emit(segments)
+            # Serialize for signal transport
+            seg_dicts = [
+                {
+                    "video_id": s.video_id, "video_path": s.video_path,
+                    "start": s.start, "end": s.end,
+                    "source_start": s.source_start, "source_end": s.source_end,
+                    "is_anchor": s.is_anchor, "scene_id": s.scene_id,
+                }
+                for s in segments
+            ]
+            cp_dicts = [
+                {"time": c.time, "source": c.source, "strength": c.strength}
+                for c in cut_points
+            ]
+            self.finished.emit(seg_dicts, cp_dicts)
         except Exception as e:
             self.error.emit(str(e))
 
@@ -769,6 +785,7 @@ class InteractiveTimeline(QGraphicsView):
             "scene": QColor(255, 200, 60, 180),
             "energy": QColor(200, 100, 200, 180),
             "drum": QColor(255, 80, 80, 220),
+            "anchor": QColor(255, 0, 255, 220),
         }
         for cp in cuts:
             x = cp.time * PIXELS_PER_SECOND
@@ -1417,6 +1434,7 @@ class PBWindow(QMainWindow):
         self.resize(1500, 900)
         self._active_threads: list[QThread] = []
         self._active_workers: list[QObject] = []
+        self._otio_timeline_service: TimelineService | None = None
 
         # Zentrales Widget
         central_widget = QWidget()
@@ -1840,19 +1858,81 @@ class PBWindow(QMainWindow):
 
         self._add_separator(insp)
 
-        # Pacing sliders (horizontal, compact)
-        pacing_lbl = QLabel("PACING")
+        # ── Phase 3: Advanced Pacing (DJ-Regler) ──
+        pacing_lbl = QLabel("DJ PACING")
         pacing_lbl.setStyleSheet("color: #505050; font-size: 9px; font-weight: 600; letter-spacing: 1px;")
         insp.addWidget(pacing_lbl)
 
-        self.tempo_slider, tempo_row = self._create_compact_slider("Tempo", 0, 100, 50)
-        insp.addLayout(tempo_row)
+        # 1. Base Cut Rate (Beats per cut)
+        cut_rate_row = QHBoxLayout()
+        cut_rate_row.setSpacing(4)
+        cr_lbl = QLabel("Cut Rate")
+        cr_lbl.setFixedWidth(52)
+        cr_lbl.setStyleSheet("color: #707070; font-size: 10px;")
+        cr_lbl.setToolTip("Basis-Schnittrate: Alle N Beats wird geschnitten")
+        cut_rate_row.addWidget(cr_lbl)
+        self.cut_rate_combo = QComboBox()
+        self.cut_rate_combo.addItems(["1 Beat", "2 Beats", "4 Beats", "8 Beats", "16 Beats"])
+        self.cut_rate_combo.setCurrentIndex(2)  # Default: 4 Beats (Downbeat)
+        self.cut_rate_combo.setToolTip("Basis-Schnittrate: 1=jeden Beat, 4=Downbeat, 16=sehr langsam")
+        self.cut_rate_combo.setFixedHeight(22)
+        cut_rate_row.addWidget(self.cut_rate_combo, stretch=1)
+        insp.addLayout(cut_rate_row)
 
-        self.energy_slider, energy_row = self._create_compact_slider("Energie", 0, 100, 50)
+        # 2. Energy Reactivity (0-100%)
+        energy_row = QHBoxLayout()
+        energy_row.setSpacing(4)
+        er_lbl = QLabel("Reaktivitaet")
+        er_lbl.setFixedWidth(52)
+        er_lbl.setStyleSheet("color: #707070; font-size: 10px;")
+        er_lbl.setToolTip("Energy Reactivity: Erhoehe Cut-Rate bei hohem RMS/Spektral-Level")
+        energy_row.addWidget(er_lbl)
+        self.energy_reactivity_slider = QSlider(Qt.Orientation.Horizontal)
+        self.energy_reactivity_slider.setRange(0, 100)
+        self.energy_reactivity_slider.setValue(50)
+        self.energy_reactivity_slider.setFixedHeight(16)
+        energy_row.addWidget(self.energy_reactivity_slider, stretch=1)
+        self.energy_reactivity_spin = QSpinBox()
+        self.energy_reactivity_spin.setRange(0, 100)
+        self.energy_reactivity_spin.setValue(50)
+        self.energy_reactivity_spin.setSuffix("%")
+        self.energy_reactivity_spin.setFixedWidth(52)
+        self.energy_reactivity_spin.setFixedHeight(20)
+        self.energy_reactivity_spin.setStyleSheet("font-size: 10px;")
+        # Sync slider <-> spinbox
+        self.energy_reactivity_slider.valueChanged.connect(self.energy_reactivity_spin.setValue)
+        self.energy_reactivity_spin.valueChanged.connect(self.energy_reactivity_slider.setValue)
+        energy_row.addWidget(self.energy_reactivity_spin)
         insp.addLayout(energy_row)
 
-        self.density_slider, density_row = self._create_compact_slider("Dichte", 0, 100, 50)
-        insp.addLayout(density_row)
+        # 3. Breakdown Behavior
+        bd_row = QHBoxLayout()
+        bd_row.setSpacing(4)
+        bd_lbl = QLabel("Breakdown")
+        bd_lbl.setFixedWidth(52)
+        bd_lbl.setStyleSheet("color: #707070; font-size: 10px;")
+        bd_lbl.setToolTip("Verhalten bei niedrigem RMS (Breakdowns/Intros)")
+        bd_row.addWidget(bd_lbl)
+        self.breakdown_combo = QComboBox()
+        self.breakdown_combo.addItems([
+            "Cuts halbieren",
+            "16-Beat erzwingen",
+            "Keine Cuts",
+        ])
+        self.breakdown_combo.setCurrentIndex(0)
+        self.breakdown_combo.setToolTip(
+            "Halbieren: Cut-Rate verdoppelt sich (z.B. 4→8 Beats)\n"
+            "16-Beat: Erzwingt 16-Beat Intervalle bei Breakdowns\n"
+            "Keine Cuts: Keine Schnitte waehrend Breakdowns"
+        )
+        self.breakdown_combo.setFixedHeight(22)
+        bd_row.addWidget(self.breakdown_combo, stretch=1)
+        insp.addLayout(bd_row)
+
+        # Legacy slider refs (for backward compat with _generate_timeline)
+        self.tempo_slider = self.energy_reactivity_slider
+        self.energy_slider = self.energy_reactivity_slider
+        self.density_slider = self.energy_reactivity_slider
 
         self._add_separator(insp)
 
@@ -1864,30 +1944,61 @@ class PBWindow(QMainWindow):
         self.btn_generate.clicked.connect(self._generate_timeline)
         insp.addWidget(self.btn_generate)
 
-        self.btn_auto_edit = QPushButton("Auto-Edit to Beat")
+        self.btn_auto_edit = QPushButton("Auto-Edit")
         self.btn_auto_edit.setObjectName("btn_accent")
         self.btn_auto_edit.setFixedHeight(30)
         self.btn_auto_edit.setToolTip(
-            "Intelligenter Schnitt: Beatgrid + Pacing-Kurve bestimmen die Cuts"
+            "Phase 3: DJ-Pacing + OTIO Timeline + Anker + LanceDB Matching"
         )
         self.btn_auto_edit.clicked.connect(self._auto_edit_to_beat)
         insp.addWidget(self.btn_auto_edit)
 
         self._add_separator(insp)
 
-        # Anchor section
+        # ── Phase 3: Anchor System ──
         anchor_lbl = QLabel("ANKER")
         anchor_lbl.setStyleSheet("color: #505050; font-size: 9px; font-weight: 600; letter-spacing: 1px;")
         insp.addWidget(anchor_lbl)
 
-        self.btn_sync_anchors = QPushButton("Anker synchronisieren")
-        self.btn_sync_anchors.setFixedHeight(28)
-        self.btn_sync_anchors.setToolTip(
-            "Verschiebt Video-Clips so, dass Audio- und Video-Anker exakt uebereinander liegen.\n"
-            "Setze Anker mit Rechtsklick oder Taste M."
+        # Anchor list widget
+        self.anchor_list = QTreeWidget()
+        self.anchor_list.setHeaderLabels(["Zeit", "Video/Szene"])
+        self.anchor_list.setMaximumHeight(100)
+        self.anchor_list.setStyleSheet(
+            "QTreeWidget { background: #0A0A0A; border: 1px solid #1E1E1E; "
+            "font-size: 10px; color: #C0C0C0; }"
+            "QTreeWidget::item { padding: 1px; }"
         )
+        self.anchor_list.setToolTip(
+            "Audio-Anker: An diesen Zeitpunkten wird ein bestimmtes Video eingesetzt.\n"
+            "Doppelklick zum Bearbeiten."
+        )
+        insp.addWidget(self.anchor_list)
+
+        # Anchor add/remove buttons
+        anchor_btn_row = QHBoxLayout()
+        anchor_btn_row.setSpacing(4)
+        self.btn_add_anchor = QPushButton("+ Anker")
+        self.btn_add_anchor.setFixedHeight(22)
+        self.btn_add_anchor.setStyleSheet("font-size: 9px;")
+        self.btn_add_anchor.setToolTip("Neuen Anker an der aktuellen Position hinzufuegen")
+        self.btn_add_anchor.clicked.connect(self._add_anchor_dialog)
+        anchor_btn_row.addWidget(self.btn_add_anchor)
+
+        self.btn_remove_anchor = QPushButton("- Anker")
+        self.btn_remove_anchor.setFixedHeight(22)
+        self.btn_remove_anchor.setStyleSheet("font-size: 9px;")
+        self.btn_remove_anchor.setToolTip("Ausgewaehlten Anker entfernen")
+        self.btn_remove_anchor.clicked.connect(self._remove_selected_anchor)
+        anchor_btn_row.addWidget(self.btn_remove_anchor)
+
+        self.btn_sync_anchors = QPushButton("Sync")
+        self.btn_sync_anchors.setFixedHeight(22)
+        self.btn_sync_anchors.setStyleSheet("font-size: 9px;")
+        self.btn_sync_anchors.setToolTip("Anker synchronisieren")
         self.btn_sync_anchors.clicked.connect(self._sync_anchors)
-        insp.addWidget(self.btn_sync_anchors)
+        anchor_btn_row.addWidget(self.btn_sync_anchors)
+        insp.addLayout(anchor_btn_row)
 
         insp.addStretch()
 
@@ -2432,10 +2543,15 @@ class PBWindow(QMainWindow):
         # Collect manual density curve from pacing widget
         densities = self.pacing_curve.get_all_densities()
 
+        # Map cut_rate_combo to tempo for legacy PacingSettings
+        cut_rate_map = {0: 90, 1: 70, 2: 50, 3: 30, 4: 10}
+        tempo_val = cut_rate_map.get(self.cut_rate_combo.currentIndex(), 50)
+        reactivity = self.energy_reactivity_spin.value()
+
         settings = PacingSettings(
-            tempo=self.tempo_slider.value(),
-            energy=self.energy_slider.value(),
-            cut_density=self.density_slider.value(),
+            tempo=tempo_val,
+            energy=reactivity,
+            cut_density=reactivity,
             vibe=self.vibe_input.text(),
             manual_density_curve=densities,
         )
@@ -2480,7 +2596,7 @@ class PBWindow(QMainWindow):
     # ==================================================================
 
     def _auto_edit_to_beat(self):
-        """SEKTOR 2+3: Intelligenter Auto-Edit mit Beatgrid + Pacing-Kurve."""
+        """Phase 3: DJ-Pacing Auto-Edit mit OTIO Timeline."""
         audio_id = self.audio_combo.currentData()
         if audio_id is None:
             self.console_text.append("[Auto-Edit] Kein Audio-Track ausgewaehlt.")
@@ -2489,44 +2605,62 @@ class PBWindow(QMainWindow):
         with DBSession(engine) as session:
             clips = session.query(VideoClip).filter_by(project_id=1).all()
             video_ids = [c.id for c in clips]
-            track = session.get(AudioTrack, audio_id)
-            total_dur = track.duration if track and track.duration else 60.0
 
         if not video_ids:
             self.console_text.append("[Auto-Edit] Keine Video-Clips vorhanden.")
             return
 
-        # Pacing-Kurve und Tempo-Slider auslesen
-        pacing_curve = self.pacing_curve.get_all_densities()
-        tempo = self.tempo_slider.value()
+        # Phase 3: DJ-Regler auslesen
+        cut_rate_map = {0: 1, 1: 2, 2: 4, 3: 8, 4: 16}
+        base_cut_rate = cut_rate_map.get(self.cut_rate_combo.currentIndex(), 4)
+
+        breakdown_map = {0: "halve", 1: "force16", 2: "none"}
+        breakdown = breakdown_map.get(self.breakdown_combo.currentIndex(), "halve")
+
+        # Anker aus UI sammeln
+        anchors = self._collect_anchors_from_ui()
+
+        settings = AdvancedPacingSettings(
+            base_cut_rate=base_cut_rate,
+            energy_reactivity=self.energy_reactivity_spin.value(),
+            breakdown_behavior=breakdown,
+            vibe=self.vibe_input.text(),
+            manual_density_curve=self.pacing_curve.get_all_densities(),
+            anchors=anchors,
+        )
 
         task = task_manager.create_task(
-            "Auto-Edit to Beat",
-            "Intelligenter Beatgrid-Schnitt mit Pacing-Kurve"
+            "Auto-Edit (Phase 3)",
+            f"DJ-Pacing: {base_cut_rate}-Beat, Reaktivitaet={settings.energy_reactivity}%, "
+            f"Breakdown={breakdown}"
         )
         self.console_text.append(
-            f"[Auto-Edit] Starte intelligenten Beat-Edit "
-            f"(Tempo={tempo}, Kurve aktiv, {len(video_ids)} Clips)..."
+            f"[Auto-Edit] Phase 3 DJ-Pacing starte "
+            f"(Rate={base_cut_rate} Beats, Reaktivitaet={settings.energy_reactivity}%, "
+            f"Breakdown={breakdown}, {len(video_ids)} Clips, "
+            f"{len(anchors)} Anker)..."
         )
         self.btn_auto_edit.setEnabled(False)
-        self.btn_auto_edit.setText("Auto-Edit\nlaeuft...")
+        self.btn_auto_edit.setText("laeuft...")
 
-        worker = AutoEditWorker(audio_id, video_ids, total_dur,
-                                pacing_curve=pacing_curve, tempo=tempo)
-        worker.finished.connect(lambda segs: self._on_auto_edit_finished(segs, task.task_id))
+        worker = AutoEditWorker(audio_id, video_ids, settings)
+        worker.finished.connect(
+            lambda segs, cps: self._on_auto_edit_finished(segs, cps, task.task_id)
+        )
         worker.error.connect(lambda err: self._on_auto_edit_error(err, task.task_id))
 
         self._start_worker_thread(worker)
 
-    def _on_auto_edit_finished(self, segments: list, task_id: str):
+    def _on_auto_edit_finished(self, segments: list, cut_points: list, task_id: str):
         self.btn_auto_edit.setEnabled(True)
-        self.btn_auto_edit.setText("Auto-Edit\nto Beat")
+        self.btn_auto_edit.setText("Auto-Edit")
 
         if not segments:
             self.console_text.append("[Auto-Edit] Keine Segmente generiert.")
             task_manager.finish_task(task_id, "error", "Keine Segmente")
             return
 
+        # 1. SQLite TimelineEntries aktualisieren (fuer UI-Anzeige)
         with DBSession(engine) as session:
             session.query(TimelineEntry).filter_by(
                 project_id=1, track="video"
@@ -2545,20 +2679,197 @@ class PBWindow(QMainWindow):
                 session.add(entry)
             session.commit()
 
+        # 2. OTIO Timeline generieren
+        self._build_otio_timeline(segments)
+
+        # 3. UI aktualisieren
         self.timeline_view.load_from_db()
+
+        # 4. CutPoints visualisieren
+        if cut_points:
+            total_dur = segments[-1]["end"] if segments else 60.0
+            cps = [CutPoint(
+                time=cp["time"], source=cp["source"], strength=cp["strength"]
+            ) for cp in cut_points]
+            self.timeline_view.set_cut_points(cps, total_dur)
+
+            anchor_cuts = sum(1 for cp in cut_points if cp["source"] == "anchor")
+            beat_cuts = sum(1 for cp in cut_points if cp["source"] == "beat")
+            self.cut_info_label.setText(
+                f"{len(cut_points)} Cuts | Beat:{beat_cuts} Anker:{anchor_cuts} | "
+                f"{total_dur:.0f}s | {len(segments)} Segmente"
+            )
+
         self.console_text.append(
-            f"[Auto-Edit] {len(segments)} Segmente auf Drum-Beats verteilt."
+            f"[Auto-Edit] Phase 3 fertig: {len(segments)} Segmente, "
+            f"OTIO Timeline generiert."
         )
         task_manager.finish_task(task_id, "finished", f"{len(segments)} Segmente")
 
+    def _build_otio_timeline(self, segments: list):
+        """Baut eine OTIO-Timeline aus den Auto-Edit Segmenten."""
+        audio_id = self.audio_combo.currentData()
+        tls = TimelineService(fps=30.0)
+        tls.create_timeline("PB Studio Auto-Edit")
+
+        # Audio-Track hinzufuegen
+        if audio_id is not None:
+            with DBSession(engine) as session:
+                track = session.get(AudioTrack, audio_id)
+                if track:
+                    audio_track = tls.get_audio_track()
+                    tls.add_clip(
+                        track=audio_track,
+                        name=track.title or Path(track.file_path).stem,
+                        media_path=track.file_path,
+                        source_start=0.0,
+                        source_duration=track.duration or 60.0,
+                        available_duration=track.duration,
+                    )
+
+        # Video-Clips hinzufuegen
+        video_track = tls.get_video_track()
+        for seg in segments:
+            seg_duration = seg["end"] - seg["start"]
+            metadata = {}
+            if seg.get("is_anchor"):
+                metadata = {"scene_id": seg.get("scene_id", ""), "type": "anchor"}
+
+            tls.add_clip(
+                track=video_track,
+                name=Path(seg["video_path"]).stem if seg.get("video_path") else f"clip_{seg['video_id']}",
+                media_path=seg.get("video_path", ""),
+                source_start=seg["source_start"],
+                source_duration=seg_duration,
+                metadata=metadata if metadata else None,
+            )
+
+        # Anker als OTIO Marker speichern
+        anchors = self._collect_anchors_from_ui()
+        for anchor in anchors:
+            tls.add_marker(
+                name=f"Anchor_{anchor['scene_id']}",
+                time=anchor["time"],
+                color="MAGENTA",
+                metadata={
+                    "scene_id": anchor["scene_id"],
+                    "type": "anchor",
+                },
+            )
+
+        # Speichern
+        self._otio_timeline_service = tls
+        otio_path = tls.save_otio("exports/auto_edit_phase3.otio")
+        self.console_text.append(f"[OTIO] Timeline gespeichert: {otio_path}")
+
     def _on_auto_edit_error(self, error_msg: str, task_id: str):
         self.btn_auto_edit.setEnabled(True)
-        self.btn_auto_edit.setText("Auto-Edit\nto Beat")
+        self.btn_auto_edit.setText("Auto-Edit")
         self.console_text.append(f"[Auto-Edit Fehler] {error_msg}")
         task_manager.finish_task(task_id, "error", error_msg)
 
+    # ==================================================================
+    # Phase 3: Anchor System
+    # ==================================================================
+
+    def _collect_anchors_from_ui(self) -> list[dict]:
+        """Sammelt alle Anker aus der Anchor-Liste im Inspector."""
+        anchors = []
+        for i in range(self.anchor_list.topLevelItemCount()):
+            item = self.anchor_list.topLevelItem(i)
+            time_text = item.text(0)
+            scene_id = item.data(0, Qt.ItemDataRole.UserRole) or ""
+            try:
+                # Parse "MM:SS.ss" or plain seconds
+                if ":" in time_text:
+                    parts = time_text.replace("s", "").split(":")
+                    time_sec = float(parts[0]) * 60 + float(parts[1])
+                else:
+                    time_sec = float(time_text.replace("s", ""))
+                anchors.append({"time": time_sec, "scene_id": str(scene_id)})
+            except (ValueError, IndexError):
+                continue
+        return anchors
+
+    def _add_anchor_dialog(self):
+        """Oeffnet einen Dialog zum Hinzufuegen eines neuen Audio-Ankers."""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Anker hinzufuegen")
+        dialog.setFixedSize(320, 180)
+        dialog.setStyleSheet("background-color: #1A1A1A; color: #E0E0E0;")
+        layout = QVBoxLayout(dialog)
+
+        # Zeitpunkt
+        time_row = QHBoxLayout()
+        time_row.addWidget(QLabel("Zeitpunkt (Sek):"))
+        time_spin = QSpinBox()
+        time_spin.setRange(0, 36000)
+        time_spin.setValue(0)
+        time_spin.setSuffix("s")
+        time_row.addWidget(time_spin)
+        layout.addLayout(time_row)
+
+        # Video/Szene Auswahl
+        scene_row = QHBoxLayout()
+        scene_row.addWidget(QLabel("Video/Szene:"))
+        scene_combo = QComboBox()
+        scene_combo.addItem("-- Szene waehlen --", "")
+        # Alle Szenen aus der DB laden
+        with DBSession(engine) as session:
+            clips = session.query(VideoClip).filter_by(project_id=1).all()
+            for clip in clips:
+                clip_name = Path(clip.file_path).stem[:20]
+                for scene in clip.scenes:
+                    label = (
+                        f"{clip_name} | Szene {scene.id} "
+                        f"({scene.start_time:.1f}-{scene.end_time:.1f}s)"
+                    )
+                    scene_combo.addItem(label, str(scene.id))
+                # Falls keine Szenen: ganzen Clip anbieten
+                if not clip.scenes:
+                    scene_combo.addItem(f"{clip_name} (komplett)", f"clip_{clip.id}")
+        scene_row.addWidget(scene_combo)
+        layout.addLayout(scene_row)
+
+        # OK/Cancel
+        btn_row = QHBoxLayout()
+        btn_ok = QPushButton("Hinzufuegen")
+        btn_ok.setObjectName("btn_accent")
+        btn_ok.clicked.connect(dialog.accept)
+        btn_row.addWidget(btn_ok)
+        btn_cancel = QPushButton("Abbrechen")
+        btn_cancel.clicked.connect(dialog.reject)
+        btn_row.addWidget(btn_cancel)
+        layout.addLayout(btn_row)
+
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            time_sec = time_spin.value()
+            scene_id = scene_combo.currentData() or ""
+            scene_label = scene_combo.currentText()
+
+            # Zur Anchor-Liste hinzufuegen
+            minutes = int(time_sec // 60)
+            secs = time_sec % 60
+            time_str = f"{minutes}:{secs:05.2f}"
+
+            item = QTreeWidgetItem([time_str, scene_label[:30]])
+            item.setData(0, Qt.ItemDataRole.UserRole, scene_id)
+            self.anchor_list.addTopLevelItem(item)
+
+            self.console_text.append(
+                f"[Anchor] Anker bei {time_str} -> {scene_label}"
+            )
+
+    def _remove_selected_anchor(self):
+        """Entfernt den ausgewaehlten Anker aus der Liste."""
+        selected = self.anchor_list.currentItem()
+        if selected:
+            idx = self.anchor_list.indexOfTopLevelItem(selected)
+            self.anchor_list.takeTopLevelItem(idx)
+            self.console_text.append("[Anchor] Anker entfernt.")
+
     def _sync_anchors(self):
-        """SEKTOR 1: Anker synchronisieren — richtet Video-Clips an Audio-Ankern aus."""
+        """Anker synchronisieren — richtet Video-Clips an Audio-Ankern aus."""
         synced = self.timeline_view.sync_anchors()
         if synced:
             self.timeline_view.load_from_db()

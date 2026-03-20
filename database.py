@@ -97,6 +97,8 @@ class Beatgrid(Base):
     bpm = Column(Float, nullable=False)
     offset = Column(Float, nullable=False, default=0.0)
     beat_positions = Column(Text, nullable=True)
+    downbeat_positions = Column(Text, nullable=True)   # Phase 3: JSON list of downbeat timestamps
+    energy_per_beat = Column(Text, nullable=True)       # Phase 3: JSON list of RMS energy per beat [0.0-1.0]
 
     audio_track = relationship("AudioTrack", back_populates="beatgrid")
 
@@ -199,6 +201,18 @@ class TimelineEntry(Base):
 def init_db():
     """Erstellt alle Tabellen und ein Default-Projekt, falls noch keines existiert."""
     Base.metadata.create_all(engine)
+
+    # Phase 3: Migrate existing beatgrids table (add new columns if missing)
+    from sqlalchemy import inspect, text
+    insp = inspect(engine)
+    if "beatgrids" in insp.get_table_names():
+        columns = {c["name"] for c in insp.get_columns("beatgrids")}
+        with engine.begin() as conn:
+            if "downbeat_positions" not in columns:
+                conn.execute(text("ALTER TABLE beatgrids ADD COLUMN downbeat_positions TEXT"))
+            if "energy_per_beat" not in columns:
+                conn.execute(text("ALTER TABLE beatgrids ADD COLUMN energy_per_beat TEXT"))
+
     with Session(engine) as session:
         if not session.query(Project).first():
             session.add(Project(name="Default", path=".", resolution="1920x1080", fps=30.0))

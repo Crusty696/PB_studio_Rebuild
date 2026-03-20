@@ -198,7 +198,7 @@ class BeatAnalysisService:
         """Analysiert einen AudioTrack und speichert Beats/Downbeats in der DB.
 
         Aktualisiert den Beatgrid-Eintrag mit beat_this-Ergebnissen.
-        Speichert Downbeats als separate Metadata.
+        Phase 3: Speichert auch Downbeats und Per-Beat-RMS-Energie.
         """
         with Session(engine) as session:
             track = session.get(AudioTrack, track_id)
@@ -208,6 +208,11 @@ class BeatAnalysisService:
 
         result = self.analyze(file_path)
 
+        # Phase 3: Per-Beat RMS-Energie berechnen
+        energy_per_beat = self._compute_energy_per_beat(
+            file_path, result["beats"], result["duration"]
+        )
+
         with Session(engine) as session:
             track = session.get(AudioTrack, track_id)
             if track is None:
@@ -216,11 +221,16 @@ class BeatAnalysisService:
             track.bpm = result["bpm"]
             track.duration = result["duration"]
 
-            # Beatgrid aktualisieren mit allen Beats
+            # Beatgrid aktualisieren mit allen Beats + Downbeats + Energie
             beat_positions_json = json.dumps(result["beats"])
+            downbeat_positions_json = json.dumps(result["downbeats"])
+            energy_json = json.dumps(energy_per_beat)
+
             if track.beatgrid:
                 track.beatgrid.bpm = result["bpm"]
                 track.beatgrid.beat_positions = beat_positions_json
+                track.beatgrid.downbeat_positions = downbeat_positions_json
+                track.beatgrid.energy_per_beat = energy_json
                 track.beatgrid.offset = result["beats"][0] if result["beats"] else 0.0
             else:
                 bg = Beatgrid(
@@ -228,9 +238,42 @@ class BeatAnalysisService:
                     bpm=result["bpm"],
                     offset=result["beats"][0] if result["beats"] else 0.0,
                     beat_positions=beat_positions_json,
+                    downbeat_positions=downbeat_positions_json,
+                    energy_per_beat=energy_json,
                 )
                 session.add(bg)
 
             session.commit()
 
         return result
+
+    @staticmethod
+    def _compute_energy_per_beat(
+        audio_path: str, beats: list[float], duration: float
+    ) -> list[float]:
+        """Berechnet RMS-Energie pro Beat-Intervall (0.0 - 1.0 normalisiert)."""
+        if not beats or len(beats) < 2:
+            return []
+        try:
+            import librosa
+            y, sr = librosa.load(audio_path, sr=22050, mono=True)
+        except Exception:
+            return [0.5] * len(beats)
+
+        energies = []
+        for i in range(len(beats)):
+            start_sample = int(beats[i] * 22050)
+            end_sample = int((beats[i + 1] if i + 1 < len(beats) else duration) * 22050)
+            end_sample = min(end_sample, len(y))
+            if end_sample <= start_sample:
+                energies.append(0.0)
+                continue
+            segment = y[start_sample:end_sample]
+            rms = float(np.sqrt(np.mean(segment ** 2)))
+            energies.append(round(rms, 6))
+
+        # Normalisiere auf 0.0-1.0
+        max_e = max(energies) if energies else 1.0
+        if max_e > 0:
+            energies = [round(e / max_e, 4) for e in energies]
+        return energies
