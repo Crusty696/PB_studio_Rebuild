@@ -3,3 +3,17 @@ __pycache__/
 *.db
 .env
 
+# Generated media (proxies, keyframes, audio cache)
+storage/proxies/
+storage/keyframes/
+storage/audio_cache/
+storage/stems/
+
+# Vector databases and data artifacts
+data/vector/
+data/*.sqlite
+poc_lancedb_data/
+
+# LanceDB transaction/manifest files (anywhere)
+*.txn
+*.manifest
