@@ -9,16 +9,28 @@ REGELN:
 - LanceDB Semantic Search fuer Keyword-Matching, sonst Motion/Random.
 """
 
+import copy
 import json
 import logging
 import random
 from dataclasses import dataclass, field
+from functools import lru_cache
+from pathlib import Path
 
 import numpy as np
 from sqlalchemy.orm import Session
 from database import engine, AudioTrack, VideoClip, Scene, Beatgrid
 
 logger = logging.getLogger(__name__)
+
+
+def invalidate_pacing_caches():
+    """Cache leeren nach Media-Import oder DB-Änderung."""
+    _get_audio_duration.cache_clear()
+    _get_audio_path.cache_clear()
+    _get_bpm.cache_clear()
+    _get_video_info_cached.cache_clear()
+
 
 # ── Backward-compatible types ──
 
@@ -129,6 +141,7 @@ def _get_energy_per_beat(audio_id: int | None) -> list[float]:
     return []
 
 
+@lru_cache(maxsize=64)
 def _get_audio_duration(audio_id: int) -> float:
     """Gibt die Dauer des Audio-Tracks in Sekunden zurueck."""
     with Session(engine) as session:
@@ -136,6 +149,7 @@ def _get_audio_duration(audio_id: int) -> float:
         return track.duration if track and track.duration else 60.0
 
 
+@lru_cache(maxsize=64)
 def _get_audio_path(audio_id: int) -> str:
     """Gibt den Dateipfad des Audio-Tracks zurueck."""
     with Session(engine) as session:
@@ -143,6 +157,7 @@ def _get_audio_path(audio_id: int) -> str:
         return track.file_path if track else ""
 
 
+@lru_cache(maxsize=64)
 def _get_bpm(audio_id: int | None) -> float | None:
     if audio_id is None:
         return None
@@ -152,21 +167,28 @@ def _get_bpm(audio_id: int | None) -> float | None:
 
 
 def _get_video_info(video_ids: list[int]) -> dict[int, dict]:
-    """Holt Video-Metadaten (Dauer, Pfad) fuer alle IDs."""
+    """Holt Video-Metadaten (Dauer, Pfad) fuer alle IDs. Cached intern."""
+    return copy.deepcopy(_get_video_info_cached(tuple(sorted(video_ids))))
+
+
+@lru_cache(maxsize=32)
+def _get_video_info_cached(video_ids: tuple[int, ...]) -> dict[int, dict]:
+    """Cached-Backend fuer _get_video_info (tuple ist hashable)."""
     info = {}
+    if not video_ids:
+        return info
     with Session(engine) as session:
-        for vid in video_ids:
-            clip = session.get(VideoClip, vid)
-            if clip:
-                info[vid] = {
-                    "duration": clip.duration or 10.0,
-                    "path": clip.file_path,
-                    "scenes": [
-                        {"start": s.start_time, "end": s.end_time,
-                         "energy": s.energy or 0.5, "id": s.id}
-                        for s in clip.scenes
-                    ],
-                }
+        clips = session.query(VideoClip).filter(VideoClip.id.in_(video_ids)).all()
+        for clip in clips:
+            info[clip.id] = {
+                "duration": clip.duration or 10.0,
+                "path": clip.file_path,
+                "scenes": [
+                    {"start": s.start_time, "end": s.end_time,
+                     "energy": s.energy or 0.5, "id": s.id}
+                    for s in clip.scenes
+                ],
+            }
     return info
 
 
@@ -177,7 +199,9 @@ def _get_scenes(video_id: int | None) -> list[Scene]:
         clip = session.get(VideoClip, video_id)
         if clip is None:
             return []
-        return list(clip.scenes)
+        # Eager-load scenes innerhalb der Session, sonst DetachedInstanceError nach Session-Close
+        scenes = list(clip.scenes)
+        return scenes
 
 
 # ── Legacy Phase 2 functions (kept for backward compat) ──
@@ -224,7 +248,7 @@ def calculate_cut_points(
             if beat_time >= total_duration:
                 break
             if curve and num_curve_samples > 0:
-                curve_idx = int((beat_time / total_duration) * (num_curve_samples - 1))
+                curve_idx = int((beat_time / max(total_duration, 1e-9)) * (num_curve_samples - 1))
                 curve_idx = max(0, min(curve_idx, num_curve_samples - 1))
                 density = curve[curve_idx]
                 curve_step = _density_to_beat_step(density)
@@ -262,15 +286,28 @@ def calculate_cut_points(
     scenes = _get_scenes(video_id)
     if beats and scenes:
         beats_arr = np.array(beats)
+        # O(N log N): Existierende Cut-Zeiten als sortiertes Array für schnelle Duplikat-Prüfung
+        cut_times = np.array(sorted(c.time for c in cuts)) if cuts else np.array([])
         for scene in scenes:
             idx = np.searchsorted(beats_arr, scene.start_time)
             if idx < len(beats_arr):
-                snapped = beats_arr[idx]
-                if not any(abs(c.time - snapped) < 0.05 for c in cuts):
-                    cuts.append(CutPoint(
-                        time=round(float(snapped), 4), source="scene",
+                snapped = float(beats_arr[idx])
+                # Binary search statt linearem any()
+                pos = np.searchsorted(cut_times, snapped)
+                is_dup = False
+                for check in (pos - 1, pos):
+                    if 0 <= check < len(cut_times) and abs(cut_times[check] - snapped) < 0.05:
+                        is_dup = True
+                        break
+                if not is_dup:
+                    new_cut = CutPoint(
+                        time=round(snapped, 4), source="scene",
                         strength=min(1.0, (scene.energy or 0.5) + 0.2),
-                    ))
+                    )
+                    cuts.append(new_cut)
+                    # cut_times aktuell halten für nächste Iteration
+                    ins = np.searchsorted(cut_times, snapped)
+                    cut_times = np.insert(cut_times, ins, snapped)
 
     threshold = 1.0 - (settings.cut_density / 100.0)
     cuts = [c for c in cuts if c.strength >= threshold]
@@ -293,7 +330,8 @@ def calculate_drum_cuts(audio_id: int, total_duration: float = 60.0,
     try:
         import librosa
         y, sr = librosa.load(drums_path, sr=22050, mono=True)
-    except Exception:
+    except Exception as e:
+        logger.warning("librosa.load fehlgeschlagen für Drums-Stem '%s': %s", drums_path, e)
         return []
     onset_env = librosa.onset.onset_strength(y=y, sr=sr)
     onset_frames = librosa.onset.onset_detect(
@@ -384,6 +422,11 @@ def _compute_effective_step(
             elif breakdown_behavior == "none":
                 effective = 9999  # Kein Cut
 
+        # Mittlere Energie (0.3-0.7): Leichte Modulation
+        elif 0.3 <= energy <= 0.5:
+            # Leicht verlangsamen bei niedrig-mittel
+            effective = min(16, int(effective * 1.5))
+
     return max(1, effective)
 
 
@@ -455,31 +498,26 @@ def _match_video_for_segment(
         except Exception as e:
             logger.warning("LanceDB Suche fehlgeschlagen: %s", e)
 
-    # Fallback: Round-Robin mit Motion-Praeferenz
-    # Vermeide kuerzlich genutzte Clips
-    candidates = [v for v in available_ids if v not in used_recently[-3:]]
-    if not candidates:
-        candidates = available_ids
+    # Fallback: Motion-basiertes Matching
+    # Berechne Audio-Energie fuer diesen Zeitpunkt (fuer Motion-Match)
+    energy_value = 0.5  # Default
+    # Versuche Energie aus dem Video-Kontext abzuleiten
+    seg_mid = (seg_start + seg_end) / 2.0
 
-    # Waehle Clip mit hoechstem Motion-Score wenn verfuegbar
-    best_vid = candidates[0]
-    best_motion = -1.0
-    for vid in candidates:
-        scenes = video_info.get(vid, {}).get("scenes", [])
-        if scenes:
-            avg_motion = sum(s["energy"] for s in scenes) / len(scenes)
-            if avg_motion > best_motion:
-                best_motion = avg_motion
-                best_vid = vid
-
-    source_start = clip_offsets.get(best_vid, 0.0)
-    return best_vid, source_start
+    vid, source_start = _match_video_by_motion(
+        energy_value, video_info, available_ids, used_recently,
+    )
+    # Fallback source_start aus clip_offsets wenn kein Scene-Match
+    if source_start == 0.0:
+        source_start = clip_offsets.get(vid, 0.0)
+    return vid, source_start
 
 
 def auto_edit_phase3(
     audio_id: int,
     video_clip_ids: list[int],
     settings: AdvancedPacingSettings,
+    progress_cb=None,
 ) -> tuple[list[TimelineSegment], list[CutPoint]]:
     """Phase 3: DJ-Pacing Engine — OTIO-konforme Timeline-Generierung.
 
@@ -489,6 +527,8 @@ def auto_edit_phase3(
         (segments, cut_points) — Segmente fuer OTIO + CutPoints fuer UI-Visualisierung
     """
     # 1. Audio-Dauer = Timeline-Laenge
+    if progress_cb:
+        progress_cb(0, "Lade Audio-Daten...")
     total_duration = _get_audio_duration(audio_id)
     logger.info("Phase 3 Auto-Edit: Audio-Dauer = %.1fs", total_duration)
 
@@ -511,6 +551,8 @@ def auto_edit_phase3(
     if not beats or not video_clip_ids:
         return [], []
 
+    if progress_cb:
+        progress_cb(20, "Lade Video-Metadaten...")
     # 3. Video-Info laden
     video_info = _get_video_info(video_clip_ids)
     if not video_info:
@@ -520,6 +562,8 @@ def auto_edit_phase3(
     anchors = settings.anchors or []
     anchor_times = {a["time"]: a for a in anchors}
 
+    if progress_cb:
+        progress_cb(40, "Berechne Cut-Beats...")
     # 5. Cut-Beats berechnen (Phase 3 Algorithmus)
     cut_beats = _select_cut_beats_advanced(
         beats, total_duration, settings, energy_per_beat,
@@ -541,6 +585,8 @@ def auto_edit_phase3(
             cut_beats.append(snapped)
     cut_beats.sort()
 
+    if progress_cb:
+        progress_cb(60, "Erzeuge Timeline-Segmente...")
     # 6. Segmente erzeugen
     segments: list[TimelineSegment] = []
     cut_points: list[CutPoint] = []
@@ -551,6 +597,22 @@ def auto_edit_phase3(
     clip_offsets: dict[int, float] = {vid: 0.0 for vid in available_ids}
     used_recently: list[int] = []
     clip_idx = 0
+
+    # Pre-resolve anchor scenes to avoid DB session per segment
+    anchor_scene_map: dict[str, int] = {}  # scene_id_str -> video_clip_id
+    if anchor_times:
+        scene_ids = []
+        for anchor_data in anchor_times.values():
+            sid = anchor_data.get("scene_id", "")
+            if sid:
+                try:
+                    scene_ids.append(int(sid))
+                except (ValueError, TypeError):
+                    pass
+        if scene_ids:
+            with Session(engine) as session:
+                for scene in session.query(Scene).filter(Scene.id.in_(scene_ids)).all():
+                    anchor_scene_map[str(scene.id)] = scene.video_clip_id
 
     for i in range(len(cut_beats) - 1):
         seg_start = cut_beats[i]
@@ -569,14 +631,11 @@ def auto_edit_phase3(
             if abs(seg_start - anchor_time) < 0.5 or (seg_start <= anchor_time < seg_end):
                 is_anchor = True
                 anchor_scene_id = anchor_data.get("scene_id", "")
-                # Scene-ID zu Video-ID aufloesen
+                # Scene-ID zu Video-ID aufloesen (pre-resolved)
                 if anchor_scene_id:
-                    with Session(engine) as session:
-                        scene = session.query(Scene).filter_by(
-                            id=int(anchor_scene_id)
-                        ).first()
-                        if scene:
-                            anchor_vid = scene.video_clip_id
+                    vid = anchor_scene_map.get(anchor_scene_id)
+                    if vid is not None:
+                        anchor_vid = vid
                 break
 
         if is_anchor and anchor_vid and anchor_vid in video_info:
@@ -638,11 +697,161 @@ def auto_edit_phase3(
         used_recently.append(vid)
         clip_idx += 1
 
+    if progress_cb:
+        progress_cb(100, "Timeline fertig")
     logger.info(
         "Phase 3: %d Segmente, %d CutPoints, %.1fs Gesamtdauer",
         len(segments), len(cut_points), total_duration,
     )
     return segments, cut_points
+
+
+# ======================================================================
+# Phase 3: Keyframe-String Generator
+# ======================================================================
+
+def _motion_category(score: float) -> str:
+    """Ordnet einen RAFT-Motion-Score einer lesbaren Kategorie zu."""
+    if score >= 0.8:
+        return "Extrem"
+    elif score >= 0.6:
+        return "Action"
+    elif score >= 0.3:
+        return "Moderat"
+    else:
+        return "Ruhig"
+
+
+def generate_keyframe_string(video_id: int) -> str:
+    """Wandelt erkannte Video-Szenen und RAFT-Motion-Werte in einen lesbaren Text-String um.
+
+    Format:
+        [Szene 1: Ruhig (motion=0.12), Laenge: 10.3s]
+          -> [Szene 2: Action (motion=0.85), Laenge: 4.1s]
+    """
+    with Session(engine) as session:
+        clip = session.get(VideoClip, video_id)
+        if not clip:
+            return f"[Video {video_id}: nicht gefunden]"
+
+        scenes = sorted(clip.scenes, key=lambda s: s.start_time)
+        if not scenes:
+            dur = clip.duration or 0.0
+            return f"[Video '{Path(clip.file_path).stem}': Keine Szenen erkannt, Laenge: {dur:.1f}s]"
+
+        res = f"{clip.width or '?'}x{clip.height or '?'}" if clip.width else "?"
+
+        parts = []
+        for i, scene in enumerate(scenes):
+            motion = scene.energy or 0.0  # motion_score als energy gespeichert
+            cat = _motion_category(motion)
+            length = (scene.end_time or 0.0) - (scene.start_time or 0.0)
+            part = f"[Szene {i+1}: {cat} (motion={motion:.2f}), Laenge: {length:.1f}s, {res}]"
+            parts.append(part)
+
+        video_name = Path(clip.file_path).stem
+        header = f"Video: '{video_name}' ({len(scenes)} Szenen)\n"
+        return header + "\n  -> ".join(parts)
+
+
+def generate_keyframe_strings_for_project(project_id: int = 1) -> str:
+    """Generiert Keyframe-Strings fuer ALLE Video-Clips eines Projekts."""
+    with Session(engine) as session:
+        clips = session.query(VideoClip).filter_by(project_id=project_id).all()
+        if not clips:
+            return "[Keine Video-Clips im Projekt]"
+        clip_ids = [c.id for c in clips]
+
+    all_strings = []
+    for vid_id in clip_ids:
+        all_strings.append(generate_keyframe_string(vid_id))
+
+    return "\n\n".join(all_strings)
+
+
+# ======================================================================
+# Phase 3: Dynamisches Motion-Pacing
+# ======================================================================
+
+def _motion_adjusted_step(
+    base_step: int,
+    seg_start: float,
+    seg_end: float,
+    video_info: dict[int, dict],
+    available_ids: list[int],
+    energy_value: float,
+) -> int:
+    """Passt den Beat-Schritt dynamisch an die Motion-Werte der Video-Szenen an.
+
+    NICHT stur nach 4 Beats schneiden! Die Schnittlaenge muss sich
+    an die Energie des Songs UND die Action im Bild anpassen.
+    """
+    # Sammle durchschnittlichen Motion-Score aller verfuegbaren Szenen
+    # die zeitlich zu diesem Segment passen koennten
+    total_motion = 0.0
+    motion_count = 0
+    for vid in available_ids:
+        scenes = video_info.get(vid, {}).get("scenes", [])
+        for scene in scenes:
+            total_motion += scene.get("energy", 0.5)
+            motion_count += 1
+
+    avg_motion = total_motion / motion_count if motion_count > 0 else 0.5
+
+    # Kombination: Audio-Energie + Video-Motion bestimmen Schnittlaenge
+    combined_intensity = (energy_value * 0.6 + avg_motion * 0.4)
+
+    if combined_intensity >= 0.8:
+        # Hohe Intensitaet: Sehr schnelle Schnitte (1-2 Beats)
+        return max(1, base_step // 4)
+    elif combined_intensity >= 0.6:
+        # Mittel-hoch: Schnelle Schnitte (2 Beats)
+        return max(1, base_step // 2)
+    elif combined_intensity >= 0.4:
+        # Mittel: Normale Schnitte (base_step)
+        return base_step
+    elif combined_intensity >= 0.2:
+        # Ruhig: Langsame Schnitte (doppelt)
+        return min(16, base_step * 2)
+    else:
+        # Sehr ruhig: Sehr langsame Schnitte
+        return min(16, base_step * 4)
+
+
+def _match_video_by_motion(
+    energy_value: float,
+    video_info: dict[int, dict],
+    available_ids: list[int],
+    used_recently: list[int],
+) -> tuple[int, float]:
+    """Waehlt den Video-Clip basierend auf Motion-Score passend zur Audio-Energie.
+
+    Ruhige Szenen (motion < 0.3) fuer ruhige Audio-Abschnitte.
+    Action-Szenen (motion > 0.7) fuer energetische Audio-Abschnitte.
+    """
+    candidates = [v for v in available_ids if v not in used_recently[-3:]]
+    if not candidates:
+        candidates = available_ids
+
+    best_vid = candidates[0]
+    best_score = -1.0
+    best_source_start = 0.0
+
+    for vid in candidates:
+        scenes = video_info.get(vid, {}).get("scenes", [])
+        if not scenes:
+            continue
+
+        for scene in scenes:
+            motion = scene.get("energy", 0.5)
+            # Score: Je naeher motion an energy_value, desto besser
+            match_score = 1.0 - abs(motion - energy_value)
+            if match_score > best_score:
+                best_score = match_score
+                best_vid = vid
+                best_source_start = scene.get("start", 0.0)
+
+    return best_vid, best_source_start
 
 
 # ── Legacy wrapper (backward compat) ──

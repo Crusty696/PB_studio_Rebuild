@@ -17,10 +17,14 @@ from typing import TYPE_CHECKING
 
 from PySide6.QtWidgets import (
     QDockWidget, QWidget, QVBoxLayout, QHBoxLayout,
-    QTextEdit, QLineEdit, QPushButton,
+    QTextEdit, QLineEdit, QPushButton, QLabel,
 )
 from PySide6.QtCore import Qt, QThread, Signal, QObject
 from PySide6.QtGui import QFont, QColor, QTextCharFormat, QTextCursor
+
+# Globaler GC-Schutz: Threads und Worker hier halten, damit der
+# Garbage Collector sie NIEMALS löscht, solange sie laufen.
+_GLOBAL_ACTIVE_THREADS: list[tuple] = []
 
 if TYPE_CHECKING:
     from PySide6.QtWidgets import QMainWindow
@@ -28,10 +32,46 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+class _TrackedRegistry:
+    """Thread-sicherer Wrapper um eine ActionRegistry.
+
+    Zählt execute()-Aufrufe und bricht bei Überschreitung ab,
+    OHNE die originale Registry per Monkey-Patch zu verändern.
+    """
+
+    def __init__(self, original_registry, max_calls: int, status_signal):
+        self._registry = original_registry
+        self._count = 0
+        self._max = max_calls
+        self._status = status_signal
+
+    def execute(self, name, params=None):
+        self._count += 1
+        self._status.emit(f"Führt [{name}] aus...")
+        if self._count > self._max:
+            self._status.emit("Loop erkannt - Abgebrochen")
+            raise _LoopBreakError(
+                f"Agent-Loop erkannt: {self._count} Tool-Calls "
+                f"ohne User-Antwort (Max: {self._max})"
+            )
+        return self._registry.execute(name, params)
+
+    # Delegiere alle anderen Attribute an die originale Registry
+    def __getattr__(self, name):
+        return getattr(self._registry, name)
+
+
 class AIAgentWorker(QObject):
-    """Führt agent.process(text) in einem separaten Thread aus."""
-    finished = Signal(dict)   # Ergebnis von process()
-    error = Signal(str)       # Fehlermeldung
+    """Führt agent.process(text) in einem separaten Thread aus.
+
+    Meldet Agent-Status live und bricht bei Loop-Erkennung ab.
+    """
+    finished = Signal(dict)        # Ergebnis von process()
+    error = Signal(str)            # Fehlermeldung
+    status_changed = Signal(str)   # Live-Status des Agenten
+
+    # Loop-Schutz: max aufeinanderfolgende Tool-Calls ohne User-Antwort
+    MAX_CONSECUTIVE_CALLS = 3
 
     def __init__(self, agent, user_text: str):
         super().__init__()
@@ -39,11 +79,51 @@ class AIAgentWorker(QObject):
         self.user_text = user_text
 
     def run(self):
+        _ok = False
         try:
-            result = self.agent.process(self.user_text)
-            self.finished.emit(result)
+            self.status_changed.emit("Denkt nach...")
+
+            # Thread-sichere Tracking-Registry statt Monkey-Patching
+            original_registry = getattr(self.agent, 'registry', None)
+            if original_registry is not None:
+                tracked = _TrackedRegistry(
+                    original_registry,
+                    self.MAX_CONSECUTIVE_CALLS,
+                    self.status_changed,
+                )
+                self.agent.registry = tracked
+
+            try:
+                result = self.agent.process(self.user_text)
+                self.status_changed.emit("Bereit")
+                self.finished.emit(result)
+                _ok = True
+            except _LoopBreakError as le:
+                logger.warning("Agent-Loop abgebrochen: %s", le)
+                self.finished.emit({
+                    "action": "none",
+                    "error": str(le),
+                    "message": None,
+                    "result": None,
+                })
+                _ok = True
+            finally:
+                # Original-Registry wiederherstellen
+                if original_registry is not None:
+                    self.agent.registry = original_registry
+
         except Exception as e:
+            logger.error("AIAgentWorker crashed: %s", e, exc_info=True)
+            self.status_changed.emit("Fehler")
             self.error.emit(str(e))
+        finally:
+            if not _ok:
+                self.finished.emit({})
+
+
+class _LoopBreakError(Exception):
+    """Wird geworfen wenn der Agent zu viele Tool-Calls ohne Antwort macht."""
+    pass
 
 
 class ChatDock(QDockWidget):
@@ -79,6 +159,21 @@ class ChatDock(QDockWidget):
         self.chat_log.setFont(QFont("Cascadia Code", 10))
         self.chat_log.setToolTip("Chat-Verlauf: Hier siehst du alle Nachrichten zwischen dir und dem KI-Assistenten sowie ausgefuehrte Aktionen")
         layout.addWidget(self.chat_log)
+
+        # Agent-Status-Label (über dem Eingabefeld)
+        self.status_label = QLabel("Agent Status: Bereit")
+        self.status_label.setFont(QFont("Cascadia Code", 9))
+        self.status_label.setStyleSheet(
+            "QLabel {"
+            "  color: #00E676;"
+            "  background-color: #1A1A2E;"
+            "  border: 1px solid #333;"
+            "  border-radius: 4px;"
+            "  padding: 4px 8px;"
+            "}"
+        )
+        self.status_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        layout.addWidget(self.status_label)
 
         # Eingabezeile + Button
         input_row = QHBoxLayout()
@@ -175,25 +270,46 @@ class ChatDock(QDockWidget):
         self._status_cursor_pos = self.chat_log.textCursor().position()
         self._append_colored("Agent arbeitet...", "#555555")
 
-        # Worker starten
+        # Worker ueber zentrale Task-Engine starten
         worker = AIAgentWorker(self._agent, text)
-        thread = QThread()
-        worker.moveToThread(thread)
-        thread.started.connect(worker.run)
         worker.finished.connect(self._on_agent_finished)
         worker.error.connect(self._on_agent_error)
-        worker.finished.connect(thread.quit)
-        worker.error.connect(thread.quit)
-        thread.finished.connect(self._cleanup_thread)
-        thread.finished.connect(worker.deleteLater)
-        thread.finished.connect(thread.deleteLater)
+        worker.status_changed.connect(self._on_agent_status)
 
-        self._thread = thread
-        self._worker = worker
-        thread.start()
+        try:
+            from PySide6.QtWidgets import QApplication
+            app = QApplication.instance()
+            if app is None or not hasattr(app, 'task_manager'):
+                raise AttributeError("TaskManager nicht verfügbar")
+            tm = app.task_manager
+            result = tm.start_task(
+                name="KI-Agent",
+                worker=worker,
+                description=text[:50],
+            )
+            # start_task gibt TaskInfo (Main-Thread) oder task_id str (BG-Thread) zurueck
+            self._thread = result.thread if hasattr(result, 'thread') else None
+            self._worker = worker
+        except (ImportError, AttributeError):
+            # Fallback: direkter Thread-Start
+            thread = QThread()
+            worker.moveToThread(thread)
+            thread.started.connect(worker.run)
+            worker.finished.connect(thread.quit)
+            worker.error.connect(thread.quit)
+            thread.finished.connect(self._cleanup_thread)
+            self._thread = thread
+            self._worker = worker
+            _GLOBAL_ACTIVE_THREADS.append((thread, worker))
+            thread.start()
 
     def _cleanup_thread(self) -> None:
         """Nullt Thread/Worker-Referenzen nach Fertigstellung."""
+        # Globalen GC-Schutz aufheben
+        if self._thread is not None and self._worker is not None:
+            pair = (self._thread, self._worker)
+            if pair in _GLOBAL_ACTIVE_THREADS:
+                _GLOBAL_ACTIVE_THREADS.remove(pair)
         self._thread = None
         self._worker = None
 
@@ -347,6 +463,30 @@ class ChatDock(QDockWidget):
         except Exception as e:
             self.append_error(f"GPU-Status nicht abrufbar: {e}")
 
+    def _on_agent_status(self, status: str) -> None:
+        """Aktualisiert das Agent-Status-Label live."""
+        self.status_label.setText(f"Agent Status: {status}")
+
+        # Farbe je nach Status
+        if "Loop erkannt" in status or "Fehler" in status or "Abgebrochen" in status:
+            color = "#FF5252"  # Rot
+        elif "Bereit" in status or "Wartet" in status:
+            color = "#00E676"  # Grün
+        elif "Führt" in status:
+            color = "#00B0FF"  # Blau — Tool wird ausgeführt
+        else:
+            color = "#FFC107"  # Gelb — Denkt nach
+
+        self.status_label.setStyleSheet(
+            f"QLabel {{"
+            f"  color: {color};"
+            f"  background-color: #1A1A2E;"
+            f"  border: 1px solid #333;"
+            f"  border-radius: 4px;"
+            f"  padding: 4px 8px;"
+            f"}}"
+        )
+
     def _on_agent_finished(self, result: dict) -> None:
         self._remove_status_line()
         self.input_field.setEnabled(True)
@@ -397,6 +537,7 @@ class ChatDock(QDockWidget):
 
     def _on_agent_error(self, error_msg: str) -> None:
         self._remove_status_line()
+        self._on_agent_status("Fehler")
         self.input_field.setEnabled(True)
         self.btn_send.setEnabled(True)
         self.input_field.setFocus()

@@ -7,10 +7,13 @@ Konvertierungsfunktion list() MUSS vor Zugriff auf audio_features aufgerufen wer
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
 import opentimelineio as otio
+
+logger = logging.getLogger(__name__)
 from opentimelineio.opentime import RationalTime, TimeRange
 
 EXPORTS_DIR = Path("exports")
@@ -274,7 +277,8 @@ class TimelineService:
         try:
             dur = self.timeline.duration()
             return dur.value / dur.rate
-        except Exception:
+        except Exception as e:
+            logger.warning("Timeline-Dauer konnte nicht berechnet werden: %s", e)
             return 0.0
 
     def clear(self) -> None:

@@ -46,30 +46,53 @@ class BeatAnalysisService:
         return self._device
 
     def _ensure_model(self) -> None:
-        """Laedt das beat_this Modell (lazy, einmalig)."""
+        """Laedt das beat_this Modell (lazy, einmalig).
+
+        WICHTIG: Entlaedt zuerst den ModelManager, damit kein anderes
+        Modell gleichzeitig VRAM belegt (GTX 1060 = 6GB Budget).
+        """
         if self._model is not None:
             return
+        # ModelManager entladen bevor beat_this GPU-Speicher beansprucht
+        try:
+            from services.model_manager import ModelManager
+            ModelManager().unload()
+        except Exception:
+            pass
         from beat_this.inference import File2Beats
-        import torch
+        import torch, gc
         if torch.cuda.is_available():
             logger.info("GPU-ZWANG: beat_this wird auf CUDA geladen (%s)", torch.cuda.get_device_name(0))
         logger.info("Lade beat_this Modell (device=%s, dbn=False)...", self.device)
-        self._model = File2Beats(device=self.device, dbn=False)
+        try:
+            self._model = File2Beats(device=self.device, dbn=False)
+        except torch.cuda.OutOfMemoryError:
+            torch.cuda.empty_cache()
+            gc.collect()
+            raise RuntimeError(
+                f"VRAM reicht nicht fuer beat_this auf '{self.device}'. "
+                "Bitte andere GPU-Modelle entladen."
+            )
         logger.info("beat_this Modell geladen.")
 
     def unload(self) -> None:
         """Entlaedt das Modell und gibt VRAM frei."""
         if self._model is not None:
+            import torch, gc
+            # Model auf CPU verschieben bevor Referenz geloescht wird
+            if hasattr(self._model, 'cpu'):
+                try:
+                    self._model.cpu()
+                except Exception:
+                    pass
             del self._model
             self._model = None
-            import torch
+            gc.collect()
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
-            import gc
-            gc.collect()
             logger.info("beat_this Modell entladen, VRAM freigegeben.")
 
-    def analyze(self, audio_path: str | Path) -> dict:
+    def analyze(self, audio_path: str | Path, progress_cb=None) -> dict:
         """Analysiert eine Audio-Datei und gibt Beats + Downbeats zurueck.
 
         Verwendet Chunked Processing fuer Dateien laenger als CHUNK_DURATION_SEC.
@@ -87,16 +110,35 @@ class BeatAnalysisService:
         import librosa
         audio_path = str(audio_path)
 
+        if progress_cb:
+            progress_cb(0, "Lade Audio...")
+
         # Dauer bestimmen
         duration = librosa.get_duration(path=audio_path)
+        if duration < 0.5:
+            raise ValueError(f"Audio-Datei zu kurz ({duration:.2f}s): {Path(audio_path).name}")
         logger.info("Audio-Dauer: %.1fs (%s)", duration, Path(audio_path).name)
 
-        if duration <= CHUNK_DURATION_SEC:
-            # Kurze Datei: direkt analysieren
-            beats, downbeats = self._analyze_full(audio_path)
-        else:
-            # Lange Datei: Chunked Processing
-            beats, downbeats = self._analyze_chunked(audio_path, duration)
+        if progress_cb:
+            progress_cb(10, "Lade beat_this Modell...")
+
+        try:
+            if duration <= CHUNK_DURATION_SEC:
+                if progress_cb:
+                    progress_cb(20, "Analysiere Beats...")
+                # Kurze Datei: direkt analysieren
+                beats, downbeats = self._analyze_full(audio_path)
+            else:
+                if progress_cb:
+                    progress_cb(20, "Chunked Beat-Analyse...")
+                # Lange Datei: Chunked Processing
+                beats, downbeats = self._analyze_chunked(audio_path, duration)
+        finally:
+            # VRAM sofort freigeben nach Analyse (beat_this umgeht ModelManager)
+            self.unload()
+
+        if progress_cb:
+            progress_cb(80, "Berechne BPM...")
 
         # BPM aus Beat-Intervallen berechnen
         bpm = 0.0
@@ -105,6 +147,9 @@ class BeatAnalysisService:
             median_interval = float(np.median(intervals))
             if median_interval > 0:
                 bpm = round(60.0 / median_interval, 1)
+
+        if progress_cb:
+            progress_cb(100, "Fertig")
 
         return {
             "beats": [round(float(b), 4) for b in beats],
@@ -191,14 +236,14 @@ class BeatAnalysisService:
             all_downbeats.extend(downbeats.tolist())
 
             # Naechster Chunk mit Overlap
-            pos = chunk_end - overlap_samples
-            if pos >= total_samples - overlap_samples:
+            if chunk_end >= total_samples:
                 break
+            pos = chunk_end - overlap_samples
             chunk_idx += 1
 
         return np.array(all_beats), np.array(all_downbeats)
 
-    def analyze_and_store(self, track_id: int) -> dict:
+    def analyze_and_store(self, track_id: int, progress_cb=None) -> dict:
         """Analysiert einen AudioTrack und speichert Beats/Downbeats in der DB.
 
         Aktualisiert den Beatgrid-Eintrag mit beat_this-Ergebnissen.
@@ -210,7 +255,7 @@ class BeatAnalysisService:
                 raise ValueError(f"AudioTrack {track_id} nicht gefunden")
             file_path = track.file_path
 
-        result = self.analyze(file_path)
+        result = self.analyze(file_path, progress_cb=progress_cb)
 
         # Phase 3: Per-Beat RMS-Energie berechnen
         energy_per_beat = self._compute_energy_per_beat(
@@ -249,6 +294,12 @@ class BeatAnalysisService:
 
             session.commit()
 
+            try:
+                from services.pacing_service import invalidate_pacing_caches
+                invalidate_pacing_caches()
+            except Exception:
+                pass
+
         return result
 
     @staticmethod
@@ -261,23 +312,23 @@ class BeatAnalysisService:
         try:
             import librosa
             y, sr = librosa.load(audio_path, sr=22050, mono=True)
-        except Exception:
+        except Exception as e:
+            logger.warning("_compute_energy_per_beat: librosa.load fehlgeschlagen (%s), nutze 0.5 Fallback", e)
             return [0.5] * len(beats)
 
-        energies = []
+        # Vectorized: Beat-Grenzen als Sample-Indices berechnen
+        beat_ends = list(beats[1:]) + [duration]
+        starts = np.clip((np.array(beats) * 22050).astype(int), 0, len(y))
+        ends = np.clip((np.array(beat_ends) * 22050).astype(int), 0, len(y))
+
+        energies = np.zeros(len(beats), dtype=np.float64)
         for i in range(len(beats)):
-            start_sample = int(beats[i] * 22050)
-            end_sample = int((beats[i + 1] if i + 1 < len(beats) else duration) * 22050)
-            end_sample = min(end_sample, len(y))
-            if end_sample <= start_sample:
-                energies.append(0.0)
-                continue
-            segment = y[start_sample:end_sample]
-            rms = float(np.sqrt(np.mean(segment ** 2)))
-            energies.append(round(rms, 6))
+            if ends[i] > starts[i]:
+                seg = y[starts[i]:ends[i]]
+                energies[i] = np.sqrt(np.mean(seg ** 2))
 
         # Normalisiere auf 0.0-1.0
-        max_e = max(energies) if energies else 1.0
+        max_e = energies.max() if len(energies) else 1.0
         if max_e > 0:
-            energies = [round(e / max_e, 4) for e in energies]
-        return energies
+            energies = energies / max_e
+        return [round(float(e), 4) for e in energies]

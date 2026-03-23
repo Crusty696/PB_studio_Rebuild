@@ -17,6 +17,7 @@ import os
 import re
 import subprocess
 import sys
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -141,7 +142,7 @@ def convert(
     input_path: str | Path,
     preset_name: str = "edit_proxy",
     output_path: str | Path | None = None,
-    progress_cb: Callable[[float, str], None] | None = None,
+    progress_cb: Callable[[int, str], None] | None = None,
 ) -> str:
     """Konvertiert eine Mediendatei mit dem gewaehlten Preset.
 
@@ -149,7 +150,7 @@ def convert(
         input_path: Pfad zur Quelldatei
         preset_name: "edit_proxy", "master" oder "davinci"
         output_path: Optionaler Ausgabepfad (sonst automatisch)
-        progress_cb: Callback(progress_0_to_1, status_text)
+        progress_cb: Callback(percent_0_to_100, status_text)
 
     Returns:
         Pfad zur konvertierten Datei
@@ -173,12 +174,15 @@ def convert(
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Bereits konvertiert?
-    if output_path.exists():
+    # Bereits konvertiert? (nur wenn Datei > 0 Bytes)
+    if output_path.exists() and output_path.stat().st_size > 0:
         logger.info("Ausgabe existiert bereits: %s", output_path)
         if progress_cb:
-            progress_cb(1.0, "Bereits vorhanden")
+            progress_cb(100, "Bereits vorhanden")
         return str(output_path)
+    elif output_path.exists():
+        logger.warning("0-Byte Proxy gefunden, wird neu erstellt: %s", output_path)
+        output_path.unlink(missing_ok=True)
 
     # Dauer fuer Progress-Berechnung ermitteln
     total_duration = _get_duration(str(input_path))
@@ -222,12 +226,22 @@ def convert(
     logger.info("Konvertiere mit Preset '%s': %s", preset_name, input_path.name)
 
     # FFmpeg mit Progress-Parsing ausfuehren
-    _run_ffmpeg_with_progress(cmd, total_duration, progress_cb)
+    ffmpeg_stderr = _run_ffmpeg_with_progress(cmd, total_duration, progress_cb)
 
     if not output_path.exists():
-        raise RuntimeError(f"Konvertierung fehlgeschlagen: Ausgabe nicht erstellt")
+        logger.error(f"[ConvertService] FFmpeg lief durch (rc=0), aber Ausgabedatei fehlt!")
+        logger.error(f"[ConvertService] stderr: {ffmpeg_stderr[-1000:]}")
+        raise RuntimeError(f"Konvertierung fehlgeschlagen: Ausgabe nicht erstellt. stderr: {ffmpeg_stderr[-500:]}")
 
-    size_mb = output_path.stat().st_size / (1024 * 1024)
+    file_size = output_path.stat().st_size
+    size_mb = file_size / (1024 * 1024)
+    if file_size == 0:
+        logger.error(f"[ConvertService] FFmpeg lief durch (rc=0), aber Ausgabedatei ist 0 Bytes!")
+        logger.error(f"[ConvertService] stderr: {ffmpeg_stderr[-1000:]}")
+        output_path.unlink(missing_ok=True)
+        raise RuntimeError(
+            f"Konvertierung fehlgeschlagen: Ausgabedatei ist 0 Bytes. stderr: {ffmpeg_stderr[-500:]}"
+        )
     logger.info("Konvertierung abgeschlossen: %s (%.1f MB)", output_path.name, size_mb)
 
     return str(output_path)
@@ -251,8 +265,8 @@ def _get_duration(file_path: str) -> float:
 def _run_ffmpeg_with_progress(
     cmd: list[str],
     total_duration: float,
-    progress_cb: Callable[[float, str], None] | None,
-) -> None:
+    progress_cb: Callable[[int, str], None] | None,
+) -> str:
     """Fuehrt FFmpeg aus und parst -progress pipe:1 fuer Fortschritt.
 
     PoC-validiert: -progress pipe:1 gibt key=value Paare auf stdout aus.
@@ -264,11 +278,19 @@ def _run_ffmpeg_with_progress(
 
     process = subprocess.Popen(
         cmd,
+        stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
         **kwargs,
     )
+
+    stderr_lines = []
+    def _drain_stderr():
+        for line in process.stderr:
+            stderr_lines.append(line)
+    stderr_thread = threading.Thread(target=_drain_stderr, daemon=True)
+    stderr_thread.start()
 
     try:
         for line in process.stdout:
@@ -280,8 +302,8 @@ def _run_ffmpeg_with_progress(
                 try:
                     time_us = int(line.split("=")[1])
                     current_sec = time_us / 1_000_000
-                    progress = min(1.0, current_sec / total_duration)
-                    progress_cb(progress, f"{progress * 100:.0f}%")
+                    pct = min(99, int(current_sec / total_duration * 100))
+                    progress_cb(pct, f"{pct}%")
                 except (ValueError, IndexError):
                     pass
             elif line.startswith("out_time=") and total_duration > 0 and progress_cb:
@@ -291,24 +313,29 @@ def _run_ffmpeg_with_progress(
                     if len(parts) == 3:
                         h, m, s = float(parts[0]), float(parts[1]), float(parts[2])
                         current_sec = h * 3600 + m * 60 + s
-                        progress = min(1.0, current_sec / total_duration)
-                        progress_cb(progress, f"{progress * 100:.0f}%")
+                        pct = min(99, int(current_sec / total_duration * 100))
+                        progress_cb(pct, f"{pct}%")
                 except (ValueError, IndexError):
                     pass
             elif line == "progress=end":
                 if progress_cb:
-                    progress_cb(1.0, "Fertig")
+                    progress_cb(100, "Fertig")
 
         process.wait(timeout=600)
     except subprocess.TimeoutExpired:
         process.kill()
         raise RuntimeError("FFmpeg Timeout (600s)")
 
+    stderr_thread.join(timeout=10)
+
+    stderr = ''.join(stderr_lines)
     if process.returncode != 0:
-        stderr = process.stderr.read() if process.stderr else ""
+        logger.error(f"[ConvertService] FFmpeg FEHLER (rc={process.returncode}):")
+        logger.error(f"[ConvertService] stderr: {stderr[-1000:]}")
         raise RuntimeError(
             f"FFmpeg fehlgeschlagen (rc={process.returncode}):\n{stderr[-500:]}"
         )
+    return stderr
 
 
 def get_available_presets() -> list[dict]:

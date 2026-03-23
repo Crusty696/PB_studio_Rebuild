@@ -54,7 +54,7 @@ def detect_scenes(
     video_path: str,
     threshold: float = 27.0,
     min_scene_len: float = 1.0,
-    progress_cb: Callable[[int, int, str], None] | None = None,
+    progress_cb: Callable[[int, str], None] | None = None,
 ) -> list[SceneInfo]:
     """Erkennt Szenen mit PySceneDetect ContentDetector.
 
@@ -62,13 +62,13 @@ def detect_scenes(
         video_path: Pfad zum Video
         threshold: ContentDetector Schwellwert (niedriger = mehr Szenen)
         min_scene_len: Minimale Szenenlänge in Sekunden
-        progress_cb: Callback(step, total, message)
+        progress_cb: Callback(percent, message)
 
     Returns:
         Liste von SceneInfo mit start/end Zeiten
     """
     if progress_cb:
-        progress_cb(0, 3, "Szenen-Erkennung...")
+        progress_cb(0, "Szenen-Erkennung...")
 
     try:
         from scenedetect import detect, ContentDetector
@@ -110,13 +110,23 @@ def _load_raft_model():
         import torch
         import torchvision.models.optical_flow as of
 
+        logger.info("[RAFT] Lade RAFT Optical Flow Modell...")
         # GPU-ZWANG: RAFT MUSS auf CUDA laufen wenn verfügbar
         cuda_ok = torch.cuda.is_available()
         device = torch.device("cuda" if cuda_ok else "cpu")
         if cuda_ok:
+            logger.info("[RAFT] GPU erkannt: %s", torch.cuda.get_device_name(0))
             logger.info("GPU-ZWANG: RAFT wird auf CUDA geladen (%s)", torch.cuda.get_device_name(0))
         raft = of.raft_small(weights=of.Raft_Small_Weights.DEFAULT)
-        raft = raft.to(device).eval()
+        try:
+            raft = raft.to(device)
+        except torch.cuda.OutOfMemoryError:
+            torch.cuda.empty_cache()
+            gc.collect()
+            logger.error("OOM beim Laden von RAFT — VRAM nicht ausreichend")
+            return None, None
+        raft = raft.eval()
+        logger.info("[RAFT] RAFT geladen auf %s", device)
         logger.info("RAFT Optical Flow geladen auf %s", device)
         return raft, device
     except Exception as e:
@@ -160,7 +170,7 @@ def _raft_motion_score(
 def compute_motion_scores(
     video_path: str,
     scenes: list[SceneInfo],
-    progress_cb: Callable[[int, int, str], None] | None = None,
+    progress_cb: Callable[[int, str], None] | None = None,
 ) -> list[SceneInfo]:
     """Berechnet Motion-Scores via RAFT Optical Flow auf CUDA (oder CPU-Fallback).
 
@@ -169,7 +179,7 @@ def compute_motion_scores(
     Motion wird nur innerhalb der Szenen-Grenzen berechnet.
     """
     if progress_cb:
-        progress_cb(1, 3, "Motion-Analyse...")
+        progress_cb(30, "Motion-Analyse...")
 
     try:
         import cv2
@@ -182,55 +192,66 @@ def compute_motion_scores(
         logger.error("Video konnte nicht geöffnet werden: %s", video_path)
         return scenes
 
-    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    raft_model = None
+    use_raft = False
+    try:
+        fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
 
-    # RAFT auf CUDA laden (einmal für alle Szenen)
-    raft_model, raft_device = _load_raft_model()
-    use_raft = raft_model is not None
+        # RAFT auf CUDA laden (einmal für alle Szenen)
+        raft_model, raft_device = _load_raft_model()
+        use_raft = raft_model is not None
 
-    for scene in scenes:
-        start_frame = int(scene.start_time * fps)
-        end_frame = int(scene.end_time * fps)
-        mid_frame = (start_frame + end_frame) // 2
+        for scene in scenes:
+            start_frame = int(scene.start_time * fps)
+            end_frame = int(scene.end_time * fps)
+            mid_frame = (start_frame + end_frame) // 2
 
-        # Sample 2 Frames um die Szenen-Mitte für Motion-Berechnung
-        sample_frames = [
-            max(start_frame, mid_frame - int(fps * 0.5)),
-            min(end_frame - 1, mid_frame + int(fps * 0.5)),
-        ]
+            # Sample 2 Frames um die Szenen-Mitte für Motion-Berechnung
+            sample_frames = [
+                max(start_frame, mid_frame - int(fps * 0.5)),
+                min(end_frame - 1, mid_frame + int(fps * 0.5)),
+            ]
 
-        frames_bgr = []
-        for fnum in sample_frames:
-            cap.set(cv2.CAP_PROP_POS_FRAMES, fnum)
-            ret, frame = cap.read()
-            if ret:
-                frames_bgr.append(frame)
+            frames_bgr = []
+            for fnum in sample_frames:
+                cap.set(cv2.CAP_PROP_POS_FRAMES, fnum)
+                ret, frame = cap.read()
+                if ret:
+                    frames_bgr.append(frame)
 
-        if len(frames_bgr) == 2:
-            if use_raft:
-                # GPU-beschleunigte RAFT Motion-Analyse
-                try:
-                    scene.motion_score = _raft_motion_score(
-                        raft_model, raft_device, frames_bgr[0], frames_bgr[1]
-                    )
-                except Exception as e:
-                    logger.warning("RAFT Fehler bei Szene %d: %s — CPU-Fallback", scene.index, e)
+            if len(frames_bgr) == 2:
+                if use_raft:
+                    # GPU-beschleunigte RAFT Motion-Analyse
+                    try:
+                        scene.motion_score = _raft_motion_score(
+                            raft_model, raft_device, frames_bgr[0], frames_bgr[1]
+                        )
+                    except Exception as e:
+                        logger.warning("RAFT Fehler bei Szene %d: %s — CPU-Fallback", scene.index, e)
+                        scene.motion_score = _cpu_motion_score(frames_bgr[0], frames_bgr[1])
+                    # Periodischer VRAM-Cleanup (alle 8 Szenen) gegen Akkumulation
+                    if scene.index % 8 == 7:
+                        import torch
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                else:
                     scene.motion_score = _cpu_motion_score(frames_bgr[0], frames_bgr[1])
             else:
-                scene.motion_score = _cpu_motion_score(frames_bgr[0], frames_bgr[1])
-        else:
-            scene.motion_score = 0.0
-
-    cap.release()
-
-    # RAFT entladen um VRAM freizugeben für SigLIP
-    if use_raft:
-        import torch
-        del raft_model
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-        logger.info("RAFT entladen, GPU-Cache geleert")
+                scene.motion_score = 0.0
+    finally:
+        cap.release()
+        # RAFT entladen um VRAM freizugeben für SigLIP (IMMER, auch bei Exception)
+        if use_raft and raft_model is not None:
+            import torch
+            try:
+                raft_model.cpu()
+            except Exception:
+                pass
+            del raft_model
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            logger.info("RAFT entladen, GPU-Cache geleert")
 
     logger.info("Motion-Scores berechnet für %d Szenen (%s)", len(scenes),
                 "RAFT/CUDA" if use_raft else "CPU-Fallback")
@@ -270,8 +291,8 @@ def _get_video_duration(video_path: str) -> float:
         )
         if p.returncode == 0 and p.stdout.strip():
             return float(p.stdout.strip())
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("ffprobe Dauer-Abfrage fehlgeschlagen für '%s': %s", video_path, e)
     return 60.0
 
 
@@ -283,14 +304,14 @@ def extract_keyframes(
     video_path: str,
     scenes: list[SceneInfo],
     output_dir: Path | None = None,
-    progress_cb: Callable[[int, int, str], None] | None = None,
+    progress_cb: Callable[[int, str], None] | None = None,
 ) -> list[SceneInfo]:
     """Extrahiert einen Keyframe pro Szene (Mitte der Szene).
 
     Verwendet FFmpeg für schnelle, GPU-unabhängige Extraktion.
     """
     if progress_cb:
-        progress_cb(1, 3, "Keyframes extrahieren...")
+        progress_cb(50, "Keyframes extrahieren...")
 
     out_dir = output_dir or KEYFRAME_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -321,7 +342,8 @@ def extract_keyframes(
             kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
 
         try:
-            subprocess.run(cmd, capture_output=True, timeout=15, **kwargs)
+            subprocess.run(cmd, capture_output=True, timeout=15,
+                           stdin=subprocess.DEVNULL, **kwargs)
             if kf_path.exists():
                 scene.keyframe_path = str(kf_path)
             else:
@@ -340,7 +362,7 @@ def extract_keyframes(
 
 def generate_embeddings(
     scenes: list[SceneInfo],
-    progress_cb: Callable[[int, int, str], None] | None = None,
+    progress_cb: Callable[[int, str], None] | None = None,
 ) -> list[SceneInfo]:
     """Generiert SigLIP 1152-dim Embeddings aus Keyframes.
 
@@ -348,7 +370,7 @@ def generate_embeddings(
     Scenes ohne Keyframe werden übersprungen.
     """
     if progress_cb:
-        progress_cb(2, 3, "SigLIP Embeddings generieren...")
+        progress_cb(65, "SigLIP Embeddings generieren...")
 
     keyframe_scenes = [s for s in scenes if s.keyframe_path and Path(s.keyframe_path).exists()]
     if not keyframe_scenes:
@@ -358,29 +380,40 @@ def generate_embeddings(
     from services.model_manager import ModelManager
     mm = ModelManager()
 
+    logger.info("[SIGLIP] Lade SigLIP Modell...")
     try:
         model, processor = mm.load_siglip()
+        logger.info("[SIGLIP] SigLIP geladen auf %s", mm.device)
     except Exception as e:
+        logger.error("[SIGLIP] SigLIP FEHLER: %s", e)
         logger.error("SigLIP konnte nicht geladen werden: %s", e)
         return scenes
 
     import torch
     from PIL import Image
+    from concurrent.futures import ThreadPoolExecutor
+
+    def _load_image(scene):
+        """Lädt ein Keyframe-Bild (I/O-bound, parallelisierbar)."""
+        try:
+            return scene, Image.open(scene.keyframe_path).convert("RGB")
+        except Exception as e:
+            logger.warning("Bild konnte nicht geladen werden: %s — %s", scene.keyframe_path, e)
+            return scene, None
 
     # Batch-Verarbeitung in Gruppen von 8 (VRAM-schonend für GTX 1060)
     batch_size = 8
     for batch_start in range(0, len(keyframe_scenes), batch_size):
         batch = keyframe_scenes[batch_start:batch_start + batch_size]
 
+        # Paralleles Laden der Bilder (I/O-bound → ThreadPool)
         images = []
         valid_scenes = []
-        for scene in batch:
-            try:
-                img = Image.open(scene.keyframe_path).convert("RGB")
-                images.append(img)
-                valid_scenes.append(scene)
-            except Exception as e:
-                logger.warning("Bild konnte nicht geladen werden: %s — %s", scene.keyframe_path, e)
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            for scene, img in pool.map(_load_image, batch):
+                if img is not None:
+                    images.append(img)
+                    valid_scenes.append(scene)
 
         if not images:
             continue
@@ -398,8 +431,17 @@ def generate_embeddings(
             for i, scene in enumerate(valid_scenes):
                 scene.embedding = embeddings[i]
 
+        except torch.cuda.OutOfMemoryError:
+            torch.cuda.empty_cache()
+            gc.collect()
+            logger.error("OOM bei SigLIP Batch-Inference — VRAM nicht ausreichend (Batch %d–%d)",
+                         batch_start, batch_start + len(batch))
         except Exception as e:
             logger.error("SigLIP Embedding-Fehler: %s", e)
+
+        # Inter-batch GPU-Cleanup: VRAM zwischen Batches freigeben
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
     # SigLIP entladen um VRAM freizugeben
     mm.unload()
@@ -426,8 +468,8 @@ def store_embeddings(
     # Alte Embeddings für dieses Video löschen
     try:
         vdb.delete_by_video(video_path)
-    except Exception:
-        pass  # Tabelle evtl. noch leer
+    except Exception as e:
+        logger.debug("delete_by_video fehlgeschlagen (ignoriert): %s", e)
 
     entries = []
     for scene in scenes:
@@ -560,7 +602,7 @@ def run_full_pipeline(
     video_path: str,
     video_clip_id: int,
     threshold: float = 27.0,
-    progress_cb: Callable[[int, int, str], None] | None = None,
+    progress_cb: Callable[[int, str], None] | None = None,
     should_stop: Callable[[], bool] | None = None,
 ) -> PipelineResult:
     """Führt die komplette 3-Schritt Video-Analyse-Pipeline aus.
@@ -582,52 +624,64 @@ def run_full_pipeline(
     result = PipelineResult(video_path=video_path)
 
     # Schritt 1: Scene Detection
+    logger.info("[PIPELINE] Schritt 1/6: Szenen erkennen für %s...", Path(video_path).name)
     if progress_cb:
-        progress_cb(1, 6, "Szenen erkennen...")
+        progress_cb(5, "Szenen erkennen...")
     if should_stop and should_stop():
         return result
 
     scenes = detect_scenes(video_path, threshold=threshold)
     result.scenes = scenes
     result.total_duration = scenes[-1].end_time if scenes else 0.0
+    logger.info("[PIPELINE] Szenen-Erkennung FERTIG: %d Szenen gefunden", len(scenes))
 
     # Schritt 1b: Motion Scores
+    logger.info("[PIPELINE] Schritt 2/6: RAFT Motion-Analyse für %d Szenen...", len(scenes))
     if progress_cb:
-        progress_cb(2, 6, f"Motion-Analyse ({len(scenes)} Szenen)...")
+        progress_cb(20, f"Motion-Analyse ({len(scenes)} Szenen)...")
     if should_stop and should_stop():
         return result
 
     scenes = compute_motion_scores(video_path, scenes)
+    logger.info("[PIPELINE] Motion-Analyse FERTIG")
 
     # Schritt 2: Keyframes
+    logger.info("[PIPELINE] Schritt 3/6: Keyframes extrahieren...")
     if progress_cb:
-        progress_cb(3, 6, "Keyframes extrahieren...")
+        progress_cb(40, "Keyframes extrahieren...")
     if should_stop and should_stop():
         return result
 
     scenes = extract_keyframes(video_path, scenes)
+    logger.info("[PIPELINE] Keyframes FERTIG")
 
     # Schritt 3: SigLIP Embeddings
+    logger.info("[PIPELINE] Schritt 4/6: Lade SigLIP Modell + Embeddings generieren...")
     if progress_cb:
-        progress_cb(4, 6, "SigLIP Embeddings generieren...")
+        progress_cb(55, "SigLIP Embeddings generieren...")
     if should_stop and should_stop():
         return result
 
     scenes = generate_embeddings(scenes)
+    logger.info("[PIPELINE] SigLIP Embeddings FERTIG")
 
     # Schritt 3b: In LanceDB speichern
+    logger.info("[PIPELINE] Schritt 5/6: In LanceDB speichern...")
     if progress_cb:
-        progress_cb(5, 6, "In LanceDB speichern...")
+        progress_cb(80, "In LanceDB speichern...")
     if should_stop and should_stop():
         return result
 
     result.embeddings_stored = store_embeddings(video_path, scenes, video_clip_id)
+    logger.info("[PIPELINE] LanceDB FERTIG: %d Embeddings", result.embeddings_stored)
 
     # Szenen in SQLite speichern
+    logger.info("[PIPELINE] Schritt 6/6: Szenen in SQLite speichern...")
     if progress_cb:
-        progress_cb(6, 6, "Szenen in DB speichern...")
+        progress_cb(90, "Szenen in DB speichern...")
 
     store_scenes_in_db(video_clip_id, scenes)
+    logger.info("[PIPELINE] Pipeline KOMPLETT für %s", Path(video_path).name)
 
     logger.info(
         "Pipeline komplett: %s — %d Szenen, %d Embeddings",

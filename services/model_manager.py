@@ -16,9 +16,19 @@ import logging
 import threading
 from typing import Any
 
-import torch
+# torch wird LAZY importiert (spart ~11s Startup wenn ModelManager nicht sofort gebraucht wird)
+torch = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
+
+
+def _ensure_torch():
+    """Lazy-Import von torch — wird beim ersten Zugriff geladen."""
+    global torch
+    if torch is None or not hasattr(torch, 'cuda'):
+        import torch as _torch
+        torch = _torch
+    return torch
 
 
 class ModelManager:
@@ -44,6 +54,9 @@ class ModelManager:
         if self._initialized:
             return
         self._initialized = True
+
+        # torch lazy laden (spart ~11s wenn ModelManager erst spät gebraucht wird)
+        _ensure_torch()
 
         # GPU-ZWANG: Wenn CUDA da ist, wird CUDA erzwungen — kein stiller CPU-Fallback
         cuda_available = torch.cuda.is_available()
@@ -134,6 +147,14 @@ class ModelManager:
             old_type = self._model_type
             logger.info("ModelManager: Entlade '%s' (Typ: %s)...", old_id, old_type)
 
+            # Model auf CPU verschieben bevor Referenzen gelöscht werden (sofortige VRAM-Freigabe)
+            for obj in (self._model, self._pipe):
+                if obj is not None and hasattr(obj, 'cpu'):
+                    try:
+                        obj.cpu()
+                    except Exception:
+                        pass
+
             # Alle Referenzen löschen
             self._pipe = None
             self._model = None
@@ -169,24 +190,32 @@ class ModelManager:
 
             from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
 
-            self._tokenizer = AutoTokenizer.from_pretrained(
-                model_id, trust_remote_code=True,
-            )
-            dtype = torch.float32 if self.device == "cpu" else torch.float16
-            self._model = AutoModelForCausalLM.from_pretrained(
-                model_id,
-                dtype=dtype,
-                trust_remote_code=True,
-            )
-            self._model.to(self.device)
-            self._model.eval()
+            try:
+                self._tokenizer = AutoTokenizer.from_pretrained(
+                    model_id, trust_remote_code=True,
+                )
+                dtype = torch.float32 if self.device == "cpu" else torch.float16
+                self._model = AutoModelForCausalLM.from_pretrained(
+                    model_id,
+                    torch_dtype=dtype,
+                    trust_remote_code=True,
+                    device_map={"": self.device},
+                )
+                self._model.eval()
 
-            self._pipe = pipeline(
-                "text-generation",
-                model=self._model,
-                tokenizer=self._tokenizer,
-                device=self.device if self.device != "cpu" else None,
-            )
+                # KEIN device= wenn device_map verwendet wurde (HuggingFace ValueError)
+                self._pipe = pipeline(
+                    "text-generation",
+                    model=self._model,
+                    tokenizer=self._tokenizer,
+                )
+            except torch.cuda.OutOfMemoryError:
+                logger.error("OOM beim Laden von transformers '%s' — räume auf.", model_id)
+                self.unload()
+                raise RuntimeError(
+                    f"VRAM reicht nicht für transformers '{model_id}'. "
+                    f"GPU-Speicher wurde freigegeben."
+                )
 
             self._current_model_id = model_id
             self._model_type = "transformers"
@@ -216,12 +245,20 @@ class ModelManager:
 
             from faster_whisper import WhisperModel
 
-            compute_type = "float16" if self.device == "cuda" else "int8"
-            self._model = WhisperModel(
-                model_size,
-                device=self.device,
-                compute_type=compute_type,
-            )
+            try:
+                compute_type = "float16" if self.device == "cuda" else "int8"
+                self._model = WhisperModel(
+                    model_size,
+                    device=self.device,
+                    compute_type=compute_type,
+                )
+            except torch.cuda.OutOfMemoryError:
+                logger.error("OOM beim Laden von whisper '%s' — räume auf.", model_size)
+                self.unload()
+                raise RuntimeError(
+                    f"VRAM reicht nicht für whisper '{model_size}'. "
+                    f"GPU-Speicher wurde freigegeben."
+                )
 
             self._current_model_id = model_id
             self._model_type = "whisper"
@@ -246,17 +283,25 @@ class ModelManager:
 
             from transformers import AutoModelForCausalLM, AutoTokenizer
 
-            self._tokenizer = AutoTokenizer.from_pretrained(
-                model_id, trust_remote_code=True,
-            )
-            dtype = torch.float32 if self.device == "cpu" else torch.float16
-            self._model = AutoModelForCausalLM.from_pretrained(
-                model_id,
-                dtype=dtype,
-                trust_remote_code=True,
-                device_map={"": self.device},
-            )
-            self._model.eval()
+            try:
+                self._tokenizer = AutoTokenizer.from_pretrained(
+                    model_id, trust_remote_code=True,
+                )
+                dtype = torch.float32 if self.device == "cpu" else torch.float16
+                self._model = AutoModelForCausalLM.from_pretrained(
+                    model_id,
+                    torch_dtype=dtype,
+                    trust_remote_code=True,
+                    device_map={"": self.device},
+                )
+                self._model.eval()
+            except torch.cuda.OutOfMemoryError:
+                logger.error("OOM beim Laden von vision '%s' — räume auf.", model_id)
+                self.unload()
+                raise RuntimeError(
+                    f"VRAM reicht nicht für vision '{model_id}'. "
+                    f"GPU-Speicher wurde freigegeben."
+                )
 
             self._current_model_id = model_id
             self._model_type = "vision"
@@ -280,14 +325,31 @@ class ModelManager:
 
             from transformers import AutoModel, AutoProcessor
 
-            self._extras["processor"] = AutoProcessor.from_pretrained(model_id)
-            dtype = torch.float32 if self.device == "cpu" else torch.float16
-            self._model = AutoModel.from_pretrained(
-                model_id,
-                torch_dtype=dtype,
-            )
-            self._model.to(self.device)
-            self._model.eval()
+            try:
+                self._extras["processor"] = AutoProcessor.from_pretrained(model_id)
+                dtype = torch.float32 if self.device == "cpu" else torch.float16
+                self._model = AutoModel.from_pretrained(
+                    model_id,
+                    torch_dtype=dtype,
+                )
+                self._model.to(self.device)
+                self._model.eval()
+            except torch.cuda.OutOfMemoryError:
+                logger.error("OOM beim Laden von SigLIP '%s' — räume auf.", model_id)
+                self.unload()
+                raise RuntimeError(
+                    f"VRAM reicht nicht für SigLIP '{model_id}'. "
+                    f"GPU-Speicher wurde freigegeben."
+                )
+            except Exception as e:
+                logger.error(
+                    "SigLIP '%s' konnte nicht geladen werden: %s — räume auf.",
+                    model_id, e,
+                )
+                self.unload()
+                raise RuntimeError(
+                    f"SigLIP '{model_id}' Laden fehlgeschlagen: {e}"
+                ) from e
 
             self._current_model_id = model_id
             self._model_type = "siglip"

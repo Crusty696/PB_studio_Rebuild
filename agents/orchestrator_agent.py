@@ -12,6 +12,13 @@ und was wird gesagt?" in parallele Agent-Aufrufe zerlegen:
   2. Audio-Agent → Text transkribieren
   3. Ergebnisse zusammenfassen
 
+WICHTIG — DJ-MIX KONTEXT:
+Wir verarbeiten mehrstündige DJ-Sets (1-4h), KEINE 3-Minuten-Tracks!
+Die Stems (Drums, Bass, Vocals, Other) dienen dazu, Makro-Spannungsbögen
+über Stunden zu erkennen: wechselnde Energie-Level, lange Übergänge (30-120s),
+wechselnde BPM, Breakdowns und Drops. Das Video-Pacing wird an diese
+gigantischen Bögen angepasst.
+
 Verwaltet das Modell-Swapping über den ModelManager.
 """
 
@@ -42,6 +49,20 @@ MULTI_STEP_KEYWORDS = [
     ("szene", "sprache"), ("zeigt", "sagt"), ("passiert", "gesagt"),
     ("inhalt", "transkri"), ("bild und ton", None),
     ("video und audio", None), ("analysiere bild und ton", None),
+]
+
+# Compound-Action Keywords: Mehrere unabhängige Aktionen in einem Satz
+# Jeder Eintrag: (keywords_set, action_name, param_builder)
+COMPOUND_ACTION_MAP = [
+    {
+        "keywords": ["proxy", "proxy-daten", "proxy daten", "proxy-video", "vorschau"],
+        "action": "create_proxy",
+    },
+    {
+        "keywords": ["stem", "stems", "stem-file", "stem files", "spuren trennen",
+                      "vocals", "separation", "separier"],
+        "action": "separate_stems",
+    },
 ]
 
 
@@ -310,6 +331,64 @@ class OrchestratorAgent(BaseAgent):
             "actions": results,
         }
 
+    def _detect_compound_actions(self, user_text: str) -> list[str]:
+        """Erkennt ob mehrere unabhängige Aktionen im Satz stecken (z.B. 'proxy + stems').
+
+        Gibt Liste der erkannten Action-Namen zurück. Nur relevant wenn >= 2 Aktionen.
+        """
+        text_lower = user_text.lower()
+        matched_actions = []
+
+        for entry in COMPOUND_ACTION_MAP:
+            for kw in entry["keywords"]:
+                if kw in text_lower:
+                    if entry["action"] not in matched_actions:
+                        matched_actions.append(entry["action"])
+                    break
+
+        return matched_actions
+
+    def _handle_compound_actions(self, user_text: str, action_names: list[str]) -> dict[str, Any]:
+        """Führt mehrere erkannte Aktionen nacheinander aus (Batch-Modus)."""
+        from services.action_registry import action_registry
+
+        results = []
+        errors = []
+
+        for action_name in action_names:
+            try:
+                # Ohne Parameter → Batch-Modus (alle Medien)
+                action_result = action_registry.execute(action_name, {})
+                results.append({
+                    "agent": self.name,
+                    "action": action_name,
+                    "params": {},
+                    "result": action_result,
+                    "error": None,
+                })
+            except Exception as e:
+                error_msg = f"{action_name}: {e}"
+                logger.error("Compound-Action fehlgeschlagen: %s", error_msg)
+                errors.append(error_msg)
+                results.append({
+                    "agent": self.name,
+                    "action": action_name,
+                    "params": {},
+                    "result": None,
+                    "error": error_msg,
+                })
+
+        succeeded = sum(1 for r in results if r.get("error") is None)
+        return {
+            "agent": self.name,
+            "action": "multi",
+            "params": {},
+            "result": None,
+            "message": f"{succeeded}/{len(results)} Aktionen erfolgreich: {', '.join(action_names)}",
+            "error": " | ".join(errors) if errors else None,
+            "actions": results,
+        }
+
     def _route_to_agent(self, user_text: str) -> BaseAgent | None:
         """Findet den besten spezialisierten Agenten für die Anfrage."""
         best_agent = None
@@ -331,20 +410,28 @@ class OrchestratorAgent(BaseAgent):
         return None
 
     def _route_to_registry(self, user_text: str) -> dict[str, Any] | None:
-        """Versucht direkt über das Action-Registry (mit Fuzzy) zu routen."""
+        """Versucht über das Action-Registry (mit Fuzzy) zu routen.
+
+        Sammelt ALLE Matches und führt sie aus (Multi-Action-fähig).
+        """
         from services.action_registry import action_registry
 
         # Extrahiere mögliche Aktionsnamen aus dem Text
         words = re.findall(r'[a-z_]+', user_text.lower())
+        numbers = re.findall(r'\d+', user_text)
+
+        matched_actions: list[tuple[str, dict]] = []
+        seen_actions: set[str] = set()
 
         for word in words:
             if len(word) < 4:
                 continue
             matched_name, score = action_registry.fuzzy_match(word)
-            if matched_name and score >= 60:
+            if matched_name and score >= 60 and matched_name not in seen_actions:
+                seen_actions.add(matched_name)
                 logger.info("Registry-Routing: '%s' → '%s' (Score: %d%%)", word, matched_name, score)
+
                 params = {}
-                numbers = re.findall(r'\d+', user_text)
                 action_def = action_registry.get(matched_name)
                 if action_def and numbers:
                     schema = action_def.param_schema
@@ -354,27 +441,75 @@ class OrchestratorAgent(BaseAgent):
                         if i < len(numbers) and props.get(req, {}).get("type") == "integer":
                             params[req] = int(numbers[i])
 
-                try:
-                    result = action_registry.execute(matched_name, params)
-                    return {
-                        "agent": self.name,
-                        "action": matched_name,
-                        "params": params,
-                        "result": result,
-                        "message": None,
-                        "error": None,
-                    }
-                except Exception as e:
-                    return {
-                        "agent": self.name,
-                        "action": matched_name,
-                        "params": params,
-                        "result": None,
-                        "message": None,
-                        "error": str(e),
-                    }
+                matched_actions.append((matched_name, params))
 
-        return None
+        if not matched_actions:
+            return None
+
+        # Single action
+        if len(matched_actions) == 1:
+            name, params = matched_actions[0]
+            try:
+                result = action_registry.execute(name, params)
+                return {
+                    "agent": self.name,
+                    "action": name,
+                    "params": params,
+                    "result": result,
+                    "message": None,
+                    "error": None,
+                }
+            except Exception as e:
+                return {
+                    "agent": self.name,
+                    "action": name,
+                    "params": params,
+                    "result": None,
+                    "message": None,
+                    "error": str(e),
+                }
+
+        # Multi action
+        results = []
+        errors = []
+        for name, params in matched_actions:
+            try:
+                res = action_registry.execute(name, params)
+                results.append({
+                    "action": name, "params": params, "result": res, "error": None,
+                })
+            except Exception as e:
+                errors.append(f"{name}: {e}")
+                results.append({
+                    "action": name, "params": params, "result": None, "error": str(e),
+                })
+
+        action_names = [r["action"] for r in results]
+        return {
+            "agent": self.name,
+            "action": "multi",
+            "params": {},
+            "result": None,
+            "message": f"{len(results)} Aktionen via Registry: {', '.join(action_names)}",
+            "error": " | ".join(errors) if errors else None,
+            "actions": results,
+        }
+
+    def _build_context(self, user_text: str, context: dict[str, Any] | None) -> dict[str, Any]:
+        """Baut einen vollstaendigen Context-Dict fuer Sub-Agenten.
+
+        Kombiniert uebergebenen Context mit aus dem Text extrahierten IDs.
+        """
+        ctx = dict(context) if context else {}
+
+        # ID aus Text extrahieren falls nicht im Context
+        if "track_id" not in ctx and "clip_id" not in ctx:
+            extracted_id = self._extract_id_from_text(user_text)
+            if extracted_id is not None:
+                ctx["track_id"] = extracted_id
+                ctx["clip_id"] = extracted_id
+
+        return ctx
 
     def process(self, user_text: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
         """Hauptlogik: Routet die Anfrage an den besten Handler.
@@ -398,6 +533,19 @@ class OrchestratorAgent(BaseAgent):
             logger.info("Erkannt: Multi-Step-Analyse (Vision + Audio)")
             return self._handle_multi_step(user_text)
 
+        # 2b. Compound-Actions: Mehrere unabhängige Aktionen (z.B. "proxy + stems")
+        compound_actions = self._detect_compound_actions(user_text)
+        if len(compound_actions) >= 2:
+            logger.info("Erkannt: Compound-Actions: %s", compound_actions)
+            return self._handle_compound_actions(user_text, compound_actions)
+
+        # 2c. Einzelne Compound-Action erkannt (z.B. nur "proxy" oder nur "stems")
+        # → Direkt ausführen im Batch-Modus statt an Agent/LLM weiterzuleiten
+        if len(compound_actions) == 1:
+            action_name = compound_actions[0]
+            logger.info("Erkannt: Einzel-Action via Compound-Map: %s", action_name)
+            return self._handle_compound_actions(user_text, compound_actions)
+
         # 3. Spezialisierter Agent
         agent = self._route_to_agent(user_text)
         if agent is not None:
@@ -407,7 +555,9 @@ class OrchestratorAgent(BaseAgent):
                 model_type_map = {"vision": "vision", "audio": "whisper"}
                 model_type = model_type_map.get(agent.domain, "transformers")
                 self._model_manager.ensure_loaded(agent.model_id, model_type)
-            return agent.process(user_text, context)
+            # Context aufbauen und an den Agenten weiterreichen
+            agent_context = self._build_context(user_text, context)
+            return agent.process(user_text, agent_context)
 
         # 4. Direktes Action-Registry (Fuzzy)
         registry_result = self._route_to_registry(user_text)

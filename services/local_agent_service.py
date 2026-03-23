@@ -14,6 +14,7 @@ Nur EIN Modell darf gleichzeitig im RAM/VRAM liegen.
 import json
 import logging
 import re
+import threading
 from typing import Any
 
 import torch
@@ -28,7 +29,28 @@ DEFAULT_MODEL_ID = "Qwen/Qwen2.5-0.5B-Instruct"
 
 SYSTEM_PROMPT_TEMPLATE = """\
 Du bist der KI-Assistent von PB Studio, einer Video- und Audio-Produktionssoftware.
-Du kannst dem Benutzer helfen, indem du Aktionen in der App auslöst.
+Du hast eine Doppelrolle:
+1. AKTIONS-ASSISTENT: Du fuehrst Aktionen in der App aus.
+2. LEAD QA TESTER: Du pruefst autonom die App-Qualitaet.
+
+GRUNDREGEL: "Audio ist der Master, Video ist der Sklave."
+Die Musik diktiert die Laenge der Schnitte. Das Video passt sich an.
+
+STEMS (getrennte Audio-Spuren via Demucs):
+- Vocals: Gesang/Sprache → fuer Auto-Ducking (Musik leiser bei Narration)
+- Drums: Kick/Snare/HiHat → fuer beat-praezise Schnitte (Drum-Onsets = Cut-Trigger)
+- Bass: Bassline/Sub → fuer Drop-Erkennung (RMS-Sprung im Bass = maximale Cut-Rate)
+- Other: Synths/Pads/Gitarre → fuer Mood/Atmosphere-Matching
+Die KI nutzt Einzelspuren statt der Summe fuer PRAEZISERE Pacing-Entscheidungen.
+Drum-Stem → exakte Kick-Positionen. Bass-Stem → Drop-Zeitpunkte. Vocals → Ducking-Trigger.
+
+QA-PRUEFPUNKTE (bei Tests automatisch pruefen):
+- Ladebalken: Jeder Hintergrundprozess MUSS einen Fortschrittsbalken haben.
+- Fenster: Keine schwebenden oder ueberlappenden Fenster erlaubt.
+- Threading: UI darf waehrend KI-Berechnungen NICHT einfrieren.
+- Pacing: Schnitte fallen NUR auf Beat-Timestamps.
+- GPU: ModelManager entlaedt Modell VOR naechstem Load.
+- Stems: Drum-Onset-Analyse VOR Pacing, Vocal-Erkennung VOR Ducking.
 
 VERFÜGBARE AKTIONEN:
 {actions_json}
@@ -42,7 +64,8 @@ REGELN:
 4. Wenn keine Aktion passt: {{"action": "none", "params": {{}}, "message": "<Antwort>"}}
 5. Verwende nur Aktionen aus der obigen Liste.
 6. Fülle die Parameter gemäß dem Schema der Aktion.
-7. Bei mehreren Aktionen: Führe sie in logischer Reihenfolge auf."""
+7. Bei mehreren Aktionen: Führe sie in logischer Reihenfolge auf.
+8. Bei QA-Fragen: Pruefe anhand der QA-Pruefpunkte und melde Vertoesse."""
 
 
 class LocalAgentService:
@@ -79,6 +102,9 @@ class LocalAgentService:
         self._pipe = None
         self._loaded = False
 
+        # Thread-Safety: RLock erlaubt rekursive Aufrufe im selben Thread
+        self._lock = threading.RLock()
+
         # Multi-Agenten-Orchestrator
         self._orchestrator = None
 
@@ -96,31 +122,76 @@ class LocalAgentService:
 
     def load_model(self) -> None:
         """Lädt Modell und Tokenizer über den ModelManager."""
-        if self._loaded:
-            return
+        with self._lock:
+            if self._loaded:
+                return
 
-        logger.info("Lade lokales KI-Modell: %s auf %s ...", self.model_id, self.device)
+            logger.info("Lade lokales KI-Modell: %s auf %s ...", self.model_id, self.device)
 
-        self._tokenizer, self._model, self._pipe = self.model_manager.load_transformers(
-            self.model_id
-        )
-        self._loaded = True
-        logger.info("KI-Modell geladen: %s", self.model_id)
+            self._tokenizer, self._model, self._pipe = self.model_manager.load_transformers(
+                self.model_id
+            )
+            self._loaded = True
+            logger.info("KI-Modell geladen: %s", self.model_id)
 
     def unload_model(self) -> None:
         """Gibt GPU/RAM frei über den ModelManager."""
-        self.model_manager.unload()
-        self._pipe = None
-        self._model = None
-        self._tokenizer = None
-        self._loaded = False
-        logger.info("KI-Modell entladen.")
+        with self._lock:
+            self.model_manager.unload()
+            self._pipe = None
+            self._model = None
+            self._tokenizer = None
+            self._loaded = False
+            logger.info("KI-Modell entladen.")
 
     def _build_system_prompt(self) -> str:
-        """Baut den System-Prompt mit den aktuell registrierten Aktionen."""
-        return SYSTEM_PROMPT_TEMPLATE.format(
+        """Baut den System-Prompt mit den aktuell registrierten Aktionen + Medien-Kontext."""
+        base = SYSTEM_PROMPT_TEMPLATE.format(
             actions_json=self.registry.get_schema_for_prompt()
         )
+
+        # --- Context Injection: Dem LLM die importierten Medien mitteilen ---
+        media_context = self._build_media_context()
+        if media_context:
+            base += "\n\n" + media_context
+
+        return base
+
+    @staticmethod
+    def _build_media_context() -> str:
+        """Lädt alle importierten Medien aus der DB und formatiert sie als Kontext."""
+        try:
+            from services.ingest_service import get_all_audio, get_all_video
+
+            audios = get_all_audio()
+            videos = get_all_video()
+
+            if not audios and not videos:
+                return ""
+
+            lines = ["AKTUELLER PROJEKT-STATUS:"]
+
+            if videos:
+                lines.append(f"Importierte Videos ({len(videos)}):")
+                for v in videos:
+                    res = f", Auflösung={v.get('resolution', '?')}" if v.get('resolution') else ""
+                    lines.append(f"  - ID={v['id']}, Name=\"{v['title']}\", Pfad=\"{v['file_path']}\"{res}")
+
+            if audios:
+                lines.append(f"Importierte Audios ({len(audios)}):")
+                for a in audios:
+                    bpm = f", BPM={a['bpm']}" if a.get('bpm') else ""
+                    stems = f", Stems={a['stems']}" if a.get('stems', '-') != '-' else ""
+                    lines.append(f"  - ID={a['id']}, Name=\"{a['title']}\", Pfad=\"{a['file_path']}\"{bpm}{stems}")
+
+            lines.append("")
+            lines.append("WICHTIG: Nutze die oben genannten IDs als Parameter für Aktionen.")
+            lines.append("Wenn der User 'alle' oder 'die Videos/Audios' sagt, lasse den ID-Parameter weg — die Aktion verarbeitet dann automatisch alle.")
+
+            return "\n".join(lines)
+        except Exception as e:
+            logger.warning("Medien-Kontext konnte nicht geladen werden: %s", e)
+            return ""
 
     def _build_messages(self, user_text: str) -> list[dict]:
         """Erstellt das Chat-Messages-Format für das Modell."""
@@ -151,12 +222,13 @@ class LocalAgentService:
                 f"<|assistant|>\n"
             )
 
-        outputs = self._pipe(
-            prompt_text,
-            max_new_tokens=max_new_tokens,
-            do_sample=False,
-            return_full_text=False,
-        )
+        with self._lock:
+            outputs = self._pipe(
+                prompt_text,
+                max_new_tokens=max_new_tokens,
+                do_sample=False,
+                return_full_text=False,
+            )
 
         return outputs[0]["generated_text"].strip()
 

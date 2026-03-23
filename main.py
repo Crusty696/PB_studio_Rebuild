@@ -6,9 +6,15 @@ Bottom-Navigationsleiste wie DaVinci Resolve.
 Optimierte Timeline mit Caching.
 """
 
+from dotenv import load_dotenv
+load_dotenv()
+
 import sys
 import subprocess
 import time
+import logging
+import traceback
+import uuid
 from pathlib import Path
 
 from PySide6.QtWidgets import (
@@ -20,11 +26,16 @@ from PySide6.QtWidgets import (
     QGraphicsTextItem, QGraphicsLineItem, QDialog, QFrame,
     QTreeWidget, QTreeWidgetItem, QCheckBox, QStackedWidget,
     QSizePolicy, QSpacerItem, QMenu, QGraphicsPolygonItem, QSpinBox,
+    QScrollArea,
 )
 from PySide6.QtCore import Qt, QThread, Signal, QObject, QRectF, QPointF, QTimer
 from PySide6.QtGui import QPainter, QPainterPath, QColor, QFont, QBrush, QPen, QPixmap, QImage, QPolygonF, QAction
 
 APP_VERSION = "0.4.0"
+
+# Globale Thread-Registry: hält Referenzen auf aktive QThread/Worker-Paare,
+# damit sie nicht vorzeitig garbage-collected werden.
+_GLOBAL_ACTIVE_THREADS: list[tuple] = []
 STYLE_DIR = Path(__file__).parent / "styles"
 RESOURCE_DIR = Path(__file__).parent / "resources"
 
@@ -41,15 +52,18 @@ from services.video_service import VideoAnalyzer
 from services.pacing_service import (
     PacingSettings, calculate_cut_points, CutPoint, auto_edit_to_beats,
     AdvancedPacingSettings, auto_edit_phase3, TimelineSegment,
+    generate_keyframe_strings_for_project,
 )
 from services.export_service import export_timeline, get_timeline_summary
 from services.timeline_service import TimelineService, PB_NS
 from ui.chat_dock import ChatDock
 from ui.waveform_item import WaveformGraphicsItem
+from ui.widgets.stem_workspace import StemWorkspace
+from services.stem_player import StemPlayer
 
 
 # ======================================================================
-# Phase 4: Globaler Task-Manager
+# Phase 5: Zentrale Task-Engine (besitzt Threads + Worker)
 # ======================================================================
 
 class TaskInfo:
@@ -60,9 +74,12 @@ class TaskInfo:
         self.description = description
         self.status = "running"
         self.progress = 0
-        self.total = 0
+        self.total = 100
         self.message = ""
         self.start_time = time.time()
+        # Referenzen auf Thread und Worker — GC-Schutz!
+        self.thread: QThread | None = None
+        self.worker: QObject | None = None
 
     @property
     def elapsed(self) -> float:
@@ -70,17 +87,252 @@ class TaskInfo:
 
 
 class GlobalTaskManager(QObject):
-    """Verwaltet alle laufenden Hintergrund-Prozesse."""
+    """Zentrale Task-Engine: Erstellt, verwaltet und besitzt ALLE
+    Hintergrund-Threads und Worker. Singleton.
+
+    Jeder Hintergrund-Job MUSS über start_task() laufen.
+    Das TaskManagerDock hört ausschliesslich auf diese Signale.
+
+    CROSS-THREAD SAFE: start_task() kann aus jedem Thread aufgerufen
+    werden. Worker-Ownership wird korrekt an den Main-Thread uebergeben,
+    bevor QThread-Erstellung und Signal-Verbindungen stattfinden.
+
+    COMMAND PATTERN: Agenten-Tools senden nur noch
+    agent_command_signal.emit(action_name, kwargs). Der Main-Thread
+    instanziiert Worker und QThread selbst — keine Qt-Objekte im
+    Agent-Thread!
+    """
     task_added = Signal(str)
     task_updated = Signal(str)
     task_finished = Signal(str)
 
+    # Cross-Thread Request: task_id, name, description, worker, on_finish, on_error
+    _cross_thread_request = Signal(str, str, str, object, object, object)
+
+    # ── Command Pattern: Agenten emittieren nur noch dieses Signal ──
+    agent_command_signal = Signal(str, dict)  # action_name, kwargs
+
+    _instance: "GlobalTaskManager | None" = None
+
+    @classmethod
+    def instance(cls) -> "GlobalTaskManager":
+        if cls._instance is None:
+            cls._instance = cls()
+        return cls._instance
+
     def __init__(self):
-        super().__init__()
+        super().__init__(QApplication.instance())
         self._tasks: dict[str, TaskInfo] = {}
         self._counter = 0
+        # Cross-Thread-Signal: QueuedConnection erzwingt Ausfuehrung im Main-Thread
+        self._cross_thread_request.connect(
+            self._start_in_main_thread, Qt.ConnectionType.QueuedConnection
+        )
+        # Command Pattern: QueuedConnection → Main-Thread instanziiert Worker
+        self.agent_command_signal.connect(
+            self._build_and_execute_task, Qt.ConnectionType.QueuedConnection
+        )
+
+    # ------------------------------------------------------------------
+    # Command Pattern: Worker-Registry + Main-Thread Factory
+    # ------------------------------------------------------------------
+
+    # Registry: action_name → (WorkerClass, task_display_name_template, kwargs→worker_kwargs mapper)
+    _WORKER_REGISTRY: dict[str, tuple] = {}
+
+    @classmethod
+    def register_worker(cls, action_name: str, worker_class, display_name: str,
+                        mapper=None):
+        """Registriert eine Worker-Klasse fuer das Command Pattern.
+
+        Args:
+            action_name: Eindeutiger Name (z.B. 'separate_stems').
+            worker_class: QObject mit run() und finished-Signal.
+            display_name: Template fuer Task-Anzeige, darf {kwargs} nutzen.
+            mapper: Optional. Funktion(kwargs) → dict mit Worker-Konstruktor-Kwargs.
+                    Default: kwargs werden 1:1 weitergereicht.
+        """
+        cls._WORKER_REGISTRY[action_name] = (worker_class, display_name, mapper)
+
+    def _build_and_execute_task(self, action_name: str, kwargs: dict):
+        """Laeuft IMMER im Main-Thread (via QueuedConnection).
+
+        Holt die Worker-Klasse aus der Registry, instanziiert Worker + QThread,
+        fuehrt moveToThread aus, verbindet Signale und startet den Thread.
+        """
+        entry = self._WORKER_REGISTRY.get(action_name)
+        if entry is None:
+            logging.error(
+                "[CommandPattern] Unbekannte Action '%s' — kein Worker registriert. "
+                "kwargs=%s", action_name, kwargs
+            )
+            return
+
+        worker_class, display_template, mapper = entry
+
+        # Worker-kwargs vorbereiten
+        worker_kwargs = mapper(kwargs) if mapper else kwargs
+
+        # Display-Name
+        try:
+            display_name = display_template.format(**kwargs)
+        except (KeyError, IndexError):
+            display_name = f"{action_name} ({kwargs})"
+
+        logging.info(
+            "[CommandPattern] Main-Thread baut Worker: %s → %s",
+            action_name, display_name,
+        )
+
+        # 1. Worker im Main-Thread instanziieren
+        worker = worker_class(**worker_kwargs)
+
+        # 2. start_task kuemmert sich um QThread, moveToThread, Signale, Start
+        self.start_task(
+            name=display_name,
+            worker=worker,
+            description=f"Command Pattern: {action_name}",
+        )
+
+        # 3. TaskManagerDock erzwingen
+        app = QApplication.instance()
+        if app:
+            for w in app.topLevelWidgets():
+                dock = w.findChild(QDockWidget, "task_manager_dock")
+                if dock:
+                    dock.show()
+                    break
+
+    # ------------------------------------------------------------------
+    # Neues API: Worker + Thread in einem Aufruf starten
+    # THREAD-SAFE: Kann aus Main-Thread UND Background-Threads aufgerufen werden
+    # ------------------------------------------------------------------
+
+    def start_task(
+        self,
+        name: str,
+        worker: QObject,
+        description: str = "",
+        on_finish=None,
+        on_error=None,
+    ) -> "TaskInfo | str":
+        """Erstellt Task, Thread, moveToThread, startet alles.
+
+        Der Worker MUSS eine run()-Methode und ein finished-Signal haben.
+        Optional: progress(int, str), error-Signal.
+
+        Returns:
+            - TaskInfo wenn aus Main-Thread aufgerufen (sofortige Ausfuehrung)
+            - task_id (str) wenn aus Background-Thread (asynchrone Ausfuehrung)
+        """
+        task_id = f"task_{uuid.uuid4().hex[:12]}"
+
+        app = QApplication.instance()
+        is_bg_thread = app is not None and QThread.currentThread() != app.thread()
+
+        if is_bg_thread:
+            # ============================================================
+            # CRITICAL FIX: Cross-Thread Task Routing
+            # Worker wurde im BG-Thread erstellt → Ownership an Main-Thread
+            # uebergeben BEVOR wir das Signal senden.
+            # ============================================================
+            logging.info(
+                "[TaskEngine] Cross-Thread-Request: %s (task_id=%s) — "
+                "routing to main thread", name, task_id
+            )
+            worker.moveToThread(app.thread())
+            self._cross_thread_request.emit(
+                task_id, name, description, worker, on_finish, on_error
+            )
+            return task_id
+        else:
+            # Main-Thread: direkt ausfuehren
+            return self._start_in_main_thread(
+                task_id, name, description, worker, on_finish, on_error
+            )
+
+    def _start_in_main_thread(
+        self,
+        task_id: str,
+        name: str,
+        description: str,
+        worker: QObject,
+        on_finish=None,
+        on_error=None,
+    ) -> TaskInfo:
+        """Tatsaechliche Thread-Erstellung — laeuft IMMER im Main-Thread.
+
+        Wird direkt aufgerufen (Main-Thread) oder via QueuedConnection
+        (Cross-Thread-Signal).
+        """
+        task = TaskInfo(task_id, name, description)
+
+        thread = QThread()
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+
+        # Task-ID am Worker speichern fuer Cancel-Lookup
+        worker.task_id = task_id
+
+        # Progress-Signal → update_task (falls Worker eins hat)
+        if hasattr(worker, "progress"):
+            worker.progress.connect(
+                lambda pct, msg, _tid=task_id: self.update_task(_tid, pct, message=msg)
+            )
+
+        # Finish-Guard: skip on_finish wenn Worker im Error-Pfad ist
+        if on_finish:
+            def _guarded_finish(*args, _w=worker, _cb=on_finish):
+                if not getattr(_w, '_errored', False):
+                    _cb(*args)
+            worker.finished.connect(_guarded_finish)
+
+        # Error-Signal: Fallback-Logger immer verbinden (stille Fehler verhindern).
+        # Verbindet einen Default-Handler, der den Fehler loggt und den Task
+        # als "error" markiert — auch wenn kein on_error-Callback uebergeben wurde.
+        def _default_error_handler(*args, _tid=task_id, _name=name, _tm=self):
+            err_msg = str(args[-1]) if args else "Unbekannter Fehler"
+            logging.error(
+                "[TaskEngine] Worker-Fehler '%s' (task_id=%s): %s",
+                _name, _tid, err_msg,
+            )
+            _tm.finish_task(_tid, status="error", message=err_msg)
+        worker.error.connect(_default_error_handler)
+        if on_error:
+            worker.error.connect(on_error)
+
+        # Thread-Lifecycle: finished → quit → cleanup
+        worker.finished.connect(thread.quit)
+        thread.finished.connect(lambda _tid=task_id: self._on_thread_done(_tid))
+
+        # Referenzen halten (GC-Schutz)
+        task.thread = thread
+        task.worker = worker
+        self._tasks[task_id] = task
+
+        self.task_added.emit(task_id)
+
+        # TaskManagerDock sichtbar machen (falls vorhanden)
+        app = QApplication.instance()
+        if app:
+            for w in app.topLevelWidgets():
+                dock = w.findChild(QDockWidget, "task_manager_dock")
+                if dock:
+                    dock.show()
+                    break
+
+        thread.start()
+        logging.info("[TaskEngine] Gestartet: %s (task_id=%s)", name, task_id)
+        return task
+
+    # ------------------------------------------------------------------
+    # Legacy-kompatibles API (fuer register_actions.py etc.)
+    # ------------------------------------------------------------------
 
     def create_task(self, name: str, description: str = "") -> TaskInfo:
+        """Erstellt nur Metadaten-Task (ohne Thread).
+        Fuer Aktionen die keinen Worker haben (z.B. synchrone Calls).
+        """
         self._counter += 1
         task_id = f"task_{self._counter}"
         task = TaskInfo(task_id, name, description)
@@ -88,7 +340,7 @@ class GlobalTaskManager(QObject):
         self.task_added.emit(task_id)
         return task
 
-    def update_task(self, task_id: str, progress: int = 0, total: int = 0,
+    def update_task(self, task_id: str, progress: int = 0, total: int = 100,
                     message: str = ""):
         if task_id in self._tasks:
             t = self._tasks[task_id]
@@ -104,6 +356,22 @@ class GlobalTaskManager(QObject):
             t.message = message
             self.task_finished.emit(task_id)
 
+    def cancel_task(self, task_id: str):
+        """Bricht einen laufenden Task ab."""
+        task = self._tasks.get(task_id)
+        if not task or task.status != "running":
+            return
+        worker = task.worker
+        if worker and hasattr(worker, "cancel"):
+            worker.cancel()
+        thread = task.thread
+        if thread and thread.isRunning():
+            thread.quit()
+            if not thread.wait(2000):
+                thread.terminate()
+        self.finish_task(task_id, "cancelled", "Abgebrochen")
+        logging.info("[TaskEngine] Abgebrochen: %s", task_id)
+
     def get_task(self, task_id: str) -> TaskInfo | None:
         return self._tasks.get(task_id)
 
@@ -111,10 +379,31 @@ class GlobalTaskManager(QObject):
         return list(self._tasks.values())
 
     def clear_finished(self):
-        self._tasks = {k: v for k, v in self._tasks.items() if v.status == "running"}
+        to_remove = []
+        for k, v in self._tasks.items():
+            if v.status != "running":
+                to_remove.append(k)
+        for k in to_remove:
+            task = self._tasks.pop(k)
+            if task.worker:
+                task.worker.deleteLater()
+            if task.thread:
+                task.thread.deleteLater()
+
+    # ------------------------------------------------------------------
+    # Interner Cleanup
+    # ------------------------------------------------------------------
+
+    def _on_thread_done(self, task_id: str):
+        """Wird aufgerufen wenn ein Thread fertig ist."""
+        task = self._tasks.get(task_id)
+        if task and task.status == "running":
+            self.finish_task(task_id, "finished", "Fertig")
 
 
-task_manager = GlobalTaskManager()
+# Singleton-Instanz: Wird in main() an QApplication verankert.
+# Zugriff ausschliesslich ueber QApplication.instance().task_manager
+task_manager = None  # Lazy — wird in main() gesetzt
 
 
 # ======================================================================
@@ -136,6 +425,7 @@ class AnalysisWorker(QObject, CancellableMixin):
     finished = Signal(int, dict)
     error = Signal(int, str)
     started = Signal(int, str)
+    progress = Signal(int, str)
 
     def __init__(self, track_id: int, title: str):
         super().__init__()
@@ -145,18 +435,47 @@ class AnalysisWorker(QObject, CancellableMixin):
         self.analyzer = AudioAnalyzer()
 
     def run(self):
+        _ok = False
         self.started.emit(self.track_id, self.title)
         try:
+            # Phase 1: Grundanalyse (BPM, Duration, Energy via librosa)
+            self.progress.emit(10, "Grundanalyse (librosa)...")
             result = self.analyzer.analyze_and_store(self.track_id)
+
+            # Phase 2: KI Beat-Analyse (Beatgrid mit Downbeats + Energy)
+            # BeatAnalysisService ist der alleinige Beatgrid-Writer.
+            if not self.should_stop():
+                try:
+                    self.progress.emit(50, "KI Beat-Analyse (beat_this)...")
+                    from services.beat_analysis_service import BeatAnalysisService
+                    beat_svc = BeatAnalysisService()
+                    beat_result = beat_svc.analyze_and_store(self.track_id)
+                    result["beat_positions"] = beat_result.get("beats", [])
+                    result["downbeats"] = beat_result.get("downbeats", [])
+                    self.progress.emit(90, "Beat-Analyse fertig")
+                except Exception as e:
+                    # Beat-Analyse ist optional — Grundanalyse reicht für den Betrieb
+                    logging.warning("BeatAnalysis optional fehlgeschlagen: %s", e)
+                    self.progress.emit(90, f"Beat-Analyse übersprungen: {e}")
+
+            self.progress.emit(100, "Analyse komplett")
             self.finished.emit(self.track_id, result)
+            _ok = True
         except Exception as e:
+            logging.error("AnalysisWorker[%s] crashed: %s\n%s",
+                          self.track_id, e, traceback.format_exc())
+            self._errored = True
             self.error.emit(self.track_id, str(e))
+        finally:
+            if not _ok:
+                self.finished.emit(self.track_id, {})
 
 
 class VideoAnalysisWorker(QObject, CancellableMixin):
     finished = Signal(int, dict)
     error = Signal(int, str)
     started = Signal(int, str)
+    progress = Signal(int, str)   # Echte Qt-Signale statt print()
 
     def __init__(self, clip_id: int, title: str):
         super().__init__()
@@ -165,40 +484,59 @@ class VideoAnalysisWorker(QObject, CancellableMixin):
         self.analyzer = VideoAnalyzer()
 
     def run(self):
+        _ok = False
         self.started.emit(self.clip_id, self.title)
+        self.progress.emit(0, f"Video-Analyse: {self.title}")
         try:
+            self.progress.emit(10, f"ffprobe + Proxy fuer {self.title}...")
             result = self.analyzer.analyze_and_store(self.clip_id)
+            self.progress.emit(100, f"Analyse fertig: {self.title}")
             self.finished.emit(self.clip_id, result)
+            _ok = True
         except Exception as e:
+            logging.error("VideoAnalysisWorker[%s] crashed: %s\n%s",
+                          self.clip_id, e, traceback.format_exc())
+            self._errored = True
             self.error.emit(self.clip_id, str(e))
+        finally:
+            if not _ok:
+                self.finished.emit(self.clip_id, {})
 
 
 class StemSeparationWorker(QObject, CancellableMixin):
     finished = Signal(int, dict)
     error = Signal(int, str)
-    progress = Signal(int, int, str)
+    progress = Signal(int, str)
 
     def __init__(self, track_id: int):
         super().__init__()
         self.track_id = track_id
 
     def run(self):
+        _ok = False
         try:
             from services.ai_audio_service import StemSeparator
             separator = StemSeparator()
             result = separator.separate_and_store(
                 self.track_id,
-                progress_cb=lambda s, t, m: self.progress.emit(s, t, m),
+                progress_cb=lambda pct, msg: self.progress.emit(pct, msg),
             )
             self.finished.emit(self.track_id, result)
+            _ok = True
         except Exception as e:
+            logging.error("StemSeparationWorker[%s] crashed: %s\n%s",
+                          self.track_id, e, traceback.format_exc())
+            self._errored = True
             self.error.emit(self.track_id, str(e))
+        finally:
+            if not _ok:
+                self.finished.emit(self.track_id, {})
 
 
 class AutoDuckingWorker(QObject, CancellableMixin):
     finished = Signal(str)
     error = Signal(str)
-    progress = Signal(int, int, str)
+    progress = Signal(int, str)
 
     def __init__(self, music_path: str, voice_path: str, output_path: str):
         super().__init__()
@@ -207,22 +545,29 @@ class AutoDuckingWorker(QObject, CancellableMixin):
         self.output_path = output_path
 
     def run(self):
+        _ok = False
         try:
             from services.ai_audio_service import AutoDucker
             ducker = AutoDucker()
             result = ducker.create_ducked_audio(
                 self.music_path, self.voice_path, self.output_path,
-                progress_cb=lambda s, t, m: self.progress.emit(s, t, m),
+                progress_cb=lambda pct, msg: self.progress.emit(pct, msg),
             )
             self.finished.emit(result)
+            _ok = True
         except Exception as e:
+            logging.error("AutoDuckingWorker crashed: %s\n%s", e, traceback.format_exc())
+            self._errored = True
             self.error.emit(str(e))
+        finally:
+            if not _ok:
+                self.finished.emit("")
 
 
 class ExportWorker(QObject, CancellableMixin):
     finished = Signal(str)
     error = Signal(str)
-    progress = Signal(int, int, str)
+    progress = Signal(int, str)
 
     def __init__(self, project_id: int, output_name: str,
                  resolution: str = "1920x1080", fps: float = 30.0):
@@ -233,17 +578,24 @@ class ExportWorker(QObject, CancellableMixin):
         self.fps = fps
 
     def run(self):
+        _ok = False
         try:
             path = export_timeline(
                 project_id=self.project_id,
                 output_name=self.output_name,
                 resolution=self.resolution,
                 fps=self.fps,
-                progress_cb=lambda s, t, m: self.progress.emit(s, t, m),
+                progress_cb=lambda pct, msg: self.progress.emit(pct, msg),
             )
             self.finished.emit(path)
+            _ok = True
         except Exception as e:
+            logging.error("ExportWorker crashed: %s\n%s", e, traceback.format_exc())
+            self._errored = True
             self.error.emit(str(e))
+        finally:
+            if not _ok:
+                self.finished.emit("")
 
 
 class FrameExtractWorker(QObject):
@@ -278,8 +630,11 @@ class FrameExtractWorker(QObject):
             if result.returncode == 0 and len(result.stdout) == expected:
                 self.frame_ready.emit(result.stdout, self.width, self.height)
             else:
-                self.error.emit(f"Frame @ {self.time_sec:.1f}s nicht verfuegbar")
+                stderr_hint = result.stderr[:200].decode(errors="replace") if result.stderr else ""
+                self.error.emit(f"Frame @ {self.time_sec:.1f}s nicht verfuegbar: {stderr_hint}")
         except Exception as e:
+            logging.error("FrameExtractWorker crashed: %s\n%s", e, traceback.format_exc())
+            self._errored = True
             self.error.emit(str(e))
 
 
@@ -296,6 +651,7 @@ class AutoEditWorker(QObject, CancellableMixin):
         self.settings = settings
 
     def run(self):
+        _ok = False
         try:
             segments, cut_points = auto_edit_phase3(
                 self.audio_id, self.video_ids, self.settings,
@@ -315,31 +671,45 @@ class AutoEditWorker(QObject, CancellableMixin):
                 for c in cut_points
             ]
             self.finished.emit(seg_dicts, cp_dicts)
+            _ok = True
         except Exception as e:
+            logging.error("AutoEditWorker crashed: %s\n%s", e, traceback.format_exc())
+            self._errored = True
             self.error.emit(str(e))
+        finally:
+            if not _ok:
+                self.finished.emit([], [])
 
 
 class WaveformAnalysisWorker(QObject, CancellableMixin):
     """Background Worker: Rekordbox-Style Frequenzanalyse + Beatgrid."""
     finished = Signal(int, dict)   # track_id, result
     error = Signal(int, str)       # track_id, error_msg
-    progress = Signal(int, int, str)
+    progress = Signal(int, str)    # percent, message
 
     def __init__(self, track_id: int):
         super().__init__()
         self.track_id = track_id
 
     def run(self):
+        _ok = False
         try:
             from services.ai_audio_service import FrequencyAnalyzer
             analyzer = FrequencyAnalyzer()
             result = analyzer.analyze_and_store(
                 self.track_id,
-                progress_cb=lambda s, t, m: self.progress.emit(s, t, m),
+                progress_cb=lambda pct, msg: self.progress.emit(pct, msg),
             )
             self.finished.emit(self.track_id, result)
+            _ok = True
         except Exception as e:
+            logging.error("WaveformAnalysisWorker[%s] crashed: %s\n%s",
+                          self.track_id, e, traceback.format_exc())
+            self._errored = True
             self.error.emit(self.track_id, str(e))
+        finally:
+            if not _ok:
+                self.finished.emit(self.track_id, {})
 
 
 # ======================================================================
@@ -354,7 +724,7 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
     """
     finished = Signal(int, dict)   # last_clip_id, batch_result_dict
     error = Signal(int, str)       # clip_id, error_msg
-    progress = Signal(int, int, str)  # step, total, message
+    progress = Signal(int, str)    # percent, message
 
     def __init__(self, clip_id: int = 0, video_path: str = "",
                  batch: list | None = None):
@@ -370,47 +740,64 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
             self._batch = [(clip_id, video_path, "")]
 
     def run(self):
-        from services.video_analysis_service import run_full_pipeline
-
+        _ok = False
         total_videos = len(self._batch)
-        total_scenes = 0
-        total_embeddings = 0
         last_clip_id = self._batch[-1][0]
+        try:
+            from services.video_analysis_service import run_full_pipeline
 
-        for idx, (clip_id, video_path, title) in enumerate(self._batch, start=1):
-            if self.should_stop():
-                break
+            total_scenes = 0
+            total_embeddings = 0
+            idx = 0
 
-            label = title or Path(video_path).stem
-            self.progress.emit(
-                idx, total_videos,
-                f"Video {idx}/{total_videos}: '{label}' wird analysiert..."
-            )
+            for idx, (clip_id, video_path, title) in enumerate(self._batch, start=1):
+                if self.should_stop():
+                    break
 
-            try:
-                result = run_full_pipeline(
-                    video_path=video_path,
-                    video_clip_id=clip_id,
-                    progress_cb=lambda s, t, m, _i=idx, _tv=total_videos: (
-                        self.progress.emit(
-                            _i, _tv,
-                            f"[{_i}/{_tv}] {m}"
-                        )
-                    ),
-                    should_stop=self.should_stop,
+                label = title or Path(video_path).stem
+                batch_base_pct = int((idx - 1) / total_videos * 100)
+                batch_range = int(100 / total_videos)
+                self.progress.emit(
+                    batch_base_pct,
+                    f"Video {idx}/{total_videos}: '{label}' wird analysiert..."
                 )
-                total_scenes += len(result.scenes)
-                total_embeddings += result.embeddings_stored
 
-            except Exception as e:
-                self.error.emit(clip_id, f"Video {idx}/{total_videos} '{label}': {e}")
-                return
+                try:
+                    result = run_full_pipeline(
+                        video_path=video_path,
+                        video_clip_id=clip_id,
+                        progress_cb=lambda pct, msg, _base=batch_base_pct, _range=batch_range, _i=idx, _tv=total_videos: (
+                            self.progress.emit(
+                                min(99, _base + int(pct / 100 * _range)),
+                                f"[{_i}/{_tv}] {msg}"
+                            )
+                        ),
+                        should_stop=self.should_stop,
+                    )
+                    total_scenes += len(result.scenes)
+                    total_embeddings += result.embeddings_stored
 
-        self.finished.emit(last_clip_id, {
-            "scenes": total_scenes,
-            "embeddings": total_embeddings,
-            "videos_processed": total_videos,
-        })
+                except Exception as e:
+                    logging.error("VideoAnalysisPipelineWorker[%s] video %d/%d '%s' crashed: %s\n%s",
+                                  clip_id, idx, total_videos, label, e, traceback.format_exc())
+                    self._errored = True
+                    self.error.emit(clip_id, f"Video {idx}/{total_videos} '{label}': {e}")
+                    return
+
+            self.finished.emit(last_clip_id, {
+                "scenes": total_scenes,
+                "embeddings": total_embeddings,
+                "videos_processed": idx if self.should_stop() else total_videos,
+            })
+            _ok = True
+        except Exception as e:
+            logging.error("VideoAnalysisPipelineWorker crashed (outer): %s\n%s",
+                          e, traceback.format_exc())
+            self._errored = True
+            self.error.emit(last_clip_id, str(e))
+        finally:
+            if not _ok:
+                self.finished.emit(last_clip_id, {})
 
 
 # ======================================================================
@@ -421,7 +808,7 @@ class ProxyCreationWorker(QObject, CancellableMixin):
     """Erstellt NVENC 540p Edit-Proxy für ein Video."""
     finished = Signal(int, str)    # clip_id, proxy_path
     error = Signal(int, str)       # clip_id, error_msg
-    progress = Signal(float, str)  # progress_0_to_1, status_text
+    progress = Signal(int, str)    # percent, status_text
 
     def __init__(self, clip_id: int, video_path: str):
         super().__init__()
@@ -430,12 +817,13 @@ class ProxyCreationWorker(QObject, CancellableMixin):
         self.video_path = video_path
 
     def run(self):
+        _ok = False
         try:
             from services.convert_service import convert
             proxy_path = convert(
                 self.video_path,
                 preset_name="edit_proxy",
-                progress_cb=lambda p, s: self.progress.emit(p, s),
+                progress_cb=lambda pct, msg: self.progress.emit(pct, msg),
             )
             # Proxy-Pfad in SQLite speichern
             with DBSession(engine) as session:
@@ -444,8 +832,15 @@ class ProxyCreationWorker(QObject, CancellableMixin):
                     clip.proxy_path = proxy_path
                     session.commit()
             self.finished.emit(self.clip_id, proxy_path)
+            _ok = True
         except Exception as e:
+            logging.error("ProxyCreationWorker[%s] crashed: %s\n%s",
+                          self.clip_id, e, traceback.format_exc())
+            self._errored = True
             self.error.emit(self.clip_id, str(e))
+        finally:
+            if not _ok:
+                self.finished.emit(self.clip_id, "")
 
 
 # ======================================================================
@@ -463,12 +858,196 @@ class SemanticSearchWorker(QObject):
         self.top_k = top_k
 
     def run(self):
+        _ok = False
         try:
             from services.video_analysis_service import search_videos_by_text
             results = search_videos_by_text(self.query, top_k=self.top_k)
             self.finished.emit(results)
+            _ok = True
         except Exception as e:
+            logging.error("SemanticSearchWorker crashed: %s\n%s", e, traceback.format_exc())
+            self._errored = True
             self.error.emit(str(e))
+        finally:
+            if not _ok:
+                self.finished.emit([])
+
+
+# ======================================================================
+# Batch Convert Worker (CRIT-02 Fix: Main-Thread-Blocking entfernt)
+# ======================================================================
+
+class BatchConvertWorker(QObject, CancellableMixin):
+    """Konvertiert alle Videos im Hintergrund-Thread statt auf dem Main-Thread."""
+    finished = Signal(int, int)      # (converted_count, total_count)
+    error = Signal(str)
+    progress = Signal(int, str)      # (percent, message)
+
+    def __init__(self, videos: list, resolution: str, fps: str, vcodec: str, ext: str):
+        super().__init__()
+        self._cancelled = False
+        self.videos = videos
+        self.resolution = resolution
+        self.fps = fps
+        self.vcodec = vcodec
+        self.ext = ext
+
+    def run(self):
+        _ok = False
+        w_res, h_res = self.resolution.split("x")
+        total = len(self.videos)
+        converted = 0
+        try:
+            for i, v in enumerate(self.videos):
+                if self.should_stop():
+                    break
+
+                src = v["file_path"]
+                stem = Path(src).stem
+                out_dir = Path(src).parent / "converted"
+                out_dir.mkdir(exist_ok=True)
+                dst = str(out_dir / f"{stem}_std{self.ext}")
+
+                self.progress.emit(
+                    int((i + 1) / total * 100),
+                    f"[Convert] {i+1}/{total}: {Path(src).name} -> {self.resolution} @ {self.fps}fps"
+                )
+
+                cmd = [
+                    "ffmpeg", "-y", "-i", src,
+                    "-vf", f"scale={w_res}:{h_res}:force_original_aspect_ratio=decrease,"
+                           f"pad={w_res}:{h_res}:(ow-iw)/2:(oh-ih)/2",
+                    "-r", self.fps,
+                    "-c:v", self.vcodec,
+                    "-c:a", "aac",
+                    "-preset", "medium",
+                    "-v", "quiet",
+                    dst,
+                ]
+                try:
+                    result = subprocess.run(
+                        cmd, capture_output=True, timeout=600,
+                        creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+                    )
+                    if result.returncode == 0:
+                        converted += 1
+                        self.progress.emit(int((i + 1) / total * 100), f"  OK: {dst}")
+                    else:
+                        stderr = result.stderr.decode(errors="replace")[:200]
+                        self.progress.emit(int((i + 1) / total * 100), f"  FEHLER: {stderr}")
+                except subprocess.TimeoutExpired:
+                    self.progress.emit(int((i + 1) / total * 100), f"  TIMEOUT: {Path(src).name}")
+                except FileNotFoundError:
+                    self._errored = True
+                    self.error.emit("ffmpeg nicht gefunden!")
+                    return
+
+            self.finished.emit(converted, total)
+            _ok = True
+        except Exception as e:
+            logging.error("BatchConvertWorker crashed: %s\n%s", e, traceback.format_exc())
+            self._errored = True
+            self.error.emit(str(e))
+        finally:
+            if not _ok:
+                self.finished.emit(0, 0)
+
+
+class DummyProgressWorker(QObject, CancellableMixin):
+    """Test-Worker: Zaehlt 10 Sekunden hoch fuer UI-Test der Task-Engine."""
+    finished = Signal(int, int)   # (done_steps, total_steps)
+    error = Signal(str)
+    progress = Signal(int, str)   # (percent, message)
+
+    def __init__(self, steps: int = 10, interval_ms: int = 1000):
+        super().__init__()
+        self._cancelled = False
+        self.steps = steps
+        self.interval_s = interval_ms / 1000.0
+
+    def run(self):
+        _ok = False
+        try:
+            for i in range(1, self.steps + 1):
+                if self.should_stop():
+                    self.progress.emit(0, "Abgebrochen")
+                    break
+                pct = int(100 * i / self.steps)
+                self.progress.emit(pct, f"Schritt {i}/{self.steps}")
+                import time as _t
+                _t.sleep(self.interval_s)
+            self.finished.emit(self.steps, self.steps)
+            _ok = True
+        except Exception as e:
+            self._errored = True
+            self.error.emit(str(e))
+        finally:
+            if not _ok:
+                self.finished.emit(0, 0)
+
+
+# ======================================================================
+# Command Pattern: Worker-Registry Registrierungen
+# Agenten-Tools emittieren nur agent_command_signal → Main-Thread baut Worker
+# ======================================================================
+
+GlobalTaskManager.register_worker(
+    "separate_stems",
+    StemSeparationWorker,
+    "Stem-Separation #{track_id}",
+    mapper=lambda kw: {"track_id": kw["track_id"]},
+)
+
+GlobalTaskManager.register_worker(
+    "analyze_audio",
+    AnalysisWorker,
+    "Audio-Analyse #{track_id}",
+    mapper=lambda kw: {"track_id": kw["track_id"], "title": kw.get("title", f"Track #{kw['track_id']}")},
+)
+
+GlobalTaskManager.register_worker(
+    "analyze_video",
+    VideoAnalysisWorker,
+    "Video-Analyse #{clip_id}",
+    mapper=lambda kw: {"clip_id": kw["clip_id"], "title": kw.get("title", f"Clip #{kw['clip_id']}")},
+)
+
+GlobalTaskManager.register_worker(
+    "create_proxy",
+    ProxyCreationWorker,
+    "Proxy #{clip_id}",
+    mapper=lambda kw: {"clip_id": kw["clip_id"], "video_path": kw["video_path"]},
+)
+
+GlobalTaskManager.register_worker(
+    "auto_edit",
+    AutoEditWorker,
+    "Auto-Edit",
+    mapper=lambda kw: {
+        "audio_id": kw["audio_id"],
+        "video_ids": kw["video_ids"],
+        "settings": kw.get("settings") or AdvancedPacingSettings(),
+    },
+)
+
+GlobalTaskManager.register_worker(
+    "export_timeline",
+    ExportWorker,
+    "Export: {output_name}",
+    mapper=lambda kw: {
+        "project_id": kw.get("project_id", 1),
+        "output_name": kw.get("output_name", "output.mp4"),
+        "resolution": kw.get("resolution", "1920x1080"),
+        "fps": kw.get("fps", 30),
+    },
+)
+
+GlobalTaskManager.register_worker(
+    "teste_ladebalken",
+    DummyProgressWorker,
+    "Test-Ladebalken ({steps}s)",
+    mapper=lambda kw: {"steps": kw.get("steps", 10), "interval_ms": kw.get("interval_ms", 1000)},
+)
 
 
 # ======================================================================
@@ -726,10 +1305,25 @@ class InteractiveTimeline(QGraphicsView):
                 .filter_by(project_id=project_id)
                 .all()
             )
+            # Bug-17 Fix: Bulk-Load AudioTracks und VideoClips — verhindert N+1
+            # (vorher: 1 SELECT pro Eintrag → bei 200 Auto-Edit Segmenten = 200 Queries)
+            _audio_ids = [e.media_id for e in entries if e.track == "audio"]
+            _video_ids = [e.media_id for e in entries if e.track == "video"]
+            _audio_map = (
+                {t.id: t for t in session.query(AudioTrack).filter(
+                    AudioTrack.id.in_(_audio_ids)).all()}
+                if _audio_ids else {}
+            )
+            _video_map = (
+                {c.id: c for c in session.query(VideoClip).filter(
+                    VideoClip.id.in_(_video_ids)).all()}
+                if _video_ids else {}
+            )
+
             for entry in entries:
                 has_waveform = False
                 if entry.track == "audio":
-                    track = session.get(AudioTrack, entry.media_id)
+                    track = _audio_map.get(entry.media_id)
                     title = track.title if track else "?"
                     dur = track.duration if track and track.duration else 30.0
                     y = AUDIO_TRACK_Y
@@ -740,7 +1334,7 @@ class InteractiveTimeline(QGraphicsView):
                         self._load_waveform_for_track(session, track, entry, dur, y)
 
                 elif entry.track == "video":
-                    clip = session.get(VideoClip, entry.media_id)
+                    clip = _video_map.get(entry.media_id)
                     title = Path(clip.file_path).stem if clip else "?"
                     dur = clip.duration if clip and clip.duration else 10.0
                     y = VIDEO_TRACK_Y
@@ -990,9 +1584,10 @@ class InteractiveTimeline(QGraphicsView):
                 with DBSession(engine) as session:
                     entry = session.get(TimelineEntry, video_clip.entry_id)
                     if entry:
-                        entry.start_time = round(new_video_start, 4)
                         if entry.end_time is not None:
                             duration = entry.end_time - entry.start_time
+                        entry.start_time = round(new_video_start, 4)
+                        if entry.end_time is not None:
                             entry.end_time = round(new_video_start + duration, 4)
                         session.commit()
 
@@ -1151,8 +1746,8 @@ class VideoPreviewWidget(QLabel):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("video_preview")
-        self.setMinimumSize(320, 180)
-        self.setMaximumHeight(220)
+        self.setMinimumSize(100, 100)
+        self.setMaximumHeight(400)
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setText("Keine Vorschau")
         self.setScaledContents(False)
@@ -1215,12 +1810,26 @@ class VideoPreviewWidget(QLabel):
         worker.error.connect(self._on_frame_error)
         worker.frame_ready.connect(thread.quit)
         worker.error.connect(thread.quit)
-        thread.finished.connect(worker.deleteLater)
-        thread.finished.connect(thread.deleteLater)
+        thread.finished.connect(self._on_frame_thread_finished)
 
         self._frame_thread = thread
         self._frame_worker = worker
+        _GLOBAL_ACTIVE_THREADS.append((thread, worker))
         thread.start()
+
+    def _on_frame_thread_finished(self):
+        """Cleanup nach Frame-Extraction — Referenzen freigeben."""
+        # Globalen GC-Schutz aufheben
+        if self._frame_thread is not None and self._frame_worker is not None:
+            pair = (self._frame_thread, self._frame_worker)
+            if pair in _GLOBAL_ACTIVE_THREADS:
+                _GLOBAL_ACTIVE_THREADS.remove(pair)
+        if self._frame_worker is not None:
+            self._frame_worker.deleteLater()
+            self._frame_worker = None
+        if self._frame_thread is not None:
+            self._frame_thread.deleteLater()
+            self._frame_thread = None
 
     def _on_frame_ready(self, raw_data: bytes, width: int, height: int):
         img = QImage(raw_data, width, height, width * 3, QImage.Format.Format_RGB888)
@@ -1280,25 +1889,50 @@ class AboutDialog(QDialog):
 # Task Manager Widget
 # ======================================================================
 
-class TaskManagerWidget(QWidget):
-    """Zeigt alle laufenden Hintergrund-Prozesse an — mit Abbrechen-Button."""
+class TaskManagerDock(QDockWidget):
+    """Verankerte Taskliste als QDockWidget am unteren Bildschirmrand.
+
+    Zeigt alle laufenden Hintergrund-Prozesse mit echten QProgressBars an.
+    Keine schwebenden Fenster — fest verankert.
+    """
     cancel_requested = Signal(str)  # task_id
 
     def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setMaximumHeight(140)
+        super().__init__("TASKS", parent)
+        self.setObjectName("task_manager_dock")
+        self.setAllowedAreas(Qt.DockWidgetArea.BottomDockWidgetArea)
+        self.setFeatures(
+            QDockWidget.DockWidgetFeature.DockWidgetMovable
+        )  # Kein Schliessen, kein Schweben — fest verankert
+        self.setMinimumHeight(150)
+        self.setMinimumSize(400, 150)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(4, 2, 4, 2)
         layout.setSpacing(2)
 
-        # Header with cancel button
+        # Header mit Cancel-Button und Clear-Button
         header_row = QHBoxLayout()
-        header_row.setContentsMargins(4, 2, 4, 0)
-        header_label = QLabel("TASKS")
-        header_label.setStyleSheet("color: #505050; font-size: 9px; font-weight: 600; letter-spacing: 1px;")
+        header_row.setContentsMargins(0, 0, 0, 0)
+        header_label = QLabel("HINTERGRUND-PROZESSE")
+        header_label.setStyleSheet(
+            "color: #00D4E6; font-size: 10px; font-weight: 700; letter-spacing: 1px;"
+        )
         header_row.addWidget(header_label)
         header_row.addStretch()
+
+        self.btn_clear = QPushButton("Fertige loeschen")
+        self.btn_clear.setFixedHeight(20)
+        self.btn_clear.setFixedWidth(110)
+        self.btn_clear.setStyleSheet(
+            "QPushButton { background: #1A1A2E; color: #707070; border: 1px solid #333; "
+            "font-size: 9px; border-radius: 3px; padding: 0 6px; }"
+            "QPushButton:hover { color: #FFFFFF; background: #2A2A3E; }"
+        )
+        self.btn_clear.setToolTip("Abgeschlossene Tasks aus der Liste entfernen")
+        self.btn_clear.clicked.connect(self._clear_finished)
+        header_row.addWidget(self.btn_clear)
 
         self.btn_cancel = QPushButton("Abbrechen")
         self.btn_cancel.setFixedHeight(20)
@@ -1314,21 +1948,36 @@ class TaskManagerWidget(QWidget):
 
         layout.addLayout(header_row)
 
-        self._tree = QTreeWidget()
-        self._tree.setHeaderLabels(["Task", "Status", "Fortschritt", "Zeit"])
-        self._tree.setColumnCount(4)
-        self._tree.setAlternatingRowColors(True)
-        self._tree.setToolTip("Hintergrund-Prozesse: Zeigt den Status aller laufenden Aufgaben")
+        # Scrollbarer Bereich fuer Task-Rows mit echten QProgressBars
+        self._task_container = QVBoxLayout()
+        self._task_container.setSpacing(2)
+        self._task_container.setContentsMargins(0, 0, 0, 0)
 
-        tree_header = self._tree.header()
-        tree_header.setStretchLastSection(True)
-        tree_header.resizeSection(0, 200)
-        tree_header.resizeSection(1, 80)
-        tree_header.resizeSection(2, 120)
+        task_scroll_widget = QWidget()
+        task_scroll_widget.setLayout(self._task_container)
 
-        layout.addWidget(self._tree)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(task_scroll_widget)
+        scroll.setStyleSheet(
+            "QScrollArea { border: none; background: transparent; }"
+        )
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        layout.addWidget(scroll, stretch=1)
 
-        self._items: dict[str, QTreeWidgetItem] = {}
+        # Placeholder fuer leeren Zustand
+        self._empty_label = QLabel("Keine laufenden Tasks")
+        self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._empty_label.setStyleSheet(
+            "color: #505050; font-size: 11px; font-style: italic; border: none; padding: 8px;"
+        )
+        self._task_container.addWidget(self._empty_label)
+
+        self.setWidget(container)
+
+        # Task-Tracking: task_id → (row_widget, progress_bar, status_label, name_label, time_label)
+        self._task_rows: dict[str, dict] = {}
 
         self._timer = QTimer(self)
         self._timer.setInterval(1000)
@@ -1340,66 +1989,157 @@ class TaskManagerWidget(QWidget):
         task_manager.task_finished.connect(self._on_task_finished)
 
     def _on_cancel_clicked(self):
-        """Cancel the currently selected (or first running) task."""
-        item = self._tree.currentItem()
-        task_id = None
-        if item:
-            for tid, it in self._items.items():
-                if it is item:
-                    task_id = tid
-                    break
-        if not task_id:
-            # fallback: cancel first running task
-            for tid in self._items:
-                task = task_manager.get_task(tid)
-                if task and task.status == "running":
-                    task_id = tid
-                    break
-        if task_id:
-            self.cancel_requested.emit(task_id)
-            task_manager.finish_task(task_id, status="cancelled", message="Abgebrochen")
+        """Cancel the currently selected (or first running) task via TaskEngine."""
+        for tid in self._task_rows:
+            task = task_manager.get_task(tid)
+            if task and task.status == "running":
+                task_manager.cancel_task(tid)
+                self.cancel_requested.emit(tid)
+                break
+
+    def _clear_finished(self):
+        """Entfernt abgeschlossene Tasks aus der Anzeige."""
+        to_remove = []
+        for tid, row_data in self._task_rows.items():
+            task = task_manager.get_task(tid)
+            if task and task.status != "running":
+                to_remove.append(tid)
+        for tid in to_remove:
+            row_data = self._task_rows.pop(tid)
+            widget = row_data["widget"]
+            self._task_container.removeWidget(widget)
+            widget.deleteLater()
+        task_manager.clear_finished()
+        # Placeholder wieder einblenden wenn keine Tasks mehr da
+        if not self._task_rows:
+            self._empty_label.show()
 
     def _on_task_added(self, task_id: str):
         task = task_manager.get_task(task_id)
         if not task:
             return
-        item = QTreeWidgetItem([task.name, "Running", "", "0s"])
-        item.setForeground(1, QBrush(QColor(100, 200, 100)))
-        self._tree.addTopLevelItem(item)
-        self._items[task_id] = item
+
+        # Placeholder ausblenden sobald Tasks existieren
+        self._empty_label.hide()
+
+        # Neue Task-Row erstellen mit echtem QProgressBar
+        row_widget = QWidget()
+        row_widget.setStyleSheet(
+            "QWidget { background: #0E0E14; border: 1px solid #1E1E2E; border-radius: 3px; }"
+        )
+        row_layout = QHBoxLayout(row_widget)
+        row_layout.setContentsMargins(6, 3, 6, 3)
+        row_layout.setSpacing(8)
+
+        # Task-Name
+        name_label = QLabel(task.name)
+        name_label.setFixedWidth(180)
+        name_label.setStyleSheet("color: #C0C0C0; font-size: 10px; font-weight: 600; border: none;")
+        row_layout.addWidget(name_label)
+
+        # Status-Label
+        status_label = QLabel("Running")
+        status_label.setFixedWidth(70)
+        status_label.setStyleSheet("color: #00E676; font-size: 10px; font-weight: bold; border: none;")
+        row_layout.addWidget(status_label)
+
+        # Echter QProgressBar
+        progress_bar = QProgressBar()
+        progress_bar.setRange(0, 100)
+        progress_bar.setValue(0)
+        progress_bar.setTextVisible(True)
+        progress_bar.setFormat("%p%")
+        progress_bar.setFixedHeight(16)
+        progress_bar.setStyleSheet(
+            "QProgressBar { background: #1A1A2E; border: 1px solid #2A2A3E; border-radius: 3px; "
+            "text-align: center; color: #C0C0C0; font-size: 9px; }"
+            "QProgressBar::chunk { background: qlineargradient("
+            "x1:0, y1:0, x2:1, y2:0, stop:0 #00607A, stop:1 #00B4D8); border-radius: 2px; }"
+        )
+        row_layout.addWidget(progress_bar, stretch=1)
+
+        # Nachricht
+        msg_label = QLabel("")
+        msg_label.setFixedWidth(200)
+        msg_label.setStyleSheet("color: #707070; font-size: 9px; border: none;")
+        row_layout.addWidget(msg_label)
+
+        # Zeit
+        time_label = QLabel("0s")
+        time_label.setFixedWidth(50)
+        time_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        time_label.setStyleSheet("color: #505050; font-size: 9px; border: none;")
+        row_layout.addWidget(time_label)
+
+        self._task_container.addWidget(row_widget)
+
+        self._task_rows[task_id] = {
+            "widget": row_widget,
+            "name_label": name_label,
+            "status_label": status_label,
+            "progress_bar": progress_bar,
+            "msg_label": msg_label,
+            "time_label": time_label,
+        }
 
     def _on_task_updated(self, task_id: str):
         task = task_manager.get_task(task_id)
-        item = self._items.get(task_id)
-        if not task or not item:
+        row_data = self._task_rows.get(task_id)
+        if not task or not row_data:
             return
+
+        progress_bar = row_data["progress_bar"]
+        msg_label = row_data["msg_label"]
+
         if task.total > 0:
-            item.setText(2, f"{task.progress}/{task.total}: {task.message}")
-        else:
-            item.setText(2, task.message)
+            progress_bar.setRange(0, task.total)
+            progress_bar.setValue(task.progress)
+            progress_bar.setFormat(f"{task.progress}%")
+        msg_label.setText(task.message[:40] if task.message else "")
+        msg_label.setToolTip(task.message or "")
 
     def _on_task_finished(self, task_id: str):
         task = task_manager.get_task(task_id)
-        item = self._items.get(task_id)
-        if not task or not item:
+        row_data = self._task_rows.get(task_id)
+        if not task or not row_data:
             return
+
+        status_label = row_data["status_label"]
+        progress_bar = row_data["progress_bar"]
+        msg_label = row_data["msg_label"]
+        time_label = row_data["time_label"]
+
         if task.status == "finished":
-            item.setText(1, "Done")
-            item.setForeground(1, QBrush(QColor(100, 200, 255)))
+            status_label.setText("Fertig")
+            status_label.setStyleSheet("color: #00B4D8; font-size: 10px; font-weight: bold; border: none;")
+            progress_bar.setValue(progress_bar.maximum())
+            progress_bar.setFormat("100%")
+            progress_bar.setStyleSheet(
+                "QProgressBar { background: #1A1A2E; border: 1px solid #2A2A3E; border-radius: 3px; "
+                "text-align: center; color: #C0C0C0; font-size: 9px; }"
+                "QProgressBar::chunk { background: #00B4D8; border-radius: 2px; }"
+            )
         elif task.status == "cancelled":
-            item.setText(1, "Cancelled")
-            item.setForeground(1, QBrush(QColor(255, 180, 50)))
+            status_label.setText("Abbruch")
+            status_label.setStyleSheet("color: #FFB040; font-size: 10px; font-weight: bold; border: none;")
         else:
-            item.setText(1, "Error")
-            item.setForeground(1, QBrush(QColor(255, 100, 100)))
-        item.setText(2, task.message)
-        item.setText(3, f"{task.elapsed}s")
+            status_label.setText("Fehler")
+            status_label.setStyleSheet("color: #FF5050; font-size: 10px; font-weight: bold; border: none;")
+            progress_bar.setStyleSheet(
+                "QProgressBar { background: #1A1A2E; border: 1px solid #3A1010; border-radius: 3px; "
+                "text-align: center; color: #FF5050; font-size: 9px; }"
+                "QProgressBar::chunk { background: #FF3030; border-radius: 2px; }"
+            )
+
+        msg_label.setText(task.message[:40] if task.message else "")
+        msg_label.setToolTip(task.message or "")
+        time_label.setText(f"{task.elapsed}s")
 
     def _update_elapsed(self):
-        for task_id, item in self._items.items():
+        for task_id, row_data in self._task_rows.items():
             task = task_manager.get_task(task_id)
             if task and task.status == "running":
-                item.setText(3, f"{task.elapsed}s")
+                row_data["time_label"].setText(f"{task.elapsed}s")
 
 
 # ======================================================================
@@ -1410,7 +2150,7 @@ class WorkspaceNavBar(QWidget):
     """Bottom navigation bar — DaVinci Resolve Style."""
     workspace_changed = Signal(int)
 
-    WORKSPACE_NAMES = ["MEDIA", "EDIT", "CONVERT", "DELIVER"]
+    WORKSPACE_NAMES = ["MEDIA", "EDIT", "STEMS", "CONVERT", "DELIVER"]
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1429,6 +2169,7 @@ class WorkspaceNavBar(QWidget):
         tooltips = [
             "MEDIA: Dateien importieren, verwalten und analysieren",
             "EDIT: Timeline bearbeiten, Clips schneiden, KI-Pacing",
+            "STEMS: DAW-Ansicht mit 4 Stem-Wellenformen (Vocals, Drums, Bass, Other)",
             "CONVERT: Videos standardisieren (Aufloesung, FPS, Format)",
             "DELIVER: Finales Video exportieren und rendern",
         ]
@@ -1509,20 +2250,15 @@ class PBWindow(QMainWindow):
         sep.setStyleSheet("background-color: #1E1E1E;")
         main_layout.addWidget(sep)
 
-        # ── Workspace Content (QStackedWidget) ──
+        # ── Workspace (volle Flaeche — TaskManager ist jetzt QDockWidget unten) ──
         self.workspace_stack = QStackedWidget()
-        main_layout.addWidget(self.workspace_stack, stretch=1)
-
-        # Workspaces erstellen
         self.workspace_stack.addWidget(self._build_media_workspace())
         self.workspace_stack.addWidget(self._build_edit_workspace())
+        self.workspace_stack.addWidget(self._build_stems_workspace())
         self.workspace_stack.addWidget(self._build_effects_workspace())
         self.workspace_stack.addWidget(self._build_deliver_workspace())
 
-        # ── Task Manager (kompakt, immer sichtbar) ──
-        self.task_manager_widget = TaskManagerWidget()
-        self.task_manager_widget.cancel_requested.connect(self._cancel_worker_for_task)
-        main_layout.addWidget(self.task_manager_widget)
+        main_layout.addWidget(self.workspace_stack, stretch=1)
 
         # ── Bottom Navigation Bar (DaVinci Style) ──
         self.nav_bar = WorkspaceNavBar()
@@ -1534,7 +2270,8 @@ class PBWindow(QMainWindow):
         self.setStatusBar(self.status_bar)
         self.status_bar.showMessage(f"PB_studio v{APP_VERSION} | System bereit")
 
-        # ── Dock Widgets ──
+        # ── Dock Widgets (fest verankert, keine schwebenden Fenster) ──
+        self.setup_task_dock()
         self.setup_console()
         self.setup_chat_dock()
 
@@ -1548,6 +2285,17 @@ class PBWindow(QMainWindow):
                 thread.wait(1000)
         self._active_threads.clear()
         self._active_workers.clear()
+        # Globale Liste beim Schließen ebenfalls leeren
+        _GLOBAL_ACTIVE_THREADS.clear()
+        # Stem Player aufräumen
+        if hasattr(self, "stem_player"):
+            self.stem_player.cleanup()
+        # GPU-VRAM freigeben
+        try:
+            from services.model_manager import ModelManager
+            ModelManager().unload()
+        except Exception:
+            pass
         super().closeEvent(event)
 
     def _show_about(self):
@@ -1774,6 +2522,13 @@ class PBWindow(QMainWindow):
         ah.setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
         audio_pool_layout.addWidget(self.audio_pool_table)
 
+        # --- Stem Player (synchroner Multi-Track Audio-Mixer) ---
+        # StemPlayer wird hier erzeugt, damit er vor _build_stems_workspace existiert.
+        # Der alte StemWidget wurde entfernt — alle Stem-Kontrolle läuft über den
+        # STEMS-Haupt-Reiter (StemWorkspace).
+        self.stem_player = StemPlayer(self)
+        self.stem_player.playback_finished.connect(self._on_stem_playback_finished)
+
         pool_splitter.addWidget(audio_pool_widget)
 
         pool_splitter.setStretchFactor(0, 1)
@@ -1823,8 +2578,8 @@ class PBWindow(QMainWindow):
         preview_layout.setSpacing(2)
 
         self.video_preview = VideoPreviewWidget()
-        self.video_preview.setMinimumSize(480, 270)
-        self.video_preview.setMaximumHeight(16777215)
+        self.video_preview.setMinimumSize(100, 100)
+        self.video_preview.setMaximumHeight(400)
         preview_layout.addWidget(self.video_preview, stretch=1)
 
         # Compact transport bar
@@ -1859,11 +2614,23 @@ class PBWindow(QMainWindow):
         top_splitter.addWidget(preview_container)
 
         # ── Inspector Panel (collapsible, narrow right side) ──
+        # Outer container that goes into the splitter
         self.inspector_panel = QWidget()
         self.inspector_panel.setObjectName("inspector_panel")
-        self.inspector_panel.setMaximumWidth(260)
-        self.inspector_panel.setMinimumWidth(200)
-        insp = QVBoxLayout(self.inspector_panel)
+        self.inspector_panel.setMinimumWidth(350)
+        insp_outer = QVBoxLayout(self.inspector_panel)
+        insp_outer.setContentsMargins(0, 0, 0, 0)
+
+        # ScrollArea wraps the actual inspector content
+        insp_scroll = QScrollArea()
+        insp_scroll.setWidgetResizable(True)
+        insp_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        insp_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        insp_scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+        insp_outer.addWidget(insp_scroll)
+
+        insp_content = QWidget()
+        insp = QVBoxLayout(insp_content)
         insp.setContentsMargins(6, 6, 6, 6)
         insp.setSpacing(5)
 
@@ -2038,11 +2805,43 @@ class PBWindow(QMainWindow):
         anchor_btn_row.addWidget(self.btn_sync_anchors)
         insp.addLayout(anchor_btn_row)
 
+        self._add_separator(insp)
+
+        # ── Phase 3: Keyframe-String Analyse ──
+        kf_lbl = QLabel("SZENEN-ANALYSE")
+        kf_lbl.setStyleSheet("color: #505050; font-size: 9px; font-weight: 600; letter-spacing: 1px;")
+        insp.addWidget(kf_lbl)
+
+        self.btn_keyframe_string = QPushButton("Keyframe-String generieren")
+        self.btn_keyframe_string.setFixedHeight(24)
+        self.btn_keyframe_string.setStyleSheet("font-size: 9px; color: #00D4E6; font-weight: bold;")
+        self.btn_keyframe_string.setToolTip(
+            "Generiert lesbaren Text-String aller erkannten Video-Szenen\n"
+            "mit RAFT-Motion-Werten (Ruhig/Moderat/Action/Extrem)"
+        )
+        self.btn_keyframe_string.clicked.connect(self._show_keyframe_strings)
+        insp.addWidget(self.btn_keyframe_string)
+
+        self.keyframe_text = QTextEdit()
+        self.keyframe_text.setReadOnly(True)
+        self.keyframe_text.setMaximumHeight(120)
+        self.keyframe_text.setStyleSheet(
+            "QTextEdit { background: #0A0A0A; border: 1px solid #1E1E1E; "
+            "font-family: 'Cascadia Code'; font-size: 9px; color: #A0A0A0; }"
+        )
+        self.keyframe_text.setToolTip("Szenen-Analyse: Zeigt alle erkannten Szenen mit Motion-Kategorien")
+        self.keyframe_text.setPlaceholderText("Keyframe-Strings werden hier angezeigt...")
+        insp.addWidget(self.keyframe_text)
+
         insp.addStretch()
 
+        insp_scroll.setWidget(insp_content)
+
         top_splitter.addWidget(self.inspector_panel)
-        top_splitter.setStretchFactor(0, 5)
-        top_splitter.setStretchFactor(1, 0)
+        top_splitter.setStretchFactor(0, 1)
+        top_splitter.setStretchFactor(1, 1)
+        top_splitter.setCollapsible(0, False)
+        top_splitter.setCollapsible(1, False)
 
         main_splitter.addWidget(top_splitter)
 
@@ -2084,9 +2883,12 @@ class PBWindow(QMainWindow):
 
         main_splitter.addWidget(bottom_widget)
 
-        # Preview ~35%, Timeline area ~65% — timeline dominates
-        main_splitter.setStretchFactor(0, 2)
+        # Preview ~30%, Timeline area ~70% — timeline dominates
+        main_splitter.setStretchFactor(0, 1)
         main_splitter.setStretchFactor(1, 3)
+        main_splitter.setSizes([200, 600])
+        main_splitter.setCollapsible(0, False)
+        main_splitter.setCollapsible(1, False)
 
         layout.addWidget(main_splitter)
 
@@ -2094,7 +2896,28 @@ class PBWindow(QMainWindow):
         return workspace
 
     # ==================================================================
-    # Workspace 3: CONVERT (Video-Standardisierung)
+    # Workspace 3: STEMS (DAW-Style Stem View)
+    # ==================================================================
+
+    def _build_stems_workspace(self) -> QWidget:
+        """Baut den STEMS Workspace: 4 Track-Bänder mit Wellenformen + Transport."""
+        self.stem_workspace = StemWorkspace()
+
+        # Signale zum bestehenden StemPlayer verbinden
+        self.stem_workspace.stem_volume_changed.connect(self.stem_player.set_volume)
+        self.stem_workspace.stem_mute_toggled.connect(self.stem_player.set_mute)
+        self.stem_workspace.play_requested.connect(self.stem_player.play)
+        self.stem_workspace.pause_requested.connect(self.stem_player.pause)
+        self.stem_workspace.stop_requested.connect(self.stem_player.stop)
+        self.stem_workspace.seek_requested.connect(self.stem_player.seek)
+        self.stem_player.position_changed.connect(self.stem_workspace.update_position)
+        self.stem_player.state_changed.connect(self.stem_workspace.update_playback_state)
+        # [I-10 FIX] playback_finished nutzt benannte Methode (oben definiert)
+
+        return self.stem_workspace
+
+    # ==================================================================
+    # Workspace 4: CONVERT (Video-Standardisierung)
     # ==================================================================
 
     def _build_effects_workspace(self) -> QWidget:
@@ -2332,35 +3155,83 @@ class PBWindow(QMainWindow):
     # ==================================================================
 
     def _start_worker_thread(self, worker: QObject, on_finish=None, on_error=None):
-        thread = QThread()
-        worker.moveToThread(thread)
-        thread.started.connect(worker.run)
+        """Legacy-Bridge: Leitet an GlobalTaskManager.start_task() weiter.
 
-        if on_finish:
-            worker.finished.connect(on_finish)
-        if on_error:
-            worker.error.connect(on_error)
+        Alle Threads werden jetzt vom TaskManager gehalten (GC-Schutz).
+        Existierende Aufrufe bleiben kompatibel.
+        """
+        # Worker-Name fuer Task-Anzeige aus Klasse ableiten
+        worker_name = type(worker).__name__.replace("Worker", "")
 
-        worker.finished.connect(thread.quit)
-        worker.error.connect(thread.quit)
-        thread.finished.connect(lambda: self._cleanup_worker(thread, worker))
+        # Falls der Worker schon eine task_id hat (von manueller create_task()),
+        # registrieren wir Thread+Worker im bestehenden Task.
+        existing_task_id = getattr(worker, 'task_id', None)
 
-        self._active_threads.append(thread)
-        self._active_workers.append(worker)
-        thread.start()
-        return thread
+        if existing_task_id and existing_task_id in task_manager._tasks:
+            # Thread im bestehenden Task registrieren
+            task = task_manager._tasks[existing_task_id]
+            thread = QThread()
+            worker.moveToThread(thread)
+            thread.started.connect(worker.run)
+
+            if on_finish:
+                def _guarded_finish(*args, _w=worker, _cb=on_finish):
+                    if not getattr(_w, '_errored', False):
+                        _cb(*args)
+                worker.finished.connect(_guarded_finish)
+            # Error-Signal: Fallback-Logger immer verbinden (stille Fehler verhindern)
+            def _default_error_handler(*args, _tid=existing_task_id, _name=worker_name, _tm=task_manager):
+                err_msg = str(args[-1]) if args else "Unbekannter Fehler"
+                logging.error(
+                    "[TaskEngine] Worker-Fehler '%s' (task_id=%s): %s",
+                    _name, _tid, err_msg,
+                )
+                _tm.finish_task(_tid, status="error", message=err_msg)
+            worker.error.connect(_default_error_handler)
+            if on_error:
+                worker.error.connect(on_error)
+
+            # Progress-Signal auto-verbinden wenn vorhanden
+            if hasattr(worker, "progress"):
+                worker.progress.connect(
+                    lambda pct, msg, _tid=existing_task_id: task_manager.update_task(
+                        _tid, pct, message=msg
+                    )
+                )
+
+            worker.finished.connect(thread.quit)
+            thread.finished.connect(
+                lambda _tid=existing_task_id: task_manager._on_thread_done(_tid)
+            )
+
+            task.thread = thread
+            task.worker = worker
+            self._active_threads.append(thread)
+            self._active_workers.append(worker)
+            thread.finished.connect(
+                lambda _t=thread, _w=worker: self._cleanup_worker(_t, _w)
+            )
+            thread.start()
+            return thread
+        else:
+            # Neuer Task ueber die Engine
+            task = task_manager.start_task(
+                name=worker_name,
+                worker=worker,
+                on_finish=on_finish,
+                on_error=on_error,
+            )
+            if task.thread:
+                self._active_threads.append(task.thread)
+                task.thread.finished.connect(
+                    lambda _t=task.thread, _w=worker: self._cleanup_worker(_t, _w)
+                )
+            self._active_workers.append(worker)
+            return task.thread
 
     def _cancel_worker_for_task(self, task_id: str):
-        """Cancel running workers by setting their _cancelled flag and quitting the thread."""
-        for worker in list(self._active_workers):
-            if hasattr(worker, 'cancel'):
-                worker.cancel()
-        # Quit threads that are still running
-        for thread in list(self._active_threads):
-            if thread.isRunning():
-                thread.quit()
-                if not thread.wait(2000):
-                    thread.terminate()
+        """Cancel via TaskEngine."""
+        task_manager.cancel_task(task_id)
         self.console_text.append(f"[System] Task abgebrochen: {task_id}")
 
     # ==================================================================
@@ -2447,20 +3318,10 @@ class PBWindow(QMainWindow):
 
         vf_extra = f"eq=brightness={brightness}:contrast={contrast}"
         worker = FrameExtractWorker(file_path, 1.0, 320, 180, vf_extra)
-        thread = QThread()
-        worker.moveToThread(thread)
-        thread.started.connect(worker.run)
         worker.frame_ready.connect(self._on_effect_frame_ready)
         worker.error.connect(lambda msg: self.effects_preview.setText(msg))
-        worker.frame_ready.connect(thread.quit)
-        worker.error.connect(thread.quit)
-        thread.finished.connect(worker.deleteLater)
-        thread.finished.connect(thread.deleteLater)
-        self._active_threads.append(thread)
-        thread.finished.connect(lambda: (
-            self._active_threads.remove(thread) if thread in self._active_threads else None
-        ))
-        thread.start()
+        # Kurzlebiger Task (Frame-Extraktion) — ueber Task-Engine
+        self._start_worker_thread(worker)
 
     def _on_effect_frame_ready(self, raw_data: bytes, width: int, height: int):
         img = QImage(raw_data, width, height, width * 3, QImage.Format.Format_RGB888)
@@ -2471,7 +3332,7 @@ class PBWindow(QMainWindow):
     # ==================================================================
 
     def _standardize_all_videos(self):
-        """Konvertiert alle Videos im Video Pool ins gewaehlte Format per ffmpeg."""
+        """Konvertiert alle Videos im Video Pool ins gewaehlte Format per ffmpeg (im Worker-Thread)."""
         videos = get_all_video()
         if not videos:
             self.convert_log.append("[Convert] Keine Videos im Pool.")
@@ -2480,77 +3341,50 @@ class PBWindow(QMainWindow):
         # Parse settings
         res_text = self.convert_resolution.currentText()
         resolution = res_text.split(" ")[0]  # e.g. "1920x1080"
-        w_res, h_res = resolution.split("x")
 
         fps_text = self.convert_fps.currentText()
         fps = fps_text.split(" ")[0]  # e.g. "30"
 
         fmt_text = self.convert_format.currentText()
         if "H.265" in fmt_text or "HEVC" in fmt_text:
-            vcodec = "libx265"
-            ext = ".mp4"
+            vcodec, ext = "libx265", ".mp4"
         elif "ProRes" in fmt_text:
-            vcodec = "prores_ks"
-            ext = ".mov"
+            vcodec, ext = "prores_ks", ".mov"
         elif "mkv" in fmt_text:
-            vcodec = "libx264"
-            ext = ".mkv"
+            vcodec, ext = "libx264", ".mkv"
         else:
-            vcodec = "libx264"
-            ext = ".mp4"
+            vcodec, ext = "libx264", ".mp4"
 
         self.convert_progress.setVisible(True)
         self.convert_progress.setRange(0, len(videos))
         self.convert_progress.setValue(0)
 
-        task = task_manager.create_task("Video Convert", f"{len(videos)} Videos → {resolution} {fps}fps")
+        task = task_manager.create_task("Video Convert", f"{len(videos)} Videos -> {resolution} {fps}fps")
 
-        converted = 0
-        for i, v in enumerate(videos):
-            src = v["file_path"]
-            stem = Path(src).stem
-            out_dir = Path(src).parent / "converted"
-            out_dir.mkdir(exist_ok=True)
-            dst = str(out_dir / f"{stem}_std{ext}")
+        worker = BatchConvertWorker(videos, resolution, fps, vcodec, ext)
+        worker.task_id = task.task_id
+        worker.progress.connect(lambda pct, msg: (
+            self.convert_log.append(msg),
+            self.convert_progress.setValue(pct),
+        ))
+        worker.finished.connect(lambda converted, total: self._on_batch_convert_finished(
+            converted, total, task.task_id
+        ))
+        worker.error.connect(lambda err: self._on_batch_convert_error(err, task.task_id))
 
-            cmd = [
-                "ffmpeg", "-y", "-i", src,
-                "-vf", f"scale={w_res}:{h_res}:force_original_aspect_ratio=decrease,pad={w_res}:{h_res}:(ow-iw)/2:(oh-ih)/2",
-                "-r", fps,
-                "-c:v", vcodec,
-                "-c:a", "aac",
-                "-preset", "medium",
-                "-v", "quiet",
-                dst,
-            ]
-            self.convert_log.append(f"[Convert] {i+1}/{len(videos)}: {Path(src).name} → {resolution} @ {fps}fps")
-            QApplication.processEvents()
+        self._start_worker_thread(worker)
 
-            try:
-                result = subprocess.run(
-                    cmd, capture_output=True, timeout=600,
-                    creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
-                )
-                if result.returncode == 0:
-                    self.convert_log.append(f"  OK: {dst}")
-                    converted += 1
-                else:
-                    stderr = result.stderr.decode(errors="replace")[:200]
-                    self.convert_log.append(f"  FEHLER: {stderr}")
-            except subprocess.TimeoutExpired:
-                self.convert_log.append(f"  TIMEOUT: Konvertierung hat zu lange gedauert")
-            except FileNotFoundError:
-                self.convert_log.append(f"  FEHLER: ffmpeg nicht gefunden!")
-                break
-
-            self.convert_progress.setValue(i + 1)
-            task_manager.update_task(task.task_id, progress=i + 1, total=len(videos),
-                                     message=f"{Path(src).name}")
-            QApplication.processEvents()
-
+    def _on_batch_convert_finished(self, converted: int, total: int, task_id: str):
+        if converted == 0 and total == 0:
+            return  # Error-path fallback
         self.convert_progress.setVisible(False)
-        task_manager.finish_task(task.task_id, message=f"{converted}/{len(videos)} konvertiert")
-        self.convert_log.append(f"[Convert] Fertig: {converted}/{len(videos)} Videos konvertiert.")
+        task_manager.finish_task(task_id, message=f"{converted}/{total} konvertiert")
+        self.convert_log.append(f"[Convert] Fertig: {converted}/{total} Videos konvertiert.")
+
+    def _on_batch_convert_error(self, error_msg: str, task_id: str):
+        self.convert_progress.setVisible(False)
+        self.convert_log.append(f"[Convert-Fehler] {error_msg}")
+        task_manager.finish_task(task_id, "error", error_msg)
 
     # ==================================================================
     # Video Combo Changed
@@ -2682,6 +3516,7 @@ class PBWindow(QMainWindow):
         self.btn_auto_edit.setText("laeuft...")
 
         worker = AutoEditWorker(audio_id, video_ids, settings)
+        worker.task_id = task.task_id
         worker.finished.connect(
             lambda segs, cps: self._on_auto_edit_finished(segs, cps, task.task_id)
         )
@@ -2694,16 +3529,21 @@ class PBWindow(QMainWindow):
         self.btn_auto_edit.setText("Auto-Edit")
 
         if not segments:
-            self.console_text.append("[Auto-Edit] Keine Segmente generiert.")
+            # Could be error-path fallback OR legitimate empty result (no beats)
+            if not cut_points:
+                return  # Error-path: _on_auto_edit_error already handled
+            self.console_text.append("[Auto-Edit] Keine Segmente erzeugt (kein Audio/Beats?).")
             task_manager.finish_task(task_id, "error", "Keine Segmente")
             return
 
         # 1. SQLite TimelineEntries aktualisieren (fuer UI-Anzeige)
+        # Bug-21 Fix: DELETE und alle INSERTs in EINER Transaktion (kein Split-Commit).
+        # Vorher: erster commit() nach DELETE persistierte sofort; wenn der zweite
+        # Block (Insert-Loop) fehlschlug, war die Timeline leer ohne Ersatz-Einträge.
         with DBSession(engine) as session:
             session.query(TimelineEntry).filter_by(
                 project_id=1, track="video"
             ).delete()
-            session.commit()
 
             for seg in segments:
                 entry = TimelineEntry(
@@ -2712,10 +3552,12 @@ class PBWindow(QMainWindow):
                     media_id=seg["video_id"],
                     start_time=seg["start"],
                     end_time=seg["end"],
+                    source_start=seg.get("source_start", 0.0),
+                    source_end=seg.get("source_end"),
                     lane=0,
                 )
                 session.add(entry)
-            session.commit()
+            session.commit()  # Einziger Commit — atomar
 
         # 2. OTIO Timeline generieren
         self._build_otio_timeline(segments)
@@ -2768,7 +3610,7 @@ class PBWindow(QMainWindow):
         # Video-Clips hinzufuegen
         video_track = tls.get_video_track()
         for seg in segments:
-            seg_duration = seg["end"] - seg["start"]
+            source_duration = seg.get("source_end", seg["end"]) - seg.get("source_start", seg["start"])
             metadata = {}
             if seg.get("is_anchor"):
                 metadata = {"scene_id": seg.get("scene_id", ""), "type": "anchor"}
@@ -2777,8 +3619,8 @@ class PBWindow(QMainWindow):
                 track=video_track,
                 name=Path(seg["video_path"]).stem if seg.get("video_path") else f"clip_{seg['video_id']}",
                 media_path=seg.get("video_path", ""),
-                source_start=seg["source_start"],
-                source_duration=seg_duration,
+                source_start=seg.get("source_start", 0.0),
+                source_duration=source_duration,
                 metadata=metadata if metadata else None,
             )
 
@@ -2920,6 +3762,16 @@ class PBWindow(QMainWindow):
                 "(Rechtsklick oder Taste M), dann klicke erneut."
             )
 
+    def _show_keyframe_strings(self):
+        """Phase 3: Generiert und zeigt die Keyframe-Strings aller Video-Clips."""
+        try:
+            kf_string = generate_keyframe_strings_for_project(project_id=1)
+            self.keyframe_text.setPlainText(kf_string)
+            self.console_text.append("[Pacing] Keyframe-Strings generiert.")
+        except Exception as e:
+            self.keyframe_text.setPlainText(f"Fehler: {e}")
+            self.console_text.append(f"[Pacing-Fehler] Keyframe-Strings: {e}")
+
     def _on_timeline_clip_moved(self, entry_id: int, new_start: float):
         self.console_text.append(
             f"[Timeline] Clip {entry_id} verschoben -> Start: {new_start:.2f}s"
@@ -3009,11 +3861,17 @@ class PBWindow(QMainWindow):
                 break
 
     def _on_audio_pool_selected(self, row, col, prev_row, prev_col):
-        """Sync audio pool selection to hidden media_table."""
+        """Sync audio pool selection to hidden media_table + StemWorkspace."""
         if row < 0:
+            self.stem_player.stop()
+            if hasattr(self, "stem_workspace"):
+                self.stem_workspace.update_for_track(None, None)
             return
         aud_id_item = self.audio_pool_table.item(row, 0)
         if not aud_id_item:
+            self.stem_player.stop()
+            if hasattr(self, "stem_workspace"):
+                self.stem_workspace.update_for_track(None, None)
             return
         aud_id = aud_id_item.text()
         for r in range(self.media_table.rowCount()):
@@ -3022,6 +3880,47 @@ class PBWindow(QMainWindow):
             if item and type_item and item.text() == aud_id and type_item.text() == "Audio":
                 self.media_table.setCurrentCell(r, 0)
                 break
+
+        # Stem Workspace aktualisieren
+        self._update_stem_workspace(int(aud_id))
+
+    def _on_stem_playback_finished(self):
+        """[I-10 FIX] Benannte Methode für playback_finished — reset Position."""
+        if hasattr(self, "stem_workspace"):
+            self.stem_workspace.update_position(0.0)
+
+    def _update_stem_workspace(self, track_id: int):
+        """Lädt Stem-Pfade aus der DB, aktualisiert StemWorkspace und Player."""
+        try:
+            with DBSession(engine) as session:
+                track = session.query(AudioTrack).filter_by(id=track_id).first()
+                if not track:
+                    if hasattr(self, "stem_workspace"):
+                        self.stem_workspace.update_for_track(None, None)
+                    self.stem_player.stop()
+                    return
+                stem_paths = {
+                    "vocals": track.stem_vocals_path,
+                    "drums": track.stem_drums_path,
+                    "bass": track.stem_bass_path,
+                    "other": track.stem_other_path,
+                }
+
+                if self.stem_player.load_stems(stem_paths):
+                    if hasattr(self, "stem_workspace"):
+                        self.stem_workspace.update_for_track(track_id, stem_paths)
+                        self.stem_workspace.set_duration(self.stem_player.duration)
+                    self.console_text.append(
+                        f"[StemPlayer] Track #{track_id} geladen: "
+                        f"{self.stem_player.duration:.1f}s"
+                    )
+                else:
+                    if hasattr(self, "stem_workspace"):
+                        self.stem_workspace.update_for_track(track_id, stem_paths)
+        except Exception as e:
+            self.console_text.append(f"[Stem-Widget] Fehler: {e}")
+            if hasattr(self, "stem_workspace"):
+                self.stem_workspace.update_for_track(None, None)
 
     # ==================================================================
     # Import-Logik
@@ -3124,9 +4023,11 @@ class PBWindow(QMainWindow):
         task = task_manager.create_task(f"Audio: {title}", "BPM + Beat-Analyse")
 
         worker = AnalysisWorker(track_id, title)
+        worker.task_id = task.task_id
         worker.started.connect(self._on_analysis_started)
         worker.finished.connect(lambda tid, r: self._on_analysis_finished(tid, r, task.task_id))
         worker.error.connect(lambda tid, err: self._on_analysis_error(tid, err, task.task_id))
+        worker.progress.connect(lambda pct, msg: self.console_text.append(f"[Audio] {msg}"))
 
         self.btn_analyze.setEnabled(False)
         self.btn_analyze.setText("Analyse laeuft...")
@@ -3139,6 +4040,8 @@ class PBWindow(QMainWindow):
         self.status_bar.showMessage(f"Audio-Analyse: {title}")
 
     def _on_analysis_finished(self, track_id: int, result: dict, task_id: str = ""):
+        if not result:
+            return  # Error-path fallback — _on_analysis_error already handled this
         bpm = result["bpm"]
         duration = result["duration"]
         beats = len(result.get("beat_positions", []))
@@ -3186,8 +4089,9 @@ class PBWindow(QMainWindow):
         )
 
         worker = WaveformAnalysisWorker(track_id)
+        worker.task_id = task.task_id
         worker.progress.connect(
-            lambda s, t, m: self._on_waveform_progress(s, t, m, task.task_id)
+            lambda pct, msg: self._on_waveform_progress(pct, msg, task.task_id)
         )
         worker.finished.connect(
             lambda tid, r: self._on_waveform_finished(tid, r, title, task.task_id)
@@ -3203,11 +4107,13 @@ class PBWindow(QMainWindow):
 
         self._start_worker_thread(worker)
 
-    def _on_waveform_progress(self, step: int, total: int, msg: str, task_id: str):
-        task_manager.update_task(task_id, step, total, msg)
-        self.console_text.append(f"[Waveform] {msg} ({step}/{total})")
+    def _on_waveform_progress(self, pct: int, msg: str, task_id: str):
+        # update_task wird automatisch durch die Task-Engine gemacht
+        self.console_text.append(f"[Waveform] {msg} ({pct}%)")
 
     def _on_waveform_finished(self, track_id: int, result: dict, title: str, task_id: str):
+        if not result:
+            return  # Error-path fallback — _on_waveform_error already handled this
         bpm = result["bpm"]
         beats = len(result.get("beat_positions", []))
         samples = result["num_samples"]
@@ -3260,6 +4166,7 @@ class PBWindow(QMainWindow):
         task = task_manager.create_task(f"Video: {title}", "Metadaten + Proxy")
 
         worker = VideoAnalysisWorker(clip_id, title)
+        worker.task_id = task.task_id
         worker.started.connect(self._on_video_analysis_started)
         worker.finished.connect(lambda cid, r: self._on_video_analysis_finished(cid, r, task.task_id))
         worker.error.connect(lambda cid, err: self._on_video_analysis_error(cid, err, task.task_id))
@@ -3275,6 +4182,8 @@ class PBWindow(QMainWindow):
         self.status_bar.showMessage(f"Video-Analyse: {title}")
 
     def _on_video_analysis_finished(self, clip_id: int, result: dict, task_id: str = ""):
+        if not result:
+            return  # Error-path fallback — _on_video_analysis_error already handled this
         self.console_text.append(
             f"[Video] Analyse fertig: {result['width']}x{result['height']} | "
             f"{result['fps']} FPS | Dauer: {result.get('duration', '?')}s | Codec: {result['codec']}"
@@ -3365,8 +4274,9 @@ class PBWindow(QMainWindow):
         )
 
         worker = VideoAnalysisPipelineWorker(batch=batch)
+        worker.task_id = task.task_id
         worker.progress.connect(
-            lambda s, t, m: self._on_pipeline_progress(s, t, m, task.task_id)
+            lambda pct, msg: self._on_pipeline_progress(pct, msg, task.task_id)
         )
         worker.finished.connect(
             lambda cid, r: self._on_pipeline_finished(cid, r, label, task.task_id)
@@ -3377,11 +4287,13 @@ class PBWindow(QMainWindow):
 
         self._start_worker_thread(worker)
 
-    def _on_pipeline_progress(self, step: int, total: int, msg: str, task_id: str):
-        task_manager.update_task(task_id, step, total, msg)
-        self.console_text.append(f"[Pipeline] {msg} ({step}/{total})")
+    def _on_pipeline_progress(self, pct: int, msg: str, task_id: str):
+        # update_task wird automatisch durch die Task-Engine gemacht
+        self.console_text.append(f"[Pipeline] {msg} ({pct}%)")
 
     def _on_pipeline_finished(self, clip_id: int, result: dict, title: str, task_id: str):
+        if not result:
+            return  # Error-path fallback — _on_pipeline_error already handled this
         scenes = result.get("scenes", 0)
         embeddings = result.get("embeddings", 0)
         videos_done = result.get("videos_processed", 1)
@@ -3424,11 +4336,7 @@ class PBWindow(QMainWindow):
         self.console_text.append(f"[Proxy] Erstelle Edit-Proxy fuer '{title}'...")
 
         worker = ProxyCreationWorker(clip_id, video_path)
-        worker.progress.connect(
-            lambda p, s: task_manager.update_task(
-                task.task_id, int(p * 100), 100, s
-            )
-        )
+        worker.task_id = task.task_id
         worker.finished.connect(
             lambda cid, path: self._on_proxy_finished(cid, path, title, task.task_id)
         )
@@ -3439,6 +4347,8 @@ class PBWindow(QMainWindow):
         self._start_worker_thread(worker)
 
     def _on_proxy_finished(self, clip_id: int, proxy_path: str, title: str, task_id: str):
+        if not proxy_path:
+            return  # Error-path fallback — _on_proxy_error already handled this
         self.console_text.append(f"[Proxy] Fertig: '{title}' → {proxy_path}")
         self._refresh_media_table()
         task_manager.finish_task(task_id, "finished", proxy_path)
@@ -3530,8 +4440,9 @@ class PBWindow(QMainWindow):
         self.console_text.append(f"[Stems] Starte KI-Stem-Separation fuer '{title}'...")
 
         worker = StemSeparationWorker(track_id)
+        worker.task_id = task.task_id  # Verknuepfung mit bestehendem Task
         worker.progress.connect(
-            lambda s, t, m: task_manager.update_task(task.task_id, s, t, m)
+            lambda pct, msg: self.console_text.append(f"[Stems] {msg} ({pct}%)")
         )
         worker.finished.connect(lambda tid, r: self._on_stem_finished(tid, r, task.task_id))
         worker.error.connect(lambda tid, err: self._on_stem_error(tid, err, task.task_id))
@@ -3539,6 +4450,8 @@ class PBWindow(QMainWindow):
         self._start_worker_thread(worker)
 
     def _on_stem_finished(self, track_id: int, stems: dict, task_id: str):
+        if not stems:
+            return  # Error-path fallback — _on_stem_error already handled this
         self.btn_stem_separate.setEnabled(True)
         self.btn_stem_separate.setText("KI Stem Separation")
         self.progress_bar.setVisible(False)
@@ -3546,6 +4459,7 @@ class PBWindow(QMainWindow):
         stem_list = [f"{k}: {('OK' if v else 'fehlt')}" for k, v in stems.items()]
         self.console_text.append(f"[Stems] Separation fertig: {', '.join(stem_list)}")
         self._refresh_media_table()
+        self._update_stem_workspace(track_id)
         task_manager.finish_task(task_id, "finished", "Stems OK")
 
     def _on_stem_error(self, track_id: int, error_msg: str, task_id: str):
@@ -3592,15 +4506,15 @@ class PBWindow(QMainWindow):
         self.console_text.append(f"[Ducking] Starte Auto-Ducking fuer '{title}'...")
 
         worker = AutoDuckingWorker(other_path, vocals_path, output_path)
-        worker.progress.connect(
-            lambda s, t, m: task_manager.update_task(task.task_id, s, t, m)
-        )
+        worker.task_id = task.task_id
         worker.finished.connect(lambda p: self._on_ducking_finished(p, task.task_id))
         worker.error.connect(lambda err: self._on_ducking_error(err, task.task_id))
 
         self._start_worker_thread(worker)
 
     def _on_ducking_finished(self, output_path: str, task_id: str):
+        if not output_path:
+            return  # Error-path fallback — _on_ducking_error already handled this
         self.btn_auto_duck.setEnabled(True)
         self.btn_auto_duck.setText("Auto-Ducking")
         self.console_text.append(f"[Ducking] Fertig: {output_path}")
@@ -3648,21 +4562,21 @@ class PBWindow(QMainWindow):
 
         worker = ExportWorker(project_id=1, output_name=output_name,
                               resolution=resolution, fps=fps)
+        worker.task_id = task.task_id
         worker.progress.connect(self._on_export_progress)
-        worker.progress.connect(
-            lambda s, t, m: task_manager.update_task(task.task_id, s, t, m)
-        )
         worker.finished.connect(lambda p: self._on_export_finished(p, task.task_id))
         worker.error.connect(lambda err: self._on_export_error(err, task.task_id))
 
         self._start_worker_thread(worker)
 
-    def _on_export_progress(self, step: int, total: int, message: str):
-        self.export_progress.setRange(0, total)
-        self.export_progress.setValue(step)
-        self.export_log.append(f"[Export] {message} ({step}/{total})")
+    def _on_export_progress(self, pct: int, message: str):
+        self.export_progress.setRange(0, 100)
+        self.export_progress.setValue(pct)
+        self.export_log.append(f"[Export] {message} ({pct}%)")
 
     def _on_export_finished(self, output_path: str, task_id: str = ""):
+        if not output_path:
+            return  # Error-path fallback — _on_export_error already handled this
         self.btn_export.setEnabled(True)
         self.btn_export.setText("Video exportieren")
         self.export_progress.setVisible(False)
@@ -3682,12 +4596,17 @@ class PBWindow(QMainWindow):
             task_manager.finish_task(task_id, "error", error_msg)
 
     def _cleanup_worker(self, thread: QThread, worker: QObject):
+        """Entfernt Worker/Thread aus lokalen Listen.
+        GC-Schutz liegt jetzt beim GlobalTaskManager (TaskInfo haelt Referenzen).
+        """
         if worker in self._active_workers:
             self._active_workers.remove(worker)
         if thread in self._active_threads:
             self._active_threads.remove(thread)
-        worker.deleteLater()
-        thread.deleteLater()
+        # Legacy-Liste auch aufräumen (falls noch Eintraege)
+        pair = (thread, worker)
+        if pair in _GLOBAL_ACTIVE_THREADS:
+            _GLOBAL_ACTIVE_THREADS.remove(pair)
 
     # ==================================================================
     # Media-Tabelle
@@ -3738,6 +4657,15 @@ class PBWindow(QMainWindow):
     # ==================================================================
     # System-Konsole & Chat Dock
     # ==================================================================
+
+    def setup_task_dock(self):
+        """TaskManager als fest verankertes QDockWidget am unteren Rand."""
+        self.task_dock = TaskManagerDock(self)
+        self.task_dock.cancel_requested.connect(self._cancel_worker_for_task)
+        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.task_dock)
+        self.task_dock.setVisible(True)
+        self.task_dock.setFixedHeight(160)
+        self.task_dock.show()
 
     def setup_console(self):
         dock = QDockWidget("System-Konsole", self)
@@ -3792,22 +4720,45 @@ class PBWindow(QMainWindow):
 
 
 def main():
-    init_db()
+    try:
+        init_db()
+    except Exception as exc:
+        logging.basicConfig(level=logging.ERROR)
+        logging.critical("Datenbank-Initialisierung fehlgeschlagen: %s", exc, exc_info=True)
+        print(f"[FATAL] DB-Init fehlgeschlagen: {exc}")
+        sys.exit(1)
+
     app = QApplication(sys.argv)
+
+    # TaskManager als erstes erstellen und an QApplication verankern
+    global task_manager
+    task_manager = GlobalTaskManager.instance()
+    app.task_manager = task_manager
 
     # Theme laden
     qss_path = RESOURCE_DIR / "styles.qss"
     if not qss_path.exists():
         qss_path = STYLE_DIR / "dark_steel.qss"
     if qss_path.exists():
-        app.setStyleSheet(qss_path.read_text(encoding="utf-8"))
+        try:
+            app.setStyleSheet(qss_path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            logging.warning("Theme konnte nicht geladen werden: %s", exc)
 
-    window = PBWindow()
+    try:
+        window = PBWindow()
+    except Exception as exc:
+        logging.critical("Fenster-Initialisierung fehlgeschlagen: %s", exc, exc_info=True)
+        print(f"[FATAL] Fenster konnte nicht erstellt werden: {exc}")
+        traceback.print_exc()
+        sys.exit(1)
+
     window.console_text.append("[System] SQLite Datenbank (pb_studio.db) erfolgreich initialisiert.")
     window.console_text.append("[System] DaVinci-Style UI geladen.")
     window.console_text.append(f"[System] Version {APP_VERSION} — Workspace UI + KI-Pacing.")
-    window.timeline_view.load_from_db()
-    window.show()
+    window.showMaximized()
+    # Timeline-Daten NACH dem Fenster laden (non-blocking Startup)
+    QTimer.singleShot(0, window.timeline_view.load_from_db)
     sys.exit(app.exec())
 
 

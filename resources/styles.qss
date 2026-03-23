@@ -387,6 +387,17 @@ QDockWidget::title {
     text-align: left;
 }
 
+/* Task Manager Dock — sichtbar abgegrenzt */
+QDockWidget#task_manager_dock {
+    border-top: 1px solid #00D4E6;
+    min-height: 80px;
+}
+
+QDockWidget#task_manager_dock::title {
+    background-color: #0D1117;
+    border-bottom: 1px solid #00D4E6;
+}
+
 /* Console text area */
 QDockWidget QTextEdit {
     background-color: #0A0A0A;
@@ -630,4 +641,24 @@ PacingCurveWidget {
 QWidget#inspector_panel {
     background-color: #0E0E0E;
     border-left: 1px solid #1A1A1A;
+}
+
+/* ── STEMS Workspace ─────────────────────────────────────────── */
+QWidget#stem_workspace {
+    background-color: #0A0A0A;
+}
+
+QWidget#stem_workspace_header {
+    background-color: #0E0E14;
+    border-bottom: 1px solid #1E1E2E;
+}
+
+QWidget#stem_track_controls {
+    background-color: #0E0E14;
+    border-right: 1px solid #1A1A2A;
+}
+
+QWidget#stem_transport_bar {
+    background-color: #0E0E14;
+    border-top: 1px solid #1E1E2E;
 }

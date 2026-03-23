@@ -2,7 +2,13 @@ from sqlalchemy import create_engine, event, Column, Integer, String, Float, For
 from sqlalchemy.orm import DeclarativeBase, Session, relationship
 
 # Datenbank-Engine: SQLite-Datei im Projektordner
-engine = create_engine("sqlite:///pb_studio.db", echo=False)
+# check_same_thread=False ist ZWINGEND noetig, weil QThread-Workers
+# auf dieselbe Engine zugreifen (SQLite verbietet sonst Cross-Thread-Zugriff).
+engine = create_engine(
+    "sqlite:///pb_studio.db",
+    echo=False,
+    connect_args={"check_same_thread": False},
+)
 
 
 # FK-Enforcement: SQLite Foreign Keys aktivieren (standardmäßig OFF!)
@@ -27,8 +33,11 @@ class Project(Base):
     fps = Column(Float, nullable=False, default=30.0)
 
     # Relationships
-    audio_tracks = relationship("AudioTrack", back_populates="project")
-    video_clips = relationship("VideoClip", back_populates="project")
+    audio_tracks = relationship("AudioTrack", back_populates="project", cascade="all, delete-orphan", passive_deletes=True)
+    video_clips = relationship("VideoClip", back_populates="project", cascade="all, delete-orphan", passive_deletes=True)
+    # Bug-20 Fix: fehlende back_populates ergänzt
+    pacing_blueprints = relationship("PacingBlueprint", back_populates="project", cascade="all, delete-orphan", passive_deletes=True)
+    timeline_entries = relationship("TimelineEntry", back_populates="project", cascade="all, delete-orphan", passive_deletes=True)
 
     def __repr__(self):
         return f"<Project(id={self.id}, name='{self.name}', fps={self.fps})>"
@@ -38,7 +47,7 @@ class AudioTrack(Base):
     __tablename__ = "audio_tracks"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
+    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
     file_path = Column(String, nullable=False)
     title = Column(String, nullable=True)
     duration = Column(Float, nullable=True)
@@ -54,8 +63,8 @@ class AudioTrack(Base):
     stem_other_path = Column(String, nullable=True)
 
     project = relationship("Project", back_populates="audio_tracks")
-    beatgrid = relationship("Beatgrid", back_populates="audio_track", uselist=False)
-    waveform_data = relationship("WaveformData", back_populates="audio_track", uselist=False)
+    beatgrid = relationship("Beatgrid", back_populates="audio_track", uselist=False, cascade="all, delete-orphan", passive_deletes=True)
+    waveform_data = relationship("WaveformData", back_populates="audio_track", uselist=False, cascade="all, delete-orphan", passive_deletes=True)
 
     def __repr__(self):
         return f"<AudioTrack(id={self.id}, title='{self.title}', bpm={self.bpm})>"
@@ -65,7 +74,7 @@ class VideoClip(Base):
     __tablename__ = "video_clips"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
+    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
     file_path = Column(String, nullable=False)
     proxy_path = Column(String, nullable=True)
     duration = Column(Float, nullable=True)
@@ -75,7 +84,7 @@ class VideoClip(Base):
     codec = Column(String, nullable=True)
 
     project = relationship("Project", back_populates="video_clips")
-    scenes = relationship("Scene", back_populates="video_clip")
+    scenes = relationship("Scene", back_populates="video_clip", cascade="all, delete-orphan", passive_deletes=True)
 
     def __repr__(self):
         return f"<VideoClip(id={self.id}, path='{self.file_path}')>"
@@ -85,7 +94,7 @@ class Scene(Base):
     __tablename__ = "scenes"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    video_clip_id = Column(Integer, ForeignKey("video_clips.id"), nullable=False)
+    video_clip_id = Column(Integer, ForeignKey("video_clips.id", ondelete="CASCADE"), nullable=False)
     start_time = Column(Float, nullable=False)
     end_time = Column(Float, nullable=False)
     label = Column(String, nullable=True)
@@ -101,7 +110,7 @@ class Beatgrid(Base):
     __tablename__ = "beatgrids"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    audio_track_id = Column(Integer, ForeignKey("audio_tracks.id"), nullable=False)
+    audio_track_id = Column(Integer, ForeignKey("audio_tracks.id", ondelete="CASCADE"), nullable=False)
     bpm = Column(Float, nullable=False)
     offset = Column(Float, nullable=False, default=0.0)
     beat_positions = Column(Text, nullable=True)
@@ -119,7 +128,7 @@ class WaveformData(Base):
     __tablename__ = "waveform_data"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    audio_track_id = Column(Integer, ForeignKey("audio_tracks.id"), nullable=False)
+    audio_track_id = Column(Integer, ForeignKey("audio_tracks.id", ondelete="CASCADE"), nullable=False)
 
     # Anzahl der Samples (Zeitschritte) — typisch 1 pro ~23ms (hop_length=512 bei sr=22050)
     num_samples = Column(Integer, nullable=False, default=0)
@@ -140,11 +149,14 @@ class PacingBlueprint(Base):
     __tablename__ = "pacing_blueprints"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
+    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
     name = Column(String, nullable=False)
     style = Column(String, nullable=True)
     cuts_per_bar = Column(Integer, nullable=True, default=1)
     energy_curve = Column(Text, nullable=True)
+
+    # Bug-20 Fix: back_populates ergänzt
+    project = relationship("Project", back_populates="pacing_blueprints")
 
     def __repr__(self):
         return f"<PacingBlueprint(id={self.id}, name='{self.name}')>"
@@ -154,11 +166,15 @@ class AudioVideoAnchor(Base):
     __tablename__ = "audio_video_anchors"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    audio_track_id = Column(Integer, ForeignKey("audio_tracks.id"), nullable=False)
-    video_clip_id = Column(Integer, ForeignKey("video_clips.id"), nullable=False)
+    audio_track_id = Column(Integer, ForeignKey("audio_tracks.id", ondelete="CASCADE"), nullable=False)
+    video_clip_id = Column(Integer, ForeignKey("video_clips.id", ondelete="CASCADE"), nullable=False)
     audio_time = Column(Float, nullable=False)
     video_time = Column(Float, nullable=False)
     anchor_type = Column(String, nullable=True, default="beat")
+
+    # Bug-20 Fix: fehlende Relationships ergänzt
+    audio_track = relationship("AudioTrack", foreign_keys=[audio_track_id])
+    video_clip = relationship("VideoClip", foreign_keys=[video_clip_id])
 
     def __repr__(self):
         return f"<AudioVideoAnchor(id={self.id}, type='{self.anchor_type}')>"
@@ -174,10 +190,13 @@ class ClipAnchor(Base):
     __tablename__ = "clip_anchors"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    timeline_entry_id = Column(Integer, ForeignKey("timeline_entries.id"), nullable=False)
+    timeline_entry_id = Column(Integer, ForeignKey("timeline_entries.id", ondelete="CASCADE"), nullable=False)
     time_offset = Column(Float, nullable=False)  # Offset in Sekunden relativ zum Clip-Start
     label = Column(String, nullable=True, default="")
     color = Column(String, nullable=True, default="#FF3333")
+
+    # Bug-20 Fix: Rückbeziehung zu TimelineEntry ergänzt
+    timeline_entry = relationship("TimelineEntry", back_populates="anchors")
 
     def __repr__(self):
         return f"<ClipAnchor(id={self.id}, entry={self.timeline_entry_id}, offset={self.time_offset})>"
@@ -188,7 +207,7 @@ class TimelineEntry(Base):
     __tablename__ = "timeline_entries"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
+    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
     track = Column(String, nullable=False)          # "audio" oder "video"
     media_id = Column(Integer, nullable=False)       # AudioTrack.id oder VideoClip.id
     start_time = Column(Float, nullable=False, default=0.0)
@@ -198,21 +217,111 @@ class TimelineEntry(Base):
     # Phase 3: Crossfade-Dauer in Sekunden (0 = harter Cut)
     crossfade_duration = Column(Float, nullable=True, default=0.0)
 
-    # Phase 3: Farbkorrektur-Parameter (FFmpeg-Filter)
+    # Source-Offsets: Position im Quell-Video (fuer korrekten Export-Schnitt)
+    source_start = Column(Float, nullable=True, default=0.0)  # Sekunden im Quell-Video
+    source_end = Column(Float, nullable=True)                  # Sekunden im Quell-Video
+
+    # Phase 3: Crossfade-Dauer und Farbkorrektur-Parameter (FFmpeg-Filter)
     brightness = Column(Float, nullable=True, default=0.0)   # -1.0 bis 1.0
     contrast = Column(Float, nullable=True, default=1.0)     # 0.0 bis 3.0
 
+    # Bug-20 Fix: Rückbeziehungen zu Project und ClipAnchor ergänzt
+    project = relationship("Project", back_populates="timeline_entries")
+    anchors = relationship("ClipAnchor", back_populates="timeline_entry", cascade="all, delete-orphan", passive_deletes=True)
+
     def __repr__(self):
         return f"<TimelineEntry(id={self.id}, track='{self.track}', start={self.start_time})>"
+
+
+def _needs_fk_cascade_migration(insp) -> bool:
+    """Prüft ob ON DELETE CASCADE in den Child-Tabellen fehlt.
+
+    Bug-16 Fix: Prüft ALLE Child-Tabellen, nicht nur 'scenes'.
+    Vorher wurde nur scenes geprüft — beatgrids, waveform_data, timeline_entries
+    usw. wurden nie kontrolliert, was zu verwaisten Datensätzen führte.
+    """
+    from sqlalchemy import text
+    # Alle Child-Tabellen die ON DELETE CASCADE benötigen
+    child_tables = [
+        "scenes", "beatgrids", "waveform_data", "pacing_blueprints",
+        "audio_video_anchors", "clip_anchors", "timeline_entries",
+    ]
+    existing_tables = set(insp.get_table_names())
+    try:
+        with engine.connect() as conn:
+            for tname in child_tables:
+                if tname not in existing_tables:
+                    continue
+                result = conn.execute(
+                    text(f"SELECT sql FROM sqlite_master WHERE name='{tname}'")
+                )
+                row = result.fetchone()
+                # Wenn sql vorhanden aber kein CASCADE → Migration nötig
+                if row and row[0] and "ON DELETE CASCADE" not in row[0].upper():
+                    return True
+    except Exception:
+        return False
+    return False
+
+
+def _migrate_fk_cascade():
+    """Recreate alle Tabellen mit ON DELETE CASCADE (SQLite kann FK nicht ALTER).
+
+    SICHERHEIT: Erstellt vorher ein Backup der DB-Datei.
+    """
+    from sqlalchemy import text
+    import logging
+    import shutil
+    from pathlib import Path
+    log = logging.getLogger(__name__)
+
+    # Backup vor destruktiver Migration
+    db_path = Path("pb_studio.db")
+    if db_path.exists():
+        backup_path = db_path.with_suffix(".db.backup_before_fk_migration")
+        shutil.copy2(db_path, backup_path)
+        log.info("FK-CASCADE Migration: Backup erstellt: %s", backup_path)
+
+    log.info("FK-CASCADE Migration: Recreating tables with ON DELETE CASCADE...")
+
+    try:
+        with engine.begin() as conn:
+            # FK temporaer aus, damit wir Tabellen droppen koennen
+            conn.execute(text("PRAGMA foreign_keys=OFF"))
+
+            table_names = [
+                "clip_anchors", "audio_video_anchors", "scenes",
+                "beatgrids", "waveform_data", "pacing_blueprints",
+                "timeline_entries", "audio_tracks", "video_clips",
+            ]
+            for tname in table_names:
+                conn.execute(text(f"DROP TABLE IF EXISTS {tname}"))
+
+            # FK wieder an
+            conn.execute(text("PRAGMA foreign_keys=ON"))
+
+        # Tabellen mit korrektem Schema neu erstellen
+        Base.metadata.create_all(engine)
+    except Exception:
+        log.error("FK-CASCADE Migration FEHLGESCHLAGEN! Backup liegt unter: %s",
+                  backup_path if db_path.exists() else "N/A")
+        raise
+    log.info("FK-CASCADE Migration abgeschlossen.")
 
 
 def init_db():
     """Erstellt alle Tabellen und ein Default-Projekt, falls noch keines existiert."""
     Base.metadata.create_all(engine)
 
-    # Phase 3: Migrate existing beatgrids table (add new columns if missing)
     from sqlalchemy import inspect, text
     insp = inspect(engine)
+
+    # Migration: ON DELETE CASCADE nachrüsten (SQLite braucht Table-Rebuild)
+    if _needs_fk_cascade_migration(insp):
+        _migrate_fk_cascade()
+
+    # Phase 3: Migrate existing beatgrids table (add new columns if missing)
+    insp = inspect(engine)  # refresh nach möglicher Migration
     if "beatgrids" in insp.get_table_names():
         columns = {c["name"] for c in insp.get_columns("beatgrids")}
         with engine.begin() as conn:
@@ -220,6 +329,31 @@ def init_db():
                 conn.execute(text("ALTER TABLE beatgrids ADD COLUMN downbeat_positions TEXT"))
             if "energy_per_beat" not in columns:
                 conn.execute(text("ALTER TABLE beatgrids ADD COLUMN energy_per_beat TEXT"))
+
+    # Migration: source_start / source_end in timeline_entries nachrüsten
+    insp = inspect(engine)
+    if "timeline_entries" in insp.get_table_names():
+        te_columns = {c["name"] for c in insp.get_columns("timeline_entries")}
+        with engine.begin() as conn:
+            if "source_start" not in te_columns:
+                conn.execute(text("ALTER TABLE timeline_entries ADD COLUMN source_start FLOAT DEFAULT 0.0"))
+            if "source_end" not in te_columns:
+                conn.execute(text("ALTER TABLE timeline_entries ADD COLUMN source_end FLOAT"))
+
+    # Bug-13 Fix: crossfade_duration / brightness / contrast in timeline_entries nachrüsten
+    # Diese Spalten existieren im ORM-Modell aber fehlten in den ALTER TABLE Migrationen.
+    # Ohne diesen Block crasht _apply_effects() / _on_effects_clip_changed() auf bestehenden DBs
+    # mit: OperationalError: no such column: timeline_entries.crossfade_duration
+    insp = inspect(engine)
+    if "timeline_entries" in insp.get_table_names():
+        te_columns = {c["name"] for c in insp.get_columns("timeline_entries")}
+        with engine.begin() as conn:
+            if "crossfade_duration" not in te_columns:
+                conn.execute(text("ALTER TABLE timeline_entries ADD COLUMN crossfade_duration FLOAT DEFAULT 0.0"))
+            if "brightness" not in te_columns:
+                conn.execute(text("ALTER TABLE timeline_entries ADD COLUMN brightness FLOAT DEFAULT 0.0"))
+            if "contrast" not in te_columns:
+                conn.execute(text("ALTER TABLE timeline_entries ADD COLUMN contrast FLOAT DEFAULT 1.0"))
 
     with Session(engine) as session:
         if not session.query(Project).first():

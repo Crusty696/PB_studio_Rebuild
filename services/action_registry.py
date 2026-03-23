@@ -189,7 +189,20 @@ class ActionRegistry:
                 action.name, removed, set(filtered.keys()),
             )
 
-        return action.handler(**filtered)
+        try:
+            return action.handler(**filtered)
+        except TypeError as exc:
+            logger.error(
+                "TypeError beim Ausführen von '%s' mit Params %s: %s",
+                action.name, filtered, exc,
+            )
+            raise
+        except Exception as exc:
+            logger.error(
+                "Fehler beim Ausführen von '%s': %s",
+                action.name, exc, exc_info=True,
+            )
+            raise
 
     def get_schema_for_prompt(self) -> str:
         """Erzeugt eine kompakte Beschreibung aller Aktionen für den KI-System-Prompt.

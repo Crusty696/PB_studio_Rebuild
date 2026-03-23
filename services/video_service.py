@@ -1,9 +1,13 @@
 import json
+import logging
 import subprocess
+import sys
 from pathlib import Path
 
 from sqlalchemy.orm import Session
 from database import engine, VideoClip
+
+logger = logging.getLogger(__name__)
 
 PROXY_DIR = Path("storage/proxies")
 
@@ -20,7 +24,10 @@ class VideoAnalyzer:
             "-select_streams", "v:0",
             file_path,
         ]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        kwargs = {}
+        if sys.platform == "win32":
+            kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, **kwargs)
         if result.returncode != 0:
             raise RuntimeError(f"ffprobe fehlgeschlagen: {result.stderr.strip()}")
 
@@ -47,14 +54,19 @@ class VideoAnalyzer:
             "duration": round(duration, 2),
         }
 
-    def create_proxy(self, file_path: str, target_height: int = 480) -> str:
+    def create_proxy(self, file_path: str, target_height: int = 480, progress_cb=None) -> str:
         """Erstellt ein Proxy-Video mit reduzierter Auflösung."""
+        if progress_cb:
+            progress_cb(0, "Proxy-Erstellung vorbereiten...")
         PROXY_DIR.mkdir(parents=True, exist_ok=True)
         src = Path(file_path)
         proxy_path = PROXY_DIR / f"{src.stem}_proxy.mp4"
 
-        if proxy_path.exists():
+        if proxy_path.exists() and proxy_path.stat().st_size > 0:
             return str(proxy_path.resolve())
+        elif proxy_path.exists():
+            logger.info(f"[VideoAnalyzer] WARNUNG: 0-Byte Proxy gefunden, wird neu erstellt: {proxy_path}")
+            proxy_path.unlink(missing_ok=True)
 
         cmd = [
             "ffmpeg", "-y", "-i", file_path,
@@ -63,31 +75,84 @@ class VideoAnalyzer:
             "-c:a", "aac", "-b:a", "128k",
             str(proxy_path),
         ]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        kwargs = {}
+        if sys.platform == "win32":
+            kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+        if progress_cb:
+            progress_cb(20, "FFmpeg Proxy-Encoding...")
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300,
+                                stdin=subprocess.DEVNULL, **kwargs)
         if result.returncode != 0:
+            logger.info(f"[VideoAnalyzer] FFmpeg FEHLER (rc={result.returncode}):")
+            logger.info(f"[VideoAnalyzer] stderr: {result.stderr}")
             raise RuntimeError(f"Proxy-Erstellung fehlgeschlagen: {result.stderr.strip()}")
 
+        if not proxy_path.exists() or proxy_path.stat().st_size == 0:
+            logger.info(f"[VideoAnalyzer] FFmpeg lief durch (rc=0), aber Proxy ist 0 Bytes oder fehlt!")
+            logger.info(f"[VideoAnalyzer] stderr: {result.stderr}")
+            logger.info(f"[VideoAnalyzer] stdout: {result.stdout}")
+            proxy_path.unlink(missing_ok=True)
+            raise RuntimeError(f"Proxy ist 0 Bytes. FFmpeg stderr: {result.stderr.strip()}")
+
+        if progress_cb:
+            progress_cb(100, "Proxy fertig")
         return str(proxy_path.resolve())
 
-    def analyze_and_store(self, clip_id: int, create_proxy: bool = True) -> dict:
-        """Analysiert einen VideoClip und schreibt Ergebnisse in die DB."""
+    def analyze_and_store(self, clip_id: int, create_proxy: bool = True, progress_cb=None) -> dict:
+        """Analysiert einen VideoClip und schreibt Ergebnisse in die DB.
+
+        [Session-Split] ffprobe-Metadaten werden sofort committed, BEVOR
+        die zeitaufwändige Proxy-Erstellung (bis 300s) beginnt.
+        So gehen Metadaten nicht verloren wenn der Proxy fehlschlägt.
+        """
+        # 1) Erste Session: file_path laden, sofort schließen
         with Session(engine) as session:
             clip = session.get(VideoClip, clip_id)
             if clip is None:
                 raise ValueError(f"VideoClip {clip_id} nicht gefunden")
+            file_path = clip.file_path
 
-            info = self.probe(clip.file_path)
+        # 2) ffprobe AUSSERHALB der Session (schnell, ~30ms)
+        if progress_cb:
+            progress_cb(0, "ffprobe Metadaten lesen...")
+        logger.info("--> [VideoAnalyzer] ffprobe START für %s", file_path)
+        info = self.probe(file_path)
+        logger.info("--> [VideoAnalyzer] ffprobe FERTIG: %sx%s @ %sfps",
+                    info['width'], info['height'], info['fps'])
+
+        # 3) Zweite Session: Metadaten sofort committen
+        with Session(engine) as session:
+            clip = session.get(VideoClip, clip_id)
+            if clip is None:
+                raise ValueError(f"VideoClip {clip_id} nach ffprobe nicht mehr gefunden")
             clip.width = info["width"]
             clip.height = info["height"]
             clip.fps = info["fps"]
             clip.codec = info["codec"]
             clip.duration = info["duration"]
-
-            if create_proxy:
-                proxy = self.create_proxy(clip.file_path)
-                clip.proxy_path = proxy
-                info["proxy_path"] = proxy
-
             session.commit()
+            logger.info("--> [VideoAnalyzer] Metadaten-Commit FERTIG für clip_id=%s", clip_id)
+        if progress_cb:
+            progress_cb(30, "Metadaten gespeichert")
 
+        # 4) Proxy-Erstellung AUSSERHALB der Session (kann bis 300s dauern)
+        if create_proxy:
+            if progress_cb:
+                progress_cb(40, "Erstelle Proxy-Video...")
+            logger.info("--> [VideoAnalyzer] Proxy-Erstellung START...")
+            proxy = self.create_proxy(file_path, progress_cb=progress_cb)
+            logger.info("--> [VideoAnalyzer] Proxy-Erstellung FERTIG: %s", proxy)
+            info["proxy_path"] = proxy
+
+            # 5) Dritte Session: Proxy-Pfad committen
+            with Session(engine) as session:
+                clip = session.get(VideoClip, clip_id)
+                if clip is None:
+                    raise ValueError(f"VideoClip {clip_id} nach Proxy-Erstellung nicht mehr gefunden")
+                clip.proxy_path = proxy
+                session.commit()
+                logger.info("--> [VideoAnalyzer] Proxy-Pfad committed für clip_id=%s", clip_id)
+
+        if progress_cb:
+            progress_cb(100, "Fertig")
         return info

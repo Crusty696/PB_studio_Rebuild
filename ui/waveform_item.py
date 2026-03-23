@@ -286,14 +286,23 @@ class WaveformGraphicsItem(QGraphicsItem):
                      pixels_per_second: float = 20.0, height: float = 50.0,
                      parent=None) -> "WaveformGraphicsItem":
         """Factory: Erstellt ein WaveformGraphicsItem aus DB-Daten (WaveformData row)."""
-        band_low = json.loads(waveform_data.band_low) if isinstance(waveform_data.band_low, str) else waveform_data.band_low
-        band_mid = json.loads(waveform_data.band_mid) if isinstance(waveform_data.band_mid, str) else waveform_data.band_mid
-        band_high = json.loads(waveform_data.band_high) if isinstance(waveform_data.band_high, str) else waveform_data.band_high
+        try:
+            band_low = json.loads(waveform_data.band_low) if isinstance(waveform_data.band_low, str) else waveform_data.band_low
+        except (json.JSONDecodeError, TypeError):
+            band_low = []
+        try:
+            band_mid = json.loads(waveform_data.band_mid) if isinstance(waveform_data.band_mid, str) else waveform_data.band_mid
+        except (json.JSONDecodeError, TypeError):
+            band_mid = []
+        try:
+            band_high = json.loads(waveform_data.band_high) if isinstance(waveform_data.band_high, str) else waveform_data.band_high
+        except (json.JSONDecodeError, TypeError):
+            band_high = []
 
-        if isinstance(beat_positions_json, str):
-            beats = json.loads(beat_positions_json)
-        else:
-            beats = beat_positions_json or []
+        try:
+            beats = json.loads(beat_positions_json) if isinstance(beat_positions_json, str) else (beat_positions_json or [])
+        except (json.JSONDecodeError, TypeError):
+            beats = []
 
         return cls(
             band_low=band_low,

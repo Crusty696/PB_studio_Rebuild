@@ -6,10 +6,13 @@ Erstellt eine LanceDB mit 1152-dimensionalen SigLIP Embeddings.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 DB_DIR = Path("data/vector")
 TABLE_NAME = "clip_embeddings"
@@ -42,8 +45,9 @@ class VectorDBService:
         """Oeffnet oder erstellt die clip_embeddings Tabelle."""
         try:
             return self.db.open_table(TABLE_NAME)
-        except Exception:
+        except FileNotFoundError:
             # Tabelle existiert nicht — mit Schema erstellen
+            logger.warning("Tabelle '%s' nicht gefunden, erstelle neue Tabelle", TABLE_NAME)
             import pyarrow as pa
             schema = pa.schema([
                 pa.field("id", pa.int64()),
@@ -124,7 +128,9 @@ class VectorDBService:
 
         query = self.table.search(query_embedding).limit(top_k)
         if motion_filter is not None:
-            query = query.where(f"motion_score > {motion_filter}")
+            # Input-Validierung gegen Injection
+            motion_val = float(motion_filter)
+            query = query.where(f"motion_score > {motion_val}")
 
         results = query.to_arrow()
         rows = []
@@ -153,12 +159,15 @@ class VectorDBService:
         """Gibt die Anzahl der Eintraege in der Tabelle zurueck."""
         try:
             return self.table.count_rows()
-        except Exception:
+        except Exception as e:
+            logger.warning("VectorDB count() fehlgeschlagen: %s", e)
             return 0
 
     def delete_by_video(self, video_path: str) -> None:
         """Loescht alle Embeddings fuer ein Video."""
-        self.table.delete(f"video_path = '{video_path}'")
+        # Sichere Escaping: Backslashes und Single-Quotes behandeln
+        safe_path = video_path.replace("\\", "\\\\").replace("'", "\\'")
+        self.table.delete(f"video_path = '{safe_path}'")
 
     def close(self) -> None:
         """Schliesst die Datenbankverbindung."""

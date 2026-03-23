@@ -1,39 +1,43 @@
 [project]
 name = "pb-studio-rebuild"
-version = "0.1.0"
-description = ""
+version = "0.4.0"
+description = "DaVinci Resolve Style Video/Audio Production Studio"
 authors = [
     {name = "Your Name",email = "you@example.com"}
 ]
-requires-python = ">=3.11,<3.15"
+requires-python = ">=3.11,<3.13"
 dependencies = [
-    "pyside6 (>=6.10.2,<7.0.0)",
-    "sqlalchemy (>=2.0.48,<3.0.0)",
-    "duckdb (>=1.5.0,<2.0.0)",
+    "pyside6 (>=6.8.0,<7.0.0)",
+    "sqlalchemy (>=2.0.40,<3.0.0)",
+    "duckdb (>=1.2.0,<2.0.0)",
     "librosa (>=0.11.0,<0.12.0)",
-    "numpy (>=2.4.3,<3.0.0)",
+    "numpy (>=2.1.0,<3.0.0)",
     "demucs (>=4.0.1,<5.0.0)",
-    "opencv-python (>=4.13.0.92,<5.0.0.0)",
-    "scipy (>=1.17.1,<2.0.0)",
-    "transformers (>=5.3.0,<6.0.0)",
-    "torch (>=2.10.0,<3.0.0)",
-    "torchvision (>=0.22.0,<1.0.0)",
-    "torchaudio (>=2.10.0,<3.0.0)",
+    "opencv-python (>=4.10.0,<5.0.0)",
+    "scipy (>=1.14.0,<2.0.0)",
+    "transformers (>=4.47.0,<6.0.0)",
+    "torch (>=2.5.0,<3.0.0)",
+    "torchvision (>=0.20.0,<1.0.0)",
+    "torchaudio (>=2.5.0,<3.0.0)",
     "thefuzz (>=0.22.1,<0.23.0)",
-    "faster-whisper (>=1.2.1,<2.0.0)",
-    "einops (>=0.8.2,<0.9.0)",
-    "pillow (>=12.1.1,<13.0.0)",
-    "accelerate (>=1.13.0,<2.0.0)",
+    "faster-whisper (>=1.1.0,<2.0.0)",
+    "einops (>=0.8.0,<0.9.0)",
+    "pillow (>=11.0.0,<13.0.0)",
+    "accelerate (>=1.2.0,<2.0.0)",
     "opentimelineio (>=0.18.0,<1.0.0)",
-    "lancedb (>=0.20.0)",
-    "beat-this @ git+https://github.com/CPJKU/beat_this.git",
-    "pyarrow (>=18.0.0)"
+    "lancedb (>=0.20.0,<1.0.0)",
+    "beat-this @ git+https://github.com/CPJKU/beat_this.git@main",
+    "pyarrow (>=18.0.0,<24.0.0)",
+    "python-dotenv (>=1.0.0,<2.0.0)",
+    "scenedetect (>=0.6.0,<1.0.0)",
+    "sounddevice (>=0.5.0,<1.0.0)",
+    "soundfile (>=0.12.0,<1.0.0)"
 ]
 
 
 [[tool.poetry.source]]
 name = "pytorch-cuda"
-url = "https://download.pytorch.org/whl/cu126"
+url = "https://download.pytorch.org/whl/cu121"
 priority = "explicit"
 
 [build-system]

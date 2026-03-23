@@ -27,6 +27,9 @@ AUDIO_KEYWORDS = [
     "trennen", "separate", "separation",
     "transkri", "transcri", "speech", "sprache", "gesagt",
     "text", "untertitel", "subtitle", "whisper",
+    # DJ-Mix spezifisch
+    "dj", "mix", "set", "transition", "drop", "breakdown",
+    "buildup", "pacing", "energie", "energy", "makro",
 ]
 
 
@@ -123,12 +126,20 @@ class AudioAgent(BaseAgent):
             if numbers:
                 track_id = int(numbers[0])
 
-        if track_id is not None:
-            action_name = "separate_stems" if is_stem else "analyze_audio"
+        if is_stem:
+            # Stem-Separation: track_id=None → Batch-Modus (alle Audios)
             try:
-                result["action"] = action_name
+                params = {"track_id": track_id} if track_id is not None else {}
+                result["action"] = "separate_stems"
+                result["params"] = params
+                result["result"] = action_registry.execute("separate_stems", params)
+            except Exception as e:
+                result["error"] = str(e)
+        elif track_id is not None:
+            try:
+                result["action"] = "analyze_audio"
                 result["params"] = {"track_id": track_id}
-                result["result"] = action_registry.execute(action_name, {"track_id": track_id})
+                result["result"] = action_registry.execute("analyze_audio", {"track_id": track_id})
             except Exception as e:
                 result["error"] = str(e)
         else:

@@ -3,7 +3,7 @@ import numpy as np
 import librosa
 
 from sqlalchemy.orm import Session
-from database import engine, AudioTrack, Beatgrid
+from database import engine, AudioTrack
 
 
 class AudioAnalyzer:
@@ -19,59 +19,77 @@ class AudioAnalyzer:
             return float(tempo.flat[0])
         return float(tempo)
 
-    def analyze(self, file_path: str) -> dict:
+    def analyze(self, file_path: str, progress_cb=None) -> dict:
         """Lädt Audio, berechnet BPM, Beat-Positionen + RMS-Energiekurve."""
-        y, sr = librosa.load(file_path, sr=self.sr, mono=True)
-        duration = librosa.get_duration(y=y, sr=sr)
+        try:
+            if progress_cb:
+                progress_cb(0, "Lade Audio...")
+            y, sr = librosa.load(file_path, sr=self.sr, mono=True)
+            duration = librosa.get_duration(y=y, sr=sr)
 
-        # BPM + Beat-Frames
-        tempo, beat_frames = librosa.beat.beat_track(y=y, sr=sr)
-        bpm = round(self._tempo_to_float(tempo), 1)
+            if progress_cb:
+                progress_cb(30, "Erkenne Beats...")
+            # BPM + Beat-Frames
+            tempo, beat_frames = librosa.beat.beat_track(y=y, sr=sr)
+            bpm = round(self._tempo_to_float(tempo), 1)
 
-        # Beat-Zeitpunkte in Sekunden
-        beat_times = librosa.frames_to_time(beat_frames, sr=sr)
-        beat_positions = [round(float(t), 3) for t in beat_times]
+            # Beat-Zeitpunkte in Sekunden
+            beat_times = librosa.frames_to_time(beat_frames, sr=sr)
+            beat_positions = [round(float(t), 3) for t in beat_times]
 
-        # RMS-Energiekurve (1 Wert pro Sekunde)
-        hop_length = sr
-        rms = librosa.feature.rms(y=y, hop_length=hop_length)[0]
-        energy_curve = [round(float(v), 4) for v in rms]
+            if progress_cb:
+                progress_cb(70, "Berechne Energiekurve...")
+            # RMS-Energiekurve (1 Wert pro Sekunde)
+            hop_length = sr
+            rms = librosa.feature.rms(y=y, hop_length=hop_length)[0]
+            energy_curve = [round(float(v), 4) for v in rms]
 
-        return {
-            "bpm": bpm,
-            "duration": round(duration, 2),
-            "sample_rate": sr,
-            "energy_curve": energy_curve,
-            "beat_positions": beat_positions,
-        }
+            if progress_cb:
+                progress_cb(100, "Fertig")
 
-    def analyze_and_store(self, track_id: int) -> dict:
-        """Analysiert einen AudioTrack und schreibt Ergebnisse + Beatgrid in die DB."""
+            return {
+                "bpm": bpm,
+                "duration": round(duration, 2),
+                "sample_rate": sr,
+                "energy_curve": energy_curve,
+                "beat_positions": beat_positions,
+            }
+        except Exception as e:
+            raise RuntimeError(f"Audio-Analyse fehlgeschlagen für {file_path}: {e}") from e
+
+    def analyze_and_store(self, track_id: int, progress_cb=None) -> dict:
+        """Analysiert einen AudioTrack und schreibt BPM, Duration, Energy in die DB.
+
+        Beatgrid wird separat von BeatAnalysisService geschrieben.
+        Session-Split: DB wird NICHT während der librosa-Analyse blockiert.
+        """
+        # 1) Erste Session: nur file_path laden, dann Session schließen
         with Session(engine) as session:
             track = session.get(AudioTrack, track_id)
             if track is None:
                 raise ValueError(f"AudioTrack {track_id} nicht gefunden")
+            file_path = track.file_path
 
-            result = self.analyze(track.file_path)
+        # 2) CPU-intensive Analyse AUSSERHALB jeder DB-Session
+        result = self.analyze(file_path, progress_cb=progress_cb)
+
+        # 3) Zweite Session: Ergebnisse speichern + commit
+        with Session(engine) as session:
+            track = session.get(AudioTrack, track_id)
+            if track is None:
+                raise ValueError(f"AudioTrack {track_id} nach Analyse nicht mehr gefunden")
 
             track.bpm = result["bpm"]
             track.duration = result["duration"]
             track.sample_rate = result["sample_rate"]
             track.energy_curve = json.dumps(result["energy_curve"])
 
-            # Beatgrid speichern/aktualisieren
-            if track.beatgrid:
-                track.beatgrid.bpm = result["bpm"]
-                track.beatgrid.beat_positions = json.dumps(result["beat_positions"])
-            else:
-                bg = Beatgrid(
-                    audio_track_id=track_id,
-                    bpm=result["bpm"],
-                    offset=result["beat_positions"][0] if result["beat_positions"] else 0.0,
-                    beat_positions=json.dumps(result["beat_positions"]),
-                )
-                session.add(bg)
-
             session.commit()
+
+            try:
+                from services.pacing_service import invalidate_pacing_caches
+                invalidate_pacing_caches()
+            except Exception:
+                pass
 
         return result

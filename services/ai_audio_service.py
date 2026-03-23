@@ -1,80 +1,207 @@
 """AI Audio Service: Demucs Stem Separation + Auto-Ducking + Rekordbox Frequency Analysis."""
 
+import gc
 import json
+import logging
 import subprocess
 import sys
 from pathlib import Path
 
 import numpy as np
+import torch
+import torchaudio
 import librosa
 from scipy.io import wavfile
 from sqlalchemy.orm import Session
 
-from database import engine, AudioTrack, Beatgrid, WaveformData
+from database import engine, AudioTrack, WaveformData
+
+logger = logging.getLogger(__name__)
 
 STEMS_DIR = Path("storage/stems")
 
+# Chunk-Dauer in Sekunden fuer VRAM-schonendes Processing
+CHUNK_SECONDS = 30
+# Overlap in Sekunden um Artefakte an Chunk-Grenzen zu vermeiden
+OVERLAP_SECONDS = 2
+
 
 class StemSeparator:
-    """Trennt Audio via Demucs in Vocals, Drums, Bass, Other."""
+    """Trennt Audio via Demucs Python API in Vocals, Drums, Bass, Other.
+
+    Verwendet Chunking (30s Bloecke) und erzwingt CUDA um VRAM-Limits
+    (z.B. GTX 1060 6GB) einzuhalten und CPU-Fallback zu vermeiden.
+    """
 
     def separate(self, file_path: str, model: str = "htdemucs",
                  progress_cb=None) -> dict[str, str]:
-        """Fuehrt Demucs Stem Separation aus.
+        """Fuehrt Demucs Stem Separation mit Chunking + CUDA-Zwang aus.
 
         Returns: dict mit Keys 'vocals', 'drums', 'bass', 'other' -> Pfade.
         """
         STEMS_DIR.mkdir(parents=True, exist_ok=True)
         src = Path(file_path)
 
-        # Demucs als CLI-Tool ausfuehren
-        cmd = [
-            sys.executable, "-m", "demucs",
-            "--two-stems=vocals",  # Schnell: nur vocals + accompaniment
-            "-n", model,
-            "-o", str(STEMS_DIR),
-            str(src),
-        ]
+        # ── 1. VRAM freigeben: alle anderen Modelle entladen ──
+        try:
+            from services.model_manager import ModelManager
+            ModelManager().unload()
+        except Exception:
+            pass
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
-        # Fuer volle 4-Stem-Separation (--mp3 vermeidet torchcodec DLL-Problem):
-        cmd_full = [
-            sys.executable, "-m", "demucs",
-            "--mp3",
-            "-n", model,
-            "-o", str(STEMS_DIR),
-            str(src),
-        ]
-
-        if progress_cb:
-            progress_cb(1, 4, "Starte Demucs KI-Analyse...")
-
-        result = subprocess.run(
-            cmd_full,
-            capture_output=True, text=True, timeout=1800,
-            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
-        )
-
-        if result.returncode != 0:
-            raise RuntimeError(f"Demucs fehlgeschlagen:\n{result.stderr[-1000:]}")
+        # ── 2. Device bestimmen (CUDA erzwingen) ──
+        if torch.cuda.is_available():
+            device = torch.device("cuda")
+            logger.info(f"[StemSeparator] GPU erkannt: {torch.cuda.get_device_name(0)} "
+                  f"({torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB VRAM)")
+        else:
+            raise RuntimeError(
+                "Stem-Separation erfordert eine CUDA-fähige GPU. "
+                "Keine GPU gefunden — Abbruch."
+            )
 
         if progress_cb:
-            progress_cb(3, 4, "Stems extrahiert, sammle Pfade...")
+            progress_cb(5, "Lade Demucs-Modell...")
 
-        # Demucs Output-Struktur: stems_dir/model/track_name/vocals.mp3 (oder .wav)
+        # ── 3. Demucs-Modell laden (Python API) ──
+        from demucs.pretrained import get_model
+        from demucs.apply import apply_model
+        demucs_model = get_model(model)
+        try:
+            demucs_model.to(device)
+        except torch.cuda.OutOfMemoryError:
+            torch.cuda.empty_cache()
+            gc.collect()
+            raise RuntimeError(
+                f"VRAM reicht nicht fuer Demucs '{model}'. "
+                "Bitte andere GPU-Modelle entladen oder kleineren Chunk verwenden."
+            )
+        demucs_model.eval()
+        logger.info(f"[StemSeparator] Modell '{model}' geladen auf {device}")
+
+        if progress_cb:
+            progress_cb(10, "Lade Audio-Datei...")
+
+        # ── 4. Audio laden ──
+        waveform, sr = torchaudio.load(str(src))
+        # Demucs erwartet die Samplerate des Modells
+        model_sr = demucs_model.samplerate
+        if sr != model_sr:
+            waveform = torchaudio.functional.resample(waveform, sr, model_sr)
+            sr = model_sr
+
+        # Stereo sicherstellen (Demucs erwartet 2 Kanaele)
+        if waveform.shape[0] == 1:
+            waveform = waveform.repeat(2, 1)
+        elif waveform.shape[0] > 2:
+            waveform = waveform[:2]
+
+        total_samples = waveform.shape[1]
+        chunk_samples = CHUNK_SECONDS * sr
+        overlap_samples = OVERLAP_SECONDS * sr
+        step_samples = chunk_samples - overlap_samples
+
+        # Berechne Chunk-Anzahl
+        if total_samples <= chunk_samples:
+            num_chunks = 1
+        else:
+            num_chunks = 1 + int(np.ceil((total_samples - chunk_samples) / step_samples))
+
+        logger.info(f"[StemSeparator] Audio: {total_samples / sr:.1f}s, "
+              f"SR={sr}, Chunks={num_chunks} (je {CHUNK_SECONDS}s, {OVERLAP_SECONDS}s Overlap)")
+
+        if progress_cb:
+            progress_cb(15, f"Starte Stem-Trennung in {num_chunks} Chunks...")
+
+        # ── 5. Chunk-weise verarbeiten ──
+        # Demucs Source-Namen ermitteln
+        source_names = demucs_model.sources  # z.B. ['drums', 'bass', 'other', 'vocals']
+        num_sources = len(source_names)
+
+        # Ergebnis-Tensor fuer alle Stems (Crossfade-Akkumulator)
+        result_stems = torch.zeros(num_sources, waveform.shape[0], total_samples)
+        weight_sum = torch.zeros(1, total_samples)
+
+        for i in range(num_chunks):
+            start = i * step_samples
+            end = min(start + chunk_samples, total_samples)
+            chunk = waveform[:, start:end]
+
+            logger.info(f"[StemSeparator] Verarbeite Chunk {i + 1}/{num_chunks} "
+                  f"auf {device.type.upper()} "
+                  f"({start / sr:.1f}s - {end / sr:.1f}s)...")
+
+            # Chunk auf GPU, Batch-Dimension hinzufuegen: (1, channels, samples)
+            chunk_gpu = chunk.unsqueeze(0).to(device)
+
+            with torch.no_grad():
+                # apply_model gibt (1, sources, channels, samples) zurueck
+                estimates = apply_model(
+                    demucs_model, chunk_gpu,
+                    overlap=0.25,       # internes Demucs-Overlap fuer Qualitaet
+                    progress=False,
+                )
+
+            # Zurueck auf CPU
+            estimates_cpu = estimates.squeeze(0).cpu()  # (sources, channels, samples)
+
+            # Crossfade-Gewicht: Dreiecks-Fenster fuer Overlap-Bereiche
+            chunk_len = end - start
+            fade = torch.ones(chunk_len)
+            if i > 0 and overlap_samples > 0:
+                # Fade-In am Anfang des Chunks (Overlap-Region)
+                fade_len = min(overlap_samples, chunk_len)
+                fade[:fade_len] = torch.linspace(0, 1, fade_len)
+            if i < num_chunks - 1 and overlap_samples > 0:
+                # Fade-Out am Ende des Chunks (Overlap-Region)
+                fade_len = min(overlap_samples, chunk_len)
+                fade[-fade_len:] = torch.linspace(1, 0, fade_len)
+
+            # Gewichtete Addition
+            for s in range(num_sources):
+                result_stems[s, :, start:end] += estimates_cpu[s, :, :chunk_len] * fade.unsqueeze(0)
+            weight_sum[0, start:end] += fade
+
+            # ── VRAM sofort freigeben ──
+            del chunk_gpu, estimates, estimates_cpu
+            gc.collect()
+            torch.cuda.empty_cache()
+
+            # Progress: 15% bis 85% fuer Chunk-Processing
+            if progress_cb:
+                pct = 15 + int(70 * (i + 1) / num_chunks)
+                progress_cb(pct, f"Chunk {i + 1}/{num_chunks} fertig")
+
+        # Normalisierung durch Gewichtssumme (Crossfade)
+        weight_sum = weight_sum.clamp(min=1e-8)
+        for s in range(num_sources):
+            result_stems[s] /= weight_sum
+
+        # ── 6. Modell entladen ──
+        del demucs_model
+        gc.collect()
+        torch.cuda.empty_cache()
+        logger.info("[StemSeparator] Modell entladen, VRAM freigegeben")
+
+        if progress_cb:
+            progress_cb(90, "Speichere Stems als WAV...")
+
+        # ── 7. Stems als WAV speichern ──
         stem_dir = STEMS_DIR / model / src.stem
+        stem_dir.mkdir(parents=True, exist_ok=True)
+
         stems = {}
-        for stem_name in ["vocals", "drums", "bass", "other"]:
-            # Suche mp3 oder wav
-            for ext in [".mp3", ".wav"]:
-                stem_path = stem_dir / f"{stem_name}{ext}"
-                if stem_path.exists():
-                    stems[stem_name] = str(stem_path.resolve())
-                    break
-            else:
-                stems[stem_name] = None
+        for idx, stem_name in enumerate(source_names):
+            stem_path = stem_dir / f"{stem_name}.wav"
+            torchaudio.save(str(stem_path), result_stems[idx], sr)
+            stems[stem_name] = str(stem_path.resolve())
+            logger.info(f"[StemSeparator] Gespeichert: {stem_name} -> {stem_path}")
 
         if progress_cb:
-            progress_cb(4, 4, "Stem Separation abgeschlossen")
+            progress_cb(100, "Stem Separation abgeschlossen")
 
         return stems
 
@@ -86,10 +213,15 @@ class StemSeparator:
                 raise ValueError(f"AudioTrack {track_id} nicht gefunden")
             file_path = track.file_path
 
-        stems = self.separate(file_path, progress_cb=progress_cb)
+        try:
+            stems = self.separate(file_path, progress_cb=progress_cb)
+        except Exception as e:
+            raise RuntimeError(f"Stem-Separation fehlgeschlagen fuer Track {track_id}: {e}") from e
 
         with Session(engine) as session:
             track = session.get(AudioTrack, track_id)
+            if track is None:
+                raise ValueError(f"AudioTrack {track_id} nach Separation nicht mehr gefunden")
             track.stem_vocals_path = stems.get("vocals")
             track.stem_drums_path = stems.get("drums")
             track.stem_bass_path = stems.get("bass")
@@ -119,7 +251,7 @@ class AutoDucker:
         out.parent.mkdir(parents=True, exist_ok=True)
 
         if progress_cb:
-            progress_cb(1, 3, "Berechne Auto-Ducking...")
+            progress_cb(10, "Berechne Auto-Ducking...")
 
         # Erst: Konvertiere Inputs zu WAV falls noetig
         tmp_music = out.parent / "_tmp_music.wav"
@@ -128,20 +260,22 @@ class AutoDucker:
             for src, dst in [(music_path, str(tmp_music)), (voice_path, str(tmp_voice))]:
                 cmd = ["ffmpeg", "-y", "-i", src, "-ar", "44100", "-ac", "1",
                        "-c:a", "pcm_s16le", str(dst)]
-                subprocess.run(
+                result = subprocess.run(
                     cmd, capture_output=True, timeout=60,
                     creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
                 )
+                if result.returncode != 0:
+                    raise RuntimeError(f"FFmpeg Konvertierung fehlgeschlagen: {result.stderr[:500] if result.stderr else 'no stderr'}")
 
             if progress_cb:
-                progress_cb(2, 3, "Scipy Ducking laeuft...")
+                progress_cb(50, "Scipy Ducking laeuft...")
 
             result = self.create_ducked_audio_scipy(
                 str(tmp_music), str(tmp_voice), output_path, progress_cb=None
             )
 
             if progress_cb:
-                progress_cb(3, 3, "Auto-Ducking fertig")
+                progress_cb(100, "Auto-Ducking fertig")
 
             return result
         finally:
@@ -152,7 +286,7 @@ class AutoDucker:
                                    output_path: str, progress_cb=None) -> str:
         """Fallback: Scipy-basiertes Ducking wenn FFmpeg sidechaincompress fehlt."""
         if progress_cb:
-            progress_cb(1, 4, "Lade Audio-Dateien...")
+            progress_cb(10, "Lade Audio-Dateien...")
 
         # WAV einlesen (fuer Stems die bereits WAV sind)
         music_sr, music_data = wavfile.read(music_path)
@@ -171,7 +305,7 @@ class AutoDucker:
             voice_data = voice_data.mean(axis=1)
 
         if progress_cb:
-            progress_cb(2, 4, "Berechne Voice-Envelope...")
+            progress_cb(30, "Berechne Voice-Envelope...")
 
         # Laengen anpassen
         min_len = min(len(music_data), len(voice_data))
@@ -187,7 +321,7 @@ class AutoDucker:
             envelope[i:i + window_size] = rms
 
         if progress_cb:
-            progress_cb(3, 4, "Wende Ducking an...")
+            progress_cb(60, "Wende Ducking an...")
 
         # Ducking: Wo Voice laut ist, Musik leiser
         duck_factor = 10 ** (self.duck_db / 20.0)  # z.B. -12dB -> 0.25
@@ -207,13 +341,16 @@ class AutoDucker:
         if peak > 0.95:
             mixed = mixed * (0.95 / peak)
 
+        # Finale Bounds-Pruefung gegen Int16-Overflow
+        mixed = np.clip(mixed, -1.0, 1.0)
+
         # Speichern
         out = Path(output_path)
         out.parent.mkdir(parents=True, exist_ok=True)
         wavfile.write(str(out), music_sr, (mixed * 32767).astype(np.int16))
 
         if progress_cb:
-            progress_cb(4, 4, "Ducking abgeschlossen")
+            progress_cb(100, "Ducking abgeschlossen")
 
         return str(out.resolve())
 
@@ -247,13 +384,13 @@ class FrequencyAnalyzer:
             beat_positions: list[float]  Beat-Zeitstempel in Sekunden
         """
         if progress_cb:
-            progress_cb(1, 5, "Lade Audio...")
+            progress_cb(0, "Lade Audio...")
 
         y, sr = librosa.load(file_path, sr=self.SR, mono=True)
         duration = librosa.get_duration(y=y, sr=sr)
 
         if progress_cb:
-            progress_cb(2, 5, "STFT Frequenzanalyse...")
+            progress_cb(20, "STFT Frequenzanalyse...")
 
         # Short-Time Fourier Transform → Magnitude-Spektrogramm
         S = np.abs(librosa.stft(y, n_fft=self.N_FFT, hop_length=self.HOP_LENGTH))
@@ -283,7 +420,7 @@ class FrequencyAnalyzer:
         band_high = _normalize(band_high)
 
         if progress_cb:
-            progress_cb(3, 5, "Beatgrid-Erkennung...")
+            progress_cb(50, "Beatgrid-Erkennung...")
 
         # Präzises Beatgrid via librosa
         tempo, beat_frames = librosa.beat.beat_track(y=y, sr=sr, hop_length=self.HOP_LENGTH)
@@ -297,7 +434,7 @@ class FrequencyAnalyzer:
         beat_positions = [round(float(t), 4) for t in beat_times]
 
         if progress_cb:
-            progress_cb(4, 5, "Daten komprimieren...")
+            progress_cb(80, "Daten komprimieren...")
 
         # Downsampling für Speichereffizienz: max ~2000 Samples für DB
         num_samples = len(band_low)
@@ -328,7 +465,7 @@ class FrequencyAnalyzer:
         }
 
         if progress_cb:
-            progress_cb(5, 5, "Frequenzanalyse abgeschlossen")
+            progress_cb(100, "Frequenzanalyse abgeschlossen")
 
         return result
 
@@ -344,24 +481,12 @@ class FrequencyAnalyzer:
 
         with Session(engine) as session:
             track = session.get(AudioTrack, track_id)
+            if track is None:
+                raise ValueError(f"AudioTrack {track_id} nach Frequenzanalyse nicht mehr gefunden")
 
             # BPM + Duration updaten
             track.bpm = result["bpm"]
             track.duration = result["duration"]
-
-            # Beatgrid speichern/aktualisieren
-            if track.beatgrid:
-                track.beatgrid.bpm = result["bpm"]
-                track.beatgrid.beat_positions = json.dumps(result["beat_positions"])
-                track.beatgrid.offset = result["beat_positions"][0] if result["beat_positions"] else 0.0
-            else:
-                bg = Beatgrid(
-                    audio_track_id=track_id,
-                    bpm=result["bpm"],
-                    offset=result["beat_positions"][0] if result["beat_positions"] else 0.0,
-                    beat_positions=json.dumps(result["beat_positions"]),
-                )
-                session.add(bg)
 
             # WaveformData speichern/aktualisieren
             if track.waveform_data:
@@ -382,5 +507,11 @@ class FrequencyAnalyzer:
                 session.add(wd)
 
             session.commit()
+
+            try:
+                from services.pacing_service import invalidate_pacing_caches
+                invalidate_pacing_caches()
+            except Exception:
+                pass
 
         return result
