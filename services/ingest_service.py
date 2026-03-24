@@ -36,22 +36,26 @@ def ingest_audio(file_path: str, project_id: int = 1) -> AudioTrack | None:
     path = Path(file_path)
     resolved = str(path.resolve())
 
-    with Session(engine) as session:
-        existing = session.query(AudioTrack).filter_by(file_path=resolved).first()
-        if existing:
-            return None
+    try:
+        with Session(engine) as session:
+            existing = session.query(AudioTrack).filter_by(file_path=resolved).first()
+            if existing:
+                return None
 
-        meta = _file_meta(path)
-        track = AudioTrack(
-            project_id=project_id,
-            file_path=meta["file_path"],
-            title=meta["title"],
-        )
-        session.add(track)
-        session.commit()
-        session.refresh(track)
-        _invalidate_pacing_caches()
-        return track
+            meta = _file_meta(path)
+            track = AudioTrack(
+                project_id=project_id,
+                file_path=meta["file_path"],
+                title=meta["title"],
+            )
+            session.add(track)
+            session.commit()
+            session.refresh(track)
+            _invalidate_pacing_caches()
+            return track
+    except Exception as e:
+        logger.error("ingest_audio fehlgeschlagen: %s", e)
+        raise
 
 
 def _probe_video_meta(file_path: str) -> dict:
@@ -95,27 +99,35 @@ def ingest_video(file_path: str, project_id: int = 1) -> VideoClip | None:
     path = Path(file_path)
     resolved = str(path.resolve())
 
-    with Session(engine) as session:
-        existing = session.query(VideoClip).filter_by(file_path=resolved).first()
-        if existing:
-            return None
+    # Bug-15 Fix: ffprobe-Subprocess VOR dem Öffnen der Session aufrufen.
+    # Session-Split-Pattern: DB-Session nicht länger als nötig offen halten,
+    # insbesondere nicht während externer Subprocess-Aufrufe.
+    video_meta = _probe_video_meta(resolved)
 
-        meta = _file_meta(path)
-        video_meta = _probe_video_meta(resolved)
-        clip = VideoClip(
-            project_id=project_id,
-            file_path=meta["file_path"],
-            duration=video_meta.get("duration"),
-            width=video_meta.get("width"),
-            height=video_meta.get("height"),
-            fps=video_meta.get("fps"),
-            codec=video_meta.get("codec"),
-        )
-        session.add(clip)
-        session.commit()
-        session.refresh(clip)
-        _invalidate_pacing_caches()
-        return clip
+    try:
+        with Session(engine) as session:
+            existing = session.query(VideoClip).filter_by(file_path=resolved).first()
+            if existing:
+                return None
+
+            meta = _file_meta(path)
+            clip = VideoClip(
+                project_id=project_id,
+                file_path=meta["file_path"],
+                duration=video_meta.get("duration"),
+                width=video_meta.get("width"),
+                height=video_meta.get("height"),
+                fps=video_meta.get("fps"),
+                codec=video_meta.get("codec"),
+            )
+            session.add(clip)
+            session.commit()
+            session.refresh(clip)
+            _invalidate_pacing_caches()
+            return clip
+    except Exception as e:
+        logger.error("ingest_video fehlgeschlagen: %s", e)
+        raise
 
 
 def get_all_audio(project_id: int = 1) -> list[dict]:
@@ -164,6 +176,7 @@ def delete_all_media(project_id: int = 1) -> int:
 
     Löscht zuerst alle abhängigen Child-Rows (ClipAnchors, TimelineEntries,
     AudioVideoAnchors, Scenes, Beatgrids, WaveformData), dann die Parents.
+    HINWEIS: AIPacingMemory wird NIEMALS geloescht – das KI-Gedaechtnis ist permanent.
     """
     from database import (
         AudioVideoAnchor, ClipAnchor, TimelineEntry,
@@ -216,6 +229,13 @@ def delete_all_media(project_id: int = 1) -> int:
         session.query(PacingBlueprint).filter_by(project_id=project_id).delete(
             synchronize_session=False
         )
+
+        # ===== WARNUNG: AIPacingMemory darf NIE geloescht werden! =====
+        # Das KI-Langzeitgedaechtnis (Tabelle 'ai_pacing_memory') ist projektuebergreifend
+        # und enthaelt gelernte Schnitt-Entscheidungen des Users. Ein Reset darf NUR
+        # Videos, Audios, Stems und Timelines loeschen – NIEMALS das KI-Gedaechtnis!
+        # Zukuenftige Agenten: Fuege hier KEINEN Delete auf AIPacingMemory hinzu.
+        # ================================================================
 
         # Jetzt die Parents selbst
         count_a = session.query(AudioTrack).filter_by(project_id=project_id).delete(
