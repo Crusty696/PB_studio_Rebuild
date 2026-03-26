@@ -95,12 +95,10 @@ class LocalAgentService:
     ):
         self.registry = registry or action_registry
         self.model_id = model_id
-        # GPU-ZWANG: Wenn CUDA da ist, immer CUDA nutzen
-        import torch
-        cuda_available = torch.cuda.is_available()
-        self.device = "cuda" if cuda_available else "cpu"
-        if device and device != self.device and cuda_available:
-            logger.warning("GPU-ZWANG: Device '%s' → 'cuda' erzwungen", device)
+        # GPU-ZWANG: Device wird lazy ermittelt (torch-Import blockiert 5-15s)
+        self._device_override = device
+        self._device_resolved = False
+        self.device = device or "cpu"  # Platzhalter bis erster Aufruf
 
         # Zentraler Singleton-ModelManager (erzwingt ebenfalls GPU)
         self.model_manager = ModelManager(device=self.device)
@@ -336,6 +334,18 @@ class LocalAgentService:
                 "actions": list[dict] | None,   # Alle Ergebnisse (bei multi action)
             }
         """
+        # Lazy Device-Resolution (torch-Import nur beim ersten Aufruf)
+        if not self._device_resolved:
+            self._device_resolved = True
+            try:
+                import torch
+                cuda_available = torch.cuda.is_available()
+                self.device = "cuda" if cuda_available else "cpu"
+                if self._device_override and self._device_override != self.device and cuda_available:
+                    logger.warning("GPU-ZWANG: Device '%s' → 'cuda' erzwungen", self._device_override)
+            except ImportError:
+                self.device = "cpu"
+
         response = {
             "action": "none",
             "params": {},

@@ -155,9 +155,7 @@ class TimelineClipItem(QGraphicsRectItem):
             ).delete()
             session.commit()
         for m in self._anchor_markers:
-            if m.line_item.parentItem():
-                # Kinder werden mit Parent entfernt
-                pass
+            m.remove_from_scene()
         self._anchor_markers.clear()
 
     def get_first_anchor_time(self) -> float | None:
@@ -236,12 +234,9 @@ class InteractiveTimeline(QGraphicsView):
             QGraphicsView.ViewportUpdateMode.SmartViewportUpdate
         )
 
-        # Sektor 3: Hardware-beschleunigtes Rendering (OpenGL)
-        try:
-            from PySide6.QtOpenGLWidgets import QOpenGLWidget
-            self.setViewport(QOpenGLWidget())
-        except (ImportError, RuntimeError):
-            pass  # Fallback: Software-Rendering mit Tile-Cache
+        # Sektor 3: Software-Rendering (OpenGL entfernt wegen Thread-Crash
+        # "Cannot make QOpenGLContext current in a different thread")
+        # Tile-Cache + CacheBackground reicht fuer 2D-Timeline.
 
         # Panning-State
         self._panning = False

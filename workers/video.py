@@ -57,6 +57,57 @@ class VideoAnalysisWorker(QObject, CancellableMixin):
                 self.finished.emit(self.clip_id, {})
 
 
+class VideoBatchAnalysisWorker(QObject, CancellableMixin):
+    """Analysiert eine Liste von Videos SEQUENTIELL in einem einzigen Thread.
+
+    Verhindert OpenGL/QPainter-Crashes die bei parallelen Workern auftreten.
+    Signals melden Fortschritt pro Video an den Main-Thread.
+    """
+    item_done = Signal(int, str)    # clip_id, info_str
+    item_error = Signal(int, str)   # clip_id, error_msg
+    error = Signal(str)             # GlobalTaskManager braucht dieses Signal
+    finished = Signal(int, int)     # total_done, total_errors
+    progress = Signal(int, str)     # percent, message
+
+    def __init__(self, batch: list):
+        """Args: batch = Liste von (clip_id, title) Tupeln."""
+        super().__init__()
+        self._batch = batch
+
+    def run(self):
+        analyzer = VideoAnalyzer()
+        total = len(self._batch)
+        done = 0
+        errors = 0
+
+        for idx, (clip_id, title) in enumerate(self._batch, start=1):
+            if self.should_stop():
+                break
+            self.progress.emit(
+                int((idx - 1) / total * 100),
+                f"[{idx}/{total}] {title}..."
+            )
+            try:
+                result = analyzer.analyze_and_store(clip_id)
+                done += 1
+                if result:
+                    info = (f"{result.get('width', '?')}x{result.get('height', '?')} "
+                            f"{result.get('fps', '?')}fps")
+                else:
+                    info = "OK"
+                self.item_done.emit(clip_id, info)
+            except Exception as e:
+                errors += 1
+                logger.error("BatchAnalysis[%d] '%s' failed: %s\n%s",
+                             clip_id, title, e, traceback.format_exc())
+                self.item_error.emit(clip_id, str(e))
+            finally:
+                gc.collect()
+
+        self.progress.emit(100, f"Batch fertig: {done}/{total}")
+        self.finished.emit(done, errors)
+
+
 class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
     """Führt die 3-Schritt Video-Analyse-Pipeline im Hintergrund aus.
 
@@ -147,6 +198,8 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                                   clip_id, idx, total_videos, label, e, traceback.format_exc())
                     self._errored = True
                     self.error.emit(clip_id, f"Video {idx}/{total_videos} '{label}': {e}")
+                    # finished MUSS emittiert werden damit thread.quit() aufgerufen wird
+                    self.finished.emit(last_clip_id, {})
                     return
                 finally:
                     # VRAM-Schutz: GPU-Speicher nach JEDEM Video freigeben (6GB Limit)
@@ -171,7 +224,8 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
             self._errored = True
             self.error.emit(last_clip_id, str(e))
         finally:
-            if not _ok and not self._errored:
+            # finished MUSS immer emittiert werden damit thread.quit() greift
+            if not _ok:
                 self.finished.emit(last_clip_id, {})
 
 

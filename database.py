@@ -12,7 +12,7 @@ APP_ROOT = Path(__file__).parent
 engine = create_engine(
     f"sqlite:///{APP_ROOT / 'pb_studio.db'}",
     echo=False,
-    connect_args={"check_same_thread": False},
+    connect_args={"check_same_thread": False, "timeout": 30},
 )
 
 
@@ -440,6 +440,10 @@ def init_db():
         with engine.begin() as conn:
             for stem_col in ["stem_vocals_path", "stem_drums_path", "stem_bass_path", "stem_other_path"]:
                 if stem_col not in at_columns:
+                    import re as _re2
+                    if not _re2.match(r"^[a-z_]+$", stem_col):
+                        logging.warning("Ungültiger Spaltenname übersprungen: %s", stem_col)
+                        continue
                     conn.execute(text(f"ALTER TABLE audio_tracks ADD COLUMN {stem_col} TEXT"))
 
     # H5 Fix: Indizes auf Foreign-Key-Spalten erstellen (SQLite macht das nicht automatisch)

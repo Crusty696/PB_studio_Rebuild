@@ -245,11 +245,26 @@ class GlobalTaskManager(QObject):
             if on_error:
                 worker.error.connect(on_error)
 
-        # Thread-Lifecycle: finished → quit → deleteLater → cleanup
+        # Thread-Lifecycle: finished → quit → cleanup (deleteLater nur einmal!)
         worker.finished.connect(thread.quit)
-        thread.finished.connect(worker.deleteLater)
-        thread.finished.connect(thread.deleteLater)
-        thread.finished.connect(lambda _tid=task_id: self._on_thread_done(_tid))
+        def _safe_cleanup(_tid=task_id):
+            """Guard: deleteLater nur wenn C++ Objekt noch existiert."""
+            task = self._tasks.get(_tid)
+            if task:
+                if task.worker:
+                    try:
+                        task.worker.deleteLater()
+                    except RuntimeError:
+                        pass  # C++ object already deleted
+                    task.worker = None
+                if task.thread:
+                    try:
+                        task.thread.deleteLater()
+                    except RuntimeError:
+                        pass  # C++ object already deleted
+                    task.thread = None
+            self._on_thread_done(_tid)
+        thread.finished.connect(_safe_cleanup)
 
         # Referenzen halten (GC-Schutz)
         task.thread = thread
@@ -343,10 +358,17 @@ class GlobalTaskManager(QObject):
                 to_remove.append(k)
         for k in to_remove:
             task = self._tasks.pop(k)
+            # Guard: nur deleteLater wenn noch nicht vom thread.finished-Handler erledigt
             if task.worker:
-                task.worker.deleteLater()
+                try:
+                    task.worker.deleteLater()
+                except RuntimeError:
+                    pass
             if task.thread:
-                task.thread.deleteLater()
+                try:
+                    task.thread.deleteLater()
+                except RuntimeError:
+                    pass
 
     # ------------------------------------------------------------------
     # Interner Cleanup

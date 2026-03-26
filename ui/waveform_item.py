@@ -72,7 +72,7 @@ class WaveformGraphicsItem(QGraphicsItem):
         self._height = height
 
         self._width = self._duration * self._pps
-        self._tile_cache: dict[int, QPixmap] = {}  # tile_index → QPixmap
+        self._tile_cache: dict[int, QImage] = {}  # tile_index → QImage (thread-safe)
 
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
         self.setAcceptHoverEvents(False)
@@ -122,9 +122,9 @@ class WaveformGraphicsItem(QGraphicsItem):
                 while len(self._tile_cache) > TILE_CACHE_MAX:
                     self._tile_cache.pop(next(iter(self._tile_cache)))
 
-            pixmap = self._tile_cache[tile_idx]
-            if pixmap:
-                painter.drawPixmap(tile_x, 0, pixmap)
+            tile_img = self._tile_cache[tile_idx]
+            if tile_img:
+                painter.drawImage(tile_x, 0, tile_img)
 
         # Beatgrid mit LOD zeichnen (direkt, nicht gecacht — reagiert auf Zoom)
         self._draw_beatgrid_lod(painter, clip_rect, h)
@@ -153,7 +153,7 @@ class WaveformGraphicsItem(QGraphicsItem):
             sample_end = max(sample_start + 1, min(sample_end, num_samples))
             return max(band[sample_start:sample_end])
 
-    def _render_tile(self, tile_idx: int, tile_w: int, h: int) -> Optional[QPixmap]:
+    def _render_tile(self, tile_idx: int, tile_w: int, h: int) -> Optional[QImage]:
         """Rendert ein Tile via QPainterPath — performant UND detailliert.
 
         Zeichnet drei überlappende Frequenz-Schichten als gefüllte Pfade:
@@ -235,7 +235,7 @@ class WaveformGraphicsItem(QGraphicsItem):
             p.drawPath(path)
 
         p.end()
-        return QPixmap.fromImage(img)
+        return img  # QImage direkt zurueckgeben (thread-safe, kein QPixmap noetig)
 
     def _draw_beatgrid_lod(self, painter: QPainter, clip_rect: QRectF, h: int):
         """Zeichnet Beatgrid-Linien mit Multi-Level LOD und Binary-Search Culling.

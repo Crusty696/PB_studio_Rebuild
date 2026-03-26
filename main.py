@@ -69,9 +69,13 @@ from ui.waveform_item import WaveformGraphicsItem
 import services.task_manager as _task_manager_module
 from services.task_manager import TaskInfo, GlobalTaskManager
 
-# Modul-Level task_manager — wird in main() auf die Singleton-Instanz gesetzt.
-# PBWindow-Methoden greifen hierauf zu.
-task_manager: GlobalTaskManager | None = None
+# Modul-Level task_manager — Proxy-Objekt das immer auf den Singleton delegiert.
+# Verhindert AttributeError wenn vor main() zugegriffen wird.
+class _TaskManagerProxy:
+    """Proxy: Leitet alle Attribut-Zugriffe an GlobalTaskManager.instance() weiter."""
+    def __getattr__(self, name):
+        return getattr(GlobalTaskManager.instance(), name)
+task_manager = _TaskManagerProxy()
 
 
 # ======================================================================
@@ -80,7 +84,7 @@ task_manager: GlobalTaskManager | None = None
 from workers import (
     CancellableMixin,
     AnalysisWorker, WaveformAnalysisWorker,
-    VideoAnalysisWorker, VideoAnalysisPipelineWorker, FrameExtractWorker,
+    VideoAnalysisWorker, VideoBatchAnalysisWorker, VideoAnalysisPipelineWorker, FrameExtractWorker,
     StemSeparationWorker, AutoDuckingWorker,
     ExportWorker, FolderImportWorker, BatchConvertWorker, ProxyCreationWorker,
     AutoEditWorker, SemanticSearchWorker,
@@ -540,10 +544,7 @@ class PBWindow(QMainWindow):
             # Dies verhindert den Doppel-Aufruf von finish_task() wenn der Caller bereits
             # eigene error-Handler (die finish_task aufrufen) vor _start_worker_thread
             # verbindet.
-            _has_prior_error_cb = (
-                on_error is not None
-                or (hasattr(worker, "error") and worker.error.receivers() > 0)
-            )
+            _has_prior_error_cb = on_error is not None
             def _default_error_handler(*args, _tid=existing_task_id, _name=worker_name,
                                        _tm=tm, _has_cb=_has_prior_error_cb):
                 err_msg = str(args[-1]) if args else "Unbekannter Fehler"
@@ -1436,7 +1437,6 @@ class PBWindow(QMainWindow):
         def _on_finish(added: int, new_video_clips: list):
             if added:
                 self._refresh_media_table()
-                self._refresh_director_combos()
                 for clip_id, video_path, title in new_video_clips:
                     self._start_proxy_creation(clip_id, video_path, title)
             self.status_bar.showMessage(f"{added} Datei(en) importiert | System bereit")
@@ -1479,7 +1479,6 @@ class PBWindow(QMainWindow):
         def _on_finish(added: int, new_video_clips: list):
             if added:
                 self._refresh_media_table()
-                self._refresh_director_combos()
                 for clip_id, video_path, title in new_video_clips:
                     self._start_proxy_creation(clip_id, video_path, title)
             self.status_bar.showMessage(
@@ -1504,7 +1503,6 @@ class PBWindow(QMainWindow):
         if reply == QMessageBox.StandardButton.Yes:
             count = delete_all_media()
             self._refresh_media_table()
-            self._refresh_director_combos()
             self.console_text.append(f"[System] {count} Medien-Eintraege geloescht.")
             self.status_bar.showMessage(f"Sammlung bereinigt ({count} Eintraege) | System bereit")
 
@@ -1553,7 +1551,6 @@ class PBWindow(QMainWindow):
         if reply == QMessageBox.StandardButton.Yes:
             count = delete_selected_media(video_ids, audio_ids)
             self._refresh_media_table()
-            self._refresh_director_combos()
             self.console_text.append(f"[System] {count} Medien-Eintraege geloescht.")
             self.status_bar.showMessage(f"{count} Medien geloescht | System bereit")
 
@@ -1613,7 +1610,6 @@ class PBWindow(QMainWindow):
         self.progress_bar.setVisible(False)
         self.status_bar.showMessage("Analyse abgeschlossen | System bereit")
         self._refresh_media_table()
-        self._refresh_director_combos()
         if task_id:
             task_manager.finish_task(task_id, "finished", f"{bpm} BPM, {beats} Beats")
 
@@ -1716,6 +1712,8 @@ class PBWindow(QMainWindow):
     # Video-Analyse
     # ==================================================================
 
+    # ------ Batch Video Analysis (1 Thread, sequentiell) ------
+
     def _analyze_selected_video(self):
         # Batch: Alle angehakten Zeilen im Video Pool auslesen
         checked_rows = []
@@ -1734,13 +1732,8 @@ class PBWindow(QMainWindow):
             self.console_text.append("[Warnung] Keine Zeile im Video Pool ausgewaehlt oder angehakt.")
             return
 
-        self.btn_analyze_video.setEnabled(False)
-        self.progress_bar.setVisible(True)
-        count = len(checked_rows)
-        self.btn_analyze_video.setText(f"Analyse laeuft ({count})...")
-
-        # Sequentiell starten: erste Analyse starten, Rest in Queue
-        self._video_analyze_queue = []
+        # Queue aufbauen
+        batch = []
         for row in checked_rows:
             id_item = self.video_pool_table.item(row, 1)
             title_item = self.video_pool_table.item(row, 2)
@@ -1748,69 +1741,75 @@ class PBWindow(QMainWindow):
                 continue
             clip_id = int(id_item.text())
             title = title_item.text() if title_item else f"Clip {clip_id}"
-            self._video_analyze_queue.append((clip_id, title))
+            batch.append((clip_id, title))
 
-        if not self._video_analyze_queue:
-            self.btn_analyze_video.setEnabled(True)
-            self.btn_analyze_video.setText("Video analysieren")
-            self.progress_bar.setVisible(False)
+        if not batch:
             return
 
-        self._run_next_video_analysis()
-
-    def _run_next_video_analysis(self):
-        """Startet die naechste Video-Analyse aus der Queue."""
-        if not self._video_analyze_queue:
-            self.btn_analyze_video.setEnabled(True)
-            self.btn_analyze_video.setText("Video analysieren")
-            self.progress_bar.setVisible(False)
-            self.status_bar.showMessage("Alle Video-Analysen abgeschlossen | System bereit")
-            return
-
-        clip_id, title = self._video_analyze_queue.pop(0)
-        remaining = len(self._video_analyze_queue)
-        self.btn_analyze_video.setText(
-            f"Analyse laeuft... ({remaining + 1} verbleibend)"
+        self.btn_analyze_video.setEnabled(False)
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setRange(0, len(batch))
+        self.progress_bar.setValue(0)
+        self.btn_analyze_video.setText(f"Analyse 0/{len(batch)}...")
+        self.console_text.append(
+            f"[Video] Batch-Analyse gestartet: {len(batch)} Videos (sequentiell)"
         )
 
-        task = task_manager.create_task(f"Video: {title}", "Metadaten + Proxy")
+        task = task_manager.create_task(
+            f"Video-Batch ({len(batch)})", "Metadaten + Proxy"
+        )
 
-        worker = VideoAnalysisWorker(clip_id, title)
+        worker = VideoBatchAnalysisWorker(batch)
         worker.task_id = task.task_id
-        worker.started.connect(self._on_video_analysis_started)
-        worker.finished.connect(lambda cid, r: self._on_video_analysis_finished(cid, r, task.task_id))
-        worker.error.connect(lambda cid, err: self._on_video_analysis_error(cid, err, task.task_id))
-
+        worker.item_done.connect(self._on_video_batch_item_done)
+        worker.item_error.connect(self._on_video_batch_item_error)
+        worker.finished.connect(
+            lambda done, errors: self._on_video_batch_finished(done, errors, task.task_id)
+        )
+        self._video_batch_total = len(batch)
+        self._video_batch_done = 0
+        self._video_batch_errors = 0
         self._start_worker_thread(worker)
 
-    def _on_video_analysis_started(self, clip_id: int, title: str):
-        self.console_text.append(f"[Video] Analysiere '{title}'...")
-        self.status_bar.showMessage(f"Video-Analyse: {title}")
-
-    def _on_video_analysis_finished(self, clip_id: int, result: dict, task_id: str = ""):
-        if not result:
-            self._run_next_video_analysis()
-            return
-        self.console_text.append(
-            f"[Video] Analyse fertig: {result['width']}x{result['height']} | "
-            f"{result['fps']} FPS | Dauer: {result.get('duration', '?')}s | Codec: {result['codec']}"
+    def _on_video_batch_item_done(self, clip_id: int, info: str):
+        """Ein einzelnes Video im Batch ist fertig."""
+        self._video_batch_done += 1
+        self.progress_bar.setValue(self._video_batch_done)
+        self.btn_analyze_video.setText(
+            f"Analyse {self._video_batch_done}/{self._video_batch_total}..."
         )
-        if "proxy_path" in result:
-            self.console_text.append(f"[Video] Proxy erstellt: {result['proxy_path']}")
-        self._refresh_media_table()
-        self._refresh_director_combos()
-        if task_id:
-            task_manager.finish_task(task_id, "finished",
-                                     f"{result['width']}x{result['height']} {result['fps']}fps")
-        # Naechste Analyse aus der Queue starten
-        self._run_next_video_analysis()
+        self.status_bar.showMessage(
+            f"Video-Analyse: {self._video_batch_done}/{self._video_batch_total} — {info}"
+        )
 
-    def _on_video_analysis_error(self, clip_id: int, error_msg: str, task_id: str = ""):
-        self.console_text.append(f"[Fehler] Video-Analyse fehlgeschlagen (ID {clip_id}): {error_msg}")
+    def _on_video_batch_item_error(self, clip_id: int, error_msg: str):
+        """Ein einzelnes Video im Batch ist fehlgeschlagen."""
+        self._video_batch_errors += 1
+        self._video_batch_done += 1
+        self.progress_bar.setValue(self._video_batch_done)
+        self.btn_analyze_video.setText(
+            f"Analyse {self._video_batch_done}/{self._video_batch_total}..."
+        )
+        self.console_text.append(
+            f"[Fehler] Video ID {clip_id}: {error_msg}"
+        )
+
+    def _on_video_batch_finished(self, done: int, errors: int, task_id: str):
+        """Gesamter Batch ist fertig."""
+        self.btn_analyze_video.setEnabled(True)
+        self.btn_analyze_video.setText("Video analysieren")
+        self.progress_bar.setVisible(False)
+        self._refresh_media_table()
+        errors_info = f" ({errors} Fehler)" if errors else ""
+        self.console_text.append(
+            f"[Video] Batch-Analyse abgeschlossen: {done}/{self._video_batch_total}{errors_info}"
+        )
+        self.status_bar.showMessage(
+            f"Alle {self._video_batch_total} Video-Analysen abgeschlossen | System bereit"
+        )
         if task_id:
-            task_manager.finish_task(task_id, "error", error_msg)
-        # Naechste Analyse aus der Queue starten (trotz Fehler)
-        self._run_next_video_analysis()
+            status = "finished" if errors == 0 else "error"
+            task_manager.finish_task(task_id, status, f"{done} fertig{errors_info}")
 
     # ==================================================================
     # Phase 2: Video Analysis Pipeline (SEKTOR 1)
@@ -2112,7 +2111,11 @@ class PBWindow(QMainWindow):
             other_path = track.stem_other_path
             title = track.title
 
-        output_path = str(Path("storage/ducked") / f"{title}_ducked.wav")
+        import re as _re_ducking
+        ducked_dir = Path(__file__).parent / "storage" / "ducked"
+        ducked_dir.mkdir(parents=True, exist_ok=True)
+        safe_title = _re_ducking.sub(r'[<>:"/\\|?*]', '_', title or "track")
+        output_path = str(ducked_dir / f"{safe_title}_ducked.wav")
         task = task_manager.create_task(f"Ducking: {title}", "Auto-Ducking")
 
         self.btn_auto_duck.setEnabled(False)
@@ -2253,9 +2256,12 @@ class PBWindow(QMainWindow):
             if chk:
                 chk.setCheckState(new_state)
 
-    def _refresh_media_table(self):
-        # Video Pool
+    def _refresh_media_table(self, _also_combos: bool = True):
+        # Einmal laden, ueberall verwenden (statt 4-6 DB-Sessions)
         videos = get_all_video()
+        audios = get_all_audio()
+
+        # Video Pool
         self.video_pool_table.setRowCount(len(videos))
         for row, item in enumerate(videos):
             chk = QTableWidgetItem()
@@ -2271,7 +2277,6 @@ class PBWindow(QMainWindow):
             self.video_pool_table.setItem(row, 6, QTableWidgetItem(item["file_path"]))
 
         # Audio Pool
-        audios = get_all_audio()
         self.audio_pool_table.setRowCount(len(audios))
         for row, item in enumerate(audios):
             chk = QTableWidgetItem()
@@ -2286,8 +2291,8 @@ class PBWindow(QMainWindow):
             self.audio_pool_table.setItem(row, 5, QTableWidgetItem(item.get("stems", "-")))
             self.audio_pool_table.setItem(row, 6, QTableWidgetItem(item["file_path"]))
 
-        # Hidden proxy table (for legacy selection-based functions)
-        media = get_all_media()
+        # Hidden proxy table — aus bereits geladenen Daten zusammenbauen
+        media = [dict(m, type="Audio") for m in audios] + [dict(m, type="Video") for m in videos]
         self.media_table.setRowCount(len(media))
         for row, item in enumerate(media):
             self.media_table.setItem(row, 0, QTableWidgetItem(str(item["id"])))
@@ -2302,6 +2307,22 @@ class PBWindow(QMainWindow):
             stems = item.get("stems", "-")
             self.media_table.setItem(row, 6, QTableWidgetItem(stems))
             self.media_table.setItem(row, 7, QTableWidgetItem(item["file_path"]))
+
+        # Director-Combos gleich mit aktualisieren (spart redundante DB-Abfrage)
+        if _also_combos:
+            self.audio_combo.clear()
+            self.video_combo.clear()
+            self.audio_combo.addItem("-- kein Audio --", None)
+            self.video_combo.addItem("-- kein Video --", None)
+            for item in media:
+                label = f"[{item['id']}] {item['title']}"
+                if item["type"] == "Audio":
+                    bpm = item.get("bpm")
+                    if bpm:
+                        label += f" ({bpm} BPM)"
+                    self.audio_combo.addItem(label, item["id"])
+                elif item["type"] == "Video":
+                    self.video_combo.addItem(label, item["id"])
 
     # ==================================================================
     # System-Konsole & Chat Dock
@@ -2336,6 +2357,7 @@ class PBWindow(QMainWindow):
 
         self.console_text = QTextEdit()
         self.console_text.setReadOnly(True)
+        self.console_text.document().setMaximumBlockCount(500)  # Max 500 Zeilen
         self.console_text.setToolTip(
             "System-Konsole: Zeigt alle Aktionen, Warnungen und Fehler der Anwendung in Echtzeit an"
         )
@@ -2405,9 +2427,9 @@ def setup_logging():
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
-    # Console Handler (WARNING+)
+    # Console Handler (DEBUG+)
     ch = logging.StreamHandler()
-    ch.setLevel(logging.WARNING)
+    ch.setLevel(logging.DEBUG)
     ch.setFormatter(fmt)
     root.addHandler(ch)
 
@@ -2422,8 +2444,36 @@ def setup_logging():
     logging.info("Logging initialisiert → %s", log_file)
 
 
+def _global_exception_hook(exc_type, exc_value, exc_tb):
+    """Faengt unhandled Exceptions ab, loggt sie und verhindert lautloses Sterben."""
+    import traceback as _tb
+    msg = "".join(_tb.format_exception(exc_type, exc_value, exc_tb))
+    logging.critical("UNHANDLED EXCEPTION:\n%s", msg)
+    print(f"\n{'='*60}\n  CRASH — Unhandled Exception\n{'='*60}\n{msg}", flush=True)
+    # Nicht sys.exit() — Qt soll Chance zum Cleanup haben
+
+
 def main():
     setup_logging()
+
+    # Globaler Exception-Hook: Crashes nie verschlucken
+    sys.excepthook = _global_exception_hook
+
+    # Auch fuer Worker-Threads: unhandled exceptions loggen
+    import threading
+    _orig_excepthook = threading.excepthook
+    def _thread_exception_hook(args):
+        logging.critical(
+            "THREAD CRASH [%s]: %s",
+            args.thread.name if args.thread else "?",
+            args.exc_value,
+            exc_info=(args.exc_type, args.exc_value, args.exc_traceback),
+        )
+        print(f"\n[THREAD CRASH] {args.thread}: {args.exc_value}", flush=True)
+        if _orig_excepthook:
+            _orig_excepthook(args)
+    threading.excepthook = _thread_exception_hook
+
     try:
         init_db()
     except Exception as exc:
@@ -2435,10 +2485,9 @@ def main():
     app = QApplication(sys.argv)
 
     # TaskManager als erstes erstellen und an QApplication verankern
-    global task_manager
-    task_manager = GlobalTaskManager.instance()
-    _task_manager_module.task_manager = task_manager  # Modul-Level fuer andere Imports
-    app.task_manager = task_manager
+    _tm = GlobalTaskManager.instance()
+    _task_manager_module.task_manager = _tm  # Modul-Level fuer andere Imports
+    app.task_manager = _tm
 
     # ALT: Theme laden - VORERST AUSGEBLENDET DAMIT QT-MATERIAL FUNKTIONIERT
     # qss_path = RESOURCE_DIR / "styles.qss"

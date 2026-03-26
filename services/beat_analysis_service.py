@@ -188,6 +188,7 @@ class BeatAnalysisService:
         2. Analysiere jeden Chunk separat
         3. Setze Beat-Timestamps wieder zusammen (dedupliziere Overlap-Bereich)
         """
+        import torch
         import tempfile
         import soundfile as sf
 
