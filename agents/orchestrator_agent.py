@@ -32,6 +32,7 @@ from agents.base_agent import BaseAgent
 from agents.vision_agent import VisionAgent
 from agents.audio_agent import AudioAgent
 from agents.editor_agent import EditorAgent
+from agents.pacing_agent import PacingAgent
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +80,7 @@ class OrchestratorAgent(BaseAgent):
     def __init__(self):
         super().__init__()
         self._agents: list[BaseAgent] = [
+            PacingAgent(),   # Highest priority for pacing/auto-edit queries
             VisionAgent(),
             AudioAgent(),
             EditorAgent(),
@@ -186,8 +188,8 @@ class OrchestratorAgent(BaseAgent):
 
         # Schritt 2: Audio-Agent (faster-whisper)
         # Versuche zuerst mit track_id, dann mit file_path des VideoClips
+        audio_params: dict = {}
         try:
-            audio_params = {}
             if media_id is not None:
                 # Versuche file_path des VideoClips für Whisper
                 try:
@@ -197,7 +199,9 @@ class OrchestratorAgent(BaseAgent):
                         clip = session.get(VideoClip, media_id)
                         if clip and clip.file_path:
                             audio_params["file_path"] = clip.file_path
-                except Exception:
+                except Exception as e:
+                    # Bug-34 Fix: Fehler protokollieren statt zu verschlucken
+                    logger.warning("Konnte VideoClip %d nicht laden für Transcription: %s", media_id, e)
                     audio_params["track_id"] = media_id
 
             if not audio_params:
