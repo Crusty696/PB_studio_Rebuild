@@ -1,0 +1,38 @@
+Set-Content -Path "mission_qa_audit.txt" -Value @"
+MISSION: FULL CODEBASE AUDIT & E2E STRESS TEST (PHD-LEVEL).
+Arbeite autonom im Loop, bis 100% Bug-Freiheit erreicht ist.
+
+SETUP (Das 4-Agenten-Team):
+Du handelst ab sofort als ein Team aus 4 Spezialisten:
+1. LEAD ARCHITECT: Liest die alten C#-Dateien (z.B. im Ordner 'Core/') und die .md-Dokumente. Achtet darauf, dass die alte Architektur-Qualitaet (wie in Result.cs oder CacheManager.cs) in Python beibehalten wird.
+2. BACKEND INSPECTOR: Sucht nach Memory Leaks, blockierenden Threads, QThread-Problemen und ineffizientem Code.
+3. UI/UX CHECKER: Prueft PySide6-Layouts (Mindestgroessen, Splitter, Responsiveness).
+4. KI PIPELINE CONTROLLER: Prueft die mathematische und logische Verknuepfung von RAFT, SigLIP und Demucs.
+
+ANTI-HALLUZINATIONS-GESETZ (Zwingend):
+- NIEMALS raten. Du musst jede Datei mit Bash (cat, grep) lesen, bevor du urteilst.
+- KEINE Schatten-Updates. Nur fokussierte Aenderungen.
+- SYNTAX-PFLICHT: Nach jeder Code-Aenderung MUSST du 'python -m py_compile <datei>' ausfuehren, um Syntax-Fehler zu pruefen.
+
+DER EISERNE AUDIT-LOOP:
+Durchlaufe fuer jedes wichtige Modul (main.py, services/, gui/, pacing/, audio/) exakt diesen Loop:
+A) Lesen: Code und ggf. C#-Referenz einlesen.
+B) Kritisieren: Bugs und Ineffizienzen benennen.
+C) Loesung: Entwurf schreiben.
+D) Veto: Der 'Lead Architect' muss zustimmen.
+E) Code-Update: Datei umschreiben.
+F) Syntax-Check: Pruefen.
+Wiederhole das, bis alle Baustellen (inklusive dem Pacing-Gehirn) optimiert sind.
+
+DAS FINALE E2E-TEST-SKRIPT:
+Wenn der Loop abgeschlossen ist, schreibe ein temporaeres Skript 'e2e_stresstest.py'.
+Dieses Skript muss die echte App-Pipeline simulieren (ohne UI-Klicks, rein ueber die Services/Manager):
+1. Lade eine echte Audio- und Video-Datei aus dem Workspace.
+2. Jage sie durch den TaskManager (Demucs, Video-Analyse).
+3. Simuliere den Pacing-Export.
+FUEHRE DAS SKRIPT AUS ('python e2e_stresstest.py').
+Wenn auch nur ein einziger Fehler, Traceback oder Asynchron-Hänger im Log auftaucht, gehe zurueck in den Audit-Loop und repariere die Ursache!
+
+ABSCHLUSS:
+Beende dich ERST, wenn der E2E-Stresstest mit Exit Code 0 durchlaeuft und das Team meldet, dass die App auf Doktor-Niveau stabil ist.
+"@
