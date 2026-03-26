@@ -16,6 +16,7 @@ engine = create_engine(
 def _set_sqlite_pragma(dbapi_connection, connection_record):
     cursor = dbapi_connection.cursor()
     cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.execute("PRAGMA journal_mode=WAL")
     cursor.close()
 
 
@@ -202,6 +203,41 @@ class ClipAnchor(Base):
         return f"<ClipAnchor(id={self.id}, entry={self.timeline_entry_id}, offset={self.time_offset})>"
 
 
+class AIPacingMemory(Base):
+    """KI-Langzeitgedaechtnis: Speichert manuelle Schnitt-Entscheidungen fuer zukuenftige Auto-Edits.
+
+    Wird befuellt wenn der User auf 'Als KI-Regel lernen' klickt. Die Kombination
+    aus Audio-Kontext und Video-Entscheidung beeinflusst kuenftige Auto-Edits.
+    """
+    __tablename__ = "ai_pacing_memory"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    created_at = Column(String, nullable=True)
+
+    # ── Audio-Kontext ──
+    bpm = Column(Float, nullable=True)
+    bass_energy = Column(Float, nullable=True)    # 0.0-1.0
+    drum_energy = Column(Float, nullable=True)    # 0.0-1.0
+    overall_energy = Column(Float, nullable=True) # 0.0-1.0
+    mood = Column(String, nullable=True)          # "drop", "peak", "buildup", "breakdown", "warmup"
+    audio_time = Column(Float, nullable=True)     # Zeitstempel im Audio (Sekunden)
+
+    # ── Video-Entscheidung ──
+    raft_motion = Column(Float, nullable=True)       # RAFT motion score (0.0-1.0)
+    siglip_tags = Column(Text, nullable=True)        # JSON: ["outdoor", "energetic", ...]
+    cut_type = Column(String, nullable=True)         # "hard_cut", "crossfade", "loop", "trim"
+    crossfade_duration = Column(Float, nullable=True, default=0.0)
+    section_type = Column(String, nullable=True)     # "DROP", "BUILDUP", "BREAKDOWN", ...
+
+    # ── Referenz ──
+    scene_id = Column(Integer, nullable=True)        # Scene.id (optional)
+    audio_track_id = Column(Integer, nullable=True)  # AudioTrack.id
+    label = Column(String, nullable=True)
+
+    def __repr__(self):
+        return f"<AIPacingMemory(id={self.id}, bpm={self.bpm}, mood='{self.mood}')>"
+
+
 class TimelineEntry(Base):
     """Ein Clip auf der Timeline mit Position und Spur."""
     __tablename__ = "timeline_entries"
@@ -253,7 +289,8 @@ def _needs_fk_cascade_migration(insp) -> bool:
                 if tname not in existing_tables:
                     continue
                 result = conn.execute(
-                    text(f"SELECT sql FROM sqlite_master WHERE name='{tname}'")
+                    text("SELECT sql FROM sqlite_master WHERE name=:tname"),
+                    {"tname": tname},
                 )
                 row = result.fetchone()
                 # Wenn sql vorhanden aber kein CASCADE → Migration nötig
@@ -275,12 +312,21 @@ def _migrate_fk_cascade():
     from pathlib import Path
     log = logging.getLogger(__name__)
 
-    # Backup vor destruktiver Migration
+    # Backup vor destruktiver Migration — mit Verifikation
     db_path = Path("pb_studio.db")
+    backup_path = None
     if db_path.exists():
         backup_path = db_path.with_suffix(".db.backup_before_fk_migration")
         shutil.copy2(db_path, backup_path)
-        log.info("FK-CASCADE Migration: Backup erstellt: %s", backup_path)
+        # Sicherheits-Check: Backup muss existieren und gleiche Groesse haben
+        original_size = db_path.stat().st_size
+        backup_size = backup_path.stat().st_size if backup_path.exists() else 0
+        if not backup_path.exists() or backup_size != original_size:
+            raise RuntimeError(
+                f"FK-Migration abgebrochen: Backup-Verifikation fehlgeschlagen "
+                f"(original={original_size}B, backup={backup_size}B). Daten unveraendert."
+            )
+        log.info("FK-CASCADE Migration: Backup verifiziert (%d Bytes): %s", backup_size, backup_path)
 
     log.info("FK-CASCADE Migration: Recreating tables with ON DELETE CASCADE...")
 
@@ -294,8 +340,12 @@ def _migrate_fk_cascade():
                 "beatgrids", "waveform_data", "pacing_blueprints",
                 "timeline_entries", "audio_tracks", "video_clips",
             ]
+            _ALLOWED_TABLES = set(table_names)
             for tname in table_names:
-                conn.execute(text(f"DROP TABLE IF EXISTS {tname}"))
+                # F-012 Fix: Echte Validierung statt assert (assert wird durch -O deaktiviert)
+                if tname not in _ALLOWED_TABLES:
+                    raise ValueError(f"Unerlaubter Tabellenname: {tname}")
+                conn.execute(text('DROP TABLE IF EXISTS "' + tname + '"'))
 
             # FK wieder an
             conn.execute(text("PRAGMA foreign_keys=ON"))
@@ -354,6 +404,29 @@ def init_db():
                 conn.execute(text("ALTER TABLE timeline_entries ADD COLUMN brightness FLOAT DEFAULT 0.0"))
             if "contrast" not in te_columns:
                 conn.execute(text("ALTER TABLE timeline_entries ADD COLUMN contrast FLOAT DEFAULT 1.0"))
+
+    # Migration: ai_pacing_memory Tabelle nachrüsten (neue Spalten falls Tabelle alt)
+    insp = inspect(engine)
+    if "ai_pacing_memory" in insp.get_table_names():
+        ai_cols = {c["name"] for c in insp.get_columns("ai_pacing_memory")}
+        with engine.begin() as conn:
+            import re as _re
+            _VALID_COL = _re.compile(r"^[a-z_]+$")
+            _VALID_TYPE = _re.compile(r"^[A-Z]+$")
+            for col_name, col_type in [
+                ("bass_energy", "FLOAT"), ("drum_energy", "FLOAT"),
+                ("siglip_tags", "TEXT"), ("section_type", "TEXT"),
+                ("audio_track_id", "INTEGER"), ("scene_id", "INTEGER"),
+            ]:
+                # F-012 Fix: Echte Validierung statt assert (assert wird durch -O deaktiviert)
+                if not _VALID_COL.match(col_name):
+                    raise ValueError(f"Ungueltiger Spaltenname: {col_name}")
+                if not _VALID_TYPE.match(col_type):
+                    raise ValueError(f"Ungueltiger Spaltentyp: {col_type}")
+                if col_name not in ai_cols:
+                    conn.execute(text(
+                        'ALTER TABLE ai_pacing_memory ADD COLUMN "' + col_name + '" ' + col_type
+                    ))
 
     with Session(engine) as session:
         if not session.query(Project).first():
