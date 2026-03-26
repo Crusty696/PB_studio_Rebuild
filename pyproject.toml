@@ -1,50 +1,46 @@
-[project]
+[tool.poetry]
 name = "pb-studio-rebuild"
 version = "0.4.0"
 description = "DaVinci Resolve Style Video/Audio Production Studio"
-authors = [
-    {name = "Your Name",email = "you@example.com"}
-]
-requires-python = ">=3.11,<3.13"
-dependencies = [
-    "pyside6 (>=6.8.0,<7.0.0)",
-    "sqlalchemy (>=2.0.40,<3.0.0)",
-    "duckdb (>=1.2.0,<2.0.0)",
-    "librosa (>=0.11.0,<0.12.0)",
-    "numpy (>=2.1.0,<3.0.0)",
-    "demucs (>=4.0.1,<5.0.0)",
-    "opencv-python (>=4.10.0,<5.0.0)",
-    "scipy (>=1.14.0,<2.0.0)",
-    "transformers (>=4.47.0,<6.0.0)",
-    "torch (>=2.5.0,<3.0.0)",
-    "torchvision (>=0.20.0,<1.0.0)",
-    "torchaudio (>=2.5.0,<3.0.0)",
-    "thefuzz (>=0.22.1,<0.23.0)",
-    "faster-whisper (>=1.1.0,<2.0.0)",
-    "einops (>=0.8.0,<0.9.0)",
-    "pillow (>=11.0.0,<13.0.0)",
-    "accelerate (>=1.2.0,<2.0.0)",
-    "opentimelineio (>=0.18.0,<1.0.0)",
-    "lancedb (>=0.20.0,<1.0.0)",
-    "beat-this @ git+https://github.com/CPJKU/beat_this.git@main",
-    "pyarrow (>=18.0.0,<24.0.0)",
-    "python-dotenv (>=1.0.0,<2.0.0)",
-    "scenedetect (>=0.6.0,<1.0.0)",
-    "sounddevice (>=0.5.0,<1.0.0)",
-    "soundfile (>=0.12.0,<1.0.0)"
-]
+authors = ["Your Name <you@example.com>"]
+package-mode = false
 
+[tool.poetry.dependencies]
+python = ">=3.11,<3.13"
+pyside6 = ">=6.8.0,<7.0.0"
+sqlalchemy = ">=2.0.40,<3.0.0"
+librosa = ">=0.11.0,<0.12.0"
+numpy = ">=2.1.0,<3.0.0"
+demucs = ">=4.0.1,<5.0.0"
+opencv-python = ">=4.10.0,<5.0.0"
+scipy = ">=1.14.0,<2.0.0"
+transformers = ">=4.47.0,<6.0.0"
+thefuzz = ">=0.22.1,<0.23.0"
+faster-whisper = ">=1.1.0,<2.0.0"
+einops = ">=0.8.0,<0.9.0"
+pillow = ">=11.0.0,<13.0.0"
+accelerate = ">=1.2.0,<2.0.0"
+opentimelineio = ">=0.18.0,<1.0.0"
+lancedb = "==0.30.0"
+pyarrow = ">=18.0.0,<24.0.0"
+python-dotenv = ">=1.0.0,<2.0.0"
+scenedetect = ">=0.6.0,<1.0.0"
+sounddevice = ">=0.5.0,<1.0.0"
+soundfile = ">=0.12.0,<1.0.0"
+click = "<8.4.0"
+beat-this = {git = "https://github.com/CPJKU/beat_this.git", rev = "main"}
+torch = {version = ">=2.5.0,<3.0.0", source = "pytorch"}
+torchvision = {version = ">=0.20.0,<1.0.0", source = "pytorch"}
+torchaudio = {version = ">=2.5.0,<3.0.0", source = "pytorch"}
+
+[tool.poetry.group.dev.dependencies]
+pytest = ">=9.0.2,<10.0.0"
 
 [[tool.poetry.source]]
-name = "pytorch-cuda"
+name = "pytorch"
 url = "https://download.pytorch.org/whl/cu121"
 priority = "explicit"
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
-
-[dependency-groups]
-dev = [
-    "pytest (>=9.0.2,<10.0.0)"
-]
