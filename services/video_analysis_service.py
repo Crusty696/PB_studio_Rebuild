@@ -110,6 +110,13 @@ def _load_raft_model():
         import torch
         import torchvision.models.optical_flow as of
 
+        # VRAM-Schutz: Vorheriges Modell entladen bevor RAFT geladen wird (6GB Limit)
+        try:
+            from services.model_manager import ModelManager
+            ModelManager().unload()
+        except Exception:
+            pass
+
         logger.info("[RAFT] Lade RAFT Optical Flow Modell...")
         # GPU-ZWANG: RAFT MUSS auf CUDA laufen wenn verfügbar
         cuda_ok = torch.cuda.is_available()
@@ -288,6 +295,7 @@ def _get_video_duration(video_path: str) -> float:
             ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
              "-of", "default=noprint_wrappers=1:nokey=1", video_path],
             capture_output=True, text=True, timeout=30,
+            encoding="utf-8", errors="replace",
         )
         if p.returncode == 0 and p.stdout.strip():
             return float(p.stdout.strip())
@@ -424,8 +432,11 @@ def generate_embeddings(
 
             with torch.no_grad():
                 outputs = model.get_image_features(**inputs)
+                # Robust: handle both raw tensor and BaseModelOutputWithPooling
+                if not isinstance(outputs, torch.Tensor):
+                    outputs = outputs.pooler_output if hasattr(outputs, 'pooler_output') else outputs[0]
                 # L2-Normalisierung
-                embeddings = outputs / outputs.norm(dim=-1, keepdim=True)
+                embeddings = outputs / outputs.norm(p=2, dim=-1, keepdim=True)
                 embeddings = embeddings.cpu().numpy().astype(np.float32)
 
             for i, scene in enumerate(valid_scenes):
@@ -529,6 +540,7 @@ def text_to_embedding(query: str) -> np.ndarray | None:
     """Konvertiert einen Text-Query in einen SigLIP-Vektor.
 
     Nutzt ModelManager Singleton — lädt SigLIP nur wenn nötig.
+    F-012 Fix: Gesamte load→inference→unload Sequenz unter Lock.
 
     Returns:
         1152-dim numpy array oder None bei Fehler
@@ -536,31 +548,37 @@ def text_to_embedding(query: str) -> np.ndarray | None:
     from services.model_manager import ModelManager
     mm = ModelManager()
 
-    try:
-        model, processor = mm.load_siglip()
-    except Exception as e:
-        logger.error("SigLIP für Text-Suche nicht verfügbar: %s", e)
-        return None
+    # F-012: Lock um gesamte Sequenz — verhindert Race-Condition
+    # wenn zwei Threads gleichzeitig text_to_embedding() aufrufen
+    with mm._swap_lock:
+        try:
+            model, processor = mm.load_siglip()
+        except Exception as e:
+            logger.error("SigLIP für Text-Suche nicht verfügbar: %s", e)
+            return None
 
-    import torch
+        import torch
 
-    try:
-        inputs = processor(text=[query], return_tensors="pt", padding=True)
-        inputs = {k: v.to(mm.device) for k, v in inputs.items()}
+        try:
+            inputs = processor(text=[query], return_tensors="pt", padding=True)
+            inputs = {k: v.to(mm.device) for k, v in inputs.items()}
 
-        with torch.no_grad():
-            outputs = model.get_text_features(**inputs)
-            embedding = outputs / outputs.norm(dim=-1, keepdim=True)
-            result = embedding.cpu().numpy().astype(np.float32)[0]
+            with torch.no_grad():
+                outputs = model.get_text_features(**inputs)
+                # Robust: handle both raw tensor and BaseModelOutputWithPooling
+                if not isinstance(outputs, torch.Tensor):
+                    outputs = outputs.pooler_output if hasattr(outputs, 'pooler_output') else outputs[0]
+                embedding = outputs / outputs.norm(p=2, dim=-1, keepdim=True)
+                result = embedding.cpu().numpy().astype(np.float32)[0]
 
-        # SigLIP entladen um VRAM freizugeben
-        mm.unload()
-        return result
+            # SigLIP entladen um VRAM freizugeben
+            mm.unload()
+            return result
 
-    except Exception as e:
-        logger.error("Text-Embedding Fehler: %s", e)
-        mm.unload()
-        return None
+        except Exception as e:
+            logger.error("Text-Embedding Fehler: %s", e)
+            mm.unload()
+            return None
 
 
 def search_videos_by_text(
@@ -621,10 +639,21 @@ def run_full_pipeline(
     Returns:
         PipelineResult mit allen Szenen und Embedding-Count
     """
-    result = PipelineResult(video_path=video_path)
+    # Proxy-First: video_path kann Proxy sein — Original aus DB laden für LanceDB-Storage
+    try:
+        from sqlalchemy.orm import Session as _Session
+        from database import engine as _engine, VideoClip as _VideoClip
+        with _Session(_engine) as _s:
+            _clip = _s.get(_VideoClip, video_clip_id)
+            original_video_path = _clip.file_path if _clip else video_path
+    except Exception:
+        original_video_path = video_path
+
+    result = PipelineResult(video_path=original_video_path)
 
     # Schritt 1: Scene Detection
-    logger.info("[PIPELINE] Schritt 1/6: Szenen erkennen für %s...", Path(video_path).name)
+    logger.info("[PIPELINE] Schritt 1/6: Szenen erkennen für %s (Analyse-Pfad: %s)...",
+                Path(original_video_path).name, Path(video_path).name)
     if progress_cb:
         progress_cb(5, "Szenen erkennen...")
     if should_stop and should_stop():
@@ -672,7 +701,8 @@ def run_full_pipeline(
     if should_stop and should_stop():
         return result
 
-    result.embeddings_stored = store_embeddings(video_path, scenes, video_clip_id)
+    # Original-Pfad für LanceDB-Storage verwenden (nicht Proxy-Pfad)
+    result.embeddings_stored = store_embeddings(original_video_path, scenes, video_clip_id)
     logger.info("[PIPELINE] LanceDB FERTIG: %d Embeddings", result.embeddings_stored)
 
     # Szenen in SQLite speichern
@@ -681,7 +711,17 @@ def run_full_pipeline(
         progress_cb(90, "Szenen in DB speichern...")
 
     store_scenes_in_db(video_clip_id, scenes)
-    logger.info("[PIPELINE] Pipeline KOMPLETT für %s", Path(video_path).name)
+    logger.info("[PIPELINE] Pipeline KOMPLETT für %s", Path(original_video_path).name)
+
+    # VRAM-Schutz: GPU-Speicher nach Pipeline freigeben
+    try:
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            logger.info("[PIPELINE] VRAM-Cleanup: torch.cuda.empty_cache()")
+    except ImportError:
+        pass
+    gc.collect()
 
     logger.info(
         "Pipeline komplett: %s — %d Szenen, %d Embeddings",

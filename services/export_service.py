@@ -105,7 +105,11 @@ def export_timeline(project_id: int = 1, output_name: str = "output.mp4",
     total_steps = 5 if audio_path else 4
     step = 0
 
-    w, h = resolution.split("x")
+    # Bug-35 Fix: Validiere Resolution vor Split
+    try:
+        w, h = resolution.split("x")
+    except ValueError:
+        raise ValueError(f"Ungültige Auflösung Format: '{resolution}'. Erwartet: WIDTHxHEIGHT (z.B. '1920x1080')")
 
     # Strategie: Bei vielen Segmenten (>10) oder ohne Effekte -> Concat
     # Bei wenigen mit Effekten -> Filtergraph
@@ -137,30 +141,29 @@ def _export_optimized_concat(video_segments, audio_path, output_path,
         progress_cb(int(step / total_steps * 100), "Baue Concat-Liste...")
 
     try:
-        # CRIT-02: Segmente mit Source-Offset und optionaler Farbkorrektur vorverarbeiten
+        # PERF-FIX: Nur Segmente mit Farbkorrektur vorverarbeiten.
+        # Segmente mit reinem Source-Offset nutzen concat inpoint/outpoint Direktiven
+        # statt separater FFmpeg-Prozesse (100 Segmente: ~200s -> ~2s).
         processed_segments = []
         for i, seg in enumerate(video_segments):
             has_color = seg["brightness"] != 0.0 or seg["contrast"] != 1.0
             source_start = seg.get("source_start", 0.0)
             source_duration = seg.get("source_duration", seg["end"] - seg["start"])
 
-            if has_color or source_start > 0.01:
-                # Vorverarbeitung: Source-Offset + optionale Farbkorrektur
+            if has_color:
+                # NUR bei Farbkorrektur: Vorverarbeitung mit FFmpeg noetig
+                # (concat-Protokoll unterstuetzt keine Filter)
                 tmp = tempfile.NamedTemporaryFile(
                     suffix=".mp4", delete=False, prefix=f"pb_cc_{i}_"
                 )
                 tmp.close()
                 temp_files.append(tmp.name)
 
-                vf_parts = []
-                if has_color:
-                    vf_parts.append(
-                        f"eq=brightness={seg['brightness']}:contrast={seg['contrast']}"
-                    )
-                vf_parts.append(
+                vf_parts = [
+                    f"eq=brightness={seg['brightness']}:contrast={seg['contrast']}",
                     f"scale={w}:{h}:force_original_aspect_ratio=decrease,"
-                    f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps={fps}"
-                )
+                    f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps={fps}",
+                ]
                 vf = ",".join(vf_parts)
 
                 cc_cmd = [
@@ -174,11 +177,26 @@ def _export_optimized_concat(video_segments, audio_path, output_path,
                 ]
                 _run_ffmpeg(cc_cmd, timeout=300)
                 processed_segments.append({
-                    "path": tmp.name, "duration": source_duration,
+                    "path": tmp.name,
+                    "duration": source_duration,
+                    "inpoint": None,  # vorverarbeitet, kein inpoint noetig
+                    "outpoint": None,
+                })
+            elif source_start > 0.01:
+                # Source-Offset OHNE Farbkorrektur: concat inpoint/outpoint
+                processed_segments.append({
+                    "path": seg["path"],
+                    "duration": source_duration,
+                    "inpoint": source_start,
+                    "outpoint": source_start + source_duration,
                 })
             else:
+                # Kein Offset, keine Farbkorrektur: nur duration
                 processed_segments.append({
-                    "path": seg["path"], "duration": source_duration,
+                    "path": seg["path"],
+                    "duration": source_duration,
+                    "inpoint": None,
+                    "outpoint": None,
                 })
 
         # Concat-Datei erstellen
@@ -191,7 +209,12 @@ def _export_optimized_concat(video_segments, audio_path, output_path,
             # FFmpeg concat format: Backslashes und Single-Quotes escapen
             safe_path = ps["path"].replace("\\", "/").replace("'", "'\\''")
             concat_file.write(f"file '{safe_path}'\n")
-            concat_file.write(f"duration {ps['duration']:.3f}\n")
+            if ps["inpoint"] is not None:
+                concat_file.write(f"inpoint {ps['inpoint']:.3f}\n")
+            if ps["outpoint"] is not None:
+                concat_file.write(f"outpoint {ps['outpoint']:.3f}\n")
+            else:
+                concat_file.write(f"duration {ps['duration']:.3f}\n")
         concat_file.close()
 
         if progress_cb:
@@ -238,6 +261,8 @@ def _export_optimized_concat(video_segments, audio_path, output_path,
         for tf in temp_files:
             Path(tf).unlink(missing_ok=True)
 
+    if not Path(output_path).exists() or Path(output_path).stat().st_size == 0:
+        raise RuntimeError(f"FFmpeg-Export fehlgeschlagen: Ausgabedatei fehlt oder leer: {output_path}")
     return str(Path(output_path).resolve())
 
 
@@ -290,32 +315,40 @@ def _export_with_filtergraph(video_segments, audio_path, output_path,
     ]
 
     current_label = None
-    if n == 1:
+    if n == 0:
+        raise ValueError("Keine Video-Segmente in _export_with_filtergraph()")
+    elif n == 1:
         current_label = "v0"
     else:
+        # F-014 Fix: Kumulativer Offset-Akkumulator fuer korrekte xfade-Berechnung
+        accumulated_duration = seg_durations[0]
+
         xfade_dur = min(video_segments[1].get("crossfade", 0.0), 2.0)
         if xfade_dur > 0:
-            offset = max(0.1, seg_durations[0] - xfade_dur)
+            offset = max(0.1, accumulated_duration - xfade_dur)
             filter_parts.append(
                 f"[v0][v1]xfade=transition=fade:duration={xfade_dur}:offset={offset}[xf0]"
             )
+            accumulated_duration = accumulated_duration + seg_durations[1] - xfade_dur
         else:
             filter_parts.append("[v0][v1]concat=n=2:v=1:a=0[xf0]")
+            accumulated_duration += seg_durations[1]
         current_label = "xf0"
 
         for i in range(2, n):
             xfade_dur = min(video_segments[i].get("crossfade", 0.0), 2.0)
             if xfade_dur > 0:
-                prev_seg_dur = seg_durations[i - 1]
-                offset = max(0.1, prev_seg_dur - xfade_dur)
+                offset = max(0.1, accumulated_duration - xfade_dur)
                 filter_parts.append(
                     f"[{current_label}][v{i}]xfade=transition=fade:"
                     f"duration={xfade_dur}:offset={offset}[xf{i-1}]"
                 )
+                accumulated_duration = accumulated_duration + seg_durations[i] - xfade_dur
             else:
                 filter_parts.append(
                     f"[{current_label}][v{i}]concat=n=2:v=1:a=0[xf{i-1}]"
                 )
+                accumulated_duration += seg_durations[i]
             current_label = f"xf{i-1}"
 
     filter_complex = ";".join(filter_parts)
@@ -345,6 +378,8 @@ def _export_with_filtergraph(video_segments, audio_path, output_path,
         step += 1
         progress_cb(100, "Export mit Effekten abgeschlossen")
 
+    if not Path(output_path).exists() or Path(output_path).stat().st_size == 0:
+        raise RuntimeError(f"FFmpeg-Export fehlgeschlagen: Ausgabedatei fehlt oder leer: {output_path}")
     return str(Path(output_path).resolve())
 
 
@@ -369,8 +404,13 @@ def _normalize_audio_lufs(input_path: str, output_path: str,
             "-f", "null", "-"
         ]
         result = subprocess.run(
-            measure_cmd, capture_output=True, text=True, timeout=300, **kwargs
+            measure_cmd, capture_output=True, text=True, timeout=300,
+            encoding="utf-8", errors="replace", **kwargs
         )
+        if result.returncode != 0:
+            logger.warning("[LUFS] Pass 1 fehlgeschlagen (rc=%d): %s",
+                           result.returncode, result.stderr[:200])
+            return False
         # loudnorm JSON steht in stderr
         stderr = result.stderr
         # Finde den JSON-Block in der Ausgabe
@@ -400,9 +440,14 @@ def _normalize_audio_lufs(input_path: str, output_path: str,
             "-c:a", "pcm_s24le",
             output_path,
         ]
-        subprocess.run(
-            norm_cmd, capture_output=True, text=True, timeout=600, **kwargs
+        pass2_result = subprocess.run(
+            norm_cmd, capture_output=True, text=True, timeout=600,
+            encoding="utf-8", errors="replace", **kwargs
         )
+        if pass2_result.returncode != 0:
+            logger.warning("[LUFS] Pass 2 fehlgeschlagen (rc=%d): %s",
+                           pass2_result.returncode, pass2_result.stderr[:200])
+            return False
         if Path(output_path).exists() and Path(output_path).stat().st_size > 0:
             logger.info("[LUFS] Normalisierung erfolgreich: %s -> %.1f LUFS",
                         input_path, target_lufs)
@@ -418,7 +463,8 @@ def _run_ffmpeg(cmd: list[str], timeout: int = 600):
     if sys.platform == "win32":
         kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
     result = subprocess.run(
-        cmd, capture_output=True, text=True, timeout=timeout, **kwargs
+        cmd, capture_output=True, text=True, timeout=timeout,
+        encoding="utf-8", errors="replace", **kwargs
     )
     if result.returncode != 0:
         raise RuntimeError(f"FFmpeg fehlgeschlagen:\n{result.stderr[-500:]}")

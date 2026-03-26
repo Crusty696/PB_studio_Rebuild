@@ -71,7 +71,8 @@ def _probe_video_meta(file_path: str) -> dict:
         kwargs = {}
         if sys.platform == "win32":
             kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10, **kwargs)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10,
+                                encoding="utf-8", errors="replace", **kwargs)
         if result.returncode != 0:
             return {}
         data = json.loads(result.stdout)
@@ -244,5 +245,84 @@ def delete_all_media(project_id: int = 1) -> int:
         count_v = session.query(VideoClip).filter_by(project_id=project_id).delete(
             synchronize_session=False
         )
+        session.commit()
+        return count_a + count_v
+
+
+def delete_selected_media(video_ids: list[int], audio_ids: list[int]) -> int:
+    """Loescht einzelne Audio- und Video-Eintraege anhand ihrer IDs.
+
+    Bereinigt zuerst alle abhaengigen Child-Rows (ClipAnchors, TimelineEntries,
+    AudioVideoAnchors, Scenes, Beatgrids, WaveformData), dann die Parents.
+    AIPacingMemory wird NIEMALS geloescht.
+    """
+    from database import (
+        AudioVideoAnchor, ClipAnchor, TimelineEntry,
+        Scene, Beatgrid, WaveformData,
+    )
+    if not video_ids and not audio_ids:
+        return 0
+
+    with Session(engine) as session:
+        # Timeline-Entries fuer diese Medien finden
+        timeline_ids = []
+        if audio_ids:
+            timeline_ids += [
+                r[0] for r in session.query(TimelineEntry.id).filter(
+                    TimelineEntry.media_id.in_(audio_ids),
+                    TimelineEntry.track == "audio",
+                ).all()
+            ]
+        if video_ids:
+            timeline_ids += [
+                r[0] for r in session.query(TimelineEntry.id).filter(
+                    TimelineEntry.media_id.in_(video_ids),
+                    TimelineEntry.track == "video",
+                ).all()
+            ]
+
+        # Grandchildren zuerst
+        if timeline_ids:
+            session.query(ClipAnchor).filter(
+                ClipAnchor.timeline_entry_id.in_(timeline_ids)
+            ).delete(synchronize_session=False)
+
+        # Children
+        if timeline_ids:
+            session.query(TimelineEntry).filter(
+                TimelineEntry.id.in_(timeline_ids)
+            ).delete(synchronize_session=False)
+
+        if audio_ids or video_ids:
+            session.query(AudioVideoAnchor).filter(
+                (AudioVideoAnchor.audio_track_id.in_(audio_ids if audio_ids else [0]))
+                | (AudioVideoAnchor.video_clip_id.in_(video_ids if video_ids else [0]))
+            ).delete(synchronize_session=False)
+
+        if video_ids:
+            session.query(Scene).filter(
+                Scene.video_clip_id.in_(video_ids)
+            ).delete(synchronize_session=False)
+
+        if audio_ids:
+            session.query(Beatgrid).filter(
+                Beatgrid.audio_track_id.in_(audio_ids)
+            ).delete(synchronize_session=False)
+            session.query(WaveformData).filter(
+                WaveformData.audio_track_id.in_(audio_ids)
+            ).delete(synchronize_session=False)
+
+        # Parents loeschen
+        count_a = 0
+        count_v = 0
+        if audio_ids:
+            count_a = session.query(AudioTrack).filter(
+                AudioTrack.id.in_(audio_ids)
+            ).delete(synchronize_session=False)
+        if video_ids:
+            count_v = session.query(VideoClip).filter(
+                VideoClip.id.in_(video_ids)
+            ).delete(synchronize_session=False)
+
         session.commit()
         return count_a + count_v

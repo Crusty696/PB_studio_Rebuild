@@ -8,10 +8,17 @@ import sys
 from pathlib import Path
 
 import numpy as np
-import torch
-import torchaudio
 import librosa
 from scipy.io import wavfile
+
+# torch/torchaudio werden lazy importiert (nur in StemSeparator benötigt)
+# damit das Modul auch ohne CUDA-Installation importierbar ist
+try:
+    import torch as _torch_module
+    import torchaudio as _torchaudio_module
+    _TORCH_AVAILABLE = True
+except ImportError:
+    _TORCH_AVAILABLE = False
 from sqlalchemy.orm import Session
 
 from database import engine, AudioTrack, WaveformData
@@ -33,12 +40,21 @@ class StemSeparator:
     (z.B. GTX 1060 6GB) einzuhalten und CPU-Fallback zu vermeiden.
     """
 
-    def separate(self, file_path: str, model: str = "htdemucs",
+    def separate(self, file_path: str, model: str = "htdemucs_ft",
                  progress_cb=None) -> dict[str, str]:
         """Fuehrt Demucs Stem Separation mit Chunking + CUDA-Zwang aus.
 
         Returns: dict mit Keys 'vocals', 'drums', 'bass', 'other' -> Pfade.
         """
+        if not _TORCH_AVAILABLE:
+            raise RuntimeError(
+                "Stem-Separation erfordert PyTorch (torch). "
+                "Bitte installieren: pip install torch torchaudio"
+            )
+        # Lokale Aliase für torch/torchaudio (lazy import oben definiert)
+        import torch  # noqa: F811 — überschreibt lokalen Scope bewusst
+        import torchaudio  # noqa: F811
+
         STEMS_DIR.mkdir(parents=True, exist_ok=True)
         src = Path(file_path)
 
@@ -59,8 +75,11 @@ class StemSeparator:
                   f"({torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB VRAM)")
         else:
             raise RuntimeError(
-                "Stem-Separation erfordert eine CUDA-fähige GPU. "
-                "Keine GPU gefunden — Abbruch."
+                "Stem-Separation erfordert eine CUDA-faehige GPU (NVIDIA). "
+                "Keine GPU erkannt — Abbruch.\n"
+                "Loesung: NVIDIA-Treiber installieren und PyTorch CUDA-Version verwenden:\n"
+                "  poetry run pip install torch==2.5.1+cu121 "
+                "--index-url https://download.pytorch.org/whl/cu121"
             )
 
         if progress_cb:
@@ -121,9 +140,22 @@ class StemSeparator:
         source_names = demucs_model.sources  # z.B. ['drums', 'bass', 'other', 'vocals']
         num_sources = len(source_names)
 
+        # F-011: RAM-Budget pruefen — result_stems + weight_sum koennen bei
+        # langen Mixes >5GB RAM belegen. Warnung und float16 bei >30min.
+        estimated_ram_gb = (num_sources * waveform.shape[0] * total_samples * 4) / (1024**3)
+        if estimated_ram_gb > 3.0:
+            logger.warning(
+                "[StemSeparator] Grosser Akkumulator: %.1f GB RAM geschaetzt fuer %.0f min Audio. "
+                "Nutze float16 um Speicher zu halbieren.",
+                estimated_ram_gb, total_samples / sr / 60,
+            )
+            accum_dtype = torch.float16
+        else:
+            accum_dtype = torch.float32
+
         # Ergebnis-Tensor fuer alle Stems (Crossfade-Akkumulator)
-        result_stems = torch.zeros(num_sources, waveform.shape[0], total_samples)
-        weight_sum = torch.zeros(1, total_samples)
+        result_stems = torch.zeros(num_sources, waveform.shape[0], total_samples, dtype=accum_dtype)
+        weight_sum = torch.zeros(1, total_samples, dtype=accum_dtype)
 
         for i in range(num_chunks):
             start = i * step_samples
@@ -160,10 +192,11 @@ class StemSeparator:
                 fade_len = min(overlap_samples, chunk_len)
                 fade[-fade_len:] = torch.linspace(1, 0, fade_len)
 
-            # Gewichtete Addition
+            # Gewichtete Addition (cast to accumulator dtype for float16 mode)
             for s in range(num_sources):
-                result_stems[s, :, start:end] += estimates_cpu[s, :, :chunk_len] * fade.unsqueeze(0)
-            weight_sum[0, start:end] += fade
+                weighted = (estimates_cpu[s, :, :chunk_len] * fade.unsqueeze(0)).to(accum_dtype)
+                result_stems[s, :, start:end] += weighted
+            weight_sum[0, start:end] += fade.to(accum_dtype)
 
             # ── VRAM sofort freigeben ──
             del chunk_gpu, estimates, estimates_cpu
@@ -193,12 +226,20 @@ class StemSeparator:
         stem_dir = STEMS_DIR / model / src.stem
         stem_dir.mkdir(parents=True, exist_ok=True)
 
+        # Konvertiere zurueck zu float32 fuer WAV-Export (torchaudio erwartet float32)
+        if result_stems.dtype != torch.float32:
+            result_stems = result_stems.float()
+
         stems = {}
         for idx, stem_name in enumerate(source_names):
             stem_path = stem_dir / f"{stem_name}.wav"
             torchaudio.save(str(stem_path), result_stems[idx], sr)
             stems[stem_name] = str(stem_path.resolve())
             logger.info(f"[StemSeparator] Gespeichert: {stem_name} -> {stem_path}")
+
+        # CPU-RAM freigeben: result_stems + weight_sum können >5GB sein bei langen Mixes
+        del result_stems, weight_sum
+        gc.collect()
 
         if progress_cb:
             progress_cb(100, "Stem Separation abgeschlossen")
@@ -312,13 +353,10 @@ class AutoDucker:
         music_data = music_data[:min_len]
         voice_data = voice_data[:min_len]
 
-        # Voice RMS Envelope berechnen (Fenster: 50ms)
+        # Voice RMS Envelope berechnen (Fenster: 50ms) — vektorisiert
         window_size = int(music_sr * 0.05)
-        envelope = np.zeros_like(voice_data)
-        for i in range(0, len(voice_data), window_size):
-            chunk = voice_data[i:i + window_size]
-            rms = np.sqrt(np.mean(chunk ** 2))
-            envelope[i:i + window_size] = rms
+        from scipy.ndimage import uniform_filter1d
+        envelope = np.sqrt(uniform_filter1d(voice_data.astype(np.float64) ** 2, size=window_size))
 
         if progress_cb:
             progress_cb(60, "Wende Ducking an...")

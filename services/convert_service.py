@@ -12,6 +12,7 @@ KEIN AV1 — Pascal-Karten (GTX 1060) haben keinen echten AV1-Encoder.
 
 from __future__ import annotations
 
+import functools
 import logging
 import os
 import re
@@ -94,6 +95,7 @@ PRESETS = {
 }
 
 
+@functools.cache
 def detect_nvenc() -> dict:
     """Prueft ob NVENC (h264_nvenc) verfuegbar ist.
 
@@ -111,6 +113,7 @@ def detect_nvenc() -> dict:
         # FFmpeg Version
         p = subprocess.run(
             [FFMPEG, "-version"], capture_output=True, text=True, timeout=10,
+            encoding="utf-8", errors="replace",
         )
         if p.returncode == 0 and p.stdout:
             result["ffmpeg_version"] = p.stdout.strip().split("\n")[0]
@@ -119,6 +122,7 @@ def detect_nvenc() -> dict:
         p = subprocess.run(
             [FFMPEG, "-hide_banner", "-encoders"],
             capture_output=True, text=True, timeout=10,
+            encoding="utf-8", errors="replace",
         )
         if p.returncode == 0:
             result["h264_nvenc"] = "h264_nvenc" in p.stdout
@@ -128,6 +132,7 @@ def detect_nvenc() -> dict:
         p = subprocess.run(
             [FFMPEG, "-hide_banner", "-hwaccels"],
             capture_output=True, text=True, timeout=10,
+            encoding="utf-8", errors="replace",
         )
         if p.returncode == 0:
             result["cuda_hwaccel"] = "cuda" in p.stdout.lower()
@@ -166,6 +171,23 @@ def convert(
     if not input_path.exists():
         raise FileNotFoundError(f"Quelldatei nicht gefunden: {input_path}")
 
+    # [H-02 FIX] NVENC-Fallback: Pruefe Verfuegbarkeit vor dem Encoding
+    _nvenc_codecs = {"h264_nvenc", "hevc_nvenc"}
+    if preset.video_codec in _nvenc_codecs:
+        nvenc_info = detect_nvenc()
+        if not nvenc_info.get("h264_nvenc"):
+            logger.warning(
+                "NVENC nicht verfuegbar (kein %s) — Fallback auf libx264 (CPU). "
+                "Konvertierung wird langsamer sein.",
+                preset.video_codec,
+            )
+            from dataclasses import replace as _dc_replace
+            preset = _dc_replace(
+                preset,
+                video_codec="libx264",
+                codec_params=["-preset", "medium", "-crf", "23"],
+            )
+
     # Ausgabepfad bestimmen
     if output_path is None:
         preset.output_dir.mkdir(parents=True, exist_ok=True)
@@ -190,9 +212,11 @@ def convert(
     # FFmpeg-Kommando zusammenbauen
     cmd = [FFMPEG, "-y", "-hide_banner", "-progress", "pipe:1"]
 
-    # Hardware-Decode wenn CUDA verfuegbar und nicht DNxHR
-    if preset.video_codec != "dnxhd":
-        cmd += ["-hwaccel", "cuda"]
+    # [H-02 FIX] Hardware-Decode nur wenn CUDA hwaccel tatsaechlich verfuegbar ist
+    if preset.video_codec != "dnxhd" and preset.video_codec not in {"libx264", "libx265"}:
+        nvenc_info = detect_nvenc()
+        if nvenc_info.get("cuda_hwaccel"):
+            cmd += ["-hwaccel", "cuda"]
 
     cmd += ["-i", str(input_path)]
 
@@ -254,6 +278,7 @@ def _get_duration(file_path: str) -> float:
             [FFPROBE, "-v", "quiet", "-show_entries", "format=duration",
              "-of", "default=noprint_wrappers=1:nokey=1", file_path],
             capture_output=True, text=True, timeout=30,
+            encoding="utf-8", errors="replace",
         )
         if p.returncode == 0 and p.stdout.strip():
             return float(p.stdout.strip())
@@ -282,6 +307,8 @@ def _run_ffmpeg_with_progress(
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         **kwargs,
     )
 
@@ -325,8 +352,11 @@ def _run_ffmpeg_with_progress(
     except subprocess.TimeoutExpired:
         process.kill()
         raise RuntimeError("FFmpeg Timeout (600s)")
-
-    stderr_thread.join(timeout=10)
+    finally:
+        # Bug-32 Fix: Stelle sicher dass Process terminiert wird, auch wenn Exception auftritt
+        if process.poll() is None:
+            process.kill()
+        stderr_thread.join(timeout=10)
 
     stderr = ''.join(stderr_lines)
     if process.returncode != 0:

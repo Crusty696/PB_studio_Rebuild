@@ -1,4 +1,4 @@
-"""
+﻿"""
 Zentraler Model Manager — Singleton für striktes VRAM/RAM-Management.
 
 REGEL: Es darf IMMER NUR EIN KI-Modell im RAM/VRAM liegen.
@@ -92,7 +92,7 @@ class ModelManager:
         if torch.cuda.is_available():
             gpu_name = torch.cuda.get_device_name(0)
             props = torch.cuda.get_device_properties(0)
-            vram_total = props.total_memory / 1024 / 1024
+            vram_total = float(props.total_memory) / 1024 / 1024
             self._gpu_info = {
                 "name": gpu_name,
                 "vram_total_mb": round(vram_total, 0),
@@ -223,7 +223,7 @@ class ModelManager:
 
             return self._tokenizer, self._model, self._pipe
 
-    def load_whisper(self, model_size: str = "base") -> Any:
+    def load_whisper(self, model_size: str = "large-v3") -> Any:
         """Lädt ein faster-whisper Modell für Transkription.
 
         Args:
@@ -246,7 +246,22 @@ class ModelManager:
             from faster_whisper import WhisperModel
 
             try:
-                compute_type = "float16" if self.device == "cuda" else "int8"
+                # Compute-Type nach GPU-Architektur:
+                # - Volta/Turing/Ampere (sm >= 7.0): float16 (schnell, ~3GB fuer large-v3)
+                # - Pascal (sm 6.x, GTX 1060): int8 (unterstuetzt ab sm_6.1, ~1.5GB fuer large-v3)
+                # - CPU: int8
+                if self.device == "cuda":
+                    cap = torch.cuda.get_device_capability(0)
+                    compute_type = "float16" if cap[0] >= 7 else "int8"
+                    logger.info(
+                        "ModelManager: faster-whisper compute_type=%s (GPU sm %d.%d)",
+                        compute_type, cap[0], cap[1],
+                    )
+                else:
+                    compute_type = "int8"
+                    logger.info(
+                        "ModelManager: faster-whisper compute_type=%s (CPU)", compute_type,
+                    )
                 self._model = WhisperModel(
                     model_size,
                     device=self.device,
@@ -309,7 +324,7 @@ class ModelManager:
 
             return self._model, self._tokenizer
 
-    def load_siglip(self, model_id: str = "google/siglip-base-patch16-384") -> tuple:
+    def load_siglip(self, model_id: str = "google/siglip-so400m-patch14-384") -> tuple:
         """Lädt SigLIP Vision+Text Encoder für 1152-dim Embeddings.
 
         Returns:

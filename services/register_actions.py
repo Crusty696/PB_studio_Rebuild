@@ -1,4 +1,4 @@
-"""
+﻿"""
 Registriert die bestehenden PB Studio Funktionen im ActionRegistry.
 
 Dieses Modul wird beim App-Start aufgerufen. Neue Funktionen einfach
@@ -185,7 +185,7 @@ def auto_edit(audio_track_id: int) -> dict:
         return {"error": "App nicht initialisiert"}
 
     app.task_manager.agent_command_signal.emit(
-        "auto_edit", {"audio_id": audio_track_id, "video_ids": video_ids}
+        "auto_edit", {"audio_track_id": audio_track_id, "video_ids": video_ids}
     )
     return {
         "status": "Task in Warteschlange",
@@ -338,7 +338,7 @@ def transcribe_audio(track_id: int | None = None, file_path: str | None = None) 
     # ModelManager: Whisper laden (entlädt automatisch andere Modelle)
     mm = ModelManager()
     # "tiny" für schnelle Tests, "base" oder "small" für bessere Qualität
-    whisper_size = os.environ.get("PB_WHISPER_SIZE", "tiny")
+    whisper_size = os.environ.get("PB_WHISPER_SIZE", "large-v3")
     if task and tm:
         tm.update_task(task.task_id, 10, message="Whisper-Modell laden...")
     whisper_model = mm.load_whisper(whisper_size)
@@ -539,6 +539,11 @@ def analyze_video_content(
                 # VRAM-Cleanup nach jedem Frame (Moondream2 hält KV-Cache)
                 if torch.cuda.is_available() and i % 4 == 3:
                     torch.cuda.empty_cache()
+
+        # Encodings freigeben (können je nach Modell GPU-Tensors sein)
+        del encoded_images
+        # Moondream2 entladen — gibt ~3.6 GB VRAM frei
+        mm.unload()
     else:
         # CPU-Fallback: OpenCV-basierte Bildanalyse (Farbe, Helligkeit, Kanten)
         import numpy as np

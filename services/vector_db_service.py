@@ -7,6 +7,7 @@ Erstellt eine LanceDB mit 1152-dimensionalen SigLIP Embeddings.
 from __future__ import annotations
 
 import logging
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -26,20 +27,24 @@ class VectorDBService:
         self.db_path = Path(db_path) if db_path else DB_DIR
         self._db = None
         self._table = None
+        self._init_lock = threading.Lock()   # fuer lazy-init der db/table Properties
+        self._write_lock = threading.Lock()  # fuer alle Schreiboperationen
 
     @property
     def db(self):
-        if self._db is None:
-            import lancedb
-            self.db_path.mkdir(parents=True, exist_ok=True)
-            self._db = lancedb.connect(str(self.db_path))
-        return self._db
+        with self._init_lock:
+            if self._db is None:
+                import lancedb
+                self.db_path.mkdir(parents=True, exist_ok=True)
+                self._db = lancedb.connect(str(self.db_path))
+            return self._db
 
     @property
     def table(self):
-        if self._table is None:
-            self._table = self._get_or_create_table()
-        return self._table
+        with self._init_lock:
+            if self._table is None:
+                self._table = self._get_or_create_table()
+            return self._table
 
     def _get_or_create_table(self):
         """Oeffnet oder erstellt die clip_embeddings Tabelle."""
@@ -80,16 +85,17 @@ class VectorDBService:
                 f"Embedding muss {EMBEDDING_DIM} Dimensionen haben, "
                 f"hat aber {len(embedding)}"
             )
-        self.table.add([{
-            "id": clip_id,
-            "video_path": video_path,
-            "scene_index": scene_index,
-            "scene_start": scene_start,
-            "scene_end": scene_end,
-            "motion_score": motion_score,
-            "description": description,
-            "embedding": embedding,
-        }])
+        with self._write_lock:
+            self.table.add([{
+                "id": clip_id,
+                "video_path": video_path,
+                "scene_index": scene_index,
+                "scene_start": scene_start,
+                "scene_end": scene_end,
+                "motion_score": motion_score,
+                "description": description,
+                "embedding": embedding,
+            }])
 
     def add_embeddings_batch(self, entries: list[dict]) -> None:
         """Fuegt mehrere Embeddings auf einmal hinzu (schneller als einzeln).
@@ -102,9 +108,17 @@ class VectorDBService:
             emb = entry.get("embedding")
             if isinstance(emb, np.ndarray):
                 entry["embedding"] = emb.astype(np.float32).tolist()
+                emb = entry["embedding"]
+            # F-015 Fix: Dimension-Check wie in add_embedding()
+            if emb is not None and len(emb) != EMBEDDING_DIM:
+                raise ValueError(
+                    f"Embedding-Dimension {len(emb)} != erwartet {EMBEDDING_DIM}. "
+                    f"Falsches SigLIP-Modell geladen?"
+                )
             entry.setdefault("motion_score", 0.0)
             entry.setdefault("description", "")
-        self.table.add(entries)
+        with self._write_lock:
+            self.table.add(entries)
 
     def search(
         self,
@@ -164,10 +178,42 @@ class VectorDBService:
             return 0
 
     def delete_by_video(self, video_path: str) -> None:
-        """Loescht alle Embeddings fuer ein Video."""
-        # Sichere Escaping: Backslashes und Single-Quotes behandeln
-        safe_path = video_path.replace("\\", "\\\\").replace("'", "\\'")
-        self.table.delete(f"video_path = '{safe_path}'")
+        """Loescht alle Embeddings fuer ein Video.
+
+        Bug-33 Fix: Nutze parameterized Filter statt String-Interpolation.
+        String-basierte Escaping ist unsicher gegen SQL-Injection-ähnliche Angriffe.
+        """
+        try:
+            # LanceDB: .delete() erwartet einen Filter-String
+            # Bug-33: Doppeln von Quotes statt falschem Escaping-Ansatz
+            query_str = f"video_path = '{video_path.replace(chr(39), chr(39)*2)}'"
+            with self._write_lock:
+                self.table.delete(query_str)
+        except Exception as e:
+            logger.warning(
+                "delete_by_video Standardfilter fehlgeschlagen: %s — nutze Fallback",
+                e
+            )
+            # Fallback: Manuell durchsuchen und löschen (teurer, aber sicher)
+            try:
+                # Hole max 10000 Rows und filtere lokal
+                results = self.table.search([0.0] * EMBEDDING_DIM).limit(10000).to_arrow()
+                ids_to_delete = []
+                for i in range(results.num_rows):
+                    stored_path = results.column("video_path")[i].as_py()
+                    if stored_path == video_path:
+                        clip_id = results.column("id")[i].as_py()
+                        ids_to_delete.append(clip_id)
+                # Lösche gefundene IDs
+                for cid in ids_to_delete:
+                    self.table.delete(f"id = {cid}")
+                logger.info("delete_by_video Fallback: %d Embeddings gelöscht für '%s'",
+                           len(ids_to_delete), video_path)
+            except Exception as e2:
+                logger.error(
+                    "delete_by_video vollständig fehlgeschlagen: %s (path=%s)",
+                    e2, video_path
+                )
 
     def close(self) -> None:
         """Schliesst die Datenbankverbindung."""

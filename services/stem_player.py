@@ -86,6 +86,10 @@ class StemPlayer(QObject):
         self._mix_buf = np.zeros((_BLOCKSIZE, _OUT_CHANNELS), dtype=np.float32)
         self._stereo_scratch = np.zeros((_BLOCKSIZE, _OUT_CHANNELS), dtype=np.float32)
 
+        # [M-03 FIX] RT-sicherer Fehler-Flag — kein Logger im Audio-Callback
+        # Wird vom QTimer (UI-Thread) abgelesen und dann geloggt.
+        self._last_callback_error: str | None = None
+
         # Position-Update Timer (UI-Thread, 30fps)
         self._pos_timer = QTimer(self)
         self._pos_timer.setInterval(33)
@@ -339,8 +343,8 @@ class StemPlayer(QObject):
                 try:
                     handle.seek(min(pending, handle.frames))
                 except Exception as e:
-                    # [C-04 FIX] Seek-Fehler loggen
-                    logger.warning("[StemPlayer] Callback-Seek Fehler bei %s: %s", name, e)
+                    # [M-03 FIX] Flag statt logger.warning() — RT-Callback ist nicht log-sicher
+                    self._last_callback_error = f"Seek-Fehler bei {name}: {e}"
 
         pos = self._position
         remaining = self._total_frames - pos
@@ -371,8 +375,9 @@ class StemPlayer(QObject):
                 try:
                     handle.seek(min(pos, handle.frames))
                 except Exception as e:
-                    logger.warning("[StemPlayer] Resync-Fehler bei %s: %s", name, e)
-                    continue  # [C-04 FIX] Skip diesen Stem bei Seek-Fehler
+                    # [M-03 FIX] Flag statt logger.warning() — RT-Callback ist nicht log-sicher
+                    self._last_callback_error = f"Resync-Fehler bei {name}: {e}"
+                    continue
 
             # [C-01 FIX] was_muted update unter Lock weiter unten
             if is_muted:
@@ -406,8 +411,8 @@ class StemPlayer(QObject):
                     mix[:read_frames] += chunk * vol
 
             except Exception as e:
-                # [C-04 FIX] Fehler loggen statt verschlucken
-                logger.warning("[StemPlayer] Read-Fehler bei %s: %s", name, e)
+                # [M-03 FIX] Flag statt logger.warning() — RT-Callback ist nicht log-sicher
+                self._last_callback_error = f"Read-Fehler bei {name}: {e}"
 
         # [I-01 FIX] Soft-Clipping in-place
         peak = np.abs(mix).max()
@@ -439,7 +444,14 @@ class StemPlayer(QObject):
         QTimer.singleShot(0, lambda: self.state_changed.emit("stopped"))
 
     def _emit_position(self):
-        """Emittiert die aktuelle Position (UI-Thread Timer)."""
+        """Emittiert die aktuelle Position (UI-Thread Timer).
+
+        [M-03 FIX] Liest RT-Callback-Fehler-Flag aus und loggt ihn sicher im UI-Thread.
+        """
+        err = self._last_callback_error
+        if err is not None:
+            self._last_callback_error = None
+            logger.warning("[StemPlayer] %s", err)
         self.position_changed.emit(self.position)
 
     def _close_handles(self):
@@ -447,8 +459,9 @@ class StemPlayer(QObject):
         for name, handle in self._handles.items():
             try:
                 handle.close()
-            except Exception:
-                pass
+            except Exception as e:
+                # Bug-33 Fix: Fehler protokollieren statt zu verschlucken
+                logger.warning("SoundFile-Handle für '%s' konnte nicht geschlossen werden: %s", name, e)
         self._handles.clear()
         self._channels_per_stem.clear()
 

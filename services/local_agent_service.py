@@ -11,6 +11,7 @@ Nutzt den zentralen Singleton-ModelManager für Ressourcen-Schutz:
 Nur EIN Modell darf gleichzeitig im RAM/VRAM liegen.
 """
 
+import concurrent.futures as _cf
 import json
 import logging
 import re
@@ -43,6 +44,15 @@ STEMS (getrennte Audio-Spuren via Demucs):
 - Other: Synths/Pads/Gitarre → fuer Mood/Atmosphere-Matching
 Die KI nutzt Einzelspuren statt der Summe fuer PRAEZISERE Pacing-Entscheidungen.
 Drum-Stem → exakte Kick-Positionen. Bass-Stem → Drop-Zeitpunkte. Vocals → Ducking-Trigger.
+
+PHD-LEVEL PACING-REGELN:
+- S_eff = f(S_base, Energy, Reactivity, Breakdown, Curve, Motion)
+- Hohe Energie (>0.7): S_eff ÷ speed_boost (max 1.9×)
+- Bass-Drop: RMS vorher<0.2 nachher>0.7 → S_eff=1 fuer 16-32 Beats
+- Vocal-Active: S_eff × 2 (visuelle Stabilitaet fuer Textverstaendnis)
+- Motion-Match: combined = E×0.6 + M×0.4 → Skalierung der Cut-Rate
+- Stem-Gewichte: Drums=0.40, Bass=0.30, Vocals=0.10, Other=0.20
+- DJ-Set Sektionen: WARMUP→BUILDUP→DROP→BREAKDOWN→TRANSITION→COOLDOWN
 
 QA-PRUEFPUNKTE (bei Tests automatisch pruefen):
 - Ladebalken: Jeder Hintergrundprozess MUSS einen Fortschrittsbalken haben.
@@ -223,12 +233,20 @@ class LocalAgentService:
             )
 
         with self._lock:
-            outputs = self._pipe(
-                prompt_text,
-                max_new_tokens=max_new_tokens,
-                do_sample=False,
-                return_full_text=False,
-            )
+            with _cf.ThreadPoolExecutor(max_workers=1) as _pool:
+                _future = _pool.submit(
+                    self._pipe,
+                    prompt_text,
+                    max_new_tokens=max_new_tokens,
+                    do_sample=False,
+                    return_full_text=False,
+                )
+                try:
+                    outputs = _future.result(timeout=60)
+                except _cf.TimeoutError:
+                    raise RuntimeError(
+                        "LLM-Inference Timeout (60s) — Modell haengt oder zu langsam fuer diese Anfrage."
+                    )
 
         return outputs[0]["generated_text"].strip()
 

@@ -12,6 +12,7 @@ import json
 import logging
 from pathlib import Path
 
+import torch
 import numpy as np
 
 from sqlalchemy.orm import Session
@@ -114,7 +115,10 @@ class BeatAnalysisService:
             progress_cb(0, "Lade Audio...")
 
         # Dauer bestimmen
-        duration = librosa.get_duration(path=audio_path)
+        try:
+            duration = librosa.get_duration(path=audio_path)
+        except Exception as e:
+            raise RuntimeError(f"Audio-Dauer konnte nicht ermittelt werden: {e}") from e
         if duration < 0.5:
             raise ValueError(f"Audio-Datei zu kurz ({duration:.2f}s): {Path(audio_path).name}")
         logger.info("Audio-Dauer: %.1fs (%s)", duration, Path(audio_path).name)
@@ -122,20 +126,16 @@ class BeatAnalysisService:
         if progress_cb:
             progress_cb(10, "Lade beat_this Modell...")
 
-        try:
-            if duration <= CHUNK_DURATION_SEC:
-                if progress_cb:
-                    progress_cb(20, "Analysiere Beats...")
-                # Kurze Datei: direkt analysieren
-                beats, downbeats = self._analyze_full(audio_path)
-            else:
-                if progress_cb:
-                    progress_cb(20, "Chunked Beat-Analyse...")
-                # Lange Datei: Chunked Processing
-                beats, downbeats = self._analyze_chunked(audio_path, duration)
-        finally:
-            # VRAM sofort freigeben nach Analyse (beat_this umgeht ModelManager)
-            self.unload()
+        if duration <= CHUNK_DURATION_SEC:
+            if progress_cb:
+                progress_cb(20, "Analysiere Beats...")
+            # Kurze Datei: direkt analysieren
+            beats, downbeats = self._analyze_full(audio_path)
+        else:
+            if progress_cb:
+                progress_cb(20, "Chunked Beat-Analyse...")
+            # Lange Datei: Chunked Processing
+            beats, downbeats = self._analyze_chunked(audio_path, duration)
 
         if progress_cb:
             progress_cb(80, "Berechne BPM...")
@@ -149,6 +149,16 @@ class BeatAnalysisService:
                 bpm = round(60.0 / median_interval, 1)
 
         if progress_cb:
+            progress_cb(90, "Lade Audio fuer Energie-Analyse...")
+
+        # Audio einmalig laden fuer _compute_energy_per_beat (vermeidet redundanten librosa.load)
+        import librosa as _lr
+        try:
+            y, sr = _lr.load(audio_path, sr=22050, mono=True)
+        except Exception as e:
+            raise RuntimeError(f"Audio konnte nicht geladen werden: {e}") from e
+
+        if progress_cb:
             progress_cb(100, "Fertig")
 
         return {
@@ -158,12 +168,16 @@ class BeatAnalysisService:
             "duration": round(duration, 2),
             "num_beats": len(beats),
             "num_downbeats": len(downbeats),
+            "_y": y,
+            "_sr": sr,
         }
 
     def _analyze_full(self, audio_path: str) -> tuple[np.ndarray, np.ndarray]:
         """Analysiert die komplette Datei in einem Durchgang."""
+        import torch
         self._ensure_model()
-        beats, downbeats = self._model(audio_path)
+        with torch.no_grad():
+            beats, downbeats = self._model(audio_path)
         return np.array(beats), np.array(downbeats)
 
     def _analyze_chunked(
@@ -182,7 +196,10 @@ class BeatAnalysisService:
         self._ensure_model()
 
         # Audio komplett laden (librosa cached, effizient)
-        y, sr = librosa.load(audio_path, sr=22050, mono=True)
+        try:
+            y, sr = librosa.load(audio_path, sr=22050, mono=True)
+        except Exception as e:
+            raise RuntimeError(f"Audio konnte nicht geladen werden: {e}") from e
 
         chunk_samples = int(CHUNK_DURATION_SEC * sr)
         overlap_samples = int(CHUNK_OVERLAP_SEC * sr)
@@ -212,7 +229,8 @@ class BeatAnalysisService:
                 sf.write(tmp_path, chunk_audio, sr)
 
             try:
-                beats, downbeats = self._model(tmp_path)
+                with torch.no_grad():
+                    beats, downbeats = self._model(tmp_path)
             finally:
                 Path(tmp_path).unlink(missing_ok=True)
 
@@ -255,71 +273,78 @@ class BeatAnalysisService:
                 raise ValueError(f"AudioTrack {track_id} nicht gefunden")
             file_path = track.file_path
 
-        result = self.analyze(file_path, progress_cb=progress_cb)
+        try:
+            result = self.analyze(file_path, progress_cb=progress_cb)
 
-        # Phase 3: Per-Beat RMS-Energie berechnen
-        energy_per_beat = self._compute_energy_per_beat(
-            file_path, result["beats"], result["duration"]
-        )
+            # Phase 3: Per-Beat RMS-Energie berechnen (Audio aus analyze() wiederverwenden)
+            y = result.pop("_y")
+            sr = result.pop("_sr")
+            energy_per_beat = self._compute_energy_per_beat(
+                y, sr, result["beats"], result["duration"]
+            )
 
-        with Session(engine) as session:
-            track = session.get(AudioTrack, track_id)
-            if track is None:
-                raise ValueError(f"AudioTrack {track_id} nicht gefunden")
+            with Session(engine) as session:
+                track = session.get(AudioTrack, track_id)
+                if track is None:
+                    raise ValueError(f"AudioTrack {track_id} nicht gefunden")
 
-            track.bpm = result["bpm"]
-            track.duration = result["duration"]
+                track.bpm = result["bpm"]
+                track.duration = result["duration"]
 
-            # Beatgrid aktualisieren mit allen Beats + Downbeats + Energie
-            beat_positions_json = json.dumps(result["beats"])
-            downbeat_positions_json = json.dumps(result["downbeats"])
-            energy_json = json.dumps(energy_per_beat)
+                # Beatgrid aktualisieren mit allen Beats + Downbeats + Energie
+                beat_positions_json = json.dumps(result["beats"])
+                downbeat_positions_json = json.dumps(result["downbeats"])
+                energy_json = json.dumps(energy_per_beat)
 
-            if track.beatgrid:
-                track.beatgrid.bpm = result["bpm"]
-                track.beatgrid.beat_positions = beat_positions_json
-                track.beatgrid.downbeat_positions = downbeat_positions_json
-                track.beatgrid.energy_per_beat = energy_json
-                track.beatgrid.offset = result["beats"][0] if result["beats"] else 0.0
-            else:
-                bg = Beatgrid(
-                    audio_track_id=track_id,
-                    bpm=result["bpm"],
-                    offset=result["beats"][0] if result["beats"] else 0.0,
-                    beat_positions=beat_positions_json,
-                    downbeat_positions=downbeat_positions_json,
-                    energy_per_beat=energy_json,
-                )
-                session.add(bg)
+                if track.beatgrid:
+                    track.beatgrid.bpm = result["bpm"]
+                    track.beatgrid.beat_positions = beat_positions_json
+                    track.beatgrid.downbeat_positions = downbeat_positions_json
+                    track.beatgrid.energy_per_beat = energy_json
+                    track.beatgrid.offset = result["beats"][0] if result["beats"] else 0.0
+                else:
+                    bg = Beatgrid(
+                        audio_track_id=track_id,
+                        bpm=result["bpm"],
+                        offset=result["beats"][0] if result["beats"] else 0.0,
+                        beat_positions=beat_positions_json,
+                        downbeat_positions=downbeat_positions_json,
+                        energy_per_beat=energy_json,
+                    )
+                    session.add(bg)
 
-            session.commit()
+                session.commit()
 
-            try:
-                from services.pacing_service import invalidate_pacing_caches
-                invalidate_pacing_caches()
-            except Exception:
-                pass
+                try:
+                    from services.pacing_service import invalidate_pacing_caches
+                    invalidate_pacing_caches()
+                except Exception:
+                    pass
+        finally:
+            # VRAM freigeben — auch bei Exception (verhindert VRAM-Leak)
+            self.unload()
 
         return result
 
     @staticmethod
     def _compute_energy_per_beat(
-        audio_path: str, beats: list[float], duration: float
+        y: np.ndarray, sr: int, beats: list[float], duration: float
     ) -> list[float]:
-        """Berechnet RMS-Energie pro Beat-Intervall (0.0 - 1.0 normalisiert)."""
+        """Berechnet RMS-Energie pro Beat-Intervall (0.0 - 1.0 normalisiert).
+
+        Args:
+            y: Audio-Signal (bereits geladen).
+            sr: Sample-Rate des Audio-Signals.
+            beats: Beat-Zeitpunkte in Sekunden.
+            duration: Audio-Dauer in Sekunden.
+        """
         if not beats or len(beats) < 2:
             return []
-        try:
-            import librosa
-            y, sr = librosa.load(audio_path, sr=22050, mono=True)
-        except Exception as e:
-            logger.warning("_compute_energy_per_beat: librosa.load fehlgeschlagen (%s), nutze 0.5 Fallback", e)
-            return [0.5] * len(beats)
 
         # Vectorized: Beat-Grenzen als Sample-Indices berechnen
         beat_ends = list(beats[1:]) + [duration]
-        starts = np.clip((np.array(beats) * 22050).astype(int), 0, len(y))
-        ends = np.clip((np.array(beat_ends) * 22050).astype(int), 0, len(y))
+        starts = np.clip((np.array(beats) * sr).astype(int), 0, len(y))
+        ends = np.clip((np.array(beat_ends) * sr).astype(int), 0, len(y))
 
         energies = np.zeros(len(beats), dtype=np.float64)
         for i in range(len(beats)):

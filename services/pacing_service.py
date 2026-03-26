@@ -19,7 +19,7 @@ from pathlib import Path
 
 import numpy as np
 from sqlalchemy.orm import Session
-from database import engine, AudioTrack, VideoClip, Scene, Beatgrid
+from database import engine, AudioTrack, VideoClip, Scene, Beatgrid, AIPacingMemory
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +76,8 @@ class TimelineSegment:
     source_end: float     # Quell-Video Ende (Sekunden)
     is_anchor: bool = False
     scene_id: str = ""
+    crossfade_duration: float = 0.0  # PhD-Spec: Crossfade per Section Type
+    section_type: str = ""           # WARMUP/BUILDUP/DROP/BREAKDOWN/COOLDOWN
 
 
 # ── Data Access ──
@@ -141,6 +143,59 @@ def _get_energy_per_beat(audio_id: int | None) -> list[float]:
     return []
 
 
+def _get_beat_data_combined(
+    audio_id: int | None,
+) -> tuple[list[float], list[float], list[float]]:
+    """Laedt beat_positions, downbeat_positions und energy_per_beat in EINER Session.
+
+    Bug-14 Fix: Kombiniert die drei separaten DB-Sessions (_get_beat_positions,
+    _get_downbeat_positions, _get_energy_per_beat) in einen einzigen Round-Trip.
+    Vorher: 3 Sessions für die gleiche AudioTrack/Beatgrid-Zeile.
+
+    Returns: (beat_positions, downbeat_positions, energy_per_beat)
+    """
+    if audio_id is None:
+        return [], [], []
+    with Session(engine) as session:
+        track = session.get(AudioTrack, audio_id)
+        if not track or not track.beatgrid:
+            return [], [], []
+        bg = track.beatgrid
+
+        # beat_positions (mit BPM-Fallback)
+        beat_positions: list[float] = []
+        if bg.beat_positions:
+            try:
+                beat_positions = [float(p) for p in json.loads(bg.beat_positions)]
+            except (json.JSONDecodeError, TypeError):
+                pass
+        if not beat_positions and bg.bpm and bg.bpm > 0:
+            interval = 60.0 / bg.bpm
+            duration = track.duration or 300.0
+            t = bg.offset or 0.0
+            while t < duration:
+                beat_positions.append(round(t, 4))
+                t += interval
+
+        # downbeat_positions
+        downbeat_positions: list[float] = []
+        if bg.downbeat_positions:
+            try:
+                downbeat_positions = [float(p) for p in json.loads(bg.downbeat_positions)]
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        # energy_per_beat
+        energy_per_beat: list[float] = []
+        if bg.energy_per_beat:
+            try:
+                energy_per_beat = [float(e) for e in json.loads(bg.energy_per_beat)]
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        return beat_positions, downbeat_positions, energy_per_beat
+
+
 @lru_cache(maxsize=64)
 def _get_audio_duration(audio_id: int) -> float:
     """Gibt die Dauer des Audio-Tracks in Sekunden zurueck."""
@@ -202,6 +257,438 @@ def _get_scenes(video_id: int | None) -> list[Scene]:
         # Eager-load scenes innerhalb der Session, sonst DetachedInstanceError nach Session-Close
         scenes = list(clip.scenes)
         return scenes
+
+
+# ======================================================================
+# PhD-Level Features: Stem-Weighted Energy, Section Detection, Vocal-Aware
+# ======================================================================
+
+@dataclass
+class StemEnergy:
+    """Per-Beat Energie aus den individuellen Demucs-Stems."""
+    drums: list[float]     # RMS pro Beat (0.0-1.0)
+    bass: list[float]
+    vocals: list[float]
+    other: list[float]
+    weighted: list[float]  # Gewichtete Kombination
+
+
+def compute_stem_weighted_energy(
+    audio_id: int,
+    beats: list[float],
+    w_drums: float = 0.40,
+    w_bass: float = 0.30,
+    w_vocals: float = 0.10,
+    w_other: float = 0.20,
+) -> StemEnergy | None:
+    """F-004: Berechnet per-Beat RMS-Energie aus den individuellen Demucs-Stems.
+
+    PhD-Spec Abschnitt 3.3:
+      E_weighted(t) = w_drums * E_drums(t) + w_bass * E_bass(t)
+                    + w_vocals * E_vocals(t) + w_other * E_other(t)
+
+    Faellt auf die Stereo-Summe zurueck wenn Stems nicht vorhanden sind.
+    """
+    with Session(engine) as session:
+        track = session.get(AudioTrack, audio_id)
+        if not track:
+            return None
+        stem_paths = {
+            "drums": track.stem_drums_path,
+            "bass": track.stem_bass_path,
+            "vocals": track.stem_vocals_path,
+            "other": track.stem_other_path,
+        }
+
+    # Pruefen ob mindestens ein Stem vorhanden ist
+    available = {k: v for k, v in stem_paths.items() if v and Path(v).exists()}
+    if not available:
+        logger.info("Keine Stems fuer Audio %d — Fallback auf Stereo-Summe", audio_id)
+        return None
+
+    if not beats or len(beats) < 2:
+        return None
+
+    try:
+        import librosa
+    except ImportError:
+        logger.warning("librosa nicht verfuegbar fuer Stem-Energie-Berechnung")
+        return None
+
+    def _compute_rms_per_beat(audio_path: str, beats_list: list[float]) -> list[float]:
+        """Berechnet RMS pro Beat-Intervall fuer eine einzelne Stem-Datei."""
+        try:
+            y, sr = librosa.load(audio_path, sr=22050, mono=True)
+        except Exception as e:
+            logger.warning("Konnte Stem '%s' nicht laden: %s", audio_path, e)
+            return [0.5] * len(beats_list)
+
+        duration = len(y) / sr
+        energies = []
+        for i in range(len(beats_list)):
+            start_sec = beats_list[i]
+            end_sec = beats_list[i + 1] if i + 1 < len(beats_list) else duration
+            start_sample = int(start_sec * sr)
+            end_sample = min(int(end_sec * sr), len(y))
+            if start_sample >= end_sample:
+                energies.append(0.0)
+                continue
+            seg = y[start_sample:end_sample]
+            rms = float(np.sqrt(np.mean(seg ** 2)))
+            energies.append(rms)
+
+        # Normalisiere auf [0, 1]
+        max_e = max(energies) if energies else 1.0
+        if max_e > 0:
+            energies = [e / max_e for e in energies]
+        return energies
+
+    weights = {"drums": w_drums, "bass": w_bass, "vocals": w_vocals, "other": w_other}
+    stem_energies: dict[str, list[float]] = {}
+    default_energy = [0.5] * len(beats)
+
+    for stem_name in ["drums", "bass", "vocals", "other"]:
+        if stem_name in available:
+            stem_energies[stem_name] = _compute_rms_per_beat(available[stem_name], beats)
+        else:
+            stem_energies[stem_name] = default_energy
+
+    # Gewichtete Kombination
+    weighted = []
+    for i in range(len(beats)):
+        w_sum = 0.0
+        for stem_name, w in weights.items():
+            w_sum += w * stem_energies[stem_name][i]
+        weighted.append(round(min(1.0, w_sum), 4))
+
+    logger.info(
+        "Stem-gewichtete Energie berechnet: %d Beats, Stems=%s",
+        len(beats), list(available.keys()),
+    )
+
+    return StemEnergy(
+        drums=stem_energies["drums"],
+        bass=stem_energies["bass"],
+        vocals=stem_energies["vocals"],
+        other=stem_energies["other"],
+        weighted=weighted,
+    )
+
+
+@dataclass
+class Section:
+    """Eine erkannte Makro-Sektion im DJ-Set."""
+    start: float          # Startzeit in Sekunden
+    end: float            # Endzeit in Sekunden
+    section_type: str     # WARMUP, BUILDUP, DROP, BREAKDOWN, TRANSITION, COOLDOWN
+    avg_energy: float     # Mittlere Energie in der Sektion
+
+
+def detect_sections(
+    energy_per_beat: list[float],
+    beats: list[float],
+    total_duration: float,
+    window_beats: int = 32,
+    min_section_beats: int = 64,
+) -> list[Section]:
+    """F-005: Erkennt Makro-Sektionen in einem DJ-Set.
+
+    PhD-Spec Abschnitt 2.2: Adaptive Section Detection.
+
+    Methode: Gleitender Mittelwert mit Hysterese.
+    Section Types:
+      WARMUP:     Erste 5% der Dauer, Energie < 0.5
+      BUILDUP:    Energie steigt monoton ueber min_section_beats
+      DROP:       Energie > 0.7 fuer min_section_beats/2
+      BREAKDOWN:  Energie < 0.3 fuer min_section_beats/2
+      TRANSITION: Wechsel zwischen Sektionstypen
+      COOLDOWN:   Letzte 5% der Dauer, Energie fallend
+    """
+    if not energy_per_beat or not beats or len(beats) < window_beats:
+        return [Section(start=0.0, end=total_duration, section_type="TRANSITION",
+                        avg_energy=0.5)]
+
+    n = len(energy_per_beat)
+    energy_arr = np.array(energy_per_beat[:n])
+
+    # 1. Gleitender Mittelwert (Fenster = window_beats)
+    kernel = np.ones(window_beats) / window_beats
+    smoothed = np.convolve(energy_arr, kernel, mode='same')
+
+    # 2. Gradient (Steigung der Energiekurve)
+    gradient = np.gradient(smoothed)
+
+    # 3. Sektionsklassifikation pro Beat
+    beat_labels = []
+    warmup_end = int(n * 0.05)
+    cooldown_start = int(n * 0.95)
+
+    for i in range(n):
+        avg_e = float(smoothed[i])
+        avg_g = float(gradient[i])
+
+        if i < warmup_end and avg_e < 0.5:
+            beat_labels.append("WARMUP")
+        elif i >= cooldown_start and avg_g < -0.001:
+            beat_labels.append("COOLDOWN")
+        elif avg_e > 0.7:
+            beat_labels.append("DROP")
+        elif avg_e < 0.3:
+            beat_labels.append("BREAKDOWN")
+        elif avg_g > 0.002:
+            beat_labels.append("BUILDUP")
+        elif avg_g < -0.002:
+            beat_labels.append("TRANSITION")
+        else:
+            beat_labels.append("TRANSITION")
+
+    # 4. Zusammenfassen zu Sektionen (gleiche Labels zusammenhaengen)
+    sections: list[Section] = []
+    current_type = beat_labels[0]
+    section_start_idx = 0
+
+    for i in range(1, n):
+        if beat_labels[i] != current_type:
+            # Sektion abschliessen
+            start_time = beats[section_start_idx] if section_start_idx < len(beats) else 0.0
+            end_time = beats[i] if i < len(beats) else total_duration
+            avg_e = float(np.mean(energy_arr[section_start_idx:i]))
+            sections.append(Section(
+                start=round(start_time, 2),
+                end=round(end_time, 2),
+                section_type=current_type,
+                avg_energy=round(avg_e, 3),
+            ))
+            current_type = beat_labels[i]
+            section_start_idx = i
+
+    # Letzte Sektion
+    start_time = beats[section_start_idx] if section_start_idx < len(beats) else 0.0
+    avg_e = float(np.mean(energy_arr[section_start_idx:]))
+    sections.append(Section(
+        start=round(start_time, 2),
+        end=round(total_duration, 2),
+        section_type=current_type,
+        avg_energy=round(avg_e, 3),
+    ))
+
+    # 5. Zu kurze Sektionen mit Nachbarn verschmelzen
+    merged: list[Section] = []
+    for sec in sections:
+        sec_beats = 0
+        if beats:
+            sec_beats = sum(1 for b in beats if sec.start <= b < sec.end)
+
+        if merged and sec_beats < min_section_beats // 2:
+            # Zu kurz — mit vorheriger Sektion verschmelzen
+            merged[-1] = Section(
+                start=merged[-1].start,
+                end=sec.end,
+                section_type=merged[-1].section_type,
+                avg_energy=round((merged[-1].avg_energy + sec.avg_energy) / 2, 3),
+            )
+        else:
+            merged.append(sec)
+
+    logger.info("Makro-Struktur erkannt: %d Sektionen in %.0fs",
+                len(merged), total_duration)
+    for s in merged:
+        logger.debug("  [%s] %.1fs - %.1fs (avg_energy=%.2f)",
+                     s.section_type, s.start, s.end, s.avg_energy)
+
+    return merged
+
+
+def get_section_at_time(sections: list[Section], time: float) -> Section | None:
+    """Findet die Sektion die einen bestimmten Zeitpunkt enthaelt."""
+    for sec in sections:
+        if sec.start <= time < sec.end:
+            return sec
+    return sections[-1] if sections else None
+
+
+def compute_vocal_activity(
+    audio_id: int,
+    beats: list[float],
+    threshold: float = 0.15,
+) -> list[bool]:
+    """F-009: Berechnet pro Beat ob Vocals aktiv sind.
+
+    PhD-Spec Abschnitt 7.3: Vocal-Aware Pacing.
+    Wenn vocal_rms > threshold: Vocal aktiv → weniger Schnitte.
+
+    Returns: Liste von booleans, True = Vocals aktiv bei diesem Beat.
+    """
+    with Session(engine) as session:
+        track = session.get(AudioTrack, audio_id)
+        if not track or not track.stem_vocals_path:
+            return [False] * len(beats)
+        vocals_path = track.stem_vocals_path
+
+    if not Path(vocals_path).exists():
+        return [False] * len(beats)
+
+    if not beats or len(beats) < 2:
+        return [False] * len(beats)
+
+    try:
+        import librosa
+        y, sr = librosa.load(vocals_path, sr=22050, mono=True)
+    except Exception as e:
+        logger.warning("Konnte Vocal-Stem '%s' nicht laden: %s", vocals_path, e)
+        return [False] * len(beats)
+
+    duration = len(y) / sr
+    activity = []
+    for i in range(len(beats)):
+        start_sec = beats[i]
+        end_sec = beats[i + 1] if i + 1 < len(beats) else duration
+        start_sample = int(start_sec * sr)
+        end_sample = min(int(end_sec * sr), len(y))
+        if start_sample >= end_sample:
+            activity.append(False)
+            continue
+        seg = y[start_sample:end_sample]
+        rms = float(np.sqrt(np.mean(seg ** 2)))
+        activity.append(rms > threshold)
+
+    vocal_beats = sum(activity)
+    logger.info("Vocal-Activity: %d/%d Beats mit Vocals (%.0f%%)",
+                vocal_beats, len(beats), 100.0 * vocal_beats / max(len(beats), 1))
+    return activity
+
+
+@dataclass
+class DropEvent:
+    """Ein erkannter Drop im DJ-Set."""
+    time: float           # Beat-Zeitpunkt des Drops (Sekunden)
+    confidence: float     # 0.0-1.0 (Stärke des RMS-Sprungs)
+    energy_before: float  # Durchschnittliche Bass-Energie VOR dem Drop
+    energy_after: float   # Bass-Energie NACH dem Drop
+
+
+def detect_drops(
+    stem_energy: StemEnergy | None,
+    energy_per_beat: list[float],
+    beats: list[float],
+    pre_threshold: float = 0.2,
+    post_threshold: float = 0.6,
+    lookback_beats: int = 8,
+) -> list[DropEvent]:
+    """PhD-Spec Abschnitt 8: Multi-Stem Drop-Detektion via Bass-Stem.
+
+    Ein Drop ist definiert als:
+      - Bass-RMS vorher < pre_threshold fuer lookback_beats (Breakdown/Buildup)
+      - Bass-RMS nachher > post_threshold (ploetzliche hohe Energie)
+
+    Wenn Stems vorhanden: Nutze bass-Stem. Sonst: Stereo-Summe als Fallback.
+    """
+    # Waehle die beste Energiequelle
+    bass_energy = stem_energy.bass if stem_energy else energy_per_beat
+    if not bass_energy or not beats:
+        return []
+
+    drops: list[DropEvent] = []
+    n = len(bass_energy)
+
+    for i in range(lookback_beats, n):
+        prev_avg = float(np.mean(bass_energy[max(0, i - lookback_beats):i]))
+        curr = float(bass_energy[i])
+
+        if prev_avg < pre_threshold and curr > post_threshold:
+            beat_time = beats[i] if i < len(beats) else 0.0
+            confidence = min(1.0, (curr - prev_avg) * 1.5)
+
+            # Dedupliziere: kein zweiter Drop innerhalb von 16 Beats
+            if drops and i < len(beats):
+                last_drop_time = drops[-1].time
+                if beat_time - last_drop_time < 16 * (beats[1] - beats[0] if len(beats) > 1 else 0.5):
+                    continue
+
+            drops.append(DropEvent(
+                time=round(beat_time, 2),
+                confidence=round(confidence, 3),
+                energy_before=round(prev_avg, 3),
+                energy_after=round(curr, 3),
+            ))
+
+    logger.info("Drop-Detektion: %d Drops erkannt", len(drops))
+    for d in drops:
+        logger.debug("  Drop bei %.1fs (confidence=%.2f, before=%.2f, after=%.2f)",
+                     d.time, d.confidence, d.energy_before, d.energy_after)
+    return drops
+
+
+# PhD-Spec Abschnitt 2.3: Section → Crossfade-Dauer Mapping
+SECTION_CROSSFADE_MAP: dict[str, float] = {
+    "WARMUP":     2.0,   # Soft crossfade
+    "BUILDUP":    1.0,   # Crossfade → Hard cut
+    "DROP":       0.0,   # Hard cut (0ms)
+    "BREAKDOWN":  3.0,   # Slow dissolve
+    "TRANSITION": 1.5,   # Medium crossfade
+    "COOLDOWN":   4.0,   # Long dissolve
+}
+
+
+def section_to_crossfade(section_type: str) -> float:
+    """PhD-Spec Abschnitt 2.3: Bestimmt die Crossfade-Dauer basierend auf der Sektion."""
+    return SECTION_CROSSFADE_MAP.get(section_type, 0.0)
+
+
+def detect_transitions(
+    stem_energy: StemEnergy | None,
+    energy_per_beat: list[float],
+    beats: list[float],
+    min_transition_beats: int = 32,
+) -> list[tuple[float, float]]:
+    """PhD-Spec Abschnitt 9: DJ-Übergangs-Erkennung.
+
+    Ein DJ-Übergang wird erkannt durch:
+    - Drum-Stem-Anomalie: Onset-Dichte verdoppelt sich (zwei Kicks überlagern)
+    - Oder: Energie-Gradient wechselt Vorzeichen mit mittlerer Amplitude
+
+    Returns: Liste von (start_time, end_time) Tupeln fuer erkannte Übergänge.
+    """
+    if not energy_per_beat or not beats or len(beats) < min_transition_beats * 2:
+        return []
+
+    # Nutze Drum-Energie wenn verfuegbar, sonst Stereo-Summe
+    drum_energy = stem_energy.drums if stem_energy else energy_per_beat
+    n = len(drum_energy)
+
+    # Gleitender Mittelwert der Drum-Energie (16 Beats)
+    window = min(16, n // 2)
+    if window < 4:
+        return []
+    kernel = np.ones(window) / window
+    smoothed = np.convolve(np.array(drum_energy[:n]), kernel, mode='same')
+
+    # Berechne lokale Varianz (hohe Varianz = zwei Tracks ueberlagern sich)
+    variance = np.convolve((np.array(drum_energy[:n]) - smoothed) ** 2, kernel, mode='same')
+
+    # Normalisiere
+    max_var = float(np.max(variance)) if np.max(variance) > 0 else 1.0
+    norm_var = variance / max_var
+
+    # Finde Bereiche mit hoher Varianz (> 0.5) die mindestens min_transition_beats lang sind
+    transitions: list[tuple[float, float]] = []
+    in_transition = False
+    trans_start_idx = 0
+
+    for i in range(n):
+        if norm_var[i] > 0.5 and not in_transition:
+            in_transition = True
+            trans_start_idx = i
+        elif (norm_var[i] <= 0.5 or i == n - 1) and in_transition:
+            in_transition = False
+            duration_beats = i - trans_start_idx
+            if duration_beats >= min_transition_beats:
+                start_time = beats[trans_start_idx] if trans_start_idx < len(beats) else 0.0
+                end_time = beats[min(i, len(beats) - 1)]
+                transitions.append((round(start_time, 2), round(end_time, 2)))
+
+    logger.info("Transition-Detektion: %d DJ-Uebergaenge erkannt", len(transitions))
+    return transitions
 
 
 # ── Legacy Phase 2 functions (kept for backward compat) ──
@@ -380,6 +867,8 @@ def _compute_effective_step(
     energy_reactivity: float,
     breakdown_behavior: str,
     pacing_curve: list[float] | None,
+    avg_motion: float = 0.5,
+    vocal_active: bool = False,
 ) -> int:
     """Berechnet den effektiven Beat-Schritt fuer einen bestimmten Beat.
 
@@ -388,6 +877,8 @@ def _compute_effective_step(
     - energy_reactivity (erhoeht Cuts bei hohem RMS)
     - breakdown_behavior (reduziert Cuts bei niedrigem RMS)
     - manual_density_curve (optionale Ueberschreibung)
+    - avg_motion (RAFT Motion-Score, PhD-Spec Schritt 3)
+    - vocal_active (PhD-Spec: S_eff x 2 bei aktiven Vocals)
     """
     effective = base_step
 
@@ -405,6 +896,7 @@ def _compute_effective_step(
 
     # 2. Energy Reactivity
     reactivity = energy_reactivity / 100.0
+    energy = 0.5
     if reactivity > 0 and beat_index < len(energy_per_beat):
         energy = energy_per_beat[beat_index]
 
@@ -427,6 +919,24 @@ def _compute_effective_step(
             # Leicht verlangsamen bei niedrig-mittel
             effective = min(16, int(effective * 1.5))
 
+    # 3. Motion-Adjusted Step (PhD-Spec Schritt 3: combined_intensity)
+    # Kombiniert Audio-Energie mit Video-Motion-Score
+    combined_intensity = energy * 0.6 + avg_motion * 0.4
+    if combined_intensity >= 0.8:
+        effective = max(1, effective // 4)
+    elif combined_intensity >= 0.6:
+        effective = max(1, effective // 2)
+    elif combined_intensity < 0.2:
+        effective = min(16, effective * 4)
+    elif combined_intensity < 0.4:
+        effective = min(16, effective * 2)
+    # 0.4-0.6: No change (normal)
+
+    # 4. Vocal-Aware Pacing (PhD-Spec Abschnitt 7.3)
+    # Wenn Vocals aktiv: Schnittfrequenz halbieren fuer visuelle Stabilitaet
+    if vocal_active:
+        effective = min(16, effective * 2)
+
     return max(1, effective)
 
 
@@ -435,6 +945,8 @@ def _select_cut_beats_advanced(
     total_duration: float,
     settings: AdvancedPacingSettings,
     energy_per_beat: list[float],
+    avg_motion: float = 0.5,
+    vocal_activity: list[bool] | None = None,
 ) -> list[float]:
     """Phase 3: Waehlt Cut-Beats basierend auf DJ-Reglern aus."""
     if not beats:
@@ -447,6 +959,8 @@ def _select_cut_beats_advanced(
         if beat_time >= total_duration:
             break
 
+        is_vocal = vocal_activity[i] if vocal_activity and i < len(vocal_activity) else False
+
         step = _compute_effective_step(
             base_step=settings.base_cut_rate,
             beat_index=i,
@@ -456,6 +970,8 @@ def _select_cut_beats_advanced(
             energy_reactivity=settings.energy_reactivity,
             breakdown_behavior=settings.breakdown_behavior,
             pacing_curve=settings.manual_density_curve,
+            avg_motion=avg_motion,
+            vocal_active=is_vocal,
         )
 
         beats_since_last_cut += 1
@@ -474,6 +990,9 @@ def _match_video_for_segment(
     available_ids: list[int],
     clip_offsets: dict[int, float],
     used_recently: list[int],
+    energy_per_beat: list[float] | None = None,
+    beats: list[float] | None = None,
+    memory_bias: dict | None = None,
 ) -> tuple[int, float]:
     """Waehlt den besten Video-Clip fuer ein Segment.
 
@@ -499,10 +1018,21 @@ def _match_video_for_segment(
             logger.warning("LanceDB Suche fehlgeschlagen: %s", e)
 
     # Fallback: Motion-basiertes Matching
-    # Berechne Audio-Energie fuer diesen Zeitpunkt (fuer Motion-Match)
+    # Berechne echte Audio-Energie fuer den Segment-Mittelpunkt
     energy_value = 0.5  # Default
-    # Versuche Energie aus dem Video-Kontext abzuleiten
-    seg_mid = (seg_start + seg_end) / 2.0
+    if energy_per_beat and beats:
+        seg_mid = (seg_start + seg_end) / 2.0
+        beat_idx = int(np.searchsorted(np.array(beats), seg_mid))
+        beat_idx = min(beat_idx, len(energy_per_beat) - 1)
+        if beat_idx >= 0:
+            energy_value = energy_per_beat[beat_idx]
+
+    # KI-Gedaechtnis: Preferred motion aus Lern-Beispielen einfliessen lassen
+    if memory_bias is not None:
+        pref_motion = memory_bias.get("preferred_motion")
+        if pref_motion is not None:
+            # 40% Gewicht auf gelernte Praeferenz (nicht ueberwiegend, da Audio-Energie Prio hat)
+            energy_value = energy_value * 0.6 + pref_motion * 0.4
 
     vid, source_start = _match_video_by_motion(
         energy_value, video_info, available_ids, used_recently,
@@ -533,9 +1063,8 @@ def auto_edit_phase3(
     logger.info("Phase 3 Auto-Edit: Audio-Dauer = %.1fs", total_duration)
 
     # 2. Beats + Downbeats + Energie laden
-    beats = _get_beat_positions(audio_id)
-    downbeats = _get_downbeat_positions(audio_id)
-    energy_per_beat = _get_energy_per_beat(audio_id)
+    # Bug-14 Fix: _get_beat_data_combined() öffnet nur EINE Session statt 3
+    beats, downbeats, energy_per_beat = _get_beat_data_combined(audio_id)
 
     # Fallback: Beats aus BPM generieren
     if not beats:
@@ -563,10 +1092,60 @@ def auto_edit_phase3(
     anchor_times = {a["time"]: a for a in anchors}
 
     if progress_cb:
+        progress_cb(30, "Analysiere Stems und Motion...")
+
+    # F-004: Stem-gewichtete Energie (ersetzt Stereo-Summe wenn Stems vorhanden)
+    stem_energy = compute_stem_weighted_energy(audio_id, beats)
+    if stem_energy is not None:
+        energy_per_beat = stem_energy.weighted
+        logger.info("Nutze Stem-gewichtete Energie statt Stereo-Summe")
+
+    # F-005: Makro-Sektionserkennung
+    sections = detect_sections(energy_per_beat, beats, total_duration)
+    logger.info("Erkannte Sektionen: %s",
+                [(s.section_type, f"{s.start:.0f}-{s.end:.0f}s") for s in sections])
+
+    # F-009: Vocal-Activity fuer Vocal-Aware Pacing
+    vocal_activity = compute_vocal_activity(audio_id, beats)
+
+    # PhD-Spec Abschnitt 8: Drop-Detection via Bass-Stem
+    drops = detect_drops(stem_energy, energy_per_beat, beats)
+    drop_times = {d.time for d in drops}
+
+    # PhD-Spec Abschnitt 9: DJ-Transition-Erkennung
+    transitions = detect_transitions(stem_energy, energy_per_beat, beats)
+
+    if progress_cb:
         progress_cb(40, "Berechne Cut-Beats...")
-    # 5. Cut-Beats berechnen (Phase 3 Algorithmus)
+
+    # Berechne durchschnittlichen Motion-Score aller Szenen (PhD-Spec Schritt 3)
+    total_motion = 0.0
+    motion_count = 0
+    for vid_data in video_info.values():
+        for scene in vid_data.get("scenes", []):
+            total_motion += scene.get("energy", 0.5)
+            motion_count += 1
+    avg_motion = total_motion / motion_count if motion_count > 0 else 0.5
+
+    # KI-Gedaechtnis: Aehnliche Audio-Situationen aus Lern-Beispielen abrufen
+    avg_energy_val = float(np.mean(energy_per_beat)) if energy_per_beat else 0.5
+    bpm_val = _get_bpm(audio_id) or 120.0
+    memory_bias = _get_ai_memory_bias(bpm_val, avg_energy_val)
+    if memory_bias:
+        # Preferred motion aus Gedaechtnis in avg_motion einfliessen lassen (30% Gewicht)
+        pref_motion = memory_bias.get("preferred_motion")
+        if pref_motion is not None:
+            avg_motion = avg_motion * 0.7 + pref_motion * 0.3
+            logger.info(
+                "AI Memory: avg_motion angepasst auf %.3f (Lernregel: '%s')",
+                avg_motion, memory_bias.get("label", ""),
+            )
+
+    # 5. Cut-Beats berechnen (Phase 3 mit Motion-Fusion + Vocal-Awareness)
     cut_beats = _select_cut_beats_advanced(
         beats, total_duration, settings, energy_per_beat,
+        avg_motion=avg_motion,
+        vocal_activity=vocal_activity,
     )
 
     # Start immer bei 0
@@ -578,7 +1157,7 @@ def auto_edit_phase3(
 
     # Anker-Zeitpunkte einfuegen (auf naechsten Beat snappen)
     beats_arr = np.array(beats)
-    for anchor_time in anchor_times:
+    for anchor_time in (anchor_times if beats_arr.size > 0 else []):
         idx = np.argmin(np.abs(beats_arr - anchor_time))
         snapped = float(beats_arr[idx])
         if not any(abs(cb - snapped) < 0.05 for cb in cut_beats):
@@ -653,7 +1232,13 @@ def auto_edit_phase3(
             vid, source_start = _match_video_for_segment(
                 seg_start, seg_end, settings.vibe,
                 video_info, available_ids, clip_offsets, used_recently,
+                energy_per_beat=energy_per_beat, beats=beats,
+                memory_bias=memory_bias,
             )
+
+        if vid == -1:
+            logger.warning("Kein Video fuer Segment %.2f-%.2f verfuegbar, ueberspringe.", seg_start, seg_end)
+            continue
 
         vid_duration = video_info[vid]["duration"]
         vid_path = video_info[vid]["path"]
@@ -666,6 +1251,16 @@ def auto_edit_phase3(
 
         source_end = min(source_start + seg_duration, vid_duration)
 
+        # PhD-Spec: Bestimme Sektion und Crossfade-Dauer fuer dieses Segment
+        seg_section = get_section_at_time(sections, seg_start)
+        seg_section_type = seg_section.section_type if seg_section else "TRANSITION"
+        seg_crossfade = section_to_crossfade(seg_section_type)
+
+        # Bei Drops: Hard Cut erzwingen (0ms crossfade)
+        is_drop = any(abs(seg_start - dt) < 0.5 for dt in drop_times)
+        if is_drop:
+            seg_crossfade = 0.0
+
         segments.append(TimelineSegment(
             video_id=vid,
             video_path=vid_path,
@@ -675,10 +1270,12 @@ def auto_edit_phase3(
             source_end=round(source_end, 4),
             is_anchor=is_anchor,
             scene_id=anchor_scene_id,
+            crossfade_duration=round(seg_crossfade, 2),
+            section_type=seg_section_type,
         ))
 
         # CutPoint fuer UI-Visualisierung
-        source_type = "anchor" if is_anchor else "beat"
+        source_type = "drop" if is_drop else ("anchor" if is_anchor else "beat")
         # Energie-basierte Staerke
         beat_idx = np.searchsorted(beats_arr, seg_start)
         beat_idx = min(beat_idx, len(energy_per_beat) - 1) if energy_per_beat else 0
@@ -689,12 +1286,15 @@ def auto_edit_phase3(
             strength=round(min(1.0, strength + 0.2), 3),
         ))
 
-        # Offsets aktualisieren
-        clip_offsets[vid] = source_start + seg_duration
+        # Offsets aktualisieren (F-018: gecappte source_end nutzen)
+        clip_offsets[vid] = source_end
         if clip_offsets[vid] >= vid_duration:
             clip_offsets[vid] = 0.0
 
+        # F-019: Begrenze used_recently auf 10 Eintraege (nur letzte 3 werden gelesen)
         used_recently.append(vid)
+        if len(used_recently) > 10:
+            used_recently[:] = used_recently[-10:]
         clip_idx += 1
 
     if progress_cb:
@@ -829,6 +1429,10 @@ def _match_video_by_motion(
     Ruhige Szenen (motion < 0.3) fuer ruhige Audio-Abschnitte.
     Action-Szenen (motion > 0.7) fuer energetische Audio-Abschnitte.
     """
+    if not available_ids:
+        logger.warning("_match_video_by_motion: Keine Videos verfuegbar")
+        return -1, 0.0
+
     candidates = [v for v in available_ids if v not in used_recently[-3:]]
     if not candidates:
         candidates = available_ids
@@ -852,6 +1456,153 @@ def _match_video_by_motion(
                 best_source_start = scene.get("start", 0.0)
 
     return best_vid, best_source_start
+
+
+# ── KI-Langzeitgedaechtnis ──
+
+def learn_from_anchor(
+    audio_track_id: int,
+    anchor_time: float,
+    scene_id: int | None = None,
+    label: str = "",
+) -> bool:
+    """Speichert eine manuelle Schnitt-Entscheidung als KI-Lern-Beispiel.
+
+    Liest den Audio-Kontext (BPM, Energie) zum Zeitpunkt des Ankers und
+    die Video-Entscheidung (RAFT-Motion der Szene) und persistiert beides
+    in AIPacingMemory fuer zukuenftige Auto-Edits.
+
+    Args:
+        audio_track_id: ID des AudioTrack-Objekts
+        anchor_time:    Zeitstempel im Audio (Sekunden)
+        scene_id:       Optionale Scene.id fuer Clip-Kontext
+        label:          Beschreibung der Regel
+
+    Returns:
+        True bei Erfolg, False bei Fehler
+    """
+    import datetime
+
+    try:
+        with Session(engine) as session:
+            # ── Audio-Kontext laden ──
+            audio = session.get(AudioTrack, audio_track_id)
+            bpm = audio.bpm if audio else None
+
+            overall_energy = None
+            beatgrid = session.query(Beatgrid).filter_by(
+                audio_track_id=audio_track_id
+            ).first()
+            if beatgrid and beatgrid.energy_per_beat and beatgrid.beat_positions:
+                energy_data = json.loads(beatgrid.energy_per_beat)
+                beats_pos = json.loads(beatgrid.beat_positions)
+                if beats_pos:
+                    beats_arr = np.array(beats_pos)
+                    idx = int(np.argmin(np.abs(beats_arr - anchor_time)))
+                    if 0 <= idx < len(energy_data):
+                        overall_energy = float(energy_data[idx])
+
+            # Stimmung aus Energie ableiten
+            if overall_energy is not None:
+                if overall_energy > 0.75:
+                    mood = "drop"
+                elif overall_energy > 0.55:
+                    mood = "peak"
+                elif overall_energy > 0.35:
+                    mood = "buildup"
+                elif overall_energy > 0.2:
+                    mood = "breakdown"
+                else:
+                    mood = "warmup"
+            else:
+                mood = None
+
+            # ── Video/Szenen-Kontext laden ──
+            raft_motion = None
+            if scene_id:
+                scene = session.get(Scene, scene_id)
+                if scene:
+                    raft_motion = scene.energy  # Scene.energy = RAFT motion score
+
+            # Cut-Typ aus Kontext ableiten
+            is_energetic = (overall_energy or 0.5) > 0.65 or (raft_motion or 0.5) > 0.65
+            cut_type = "hard_cut" if is_energetic else "crossfade"
+            crossfade = 0.0 if cut_type == "hard_cut" else 1.5
+
+            mem = AIPacingMemory(
+                created_at=datetime.datetime.now().isoformat(),
+                bpm=bpm,
+                overall_energy=overall_energy,
+                mood=mood,
+                audio_time=anchor_time,
+                raft_motion=raft_motion,
+                cut_type=cut_type,
+                crossfade_duration=crossfade,
+                section_type=(mood.upper() if mood else None),
+                scene_id=scene_id,
+                audio_track_id=audio_track_id,
+                label=label or f"Anker@{anchor_time:.1f}s",
+            )
+            session.add(mem)
+            session.commit()
+            logger.info(
+                "AI Memory: Regel gespeichert id=%d bpm=%.1f mood=%s motion=%.2f",
+                mem.id, bpm or 0.0, mood or "?", raft_motion or 0.0,
+            )
+            return True
+    except Exception as exc:
+        logger.error("learn_from_anchor fehlgeschlagen: %s", exc)
+        return False
+
+
+def _get_ai_memory_bias(bpm: float, overall_energy: float) -> dict | None:
+    """Sucht aehnliche Audio-Situationen im KI-Gedaechtnis.
+
+    Vergleicht BPM und Energie mit gespeicherten Lern-Beispielen.
+    Gibt ein Bias-Dict zurueck das auto_edit_phase3 beeinflusst,
+    oder None wenn kein aehnliches Beispiel gefunden wurde.
+
+    Schwellwert: BPM-Abweichung < 15% UND Energie-Abweichung < 25%.
+    """
+    try:
+        with Session(engine) as session:
+            memories = session.query(AIPacingMemory).all()
+            if not memories:
+                return None
+
+            best_score = 999.0
+            best_mem = None
+
+            for mem in memories:
+                if mem.bpm is None:
+                    continue
+                bpm_sim = abs(mem.bpm - bpm) / max(bpm, 1.0)
+                energy_sim = abs((mem.overall_energy or 0.5) - overall_energy)
+                score = bpm_sim + energy_sim
+                if score < best_score:
+                    best_score = score
+                    best_mem = mem
+
+            # Schwellwert: zu unaehnlich → kein Einfluss
+            if best_mem is None or best_score > 0.5:
+                return None
+
+            logger.info(
+                "AI Memory Bias aktiv: score=%.3f bpm=%.1f->%.1f mood=%s label='%s'",
+                best_score, bpm, best_mem.bpm or 0.0,
+                best_mem.mood or "?", best_mem.label or "",
+            )
+            return {
+                "preferred_motion": best_mem.raft_motion,
+                "preferred_cut_type": best_mem.cut_type,
+                "preferred_crossfade": best_mem.crossfade_duration,
+                "mood": best_mem.mood,
+                "label": best_mem.label,
+                "similarity_score": best_score,
+            }
+    except Exception as exc:
+        logger.warning("AI Memory Abfrage fehlgeschlagen: %s", exc)
+        return None
 
 
 # ── Legacy wrapper (backward compat) ──
@@ -884,12 +1635,15 @@ def auto_edit_to_beats(
     )
     segments, _ = auto_edit_phase3(audio_id, video_clip_ids, settings)
 
-    return [
-        {
+    result = []
+    for seg in segments:
+        if seg.start >= total_duration:
+            break
+        end = min(seg.end, total_duration)
+        result.append({
             "video_id": seg.video_id,
             "start": seg.start,
-            "end": seg.end,
+            "end": end,
             "source_start": seg.source_start,
-        }
-        for seg in segments
-    ]
+        })
+    return result
