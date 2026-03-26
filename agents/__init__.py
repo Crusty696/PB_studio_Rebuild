@@ -10,6 +10,7 @@ from agents.orchestrator_agent import OrchestratorAgent
 from agents.vision_agent import VisionAgent
 from agents.audio_agent import AudioAgent
 from agents.editor_agent import EditorAgent
+from agents.pacing_agent import PacingAgent
 
 __all__ = [
     "BaseAgent",
@@ -17,4 +18,5 @@ __all__ = [
     "VisionAgent",
     "AudioAgent",
     "EditorAgent",
+    "PacingAgent",
 ]

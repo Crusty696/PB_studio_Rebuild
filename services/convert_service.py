@@ -23,10 +23,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
+from database import APP_ROOT
+
 logger = logging.getLogger(__name__)
 
-PROXY_DIR = Path("storage/proxies")
-MASTER_DIR = Path("exports")
+PROXY_DIR = APP_ROOT / "storage" / "proxies"
+MASTER_DIR = APP_ROOT / "exports"
 
 # FFmpeg Pfad — Chocolatey oder PATH
 FFMPEG = os.environ.get("FFMPEG_PATH", "ffmpeg")

@@ -16,7 +16,9 @@ import opentimelineio as otio
 logger = logging.getLogger(__name__)
 from opentimelineio.opentime import RationalTime, TimeRange
 
-EXPORTS_DIR = Path("exports")
+from database import APP_ROOT
+
+EXPORTS_DIR = APP_ROOT / "exports"
 
 # PB Studio namespace in OTIO metadata
 PB_NS = "pb_studio"
@@ -262,7 +264,13 @@ class TimelineService:
             path = EXPORTS_DIR / f"{self.timeline.name}.edl"
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        otio.adapters.write_to_file(self.timeline, str(path))
+        try:
+            otio.adapters.write_to_file(self.timeline, str(path), adapter_name="cmx_3600")
+        except Exception:
+            raise RuntimeError(
+                "EDL-Export fehlgeschlagen — cmx_3600 Adapter nicht verfuegbar. "
+                "Installiere: pip install opentimelineio-contrib"
+            )
         return str(path)
 
     def export_otio_json(self, path: str | Path | None = None) -> str:

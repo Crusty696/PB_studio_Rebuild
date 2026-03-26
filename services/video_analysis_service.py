@@ -21,9 +21,11 @@ from typing import Callable
 
 import numpy as np
 
+from database import APP_ROOT
+
 logger = logging.getLogger(__name__)
 
-KEYFRAME_DIR = Path("storage/keyframes")
+KEYFRAME_DIR = APP_ROOT / "storage" / "keyframes"
 
 
 @dataclass
@@ -54,6 +56,7 @@ def detect_scenes(
     video_path: str,
     threshold: float = 27.0,
     min_scene_len: float = 1.0,
+    fps: float = 30.0,
     progress_cb: Callable[[int, str], None] | None = None,
 ) -> list[SceneInfo]:
     """Erkennt Szenen mit PySceneDetect ContentDetector.
@@ -62,6 +65,7 @@ def detect_scenes(
         video_path: Pfad zum Video
         threshold: ContentDetector Schwellwert (niedriger = mehr Szenen)
         min_scene_len: Minimale Szenenlänge in Sekunden
+        fps: Framerate des Videos (default 30.0)
         progress_cb: Callback(percent, message)
 
     Returns:
@@ -79,7 +83,7 @@ def detect_scenes(
     try:
         scene_list = detect(
             video_path,
-            ContentDetector(threshold=threshold, min_scene_len=int(min_scene_len * 30)),
+            ContentDetector(threshold=threshold, min_scene_len=int(min_scene_len * fps)),
         )
     except Exception as e:
         logger.error("SceneDetect Fehler: %s — Fallback", e)
@@ -488,7 +492,7 @@ def store_embeddings(
             continue
 
         entries.append({
-            "id": video_clip_id * 10000 + scene.index,
+            "id": video_clip_id * 1_000_000 + scene.index,
             "video_path": video_path,
             "scene_index": scene.index,
             "scene_start": scene.start_time,

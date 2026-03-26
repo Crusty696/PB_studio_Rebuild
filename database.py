@@ -1,11 +1,16 @@
+from pathlib import Path
+
 from sqlalchemy import create_engine, event, Column, Integer, String, Float, ForeignKey, Text, Boolean
 from sqlalchemy.orm import DeclarativeBase, Session, relationship
+
+# Zentraler Projektpfad — alle Services importieren APP_ROOT statt relative Pfade zu nutzen
+APP_ROOT = Path(__file__).parent
 
 # Datenbank-Engine: SQLite-Datei im Projektordner
 # check_same_thread=False ist ZWINGEND noetig, weil QThread-Workers
 # auf dieselbe Engine zugreifen (SQLite verbietet sonst Cross-Thread-Zugriff).
 engine = create_engine(
-    "sqlite:///pb_studio.db",
+    f"sqlite:///{APP_ROOT / 'pb_studio.db'}",
     echo=False,
     connect_args={"check_same_thread": False},
 )
@@ -313,7 +318,7 @@ def _migrate_fk_cascade():
     log = logging.getLogger(__name__)
 
     # Backup vor destruktiver Migration — mit Verifikation
-    db_path = Path("pb_studio.db")
+    db_path = APP_ROOT / "pb_studio.db"
     backup_path = None
     if db_path.exists():
         backup_path = db_path.with_suffix(".db.backup_before_fk_migration")
@@ -340,7 +345,7 @@ def _migrate_fk_cascade():
                 "beatgrids", "waveform_data", "pacing_blueprints",
                 "timeline_entries", "audio_tracks", "video_clips",
             ]
-            _ALLOWED_TABLES = set(table_names)
+            _ALLOWED_TABLES = {"audio_tracks", "video_clips", "scenes", "beatgrids", "waveform_data", "pacing_blueprints", "audio_video_anchors", "clip_anchors", "timeline_entries"}
             for tname in table_names:
                 # F-012 Fix: Echte Validierung statt assert (assert wird durch -O deaktiviert)
                 if tname not in _ALLOWED_TABLES:
@@ -427,6 +432,24 @@ def init_db():
                     conn.execute(text(
                         'ALTER TABLE ai_pacing_memory ADD COLUMN "' + col_name + '" ' + col_type
                     ))
+
+    # K2 Fix: stem_*_path Spalten in audio_tracks nachrüsten
+    insp = inspect(engine)
+    if "audio_tracks" in insp.get_table_names():
+        at_columns = {c["name"] for c in insp.get_columns("audio_tracks")}
+        with engine.begin() as conn:
+            for stem_col in ["stem_vocals_path", "stem_drums_path", "stem_bass_path", "stem_other_path"]:
+                if stem_col not in at_columns:
+                    conn.execute(text(f"ALTER TABLE audio_tracks ADD COLUMN {stem_col} TEXT"))
+
+    # H5 Fix: Indizes auf Foreign-Key-Spalten erstellen (SQLite macht das nicht automatisch)
+    with engine.begin() as conn:
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_audio_tracks_project_id ON audio_tracks(project_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_video_clips_project_id ON video_clips(project_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_scenes_video_clip_id ON scenes(video_clip_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_beatgrids_audio_track_id ON beatgrids(audio_track_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_waveform_data_audio_track_id ON waveform_data(audio_track_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_timeline_entries_project_id ON timeline_entries(project_id)"))
 
     with Session(engine) as session:
         if not session.query(Project).first():

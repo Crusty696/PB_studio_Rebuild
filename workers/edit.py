@@ -51,11 +51,11 @@ class AutoEditWorker(QObject, CancellableMixin):
             self._errored = True
             self.error.emit(str(e))
         finally:
-            if not _ok:
+            if not _ok and not self._errored:
                 self.finished.emit([], [])
 
 
-class SemanticSearchWorker(QObject):
+class SemanticSearchWorker(QObject, CancellableMixin):
     """SigLIP Text-zu-Video Suche im Hintergrund."""
     finished = Signal(list)   # list of result dicts
     error = Signal(str)
@@ -77,5 +77,5 @@ class SemanticSearchWorker(QObject):
             self._errored = True
             self.error.emit(str(e))
         finally:
-            if not _ok:
+            if not _ok and not self._errored:
                 self.finished.emit([])

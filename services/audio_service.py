@@ -15,6 +15,8 @@ class AudioAnalyzer:
     @staticmethod
     def _tempo_to_float(tempo) -> float:
         """Robust conversion: librosa >=0.10 returns ndarray, older returns scalar."""
+        if hasattr(tempo, '__len__') and len(tempo) == 0:
+            return 0.0
         if isinstance(tempo, np.ndarray):
             return float(tempo.flat[0])
         return float(tempo)

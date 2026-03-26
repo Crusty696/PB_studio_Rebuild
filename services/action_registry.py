@@ -176,21 +176,25 @@ class ActionRegistry:
         if params is None:
             params = {}
 
-        # Tolerante Parameter: Unbekannte Keys werden still entfernt
+        # Tolerante Parameter: Unbekannte Keys werden entfernt (mit Hinweis)
         import inspect
         sig = inspect.signature(action.handler)
         valid_params = set(sig.parameters.keys())
         filtered = {k: v for k, v in params.items() if k in valid_params}
 
+        dropped_params: set[str] = set()
         if filtered != params:
-            removed = set(params.keys()) - valid_params
+            dropped_params = set(params.keys()) - valid_params
             logger.warning(
                 "Parameter bereinigt für '%s': entfernt %s, behalten %s",
-                action.name, removed, set(filtered.keys()),
+                action.name, dropped_params, set(filtered.keys()),
             )
 
         try:
-            return action.handler(**filtered)
+            result = action.handler(**filtered)
+            if dropped_params and isinstance(result, dict):
+                result["_dropped_params"] = sorted(dropped_params)
+            return result
         except TypeError as exc:
             logger.error(
                 "TypeError beim Ausführen von '%s' mit Params %s: %s",

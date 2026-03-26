@@ -1,5 +1,6 @@
 """Zentrale Task-Engine: Erstellt, verwaltet und besitzt alle Hintergrund-Threads."""
 
+import gc
 import logging
 import time
 import uuid
@@ -232,16 +233,17 @@ class GlobalTaskManager(QObject):
         # Error-Signal: Fallback-Logger immer verbinden (stille Fehler verhindern).
         # Verbindet einen Default-Handler, der den Fehler loggt und den Task
         # als "error" markiert — auch wenn kein on_error-Callback uebergeben wurde.
-        def _default_error_handler(*args, _tid=task_id, _name=name, _tm=self):
-            err_msg = str(args[-1]) if args else "Unbekannter Fehler"
-            logging.error(
-                "[TaskEngine] Worker-Fehler '%s' (task_id=%s): %s",
-                _name, _tid, err_msg,
-            )
-            _tm.finish_task(_tid, status="error", message=err_msg)
-        worker.error.connect(_default_error_handler)
-        if on_error:
-            worker.error.connect(on_error)
+        if hasattr(worker, "error"):
+            def _default_error_handler(*args, _tid=task_id, _name=name, _tm=self):
+                err_msg = str(args[-1]) if args else "Unbekannter Fehler"
+                logging.error(
+                    "[TaskEngine] Worker-Fehler '%s' (task_id=%s): %s",
+                    _name, _tid, err_msg,
+                )
+                _tm.finish_task(_tid, status="error", message=err_msg)
+            worker.error.connect(_default_error_handler)
+            if on_error:
+                worker.error.connect(on_error)
 
         # Thread-Lifecycle: finished → quit → deleteLater → cleanup
         worker.finished.connect(thread.quit)
@@ -311,8 +313,20 @@ class GlobalTaskManager(QObject):
         thread = task.thread
         if thread and thread.isRunning():
             thread.quit()
-            if not thread.wait(2000):
+            if not thread.wait(5000):
+                logging.warning(
+                    "[TaskEngine] Thread reagiert nicht nach 5s, terminate() noetig: %s",
+                    task_id,
+                )
                 thread.terminate()
+                # VRAM-Cleanup nach hartem terminate()
+                try:
+                    import torch
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                except Exception:
+                    pass
+                gc.collect()
         self.finish_task(task_id, "cancelled", "Abgebrochen")
         logging.info("[TaskEngine] Abgebrochen: %s", task_id)
 

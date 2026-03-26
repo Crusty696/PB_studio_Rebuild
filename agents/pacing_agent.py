@@ -229,7 +229,7 @@ class PacingAgent(BaseAgent):
         }
 
         # Audio-Track-ID extrahieren
-        audio_id = ctx.get("audio_track_id") or ctx.get("track_id")
+        audio_id = ctx.get("audio_track_id") or ctx.get("track_id") or ctx.get("extracted_id")
         if audio_id is None:
             numbers = re.findall(r'\d+', user_text)
             if numbers:
@@ -273,7 +273,7 @@ class PacingAgent(BaseAgent):
             "error": None,
         }
 
-        audio_id = ctx.get("audio_track_id") or ctx.get("track_id")
+        audio_id = ctx.get("audio_track_id") or ctx.get("track_id") or ctx.get("extracted_id")
         if audio_id is None:
             numbers = re.findall(r'\d+', user_text)
             if numbers:
@@ -313,7 +313,7 @@ class PacingAgent(BaseAgent):
             "error": None,
         }
 
-        audio_id = ctx.get("audio_track_id") or ctx.get("track_id")
+        audio_id = ctx.get("audio_track_id") or ctx.get("track_id") or ctx.get("extracted_id")
         if audio_id is None:
             numbers = re.findall(r'\d+', user_text)
             if numbers:
@@ -446,7 +446,7 @@ class PacingAgent(BaseAgent):
         if "drop" in text_lower:
             return (
                 "DROP-ERKENNUNG: Ein Drop wird erkannt wenn der Bass-Stem-RMS "
-                "von < 0.2 auf > 0.7 springt. Bei einem Drop wird die Cut-Rate "
+                "von < 0.2 auf > 0.6 springt. Bei einem Drop wird die Cut-Rate "
                 "auf S_eff=1 (jeden Beat) maximiert für 16-32 Beats."
             )
         if "breakdown" in text_lower:

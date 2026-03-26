@@ -14,11 +14,8 @@ Nur EIN Modell darf gleichzeitig im RAM/VRAM liegen.
 import concurrent.futures as _cf
 import json
 import logging
-import re
 import threading
 from typing import Any
-
-import torch
 
 from services.action_registry import ActionRegistry, action_registry
 from services.model_manager import ModelManager
@@ -99,6 +96,7 @@ class LocalAgentService:
         self.registry = registry or action_registry
         self.model_id = model_id
         # GPU-ZWANG: Wenn CUDA da ist, immer CUDA nutzen
+        import torch
         cuda_available = torch.cuda.is_available()
         self.device = "cuda" if cuda_available else "cpu"
         if device and device != self.device and cuda_available:
@@ -257,6 +255,7 @@ class LocalAgentService:
         Unterstützt:
         - Einzelnes JSON-Objekt → wird in Liste verpackt
         - JSON-Array von Objekten → wird direkt zurückgegeben
+        - Beliebig tief verschachtelte JSON-Strukturen
         """
         # Versuche direktes Parsing
         try:
@@ -268,25 +267,20 @@ class LocalAgentService:
         except json.JSONDecodeError:
             pass
 
-        # Suche nach JSON-Array in der Antwort
-        array_match = re.search(r'\[[\s\S]*?\]', raw)
-        if array_match:
-            try:
-                parsed = json.loads(array_match.group())
-                if isinstance(parsed, list) and all(isinstance(item, dict) for item in parsed):
-                    return parsed
-            except json.JSONDecodeError:
-                pass
-
-        # Suche nach einzelnem JSON-Objekt in der Antwort
-        match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', raw)
-        if match:
-            try:
-                parsed = json.loads(match.group())
-                if isinstance(parsed, dict):
-                    return [parsed]
-            except json.JSONDecodeError:
-                pass
+        # Iteratives String-Scanning: Suche nach '[' oder '{' und versuche json.loads()
+        for i, ch in enumerate(raw):
+            if ch in ('[', '{'):
+                try:
+                    parsed = json.loads(raw[i:])
+                    if isinstance(parsed, list) and all(isinstance(item, dict) for item in parsed):
+                        return parsed
+                    if isinstance(parsed, dict):
+                        return [parsed]
+                except json.JSONDecodeError:
+                    # Versuche kürzere Substrings ab dieser Position nicht —
+                    # json.loads() konsumiert nur gültiges JSON vom Anfang,
+                    # also weiter zum nächsten '[' oder '{'
+                    pass
 
         # Fallback: keine gültige Aktion erkannt
         return [{"action": "none", "params": {}, "message": raw}]

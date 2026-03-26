@@ -48,7 +48,8 @@ GlobalTaskManager.register_worker(
     AutoEditWorker,
     "Auto-Edit",
     mapper=lambda kw: {
-        "audio_id": kw["audio_id"],
+        # register_actions.py emittiert "audio_track_id"; AutoEditWorker erwartet "audio_id"
+        "audio_id": kw.get("audio_id") or kw["audio_track_id"],
         "video_ids": kw["video_ids"],
         "settings": kw.get("settings") or AdvancedPacingSettings(),
     },

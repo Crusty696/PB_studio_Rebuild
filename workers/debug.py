@@ -1,5 +1,7 @@
 """Debug/test background workers."""
 
+import time as _t
+
 from PySide6.QtCore import QObject, Signal
 
 from .base import CancellableMixin
@@ -13,7 +15,6 @@ class DummyProgressWorker(QObject, CancellableMixin):
 
     def __init__(self, steps: int = 10, interval_ms: int = 1000):
         super().__init__()
-        self._cancelled = False
         self.steps = steps
         self.interval_s = interval_ms / 1000.0
 
@@ -26,7 +27,6 @@ class DummyProgressWorker(QObject, CancellableMixin):
                     break
                 pct = int(100 * i / self.steps)
                 self.progress.emit(pct, f"Schritt {i}/{self.steps}")
-                import time as _t
                 _t.sleep(self.interval_s)
             self.finished.emit(self.steps, self.steps)
             _ok = True
@@ -34,5 +34,5 @@ class DummyProgressWorker(QObject, CancellableMixin):
             self._errored = True
             self.error.emit(str(e))
         finally:
-            if not _ok:
+            if not _ok and not self._errored:
                 self.finished.emit(0, 0)

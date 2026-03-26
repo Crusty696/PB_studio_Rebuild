@@ -26,7 +26,7 @@ AUDIO_KEYWORDS = [
     "analyse audio", "analyze audio", "analysiere audio",
     "trennen", "separate", "separation",
     "transkri", "transcri", "speech", "sprache", "gesagt",
-    "text", "untertitel", "subtitle", "whisper",
+    "untertitel", "subtitle", "whisper",
     # DJ-Mix spezifisch
     "dj", "mix", "set", "transition", "drop", "breakdown",
     "buildup", "pacing", "energie", "energy", "makro",
@@ -89,7 +89,7 @@ class AudioAgent(BaseAgent):
             track_id = None
             file_path = None
             if context:
-                track_id = context.get("track_id")
+                track_id = context.get("track_id") or context.get("extracted_id")
                 file_path = context.get("file_path")
 
             if track_id is None:
@@ -120,7 +120,7 @@ class AudioAgent(BaseAgent):
 
         track_id = None
         if context:
-            track_id = context.get("track_id")
+            track_id = context.get("track_id") or context.get("extracted_id")
         if track_id is None:
             numbers = re.findall(r'\d+', user_text)
             if numbers:

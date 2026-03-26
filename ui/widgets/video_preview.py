@@ -3,13 +3,18 @@
 from pathlib import Path
 
 from PySide6.QtWidgets import QLabel
-from PySide6.QtCore import Qt, QThread, QTimer
+from PySide6.QtCore import Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QPixmap, QImage
 
 from workers.video import FrameExtractWorker
 
 
 class VideoPreviewWidget(QLabel):
+    # Emitted with (current_sec, total_sec) whenever playback position advances
+    position_changed = Signal(float, float)
+    # Emitted when playback starts (True) or stops/pauses (False)
+    playback_state_changed = Signal(bool)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("video_preview")
@@ -34,6 +39,7 @@ class VideoPreviewWidget(QLabel):
         self._current_path = file_path
         self._current_time = 0.0
         self._duration = duration
+        self.position_changed.emit(0.0, self._duration)
         self._extract_and_show_frame(0.0)
 
     def play_from(self, time_sec: float):
@@ -41,11 +47,14 @@ class VideoPreviewWidget(QLabel):
             return
         self._current_time = time_sec
         self._is_playing = True
+        self.playback_state_changed.emit(True)
         self._play_timer.start()
 
     def stop(self):
         self._play_timer.stop()
         self._is_playing = False
+        self.playback_state_changed.emit(False)
+        self.position_changed.emit(self._current_time, self._duration)
 
     def toggle_play(self):
         if self._is_playing:
@@ -54,11 +63,12 @@ class VideoPreviewWidget(QLabel):
             self.play_from(self._current_time)
 
     def _advance_frame(self):
-        self._current_time += 0.5
+        self._current_time += 1.0 / 10.0
         if self._duration > 0 and self._current_time >= self._duration:
             self._current_time = 0.0
             self.stop()
             return
+        self.position_changed.emit(self._current_time, self._duration)
         self._extract_and_show_frame(self._current_time)
 
     def _extract_and_show_frame(self, time_sec: float, vf_extra: str = ""):
@@ -66,13 +76,22 @@ class VideoPreviewWidget(QLabel):
             self.setText("Datei nicht gefunden")
             return
         if self._frame_thread is not None and self._frame_thread.isRunning():
-            # Non-blocking: alten Thread laufen lassen, Signale trennen
+            # Alte Referenzen sichern bevor sie ueberschrieben werden
+            old_thread = self._frame_thread
+            old_worker = self._frame_worker
             try:
-                self._frame_worker.frame_ready.disconnect(self._on_frame_ready)
-                self._frame_worker.error.disconnect(self._on_frame_error)
+                old_worker.frame_ready.disconnect(self._on_frame_ready)
+                old_worker.error.disconnect(self._on_frame_error)
+                old_thread.finished.disconnect(self._on_frame_thread_finished)
             except (RuntimeError, TypeError):
                 pass
-            self._frame_thread.quit()
+            old_thread.quit()
+            old_thread.wait(500)
+            if old_worker is not None:
+                old_worker.deleteLater()
+            old_thread.deleteLater()
+            self._frame_thread = None
+            self._frame_worker = None
 
         worker = FrameExtractWorker(self._current_path, time_sec, 320, 180, vf_extra)
         thread = QThread()

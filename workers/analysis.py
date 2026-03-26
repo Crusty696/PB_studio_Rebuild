@@ -20,7 +20,6 @@ class AnalysisWorker(QObject, CancellableMixin):
 
     def __init__(self, track_id: int, title: str):
         super().__init__()
-        self._cancelled = False
         self.track_id = track_id
         self.title = title
         self.analyzer = AudioAnalyzer()
@@ -58,7 +57,7 @@ class AnalysisWorker(QObject, CancellableMixin):
             self._errored = True
             self.error.emit(self.track_id, str(e))
         finally:
-            if not _ok:
+            if not _ok and not self._errored:
                 self.finished.emit(self.track_id, {})
 
 
@@ -89,5 +88,5 @@ class WaveformAnalysisWorker(QObject, CancellableMixin):
             self._errored = True
             self.error.emit(self.track_id, str(e))
         finally:
-            if not _ok:
+            if not _ok and not self._errored:
                 self.finished.emit(self.track_id, {})

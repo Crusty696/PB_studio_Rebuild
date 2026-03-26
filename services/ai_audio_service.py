@@ -21,11 +21,11 @@ except ImportError:
     _TORCH_AVAILABLE = False
 from sqlalchemy.orm import Session
 
-from database import engine, AudioTrack, WaveformData
+from database import engine, AudioTrack, WaveformData, APP_ROOT
 
 logger = logging.getLogger(__name__)
 
-STEMS_DIR = Path("storage/stems")
+STEMS_DIR = APP_ROOT / "storage" / "stems"
 
 # Chunk-Dauer in Sekunden fuer VRAM-schonendes Processing
 CHUNK_SECONDS = 30
@@ -366,7 +366,6 @@ class AutoDucker:
         gain = np.where(envelope > self.threshold_rms, duck_factor, 1.0)
 
         # Smooth (Attack/Release)
-        from scipy.ndimage import uniform_filter1d
         smooth_window = int(music_sr * max(self.attack_ms, self.release_ms) / 1000.0)
         gain = uniform_filter1d(gain, size=max(1, smooth_window))
 
@@ -523,16 +522,22 @@ class FrequencyAnalyzer:
                 raise ValueError(f"AudioTrack {track_id} nach Frequenzanalyse nicht mehr gefunden")
 
             # BPM + Duration updaten
-            track.bpm = result["bpm"]
+            # BPM nur setzen wenn noch kein Wert vorhanden (z.B. von BeatAnalysisService)
+            if not track.bpm:
+                track.bpm = result["bpm"]
             track.duration = result["duration"]
 
-            # WaveformData speichern/aktualisieren
-            if track.waveform_data:
-                track.waveform_data.num_samples = result["num_samples"]
-                track.waveform_data.duration = result["duration"]
-                track.waveform_data.band_low = json.dumps(result["band_low"])
-                track.waveform_data.band_mid = json.dumps(result["band_mid"])
-                track.waveform_data.band_high = json.dumps(result["band_high"])
+            # DB-07 Fix: Expliziter Query-Check gegen Duplikate
+            existing_wd = track.waveform_data or session.query(WaveformData).filter_by(
+                audio_track_id=track_id
+            ).first()
+
+            if existing_wd:
+                existing_wd.num_samples = result["num_samples"]
+                existing_wd.duration = result["duration"]
+                existing_wd.band_low = json.dumps(result["band_low"])
+                existing_wd.band_mid = json.dumps(result["band_mid"])
+                existing_wd.band_high = json.dumps(result["band_high"])
             else:
                 wd = WaveformData(
                     audio_track_id=track_id,

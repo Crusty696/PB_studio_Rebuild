@@ -793,6 +793,7 @@ class StemWorkspace(QWidget):
         self._peak_threads: list[QThread] = []
         self._peak_workers: list[PeakWorker] = []
         self._solo_active: set[str] = set()
+        self._pre_solo_mute_state: dict[str, bool] = {}
 
     # ── Public API ──
 
@@ -917,21 +918,39 @@ class StemWorkspace(QWidget):
         self.stem_mute_toggled.emit(stem_name, muted)
 
     def _on_solo_toggled(self, stem_name: str, checked: bool):
-        """Solo-Logik: Nur der Solo-Track ist hörbar, alle anderen muted."""
+        """Solo-Logik: Nur der Solo-Track ist hörbar, alle anderen muted.
+
+        Speichert den vorherigen Mute-Zustand beim Aktivieren von Solo und
+        stellt ihn beim Deaktivieren wieder her. Die Mute-Buttons werden
+        visuell aktualisiert, damit der Zustand sichtbar ist.
+        """
         if checked:
+            # Mute-Zustand merken bevor Solo greift
+            if not self._solo_active:
+                self._pre_solo_mute_state = {
+                    name: track.is_muted for name, track in self._tracks.items()
+                }
             self._solo_active.add(stem_name)
         else:
             self._solo_active.discard(stem_name)
 
         if self._solo_active:
-            # Mute alle die NICHT solo sind
+            # Mute alle die NICHT solo sind + Buttons visuell aktualisieren
             for name, track in self._tracks.items():
                 should_mute = name not in self._solo_active
+                track._mute_btn.blockSignals(True)
+                track._mute_btn.setChecked(should_mute)
+                track._mute_btn.blockSignals(False)
                 self.stem_mute_toggled.emit(name, should_mute)
         else:
-            # Kein Solo aktiv → alle Mutes zurücksetzen (respektiere Mute-Buttons)
+            # Kein Solo aktiv → vorherigen Mute-Zustand wiederherstellen
+            pre_state = getattr(self, '_pre_solo_mute_state', {})
             for name, track in self._tracks.items():
-                self.stem_mute_toggled.emit(name, track.is_muted)
+                was_muted = pre_state.get(name, False)
+                track._mute_btn.blockSignals(True)
+                track._mute_btn.setChecked(was_muted)
+                track._mute_btn.blockSignals(False)
+                self.stem_mute_toggled.emit(name, was_muted)
 
     def _on_waveform_seek(self, ratio: float):
         """Klick in eine Waveform → Seek in Sekunden."""

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 from typing import TYPE_CHECKING
 
 from PySide6.QtWidgets import (
@@ -78,28 +79,42 @@ class AIAgentWorker(QObject):
         super().__init__()
         self.agent = agent
         self.user_text = user_text
+        self._registry_lock = threading.Lock()
 
     def run(self):
         _ok = False
         try:
             self.status_changed.emit("Denkt nach...")
 
-            # Thread-sichere Tracking-Registry statt Monkey-Patching
+            # Thread-sicher: Lokale tracked_registry statt Agent-Objekt zu mutieren
+            # Vermeidet Data-Race wenn Main-Thread parallel auf agent.registry zugreift
             original_registry = getattr(self.agent, 'registry', None)
+            tracked_registry = None
             if original_registry is not None:
-                tracked = _TrackedRegistry(
+                tracked_registry = _TrackedRegistry(
                     original_registry,
                     self.MAX_CONSECUTIVE_CALLS,
                     self.status_changed,
                 )
-                self.agent.registry = tracked
 
             try:
-                result = self.agent.process(self.user_text)
+                # Registry temporaer ersetzen fuer diesen Aufruf,
+                # aber mit Lock-Schutz gegen parallelen Zugriff
+                if tracked_registry is not None:
+                    with self._registry_lock:
+                        self.agent.registry = tracked_registry
+                try:
+                    result = self.agent.process(self.user_text)
+                finally:
+                    # Sofort zuruecksetzen — minimiert das Zeitfenster
+                    if tracked_registry is not None:
+                        with self._registry_lock:
+                            self.agent.registry = original_registry
                 self.status_changed.emit("Bereit")
                 self.finished.emit(result)
                 _ok = True
             except _LoopBreakError as le:
+                # Registry wurde bereits im finally-Block zurueckgesetzt
                 logger.warning("Agent-Loop abgebrochen: %s", le)
                 self.finished.emit({
                     "action": "none",
@@ -108,10 +123,6 @@ class AIAgentWorker(QObject):
                     "result": None,
                 })
                 _ok = True
-            finally:
-                # Original-Registry wiederherstellen
-                if original_registry is not None:
-                    self.agent.registry = original_registry
 
         except Exception as e:
             logger.error("AIAgentWorker crashed: %s", e, exc_info=True)

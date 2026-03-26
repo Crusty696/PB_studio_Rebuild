@@ -47,7 +47,7 @@ class ExportWorker(QObject, CancellableMixin):
             self._errored = True
             self.error.emit(str(e))
         finally:
-            if not _ok:
+            if not _ok and not self._errored:
                 self.finished.emit("")
 
 
@@ -60,7 +60,6 @@ class FolderImportWorker(QObject, CancellableMixin):
 
     def __init__(self, paths_audio: list, paths_video: list):
         super().__init__()
-        self._cancelled = False
         self.paths_audio = paths_audio
         self.paths_video = paths_video
 
@@ -130,7 +129,7 @@ class FolderImportWorker(QObject, CancellableMixin):
             self._errored = True
             self.error.emit(str(e))
         finally:
-            if not _ok:
+            if not _ok and not self._errored:
                 self.finished.emit(added, new_video_clips)
 
 
@@ -142,7 +141,6 @@ class BatchConvertWorker(QObject, CancellableMixin):
 
     def __init__(self, videos: list, resolution: str, fps: str, vcodec: str, ext: str):
         super().__init__()
-        self._cancelled = False
         self.videos = videos
         self.resolution = resolution
         self.fps = fps
@@ -206,7 +204,7 @@ class BatchConvertWorker(QObject, CancellableMixin):
             self._errored = True
             self.error.emit(str(e))
         finally:
-            if not _ok:
+            if not _ok and not self._errored:
                 self.finished.emit(0, 0)
 
 
@@ -218,7 +216,6 @@ class ProxyCreationWorker(QObject, CancellableMixin):
 
     def __init__(self, clip_id: int, video_path: str):
         super().__init__()
-        self._cancelled = False
         self.clip_id = clip_id
         self.video_path = video_path
 
@@ -245,5 +242,5 @@ class ProxyCreationWorker(QObject, CancellableMixin):
             self._errored = True
             self.error.emit(self.clip_id, str(e))
         finally:
-            if not _ok:
+            if not _ok and not self._errored:
                 self.finished.emit(self.clip_id, "")

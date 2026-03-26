@@ -112,10 +112,13 @@ class WaveformGraphicsItem(QGraphicsItem):
             if tile_w <= 0:
                 continue
 
-            # Tile aus Cache holen oder rendern
-            if tile_idx not in self._tile_cache:
+            # Tile aus Cache holen oder rendern (LRU: Cache-Hit → ans Ende schieben)
+            if tile_idx in self._tile_cache:
+                # LRU: Genutzten Eintrag ans Ende verschieben
+                self._tile_cache[tile_idx] = self._tile_cache.pop(tile_idx)
+            else:
                 self._tile_cache[tile_idx] = self._render_tile(tile_idx, tile_w, h)
-                # LRU-Eviction: älteste Tiles entfernen wenn Cache-Limit überschritten
+                # LRU-Eviction: älteste (am längsten ungenutzte) Tiles entfernen
                 while len(self._tile_cache) > TILE_CACHE_MAX:
                     self._tile_cache.pop(next(iter(self._tile_cache)))
 

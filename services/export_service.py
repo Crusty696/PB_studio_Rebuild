@@ -12,11 +12,11 @@ import tempfile
 from pathlib import Path
 
 from sqlalchemy.orm import Session
-from database import engine, TimelineEntry, AudioTrack, VideoClip
+from database import engine, TimelineEntry, AudioTrack, VideoClip, APP_ROOT
 
 logger = logging.getLogger(__name__)
 
-EXPORT_DIR = Path("exports")
+EXPORT_DIR = APP_ROOT / "exports"
 
 
 def _prepare_normalized_audio(audio_path: str | None, temp_files: list,
@@ -118,7 +118,7 @@ def export_timeline(project_id: int = 1, output_name: str = "output.mp4",
         for seg in video_segments
     )
 
-    if has_effects and len(video_segments) <= 10:
+    if has_effects:
         return _export_with_filtergraph(
             video_segments, audio_path, output_path,
             w, h, fps, progress_cb, total_steps

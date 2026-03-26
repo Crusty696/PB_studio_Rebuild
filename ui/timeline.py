@@ -1,5 +1,6 @@
 """Interactive Timeline with draggable clips, anchors, beat markers and zoom."""
 
+from collections import namedtuple
 from pathlib import Path
 
 from PySide6.QtWidgets import (
@@ -14,6 +15,8 @@ from sqlalchemy.orm import Session as DBSession
 from database import engine, AudioTrack, VideoClip, TimelineEntry, Beatgrid, ClipAnchor
 from services.pacing_service import CutPoint
 from ui.waveform_item import WaveformGraphicsItem
+
+_EntryStub = namedtuple("_EntryStub", ["start_time"])
 
 # ======================================================================
 # Constants
@@ -72,7 +75,8 @@ class TimelineClipItem(QGraphicsRectItem):
 
     def __init__(self, entry_id: int, media_id: int, track_type: str,
                  title: str, x: float, y: float, width: float, height: float,
-                 on_moved=None, has_waveform: bool = False):
+                 on_moved=None, has_waveform: bool = False,
+                 anchors: list | None = None):
         super().__init__(QRectF(0, 0, width, height))
         self.entry_id = entry_id
         self.media_id = media_id
@@ -101,7 +105,18 @@ class TimelineClipItem(QGraphicsRectItem):
 
         self._track_y = y
         self._anchor_markers: list[AnchorMarkerItem] = []
-        self._load_anchors()
+        if anchors is not None:
+            self._apply_anchors(anchors)
+        else:
+            self._load_anchors()
+
+    def _apply_anchors(self, anchors):
+        """Zeichnet vorab geladene Anker (vermeidet N+1 DB-Queries)."""
+        for anchor in anchors:
+            x_px = anchor.time_offset * PIXELS_PER_SECOND
+            if 0 <= x_px <= self._clip_width:
+                marker = AnchorMarkerItem(x_px, self._clip_height, anchor.id, parent=self)
+                self._anchor_markers.append(marker)
 
     def _load_anchors(self):
         """Laedt bestehende Anker aus der DB und zeichnet sie."""
@@ -109,11 +124,7 @@ class TimelineClipItem(QGraphicsRectItem):
             anchors = session.query(ClipAnchor).filter_by(
                 timeline_entry_id=self.entry_id
             ).all()
-            for anchor in anchors:
-                x_px = anchor.time_offset * PIXELS_PER_SECOND
-                if 0 <= x_px <= self._clip_width:
-                    marker = AnchorMarkerItem(x_px, self._clip_height, anchor.id, parent=self)
-                    self._anchor_markers.append(marker)
+            self._apply_anchors(anchors)
 
     def add_anchor_at(self, local_x: float) -> int | None:
         """Setzt einen neuen Anker an der lokalen X-Position (in Pixeln).
@@ -244,6 +255,12 @@ class InteractiveTimeline(QGraphicsView):
         self._beat_markers: list[QGraphicsLineItem] = []
         self._beat_times: list[float] = []
         self._snap_to_beat = True
+        self._ruler_items: list = []
+        self._pending_move = None
+        self._move_timer = QTimer(self)
+        self._move_timer.setSingleShot(True)
+        self._move_timer.setInterval(200)
+        self._move_timer.timeout.connect(self._flush_pending_move)
 
         self._draw_track_backgrounds()
         self._draw_labels()
@@ -295,6 +312,17 @@ class InteractiveTimeline(QGraphicsView):
                 if _video_ids else {}
             )
 
+            # Bulk-Load aller ClipAnchors — verhindert N+1 pro Clip
+            _entry_ids = [e.id for e in entries]
+            _all_anchors = (
+                session.query(ClipAnchor).filter(
+                    ClipAnchor.timeline_entry_id.in_(_entry_ids)
+                ).all() if _entry_ids else []
+            )
+            _anchor_map: dict[int, list] = {}
+            for anc in _all_anchors:
+                _anchor_map.setdefault(anc.timeline_entry_id, []).append(anc)
+
             for entry in entries:
                 has_waveform = False
                 if entry.track == "audio":
@@ -328,6 +356,7 @@ class InteractiveTimeline(QGraphicsView):
                     width=width, height=TRACK_HEIGHT,
                     on_moved=self._on_clip_moved,
                     has_waveform=has_waveform,
+                    anchors=_anchor_map.get(entry.id, []),
                 )
                 self._scene.addItem(item)
                 self.clip_items.append(item)
@@ -369,7 +398,7 @@ class InteractiveTimeline(QGraphicsView):
                 track = session.get(AudioTrack, media_id)
                 if track and track.waveform_data:
                     has_waveform = True
-                    entry_stub = type("E", (), {"start_time": start_time})()
+                    entry_stub = _EntryStub(start_time=start_time)
                     self._load_waveform_for_track(session, track, entry_stub, duration, y)
 
         item = TimelineClipItem(
@@ -434,18 +463,26 @@ class InteractiveTimeline(QGraphicsView):
         return x
 
     def _draw_ruler(self, total_duration: float):
+        # Entferne alte Ruler-Items bevor neue gezeichnet werden
+        for item in self._ruler_items:
+            self._scene.removeItem(item)
+        self._ruler_items.clear()
+
         pen = QPen(QColor(60, 60, 60), 1)
         total_px = total_duration * PIXELS_PER_SECOND
-        self._scene.addLine(0, RULER_Y, total_px, RULER_Y, pen)
+        line = self._scene.addLine(0, RULER_Y, total_px, RULER_Y, pen)
+        self._ruler_items.append(line)
 
         step = max(1.0, total_duration / 20)
         t = 0.0
         while t <= total_duration:
             x = t * PIXELS_PER_SECOND
-            self._scene.addLine(x, RULER_Y - 3, x, RULER_Y + 3, pen)
+            tick = self._scene.addLine(x, RULER_Y - 3, x, RULER_Y + 3, pen)
+            self._ruler_items.append(tick)
             txt = self._scene.addText(f"{t:.0f}s", QFont("Segoe UI", 7))
             txt.setDefaultTextColor(QColor(70, 70, 70))
             txt.setPos(x - 10, RULER_Y + 5)
+            self._ruler_items.append(txt)
             t += step
 
     def _on_clip_moved(self, entry_id: int, new_x: float):
@@ -454,16 +491,11 @@ class InteractiveTimeline(QGraphicsView):
         new_start = max(0, snapped_x / PIXELS_PER_SECOND)
         # Pending-Move merken, DB-Write per Timer debounced
         self._pending_move = (entry_id, new_start)
-        if not hasattr(self, '_move_timer'):
-            self._move_timer = QTimer(self)
-            self._move_timer.setSingleShot(True)
-            self._move_timer.setInterval(200)
-            self._move_timer.timeout.connect(self._flush_pending_move)
         self._move_timer.start()
 
     def _flush_pending_move(self):
         """Schreibt den letzten Drag-Zustand in die DB (nach Debounce)."""
-        if not hasattr(self, '_pending_move') or self._pending_move is None:
+        if self._pending_move is None:
             return
         entry_id, new_start = self._pending_move
         self._pending_move = None

@@ -53,7 +53,7 @@ class VideoAnalysisWorker(QObject, CancellableMixin):
             except ImportError:
                 pass
             gc.collect()
-            if not _ok:
+            if not _ok and not self._errored:
                 self.finished.emit(self.clip_id, {})
 
 
@@ -75,7 +75,6 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                    file_path wird in run() aus der DB geladen (Worker-Thread).
         """
         super().__init__()
-        self._cancelled = False
         if batch:
             self._batch = batch
         else:
@@ -172,12 +171,13 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
             self._errored = True
             self.error.emit(last_clip_id, str(e))
         finally:
-            if not _ok:
+            if not _ok and not self._errored:
                 self.finished.emit(last_clip_id, {})
 
 
-class FrameExtractWorker(QObject):
+class FrameExtractWorker(QObject, CancellableMixin):
     frame_ready = Signal(bytes, int, int)
+    finished = Signal()   # Required by GlobalTaskManager contract (thread.quit)
     error = Signal(str)
 
     def __init__(self, file_path: str, time_sec: float, width: int = 320,
@@ -214,3 +214,6 @@ class FrameExtractWorker(QObject):
             logging.error("FrameExtractWorker crashed: %s\n%s", e, traceback.format_exc())
             self._errored = True
             self.error.emit(str(e))
+        finally:
+            # Always emit finished so TaskEngine can quit the thread cleanly.
+            self.finished.emit()

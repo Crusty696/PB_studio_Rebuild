@@ -45,7 +45,7 @@ class StemSeparationWorker(QObject, CancellableMixin):
             except ImportError:
                 pass
             gc.collect()
-            if not _ok:
+            if not _ok and not self._errored:
                 self.finished.emit(self.track_id, {})
 
 
@@ -76,5 +76,5 @@ class AutoDuckingWorker(QObject, CancellableMixin):
             self._errored = True
             self.error.emit(str(e))
         finally:
-            if not _ok:
+            if not _ok and not self._errored:
                 self.finished.emit("")

@@ -26,21 +26,7 @@ class BaseAgent(ABC):
     model_id: str | None = None  # Modell-ID falls dieser Agent ein eigenes Modell braucht
 
     def __init__(self):
-        self._active = False
-
-    @property
-    def is_active(self) -> bool:
-        return self._active
-
-    def activate(self) -> None:
-        """Markiert den Agenten als aktiv (Modell geladen)."""
-        self._active = True
-        logger.info("Agent '%s' aktiviert.", self.name)
-
-    def deactivate(self) -> None:
-        """Markiert den Agenten als inaktiv (Modell entladen)."""
-        self._active = False
-        logger.info("Agent '%s' deaktiviert.", self.name)
+        pass
 
     @abstractmethod
     def can_handle(self, user_text: str) -> float:
@@ -66,4 +52,4 @@ class BaseAgent(ABC):
         ...
 
     def __repr__(self) -> str:
-        return f"<{self.__class__.__name__} name='{self.name}' domain='{self.domain}' active={self._active}>"
+        return f"<{self.__class__.__name__} name='{self.name}' domain='{self.domain}'>"

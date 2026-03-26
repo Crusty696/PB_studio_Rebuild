@@ -12,7 +12,6 @@ import json
 import logging
 from pathlib import Path
 
-import torch
 import numpy as np
 
 from sqlalchemy.orm import Session
@@ -124,7 +123,16 @@ class BeatAnalysisService:
         logger.info("Audio-Dauer: %.1fs (%s)", duration, Path(audio_path).name)
 
         if progress_cb:
-            progress_cb(10, "Lade beat_this Modell...")
+            progress_cb(10, "Lade Audio...")
+
+        # Audio einmalig laden (wird fuer Chunking UND Energie-Analyse wiederverwendet)
+        try:
+            y, sr = librosa.load(audio_path, sr=22050, mono=True)
+        except Exception as e:
+            raise RuntimeError(f"Audio konnte nicht geladen werden: {e}") from e
+
+        if progress_cb:
+            progress_cb(15, "Lade beat_this Modell...")
 
         if duration <= CHUNK_DURATION_SEC:
             if progress_cb:
@@ -134,8 +142,8 @@ class BeatAnalysisService:
         else:
             if progress_cb:
                 progress_cb(20, "Chunked Beat-Analyse...")
-            # Lange Datei: Chunked Processing
-            beats, downbeats = self._analyze_chunked(audio_path, duration)
+            # Lange Datei: Chunked Processing (nutzt bereits geladenes Audio)
+            beats, downbeats = self._analyze_chunked(audio_path, duration, y, sr)
 
         if progress_cb:
             progress_cb(80, "Berechne BPM...")
@@ -147,16 +155,6 @@ class BeatAnalysisService:
             median_interval = float(np.median(intervals))
             if median_interval > 0:
                 bpm = round(60.0 / median_interval, 1)
-
-        if progress_cb:
-            progress_cb(90, "Lade Audio fuer Energie-Analyse...")
-
-        # Audio einmalig laden fuer _compute_energy_per_beat (vermeidet redundanten librosa.load)
-        import librosa as _lr
-        try:
-            y, sr = _lr.load(audio_path, sr=22050, mono=True)
-        except Exception as e:
-            raise RuntimeError(f"Audio konnte nicht geladen werden: {e}") from e
 
         if progress_cb:
             progress_cb(100, "Fertig")
@@ -181,25 +179,19 @@ class BeatAnalysisService:
         return np.array(beats), np.array(downbeats)
 
     def _analyze_chunked(
-        self, audio_path: str, total_duration: float
+        self, audio_path: str, total_duration: float,
+        y: np.ndarray, sr: int,
     ) -> tuple[np.ndarray, np.ndarray]:
         """Chunked Processing: Teilt Audio in 10-Min-Segmente.
 
-        1. Lade Audio in Chunks (mit Overlap)
+        1. Teile bereits geladenes Audio in Chunks (mit Overlap)
         2. Analysiere jeden Chunk separat
         3. Setze Beat-Timestamps wieder zusammen (dedupliziere Overlap-Bereich)
         """
-        import librosa
         import tempfile
         import soundfile as sf
 
         self._ensure_model()
-
-        # Audio komplett laden (librosa cached, effizient)
-        try:
-            y, sr = librosa.load(audio_path, sr=22050, mono=True)
-        except Exception as e:
-            raise RuntimeError(f"Audio konnte nicht geladen werden: {e}") from e
 
         chunk_samples = int(CHUNK_DURATION_SEC * sr)
         overlap_samples = int(CHUNK_OVERLAP_SEC * sr)
@@ -296,12 +288,17 @@ class BeatAnalysisService:
                 downbeat_positions_json = json.dumps(result["downbeats"])
                 energy_json = json.dumps(energy_per_beat)
 
-                if track.beatgrid:
-                    track.beatgrid.bpm = result["bpm"]
-                    track.beatgrid.beat_positions = beat_positions_json
-                    track.beatgrid.downbeat_positions = downbeat_positions_json
-                    track.beatgrid.energy_per_beat = energy_json
-                    track.beatgrid.offset = result["beats"][0] if result["beats"] else 0.0
+                # DB-07 Fix: Expliziter Query-Check gegen Duplikate
+                existing_bg = track.beatgrid or session.query(Beatgrid).filter_by(
+                    audio_track_id=track_id
+                ).first()
+
+                if existing_bg:
+                    existing_bg.bpm = result["bpm"]
+                    existing_bg.beat_positions = beat_positions_json
+                    existing_bg.downbeat_positions = downbeat_positions_json
+                    existing_bg.energy_per_beat = energy_json
+                    existing_bg.offset = result["beats"][0] if result["beats"] else 0.0
                 else:
                     bg = Beatgrid(
                         audio_track_id=track_id,

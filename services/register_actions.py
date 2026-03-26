@@ -165,12 +165,35 @@ def analyze_video(clip_id: int) -> dict:
             "audio_track_id": {
                 "type": "integer",
                 "description": "ID des AudioTracks (liefert Beat-Positionen)."
+            },
+            "base_cut_rate": {
+                "type": "number",
+                "description": "Beats zwischen Schnitten (1=jeden Beat, 4=jeden Downbeat, 16=alle 4 Bars). Default: 4"
+            },
+            "energy_reactivity": {
+                "type": "number",
+                "description": "Energie-Reaktivität in Prozent (0-100). Default: 50"
+            },
+            "breakdown_behavior": {
+                "type": "string",
+                "description": "Verhalten bei Breakdowns: 'halve', 'force16', 'none'. Default: 'halve'",
+                "enum": ["halve", "force16", "none"]
+            },
+            "vibe": {
+                "type": "string",
+                "description": "Vibe-Keyword für semantische Video-Auswahl (z.B. 'dark', 'euphoric')."
             }
         },
         "required": ["audio_track_id"]
     }
 )
-def auto_edit(audio_track_id: int) -> dict:
+def auto_edit(
+    audio_track_id: int,
+    base_cut_rate: float = None,
+    energy_reactivity: float = None,
+    breakdown_behavior: str = None,
+    vibe: str = None,
+) -> dict:
     """Command Pattern: Emittiert Signal → Main-Thread baut AutoEditWorker."""
     from services.ingest_service import get_all_video
     from PySide6.QtWidgets import QApplication
@@ -184,9 +207,17 @@ def auto_edit(audio_track_id: int) -> dict:
         _logger.warning("TaskManager nicht verfügbar - App nicht bereit")
         return {"error": "App nicht initialisiert"}
 
-    app.task_manager.agent_command_signal.emit(
-        "auto_edit", {"audio_track_id": audio_track_id, "video_ids": video_ids}
-    )
+    signal_params = {"audio_track_id": audio_track_id, "video_ids": video_ids}
+    if base_cut_rate is not None:
+        signal_params["base_cut_rate"] = base_cut_rate
+    if energy_reactivity is not None:
+        signal_params["energy_reactivity"] = energy_reactivity
+    if breakdown_behavior is not None:
+        signal_params["breakdown_behavior"] = breakdown_behavior
+    if vibe is not None:
+        signal_params["vibe"] = vibe
+
+    app.task_manager.agent_command_signal.emit("auto_edit", signal_params)
     return {
         "status": "Task in Warteschlange",
         "action": "auto_edit",
@@ -292,94 +323,27 @@ def export_timeline_action(project_id: int, output_path: str | None = None) -> d
     }
 )
 def transcribe_audio(track_id: int | None = None, file_path: str | None = None) -> dict:
-    """Transkribiert Audio mit faster-whisper über den ModelManager."""
-    import os
-    from services.model_manager import ModelManager
+    """Transkription via faster-whisper (noch nicht als Worker implementiert).
 
-    tm = _get_task_manager()
-    label = f"#{track_id}" if track_id else os.path.basename(file_path or "audio")
-    task = tm.create_task(f"Transkription {label}", "faster-whisper") if tm else None
-
-    # Dateipfad ermitteln
-    if file_path is None and track_id is not None:
-        from sqlalchemy.orm import Session as SASession
-        from database import engine, AudioTrack
-        with SASession(engine) as session:
-            track = session.get(AudioTrack, track_id)
-            if track is None:
-                if task and tm:
-                    tm.finish_task(task.task_id, "error", "Track nicht gefunden")
-                return {"error": f"AudioTrack {track_id} nicht gefunden."}
-            file_path = track.file_path
-
-    if not file_path or not os.path.exists(file_path):
-        if task and tm:
-            tm.finish_task(task.task_id, "error", "Datei nicht gefunden")
-        return {"error": f"Datei nicht gefunden: {file_path}"}
-
-    # Prüfe ob die Datei eine Audio-Spur hat (Videos ohne Audio abfangen)
-    import subprocess
-    try:
-        probe = subprocess.run(
-            ["ffprobe", "-i", file_path, "-show_streams", "-select_streams", "a",
-             "-loglevel", "error", "-of", "csv=p=0"],
-            capture_output=True, text=True, timeout=10,
-        )
-        if not probe.stdout.strip():
-            return {
-                "error": f"Keine Audio-Spur in Datei gefunden: {os.path.basename(file_path)}",
-                "full_text": "",
-                "segments": [],
-                "segment_count": 0,
-            }
-    except Exception:
-        pass  # ffprobe nicht verfügbar → trotzdem versuchen
-
-    # ModelManager: Whisper laden (entlädt automatisch andere Modelle)
-    mm = ModelManager()
-    # "tiny" für schnelle Tests, "base" oder "small" für bessere Qualität
-    whisper_size = os.environ.get("PB_WHISPER_SIZE", "large-v3")
-    if task and tm:
-        tm.update_task(task.task_id, 10, message="Whisper-Modell laden...")
-    whisper_model = mm.load_whisper(whisper_size)
-
-    # Transkription
-    if task and tm:
-        tm.update_task(task.task_id, 30, message="Transkribiere...")
-    try:
-        segments, info = whisper_model.transcribe(
-            file_path,
-            beam_size=5,
-            language=None,  # Auto-detect
-            vad_filter=True,
-        )
-
-        transcript_segments = []
-        full_text_parts = []
-        for segment in segments:
-            seg_data = {
-                "start": round(segment.start, 2),
-                "end": round(segment.end, 2),
-                "text": segment.text.strip(),
-            }
-            transcript_segments.append(seg_data)
-            full_text_parts.append(segment.text.strip())
-
-        if task and tm:
-            tm.finish_task(task.task_id, "finished",
-                           f"{len(transcript_segments)} Segmente")
-        return {
-            "language": info.language,
-            "language_probability": round(info.language_probability, 3),
-            "duration": round(info.duration, 2),
-            "segments": transcript_segments,
-            "full_text": " ".join(full_text_parts),
-            "segment_count": len(transcript_segments),
-        }
-    except Exception as e:
-        if task and tm:
-            tm.finish_task(task.task_id, "error", str(e))
-        raise
+    Hinweis: TranscriptionWorker existiert noch nicht in workers/.
+    Gibt eine klare Fehlermeldung zurueck statt einen stillen Drop via
+    agent_command_signal (kein registrierter Worker wuerde KeyError ausloesen).
+    """
+    label = f"Track #{track_id}" if track_id else (file_path or "audio")
+    _logger.warning(
+        "transcribe_audio aufgerufen fuer %s, aber TranscriptionWorker "
+        "ist noch nicht in workers/ implementiert.", label
+    )
+    return {
+        "status": "not_implemented",
+        "action": "transcribe_audio",
+        "message": (
+            f"Transkription fuer {label}: TranscriptionWorker noch nicht "
+            "implementiert. Bitte zuerst workers/audio.py um eine "
+            "TranscriptionWorker-Klasse ergaenzen und in workers/registry.py "
+            "registrieren."
+        ),
+    }
 
 
 @action_registry.register(
@@ -413,192 +377,26 @@ def analyze_video_content(
     interval_sec: float = 5.0,
     max_frames: int = 10,
 ) -> dict:
-    """Analysiert Video-Inhalt visuell mit Moondream2.
+    """Vision-Analyse via Moondream2 (noch nicht als Worker implementiert).
 
-    Optimiert für CPU: Bilder werden auf 256px skaliert,
-    Inferenz läuft mit torch.no_grad() und kurzen Prompts.
+    Hinweis: VisionAnalysisWorker existiert noch nicht in workers/.
+    Gibt eine klare Fehlermeldung zurueck statt einen stillen Drop via
+    agent_command_signal (kein registrierter Worker wuerde KeyError ausloesen).
     """
-    import os
-    import cv2
-    import torch
-    from PIL import Image
-    from services.model_manager import ModelManager
-
-    tm = _get_task_manager()
-    label = f"#{clip_id}" if clip_id else os.path.basename(file_path or "video")
-    task = tm.create_task(f"Vision {label}", "Moondream2 Video-Analyse") if tm else None
-
-    # Dateipfad ermitteln
-    if file_path is None and clip_id is not None:
-        from sqlalchemy.orm import Session as SASession
-        from database import engine, VideoClip
-        with SASession(engine) as session:
-            clip = session.get(VideoClip, clip_id)
-            if clip is None:
-                return {"error": f"VideoClip {clip_id} nicht gefunden."}
-            file_path = clip.file_path
-
-    if not file_path or not os.path.exists(file_path):
-        if task and tm:
-            tm.finish_task(task.task_id, "error", "Datei nicht gefunden")
-        return {"error": f"Datei nicht gefunden: {file_path}"}
-
-    if task and tm:
-        tm.update_task(task.task_id, 10, message="Frames extrahieren...")
-
-    # Frames extrahieren mit OpenCV
-    cap = cv2.VideoCapture(file_path)
-    if not cap.isOpened():
-        return {"error": f"Video konnte nicht geöffnet werden: {file_path}"}
-
-    try:
-        fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        duration = total_frames / fps
-        frame_interval = max(1, int(fps * interval_sec))  # Guard: nie 0
-
-        frames_to_analyze = []
-        timestamps = []
-        frame_idx = 0
-
-        while len(frames_to_analyze) < max_frames:
-            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
-            ret, frame = cap.read()
-            if not ret:
-                break
-
-            # BGR → RGB → PIL, skaliert auf 256px für schnelle CPU-Inferenz
-            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            pil_image = Image.fromarray(frame_rgb)
-            # Skalierung: Höhe auf 256px, Seitenverhältnis beibehalten
-            w, h = pil_image.size
-            new_h = 256
-            new_w = int(w * new_h / h)
-            pil_image = pil_image.resize((new_w, new_h), Image.LANCZOS)
-
-            frames_to_analyze.append(pil_image)
-            timestamps.append(round(frame_idx / fps, 2))
-
-            frame_idx += frame_interval
-    finally:
-        cap.release()
-
-    if not frames_to_analyze:
-        if task and tm:
-            tm.finish_task(task.task_id, "error", "Keine Frames")
-        return {"error": "Keine Frames extrahiert."}
-
-    if task and tm:
-        tm.update_task(task.task_id, 30, message="Vision-Modell laden...")
-
-    # ModelManager: Moondream2 laden (entlädt automatisch andere Modelle)
-    mm = ModelManager()
-
-    # GPU-Check: Moondream2 nur mit CUDA sinnvoll nutzbar (CPU zu langsam)
-    use_ai_vision = torch.cuda.is_available()
-
-    if use_ai_vision:
-        model, tokenizer = mm.load_vision("vikhyatk/moondream2")
-
-    # Frames analysieren
-    scene_descriptions = []
-
-    if use_ai_vision:
-        # GPU-Pfad: Moondream2 KI-Analyse
-        # Phase 1: Alle Bilder vorcodieren (GPU-Batch-freundlich)
-        encoded_images = []
-        with torch.no_grad():
-            for pil_img in frames_to_analyze:
-                try:
-                    encoded_images.append(model.encode_image(pil_img))
-                except Exception:
-                    encoded_images.append(None)
-
-        # Phase 2: Descriptions generieren (sequentiell, aber ohne erneutes Encoding)
-        with torch.no_grad():
-            for i, (enc_img, ts) in enumerate(zip(encoded_images, timestamps)):
-                try:
-                    if enc_img is None:
-                        raise RuntimeError("Encoding fehlgeschlagen")
-                    description = model.answer_question(
-                        enc_img,
-                        "Describe this scene briefly.",
-                        tokenizer,
-                    )
-                    scene_descriptions.append({
-                        "frame_index": i,
-                        "timestamp_sec": ts,
-                        "description": description.strip(),
-                    })
-                except Exception as e:
-                    scene_descriptions.append({
-                        "frame_index": i,
-                        "timestamp_sec": ts,
-                        "description": f"[Fehler: {e}]",
-                    })
-                # VRAM-Cleanup nach jedem Frame (Moondream2 hält KV-Cache)
-                if torch.cuda.is_available() and i % 4 == 3:
-                    torch.cuda.empty_cache()
-
-        # Encodings freigeben (können je nach Modell GPU-Tensors sein)
-        del encoded_images
-        # Moondream2 entladen — gibt ~3.6 GB VRAM frei
-        mm.unload()
-    else:
-        # CPU-Fallback: OpenCV-basierte Bildanalyse (Farbe, Helligkeit, Kanten)
-        import numpy as np
-        for i, (pil_img, ts) in enumerate(zip(frames_to_analyze, timestamps)):
-            try:
-                arr = np.array(pil_img)
-                # Basale Bildstatistiken
-                brightness = int(arr.mean())
-                r_mean, g_mean, b_mean = int(arr[:,:,0].mean()), int(arr[:,:,1].mean()), int(arr[:,:,2].mean())
-
-                # Dominante Farbe bestimmen
-                if r_mean > g_mean and r_mean > b_mean:
-                    dominant = "rot/warm"
-                elif g_mean > r_mean and g_mean > b_mean:
-                    dominant = "gruen/natuerlich"
-                elif b_mean > r_mean and b_mean > g_mean:
-                    dominant = "blau/kalt"
-                else:
-                    dominant = "neutral"
-
-                # Kantenerkennung für Komplexität
-                gray = cv2.cvtColor(arr, cv2.COLOR_RGB2GRAY)
-                edges = cv2.Canny(gray, 50, 150)
-                edge_ratio = float(edges.sum()) / (edges.shape[0] * edges.shape[1] * 255)
-
-                complexity = "komplex" if edge_ratio > 0.1 else "mittel" if edge_ratio > 0.03 else "einfach"
-
-                desc = (f"Frame bei {ts}s: Helligkeit={brightness}/255, "
-                        f"Farbton={dominant} (R={r_mean},G={g_mean},B={b_mean}), "
-                        f"Komplexitaet={complexity} ({edge_ratio:.2%} Kanten). "
-                        f"[CPU-Modus: Fuer KI-Beschreibung GPU (CUDA) benoetigt]")
-
-                scene_descriptions.append({
-                    "frame_index": i,
-                    "timestamp_sec": ts,
-                    "description": desc,
-                })
-            except Exception as e:
-                scene_descriptions.append({
-                    "frame_index": i,
-                    "timestamp_sec": ts,
-                    "description": f"[Fehler: {e}]",
-                })
-
-    if task and tm:
-        tm.finish_task(task.task_id, "finished",
-                       f"{len(scene_descriptions)} Frames analysiert")
+    label = f"Clip #{clip_id}" if clip_id else (file_path or "video")
+    _logger.warning(
+        "analyze_video_content aufgerufen fuer %s, aber VisionAnalysisWorker "
+        "ist noch nicht in workers/ implementiert.", label
+    )
     return {
-        "file_path": file_path,
-        "duration_sec": round(duration, 2),
-        "fps": round(fps, 2),
-        "total_frames_analyzed": len(scene_descriptions),
-        "interval_sec": interval_sec,
-        "scenes": scene_descriptions,
-        "summary": f"{len(scene_descriptions)} Szenen aus {round(duration, 1)}s Video analysiert.",
+        "status": "not_implemented",
+        "action": "analyze_video_content",
+        "message": (
+            f"Vision-Analyse fuer {label}: VisionAnalysisWorker noch nicht "
+            "implementiert. Bitte zuerst workers/video.py um eine "
+            "VisionAnalysisWorker-Klasse (Moondream2) ergaenzen und in "
+            "workers/registry.py registrieren."
+        ),
     }
 
 

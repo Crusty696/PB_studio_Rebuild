@@ -7,7 +7,7 @@ Entscheidet anhand der Benutzeranfrage, ob:
 3. Das Text-LLM für freie Antworten gefragt wird
 
 NEU: Multi-Step-Analyse — Kann Prompts wie "Was passiert in Video 1
-und was wird gesagt?" in parallele Agent-Aufrufe zerlegen:
+und was wird gesagt?" in sequentielle Agent-Aufrufe zerlegen:
   1. Vision-Agent → Szenen beschreiben
   2. Audio-Agent → Text transkribieren
   3. Ergebnisse zusammenfassen
@@ -158,13 +158,23 @@ class OrchestratorAgent(BaseAgent):
         results = []
         errors = []
 
+        if media_id is None:
+            return {
+                "agent": self.name,
+                "action": "multi",
+                "params": {},
+                "result": None,
+                "message": "Multi-Step-Analyse benötigt eine Medien-ID. "
+                           "Beispiel: 'Was passiert in Video 1 und was wird gesagt?'",
+                "error": "Keine Medien-ID im Text gefunden.",
+                "actions": [],
+            }
+
         logger.info("Multi-Step-Analyse gestartet für ID: %s", media_id)
 
         # Schritt 1: Vision-Agent (Moondream2)
         try:
-            vision_params = {}
-            if media_id is not None:
-                vision_params["clip_id"] = media_id
+            vision_params = {"clip_id": media_id}
 
             vision_result = action_registry.execute("analyze_video_content", vision_params)
             results.append({
@@ -352,7 +362,7 @@ class OrchestratorAgent(BaseAgent):
 
         return matched_actions
 
-    def _handle_compound_actions(self, user_text: str, action_names: list[str]) -> dict[str, Any]:
+    def _handle_compound_actions(self, action_names: list[str]) -> dict[str, Any]:
         """Führt mehrere erkannte Aktionen nacheinander aus (Batch-Modus)."""
         from services.action_registry import action_registry
 
@@ -510,8 +520,7 @@ class OrchestratorAgent(BaseAgent):
         if "track_id" not in ctx and "clip_id" not in ctx:
             extracted_id = self._extract_id_from_text(user_text)
             if extracted_id is not None:
-                ctx["track_id"] = extracted_id
-                ctx["clip_id"] = extracted_id
+                ctx["extracted_id"] = extracted_id
 
         return ctx
 
@@ -541,14 +550,14 @@ class OrchestratorAgent(BaseAgent):
         compound_actions = self._detect_compound_actions(user_text)
         if len(compound_actions) >= 2:
             logger.info("Erkannt: Compound-Actions: %s", compound_actions)
-            return self._handle_compound_actions(user_text, compound_actions)
+            return self._handle_compound_actions(compound_actions)
 
         # 2c. Einzelne Compound-Action erkannt (z.B. nur "proxy" oder nur "stems")
         # → Direkt ausführen im Batch-Modus statt an Agent/LLM weiterzuleiten
         if len(compound_actions) == 1:
             action_name = compound_actions[0]
             logger.info("Erkannt: Einzel-Action via Compound-Map: %s", action_name)
-            return self._handle_compound_actions(user_text, compound_actions)
+            return self._handle_compound_actions(compound_actions)
 
         # 3. Spezialisierter Agent
         agent = self._route_to_agent(user_text)

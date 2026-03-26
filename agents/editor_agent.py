@@ -15,9 +15,9 @@ from agents.base_agent import BaseAgent
 logger = logging.getLogger(__name__)
 
 EDITOR_KEYWORDS = [
-    "edit", "schnitt", "cut", "timeline", "export", "render",
-    "import", "importieren", "auto edit", "auto_edit",
-    "exportieren", "rendern", "schneiden",
+    "schnitt", "timeline", "export", "render",
+    "auto edit", "auto_edit",
+    "exportieren", "rendern", "schneiden", "auto cut", "auto-cut",
 ]
 
 
@@ -76,10 +76,10 @@ class EditorAgent(BaseAgent):
             else:
                 result["message"] = "Export benötigt eine project_id."
 
-        elif any(kw in text_lower for kw in ["auto edit", "auto_edit", "schnitt", "schneiden", "cut"]):
+        elif any(kw in text_lower for kw in ["auto edit", "auto_edit", "auto cut", "auto-cut", "schnitt", "schneiden"]):
             track_id = None
             if context:
-                track_id = context.get("audio_track_id")
+                track_id = context.get("audio_track_id") or context.get("track_id") or context.get("extracted_id")
             if track_id is None:
                 numbers = re.findall(r'\d+', user_text)
                 if numbers:

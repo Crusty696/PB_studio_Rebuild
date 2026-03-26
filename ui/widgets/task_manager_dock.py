@@ -112,13 +112,17 @@ class TaskManagerDock(QDockWidget):
         self._tm.task_finished.connect(self._on_task_finished)
 
     def _on_cancel_clicked(self):
-        """Cancel the currently selected (or first running) task via TaskEngine."""
+        """Cancel the longest-running task via TaskEngine."""
+        longest_tid = None
+        longest_elapsed = -1
         for tid in self._task_rows:
             task = self._tm.get_task(tid)
-            if task and task.status == "running":
-                self._tm.cancel_task(tid)
-                self.cancel_requested.emit(tid)
-                break
+            if task and task.status == "running" and task.elapsed > longest_elapsed:
+                longest_elapsed = task.elapsed
+                longest_tid = tid
+        if longest_tid is not None:
+            self._tm.cancel_task(longest_tid)
+            self.cancel_requested.emit(longest_tid)
 
     def _clear_finished(self):
         """Entfernt abgeschlossene Tasks aus der Anzeige."""

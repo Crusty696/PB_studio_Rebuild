@@ -13,9 +13,11 @@ from typing import Any
 
 import numpy as np
 
+from database import APP_ROOT
+
 logger = logging.getLogger(__name__)
 
-DB_DIR = Path("data/vector")
+DB_DIR = APP_ROOT / "data" / "vector"
 TABLE_NAME = "clip_embeddings"
 EMBEDDING_DIM = 1152
 
@@ -48,10 +50,10 @@ class VectorDBService:
 
     def _get_or_create_table(self):
         """Oeffnet oder erstellt die clip_embeddings Tabelle."""
-        try:
+        table_names = self.db.table_names()
+        if TABLE_NAME in table_names:
             return self.db.open_table(TABLE_NAME)
-        except FileNotFoundError:
-            # Tabelle existiert nicht — mit Schema erstellen
+        else:
             logger.warning("Tabelle '%s' nicht gefunden, erstelle neue Tabelle", TABLE_NAME)
             import pyarrow as pa
             schema = pa.schema([

@@ -90,7 +90,7 @@ class VisionAgent(BaseAgent):
         clip_id = None
         file_path = None
         if context:
-            clip_id = context.get("clip_id")
+            clip_id = context.get("clip_id") or context.get("extracted_id")
             file_path = context.get("file_path")
 
         if clip_id is None:

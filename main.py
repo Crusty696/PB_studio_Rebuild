@@ -1,3 +1,4 @@
+# main.py (In VS Code einfügen und speichern)
 """
 PB_studio v0.4.0 — DaVinci Resolve Style UI Rebuild
 =====================================================
@@ -30,6 +31,9 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QThread, Signal, QObject, QRectF, QPointF, QTimer
 from PySide6.QtGui import QPainter, QPainterPath, QColor, QFont, QBrush, QPen, QPixmap, QImage, QPolygonF, QAction
+
+# NEU: Wir importieren das Design-Tool
+from qt_material import apply_stylesheet
 
 APP_VERSION = "0.4.0"
 
@@ -64,6 +68,10 @@ from ui.waveform_item import WaveformGraphicsItem
 # ======================================================================
 import services.task_manager as _task_manager_module
 from services.task_manager import TaskInfo, GlobalTaskManager
+
+# Modul-Level task_manager — wird in main() auf die Singleton-Instanz gesetzt.
+# PBWindow-Methoden greifen hierauf zu.
+task_manager: GlobalTaskManager | None = None
 
 
 # ======================================================================
@@ -235,19 +243,16 @@ class PBWindow(QMainWindow):
         self._refresh_media_table()
 
     def closeEvent(self, event):
-        # [BUG #22 FIX] Disconnect all signals to prevent memory leaks (89 connects total)
+        # 1. Alle Tasks im GlobalTaskManager abbrechen (Threads via start_task)
         try:
-            # Versuche wichtige Signals zu disconnecten
-            if hasattr(self, 'project_saved'):
-                self.project_saved.disconnect()
-            if hasattr(self, 'project_loaded'):
-                self.project_loaded.disconnect()
-            if hasattr(self, 'workspace_changed'):
-                self.workspace_changed.disconnect()
-        except (TypeError, RuntimeError):
+            tm = GlobalTaskManager.instance()
+            for task in tm.get_all_tasks():
+                if task.status == "running":
+                    tm.cancel_task(task.task_id)
+        except Exception:
             pass
 
-        # Stop all active threads
+        # 2. Legacy: direkt verwaltete Threads stoppen
         for thread in list(self._active_threads):
             thread.quit()
             if not thread.wait(3000):
@@ -255,12 +260,14 @@ class PBWindow(QMainWindow):
                 thread.wait(1000)
         self._active_threads.clear()
         self._active_workers.clear()
-        # Globale Liste beim Schließen ebenfalls leeren
+        # Globale Liste beim Schliessen ebenfalls leeren
         _GLOBAL_ACTIVE_THREADS.clear()
-        # Stem Player aufräumen
+
+        # 3. Stem Player aufraeumen
         if hasattr(self, "stem_player"):
             self.stem_player.cleanup()
-        # GPU-VRAM freigeben
+
+        # 4. GPU-VRAM freigeben
         try:
             from services.model_manager import ModelManager
             ModelManager().unload()
@@ -377,8 +384,10 @@ class PBWindow(QMainWindow):
 
         # Wire EDIT signals
         self.btn_preview_play.clicked.connect(self._toggle_preview_play)
+        self.btn_preview_stop.clicked.connect(self.video_preview.stop)
         self.btn_toggle_inspector.clicked.connect(self._toggle_inspector)
         self.video_combo.currentIndexChanged.connect(self._on_video_combo_changed)
+        self.audio_combo.currentIndexChanged.connect(self._on_audio_combo_changed)
         self.btn_generate.clicked.connect(self._generate_timeline)
         self.btn_auto_edit.clicked.connect(self._auto_edit_to_beat)
         self.btn_add_anchor.clicked.connect(self._add_anchor_dialog)
@@ -387,6 +396,9 @@ class PBWindow(QMainWindow):
         self.btn_learn_ai.clicked.connect(self._learn_anchor_as_ai_rule)
         self.btn_keyframe_string.clicked.connect(self._show_keyframe_strings)
         self.timeline_view.clip_moved.connect(self._on_timeline_clip_moved)
+        # VideoPreview: position label + play-button icon state
+        self.video_preview.position_changed.connect(self._on_preview_position_changed)
+        self.video_preview.playback_state_changed.connect(self._on_preview_state_changed)
         self._refresh_director_combos()
 
         # --- STEMS workspace ---
@@ -522,14 +534,25 @@ class PBWindow(QMainWindow):
                     if not getattr(_w, '_errored', False):
                         _cb(*args)
                 worker.finished.connect(_guarded_finish)
-            # Error-Signal: Fallback-Logger immer verbinden (stille Fehler verhindern)
-            def _default_error_handler(*args, _tid=existing_task_id, _name=worker_name, _tm=tm):
+            # Error-Signal: Fallback-Logger immer verbinden (stille Fehler verhindern).
+            # finish_task() wird nur aufgerufen wenn WEDER ein on_error-Callback uebergeben
+            # wurde NOR der error-Slot bereits manuell verbunden wurde (receiver_count > 0).
+            # Dies verhindert den Doppel-Aufruf von finish_task() wenn der Caller bereits
+            # eigene error-Handler (die finish_task aufrufen) vor _start_worker_thread
+            # verbindet.
+            _has_prior_error_cb = (
+                on_error is not None
+                or (hasattr(worker, "error") and worker.error.receivers() > 0)
+            )
+            def _default_error_handler(*args, _tid=existing_task_id, _name=worker_name,
+                                       _tm=tm, _has_cb=_has_prior_error_cb):
                 err_msg = str(args[-1]) if args else "Unbekannter Fehler"
                 logging.error(
                     "[TaskEngine] Worker-Fehler '%s' (task_id=%s): %s",
                     _name, _tid, err_msg,
                 )
-                _tm.finish_task(_tid, status="error", message=err_msg)
+                if not _has_cb:
+                    _tm.finish_task(_tid, status="error", message=err_msg)
             worker.error.connect(_default_error_handler)
             if on_error:
                 worker.error.connect(on_error)
@@ -543,6 +566,8 @@ class PBWindow(QMainWindow):
                 )
 
             worker.finished.connect(thread.quit)
+            thread.finished.connect(worker.deleteLater)
+            thread.finished.connect(thread.deleteLater)
             thread.finished.connect(
                 lambda _tid=existing_task_id: tm._on_thread_done(_tid)
             )
@@ -577,8 +602,8 @@ class PBWindow(QMainWindow):
             return task.thread
 
     def _cancel_worker_for_task(self, task_id: str):
-        """Cancel via TaskEngine."""
-        task_manager.cancel_task(task_id)
+        """Cancel via TaskEngine (Singleton, nie None)."""
+        GlobalTaskManager.instance().cancel_task(task_id)
         self.console_text.append(f"[System] Task abgebrochen: {task_id}")
 
     # ==================================================================
@@ -730,7 +755,10 @@ class PBWindow(QMainWindow):
 
     def _on_batch_convert_finished(self, converted: int, total: int, task_id: str):
         if converted == 0 and total == 0:
-            return  # Error-path fallback
+            # Empty-result fallback (finally block): hide progress and close task.
+            self.convert_progress.setVisible(False)
+            task_manager.finish_task(task_id, "error", "Leeres Ergebnis")
+            return
         self.convert_progress.setVisible(False)
         task_manager.finish_task(task_id, message=f"{converted}/{total} konvertiert")
         self.convert_log.append(f"[Convert] Fertig: {converted}/{total} Videos konvertiert.")
@@ -757,6 +785,32 @@ class PBWindow(QMainWindow):
 
     def _toggle_preview_play(self):
         self.video_preview.toggle_play()
+
+    def _on_preview_position_changed(self, current: float, total: float):
+        """Update the time label in the transport bar on every frame advance."""
+        def _fmt(sec: float) -> str:
+            m = int(sec // 60)
+            s = sec % 60
+            return f"{m:02d}:{s:05.2f}"
+        self.preview_time_label.setText(f"{_fmt(current)} / {_fmt(total)}")
+
+    def _on_preview_state_changed(self, is_playing: bool):
+        """Flip play button icon to reflect current playback state."""
+        self.btn_preview_play.setText("\u23F8" if is_playing else "\u25B6")
+
+    def _on_audio_combo_changed(self, index: int):
+        """Audio-Track gewechselt: Pacing-Kurven-Dauer aktualisieren."""
+        audio_id = self.audio_combo.currentData()
+        if audio_id is None:
+            return
+        with DBSession(engine) as session:
+            track = session.get(AudioTrack, audio_id)
+            if track and track.duration:
+                self.pacing_curve.set_duration(track.duration)
+                self.console_text.append(
+                    f"[Edit] Audio gewechselt: {track.title or 'Track'} "
+                    f"({track.duration:.1f}s) — Pacing-Kurve aktualisiert."
+                )
 
     # ==================================================================
     # Timeline generieren
@@ -874,8 +928,7 @@ class PBWindow(QMainWindow):
         self.btn_auto_edit.setEnabled(False)
         self.btn_auto_edit.setText("laeuft...")
 
-        # Bug-3 Fix: Direkt ueber GlobalTaskManager.instance() – kein globales
-        # task_manager erforderlich, funktioniert auch wenn Chat-Dock unsichtbar.
+        # Task erstellen und Worker ueber _start_worker_thread starten
         tm = GlobalTaskManager.instance()
         task = tm.create_task(
             "Auto-Edit (Phase 3)",
@@ -884,30 +937,11 @@ class PBWindow(QMainWindow):
         )
         worker = AutoEditWorker(audio_id, video_ids, settings)
         worker.task_id = task.task_id
-        worker.finished.connect(
-            lambda segs, cps: self._on_auto_edit_finished(segs, cps, task.task_id)
+        self._start_worker_thread(
+            worker,
+            on_finish=lambda segs, cps: self._on_auto_edit_finished(segs, cps, task.task_id),
+            on_error=lambda err: self._on_auto_edit_error(err, task.task_id),
         )
-        worker.error.connect(lambda err: self._on_auto_edit_error(err, task.task_id))
-
-        thread = QThread()
-        worker.moveToThread(thread)
-        thread.started.connect(worker.run)
-        if hasattr(worker, "progress"):
-            worker.progress.connect(
-                lambda pct, msg, _tid=task.task_id: tm.update_task(_tid, pct, message=msg)
-            )
-        worker.finished.connect(thread.quit)
-        thread.finished.connect(worker.deleteLater)
-        thread.finished.connect(thread.deleteLater)
-        thread.finished.connect(lambda _tid=task.task_id: tm._on_thread_done(_tid))
-        task.thread = thread
-        task.worker = worker
-        self._active_threads.append(thread)
-        self._active_workers.append(worker)
-        thread.finished.connect(
-            lambda _t=thread, _w=worker: self._cleanup_worker(_t, _w)
-        )
-        thread.start()
 
     def _on_auto_edit_finished(self, segments: list, cut_points: list, task_id: str):
         self.btn_auto_edit.setEnabled(True)
@@ -1363,6 +1397,7 @@ class PBWindow(QMainWindow):
                 else:
                     if hasattr(self, "stem_workspace"):
                         self.stem_workspace.update_for_track(track_id, stem_paths)
+                        self.stem_workspace.set_duration(0.0)
         except Exception as e:
             self.console_text.append(f"[Stem-Widget] Fehler: {e}")
             if hasattr(self, "stem_workspace"):
@@ -1559,7 +1594,13 @@ class PBWindow(QMainWindow):
 
     def _on_analysis_finished(self, track_id: int, result: dict, task_id: str = ""):
         if not result:
-            return  # Error-path fallback — _on_analysis_error already handled this
+            # Empty-result fallback (finally block): re-enable UI and close task.
+            self.btn_analyze.setEnabled(True)
+            self.btn_analyze.setText("Audio analysieren")
+            self.progress_bar.setVisible(False)
+            if task_id:
+                task_manager.finish_task(task_id, "error", "Leeres Ergebnis")
+            return
         bpm = result["bpm"]
         duration = result["duration"]
         beats = len(result.get("beat_positions", []))
@@ -1631,7 +1672,13 @@ class PBWindow(QMainWindow):
 
     def _on_waveform_finished(self, track_id: int, result: dict, title: str, task_id: str):
         if not result:
-            return  # Error-path fallback — _on_waveform_error already handled this
+            # Empty-result fallback (finally block): re-enable UI and close task.
+            self.btn_waveform.setEnabled(True)
+            self.btn_waveform.setText("Rekordbox Wellenform")
+            self.progress_bar.setVisible(False)
+            if task_id:
+                task_manager.finish_task(task_id, "error", "Leeres Ergebnis")
+            return
         bpm = result["bpm"]
         beats = len(result.get("beat_positions", []))
         samples = result["num_samples"]
@@ -1848,7 +1895,13 @@ class PBWindow(QMainWindow):
 
     def _on_pipeline_finished(self, clip_id: int, result: dict, title: str, task_id: str):
         if not result:
-            return  # Error-path fallback — _on_pipeline_error already handled this
+            # Empty-result fallback (finally block): re-enable UI and close task.
+            self.btn_video_pipeline.setEnabled(True)
+            self.btn_video_pipeline.setText("Video-Pipeline (Szenen + KI)")
+            self.progress_bar.setVisible(False)
+            if task_id:
+                task_manager.finish_task(task_id, "error", "Leeres Ergebnis")
+            return
         scenes = result.get("scenes", 0)
         embeddings = result.get("embeddings", 0)
         videos_done = result.get("videos_processed", 1)
@@ -1903,7 +1956,9 @@ class PBWindow(QMainWindow):
 
     def _on_proxy_finished(self, clip_id: int, proxy_path: str, title: str, task_id: str):
         if not proxy_path:
-            return  # Error-path fallback — _on_proxy_error already handled this
+            # Empty-result fallback (finally block): close task so it does not stay "running".
+            task_manager.finish_task(task_id, "error", "Leerer Proxy-Pfad")
+            return
         self.console_text.append(f"[Proxy] Fertig: '{title}' → {proxy_path}")
         self._refresh_media_table()
         task_manager.finish_task(task_id, "finished", proxy_path)
@@ -2006,7 +2061,12 @@ class PBWindow(QMainWindow):
 
     def _on_stem_finished(self, track_id: int, stems: dict, task_id: str):
         if not stems:
-            return  # Error-path fallback — _on_stem_error already handled this
+            # Empty-result fallback (finally block): re-enable UI and close task.
+            self.btn_stem_separate.setEnabled(True)
+            self.btn_stem_separate.setText("KI Stem Separation")
+            self.progress_bar.setVisible(False)
+            task_manager.finish_task(task_id, "error", "Leeres Ergebnis")
+            return
         self.btn_stem_separate.setEnabled(True)
         self.btn_stem_separate.setText("KI Stem Separation")
         self.progress_bar.setVisible(False)
@@ -2069,7 +2129,11 @@ class PBWindow(QMainWindow):
 
     def _on_ducking_finished(self, output_path: str, task_id: str):
         if not output_path:
-            return  # Error-path fallback — _on_ducking_error already handled this
+            # Empty-result fallback (finally block): re-enable UI and close task.
+            self.btn_auto_duck.setEnabled(True)
+            self.btn_auto_duck.setText("Auto-Ducking")
+            task_manager.finish_task(task_id, "error", "Leeres Ergebnis")
+            return
         self.btn_auto_duck.setEnabled(True)
         self.btn_auto_duck.setText("Auto-Ducking")
         self.console_text.append(f"[Ducking] Fertig: {output_path}")
@@ -2131,7 +2195,13 @@ class PBWindow(QMainWindow):
 
     def _on_export_finished(self, output_path: str, task_id: str = ""):
         if not output_path:
-            return  # Error-path fallback — _on_export_error already handled this
+            # Empty-result fallback (finally block): re-enable UI and close task.
+            self.btn_export.setEnabled(True)
+            self.btn_export.setText("Video exportieren")
+            self.export_progress.setVisible(False)
+            if task_id:
+                task_manager.finish_task(task_id, "error", "Leerer Export-Pfad")
+            return
         self.btn_export.setEnabled(True)
         self.btn_export.setText("Video exportieren")
         self.export_progress.setVisible(False)
@@ -2365,19 +2435,23 @@ def main():
     app = QApplication(sys.argv)
 
     # TaskManager als erstes erstellen und an QApplication verankern
+    global task_manager
     task_manager = GlobalTaskManager.instance()
     _task_manager_module.task_manager = task_manager  # Modul-Level fuer andere Imports
     app.task_manager = task_manager
 
-    # Theme laden
-    qss_path = RESOURCE_DIR / "styles.qss"
-    if not qss_path.exists():
-        qss_path = STYLE_DIR / "dark_steel.qss"
-    if qss_path.exists():
-        try:
-            app.setStyleSheet(qss_path.read_text(encoding="utf-8"))
-        except Exception as exc:
-            logging.warning("Theme konnte nicht geladen werden: %s", exc)
+    # ALT: Theme laden - VORERST AUSGEBLENDET DAMIT QT-MATERIAL FUNKTIONIERT
+    # qss_path = RESOURCE_DIR / "styles.qss"
+    # if not qss_path.exists():
+    #     qss_path = STYLE_DIR / "dark_steel.qss"
+    # if qss_path.exists():
+    #     try:
+    #         app.setStyleSheet(qss_path.read_text(encoding="utf-8"))
+    #     except Exception as exc:
+    #         logging.warning("Theme konnte nicht geladen werden: %s", exc)
+    
+    # NEU: Wir wenden das neue moderne Theme auf deine App an
+    apply_stylesheet(app, theme='dark_teal.xml')
 
     try:
         window = PBWindow()
@@ -2388,7 +2462,7 @@ def main():
         sys.exit(1)
 
     window.console_text.append("[System] SQLite Datenbank (pb_studio.db) erfolgreich initialisiert.")
-    window.console_text.append("[System] Obsidian & Gold Theme aktiv — KI-Elemente: Gold (#D4AF37).")
+    window.console_text.append("[System] qt-material Theme aktiv — Modernes Design.")
     window.console_text.append(f"[System] Version {APP_VERSION} — Workspace UI + KI-Pacing + Beat-Snap.")
     window.showMaximized()
     # Timeline-Daten NACH dem Fenster laden (non-blocking Startup)

@@ -316,21 +316,31 @@ def compute_stem_weighted_energy(
         return None
 
     def _compute_rms_per_beat(audio_path: str, beats_list: list[float]) -> list[float]:
-        """Berechnet RMS pro Beat-Intervall fuer eine einzelne Stem-Datei."""
+        """Berechnet RMS pro Beat-Intervall fuer eine einzelne Stem-Datei.
+
+        M7 Fix: Laedt nur den benoetigten Zeitbereich (beats[0]..beats[-1] + Buffer)
+        statt die komplette Stem-Datei in RAM.
+        """
+        # Bestimme den benoetigten Zeitbereich mit 1s Buffer
+        load_offset = max(0.0, beats_list[0] - 1.0)
+        load_end = beats_list[-1] + 1.0  # 1s Buffer nach dem letzten Beat
+        load_duration = load_end - load_offset
+
         try:
-            y, sr = librosa.load(audio_path, sr=22050, mono=True)
+            y, sr = librosa.load(audio_path, sr=22050, mono=True,
+                                 offset=load_offset, duration=load_duration)
         except Exception as e:
             logger.warning("Konnte Stem '%s' nicht laden: %s", audio_path, e)
             return [0.5] * len(beats_list)
 
-        duration = len(y) / sr
+        audio_duration = len(y) / sr
         energies = []
         for i in range(len(beats_list)):
-            start_sec = beats_list[i]
-            end_sec = beats_list[i + 1] if i + 1 < len(beats_list) else duration
+            start_sec = beats_list[i] - load_offset  # Relativ zum geladenen Bereich
+            end_sec = (beats_list[i + 1] - load_offset) if i + 1 < len(beats_list) else audio_duration
             start_sample = int(start_sec * sr)
             end_sample = min(int(end_sec * sr), len(y))
-            if start_sample >= end_sample:
+            if start_sample >= end_sample or start_sample < 0:
                 energies.append(0.0)
                 continue
             seg = y[start_sample:end_sample]
@@ -533,19 +543,24 @@ def compute_vocal_activity(
 
     try:
         import librosa
-        y, sr = librosa.load(vocals_path, sr=22050, mono=True)
+        # M7 Fix: Nur den benoetigten Zeitbereich laden statt kompletten Stem
+        load_offset = max(0.0, beats[0] - 1.0)
+        load_end = beats[-1] + 1.0  # 1s Buffer nach dem letzten Beat
+        load_duration = load_end - load_offset
+        y, sr = librosa.load(vocals_path, sr=22050, mono=True,
+                             offset=load_offset, duration=load_duration)
     except Exception as e:
         logger.warning("Konnte Vocal-Stem '%s' nicht laden: %s", vocals_path, e)
         return [False] * len(beats)
 
-    duration = len(y) / sr
+    audio_duration = len(y) / sr
     activity = []
     for i in range(len(beats)):
-        start_sec = beats[i]
-        end_sec = beats[i + 1] if i + 1 < len(beats) else duration
+        start_sec = beats[i] - load_offset  # Relativ zum geladenen Bereich
+        end_sec = (beats[i + 1] - load_offset) if i + 1 < len(beats) else audio_duration
         start_sample = int(start_sec * sr)
         end_sample = min(int(end_sec * sr), len(y))
-        if start_sample >= end_sample:
+        if start_sample >= end_sample or start_sample < 0:
             activity.append(False)
             continue
         seg = y[start_sample:end_sample]
@@ -586,6 +601,9 @@ def detect_drops(
     # Waehle die beste Energiequelle
     bass_energy = stem_energy.bass if stem_energy else energy_per_beat
     if not bass_energy or not beats:
+        return []
+
+    if len(beats) < 2:
         return []
 
     drops: list[DropEvent] = []
@@ -919,6 +937,10 @@ def _compute_effective_step(
             # Leicht verlangsamen bei niedrig-mittel
             effective = min(16, int(effective * 1.5))
 
+    # Guard: "none" = kein Cut, Motion-Adjustment nicht anwenden
+    if effective >= 9999:
+        return effective
+
     # 3. Motion-Adjusted Step (PhD-Spec Schritt 3: combined_intensity)
     # Kombiniert Audio-Energie mit Video-Motion-Score
     combined_intensity = energy * 0.6 + avg_motion * 0.4
@@ -1175,7 +1197,6 @@ def auto_edit_phase3(
 
     clip_offsets: dict[int, float] = {vid: 0.0 for vid in available_ids}
     used_recently: list[int] = []
-    clip_idx = 0
 
     # Pre-resolve anchor scenes to avoid DB session per segment
     anchor_scene_map: dict[str, int] = {}  # scene_id_str -> video_clip_id
@@ -1295,7 +1316,6 @@ def auto_edit_phase3(
         used_recently.append(vid)
         if len(used_recently) > 10:
             used_recently[:] = used_recently[-10:]
-        clip_idx += 1
 
     if progress_cb:
         progress_cb(100, "Timeline fertig")
@@ -1355,16 +1375,45 @@ def generate_keyframe_string(video_id: int) -> str:
 
 
 def generate_keyframe_strings_for_project(project_id: int = 1) -> str:
-    """Generiert Keyframe-Strings fuer ALLE Video-Clips eines Projekts."""
+    """Generiert Keyframe-Strings fuer ALLE Video-Clips eines Projekts.
+
+    M10 Fix: Laedt alle Clips mit ihren Scenes in einer einzigen Session
+    statt N+1 separate Sessions (1 fuer Clip-IDs + N fuer Videos).
+    """
+    from sqlalchemy.orm import joinedload
+
     with Session(engine) as session:
-        clips = session.query(VideoClip).filter_by(project_id=project_id).all()
+        clips = (
+            session.query(VideoClip)
+            .options(joinedload(VideoClip.scenes))
+            .filter_by(project_id=project_id)
+            .all()
+        )
         if not clips:
             return "[Keine Video-Clips im Projekt]"
-        clip_ids = [c.id for c in clips]
 
-    all_strings = []
-    for vid_id in clip_ids:
-        all_strings.append(generate_keyframe_string(vid_id))
+        all_strings = []
+        for clip in clips:
+            scenes = sorted(clip.scenes, key=lambda s: s.start_time)
+            if not scenes:
+                dur = clip.duration or 0.0
+                all_strings.append(
+                    f"[Video '{Path(clip.file_path).stem}': Keine Szenen erkannt, Laenge: {dur:.1f}s]"
+                )
+                continue
+
+            res = f"{clip.width or '?'}x{clip.height or '?'}" if clip.width else "?"
+            parts = []
+            for i, scene in enumerate(scenes):
+                motion = scene.energy or 0.0
+                cat = _motion_category(motion)
+                length = (scene.end_time or 0.0) - (scene.start_time or 0.0)
+                part = f"[Szene {i+1}: {cat} (motion={motion:.2f}), Laenge: {length:.1f}s, {res}]"
+                parts.append(part)
+
+            video_name = Path(clip.file_path).stem
+            header = f"Video: '{video_name}' ({len(scenes)} Szenen)\n"
+            all_strings.append(header + "\n  -> ".join(parts))
 
     return "\n\n".join(all_strings)
 
@@ -1485,8 +1534,22 @@ def learn_from_anchor(
 
     try:
         with Session(engine) as session:
-            # ── Audio-Kontext laden ──
+            # DB-10 Fix: Prüfe ob referenzierte Objekte noch existieren
             audio = session.get(AudioTrack, audio_track_id)
+            if audio is None:
+                logger.warning(
+                    "learn_from_anchor: AudioTrack %d existiert nicht mehr, überspringe.",
+                    audio_track_id,
+                )
+                return False
+            if scene_id is not None and session.get(Scene, scene_id) is None:
+                logger.warning(
+                    "learn_from_anchor: Scene %d existiert nicht mehr, überspringe.",
+                    scene_id,
+                )
+                return False
+
+            # ── Audio-Kontext laden ──
             bpm = audio.bpm if audio else None
 
             overall_energy = None

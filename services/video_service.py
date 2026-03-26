@@ -5,11 +5,11 @@ import sys
 from pathlib import Path
 
 from sqlalchemy.orm import Session
-from database import engine, VideoClip
+from database import engine, VideoClip, APP_ROOT
 
 logger = logging.getLogger(__name__)
 
-PROXY_DIR = Path("storage/proxies")
+PROXY_DIR = APP_ROOT / "storage" / "proxies"
 
 
 class VideoAnalyzer:
