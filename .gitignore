@@ -1,13 +1,26 @@
 __pycache__/
 *.pyc
+*.pyo
 *.db
+*.db-shm
+*.db-wal
+*.db-journal
 .env
+
+# IDE
+.vscode/
+.idea/
 
 # Generated media (proxies, keyframes, audio cache)
 storage/proxies/
 storage/keyframes/
 storage/audio_cache/
 storage/stems/
+storage/test/
+
+# Exports and logs (generated at runtime)
+exports/
+logs/
 
 # Vector databases and data artifacts
 data/vector/
@@ -17,3 +30,8 @@ poc_lancedb_data/
 # LanceDB transaction/manifest files (anywhere)
 *.txn
 *.manifest
+
+# OS
+Thumbs.db
+desktop.ini
+.DS_Store
