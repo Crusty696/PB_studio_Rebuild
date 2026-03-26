@@ -9,12 +9,12 @@ Optimierte Timeline mit Caching.
 from dotenv import load_dotenv
 load_dotenv()
 
+import gc
 import sys
 import subprocess
 import time
 import logging
 import traceback
-import uuid
 from pathlib import Path
 
 from PySide6.QtWidgets import (
@@ -33,6 +33,8 @@ from PySide6.QtGui import QPainter, QPainterPath, QColor, QFont, QBrush, QPen, Q
 
 APP_VERSION = "0.4.0"
 
+logger = logging.getLogger(__name__)
+
 # Globale Thread-Registry: hält Referenzen auf aktive QThread/Worker-Paare,
 # damit sie nicht vorzeitig garbage-collected werden.
 _GLOBAL_ACTIVE_THREADS: list[tuple] = []
@@ -43,2164 +45,61 @@ from database import init_db, engine, AudioTrack, VideoClip, TimelineEntry, Beat
 from sqlalchemy.orm import Session as DBSession
 import json as _json
 from services.ingest_service import (
-    ingest_audio, ingest_video, get_all_media, get_all_audio, get_all_video,
-    delete_all_media, AUDIO_EXTENSIONS, VIDEO_EXTENSIONS,
+    get_all_media, get_all_audio, get_all_video,
+    delete_all_media, delete_selected_media, AUDIO_EXTENSIONS, VIDEO_EXTENSIONS,
 )
 import os
-from services.audio_service import AudioAnalyzer
-from services.video_service import VideoAnalyzer
 from services.pacing_service import (
     PacingSettings, calculate_cut_points, CutPoint, auto_edit_to_beats,
-    AdvancedPacingSettings, auto_edit_phase3, TimelineSegment,
-    generate_keyframe_strings_for_project,
+    AdvancedPacingSettings, generate_keyframe_strings_for_project,
 )
-from services.export_service import export_timeline, get_timeline_summary
+from services.export_service import get_timeline_summary
 from services.timeline_service import TimelineService, PB_NS
 from ui.chat_dock import ChatDock
 from ui.waveform_item import WaveformGraphicsItem
-from ui.widgets.stem_workspace import StemWorkspace
-from services.stem_player import StemPlayer
 
 
 # ======================================================================
-# Phase 5: Zentrale Task-Engine (besitzt Threads + Worker)
+# Task-Engine (extracted to services/task_manager.py)
 # ======================================================================
-
-class TaskInfo:
-    """Beschreibt einen laufenden Hintergrund-Task."""
-    def __init__(self, task_id: str, name: str, description: str = ""):
-        self.task_id = task_id
-        self.name = name
-        self.description = description
-        self.status = "running"
-        self.progress = 0
-        self.total = 100
-        self.message = ""
-        self.start_time = time.time()
-        # Referenzen auf Thread und Worker — GC-Schutz!
-        self.thread: QThread | None = None
-        self.worker: QObject | None = None
-
-    @property
-    def elapsed(self) -> float:
-        return round(time.time() - self.start_time, 1)
-
-
-class GlobalTaskManager(QObject):
-    """Zentrale Task-Engine: Erstellt, verwaltet und besitzt ALLE
-    Hintergrund-Threads und Worker. Singleton.
-
-    Jeder Hintergrund-Job MUSS über start_task() laufen.
-    Das TaskManagerDock hört ausschliesslich auf diese Signale.
-
-    CROSS-THREAD SAFE: start_task() kann aus jedem Thread aufgerufen
-    werden. Worker-Ownership wird korrekt an den Main-Thread uebergeben,
-    bevor QThread-Erstellung und Signal-Verbindungen stattfinden.
-
-    COMMAND PATTERN: Agenten-Tools senden nur noch
-    agent_command_signal.emit(action_name, kwargs). Der Main-Thread
-    instanziiert Worker und QThread selbst — keine Qt-Objekte im
-    Agent-Thread!
-    """
-    task_added = Signal(str)
-    task_updated = Signal(str)
-    task_finished = Signal(str)
-
-    # Cross-Thread Request: task_id, name, description, worker, on_finish, on_error
-    _cross_thread_request = Signal(str, str, str, object, object, object)
-
-    # ── Command Pattern: Agenten emittieren nur noch dieses Signal ──
-    agent_command_signal = Signal(str, dict)  # action_name, kwargs
-
-    _instance: "GlobalTaskManager | None" = None
-
-    @classmethod
-    def instance(cls) -> "GlobalTaskManager":
-        if cls._instance is None:
-            cls._instance = cls()
-        return cls._instance
-
-    def __init__(self):
-        super().__init__(QApplication.instance())
-        self._tasks: dict[str, TaskInfo] = {}
-        self._counter = 0
-        # Cross-Thread-Signal: QueuedConnection erzwingt Ausfuehrung im Main-Thread
-        self._cross_thread_request.connect(
-            self._start_in_main_thread, Qt.ConnectionType.QueuedConnection
-        )
-        # Command Pattern: QueuedConnection → Main-Thread instanziiert Worker
-        self.agent_command_signal.connect(
-            self._build_and_execute_task, Qt.ConnectionType.QueuedConnection
-        )
-
-    # ------------------------------------------------------------------
-    # Command Pattern: Worker-Registry + Main-Thread Factory
-    # ------------------------------------------------------------------
-
-    # Registry: action_name → (WorkerClass, task_display_name_template, kwargs→worker_kwargs mapper)
-    _WORKER_REGISTRY: dict[str, tuple] = {}
-
-    @classmethod
-    def register_worker(cls, action_name: str, worker_class, display_name: str,
-                        mapper=None):
-        """Registriert eine Worker-Klasse fuer das Command Pattern.
-
-        Args:
-            action_name: Eindeutiger Name (z.B. 'separate_stems').
-            worker_class: QObject mit run() und finished-Signal.
-            display_name: Template fuer Task-Anzeige, darf {kwargs} nutzen.
-            mapper: Optional. Funktion(kwargs) → dict mit Worker-Konstruktor-Kwargs.
-                    Default: kwargs werden 1:1 weitergereicht.
-        """
-        cls._WORKER_REGISTRY[action_name] = (worker_class, display_name, mapper)
-
-    def _build_and_execute_task(self, action_name: str, kwargs: dict):
-        """Laeuft IMMER im Main-Thread (via QueuedConnection).
-
-        Holt die Worker-Klasse aus der Registry, instanziiert Worker + QThread,
-        fuehrt moveToThread aus, verbindet Signale und startet den Thread.
-        """
-        entry = self._WORKER_REGISTRY.get(action_name)
-        if entry is None:
-            logging.error(
-                "[CommandPattern] Unbekannte Action '%s' — kein Worker registriert. "
-                "kwargs=%s", action_name, kwargs
-            )
-            return
-
-        worker_class, display_template, mapper = entry
-
-        # Worker-kwargs vorbereiten
-        worker_kwargs = mapper(kwargs) if mapper else kwargs
-
-        # Display-Name
-        try:
-            display_name = display_template.format(**kwargs)
-        except (KeyError, IndexError):
-            display_name = f"{action_name} ({kwargs})"
-
-        logging.info(
-            "[CommandPattern] Main-Thread baut Worker: %s → %s",
-            action_name, display_name,
-        )
-
-        # 1. Worker im Main-Thread instanziieren
-        worker = worker_class(**worker_kwargs)
-
-        # 2. start_task kuemmert sich um QThread, moveToThread, Signale, Start
-        self.start_task(
-            name=display_name,
-            worker=worker,
-            description=f"Command Pattern: {action_name}",
-        )
-
-        # 3. TaskManagerDock erzwingen
-        app = QApplication.instance()
-        if app:
-            for w in app.topLevelWidgets():
-                dock = w.findChild(QDockWidget, "task_manager_dock")
-                if dock:
-                    dock.show()
-                    break
-
-    # ------------------------------------------------------------------
-    # Neues API: Worker + Thread in einem Aufruf starten
-    # THREAD-SAFE: Kann aus Main-Thread UND Background-Threads aufgerufen werden
-    # ------------------------------------------------------------------
-
-    def start_task(
-        self,
-        name: str,
-        worker: QObject,
-        description: str = "",
-        on_finish=None,
-        on_error=None,
-    ) -> "TaskInfo | str":
-        """Erstellt Task, Thread, moveToThread, startet alles.
-
-        Der Worker MUSS eine run()-Methode und ein finished-Signal haben.
-        Optional: progress(int, str), error-Signal.
-
-        Returns:
-            - TaskInfo wenn aus Main-Thread aufgerufen (sofortige Ausfuehrung)
-            - task_id (str) wenn aus Background-Thread (asynchrone Ausfuehrung)
-        """
-        task_id = f"task_{uuid.uuid4().hex[:12]}"
-
-        app = QApplication.instance()
-        is_bg_thread = app is not None and QThread.currentThread() != app.thread()
-
-        if is_bg_thread:
-            # ============================================================
-            # CRITICAL FIX: Cross-Thread Task Routing
-            # Worker wurde im BG-Thread erstellt → Ownership an Main-Thread
-            # uebergeben BEVOR wir das Signal senden.
-            # ============================================================
-            logging.info(
-                "[TaskEngine] Cross-Thread-Request: %s (task_id=%s) — "
-                "routing to main thread", name, task_id
-            )
-            worker.moveToThread(app.thread())
-            self._cross_thread_request.emit(
-                task_id, name, description, worker, on_finish, on_error
-            )
-            return task_id
-        else:
-            # Main-Thread: direkt ausfuehren
-            return self._start_in_main_thread(
-                task_id, name, description, worker, on_finish, on_error
-            )
-
-    def _start_in_main_thread(
-        self,
-        task_id: str,
-        name: str,
-        description: str,
-        worker: QObject,
-        on_finish=None,
-        on_error=None,
-    ) -> TaskInfo:
-        """Tatsaechliche Thread-Erstellung — laeuft IMMER im Main-Thread.
-
-        Wird direkt aufgerufen (Main-Thread) oder via QueuedConnection
-        (Cross-Thread-Signal).
-        """
-        task = TaskInfo(task_id, name, description)
-
-        thread = QThread()
-        worker.moveToThread(thread)
-        thread.started.connect(worker.run)
-
-        # Task-ID am Worker speichern fuer Cancel-Lookup
-        worker.task_id = task_id
-
-        # Progress-Signal → update_task (falls Worker eins hat)
-        if hasattr(worker, "progress"):
-            worker.progress.connect(
-                lambda pct, msg, _tid=task_id: self.update_task(_tid, pct, message=msg)
-            )
-
-        # Finish-Guard: skip on_finish wenn Worker im Error-Pfad ist
-        if on_finish:
-            def _guarded_finish(*args, _w=worker, _cb=on_finish):
-                if not getattr(_w, '_errored', False):
-                    _cb(*args)
-            worker.finished.connect(_guarded_finish)
-
-        # Error-Signal: Fallback-Logger immer verbinden (stille Fehler verhindern).
-        # Verbindet einen Default-Handler, der den Fehler loggt und den Task
-        # als "error" markiert — auch wenn kein on_error-Callback uebergeben wurde.
-        def _default_error_handler(*args, _tid=task_id, _name=name, _tm=self):
-            err_msg = str(args[-1]) if args else "Unbekannter Fehler"
-            logging.error(
-                "[TaskEngine] Worker-Fehler '%s' (task_id=%s): %s",
-                _name, _tid, err_msg,
-            )
-            _tm.finish_task(_tid, status="error", message=err_msg)
-        worker.error.connect(_default_error_handler)
-        if on_error:
-            worker.error.connect(on_error)
-
-        # Thread-Lifecycle: finished → quit → cleanup
-        worker.finished.connect(thread.quit)
-        thread.finished.connect(lambda _tid=task_id: self._on_thread_done(_tid))
-
-        # Referenzen halten (GC-Schutz)
-        task.thread = thread
-        task.worker = worker
-        self._tasks[task_id] = task
-
-        self.task_added.emit(task_id)
-
-        # TaskManagerDock sichtbar machen (falls vorhanden)
-        app = QApplication.instance()
-        if app:
-            for w in app.topLevelWidgets():
-                dock = w.findChild(QDockWidget, "task_manager_dock")
-                if dock:
-                    dock.show()
-                    break
-
-        thread.start()
-        logging.info("[TaskEngine] Gestartet: %s (task_id=%s)", name, task_id)
-        return task
-
-    # ------------------------------------------------------------------
-    # Legacy-kompatibles API (fuer register_actions.py etc.)
-    # ------------------------------------------------------------------
-
-    def create_task(self, name: str, description: str = "") -> TaskInfo:
-        """Erstellt nur Metadaten-Task (ohne Thread).
-        Fuer Aktionen die keinen Worker haben (z.B. synchrone Calls).
-        """
-        self._counter += 1
-        task_id = f"task_{self._counter}"
-        task = TaskInfo(task_id, name, description)
-        self._tasks[task_id] = task
-        self.task_added.emit(task_id)
-        return task
-
-    def update_task(self, task_id: str, progress: int = 0, total: int = 100,
-                    message: str = ""):
-        if task_id in self._tasks:
-            t = self._tasks[task_id]
-            t.progress = progress
-            t.total = total
-            t.message = message
-            self.task_updated.emit(task_id)
-
-    def finish_task(self, task_id: str, status: str = "finished", message: str = ""):
-        if task_id in self._tasks:
-            t = self._tasks[task_id]
-            t.status = status
-            t.message = message
-            self.task_finished.emit(task_id)
-
-    def cancel_task(self, task_id: str):
-        """Bricht einen laufenden Task ab."""
-        task = self._tasks.get(task_id)
-        if not task or task.status != "running":
-            return
-        worker = task.worker
-        if worker and hasattr(worker, "cancel"):
-            worker.cancel()
-        thread = task.thread
-        if thread and thread.isRunning():
-            thread.quit()
-            if not thread.wait(2000):
-                thread.terminate()
-        self.finish_task(task_id, "cancelled", "Abgebrochen")
-        logging.info("[TaskEngine] Abgebrochen: %s", task_id)
-
-    def get_task(self, task_id: str) -> TaskInfo | None:
-        return self._tasks.get(task_id)
-
-    def get_all_tasks(self) -> list[TaskInfo]:
-        return list(self._tasks.values())
-
-    def clear_finished(self):
-        to_remove = []
-        for k, v in self._tasks.items():
-            if v.status != "running":
-                to_remove.append(k)
-        for k in to_remove:
-            task = self._tasks.pop(k)
-            if task.worker:
-                task.worker.deleteLater()
-            if task.thread:
-                task.thread.deleteLater()
-
-    # ------------------------------------------------------------------
-    # Interner Cleanup
-    # ------------------------------------------------------------------
-
-    def _on_thread_done(self, task_id: str):
-        """Wird aufgerufen wenn ein Thread fertig ist."""
-        task = self._tasks.get(task_id)
-        if task and task.status == "running":
-            self.finish_task(task_id, "finished", "Fertig")
-
-
-# Singleton-Instanz: Wird in main() an QApplication verankert.
-# Zugriff ausschliesslich ueber QApplication.instance().task_manager
-task_manager = None  # Lazy — wird in main() gesetzt
+import services.task_manager as _task_manager_module
+from services.task_manager import TaskInfo, GlobalTaskManager
 
 
 # ======================================================================
-# Background Workers
+# Background Workers (extracted to workers/ package)
 # ======================================================================
-
-class CancellableMixin:
-    """Mixin for workers: adds a _cancelled flag checked via should_stop()."""
-    _cancelled = False
-
-    def cancel(self):
-        self._cancelled = True
-
-    def should_stop(self) -> bool:
-        return self._cancelled
-
-
-class AnalysisWorker(QObject, CancellableMixin):
-    finished = Signal(int, dict)
-    error = Signal(int, str)
-    started = Signal(int, str)
-    progress = Signal(int, str)
-
-    def __init__(self, track_id: int, title: str):
-        super().__init__()
-        self._cancelled = False
-        self.track_id = track_id
-        self.title = title
-        self.analyzer = AudioAnalyzer()
-
-    def run(self):
-        _ok = False
-        self.started.emit(self.track_id, self.title)
-        try:
-            # Phase 1: Grundanalyse (BPM, Duration, Energy via librosa)
-            self.progress.emit(10, "Grundanalyse (librosa)...")
-            result = self.analyzer.analyze_and_store(self.track_id)
-
-            # Phase 2: KI Beat-Analyse (Beatgrid mit Downbeats + Energy)
-            # BeatAnalysisService ist der alleinige Beatgrid-Writer.
-            if not self.should_stop():
-                try:
-                    self.progress.emit(50, "KI Beat-Analyse (beat_this)...")
-                    from services.beat_analysis_service import BeatAnalysisService
-                    beat_svc = BeatAnalysisService()
-                    beat_result = beat_svc.analyze_and_store(self.track_id)
-                    result["beat_positions"] = beat_result.get("beats", [])
-                    result["downbeats"] = beat_result.get("downbeats", [])
-                    self.progress.emit(90, "Beat-Analyse fertig")
-                except Exception as e:
-                    # Beat-Analyse ist optional — Grundanalyse reicht für den Betrieb
-                    logging.warning("BeatAnalysis optional fehlgeschlagen: %s", e)
-                    self.progress.emit(90, f"Beat-Analyse übersprungen: {e}")
-
-            self.progress.emit(100, "Analyse komplett")
-            self.finished.emit(self.track_id, result)
-            _ok = True
-        except Exception as e:
-            logging.error("AnalysisWorker[%s] crashed: %s\n%s",
-                          self.track_id, e, traceback.format_exc())
-            self._errored = True
-            self.error.emit(self.track_id, str(e))
-        finally:
-            if not _ok:
-                self.finished.emit(self.track_id, {})
-
-
-class VideoAnalysisWorker(QObject, CancellableMixin):
-    finished = Signal(int, dict)
-    error = Signal(int, str)
-    started = Signal(int, str)
-    progress = Signal(int, str)   # Echte Qt-Signale statt print()
-
-    def __init__(self, clip_id: int, title: str):
-        super().__init__()
-        self.clip_id = clip_id
-        self.title = title
-        self.analyzer = VideoAnalyzer()
-
-    def run(self):
-        _ok = False
-        self.started.emit(self.clip_id, self.title)
-        self.progress.emit(0, f"Video-Analyse: {self.title}")
-        try:
-            self.progress.emit(10, f"ffprobe + Proxy fuer {self.title}...")
-            result = self.analyzer.analyze_and_store(self.clip_id)
-            self.progress.emit(100, f"Analyse fertig: {self.title}")
-            self.finished.emit(self.clip_id, result)
-            _ok = True
-        except Exception as e:
-            logging.error("VideoAnalysisWorker[%s] crashed: %s\n%s",
-                          self.clip_id, e, traceback.format_exc())
-            self._errored = True
-            self.error.emit(self.clip_id, str(e))
-        finally:
-            if not _ok:
-                self.finished.emit(self.clip_id, {})
-
-
-class StemSeparationWorker(QObject, CancellableMixin):
-    finished = Signal(int, dict)
-    error = Signal(int, str)
-    progress = Signal(int, str)
-
-    def __init__(self, track_id: int):
-        super().__init__()
-        self.track_id = track_id
-
-    def run(self):
-        _ok = False
-        try:
-            from services.ai_audio_service import StemSeparator
-            separator = StemSeparator()
-            result = separator.separate_and_store(
-                self.track_id,
-                progress_cb=lambda pct, msg: self.progress.emit(pct, msg),
-            )
-            self.finished.emit(self.track_id, result)
-            _ok = True
-        except Exception as e:
-            logging.error("StemSeparationWorker[%s] crashed: %s\n%s",
-                          self.track_id, e, traceback.format_exc())
-            self._errored = True
-            self.error.emit(self.track_id, str(e))
-        finally:
-            if not _ok:
-                self.finished.emit(self.track_id, {})
-
-
-class AutoDuckingWorker(QObject, CancellableMixin):
-    finished = Signal(str)
-    error = Signal(str)
-    progress = Signal(int, str)
-
-    def __init__(self, music_path: str, voice_path: str, output_path: str):
-        super().__init__()
-        self.music_path = music_path
-        self.voice_path = voice_path
-        self.output_path = output_path
-
-    def run(self):
-        _ok = False
-        try:
-            from services.ai_audio_service import AutoDucker
-            ducker = AutoDucker()
-            result = ducker.create_ducked_audio(
-                self.music_path, self.voice_path, self.output_path,
-                progress_cb=lambda pct, msg: self.progress.emit(pct, msg),
-            )
-            self.finished.emit(result)
-            _ok = True
-        except Exception as e:
-            logging.error("AutoDuckingWorker crashed: %s\n%s", e, traceback.format_exc())
-            self._errored = True
-            self.error.emit(str(e))
-        finally:
-            if not _ok:
-                self.finished.emit("")
-
-
-class ExportWorker(QObject, CancellableMixin):
-    finished = Signal(str)
-    error = Signal(str)
-    progress = Signal(int, str)
-
-    def __init__(self, project_id: int, output_name: str,
-                 resolution: str = "1920x1080", fps: float = 30.0):
-        super().__init__()
-        self.project_id = project_id
-        self.output_name = output_name
-        self.resolution = resolution
-        self.fps = fps
-
-    def run(self):
-        _ok = False
-        try:
-            path = export_timeline(
-                project_id=self.project_id,
-                output_name=self.output_name,
-                resolution=self.resolution,
-                fps=self.fps,
-                progress_cb=lambda pct, msg: self.progress.emit(pct, msg),
-            )
-            self.finished.emit(path)
-            _ok = True
-        except Exception as e:
-            logging.error("ExportWorker crashed: %s\n%s", e, traceback.format_exc())
-            self._errored = True
-            self.error.emit(str(e))
-        finally:
-            if not _ok:
-                self.finished.emit("")
-
-
-class FrameExtractWorker(QObject):
-    frame_ready = Signal(bytes, int, int)
-    error = Signal(str)
-
-    def __init__(self, file_path: str, time_sec: float, width: int = 320,
-                 height: int = 180, vf_extra: str = ""):
-        super().__init__()
-        self.file_path = file_path
-        self.time_sec = time_sec
-        self.width = width
-        self.height = height
-        self.vf_extra = vf_extra
-
-    def run(self):
-        try:
-            vf = f"scale={self.width}:{self.height}"
-            if self.vf_extra:
-                vf = f"{self.vf_extra},{vf}"
-            cmd = [
-                "ffmpeg", "-ss", str(self.time_sec), "-i", self.file_path,
-                "-frames:v", "1", "-vf", vf,
-                "-f", "rawvideo", "-pix_fmt", "rgb24",
-                "-v", "quiet", "-y", "pipe:1"
-            ]
-            result = subprocess.run(
-                cmd, capture_output=True, timeout=5,
-                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
-            )
-            expected = self.width * self.height * 3
-            if result.returncode == 0 and len(result.stdout) == expected:
-                self.frame_ready.emit(result.stdout, self.width, self.height)
-            else:
-                stderr_hint = result.stderr[:200].decode(errors="replace") if result.stderr else ""
-                self.error.emit(f"Frame @ {self.time_sec:.1f}s nicht verfuegbar: {stderr_hint}")
-        except Exception as e:
-            logging.error("FrameExtractWorker crashed: %s\n%s", e, traceback.format_exc())
-            self._errored = True
-            self.error.emit(str(e))
-
-
-class AutoEditWorker(QObject, CancellableMixin):
-    """Phase 3: Auto-Edit Worker mit AdvancedPacingSettings + OTIO."""
-    finished = Signal(list, list)   # (segments_as_dicts, cut_points_as_dicts)
-    error = Signal(str)
-
-    def __init__(self, audio_id: int, video_ids: list[int],
-                 settings: AdvancedPacingSettings):
-        super().__init__()
-        self.audio_id = audio_id
-        self.video_ids = video_ids
-        self.settings = settings
-
-    def run(self):
-        _ok = False
-        try:
-            segments, cut_points = auto_edit_phase3(
-                self.audio_id, self.video_ids, self.settings,
-            )
-            # Serialize for signal transport
-            seg_dicts = [
-                {
-                    "video_id": s.video_id, "video_path": s.video_path,
-                    "start": s.start, "end": s.end,
-                    "source_start": s.source_start, "source_end": s.source_end,
-                    "is_anchor": s.is_anchor, "scene_id": s.scene_id,
-                }
-                for s in segments
-            ]
-            cp_dicts = [
-                {"time": c.time, "source": c.source, "strength": c.strength}
-                for c in cut_points
-            ]
-            self.finished.emit(seg_dicts, cp_dicts)
-            _ok = True
-        except Exception as e:
-            logging.error("AutoEditWorker crashed: %s\n%s", e, traceback.format_exc())
-            self._errored = True
-            self.error.emit(str(e))
-        finally:
-            if not _ok:
-                self.finished.emit([], [])
-
-
-class WaveformAnalysisWorker(QObject, CancellableMixin):
-    """Background Worker: Rekordbox-Style Frequenzanalyse + Beatgrid."""
-    finished = Signal(int, dict)   # track_id, result
-    error = Signal(int, str)       # track_id, error_msg
-    progress = Signal(int, str)    # percent, message
-
-    def __init__(self, track_id: int):
-        super().__init__()
-        self.track_id = track_id
-
-    def run(self):
-        _ok = False
-        try:
-            from services.ai_audio_service import FrequencyAnalyzer
-            analyzer = FrequencyAnalyzer()
-            result = analyzer.analyze_and_store(
-                self.track_id,
-                progress_cb=lambda pct, msg: self.progress.emit(pct, msg),
-            )
-            self.finished.emit(self.track_id, result)
-            _ok = True
-        except Exception as e:
-            logging.error("WaveformAnalysisWorker[%s] crashed: %s\n%s",
-                          self.track_id, e, traceback.format_exc())
-            self._errored = True
-            self.error.emit(self.track_id, str(e))
-        finally:
-            if not _ok:
-                self.finished.emit(self.track_id, {})
-
-
-# ======================================================================
-# Phase 2: Video Analysis Pipeline Worker (SEKTOR 1)
-# ======================================================================
-
-class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
-    """Führt die 3-Schritt Video-Analyse-Pipeline im Hintergrund aus.
-
-    Unterstützt Batch-Verarbeitung: Nimmt eine Liste von (clip_id, video_path)
-    und arbeitet diese STRIKT SEQUENZIELL ab (6GB VRAM Limit).
-    """
-    finished = Signal(int, dict)   # last_clip_id, batch_result_dict
-    error = Signal(int, str)       # clip_id, error_msg
-    progress = Signal(int, str)    # percent, message
-
-    def __init__(self, clip_id: int = 0, video_path: str = "",
-                 batch: list | None = None):
-        """Args:
-            clip_id / video_path: Einzelnes Video (Rückwärtskompatibel).
-            batch: Liste von (clip_id, video_path, title) Tupeln für Batch-Modus.
-        """
-        super().__init__()
-        self._cancelled = False
-        if batch:
-            self._batch = batch
-        else:
-            self._batch = [(clip_id, video_path, "")]
-
-    def run(self):
-        _ok = False
-        total_videos = len(self._batch)
-        last_clip_id = self._batch[-1][0]
-        try:
-            from services.video_analysis_service import run_full_pipeline
-
-            total_scenes = 0
-            total_embeddings = 0
-            idx = 0
-
-            for idx, (clip_id, video_path, title) in enumerate(self._batch, start=1):
-                if self.should_stop():
-                    break
-
-                label = title or Path(video_path).stem
-                batch_base_pct = int((idx - 1) / total_videos * 100)
-                batch_range = int(100 / total_videos)
-                self.progress.emit(
-                    batch_base_pct,
-                    f"Video {idx}/{total_videos}: '{label}' wird analysiert..."
-                )
-
-                try:
-                    result = run_full_pipeline(
-                        video_path=video_path,
-                        video_clip_id=clip_id,
-                        progress_cb=lambda pct, msg, _base=batch_base_pct, _range=batch_range, _i=idx, _tv=total_videos: (
-                            self.progress.emit(
-                                min(99, _base + int(pct / 100 * _range)),
-                                f"[{_i}/{_tv}] {msg}"
-                            )
-                        ),
-                        should_stop=self.should_stop,
-                    )
-                    total_scenes += len(result.scenes)
-                    total_embeddings += result.embeddings_stored
-
-                except Exception as e:
-                    logging.error("VideoAnalysisPipelineWorker[%s] video %d/%d '%s' crashed: %s\n%s",
-                                  clip_id, idx, total_videos, label, e, traceback.format_exc())
-                    self._errored = True
-                    self.error.emit(clip_id, f"Video {idx}/{total_videos} '{label}': {e}")
-                    return
-
-            self.finished.emit(last_clip_id, {
-                "scenes": total_scenes,
-                "embeddings": total_embeddings,
-                "videos_processed": idx if self.should_stop() else total_videos,
-            })
-            _ok = True
-        except Exception as e:
-            logging.error("VideoAnalysisPipelineWorker crashed (outer): %s\n%s",
-                          e, traceback.format_exc())
-            self._errored = True
-            self.error.emit(last_clip_id, str(e))
-        finally:
-            if not _ok:
-                self.finished.emit(last_clip_id, {})
-
-
-# ======================================================================
-# Phase 2: Proxy Creation Worker (SEKTOR 2)
-# ======================================================================
-
-class ProxyCreationWorker(QObject, CancellableMixin):
-    """Erstellt NVENC 540p Edit-Proxy für ein Video."""
-    finished = Signal(int, str)    # clip_id, proxy_path
-    error = Signal(int, str)       # clip_id, error_msg
-    progress = Signal(int, str)    # percent, status_text
-
-    def __init__(self, clip_id: int, video_path: str):
-        super().__init__()
-        self._cancelled = False
-        self.clip_id = clip_id
-        self.video_path = video_path
-
-    def run(self):
-        _ok = False
-        try:
-            from services.convert_service import convert
-            proxy_path = convert(
-                self.video_path,
-                preset_name="edit_proxy",
-                progress_cb=lambda pct, msg: self.progress.emit(pct, msg),
-            )
-            # Proxy-Pfad in SQLite speichern
-            with DBSession(engine) as session:
-                clip = session.get(VideoClip, self.clip_id)
-                if clip:
-                    clip.proxy_path = proxy_path
-                    session.commit()
-            self.finished.emit(self.clip_id, proxy_path)
-            _ok = True
-        except Exception as e:
-            logging.error("ProxyCreationWorker[%s] crashed: %s\n%s",
-                          self.clip_id, e, traceback.format_exc())
-            self._errored = True
-            self.error.emit(self.clip_id, str(e))
-        finally:
-            if not _ok:
-                self.finished.emit(self.clip_id, "")
-
-
-# ======================================================================
-# Phase 2: Semantic Search Worker (SEKTOR 3)
-# ======================================================================
-
-class SemanticSearchWorker(QObject):
-    """SigLIP Text-zu-Video Suche im Hintergrund."""
-    finished = Signal(list)   # list of result dicts
-    error = Signal(str)
-
-    def __init__(self, query: str, top_k: int = 20):
-        super().__init__()
-        self.query = query
-        self.top_k = top_k
-
-    def run(self):
-        _ok = False
-        try:
-            from services.video_analysis_service import search_videos_by_text
-            results = search_videos_by_text(self.query, top_k=self.top_k)
-            self.finished.emit(results)
-            _ok = True
-        except Exception as e:
-            logging.error("SemanticSearchWorker crashed: %s\n%s", e, traceback.format_exc())
-            self._errored = True
-            self.error.emit(str(e))
-        finally:
-            if not _ok:
-                self.finished.emit([])
-
-
-# ======================================================================
-# Batch Convert Worker (CRIT-02 Fix: Main-Thread-Blocking entfernt)
-# ======================================================================
-
-class BatchConvertWorker(QObject, CancellableMixin):
-    """Konvertiert alle Videos im Hintergrund-Thread statt auf dem Main-Thread."""
-    finished = Signal(int, int)      # (converted_count, total_count)
-    error = Signal(str)
-    progress = Signal(int, str)      # (percent, message)
-
-    def __init__(self, videos: list, resolution: str, fps: str, vcodec: str, ext: str):
-        super().__init__()
-        self._cancelled = False
-        self.videos = videos
-        self.resolution = resolution
-        self.fps = fps
-        self.vcodec = vcodec
-        self.ext = ext
-
-    def run(self):
-        _ok = False
-        w_res, h_res = self.resolution.split("x")
-        total = len(self.videos)
-        converted = 0
-        try:
-            for i, v in enumerate(self.videos):
-                if self.should_stop():
-                    break
-
-                src = v["file_path"]
-                stem = Path(src).stem
-                out_dir = Path(src).parent / "converted"
-                out_dir.mkdir(exist_ok=True)
-                dst = str(out_dir / f"{stem}_std{self.ext}")
-
-                self.progress.emit(
-                    int((i + 1) / total * 100),
-                    f"[Convert] {i+1}/{total}: {Path(src).name} -> {self.resolution} @ {self.fps}fps"
-                )
-
-                cmd = [
-                    "ffmpeg", "-y", "-i", src,
-                    "-vf", f"scale={w_res}:{h_res}:force_original_aspect_ratio=decrease,"
-                           f"pad={w_res}:{h_res}:(ow-iw)/2:(oh-ih)/2",
-                    "-r", self.fps,
-                    "-c:v", self.vcodec,
-                    "-c:a", "aac",
-                    "-preset", "medium",
-                    "-v", "quiet",
-                    dst,
-                ]
-                try:
-                    result = subprocess.run(
-                        cmd, capture_output=True, timeout=600,
-                        creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
-                    )
-                    if result.returncode == 0:
-                        converted += 1
-                        self.progress.emit(int((i + 1) / total * 100), f"  OK: {dst}")
-                    else:
-                        stderr = result.stderr.decode(errors="replace")[:200]
-                        self.progress.emit(int((i + 1) / total * 100), f"  FEHLER: {stderr}")
-                except subprocess.TimeoutExpired:
-                    self.progress.emit(int((i + 1) / total * 100), f"  TIMEOUT: {Path(src).name}")
-                except FileNotFoundError:
-                    self._errored = True
-                    self.error.emit("ffmpeg nicht gefunden!")
-                    return
-
-            self.finished.emit(converted, total)
-            _ok = True
-        except Exception as e:
-            logging.error("BatchConvertWorker crashed: %s\n%s", e, traceback.format_exc())
-            self._errored = True
-            self.error.emit(str(e))
-        finally:
-            if not _ok:
-                self.finished.emit(0, 0)
-
-
-class DummyProgressWorker(QObject, CancellableMixin):
-    """Test-Worker: Zaehlt 10 Sekunden hoch fuer UI-Test der Task-Engine."""
-    finished = Signal(int, int)   # (done_steps, total_steps)
-    error = Signal(str)
-    progress = Signal(int, str)   # (percent, message)
-
-    def __init__(self, steps: int = 10, interval_ms: int = 1000):
-        super().__init__()
-        self._cancelled = False
-        self.steps = steps
-        self.interval_s = interval_ms / 1000.0
-
-    def run(self):
-        _ok = False
-        try:
-            for i in range(1, self.steps + 1):
-                if self.should_stop():
-                    self.progress.emit(0, "Abgebrochen")
-                    break
-                pct = int(100 * i / self.steps)
-                self.progress.emit(pct, f"Schritt {i}/{self.steps}")
-                import time as _t
-                _t.sleep(self.interval_s)
-            self.finished.emit(self.steps, self.steps)
-            _ok = True
-        except Exception as e:
-            self._errored = True
-            self.error.emit(str(e))
-        finally:
-            if not _ok:
-                self.finished.emit(0, 0)
-
-
-# ======================================================================
-# Command Pattern: Worker-Registry Registrierungen
-# Agenten-Tools emittieren nur agent_command_signal → Main-Thread baut Worker
-# ======================================================================
-
-GlobalTaskManager.register_worker(
-    "separate_stems",
-    StemSeparationWorker,
-    "Stem-Separation #{track_id}",
-    mapper=lambda kw: {"track_id": kw["track_id"]},
-)
-
-GlobalTaskManager.register_worker(
-    "analyze_audio",
-    AnalysisWorker,
-    "Audio-Analyse #{track_id}",
-    mapper=lambda kw: {"track_id": kw["track_id"], "title": kw.get("title", f"Track #{kw['track_id']}")},
-)
-
-GlobalTaskManager.register_worker(
-    "analyze_video",
-    VideoAnalysisWorker,
-    "Video-Analyse #{clip_id}",
-    mapper=lambda kw: {"clip_id": kw["clip_id"], "title": kw.get("title", f"Clip #{kw['clip_id']}")},
-)
-
-GlobalTaskManager.register_worker(
-    "create_proxy",
-    ProxyCreationWorker,
-    "Proxy #{clip_id}",
-    mapper=lambda kw: {"clip_id": kw["clip_id"], "video_path": kw["video_path"]},
-)
-
-GlobalTaskManager.register_worker(
-    "auto_edit",
-    AutoEditWorker,
-    "Auto-Edit",
-    mapper=lambda kw: {
-        "audio_id": kw["audio_id"],
-        "video_ids": kw["video_ids"],
-        "settings": kw.get("settings") or AdvancedPacingSettings(),
-    },
-)
-
-GlobalTaskManager.register_worker(
-    "export_timeline",
-    ExportWorker,
-    "Export: {output_name}",
-    mapper=lambda kw: {
-        "project_id": kw.get("project_id", 1),
-        "output_name": kw.get("output_name", "output.mp4"),
-        "resolution": kw.get("resolution", "1920x1080"),
-        "fps": kw.get("fps", 30),
-    },
-)
-
-GlobalTaskManager.register_worker(
-    "teste_ladebalken",
+from workers import (
+    CancellableMixin,
+    AnalysisWorker, WaveformAnalysisWorker,
+    VideoAnalysisWorker, VideoAnalysisPipelineWorker, FrameExtractWorker,
+    StemSeparationWorker, AutoDuckingWorker,
+    ExportWorker, FolderImportWorker, BatchConvertWorker, ProxyCreationWorker,
+    AutoEditWorker, SemanticSearchWorker,
     DummyProgressWorker,
-    "Test-Ladebalken ({steps}s)",
-    mapper=lambda kw: {"steps": kw.get("steps", 10), "interval_ms": kw.get("interval_ms", 1000)},
 )
 
 
-# ======================================================================
-# Draggable Timeline Clip (QGraphicsRectItem)
-# ======================================================================
-
-class AnchorMarkerItem(QGraphicsPolygonItem):
-    """Visueller Anker-Marker: Rotes Dreieck + vertikale Linie auf dem Clip."""
-
-    def __init__(self, x_offset: float, height: float, anchor_id: int, parent=None):
-        # Dreieck-Polygon (Pfeil nach unten)
-        triangle = QPolygonF([
-            QPointF(x_offset - 5, 0),
-            QPointF(x_offset + 5, 0),
-            QPointF(x_offset, 8),
-        ])
-        super().__init__(triangle, parent)
-        self.anchor_id = anchor_id
-        self.setBrush(QBrush(QColor(255, 50, 50, 230)))
-        self.setPen(QPen(QColor(255, 100, 100), 1))
-        self.setZValue(10)
-
-        # Vertikale rote Linie durch den ganzen Clip
-        self._line = QGraphicsLineItem(x_offset, 8, x_offset, height, parent)
-        self._line.setPen(QPen(QColor(255, 50, 50, 180), 1, Qt.PenStyle.DashLine))
-        self._line.setZValue(9)
-        self.line_item = self._line
-
-    def remove_from_scene(self):
-        """Entfernt Dreieck und Linie."""
-        if self.scene():
-            self.scene().removeItem(self._line)
-            self.scene().removeItem(self)
-
-
-class TimelineClipItem(QGraphicsRectItem):
-    # Audio-Clips: halbtransparent, damit Rekordbox-Wellenform durchscheint
-    AUDIO_COLOR = QColor(30, 60, 120, 60)
-    AUDIO_COLOR_NO_WAVEFORM = QColor(70, 130, 220, 200)
-    VIDEO_COLOR = QColor(230, 140, 50, 200)
-
-    def __init__(self, entry_id: int, media_id: int, track_type: str,
-                 title: str, x: float, y: float, width: float, height: float,
-                 on_moved=None, has_waveform: bool = False):
-        super().__init__(QRectF(0, 0, width, height))
-        self.entry_id = entry_id
-        self.media_id = media_id
-        self.track_type = track_type
-        self.on_moved = on_moved
-        self._clip_width = width
-        self._clip_height = height
-
-        self.setPos(x, y)
-        self.setFlag(QGraphicsRectItem.GraphicsItemFlag.ItemIsMovable, True)
-        self.setFlag(QGraphicsRectItem.GraphicsItemFlag.ItemIsSelectable, True)
-        self.setFlag(QGraphicsRectItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
-
-        if track_type == "audio":
-            color = self.AUDIO_COLOR if has_waveform else self.AUDIO_COLOR_NO_WAVEFORM
-        else:
-            color = self.VIDEO_COLOR
-        self.setBrush(QBrush(color))
-        self.setPen(QPen(color.darker(150), 1))
-        self.setZValue(2)  # Über der Wellenform
-
-        label = QGraphicsTextItem(title[:30], self)
-        label.setDefaultTextColor(QColor(255, 255, 255))
-        label.setFont(QFont("Segoe UI", 8))
-        label.setPos(4, 2)
-
-        self._track_y = y
-        self._anchor_markers: list[AnchorMarkerItem] = []
-        self._load_anchors()
-
-    def _load_anchors(self):
-        """Laedt bestehende Anker aus der DB und zeichnet sie."""
-        with DBSession(engine) as session:
-            anchors = session.query(ClipAnchor).filter_by(
-                timeline_entry_id=self.entry_id
-            ).all()
-            for anchor in anchors:
-                x_px = anchor.time_offset * PIXELS_PER_SECOND
-                if 0 <= x_px <= self._clip_width:
-                    marker = AnchorMarkerItem(x_px, self._clip_height, anchor.id, parent=self)
-                    self._anchor_markers.append(marker)
-
-    def add_anchor_at(self, local_x: float) -> int | None:
-        """Setzt einen neuen Anker an der lokalen X-Position (in Pixeln).
-        Gibt die Anchor-ID zurueck oder None bei Fehler.
-        """
-        time_offset = local_x / PIXELS_PER_SECOND
-        if time_offset < 0:
-            time_offset = 0.0
-
-        with DBSession(engine) as session:
-            anchor = ClipAnchor(
-                timeline_entry_id=self.entry_id,
-                time_offset=round(time_offset, 4),
-            )
-            session.add(anchor)
-            session.commit()
-            anchor_id = anchor.id
-
-        marker = AnchorMarkerItem(local_x, self._clip_height, anchor_id, parent=self)
-        self._anchor_markers.append(marker)
-        return anchor_id
-
-    def remove_all_anchors(self):
-        """Entfernt alle Anker dieses Clips."""
-        with DBSession(engine) as session:
-            session.query(ClipAnchor).filter_by(
-                timeline_entry_id=self.entry_id
-            ).delete()
-            session.commit()
-        for m in self._anchor_markers:
-            if m.line_item.parentItem():
-                # Kinder werden mit Parent entfernt
-                pass
-        self._anchor_markers.clear()
-
-    def get_first_anchor_time(self) -> float | None:
-        """Gibt den Zeitstempel des ersten Ankers zurueck (relativ zum Clip-Start)."""
-        with DBSession(engine) as session:
-            anchor = session.query(ClipAnchor).filter_by(
-                timeline_entry_id=self.entry_id
-            ).order_by(ClipAnchor.time_offset).first()
-            if anchor:
-                return anchor.time_offset
-        return None
-
-    def contextMenuEvent(self, event):
-        """Rechtsklick-Kontextmenue mit Anker-Optionen."""
-        menu = QMenu()
-        menu.setStyleSheet(
-            "QMenu { background: #1A1A1A; color: #E0E0E0; border: 1px solid #333; }"
-            "QMenu::item:selected { background: #00B4D8; color: white; }"
-        )
-
-        # Anker setzen an Mausposition
-        local_x = event.pos().x()
-        time_offset = local_x / PIXELS_PER_SECOND
-        set_anchor_action = menu.addAction(f"Anker setzen ({time_offset:.2f}s)")
-        set_anchor_action.triggered.connect(lambda: self.add_anchor_at(local_x))
-
-        # Alle Anker entfernen
-        if self._anchor_markers:
-            remove_action = menu.addAction("Alle Anker entfernen")
-            remove_action.triggered.connect(self.remove_all_anchors)
-
-        menu.addSeparator()
-        info_action = menu.addAction(f"Clip: {self.track_type} | ID: {self.media_id}")
-        info_action.setEnabled(False)
-
-        menu.exec(event.screenPos())
-
-    def itemChange(self, change, value):
-        if change == QGraphicsRectItem.GraphicsItemChange.ItemPositionChange:
-            new_pos = QPointF(max(0, value.x()), self._track_y)
-            return new_pos
-        if change == QGraphicsRectItem.GraphicsItemChange.ItemPositionHasChanged:
-            if self.on_moved:
-                self.on_moved(self.entry_id, value.x())
-        return super().itemChange(change, value)
+# Command Pattern: Worker-Registry (side-effect import registriert alle Worker)
+import workers.registry  # noqa: F401
 
 
 # ======================================================================
-# Interactive Timeline (QGraphicsView) — Performance Optimized
+# UI Widgets (extracted to ui/ submodules)
 # ======================================================================
+from ui.timeline import (
+    AnchorMarkerItem, TimelineClipItem, InteractiveTimeline,
+    PIXELS_PER_SECOND, TRACK_HEIGHT, AUDIO_TRACK_Y, VIDEO_TRACK_Y,
+    CUT_MARKERS_Y, RULER_Y,
+)
+from ui.widgets.pacing_curve import PacingCurveWidget
+from ui.widgets.video_preview import VideoPreviewWidget
+from ui.widgets.task_manager_dock import TaskManagerDock
+from ui.widgets.nav_bar import WorkspaceNavBar
+from ui.dialogs.about import AboutDialog
 
-PIXELS_PER_SECOND = 20
-TRACK_HEIGHT = 50
-AUDIO_TRACK_Y = 10
-VIDEO_TRACK_Y = AUDIO_TRACK_Y + TRACK_HEIGHT + 10
-CUT_MARKERS_Y = VIDEO_TRACK_Y + TRACK_HEIGHT + 10
-RULER_Y = CUT_MARKERS_Y + 30
 
 
-class InteractiveTimeline(QGraphicsView):
-    clip_moved = Signal(int, float)
-
-    def __init__(self, console_log=None):
-        super().__init__()
-        self._scene = QGraphicsScene(self)
-        self.setScene(self._scene)
-        self.setRenderHint(QPainter.RenderHint.Antialiasing)
-        self.setMinimumHeight(200)
-        self.setStyleSheet("background-color: #0E0E0E; border: 1px solid #1E1E1E;")
-        self.setDragMode(QGraphicsView.DragMode.NoDrag)
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
-        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-
-        # Sektor 2: Zoom zur Mausposition (Ableton Feel)
-        self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
-        self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
-
-        # Performance: Caching und Optimierung (Sektor 3)
-        self.setCacheMode(QGraphicsView.CacheModeFlag.CacheBackground)
-        self.setOptimizationFlags(
-            QGraphicsView.OptimizationFlag.DontSavePainterState
-        )
-        self.setViewportUpdateMode(
-            QGraphicsView.ViewportUpdateMode.SmartViewportUpdate
-        )
-
-        # Sektor 3: Hardware-beschleunigtes Rendering (OpenGL)
-        try:
-            from PySide6.QtOpenGLWidgets import QOpenGLWidget
-            self.setViewport(QOpenGLWidget())
-        except (ImportError, RuntimeError):
-            pass  # Fallback: Software-Rendering mit Tile-Cache
-
-        # Panning-State
-        self._panning = False
-        self._pan_start = QPointF()
-        self._space_held = False
-
-        self.console_log = console_log
-        self.clip_items: list[TimelineClipItem] = []
-        self.cut_lines: list[QGraphicsLineItem] = []
-        self.waveform_items: list[WaveformGraphicsItem] = []
-
-        self._draw_track_backgrounds()
-        self._draw_labels()
-
-    def _draw_track_backgrounds(self):
-        audio_bg = self._scene.addRect(
-            QRectF(0, AUDIO_TRACK_Y, 2000, TRACK_HEIGHT),
-            QPen(Qt.PenStyle.NoPen), QBrush(QColor(14, 18, 24))
-        )
-        audio_bg.setZValue(-10)
-        video_bg = self._scene.addRect(
-            QRectF(0, VIDEO_TRACK_Y, 2000, TRACK_HEIGHT),
-            QPen(Qt.PenStyle.NoPen), QBrush(QColor(24, 14, 14))
-        )
-        video_bg.setZValue(-10)
-
-    def _draw_labels(self):
-        for label_text, y in [("A1", AUDIO_TRACK_Y), ("V1", VIDEO_TRACK_Y)]:
-            txt = self._scene.addText(label_text, QFont("Segoe UI", 9, QFont.Weight.Bold))
-            txt.setDefaultTextColor(QColor(90, 90, 90))
-            txt.setPos(-35, y + 15)
-            txt.setZValue(10)
-
-    def load_from_db(self, project_id: int = 1):
-        for item in self.clip_items:
-            self._scene.removeItem(item)
-        self.clip_items.clear()
-        for wf in self.waveform_items:
-            self._scene.removeItem(wf)
-        self.waveform_items.clear()
-
-        with DBSession(engine) as session:
-            entries = (
-                session.query(TimelineEntry)
-                .filter_by(project_id=project_id)
-                .all()
-            )
-            # Bug-17 Fix: Bulk-Load AudioTracks und VideoClips — verhindert N+1
-            # (vorher: 1 SELECT pro Eintrag → bei 200 Auto-Edit Segmenten = 200 Queries)
-            _audio_ids = [e.media_id for e in entries if e.track == "audio"]
-            _video_ids = [e.media_id for e in entries if e.track == "video"]
-            _audio_map = (
-                {t.id: t for t in session.query(AudioTrack).filter(
-                    AudioTrack.id.in_(_audio_ids)).all()}
-                if _audio_ids else {}
-            )
-            _video_map = (
-                {c.id: c for c in session.query(VideoClip).filter(
-                    VideoClip.id.in_(_video_ids)).all()}
-                if _video_ids else {}
-            )
-
-            for entry in entries:
-                has_waveform = False
-                if entry.track == "audio":
-                    track = _audio_map.get(entry.media_id)
-                    title = track.title if track else "?"
-                    dur = track.duration if track and track.duration else 30.0
-                    y = AUDIO_TRACK_Y
-
-                    # Rekordbox Waveform laden (falls vorhanden)
-                    if track and track.waveform_data:
-                        has_waveform = True
-                        self._load_waveform_for_track(session, track, entry, dur, y)
-
-                elif entry.track == "video":
-                    clip = _video_map.get(entry.media_id)
-                    title = Path(clip.file_path).stem if clip else "?"
-                    dur = clip.duration if clip and clip.duration else 10.0
-                    y = VIDEO_TRACK_Y
-                else:
-                    continue
-
-                width = dur * PIXELS_PER_SECOND
-                x = entry.start_time * PIXELS_PER_SECOND
-
-                item = TimelineClipItem(
-                    entry_id=entry.id,
-                    media_id=entry.media_id,
-                    track_type=entry.track,
-                    title=title,
-                    x=x, y=y,
-                    width=width, height=TRACK_HEIGHT,
-                    on_moved=self._on_clip_moved,
-                    has_waveform=has_waveform,
-                )
-                self._scene.addItem(item)
-                self.clip_items.append(item)
-
-        self._update_scene_rect()
-
-    def _load_waveform_for_track(self, session, track, entry, dur, y):
-        """Lädt Rekordbox-Wellenform aus DB und fügt sie zur Scene hinzu."""
-        if track is None or track.waveform_data is None:
-            return
-
-        wd = track.waveform_data
-        beat_json = "[]"
-        if track.beatgrid and track.beatgrid.beat_positions:
-            beat_json = track.beatgrid.beat_positions
-
-        wf_item = WaveformGraphicsItem.from_db_data(
-            waveform_data=wd,
-            beat_positions_json=beat_json,
-            pixels_per_second=PIXELS_PER_SECOND,
-            height=TRACK_HEIGHT,
-        )
-        x = entry.start_time * PIXELS_PER_SECOND
-        wf_item.setPos(x, y)
-        wf_item.setZValue(1)  # Über dem Track-Background, unter dem Clip-Label
-        self._scene.addItem(wf_item)
-        self.waveform_items.append(wf_item)
-
-    def add_clip(self, entry_id: int, media_id: int, track_type: str,
-                 title: str, start_time: float, duration: float):
-        y = AUDIO_TRACK_Y if track_type == "audio" else VIDEO_TRACK_Y
-        width = duration * PIXELS_PER_SECOND
-        x = start_time * PIXELS_PER_SECOND
-
-        # Rekordbox Waveform für Audio-Clips laden
-        has_waveform = False
-        if track_type == "audio":
-            with DBSession(engine) as session:
-                track = session.get(AudioTrack, media_id)
-                if track and track.waveform_data:
-                    has_waveform = True
-                    entry_stub = type("E", (), {"start_time": start_time})()
-                    self._load_waveform_for_track(session, track, entry_stub, duration, y)
-
-        item = TimelineClipItem(
-            entry_id=entry_id, media_id=media_id, track_type=track_type,
-            title=title, x=x, y=y, width=width, height=TRACK_HEIGHT,
-            on_moved=self._on_clip_moved, has_waveform=has_waveform,
-        )
-        self._scene.addItem(item)
-        self.clip_items.append(item)
-        self._update_scene_rect()
-
-    def set_cut_points(self, cuts: list[CutPoint], total_duration: float):
-        for line in self.cut_lines:
-            self._scene.removeItem(line)
-        self.cut_lines.clear()
-
-        color_map = {
-            "beat": QColor(100, 200, 100, 180),
-            "scene": QColor(255, 200, 60, 180),
-            "energy": QColor(200, 100, 200, 180),
-            "drum": QColor(255, 80, 80, 220),
-            "anchor": QColor(255, 0, 255, 220),
-        }
-        for cp in cuts:
-            x = cp.time * PIXELS_PER_SECOND
-            color = color_map.get(cp.source, QColor(180, 180, 180))
-            pen = QPen(color, 1)
-            line_h = int(20 * cp.strength)
-            line = self._scene.addLine(x, CUT_MARKERS_Y, x, CUT_MARKERS_Y + line_h, pen)
-            line.setZValue(5)
-            self.cut_lines.append(line)
-
-        self._draw_ruler(total_duration)
-        self._update_scene_rect()
-
-    def _draw_ruler(self, total_duration: float):
-        pen = QPen(QColor(80, 80, 80), 1)
-        total_px = total_duration * PIXELS_PER_SECOND
-        self._scene.addLine(0, RULER_Y, total_px, RULER_Y, pen)
-
-        step = max(1.0, total_duration / 20)
-        t = 0.0
-        while t <= total_duration:
-            x = t * PIXELS_PER_SECOND
-            self._scene.addLine(x, RULER_Y - 3, x, RULER_Y + 3, pen)
-            txt = self._scene.addText(f"{t:.0f}s", QFont("Segoe UI", 7))
-            txt.setDefaultTextColor(QColor(80, 80, 80))
-            txt.setPos(x - 10, RULER_Y + 5)
-            t += step
-
-    def _on_clip_moved(self, entry_id: int, new_x: float):
-        new_start = max(0, new_x / PIXELS_PER_SECOND)
-        with DBSession(engine) as session:
-            entry = session.get(TimelineEntry, entry_id)
-            if entry:
-                old_start = entry.start_time
-                entry.start_time = round(new_start, 3)
-                if entry.end_time is not None:
-                    delta = new_start - old_start
-                    entry.end_time = round(entry.end_time + delta, 3)
-                session.commit()
-        self.clip_moved.emit(entry_id, new_start)
-
-    def _update_scene_rect(self):
-        r = self._scene.itemsBoundingRect()
-        r.adjust(-60, -10, 200, 40)
-        self._scene.setSceneRect(r)
-
-    def wheelEvent(self, event):
-        """Zoom mit Mausrad — sanfter Faktor, nur horizontal, zur Mausposition."""
-        delta = event.angleDelta().y()
-        if delta == 0:
-            return
-        # Sanfterer Zoom-Faktor (1.08 statt 1.15) für flüssigeres Gefühl
-        factor = 1.08 if delta > 0 else 1.0 / 1.08
-        # Begrenze Zoom-Bereich
-        current_scale = self.transform().m11()
-        new_scale = current_scale * factor
-        if new_scale < 0.01 or new_scale > 200.0:
-            return
-        self.scale(factor, 1.0)
-
-    def mousePressEvent(self, event):
-        """Mittlere Maustaste oder Space+Links → Panning starten."""
-        if (event.button() == Qt.MouseButton.MiddleButton or
-                (self._space_held and event.button() == Qt.MouseButton.LeftButton)):
-            self._panning = True
-            self._pan_start = event.position()
-            self.setCursor(Qt.CursorShape.ClosedHandCursor)
-            event.accept()
-            return
-        super().mousePressEvent(event)
-
-    def mouseMoveEvent(self, event):
-        """Panning: Timeline verschieben."""
-        if self._panning:
-            delta = event.position() - self._pan_start
-            self._pan_start = event.position()
-            hs = self.horizontalScrollBar()
-            vs = self.verticalScrollBar()
-            hs.setValue(int(hs.value() - delta.x()))
-            vs.setValue(int(vs.value() - delta.y()))
-            event.accept()
-            return
-        super().mouseMoveEvent(event)
-
-    def mouseReleaseEvent(self, event):
-        """Panning beenden."""
-        if self._panning and (event.button() == Qt.MouseButton.MiddleButton or
-                              event.button() == Qt.MouseButton.LeftButton):
-            self._panning = False
-            self.setCursor(Qt.CursorShape.ArrowCursor)
-            event.accept()
-            return
-        super().mouseReleaseEvent(event)
-
-    def keyPressEvent(self, event):
-        """Space gedrückt → Panning-Modus. M → Anker setzen auf selektiertem Clip."""
-        if event.key() == Qt.Key.Key_Space and not event.isAutoRepeat():
-            self._space_held = True
-            self.setCursor(Qt.CursorShape.OpenHandCursor)
-        elif event.key() == Qt.Key.Key_M and not event.isAutoRepeat():
-            self._set_anchor_on_selected()
-        super().keyPressEvent(event)
-
-    def keyReleaseEvent(self, event):
-        """Space losgelassen → Panning-Modus deaktivieren."""
-        if event.key() == Qt.Key.Key_Space and not event.isAutoRepeat():
-            self._space_held = False
-            if not self._panning:
-                self.setCursor(Qt.CursorShape.ArrowCursor)
-        super().keyReleaseEvent(event)
-
-    def _set_anchor_on_selected(self):
-        """Setzt einen Anker in der Mitte des aktuell selektierten Clips (Taste M)."""
-        selected = [item for item in self._scene.selectedItems()
-                    if isinstance(item, TimelineClipItem)]
-        if not selected:
-            if self.console_log:
-                self.console_log("[Anchor] Kein Clip ausgewaehlt — waehle zuerst einen Clip.")
-            return
-        for clip_item in selected:
-            # Anker in der Clip-Mitte setzen
-            mid_x = clip_item._clip_width / 2.0
-            anchor_id = clip_item.add_anchor_at(mid_x)
-            if self.console_log and anchor_id:
-                time_offset = mid_x / PIXELS_PER_SECOND
-                self.console_log(
-                    f"[Anchor] Anker #{anchor_id} gesetzt auf {clip_item.track_type}-Clip "
-                    f"bei {time_offset:.2f}s (Taste M)"
-                )
-
-    def sync_anchors(self) -> bool:
-        """Anker synchronisieren: Verschiebt Video-Clips so, dass ihr Anker
-        exakt über dem Audio-Anker liegt.
-
-        Returns True wenn mindestens ein Sync durchgefuehrt wurde.
-        """
-        audio_clips = [c for c in self.clip_items if c.track_type == "audio"]
-        video_clips = [c for c in self.clip_items if c.track_type == "video"]
-
-        if not audio_clips or not video_clips:
-            return False
-
-        synced = False
-        for audio_clip in audio_clips:
-            audio_anchor_offset = audio_clip.get_first_anchor_time()
-            if audio_anchor_offset is None:
-                continue
-
-            # Absoluter Zeitpunkt des Audio-Ankers auf der Timeline
-            audio_clip_start = audio_clip.pos().x() / PIXELS_PER_SECOND
-            audio_anchor_abs = audio_clip_start + audio_anchor_offset
-
-            for video_clip in video_clips:
-                video_anchor_offset = video_clip.get_first_anchor_time()
-                if video_anchor_offset is None:
-                    continue
-
-                # Video-Clip verschieben: Anker soll auf audio_anchor_abs landen
-                new_video_start = audio_anchor_abs - video_anchor_offset
-                new_x = max(0, new_video_start * PIXELS_PER_SECOND)
-
-                video_clip.setPos(new_x, video_clip._track_y)
-
-                # DB aktualisieren
-                with DBSession(engine) as session:
-                    entry = session.get(TimelineEntry, video_clip.entry_id)
-                    if entry:
-                        if entry.end_time is not None:
-                            duration = entry.end_time - entry.start_time
-                        entry.start_time = round(new_video_start, 4)
-                        if entry.end_time is not None:
-                            entry.end_time = round(new_video_start + duration, 4)
-                        session.commit()
-
-                synced = True
-
-        return synced
-
-
-# ======================================================================
-# Manual Pacing Curve Widget (drawable density over time)
-# ======================================================================
-
-class PacingCurveWidget(QWidget):
-    """Drawable pacing density curve for manual cut-density override."""
-    curve_changed = Signal()
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setMinimumHeight(180)
-        self.setMaximumHeight(16777215)  # no max — resizable via QSplitter
-        self.setToolTip(
-            "Pacing-Kurve: Klicke und ziehe um die Schnitt-Dichte ueber die Zeit "
-            "zu zeichnen. Oben = viele Schnitte, Unten = wenige"
-        )
-        self._num_samples = 200
-        self._density = [0.5] * self._num_samples
-        self._drawing = False
-        self._total_duration = 60.0
-        self.setCursor(Qt.CursorShape.CrossCursor)
-        self.setMouseTracking(True)
-
-    def set_duration(self, duration: float):
-        self._total_duration = max(1.0, duration)
-        self.update()
-
-    def reset_curve(self):
-        self._density = [0.5] * self._num_samples
-        self.curve_changed.emit()
-        self.update()
-
-    def get_density_at(self, time_sec: float) -> float:
-        if self._total_duration <= 0:
-            return 0.5
-        idx = int((time_sec / self._total_duration) * (self._num_samples - 1))
-        idx = max(0, min(idx, self._num_samples - 1))
-        return self._density[idx]
-
-    def get_all_densities(self) -> list[float]:
-        return list(self._density)
-
-    def paintEvent(self, event):
-        p = QPainter(self)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        w, h = self.width(), self.height()
-
-        p.fillRect(0, 0, w, h, QColor(10, 10, 10))
-
-        # Subtle grid
-        p.setPen(QPen(QColor(25, 25, 25), 1))
-        for i in range(1, 4):
-            y = int(h * i / 4)
-            p.drawLine(0, y, w, y)
-
-        # Time markers
-        p.setPen(QPen(QColor(50, 50, 50), 1))
-        p.setFont(QFont("Segoe UI", 7))
-        if self._total_duration > 0:
-            step = max(5.0, self._total_duration / 10)
-            t = 0.0
-            while t <= self._total_duration:
-                x = int((t / self._total_duration) * w)
-                p.drawLine(x, h - 8, x, h)
-                p.drawText(x + 2, h - 1, f"{t:.0f}s")
-                t += step
-
-        # Build smooth point list
-        points = []
-        for i, d in enumerate(self._density):
-            x = (i / (self._num_samples - 1)) * w
-            y = h - (d * (h - 10))
-            points.append((x, y))
-
-        # Filled area under curve (smooth cubic spline)
-        path = QPainterPath()
-        path.moveTo(0, h)
-        if points:
-            path.lineTo(points[0][0], points[0][1])
-            for i in range(1, len(points)):
-                x0, y0 = points[i - 1]
-                x1, y1 = points[i]
-                cx = (x0 + x1) / 2.0
-                path.cubicTo(cx, y0, cx, y1, x1, y1)
-            path.lineTo(w, h)
-        path.closeSubpath()
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QColor(0, 180, 212, 35))
-        p.drawPath(path)
-
-        # Curve line (smooth cubic spline)
-        line_path = QPainterPath()
-        if points:
-            line_path.moveTo(points[0][0], points[0][1])
-            for i in range(1, len(points)):
-                x0, y0 = points[i - 1]
-                x1, y1 = points[i]
-                cx = (x0 + x1) / 2.0
-                line_path.cubicTo(cx, y0, cx, y1, x1, y1)
-        p.setPen(QPen(QColor(0, 212, 230, 160), 1.5))
-        p.setBrush(Qt.BrushStyle.NoBrush)
-        p.drawPath(line_path)
-
-        # Label
-        p.setPen(QColor(60, 60, 60))
-        p.setFont(QFont("Segoe UI", 8))
-        p.drawText(4, 11, "PACING DENSITY")
-        p.end()
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton:
-            self._drawing = True
-            self._paint_at(event.position())
-
-    def mouseMoveEvent(self, event):
-        if self._drawing:
-            self._paint_at(event.position())
-
-    def mouseReleaseEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton:
-            self._drawing = False
-            self.curve_changed.emit()
-
-    def _paint_at(self, pos):
-        w, h = self.width(), self.height()
-        if w <= 0 or h <= 0:
-            return
-        x_ratio = max(0.0, min(1.0, pos.x() / w))
-        y_ratio = max(0.0, min(1.0, 1.0 - (pos.y() / h)))
-        idx = int(x_ratio * (self._num_samples - 1))
-        idx = max(0, min(idx, self._num_samples - 1))
-        # Wider brush radius for organic, smooth drawing
-        radius = 6
-        for offset in range(-radius, radius + 1):
-            j = idx + offset
-            if 0 <= j < self._num_samples:
-                weight = 1.0 - abs(offset) / (radius + 1.0)
-                weight = weight * weight  # quadratic falloff for smoother feel
-                self._density[j] = self._density[j] * (1 - weight) + y_ratio * weight
-        self.update()
-
-
-# ======================================================================
-# Video Preview Widget
-# ======================================================================
-
-class VideoPreviewWidget(QLabel):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setObjectName("video_preview")
-        self.setMinimumSize(100, 100)
-        self.setMaximumHeight(400)
-        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.setText("Keine Vorschau")
-        self.setScaledContents(False)
-        self.setToolTip("Video-Vorschau: Zeigt den aktuell ausgewaehlten Clip als Einzelbild an")
-
-        self._current_path: str | None = None
-        self._current_time: float = 0.0
-        self._play_timer = QTimer(self)
-        self._play_timer.setInterval(100)
-        self._play_timer.timeout.connect(self._advance_frame)
-        self._is_playing = False
-        self._duration: float = 0.0
-        self._frame_thread: QThread | None = None
-        self._frame_worker: FrameExtractWorker | None = None
-
-    def load_video(self, file_path: str, duration: float = 0.0):
-        self._current_path = file_path
-        self._current_time = 0.0
-        self._duration = duration
-        self._extract_and_show_frame(0.0)
-
-    def play_from(self, time_sec: float):
-        if not self._current_path:
-            return
-        self._current_time = time_sec
-        self._is_playing = True
-        self._play_timer.start()
-
-    def stop(self):
-        self._play_timer.stop()
-        self._is_playing = False
-
-    def toggle_play(self):
-        if self._is_playing:
-            self.stop()
-        else:
-            self.play_from(self._current_time)
-
-    def _advance_frame(self):
-        self._current_time += 0.5
-        if self._duration > 0 and self._current_time >= self._duration:
-            self._current_time = 0.0
-            self.stop()
-            return
-        self._extract_and_show_frame(self._current_time)
-
-    def _extract_and_show_frame(self, time_sec: float, vf_extra: str = ""):
-        if not self._current_path or not Path(self._current_path).exists():
-            self.setText("Datei nicht gefunden")
-            return
-        if self._frame_thread is not None and self._frame_thread.isRunning():
-            self._frame_thread.quit()
-            self._frame_thread.wait(1000)
-
-        worker = FrameExtractWorker(self._current_path, time_sec, 320, 180, vf_extra)
-        thread = QThread()
-        worker.moveToThread(thread)
-        thread.started.connect(worker.run)
-        worker.frame_ready.connect(self._on_frame_ready)
-        worker.error.connect(self._on_frame_error)
-        worker.frame_ready.connect(thread.quit)
-        worker.error.connect(thread.quit)
-        thread.finished.connect(self._on_frame_thread_finished)
-
-        self._frame_thread = thread
-        self._frame_worker = worker
-        _GLOBAL_ACTIVE_THREADS.append((thread, worker))
-        thread.start()
-
-    def _on_frame_thread_finished(self):
-        """Cleanup nach Frame-Extraction — Referenzen freigeben."""
-        # Globalen GC-Schutz aufheben
-        if self._frame_thread is not None and self._frame_worker is not None:
-            pair = (self._frame_thread, self._frame_worker)
-            if pair in _GLOBAL_ACTIVE_THREADS:
-                _GLOBAL_ACTIVE_THREADS.remove(pair)
-        if self._frame_worker is not None:
-            self._frame_worker.deleteLater()
-            self._frame_worker = None
-        if self._frame_thread is not None:
-            self._frame_thread.deleteLater()
-            self._frame_thread = None
-
-    def _on_frame_ready(self, raw_data: bytes, width: int, height: int):
-        img = QImage(raw_data, width, height, width * 3, QImage.Format.Format_RGB888)
-        self.setPixmap(QPixmap.fromImage(img))
-
-    def _on_frame_error(self, msg: str):
-        self.setText(msg)
-
-
-# ======================================================================
-# About Dialog
-# ======================================================================
-
-class AboutDialog(QDialog):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("About PB_studio")
-        self.setFixedSize(400, 280)
-
-        layout = QVBoxLayout(self)
-        layout.setSpacing(12)
-
-        title = QLabel("PB_studio")
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title.setStyleSheet("font-size: 28px; font-weight: 800; color: #00F0FF;")
-        layout.addWidget(title)
-
-        subtitle = QLabel("Director's Cockpit")
-        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        subtitle.setStyleSheet("font-size: 14px; color: #00B8D4; font-weight: 600;")
-        layout.addWidget(subtitle)
-
-        line = QFrame()
-        line.setFrameShape(QFrame.Shape.HLine)
-        line.setStyleSheet("background-color: #2A2A2A;")
-        layout.addWidget(line)
-
-        info = QLabel(
-            f"Version {APP_VERSION}\n\n"
-            "Beat-synchronisierte Video-Produktion\n"
-            "mit KI-gestuetztem Pacing.\n\n"
-            "Built with PySide6 + FFmpeg + Demucs + librosa"
-        )
-        info.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        info.setStyleSheet("color: #707070; font-size: 12px; line-height: 1.5;")
-        layout.addWidget(info)
-
-        btn = QPushButton("Schliessen")
-        btn.setObjectName("btn_accent")
-        btn.setMaximumWidth(140)
-        btn.setToolTip("Diesen Dialog schliessen und zur App zurueckkehren")
-        btn.clicked.connect(self.accept)
-        layout.addWidget(btn, alignment=Qt.AlignmentFlag.AlignCenter)
-
-
-# ======================================================================
-# Task Manager Widget
-# ======================================================================
-
-class TaskManagerDock(QDockWidget):
-    """Verankerte Taskliste als QDockWidget am unteren Bildschirmrand.
-
-    Zeigt alle laufenden Hintergrund-Prozesse mit echten QProgressBars an.
-    Keine schwebenden Fenster — fest verankert.
-    """
-    cancel_requested = Signal(str)  # task_id
-
-    def __init__(self, parent=None):
-        super().__init__("TASKS", parent)
-        self.setObjectName("task_manager_dock")
-        self.setAllowedAreas(Qt.DockWidgetArea.BottomDockWidgetArea)
-        self.setFeatures(
-            QDockWidget.DockWidgetFeature.DockWidgetMovable
-        )  # Kein Schliessen, kein Schweben — fest verankert
-        self.setMinimumHeight(150)
-        self.setMinimumSize(400, 150)
-
-        container = QWidget()
-        layout = QVBoxLayout(container)
-        layout.setContentsMargins(4, 2, 4, 2)
-        layout.setSpacing(2)
-
-        # Header mit Cancel-Button und Clear-Button
-        header_row = QHBoxLayout()
-        header_row.setContentsMargins(0, 0, 0, 0)
-        header_label = QLabel("HINTERGRUND-PROZESSE")
-        header_label.setStyleSheet(
-            "color: #00D4E6; font-size: 10px; font-weight: 700; letter-spacing: 1px;"
-        )
-        header_row.addWidget(header_label)
-        header_row.addStretch()
-
-        self.btn_clear = QPushButton("Fertige loeschen")
-        self.btn_clear.setFixedHeight(20)
-        self.btn_clear.setFixedWidth(110)
-        self.btn_clear.setStyleSheet(
-            "QPushButton { background: #1A1A2E; color: #707070; border: 1px solid #333; "
-            "font-size: 9px; border-radius: 3px; padding: 0 6px; }"
-            "QPushButton:hover { color: #FFFFFF; background: #2A2A3E; }"
-        )
-        self.btn_clear.setToolTip("Abgeschlossene Tasks aus der Liste entfernen")
-        self.btn_clear.clicked.connect(self._clear_finished)
-        header_row.addWidget(self.btn_clear)
-
-        self.btn_cancel = QPushButton("Abbrechen")
-        self.btn_cancel.setFixedHeight(20)
-        self.btn_cancel.setFixedWidth(90)
-        self.btn_cancel.setStyleSheet(
-            "QPushButton { background: #3A1010; color: #FF5050; border: 1px solid #FF3030; "
-            "font-size: 10px; font-weight: bold; border-radius: 3px; padding: 0 6px; }"
-            "QPushButton:hover { background: #FF3030; color: #FFFFFF; }"
-        )
-        self.btn_cancel.setToolTip("Laufenden Task abbrechen")
-        self.btn_cancel.clicked.connect(self._on_cancel_clicked)
-        header_row.addWidget(self.btn_cancel)
-
-        layout.addLayout(header_row)
-
-        # Scrollbarer Bereich fuer Task-Rows mit echten QProgressBars
-        self._task_container = QVBoxLayout()
-        self._task_container.setSpacing(2)
-        self._task_container.setContentsMargins(0, 0, 0, 0)
-
-        task_scroll_widget = QWidget()
-        task_scroll_widget.setLayout(self._task_container)
-
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setWidget(task_scroll_widget)
-        scroll.setStyleSheet(
-            "QScrollArea { border: none; background: transparent; }"
-        )
-        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        layout.addWidget(scroll, stretch=1)
-
-        # Placeholder fuer leeren Zustand
-        self._empty_label = QLabel("Keine laufenden Tasks")
-        self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._empty_label.setStyleSheet(
-            "color: #505050; font-size: 11px; font-style: italic; border: none; padding: 8px;"
-        )
-        self._task_container.addWidget(self._empty_label)
-
-        self.setWidget(container)
-
-        # Task-Tracking: task_id → (row_widget, progress_bar, status_label, name_label, time_label)
-        self._task_rows: dict[str, dict] = {}
-
-        self._timer = QTimer(self)
-        self._timer.setInterval(1000)
-        self._timer.timeout.connect(self._update_elapsed)
-        self._timer.start()
-
-        task_manager.task_added.connect(self._on_task_added)
-        task_manager.task_updated.connect(self._on_task_updated)
-        task_manager.task_finished.connect(self._on_task_finished)
-
-    def _on_cancel_clicked(self):
-        """Cancel the currently selected (or first running) task via TaskEngine."""
-        for tid in self._task_rows:
-            task = task_manager.get_task(tid)
-            if task and task.status == "running":
-                task_manager.cancel_task(tid)
-                self.cancel_requested.emit(tid)
-                break
-
-    def _clear_finished(self):
-        """Entfernt abgeschlossene Tasks aus der Anzeige."""
-        to_remove = []
-        for tid, row_data in self._task_rows.items():
-            task = task_manager.get_task(tid)
-            if task and task.status != "running":
-                to_remove.append(tid)
-        for tid in to_remove:
-            row_data = self._task_rows.pop(tid)
-            widget = row_data["widget"]
-            self._task_container.removeWidget(widget)
-            widget.deleteLater()
-        task_manager.clear_finished()
-        # Placeholder wieder einblenden wenn keine Tasks mehr da
-        if not self._task_rows:
-            self._empty_label.show()
-
-    def _on_task_added(self, task_id: str):
-        task = task_manager.get_task(task_id)
-        if not task:
-            return
-
-        # Placeholder ausblenden sobald Tasks existieren
-        self._empty_label.hide()
-
-        # Neue Task-Row erstellen mit echtem QProgressBar
-        row_widget = QWidget()
-        row_widget.setStyleSheet(
-            "QWidget { background: #0E0E14; border: 1px solid #1E1E2E; border-radius: 3px; }"
-        )
-        row_layout = QHBoxLayout(row_widget)
-        row_layout.setContentsMargins(6, 3, 6, 3)
-        row_layout.setSpacing(8)
-
-        # Task-Name
-        name_label = QLabel(task.name)
-        name_label.setFixedWidth(180)
-        name_label.setStyleSheet("color: #C0C0C0; font-size: 10px; font-weight: 600; border: none;")
-        row_layout.addWidget(name_label)
-
-        # Status-Label
-        status_label = QLabel("Running")
-        status_label.setFixedWidth(70)
-        status_label.setStyleSheet("color: #00E676; font-size: 10px; font-weight: bold; border: none;")
-        row_layout.addWidget(status_label)
-
-        # Echter QProgressBar
-        progress_bar = QProgressBar()
-        progress_bar.setRange(0, 100)
-        progress_bar.setValue(0)
-        progress_bar.setTextVisible(True)
-        progress_bar.setFormat("%p%")
-        progress_bar.setFixedHeight(16)
-        progress_bar.setStyleSheet(
-            "QProgressBar { background: #1A1A2E; border: 1px solid #2A2A3E; border-radius: 3px; "
-            "text-align: center; color: #C0C0C0; font-size: 9px; }"
-            "QProgressBar::chunk { background: qlineargradient("
-            "x1:0, y1:0, x2:1, y2:0, stop:0 #00607A, stop:1 #00B4D8); border-radius: 2px; }"
-        )
-        row_layout.addWidget(progress_bar, stretch=1)
-
-        # Nachricht
-        msg_label = QLabel("")
-        msg_label.setFixedWidth(200)
-        msg_label.setStyleSheet("color: #707070; font-size: 9px; border: none;")
-        row_layout.addWidget(msg_label)
-
-        # Zeit
-        time_label = QLabel("0s")
-        time_label.setFixedWidth(50)
-        time_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        time_label.setStyleSheet("color: #505050; font-size: 9px; border: none;")
-        row_layout.addWidget(time_label)
-
-        self._task_container.addWidget(row_widget)
-
-        self._task_rows[task_id] = {
-            "widget": row_widget,
-            "name_label": name_label,
-            "status_label": status_label,
-            "progress_bar": progress_bar,
-            "msg_label": msg_label,
-            "time_label": time_label,
-        }
-
-    def _on_task_updated(self, task_id: str):
-        task = task_manager.get_task(task_id)
-        row_data = self._task_rows.get(task_id)
-        if not task or not row_data:
-            return
-
-        progress_bar = row_data["progress_bar"]
-        msg_label = row_data["msg_label"]
-
-        if task.total > 0:
-            progress_bar.setRange(0, task.total)
-            progress_bar.setValue(task.progress)
-            progress_bar.setFormat(f"{task.progress}%")
-        msg_label.setText(task.message[:40] if task.message else "")
-        msg_label.setToolTip(task.message or "")
-
-    def _on_task_finished(self, task_id: str):
-        task = task_manager.get_task(task_id)
-        row_data = self._task_rows.get(task_id)
-        if not task or not row_data:
-            return
-
-        status_label = row_data["status_label"]
-        progress_bar = row_data["progress_bar"]
-        msg_label = row_data["msg_label"]
-        time_label = row_data["time_label"]
-
-        if task.status == "finished":
-            status_label.setText("Fertig")
-            status_label.setStyleSheet("color: #00B4D8; font-size: 10px; font-weight: bold; border: none;")
-            progress_bar.setValue(progress_bar.maximum())
-            progress_bar.setFormat("100%")
-            progress_bar.setStyleSheet(
-                "QProgressBar { background: #1A1A2E; border: 1px solid #2A2A3E; border-radius: 3px; "
-                "text-align: center; color: #C0C0C0; font-size: 9px; }"
-                "QProgressBar::chunk { background: #00B4D8; border-radius: 2px; }"
-            )
-        elif task.status == "cancelled":
-            status_label.setText("Abbruch")
-            status_label.setStyleSheet("color: #FFB040; font-size: 10px; font-weight: bold; border: none;")
-        else:
-            status_label.setText("Fehler")
-            status_label.setStyleSheet("color: #FF5050; font-size: 10px; font-weight: bold; border: none;")
-            progress_bar.setStyleSheet(
-                "QProgressBar { background: #1A1A2E; border: 1px solid #3A1010; border-radius: 3px; "
-                "text-align: center; color: #FF5050; font-size: 9px; }"
-                "QProgressBar::chunk { background: #FF3030; border-radius: 2px; }"
-            )
-
-        msg_label.setText(task.message[:40] if task.message else "")
-        msg_label.setToolTip(task.message or "")
-        time_label.setText(f"{task.elapsed}s")
-
-    def _update_elapsed(self):
-        for task_id, row_data in self._task_rows.items():
-            task = task_manager.get_task(task_id)
-            if task and task.status == "running":
-                row_data["time_label"].setText(f"{task.elapsed}s")
-
-
-# ======================================================================
-# DaVinci-Style Workspace Navigation Bar
-# ======================================================================
-
-class WorkspaceNavBar(QWidget):
-    """Bottom navigation bar — DaVinci Resolve Style."""
-    workspace_changed = Signal(int)
-
-    WORKSPACE_NAMES = ["MEDIA", "EDIT", "STEMS", "CONVERT", "DELIVER"]
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setObjectName("workspace_nav")
-        self.setFixedHeight(42)
-
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-
-        layout.addStretch()
-
-        self._buttons: list[QPushButton] = []
-        self._current_index = 0
-
-        tooltips = [
-            "MEDIA: Dateien importieren, verwalten und analysieren",
-            "EDIT: Timeline bearbeiten, Clips schneiden, KI-Pacing",
-            "STEMS: DAW-Ansicht mit 4 Stem-Wellenformen (Vocals, Drums, Bass, Other)",
-            "CONVERT: Videos standardisieren (Aufloesung, FPS, Format)",
-            "DELIVER: Finales Video exportieren und rendern",
-        ]
-
-        for i, name in enumerate(self.WORKSPACE_NAMES):
-            btn = QPushButton(name)
-            btn.setObjectName("workspace_btn")
-            btn.setCheckable(True)
-            btn.setFixedHeight(36)
-            btn.setMinimumWidth(120)
-            btn.setToolTip(tooltips[i])
-            btn.clicked.connect(lambda checked, idx=i: self._on_click(idx))
-            layout.addWidget(btn)
-            self._buttons.append(btn)
-
-        layout.addStretch()
-
-        self._buttons[0].setChecked(True)
-
-    def _on_click(self, index: int):
-        self._current_index = index
-        for i, btn in enumerate(self._buttons):
-            btn.setChecked(i == index)
-        self.workspace_changed.emit(index)
-
-    def set_workspace(self, index: int):
-        if 0 <= index < len(self._buttons):
-            self._on_click(index)
-
-
-# ======================================================================
 # Hauptfenster — DaVinci Resolve Style
 # ======================================================================
 
@@ -2229,10 +128,42 @@ class PBWindow(QMainWindow):
         top_layout.setContentsMargins(12, 0, 12, 0)
 
         app_title = QLabel(f"PB_studio v{APP_VERSION}")
-        app_title.setStyleSheet("color: #00F0FF; font-weight: 700; font-size: 13px; background: transparent;")
+        app_title.setStyleSheet("color: #D0D0D0; font-weight: 700; font-size: 13px; background: transparent;")
         top_layout.addWidget(app_title)
 
         top_layout.addStretch()
+
+        # ── Panel toggle buttons (DaVinci-style) ──
+        toggle_style = (
+            "QPushButton { color: #505050; font-size: 9px; font-weight: 600; "
+            "border: 1px solid #2A2A2A; border-radius: 3px; padding: 2px 8px; "
+            "background: #181818; min-height: 24px; }"
+            "QPushButton:checked { color: #C0C0C0; border-color: #484848; background: #222222; }"
+            "QPushButton:hover { border-color: #404040; color: #808080; }"
+        )
+        self._btn_toggle_tasks = QPushButton("Tasks")
+        self._btn_toggle_tasks.setCheckable(True)
+        self._btn_toggle_tasks.setChecked(True)
+        self._btn_toggle_tasks.setFixedHeight(24)
+        self._btn_toggle_tasks.setStyleSheet(toggle_style)
+        self._btn_toggle_tasks.setToolTip("Hintergrund-Tasks ein/ausblenden")
+        top_layout.addWidget(self._btn_toggle_tasks)
+
+        self._btn_toggle_console = QPushButton("Konsole")
+        self._btn_toggle_console.setCheckable(True)
+        self._btn_toggle_console.setChecked(True)
+        self._btn_toggle_console.setFixedHeight(24)
+        self._btn_toggle_console.setStyleSheet(toggle_style)
+        self._btn_toggle_console.setToolTip("System-Konsole ein/ausblenden")
+        top_layout.addWidget(self._btn_toggle_console)
+
+        self._btn_toggle_chat = QPushButton("KI Chat")
+        self._btn_toggle_chat.setCheckable(True)
+        self._btn_toggle_chat.setChecked(False)
+        self._btn_toggle_chat.setFixedHeight(24)
+        self._btn_toggle_chat.setStyleSheet(toggle_style)
+        self._btn_toggle_chat.setToolTip("KI-Chat Panel ein/ausblenden")
+        top_layout.addWidget(self._btn_toggle_chat)
 
         btn_about = QPushButton("About")
         btn_about.setMaximumWidth(80)
@@ -2250,15 +181,29 @@ class PBWindow(QMainWindow):
         sep.setStyleSheet("background-color: #1E1E1E;")
         main_layout.addWidget(sep)
 
-        # ── Workspace (volle Flaeche — TaskManager ist jetzt QDockWidget unten) ──
+        # ── Workspace (volle Flaeche — dominiert das Fenster) ──
         self.workspace_stack = QStackedWidget()
-        self.workspace_stack.addWidget(self._build_media_workspace())
-        self.workspace_stack.addWidget(self._build_edit_workspace())
-        self.workspace_stack.addWidget(self._build_stems_workspace())
-        self.workspace_stack.addWidget(self._build_effects_workspace())
-        self.workspace_stack.addWidget(self._build_deliver_workspace())
+        self._create_workspaces()
 
-        main_layout.addWidget(self.workspace_stack, stretch=1)
+        # ── Vertikaler QSplitter: Workspace oben | System-Panel unten ──
+        # Der Benutzer kann den Splitter fast ganz nach unten schieben.
+        self._main_splitter = QSplitter(Qt.Orientation.Vertical)
+        self._main_splitter.setChildrenCollapsible(True)
+        self._main_splitter.setHandleWidth(4)
+        self._main_splitter.addWidget(self.workspace_stack)
+
+        # Unteres Panel: horizontaler QSplitter (Tasks | Konsole)
+        self._bottom_panel = QWidget()
+        self._bottom_panel.setObjectName("bottom_panel")
+        self._bottom_panel.setMinimumHeight(24)
+        _bp_layout = QHBoxLayout(self._bottom_panel)
+        _bp_layout.setContentsMargins(0, 0, 0, 0)
+        _bp_layout.setSpacing(0)
+        self._inner_splitter = QSplitter(Qt.Orientation.Horizontal)
+        _bp_layout.addWidget(self._inner_splitter)
+        self._main_splitter.addWidget(self._bottom_panel)
+
+        main_layout.addWidget(self._main_splitter, stretch=1)
 
         # ── Bottom Navigation Bar (DaVinci Style) ──
         self.nav_bar = WorkspaceNavBar()
@@ -2270,14 +215,39 @@ class PBWindow(QMainWindow):
         self.setStatusBar(self.status_bar)
         self.status_bar.showMessage(f"PB_studio v{APP_VERSION} | System bereit")
 
-        # ── Dock Widgets (fest verankert, keine schwebenden Fenster) ──
+        # ── Panel Widgets (Tasks + Konsole als QSplitter, Chat als Dock) ──
         self.setup_task_dock()
         self.setup_console()
         self.setup_chat_dock()
 
+        # Splitter-Groessen: Workspace dominiert, Console minimal
+        # User kann Splitter fast ganz nach unten schieben
+        self._main_splitter.setSizes([850, 60])
+        self._inner_splitter.setSizes([400, 600])
+
+        # Wire toggle buttons to panel visibility
+        self._btn_toggle_tasks.toggled.connect(self._task_panel_widget.setVisible)
+        self._btn_toggle_console.toggled.connect(self._console_panel_widget.setVisible)
+        self._btn_toggle_chat.toggled.connect(self.chat_dock.setVisible)
+        # Sync chat dock close (X) back to toggle button
+        self.chat_dock.visibilityChanged.connect(self._btn_toggle_chat.setChecked)
+
         self._refresh_media_table()
 
     def closeEvent(self, event):
+        # [BUG #22 FIX] Disconnect all signals to prevent memory leaks (89 connects total)
+        try:
+            # Versuche wichtige Signals zu disconnecten
+            if hasattr(self, 'project_saved'):
+                self.project_saved.disconnect()
+            if hasattr(self, 'project_loaded'):
+                self.project_loaded.disconnect()
+            if hasattr(self, 'workspace_changed'):
+                self.workspace_changed.disconnect()
+        except (TypeError, RuntimeError):
+            pass
+
+        # Stop all active threads
         for thread in list(self._active_threads):
             thread.quit()
             if not thread.wait(3000):
@@ -2298,612 +268,133 @@ class PBWindow(QMainWindow):
             pass
         super().closeEvent(event)
 
+
     def _show_about(self):
-        dialog = AboutDialog(self)
+        dialog = AboutDialog(version=APP_VERSION, parent=self)
         dialog.exec()
 
+
     # ==================================================================
-    # Workspace 1: MEDIA
+    # Workspace creation (UI in ui/workspaces/, signals wired here)
     # ==================================================================
 
-    def _build_media_workspace(self) -> QWidget:
-        workspace = QWidget()
-        layout = QVBoxLayout(workspace)
-        layout.setContentsMargins(8, 8, 8, 4)
+    def _create_workspaces(self):
+        """Creates all 5 workspaces, promotes widgets, wires signals."""
+        from ui.workspaces import (
+            MediaWorkspace, EditWorkspace, StemsWorkspace,
+            ConvertWorkspace, DeliverWorkspace,
+        )
 
-        splitter = QSplitter(Qt.Orientation.Horizontal)
+        # --- MEDIA workspace ---
+        self._media_ws = MediaWorkspace()
+        self.workspace_stack.addWidget(self._media_ws)
 
-        # ── Linke Seite: Import-Aktionen ──
-        left_panel = QWidget()
-        left_layout = QVBoxLayout(left_panel)
-        left_layout.setContentsMargins(4, 4, 4, 4)
+        # Promote widgets for backward compat
+        self.btn_analyze = self._media_ws.btn_analyze
+        self.btn_analyze_video = self._media_ws.btn_analyze_video
+        self.btn_video_pipeline = self._media_ws.btn_video_pipeline
+        self.btn_waveform = self._media_ws.btn_waveform
+        self.btn_stem_separate = self._media_ws.btn_stem_separate
+        self.btn_auto_duck = self._media_ws.btn_auto_duck
+        self.btn_add_to_timeline = self._media_ws.btn_add_to_timeline
+        self.progress_bar = self._media_ws.progress_bar
+        self.search_input = self._media_ws.search_input
+        self.btn_search = self._media_ws.btn_search
+        self.btn_search_clear = self._media_ws.btn_search_clear
+        self.btn_select_all_video = self._media_ws.btn_select_all_video
+        self.video_pool_table = self._media_ws.video_pool_table
+        self.btn_delete_selected_video = self._media_ws.btn_delete_selected_video
+        self.btn_select_all_audio = self._media_ws.btn_select_all_audio
+        self.audio_pool_table = self._media_ws.audio_pool_table
+        self.btn_delete_selected_audio = self._media_ws.btn_delete_selected_audio
+        self.stem_player = self._media_ws.stem_player
+        self.media_table = self._media_ws.media_table
 
-        import_group = QGroupBox("Import")
-        import_layout = QVBoxLayout(import_group)
-
-        btn_video = QPushButton("Video importieren")
-        btn_video.setToolTip("Video-Dateien (MP4, MOV, AVI, MKV) importieren")
-        btn_video.clicked.connect(self._import_video)
-        import_layout.addWidget(btn_video)
-
-        btn_audio = QPushButton("Audio importieren")
-        btn_audio.setToolTip("Audio-Dateien (WAV, MP3, FLAC, OGG) importieren")
-        btn_audio.clicked.connect(self._import_audio)
-        import_layout.addWidget(btn_audio)
-
-        btn_folder = QPushButton("Ordner importieren")
-        btn_folder.setToolTip("Alle Audio- und Video-Dateien aus einem Ordner (inkl. Unterordner) importieren")
-        btn_folder.clicked.connect(self._import_folder)
-        import_layout.addWidget(btn_folder)
-
-        left_layout.addWidget(import_group)
-
-        # Verwaltung
-        manage_group = QGroupBox("Verwaltung")
-        manage_layout = QVBoxLayout(manage_group)
-
-        btn_clear_all = QPushButton("Sammlung bereinigen")
-        btn_clear_all.setToolTip("Alle Medien aus Datenbank und Ansicht entfernen")
-        btn_clear_all.setStyleSheet("color: #FF6060; font-weight: bold;")
-        btn_clear_all.clicked.connect(self._clear_all_media)
-        manage_layout.addWidget(btn_clear_all)
-
-        left_layout.addWidget(manage_group)
-
-        # Analyse-Gruppe
-        analyze_group = QGroupBox("Analyse")
-        analyze_layout = QVBoxLayout(analyze_group)
-
-        self.btn_analyze = QPushButton("Audio analysieren")
-        self.btn_analyze.setToolTip("BPM, Beats und Energie-Verlauf erkennen")
+        # Wire MEDIA signals
+        self._media_ws.btn_import_video.clicked.connect(self._import_video)
+        self._media_ws.btn_import_audio.clicked.connect(self._import_audio)
+        self._media_ws.btn_import_folder.clicked.connect(self._import_folder)
+        self._media_ws.btn_clear_all.clicked.connect(self._clear_all_media)
         self.btn_analyze.clicked.connect(self._analyze_selected_audio)
-        analyze_layout.addWidget(self.btn_analyze)
-
-        self.btn_analyze_video = QPushButton("Video analysieren")
-        self.btn_analyze_video.setToolTip("Aufloesung, FPS, Codec + Proxy erstellen")
         self.btn_analyze_video.clicked.connect(self._analyze_selected_video)
-        analyze_layout.addWidget(self.btn_analyze_video)
-
-        self.btn_video_pipeline = QPushButton("Video-Pipeline (Szenen + KI)")
-        self.btn_video_pipeline.setToolTip(
-            "Vollständige 3-Schritt Pipeline:\n"
-            "1. Szenen-Erkennung + Motion-Analyse\n"
-            "2. Keyframe-Extraktion\n"
-            "3. SigLIP Embeddings → LanceDB\n\n"
-            "Ermöglicht anschließend semantische Text-Suche."
-        )
-        self.btn_video_pipeline.setStyleSheet("font-weight: bold; color: #00D4E6;")
         self.btn_video_pipeline.clicked.connect(self._start_video_pipeline)
-        analyze_layout.addWidget(self.btn_video_pipeline)
-
-        self.btn_waveform = QPushButton("Rekordbox Wellenform")
-        self.btn_waveform.setToolTip("Frequenz-Wellenform (Low/Mid/High) + Beatgrid berechnen")
-        self.btn_waveform.setStyleSheet("font-weight: bold; color: #3C8CFF;")
         self.btn_waveform.clicked.connect(self._analyze_waveform)
-        analyze_layout.addWidget(self.btn_waveform)
-
-        left_layout.addWidget(analyze_group)
-
-        # KI-Werkzeuge
-        ki_group = QGroupBox("KI-Werkzeuge")
-        ki_layout = QVBoxLayout(ki_group)
-
-        self.btn_stem_separate = QPushButton("KI Stem Separation")
-        self.btn_stem_separate.setToolTip("Demucs: Vocals, Drums, Bass, Other trennen")
         self.btn_stem_separate.clicked.connect(self._start_stem_separation)
-        ki_layout.addWidget(self.btn_stem_separate)
-
-        self.btn_auto_duck = QPushButton("Auto-Ducking")
-        self.btn_auto_duck.setToolTip("Musik bei Sprache automatisch absenken")
         self.btn_auto_duck.clicked.connect(self._start_auto_ducking)
-        ki_layout.addWidget(self.btn_auto_duck)
-
-        left_layout.addWidget(ki_group)
-
-        # Timeline-Aktion
-        self.btn_add_to_timeline = QPushButton("Zur Timeline hinzufuegen")
-        self.btn_add_to_timeline.setObjectName("btn_accent")
-        self.btn_add_to_timeline.setToolTip("Markierte Datei auf Timeline legen")
         self.btn_add_to_timeline.clicked.connect(self._add_selected_to_timeline)
-        left_layout.addWidget(self.btn_add_to_timeline)
-
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setRange(0, 0)
-        self.progress_bar.setVisible(False)
-        self.progress_bar.setTextVisible(True)
-        self.progress_bar.setFormat("Analyse laeuft...")
-        self.progress_bar.setToolTip("Zeigt den Fortschritt der aktuellen Hintergrund-Analyse an")
-        left_layout.addWidget(self.progress_bar)
-
-        left_layout.addStretch()
-        splitter.addWidget(left_panel)
-
-        # ── Rechte Seite: Video Pool + Audio Pool (vertikal getrennt) ──
-        right_panel = QWidget()
-        right_layout = QVBoxLayout(right_panel)
-        right_layout.setContentsMargins(0, 0, 0, 0)
-        right_layout.setSpacing(4)
-
-        # --- Semantic Search Bar (Phase 2, SEKTOR 3) ---
-        search_row = QHBoxLayout()
-        search_row.setContentsMargins(0, 0, 0, 0)
-        search_row.setSpacing(4)
-
-        search_icon = QLabel("SigLIP")
-        search_icon.setStyleSheet(
-            "color: #00D4E6; font-weight: 700; font-size: 9px; padding: 2px 6px; "
-            "background: #0A1520; border: 1px solid #00607A; border-radius: 3px;"
-        )
-        search_icon.setFixedWidth(46)
-        search_row.addWidget(search_icon)
-
-        self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Semantische Suche: z.B. 'person dancing on stage'...")
-        self.search_input.setToolTip(
-            "SigLIP Text-zu-Video Suche: Beschreibe was du suchst, "
-            "und die relevantesten Szenen werden angezeigt"
-        )
         self.search_input.returnPressed.connect(self._run_semantic_search)
-        search_row.addWidget(self.search_input, stretch=1)
-
-        self.btn_search = QPushButton("Suchen")
-        self.btn_search.setFixedHeight(26)
-        self.btn_search.setFixedWidth(70)
-        self.btn_search.setToolTip("Semantische Suche starten (SigLIP + LanceDB)")
         self.btn_search.clicked.connect(self._run_semantic_search)
-        search_row.addWidget(self.btn_search)
-
-        self.btn_search_clear = QPushButton("X")
-        self.btn_search_clear.setFixedSize(26, 26)
-        self.btn_search_clear.setToolTip("Suche zurücksetzen — alle Videos anzeigen")
-        self.btn_search_clear.setStyleSheet(
-            "QPushButton { color: #FF6060; font-weight: bold; border: 1px solid #333; border-radius: 3px; }"
-            "QPushButton:hover { background: #3A1010; }"
-        )
         self.btn_search_clear.clicked.connect(self._clear_search)
-        search_row.addWidget(self.btn_search_clear)
-
-        right_layout.addLayout(search_row)
-
-        pool_splitter = QSplitter(Qt.Orientation.Vertical)
-
-        # --- Video Pool ---
-        video_pool_widget = QWidget()
-        video_pool_layout = QVBoxLayout(video_pool_widget)
-        video_pool_layout.setContentsMargins(0, 0, 0, 0)
-        video_pool_layout.setSpacing(2)
-
-        video_pool_header = QLabel("VIDEO POOL")
-        video_pool_header.setStyleSheet("color: #00F0FF; font-weight: 700; font-size: 11px; padding: 2px 4px; background: #0A0A0A;")
-        video_pool_layout.addWidget(video_pool_header)
-
-        self.video_pool_table = QTableWidget()
-        self.video_pool_table.setColumnCount(6)
-        self.video_pool_table.setHorizontalHeaderLabels(["ID", "Titel", "Aufloesung", "FPS", "Codec", "Dateipfad"])
-        self.video_pool_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.video_pool_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.video_pool_table.setSelectionMode(QTableWidget.SelectionMode.ExtendedSelection)
-        self.video_pool_table.setAlternatingRowColors(True)
-        self.video_pool_table.setToolTip("Video Pool: Alle importierten Video-Dateien")
-        vh = self.video_pool_table.horizontalHeader()
-        vh.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        vh.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        vh.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        vh.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
-        vh.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
-        vh.setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
-        video_pool_layout.addWidget(self.video_pool_table)
-
-        pool_splitter.addWidget(video_pool_widget)
-
-        # --- Audio Pool ---
-        audio_pool_widget = QWidget()
-        audio_pool_layout = QVBoxLayout(audio_pool_widget)
-        audio_pool_layout.setContentsMargins(0, 0, 0, 0)
-        audio_pool_layout.setSpacing(2)
-
-        audio_pool_header = QLabel("AUDIO POOL")
-        audio_pool_header.setStyleSheet("color: #FF6AC1; font-weight: 700; font-size: 11px; padding: 2px 4px; background: #0A0A0A;")
-        audio_pool_layout.addWidget(audio_pool_header)
-
-        self.audio_pool_table = QTableWidget()
-        self.audio_pool_table.setColumnCount(6)
-        self.audio_pool_table.setHorizontalHeaderLabels(["ID", "Titel", "BPM", "Key", "Stems", "Dateipfad"])
-        self.audio_pool_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.audio_pool_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.audio_pool_table.setAlternatingRowColors(True)
-        self.audio_pool_table.setToolTip("Audio Pool: Alle importierten Audio-Dateien")
-        ah = self.audio_pool_table.horizontalHeader()
-        ah.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        ah.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        ah.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        ah.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
-        ah.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
-        ah.setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
-        audio_pool_layout.addWidget(self.audio_pool_table)
-
-        # --- Stem Player (synchroner Multi-Track Audio-Mixer) ---
-        # StemPlayer wird hier erzeugt, damit er vor _build_stems_workspace existiert.
-        # Der alte StemWidget wurde entfernt — alle Stem-Kontrolle läuft über den
-        # STEMS-Haupt-Reiter (StemWorkspace).
-        self.stem_player = StemPlayer(self)
-        self.stem_player.playback_finished.connect(self._on_stem_playback_finished)
-
-        pool_splitter.addWidget(audio_pool_widget)
-
-        pool_splitter.setStretchFactor(0, 1)
-        pool_splitter.setStretchFactor(1, 1)
-
-        right_layout.addWidget(pool_splitter)
-
-        # Legacy media_table kept as hidden proxy for selection-based functions
-        self.media_table = QTableWidget()
-        self.media_table.setColumnCount(8)
-        self.media_table.setHorizontalHeaderLabels(
-            ["ID", "Typ", "Titel", "BPM", "Aufloesung", "FPS", "Stems", "Dateipfad"]
+        self.btn_select_all_video.clicked.connect(
+            lambda: self._toggle_all_checkboxes(self.video_pool_table)
         )
-        self.media_table.setVisible(False)
-
-        # Sync pool table selections to hidden media_table
+        self.btn_select_all_audio.clicked.connect(
+            lambda: self._toggle_all_checkboxes(self.audio_pool_table)
+        )
+        self.btn_delete_selected_video.clicked.connect(
+            lambda: self._delete_selected_media("video")
+        )
+        self.btn_delete_selected_audio.clicked.connect(
+            lambda: self._delete_selected_media("audio")
+        )
         self.video_pool_table.currentCellChanged.connect(self._on_video_pool_selected)
         self.audio_pool_table.currentCellChanged.connect(self._on_audio_pool_selected)
+        self.stem_player.playback_finished.connect(self._on_stem_playback_finished)
 
-        splitter.addWidget(right_panel)
-        splitter.setStretchFactor(0, 1)
-        splitter.setStretchFactor(1, 4)
+        # --- EDIT workspace ---
+        self._edit_ws = EditWorkspace()
+        self.workspace_stack.addWidget(self._edit_ws)
 
-        layout.addWidget(splitter)
-        return workspace
+        # Promote widgets
+        self.video_preview = self._edit_ws.video_preview
+        self.btn_preview_play = self._edit_ws.btn_preview_play
+        self.btn_preview_stop = self._edit_ws.btn_preview_stop
+        self.preview_time_label = self._edit_ws.preview_time_label
+        self.btn_toggle_inspector = self._edit_ws.btn_toggle_inspector
+        self.inspector_panel = self._edit_ws.inspector_panel
+        self.audio_combo = self._edit_ws.audio_combo
+        self.video_combo = self._edit_ws.video_combo
+        self.vibe_input = self._edit_ws.vibe_input
+        self.cut_rate_combo = self._edit_ws.cut_rate_combo
+        self.energy_reactivity_slider = self._edit_ws.energy_reactivity_slider
+        self.energy_reactivity_spin = self._edit_ws.energy_reactivity_spin
+        self.breakdown_combo = self._edit_ws.breakdown_combo
+        self.tempo_slider = self._edit_ws.tempo_slider
+        self.energy_slider = self._edit_ws.energy_slider
+        self.density_slider = self._edit_ws.density_slider
+        self.btn_generate = self._edit_ws.btn_generate
+        self.btn_auto_edit = self._edit_ws.btn_auto_edit
+        self.anchor_list = self._edit_ws.anchor_list
+        self.btn_add_anchor = self._edit_ws.btn_add_anchor
+        self.btn_remove_anchor = self._edit_ws.btn_remove_anchor
+        self.btn_sync_anchors = self._edit_ws.btn_sync_anchors
+        self.btn_learn_ai = self._edit_ws.btn_learn_ai
+        self.btn_keyframe_string = self._edit_ws.btn_keyframe_string
+        self.keyframe_text = self._edit_ws.keyframe_text
+        self.pacing_curve = self._edit_ws.pacing_curve
+        self.timeline_view = self._edit_ws.timeline_view
+        self.cut_info_label = self._edit_ws.cut_info_label
 
-    # ==================================================================
-    # Workspace 2: EDIT
-    # ==================================================================
-
-    def _build_edit_workspace(self) -> QWidget:
-        workspace = QWidget()
-        layout = QVBoxLayout(workspace)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-
-        # Main vertical splitter: top (preview+inspector) / bottom (curve+timeline)
-        main_splitter = QSplitter(Qt.Orientation.Vertical)
-
-        # ── Top: Video Preview + Inspector Panel ──
-        top_splitter = QSplitter(Qt.Orientation.Horizontal)
-
-        # Large Video Preview (no GroupBox — clean)
-        preview_container = QWidget()
-        preview_layout = QVBoxLayout(preview_container)
-        preview_layout.setContentsMargins(4, 4, 4, 2)
-        preview_layout.setSpacing(2)
-
-        self.video_preview = VideoPreviewWidget()
-        self.video_preview.setMinimumSize(100, 100)
-        self.video_preview.setMaximumHeight(400)
-        preview_layout.addWidget(self.video_preview, stretch=1)
-
-        # Compact transport bar
-        transport_row = QHBoxLayout()
-        transport_row.setSpacing(4)
-        self.btn_preview_play = QPushButton("\u25B6")
-        self.btn_preview_play.setFixedSize(28, 24)
-        self.btn_preview_play.setToolTip("Play / Pause")
+        # Wire EDIT signals
         self.btn_preview_play.clicked.connect(self._toggle_preview_play)
-        transport_row.addWidget(self.btn_preview_play)
-
-        self.btn_preview_stop = QPushButton("\u25A0")
-        self.btn_preview_stop.setFixedSize(28, 24)
-        self.btn_preview_stop.setToolTip("Stop")
-        self.btn_preview_stop.clicked.connect(self.video_preview.stop)
-        transport_row.addWidget(self.btn_preview_stop)
-
-        self.preview_time_label = QLabel("00:00 / 00:00")
-        self.preview_time_label.setStyleSheet("color: #505050; font-size: 10px;")
-        transport_row.addWidget(self.preview_time_label)
-        transport_row.addStretch()
-
-        # Inspector toggle button (always visible)
-        self.btn_toggle_inspector = QPushButton("\u25B6")
-        self.btn_toggle_inspector.setFixedSize(22, 22)
-        self.btn_toggle_inspector.setToolTip("Inspector Panel ein-/ausklappen")
-        self.btn_toggle_inspector.setStyleSheet("font-size: 9px; padding: 0;")
         self.btn_toggle_inspector.clicked.connect(self._toggle_inspector)
-        transport_row.addWidget(self.btn_toggle_inspector)
-
-        preview_layout.addLayout(transport_row)
-        top_splitter.addWidget(preview_container)
-
-        # ── Inspector Panel (collapsible, narrow right side) ──
-        # Outer container that goes into the splitter
-        self.inspector_panel = QWidget()
-        self.inspector_panel.setObjectName("inspector_panel")
-        self.inspector_panel.setMinimumWidth(350)
-        insp_outer = QVBoxLayout(self.inspector_panel)
-        insp_outer.setContentsMargins(0, 0, 0, 0)
-
-        # ScrollArea wraps the actual inspector content
-        insp_scroll = QScrollArea()
-        insp_scroll.setWidgetResizable(True)
-        insp_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        insp_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        insp_scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
-        insp_outer.addWidget(insp_scroll)
-
-        insp_content = QWidget()
-        insp = QVBoxLayout(insp_content)
-        insp.setContentsMargins(6, 6, 6, 6)
-        insp.setSpacing(5)
-
-        # Header
-        hdr = QLabel("INSPECTOR")
-        hdr.setStyleSheet(
-            "color: #00D4E6; font-weight: 700; font-size: 10px; letter-spacing: 2px;"
-        )
-        insp.addWidget(hdr)
-        self._add_separator(insp)
-
-        # Source selectors
-        src_lbl = QLabel("QUELLEN")
-        src_lbl.setStyleSheet("color: #505050; font-size: 9px; font-weight: 600; letter-spacing: 1px;")
-        insp.addWidget(src_lbl)
-
-        self.audio_combo = QComboBox()
-        self.audio_combo.setToolTip("Audio-Track fuer BPM-Pacing")
-        insp.addWidget(self.audio_combo)
-
-        self.video_combo = QComboBox()
-        self.video_combo.setToolTip("Video-Clip fuer Vorschau")
         self.video_combo.currentIndexChanged.connect(self._on_video_combo_changed)
-        insp.addWidget(self.video_combo)
-
-        self.vibe_input = QLineEdit()
-        self.vibe_input.setPlaceholderText("Stimmung / Vibe...")
-        self.vibe_input.setToolTip("Freitext: energetisch, melancholisch, aggressiv...")
-        insp.addWidget(self.vibe_input)
-
-        self._add_separator(insp)
-
-        # ── Phase 3: Advanced Pacing (DJ-Regler) ──
-        pacing_lbl = QLabel("DJ PACING")
-        pacing_lbl.setStyleSheet("color: #505050; font-size: 9px; font-weight: 600; letter-spacing: 1px;")
-        insp.addWidget(pacing_lbl)
-
-        # 1. Base Cut Rate (Beats per cut)
-        cut_rate_row = QHBoxLayout()
-        cut_rate_row.setSpacing(4)
-        cr_lbl = QLabel("Cut Rate")
-        cr_lbl.setFixedWidth(52)
-        cr_lbl.setStyleSheet("color: #707070; font-size: 10px;")
-        cr_lbl.setToolTip("Basis-Schnittrate: Alle N Beats wird geschnitten")
-        cut_rate_row.addWidget(cr_lbl)
-        self.cut_rate_combo = QComboBox()
-        self.cut_rate_combo.addItems(["1 Beat", "2 Beats", "4 Beats", "8 Beats", "16 Beats"])
-        self.cut_rate_combo.setCurrentIndex(2)  # Default: 4 Beats (Downbeat)
-        self.cut_rate_combo.setToolTip("Basis-Schnittrate: 1=jeden Beat, 4=Downbeat, 16=sehr langsam")
-        self.cut_rate_combo.setFixedHeight(22)
-        cut_rate_row.addWidget(self.cut_rate_combo, stretch=1)
-        insp.addLayout(cut_rate_row)
-
-        # 2. Energy Reactivity (0-100%)
-        energy_row = QHBoxLayout()
-        energy_row.setSpacing(4)
-        er_lbl = QLabel("Reaktivitaet")
-        er_lbl.setFixedWidth(52)
-        er_lbl.setStyleSheet("color: #707070; font-size: 10px;")
-        er_lbl.setToolTip("Energy Reactivity: Erhoehe Cut-Rate bei hohem RMS/Spektral-Level")
-        energy_row.addWidget(er_lbl)
-        self.energy_reactivity_slider = QSlider(Qt.Orientation.Horizontal)
-        self.energy_reactivity_slider.setRange(0, 100)
-        self.energy_reactivity_slider.setValue(50)
-        self.energy_reactivity_slider.setFixedHeight(16)
-        energy_row.addWidget(self.energy_reactivity_slider, stretch=1)
-        self.energy_reactivity_spin = QSpinBox()
-        self.energy_reactivity_spin.setRange(0, 100)
-        self.energy_reactivity_spin.setValue(50)
-        self.energy_reactivity_spin.setSuffix("%")
-        self.energy_reactivity_spin.setFixedWidth(52)
-        self.energy_reactivity_spin.setFixedHeight(20)
-        self.energy_reactivity_spin.setStyleSheet("font-size: 10px;")
-        # Sync slider <-> spinbox
-        self.energy_reactivity_slider.valueChanged.connect(self.energy_reactivity_spin.setValue)
-        self.energy_reactivity_spin.valueChanged.connect(self.energy_reactivity_slider.setValue)
-        energy_row.addWidget(self.energy_reactivity_spin)
-        insp.addLayout(energy_row)
-
-        # 3. Breakdown Behavior
-        bd_row = QHBoxLayout()
-        bd_row.setSpacing(4)
-        bd_lbl = QLabel("Breakdown")
-        bd_lbl.setFixedWidth(52)
-        bd_lbl.setStyleSheet("color: #707070; font-size: 10px;")
-        bd_lbl.setToolTip("Verhalten bei niedrigem RMS (Breakdowns/Intros)")
-        bd_row.addWidget(bd_lbl)
-        self.breakdown_combo = QComboBox()
-        self.breakdown_combo.addItems([
-            "Cuts halbieren",
-            "16-Beat erzwingen",
-            "Keine Cuts",
-        ])
-        self.breakdown_combo.setCurrentIndex(0)
-        self.breakdown_combo.setToolTip(
-            "Halbieren: Cut-Rate verdoppelt sich (z.B. 4→8 Beats)\n"
-            "16-Beat: Erzwingt 16-Beat Intervalle bei Breakdowns\n"
-            "Keine Cuts: Keine Schnitte waehrend Breakdowns"
-        )
-        self.breakdown_combo.setFixedHeight(22)
-        bd_row.addWidget(self.breakdown_combo, stretch=1)
-        insp.addLayout(bd_row)
-
-        # Legacy slider refs (for backward compat with _generate_timeline)
-        self.tempo_slider = self.energy_reactivity_slider
-        self.energy_slider = self.energy_reactivity_slider
-        self.density_slider = self.energy_reactivity_slider
-
-        self._add_separator(insp)
-
-        # Action buttons
-        self.btn_generate = QPushButton("Timeline generieren")
-        self.btn_generate.setObjectName("btn_accent")
-        self.btn_generate.setFixedHeight(30)
-        self.btn_generate.setToolTip("Berechnet Schnittpunkte (BPM + Pacing-Kurve)")
         self.btn_generate.clicked.connect(self._generate_timeline)
-        insp.addWidget(self.btn_generate)
-
-        self.btn_auto_edit = QPushButton("Auto-Edit")
-        self.btn_auto_edit.setObjectName("btn_accent")
-        self.btn_auto_edit.setFixedHeight(30)
-        self.btn_auto_edit.setToolTip(
-            "Phase 3: DJ-Pacing + OTIO Timeline + Anker + LanceDB Matching"
-        )
         self.btn_auto_edit.clicked.connect(self._auto_edit_to_beat)
-        insp.addWidget(self.btn_auto_edit)
-
-        self._add_separator(insp)
-
-        # ── Phase 3: Anchor System ──
-        anchor_lbl = QLabel("ANKER")
-        anchor_lbl.setStyleSheet("color: #505050; font-size: 9px; font-weight: 600; letter-spacing: 1px;")
-        insp.addWidget(anchor_lbl)
-
-        # Anchor list widget
-        self.anchor_list = QTreeWidget()
-        self.anchor_list.setHeaderLabels(["Zeit", "Video/Szene"])
-        self.anchor_list.setMaximumHeight(100)
-        self.anchor_list.setStyleSheet(
-            "QTreeWidget { background: #0A0A0A; border: 1px solid #1E1E1E; "
-            "font-size: 10px; color: #C0C0C0; }"
-            "QTreeWidget::item { padding: 1px; }"
-        )
-        self.anchor_list.setToolTip(
-            "Audio-Anker: An diesen Zeitpunkten wird ein bestimmtes Video eingesetzt.\n"
-            "Doppelklick zum Bearbeiten."
-        )
-        insp.addWidget(self.anchor_list)
-
-        # Anchor add/remove buttons
-        anchor_btn_row = QHBoxLayout()
-        anchor_btn_row.setSpacing(4)
-        self.btn_add_anchor = QPushButton("+ Anker")
-        self.btn_add_anchor.setFixedHeight(22)
-        self.btn_add_anchor.setStyleSheet("font-size: 9px;")
-        self.btn_add_anchor.setToolTip("Neuen Anker an der aktuellen Position hinzufuegen")
         self.btn_add_anchor.clicked.connect(self._add_anchor_dialog)
-        anchor_btn_row.addWidget(self.btn_add_anchor)
-
-        self.btn_remove_anchor = QPushButton("- Anker")
-        self.btn_remove_anchor.setFixedHeight(22)
-        self.btn_remove_anchor.setStyleSheet("font-size: 9px;")
-        self.btn_remove_anchor.setToolTip("Ausgewaehlten Anker entfernen")
         self.btn_remove_anchor.clicked.connect(self._remove_selected_anchor)
-        anchor_btn_row.addWidget(self.btn_remove_anchor)
-
-        self.btn_sync_anchors = QPushButton("Sync")
-        self.btn_sync_anchors.setFixedHeight(22)
-        self.btn_sync_anchors.setStyleSheet("font-size: 9px;")
-        self.btn_sync_anchors.setToolTip("Anker synchronisieren")
         self.btn_sync_anchors.clicked.connect(self._sync_anchors)
-        anchor_btn_row.addWidget(self.btn_sync_anchors)
-        insp.addLayout(anchor_btn_row)
-
-        self._add_separator(insp)
-
-        # ── Phase 3: Keyframe-String Analyse ──
-        kf_lbl = QLabel("SZENEN-ANALYSE")
-        kf_lbl.setStyleSheet("color: #505050; font-size: 9px; font-weight: 600; letter-spacing: 1px;")
-        insp.addWidget(kf_lbl)
-
-        self.btn_keyframe_string = QPushButton("Keyframe-String generieren")
-        self.btn_keyframe_string.setFixedHeight(24)
-        self.btn_keyframe_string.setStyleSheet("font-size: 9px; color: #00D4E6; font-weight: bold;")
-        self.btn_keyframe_string.setToolTip(
-            "Generiert lesbaren Text-String aller erkannten Video-Szenen\n"
-            "mit RAFT-Motion-Werten (Ruhig/Moderat/Action/Extrem)"
-        )
+        self.btn_learn_ai.clicked.connect(self._learn_anchor_as_ai_rule)
         self.btn_keyframe_string.clicked.connect(self._show_keyframe_strings)
-        insp.addWidget(self.btn_keyframe_string)
-
-        self.keyframe_text = QTextEdit()
-        self.keyframe_text.setReadOnly(True)
-        self.keyframe_text.setMaximumHeight(120)
-        self.keyframe_text.setStyleSheet(
-            "QTextEdit { background: #0A0A0A; border: 1px solid #1E1E1E; "
-            "font-family: 'Cascadia Code'; font-size: 9px; color: #A0A0A0; }"
-        )
-        self.keyframe_text.setToolTip("Szenen-Analyse: Zeigt alle erkannten Szenen mit Motion-Kategorien")
-        self.keyframe_text.setPlaceholderText("Keyframe-Strings werden hier angezeigt...")
-        insp.addWidget(self.keyframe_text)
-
-        insp.addStretch()
-
-        insp_scroll.setWidget(insp_content)
-
-        top_splitter.addWidget(self.inspector_panel)
-        top_splitter.setStretchFactor(0, 1)
-        top_splitter.setStretchFactor(1, 1)
-        top_splitter.setCollapsible(0, False)
-        top_splitter.setCollapsible(1, False)
-
-        main_splitter.addWidget(top_splitter)
-
-        # ── Bottom: Manual Pacing Curve + Timeline ──
-        bottom_widget = QWidget()
-        bottom_layout = QVBoxLayout(bottom_widget)
-        bottom_layout.setContentsMargins(4, 2, 4, 2)
-        bottom_layout.setSpacing(1)
-
-        # Pacing curve header
-        curve_hdr = QHBoxLayout()
-        curve_hdr.setSpacing(4)
-        curve_lbl = QLabel("MANUAL PACING")
-        curve_lbl.setStyleSheet("color: #505050; font-size: 9px; font-weight: 600; letter-spacing: 1px;")
-        curve_hdr.addWidget(curve_lbl)
-        btn_reset = QPushButton("Reset")
-        btn_reset.setFixedHeight(16)
-        btn_reset.setFixedWidth(44)
-        btn_reset.setStyleSheet("font-size: 8px; padding: 0 3px;")
-        btn_reset.setToolTip("Pacing-Kurve zuruecksetzen auf 50%")
-        btn_reset.clicked.connect(lambda: self.pacing_curve.reset_curve())
-        curve_hdr.addWidget(btn_reset)
-        curve_hdr.addStretch()
-        bottom_layout.addLayout(curve_hdr)
-
-        # Drawable pacing density curve
-        self.pacing_curve = PacingCurveWidget()
-        bottom_layout.addWidget(self.pacing_curve)
-
-        # Timeline (full width, maximum space)
-        self.timeline_view = InteractiveTimeline()
-        self.timeline_view.setToolTip("Timeline: Drag & Drop, Mausrad zum Zoomen")
         self.timeline_view.clip_moved.connect(self._on_timeline_clip_moved)
-        bottom_layout.addWidget(self.timeline_view, stretch=1)
-
-        self.cut_info_label = QLabel("")
-        self.cut_info_label.setStyleSheet("color: #404040; font-size: 10px; padding: 1px 4px;")
-        bottom_layout.addWidget(self.cut_info_label)
-
-        main_splitter.addWidget(bottom_widget)
-
-        # Preview ~30%, Timeline area ~70% — timeline dominates
-        main_splitter.setStretchFactor(0, 1)
-        main_splitter.setStretchFactor(1, 3)
-        main_splitter.setSizes([200, 600])
-        main_splitter.setCollapsible(0, False)
-        main_splitter.setCollapsible(1, False)
-
-        layout.addWidget(main_splitter)
-
         self._refresh_director_combos()
-        return workspace
 
-    # ==================================================================
-    # Workspace 3: STEMS (DAW-Style Stem View)
-    # ==================================================================
+        # --- STEMS workspace ---
+        self._stems_ws = StemsWorkspace()
+        self.workspace_stack.addWidget(self._stems_ws)
+        self.stem_workspace = self._stems_ws.stem_widget
 
-    def _build_stems_workspace(self) -> QWidget:
-        """Baut den STEMS Workspace: 4 Track-Bänder mit Wellenformen + Transport."""
-        self.stem_workspace = StemWorkspace()
-
-        # Signale zum bestehenden StemPlayer verbinden
+        # Wire STEMS signals
         self.stem_workspace.stem_volume_changed.connect(self.stem_player.set_volume)
         self.stem_workspace.stem_mute_toggled.connect(self.stem_player.set_mute)
         self.stem_workspace.play_requested.connect(self.stem_player.play)
@@ -2912,202 +403,48 @@ class PBWindow(QMainWindow):
         self.stem_workspace.seek_requested.connect(self.stem_player.seek)
         self.stem_player.position_changed.connect(self.stem_workspace.update_position)
         self.stem_player.state_changed.connect(self.stem_workspace.update_playback_state)
-        # [I-10 FIX] playback_finished nutzt benannte Methode (oben definiert)
 
-        return self.stem_workspace
+        # --- CONVERT workspace ---
+        self._convert_ws = ConvertWorkspace()
+        self.workspace_stack.addWidget(self._convert_ws)
 
-    # ==================================================================
-    # Workspace 4: CONVERT (Video-Standardisierung)
-    # ==================================================================
+        # Promote widgets
+        self.convert_resolution = self._convert_ws.convert_resolution
+        self.convert_fps = self._convert_ws.convert_fps
+        self.convert_format = self._convert_ws.convert_format
+        self.btn_standardize_all = self._convert_ws.btn_standardize_all
+        self.convert_progress = self._convert_ws.convert_progress
+        self.convert_log = self._convert_ws.convert_log
+        self.effects_clip_combo = self._convert_ws.effects_clip_combo
+        self.brightness_slider = self._convert_ws.brightness_slider
+        self.brightness_label = self._convert_ws.brightness_label
+        self.contrast_slider = self._convert_ws.contrast_slider
+        self.contrast_label = self._convert_ws.contrast_label
+        self.crossfade_slider = self._convert_ws.crossfade_slider
+        self.crossfade_label = self._convert_ws.crossfade_label
+        self.effects_preview = self._convert_ws.effects_preview
 
-    def _build_effects_workspace(self) -> QWidget:
-        workspace = QWidget()
-        layout = QVBoxLayout(workspace)
-        layout.setContentsMargins(8, 8, 8, 4)
-
-        top_splitter = QSplitter(Qt.Orientation.Horizontal)
-
-        # ── Linke Seite: Konvertierungs-Einstellungen ──
-        settings_panel = QWidget()
-        settings_layout = QVBoxLayout(settings_panel)
-
-        # Ziel-Format
-        format_group = QGroupBox("Ziel-Format")
-        format_layout = QVBoxLayout(format_group)
-
-        res_row = QHBoxLayout()
-        res_row.addWidget(QLabel("Aufloesung:"))
-        self.convert_resolution = QComboBox()
-        self.convert_resolution.addItems(["1920x1080 (1080p)", "2560x1440 (2K)", "3840x2160 (4K)", "1280x720 (720p)"])
-        self.convert_resolution.setToolTip("Ziel-Aufloesung fuer alle Videos")
-        res_row.addWidget(self.convert_resolution)
-        format_layout.addLayout(res_row)
-
-        fps_row = QHBoxLayout()
-        fps_row.addWidget(QLabel("Framerate:"))
-        self.convert_fps = QComboBox()
-        self.convert_fps.addItems(["30 fps", "24 fps", "25 fps", "50 fps", "60 fps"])
-        self.convert_fps.setToolTip("Ziel-Framerate fuer alle Videos")
-        fps_row.addWidget(self.convert_fps)
-        format_layout.addLayout(fps_row)
-
-        fmt_row = QHBoxLayout()
-        fmt_row.addWidget(QLabel("Container:"))
-        self.convert_format = QComboBox()
-        self.convert_format.addItems(["mp4 (H.264)", "mp4 (H.265/HEVC)", "mov (ProRes)", "mkv (H.264)"])
-        self.convert_format.setToolTip("Ziel-Containerformat")
-        fmt_row.addWidget(self.convert_format)
-        format_layout.addLayout(fmt_row)
-
-        settings_layout.addWidget(format_group)
-
-        # Konvertierungs-Aktionen
-        action_group = QGroupBox("Aktionen")
-        action_layout = QVBoxLayout(action_group)
-
-        self.btn_standardize_all = QPushButton("Alle Videos standardisieren")
-        self.btn_standardize_all.setObjectName("btn_accent")
-        self.btn_standardize_all.setMinimumHeight(46)
-        self.btn_standardize_all.setToolTip(
-            "Konvertiert alle Videos im Video Pool in das gewaehlte Standardformat (per ffmpeg)"
-        )
+        # Wire CONVERT signals
         self.btn_standardize_all.clicked.connect(self._standardize_all_videos)
-        action_layout.addWidget(self.btn_standardize_all)
 
-        self.convert_progress = QProgressBar()
-        self.convert_progress.setVisible(False)
-        self.convert_progress.setTextVisible(True)
-        self.convert_progress.setFormat("Konvertierung...")
-        action_layout.addWidget(self.convert_progress)
+        # --- DELIVER workspace ---
+        self._deliver_ws = DeliverWorkspace()
+        self.workspace_stack.addWidget(self._deliver_ws)
 
-        settings_layout.addWidget(action_group)
+        # Promote widgets
+        self.production_info = self._deliver_ws.production_info
+        self.export_name_input = self._deliver_ws.export_name_input
+        self.resolution_combo = self._deliver_ws.resolution_combo
+        self.fps_combo = self._deliver_ws.fps_combo
+        self.btn_export = self._deliver_ws.btn_export
+        self.btn_refresh_production = self._deliver_ws.btn_refresh_production
+        self.export_progress = self._deliver_ws.export_progress
+        self.export_log = self._deliver_ws.export_log
 
-        # Legacy effects controls (hidden but keep refs for existing code)
-        self.effects_clip_combo = QComboBox()
-        self.effects_clip_combo.setVisible(False)
-        self.brightness_slider = QSlider(Qt.Orientation.Horizontal)
-        self.brightness_slider.setVisible(False)
-        self.brightness_label = QLabel()
-        self.contrast_slider = QSlider(Qt.Orientation.Horizontal)
-        self.contrast_slider.setVisible(False)
-        self.contrast_label = QLabel()
-        self.crossfade_slider = QSlider(Qt.Orientation.Horizontal)
-        self.crossfade_slider.setVisible(False)
-        self.crossfade_label = QLabel()
-
-        settings_layout.addStretch()
-        top_splitter.addWidget(settings_panel)
-
-        # ── Rechte Seite: Konvertierungs-Log ──
-        log_panel = QWidget()
-        log_layout = QVBoxLayout(log_panel)
-
-        log_title = QLabel("CONVERT LOG")
-        log_title.setStyleSheet("color: #00F0FF; font-weight: 700; font-size: 11px; padding: 2px 4px;")
-        log_layout.addWidget(log_title)
-
-        self.convert_log = QTextEdit()
-        self.convert_log.setReadOnly(True)
-        self.convert_log.setStyleSheet("background-color: #0A0A0A; border: 1px solid #1E1E1E; color: #C0C0C0; font-family: 'Consolas';")
-        self.convert_log.setToolTip("Protokoll der Video-Konvertierungen")
-        self.convert_log.append("[Convert] Bereit. Waehle Ziel-Format und klicke 'Alle Videos standardisieren'.")
-        log_layout.addWidget(self.convert_log)
-
-        self.effects_preview = QLabel("")
-        self.effects_preview.setVisible(False)
-
-        top_splitter.addWidget(log_panel)
-        top_splitter.setStretchFactor(0, 2)
-        top_splitter.setStretchFactor(1, 3)
-
-        layout.addWidget(top_splitter)
-        return workspace
-
-    # ==================================================================
-    # Workspace 4: DELIVER
-    # ==================================================================
-
-    def _build_deliver_workspace(self) -> QWidget:
-        workspace = QWidget()
-        layout = QVBoxLayout(workspace)
-        layout.setContentsMargins(8, 8, 8, 4)
-
-        # ── Timeline-Status ──
-        info_group = QGroupBox("Timeline-Status")
-        info_layout = QVBoxLayout(info_group)
-        self.production_info = QLabel("Timeline laden...")
-        self.production_info.setStyleSheet("color: #E0E0E0; font-size: 14px;")
-        self.production_info.setToolTip("Zeigt eine Zusammenfassung der aktuellen Timeline: Anzahl der Clips, Spuren und geschaetzte Gesamtdauer")
-        info_layout.addWidget(self.production_info)
-        layout.addWidget(info_group)
-
-        # ── Export-Einstellungen ──
-        settings_group = QGroupBox("Export-Einstellungen")
-        settings_layout = QHBoxLayout(settings_group)
-
-        name_label = QLabel("Dateiname:")
-        name_label.setToolTip("Name der finalen Video-Datei. Die Endung .mp4 wird automatisch angehaengt")
-        settings_layout.addWidget(name_label)
-        self.export_name_input = QLineEdit("output.mp4")
-        self.export_name_input.setToolTip("Gib den gewuenschten Dateinamen fuer das exportierte Video ein (ohne Pfad)")
-        settings_layout.addWidget(self.export_name_input)
-
-        res_label = QLabel("Aufloesung:")
-        res_label.setToolTip("Ziel-Aufloesung des exportierten Videos. Hoehere Aufloesung = groessere Datei, laengerer Export")
-        settings_layout.addWidget(res_label)
-        self.resolution_combo = QComboBox()
-        self.resolution_combo.addItems(["1920x1080", "1280x720", "854x480", "3840x2160"])
-        self.resolution_combo.setToolTip("Waehle die Video-Aufloesung: 1080p (Standard), 720p (schnell), 480p (Vorschau) oder 4K (beste Qualitaet)")
-        settings_layout.addWidget(self.resolution_combo)
-
-        fps_label = QLabel("FPS:")
-        fps_label.setToolTip("Bildrate des exportierten Videos. 30 FPS ist Standard, 60 FPS fuer fluessigere Bewegungen")
-        settings_layout.addWidget(fps_label)
-        self.fps_combo = QComboBox()
-        self.fps_combo.addItems(["30", "24", "25", "60"])
-        self.fps_combo.setToolTip("Waehle die Bildrate: 30 (Standard), 24 (Film-Look), 25 (PAL), 60 (Sport/Gaming)")
-        settings_layout.addWidget(self.fps_combo)
-
-        layout.addWidget(settings_group)
-
-        # ── Export-Buttons ──
-        export_row = QHBoxLayout()
-
-        self.btn_export = QPushButton("Video exportieren")
-        self.btn_export.setObjectName("btn_accent")
-        self.btn_export.setMinimumHeight(36)
-        self.btn_export.setToolTip("Finales Video mit FFmpeg rendern")
+        # Wire DELIVER signals
         self.btn_export.clicked.connect(self._start_export)
-        export_row.addWidget(self.btn_export)
-
-        self.btn_refresh_production = QPushButton("Aktualisieren")
-        self.btn_refresh_production.setMinimumHeight(36)
-        self.btn_refresh_production.setToolTip("Timeline-Status aktualisieren")
         self.btn_refresh_production.clicked.connect(self._refresh_production_info)
-        export_row.addWidget(self.btn_refresh_production)
 
-        layout.addLayout(export_row)
-
-        # ── Export-Fortschritt ──
-        self.export_progress = QProgressBar()
-        self.export_progress.setVisible(False)
-        self.export_progress.setTextVisible(True)
-        self.export_progress.setToolTip("Fortschritt des aktuellen Video-Exports in Prozent")
-        layout.addWidget(self.export_progress)
-
-        # ── Export-Log ──
-        log_label = QLabel("Export-Protokoll:")
-        log_label.setStyleSheet("color: #00F0FF; font-weight: 600; margin-top: 8px;")
-        layout.addWidget(log_label)
-
-        self.export_log = QTextEdit()
-        self.export_log.setReadOnly(True)
-        self.export_log.setToolTip("Protokoll des Export-Vorgangs: Zeigt jeden Schritt, Fehler und den finalen Ausgabepfad")
-        layout.addWidget(self.export_log)
-
-        return workspace
-
-    # ==================================================================
     # Helper: Slider erstellen
     # ==================================================================
 
@@ -3128,7 +465,7 @@ class PBWindow(QMainWindow):
         val_lbl = QLabel(str(default))
         val_lbl.setFixedWidth(26)
         val_lbl.setAlignment(Qt.AlignmentFlag.AlignRight)
-        val_lbl.setStyleSheet("color: #00D4E6; font-size: 10px;")
+        val_lbl.setStyleSheet("color: #909090; font-size: 10px;")
         slider.valueChanged.connect(lambda v: val_lbl.setText(str(v)))
         row.addWidget(val_lbl)
         return slider, row
@@ -3159,17 +496,23 @@ class PBWindow(QMainWindow):
 
         Alle Threads werden jetzt vom TaskManager gehalten (GC-Schutz).
         Existierende Aufrufe bleiben kompatibel.
+
+        Bug-3 Fix: Nutzt GlobalTaskManager.instance() statt globalem task_manager,
+        damit Buttons auch ohne Chat-Dock-Initialisierung funktionieren.
         """
         # Worker-Name fuer Task-Anzeige aus Klasse ableiten
         worker_name = type(worker).__name__.replace("Worker", "")
+
+        # Singleton direkt – unabhaengig vom globalen task_manager
+        tm = GlobalTaskManager.instance()
 
         # Falls der Worker schon eine task_id hat (von manueller create_task()),
         # registrieren wir Thread+Worker im bestehenden Task.
         existing_task_id = getattr(worker, 'task_id', None)
 
-        if existing_task_id and existing_task_id in task_manager._tasks:
+        if existing_task_id and existing_task_id in tm._tasks:
             # Thread im bestehenden Task registrieren
-            task = task_manager._tasks[existing_task_id]
+            task = tm._tasks[existing_task_id]
             thread = QThread()
             worker.moveToThread(thread)
             thread.started.connect(worker.run)
@@ -3180,7 +523,7 @@ class PBWindow(QMainWindow):
                         _cb(*args)
                 worker.finished.connect(_guarded_finish)
             # Error-Signal: Fallback-Logger immer verbinden (stille Fehler verhindern)
-            def _default_error_handler(*args, _tid=existing_task_id, _name=worker_name, _tm=task_manager):
+            def _default_error_handler(*args, _tid=existing_task_id, _name=worker_name, _tm=tm):
                 err_msg = str(args[-1]) if args else "Unbekannter Fehler"
                 logging.error(
                     "[TaskEngine] Worker-Fehler '%s' (task_id=%s): %s",
@@ -3194,14 +537,14 @@ class PBWindow(QMainWindow):
             # Progress-Signal auto-verbinden wenn vorhanden
             if hasattr(worker, "progress"):
                 worker.progress.connect(
-                    lambda pct, msg, _tid=existing_task_id: task_manager.update_task(
+                    lambda pct, msg, _tid=existing_task_id: tm.update_task(
                         _tid, pct, message=msg
                     )
                 )
 
             worker.finished.connect(thread.quit)
             thread.finished.connect(
-                lambda _tid=existing_task_id: task_manager._on_thread_done(_tid)
+                lambda _tid=existing_task_id: tm._on_thread_done(_tid)
             )
 
             task.thread = thread
@@ -3215,12 +558,16 @@ class PBWindow(QMainWindow):
             return thread
         else:
             # Neuer Task ueber die Engine
-            task = task_manager.start_task(
+            task = tm.start_task(
                 name=worker_name,
                 worker=worker,
                 on_finish=on_finish,
                 on_error=on_error,
             )
+            # Defensive: start_task() gibt str zurueck bei Cross-Thread-Routing
+            if isinstance(task, str):
+                self._active_workers.append(worker)
+                return None
             if task.thread:
                 self._active_threads.append(task.thread)
                 task.thread.finished.connect(
@@ -3264,8 +611,15 @@ class PBWindow(QMainWindow):
                 .order_by(TimelineEntry.start_time)
                 .all()
             )
+            # Bug-19 Fix: Bulk-Load VideoClips — verhindert N+1 (1 SELECT statt N)
+            _eids = [e.media_id for e in entries]
+            _clips = (
+                {c.id: c for c in session.query(VideoClip).filter(
+                    VideoClip.id.in_(_eids)).all()}
+                if _eids else {}
+            )
             for entry in entries:
-                clip = session.get(VideoClip, entry.media_id)
+                clip = _clips.get(entry.media_id)
                 if clip:
                     name = Path(clip.file_path).stem[:30]
                     label = f"[{entry.id}] {name} ({entry.start_time:.1f}s-{(entry.end_time or 0):.1f}s)"
@@ -3448,6 +802,10 @@ class PBWindow(QMainWindow):
 
         cuts = calculate_cut_points(audio_id, video_id, settings, total_dur)
 
+        # Gold Beat-Marker: Alle Beat-basierten Cuts als goldene Linien anzeigen
+        beat_times = [cp.time for cp in cuts if cp.source == "beat"]
+        self.timeline_view.set_beat_markers(beat_times)
+
         self.timeline_view.load_from_db()
         self.timeline_view.set_cut_points(cuts, total_dur)
 
@@ -3474,9 +832,15 @@ class PBWindow(QMainWindow):
             self.console_text.append("[Auto-Edit] Kein Audio-Track ausgewaehlt.")
             return
 
-        with DBSession(engine) as session:
-            clips = session.query(VideoClip).filter_by(project_id=1).all()
-            video_ids = [c.id for c in clips]
+        # Clip-IDs aus der bereits geladenen Video-Pool-Tabelle lesen (kein Main-Thread DB-Block)
+        video_ids = []
+        for _row in range(self.video_pool_table.rowCount()):
+            _id_item = self.video_pool_table.item(_row, 1)
+            if _id_item:
+                try:
+                    video_ids.append(int(_id_item.text()))
+                except ValueError:
+                    pass
 
         if not video_ids:
             self.console_text.append("[Auto-Edit] Keine Video-Clips vorhanden.")
@@ -3501,11 +865,6 @@ class PBWindow(QMainWindow):
             anchors=anchors,
         )
 
-        task = task_manager.create_task(
-            "Auto-Edit (Phase 3)",
-            f"DJ-Pacing: {base_cut_rate}-Beat, Reaktivitaet={settings.energy_reactivity}%, "
-            f"Breakdown={breakdown}"
-        )
         self.console_text.append(
             f"[Auto-Edit] Phase 3 DJ-Pacing starte "
             f"(Rate={base_cut_rate} Beats, Reaktivitaet={settings.energy_reactivity}%, "
@@ -3515,6 +874,14 @@ class PBWindow(QMainWindow):
         self.btn_auto_edit.setEnabled(False)
         self.btn_auto_edit.setText("laeuft...")
 
+        # Bug-3 Fix: Direkt ueber GlobalTaskManager.instance() – kein globales
+        # task_manager erforderlich, funktioniert auch wenn Chat-Dock unsichtbar.
+        tm = GlobalTaskManager.instance()
+        task = tm.create_task(
+            "Auto-Edit (Phase 3)",
+            f"DJ-Pacing: {base_cut_rate}-Beat, Reaktivitaet={settings.energy_reactivity}%, "
+            f"Breakdown={breakdown}"
+        )
         worker = AutoEditWorker(audio_id, video_ids, settings)
         worker.task_id = task.task_id
         worker.finished.connect(
@@ -3522,7 +889,25 @@ class PBWindow(QMainWindow):
         )
         worker.error.connect(lambda err: self._on_auto_edit_error(err, task.task_id))
 
-        self._start_worker_thread(worker)
+        thread = QThread()
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        if hasattr(worker, "progress"):
+            worker.progress.connect(
+                lambda pct, msg, _tid=task.task_id: tm.update_task(_tid, pct, message=msg)
+            )
+        worker.finished.connect(thread.quit)
+        thread.finished.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+        thread.finished.connect(lambda _tid=task.task_id: tm._on_thread_done(_tid))
+        task.thread = thread
+        task.worker = worker
+        self._active_threads.append(thread)
+        self._active_workers.append(worker)
+        thread.finished.connect(
+            lambda _t=thread, _w=worker: self._cleanup_worker(_t, _w)
+        )
+        thread.start()
 
     def _on_auto_edit_finished(self, segments: list, cut_points: list, task_id: str):
         self.btn_auto_edit.setEnabled(True)
@@ -3571,6 +956,9 @@ class PBWindow(QMainWindow):
             cps = [CutPoint(
                 time=cp["time"], source=cp["source"], strength=cp["strength"]
             ) for cp in cut_points]
+            # Gold Beat-Marker für Beat-Cuts
+            beat_times = [cp["time"] for cp in cut_points if cp["source"] == "beat"]
+            self.timeline_view.set_beat_markers(beat_times)
             self.timeline_view.set_cut_points(cps, total_dur)
 
             anchor_cuts = sum(1 for cp in cut_points if cp["source"] == "anchor")
@@ -3762,6 +1150,64 @@ class PBWindow(QMainWindow):
                 "(Rechtsklick oder Taste M), dann klicke erneut."
             )
 
+    def _learn_anchor_as_ai_rule(self):
+        """Speichert den ausgewaehlten Anker als KI-Lernregel fuer den Auto-Edit."""
+        selected = self.anchor_list.currentItem()
+        if not selected:
+            self.console_text.append(
+                "[KI-Gedaechtnis] Kein Anker ausgewaehlt. Bitte zuerst einen Anker in der Liste auswaehlen."
+            )
+            return
+
+        audio_id = self.audio_combo.currentData()
+        if audio_id is None:
+            self.console_text.append(
+                "[KI-Gedaechtnis] Kein Audio-Track ausgewaehlt. Bitte Audio-Combo setzen."
+            )
+            return
+
+        time_text = selected.text(0)
+        scene_id_raw = selected.data(0, Qt.ItemDataRole.UserRole)
+
+        # Zeit parsen (Format "MM:SS.ss" oder Dezimal-Sekunden)
+        try:
+            if ":" in str(time_text):
+                parts = str(time_text).split(":")
+                anchor_time = int(parts[0]) * 60 + float(parts[1])
+            else:
+                anchor_time = float(time_text)
+        except (ValueError, IndexError):
+            self.console_text.append("[KI-Gedaechtnis] Fehler beim Parsen der Anker-Zeit.")
+            return
+
+        try:
+            scene_int = int(scene_id_raw) if scene_id_raw else None
+        except (ValueError, TypeError):
+            scene_int = None
+
+        label = f"Anker@{time_text}"
+
+        from services.pacing_service import learn_from_anchor
+        success = learn_from_anchor(audio_id, anchor_time, scene_int, label)
+
+        if success:
+            self.console_text.append(
+                f"[KI-Gedaechtnis] Regel gelernt: {time_text}"
+                + (f" | Szene #{scene_int}" if scene_int else "")
+                + " — Wird beim naechsten Auto-Edit beruecksichtigt."
+            )
+            # Visuelles Feedback: kurz gruen aufleuchten
+            self.btn_learn_ai.setStyleSheet(
+                "background-color: #00AA44; color: white; font-weight: 800; "
+                "font-size: 10px; border-radius: 3px; letter-spacing: 1px;"
+            )
+            QTimer.singleShot(2000, lambda: self.btn_learn_ai.setStyleSheet(
+                "background-color: #C07800; color: white; font-weight: 800; "
+                "font-size: 10px; border-radius: 3px; letter-spacing: 1px;"
+            ))
+        else:
+            self.console_text.append("[KI-Gedaechtnis] Fehler beim Speichern der Regel.")
+
     def _show_keyframe_strings(self):
         """Phase 3: Generiert und zeigt die Keyframe-Strings aller Video-Clips."""
         try:
@@ -3849,7 +1295,7 @@ class PBWindow(QMainWindow):
         """Sync video pool selection to hidden media_table."""
         if row < 0:
             return
-        vid_id_item = self.video_pool_table.item(row, 0)
+        vid_id_item = self.video_pool_table.item(row, 1)
         if not vid_id_item:
             return
         vid_id = vid_id_item.text()
@@ -3867,7 +1313,7 @@ class PBWindow(QMainWindow):
             if hasattr(self, "stem_workspace"):
                 self.stem_workspace.update_for_track(None, None)
             return
-        aud_id_item = self.audio_pool_table.item(row, 0)
+        aud_id_item = self.audio_pool_table.item(row, 1)
         if not aud_id_item:
             self.stem_player.stop()
             if hasattr(self, "stem_workspace"):
@@ -3937,39 +1383,40 @@ class PBWindow(QMainWindow):
         self._process_imports(paths, "audio")
 
     def _process_imports(self, paths: list[str], media_type: str):
+        """F-004 Fix: Imports laufen im Hintergrund-Thread (FolderImportWorker) statt synchron."""
         if not paths:
             return
-        added = 0
-        new_video_clips = []  # (clip_id, file_path, title) for proxy creation
-        for p in paths:
-            if media_type == "audio":
-                result = ingest_audio(p)
-            else:
-                result = ingest_video(p)
-            name = Path(p).name
-            if result is None:
-                self.console_text.append(f"[Warnung] Datei bereits importiert: {name}")
-            else:
-                self.console_text.append(f"[Ingest] {media_type.capitalize()} importiert: {name}")
-                added += 1
-                # Phase 2: Proxy-Erstellung für neue Videos triggern
-                if media_type == "video" and hasattr(result, 'id'):
-                    new_video_clips.append((result.id, str(Path(p).resolve()), name))
-        if added:
-            self._refresh_media_table()
-            self._refresh_director_combos()
+        paths_audio = paths if media_type == "audio" else []
+        paths_video = paths if media_type == "video" else []
+
+        self.console_text.append(f"[Import] {len(paths)} {media_type.capitalize()}-Datei(en) werden importiert ...")
+        self.status_bar.showMessage(f"Importiere {len(paths)} Datei(en) ...")
+
+        worker = FolderImportWorker(paths_audio, paths_video)
+        worker.file_imported.connect(self.console_text.append)
+        worker.progress.connect(
+            lambda pct, msg: self.status_bar.showMessage(f"[Import] {pct}% — {msg}")
+        )
+
+        def _on_finish(added: int, new_video_clips: list):
+            if added:
+                self._refresh_media_table()
+                self._refresh_director_combos()
+                for clip_id, video_path, title in new_video_clips:
+                    self._start_proxy_creation(clip_id, video_path, title)
             self.status_bar.showMessage(f"{added} Datei(en) importiert | System bereit")
 
-            # Phase 2 (SEKTOR 2): Auto-Proxy für jedes neue Video
-            for clip_id, video_path, title in new_video_clips:
-                self._start_proxy_creation(clip_id, video_path, title)
+        def _on_error(msg: str):
+            self.console_text.append(f"[Fehler] Import abgebrochen: {msg}")
+            self.status_bar.showMessage("Import fehlgeschlagen | System bereit")
+
+        self._start_worker_thread(worker, on_finish=_on_finish, on_error=_on_error)
 
     def _import_folder(self):
-        """Importiert alle unterstuetzten Medien aus einem Ordner (rekursiv)."""
+        """Importiert alle unterstuetzten Medien aus einem Ordner (rekursiv, Hintergrund-Thread)."""
         folder = QFileDialog.getExistingDirectory(self, "Ordner importieren")
         if not folder:
             return
-        all_exts = AUDIO_EXTENSIONS | VIDEO_EXTENSIONS
         paths_audio: list[str] = []
         paths_video: list[str] = []
         for root, _dirs, files in os.walk(folder):
@@ -3985,8 +1432,30 @@ class PBWindow(QMainWindow):
             self.console_text.append(f"[Warnung] Keine unterstuetzten Medien in: {folder}")
             return
         self.console_text.append(f"[Ordner] {total} Dateien gefunden in: {folder}")
-        self._process_imports(paths_audio, "audio")
-        self._process_imports(paths_video, "video")
+        self.status_bar.showMessage(f"Importiere {total} Dateien aus Ordner ...")
+
+        worker = FolderImportWorker(paths_audio, paths_video)
+
+        worker.file_imported.connect(self.console_text.append)
+        worker.progress.connect(
+            lambda pct, msg: self.status_bar.showMessage(f"[Import] {pct}% — {msg}")
+        )
+
+        def _on_finish(added: int, new_video_clips: list):
+            if added:
+                self._refresh_media_table()
+                self._refresh_director_combos()
+                for clip_id, video_path, title in new_video_clips:
+                    self._start_proxy_creation(clip_id, video_path, title)
+            self.status_bar.showMessage(
+                f"{added} Datei(en) aus Ordner importiert | System bereit"
+            )
+
+        def _on_error(msg: str):
+            self.console_text.append(f"[Fehler] Ordner-Import abgebrochen: {msg}")
+            self.status_bar.showMessage("Import fehlgeschlagen | System bereit")
+
+        self._start_worker_thread(worker, on_finish=_on_finish, on_error=_on_error)
 
     def _clear_all_media(self):
         """Loescht alle Medien aus Datenbank und UI."""
@@ -4003,6 +1472,55 @@ class PBWindow(QMainWindow):
             self._refresh_director_combos()
             self.console_text.append(f"[System] {count} Medien-Eintraege geloescht.")
             self.status_bar.showMessage(f"Sammlung bereinigt ({count} Eintraege) | System bereit")
+
+    def _delete_selected_media(self, pool: str):
+        """Loescht alle angehakten Medien (Checkboxen) aus Video oder Audio Pool."""
+        from PySide6.QtWidgets import QMessageBox
+
+        video_ids = []
+        audio_ids = []
+
+        if pool in ("video", "both"):
+            for row in range(self.video_pool_table.rowCount()):
+                chk = self.video_pool_table.item(row, 0)
+                id_item = self.video_pool_table.item(row, 1)
+                if chk and id_item and chk.checkState() == Qt.CheckState.Checked:
+                    try:
+                        video_ids.append(int(id_item.text()))
+                    except ValueError:
+                        pass
+
+        if pool in ("audio", "both"):
+            for row in range(self.audio_pool_table.rowCount()):
+                chk = self.audio_pool_table.item(row, 0)
+                id_item = self.audio_pool_table.item(row, 1)
+                if chk and id_item and chk.checkState() == Qt.CheckState.Checked:
+                    try:
+                        audio_ids.append(int(id_item.text()))
+                    except ValueError:
+                        pass
+
+        total = len(video_ids) + len(audio_ids)
+        if total == 0:
+            QMessageBox.information(
+                self, "Nichts ausgewaehlt",
+                "Bitte setze zuerst die Checkboxen der zu loeschenden Medien.",
+            )
+            return
+
+        reply = QMessageBox.question(
+            self, "Medien loeschen",
+            f"{total} Medium/Medien aus der Datenbank entfernen?\n"
+            "Die Original-Dateien bleiben erhalten.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            count = delete_selected_media(video_ids, audio_ids)
+            self._refresh_media_table()
+            self._refresh_director_combos()
+            self.console_text.append(f"[System] {count} Medien-Eintraege geloescht.")
+            self.status_bar.showMessage(f"{count} Medien geloescht | System bereit")
 
     # ==================================================================
     # Audio-Analyse
@@ -4152,16 +1670,61 @@ class PBWindow(QMainWindow):
     # ==================================================================
 
     def _analyze_selected_video(self):
-        row = self.media_table.currentRow()
-        if row < 0:
-            self.console_text.append("[Warnung] Keine Zeile ausgewaehlt.")
+        # Batch: Alle angehakten Zeilen im Video Pool auslesen
+        checked_rows = []
+        for row in range(self.video_pool_table.rowCount()):
+            chk_item = self.video_pool_table.item(row, 0)
+            if chk_item and chk_item.checkState() == Qt.CheckState.Checked:
+                checked_rows.append(row)
+
+        # Fallback: aktuelle Zeile wenn nichts angehakt
+        if not checked_rows:
+            row = self.video_pool_table.currentRow()
+            if row >= 0:
+                checked_rows.append(row)
+
+        if not checked_rows:
+            self.console_text.append("[Warnung] Keine Zeile im Video Pool ausgewaehlt oder angehakt.")
             return
-        media_type = self.media_table.item(row, 1).text()
-        if media_type != "Video":
-            self.console_text.append("[Warnung] Nur Video-Dateien koennen hier analysiert werden.")
+
+        self.btn_analyze_video.setEnabled(False)
+        self.progress_bar.setVisible(True)
+        count = len(checked_rows)
+        self.btn_analyze_video.setText(f"Analyse laeuft ({count})...")
+
+        # Sequentiell starten: erste Analyse starten, Rest in Queue
+        self._video_analyze_queue = []
+        for row in checked_rows:
+            id_item = self.video_pool_table.item(row, 1)
+            title_item = self.video_pool_table.item(row, 2)
+            if not id_item:
+                continue
+            clip_id = int(id_item.text())
+            title = title_item.text() if title_item else f"Clip {clip_id}"
+            self._video_analyze_queue.append((clip_id, title))
+
+        if not self._video_analyze_queue:
+            self.btn_analyze_video.setEnabled(True)
+            self.btn_analyze_video.setText("Video analysieren")
+            self.progress_bar.setVisible(False)
             return
-        clip_id = int(self.media_table.item(row, 0).text())
-        title = self.media_table.item(row, 2).text()
+
+        self._run_next_video_analysis()
+
+    def _run_next_video_analysis(self):
+        """Startet die naechste Video-Analyse aus der Queue."""
+        if not self._video_analyze_queue:
+            self.btn_analyze_video.setEnabled(True)
+            self.btn_analyze_video.setText("Video analysieren")
+            self.progress_bar.setVisible(False)
+            self.status_bar.showMessage("Alle Video-Analysen abgeschlossen | System bereit")
+            return
+
+        clip_id, title = self._video_analyze_queue.pop(0)
+        remaining = len(self._video_analyze_queue)
+        self.btn_analyze_video.setText(
+            f"Analyse laeuft... ({remaining + 1} verbleibend)"
+        )
 
         task = task_manager.create_task(f"Video: {title}", "Metadaten + Proxy")
 
@@ -4171,10 +1734,6 @@ class PBWindow(QMainWindow):
         worker.finished.connect(lambda cid, r: self._on_video_analysis_finished(cid, r, task.task_id))
         worker.error.connect(lambda cid, err: self._on_video_analysis_error(cid, err, task.task_id))
 
-        self.btn_analyze_video.setEnabled(False)
-        self.btn_analyze_video.setText("Analyse laeuft...")
-        self.progress_bar.setVisible(True)
-
         self._start_worker_thread(worker)
 
     def _on_video_analysis_started(self, clip_id: int, title: str):
@@ -4183,31 +1742,28 @@ class PBWindow(QMainWindow):
 
     def _on_video_analysis_finished(self, clip_id: int, result: dict, task_id: str = ""):
         if not result:
-            return  # Error-path fallback — _on_video_analysis_error already handled this
+            self._run_next_video_analysis()
+            return
         self.console_text.append(
             f"[Video] Analyse fertig: {result['width']}x{result['height']} | "
             f"{result['fps']} FPS | Dauer: {result.get('duration', '?')}s | Codec: {result['codec']}"
         )
         if "proxy_path" in result:
             self.console_text.append(f"[Video] Proxy erstellt: {result['proxy_path']}")
-        self.btn_analyze_video.setEnabled(True)
-        self.btn_analyze_video.setText("Video analysieren")
-        self.progress_bar.setVisible(False)
-        self.status_bar.showMessage("Video-Analyse abgeschlossen | System bereit")
         self._refresh_media_table()
         self._refresh_director_combos()
         if task_id:
             task_manager.finish_task(task_id, "finished",
                                      f"{result['width']}x{result['height']} {result['fps']}fps")
+        # Naechste Analyse aus der Queue starten
+        self._run_next_video_analysis()
 
     def _on_video_analysis_error(self, clip_id: int, error_msg: str, task_id: str = ""):
         self.console_text.append(f"[Fehler] Video-Analyse fehlgeschlagen (ID {clip_id}): {error_msg}")
-        self.btn_analyze_video.setEnabled(True)
-        self.btn_analyze_video.setText("Video analysieren")
-        self.progress_bar.setVisible(False)
-        self.status_bar.showMessage("Video-Analyse-Fehler | System bereit")
         if task_id:
             task_manager.finish_task(task_id, "error", error_msg)
+        # Naechste Analyse aus der Queue starten (trotz Fehler)
+        self._run_next_video_analysis()
 
     # ==================================================================
     # Phase 2: Video Analysis Pipeline (SEKTOR 1)
@@ -4219,35 +1775,34 @@ class PBWindow(QMainWindow):
         Liest alle markierten Zeilen im Video Pool aus und übergibt sie
         als Batch an den Worker. Sequenzielle Abarbeitung (6GB VRAM).
         """
-        # SEKTOR 1: Alle selektierten Zeilen im Video Pool auslesen
+        # SEKTOR 1: Alle angehakten Zeilen im Video Pool auslesen (Checkbox Spalte 0)
         selected_rows = set()
-        for index in self.video_pool_table.selectionModel().selectedRows():
-            selected_rows.add(index.row())
+        for row in range(self.video_pool_table.rowCount()):
+            chk_item = self.video_pool_table.item(row, 0)
+            if chk_item and chk_item.checkState() == Qt.CheckState.Checked:
+                selected_rows.add(row)
+        # Fallback: blau markierte Zeilen oder aktuelle Zeile
         if not selected_rows:
-            # Fallback: aktuelle Zeile
+            for index in self.video_pool_table.selectionModel().selectedRows():
+                selected_rows.add(index.row())
+        if not selected_rows:
             row = self.video_pool_table.currentRow()
             if row >= 0:
                 selected_rows.add(row)
         if not selected_rows:
-            self.console_text.append("[Warnung] Keine Zeile im Video Pool ausgewaehlt.")
+            self.console_text.append("[Warnung] Keine Zeile im Video Pool ausgewaehlt oder angehakt.")
             return
 
-        # Clip-IDs und Pfade aus der Video Pool Tabelle sammeln
+        # Clip-IDs und Titel aus der Video Pool Tabelle sammeln (kein DB-Zugriff im Main-Thread)
         batch = []
-        with DBSession(engine) as session:
-            for row in sorted(selected_rows):
-                id_item = self.video_pool_table.item(row, 0)
-                title_item = self.video_pool_table.item(row, 1)
-                if not id_item:
-                    continue
-                clip_id = int(id_item.text())
-                title = title_item.text() if title_item else f"Clip {clip_id}"
-
-                clip = session.get(VideoClip, clip_id)
-                if not clip:
-                    self.console_text.append(f"[Fehler] VideoClip {clip_id} nicht gefunden.")
-                    continue
-                batch.append((clip_id, clip.file_path, title))
+        for row in sorted(selected_rows):
+            id_item = self.video_pool_table.item(row, 1)
+            title_item = self.video_pool_table.item(row, 2)
+            if not id_item:
+                continue
+            clip_id = int(id_item.text())
+            title = title_item.text() if title_item else f"Clip {clip_id}"
+            batch.append((clip_id, title))
 
         if not batch:
             self.console_text.append("[Warnung] Keine gültigen Videos in der Auswahl.")
@@ -4255,7 +1810,7 @@ class PBWindow(QMainWindow):
 
         # SEKTOR 2: Batch-Task erstellen
         count = len(batch)
-        label = batch[0][2] if count == 1 else f"{count} Videos"
+        label = batch[0][1] if count == 1 else f"{count} Videos"
         task = task_manager.create_task(
             f"Pipeline: {label}",
             f"Batch-Analyse: {count} Video(s) — Szenen + Motion + SigLIP"
@@ -4265,7 +1820,7 @@ class PBWindow(QMainWindow):
         self.btn_video_pipeline.setText(f"Pipeline laeuft ({count})...")
         self.progress_bar.setVisible(True)
 
-        titles_str = ", ".join(t for _, _, t in batch[:3])
+        titles_str = ", ".join(t for _, t in batch[:3])
         if count > 3:
             titles_str += f" (+{count - 3} weitere)"
         self.console_text.append(
@@ -4612,30 +2167,54 @@ class PBWindow(QMainWindow):
     # Media-Tabelle
     # ==================================================================
 
+    def _toggle_all_checkboxes(self, table: QTableWidget):
+        """Alle Checkboxen in Spalte 0 toggeln (Alle an / Alle aus)."""
+        # Pruefen ob bereits alle angehakt sind
+        all_checked = True
+        for row in range(table.rowCount()):
+            chk = table.item(row, 0)
+            if chk and chk.checkState() != Qt.CheckState.Checked:
+                all_checked = False
+                break
+
+        new_state = Qt.CheckState.Unchecked if all_checked else Qt.CheckState.Checked
+        for row in range(table.rowCount()):
+            chk = table.item(row, 0)
+            if chk:
+                chk.setCheckState(new_state)
+
     def _refresh_media_table(self):
         # Video Pool
         videos = get_all_video()
         self.video_pool_table.setRowCount(len(videos))
         for row, item in enumerate(videos):
-            self.video_pool_table.setItem(row, 0, QTableWidgetItem(str(item["id"])))
-            self.video_pool_table.setItem(row, 1, QTableWidgetItem(item["title"]))
-            self.video_pool_table.setItem(row, 2, QTableWidgetItem(item.get("resolution") or "-"))
+            chk = QTableWidgetItem()
+            chk.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
+            chk.setCheckState(Qt.CheckState.Unchecked)
+            self.video_pool_table.setItem(row, 0, chk)
+            self.video_pool_table.setItem(row, 1, QTableWidgetItem(str(item["id"])))
+            self.video_pool_table.setItem(row, 2, QTableWidgetItem(item["title"]))
+            self.video_pool_table.setItem(row, 3, QTableWidgetItem(item.get("resolution") or "-"))
             fps_str = str(item.get("fps", "")) if item.get("fps") else "-"
-            self.video_pool_table.setItem(row, 3, QTableWidgetItem(fps_str))
-            self.video_pool_table.setItem(row, 4, QTableWidgetItem("-"))
-            self.video_pool_table.setItem(row, 5, QTableWidgetItem(item["file_path"]))
+            self.video_pool_table.setItem(row, 4, QTableWidgetItem(fps_str))
+            self.video_pool_table.setItem(row, 5, QTableWidgetItem("-"))
+            self.video_pool_table.setItem(row, 6, QTableWidgetItem(item["file_path"]))
 
         # Audio Pool
         audios = get_all_audio()
         self.audio_pool_table.setRowCount(len(audios))
         for row, item in enumerate(audios):
-            self.audio_pool_table.setItem(row, 0, QTableWidgetItem(str(item["id"])))
-            self.audio_pool_table.setItem(row, 1, QTableWidgetItem(item["title"]))
+            chk = QTableWidgetItem()
+            chk.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
+            chk.setCheckState(Qt.CheckState.Unchecked)
+            self.audio_pool_table.setItem(row, 0, chk)
+            self.audio_pool_table.setItem(row, 1, QTableWidgetItem(str(item["id"])))
+            self.audio_pool_table.setItem(row, 2, QTableWidgetItem(item["title"]))
             bpm_str = str(item["bpm"]) if item.get("bpm") else "-"
-            self.audio_pool_table.setItem(row, 2, QTableWidgetItem(bpm_str))
-            self.audio_pool_table.setItem(row, 3, QTableWidgetItem("-"))
-            self.audio_pool_table.setItem(row, 4, QTableWidgetItem(item.get("stems", "-")))
-            self.audio_pool_table.setItem(row, 5, QTableWidgetItem(item["file_path"]))
+            self.audio_pool_table.setItem(row, 3, QTableWidgetItem(bpm_str))
+            self.audio_pool_table.setItem(row, 4, QTableWidgetItem("-"))
+            self.audio_pool_table.setItem(row, 5, QTableWidgetItem(item.get("stems", "-")))
+            self.audio_pool_table.setItem(row, 6, QTableWidgetItem(item["file_path"]))
 
         # Hidden proxy table (for legacy selection-based functions)
         media = get_all_media()
@@ -4659,31 +2238,52 @@ class PBWindow(QMainWindow):
     # ==================================================================
 
     def setup_task_dock(self):
-        """TaskManager als fest verankertes QDockWidget am unteren Rand."""
-        self.task_dock = TaskManagerDock(self)
-        self.task_dock.cancel_requested.connect(self._cancel_worker_for_task)
-        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.task_dock)
-        self.task_dock.setVisible(True)
-        self.task_dock.setFixedHeight(160)
-        self.task_dock.show()
+        """TaskManager als QWidget im unteren QSplitter-Panel."""
+        self._task_mgr_dock = TaskManagerDock(self)
+        self._task_mgr_dock.cancel_requested.connect(self._cancel_worker_for_task)
+        task_w = self._task_mgr_dock.widget()
+        task_w.setMinimumWidth(180)
+        self._inner_splitter.addWidget(task_w)
+        self._task_panel_widget = task_w
+        # Alias fuer Kompatibilitaet
+        self.task_dock = task_w
 
     def setup_console(self):
-        dock = QDockWidget("System-Konsole", self)
-        dock.setAllowedAreas(Qt.DockWidgetArea.BottomDockWidgetArea)
+        """System-Konsole als QWidget im unteren QSplitter-Panel."""
+        console_panel = QWidget()
+        console_panel.setObjectName("console_dock")
+        console_panel.setMinimumWidth(120)
+        cl = QVBoxLayout(console_panel)
+        cl.setContentsMargins(4, 2, 4, 4)
+        cl.setSpacing(0)
+
+        hdr = QLabel("KONSOLE")
+        hdr.setStyleSheet(
+            "color: #606060; font-size: 10px; font-weight: 700; "
+            "letter-spacing: 1px; background: transparent; padding: 2px 0;"
+        )
+        cl.addWidget(hdr)
 
         self.console_text = QTextEdit()
         self.console_text.setReadOnly(True)
-        self.console_text.setMaximumHeight(160)
-        self.console_text.setToolTip("System-Konsole: Zeigt alle Aktionen, Warnungen und Fehler der Anwendung in Echtzeit an")
+        self.console_text.setToolTip(
+            "System-Konsole: Zeigt alle Aktionen, Warnungen und Fehler der Anwendung in Echtzeit an"
+        )
         self.console_text.append("[System] PB_studio Core Engine erfolgreich gestartet.")
+        cl.addWidget(self.console_text)
 
-        dock.setWidget(self.console_text)
-        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, dock)
+        self._inner_splitter.addWidget(console_panel)
+        self._console_panel_widget = console_panel
+        # Alias fuer Kompatibilitaet
+        self.console_dock = console_panel
 
     def setup_chat_dock(self):
         self.chat_dock = ChatDock(self)
-        self.chat_dock.setMinimumWidth(220)
+        self.chat_dock.setMinimumWidth(200)
+        self.chat_dock.setMaximumWidth(400)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.chat_dock)
+        # Start collapsed — user can open via View menu or toggleViewAction
+        self.chat_dock.setVisible(False)
 
         # MainWindow-Referenz für direkte Kommandos (analysiere, schneide, etc.)
         self.chat_dock.set_main_window(self)
@@ -4719,7 +2319,41 @@ class PBWindow(QMainWindow):
             self.console_text.append(f"[KI-Fehler] {e}")
 
 
+def setup_logging():
+    """Konfiguriert das Logging-System: Console + RotatingFileHandler fuer logs/pb_studio.log."""
+    from logging.handlers import RotatingFileHandler
+
+    log_dir = Path(__file__).parent / "logs"
+    log_dir.mkdir(exist_ok=True)
+    log_file = log_dir / "pb_studio.log"
+
+    root = logging.getLogger()
+    root.setLevel(logging.DEBUG)
+
+    fmt = logging.Formatter(
+        "%(asctime)s [%(levelname)-8s] %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
+    # Console Handler (WARNING+)
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.WARNING)
+    ch.setFormatter(fmt)
+    root.addHandler(ch)
+
+    # File Handler (DEBUG+, 5 MB x 3 Dateien)
+    fh = RotatingFileHandler(
+        log_file, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8"
+    )
+    fh.setLevel(logging.DEBUG)
+    fh.setFormatter(fmt)
+    root.addHandler(fh)
+
+    logging.info("Logging initialisiert → %s", log_file)
+
+
 def main():
+    setup_logging()
     try:
         init_db()
     except Exception as exc:
@@ -4731,8 +2365,8 @@ def main():
     app = QApplication(sys.argv)
 
     # TaskManager als erstes erstellen und an QApplication verankern
-    global task_manager
     task_manager = GlobalTaskManager.instance()
+    _task_manager_module.task_manager = task_manager  # Modul-Level fuer andere Imports
     app.task_manager = task_manager
 
     # Theme laden
@@ -4754,8 +2388,8 @@ def main():
         sys.exit(1)
 
     window.console_text.append("[System] SQLite Datenbank (pb_studio.db) erfolgreich initialisiert.")
-    window.console_text.append("[System] DaVinci-Style UI geladen.")
-    window.console_text.append(f"[System] Version {APP_VERSION} — Workspace UI + KI-Pacing.")
+    window.console_text.append("[System] Obsidian & Gold Theme aktiv — KI-Elemente: Gold (#D4AF37).")
+    window.console_text.append(f"[System] Version {APP_VERSION} — Workspace UI + KI-Pacing + Beat-Snap.")
     window.showMaximized()
     # Timeline-Daten NACH dem Fenster laden (non-blocking Startup)
     QTimer.singleShot(0, window.timeline_view.load_from_db)
