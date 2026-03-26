@@ -17,6 +17,31 @@ import json
 import logging
 import time
 
+import pytest
+
+# Abhängigkeits-Prüfung für GPU-Tests
+try:
+    import torch as _torch_check
+    _TORCH_AVAILABLE = True
+except ImportError:
+    _TORCH_AVAILABLE = False
+
+try:
+    import faster_whisper as _fw_check  # noqa: F401
+    _FASTER_WHISPER_AVAILABLE = True
+except ImportError:
+    _FASTER_WHISPER_AVAILABLE = False
+
+_requires_torch = pytest.mark.skipif(
+    not _TORCH_AVAILABLE,
+    reason="torch nicht installiert — CUDA/GPU-Tests werden übersprungen",
+)
+
+_requires_torch_and_whisper = pytest.mark.skipif(
+    not (_TORCH_AVAILABLE and _FASTER_WHISPER_AVAILABLE),
+    reason="torch oder faster_whisper nicht installiert — Modell-Tests werden übersprungen",
+)
+
 # Setup logging
 logging.basicConfig(
     level=logging.INFO,
@@ -65,6 +90,7 @@ def test_model_manager_singleton():
     return True
 
 
+@_requires_torch_and_whisper
 def test_model_manager_vram_protection():
     """Test 2: Nur ein Modell gleichzeitig im RAM."""
     from services.model_manager import ModelManager
@@ -86,8 +112,17 @@ def test_model_manager_vram_protection():
     return True
 
 
-def test_transcribe_audio(audio_path: str):
-    """Test 3: Audio-Transkription mit faster-whisper."""
+@_requires_torch
+@pytest.mark.skipif(
+    not os.path.isdir(r"C:\Users\david\Documents\test_data\audio"),
+    reason="Echte Test-Audio-Daten nicht vorhanden",
+)
+def test_transcribe_audio():
+    """Test 3: Audio-Transkription mit faster-whisper (benötigt echte Testdateien)."""
+    audio_path = find_test_audio()
+    if not audio_path:
+        pytest.skip("Keine Audio-Testdatei gefunden")
+
     # Registriere Aktionen
     import services.register_actions  # noqa: F401
     from services.action_registry import action_registry
@@ -115,8 +150,24 @@ def test_transcribe_audio(audio_path: str):
     return result
 
 
-def test_analyze_video_content(video_path: str):
-    """Test 4: Visuelle Video-Analyse mit Moondream2."""
+@_requires_torch
+@pytest.mark.skipif(
+    not any(
+        os.path.isdir(d)
+        for d in [
+            r"C:\Users\david\Documents\test_data\video\generation 4",
+            r"C:\Users\david\Documents\test_data\video\Solo_Natur",
+            r"C:\Users\david\Documents\test_data\video",
+        ]
+    ),
+    reason="Echte Test-Video-Daten nicht vorhanden",
+)
+def test_analyze_video_content():
+    """Test 4: Visuelle Video-Analyse mit Moondream2 (benötigt echte Testdateien)."""
+    video_path = find_test_video()
+    if not video_path:
+        pytest.skip("Keine Video-Testdatei gefunden")
+
     import services.register_actions  # noqa: F401
     from services.action_registry import action_registry
 
@@ -145,6 +196,7 @@ def test_analyze_video_content(video_path: str):
     return result
 
 
+@_requires_torch_and_whisper
 def test_model_swap_protection():
     """Test 5: ModelManager swappt korrekt zwischen Whisper und Vision."""
     from services.model_manager import ModelManager
@@ -168,7 +220,7 @@ def test_model_swap_protection():
     return True
 
 
-def test_orchestrator_multi_step(video_path: str):
+def test_orchestrator_multi_step():
     """Test 6: Orchestrator Multi-Step-Analyse (Vision + Audio)."""
     import services.register_actions  # noqa: F401
     from agents.orchestrator_agent import OrchestratorAgent

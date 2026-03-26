@@ -2,6 +2,9 @@
 
 Nutzt eine temporaere SQLite-DB pro Test-Session um File-Lock-Probleme
 auf Windows zu vermeiden.
+
+Diese Tests werden automatisch uebersprungen wenn die Test-Daten nicht
+vorhanden sind (z.B. auf anderen Entwickler-Rechnern oder in CI).
 """
 
 import os
@@ -22,6 +25,12 @@ AUDIO_MP3 = AUDIO_DIR / "Crusty_Progressive Psy Set2.mp3"
 AUDIO_WAV = AUDIO_DIR / "Crusty -Klangkraft-21nai2022-002.wav"
 AUDIO_M4A = AUDIO_DIR / "Podcast-04.m4a"
 VIDEO_MP4 = VIDEO_DIR / "generation 4" / "20250612_2109_Neon_Forest_Rave_gen_01jxjzjy17ez3t5v8ca6dbka6a.mp4"
+
+# Ueberspringe alle Tests wenn Test-Daten nicht vorhanden (M-04 Fix)
+pytestmark = pytest.mark.skipif(
+    not TEST_DATA.exists(),
+    reason=f"Test-Daten nicht vorhanden: {TEST_DATA}",
+)
 
 
 @pytest.fixture(autouse=True)
@@ -65,6 +74,7 @@ def fresh_db(tmp_path):
     test_engine.dispose()
 
 
+@pytest.mark.skipif(not AUDIO_MP3.exists(), reason=f"Testdatei fehlt: {AUDIO_MP3}")
 class TestAudioIngest:
     def test_ingest_mp3(self):
         from services.ingest_service import ingest_audio
@@ -73,12 +83,14 @@ class TestAudioIngest:
         assert track.id > 0
         assert "Crusty_Progressive" in track.title
 
+    @pytest.mark.skipif(not AUDIO_WAV.exists(), reason=f"Testdatei fehlt: {AUDIO_WAV}")
     def test_ingest_wav(self):
         from services.ingest_service import ingest_audio
         track = ingest_audio(str(AUDIO_WAV))
         assert track is not None
         assert track.id > 0
 
+    @pytest.mark.skipif(not AUDIO_M4A.exists(), reason=f"Testdatei fehlt: {AUDIO_M4A}")
     def test_ingest_m4a(self):
         from services.ingest_service import ingest_audio
         track = ingest_audio(str(AUDIO_M4A))
@@ -93,6 +105,7 @@ class TestAudioIngest:
         assert t2 is None
 
 
+@pytest.mark.skipif(not VIDEO_MP4.exists(), reason=f"Testdatei fehlt: {VIDEO_MP4}")
 class TestVideoIngest:
     def test_ingest_mp4(self):
         from services.ingest_service import ingest_video
@@ -108,6 +121,7 @@ class TestVideoIngest:
         assert c2 is None
 
 
+@pytest.mark.skipif(not AUDIO_MP3.exists(), reason=f"Testdatei fehlt: {AUDIO_MP3}")
 class TestAudioAnalysis:
     def test_bpm_detection(self, fresh_db):
         """BPM-Erkennung mit echtem Psy-Trance Track."""
@@ -151,6 +165,7 @@ class TestAudioAnalysis:
             assert isinstance(t.bpm, float)
 
 
+@pytest.mark.skipif(not VIDEO_MP4.exists(), reason=f"Testdatei fehlt: {VIDEO_MP4}")
 class TestVideoAnalysis:
     def test_probe_metadata(self):
         from services.video_service import VideoAnalyzer
@@ -182,6 +197,10 @@ class TestVideoAnalysis:
             assert c.codec == info["codec"]
 
 
+@pytest.mark.skipif(
+    not AUDIO_MP3.exists() or not VIDEO_MP4.exists(),
+    reason="Testdateien fehlen (Audio + Video benoetigt)",
+)
 class TestTimeline:
     def test_add_and_persist(self, fresh_db):
         from services.ingest_service import ingest_audio, ingest_video

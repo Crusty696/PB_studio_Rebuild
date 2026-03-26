@@ -34,7 +34,7 @@ def test_video_probe(tmp_path):
     assert result["codec"] == "h264"
 
 
-def test_analyze_and_store_updates_db(tmp_path):
+def test_analyze_and_store_updates_db(tmp_path, project):
     """Testet, dass analyze_and_store die DB korrekt aktualisiert."""
     video_file = tmp_path / "db_test.mp4"
     video_file.write_bytes(b"\x00" * 100)
@@ -57,12 +57,29 @@ def test_analyze_and_store_updates_db(tmp_path):
     mock_probe.returncode = 0
     mock_probe.stdout = fake_probe
 
-    mock_proxy = MagicMock()
-    mock_proxy.returncode = 0
-    mock_proxy.stdout = ""
+    proxy_dir = tmp_path / "proxies"
+    proxy_dir.mkdir(parents=True, exist_ok=True)
 
-    with patch("services.video_service.subprocess.run", side_effect=[mock_probe, mock_proxy]):
-        with patch("services.video_service.PROXY_DIR", tmp_path / "proxies"):
+    def fake_subprocess_run(cmd, **kwargs):
+        """Simuliert FFmpeg: Probe liefert Metadaten, Proxy erzeugt Dummy-Datei."""
+        if "ffprobe" in cmd[0]:
+            return mock_probe
+        # ffmpeg-Proxy-Befehl: Ausgabedatei (letzter Positionsarg) als Dummy erstellen
+        output_path = next(
+            (arg for arg in reversed(cmd) if not arg.startswith("-")), None
+        )
+        if output_path:
+            from pathlib import Path
+            Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+            Path(output_path).write_bytes(b"\x00" * 1024)
+        mock_ffmpeg = MagicMock()
+        mock_ffmpeg.returncode = 0
+        mock_ffmpeg.stdout = ""
+        mock_ffmpeg.stderr = ""
+        return mock_ffmpeg
+
+    with patch("services.video_service.subprocess.run", side_effect=fake_subprocess_run):
+        with patch("services.video_service.PROXY_DIR", proxy_dir):
             result = analyzer.analyze_and_store(clip.id)
 
     assert result["width"] == 3840

@@ -29,7 +29,7 @@ def test_audio_analyzer_analyze(tmp_path):
     assert len(result["energy_curve"]) == 5
 
 
-def test_analyze_and_store_updates_db(tmp_path):
+def test_analyze_and_store_updates_db(tmp_path, project):
     """Testet, dass analyze_and_store die DB korrekt aktualisiert."""
     audio_file = tmp_path / "store_test.wav"
     audio_file.write_bytes(b"\x00" * 100)
