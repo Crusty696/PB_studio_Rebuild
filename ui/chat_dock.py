@@ -71,7 +71,8 @@ class AIAgentWorker(QObject):
     status_changed = Signal(str)   # Live-Status des Agenten
 
     # Loop-Schutz: max aufeinanderfolgende Tool-Calls ohne User-Antwort
-    MAX_CONSECUTIVE_CALLS = 3
+    # 10 erlaubt echte Batch-Operationen (z.B. 4 Audio + 4 Video + 2 Misc)
+    MAX_CONSECUTIVE_CALLS = 10
 
     def __init__(self, agent, user_text: str):
         super().__init__()
@@ -165,9 +166,9 @@ class ChatDock(QDockWidget):
         self.status_label.setFont(QFont("Cascadia Code", 9))
         self.status_label.setStyleSheet(
             "QLabel {"
-            "  color: #00E676;"
-            "  background-color: #1A1A2E;"
-            "  border: 1px solid #333;"
+            "  color: #D4AF37;"
+            "  background-color: #1A1A1A;"
+            "  border: 1px solid rgba(212,175,55,0.3);"
             "  border-radius: 4px;"
             "  padding: 4px 8px;"
             "}"
@@ -215,7 +216,7 @@ class ChatDock(QDockWidget):
 
     def append_user(self, text: str) -> None:
         """Zeigt eine Benutzer-Nachricht im Chat an."""
-        self._append_colored(f"▸ Du: {text}", "#00F0FF")
+        self._append_colored(f"▸ Du: {text}", "#C0C0C0")
 
     def append_ai(self, text: str) -> None:
         """Zeigt eine KI-Antwort im Chat an."""
@@ -223,7 +224,7 @@ class ChatDock(QDockWidget):
 
     def append_action(self, action_name: str, result: str | None = None) -> None:
         """Zeigt eine ausgeführte Aktion im Chat an."""
-        self._append_colored(f"  ⚡ {action_name}", "#00F0FF")
+        self._append_colored(f"  ⚡ {action_name}", "#D4AF37")
         if result is not None:
             self._append_colored(f"    → {result}", "#B0B0B0")
 
@@ -298,6 +299,9 @@ class ChatDock(QDockWidget):
             worker.finished.connect(thread.quit)
             worker.error.connect(thread.quit)
             thread.finished.connect(self._cleanup_thread)
+            # F-016 Fix: deleteLater() nach Thread-Ende fuer GC
+            thread.finished.connect(worker.deleteLater)
+            thread.finished.connect(thread.deleteLater)
             self._thread = thread
             self._worker = worker
             _GLOBAL_ACTIVE_THREADS.append((thread, worker))
@@ -480,8 +484,8 @@ class ChatDock(QDockWidget):
         self.status_label.setStyleSheet(
             f"QLabel {{"
             f"  color: {color};"
-            f"  background-color: #1A1A2E;"
-            f"  border: 1px solid #333;"
+            f"  background-color: #1A1A1A;"
+            f"  border: 1px solid rgba(212,175,55,0.2);"
             f"  border-radius: 4px;"
             f"  padding: 4px 8px;"
             f"}}"
@@ -542,3 +546,23 @@ class ChatDock(QDockWidget):
         self.btn_send.setEnabled(True)
         self.input_field.setFocus()
         self.append_error(error_msg)
+
+    def closeEvent(self, event):
+        """Cleanup beim Schließen des Chat-Docks — Signals disconnecten (Bug #25)"""
+        # Disconnect input signals (Zeile 187, 194)
+        try:
+            self.input_field.returnPressed.disconnect()
+            self.btn_send.clicked.disconnect()
+        except (RuntimeError, TypeError):
+            pass
+
+        # Disconnect worker signals if thread is running (Zeile 275-277, 297-300)
+        if hasattr(self, '_thread') and self._thread:
+            try:
+                self._thread.quit()
+                self._thread.wait(2000)
+            except (RuntimeError, TypeError):
+                pass
+
+        super().closeEvent(event)
+

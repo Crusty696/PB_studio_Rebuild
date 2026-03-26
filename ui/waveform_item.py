@@ -33,6 +33,7 @@ COLOR_BG = QColor(8, 8, 12)                   # Dunkler Hintergrund
 
 # Tile-Konfiguration für gecachtes Rendering
 TILE_WIDTH = 512  # Pixel pro Tile
+TILE_CACHE_MAX = 256  # Max gecachte Tiles (~50MB bei 512×50px×4B)
 
 # LOD-Schwellwerte
 LOD_BEAT_MIN_SPACING_PX = 4    # Beats werden erst ab 4px Abstand gezeichnet
@@ -114,6 +115,9 @@ class WaveformGraphicsItem(QGraphicsItem):
             # Tile aus Cache holen oder rendern
             if tile_idx not in self._tile_cache:
                 self._tile_cache[tile_idx] = self._render_tile(tile_idx, tile_w, h)
+                # LRU-Eviction: älteste Tiles entfernen wenn Cache-Limit überschritten
+                while len(self._tile_cache) > TILE_CACHE_MAX:
+                    self._tile_cache.pop(next(iter(self._tile_cache)))
 
             pixmap = self._tile_cache[tile_idx]
             if pixmap:

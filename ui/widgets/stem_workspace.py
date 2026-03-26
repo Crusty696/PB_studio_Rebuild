@@ -162,7 +162,7 @@ class WaveformWidget(QWidget):
 
     clicked_position = Signal(float)  # Relative Position 0.0-1.0
 
-    def __init__(self, color: str = "#00D4E6", parent: QWidget | None = None):
+    def __init__(self, color: str = "#808080", parent: QWidget | None = None):
         super().__init__(parent)
         self._peaks: np.ndarray | None = None
         self._color = QColor(color)
@@ -223,7 +223,7 @@ class WaveformWidget(QWidget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
 
         # Background
-        painter.fillRect(0, 0, w, h, QColor(10, 10, 16))
+        painter.fillRect(0, 0, w, h, QColor(14, 14, 14))
 
         if self._loading:
             painter.setPen(QColor(80, 80, 80))
@@ -330,7 +330,7 @@ class StemTrackWidget(QWidget):
         controls.setFixedWidth(200)
         controls.setObjectName("stem_track_controls")
         controls.setStyleSheet(
-            f"#stem_track_controls {{ background: #0D0D18; "
+            f"#stem_track_controls {{ background: #161616; "
             f"border-right: 2px solid {color}; }}"
         )
         ctrl_layout = QVBoxLayout(controls)
@@ -359,17 +359,17 @@ class StemTrackWidget(QWidget):
         self._mute_btn.setStyleSheet(
             f"""
             QPushButton {{
-                background: #1A1A2A;
+                background: #1E1E1E;
                 color: #606060;
-                border: 1px solid #2A2A3A;
+                border: 1px solid #2E2E2E;
                 border-radius: 3px;
                 font-weight: 700;
                 font-size: 10px;
             }}
             QPushButton:checked {{
-                background: #FF3030;
+                background: #CC3333;
                 color: #FFFFFF;
-                border: 1px solid #FF5050;
+                border: 1px solid #EE4444;
             }}
             QPushButton:hover {{
                 border-color: {color};
@@ -389,17 +389,17 @@ class StemTrackWidget(QWidget):
         self._solo_btn.setStyleSheet(
             f"""
             QPushButton {{
-                background: #1A1A2A;
+                background: #1E1E1E;
                 color: #606060;
-                border: 1px solid #2A2A3A;
+                border: 1px solid #2E2E2E;
                 border-radius: 3px;
                 font-weight: 700;
                 font-size: 10px;
             }}
             QPushButton:checked {{
-                background: #FFD600;
-                color: #000000;
-                border: 1px solid #FFE040;
+                background: #D4AF37;
+                color: #0E0E0E;
+                border: 1px solid #E8CC6A;
             }}
             QPushButton:hover {{
                 border-color: {color};
@@ -421,7 +421,7 @@ class StemTrackWidget(QWidget):
         self._vol_slider.setStyleSheet(
             f"""
             QSlider::groove:horizontal {{
-                background: #1A1A2A;
+                background: #252525;
                 height: 4px;
                 border-radius: 2px;
             }}
@@ -435,6 +435,7 @@ class StemTrackWidget(QWidget):
             QSlider::sub-page:horizontal {{
                 background: {color};
                 border-radius: 2px;
+                opacity: 0.6;
             }}
             """
         )
@@ -463,7 +464,7 @@ class StemTrackWidget(QWidget):
         layout.addWidget(self._waveform, stretch=1)
 
         self.setStyleSheet(
-            "StemTrackWidget { background: #0A0A10; border-bottom: 1px solid #1A1A2A; }"
+            "StemTrackWidget { background: #141414; border-bottom: 1px solid #222222; }"
         )
 
     @property
@@ -526,16 +527,16 @@ class TransportBar(QWidget):
         layout.setSpacing(8)
 
         btn_style = (
-            "QPushButton { background: #1A1A2A; color: #B0B0B0; "
-            "border: 1px solid #2A2A3A; border-radius: 4px; "
+            "QPushButton { background: #1E1E1E; color: #A0A0A0; "
+            "border: 1px solid #2E2E2E; border-radius: 4px; "
             "font-size: 14px; font-weight: 700; padding: 4px 10px; }"
-            "QPushButton:hover { color: #00D4E6; border-color: #00607A; background: #1E1E2E; }"
+            "QPushButton:hover { color: #D0D0D0; border-color: #484848; background: #282828; }"
             "QPushButton:disabled { color: #303030; }"
         )
 
         # Stop
         self._btn_stop = QPushButton("\u25A0")
-        self._btn_stop.setFixedSize(36, 32)
+        self._btn_stop.setFixedSize(36, 36)
         self._btn_stop.setToolTip("Stop")
         self._btn_stop.setStyleSheet(btn_style)
         self._btn_stop.clicked.connect(self.stop_requested)
@@ -543,7 +544,7 @@ class TransportBar(QWidget):
 
         # Play/Pause
         self._btn_play = QPushButton("\u25B6")
-        self._btn_play.setFixedSize(36, 32)
+        self._btn_play.setFixedSize(36, 36)
         self._btn_play.setToolTip("Play / Pause")
         self._btn_play.setStyleSheet(btn_style)
         self._btn_play.clicked.connect(self._on_play_clicked)
@@ -554,7 +555,7 @@ class TransportBar(QWidget):
         self._time_current.setFixedWidth(70)
         self._time_current.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self._time_current.setStyleSheet(
-            "color: #00D4E6; font-size: 13px; font-weight: 700; "
+            "color: #C0C0C0; font-size: 13px; font-weight: 700; "
             "font-family: monospace; background: transparent; border: none;"
         )
         layout.addWidget(self._time_current)
@@ -566,11 +567,10 @@ class TransportBar(QWidget):
         self._pos_slider.setToolTip("Position")
         self._pos_slider.setObjectName("stem_seek_slider")
         self._pos_slider.setStyleSheet(
-            "QSlider::groove:horizontal { background: #1A1A2A; height: 6px; border-radius: 3px; }"
-            "QSlider::handle:horizontal { background: #00D4E6; width: 14px; height: 14px; "
+            "QSlider::groove:horizontal { background: #252525; height: 6px; border-radius: 3px; }"
+            "QSlider::handle:horizontal { background: #808080; width: 14px; height: 14px; "
             "margin: -4px 0; border-radius: 7px; }"
-            "QSlider::sub-page:horizontal { background: qlineargradient("
-            "x1:0,y1:0,x2:1,y2:0, stop:0 #00607A, stop:1 #00D4E6); border-radius: 3px; }"
+            "QSlider::sub-page:horizontal { background: #484848; border-radius: 3px; }"
         )
         self._pos_slider.sliderPressed.connect(self._on_seek_start)
         self._pos_slider.sliderReleased.connect(self._on_seek_end)
@@ -602,8 +602,8 @@ class TransportBar(QWidget):
         self._zoom_slider.setFixedWidth(100)
         self._zoom_slider.setToolTip("Waveform Zoom")
         self._zoom_slider.setStyleSheet(
-            "QSlider::groove:horizontal { background: #1A1A2A; height: 4px; border-radius: 2px; }"
-            "QSlider::handle:horizontal { background: #505050; width: 8px; height: 8px; "
+            "QSlider::groove:horizontal { background: #252525; height: 4px; border-radius: 2px; }"
+            "QSlider::handle:horizontal { background: #555555; width: 8px; height: 8px; "
             "margin: -2px 0; border-radius: 4px; }"
         )
         layout.addWidget(self._zoom_slider)
@@ -709,7 +709,7 @@ class StemWorkspace(QWidget):
 
         title = QLabel("STEM TRACKS")
         title.setStyleSheet(
-            "color: #00F0FF; font-weight: 700; font-size: 13px; "
+            "color: #A0A0A0; font-weight: 700; font-size: 13px; "
             "background: transparent; border: none;"
         )
         header_layout.addWidget(title)
@@ -727,9 +727,9 @@ class StemWorkspace(QWidget):
         btn_reset = QPushButton("Reset All")
         btn_reset.setFixedHeight(24)
         btn_reset.setStyleSheet(
-            "QPushButton { background: #1A1A2A; color: #707070; border: 1px solid #2A2A3A; "
+            "QPushButton { background: #1E1E1E; color: #606060; border: 1px solid #2E2E2E; "
             "border-radius: 3px; font-size: 10px; padding: 2px 10px; }"
-            "QPushButton:hover { color: #00D4E6; border-color: #00607A; }"
+            "QPushButton:hover { color: #B0B0B0; border-color: #484848; }"
         )
         btn_reset.clicked.connect(self._reset_all)
         header_layout.addWidget(btn_reset)
@@ -740,7 +740,7 @@ class StemWorkspace(QWidget):
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
         sep.setFixedHeight(1)
-        sep.setStyleSheet("background-color: #1E1E2E;")
+        sep.setStyleSheet("background-color: #222222;")
         layout.addWidget(sep)
 
         # ── 4 Track-Bänder ──
@@ -769,10 +769,10 @@ class StemWorkspace(QWidget):
         self._h_scroll.setRange(0, 0)
         self._h_scroll.setFixedHeight(14)
         self._h_scroll.setStyleSheet(
-            "QScrollBar:horizontal { background: #0A0A10; height: 14px; margin: 0; }"
-            "QScrollBar::handle:horizontal { background: #2A2A3A; min-width: 30px; "
+            "QScrollBar:horizontal { background: #121212; height: 14px; margin: 0; }"
+            "QScrollBar::handle:horizontal { background: #303030; min-width: 30px; "
             "border-radius: 3px; margin: 2px; }"
-            "QScrollBar::handle:horizontal:hover { background: #3A3A4A; }"
+            "QScrollBar::handle:horizontal:hover { background: #484848; }"
             "QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0; }"
         )
         self._h_scroll.valueChanged.connect(self._on_scroll)
@@ -859,14 +859,33 @@ class StemWorkspace(QWidget):
         worker.error.connect(self._on_peaks_error)
         worker.finished.connect(thread.quit)
         worker.error.connect(thread.quit)
-        # [NEW-01 FIX] Worker erst nach Thread-Ende löschen
+        # GC-FIX: Starke Referenzen halten bis thread wirklich fertig ist.
+        # _remove_finished_thread() wird via finished-Signal aufgerufen —
+        # erst dann werden die Python-Wrapper-Objekte freigegeben.
+        # (verhindert "Internal C++ object already deleted" wenn quit() async läuft)
         thread.finished.connect(worker.deleteLater)
         thread.finished.connect(thread.deleteLater)
+        thread.finished.connect(lambda t=thread, w=worker: self._remove_finished_thread(t, w))
 
         self._peak_threads.append(thread)
         self._peak_workers.append(worker)
 
         thread.start()
+
+    def _remove_finished_thread(self, thread: QThread, worker: "PeakWorker"):
+        """Entfernt einen fertigen Thread/Worker aus den Tracking-Listen.
+
+        Wird via thread.finished aufgerufen — zu diesem Zeitpunkt ist der
+        C++ QThread noch gültig (deleteLater steht erst in der Queue).
+        """
+        try:
+            self._peak_threads.remove(thread)
+        except ValueError:
+            pass
+        try:
+            self._peak_workers.remove(worker)
+        except ValueError:
+            pass
 
     def _on_peaks_ready(self, stem_name: str, peaks: np.ndarray):
         """Callback wenn Peak-Daten fertig sind."""
@@ -882,18 +901,16 @@ class StemWorkspace(QWidget):
     def _cleanup_peak_threads(self):
         """Beendet laufende Peak-Threads.
 
-        [C-07 FIX] worker.deleteLater() + cancel() statt blocking wait.
-        [I-04 FIX] Non-blocking: cancel + quit, kein wait() auf GUI-Thread.
+        GC-FIX: KEIN clear() der Listen hier — Python würde sonst die
+        Wrapper-Objekte sofort freigeben, während der C++ QThread noch läuft.
+        Stattdessen: cancel + quit, und _remove_finished_thread() räumt
+        die Listen auf sobald das thread.finished-Signal eintrifft.
         """
-        for worker in self._peak_workers:
+        for worker in list(self._peak_workers):
             worker.cancel()
-            # [NEW-01 FIX] Kein deleteLater() hier — wird via thread.finished erledigt
-        for thread in self._peak_threads:
+        for thread in list(self._peak_threads):
             if thread.isRunning():
                 thread.quit()
-                # Non-blocking: thread räumt sich selbst auf via deleteLater
-        self._peak_threads.clear()
-        self._peak_workers.clear()
 
     def _on_mute_toggled(self, stem_name: str, muted: bool):
         """Mute-Signal weiterleiten."""
@@ -952,3 +969,29 @@ class StemWorkspace(QWidget):
         self._solo_active.clear()
         for track in self._tracks.values():
             track.reset()
+
+    def closeEvent(self, event):
+        """Cleanup beim Schließen der StemWorkspace — Bug #26 Fix"""
+        # Disconnect signals wenn noch verbunden
+        try:
+            # Main Workspace signals
+            self.stem_volume_changed.disconnect()
+            self.stem_mute_toggled.disconnect()
+            self.play_requested.disconnect()
+            self.pause_requested.disconnect()
+            self.stop_requested.disconnect()
+            self.seek_requested.disconnect()
+        except (TypeError, RuntimeError):
+            pass
+
+        # Cleanup Peak Worker threads
+        try:
+            if hasattr(self, '_peak_threads'):
+                for thread in self._peak_threads:
+                    thread.quit()
+                    thread.wait(1000)
+        except (TypeError, RuntimeError):
+            pass
+
+        super().closeEvent(event)
+
