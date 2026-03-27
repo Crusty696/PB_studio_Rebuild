@@ -207,6 +207,7 @@ def compute_motion_scores(
 
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
+        cap.release()
         logger.error("Video konnte nicht geöffnet werden: %s", video_path)
         return scenes
 
@@ -472,8 +473,22 @@ def generate_embeddings(
         except torch.cuda.OutOfMemoryError:
             torch.cuda.empty_cache()
             gc.collect()
-            logger.error("OOM bei SigLIP Batch-Inference — VRAM nicht ausreichend (Batch %d–%d)",
-                         batch_start, batch_start + len(batch))
+            # Adaptive Retry: Batch halbieren und einzeln verarbeiten
+            logger.warning("OOM bei SigLIP Batch (size=%d) — Retry einzeln...", len(images))
+            for j, (img, scene) in enumerate(zip(images, valid_scenes)):
+                try:
+                    inp = processor(images=[img], return_tensors="pt", padding=True)
+                    inp = {k: v.to(mm.device) for k, v in inp.items()}
+                    with torch.no_grad():
+                        out = model.get_image_features(**inp)
+                        if not isinstance(out, torch.Tensor):
+                            out = out.pooler_output if hasattr(out, 'pooler_output') else out[0]
+                        emb = out / out.norm(p=2, dim=-1, keepdim=True)
+                        scene.embedding = emb.cpu().numpy().astype(np.float32)[0]
+                    del inp, out, emb
+                except torch.cuda.OutOfMemoryError:
+                    torch.cuda.empty_cache()
+                    logger.error("OOM auch bei Einzel-Inference — ueberspringe Bild %d", j)
         except Exception as e:
             logger.error("SigLIP Embedding-Fehler: %s", e)
 

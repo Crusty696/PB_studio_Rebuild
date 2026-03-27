@@ -145,12 +145,17 @@ class VectorDBService:
         if not rows:
             return []
 
+        # Vectorized similarity: numpy statt Python-Loop (~100x schneller, weniger RAM)
+        embeddings = np.vstack([np.frombuffer(row[7], dtype=np.float32) for row in rows])
+        norms = np.linalg.norm(embeddings, axis=1, keepdims=True) + 1e-8
+        similarities = (embeddings / norms) @ query_norm
+        # Top-K Indices ohne vollstaendiges Sort (O(n) statt O(n log n))
+        top_indices = np.argpartition(-similarities, min(top_k, len(similarities) - 1))[:top_k]
+        top_indices = top_indices[np.argsort(-similarities[top_indices])]
+
         results = []
-        for row in rows:
-            emb = np.frombuffer(row[7], dtype=np.float32)
-            emb_norm = emb / (np.linalg.norm(emb) + 1e-8)
-            similarity = float(np.dot(query_norm, emb_norm))
-            distance = 1.0 - similarity
+        for idx in top_indices:
+            row = rows[idx]
             results.append({
                 "id": row[0],
                 "video_path": row[1],
@@ -159,11 +164,9 @@ class VectorDBService:
                 "scene_end": row[4],
                 "motion_score": row[5],
                 "description": row[6],
-                "_distance": distance,
+                "_distance": 1.0 - float(similarities[idx]),
             })
-
-        results.sort(key=lambda x: x["_distance"])
-        return results[:top_k]
+        return results
 
     def search_by_text(
         self,
