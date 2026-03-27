@@ -107,19 +107,17 @@ def detect_scenes(
 def _load_raft_model():
     """Lädt RAFT Optical Flow Modell auf CUDA (falls verfügbar).
 
+    VRAM-Koexistenz: RAFT small (~0.5GB) kann neben SigLIP (~1.5GB) auf
+    6GB VRAM existieren. ModelManager wird NICHT entladen um ein
+    vorgeladenes SigLIP im Batch-Modus nicht zu zerstören.
+    Bei OOM wird als Fallback trotzdem entladen.
+
     Returns:
         (raft_model, device) oder (None, None) bei Fehler.
     """
     try:
         import torch
         import torchvision.models.optical_flow as of
-
-        # VRAM-Schutz: Vorheriges Modell entladen bevor RAFT geladen wird (6GB Limit)
-        try:
-            from services.model_manager import ModelManager
-            ModelManager().unload()
-        except Exception:
-            pass
 
         logger.info("[RAFT] Lade RAFT Optical Flow Modell...")
         # GPU-ZWANG: RAFT MUSS auf CUDA laufen wenn verfügbar
@@ -132,10 +130,22 @@ def _load_raft_model():
         try:
             raft = raft.to(device)
         except torch.cuda.OutOfMemoryError:
+            # OOM-Fallback: ModelManager entladen und nochmal versuchen
+            logger.warning("[RAFT] OOM — entlade ModelManager und versuche erneut...")
             torch.cuda.empty_cache()
             gc.collect()
-            logger.error("OOM beim Laden von RAFT — VRAM nicht ausreichend")
-            return None, None
+            try:
+                from services.model_manager import ModelManager
+                ModelManager().unload()
+            except Exception:
+                pass
+            torch.cuda.empty_cache()
+            gc.collect()
+            try:
+                raft = raft.to(device)
+            except torch.cuda.OutOfMemoryError:
+                logger.error("OOM beim Laden von RAFT — VRAM nicht ausreichend")
+                return None, None
         raft = raft.eval()
         logger.info("[RAFT] RAFT geladen auf %s", device)
         logger.info("RAFT Optical Flow geladen auf %s", device)
@@ -375,11 +385,17 @@ def extract_keyframes(
 def generate_embeddings(
     scenes: list[SceneInfo],
     progress_cb: Callable[[int, str], None] | None = None,
+    siglip_model_processor: tuple | None = None,
 ) -> list[SceneInfo]:
     """Generiert SigLIP 1152-dim Embeddings aus Keyframes.
 
     Nutzt ModelManager Singleton für VRAM-Schutz.
     Scenes ohne Keyframe werden übersprungen.
+
+    Args:
+        siglip_model_processor: Optional (model, processor) Tupel für Batch-Modus.
+            Wenn übergeben, wird SigLIP NICHT geladen/entladen (Caller ist verantwortlich).
+            Spart 5-15s pro Video bei Batch-Verarbeitung.
     """
     if progress_cb:
         progress_cb(65, "SigLIP Embeddings generieren...")
@@ -392,14 +408,20 @@ def generate_embeddings(
     from services.model_manager import ModelManager
     mm = ModelManager()
 
-    logger.info("[SIGLIP] Lade SigLIP Modell...")
-    try:
-        model, processor = mm.load_siglip()
-        logger.info("[SIGLIP] SigLIP geladen auf %s", mm.device)
-    except Exception as e:
-        logger.error("[SIGLIP] SigLIP FEHLER: %s", e)
-        logger.error("SigLIP konnte nicht geladen werden: %s", e)
-        return scenes
+    # Batch-Modus: SigLIP wurde vom Caller vorgeladen → wiederverwenden
+    owns_model = siglip_model_processor is None
+    if siglip_model_processor is not None:
+        model, processor = siglip_model_processor
+        logger.info("[SIGLIP] Verwende vorgeladenes SigLIP Modell (Batch-Modus)")
+    else:
+        logger.info("[SIGLIP] Lade SigLIP Modell...")
+        try:
+            model, processor = mm.load_siglip()
+            logger.info("[SIGLIP] SigLIP geladen auf %s", mm.device)
+        except Exception as e:
+            logger.error("[SIGLIP] SigLIP FEHLER: %s", e)
+            logger.error("SigLIP konnte nicht geladen werden: %s", e)
+            return scenes
 
     import torch
     from PIL import Image
@@ -458,8 +480,9 @@ def generate_embeddings(
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
-    # SigLIP entladen um VRAM freizugeben
-    mm.unload()
+    # SigLIP nur entladen wenn WIR es geladen haben (nicht im Batch-Modus)
+    if owns_model:
+        mm.unload()
 
     embedded = sum(1 for s in scenes if s.embedding is not None)
     logger.info("SigLIP Embeddings generiert: %d/%d", embedded, len(scenes))
@@ -628,6 +651,7 @@ def run_full_pipeline(
     threshold: float = 27.0,
     progress_cb: Callable[[int, str], None] | None = None,
     should_stop: Callable[[], bool] | None = None,
+    siglip_model_processor: tuple | None = None,
 ) -> PipelineResult:
     """Führt die komplette 3-Schritt Video-Analyse-Pipeline aus.
 
@@ -641,6 +665,8 @@ def run_full_pipeline(
         threshold: SceneDetect Schwellwert
         progress_cb: Callback(step, total, message)
         should_stop: Abbruch-Check Callback
+        siglip_model_processor: Optional (model, processor) Tupel für Batch-Modus.
+            Wenn übergeben, wird SigLIP NICHT pro Video geladen/entladen.
 
     Returns:
         PipelineResult mit allen Szenen und Embedding-Count
@@ -697,7 +723,7 @@ def run_full_pipeline(
     if should_stop and should_stop():
         return result
 
-    scenes = generate_embeddings(scenes)
+    scenes = generate_embeddings(scenes, siglip_model_processor=siglip_model_processor)
     logger.info("[PIPELINE] SigLIP Embeddings FERTIG")
 
     # Schritt 3b: In LanceDB speichern

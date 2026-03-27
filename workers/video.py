@@ -4,6 +4,7 @@ import gc
 import logging
 import subprocess
 import sys
+import time
 import traceback
 from pathlib import Path
 
@@ -159,12 +160,37 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
             self.error.emit(0, "Keine gültigen VideoClips zum Verarbeiten gefunden.")
             self.finished.emit(0, {})
             return
+
+        # ── Progress-Throttle: max 1 Signal pro 500ms um Event-Loop-Flooding zu verhindern ──
+        _last_progress_time = [0.0]  # mutable für closure
+
+        def _throttled_progress(pct: int, msg: str):
+            now = time.monotonic()
+            # Immer senden bei: 0%, 100%, oder wenn 500ms vergangen
+            if pct == 0 or pct >= 99 or (now - _last_progress_time[0]) >= 0.5:
+                self.progress.emit(pct, msg)
+                _last_progress_time[0] = now
+
+        siglip_model_processor = None  # Vor try-Block definiert für finally-Zugriff
         try:
             from services.video_analysis_service import run_full_pipeline
 
             total_scenes = 0
             total_embeddings = 0
             idx = 0
+
+            # ── BATCH-OPTIMIERUNG: SigLIP EINMAL laden für alle Videos ──
+            # Spart 5-15s pro Video bei 100 Videos = 8-25 Minuten gespart
+            if total_videos > 1:
+                try:
+                    from services.model_manager import ModelManager
+                    mm = ModelManager()
+                    logger.info("[BATCH] Lade SigLIP einmalig fuer %d Videos...", total_videos)
+                    siglip_model_processor = mm.load_siglip()
+                    logger.info("[BATCH] SigLIP vorgeladen auf %s — wird fuer alle Videos wiederverwendet", mm.device)
+                except Exception as e:
+                    logger.warning("[BATCH] SigLIP Vorladen fehlgeschlagen (%s) — Fallback: pro Video laden", e)
+                    siglip_model_processor = None
 
             for idx, (clip_id, video_path, title) in enumerate(self._batch, start=1):
                 if self.should_stop():
@@ -173,7 +199,7 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                 label = title or Path(video_path).stem
                 batch_base_pct = int((idx - 1) / total_videos * 100)
                 batch_range = int(100 / total_videos)
-                self.progress.emit(
+                _throttled_progress(
                     batch_base_pct,
                     f"Video {idx}/{total_videos}: '{label}' wird analysiert..."
                 )
@@ -183,12 +209,13 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                         video_path=video_path,
                         video_clip_id=clip_id,
                         progress_cb=lambda pct, msg, _base=batch_base_pct, _range=batch_range, _i=idx, _tv=total_videos: (
-                            self.progress.emit(
+                            _throttled_progress(
                                 min(99, _base + int(pct / 100 * _range)),
                                 f"[{_i}/{_tv}] {msg}"
                             )
                         ),
                         should_stop=self.should_stop,
+                        siglip_model_processor=siglip_model_processor,
                     )
                     total_scenes += len(result.scenes)
                     total_embeddings += result.embeddings_stored
@@ -202,7 +229,9 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                     self.finished.emit(last_clip_id, {})
                     return
                 finally:
-                    # VRAM-Schutz: GPU-Speicher nach JEDEM Video freigeben (6GB Limit)
+                    # VRAM-Schutz: GPU-Tensor-Cache nach JEDEM Video freigeben (6GB Limit)
+                    # Das Modell selbst bleibt geladen (siglip_model_processor), nur
+                    # Zwischen-Tensoren werden freigegeben
                     try:
                         import torch
                         if torch.cuda.is_available():
@@ -211,6 +240,17 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                     except ImportError:
                         pass
                     gc.collect()
+
+            # ── BATCH-CLEANUP: SigLIP am Ende der gesamten Batch entladen ──
+            if siglip_model_processor is not None:
+                try:
+                    from services.model_manager import ModelManager
+                    mm = ModelManager()
+                    mm.unload()
+                    logger.info("[BATCH] SigLIP nach Batch-Verarbeitung entladen")
+                except Exception as e:
+                    logger.warning("[BATCH] SigLIP Entladen fehlgeschlagen: %s", e)
+                siglip_model_processor = None  # Markiert als entladen für finally-Guard
 
             self.finished.emit(last_clip_id, {
                 "scenes": total_scenes,
@@ -224,6 +264,13 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
             self._errored = True
             self.error.emit(last_clip_id, str(e))
         finally:
+            # SigLIP Cleanup auch bei unerwarteten Exceptions
+            if siglip_model_processor is not None:
+                try:
+                    from services.model_manager import ModelManager
+                    ModelManager().unload()
+                except Exception:
+                    pass
             # finished MUSS immer emittiert werden damit thread.quit() greift
             if not _ok:
                 self.finished.emit(last_clip_id, {})

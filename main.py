@@ -1890,7 +1890,12 @@ class PBWindow(QMainWindow):
 
     def _on_pipeline_progress(self, pct: int, msg: str, task_id: str):
         # update_task wird automatisch durch die Task-Engine gemacht
-        self.console_text.append(f"[Pipeline] {msg} ({pct}%)")
+        # GUI-Throttle: Nur bei Video-Wechseln oder alle 10% in die Console schreiben
+        # um Event-Loop-Flooding und Repaint-Stau zu verhindern
+        last_pct = getattr(self, '_pipeline_last_pct', -10)
+        if abs(pct - last_pct) >= 10 or "wird analysiert" in msg:
+            self.console_text.append(f"[Pipeline] {msg} ({pct}%)")
+            self._pipeline_last_pct = pct
 
     def _on_pipeline_finished(self, clip_id: int, result: dict, title: str, task_id: str):
         if not result:
