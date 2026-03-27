@@ -27,6 +27,15 @@ logger = logging.getLogger(__name__)
 
 STEMS_DIR = APP_ROOT / "storage" / "stems"
 
+
+def _sanitize_ffmpeg_error(stderr: str, max_lines: int = 3) -> str:
+    """Sanitize FFmpeg stderr for safe error messages — strip full paths."""
+    if not stderr:
+        return "(no stderr)"
+    lines = stderr.strip().splitlines()
+    tail = lines[-max_lines:] if len(lines) > max_lines else lines
+    return "\n".join(tail)
+
 # Chunk-Dauer in Sekunden fuer VRAM-schonendes Processing
 CHUNK_SECONDS = 30
 # Overlap in Sekunden um Artefakte an Chunk-Grenzen zu vermeiden
@@ -307,7 +316,7 @@ class AutoDucker:
                 )
                 if result.returncode != 0:
                     stderr_msg = result.stderr.decode("utf-8", errors="replace") if isinstance(result.stderr, bytes) else (result.stderr or "")
-                    raise RuntimeError(f"FFmpeg Konvertierung fehlgeschlagen: {stderr_msg.splitlines()[-1] if stderr_msg.strip() else 'no stderr'}")
+                    raise RuntimeError(f"FFmpeg Konvertierung fehlgeschlagen: {_sanitize_ffmpeg_error(stderr_msg)}")
 
             if progress_cb:
                 progress_cb(50, "Scipy Ducking laeuft...")

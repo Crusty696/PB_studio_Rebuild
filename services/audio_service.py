@@ -1,9 +1,22 @@
 import json
+import threading
 import numpy as np
 import librosa
 
 from sqlalchemy.orm import Session
 from database import engine, AudioTrack
+
+# Per-Track Lock um Race Conditions bei parallelen Analysen desselben Tracks zu verhindern
+_track_locks: dict[int, threading.Lock] = {}
+_track_locks_guard = threading.Lock()
+
+
+def _get_track_lock(track_id: int) -> threading.Lock:
+    """Gibt einen Lock fuer den gegebenen Track zurueck (lazy erstellt)."""
+    with _track_locks_guard:
+        if track_id not in _track_locks:
+            _track_locks[track_id] = threading.Lock()
+        return _track_locks[track_id]
 
 
 class AudioAnalyzer:
@@ -64,7 +77,14 @@ class AudioAnalyzer:
 
         Beatgrid wird separat von BeatAnalysisService geschrieben.
         Session-Split: DB wird NICHT während der librosa-Analyse blockiert.
+        Per-Track Lock verhindert Race Conditions bei parallelen Aufrufen.
         """
+        lock = _get_track_lock(track_id)
+        with lock:
+            return self._analyze_and_store_locked(track_id, progress_cb)
+
+    def _analyze_and_store_locked(self, track_id: int, progress_cb=None) -> dict:
+        """Interne Implementierung von analyze_and_store (unter Lock)."""
         # 1) Erste Session: nur file_path laden, dann Session schließen
         with Session(engine) as session:
             track = session.get(AudioTrack, track_id)
