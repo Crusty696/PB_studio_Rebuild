@@ -84,30 +84,36 @@ Basiert auf: `docs/REFACTORING_PLAN.md` — alle 5 Phasen abgeschlossen.
 | ID       | Beschreibung                          | Status       |
 |----------|---------------------------------------|--------------|
 | V-003    | 3 GPU-Systeme nicht serialisiert      | AKZEPTIERT   |
-| S-01     | ai_audio stderr nicht via Sanitizer   | OFFEN        |
+| S-01     | ai_audio stderr nicht via Sanitizer   | GEFIXT       |
 | L-02     | VectorDB ID-Arithmetik fragil         | AKZEPTIERT   |
 | E-005    | vf_extra float(None)/NaN              | AKZEPTIERT   |
-| Z2S-003  | audio_service Race Condition          | DOKUMENTIERT |
+| Z2S-003  | audio_service Race Condition          | GEFIXT       |
 | Z2S-004  | structure_detection Off-by-One        | DOKUMENTIERT |
 | Z2S-008  | Spektral Nyquist-Grenze               | DOKUMENTIERT |
 | Z2S-022  | action_registry mutiert Handler-Dict  | DOKUMENTIERT |
 | Z2S-025  | TaskManager Singleton nicht threadsafe | AKZEPTIERT   |
 
 ### Tech Debt (P3 — Backlog)
-- main.py hat 2781 Zeilen (Refactoring-Kandidat, aber funktional)
-- PyTorch CVE-2025-32434 (CVSS 9.3) — Update auf sichere Version noetig
-- Clip-Drag DB-Writes ohne Debounce (Performance bei vielen Clips)
-- Worker-Leaks: deleteLater() fehlt an manchen Stellen
+- main.py Modularisierung laeuft (Mixin-Extraktion ~2781 → ~1000 Zeilen)
+- ~~PyTorch CVE-2025-32434~~ ERLEDIGT (v2.10.0+cu126 ist sicher)
+- ~~Clip-Drag DB-Writes ohne Debounce~~ ERLEDIGT (200ms Timer in ui/timeline.py)
+- ~~Worker-Leaks: deleteLater()~~ ERLEDIGT (_start_worker_thread hat korrektes Cleanup)
+
+### Erledigte Security/Bug Items (diese Session)
+- PyTorch CVE: v2.10.0 installiert (Fix war in v2.6.0)
+- S-01: _sanitize_ffmpeg_error() in ai_audio_service.py eingebaut
+- Z2S-003: Per-Track Threading-Lock in audio_service.py
+- __init__ Struktur-Bug: UI-Setup aus _do_refresh_media_table zurueck in __init__
+- Worker deleteLater(): Bereits korrekt in _start_worker_thread()
+- Clip-Drag Debounce: Bereits implementiert (200ms Timer)
 
 ---
 
 ## Naechste Schritte (Empfehlung)
 
-1. **P1: Security** — PyTorch auf sichere Version updaten (CVE-2025-32434)
-2. **P2: main.py Modularisierung** — 2781 Zeilen aufteilen in Module
-3. **P2: Mittlere Bugs** — S-01 (Sanitizer), Z2S-003 (Race Condition) fixen
-4. **P3: Performance** — Clip-Drag Debounce, Worker deleteLater()
-5. **P3: Feature** — Naechste Feature-Phase planen (v0.6.0)
+1. **P2: main.py Modularisierung** — Mixin-Extraktion abschliessen + verifizieren
+2. **P3: Verbleibende mittlere Bugs** — V-003 (GPU), Z2S-004 (Off-by-One), etc.
+3. **P3: Feature** — Naechste Feature-Phase planen (v0.6.0)
 
 ---
 
