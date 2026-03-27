@@ -24,8 +24,9 @@ PB Studio is a desktop video production tool designed for DJs and music video cr
 
 ### Video Analysis
 - Scene detection (PySceneDetect content detector)
-- Per-scene motion scoring with RAFT optical flow
-- Per-scene visual embeddings (SigLIP, 1152-dim) stored in LanceDB for semantic clip search
+- Per-scene motion scoring with RAFT optical flow (GPU-cached per batch)
+- Per-scene visual embeddings (SigLIP-so400m, 1152-dim) stored in SQLite VectorDB
+- Numpy-vectorized semantic clip search
 - Keyframe extraction for preview
 
 ### Waveform & Beatgrid Editor
@@ -149,7 +150,7 @@ pb-studio-rebuild/
 │   ├── proxies/             # NVENC proxy videos
 │   └── keyframes/           # Extracted video frames
 ├── exports/                 # Final rendered videos
-└── data/vector/             # LanceDB vector database
+└── data/vector/             # SQLite vector database (SigLIP embeddings)
 ```
 
 ---
@@ -160,7 +161,7 @@ pb-studio-rebuild/
 |---|---|
 | GUI | PySide6 (Qt 6.8+) |
 | Database | SQLAlchemy + SQLite |
-| Vector Search | LanceDB |
+| Vector Search | SQLite + numpy (cosine similarity) |
 | Timeline | OpenTimelineIO (OTIO) |
 | Beat Detection | beat_this (CPJKU, GPU) |
 | Stem Separation | Demucs `htdemucs_ft` |

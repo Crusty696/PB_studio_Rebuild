@@ -237,7 +237,7 @@ class EditWorkspace(QWidget):
         self.btn_auto_edit.setObjectName("btn_accent")
         self.btn_auto_edit.setFixedHeight(35)
         self.btn_auto_edit.setMaximumWidth(300)
-        self.btn_auto_edit.setToolTip("Phase 3: DJ-Pacing + OTIO Timeline + Anker + LanceDB Matching")
+        self.btn_auto_edit.setToolTip("Phase 3: DJ-Pacing + OTIO Timeline + Anker + VectorDB Matching")
         self.btn_auto_edit.setStyleSheet(_gold_btn_style)
         insp.addWidget(self.btn_auto_edit)
 

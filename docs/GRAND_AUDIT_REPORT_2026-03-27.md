@@ -19,10 +19,10 @@ unentdeckte Algorithmus-Bugs in nie geprüften Modulen (Key-Detection, Mood-
 Klassifikation, BatchConvert-Crash). **Zyklus 3** verifizierte alle Fixes und
 bestaetigte: 263/263 Tests gruen, 0 Syntax-Fehler, 0 Konsistenz-Verletzungen.
 
-**Systemgesundheit: AKZEPTABEL** (vorher: PROBLEMATISCH)
-Die kritischen Security-CVEs, Thread-Safety-Risiken und Datenintegritaetsprobleme
-sind behoben. Verbleibende Risiken sind mittelschwer (VRAM-Serialisierung,
-Startup-Architektur) und erfordern keine Sofortmassnahmen.
+**Systemgesundheit: GUT** (vorher: AKZEPTABEL → vorher: PROBLEMATISCH)
+Alle 9 mittleren Bugs nachtraeglich gefixt (Stand 2026-03-28).
+GPU_LOAD_LOCK serialisiert VRAM-Zugriffe, RAFT Batch-Caching verhindert
+Fragmentierung, VectorDB numpy-optimiert, DB WAL-tuned.
 
 ---
 

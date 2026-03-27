@@ -229,7 +229,7 @@ class VideoAnalysisMixin:
         videos_done = result.get("videos_processed", 1)
         self.console_text.append(
             f"[Pipeline] Fertig: {title} — {videos_done} Video(s), "
-            f"{scenes} Szenen, {embeddings} Embeddings in LanceDB"
+            f"{scenes} Szenen, {embeddings} Embeddings in VectorDB"
         )
         self.btn_video_pipeline.setEnabled(True)
         self.btn_video_pipeline.setText("Video-Pipeline (Szenen + KI)")

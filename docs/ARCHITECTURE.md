@@ -55,7 +55,7 @@ Each service is a focused module for one kind of processing:
 | `export_service.py` | Builds an FFmpeg filterchain from timeline entries and renders the final MP4 |
 | `convert_service.py` | Generates NVENC proxy files for smooth playback during editing |
 | `local_agent_service.py` | Runs the local Qwen 0.5B LLM for offline AI inference |
-| `vector_db_service.py` | Stores and queries SigLIP embeddings in LanceDB for semantic clip search |
+| `vector_db_service.py` | Stores and queries SigLIP embeddings in SQLite VectorDB for semantic clip search |
 | `register_actions.py` | Registers ~30 callable actions that agents and the UI can trigger by name |
 
 ### `ui/` — The Interface
@@ -100,7 +100,7 @@ Each stem is saved to `storage/stems/` and referenced in `AudioTrack`.
 1. PySceneDetect splits the clip into scenes at content-change boundaries
 2. RAFT (optical flow) scores each scene from 0.0 (static) to 1.0 (high motion)
 3. SigLIP generates a 1152-dimensional visual embedding for each scene's keyframe
-4. Embeddings are stored in LanceDB for later semantic search
+4. Embeddings are stored in SQLite VectorDB for later semantic search
 
 ### Step 4: Macro-Structure Detection
 
@@ -196,7 +196,7 @@ Audio File ──► beat_this ──► Beatgrid (DB)
 
 Video File ──► SceneDetect ──► Scenes (DB)
            ├──► RAFT ────────► motion scores (DB)
-           └──► SigLIP ──────► embeddings (LanceDB)
+           └──► SigLIP ──────► embeddings (SQLite VectorDB)
 
 Beatgrid + Stems + Scenes + Embeddings
            └──► pacing_service.auto_edit_phase3()

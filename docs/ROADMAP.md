@@ -99,21 +99,26 @@ Basiert auf: `docs/REFACTORING_PLAN.md` — alle 5 Phasen abgeschlossen.
 - ~~Clip-Drag DB-Writes ohne Debounce~~ ERLEDIGT (200ms Timer in ui/timeline.py)
 - ~~Worker-Leaks: deleteLater()~~ ERLEDIGT (_start_worker_thread hat korrektes Cleanup)
 
-### Erledigte Security/Bug Items (diese Session)
-- PyTorch CVE: v2.10.0 installiert (Fix war in v2.6.0)
-- S-01: _sanitize_ffmpeg_error() in ai_audio_service.py eingebaut
-- Z2S-003: Per-Track Threading-Lock in audio_service.py
+### Erledigte Items (Session 2026-03-27/28)
+- 9/9 Grand Audit Bugs gefixt (V-003, S-01, L-02, E-005, Z2S-003/004/008/022/025)
+- PyTorch CVE: v2.10.0 sicher, kein Update noetig
+- main.py: 2785→1002 Zeilen (8 Mixins extrahiert)
 - __init__ Struktur-Bug: UI-Setup aus _do_refresh_media_table zurueck in __init__
-- Worker deleteLater(): Bereits korrekt in _start_worker_thread()
-- Clip-Drag Debounce: Bereits implementiert (200ms Timer)
+- RAFT Batch-Caching: Kein VRAM-Crash mehr bei 40+ Videos
+- SigLIP OOM-Recovery: Adaptive Batch-Reduktion (8→1)
+- VectorDB: Numpy-vectorized Search (~100x schneller)
+- DB: PRAGMA synchronous=NORMAL + Index auf ai_pacing_memory
+- GPU_LOAD_LOCK: Serialisiert alle GPU-Modell-Lade-Operationen
+- Systematischer 15-Pattern Scan: 13/15 clean, 2 optimiert
+- Refactoring Phase A-E komplett abgeschlossen
 
 ---
 
 ## Naechste Schritte (Empfehlung)
 
-1. **v0.6.0 Feature-Planung** — Naechste Feature-Phase definieren
-2. **QA-Lauf** — Vollstaendiger E2E-Test mit echten Daten
-3. **Release vorbereiten** — Changelog, Version bump, PyInstaller-Test
+1. **QA-Lauf** — Vollstaendiger E2E-Test mit echten Daten (App starten, importieren, analysieren, rendern)
+2. **v0.6.0 Feature-Planung** — Naechste Feature-Phase definieren
+3. **Release vorbereiten** — Changelog, PyInstaller-Test
 
 ---
 

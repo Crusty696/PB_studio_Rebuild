@@ -332,7 +332,7 @@ class MediaWorkspace(QWidget):
 
         self.btn_search = QPushButton("Suchen")
         self.btn_search.setFixedWidth(80)
-        self.btn_search.setToolTip("Semantische Suche starten (SigLIP + LanceDB)")
+        self.btn_search.setToolTip("Semantische Suche starten (SigLIP + VectorDB)")
         search_row.addWidget(self.btn_search)
 
         self.btn_search_clear = QPushButton("X")
