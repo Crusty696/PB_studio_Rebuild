@@ -478,11 +478,17 @@ def store_embeddings(
     """
     from services.vector_db_service import VectorDBService
 
+    logger.info("[LanceDB] VectorDBService() erstellen...")
     vdb = VectorDBService()
+    logger.info("[LanceDB] connect + table init...")
+    _ = vdb.table  # Lazy-Init explizit triggern
+    logger.info("[LanceDB] Table bereit, count=%d", vdb.count())
 
     # Alte Embeddings für dieses Video löschen
     try:
+        logger.info("[LanceDB] delete_by_video('%s')...", Path(video_path).name)
         vdb.delete_by_video(video_path)
+        logger.info("[LanceDB] delete_by_video fertig")
     except Exception as e:
         logger.debug("delete_by_video fehlgeschlagen (ignoriert): %s", e)
 
@@ -503,8 +509,9 @@ def store_embeddings(
         })
 
     if entries:
+        logger.info("[LanceDB] add_embeddings_batch (%d entries)...", len(entries))
         vdb.add_embeddings_batch(entries)
-        logger.info("LanceDB: %d Embeddings gespeichert für %s", len(entries), Path(video_path).name)
+        logger.info("[LanceDB] %d Embeddings gespeichert für %s", len(entries), Path(video_path).name)
 
     return len(entries)
 
