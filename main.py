@@ -127,22 +127,6 @@ class PBWindow(QMainWindow):
         self._otio_timeline_service: TimelineService | None = None
         self._refresh_pending = False  # debounce flag for _refresh_media_table
 
-    # ── Thread-safe UI helpers ────────────────────────────────────────
-    def _console_append(self, text: str) -> None:
-        """Thread-safe console append via QTimer."""
-        QTimer.singleShot(0, lambda: self.console_text.append(text))
-
-    def _refresh_media_table_debounced(self) -> None:
-        """Debounced media table refresh — coalesces rapid calls."""
-        if self._refresh_pending:
-            return
-        self._refresh_pending = True
-        QTimer.singleShot(200, self._do_refresh_media_table)
-
-    def _do_refresh_media_table(self) -> None:
-        self._refresh_pending = False
-        self._refresh_media_table()
-
         # Zentrales Widget
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -266,6 +250,24 @@ class PBWindow(QMainWindow):
         # Sync chat dock close (X) back to toggle button
         self.chat_dock.visibilityChanged.connect(self._btn_toggle_chat.setChecked)
 
+        self._refresh_media_table()
+
+    # ── Thread-safe UI helpers ────────────────────────────────────────
+
+    def _console_append(self, text: str) -> None:
+        """Thread-safe console append via QTimer."""
+        QTimer.singleShot(0, lambda: self.console_text.append(text))
+
+    def _refresh_media_table_debounced(self) -> None:
+        """Debounced media table refresh — coalesces rapid calls."""
+        if self._refresh_pending:
+            return
+        self._refresh_pending = True
+        QTimer.singleShot(200, self._do_refresh_media_table)
+
+    def _do_refresh_media_table(self) -> None:
+        """Fuehrt die verzögerte Aktualisierung der Media-Tabelle aus."""
+        self._refresh_pending = False
         self._refresh_media_table()
 
     def closeEvent(self, event):
