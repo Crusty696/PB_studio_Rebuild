@@ -51,36 +51,30 @@
 
 ---
 
-## Aktuelle Phase: v0.5.0 — Refactoring & Stabilisierung
+## Abgeschlossene Phase: v0.5.0 — Refactoring & Stabilisierung (DONE)
 
-Basiert auf: `docs/REFACTORING_PLAN.md`
+Basiert auf: `docs/REFACTORING_PLAN.md` — alle 5 Phasen abgeschlossen.
 
 ### Phase A: Tests (DONE)
 - [x] 66 Unit-Tests fuer alle 5 Phase-4 Services
 - [x] conftest.py mit In-Memory DB Fixtures
 - [x] Alle Tests gruen
 
-### Phase B: audio_constants.py einbauen (TODO — P2)
-- [ ] key_detection_service.py: Magic Numbers ersetzen
-- [ ] lufs_service.py: Magic Numbers ersetzen
-- [ ] audio_classify_service.py: ~15 Magic Numbers ersetzen
-- [ ] spectral_analysis_service.py: ~20 Magic Numbers ersetzen
-- [ ] structure_detection_service.py: ~25 Magic Numbers ersetzen
-- **Aufwand:** Mechanisch, niedrig-Risiko
+### Phase B: audio_constants.py einbauen (DONE)
+- [x] Alle 5 Services nutzen audio_constants (19 Imports)
+- [x] Keine Magic Numbers mehr in Analyse-Logik
 
-### Phase C: Librosa Import-Guard vereinheitlichen (TODO — P2)
-- [ ] audio_classify_service.py: _HAS_LIBROSA Pattern
-- [ ] spectral_analysis_service.py: Modul-Level Import
-- [ ] structure_detection_service.py: Modul-Level Import
+### Phase C: Librosa Import-Guard vereinheitlichen (DONE)
+- [x] Alle Services nutzen _HAS_LIBROSA auf Modul-Ebene
 
-### Phase D: Lange Methoden aufsplitten (TODO — P2)
-- [ ] structure_detection_service.detect() (244 Zeilen -> ~5 Methoden)
-- [ ] spectral_analysis_service._detect_events() (142 Zeilen -> ~4 Methoden)
-- [ ] lufs_service.analyze() (112 Zeilen -> ~3 Methoden)
+### Phase D: Lange Methoden aufsplitten (DONE)
+- [x] structure_detection_service.detect() -> 5 Sub-Methoden
+- [x] spectral_analysis_service._detect_events() -> 4 Sub-Methoden
+- [x] lufs_service.analyze() -> _run_ffmpeg() + _extract_values()
 
-### Phase E: Worker Template-Method Pattern (TODO — P3)
-- [ ] BaseAnalysisWorker Basis-Klasse erstellen
-- [ ] 5 Worker auf Template-Pattern umstellen
+### Phase E: Worker Template-Method Pattern (DONE)
+- [x] BaseAnalysisWorker mit Template-Pattern in workers/audio_analysis.py
+- [x] 5 Worker erben von BaseAnalysisWorker
 
 ---
 
@@ -110,10 +104,10 @@ Basiert auf: `docs/REFACTORING_PLAN.md`
 ## Naechste Schritte (Empfehlung)
 
 1. **P1: Security** — PyTorch auf sichere Version updaten (CVE-2025-32434)
-2. **P2: Phase B** — audio_constants.py in Services einbauen (mechanisch, schnell)
-3. **P2: Phase C+D** — Import-Guards + Methoden aufsplitten
-4. **P3: Phase E** — Worker Template Pattern
-5. **P3: main.py** — Schrittweise Modularisierung
+2. **P2: main.py Modularisierung** — 2781 Zeilen aufteilen in Module
+3. **P2: Mittlere Bugs** — S-01 (Sanitizer), Z2S-003 (Race Condition) fixen
+4. **P3: Performance** — Clip-Drag Debounce, Worker deleteLater()
+5. **P3: Feature** — Naechste Feature-Phase planen (v0.6.0)
 
 ---
 
