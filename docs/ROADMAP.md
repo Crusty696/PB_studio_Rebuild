@@ -80,21 +80,21 @@ Basiert auf: `docs/REFACTORING_PLAN.md` — alle 5 Phasen abgeschlossen.
 
 ## Bekannte offene Probleme
 
-### Mittlere Prioritaet (P2 — dokumentiert)
+### Mittlere Prioritaet (P2 — ALLE GEFIXT)
 | ID       | Beschreibung                          | Status       |
 |----------|---------------------------------------|--------------|
-| V-003    | 3 GPU-Systeme nicht serialisiert      | AKZEPTIERT   |
+| V-003    | 3 GPU-Systeme nicht serialisiert      | GEFIXT       |
 | S-01     | ai_audio stderr nicht via Sanitizer   | GEFIXT       |
-| L-02     | VectorDB ID-Arithmetik fragil         | AKZEPTIERT   |
-| E-005    | vf_extra float(None)/NaN              | AKZEPTIERT   |
+| L-02     | VectorDB ID-Arithmetik fragil         | GEFIXT       |
+| E-005    | vf_extra float(None)/NaN              | GEFIXT       |
 | Z2S-003  | audio_service Race Condition          | GEFIXT       |
-| Z2S-004  | structure_detection Off-by-One        | DOKUMENTIERT |
-| Z2S-008  | Spektral Nyquist-Grenze               | DOKUMENTIERT |
-| Z2S-022  | action_registry mutiert Handler-Dict  | DOKUMENTIERT |
-| Z2S-025  | TaskManager Singleton nicht threadsafe | AKZEPTIERT   |
+| Z2S-004  | structure_detection Off-by-One        | GEFIXT       |
+| Z2S-008  | Spektral Nyquist-Grenze               | GEFIXT       |
+| Z2S-022  | action_registry mutiert Handler-Dict  | GEFIXT       |
+| Z2S-025  | TaskManager Singleton nicht threadsafe | GEFIXT       |
 
 ### Tech Debt (P3 — Backlog)
-- main.py Modularisierung laeuft (Mixin-Extraktion ~2781 → ~1000 Zeilen)
+- ~~main.py Modularisierung~~ ERLEDIGT (2785 → 1002 Zeilen, 8 Mixins)
 - ~~PyTorch CVE-2025-32434~~ ERLEDIGT (v2.10.0+cu126 ist sicher)
 - ~~Clip-Drag DB-Writes ohne Debounce~~ ERLEDIGT (200ms Timer in ui/timeline.py)
 - ~~Worker-Leaks: deleteLater()~~ ERLEDIGT (_start_worker_thread hat korrektes Cleanup)
@@ -111,9 +111,9 @@ Basiert auf: `docs/REFACTORING_PLAN.md` — alle 5 Phasen abgeschlossen.
 
 ## Naechste Schritte (Empfehlung)
 
-1. **P2: main.py Modularisierung** — Mixin-Extraktion abschliessen + verifizieren
-2. **P3: Verbleibende mittlere Bugs** — V-003 (GPU), Z2S-004 (Off-by-One), etc.
-3. **P3: Feature** — Naechste Feature-Phase planen (v0.6.0)
+1. **v0.6.0 Feature-Planung** — Naechste Feature-Phase definieren
+2. **QA-Lauf** — Vollstaendiger E2E-Test mit echten Daten
+3. **Release vorbereiten** — Changelog, Version bump, PyInstaller-Test
 
 ---
 
