@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "pb-studio-rebuild"
-version = "0.4.0"
+version = "0.5.0"
 description = "DaVinci Resolve Style Video/Audio Production Studio"
 authors = ["Your Name <you@example.com>"]
 package-mode = false

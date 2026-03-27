@@ -1,6 +1,6 @@
 # PB Studio
 
-**v0.4.0** — Beat-synchronized video editing powered by AI
+**v0.5.0** — Beat-synchronized video editing powered by AI
 
 PB Studio is a desktop video production tool designed for DJs and music video creators. It analyzes your audio track (beats, drops, stems) and automatically cuts your video footage in sync — the way a professional editor would. Built with PySide6, PyTorch, and FFmpeg.
 

@@ -6,11 +6,11 @@ This document explains how PB Studio works under the hood: what the key folders 
 
 ## Folder Overview
 
-### `main.py` — The Application Shell
+### `main.py` + `ui/mixins/` — The Application Shell
 
-The entry point. It does three things:
+The entry point (`main.py`, ~1000 lines) plus 8 mixin modules (`ui/mixins/`). Together they do three things:
 
-1. **Creates the Qt application** and builds the 4-tab workspace (MEDIA / EDIT / CONVERT / DELIVER), styled after DaVinci Resolve.
+1. **Creates the Qt application** and builds the 5-tab workspace (MEDIA / EDIT / STEMS / CONVERT / DELIVER), styled after DaVinci Resolve. The `PBWindow` class uses multiple inheritance from 8 mixins (`AudioAnalysisMixin`, `VideoAnalysisMixin`, `EditWorkspaceMixin`, `ImportMediaMixin`, `ConvertMixin`, `ExportMixin`, `StemsMixin`, `SearchMixin`).
 2. **Owns all background threads** via a `GlobalTaskManager` singleton. Every heavy operation (beat analysis, stem separation, video analysis, export) runs in its own `QThread` so the UI never freezes.
 3. **Implements the Command Pattern**: AI agents don't touch threads directly. Instead, they emit a signal with an action name (e.g., `"analyze_audio"`). The `GlobalTaskManager` receives this signal on the main thread, looks up the right worker class in its registry, creates it, and starts it.
 

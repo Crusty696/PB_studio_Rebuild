@@ -47,15 +47,15 @@ Startup-Architektur) und erfordern keine Sofortmassnahmen.
 | Z2S-011 | Key-Detection np.roll Richtung | — | HOCH | — | HOCH | GEFIXT |
 | Z2S-016 | Mood VERY_LOW > LOW invertiert | — | HOCH | — | HOCH | GEFIXT |
 | Z2S-035 | BatchConvert Resolution-Crash | — | HOCH | — | HOCH | GEFIXT |
-| V-003 | 3 GPU-Systeme nicht serialisiert | MITTEL | bestaetigt | — | HOCH | AKZEPTIERT |
-| S-01 | ai_audio stderr nicht via Sanitizer | MITTEL | — | — | MITTEL | OFFEN |
-| L-02 | VectorDB ID-Arithmetik fragil | MITTEL | bestaetigt | — | HOCH | AKZEPTIERT |
-| E-005 | vf_extra float(None)/NaN | MITTEL | — | — | MITTEL | AKZEPTIERT |
-| Z2S-003 | audio_service Race Condition | — | MITTEL | — | MITTEL | DOKUMENTIERT |
-| Z2S-004 | structure_detection Off-by-One | — | MITTEL | — | MITTEL | DOKUMENTIERT |
-| Z2S-008 | Spektral Nyquist-Grenze | — | MITTEL | — | MITTEL | DOKUMENTIERT |
-| Z2S-022 | action_registry mutiert Handler-Dict | — | MITTEL | — | MITTEL | DOKUMENTIERT |
-| Z2S-025 | TaskManager Singleton nicht threadsafe | — | MITTEL | — | MITTEL | AKZEPTIERT |
+| V-003 | 3 GPU-Systeme nicht serialisiert | MITTEL | bestaetigt | — | HOCH | GEFIXT |
+| S-01 | ai_audio stderr nicht via Sanitizer | MITTEL | — | — | MITTEL | GEFIXT |
+| L-02 | VectorDB ID-Arithmetik fragil | MITTEL | bestaetigt | — | HOCH | GEFIXT |
+| E-005 | vf_extra float(None)/NaN | MITTEL | — | — | MITTEL | GEFIXT |
+| Z2S-003 | audio_service Race Condition | — | MITTEL | — | MITTEL | GEFIXT |
+| Z2S-004 | structure_detection Off-by-One | — | MITTEL | — | MITTEL | GEFIXT |
+| Z2S-008 | Spektral Nyquist-Grenze | — | MITTEL | — | MITTEL | GEFIXT |
+| Z2S-022 | action_registry mutiert Handler-Dict | — | MITTEL | — | MITTEL | GEFIXT |
+| Z2S-025 | TaskManager Singleton nicht threadsafe | — | MITTEL | — | MITTEL | GEFIXT |
 | Z2S-026 | TaskManager doppelter Cleanup | — | MITTEL | — | MITTEL | DOKUMENTIERT |
 | Z2S-030 | editor_agent unsichere ID-Extraktion | — | MITTEL | — | MITTEL | DOKUMENTIERT |
 | INT-01 | Inkonsistente Scene-Dict-Schemas | NIEDRIG | bestaetigt | — | HOCH | DOKUMENTIERT |
