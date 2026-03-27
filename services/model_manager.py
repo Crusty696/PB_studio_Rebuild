@@ -21,6 +21,10 @@ torch = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
 
+# Globaler GPU-Semaphore: Serialisiert alle GPU-Modell-Lade-Operationen
+# (SigLIP, RAFT, beat_this) um VRAM-Races auf 6GB GTX 1060 zu verhindern
+GPU_LOAD_LOCK = threading.Lock()
+
 
 def _ensure_torch():
     """Lazy-Import von torch — wird beim ersten Zugriff geladen."""

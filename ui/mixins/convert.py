@@ -94,8 +94,8 @@ class ConvertMixin:
             file_path = clip.file_path
 
         # Validate and clamp float values to prevent FFmpeg filter injection
-        b = max(-1.0, min(1.0, float(brightness)))
-        c = max(0.0, min(3.0, float(contrast)))
+        b = max(-1.0, min(1.0, float(brightness if brightness is not None else 0.0)))
+        c = max(0.0, min(3.0, float(contrast if contrast is not None else 1.0)))
         vf_extra = f"eq=brightness={b}:contrast={c}"
         worker = FrameExtractWorker(file_path, 1.0, 320, 180, vf_extra)
         worker.frame_ready.connect(self._on_effect_frame_ready)

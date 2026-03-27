@@ -198,7 +198,7 @@ class VectorDBService:
             with self._connect() as conn:
                 placeholders = ",".join("?" for _ in clip_ids)
                 conn.execute(
-                    f"DELETE FROM clip_embeddings WHERE id / 1000000 IN ({placeholders})",
+                    f"DELETE FROM clip_embeddings WHERE CAST(id / 1000000 AS INTEGER) IN ({placeholders})",
                     clip_ids,
                 )
         logger.info("VectorDB: Embeddings fuer %d Clip-IDs geloescht", len(clip_ids))

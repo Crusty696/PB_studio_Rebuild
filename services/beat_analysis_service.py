@@ -53,30 +53,34 @@ class BeatAnalysisService:
 
         WICHTIG: Entlaedt zuerst den ModelManager, damit kein anderes
         Modell gleichzeitig VRAM belegt (GTX 1060 = 6GB Budget).
+        GPU_LOAD_LOCK serialisiert alle GPU-Lade-Operationen.
         """
         if self._model is not None:
             return
-        # ModelManager entladen bevor beat_this GPU-Speicher beansprucht
-        try:
-            from services.model_manager import ModelManager
-            ModelManager().unload()
-        except Exception as e:
-            logger.warning("ModelManager.unload() vor beat_this fehlgeschlagen: %s", e)
-        from beat_this.inference import File2Beats
-        import torch, gc
-        if torch.cuda.is_available():
-            logger.info("GPU-ZWANG: beat_this wird auf CUDA geladen (%s)", torch.cuda.get_device_name(0))
-        logger.info("Lade beat_this Modell (device=%s, dbn=False)...", self.device)
-        try:
-            self._model = File2Beats(device=self.device, dbn=False)
-        except torch.cuda.OutOfMemoryError:
-            torch.cuda.empty_cache()
-            gc.collect()
-            raise RuntimeError(
-                f"VRAM reicht nicht fuer beat_this auf '{self.device}'. "
-                "Bitte andere GPU-Modelle entladen."
-            )
-        logger.info("beat_this Modell geladen.")
+        from services.model_manager import ModelManager, GPU_LOAD_LOCK
+        with GPU_LOAD_LOCK:
+            if self._model is not None:  # Double-check nach Lock
+                return
+            # ModelManager entladen bevor beat_this GPU-Speicher beansprucht
+            try:
+                ModelManager().unload()
+            except Exception as e:
+                logger.warning("ModelManager.unload() vor beat_this fehlgeschlagen: %s", e)
+            from beat_this.inference import File2Beats
+            import torch, gc
+            if torch.cuda.is_available():
+                logger.info("GPU-ZWANG: beat_this wird auf CUDA geladen (%s)", torch.cuda.get_device_name(0))
+            logger.info("Lade beat_this Modell (device=%s, dbn=False)...", self.device)
+            try:
+                self._model = File2Beats(device=self.device, dbn=False)
+            except torch.cuda.OutOfMemoryError:
+                torch.cuda.empty_cache()
+                gc.collect()
+                raise RuntimeError(
+                    f"VRAM reicht nicht fuer beat_this auf '{self.device}'. "
+                    "Bitte andere GPU-Modelle entladen."
+                )
+            logger.info("beat_this Modell geladen.")
 
     def unload(self) -> None:
         """Entlaedt das Modell und gibt VRAM frei."""

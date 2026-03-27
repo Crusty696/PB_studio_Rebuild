@@ -107,10 +107,8 @@ def detect_scenes(
 def _load_raft_model():
     """Lädt RAFT Optical Flow Modell auf CUDA (falls verfügbar).
 
-    VRAM-Koexistenz: RAFT small (~0.5GB) kann neben SigLIP (~1.5GB) auf
-    6GB VRAM existieren. ModelManager wird NICHT entladen um ein
-    vorgeladenes SigLIP im Batch-Modus nicht zu zerstören.
-    Bei OOM wird als Fallback trotzdem entladen.
+    GPU_LOAD_LOCK serialisiert alle GPU-Lade-Operationen.
+    Bei OOM wird ModelManager entladen und nochmal versucht.
 
     Returns:
         (raft_model, device) oder (None, None) bei Fehler.
@@ -118,38 +116,36 @@ def _load_raft_model():
     try:
         import torch
         import torchvision.models.optical_flow as of
+        from services.model_manager import GPU_LOAD_LOCK
 
-        logger.info("[RAFT] Lade RAFT Optical Flow Modell...")
-        # GPU-ZWANG: RAFT MUSS auf CUDA laufen wenn verfügbar
-        cuda_ok = torch.cuda.is_available()
-        device = torch.device("cuda" if cuda_ok else "cpu")
-        if cuda_ok:
-            logger.info("[RAFT] GPU erkannt: %s", torch.cuda.get_device_name(0))
-            logger.info("GPU-ZWANG: RAFT wird auf CUDA geladen (%s)", torch.cuda.get_device_name(0))
-        raft = of.raft_small(weights=of.Raft_Small_Weights.DEFAULT)
-        try:
-            raft = raft.to(device)
-        except torch.cuda.OutOfMemoryError:
-            # OOM-Fallback: ModelManager entladen und nochmal versuchen
-            logger.warning("[RAFT] OOM — entlade ModelManager und versuche erneut...")
-            torch.cuda.empty_cache()
-            gc.collect()
-            try:
-                from services.model_manager import ModelManager
-                ModelManager().unload()
-            except Exception:
-                pass
-            torch.cuda.empty_cache()
-            gc.collect()
+        with GPU_LOAD_LOCK:
+            logger.info("[RAFT] Lade RAFT Optical Flow Modell...")
+            cuda_ok = torch.cuda.is_available()
+            device = torch.device("cuda" if cuda_ok else "cpu")
+            if cuda_ok:
+                logger.info("GPU-ZWANG: RAFT wird auf CUDA geladen (%s)", torch.cuda.get_device_name(0))
+            raft = of.raft_small(weights=of.Raft_Small_Weights.DEFAULT)
             try:
                 raft = raft.to(device)
             except torch.cuda.OutOfMemoryError:
-                logger.error("OOM beim Laden von RAFT — VRAM nicht ausreichend")
-                return None, None
-        raft = raft.eval()
-        logger.info("[RAFT] RAFT geladen auf %s", device)
-        logger.info("RAFT Optical Flow geladen auf %s", device)
-        return raft, device
+                logger.warning("[RAFT] OOM — entlade ModelManager und versuche erneut...")
+                torch.cuda.empty_cache()
+                gc.collect()
+                try:
+                    from services.model_manager import ModelManager
+                    ModelManager().unload()
+                except Exception:
+                    pass
+                torch.cuda.empty_cache()
+                gc.collect()
+                try:
+                    raft = raft.to(device)
+                except torch.cuda.OutOfMemoryError:
+                    logger.error("OOM beim Laden von RAFT — VRAM nicht ausreichend")
+                    return None, None
+            raft = raft.eval()
+            logger.info("RAFT Optical Flow geladen auf %s", device)
+            return raft, device
     except Exception as e:
         logger.warning("RAFT nicht verfügbar (%s) — nutze CPU-Fallback", e)
         return None, None

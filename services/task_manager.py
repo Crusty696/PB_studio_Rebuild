@@ -2,6 +2,7 @@
 
 import gc
 import logging
+import threading
 import time
 import uuid
 
@@ -56,11 +57,14 @@ class GlobalTaskManager(QObject):
     agent_command_signal = Signal(str, dict)  # action_name, kwargs
 
     _instance: "GlobalTaskManager | None" = None
+    _instance_lock: threading.Lock = threading.Lock()
 
     @classmethod
     def instance(cls) -> "GlobalTaskManager":
         if cls._instance is None:
-            cls._instance = cls()
+            with cls._instance_lock:
+                if cls._instance is None:  # Double-checked locking
+                    cls._instance = cls()
         return cls._instance
 
     def __init__(self):

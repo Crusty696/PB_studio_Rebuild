@@ -309,16 +309,18 @@ class StructureDetectionService:
                 seg_start_idx = i
                 current_label = labels[i]
 
-        # Letztes Segment
+        # Letztes Segment — end_time = letzter Beat (nicht track-Ende, da
+        # wir nur beat-basierte Segmente liefern)
         seg_start_time = float(beats[seg_start_idx]) if seg_start_idx < len(beats) else 0.0
-        seg_end_time = float(beats[-1]) if len(beats) > 0 else 0.0
+        seg_end_time = float(beats[-1]) if len(beats) > 0 else seg_start_time
+        remaining = max(1, n_beats - seg_start_idx)  # Guard gegen 0 bei letztem Beat
         avg_energy = float(np.mean(energy_norm[seg_start_idx:]))
         segments.append(StructureSegmentResult(
             start_time=round(seg_start_time, 3),
             end_time=round(seg_end_time, 3),
             label=current_label,
             energy=round(avg_energy, 4),
-            confidence=self._label_confidence(current_label, avg_energy, n_beats - seg_start_idx),
+            confidence=self._label_confidence(current_label, avg_energy, remaining),
         ))
 
         return segments

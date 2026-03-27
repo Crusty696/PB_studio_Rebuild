@@ -193,7 +193,7 @@ class ActionRegistry:
         try:
             result = action.handler(**filtered)
             if dropped_params and isinstance(result, dict):
-                result["_dropped_params"] = sorted(dropped_params)
+                result = {**result, "_dropped_params": sorted(dropped_params)}
             return result
         except TypeError as exc:
             logger.error(

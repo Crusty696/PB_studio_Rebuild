@@ -121,7 +121,15 @@ class SpectralAnalysisService:
             band_energies_raw: list[float] = []
             bands: list[SpectralBand] = []
 
+            nyquist = sr / 2.0
             for name, freq_low, freq_high in FREQUENCY_BANDS:
+                # Clamp frequencies to Nyquist limit (sr/2)
+                freq_low = min(freq_low, nyquist)
+                freq_high = min(freq_high, nyquist)
+                if freq_high <= freq_low:
+                    bands.append(SpectralBand(name=name, freq_low=freq_low, freq_high=freq_high, energy=0.0))
+                    band_energies_raw.append(0.0)
+                    continue
                 bin_low = int(freq_low * n_fft / sr)
                 bin_high = int(freq_high * n_fft / sr)
 
