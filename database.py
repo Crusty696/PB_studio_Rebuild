@@ -26,6 +26,7 @@ def _set_sqlite_pragma(dbapi_connection, connection_record):
     cursor = dbapi_connection.cursor()
     cursor.execute("PRAGMA foreign_keys=ON")
     cursor.execute("PRAGMA journal_mode=WAL")
+    cursor.execute("PRAGMA synchronous=NORMAL")  # WAL-optimiert: fsync nur bei Checkpoint
     cursor.close()
 
 
@@ -595,6 +596,8 @@ def init_db():
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_clip_anchors_timeline_entry_id ON clip_anchors(timeline_entry_id)"))
         # P2-02: UNIQUE Index auf beatgrids.audio_track_id (verhindert Duplikate)
         conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_beatgrids_audio_track_id ON beatgrids(audio_track_id)"))
+        # Index auf ai_pacing_memory.audio_track_id (Abfrage-Performance bei vielen gelernten Regeln)
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ai_pacing_memory_audio_track_id ON ai_pacing_memory(audio_track_id)"))
 
     with Session(engine) as session:
         if not session.query(Project).first():
