@@ -82,15 +82,11 @@ def _safe_float(value, default: float = 0.0) -> float:
 class LUFSService:
     """Misst die Lautstaerke nach EBU R128 Standard via FFmpeg loudnorm."""
 
-    def analyze(self, file_path: str) -> LUFSResult:  # noqa: C901
+    def analyze(self, file_path: str) -> LUFSResult:
         """Analysiert die Lautstaerke einer Audio-Datei.
 
-        Uses FFmpeg's ``loudnorm`` filter (EBU R128) with
-        ``print_format=json`` to obtain:
-        - Integrated loudness (input_i)
-        - Loudness range / LRA (input_lra)
-        - True peak (input_tp)
-        - Short-term maximum (estimated from integrated + LRA/2)
+        Uses FFmpeg's ``loudnorm`` filter (EBU R128) to obtain integrated
+        loudness, loudness range, true peak and an estimated short-term max.
 
         Args:
             file_path: Pfad zur Audio-Datei
@@ -98,8 +94,6 @@ class LUFSService:
         Returns:
             LUFSResult mit Integrated/Short-Term/Range/TruePeak
         """
-        from services.audio_constants import FFMPEG_TIMEOUT_SEC, ST_MAX_HEADROOM_DB
-
         fallback = LUFSResult(
             integrated=-14.0,
             short_term_max=-10.0,
@@ -108,44 +102,10 @@ class LUFSService:
         )
 
         try:
-            # ------------------------------------------------------------------
-            # 1. Run FFmpeg loudnorm analysis pass
-            # ------------------------------------------------------------------
-            cmd = [
-                _FFMPEG,
-                "-hide_banner",
-                "-i", file_path,
-                "-af", "loudnorm=print_format=json",
-                "-f", "null",
-                "-",
-            ]
-
-            log.debug("LUFS-Analyse Kommando: %s", " ".join(cmd))
-
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=FFMPEG_TIMEOUT_SEC,
-                # On Windows, hide the console window for subprocess
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-            )
-
-            # FFmpeg writes loudnorm output to stderr (exit code may be 0 or 1
-            # depending on the version — we rely on the JSON being present).
-            stderr = result.stderr or ""
-
-            if result.returncode != 0 and "input_i" not in stderr:
-                log.error(
-                    "FFmpeg loudnorm fehlgeschlagen (exit=%d): %s",
-                    result.returncode,
-                    stderr[-500:] if stderr else "(kein stderr)",
-                )
+            stderr = self._run_ffmpeg(file_path)
+            if stderr is None:
                 return fallback
 
-            # ------------------------------------------------------------------
-            # 2. Parse the JSON block from stderr
-            # ------------------------------------------------------------------
             data = _parse_loudnorm_json(stderr)
             if data is None:
                 log.error(
@@ -155,32 +115,7 @@ class LUFSService:
                 )
                 return fallback
 
-            # ------------------------------------------------------------------
-            # 3. Extract values
-            # ------------------------------------------------------------------
-            integrated = _safe_float(data.get("input_i"), -14.0)
-            loudness_range = _safe_float(data.get("input_lra"), 8.0)
-            true_peak = _safe_float(data.get("input_tp"), -1.0)
-
-            # Short-term max: FFmpeg loudnorm doesn't directly report this.
-            # A practical estimate: integrated + half the loudness range
-            # gives a reasonable approximation of the short-term maximum.
-            # Clamp so it doesn't exceed true peak by too much.
-            short_term_max = integrated + (loudness_range / 2.0)
-            # Short-term max should not exceed true peak + headroom (sanity)
-            short_term_max = min(short_term_max, true_peak + ST_MAX_HEADROOM_DB)
-
-            log.info(
-                "LUFS-Analyse: integrated=%.1f, LRA=%.1f, TP=%.1f, ST_max=%.1f — %s",
-                integrated, loudness_range, true_peak, short_term_max, file_path,
-            )
-
-            return LUFSResult(
-                integrated=round(integrated, 2),
-                short_term_max=round(short_term_max, 2),
-                loudness_range=round(loudness_range, 2),
-                true_peak=round(true_peak, 2),
-            )
+            return self._extract_values(data, file_path)
 
         except FileNotFoundError:
             log.error(
@@ -191,9 +126,83 @@ class LUFSService:
             return fallback
 
         except subprocess.TimeoutExpired:
-            log.error("FFmpeg LUFS-Analyse Timeout (120s) fuer: %s", file_path)
+            from services.audio_constants import FFMPEG_TIMEOUT_SEC
+            log.error("FFmpeg LUFS-Analyse Timeout (%ds) fuer: %s", FFMPEG_TIMEOUT_SEC, file_path)
             return fallback
 
         except Exception:
             log.exception("Unerwarteter Fehler bei LUFS-Analyse fuer: %s", file_path)
             return fallback
+
+    def _run_ffmpeg(self, file_path: str) -> str | None:
+        """Fuehrt FFmpeg loudnorm Analyse-Pass aus und gibt stderr zurueck.
+
+        Returns:
+            stderr-Output bei Erfolg, None bei Fehler.
+        """
+        from services.audio_constants import FFMPEG_TIMEOUT_SEC
+
+        cmd = [
+            _FFMPEG,
+            "-hide_banner",
+            "-i", file_path,
+            "-af", "loudnorm=print_format=json",
+            "-f", "null",
+            "-",
+        ]
+
+        log.debug("LUFS-Analyse Kommando: %s", " ".join(cmd))
+
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=FFMPEG_TIMEOUT_SEC,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+
+        stderr = result.stderr or ""
+
+        if result.returncode != 0 and "input_i" not in stderr:
+            log.error(
+                "FFmpeg loudnorm fehlgeschlagen (exit=%d): %s",
+                result.returncode,
+                stderr[-500:] if stderr else "(kein stderr)",
+            )
+            return None
+
+        return stderr
+
+    @staticmethod
+    def _extract_values(data: dict, file_path: str) -> LUFSResult:
+        """Extrahiert LUFS-Werte aus dem geparsten loudnorm-JSON.
+
+        Args:
+            data: Geparster JSON-Block von FFmpeg loudnorm
+            file_path: Pfad zur Audio-Datei (fuer Logging)
+
+        Returns:
+            LUFSResult mit gerundeten Werten
+        """
+        from services.audio_constants import ST_MAX_HEADROOM_DB
+
+        integrated = _safe_float(data.get("input_i"), -14.0)
+        loudness_range = _safe_float(data.get("input_lra"), 8.0)
+        true_peak = _safe_float(data.get("input_tp"), -1.0)
+
+        # Short-term max: integrated + half the loudness range as approximation.
+        # Clamp so it doesn't exceed true peak + headroom.
+        short_term_max = integrated + (loudness_range / 2.0)
+        short_term_max = min(short_term_max, true_peak + ST_MAX_HEADROOM_DB)
+
+        log.info(
+            "LUFS-Analyse: integrated=%.1f, LRA=%.1f, TP=%.1f, ST_max=%.1f — %s",
+            integrated, loudness_range, true_peak, short_term_max, file_path,
+        )
+
+        return LUFSResult(
+            integrated=round(integrated, 2),
+            short_term_max=round(short_term_max, 2),
+            loudness_range=round(loudness_range, 2),
+            true_peak=round(true_peak, 2),
+        )
