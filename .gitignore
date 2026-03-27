@@ -31,6 +31,17 @@ poc_lancedb_data/
 *.txn
 *.manifest
 
+# Claude Code internals
+.agents/
+.claude/
+skills-lock.json
+
+# QA screenshots and recordings (binary assets)
+docs/qa_screenshots/**/*.png
+docs/qa_screenshots/**/*.mp4
+docs/qa_screenshots/e2e_2026_03_26/
+docs/qa_screenshots/e2e_run/
+
 # OS
 Thumbs.db
 desktop.ini
