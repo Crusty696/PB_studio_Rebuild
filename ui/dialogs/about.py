@@ -7,6 +7,8 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 
+from ui.theme import BG1, ACCENT, T1
+
 
 def _gpu_info() -> str:
     """Try to detect GPU name + CUDA version."""
@@ -37,7 +39,7 @@ class AboutDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("About PB Studio")
         self.setFixedSize(460, 420)
-        self.setStyleSheet("background-color: #1a1b23;")
+        self.setStyleSheet(f"background-color: {BG1};")
 
         layout = QVBoxLayout(self)
         layout.setSpacing(10)

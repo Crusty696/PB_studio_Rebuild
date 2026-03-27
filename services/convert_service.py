@@ -34,6 +34,29 @@ MASTER_DIR = APP_ROOT / "exports"
 FFMPEG = os.environ.get("FFMPEG_PATH", "ffmpeg")
 FFPROBE = os.environ.get("FFPROBE_PATH", "ffprobe")
 
+# Windows reserved device names (case-insensitive)
+_WIN_RESERVED = frozenset(
+    {"con", "prn", "aux", "nul"}
+    | {f"com{i}" for i in range(1, 10)}
+    | {f"lpt{i}" for i in range(1, 10)}
+)
+
+
+def _sanitize_ffmpeg_error(stderr: str, max_lines: int = 3) -> str:
+    """Sanitize FFmpeg stderr for safe error messages — strip full paths."""
+    if not stderr:
+        return "(no stderr)"
+    lines = stderr.strip().splitlines()
+    tail = lines[-max_lines:] if len(lines) > max_lines else lines
+    return "\n".join(tail)
+
+
+def _safe_stem(stem: str) -> str:
+    """Escape Windows reserved device names in file stems."""
+    if stem.lower() in _WIN_RESERVED:
+        return f"_{stem}"
+    return stem
+
 
 @dataclass
 class ConvertPreset:
@@ -194,7 +217,7 @@ def convert(
     if output_path is None:
         preset.output_dir.mkdir(parents=True, exist_ok=True)
         suffix = f"_{preset_name}.{preset.container}"
-        output_path = preset.output_dir / f"{input_path.stem}{suffix}"
+        output_path = preset.output_dir / f"{_safe_stem(input_path.stem)}{suffix}"
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -257,7 +280,7 @@ def convert(
     if not output_path.exists():
         logger.error(f"[ConvertService] FFmpeg lief durch (rc=0), aber Ausgabedatei fehlt!")
         logger.error(f"[ConvertService] stderr: {ffmpeg_stderr[-1000:]}")
-        raise RuntimeError(f"Konvertierung fehlgeschlagen: Ausgabe nicht erstellt. stderr: {ffmpeg_stderr[-500:]}")
+        raise RuntimeError(f"Konvertierung fehlgeschlagen: Ausgabe nicht erstellt. stderr: {_sanitize_ffmpeg_error(ffmpeg_stderr)}")
 
     file_size = output_path.stat().st_size
     size_mb = file_size / (1024 * 1024)

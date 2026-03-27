@@ -196,6 +196,7 @@ class MediaWorkspace(QWidget):
 
         # ── Connect mode toggle ──────────────────────────────
         self.btn_mode_video.toggled.connect(self._on_mode_toggled)
+        self.btn_mode_audio.toggled.connect(lambda checked: self.mode_stack.setCurrentIndex(1 if checked else 0))
 
     # ── VIDEO PAGE ────────────────────────────────────────────
     def _build_video_page(self):

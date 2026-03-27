@@ -63,7 +63,7 @@ class TestClassifyMood:
         assert AudioClassifyService._classify_mood(1500.0, 0.02) == "melancholic"
 
     def test_chill(self):
-        assert AudioClassifyService._classify_mood(2000.0, 0.02) == "chill"
+        assert AudioClassifyService._classify_mood(1200.0, 0.02) == "chill"
 
     def test_dark_default(self):
         """Werte die in keine Kategorie passen → 'dark'."""

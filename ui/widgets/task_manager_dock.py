@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal, QTimer
 
 from services.task_manager import GlobalTaskManager
+from ui.theme import BG0, BG1, BG2, BG3, BG4, ACCENT, ACCENT_BRIGHT, ACCENT_DIM, ERR, T1, T2, T3
 
 
 class TaskManagerDock(QDockWidget):
@@ -47,9 +48,9 @@ class TaskManagerDock(QDockWidget):
         self.btn_clear.setFixedHeight(20)
         self.btn_clear.setFixedWidth(110)
         self.btn_clear.setStyleSheet(
-            "QPushButton { background: #1E1E1E; color: #606060; border: 1px solid #333; "
-            "font-size: 9px; border-radius: 3px; padding: 0 6px; }"
-            "QPushButton:hover { color: #C0C0C0; background: #282828; }"
+            f"QPushButton {{ background: {BG3}; color: {T3}; border: 1px solid {BG4}; "
+            f"font-size: 9px; border-radius: 3px; padding: 0 6px; }}"
+            f"QPushButton:hover {{ color: {T1}; background: {BG4}; }}"
         )
         self.btn_clear.setToolTip("Abgeschlossene Tasks aus der Liste entfernen")
         self.btn_clear.clicked.connect(self._clear_finished)
@@ -59,9 +60,9 @@ class TaskManagerDock(QDockWidget):
         self.btn_cancel.setFixedHeight(20)
         self.btn_cancel.setFixedWidth(90)
         self.btn_cancel.setStyleSheet(
-            "QPushButton { background: #3A1010; color: #FF5050; border: 1px solid #FF3030; "
-            "font-size: 10px; font-weight: bold; border-radius: 3px; padding: 0 6px; }"
-            "QPushButton:hover { background: #FF3030; color: #FFFFFF; }"
+            f"QPushButton {{ background: {BG3}; color: {ERR}; border: 1px solid {ERR}; "
+            f"font-size: 10px; font-weight: bold; border-radius: 3px; padding: 0 6px; }}"
+            f"QPushButton:hover {{ background: {ERR}; color: {T1}; }}"
         )
         self.btn_cancel.setToolTip("Laufenden Task abbrechen")
         self.btn_cancel.clicked.connect(self._on_cancel_clicked)

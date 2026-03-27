@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
     QComboBox, QGraphicsView, QGraphicsScene, QGraphicsRectItem,
     QGraphicsTextItem, QGraphicsLineItem, QDialog, QFrame,
     QTreeWidget, QTreeWidgetItem, QCheckBox, QStackedWidget,
-    QSizePolicy, QSpacerItem, QMenu, QGraphicsPolygonItem, QSpinBox,
+    QSizePolicy, QSpacerItem, QMenu, QGraphicsPolygonItem, QSpinBox, QDoubleSpinBox,
     QScrollArea,
 )
 from PySide6.QtCore import Qt, QThread, Signal, QObject, QRectF, QPointF, QTimer
@@ -125,6 +125,23 @@ class PBWindow(QMainWindow):
         self._active_threads: list[QThread] = []
         self._active_workers: list[QObject] = []
         self._otio_timeline_service: TimelineService | None = None
+        self._refresh_pending = False  # debounce flag for _refresh_media_table
+
+    # ── Thread-safe UI helpers ────────────────────────────────────────
+    def _console_append(self, text: str) -> None:
+        """Thread-safe console append via QTimer."""
+        QTimer.singleShot(0, lambda: self.console_text.append(text))
+
+    def _refresh_media_table_debounced(self) -> None:
+        """Debounced media table refresh — coalesces rapid calls."""
+        if self._refresh_pending:
+            return
+        self._refresh_pending = True
+        QTimer.singleShot(200, self._do_refresh_media_table)
+
+    def _do_refresh_media_table(self) -> None:
+        self._refresh_pending = False
+        self._refresh_media_table()
 
         # Zentrales Widget
         central_widget = QWidget()
@@ -252,12 +269,29 @@ class PBWindow(QMainWindow):
         self._refresh_media_table()
 
     def closeEvent(self, event):
-        # 0. Stop background timers
+        # 0. Check for running tasks and ask user
+        try:
+            tm = GlobalTaskManager.instance()
+            running = [t for t in tm.get_all_tasks() if t.status == "running"]
+            if running:
+                from PySide6.QtWidgets import QMessageBox
+                reply = QMessageBox.question(
+                    self, "Laufende Tasks",
+                    f"{len(running)} Task(s) laufen noch. Trotzdem beenden?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No,
+                )
+                if reply == QMessageBox.StandardButton.No:
+                    event.ignore()
+                    return
+        except Exception:
+            pass
+
+        # 1. Stop background timers
         if hasattr(self, '_task_mgr_dock') and hasattr(self._task_mgr_dock, '_timer'):
             self._task_mgr_dock._timer.stop()
-        # ResourceMonitor timer is stopped via its parent widget deletion
 
-        # 1. Alle Tasks im GlobalTaskManager abbrechen (Threads via start_task)
+        # 2. Alle Tasks im GlobalTaskManager abbrechen
         try:
             tm = GlobalTaskManager.instance()
             for task in tm.get_all_tasks():
@@ -277,7 +311,14 @@ class PBWindow(QMainWindow):
         # Globale Liste beim Schliessen ebenfalls leeren
         _GLOBAL_ACTIVE_THREADS.clear()
 
-        # 3. Stem Player aufraeumen
+        # 3. Video Preview stoppen (verhindert Thread-Leak + DB-Error)
+        if hasattr(self, "video_preview"):
+            try:
+                self.video_preview.stop()
+            except Exception:
+                pass
+
+        # 4. Stem Player aufraeumen
         if hasattr(self, "stem_player"):
             self.stem_player.cleanup()
 
@@ -733,7 +774,10 @@ class PBWindow(QMainWindow):
                 return
             file_path = clip.file_path
 
-        vf_extra = f"eq=brightness={brightness}:contrast={contrast}"
+        # Validate and clamp float values to prevent FFmpeg filter injection
+        b = max(-1.0, min(1.0, float(brightness)))
+        c = max(0.0, min(3.0, float(contrast)))
+        vf_extra = f"eq=brightness={b}:contrast={c}"
         worker = FrameExtractWorker(file_path, 1.0, 320, 180, vf_extra)
         worker.frame_ready.connect(self._on_effect_frame_ready)
         worker.error.connect(lambda msg: self.effects_preview.setText(msg))
@@ -780,10 +824,10 @@ class PBWindow(QMainWindow):
 
         worker = BatchConvertWorker(videos, resolution, fps, vcodec, ext)
         worker.task_id = task.task_id
-        worker.progress.connect(lambda pct, msg: (
+        worker.progress.connect(lambda pct, msg: QTimer.singleShot(0, lambda: (
             self.convert_log.append(msg),
             self.convert_progress.setValue(pct),
-        ))
+        )))
         worker.finished.connect(lambda converted, total: self._on_batch_convert_finished(
             converted, total, task.task_id
         ))
@@ -1142,9 +1186,11 @@ class PBWindow(QMainWindow):
         # Zeitpunkt
         time_row = QHBoxLayout()
         time_row.addWidget(QLabel("Zeitpunkt (Sek):"))
-        time_spin = QSpinBox()
-        time_spin.setRange(0, 36000)
-        time_spin.setValue(0)
+        time_spin = QDoubleSpinBox()
+        time_spin.setRange(0.0, 36000.0)
+        time_spin.setDecimals(3)
+        time_spin.setSingleStep(0.1)
+        time_spin.setValue(0.0)
         time_spin.setSuffix("s")
         time_row.addWidget(time_spin)
         layout.addLayout(time_row)
@@ -1154,9 +1200,12 @@ class PBWindow(QMainWindow):
         scene_row.addWidget(QLabel("Video/Szene:"))
         scene_combo = QComboBox()
         scene_combo.addItem("-- Szene waehlen --", "")
-        # Alle Szenen aus der DB laden
+        # Alle Szenen aus der DB laden (joinedload verhindert N+1)
+        from sqlalchemy.orm import joinedload
         with DBSession(engine) as session:
-            clips = session.query(VideoClip).filter_by(project_id=1).all()
+            clips = session.query(VideoClip).options(
+                joinedload(VideoClip.scenes)
+            ).filter_by(project_id=1).all()
             for clip in clips:
                 clip_name = Path(clip.file_path).stem[:20]
                 for scene in clip.scenes:
@@ -1307,12 +1356,12 @@ class PBWindow(QMainWindow):
         task = task_manager.create_task(f"Key: {title}", "Key-Erkennung (Krumhansl-Kessler)")
         worker = KeyDetectionWorker(track_id, file_path)
         worker.task_id = task.task_id
-        worker.progress.connect(lambda pct, msg: self.console_text.append(f"[Key] {msg}"))
+        worker.progress.connect(lambda pct, msg: self._console_append(f"[Key] {msg}"))
         worker.finished.connect(lambda result: (
-            self.console_text.append(f"[Key] Erkannt: {result.key} ({result.camelot}) Conf={result.confidence:.0%}"),
-            self._refresh_media_table(),
+            self._console_append(f"[Key] Erkannt: {result.key} ({result.camelot}) Conf={result.confidence:.0%}"),
+            self._refresh_media_table_debounced(),
         ))
-        worker.error.connect(lambda err: self.console_text.append(f"[Key] Fehler: {err}"))
+        worker.error.connect(lambda err: self._console_append(f"[Key] Fehler: {err}"))
         self._start_worker_thread(worker)
         self.console_text.append(f"[Key] Starte Key-Erkennung für '{title}'...")
 
@@ -1326,12 +1375,12 @@ class PBWindow(QMainWindow):
         task = task_manager.create_task(f"LUFS: {title}", "LUFS-Analyse (EBU R128)")
         worker = LUFSAnalysisWorker(track_id, file_path)
         worker.task_id = task.task_id
-        worker.progress.connect(lambda pct, msg: self.console_text.append(f"[LUFS] {msg}"))
+        worker.progress.connect(lambda pct, msg: self._console_append(f"[LUFS] {msg}"))
         worker.finished.connect(lambda result: (
-            self.console_text.append(f"[LUFS] Integrated: {result.integrated:.1f} dB, LRA: {result.loudness_range:.1f} LU, TP: {result.true_peak:.1f} dBTP"),
-            self._refresh_media_table(),
+            self._console_append(f"[LUFS] Integrated: {result.integrated:.1f} dB, LRA: {result.loudness_range:.1f} LU, TP: {result.true_peak:.1f} dBTP"),
+            self._refresh_media_table_debounced(),
         ))
-        worker.error.connect(lambda err: self.console_text.append(f"[LUFS] Fehler: {err}"))
+        worker.error.connect(lambda err: self._console_append(f"[LUFS] Fehler: {err}"))
         self._start_worker_thread(worker)
         self.console_text.append(f"[LUFS] Starte LUFS-Analyse für '{title}'...")
 
@@ -1345,12 +1394,12 @@ class PBWindow(QMainWindow):
         task = task_manager.create_task(f"Struktur: {title}", "Song-Struktur Erkennung")
         worker = StructureDetectionWorker(track_id, file_path, bpm=bpm)
         worker.task_id = task.task_id
-        worker.progress.connect(lambda pct, msg: self.console_text.append(f"[Struktur] {msg}"))
+        worker.progress.connect(lambda pct, msg: self._console_append(f"[Struktur] {msg}"))
         worker.finished.connect(lambda result: (
-            self.console_text.append(f"[Struktur] {len(result.segments)} Segmente erkannt"),
-            self._refresh_media_table(),
+            self._console_append(f"[Struktur] {len(result.segments)} Segmente erkannt"),
+            self._refresh_media_table_debounced(),
         ))
-        worker.error.connect(lambda err: self.console_text.append(f"[Struktur] Fehler: {err}"))
+        worker.error.connect(lambda err: self._console_append(f"[Struktur] Fehler: {err}"))
         self._start_worker_thread(worker)
         self.console_text.append(f"[Struktur] Starte Struktur-Erkennung für '{title}'...")
 
@@ -1786,7 +1835,7 @@ class PBWindow(QMainWindow):
         worker.started.connect(self._on_analysis_started)
         worker.finished.connect(lambda tid, r: self._on_analysis_finished(tid, r, task.task_id))
         worker.error.connect(lambda tid, err: self._on_analysis_error(tid, err, task.task_id))
-        worker.progress.connect(lambda pct, msg: self.console_text.append(f"[Audio] {msg}"))
+        worker.progress.connect(lambda pct, msg: self._console_append(f"[Audio] {msg}"))
 
         self.btn_analyze.setEnabled(False)
         self.btn_analyze.setText("Analyse laeuft...")
@@ -2606,24 +2655,24 @@ class PBWindow(QMainWindow):
             self._ai_agent = LocalAgentService()
             self.chat_dock.set_agent(self._ai_agent)
 
-            # GPU-Status in Konsole und Chat anzeigen
-            gpu_info = self._ai_agent.model_manager.gpu_info
-            gpu_name = gpu_info.get("name", "unbekannt")
-            vram = gpu_info.get("vram_total_mb", 0)
-
-            if gpu_name != "CPU" and vram > 0:
-                hw_msg = f"HARDWARE AKTIV: {gpu_name} ({vram:.0f} MB VRAM)"
-                self.console_text.append(f"[GPU] {hw_msg}")
-                self.chat_dock.append_system(
-                    f"Agent bereit. {hw_msg}\n"
-                    "Befehle: 'analysiere', 'schneide', 'gpu status'"
-                )
-            else:
-                self.console_text.append("[GPU] Keine CUDA-GPU — CPU-Modus")
-                self.chat_dock.append_system(
-                    "Agent bereit (CPU-Modus).\n"
-                    "Befehle: 'analysiere', 'schneide', 'gpu status'"
-                )
+            # GPU-Status LAZY anzeigen — torch-Import erst beim ersten KI-Aufruf
+            # (vermeidet ~11s Startup-Blockade durch sofortigen model_manager-Zugriff)
+            def _show_gpu_info_deferred():
+                try:
+                    gpu_info = self._ai_agent.model_manager.gpu_info
+                    gpu_name = gpu_info.get("name", "unbekannt")
+                    vram = gpu_info.get("vram_total_mb", 0)
+                    if gpu_name != "CPU" and vram > 0:
+                        hw_msg = f"HARDWARE AKTIV: {gpu_name} ({vram:.0f} MB VRAM)"
+                        self.console_text.append(f"[GPU] {hw_msg}")
+                except Exception:
+                    pass
+            # Verzögert nach UI-Aufbau — blockiert nicht den Start
+            QTimer.singleShot(2000, _show_gpu_info_deferred)
+            self.chat_dock.append_system(
+                "Agent bereit.\n"
+                "Befehle: 'analysiere', 'schneide', 'gpu status'"
+            )
 
             self.console_text.append("[KI] Chat-Assistent initialisiert (Modell wird bei erster Anfrage geladen).")
         except Exception as e:
@@ -2640,7 +2689,7 @@ def setup_logging():
     log_file = log_dir / "pb_studio.log"
 
     root = logging.getLogger()
-    root.setLevel(logging.DEBUG)
+    root.setLevel(logging.INFO)
 
     fmt = logging.Formatter(
         "%(asctime)s [%(levelname)-8s] %(name)s: %(message)s",
@@ -2649,7 +2698,7 @@ def setup_logging():
 
     # Console Handler (DEBUG+)
     ch = logging.StreamHandler()
-    ch.setLevel(logging.DEBUG)
+    ch.setLevel(logging.INFO)
     ch.setFormatter(fmt)
     root.addHandler(ch)
 
@@ -2657,7 +2706,7 @@ def setup_logging():
     fh = RotatingFileHandler(
         log_file, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8"
     )
-    fh.setLevel(logging.DEBUG)
+    fh.setLevel(logging.INFO)
     fh.setFormatter(fmt)
     root.addHandler(fh)
 

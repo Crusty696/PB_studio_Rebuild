@@ -14,6 +14,15 @@ from pathlib import Path
 from sqlalchemy.orm import Session
 from database import engine, TimelineEntry, AudioTrack, VideoClip, APP_ROOT
 
+
+def _sanitize_ffmpeg_error(stderr: str, max_lines: int = 3) -> str:
+    """Sanitize FFmpeg stderr for safe error messages."""
+    if not stderr:
+        return "(no stderr)"
+    lines = stderr.strip().splitlines()
+    tail = lines[-max_lines:] if len(lines) > max_lines else lines
+    return "\n".join(tail)
+
 logger = logging.getLogger(__name__)
 
 EXPORT_DIR = APP_ROOT / "exports"
@@ -409,7 +418,7 @@ def _normalize_audio_lufs(input_path: str, output_path: str,
         )
         if result.returncode != 0:
             logger.warning("[LUFS] Pass 1 fehlgeschlagen (rc=%d): %s",
-                           result.returncode, result.stderr[:200])
+                           result.returncode, _sanitize_ffmpeg_error(result.stderr))
             return False
         # loudnorm JSON steht in stderr
         stderr = result.stderr
@@ -446,7 +455,7 @@ def _normalize_audio_lufs(input_path: str, output_path: str,
         )
         if pass2_result.returncode != 0:
             logger.warning("[LUFS] Pass 2 fehlgeschlagen (rc=%d): %s",
-                           pass2_result.returncode, pass2_result.stderr[:200])
+                           pass2_result.returncode, _sanitize_ffmpeg_error(pass2_result.stderr))
             return False
         if Path(output_path).exists() and Path(output_path).stat().st_size > 0:
             logger.info("[LUFS] Normalisierung erfolgreich: %s -> %.1f LUFS",
@@ -467,7 +476,7 @@ def _run_ffmpeg(cmd: list[str], timeout: int = 600):
         encoding="utf-8", errors="replace", **kwargs
     )
     if result.returncode != 0:
-        raise RuntimeError(f"FFmpeg fehlgeschlagen:\n{result.stderr[-500:]}")
+        raise RuntimeError(f"FFmpeg fehlgeschlagen:\n{_sanitize_ffmpeg_error(result.stderr)}")
 
 
 def get_timeline_summary(project_id: int = 1) -> dict:

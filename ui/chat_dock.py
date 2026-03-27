@@ -23,6 +23,8 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QThread, Signal, QObject
 from PySide6.QtGui import QFont, QColor, QTextCharFormat, QTextCursor
 
+from ui.theme import ACCENT, BG1, BG2, T1, T2, T3
+
 # Globaler GC-Schutz: Threads und Worker hier halten, damit der
 # Garbage Collector sie NIEMALS löscht, solange sie laufen.
 _GLOBAL_ACTIVE_THREADS: list[tuple] = []
@@ -176,13 +178,13 @@ class ChatDock(QDockWidget):
         self.status_label = QLabel("Agent Status: Bereit")
         self.status_label.setFont(QFont("Cascadia Code", 9))
         self.status_label.setStyleSheet(
-            "QLabel {"
-            "  color: #D4AF37;"
-            "  background-color: #1A1A1A;"
-            "  border: 1px solid rgba(212,175,55,0.3);"
-            "  border-radius: 4px;"
-            "  padding: 4px 8px;"
-            "}"
+            f"QLabel {{"
+            f"  color: {ACCENT};"
+            f"  background-color: {BG1};"
+            f"  border: 1px solid rgba(212,175,55,0.3);"
+            f"  border-radius: 4px;"
+            f"  padding: 4px 8px;"
+            f"}}"
         )
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         layout.addWidget(self.status_label)
@@ -495,7 +497,7 @@ class ChatDock(QDockWidget):
         self.status_label.setStyleSheet(
             f"QLabel {{"
             f"  color: {color};"
-            f"  background-color: #1A1A1A;"
+            f"  background-color: {BG1};"
             f"  border: 1px solid rgba(212,175,55,0.2);"
             f"  border-radius: 4px;"
             f"  padding: 4px 8px;"

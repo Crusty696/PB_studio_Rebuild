@@ -190,6 +190,26 @@ class VectorDBService:
                     (video_path,),
                 )
 
+    def delete_by_clip_ids(self, clip_ids: list[int]) -> None:
+        """Loescht alle Embeddings deren clip_id (id // 1_000_000) in clip_ids liegt."""
+        if not clip_ids:
+            return
+        with self._write_lock:
+            with self._connect() as conn:
+                placeholders = ",".join("?" for _ in clip_ids)
+                conn.execute(
+                    f"DELETE FROM clip_embeddings WHERE id / 1000000 IN ({placeholders})",
+                    clip_ids,
+                )
+        logger.info("VectorDB: Embeddings fuer %d Clip-IDs geloescht", len(clip_ids))
+
+    def delete_all(self) -> None:
+        """Loescht alle Embeddings aus der Datenbank."""
+        with self._write_lock:
+            with self._connect() as conn:
+                conn.execute("DELETE FROM clip_embeddings")
+        logger.info("VectorDB: Alle Embeddings geloescht")
+
     def close(self) -> None:
         """Nichts zu tun — Connections werden per Context-Manager verwaltet."""
         pass

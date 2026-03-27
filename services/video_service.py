@@ -12,6 +12,15 @@ logger = logging.getLogger(__name__)
 PROXY_DIR = APP_ROOT / "storage" / "proxies"
 
 
+def _sanitize_ffmpeg_error(stderr: str, max_lines: int = 3) -> str:
+    """Sanitize FFmpeg stderr for safe error messages."""
+    if not stderr:
+        return "(no stderr)"
+    lines = stderr.strip().splitlines()
+    tail = lines[-max_lines:] if len(lines) > max_lines else lines
+    return "\n".join(tail)
+
+
 class VideoAnalyzer:
     """Extrahiert Video-Metadaten via ffprobe und erstellt Proxy-Videos."""
 
@@ -29,7 +38,7 @@ class VideoAnalyzer:
             kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, **kwargs)
         if result.returncode != 0:
-            raise RuntimeError(f"ffprobe fehlgeschlagen: {result.stderr.strip()}")
+            raise RuntimeError(f"ffprobe fehlgeschlagen: {_sanitize_ffmpeg_error(result.stderr)}")
 
         data = json.loads(result.stdout)
         streams = data.get("streams", [])
@@ -84,15 +93,14 @@ class VideoAnalyzer:
                                 stdin=subprocess.DEVNULL, **kwargs)
         if result.returncode != 0:
             logger.info(f"[VideoAnalyzer] FFmpeg FEHLER (rc={result.returncode}):")
-            logger.info(f"[VideoAnalyzer] stderr: {result.stderr}")
-            raise RuntimeError(f"Proxy-Erstellung fehlgeschlagen: {result.stderr.strip()}")
+            logger.info(f"[VideoAnalyzer] stderr: {_sanitize_ffmpeg_error(result.stderr)}")
+            raise RuntimeError(f"Proxy-Erstellung fehlgeschlagen: {_sanitize_ffmpeg_error(result.stderr)}")
 
         if not proxy_path.exists() or proxy_path.stat().st_size == 0:
             logger.info(f"[VideoAnalyzer] FFmpeg lief durch (rc=0), aber Proxy ist 0 Bytes oder fehlt!")
-            logger.info(f"[VideoAnalyzer] stderr: {result.stderr}")
-            logger.info(f"[VideoAnalyzer] stdout: {result.stdout}")
+            logger.info(f"[VideoAnalyzer] stderr: {_sanitize_ffmpeg_error(result.stderr)}")
             proxy_path.unlink(missing_ok=True)
-            raise RuntimeError(f"Proxy ist 0 Bytes. FFmpeg stderr: {result.stderr.strip()}")
+            raise RuntimeError(f"Proxy ist 0 Bytes. FFmpeg stderr: {_sanitize_ffmpeg_error(result.stderr)}")
 
         if progress_cb:
             progress_cb(100, "Proxy fertig")

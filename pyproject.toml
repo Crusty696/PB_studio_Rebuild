@@ -21,24 +21,23 @@ einops = ">=0.8.0,<0.9.0"
 pillow = ">=11.0.0,<13.0.0"
 accelerate = ">=1.2.0,<2.0.0"
 opentimelineio = ">=0.18.0,<1.0.0"
-lancedb = "==0.30.0"
 pyarrow = ">=18.0.0,<24.0.0"
 python-dotenv = ">=1.0.0,<2.0.0"
 scenedetect = ">=0.6.0,<1.0.0"
 sounddevice = ">=0.5.0,<1.0.0"
 soundfile = ">=0.12.0,<1.0.0"
 click = "<8.4.0"
-beat-this = {git = "https://github.com/CPJKU/beat_this.git", rev = "main"}
-torch = {version = ">=2.5.0,<3.0.0", source = "pytorch"}
-torchvision = {version = ">=0.20.0,<1.0.0", source = "pytorch"}
-torchaudio = {version = ">=2.5.0,<3.0.0", source = "pytorch"}
+beat-this = {git = "https://github.com/CPJKU/beat_this.git", rev = "c8c320e84f1a4e5b291327debe754734ea802afc"}
+torch = {version = ">=2.6.0,<3.0.0", source = "pytorch"}
+torchvision = {version = ">=0.21.0,<1.0.0", source = "pytorch"}
+torchaudio = {version = ">=2.6.0,<3.0.0", source = "pytorch"}
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=9.0.2,<10.0.0"
 
 [[tool.poetry.source]]
 name = "pytorch"
-url = "https://download.pytorch.org/whl/cu121"
+url = "https://download.pytorch.org/whl/cu124"
 priority = "explicit"
 
 [build-system]

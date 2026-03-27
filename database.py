@@ -1,8 +1,11 @@
 import logging
+import re
 from pathlib import Path
 
 from sqlalchemy import create_engine, event, Column, Integer, String, Float, ForeignKey, Text, Boolean
 from sqlalchemy.orm import DeclarativeBase, Session, relationship
+
+logger = logging.getLogger(__name__)
 
 # Zentraler Projektpfad — alle Services importieren APP_ROOT statt relative Pfade zu nutzen
 APP_ROOT = Path(__file__).parent
@@ -546,6 +549,10 @@ def init_db():
                 if col_name not in at_columns:
                     stmt = f"ALTER TABLE audio_tracks ADD COLUMN {col_name} {col_type}"
                     if col_default is not None:
+                        # P2-06: SQL-Injection Schutz fuer col_default
+                        if not re.match(r"^[a-zA-Z0-9_.'\"-]+$", str(col_default)):
+                            logger.warning("Skipping unsafe col_default: %s", col_default)
+                            continue
                         stmt += f" DEFAULT {col_default}"
                     conn.execute(text(stmt))
 
@@ -586,6 +593,8 @@ def init_db():
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_audio_video_anchors_audio_track_id ON audio_video_anchors(audio_track_id)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_audio_video_anchors_video_clip_id ON audio_video_anchors(video_clip_id)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_clip_anchors_timeline_entry_id ON clip_anchors(timeline_entry_id)"))
+        # P2-02: UNIQUE Index auf beatgrids.audio_track_id (verhindert Duplikate)
+        conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_beatgrids_audio_track_id ON beatgrids(audio_track_id)"))
 
     with Session(engine) as session:
         if not session.query(Project).first():

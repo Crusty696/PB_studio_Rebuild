@@ -113,8 +113,8 @@ class KeyDetectionService:
             for shift in range(12):
                 # Rotate the profile so that index 0 corresponds to the
                 # current pitch class as tonic
-                rotated_major = np.roll(_KK_MAJOR, shift)
-                rotated_minor = np.roll(_KK_MINOR, shift)
+                rotated_major = np.roll(_KK_MAJOR, -shift)
+                rotated_minor = np.roll(_KK_MINOR, -shift)
 
                 corr_major = _pearson(chroma_avg, rotated_major)
                 corr_minor = _pearson(chroma_avg, rotated_minor)

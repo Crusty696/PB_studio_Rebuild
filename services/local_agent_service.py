@@ -100,8 +100,8 @@ class LocalAgentService:
         self._device_resolved = False
         self.device = device or "cpu"  # Platzhalter bis erster Aufruf
 
-        # Zentraler Singleton-ModelManager (erzwingt ebenfalls GPU)
-        self.model_manager = ModelManager(device=self.device)
+        # ModelManager wird LAZY initialisiert (spart ~11s Startup durch verzögerten torch-Import)
+        self._model_manager = None
 
         self._tokenizer = None
         self._model = None
@@ -121,6 +121,13 @@ class LocalAgentService:
             self._orchestrator = OrchestratorAgent()
             self._orchestrator.set_model_manager(self.model_manager)
         return self._orchestrator
+
+    @property
+    def model_manager(self) -> ModelManager:
+        """Lazy ModelManager — torch wird erst beim ersten Zugriff importiert."""
+        if self._model_manager is None:
+            self._model_manager = ModelManager(device=self.device)
+        return self._model_manager
 
     @property
     def is_loaded(self) -> bool:

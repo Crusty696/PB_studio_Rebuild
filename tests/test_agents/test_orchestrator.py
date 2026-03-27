@@ -122,7 +122,6 @@ class TestHandleCompoundActions:
         # Patch auf das Quell-Modul, da action_registry lokal importiert wird
         with patch("services.action_registry.action_registry", mock_registry):
             result = self.orch._handle_compound_actions(
-                "proxy und stems",
                 ["create_proxy", "separate_stems"],
             )
 
@@ -137,7 +136,6 @@ class TestHandleCompoundActions:
 
         with patch("services.action_registry.action_registry", mock_registry):
             result = self.orch._handle_compound_actions(
-                "proxy",
                 ["create_proxy"],
             )
 
@@ -151,7 +149,6 @@ class TestHandleCompoundActions:
 
         with patch("services.action_registry.action_registry", mock_registry):
             result = self.orch._handle_compound_actions(
-                "proxy",
                 ["create_proxy"],
             )
 
@@ -169,7 +166,6 @@ class TestHandleCompoundActions:
 
         with patch("services.action_registry.action_registry", mock_registry):
             result = self.orch._handle_compound_actions(
-                "proxy und stems",
                 ["create_proxy", "separate_stems"],
             )
 

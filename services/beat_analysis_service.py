@@ -36,6 +36,9 @@ class BeatAnalysisService:
     def __init__(self, device: str | None = None):
         self._model = None
         self._device = device
+        # Private cache for audio array; populated by analyze(), consumed by analyze_and_store()
+        self._last_y = None
+        self._last_sr = None
 
     @property
     def device(self) -> str:
@@ -57,8 +60,8 @@ class BeatAnalysisService:
         try:
             from services.model_manager import ModelManager
             ModelManager().unload()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("ModelManager.unload() vor beat_this fehlgeschlagen: %s", e)
         from beat_this.inference import File2Beats
         import torch, gc
         if torch.cuda.is_available():
@@ -83,8 +86,8 @@ class BeatAnalysisService:
             if hasattr(self._model, 'cpu'):
                 try:
                     self._model.cpu()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning("model.cpu() VRAM-Freigabe fehlgeschlagen: %s", e)
             del self._model
             self._model = None
             gc.collect()
@@ -159,6 +162,12 @@ class BeatAnalysisService:
         if progress_cb:
             progress_cb(100, "Fertig")
 
+        # Store audio array as private instance attribute so analyze_and_store()
+        # can reuse it for energy computation without embedding a 1GB+ numpy
+        # array in the public return dict (Bug-B1 fix: memory leak in public API).
+        self._last_y = y
+        self._last_sr = sr
+
         return {
             "beats": [round(float(b), 4) for b in beats],
             "downbeats": [round(float(b), 4) for b in downbeats],
@@ -166,8 +175,6 @@ class BeatAnalysisService:
             "duration": round(duration, 2),
             "num_beats": len(beats),
             "num_downbeats": len(downbeats),
-            "_y": y,
-            "_sr": sr,
         }
 
     def _analyze_full(self, audio_path: str) -> tuple[np.ndarray, np.ndarray]:
@@ -269,12 +276,17 @@ class BeatAnalysisService:
         try:
             result = self.analyze(file_path, progress_cb=progress_cb)
 
-            # Phase 3: Per-Beat RMS-Energie berechnen (Audio aus analyze() wiederverwenden)
-            y = result.pop("_y")
-            sr = result.pop("_sr")
+            # Phase 3: Per-Beat RMS-Energie berechnen (Audio aus analyze() wiederverwenden).
+            # Bug-B1 fix: audio array is now stored as self._last_y / self._last_sr instead
+            # of being embedded in the public result dict.
+            y = self._last_y
+            sr = self._last_sr
+            self._last_y = None  # release reference immediately after use
+            self._last_sr = None
             energy_per_beat = self._compute_energy_per_beat(
                 y, sr, result["beats"], result["duration"]
             )
+            del y  # free numpy array before DB writes
 
             with Session(engine) as session:
                 track = session.get(AudioTrack, track_id)
@@ -316,8 +328,8 @@ class BeatAnalysisService:
                 try:
                     from services.pacing_service import invalidate_pacing_caches
                     invalidate_pacing_caches()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning("invalidate_pacing_caches() fehlgeschlagen: %s", e)
         finally:
             # VRAM freigeben — auch bei Exception (verhindert VRAM-Leak)
             self.unload()

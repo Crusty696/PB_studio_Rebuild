@@ -209,6 +209,7 @@ class TimelineClipItem(QGraphicsRectItem):
 
 class InteractiveTimeline(QGraphicsView):
     clip_moved = Signal(int, float)
+    _RULER_FONT = QFont("Segoe UI", 7)  # cached — avoid per-tick QFont creation
 
     def __init__(self, console_log=None):
         super().__init__()
@@ -474,7 +475,7 @@ class InteractiveTimeline(QGraphicsView):
             x = t * PIXELS_PER_SECOND
             tick = self._scene.addLine(x, RULER_Y - 3, x, RULER_Y + 3, pen)
             self._ruler_items.append(tick)
-            txt = self._scene.addText(f"{t:.0f}s", QFont("Segoe UI", 7))
+            txt = self._scene.addText(f"{t:.0f}s", self._RULER_FONT)
             txt.setDefaultTextColor(QColor(70, 70, 70))
             txt.setPos(x - 10, RULER_Y + 5)
             self._ruler_items.append(txt)

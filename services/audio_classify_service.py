@@ -302,10 +302,10 @@ class AudioClassifyService:
             return "energetic"
         if spectral_centroid > MID_CENTROID_HZ and rms_energy > MID_RMS:
             return "euphoric"
-        if spectral_centroid < LOW_CENTROID_HZ and rms_energy < MID_RMS:
-            return "melancholic"
         if spectral_centroid < VERY_LOW_CENTROID_HZ and rms_energy < LOW_RMS:
             return "chill"
+        if spectral_centroid < LOW_CENTROID_HZ and rms_energy < MID_RMS:
+            return "melancholic"
         return "dark"
 
     @staticmethod

@@ -4,6 +4,7 @@ from pathlib import Path
 from sqlalchemy.orm import Session
 
 from database import engine, AudioTrack, VideoClip
+from services.vector_db_service import VectorDBService
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,8 @@ def _file_meta(path: Path) -> dict:
 
 def ingest_audio(file_path: str, project_id: int = 1) -> AudioTrack | None:
     path = Path(file_path)
+    if path.suffix.lower() not in AUDIO_EXTENSIONS:
+        raise ValueError(f"Nicht unterstuetzte Audio-Extension: {path.suffix}")
     resolved = str(path.resolve())
 
     try:
@@ -98,6 +101,8 @@ def _probe_video_meta(file_path: str) -> dict:
 
 def ingest_video(file_path: str, project_id: int = 1) -> VideoClip | None:
     path = Path(file_path)
+    if path.suffix.lower() not in VIDEO_EXTENSIONS:
+        raise ValueError(f"Nicht unterstuetzte Video-Extension: {path.suffix}")
     resolved = str(path.resolve())
 
     # Bug-15 Fix: ffprobe-Subprocess VOR dem Öffnen der Session aufrufen.
@@ -254,6 +259,13 @@ def delete_all_media(project_id: int = 1) -> int:
             synchronize_session=False
         )
         session.commit()
+
+        # P2-01: VectorDB Cascade-Delete — alle Embeddings loeschen
+        try:
+            VectorDBService().delete_all()
+        except Exception as e:
+            logger.warning("VectorDB delete_all fehlgeschlagen: %s", e)
+
         return count_a + count_v
 
 
@@ -339,4 +351,12 @@ def delete_selected_media(video_ids: list[int], audio_ids: list[int]) -> int:
             ).delete(synchronize_session=False)
 
         session.commit()
+
+        # P2-01: VectorDB Cascade-Delete — Embeddings fuer geloeschte VideoClips entfernen
+        if video_ids:
+            try:
+                VectorDBService().delete_by_clip_ids(video_ids)
+            except Exception as e:
+                logger.warning("VectorDB delete_by_clip_ids fehlgeschlagen: %s", e)
+
         return count_a + count_v

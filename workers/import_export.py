@@ -149,10 +149,11 @@ class BatchConvertWorker(QObject, CancellableMixin):
 
     def run(self):
         _ok = False
-        w_res, h_res = self.resolution.split("x")
         total = len(self.videos)
         converted = 0
         try:
+            w_res, h_res = self.resolution.split("x")
+
             for i, v in enumerate(self.videos):
                 if self.should_stop():
                     break

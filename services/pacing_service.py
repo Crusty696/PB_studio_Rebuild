@@ -247,16 +247,18 @@ def _get_video_info_cached(video_ids: tuple[int, ...]) -> dict[int, dict]:
     return info
 
 
-def _get_scenes(video_id: int | None) -> list[Scene]:
+def _get_scenes(video_id: int | None) -> list[dict]:
+    """Laedt Scenes als Dicts (nicht ORM-Objekte) um DetachedInstanceError zu vermeiden."""
     if video_id is None:
         return []
     with Session(engine) as session:
         clip = session.get(VideoClip, video_id)
         if clip is None:
             return []
-        # Eager-load scenes innerhalb der Session, sonst DetachedInstanceError nach Session-Close
-        scenes = list(clip.scenes)
-        return scenes
+        # P2-07: Dicts statt ORM-Objekte zurueckgeben (Session wird geschlossen)
+        return [{"id": s.id, "start_time": s.start_time, "end_time": s.end_time,
+                 "energy": s.energy or 0.5, "video_clip_id": s.video_clip_id}
+                for s in clip.scenes]
 
 
 # ======================================================================
@@ -794,7 +796,7 @@ def calculate_cut_points(
         # O(N log N): Existierende Cut-Zeiten als sortiertes Array für schnelle Duplikat-Prüfung
         cut_times = np.array(sorted(c.time for c in cuts)) if cuts else np.array([])
         for scene in scenes:
-            idx = np.searchsorted(beats_arr, scene.start_time)
+            idx = np.searchsorted(beats_arr, scene["start_time"])
             if idx < len(beats_arr):
                 snapped = float(beats_arr[idx])
                 # Binary search statt linearem any()
@@ -807,7 +809,7 @@ def calculate_cut_points(
                 if not is_dup:
                     new_cut = CutPoint(
                         time=round(snapped, 4), source="scene",
-                        strength=min(1.0, (scene.energy or 0.5) + 0.2),
+                        strength=min(1.0, (scene["energy"] or 0.5) + 0.2),
                     )
                     cuts.append(new_cut)
                     # cut_times aktuell halten für nächste Iteration

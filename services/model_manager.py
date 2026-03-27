@@ -192,13 +192,12 @@ class ModelManager:
 
             try:
                 self._tokenizer = AutoTokenizer.from_pretrained(
-                    model_id, trust_remote_code=True,
+                    model_id,
                 )
                 dtype = torch.float32 if self.device == "cpu" else torch.float16
                 self._model = AutoModelForCausalLM.from_pretrained(
                     model_id,
                     torch_dtype=dtype,
-                    trust_remote_code=True,
                     device_map={"": self.device},
                 )
                 self._model.eval()
@@ -300,13 +299,12 @@ class ModelManager:
 
             try:
                 self._tokenizer = AutoTokenizer.from_pretrained(
-                    model_id, trust_remote_code=True,
+                    model_id,
                 )
                 dtype = torch.float32 if self.device == "cpu" else torch.float16
                 self._model = AutoModelForCausalLM.from_pretrained(
                     model_id,
                     torch_dtype=dtype,
-                    trust_remote_code=True,
                     device_map={"": self.device},
                 )
                 self._model.eval()

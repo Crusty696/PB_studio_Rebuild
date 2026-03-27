@@ -6,6 +6,8 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 
+from ui.theme import BG0, T1
+
 
 class ConvertWorkspace(QWidget):
     """Convert workspace — format settings, batch conversion, log.
@@ -112,8 +114,8 @@ class ConvertWorkspace(QWidget):
         self.convert_log = QTextEdit()
         self.convert_log.setReadOnly(True)
         self.convert_log.setStyleSheet(
-            "background-color: #0a0d12; border: 1px solid rgba(255,255,255,15); "
-            "color: #e8e6e3; font-family: 'Consolas';"
+            f"background-color: {BG0}; border: 1px solid rgba(255,255,255,15); "
+            f"color: {T1}; font-family: 'Consolas';"
         )
         self.convert_log.setToolTip("Protokoll der Video-Konvertierungen")
         self.convert_log.append("[Convert] Bereit. Waehle Ziel-Format und klicke 'Alle Videos standardisieren'.")

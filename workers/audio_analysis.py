@@ -77,13 +77,21 @@ class BaseAnalysisWorker(QObject, CancellableMixin):
     @abstractmethod
     def _result_to_dict(self, result) -> dict: ...
 
-    def _get_track_and_session(self):
-        """Hilfsmethode: Oeffnet DB-Session und gibt (session, track) zurueck."""
-        from database import engine, AudioTrack
+    def _get_session_context(self):
+        """Hilfsmethode: Gibt einen SQLAlchemy Session-Kontextmanager zurueck.
+
+        Bug-B2 fix: Statt einer nackten Session (die bei fruehzeitiger Exception
+        leaken kann) wird jetzt ein Context-Manager zurueckgegeben, der die
+        Session immer sauber schliesst.
+
+        Verwendung:
+            with self._get_session_context() as session:
+                track = session.get(AudioTrack, self.audio_track_id)
+                ...
+        """
+        from database import engine
         from sqlalchemy.orm import Session
-        session = Session(engine)
-        track = session.get(AudioTrack, self.audio_track_id)
-        return session, track
+        return Session(engine)
 
 
 # ── Konkrete Worker ──────────────────────────────────────────────────────
@@ -103,14 +111,13 @@ class KeyDetectionWorker(BaseAnalysisWorker):
         return f"Key erkannt: {result.key} ({result.camelot})"
 
     def _save_to_db(self, result) -> None:
-        session, track = self._get_track_and_session()
-        try:
+        from database import AudioTrack
+        with self._get_session_context() as session:
+            track = session.get(AudioTrack, self.audio_track_id)
             if track:
                 track.key = result.key
                 track.key_confidence = result.confidence
                 session.commit()
-        finally:
-            session.close()
 
     def _result_to_dict(self, result) -> dict:
         return {
@@ -135,13 +142,12 @@ class LUFSAnalysisWorker(BaseAnalysisWorker):
         return f"LUFS: {result.integrated:.1f} dB"
 
     def _save_to_db(self, result) -> None:
-        session, track = self._get_track_and_session()
-        try:
+        from database import AudioTrack
+        with self._get_session_context() as session:
+            track = session.get(AudioTrack, self.audio_track_id)
             if track:
                 track.lufs = result.integrated
                 session.commit()
-        finally:
-            session.close()
 
     def _result_to_dict(self, result) -> dict:
         return {
@@ -170,15 +176,14 @@ class AudioClassifyWorker(BaseAnalysisWorker):
         return f"Genre: {result.genre}, Mood: {result.mood}"
 
     def _save_to_db(self, result) -> None:
-        session, track = self._get_track_and_session()
-        try:
+        from database import AudioTrack
+        with self._get_session_context() as session:
+            track = session.get(AudioTrack, self.audio_track_id)
             if track:
                 track.mood = result.mood
                 track.genre = result.genre
                 track.is_dj_mix = result.is_dj_mix
                 session.commit()
-        finally:
-            session.close()
 
     def _result_to_dict(self, result) -> dict:
         return {
@@ -194,6 +199,12 @@ class AudioClassifyWorker(BaseAnalysisWorker):
 class SpectralAnalysisWorker(BaseAnalysisWorker):
     """Background-Worker fuer 8-Band Spektral-Analyse."""
 
+    def __init__(self, audio_track_id: int, file_path: str, **kwargs):
+        super().__init__(audio_track_id, file_path, **kwargs)
+        # Bug-B3 fix: initialize _svc to None so _save_to_db() can detect
+        # that _analyze() has not been run yet, rather than raising AttributeError.
+        self._svc = None
+
     def _start_message(self) -> str:
         return "Spektral-Analyse gestartet..."
 
@@ -206,14 +217,17 @@ class SpectralAnalysisWorker(BaseAnalysisWorker):
         return f"Dominant: {result.dominant_band}"
 
     def _save_to_db(self, result) -> None:
+        if self._svc is None:
+            raise RuntimeError(
+                "SpectralAnalysisWorker._save_to_db() aufgerufen bevor _analyze() lief"
+            )
+        from database import AudioTrack
         bands_json = self._svc.get_bands_json(result)
-        session, track = self._get_track_and_session()
-        try:
+        with self._get_session_context() as session:
+            track = session.get(AudioTrack, self.audio_track_id)
             if track:
                 track.spectral_bands = bands_json
                 session.commit()
-        finally:
-            session.close()
 
     def _result_to_dict(self, result) -> dict:
         return {
@@ -235,6 +249,9 @@ class StructureDetectionWorker(BaseAnalysisWorker):
         self.bpm = bpm
         self.beat_positions = beat_positions
         self.energy_per_beat = energy_per_beat
+        # Bug-B3 fix: initialize _svc to None so _save_to_db() can detect
+        # that _analyze() has not been run yet.
+        self._svc = None
 
     def _start_message(self) -> str:
         return "Struktur-Erkennung gestartet..."
@@ -253,6 +270,10 @@ class StructureDetectionWorker(BaseAnalysisWorker):
         return f"{len(result.segments)} Segmente erkannt"
 
     def _save_to_db(self, result) -> None:
+        if self._svc is None:
+            raise RuntimeError(
+                "StructureDetectionWorker._save_to_db() aufgerufen bevor _analyze() lief"
+            )
         self._svc.save_to_db(self.audio_track_id, result)
 
     def _result_to_dict(self, result) -> dict:

@@ -62,8 +62,8 @@ class StemSeparator:
         try:
             from services.model_manager import ModelManager
             ModelManager().unload()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("ModelManager.unload() vor Demucs fehlgeschlagen: %s", e)
         gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
@@ -306,7 +306,8 @@ class AutoDucker:
                     creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
                 )
                 if result.returncode != 0:
-                    raise RuntimeError(f"FFmpeg Konvertierung fehlgeschlagen: {result.stderr[:500] if result.stderr else 'no stderr'}")
+                    stderr_msg = result.stderr.decode("utf-8", errors="replace") if isinstance(result.stderr, bytes) else (result.stderr or "")
+                    raise RuntimeError(f"FFmpeg Konvertierung fehlgeschlagen: {stderr_msg.splitlines()[-1] if stderr_msg.strip() else 'no stderr'}")
 
             if progress_cb:
                 progress_cb(50, "Scipy Ducking laeuft...")
@@ -522,9 +523,8 @@ class FrequencyAnalyzer:
                 raise ValueError(f"AudioTrack {track_id} nach Frequenzanalyse nicht mehr gefunden")
 
             # BPM + Duration updaten
-            # BPM nur setzen wenn noch kein Wert vorhanden (z.B. von BeatAnalysisService)
-            if not track.bpm:
-                track.bpm = result["bpm"]
+            # P2-04: BPM immer ueberschreiben (aktuelle Analyse ist praeziser)
+            track.bpm = result["bpm"]
             track.duration = result["duration"]
 
             # DB-07 Fix: Expliziter Query-Check gegen Duplikate
@@ -554,7 +554,7 @@ class FrequencyAnalyzer:
             try:
                 from services.pacing_service import invalidate_pacing_caches
                 invalidate_pacing_caches()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("invalidate_pacing_caches() fehlgeschlagen: %s", e)
 
         return result
