@@ -116,6 +116,7 @@ class MediaWorkspace(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self._build_ui()
 
     # ── public helpers ────────────────────────────────────────
@@ -378,13 +379,15 @@ class MediaWorkspace(QWidget):
             "Video Pool: Alle importierten Video-Dateien"
         )
         vh = self.video_pool_table.horizontalHeader()
-        vh.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        vh.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        vh.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        vh.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
-        vh.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
-        vh.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
-        vh.setSectionResizeMode(6, QHeaderView.ResizeMode.Stretch)
+        vh.setStretchLastSection(True)
+        vh.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        vh.resizeSection(0, 45)   # Auswahl
+        vh.resizeSection(1, 35)   # ID
+        vh.resizeSection(2, 200)  # Titel
+        vh.resizeSection(3, 70)   # Aufloesung
+        vh.resizeSection(4, 40)   # FPS
+        vh.resizeSection(5, 60)   # Codec
+        # Spalte 6 (Dateipfad) stretcht automatisch
         rl.addWidget(self.video_pool_table)
 
         # Delete row
@@ -574,13 +577,15 @@ class MediaWorkspace(QWidget):
             "Audio Pool: Alle importierten Audio-Dateien"
         )
         ah = self.audio_pool_table.horizontalHeader()
-        ah.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        ah.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        ah.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        ah.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
-        ah.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
-        ah.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
-        ah.setSectionResizeMode(6, QHeaderView.ResizeMode.Stretch)
+        ah.setStretchLastSection(True)
+        ah.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        ah.resizeSection(0, 45)   # Auswahl
+        ah.resizeSection(1, 35)   # ID
+        ah.resizeSection(2, 200)  # Titel
+        ah.resizeSection(3, 55)   # BPM
+        ah.resizeSection(4, 45)   # Key
+        ah.resizeSection(5, 55)   # Stems
+        # Spalte 6 (Dateipfad) stretcht automatisch
         rl.addWidget(self.audio_pool_table, stretch=3)
 
         # ── Audio Detail Cards ─────────────────────────────────
