@@ -188,12 +188,13 @@ def compute_motion_scores(
     video_path: str,
     scenes: list[SceneInfo],
     progress_cb: Callable[[int, str], None] | None = None,
+    raft_model_device: tuple | None = None,
 ) -> list[SceneInfo]:
     """Berechnet Motion-Scores via RAFT Optical Flow auf CUDA (oder CPU-Fallback).
 
-    RAFT wird auf device='cuda' geladen wenn verfügbar.
-    Fallback: Frame-Differenz-basiert (CPU).
-    Motion wird nur innerhalb der Szenen-Grenzen berechnet.
+    Args:
+        raft_model_device: Optional (raft_model, device) Tupel fuer Batch-Modus.
+            Wenn uebergeben, wird RAFT NICHT pro Video geladen/entladen.
     """
     if progress_cb:
         progress_cb(30, "Motion-Analyse...")
@@ -209,13 +210,17 @@ def compute_motion_scores(
         logger.error("Video konnte nicht geöffnet werden: %s", video_path)
         return scenes
 
+    _owns_raft = False  # Ob WIR RAFT geladen haben (dann muessen wir es entladen)
     raft_model = None
     use_raft = False
     try:
         fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
 
-        # RAFT auf CUDA laden (einmal für alle Szenen)
-        raft_model, raft_device = _load_raft_model()
+        if raft_model_device is not None:
+            raft_model, raft_device = raft_model_device
+        else:
+            raft_model, raft_device = _load_raft_model()
+            _owns_raft = True
         use_raft = raft_model is not None
 
         for scene in scenes:
@@ -257,8 +262,8 @@ def compute_motion_scores(
                 scene.motion_score = 0.0
     finally:
         cap.release()
-        # RAFT entladen um VRAM freizugeben für SigLIP (IMMER, auch bei Exception)
-        if use_raft and raft_model is not None:
+        # RAFT nur entladen wenn WIR es geladen haben (nicht im Batch-Modus)
+        if _owns_raft and use_raft and raft_model is not None:
             import torch
             try:
                 raft_model.cpu()
@@ -653,6 +658,7 @@ def run_full_pipeline(
     progress_cb: Callable[[int, str], None] | None = None,
     should_stop: Callable[[], bool] | None = None,
     siglip_model_processor: tuple | None = None,
+    raft_model_device: tuple | None = None,
 ) -> PipelineResult:
     """Führt die komplette 3-Schritt Video-Analyse-Pipeline aus.
 
@@ -704,7 +710,7 @@ def run_full_pipeline(
     if should_stop and should_stop():
         return result
 
-    scenes = compute_motion_scores(video_path, scenes)
+    scenes = compute_motion_scores(video_path, scenes, raft_model_device=raft_model_device)
     logger.info("[PIPELINE] Motion-Analyse FERTIG")
 
     # Schritt 2: Keyframes

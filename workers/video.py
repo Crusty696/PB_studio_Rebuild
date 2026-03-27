@@ -172,6 +172,7 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                 _last_progress_time[0] = now
 
         siglip_model_processor = None  # Vor try-Block definiert für finally-Zugriff
+        raft_model_device = None       # RAFT-Cache fuer Batch-Modus
         try:
             from services.video_analysis_service import run_full_pipeline
 
@@ -179,18 +180,29 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
             total_embeddings = 0
             idx = 0
 
-            # ── BATCH-OPTIMIERUNG: SigLIP EINMAL laden für alle Videos ──
-            # Spart 5-15s pro Video bei 100 Videos = 8-25 Minuten gespart
+            # ── BATCH-OPTIMIERUNG: SigLIP + RAFT EINMAL laden fuer alle Videos ──
+            # Verhindert VRAM-Fragmentierung durch wiederholtes Laden/Entladen
             if total_videos > 1:
                 try:
                     from services.model_manager import ModelManager
                     mm = ModelManager()
                     logger.info("[BATCH] Lade SigLIP einmalig fuer %d Videos...", total_videos)
                     siglip_model_processor = mm.load_siglip()
-                    logger.info("[BATCH] SigLIP vorgeladen auf %s — wird fuer alle Videos wiederverwendet", mm.device)
+                    logger.info("[BATCH] SigLIP vorgeladen auf %s", mm.device)
                 except Exception as e:
                     logger.warning("[BATCH] SigLIP Vorladen fehlgeschlagen (%s) — Fallback: pro Video laden", e)
                     siglip_model_processor = None
+
+                try:
+                    from services.video_analysis_service import _load_raft_model
+                    raft_model_device = _load_raft_model()
+                    if raft_model_device[0] is not None:
+                        logger.info("[BATCH] RAFT vorgeladen — wird fuer alle %d Videos wiederverwendet", total_videos)
+                    else:
+                        raft_model_device = None
+                except Exception as e:
+                    logger.warning("[BATCH] RAFT Vorladen fehlgeschlagen (%s) — Fallback: pro Video laden", e)
+                    raft_model_device = None
 
             for idx, (clip_id, video_path, title) in enumerate(self._batch, start=1):
                 if self.should_stop():
@@ -216,6 +228,7 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                         ),
                         should_stop=self.should_stop,
                         siglip_model_processor=siglip_model_processor,
+                        raft_model_device=raft_model_device,
                     )
                     total_scenes += len(result.scenes)
                     total_embeddings += result.embeddings_stored
@@ -241,7 +254,22 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                         pass
                     gc.collect()
 
-            # ── BATCH-CLEANUP: SigLIP am Ende der gesamten Batch entladen ──
+            # ── BATCH-CLEANUP: SigLIP + RAFT am Ende der gesamten Batch entladen ──
+            if raft_model_device is not None:
+                try:
+                    import torch
+                    raft_m, _ = raft_model_device
+                    if raft_m is not None:
+                        raft_m.cpu()
+                        del raft_m
+                    gc.collect()
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                    logger.info("[BATCH] RAFT nach Batch-Verarbeitung entladen")
+                except Exception as e:
+                    logger.warning("[BATCH] RAFT Entladen fehlgeschlagen: %s", e)
+                raft_model_device = None
+
             if siglip_model_processor is not None:
                 try:
                     from services.model_manager import ModelManager
@@ -250,7 +278,7 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                     logger.info("[BATCH] SigLIP nach Batch-Verarbeitung entladen")
                 except Exception as e:
                     logger.warning("[BATCH] SigLIP Entladen fehlgeschlagen: %s", e)
-                siglip_model_processor = None  # Markiert als entladen für finally-Guard
+                siglip_model_processor = None
 
             self.finished.emit(last_clip_id, {
                 "scenes": total_scenes,
@@ -264,7 +292,19 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
             self._errored = True
             self.error.emit(last_clip_id, str(e))
         finally:
-            # SigLIP Cleanup auch bei unerwarteten Exceptions
+            # RAFT + SigLIP Cleanup auch bei unerwarteten Exceptions
+            if raft_model_device is not None:
+                try:
+                    import torch
+                    raft_m, _ = raft_model_device
+                    if raft_m is not None:
+                        raft_m.cpu()
+                        del raft_m
+                    gc.collect()
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                except Exception:
+                    pass
             if siglip_model_processor is not None:
                 try:
                     from services.model_manager import ModelManager
