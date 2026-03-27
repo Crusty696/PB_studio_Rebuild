@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1440, initial-scale=1">
+<title>PB Studio v0.5 — Complete UI Redesign</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg0:#0a0d12;--bg1:#0f1318;--bg2:#161c26;--bg3:#1e2632;--bg4:#283040;--bg5:#334050;
+  --accent:#d4a44a;--accent2:#f0c866;--accent3:#a07830;--accentG:rgba(212,164,74,.15);--accentG2:rgba(212,164,74,.3);
+  --ok:#4ade80;--warn:#fbbf24;--err:#f87171;--info:#60a5fa;--cyan:#00e5ff;--violet:#bf40ff;--pink:#ff2d95;--neon:#39ff14;
+  --t1:#e8e6e3;--t2:#9ca3af;--t3:#6b7280;--t4:#4a5568;
+  --brd:rgba(255,255,255,.06);--brd2:rgba(255,255,255,.1);
+  --r:6px;--r2:10px;
+  --shadow:0 4px 12px rgba(0,0,0,.4);
+}
+body{font-family:'Inter','Segoe UI',sans-serif;background:var(--bg0);color:var(--t1);overflow:hidden;height:100vh;display:flex;flex-direction:column;user-select:none;font-size:12px;line-height:1.4}
+::-webkit-scrollbar{width:5px;height:5px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--bg4);border-radius:3px}
+
+/* === TOPBAR === */
+.topbar{height:38px;background:var(--bg1);border-bottom:1px solid var(--brd);display:flex;align-items:center;padding:0 12px;gap:8px;flex-shrink:0;z-index:100}
+.logo{width:20px;height:20px;background:linear-gradient(135deg,var(--accent),var(--accent2));border-radius:4px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:9px;color:var(--bg0)}
+.brand{font-weight:600;font-size:12px;letter-spacing:.5px}.ver{font-size:9px;color:var(--t3);background:var(--bg3);padding:1px 5px;border-radius:3px}
+.tbtn{height:26px;padding:0 8px;border:none;background:var(--bg3);color:var(--t2);border-radius:4px;cursor:pointer;font-size:10px;font-weight:500;display:flex;align-items:center;gap:4px;transition:.15s}
+.tbtn:hover{background:var(--bg4);color:var(--t1)}.tbtn.on{background:var(--accentG);color:var(--accent2);border:1px solid rgba(212,164,74,.3)}
+.tbtn .dot{width:5px;height:5px;border-radius:50%;background:var(--warn);animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.sep{width:1px;height:18px;background:var(--brd);margin:0 2px}.spacer{flex:1}
+
+/* === BOTTOM NAV === */
+.bnav{height:44px;background:var(--bg1);border-top:1px solid var(--brd);display:flex;align-items:center;justify-content:center;gap:2px;flex-shrink:0;z-index:100}
+.nb{height:34px;padding:0 20px;border:none;background:transparent;color:var(--t3);font-size:11px;font-weight:600;letter-spacing:.8px;text-transform:uppercase;cursor:pointer;border-radius:var(--r);transition:.2s;display:flex;align-items:center;gap:6px;position:relative}
+.nb:hover{color:var(--t2);background:var(--bg3)}.nb.on{color:var(--accent2);background:var(--accentG)}
+.nb.on::after{content:'';position:absolute;bottom:-5px;left:50%;transform:translateX(-50%);width:20px;height:2px;background:var(--accent);border-radius:1px}
+
+/* === STATUSBAR === */
+.sbar{height:22px;background:var(--bg0);border-top:1px solid var(--brd);display:flex;align-items:center;padding:0 10px;gap:12px;font-size:10px;color:var(--t3);flex-shrink:0}
+.sbar .gdot{width:5px;height:5px;border-radius:50%;background:var(--ok);display:inline-block;margin-right:3px}
+.res-bar{width:40px;height:8px;background:var(--bg2);border-radius:2px;overflow:hidden;display:inline-flex}.res-fill{height:100%;border-radius:2px}
+
+/* === PANELS === */
+.panel{background:var(--bg2);border:1px solid var(--brd);border-radius:var(--r2);overflow:hidden;display:flex;flex-direction:column}
+.ph{height:30px;padding:0 10px;display:flex;align-items:center;gap:6px;border-bottom:1px solid var(--brd);background:var(--bg3);flex-shrink:0}
+.pt{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--t3)}
+.pb{flex:1;padding:8px;overflow-y:auto;min-height:0}
+
+/* === BTNS === */
+.btn{height:28px;padding:0 12px;border:none;border-radius:var(--r);font-size:11px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:5px;transition:.15s;white-space:nowrap}
+.bp{background:linear-gradient(135deg,var(--accent),var(--accent3));color:var(--bg0)}.bp:hover{background:linear-gradient(135deg,var(--accent2),var(--accent))}
+.bs{background:var(--bg3);color:var(--t2);border:1px solid var(--brd)}.bs:hover{background:var(--bg4);color:var(--t1)}
+.bg{background:transparent;color:var(--t3)}.bg:hover{background:var(--bg3);color:var(--t2)}
+.bsm{height:22px;padding:0 8px;font-size:10px;border-radius:4px}
+.bfull{width:100%}
+
+/* === BADGE === */
+.badge{display:inline-flex;align-items:center;padding:1px 6px;border-radius:8px;font-size:9px;font-weight:600}
+.badge-ok{background:rgba(74,222,128,.15);color:var(--ok)}.badge-warn{background:rgba(251,191,36,.15);color:var(--warn)}
+.badge-info{background:rgba(96,165,250,.15);color:var(--info)}.badge-accent{background:var(--accentG);color:var(--accent2)}
+.badge-run{background:rgba(251,191,36,.15);color:var(--warn);animation:pulse 2s infinite}
+.badge-violet{background:rgba(191,64,255,.15);color:var(--violet)}.badge-cyan{background:rgba(0,229,255,.15);color:var(--cyan)}
+.badge-pink{background:rgba(255,45,149,.15);color:var(--pink)}
+
+/* === TABLE === */
+.dtable{width:100%;border-collapse:separate;border-spacing:0;font-size:11px}
+.dtable thead th{text-align:left;padding:5px 8px;font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--t3);border-bottom:1px solid var(--brd);position:sticky;top:0;background:var(--bg2);z-index:1}
+.dtable tbody tr{transition:.1s}.dtable tbody tr:hover{background:var(--bg3)}
+.dtable tbody td{padding:5px 8px;color:var(--t2);border-bottom:1px solid rgba(255,255,255,.02)}
+.dtable .sel{background:var(--accentG)}.dtable .sel td{color:var(--t1)}
+
+/* === INPUTS === */
+.inp{height:24px;background:var(--bg1);border:1px solid var(--brd);border-radius:4px;color:var(--t1);padding:0 7px;font-size:10px;outline:none;width:100%}
+.inp:focus{border-color:var(--accent)}.inp::placeholder{color:var(--t4)}
+select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 6px center;padding-right:20px}
+input[type=range]{-webkit-appearance:none;height:3px;background:var(--bg1);border-radius:2px;outline:none;flex:1}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:12px;height:12px;background:var(--accent);border-radius:50%;cursor:pointer}
+.label{font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--t3);margin-bottom:3px;display:block}
+.progress{height:3px;background:var(--bg1);border-radius:2px;overflow:hidden}.progress-f{height:100%;border-radius:2px}
+.pf-gold{background:linear-gradient(90deg,var(--accent3),var(--accent2))}.pf-green{background:linear-gradient(90deg,#059669,var(--ok))}
+.pf-cyan{background:linear-gradient(90deg,#0891b2,var(--cyan))}
+
+/* === TOGGLE === */
+.tog{display:flex;background:var(--bg1);border-radius:var(--r);padding:2px;gap:1px;border:1px solid var(--brd)}
+.tog button{padding:4px 14px;border:none;background:transparent;color:var(--t3);font-size:11px;font-weight:600;cursor:pointer;border-radius:5px;transition:.2s}
+.tog button.on{background:var(--accentG);color:var(--accent2)}
+
+/* === WORKSPACE === */
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden;min-height:0}
+.ws{flex:1;display:none;min-height:0;overflow:hidden}.ws.on{display:flex}
+
+/* === MEDIA WS === */
+.media-ws{flex-direction:column}
+.media-bar{display:flex;align-items:center;padding:8px 12px;gap:10px;border-bottom:1px solid var(--brd);background:var(--bg1)}
+.media-body{flex:1;display:flex;min-height:0}
+.media-side{width:180px;background:var(--bg2);border-right:1px solid var(--brd);padding:10px;display:flex;flex-direction:column;gap:12px;flex-shrink:0;overflow-y:auto}
+.ss-title{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--t3);margin-bottom:6px}
+.sbtn{width:100%;height:28px;padding:0 8px;border:1px solid var(--brd);background:var(--bg3);color:var(--t2);border-radius:var(--r);font-size:11px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:6px;text-align:left;transition:.15s}
+.sbtn:hover{background:var(--bg4);color:var(--t1)}.sbtn.ac{border-color:rgba(212,164,74,.3);color:var(--accent2);background:var(--accentG)}
+.media-pool{flex:1;display:flex;flex-direction:column;min-width:0}
+.pool-hdr{display:flex;align-items:center;padding:6px 12px;gap:8px;border-bottom:1px solid var(--brd)}
+.search{height:26px;background:var(--bg1);border:1px solid var(--brd);border-radius:var(--r);display:flex;align-items:center;padding:0 8px;gap:4px;flex:1;max-width:260px}
+.search input{border:none;background:none;color:var(--t1);font-size:11px;outline:none;flex:1}.search input::placeholder{color:var(--t4)}
+
+/* === EDIT WS === */
+.edit-ws{flex-direction:column;overflow:hidden}
+.edit-top{flex:0 0 auto;display:flex;min-height:0;max-height:35vh}
+.edit-preview{flex:1;background:#000;display:flex;align-items:center;justify-content:center;position:relative;min-width:0}
+.transport{height:36px;background:var(--bg2);border-top:1px solid var(--brd);display:flex;align-items:center;padding:0 10px;gap:6px;flex-shrink:0}
+.tbtn2{width:28px;height:28px;border:none;background:var(--bg3);color:var(--t2);border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:12px;transition:.15s}
+.tbtn2:hover{background:var(--bg4);color:var(--t1)}.tbtn2.play{background:var(--accent);color:var(--bg0);border-radius:50%;width:30px;height:30px}
+.ttime{font-family:'Cascadia Code','SF Mono',monospace;font-size:11px;color:var(--t1);min-width:60px}
+.tprog{flex:1;height:3px;background:var(--bg1);border-radius:2px;cursor:pointer;position:relative}
+.tprog-f{width:35%;height:100%;background:linear-gradient(90deg,var(--accent3),var(--accent));border-radius:2px;position:relative}
+.tprog-f::after{content:'';position:absolute;right:-4px;top:-3px;width:9px;height:9px;background:var(--accent2);border-radius:50%;box-shadow:0 0 6px rgba(212,164,74,.5)}
+
+/* Inspector */
+.insp{width:260px;background:var(--bg2);border-left:1px solid var(--brd);display:flex;flex-direction:column;flex-shrink:0;overflow:hidden}
+.insp-s{padding:7px 10px;border-bottom:1px solid var(--brd)}
+.insp-t{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--t3);margin-bottom:5px;display:flex;align-items:center;gap:4px}
+.insp-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px}
+.insp-actions{margin-top:auto;padding:8px 10px;border-top:1px solid var(--brd)}
+
+/* Timeline */
+.tl-area{flex:1;min-height:160px;background:var(--bg1);border-top:1px solid var(--brd);display:flex;flex-direction:column;overflow:hidden}
+.tl-bar{height:28px;background:var(--bg2);border-bottom:1px solid var(--brd);display:flex;align-items:center;padding:0 10px;gap:6px;flex-shrink:0}
+.tl-ruler{height:16px;background:var(--bg3);border-bottom:1px solid var(--brd);position:relative;flex-shrink:0}
+.tl-ruler span{position:absolute;bottom:1px;font-size:8px;color:var(--t4);transform:translateX(-50%)}
+.tl-tracks{flex:1;display:flex;flex-direction:column;overflow:hidden;position:relative}
+.tl-track{flex:1;display:flex;border-bottom:1px solid rgba(255,255,255,.02)}
+.trk-lbl{width:36px;padding:0 4px;font-size:9px;font-weight:600;text-align:center;border-right:1px solid var(--brd);display:flex;align-items:center;justify-content:center;background:var(--bg2);flex-shrink:0}
+.trk-c{flex:1;padding:3px 6px;display:flex;align-items:center;gap:2px}
+.clip{height:calc(100% - 6px);border-radius:3px;display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;color:rgba(255,255,255,.6);cursor:pointer;transition:.15s;overflow:hidden}
+.clip:hover{filter:brightness(1.2)}.clip-a{background:linear-gradient(180deg,rgba(212,164,74,.35),rgba(212,164,74,.15));border:1px solid rgba(212,164,74,.25)}
+.clip-v{background:linear-gradient(180deg,rgba(96,165,250,.25),rgba(96,165,250,.1));border:1px solid rgba(96,165,250,.2)}
+.playhead{position:absolute;top:0;left:35%;width:1px;height:100%;background:var(--accent);z-index:10;pointer-events:none}
+.playhead::before{content:'';position:absolute;top:-5px;left:-4px;width:9px;height:7px;background:var(--accent);clip-path:polygon(0 0,100% 0,50% 100%)}
+
+/* === STEMS === */
+.stems-ws{flex-direction:column}
+.stem-bar{padding:8px 12px;border-bottom:1px solid var(--brd);background:var(--bg1);display:flex;align-items:center;gap:10px}
+.stem-body{flex:1;display:flex;flex-direction:column;padding:12px;gap:6px;overflow-y:auto}
+.stem-trk{background:var(--bg2);border:1px solid var(--brd);border-radius:var(--r2);padding:10px 12px;display:flex;align-items:center;gap:12px;transition:.15s}
+.stem-trk:hover{border-color:var(--brd2);background:var(--bg3)}
+.stem-col{width:3px;height:36px;border-radius:2px;flex-shrink:0}
+.stem-name{font-weight:600;font-size:12px}.stem-meta{font-size:9px;color:var(--t3)}
+.stog{width:24px;height:24px;border:1px solid var(--brd);background:var(--bg1);color:var(--t3);border-radius:3px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;transition:.15s}
+.stog.mute{background:var(--err);color:#fff;border-color:var(--err)}.stog.solo{background:var(--accent);color:var(--bg0);border-color:var(--accent)}
+.stem-wave{flex:2;height:36px;background:var(--bg1);border-radius:3px;overflow:hidden}
+.stem-db{font-family:monospace;font-size:10px;color:var(--t3);min-width:36px;text-align:right}
+
+/* === CONVERT === */
+.conv-ws{flex-direction:row}.conv-set{width:320px;background:var(--bg2);border-right:1px solid var(--brd);padding:16px;display:flex;flex-direction:column;gap:16px;overflow-y:auto;flex-shrink:0}
+.conv-log{flex:1;display:flex;flex-direction:column}
+.log-out{flex:1;background:var(--bg0);font-family:'Cascadia Code',monospace;font-size:10px;color:var(--t3);padding:10px;overflow-y:auto;line-height:1.6}
+
+/* === DELIVER === */
+.del-ws{flex-direction:row}.del-left{flex:1;display:flex;flex-direction:column;padding:16px;gap:16px}
+.del-prev{flex:1;background:#000;border-radius:var(--r2);display:flex;align-items:center;justify-content:center;min-height:160px}
+.del-right{width:300px;background:var(--bg2);border-left:1px solid var(--brd);padding:16px;display:flex;flex-direction:column;gap:16px;overflow-y:auto;flex-shrink:0}
+.exp-sum{background:var(--bg3);border-radius:var(--r);padding:10px}.exp-row{display:flex;justify-content:space-between;padding:3px 0;font-size:11px}
+.exp-row .k{color:var(--t3)}.exp-row .v{color:var(--t1);font-weight:500}
+.btn-exp{width:100%;height:44px;background:linear-gradient(135deg,var(--accent),#c4943a);color:var(--bg0);border:none;border-radius:var(--r2);font-size:13px;font-weight:700;cursor:pointer;transition:.2s;box-shadow:0 4px 20px rgba(212,164,74,.25)}
+.btn-exp:hover{background:linear-gradient(135deg,var(--accent2),var(--accent));transform:translateY(-1px)}
+
+/* === CHAT PANEL === */
+.chat{position:fixed;top:38px;right:0;bottom:66px;width:320px;background:var(--bg2);border-left:1px solid var(--brd);display:flex;flex-direction:column;z-index:90;transform:translateX(100%);transition:.25s;box-shadow:-4px 0 20px rgba(0,0,0,.3)}
+.chat.open{transform:translateX(0)}
+.chat-hdr{height:32px;padding:0 10px;display:flex;align-items:center;gap:6px;border-bottom:1px solid var(--brd);background:var(--bg3);flex-shrink:0}
+.chat-msgs{flex:1;overflow-y:auto;padding:10px;display:flex;flex-direction:column;gap:8px}
+.msg{max-width:90%;padding:6px 10px;border-radius:8px;font-size:11px;line-height:1.4}
+.msg.sys{align-self:flex-start;background:var(--bg3);color:var(--t2);border-bottom-left-radius:2px}
+.msg.usr{align-self:flex-end;background:var(--accentG2);color:var(--t1);border-bottom-right-radius:2px}
+.msg.ai{align-self:flex-start;background:var(--bg3);color:var(--t2);border-left:2px solid var(--accent);border-bottom-left-radius:2px}
+.msg-lbl{font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px;display:block}
+.msg.ai .msg-lbl{color:var(--accent)}.msg.sys .msg-lbl{color:var(--t4)}
+.chat-in{padding:8px 10px;border-top:1px solid var(--brd);background:var(--bg3);flex-shrink:0}
+.chat-ta{width:100%;background:var(--bg1);border:1px solid var(--brd);border-radius:var(--r);color:var(--t1);padding:6px 8px;font-size:11px;font-family:inherit;resize:none;outline:none;min-height:32px;max-height:60px}
+.chat-ta:focus{border-color:var(--accent)}.chat-ta::placeholder{color:var(--t4)}
+.chat-agents{display:flex;gap:4px;margin-top:5px}
+.agent-tag{font-size:8px;padding:2px 6px;border-radius:3px;background:var(--bg1);color:var(--t3);border:1px solid var(--brd);cursor:pointer;transition:.15s}
+.agent-tag:hover{border-color:rgba(212,164,74,.3);color:var(--accent2)}.agent-tag.on{background:var(--accentG);color:var(--accent2);border-color:rgba(212,164,74,.3)}
+
+/* === BOTTOM DOCK === */
+.bdock{height:0;overflow:hidden;background:var(--bg2);border-top:1px solid var(--brd);transition:.3s;flex-shrink:0}.bdock.open{height:140px}
+.dock-tabs{height:24px;display:flex;align-items:center;background:var(--bg3);border-bottom:1px solid var(--brd);padding:0 6px;gap:1px}
+.dtab{padding:3px 10px;font-size:10px;font-weight:500;color:var(--t3);border:none;background:none;cursor:pointer;border-radius:3px}
+.dtab.on{color:var(--t1);background:var(--bg4)}.dock-body{padding:6px 10px;font-family:monospace;font-size:10px;color:var(--t3);overflow-y:auto;height:calc(100% - 24px);line-height:1.5}
+.task-row{display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.02)}
+
+/* === ABOUT MODAL === */
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:999;display:none;align-items:center;justify-content:center}
+.modal-bg.open{display:flex}
+.modal{background:var(--bg2);border:1px solid var(--brd2);border-radius:var(--r2);padding:24px;width:400px;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+.modal h2{font-size:20px;color:var(--accent2);margin-bottom:4px}.modal .sub{color:var(--t3);font-size:12px;margin-bottom:16px}
+.modal .info{font-size:11px;color:var(--t2);line-height:1.6;margin-bottom:16px}
+.modal .tech{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:16px}
+
+/* helpers */
+.fg{display:flex;flex-direction:column;gap:4px}.fr{display:flex;gap:8px;align-items:flex-end}
+.mono{font-family:'Cascadia Code',monospace}.tc{color:var(--accent2)}.tm{color:var(--t3)}.sm{font-size:10px}.w100{width:100%}
+.mt-a{margin-top:auto}
+</style>
+</head>
+<body>
+
+<!-- ABOUT MODAL -->
+<div class="modal-bg" id="modal-about">
+  <div class="modal">
+    <h2>PB Studio</h2>
+    <div class="sub">Director's Cockpit — Beat-Synchronized Video Editor</div>
+    <div style="height:1px;background:var(--brd);margin-bottom:12px"></div>
+    <div class="info">
+      <strong>Version:</strong> 0.5.0<br>
+      <strong>Engine:</strong> AI Pacing + SigLIP Vision + Demucs Stems<br>
+      <strong>Hardware:</strong> CUDA GPU required (GTX 1060+ recommended)<br>
+      <strong>Python:</strong> 3.11+ | <strong>Qt:</strong> PySide6 6.8+
+    </div>
+    <div class="tech">
+      <span class="badge badge-cyan">beat_this</span>
+      <span class="badge badge-violet">Demucs</span>
+      <span class="badge badge-info">SigLIP</span>
+      <span class="badge badge-accent">RAFT</span>
+      <span class="badge badge-ok">FFmpeg</span>
+      <span class="badge badge-pink">PySceneDetect</span>
+      <span class="badge badge-warn">faster-whisper</span>
+    </div>
+    <button class="btn bp bfull" onclick="document.getElementById('modal-about').classList.remove('open')" style="height:32px">Schliessen</button>
+  </div>
+</div>
+
+<!-- TOPBAR -->
+<div class="topbar">
+  <div class="logo">PB</div><span class="brand">PB Studio</span><span class="ver">v0.5</span>
+  <div class="spacer"></div>
+  <button class="tbtn" id="tb-tasks" onclick="toggleDock('tasks')"><span class="dot"></span> Tasks <span class="badge badge-warn" style="font-size:8px;padding:0 4px">3</span></button>
+  <button class="tbtn" id="tb-console" onclick="toggleDock('console')">Konsole</button>
+  <button class="tbtn" id="tb-chat" onclick="toggleChat()">KI Chat</button>
+  <div class="sep"></div>
+  <button class="tbtn" onclick="document.getElementById('modal-about').classList.add('open')">About</button>
+</div>
+
+<!-- MAIN -->
+<div class="main">
+
+<!-- ========== MEDIA ========== -->
+<div class="ws media-ws on" id="ws-media">
+  <div class="media-bar">
+    <div class="tog" id="media-tog">
+      <button class="on" onclick="mediaMode(this,'vid')">Video</button>
+      <button onclick="mediaMode(this,'aud')">Audio</button>
+    </div>
+    <div class="spacer"></div>
+    <span class="sm tm" id="media-info">100 Videos | 1 Audio | 143.6 BPM</span>
+    <span class="badge badge-ok">Analysiert</span>
+  </div>
+  <div class="media-body">
+    <div class="media-side">
+      <!-- VIDEO SIDEBAR -->
+      <div id="side-vid">
+        <div><div class="ss-title">Import</div><div class="fg" style="gap:3px">
+          <button class="sbtn ac">&#128229; Video importieren</button>
+          <button class="sbtn">&#128193; Ordner importieren</button>
+        </div></div>
+        <div><div class="ss-title">Analyse-Pipeline</div><div class="fg" style="gap:3px">
+          <button class="sbtn">&#128269; Szenen-Erkennung</button>
+          <button class="sbtn">&#127916; Motion-Analyse</button>
+          <button class="sbtn">&#129504; SigLIP Embeddings</button>
+          <button class="sbtn ac">&#9889; Voll-Pipeline</button>
+        </div></div>
+        <div><div class="ss-title">Verwaltung</div><div class="fg" style="gap:3px">
+          <button class="sbtn" style="color:var(--err)">&#128465; Sammlung bereinigen</button>
+        </div></div>
+        <div class="mt-a"><button class="btn bp bfull" style="height:30px">+ Zur Timeline</button></div>
+      </div>
+      <!-- AUDIO SIDEBAR (hidden) -->
+      <div id="side-aud" style="display:none">
+        <div><div class="ss-title">Import</div><div class="fg" style="gap:3px">
+          <button class="sbtn ac">&#127925; Audio importieren</button>
+          <button class="sbtn">&#128193; Ordner importieren</button>
+        </div></div>
+        <div><div class="ss-title">Analyse</div><div class="fg" style="gap:3px">
+          <button class="sbtn">&#128269; Audio analysieren</button>
+          <button class="sbtn">&#127926; Wellenform</button>
+          <button class="sbtn">&#127908; Key erkennen</button>
+          <button class="sbtn">&#128202; LUFS / Loudness</button>
+        </div></div>
+        <div><div class="ss-title">KI-Werkzeuge</div><div class="fg" style="gap:3px">
+          <button class="sbtn">&#129504; Stems trennen</button>
+          <button class="sbtn">&#128266; Auto-Ducking</button>
+        </div></div>
+        <div class="mt-a"><button class="btn bp bfull" style="height:30px">+ Zur Timeline</button></div>
+      </div>
+    </div>
+
+    <div class="media-pool">
+      <div class="pool-hdr">
+        <span class="pt" id="pool-title" style="color:var(--accent2)">Video Pool</span>
+        <div class="search"><span class="tm">&#128269;</span><input type="text" id="pool-search" placeholder="SigLIP Semantic Search..."></div>
+        <span class="sm tm" id="pool-count">100 Videos</span>
+        <button class="btn bg bsm">Alle</button>
+        <button class="btn bg bsm" style="color:var(--err)">Ausgewählte löschen</button>
+      </div>
+
+      <!-- VIDEO POOL TABLE -->
+      <div style="flex:1;overflow-y:auto" id="pool-vid">
+        <table class="dtable"><thead><tr>
+          <th style="width:30px">&#9745;</th><th style="width:30px">#</th><th>Titel</th><th style="width:60px">Aufl.</th><th style="width:40px">FPS</th><th style="width:50px">Szenen</th><th style="width:60px">Motion</th><th style="width:60px">Status</th>
+        </tr></thead><tbody>
+          <tr class="sel"><td>&#9745;</td><td>1</td><td style="color:var(--t1)">festival_stage_01.mp4</td><td>1080p</td><td>30</td><td>4</td><td><span class="badge badge-warn">Hoch</span></td><td><span class="badge badge-ok">Fertig</span></td></tr>
+          <tr><td>&#9744;</td><td>2</td><td>crowd_dancing_02.mp4</td><td>1080p</td><td>30</td><td>2</td><td><span class="badge badge-info">Mittel</span></td><td><span class="badge badge-ok">Fertig</span></td></tr>
+          <tr><td>&#9744;</td><td>3</td><td>dj_booth_wide_03.mp4</td><td>4K</td><td>60</td><td>1</td><td><span class="badge badge-ok">Niedrig</span></td><td><span class="badge badge-ok">Fertig</span></td></tr>
+          <tr><td>&#9744;</td><td>4</td><td>laser_show_04.mp4</td><td>720p</td><td>30</td><td>6</td><td><span class="badge badge-warn">Hoch</span></td><td><span class="badge badge-ok">Fertig</span></td></tr>
+          <tr><td>&#9744;</td><td>5</td><td>pyro_finale_05.mp4</td><td>1080p</td><td>60</td><td>3</td><td><span class="badge badge-warn">Hoch</span></td><td><span class="badge badge-ok">Fertig</span></td></tr>
+        </tbody></table>
+      </div>
+
+      <!-- AUDIO POOL TABLE (hidden) -->
+      <div style="flex:1;overflow-y:auto;display:none" id="pool-aud">
+        <table class="dtable"><thead><tr>
+          <th style="width:30px">#</th><th>Titel</th><th style="width:60px">BPM</th><th style="width:50px">Key</th><th style="width:60px">Stems</th><th style="width:60px">LUFS</th><th style="width:60px">Status</th>
+        </tr></thead><tbody>
+          <tr class="sel"><td>1</td><td style="color:var(--t1)">Crusty_Progressive Psy Set2</td><td class="mono">143.6</td><td>Am</td><td><span class="badge badge-run">61%</span></td><td>-8.2</td><td><span class="badge badge-ok">Fertig</span></td></tr>
+        </tbody></table>
+      </div>
+
+      <!-- AUDIO DETAIL CARDS (hidden by default) -->
+      <div id="audio-cards" style="display:none;border-top:1px solid var(--brd);padding:8px 12px;">
+        <div style="display:flex;gap:8px;">
+          <div style="flex:1;background:var(--bg3);border:1px solid rgba(0,229,255,.2);border-radius:var(--r);padding:8px;">
+            <div class="sm" style="color:var(--cyan);margin-bottom:4px">BPM & BEATS</div>
+            <div style="font-size:22px;font-weight:700;color:var(--t1)">143.6 <span class="sm tm">BPM</span></div>
+            <div class="sm tm">4096 Beats | Confidence: 94%</div>
+            <div class="sm tm">Key: Am (Camelot: 8A) | 87%</div>
+          </div>
+          <div style="flex:1;background:var(--bg3);border:1px solid rgba(191,64,255,.2);border-radius:var(--r);padding:8px;">
+            <div class="sm" style="color:var(--violet);margin-bottom:4px">CLASSIFY</div>
+            <div style="font-size:14px;font-weight:600;color:var(--t1)">Progressive Psy</div>
+            <div class="sm tm">Mood: Energetic | Energy: High</div>
+            <div class="sm tm">Genre: Psytrance | DJ-Mix: Ja</div>
+          </div>
+          <div style="flex:1;background:var(--bg3);border:1px solid rgba(74,222,128,.2);border-radius:var(--r);padding:8px;">
+            <div class="sm" style="color:var(--ok);margin-bottom:4px">STATUS</div>
+            <div class="sm"><span style="color:var(--ok)">&#10003;</span> Spektral: 8 Bänder</div>
+            <div class="sm"><span style="color:var(--ok)">&#10003;</span> LUFS: -8.2 dB</div>
+            <div class="sm"><span style="color:var(--warn)">&#9679;</span> Stems: 61% (82/134)</div>
+            <div class="sm"><span style="color:var(--ok)">&#10003;</span> Struktur: 5 Sektionen</div>
+          </div>
+        </div>
+        <!-- Structure bar -->
+        <div style="margin-top:6px;display:flex;height:20px;border-radius:4px;overflow:hidden;font-size:8px">
+          <div style="flex:1.2;background:rgba(74,222,128,.15);display:flex;align-items:center;justify-content:center;color:var(--ok)">INTRO</div>
+          <div style="flex:2;background:rgba(251,191,36,.15);display:flex;align-items:center;justify-content:center;color:var(--warn)">BUILDUP</div>
+          <div style="flex:1.5;background:rgba(248,113,113,.15);display:flex;align-items:center;justify-content:center;color:var(--err)">DROP</div>
+          <div style="flex:1.8;background:rgba(96,165,250,.15);display:flex;align-items:center;justify-content:center;color:var(--info)">BREAKDOWN</div>
+          <div style="flex:1;background:rgba(191,64,255,.15);display:flex;align-items:center;justify-content:center;color:var(--violet)">OUTRO</div>
+        </div>
+      </div>
+
+      <!-- Waveform area -->
+      <div style="height:50px;border-top:1px solid var(--brd);padding:4px 12px;flex-shrink:0">
+        <div style="display:flex;justify-content:space-between;margin-bottom:3px"><span class="sm tm">Wellenform: Crusty_Progressive</span><span class="sm mono tc">143.6 BPM</span></div>
+        <canvas id="cv-wave" style="width:100%;height:28px;border-radius:3px"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ========== EDIT ========== -->
+<div class="ws edit-ws" id="ws-edit">
+  <div class="edit-top">
+    <div style="flex:1;display:flex;flex-direction:column;min-width:0">
+      <div class="edit-preview"><div style="color:var(--t3);text-align:center"><div style="font-size:36px;opacity:.3">&#9654;</div><div class="sm">Keine Vorschau</div></div></div>
+      <div class="transport">
+        <button class="tbtn2">&#9198;</button><button class="tbtn2 play">&#9654;</button><button class="tbtn2">&#9632;</button>
+        <span class="ttime">00:00:00</span>
+        <div class="tprog"><div class="tprog-f"></div></div>
+        <span class="ttime tm">02:24:15</span>
+      </div>
+    </div>
+    <div class="insp">
+      <!-- Sources -->
+      <div class="insp-s" style="padding:5px 10px">
+        <div class="insp-grid">
+          <div class="fg"><span class="label">Audio</span><select class="inp"><option>Crusty_Progressive</option></select></div>
+          <div class="fg"><span class="label">Video-Pool</span><select class="inp"><option>100 Videos</option></select></div>
+        </div>
+      </div>
+      <!-- Pacing -->
+      <div class="insp-s">
+        <div class="insp-t">Pacing</div>
+        <div class="fg" style="margin-bottom:5px"><span class="label">Vibe</span><input type="text" class="inp" value="Energetic Progressive"></div>
+        <div class="insp-grid" style="margin-bottom:5px">
+          <div class="fg"><span class="label">Cut-Rate</span><select class="inp"><option>4 Beat</option><option>1 Beat</option><option>2 Beat</option><option>8 Beat</option><option>16 Beat</option></select></div>
+          <div class="fg"><span class="label">Breakdown</span><select class="inp"><option>Halbieren</option><option>16-Beat</option><option>Keine Cuts</option></select></div>
+        </div>
+        <div class="fg" style="margin-bottom:5px"><span class="label">Energy Reactivity</span><div style="display:flex;align-items:center;gap:6px"><input type="range" min="0" max="100" value="70"><span class="mono sm">70%</span></div></div>
+        <div class="fg"><span class="label">Style Preset</span><select class="inp"><option>Standard</option><option>Techno</option><option>House</option><option>Drum & Bass</option><option>Hip-Hop</option><option>Ambient</option><option>Minimal</option><option>Cinematic</option><option>Festival</option></select></div>
+      </div>
+      <!-- Pacing Curve -->
+      <div class="insp-s" style="padding:5px 10px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px"><span class="label" style="margin:0">Pacing-Kurve</span><button class="btn bg bsm" style="height:18px;font-size:8px">Reset</button></div>
+        <div style="height:36px;background:var(--bg1);border-radius:3px;position:relative;overflow:hidden"><canvas id="cv-pace" style="width:100%;height:100%"></canvas></div>
+      </div>
+      <!-- Anchors -->
+      <div class="insp-s" style="padding:5px 10px">
+        <div class="insp-t">Anchors <span class="badge badge-accent" style="margin-left:4px">3</span></div>
+        <div style="background:var(--bg1);border:1px solid var(--brd);border-radius:4px;font-size:9px;max-height:50px;overflow-y:auto">
+          <div style="display:flex;padding:3px 6px;border-bottom:1px solid var(--brd);color:var(--t3)"><span style="flex:1">00:12.4</span><span style="flex:2">festival_stage_01</span><span class="badge badge-warn" style="font-size:7px">DROP</span></div>
+          <div style="display:flex;padding:3px 6px;border-bottom:1px solid var(--brd);color:var(--t3)"><span style="flex:1">00:38.8</span><span style="flex:2">crowd_dancing_02</span><span class="badge badge-info" style="font-size:7px">BREAK</span></div>
+          <div style="display:flex;padding:3px 6px;color:var(--t3)"><span style="flex:1">01:24.1</span><span style="flex:2">laser_show_04</span><span class="badge badge-warn" style="font-size:7px">DROP</span></div>
+        </div>
+        <div class="insp-grid" style="margin-top:4px"><button class="btn bs bsm bfull" style="height:20px;font-size:9px">+ Anchor</button><button class="btn bs bsm bfull" style="height:20px;font-size:9px">Sync</button></div>
+      </div>
+      <!-- Actions -->
+      <div class="insp-actions">
+        <button class="btn bp bfull" style="height:30px;font-size:11px">&#9889; Auto-Edit (Phase 3)</button>
+        <div class="insp-grid" style="margin-top:4px">
+          <button class="btn bs bsm bfull" style="font-size:9px">Timeline gen.</button>
+          <button class="btn bg bsm bfull" style="font-size:9px">&#11088; KI lernen</button>
+        </div>
+        <div class="insp-grid" style="margin-top:3px">
+          <button class="btn bg bsm bfull" style="font-size:9px;color:var(--ok)">&#128077;</button>
+          <button class="btn bg bsm bfull" style="font-size:9px;color:var(--err)">&#128078;</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- TIMELINE -->
+  <div class="tl-area">
+    <div class="tl-bar">
+      <button class="btn bg bsm">Zoom +</button><button class="btn bg bsm">Zoom -</button>
+      <div class="spacer"></div>
+      <span class="sm tm">Snap: Beat</span><div class="sep"></div><span class="sm tm">143.6 BPM</span><div class="sep"></div><span class="sm mono tc">00:00 / 02:24:15</span>
+    </div>
+    <div class="tl-ruler">
+      <span style="left:5%">0:00</span><span style="left:15%">5:00</span><span style="left:25%">10:00</span><span style="left:35%">15:00</span><span style="left:45%">20:00</span><span style="left:55%">25:00</span><span style="left:65%">30:00</span><span style="left:75%">35:00</span><span style="left:85%">40:00</span><span style="left:95%">45:00</span>
+    </div>
+    <div class="tl-tracks">
+      <div class="playhead"></div>
+      <div class="tl-track"><div class="trk-lbl" style="color:var(--accent)">A1</div><div class="trk-c"><div class="clip clip-a" style="width:100%"><canvas id="cv-tl" style="width:100%;height:100%"></canvas></div></div></div>
+      <div class="tl-track"><div class="trk-lbl" style="color:var(--info)">V1</div><div class="trk-c">
+        <div class="clip clip-v" style="width:8%">1</div><div class="clip clip-v" style="width:5%">2</div><div class="clip clip-v" style="width:12%">3</div><div class="clip clip-v" style="width:4%">4</div><div class="clip clip-v" style="width:9%">5</div><div class="clip clip-v" style="width:6%">6</div><div class="clip clip-v" style="width:14%">7</div><div class="clip clip-v" style="width:7%">8</div><div class="clip clip-v" style="width:10%">9</div><div class="clip clip-v" style="width:5%">10</div><div class="clip clip-v" style="width:8%">11</div>
+      </div></div>
+      <div class="tl-track"><div class="trk-lbl" style="color:var(--info);opacity:.5">V2</div><div class="trk-c">
+        <div class="clip clip-v" style="width:6%;opacity:.5">B</div><div style="width:20%"></div><div class="clip clip-v" style="width:8%;opacity:.5">B</div><div style="width:30%"></div><div class="clip clip-v" style="width:10%;opacity:.5">B</div>
+      </div></div>
+      <div class="tl-track" style="flex:.5"><div class="trk-lbl" style="font-size:8px;color:var(--t4)">M</div><div class="trk-c" style="gap:0">
+        <div style="flex:1;background:rgba(74,222,128,.04);display:flex;align-items:center;justify-content:center;border-right:1px dashed rgba(255,255,255,.04)"><span style="font-size:7px;color:var(--ok);opacity:.5">WARMUP</span></div>
+        <div style="flex:1.2;background:rgba(251,191,36,.04);display:flex;align-items:center;justify-content:center;border-right:1px dashed rgba(255,255,255,.04)"><span style="font-size:7px;color:var(--warn);opacity:.5">BUILDUP</span></div>
+        <div style="flex:.8;background:rgba(248,113,113,.06);display:flex;align-items:center;justify-content:center;border-right:1px dashed rgba(255,255,255,.04)"><span style="font-size:7px;color:var(--err);opacity:.5">DROP</span></div>
+        <div style="flex:1;background:rgba(96,165,250,.04);display:flex;align-items:center;justify-content:center;border-right:1px dashed rgba(255,255,255,.04)"><span style="font-size:7px;color:var(--info);opacity:.5">BREAKDOWN</span></div>
+        <div style="flex:.6;background:rgba(74,222,128,.04);display:flex;align-items:center;justify-content:center"><span style="font-size:7px;color:var(--ok);opacity:.5">COOLDOWN</span></div>
+      </div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ========== STEMS ========== -->
+<div class="ws stems-ws" id="ws-stems">
+  <div class="stem-bar"><span class="pt tc">Stem Tracks</span><div class="spacer"></div><span class="sm tm">Crusty_Progressive | 143.6 BPM</span><button class="btn bs bsm">Reset All</button></div>
+  <div class="stem-body">
+    <div class="stem-trk"><div class="stem-col" style="background:linear-gradient(180deg,#f472b6,#ec4899)"></div><div style="min-width:70px"><div class="stem-name">Vocals</div><div class="stem-meta">Stem 1/4</div></div><div style="display:flex;gap:4px"><button class="stog">M</button><button class="stog">S</button></div><div style="flex:1;display:flex;align-items:center;gap:6px"><input type="range" min="0" max="100" value="80"><span class="stem-db">-2.4 dB</span></div><div class="stem-wave"><canvas id="sv1" class="w100" style="height:100%"></canvas></div></div>
+    <div class="stem-trk"><div class="stem-col" style="background:linear-gradient(180deg,#f97316,#ea580c)"></div><div style="min-width:70px"><div class="stem-name">Drums</div><div class="stem-meta">Stem 2/4</div></div><div style="display:flex;gap:4px"><button class="stog">M</button><button class="stog solo">S</button></div><div style="flex:1;display:flex;align-items:center;gap:6px"><input type="range" min="0" max="100" value="100"><span class="stem-db">0.0 dB</span></div><div class="stem-wave"><canvas id="sv2" class="w100" style="height:100%"></canvas></div></div>
+    <div class="stem-trk"><div class="stem-col" style="background:linear-gradient(180deg,#22d3ee,#0891b2)"></div><div style="min-width:70px"><div class="stem-name">Bass</div><div class="stem-meta">Stem 3/4</div></div><div style="display:flex;gap:4px"><button class="stog">M</button><button class="stog">S</button></div><div style="flex:1;display:flex;align-items:center;gap:6px"><input type="range" min="0" max="100" value="90"><span class="stem-db">-1.0 dB</span></div><div class="stem-wave"><canvas id="sv3" class="w100" style="height:100%"></canvas></div></div>
+    <div class="stem-trk"><div class="stem-col" style="background:linear-gradient(180deg,#a78bfa,#7c3aed)"></div><div style="min-width:70px"><div class="stem-name">Other</div><div class="stem-meta">Stem 4/4</div></div><div style="display:flex;gap:4px"><button class="stog mute">M</button><button class="stog">S</button></div><div style="flex:1;display:flex;align-items:center;gap:6px"><input type="range" min="0" max="100" value="0" disabled><span class="stem-db" style="color:var(--err)">-inf</span></div><div class="stem-wave" style="opacity:.3"><canvas id="sv4" class="w100" style="height:100%"></canvas></div></div>
+  </div>
+  <div class="transport" style="border-top:1px solid var(--brd)">
+    <button class="tbtn2">&#9198;</button><button class="tbtn2 play">&#9654;</button><button class="tbtn2">&#9632;</button>
+    <span class="ttime">00:00:00</span><div class="tprog"><div class="tprog-f" style="width:0%"></div></div><span class="ttime tm">02:24:15</span>
+    <div class="sep"></div><span class="sm tm">Zoom:</span><input type="range" min="1" max="10" value="3" style="width:60px"><span class="sm tm">3.0x</span>
+  </div>
+</div>
+
+<!-- ========== CONVERT ========== -->
+<div class="ws conv-ws" id="ws-convert">
+  <div class="conv-set">
+    <div><div class="pt tc" style="margin-bottom:12px">Ziel-Format</div>
+      <div class="fg" style="margin-bottom:8px"><span class="label">Auflosung</span><select class="inp"><option>1920x1080 (1080p)</option><option>3840x2160 (4K)</option><option>1280x720 (720p)</option></select></div>
+      <div class="fg" style="margin-bottom:8px"><span class="label">Framerate</span><select class="inp"><option>30 fps</option><option>24 fps</option><option>60 fps</option></select></div>
+      <div class="fg" style="margin-bottom:8px"><span class="label">Container</span><select class="inp"><option>mp4 (H.264)</option><option>mp4 (H.265/HEVC)</option><option>webm (VP9)</option></select></div>
+      <div class="fg"><label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--t2);cursor:pointer"><input type="checkbox" checked> NVENC GPU-Beschleunigung</label></div>
+    </div>
+    <div style="border-top:1px solid var(--brd);padding-top:12px">
+      <div class="pt" style="margin-bottom:8px">Aktionen</div>
+      <button class="btn bp bfull" style="height:34px">Alle Videos standardisieren</button>
+      <div style="margin-top:8px"><div style="display:flex;justify-content:space-between;margin-bottom:3px" class="sm"><span class="tm">Fortschritt</span><span class="tc">78/100 Videos</span></div><div class="progress"><div class="progress-f pf-gold" style="width:78%"></div></div></div>
+    </div>
+  </div>
+  <div class="conv-log">
+    <div class="ph"><span class="pt">Convert Log</span><div class="spacer"></div><button class="btn bg bsm">Clear</button></div>
+    <div class="log-out">
+[Convert] Starte Konvertierung: 100 Videos...<br>
+[01/100] festival_stage_01.mp4 → 1080p/30fps... <span style="color:var(--ok)">OK</span> (2.3s)<br>
+[02/100] crowd_dancing_02.mp4 → 1080p/30fps... <span style="color:var(--ok)">OK</span> (1.8s)<br>
+[03/100] dj_booth_wide_03.mp4 → 1080p/30fps... <span style="color:var(--ok)">OK</span> (3.1s)<br>
+[04/100] laser_show_04.mp4 → <span style="color:var(--warn)">WARN: Upscale von 720p</span> (4.2s)<br>
+...<br>
+[78/100] pyro_finale_78.mp4 → 1080p/30fps... <span style="color:var(--ok)">OK</span> (2.7s)<br>
+[Convert] Verarbeite 79/100...
+    </div>
+  </div>
+</div>
+
+<!-- ========== DELIVER ========== -->
+<div class="ws del-ws" id="ws-deliver">
+  <div class="del-left">
+    <div class="del-prev"><div style="color:var(--t3);text-align:center"><div style="font-size:36px;opacity:.3">&#127916;</div><div>Render-Vorschau</div><div class="sm tm">Timeline: 47 Clips | 02:24:15</div></div></div>
+    <div class="panel" style="max-height:120px"><div class="ph"><span class="pt">Export-Protokoll</span></div>
+      <div class="log-out" style="font-size:10px">
+<span style="color:var(--ok)">[System] Version 0.5.0</span><br>
+[Export] Bereit. Timeline: 47 Clips, 144 Schnitte, 02:24:15<br>
+[Export] GPU: NVENC H.264 bereit
+      </div>
+    </div>
+  </div>
+  <div class="del-right">
+    <div><div class="pt tc" style="margin-bottom:10px">Timeline-Status</div>
+      <div class="exp-sum"><div class="exp-row"><span class="k">Clips</span><span class="v">47</span></div><div class="exp-row"><span class="k">Schnitte</span><span class="v">144</span></div><div class="exp-row"><span class="k">Dauer</span><span class="v">02:24:15</span></div><div class="exp-row"><span class="k">Auflosung</span><span class="v">1920x1080</span></div><div class="exp-row"><span class="k">FPS</span><span class="v">30</span></div></div>
+    </div>
+    <div><div class="pt" style="margin-bottom:8px">Export-Einstellungen</div>
+      <div class="fg" style="margin-bottom:6px"><span class="label">Dateiname</span><input class="inp" value="Crusty_Progressive_final.mp4"></div>
+      <div style="display:flex;gap:8px;margin-bottom:6px"><div class="fg" style="flex:1"><span class="label">Auflosung</span><select class="inp"><option>1920x1080</option><option>3840x2160</option></select></div><div class="fg" style="flex:1"><span class="label">FPS</span><select class="inp"><option>30</option><option>60</option></select></div></div>
+      <div class="fg"><span class="label">Qualitat</span><div style="display:flex;align-items:center;gap:6px"><span class="sm tm">Schnell</span><input type="range" min="0" max="100" value="75"><span class="sm tm">Beste</span></div></div>
+    </div>
+    <div class="mt-a">
+      <div style="margin-bottom:8px"><div class="sm" style="display:flex;justify-content:space-between;margin-bottom:2px"><span class="tm">Geschätzt</span><span class="t2">~45 min | ~4.2 GB</span></div>
+      <div class="progress"><div class="progress-f pf-gold" style="width:0%"></div></div></div>
+      <button class="btn-exp">&#128229; VIDEO EXPORTIEREN</button>
+    </div>
+  </div>
+</div>
+
+</div><!-- /main -->
+
+<!-- CHAT PANEL -->
+<div class="chat" id="chat-panel">
+  <div class="chat-hdr"><span class="pt tc">KI Chat</span><span class="badge badge-accent" style="font-size:7px">Orchestrator</span><div class="spacer"></div><button style="border:none;background:none;color:var(--t3);cursor:pointer;font-size:12px" onclick="toggleChat()">&#10005;</button></div>
+  <div class="chat-msgs">
+    <div class="msg sys"><span class="msg-lbl">System</span>PB Studio KI bereit. 4 Agenten: Orchestrator, Pacing, Vision, Audio.</div>
+    <div class="msg usr">Automatischen Schnitt mit meinen 100 Videos starten</div>
+    <div class="msg ai"><span class="msg-lbl">Orchestrator</span>Starte Auto-Edit Workflow:
+      <div style="margin-top:4px;padding:4px 6px;background:var(--bg1);border-radius:4px;font-size:10px;line-height:1.5">
+        1. Audio (143.6 BPM) <span style="color:var(--ok)">&#10003;</span><br>2. Embeddings (100 Clips) <span style="color:var(--ok)">&#10003;</span><br>3. Pacing-Engine <span style="color:var(--warn)">&#9679;</span><br>4. Timeline generieren
+      </div></div>
+    <div class="msg ai"><span class="msg-lbl">Pacing Agent</span>Struktur: <span style="color:var(--ok)">WARMUP</span> → <span style="color:var(--warn)">BUILDUP</span> → <span style="color:var(--err)">DROP</span> → <span style="color:var(--info)">BREAKDOWN</span> → <span style="color:var(--ok)">COOLDOWN</span></div>
+    <div class="msg usr">Drops brauchen schnellere Schnitte, 2x</div>
+    <div class="msg ai"><span class="msg-lbl">Pacing Agent</span>Drop-Sektionen auf <span class="tc">Cut-Rate 2.0x</span> gesetzt.</div>
+  </div>
+  <div class="chat-in">
+    <textarea class="chat-ta" rows="1" placeholder="Nachricht..."></textarea>
+    <div class="chat-agents"><span class="sm tm">Agent:</span><span class="agent-tag on">Orchestrator</span><span class="agent-tag">Pacing</span><span class="agent-tag">Vision</span><span class="agent-tag">Audio</span></div>
+  </div>
+</div>
+
+<!-- BOTTOM DOCK -->
+<div class="bdock" id="bdock">
+  <div class="dock-tabs">
+    <button class="dtab on" id="dt-tasks" onclick="dockTab('tasks')">Tasks (3)</button>
+    <button class="dtab" id="dt-console" onclick="dockTab('console')">Konsole</button>
+    <div class="spacer"></div><button class="btn bg bsm" onclick="closeDock()" style="height:16px;font-size:8px">&#10005;</button>
+  </div>
+  <div class="dock-body" id="dc-tasks">
+    <div class="task-row"><span class="badge badge-ok" style="min-width:40px;justify-content:center">Fertig</span><span style="color:var(--t1);flex:1">Pipeline: 100 Videos</span><span class="sm tm">100 Vid, 134 Scenes, 138 Emb</span><div class="progress" style="width:60px"><div class="progress-f pf-green" style="width:100%"></div></div></div>
+    <div class="task-row"><span class="badge badge-ok" style="min-width:40px;justify-content:center">Fertig</span><span style="color:var(--t1);flex:1">Audio: Crusty_Progressive</span><span class="sm tm">143.6 BPM, 4096 Beats</span><div class="progress" style="width:60px"><div class="progress-f pf-green" style="width:100%"></div></div></div>
+    <div class="task-row"><span class="badge badge-run" style="min-width:40px;justify-content:center">61%</span><span style="color:var(--t1);flex:1">Stems: Crusty_Progressive</span><span class="sm tm">Chunk 82/134</span><div class="progress" style="width:60px"><div class="progress-f pf-gold" style="width:61%"></div></div></div>
+  </div>
+  <div class="dock-body" id="dc-console" style="display:none">
+    <div class="tm">[INFO] PB Studio v0.5 gestartet</div>
+    <div class="tm">[INFO] GPU: GTX 1060 6GB | CUDA 12.1</div>
+    <div style="color:var(--ok)">[OK] Beat-Analyse: 143.6 BPM, 4096 Beats</div>
+    <div style="color:var(--ok)">[OK] Video-Pipeline: 100 Videos, 134 Scenes</div>
+    <div style="color:var(--warn)">[WARN] VRAM: 4.2/6.0 GB — Batch-Modus</div>
+  </div>
+</div>
+
+<!-- BOTTOM NAV -->
+<div class="bnav">
+  <button class="nb on" onclick="sw('media',this)">&#127916; Media</button>
+  <button class="nb" onclick="sw('edit',this)">&#9986; Edit</button>
+  <button class="nb" onclick="sw('stems',this)">&#127925; Stems</button>
+  <button class="nb" onclick="sw('convert',this)">&#128260; Convert</button>
+  <button class="nb" onclick="sw('deliver',this)">&#128228; Deliver</button>
+</div>
+
+<!-- STATUSBAR -->
+<div class="sbar">
+  <span><span class="gdot"></span>PB Studio v0.5</span><span>System bereit</span><div class="spacer"></div>
+  <span>CPU: <span class="res-bar"><span class="res-fill" style="width:35%;background:var(--cyan)"></span></span> 35%</span>
+  <span>RAM: <span class="res-bar"><span class="res-fill" style="width:62%;background:var(--ok)"></span></span> 4.8 GB</span>
+  <span>GPU: <span class="res-bar"><span class="res-fill" style="width:70%;background:var(--warn)"></span></span> 4.2/6.0 GB</span>
+  <span>|</span><span>143.6 BPM</span>
+</div>
+
+<script>
+function sw(n,b){document.querySelectorAll('.ws').forEach(w=>w.classList.remove('on'));document.querySelectorAll('.nb').forEach(x=>x.classList.remove('on'));document.getElementById('ws-'+n).classList.add('on');b.classList.add('on')}
+
+function mediaMode(b,m){b.parentElement.querySelectorAll('button').forEach(x=>x.classList.remove('on'));b.classList.add('on');
+  document.getElementById('side-vid').style.display=m==='vid'?'':'none';
+  document.getElementById('side-aud').style.display=m==='aud'?'':'none';
+  document.getElementById('pool-vid').style.display=m==='vid'?'':'none';
+  document.getElementById('pool-aud').style.display=m==='aud'?'':'none';
+  document.getElementById('audio-cards').style.display=m==='aud'?'':'none';
+  document.getElementById('pool-title').textContent=m==='vid'?'Video Pool':'Audio Pool';
+  document.getElementById('pool-count').textContent=m==='vid'?'100 Videos':'1 Track';
+  document.getElementById('pool-search').placeholder=m==='vid'?'SigLIP Semantic Search...':'Suche in Audio Pool...';
+}
+
+let dockOpen=false,dockTab_='tasks';
+function toggleDock(t){const d=document.getElementById('bdock');if(dockOpen&&dockTab_===t){closeDock();return}d.classList.add('open');dockOpen=true;dockTab(t);document.getElementById('tb-tasks').classList.toggle('on',t==='tasks');document.getElementById('tb-console').classList.toggle('on',t==='console')}
+function dockTab(t){dockTab_=t;document.getElementById('dt-tasks').classList.toggle('on',t==='tasks');document.getElementById('dt-console').classList.toggle('on',t==='console');document.getElementById('dc-tasks').style.display=t==='tasks'?'':'none';document.getElementById('dc-console').style.display=t==='console'?'':'none'}
+function closeDock(){document.getElementById('bdock').classList.remove('open');dockOpen=false;document.getElementById('tb-tasks').classList.remove('on');document.getElementById('tb-console').classList.remove('on')}
+
+let chatOn=false;
+function toggleChat(){chatOn=!chatOn;document.getElementById('chat-panel').classList.toggle('open',chatOn);document.getElementById('tb-chat').classList.toggle('on',chatOn)}
+
+document.querySelectorAll('.agent-tag').forEach(t=>t.addEventListener('click',()=>{document.querySelectorAll('.agent-tag').forEach(x=>x.classList.remove('on'));t.classList.add('on')}));
+
+function drawWave(id,col){const c=document.getElementById(id);if(!c)return;const x=c.getContext('2d'),r=c.getBoundingClientRect();c.width=r.width*2;c.height=r.height*2;x.scale(2,2);const w=r.width,h=r.height,m=h/2;for(let i=0;i<w;i+=3){const t=i/w,e=Math.sin(t*Math.PI)*.7+.3,n=Math.sin(i*.7)*.3+Math.sin(i*2.3)*.2+Math.sin(i*5.1)*.15,a=(.5+n*.5)*e,bh=a*h*.8;x.fillStyle=col;x.globalAlpha=.5+a*.5;x.fillRect(i,m-bh/2,2,bh)}x.globalAlpha=1}
+
+function drawPace(){const c=document.getElementById('cv-pace');if(!c)return;const x=c.getContext('2d'),r=c.getBoundingClientRect();c.width=r.width*2;c.height=r.height*2;x.scale(2,2);const w=r.width,h=r.height;
+  const g=x.createLinearGradient(0,0,w,0);g.addColorStop(0,'#4ade80');g.addColorStop(.3,'#fbbf24');g.addColorStop(.5,'#f87171');g.addColorStop(.7,'#60a5fa');g.addColorStop(1,'#4ade80');
+  x.strokeStyle=g;x.lineWidth=1.5;x.beginPath();const p=[[0,h*.7],[w*.2,h*.6],[w*.35,h*.3],[w*.5,h*.15],[w*.6,h*.25],[w*.75,h*.5],[w*.9,h*.55],[w,h*.65]];
+  x.moveTo(p[0][0],p[0][1]);for(let i=1;i<p.length;i++){const xc=(p[i-1][0]+p[i][0])/2,yc=(p[i-1][1]+p[i][1])/2;x.quadraticCurveTo(p[i-1][0],p[i-1][1],xc,yc)}x.stroke();
+  x.lineTo(w,h);x.lineTo(0,h);x.closePath();x.fillStyle='rgba(212,164,74,.05)';x.fill()}
+
+window.addEventListener('load',()=>{setTimeout(()=>{
+  drawWave('cv-wave','#d4a44a');drawWave('sv1','#ec4899');drawWave('sv2','#f97316');drawWave('sv3','#0891b2');drawWave('sv4','#7c3aed');drawPace();drawWave('cv-tl','#d4a44a');
+},100)});
+window.addEventListener('resize',()=>{drawWave('cv-wave','#d4a44a');drawWave('sv1','#ec4899');drawWave('sv2','#f97316');drawWave('sv3','#0891b2');drawWave('sv4','#7c3aed');drawPace();drawWave('cv-tl','#d4a44a')});
+</script>
+</body>
+</html>

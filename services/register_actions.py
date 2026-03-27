@@ -1,4 +1,4 @@
-﻿"""
+"""
 Registriert die bestehenden PB Studio Funktionen im ActionRegistry.
 
 Dieses Modul wird beim App-Start aufgerufen. Neue Funktionen einfach
@@ -808,4 +808,238 @@ def teste_ladebalken(steps: int = 10, interval_ms: int = 1000) -> dict:
         "steps": steps,
         "interval_ms": interval_ms,
         "message": f"Dummy-Task gestartet: {steps} Schritte a {interval_ms}ms. Beobachte das TaskManagerDock!",
+    }
+
+
+# --- Phase 4: Erweiterte Audio-Analyse-Aktionen ---
+
+def _get_audio_track_file_path(audio_track_id: int) -> str | None:
+    """Holt file_path eines AudioTracks aus der DB (leichtgewichtiger Lookup)."""
+    from sqlalchemy.orm import Session as SASession
+    from database import engine, AudioTrack
+    with SASession(engine) as session:
+        track = session.get(AudioTrack, audio_track_id)
+        return track.file_path if track else None
+
+
+def _get_audio_track_bpm(audio_track_id: int) -> float | None:
+    """Holt BPM eines AudioTracks aus der DB."""
+    from sqlalchemy.orm import Session as SASession
+    from database import engine, AudioTrack
+    with SASession(engine) as session:
+        track = session.get(AudioTrack, audio_track_id)
+        return track.bpm if track else None
+
+
+@action_registry.register(
+    name="detect_key",
+    description=(
+        "Erkennt die musikalische Tonart eines Audio-Tracks (Key + Camelot-Notation). "
+        "Nutze diese Aktion wenn der User nach 'Key', 'Tonart', 'Camelot' oder 'harmonisch' fragt."
+    ),
+    param_schema={
+        "type": "object",
+        "properties": {
+            "audio_track_id": {
+                "type": "integer",
+                "description": "ID des AudioTracks in der Datenbank."
+            }
+        },
+        "required": ["audio_track_id"]
+    }
+)
+def detect_key_action(audio_track_id: int) -> dict:
+    """Command Pattern: Emittiert Signal -> Main-Thread baut KeyDetectionWorker."""
+    from PySide6.QtWidgets import QApplication
+
+    file_path = _get_audio_track_file_path(audio_track_id)
+    if not file_path:
+        return {"error": f"AudioTrack {audio_track_id} nicht gefunden."}
+
+    app = QApplication.instance()
+    if app is None or not hasattr(app, 'task_manager'):
+        _logger.warning("TaskManager nicht verfuegbar - App nicht bereit")
+        return {"error": "App nicht initialisiert"}
+
+    app.task_manager.agent_command_signal.emit(
+        "detect_key", {"audio_track_id": audio_track_id, "file_path": file_path}
+    )
+    return {
+        "status": "Task in Warteschlange",
+        "action": "detect_key",
+        "audio_track_id": audio_track_id,
+        "message": f"Key-Erkennung fuer Track #{audio_track_id} gestartet. Fortschritt im TaskManagerDock.",
+    }
+
+
+@action_registry.register(
+    name="analyze_lufs",
+    description=(
+        "Misst die Lautstaerke eines Audio-Tracks nach EBU R128 (LUFS). "
+        "Nutze diese Aktion wenn der User nach 'Lautstaerke', 'LUFS', 'Loudness' oder 'Pegel' fragt."
+    ),
+    param_schema={
+        "type": "object",
+        "properties": {
+            "audio_track_id": {
+                "type": "integer",
+                "description": "ID des AudioTracks in der Datenbank."
+            }
+        },
+        "required": ["audio_track_id"]
+    }
+)
+def analyze_lufs_action(audio_track_id: int) -> dict:
+    """Command Pattern: Emittiert Signal -> Main-Thread baut LUFSAnalysisWorker."""
+    from PySide6.QtWidgets import QApplication
+
+    file_path = _get_audio_track_file_path(audio_track_id)
+    if not file_path:
+        return {"error": f"AudioTrack {audio_track_id} nicht gefunden."}
+
+    app = QApplication.instance()
+    if app is None or not hasattr(app, 'task_manager'):
+        _logger.warning("TaskManager nicht verfuegbar - App nicht bereit")
+        return {"error": "App nicht initialisiert"}
+
+    app.task_manager.agent_command_signal.emit(
+        "analyze_lufs", {"audio_track_id": audio_track_id, "file_path": file_path}
+    )
+    return {
+        "status": "Task in Warteschlange",
+        "action": "analyze_lufs",
+        "audio_track_id": audio_track_id,
+        "message": f"LUFS-Analyse fuer Track #{audio_track_id} gestartet. Fortschritt im TaskManagerDock.",
+    }
+
+
+@action_registry.register(
+    name="classify_audio",
+    description=(
+        "Klassifiziert einen Audio-Track nach Mood, Genre und erkennt DJ-Mixes. "
+        "Nutze diese Aktion wenn der User nach 'Genre', 'Mood', 'Stimmung', 'Musikstil' oder 'DJ-Mix' fragt."
+    ),
+    param_schema={
+        "type": "object",
+        "properties": {
+            "audio_track_id": {
+                "type": "integer",
+                "description": "ID des AudioTracks in der Datenbank."
+            }
+        },
+        "required": ["audio_track_id"]
+    }
+)
+def classify_audio_action(audio_track_id: int) -> dict:
+    """Command Pattern: Emittiert Signal -> Main-Thread baut AudioClassifyWorker."""
+    from PySide6.QtWidgets import QApplication
+
+    file_path = _get_audio_track_file_path(audio_track_id)
+    if not file_path:
+        return {"error": f"AudioTrack {audio_track_id} nicht gefunden."}
+
+    bpm = _get_audio_track_bpm(audio_track_id)
+
+    app = QApplication.instance()
+    if app is None or not hasattr(app, 'task_manager'):
+        _logger.warning("TaskManager nicht verfuegbar - App nicht bereit")
+        return {"error": "App nicht initialisiert"}
+
+    app.task_manager.agent_command_signal.emit(
+        "classify_audio", {"audio_track_id": audio_track_id, "file_path": file_path, "bpm": bpm}
+    )
+    return {
+        "status": "Task in Warteschlange",
+        "action": "classify_audio",
+        "audio_track_id": audio_track_id,
+        "message": f"Audio-Klassifikation fuer Track #{audio_track_id} gestartet. Fortschritt im TaskManagerDock.",
+    }
+
+
+@action_registry.register(
+    name="analyze_spectral",
+    description=(
+        "Analysiert die Frequenzverteilung eines Audio-Tracks (8-Band Spektral-Analyse). "
+        "Nutze diese Aktion wenn der User nach 'Frequenzen', 'Spektrum', 'Bass', 'Hoehen' oder 'EQ' fragt."
+    ),
+    param_schema={
+        "type": "object",
+        "properties": {
+            "audio_track_id": {
+                "type": "integer",
+                "description": "ID des AudioTracks in der Datenbank."
+            }
+        },
+        "required": ["audio_track_id"]
+    }
+)
+def analyze_spectral_action(audio_track_id: int) -> dict:
+    """Command Pattern: Emittiert Signal -> Main-Thread baut SpectralAnalysisWorker."""
+    from PySide6.QtWidgets import QApplication
+
+    file_path = _get_audio_track_file_path(audio_track_id)
+    if not file_path:
+        return {"error": f"AudioTrack {audio_track_id} nicht gefunden."}
+
+    app = QApplication.instance()
+    if app is None or not hasattr(app, 'task_manager'):
+        _logger.warning("TaskManager nicht verfuegbar - App nicht bereit")
+        return {"error": "App nicht initialisiert"}
+
+    app.task_manager.agent_command_signal.emit(
+        "analyze_spectral", {"audio_track_id": audio_track_id, "file_path": file_path}
+    )
+    return {
+        "status": "Task in Warteschlange",
+        "action": "analyze_spectral",
+        "audio_track_id": audio_track_id,
+        "message": f"Spektral-Analyse fuer Track #{audio_track_id} gestartet. Fortschritt im TaskManagerDock.",
+    }
+
+
+@action_registry.register(
+    name="detect_structure",
+    description=(
+        "Erkennt die Song-Struktur eines Audio-Tracks (Intro, Drop, Breakdown, Outro, ...). "
+        "Nutze diese Aktion wenn der User nach 'Struktur', 'Song-Teile', 'Intro', 'Drop', "
+        "'Breakdown' oder 'Segmente' fragt."
+    ),
+    param_schema={
+        "type": "object",
+        "properties": {
+            "audio_track_id": {
+                "type": "integer",
+                "description": "ID des AudioTracks in der Datenbank."
+            }
+        },
+        "required": ["audio_track_id"]
+    }
+)
+def detect_structure_action(audio_track_id: int) -> dict:
+    """Command Pattern: Emittiert Signal -> Main-Thread baut StructureDetectionWorker."""
+    from PySide6.QtWidgets import QApplication
+
+    file_path = _get_audio_track_file_path(audio_track_id)
+    if not file_path:
+        return {"error": f"AudioTrack {audio_track_id} nicht gefunden."}
+
+    bpm = _get_audio_track_bpm(audio_track_id)
+
+    app = QApplication.instance()
+    if app is None or not hasattr(app, 'task_manager'):
+        _logger.warning("TaskManager nicht verfuegbar - App nicht bereit")
+        return {"error": "App nicht initialisiert"}
+
+    app.task_manager.agent_command_signal.emit(
+        "detect_structure", {
+            "audio_track_id": audio_track_id,
+            "file_path": file_path,
+            "bpm": bpm,
+        }
+    )
+    return {
+        "status": "Task in Warteschlange",
+        "action": "detect_structure",
+        "audio_track_id": audio_track_id,
+        "message": f"Struktur-Erkennung fuer Track #{audio_track_id} gestartet. Fortschritt im TaskManagerDock.",
     }

@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 
 from sqlalchemy import create_engine, event, Column, Integer, String, Float, ForeignKey, Text, Boolean
@@ -68,9 +69,20 @@ class AudioTrack(Base):
     stem_bass_path = Column(String, nullable=True)
     stem_other_path = Column(String, nullable=True)
 
+    # Phase 4: Erweiterte Audio-Analyse
+    key_confidence = Column(Float, nullable=True)       # 0.0-1.0 Confidence der Key-Erkennung
+    lufs = Column(Float, nullable=True)                 # EBU R128 Integrated Loudness (dB)
+    mood = Column(String, nullable=True)                # "energetic", "melancholic", "dark", ...
+    genre = Column(String, nullable=True)               # "Psytrance", "Techno", "House", ...
+    is_dj_mix = Column(Boolean, nullable=True, default=False)  # DJ-Mix erkannt?
+    spectral_bands = Column(Text, nullable=True)        # JSON: 8-Band Frequenz-Energien
+
     project = relationship("Project", back_populates="audio_tracks")
     beatgrid = relationship("Beatgrid", back_populates="audio_track", uselist=False, cascade="all, delete-orphan", passive_deletes=True)
     waveform_data = relationship("WaveformData", back_populates="audio_track", uselist=False, cascade="all, delete-orphan", passive_deletes=True)
+    structure_segments = relationship("StructureSegment", back_populates="audio_track", cascade="all, delete-orphan", passive_deletes=True)
+    hotcues = relationship("HotCue", back_populates="audio_track", cascade="all, delete-orphan", passive_deletes=True)
+    audio_video_anchors = relationship("AudioVideoAnchor", back_populates="audio_track", foreign_keys="AudioVideoAnchor.audio_track_id", cascade="all, delete-orphan", passive_deletes=True)
 
     def __repr__(self):
         return f"<AudioTrack(id={self.id}, title='{self.title}', bpm={self.bpm})>"
@@ -91,6 +103,7 @@ class VideoClip(Base):
 
     project = relationship("Project", back_populates="video_clips")
     scenes = relationship("Scene", back_populates="video_clip", cascade="all, delete-orphan", passive_deletes=True)
+    audio_video_anchors = relationship("AudioVideoAnchor", back_populates="video_clip", foreign_keys="AudioVideoAnchor.video_clip_id", cascade="all, delete-orphan", passive_deletes=True)
 
     def __repr__(self):
         return f"<VideoClip(id={self.id}, path='{self.file_path}')>"
@@ -178,9 +191,9 @@ class AudioVideoAnchor(Base):
     video_time = Column(Float, nullable=False)
     anchor_type = Column(String, nullable=True, default="beat")
 
-    # Bug-20 Fix: fehlende Relationships ergänzt
-    audio_track = relationship("AudioTrack", foreign_keys=[audio_track_id])
-    video_clip = relationship("VideoClip", foreign_keys=[video_clip_id])
+    # Bug-20 Fix: fehlende Relationships ergänzt + DB-19 Fix: back_populates
+    audio_track = relationship("AudioTrack", back_populates="audio_video_anchors", foreign_keys=[audio_track_id])
+    video_clip = relationship("VideoClip", back_populates="audio_video_anchors", foreign_keys=[video_clip_id])
 
     def __repr__(self):
         return f"<AudioVideoAnchor(id={self.id}, type='{self.anchor_type}')>"
@@ -243,6 +256,62 @@ class AIPacingMemory(Base):
         return f"<AIPacingMemory(id={self.id}, bpm={self.bpm}, mood='{self.mood}')>"
 
 
+class StructureSegment(Base):
+    """Song-Struktur Segment (INTRO, BUILDUP, DROP, BREAKDOWN, OUTRO etc.)."""
+    __tablename__ = "structure_segments"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    audio_track_id = Column(Integer, ForeignKey("audio_tracks.id", ondelete="CASCADE"), nullable=False)
+    start_time = Column(Float, nullable=False)          # Sekunden
+    end_time = Column(Float, nullable=False)             # Sekunden
+    label = Column(String, nullable=False)               # "INTRO", "BUILDUP", "DROP", "BREAKDOWN", "OUTRO"
+    energy = Column(Float, nullable=True)                # Durchschnittliche Energie 0.0-1.0
+    confidence = Column(Float, nullable=True)            # Erkennungs-Confidence 0.0-1.0
+
+    audio_track = relationship("AudioTrack", back_populates="structure_segments")
+
+    def __repr__(self):
+        return f"<StructureSegment(id={self.id}, label='{self.label}', {self.start_time:.1f}-{self.end_time:.1f})>"
+
+
+class HotCue(Base):
+    """Manueller Marker auf einem Audio-Track (wie Rekordbox HotCues)."""
+    __tablename__ = "hotcues"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    audio_track_id = Column(Integer, ForeignKey("audio_tracks.id", ondelete="CASCADE"), nullable=False)
+    time = Column(Float, nullable=False)                 # Zeitposition in Sekunden
+    label = Column(String, nullable=True, default="")    # z.B. "Drop 1", "Breakdown"
+    color = Column(String, nullable=True, default="#FF3333")  # Hex-Farbe
+    cue_type = Column(String, nullable=True, default="cue")   # "cue", "loop", "fade"
+
+    audio_track = relationship("AudioTrack", back_populates="hotcues")
+
+    def __repr__(self):
+        return f"<HotCue(id={self.id}, time={self.time:.2f}, label='{self.label}')>"
+
+
+class StylePreset(Base):
+    """Pacing Style-Preset (Techno, House, D&B etc.) mit Standard-Parametern."""
+    __tablename__ = "style_presets"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String, nullable=False, unique=True)   # "Techno", "House", etc.
+    cut_rate = Column(Float, nullable=True, default=1.0)
+    energy_reactivity = Column(Float, nullable=True, default=0.7)
+    breakdown_behavior = Column(String, nullable=True, default="halve")  # "halve", "16beat", "none"
+    min_clip_duration = Column(Float, nullable=True, default=1.0)
+    max_clip_duration = Column(Float, nullable=True, default=8.0)
+    beat_weight = Column(Float, nullable=True, default=1.0)
+    kick_weight = Column(Float, nullable=True, default=1.0)
+    snare_weight = Column(Float, nullable=True, default=0.8)
+    hihat_weight = Column(Float, nullable=True, default=0.3)
+    description = Column(String, nullable=True)
+
+    def __repr__(self):
+        return f"<StylePreset(id={self.id}, name='{self.name}')>"
+
+
 class TimelineEntry(Base):
     """Ein Clip auf der Timeline mit Position und Spur."""
     __tablename__ = "timeline_entries"
@@ -286,6 +355,7 @@ def _needs_fk_cascade_migration(insp) -> bool:
     child_tables = [
         "scenes", "beatgrids", "waveform_data", "pacing_blueprints",
         "audio_video_anchors", "clip_anchors", "timeline_entries",
+        "structure_segments", "hotcues",
     ]
     existing_tables = set(insp.get_table_names())
     try:
@@ -343,9 +413,16 @@ def _migrate_fk_cascade():
             table_names = [
                 "clip_anchors", "audio_video_anchors", "scenes",
                 "beatgrids", "waveform_data", "pacing_blueprints",
-                "timeline_entries", "audio_tracks", "video_clips",
+                "timeline_entries", "structure_segments", "hotcues",
+                "ai_pacing_memory", "style_presets",
+                "audio_tracks", "video_clips",
             ]
-            _ALLOWED_TABLES = {"audio_tracks", "video_clips", "scenes", "beatgrids", "waveform_data", "pacing_blueprints", "audio_video_anchors", "clip_anchors", "timeline_entries"}
+            _ALLOWED_TABLES = {
+                "audio_tracks", "video_clips", "scenes", "beatgrids",
+                "waveform_data", "pacing_blueprints", "audio_video_anchors",
+                "clip_anchors", "timeline_entries", "structure_segments",
+                "hotcues", "ai_pacing_memory", "style_presets",
+            }
             for tname in table_names:
                 # F-012 Fix: Echte Validierung statt assert (assert wird durch -O deaktiviert)
                 if tname not in _ALLOWED_TABLES:
@@ -446,6 +523,57 @@ def init_db():
                         continue
                     conn.execute(text(f"ALTER TABLE audio_tracks ADD COLUMN {stem_col} TEXT"))
 
+    # Phase 4: Erweiterte Audio-Analyse Spalten nachrüsten
+    insp = inspect(engine)
+    if "audio_tracks" in insp.get_table_names():
+        at_columns = {c["name"] for c in insp.get_columns("audio_tracks")}
+        import re as _re4
+        _VALID_COL4 = _re4.compile(r"^[a-z_]+$")
+        _VALID_TYPE4 = _re4.compile(r"^[A-Z]+$")
+        with engine.begin() as conn:
+            for col_name, col_type, col_default in [
+                ("key_confidence", "FLOAT", None),
+                ("lufs", "FLOAT", None),
+                ("mood", "TEXT", None),
+                ("genre", "TEXT", None),
+                ("is_dj_mix", "BOOLEAN", "0"),
+                ("spectral_bands", "TEXT", None),
+            ]:
+                if not _VALID_COL4.match(col_name):
+                    raise ValueError(f"Ungueltiger Spaltenname: {col_name}")
+                if not _VALID_TYPE4.match(col_type):
+                    raise ValueError(f"Ungueltiger Spaltentyp: {col_type}")
+                if col_name not in at_columns:
+                    stmt = f"ALTER TABLE audio_tracks ADD COLUMN {col_name} {col_type}"
+                    if col_default is not None:
+                        stmt += f" DEFAULT {col_default}"
+                    conn.execute(text(stmt))
+
+    # Phase 4: Indizes auf neue Tabellen
+    insp = inspect(engine)
+    with engine.begin() as conn:
+        if "structure_segments" in insp.get_table_names():
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_structure_segments_audio_track_id ON structure_segments(audio_track_id)"))
+        if "hotcues" in insp.get_table_names():
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_hotcues_audio_track_id ON hotcues(audio_track_id)"))
+
+    # Phase 4: Default Style-Presets einfügen
+    with Session(engine) as session:
+        if "style_presets" in insp.get_table_names() and not session.query(StylePreset).first():
+            defaults = [
+                StylePreset(name="Standard", cut_rate=1.0, energy_reactivity=0.7, breakdown_behavior="halve", description="Ausgewogener Mix"),
+                StylePreset(name="Techno", cut_rate=1.2, energy_reactivity=0.9, breakdown_behavior="halve", beat_weight=1.5, kick_weight=1.5, description="Kick-betont, schnelle Cuts"),
+                StylePreset(name="House", cut_rate=0.8, energy_reactivity=0.6, breakdown_behavior="halve", description="Groovy, mittleres Tempo"),
+                StylePreset(name="Drum & Bass", cut_rate=1.5, energy_reactivity=0.95, breakdown_behavior="16beat", beat_weight=1.2, snare_weight=1.5, description="Schnell, Snare-fokussiert"),
+                StylePreset(name="Hip-Hop", cut_rate=0.6, energy_reactivity=0.5, breakdown_behavior="none", description="Laid-back, langsame Cuts"),
+                StylePreset(name="Ambient", cut_rate=0.3, energy_reactivity=0.2, breakdown_behavior="none", min_clip_duration=4.0, max_clip_duration=15.0, description="Atmosphärisch, lange Clips"),
+                StylePreset(name="Minimal", cut_rate=0.7, energy_reactivity=0.4, breakdown_behavior="halve", description="Reduziert, subtile Wechsel"),
+                StylePreset(name="Cinematic", cut_rate=0.5, energy_reactivity=0.6, breakdown_behavior="none", min_clip_duration=3.0, max_clip_duration=12.0, description="Filmisch, dramatische Übergänge"),
+                StylePreset(name="Festival", cut_rate=1.8, energy_reactivity=1.0, breakdown_behavior="16beat", beat_weight=1.5, kick_weight=1.5, snare_weight=1.2, description="Maximum Energy, schnellste Cuts"),
+            ]
+            session.add_all(defaults)
+            session.commit()
+
     # H5 Fix: Indizes auf Foreign-Key-Spalten erstellen (SQLite macht das nicht automatisch)
     with engine.begin() as conn:
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_audio_tracks_project_id ON audio_tracks(project_id)"))
@@ -454,6 +582,10 @@ def init_db():
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_beatgrids_audio_track_id ON beatgrids(audio_track_id)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_waveform_data_audio_track_id ON waveform_data(audio_track_id)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_timeline_entries_project_id ON timeline_entries(project_id)"))
+        # DB-23/24 Fix: Fehlende Indizes auf audio_video_anchors + clip_anchors
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_audio_video_anchors_audio_track_id ON audio_video_anchors(audio_track_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_audio_video_anchors_video_clip_id ON audio_video_anchors(video_clip_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_clip_anchors_timeline_entry_id ON clip_anchors(timeline_entry_id)"))
 
     with Session(engine) as session:
         if not session.query(Project).first():

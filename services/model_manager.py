@@ -1,4 +1,4 @@
-﻿"""
+"""
 Zentraler Model Manager — Singleton für striktes VRAM/RAM-Management.
 
 REGEL: Es darf IMMER NUR EIN KI-Modell im RAM/VRAM liegen.

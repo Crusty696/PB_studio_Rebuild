@@ -182,6 +182,7 @@ def delete_all_media(project_id: int = 1) -> int:
     from database import (
         AudioVideoAnchor, ClipAnchor, TimelineEntry,
         Scene, Beatgrid, WaveformData, PacingBlueprint,
+        StructureSegment, HotCue,
     )
     with Session(engine) as session:
         # IDs der betroffenen Parent-Rows sammeln
@@ -225,6 +226,13 @@ def delete_all_media(project_id: int = 1) -> int:
             session.query(WaveformData).filter(
                 WaveformData.audio_track_id.in_(audio_ids)
             ).delete(synchronize_session=False)
+            # Phase 4: Neue Child-Tabellen von AudioTrack
+            session.query(StructureSegment).filter(
+                StructureSegment.audio_track_id.in_(audio_ids)
+            ).delete(synchronize_session=False)
+            session.query(HotCue).filter(
+                HotCue.audio_track_id.in_(audio_ids)
+            ).delete(synchronize_session=False)
 
         # PacingBlueprints (direct child of Project, but media-related)
         session.query(PacingBlueprint).filter_by(project_id=project_id).delete(
@@ -258,7 +266,7 @@ def delete_selected_media(video_ids: list[int], audio_ids: list[int]) -> int:
     """
     from database import (
         AudioVideoAnchor, ClipAnchor, TimelineEntry,
-        Scene, Beatgrid, WaveformData,
+        Scene, Beatgrid, WaveformData, StructureSegment, HotCue,
     )
     if not video_ids and not audio_ids:
         return 0
@@ -310,6 +318,12 @@ def delete_selected_media(video_ids: list[int], audio_ids: list[int]) -> int:
             ).delete(synchronize_session=False)
             session.query(WaveformData).filter(
                 WaveformData.audio_track_id.in_(audio_ids)
+            ).delete(synchronize_session=False)
+            session.query(StructureSegment).filter(
+                StructureSegment.audio_track_id.in_(audio_ids)
+            ).delete(synchronize_session=False)
+            session.query(HotCue).filter(
+                HotCue.audio_track_id.in_(audio_ids)
             ).delete(synchronize_session=False)
 
         # Parents loeschen

@@ -84,7 +84,8 @@ class ConvertWorkspace(QWidget):
 
         settings_layout.addWidget(action_group)
 
-        # Legacy effects controls (hidden)
+        # NOTE: Effects controls are INTENTIONALLY HIDDEN (Legacy).
+        # They will be activated in a future Phase when the effects pipeline is complete.
         self.effects_clip_combo = QComboBox()
         self.effects_clip_combo.setVisible(False)
         self.brightness_slider = QSlider(Qt.Orientation.Horizontal)

@@ -35,7 +35,7 @@ from PySide6.QtGui import QPainter, QPainterPath, QColor, QFont, QBrush, QPen, Q
 # NEU: Wir importieren das Design-Tool
 from qt_material import apply_stylesheet
 
-APP_VERSION = "0.4.0"
+APP_VERSION = "0.5.0"
 
 logger = logging.getLogger(__name__)
 
@@ -109,6 +109,7 @@ from ui.widgets.video_preview import VideoPreviewWidget
 from ui.widgets.task_manager_dock import TaskManagerDock
 from ui.widgets.nav_bar import WorkspaceNavBar
 from ui.dialogs.about import AboutDialog
+from ui.widgets.resource_monitor import ResourceMonitorWidget
 
 
 
@@ -227,6 +228,10 @@ class PBWindow(QMainWindow):
         self.setStatusBar(self.status_bar)
         self.status_bar.showMessage(f"PB_studio v{APP_VERSION} | System bereit")
 
+        # ── Resource Monitor (CPU / RAM / GPU) ──
+        resource_monitor = ResourceMonitorWidget()
+        self.statusBar().addPermanentWidget(resource_monitor)
+
         # ── Panel Widgets (Tasks + Konsole als QSplitter, Chat als Dock) ──
         self.setup_task_dock()
         self.setup_console()
@@ -247,6 +252,11 @@ class PBWindow(QMainWindow):
         self._refresh_media_table()
 
     def closeEvent(self, event):
+        # 0. Stop background timers
+        if hasattr(self, '_task_mgr_dock') and hasattr(self._task_mgr_dock, '_timer'):
+            self._task_mgr_dock._timer.stop()
+        # ResourceMonitor timer is stopped via its parent widget deletion
+
         # 1. Alle Tasks im GlobalTaskManager abbrechen (Threads via start_task)
         try:
             tm = GlobalTaskManager.instance()
@@ -277,6 +287,14 @@ class PBWindow(QMainWindow):
             ModelManager().unload()
         except Exception:
             pass
+
+        # 5. Close DB connection pool
+        try:
+            from database import engine
+            engine.dispose()
+        except Exception:
+            pass
+
         super().closeEvent(event)
 
 
@@ -352,6 +370,18 @@ class PBWindow(QMainWindow):
         self.audio_pool_table.currentCellChanged.connect(self._on_audio_pool_selected)
         self.stem_player.playback_finished.connect(self._on_stem_playback_finished)
 
+        # Phase 4: Neue Media-Buttons (Stubs — Backend noch nicht implementiert)
+        if hasattr(self._media_ws, 'btn_key_detect'):
+            self._media_ws.btn_key_detect.clicked.connect(self._detect_key)
+        if hasattr(self._media_ws, 'btn_lufs_analyze'):
+            self._media_ws.btn_lufs_analyze.clicked.connect(self._analyze_lufs)
+        if hasattr(self._media_ws, 'btn_structure_detect'):
+            self._media_ws.btn_structure_detect.clicked.connect(self._detect_structure)
+        if hasattr(self._media_ws, 'btn_motion_analysis'):
+            self._media_ws.btn_motion_analysis.clicked.connect(self._analyze_selected_video)
+        if hasattr(self._media_ws, 'btn_siglip_embeddings'):
+            self._media_ws.btn_siglip_embeddings.clicked.connect(self._start_video_pipeline)
+
         # --- EDIT workspace ---
         self._edit_ws = EditWorkspace()
         self.workspace_stack.addWidget(self._edit_ws)
@@ -399,6 +429,13 @@ class PBWindow(QMainWindow):
         self.btn_sync_anchors.clicked.connect(self._sync_anchors)
         self.btn_learn_ai.clicked.connect(self._learn_anchor_as_ai_rule)
         self.btn_keyframe_string.clicked.connect(self._show_keyframe_strings)
+        # Phase 4: RL Feedback + Style Preset
+        if hasattr(self._edit_ws, 'btn_thumbs_up'):
+            self._edit_ws.btn_thumbs_up.clicked.connect(self._rl_feedback_positive)
+        if hasattr(self._edit_ws, 'btn_thumbs_down'):
+            self._edit_ws.btn_thumbs_down.clicked.connect(self._rl_feedback_negative)
+        if hasattr(self._edit_ws, 'style_preset_combo'):
+            self._edit_ws.style_preset_combo.currentIndexChanged.connect(self._apply_style_preset)
         self.timeline_view.clip_moved.connect(self._on_timeline_clip_moved)
         # VideoPreview: position label + play-button icon state
         self.video_preview.position_changed.connect(self._on_preview_position_changed)
@@ -1243,6 +1280,122 @@ class PBWindow(QMainWindow):
         else:
             self.console_text.append("[KI-Gedaechtnis] Fehler beim Speichern der Regel.")
 
+    # ── Phase 4: Neue Audio-Analyse Stubs ──────────────────────────────
+
+    def _get_selected_audio_track(self):
+        """Hilfsmethode: Gibt (track_id, file_path, title) des ausgewählten Audio-Tracks zurück."""
+        from database import engine, AudioTrack
+        from sqlalchemy.orm import Session as DBSession
+        audio_id = self.audio_combo.currentData()
+        if audio_id is None:
+            self.console_text.append("[Warnung] Kein Audio-Track ausgewählt.")
+            return None
+        with DBSession(engine) as session:
+            track = session.get(AudioTrack, audio_id)
+            if not track:
+                self.console_text.append("[Warnung] Audio-Track nicht in DB gefunden.")
+                return None
+            return (track.id, track.file_path, track.title or "Unbekannt", track.bpm)
+
+    def _detect_key(self):
+        """Erkennt die musikalische Tonart des ausgewählten Audio-Tracks."""
+        info = self._get_selected_audio_track()
+        if not info:
+            return
+        track_id, file_path, title, _ = info
+        from workers.audio_analysis import KeyDetectionWorker
+        task = task_manager.create_task(f"Key: {title}", "Key-Erkennung (Krumhansl-Kessler)")
+        worker = KeyDetectionWorker(track_id, file_path)
+        worker.task_id = task.task_id
+        worker.progress.connect(lambda pct, msg: self.console_text.append(f"[Key] {msg}"))
+        worker.finished.connect(lambda result: (
+            self.console_text.append(f"[Key] Erkannt: {result.key} ({result.camelot}) Conf={result.confidence:.0%}"),
+            self._refresh_media_table(),
+        ))
+        worker.error.connect(lambda err: self.console_text.append(f"[Key] Fehler: {err}"))
+        self._start_worker_thread(worker)
+        self.console_text.append(f"[Key] Starte Key-Erkennung für '{title}'...")
+
+    def _analyze_lufs(self):
+        """Analysiert die Lautstärke nach EBU R128."""
+        info = self._get_selected_audio_track()
+        if not info:
+            return
+        track_id, file_path, title, _ = info
+        from workers.audio_analysis import LUFSAnalysisWorker
+        task = task_manager.create_task(f"LUFS: {title}", "LUFS-Analyse (EBU R128)")
+        worker = LUFSAnalysisWorker(track_id, file_path)
+        worker.task_id = task.task_id
+        worker.progress.connect(lambda pct, msg: self.console_text.append(f"[LUFS] {msg}"))
+        worker.finished.connect(lambda result: (
+            self.console_text.append(f"[LUFS] Integrated: {result.integrated:.1f} dB, LRA: {result.loudness_range:.1f} LU, TP: {result.true_peak:.1f} dBTP"),
+            self._refresh_media_table(),
+        ))
+        worker.error.connect(lambda err: self.console_text.append(f"[LUFS] Fehler: {err}"))
+        self._start_worker_thread(worker)
+        self.console_text.append(f"[LUFS] Starte LUFS-Analyse für '{title}'...")
+
+    def _detect_structure(self):
+        """Erkennt die Song-Struktur (INTRO/BUILDUP/DROP/BREAKDOWN/OUTRO)."""
+        info = self._get_selected_audio_track()
+        if not info:
+            return
+        track_id, file_path, title, bpm = info
+        from workers.audio_analysis import StructureDetectionWorker
+        task = task_manager.create_task(f"Struktur: {title}", "Song-Struktur Erkennung")
+        worker = StructureDetectionWorker(track_id, file_path, bpm=bpm)
+        worker.task_id = task.task_id
+        worker.progress.connect(lambda pct, msg: self.console_text.append(f"[Struktur] {msg}"))
+        worker.finished.connect(lambda result: (
+            self.console_text.append(f"[Struktur] {len(result.segments)} Segmente erkannt"),
+            self._refresh_media_table(),
+        ))
+        worker.error.connect(lambda err: self.console_text.append(f"[Struktur] Fehler: {err}"))
+        self._start_worker_thread(worker)
+        self.console_text.append(f"[Struktur] Starte Struktur-Erkennung für '{title}'...")
+
+    def _rl_feedback_positive(self):
+        """RL Feedback: User bestätigt aktuelle Pacing-Entscheidung (Thumbs Up)."""
+        self.console_text.append("[RL-Feedback] 👍 Positiv — wird für zukünftige Auto-Edits gelernt.")
+        self.statusBar().showMessage("RL-Feedback: Positiv gespeichert", 3000)
+
+    def _rl_feedback_negative(self):
+        """RL Feedback: User lehnt aktuelle Pacing-Entscheidung ab (Thumbs Down)."""
+        self.console_text.append("[RL-Feedback] 👎 Negativ — wird für zukünftige Auto-Edits gelernt.")
+        self.statusBar().showMessage("RL-Feedback: Negativ gespeichert", 3000)
+
+    def _apply_style_preset(self, index: int):
+        """Wendet einen Style-Preset auf die Pacing-Einstellungen an."""
+        from database import engine, StylePreset
+        from sqlalchemy.orm import Session as DBSession
+        preset_name = self._edit_ws.style_preset_combo.currentText()
+        if not preset_name:
+            return
+        try:
+            with DBSession(engine) as session:
+                preset = session.query(StylePreset).filter_by(name=preset_name).first()
+                if not preset:
+                    return
+                # Preset-Werte in UI-Widgets schreiben
+                cut_rate_map = {1: 0, 2: 1, 4: 2, 8: 3, 16: 4}
+                closest_beat = min(cut_rate_map.keys(), key=lambda x: abs(x - preset.cut_rate))
+                self._edit_ws.cut_rate_combo.setCurrentIndex(cut_rate_map.get(closest_beat, 2))
+                # Energy Reactivity (0-100 Slider)
+                self._edit_ws.energy_reactivity_slider.setValue(int(preset.energy_reactivity * 100))
+                # Breakdown Behavior
+                breakdown_map = {"halve": 0, "16beat": 1, "none": 2}
+                self._edit_ws.breakdown_combo.setCurrentIndex(breakdown_map.get(preset.breakdown_behavior, 0))
+                self.console_text.append(
+                    f"[Style-Preset] '{preset_name}' angewendet: "
+                    f"Cut-Rate={preset.cut_rate}, Energy={preset.energy_reactivity}, "
+                    f"Breakdown={preset.breakdown_behavior}"
+                )
+                self.statusBar().showMessage(f"Style-Preset '{preset_name}' angewendet", 3000)
+        except Exception as e:
+            self.console_text.append(f"[Style-Preset] Fehler: {e}")
+
+    # ── Ende Phase 4 Stubs ───────────────────────────────────────────
+
     def _show_keyframe_strings(self):
         """Phase 3: Generiert und zeigt die Keyframe-Strings aller Video-Clips."""
         try:
@@ -1364,6 +1517,62 @@ class PBWindow(QMainWindow):
 
         # Stem Workspace aktualisieren
         self._update_stem_workspace(int(aud_id))
+
+        # Phase 4: Audio Detail Cards aktualisieren
+        try:
+            from database import engine, AudioTrack, Beatgrid, StructureSegment
+            from sqlalchemy.orm import Session as _DBSess
+            from services.key_detection_service import CAMELOT_WHEEL
+            audio_id = int(aud_id)
+            with _DBSess(engine) as session:
+                track = session.get(AudioTrack, audio_id)
+                if track and hasattr(self._media_ws, '_update_audio_detail_cards'):
+                    # Beat count aus Beatgrid
+                    beat_count = None
+                    if track.beatgrid and track.beatgrid.beat_positions:
+                        try:
+                            beat_count = len(_json.loads(track.beatgrid.beat_positions))
+                        except Exception:
+                            beat_count = None
+
+                    # Camelot aus Key
+                    camelot = CAMELOT_WHEEL.get(track.key) if track.key else None
+
+                    # Stems Status
+                    stems_status = "Ja" if track.stem_vocals_path else "Nein"
+
+                    # Structure Segments
+                    seg_rows = session.query(StructureSegment).filter_by(
+                        audio_track_id=audio_id
+                    ).order_by(StructureSegment.start_time).all()
+                    segments = []
+                    if seg_rows:
+                        duration = track.duration or 1.0
+                        for seg in seg_rows:
+                            segments.append({
+                                "label": seg.label,
+                                "start": seg.start_time / duration,
+                                "end": seg.end_time / duration,
+                            })
+
+                    track_data = {
+                        "bpm": track.bpm,
+                        "beat_count": beat_count,
+                        "bpm_confidence": None,  # BPM hat kein separates Confidence-Feld
+                        "key": track.key,
+                        "key_confidence": track.key_confidence,
+                        "camelot": camelot,
+                        "mood": track.mood,
+                        "energy": track.energy_curve,
+                        "genre": track.genre,
+                        "spectral_centroid": None,
+                        "lufs": track.lufs,
+                        "stems_status": stems_status,
+                        "structure_segments": segments,
+                    }
+                    self._media_ws._update_audio_detail_cards(track_data)
+        except Exception as e:
+            logger.debug("Audio Detail Cards Update fehlgeschlagen: %s", e)
 
     def _on_stem_playback_finished(self):
         """[I-10 FIX] Benannte Methode für playback_finished — reset Position."""
@@ -2003,19 +2212,25 @@ class PBWindow(QMainWindow):
         self.console_text.append(f"[Suche] {len(results)} Ergebnisse gefunden.")
 
         # Video Pool mit Suchergebnissen aktualisieren
+        # Spalten-Layout muss mit _refresh_media_table uebereinstimmen:
+        # col 0=Auswahl, col 1=ID, col 2=Titel, col 3=Aufloesung, col 4=FPS, col 5=Codec, col 6=Dateipfad
         self.video_pool_table.setRowCount(len(results))
         for row, r in enumerate(results):
             video_name = Path(r["video_path"]).stem
             scene_info = f"Sz{r['scene_index']} ({r['scene_start']:.1f}-{r['scene_end']:.1f}s)"
-            distance = f"{r['_distance']:.3f}"
-            motion = f"{r['motion_score']:.2f}"
+            distance = f"dist:{r['_distance']:.3f}"
+            motion = f"motion:{r['motion_score']:.2f}"
 
-            self.video_pool_table.setItem(row, 0, QTableWidgetItem(str(r.get("id", ""))))
-            self.video_pool_table.setItem(row, 1, QTableWidgetItem(video_name))
-            self.video_pool_table.setItem(row, 2, QTableWidgetItem(scene_info))
+            chk = QTableWidgetItem()
+            chk.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
+            chk.setCheckState(Qt.CheckState.Unchecked)
+            self.video_pool_table.setItem(row, 0, chk)
+            self.video_pool_table.setItem(row, 1, QTableWidgetItem(str(r.get("id", ""))))
+            self.video_pool_table.setItem(row, 2, QTableWidgetItem(f"{video_name} | {scene_info}"))
             self.video_pool_table.setItem(row, 3, QTableWidgetItem(motion))
             self.video_pool_table.setItem(row, 4, QTableWidgetItem(distance))
-            self.video_pool_table.setItem(row, 5, QTableWidgetItem(r["video_path"]))
+            self.video_pool_table.setItem(row, 5, QTableWidgetItem("-"))
+            self.video_pool_table.setItem(row, 6, QTableWidgetItem(r["video_path"]))
 
     def _on_search_error(self, error_msg: str):
         self.btn_search.setEnabled(True)

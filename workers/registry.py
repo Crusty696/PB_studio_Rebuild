@@ -73,3 +73,54 @@ GlobalTaskManager.register_worker(
     "Test-Ladebalken ({steps}s)",
     mapper=lambda kw: {"steps": kw.get("steps", 10), "interval_ms": kw.get("interval_ms", 1000)},
 )
+
+# --- Phase 4: Audio-Analyse Worker ---
+from .audio_analysis import (
+    KeyDetectionWorker, LUFSAnalysisWorker, AudioClassifyWorker,
+    SpectralAnalysisWorker, StructureDetectionWorker,
+)
+
+GlobalTaskManager.register_worker(
+    "detect_key",
+    KeyDetectionWorker,
+    "Key-Erkennung #{audio_track_id}",
+    mapper=lambda kw: {"audio_track_id": kw["audio_track_id"], "file_path": kw["file_path"]},
+)
+
+GlobalTaskManager.register_worker(
+    "analyze_lufs",
+    LUFSAnalysisWorker,
+    "LUFS-Analyse #{audio_track_id}",
+    mapper=lambda kw: {"audio_track_id": kw["audio_track_id"], "file_path": kw["file_path"]},
+)
+
+GlobalTaskManager.register_worker(
+    "classify_audio",
+    AudioClassifyWorker,
+    "Audio-Klassifikation #{audio_track_id}",
+    mapper=lambda kw: {
+        "audio_track_id": kw["audio_track_id"],
+        "file_path": kw["file_path"],
+        "bpm": kw.get("bpm"),
+    },
+)
+
+GlobalTaskManager.register_worker(
+    "analyze_spectral",
+    SpectralAnalysisWorker,
+    "Spektral-Analyse #{audio_track_id}",
+    mapper=lambda kw: {"audio_track_id": kw["audio_track_id"], "file_path": kw["file_path"]},
+)
+
+GlobalTaskManager.register_worker(
+    "detect_structure",
+    StructureDetectionWorker,
+    "Struktur-Erkennung #{audio_track_id}",
+    mapper=lambda kw: {
+        "audio_track_id": kw["audio_track_id"],
+        "file_path": kw["file_path"],
+        "bpm": kw.get("bpm"),
+        "beat_positions": kw.get("beat_positions"),
+        "energy_per_beat": kw.get("energy_per_beat"),
+    },
+)

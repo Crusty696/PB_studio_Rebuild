@@ -63,7 +63,7 @@ class EditWorkspace(QWidget):
         self.btn_preview_stop.setFixedSize(36, 36)
         self.btn_preview_stop.setIconSize(QSize(24, 24))
         self.btn_preview_stop.setToolTip("Stop")
-        self.btn_preview_stop.clicked.connect(self.video_preview.stop)
+        # NOTE: btn_preview_stop is connected in main.py (PBWindow._wire_signals)
         transport_row.addWidget(self.btn_preview_stop)
 
         self.preview_time_label = QLabel("00:00 / 00:00")
@@ -139,7 +139,7 @@ class EditWorkspace(QWidget):
         cr_lbl.setToolTip("Basis-Schnittrate: Alle N Beats wird geschnitten")
         cut_rate_row.addWidget(cr_lbl)
         self.cut_rate_combo = QComboBox()
-        self.cut_rate_combo.addItems(["1 Beat", "2 Beats", "4 Beats", "8 Beats", "16 Beats"])
+        self.cut_rate_combo.addItems(["1 Beat", "2 Beat", "4 Beat", "8 Beat", "16 Beat"])
         self.cut_rate_combo.setCurrentIndex(2)
         self.cut_rate_combo.setToolTip("Basis-Schnittrate")
         self.cut_rate_combo.setFixedHeight(22)
@@ -171,6 +171,25 @@ class EditWorkspace(QWidget):
         energy_row.addWidget(self.energy_reactivity_spin)
         insp.addLayout(energy_row)
 
+        # Style Preset
+        style_row = QHBoxLayout()
+        style_row.setSpacing(4)
+        sp_lbl = QLabel("Style")
+        sp_lbl.setFixedWidth(52)
+        sp_lbl.setStyleSheet("color: #707070; font-size: 10px;")
+        sp_lbl.setToolTip("Genre-basiertes Schnitt-Preset")
+        style_row.addWidget(sp_lbl)
+        self.style_preset_combo = QComboBox()
+        self.style_preset_combo.addItems([
+            "Standard", "Techno", "House", "Drum & Bass",
+            "Hip-Hop", "Ambient", "Minimal", "Cinematic", "Festival",
+        ])
+        self.style_preset_combo.setCurrentIndex(0)
+        self.style_preset_combo.setToolTip("Genre-Preset fuer automatische Pacing-Anpassung")
+        self.style_preset_combo.setFixedHeight(22)
+        style_row.addWidget(self.style_preset_combo, stretch=1)
+        insp.addLayout(style_row)
+
         # Breakdown Behavior
         bd_row = QHBoxLayout()
         bd_row.setSpacing(4)
@@ -180,7 +199,7 @@ class EditWorkspace(QWidget):
         bd_lbl.setToolTip("Verhalten bei niedrigem RMS (Breakdowns/Intros)")
         bd_row.addWidget(bd_lbl)
         self.breakdown_combo = QComboBox()
-        self.breakdown_combo.addItems(["Cuts halbieren", "16-Beat erzwingen", "Keine Cuts"])
+        self.breakdown_combo.addItems(["Halbieren", "16-Beat erzwingen", "Keine Cuts"])
         self.breakdown_combo.setCurrentIndex(0)
         self.breakdown_combo.setToolTip(
             "Halbieren: Cut-Rate verdoppelt sich\n"
@@ -199,11 +218,19 @@ class EditWorkspace(QWidget):
         self._add_separator(insp)
 
         # Action buttons
+        _gold_btn_style = (
+            "QPushButton { background: #d4a44a; color: #0A0A0A; border: none; border-radius: 4px;"
+            " font-weight: 600; font-size: 11px; }"
+            "QPushButton:hover { background: #e0b45a; }"
+            "QPushButton:pressed { background: #b8903e; }"
+        )
+
         self.btn_generate = QPushButton("Timeline generieren")
         self.btn_generate.setObjectName("btn_accent")
         self.btn_generate.setFixedHeight(35)
         self.btn_generate.setMaximumWidth(300)
         self.btn_generate.setToolTip("Berechnet Schnittpunkte (BPM + Pacing-Kurve)")
+        self.btn_generate.setStyleSheet(_gold_btn_style)
         insp.addWidget(self.btn_generate)
 
         self.btn_auto_edit = QPushButton("Auto-Edit")
@@ -211,6 +238,7 @@ class EditWorkspace(QWidget):
         self.btn_auto_edit.setFixedHeight(35)
         self.btn_auto_edit.setMaximumWidth(300)
         self.btn_auto_edit.setToolTip("Phase 3: DJ-Pacing + OTIO Timeline + Anker + LanceDB Matching")
+        self.btn_auto_edit.setStyleSheet(_gold_btn_style)
         insp.addWidget(self.btn_auto_edit)
 
         self._add_separator(insp)
@@ -221,7 +249,7 @@ class EditWorkspace(QWidget):
         insp.addWidget(anchor_lbl)
 
         self.anchor_list = QTreeWidget()
-        self.anchor_list.setHeaderLabels(["Zeit", "Video/Szene"])
+        self.anchor_list.setHeaderLabels(["Zeit", "Video/Szene", "Label"])
         self.anchor_list.setMaximumHeight(100)
         self.anchor_list.setStyleSheet(
             "QTreeWidget { background: #0A0A0A; border: 1px solid #1E1E1E; "
@@ -263,6 +291,33 @@ class EditWorkspace(QWidget):
             "Der Auto-Edit beruecksichtigt diese Entscheidung bei aehnlichem Audio-Kontext."
         )
         insp.addWidget(self.btn_learn_ai)
+
+        # RL Feedback Buttons
+        rl_row = QHBoxLayout()
+        rl_row.setSpacing(6)
+        self.btn_thumbs_up = QPushButton("\U0001f44d")
+        self.btn_thumbs_up.setFixedHeight(32)
+        self.btn_thumbs_up.setFixedWidth(48)
+        self.btn_thumbs_up.setToolTip("Positives Feedback: Gute Edit-Entscheidung")
+        self.btn_thumbs_up.setStyleSheet(
+            "QPushButton { background: #1a3a1a; border: 1px solid #2a5a2a; border-radius: 4px; font-size: 16px; }"
+            "QPushButton:hover { background: #2a5a2a; border-color: #3a7a3a; }"
+            "QPushButton:pressed { background: #3a7a3a; }"
+        )
+        rl_row.addWidget(self.btn_thumbs_up)
+
+        self.btn_thumbs_down = QPushButton("\U0001f44e")
+        self.btn_thumbs_down.setFixedHeight(32)
+        self.btn_thumbs_down.setFixedWidth(48)
+        self.btn_thumbs_down.setToolTip("Negatives Feedback: Schlechte Edit-Entscheidung")
+        self.btn_thumbs_down.setStyleSheet(
+            "QPushButton { background: #3a1a1a; border: 1px solid #5a2a2a; border-radius: 4px; font-size: 16px; }"
+            "QPushButton:hover { background: #5a2a2a; border-color: #7a3a3a; }"
+            "QPushButton:pressed { background: #7a3a3a; }"
+        )
+        rl_row.addWidget(self.btn_thumbs_down)
+        rl_row.addStretch()
+        insp.addLayout(rl_row)
 
         self._add_separator(insp)
 

@@ -543,20 +543,25 @@ def store_scenes_in_db(
     from database import engine, Scene
 
     with Session(engine) as session:
-        # Alte Szenen löschen
-        session.query(Scene).filter_by(video_clip_id=video_clip_id).delete()
+        try:
+            # Alte Szenen löschen
+            session.query(Scene).filter_by(video_clip_id=video_clip_id).delete()
 
-        for scene in scenes:
-            db_scene = Scene(
-                video_clip_id=video_clip_id,
-                start_time=scene.start_time,
-                end_time=scene.end_time,
-                energy=scene.motion_score,
-                label=f"Scene {scene.index}",
-            )
-            session.add(db_scene)
+            for scene in scenes:
+                db_scene = Scene(
+                    video_clip_id=video_clip_id,
+                    start_time=scene.start_time,
+                    end_time=scene.end_time,
+                    energy=scene.motion_score,
+                    label=f"Scene {scene.index}",
+                )
+                session.add(db_scene)
 
-        session.commit()
+            session.commit()
+        except Exception:
+            session.rollback()
+            logger.exception("Fehler beim Speichern der Szenen für VideoClip %d", video_clip_id)
+            raise
 
     logger.info("SQLite: %d Szenen gespeichert für VideoClip %d", len(scenes), video_clip_id)
 
