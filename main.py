@@ -32,8 +32,8 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QThread, Signal, QObject, QRectF, QPointF, QTimer
 from PySide6.QtGui import QPainter, QPainterPath, QColor, QFont, QBrush, QPen, QPixmap, QImage, QPolygonF, QAction
 
-# NEU: Wir importieren das Design-Tool
-from qt_material import apply_stylesheet
+# NEU: PB Studio Gold-Accent Theme (ersetzt qt_material)
+from ui.theme import get_stylesheet
 
 APP_VERSION = "0.5.0"
 
@@ -141,18 +141,18 @@ class PBWindow(QMainWindow):
         top_layout.setContentsMargins(12, 0, 12, 0)
 
         app_title = QLabel(f"PB_studio v{APP_VERSION}")
-        app_title.setStyleSheet("color: #D0D0D0; font-weight: 700; font-size: 13px; background: transparent;")
+        app_title.setStyleSheet("color: #e8e6e3; font-weight: 700; font-size: 13px; background: transparent;")
         top_layout.addWidget(app_title)
 
         top_layout.addStretch()
 
         # ── Panel toggle buttons (DaVinci-style) ──
         toggle_style = (
-            "QPushButton { color: #505050; font-size: 9px; font-weight: 600; "
-            "border: 1px solid #2A2A2A; border-radius: 3px; padding: 2px 8px; "
-            "background: #181818; min-height: 24px; }"
-            "QPushButton:checked { color: #C0C0C0; border-color: #484848; background: #222222; }"
-            "QPushButton:hover { border-color: #404040; color: #808080; }"
+            "QPushButton { color: #6b7280; font-size: 9px; font-weight: 600; "
+            "border: 1px solid rgba(255,255,255,15); border-radius: 3px; padding: 2px 8px; "
+            "background: #0f1318; min-height: 24px; }"
+            "QPushButton:checked { color: #e8e6e3; border-color: #d4a44a; background: #1e2632; }"
+            "QPushButton:hover { border-color: rgba(255,255,255,25); color: #9ca3af; }"
         )
         self._btn_toggle_tasks = QPushButton("Tasks")
         self._btn_toggle_tasks.setCheckable(True)
@@ -191,7 +191,7 @@ class PBWindow(QMainWindow):
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
         sep.setFixedHeight(1)
-        sep.setStyleSheet("background-color: #1E1E1E;")
+        sep.setStyleSheet("background-color: rgba(255,255,255,6);")
         main_layout.addWidget(sep)
 
         # ── Workspace (volle Flaeche — dominiert das Fenster) ──
@@ -508,7 +508,7 @@ class PBWindow(QMainWindow):
         row.setSpacing(4)
         lbl = QLabel(label)
         lbl.setFixedWidth(46)
-        lbl.setStyleSheet("color: #707070; font-size: 10px;")
+        lbl.setStyleSheet("color: #6b7280; font-size: 10px;")
         row.addWidget(lbl)
         slider = QSlider(Qt.Orientation.Horizontal)
         slider.setRange(min_val, max_val)
@@ -518,7 +518,7 @@ class PBWindow(QMainWindow):
         val_lbl = QLabel(str(default))
         val_lbl.setFixedWidth(26)
         val_lbl.setAlignment(Qt.AlignmentFlag.AlignRight)
-        val_lbl.setStyleSheet("color: #909090; font-size: 10px;")
+        val_lbl.setStyleSheet("color: #9ca3af; font-size: 10px;")
         slider.valueChanged.connect(lambda v: val_lbl.setText(str(v)))
         row.addWidget(val_lbl)
         return slider, row
@@ -537,7 +537,7 @@ class PBWindow(QMainWindow):
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
         sep.setFixedHeight(1)
-        sep.setStyleSheet("background-color: #1E1E1E;")
+        sep.setStyleSheet("background-color: rgba(255,255,255,6);")
         layout.addWidget(sep)
 
     # ==================================================================
@@ -1136,7 +1136,7 @@ class PBWindow(QMainWindow):
         dialog = QDialog(self)
         dialog.setWindowTitle("Anker hinzufuegen")
         dialog.setFixedSize(320, 180)
-        dialog.setStyleSheet("background-color: #1A1A1A; color: #E0E0E0;")
+        dialog.setStyleSheet("background-color: #161c26; color: #e8e6e3;")
         layout = QVBoxLayout(dialog)
 
         # Zeitpunkt
@@ -1270,11 +1270,11 @@ class PBWindow(QMainWindow):
             )
             # Visuelles Feedback: kurz gruen aufleuchten
             self.btn_learn_ai.setStyleSheet(
-                "background-color: #00AA44; color: white; font-weight: 800; "
+                "background-color: #4ade80; color: #0a0d12; font-weight: 800; "
                 "font-size: 10px; border-radius: 3px; letter-spacing: 1px;"
             )
             QTimer.singleShot(2000, lambda: self.btn_learn_ai.setStyleSheet(
-                "background-color: #C07800; color: white; font-weight: 800; "
+                "background-color: #d4a44a; color: #0a0d12; font-weight: 800; "
                 "font-size: 10px; border-radius: 3px; letter-spacing: 1px;"
             ))
         else:
@@ -2570,7 +2570,7 @@ class PBWindow(QMainWindow):
 
         hdr = QLabel("KONSOLE")
         hdr.setStyleSheet(
-            "color: #606060; font-size: 10px; font-weight: 700; "
+            "color: #6b7280; font-size: 10px; font-weight: 700; "
             "letter-spacing: 1px; background: transparent; padding: 2px 0;"
         )
         cl.addWidget(hdr)
@@ -2709,18 +2709,8 @@ def main():
     _task_manager_module.task_manager = _tm  # Modul-Level fuer andere Imports
     app.task_manager = _tm
 
-    # ALT: Theme laden - VORERST AUSGEBLENDET DAMIT QT-MATERIAL FUNKTIONIERT
-    # qss_path = RESOURCE_DIR / "styles.qss"
-    # if not qss_path.exists():
-    #     qss_path = STYLE_DIR / "dark_steel.qss"
-    # if qss_path.exists():
-    #     try:
-    #         app.setStyleSheet(qss_path.read_text(encoding="utf-8"))
-    #     except Exception as exc:
-    #         logging.warning("Theme konnte nicht geladen werden: %s", exc)
-    
-    # NEU: Wir wenden das neue moderne Theme auf deine App an
-    apply_stylesheet(app, theme='dark_teal.xml')
+    # NEU: PB Studio v0.5 Gold-Accent Dark Theme
+    app.setStyleSheet(get_stylesheet())
 
     try:
         window = PBWindow()
@@ -2731,7 +2721,7 @@ def main():
         sys.exit(1)
 
     window.console_text.append("[System] SQLite Datenbank (pb_studio.db) erfolgreich initialisiert.")
-    window.console_text.append("[System] qt-material Theme aktiv — Modernes Design.")
+    window.console_text.append("[System] PB Studio Gold-Accent Theme aktiv — v0.5 Design.")
     window.console_text.append(f"[System] Version {APP_VERSION} — Workspace UI + KI-Pacing + Beat-Snap.")
     window.showMaximized()
     # Timeline-Daten NACH dem Fenster laden (non-blocking Startup)

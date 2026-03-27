@@ -18,26 +18,26 @@ _MODE_BTN_STYLE = """
         font-size: 14px;
         font-weight: 700;
         padding: 8px 16px;
-        border: 2px solid #333333;
+        border: 2px solid rgba(255,255,255,15);
         border-radius: 6px;
-        background: #1A1A1A;
-        color: #808080;
+        background: #0f1318;
+        color: #6b7280;
     }
     QPushButton:checked {
-        border: 2px solid #D4AF37;
-        color: #FFFFFF;
-        background: #2A2A2A;
+        border: 2px solid #d4a44a;
+        color: #e8e6e3;
+        background: #1e2632;
     }
     QPushButton:hover {
-        background: #252525;
+        background: #161c26;
     }
 """
 
 
 _CARD_STYLE = """
     QFrame {
-        background: #1a1b23;
-        border: 1px solid #2a2b33;
+        background: #0f1318;
+        border: 1px solid rgba(255,255,255,15);
         border-radius: 6px;
         padding: 8px;
     }
@@ -51,7 +51,7 @@ _CARD_VALUE_STYLE = (
     "color: #ffffff; font-size: 18px; font-weight: 700;"
 )
 _CARD_LABEL_STYLE = (
-    "color: #808080; font-size: 9px;"
+    "color: #6b7280; font-size: 9px;"
 )
 _CARD_TAG_BASE = (
     "font-size: 9px; font-weight: 600; padding: 2px 6px; "
@@ -79,7 +79,7 @@ class StructureBarWidget(QWidget):
         self.setFixedHeight(32)
         self.setMinimumWidth(100)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.setStyleSheet("background: #0e0e12; border-radius: 4px;")
+        self.setStyleSheet("background: #0a0d12; border-radius: 4px;")
 
     def set_segments(self, segments):
         """Set segments as list of (label, start_pct, end_pct) with 0..1 range."""
@@ -316,8 +316,8 @@ class MediaWorkspace(QWidget):
 
         lbl = QLabel("SigLIP")
         lbl.setStyleSheet(
-            "color: #909090; font-weight: 700; font-size: 9px; padding: 2px 6px; "
-            "background: #1A1A1A; border: 1px solid #333333; border-radius: 3px;"
+            "color: #9ca3af; font-weight: 700; font-size: 9px; padding: 2px 6px; "
+            "background: #0f1318; border: 1px solid rgba(255,255,255,15); border-radius: 3px;"
         )
         lbl.setFixedWidth(46)
         search_row.addWidget(lbl)
@@ -347,8 +347,8 @@ class MediaWorkspace(QWidget):
         hdr_row.setSpacing(4)
         hdr = QLabel("VIDEO POOL")
         hdr.setStyleSheet(
-            "color: #B0B0B0; font-weight: 700; font-size: 11px; "
-            "padding: 2px 4px; background: #0E0E0E;"
+            "color: #d4a44a; font-weight: 700; font-size: 11px; "
+            "padding: 2px 4px; background: #0a0d12;"
         )
         hdr_row.addWidget(hdr)
         hdr_row.addStretch()
@@ -548,8 +548,8 @@ class MediaWorkspace(QWidget):
         hdr_row.setSpacing(4)
         hdr = QLabel("AUDIO POOL")
         hdr.setStyleSheet(
-            "color: #D4AF37; font-weight: 700; font-size: 11px; "
-            "padding: 2px 4px; background: #0E0E0E;"
+            "color: #d4a44a; font-weight: 700; font-size: 11px; "
+            "padding: 2px 4px; background: #0a0d12;"
         )
         hdr_row.addWidget(hdr)
         hdr_row.addStretch()
@@ -599,7 +599,7 @@ class MediaWorkspace(QWidget):
         detail_hdr = QLabel("TRACK DETAILS")
         detail_hdr.setStyleSheet(
             "color: #d4a44a; font-weight: 700; font-size: 10px; "
-            "letter-spacing: 1px; padding: 2px 4px; background: #0e0e0e;"
+            "letter-spacing: 1px; padding: 2px 4px; background: #0a0d12;"
         )
         detail_layout.addWidget(detail_hdr)
 
@@ -640,7 +640,7 @@ class MediaWorkspace(QWidget):
         self._lbl_camelot = QLabel("")
         self._lbl_camelot.setStyleSheet(
             "color: #bf40ff; font-size: 10px; font-weight: 600; "
-            "padding: 1px 4px; background: #2a1f3a; border-radius: 3px;"
+            "padding: 1px 4px; background: #161c26; border-radius: 3px;"
         )
         key_row.addWidget(self._lbl_camelot)
         key_row.addStretch()
@@ -706,7 +706,7 @@ class MediaWorkspace(QWidget):
         # ── Structure Bar ──────────────────────────────────────
         struct_hdr = QLabel("STRUCTURE")
         struct_hdr.setStyleSheet(
-            "color: #808080; font-weight: 700; font-size: 9px; "
+            "color: #6b7280; font-weight: 700; font-size: 9px; "
             "letter-spacing: 1px; padding: 2px 4px;"
         )
         detail_layout.addWidget(struct_hdr)

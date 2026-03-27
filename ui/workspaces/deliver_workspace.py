@@ -24,7 +24,7 @@ class DeliverWorkspace(QWidget):
         info_group = QGroupBox("Timeline-Status")
         info_layout = QVBoxLayout(info_group)
         self.production_info = QLabel("Timeline laden...")
-        self.production_info.setStyleSheet("color: #E0E0E0; font-size: 14px;")
+        self.production_info.setStyleSheet("color: #e8e6e3; font-size: 14px;")
         self.production_info.setToolTip(
             "Zeigt eine Zusammenfassung der aktuellen Timeline: "
             "Anzahl der Clips, Spuren und geschaetzte Gesamtdauer"
@@ -92,7 +92,7 @@ class DeliverWorkspace(QWidget):
 
         # Export-Log
         log_label = QLabel("Export-Protokoll:")
-        log_label.setStyleSheet("color: #808080; font-weight: 600; margin-top: 8px;")
+        log_label.setStyleSheet("color: #9ca3af; font-weight: 600; margin-top: 8px;")
         layout.addWidget(log_label)
 
         self.export_log = QTextEdit()

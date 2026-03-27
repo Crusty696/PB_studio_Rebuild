@@ -27,7 +27,7 @@ class EditWorkspace(QWidget):
         from PySide6.QtWidgets import QFrame
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet("background-color: #1E1E1E; max-height: 1px;")
+        sep.setStyleSheet("background-color: #1e2632; max-height: 1px;")
         layout.addWidget(sep)
 
     def _build_ui(self):
@@ -67,7 +67,7 @@ class EditWorkspace(QWidget):
         transport_row.addWidget(self.btn_preview_stop)
 
         self.preview_time_label = QLabel("00:00 / 00:00")
-        self.preview_time_label.setStyleSheet("color: #505050; font-size: 10px;")
+        self.preview_time_label.setStyleSheet("color: #6b7280; font-size: 10px;")
         transport_row.addWidget(self.preview_time_label)
         transport_row.addStretch()
 
@@ -101,13 +101,13 @@ class EditWorkspace(QWidget):
         insp.setSpacing(5)
 
         hdr = QLabel("INSPECTOR")
-        hdr.setStyleSheet("color: #808080; font-weight: 700; font-size: 10px; letter-spacing: 2px;")
+        hdr.setStyleSheet("color: #9ca3af; font-weight: 700; font-size: 10px; letter-spacing: 2px;")
         insp.addWidget(hdr)
         self._add_separator(insp)
 
         # Source selectors
         src_lbl = QLabel("QUELLEN")
-        src_lbl.setStyleSheet("color: #505050; font-size: 9px; font-weight: 600; letter-spacing: 1px;")
+        src_lbl.setStyleSheet("color: #6b7280; font-size: 9px; font-weight: 600; letter-spacing: 1px;")
         insp.addWidget(src_lbl)
 
         self.audio_combo = QComboBox()
@@ -127,7 +127,7 @@ class EditWorkspace(QWidget):
 
         # DJ Pacing Controls
         pacing_lbl = QLabel("DJ PACING")
-        pacing_lbl.setStyleSheet("color: #505050; font-size: 9px; font-weight: 600; letter-spacing: 1px;")
+        pacing_lbl.setStyleSheet("color: #6b7280; font-size: 9px; font-weight: 600; letter-spacing: 1px;")
         insp.addWidget(pacing_lbl)
 
         # Cut Rate
@@ -135,7 +135,7 @@ class EditWorkspace(QWidget):
         cut_rate_row.setSpacing(4)
         cr_lbl = QLabel("Cut Rate")
         cr_lbl.setFixedWidth(52)
-        cr_lbl.setStyleSheet("color: #707070; font-size: 10px;")
+        cr_lbl.setStyleSheet("color: #6b7280; font-size: 10px;")
         cr_lbl.setToolTip("Basis-Schnittrate: Alle N Beats wird geschnitten")
         cut_rate_row.addWidget(cr_lbl)
         self.cut_rate_combo = QComboBox()
@@ -151,7 +151,7 @@ class EditWorkspace(QWidget):
         energy_row.setSpacing(4)
         er_lbl = QLabel("Reaktivitaet")
         er_lbl.setFixedWidth(52)
-        er_lbl.setStyleSheet("color: #707070; font-size: 10px;")
+        er_lbl.setStyleSheet("color: #6b7280; font-size: 10px;")
         er_lbl.setToolTip("Energy Reactivity: Erhoehe Cut-Rate bei hohem RMS")
         energy_row.addWidget(er_lbl)
         self.energy_reactivity_slider = QSlider(Qt.Orientation.Horizontal)
@@ -176,7 +176,7 @@ class EditWorkspace(QWidget):
         style_row.setSpacing(4)
         sp_lbl = QLabel("Style")
         sp_lbl.setFixedWidth(52)
-        sp_lbl.setStyleSheet("color: #707070; font-size: 10px;")
+        sp_lbl.setStyleSheet("color: #6b7280; font-size: 10px;")
         sp_lbl.setToolTip("Genre-basiertes Schnitt-Preset")
         style_row.addWidget(sp_lbl)
         self.style_preset_combo = QComboBox()
@@ -195,7 +195,7 @@ class EditWorkspace(QWidget):
         bd_row.setSpacing(4)
         bd_lbl = QLabel("Breakdown")
         bd_lbl.setFixedWidth(52)
-        bd_lbl.setStyleSheet("color: #707070; font-size: 10px;")
+        bd_lbl.setStyleSheet("color: #6b7280; font-size: 10px;")
         bd_lbl.setToolTip("Verhalten bei niedrigem RMS (Breakdowns/Intros)")
         bd_row.addWidget(bd_lbl)
         self.breakdown_combo = QComboBox()
@@ -245,15 +245,15 @@ class EditWorkspace(QWidget):
 
         # Anchor System
         anchor_lbl = QLabel("ANKER")
-        anchor_lbl.setStyleSheet("color: #505050; font-size: 9px; font-weight: 600; letter-spacing: 1px;")
+        anchor_lbl.setStyleSheet("color: #6b7280; font-size: 9px; font-weight: 600; letter-spacing: 1px;")
         insp.addWidget(anchor_lbl)
 
         self.anchor_list = QTreeWidget()
         self.anchor_list.setHeaderLabels(["Zeit", "Video/Szene", "Label"])
         self.anchor_list.setMaximumHeight(100)
         self.anchor_list.setStyleSheet(
-            "QTreeWidget { background: #0A0A0A; border: 1px solid #1E1E1E; "
-            "font-size: 10px; color: #C0C0C0; }"
+            "QTreeWidget { background: #0a0d12; border: 1px solid rgba(255,255,255,15); "
+            "font-size: 10px; color: #e8e6e3; }"
             "QTreeWidget::item { padding: 1px; }"
         )
         self.anchor_list.setToolTip("Audio-Anker: Feste Clip-Positionen fuer den Auto-Edit")
@@ -300,9 +300,9 @@ class EditWorkspace(QWidget):
         self.btn_thumbs_up.setFixedWidth(48)
         self.btn_thumbs_up.setToolTip("Positives Feedback: Gute Edit-Entscheidung")
         self.btn_thumbs_up.setStyleSheet(
-            "QPushButton { background: #1a3a1a; border: 1px solid #2a5a2a; border-radius: 4px; font-size: 16px; }"
-            "QPushButton:hover { background: #2a5a2a; border-color: #3a7a3a; }"
-            "QPushButton:pressed { background: #3a7a3a; }"
+            "QPushButton { background: #0f1318; border: 1px solid rgba(74,222,128,77); border-radius: 4px; font-size: 16px; }"
+            "QPushButton:hover { background: #161c26; border-color: #4ade80; }"
+            "QPushButton:pressed { background: #1e2632; }"
         )
         rl_row.addWidget(self.btn_thumbs_up)
 
@@ -311,9 +311,9 @@ class EditWorkspace(QWidget):
         self.btn_thumbs_down.setFixedWidth(48)
         self.btn_thumbs_down.setToolTip("Negatives Feedback: Schlechte Edit-Entscheidung")
         self.btn_thumbs_down.setStyleSheet(
-            "QPushButton { background: #3a1a1a; border: 1px solid #5a2a2a; border-radius: 4px; font-size: 16px; }"
-            "QPushButton:hover { background: #5a2a2a; border-color: #7a3a3a; }"
-            "QPushButton:pressed { background: #7a3a3a; }"
+            "QPushButton { background: #0f1318; border: 1px solid rgba(248,113,113,77); border-radius: 4px; font-size: 16px; }"
+            "QPushButton:hover { background: #161c26; border-color: #f87171; }"
+            "QPushButton:pressed { background: #1e2632; }"
         )
         rl_row.addWidget(self.btn_thumbs_down)
         rl_row.addStretch()
@@ -323,7 +323,7 @@ class EditWorkspace(QWidget):
 
         # Keyframe Analysis
         kf_lbl = QLabel("SZENEN-ANALYSE")
-        kf_lbl.setStyleSheet("color: #505050; font-size: 9px; font-weight: 600; letter-spacing: 1px;")
+        kf_lbl.setStyleSheet("color: #6b7280; font-size: 9px; font-weight: 600; letter-spacing: 1px;")
         insp.addWidget(kf_lbl)
 
         self.btn_keyframe_string = QPushButton("Keyframe-String generieren")
@@ -337,8 +337,8 @@ class EditWorkspace(QWidget):
         self.keyframe_text.setReadOnly(True)
         self.keyframe_text.setMaximumHeight(120)
         self.keyframe_text.setStyleSheet(
-            "QTextEdit { background: #0A0A0A; border: 1px solid #1E1E1E; "
-            "font-family: 'Cascadia Code'; font-size: 9px; color: #A0A0A0; }"
+            "QTextEdit { background: #0a0d12; border: 1px solid rgba(255,255,255,15); "
+            "font-family: 'Cascadia Code'; font-size: 9px; color: #9ca3af; }"
         )
         self.keyframe_text.setToolTip("Szenen-Analyse Ergebnis")
         self.keyframe_text.setPlaceholderText("Keyframe-Strings werden hier angezeigt...")
@@ -365,7 +365,7 @@ class EditWorkspace(QWidget):
         curve_hdr = QHBoxLayout()
         curve_hdr.setSpacing(4)
         curve_lbl = QLabel("MANUAL PACING")
-        curve_lbl.setStyleSheet("color: #505050; font-size: 9px; font-weight: 600; letter-spacing: 1px;")
+        curve_lbl.setStyleSheet("color: #6b7280; font-size: 9px; font-weight: 600; letter-spacing: 1px;")
         curve_hdr.addWidget(curve_lbl)
         btn_reset = QPushButton("Reset")
         btn_reset.setFixedHeight(24)
@@ -384,7 +384,7 @@ class EditWorkspace(QWidget):
         bottom_layout.addWidget(self.timeline_view, stretch=1)
 
         self.cut_info_label = QLabel("")
-        self.cut_info_label.setStyleSheet("color: #404040; font-size: 10px; padding: 1px 4px;")
+        self.cut_info_label.setStyleSheet("color: #6b7280; font-size: 10px; padding: 1px 4px;")
         bottom_layout.addWidget(self.cut_info_label)
 
         main_splitter.addWidget(bottom_widget)

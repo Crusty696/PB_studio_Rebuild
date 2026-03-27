@@ -106,14 +106,14 @@ class ConvertWorkspace(QWidget):
         log_layout = QVBoxLayout(log_panel)
 
         log_title = QLabel("CONVERT LOG")
-        log_title.setStyleSheet("color: #808080; font-weight: 700; font-size: 11px; padding: 2px 4px;")
+        log_title.setStyleSheet("color: #9ca3af; font-weight: 700; font-size: 11px; padding: 2px 4px;")
         log_layout.addWidget(log_title)
 
         self.convert_log = QTextEdit()
         self.convert_log.setReadOnly(True)
         self.convert_log.setStyleSheet(
-            "background-color: #0A0A0A; border: 1px solid #1E1E1E; "
-            "color: #C0C0C0; font-family: 'Consolas';"
+            "background-color: #0a0d12; border: 1px solid rgba(255,255,255,15); "
+            "color: #e8e6e3; font-family: 'Consolas';"
         )
         self.convert_log.setToolTip("Protokoll der Video-Konvertierungen")
         self.convert_log.append("[Convert] Bereit. Waehle Ziel-Format und klicke 'Alle Videos standardisieren'.")
