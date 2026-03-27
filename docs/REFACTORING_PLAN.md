@@ -1,7 +1,7 @@
 # Refactoring-Plan: Phase 4 Services sicher umbauen
 
 **Erstellt**: 2026-03-27
-**Status**: Geplant
+**Status**: Phase A DONE (66/66 Tests gruen), Phase B bereit
 **Ziel**: 4 aufgeschobene Refactorings sicher durchführen — testabgesichert, schrittweise, kein Risiko
 
 ---
