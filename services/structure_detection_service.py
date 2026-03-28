@@ -165,8 +165,9 @@ class StructureDetectionService:
                 transition_count=0,
             )
 
-        except Exception:
+        except Exception as e:
             log.exception("Fehler bei Struktur-Erkennung von %s", file_path)
+            log.warning("detect(): fallback result returned due to: %s", e)
             return StructureResult(segments=[], is_dj_mix=False, transition_count=0)
 
     # ── Labeling-Hilfsmethoden (mutieren labels in-place) ──────────────

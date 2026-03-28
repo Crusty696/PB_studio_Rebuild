@@ -156,8 +156,9 @@ class AudioClassifyService:
                 description=description,
             )
 
-        except Exception:
+        except Exception as e:
             log.exception("classify() fehlgeschlagen fuer %s", file_path)
+            log.warning("classify(): fallback result returned due to: %s", e)
             return _fallback_result("Analyse-Fehler")
 
     def detect_dj_mix(self, file_path: str) -> bool:

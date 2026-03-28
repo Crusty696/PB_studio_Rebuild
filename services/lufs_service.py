@@ -130,8 +130,9 @@ class LUFSService:
             log.error("FFmpeg LUFS-Analyse Timeout (%ds) fuer: %s", FFMPEG_TIMEOUT_SEC, file_path)
             return fallback
 
-        except Exception:
+        except Exception as e:
             log.exception("Unerwarteter Fehler bei LUFS-Analyse fuer: %s", file_path)
+            log.warning("analyze(): fallback result returned due to: %s", e)
             return fallback
 
     def _run_ffmpeg(self, file_path: str) -> str | None:

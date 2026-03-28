@@ -178,8 +178,9 @@ class SpectralAnalysisService:
                 spectral_centroid_mean=round(spectral_centroid_mean, 2),
             )
 
-        except Exception:
+        except Exception as e:
             log.exception("Fehler bei Spektral-Analyse von %s", file_path)
+            log.warning("analyze(): fallback result returned due to: %s", e)
             return SpectralResult(
                 bands=[SpectralBand(name=n, freq_low=lo, freq_high=hi, energy=0.0)
                        for n, lo, hi in FREQUENCY_BANDS],

@@ -206,28 +206,9 @@ class EditWorkspaceMixin:
             task_manager.finish_task(task_id, "error", "Keine Segmente")
             return
 
-        # 1. SQLite TimelineEntries aktualisieren (fuer UI-Anzeige)
-        # Bug-21 Fix: DELETE und alle INSERTs in EINER Transaktion (kein Split-Commit).
-        # Vorher: erster commit() nach DELETE persistierte sofort; wenn der zweite
-        # Block (Insert-Loop) fehlschlug, war die Timeline leer ohne Ersatz-Einträge.
-        with DBSession(engine) as session:
-            session.query(TimelineEntry).filter_by(
-                project_id=get_active_project_id(), track="video"
-            ).delete()
-
-            for seg in segments:
-                entry = TimelineEntry(
-                    project_id=get_active_project_id(),
-                    track="video",
-                    media_id=seg["video_id"],
-                    start_time=seg["start"],
-                    end_time=seg["end"],
-                    source_start=seg.get("source_start", 0.0),
-                    source_end=seg.get("source_end"),
-                    lane=0,
-                )
-                session.add(entry)
-            session.commit()  # Einziger Commit — atomar
+        # 1. SQLite TimelineEntries aktualisieren (via Service — atomar)
+        from services.timeline_service import apply_auto_edit_segments
+        apply_auto_edit_segments(segments, get_active_project_id())
 
         # 2. OTIO Timeline generieren
         self._build_otio_timeline(segments)

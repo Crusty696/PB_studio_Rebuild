@@ -233,16 +233,17 @@ class GlobalTaskManager(QObject):
         # Verbindet einen Default-Handler, der den Fehler loggt und den Task
         # als "error" markiert — auch wenn kein on_error-Callback uebergeben wurde.
         if hasattr(worker, "error"):
-            def _default_error_handler(*args, _tid=task_id, _name=name, _tm=self):
-                err_msg = str(args[-1]) if args else "Unbekannter Fehler"
-                logging.error(
-                    "[TaskEngine] Worker-Fehler '%s' (task_id=%s): %s",
-                    _name, _tid, err_msg,
-                )
-                _tm.finish_task(_tid, status="error", message=err_msg)
-            worker.error.connect(_default_error_handler)
             if on_error:
                 worker.error.connect(on_error)
+            else:
+                def _default_error_handler(*args, _tid=task_id, _name=name, _tm=self):
+                    err_msg = str(args[-1]) if args else "Unbekannter Fehler"
+                    logging.error(
+                        "[TaskEngine] Worker-Fehler '%s' (task_id=%s): %s",
+                        _name, _tid, err_msg,
+                    )
+                    _tm.finish_task(_tid, status="error", message=err_msg)
+                worker.error.connect(_default_error_handler)
 
         # Thread-Lifecycle: finished → quit → cleanup (deleteLater nur einmal!)
         worker.finished.connect(thread.quit)

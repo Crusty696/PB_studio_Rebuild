@@ -16,12 +16,46 @@ import opentimelineio as otio
 logger = logging.getLogger(__name__)
 from opentimelineio.opentime import RationalTime, TimeRange
 
-from database import APP_ROOT
+from database import APP_ROOT, engine, get_active_project_id
+from database import TimelineEntry
+from sqlalchemy.orm import Session
 
 EXPORTS_DIR = APP_ROOT / "exports"
 
 # PB Studio namespace in OTIO metadata
 PB_NS = "pb_studio"
+
+
+def apply_auto_edit_segments(segments: list[dict], project_id: int | None = None) -> int:
+    """Ersetzt alle Video-Timeline-Eintraege durch neue Auto-Edit Segmente.
+
+    Atomar: DELETE + INSERT in einer einzigen Transaktion.
+    Returns: Anzahl der eingefuegten Eintraege.
+    """
+    if project_id is None:
+        project_id = get_active_project_id()
+
+    with Session(engine) as session:
+        session.query(TimelineEntry).filter_by(
+            project_id=project_id, track="video"
+        ).delete()
+
+        for seg in segments:
+            entry = TimelineEntry(
+                project_id=project_id,
+                track="video",
+                media_id=seg["video_id"],
+                start_time=seg["start"],
+                end_time=seg["end"],
+                source_start=seg.get("source_start", 0.0),
+                source_end=seg.get("source_end"),
+                lane=0,
+            )
+            session.add(entry)
+        session.commit()
+
+    logger.info("Timeline: %d Video-Segmente geschrieben (project=%d)", len(segments), project_id)
+    return len(segments)
 
 
 def _safe_metadata_value(val: Any) -> Any:

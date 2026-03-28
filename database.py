@@ -366,7 +366,7 @@ class AIPacingMemory(Base):
     __tablename__ = "ai_pacing_memory"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    created_at = Column(String, nullable=True)
+    created_at = Column(String, nullable=True, default=lambda: __import__('datetime').datetime.utcnow().isoformat())
 
     # ── Audio-Kontext ──
     bpm = Column(Float, nullable=True)

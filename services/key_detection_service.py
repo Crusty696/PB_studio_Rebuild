@@ -159,8 +159,9 @@ class KeyDetectionService:
                 is_minor=best_minor,
             )
 
-        except Exception:
+        except Exception as e:
             log.exception("Fehler bei der Key-Erkennung fuer: %s", file_path)
+            log.warning("detect_key(): fallback result returned due to: %s", e)
             return fallback
 
     def get_compatible_keys(self, key: str) -> list[str]:

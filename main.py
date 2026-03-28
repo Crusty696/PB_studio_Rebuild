@@ -759,25 +759,20 @@ class PBWindow(QMainWindow, AudioAnalysisMixin, VideoAnalysisMixin,
                     if not getattr(_w, '_errored', False):
                         _cb(*args)
                 worker.finished.connect(_guarded_finish)
-            # Error-Signal: Fallback-Logger immer verbinden (stille Fehler verhindern).
-            # finish_task() wird nur aufgerufen wenn WEDER ein on_error-Callback uebergeben
-            # wurde NOR der error-Slot bereits manuell verbunden wurde (receiver_count > 0).
-            # Dies verhindert den Doppel-Aufruf von finish_task() wenn der Caller bereits
-            # eigene error-Handler (die finish_task aufrufen) vor _start_worker_thread
-            # verbindet.
-            _has_prior_error_cb = on_error is not None
-            def _default_error_handler(*args, _tid=existing_task_id, _name=worker_name,
-                                       _tm=tm, _has_cb=_has_prior_error_cb):
-                err_msg = str(args[-1]) if args else "Unbekannter Fehler"
-                logging.error(
-                    "[TaskEngine] Worker-Fehler '%s' (task_id=%s): %s",
-                    _name, _tid, err_msg,
-                )
-                if not _has_cb:
-                    _tm.finish_task(_tid, status="error", message=err_msg)
-            worker.error.connect(_default_error_handler)
+            # Error-Signal: Entweder custom on_error ODER den Default-Handler verbinden
+            # (nie beide, da sonst finish_task() doppelt aufgerufen wird).
             if on_error:
                 worker.error.connect(on_error)
+            else:
+                def _default_error_handler(*args, _tid=existing_task_id, _name=worker_name,
+                                           _tm=tm):
+                    err_msg = str(args[-1]) if args else "Unbekannter Fehler"
+                    logging.error(
+                        "[TaskEngine] Worker-Fehler '%s' (task_id=%s): %s",
+                        _name, _tid, err_msg,
+                    )
+                    _tm.finish_task(_tid, status="error", message=err_msg)
+                worker.error.connect(_default_error_handler)
 
             # Progress-Signal auto-verbinden wenn vorhanden
             if hasattr(worker, "progress"):
