@@ -1,5 +1,6 @@
 import logging
 import re
+import sys
 from pathlib import Path
 
 from sqlalchemy import create_engine, event, Column, Integer, String, Float, ForeignKey, Text, Boolean
@@ -10,24 +11,139 @@ logger = logging.getLogger(__name__)
 # Zentraler Projektpfad — alle Services importieren APP_ROOT statt relative Pfade zu nutzen
 APP_ROOT = Path(__file__).parent
 
+
+# ======================================================================
+# EngineProxy — transparenter Wrapper um die echte SQLAlchemy Engine.
+# Ermoeglicht atomaren Engine-Swap bei Projektwechsel, ohne dass
+# Module die ``from database import engine`` gemacht haben neu
+# importiert werden muessen.
+# ======================================================================
+
+class EngineProxy:
+    """Transparent proxy that forwards all attribute access to the real engine.
+
+    Call ``swap(new_engine)`` to atomically replace the inner engine and
+    dispose the old one.  All existing references (``Session(engine)``,
+    ``Base.metadata.create_all(engine)``) keep working because they go
+    through this proxy.
+    """
+
+    def __init__(self, real_engine):
+        object.__setattr__(self, '_engine', real_engine)
+
+    def __getattr__(self, name):
+        return getattr(object.__getattribute__(self, '_engine'), name)
+
+    def swap(self, new_engine):
+        """Atomically replace the wrapped engine; dispose the old one."""
+        old = object.__getattribute__(self, '_engine')
+        object.__setattr__(self, '_engine', new_engine)
+        try:
+            old.dispose()
+        except Exception:
+            pass
+
+    # Explicit delegates needed for SQLAlchemy internals that bypass __getattr__:
+    def connect(self, *a, **kw):
+        return object.__getattribute__(self, '_engine').connect(*a, **kw)
+
+    def begin(self, *a, **kw):
+        return object.__getattribute__(self, '_engine').begin(*a, **kw)
+
+    def dispose(self, *a, **kw):
+        return object.__getattribute__(self, '_engine').dispose(*a, **kw)
+
+    @property
+    def dialect(self):
+        return object.__getattribute__(self, '_engine').dialect
+
+    @property
+    def url(self):
+        return object.__getattribute__(self, '_engine').url
+
+    @property
+    def pool(self):
+        return object.__getattribute__(self, '_engine').pool
+
+
+def _make_engine(db_path: Path):
+    """Create a configured SQLAlchemy engine with FK/WAL/sync pragmas.
+
+    The pragma setup is done via an event listener attached to each new
+    engine instance (not a global decorator).
+    """
+    eng = create_engine(
+        f"sqlite:///{db_path}",
+        echo=False,
+        connect_args={"check_same_thread": False, "timeout": 30},
+    )
+
+    @event.listens_for(eng, "connect")
+    def _set_sqlite_pragma(dbapi_connection, connection_record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA synchronous=NORMAL")  # WAL-optimiert: fsync nur bei Checkpoint
+        cursor.close()
+
+    return eng
+
+
 # Datenbank-Engine: SQLite-Datei im Projektordner
 # check_same_thread=False ist ZWINGEND noetig, weil QThread-Workers
 # auf dieselbe Engine zugreifen (SQLite verbietet sonst Cross-Thread-Zugriff).
-engine = create_engine(
-    f"sqlite:///{APP_ROOT / 'pb_studio.db'}",
-    echo=False,
-    connect_args={"check_same_thread": False, "timeout": 30},
-)
+engine = EngineProxy(_make_engine(APP_ROOT / 'pb_studio.db'))
 
 
-# FK-Enforcement: SQLite Foreign Keys aktivieren (standardmäßig OFF!)
-@event.listens_for(engine, "connect")
-def _set_sqlite_pragma(dbapi_connection, connection_record):
-    cursor = dbapi_connection.cursor()
-    cursor.execute("PRAGMA foreign_keys=ON")
-    cursor.execute("PRAGMA journal_mode=WAL")
-    cursor.execute("PRAGMA synchronous=NORMAL")  # WAL-optimiert: fsync nur bei Checkpoint
-    cursor.close()
+def get_raw_engine():
+    """Return the ACTUAL SQLAlchemy engine (not the proxy).
+
+    Needed for ``sqlalchemy.inspect()`` which requires a real engine instance.
+    """
+    return object.__getattribute__(engine, '_engine')
+
+
+def _patch_service_paths(project_path: Path):
+    """Patch module-level path constants in service modules to point at the
+    new project folder.  Uses ``sys.modules`` so already-imported modules
+    get updated in-place.
+    """
+    patches = {
+        "services.video_service": {"PROXY_DIR": project_path / "storage" / "proxies"},
+        "services.ai_audio_service": {"STEMS_DIR": project_path / "storage" / "stems"},
+        "services.export_service": {"EXPORT_DIR": project_path / "exports"},
+        "services.convert_service": {"PROXY_DIR": project_path / "storage" / "proxies"},
+        "services.video_analysis_service": {"KEYFRAME_DIR": project_path / "storage" / "keyframes"},
+        "services.vector_db_service": {
+            "DB_DIR": project_path / "data" / "vector",
+            "DB_FILE": project_path / "data" / "vector" / "embeddings.db",
+        },
+    }
+    for mod_name, attrs in patches.items():
+        mod = sys.modules.get(mod_name)
+        if mod is not None:
+            for attr, value in attrs.items():
+                setattr(mod, attr, value)
+                logger.debug("Patched %s.%s -> %s", mod_name, attr, value)
+
+
+def set_project(project_path: Path):
+    """Switch the active project to *project_path*.
+
+    - Creates a new engine via ``_make_engine``
+    - Atomically swaps it into the global ``engine`` proxy
+    - Updates ``APP_ROOT``
+    - Patches service module-level path constants
+    """
+    global APP_ROOT
+    project_path = Path(project_path)
+    db_file = project_path / "pb_studio.db"
+
+    new_engine = _make_engine(db_file)
+    engine.swap(new_engine)
+    APP_ROOT = project_path
+    _patch_service_paths(project_path)
+    logger.info("Projekt gewechselt: %s", project_path)
 
 
 class Base(DeclarativeBase):
@@ -392,7 +508,12 @@ def _migrate_fk_cascade():
     log = logging.getLogger(__name__)
 
     # Backup vor destruktiver Migration — mit Verifikation
-    db_path = APP_ROOT / "pb_studio.db"
+    # Dynamischer Pfad: nutzt die URL der aktuellen Engine
+    try:
+        raw = get_raw_engine()
+        db_path = Path(str(raw.url).replace("sqlite:///", ""))
+    except Exception:
+        db_path = APP_ROOT / "pb_studio.db"
     backup_path = None
     if db_path.exists():
         backup_path = db_path.with_suffix(".db.backup_before_fk_migration")
@@ -450,14 +571,15 @@ def init_db():
     Base.metadata.create_all(engine)
 
     from sqlalchemy import inspect, text
-    insp = inspect(engine)
+    _raw = get_raw_engine()
+    insp = inspect(_raw)
 
     # Migration: ON DELETE CASCADE nachrüsten (SQLite braucht Table-Rebuild)
     if _needs_fk_cascade_migration(insp):
         _migrate_fk_cascade()
 
     # Phase 3: Migrate existing beatgrids table (add new columns if missing)
-    insp = inspect(engine)  # refresh nach möglicher Migration
+    insp = inspect(get_raw_engine())  # refresh nach möglicher Migration
     if "beatgrids" in insp.get_table_names():
         columns = {c["name"] for c in insp.get_columns("beatgrids")}
         with engine.begin() as conn:
@@ -467,7 +589,7 @@ def init_db():
                 conn.execute(text("ALTER TABLE beatgrids ADD COLUMN energy_per_beat TEXT"))
 
     # Migration: source_start / source_end in timeline_entries nachrüsten
-    insp = inspect(engine)
+    insp = inspect(get_raw_engine())
     if "timeline_entries" in insp.get_table_names():
         te_columns = {c["name"] for c in insp.get_columns("timeline_entries")}
         with engine.begin() as conn:
@@ -480,7 +602,7 @@ def init_db():
     # Diese Spalten existieren im ORM-Modell aber fehlten in den ALTER TABLE Migrationen.
     # Ohne diesen Block crasht _apply_effects() / _on_effects_clip_changed() auf bestehenden DBs
     # mit: OperationalError: no such column: timeline_entries.crossfade_duration
-    insp = inspect(engine)
+    insp = inspect(get_raw_engine())
     if "timeline_entries" in insp.get_table_names():
         te_columns = {c["name"] for c in insp.get_columns("timeline_entries")}
         with engine.begin() as conn:
@@ -492,7 +614,7 @@ def init_db():
                 conn.execute(text("ALTER TABLE timeline_entries ADD COLUMN contrast FLOAT DEFAULT 1.0"))
 
     # Migration: ai_pacing_memory Tabelle nachrüsten (neue Spalten falls Tabelle alt)
-    insp = inspect(engine)
+    insp = inspect(get_raw_engine())
     if "ai_pacing_memory" in insp.get_table_names():
         ai_cols = {c["name"] for c in insp.get_columns("ai_pacing_memory")}
         with engine.begin() as conn:
@@ -515,7 +637,7 @@ def init_db():
                     ))
 
     # K2 Fix: stem_*_path Spalten in audio_tracks nachrüsten
-    insp = inspect(engine)
+    insp = inspect(get_raw_engine())
     if "audio_tracks" in insp.get_table_names():
         at_columns = {c["name"] for c in insp.get_columns("audio_tracks")}
         with engine.begin() as conn:
@@ -528,7 +650,7 @@ def init_db():
                     conn.execute(text(f"ALTER TABLE audio_tracks ADD COLUMN {stem_col} TEXT"))
 
     # Phase 4: Erweiterte Audio-Analyse Spalten nachrüsten
-    insp = inspect(engine)
+    insp = inspect(get_raw_engine())
     if "audio_tracks" in insp.get_table_names():
         at_columns = {c["name"] for c in insp.get_columns("audio_tracks")}
         import re as _re4
@@ -558,7 +680,7 @@ def init_db():
                     conn.execute(text(stmt))
 
     # Phase 4: Indizes auf neue Tabellen
-    insp = inspect(engine)
+    insp = inspect(get_raw_engine())
     with engine.begin() as conn:
         if "structure_segments" in insp.get_table_names():
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_structure_segments_audio_track_id ON structure_segments(audio_track_id)"))

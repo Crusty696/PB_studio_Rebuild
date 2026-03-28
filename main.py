@@ -109,6 +109,8 @@ from ui.widgets.video_preview import VideoPreviewWidget
 from ui.widgets.task_manager_dock import TaskManagerDock
 from ui.widgets.nav_bar import WorkspaceNavBar
 from ui.dialogs.about import AboutDialog
+from ui.dialogs.project_dialog import NewProjectDialog, OpenProjectDialog
+from services.project_manager import ProjectManager
 from ui.widgets.resource_monitor import ResourceMonitorWidget
 from ui.mixins import (
     AudioAnalysisMixin, VideoAnalysisMixin, EditWorkspaceMixin,
@@ -132,6 +134,8 @@ class PBWindow(QMainWindow, AudioAnalysisMixin, VideoAnalysisMixin,
         self._active_workers: list[QObject] = []
         self._otio_timeline_service: TimelineService | None = None
         self._refresh_pending = False  # debounce flag for _refresh_media_table
+        self._project_manager = ProjectManager(self)
+        self._project_manager.project_changed.connect(self._on_project_changed)
 
         # Zentrales Widget
         central_widget = QWidget()
@@ -150,6 +154,40 @@ class PBWindow(QMainWindow, AudioAnalysisMixin, VideoAnalysisMixin,
         app_title = QLabel(f"PB_studio v{APP_VERSION}")
         app_title.setStyleSheet("color: #e8e6e3; font-weight: 700; font-size: 13px; background: transparent;")
         top_layout.addWidget(app_title)
+
+        # ── Project buttons ──
+        proj_btn_style = (
+            "QPushButton { color: #9ca3af; font-size: 10px; font-weight: 600; "
+            "border: 1px solid rgba(255,255,255,12); border-radius: 3px; padding: 2px 10px; "
+            "background: #161c26; min-height: 22px; }"
+            "QPushButton:hover { color: #e8e6e3; border-color: #d4a44a; background: #1e2632; }"
+        )
+        btn_new_project = QPushButton("+ Neu")
+        btn_new_project.setFixedHeight(24)
+        btn_new_project.setStyleSheet(proj_btn_style)
+        btn_new_project.setToolTip("Neues Projekt erstellen")
+        btn_new_project.clicked.connect(self._new_project)
+        top_layout.addWidget(btn_new_project)
+
+        btn_open_project = QPushButton("Oeffnen")
+        btn_open_project.setFixedHeight(24)
+        btn_open_project.setStyleSheet(proj_btn_style)
+        btn_open_project.setToolTip("Bestehendes Projekt oeffnen")
+        btn_open_project.clicked.connect(self._open_project)
+        top_layout.addWidget(btn_open_project)
+
+        btn_save_as = QPushButton("Speichern unter")
+        btn_save_as.setFixedHeight(24)
+        btn_save_as.setStyleSheet(proj_btn_style)
+        btn_save_as.setToolTip("Projekt unter neuem Namen speichern")
+        btn_save_as.clicked.connect(self._save_project_as)
+        top_layout.addWidget(btn_save_as)
+
+        self._project_name_label = QLabel("")
+        self._project_name_label.setStyleSheet(
+            "color: #d4a44a; font-size: 11px; font-weight: 600; background: transparent; padding: 0 8px;"
+        )
+        top_layout.addWidget(self._project_name_label)
 
         top_layout.addStretch()
 
@@ -346,6 +384,80 @@ class PBWindow(QMainWindow, AudioAnalysisMixin, VideoAnalysisMixin,
 
         super().closeEvent(event)
 
+
+    # ==================================================================
+    # Project management
+    # ==================================================================
+
+    def _new_project(self):
+        """Show NewProjectDialog and create a new project."""
+        dlg = NewProjectDialog(self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        vals = dlg.get_values()
+        try:
+            self._project_manager.create_project(
+                path=vals["path"],
+                name=vals["name"],
+                resolution=vals["resolution"],
+                fps=vals["fps"],
+            )
+            self._console_append(f"[Projekt] Neues Projekt erstellt: {vals['name']}")
+        except Exception as exc:
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.critical(self, "Fehler", str(exc))
+            self._console_append(f"[Projekt-Fehler] {exc}")
+
+    def _open_project(self):
+        """Show OpenProjectDialog and open an existing project."""
+        dlg = OpenProjectDialog(self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        path = dlg.get_path()
+        try:
+            meta = self._project_manager.open_project(path)
+            self._console_append(f"[Projekt] Geoeffnet: {meta.get('name', path.name)}")
+        except Exception as exc:
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.critical(self, "Fehler", str(exc))
+            self._console_append(f"[Projekt-Fehler] {exc}")
+
+    def _save_project_as(self):
+        """Save the current project to a new location."""
+        from PySide6.QtWidgets import QInputDialog
+        folder = QFileDialog.getExistingDirectory(
+            self, "Zielordner waehlen",
+        )
+        if not folder:
+            return
+        name, ok = QInputDialog.getText(
+            self, "Projektname", "Name fuer das neue Projekt:",
+        )
+        if not ok or not name.strip():
+            return
+        target = Path(folder) / name.strip()
+        try:
+            self._project_manager.save_project_as(target)
+            self._console_append(f"[Projekt] Gespeichert unter: {target}")
+        except Exception as exc:
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.critical(self, "Fehler", str(exc))
+            self._console_append(f"[Projekt-Fehler] {exc}")
+
+    def _on_project_changed(self, path):
+        """Refresh all UI after a project switch."""
+        path = Path(path)
+        project_name = path.name
+        self._project_name_label.setText(project_name)
+        self.setWindowTitle(f"PB_studio v{APP_VERSION} — {project_name}")
+        self._refresh_media_table()
+        self._refresh_director_combos()
+        # Reload timeline from new DB
+        try:
+            self.timeline_view.load_from_db()
+        except Exception:
+            pass
+        self.status_bar.showMessage(f"Projekt: {project_name}  |  {path}")
 
     def _show_about(self):
         dialog = AboutDialog(version=APP_VERSION, parent=self)
