@@ -982,6 +982,13 @@ def main():
     # NEU: PB Studio v0.5 Gold-Accent Dark Theme
     app.setStyleSheet(get_stylesheet())
 
+    # Startup Dependency Check (laeuft VOR PBWindow, parallel, <2s)
+    from services.startup_checks import check_system
+    from ui.dialogs.startup_check_dialog import maybe_show_startup_dialog
+    _sys_status = check_system()
+    app.system_status = _sys_status
+    maybe_show_startup_dialog(_sys_status)
+
     try:
         window = PBWindow()
     except Exception as exc:
@@ -993,6 +1000,8 @@ def main():
     window.console_text.append("[System] SQLite Datenbank (pb_studio.db) erfolgreich initialisiert.")
     window.console_text.append("[System] PB Studio Gold-Accent Theme aktiv — v0.5 Design.")
     window.console_text.append(f"[System] Version {APP_VERSION} — Workspace UI + KI-Pacing + Beat-Snap.")
+    window.console_text.append(f"[System] {_sys_status.status_bar_text()}")
+    window.status_bar.showMessage(f"PB_studio v{APP_VERSION}  |  {_sys_status.status_bar_text()}")
     window.showMaximized()
     # Timeline-Daten NACH dem Fenster laden (non-blocking Startup)
     QTimer.singleShot(0, window.timeline_view.load_from_db)
