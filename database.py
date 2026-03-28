@@ -89,6 +89,7 @@ def _make_engine(db_path: Path):
         cursor.execute("PRAGMA foreign_keys=ON")
         cursor.execute("PRAGMA journal_mode=WAL")
         cursor.execute("PRAGMA synchronous=NORMAL")  # WAL-optimiert: fsync nur bei Checkpoint
+        cursor.execute("PRAGMA busy_timeout=60000")   # 60s warten bei locked DB (Multi-Worker)
         cursor.close()
 
     return eng

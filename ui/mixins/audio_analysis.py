@@ -74,7 +74,7 @@ class AudioAnalysisMixin:
             self._console_append(f"[Key] Erkannt: {res.get('key','?')} ({res.get('camelot','?')}) Conf={res.get('confidence',0):.0%}"),
             self._refresh_media_table_debounced(),
         ))
-        worker.error.connect(lambda err: self._console_append(f"[Key] Fehler: {err}"))
+        worker.error.connect(lambda tid, err: self._console_append(f"[Key] Fehler: {err}"))
         self._start_worker_thread(worker)
         self.console_text.append(f"[Key] Starte Key-Erkennung für '{title}'...")
 
@@ -93,7 +93,7 @@ class AudioAnalysisMixin:
             self._console_append(f"[LUFS] Integrated: {res.get('integrated',0):.1f} dB, LRA: {res.get('loudness_range',0):.1f} LU, TP: {res.get('true_peak',0):.1f} dBTP"),
             self._refresh_media_table_debounced(),
         ))
-        worker.error.connect(lambda err: self._console_append(f"[LUFS] Fehler: {err}"))
+        worker.error.connect(lambda tid, err: self._console_append(f"[LUFS] Fehler: {err}"))
         self._start_worker_thread(worker)
         self.console_text.append(f"[LUFS] Starte LUFS-Analyse für '{title}'...")
 
@@ -112,7 +112,7 @@ class AudioAnalysisMixin:
             self._console_append(f"[Struktur] {len(res.get('segments',[]))} Segmente erkannt"),
             self._refresh_media_table_debounced(),
         ))
-        worker.error.connect(lambda err: self._console_append(f"[Struktur] Fehler: {err}"))
+        worker.error.connect(lambda tid, err: self._console_append(f"[Struktur] Fehler: {err}"))
         self._start_worker_thread(worker)
         self.console_text.append(f"[Struktur] Starte Struktur-Erkennung für '{title}'...")
 
@@ -416,9 +416,11 @@ class AudioAnalysisMixin:
 
             # Bei Erfolg ODER Fehler: naechsten Schritt starten
             worker.finished.connect(lambda *args: self._on_seq_step_done(step_name, True))
-            worker.error.connect(lambda *args: self._on_seq_step_done(step_name, False))
 
-            self._start_worker_thread(worker)
+            self._start_worker_thread(
+                worker,
+                on_error=lambda *args: self._on_seq_step_done(step_name, False),
+            )
         except Exception as e:
             logger.error("[Komplett] Fehler beim Starten von %s: %s", step_name, e)
             self.console_text.append(f"[Komplett] {step_name} konnte nicht gestartet werden: {e}")
