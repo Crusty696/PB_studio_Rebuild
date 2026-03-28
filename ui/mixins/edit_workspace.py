@@ -549,20 +549,34 @@ class EditWorkspaceMixin:
         )
 
     def _add_selected_to_timeline(self):
-        row = self.media_table.currentRow()
-        if row < 0:
-            self.console_text.append("[Warnung] Keine Zeile ausgewaehlt.")
-            return
-        type_item = self.media_table.item(row, 1)
-        id_item = self.media_table.item(row, 0)
-        title_item = self.media_table.item(row, 2)
-        if not type_item or not id_item or not title_item:
-            self.console_text.append("[Warnung] Tabellen-Daten unvollstaendig.")
-            return
+        # Primaer: Audio-Pool pruefen
+        media_type = None
+        media_id = None
+        title = None
 
-        media_type = type_item.text()
-        media_id = int(id_item.text())
-        title = title_item.text()
+        audio_row = self.audio_pool_table.currentRow()
+        if audio_row >= 0:
+            id_item = self.audio_pool_table.item(audio_row, 1)
+            title_item = self.audio_pool_table.item(audio_row, 2)
+            if id_item and id_item.text().isdigit():
+                media_type = "Audio"
+                media_id = int(id_item.text())
+                title = title_item.text() if title_item else f"Audio #{media_id}"
+
+        # Fallback: Video-Pool pruefen
+        if media_id is None:
+            video_row = self.video_pool_table.currentRow()
+            if video_row >= 0:
+                id_item = self.video_pool_table.item(video_row, 1)
+                title_item = self.video_pool_table.item(video_row, 2)
+                if id_item and id_item.text().isdigit():
+                    media_type = "Video"
+                    media_id = int(id_item.text())
+                    title = title_item.text() if title_item else f"Video #{media_id}"
+
+        if media_id is None:
+            self.console_text.append("[Warnung] Keine Datei in Audio- oder Video-Pool ausgewaehlt.")
+            return
 
         track_type = "audio" if media_type == "Audio" else "video"
 

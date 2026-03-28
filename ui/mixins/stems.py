@@ -73,21 +73,10 @@ class StemsMixin:
                 pass
 
     def _start_stem_separation(self):
-        row = self.media_table.currentRow()
-        if row < 0:
-            self.console_text.append("[Warnung] Keine Zeile ausgewaehlt.")
+        info = self._get_selected_audio_track()
+        if not info:
             return
-        type_item = self.media_table.item(row, 1)
-        id_item = self.media_table.item(row, 0)
-        title_item = self.media_table.item(row, 2)
-        if not type_item or not id_item or not title_item:
-            self.console_text.append("[Warnung] Tabellen-Daten unvollstaendig.")
-            return
-        if type_item.text() != "Audio":
-            self.console_text.append("[Warnung] Nur Audio-Dateien koennen separiert werden.")
-            return
-        track_id = int(id_item.text())
-        title = title_item.text()
+        track_id, _, title, _ = info
 
         task = task_manager.create_task(f"Stems: {title}", "KI Stem Separation (Demucs)")
 
@@ -134,19 +123,10 @@ class StemsMixin:
         task_manager.finish_task(task_id, "error", error_msg)
 
     def _start_auto_ducking(self):
-        row = self.media_table.currentRow()
-        if row < 0:
-            self.console_text.append("[Warnung] Keine Zeile ausgewaehlt.")
+        info = self._get_selected_audio_track()
+        if not info:
             return
-        type_item = self.media_table.item(row, 1)
-        id_item = self.media_table.item(row, 0)
-        if not type_item or not id_item:
-            self.console_text.append("[Warnung] Tabellen-Daten unvollstaendig.")
-            return
-        if type_item.text() != "Audio":
-            self.console_text.append("[Warnung] Waehle einen Audio-Track mit Stems.")
-            return
-        track_id = int(id_item.text())
+        track_id = info[0]
 
         with DBSession(engine) as session:
             track = session.get(AudioTrack, track_id)
