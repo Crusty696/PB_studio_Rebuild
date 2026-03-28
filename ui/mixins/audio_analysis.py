@@ -467,4 +467,5 @@ class AudioAnalysisMixin:
         return StructureDetectionWorker(track_id, file_path, bpm=bpm)
 
     def _create_stem_worker(self, track_id: int):
+        from workers import StemSeparationWorker
         return StemSeparationWorker(track_id)
