@@ -8,17 +8,11 @@ from PySide6.QtGui import QImage, QPixmap
 from database import engine, VideoClip, TimelineEntry, get_active_project_id
 from sqlalchemy.orm import Session as DBSession
 
-from services.task_manager import GlobalTaskManager
+from services.task_manager import TaskManagerProxy
 
 from workers import BatchConvertWorker, FrameExtractWorker
 
-
-# task_manager Proxy — gleiche Logik wie in main.py
-class _TaskManagerProxy:
-    def __getattr__(self, name):
-        return getattr(GlobalTaskManager.instance(), name)
-
-task_manager = _TaskManagerProxy()
+task_manager = TaskManagerProxy()
 
 
 class ConvertMixin:

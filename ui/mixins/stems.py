@@ -6,19 +6,13 @@ from pathlib import Path
 from database import engine, AudioTrack
 from sqlalchemy.orm import Session as DBSession
 
-from services.task_manager import GlobalTaskManager
+from services.task_manager import TaskManagerProxy
 
 from workers import StemSeparationWorker, AutoDuckingWorker
 
 logger = logging.getLogger(__name__)
 
-
-# task_manager Proxy — gleiche Logik wie in main.py
-class _TaskManagerProxy:
-    def __getattr__(self, name):
-        return getattr(GlobalTaskManager.instance(), name)
-
-task_manager = _TaskManagerProxy()
+task_manager = TaskManagerProxy()
 
 
 class StemsMixin:

@@ -11,7 +11,7 @@ from PySide6.QtCore import Qt, QTimer
 from database import engine, AudioTrack, VideoClip, TimelineEntry, get_active_project_id
 from sqlalchemy.orm import Session as DBSession
 
-from services.task_manager import GlobalTaskManager
+from services.task_manager import GlobalTaskManager, TaskManagerProxy
 from services.pacing_service import (
     PacingSettings, calculate_cut_points, CutPoint, auto_edit_to_beats,
     AdvancedPacingSettings, generate_keyframe_strings_for_project,
@@ -19,13 +19,7 @@ from services.pacing_service import (
 from services.timeline_service import TimelineService, PB_NS
 from workers import AutoEditWorker
 
-
-# task_manager Proxy — gleiche Logik wie in main.py
-class _TaskManagerProxy:
-    def __getattr__(self, name):
-        return getattr(GlobalTaskManager.instance(), name)
-
-task_manager = _TaskManagerProxy()
+task_manager = TaskManagerProxy()
 
 
 class EditWorkspaceMixin:

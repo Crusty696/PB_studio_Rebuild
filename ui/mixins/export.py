@@ -1,17 +1,11 @@
 """Export Mixin fuer PBWindow."""
 
 from database import get_active_project_id
-from services.task_manager import GlobalTaskManager
+from services.task_manager import TaskManagerProxy
 from services.export_service import get_timeline_summary
 from workers import ExportWorker
 
-
-# task_manager Proxy — gleiche Logik wie in main.py
-class _TaskManagerProxy:
-    def __getattr__(self, name):
-        return getattr(GlobalTaskManager.instance(), name)
-
-task_manager = _TaskManagerProxy()
+task_manager = TaskManagerProxy()
 
 
 class ExportMixin:

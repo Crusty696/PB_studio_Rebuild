@@ -67,15 +67,9 @@ from ui.waveform_item import WaveformGraphicsItem
 # Task-Engine (extracted to services/task_manager.py)
 # ======================================================================
 import services.task_manager as _task_manager_module
-from services.task_manager import TaskInfo, GlobalTaskManager
+from services.task_manager import TaskInfo, GlobalTaskManager, TaskManagerProxy
 
-# Modul-Level task_manager — Proxy-Objekt das immer auf den Singleton delegiert.
-# Verhindert AttributeError wenn vor main() zugegriffen wird.
-class _TaskManagerProxy:
-    """Proxy: Leitet alle Attribut-Zugriffe an GlobalTaskManager.instance() weiter."""
-    def __getattr__(self, name):
-        return getattr(GlobalTaskManager.instance(), name)
-task_manager = _TaskManagerProxy()
+task_manager = TaskManagerProxy()
 
 
 # ======================================================================

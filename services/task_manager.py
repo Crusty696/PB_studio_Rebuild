@@ -30,6 +30,19 @@ class TaskInfo:
         return round(time.time() - self.start_time, 1)
 
 
+class TaskManagerProxy:
+    """Proxy fuer GlobalTaskManager — erlaubt Modul-Level Zugriff ohne Import-Zyklen.
+
+    Verwendung in Mixins/Services:
+        from services.task_manager import TaskManagerProxy
+        task_manager = TaskManagerProxy()
+        task_manager.create_task(...)
+    """
+
+    def __getattr__(self, name):
+        return getattr(GlobalTaskManager.instance(), name)
+
+
 class GlobalTaskManager(QObject):
     """Zentrale Task-Engine: Erstellt, verwaltet und besitzt ALLE
     Hintergrund-Threads und Worker. Singleton.
