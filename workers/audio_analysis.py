@@ -11,7 +11,7 @@ from abc import abstractmethod
 
 from PySide6.QtCore import QObject, Signal
 
-from .base import CancellableMixin
+from .base import CancellableMixin, format_user_error
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +57,7 @@ class BaseAnalysisWorker(QObject, CancellableMixin):
                 type(self).__name__, self.audio_track_id, e, traceback.format_exc(),
             )
             self._errored = True
-            self.error.emit(self.audio_track_id, str(e))
+            self.error.emit(self.audio_track_id, format_user_error(e))
         finally:
             if not _ok and not self._errored:
                 self.finished.emit(self.audio_track_id, {})

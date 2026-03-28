@@ -7,7 +7,7 @@ import traceback
 from PySide6.QtCore import QObject, Signal
 
 from services.audio_service import AudioAnalyzer
-from .base import CancellableMixin
+from .base import CancellableMixin, format_user_error
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +55,7 @@ class AnalysisWorker(QObject, CancellableMixin):
             logging.error("AnalysisWorker[%s] crashed: %s\n%s",
                           self.track_id, e, traceback.format_exc())
             self._errored = True
-            self.error.emit(self.track_id, str(e))
+            self.error.emit(self.track_id, format_user_error(e))
         finally:
             if not _ok and not self._errored:
                 self.finished.emit(self.track_id, {})
@@ -86,7 +86,7 @@ class WaveformAnalysisWorker(QObject, CancellableMixin):
             logging.error("WaveformAnalysisWorker[%s] crashed: %s\n%s",
                           self.track_id, e, traceback.format_exc())
             self._errored = True
-            self.error.emit(self.track_id, str(e))
+            self.error.emit(self.track_id, format_user_error(e))
         finally:
             if not _ok and not self._errored:
                 self.finished.emit(self.track_id, {})

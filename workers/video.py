@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session as DBSession
 
 from database import engine, VideoClip
 from services.video_service import VideoAnalyzer
-from .base import CancellableMixin
+from .base import CancellableMixin, format_user_error
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +45,7 @@ class VideoAnalysisWorker(QObject, CancellableMixin):
             logging.error("VideoAnalysisWorker[%s] crashed: %s\n%s",
                           self.clip_id, e, traceback.format_exc())
             self._errored = True
-            self.error.emit(self.clip_id, str(e))
+            self.error.emit(self.clip_id, format_user_error(e))
         finally:
             # VRAM-Schutz: GPU-Speicher freigeben
             try:
@@ -114,7 +114,7 @@ class VideoBatchAnalysisWorker(QObject, CancellableMixin):
         except Exception as e:
             logger.error("VideoBatchAnalysisWorker crashed: %s\n%s", e, traceback.format_exc())
             self._errored = True
-            self.error.emit(str(e))
+            self.error.emit(format_user_error(e))
         finally:
             if not _ok and not self._errored:
                 self.finished.emit(done, errors)
@@ -302,7 +302,7 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
             logging.error("VideoAnalysisPipelineWorker crashed (outer): %s\n%s",
                           e, traceback.format_exc())
             self._errored = True
-            self.error.emit(last_clip_id, str(e))
+            self.error.emit(last_clip_id, format_user_error(e))
         finally:
             # RAFT + SigLIP Cleanup auch bei unerwarteten Exceptions
             if raft_model_device is not None:
@@ -374,7 +374,7 @@ class FrameExtractWorker(QObject, CancellableMixin):
         except Exception as e:
             logging.error("FrameExtractWorker crashed: %s\n%s", e, traceback.format_exc())
             self._errored = True
-            self.error.emit(str(e))
+            self.error.emit(format_user_error(e))
         finally:
             # Always emit finished so TaskEngine can quit the thread cleanly.
             self.finished.emit()

@@ -75,7 +75,7 @@ def _make_engine(db_path: Path):
     eng = create_engine(
         f"sqlite:///{db_path}",
         echo=False,
-        connect_args={"check_same_thread": False, "timeout": 30},
+        connect_args={"check_same_thread": False, "timeout": 60},
         # Pool-Groesse fuer Multi-Worker Batch-Operationen (15+ Clips gleichzeitig)
         pool_size=10,
         max_overflow=20,

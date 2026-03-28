@@ -6,7 +6,7 @@ import traceback
 from PySide6.QtCore import QObject, Signal
 
 from services.pacing_service import AdvancedPacingSettings, auto_edit_phase3
-from .base import CancellableMixin
+from .base import CancellableMixin, format_user_error
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +49,7 @@ class AutoEditWorker(QObject, CancellableMixin):
         except Exception as e:
             logging.error("AutoEditWorker crashed: %s\n%s", e, traceback.format_exc())
             self._errored = True
-            self.error.emit(str(e))
+            self.error.emit(format_user_error(e))
         finally:
             if not _ok and not self._errored:
                 self.finished.emit([], [])
@@ -75,7 +75,7 @@ class SemanticSearchWorker(QObject, CancellableMixin):
         except Exception as e:
             logging.error("SemanticSearchWorker crashed: %s\n%s", e, traceback.format_exc())
             self._errored = True
-            self.error.emit(str(e))
+            self.error.emit(format_user_error(e))
         finally:
             if not _ok and not self._errored:
                 self.finished.emit([])

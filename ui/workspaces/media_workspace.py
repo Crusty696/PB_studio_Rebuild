@@ -531,6 +531,17 @@ class MediaWorkspace(QWidget):
             "Musik bei Sprache automatisch absenken"
         )
         gl.addWidget(self.btn_auto_duck)
+
+        # Komplett-Analyse: Alle Schritte sequentiell
+        self.btn_analyze_all = QPushButton("KOMPLETT-ANALYSE")
+        self.btn_analyze_all.setObjectName("btn_accent")
+        self.btn_analyze_all.setFixedHeight(35)
+        self.btn_analyze_all.setMaximumWidth(300)
+        self.btn_analyze_all.setToolTip(
+            "Startet alle Analysen nacheinander:\n"
+            "BPM/Beats -> Wellenform -> Key -> LUFS -> Struktur -> Stems"
+        )
+        gl.addWidget(self.btn_analyze_all)
         gl.addStretch()
         ll.addWidget(grp)
 

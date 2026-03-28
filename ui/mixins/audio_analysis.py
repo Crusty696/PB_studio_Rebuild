@@ -70,8 +70,8 @@ class AudioAnalysisMixin:
         worker = KeyDetectionWorker(track_id, file_path)
         worker.task_id = task.task_id
         worker.progress.connect(lambda pct, msg: self._console_append(f"[Key] {msg}"))
-        worker.finished.connect(lambda result: (
-            self._console_append(f"[Key] Erkannt: {result.key} ({result.camelot}) Conf={result.confidence:.0%}"),
+        worker.finished.connect(lambda tid, res: (
+            self._console_append(f"[Key] Erkannt: {res.get('key','?')} ({res.get('camelot','?')}) Conf={res.get('confidence',0):.0%}"),
             self._refresh_media_table_debounced(),
         ))
         worker.error.connect(lambda err: self._console_append(f"[Key] Fehler: {err}"))
@@ -89,8 +89,8 @@ class AudioAnalysisMixin:
         worker = LUFSAnalysisWorker(track_id, file_path)
         worker.task_id = task.task_id
         worker.progress.connect(lambda pct, msg: self._console_append(f"[LUFS] {msg}"))
-        worker.finished.connect(lambda result: (
-            self._console_append(f"[LUFS] Integrated: {result.integrated:.1f} dB, LRA: {result.loudness_range:.1f} LU, TP: {result.true_peak:.1f} dBTP"),
+        worker.finished.connect(lambda tid, res: (
+            self._console_append(f"[LUFS] Integrated: {res.get('integrated',0):.1f} dB, LRA: {res.get('loudness_range',0):.1f} LU, TP: {res.get('true_peak',0):.1f} dBTP"),
             self._refresh_media_table_debounced(),
         ))
         worker.error.connect(lambda err: self._console_append(f"[LUFS] Fehler: {err}"))
@@ -108,8 +108,8 @@ class AudioAnalysisMixin:
         worker = StructureDetectionWorker(track_id, file_path, bpm=bpm)
         worker.task_id = task.task_id
         worker.progress.connect(lambda pct, msg: self._console_append(f"[Struktur] {msg}"))
-        worker.finished.connect(lambda result: (
-            self._console_append(f"[Struktur] {len(result.segments)} Segmente erkannt"),
+        worker.finished.connect(lambda tid, res: (
+            self._console_append(f"[Struktur] {len(res.get('segments',[]))} Segmente erkannt"),
             self._refresh_media_table_debounced(),
         ))
         worker.error.connect(lambda err: self._console_append(f"[Struktur] Fehler: {err}"))
@@ -322,3 +322,147 @@ class AudioAnalysisMixin:
         self.status_bar.showMessage("Wellenform-Fehler | System bereit")
         if task_id:
             task_manager.finish_task(task_id, "error", error_msg)
+
+    # ══════════════════════════════════════════════════════════════
+    # Komplett-Analyse: Alle Schritte sequentiell (crash-sicher)
+    # ══════════════════════════════════════════════════════════════
+
+    def _analyze_all_sequential(self):
+        """Startet alle Audio-Analysen nacheinander fuer den ausgewaehlten Track.
+
+        Reihenfolge: BPM/Beats -> Wellenform -> Key -> LUFS -> Struktur -> Stems
+        Jeder Schritt wartet bis der vorherige fertig ist (via Queue).
+        Bei Fehler: naechster Schritt wird trotzdem gestartet.
+        """
+        info = self._get_selected_audio_track()
+        if not info:
+            return
+        track_id, file_path, title, bpm = info
+
+        # Queue der Analyse-Schritte (Name, Worker-Factory, Signals-Setup)
+        from workers import AnalysisWorker, WaveformAnalysisWorker, StemSeparationWorker
+        from workers.audio_analysis import KeyDetectionWorker, LUFSAnalysisWorker, StructureDetectionWorker
+
+        steps = [
+            ("BPM/Beats", lambda: self._create_analysis_worker(track_id, title)),
+            ("Wellenform", lambda: self._create_waveform_worker(track_id)),
+            ("Key", lambda: self._create_key_worker(track_id, file_path)),
+            ("LUFS", lambda: self._create_lufs_worker(track_id, file_path)),
+            ("Struktur", lambda: self._create_structure_worker(track_id, file_path, bpm)),
+            ("Stems", lambda: self._create_stem_worker(track_id)),
+        ]
+
+        self._seq_steps = steps
+        self._seq_index = 0
+        self._seq_done = 0
+        self._seq_errors = 0
+        self._seq_title = title
+        self._seq_total = len(steps)
+
+        # UI vorbereiten
+        self._media_ws.btn_analyze_all.setEnabled(False)
+        self._media_ws.btn_analyze_all.setText(f"0/{self._seq_total}...")
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setRange(0, self._seq_total)
+        self.progress_bar.setValue(0)
+        self.console_text.append(
+            f"[Komplett] Starte Komplett-Analyse fuer '{title}' "
+            f"({self._seq_total} Schritte)..."
+        )
+
+        # Ersten Schritt starten
+        self._run_next_sequential_step()
+
+    def _run_next_sequential_step(self):
+        """Startet den naechsten Schritt in der sequentiellen Analyse-Queue."""
+        if self._seq_index >= self._seq_total:
+            # Alle Schritte fertig
+            self._media_ws.btn_analyze_all.setEnabled(True)
+            self._media_ws.btn_analyze_all.setText("KOMPLETT-ANALYSE")
+            self.progress_bar.setVisible(False)
+            self._refresh_media_table()
+            errors_info = f" ({self._seq_errors} Fehler)" if self._seq_errors else ""
+            self.console_text.append(
+                f"[Komplett] Analyse abgeschlossen: "
+                f"{self._seq_done}/{self._seq_total} OK{errors_info}"
+            )
+            self.status_bar.showMessage(
+                f"Komplett-Analyse fertig: {self._seq_done}/{self._seq_total} | System bereit"
+            )
+            return
+
+        step_name, worker_factory = self._seq_steps[self._seq_index]
+        self._media_ws.btn_analyze_all.setText(
+            f"{self._seq_index}/{self._seq_total}: {step_name}..."
+        )
+        self.progress_bar.setValue(self._seq_index)
+        self.console_text.append(
+            f"[Komplett] Schritt {self._seq_index + 1}/{self._seq_total}: {step_name}..."
+        )
+
+        try:
+            worker = worker_factory()
+            if worker is None:
+                # Schritt uebersprungen (z.B. kein Worker noetig)
+                self._seq_done += 1
+                self._seq_index += 1
+                self._run_next_sequential_step()
+                return
+
+            task = task_manager.create_task(
+                f"Komplett: {step_name}", f"{step_name} fuer {self._seq_title}"
+            )
+            worker.task_id = task.task_id
+
+            # Bei Erfolg ODER Fehler: naechsten Schritt starten
+            worker.finished.connect(lambda *args: self._on_seq_step_done(step_name, True))
+            worker.error.connect(lambda *args: self._on_seq_step_done(step_name, False))
+
+            self._start_worker_thread(worker)
+        except Exception as e:
+            logger.error("[Komplett] Fehler beim Starten von %s: %s", step_name, e)
+            self.console_text.append(f"[Komplett] {step_name} konnte nicht gestartet werden: {e}")
+            self._seq_errors += 1
+            self._seq_index += 1
+            # Trotzdem weiter — naechsten Schritt nach kurzem Delay
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(500, self._run_next_sequential_step)
+
+    def _on_seq_step_done(self, step_name: str, success: bool):
+        """Callback wenn ein sequentieller Schritt fertig ist."""
+        if success:
+            self._seq_done += 1
+            self._console_append(f"[Komplett] {step_name} OK")
+        else:
+            self._seq_errors += 1
+            self._console_append(f"[Komplett] {step_name} FEHLER (uebersprungen)")
+
+        self._seq_index += 1
+        # Naechsten Schritt nach kurzem Delay (VRAM/DB Cleanup)
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(1000, self._run_next_sequential_step)
+
+    # ── Worker-Factories fuer sequentielle Analyse ──
+
+    def _create_analysis_worker(self, track_id: int, title: str):
+        worker = AnalysisWorker(track_id, title)
+        return worker
+
+    def _create_waveform_worker(self, track_id: int):
+        worker = WaveformAnalysisWorker(track_id)
+        return worker
+
+    def _create_key_worker(self, track_id: int, file_path: str):
+        from workers.audio_analysis import KeyDetectionWorker
+        return KeyDetectionWorker(track_id, file_path)
+
+    def _create_lufs_worker(self, track_id: int, file_path: str):
+        from workers.audio_analysis import LUFSAnalysisWorker
+        return LUFSAnalysisWorker(track_id, file_path)
+
+    def _create_structure_worker(self, track_id: int, file_path: str, bpm: float):
+        from workers.audio_analysis import StructureDetectionWorker
+        return StructureDetectionWorker(track_id, file_path, bpm=bpm)
+
+    def _create_stem_worker(self, track_id: int):
+        return StemSeparationWorker(track_id)

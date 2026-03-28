@@ -520,6 +520,7 @@ class PBWindow(QMainWindow, AudioAnalysisMixin, VideoAnalysisMixin,
         self.btn_waveform.clicked.connect(self._analyze_waveform)
         self.btn_stem_separate.clicked.connect(self._start_stem_separation)
         self.btn_auto_duck.clicked.connect(self._start_auto_ducking)
+        self._media_ws.btn_analyze_all.clicked.connect(self._analyze_all_sequential)
         self.btn_add_to_timeline.clicked.connect(self._add_selected_to_timeline)
         self.search_input.returnPressed.connect(self._run_semantic_search)
         self.btn_search.clicked.connect(self._run_semantic_search)

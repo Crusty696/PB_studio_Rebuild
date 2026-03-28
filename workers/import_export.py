@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session as DBSession
 from database import engine, VideoClip
 from services.export_service import export_timeline
 from services.ingest_service import ingest_audio, ingest_video
-from .base import CancellableMixin
+from .base import CancellableMixin, format_user_error
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +45,7 @@ class ExportWorker(QObject, CancellableMixin):
         except Exception as e:
             logging.error("ExportWorker crashed: %s\n%s", e, traceback.format_exc())
             self._errored = True
-            self.error.emit(str(e))
+            self.error.emit(format_user_error(e))
         finally:
             if not _ok and not self._errored:
                 self.finished.emit("")
@@ -127,7 +127,7 @@ class FolderImportWorker(QObject, CancellableMixin):
                 "FolderImportWorker crashed: %s\n%s", e, traceback.format_exc()
             )
             self._errored = True
-            self.error.emit(str(e))
+            self.error.emit(format_user_error(e))
         finally:
             if not _ok and not self._errored:
                 self.finished.emit(added, new_video_clips)
@@ -203,7 +203,7 @@ class BatchConvertWorker(QObject, CancellableMixin):
         except Exception as e:
             logging.error("BatchConvertWorker crashed: %s\n%s", e, traceback.format_exc())
             self._errored = True
-            self.error.emit(str(e))
+            self.error.emit(format_user_error(e))
         finally:
             if not _ok and not self._errored:
                 self.finished.emit(0, 0)
@@ -241,7 +241,7 @@ class ProxyCreationWorker(QObject, CancellableMixin):
             logging.error("ProxyCreationWorker[%s] crashed: %s\n%s",
                           self.clip_id, e, traceback.format_exc())
             self._errored = True
-            self.error.emit(self.clip_id, str(e))
+            self.error.emit(self.clip_id, format_user_error(e))
         finally:
             if not _ok and not self._errored:
                 self.finished.emit(self.clip_id, "")

@@ -5,7 +5,12 @@ import json
 import logging
 import subprocess
 import sys
+import time
 from pathlib import Path
+
+from services.errors import (
+    StemSeparationError, AudioLoadError, CUDAOutOfMemoryError, VRAMInsufficientError,
+)
 
 import numpy as np
 import librosa
@@ -103,10 +108,7 @@ class StemSeparator:
         except torch.cuda.OutOfMemoryError:
             torch.cuda.empty_cache()
             gc.collect()
-            raise RuntimeError(
-                f"VRAM reicht nicht fuer Demucs '{model}'. "
-                "Bitte andere GPU-Modelle entladen oder kleineren Chunk verwenden."
-            )
+            raise CUDAOutOfMemoryError(operation=f"Demucs '{model}' laden")
         demucs_model.eval()
         logger.info(f"[StemSeparator] Modell '{model}' geladen auf {device}")
 

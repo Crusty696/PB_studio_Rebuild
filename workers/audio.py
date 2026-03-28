@@ -6,7 +6,7 @@ import traceback
 
 from PySide6.QtCore import QObject, Signal
 
-from .base import CancellableMixin
+from .base import CancellableMixin, format_user_error
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +35,7 @@ class StemSeparationWorker(QObject, CancellableMixin):
             logging.error("StemSeparationWorker[%s] crashed: %s\n%s",
                           self.track_id, e, traceback.format_exc())
             self._errored = True
-            self.error.emit(self.track_id, str(e))
+            self.error.emit(self.track_id, format_user_error(e))
         finally:
             # VRAM-Schutz: GPU-Speicher nach Demucs freigeben (6GB Limit)
             try:
@@ -74,7 +74,7 @@ class AutoDuckingWorker(QObject, CancellableMixin):
         except Exception as e:
             logging.error("AutoDuckingWorker crashed: %s\n%s", e, traceback.format_exc())
             self._errored = True
-            self.error.emit(str(e))
+            self.error.emit(format_user_error(e))
         finally:
             if not _ok and not self._errored:
                 self.finished.emit("")
