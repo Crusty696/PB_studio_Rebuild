@@ -366,12 +366,14 @@ def extract_keyframes(
             kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
 
         try:
-            subprocess.run(cmd, capture_output=True, timeout=15,
-                           stdin=subprocess.DEVNULL, **kwargs)
+            result = subprocess.run(cmd, capture_output=True, timeout=15,
+                                    stdin=subprocess.DEVNULL, **kwargs)
             if kf_path.exists():
                 scene.keyframe_path = str(kf_path)
             else:
-                logger.warning("Keyframe-Extraktion fehlgeschlagen: Szene %d", scene.index)
+                stderr = (result.stderr or b"")[:200]
+                logger.warning("Keyframe-Extraktion fehlgeschlagen: Szene %d (rc=%d, %s)",
+                               scene.index, result.returncode, stderr)
         except Exception as e:
             logger.warning("Keyframe-Fehler Szene %d: %s", scene.index, e)
 

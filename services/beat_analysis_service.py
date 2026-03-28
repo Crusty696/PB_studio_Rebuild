@@ -33,7 +33,19 @@ class BeatAnalysisService:
     einer GTX 1060 (6GB VRAM) analysieren zu koennen.
     """
 
+    _instance = None
+
+    def __new__(cls, device: str | None = None):
+        """Singleton — verhindert doppeltes GPU-Modell bei parallelen Aufrufen."""
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            cls._instance._initialized = False
+        return cls._instance
+
     def __init__(self, device: str | None = None):
+        if self._initialized:
+            return
+        self._initialized = True
         self._model = None
         self._device = device
         # Private cache for audio array; populated by analyze(), consumed by analyze_and_store()
@@ -230,9 +242,9 @@ class BeatAnalysisService:
                 suffix=".wav", delete=False, prefix=f"bt_chunk_{chunk_idx}_"
             ) as tmp:
                 tmp_path = tmp.name
-                sf.write(tmp_path, chunk_audio, sr)
 
             try:
+                sf.write(tmp_path, chunk_audio, sr)
                 with torch.no_grad():
                     beats, downbeats = self._model(tmp_path)
             finally:
@@ -281,15 +293,17 @@ class BeatAnalysisService:
             result = self.analyze(file_path, progress_cb=progress_cb)
 
             # Phase 3: Per-Beat RMS-Energie berechnen (Audio aus analyze() wiederverwenden).
-            # Bug-B1 fix: audio array is now stored as self._last_y / self._last_sr instead
-            # of being embedded in the public result dict.
+            # A-06 Fix: Thread-safe — lokale Kopie sofort entnehmen und Instanz-Ref loeschen.
             y = self._last_y
             sr = self._last_sr
-            self._last_y = None  # release reference immediately after use
+            self._last_y = None
             self._last_sr = None
-            energy_per_beat = self._compute_energy_per_beat(
-                y, sr, result["beats"], result["duration"]
-            )
+            if y is not None and sr is not None:
+                energy_per_beat = self._compute_energy_per_beat(
+                    y, sr, result["beats"], result["duration"]
+                )
+            else:
+                energy_per_beat = []
             del y  # free numpy array before DB writes
 
             with Session(engine) as session:

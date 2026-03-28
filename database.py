@@ -76,6 +76,11 @@ def _make_engine(db_path: Path):
         f"sqlite:///{db_path}",
         echo=False,
         connect_args={"check_same_thread": False, "timeout": 30},
+        # Pool-Groesse fuer Multi-Worker Batch-Operationen (15+ Clips gleichzeitig)
+        pool_size=10,
+        max_overflow=20,
+        pool_timeout=60,
+        pool_recycle=300,
     )
 
     @event.listens_for(eng, "connect")
@@ -101,6 +106,17 @@ def get_raw_engine():
     Needed for ``sqlalchemy.inspect()`` which requires a real engine instance.
     """
     return object.__getattribute__(engine, '_engine')
+
+
+def get_active_project_id() -> int:
+    """Gibt die ID des aktiven Projekts zurueck (erstes in der DB, Default=1)."""
+    try:
+        from sqlalchemy.orm import Session as _S
+        with _S(engine) as s:
+            proj = s.query(Project).first()
+            return proj.id if proj else 1
+    except Exception:
+        return 1
 
 
 def _patch_service_paths(project_path: Path):
@@ -368,8 +384,8 @@ class AIPacingMemory(Base):
     section_type = Column(String, nullable=True)     # "DROP", "BUILDUP", "BREAKDOWN", ...
 
     # ── Referenz ──
-    scene_id = Column(Integer, nullable=True)        # Scene.id (optional)
-    audio_track_id = Column(Integer, nullable=True)  # AudioTrack.id
+    scene_id = Column(Integer, ForeignKey("scenes.id", ondelete="SET NULL"), nullable=True)
+    audio_track_id = Column(Integer, ForeignKey("audio_tracks.id", ondelete="CASCADE"), nullable=True)
     label = Column(String, nullable=True)
 
     def __repr__(self):

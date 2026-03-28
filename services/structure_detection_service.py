@@ -97,9 +97,13 @@ class StructureDetectionService:
 
             n_beats = len(energy)
 
+            # Edge case: Keine Beats oder Energie
+            if n_beats == 0 or len(beats) == 0:
+                return StructureResult(segments=[], is_dj_mix=False, transition_count=0)
+
             # Edge case: Sehr kurzer Track
             if n_beats < 8:
-                duration = float(beats[-1]) if len(beats) > 0 else 0.0
+                duration = float(beats[-1])
                 avg_e = float(np.mean(energy))
                 return StructureResult(
                     segments=[StructureSegmentResult(

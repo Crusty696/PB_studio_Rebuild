@@ -1,5 +1,6 @@
 """Stems Mixin fuer PBWindow."""
 
+import logging
 from pathlib import Path
 
 from database import engine, AudioTrack
@@ -8,6 +9,8 @@ from sqlalchemy.orm import Session as DBSession
 from services.task_manager import GlobalTaskManager
 
 from workers import StemSeparationWorker, AutoDuckingWorker
+
+logger = logging.getLogger(__name__)
 
 
 # task_manager Proxy — gleiche Logik wie in main.py
@@ -32,6 +35,7 @@ class StemsMixin:
             with DBSession(engine) as session:
                 track = session.query(AudioTrack).filter_by(id=track_id).first()
                 if not track:
+                    logger.debug("[StemWorkspace] Track #%d nicht in DB", track_id)
                     if hasattr(self, "stem_workspace"):
                         self.stem_workspace.update_for_track(None, None)
                     self.stem_player.stop()
@@ -43,34 +47,47 @@ class StemsMixin:
                     "other": track.stem_other_path,
                 }
 
-                if self.stem_player.load_stems(stem_paths):
-                    if hasattr(self, "stem_workspace"):
-                        self.stem_workspace.update_for_track(track_id, stem_paths)
+                loaded = self.stem_player.load_stems(stem_paths)
+                logger.debug("[StemWorkspace] load_stems=%s fuer Track #%d", loaded, track_id)
+
+                if hasattr(self, "stem_workspace"):
+                    self.stem_workspace.update_for_track(track_id, stem_paths)
+                    if loaded:
                         self.stem_workspace.set_duration(self.stem_player.duration)
+                    else:
+                        self.stem_workspace.set_duration(0.0)
+
+                if loaded:
                     self.console_text.append(
                         f"[StemPlayer] Track #{track_id} geladen: "
                         f"{self.stem_player.duration:.1f}s"
                     )
-                else:
-                    if hasattr(self, "stem_workspace"):
-                        self.stem_workspace.update_for_track(track_id, stem_paths)
-                        self.stem_workspace.set_duration(0.0)
         except Exception as e:
+            logger.error("[StemWorkspace] CRASH in _update_stem_workspace(track=%s): %s",
+                         track_id, e, exc_info=True)
             self.console_text.append(f"[Stem-Widget] Fehler: {e}")
-            if hasattr(self, "stem_workspace"):
-                self.stem_workspace.update_for_track(None, None)
+            try:
+                if hasattr(self, "stem_workspace"):
+                    self.stem_workspace.update_for_track(None, None)
+            except Exception:
+                pass
 
     def _start_stem_separation(self):
         row = self.media_table.currentRow()
         if row < 0:
             self.console_text.append("[Warnung] Keine Zeile ausgewaehlt.")
             return
-        media_type = self.media_table.item(row, 1).text()
-        if media_type != "Audio":
+        type_item = self.media_table.item(row, 1)
+        id_item = self.media_table.item(row, 0)
+        title_item = self.media_table.item(row, 2)
+        if not type_item or not id_item or not title_item:
+            self.console_text.append("[Warnung] Tabellen-Daten unvollstaendig.")
+            return
+        if type_item.text() != "Audio":
             self.console_text.append("[Warnung] Nur Audio-Dateien koennen separiert werden.")
             return
-        track_id = int(self.media_table.item(row, 0).text())
-        title = self.media_table.item(row, 2).text()
+        track_id = int(id_item.text())
+        title = title_item.text()
 
         task = task_manager.create_task(f"Stems: {title}", "KI Stem Separation (Demucs)")
 
@@ -121,11 +138,15 @@ class StemsMixin:
         if row < 0:
             self.console_text.append("[Warnung] Keine Zeile ausgewaehlt.")
             return
-        media_type = self.media_table.item(row, 1).text()
-        if media_type != "Audio":
+        type_item = self.media_table.item(row, 1)
+        id_item = self.media_table.item(row, 0)
+        if not type_item or not id_item:
+            self.console_text.append("[Warnung] Tabellen-Daten unvollstaendig.")
+            return
+        if type_item.text() != "Audio":
             self.console_text.append("[Warnung] Waehle einen Audio-Track mit Stems.")
             return
-        track_id = int(self.media_table.item(row, 0).text())
+        track_id = int(id_item.text())
 
         with DBSession(engine) as session:
             track = session.get(AudioTrack, track_id)

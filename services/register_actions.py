@@ -16,10 +16,9 @@ _logger = logging.getLogger(__name__)
 
 
 def _get_task_manager():
-    """Holt den TaskManager von der QApplication — Thread-safe, kein Ghost."""
-    from PySide6.QtWidgets import QApplication
-    app = QApplication.instance()
-    return getattr(app, "task_manager", None) if app else None
+    """Gibt den TaskManager zurueck ohne QApplication-Kopplung."""
+    from services.task_manager import GlobalTaskManager
+    return GlobalTaskManager.instance()
 
 
 # --- Audio-Aktionen ---
@@ -40,14 +39,12 @@ def _get_task_manager():
 )
 def analyze_audio(track_id: int) -> dict:
     """Command Pattern: Emittiert Signal → Main-Thread baut AnalysisWorker."""
-    from PySide6.QtWidgets import QApplication
-
-    app = QApplication.instance()
-    if app is None or not hasattr(app, 'task_manager'):
+    tm = _get_task_manager()
+    if tm is None:
         _logger.warning("TaskManager nicht verfügbar - App nicht bereit")
         return {"error": "App nicht initialisiert"}
 
-    app.task_manager.agent_command_signal.emit(
+    tm.agent_command_signal.emit(
         "analyze_audio", {"track_id": track_id}
     )
     return {
@@ -82,13 +79,10 @@ def separate_stems(track_id: int | None = None) -> dict:
 
     Batch-Modus (track_id=None): Emittiert je einen Command pro Track.
     """
-    from PySide6.QtWidgets import QApplication
-
-    app = QApplication.instance()
-    if app is None or not hasattr(app, 'task_manager'):
+    tm = _get_task_manager()
+    if tm is None:
         _logger.warning("TaskManager nicht verfügbar - App nicht bereit")
         return {"error": "App nicht initialisiert"}
-    tm_inst = app.task_manager
 
     if track_id is None:
         # Batch: Fuer jeden Audio-Track einen separaten Command emittieren
@@ -97,7 +91,7 @@ def separate_stems(track_id: int | None = None) -> dict:
         if not audios:
             return {"error": "Keine Audiotracks im Projekt gefunden."}
         for audio in audios:
-            tm_inst.agent_command_signal.emit(
+            tm.agent_command_signal.emit(
                 "separate_stems", {"track_id": audio["id"]}
             )
         return {
@@ -109,7 +103,7 @@ def separate_stems(track_id: int | None = None) -> dict:
         }
 
     # Einzel-Modus
-    tm_inst.agent_command_signal.emit("separate_stems", {"track_id": track_id})
+    tm.agent_command_signal.emit("separate_stems", {"track_id": track_id})
     return {
         "status": "Task in Warteschlange",
         "action": "separate_stems",
@@ -136,14 +130,12 @@ def separate_stems(track_id: int | None = None) -> dict:
 )
 def analyze_video(clip_id: int) -> dict:
     """Command Pattern: Emittiert Signal → Main-Thread baut VideoAnalysisWorker."""
-    from PySide6.QtWidgets import QApplication
-
-    app = QApplication.instance()
-    if app is None or not hasattr(app, 'task_manager'):
+    tm = _get_task_manager()
+    if tm is None:
         _logger.warning("TaskManager nicht verfügbar - App nicht bereit")
         return {"error": "App nicht initialisiert"}
 
-    app.task_manager.agent_command_signal.emit(
+    tm.agent_command_signal.emit(
         "analyze_video", {"clip_id": clip_id}
     )
     return {
@@ -196,14 +188,13 @@ def auto_edit(
 ) -> dict:
     """Command Pattern: Emittiert Signal → Main-Thread baut AutoEditWorker."""
     from services.ingest_service import get_all_video
-    from PySide6.QtWidgets import QApplication
 
     video_ids = [v["id"] for v in get_all_video()]
     if not video_ids:
         return {"timeline": [], "message": "Keine Videos im Projekt gefunden."}
 
-    app = QApplication.instance()
-    if app is None or not hasattr(app, 'task_manager'):
+    tm = _get_task_manager()
+    if tm is None:
         _logger.warning("TaskManager nicht verfügbar - App nicht bereit")
         return {"error": "App nicht initialisiert"}
 
@@ -217,7 +208,7 @@ def auto_edit(
     if vibe is not None:
         signal_params["vibe"] = vibe
 
-    app.task_manager.agent_command_signal.emit("auto_edit", signal_params)
+    tm.agent_command_signal.emit("auto_edit", signal_params)
     return {
         "status": "Task in Warteschlange",
         "action": "auto_edit",
@@ -284,15 +275,13 @@ def import_file(file_path: str, project_id: int) -> dict:
 )
 def export_timeline_action(project_id: int, output_path: str | None = None) -> dict:
     """Command Pattern: Emittiert Signal → Main-Thread baut ExportWorker."""
-    from PySide6.QtWidgets import QApplication
-
     output_name = output_path or "output.mp4"
-    app = QApplication.instance()
-    if app is None or not hasattr(app, 'task_manager'):
+    tm = _get_task_manager()
+    if tm is None:
         _logger.warning("TaskManager nicht verfügbar - App nicht bereit")
         return {"error": "App nicht initialisiert"}
 
-    app.task_manager.agent_command_signal.emit(
+    tm.agent_command_signal.emit(
         "export_timeline", {"project_id": project_id, "output_name": output_name}
     )
     return {
@@ -433,13 +422,11 @@ def create_proxy_action(clip_id: int | None = None, target_height: int = 480) ->
     from sqlalchemy.orm import Session as SASession
     from database import engine, VideoClip
     from services.ingest_service import get_all_video
-    from PySide6.QtWidgets import QApplication
 
-    app = QApplication.instance()
-    if app is None or not hasattr(app, 'task_manager'):
+    tm = _get_task_manager()
+    if tm is None:
         _logger.warning("TaskManager nicht verfügbar - App nicht bereit")
         return {"error": "App nicht initialisiert"}
-    tm_inst = app.task_manager
 
     # Batch-Modus
     if clip_id is None:
@@ -459,7 +446,7 @@ def create_proxy_action(clip_id: int | None = None, target_height: int = 480) ->
         for video in videos:
             fp = clip_paths.get(video["id"])
             if fp:
-                tm_inst.agent_command_signal.emit(
+                tm.agent_command_signal.emit(
                     "create_proxy",
                     {"clip_id": video["id"], "video_path": fp},
                 )
@@ -479,7 +466,7 @@ def create_proxy_action(clip_id: int | None = None, target_height: int = 480) ->
             return {"error": f"VideoClip {clip_id} nicht gefunden."}
         video_path = clip.file_path
 
-    tm_inst.agent_command_signal.emit(
+    tm.agent_command_signal.emit(
         "create_proxy", {"clip_id": clip_id, "video_path": video_path}
     )
     return {
@@ -792,14 +779,12 @@ def generate_keyframe_strings_action(video_id: int | None = None) -> str:
 )
 def teste_ladebalken(steps: int = 10, interval_ms: int = 1000) -> dict:
     """Command Pattern: Emittiert Signal → Main-Thread baut DummyProgressWorker."""
-    from PySide6.QtWidgets import QApplication
-
-    app = QApplication.instance()
-    if app is None or not hasattr(app, 'task_manager'):
+    tm = _get_task_manager()
+    if tm is None:
         _logger.warning("TaskManager nicht verfügbar - App nicht bereit")
         return {"error": "App nicht initialisiert"}
 
-    app.task_manager.agent_command_signal.emit(
+    tm.agent_command_signal.emit(
         "teste_ladebalken", {"steps": steps, "interval_ms": interval_ms}
     )
     return {
@@ -850,18 +835,16 @@ def _get_audio_track_bpm(audio_track_id: int) -> float | None:
 )
 def detect_key_action(audio_track_id: int) -> dict:
     """Command Pattern: Emittiert Signal -> Main-Thread baut KeyDetectionWorker."""
-    from PySide6.QtWidgets import QApplication
-
     file_path = _get_audio_track_file_path(audio_track_id)
     if not file_path:
         return {"error": f"AudioTrack {audio_track_id} nicht gefunden."}
 
-    app = QApplication.instance()
-    if app is None or not hasattr(app, 'task_manager'):
+    tm = _get_task_manager()
+    if tm is None:
         _logger.warning("TaskManager nicht verfuegbar - App nicht bereit")
         return {"error": "App nicht initialisiert"}
 
-    app.task_manager.agent_command_signal.emit(
+    tm.agent_command_signal.emit(
         "detect_key", {"audio_track_id": audio_track_id, "file_path": file_path}
     )
     return {
@@ -891,18 +874,16 @@ def detect_key_action(audio_track_id: int) -> dict:
 )
 def analyze_lufs_action(audio_track_id: int) -> dict:
     """Command Pattern: Emittiert Signal -> Main-Thread baut LUFSAnalysisWorker."""
-    from PySide6.QtWidgets import QApplication
-
     file_path = _get_audio_track_file_path(audio_track_id)
     if not file_path:
         return {"error": f"AudioTrack {audio_track_id} nicht gefunden."}
 
-    app = QApplication.instance()
-    if app is None or not hasattr(app, 'task_manager'):
+    tm = _get_task_manager()
+    if tm is None:
         _logger.warning("TaskManager nicht verfuegbar - App nicht bereit")
         return {"error": "App nicht initialisiert"}
 
-    app.task_manager.agent_command_signal.emit(
+    tm.agent_command_signal.emit(
         "analyze_lufs", {"audio_track_id": audio_track_id, "file_path": file_path}
     )
     return {
@@ -932,20 +913,18 @@ def analyze_lufs_action(audio_track_id: int) -> dict:
 )
 def classify_audio_action(audio_track_id: int) -> dict:
     """Command Pattern: Emittiert Signal -> Main-Thread baut AudioClassifyWorker."""
-    from PySide6.QtWidgets import QApplication
-
     file_path = _get_audio_track_file_path(audio_track_id)
     if not file_path:
         return {"error": f"AudioTrack {audio_track_id} nicht gefunden."}
 
     bpm = _get_audio_track_bpm(audio_track_id)
 
-    app = QApplication.instance()
-    if app is None or not hasattr(app, 'task_manager'):
+    tm = _get_task_manager()
+    if tm is None:
         _logger.warning("TaskManager nicht verfuegbar - App nicht bereit")
         return {"error": "App nicht initialisiert"}
 
-    app.task_manager.agent_command_signal.emit(
+    tm.agent_command_signal.emit(
         "classify_audio", {"audio_track_id": audio_track_id, "file_path": file_path, "bpm": bpm}
     )
     return {
@@ -975,18 +954,16 @@ def classify_audio_action(audio_track_id: int) -> dict:
 )
 def analyze_spectral_action(audio_track_id: int) -> dict:
     """Command Pattern: Emittiert Signal -> Main-Thread baut SpectralAnalysisWorker."""
-    from PySide6.QtWidgets import QApplication
-
     file_path = _get_audio_track_file_path(audio_track_id)
     if not file_path:
         return {"error": f"AudioTrack {audio_track_id} nicht gefunden."}
 
-    app = QApplication.instance()
-    if app is None or not hasattr(app, 'task_manager'):
+    tm = _get_task_manager()
+    if tm is None:
         _logger.warning("TaskManager nicht verfuegbar - App nicht bereit")
         return {"error": "App nicht initialisiert"}
 
-    app.task_manager.agent_command_signal.emit(
+    tm.agent_command_signal.emit(
         "analyze_spectral", {"audio_track_id": audio_track_id, "file_path": file_path}
     )
     return {
@@ -1017,20 +994,18 @@ def analyze_spectral_action(audio_track_id: int) -> dict:
 )
 def detect_structure_action(audio_track_id: int) -> dict:
     """Command Pattern: Emittiert Signal -> Main-Thread baut StructureDetectionWorker."""
-    from PySide6.QtWidgets import QApplication
-
     file_path = _get_audio_track_file_path(audio_track_id)
     if not file_path:
         return {"error": f"AudioTrack {audio_track_id} nicht gefunden."}
 
     bpm = _get_audio_track_bpm(audio_track_id)
 
-    app = QApplication.instance()
-    if app is None or not hasattr(app, 'task_manager'):
+    tm = _get_task_manager()
+    if tm is None:
         _logger.warning("TaskManager nicht verfuegbar - App nicht bereit")
         return {"error": "App nicht initialisiert"}
 
-    app.task_manager.agent_command_signal.emit(
+    tm.agent_command_signal.emit(
         "detect_structure", {
             "audio_track_id": audio_track_id,
             "file_path": file_path,

@@ -265,7 +265,7 @@ class PBWindow(QMainWindow, AudioAnalysisMixin, VideoAnalysisMixin,
 
         # ── Bottom Navigation Bar (DaVinci Style) ──
         self.nav_bar = WorkspaceNavBar()
-        self.nav_bar.workspace_changed.connect(self.workspace_stack.setCurrentIndex)
+        self.nav_bar.workspace_changed.connect(self._on_workspace_changed)
         main_layout.addWidget(self.nav_bar)
 
         # ── Status Bar ──
@@ -364,9 +364,17 @@ class PBWindow(QMainWindow, AudioAnalysisMixin, VideoAnalysisMixin,
             except Exception:
                 pass
 
-        # 4. Stem Player aufraeumen
+        # 4. Stem Player + Workspace aufraeumen
         if hasattr(self, "stem_player"):
             self.stem_player.cleanup()
+        if hasattr(self, "stem_workspace"):
+            self.stem_workspace._cleanup_peak_threads()
+            for t in list(self.stem_workspace._peak_threads):
+                try:
+                    t.quit()
+                    t.wait(1000)
+                except RuntimeError:
+                    pass
 
         # 4. GPU-VRAM freigeben
         try:
@@ -455,8 +463,9 @@ class PBWindow(QMainWindow, AudioAnalysisMixin, VideoAnalysisMixin,
         # Reload timeline from new DB
         try:
             self.timeline_view.load_from_db()
-        except Exception:
-            pass
+        except Exception as e:
+            logging.warning("Timeline-Reload nach Projektwechsel fehlgeschlagen: %s", e)
+            self.console_text.append(f"[Warnung] Timeline konnte nicht geladen werden: {e}")
         self.status_bar.showMessage(f"Projekt: {project_name}  |  {path}")
 
     def _show_about(self):
@@ -539,7 +548,7 @@ class PBWindow(QMainWindow, AudioAnalysisMixin, VideoAnalysisMixin,
         if hasattr(self._media_ws, 'btn_structure_detect'):
             self._media_ws.btn_structure_detect.clicked.connect(self._detect_structure)
         if hasattr(self._media_ws, 'btn_motion_analysis'):
-            self._media_ws.btn_motion_analysis.clicked.connect(self._analyze_selected_video)
+            self._media_ws.btn_motion_analysis.clicked.connect(self._start_video_pipeline)
         if hasattr(self._media_ws, 'btn_siglip_embeddings'):
             self._media_ws.btn_siglip_embeddings.clicked.connect(self._start_video_pipeline)
 
@@ -590,6 +599,9 @@ class PBWindow(QMainWindow, AudioAnalysisMixin, VideoAnalysisMixin,
         self.btn_sync_anchors.clicked.connect(self._sync_anchors)
         self.btn_learn_ai.clicked.connect(self._learn_anchor_as_ai_rule)
         self.btn_keyframe_string.clicked.connect(self._show_keyframe_strings)
+        # W-10 Fix: Pacing-Kurve live-Update → Timeline regenerieren
+        if hasattr(self.pacing_curve, 'curve_changed'):
+            self.pacing_curve.curve_changed.connect(self._generate_timeline)
         # Phase 4: RL Feedback + Style Preset
         if hasattr(self._edit_ws, 'btn_thumbs_up'):
             self._edit_ws.btn_thumbs_up.clicked.connect(self._rl_feedback_positive)
@@ -637,9 +649,12 @@ class PBWindow(QMainWindow, AudioAnalysisMixin, VideoAnalysisMixin,
         self.crossfade_slider = self._convert_ws.crossfade_slider
         self.crossfade_label = self._convert_ws.crossfade_label
         self.effects_preview = self._convert_ws.effects_preview
+        self.btn_apply_effects = self._convert_ws.btn_apply_effects
 
         # Wire CONVERT signals
         self.btn_standardize_all.clicked.connect(self._standardize_all_videos)
+        self.effects_clip_combo.currentIndexChanged.connect(self._on_effects_clip_changed)
+        self.btn_apply_effects.clicked.connect(self._apply_effects)
 
         # --- DELIVER workspace ---
         self._deliver_ws = DeliverWorkspace()
@@ -683,6 +698,13 @@ class PBWindow(QMainWindow, AudioAnalysisMixin, VideoAnalysisMixin,
         slider.valueChanged.connect(lambda v: val_lbl.setText(str(v)))
         row.addWidget(val_lbl)
         return slider, row
+
+    def _on_workspace_changed(self, index: int):
+        """Workspace-Wechsel: Index setzen + workspace-spezifische Refresh-Logik."""
+        self.workspace_stack.setCurrentIndex(index)
+        # CONVERT workspace (Index 3) — Effects-Combo mit Timeline-Clips befuellen
+        if index == 3:
+            self._refresh_effects_combos()
 
     def _toggle_inspector(self):
         """Toggle inspector panel visibility."""
@@ -940,6 +962,10 @@ class PBWindow(QMainWindow, AudioAnalysisMixin, VideoAnalysisMixin,
         self._task_panel_widget = task_w
         # Alias fuer Kompatibilitaet
         self.task_dock = task_w
+        # TaskManager show_dock Signal verbinden
+        GlobalTaskManager.instance().show_dock_requested.connect(
+            lambda: self._task_panel_widget.setVisible(True)
+        )
 
     def setup_console(self):
         """System-Konsole als QWidget im unteren QSplitter-Panel."""
@@ -1055,8 +1081,26 @@ def _global_exception_hook(exc_type, exc_value, exc_tb):
     # Nicht sys.exit() — Qt soll Chance zum Cleanup haben
 
 
+def _qt_message_handler(mode, context, message):
+    """Faengt Qt/C++ Warnungen und Fehler ab und loggt sie in die Log-Datei."""
+    from PySide6.QtCore import QtMsgType
+    if mode == QtMsgType.QtWarningMsg:
+        logging.warning("[Qt C++] %s (file: %s, line: %s)",
+                        message, context.file or "?", context.line)
+    elif mode == QtMsgType.QtCriticalMsg:
+        logging.error("[Qt C++] CRITICAL: %s (file: %s, line: %s)",
+                      message, context.file or "?", context.line)
+    elif mode == QtMsgType.QtFatalMsg:
+        logging.critical("[Qt C++] FATAL: %s (file: %s, line: %s)",
+                         message, context.file or "?", context.line)
+
+
 def main():
     setup_logging()
+
+    # Qt-Message-Handler: C++ Warnungen/Fehler ins Log statt nur stderr
+    from PySide6.QtCore import qInstallMessageHandler
+    qInstallMessageHandler(_qt_message_handler)
 
     # Globaler Exception-Hook: Crashes nie verschlucken
     sys.excepthook = _global_exception_hook

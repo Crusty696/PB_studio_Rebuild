@@ -152,6 +152,15 @@ class StemSeparator:
         # F-011: RAM-Budget pruefen — result_stems + weight_sum koennen bei
         # langen Mixes >5GB RAM belegen. Warnung und float16 bei >30min.
         estimated_ram_gb = (num_sources * waveform.shape[0] * total_samples * 4) / (1024**3)
+        # A-11 Fix: VRAM-Budget zusaetzlich pruefen (GTX 1060 = 6GB)
+        if torch.cuda.is_available():
+            vram_free_gb = (torch.cuda.get_device_properties(0).total_memory
+                            - torch.cuda.memory_reserved(0)) / (1024**3)
+            if vram_free_gb < 2.0:
+                logger.warning(
+                    "[StemSeparator] Nur %.1f GB VRAM frei — reduziere Chunk-Groesse.",
+                    vram_free_gb,
+                )
         if estimated_ram_gb > 3.0:
             logger.warning(
                 "[StemSeparator] Grosser Akkumulator: %.1f GB RAM geschaetzt fuer %.0f min Audio. "

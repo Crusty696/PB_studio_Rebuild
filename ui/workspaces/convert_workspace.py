@@ -86,19 +86,83 @@ class ConvertWorkspace(QWidget):
 
         settings_layout.addWidget(action_group)
 
-        # NOTE: Effects controls are INTENTIONALLY HIDDEN (Legacy).
-        # They will be activated in a future Phase when the effects pipeline is complete.
+        # ── Clip-Effekte ──────────────────────────────────
+        effects_group = QGroupBox("Clip-Effekte")
+        effects_layout = QVBoxLayout(effects_group)
+
         self.effects_clip_combo = QComboBox()
-        self.effects_clip_combo.setVisible(False)
+        self.effects_clip_combo.setToolTip("Timeline-Clip fuer Effekt-Bearbeitung waehlen")
+        effects_layout.addWidget(self.effects_clip_combo)
+
+        # Brightness
+        br_row = QHBoxLayout()
+        br_row.addWidget(QLabel("Helligkeit:"))
         self.brightness_slider = QSlider(Qt.Orientation.Horizontal)
-        self.brightness_slider.setVisible(False)
-        self.brightness_label = QLabel()
+        self.brightness_slider.setRange(-100, 100)
+        self.brightness_slider.setValue(0)
+        self.brightness_slider.setToolTip("Helligkeit (-1.0 bis +1.0)")
+        br_row.addWidget(self.brightness_slider)
+        self.brightness_label = QLabel("0")
+        self.brightness_label.setFixedWidth(30)
+        br_row.addWidget(self.brightness_label)
+        effects_layout.addLayout(br_row)
+
+        # Contrast
+        ct_row = QHBoxLayout()
+        ct_row.addWidget(QLabel("Kontrast:"))
         self.contrast_slider = QSlider(Qt.Orientation.Horizontal)
-        self.contrast_slider.setVisible(False)
-        self.contrast_label = QLabel()
+        self.contrast_slider.setRange(0, 300)
+        self.contrast_slider.setValue(100)
+        self.contrast_slider.setToolTip("Kontrast (0.0 bis 3.0)")
+        ct_row.addWidget(self.contrast_slider)
+        self.contrast_label = QLabel("100")
+        self.contrast_label.setFixedWidth(30)
+        ct_row.addWidget(self.contrast_label)
+        effects_layout.addLayout(ct_row)
+
+        # Crossfade
+        cf_row = QHBoxLayout()
+        cf_row.addWidget(QLabel("Crossfade:"))
         self.crossfade_slider = QSlider(Qt.Orientation.Horizontal)
-        self.crossfade_slider.setVisible(False)
-        self.crossfade_label = QLabel()
+        self.crossfade_slider.setRange(0, 50)
+        self.crossfade_slider.setValue(0)
+        self.crossfade_slider.setToolTip("Crossfade-Dauer in Sekunden (0-5.0)")
+        cf_row.addWidget(self.crossfade_slider)
+        self.crossfade_label = QLabel("0.0s")
+        self.crossfade_label.setFixedWidth(35)
+        cf_row.addWidget(self.crossfade_label)
+        effects_layout.addLayout(cf_row)
+
+        # Apply Button
+        self.btn_apply_effects = QPushButton("Effekte anwenden")
+        self.btn_apply_effects.setObjectName("btn_action")
+        self.btn_apply_effects.setFixedHeight(32)
+        self.btn_apply_effects.setMaximumWidth(300)
+        self.btn_apply_effects.setToolTip("Helligkeit/Kontrast/Crossfade auf den gewaehlten Clip anwenden")
+        effects_layout.addWidget(self.btn_apply_effects)
+
+        # Preview
+        self.effects_preview = QLabel("")
+        self.effects_preview.setFixedHeight(180)
+        self.effects_preview.setStyleSheet(
+            "background: #0a0d12; border: 1px solid rgba(255,255,255,10); border-radius: 4px;"
+        )
+        self.effects_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        effects_layout.addWidget(self.effects_preview)
+
+        effects_layout.addStretch()
+        settings_layout.addWidget(effects_group)
+
+        # Slider-Label Sync (intern)
+        self.brightness_slider.valueChanged.connect(
+            lambda v: self.brightness_label.setText(str(v))
+        )
+        self.contrast_slider.valueChanged.connect(
+            lambda v: self.contrast_label.setText(str(v))
+        )
+        self.crossfade_slider.valueChanged.connect(
+            lambda v: self.crossfade_label.setText(f"{v / 10:.1f}s")
+        )
 
         settings_layout.addStretch()
         top_splitter.addWidget(settings_panel)
@@ -120,9 +184,6 @@ class ConvertWorkspace(QWidget):
         self.convert_log.setToolTip("Protokoll der Video-Konvertierungen")
         self.convert_log.append("[Convert] Bereit. Waehle Ziel-Format und klicke 'Alle Videos standardisieren'.")
         log_layout.addWidget(self.convert_log)
-
-        self.effects_preview = QLabel("")
-        self.effects_preview.setVisible(False)
 
         top_splitter.addWidget(log_panel)
         top_splitter.setStretchFactor(0, 1)

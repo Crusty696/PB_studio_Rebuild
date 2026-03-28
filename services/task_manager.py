@@ -6,7 +6,7 @@ import threading
 import time
 import uuid
 
-from PySide6.QtWidgets import QApplication, QDockWidget
+from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import Qt, QThread, Signal, QObject
 
 
@@ -49,6 +49,7 @@ class GlobalTaskManager(QObject):
     task_added = Signal(str)
     task_updated = Signal(str)
     task_finished = Signal(str)
+    show_dock_requested = Signal()  # UI verbindet sich hierauf statt Widget-Traversal
 
     # Cross-Thread Request: task_id, name, description, worker, on_finish, on_error
     _cross_thread_request = Signal(str, str, str, object, object, object)
@@ -141,14 +142,8 @@ class GlobalTaskManager(QObject):
             description=f"Command Pattern: {action_name}",
         )
 
-        # 3. TaskManagerDock erzwingen
-        app = QApplication.instance()
-        if app:
-            for w in app.topLevelWidgets():
-                dock = w.findChild(QDockWidget, "task_manager_dock")
-                if dock:
-                    dock.show()
-                    break
+        # 3. TaskManagerDock erzwingen (via Signal statt Widget-Traversal)
+        self.show_dock_requested.emit()
 
     # ------------------------------------------------------------------
     # Neues API: Worker + Thread in einem Aufruf starten
@@ -277,14 +272,8 @@ class GlobalTaskManager(QObject):
 
         self.task_added.emit(task_id)
 
-        # TaskManagerDock sichtbar machen (falls vorhanden)
-        app = QApplication.instance()
-        if app:
-            for w in app.topLevelWidgets():
-                dock = w.findChild(QDockWidget, "task_manager_dock")
-                if dock:
-                    dock.show()
-                    break
+        # TaskManagerDock sichtbar machen (via Signal)
+        self.show_dock_requested.emit()
 
         thread.start()
         logging.info("[TaskEngine] Gestartet: %s (task_id=%s)", name, task_id)

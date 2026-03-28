@@ -1,5 +1,6 @@
 """Interactive Timeline with draggable clips, anchors, beat markers and zoom."""
 
+import bisect
 from collections import namedtuple
 from pathlib import Path
 
@@ -258,20 +259,37 @@ class InteractiveTimeline(QGraphicsView):
         self._move_timer.setInterval(200)
         self._move_timer.timeout.connect(self._flush_pending_move)
 
+        self._total_duration: float = 0.0
+        self._anchor_map: dict[int, list] = {}  # entry_id -> list[ClipAnchor]
+        self._track_bg_items: list[QGraphicsRectItem] = []
+
         self._draw_track_backgrounds()
         self._draw_labels()
 
+    @property
+    def _scene_width(self) -> float:
+        """Dynamic scene width based on total timeline duration."""
+        return max(2000, self._total_duration * PIXELS_PER_SECOND + 200)
+
     def _draw_track_backgrounds(self):
+        # Remove old background items before redrawing
+        for bg in self._track_bg_items:
+            self._scene.removeItem(bg)
+        self._track_bg_items.clear()
+
+        w = self._scene_width
         audio_bg = self._scene.addRect(
-            QRectF(0, AUDIO_TRACK_Y, 2000, TRACK_HEIGHT),
+            QRectF(0, AUDIO_TRACK_Y, w, TRACK_HEIGHT),
             QPen(Qt.PenStyle.NoPen), QBrush(QColor(22, 22, 26))
         )
         audio_bg.setZValue(-10)
+        self._track_bg_items.append(audio_bg)
         video_bg = self._scene.addRect(
-            QRectF(0, VIDEO_TRACK_Y, 2000, TRACK_HEIGHT),
+            QRectF(0, VIDEO_TRACK_Y, w, TRACK_HEIGHT),
             QPen(Qt.PenStyle.NoPen), QBrush(QColor(26, 22, 22))
         )
         video_bg.setZValue(-10)
+        self._track_bg_items.append(video_bg)
 
     def _draw_labels(self):
         for label_text, y in [("A1", AUDIO_TRACK_Y), ("V1", VIDEO_TRACK_Y)]:
@@ -280,13 +298,24 @@ class InteractiveTimeline(QGraphicsView):
             txt.setPos(-35, y + 15)
             txt.setZValue(10)
 
-    def load_from_db(self, project_id: int = 1):
+    def load_from_db(self, project_id: int | None = None):
+        if project_id is None:
+            from database import get_active_project_id
+            project_id = get_active_project_id()
         for item in self.clip_items:
             self._scene.removeItem(item)
         self.clip_items.clear()
         for wf in self.waveform_items:
             self._scene.removeItem(wf)
         self.waveform_items.clear()
+        # Clear old cut lines
+        for line in self.cut_lines:
+            self._scene.removeItem(line)
+        self.cut_lines.clear()
+        # Clear old beat markers
+        for marker in self._beat_markers:
+            self._scene.removeItem(marker)
+        self._beat_markers.clear()
 
         with DBSession(engine) as session:
             entries = (
@@ -315,9 +344,10 @@ class InteractiveTimeline(QGraphicsView):
                     ClipAnchor.timeline_entry_id.in_(_entry_ids)
                 ).all() if _entry_ids else []
             )
-            _anchor_map: dict[int, list] = {}
+            self._anchor_map = {}
             for anc in _all_anchors:
-                _anchor_map.setdefault(anc.timeline_entry_id, []).append(anc)
+                self._anchor_map.setdefault(anc.timeline_entry_id, []).append(anc)
+            _anchor_map = self._anchor_map
 
             for entry in entries:
                 has_waveform = False
@@ -356,6 +386,15 @@ class InteractiveTimeline(QGraphicsView):
                 )
                 self._scene.addItem(item)
                 self.clip_items.append(item)
+
+        # Compute total duration from loaded clips for dynamic background width
+        max_end = 0.0
+        for ci in self.clip_items:
+            clip_end = ci.pos().x() / PIXELS_PER_SECOND + ci._clip_width / PIXELS_PER_SECOND
+            if clip_end > max_end:
+                max_end = clip_end
+        self._total_duration = max_end
+        self._draw_track_backgrounds()
 
         self._update_scene_rect()
 
@@ -427,6 +466,11 @@ class InteractiveTimeline(QGraphicsView):
             line.setZValue(5)
             self.cut_lines.append(line)
 
+        # Update total duration and redraw backgrounds if needed
+        if total_duration > self._total_duration:
+            self._total_duration = total_duration
+            self._draw_track_backgrounds()
+
         self._draw_ruler(total_duration)
         self._update_scene_rect()
 
@@ -449,11 +493,18 @@ class InteractiveTimeline(QGraphicsView):
             self._beat_markers.append(line)
 
     def _snap_x_to_beat(self, x: float) -> float:
-        """Rastet x (in Pixeln) an den naechsten Beat ein (Snap-Radius: 8px)."""
+        """Rastet x (in Pixeln) an den naechsten Beat ein (Snap-Radius: 8px).
+        Uses bisect for O(log N) lookup instead of O(N) min()."""
         if not self._snap_to_beat or not self._beat_times:
             return x
         t = x / PIXELS_PER_SECOND
-        closest = min(self._beat_times, key=lambda b: abs(b - t))
+        idx = bisect.bisect_left(self._beat_times, t)
+        candidates = []
+        if idx > 0:
+            candidates.append(self._beat_times[idx - 1])
+        if idx < len(self._beat_times):
+            candidates.append(self._beat_times[idx])
+        closest = min(candidates, key=lambda b: abs(b - t)) if candidates else t
         if abs(closest - t) * PIXELS_PER_SECOND <= 8.0:
             return closest * PIXELS_PER_SECOND
         return x
@@ -609,8 +660,15 @@ class InteractiveTimeline(QGraphicsView):
         # Bug-18 Fix: Eine Session für alle Updates statt einer pro Video-Clip
         updates: list[tuple[int, float, float | None]] = []  # (entry_id, new_start, new_end|None)
 
+        def _first_anchor_offset(clip: TimelineClipItem) -> float | None:
+            """Get first anchor time_offset from cached _anchor_map (no DB hit)."""
+            anchors = self._anchor_map.get(clip.entry_id)
+            if not anchors:
+                return None
+            return min(a.time_offset for a in anchors)
+
         for audio_clip in audio_clips:
-            audio_anchor_offset = audio_clip.get_first_anchor_time()
+            audio_anchor_offset = _first_anchor_offset(audio_clip)
             if audio_anchor_offset is None:
                 continue
 
@@ -619,7 +677,7 @@ class InteractiveTimeline(QGraphicsView):
             audio_anchor_abs = audio_clip_start + audio_anchor_offset
 
             for video_clip in video_clips:
-                video_anchor_offset = video_clip.get_first_anchor_time()
+                video_anchor_offset = _first_anchor_offset(video_clip)
                 if video_anchor_offset is None:
                     continue
 

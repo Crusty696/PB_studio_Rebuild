@@ -2,6 +2,7 @@
 
 import gc
 import logging
+import re
 import subprocess
 import sys
 import time
@@ -76,37 +77,47 @@ class VideoBatchAnalysisWorker(QObject, CancellableMixin):
         self._batch = batch
 
     def run(self):
-        analyzer = VideoAnalyzer()
-        total = len(self._batch)
         done = 0
         errors = 0
+        _ok = False
+        try:
+            analyzer = VideoAnalyzer()
+            total = len(self._batch)
 
-        for idx, (clip_id, title) in enumerate(self._batch, start=1):
-            if self.should_stop():
-                break
-            self.progress.emit(
-                int((idx - 1) / total * 100),
-                f"[{idx}/{total}] {title}..."
-            )
-            try:
-                result = analyzer.analyze_and_store(clip_id)
-                done += 1
-                if result:
-                    info = (f"{result.get('width', '?')}x{result.get('height', '?')} "
-                            f"{result.get('fps', '?')}fps")
-                else:
-                    info = "OK"
-                self.item_done.emit(clip_id, info)
-            except Exception as e:
-                errors += 1
-                logger.error("BatchAnalysis[%d] '%s' failed: %s\n%s",
-                             clip_id, title, e, traceback.format_exc())
-                self.item_error.emit(clip_id, str(e))
-            finally:
-                gc.collect()
+            for idx, (clip_id, title) in enumerate(self._batch, start=1):
+                if self.should_stop():
+                    break
+                self.progress.emit(
+                    int((idx - 1) / total * 100),
+                    f"[{idx}/{total}] {title}..."
+                )
+                try:
+                    result = analyzer.analyze_and_store(clip_id)
+                    done += 1
+                    if result:
+                        info = (f"{result.get('width', '?')}x{result.get('height', '?')} "
+                                f"{result.get('fps', '?')}fps")
+                    else:
+                        info = "OK"
+                    self.item_done.emit(clip_id, info)
+                except Exception as e:
+                    errors += 1
+                    logger.error("BatchAnalysis[%d] '%s' failed: %s\n%s",
+                                 clip_id, title, e, traceback.format_exc())
+                    self.item_error.emit(clip_id, str(e))
+                finally:
+                    gc.collect()
 
-        self.progress.emit(100, f"Batch fertig: {done}/{total}")
-        self.finished.emit(done, errors)
+            self.progress.emit(100, f"Batch fertig: {done}/{total}")
+            self.finished.emit(done, errors)
+            _ok = True
+        except Exception as e:
+            logger.error("VideoBatchAnalysisWorker crashed: %s\n%s", e, traceback.format_exc())
+            self._errored = True
+            self.error.emit(str(e))
+        finally:
+            if not _ok and not self._errored:
+                self.finished.emit(done, errors)
 
 
 class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
@@ -236,11 +247,12 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                 except Exception as e:
                     logging.error("VideoAnalysisPipelineWorker[%s] video %d/%d '%s' crashed: %s\n%s",
                                   clip_id, idx, total_videos, label, e, traceback.format_exc())
-                    self._errored = True
-                    self.error.emit(clip_id, f"Video {idx}/{total_videos} '{label}': {e}")
-                    # finished MUSS emittiert werden damit thread.quit() aufgerufen wird
-                    self.finished.emit(last_clip_id, {})
-                    return
+                    # C-04 Fix: Einzelner Fehler bricht nicht mehr die ganze Pipeline ab
+                    self.progress.emit(
+                        min(99, batch_base_pct + batch_range),
+                        f"[{idx}/{total_videos}] FEHLER: {e}"
+                    )
+                    continue  # naechstes Video statt Abbruch
                 finally:
                     # VRAM-Schutz: GPU-Tensor-Cache nach JEDEM Video freigeben (6GB Limit)
                     # Das Modell selbst bleibt geladen (siglip_model_processor), nur
@@ -321,6 +333,9 @@ class FrameExtractWorker(QObject, CancellableMixin):
     finished = Signal()   # Required by GlobalTaskManager contract (thread.quit)
     error = Signal(str)
 
+    # Whitelist: nur sichere Zeichen in FFmpeg-Filterstrings erlauben
+    _VF_SAFE_PATTERN = re.compile(r'^[a-zA-Z0-9=:.,_\-\s/]*$')
+
     def __init__(self, file_path: str, time_sec: float, width: int = 320,
                  height: int = 180, vf_extra: str = ""):
         super().__init__()
@@ -328,6 +343,11 @@ class FrameExtractWorker(QObject, CancellableMixin):
         self.time_sec = time_sec
         self.width = width
         self.height = height
+        # SEC-02 Fix: Whitelist-Validierung gegen FFmpeg-Filter-Injection
+        if vf_extra and not self._VF_SAFE_PATTERN.match(vf_extra):
+            import logging
+            logging.warning("[FrameExtract] Unsicherer vf_extra ignoriert: %s", vf_extra[:80])
+            vf_extra = ""
         self.vf_extra = vf_extra
 
     def run(self):

@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QTimer
 
-from database import engine, AudioTrack, VideoClip, TimelineEntry
+from database import engine, AudioTrack, VideoClip, TimelineEntry, get_active_project_id
 from sqlalchemy.orm import Session as DBSession
 
 from services.task_manager import GlobalTaskManager
@@ -212,12 +212,12 @@ class EditWorkspaceMixin:
         # Block (Insert-Loop) fehlschlug, war die Timeline leer ohne Ersatz-Einträge.
         with DBSession(engine) as session:
             session.query(TimelineEntry).filter_by(
-                project_id=1, track="video"
+                project_id=get_active_project_id(), track="video"
             ).delete()
 
             for seg in segments:
                 entry = TimelineEntry(
-                    project_id=1,
+                    project_id=get_active_project_id(),
                     track="video",
                     media_id=seg["video_id"],
                     start_time=seg["start"],
@@ -370,7 +370,7 @@ class EditWorkspaceMixin:
         with DBSession(engine) as session:
             clips = session.query(VideoClip).options(
                 joinedload(VideoClip.scenes)
-            ).filter_by(project_id=1).all()
+            ).filter_by(project_id=get_active_project_id()).all()
             for clip in clips:
                 clip_name = Path(clip.file_path).stem[:20]
                 for scene in clip.scenes:
@@ -496,13 +496,31 @@ class EditWorkspaceMixin:
 
     def _rl_feedback_positive(self):
         """RL Feedback: User bestätigt aktuelle Pacing-Entscheidung (Thumbs Up)."""
-        self.console_text.append("[RL-Feedback] \U0001f44d Positiv — wird für zukünftige Auto-Edits gelernt.")
-        self.statusBar().showMessage("RL-Feedback: Positiv gespeichert", 3000)
+        self._save_rl_feedback("positive")
 
     def _rl_feedback_negative(self):
         """RL Feedback: User lehnt aktuelle Pacing-Entscheidung ab (Thumbs Down)."""
-        self.console_text.append("[RL-Feedback] \U0001f44e Negativ — wird für zukünftige Auto-Edits gelernt.")
-        self.statusBar().showMessage("RL-Feedback: Negativ gespeichert", 3000)
+        self._save_rl_feedback("negative")
+
+    def _save_rl_feedback(self, sentiment: str):
+        """Speichert RL-Feedback via pacing_service."""
+        from services.pacing_service import record_rl_feedback
+
+        audio_id = self.audio_combo.currentData()
+        if audio_id is None:
+            self.console_text.append(
+                f"[RL-Feedback] {sentiment} - Kein Audio-Track gewaehlt, "
+                "bitte Audio-Combo im Edit-Workspace setzen."
+            )
+            return
+
+        success = record_rl_feedback(audio_id, sentiment, get_active_project_id())
+        if success:
+            emoji = "\U0001f44d" if sentiment == "positive" else "\U0001f44e"
+            self.console_text.append(f"[RL-Feedback] {emoji} {sentiment.title()} gespeichert")
+            self.statusBar().showMessage(f"RL-Feedback: {sentiment.title()} gespeichert", 3000)
+        else:
+            self.console_text.append(f"[RL-Feedback] Fehler beim Speichern")
 
     def _apply_style_preset(self, index: int):
         """Wendet einen Style-Preset auf die Pacing-Einstellungen an."""
@@ -537,7 +555,7 @@ class EditWorkspaceMixin:
     def _show_keyframe_strings(self):
         """Phase 3: Generiert und zeigt die Keyframe-Strings aller Video-Clips."""
         try:
-            kf_string = generate_keyframe_strings_for_project(project_id=1)
+            kf_string = generate_keyframe_strings_for_project(project_id=get_active_project_id())
             self.keyframe_text.setPlainText(kf_string)
             self.console_text.append("[Pacing] Keyframe-Strings generiert.")
         except Exception as e:
@@ -554,17 +572,23 @@ class EditWorkspaceMixin:
         if row < 0:
             self.console_text.append("[Warnung] Keine Zeile ausgewaehlt.")
             return
+        type_item = self.media_table.item(row, 1)
+        id_item = self.media_table.item(row, 0)
+        title_item = self.media_table.item(row, 2)
+        if not type_item or not id_item or not title_item:
+            self.console_text.append("[Warnung] Tabellen-Daten unvollstaendig.")
+            return
 
-        media_type = self.media_table.item(row, 1).text()
-        media_id = int(self.media_table.item(row, 0).text())
-        title = self.media_table.item(row, 2).text()
+        media_type = type_item.text()
+        media_id = int(id_item.text())
+        title = title_item.text()
 
         track_type = "audio" if media_type == "Audio" else "video"
 
         with DBSession(engine) as session:
             existing = (
                 session.query(TimelineEntry)
-                .filter_by(project_id=1, track=track_type)
+                .filter_by(project_id=get_active_project_id(), track=track_type)
                 .order_by(TimelineEntry.start_time.desc())
                 .first()
             )
@@ -580,7 +604,7 @@ class EditWorkspaceMixin:
                 duration = obj.duration if obj and obj.duration else 10.0
 
             entry = TimelineEntry(
-                project_id=1,
+                project_id=get_active_project_id(),
                 track=track_type,
                 media_id=media_id,
                 start_time=round(start_time, 3),

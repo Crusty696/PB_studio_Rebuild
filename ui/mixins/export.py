@@ -1,5 +1,6 @@
 """Export Mixin fuer PBWindow."""
 
+from database import get_active_project_id
 from services.task_manager import GlobalTaskManager
 from services.export_service import get_timeline_summary
 from workers import ExportWorker
@@ -17,7 +18,7 @@ class ExportMixin:
     """Export / Deliver methods for PBWindow."""
 
     def _refresh_production_info(self):
-        summary = get_timeline_summary()
+        summary = get_timeline_summary(get_active_project_id())
         self.production_info.setText(
             f"Video-Clips: {summary['video_clips']} | "
             f"Audio-Tracks: {summary['audio_tracks']} | "
@@ -26,7 +27,7 @@ class ExportMixin:
         )
 
     def _start_export(self):
-        summary = get_timeline_summary()
+        summary = get_timeline_summary(get_active_project_id())
         if summary["total_entries"] == 0:
             self.export_log.append("[Fehler] Keine Clips auf der Timeline!")
             return
@@ -46,7 +47,7 @@ class ExportMixin:
         self.export_progress.setRange(0, 0)
         self.export_log.append(f"[Export] Starte Export: {output_name} ({resolution} @ {fps}fps)")
 
-        worker = ExportWorker(project_id=1, output_name=output_name,
+        worker = ExportWorker(project_id=get_active_project_id(), output_name=output_name,
                               resolution=resolution, fps=fps)
         worker.task_id = task.task_id
         worker.progress.connect(self._on_export_progress)

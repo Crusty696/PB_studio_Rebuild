@@ -88,6 +88,10 @@ class VideoAnalysisMixin:
         worker.finished.connect(
             lambda done, errors: self._on_video_batch_finished(done, errors, task.task_id)
         )
+        worker.error.connect(lambda err: (
+            self.console_text.append(f"[Video-Batch] Kritischer Fehler: {err}"),
+            self._on_video_batch_finished(0, 1, task.task_id),
+        ))
         self._video_batch_total = len(batch)
         self._video_batch_done = 0
         self._video_batch_errors = 0

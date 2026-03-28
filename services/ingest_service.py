@@ -3,7 +3,7 @@ from pathlib import Path
 
 from sqlalchemy.orm import Session
 
-from database import engine, AudioTrack, VideoClip
+from database import engine, AudioTrack, VideoClip, StructureSegment
 from services.vector_db_service import VectorDBService
 
 logger = logging.getLogger(__name__)
@@ -134,6 +134,59 @@ def ingest_video(file_path: str, project_id: int = 1) -> VideoClip | None:
     except Exception as e:
         logger.error("ingest_video fehlgeschlagen: %s", e)
         raise
+
+
+def get_audio_detail_data(audio_id: int) -> dict | None:
+    """Laedt Audio-Metadaten fuer die Detail-Cards im MEDIA-Workspace."""
+    import json as _json
+    from services.key_detection_service import CAMELOT_WHEEL
+    try:
+        with Session(engine) as session:
+            track = session.get(AudioTrack, audio_id)
+            if not track:
+                return None
+
+            beat_count = None
+            if track.beatgrid and track.beatgrid.beat_positions:
+                try:
+                    beat_count = len(_json.loads(track.beatgrid.beat_positions))
+                except Exception:
+                    pass
+
+            camelot = CAMELOT_WHEEL.get(track.key) if track.key else None
+            stems_status = "Ja" if track.stem_vocals_path else "Nein"
+
+            seg_rows = session.query(StructureSegment).filter_by(
+                audio_track_id=audio_id
+            ).order_by(StructureSegment.start_time).all()
+            segments = []
+            if seg_rows:
+                duration = track.duration or 1.0
+                for seg in seg_rows:
+                    segments.append({
+                        "label": seg.label,
+                        "start": seg.start_time / duration,
+                        "end": seg.end_time / duration,
+                    })
+
+            return {
+                "bpm": track.bpm,
+                "beat_count": beat_count,
+                "bpm_confidence": None,
+                "key": track.key,
+                "key_confidence": track.key_confidence,
+                "camelot": camelot,
+                "mood": track.mood,
+                "energy": track.energy_curve,
+                "genre": track.genre,
+                "spectral_centroid": None,
+                "lufs": track.lufs,
+                "stems_status": stems_status,
+                "structure_segments": segments,
+            }
+    except Exception as e:
+        logger.error("get_audio_detail_data(%d) fehlgeschlagen: %s", audio_id, e)
+        return None
 
 
 def get_all_audio(project_id: int = 1) -> list[dict]:

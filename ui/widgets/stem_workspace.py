@@ -908,10 +908,24 @@ class StemWorkspace(QWidget):
         die Listen auf sobald das thread.finished-Signal eintrifft.
         """
         for worker in list(self._peak_workers):
-            worker.cancel()
+            try:
+                worker.cancel()
+            except RuntimeError:
+                # C++ object already deleted
+                try:
+                    self._peak_workers.remove(worker)
+                except ValueError:
+                    pass
         for thread in list(self._peak_threads):
-            if thread.isRunning():
-                thread.quit()
+            try:
+                if thread.isRunning():
+                    thread.quit()
+            except RuntimeError:
+                # C++ object already deleted
+                try:
+                    self._peak_threads.remove(thread)
+                except ValueError:
+                    pass
 
     def _on_mute_toggled(self, stem_name: str, muted: bool):
         """Mute-Signal weiterleiten."""
@@ -939,8 +953,10 @@ class StemWorkspace(QWidget):
             for name, track in self._tracks.items():
                 should_mute = name not in self._solo_active
                 track._mute_btn.blockSignals(True)
-                track._mute_btn.setChecked(should_mute)
-                track._mute_btn.blockSignals(False)
+                try:
+                    track._mute_btn.setChecked(should_mute)
+                finally:
+                    track._mute_btn.blockSignals(False)
                 self.stem_mute_toggled.emit(name, should_mute)
         else:
             # Kein Solo aktiv → vorherigen Mute-Zustand wiederherstellen
@@ -948,8 +964,10 @@ class StemWorkspace(QWidget):
             for name, track in self._tracks.items():
                 was_muted = pre_state.get(name, False)
                 track._mute_btn.blockSignals(True)
-                track._mute_btn.setChecked(was_muted)
-                track._mute_btn.blockSignals(False)
+                try:
+                    track._mute_btn.setChecked(was_muted)
+                finally:
+                    track._mute_btn.blockSignals(False)
                 self.stem_mute_toggled.emit(name, was_muted)
 
     def _on_waveform_seek(self, ratio: float):

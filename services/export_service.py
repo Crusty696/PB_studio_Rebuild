@@ -168,8 +168,11 @@ def _export_optimized_concat(video_segments, audio_path, output_path,
                 tmp.close()
                 temp_files.append(tmp.name)
 
+                # SEC-03 Fix: Float-Clamp gegen FFmpeg-Filter-Injection aus DB-Werten
+                _b = max(-1.0, min(1.0, float(seg.get('brightness') or 0.0)))
+                _c = max(0.0, min(3.0, float(seg.get('contrast') or 1.0)))
                 vf_parts = [
-                    f"eq=brightness={seg['brightness']}:contrast={seg['contrast']}",
+                    f"eq=brightness={_b}:contrast={_c}",
                     f"scale={w}:{h}:force_original_aspect_ratio=decrease,"
                     f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps={fps}",
                 ]
@@ -313,8 +316,10 @@ def _export_with_filtergraph(video_segments, audio_path, output_path,
             f"scale={w}:{h}:force_original_aspect_ratio=decrease,"
             f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps={fps}"
         )
-        if seg["brightness"] != 0.0 or seg["contrast"] != 1.0:
-            base_filter += f",eq=brightness={seg['brightness']}:contrast={seg['contrast']}"
+        _b2 = max(-1.0, min(1.0, float(seg.get('brightness') or 0.0)))
+        _c2 = max(0.0, min(3.0, float(seg.get('contrast') or 1.0)))
+        if _b2 != 0.0 or _c2 != 1.0:
+            base_filter += f",eq=brightness={_b2}:contrast={_c2}"
         filter_parts.append(f"[{i}:v]{base_filter}[v{i}]")
 
     # Segment-Dauern: Source-Duration wenn vorhanden, sonst Timeline-Duration

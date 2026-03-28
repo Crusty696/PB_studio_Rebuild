@@ -1,9 +1,12 @@
 """Audio-Analyse Mixin fuer PBWindow."""
 
+import logging
+
 from services.task_manager import GlobalTaskManager
 
 from workers import AnalysisWorker, WaveformAnalysisWorker
 
+logger = logging.getLogger(__name__)
 
 # task_manager Proxy — gleiche Logik wie in main.py,
 # damit Methoden-Bodies unveraendert bleiben.
@@ -18,13 +21,37 @@ class AudioAnalysisMixin:
     """Audio analysis methods for PBWindow."""
 
     def _get_selected_audio_track(self):
-        """Hilfsmethode: Gibt (track_id, file_path, title) des ausgewählten Audio-Tracks zurück."""
+        """Hilfsmethode: Gibt (track_id, file_path, title, bpm) des ausgewählten Audio-Tracks zurück.
+
+        Liest die Selection aus der audio_pool_table (primaer) oder media_table (fallback).
+        """
         from database import engine, AudioTrack
         from sqlalchemy.orm import Session as DBSession
-        audio_id = self.audio_combo.currentData()
+
+        audio_id = None
+
+        # Primaer: audio_pool_table (das ist was der User tatsaechlich anklickt)
+        pool_row = self.audio_pool_table.currentRow()
+        if pool_row >= 0:
+            id_item = self.audio_pool_table.item(pool_row, 1)
+            if id_item and id_item.text().isdigit():
+                audio_id = int(id_item.text())
+
+        # Fallback: media_table
+        if audio_id is None:
+            mt_row = self.media_table.currentRow()
+            if mt_row >= 0:
+                type_item = self.media_table.item(mt_row, 1)
+                id_item = self.media_table.item(mt_row, 0)
+                if (type_item and id_item
+                        and type_item.text() == "Audio"
+                        and id_item.text().isdigit()):
+                    audio_id = int(id_item.text())
+
         if audio_id is None:
             self.console_text.append("[Warnung] Kein Audio-Track ausgewählt.")
             return None
+
         with DBSession(engine) as session:
             track = session.get(AudioTrack, audio_id)
             if not track:
@@ -91,98 +118,71 @@ class AudioAnalysisMixin:
 
     def _on_audio_pool_selected(self, row, col, prev_row, prev_col):
         """Sync audio pool selection to hidden media_table + StemWorkspace."""
-        if row < 0:
-            self.stem_player.stop()
-            if hasattr(self, "stem_workspace"):
-                self.stem_workspace.update_for_track(None, None)
-            return
-        aud_id_item = self.audio_pool_table.item(row, 1)
-        if not aud_id_item:
-            self.stem_player.stop()
-            if hasattr(self, "stem_workspace"):
-                self.stem_workspace.update_for_track(None, None)
-            return
-        aud_id = aud_id_item.text()
-        for r in range(self.media_table.rowCount()):
-            item = self.media_table.item(r, 0)
-            type_item = self.media_table.item(r, 1)
-            if item and type_item and item.text() == aud_id and type_item.text() == "Audio":
-                self.media_table.setCurrentCell(r, 0)
-                break
-
-        # Stem Workspace aktualisieren
-        self._update_stem_workspace(int(aud_id))
-
-        # Phase 4: Audio Detail Cards aktualisieren
         try:
-            from database import engine, AudioTrack, Beatgrid, StructureSegment
-            from sqlalchemy.orm import Session as _DBSess
-            from services.key_detection_service import CAMELOT_WHEEL
-            import json as _json
+            if row < 0:
+                self.stem_player.stop()
+                if hasattr(self, "stem_workspace"):
+                    self.stem_workspace.update_for_track(None, None)
+                return
+            aud_id_item = self.audio_pool_table.item(row, 1)
+            if not aud_id_item:
+                self.stem_player.stop()
+                if hasattr(self, "stem_workspace"):
+                    self.stem_workspace.update_for_track(None, None)
+                return
+            aud_id = aud_id_item.text()
+            if not aud_id or not aud_id.isdigit():
+                logger.warning("[AudioPool] Ungueltige Audio-ID in Zeile %d: '%s'", row, aud_id)
+                return
+
+            # Sync zur hidden media_table
+            for r in range(self.media_table.rowCount()):
+                item = self.media_table.item(r, 0)
+                type_item = self.media_table.item(r, 1)
+                if item and type_item and item.text() == aud_id and type_item.text() == "Audio":
+                    self.media_table.setCurrentCell(r, 0)
+                    break
+
             audio_id = int(aud_id)
-            with _DBSess(engine) as session:
-                track = session.get(AudioTrack, audio_id)
-                if track and hasattr(self._media_ws, '_update_audio_detail_cards'):
-                    # Beat count aus Beatgrid
-                    beat_count = None
-                    if track.beatgrid and track.beatgrid.beat_positions:
-                        try:
-                            beat_count = len(_json.loads(track.beatgrid.beat_positions))
-                        except Exception:
-                            beat_count = None
 
-                    # Camelot aus Key
-                    camelot = CAMELOT_WHEEL.get(track.key) if track.key else None
+            # Stem Workspace aktualisieren
+            self._update_stem_workspace(audio_id)
 
-                    # Stems Status
-                    stems_status = "Ja" if track.stem_vocals_path else "Nein"
+            # Phase 4: Audio Detail Cards aktualisieren
+            self._update_detail_cards_for_audio(audio_id)
 
-                    # Structure Segments
-                    seg_rows = session.query(StructureSegment).filter_by(
-                        audio_track_id=audio_id
-                    ).order_by(StructureSegment.start_time).all()
-                    segments = []
-                    if seg_rows:
-                        duration = track.duration or 1.0
-                        for seg in seg_rows:
-                            segments.append({
-                                "label": seg.label,
-                                "start": seg.start_time / duration,
-                                "end": seg.end_time / duration,
-                            })
-
-                    track_data = {
-                        "bpm": track.bpm,
-                        "beat_count": beat_count,
-                        "bpm_confidence": None,  # BPM hat kein separates Confidence-Feld
-                        "key": track.key,
-                        "key_confidence": track.key_confidence,
-                        "camelot": camelot,
-                        "mood": track.mood,
-                        "energy": track.energy_curve,
-                        "genre": track.genre,
-                        "spectral_centroid": None,
-                        "lufs": track.lufs,
-                        "stems_status": stems_status,
-                        "structure_segments": segments,
-                    }
-                    self._media_ws._update_audio_detail_cards(track_data)
         except Exception as e:
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.debug("Audio Detail Cards Update fehlgeschlagen: %s", e)
+            logger.error("[AudioPool] CRASH in _on_audio_pool_selected (row=%s): %s",
+                         row, e, exc_info=True)
+
+    def _update_detail_cards_for_audio(self, audio_id: int):
+        """Laedt Audio-Metadaten via Service und aktualisiert Detail-Cards."""
+        try:
+            if not hasattr(self._media_ws, '_update_audio_detail_cards'):
+                return
+            from services.ingest_service import get_audio_detail_data
+            track_data = get_audio_detail_data(audio_id)
+            if track_data:
+                self._media_ws._update_audio_detail_cards(track_data)
+        except Exception as e:
+            logger.error("[AudioPool] Detail-Cards Update fehlgeschlagen: %s", e, exc_info=True)
 
     def _analyze_selected_audio(self):
         row = self.media_table.currentRow()
         if row < 0:
             self.console_text.append("[Warnung] Keine Zeile ausgewaehlt.")
             return
-        media_type = self.media_table.item(row, 1).text()
-        if media_type != "Audio":
+        type_item = self.media_table.item(row, 1)
+        id_item = self.media_table.item(row, 0)
+        title_item = self.media_table.item(row, 2)
+        if not type_item or not id_item or not title_item:
+            self.console_text.append("[Warnung] Tabellen-Daten unvollstaendig.")
+            return
+        if type_item.text() != "Audio":
             self.console_text.append("[Warnung] Nur Audio-Dateien koennen analysiert werden.")
             return
-        track_id = int(self.media_table.item(row, 0).text())
-        title = self.media_table.item(row, 2).text()
+        track_id = int(id_item.text())
+        title = title_item.text()
 
         task = task_manager.create_task(f"Audio: {title}", "BPM + Beat-Analyse")
 
@@ -242,12 +242,17 @@ class AudioAnalysisMixin:
         if row < 0:
             self.console_text.append("[Warnung] Keine Zeile ausgewaehlt.")
             return
-        media_type = self.media_table.item(row, 1).text()
-        if media_type != "Audio":
+        type_item = self.media_table.item(row, 1)
+        id_item = self.media_table.item(row, 0)
+        title_item = self.media_table.item(row, 2)
+        if not type_item or not id_item or not title_item:
+            self.console_text.append("[Warnung] Tabellen-Daten unvollstaendig.")
+            return
+        if type_item.text() != "Audio":
             self.console_text.append("[Warnung] Wellenform-Analyse nur fuer Audio-Dateien.")
             return
-        track_id = int(self.media_table.item(row, 0).text())
-        title = self.media_table.item(row, 2).text()
+        track_id = int(id_item.text())
+        title = title_item.text()
 
         task = task_manager.create_task(
             f"Waveform: {title}", "Rekordbox Frequenz-Wellenform + Beatgrid"

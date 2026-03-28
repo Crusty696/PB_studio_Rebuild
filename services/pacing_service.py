@@ -19,9 +19,12 @@ from pathlib import Path
 
 import numpy as np
 from sqlalchemy.orm import Session
-from database import engine, AudioTrack, VideoClip, Scene, Beatgrid, AIPacingMemory
+from database import engine, AudioTrack, VideoClip, Scene, Beatgrid, AIPacingMemory, TimelineEntry
 
 logger = logging.getLogger(__name__)
+
+# Sentinel value: step so hoch dass kein Cut stattfindet (breakdown_behavior="none")
+_STEP_NO_CUT = 9999
 
 
 def invalidate_pacing_caches():
@@ -108,39 +111,6 @@ def _get_beat_positions(audio_id: int | None) -> list[float]:
             return positions
     return []
 
-
-def _get_downbeat_positions(audio_id: int | None) -> list[float]:
-    """Laedt die Downbeat-Positionen aus der DB."""
-    if audio_id is None:
-        return []
-    with Session(engine) as session:
-        track = session.get(AudioTrack, audio_id)
-        if not track or not track.beatgrid:
-            return []
-        bg = track.beatgrid
-        if bg.downbeat_positions:
-            try:
-                return [float(p) for p in json.loads(bg.downbeat_positions)]
-            except (json.JSONDecodeError, TypeError):
-                pass
-    return []
-
-
-def _get_energy_per_beat(audio_id: int | None) -> list[float]:
-    """Laedt die RMS-Energie pro Beat aus der DB."""
-    if audio_id is None:
-        return []
-    with Session(engine) as session:
-        track = session.get(AudioTrack, audio_id)
-        if not track or not track.beatgrid:
-            return []
-        bg = track.beatgrid
-        if bg.energy_per_beat:
-            try:
-                return [float(e) for e in json.loads(bg.energy_per_beat)]
-            except (json.JSONDecodeError, TypeError):
-                pass
-    return []
 
 
 def _get_beat_data_combined(
@@ -932,7 +902,7 @@ def _compute_effective_step(
             elif breakdown_behavior == "force16":
                 effective = 16
             elif breakdown_behavior == "none":
-                effective = 9999  # Kein Cut
+                effective = _STEP_NO_CUT
 
         # Mittlere Energie (0.3-0.7): Leichte Modulation
         elif 0.3 <= energy <= 0.5:
@@ -940,7 +910,7 @@ def _compute_effective_step(
             effective = min(16, int(effective * 1.5))
 
     # Guard: "none" = kein Cut, Motion-Adjustment nicht anwenden
-    if effective >= 9999:
+    if effective >= _STEP_NO_CUT:
         return effective
 
     # 3. Motion-Adjusted Step (PhD-Spec Schritt 3: combined_intensity)
@@ -1135,9 +1105,6 @@ def auto_edit_phase3(
     # PhD-Spec Abschnitt 8: Drop-Detection via Bass-Stem
     drops = detect_drops(stem_energy, energy_per_beat, beats)
     drop_times = {d.time for d in drops}
-
-    # PhD-Spec Abschnitt 9: DJ-Transition-Erkennung
-    transitions = detect_transitions(stem_energy, energy_per_beat, beats)
 
     if progress_cb:
         progress_cb(40, "Berechne Cut-Beats...")
@@ -1424,50 +1391,6 @@ def generate_keyframe_strings_for_project(project_id: int = 1) -> str:
 # Phase 3: Dynamisches Motion-Pacing
 # ======================================================================
 
-def _motion_adjusted_step(
-    base_step: int,
-    seg_start: float,
-    seg_end: float,
-    video_info: dict[int, dict],
-    available_ids: list[int],
-    energy_value: float,
-) -> int:
-    """Passt den Beat-Schritt dynamisch an die Motion-Werte der Video-Szenen an.
-
-    NICHT stur nach 4 Beats schneiden! Die Schnittlaenge muss sich
-    an die Energie des Songs UND die Action im Bild anpassen.
-    """
-    # Sammle durchschnittlichen Motion-Score aller verfuegbaren Szenen
-    # die zeitlich zu diesem Segment passen koennten
-    total_motion = 0.0
-    motion_count = 0
-    for vid in available_ids:
-        scenes = video_info.get(vid, {}).get("scenes", [])
-        for scene in scenes:
-            total_motion += scene.get("energy", 0.5)
-            motion_count += 1
-
-    avg_motion = total_motion / motion_count if motion_count > 0 else 0.5
-
-    # Kombination: Audio-Energie + Video-Motion bestimmen Schnittlaenge
-    combined_intensity = (energy_value * 0.6 + avg_motion * 0.4)
-
-    if combined_intensity >= 0.8:
-        # Hohe Intensitaet: Sehr schnelle Schnitte (1-2 Beats)
-        return max(1, base_step // 4)
-    elif combined_intensity >= 0.6:
-        # Mittel-hoch: Schnelle Schnitte (2 Beats)
-        return max(1, base_step // 2)
-    elif combined_intensity >= 0.4:
-        # Mittel: Normale Schnitte (base_step)
-        return base_step
-    elif combined_intensity >= 0.2:
-        # Ruhig: Langsame Schnitte (doppelt)
-        return min(16, base_step * 2)
-    else:
-        # Sehr ruhig: Sehr langsame Schnitte
-        return min(16, base_step * 4)
-
 
 def _match_video_by_motion(
     energy_value: float,
@@ -1594,6 +1517,9 @@ def learn_from_anchor(
             cut_type = "hard_cut" if is_energetic else "crossfade"
             crossfade = 0.0 if cut_type == "hard_cut" else 1.5
 
+            _MOOD_TO_SECTION = {"drop": "DROP", "peak": "DROP", "buildup": "BUILDUP", "breakdown": "BREAKDOWN", "warmup": "WARMUP"}
+            section_type = _MOOD_TO_SECTION.get(mood, mood.upper() if mood else None)
+
             mem = AIPacingMemory(
                 created_at=datetime.datetime.now().isoformat(),
                 bpm=bpm,
@@ -1603,7 +1529,7 @@ def learn_from_anchor(
                 raft_motion=raft_motion,
                 cut_type=cut_type,
                 crossfade_duration=crossfade,
-                section_type=(mood.upper() if mood else None),
+                section_type=section_type,
                 scene_id=scene_id,
                 audio_track_id=audio_track_id,
                 label=label or f"Anker@{anchor_time:.1f}s",
@@ -1620,6 +1546,34 @@ def learn_from_anchor(
         return False
 
 
+def record_rl_feedback(audio_track_id: int, sentiment: str, project_id: int = 1) -> bool:
+    """Speichert RL-Feedback (thumbs up/down) als AIPacingMemory Eintrag."""
+    from datetime import datetime
+    try:
+        with Session(engine) as session:
+            track = session.get(AudioTrack, audio_track_id)
+            entry_count = session.query(TimelineEntry).filter_by(
+                project_id=project_id, track="video"
+            ).count()
+
+            mem = AIPacingMemory(
+                created_at=datetime.now().isoformat(),
+                audio_track_id=audio_track_id,
+                bpm=track.bpm if track else None,
+                label=f"rl_feedback_{sentiment}",
+                mood=sentiment,
+                cut_type=f"feedback_{entry_count}_clips",
+            )
+            session.add(mem)
+            session.commit()
+            logger.info("RL-Feedback gespeichert: %s, audio=%d, clips=%d",
+                        sentiment, audio_track_id, entry_count)
+            return True
+    except Exception as exc:
+        logger.error("record_rl_feedback fehlgeschlagen: %s", exc)
+        return False
+
+
 def _get_ai_memory_bias(bpm: float, overall_energy: float) -> dict | None:
     """Sucht aehnliche Audio-Situationen im KI-Gedaechtnis.
 
@@ -1631,7 +1585,10 @@ def _get_ai_memory_bias(bpm: float, overall_energy: float) -> dict | None:
     """
     try:
         with Session(engine) as session:
-            memories = session.query(AIPacingMemory).all()
+            memories = session.query(AIPacingMemory).filter(
+                AIPacingMemory.bpm.between(bpm * 0.85, bpm * 1.15),
+                AIPacingMemory.overall_energy.between(overall_energy - 0.25, overall_energy + 0.25)
+            ).all()
             if not memories:
                 return None
 

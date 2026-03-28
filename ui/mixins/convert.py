@@ -5,7 +5,7 @@ from pathlib import Path
 from PySide6.QtCore import QTimer
 from PySide6.QtGui import QImage, QPixmap
 
-from database import engine, VideoClip, TimelineEntry
+from database import engine, VideoClip, TimelineEntry, get_active_project_id
 from sqlalchemy.orm import Session as DBSession
 
 from services.task_manager import GlobalTaskManager
@@ -30,7 +30,7 @@ class ConvertMixin:
         with DBSession(engine) as session:
             entries = (
                 session.query(TimelineEntry)
-                .filter_by(project_id=1, track="video")
+                .filter_by(project_id=get_active_project_id(), track="video")
                 .order_by(TimelineEntry.start_time)
                 .all()
             )

@@ -101,7 +101,10 @@ class OrchestratorAgent(BaseAgent):
 
     def _detect_analyze_all(self, user_text: str) -> bool:
         """Erkennt 'analysiere alle importierten Files' (auch mit Tippfehlern)."""
-        from thefuzz import fuzz
+        try:
+            from thefuzz import fuzz
+        except ImportError:
+            return False  # Fuzzy-Matching nicht verfuegbar
 
         text_lower = user_text.lower()
 

@@ -190,9 +190,10 @@ class LUFSService:
         loudness_range = _safe_float(data.get("input_lra"), 8.0)
         true_peak = _safe_float(data.get("input_tp"), -1.0)
 
-        # Short-term max: integrated + half the loudness range as approximation.
-        # Clamp so it doesn't exceed true peak + headroom.
-        short_term_max = integrated + (loudness_range / 2.0)
+        # Short-term max approximation: LRA high ≈ integrated + 0.8 * LRA
+        # (EBU R128: LRA = difference between 10th and 95th percentile of short-term loudness)
+        # Die exakte Berechnung braeuchte ebur128 Filter mit peak=true.
+        short_term_max = integrated + (loudness_range * 0.8)
         short_term_max = min(short_term_max, true_peak + ST_MAX_HEADROOM_DB)
 
         log.info(
