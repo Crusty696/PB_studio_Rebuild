@@ -387,11 +387,13 @@ class AudioAnalysisMixin:
             worker.task_id = task.task_id
 
             # Bei Erfolg ODER Fehler: naechsten Schritt starten
-            worker.finished.connect(lambda *args: self._on_seq_step_done(step_name, True))
-
+            # WICHTIG: on_finish/on_error an _start_worker_thread uebergeben,
+            # NICHT manuell worker.finished.connect() — sonst laeuft der Callback
+            # im Worker-Thread und QTimer.singleShot funktioniert nicht.
             self._start_worker_thread(
                 worker,
-                on_error=lambda *args: self._on_seq_step_done(step_name, False),
+                on_finish=lambda *args, _sn=step_name: self._on_seq_step_done(_sn, True),
+                on_error=lambda *args, _sn=step_name: self._on_seq_step_done(_sn, False),
             )
         except Exception as e:
             logger.error("[Komplett] Fehler beim Starten von %s: %s", step_name, e)
