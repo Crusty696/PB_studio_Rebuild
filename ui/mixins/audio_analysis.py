@@ -217,7 +217,7 @@ class AudioAnalysisMixin:
         beats = len(result.get("beat_positions", []))
         self.console_text.append(
             f"[Audio] Analyse fertig: {bpm} BPM | Dauer: {duration}s | "
-            f"Beats: {beats} | Energie-Punkte: {len(result['energy_curve'])}"
+            f"Beats: {beats} | Energie-Punkte: {len(result.get('energy_curve', []))}"
         )
         self.btn_analyze.setEnabled(True)
         self.btn_analyze.setText("Audio analysieren")

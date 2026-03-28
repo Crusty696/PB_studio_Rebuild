@@ -123,12 +123,14 @@ class Result(Generic[T]):
             show_error(result.error)
     """
 
-    __slots__ = ("_value", "_error", "_is_fallback")
+    __slots__ = ("_value", "_error", "_is_fallback", "_fallback_reason")
 
-    def __init__(self, value: T = None, error: str = None, is_fallback: bool = False):
+    def __init__(self, value: T = None, error: str = None, is_fallback: bool = False,
+                 fallback_reason: str = ""):
         self._value = value
         self._error = error
         self._is_fallback = is_fallback
+        self._fallback_reason = fallback_reason
 
     @property
     def is_ok(self) -> bool:
@@ -140,16 +142,21 @@ class Result(Generic[T]):
         return self._is_fallback
 
     @property
+    def fallback_reason(self) -> str:
+        """Grund warum ein Fallback-Wert geliefert wurde."""
+        return self._fallback_reason
+
+    @property
     def error(self) -> str | None:
         return self._error
 
     def unwrap(self) -> T:
-        if self._error:
+        if self._error is not None:
             raise ValueError(f"Result.unwrap() auf Fehler: {self._error}")
         return self._value
 
     def unwrap_or(self, default: T) -> T:
-        return self._value if self._error is None else default
+        return default if self._error is not None else self._value
 
     @classmethod
     def ok(cls, value: T) -> "Result[T]":
@@ -162,7 +169,7 @@ class Result(Generic[T]):
     @classmethod
     def fallback(cls, value: T, reason: str) -> "Result[T]":
         """Erstellt ein Ergebnis mit Fallback-Wert und Grund."""
-        return cls(value=value, is_fallback=True)
+        return cls(value=value, is_fallback=True, fallback_reason=reason)
 
     def __repr__(self):
         if self._error:

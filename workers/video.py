@@ -104,7 +104,7 @@ class VideoBatchAnalysisWorker(QObject, CancellableMixin):
                     errors += 1
                     logger.error("BatchAnalysis[%d] '%s' failed: %s\n%s",
                                  clip_id, title, e, traceback.format_exc())
-                    self.item_error.emit(clip_id, str(e))
+                    self.item_error.emit(clip_id, format_user_error(e))
                 finally:
                     gc.collect()
 
