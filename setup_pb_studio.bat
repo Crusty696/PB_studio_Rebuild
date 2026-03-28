@@ -1,7 +1,7 @@
 @echo off
-title PB Studio Rebuild — Setup
+title PB Studio Rebuild - Setup
 echo ============================================
-echo   PB Studio Rebuild — Setup starten
+echo   PB Studio Rebuild - Setup starten
 echo ============================================
 echo.
 
@@ -46,6 +46,6 @@ echo   Python 3.11 gefunden: %PY311%
 echo.
 
 :: Setup-Skript mit Python 3.11 starten
-%PY311% "%~dp0setup_pb_studio.py"
+%PY311% "%~dp0setup_pb_studio.py" %*
 
 exit /b %ERRORLEVEL%

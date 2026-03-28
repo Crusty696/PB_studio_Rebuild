@@ -1,7 +1,7 @@
 @echo off
 title PB Studio Rebuild
 echo ============================================
-echo   PB Studio Rebuild — App starten
+echo   PB Studio Rebuild - App starten
 echo ============================================
 echo.
 
@@ -12,13 +12,13 @@ if exist "%~dp0.venv\Scripts\python.exe" (
     echo.
     "%~dp0.venv\Scripts\python.exe" "%~dp0main.py"
 ) else (
-    echo   .venv nicht gefunden — starte Setup zuerst...
+    echo   .venv nicht gefunden - starte Setup zuerst...
     echo.
     if exist "%~dp0setup_pb_studio.bat" (
         call "%~dp0setup_pb_studio.bat"
         if exist "%~dp0.venv\Scripts\python.exe" (
             echo.
-            echo   Setup fertig — starte PB Studio...
+            echo   Setup fertig - starte PB Studio...
             "%~dp0.venv\Scripts\python.exe" "%~dp0main.py"
         ) else (
             echo   Setup fehlgeschlagen. Bitte manuell pruefen.
