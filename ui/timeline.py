@@ -456,6 +456,8 @@ class InteractiveTimeline(QGraphicsView):
             "energy": QColor(200, 100, 200, 180),
             "drum": QColor(255, 80, 80, 220),
             "anchor": QColor(255, 0, 255, 220),
+            "transition": QColor(0, 200, 255, 220),   # Cyan fuer DJ-Uebergaenge
+            "drop": QColor(255, 40, 40, 255),          # Rot fuer Drops
         }
         for cp in cuts:
             x = cp.time * PIXELS_PER_SECOND

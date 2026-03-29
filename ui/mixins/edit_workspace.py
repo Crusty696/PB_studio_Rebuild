@@ -116,10 +116,17 @@ class EditWorkspaceMixin:
         scene_cuts = sum(1 for c in cuts if c.source == "scene")
         energy_cuts = sum(1 for c in cuts if c.source == "energy")
         drum_cuts = sum(1 for c in cuts if c.source == "drum")
-        self.cut_info_label.setText(
-            f"{len(cuts)} Cuts | Beat:{beat_cuts} Szene:{scene_cuts} "
-            f"Energie:{energy_cuts} Drum:{drum_cuts} | {total_dur:.0f}s"
-        )
+        transition_cuts = sum(1 for c in cuts if c.source == "transition")
+        drop_cuts = sum(1 for c in cuts if c.source == "drop")
+        info_parts = [f"{len(cuts)} Cuts"]
+        if beat_cuts: info_parts.append(f"Beat:{beat_cuts}")
+        if scene_cuts: info_parts.append(f"Szene:{scene_cuts}")
+        if energy_cuts: info_parts.append(f"Energie:{energy_cuts}")
+        if drum_cuts: info_parts.append(f"Drum:{drum_cuts}")
+        if transition_cuts: info_parts.append(f"DJ-Mix:{transition_cuts}")
+        if drop_cuts: info_parts.append(f"Drop:{drop_cuts}")
+        info_parts.append(f"{total_dur:.0f}s")
+        self.cut_info_label.setText(" | ".join(info_parts))
         self.console_text.append(
             f"[Pacing] {len(cuts)} Cuts generiert (Manual Curve aktiv)"
         )
@@ -223,10 +230,14 @@ class EditWorkspaceMixin:
 
             anchor_cuts = sum(1 for cp in cut_points if cp["source"] == "anchor")
             beat_cuts = sum(1 for cp in cut_points if cp["source"] == "beat")
-            self.cut_info_label.setText(
-                f"{len(cut_points)} Cuts | Beat:{beat_cuts} Anker:{anchor_cuts} | "
-                f"{total_dur:.0f}s | {len(segments)} Segmente"
-            )
+            transition_cuts = sum(1 for cp in cut_points if cp["source"] == "transition")
+            drop_cuts = sum(1 for cp in cut_points if cp["source"] == "drop")
+            parts = [f"{len(cut_points)} Cuts", f"Beat:{beat_cuts}"]
+            if anchor_cuts: parts.append(f"Anker:{anchor_cuts}")
+            if transition_cuts: parts.append(f"DJ-Mix:{transition_cuts}")
+            if drop_cuts: parts.append(f"Drop:{drop_cuts}")
+            parts.append(f"{total_dur:.0f}s | {len(segments)} Segmente")
+            self.cut_info_label.setText(" | ".join(parts))
 
         self.console_text.append(
             f"[Auto-Edit] Phase 3 fertig: {len(segments)} Segmente, "

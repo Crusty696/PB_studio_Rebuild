@@ -1132,6 +1132,13 @@ def auto_edit_phase3(
                 avg_motion, memory_bias.get("label", ""),
             )
 
+    # DJ-Mix Transition-Erkennung (PhD-Spec Abschnitt 9)
+    transitions = detect_transitions(stem_energy, energy_per_beat, beats)
+    transition_ranges = [(t[0], t[1]) for t in transitions]
+    if transitions:
+        logger.info("DJ-Uebergaenge erkannt: %s",
+                    [(f"{s:.0f}-{e:.0f}s") for s, e in transition_ranges])
+
     # 5. Cut-Beats berechnen (Phase 3 mit Motion-Fusion + Vocal-Awareness)
     cut_beats = _select_cut_beats_advanced(
         beats, total_duration, settings, energy_per_beat,
@@ -1251,6 +1258,13 @@ def auto_edit_phase3(
         if is_drop:
             seg_crossfade = 0.0
 
+        # DJ-Mix Transition: Laengerer Crossfade + "transition" Source-Tag
+        is_in_transition = any(
+            t_start <= seg_start < t_end for t_start, t_end in transition_ranges
+        )
+        if is_in_transition and not is_drop:
+            seg_crossfade = max(seg_crossfade, 2.0)  # Mindestens 2s Crossfade bei DJ-Uebergang
+
         segments.append(TimelineSegment(
             video_id=vid,
             video_path=vid_path,
@@ -1265,7 +1279,14 @@ def auto_edit_phase3(
         ))
 
         # CutPoint fuer UI-Visualisierung
-        source_type = "drop" if is_drop else ("anchor" if is_anchor else "beat")
+        if is_in_transition:
+            source_type = "transition"
+        elif is_drop:
+            source_type = "drop"
+        elif is_anchor:
+            source_type = "anchor"
+        else:
+            source_type = "beat"
         # Energie-basierte Staerke
         beat_idx = np.searchsorted(beats_arr, seg_start)
         beat_idx = min(beat_idx, len(energy_per_beat) - 1) if energy_per_beat else 0
