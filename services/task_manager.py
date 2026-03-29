@@ -236,18 +236,18 @@ class GlobalTaskManager(QObject):
             )
 
         # Finish-Guard: skip on_finish wenn Worker im Error-Pfad ist
+        # WICHTIG: QueuedConnection erzwingen — PySide6 nutzt DirectConnection
+        # fuer Python-Lambdas, was den Callback im Worker-Thread ausfuehrt.
         if on_finish:
             def _guarded_finish(*args, _w=worker, _cb=on_finish):
                 if not getattr(_w, '_errored', False):
                     _cb(*args)
-            worker.finished.connect(_guarded_finish)
+            worker.finished.connect(_guarded_finish, Qt.ConnectionType.QueuedConnection)
 
         # Error-Signal: Fallback-Logger immer verbinden (stille Fehler verhindern).
-        # Verbindet einen Default-Handler, der den Fehler loggt und den Task
-        # als "error" markiert — auch wenn kein on_error-Callback uebergeben wurde.
         if hasattr(worker, "error"):
             if on_error:
-                worker.error.connect(on_error)
+                worker.error.connect(on_error, Qt.ConnectionType.QueuedConnection)
             else:
                 def _default_error_handler(*args, _tid=task_id, _name=name, _tm=self):
                     err_msg = str(args[-1]) if args else "Unbekannter Fehler"
@@ -256,7 +256,7 @@ class GlobalTaskManager(QObject):
                         _name, _tid, err_msg,
                     )
                     _tm.finish_task(_tid, status="error", message=err_msg)
-                worker.error.connect(_default_error_handler)
+                worker.error.connect(_default_error_handler, Qt.ConnectionType.QueuedConnection)
 
         # Thread-Lifecycle: finished → quit → cleanup (deleteLater nur einmal!)
         worker.finished.connect(thread.quit)

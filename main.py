@@ -752,11 +752,14 @@ class PBWindow(QMainWindow, AudioAnalysisMixin, VideoAnalysisMixin,
                 def _guarded_finish(*args, _w=worker, _cb=on_finish):
                     if not getattr(_w, '_errored', False):
                         _cb(*args)
-                worker.finished.connect(_guarded_finish)
+                # WICHTIG: QueuedConnection erzwingen — PySide6 nutzt DirectConnection
+                # fuer Python-Lambdas, was den Callback im Worker-Thread ausfuehrt.
+                # QTimer.singleShot funktioniert nur im Main-Thread.
+                worker.finished.connect(_guarded_finish, Qt.ConnectionType.QueuedConnection)
             # Error-Signal: Entweder custom on_error ODER den Default-Handler verbinden
             # (nie beide, da sonst finish_task() doppelt aufgerufen wird).
             if on_error:
-                worker.error.connect(on_error)
+                worker.error.connect(on_error, Qt.ConnectionType.QueuedConnection)
             else:
                 def _default_error_handler(*args, _tid=existing_task_id, _name=worker_name,
                                            _tm=tm):
