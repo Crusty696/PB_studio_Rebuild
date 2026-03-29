@@ -207,12 +207,23 @@ def _get_video_info(video_ids: list[int]) -> dict[int, dict]:
 
 @lru_cache(maxsize=32)
 def _get_video_info_cached(video_ids: tuple[int, ...]) -> dict[int, dict]:
-    """Cached-Backend fuer _get_video_info (tuple ist hashable)."""
+    """Cached-Backend fuer _get_video_info (tuple ist hashable).
+
+    Nutzt joinedload um N+1 Lazy-Loading zu vermeiden — ohne joinedload
+    wuerden 50 Clips = 50 separate Scene-Queries, die den Connection Pool
+    erschoepfen koennen (QueuePool limit reached).
+    """
+    from sqlalchemy.orm import joinedload
     info = {}
     if not video_ids:
         return info
     with Session(engine) as session:
-        clips = session.query(VideoClip).filter(VideoClip.id.in_(video_ids)).all()
+        clips = (
+            session.query(VideoClip)
+            .options(joinedload(VideoClip.scenes))
+            .filter(VideoClip.id.in_(video_ids))
+            .all()
+        )
         for clip in clips:
             info[clip.id] = {
                 "duration": clip.duration or 10.0,
