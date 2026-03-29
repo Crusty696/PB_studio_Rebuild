@@ -769,7 +769,7 @@ class PBWindow(QMainWindow, AudioAnalysisMixin, VideoAnalysisMixin,
                         _name, _tid, err_msg,
                     )
                     _tm.finish_task(_tid, status="error", message=err_msg)
-                worker.error.connect(_default_error_handler)
+                worker.error.connect(_default_error_handler, Qt.ConnectionType.QueuedConnection)
 
             # Progress-Signal auto-verbinden wenn vorhanden
             if hasattr(worker, "progress"):
