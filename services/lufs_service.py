@@ -154,10 +154,14 @@ class LUFSService:
 
         log.debug("LUFS-Analyse Kommando: %s", " ".join(cmd))
 
+        # C-03 Fix: encoding + errors fuer robustes Decoding (FFmpeg kann
+        # Nicht-UTF-8-Zeichen in Dateinamen/Metadaten ausgeben)
         result = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=FFMPEG_TIMEOUT_SEC,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
@@ -191,9 +195,12 @@ class LUFSService:
         loudness_range = _safe_float(data.get("input_lra"), 8.0)
         true_peak = _safe_float(data.get("input_tp"), -1.0)
 
-        # Short-term max approximation: LRA high ≈ integrated + 0.8 * LRA
-        # (EBU R128: LRA = difference between 10th and 95th percentile of short-term loudness)
-        # Die exakte Berechnung braeuchte ebur128 Filter mit peak=true.
+        # F-01: APPROXIMATION — kein exakter EBU R128 Short-Term LUFS Wert!
+        # Formel: integrated + 0.8 * LRA (LRA = Differenz zwischen 10. und 95. Perzentil
+        # der Short-Term Loudness nach EBU R128). Der Faktor 0.8 schaetzt das 95. Perzentil.
+        # Fuer exakte Werte muesste FFmpeg mit "-af ebur128=peak=true" laufen und die
+        # Short-Term LUFS Zeitreihe geparst werden. Das Feld heisst "short_term_max",
+        # sollte aber als "short_term_max_approx" verstanden werden.
         short_term_max = integrated + (loudness_range * 0.8)
         short_term_max = min(short_term_max, true_peak + ST_MAX_HEADROOM_DB)
 

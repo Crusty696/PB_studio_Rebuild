@@ -111,8 +111,14 @@ class KeyDetectionService:
             correlations = []  # (correlation, key_index, is_minor)
 
             for shift in range(12):
-                # Rotate the profile so that index 0 corresponds to the
-                # current pitch class as tonic
+                # G-01: Rotation direction: np.roll(_KK_MAJOR, -shift) rotiert das
+                # Referenzprofil nach LINKS um `shift` Positionen. Das bedeutet:
+                # Bei shift=0 (C) bleibt das Profil unveraendert.
+                # Bei shift=1 (C#) wird das Profil so rotiert, dass Index 0
+                # dem Profil-Eintrag fuer C# als Tonika entspricht.
+                # Die NEGATIVE Richtung ist korrekt, weil wir das Referenzprofil
+                # an die feste chroma_avg-Reihenfolge (C, C#, D, ...) anpassen,
+                # NICHT umgekehrt. Equivalent zu: chroma_avg um +shift rotieren.
                 rotated_major = np.roll(_KK_MAJOR, -shift)
                 rotated_minor = np.roll(_KK_MINOR, -shift)
 

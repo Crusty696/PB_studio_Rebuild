@@ -10,12 +10,14 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from pathlib import Path
 
 import numpy as np
 
 from sqlalchemy.orm import Session
 from database import engine, AudioTrack, Beatgrid
+from services.audio_constants import DEFAULT_SR
 
 logger = logging.getLogger(__name__)
 
@@ -34,13 +36,15 @@ class BeatAnalysisService:
     """
 
     _instance = None
+    _lock = threading.Lock()
 
     def __new__(cls, device: str | None = None):
-        """Singleton — verhindert doppeltes GPU-Modell bei parallelen Aufrufen."""
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance._initialized = False
-        return cls._instance
+        """E-01 Fix: Thread-safe Singleton mit Lock — verhindert doppeltes GPU-Modell."""
+        with cls._lock:
+            if cls._instance is None:
+                cls._instance = super().__new__(cls)
+                cls._instance._initialized = False
+            return cls._instance
 
     def __init__(self, device: str | None = None):
         if self._initialized:
@@ -51,6 +55,8 @@ class BeatAnalysisService:
         # Private cache for audio array; populated by analyze(), consumed by analyze_and_store()
         self._last_y = None
         self._last_sr = None
+        # E-02 Fix: Lock um analyze() + _last_y Zugriff in analyze_and_store() atomar zu halten
+        self._analysis_lock = threading.Lock()
 
     @property
     def device(self) -> str:
@@ -137,6 +143,8 @@ class BeatAnalysisService:
             duration = librosa.get_duration(path=audio_path)
         except Exception as e:
             raise RuntimeError(f"Audio-Dauer konnte nicht ermittelt werden: {e}") from e
+        # Edge Case: Dateien <0.5s werden abgelehnt. Dateien 0.5s-2s werden verarbeitet,
+        # koennen aber 0-1 Beats liefern. energy_per_beat wird dann [] (leer).
         if duration < 0.5:
             raise ValueError(f"Audio-Datei zu kurz ({duration:.2f}s): {Path(audio_path).name}")
         logger.info("Audio-Dauer: %.1fs (%s)", duration, Path(audio_path).name)
@@ -146,7 +154,7 @@ class BeatAnalysisService:
 
         # Audio einmalig laden (wird fuer Chunking UND Energie-Analyse wiederverwendet)
         try:
-            y, sr = librosa.load(audio_path, sr=22050, mono=True)
+            y, sr = librosa.load(audio_path, sr=DEFAULT_SR, mono=True)
         except Exception as e:
             raise RuntimeError(f"Audio konnte nicht geladen werden: {e}") from e
 
@@ -254,8 +262,12 @@ class BeatAnalysisService:
             beats = np.array(beats) + chunk_offset_sec
             downbeats = np.array(downbeats) + chunk_offset_sec
 
-            # Overlap-Bereich: nur Beats akzeptieren die nach dem
-            # letzten Beat des vorherigen Chunks liegen
+            # E-04 Design Tradeoff: Overlap-Deduplizierung per Zeitstempel-Threshold.
+            # Die 0.05s Toleranz ist ein Kompromiss: zu klein -> Duplikat-Beats an
+            # Chunk-Grenzen, zu gross -> fehlende Beats bei hohem BPM (>300 BPM haette
+            # ~0.2s Intervall). Fuer DJ-Musik (60-180 BPM) ist 0.05s sicher.
+            # Alternative waere NMS (Non-Maximum Suppression), aber das erfordert
+            # Beat-Confidence-Scores die beat_this nicht zurueckgibt.
             if all_beats and len(beats) > 0:
                 last_beat = all_beats[-1]
                 # Nur Beats behalten die mindestens 0.05s nach dem letzten sind
@@ -290,14 +302,18 @@ class BeatAnalysisService:
             file_path = track.file_path
 
         try:
-            result = self.analyze(file_path, progress_cb=progress_cb)
+            # E-02 Fix: Lock um analyze() + _last_y Zugriff atomar zu halten,
+            # damit kein paralleler Thread zwischen analyze() und dem Lesen
+            # von _last_y/_last_sr eine Race Condition verursacht.
+            with self._analysis_lock:
+                result = self.analyze(file_path, progress_cb=progress_cb)
 
-            # Phase 3: Per-Beat RMS-Energie berechnen (Audio aus analyze() wiederverwenden).
-            # A-06 Fix: Thread-safe — lokale Kopie sofort entnehmen und Instanz-Ref loeschen.
-            y = self._last_y
-            sr = self._last_sr
-            self._last_y = None
-            self._last_sr = None
+                # Phase 3: Per-Beat RMS-Energie berechnen (Audio aus analyze() wiederverwenden).
+                # A-06 Fix: Thread-safe — lokale Kopie sofort entnehmen und Instanz-Ref loeschen.
+                y = self._last_y
+                sr = self._last_sr
+                self._last_y = None
+                self._last_sr = None
             if y is not None and sr is not None:
                 energy_per_beat = self._compute_energy_per_beat(
                     y, sr, result["beats"], result["duration"]

@@ -223,7 +223,9 @@ class TestFrequencyAnalyzerAndStore:
             count = s.query(WaveformData).filter_by(audio_track_id=track_id).count()
             assert count == 1, f"Erwartet 1 WaveformData, gefunden: {count}"
             track = s.get(AudioTrack, track_id)
-            assert track.bpm == 140.0
+            # J-01 Fix: BPM wird NICHT ueberschrieben wenn bereits gesetzt (128.0 aus erster Analyse)
+            # FrequencyAnalyzer soll den praeziseren BPM-Wert von BeatAnalysisService nicht ueberschreiben
+            assert track.bpm == 128.0
             assert track.waveform_data.num_samples == 5
 
     def test_analyze_and_store_raises_if_track_gone_after_analysis(self, test_engine):

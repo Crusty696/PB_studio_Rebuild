@@ -5,6 +5,7 @@ import librosa
 
 from sqlalchemy.orm import Session
 from database import engine, AudioTrack
+from services.audio_constants import DEFAULT_SR
 
 # Per-Track Lock um Race Conditions bei parallelen Analysen desselben Tracks zu verhindern
 _track_locks: dict[int, threading.Lock] = {}
@@ -22,7 +23,7 @@ def _get_track_lock(track_id: int) -> threading.Lock:
 class AudioAnalyzer:
     """Analysiert Audiodateien: BPM-Erkennung, Beat-Positionen und Energiekurve (RMS)."""
 
-    def __init__(self, sr: int = 22050):
+    def __init__(self, sr: int = DEFAULT_SR):
         self.sr = sr
 
     @staticmethod

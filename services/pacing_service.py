@@ -20,6 +20,7 @@ from pathlib import Path
 import numpy as np
 from sqlalchemy.orm import Session
 from database import engine, AudioTrack, VideoClip, Scene, Beatgrid, AIPacingMemory, TimelineEntry
+from services.audio_constants import DEFAULT_SR
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +87,15 @@ class TimelineSegment:
 # ── Data Access ──
 
 def _get_beat_positions(audio_id: int | None) -> list[float]:
-    """Laedt die exakten Beat-Positionen aus dem Beatgrid der DB."""
+    """Laedt die exakten Beat-Positionen aus dem Beatgrid der DB.
+
+    Fallback: Wenn kein Beatgrid vorhanden ist, wird ein synthetisches Grid
+    aus track.bpm generiert. Das reduziert die Pacing-Qualitaet (keine Downbeats,
+    keine energy_per_beat). BeatAnalysisService sollte vorher gelaufen sein.
+
+    Hinweis: track.bpm und beatgrid.bpm koennen divergieren wenn track.bpm
+    manuell editiert oder von einem anderen Service ueberschrieben wurde.
+    """
     if audio_id is None:
         return []
     with Session(engine) as session:
@@ -255,6 +264,9 @@ def compute_stem_weighted_energy(
 ) -> StemEnergy | None:
     """F-004: Berechnet per-Beat RMS-Energie aus den individuellen Demucs-Stems.
 
+    ACHTUNG: Liest alle 4 Stem-Files von Disk bei jedem Aufruf (librosa.load).
+    Bei 60min DJ-Mix = 4x librosa.load. Nicht gecacht — wird bei jedem auto_edit_phase3() neu berechnet.
+
     PhD-Spec Abschnitt 3.3:
       E_weighted(t) = w_drums * E_drums(t) + w_bass * E_bass(t)
                     + w_vocals * E_vocals(t) + w_other * E_other(t)
@@ -299,7 +311,7 @@ def compute_stem_weighted_energy(
         load_duration = load_end - load_offset
 
         try:
-            y, sr = librosa.load(audio_path, sr=22050, mono=True,
+            y, sr = librosa.load(audio_path, sr=DEFAULT_SR, mono=True,
                                  offset=load_offset, duration=load_duration)
         except Exception as e:
             logger.warning("Konnte Stem '%s' nicht laden: %s", audio_path, e)
@@ -519,7 +531,7 @@ def compute_vocal_activity(
         load_offset = max(0.0, beats[0] - 1.0)
         load_end = beats[-1] + 1.0  # 1s Buffer nach dem letzten Beat
         load_duration = load_end - load_offset
-        y, sr = librosa.load(vocals_path, sr=22050, mono=True,
+        y, sr = librosa.load(vocals_path, sr=DEFAULT_SR, mono=True,
                              offset=load_offset, duration=load_duration)
     except Exception as e:
         logger.warning("Konnte Vocal-Stem '%s' nicht laden: %s", vocals_path, e)
@@ -592,7 +604,9 @@ def detect_drops(
             # Dedupliziere: kein zweiter Drop innerhalb von 16 Beats
             if drops and i < len(beats):
                 last_drop_time = drops[-1].time
-                if beat_time - last_drop_time < 16 * (beats[1] - beats[0] if len(beats) > 1 else 0.5):
+                # I-04 Fix: Guard gegen beats[1] <= beats[0] (z.B. bei fehlerhaften Beat-Daten)
+                beat_interval = (beats[1] - beats[0]) if (len(beats) > 1 and beats[1] > beats[0]) else 0.5
+                if beat_time - last_drop_time < 16 * beat_interval:
                     continue
 
             drops.append(DropEvent(
@@ -656,8 +670,9 @@ def detect_transitions(
     # Berechne lokale Varianz (hohe Varianz = zwei Tracks ueberlagern sich)
     variance = np.convolve((np.array(drum_energy[:n]) - smoothed) ** 2, kernel, mode='same')
 
-    # Normalisiere
-    max_var = float(np.max(variance)) if np.max(variance) > 0 else 1.0
+    # Normalisiere (biased Varianz-Schaetzer — fuer relative Erkennung ausreichend)
+    _max_v = float(np.max(variance))
+    max_var = _max_v if _max_v > 0 else 1.0
     norm_var = variance / max_var
 
     # Finde Bereiche mit hoher Varianz (> 0.5) die mindestens min_transition_beats lang sind
@@ -806,7 +821,7 @@ def calculate_drum_cuts(audio_id: int, total_duration: float = 60.0,
         drums_path = track.stem_drums_path
     try:
         import librosa
-        y, sr = librosa.load(drums_path, sr=22050, mono=True)
+        y, sr = librosa.load(drums_path, sr=DEFAULT_SR, mono=True)
     except Exception as e:
         logger.warning("librosa.load fehlgeschlagen für Drums-Stem '%s': %s", drums_path, e)
         return []
@@ -1263,7 +1278,9 @@ def auto_edit_phase3(
             t_start <= seg_start < t_end for t_start, t_end in transition_ranges
         )
         if is_in_transition and not is_drop:
-            seg_crossfade = max(seg_crossfade, 2.0)  # Mindestens 2s Crossfade bei DJ-Uebergang
+            # DJ-Uebergang: Laengerer Crossfade als SECTION_CROSSFADE_MAP["TRANSITION"]=1.5s
+            # weil echte DJ-Transitions weicher sein muessen als Sektions-Wechsel
+            seg_crossfade = max(seg_crossfade, 2.0)
 
         segments.append(TimelineSegment(
             video_id=vid,

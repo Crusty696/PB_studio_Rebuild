@@ -149,8 +149,14 @@ class StemPlayer(QObject):
                 if loaded_sr is None:
                     loaded_sr = sr
                 elif sr != loaded_sr:
-                    logger.warning("[StemPlayer] %s hat SR=%s, erwartet %s. Übersprungen.",
-                                   name, sr, loaded_sr)
+                    # B-03 Fix: SR-Mismatch ist ein ernstes Problem (Stem wird uebersprungen).
+                    # Error-Level damit es im Log auffaellt. Stems muessen alle dieselbe
+                    # Sample-Rate haben, sonst laeuft ein Stem schneller/langsamer.
+                    logger.error(
+                        "[StemPlayer] UEBERSPRUNGEN: %s hat SR=%s, erwartet %s. "
+                        "Stem wird nicht abgespielt — bitte Stems mit gleicher SR exportieren.",
+                        name, sr, loaded_sr,
+                    )
                     handle.close()
                     continue
 
@@ -385,7 +391,12 @@ class StemPlayer(QObject):
 
             vol = volumes.get(name, 1.0)
             if vol < 0.001:
-                # [I-02 FIX] Handle trotzdem advancen (seek bei nächstem Resync)
+                # H-02/I-02: Bei near-zero Volume wird der Handle NICHT advanced.
+                # Stattdessen wird in set_volume() ein Resync-Request gesetzt wenn
+                # Volume von <0.001 zurueck auf >=0.001 steigt. Der naechste Callback
+                # erkennt den Resync-Request und seeked den Handle zur aktuellen
+                # Master-Clock Position. So bleibt die Synchronitaet erhalten,
+                # ohne bei stummem Stem unnoetig Disk-I/O zu verursachen.
                 continue
 
             try:
@@ -422,6 +433,10 @@ class StemPlayer(QObject):
             np.tanh(mix, out=mix)
             np.multiply(mix, 0.95, out=mix)
 
+        # H-01: outdata[:frames] statt [:actual_frames] ist korrekt:
+        # mix ist auf (frames, out_channels) dimensioniert und mit Nullen initialisiert.
+        # Bei actual_frames < frames sind die restlichen Samples bereits 0.0
+        # (durch mix[:] = 0 oben), was stille am Track-Ende erzeugt.
         outdata[:frames, :out_channels] = mix
 
         self._position = pos + actual_frames

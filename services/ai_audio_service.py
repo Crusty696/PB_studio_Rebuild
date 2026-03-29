@@ -14,6 +14,7 @@ from services.errors import (
 
 import numpy as np
 import librosa
+import soundfile as sf
 from scipy.io import wavfile
 
 # torch/torchaudio werden lazy importiert (nur in StemSeparator benötigt)
@@ -117,7 +118,9 @@ class StemSeparator:
 
         # ── 4. Audio laden ──
         waveform, sr = torchaudio.load(str(src))
-        # Demucs erwartet die Samplerate des Modells
+        # Demucs erwartet die Samplerate des Modells (typisch 44100 Hz).
+        # Stems werden in model_sr gespeichert. Die Pacing-Pipeline (pacing_service.py)
+        # laedt Stems spaeter mit librosa (Default 22050 Hz) — das Downsampling ist beabsichtigt.
         model_sr = demucs_model.samplerate
         if sr != model_sr:
             waveform = torchaudio.functional.resample(waveform, sr, model_sr)
@@ -130,8 +133,28 @@ class StemSeparator:
             waveform = waveform[:2]
 
         total_samples = waveform.shape[1]
-        chunk_samples = CHUNK_SECONDS * sr
-        overlap_samples = OVERLAP_SECONDS * sr
+        # D-01 Fix: chunk_seconds als lokale Variable, damit VRAM-Check sie reduzieren kann
+        chunk_seconds = CHUNK_SECONDS
+        overlap_seconds = OVERLAP_SECONDS
+
+        # ── 5. Chunk-weise verarbeiten ──
+        # Demucs Source-Namen ermitteln
+        source_names = demucs_model.sources  # z.B. ['drums', 'bass', 'other', 'vocals']
+        num_sources = len(source_names)
+
+        # D-01 Fix: VRAM-Budget pruefen — bei wenig VRAM Chunk-Groesse halbieren
+        if torch.cuda.is_available():
+            vram_free_gb = (torch.cuda.get_device_properties(0).total_memory
+                            - torch.cuda.memory_reserved(0)) / (1024**3)
+            if vram_free_gb < 2.0:
+                chunk_seconds = max(10, chunk_seconds // 2)
+                logger.warning(
+                    "[StemSeparator] Nur %.1f GB VRAM frei — Chunk-Groesse reduziert auf %ds",
+                    vram_free_gb, chunk_seconds,
+                )
+
+        chunk_samples = chunk_seconds * sr
+        overlap_samples = overlap_seconds * sr
         step_samples = chunk_samples - overlap_samples
 
         # Berechne Chunk-Anzahl
@@ -141,41 +164,32 @@ class StemSeparator:
             num_chunks = 1 + int(np.ceil((total_samples - chunk_samples) / step_samples))
 
         logger.info(f"[StemSeparator] Audio: {total_samples / sr:.1f}s, "
-              f"SR={sr}, Chunks={num_chunks} (je {CHUNK_SECONDS}s, {OVERLAP_SECONDS}s Overlap)")
+              f"SR={sr}, Chunks={num_chunks} (je {chunk_seconds}s, {overlap_seconds}s Overlap)")
 
         if progress_cb:
             progress_cb(15, f"Starte Stem-Trennung in {num_chunks} Chunks...")
 
-        # ── 5. Chunk-weise verarbeiten ──
-        # Demucs Source-Namen ermitteln
-        source_names = demucs_model.sources  # z.B. ['drums', 'bass', 'other', 'vocals']
-        num_sources = len(source_names)
-
-        # F-011: RAM-Budget pruefen — result_stems + weight_sum koennen bei
-        # langen Mixes >5GB RAM belegen. Warnung und float16 bei >30min.
+        # A-02 Fix: RAM-Budget pruefen — result_stems + weight_sum koennen bei
+        # langen Mixes >5GB RAM belegen. Immer float32 fuer Qualitaet,
+        # aber Warnung bei hohem geschaetztem RAM-Verbrauch.
         estimated_ram_gb = (num_sources * waveform.shape[0] * total_samples * 4) / (1024**3)
-        # A-11 Fix: VRAM-Budget zusaetzlich pruefen (GTX 1060 = 6GB)
-        if torch.cuda.is_available():
-            vram_free_gb = (torch.cuda.get_device_properties(0).total_memory
-                            - torch.cuda.memory_reserved(0)) / (1024**3)
-            if vram_free_gb < 2.0:
-                logger.warning(
-                    "[StemSeparator] Nur %.1f GB VRAM frei — reduziere Chunk-Groesse.",
-                    vram_free_gb,
-                )
-        if estimated_ram_gb > 3.0:
+        if estimated_ram_gb > 8.0:
             logger.warning(
-                "[StemSeparator] Grosser Akkumulator: %.1f GB RAM geschaetzt fuer %.0f min Audio. "
-                "Nutze float16 um Speicher zu halbieren.",
+                "[StemSeparator] WARNUNG: Grosser Akkumulator — %.1f GB RAM geschaetzt fuer "
+                "%.0f min Audio. Behalte float32 fuer maximale Qualitaet.",
                 estimated_ram_gb, total_samples / sr / 60,
             )
-            accum_dtype = torch.float16
-        else:
-            accum_dtype = torch.float32
+            if progress_cb:
+                progress_cb(15, f"Hinweis: ~{estimated_ram_gb:.0f} GB RAM fuer Akkumulator benoetigt")
+        elif estimated_ram_gb > 3.0:
+            logger.info(
+                "[StemSeparator] Akkumulator: %.1f GB RAM geschaetzt fuer %.0f min Audio (float32).",
+                estimated_ram_gb, total_samples / sr / 60,
+            )
 
-        # Ergebnis-Tensor fuer alle Stems (Crossfade-Akkumulator)
-        result_stems = torch.zeros(num_sources, waveform.shape[0], total_samples, dtype=accum_dtype)
-        weight_sum = torch.zeros(1, total_samples, dtype=accum_dtype)
+        # Ergebnis-Tensor fuer alle Stems (Crossfade-Akkumulator) — immer float32
+        result_stems = torch.zeros(num_sources, waveform.shape[0], total_samples, dtype=torch.float32)
+        weight_sum = torch.zeros(1, total_samples, dtype=torch.float32)
 
         for i in range(num_chunks):
             start = i * step_samples
@@ -189,15 +203,47 @@ class StemSeparator:
             # Chunk auf GPU, Batch-Dimension hinzufuegen: (1, channels, samples)
             chunk_gpu = chunk.unsqueeze(0).to(device)
 
+            # D-04 Fix: try/except um apply_model() — bei OOM Chunk halbieren und einmal retrien
             with torch.no_grad():
-                # apply_model gibt (1, sources, channels, samples) zurueck
-                estimates = apply_model(
-                    demucs_model, chunk_gpu,
-                    overlap=0.25,       # internes Demucs-Overlap fuer Qualitaet
-                    progress=False,
-                )
+                try:
+                    # apply_model gibt (1, sources, channels, samples) zurueck
+                    # DOPPELTER OVERLAP: internes Demucs-Overlap (25% der Chunk-Laenge)
+                    # PLUS externes 2s Crossfade-Overlap zwischen Chunks (OVERLAP_SECONDS).
+                    # Erhoehte Qualitaet an Chunk-Grenzen, aber ~30% langsamer.
+                    estimates = apply_model(
+                        demucs_model, chunk_gpu,
+                        overlap=0.25,
+                        progress=False,
+                    )
+                except torch.cuda.OutOfMemoryError:
+                    logger.warning(
+                        "[StemSeparator] OOM bei Chunk %d/%d — halbiere Chunk und retrie...",
+                        i + 1, num_chunks,
+                    )
+                    del chunk_gpu
+                    torch.cuda.empty_cache()
+                    gc.collect()
+                    # Retry mit halber Chunk-Laenge (nur den aktuellen Chunk)
+                    half = chunk.shape[1] // 2
+                    chunk_gpu_a = chunk[:, :half].unsqueeze(0).to(device)
+                    chunk_gpu_b = chunk[:, half:].unsqueeze(0).to(device)
+                    try:
+                        est_a = apply_model(demucs_model, chunk_gpu_a, overlap=0.25, progress=False)
+                        del chunk_gpu_a
+                        torch.cuda.empty_cache()
+                        est_b = apply_model(demucs_model, chunk_gpu_b, overlap=0.25, progress=False)
+                        del chunk_gpu_b
+                        torch.cuda.empty_cache()
+                        estimates = torch.cat([est_a, est_b], dim=-1)
+                        del est_a, est_b
+                    except torch.cuda.OutOfMemoryError:
+                        torch.cuda.empty_cache()
+                        gc.collect()
+                        raise CUDAOutOfMemoryError(
+                            operation=f"apply_model Chunk {i + 1}/{num_chunks} (nach Retry)"
+                        )
 
-            # Zurueck auf CPU
+            # Zurueck auf CPU — squeeze(0) entfernt Batch-Dim (immer 1 bei Einzelverarbeitung)
             estimates_cpu = estimates.squeeze(0).cpu()  # (sources, channels, samples)
 
             # Crossfade-Gewicht: Dreiecks-Fenster fuer Overlap-Bereiche
@@ -212,11 +258,11 @@ class StemSeparator:
                 fade_len = min(overlap_samples, chunk_len)
                 fade[-fade_len:] = torch.linspace(1, 0, fade_len)
 
-            # Gewichtete Addition (cast to accumulator dtype for float16 mode)
+            # Gewichtete Addition
             for s in range(num_sources):
-                weighted = (estimates_cpu[s, :, :chunk_len] * fade.unsqueeze(0)).to(accum_dtype)
+                weighted = estimates_cpu[s, :, :chunk_len] * fade.unsqueeze(0)
                 result_stems[s, :, start:end] += weighted
-            weight_sum[0, start:end] += fade.to(accum_dtype)
+            weight_sum[0, start:end] += fade
 
             # ── VRAM sofort freigeben ──
             del chunk_gpu, estimates, estimates_cpu
@@ -246,9 +292,7 @@ class StemSeparator:
         stem_dir = STEMS_DIR / model / src.stem
         stem_dir.mkdir(parents=True, exist_ok=True)
 
-        # Konvertiere zurueck zu float32 fuer WAV-Export (torchaudio erwartet float32)
-        if result_stems.dtype != torch.float32:
-            result_stems = result_stems.float()
+        # A-02: result_stems ist bereits float32 (kein float16-Pfad mehr)
 
         stems = {}
         for idx, stem_name in enumerate(source_names):
@@ -321,9 +365,12 @@ class AutoDucker:
             for src, dst in [(music_path, str(tmp_music)), (voice_path, str(tmp_voice))]:
                 cmd = ["ffmpeg", "-y", "-i", src, "-ar", "44100", "-ac", "1",
                        "-c:a", "pcm_s16le", str(dst)]
+                kwargs = {}
+                if sys.platform == "win32":
+                    kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
                 result = subprocess.run(
-                    cmd, capture_output=True, timeout=60,
-                    creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+                    cmd, capture_output=True, timeout=300,
+                    **kwargs,
                 )
                 if result.returncode != 0:
                     stderr_msg = result.stderr.decode("utf-8", errors="replace") if isinstance(result.stderr, bytes) else (result.stderr or "")
@@ -399,13 +446,13 @@ class AutoDucker:
         if peak > 0.95:
             mixed = mixed * (0.95 / peak)
 
-        # Finale Bounds-Pruefung gegen Int16-Overflow
+        # Finale Bounds-Pruefung
         mixed = np.clip(mixed, -1.0, 1.0)
 
-        # Speichern
+        # A-01 Fix: Speichern als 32-bit float WAV (kein Int16-Quantisierungsrauschen)
         out = Path(output_path)
         out.parent.mkdir(parents=True, exist_ok=True)
-        wavfile.write(str(out), music_sr, (mixed * 32767).astype(np.int16))
+        sf.write(str(out), mixed, music_sr, subtype='FLOAT')
 
         if progress_cb:
             progress_cb(100, "Ducking abgeschlossen")
@@ -542,9 +589,12 @@ class FrequencyAnalyzer:
             if track is None:
                 raise ValueError(f"AudioTrack {track_id} nach Frequenzanalyse nicht mehr gefunden")
 
-            # BPM + Duration updaten
-            # P2-04: BPM immer ueberschreiben (aktuelle Analyse ist praeziser)
-            track.bpm = result["bpm"]
+            # J-01 Fix: BPM nur setzen wenn noch kein BPM vorhanden ist.
+            # In der Komplett-Analyse laeuft BeatAnalysisService (beat_this) zuerst
+            # und liefert praezisere BPM. FrequencyAnalyzer (librosa) laeuft danach
+            # und soll den genaueren beat_this-Wert nicht ueberschreiben.
+            if track.bpm is None:
+                track.bpm = result["bpm"]
             track.duration = result["duration"]
 
             # DB-07 Fix: Expliziter Query-Check gegen Duplikate
