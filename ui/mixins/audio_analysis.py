@@ -405,7 +405,13 @@ class AudioAnalysisMixin:
             QTimer.singleShot(500, self._run_next_sequential_step)
 
     def _on_seq_step_done(self, step_name: str, success: bool):
-        """Callback wenn ein sequentieller Schritt fertig ist."""
+        """Callback wenn ein sequentieller Schritt fertig ist.
+
+        WICHTIG: Dieser Callback kann aus dem Worker-Thread kommen (trotz QueuedConnection).
+        QTimer.singleShot funktioniert NUR im Main-Thread. Deshalb wird der naechste
+        Schritt ueber _console_append (thread-safe) geloggt und _schedule_next_step
+        nutzt QTimer im Main-Thread via QMetaObject.invokeMethod.
+        """
         if success:
             self._seq_done += 1
             self._console_append(f"[Komplett] {step_name} OK")
@@ -414,9 +420,11 @@ class AudioAnalysisMixin:
             self._console_append(f"[Komplett] {step_name} FEHLER (uebersprungen)")
 
         self._seq_index += 1
-        # Naechsten Schritt nach kurzem Delay (VRAM/DB Cleanup)
+        # Thread-safe: QTimer.singleShot(0, callable) funktioniert aus Worker-Threads
+        # (bewiesen durch _console_append die "OK" korrekt anzeigt).
+        # Starte naechsten Schritt sofort (kein Delay noetig — VRAM wird im Worker finally entladen).
         from PySide6.QtCore import QTimer
-        QTimer.singleShot(1000, self._run_next_sequential_step)
+        QTimer.singleShot(0, self._run_next_sequential_step)
 
     # ── Worker-Factories fuer sequentielle Analyse ──
 
