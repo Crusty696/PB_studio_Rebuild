@@ -136,18 +136,13 @@ def test_transcribe_audio():
     logger.info("  Transkription dauerte: %.1fs", elapsed)
 
     assert isinstance(result, dict), "Ergebnis muss ein Dict sein"
-    assert "error" not in result or result.get("error") is None, f"Fehler: {result.get('error')}"
-    assert "full_text" in result, "full_text fehlt im Ergebnis"
-    assert "segments" in result, "segments fehlt im Ergebnis"
-    assert "language" in result, "language fehlt im Ergebnis"
+    # transcribe_audio startet jetzt einen Background-Worker und gibt sofort zurueck
+    assert result.get("status") == "Task gestartet", f"Unerwarteter Status: {result}"
+    assert "task_id" in result, "task_id fehlt im Ergebnis"
 
-    logger.info("  Sprache: %s (%.1f%%)", result["language"],
-                result.get("language_probability", 0) * 100)
-    logger.info("  Segmente: %d", result.get("segment_count", 0))
-    logger.info("  Text (Auszug): %s", result["full_text"][:200])
-
-    logger.info("✅ Test 3 bestanden: Audio-Transkription funktioniert")
-    return result
+    logger.info("  Task gestartet: %s", result.get("task_id"))
+    logger.info("  Message: %s", result.get("message"))
+    logger.info("Test 3 bestanden: Transkription als Background-Worker gestartet")
 
 
 @_requires_torch

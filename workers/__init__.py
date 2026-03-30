@@ -11,6 +11,7 @@ _WORKER_MODULES = {
     "FrameExtractWorker": ".video",
     "StemSeparationWorker": ".audio",
     "AutoDuckingWorker": ".audio",
+    "TranscriptionWorker": ".audio",
     "ExportWorker": ".import_export",
     "FolderImportWorker": ".import_export",
     "BatchConvertWorker": ".import_export",

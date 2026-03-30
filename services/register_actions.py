@@ -312,26 +312,38 @@ def export_timeline_action(project_id: int, output_path: str | None = None) -> d
     }
 )
 def transcribe_audio(track_id: int | None = None, file_path: str | None = None) -> dict:
-    """Transkription via faster-whisper (noch nicht als Worker implementiert).
+    """Transkription via faster-whisper — startet als Background-Worker."""
+    if track_id is None and file_path is None:
+        return {"status": "error", "message": "Weder track_id noch file_path angegeben."}
 
-    Hinweis: TranscriptionWorker existiert noch nicht in workers/.
-    Gibt eine klare Fehlermeldung zurueck statt einen stillen Drop via
-    agent_command_signal (kein registrierter Worker wuerde KeyError ausloesen).
-    """
-    label = f"Track #{track_id}" if track_id else (file_path or "audio")
-    _logger.warning(
-        "transcribe_audio aufgerufen fuer %s, aber TranscriptionWorker "
-        "ist noch nicht in workers/ implementiert.", label
+    # Wenn nur file_path gegeben, versuche track_id aus DB zu finden
+    if track_id is None and file_path:
+        from database import engine, AudioTrack
+        from sqlalchemy.orm import Session
+        with Session(engine) as session:
+            track = session.query(AudioTrack).filter_by(file_path=file_path).first()
+            if track:
+                track_id = track.id
+            else:
+                return {"status": "error", "message": f"Audio-Datei nicht in DB: {file_path}"}
+
+    label = f"Track #{track_id}"
+    tm = _get_task_manager()
+
+    from workers.audio import TranscriptionWorker
+    worker = TranscriptionWorker(track_id)
+    task = tm.start_task(
+        name=f"Transkription: {label}",
+        worker=worker,
+        description="faster-whisper Transkription",
     )
+
+    task_id = task.task_id if hasattr(task, 'task_id') else str(task)
     return {
-        "status": "not_implemented",
+        "status": "Task gestartet",
         "action": "transcribe_audio",
-        "message": (
-            f"Transkription fuer {label}: TranscriptionWorker noch nicht "
-            "implementiert. Bitte zuerst workers/audio.py um eine "
-            "TranscriptionWorker-Klasse ergaenzen und in workers/registry.py "
-            "registrieren."
-        ),
+        "task_id": task_id,
+        "message": f"Transkription fuer {label} laeuft im Hintergrund.",
     }
 
 

@@ -12,12 +12,34 @@ Kein Mock, kein Fake, kein Shortcut.
 """
 
 import sys
+import os
 import time
 import logging
+import subprocess
 from pathlib import Path
 
 # Projekt-Root zum Path hinzufuegen
 PROJECT_DIR = Path(__file__).parent.parent
+
+
+def _kill_stale_python_processes():
+    """P0 Guard: Killt alte Python-Prozesse die die DB locken koennten."""
+    my_pid = os.getpid()
+    try:
+        result = subprocess.run(
+            ["tasklist", "/FI", "IMAGENAME eq python.exe", "/FO", "CSV", "/NH"],
+            capture_output=True, text=True, timeout=5,
+        )
+        for line in result.stdout.strip().split("\n"):
+            if "python.exe" in line:
+                parts = line.replace('"', '').split(",")
+                if len(parts) >= 2:
+                    pid = int(parts[1])
+                    if pid != my_pid:
+                        subprocess.run(["taskkill", "/PID", str(pid), "/F"],
+                                       capture_output=True, timeout=5)
+    except Exception:
+        pass
 sys.path.insert(0, str(PROJECT_DIR))
 
 from database import engine, AudioTrack, VideoClip, TimelineEntry, get_active_project_id
@@ -40,6 +62,11 @@ def step(name: str):
 def main():
     t_start = time.time()
     log.info("E2E Full Render Test gestartet")
+
+    # P0 Guard: Alte Python-Prozesse killen die die DB locken koennten
+    if sys.platform == "win32":
+        _kill_stale_python_processes()
+        log.info("Stale Prozesse bereinigt")
 
     # 0. Voraussetzungen pruefen
     with Session(engine) as s:

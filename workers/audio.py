@@ -78,3 +78,50 @@ class AutoDuckingWorker(QObject, CancellableMixin):
         finally:
             if not _ok and not self._errored:
                 self.finished.emit("")
+
+
+class TranscriptionWorker(QObject, CancellableMixin):
+    """Background-Worker fuer Audio-Transkription via faster-whisper."""
+    finished = Signal(int, dict)   # track_id, {"text": ..., "language": ..., "segments": [...]}
+    error = Signal(int, str)       # track_id, error_msg
+    progress = Signal(int, str)    # percent, message
+
+    def __init__(self, track_id: int, language: str | None = None):
+        super().__init__()
+        CancellableMixin.__init__(self)
+        self.track_id = track_id
+        self.language = language
+
+    def run(self):
+        _ok = False
+        try:
+            from services.transcription_service import TranscriptionService
+            svc = TranscriptionService()
+            result = svc.transcribe_and_store(
+                self.track_id,
+                language=self.language,
+                progress_cb=lambda pct, msg: self.progress.emit(pct, msg),
+            )
+            self.finished.emit(self.track_id, {
+                "text": result.text,
+                "language": result.language,
+                "language_probability": result.language_probability,
+                "segments": result.segments,
+                "duration": result.duration,
+            })
+            _ok = True
+        except Exception as e:
+            logging.error("TranscriptionWorker[%s] crashed: %s\n%s",
+                          self.track_id, e, traceback.format_exc())
+            self._errored = True
+            self.error.emit(self.track_id, format_user_error(e))
+        finally:
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            except ImportError:
+                pass
+            gc.collect()
+            if not _ok and not self._errored:
+                self.finished.emit(self.track_id, {})
