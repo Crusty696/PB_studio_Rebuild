@@ -2,6 +2,8 @@
 
 import logging
 
+from PySide6.QtCore import QObject, Signal, QTimer
+
 from services.task_manager import TaskManagerProxy
 
 from workers import AnalysisWorker, WaveformAnalysisWorker
@@ -9,6 +11,15 @@ from workers import AnalysisWorker, WaveformAnalysisWorker
 logger = logging.getLogger(__name__)
 
 task_manager = TaskManagerProxy()
+
+
+class _SeqStepSignalHelper(QObject):
+    """Hilfs-QObject fuer sequentielle Analyse — emittiert step_done Signal im Main-Thread.
+
+    Noetig weil Mixins keine Signals definieren koennen (nur QObject-Subklassen).
+    Das Signal wird mit QueuedConnection verbunden und garantiert Main-Thread-Ausfuehrung.
+    """
+    step_done = Signal(str, bool)  # step_name, success
 
 
 class AudioAnalysisMixin:
@@ -331,6 +342,12 @@ class AudioAnalysisMixin:
         self._seq_title = title
         self._seq_total = len(steps)
 
+        # Signal-Helfer erstellen (QObject mit step_done Signal)
+        # Noetig weil on_finish/on_error aus Worker-Thread kommen und
+        # QTimer.singleShot dort nicht funktioniert.
+        self._seq_helper = _SeqStepSignalHelper(self)
+        self._seq_helper.step_done.connect(self._on_seq_step_done)
+
         # UI vorbereiten
         self._media_ws.btn_analyze_all.setEnabled(False)
         self._media_ws.btn_analyze_all.setText(f"0/{self._seq_total}...")
@@ -386,14 +403,16 @@ class AudioAnalysisMixin:
             )
             worker.task_id = task.task_id
 
-            # Bei Erfolg ODER Fehler: naechsten Schritt starten
-            # WICHTIG: on_finish/on_error an _start_worker_thread uebergeben,
-            # NICHT manuell worker.finished.connect() — sonst laeuft der Callback
-            # im Worker-Thread und QTimer.singleShot funktioniert nicht.
+            # Bei Erfolg ODER Fehler: Signal emittieren das im Main-Thread ankommt.
+            # on_finish/on_error Lambdas laufen im Worker-Thread (trotz QueuedConnection)
+            # weil PySide6 Python-Lambdas nicht als QObject-Slots behandelt.
+            # Stattdessen: _seq_helper.step_done.emit() — das ist ein echtes Qt Signal
+            # das garantiert im Main-Thread via AutoConnection ankommt.
+            helper = self._seq_helper
             self._start_worker_thread(
                 worker,
-                on_finish=lambda *args, _sn=step_name: self._on_seq_step_done(_sn, True),
-                on_error=lambda *args, _sn=step_name: self._on_seq_step_done(_sn, False),
+                on_finish=lambda *args, _sn=step_name, _h=helper: _h.step_done.emit(_sn, True),
+                on_error=lambda *args, _sn=step_name, _h=helper: _h.step_done.emit(_sn, False),
             )
         except Exception as e:
             logger.error("[Komplett] Fehler beim Starten von %s: %s", step_name, e)
@@ -407,24 +426,19 @@ class AudioAnalysisMixin:
     def _on_seq_step_done(self, step_name: str, success: bool):
         """Callback wenn ein sequentieller Schritt fertig ist.
 
-        WICHTIG: Dieser Callback kann aus dem Worker-Thread kommen (trotz QueuedConnection).
-        QTimer.singleShot funktioniert NUR im Main-Thread. Deshalb wird der naechste
-        Schritt ueber _console_append (thread-safe) geloggt und _schedule_next_step
-        nutzt QTimer im Main-Thread via QMetaObject.invokeMethod.
+        Wird IMMER im Main-Thread aufgerufen (via _seq_helper.step_done Signal).
+        QTimer.singleShot funktioniert hier zuverlaessig.
         """
         if success:
             self._seq_done += 1
-            self._console_append(f"[Komplett] {step_name} OK")
+            self.console_text.append(f"[Komplett] {step_name} OK")
         else:
             self._seq_errors += 1
-            self._console_append(f"[Komplett] {step_name} FEHLER (uebersprungen)")
+            self.console_text.append(f"[Komplett] {step_name} FEHLER (uebersprungen)")
 
         self._seq_index += 1
-        # Thread-safe: QTimer.singleShot(0, callable) funktioniert aus Worker-Threads
-        # (bewiesen durch _console_append die "OK" korrekt anzeigt).
-        # Starte naechsten Schritt sofort (kein Delay noetig — VRAM wird im Worker finally entladen).
-        from PySide6.QtCore import QTimer
-        QTimer.singleShot(0, self._run_next_sequential_step)
+        # Main-Thread — QTimer funktioniert zuverlaessig
+        QTimer.singleShot(500, self._run_next_sequential_step)
 
     # ── Worker-Factories fuer sequentielle Analyse ──
 
