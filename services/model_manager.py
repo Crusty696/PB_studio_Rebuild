@@ -167,9 +167,12 @@ class ModelManager:
             self._current_model_id = None
             self._model_type = None
 
-            # Aggressives Aufräumen
+            # Aggressives Aufräumen — doppelter Pass fuer fragmentierten VRAM
             gc.collect()
             if torch.cuda.is_available():
+                torch.cuda.synchronize()
+                torch.cuda.empty_cache()
+                gc.collect()
                 torch.cuda.empty_cache()
                 torch.cuda.synchronize()
 
@@ -332,11 +335,33 @@ class ModelManager:
         Returns:
             (model, processor) — SigLIP-spezifisch
         """
+        import time as _time
+
         with self._swap_lock:
             if self._current_model_id == model_id and self._model_type == "siglip":
                 return self._model, self._extras.get("processor")
 
             self.unload()
+
+            # P1 Fix: VRAM aggressiv freigeben und warten bevor neues Modell geladen wird.
+            # GTX 1060 (6 GB): beat_this belegt ~2 GB, SigLIP braucht ~2.5 GB.
+            # Ohne Pause kann fragmentierter VRAM einen Segfault verursachen.
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+                torch.cuda.empty_cache()
+                gc.collect()
+                torch.cuda.empty_cache()
+                vram_free = (torch.cuda.get_device_properties(0).total_memory
+                             - torch.cuda.memory_allocated(0)) / (1024**3)
+                logger.info("ModelManager: VRAM frei vor SigLIP-Load: %.1f GB", vram_free)
+                if vram_free < 3.0:
+                    logger.warning("ModelManager: Wenig VRAM (%.1f GB) — warte 2s fuer Cleanup", vram_free)
+                    _time.sleep(2)
+                    gc.collect()
+                    torch.cuda.empty_cache()
+                    vram_free = (torch.cuda.get_device_properties(0).total_memory
+                                 - torch.cuda.memory_allocated(0)) / (1024**3)
+                    logger.info("ModelManager: VRAM nach Cleanup: %.1f GB", vram_free)
 
             logger.info("ModelManager: Lade SigLIP '%s' auf %s...", model_id, self.device)
 
@@ -354,10 +379,8 @@ class ModelManager:
             except torch.cuda.OutOfMemoryError:
                 logger.error("OOM beim Laden von SigLIP '%s' — räume auf.", model_id)
                 self.unload()
-                raise RuntimeError(
-                    f"VRAM reicht nicht für SigLIP '{model_id}'. "
-                    f"GPU-Speicher wurde freigegeben."
-                )
+                from services.errors import CUDAOutOfMemoryError
+                raise CUDAOutOfMemoryError(operation=f"SigLIP '{model_id}' laden")
             except Exception as e:
                 logger.error(
                     "SigLIP '%s' konnte nicht geladen werden: %s — räume auf.",
