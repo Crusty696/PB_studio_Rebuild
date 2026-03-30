@@ -526,32 +526,39 @@ class StructureDetectionService:
 
         return merged
 
-    def save_to_db(self, audio_track_id: int, result: StructureResult):
-        """Speichert erkannte Segmente in die DB.
-
-        Args:
-            audio_track_id: ID des AudioTrack
-            result: Erkannte Struktur
-        """
+    def save_to_db(self, audio_track_id: int, result: StructureResult,
+                   max_retries: int = 3):
+        """Speichert erkannte Segmente in die DB mit Retry bei DB-Lock."""
+        import time as _time
         from database import engine, StructureSegment
         from sqlalchemy.orm import Session
+        from sqlalchemy.exc import OperationalError
 
-        with Session(engine) as session:
+        for attempt in range(max_retries):
             try:
-                # Alte Segmente löschen + Neue einfügen in einer Transaktion
-                session.query(StructureSegment).filter_by(audio_track_id=audio_track_id).delete()
-                for seg in result.segments:
-                    session.add(StructureSegment(
-                        audio_track_id=audio_track_id,
-                        start_time=seg.start_time,
-                        end_time=seg.end_time,
-                        label=seg.label,
-                        energy=seg.energy,
-                        confidence=seg.confidence,
-                    ))
-                session.commit()
-                log.info("Struktur gespeichert: %d Segmente für AudioTrack %d", len(result.segments), audio_track_id)
-            except Exception:
-                session.rollback()
-                log.exception("Fehler beim Speichern der Struktur für AudioTrack %d", audio_track_id)
-                raise
+                with Session(engine) as session:
+                    session.query(StructureSegment).filter_by(
+                        audio_track_id=audio_track_id
+                    ).delete()
+                    for seg in result.segments:
+                        session.add(StructureSegment(
+                            audio_track_id=audio_track_id,
+                            start_time=seg.start_time,
+                            end_time=seg.end_time,
+                            label=seg.label,
+                            energy=seg.energy,
+                            confidence=seg.confidence,
+                        ))
+                    session.commit()
+                    log.info("Struktur gespeichert: %d Segmente fuer AudioTrack %d",
+                             len(result.segments), audio_track_id)
+                    return
+            except OperationalError as e:
+                if "database is locked" in str(e) and attempt < max_retries - 1:
+                    log.warning("DB locked bei Struktur-Save, Retry %d/%d...",
+                                attempt + 1, max_retries)
+                    _time.sleep(2 * (attempt + 1))
+                else:
+                    log.exception("Fehler beim Speichern der Struktur fuer AudioTrack %d",
+                                  audio_track_id)
+                    raise
