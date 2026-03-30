@@ -168,6 +168,13 @@ class ProjectManager(QObject):
         # Ensure sub-directories exist (older projects might lack some)
         self._ensure_dirs(path)
 
+        # Caches invalidieren bevor DB gewechselt wird (Stem-Audio, BPM, Video-Info etc.)
+        try:
+            from services.pacing_service import invalidate_pacing_caches
+            invalidate_pacing_caches()
+        except Exception:
+            pass
+
         # Swap database engine
         import database
         database.set_project(path)
