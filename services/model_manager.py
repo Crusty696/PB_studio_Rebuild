@@ -304,24 +304,36 @@ class ModelManager:
 
             from transformers import AutoModelForCausalLM, AutoTokenizer
 
+            # Moondream2 hat Custom-Architektur die trust_remote_code braucht.
+            # Erlaubt nur fuer verifizierte Modelle (siehe pb-commander Governance).
+            _TRUSTED_MODELS = {"vikhyatk/moondream2"}
+            needs_trust = model_id in _TRUSTED_MODELS
+
+            # VRAM aggressiv freigeben vor dem Laden (P1 Fix)
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+                torch.cuda.empty_cache()
+                gc.collect()
+                torch.cuda.empty_cache()
+
             try:
                 self._tokenizer = AutoTokenizer.from_pretrained(
                     model_id,
+                    trust_remote_code=needs_trust,
                 )
                 dtype = torch.float32 if self.device == "cpu" else torch.float16
                 self._model = AutoModelForCausalLM.from_pretrained(
                     model_id,
                     torch_dtype=dtype,
                     device_map={"": self.device},
+                    trust_remote_code=needs_trust,
                 )
                 self._model.eval()
             except torch.cuda.OutOfMemoryError:
                 logger.error("OOM beim Laden von vision '%s' — räume auf.", model_id)
                 self.unload()
-                raise RuntimeError(
-                    f"VRAM reicht nicht für vision '{model_id}'. "
-                    f"GPU-Speicher wurde freigegeben."
-                )
+                from services.errors import CUDAOutOfMemoryError
+                raise CUDAOutOfMemoryError(operation=f"Vision '{model_id}' laden")
 
             self._current_model_id = model_id
             self._model_type = "vision"

@@ -328,6 +328,55 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                 self.finished.emit(last_clip_id, {})
 
 
+class VisionAnalysisWorker(QObject, CancellableMixin):
+    """Background-Worker fuer Video-Inhaltsanalyse via Moondream2."""
+    finished = Signal(int, dict)   # clip_id, {"descriptions": [...], "summary": ...}
+    error = Signal(int, str)       # clip_id, error_msg
+    progress = Signal(int, str)    # percent, message
+
+    def __init__(self, clip_id: int, video_path: str,
+                 interval_sec: float = 5.0, max_frames: int = 10):
+        super().__init__()
+        CancellableMixin.__init__(self)
+        self.clip_id = clip_id
+        self.video_path = video_path
+        self.interval_sec = interval_sec
+        self.max_frames = max_frames
+
+    def run(self):
+        _ok = False
+        try:
+            from services.vision_analysis_service_moondream import VisionAnalysisService
+            svc = VisionAnalysisService()
+            result = svc.analyze(
+                self.video_path,
+                interval_sec=self.interval_sec,
+                max_frames=self.max_frames,
+                progress_cb=lambda pct, msg: self.progress.emit(pct, msg),
+            )
+            self.finished.emit(self.clip_id, {
+                "descriptions": result.descriptions,
+                "summary": result.summary,
+                "frame_count": result.frame_count,
+            })
+            _ok = True
+        except Exception as e:
+            logging.error("VisionAnalysisWorker[%s] crashed: %s\n%s",
+                          self.clip_id, e, traceback.format_exc())
+            self._errored = True
+            self.error.emit(self.clip_id, format_user_error(e))
+        finally:
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            except ImportError:
+                pass
+            gc.collect()
+            if not _ok and not self._errored:
+                self.finished.emit(self.clip_id, {})
+
+
 class FrameExtractWorker(QObject, CancellableMixin):
     frame_ready = Signal(bytes, int, int)
     finished = Signal()   # Required by GlobalTaskManager contract (thread.quit)

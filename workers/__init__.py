@@ -8,6 +8,7 @@ _WORKER_MODULES = {
     "VideoAnalysisWorker": ".video",
     "VideoBatchAnalysisWorker": ".video",
     "VideoAnalysisPipelineWorker": ".video",
+    "VisionAnalysisWorker": ".video",
     "FrameExtractWorker": ".video",
     "StemSeparationWorker": ".audio",
     "AutoDuckingWorker": ".audio",

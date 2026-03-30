@@ -179,13 +179,10 @@ def test_analyze_video_content():
     logger.info("  Visuelle Analyse dauerte: %.1fs", elapsed)
 
     assert isinstance(result, dict), "Ergebnis muss ein Dict sein"
-    assert "error" not in result or result.get("error") is None, f"Fehler: {result.get('error')}"
-    assert "scenes" in result, "scenes fehlt im Ergebnis"
-
-    scenes = result["scenes"]
-    logger.info("  Analysierte Frames: %d", len(scenes))
-    for scene in scenes:
-        logger.info("  [%.1fs] %s", scene["timestamp_sec"], scene["description"][:80])
+    # analyze_video_content startet jetzt einen Background-Worker
+    assert result.get("status") == "Task gestartet", f"Unerwarteter Status: {result}"
+    assert "task_id" in result, "task_id fehlt im Ergebnis"
+    logger.info("  Task gestartet: %s", result.get("task_id"))
 
     logger.info("✅ Test 4 bestanden: Vision-Analyse funktioniert")
     return result

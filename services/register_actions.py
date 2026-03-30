@@ -378,26 +378,47 @@ def analyze_video_content(
     interval_sec: float = 5.0,
     max_frames: int = 10,
 ) -> dict:
-    """Vision-Analyse via Moondream2 (noch nicht als Worker implementiert).
+    """Vision-Analyse via Moondream2 — startet als Background-Worker."""
+    if clip_id is None and file_path is None:
+        return {"status": "error", "message": "Weder clip_id noch file_path angegeben."}
 
-    Hinweis: VisionAnalysisWorker existiert noch nicht in workers/.
-    Gibt eine klare Fehlermeldung zurueck statt einen stillen Drop via
-    agent_command_signal (kein registrierter Worker wuerde KeyError ausloesen).
-    """
-    label = f"Clip #{clip_id}" if clip_id else (file_path or "video")
-    _logger.warning(
-        "analyze_video_content aufgerufen fuer %s, aber VisionAnalysisWorker "
-        "ist noch nicht in workers/ implementiert.", label
+    # Video-Pfad aus DB laden wenn nur clip_id gegeben
+    video_path = file_path
+    if clip_id and not video_path:
+        from database import engine, VideoClip
+        from sqlalchemy.orm import Session
+        with Session(engine) as session:
+            clip = session.get(VideoClip, clip_id)
+            if clip:
+                video_path = clip.file_path
+            else:
+                return {"status": "error", "message": f"VideoClip {clip_id} nicht in DB."}
+
+    if not video_path:
+        return {"status": "error", "message": "Kein Video-Pfad ermittelt."}
+
+    label = f"Clip #{clip_id}" if clip_id else video_path
+    tm = _get_task_manager()
+
+    from workers.video import VisionAnalysisWorker
+    worker = VisionAnalysisWorker(
+        clip_id=clip_id or 0,
+        video_path=video_path,
+        interval_sec=interval_sec,
+        max_frames=max_frames,
     )
+    task = tm.start_task(
+        name=f"Vision: {label}",
+        worker=worker,
+        description="Moondream2 Video-Inhaltsanalyse",
+    )
+
+    task_id = task.task_id if hasattr(task, 'task_id') else str(task)
     return {
-        "status": "not_implemented",
+        "status": "Task gestartet",
         "action": "analyze_video_content",
-        "message": (
-            f"Vision-Analyse fuer {label}: VisionAnalysisWorker noch nicht "
-            "implementiert. Bitte zuerst workers/video.py um eine "
-            "VisionAnalysisWorker-Klasse (Moondream2) ergaenzen und in "
-            "workers/registry.py registrieren."
-        ),
+        "task_id": task_id,
+        "message": f"Vision-Analyse fuer {label} laeuft im Hintergrund.",
     }
 
 
