@@ -263,7 +263,7 @@ def _export_optimized_concat(video_segments, audio_path, output_path,
 
         cmd.append(str(output_path))
 
-        _run_ffmpeg(cmd, timeout=900)
+        _run_ffmpeg(cmd, timeout=7200)  # 2h fuer lange DJ-Mix Renders (62min+ = ~90min Render)
 
         if progress_cb:
             step += 1

@@ -86,7 +86,7 @@ def main():
     step("3/6: LUFS-Analyse")
     try:
         from services.lufs_service import LUFSService
-        lufs_result = LUFSService().analyze(audio_path, track_id)
+        lufs_result = LUFSService().analyze(audio_path)
         log.info("  LUFS: %.1f dB | LRA: %.1f LU | TP: %.1f dBTP",
                  lufs_result.integrated, lufs_result.loudness_range, lufs_result.true_peak)
     except Exception as e:
@@ -99,20 +99,42 @@ def main():
         with Session(engine) as s:
             track = s.get(AudioTrack, track_id)
             bpm = track.bpm
-        struct_result = StructureDetectionService().detect(audio_path, bpm=bpm, audio_track_id=track_id)
+        struct_result = StructureDetectionService().detect(audio_path, bpm=bpm)
         log.info("  %d Segmente erkannt | DJ-Mix: %s", len(struct_result.segments), struct_result.is_dj_mix)
     except Exception as e:
         log.error("  Struktur fehlgeschlagen: %s", e)
+
+    # VRAM explizit freigeben nach GPU-Analysen
+    try:
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            import gc; gc.collect()
+            log.info("VRAM freigegeben vor Auto-Edit")
+    except Exception:
+        pass
 
     # 5. Auto-Edit (Timeline generieren)
     step("5/6: Auto-Edit (Timeline generieren)")
     try:
         from services.pacing_service import auto_edit_phase3, AdvancedPacingSettings
+        # VRAM-Schutz: ModelManager entladen bevor Auto-Edit startet
+        try:
+            from services.model_manager import ModelManager
+            ModelManager().unload()
+            import torch, gc
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            gc.collect()
+            log.info("  GPU-Modelle entladen vor Auto-Edit")
+        except Exception:
+            pass
+
         settings = AdvancedPacingSettings(
             base_cut_rate=4,
             energy_reactivity=50,
             breakdown_behavior="halve",
-            vibe="energetic psychedelic",
+            vibe="",  # Kein Vibe-Text = kein SigLIP VectorDB Matching
         )
         segments, cut_points = auto_edit_phase3(
             audio_id=track_id,
@@ -122,15 +144,23 @@ def main():
         )
         log.info("  %d Segmente | %d CutPoints", len(segments), len(cut_points))
 
-        # In DB schreiben
-        from services.timeline_service import apply_auto_edit_segments
-        apply_auto_edit_segments(
-            [{"video_id": s.video_id, "start": s.start, "end": s.end,
-              "source_start": s.source_start, "source_end": s.source_end}
-             for s in segments],
-            get_active_project_id(),
-        )
-        log.info("  Timeline in DB geschrieben")
+        # Timeline via sqlite3 direkt schreiben (umgeht SQLAlchemy Pool-Lock-Problem)
+        import sqlite3
+        db_path = str(Path(__file__).parent.parent / "pb_studio.db")
+        pid = get_active_project_id()
+        conn = sqlite3.connect(db_path, timeout=120)
+        try:
+            conn.execute("DELETE FROM timeline_entries WHERE project_id=? AND track='video'", (pid,))
+            for s in segments:
+                conn.execute(
+                    "INSERT INTO timeline_entries (project_id, track, media_id, start_time, end_time, "
+                    "source_start, source_end, lane) VALUES (?,?,?,?,?,?,?,?)",
+                    (pid, "video", s.video_id, s.start, s.end, s.source_start, s.source_end, 0),
+                )
+            conn.commit()
+            log.info("  Timeline in DB geschrieben (%d Segmente, direkt via sqlite3)", len(segments))
+        finally:
+            conn.close()
     except Exception as e:
         log.error("  Auto-Edit fehlgeschlagen: %s", e, exc_info=True)
         return False

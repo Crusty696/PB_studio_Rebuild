@@ -26,15 +26,33 @@ EXPORTS_DIR = APP_ROOT / "exports"
 PB_NS = "pb_studio"
 
 
-def apply_auto_edit_segments(segments: list[dict], project_id: int | None = None) -> int:
+def apply_auto_edit_segments(segments: list[dict], project_id: int | None = None,
+                             max_retries: int = 3) -> int:
     """Ersetzt alle Video-Timeline-Eintraege durch neue Auto-Edit Segmente.
 
     Atomar: DELETE + INSERT in einer einzigen Transaktion.
+    Retry bei "database is locked" (SQLite busy_timeout kann bei vielen
+    parallelen Sessions ueberschritten werden).
     Returns: Anzahl der eingefuegten Eintraege.
     """
+    import time as _time
+    from sqlalchemy.exc import OperationalError
+
     if project_id is None:
         project_id = get_active_project_id()
 
+    for attempt in range(max_retries):
+        try:
+            return _do_apply_segments(segments, project_id)
+        except OperationalError as e:
+            if "database is locked" in str(e) and attempt < max_retries - 1:
+                logger.warning("DB locked bei Timeline-Write, Retry %d/%d...", attempt + 1, max_retries)
+                _time.sleep(2 * (attempt + 1))
+            else:
+                raise
+
+
+def _do_apply_segments(segments: list[dict], project_id: int) -> int:
     with Session(engine) as session:
         session.query(TimelineEntry).filter_by(
             project_id=project_id, track="video"
