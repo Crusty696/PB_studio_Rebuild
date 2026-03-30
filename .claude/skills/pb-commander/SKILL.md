@@ -68,7 +68,7 @@ explizite Freigabe von David:
 **Governance-Regeln:**
 1. **`trust_remote_code=True` nur fuer verifizierte Modelle** — erlaubt fuer: vikhyatk/moondream2. Fuer alle anderen Modelle verboten.
 2. **Keine `shell=True`** in subprocess-Aufrufen ohne Validierung
-3. **Kein Mock in Integration-Tests** — nur echte Daten, echte DB
+3. **Mocks nur in Unit-Tests** — Integration/E2E-Tests muessen echte Daten und echte DB nutzen
 4. **Kein Main-Thread-Blocking** — alles Schwere in QThread/QRunnable
 5. **VRAM explizit freigeben** — `torch.cuda.empty_cache()` nach GPU-Ops
 6. **Ein ZeroMQ-Socket pro Thread** — niemals teilen

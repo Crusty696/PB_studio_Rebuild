@@ -122,6 +122,11 @@ class BeatAnalysisService:
 
         Verwendet Chunked Processing fuer Dateien laenger als CHUNK_DURATION_SEC.
 
+        WICHTIG: Diese Methode sollte nur ueber analyze_and_store() aufgerufen werden.
+        analyze_and_store() kuemmert sich um VRAM-Freigabe (self.unload()) im finally-Block.
+        Ein direkter Aufruf von analyze() laesst das beat_this-Modell im VRAM geladen,
+        was bei nachfolgenden GPU-Operationen zu OOM fuehren kann (B-04).
+
         Returns:
             {
                 "beats": [float, ...],          # Beat-Zeitpunkte in Sekunden

@@ -116,7 +116,7 @@ def _load_raft_model():
     try:
         import torch
         import torchvision.models.optical_flow as of
-        from services.model_manager import GPU_LOAD_LOCK
+        from services.model_manager import GPU_LOAD_LOCK, ModelManager
 
         with GPU_LOAD_LOCK:
             logger.info("[RAFT] Lade RAFT Optical Flow Modell...")
@@ -124,6 +124,12 @@ def _load_raft_model():
             device = torch.device("cuda" if cuda_ok else "cpu")
             if cuda_ok:
                 logger.info("GPU-ZWANG: RAFT wird auf CUDA geladen (%s)", torch.cuda.get_device_name(0))
+            # B-03: Praeventiv andere Modelle entladen bevor RAFT auf GPU geladen wird.
+            # Ausnahme: SigLIP bleibt geladen im Batch-Modus (RAFT ist nur ~0.1 GB,
+            # koexistiert problemlos mit SigLIP ~2.5 GB auf 6 GB VRAM).
+            mm = ModelManager()
+            if mm.model_type != "siglip":
+                mm.unload()
             raft = of.raft_small(weights=of.Raft_Small_Weights.DEFAULT)
             try:
                 raft = raft.to(device)

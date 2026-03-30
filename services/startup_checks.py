@@ -137,7 +137,7 @@ def check_system(app_root: Path | None = None) -> SystemStatus:
                     status.ffmpeg_version = ver
                     status.ffprobe_ok = probe_ok
                 elif key == "cuda":
-                    ok, name, vram = future.result(timeout=8)
+                    ok, name, vram = future.result(timeout=3)  # P-014: 8s→3s, torch-Import soll App nicht blockieren
                     status.cuda_ok = ok
                     status.gpu_name = name
                     status.gpu_vram_mb = vram

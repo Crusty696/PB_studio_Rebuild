@@ -204,6 +204,11 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                     logger.warning("[BATCH] SigLIP Vorladen fehlgeschlagen (%s) — Fallback: pro Video laden", e)
                     siglip_model_processor = None
 
+                # B-02 Design-Entscheidung: SigLIP (~2.5 GB) und RAFT (~0.1 GB) koexistieren
+                # im Batch-Modus bewusst auf der GPU. RAFT ist winzig (100 MB) und belegt
+                # zusammen mit SigLIP nur ~2.6 GB — weit unter dem 6 GB Budget der GTX 1060.
+                # Ein Entladen von SigLIP vor RAFT waere kontraproduktiv, da SigLIP pro Video
+                # neu geladen werden muesste (~5-15s Overhead pro Video).
                 try:
                     from services.video_analysis_service import _load_raft_model
                     raft_model_device = _load_raft_model()

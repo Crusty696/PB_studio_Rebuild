@@ -39,8 +39,7 @@ APP_VERSION = "0.5.0"
 
 logger = logging.getLogger(__name__)
 
-# Globale Thread-Registry: hält Referenzen auf aktive QThread/Worker-Paare,
-# damit sie nicht vorzeitig garbage-collected werden.
+# P-017: Legacy Thread-Registry — nur noch fuer GC-Schutz, TaskManager haelt die echten Referenzen.
 _GLOBAL_ACTIVE_THREADS: list[tuple] = []
 STYLE_DIR = Path(__file__).parent / "styles"
 RESOURCE_DIR = Path(__file__).parent / "resources"
@@ -288,7 +287,8 @@ class PBWindow(QMainWindow, AudioAnalysisMixin, VideoAnalysisMixin,
         # Sync chat dock close (X) back to toggle button
         self.chat_dock.visibilityChanged.connect(self._btn_toggle_chat.setChecked)
 
-        self._refresh_media_table()
+        # P-016: Media-Tabelle NACH dem Window-Show laden (nicht im __init__)
+        QTimer.singleShot(0, self._refresh_media_table)
 
     # ── Thread-safe UI helpers ────────────────────────────────────────
 

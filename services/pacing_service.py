@@ -9,6 +9,7 @@ REGELN:
 - LanceDB Semantic Search fuer Keyword-Matching, sonst Motion/Random.
 """
 
+import bisect
 import copy
 import json
 import logging
@@ -27,6 +28,21 @@ logger = logging.getLogger(__name__)
 # Sentinel value: step so hoch dass kein Cut stattfindet (breakdown_behavior="none")
 _STEP_NO_CUT = 9999
 
+# P-027/P-028: Stem-Audio Cache — vermeidet 4x librosa.load pro auto_edit
+_stem_audio_cache: dict[int, dict[str, tuple]] = {}  # audio_id -> {stem_name: (y, sr)}
+
+
+def _get_cached_stem_audio(audio_id: int, stem_path: str, stem_name: str, sr: int = 22050):
+    """Laedt Stem-Audio mit Cache — vermeidet 4x librosa.load pro auto_edit."""
+    if audio_id not in _stem_audio_cache:
+        _stem_audio_cache[audio_id] = {}
+    cache = _stem_audio_cache[audio_id]
+    if stem_name not in cache:
+        import librosa
+        y, loaded_sr = librosa.load(stem_path, sr=sr, mono=True)
+        cache[stem_name] = (y, loaded_sr)
+    return cache[stem_name]
+
 
 def invalidate_pacing_caches():
     """Cache leeren nach Media-Import oder DB-Änderung."""
@@ -34,6 +50,7 @@ def invalidate_pacing_caches():
     _get_audio_path.cache_clear()
     _get_bpm.cache_clear()
     _get_video_info_cached.cache_clear()
+    _stem_audio_cache.clear()
 
 
 # ── Backward-compatible types ──
@@ -310,20 +327,13 @@ def compute_stem_weighted_energy(
         logger.warning("librosa nicht verfuegbar fuer Stem-Energie-Berechnung")
         return None
 
-    def _compute_rms_per_beat(audio_path: str, beats_list: list[float]) -> list[float]:
+    def _compute_rms_per_beat(stem_name: str, audio_path: str, beats_list: list[float]) -> list[float]:
         """Berechnet RMS pro Beat-Intervall fuer eine einzelne Stem-Datei.
 
-        M7 Fix: Laedt nur den benoetigten Zeitbereich (beats[0]..beats[-1] + Buffer)
-        statt die komplette Stem-Datei in RAM.
+        P-027 Fix: Nutzt _get_cached_stem_audio statt direktem librosa.load.
         """
-        # Bestimme den benoetigten Zeitbereich mit 1s Buffer
-        load_offset = max(0.0, beats_list[0] - 1.0)
-        load_end = beats_list[-1] + 1.0  # 1s Buffer nach dem letzten Beat
-        load_duration = load_end - load_offset
-
         try:
-            y, sr = librosa.load(audio_path, sr=DEFAULT_SR, mono=True,
-                                 offset=load_offset, duration=load_duration)
+            y, sr = _get_cached_stem_audio(audio_id, audio_path, stem_name, sr=DEFAULT_SR)
         except Exception as e:
             logger.warning("Konnte Stem '%s' nicht laden: %s", audio_path, e)
             return [0.5] * len(beats_list)
@@ -331,8 +341,8 @@ def compute_stem_weighted_energy(
         audio_duration = len(y) / sr
         energies = []
         for i in range(len(beats_list)):
-            start_sec = beats_list[i] - load_offset  # Relativ zum geladenen Bereich
-            end_sec = (beats_list[i + 1] - load_offset) if i + 1 < len(beats_list) else audio_duration
+            start_sec = beats_list[i]
+            end_sec = beats_list[i + 1] if i + 1 < len(beats_list) else audio_duration
             start_sample = int(start_sec * sr)
             end_sample = min(int(end_sec * sr), len(y))
             if start_sample >= end_sample or start_sample < 0:
@@ -354,7 +364,7 @@ def compute_stem_weighted_energy(
 
     for stem_name in ["drums", "bass", "vocals", "other"]:
         if stem_name in available:
-            stem_energies[stem_name] = _compute_rms_per_beat(available[stem_name], beats)
+            stem_energies[stem_name] = _compute_rms_per_beat(stem_name, available[stem_name], beats)
         else:
             stem_energies[stem_name] = default_energy
 
@@ -478,11 +488,15 @@ def detect_sections(
     ))
 
     # 5. Zu kurze Sektionen mit Nachbarn verschmelzen
+    # P-020 Fix: O(N*M) -> O(N*log(M)) via bisect statt sum(1 for b in beats ...)
+    beats_arr_sorted = sorted(beats)  # should already be sorted
     merged: list[Section] = []
     for sec in sections:
         sec_beats = 0
-        if beats:
-            sec_beats = sum(1 for b in beats if sec.start <= b < sec.end)
+        if beats_arr_sorted:
+            left = bisect.bisect_left(beats_arr_sorted, sec.start)
+            right = bisect.bisect_left(beats_arr_sorted, sec.end)
+            sec_beats = right - left
 
         if merged and sec_beats < min_section_beats // 2:
             # Zu kurz — mit vorheriger Sektion verschmelzen
@@ -504,9 +518,23 @@ def detect_sections(
     return merged
 
 
+# P-021: Bisect-Cache fuer get_section_at_time (O(log N) statt O(N), aufgerufen 5451x)
+_section_starts_cache: list[float] = []
+_section_list_cache: list[Section] = []
+
+
 def get_section_at_time(sections: list[Section], time: float) -> Section | None:
-    """Findet die Sektion die einen bestimmten Zeitpunkt enthaelt."""
-    for sec in sections:
+    """Findet die Sektion die einen bestimmten Zeitpunkt enthaelt. O(log N) via bisect."""
+    global _section_starts_cache, _section_list_cache
+    if not sections:
+        return None
+    # Build cache on first call or when sections change
+    if len(_section_list_cache) != len(sections) or (sections and _section_list_cache[0] != sections[0]):
+        _section_starts_cache = [s.start for s in sections]
+        _section_list_cache = list(sections)
+    idx = bisect.bisect_right(_section_starts_cache, time) - 1
+    if 0 <= idx < len(_section_list_cache):
+        sec = _section_list_cache[idx]
         if sec.start <= time < sec.end:
             return sec
     return sections[-1] if sections else None
@@ -537,13 +565,8 @@ def compute_vocal_activity(
         return [False] * len(beats)
 
     try:
-        import librosa
-        # M7 Fix: Nur den benoetigten Zeitbereich laden statt kompletten Stem
-        load_offset = max(0.0, beats[0] - 1.0)
-        load_end = beats[-1] + 1.0  # 1s Buffer nach dem letzten Beat
-        load_duration = load_end - load_offset
-        y, sr = librosa.load(vocals_path, sr=DEFAULT_SR, mono=True,
-                             offset=load_offset, duration=load_duration)
+        # P-028 Fix: Nutze _get_cached_stem_audio statt direktem librosa.load
+        y, sr = _get_cached_stem_audio(audio_id, vocals_path, "vocals", sr=DEFAULT_SR)
     except Exception as e:
         logger.warning("Konnte Vocal-Stem '%s' nicht laden: %s", vocals_path, e)
         return [False] * len(beats)
@@ -551,8 +574,8 @@ def compute_vocal_activity(
     audio_duration = len(y) / sr
     activity = []
     for i in range(len(beats)):
-        start_sec = beats[i] - load_offset  # Relativ zum geladenen Bereich
-        end_sec = (beats[i + 1] - load_offset) if i + 1 < len(beats) else audio_duration
+        start_sec = beats[i]
+        end_sec = beats[i + 1] if i + 1 < len(beats) else audio_duration
         start_sample = int(start_sec * sr)
         end_sample = min(int(end_sec * sr), len(y))
         if start_sample >= end_sample or start_sample < 0:
@@ -1184,7 +1207,10 @@ def auto_edit_phase3(
     for anchor_time in (anchor_times if beats_arr.size > 0 else []):
         idx = np.argmin(np.abs(beats_arr - anchor_time))
         snapped = float(beats_arr[idx])
-        if not any(abs(cb - snapped) < 0.05 for cb in cut_beats):
+        # P-024 Fix: O(log N) bisect statt O(N) any()
+        _ai = bisect.bisect_left(cut_beats, snapped - 0.05)
+        _anchor_dup = (_ai < len(cut_beats) and abs(cut_beats[_ai] - snapped) < 0.05)
+        if not _anchor_dup:
             cut_beats.append(snapped)
     cut_beats.sort()
 
@@ -1215,6 +1241,13 @@ def auto_edit_phase3(
             with Session(engine) as session:
                 for scene in session.query(Scene).filter(Scene.id.in_(scene_ids)).all():
                     anchor_scene_map[str(scene.id)] = scene.video_clip_id
+
+    # P-022 Fix: Sortierte Drop-Zeiten fuer O(log N) bisect statt O(N) any()
+    sorted_drops = sorted(drop_times)
+    # P-023 Fix: Sortierte Transition-Ranges fuer O(log N) bisect statt O(N) any()
+    _sorted_transitions = sorted(transition_ranges)
+    sorted_trans_starts = [t[0] for t in _sorted_transitions]
+    sorted_trans_ends = [t[1] for t in _sorted_transitions]
 
     for i in range(len(cut_beats) - 1):
         seg_start = cut_beats[i]
@@ -1280,14 +1313,16 @@ def auto_edit_phase3(
         seg_crossfade = section_to_crossfade(seg_section_type)
 
         # Bei Drops: Hard Cut erzwingen (0ms crossfade)
-        is_drop = any(abs(seg_start - dt) < 0.5 for dt in drop_times)
+        # P-022 Fix: O(log N) bisect statt O(N) any()
+        _di = bisect.bisect_left(sorted_drops, seg_start - 0.5)
+        is_drop = _di < len(sorted_drops) and abs(sorted_drops[_di] - seg_start) < 0.5
         if is_drop:
             seg_crossfade = 0.0
 
         # DJ-Mix Transition: Laengerer Crossfade + "transition" Source-Tag
-        is_in_transition = any(
-            t_start <= seg_start < t_end for t_start, t_end in transition_ranges
-        )
+        # P-023 Fix: O(log N) bisect statt O(N) any()
+        _ti = bisect.bisect_right(sorted_trans_starts, seg_start) - 1
+        is_in_transition = (_ti >= 0 and _ti < len(sorted_trans_ends) and seg_start < sorted_trans_ends[_ti])
         if is_in_transition and not is_drop:
             # DJ-Uebergang: Laengerer Crossfade als SECTION_CROSSFADE_MAP["TRANSITION"]=1.5s
             # weil echte DJ-Transitions weicher sein muessen als Sektions-Wechsel
@@ -1634,10 +1669,11 @@ def _get_ai_memory_bias(bpm: float, overall_energy: float) -> dict | None:
     """
     try:
         with Session(engine) as session:
+            # P-025 Fix: .limit(50) um unbegrenztes Laden zu verhindern
             memories = session.query(AIPacingMemory).filter(
                 AIPacingMemory.bpm.between(bpm * 0.85, bpm * 1.15),
                 AIPacingMemory.overall_energy.between(overall_energy - 0.25, overall_energy + 0.25)
-            ).all()
+            ).limit(50).all()
             if not memories:
                 return None
 

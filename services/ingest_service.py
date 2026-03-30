@@ -189,9 +189,9 @@ def get_audio_detail_data(audio_id: int) -> dict | None:
         return None
 
 
-def get_all_audio(project_id: int = 1) -> list[dict]:
+def get_all_audio(project_id: int = 1, limit: int = 5000) -> list[dict]:
     with Session(engine) as session:
-        tracks = session.query(AudioTrack).filter_by(project_id=project_id).all()
+        tracks = session.query(AudioTrack).filter_by(project_id=project_id).limit(limit).all()
         result = []
         for t in tracks:
             # Stem-Status berechnen
@@ -208,9 +208,9 @@ def get_all_audio(project_id: int = 1) -> list[dict]:
         return result
 
 
-def get_all_video(project_id: int = 1) -> list[dict]:
+def get_all_video(project_id: int = 1, limit: int = 5000) -> list[dict]:
     with Session(engine) as session:
-        clips = session.query(VideoClip).filter_by(project_id=project_id).all()
+        clips = session.query(VideoClip).filter_by(project_id=project_id).limit(limit).all()
         result = []
         for c in clips:
             res = f"{c.width}x{c.height}" if c.width and c.height else None

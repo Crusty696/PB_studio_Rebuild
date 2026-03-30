@@ -193,6 +193,13 @@ class ModelManager:
             # Altes Modell entladen
             self.unload()
 
+            # B-05: VRAM pre-check — fragmentierten Speicher freigeben vor dem Laden
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+                torch.cuda.empty_cache()
+                gc.collect()
+                torch.cuda.empty_cache()
+
             logger.info("ModelManager: Lade transformers '%s' auf %s...", model_id, self.device)
 
             from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
@@ -246,6 +253,13 @@ class ModelManager:
 
             # Altes Modell entladen
             self.unload()
+
+            # B-05: VRAM pre-check — fragmentierten Speicher freigeben vor dem Laden
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+                torch.cuda.empty_cache()
+                gc.collect()
+                torch.cuda.empty_cache()
 
             logger.info("ModelManager: Lade faster-whisper '%s' auf %s...", model_size, self.device)
 

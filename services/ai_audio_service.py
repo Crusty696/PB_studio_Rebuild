@@ -103,14 +103,16 @@ class StemSeparator:
         # ── 3. Demucs-Modell laden (Python API) ──
         from demucs.pretrained import get_model
         from demucs.apply import apply_model
-        demucs_model = get_model(model)
-        try:
-            demucs_model.to(device)
-        except torch.cuda.OutOfMemoryError:
-            torch.cuda.empty_cache()
-            gc.collect()
-            raise CUDAOutOfMemoryError(operation=f"Demucs '{model}' laden")
-        demucs_model.eval()
+        from services.model_manager import GPU_LOAD_LOCK
+        with GPU_LOAD_LOCK:
+            demucs_model = get_model(model)
+            try:
+                demucs_model.to(device)
+            except torch.cuda.OutOfMemoryError:
+                torch.cuda.empty_cache()
+                gc.collect()
+                raise CUDAOutOfMemoryError(operation=f"Demucs '{model}' laden")
+            demucs_model.eval()
         logger.info(f"[StemSeparator] Modell '{model}' geladen auf {device}")
 
         if progress_cb:
@@ -145,7 +147,7 @@ class StemSeparator:
         # D-01 Fix: VRAM-Budget pruefen — bei wenig VRAM Chunk-Groesse halbieren
         if torch.cuda.is_available():
             vram_free_gb = (torch.cuda.get_device_properties(0).total_memory
-                            - torch.cuda.memory_reserved(0)) / (1024**3)
+                            - torch.cuda.memory_allocated(0)) / (1024**3)
             if vram_free_gb < 2.0:
                 chunk_seconds = max(10, chunk_seconds // 2)
                 logger.warning(
