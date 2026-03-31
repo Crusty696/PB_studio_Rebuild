@@ -101,6 +101,25 @@ class TimelineSegment:
     section_type: str = ""           # WARMUP/BUILDUP/DROP/BREAKDOWN/COOLDOWN
 
 
+SECTION_PACING_MAP = {
+    "WARMUP":     {"base": 16, "min": 8,  "max": 32},
+    "BUILDUP":    {"base": 8,  "min": 1,  "max": 16},
+    "DROP":       {"base": 2,  "min": 1,  "max": 4},
+    "BREAKDOWN":  {"base": 16, "min": 8,  "max": 32},
+    "TRANSITION": {"base": 8,  "min": 4,  "max": 16},
+    "COOLDOWN":   {"base": 16, "min": 8,  "max": 32},
+    "CHORUS":     {"base": 4,  "min": 2,  "max": 8},
+    "VERSE":      {"base": 8,  "min": 4,  "max": 16},
+}
+
+HARD_MIN_DURATION = 3.0
+SECTION_MIN_DURATION = {
+    "WARMUP": 5.0, "BUILDUP": 3.0, "DROP": 2.0,
+    "BREAKDOWN": 6.0, "TRANSITION": 4.0, "COOLDOWN": 6.0,
+    "CHORUS": 3.0, "VERSE": 4.0,
+}
+
+
 # ── Data Access ──
 
 def _get_beat_positions(audio_id: int | None) -> list[float]:
@@ -908,11 +927,14 @@ def _compute_effective_step(
     pacing_curve: list[float] | None,
     avg_motion: float = 0.5,
     vocal_active: bool = False,
+    section_type: str = "",
+    section_progress: float = 0.0,
 ) -> int:
     """Berechnet den effektiven Beat-Schritt fuer einen bestimmten Beat.
 
     Kombiniert:
     - base_cut_rate (aus UI)
+    - section_type / section_progress (SECTION_PACING_MAP, Phase 1+4)
     - energy_reactivity (erhoeht Cuts bei hohem RMS)
     - breakdown_behavior (reduziert Cuts bei niedrigem RMS)
     - manual_density_curve (optionale Ueberschreibung)
@@ -932,37 +954,71 @@ def _compute_effective_step(
             effective = min(base_step, curve_step)
         else:
             effective = max(base_step, curve_step)
+        # Pacing-Kurve hat hoechste Prioritaet — Section-Logik ueberspringen
+        section_type = ""
 
-    # 2. Energy Reactivity
+    # 2. Section-Aware Base Step (Phase 1+4: SECTION_PACING_MAP)
+    section_step = effective  # Fallback: unmodifizierter base_step / curve_step
+    if section_type and section_type in SECTION_PACING_MAP:
+        sec_cfg = SECTION_PACING_MAP[section_type]
+        section_step = sec_cfg["base"]
+
+        # BUILDUP: exponentiell beschleunigen (progress^2.5)
+        if section_type == "BUILDUP":
+            accel = section_progress ** 2.5
+            # progress=0 → base (8), progress=1 → min (1)
+            section_step = max(
+                sec_cfg["min"],
+                int(sec_cfg["base"] - accel * (sec_cfg["base"] - sec_cfg["min"])),
+            )
+
+        # DROP: erste 8 Beats Step=1, danach auf base einpendeln
+        elif section_type == "DROP":
+            if section_progress < 0.15:
+                section_step = 1
+            else:
+                section_step = sec_cfg["base"]
+
+    # 3. Energy Reactivity — Energie-Schritt berechnen, dann mit Section blenden
     reactivity = energy_reactivity / 100.0
     energy = 0.5
+    energy_step = effective
     if reactivity > 0 and beat_index < len(energy_per_beat):
         energy = energy_per_beat[beat_index]
 
         # Hohe Energie (>0.7): Step reduzieren (mehr Cuts)
         if energy > 0.7:
             speed_boost = 1.0 + (energy - 0.7) * 3.0 * reactivity  # max ~1.9x
-            effective = max(1, int(effective / speed_boost))
+            energy_step = max(1, int(effective / speed_boost))
 
         # Niedrige Energie (<0.3): Breakdown-Verhalten anwenden
         elif energy < 0.3:
             if breakdown_behavior == "halve":
-                effective = min(16, effective * 2)
+                energy_step = min(16, effective * 2)
             elif breakdown_behavior == "force16":
-                effective = 16
+                energy_step = 16
             elif breakdown_behavior == "none":
-                effective = _STEP_NO_CUT
+                energy_step = _STEP_NO_CUT
 
         # Mittlere Energie (0.3-0.7): Leichte Modulation
         elif 0.3 <= energy <= 0.5:
-            # Leicht verlangsamen bei niedrig-mittel
-            effective = min(16, int(effective * 1.5))
+            energy_step = min(16, int(effective * 1.5))
+
+    # Section + Energy blenden: 60% Section, 40% Energy
+    if section_type and section_type in SECTION_PACING_MAP:
+        sec_cfg = SECTION_PACING_MAP[section_type]
+        blended = section_step * 0.6 + energy_step * 0.4
+        effective = int(round(blended))
+        # Auf Section-Grenzen klemmen
+        effective = max(sec_cfg["min"], min(sec_cfg["max"], effective))
+    else:
+        effective = energy_step
 
     # Guard: "none" = kein Cut, Motion-Adjustment nicht anwenden
     if effective >= _STEP_NO_CUT:
         return effective
 
-    # 3. Motion-Adjusted Step (PhD-Spec Schritt 3: combined_intensity)
+    # 4. Motion-Adjusted Step (PhD-Spec Schritt 3: combined_intensity)
     # Kombiniert Audio-Energie mit Video-Motion-Score
     combined_intensity = energy * 0.6 + avg_motion * 0.4
     if combined_intensity >= 0.8:
@@ -975,7 +1031,7 @@ def _compute_effective_step(
         effective = min(16, effective * 2)
     # 0.4-0.6: No change (normal)
 
-    # 4. Vocal-Aware Pacing (PhD-Spec Abschnitt 7.3)
+    # 5. Vocal-Aware Pacing (PhD-Spec Abschnitt 7.3)
     # Wenn Vocals aktiv: Schnittfrequenz halbieren fuer visuelle Stabilitaet
     if vocal_active:
         effective = min(16, effective * 2)
@@ -990,17 +1046,31 @@ def _select_cut_beats_advanced(
     energy_per_beat: list[float],
     avg_motion: float = 0.5,
     vocal_activity: list[bool] | None = None,
+    sections: list | None = None,
+    downbeats: list[float] | None = None,
 ) -> list[float]:
-    """Phase 3: Waehlt Cut-Beats basierend auf DJ-Reglern aus."""
+    """Phase 3+4: Waehlt Cut-Beats basierend auf DJ-Reglern und Sektion aus."""
     if not beats:
         return []
 
+    downbeat_set: set[float] = set(downbeats) if downbeats else set()
     selected: list[float] = []
     beats_since_last_cut = 0
 
     for i, beat_time in enumerate(beats):
         if beat_time >= total_duration:
             break
+
+        # Section-Kontext fuer diesen Beat ermitteln
+        section_type = ""
+        section_progress = 0.0
+        if sections:
+            sec = get_section_at_time(sections, beat_time)
+            if sec is not None:
+                section_type = sec.section_type
+                sec_duration = max(sec.end - sec.start, 0.001)
+                section_progress = (beat_time - sec.start) / sec_duration
+                section_progress = max(0.0, min(1.0, section_progress))
 
         is_vocal = vocal_activity[i] if vocal_activity and i < len(vocal_activity) else False
 
@@ -1015,14 +1085,80 @@ def _select_cut_beats_advanced(
             pacing_curve=settings.manual_density_curve,
             avg_motion=avg_motion,
             vocal_active=is_vocal,
+            section_type=section_type,
+            section_progress=section_progress,
         )
 
         beats_since_last_cut += 1
         if beats_since_last_cut >= step:
-            selected.append(beat_time)
-            beats_since_last_cut = 0
+            # Beat-Hierarchie: Grosse Steps bevorzugen Downbeats
+            if step >= 8 and downbeat_set:
+                # Nur auf Downbeats schneiden
+                if beat_time in downbeat_set:
+                    selected.append(beat_time)
+                    beats_since_last_cut = 0
+                # else: warten bis naechster Downbeat
+            elif step >= 4 and downbeat_set:
+                # Downbeat bevorzugen: falls vorhanden nehmen, sonst normal
+                if beat_time in downbeat_set:
+                    selected.append(beat_time)
+                    beats_since_last_cut = 0
+                else:
+                    # Schauen ob naechster Beat ein Downbeat ist (1 Beat Toleranz)
+                    next_beat = beats[i + 1] if i + 1 < len(beats) else None
+                    if next_beat is None or next_beat not in downbeat_set:
+                        selected.append(beat_time)
+                        beats_since_last_cut = 0
+            else:
+                selected.append(beat_time)
+                beats_since_last_cut = 0
 
     return selected
+
+
+def _enforce_minimum_durations(
+    cut_beats: list[float],
+    sections: list | None,
+    total_duration: float,
+) -> list[float]:
+    """Phase 2: Entfernt Cut-Beats die zu kurze Segmente erzeugen wuerden.
+
+    - HARD_MIN_DURATION (3s) gilt immer
+    - SECTION_MIN_DURATION gibt hoeheres Minimum pro Section-Type
+    - Strukturgrenzen (DROP-Eintritt) werden nie entfernt
+    """
+    if len(cut_beats) < 3:
+        return cut_beats
+
+    # Strukturgrenzen-Set: Erste Beats von DROP/BUILDUP Sektionen schuetzen
+    protected: set[int] = {0, len(cut_beats) - 1}  # Start und Ende nie entfernen
+    if sections:
+        for sec in sections:
+            if sec.section_type in ("DROP", "BUILDUP"):
+                # Finde naechsten Cut-Beat zur Sektionsgrenze
+                for j, cb in enumerate(cut_beats):
+                    if abs(cb - sec.start) < 1.0:
+                        protected.add(j)
+                        break
+
+    result = [cut_beats[0]]  # Start immer behalten
+    for i in range(1, len(cut_beats)):
+        gap = cut_beats[i] - result[-1]
+
+        # Section-spezifisches Minimum ermitteln
+        min_dur = HARD_MIN_DURATION
+        if sections:
+            sec = get_section_at_time(sections, result[-1])
+            if sec:
+                min_dur = max(min_dur, SECTION_MIN_DURATION.get(sec.section_type, HARD_MIN_DURATION))
+
+        if gap >= min_dur or i in protected:
+            result.append(cut_beats[i])
+        # else: Cut-Beat entfernen (Segment wird laenger)
+
+    logger.info("Mindestdauer: %d → %d Cut-Beats (entfernt: %d)",
+                len(cut_beats), len(result), len(cut_beats) - len(result))
+    return result
 
 
 def _match_video_for_segment(
@@ -1188,11 +1324,13 @@ def auto_edit_phase3(
         logger.info("DJ-Uebergaenge erkannt: %s",
                     [(f"{s:.0f}-{e:.0f}s") for s, e in transition_ranges])
 
-    # 5. Cut-Beats berechnen (Phase 3 mit Motion-Fusion + Vocal-Awareness)
+    # 5. Cut-Beats berechnen (Phase 3+4 mit Section-Awareness + Beat-Hierarchie)
     cut_beats = _select_cut_beats_advanced(
         beats, total_duration, settings, energy_per_beat,
         avg_motion=avg_motion,
         vocal_activity=vocal_activity,
+        sections=sections,
+        downbeats=downbeats,
     )
 
     # Start immer bei 0
@@ -1213,6 +1351,9 @@ def auto_edit_phase3(
         if not _anchor_dup:
             cut_beats.append(snapped)
     cut_beats.sort()
+
+    # Phase 2: Mindestdauer erzwingen — zu kurze Segmente entfernen
+    cut_beats = _enforce_minimum_durations(cut_beats, sections, total_duration)
 
     if progress_cb:
         progress_cb(60, "Erzeuge Timeline-Segmente...")
@@ -1254,7 +1395,7 @@ def auto_edit_phase3(
         seg_end = cut_beats[i + 1]
         seg_duration = seg_end - seg_start
 
-        if seg_duration < 0.1:
+        if seg_duration < HARD_MIN_DURATION:
             continue
 
         # Pruefen ob ein Anker dieses Segment erzwingt
