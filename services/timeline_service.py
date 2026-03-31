@@ -27,12 +27,12 @@ PB_NS = "pb_studio"
 
 
 def apply_auto_edit_segments(segments: list[dict], project_id: int | None = None,
-                             max_retries: int = 3) -> int:
+                             max_retries: int = 5) -> int:
     """Ersetzt alle Video-Timeline-Eintraege durch neue Auto-Edit Segmente.
 
     Atomar: DELETE + INSERT in einer einzigen Transaktion.
-    Retry bei "database is locked" (SQLite busy_timeout kann bei vielen
-    parallelen Sessions ueberschritten werden).
+    Verwendet eine eigene NullPool-Engine um DB-Lock durch verwaiste
+    Pool-Connections anderer Worker zu umgehen.
     Returns: Anzahl der eingefuegten Eintraege.
     """
     import time as _time
@@ -43,34 +43,62 @@ def apply_auto_edit_segments(segments: list[dict], project_id: int | None = None
 
     for attempt in range(max_retries):
         try:
+            if attempt > 0:
+                engine.dispose()
+                _time.sleep(1)
             return _do_apply_segments(segments, project_id)
         except OperationalError as e:
             if "database is locked" in str(e) and attempt < max_retries - 1:
-                logger.warning("DB locked bei Timeline-Write, Retry %d/%d...", attempt + 1, max_retries)
-                _time.sleep(2 * (attempt + 1))
+                wait = 5 * (attempt + 1)
+                logger.warning("DB locked bei Timeline-Write, Retry %d/%d (warte %ds)...",
+                               attempt + 1, max_retries, wait)
+                _time.sleep(wait)
             else:
                 raise
 
 
 def _do_apply_segments(segments: list[dict], project_id: int) -> int:
-    with Session(engine) as session:
-        session.query(TimelineEntry).filter_by(
-            project_id=project_id, track="video"
-        ).delete()
+    from database import APP_ROOT
+    from sqlalchemy import create_engine as _create_engine, event as _event
+    from sqlalchemy.pool import NullPool
 
-        for seg in segments:
-            entry = TimelineEntry(
-                project_id=project_id,
-                track="video",
-                media_id=seg["video_id"],
-                start_time=seg["start"],
-                end_time=seg["end"],
-                source_start=seg.get("source_start", 0.0),
-                source_end=seg.get("source_end"),
-                lane=0,
-            )
-            session.add(entry)
-        session.commit()
+    db_path = APP_ROOT / 'pb_studio.db'
+    _eng = _create_engine(
+        f"sqlite:///{db_path}",
+        echo=False,
+        connect_args={"check_same_thread": False, "timeout": 30},
+        poolclass=NullPool,
+    )
+
+    @_event.listens_for(_eng, "connect")
+    def _set_pragma(dbapi_conn, _rec):
+        c = dbapi_conn.cursor()
+        c.execute("PRAGMA journal_mode=WAL")
+        c.execute("PRAGMA synchronous=NORMAL")
+        c.execute("PRAGMA busy_timeout=30000")
+        c.close()
+
+    try:
+        with Session(_eng) as session:
+            session.query(TimelineEntry).filter_by(
+                project_id=project_id, track="video"
+            ).delete()
+
+            for seg in segments:
+                entry = TimelineEntry(
+                    project_id=project_id,
+                    track="video",
+                    media_id=seg["video_id"],
+                    start_time=seg["start"],
+                    end_time=seg["end"],
+                    source_start=seg.get("source_start", 0.0),
+                    source_end=seg.get("source_end"),
+                    lane=0,
+                )
+                session.add(entry)
+            session.commit()
+    finally:
+        _eng.dispose()
 
     logger.info("Timeline: %d Video-Segmente geschrieben (project=%d)", len(segments), project_id)
     return len(segments)
