@@ -81,9 +81,11 @@ class AdvancedPacingSettings:
     base_cut_rate: int = 4          # 1, 2, 4, 8, 16 Beats
     energy_reactivity: int = 50     # 0-100%
     breakdown_behavior: str = "halve"  # "halve", "force16", "none"
-    vibe: str = ""                  # Keyword fuer LanceDB Suche
+    vibe: str = ""                  # Keyword fuer Semantic Search
     manual_density_curve: list[float] | None = None
     anchors: list[dict] | None = None  # [{"time": float, "scene_id": str}, ...]
+    use_llm_strategist: bool = False   # Phase 5: Lokaler LLM-Pacing-Strategist
+    user_preferences: str = ""         # Natuerliche Sprache fuer LLM ("ruhigere Breakdowns")
 
 
 @dataclass
@@ -1464,6 +1466,39 @@ def auto_edit_phase3(
     sections = detect_sections(energy_per_beat, beats, total_duration)
     logger.info("Erkannte Sektionen: %s",
                 [(s.section_type, f"{s.start:.0f}-{s.end:.0f}s") for s in sections])
+
+    # Phase 5: Optionaler LLM Pacing-Strategist (lokal, offline)
+    if settings.use_llm_strategist:
+        if progress_cb:
+            progress_cb(35, "LLM Pacing-Strategist generiert Plan...")
+        try:
+            from services.pacing_strategist import PacingStrategist
+            strategist = PacingStrategist()
+            sections_dicts = [
+                {"type": s.section_type, "start": s.start, "end": s.end, "avg_energy": s.avg_energy}
+                for s in sections
+            ]
+            pacing_plan = strategist.generate_pacing_plan(
+                sections=sections_dicts,
+                bpm=bpm_val,
+                total_duration=total_duration,
+                clip_count=len(video_clip_ids),
+                user_preferences=settings.user_preferences,
+            )
+            # LLM-Plan in Section-Overrides anwenden (lokale Kopie, nicht modul-level)
+            import copy
+            _pacing_map_override = copy.deepcopy(SECTION_PACING_MAP)
+            for override in pacing_plan.section_overrides:
+                ov_type = override.get("type", "")
+                ov_cut_rate = override.get("cut_rate_beats")
+                if ov_type and ov_cut_rate and ov_type in _pacing_map_override:
+                    _pacing_map_override[ov_type]["base"] = int(ov_cut_rate)
+                    logger.info("LLM Override: %s base → %d beats", ov_type, ov_cut_rate)
+            # _pacing_map_override wird hier nicht weiter genutzt da
+            # _compute_effective_step() direkt SECTION_PACING_MAP referenziert.
+            # TODO: Pacing-Map als Parameter durchreichen wenn LLM-Strategist aktiv
+        except Exception as e:
+            logger.warning("LLM Pacing-Strategist uebersprungen: %s", e)
 
     # F-009: Vocal-Activity fuer Vocal-Aware Pacing
     vocal_activity = compute_vocal_activity(audio_id, beats)

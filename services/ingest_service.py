@@ -413,3 +413,52 @@ def delete_selected_media(video_ids: list[int], audio_ids: list[int]) -> int:
                 logger.warning("VectorDB delete_by_clip_ids fehlgeschlagen: %s", e)
 
         return count_a + count_v
+
+
+def import_video_folder(
+    folder_path: str,
+    project_id: int = 1,
+    recursive: bool = True,
+) -> list[VideoClip]:
+    """Importiert alle Videos aus einem Ordner (rekursiv).
+
+    Phase 6: Batch Video Import.
+    Scannt den Ordner nach allen unterstuetzten Video-Dateien und
+    importiert jede einzeln via ingest_video().
+
+    Returns: Liste der erfolgreich importierten VideoClip-Objekte.
+    """
+    folder = Path(folder_path)
+    if not folder.is_dir():
+        raise ValueError(f"Ordner existiert nicht: {folder_path}")
+
+    # Alle Video-Dateien sammeln
+    pattern = "**/*" if recursive else "*"
+    video_files = [
+        f for f in folder.glob(pattern)
+        if f.is_file() and f.suffix.lower() in VIDEO_EXTENSIONS
+    ]
+
+    if not video_files:
+        logger.warning("Keine Videos gefunden in: %s", folder_path)
+        return []
+
+    logger.info("Batch-Import: %d Videos gefunden in %s", len(video_files), folder_path)
+
+    imported: list[VideoClip] = []
+    skipped = 0
+    for video_file in sorted(video_files):
+        try:
+            clip = ingest_video(str(video_file), project_id=project_id)
+            if clip:
+                imported.append(clip)
+            else:
+                skipped += 1
+        except Exception as e:
+            logger.warning("Import uebersprungen: %s — %s", video_file.name, e)
+            skipped += 1
+
+    logger.info("Batch-Import fertig: %d importiert, %d uebersprungen",
+                len(imported), skipped)
+    _invalidate_pacing_caches()
+    return imported
