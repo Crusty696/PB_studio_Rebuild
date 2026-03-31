@@ -639,6 +639,55 @@ def text_to_embedding(query: str) -> np.ndarray | None:
             return None
 
 
+def texts_to_embeddings_batch(queries: list[str]) -> dict[str, np.ndarray]:
+    """Konvertiert mehrere Text-Queries in SigLIP-Vektoren in EINEM Model-Load.
+
+    Laedt SigLIP einmal, berechnet alle Embeddings, entlaedt sofort.
+    Spart ~15s pro zusaetzlichem Query gegenueber einzelnem text_to_embedding().
+
+    Returns:
+        Dict[query_text, 1152-dim numpy array]. Fehlgeschlagene Queries fehlen.
+    """
+    if not queries:
+        return {}
+
+    from services.model_manager import ModelManager
+    mm = ModelManager()
+
+    with mm._swap_lock:
+        try:
+            model, processor = mm.load_siglip()
+        except Exception as e:
+            logger.error("SigLIP fuer Batch-Text-Embedding nicht verfuegbar: %s", e)
+            return {}
+
+        import torch
+        results: dict[str, np.ndarray] = {}
+
+        try:
+            # Alle Queries in einem Batch verarbeiten
+            inputs = processor(text=queries, return_tensors="pt", padding=True, truncation=True)
+            inputs = {k: v.to(mm.device) for k, v in inputs.items()}
+
+            with torch.no_grad():
+                outputs = model.get_text_features(**inputs)
+                if not isinstance(outputs, torch.Tensor):
+                    outputs = outputs.pooler_output if hasattr(outputs, 'pooler_output') else outputs[0]
+                embeddings = outputs / outputs.norm(p=2, dim=-1, keepdim=True)
+                embeddings_np = embeddings.cpu().numpy().astype(np.float32)
+
+            for i, query in enumerate(queries):
+                results[query] = embeddings_np[i]
+
+        except Exception as e:
+            logger.error("Batch Text-Embedding Fehler: %s", e)
+        finally:
+            mm.unload()
+
+    logger.info("SigLIP Batch: %d/%d Text-Embeddings berechnet", len(results), len(queries))
+    return results
+
+
 def search_videos_by_text(
     query: str,
     top_k: int = 10,

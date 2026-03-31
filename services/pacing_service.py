@@ -1161,6 +1161,142 @@ def _enforce_minimum_durations(
     return result
 
 
+SECTION_MOOD_QUERIES = {
+    "DROP":       ["explosive energy", "bright lights", "intense fast motion", "crowd dancing"],
+    "BREAKDOWN":  ["gentle scene", "soft lighting", "slow movement", "atmospheric calm"],
+    "WARMUP":     ["calm landscape", "dark moody", "minimal abstract", "slow establishing"],
+    "BUILDUP":    ["rising tension", "accelerating", "building energy", "upward motion"],
+    "COOLDOWN":   ["peaceful", "serene nature", "fading", "gentle ending"],
+    "TRANSITION": ["varied scenery", "moderate activity", "neutral"],
+    "CHORUS":     ["vibrant performance", "colorful energy", "dancing"],
+    "VERSE":      ["moderate movement", "storytelling", "detail shots"],
+}
+
+
+def _precompute_mood_embeddings() -> dict[str, np.ndarray]:
+    """Berechnet SigLIP Text-Embeddings fuer alle Section-Mood-Queries.
+
+    Laedt SigLIP EINMAL, berechnet alle ~24 Queries als Batch, entlaedt sofort.
+    Returns: dict[section_type, 1152-dim mean embedding]
+    """
+    from services.video_analysis_service import texts_to_embeddings_batch
+
+    # Alle Queries flach sammeln
+    all_queries = []
+    query_to_section: dict[str, str] = {}
+    for section_type, queries in SECTION_MOOD_QUERIES.items():
+        for q in queries:
+            all_queries.append(q)
+            query_to_section[q] = section_type
+
+    # Batch-Embedding (1x SigLIP load)
+    embeddings = texts_to_embeddings_batch(all_queries)
+    if not embeddings:
+        logger.warning("Mood-Embeddings konnten nicht berechnet werden (SigLIP nicht verfuegbar)")
+        return {}
+
+    # Pro Section mitteln
+    section_embeddings: dict[str, list[np.ndarray]] = {}
+    for query, emb in embeddings.items():
+        sec = query_to_section.get(query)
+        if sec:
+            section_embeddings.setdefault(sec, []).append(emb)
+
+    result: dict[str, np.ndarray] = {}
+    for sec, embs in section_embeddings.items():
+        mean_emb = np.mean(embs, axis=0).astype(np.float32)
+        mean_emb /= np.linalg.norm(mean_emb) + 1e-8
+        result[sec] = mean_emb
+
+    logger.info("Mood-Embeddings: %d Section-Types berechnet", len(result))
+    return result
+
+
+def _precompute_clip_fitness_matrix(
+    mood_embeddings: dict[str, np.ndarray],
+    clip_embeddings: np.ndarray,
+    clip_metadata: list[dict],
+) -> dict[tuple, float]:
+    """Berechnet Mood-Similarity fuer jede (Clip, Section) Kombination.
+
+    Reine CPU-Operation (numpy cosine similarity), kein VRAM noetig.
+    Returns: dict[(clip_idx, section_type), similarity_float]
+    """
+    if not mood_embeddings or clip_embeddings.shape[0] == 0:
+        return {}
+
+    # Normalize clip embeddings
+    norms = np.linalg.norm(clip_embeddings, axis=1, keepdims=True) + 1e-8
+    clip_normed = clip_embeddings / norms
+
+    matrix: dict[tuple, float] = {}
+    for section_type, mood_emb in mood_embeddings.items():
+        # Cosine similarity: all clips vs this section's mood vector
+        similarities = clip_normed @ mood_emb  # shape: (N,)
+        for i, sim in enumerate(similarities):
+            matrix[(i, section_type)] = float(sim)
+
+    logger.info("Fitness-Matrix: %d Eintraege (%d Clips x %d Sections)",
+                len(matrix), clip_embeddings.shape[0], len(mood_embeddings))
+    return matrix
+
+
+def _compute_clip_fitness(
+    clip_idx: int,
+    section_type: str,
+    energy_value: float,
+    motion_score: float,
+    scene_duration: float,
+    segment_duration: float,
+    prev_clip_idx: int | None,
+    clip_embeddings: np.ndarray,
+    used_recently: list[int],
+    fitness_matrix: dict[tuple, float],
+) -> float:
+    """Multi-dimensionales Fitness-Scoring fuer einen Clip-Kandidaten.
+
+    fitness = 0.30 * energy_match + 0.25 * mood_match
+            + 0.15 * visual_continuity + 0.15 * freshness + 0.15 * duration_fit
+    """
+    # 1. Energy-Match: Wie gut passt Motion-Score zur Musik-Energie
+    energy_match = 1.0 - abs(motion_score - energy_value)
+
+    # 2. Mood-Match: Pre-computed SigLIP similarity
+    mood_match = fitness_matrix.get((clip_idx, section_type), 0.5)
+
+    # 3. Visual Continuity: Cosine-Sim zum vorherigen Clip
+    visual_cont = 0.5  # Default bei keinem Vorgaenger
+    if prev_clip_idx is not None and clip_embeddings.shape[0] > 0:
+        if prev_clip_idx < clip_embeddings.shape[0] and clip_idx < clip_embeddings.shape[0]:
+            a = clip_embeddings[prev_clip_idx]
+            b = clip_embeddings[clip_idx]
+            norm_a = np.linalg.norm(a) + 1e-8
+            norm_b = np.linalg.norm(b) + 1e-8
+            sim = float(np.dot(a, b) / (norm_a * norm_b))
+            # DROP: Kontrast belohnen (invertieren), sonst Kontinuitaet
+            if section_type == "DROP":
+                visual_cont = 1.0 - sim  # Kontrast = Impact
+            else:
+                visual_cont = sim
+
+    # 4. Freshness: Wie lange seit letzter Verwendung
+    vid_id = clip_idx  # Mapping via caller
+    if vid_id in used_recently[-5:]:
+        freshness = 0.0 if vid_id in used_recently[-3:] else 0.3
+    else:
+        freshness = 1.0
+
+    # 5. Duration-Fit: Natuerliche Laenge passt zum Slot
+    if segment_duration > 0:
+        ratio = min(scene_duration, segment_duration) / max(scene_duration, segment_duration)
+        duration_fit = ratio  # 1.0 = perfekter Fit
+    else:
+        duration_fit = 0.5
+
+    return (0.30 * energy_match + 0.25 * mood_match + 0.15 * visual_cont
+            + 0.15 * freshness + 0.15 * duration_fit)
+
+
 def _match_video_for_segment(
     seg_start: float,
     seg_end: float,
@@ -1172,33 +1308,23 @@ def _match_video_for_segment(
     energy_per_beat: list[float] | None = None,
     beats: list[float] | None = None,
     memory_bias: dict | None = None,
-) -> tuple[int, float]:
+    section_type: str = "",
+    fitness_matrix: dict[tuple, float] | None = None,
+    clip_embeddings: np.ndarray | None = None,
+    clip_metadata: list[dict] | None = None,
+    prev_clip_idx: int | None = None,
+) -> tuple[int, float, int | None]:
     """Waehlt den besten Video-Clip fuer ein Segment.
 
-    Bei Vibe-Keyword: LanceDB Semantic Search.
-    Sonst: Motion-Score oder Round-Robin mit Varianz.
+    Phase 3: Multi-dimensionales Fitness-Scoring mit SigLIP Mood-Matching.
+    Fallback: Motion-Score Matching wenn keine Embeddings verfuegbar.
 
-    Returns: (video_id, source_start)
+    Returns: (video_id, source_start, clip_idx_in_matrix)
     """
-    # LanceDB Semantic Search bei Vibe-Keyword
-    if vibe and vibe.strip():
-        try:
-            from services.video_analysis_service import search_videos_by_text
-            results = search_videos_by_text(vibe.strip(), top_k=5)
-            if results:
-                # Finde Video-ID aus dem Suchergebnis
-                for r in results:
-                    r_path = r.get("video_path", "")
-                    for vid, info in video_info.items():
-                        if info["path"] == r_path:
-                            scene_start = r.get("scene_start", 0.0)
-                            return vid, scene_start
-        except Exception as e:
-            logger.warning("LanceDB Suche fehlgeschlagen: %s", e)
+    seg_duration = seg_end - seg_start
 
-    # Fallback: Motion-basiertes Matching
-    # Berechne echte Audio-Energie fuer den Segment-Mittelpunkt
-    energy_value = 0.5  # Default
+    # Berechne Audio-Energie am Segment-Mittelpunkt
+    energy_value = 0.5
     if energy_per_beat and beats:
         seg_mid = (seg_start + seg_end) / 2.0
         beat_idx = int(np.searchsorted(np.array(beats), seg_mid))
@@ -1206,20 +1332,75 @@ def _match_video_for_segment(
         if beat_idx >= 0:
             energy_value = energy_per_beat[beat_idx]
 
-    # KI-Gedaechtnis: Preferred motion aus Lern-Beispielen einfliessen lassen
+    # KI-Gedaechtnis einblenden
     if memory_bias is not None:
         pref_motion = memory_bias.get("preferred_motion")
         if pref_motion is not None:
-            # 40% Gewicht auf gelernte Praeferenz (nicht ueberwiegend, da Audio-Energie Prio hat)
             energy_value = energy_value * 0.6 + pref_motion * 0.4
 
+    # Phase 3: Multi-dimensionales Fitness-Scoring
+    if fitness_matrix and clip_metadata and clip_embeddings is not None and clip_embeddings.shape[0] > 0:
+        # Mapping: video_path → video_id
+        path_to_vid: dict[str, int] = {}
+        for vid, info in video_info.items():
+            path_to_vid[info["path"]] = vid
+
+        best_score = -1.0
+        best_vid = -1
+        best_source_start = 0.0
+        best_clip_idx = None
+
+        for clip_idx, meta in enumerate(clip_metadata):
+            vid = path_to_vid.get(meta["video_path"])
+            if vid is None or vid not in available_ids:
+                continue
+
+            scene_duration = meta["scene_end"] - meta["scene_start"]
+            motion = meta.get("motion_score", 0.5)
+
+            score = _compute_clip_fitness(
+                clip_idx=clip_idx,
+                section_type=section_type,
+                energy_value=energy_value,
+                motion_score=motion,
+                scene_duration=scene_duration,
+                segment_duration=seg_duration,
+                prev_clip_idx=prev_clip_idx,
+                clip_embeddings=clip_embeddings,
+                used_recently=used_recently,
+                fitness_matrix=fitness_matrix,
+            )
+
+            if score > best_score:
+                best_score = score
+                best_vid = vid
+                best_source_start = meta["scene_start"]
+                best_clip_idx = clip_idx
+
+        if best_vid != -1:
+            return best_vid, best_source_start, best_clip_idx
+
+    # Fallback: Vibe-Keyword Suche
+    if vibe and vibe.strip():
+        try:
+            from services.video_analysis_service import search_videos_by_text
+            results = search_videos_by_text(vibe.strip(), top_k=5)
+            if results:
+                for r in results:
+                    r_path = r.get("video_path", "")
+                    for vid, info in video_info.items():
+                        if info["path"] == r_path:
+                            return vid, r.get("scene_start", 0.0), None
+        except Exception as e:
+            logger.warning("Semantic Suche fehlgeschlagen: %s", e)
+
+    # Fallback: Motion-basiertes Matching
     vid, source_start = _match_video_by_motion(
         energy_value, video_info, available_ids, used_recently,
     )
-    # Fallback source_start aus clip_offsets wenn kein Scene-Match
     if source_start == 0.0:
         source_start = clip_offsets.get(vid, 0.0)
-    return vid, source_start
+    return vid, source_start, None
 
 
 def auto_edit_phase3(
@@ -1355,6 +1536,30 @@ def auto_edit_phase3(
     # Phase 2: Mindestdauer erzwingen — zu kurze Segmente entfernen
     cut_beats = _enforce_minimum_durations(cut_beats, sections, total_duration)
 
+    # Phase 3: Mood-Embeddings + Fitness-Matrix pre-compute
+    if progress_cb:
+        progress_cb(55, "Lade KI-Modell fuer Video-Matching...")
+    try:
+        mood_embeddings = _precompute_mood_embeddings()
+    except Exception as e:
+        logger.warning("Mood-Embeddings uebersprungen: %s", e)
+        mood_embeddings = {}
+
+    clip_embeddings_matrix = np.empty((0, 1152), dtype=np.float32)
+    clip_metadata_list: list[dict] = []
+    fitness_matrix: dict[tuple, float] = {}
+    if mood_embeddings:
+        try:
+            from services.vector_db_service import VectorDBService
+            vdb = VectorDBService()
+            clip_embeddings_matrix, clip_metadata_list = vdb.get_all_embeddings()
+            if clip_embeddings_matrix.shape[0] > 0:
+                fitness_matrix = _precompute_clip_fitness_matrix(
+                    mood_embeddings, clip_embeddings_matrix, clip_metadata_list,
+                )
+        except Exception as e:
+            logger.warning("Fitness-Matrix uebersprungen: %s", e)
+
     if progress_cb:
         progress_cb(60, "Erzeuge Timeline-Segmente...")
     # 6. Segmente erzeugen
@@ -1366,6 +1571,7 @@ def auto_edit_phase3(
 
     clip_offsets: dict[int, float] = {vid: 0.0 for vid in available_ids}
     used_recently: list[int] = []
+    prev_clip_idx: int | None = None
 
     # Pre-resolve anchor scenes to avoid DB session per segment
     anchor_scene_map: dict[str, int] = {}  # scene_id_str -> video_clip_id
@@ -1398,6 +1604,10 @@ def auto_edit_phase3(
         if seg_duration < HARD_MIN_DURATION:
             continue
 
+        # Section-Type frueh bestimmen (wird fuer Video-Matching benoetigt)
+        seg_section = get_section_at_time(sections, seg_start)
+        seg_section_type = seg_section.section_type if seg_section else "TRANSITION"
+
         # Pruefen ob ein Anker dieses Segment erzwingt
         is_anchor = False
         anchor_scene_id = ""
@@ -1426,12 +1636,18 @@ def auto_edit_phase3(
             source_start = scene_info["start"] if scene_info else 0.0
         else:
             # Normaler Clip-Match
-            vid, source_start = _match_video_for_segment(
+            vid, source_start, _clip_idx = _match_video_for_segment(
                 seg_start, seg_end, settings.vibe,
                 video_info, available_ids, clip_offsets, used_recently,
                 energy_per_beat=energy_per_beat, beats=beats,
                 memory_bias=memory_bias,
+                section_type=seg_section_type,
+                fitness_matrix=fitness_matrix,
+                clip_embeddings=clip_embeddings_matrix,
+                clip_metadata=clip_metadata_list,
+                prev_clip_idx=prev_clip_idx,
             )
+            prev_clip_idx = _clip_idx
 
         if vid == -1:
             logger.warning("Kein Video fuer Segment %.2f-%.2f verfuegbar, ueberspringe.", seg_start, seg_end)
@@ -1448,9 +1664,7 @@ def auto_edit_phase3(
 
         source_end = min(source_start + seg_duration, vid_duration)
 
-        # PhD-Spec: Bestimme Sektion und Crossfade-Dauer fuer dieses Segment
-        seg_section = get_section_at_time(sections, seg_start)
-        seg_section_type = seg_section.section_type if seg_section else "TRANSITION"
+        # PhD-Spec: Crossfade-Dauer basierend auf bereits bestimmtem Section-Type
         seg_crossfade = section_to_crossfade(seg_section_type)
 
         # Bei Drops: Hard Cut erzwingen (0ms crossfade)

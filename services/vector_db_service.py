@@ -176,6 +176,38 @@ class VectorDBService:
         """Suche mit Text-Embedding."""
         return self.search(text_embedding, top_k=top_k)
 
+    def get_all_embeddings(self) -> tuple[np.ndarray, list[dict]]:
+        """Gibt ALLE Embeddings als Matrix + Metadaten zurueck.
+
+        Returns:
+            (embeddings_matrix[N, 1152], metadata_list[N])
+            Jedes Metadaten-Dict hat: video_path, scene_index, scene_start,
+            scene_end, motion_score, id
+        """
+        sql = ("SELECT id, video_path, scene_index, scene_start, scene_end, "
+               "motion_score, embedding FROM clip_embeddings")
+        with self._connect() as conn:
+            rows = conn.execute(sql).fetchall()
+
+        if not rows:
+            return np.empty((0, EMBEDDING_DIM), dtype=np.float32), []
+
+        embeddings = np.vstack(
+            [np.frombuffer(row[6], dtype=np.float32) for row in rows]
+        )
+        metadata = [
+            {
+                "id": row[0],
+                "video_path": row[1],
+                "scene_index": row[2],
+                "scene_start": row[3],
+                "scene_end": row[4],
+                "motion_score": row[5],
+            }
+            for row in rows
+        ]
+        return embeddings, metadata
+
     def count(self) -> int:
         """Gibt die Anzahl der Eintraege zurueck."""
         try:
