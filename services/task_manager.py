@@ -244,22 +244,28 @@ class GlobalTaskManager(QObject):
                     _cb(*args)
             worker.finished.connect(_guarded_finish, Qt.ConnectionType.QueuedConnection)
 
-        # Error-Signal: Fallback-Logger immer verbinden (stille Fehler verhindern).
+        # Error-Signal: IMMER Task als Error markieren + optional custom callback.
+        # Vorher: on_error ersetzte den Default-Handler → finish_task wurde nie
+        # aufgerufen → Task blieb ewig auf "Running".
         if hasattr(worker, "error"):
+            def _task_error_handler(*args, _tid=task_id, _name=name, _tm=self):
+                err_msg = str(args[-1]) if args else "Unbekannter Fehler"
+                logging.error(
+                    "[TaskEngine] Worker-Fehler '%s' (task_id=%s): %s",
+                    _name, _tid, err_msg,
+                )
+                _tm.finish_task(_tid, status="error", message=err_msg)
+            worker.error.connect(_task_error_handler, Qt.ConnectionType.QueuedConnection)
+
             if on_error:
                 worker.error.connect(on_error, Qt.ConnectionType.QueuedConnection)
-            else:
-                def _default_error_handler(*args, _tid=task_id, _name=name, _tm=self):
-                    err_msg = str(args[-1]) if args else "Unbekannter Fehler"
-                    logging.error(
-                        "[TaskEngine] Worker-Fehler '%s' (task_id=%s): %s",
-                        _name, _tid, err_msg,
-                    )
-                    _tm.finish_task(_tid, status="error", message=err_msg)
-                worker.error.connect(_default_error_handler, Qt.ConnectionType.QueuedConnection)
 
         # Thread-Lifecycle: finished → quit → cleanup (deleteLater nur einmal!)
         worker.finished.connect(thread.quit)
+        # KRITISCH: Error muss Thread ebenfalls beenden — sonst bleibt der Thread
+        # am Leben, haelt DB-Connections und verursacht "database is locked" Fehler.
+        if hasattr(worker, "error"):
+            worker.error.connect(thread.quit)
         def _safe_cleanup(_tid=task_id):
             """Guard: deleteLater nur wenn C++ Objekt noch existiert."""
             task = self._tasks.get(_tid)

@@ -527,37 +527,74 @@ class StructureDetectionService:
         return merged
 
     def save_to_db(self, audio_track_id: int, result: StructureResult,
-                   max_retries: int = 3):
-        """Speichert erkannte Segmente in die DB mit Retry bei DB-Lock."""
+                   max_retries: int = 5):
+        """Speichert erkannte Segmente in die DB mit Retry bei DB-Lock.
+
+        Verwendet eine **eigene, pool-lose Engine** (NullPool) um unabhaengig
+        von den Connection-Pool-Connections anderer Worker zu sein.  Bei jedem
+        Retry wird zusaetzlich engine.dispose() aufgerufen und der
+        busy_timeout auf 30s reduziert (statt 120s), damit Retries schneller
+        rotieren koennen.
+        """
         import time as _time
-        from database import engine, StructureSegment
+        from pathlib import Path
+        from database import engine, StructureSegment, APP_ROOT
+        from sqlalchemy import create_engine as _create_engine, event as _event
         from sqlalchemy.orm import Session
+        from sqlalchemy.pool import NullPool
         from sqlalchemy.exc import OperationalError
+
+        db_path = APP_ROOT / 'pb_studio.db'
 
         for attempt in range(max_retries):
             try:
-                with Session(engine) as session:
-                    session.query(StructureSegment).filter_by(
-                        audio_track_id=audio_track_id
-                    ).delete()
-                    for seg in result.segments:
-                        session.add(StructureSegment(
-                            audio_track_id=audio_track_id,
-                            start_time=seg.start_time,
-                            end_time=seg.end_time,
-                            label=seg.label,
-                            energy=seg.energy,
-                            confidence=seg.confidence,
-                        ))
-                    session.commit()
-                    log.info("Struktur gespeichert: %d Segmente fuer AudioTrack %d",
-                             len(result.segments), audio_track_id)
-                    return
+                if attempt > 0:
+                    engine.dispose()
+                    _time.sleep(1)
+
+                # Eigene, pool-lose Engine — umgeht alle Pool-Locks
+                _eng = _create_engine(
+                    f"sqlite:///{db_path}",
+                    echo=False,
+                    connect_args={"check_same_thread": False, "timeout": 30},
+                    poolclass=NullPool,
+                )
+
+                @_event.listens_for(_eng, "connect")
+                def _set_pragma(dbapi_conn, _rec):
+                    c = dbapi_conn.cursor()
+                    c.execute("PRAGMA journal_mode=WAL")
+                    c.execute("PRAGMA synchronous=NORMAL")
+                    c.execute("PRAGMA busy_timeout=30000")
+                    c.close()
+
+                try:
+                    with Session(_eng) as session:
+                        session.query(StructureSegment).filter_by(
+                            audio_track_id=audio_track_id
+                        ).delete()
+                        for seg in result.segments:
+                            session.add(StructureSegment(
+                                audio_track_id=audio_track_id,
+                                start_time=seg.start_time,
+                                end_time=seg.end_time,
+                                label=seg.label,
+                                energy=seg.energy,
+                                confidence=seg.confidence,
+                            ))
+                        session.commit()
+                        log.info("Struktur gespeichert: %d Segmente fuer AudioTrack %d",
+                                 len(result.segments), audio_track_id)
+                        return
+                finally:
+                    _eng.dispose()
+
             except OperationalError as e:
                 if "database is locked" in str(e) and attempt < max_retries - 1:
-                    log.warning("DB locked bei Struktur-Save, Retry %d/%d...",
-                                attempt + 1, max_retries)
-                    _time.sleep(2 * (attempt + 1))
+                    wait = 5 * (attempt + 1)
+                    log.warning("DB locked bei Struktur-Save, Retry %d/%d (warte %ds)...",
+                                attempt + 1, max_retries, wait)
+                    _time.sleep(wait)
                 else:
                     log.exception("Fehler beim Speichern der Struktur fuer AudioTrack %d",
                                   audio_track_id)
