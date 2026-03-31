@@ -389,6 +389,15 @@ class AudioAnalysisMixin:
             f"[Komplett] Schritt {self._seq_index + 1}/{self._seq_total}: {step_name}..."
         )
 
+        # KRITISCH: Alle alten DB-Connections schliessen bevor der naechste Worker startet.
+        # Ohne das haelt der vorherige Worker-Thread eine Connection die "database is locked"
+        # verursacht wenn der naechste Worker schreibt (z.B. Struktur nach LUFS).
+        try:
+            from database import engine
+            engine.dispose()
+        except Exception:
+            pass
+
         try:
             worker = worker_factory()
             if worker is None:
