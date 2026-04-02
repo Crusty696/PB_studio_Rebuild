@@ -86,7 +86,6 @@ class VideoPreviewWidget(QLabel):
             except (RuntimeError, TypeError):
                 pass
             old_thread.quit()
-            old_thread.wait(500)
             if old_worker is not None:
                 old_worker.deleteLater()
             old_thread.deleteLater()
