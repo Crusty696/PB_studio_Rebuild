@@ -193,93 +193,103 @@ class StemSeparator:
         result_stems = torch.zeros(num_sources, waveform.shape[0], total_samples, dtype=torch.float32)
         weight_sum = torch.zeros(1, total_samples, dtype=torch.float32)
 
-        for i in range(num_chunks):
-            start = i * step_samples
-            end = min(start + chunk_samples, total_samples)
-            chunk = waveform[:, start:end]
+        # B-601 Fix: GPU-Code in try/finally um ANY Exception zu handhaben
+        try:
+            for i in range(num_chunks):
+                start = i * step_samples
+                end = min(start + chunk_samples, total_samples)
+                chunk = waveform[:, start:end]
 
-            logger.info(f"[StemSeparator] Verarbeite Chunk {i + 1}/{num_chunks} "
-                  f"auf {device.type.upper()} "
-                  f"({start / sr:.1f}s - {end / sr:.1f}s)...")
+                logger.info(f"[StemSeparator] Verarbeite Chunk {i + 1}/{num_chunks} "
+                      f"auf {device.type.upper()} "
+                      f"({start / sr:.1f}s - {end / sr:.1f}s)...")
 
-            # Chunk auf GPU, Batch-Dimension hinzufuegen: (1, channels, samples)
-            chunk_gpu = chunk.unsqueeze(0).to(device)
+                # Chunk auf GPU, Batch-Dimension hinzufuegen: (1, channels, samples)
+                chunk_gpu = chunk.unsqueeze(0).to(device)
 
-            # D-04 Fix: try/except um apply_model() — bei OOM Chunk halbieren und einmal retrien
-            with torch.no_grad():
-                try:
-                    # apply_model gibt (1, sources, channels, samples) zurueck
-                    # DOPPELTER OVERLAP: internes Demucs-Overlap (25% der Chunk-Laenge)
-                    # PLUS externes 2s Crossfade-Overlap zwischen Chunks (OVERLAP_SECONDS).
-                    # Erhoehte Qualitaet an Chunk-Grenzen, aber ~30% langsamer.
-                    estimates = apply_model(
-                        demucs_model, chunk_gpu,
-                        overlap=0.25,
-                        progress=False,
-                    )
-                except torch.cuda.OutOfMemoryError:
-                    logger.warning(
-                        "[StemSeparator] OOM bei Chunk %d/%d — halbiere Chunk und retrie...",
-                        i + 1, num_chunks,
-                    )
-                    del chunk_gpu
-                    torch.cuda.empty_cache()
-                    gc.collect()
-                    # Retry mit halber Chunk-Laenge (nur den aktuellen Chunk)
-                    half = chunk.shape[1] // 2
-                    chunk_gpu_a = chunk[:, :half].unsqueeze(0).to(device)
-                    chunk_gpu_b = chunk[:, half:].unsqueeze(0).to(device)
+                # D-04 Fix: try/except um apply_model() — bei OOM Chunk halbieren und einmal retrien
+                with torch.no_grad():
                     try:
-                        est_a = apply_model(demucs_model, chunk_gpu_a, overlap=0.25, progress=False)
-                        del chunk_gpu_a
-                        torch.cuda.empty_cache()
-                        est_b = apply_model(demucs_model, chunk_gpu_b, overlap=0.25, progress=False)
-                        del chunk_gpu_b
-                        torch.cuda.empty_cache()
-                        estimates = torch.cat([est_a, est_b], dim=-1)
-                        del est_a, est_b
+                        # apply_model gibt (1, sources, channels, samples) zurueck
+                        # DOPPELTER OVERLAP: internes Demucs-Overlap (25% der Chunk-Laenge)
+                        # PLUS externes 2s Crossfade-Overlap zwischen Chunks (OVERLAP_SECONDS).
+                        # Erhoehte Qualitaet an Chunk-Grenzen, aber ~30% langsamer.
+                        estimates = apply_model(
+                            demucs_model, chunk_gpu,
+                            overlap=0.25,
+                            progress=False,
+                        )
                     except torch.cuda.OutOfMemoryError:
+                        logger.warning(
+                            "[StemSeparator] OOM bei Chunk %d/%d — halbiere Chunk und retrie...",
+                            i + 1, num_chunks,
+                        )
+                        del chunk_gpu
                         torch.cuda.empty_cache()
                         gc.collect()
-                        raise CUDAOutOfMemoryError(
-                            operation=f"apply_model Chunk {i + 1}/{num_chunks} (nach Retry)"
-                        )
+                        # Retry mit halber Chunk-Laenge (nur den aktuellen Chunk)
+                        half = chunk.shape[1] // 2
+                        chunk_gpu_a = chunk[:, :half].unsqueeze(0).to(device)
+                        chunk_gpu_b = chunk[:, half:].unsqueeze(0).to(device)
+                        try:
+                            est_a = apply_model(demucs_model, chunk_gpu_a, overlap=0.25, progress=False)
+                            del chunk_gpu_a
+                            torch.cuda.empty_cache()
+                            est_b = apply_model(demucs_model, chunk_gpu_b, overlap=0.25, progress=False)
+                            del chunk_gpu_b
+                            torch.cuda.empty_cache()
+                            estimates = torch.cat([est_a, est_b], dim=-1)
+                            del est_a, est_b
+                        except torch.cuda.OutOfMemoryError:
+                            torch.cuda.empty_cache()
+                            gc.collect()
+                            raise CUDAOutOfMemoryError(
+                                operation=f"apply_model Chunk {i + 1}/{num_chunks} (nach Retry)"
+                            )
 
-            # Zurueck auf CPU — squeeze(0) entfernt Batch-Dim (immer 1 bei Einzelverarbeitung)
-            estimates_cpu = estimates.squeeze(0).cpu()  # (sources, channels, samples)
+                # Zurueck auf CPU — squeeze(0) entfernt Batch-Dim (immer 1 bei Einzelverarbeitung)
+                estimates_cpu = estimates.squeeze(0).cpu()  # (sources, channels, samples)
 
-            # Crossfade-Gewicht: Dreiecks-Fenster fuer Overlap-Bereiche
-            chunk_len = end - start
-            fade = torch.ones(chunk_len)
-            if i > 0 and overlap_samples > 0:
-                # Fade-In am Anfang des Chunks (Overlap-Region)
-                fade_len = min(overlap_samples, chunk_len)
-                fade[:fade_len] = torch.linspace(0, 1, fade_len)
-            if i < num_chunks - 1 and overlap_samples > 0:
-                # Fade-Out am Ende des Chunks (Overlap-Region)
-                fade_len = min(overlap_samples, chunk_len)
-                fade[-fade_len:] = torch.linspace(1, 0, fade_len)
+                # Crossfade-Gewicht: Dreiecks-Fenster fuer Overlap-Bereiche
+                chunk_len = end - start
+                fade = torch.ones(chunk_len)
+                if i > 0 and overlap_samples > 0:
+                    # Fade-In am Anfang des Chunks (Overlap-Region)
+                    fade_len = min(overlap_samples, chunk_len)
+                    fade[:fade_len] = torch.linspace(0, 1, fade_len)
+                if i < num_chunks - 1 and overlap_samples > 0:
+                    # Fade-Out am Ende des Chunks (Overlap-Region)
+                    fade_len = min(overlap_samples, chunk_len)
+                    fade[-fade_len:] = torch.linspace(1, 0, fade_len)
 
-            # Gewichtete Addition
+                # Gewichtete Addition
+                for s in range(num_sources):
+                    weighted = estimates_cpu[s, :, :chunk_len] * fade.unsqueeze(0)
+                    result_stems[s, :, start:end] += weighted
+                weight_sum[0, start:end] += fade
+
+                # ── VRAM sofort freigeben ──
+                # Sicheres Loeschen: chunk_gpu kann bei OOM-Retry bereits geloescht sein
+                chunk_gpu = None
+                estimates = None
+                estimates_cpu = None
+                gc.collect()
+                torch.cuda.empty_cache()
+
+                # Progress: 15% bis 85% fuer Chunk-Processing
+                if progress_cb:
+                    pct = 15 + int(70 * (i + 1) / num_chunks)
+                    progress_cb(pct, f"Chunk {i + 1}/{num_chunks} fertig")
+
+            # Normalisierung durch Gewichtssumme (Crossfade — AUSSERHALB der for-Schleife)
+            weight_sum = weight_sum.clamp(min=1e-8)
             for s in range(num_sources):
-                weighted = estimates_cpu[s, :, :chunk_len] * fade.unsqueeze(0)
-                result_stems[s, :, start:end] += weighted
-            weight_sum[0, start:end] += fade
-
-            # ── VRAM sofort freigeben ──
-            del chunk_gpu, estimates, estimates_cpu
+                result_stems[s] /= weight_sum
+        finally:
+            # B-601 Fix: Cleanup falls Exception in Chunk-Processing
             gc.collect()
-            torch.cuda.empty_cache()
-
-            # Progress: 15% bis 85% fuer Chunk-Processing
-            if progress_cb:
-                pct = 15 + int(70 * (i + 1) / num_chunks)
-                progress_cb(pct, f"Chunk {i + 1}/{num_chunks} fertig")
-
-        # Normalisierung durch Gewichtssumme (Crossfade)
-        weight_sum = weight_sum.clamp(min=1e-8)
-        for s in range(num_sources):
-            result_stems[s] /= weight_sum
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
         # ── 6. Modell entladen ──
         del demucs_model
@@ -414,6 +424,14 @@ class AutoDucker:
             music_data = music_data.mean(axis=1)
         if voice_data.ndim > 1:
             voice_data = voice_data.mean(axis=1)
+
+        # F-009: SR-Validierung — resample voice falls SR-Mismatch
+        if voice_sr != music_sr:
+            logger.warning(
+                "[AutoDucker] SR-Mismatch: music=%d Hz, voice=%d Hz — resample voice auf %d Hz",
+                music_sr, voice_sr, music_sr,
+            )
+            voice_data = librosa.resample(voice_data, orig_sr=voice_sr, target_sr=music_sr)
 
         if progress_cb:
             progress_cb(30, "Berechne Voice-Envelope...")
