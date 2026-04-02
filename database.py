@@ -167,7 +167,11 @@ class _NullPoolSessionContext:
             if self._session is not None:
                 self._session.close()
         finally:
-            self._eng.dispose()
+            # B-008 Fix: dispose() Fehler abfangen statt still zu schlucken
+            try:
+                self._eng.dispose()
+            except Exception as dispose_err:
+                logger.warning("engine.dispose() fehlgeschlagen: %s", dispose_err)
         return False
 
 
