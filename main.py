@@ -328,11 +328,21 @@ def setup_logging():
 
 
 def _global_exception_hook(exc_type, exc_value, exc_tb):
-    """Faengt unhandled Exceptions ab, loggt sie und verhindert lautloses Sterben."""
+    """Faengt unhandled Exceptions ab, loggt sie und zeigt einen Crash-Dialog."""
     import traceback as _tb
     msg = "".join(_tb.format_exception(exc_type, exc_value, exc_tb))
     logging.critical("UNHANDLED EXCEPTION:\n%s", msg)
     print(f"\n{'='*60}\n  CRASH — Unhandled Exception\n{'='*60}\n{msg}", flush=True)
+
+    # Show visual crash dialog if QApplication is running
+    try:
+        from PySide6.QtWidgets import QApplication as _QApp
+        if _QApp.instance() is not None:
+            from ui.dialogs.crash_dialog import CrashDialog
+            dlg = CrashDialog(exc_type, exc_value, exc_tb)
+            dlg.exec()
+    except Exception:
+        pass  # Never let the crash handler itself crash
 
 
 # Bekannte harmlose Qt-Warnings die das Log zuspammen
@@ -403,26 +413,47 @@ def main():
 
     app.setStyleSheet(get_stylesheet())
 
+    # ── App Icon ──────────────────────────────────────────────────────
+    from ui.app_icon import get_app_icon
+    _app_icon = get_app_icon()
+    app.setWindowIcon(_app_icon)
+
+    # ── Splash Screen ─────────────────────────────────────────────────
+    from ui.splash import PBSplashScreen
+    splash = PBSplashScreen(APP_VERSION)
+    splash.show()
+    splash.show_message("Initialisiere Datenbank...")
+
     from services.startup_checks import check_system
     from ui.dialogs.startup_check_dialog import maybe_show_startup_dialog
     _sys_status = check_system()
     app.system_status = _sys_status
+
+    splash.show_message("Prüfe System-Abhängigkeiten...")
     if not maybe_show_startup_dialog(_sys_status):
+        splash.close()
         sys.exit(0)
 
+    splash.show_message("Lade Benutzeroberfläche...")
     try:
         window = PBWindow()
     except Exception as exc:
+        splash.close()
         logging.critical("Fenster-Initialisierung fehlgeschlagen: %s", exc, exc_info=True)
         print(f"[FATAL] Fenster konnte nicht erstellt werden: {exc}")
         traceback.print_exc()
         sys.exit(1)
 
+    # Set window icon explicitly (taskbar + title bar)
+    window.setWindowIcon(_app_icon)
+
+    splash.show_message("Bereit.")
     window.console_text.append("[System] SQLite Datenbank (pb_studio.db) erfolgreich initialisiert.")
     window.console_text.append("[System] PB Studio Gold-Accent Theme aktiv — v0.5 Design.")
     window.console_text.append(f"[System] Version {APP_VERSION} — Workspace UI + KI-Pacing + Beat-Snap.")
     window.console_text.append(f"[System] {_sys_status.status_bar_text()}")
     window.status_bar.showMessage(f"PB_studio v{APP_VERSION}  |  {_sys_status.status_bar_text()}")
     window.showMaximized()
+    splash.finish(window)  # Closes splash when main window is ready
     QTimer.singleShot(0, window.timeline_view.load_from_db)
     sys.exit(app.exec())

@@ -1,6 +1,8 @@
 """About Dialog for PB Studio."""
 
 import sys
+import datetime
+from pathlib import Path
 
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
@@ -8,6 +10,15 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 
 from ui.theme import BG1, ACCENT, T1
+
+
+def _build_date() -> str:
+    """Return a human-readable build date (modification time of this file)."""
+    try:
+        mtime = Path(__file__).stat().st_mtime
+        return datetime.datetime.fromtimestamp(mtime).strftime("%Y-%m-%d")
+    except Exception:
+        return "n/a"
 
 
 def _gpu_info() -> str:
@@ -38,7 +49,7 @@ class AboutDialog(QDialog):
     def __init__(self, version: str = "0.5.0", parent=None):
         super().__init__(parent)
         self.setWindowTitle("About PB Studio")
-        self.setFixedSize(460, 420)
+        self.setFixedSize(460, 450)
         self.setStyleSheet(f"background-color: {BG1};")
 
         layout = QVBoxLayout(self)
@@ -67,8 +78,8 @@ class AboutDialog(QDialog):
         line.setStyleSheet("background-color: #2a2a2a;")
         layout.addWidget(line)
 
-        # ── Version ──
-        ver_label = QLabel(f"Version {version}")
+        # ── Version + Build Date ──
+        ver_label = QLabel(f"Version {version}  ·  Build {_build_date()}")
         ver_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         ver_label.setStyleSheet(
             "font-size: 14px; color: #d4a44a; font-weight: 700; background: transparent;"
@@ -132,10 +143,41 @@ class AboutDialog(QDialog):
 
         layout.addStretch()
 
-        # ── Close Button ──
+        # ── Separator ──
+        line3 = QFrame()
+        line3.setFrameShape(QFrame.Shape.HLine)
+        line3.setStyleSheet("background-color: #2a2a2a;")
+        layout.addWidget(line3)
+
+        # ── Credits ──
+        credits = QLabel("© 2024–2026 Paperclip / PB Studio Team")
+        credits.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        credits.setStyleSheet(
+            "color: #505060; font-size: 11px; background: transparent;"
+        )
+        layout.addWidget(credits)
+
+        # ── Bottom Button Row ──
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
+
+        btn_docs = QPushButton("Dokumentation")
+        btn_docs.setMaximumWidth(140)
+        btn_docs.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_docs.setToolTip("Öffnet die PB Studio Dokumentation im Browser")
+        btn_docs.setStyleSheet(
+            "QPushButton { background: #2a2d3a; color: #c0c0c0; border: 1px solid #3a3d4a;"
+            "border-radius: 6px; padding: 7px 14px; font-weight: 600; font-size: 12px; }"
+            "QPushButton:hover { background: #3a3d4a; }"
+        )
+        btn_docs.clicked.connect(self._open_docs)
+        btn_row.addWidget(btn_docs)
+
+        btn_row.addStretch()
+
         btn = QPushButton("Schliessen")
         btn.setObjectName("btn_accent")
-        btn.setMaximumWidth(160)
+        btn.setMaximumWidth(140)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
         btn.setToolTip("Diesen Dialog schliessen und zur App zurueckkehren")
         btn.setStyleSheet(
@@ -144,4 +186,22 @@ class AboutDialog(QDialog):
             "QPushButton:hover { background: #e0b65c; }"
         )
         btn.clicked.connect(self.accept)
-        layout.addWidget(btn, alignment=Qt.AlignmentFlag.AlignCenter)
+        btn_row.addWidget(btn)
+
+        layout.addLayout(btn_row)
+
+    @staticmethod
+    def _open_docs() -> None:
+        """Open the documentation README in the default viewer."""
+        import subprocess, os
+        docs_path = Path(__file__).parent.parent.parent / "README.md"
+        try:
+            if docs_path.exists():
+                if sys.platform == "win32":
+                    os.startfile(str(docs_path))
+                elif sys.platform == "darwin":
+                    subprocess.Popen(["open", str(docs_path)])
+                else:
+                    subprocess.Popen(["xdg-open", str(docs_path)])
+        except Exception:
+            pass
