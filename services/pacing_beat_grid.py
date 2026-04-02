@@ -1,0 +1,785 @@
+"""Pacing Beat-Grid Module — Datentypen, Datenzugriff und Section-Detection.
+
+Enthält:
+- Gemeinsame Datentypen (PacingSettings, CutPoint, AdvancedPacingSettings, TimelineSegment)
+- Beat-Grid Konstanten und Konfiguration
+- DB-Datenzugriff (AudioTrack, Beatgrid, VideoClip)
+- Stem-Audio-Cache
+- Stem-gewichtete Energie, Makro-Section-Detection, Drop-Detection
+- Vocal-Activity, DJ-Transition-Detektion
+"""
+
+import bisect
+import collections
+import json
+import logging
+import threading
+from dataclasses import dataclass
+from functools import lru_cache
+from pathlib import Path
+
+import numpy as np
+from sqlalchemy.orm import Session, joinedload
+
+from database import engine, AudioTrack, VideoClip, Scene, Beatgrid
+from services.audio_constants import DEFAULT_SR
+
+logger = logging.getLogger(__name__)
+
+# Sentinel value: step so hoch dass kein Cut stattfindet (breakdown_behavior="none")
+_STEP_NO_CUT = 9999
+
+# Thread-Lock fuer alle globalen Caches (Race-Condition-Schutz)
+_cache_lock = threading.Lock()
+
+# Stem-Audio Cache — LRU-Limit auf 5 audio_ids (~600MB max statt unbegrenzt)
+_STEM_CACHE_MAX = 5
+_stem_audio_cache: collections.OrderedDict[int, dict[str, tuple]] = collections.OrderedDict()
+
+
+def _get_cached_stem_audio(audio_id: int, stem_path: str, stem_name: str, sr: int = 22050):
+    """Laedt Stem-Audio mit LRU-Cache — vermeidet 4x librosa.load pro auto_edit.
+
+    Limit: max _STEM_CACHE_MAX audio_ids im Cache (~30MB pro Stem × 4 = ~120MB pro Track).
+    Bei Ueberschreitung wird der aelteste Eintrag entfernt.
+    """
+    with _cache_lock:
+        if audio_id not in _stem_audio_cache:
+            _stem_audio_cache[audio_id] = {}
+            # LRU-Eviction: aeltesten Eintrag entfernen wenn Limit erreicht
+            while len(_stem_audio_cache) > _STEM_CACHE_MAX:
+                evicted_id, evicted_data = _stem_audio_cache.popitem(last=False)
+                # P-01 Fix: Explizit numpy arrays freigeben (sonst haelt Python GC sie)
+                for _y_ref, _sr_ref in evicted_data.values():
+                    del _y_ref
+                del evicted_data
+                import gc as _gc
+                _gc.collect()
+                logger.debug("[StemCache] Evicted audio_id=%d", evicted_id)
+        else:
+            # Move to end (most recently used)
+            _stem_audio_cache.move_to_end(audio_id)
+        cache = _stem_audio_cache[audio_id]
+        if stem_name in cache:
+            return cache[stem_name]
+
+    # librosa.load AUSSERHALB des Locks (CPU-intensiv, soll nicht blockieren)
+    import librosa
+    y, loaded_sr = librosa.load(stem_path, sr=sr, mono=True)
+
+    with _cache_lock:
+        if audio_id in _stem_audio_cache:
+            _stem_audio_cache[audio_id][stem_name] = (y, loaded_sr)
+    return (y, loaded_sr)
+
+
+def invalidate_pacing_caches():
+    """Cache leeren nach Media-Import oder DB-Änderung."""
+    _get_audio_duration.cache_clear()
+    _get_audio_path.cache_clear()
+    _get_bpm.cache_clear()
+    _get_video_info_cached.cache_clear()
+    with _cache_lock:
+        _stem_audio_cache.clear()
+
+
+# ── Backward-compatible types ──
+
+@dataclass
+class PacingSettings:
+    """Legacy UI-Slider-Einstellungen (Phase 2 compat)."""
+    tempo: int = 50
+    energy: int = 50
+    cut_density: int = 50
+    vibe: str = ""
+    manual_density_curve: list[float] | None = None
+
+
+@dataclass
+class CutPoint:
+    """Ein einzelner Schnittpunkt auf der Timeline."""
+    time: float
+    source: str       # "beat", "scene", "energy", "drum", "anchor"
+    strength: float   # 0.0-1.0
+
+
+# ── Phase 3: Advanced DJ Pacing ──
+
+@dataclass
+class AdvancedPacingSettings:
+    """Phase 3 DJ-Regler Einstellungen."""
+    base_cut_rate: int = 4          # 1, 2, 4, 8, 16 Beats
+    energy_reactivity: int = 50     # 0-100%
+    breakdown_behavior: str = "halve"  # "halve", "force16", "none"
+    vibe: str = ""                  # Keyword fuer Semantic Search
+    manual_density_curve: list[float] | None = None
+    anchors: list[dict] | None = None  # [{"time": float, "scene_id": str}, ...]
+    use_llm_strategist: bool = False   # Phase 5: Lokaler LLM-Pacing-Strategist
+    user_preferences: str = ""         # Natuerliche Sprache fuer LLM ("ruhigere Breakdowns")
+
+
+@dataclass
+class TimelineSegment:
+    """Ein Segment auf der OTIO-Timeline."""
+    video_id: int
+    video_path: str
+    start: float          # Timeline-Zeitpunkt (Sekunden)
+    end: float            # Timeline-Zeitpunkt (Sekunden)
+    source_start: float   # Quell-Video Offset (Sekunden)
+    source_end: float     # Quell-Video Ende (Sekunden)
+    is_anchor: bool = False
+    scene_id: str = ""
+    crossfade_duration: float = 0.0  # PhD-Spec: Crossfade per Section Type
+    section_type: str = ""           # WARMUP/BUILDUP/DROP/BREAKDOWN/COOLDOWN
+
+
+SECTION_PACING_MAP = {
+    "WARMUP":     {"base": 16, "min": 8,  "max": 32},
+    "BUILDUP":    {"base": 8,  "min": 1,  "max": 16},
+    "DROP":       {"base": 2,  "min": 1,  "max": 4},
+    "BREAKDOWN":  {"base": 16, "min": 8,  "max": 32},
+    "TRANSITION": {"base": 8,  "min": 4,  "max": 16},
+    "COOLDOWN":   {"base": 16, "min": 8,  "max": 32},
+    "CHORUS":     {"base": 4,  "min": 2,  "max": 8},
+    "VERSE":      {"base": 8,  "min": 4,  "max": 16},
+}
+
+HARD_MIN_DURATION = 3.0
+SECTION_MIN_DURATION = {
+    "WARMUP": 5.0, "BUILDUP": 3.0, "DROP": 2.0,
+    "BREAKDOWN": 6.0, "TRANSITION": 4.0, "COOLDOWN": 6.0,
+    "CHORUS": 3.0, "VERSE": 4.0,
+}
+
+
+# ── Data Access ──
+
+def _get_beat_positions(audio_id: int | None) -> list[float]:
+    """Laedt die exakten Beat-Positionen aus dem Beatgrid der DB.
+
+    Fallback: Wenn kein Beatgrid vorhanden ist, wird ein synthetisches Grid
+    aus track.bpm generiert. Das reduziert die Pacing-Qualitaet (keine Downbeats,
+    keine energy_per_beat). BeatAnalysisService sollte vorher gelaufen sein.
+
+    Hinweis: track.bpm und beatgrid.bpm koennen divergieren wenn track.bpm
+    manuell editiert oder von einem anderen Service ueberschrieben wurde.
+    """
+    if audio_id is None:
+        return []
+    with Session(engine) as session:
+        track = session.get(AudioTrack, audio_id, options=[joinedload(AudioTrack.beatgrid)])
+        if not track or not track.beatgrid:
+            return []
+        bg = track.beatgrid
+        if bg.beat_positions:
+            try:
+                positions = json.loads(bg.beat_positions)
+                return [float(p) for p in positions]
+            except (json.JSONDecodeError, TypeError):
+                pass
+        if bg.bpm and bg.bpm > 0:
+            interval = 60.0 / bg.bpm
+            # FIX-2.2: Guard gegen Endlosschleife bei extrem kleinem BPM
+            if interval < 0.01:
+                logger.warning("BPM %.1f ergibt interval=%.4fs — ueberspringe Fallback-Beats", bg.bpm, interval)
+                return []
+            duration = track.duration or 300.0
+            t = bg.offset or 0.0
+            positions = []
+            while t < duration:
+                positions.append(round(t, 4))
+                t += interval
+            return positions
+    return []
+
+
+def _get_beat_data_combined(
+    audio_id: int | None,
+) -> tuple[list[float], list[float], list[float]]:
+    """Laedt beat_positions, downbeat_positions und energy_per_beat in EINER Session.
+
+    Bug-14 Fix: Kombiniert die drei separaten DB-Sessions (_get_beat_positions,
+    _get_downbeat_positions, _get_energy_per_beat) in einen einzigen Round-Trip.
+    Vorher: 3 Sessions für die gleiche AudioTrack/Beatgrid-Zeile.
+
+    Returns: (beat_positions, downbeat_positions, energy_per_beat)
+    """
+    if audio_id is None:
+        return [], [], []
+    with Session(engine) as session:
+        track = session.get(AudioTrack, audio_id, options=[joinedload(AudioTrack.beatgrid)])
+        if not track or not track.beatgrid:
+            return [], [], []
+        bg = track.beatgrid
+
+        # beat_positions (mit BPM-Fallback)
+        beat_positions: list[float] = []
+        if bg.beat_positions:
+            try:
+                beat_positions = [float(p) for p in json.loads(bg.beat_positions)]
+            except (json.JSONDecodeError, TypeError):
+                pass
+        if not beat_positions and bg.bpm and bg.bpm > 0:
+            interval = 60.0 / bg.bpm
+            # BUG-013 Fix: Guard gegen Endlosschleife bei extrem kleinem BPM (identisch zu _get_beat_positions)
+            if interval < 0.01:
+                logger.warning("BPM %.1f ergibt interval=%.4fs — ueberspringe Fallback-Beats", bg.bpm, interval)
+            else:
+                duration = track.duration or 300.0
+                t = bg.offset or 0.0
+                while t < duration:
+                    beat_positions.append(round(t, 4))
+                    t += interval
+
+        # downbeat_positions
+        downbeat_positions: list[float] = []
+        if bg.downbeat_positions:
+            try:
+                downbeat_positions = [float(p) for p in json.loads(bg.downbeat_positions)]
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        # energy_per_beat
+        energy_per_beat: list[float] = []
+        if bg.energy_per_beat:
+            try:
+                energy_per_beat = [float(e) for e in json.loads(bg.energy_per_beat)]
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        return beat_positions, downbeat_positions, energy_per_beat
+
+
+@lru_cache(maxsize=64)
+def _get_audio_duration(audio_id: int) -> float:
+    """Gibt die Dauer des Audio-Tracks in Sekunden zurueck."""
+    with Session(engine) as session:
+        track = session.get(AudioTrack, audio_id)
+        return track.duration if track and track.duration else 60.0
+
+
+@lru_cache(maxsize=64)
+def _get_audio_path(audio_id: int) -> str:
+    """Gibt den Dateipfad des Audio-Tracks zurueck."""
+    with Session(engine) as session:
+        track = session.get(AudioTrack, audio_id)
+        return track.file_path if track else ""
+
+
+@lru_cache(maxsize=64)
+def _get_bpm(audio_id: int | None) -> float | None:
+    if audio_id is None:
+        return None
+    with Session(engine) as session:
+        track = session.get(AudioTrack, audio_id)
+        return track.bpm if track else None
+
+
+def _get_video_info(video_ids: list[int]) -> dict[int, dict]:
+    """Holt Video-Metadaten (Dauer, Pfad) fuer alle IDs. Cached intern."""
+    import copy
+    return copy.deepcopy(_get_video_info_cached(tuple(sorted(video_ids))))
+
+
+@lru_cache(maxsize=32)
+def _get_video_info_cached(video_ids: tuple[int, ...]) -> dict[int, dict]:
+    """Cached-Backend fuer _get_video_info (tuple ist hashable).
+
+    Nutzt joinedload um N+1 Lazy-Loading zu vermeiden — ohne joinedload
+    wuerden 50 Clips = 50 separate Scene-Queries, die den Connection Pool
+    erschoepfen koennen (QueuePool limit reached).
+    """
+    info = {}
+    if not video_ids:
+        return info
+    with Session(engine) as session:
+        clips = (
+            session.query(VideoClip)
+            .options(joinedload(VideoClip.scenes))
+            .filter(VideoClip.id.in_(video_ids))
+            .all()
+        )
+        for clip in clips:
+            info[clip.id] = {
+                "duration": clip.duration or 10.0,
+                "path": clip.file_path,
+                "scenes": [
+                    {"start": s.start_time, "end": s.end_time,
+                     "energy": s.energy or 0.5, "id": s.id}
+                    for s in clip.scenes
+                ],
+            }
+    return info
+
+
+def _get_scenes(video_id: int | None) -> list[dict]:
+    """Laedt Scenes als Dicts (nicht ORM-Objekte) um DetachedInstanceError zu vermeiden."""
+    if video_id is None:
+        return []
+    with Session(engine) as session:
+        clip = session.get(VideoClip, video_id, options=[joinedload(VideoClip.scenes)])
+        if clip is None:
+            return []
+        # P2-07: Dicts statt ORM-Objekte zurueckgeben (Session wird geschlossen)
+        return [{"id": s.id, "start_time": s.start_time, "end_time": s.end_time,
+                 "energy": s.energy or 0.5, "video_clip_id": s.video_clip_id}
+                for s in clip.scenes]
+
+
+# ======================================================================
+# PhD-Level Features: Stem-Weighted Energy, Section Detection, Vocal-Aware
+# ======================================================================
+
+@dataclass
+class StemEnergy:
+    """Per-Beat Energie aus den individuellen Demucs-Stems."""
+    drums: list[float]     # RMS pro Beat (0.0-1.0)
+    bass: list[float]
+    vocals: list[float]
+    other: list[float]
+    weighted: list[float]  # Gewichtete Kombination
+
+
+def compute_stem_weighted_energy(
+    audio_id: int,
+    beats: list[float],
+    w_drums: float = 0.40,
+    w_bass: float = 0.30,
+    w_vocals: float = 0.10,
+    w_other: float = 0.20,
+) -> StemEnergy | None:
+    """F-004: Berechnet per-Beat RMS-Energie aus den individuellen Demucs-Stems.
+
+    ACHTUNG: Liest alle 4 Stem-Files von Disk bei jedem Aufruf (librosa.load).
+    Bei 60min DJ-Mix = 4x librosa.load. Nicht gecacht — wird bei jedem auto_edit_phase3() neu berechnet.
+
+    PhD-Spec Abschnitt 3.3:
+      E_weighted(t) = w_drums * E_drums(t) + w_bass * E_bass(t)
+                    + w_vocals * E_vocals(t) + w_other * E_other(t)
+
+    Faellt auf die Stereo-Summe zurueck wenn Stems nicht vorhanden sind.
+    """
+    with Session(engine) as session:
+        track = session.get(AudioTrack, audio_id)
+        if not track:
+            return None
+        stem_paths = {
+            "drums": track.stem_drums_path,
+            "bass": track.stem_bass_path,
+            "vocals": track.stem_vocals_path,
+            "other": track.stem_other_path,
+        }
+
+    # Pruefen ob mindestens ein Stem vorhanden ist
+    available = {k: v for k, v in stem_paths.items() if v and Path(v).exists()}
+    if not available:
+        logger.info("Keine Stems fuer Audio %d — Fallback auf Stereo-Summe", audio_id)
+        return None
+
+    if not beats or len(beats) < 2:
+        return None
+
+    try:
+        import librosa
+    except ImportError:
+        logger.warning("librosa nicht verfuegbar fuer Stem-Energie-Berechnung")
+        return None
+
+    def _compute_rms_per_beat(stem_name: str, audio_path: str, beats_list: list[float]) -> list[float]:
+        """Berechnet RMS pro Beat-Intervall fuer eine einzelne Stem-Datei.
+
+        P-027 Fix: Nutzt _get_cached_stem_audio statt direktem librosa.load.
+        """
+        try:
+            y, sr = _get_cached_stem_audio(audio_id, audio_path, stem_name, sr=DEFAULT_SR)
+        except Exception as e:
+            logger.warning("Konnte Stem '%s' nicht laden: %s", audio_path, e)
+            return [0.5] * len(beats_list)
+
+        audio_duration = len(y) / sr
+        energies = []
+        for i in range(len(beats_list)):
+            start_sec = beats_list[i]
+            end_sec = beats_list[i + 1] if i + 1 < len(beats_list) else audio_duration
+            start_sample = int(start_sec * sr)
+            end_sample = min(int(end_sec * sr), len(y))
+            if start_sample >= end_sample or start_sample < 0:
+                energies.append(0.0)
+                continue
+            seg = y[start_sample:end_sample]
+            rms = float(np.sqrt(np.mean(seg ** 2)))
+            energies.append(rms)
+
+        # Normalisiere auf [0, 1]
+        max_e = max(energies) if energies else 1.0
+        if max_e > 0:
+            energies = [e / max_e for e in energies]
+        return energies
+
+    weights = {"drums": w_drums, "bass": w_bass, "vocals": w_vocals, "other": w_other}
+    stem_energies: dict[str, list[float]] = {}
+    default_energy = [0.5] * len(beats)
+
+    for stem_name in ["drums", "bass", "vocals", "other"]:
+        if stem_name in available:
+            stem_energies[stem_name] = _compute_rms_per_beat(stem_name, available[stem_name], beats)
+        else:
+            stem_energies[stem_name] = default_energy
+
+    # Gewichtete Kombination
+    weighted = []
+    for i in range(len(beats)):
+        w_sum = 0.0
+        for stem_name, w in weights.items():
+            w_sum += w * stem_energies[stem_name][i]
+        weighted.append(round(min(1.0, w_sum), 4))
+
+    logger.info(
+        "Stem-gewichtete Energie berechnet: %d Beats, Stems=%s",
+        len(beats), list(available.keys()),
+    )
+
+    return StemEnergy(
+        drums=stem_energies["drums"],
+        bass=stem_energies["bass"],
+        vocals=stem_energies["vocals"],
+        other=stem_energies["other"],
+        weighted=weighted,
+    )
+
+
+@dataclass
+class Section:
+    """Eine erkannte Makro-Sektion im DJ-Set."""
+    start: float          # Startzeit in Sekunden
+    end: float            # Endzeit in Sekunden
+    section_type: str     # WARMUP, BUILDUP, DROP, BREAKDOWN, TRANSITION, COOLDOWN
+    avg_energy: float     # Mittlere Energie in der Sektion
+
+
+def detect_sections(
+    energy_per_beat: list[float],
+    beats: list[float],
+    total_duration: float,
+    window_beats: int = 32,
+    min_section_beats: int = 64,
+) -> list[Section]:
+    """F-005: Erkennt Makro-Sektionen in einem DJ-Set.
+
+    PhD-Spec Abschnitt 2.2: Adaptive Section Detection.
+
+    Methode: Gleitender Mittelwert mit Hysterese.
+    Section Types:
+      WARMUP:     Erste 5% der Dauer, Energie < 0.5
+      BUILDUP:    Energie steigt monoton ueber min_section_beats
+      DROP:       Energie > 0.7 fuer min_section_beats/2
+      BREAKDOWN:  Energie < 0.3 fuer min_section_beats/2
+      TRANSITION: Wechsel zwischen Sektionstypen
+      COOLDOWN:   Letzte 5% der Dauer, Energie fallend
+    """
+    if not energy_per_beat or not beats or len(beats) < window_beats:
+        return [Section(start=0.0, end=total_duration, section_type="TRANSITION",
+                        avg_energy=0.5)]
+
+    n = len(energy_per_beat)
+    energy_arr = np.array(energy_per_beat[:n])
+
+    # 1. Gleitender Mittelwert (Fenster = window_beats)
+    kernel = np.ones(window_beats) / window_beats
+    smoothed = np.convolve(energy_arr, kernel, mode='same')
+
+    # 2. Gradient (Steigung der Energiekurve)
+    gradient = np.gradient(smoothed)
+
+    # 3. Sektionsklassifikation pro Beat
+    beat_labels = []
+    warmup_end = int(n * 0.05)
+    cooldown_start = int(n * 0.95)
+
+    for i in range(n):
+        avg_e = float(smoothed[i])
+        avg_g = float(gradient[i])
+
+        if i < warmup_end and avg_e < 0.5:
+            beat_labels.append("WARMUP")
+        elif i >= cooldown_start and avg_g < -0.001:
+            beat_labels.append("COOLDOWN")
+        elif avg_e > 0.7:
+            beat_labels.append("DROP")
+        elif avg_e < 0.3:
+            beat_labels.append("BREAKDOWN")
+        elif avg_g > 0.002:
+            beat_labels.append("BUILDUP")
+        elif avg_g < -0.002:
+            beat_labels.append("TRANSITION")
+        else:
+            beat_labels.append("TRANSITION")
+
+    # 4. Zusammenfassen zu Sektionen (gleiche Labels zusammenhaengen)
+    sections: list[Section] = []
+    current_type = beat_labels[0]
+    section_start_idx = 0
+
+    for i in range(1, n):
+        if beat_labels[i] != current_type:
+            # Sektion abschliessen
+            start_time = beats[section_start_idx] if section_start_idx < len(beats) else 0.0
+            end_time = beats[i] if i < len(beats) else total_duration
+            avg_e = float(np.mean(energy_arr[section_start_idx:i]))
+            sections.append(Section(
+                start=round(start_time, 2),
+                end=round(end_time, 2),
+                section_type=current_type,
+                avg_energy=round(avg_e, 3),
+            ))
+            current_type = beat_labels[i]
+            section_start_idx = i
+
+    # Letzte Sektion
+    start_time = beats[section_start_idx] if section_start_idx < len(beats) else 0.0
+    avg_e = float(np.mean(energy_arr[section_start_idx:]))
+    sections.append(Section(
+        start=round(start_time, 2),
+        end=round(total_duration, 2),
+        section_type=current_type,
+        avg_energy=round(avg_e, 3),
+    ))
+
+    # 5. Zu kurze Sektionen mit Nachbarn verschmelzen
+    # P-020 Fix: O(N*M) -> O(N*log(M)) via bisect statt sum(1 for b in beats ...)
+    beats_arr_sorted = sorted(beats)  # should already be sorted
+    merged: list[Section] = []
+    for sec in sections:
+        sec_beats = 0
+        if beats_arr_sorted:
+            left = bisect.bisect_left(beats_arr_sorted, sec.start)
+            right = bisect.bisect_left(beats_arr_sorted, sec.end)
+            sec_beats = right - left
+
+        if merged and sec_beats < min_section_beats // 2:
+            # Zu kurz — mit vorheriger Sektion verschmelzen
+            merged[-1] = Section(
+                start=merged[-1].start,
+                end=sec.end,
+                section_type=merged[-1].section_type,
+                avg_energy=round((merged[-1].avg_energy + sec.avg_energy) / 2, 3),
+            )
+        else:
+            merged.append(sec)
+
+    logger.info("Makro-Struktur erkannt: %d Sektionen in %.0fs",
+                len(merged), total_duration)
+    for s in merged:
+        logger.debug("  [%s] %.1fs - %.1fs (avg_energy=%.2f)",
+                     s.section_type, s.start, s.end, s.avg_energy)
+
+    return merged
+
+
+# P-021: Bisect-Cache fuer get_section_at_time (O(log N) statt O(N), aufgerufen 5451x)
+_section_starts_cache: list[float] = []
+_section_list_cache: list[Section] = []
+_section_cache_lock = threading.Lock()
+
+
+def get_section_at_time(sections: list[Section], time: float) -> Section | None:
+    """Findet die Sektion die einen bestimmten Zeitpunkt enthaelt. O(log N) via bisect.
+
+    Thread-safe durch _section_cache_lock (verhindert Race Conditions bei
+    parallelen Aufrufen mit unterschiedlichen Section-Listen).
+    """
+    global _section_starts_cache, _section_list_cache
+    if not sections:
+        return None
+    with _section_cache_lock:
+        # Build cache on first call or when sections change
+        if len(_section_list_cache) != len(sections) or (sections and _section_list_cache[0] != sections[0]):
+            _section_starts_cache = [s.start for s in sections]
+            _section_list_cache = list(sections)
+        idx = bisect.bisect_right(_section_starts_cache, time) - 1
+        if 0 <= idx < len(_section_list_cache):
+            sec = _section_list_cache[idx]
+            if sec.start <= time < sec.end:
+                return sec
+    return sections[-1] if sections else None
+
+
+def compute_vocal_activity(
+    audio_id: int,
+    beats: list[float],
+    threshold: float = 0.15,
+) -> list[bool]:
+    """F-009: Berechnet pro Beat ob Vocals aktiv sind.
+
+    PhD-Spec Abschnitt 7.3: Vocal-Aware Pacing.
+    Wenn vocal_rms > threshold: Vocal aktiv → weniger Schnitte.
+
+    Returns: Liste von booleans, True = Vocals aktiv bei diesem Beat.
+    """
+    with Session(engine) as session:
+        track = session.get(AudioTrack, audio_id)
+        if not track or not track.stem_vocals_path:
+            return [False] * len(beats)
+        vocals_path = track.stem_vocals_path
+
+    if not Path(vocals_path).exists():
+        return [False] * len(beats)
+
+    if not beats or len(beats) < 2:
+        return [False] * len(beats)
+
+    try:
+        # P-028 Fix: Nutze _get_cached_stem_audio statt direktem librosa.load
+        y, sr = _get_cached_stem_audio(audio_id, vocals_path, "vocals", sr=DEFAULT_SR)
+    except Exception as e:
+        logger.warning("Konnte Vocal-Stem '%s' nicht laden: %s", vocals_path, e)
+        return [False] * len(beats)
+
+    audio_duration = len(y) / sr
+    activity = []
+    for i in range(len(beats)):
+        start_sec = beats[i]
+        end_sec = beats[i + 1] if i + 1 < len(beats) else audio_duration
+        start_sample = int(start_sec * sr)
+        end_sample = min(int(end_sec * sr), len(y))
+        if start_sample >= end_sample or start_sample < 0:
+            activity.append(False)
+            continue
+        seg = y[start_sample:end_sample]
+        rms = float(np.sqrt(np.mean(seg ** 2)))
+        activity.append(rms > threshold)
+
+    vocal_beats = sum(activity)
+    logger.info("Vocal-Activity: %d/%d Beats mit Vocals (%.0f%%)",
+                vocal_beats, len(beats), 100.0 * vocal_beats / max(len(beats), 1))
+    return activity
+
+
+@dataclass
+class DropEvent:
+    """Ein erkannter Drop im DJ-Set."""
+    time: float           # Beat-Zeitpunkt des Drops (Sekunden)
+    confidence: float     # 0.0-1.0 (Stärke des RMS-Sprungs)
+    energy_before: float  # Durchschnittliche Bass-Energie VOR dem Drop
+    energy_after: float   # Bass-Energie NACH dem Drop
+
+
+def detect_drops(
+    stem_energy: StemEnergy | None,
+    energy_per_beat: list[float],
+    beats: list[float],
+    pre_threshold: float = 0.2,
+    post_threshold: float = 0.6,
+    lookback_beats: int = 8,
+) -> list[DropEvent]:
+    """PhD-Spec Abschnitt 8: Multi-Stem Drop-Detektion via Bass-Stem.
+
+    Ein Drop ist definiert als:
+      - Bass-RMS vorher < pre_threshold fuer lookback_beats (Breakdown/Buildup)
+      - Bass-RMS nachher > post_threshold (ploetzliche hohe Energie)
+
+    Wenn Stems vorhanden: Nutze bass-Stem. Sonst: Stereo-Summe als Fallback.
+    """
+    # Waehle die beste Energiequelle
+    bass_energy = stem_energy.bass if stem_energy else energy_per_beat
+    if not bass_energy or not beats:
+        return []
+
+    if len(beats) < 2:
+        return []
+
+    drops: list[DropEvent] = []
+    n = len(bass_energy)
+
+    for i in range(lookback_beats, n):
+        prev_avg = float(np.mean(bass_energy[max(0, i - lookback_beats):i]))
+        curr = float(bass_energy[i])
+
+        if prev_avg < pre_threshold and curr > post_threshold:
+            confidence = min(1.0, (curr - prev_avg) / max(post_threshold, 0.01))
+            if i < len(beats):
+                drops.append(DropEvent(
+                    time=beats[i],
+                    confidence=round(confidence, 3),
+                    energy_before=round(prev_avg, 3),
+                    energy_after=round(curr, 3),
+                ))
+
+    logger.info("Drop-Detection: %d Drops erkannt", len(drops))
+    for d in drops:
+        logger.debug("  Drop bei %.1fs (confidence=%.2f, before=%.2f, after=%.2f)",
+                     d.time, d.confidence, d.energy_before, d.energy_after)
+    return drops
+
+
+# PhD-Spec Abschnitt 2.3: Section → Crossfade-Dauer Mapping
+SECTION_CROSSFADE_MAP: dict[str, float] = {
+    "WARMUP":     2.0,   # Soft crossfade
+    "BUILDUP":    1.0,   # Crossfade → Hard cut
+    "DROP":       0.0,   # Hard cut (0ms)
+    "BREAKDOWN":  3.0,   # Slow dissolve
+    "TRANSITION": 1.5,   # Medium crossfade
+    "COOLDOWN":   4.0,   # Long dissolve
+}
+
+
+def section_to_crossfade(section_type: str) -> float:
+    """PhD-Spec Abschnitt 2.3: Bestimmt die Crossfade-Dauer basierend auf der Sektion."""
+    return SECTION_CROSSFADE_MAP.get(section_type, 0.0)
+
+
+def detect_transitions(
+    stem_energy: StemEnergy | None,
+    energy_per_beat: list[float],
+    beats: list[float],
+    min_transition_beats: int = 32,
+) -> list[tuple[float, float]]:
+    """PhD-Spec Abschnitt 9: DJ-Übergangs-Erkennung.
+
+    Ein DJ-Übergang wird erkannt durch:
+    - Drum-Stem-Anomalie: Onset-Dichte verdoppelt sich (zwei Kicks überlagern)
+    - Oder: Energie-Gradient wechselt Vorzeichen mit mittlerer Amplitude
+
+    Returns: Liste von (start_time, end_time) Tupeln fuer erkannte Übergänge.
+    """
+    if not energy_per_beat or not beats or len(beats) < min_transition_beats * 2:
+        return []
+
+    # Nutze Drum-Energie wenn verfuegbar, sonst Stereo-Summe
+    drum_energy = stem_energy.drums if stem_energy else energy_per_beat
+    n = len(drum_energy)
+
+    # Gleitender Mittelwert der Drum-Energie (16 Beats)
+    window = min(16, n // 2)
+    if window < 4:
+        return []
+    kernel = np.ones(window) / window
+    smoothed = np.convolve(np.array(drum_energy[:n]), kernel, mode='same')
+
+    # Berechne lokale Varianz (hohe Varianz = zwei Tracks ueberlagern sich)
+    variance = np.convolve((np.array(drum_energy[:n]) - smoothed) ** 2, kernel, mode='same')
+
+    # Normalisiere (biased Varianz-Schaetzer — fuer relative Erkennung ausreichend)
+    _max_v = float(np.max(variance))
+    max_var = _max_v if _max_v > 0 else 1.0
+    norm_var = variance / max_var
+
+    # Finde Bereiche mit hoher Varianz (> 0.5) die mindestens min_transition_beats lang sind
+    transitions: list[tuple[float, float]] = []
+    in_transition = False
+    trans_start_idx = 0
+
+    for i in range(n):
+        if norm_var[i] > 0.5 and not in_transition:
+            in_transition = True
+            trans_start_idx = i
+        elif (norm_var[i] <= 0.5 or i == n - 1) and in_transition:
+            in_transition = False
+            duration_beats = i - trans_start_idx
+            if duration_beats >= min_transition_beats:
+                start_time = beats[trans_start_idx] if trans_start_idx < len(beats) else 0.0
+                end_time = beats[min(i, len(beats) - 1)]
+                transitions.append((round(start_time, 2), round(end_time, 2)))
+
+    logger.info("Transition-Detektion: %d DJ-Uebergaenge erkannt", len(transitions))
+    return transitions
