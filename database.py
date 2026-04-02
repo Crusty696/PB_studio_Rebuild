@@ -146,6 +146,7 @@ def nullpool_session():
         c.execute("PRAGMA journal_mode=WAL")
         c.execute("PRAGMA synchronous=NORMAL")
         c.execute("PRAGMA busy_timeout=30000")
+        c.execute("PRAGMA foreign_keys=ON")
         c.close()
 
     return _NullPoolSessionContext(_eng)
@@ -191,12 +192,11 @@ def _patch_service_paths(project_path: Path):
     new project folder.  Uses ``sys.modules`` so already-imported modules
     get updated in-place.
     """
+    # video_service, convert_service, video_analysis_service no longer need patching
+    # — they use lazy getter functions that re-read APP_ROOT at call time (BUG-002 fix)
     patches = {
-        "services.video_service": {"PROXY_DIR": project_path / "storage" / "proxies"},
         "services.ai_audio_service": {"STEMS_DIR": project_path / "storage" / "stems"},
         "services.export_service": {"EXPORT_DIR": project_path / "exports"},
-        "services.convert_service": {"PROXY_DIR": project_path / "storage" / "proxies"},
-        "services.video_analysis_service": {"KEYFRAME_DIR": project_path / "storage" / "keyframes"},
         "services.vector_db_service": {
             "DB_DIR": project_path / "data" / "vector",
             "DB_FILE": project_path / "data" / "vector" / "embeddings.db",
