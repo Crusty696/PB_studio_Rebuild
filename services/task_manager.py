@@ -290,7 +290,9 @@ class GlobalTaskManager(QObject):
             worker.error.connect(thread.quit)
         def _safe_cleanup(_tid=task_id):
             """Guard: deleteLater nur wenn C++ Objekt noch existiert."""
-            task = self._tasks.get(_tid)
+            # FIX AUD-33: Schütze dict-Zugriff mit Lock (Race Condition)
+            with self._tasks_lock:
+                task = self._tasks.get(_tid)
             if task:
                 if task.worker:
                     try:
@@ -427,7 +429,9 @@ class GlobalTaskManager(QObject):
 
     def _on_thread_done(self, task_id: str):
         """Wird aufgerufen wenn ein Thread fertig ist."""
-        task = self._tasks.get(task_id)
+        # FIX AUD-33: Schütze dict-Zugriff mit Lock (Race Condition)
+        with self._tasks_lock:
+            task = self._tasks.get(task_id)
         if task and task.status == "running":
             self.finish_task(task_id, "finished", "Fertig")
 
