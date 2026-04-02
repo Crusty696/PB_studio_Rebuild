@@ -223,11 +223,15 @@ def _get_beat_data_combined(
                 pass
         if not beat_positions and bg.bpm and bg.bpm > 0:
             interval = 60.0 / bg.bpm
-            duration = track.duration or 300.0
-            t = bg.offset or 0.0
-            while t < duration:
-                beat_positions.append(round(t, 4))
-                t += interval
+            # BUG-013 Fix: Guard gegen Endlosschleife bei extrem kleinem BPM (identisch zu _get_beat_positions)
+            if interval < 0.01:
+                logger.warning("BPM %.1f ergibt interval=%.4fs — ueberspringe Fallback-Beats", bg.bpm, interval)
+            else:
+                duration = track.duration or 300.0
+                t = bg.offset or 0.0
+                while t < duration:
+                    beat_positions.append(round(t, 4))
+                    t += interval
 
         # downbeat_positions
         downbeat_positions: list[float] = []

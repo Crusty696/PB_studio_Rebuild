@@ -73,6 +73,10 @@ class ModelManager:
                 )
         else:
             self.device = "cpu"
+            if device and device == "cuda":
+                logger.warning(
+                    "B-015: Device 'cuda' angefordert, aber CUDA nicht verfügbar — Fallback auf 'cpu'.",
+                )
 
         self._current_model_id: str | None = None
         self._model: Any = None
@@ -143,6 +147,8 @@ class ModelManager:
 
     def unload(self) -> None:
         """Entlädt das aktuelle Modell komplett und gibt GPU/RAM frei."""
+        # BUG-016 Fix: torch ist auf Modul-Ebene None bis _ensure_torch() laeuft
+        _ensure_torch()
         with self._swap_lock:
             if self._current_model_id is None:
                 return

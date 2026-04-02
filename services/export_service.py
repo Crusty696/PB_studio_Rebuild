@@ -170,6 +170,8 @@ def export_timeline(project_id: int = 1, output_name: str = "output.mp4",
                     resolution: str = "1920x1080", fps: float = 30.0,
                     progress_cb=None) -> str:
     """Exportiert alle Timeline-Eintraege als zusammengeschnittenes Video."""
+    # BUG-003: Cache leeren — re-enkodierte Proxies haetten sonst veraltete Metadaten
+    _probe_cache.clear()
     # F-sprint3: Validiere Resolution frueh — vor DB-Zugriff und Dateisystem-Operationen
     try:
         w, h = resolution.split("x")
@@ -384,7 +386,8 @@ def _export_optimized_concat(video_segments, audio_path, output_path,
         temp_files.append(concat_file.name)
 
         for ps in processed_segments:
-            safe_path = ps["path"].replace("\\", "/").replace("'", "'\\''")
+            # BUG-008 Fix: FFmpeg-native concat escaping (shell-style '\\'' ist falsch fuer concat demuxer)
+            safe_path = ps["path"].replace("\\", "/").replace("'", "\\'")
             concat_file.write(f"file '{safe_path}'\n")
             if ps["inpoint"] is not None:
                 concat_file.write(f"inpoint {ps['inpoint']:.3f}\n")
@@ -459,7 +462,14 @@ def _export_optimized_concat(video_segments, audio_path, output_path,
 
     finally:
         for tf in temp_files:
-            Path(tf).unlink(missing_ok=True)
+            try:
+                Path(tf).unlink(missing_ok=True)
+            except PermissionError:
+                logger.warning(
+                    "B-007: Temp-Datei '%s' konnte nicht gelöscht werden (Windows-Dateilock). "
+                    "Wird beim nächsten Export bereinigt.",
+                    tf,
+                )
 
     if not Path(output_path).exists() or Path(output_path).stat().st_size == 0:
         raise RuntimeError(f"FFmpeg-Export fehlgeschlagen: Ausgabedatei fehlt oder leer: {output_path}")
@@ -582,7 +592,14 @@ def _export_with_filtergraph(video_segments, audio_path, output_path,
                     total_duration=estimated_duration)
     finally:
         for tf in temp_files:
-            Path(tf).unlink(missing_ok=True)
+            try:
+                Path(tf).unlink(missing_ok=True)
+            except PermissionError:
+                logger.warning(
+                    "B-007: Temp-Datei '%s' konnte nicht gelöscht werden (Windows-Dateilock). "
+                    "Wird beim nächsten Export bereinigt.",
+                    tf,
+                )
 
     if progress_cb:
         step += 1
