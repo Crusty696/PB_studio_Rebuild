@@ -15,43 +15,45 @@ from services.stem_player import StemPlayer
 
 _MODE_BTN_STYLE = """
     QPushButton {
-        font-size: 14px;
+        font-size: 13px;
         font-weight: 700;
-        padding: 8px 16px;
-        border: 2px solid rgba(255,255,255,15);
-        border-radius: 6px;
-        background: #0f1318;
-        color: #6b7280;
+        letter-spacing: 1px;
+        padding: 8px 24px;
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 8px;
+        background: #1e2632;
+        color: #9ca3af;
     }
     QPushButton:checked {
-        border: 2px solid #d4a44a;
-        color: #e8e6e3;
-        background: #1e2632;
+        border: 1px solid #d4a44a;
+        color: #f0c866;
+        background: rgba(212, 164, 74, 0.12);
     }
-    QPushButton:hover {
-        background: #161c26;
+    QPushButton:hover:!checked {
+        background: #283040;
+        color: #f9fafb;
     }
 """
 
 
 _CARD_STYLE = """
     QFrame {
-        background: #0f1318;
-        border: 1px solid rgba(255,255,255,15);
-        border-radius: 6px;
-        padding: 8px;
+        background: #161c26;
+        border: 1px solid rgba(255,255,255,0.05);
+        border-radius: 12px;
+        padding: 10px;
     }
 """
 
 _CARD_TITLE_STYLE = (
     "color: #d4a44a; font-weight: 700; font-size: 10px; "
-    "letter-spacing: 1px; margin-bottom: 2px;"
+    "letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 4px;"
 )
 _CARD_VALUE_STYLE = (
-    "color: #ffffff; font-size: 18px; font-weight: 700;"
+    "color: #f9fafb; font-size: 20px; font-weight: 800;"
 )
 _CARD_LABEL_STYLE = (
-    "color: #6b7280; font-size: 9px;"
+    "color: #6b7280; font-size: 10px; font-weight: 500;"
 )
 _CARD_TAG_BASE = (
     "font-size: 9px; font-weight: 600; padding: 2px 6px; "

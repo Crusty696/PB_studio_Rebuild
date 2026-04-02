@@ -1,4 +1,4 @@
-# main.py (In VS Code einfügen und speichern)
+# main.py
 """
 PB_studio v0.4.0 — DaVinci Resolve Style UI Rebuild
 =====================================================
@@ -69,7 +69,6 @@ import services.task_manager as _task_manager_module
 from services.task_manager import TaskInfo, GlobalTaskManager, TaskManagerProxy
 
 # FIX B-010: TaskManagerProxy ist lazy und verbietet Zugriff vor QApplication
-# Zugriffe vor main() schlagen mit RuntimeError fehl
 task_manager = TaskManagerProxy()
 
 
@@ -85,7 +84,6 @@ from workers import (
     AutoEditWorker, SemanticSearchWorker,
     DummyProgressWorker,
 )
-
 
 # Command Pattern: Worker-Registry (side-effect import registriert alle Worker)
 import workers.registry  # noqa: F401
@@ -111,25 +109,30 @@ from ui.mixins import (
     WorkerDispatcherMixin,
     AudioAnalysisMixin, VideoAnalysisMixin, EditWorkspaceMixin,
     ImportMediaMixin, ConvertMixin, ExportMixin, StemsMixin, SearchMixin,
+    WorkspaceSetupMixin, PanelSetupMixin, ProjectManagementMixin, MediaTableMixin,
 )
 
 
-
+# ======================================================================
 # Hauptfenster — DaVinci Resolve Style
 # ======================================================================
 
-class PBWindow(QMainWindow, WorkerDispatcherMixin, AudioAnalysisMixin, VideoAnalysisMixin,
+class PBWindow(QMainWindow,
+               WorkerDispatcherMixin, AudioAnalysisMixin, VideoAnalysisMixin,
                EditWorkspaceMixin, ImportMediaMixin, ConvertMixin,
-               ExportMixin, StemsMixin, SearchMixin):
+               ExportMixin, StemsMixin, SearchMixin,
+               WorkspaceSetupMixin, PanelSetupMixin,
+               ProjectManagementMixin, MediaTableMixin):
     def __init__(self):
         super().__init__()
 
+        self._app_version = APP_VERSION
         self.setWindowTitle(f"PB_studio v{APP_VERSION} — Director's Cockpit")
         self.resize(1500, 900)
         self._active_threads: list[QThread] = []
         self._active_workers: list[QObject] = []
         self._otio_timeline_service: TimelineService | None = None
-        self._refresh_pending = False  # debounce flag for _refresh_media_table
+        self._refresh_pending = False
         self._project_manager = ProjectManager(self)
         self._project_manager.project_changed.connect(self._on_project_changed)
 
@@ -140,100 +143,8 @@ class PBWindow(QMainWindow, WorkerDispatcherMixin, AudioAnalysisMixin, VideoAnal
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
-        # ── Top Bar (minimal) ──
-        top_bar = QWidget()
-        top_bar.setObjectName("top_bar")
-        top_bar.setFixedHeight(36)
-        top_layout = QHBoxLayout(top_bar)
-        top_layout.setContentsMargins(12, 0, 12, 0)
-
-        app_title = QLabel(f"PB_studio v{APP_VERSION}")
-        app_title.setStyleSheet("color: #e8e6e3; font-weight: 700; font-size: 13px; background: transparent;")
-        top_layout.addWidget(app_title)
-
-        # ── Project buttons ──
-        proj_btn_style = (
-            "QPushButton { color: #9ca3af; font-size: 10px; font-weight: 600; "
-            "border: 1px solid rgba(255,255,255,12); border-radius: 3px; padding: 2px 10px; "
-            "background: #161c26; min-height: 22px; }"
-            "QPushButton:hover { color: #e8e6e3; border-color: #d4a44a; background: #1e2632; }"
-        )
-        btn_new_project = QPushButton("+ Neu")
-        btn_new_project.setFixedHeight(24)
-        btn_new_project.setStyleSheet(proj_btn_style)
-        btn_new_project.setToolTip("Neues Projekt erstellen")
-        btn_new_project.clicked.connect(self._new_project)
-        top_layout.addWidget(btn_new_project)
-
-        btn_open_project = QPushButton("Oeffnen")
-        btn_open_project.setFixedHeight(24)
-        btn_open_project.setStyleSheet(proj_btn_style)
-        btn_open_project.setToolTip("Bestehendes Projekt oeffnen")
-        btn_open_project.clicked.connect(self._open_project)
-        top_layout.addWidget(btn_open_project)
-
-        btn_save_as = QPushButton("Speichern unter")
-        btn_save_as.setFixedHeight(24)
-        btn_save_as.setStyleSheet(proj_btn_style)
-        btn_save_as.setToolTip("Projekt unter neuem Namen speichern")
-        btn_save_as.clicked.connect(self._save_project_as)
-        top_layout.addWidget(btn_save_as)
-
-        self._project_name_label = QLabel("")
-        self._project_name_label.setStyleSheet(
-            "color: #d4a44a; font-size: 11px; font-weight: 600; background: transparent; padding: 0 8px;"
-        )
-        top_layout.addWidget(self._project_name_label)
-
-        top_layout.addStretch()
-
-        # ── Panel toggle buttons (DaVinci-style) ──
-        toggle_style = (
-            "QPushButton { color: #6b7280; font-size: 9px; font-weight: 600; "
-            "border: 1px solid rgba(255,255,255,15); border-radius: 3px; padding: 2px 8px; "
-            "background: #0f1318; min-height: 24px; }"
-            "QPushButton:checked { color: #e8e6e3; border-color: #d4a44a; background: #1e2632; }"
-            "QPushButton:hover { border-color: rgba(255,255,255,25); color: #9ca3af; }"
-        )
-        self._btn_toggle_tasks = QPushButton("Tasks")
-        self._btn_toggle_tasks.setCheckable(True)
-        self._btn_toggle_tasks.setChecked(True)
-        self._btn_toggle_tasks.setFixedHeight(24)
-        self._btn_toggle_tasks.setStyleSheet(toggle_style)
-        self._btn_toggle_tasks.setToolTip("Hintergrund-Tasks ein/ausblenden")
-        top_layout.addWidget(self._btn_toggle_tasks)
-
-        self._btn_toggle_console = QPushButton("Konsole")
-        self._btn_toggle_console.setCheckable(True)
-        self._btn_toggle_console.setChecked(True)
-        self._btn_toggle_console.setFixedHeight(24)
-        self._btn_toggle_console.setStyleSheet(toggle_style)
-        self._btn_toggle_console.setToolTip("System-Konsole ein/ausblenden")
-        top_layout.addWidget(self._btn_toggle_console)
-
-        self._btn_toggle_chat = QPushButton("KI Chat")
-        self._btn_toggle_chat.setCheckable(True)
-        self._btn_toggle_chat.setChecked(False)
-        self._btn_toggle_chat.setFixedHeight(24)
-        self._btn_toggle_chat.setStyleSheet(toggle_style)
-        self._btn_toggle_chat.setToolTip("KI-Chat Panel ein/ausblenden")
-        top_layout.addWidget(self._btn_toggle_chat)
-
-        btn_settings = QPushButton("⚙ Einstellungen")
-        btn_settings.setMaximumWidth(120)
-        btn_settings.setFixedHeight(28)
-        btn_settings.setToolTip("LLM-Backend, Ollama-URL und weitere Einstellungen")
-        btn_settings.clicked.connect(self._show_settings)
-        top_layout.addWidget(btn_settings)
-
-        btn_about = QPushButton("About")
-        btn_about.setMaximumWidth(80)
-        btn_about.setFixedHeight(28)
-        btn_about.setToolTip("Informationen ueber PB_studio anzeigen (Version, Technologie, Credits)")
-        btn_about.clicked.connect(self._show_about)
-        top_layout.addWidget(btn_about)
-
-        main_layout.addWidget(top_bar)
+        # ── Top Bar ──
+        self._build_top_bar(main_layout, APP_VERSION)
 
         # ── Trennlinie ──
         sep = QFrame()
@@ -242,12 +153,11 @@ class PBWindow(QMainWindow, WorkerDispatcherMixin, AudioAnalysisMixin, VideoAnal
         sep.setStyleSheet("background-color: rgba(255,255,255,6);")
         main_layout.addWidget(sep)
 
-        # ── Workspace (volle Flaeche — dominiert das Fenster) ──
+        # ── Workspace Stack ──
         self.workspace_stack = QStackedWidget()
         self._create_workspaces()
 
         # ── Vertikaler QSplitter: Workspace oben | System-Panel unten ──
-        # Der Benutzer kann den Splitter fast ganz nach unten schieben.
         self._main_splitter = QSplitter(Qt.Orientation.Vertical)
         self._main_splitter.setChildrenCollapsible(True)
         self._main_splitter.setHandleWidth(4)
@@ -286,7 +196,6 @@ class PBWindow(QMainWindow, WorkerDispatcherMixin, AudioAnalysisMixin, VideoAnal
         self.setup_chat_dock()
 
         # Splitter-Groessen: Workspace dominiert, unteres Panel sichtbar
-        # User kann Splitter anpassen; 150px fuer Task+Console ist gut lesbar
         self._main_splitter.setSizes([700, 150])
         self._inner_splitter.setSizes([500, 500])
 
@@ -294,29 +203,10 @@ class PBWindow(QMainWindow, WorkerDispatcherMixin, AudioAnalysisMixin, VideoAnal
         self._btn_toggle_tasks.toggled.connect(self._task_panel_widget.setVisible)
         self._btn_toggle_console.toggled.connect(self._console_panel_widget.setVisible)
         self._btn_toggle_chat.toggled.connect(self.chat_dock.setVisible)
-        # Sync chat dock close (X) back to toggle button
         self.chat_dock.visibilityChanged.connect(self._btn_toggle_chat.setChecked)
 
         # P-016: Media-Tabelle NACH dem Window-Show laden (nicht im __init__)
         QTimer.singleShot(0, self._refresh_media_table)
-
-    # ── Thread-safe UI helpers ────────────────────────────────────────
-
-    def _console_append(self, text: str) -> None:
-        """Thread-safe console append via QTimer."""
-        QTimer.singleShot(0, lambda: self.console_text.append(text))
-
-    def _refresh_media_table_debounced(self) -> None:
-        """Debounced media table refresh — coalesces rapid calls."""
-        if self._refresh_pending:
-            return
-        self._refresh_pending = True
-        QTimer.singleShot(200, self._do_refresh_media_table)
-
-    def _do_refresh_media_table(self) -> None:
-        """Fuehrt die verzögerte Aktualisierung der Media-Tabelle aus."""
-        self._refresh_pending = False
-        self._refresh_media_table()
 
     def closeEvent(self, event):
         # 0. Check for running tasks and ask user
@@ -341,8 +231,7 @@ class PBWindow(QMainWindow, WorkerDispatcherMixin, AudioAnalysisMixin, VideoAnal
         if hasattr(self, '_task_mgr_dock') and hasattr(self._task_mgr_dock, '_timer'):
             self._task_mgr_dock._timer.stop()
 
-        # FIX B-002: Shutdown-Flag setzen VOR Task-Abbruch — verhindert dass
-        # ausstehende _cross_thread_request-Signale noch neue Threads starten.
+        # FIX B-002: Shutdown-Flag setzen VOR Task-Abbruch
         try:
             GlobalTaskManager.instance()._shutting_down = True
         except Exception:
@@ -365,10 +254,9 @@ class PBWindow(QMainWindow, WorkerDispatcherMixin, AudioAnalysisMixin, VideoAnal
                 thread.wait(1000)
         self._active_threads.clear()
         self._active_workers.clear()
-        # Globale Liste beim Schliessen ebenfalls leeren
         _GLOBAL_ACTIVE_THREADS.clear()
 
-        # 3. Video Preview stoppen (verhindert Thread-Leak + DB-Error)
+        # 3. Video Preview stoppen
         if hasattr(self, "video_preview"):
             try:
                 self.video_preview.stop()
@@ -404,568 +292,9 @@ class PBWindow(QMainWindow, WorkerDispatcherMixin, AudioAnalysisMixin, VideoAnal
         super().closeEvent(event)
 
 
-    # ==================================================================
-    # Project management
-    # ==================================================================
-
-    def _new_project(self):
-        """Show NewProjectDialog and create a new project."""
-        dlg = NewProjectDialog(self)
-        if dlg.exec() != QDialog.DialogCode.Accepted:
-            return
-        vals = dlg.get_values()
-        try:
-            self._project_manager.create_project(
-                path=vals["path"],
-                name=vals["name"],
-                resolution=vals["resolution"],
-                fps=vals["fps"],
-            )
-            self._console_append(f"[Projekt] Neues Projekt erstellt: {vals['name']}")
-        except Exception as exc:
-            from PySide6.QtWidgets import QMessageBox
-            QMessageBox.critical(self, "Fehler", str(exc))
-            self._console_append(f"[Projekt-Fehler] {exc}")
-
-    def _open_project(self):
-        """Show OpenProjectDialog and open an existing project."""
-        dlg = OpenProjectDialog(self)
-        if dlg.exec() != QDialog.DialogCode.Accepted:
-            return
-        path = dlg.get_path()
-        try:
-            meta = self._project_manager.open_project(path)
-            self._console_append(f"[Projekt] Geoeffnet: {meta.get('name', path.name)}")
-        except Exception as exc:
-            from PySide6.QtWidgets import QMessageBox
-            QMessageBox.critical(self, "Fehler", str(exc))
-            self._console_append(f"[Projekt-Fehler] {exc}")
-
-    def _save_project_as(self):
-        """Save the current project to a new location."""
-        from PySide6.QtWidgets import QInputDialog
-        folder = QFileDialog.getExistingDirectory(
-            self, "Zielordner waehlen",
-        )
-        if not folder:
-            return
-        name, ok = QInputDialog.getText(
-            self, "Projektname", "Name fuer das neue Projekt:",
-        )
-        if not ok or not name.strip():
-            return
-        target = Path(folder) / name.strip()
-        try:
-            self._project_manager.save_project_as(target)
-            self._console_append(f"[Projekt] Gespeichert unter: {target}")
-        except Exception as exc:
-            from PySide6.QtWidgets import QMessageBox
-            QMessageBox.critical(self, "Fehler", str(exc))
-            self._console_append(f"[Projekt-Fehler] {exc}")
-
-    def _on_project_changed(self, path):
-        """Refresh all UI after a project switch."""
-        path = Path(path)
-        project_name = path.name
-        self._project_name_label.setText(project_name)
-        self.setWindowTitle(f"PB_studio v{APP_VERSION} — {project_name}")
-        self._refresh_media_table()
-        self._refresh_director_combos()
-        # Reload timeline from new DB
-        try:
-            self.timeline_view.load_from_db()
-        except Exception as e:
-            logging.warning("Timeline-Reload nach Projektwechsel fehlgeschlagen: %s", e)
-            self.console_text.append(f"[Warnung] Timeline konnte nicht geladen werden: {e}")
-        self.status_bar.showMessage(f"Projekt: {project_name}  |  {path}")
-
-    def _show_about(self):
-        dialog = AboutDialog(version=APP_VERSION, parent=self)
-        dialog.exec()
-
-    def _show_settings(self):
-        """Öffnet den Einstellungs-Dialog und wendet Änderungen sofort an."""
-        from ui.dialogs.settings_dialog import SettingsDialog
-        dlg = SettingsDialog(parent=self)
-        dlg.ollama_settings_changed.connect(self._apply_ollama_settings)
-        dlg.exec()
-
-    def _apply_ollama_settings(self, enabled: bool, url: str, model: str) -> None:
-        """Wendet neue Ollama-Einstellungen sofort auf den AI-Agent an."""
-        if not hasattr(self, "_ai_agent") or self._ai_agent is None:
-            return
-        try:
-            self._ai_agent.configure_ollama(url=url, model=model or None, enabled=enabled)
-            status = "aktiv" if enabled else "deaktiviert"
-            msg = f"[Einstellungen] Ollama {status}"
-            if enabled and model:
-                msg += f" — Modell: {model}"
-            elif enabled:
-                msg += " — Modell: Auto-Select"
-            self.console_text.append(msg)
-            if hasattr(self, "status_bar"):
-                self.status_bar.showMessage(msg, 5000)
-        except Exception as e:
-            logger.warning("Ollama-Einstellungen konnten nicht angewendet werden: %s", e)
-
-
-    # ==================================================================
-    # Workspace creation (UI in ui/workspaces/, signals wired here)
-    # ==================================================================
-
-    def _create_workspaces(self):
-        """Creates all 5 workspaces, promotes widgets, wires signals."""
-        from ui.workspaces import (
-            MediaWorkspace, EditWorkspace, StemsWorkspace,
-            ConvertWorkspace, DeliverWorkspace,
-        )
-
-        # --- MEDIA workspace ---
-        self._media_ws = MediaWorkspace()
-        self.workspace_stack.addWidget(self._media_ws)
-
-        # Promote widgets for backward compat
-        self.btn_analyze = self._media_ws.btn_analyze
-        self.btn_analyze_video = self._media_ws.btn_analyze_video
-        self.btn_video_pipeline = self._media_ws.btn_video_pipeline
-        self.btn_waveform = self._media_ws.btn_waveform
-        self.btn_stem_separate = self._media_ws.btn_stem_separate
-        self.btn_auto_duck = self._media_ws.btn_auto_duck
-        self.btn_add_to_timeline = self._media_ws.btn_add_to_timeline
-        self.progress_bar = self._media_ws.progress_bar
-        self.search_input = self._media_ws.search_input
-        self.btn_search = self._media_ws.btn_search
-        self.btn_search_clear = self._media_ws.btn_search_clear
-        self.btn_select_all_video = self._media_ws.btn_select_all_video
-        self.video_pool_table = self._media_ws.video_pool_table
-        self.btn_delete_selected_video = self._media_ws.btn_delete_selected_video
-        self.btn_select_all_audio = self._media_ws.btn_select_all_audio
-        self.audio_pool_table = self._media_ws.audio_pool_table
-        self.btn_delete_selected_audio = self._media_ws.btn_delete_selected_audio
-        self.stem_player = self._media_ws.stem_player
-        self.media_table = self._media_ws.media_table
-
-        # Wire MEDIA signals
-        self._media_ws.btn_import_video.clicked.connect(self._import_video)
-        self._media_ws.btn_import_audio.clicked.connect(self._import_audio)
-        self._media_ws.btn_import_folder.clicked.connect(self._import_folder)
-        self._media_ws.btn_clear_all.clicked.connect(self._clear_all_media)
-        self.btn_analyze.clicked.connect(self._analyze_selected_audio)
-        self.btn_analyze_video.clicked.connect(self._analyze_selected_video)
-        self.btn_video_pipeline.clicked.connect(self._start_video_pipeline)
-        self.btn_waveform.clicked.connect(self._analyze_waveform)
-        self.btn_stem_separate.clicked.connect(self._start_stem_separation)
-        self.btn_auto_duck.clicked.connect(self._start_auto_ducking)
-        self._media_ws.btn_analyze_all.clicked.connect(self._analyze_all_sequential)
-        self.btn_add_to_timeline.clicked.connect(self._add_selected_to_timeline)
-        self.search_input.returnPressed.connect(self._run_semantic_search)
-        self.btn_search.clicked.connect(self._run_semantic_search)
-        self.btn_search_clear.clicked.connect(self._clear_search)
-        self.btn_select_all_video.clicked.connect(
-            lambda: self._toggle_all_checkboxes(self.video_pool_table)
-        )
-        self.btn_select_all_audio.clicked.connect(
-            lambda: self._toggle_all_checkboxes(self.audio_pool_table)
-        )
-        self.btn_delete_selected_video.clicked.connect(
-            lambda: self._delete_selected_media("video")
-        )
-        self.btn_delete_selected_audio.clicked.connect(
-            lambda: self._delete_selected_media("audio")
-        )
-        self.video_pool_table.currentCellChanged.connect(self._on_video_pool_selected)
-        self.audio_pool_table.currentCellChanged.connect(self._on_audio_pool_selected)
-        self.stem_player.playback_finished.connect(self._on_stem_playback_finished)
-
-        # Phase 4: Neue Media-Buttons (Stubs — Backend noch nicht implementiert)
-        if hasattr(self._media_ws, 'btn_key_detect'):
-            self._media_ws.btn_key_detect.clicked.connect(self._detect_key)
-        if hasattr(self._media_ws, 'btn_lufs_analyze'):
-            self._media_ws.btn_lufs_analyze.clicked.connect(self._analyze_lufs)
-        if hasattr(self._media_ws, 'btn_structure_detect'):
-            self._media_ws.btn_structure_detect.clicked.connect(self._detect_structure)
-        if hasattr(self._media_ws, 'btn_motion_analysis'):
-            self._media_ws.btn_motion_analysis.clicked.connect(self._start_video_pipeline)
-        if hasattr(self._media_ws, 'btn_siglip_embeddings'):
-            self._media_ws.btn_siglip_embeddings.clicked.connect(self._start_video_pipeline)
-
-        # --- EDIT workspace ---
-        self._edit_ws = EditWorkspace()
-        self.workspace_stack.addWidget(self._edit_ws)
-
-        # Promote widgets
-        self.video_preview = self._edit_ws.video_preview
-        self.btn_preview_play = self._edit_ws.btn_preview_play
-        self.btn_preview_stop = self._edit_ws.btn_preview_stop
-        self.preview_time_label = self._edit_ws.preview_time_label
-        self.btn_toggle_inspector = self._edit_ws.btn_toggle_inspector
-        self.inspector_panel = self._edit_ws.inspector_panel
-        self.audio_combo = self._edit_ws.audio_combo
-        self.video_combo = self._edit_ws.video_combo
-        self.vibe_input = self._edit_ws.vibe_input
-        self.cut_rate_combo = self._edit_ws.cut_rate_combo
-        self.energy_reactivity_slider = self._edit_ws.energy_reactivity_slider
-        self.energy_reactivity_spin = self._edit_ws.energy_reactivity_spin
-        self.breakdown_combo = self._edit_ws.breakdown_combo
-        self.tempo_slider = self._edit_ws.tempo_slider
-        self.energy_slider = self._edit_ws.energy_slider
-        self.density_slider = self._edit_ws.density_slider
-        self.btn_generate = self._edit_ws.btn_generate
-        self.btn_auto_edit = self._edit_ws.btn_auto_edit
-        self.anchor_list = self._edit_ws.anchor_list
-        self.btn_add_anchor = self._edit_ws.btn_add_anchor
-        self.btn_remove_anchor = self._edit_ws.btn_remove_anchor
-        self.btn_sync_anchors = self._edit_ws.btn_sync_anchors
-        self.btn_learn_ai = self._edit_ws.btn_learn_ai
-        self.btn_keyframe_string = self._edit_ws.btn_keyframe_string
-        self.keyframe_text = self._edit_ws.keyframe_text
-        self.pacing_curve = self._edit_ws.pacing_curve
-        self.timeline_view = self._edit_ws.timeline_view
-        self.cut_info_label = self._edit_ws.cut_info_label
-
-        # Wire EDIT signals
-        self.btn_preview_play.clicked.connect(self._toggle_preview_play)
-        self.btn_preview_stop.clicked.connect(self.video_preview.stop)
-        self.btn_toggle_inspector.clicked.connect(self._toggle_inspector)
-        self.video_combo.currentIndexChanged.connect(self._on_video_combo_changed)
-        self.audio_combo.currentIndexChanged.connect(self._on_audio_combo_changed)
-        self.btn_generate.clicked.connect(self._generate_timeline)
-        self.btn_auto_edit.clicked.connect(self._auto_edit_to_beat)
-        self.btn_add_anchor.clicked.connect(self._add_anchor_dialog)
-        self.btn_remove_anchor.clicked.connect(self._remove_selected_anchor)
-        self.btn_sync_anchors.clicked.connect(self._sync_anchors)
-        self.btn_learn_ai.clicked.connect(self._learn_anchor_as_ai_rule)
-        self.btn_keyframe_string.clicked.connect(self._show_keyframe_strings)
-        # W-10 Fix: Pacing-Kurve live-Update → Timeline regenerieren
-        if hasattr(self.pacing_curve, 'curve_changed'):
-            self.pacing_curve.curve_changed.connect(self._generate_timeline)
-        # Phase 4: RL Feedback + Style Preset
-        if hasattr(self._edit_ws, 'btn_thumbs_up'):
-            self._edit_ws.btn_thumbs_up.clicked.connect(self._rl_feedback_positive)
-        if hasattr(self._edit_ws, 'btn_thumbs_down'):
-            self._edit_ws.btn_thumbs_down.clicked.connect(self._rl_feedback_negative)
-        if hasattr(self._edit_ws, 'style_preset_combo'):
-            self._edit_ws.style_preset_combo.currentIndexChanged.connect(self._apply_style_preset)
-        self.timeline_view.clip_moved.connect(self._on_timeline_clip_moved)
-        # VideoPreview: position label + play-button icon state
-        self.video_preview.position_changed.connect(self._on_preview_position_changed)
-        self.video_preview.playback_state_changed.connect(self._on_preview_state_changed)
-        self._refresh_director_combos()
-
-        # --- STEMS workspace ---
-        self._stems_ws = StemsWorkspace()
-        self.workspace_stack.addWidget(self._stems_ws)
-        self.stem_workspace = self._stems_ws.stem_widget
-
-        # Wire STEMS signals
-        self.stem_workspace.stem_volume_changed.connect(self.stem_player.set_volume)
-        self.stem_workspace.stem_mute_toggled.connect(self.stem_player.set_mute)
-        self.stem_workspace.play_requested.connect(self.stem_player.play)
-        self.stem_workspace.pause_requested.connect(self.stem_player.pause)
-        self.stem_workspace.stop_requested.connect(self.stem_player.stop)
-        self.stem_workspace.seek_requested.connect(self.stem_player.seek)
-        self.stem_player.position_changed.connect(self.stem_workspace.update_position)
-        self.stem_player.state_changed.connect(self.stem_workspace.update_playback_state)
-
-        # --- CONVERT workspace ---
-        self._convert_ws = ConvertWorkspace()
-        self.workspace_stack.addWidget(self._convert_ws)
-
-        # Promote widgets
-        self.convert_resolution = self._convert_ws.convert_resolution
-        self.convert_fps = self._convert_ws.convert_fps
-        self.convert_format = self._convert_ws.convert_format
-        self.btn_standardize_all = self._convert_ws.btn_standardize_all
-        self.convert_progress = self._convert_ws.convert_progress
-        self.convert_log = self._convert_ws.convert_log
-        self.effects_clip_combo = self._convert_ws.effects_clip_combo
-        self.brightness_slider = self._convert_ws.brightness_slider
-        self.brightness_label = self._convert_ws.brightness_label
-        self.contrast_slider = self._convert_ws.contrast_slider
-        self.contrast_label = self._convert_ws.contrast_label
-        self.crossfade_slider = self._convert_ws.crossfade_slider
-        self.crossfade_label = self._convert_ws.crossfade_label
-        self.effects_preview = self._convert_ws.effects_preview
-        self.btn_apply_effects = self._convert_ws.btn_apply_effects
-
-        # Wire CONVERT signals
-        self.btn_standardize_all.clicked.connect(self._standardize_all_videos)
-        self.effects_clip_combo.currentIndexChanged.connect(self._on_effects_clip_changed)
-        self.btn_apply_effects.clicked.connect(self._apply_effects)
-
-        # --- DELIVER workspace ---
-        self._deliver_ws = DeliverWorkspace()
-        self.workspace_stack.addWidget(self._deliver_ws)
-
-        # Promote widgets
-        self.production_info = self._deliver_ws.production_info
-        self.export_name_input = self._deliver_ws.export_name_input
-        self.resolution_combo = self._deliver_ws.resolution_combo
-        self.fps_combo = self._deliver_ws.fps_combo
-        self.btn_export = self._deliver_ws.btn_export
-        self.btn_refresh_production = self._deliver_ws.btn_refresh_production
-        self.export_progress = self._deliver_ws.export_progress
-        self.export_log = self._deliver_ws.export_log
-
-        # Wire DELIVER signals
-        self.btn_export.clicked.connect(self._start_export)
-        self.btn_refresh_production.clicked.connect(self._refresh_production_info)
-
-    # Helper: Slider erstellen
-    # ==================================================================
-
-    def _create_compact_slider(self, label: str, min_val: int, max_val: int,
-                               default: int):
-        """Compact horizontal slider row: [Label] [=====o=====] [Value]"""
-        row = QHBoxLayout()
-        row.setSpacing(4)
-        lbl = QLabel(label)
-        lbl.setFixedWidth(46)
-        lbl.setStyleSheet("color: #6b7280; font-size: 10px;")
-        row.addWidget(lbl)
-        slider = QSlider(Qt.Orientation.Horizontal)
-        slider.setRange(min_val, max_val)
-        slider.setValue(default)
-        slider.setFixedHeight(16)
-        row.addWidget(slider, stretch=1)
-        val_lbl = QLabel(str(default))
-        val_lbl.setFixedWidth(26)
-        val_lbl.setAlignment(Qt.AlignmentFlag.AlignRight)
-        val_lbl.setStyleSheet("color: #9ca3af; font-size: 10px;")
-        slider.valueChanged.connect(lambda v: val_lbl.setText(str(v)))
-        row.addWidget(val_lbl)
-        return slider, row
-
-    def _on_workspace_changed(self, index: int):
-        """Workspace-Wechsel: Index setzen + workspace-spezifische Refresh-Logik."""
-        self.workspace_stack.setCurrentIndex(index)
-        # CONVERT workspace (Index 3) — Effects-Combo mit Timeline-Clips befuellen
-        if index == 3:
-            self._refresh_effects_combos()
-
-    def _toggle_inspector(self):
-        """Toggle inspector panel visibility."""
-        if self.inspector_panel.isVisible():
-            self.inspector_panel.hide()
-            self.btn_toggle_inspector.setText("\u25C0")
-        else:
-            self.inspector_panel.show()
-            self.btn_toggle_inspector.setText("\u25B6")
-
-    @staticmethod
-    def _add_separator(layout):
-        sep = QFrame()
-        sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setFixedHeight(1)
-        sep.setStyleSheet("background-color: rgba(255,255,255,6);")
-        layout.addWidget(sep)
-
-    # ==================================================================
-    # Combos aktualisieren
-    # ==================================================================
-
-    def _refresh_director_combos(self):
-        media = get_all_media()
-        self.audio_combo.clear()
-        self.video_combo.clear()
-        self.audio_combo.addItem("-- kein Audio --", None)
-        self.video_combo.addItem("-- kein Video --", None)
-        for item in media:
-            label = f"[{item['id']}] {item['title']}"
-            if item["type"] == "Audio":
-                bpm = item.get("bpm")
-                if bpm:
-                    label += f" ({bpm} BPM)"
-                self.audio_combo.addItem(label, item["id"])
-            elif item["type"] == "Video":
-                self.video_combo.addItem(label, item["id"])
-
-    # ==================================================================
-    # Media-Tabelle
-    # ==================================================================
-
-    def _toggle_all_checkboxes(self, table: QTableWidget):
-        """Alle Checkboxen in Spalte 0 toggeln (Alle an / Alle aus)."""
-        # Pruefen ob bereits alle angehakt sind
-        all_checked = True
-        for row in range(table.rowCount()):
-            chk = table.item(row, 0)
-            if chk and chk.checkState() != Qt.CheckState.Checked:
-                all_checked = False
-                break
-
-        new_state = Qt.CheckState.Unchecked if all_checked else Qt.CheckState.Checked
-        for row in range(table.rowCount()):
-            chk = table.item(row, 0)
-            if chk:
-                chk.setCheckState(new_state)
-
-    def _refresh_media_table(self, _also_combos: bool = True):
-        # Einmal laden, ueberall verwenden (statt 4-6 DB-Sessions)
-        videos = get_all_video()
-        audios = get_all_audio()
-
-        # Video Pool
-        self.video_pool_table.setRowCount(len(videos))
-        for row, item in enumerate(videos):
-            chk = QTableWidgetItem()
-            chk.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
-            chk.setCheckState(Qt.CheckState.Unchecked)
-            self.video_pool_table.setItem(row, 0, chk)
-            self.video_pool_table.setItem(row, 1, QTableWidgetItem(str(item["id"])))
-            self.video_pool_table.setItem(row, 2, QTableWidgetItem(item["title"]))
-            self.video_pool_table.setItem(row, 3, QTableWidgetItem(item.get("resolution") or "-"))
-            fps_str = str(item.get("fps", "")) if item.get("fps") else "-"
-            self.video_pool_table.setItem(row, 4, QTableWidgetItem(fps_str))
-            self.video_pool_table.setItem(row, 5, QTableWidgetItem("-"))
-            self.video_pool_table.setItem(row, 6, QTableWidgetItem(item["file_path"]))
-
-        # Audio Pool
-        self.audio_pool_table.setRowCount(len(audios))
-        for row, item in enumerate(audios):
-            chk = QTableWidgetItem()
-            chk.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
-            chk.setCheckState(Qt.CheckState.Unchecked)
-            self.audio_pool_table.setItem(row, 0, chk)
-            self.audio_pool_table.setItem(row, 1, QTableWidgetItem(str(item["id"])))
-            self.audio_pool_table.setItem(row, 2, QTableWidgetItem(item["title"]))
-            bpm_str = str(item["bpm"]) if item.get("bpm") else "-"
-            self.audio_pool_table.setItem(row, 3, QTableWidgetItem(bpm_str))
-            self.audio_pool_table.setItem(row, 4, QTableWidgetItem("-"))
-            self.audio_pool_table.setItem(row, 5, QTableWidgetItem(item.get("stems", "-")))
-            self.audio_pool_table.setItem(row, 6, QTableWidgetItem(item["file_path"]))
-
-        # Hidden proxy table — aus bereits geladenen Daten zusammenbauen
-        media = [dict(m, type="Audio") for m in audios] + [dict(m, type="Video") for m in videos]
-        self.media_table.setRowCount(len(media))
-        for row, item in enumerate(media):
-            self.media_table.setItem(row, 0, QTableWidgetItem(str(item["id"])))
-            self.media_table.setItem(row, 1, QTableWidgetItem(item["type"]))
-            self.media_table.setItem(row, 2, QTableWidgetItem(item["title"]))
-            bpm_str = str(item["bpm"]) if item.get("bpm") else "-"
-            self.media_table.setItem(row, 3, QTableWidgetItem(bpm_str))
-            res = item.get("resolution", "-")
-            self.media_table.setItem(row, 4, QTableWidgetItem(res or "-"))
-            fps_str = str(item.get("fps", "")) if item.get("fps") else "-"
-            self.media_table.setItem(row, 5, QTableWidgetItem(fps_str))
-            stems = item.get("stems", "-")
-            self.media_table.setItem(row, 6, QTableWidgetItem(stems))
-            self.media_table.setItem(row, 7, QTableWidgetItem(item["file_path"]))
-
-        # Director-Combos gleich mit aktualisieren (spart redundante DB-Abfrage)
-        if _also_combos:
-            self.audio_combo.clear()
-            self.video_combo.clear()
-            self.audio_combo.addItem("-- kein Audio --", None)
-            self.video_combo.addItem("-- kein Video --", None)
-            for item in media:
-                label = f"[{item['id']}] {item['title']}"
-                if item["type"] == "Audio":
-                    bpm = item.get("bpm")
-                    if bpm:
-                        label += f" ({bpm} BPM)"
-                    self.audio_combo.addItem(label, item["id"])
-                elif item["type"] == "Video":
-                    self.video_combo.addItem(label, item["id"])
-
-    # ==================================================================
-    # System-Konsole & Chat Dock
-    # ==================================================================
-
-    def setup_task_dock(self):
-        """TaskManager als QWidget im unteren QSplitter-Panel."""
-        self._task_mgr_dock = TaskManagerDock(self)
-        self._task_mgr_dock.cancel_requested.connect(self._cancel_worker_for_task)
-        task_w = self._task_mgr_dock.widget()
-        task_w.setMinimumWidth(180)
-        self._inner_splitter.addWidget(task_w)
-        self._task_panel_widget = task_w
-        # Alias fuer Kompatibilitaet
-        self.task_dock = task_w
-        # TaskManager show_dock Signal verbinden
-        GlobalTaskManager.instance().show_dock_requested.connect(
-            lambda: self._task_panel_widget.setVisible(True)
-        )
-
-    def setup_console(self):
-        """System-Konsole als QWidget im unteren QSplitter-Panel."""
-        console_panel = QWidget()
-        console_panel.setObjectName("console_dock")
-        console_panel.setMinimumWidth(120)
-        cl = QVBoxLayout(console_panel)
-        cl.setContentsMargins(4, 2, 4, 4)
-        cl.setSpacing(0)
-
-        hdr = QLabel("KONSOLE")
-        hdr.setStyleSheet(
-            "color: #6b7280; font-size: 10px; font-weight: 700; "
-            "letter-spacing: 1px; background: transparent; padding: 2px 0;"
-        )
-        cl.addWidget(hdr)
-
-        self.console_text = QTextEdit()
-        self.console_text.setReadOnly(True)
-        self.console_text.document().setMaximumBlockCount(500)  # Max 500 Zeilen
-        self.console_text.setToolTip(
-            "System-Konsole: Zeigt alle Aktionen, Warnungen und Fehler der Anwendung in Echtzeit an"
-        )
-        self.console_text.append("[System] PB_studio Core Engine erfolgreich gestartet.")
-        cl.addWidget(self.console_text)
-
-        self._inner_splitter.addWidget(console_panel)
-        self._console_panel_widget = console_panel
-        # Alias fuer Kompatibilitaet
-        self.console_dock = console_panel
-
-    def setup_chat_dock(self):
-        self.chat_dock = ChatDock(self)
-        self.chat_dock.setMinimumWidth(200)
-        self.chat_dock.setMaximumWidth(400)
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.chat_dock)
-        # Start collapsed — user can open via View menu or toggleViewAction
-        self.chat_dock.setVisible(False)
-
-        # MainWindow-Referenz für direkte Kommandos (analysiere, schneide, etc.)
-        self.chat_dock.set_main_window(self)
-
-        try:
-            import services.register_actions  # noqa: F401
-            from services.local_agent_service import LocalAgentService
-            from ui.dialogs.settings_dialog import get_ollama_settings
-            _ollama_cfg = get_ollama_settings()
-            self._ai_agent = LocalAgentService(
-                ollama_url=_ollama_cfg["url"],
-                ollama_model=_ollama_cfg["model"] or None,
-                use_ollama=_ollama_cfg["enabled"],
-            )
-            self.chat_dock.set_agent(self._ai_agent)
-
-            # GPU-Status LAZY anzeigen — torch-Import erst beim ersten KI-Aufruf
-            # (vermeidet ~11s Startup-Blockade durch sofortigen model_manager-Zugriff)
-            def _show_gpu_info_deferred():
-                try:
-                    gpu_info = self._ai_agent.model_manager.gpu_info
-                    gpu_name = gpu_info.get("name", "unbekannt")
-                    vram = gpu_info.get("vram_total_mb", 0)
-                    if gpu_name != "CPU" and vram > 0:
-                        hw_msg = f"HARDWARE AKTIV: {gpu_name} ({vram:.0f} MB VRAM)"
-                        self.console_text.append(f"[GPU] {hw_msg}")
-                except Exception:
-                    pass
-            # Verzögert nach UI-Aufbau — blockiert nicht den Start
-            QTimer.singleShot(2000, _show_gpu_info_deferred)
-            _backend = "Ollama" if _ollama_cfg["enabled"] else "HuggingFace (lokal)"
-            self.chat_dock.append_system(
-                f"Agent bereit. Backend: {_backend}\n"
-                "Befehle: 'analysiere', 'schneide', 'gpu status'"
-            )
-
-            self.console_text.append("[KI] Chat-Assistent initialisiert (Modell wird bei erster Anfrage geladen).")
-        except Exception as e:
-            logger.error("[B-014] register_actions / Agent-Init fehlgeschlagen: %s", e, exc_info=True)
-            self.chat_dock.append_error(f"Agent konnte nicht initialisiert werden: {e}")
-            self.console_text.append(f"[KI-Fehler] {e}")
-
+# ======================================================================
+# Logging + Entry Point
+# ======================================================================
 
 def setup_logging():
     """Konfiguriert das Logging-System: Console + RotatingFileHandler fuer logs/pb_studio.log."""
@@ -983,13 +312,11 @@ def setup_logging():
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
-    # Console Handler (DEBUG+)
     ch = logging.StreamHandler()
     ch.setLevel(logging.INFO)
     ch.setFormatter(fmt)
     root.addHandler(ch)
 
-    # File Handler (DEBUG+, 5 MB x 3 Dateien)
     fh = RotatingFileHandler(
         log_file, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8"
     )
@@ -1006,32 +333,22 @@ def _global_exception_hook(exc_type, exc_value, exc_tb):
     msg = "".join(_tb.format_exception(exc_type, exc_value, exc_tb))
     logging.critical("UNHANDLED EXCEPTION:\n%s", msg)
     print(f"\n{'='*60}\n  CRASH — Unhandled Exception\n{'='*60}\n{msg}", flush=True)
-    # Nicht sys.exit() — Qt soll Chance zum Cleanup haben
 
 
 # Bekannte harmlose Qt-Warnings die das Log zuspammen
 _QT_WARNINGS_SUPPRESS = {
     "QBasicTimer::start: Timers cannot be started from another thread",
 }
-# Zaehler fuer unterdrueckte Warnings (wird einmalig geloggt statt 150x)
 _qt_suppressed_counts: dict[str, int] = {}
 
 
 def _qt_message_handler(mode, context, message):
-    """Faengt Qt/C++ Warnungen und Fehler ab und loggt sie in die Log-Datei.
-
-    QBasicTimer-Spam wird unterdrueckt und am Ende zusammengefasst geloggt.
-    Diese Warnings entstehen wenn QGraphicsView/QComboBox intern QBasicTimer
-    nutzen waehrend viele Items gleichzeitig erstellt werden (z.B. 896 Timeline-Items).
-    Sie sind harmlos aber spammen das Log mit 150+ identischen Zeilen.
-    """
+    """Faengt Qt/C++ Warnungen und Fehler ab und loggt sie in die Log-Datei."""
     from PySide6.QtCore import QtMsgType
     if mode == QtMsgType.QtWarningMsg:
-        # Bekannte harmlose Warnings unterdrücken (einmal zählen statt 150x loggen)
         for pattern in _QT_WARNINGS_SUPPRESS:
             if pattern in message:
                 _qt_suppressed_counts[pattern] = _qt_suppressed_counts.get(pattern, 0) + 1
-                # Alle 100 Vorkommen eine Zusammenfassung loggen
                 if _qt_suppressed_counts[pattern] % 100 == 1:
                     logging.debug(
                         "[Qt C++] Unterdrueckt (harmlos, %dx bisher): %s",
@@ -1051,14 +368,11 @@ def _qt_message_handler(mode, context, message):
 def main():
     setup_logging()
 
-    # Qt-Message-Handler: C++ Warnungen/Fehler ins Log statt nur stderr
     from PySide6.QtCore import qInstallMessageHandler
     qInstallMessageHandler(_qt_message_handler)
 
-    # Globaler Exception-Hook: Crashes nie verschlucken
     sys.excepthook = _global_exception_hook
 
-    # Auch fuer Worker-Threads: unhandled exceptions loggen
     import threading
     _orig_excepthook = threading.excepthook
     def _thread_exception_hook(args):
@@ -1083,15 +397,12 @@ def main():
 
     app = QApplication(sys.argv)
 
-    # TaskManager als erstes erstellen und an QApplication verankern
     _tm = GlobalTaskManager.instance()
-    _task_manager_module.task_manager = _tm  # Modul-Level fuer andere Imports
+    _task_manager_module.task_manager = _tm
     app.task_manager = _tm
 
-    # NEU: PB Studio v0.5 Gold-Accent Dark Theme
     app.setStyleSheet(get_stylesheet())
 
-    # Startup Dependency Check (laeuft VOR PBWindow, parallel, <2s)
     from services.startup_checks import check_system
     from ui.dialogs.startup_check_dialog import maybe_show_startup_dialog
     _sys_status = check_system()
@@ -1112,10 +423,5 @@ def main():
     window.console_text.append(f"[System] {_sys_status.status_bar_text()}")
     window.status_bar.showMessage(f"PB_studio v{APP_VERSION}  |  {_sys_status.status_bar_text()}")
     window.showMaximized()
-    # Timeline-Daten NACH dem Fenster laden (non-blocking Startup)
     QTimer.singleShot(0, window.timeline_view.load_from_db)
     sys.exit(app.exec())
-
-
-if __name__ == "__main__":
-    main()

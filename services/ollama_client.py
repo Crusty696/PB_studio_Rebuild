@@ -30,6 +30,8 @@ RECOMMENDED_MODELS = [
     "qwen2.5:7b-instruct-q4_K_M",   # ~4.5 GB — beste Qualität
     "phi3:mini",                      # ~2.3 GB — schnell, kompakt
     "llama3.1:8b-instruct-q4_K_M",   # ~4.7 GB — Allrounder
+    "llama3.1:8b",                   # ~4.7 GB — Allrounder (Standard-Tag)
+    "llama3:8b",                     # ~4.3 GB — Bewährt, wird aktiv eingesetzt
     "qwen2.5:1.5b-instruct",         # ~1.0 GB — sehr klein, schnell
     "qwen2.5:0.5b-instruct",         # ~0.4 GB — minimal
 ]
@@ -293,7 +295,7 @@ class OllamaClient:
     def supports_tools(self, model: str) -> bool:
         """Prüft ob ein Modell Tool-Use / Function-Calling unterstützt.
 
-        Qwen2.5, Llama 3.1+, Mistral 0.3+ und Phi3 unterstützen Tool-Use.
+        Qwen2.5, Llama 3+, Mistral 0.3+ und Phi3 unterstützen Tool-Use.
         Kleine Modelle (<1B) unterstützen es oft NICHT zuverlässig.
         """
         supported_prefixes = [

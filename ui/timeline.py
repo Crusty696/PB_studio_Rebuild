@@ -69,10 +69,11 @@ class AnchorMarkerItem(QGraphicsPolygonItem):
 # ======================================================================
 
 class TimelineClipItem(QGraphicsRectItem):
-    # Audio-Clips: halbtransparent, damit Rekordbox-Wellenform durchscheint
-    AUDIO_COLOR = QColor(30, 60, 120, 60)
-    AUDIO_COLOR_NO_WAVEFORM = QColor(70, 130, 220, 200)
-    VIDEO_COLOR = QColor(230, 140, 50, 200)
+    # Audio-Clips: refined slate blue
+    AUDIO_COLOR = QColor(45, 85, 150, 80)
+    AUDIO_COLOR_NO_WAVEFORM = QColor(60, 100, 180, 210)
+    # Video-Clips: Premium Gold / Amber
+    VIDEO_COLOR = QColor(212, 164, 74, 210)
 
     def __init__(self, entry_id: int, media_id: int, track_type: str,
                  title: str, x: float, y: float, width: float, height: float,
@@ -96,12 +97,12 @@ class TimelineClipItem(QGraphicsRectItem):
         else:
             color = self.VIDEO_COLOR
         self.setBrush(QBrush(color))
-        self.setPen(QPen(color.darker(150), 1))
+        self.setPen(QPen(color.darker(120), 1))
         self.setZValue(2)  # Über der Wellenform
 
         label = QGraphicsTextItem(title[:30], self)
         label.setDefaultTextColor(QColor(255, 255, 255))
-        label.setFont(QFont("Segoe UI", 8))
+        label.setFont(QFont("Segoe UI Variable Text", 8, QFont.Weight.Bold))
         label.setPos(4, 2)
 
         self._track_y = y
@@ -212,7 +213,7 @@ class TimelineClipItem(QGraphicsRectItem):
 
 class InteractiveTimeline(QGraphicsView):
     clip_moved = Signal(int, float)
-    _RULER_FONT = QFont("Segoe UI", 7)  # cached — avoid per-tick QFont creation
+    _RULER_FONT = QFont("Segoe UI Variable Small", 7)  # refined font
 
     def __init__(self, console_log=None):
         super().__init__()
@@ -220,7 +221,8 @@ class InteractiveTimeline(QGraphicsView):
         self.setScene(self._scene)
         self.setRenderHint(QPainter.RenderHint.Antialiasing)
         self.setMinimumHeight(120)
-        self.setStyleSheet("background-color: #141414; border: 1px solid #222222;")
+        # Match BG0 and BG2 from Premium theme
+        self.setStyleSheet("background-color: #0a0d12; border: 1px solid #161c26; border-radius: 8px;")
         self.setDragMode(QGraphicsView.DragMode.NoDrag)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)

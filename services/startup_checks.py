@@ -33,6 +33,7 @@ class SystemStatus:
     gpu_vram_mb: int = 0
     disk_free_gb: float = 0.0
     disk_ok: bool = False
+    ollama_ok: bool = False
     warnings: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
 
@@ -43,9 +44,50 @@ class SystemStatus:
             parts.append(f"GPU: {self.gpu_name} {vram_gb}GB")
         else:
             parts.append("GPU: n/a")
+        
+        ki_status = "Ollama" if self.ollama_ok else "KI: Fallback"
+        parts.append(ki_status)
+
         if self.ffmpeg_ok and self.ffmpeg_version:
             parts.append(f"FFmpeg {self.ffmpeg_version}")
         return "  |  ".join(parts)
+
+
+def _check_ollama() -> bool:
+    """Prueft ob Ollama laeuft, falls nicht: Auto-Start-Versuch."""
+    import socket
+    from pathlib import Path
+
+    def is_port_open(port: int) -> bool:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(0.5)
+            return s.connect_ex(("localhost", port)) == 0
+
+    if is_port_open(11434):
+        return True
+
+    # Versuch Ollama zu finden und zu starten
+    paths = [
+        Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Ollama" / "ollama.exe",
+        Path(os.environ.get("LOCALAPPDATA", "")) / "Ollama" / "ollama.exe",
+        Path("C:/Program Files/Ollama/ollama.exe"),
+    ]
+    
+    for p in paths:
+        if p.exists():
+            try:
+                logger.info("Starte Ollama automatisch: %s", p)
+                subprocess.Popen(
+                    [str(p), "serve"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    **_subprocess_kwargs()
+                )
+                return True # Als OK markieren, Dienst startet im Hintergrund
+            except Exception as e:
+                logger.warning("Fehler beim Auto-Start von Ollama: %s", e)
+    
+    return False
 
 
 def _subprocess_kwargs() -> dict:
@@ -124,10 +166,11 @@ def check_system(app_root: Path | None = None) -> SystemStatus:
 
     status = SystemStatus()
     futures: dict = {}
-    with ThreadPoolExecutor(max_workers=3, thread_name_prefix="startup_check") as pool:
+    with ThreadPoolExecutor(max_workers=4, thread_name_prefix="startup_check") as pool:
         futures["ffmpeg"] = pool.submit(_check_ffmpeg)
         futures["cuda"] = pool.submit(_check_cuda)
         futures["disk"] = pool.submit(_check_disk, app_root)
+        futures["ollama"] = pool.submit(_check_ollama)
 
         for key, future in futures.items():
             try:
@@ -137,13 +180,15 @@ def check_system(app_root: Path | None = None) -> SystemStatus:
                     status.ffmpeg_version = ver
                     status.ffprobe_ok = probe_ok
                 elif key == "cuda":
-                    ok, name, vram = future.result(timeout=3)  # P-014: 8s→3s, torch-Import soll App nicht blockieren
+                    ok, name, vram = future.result(timeout=3)
                     status.cuda_ok = ok
                     status.gpu_name = name
                     status.gpu_vram_mb = vram
                 elif key == "disk":
                     status.disk_free_gb = future.result(timeout=4)
                     status.disk_ok = status.disk_free_gb >= 1.0
+                elif key == "ollama":
+                    status.ollama_ok = future.result(timeout=5)
             except Exception as exc:
                 logger.warning("Startup check '%s' raised: %s", key, exc)
 

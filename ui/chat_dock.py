@@ -225,29 +225,30 @@ class ChatDock(QDockWidget):
 
     def append_system(self, text: str) -> None:
         """Zeigt eine System-Nachricht im Chat an."""
-        self._append_colored(text, "#707070")
+        self._append_colored(text, T3)
 
     def append_user(self, text: str) -> None:
         """Zeigt eine Benutzer-Nachricht im Chat an."""
-        self._append_colored(f"▸ Du: {text}", "#C0C0C0")
+        self._append_colored(f"▸ Du: {text}", T2)
 
     def append_ai(self, text: str) -> None:
         """Zeigt eine KI-Antwort im Chat an."""
-        self._append_colored(f"◂ KI: {text}", "#00E676")
+        self._append_colored(f"◂ KI: {text}", ACCENT_BRIGHT)
 
     def append_action(self, action_name: str, result: str | None = None) -> None:
         """Zeigt eine ausgeführte Aktion im Chat an."""
-        self._append_colored(f"  ⚡ {action_name}", "#D4AF37")
+        self._append_colored(f"  ⚡ {action_name}", ACCENT)
         if result is not None:
-            self._append_colored(f"    → {result}", "#B0B0B0")
+            self._append_colored(f"    → {result}", T2)
 
     def append_error(self, text: str) -> None:
         """Zeigt eine Fehlermeldung im Chat an."""
-        self._append_colored(f"✖ {text}", "#FF5252")
+        from ui.theme import ERR
+        self._append_colored(f"✖ {text}", ERR)
 
     def append_divider(self) -> None:
         """Fügt eine visuelle Trennlinie ein."""
-        self._append_colored("─" * 40, "#333333")
+        self._append_colored("─" * 40, BG2)
 
     # ------------------------------------------------------------------
     # Interne Logik

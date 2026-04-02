@@ -6,28 +6,29 @@ from PySide6.QtCore import Signal
 _NAV_STYLE = """
     QWidget#workspace_nav {
         background: #0a0d12;
-        border-top: 1px solid rgba(255,255,255,10);
+        border-top: 1px solid rgba(255,255,255,0.05);
     }
     QPushButton#workspace_btn {
         background: transparent;
         color: #6b7280;
         border: none;
-        border-bottom: 2px solid transparent;
+        border-bottom: 3px solid transparent;
         border-radius: 0px;
         font-weight: 700;
         font-size: 11px;
-        letter-spacing: 1px;
-        padding: 6px 16px;
-        min-height: 28px;
+        letter-spacing: 1.2px;
+        padding: 8px 24px;
+        min-height: 38px;
+        text-transform: uppercase;
     }
     QPushButton#workspace_btn:hover {
         color: #9ca3af;
-        background: rgba(255,255,255,5);
+        background: rgba(255,255,255,0.03);
     }
     QPushButton#workspace_btn:checked {
-        color: #d4a44a;
-        border-bottom: 2px solid #d4a44a;
-        background: transparent;
+        color: #f0c866;
+        border-bottom: 3px solid #d4a44a;
+        background: rgba(212, 164, 74, 0.08);
     }
 """
 

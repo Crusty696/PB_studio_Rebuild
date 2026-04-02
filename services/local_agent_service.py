@@ -513,63 +513,52 @@ class LocalAgentService:
         """Erzeugt die rohe Modellantwort.
 
         Fallback-Kette:
-        1. Ollama (wenn verfügbar und nicht deaktiviert)
-        2. Lokales HuggingFace-Modell (Qwen2.5-0.5B)
+        1. Ollama (wenn verfügbar)
+        2. Lokales HuggingFace-Modell (NUR wenn CUDA verfügbar ist)
+        3. Höfliche Fehlermeldung
         """
-        # --- Ollama-Fallback-Kette ---
+        # --- Ollama-Pfad ---
         if self._use_ollama is None:
-            # Auto-detect beim ersten Aufruf
             self._use_ollama = self._auto_detect_ollama()
 
         if self._use_ollama and self._ollama_model:
             try:
                 return self._generate_ollama(user_text, max_new_tokens)
             except Exception as e:
-                logger.warning(
-                    "LocalAgentService: Ollama-Fehler ('%s') → HuggingFace-Fallback. Fehler: %s",
-                    self._ollama_model, e,
-                )
-                # Einmalig zurückfallen auf HuggingFace
+                logger.warning("LocalAgentService: Ollama-Fehler -> Fallback. %s", e)
                 self._use_ollama = False
 
-        # --- Lokales HuggingFace-Modell ---
-        # Stale-Reference-Schutz: ModelManager könnte extern entladen haben
-        if not self._loaded or self._pipe is None or not self.model_manager.is_loaded:
-            self._loaded = False
-            self.load_model()
+        # --- HuggingFace-Pfad (Nur mit GPU!) ---
+        try:
+            import torch
+            if not torch.cuda.is_available():
+                return ("Der KI-Dienst (Ollama) ist aktuell nicht erreichbar. "
+                        "Bitte starte Ollama oder nutze die manuellen Funktionen.")
+            
+            if not self._loaded or self._pipe is None or not self.model_manager.is_loaded:
+                self._loaded = False
+                self.load_model()
 
-        messages = self._build_messages(user_text)
-
-        # Nutze das Chat-Template des Tokenizers (Qwen, Llama, etc.)
-        if hasattr(self._tokenizer, "apply_chat_template"):
-            prompt_text = self._tokenizer.apply_chat_template(
-                messages, tokenize=False, add_generation_prompt=True
-            )
-        else:
-            # Fallback: manuelles Format
-            prompt_text = (
-                f"<|system|>\n{messages[0]['content']}\n"
-                f"<|user|>\n{messages[1]['content']}\n"
-                f"<|assistant|>\n"
-            )
-
-        with self._lock:
-            with _cf.ThreadPoolExecutor(max_workers=1) as _pool:
-                _future = _pool.submit(
-                    self._pipe,
-                    prompt_text,
-                    max_new_tokens=max_new_tokens,
-                    do_sample=False,
-                    return_full_text=False,
+            messages = self._build_messages(user_text)
+            if hasattr(self._tokenizer, "apply_chat_template"):
+                prompt_text = self._tokenizer.apply_chat_template(
+                    messages, tokenize=False, add_generation_prompt=True
                 )
-                try:
-                    outputs = _future.result(timeout=60)
-                except _cf.TimeoutError:
-                    raise RuntimeError(
-                        "LLM-Inference Timeout (60s) — Modell haengt oder zu langsam fuer diese Anfrage."
-                    )
+            else:
+                prompt_text = f"<|system|>\n{messages[0]['content']}\n<|user|>\n{messages[1]['content']}\n<|assistant|>\n"
 
-        return outputs[0]["generated_text"].strip()
+            with self._lock:
+                with _cf.ThreadPoolExecutor(max_workers=1) as _pool:
+                    _future = _pool.submit(
+                        self._pipe, prompt_text, max_new_tokens=max_new_tokens,
+                        do_sample=False, return_full_text=False,
+                    )
+                    outputs = _future.result(timeout=60)
+            return outputs[0]["generated_text"].strip()
+
+        except Exception as e:
+            logger.error("LocalAgentService: Kritischer Fehler im KI-Fallback: %s", e)
+            return "KI-Dienst momentan nicht verfuegbar. (Verbindung zu Ollama fehlgeschlagen)"
 
     @staticmethod
     def _extract_json(raw: str) -> list[dict]:

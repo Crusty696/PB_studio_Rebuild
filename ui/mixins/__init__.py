@@ -9,6 +9,10 @@ from ui.mixins.convert import ConvertMixin
 from ui.mixins.export import ExportMixin
 from ui.mixins.stems import StemsMixin
 from ui.mixins.search import SearchMixin
+from ui.mixins.workspace_setup import WorkspaceSetupMixin
+from ui.mixins.panel_setup import PanelSetupMixin
+from ui.mixins.project_management import ProjectManagementMixin
+from ui.mixins.media_table import MediaTableMixin
 
 __all__ = [
     "WorkerDispatcherMixin",
@@ -20,4 +24,8 @@ __all__ = [
     "ExportMixin",
     "StemsMixin",
     "SearchMixin",
+    "WorkspaceSetupMixin",
+    "PanelSetupMixin",
+    "ProjectManagementMixin",
+    "MediaTableMixin",
 ]

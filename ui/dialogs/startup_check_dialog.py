@@ -15,8 +15,8 @@ from ui.theme import ACCENT, ACCENT_BRIGHT, BG0, BG1, BG2, BG3, ERR, OK, T1, T2,
 def _section_label(text: str) -> QLabel:
     lbl = QLabel(text)
     lbl.setStyleSheet(
-        f"color: {T3}; font-size: 10px; font-weight: 600; "
-        "text-transform: uppercase; letter-spacing: 1px; background: transparent;"
+        f"color: {T3}; font-size: 10px; font-weight: 700; "
+        "text-transform: uppercase; letter-spacing: 1.5px; background: transparent;"
     )
     return lbl
 
@@ -24,23 +24,23 @@ def _section_label(text: str) -> QLabel:
 def _check_row(label: str, ok: bool, detail: str = "") -> QWidget:
     row = QWidget()
     layout = QHBoxLayout(row)
-    layout.setContentsMargins(0, 2, 0, 2)
-    layout.setSpacing(8)
+    layout.setContentsMargins(0, 4, 0, 4)
+    layout.setSpacing(10)
 
     indicator = QLabel("OK" if ok else "FAIL")
-    indicator.setFixedWidth(40)
+    indicator.setFixedWidth(44)
     indicator.setAlignment(Qt.AlignmentFlag.AlignCenter)
     indicator.setStyleSheet(
-        f"background: {'rgba(74,222,128,20)' if ok else 'rgba(248,113,113,20)'}; "
-        f"color: {OK if ok else ERR}; border-radius: 4px; "
-        "font-size: 10px; font-weight: 700; padding: 2px 0;"
+        f"background: {'rgba(74,222,128,0.12)' if ok else 'rgba(248,113,113,0.12)'}; "
+        f"color: {OK if ok else ERR}; border-radius: 6px; "
+        "font-size: 10px; font-weight: 800; padding: 3px 0;"
     )
     layout.addWidget(indicator)
 
     txt = label if not detail else f"{label}  <span style='color:{T3}'>{detail}</span>"
     lbl = QLabel(txt)
     lbl.setTextFormat(Qt.TextFormat.RichText)
-    lbl.setStyleSheet(f"color: {T2}; font-size: 11px; background: transparent;")
+    lbl.setStyleSheet(f"color: {T1}; font-size: 11px; font-weight: 500; background: transparent;")
     layout.addWidget(lbl)
     layout.addStretch()
     return row
@@ -50,23 +50,23 @@ def _message_row(text: str, color: str, icon: str) -> QWidget:
     row = QFrame()
     row.setObjectName("card")
     row.setStyleSheet(
-        f"QFrame#card {{ background: {BG2}; border: 1px solid rgba(255,255,255,10); "
-        "border-radius: 6px; }}"
+        f"QFrame#card {{ background: {BG2}; border: 1px solid rgba(255,255,255,0.05); "
+        "border-radius: 10px; }}"
     )
     layout = QHBoxLayout(row)
-    layout.setContentsMargins(12, 8, 12, 8)
-    layout.setSpacing(10)
+    layout.setContentsMargins(14, 10, 14, 10)
+    layout.setSpacing(12)
 
     icon_lbl = QLabel(icon)
-    icon_lbl.setFixedWidth(20)
+    icon_lbl.setFixedWidth(24)
     icon_lbl.setStyleSheet(
-        f"color: {color}; font-size: 16px; font-weight: 700; background: transparent;"
+        f"color: {color}; font-size: 16px; font-weight: 800; background: transparent;"
     )
     layout.addWidget(icon_lbl)
 
     text_lbl = QLabel(text)
     text_lbl.setWordWrap(True)
-    text_lbl.setStyleSheet(f"color: {T2}; font-size: 11px; background: transparent;")
+    text_lbl.setStyleSheet(f"color: {T2}; font-size: 11px; line-height: 1.4; background: transparent;")
     text_lbl.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
     layout.addWidget(text_lbl)
     return row
@@ -76,9 +76,9 @@ class StartupCheckDialog(QDialog):
     def __init__(self, status: SystemStatus, parent=None):
         super().__init__(parent)
         self.setWindowTitle("PB Studio — System Check")
-        self.setMinimumWidth(520)
+        self.setMinimumWidth(540)
         self.setMaximumWidth(640)
-        self.setStyleSheet(f"background-color: {BG0}; color: {T1};")
+        self.setStyleSheet(f"background-color: {BG0}; color: {T1}; font-family: 'Segoe UI Variable Text', sans-serif;")
         self.setWindowModality(Qt.WindowModality.ApplicationModal)
 
         outer = QVBoxLayout(self)
@@ -87,10 +87,10 @@ class StartupCheckDialog(QDialog):
 
         # Header
         header = QWidget()
-        header.setFixedHeight(56)
-        header.setStyleSheet(f"background-color: {BG1};")
+        header.setFixedHeight(64)
+        header.setStyleSheet(f"background-color: {BG1}; border-bottom: 1px solid rgba(255,255,255,0.05);")
         h_layout = QHBoxLayout(header)
-        h_layout.setContentsMargins(20, 0, 20, 0)
+        h_layout.setContentsMargins(24, 0, 24, 0)
         title = QLabel("System Check")
         title.setStyleSheet(f"color: {ACCENT_BRIGHT}; font-size: 18px; font-weight: 800; background: transparent;")
         h_layout.addWidget(title)
@@ -100,8 +100,8 @@ class StartupCheckDialog(QDialog):
         badge_text = f"{len(status.errors)} Fehler" if status.errors else f"{len(status.warnings)} Warnung(en)"
         badge = QLabel(badge_text)
         badge.setStyleSheet(
-            f"background: {badge_color}; color: {BG0}; border-radius: 10px; "
-            "padding: 2px 10px; font-size: 11px; font-weight: 700;"
+            f"background: {badge_color}; color: {BG0}; border-radius: 12px; "
+            "padding: 3px 12px; font-size: 11px; font-weight: 800;"
         )
         h_layout.addWidget(badge)
         outer.addWidget(header)
@@ -124,6 +124,7 @@ class StartupCheckDialog(QDialog):
         gpu_detail = f"{status.gpu_name}  {round(status.gpu_vram_mb / 1024)} GB" if status.cuda_ok else ""
         cl.addWidget(_check_row("CUDA GPU", status.cuda_ok, gpu_detail))
         cl.addWidget(_check_row("Speicherplatz (>1 GB)", status.disk_ok, f"{status.disk_free_gb:.1f} GB frei"))
+        cl.addWidget(_check_row("Ollama (KI-Dienst)", status.ollama_ok))
         cl.addSpacing(12)
 
         if status.errors:

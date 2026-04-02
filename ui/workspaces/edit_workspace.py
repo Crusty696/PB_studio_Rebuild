@@ -27,7 +27,8 @@ class EditWorkspace(QWidget):
         from PySide6.QtWidgets import QFrame
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet("background-color: #1e2632; max-height: 1px;")
+        sep.setFixedHeight(1)
+        sep.setStyleSheet("background-color: rgba(255,255,255,0.05);")
         layout.addWidget(sep)
 
     def _build_ui(self):
@@ -101,13 +102,13 @@ class EditWorkspace(QWidget):
         insp.setSpacing(5)
 
         hdr = QLabel("INSPECTOR")
-        hdr.setStyleSheet("color: #9ca3af; font-weight: 700; font-size: 10px; letter-spacing: 2px;")
+        hdr.setObjectName("subtitle")
         insp.addWidget(hdr)
         self._add_separator(insp)
 
         # Source selectors
         src_lbl = QLabel("QUELLEN")
-        src_lbl.setStyleSheet("color: #6b7280; font-size: 9px; font-weight: 600; letter-spacing: 1px;")
+        src_lbl.setObjectName("subtitle")
         insp.addWidget(src_lbl)
 
         self.audio_combo = QComboBox()
@@ -127,7 +128,7 @@ class EditWorkspace(QWidget):
 
         # DJ Pacing Controls
         pacing_lbl = QLabel("DJ PACING")
-        pacing_lbl.setStyleSheet("color: #6b7280; font-size: 9px; font-weight: 600; letter-spacing: 1px;")
+        pacing_lbl.setObjectName("subtitle")
         insp.addWidget(pacing_lbl)
 
         # Cut Rate
@@ -218,19 +219,11 @@ class EditWorkspace(QWidget):
         self._add_separator(insp)
 
         # Action buttons
-        _gold_btn_style = (
-            "QPushButton { background: #d4a44a; color: #0A0A0A; border: none; border-radius: 4px;"
-            " font-weight: 600; font-size: 11px; }"
-            "QPushButton:hover { background: #e0b45a; }"
-            "QPushButton:pressed { background: #b8903e; }"
-        )
-
         self.btn_generate = QPushButton("Timeline generieren")
         self.btn_generate.setObjectName("btn_accent")
         self.btn_generate.setFixedHeight(35)
         self.btn_generate.setMaximumWidth(300)
         self.btn_generate.setToolTip("Berechnet Schnittpunkte (BPM + Pacing-Kurve)")
-        self.btn_generate.setStyleSheet(_gold_btn_style)
         insp.addWidget(self.btn_generate)
 
         self.btn_auto_edit = QPushButton("Auto-Edit")
@@ -238,24 +231,18 @@ class EditWorkspace(QWidget):
         self.btn_auto_edit.setFixedHeight(35)
         self.btn_auto_edit.setMaximumWidth(300)
         self.btn_auto_edit.setToolTip("Phase 3: DJ-Pacing + OTIO Timeline + Anker + VectorDB Matching")
-        self.btn_auto_edit.setStyleSheet(_gold_btn_style)
         insp.addWidget(self.btn_auto_edit)
 
         self._add_separator(insp)
 
         # Anchor System
         anchor_lbl = QLabel("ANKER")
-        anchor_lbl.setStyleSheet("color: #6b7280; font-size: 9px; font-weight: 600; letter-spacing: 1px;")
+        anchor_lbl.setObjectName("subtitle")
         insp.addWidget(anchor_lbl)
 
         self.anchor_list = QTreeWidget()
         self.anchor_list.setHeaderLabels(["Zeit", "Video/Szene", "Label"])
         self.anchor_list.setMaximumHeight(100)
-        self.anchor_list.setStyleSheet(
-            "QTreeWidget { background: #0a0d12; border: 1px solid rgba(255,255,255,15); "
-            "font-size: 10px; color: #e8e6e3; }"
-            "QTreeWidget::item { padding: 1px; }"
-        )
         self.anchor_list.setToolTip("Audio-Anker: Feste Clip-Positionen fuer den Auto-Edit")
         insp.addWidget(self.anchor_list)
 
@@ -296,25 +283,17 @@ class EditWorkspace(QWidget):
         rl_row = QHBoxLayout()
         rl_row.setSpacing(6)
         self.btn_thumbs_up = QPushButton("\U0001f44d")
+        self.btn_thumbs_up.setObjectName("btn_secondary")
         self.btn_thumbs_up.setFixedHeight(32)
         self.btn_thumbs_up.setFixedWidth(48)
         self.btn_thumbs_up.setToolTip("Positives Feedback: Gute Edit-Entscheidung")
-        self.btn_thumbs_up.setStyleSheet(
-            "QPushButton { background: #0f1318; border: 1px solid rgba(74,222,128,77); border-radius: 4px; font-size: 16px; }"
-            "QPushButton:hover { background: #161c26; border-color: #4ade80; }"
-            "QPushButton:pressed { background: #1e2632; }"
-        )
         rl_row.addWidget(self.btn_thumbs_up)
 
         self.btn_thumbs_down = QPushButton("\U0001f44e")
+        self.btn_thumbs_down.setObjectName("btn_secondary")
         self.btn_thumbs_down.setFixedHeight(32)
         self.btn_thumbs_down.setFixedWidth(48)
         self.btn_thumbs_down.setToolTip("Negatives Feedback: Schlechte Edit-Entscheidung")
-        self.btn_thumbs_down.setStyleSheet(
-            "QPushButton { background: #0f1318; border: 1px solid rgba(248,113,113,77); border-radius: 4px; font-size: 16px; }"
-            "QPushButton:hover { background: #161c26; border-color: #f87171; }"
-            "QPushButton:pressed { background: #1e2632; }"
-        )
         rl_row.addWidget(self.btn_thumbs_down)
         rl_row.addStretch()
         insp.addLayout(rl_row)
@@ -323,7 +302,7 @@ class EditWorkspace(QWidget):
 
         # Keyframe Analysis
         kf_lbl = QLabel("SZENEN-ANALYSE")
-        kf_lbl.setStyleSheet("color: #6b7280; font-size: 9px; font-weight: 600; letter-spacing: 1px;")
+        kf_lbl.setObjectName("subtitle")
         insp.addWidget(kf_lbl)
 
         self.btn_keyframe_string = QPushButton("Keyframe-String generieren")
@@ -336,10 +315,6 @@ class EditWorkspace(QWidget):
         self.keyframe_text = QTextEdit()
         self.keyframe_text.setReadOnly(True)
         self.keyframe_text.setMaximumHeight(120)
-        self.keyframe_text.setStyleSheet(
-            "QTextEdit { background: #0a0d12; border: 1px solid rgba(255,255,255,15); "
-            "font-family: 'Cascadia Code'; font-size: 9px; color: #9ca3af; }"
-        )
         self.keyframe_text.setToolTip("Szenen-Analyse Ergebnis")
         self.keyframe_text.setPlaceholderText("Keyframe-Strings werden hier angezeigt...")
         insp.addWidget(self.keyframe_text)
