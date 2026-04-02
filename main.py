@@ -256,7 +256,7 @@ class PBWindow(QMainWindow, WorkerDispatcherMixin, AudioAnalysisMixin, VideoAnal
         # Unteres Panel: horizontaler QSplitter (Tasks | Konsole)
         self._bottom_panel = QWidget()
         self._bottom_panel.setObjectName("bottom_panel")
-        self._bottom_panel.setMinimumHeight(24)
+        self._bottom_panel.setMinimumHeight(80)
         _bp_layout = QHBoxLayout(self._bottom_panel)
         _bp_layout.setContentsMargins(0, 0, 0, 0)
         _bp_layout.setSpacing(0)
@@ -285,10 +285,10 @@ class PBWindow(QMainWindow, WorkerDispatcherMixin, AudioAnalysisMixin, VideoAnal
         self.setup_console()
         self.setup_chat_dock()
 
-        # Splitter-Groessen: Workspace dominiert, Console minimal
-        # User kann Splitter fast ganz nach unten schieben
-        self._main_splitter.setSizes([850, 60])
-        self._inner_splitter.setSizes([400, 600])
+        # Splitter-Groessen: Workspace dominiert, unteres Panel sichtbar
+        # User kann Splitter anpassen; 150px fuer Task+Console ist gut lesbar
+        self._main_splitter.setSizes([700, 150])
+        self._inner_splitter.setSizes([500, 500])
 
         # Wire toggle buttons to panel visibility
         self._btn_toggle_tasks.toggled.connect(self._task_panel_widget.setVisible)

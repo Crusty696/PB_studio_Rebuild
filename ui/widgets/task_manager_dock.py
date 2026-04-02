@@ -157,13 +157,13 @@ class TaskManagerDock(QDockWidget):
         row_layout.setSpacing(8)
 
         name_label = QLabel(task.name)
-        name_label.setFixedWidth(180)
-        name_label.setStyleSheet("color: #C0C0C0; font-size: 10px; font-weight: 600; border: none;")
+        name_label.setFixedWidth(200)
+        name_label.setStyleSheet("color: #C0C0C0; font-size: 11px; font-weight: 600; border: none;")
         row_layout.addWidget(name_label)
 
         status_label = QLabel("Running")
         status_label.setFixedWidth(70)
-        status_label.setStyleSheet("color: #00E676; font-size: 10px; font-weight: bold; border: none;")
+        status_label.setStyleSheet("color: #00E676; font-size: 11px; font-weight: bold; border: none;")
         row_layout.addWidget(status_label)
 
         progress_bar = QProgressBar()
@@ -171,24 +171,24 @@ class TaskManagerDock(QDockWidget):
         progress_bar.setValue(0)
         progress_bar.setTextVisible(True)
         progress_bar.setFormat("%p%")
-        progress_bar.setFixedHeight(16)
         progress_bar.setStyleSheet(
             "QProgressBar { background: #1A1A1A; border: 1px solid #2A2A2A; border-radius: 3px; "
-            "text-align: center; color: #B0B0B0; font-size: 9px; }"
+            "text-align: center; color: #D0D0D0; font-size: 11px; "
+            "min-height: 18px; max-height: 18px; }"
             "QProgressBar::chunk { background: qlineargradient("
             "x1:0, y1:0, x2:1, y2:0, stop:0 #7A6010, stop:1 #D4AF37); border-radius: 2px; }"
         )
         row_layout.addWidget(progress_bar, stretch=1)
 
         msg_label = QLabel("")
-        msg_label.setFixedWidth(200)
-        msg_label.setStyleSheet("color: #707070; font-size: 9px; border: none;")
-        row_layout.addWidget(msg_label)
+        msg_label.setMinimumWidth(150)
+        msg_label.setStyleSheet("color: #909090; font-size: 10px; border: none;")
+        row_layout.addWidget(msg_label, stretch=1)
 
         time_label = QLabel("0s")
         time_label.setFixedWidth(50)
         time_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        time_label.setStyleSheet("color: #505050; font-size: 9px; border: none;")
+        time_label.setStyleSheet("color: #707070; font-size: 10px; border: none;")
         row_layout.addWidget(time_label)
 
         self._task_container.addWidget(row_widget)
@@ -215,7 +215,7 @@ class TaskManagerDock(QDockWidget):
             progress_bar.setRange(0, task.total)
             progress_bar.setValue(task.progress)
             progress_bar.setFormat(f"{task.progress}%")
-        msg_label.setText(task.message[:40] if task.message else "")
+        msg_label.setText(task.message[:60] if task.message else "")
         msg_label.setToolTip(task.message or "")
 
     def _on_task_finished(self, task_id: str):
@@ -231,27 +231,29 @@ class TaskManagerDock(QDockWidget):
 
         if task.status == "finished":
             status_label.setText("Fertig")
-            status_label.setStyleSheet("color: #D4AF37; font-size: 10px; font-weight: bold; border: none;")
+            status_label.setStyleSheet("color: #D4AF37; font-size: 11px; font-weight: bold; border: none;")
             progress_bar.setValue(progress_bar.maximum())
             progress_bar.setFormat("100%")
             progress_bar.setStyleSheet(
                 "QProgressBar { background: #1A1A1A; border: 1px solid #2A2A2A; border-radius: 3px; "
-                "text-align: center; color: #B0B0B0; font-size: 9px; }"
+                "text-align: center; color: #D0D0D0; font-size: 11px; "
+                "min-height: 18px; max-height: 18px; }"
                 "QProgressBar::chunk { background: #D4AF37; border-radius: 2px; }"
             )
         elif task.status == "cancelled":
             status_label.setText("Abbruch")
-            status_label.setStyleSheet("color: #FFB040; font-size: 10px; font-weight: bold; border: none;")
+            status_label.setStyleSheet("color: #FFB040; font-size: 11px; font-weight: bold; border: none;")
         else:
             status_label.setText("Fehler")
-            status_label.setStyleSheet("color: #FF5050; font-size: 10px; font-weight: bold; border: none;")
+            status_label.setStyleSheet("color: #FF5050; font-size: 11px; font-weight: bold; border: none;")
             progress_bar.setStyleSheet(
                 "QProgressBar { background: #1A1A1A; border: 1px solid #3A1010; border-radius: 3px; "
-                "text-align: center; color: #FF5050; font-size: 9px; }"
+                "text-align: center; color: #FF5050; font-size: 11px; "
+                "min-height: 18px; max-height: 18px; }"
                 "QProgressBar::chunk { background: #CC3333; border-radius: 2px; }"
             )
 
-        msg_label.setText(task.message[:40] if task.message else "")
+        msg_label.setText(task.message[:60] if task.message else "")
         msg_label.setToolTip(task.message or "")
         time_label.setText(f"{task.elapsed}s")
 

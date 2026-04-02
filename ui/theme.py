@@ -208,11 +208,11 @@ def get_stylesheet() -> str:
     QProgressBar {{
         background-color: {BG1};
         border: none;
-        border-radius: 2px;
+        border-radius: 3px;
         text-align: center;
-        color: {T3};
-        font-size: 9px;
-        max-height: 6px;
+        color: {T2};
+        font-size: 11px;
+        min-height: 16px;
     }}
     QProgressBar::chunk {{
         background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {ACCENT_DIM}, stop:1 {ACCENT_BRIGHT});
