@@ -962,6 +962,7 @@ class PBWindow(QMainWindow, WorkerDispatcherMixin, AudioAnalysisMixin, VideoAnal
 
             self.console_text.append("[KI] Chat-Assistent initialisiert (Modell wird bei erster Anfrage geladen).")
         except Exception as e:
+            logger.error("[B-014] register_actions / Agent-Init fehlgeschlagen: %s", e, exc_info=True)
             self.chat_dock.append_error(f"Agent konnte nicht initialisiert werden: {e}")
             self.console_text.append(f"[KI-Fehler] {e}")
 

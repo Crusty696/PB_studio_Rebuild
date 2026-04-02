@@ -73,9 +73,12 @@ class WorkerDispatcherMixin:
                     _tm.finish_task(_tid, status="error", message=err_msg)
                 worker.error.connect(_default_error_handler, Qt.ConnectionType.QueuedConnection)
 
-            # B-012 Fix: Progress-Signal wird in task_manager.py verbunden (nicht doppelt verbinden!)
-            # Die task_manager.start_task() Methode kuemmert sich um progress.connect()
-            # Wenn wir hier auch verbinden wuerden, wuerde update_task() 2x aufgerufen
+            # B-012 Fix: Fuer existing_task_id-Pfad wird _start_in_main_thread NICHT aufgerufen,
+            # daher verbinden wir progress hier genau einmal (nicht doppelt wie der alte Bug).
+            if hasattr(worker, "progress"):
+                worker.progress.connect(
+                    lambda pct, msg, _tid=existing_task_id: tm.update_task(_tid, pct, message=msg)
+                )
 
             worker.finished.connect(thread.quit)
             thread.finished.connect(worker.deleteLater)
