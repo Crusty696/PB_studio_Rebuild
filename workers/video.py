@@ -200,31 +200,38 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
             # beat_this, text_to_embedding) und verhindert Race Conditions.
             if total_videos > 1:
                 from services.model_manager import ModelManager, GPU_LOAD_LOCK
-                try:
-                    with GPU_LOAD_LOCK:
-                        mm = ModelManager()
+                # AUD-35 Fix: SigLIP + RAFT muessen innerhalb eines einzigen GPU_LOAD_LOCK-Blocks
+                # geladen werden. Ein Gap zwischen den beiden Locks erlaubt anderen Threads
+                # (z.B. BeatAnalysisService), GPU_LOAD_LOCK zu akquirieren und load_whisper()
+                # aufzurufen, was unload() triggert und SigLIP-Tensoren auf CPU verschiebt.
+                # Die siglip_model_processor-Referenz zeigte danach auf CPU-Tensoren waehrend
+                # Inputs auf CUDA lagen → CUDA RuntimeError.
+                # Fix: mm.load_raft() direkt aufrufen (nutzt nur _swap_lock intern),
+                # statt _load_raft_model() (wuerde GPU_LOAD_LOCK nested re-akquirieren → Deadlock).
+                # B-02 Design: SigLIP (~2.5 GB) + RAFT (~0.1 GB) = ~2.6 GB — passt auf GTX 1060.
+                with GPU_LOAD_LOCK:
+                    mm = ModelManager()
+                    try:
                         logger.info("[BATCH] Lade SigLIP einmalig fuer %d Videos...", total_videos)
                         siglip_model_processor = mm.load_siglip()
                         logger.info("[BATCH] SigLIP vorgeladen auf %s", mm.device)
-                except Exception as e:
-                    logger.warning("[BATCH] SigLIP Vorladen fehlgeschlagen (%s) — Fallback: pro Video laden", e)
-                    siglip_model_processor = None
-
-                # B-02 Design-Entscheidung: SigLIP (~2.5 GB) und RAFT (~0.1 GB) koexistieren
-                # im Batch-Modus bewusst auf der GPU. RAFT ist winzig (100 MB) und belegt
-                # zusammen mit SigLIP nur ~2.6 GB — weit unter dem 6 GB Budget der GTX 1060.
-                # Ein Entladen von SigLIP vor RAFT waere kontraproduktiv, da SigLIP pro Video
-                # neu geladen werden muesste (~5-15s Overhead pro Video).
-                try:
-                    from services.video_analysis_service import _load_raft_model
-                    raft_model_device = _load_raft_model()
-                    if raft_model_device[0] is not None:
-                        logger.info("[BATCH] RAFT vorgeladen — wird fuer alle %d Videos wiederverwendet", total_videos)
-                    else:
+                    except Exception as e:
+                        logger.warning("[BATCH] SigLIP Vorladen fehlgeschlagen (%s) — Fallback: pro Video laden", e)
+                        siglip_model_processor = None
+                    try:
+                        raft_result = mm.load_raft()
+                        if raft_result[0] is not None:
+                            raft_model_device = raft_result
+                            logger.info("[BATCH] RAFT vorgeladen — wird fuer alle %d Videos wiederverwendet", total_videos)
+                        else:
+                            raft_model_device = None
+                    except Exception as e:
+                        logger.warning("[BATCH] RAFT Vorladen fehlgeschlagen (%s) — Fallback: pro Video laden", e)
                         raft_model_device = None
-                except Exception as e:
-                    logger.warning("[BATCH] RAFT Vorladen fehlgeschlagen (%s) — Fallback: pro Video laden", e)
-                    raft_model_device = None
+                        # RAFT-OOM-Pfad kann SigLIP evictet haben — Referenz invalidieren
+                        if siglip_model_processor is not None and mm.model_type != "siglip":
+                            logger.warning("[BATCH] RAFT-OOM hat SigLIP evictet — SigLIP-Referenz invalidiert")
+                            siglip_model_processor = None
 
             for idx, (clip_id, video_path, title) in enumerate(self._batch, start=1):
                 if self.should_stop():
