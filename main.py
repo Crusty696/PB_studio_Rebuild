@@ -429,6 +429,15 @@ def main():
     _sys_status = check_system()
     app.system_status = _sys_status
 
+    # ── First-Run Setup Wizard (AUD-62) ──────────────────────────────
+    from ui.dialogs.setup_wizard import is_setup_complete, SetupWizard
+    if not is_setup_complete():
+        splash.close()
+        wizard = SetupWizard()
+        wizard.exec()
+        splash = PBSplashScreen(APP_VERSION)
+        splash.show()
+
     splash.show_message("Prüfe System-Abhängigkeiten...")
     if not maybe_show_startup_dialog(_sys_status):
         splash.close()
