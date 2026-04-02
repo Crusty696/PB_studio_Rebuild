@@ -132,9 +132,8 @@ def nullpool_session():
     from sqlalchemy import create_engine as _ce, event as _ev
     from sqlalchemy.pool import NullPool
 
-    db_path = APP_ROOT / 'pb_studio.db'
     _eng = _ce(
-        f"sqlite:///{db_path}",
+        str(engine.url),
         echo=False,
         connect_args={"check_same_thread": False, "timeout": 30},
         poolclass=NullPool,

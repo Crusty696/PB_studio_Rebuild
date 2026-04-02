@@ -48,6 +48,17 @@ def test_engine(monkeypatch):
     # Engine in allen relevanten Modulen ersetzen
     monkeypatch.setattr(database, "engine", engine)
 
+    # nullpool_session() hardcodes pb_studio.db — patch it to use the test engine
+    # so that worker writes go to the in-memory DB, not the production file.
+    from contextlib import contextmanager as _cm
+
+    @_cm
+    def _test_nullpool():
+        with Session(engine) as s:
+            yield s
+
+    monkeypatch.setattr(database, "nullpool_session", _test_nullpool)
+
     # Service-Module patchen (nur wenn bereits importiert)
     for mod_name in [
         "services.ingest_service",
