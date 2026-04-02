@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 from pathlib import Path
@@ -10,6 +11,18 @@ _FFPROBE = os.environ.get("FFPROBE_PATH", "ffprobe")
 from services.vector_db_service import VectorDBService
 
 logger = logging.getLogger(__name__)
+
+
+def _json_loads_safe(value):
+    """Parst einen JSON-String zu einer Liste/dict; gibt None zurueck bei Fehler."""
+    if value is None:
+        return None
+    if isinstance(value, (list, dict)):
+        return value
+    try:
+        return json.loads(value)
+    except (json.JSONDecodeError, TypeError):
+        return None
 
 
 def _invalidate_pacing_caches():
@@ -182,7 +195,7 @@ def get_audio_detail_data(audio_id: int) -> dict | None:
                 "key_confidence": track.key_confidence,
                 "camelot": camelot,
                 "mood": track.mood,
-                "energy": track.energy_curve,
+                "energy": _json_loads_safe(track.energy_curve),  # BUG-015: war JSON-String statt Liste
                 "genre": track.genre,
                 "spectral_centroid": None,
                 "lufs": track.lufs,
@@ -338,11 +351,13 @@ def delete_selected_media(video_ids: list[int], audio_ids: list[int]) -> int:
     from database import (
         AudioVideoAnchor, ClipAnchor, TimelineEntry,
         Scene, Beatgrid, WaveformData, StructureSegment, HotCue,
+        nullpool_session,
     )
     if not video_ids and not audio_ids:
         return 0
 
-    with Session(engine) as session:
+    # BUG-006: nullpool_session vermeidet Connection-Leaks in Worker-Threads
+    with nullpool_session() as session:
         # Timeline-Entries fuer diese Medien finden
         timeline_ids = []
         if audio_ids:

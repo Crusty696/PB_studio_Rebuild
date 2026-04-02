@@ -106,8 +106,8 @@ PRESET_DAVINCI_PROXY = ConvertPreset(
     video_codec="dnxhd",
     audio_codec="pcm_s16le",
     scale="1280:720",
-    extra_vflags=["-pix_fmt", "yuv422p"],
-    codec_params=["-profile:v", "dnxhr_lb"],
+    extra_vflags=[],
+    codec_params=["-profile:v", "dnxhr_lb", "-pix_fmt", "yuv422p"],  # BUG-009: pix_fmt ist kein Videofilter
     container="mxf",
     output_dir=PROXY_DIR,
 )
