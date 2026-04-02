@@ -456,6 +456,8 @@ class ModelManager:
                 result = self.load_vision(model_id)
             elif model_type == "siglip":
                 result = self.load_siglip(model_id)
+            elif model_type == "raft":
+                result = self.load_raft()
             else:
                 result = self.load_transformers(model_id)
 
@@ -467,6 +469,70 @@ class ModelManager:
             pass
 
         return result
+
+    def load_raft(self) -> tuple:
+        """Lädt RAFT Small Optical Flow Modell für Motion-Analyse.
+
+        Registriert RAFT im ModelManager sodass es beim Laden anderer
+        Modelle (Whisper, SigLIP, beat_this) automatisch entladen wird.
+        SigLIP (~2.5 GB) + RAFT (~0.1 GB) dürfen koexistieren auf 6 GB VRAM.
+
+        Returns:
+            (raft_model, device) — direkt verwendbar für torch inference
+        """
+        model_id = "raft_small"
+
+        with self._swap_lock:
+            if self._current_model_id == model_id and self._model_type == "raft":
+                return self._model, torch.device(self.device)
+
+            self._pause_ollama_if_active()
+
+            # SigLIP (~2.5 GB) + RAFT (~0.1 GB) passt auf 6 GB — Koexistenz erlaubt
+            if self._model_type != "siglip":
+                self.unload()
+
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+                torch.cuda.empty_cache()
+                gc.collect()
+                torch.cuda.empty_cache()
+                logger.info(
+                    "ModelManager: Lade RAFT Small auf CUDA (%s)...",
+                    torch.cuda.get_device_name(0),
+                )
+            else:
+                logger.info("ModelManager: Lade RAFT Small auf CPU...")
+
+            import torchvision.models.optical_flow as _of
+
+            device = torch.device(self.device)
+            raft = _of.raft_small(weights=_of.Raft_Small_Weights.DEFAULT)
+            try:
+                raft = raft.to(device)
+            except torch.cuda.OutOfMemoryError:
+                logger.warning("[RAFT] OOM — entlade SigLIP und versuche erneut...")
+                # SigLIP jetzt auch entladen und nochmal versuchen
+                self.unload()
+                torch.cuda.empty_cache()
+                gc.collect()
+                torch.cuda.empty_cache()
+                try:
+                    raft = raft.to(device)
+                except torch.cuda.OutOfMemoryError:
+                    logger.error("OOM beim Laden von RAFT — VRAM nicht ausreichend")
+                    del raft
+                    raise RuntimeError(
+                        "VRAM reicht nicht für RAFT. GPU-Speicher wurde freigegeben."
+                    )
+
+            raft = raft.eval()
+            self._model = raft
+            self._current_model_id = model_id
+            self._model_type = "raft"
+            logger.info("ModelManager: RAFT Small geladen auf %s", device)
+
+            return self._model, device
 
     def load_ollama(self, model: str, base_url: str = "http://localhost:11434") -> "OllamaHandle":
         """Registriert Ollama als aktiven LLM-Backend im ModelManager.

@@ -135,7 +135,8 @@ class TimelineClipItem(QGraphicsRectItem):
         if time_offset < 0:
             time_offset = 0.0
 
-        with DBSession(engine) as session:
+        from database import nullpool_session
+        with nullpool_session() as session:
             anchor = ClipAnchor(
                 timeline_entry_id=self.entry_id,
                 time_offset=round(time_offset, 4),
@@ -150,7 +151,8 @@ class TimelineClipItem(QGraphicsRectItem):
 
     def remove_all_anchors(self):
         """Entfernt alle Anker dieses Clips."""
-        with DBSession(engine) as session:
+        from database import nullpool_session
+        with nullpool_session() as session:
             session.query(ClipAnchor).filter_by(
                 timeline_entry_id=self.entry_id
             ).delete()
@@ -548,7 +550,8 @@ class InteractiveTimeline(QGraphicsView):
             return
         entry_id, new_start = self._pending_move
         self._pending_move = None
-        with DBSession(engine) as session:
+        from database import nullpool_session
+        with nullpool_session() as session:
             entry = session.get(TimelineEntry, entry_id)
             if entry:
                 old_start = entry.start_time
@@ -691,7 +694,8 @@ class InteractiveTimeline(QGraphicsView):
                 synced = True
 
         if updates:
-            with DBSession(engine) as session:
+            from database import nullpool_session
+            with nullpool_session() as session:
                 for entry_id, new_start, _ in updates:
                     entry = session.get(TimelineEntry, entry_id)
                     if entry:

@@ -149,12 +149,15 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
         # (läuft im Worker-Thread, nicht im Main-Thread)
         if self._batch and len(self._batch[0]) == 2:
             resolved_batch = []
-            with DBSession(engine) as session:
+            # NullPool: Verhindert QueuePool-Exhaustion bei vielen parallelen Reads
+            from database import nullpool_session
+            with nullpool_session() as session:
                 for clip_id, title in self._batch:
                     clip = session.get(VideoClip, clip_id)
                     if clip:
                         # Proxy-First: KI-Analyse nutzt Proxy wenn verfügbar, sonst Original
-                        if clip.proxy_path and Path(clip.proxy_path).exists():
+                        # B-012 Fix: TOCTOU — Proxy-Existenz wird spater geprueft bevor verwendet
+                        if clip.proxy_path:
                             analysis_path = clip.proxy_path
                             logger.info("[Proxy-First] Clip %d: Nutze Proxy → %s", clip_id, analysis_path)
                         else:
@@ -192,14 +195,17 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
             idx = 0
 
             # ── BATCH-OPTIMIERUNG: SigLIP + RAFT EINMAL laden fuer alle Videos ──
-            # Verhindert VRAM-Fragmentierung durch wiederholtes Laden/Entladen
+            # Verhindert VRAM-Fragmentierung durch wiederholtes Laden/Entladen.
+            # GPU_LOAD_LOCK serialisiert mit allen anderen GPU-Operationen (Demucs,
+            # beat_this, text_to_embedding) und verhindert Race Conditions.
             if total_videos > 1:
+                from services.model_manager import ModelManager, GPU_LOAD_LOCK
                 try:
-                    from services.model_manager import ModelManager
-                    mm = ModelManager()
-                    logger.info("[BATCH] Lade SigLIP einmalig fuer %d Videos...", total_videos)
-                    siglip_model_processor = mm.load_siglip()
-                    logger.info("[BATCH] SigLIP vorgeladen auf %s", mm.device)
+                    with GPU_LOAD_LOCK:
+                        mm = ModelManager()
+                        logger.info("[BATCH] Lade SigLIP einmalig fuer %d Videos...", total_videos)
+                        siglip_model_processor = mm.load_siglip()
+                        logger.info("[BATCH] SigLIP vorgeladen auf %s", mm.device)
                 except Exception as e:
                     logger.warning("[BATCH] SigLIP Vorladen fehlgeschlagen (%s) — Fallback: pro Video laden", e)
                     siglip_model_processor = None
@@ -249,6 +255,34 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                     total_scenes += len(result.scenes)
                     total_embeddings += result.embeddings_stored
 
+                except FileNotFoundError as e:
+                    # B-012 Fix: TOCTOU — Proxy existierte bei Check aber wurde geloescht
+                    # Fallback zu Original-Datei
+                    logger.warning("[Proxy-First] Clip %d: Datei geloescht (TOCTOU) — Fallback: %s", clip_id, e)
+                    from database import nullpool_session as fallback_session
+                    try:
+                        with fallback_session() as fb_session:
+                            fb_clip = fb_session.get(VideoClip, clip_id)
+                            if fb_clip and fb_clip.file_path:
+                                result = run_full_pipeline(
+                                    video_path=fb_clip.file_path,
+                                    video_clip_id=clip_id,
+                                    progress_cb=lambda pct, msg, _base=batch_base_pct, _range=batch_range, _i=idx, _tv=total_videos: (
+                                        _throttled_progress(
+                                            min(99, _base + int(pct / 100 * _range)),
+                                            f"[{_i}/{_tv}] {msg}"
+                                        )
+                                    ),
+                                    should_stop=self.should_stop,
+                                    siglip_model_processor=siglip_model_processor,
+                                    raft_model_device=raft_model_device,
+                                )
+                                total_scenes += len(result.scenes)
+                                total_embeddings += result.embeddings_stored
+                            else:
+                                raise RuntimeError(f"VideoClip {clip_id}: Original-Pfad nicht verfuegbar")
+                    except Exception as fallback_err:
+                        raise RuntimeError(f"Clip {clip_id}: Proxy + Original fehlgeschlagen — {fallback_err}") from fallback_err
                 except Exception as e:
                     logging.error("VideoAnalysisPipelineWorker[%s] video %d/%d '%s' crashed: %s\n%s",
                                   clip_id, idx, total_videos, label, e, traceback.format_exc())
@@ -259,16 +293,11 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                     )
                     continue  # naechstes Video statt Abbruch
                 finally:
-                    # VRAM-Schutz: GPU-Tensor-Cache nach JEDEM Video freigeben (6GB Limit)
-                    # Das Modell selbst bleibt geladen (siglip_model_processor), nur
-                    # Zwischen-Tensoren werden freigegeben
-                    try:
-                        import torch
-                        if torch.cuda.is_available():
-                            torch.cuda.empty_cache()
-                            logging.info("VRAM-Cleanup nach Video %d/%d: torch.cuda.empty_cache()", idx, total_videos)
-                    except ImportError:
-                        pass
+                    # VRAM-Schutz: gc.collect() nach JEDEM Video fuer Python-Objekte.
+                    # empty_cache() wird NICHT im Batch-Modus aufgerufen solange
+                    # SigLIP/RAFT resident sind — das korrumpiert den Heap (0xC0000374)
+                    # bzw. den CUDA-Kontext (0xC0000005).
+                    # Cleanup passiert NUR am Ende der gesamten Batch.
                     gc.collect()
 
             # ── BATCH-CLEANUP: SigLIP + RAFT am Ende der gesamten Batch entladen ──

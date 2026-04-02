@@ -1,4 +1,5 @@
 import json
+import logging
 import threading
 import numpy as np
 import librosa
@@ -96,8 +97,10 @@ class AudioAnalyzer:
         # 2) CPU-intensive Analyse AUSSERHALB jeder DB-Session
         result = self.analyze(file_path, progress_cb=progress_cb)
 
-        # 3) Zweite Session: Ergebnisse speichern + commit
-        with Session(engine) as session:
+        # 3) NullPool-Session: Ergebnisse speichern + commit
+        # NullPool verhindert "database is locked" bei sequentiellen Worker-Writes
+        from database import nullpool_session
+        with nullpool_session() as session:
             track = session.get(AudioTrack, track_id)
             if track is None:
                 raise ValueError(f"AudioTrack {track_id} nach Analyse nicht mehr gefunden")
@@ -109,10 +112,10 @@ class AudioAnalyzer:
 
             session.commit()
 
-            try:
-                from services.pacing_service import invalidate_pacing_caches
-                invalidate_pacing_caches()
-            except Exception:
-                pass
+        try:
+            from services.pacing_service import invalidate_pacing_caches
+            invalidate_pacing_caches()
+        except Exception as e:
+            logging.warning("invalidate_pacing_caches() fehlgeschlagen: %s", e)
 
         return result

@@ -35,8 +35,9 @@ class BaseAnalysisWorker(QObject, CancellableMixin):
     progress = Signal(int, str)    # percent, message
 
     def __init__(self, audio_track_id: int, file_path: str, **kwargs):
+        # FIX B-011: super().__init__() folgt der MRO und ruft alle Klassen-Initialisierer auf
+        # CancellableMixin.__init__() initialisiert _cancelled und _errored
         super().__init__()
-        CancellableMixin.__init__(self)
         self.audio_track_id = audio_track_id
         self.file_path = file_path
 
@@ -78,20 +79,20 @@ class BaseAnalysisWorker(QObject, CancellableMixin):
     def _result_to_dict(self, result) -> dict: ...
 
     def _get_session_context(self):
-        """Hilfsmethode: Gibt einen SQLAlchemy Session-Kontextmanager zurueck.
+        """Hilfsmethode: Gibt einen NullPool-Session-Kontextmanager zurueck.
 
-        Bug-B2 fix: Statt einer nackten Session (die bei fruehzeitiger Exception
-        leaken kann) wird jetzt ein Context-Manager zurueckgegeben, der die
-        Session immer sauber schliesst.
+        FIX-1.1c: Verwendet nullpool_session() statt Session(engine).
+        Der Connection Pool verursachte "database is locked" Fehler wenn
+        mehrere Audio-Analyse-Worker sequentiell liefen (Komplett-Analyse).
+        NullPool erstellt eine frische Connection und schliesst sie sofort.
 
         Verwendung:
             with self._get_session_context() as session:
                 track = session.get(AudioTrack, self.audio_track_id)
                 ...
         """
-        from database import engine
-        from sqlalchemy.orm import Session
-        return Session(engine)
+        from database import nullpool_session
+        return nullpool_session()
 
 
 # ── Konkrete Worker ──────────────────────────────────────────────────────

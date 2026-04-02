@@ -78,13 +78,23 @@ class GlobalTaskManager(QObject):
         if cls._instance is None:
             with cls._instance_lock:
                 if cls._instance is None:  # Double-checked locking
+                    # FIX B-010: Stelle sicher dass QApplication existiert
+                    app = QApplication.instance()
+                    if app is None:
+                        raise RuntimeError(
+                            "GlobalTaskManager kann nur nach QApplication.instance() erstellt werden. "
+                            "Stelle sicher dass QApplication() VOR dem TaskManager-Import erstellt wird."
+                        )
                     cls._instance = cls()
         return cls._instance
 
     def __init__(self):
+        # FIX B-010: QApplication ist jetzt garantiert verfügbar von instance()
         super().__init__(QApplication.instance())
         self._tasks: dict[str, TaskInfo] = {}
+        self._tasks_lock = threading.Lock()  # FIX B-011: Schützt concurrent dict-Zugriffe
         self._counter = 0
+        self._shutting_down = False  # FIX B-002: Verhindert Thread-Erstellung nach closeEvent
         # Cross-Thread-Signal: QueuedConnection erzwingt Ausfuehrung im Main-Thread
         self._cross_thread_request.connect(
             self._start_in_main_thread, Qt.ConnectionType.QueuedConnection
@@ -220,6 +230,18 @@ class GlobalTaskManager(QObject):
         Wird direkt aufgerufen (Main-Thread) oder via QueuedConnection
         (Cross-Thread-Signal).
         """
+        # FIX B-002: Falls App gerade schliesst, keinen neuen Thread mehr starten.
+        # Die QueuedConnection kann diesen Slot NACH closeEvent() liefern.
+        if self._shutting_down:
+            logging.warning(
+                "[TaskEngine] _start_in_main_thread nach Shutdown ignoriert: %s", name
+            )
+            try:
+                worker.deleteLater()
+            except RuntimeError:
+                pass
+            return TaskInfo(task_id, name, description)  # Dummy, nie zu _tasks hinzugefügt
+
         task = TaskInfo(task_id, name, description)
 
         thread = QThread()
@@ -288,7 +310,9 @@ class GlobalTaskManager(QObject):
         # Referenzen halten (GC-Schutz)
         task.thread = thread
         task.worker = worker
-        self._tasks[task_id] = task
+        # FIX B-011: Schütze dict-Modifikation mit Lock gegen concurrent clear_finished()
+        with self._tasks_lock:
+            self._tasks[task_id] = task
 
         self.task_added.emit(task_id)
 
@@ -310,29 +334,37 @@ class GlobalTaskManager(QObject):
         self._counter += 1
         task_id = f"task_{self._counter}"
         task = TaskInfo(task_id, name, description)
-        self._tasks[task_id] = task
+        # FIX B-011: Schütze dict-Modifikation mit Lock
+        with self._tasks_lock:
+            self._tasks[task_id] = task
         self.task_added.emit(task_id)
         return task
 
     def update_task(self, task_id: str, progress: int = 0, total: int = 100,
                     message: str = ""):
-        if task_id in self._tasks:
-            t = self._tasks[task_id]
-            t.progress = progress
-            t.total = total
-            t.message = message
-            self.task_updated.emit(task_id)
+        # FIX B-011: Schütze dict-Zugriff mit Lock
+        with self._tasks_lock:
+            if task_id in self._tasks:
+                t = self._tasks[task_id]
+                t.progress = progress
+                t.total = total
+                t.message = message
+        self.task_updated.emit(task_id)
 
     def finish_task(self, task_id: str, status: str = "finished", message: str = ""):
-        if task_id in self._tasks:
-            t = self._tasks[task_id]
-            t.status = status
-            t.message = message
-            self.task_finished.emit(task_id)
+        # FIX B-011: Schütze dict-Zugriff mit Lock
+        with self._tasks_lock:
+            if task_id in self._tasks:
+                t = self._tasks[task_id]
+                t.status = status
+                t.message = message
+        self.task_finished.emit(task_id)
 
     def cancel_task(self, task_id: str):
         """Bricht einen laufenden Task ab."""
-        task = self._tasks.get(task_id)
+        # FIX B-011: Schütze dict-Zugriff mit Lock
+        with self._tasks_lock:
+            task = self._tasks.get(task_id)
         if not task or task.status != "running":
             return
         worker = task.worker
@@ -359,29 +391,35 @@ class GlobalTaskManager(QObject):
         logging.info("[TaskEngine] Abgebrochen: %s", task_id)
 
     def get_task(self, task_id: str) -> TaskInfo | None:
-        return self._tasks.get(task_id)
+        # FIX B-011: Schütze dict-Zugriff mit Lock
+        with self._tasks_lock:
+            return self._tasks.get(task_id)
 
     def get_all_tasks(self) -> list[TaskInfo]:
-        return list(self._tasks.values())
+        # FIX B-011: Schütze dict-Zugriff mit Lock
+        with self._tasks_lock:
+            return list(self._tasks.values())
 
     def clear_finished(self):
+        # FIX B-011: Schütze dict-Iteration und Modifikation mit Lock
         to_remove = []
-        for k, v in self._tasks.items():
-            if v.status != "running":
-                to_remove.append(k)
-        for k in to_remove:
-            task = self._tasks.pop(k)
-            # Guard: nur deleteLater wenn noch nicht vom thread.finished-Handler erledigt
-            if task.worker:
-                try:
-                    task.worker.deleteLater()
-                except RuntimeError:
-                    pass
-            if task.thread:
-                try:
-                    task.thread.deleteLater()
-                except RuntimeError:
-                    pass
+        with self._tasks_lock:
+            for k, v in self._tasks.items():
+                if v.status != "running":
+                    to_remove.append(k)
+            for k in to_remove:
+                task = self._tasks.pop(k)
+                # Guard: nur deleteLater wenn noch nicht vom thread.finished-Handler erledigt
+                if task.worker:
+                    try:
+                        task.worker.deleteLater()
+                    except RuntimeError:
+                        pass
+                if task.thread:
+                    try:
+                        task.thread.deleteLater()
+                    except RuntimeError:
+                        pass
 
     # ------------------------------------------------------------------
     # Interner Cleanup

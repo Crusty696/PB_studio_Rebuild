@@ -93,7 +93,11 @@ class ConvertMixin:
         vf_extra = f"eq=brightness={b}:contrast={c}"
         worker = FrameExtractWorker(file_path, 1.0, 320, 180, vf_extra)
         worker.frame_ready.connect(self._on_effect_frame_ready)
-        worker.error.connect(lambda msg: self.effects_preview.setText(msg))
+        # FIX-2.4: Widget-Zugriff via QTimer.singleShot in Main-Thread deferieren
+        # (vorher: direkter Zugriff vom Worker-Thread → Qt-Crash)
+        worker.error.connect(
+            lambda msg: QTimer.singleShot(0, lambda: self.effects_preview.setText(msg))
+        )
         # Kurzlebiger Task (Frame-Extraktion) — ueber Task-Engine
         self._start_worker_thread(worker)
 

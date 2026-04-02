@@ -204,6 +204,11 @@ class ProjectManager(QObject):
             )
 
         import database
+        # Null-Check für APP_ROOT (B-001 Fix: database.APP_ROOT könnte None sein)
+        if database.APP_ROOT is None:
+            raise RuntimeError(
+                "Kein aktives Projekt geöffnet. APP_ROOT ist nicht initialisiert."
+            )
         source = Path(database.APP_ROOT)
         target_path = Path(target_path)
 

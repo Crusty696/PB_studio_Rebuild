@@ -319,6 +319,8 @@ class BeatAnalysisService:
                 sr = self._last_sr
                 self._last_y = None
                 self._last_sr = None
+
+            # Phase 3: Per-Beat RMS-Energie berechnen (nach erfolgreichem analyze())
             if y is not None and sr is not None:
                 energy_per_beat = self._compute_energy_per_beat(
                     y, sr, result["beats"], result["duration"]
@@ -327,48 +329,73 @@ class BeatAnalysisService:
                 energy_per_beat = []
             del y  # free numpy array before DB writes
 
-            with Session(engine) as session:
-                track = session.get(AudioTrack, track_id)
-                if track is None:
-                    raise ValueError(f"AudioTrack {track_id} nicht gefunden")
+            # FIX-1.1b: NullPool-Session fuer DB-Writes — verhindert "database is locked"
+            # Der Connection Pool hielt Connections offen die beim sequentiellen
+            # Komplett-Analyse-Flow (BPM → Wellenform → Key → ...) zu Locks fuehrten.
+            from database import nullpool_session
+            import time as _time
 
-                track.bpm = result["bpm"]
-                track.duration = result["duration"]
-
-                # Beatgrid aktualisieren mit allen Beats + Downbeats + Energie
-                beat_positions_json = json.dumps(result["beats"])
-                downbeat_positions_json = json.dumps(result["downbeats"])
-                energy_json = json.dumps(energy_per_beat)
-
-                # DB-07 Fix: Expliziter Query-Check gegen Duplikate
-                existing_bg = track.beatgrid or session.query(Beatgrid).filter_by(
-                    audio_track_id=track_id
-                ).first()
-
-                if existing_bg:
-                    existing_bg.bpm = result["bpm"]
-                    existing_bg.beat_positions = beat_positions_json
-                    existing_bg.downbeat_positions = downbeat_positions_json
-                    existing_bg.energy_per_beat = energy_json
-                    existing_bg.offset = result["beats"][0] if result["beats"] else 0.0
-                else:
-                    bg = Beatgrid(
-                        audio_track_id=track_id,
-                        bpm=result["bpm"],
-                        offset=result["beats"][0] if result["beats"] else 0.0,
-                        beat_positions=beat_positions_json,
-                        downbeat_positions=downbeat_positions_json,
-                        energy_per_beat=energy_json,
-                    )
-                    session.add(bg)
-
-                session.commit()
-
+            max_retries = 3
+            for attempt in range(max_retries):
                 try:
-                    from services.pacing_service import invalidate_pacing_caches
-                    invalidate_pacing_caches()
+                    with nullpool_session() as session:
+                        track = session.get(AudioTrack, track_id)
+                        if track is None:
+                            raise ValueError(f"AudioTrack {track_id} nicht gefunden")
+
+                        track.bpm = result["bpm"]
+                        track.duration = result["duration"]
+
+                        # Beatgrid aktualisieren mit allen Beats + Downbeats + Energie
+                        beat_positions_json = json.dumps(result["beats"])
+                        downbeat_positions_json = json.dumps(result["downbeats"])
+                        energy_json = json.dumps(energy_per_beat)
+
+                        # DB-07 Fix: Expliziter Query-Check gegen Duplikate
+                        existing_bg = track.beatgrid or session.query(Beatgrid).filter_by(
+                            audio_track_id=track_id
+                        ).first()
+
+                        if existing_bg:
+                            existing_bg.bpm = result["bpm"]
+                            existing_bg.beat_positions = beat_positions_json
+                            existing_bg.downbeat_positions = downbeat_positions_json
+                            existing_bg.energy_per_beat = energy_json
+                            existing_bg.offset = result["beats"][0] if result["beats"] else 0.0
+                        else:
+                            bg = Beatgrid(
+                                audio_track_id=track_id,
+                                bpm=result["bpm"],
+                                offset=result["beats"][0] if result["beats"] else 0.0,
+                                beat_positions=beat_positions_json,
+                                downbeat_positions=downbeat_positions_json,
+                                energy_per_beat=energy_json,
+                            )
+                            session.add(bg)
+
+                        session.commit()
+                    break  # Erfolg
                 except Exception as e:
-                    logger.warning("invalidate_pacing_caches() fehlgeschlagen: %s", e)
+                    if "database is locked" in str(e) and attempt < max_retries - 1:
+                        logger.warning(
+                            "[BeatAnalysis] DB locked bei Beatgrid-Write, Retry %d/%d...",
+                            attempt + 1, max_retries,
+                        )
+                        _time.sleep(2 * (attempt + 1))
+                    else:
+                        raise
+
+            try:
+                from services.pacing_service import invalidate_pacing_caches
+                invalidate_pacing_caches()
+            except Exception as e:
+                logger.warning("invalidate_pacing_caches() fehlgeschlagen: %s", e)
+
+        except Exception:
+            # B-004 Fix: Falls analyze() crasht, _last_y freigeben um Memory Leak zu vermeiden
+            self._last_y = None
+            self._last_sr = None
+            raise
         finally:
             # VRAM freigeben — auch bei Exception (verhindert VRAM-Leak)
             self.unload()

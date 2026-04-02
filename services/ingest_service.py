@@ -1,9 +1,12 @@
 import logging
+import os
 from pathlib import Path
 
 from sqlalchemy.orm import Session
 
 from database import engine, AudioTrack, VideoClip, StructureSegment
+
+_FFPROBE = os.environ.get("FFPROBE_PATH", "ffprobe")
 from services.vector_db_service import VectorDBService
 
 logger = logging.getLogger(__name__)
@@ -40,7 +43,8 @@ def ingest_audio(file_path: str, project_id: int = 1) -> AudioTrack | None:
     resolved = str(path.resolve())
 
     try:
-        with Session(engine) as session:
+        from database import nullpool_session
+        with nullpool_session() as session:
             existing = session.query(AudioTrack).filter_by(file_path=resolved).first()
             if existing:
                 return None
@@ -66,7 +70,7 @@ def _probe_video_meta(file_path: str) -> dict:
     import subprocess, json, sys
     try:
         cmd = [
-            "ffprobe", "-v", "quiet",
+            _FFPROBE, "-v", "quiet",
             "-print_format", "json",
             "-show_format", "-show_streams",
             file_path,
@@ -111,7 +115,8 @@ def ingest_video(file_path: str, project_id: int = 1) -> VideoClip | None:
     video_meta = _probe_video_meta(resolved)
 
     try:
-        with Session(engine) as session:
+        from database import nullpool_session
+        with nullpool_session() as session:
             existing = session.query(VideoClip).filter_by(file_path=resolved).first()
             if existing:
                 return None
@@ -242,7 +247,8 @@ def delete_all_media(project_id: int = 1) -> int:
         Scene, Beatgrid, WaveformData, PacingBlueprint,
         StructureSegment, HotCue,
     )
-    with Session(engine) as session:
+    from database import nullpool_session
+    with nullpool_session() as session:
         # IDs der betroffenen Parent-Rows sammeln
         audio_ids = [
             r[0] for r in session.query(AudioTrack.id).filter_by(project_id=project_id).all()

@@ -1,11 +1,15 @@
 import json
 import logging
+import os
 import subprocess
 import sys
 from pathlib import Path
 
 from sqlalchemy.orm import Session
 from database import engine, VideoClip, APP_ROOT
+
+_FFMPEG = os.environ.get("FFMPEG_PATH", "ffmpeg")
+_FFPROBE = os.environ.get("FFPROBE_PATH", "ffprobe")
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +31,7 @@ class VideoAnalyzer:
     def probe(self, file_path: str) -> dict:
         """Liest Auflösung, FPS, Codec und Duration aus einer Videodatei."""
         cmd = [
-            "ffprobe", "-v", "quiet",
+            _FFPROBE, "-v", "quiet",
             "-print_format", "json",
             "-show_streams", "-show_format",
             "-select_streams", "v:0",
@@ -78,7 +82,7 @@ class VideoAnalyzer:
             proxy_path.unlink(missing_ok=True)
 
         cmd = [
-            "ffmpeg", "-y", "-i", file_path,
+            _FFMPEG, "-y", "-i", file_path,
             "-vf", f"scale=-2:{target_height}",
             "-c:v", "libx264", "-preset", "fast", "-crf", "28",
             "-c:a", "aac", "-b:a", "128k",
@@ -128,8 +132,9 @@ class VideoAnalyzer:
         logger.info("--> [VideoAnalyzer] ffprobe FERTIG: %sx%s @ %sfps",
                     info['width'], info['height'], info['fps'])
 
-        # 3) Zweite Session: Metadaten sofort committen
-        with Session(engine) as session:
+        # 3) NullPool-Session: Metadaten sofort committen (verhindert DB-Lock)
+        from database import nullpool_session
+        with nullpool_session() as session:
             clip = session.get(VideoClip, clip_id)
             if clip is None:
                 raise ValueError(f"VideoClip {clip_id} nach ffprobe nicht mehr gefunden")
@@ -152,8 +157,8 @@ class VideoAnalyzer:
             logger.info("--> [VideoAnalyzer] Proxy-Erstellung FERTIG: %s", proxy)
             info["proxy_path"] = proxy
 
-            # 5) Dritte Session: Proxy-Pfad committen
-            with Session(engine) as session:
+            # 5) NullPool-Session: Proxy-Pfad committen
+            with nullpool_session() as session:
                 clip = session.get(VideoClip, clip_id)
                 if clip is None:
                     raise ValueError(f"VideoClip {clip_id} nach Proxy-Erstellung nicht mehr gefunden")

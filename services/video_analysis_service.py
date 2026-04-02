@@ -105,53 +105,18 @@ def detect_scenes(
 
 
 def _load_raft_model():
-    """Lädt RAFT Optical Flow Modell auf CUDA (falls verfügbar).
+    """Lädt RAFT Optical Flow Modell via ModelManager (GPU-koordiniert).
 
-    GPU_LOAD_LOCK serialisiert alle GPU-Lade-Operationen.
-    Bei OOM wird ModelManager entladen und nochmal versucht.
+    ModelManager registriert RAFT sodass andere GPU-Konsumenten
+    (Whisper, SigLIP, beat_this) es automatisch entladen können.
 
     Returns:
         (raft_model, device) oder (None, None) bei Fehler.
     """
     try:
-        import torch
-        import torchvision.models.optical_flow as of
         from services.model_manager import GPU_LOAD_LOCK, ModelManager
-
         with GPU_LOAD_LOCK:
-            logger.info("[RAFT] Lade RAFT Optical Flow Modell...")
-            cuda_ok = torch.cuda.is_available()
-            device = torch.device("cuda" if cuda_ok else "cpu")
-            if cuda_ok:
-                logger.info("GPU-ZWANG: RAFT wird auf CUDA geladen (%s)", torch.cuda.get_device_name(0))
-            # B-03: Praeventiv andere Modelle entladen bevor RAFT auf GPU geladen wird.
-            # Ausnahme: SigLIP bleibt geladen im Batch-Modus (RAFT ist nur ~0.1 GB,
-            # koexistiert problemlos mit SigLIP ~2.5 GB auf 6 GB VRAM).
-            mm = ModelManager()
-            if mm.model_type != "siglip":
-                mm.unload()
-            raft = of.raft_small(weights=of.Raft_Small_Weights.DEFAULT)
-            try:
-                raft = raft.to(device)
-            except torch.cuda.OutOfMemoryError:
-                logger.warning("[RAFT] OOM — entlade ModelManager und versuche erneut...")
-                torch.cuda.empty_cache()
-                gc.collect()
-                try:
-                    from services.model_manager import ModelManager
-                    ModelManager().unload()
-                except Exception:
-                    pass
-                torch.cuda.empty_cache()
-                gc.collect()
-                try:
-                    raft = raft.to(device)
-                except torch.cuda.OutOfMemoryError:
-                    logger.error("OOM beim Laden von RAFT — VRAM nicht ausreichend")
-                    return None, None
-            raft = raft.eval()
-            logger.info("RAFT Optical Flow geladen auf %s", device)
-            return raft, device
+            return ModelManager().load_raft()
     except Exception as e:
         logger.warning("RAFT nicht verfügbar (%s) — nutze CPU-Fallback", e)
         return None, None
@@ -258,8 +223,10 @@ def compute_motion_scores(
                     except Exception as e:
                         logger.warning("RAFT Fehler bei Szene %d: %s — CPU-Fallback", scene.index, e)
                         scene.motion_score = _cpu_motion_score(frames_bgr[0], frames_bgr[1])
-                    # Periodischer VRAM-Cleanup (alle 8 Szenen) gegen Akkumulation
-                    if scene.index % 8 == 7:
+                    # Periodischer VRAM-Cleanup NUR wenn wir RAFT selbst geladen haben.
+                    # Im Batch-Modus (raft_model_device uebergeben) KEIN empty_cache() —
+                    # das korrumpiert den Heap wenn SigLIP/RAFT noch resident sind (0xC0000374).
+                    if _owns_raft and scene.index % 8 == 7:
                         import torch
                         if torch.cuda.is_available():
                             torch.cuda.empty_cache()
@@ -271,16 +238,13 @@ def compute_motion_scores(
         cap.release()
         # RAFT nur entladen wenn WIR es geladen haben (nicht im Batch-Modus)
         if _owns_raft and use_raft and raft_model is not None:
-            import torch
+            from services.model_manager import ModelManager
             try:
-                raft_model.cpu()
+                ModelManager().unload()
             except Exception:
                 pass
-            del raft_model
-            gc.collect()
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-            logger.info("RAFT entladen, GPU-Cache geleert")
+            raft_model = None  # Lokale Referenz freigeben
+            logger.info("RAFT entladen via ModelManager")
 
     logger.info("Motion-Scores berechnet für %d Szenen (%s)", len(scenes),
                 "RAFT/CUDA" if use_raft else "CPU-Fallback")
@@ -425,8 +389,10 @@ def generate_embeddings(
         logger.info("[SIGLIP] Verwende vorgeladenes SigLIP Modell (Batch-Modus)")
     else:
         logger.info("[SIGLIP] Lade SigLIP Modell...")
+        from services.model_manager import GPU_LOAD_LOCK
         try:
-            model, processor = mm.load_siglip()
+            with GPU_LOAD_LOCK:
+                model, processor = mm.load_siglip()
             logger.info("[SIGLIP] SigLIP geladen auf %s", mm.device)
         except Exception as e:
             logger.error("[SIGLIP] SigLIP FEHLER: %s", e)
@@ -500,8 +466,10 @@ def generate_embeddings(
         except Exception as e:
             logger.error("SigLIP Embedding-Fehler: %s", e)
 
-        # Inter-batch GPU-Cleanup: VRAM zwischen Batches freigeben
-        if torch.cuda.is_available():
+        # Inter-batch GPU-Cleanup NUR wenn wir SigLIP selbst geladen haben.
+        # Im Batch-Modus (siglip_model_processor uebergeben) KEIN empty_cache() —
+        # das korrumpiert den Heap wenn Modelle noch resident sind (0xC0000374).
+        if owns_model and torch.cuda.is_available():
             torch.cuda.empty_cache()
 
     # SigLIP nur entladen wenn WIR es geladen haben (nicht im Batch-Modus)
@@ -562,11 +530,10 @@ def store_scenes_in_db(
     video_clip_id: int,
     scenes: list[SceneInfo],
 ) -> None:
-    """Speichert erkannte Szenen in der SQLite-DB."""
-    from sqlalchemy.orm import Session
-    from database import engine, Scene
+    """Speichert erkannte Szenen in der SQLite-DB (NullPool)."""
+    from database import nullpool_session, Scene
 
-    with Session(engine) as session:
+    with nullpool_session() as session:
         try:
             # Alte Szenen löschen
             session.query(Scene).filter_by(video_clip_id=video_clip_id).delete()
@@ -606,9 +573,10 @@ def text_to_embedding(query: str) -> np.ndarray | None:
     from services.model_manager import ModelManager
     mm = ModelManager()
 
-    # F-012: Lock um gesamte Sequenz — verhindert Race-Condition
-    # wenn zwei Threads gleichzeitig text_to_embedding() aufrufen
-    with mm._swap_lock:
+    # F-012 + C-03 Fix: GPU_LOAD_LOCK statt _swap_lock — serialisiert
+    # mit allen anderen GPU-Model-Loads (Demucs, beat_this, Moondream etc.)
+    from services.model_manager import GPU_LOAD_LOCK
+    with GPU_LOAD_LOCK:
         try:
             model, processor = mm.load_siglip()
         except Exception as e:
@@ -651,10 +619,10 @@ def texts_to_embeddings_batch(queries: list[str]) -> dict[str, np.ndarray]:
     if not queries:
         return {}
 
-    from services.model_manager import ModelManager
+    from services.model_manager import ModelManager, GPU_LOAD_LOCK
     mm = ModelManager()
 
-    with mm._swap_lock:
+    with GPU_LOAD_LOCK:
         try:
             model, processor = mm.load_siglip()
         except Exception as e:
@@ -825,13 +793,18 @@ def run_full_pipeline(
     logger.info("[PIPELINE] Pipeline KOMPLETT für %s", Path(original_video_path).name)
 
     # VRAM-Schutz: GPU-Speicher nach Pipeline freigeben
-    try:
-        import torch
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-            logger.info("[PIPELINE] VRAM-Cleanup: torch.cuda.empty_cache()")
-    except ImportError:
-        pass
+    # Im Batch-Modus (siglip_model_processor/raft_model_device uebergeben) KEIN
+    # empty_cache() — das korrumpiert den Heap wenn Modelle noch resident sind
+    # (Windows 0xC0000374). Batch-Cleanup passiert im Worker nach der gesamten Batch.
+    is_batch = siglip_model_processor is not None or raft_model_device is not None
+    if not is_batch:
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                logger.info("[PIPELINE] VRAM-Cleanup: torch.cuda.empty_cache()")
+        except ImportError:
+            pass
     gc.collect()
 
     logger.info(

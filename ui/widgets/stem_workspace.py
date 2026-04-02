@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import math
+import threading
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -792,6 +793,8 @@ class StemWorkspace(QWidget):
         self._current_track_id: int | None = None
         self._peak_threads: list[QThread] = []
         self._peak_workers: list[PeakWorker] = []
+        # B-602 Fix: Lock für Thread-Safe Access auf Peak-Thread-Listen
+        self._peak_lock = threading.Lock()
         self._solo_active: set[str] = set()
         self._pre_solo_mute_state: dict[str, bool] = {}
 
@@ -868,8 +871,10 @@ class StemWorkspace(QWidget):
         thread.finished.connect(thread.deleteLater)
         thread.finished.connect(lambda t=thread, w=worker: self._remove_finished_thread(t, w))
 
-        self._peak_threads.append(thread)
-        self._peak_workers.append(worker)
+        # B-602 Fix: Thread-Safe Zugriff auf Listen mit Lock
+        with self._peak_lock:
+            self._peak_threads.append(thread)
+            self._peak_workers.append(worker)
 
         thread.start()
 
@@ -879,14 +884,16 @@ class StemWorkspace(QWidget):
         Wird via thread.finished aufgerufen — zu diesem Zeitpunkt ist der
         C++ QThread noch gültig (deleteLater steht erst in der Queue).
         """
-        try:
-            self._peak_threads.remove(thread)
-        except ValueError:
-            pass
-        try:
-            self._peak_workers.remove(worker)
-        except ValueError:
-            pass
+        # B-602 Fix: Thread-Safe Zugriff auf Listen mit Lock
+        with self._peak_lock:
+            try:
+                self._peak_threads.remove(thread)
+            except ValueError:
+                pass
+            try:
+                self._peak_workers.remove(worker)
+            except ValueError:
+                pass
 
     def _on_peaks_ready(self, stem_name: str, peaks: np.ndarray):
         """Callback wenn Peak-Daten fertig sind."""
@@ -907,25 +914,32 @@ class StemWorkspace(QWidget):
         Stattdessen: cancel + quit, und _remove_finished_thread() räumt
         die Listen auf sobald das thread.finished-Signal eintrifft.
         """
-        for worker in list(self._peak_workers):
+        # B-602 Fix: Thread-Safe Zugriff auf Listen mit Lock
+        with self._peak_lock:
+            workers_to_cancel = list(self._peak_workers)
+            threads_to_quit = list(self._peak_threads)
+
+        for worker in workers_to_cancel:
             try:
                 worker.cancel()
             except RuntimeError:
                 # C++ object already deleted
-                try:
-                    self._peak_workers.remove(worker)
-                except ValueError:
-                    pass
-        for thread in list(self._peak_threads):
+                with self._peak_lock:
+                    try:
+                        self._peak_workers.remove(worker)
+                    except ValueError:
+                        pass
+        for thread in threads_to_quit:
             try:
                 if thread.isRunning():
                     thread.quit()
             except RuntimeError:
                 # C++ object already deleted
-                try:
-                    self._peak_threads.remove(thread)
-                except ValueError:
-                    pass
+                with self._peak_lock:
+                    try:
+                        self._peak_threads.remove(thread)
+                    except ValueError:
+                        pass
 
     def _on_mute_toggled(self, stem_name: str, muted: bool):
         """Mute-Signal weiterleiten."""

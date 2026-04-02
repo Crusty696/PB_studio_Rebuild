@@ -152,7 +152,20 @@ class BatchConvertWorker(QObject, CancellableMixin):
         total = len(self.videos)
         converted = 0
         try:
-            w_res, h_res = self.resolution.split("x")
+            # B-005 Fix: Validierung des Resolution-Formats mit Error-Handling
+            try:
+                parts = self.resolution.split("x")
+                if len(parts) != 2:
+                    raise ValueError("Format muss WIDTHxHEIGHT sein")
+                w_res = int(parts[0])
+                h_res = int(parts[1])
+                if w_res <= 0 or h_res <= 0:
+                    raise ValueError("Width und Height müssen > 0 sein")
+                # Zurück zu Strings für FFmpeg-Command
+                w_res = str(w_res)
+                h_res = str(h_res)
+            except (ValueError, IndexError) as e:
+                raise ValueError(f"Ungültige Auflösung '{self.resolution}': {e}")
 
             for i, v in enumerate(self.videos):
                 if self.should_stop():
@@ -229,8 +242,9 @@ class ProxyCreationWorker(QObject, CancellableMixin):
                 preset_name="edit_proxy",
                 progress_cb=lambda pct, msg: self.progress.emit(pct, msg),
             )
-            # Proxy-Pfad in SQLite speichern
-            with DBSession(engine) as session:
+            # Proxy-Pfad in SQLite speichern (NullPool: verhindert DB-Lock)
+            from database import nullpool_session
+            with nullpool_session() as session:
                 clip = session.get(VideoClip, self.clip_id)
                 if clip:
                     clip.proxy_path = proxy_path

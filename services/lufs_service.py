@@ -126,8 +126,7 @@ class LUFSService:
             return fallback
 
         except subprocess.TimeoutExpired:
-            from services.audio_constants import FFMPEG_TIMEOUT_SEC
-            log.error("FFmpeg LUFS-Analyse Timeout (%ds) fuer: %s", FFMPEG_TIMEOUT_SEC, file_path)
+            log.error("FFmpeg LUFS-Analyse Timeout fuer: %s", file_path)
             return fallback
 
         except Exception as e:
@@ -143,6 +142,14 @@ class LUFSService:
         """
         from services.audio_constants import FFMPEG_TIMEOUT_SEC
 
+        # Dynamisches Timeout: Grosse Dateien (DJ-Sets, 2-3h) brauchen mehr Zeit.
+        # Basis: FFMPEG_TIMEOUT_SEC (120s), skaliert mit Dateigroesse (~2s pro MB).
+        try:
+            file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
+            timeout = max(FFMPEG_TIMEOUT_SEC, int(file_size_mb * 2) + 60)
+        except OSError:
+            timeout = FFMPEG_TIMEOUT_SEC
+
         cmd = [
             _FFMPEG,
             "-hide_banner",
@@ -152,7 +159,7 @@ class LUFSService:
             "-",
         ]
 
-        log.debug("LUFS-Analyse Kommando: %s", " ".join(cmd))
+        log.debug("LUFS-Analyse Kommando (timeout=%ds): %s", timeout, " ".join(cmd))
 
         # C-03 Fix: encoding + errors fuer robustes Decoding (FFmpeg kann
         # Nicht-UTF-8-Zeichen in Dateinamen/Metadaten ausgeben)
@@ -162,13 +169,14 @@ class LUFSService:
             text=True,
             encoding="utf-8",
             errors="replace",
-            timeout=FFMPEG_TIMEOUT_SEC,
+            timeout=timeout,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
 
         stderr = result.stderr or ""
 
-        if result.returncode != 0 and "input_i" not in stderr:
+        # B-010 Fix: Pruefe returncode ZUERST — nur wenn returncode == 0 kann JSON geparst werden
+        if result.returncode != 0:
             log.error(
                 "FFmpeg loudnorm fehlgeschlagen (exit=%d): %s",
                 result.returncode,

@@ -10,16 +10,18 @@ REGELN:
 """
 
 import bisect
+import collections
 import copy
 import json
 import logging
 import random
+import threading
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from database import engine, AudioTrack, VideoClip, Scene, Beatgrid, AIPacingMemory, TimelineEntry
 from services.audio_constants import DEFAULT_SR
 
@@ -28,20 +30,48 @@ logger = logging.getLogger(__name__)
 # Sentinel value: step so hoch dass kein Cut stattfindet (breakdown_behavior="none")
 _STEP_NO_CUT = 9999
 
-# P-027/P-028: Stem-Audio Cache — vermeidet 4x librosa.load pro auto_edit
-_stem_audio_cache: dict[int, dict[str, tuple]] = {}  # audio_id -> {stem_name: (y, sr)}
+# Thread-Lock fuer alle globalen Caches (Race-Condition-Schutz)
+_cache_lock = threading.Lock()
+
+# Stem-Audio Cache — LRU-Limit auf 5 audio_ids (~600MB max statt unbegrenzt)
+_STEM_CACHE_MAX = 5
+_stem_audio_cache: collections.OrderedDict[int, dict[str, tuple]] = collections.OrderedDict()
 
 
 def _get_cached_stem_audio(audio_id: int, stem_path: str, stem_name: str, sr: int = 22050):
-    """Laedt Stem-Audio mit Cache — vermeidet 4x librosa.load pro auto_edit."""
-    if audio_id not in _stem_audio_cache:
-        _stem_audio_cache[audio_id] = {}
-    cache = _stem_audio_cache[audio_id]
-    if stem_name not in cache:
-        import librosa
-        y, loaded_sr = librosa.load(stem_path, sr=sr, mono=True)
-        cache[stem_name] = (y, loaded_sr)
-    return cache[stem_name]
+    """Laedt Stem-Audio mit LRU-Cache — vermeidet 4x librosa.load pro auto_edit.
+
+    Limit: max _STEM_CACHE_MAX audio_ids im Cache (~30MB pro Stem × 4 = ~120MB pro Track).
+    Bei Ueberschreitung wird der aelteste Eintrag entfernt.
+    """
+    with _cache_lock:
+        if audio_id not in _stem_audio_cache:
+            _stem_audio_cache[audio_id] = {}
+            # LRU-Eviction: aeltesten Eintrag entfernen wenn Limit erreicht
+            while len(_stem_audio_cache) > _STEM_CACHE_MAX:
+                evicted_id, evicted_data = _stem_audio_cache.popitem(last=False)
+                # P-01 Fix: Explizit numpy arrays freigeben (sonst haelt Python GC sie)
+                for _y_ref, _sr_ref in evicted_data.values():
+                    del _y_ref
+                del evicted_data
+                import gc as _gc
+                _gc.collect()
+                logger.debug("[StemCache] Evicted audio_id=%d", evicted_id)
+        else:
+            # Move to end (most recently used)
+            _stem_audio_cache.move_to_end(audio_id)
+        cache = _stem_audio_cache[audio_id]
+        if stem_name in cache:
+            return cache[stem_name]
+
+    # librosa.load AUSSERHALB des Locks (CPU-intensiv, soll nicht blockieren)
+    import librosa
+    y, loaded_sr = librosa.load(stem_path, sr=sr, mono=True)
+
+    with _cache_lock:
+        if audio_id in _stem_audio_cache:
+            _stem_audio_cache[audio_id][stem_name] = (y, loaded_sr)
+    return (y, loaded_sr)
 
 
 def invalidate_pacing_caches():
@@ -50,7 +80,8 @@ def invalidate_pacing_caches():
     _get_audio_path.cache_clear()
     _get_bpm.cache_clear()
     _get_video_info_cached.cache_clear()
-    _stem_audio_cache.clear()
+    with _cache_lock:
+        _stem_audio_cache.clear()
 
 
 # ── Backward-compatible types ──
@@ -137,7 +168,7 @@ def _get_beat_positions(audio_id: int | None) -> list[float]:
     if audio_id is None:
         return []
     with Session(engine) as session:
-        track = session.get(AudioTrack, audio_id)
+        track = session.get(AudioTrack, audio_id, options=[joinedload(AudioTrack.beatgrid)])
         if not track or not track.beatgrid:
             return []
         bg = track.beatgrid
@@ -149,6 +180,10 @@ def _get_beat_positions(audio_id: int | None) -> list[float]:
                 pass
         if bg.bpm and bg.bpm > 0:
             interval = 60.0 / bg.bpm
+            # FIX-2.2: Guard gegen Endlosschleife bei extrem kleinem BPM
+            if interval < 0.01:
+                logger.warning("BPM %.1f ergibt interval=%.4fs — ueberspringe Fallback-Beats", bg.bpm, interval)
+                return []
             duration = track.duration or 300.0
             t = bg.offset or 0.0
             positions = []
@@ -174,7 +209,7 @@ def _get_beat_data_combined(
     if audio_id is None:
         return [], [], []
     with Session(engine) as session:
-        track = session.get(AudioTrack, audio_id)
+        track = session.get(AudioTrack, audio_id, options=[joinedload(AudioTrack.beatgrid)])
         if not track or not track.beatgrid:
             return [], [], []
         bg = track.beatgrid
@@ -251,7 +286,6 @@ def _get_video_info_cached(video_ids: tuple[int, ...]) -> dict[int, dict]:
     wuerden 50 Clips = 50 separate Scene-Queries, die den Connection Pool
     erschoepfen koennen (QueuePool limit reached).
     """
-    from sqlalchemy.orm import joinedload
     info = {}
     if not video_ids:
         return info
@@ -280,7 +314,7 @@ def _get_scenes(video_id: int | None) -> list[dict]:
     if video_id is None:
         return []
     with Session(engine) as session:
-        clip = session.get(VideoClip, video_id)
+        clip = session.get(VideoClip, video_id, options=[joinedload(VideoClip.scenes)])
         if clip is None:
             return []
         # P2-07: Dicts statt ORM-Objekte zurueckgeben (Session wird geschlossen)
@@ -542,22 +576,28 @@ def detect_sections(
 # P-021: Bisect-Cache fuer get_section_at_time (O(log N) statt O(N), aufgerufen 5451x)
 _section_starts_cache: list[float] = []
 _section_list_cache: list[Section] = []
+_section_cache_lock = threading.Lock()
 
 
 def get_section_at_time(sections: list[Section], time: float) -> Section | None:
-    """Findet die Sektion die einen bestimmten Zeitpunkt enthaelt. O(log N) via bisect."""
+    """Findet die Sektion die einen bestimmten Zeitpunkt enthaelt. O(log N) via bisect.
+
+    Thread-safe durch _section_cache_lock (verhindert Race Conditions bei
+    parallelen Aufrufen mit unterschiedlichen Section-Listen).
+    """
     global _section_starts_cache, _section_list_cache
     if not sections:
         return None
-    # Build cache on first call or when sections change
-    if len(_section_list_cache) != len(sections) or (sections and _section_list_cache[0] != sections[0]):
-        _section_starts_cache = [s.start for s in sections]
-        _section_list_cache = list(sections)
-    idx = bisect.bisect_right(_section_starts_cache, time) - 1
-    if 0 <= idx < len(_section_list_cache):
-        sec = _section_list_cache[idx]
-        if sec.start <= time < sec.end:
-            return sec
+    with _section_cache_lock:
+        # Build cache on first call or when sections change
+        if len(_section_list_cache) != len(sections) or (sections and _section_list_cache[0] != sections[0]):
+            _section_starts_cache = [s.start for s in sections]
+            _section_list_cache = list(sections)
+        idx = bisect.bisect_right(_section_starts_cache, time) - 1
+        if 0 <= idx < len(_section_list_cache):
+            sec = _section_list_cache[idx]
+            if sec.start <= time < sec.end:
+                return sec
     return sections[-1] if sections else None
 
 
@@ -931,6 +971,7 @@ def _compute_effective_step(
     vocal_active: bool = False,
     section_type: str = "",
     section_progress: float = 0.0,
+    pacing_map: dict | None = None,
 ) -> int:
     """Berechnet den effektiven Beat-Schritt fuer einen bestimmten Beat.
 
@@ -960,9 +1001,11 @@ def _compute_effective_step(
         section_type = ""
 
     # 2. Section-Aware Base Step (Phase 1+4: SECTION_PACING_MAP)
+    # FIX-2.3: Optionale pacing_map nutzen (LLM Strategist Overrides)
+    _active_map = pacing_map if pacing_map is not None else SECTION_PACING_MAP
     section_step = effective  # Fallback: unmodifizierter base_step / curve_step
-    if section_type and section_type in SECTION_PACING_MAP:
-        sec_cfg = SECTION_PACING_MAP[section_type]
+    if section_type and section_type in _active_map:
+        sec_cfg = _active_map[section_type]
         section_step = sec_cfg["base"]
 
         # BUILDUP: exponentiell beschleunigen (progress^2.5)
@@ -1050,6 +1093,7 @@ def _select_cut_beats_advanced(
     vocal_activity: list[bool] | None = None,
     sections: list | None = None,
     downbeats: list[float] | None = None,
+    pacing_map: dict | None = None,
 ) -> list[float]:
     """Phase 3+4: Waehlt Cut-Beats basierend auf DJ-Reglern und Sektion aus."""
     if not beats:
@@ -1089,6 +1133,7 @@ def _select_cut_beats_advanced(
             vocal_active=is_vocal,
             section_type=section_type,
             section_progress=section_progress,
+            pacing_map=pacing_map,
         )
 
         beats_since_last_cut += 1
@@ -1462,10 +1507,16 @@ def auto_edit_phase3(
         energy_per_beat = stem_energy.weighted
         logger.info("Nutze Stem-gewichtete Energie statt Stereo-Summe")
 
+    # FIX-2.3: Wird ggf. vom LLM Strategist ueberschrieben
+    _pacing_map_override = None
+
     # F-005: Makro-Sektionserkennung
     sections = detect_sections(energy_per_beat, beats, total_duration)
     logger.info("Erkannte Sektionen: %s",
                 [(s.section_type, f"{s.start:.0f}-{s.end:.0f}s") for s in sections])
+
+    # FIX-2.1: bpm_val VOR dem LLM-Strategist-Block definieren (war NameError).
+    bpm_val = _get_bpm(audio_id) or 120.0
 
     # Phase 5: Optionaler LLM Pacing-Strategist (lokal, offline)
     if settings.use_llm_strategist:
@@ -1494,9 +1545,8 @@ def auto_edit_phase3(
                 if ov_type and ov_cut_rate and ov_type in _pacing_map_override:
                     _pacing_map_override[ov_type]["base"] = int(ov_cut_rate)
                     logger.info("LLM Override: %s base → %d beats", ov_type, ov_cut_rate)
-            # _pacing_map_override wird hier nicht weiter genutzt da
-            # _compute_effective_step() direkt SECTION_PACING_MAP referenziert.
-            # TODO: Pacing-Map als Parameter durchreichen wenn LLM-Strategist aktiv
+            # FIX-2.3: Override-Map als lokale Variable speichern fuer spaetere Nutzung
+            # in _select_cut_beats_advanced() → _compute_effective_step(pacing_map=...)
         except Exception as e:
             logger.warning("LLM Pacing-Strategist uebersprungen: %s", e)
 
@@ -1521,7 +1571,7 @@ def auto_edit_phase3(
 
     # KI-Gedaechtnis: Aehnliche Audio-Situationen aus Lern-Beispielen abrufen
     avg_energy_val = float(np.mean(energy_per_beat)) if energy_per_beat else 0.5
-    bpm_val = _get_bpm(audio_id) or 120.0
+    # bpm_val wurde bereits oben (vor LLM-Strategist) definiert (FIX-2.1)
     memory_bias = _get_ai_memory_bias(bpm_val, avg_energy_val)
     if memory_bias:
         # Preferred motion aus Gedaechtnis in avg_motion einfliessen lassen (30% Gewicht)
@@ -1547,6 +1597,7 @@ def auto_edit_phase3(
         vocal_activity=vocal_activity,
         sections=sections,
         downbeats=downbeats,
+        pacing_map=_pacing_map_override,
     )
 
     # Start immer bei 0
@@ -1793,7 +1844,7 @@ def generate_keyframe_string(video_id: int) -> str:
           -> [Szene 2: Action (motion=0.85), Laenge: 4.1s]
     """
     with Session(engine) as session:
-        clip = session.get(VideoClip, video_id)
+        clip = session.get(VideoClip, video_id, options=[joinedload(VideoClip.scenes)])
         if not clip:
             return f"[Video {video_id}: nicht gefunden]"
 
@@ -1823,8 +1874,6 @@ def generate_keyframe_strings_for_project(project_id: int = 1) -> str:
     M10 Fix: Laedt alle Clips mit ihren Scenes in einer einzigen Session
     statt N+1 separate Sessions (1 fuer Clip-IDs + N fuer Videos).
     """
-    from sqlalchemy.orm import joinedload
-
     with Session(engine) as session:
         clips = (
             session.query(VideoClip)
@@ -1932,7 +1981,8 @@ def learn_from_anchor(
     import datetime
 
     try:
-        with Session(engine) as session:
+        from database import nullpool_session
+        with nullpool_session() as session:
             # DB-10 Fix: Prüfe ob referenzierte Objekte noch existieren
             audio = session.get(AudioTrack, audio_track_id)
             if audio is None:
@@ -2024,7 +2074,8 @@ def record_rl_feedback(audio_track_id: int, sentiment: str, project_id: int = 1)
     """Speichert RL-Feedback (thumbs up/down) als AIPacingMemory Eintrag."""
     from datetime import datetime
     try:
-        with Session(engine) as session:
+        from database import nullpool_session
+        with nullpool_session() as session:
             track = session.get(AudioTrack, audio_track_id)
             entry_count = session.query(TimelineEntry).filter_by(
                 project_id=project_id, track="video"
