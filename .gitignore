@@ -46,3 +46,4 @@ docs/qa_screenshots/e2e_run/
 Thumbs.db
 desktop.ini
 .DS_Store
+.venv/
