@@ -194,7 +194,8 @@ def check_system(app_root: Path | None = None) -> SystemStatus:
 
     if not status.ffmpeg_ok:
         status.errors.append(
-            "FFmpeg nicht gefunden. Video-Import und Export funktionieren nicht.\n"
+            "FFmpeg nicht gefunden. Bitte FFmpeg installieren und PATH konfigurieren.\n"
+            "Video-Import und Export funktionieren nicht.\n"
             "Installation: choco install ffmpeg"
         )
     elif not status.ffprobe_ok:
@@ -203,9 +204,11 @@ def check_system(app_root: Path | None = None) -> SystemStatus:
         )
 
     if not status.cuda_ok:
+        gefunden = status.gpu_name if status.gpu_name else "Keine GPU erkannt"
         status.warnings.append(
-            "Keine NVIDIA GPU / CUDA erkannt.\n"
-            "KI-Features (Demucs, SigLIP, beat_this) erfordern eine CUDA-GPU."
+            f"PB Studio benötigt eine NVIDIA GPU mit CUDA (GTX 1060 6GB+).\n"
+            f"Gefunden: {gefunden}\n"
+            "KI-Features (Demucs, SigLIP, beat_this) werden nicht funktionieren."
         )
 
     if not status.disk_ok:

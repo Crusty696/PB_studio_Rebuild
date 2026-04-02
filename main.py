@@ -407,7 +407,8 @@ def main():
     from ui.dialogs.startup_check_dialog import maybe_show_startup_dialog
     _sys_status = check_system()
     app.system_status = _sys_status
-    maybe_show_startup_dialog(_sys_status)
+    if not maybe_show_startup_dialog(_sys_status):
+        sys.exit(0)
 
     try:
         window = PBWindow()

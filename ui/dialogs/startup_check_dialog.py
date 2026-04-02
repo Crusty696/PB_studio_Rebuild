@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QDialog, QDialogButtonBox, QFrame, QHBoxLayout, QLabel,
-    QScrollArea, QSizePolicy, QVBoxLayout, QWidget,
+    QDialog, QFrame, QHBoxLayout, QLabel,
+    QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget,
 )
 
 from services.startup_checks import SystemStatus
 from ui.theme import ACCENT, ACCENT_BRIGHT, BG0, BG1, BG2, BG3, ERR, OK, T1, T2, T3, WARN
+
+_HW_REQUIREMENTS_URL = "https://github.com/pbstudio/pb-studio-rebuild#hardware-requirements"
 
 
 def _section_label(text: str) -> QLabel:
@@ -138,27 +140,61 @@ class StartupCheckDialog(QDialog):
             for msg in status.warnings:
                 cl.addWidget(_message_row(msg, WARN, "!"))
 
+        cl.addSpacing(12)
+
+        # Hardware requirements link
+        hw_link = QLabel(
+            f'<a href="{_HW_REQUIREMENTS_URL}" style="color: {ACCENT}; '
+            'text-decoration: none;">▸ Hardware-Anforderungen ansehen</a>'
+        )
+        hw_link.setTextFormat(Qt.TextFormat.RichText)
+        hw_link.setOpenExternalLinks(True)
+        hw_link.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        hw_link.setStyleSheet("background: transparent; font-size: 11px;")
+        cl.addWidget(hw_link)
+
         cl.addStretch()
         scroll.setWidget(content)
         outer.addWidget(scroll)
 
-        # Footer
+        # Footer — "Beenden" + "Trotzdem starten" when errors; "Weiter" for warnings only
         footer = QWidget()
         footer.setFixedHeight(56)
         footer.setStyleSheet(f"background-color: {BG1};")
         f_layout = QHBoxLayout(footer)
         f_layout.setContentsMargins(20, 0, 20, 0)
         f_layout.addStretch()
-        btn_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
-        btn_box.accepted.connect(self.accept)
-        ok_btn = btn_box.button(QDialogButtonBox.StandardButton.Ok)
-        ok_btn.setText("Weiter")
-        ok_btn.setStyleSheet(
-            f"QPushButton {{ background: {ACCENT}; color: {BG0}; border: none; "
-            "border-radius: 6px; padding: 6px 20px; font-weight: 700; }}"
-            f"QPushButton:hover {{ background: {ACCENT_BRIGHT}; }}"
-        )
-        f_layout.addWidget(btn_box)
+
+        if status.errors:
+            btn_quit = QPushButton("Beenden")
+            btn_quit.setStyleSheet(
+                f"QPushButton {{ background: rgba(248,113,113,0.15); color: {ERR}; "
+                f"border: 1px solid {ERR}; border-radius: 6px; padding: 6px 18px; font-weight: 700; }}"
+                f"QPushButton:hover {{ background: rgba(248,113,113,0.30); }}"
+            )
+            btn_quit.clicked.connect(self.reject)
+            f_layout.addWidget(btn_quit)
+
+            f_layout.addSpacing(8)
+
+            btn_start = QPushButton("Trotzdem starten (degradierter Modus)")
+            btn_start.setStyleSheet(
+                f"QPushButton {{ background: rgba(251,191,36,0.15); color: {WARN}; "
+                f"border: 1px solid {WARN}; border-radius: 6px; padding: 6px 18px; font-weight: 700; }}"
+                f"QPushButton:hover {{ background: rgba(251,191,36,0.30); }}"
+            )
+            btn_start.clicked.connect(self.accept)
+            f_layout.addWidget(btn_start)
+        else:
+            btn_ok = QPushButton("Weiter")
+            btn_ok.setStyleSheet(
+                f"QPushButton {{ background: {ACCENT}; color: {BG0}; border: none; "
+                "border-radius: 6px; padding: 6px 20px; font-weight: 700; }}"
+                f"QPushButton:hover {{ background: {ACCENT_BRIGHT}; }}"
+            )
+            btn_ok.clicked.connect(self.accept)
+            f_layout.addWidget(btn_ok)
+
         outer.addWidget(footer)
 
         self.adjustSize()
@@ -166,8 +202,13 @@ class StartupCheckDialog(QDialog):
             self.setFixedHeight(620)
 
 
-def maybe_show_startup_dialog(status: SystemStatus, parent=None) -> None:
+def maybe_show_startup_dialog(status: SystemStatus, parent=None) -> bool:
+    """Show startup check dialog if needed. Returns False if user chose to exit."""
     if not status.errors and not status.warnings:
-        return
+        return True
     dlg = StartupCheckDialog(status, parent)
-    dlg.exec()
+    result = dlg.exec()
+    # Only reject (exit) when there were hard errors and user clicked "Beenden"
+    if status.errors and result == QDialog.DialogCode.Rejected:
+        return False
+    return True
