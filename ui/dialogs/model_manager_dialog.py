@@ -81,6 +81,12 @@ class ModelManagerDialog(QDialog):
         # Initialen Scan starten
         QTimer.singleShot(100, self._start_scan)
 
+    def closeEvent(self, event) -> None:
+        if self._scan_thread is not None and self._scan_thread.isRunning():
+            self._scan_thread.quit()
+            self._scan_thread.wait(2000)
+        super().closeEvent(event)
+
     def _apply_styles(self):
         self.setStyleSheet(f"""
             QDialog {{ background: {BG1}; color: {T1}; }}
@@ -577,6 +583,8 @@ class ModelManagerDialog(QDialog):
 
     def _on_scan_finished(self, entries: list):
         """Wird aufgerufen wenn Scan abgeschlossen."""
+        if not self.isVisible():
+            return
         self._entries = entries
         self._populate_installed_table(entries)
         self._populate_dl_tables()
@@ -585,6 +593,8 @@ class ModelManagerDialog(QDialog):
         logger.info("Model-Manager Scan abgeschlossen: %d Modelle.", count)
 
     def _on_scan_error(self, error: str):
+        if not self.isVisible():
+            return
         self._status_lbl.setText(f"Scan-Fehler: {error}")
         logger.error("Model-Manager Scan-Fehler: %s", error)
         self._refresh_btn.setEnabled(True)

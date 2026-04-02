@@ -86,6 +86,7 @@ class VideoPreviewWidget(QLabel):
             except (RuntimeError, TypeError):
                 pass
             old_thread.quit()
+            old_thread.wait(500)
             if old_worker is not None:
                 old_worker.deleteLater()
             old_thread.deleteLater()
@@ -121,3 +122,10 @@ class VideoPreviewWidget(QLabel):
 
     def _on_frame_error(self, msg: str):
         self.setText(msg)
+
+    def hideEvent(self, event) -> None:
+        self._play_timer.stop()
+        if self._frame_thread is not None and self._frame_thread.isRunning():
+            self._frame_thread.quit()
+            self._frame_thread.wait(500)
+        super().hideEvent(event)

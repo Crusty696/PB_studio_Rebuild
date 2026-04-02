@@ -78,7 +78,7 @@ class TestVideoAnalyzerProbe:
 class TestVideoAnalyzerCreateProxy:
     def test_create_proxy_calls_ffmpeg(self, tmp_path):
         """create_proxy() ruft ffmpeg auf und gibt Proxy-Pfad zurueck."""
-        from services.video_service import VideoAnalyzer, PROXY_DIR
+        from services.video_service import VideoAnalyzer
 
         # Mock: ffmpeg laeuft erfolgreich
         mock_result = MagicMock()
@@ -110,7 +110,7 @@ class TestVideoAnalyzerCreateProxy:
 
     def test_create_proxy_returns_existing_proxy(self, tmp_path, monkeypatch):
         """create_proxy() gibt bestehenden Proxy zurueck ohne ffmpeg aufzurufen."""
-        from services.video_service import VideoAnalyzer, PROXY_DIR
+        from services.video_service import VideoAnalyzer
 
         src = tmp_path / "existing.mp4"
         src.write_bytes(b"fake video")
@@ -121,8 +121,8 @@ class TestVideoAnalyzerCreateProxy:
         proxy = proxy_dir / "existing_proxy.mp4"
         proxy.write_bytes(b"existing proxy content")
 
-        # PROXY_DIR umleiten
-        monkeypatch.setattr("services.video_service.PROXY_DIR", proxy_dir)
+        # _proxy_dir() umleiten
+        monkeypatch.setattr("services.video_service._proxy_dir", lambda: proxy_dir)
 
         with patch("services.video_service.subprocess.run") as mock_run:
             analyzer = VideoAnalyzer()

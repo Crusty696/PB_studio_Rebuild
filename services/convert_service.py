@@ -23,12 +23,19 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from database import APP_ROOT
-
 logger = logging.getLogger(__name__)
 
-PROXY_DIR = APP_ROOT / "storage" / "proxies"
-MASTER_DIR = APP_ROOT / "exports"
+
+def _proxy_dir() -> Path:
+    """Returns proxy directory for the current project (lazy APP_ROOT read)."""
+    from database import APP_ROOT
+    return APP_ROOT / "storage" / "proxies"
+
+
+def _master_dir() -> Path:
+    """Returns master/export directory for the current project (lazy APP_ROOT read)."""
+    from database import APP_ROOT
+    return APP_ROOT / "exports"
 
 # FFmpeg Pfad — Chocolatey oder PATH
 FFMPEG = os.environ.get("FFMPEG_PATH", "ffmpeg")
@@ -69,10 +76,10 @@ class ConvertPreset:
     extra_vflags: list[str]   # Zusaetzliche Video-Filter
     codec_params: list[str]   # Codec-spezifische Parameter
     container: str            # Dateiendung (mp4, mxf)
-    output_dir: Path
+    output_dir: Path | None = None  # resolved lazily in convert(); None = derive from APP_ROOT
 
 
-# Die 3 PoC-validierten Presets
+# Die 3 PoC-validierten Presets (output_dir resolved lazily in convert())
 PRESET_EDIT_PROXY = ConvertPreset(
     name="Edit-Proxy (540p)",
     description="Schneller Edit-Proxy: 540p, h264_nvenc, p1, cq28. ~50MB/h",
@@ -82,7 +89,6 @@ PRESET_EDIT_PROXY = ConvertPreset(
     extra_vflags=[],
     codec_params=["-preset", "p1", "-rc", "vbr", "-cq", "28", "-b:v", "0"],
     container="mp4",
-    output_dir=PROXY_DIR,
 )
 
 PRESET_MASTER_1080P = ConvertPreset(
@@ -97,7 +103,6 @@ PRESET_MASTER_1080P = ConvertPreset(
         "-b:v", "15M", "-maxrate", "20M", "-bufsize", "30M",
     ],
     container="mp4",
-    output_dir=MASTER_DIR,
 )
 
 PRESET_DAVINCI_PROXY = ConvertPreset(
@@ -109,7 +114,6 @@ PRESET_DAVINCI_PROXY = ConvertPreset(
     extra_vflags=[],
     codec_params=["-profile:v", "dnxhr_lb", "-pix_fmt", "yuv422p"],  # BUG-009: pix_fmt ist kein Videofilter
     container="mxf",
-    output_dir=PROXY_DIR,
 )
 
 # Alle verfuegbaren Presets
@@ -213,11 +217,12 @@ def convert(
                 codec_params=["-preset", "medium", "-crf", "23"],
             )
 
-    # Ausgabepfad bestimmen
+    # Ausgabepfad bestimmen — lazy dir resolution, re-reads APP_ROOT each call
     if output_path is None:
-        preset.output_dir.mkdir(parents=True, exist_ok=True)
+        out_dir = _master_dir() if preset_name == "master" else _proxy_dir()
+        out_dir.mkdir(parents=True, exist_ok=True)
         suffix = f"_{preset_name}.{preset.container}"
-        output_path = preset.output_dir / f"{_safe_stem(input_path.stem)}{suffix}"
+        output_path = out_dir / f"{_safe_stem(input_path.stem)}{suffix}"
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 

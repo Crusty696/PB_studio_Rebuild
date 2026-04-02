@@ -66,7 +66,7 @@ class WaveformGraphicsItem(QGraphicsItem):
         self._band_low = band_low
         self._band_mid = band_mid
         self._band_high = band_high
-        self._duration = max(0.01, duration)
+        self._duration = max(0.01, duration or 0.0)
         self._beat_positions = beat_positions or []
         self._pps = pixels_per_second
         self._height = height
@@ -315,7 +315,7 @@ class WaveformGraphicsItem(QGraphicsItem):
             band_low=band_low,
             band_mid=band_mid,
             band_high=band_high,
-            duration=waveform_data.duration,
+            duration=waveform_data.duration or 0.0,
             beat_positions=beats,
             pixels_per_second=pixels_per_second,
             height=height,

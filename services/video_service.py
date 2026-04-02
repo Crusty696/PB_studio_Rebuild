@@ -6,14 +6,18 @@ import sys
 from pathlib import Path
 
 from sqlalchemy.orm import Session
-from database import engine, VideoClip, APP_ROOT
+from database import engine, VideoClip
 
 _FFMPEG = os.environ.get("FFMPEG_PATH", "ffmpeg")
 _FFPROBE = os.environ.get("FFPROBE_PATH", "ffprobe")
 
 logger = logging.getLogger(__name__)
 
-PROXY_DIR = APP_ROOT / "storage" / "proxies"
+
+def _proxy_dir() -> Path:
+    """Returns proxy directory for the current project (lazy APP_ROOT read)."""
+    from database import APP_ROOT
+    return APP_ROOT / "storage" / "proxies"
 
 
 def _sanitize_ffmpeg_error(stderr: str, max_lines: int = 3) -> str:
@@ -71,9 +75,10 @@ class VideoAnalyzer:
         """Erstellt ein Proxy-Video mit reduzierter Auflösung."""
         if progress_cb:
             progress_cb(0, "Proxy-Erstellung vorbereiten...")
-        PROXY_DIR.mkdir(parents=True, exist_ok=True)
+        pd = _proxy_dir()
+        pd.mkdir(parents=True, exist_ok=True)
         src = Path(file_path)
-        proxy_path = PROXY_DIR / f"{src.stem}_proxy.mp4"
+        proxy_path = pd / f"{src.stem}_proxy.mp4"
 
         if proxy_path.exists() and proxy_path.stat().st_size > 0:
             return str(proxy_path.resolve())

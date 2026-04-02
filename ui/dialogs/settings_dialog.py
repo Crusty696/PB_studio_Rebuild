@@ -186,6 +186,12 @@ class SettingsDialog(QDialog):
         self._build_ui()
         self._load_current_settings()
 
+    def closeEvent(self, event) -> None:
+        if self._test_thread is not None and self._test_thread.isRunning():
+            self._test_thread.quit()
+            self._test_thread.wait(2000)
+        super().closeEvent(event)
+
     # ------------------------------------------------------------------
     # UI-Aufbau
     # ------------------------------------------------------------------
@@ -318,6 +324,8 @@ class SettingsDialog(QDialog):
         self._test_thread.start()
 
     def _on_test_finished(self, ok: bool, message: str, models: list) -> None:
+        if not self.isVisible():
+            return
         self._btn_test.setEnabled(self._chk_enabled.isChecked())
         if ok:
             self._set_status(message, "ok")

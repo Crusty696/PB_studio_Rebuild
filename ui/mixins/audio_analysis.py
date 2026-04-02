@@ -206,8 +206,15 @@ class AudioAnalysisMixin:
             if task_id:
                 task_manager.finish_task(task_id, "error", "Leeres Ergebnis")
             return
-        bpm = result["bpm"]
-        duration = result["duration"]
+        bpm = result.get("bpm")
+        duration = result.get("duration")
+        if bpm is None or duration is None:
+            self.btn_analyze.setEnabled(True)
+            self.btn_analyze.setText("Audio analysieren")
+            self.progress_bar.setVisible(False)
+            if task_id:
+                task_manager.finish_task(task_id, "error", "Unvollständiges Analyse-Ergebnis")
+            return
         beats = len(result.get("beat_positions", []))
         self.console_text.append(
             f"[Audio] Analyse fertig: {bpm} BPM | Dauer: {duration}s | "

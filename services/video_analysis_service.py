@@ -21,11 +21,13 @@ from typing import Callable
 
 import numpy as np
 
-from database import APP_ROOT
-
 logger = logging.getLogger(__name__)
 
-KEYFRAME_DIR = APP_ROOT / "storage" / "keyframes"
+
+def _keyframe_dir() -> Path:
+    """Returns keyframe directory for the current project (lazy APP_ROOT read)."""
+    from database import APP_ROOT
+    return APP_ROOT / "storage" / "keyframes"
 
 
 @dataclass
@@ -307,7 +309,7 @@ def extract_keyframes(
     if progress_cb:
         progress_cb(50, "Keyframes extrahieren...")
 
-    out_dir = output_dir or KEYFRAME_DIR
+    out_dir = output_dir or _keyframe_dir()
     out_dir.mkdir(parents=True, exist_ok=True)
 
     video_stem = Path(video_path).stem
