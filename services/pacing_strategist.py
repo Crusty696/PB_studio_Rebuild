@@ -141,38 +141,71 @@ class PacingStrategist:
         return "\n".join(lines)
 
     def _generate(self, user_text: str) -> str:
-        """Generiert Text mit dem lokalen Qwen-Modell."""
-        from services.model_manager import ModelManager
-        mm = ModelManager()
+        """Generiert Text — Ollama-first, HuggingFace als Fallback.
 
-        logger.info("PacingStrategist: Lade %s...", self.model_id)
-        tokenizer, model, pipe = mm.load_transformers(self.model_id)
-
+        Fallback-Kette:
+        1. Ollama (wenn verfügbar, kein VRAM-Verbrauch)
+        2. Lokales HuggingFace-Modell (Qwen2.5-1.5B, ~3 GB VRAM)
+        """
+        # --- Ollama-Versuch ---
         try:
-            messages = [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_text},
-            ]
+            from services.ollama_client import get_ollama_client
+            from ui.dialogs.settings_dialog import get_ollama_settings
+            cfg = get_ollama_settings()
+            if cfg.get("enabled", True):
+                client = get_ollama_client(cfg.get("url", "http://localhost:11434"))
+                if client.is_available():
+                    model = cfg.get("model") or client.get_best_available_model()
+                    if model:
+                        logger.info(
+                            "PacingStrategist: Nutze Ollama-Modell '%s' fuer Pacing-Plan.", model
+                        )
+                        result = client.chat(
+                            model=model,
+                            user_message=user_text,
+                            system_prompt=SYSTEM_PROMPT,
+                            temperature=0.1,
+                            max_tokens=1024,
+                        )
+                        logger.info("PacingStrategist: Ollama-Antwort erhalten (%d chars)", len(result))
+                        return result
+        except Exception as e:
+            logger.warning("PacingStrategist: Ollama nicht verfuegbar (%s) — HuggingFace-Fallback.", e)
 
-            if hasattr(tokenizer, "apply_chat_template"):
-                prompt = tokenizer.apply_chat_template(
-                    messages, tokenize=False, add_generation_prompt=True
+        # --- HuggingFace-Fallback ---
+        from services.model_manager import ModelManager, GPU_LOAD_LOCK
+
+        with GPU_LOAD_LOCK:
+            mm = ModelManager()
+
+            logger.info("PacingStrategist: Lade %s...", self.model_id)
+            tokenizer, model, pipe = mm.load_transformers(self.model_id)
+
+            try:
+                messages = [
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user_text},
+                ]
+
+                if hasattr(tokenizer, "apply_chat_template"):
+                    prompt = tokenizer.apply_chat_template(
+                        messages, tokenize=False, add_generation_prompt=True
+                    )
+                else:
+                    prompt = f"<|system|>\n{SYSTEM_PROMPT}\n<|user|>\n{user_text}\n<|assistant|>\n"
+
+                outputs = pipe(
+                    prompt,
+                    max_new_tokens=1024,
+                    do_sample=False,
+                    return_full_text=False,
                 )
-            else:
-                prompt = f"<|system|>\n{SYSTEM_PROMPT}\n<|user|>\n{user_text}\n<|assistant|>\n"
-
-            outputs = pipe(
-                prompt,
-                max_new_tokens=1024,
-                do_sample=False,
-                return_full_text=False,
-            )
-            raw = outputs[0]["generated_text"].strip()
-            logger.info("PacingStrategist: Antwort erhalten (%d chars)", len(raw))
-            return raw
-        finally:
-            mm.unload()
-            logger.info("PacingStrategist: Modell entladen")
+                raw = outputs[0]["generated_text"].strip()
+                logger.info("PacingStrategist: Antwort erhalten (%d chars)", len(raw))
+                return raw
+            finally:
+                mm.unload()
+                logger.info("PacingStrategist: Modell entladen")
 
     def _parse_response(self, raw: str) -> PacingPlan:
         """Parst die JSON-Antwort des LLM."""

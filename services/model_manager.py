@@ -67,7 +67,7 @@ class ModelManager:
         if cuda_available:
             self.device = "cuda"
             if device and device != "cuda":
-                logger.warning(
+                logger.info(
                     "GPU-ZWANG: Device '%s' überschrieben → 'cuda' (CUDA ist verfügbar!)",
                     device,
                 )
@@ -180,6 +180,9 @@ class ModelManager:
                 "ModelManager: '%s' entladen. GPU-Cache geleert, GC ausgeführt.", old_id
             )
 
+            # Ollama fortsetzen — GPU ist jetzt frei
+            self._resume_ollama_if_paused()
+
     def load_transformers(self, model_id: str) -> tuple:
         """Lädt ein HuggingFace transformers Modell (Text-Generation).
 
@@ -189,6 +192,9 @@ class ModelManager:
         with self._swap_lock:
             if self._current_model_id == model_id and self._model_type == "transformers":
                 return self._tokenizer, self._model, self._pipe
+
+            # Ollama pausieren, bevor GPU belegt wird
+            self._pause_ollama_if_active()
 
             # Altes Modell entladen
             self.unload()
@@ -251,6 +257,9 @@ class ModelManager:
             if self._current_model_id == model_id and self._model_type == "whisper":
                 return self._model
 
+            # Ollama pausieren, bevor GPU belegt wird
+            self._pause_ollama_if_active()
+
             # Altes Modell entladen
             self.unload()
 
@@ -311,6 +320,9 @@ class ModelManager:
             if self._current_model_id == model_id and self._model_type == "vision":
                 return self._model, self._tokenizer
 
+            # Ollama pausieren, bevor GPU belegt wird
+            self._pause_ollama_if_active()
+
             # Altes Modell entladen
             self.unload()
 
@@ -366,6 +378,9 @@ class ModelManager:
         with self._swap_lock:
             if self._current_model_id == model_id and self._model_type == "siglip":
                 return self._model, self._extras.get("processor")
+
+            # Ollama pausieren, bevor GPU belegt wird
+            self._pause_ollama_if_active()
 
             self.unload()
 
@@ -426,18 +441,66 @@ class ModelManager:
     def ensure_loaded(self, model_id: str, model_type: str = "transformers") -> Any:
         """Stellt sicher, dass das angegebene Modell geladen ist.
 
+        FIX B-006: GPU_LOAD_LOCK serialisiert parallele Modell-Laden
+        um VRAM-Crashes zu verhindern wenn mehrere Agenten gleichzeitig laden.
+
         Args:
             model_id: Modell-ID oder Whisper-Größe
             model_type: "transformers", "whisper", "vision"
         """
-        if model_type == "whisper":
-            return self.load_whisper(model_id)
-        elif model_type == "vision":
-            return self.load_vision(model_id)
-        elif model_type == "siglip":
-            return self.load_siglip(model_id)
-        else:
-            return self.load_transformers(model_id)
+        # FIX B-006: Globaler GPU_LOAD_LOCK verhindert Race-Condition bei concurrent loads
+        with GPU_LOAD_LOCK:
+            if model_type == "whisper":
+                return self.load_whisper(model_id)
+            elif model_type == "vision":
+                return self.load_vision(model_id)
+            elif model_type == "siglip":
+                return self.load_siglip(model_id)
+            else:
+                return self.load_transformers(model_id)
+
+    def load_ollama(self, model: str, base_url: str = "http://localhost:11434") -> "OllamaHandle":
+        """Registriert Ollama als aktiven LLM-Backend im ModelManager.
+
+        Ollama läuft als separater Prozess und belegt kein VRAM durch den
+        ModelManager, ABER: wenn andere GPU-intensive Modelle (Demucs, SigLIP)
+        geladen werden, wird Ollama automatisch pausiert.
+
+        Returns:
+            OllamaHandle — Wrapper der chat() delegiert und VRAM-Events empfängt.
+        """
+        from services.ollama_client import get_ollama_client
+
+        client = get_ollama_client(base_url)
+        if not client.is_available():
+            raise RuntimeError(
+                f"Ollama ist nicht erreichbar unter {base_url}. "
+                "Bitte Ollama starten: 'ollama serve'"
+            )
+
+        handle = OllamaHandle(client=client, model=model, manager=self)
+        logger.info(
+            "ModelManager: Ollama-Backend registriert (Modell: '%s', URL: %s).",
+            model, base_url,
+        )
+        return handle
+
+    def _pause_ollama_if_active(self) -> None:
+        """Pausiert den Ollama-Client falls registriert.
+
+        Wird intern vor dem Laden GPU-intensiver Modelle aufgerufen.
+        """
+        from services.ollama_client import _default_client
+        if _default_client is not None and not _default_client.is_paused:
+            _default_client.pause()
+            logger.info("ModelManager: Ollama pausiert vor GPU-Modell-Load.")
+
+    def _resume_ollama_if_paused(self) -> None:
+        """Setzt den Ollama-Client fort falls pausiert."""
+        from services.ollama_client import _default_client
+        if _default_client is not None and _default_client.is_paused:
+            _default_client.resume()
+            logger.info("ModelManager: Ollama nach GPU-Operation fortgesetzt.")
 
     def get_vram_usage(self) -> dict:
         """Gibt aktuelle VRAM-Nutzung zurück (nur CUDA)."""
@@ -453,3 +516,47 @@ class ModelManager:
             "model_loaded": self._current_model_id,
             "model_type": self._model_type,
         }
+
+
+class OllamaHandle:
+    """Leichter Wrapper der den Ollama-Client an den ModelManager koppelt.
+
+    Koordiniert VRAM-Events: Wenn ein GPU-intensives Modell geladen wird,
+    pausiert dieser Handle automatisch den Ollama-Client.
+    """
+
+    def __init__(self, client, model: str, manager: "ModelManager"):
+        self._client = client
+        self.model = model
+        self._manager = manager
+
+    def chat(
+        self,
+        user_message: str,
+        system_prompt: str | None = None,
+        temperature: float = 0.1,
+        max_tokens: int = 512,
+    ) -> str:
+        """Delegiert an OllamaClient.chat() mit VRAM-Schutz."""
+        return self._client.chat(
+            model=self.model,
+            user_message=user_message,
+            system_prompt=system_prompt,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+
+    def chat_with_history(self, messages: list[dict], **kwargs) -> str:
+        """Delegiert an OllamaClient.chat_with_history()."""
+        return self._client.chat_with_history(
+            model=self.model,
+            messages=messages,
+            **kwargs,
+        )
+
+    @property
+    def is_available(self) -> bool:
+        return self._client.is_available()
+
+    def __repr__(self) -> str:
+        return f"OllamaHandle(model={self.model!r}, url={self._client.base_url!r})"

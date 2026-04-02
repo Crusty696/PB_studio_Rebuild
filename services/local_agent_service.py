@@ -22,8 +22,14 @@ from services.model_manager import ModelManager
 
 logger = logging.getLogger(__name__)
 
-# Standard-Modell: winzig, schnell, Instruction-tuned
+# Standard-Modell: winzig, schnell, Instruction-tuned (Fallback wenn Ollama nicht verfügbar)
 DEFAULT_MODEL_ID = "Qwen/Qwen2.5-0.5B-Instruct"
+
+# Ollama-Einstellungen (werden von Settings-Dialog gesetzt)
+OLLAMA_DEFAULT_URL = "http://localhost:11434"
+OLLAMA_ENABLED_ENV = "PB_OLLAMA_ENABLED"   # "1" oder "0"
+OLLAMA_URL_ENV = "PB_OLLAMA_URL"
+OLLAMA_MODEL_ENV = "PB_OLLAMA_MODEL"
 
 SYSTEM_PROMPT_TEMPLATE = """\
 Du bist der KI-Assistent von PB Studio, einer Video- und Audio-Produktionssoftware.
@@ -92,13 +98,16 @@ class LocalAgentService:
         registry: ActionRegistry | None = None,
         model_id: str = DEFAULT_MODEL_ID,
         device: str | None = None,
+        ollama_url: str | None = None,
+        ollama_model: str | None = None,
+        use_ollama: bool | None = None,
     ):
         self.registry = registry or action_registry
         self.model_id = model_id
         # GPU-ZWANG: Device wird lazy ermittelt (torch-Import blockiert 5-15s)
         self._device_override = device
         self._device_resolved = False
-        self.device = device or "cpu"  # Platzhalter bis erster Aufruf
+        self.device = device  # None = ModelManager waehlt automatisch (GPU-ZWANG)
 
         # ModelManager wird LAZY initialisiert (spart ~11s Startup durch verzögerten torch-Import)
         self._model_manager = None
@@ -114,6 +123,26 @@ class LocalAgentService:
         # Multi-Agenten-Orchestrator
         self._orchestrator = None
 
+        # --- Ollama-Konfiguration ---
+        # Reihenfolge: Konstruktor-Argument > Env-Var > Auto-detect
+        import os as _os
+        self._ollama_url = (
+            ollama_url
+            or _os.environ.get(OLLAMA_URL_ENV, OLLAMA_DEFAULT_URL)
+        )
+        self._ollama_model: str | None = (
+            ollama_model
+            or _os.environ.get(OLLAMA_MODEL_ENV)
+        )
+        # use_ollama=None → Auto-detect beim ersten Aufruf
+        if use_ollama is not None:
+            self._use_ollama: bool | None = use_ollama
+        elif _os.environ.get(OLLAMA_ENABLED_ENV) == "0":
+            self._use_ollama = False
+        else:
+            self._use_ollama = None  # Auto-detect
+        self._ollama_client = None  # Lazy init
+
     def _get_orchestrator(self):
         """Lazy-Init des Orchestrators."""
         if self._orchestrator is None:
@@ -121,6 +150,84 @@ class LocalAgentService:
             self._orchestrator = OrchestratorAgent()
             self._orchestrator.set_model_manager(self.model_manager)
         return self._orchestrator
+
+    # ------------------------------------------------------------------
+    # Ollama-Backend
+    # ------------------------------------------------------------------
+
+    def _get_ollama_client(self):
+        """Gibt den Ollama-Client zurück (lazy init)."""
+        if self._ollama_client is None:
+            from services.ollama_client import get_ollama_client
+            self._ollama_client = get_ollama_client(self._ollama_url)
+        return self._ollama_client
+
+    def _auto_detect_ollama(self) -> bool:
+        """Prüft ob Ollama verfügbar ist und wählt das beste Modell.
+
+        Returns:
+            True wenn Ollama genutzt werden soll, False für HuggingFace-Fallback.
+        """
+        try:
+            client = self._get_ollama_client()
+            if not client.is_available():
+                logger.info("LocalAgentService: Ollama nicht verfügbar → HuggingFace-Fallback.")
+                return False
+
+            # Modell wählen falls noch nicht gesetzt
+            if not self._ollama_model:
+                self._ollama_model = client.get_best_available_model()
+
+            if not self._ollama_model:
+                logger.warning(
+                    "LocalAgentService: Ollama läuft, aber keine Modelle installiert. "
+                    "Tipp: 'ollama pull qwen2.5:1.5b-instruct' → HuggingFace-Fallback."
+                )
+                return False
+
+            version = client.get_version()
+            logger.info(
+                "LocalAgentService: Ollama verfügbar (v%s) — Modell: '%s'.",
+                version, self._ollama_model,
+            )
+            return True
+        except Exception as e:
+            logger.warning("LocalAgentService: Ollama-Check fehlgeschlagen: %s", e)
+            return False
+
+    def configure_ollama(
+        self,
+        url: str,
+        model: str | None = None,
+        enabled: bool = True,
+    ) -> None:
+        """Konfiguriert Ollama zur Laufzeit (z.B. aus Settings-Dialog).
+
+        Args:
+            url: Ollama-Server-URL (z.B. "http://localhost:11434")
+            model: Modellname oder None für Auto-Select
+            enabled: False deaktiviert Ollama komplett (HuggingFace-Fallback)
+        """
+        self._ollama_url = url
+        self._ollama_model = model
+        self._use_ollama = enabled if enabled else False
+        self._ollama_client = None  # Client neu erstellen beim nächsten Zugriff
+        logger.info(
+            "LocalAgentService: Ollama neu konfiguriert — URL=%s, Modell=%s, Aktiv=%s",
+            url, model, enabled,
+        )
+
+    def _generate_ollama(self, user_text: str, max_new_tokens: int = 512) -> str:
+        """Erzeugt Modellantwort via Ollama-HTTP-API."""
+        client = self._get_ollama_client()
+        system_prompt = self._build_system_prompt()
+        return client.chat(
+            model=self._ollama_model,
+            user_message=user_text,
+            system_prompt=system_prompt,
+            temperature=0.1,
+            max_tokens=max_new_tokens,
+        )
 
     @property
     def model_manager(self) -> ModelManager:
@@ -214,7 +321,29 @@ class LocalAgentService:
         ]
 
     def _generate(self, user_text: str, max_new_tokens: int = 512) -> str:
-        """Erzeugt die rohe Modellantwort."""
+        """Erzeugt die rohe Modellantwort.
+
+        Fallback-Kette:
+        1. Ollama (wenn verfügbar und nicht deaktiviert)
+        2. Lokales HuggingFace-Modell (Qwen2.5-0.5B)
+        """
+        # --- Ollama-Fallback-Kette ---
+        if self._use_ollama is None:
+            # Auto-detect beim ersten Aufruf
+            self._use_ollama = self._auto_detect_ollama()
+
+        if self._use_ollama and self._ollama_model:
+            try:
+                return self._generate_ollama(user_text, max_new_tokens)
+            except Exception as e:
+                logger.warning(
+                    "LocalAgentService: Ollama-Fehler ('%s') → HuggingFace-Fallback. Fehler: %s",
+                    self._ollama_model, e,
+                )
+                # Einmalig zurückfallen auf HuggingFace
+                self._use_ollama = False
+
+        # --- Lokales HuggingFace-Modell ---
         # Stale-Reference-Schutz: ModelManager könnte extern entladen haben
         if not self._loaded or self._pipe is None or not self.model_manager.is_loaded:
             self._loaded = False

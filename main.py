@@ -68,6 +68,8 @@ from ui.waveform_item import WaveformGraphicsItem
 import services.task_manager as _task_manager_module
 from services.task_manager import TaskInfo, GlobalTaskManager, TaskManagerProxy
 
+# FIX B-010: TaskManagerProxy ist lazy und verbietet Zugriff vor QApplication
+# Zugriffe vor main() schlagen mit RuntimeError fehl
 task_manager = TaskManagerProxy()
 
 
@@ -216,6 +218,13 @@ class PBWindow(QMainWindow, AudioAnalysisMixin, VideoAnalysisMixin,
         self._btn_toggle_chat.setToolTip("KI-Chat Panel ein/ausblenden")
         top_layout.addWidget(self._btn_toggle_chat)
 
+        btn_settings = QPushButton("⚙ Einstellungen")
+        btn_settings.setMaximumWidth(120)
+        btn_settings.setFixedHeight(28)
+        btn_settings.setToolTip("LLM-Backend, Ollama-URL und weitere Einstellungen")
+        btn_settings.clicked.connect(self._show_settings)
+        top_layout.addWidget(btn_settings)
+
         btn_about = QPushButton("About")
         btn_about.setMaximumWidth(80)
         btn_about.setFixedHeight(28)
@@ -330,6 +339,13 @@ class PBWindow(QMainWindow, AudioAnalysisMixin, VideoAnalysisMixin,
         # 1. Stop background timers
         if hasattr(self, '_task_mgr_dock') and hasattr(self._task_mgr_dock, '_timer'):
             self._task_mgr_dock._timer.stop()
+
+        # FIX B-002: Shutdown-Flag setzen VOR Task-Abbruch — verhindert dass
+        # ausstehende _cross_thread_request-Signale noch neue Threads starten.
+        try:
+            GlobalTaskManager.instance()._shutting_down = True
+        except Exception:
+            pass
 
         # 2. Alle Tasks im GlobalTaskManager abbrechen
         try:
@@ -465,6 +481,31 @@ class PBWindow(QMainWindow, AudioAnalysisMixin, VideoAnalysisMixin,
     def _show_about(self):
         dialog = AboutDialog(version=APP_VERSION, parent=self)
         dialog.exec()
+
+    def _show_settings(self):
+        """Öffnet den Einstellungs-Dialog und wendet Änderungen sofort an."""
+        from ui.dialogs.settings_dialog import SettingsDialog
+        dlg = SettingsDialog(parent=self)
+        dlg.ollama_settings_changed.connect(self._apply_ollama_settings)
+        dlg.exec()
+
+    def _apply_ollama_settings(self, enabled: bool, url: str, model: str) -> None:
+        """Wendet neue Ollama-Einstellungen sofort auf den AI-Agent an."""
+        if not hasattr(self, "_ai_agent") or self._ai_agent is None:
+            return
+        try:
+            self._ai_agent.configure_ollama(url=url, model=model or None, enabled=enabled)
+            status = "aktiv" if enabled else "deaktiviert"
+            msg = f"[Einstellungen] Ollama {status}"
+            if enabled and model:
+                msg += f" — Modell: {model}"
+            elif enabled:
+                msg += " — Modell: Auto-Select"
+            self.console_text.append(msg)
+            if hasattr(self, "status_bar"):
+                self.status_bar.showMessage(msg, 5000)
+        except Exception as e:
+            logger.warning("Ollama-Einstellungen konnten nicht angewendet werden: %s", e)
 
 
     # ==================================================================
@@ -771,13 +812,9 @@ class PBWindow(QMainWindow, AudioAnalysisMixin, VideoAnalysisMixin,
                     _tm.finish_task(_tid, status="error", message=err_msg)
                 worker.error.connect(_default_error_handler, Qt.ConnectionType.QueuedConnection)
 
-            # Progress-Signal auto-verbinden wenn vorhanden
-            if hasattr(worker, "progress"):
-                worker.progress.connect(
-                    lambda pct, msg, _tid=existing_task_id: tm.update_task(
-                        _tid, pct, message=msg
-                    )
-                )
+            # B-012 Fix: Progress-Signal wird in task_manager.py verbunden (nicht doppelt verbinden!)
+            # Die task_manager.start_task() Methode kümmert sich um progress.connect()
+            # Wenn wir hier auch verbinden würden, würde update_task() 2x aufgerufen
 
             worker.finished.connect(thread.quit)
             thread.finished.connect(worker.deleteLater)
@@ -1004,7 +1041,13 @@ class PBWindow(QMainWindow, AudioAnalysisMixin, VideoAnalysisMixin,
         try:
             import services.register_actions  # noqa: F401
             from services.local_agent_service import LocalAgentService
-            self._ai_agent = LocalAgentService()
+            from ui.dialogs.settings_dialog import get_ollama_settings
+            _ollama_cfg = get_ollama_settings()
+            self._ai_agent = LocalAgentService(
+                ollama_url=_ollama_cfg["url"],
+                ollama_model=_ollama_cfg["model"] or None,
+                use_ollama=_ollama_cfg["enabled"],
+            )
             self.chat_dock.set_agent(self._ai_agent)
 
             # GPU-Status LAZY anzeigen — torch-Import erst beim ersten KI-Aufruf
@@ -1021,8 +1064,9 @@ class PBWindow(QMainWindow, AudioAnalysisMixin, VideoAnalysisMixin,
                     pass
             # Verzögert nach UI-Aufbau — blockiert nicht den Start
             QTimer.singleShot(2000, _show_gpu_info_deferred)
+            _backend = "Ollama" if _ollama_cfg["enabled"] else "HuggingFace (lokal)"
             self.chat_dock.append_system(
-                "Agent bereit.\n"
+                f"Agent bereit. Backend: {_backend}\n"
                 "Befehle: 'analysiere', 'schneide', 'gpu status'"
             )
 
@@ -1074,10 +1118,35 @@ def _global_exception_hook(exc_type, exc_value, exc_tb):
     # Nicht sys.exit() — Qt soll Chance zum Cleanup haben
 
 
+# Bekannte harmlose Qt-Warnings die das Log zuspammen
+_QT_WARNINGS_SUPPRESS = {
+    "QBasicTimer::start: Timers cannot be started from another thread",
+}
+# Zaehler fuer unterdrueckte Warnings (wird einmalig geloggt statt 150x)
+_qt_suppressed_counts: dict[str, int] = {}
+
+
 def _qt_message_handler(mode, context, message):
-    """Faengt Qt/C++ Warnungen und Fehler ab und loggt sie in die Log-Datei."""
+    """Faengt Qt/C++ Warnungen und Fehler ab und loggt sie in die Log-Datei.
+
+    QBasicTimer-Spam wird unterdrueckt und am Ende zusammengefasst geloggt.
+    Diese Warnings entstehen wenn QGraphicsView/QComboBox intern QBasicTimer
+    nutzen waehrend viele Items gleichzeitig erstellt werden (z.B. 896 Timeline-Items).
+    Sie sind harmlos aber spammen das Log mit 150+ identischen Zeilen.
+    """
     from PySide6.QtCore import QtMsgType
     if mode == QtMsgType.QtWarningMsg:
+        # Bekannte harmlose Warnings unterdrücken (einmal zählen statt 150x loggen)
+        for pattern in _QT_WARNINGS_SUPPRESS:
+            if pattern in message:
+                _qt_suppressed_counts[pattern] = _qt_suppressed_counts.get(pattern, 0) + 1
+                # Alle 100 Vorkommen eine Zusammenfassung loggen
+                if _qt_suppressed_counts[pattern] % 100 == 1:
+                    logging.debug(
+                        "[Qt C++] Unterdrueckt (harmlos, %dx bisher): %s",
+                        _qt_suppressed_counts[pattern], pattern,
+                    )
+                return
         logging.warning("[Qt C++] %s (file: %s, line: %s)",
                         message, context.file or "?", context.line)
     elif mode == QtMsgType.QtCriticalMsg:
