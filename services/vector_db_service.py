@@ -37,19 +37,36 @@ CREATE TABLE IF NOT EXISTS clip_embeddings (
 """
 _INDEX_SQL = "CREATE INDEX IF NOT EXISTS idx_emb_video ON clip_embeddings(video_path)"
 
+# F-030: Singleton — verhindert desynchronisierte Write-Locks bei mehreren Instanzen
+_instance: "VectorDBService | None" = None
+_instance_lock = threading.Lock()
+
 
 class VectorDBService:
     """Verwaltet Embeddings in SQLite fuer semantische Video-Clip-Suche.
 
     Ersetzt LanceDB komplett. Cosine-Similarity via numpy.
-    Thread-safe via Write-Lock.
+    Thread-safe via Write-Lock. Singleton — nur eine Instanz pro Prozess.
     """
 
+    def __new__(cls, db_path: str | Path | None = None):
+        global _instance
+        if _instance is None:
+            with _instance_lock:
+                if _instance is None:
+                    obj = super().__new__(cls)
+                    obj._initialized = False
+                    _instance = obj
+        return _instance
+
     def __init__(self, db_path: str | Path | None = None):
+        if getattr(self, "_initialized", False):
+            return
         self.db_path = Path(db_path) if db_path else DB_FILE
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._write_lock = threading.Lock()
         self._init_db()
+        self._initialized = True
 
     def _init_db(self):
         with sqlite3.connect(str(self.db_path)) as conn:

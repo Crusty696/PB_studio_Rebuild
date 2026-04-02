@@ -6,6 +6,7 @@ Optimiert fuer viele kleine Segmente (Auto-Edit to Beat).
 
 import json as _json
 import logging
+import os
 import subprocess
 import sys
 import tempfile
@@ -13,6 +14,10 @@ from pathlib import Path
 
 from sqlalchemy.orm import Session
 from database import engine, TimelineEntry, AudioTrack, VideoClip, APP_ROOT
+
+# FIX-1.2: FFmpeg-Pfad konfigurierbar (identisch mit convert_service.py)
+FFMPEG = os.environ.get("FFMPEG_PATH", "ffmpeg")
+FFPROBE = os.environ.get("FFPROBE_PATH", "ffprobe")
 
 
 def _sanitize_ffmpeg_error(stderr: str, max_lines: int = 3) -> str:
@@ -24,6 +29,120 @@ def _sanitize_ffmpeg_error(stderr: str, max_lines: int = 3) -> str:
     return "\n".join(tail)
 
 logger = logging.getLogger(__name__)
+
+
+def _probe_video(file_path: str) -> dict:
+    """Ermittelt Aufloesung, FPS und Codec eines Videos via ffprobe.
+
+    Returns: {"width": int, "height": int, "fps": float, "codec": str}
+    Falls Probe fehlschlaegt: leeres dict.
+    """
+    try:
+        cmd = [
+            FFPROBE, "-v", "quiet",
+            "-select_streams", "v:0",
+            "-show_entries", "stream=width,height,r_frame_rate,codec_name",
+            "-of", "json",
+            file_path,
+        ]
+        kwargs = {}
+        if sys.platform == "win32":
+            kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=15,
+            encoding="utf-8", errors="replace", **kwargs,
+        )
+        if result.returncode != 0:
+            return {}
+        import json
+        data = json.loads(result.stdout)
+        streams = data.get("streams", [])
+        if not streams:
+            return {}
+        s = streams[0]
+        # FPS: r_frame_rate ist "30/1" oder "30000/1001" etc.
+        fps = 0.0
+        rfr = s.get("r_frame_rate", "0/1")
+        if "/" in rfr:
+            num, den = rfr.split("/")
+            fps = float(num) / float(den) if float(den) > 0 else 0.0
+        else:
+            fps = float(rfr)
+        return {
+            "width": int(s.get("width", 0)),
+            "height": int(s.get("height", 0)),
+            "fps": round(fps, 2),
+            "codec": s.get("codec_name", ""),
+        }
+    except Exception as e:
+        logger.warning("[Export] ffprobe fehlgeschlagen fuer %s: %s", file_path, e)
+        return {}
+
+
+# Cache: Probe-Ergebnisse pro Dateipfad (gleiche Datei wird oft mehrfach referenziert)
+_probe_cache: dict[str, dict] = {}
+
+
+def _needs_preprocessing(file_path: str, target_w: int, target_h: int,
+                          target_fps: float) -> bool:
+    """Prueft ob ein Video vor dem Concat standardisiert werden muss.
+
+    True wenn: andere Aufloesung, andere FPS, oder nicht-H.264 Codec.
+    """
+    if file_path not in _probe_cache:
+        _probe_cache[file_path] = _probe_video(file_path)
+    info = _probe_cache[file_path]
+    if not info:
+        return True  # Im Zweifel: standardisieren
+    # Aufloesung pruefen (Toleranz: exakt match oder kleiner mit Padding)
+    if info["width"] != target_w or info["height"] != target_h:
+        return True
+    # FPS pruefen (Toleranz: 0.5 fps)
+    if abs(info["fps"] - target_fps) > 0.5:
+        return True
+    # Codec: nur h264 kann direkt concat-kopiert werden
+    if info["codec"] not in ("h264", "libx264"):
+        return True
+    return False
+
+
+def _preprocess_segment(seg: dict, index: int, w: str, h: str, fps: float,
+                         temp_files: list) -> dict:
+    """Standardisiert ein einzelnes Segment auf target-Aufloesung/FPS/H.264.
+
+    Gibt ein processed_segment dict zurueck mit dem Pfad zur standardisierten Datei.
+    """
+    source_start = seg.get("source_start", 0.0)
+    source_duration = seg.get("source_duration", seg["end"] - seg["start"])
+
+    tmp = tempfile.NamedTemporaryFile(
+        suffix=".mp4", delete=False, prefix=f"pb_std_{index}_"
+    )
+    tmp.close()
+    temp_files.append(tmp.name)
+
+    vf = (
+        f"scale={w}:{h}:force_original_aspect_ratio=decrease,"
+        f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps={fps}"
+    )
+
+    std_cmd = [
+        FFMPEG, "-y",
+        "-ss", f"{source_start:.3f}",
+        "-i", seg["path"],
+        "-t", f"{source_duration:.3f}",
+        "-vf", vf,
+        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+        "-an", tmp.name,
+    ]
+    _run_ffmpeg(std_cmd, timeout=300)
+    return {
+        "path": tmp.name,
+        "duration": source_duration,
+        "inpoint": None,
+        "outpoint": None,
+        "standardized": True,
+    }
 
 EXPORT_DIR = APP_ROOT / "exports"
 
@@ -51,6 +170,14 @@ def export_timeline(project_id: int = 1, output_name: str = "output.mp4",
                     resolution: str = "1920x1080", fps: float = 30.0,
                     progress_cb=None) -> str:
     """Exportiert alle Timeline-Eintraege als zusammengeschnittenes Video."""
+    # F-sprint3: Validiere Resolution frueh — vor DB-Zugriff und Dateisystem-Operationen
+    try:
+        w, h = resolution.split("x")
+    except ValueError:
+        raise ValueError(
+            f"Ungültige Auflösung Format: '{resolution}'. Erwartet: WIDTHxHEIGHT (z.B. '1920x1080')"
+        )
+
     EXPORT_DIR.mkdir(parents=True, exist_ok=True)
     output_path = EXPORT_DIR / output_name
 
@@ -114,12 +241,6 @@ def export_timeline(project_id: int = 1, output_name: str = "output.mp4",
     total_steps = 5 if audio_path else 4
     step = 0
 
-    # Bug-35 Fix: Validiere Resolution vor Split
-    try:
-        w, h = resolution.split("x")
-    except ValueError:
-        raise ValueError(f"Ungültige Auflösung Format: '{resolution}'. Erwartet: WIDTHxHEIGHT (z.B. '1920x1080')")
-
     # Strategie: Bei vielen Segmenten (>10) oder ohne Effekte -> Concat
     # Bei wenigen mit Effekten -> Filtergraph
     has_effects = any(
@@ -141,61 +262,106 @@ def export_timeline(project_id: int = 1, output_name: str = "output.mp4",
 
 def _export_optimized_concat(video_segments, audio_path, output_path,
                               w, h, fps, progress_cb, total_steps):
-    """CRIT-02 Fix: Concat-Export mit per-Segment Farbkorrektur via Vorverarbeitung."""
+    """Concat-Export mit automatischer Vorverarbeitung nicht-konformer Clips.
+
+    PERF-FIX: Clips die nicht target-konform sind (andere Aufloesung/FPS/Codec)
+    werden VOR dem Concat einzeln standardisiert. Dadurch kann der Concat-Schritt
+    ohne den schweren scale/pad/fps-Filter laufen → massiv schneller.
+    Clips die bereits konform sind werden direkt concat-kopiert.
+    """
     step = 0
     temp_files = []
+    target_w, target_h = int(w), int(h)
 
     if progress_cb:
         step += 1
-        progress_cb(int(step / total_steps * 100), "Baue Concat-Liste...")
+        progress_cb(int(step / total_steps * 100), "Pruefe Video-Formate...")
 
     try:
-        # PERF-FIX: Nur Segmente mit Farbkorrektur vorverarbeiten.
-        # Segmente mit reinem Source-Offset nutzen concat inpoint/outpoint Direktiven
-        # statt separater FFmpeg-Prozesse (100 Segmente: ~200s -> ~2s).
+        # Phase 1: Ermittle welche Clips Vorverarbeitung brauchen
+        unique_paths = set(seg["path"] for seg in video_segments)
+        needs_std = {}
+        for path in unique_paths:
+            needs_std[path] = _needs_preprocessing(path, target_w, target_h, fps)
+
+        std_count = sum(1 for v in needs_std.values() if v)
+        logger.info(
+            "[Export] %d/%d einzigartige Quellen brauchen Standardisierung "
+            "(target: %sx%s @ %.0ffps H.264)",
+            std_count, len(unique_paths), w, h, fps,
+        )
+
+        # Phase 2: Segmente vorverarbeiten oder direkt uebernehmen
         processed_segments = []
+        # Cache: bereits standardisierte Dateien pro (pfad, source_start, source_duration)
+        _std_cache: dict[tuple, str] = {}
+
         for i, seg in enumerate(video_segments):
             has_color = seg["brightness"] != 0.0 or seg["contrast"] != 1.0
             source_start = seg.get("source_start", 0.0)
             source_duration = seg.get("source_duration", seg["end"] - seg["start"])
+            need_preprocess = needs_std.get(seg["path"], True) or has_color
 
-            if has_color:
-                # NUR bei Farbkorrektur: Vorverarbeitung mit FFmpeg noetig
-                # (concat-Protokoll unterstuetzt keine Filter)
-                tmp = tempfile.NamedTemporaryFile(
-                    suffix=".mp4", delete=False, prefix=f"pb_cc_{i}_"
-                )
-                tmp.close()
-                temp_files.append(tmp.name)
+            if need_preprocess:
+                # Vorverarbeitung noetig: Standardisierung + ggf. Farbkorrektur
+                cache_key = (seg["path"], round(source_start, 3),
+                             round(source_duration, 3),
+                             round(seg.get("brightness", 0.0), 2),
+                             round(seg.get("contrast", 1.0), 2))
 
-                # SEC-03 Fix: Float-Clamp gegen FFmpeg-Filter-Injection aus DB-Werten
-                _b = max(-1.0, min(1.0, float(seg.get('brightness') or 0.0)))
-                _c = max(0.0, min(3.0, float(seg.get('contrast') or 1.0)))
-                vf_parts = [
-                    f"eq=brightness={_b}:contrast={_c}",
-                    f"scale={w}:{h}:force_original_aspect_ratio=decrease,"
-                    f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps={fps}",
-                ]
-                vf = ",".join(vf_parts)
+                if cache_key in _std_cache:
+                    # Gleicher Clip+Ausschnitt bereits standardisiert → wiederverwenden
+                    processed_segments.append({
+                        "path": _std_cache[cache_key],
+                        "duration": source_duration,
+                        "inpoint": None,
+                        "outpoint": None,
+                    })
+                else:
+                    tmp = tempfile.NamedTemporaryFile(
+                        suffix=".mp4", delete=False, prefix=f"pb_std_{i}_"
+                    )
+                    tmp.close()
+                    temp_files.append(tmp.name)
 
-                cc_cmd = [
-                    "ffmpeg", "-y",
-                    "-ss", f"{source_start:.3f}",
-                    "-i", seg["path"],
-                    "-t", f"{source_duration:.3f}",
-                    "-vf", vf,
-                    "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-                    "-an", tmp.name,
-                ]
-                _run_ffmpeg(cc_cmd, timeout=300)
-                processed_segments.append({
-                    "path": tmp.name,
-                    "duration": source_duration,
-                    "inpoint": None,  # vorverarbeitet, kein inpoint noetig
-                    "outpoint": None,
-                })
+                    # Farbkorrektur + Standardisierung in einem Durchgang
+                    vf_parts = []
+                    if has_color:
+                        _b = max(-1.0, min(1.0, float(seg.get('brightness') or 0.0)))
+                        _c = max(0.0, min(3.0, float(seg.get('contrast') or 1.0)))
+                        vf_parts.append(f"eq=brightness={_b}:contrast={_c}")
+                    vf_parts.append(
+                        f"scale={w}:{h}:force_original_aspect_ratio=decrease,"
+                        f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps={fps}"
+                    )
+                    vf = ",".join(vf_parts)
+
+                    std_cmd = [
+                        FFMPEG, "-y",
+                        "-ss", f"{source_start:.3f}",
+                        "-i", seg["path"],
+                        "-t", f"{source_duration:.3f}",
+                        "-vf", vf,
+                        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                        "-an", tmp.name,
+                    ]
+                    _run_ffmpeg(std_cmd, timeout=300)
+                    _std_cache[cache_key] = tmp.name
+                    processed_segments.append({
+                        "path": tmp.name,
+                        "duration": source_duration,
+                        "inpoint": None,
+                        "outpoint": None,
+                    })
+
+                if progress_cb and (i + 1) % 50 == 0:
+                    pct = int(step / total_steps * 100) + int(
+                        (i + 1) / len(video_segments) * 15
+                    )
+                    progress_cb(min(pct, 95), f"Standardisiere {i+1}/{len(video_segments)}...")
+
             elif source_start > 0.01:
-                # Source-Offset OHNE Farbkorrektur: concat inpoint/outpoint
+                # Bereits konform + Source-Offset: concat inpoint/outpoint
                 processed_segments.append({
                     "path": seg["path"],
                     "duration": source_duration,
@@ -203,7 +369,7 @@ def _export_optimized_concat(video_segments, audio_path, output_path,
                     "outpoint": source_start + source_duration,
                 })
             else:
-                # Kein Offset, keine Farbkorrektur: nur duration
+                # Bereits konform, kein Offset: direkt
                 processed_segments.append({
                     "path": seg["path"],
                     "duration": source_duration,
@@ -218,7 +384,6 @@ def _export_optimized_concat(video_segments, audio_path, output_path,
         temp_files.append(concat_file.name)
 
         for ps in processed_segments:
-            # FFmpeg concat format: Backslashes und Single-Quotes escapen
             safe_path = ps["path"].replace("\\", "/").replace("'", "'\\''")
             concat_file.write(f"file '{safe_path}'\n")
             if ps["inpoint"] is not None:
@@ -231,15 +396,16 @@ def _export_optimized_concat(video_segments, audio_path, output_path,
 
         if progress_cb:
             step += 1
-            progress_cb(int(step / total_steps * 100), f"FFmpeg-Export ({len(video_segments)} Clips)...")
+            progress_cb(int(step / total_steps * 100), f"FFmpeg Concat ({len(video_segments)} Clips)...")
 
-        filter_str = (
-            f"scale={w}:{h}:force_original_aspect_ratio=decrease,"
-            f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps={fps}"
+        # PERF: Wenn ALLE Segmente standardisiert wurden, kein Output-Filter noetig
+        all_standardized = all(
+            needs_std.get(seg["path"], True) or (seg["brightness"] != 0.0 or seg["contrast"] != 1.0)
+            for seg in video_segments
         )
 
         cmd = [
-            "ffmpeg", "-y",
+            FFMPEG, "-y",
             "-f", "concat", "-safe", "0",
             "-i", concat_file.name,
         ]
@@ -252,8 +418,18 @@ def _export_optimized_concat(video_segments, audio_path, output_path,
         if normalized_audio:
             cmd += ["-i", normalized_audio]
 
-        cmd += ["-vf", filter_str,
-                "-c:v", "libx264", "-preset", "fast", "-crf", "23"]
+        if all_standardized:
+            # Alle Clips bereits standardisiert → kein Filter noetig, Stream-Copy
+            cmd += ["-c:v", "copy"]
+            logger.info("[Export] Alle Clips standardisiert → Stream-Copy (schnell)")
+        else:
+            # Fallback: globaler Filter fuer gemischte Quellen
+            filter_str = (
+                f"scale={w}:{h}:force_original_aspect_ratio=decrease,"
+                f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps={fps}"
+            )
+            cmd += ["-vf", filter_str,
+                    "-c:v", "libx264", "-preset", "fast", "-crf", "23"]
 
         if normalized_audio:
             cmd += ["-c:a", "aac", "-b:a", "192k",
@@ -263,7 +439,19 @@ def _export_optimized_concat(video_segments, audio_path, output_path,
 
         cmd.append(str(output_path))
 
-        _run_ffmpeg(cmd, timeout=7200)  # 2h fuer lange DJ-Mix Renders (62min+ = ~90min Render)
+        # FIX-1.2: Dynamischer Timeout basierend auf Segment-Anzahl.
+        # Heuristik: ~30s pro Segment (Decode+Scale+Encode) + 600s Basis.
+        # Bei 896 Segmenten: 600 + 896*30 = 27480s (~7.6h) — genuegend Puffer.
+        # Frueher: fix 7200s → Timeout bei vielen Segmenten.
+        num_segs = len(video_segments)
+        estimated_duration = sum(s.get("source_duration", s["end"] - s["start"]) for s in video_segments)
+        dynamic_timeout = max(7200, 600 + num_segs * 30)
+        logger.info(
+            "[Export] Concat-Export: %d Segmente, ~%.0fs geschaetzte Dauer, Timeout=%ds",
+            num_segs, estimated_duration, dynamic_timeout,
+        )
+        _run_ffmpeg(cmd, timeout=dynamic_timeout, progress_cb=progress_cb,
+                    total_duration=estimated_duration)
 
         if progress_cb:
             step += 1
@@ -288,7 +476,7 @@ def _export_with_filtergraph(video_segments, audio_path, output_path,
         step += 1
         progress_cb(int(step / total_steps * 100), "Baue FFmpeg-Kommando...")
 
-    cmd = ["ffmpeg", "-y"]
+    cmd = [FFMPEG, "-y"]
     for seg in video_segments:
         source_start = seg.get("source_start", 0.0)
         source_duration = seg.get("source_duration", seg["end"] - seg["start"])
@@ -383,7 +571,15 @@ def _export_with_filtergraph(video_segments, audio_path, output_path,
         progress_cb(int(step / total_steps * 100), "FFmpeg-Export mit Effekten...")
 
     try:
-        _run_ffmpeg(cmd, timeout=1800)
+        # FIX-1.2: Dynamischer Timeout auch fuer Filtergraph-Export
+        n = len(video_segments)
+        estimated_duration = sum(
+            seg.get("source_duration", seg["end"] - seg["start"])
+            for seg in video_segments
+        )
+        dynamic_timeout = max(1800, 600 + n * 60)  # Filtergraph braucht mehr pro Segment
+        _run_ffmpeg(cmd, timeout=dynamic_timeout, progress_cb=progress_cb,
+                    total_duration=estimated_duration)
     finally:
         for tf in temp_files:
             Path(tf).unlink(missing_ok=True)
@@ -413,7 +609,7 @@ def _normalize_audio_lufs(input_path: str, output_path: str,
         if sys.platform == "win32":
             kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
         measure_cmd = [
-            "ffmpeg", "-i", input_path,
+            FFMPEG, "-i", input_path,
             "-af", "loudnorm=print_format=json",
             "-f", "null", "-"
         ]
@@ -448,7 +644,7 @@ def _normalize_audio_lufs(input_path: str, output_path: str,
             f":linear=true"
         )
         norm_cmd = [
-            "ffmpeg", "-y", "-i", input_path,
+            FFMPEG, "-y", "-i", input_path,
             "-af", loudnorm_filter,
             "-ar", "48000",
             "-c:a", "pcm_s24le",
@@ -472,16 +668,89 @@ def _normalize_audio_lufs(input_path: str, output_path: str,
         return False
 
 
-def _run_ffmpeg(cmd: list[str], timeout: int = 600):
+def _run_ffmpeg(cmd: list[str], timeout: int = 600, progress_cb=None,
+                total_duration: float = 0.0):
+    """Fuehrt FFmpeg aus — mit Popen + Progress-Parsing statt blockierendem subprocess.run.
+
+    FIX-1.2: Wechsel von subprocess.run() (blockiert ohne Progress) zu subprocess.Popen
+    mit -progress pipe:1 Parsing (identisch mit convert_service.py). Ermoeglicht:
+    - Echtzeit-Progress-Updates waehrend des Exports
+    - Sauberen Abbruch bei Timeout (process.kill() statt TimeoutExpired)
+    - Stderr-Sammlung fuer Fehlerdiagnose
+    """
+    import threading
+
+    # -progress pipe:1 einfuegen falls nicht vorhanden (fuer Progress-Parsing)
+    if "-progress" not in cmd and progress_cb and total_duration > 0:
+        # Nach "ffmpeg" und vor "-y" einfuegen
+        idx = 1 if len(cmd) > 1 else 0
+        cmd = cmd[:idx] + ["-progress", "pipe:1"] + cmd[idx:]
+
     kwargs = {}
     if sys.platform == "win32":
         kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
-    result = subprocess.run(
-        cmd, capture_output=True, text=True, timeout=timeout,
-        encoding="utf-8", errors="replace", **kwargs
+
+    process = subprocess.Popen(
+        cmd,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        **kwargs,
     )
-    if result.returncode != 0:
-        raise RuntimeError(f"FFmpeg fehlgeschlagen:\n{_sanitize_ffmpeg_error(result.stderr)}")
+
+    stderr_lines = []
+
+    def _drain_stderr():
+        for line in process.stderr:
+            stderr_lines.append(line)
+
+    stderr_thread = threading.Thread(target=_drain_stderr, daemon=True)
+    stderr_thread.start()
+
+    try:
+        for line in process.stdout:
+            line = line.strip()
+            if not line:
+                continue
+            # Progress-Parsing: out_time_ms oder out_time
+            if line.startswith("out_time_ms=") and total_duration > 0 and progress_cb:
+                try:
+                    time_us = int(line.split("=")[1])
+                    current_sec = time_us / 1_000_000
+                    pct = min(99, int(current_sec / total_duration * 100))
+                    progress_cb(pct, f"Rendering {pct}%...")
+                except (ValueError, IndexError):
+                    pass
+            elif line.startswith("out_time=") and total_duration > 0 and progress_cb:
+                try:
+                    time_str = line.split("=")[1]
+                    parts = time_str.split(":")
+                    if len(parts) == 3:
+                        h, m, s = float(parts[0]), float(parts[1]), float(parts[2])
+                        current_sec = h * 3600 + m * 60 + s
+                        pct = min(99, int(current_sec / total_duration * 100))
+                        progress_cb(pct, f"Rendering {pct}%...")
+                except (ValueError, IndexError):
+                    pass
+
+        process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        stderr = ''.join(stderr_lines)
+        raise RuntimeError(
+            f"FFmpeg Timeout ({timeout}s). Stderr:\n{_sanitize_ffmpeg_error(stderr)}"
+        )
+    finally:
+        if process.poll() is None:
+            process.kill()
+        stderr_thread.join(timeout=10)
+
+    stderr = ''.join(stderr_lines)
+    if process.returncode != 0:
+        raise RuntimeError(f"FFmpeg fehlgeschlagen:\n{_sanitize_ffmpeg_error(stderr)}")
 
 
 def get_timeline_summary(project_id: int = 1) -> dict:

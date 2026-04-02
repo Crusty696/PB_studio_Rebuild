@@ -10,7 +10,8 @@ from sqlalchemy.orm import DeclarativeBase, Session, relationship
 logger = logging.getLogger(__name__)
 
 # Zentraler Projektpfad — alle Services importieren APP_ROOT statt relative Pfade zu nutzen
-APP_ROOT = Path(__file__).parent
+# F-019: .resolve() stellt sicher dass der Pfad immer absolut ist (unabhaengig von CWD)
+APP_ROOT = Path(__file__).resolve().parent
 
 
 # ======================================================================
@@ -195,6 +196,7 @@ def _patch_service_paths(project_path: Path):
         "services.vector_db_service": {
             "DB_DIR": project_path / "data" / "vector",
             "DB_FILE": project_path / "data" / "vector" / "embeddings.db",
+            "_instance": None,  # F-030: Singleton reset on project switch
         },
     }
     for mod_name, attrs in patches.items():
