@@ -1,3 +1,4 @@
+import datetime as _datetime
 import logging
 import re
 import sys
@@ -40,8 +41,8 @@ class EngineProxy:
         object.__setattr__(self, '_engine', new_engine)
         try:
             old.dispose()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("EngineProxy.swap() — old.dispose() fehlgeschlagen: %s", e)
 
     # Explicit delegates needed for SQLAlchemy internals that bypass __getattr__:
     def connect(self, *a, **kw):
@@ -76,9 +77,11 @@ def _make_engine(db_path: Path):
         f"sqlite:///{db_path}",
         echo=False,
         connect_args={"check_same_thread": False, "timeout": 60},
-        # Pool-Groesse fuer Multi-Worker Batch-Operationen (15+ Clips gleichzeitig)
-        pool_size=10,
-        max_overflow=20,
+        # Pool fuer schnelle Reads. Worker nutzen nullpool_session() fuer Writes.
+        # pool_size=5 idle Connections, max_overflow=15 Burst-Kapazitaet fuer
+        # Batch-Operationen (z.B. 10+ Video-Clips gleichzeitig laden).
+        pool_size=5,
+        max_overflow=15,
         pool_timeout=60,
         pool_recycle=300,
     )
@@ -107,6 +110,64 @@ def get_raw_engine():
     Needed for ``sqlalchemy.inspect()`` which requires a real engine instance.
     """
     return object.__getattribute__(engine, '_engine')
+
+
+def nullpool_session():
+    """Erzeugt eine SQLAlchemy Session mit NullPool-Engine (frische Connection).
+
+    Verwendung fuer Worker-Threads die in die DB schreiben und dabei
+    "database is locked" Fehler durch den Connection Pool bekommen.
+    Die NullPool-Engine erstellt eine frische Connection pro Session und
+    schliesst sie sofort nach dem Commit — kein Pooling, kein Lock-Halten.
+
+    Muster (identisch mit timeline_service._do_apply_segments):
+        with nullpool_session() as session:
+            track = session.get(AudioTrack, track_id)
+            track.bpm = 120.0
+            session.commit()
+
+    Die Engine wird automatisch disposed wenn der Context-Manager endet.
+    """
+    from sqlalchemy import create_engine as _ce, event as _ev
+    from sqlalchemy.pool import NullPool
+
+    db_path = APP_ROOT / 'pb_studio.db'
+    _eng = _ce(
+        f"sqlite:///{db_path}",
+        echo=False,
+        connect_args={"check_same_thread": False, "timeout": 30},
+        poolclass=NullPool,
+    )
+
+    @_ev.listens_for(_eng, "connect")
+    def _set_pragma(dbapi_conn, _rec):
+        c = dbapi_conn.cursor()
+        c.execute("PRAGMA journal_mode=WAL")
+        c.execute("PRAGMA synchronous=NORMAL")
+        c.execute("PRAGMA busy_timeout=30000")
+        c.close()
+
+    return _NullPoolSessionContext(_eng)
+
+
+class _NullPoolSessionContext:
+    """Context-Manager fuer NullPool-Sessions. Disposed die Engine beim Verlassen."""
+
+    def __init__(self, eng):
+        self._eng = eng
+        self._session = None
+
+    def __enter__(self):
+        self._session = Session(self._eng)
+        return self._session
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        try:
+            if self._session is not None:
+                self._session.close()
+        finally:
+            self._eng.dispose()
+        return False
 
 
 def get_active_project_id() -> int:
@@ -367,7 +428,7 @@ class AIPacingMemory(Base):
     __tablename__ = "ai_pacing_memory"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    created_at = Column(String, nullable=True, default=lambda: __import__('datetime').datetime.utcnow().isoformat())
+    created_at = Column(String, nullable=True, default=lambda: _datetime.datetime.utcnow().isoformat())
 
     # ── Audio-Kontext ──
     bpm = Column(Float, nullable=True)
@@ -426,6 +487,29 @@ class HotCue(Base):
 
     def __repr__(self):
         return f"<HotCue(id={self.id}, time={self.time:.2f}, label='{self.label}')>"
+
+
+class ModelRegistry(Base):
+    """Registry aller installierten KI-Modelle (Ollama + HuggingFace).
+
+    Verfolgt: Name, Quelle, Größe, letzte Nutzung, Installationsdatum, Status.
+    Basis für Auto-Cleanup-Vorschläge (ungenutzte Modelle nach X Tagen).
+    """
+    __tablename__ = "model_registry"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    model_id = Column(String, nullable=False, unique=True)   # "qwen2.5:7b" | "openai/whisper-large-v3"
+    source = Column(String, nullable=False)                   # "ollama" | "huggingface"
+    display_name = Column(String, nullable=True)
+    size_mb = Column(Float, nullable=True)
+    installed_at = Column(String, nullable=True)              # ISO datetime
+    last_used_at = Column(String, nullable=True)              # ISO datetime
+    status = Column(String, nullable=False, default="installed")  # "installed" | "downloading" | "error"
+    local_path = Column(String, nullable=True)                # HF-Cache-Pfad
+    metadata_json = Column(Text, nullable=True)               # JSON: Parameter, Tags, Quantisierung
+
+    def __repr__(self):
+        return f"<ModelRegistry(model_id='{self.model_id}', source='{self.source}', size={self.size_mb})>"
 
 
 class StylePreset(Base):
@@ -704,8 +788,8 @@ def init_db():
         if "hotcues" in insp.get_table_names():
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_hotcues_audio_track_id ON hotcues(audio_track_id)"))
 
-    # Phase 4: Default Style-Presets einfügen
-    with Session(engine) as session:
+    # Phase 4: Default Style-Presets einfügen (NullPool: init_db laeuft beim Start)
+    with nullpool_session() as session:
         if "style_presets" in insp.get_table_names() and not session.query(StylePreset).first():
             defaults = [
                 StylePreset(name="Standard", cut_rate=1.0, energy_reactivity=0.7, breakdown_behavior="halve", description="Ausgewogener Mix"),
@@ -719,7 +803,12 @@ def init_db():
                 StylePreset(name="Festival", cut_rate=1.8, energy_reactivity=1.0, breakdown_behavior="16beat", beat_weight=1.5, kick_weight=1.5, snare_weight=1.2, description="Maximum Energy, schnellste Cuts"),
             ]
             session.add_all(defaults)
-            session.commit()
+            # B-003 Fix: Fehlerbehandlung für session.commit() hinzufügen
+            try:
+                session.commit()
+            except Exception as e:
+                logger.error("Fehler beim Einfügen von Style-Presets: %s", e)
+                # Rollback automatisch beim Kontext-Exit
 
     # H5 Fix: Indizes auf Foreign-Key-Spalten erstellen (SQLite macht das nicht automatisch)
     with engine.begin() as conn:
@@ -738,7 +827,17 @@ def init_db():
         # Index auf ai_pacing_memory.audio_track_id (Abfrage-Performance bei vielen gelernten Regeln)
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ai_pacing_memory_audio_track_id ON ai_pacing_memory(audio_track_id)"))
 
-    with Session(engine) as session:
+    # AUD-11: model_registry Index
+    with engine.begin() as conn:
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_model_registry_source ON model_registry(source)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_model_registry_last_used ON model_registry(last_used_at)"))
+
+    with nullpool_session() as session:
         if not session.query(Project).first():
             session.add(Project(name="Default", path=".", resolution="1920x1080", fps=30.0))
-            session.commit()
+            # B-003 Fix: Fehlerbehandlung für session.commit() hinzufügen
+            try:
+                session.commit()
+            except Exception as e:
+                logger.error("Fehler beim Einfügen des Standard-Projekts: %s", e)
+                # Rollback automatisch beim Kontext-Exit

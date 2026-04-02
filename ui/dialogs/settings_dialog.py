@@ -252,6 +252,18 @@ class SettingsDialog(QDialog):
 
         layout.addWidget(ollama_group)
 
+        # --- Modell-Manager ---
+        mgr_group = QGroupBox("Modell-Verwaltung")
+        mgr_layout = QHBoxLayout(mgr_group)
+        lbl_mgr = QLabel("Modelle herunterladen, verwalten und ungenutzte aufräumen.")
+        lbl_mgr.setStyleSheet(f"color: {T2}; font-size: 11px;")
+        mgr_layout.addWidget(lbl_mgr, 1)
+        self._btn_model_manager = QPushButton("⊞ Modell-Manager öffnen")
+        self._btn_model_manager.setToolTip("Installierte Modelle anzeigen, neue herunterladen, aufräumen")
+        self._btn_model_manager.clicked.connect(self._on_open_model_manager)
+        mgr_layout.addWidget(self._btn_model_manager)
+        layout.addWidget(mgr_group)
+
         # --- Info-Text ---
         lbl_info = QLabel(
             "Wenn Ollama nicht verfügbar ist, fällt PB Studio automatisch auf das lokale "
@@ -325,6 +337,13 @@ class SettingsDialog(QDialog):
             self._cmb_model.setCurrentText(current)
         elif models:
             self._cmb_model.setCurrentIndex(0)
+
+    def _on_open_model_manager(self) -> None:
+        """Öffnet den Modell-Manager Dialog."""
+        from ui.dialogs.model_manager_dialog import ModelManagerDialog
+        url = self._txt_url.text().strip() or "http://localhost:11434"
+        dlg = ModelManagerDialog(parent=self, ollama_url=url)
+        dlg.exec()
 
     def _on_accept(self) -> None:
         enabled = self._chk_enabled.isChecked()

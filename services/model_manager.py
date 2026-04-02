@@ -451,13 +451,22 @@ class ModelManager:
         # FIX B-006: Globaler GPU_LOAD_LOCK verhindert Race-Condition bei concurrent loads
         with GPU_LOAD_LOCK:
             if model_type == "whisper":
-                return self.load_whisper(model_id)
+                result = self.load_whisper(model_id)
             elif model_type == "vision":
-                return self.load_vision(model_id)
+                result = self.load_vision(model_id)
             elif model_type == "siglip":
-                return self.load_siglip(model_id)
+                result = self.load_siglip(model_id)
             else:
-                return self.load_transformers(model_id)
+                result = self.load_transformers(model_id)
+
+        # AUD-11: last_used_at in Registry aktualisieren (best-effort)
+        try:
+            from services.model_lifecycle_service import get_model_lifecycle_service
+            get_model_lifecycle_service().touch_last_used(model_id)
+        except Exception:
+            pass
+
+        return result
 
     def load_ollama(self, model: str, base_url: str = "http://localhost:11434") -> "OllamaHandle":
         """Registriert Ollama als aktiven LLM-Backend im ModelManager.
@@ -483,6 +492,14 @@ class ModelManager:
             "ModelManager: Ollama-Backend registriert (Modell: '%s', URL: %s).",
             model, base_url,
         )
+
+        # AUD-11: last_used_at in Registry aktualisieren (best-effort)
+        try:
+            from services.model_lifecycle_service import get_model_lifecycle_service
+            get_model_lifecycle_service(base_url).touch_last_used(model)
+        except Exception:
+            pass
+
         return handle
 
     def _pause_ollama_if_active(self) -> None:
