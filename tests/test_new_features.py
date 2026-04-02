@@ -69,10 +69,14 @@ class TestPacingService:
         session.add(track)
         session.commit()
 
-        # Patch the engine used by pacing_service
+        # Patch the engine used by pacing_service and pacing_beat_grid
+        # (after AUD-53 refactor, _get_bpm lives in pacing_beat_grid)
         import services.pacing_service as ps
-        original_engine = ps.engine
+        import services.pacing_beat_grid as pbg
+        original_ps_engine = ps.engine
+        original_pbg_engine = pbg.engine
         ps.engine = engine
+        pbg.engine = engine
         try:
             from services.pacing_service import PacingSettings, calculate_cut_points
             settings = PacingSettings(tempo=50, energy=50, cut_density=50)
@@ -82,7 +86,8 @@ class TestPacingService:
             # 120 BPM, tempo=50 -> divisor=1, interval=0.5s, ~20 cuts in 10s
             assert len(cuts) >= 15
         finally:
-            ps.engine = original_engine
+            ps.engine = original_ps_engine
+            pbg.engine = original_pbg_engine
 
     def test_auto_edit_to_beats_distributes_clips(self, db_session):
         session, engine = db_session
