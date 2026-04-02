@@ -220,7 +220,7 @@ class LocalAgentService:
     def _generate_ollama(self, user_text: str, max_new_tokens: int = 512) -> str:
         """Erzeugt Modellantwort via Ollama-HTTP-API."""
         client = self._get_ollama_client()
-        system_prompt = self._build_system_prompt()
+        system_prompt = self._build_system_prompt(user_query=user_text)
         return client.chat(
             model=self._ollama_model,
             user_message=user_text,
@@ -264,8 +264,8 @@ class LocalAgentService:
             self._loaded = False
             logger.info("KI-Modell entladen.")
 
-    def _build_system_prompt(self) -> str:
-        """Baut den System-Prompt mit den aktuell registrierten Aktionen + Medien-Kontext."""
+    def _build_system_prompt(self, user_query: str = "") -> str:
+        """Baut den System-Prompt mit Aktionen + Medien-Kontext + Knowledge-Base."""
         base = SYSTEM_PROMPT_TEMPLATE.format(
             actions_json=self.registry.get_schema_for_prompt()
         )
@@ -274,6 +274,16 @@ class LocalAgentService:
         media_context = self._build_media_context()
         if media_context:
             base += "\n\n" + media_context
+
+        # --- Knowledge-Base Injection: Domain-Wissen kontextbasiert laden ---
+        try:
+            from services.knowledge_loader import get_knowledge_loader
+            loader = get_knowledge_loader()
+            knowledge_context = loader.build_context(query=user_query)
+            if knowledge_context:
+                base += "\n\n" + knowledge_context
+        except Exception as e:
+            logger.debug("Knowledge-Base konnte nicht geladen werden: %s", e)
 
         return base
 
@@ -316,7 +326,7 @@ class LocalAgentService:
     def _build_messages(self, user_text: str) -> list[dict]:
         """Erstellt das Chat-Messages-Format für das Modell."""
         return [
-            {"role": "system", "content": self._build_system_prompt()},
+            {"role": "system", "content": self._build_system_prompt(user_query=user_text)},
             {"role": "user", "content": user_text},
         ]
 
