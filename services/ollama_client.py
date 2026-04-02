@@ -287,6 +287,146 @@ class OllamaClient:
             raise RuntimeError(f"Ollama nicht erreichbar: {e}") from e
 
     # ------------------------------------------------------------------
+    # Tool-Use / Function-Calling (AP-5)
+    # ------------------------------------------------------------------
+
+    def supports_tools(self, model: str) -> bool:
+        """Prüft ob ein Modell Tool-Use / Function-Calling unterstützt.
+
+        Qwen2.5, Llama 3.1+, Mistral 0.3+ und Phi3 unterstützen Tool-Use.
+        Kleine Modelle (<1B) unterstützen es oft NICHT zuverlässig.
+        """
+        supported_prefixes = [
+            "qwen2.5:", "qwen2:", "llama3.1:", "llama3.2:",
+            "llama3.3:", "mistral:", "phi3:", "gemma2:",
+        ]
+        model_lower = model.lower()
+        for prefix in supported_prefixes:
+            if model_lower.startswith(prefix):
+                # Kleine Modelle ausschliessen (<1B Parameter)
+                if any(tiny in model_lower for tiny in [":0.5b", ":0.5b-", "0.5b-"]):
+                    return False
+                return True
+        return False
+
+    def chat_with_tools(
+        self,
+        model: str,
+        user_message: str,
+        tools: list[dict],
+        system_prompt: str | None = None,
+        messages: list[dict] | None = None,
+        temperature: float = 0.1,
+        max_tokens: int = 512,
+    ) -> dict[str, Any]:
+        """Sendet eine Chat-Anfrage mit Tool-Definitionen (Function-Calling).
+
+        Ollama-kompatibel: Gibt entweder eine text-Antwort ODER tool_calls zurück.
+
+        Args:
+            model: Ollama-Modellname (muss Tool-Use unterstützen)
+            user_message: Aktuelle Benutzeranfrage
+            tools: Liste von Tool-Definitionen im OpenAI-Format:
+                   [{"type": "function", "function": {"name": ..., "description": ..., "parameters": ...}}]
+            system_prompt: Optionaler System-Prompt
+            messages: Optionale vollständige Message-History (überschreibt user_message + system_prompt)
+            temperature: Kreativität (Standard: 0.1 für deterministisches Tool-Calling)
+            max_tokens: Max Ausgabelänge
+
+        Returns:
+            {
+                "type": "tool_calls" | "text",
+                "tool_calls": [{"function": {"name": ..., "arguments": {...}}}],  # bei tool_calls
+                "content": str,   # bei text-Antwort
+                "raw": dict,      # vollständige Ollama-Antwort
+            }
+
+        Raises:
+            RuntimeError: Wenn Ollama nicht erreichbar oder pausiert
+        """
+        with self._lock:
+            if self._paused:
+                raise RuntimeError("OllamaClient ist pausiert.")
+
+        if messages is None:
+            messages = []
+            if system_prompt:
+                messages.append({"role": "system", "content": system_prompt})
+            messages.append({"role": "user", "content": user_message})
+
+        payload = {
+            "model": model,
+            "messages": messages,
+            "tools": tools,
+            "stream": False,
+            "options": {
+                "temperature": temperature,
+                "num_predict": max_tokens,
+            },
+        }
+
+        body = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(
+            f"{self.base_url}/api/chat",
+            data=body,
+            headers={
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+            },
+            method="POST",
+        )
+
+        logger.debug(
+            "OllamaClient.chat_with_tools: Modell '%s', %d Tools definiert.", model, len(tools)
+        )
+
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                raw = resp.read()
+                data = json.loads(raw)
+                msg = data.get("message", {})
+
+                # Prüfe ob das Modell Tool-Calls zurückgegeben hat
+                tool_calls = msg.get("tool_calls")
+                if tool_calls:
+                    # Argumente von JSON-String zu dict konvertieren falls nötig
+                    parsed_calls = []
+                    for tc in tool_calls:
+                        fn = tc.get("function", {})
+                        args = fn.get("arguments", {})
+                        if isinstance(args, str):
+                            try:
+                                args = json.loads(args)
+                            except json.JSONDecodeError:
+                                args = {}
+                        parsed_calls.append({
+                            "function": {
+                                "name": fn.get("name", ""),
+                                "arguments": args,
+                            }
+                        })
+                    return {
+                        "type": "tool_calls",
+                        "tool_calls": parsed_calls,
+                        "content": "",
+                        "raw": data,
+                    }
+
+                # Normale Text-Antwort
+                content = msg.get("content", "").strip()
+                return {
+                    "type": "text",
+                    "tool_calls": [],
+                    "content": content,
+                    "raw": data,
+                }
+
+        except urllib.error.URLError as e:
+            raise RuntimeError(f"Ollama nicht erreichbar: {e}") from e
+        except json.JSONDecodeError as e:
+            raise RuntimeError(f"Ollama hat ungültiges JSON zurückgegeben: {e}") from e
+
+    # ------------------------------------------------------------------
     # Kontext-Info
     # ------------------------------------------------------------------
 

@@ -123,6 +123,10 @@ class LocalAgentService:
         # Multi-Agenten-Orchestrator
         self._orchestrator = None
 
+        # --- AP-5: Konversationsgedächtnis ---
+        # Lazy-Init: ConversationMemory wird erst beim ersten process_with_history()-Aufruf erstellt
+        self._conversation_memory = None
+
         # --- Ollama-Konfiguration ---
         # Reihenfolge: Konstruktor-Argument > Env-Var > Auto-detect
         import os as _os
@@ -229,6 +233,176 @@ class LocalAgentService:
             max_tokens=max_new_tokens,
         )
 
+    def _generate_ollama_with_history(
+        self, user_text: str, max_new_tokens: int = 512
+    ) -> str:
+        """Erzeugt Modellantwort via Ollama mit Konversationsgedächtnis (AP-5).
+
+        Nutzt chat_with_history() statt chat(), damit der Kontext erhalten bleibt.
+        """
+        client = self._get_ollama_client()
+        mem = self._get_conversation_memory()
+        system_prompt = self._build_system_prompt(user_query=user_text)
+        messages = mem.get_messages(system_prompt)
+        # Aktuelle User-Nachricht anhängen
+        messages.append({"role": "user", "content": user_text})
+        return client.chat_with_history(
+            model=self._ollama_model,
+            messages=messages,
+            temperature=0.1,
+            max_tokens=max_new_tokens,
+        )
+
+    def _generate_ollama_with_tools(
+        self, user_text: str, max_new_tokens: int = 512
+    ) -> dict:
+        """Erzeugt Modellantwort via Ollama Tool-Use / Function-Calling (AP-5).
+
+        Übersetzt das ActionRegistry in Ollama-Tool-Definitionen und nutzt
+        strukturiertes Function-Calling statt JSON-Freitext-Parsing.
+
+        Returns:
+            dict mit "type": "tool_calls" | "text" und entsprechenden Feldern
+        """
+        client = self._get_ollama_client()
+        system_prompt = self._build_system_prompt(user_query=user_text)
+
+        # ActionRegistry → Ollama Tool-Definitionen
+        tools = self._registry_to_tools()
+
+        # Konversationsgedächtnis einbinden
+        mem = self._get_conversation_memory()
+        messages = mem.get_messages(system_prompt)
+        messages.append({"role": "user", "content": user_text})
+
+        return client.chat_with_tools(
+            model=self._ollama_model,
+            user_message=user_text,
+            tools=tools,
+            messages=messages,
+            temperature=0.1,
+            max_tokens=max_new_tokens,
+        )
+
+    def _registry_to_tools(self) -> list[dict]:
+        """Übersetzt das ActionRegistry in das Ollama-Tool-Format.
+
+        Format: [{"type": "function", "function": {"name", "description", "parameters"}}]
+        """
+        tools = []
+        for action_def in self.registry.list_all():
+            tools.append({
+                "type": "function",
+                "function": {
+                    "name": action_def.name,
+                    "description": action_def.description or f"Aktion: {action_def.name}",
+                    "parameters": action_def.param_schema or {
+                        "type": "object",
+                        "properties": {},
+                        "required": [],
+                    },
+                },
+            })
+        return tools
+
+    # ------------------------------------------------------------------
+    # AP-5: Konversationsgedächtnis
+    # ------------------------------------------------------------------
+
+    def _get_conversation_memory(self):
+        """Lazy-Init der ConversationMemory für die Default-Session."""
+        if self._conversation_memory is None:
+            from services.conversation_memory import ConversationMemory
+            self._conversation_memory = ConversationMemory(
+                session_id="local_agent_default",
+                max_turns=8,
+            )
+        return self._conversation_memory
+
+    def set_conversation_memory(self, memory) -> None:
+        """Setzt eine externe ConversationMemory (z.B. aus der GUI)."""
+        self._conversation_memory = memory
+
+    def clear_conversation_history(self) -> None:
+        """Löscht die Konversationshistorie."""
+        mem = self._get_conversation_memory()
+        mem.clear()
+        logger.info("LocalAgentService: Konversationshistorie gelöscht.")
+
+    # ------------------------------------------------------------------
+    # AP-5: Auto-Prompt-Optimization (Feedback)
+    # ------------------------------------------------------------------
+
+    def record_feedback(
+        self,
+        user_query: str,
+        ai_response: str,
+        rating: int,
+        action_name: str | None = None,
+        user_comment: str | None = None,
+    ) -> None:
+        """Speichert Nutzerfeedback auf eine KI-Antwort in der DB.
+
+        Args:
+            user_query: Die ursprüngliche Benutzeranfrage
+            ai_response: Die KI-Antwort (als String oder JSON)
+            rating: 1 = positiv, -1 = negativ, 0 = neutral
+            action_name: Erkannte Aktion (falls bekannt)
+            user_comment: Optionaler Freitext-Kommentar
+        """
+        try:
+            import datetime
+            from database import nullpool_session, AgentFeedback
+            with nullpool_session() as session:
+                feedback = AgentFeedback(
+                    created_at=datetime.datetime.utcnow().isoformat(),
+                    session_id="local_agent_default",
+                    model_id=self._ollama_model or self.model_id,
+                    backend="ollama" if self._use_ollama else "huggingface",
+                    user_query=user_query[:2000],
+                    ai_response=str(ai_response)[:4000],
+                    action_name=action_name,
+                    rating=rating,
+                    user_comment=user_comment,
+                )
+                session.add(feedback)
+                session.commit()
+            logger.info(
+                "LocalAgentService: Feedback gespeichert (Rating=%d, Aktion='%s').",
+                rating, action_name or "?",
+            )
+        except Exception as e:
+            logger.warning("LocalAgentService: Feedback konnte nicht gespeichert werden: %s", e)
+
+    def _get_positive_few_shots(self, limit: int = 3) -> str:
+        """Lädt positive Feedback-Beispiele für den System-Prompt (Few-Shot).
+
+        Gibt einen String zurück, der direkt in den System-Prompt eingefügt wird.
+        Enthält bis zu `limit` gut bewertete (User-Query → Aktion)-Paare.
+        """
+        try:
+            from database import nullpool_session, AgentFeedback
+            with nullpool_session() as session:
+                good = (
+                    session.query(AgentFeedback)
+                    .filter(AgentFeedback.rating == 1)
+                    .filter(AgentFeedback.action_name.isnot(None))
+                    .order_by(AgentFeedback.created_at.desc())
+                    .limit(limit)
+                    .all()
+                )
+                if not good:
+                    return ""
+                lines = ["ERFOLGREICHE BEISPIELE (lerne daraus):"]
+                for fb in good:
+                    lines.append(
+                        f'  User: "{fb.user_query[:80]}" → Aktion: "{fb.action_name}"'
+                    )
+                return "\n".join(lines)
+        except Exception as e:
+            logger.debug("Few-Shot-Laden fehlgeschlagen: %s", e)
+            return ""
+
     @property
     def model_manager(self) -> ModelManager:
         """Lazy ModelManager — torch wird erst beim ersten Zugriff importiert."""
@@ -265,7 +439,7 @@ class LocalAgentService:
             logger.info("KI-Modell entladen.")
 
     def _build_system_prompt(self, user_query: str = "") -> str:
-        """Baut den System-Prompt mit Aktionen + Medien-Kontext + Knowledge-Base."""
+        """Baut den System-Prompt mit Aktionen + Medien-Kontext + Knowledge-Base + Few-Shots."""
         base = SYSTEM_PROMPT_TEMPLATE.format(
             actions_json=self.registry.get_schema_for_prompt()
         )
@@ -284,6 +458,11 @@ class LocalAgentService:
                 base += "\n\n" + knowledge_context
         except Exception as e:
             logger.debug("Knowledge-Base konnte nicht geladen werden: %s", e)
+
+        # --- AP-5: Auto-Prompt-Optimization — Few-Shot aus positivem Feedback ---
+        few_shots = self._get_positive_few_shots(limit=3)
+        if few_shots:
+            base += "\n\n" + few_shots
 
         return base
 
@@ -462,13 +641,19 @@ class LocalAgentService:
 
         return result
 
-    def process(self, user_text: str) -> dict[str, Any]:
+    def process(self, user_text: str, use_history: bool = True) -> dict[str, Any]:
         """Verarbeitet eine Benutzeranfrage über das Multi-Agenten-System.
 
-        Routing-Reihenfolge:
+        Routing-Reihenfolge (AP-5 erweitert):
         1. Orchestrator prüft, ob ein spezialisierter Agent zuständig ist
-        2. Falls nicht, wird das LLM für JSON-Action-Parsing genutzt
-        3. Fuzzy-Matching korrigiert ungenaue Aktionsnamen
+        2. Falls Ollama + Tool-Use-fähiges Modell: Function-Calling-Pfad
+        3. Falls Ollama: Chat mit History (Multi-Turn-Dialog)
+        4. Fallback: HuggingFace-Modell (Freitext-JSON-Parsing)
+        5. Fuzzy-Matching korrigiert ungenaue Aktionsnamen
+
+        Args:
+            user_text: Benutzeranfrage
+            use_history: Ob Konversationsgedächtnis genutzt werden soll (Standard: True)
 
         Rückgabe:
             {
@@ -509,18 +694,107 @@ class LocalAgentService:
             # Wenn der Orchestrator eine Aktion gefunden hat (nicht "none"-Fallback)
             if orch_result.get("action") != "none":
                 response.update(orch_result)
+                # Konversationsgedächtnis aktualisieren
+                if use_history:
+                    answer = orch_result.get("message") or str(orch_result.get("result", "OK"))
+                    self._get_conversation_memory().add_turn(user_text, answer[:500])
                 return response
 
             # --- Phase 2: LLM-basierte Verarbeitung (Fallback) ---
-            raw_output = self._generate(user_text)
-            logger.debug("KI-Rohantwort: %s", raw_output)
 
+            # Ollama-Status sicherstellen
+            if self._use_ollama is None:
+                self._use_ollama = self._auto_detect_ollama()
+
+            # AP-5 Phase 2a: Tool-Use via Ollama (wenn Modell es unterstützt)
+            if self._use_ollama and self._ollama_model:
+                client = self._get_ollama_client()
+                if client.supports_tools(self._ollama_model):
+                    logger.debug(
+                        "LocalAgentService: Tool-Use-Pfad für Modell '%s'.", self._ollama_model
+                    )
+                    try:
+                        tool_result = self._generate_ollama_with_tools(user_text)
+                        if tool_result["type"] == "tool_calls" and tool_result["tool_calls"]:
+                            # Tool-Calls ausführen
+                            calls = tool_result["tool_calls"]
+                            if len(calls) == 1:
+                                fn = calls[0]["function"]
+                                single = self._execute_single_action({
+                                    "action": fn["name"],
+                                    "params": fn["arguments"],
+                                })
+                                response.update(single)
+                                if use_history:
+                                    answer = single.get("message") or str(single.get("result", ""))
+                                    self._get_conversation_memory().add_turn(user_text, answer[:500])
+                                return response
+                            else:
+                                # Multi-Tool-Call
+                                response["action"] = "multi"
+                                results = []
+                                for call in calls:
+                                    fn = call["function"]
+                                    r = self._execute_single_action({
+                                        "action": fn["name"],
+                                        "params": fn["arguments"],
+                                    })
+                                    results.append(r)
+                                response["actions"] = results
+                                errors = [r["error"] for r in results if r.get("error")]
+                                if errors:
+                                    response["error"] = " | ".join(errors)
+                                action_names = [r["action"] for r in results if r["action"] != "none"]
+                                response["message"] = (
+                                    f"{len(action_names)} Tool-Calls: {', '.join(action_names)}"
+                                )
+                                if use_history:
+                                    self._get_conversation_memory().add_turn(
+                                        user_text, response["message"][:500]
+                                    )
+                                return response
+                        # Kein Tool-Call → Fallback zu Text-Antwort
+                        if tool_result["content"]:
+                            raw_output = tool_result["content"]
+                            # Konversationsgedächtnis nach Text-Antwort aktualisieren
+                            if use_history:
+                                self._get_conversation_memory().add_turn(
+                                    user_text, raw_output[:500]
+                                )
+                            parsed_list = self._extract_json(raw_output)
+                            if len(parsed_list) == 1:
+                                single = self._execute_single_action(parsed_list[0])
+                                response.update(single)
+                                return response
+                    except Exception as e:
+                        logger.warning(
+                            "LocalAgentService: Tool-Use fehlgeschlagen → JSON-Fallback. Fehler: %s", e
+                        )
+
+            # AP-5 Phase 2b: Generierung mit Konversationsgedächtnis (Multi-Turn)
+            raw_output: str
+            if self._use_ollama and self._ollama_model and use_history:
+                try:
+                    raw_output = self._generate_ollama_with_history(user_text)
+                except Exception as e:
+                    logger.warning(
+                        "LocalAgentService: History-Chat fehlgeschlagen → einfacher Ollama-Chat. Fehler: %s", e
+                    )
+                    raw_output = self._generate(user_text)
+            else:
+                raw_output = self._generate(user_text)
+
+            logger.debug("KI-Rohantwort: %s", raw_output)
             parsed_list = self._extract_json(raw_output)
 
             if len(parsed_list) == 1:
                 # Single Action (mit Fuzzy-Matching)
                 single = self._execute_single_action(parsed_list[0])
                 response.update(single)
+                # History nach erfolgreicher Antwort aktualisieren
+                if use_history:
+                    answer = single.get("message") or str(single.get("result", raw_output[:200]))
+                    self._get_conversation_memory().add_turn(user_text, answer[:500])
             else:
                 # Multi Action
                 response["action"] = "multi"
@@ -539,9 +813,20 @@ class LocalAgentService:
                 action_names = [r["action"] for r in results if r["action"] != "none"]
                 if action_names:
                     response["message"] = f"{len(action_names)} Aktionen ausgeführt: {', '.join(action_names)}"
+                if use_history:
+                    self._get_conversation_memory().add_turn(
+                        user_text, response.get("message", raw_output[:200])
+                    )
 
         except Exception as e:
             logger.exception("Fehler bei KI-Verarbeitung")
             response["error"] = str(e)
 
         return response
+
+    def process_with_history(self, user_text: str) -> dict[str, Any]:
+        """Alias für process() mit explizit aktiviertem Konversationsgedächtnis.
+
+        Für die GUI-Integration: process_with_history("Analysiere Track 1").
+        """
+        return self.process(user_text, use_history=True)

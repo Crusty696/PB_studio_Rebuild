@@ -36,6 +36,21 @@ from agents.pacing_agent import PacingAgent
 
 logger = logging.getLogger(__name__)
 
+# System-Prompt für die LLM-basierte Intent-Klassifizierung (AP-5)
+_CLASSIFY_SYSTEM_PROMPT = """\
+Du bist ein Router in PB Studio, einem DJ-Video-Editor.
+Klassifiziere die Anfrage in GENAU EINE dieser Kategorien:
+
+- "pacing": Auto-Edit, Schnitte zur Musik, Beat-Sync, BPM, Pacing-Strategie, Auto-Edit
+- "vision": Video-Inhalt analysieren, Szenen beschreiben, visuelle Analyse, Moondream
+- "audio": Transkription, Stems trennen, Audio-Analyse, BPM-Erkennung, Whisper
+- "editor": Timeline bearbeiten, Clips verschieben, Export, Render
+- "action": Direkte App-Aktion (Proxy erstellen, Datei importieren, Einstellungen)
+- "general": Allgemeine Frage, kein konkreter App-Befehl
+
+Antworte NUR mit dem Kategorie-Namen (einem Wort, lowercase). Kein anderer Text.
+"""
+
 # Generische Analyse-Keywords (treffen auf mehrere Domänen zu)
 ANALYZE_ALL_KEYWORDS = [
     "analysiere alle", "analyze all", "alle analysieren",
@@ -406,8 +421,57 @@ class OrchestratorAgent(BaseAgent):
             "actions": results,
         }
 
+    def _llm_classify_intent(self, user_text: str) -> str | None:
+        """Nutzt Ollama zur Intent-Klassifizierung wenn Keyword-Routing unentschieden ist (AP-5).
+
+        Gibt eine Kategorie zurück: "pacing" | "vision" | "audio" | "editor" | "action" | "general"
+        Gibt None zurück wenn Ollama nicht verfügbar.
+        """
+        if self._model_manager is None:
+            return None  # Kein Modell-Manager = kein Ollama-Zugriff
+
+        try:
+            from services.ollama_client import get_ollama_client
+            client = get_ollama_client()
+            if not client.is_available():
+                return None
+
+            model = client.get_best_available_model()
+            if not model:
+                return None
+
+            # Kleines Modell bevorzugen für schnelle Klassifizierung
+            available = set(client.list_models())
+            fast_models = [
+                "qwen2.5:1.5b-instruct", "qwen2.5:0.5b-instruct",
+                "phi3:mini", "gemma2:2b-instruct-q4_K_M",
+            ]
+            classify_model = next((m for m in fast_models if m in available), model)
+
+            result = client.chat(
+                model=classify_model,
+                user_message=user_text,
+                system_prompt=_CLASSIFY_SYSTEM_PROMPT,
+                temperature=0.0,
+                max_tokens=10,
+            )
+            category = result.strip().lower().split()[0] if result.strip() else ""
+            valid_categories = {"pacing", "vision", "audio", "editor", "action", "general"}
+            if category in valid_categories:
+                logger.info("LLM-Klassifizierung: '%s' → '%s'", user_text[:50], category)
+                return category
+        except Exception as e:
+            logger.debug("LLM-Klassifizierung fehlgeschlagen: %s", e)
+
+        return None
+
     def _route_to_agent(self, user_text: str) -> BaseAgent | None:
-        """Findet den besten spezialisierten Agenten für die Anfrage."""
+        """Findet den besten spezialisierten Agenten für die Anfrage.
+
+        Strategie (AP-5):
+        1. Score-basiertes Routing (schnell, kein LLM)
+        2. Wenn Score zu niedrig (unentschieden): LLM-Klassifizierung als Tiebreaker
+        """
         best_agent = None
         best_score = 0.0
 
@@ -423,6 +487,26 @@ class OrchestratorAgent(BaseAgent):
                 best_agent.name, best_score,
             )
             return best_agent
+
+        # AP-5: LLM-Klassifizierung als Tiebreaker wenn Score zu niedrig
+        if best_score >= 0.1:
+            category = self._llm_classify_intent(user_text)
+            if category:
+                domain_map = {
+                    "pacing": "pacing",
+                    "vision": "vision",
+                    "audio": "audio",
+                    "editor": "editor",
+                }
+                target_domain = domain_map.get(category)
+                if target_domain:
+                    for agent in self._agents:
+                        if agent.domain == target_domain:
+                            logger.info(
+                                "LLM-Routing an '%s' (Kategorie: '%s')",
+                                agent.name, category,
+                            )
+                            return agent
 
         return None
 
@@ -536,57 +620,72 @@ class OrchestratorAgent(BaseAgent):
         3. Spezialisierter Agent (höchster can_handle-Score)
         4. Direktes Action-Registry (Fuzzy-Matching auf Aktionsnamen)
         5. Fallback: Weiterleitung an das Text-LLM
+
+        FIX B-1001: Alle Fehler werden geloggt und in der Error-Response zurückgegeben
         """
         logger.info("Orchestrator empfängt: '%s'", user_text[:100])
 
-        # 1. "Analysiere alle" Spezialfall
-        if self._detect_analyze_all(user_text):
-            logger.info("Erkannt: 'Analysiere alle importierten Dateien'")
-            return self._handle_analyze_all()
+        try:
+            # 1. "Analysiere alle" Spezialfall
+            if self._detect_analyze_all(user_text):
+                logger.info("Erkannt: 'Analysiere alle importierten Dateien'")
+                return self._handle_analyze_all()
 
-        # 2. Multi-Step-Analyse (Vision + Audio)
-        if self._detect_multi_step(user_text):
-            logger.info("Erkannt: Multi-Step-Analyse (Vision + Audio)")
-            return self._handle_multi_step(user_text)
+            # 2. Multi-Step-Analyse (Vision + Audio)
+            if self._detect_multi_step(user_text):
+                logger.info("Erkannt: Multi-Step-Analyse (Vision + Audio)")
+                return self._handle_multi_step(user_text)
 
-        # 2b. Compound-Actions: Mehrere unabhängige Aktionen (z.B. "proxy + stems")
-        compound_actions = self._detect_compound_actions(user_text)
-        if len(compound_actions) >= 2:
-            logger.info("Erkannt: Compound-Actions: %s", compound_actions)
-            return self._handle_compound_actions(compound_actions)
+            # 2b. Compound-Actions: Mehrere unabhängige Aktionen (z.B. "proxy + stems")
+            compound_actions = self._detect_compound_actions(user_text)
+            if len(compound_actions) >= 2:
+                logger.info("Erkannt: Compound-Actions: %s", compound_actions)
+                return self._handle_compound_actions(compound_actions)
 
-        # 2c. Einzelne Compound-Action erkannt (z.B. nur "proxy" oder nur "stems")
-        # → Direkt ausführen im Batch-Modus statt an Agent/LLM weiterzuleiten
-        if len(compound_actions) == 1:
-            action_name = compound_actions[0]
-            logger.info("Erkannt: Einzel-Action via Compound-Map: %s", action_name)
-            return self._handle_compound_actions(compound_actions)
+            # 2c. Einzelne Compound-Action erkannt (z.B. nur "proxy" oder nur "stems")
+            # → Direkt ausführen im Batch-Modus statt an Agent/LLM weiterzuleiten
+            if len(compound_actions) == 1:
+                action_name = compound_actions[0]
+                logger.info("Erkannt: Einzel-Action via Compound-Map: %s", action_name)
+                return self._handle_compound_actions(compound_actions)
 
-        # 3. Spezialisierter Agent
-        agent = self._route_to_agent(user_text)
-        if agent is not None:
-            # ModelManager: Agent-Modell laden falls nötig (mit korrektem model_type)
-            if self._model_manager and agent.model_id:
-                # model_type aus der Agent-Domain ableiten
-                model_type_map = {"vision": "vision", "audio": "whisper"}
-                model_type = model_type_map.get(agent.domain, "transformers")
-                self._model_manager.ensure_loaded(agent.model_id, model_type)
-            # Context aufbauen und an den Agenten weiterreichen
-            agent_context = self._build_context(user_text, context)
-            return agent.process(user_text, agent_context)
+            # 3. Spezialisierter Agent
+            agent = self._route_to_agent(user_text)
+            if agent is not None:
+                # ModelManager: Agent-Modell laden falls nötig (mit korrektem model_type)
+                if self._model_manager and agent.model_id:
+                    # model_type aus der Agent-Domain ableiten
+                    model_type_map = {"vision": "vision", "audio": "whisper"}
+                    model_type = model_type_map.get(agent.domain, "transformers")
+                    self._model_manager.ensure_loaded(agent.model_id, model_type)
+                # Context aufbauen und an den Agenten weiterreichen
+                agent_context = self._build_context(user_text, context)
+                return agent.process(user_text, agent_context)
 
-        # 4. Direktes Action-Registry (Fuzzy)
-        registry_result = self._route_to_registry(user_text)
-        if registry_result is not None:
-            return registry_result
+            # 4. Direktes Action-Registry (Fuzzy)
+            registry_result = self._route_to_registry(user_text)
+            if registry_result is not None:
+                return registry_result
 
-        # 5. Fallback: Kein passender Agent/Action gefunden
-        return {
-            "agent": self.name,
-            "action": "none",
-            "params": {},
-            "result": None,
-            "message": f"Ich konnte keinen passenden Agenten oder Aktion finden für: '{user_text[:80]}'. "
-                       "Verfügbare Agenten: Vision (Szenen-KI), Audio (Transkription), Editor.",
-            "error": None,
-        }
+            # 5. Fallback: Kein passender Agent/Action gefunden
+            return {
+                "agent": self.name,
+                "action": "none",
+                "params": {},
+                "result": None,
+                "message": f"Ich konnte keinen passenden Agenten oder Aktion finden für: '{user_text[:80]}'. "
+                           "Verfügbare Agenten: Vision (Szenen-KI), Audio (Transkription), Editor.",
+                "error": None,
+            }
+        except Exception as e:
+            # FIX B-1001: Fehler aus allen Agenten und Methoden loggen und zur UI schicken
+            error_msg = f"Orchestrator-Fehler: {type(e).__name__}: {e}"
+            logger.exception("Unerwarteter Fehler im Orchestrator-Agent")
+            return {
+                "agent": self.name,
+                "action": "error",
+                "params": {"user_text": user_text[:100]},
+                "result": None,
+                "message": f"Ein Fehler ist im Orchestrator aufgetreten: {str(e)[:200]}",
+                "error": error_msg,
+            }

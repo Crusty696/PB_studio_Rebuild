@@ -512,6 +512,37 @@ class ModelRegistry(Base):
         return f"<ModelRegistry(model_id='{self.model_id}', source='{self.source}', size={self.size_mb})>"
 
 
+class AgentFeedback(Base):
+    """Nutzerfeedback auf KI-Agenten-Antworten — AP-5 (AUD-12).
+
+    Basis fuer Auto-Prompt-Optimization: Positive Beispiele werden als
+    Few-Shot-Beispiele in den System-Prompt injiziert, negative werden gefiltert.
+
+    rating:  1 = positiv (Daumen hoch), -1 = negativ (Daumen runter), 0 = neutral
+    """
+    __tablename__ = "agent_feedback"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    created_at = Column(String, nullable=True, default=lambda: _datetime.datetime.utcnow().isoformat())
+
+    # ── Kontext ──
+    session_id = Column(String, nullable=True)           # Chat-Session-ID
+    model_id = Column(String, nullable=True)             # "qwen2.5:7b" oder "Qwen/Qwen2.5-0.5B"
+    backend = Column(String, nullable=True, default="ollama")  # "ollama" | "huggingface"
+
+    # ── Query + Antwort ──
+    user_query = Column(Text, nullable=False)            # Ursprüngliche Benutzeranfrage
+    ai_response = Column(Text, nullable=False)           # KI-Antwort (JSON oder Text)
+    action_name = Column(String, nullable=True)          # Erkannte Aktion (z.B. "analyze_audio")
+
+    # ── Feedback ──
+    rating = Column(Integer, nullable=False, default=0)  # 1=positiv, -1=negativ, 0=neutral
+    user_comment = Column(Text, nullable=True)           # Optionaler Kommentar
+
+    def __repr__(self):
+        return f"<AgentFeedback(id={self.id}, action='{self.action_name}', rating={self.rating})>"
+
+
 class StylePreset(Base):
     """Pacing Style-Preset (Techno, House, D&B etc.) mit Standard-Parametern."""
     __tablename__ = "style_presets"
@@ -831,6 +862,11 @@ def init_db():
     with engine.begin() as conn:
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_model_registry_source ON model_registry(source)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_model_registry_last_used ON model_registry(last_used_at)"))
+
+    # AUD-12: agent_feedback Index (AP-5 — Auto-Prompt-Optimization)
+    with engine.begin() as conn:
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_agent_feedback_rating ON agent_feedback(rating)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_agent_feedback_action ON agent_feedback(action_name)"))
 
     with nullpool_session() as session:
         if not session.query(Project).first():
