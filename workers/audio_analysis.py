@@ -99,25 +99,32 @@ class BaseAnalysisWorker(QObject, CancellableMixin):
 
 
 class KeyDetectionWorker(BaseAnalysisWorker):
-    """Background-Worker fuer Key-Erkennung (Krumhansl-Kessler)."""
+    """Background-Worker fuer Key-Erkennung (ML-Ensemble: KK + TKP, CENS + CQT)."""
 
     def _start_message(self) -> str:
-        return "Key-Erkennung gestartet..."
+        return "Key-Erkennung (ML-Ensemble) gestartet..."
 
     def _analyze(self):
         from services.key_detection_service import KeyDetectionService
         return KeyDetectionService().detect_key(self.file_path)
 
     def _done_message(self, result) -> str:
-        return f"Key erkannt: {result.key} ({result.camelot})"
+        n_mod = len(result.modulation_segments)
+        mod_info = f", {n_mod} Modulationen" if n_mod > 1 else ""
+        return f"Key erkannt: {result.key} ({result.camelot}), Confidence={result.confidence:.2f}{mod_info}"
 
     def _save_to_db(self, result) -> None:
+        import json
         from database import AudioTrack
         with self._get_session_context() as session:
             track = session.get(AudioTrack, self.audio_track_id)
             if track:
                 track.key = result.key
                 track.key_confidence = result.confidence
+                if result.modulation_segments:
+                    track.key_modulation_data = json.dumps(result.modulation_segments)
+                if result.harmonic_tension_curve:
+                    track.harmonic_tension_curve = json.dumps(result.harmonic_tension_curve)
                 session.commit()
 
     def _result_to_dict(self, result) -> dict:
@@ -126,6 +133,9 @@ class KeyDetectionWorker(BaseAnalysisWorker):
             "camelot": result.camelot,
             "confidence": result.confidence,
             "is_minor": result.is_minor,
+            "method": result.method,
+            "modulation_segments": result.modulation_segments,
+            "harmonic_tension_curve": result.harmonic_tension_curve,
         }
 
 

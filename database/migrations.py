@@ -130,6 +130,23 @@ def init_db():
             if "energy_per_beat" not in columns:
                 conn.execute(text("ALTER TABLE beatgrids ADD COLUMN energy_per_beat TEXT"))
 
+    # AUD-83: Onset Rhythm Intelligence — neue Beatgrid-Spalten nachrüsten
+    insp = inspect(get_raw_engine())
+    if "beatgrids" in insp.get_table_names():
+        columns = {c["name"] for c in insp.get_columns("beatgrids")}
+        with engine.begin() as conn:
+            for col_name, col_type in [
+                ("onset_kick_data", "TEXT"),
+                ("onset_snare_data", "TEXT"),
+                ("onset_hihat_data", "TEXT"),
+                ("syncopation_score", "FLOAT"),
+                ("groove_template", "TEXT"),
+            ]:
+                if col_name not in columns:
+                    conn.execute(
+                        text(f"ALTER TABLE beatgrids ADD COLUMN {col_name} {col_type}")
+                    )
+
     # Migration: source_start / source_end in timeline_entries nachrüsten
     insp = inspect(get_raw_engine())
     if "timeline_entries" in insp.get_table_names():
@@ -277,6 +294,16 @@ def init_db():
     with engine.begin() as conn:
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_agent_feedback_rating ON agent_feedback(rating)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_agent_feedback_action ON agent_feedback(action_name)"))
+
+    # AUD-84: ML Key Detection — Modulation + Tension Spalten nachrüsten
+    insp = inspect(get_raw_engine())
+    if "audio_tracks" in insp.get_table_names():
+        at_cols = {c["name"] for c in insp.get_columns("audio_tracks")}
+        with engine.begin() as conn:
+            if "key_modulation_data" not in at_cols:
+                conn.execute(text("ALTER TABLE audio_tracks ADD COLUMN key_modulation_data TEXT"))
+            if "harmonic_tension_curve" not in at_cols:
+                conn.execute(text("ALTER TABLE audio_tracks ADD COLUMN harmonic_tension_curve TEXT"))
 
     with nullpool_session() as session:
         if not session.query(Project).first():

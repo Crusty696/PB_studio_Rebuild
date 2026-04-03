@@ -21,6 +21,13 @@ CHROMA_HOP_LENGTH: int = 2048  # Groesser fuer stabilere Chroma-Features
 # -- Key Detection -----------------------------------------------------
 CONFIDENCE_EPSILON: float = 1e-9
 
+# -- Key Modulation Tracking -------------------------------------------
+MAX_DURATION_MODULATION: float = 600.0   # 10 Min fuer Modulation-Tracking
+MODULATION_WINDOW_SEC: float = 30.0      # Sliding-Window Breite
+MODULATION_HOP_SEC: float = 15.0         # Sliding-Window Schritt
+MIN_DURATION_MODULATION: float = 90.0    # Min. Tracklaenge fuer Modulation-Tracking
+TENSION_RESOLUTION_SEC: float = 2.0      # Tension-Curve Aufloesung (Sek/Wert)
+
 # -- LUFS --------------------------------------------------------------
 FFMPEG_TIMEOUT_SEC: int = 120
 MIN_LUFS_DB: float = -70.0   # Clamp fuer -inf
@@ -36,6 +43,9 @@ HIGH_RMS: float = 0.08
 MID_RMS: float = 0.05
 LOW_RMS: float = 0.03
 VERY_HIGH_RMS: float = 0.1
+
+# -- Sub-Genre Classification ------------------------------------------
+MIN_SUB_GENRE_SCORE: float = 0.45   # Min. Gesamt-Score fuer Sub-Genre-Zuweisung
 
 # -- DJ-Mix Detection --------------------------------------------------
 MIN_MIX_DURATION_SEC: float = 600.0    # < 10 Min = kein Mix
@@ -65,3 +75,32 @@ BREAKDOWN_LOW_THRESHOLD: float = 0.35
 BREAKDOWN_EXTEND_THRESHOLD: float = 0.45
 VERSE_CHORUS_SPLIT: float = 0.5
 MIN_SEGMENT_BEATS: int = 8
+
+# -- Multi-Feature Section Detection -----------------------------------
+BASS_FREQ_MAX_HZ: float = 250.0          # Bass band cutoff (Hz)
+SPECTRAL_CENTROID_HIGH: float = 0.65     # Normalized centroid → high-energy section
+SPECTRAL_CENTROID_LOW: float = 0.35      # Normalized centroid → calm section
+BEAT_REGULARITY_THRESHOLD: float = 0.12  # IBI std-dev threshold (regular = EDM drop)
+MULTI_FEATURE_BASS_DROP_THRESHOLD: float = 0.6   # Bass energy threshold for DROP label
+
+# -- Genre Detection (BPM-based) ---------------------------------------
+GENRE_PSYTRANCE_BPM_MIN: float = 138.0
+GENRE_PSYTRANCE_BPM_MAX: float = 150.0
+GENRE_TECHNO_BPM_MIN: float = 125.0
+GENRE_TECHNO_BPM_MAX: float = 145.0
+GENRE_HOUSE_BPM_MIN: float = 118.0
+GENRE_HOUSE_BPM_MAX: float = 132.0
+
+# -- DJ-Mix Transition Detection ---------------------------------------
+DJ_MIX_ENERGY_DIP_THRESHOLD: float = 0.25   # Normalized energy dip depth
+DJ_MIX_TRANSITION_MIN_GAP_SEC: float = 60.0  # Min seconds between transitions
+DJ_MIX_MIN_TRANSITIONS: int = 2              # Min transitions to classify as DJ mix
+
+# -- Mastering / EBU R128 Compliance -----------------------------------
+EBU_R128_BROADCAST_TARGET: float = -23.0   # LUFS, EBU R128 Broadcast-Standard
+EBU_R128_BROADCAST_TOLERANCE: float = 1.0  # ±1 LU (akzeptiert: -24 bis -22 LUFS)
+EBU_R128_STREAMING_MIN: float = -16.0      # Streaming untere Grenze (LUFS)
+EBU_R128_STREAMING_MAX: float = -9.0       # Streaming obere Grenze (LUFS)
+EBU_TRUE_PEAK_MAX: float = -1.0            # Maximaler True Peak (dBTP)
+CREST_FACTOR_COMPRESSED_DB: float = 8.0   # Darunter = stark komprimiert
+CREST_FACTOR_WIDE_DB: float = 15.0         # Darueber = weite Dynamik

@@ -55,6 +55,10 @@ class AudioTrack(Base):
     is_dj_mix = Column(Boolean, nullable=True, default=False)  # DJ-Mix erkannt?
     spectral_bands = Column(Text, nullable=True)        # JSON: 8-Band Frequenz-Energien
 
+    # AUD-84: ML Key Detection — Modulation + Tension
+    key_modulation_data = Column(Text, nullable=True)   # JSON: [{time, key, camelot, confidence}, ...]
+    harmonic_tension_curve = Column(Text, nullable=True)  # JSON: [float, ...] Dissonanz pro Zeitschritt
+
     project = relationship("Project", back_populates="audio_tracks")
     beatgrid = relationship("Beatgrid", back_populates="audio_track", uselist=False, cascade="all, delete-orphan", passive_deletes=True)
     waveform_data = relationship("WaveformData", back_populates="audio_track", uselist=False, cascade="all, delete-orphan", passive_deletes=True)
@@ -113,6 +117,13 @@ class Beatgrid(Base):
     beat_positions = Column(Text, nullable=True)
     downbeat_positions = Column(Text, nullable=True)   # Phase 3: JSON list of downbeat timestamps
     energy_per_beat = Column(Text, nullable=True)       # Phase 3: JSON list of RMS energy per beat [0.0-1.0]
+
+    # AUD-83: Onset Rhythm Intelligence (OnsetRhythmService)
+    onset_kick_data = Column(Text, nullable=True)    # JSON: [[time, strength], ...]
+    onset_snare_data = Column(Text, nullable=True)   # JSON: [[time, strength], ...]
+    onset_hihat_data = Column(Text, nullable=True)   # JSON: [[time, strength], ...]
+    syncopation_score = Column(Float, nullable=True) # 0.0 (gerade) – 1.0 (synkopiert)
+    groove_template = Column(Text, nullable=True)    # Gematchtes Template (z.B. "4on4_techno")
 
     audio_track = relationship("AudioTrack", back_populates="beatgrid")
 
