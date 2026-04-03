@@ -960,3 +960,36 @@ def compute_drum_onsets(
         len(onsets), min_strength,
     )
     return onsets
+
+
+def refine_cut_points_with_onsets(
+    audio_id: int,
+    cut_times: list[float],
+    window_sec: float = 0.08,
+    min_onset_strength: float = 0.4,
+) -> list[float]:
+    """AUD-83: Snappe Cut-Zeitpunkte auf gespeicherte Kick/Snare-Onsets.
+
+    Lädt die Onset-Daten aus der DB (vorher von OnsetRhythmService gespeichert)
+    und snapped jeden Cut auf den nächsten starken Onset innerhalb window_sec.
+    Cuts ohne nahen Onset bleiben unverändert.
+
+    Args:
+        audio_id: AudioTrack.id
+        cut_times: Beat-aligned Schnittpunkte
+        window_sec: Maximales Snap-Fenster (Standard 80ms)
+        min_onset_strength: Minimale Onset-Stärke für Snapping
+
+    Returns:
+        Verfeinerte Schnittpunkte (zeitlich sortiert, ohne Duplikate)
+    """
+    try:
+        from services.onset_rhythm_service import OnsetRhythmService
+        svc = OnsetRhythmService()
+        analysis = svc.load_from_db(audio_id)
+        if analysis is None:
+            return list(cut_times)
+        return svc.refine_cut_points(cut_times, analysis, window_sec, min_onset_strength)
+    except Exception as e:
+        logger.warning("refine_cut_points_with_onsets: Fehler — %s", e)
+        return list(cut_times)

@@ -391,6 +391,16 @@ class BeatAnalysisService:
             except Exception as e:
                 logger.warning("invalidate_pacing_caches() fehlgeschlagen: %s", e)
 
+            # AUD-83: Onset Rhythm Analysis (non-blocking, nach Beat-Analyse)
+            # Nutzt bereits geladenes Audio (y/sr wurden vor unload() entnommen).
+            # Fehler hier unterbrechen die Beat-Analyse NICHT.
+            try:
+                from services.onset_rhythm_service import OnsetRhythmService
+                onset_svc = OnsetRhythmService()
+                onset_svc.analyze_and_store(track_id, progress_cb=None)
+            except Exception as e:
+                logger.warning("OnsetRhythmService.analyze_and_store() fehlgeschlagen: %s", e)
+
         except Exception:
             # B-004 Fix: Falls analyze() crasht, _last_y freigeben um Memory Leak zu vermeiden
             self._last_y = None
