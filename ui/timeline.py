@@ -79,15 +79,18 @@ class TimelineClipItem(QGraphicsRectItem):
     # Video-Clips: Premium Gold / Amber
     VIDEO_COLOR = QColor(212, 164, 74, 210)
 
+    TRIM_ZONE = 6  # px from edge to activate trim handle
+
     def __init__(self, entry_id: int, media_id: int, track_type: str,
                  title: str, x: float, y: float, width: float, height: float,
-                 on_moved=None, has_waveform: bool = False,
+                 on_moved=None, on_trimmed=None, has_waveform: bool = False,
                  anchors: list | None = None):
         super().__init__(QRectF(0, 0, width, height))
         self.entry_id = entry_id
         self.media_id = media_id
         self.track_type = track_type
         self.on_moved = on_moved
+        self.on_trimmed = on_trimmed
         self._clip_width = width
         self._clip_height = height
 
@@ -95,11 +98,13 @@ class TimelineClipItem(QGraphicsRectItem):
         self.setFlag(QGraphicsRectItem.GraphicsItemFlag.ItemIsMovable, True)
         self.setFlag(QGraphicsRectItem.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(QGraphicsRectItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
+        self.setAcceptHoverEvents(True)
 
         if track_type == "audio":
             color = self.AUDIO_COLOR if has_waveform else self.AUDIO_COLOR_NO_WAVEFORM
         else:
             color = self.VIDEO_COLOR
+        self._base_color = color
         self.setBrush(QBrush(color))
         self.setPen(QPen(color.darker(120), 1))
         self.setZValue(2)  # Über der Wellenform
@@ -109,8 +114,26 @@ class TimelineClipItem(QGraphicsRectItem):
         label.setFont(QFont("Segoe UI Variable Text", 8, QFont.Weight.Bold))
         label.setPos(4, 2)
 
+        # Trim handle visuals (thin colored bars at edges)
+        trim_color = QColor(255, 255, 255, 100)
+        self._left_handle = QGraphicsRectItem(QRectF(0, 0, 3, height), self)
+        self._left_handle.setBrush(QBrush(trim_color))
+        self._left_handle.setPen(QPen(Qt.PenStyle.NoPen))
+        self._left_handle.setZValue(11)
+        self._left_handle.setVisible(False)
+        self._right_handle = QGraphicsRectItem(QRectF(width - 3, 0, 3, height), self)
+        self._right_handle.setBrush(QBrush(trim_color))
+        self._right_handle.setPen(QPen(Qt.PenStyle.NoPen))
+        self._right_handle.setZValue(11)
+        self._right_handle.setVisible(False)
+
         self._track_y = y
         self._drag_start_x: float | None = None  # Undo: alte Position vor Drag
+        self._trim_mode: str | None = None  # "left", "right", or None
+        self._trim_start_mouse_x: float = 0.0
+        self._trim_start_width: float = 0.0
+        self._trim_start_pos_x: float = 0.0
+
         self._anchor_markers: list[AnchorMarkerItem] = []
         if anchors is not None:
             self._apply_anchors(anchors)
@@ -202,7 +225,74 @@ class TimelineClipItem(QGraphicsRectItem):
 
         menu.exec(event.screenPos())
 
+    def _detect_trim_edge(self, local_x: float) -> str | None:
+        """Erkennt ob die Maus ueber einem Trim-Handle ist."""
+        if local_x <= self.TRIM_ZONE:
+            return "left"
+        if local_x >= self._clip_width - self.TRIM_ZONE:
+            return "right"
+        return None
+
+    def hoverMoveEvent(self, event):
+        """Cursor aendern wenn ueber Trim-Handle."""
+        edge = self._detect_trim_edge(event.pos().x())
+        if edge:
+            self.setCursor(Qt.CursorShape.SizeHorCursor)
+            self._left_handle.setVisible(edge == "left")
+            self._right_handle.setVisible(edge == "right")
+        else:
+            self.setCursor(Qt.CursorShape.ArrowCursor)
+            self._left_handle.setVisible(False)
+            self._right_handle.setVisible(False)
+        super().hoverMoveEvent(event)
+
+    def hoverLeaveEvent(self, event):
+        """Cursor zuruecksetzen."""
+        self.setCursor(Qt.CursorShape.ArrowCursor)
+        self._left_handle.setVisible(False)
+        self._right_handle.setVisible(False)
+        super().hoverLeaveEvent(event)
+
+    def mousePressEvent(self, event):
+        """Trim-Modus starten wenn auf Handle geklickt."""
+        if event.button() == Qt.MouseButton.LeftButton:
+            edge = self._detect_trim_edge(event.pos().x())
+            if edge:
+                self._trim_mode = edge
+                self._trim_start_mouse_x = event.scenePos().x()
+                self._trim_start_width = self._clip_width
+                self._trim_start_pos_x = self.pos().x()
+                self.setFlag(QGraphicsRectItem.GraphicsItemFlag.ItemIsMovable, False)
+                event.accept()
+                return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        """Trim-Handle ziehen: Clip-Groesse aendern."""
+        if self._trim_mode:
+            delta_x = event.scenePos().x() - self._trim_start_mouse_x
+            min_width = 10  # minimal 10px
+
+            if self._trim_mode == "right":
+                new_width = max(min_width, self._trim_start_width + delta_x)
+                self.setRect(QRectF(0, 0, new_width, self._clip_height))
+                self._clip_width = new_width
+                self._right_handle.setRect(QRectF(new_width - 3, 0, 3, self._clip_height))
+            elif self._trim_mode == "left":
+                max_delta = self._trim_start_width - min_width
+                clamped = max(-self._trim_start_pos_x, min(delta_x, max_delta))
+                new_width = self._trim_start_width - clamped
+                new_x = self._trim_start_pos_x + clamped
+                self.setRect(QRectF(0, 0, new_width, self._clip_height))
+                self._clip_width = new_width
+                self.setPos(new_x, self._track_y)
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
     def itemChange(self, change, value):
+        if self._trim_mode:
+            return super().itemChange(change, value)
         if change == QGraphicsRectItem.GraphicsItemChange.ItemPositionChange:
             # Drag-Start merken (erste Bewegung)
             if self._drag_start_x is None:
@@ -215,7 +305,23 @@ class TimelineClipItem(QGraphicsRectItem):
         return super().itemChange(change, value)
 
     def mouseReleaseEvent(self, event):
-        """Drag-Start zuruecksetzen nach Loslassen."""
+        """Drag-Start oder Trim beenden."""
+        if self._trim_mode:
+            self.setFlag(QGraphicsRectItem.GraphicsItemFlag.ItemIsMovable, True)
+            if self.on_trimmed:
+                self.on_trimmed(
+                    self.entry_id,
+                    self._trim_mode,
+                    self._trim_start_pos_x,
+                    self._trim_start_width,
+                    self.pos().x(),
+                    self._clip_width,
+                )
+            self._trim_mode = None
+            self._left_handle.setVisible(False)
+            self._right_handle.setVisible(False)
+            event.accept()
+            return
         super().mouseReleaseEvent(event)
         self._drag_start_x = None
 
@@ -226,6 +332,7 @@ class TimelineClipItem(QGraphicsRectItem):
 
 class InteractiveTimeline(QGraphicsView):
     clip_moved = Signal(int, float)
+    selection_changed = Signal(list)  # emits list of dicts with clip data
     _RULER_FONT = QFont("Segoe UI Variable Small", 7)  # refined font
 
     def __init__(self, console_log=None):
@@ -237,7 +344,8 @@ class InteractiveTimeline(QGraphicsView):
         self.setMinimumHeight(120)
         # Match BG0 and BG2 from Premium theme
         self.setStyleSheet("background-color: #0a0d12; border: 1px solid #161c26; border-radius: 8px;")
-        self.setDragMode(QGraphicsView.DragMode.NoDrag)
+        # Rubber-band selection on empty space, clip drag takes precedence on items
+        self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
         self.setAcceptDrops(True)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -272,11 +380,11 @@ class InteractiveTimeline(QGraphicsView):
         self._beat_times: list[float] = []
         self._snap_to_beat = True
         self._ruler_items: list = []
-        self._pending_move = None
+        self._pending_moves: dict[int, float] = {}  # entry_id -> new_start
         self._move_timer = QTimer(self)
         self._move_timer.setSingleShot(True)
         self._move_timer.setInterval(200)
-        self._move_timer.timeout.connect(self._flush_pending_move)
+        self._move_timer.timeout.connect(self._flush_pending_moves)
 
         self._total_duration: float = 0.0
         self._anchor_map: dict[int, list] = {}  # entry_id -> list[ClipAnchor]
@@ -285,6 +393,9 @@ class InteractiveTimeline(QGraphicsView):
         # Drop indicator (visual feedback during drag-over)
         self._drop_indicator: QGraphicsLineItem | None = None
         self._drop_ghost: QGraphicsRectItem | None = None
+
+        # Selection changed → inspector
+        self._scene.selectionChanged.connect(self._on_selection_changed)
 
         self._draw_track_backgrounds()
         self._draw_labels()
@@ -404,6 +515,7 @@ class InteractiveTimeline(QGraphicsView):
                     x=x, y=y,
                     width=width, height=TRACK_HEIGHT,
                     on_moved=self._on_clip_moved,
+                    on_trimmed=self._on_clip_trimmed,
                     has_waveform=has_waveform,
                     anchors=_anchor_map.get(entry.id, []),
                 )
@@ -462,7 +574,8 @@ class InteractiveTimeline(QGraphicsView):
         item = TimelineClipItem(
             entry_id=entry_id, media_id=media_id, track_type=track_type,
             title=title, x=x, y=y, width=width, height=TRACK_HEIGHT,
-            on_moved=self._on_clip_moved, has_waveform=has_waveform,
+            on_moved=self._on_clip_moved, on_trimmed=self._on_clip_trimmed,
+            has_waveform=has_waveform,
         )
         self._scene.addItem(item)
         self.clip_items.append(item)
@@ -561,52 +674,58 @@ class InteractiveTimeline(QGraphicsView):
         """Debounced: Sammelt Drag-Events und schreibt erst nach 200ms Ruhe in die DB."""
         snapped_x = self._snap_x_to_beat(max(0, new_x))
         new_start = max(0, snapped_x / PIXELS_PER_SECOND)
-        # Pending-Move merken, DB-Write per Timer debounced
-        self._pending_move = (entry_id, new_start)
+        self._pending_moves[entry_id] = new_start
         self._move_timer.start()
 
-    def _flush_pending_move(self):
-        """Schreibt den letzten Drag-Zustand in die DB (via UndoCommand)."""
-        if self._pending_move is None:
+    def _flush_pending_moves(self):
+        """Schreibt alle Drag-Zustaende in die DB (via UndoCommand, als Macro bei Multi-Select)."""
+        if not self._pending_moves:
             return
-        entry_id, new_start = self._pending_move
-        self._pending_move = None
-
-        # Alte Position aus DB lesen (oder aus Drag-Start)
-        clip_item = self._find_clip_item(entry_id)
-        drag_start_x = clip_item._drag_start_x if clip_item else None
+        moves = dict(self._pending_moves)
+        self._pending_moves.clear()
 
         from database import nullpool_session
-        with nullpool_session() as session:
-            entry = session.get(TimelineEntry, entry_id)
-            if not entry:
-                return
-            old_start = entry.start_time
-            old_end = entry.end_time
-
-            # Falls drag_start_x vorhanden, nutze diesen als echten Ausgangspunkt
-            if drag_start_x is not None:
-                old_start = max(0, drag_start_x / PIXELS_PER_SECOND)
-                if old_end is not None:
-                    duration = entry.end_time - entry.start_time
-                    old_end = round(old_start + duration, 3)
-
-            new_end = None
-            if entry.end_time is not None:
-                duration = entry.end_time - entry.start_time
-                new_end = round(new_start + duration, 3)
-
         from ui.undo_commands import MoveClipCommand
-        cmd = MoveClipCommand(
-            timeline=self,
-            entry_id=entry_id,
-            old_start=old_start,
-            old_end=old_end,
-            new_start=new_start,
-            new_end=new_end,
-        )
-        self.undo_stack.push(cmd)
-        self.clip_moved.emit(entry_id, new_start)
+
+        use_macro = len(moves) > 1
+        if use_macro:
+            self.undo_stack.beginMacro(f"{len(moves)} Clips verschieben")
+
+        for entry_id, new_start in moves.items():
+            clip_item = self._find_clip_item(entry_id)
+            drag_start_x = clip_item._drag_start_x if clip_item else None
+
+            with nullpool_session() as session:
+                entry = session.get(TimelineEntry, entry_id)
+                if not entry:
+                    continue
+                old_start = entry.start_time
+                old_end = entry.end_time
+
+                if drag_start_x is not None:
+                    old_start = max(0, drag_start_x / PIXELS_PER_SECOND)
+                    if old_end is not None:
+                        duration = entry.end_time - entry.start_time
+                        old_end = round(old_start + duration, 3)
+
+                new_end = None
+                if entry.end_time is not None:
+                    duration = entry.end_time - entry.start_time
+                    new_end = round(new_start + duration, 3)
+
+            cmd = MoveClipCommand(
+                timeline=self,
+                entry_id=entry_id,
+                old_start=old_start,
+                old_end=old_end,
+                new_start=new_start,
+                new_end=new_end,
+            )
+            self.undo_stack.push(cmd)
+            self.clip_moved.emit(entry_id, new_start)
+
+        if use_macro:
+            self.undo_stack.endMacro()
 
     def _find_clip_item(self, entry_id: int) -> TimelineClipItem | None:
         """Sucht ein TimelineClipItem anhand seiner entry_id."""
@@ -629,6 +748,81 @@ class InteractiveTimeline(QGraphicsView):
             self._scene.removeItem(item)
             self.clip_items.remove(item)
 
+    def _on_clip_trimmed(self, entry_id: int, edge: str,
+                         old_pos_x: float, old_width: float,
+                         new_pos_x: float, new_width: float):
+        """Callback nach Trim: DB-Update via UndoCommand."""
+        from database import nullpool_session
+        from ui.undo_commands import TrimClipCommand
+
+        with nullpool_session() as session:
+            entry = session.get(TimelineEntry, entry_id)
+            if not entry:
+                return
+            old_start = entry.start_time
+            old_end = entry.end_time
+            old_source_start = entry.source_start
+            old_source_end = entry.source_end
+
+        old_duration = old_width / PIXELS_PER_SECOND
+        new_duration = new_width / PIXELS_PER_SECOND
+
+        if edge == "right":
+            new_start = old_start
+            new_end = round(old_start + new_duration, 3)
+            new_source_start = old_source_start
+            new_source_end = (round((old_source_start or 0.0) + new_duration, 3)
+                              if old_source_end is not None else None)
+        else:  # left
+            delta = (new_pos_x - old_pos_x) / PIXELS_PER_SECOND
+            new_start = round(old_start + delta, 3)
+            new_end = old_end
+            new_source_start = round((old_source_start or 0.0) + delta, 3)
+            new_source_end = old_source_end
+
+        cmd = TrimClipCommand(
+            timeline=self,
+            entry_id=entry_id,
+            old_start=old_start,
+            old_end=old_end,
+            old_source_start=old_source_start,
+            old_source_end=old_source_end,
+            new_start=new_start,
+            new_end=new_end,
+            new_source_start=new_source_start,
+            new_source_end=new_source_end,
+        )
+        self.undo_stack.push(cmd)
+
+    def _sync_clip_after_trim(self, entry_id: int, start: float, end: float | None):
+        """Aktualisiert Position und Breite eines Clips nach Trim (fuer Undo/Redo)."""
+        item = self._find_clip_item(entry_id)
+        if not item:
+            return
+        new_x = start * PIXELS_PER_SECOND
+        duration = (end - start) if end is not None else item._clip_width / PIXELS_PER_SECOND
+        new_width = duration * PIXELS_PER_SECOND
+        item.setPos(new_x, item._track_y)
+        item.setRect(QRectF(0, 0, new_width, item._clip_height))
+        item._clip_width = new_width
+        # Update right trim handle position
+        item._right_handle.setRect(QRectF(new_width - 3, 0, 3, item._clip_height))
+
+    def _on_selection_changed(self):
+        """Emits selection_changed signal with selected clip data for inspector."""
+        selected = [item for item in self._scene.selectedItems()
+                    if isinstance(item, TimelineClipItem)]
+        clip_data = []
+        for item in selected:
+            clip_data.append({
+                "entry_id": item.entry_id,
+                "media_id": item.media_id,
+                "track_type": item.track_type,
+                "pos_x": item.pos().x(),
+                "width": item._clip_width,
+            })
+        self.selection_changed.emit(clip_data)
+
     def remove_selected_clips(self):
         """Entfernt alle ausgewaehlten Clips via UndoCommand."""
         selected = [item for item in self._scene.selectedItems()
@@ -636,9 +830,14 @@ class InteractiveTimeline(QGraphicsView):
         if not selected:
             return
         from ui.undo_commands import RemoveClipCommand
+        use_macro = len(selected) > 1
+        if use_macro:
+            self.undo_stack.beginMacro(f"{len(selected)} Clips entfernen")
         for clip_item in selected:
             cmd = RemoveClipCommand(timeline=self, entry_id=clip_item.entry_id)
             self.undo_stack.push(cmd)
+        if use_macro:
+            self.undo_stack.endMacro()
 
     def _update_scene_rect(self):
         r = self._scene.itemsBoundingRect()
@@ -663,6 +862,7 @@ class InteractiveTimeline(QGraphicsView):
                 (self._space_held and event.button() == Qt.MouseButton.LeftButton)):
             self._panning = True
             self._pan_start = event.position()
+            self.setDragMode(QGraphicsView.DragMode.NoDrag)
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
             event.accept()
             return
@@ -686,19 +886,21 @@ class InteractiveTimeline(QGraphicsView):
         if self._panning and (event.button() == Qt.MouseButton.MiddleButton or
                               event.button() == Qt.MouseButton.LeftButton):
             self._panning = False
+            self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
             self.setCursor(Qt.CursorShape.ArrowCursor)
             event.accept()
             return
         super().mouseReleaseEvent(event)
 
     def keyPressEvent(self, event):
-        """Space → Panning. M → Anker setzen. Delete → Clip entfernen."""
+        """Space → Panning. M → Anker setzen. Delete/Backspace → Clip entfernen."""
         if event.key() == Qt.Key.Key_Space and not event.isAutoRepeat():
             self._space_held = True
+            self.setDragMode(QGraphicsView.DragMode.NoDrag)
             self.setCursor(Qt.CursorShape.OpenHandCursor)
         elif event.key() == Qt.Key.Key_M and not event.isAutoRepeat():
             self._set_anchor_on_selected()
-        elif event.key() == Qt.Key.Key_Delete and not event.isAutoRepeat():
+        elif event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace) and not event.isAutoRepeat():
             self.remove_selected_clips()
         super().keyPressEvent(event)
 
@@ -707,6 +909,7 @@ class InteractiveTimeline(QGraphicsView):
         if event.key() == Qt.Key.Key_Space and not event.isAutoRepeat():
             self._space_held = False
             if not self._panning:
+                self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
                 self.setCursor(Qt.CursorShape.ArrowCursor)
         super().keyReleaseEvent(event)
 

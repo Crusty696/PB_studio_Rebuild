@@ -212,6 +212,58 @@ class RemoveClipCommand(QUndoCommand):
         )
 
 
+class TrimClipCommand(QUndoCommand):
+    """Trimmt einen Clip (In/Out Point verschieben)."""
+
+    def __init__(
+        self,
+        timeline: InteractiveTimeline,
+        entry_id: int,
+        old_start: float,
+        old_end: float | None,
+        old_source_start: float | None,
+        old_source_end: float | None,
+        new_start: float,
+        new_end: float | None,
+        new_source_start: float | None,
+        new_source_end: float | None,
+    ):
+        super().__init__(f"Clip {entry_id} trimmen")
+        self._timeline = timeline
+        self._entry_id = entry_id
+        self._old_start = old_start
+        self._old_end = old_end
+        self._old_source_start = old_source_start
+        self._old_source_end = old_source_end
+        self._new_start = new_start
+        self._new_end = new_end
+        self._new_source_start = new_source_start
+        self._new_source_end = new_source_end
+
+    def redo(self):
+        self._apply(self._new_start, self._new_end,
+                     self._new_source_start, self._new_source_end)
+
+    def undo(self):
+        self._apply(self._old_start, self._old_end,
+                     self._old_source_start, self._old_source_end)
+
+    def _apply(self, start: float, end: float | None,
+               source_start: float | None, source_end: float | None):
+        with nullpool_session() as session:
+            entry = session.get(TimelineEntry, self._entry_id)
+            if entry:
+                entry.start_time = round(start, 3)
+                if end is not None:
+                    entry.end_time = round(end, 3)
+                if source_start is not None:
+                    entry.source_start = round(source_start, 3)
+                if source_end is not None:
+                    entry.source_end = round(source_end, 3)
+                session.commit()
+        self._timeline._sync_clip_after_trim(self._entry_id, start, end)
+
+
 class ApplyAutoEditCommand(QUndoCommand):
     """Ersetzt alle Video-Segmente auf der Timeline (Auto-Edit Batch-Operation)."""
 

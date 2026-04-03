@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QSize
 
 from ui.timeline import InteractiveTimeline
+from ui.clip_inspector import ClipInspectorPanel
 from ui.widgets.pacing_curve import PacingCurveWidget
 from ui.widgets.video_preview import VideoPreviewWidget
 
@@ -354,9 +355,18 @@ class EditWorkspace(QWidget):
         btn_reset.clicked.connect(self.pacing_curve.reset_curve)
         bottom_layout.addWidget(self.pacing_curve)
 
+        # Timeline + Clip Inspector (nebeneinander)
+        timeline_row = QHBoxLayout()
+        timeline_row.setSpacing(4)
         self.timeline_view = InteractiveTimeline()
-        self.timeline_view.setToolTip("Timeline: Drag & Drop, Mausrad zum Zoomen")
-        bottom_layout.addWidget(self.timeline_view, stretch=1)
+        self.timeline_view.setToolTip("Timeline: Drag & Drop, Mausrad zum Zoomen, Rubber-Band Selection")
+        timeline_row.addWidget(self.timeline_view, stretch=1)
+
+        self.clip_inspector = ClipInspectorPanel()
+        self.timeline_view.selection_changed.connect(self.clip_inspector.update_from_selection)
+        timeline_row.addWidget(self.clip_inspector)
+
+        bottom_layout.addLayout(timeline_row, stretch=1)
 
         self.cut_info_label = QLabel("")
         self.cut_info_label.setStyleSheet("color: #6b7280; font-size: 10px; padding: 1px 4px;")
