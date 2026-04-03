@@ -62,6 +62,11 @@ from services.pacing_beat_grid import (
     detect_drops,
     section_to_crossfade,
     detect_transitions,
+    # F-010/F-011: Stem-Quality + Drum-Onset
+    StemSNR,
+    compute_stem_snr,
+    DrumOnset,
+    compute_drum_onsets,
 )
 
 from services.pacing_edit_helpers import (

@@ -783,3 +783,180 @@ def detect_transitions(
 
     logger.info("Transition-Detektion: %d DJ-Uebergaenge erkannt", len(transitions))
     return transitions
+
+
+# ======================================================================
+# F-010: Stem-Quality-Metriken (SNR per Stem)
+# F-011: Drum-Onset-Detection auf isoliertem Drums-Stem
+# ======================================================================
+
+@dataclass
+class StemSNR:
+    """SNR-Metriken (Signal-to-Noise Ratio in dB) fuer jeden Demucs-Stem.
+
+    Hoeherer Wert = sauberere Separation. Richtwerte:
+      > 20 dB: Exzellent (kaum Bleed-Through)
+      10-20 dB: Gut (typisch fuer htdemucs_ft)
+      < 10 dB: Schwach (viel Bleed-Through vom Originalmix)
+    """
+    drums: float
+    bass: float
+    vocals: float
+    other: float
+
+
+def compute_stem_snr(audio_id: int) -> StemSNR | None:
+    """F-010: Berechnet SNR-Qualitaetsmetrik fuer jeden Demucs-Stem.
+
+    Methode: SNR = 20 * log10(P90_rms / max(P10_rms, epsilon))
+      P90 = 90th Percentile der Frame-RMS → repraesentiert den Signal-Pegel
+      P10 = 10th Percentile der Frame-RMS → repraesentiert Rauschen / Bleed-Through
+
+    Nutzt _get_cached_stem_audio um wiederholtes librosa.load zu vermeiden.
+    Returns None wenn keine Stems vorhanden sind.
+    """
+    with Session(engine) as session:
+        track = session.get(AudioTrack, audio_id)
+        if not track:
+            return None
+        stem_paths = {
+            "drums": track.stem_drums_path,
+            "bass": track.stem_bass_path,
+            "vocals": track.stem_vocals_path,
+            "other": track.stem_other_path,
+        }
+
+    available = {k: v for k, v in stem_paths.items() if v and Path(v).exists()}
+    if not available:
+        logger.info("Keine Stems fuer SNR-Berechnung (audio_id=%d)", audio_id)
+        return None
+
+    try:
+        import librosa
+    except ImportError:
+        logger.warning("librosa nicht verfuegbar fuer SNR-Berechnung")
+        return None
+
+    def _snr_for_stem(stem_name: str, path: str) -> float:
+        try:
+            y, sr = _get_cached_stem_audio(audio_id, path, stem_name, sr=DEFAULT_SR)
+        except Exception as e:
+            logger.warning("Konnte Stem '%s' nicht laden fuer SNR: %s", path, e)
+            return 0.0
+        frame_rms = librosa.feature.rms(y=y, frame_length=2048, hop_length=512)[0]
+        if len(frame_rms) < 10:
+            return 0.0
+        p10 = float(np.percentile(frame_rms, 10))
+        p90 = float(np.percentile(frame_rms, 90))
+        snr_db = 20.0 * np.log10(max(p90, 1e-8) / max(p10, 1e-8))
+        return round(float(snr_db), 2)
+
+    snr_values: dict[str, float] = {}
+    for stem_name in ["drums", "bass", "vocals", "other"]:
+        if stem_name in available:
+            snr_values[stem_name] = _snr_for_stem(stem_name, available[stem_name])
+        else:
+            snr_values[stem_name] = 0.0
+
+    result = StemSNR(
+        drums=snr_values["drums"],
+        bass=snr_values["bass"],
+        vocals=snr_values["vocals"],
+        other=snr_values["other"],
+    )
+    logger.info(
+        "Stem-SNR: drums=%.1f dB, bass=%.1f dB, vocals=%.1f dB, other=%.1f dB",
+        result.drums, result.bass, result.vocals, result.other,
+    )
+    return result
+
+
+@dataclass
+class DrumOnset:
+    """Ein erkannter Drum-Onset (Kick, Snare, Clap) im isolierten Drums-Stem."""
+    time: float      # Onset-Zeitpunkt in Sekunden
+    strength: float  # Relative Staerke (0.0-1.0, normalisiert auf Track-Maximum)
+
+
+def compute_drum_onsets(
+    audio_id: int,
+    min_strength: float = 0.3,
+    max_onsets: int = 2000,
+) -> list[DrumOnset]:
+    """F-011: Praezise Drum-Onset-Detection auf dem isolierten Drums-Stem.
+
+    Nutzt librosa.onset.onset_detect auf dem Drums-Stem fuer sub-Beat-genaue
+    Erkennung von Kicks, Snares und Claps. Liefert praezisere Cut-Punkte
+    als das BPM-Grid allein — besonders wichtig in DROP-Sektionen.
+
+    Parameter:
+      min_strength: Onset-Staerke-Schwelle (0.0-1.0). Schwache Onsets werden
+                    ignoriert. Default 0.3 filtert Ghost-Notes heraus.
+      max_onsets:   Maximale Anzahl beibehaltener Onsets (nach Staerke sortiert).
+                    Begrenzt RAM-Verbrauch bei sehr langen DJ-Mixes.
+
+    Faellt auf leere Liste zurueck wenn kein Drums-Stem vorhanden.
+    Returns: Zeitlich sortierte Liste von DrumOnset-Objekten.
+    """
+    with Session(engine) as session:
+        track = session.get(AudioTrack, audio_id)
+        if not track or not track.stem_drums_path:
+            return []
+        drums_path = track.stem_drums_path
+
+    if not Path(drums_path).exists():
+        return []
+
+    try:
+        import librosa
+    except ImportError:
+        logger.warning("librosa nicht verfuegbar fuer Drum-Onset-Detection")
+        return []
+
+    try:
+        y, sr = _get_cached_stem_audio(audio_id, drums_path, "drums", sr=DEFAULT_SR)
+    except Exception as e:
+        logger.warning("Konnte Drums-Stem '%s' nicht laden: %s", drums_path, e)
+        return []
+
+    # Onset-Staerke-Funktion (kombiniert Flux + RMS — ideal fuer perkussive Signale)
+    onset_env = librosa.onset.onset_strength(y=y, sr=sr, hop_length=512)
+
+    # Onset-Frames bestimmen (backtrack=True snappe auf echten Peak-Frame)
+    onset_frames = librosa.onset.onset_detect(
+        onset_envelope=onset_env,
+        sr=sr,
+        hop_length=512,
+        backtrack=True,
+        units='frames',
+    )
+
+    if len(onset_frames) == 0:
+        return []
+
+    onset_times = librosa.frames_to_time(onset_frames, sr=sr, hop_length=512)
+
+    max_strength = float(np.max(onset_env))
+    if max_strength <= 0:
+        return []
+
+    onsets: list[DrumOnset] = []
+    for frame, time in zip(onset_frames, onset_times):
+        strength = float(onset_env[frame]) / max_strength if frame < len(onset_env) else 0.5
+        if strength >= min_strength:
+            onsets.append(DrumOnset(
+                time=round(float(time), 4),
+                strength=round(strength, 4),
+            ))
+
+    # Bei sehr langen Mixes: behalte nur die staerksten max_onsets
+    if len(onsets) > max_onsets:
+        onsets.sort(key=lambda o: o.strength, reverse=True)
+        onsets = onsets[:max_onsets]
+        onsets.sort(key=lambda o: o.time)
+
+    logger.info(
+        "Drum-Onsets erkannt: %d Onsets (min_strength=%.2f) auf Drums-Stem",
+        len(onsets), min_strength,
+    )
+    return onsets
