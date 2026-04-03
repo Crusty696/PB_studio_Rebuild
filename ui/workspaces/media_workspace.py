@@ -3,15 +3,59 @@
 Flip-switch design — VIDEO MODUS and AUDIO MODUS as two exclusive pages.
 """
 
+import json
+
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel,
     QLineEdit, QPushButton, QProgressBar, QTableWidget, QHeaderView,
     QSplitter, QStackedWidget, QFrame, QScrollArea, QSizePolicy,
 )
-from PySide6.QtCore import Qt, QRect
-from PySide6.QtGui import QPainter, QColor
+from PySide6.QtCore import Qt, QRect, QMimeData
+from PySide6.QtGui import QPainter, QColor, QDrag
 
 from services.stem_player import StemPlayer
+
+# MIME type for internal clip drag & drop
+CLIP_MIME_TYPE = "application/x-pb-studio-clip"
+
+
+class DraggablePoolTable(QTableWidget):
+    """QTableWidget that supports drag-start for Timeline Drag & Drop.
+
+    Encodes the selected row's media info as JSON in QMimeData.
+    """
+
+    def __init__(self, track_type: str, id_column: int = 1,
+                 title_column: int = 2, parent=None):
+        super().__init__(parent)
+        self._track_type = track_type  # "audio" or "video"
+        self._id_column = id_column
+        self._title_column = title_column
+        self.setDragEnabled(True)
+        self.setDragDropMode(QTableWidget.DragDropMode.DragOnly)
+
+    def startDrag(self, supportedActions):
+        row = self.currentRow()
+        if row < 0:
+            return
+        id_item = self.item(row, self._id_column)
+        title_item = self.item(row, self._title_column)
+        if not id_item or not id_item.text().isdigit():
+            return
+
+        payload = {
+            "track_type": self._track_type,
+            "media_id": int(id_item.text()),
+            "title": title_item.text() if title_item else f"#{id_item.text()}",
+        }
+
+        mime = QMimeData()
+        mime.setData(CLIP_MIME_TYPE, json.dumps(payload).encode("utf-8"))
+        mime.setText(payload["title"])
+
+        drag = QDrag(self)
+        drag.setMimeData(mime)
+        drag.exec(Qt.DropAction.CopyAction)
 
 _MODE_BTN_STYLE = """
     QPushButton {
@@ -362,8 +406,10 @@ class MediaWorkspace(QWidget):
         hdr_row.addWidget(self.btn_select_all_video)
         rl.addLayout(hdr_row)
 
-        # Video pool table
-        self.video_pool_table = QTableWidget()
+        # Video pool table (draggable to Timeline)
+        self.video_pool_table = DraggablePoolTable(
+            track_type="video", id_column=1, title_column=2,
+        )
         self.video_pool_table.setColumnCount(7)
         self.video_pool_table.setHorizontalHeaderLabels(
             ["Auswahl", "ID", "Titel", "Aufloesung", "FPS", "Codec", "Dateipfad"]
@@ -379,7 +425,7 @@ class MediaWorkspace(QWidget):
         )
         self.video_pool_table.setAlternatingRowColors(True)
         self.video_pool_table.setToolTip(
-            "Video Pool: Alle importierten Video-Dateien"
+            "Video Pool: Alle importierten Video-Dateien — per Drag & Drop auf Timeline ziehen"
         )
         vh = self.video_pool_table.horizontalHeader()
         vh.setStretchLastSection(True)
@@ -574,8 +620,10 @@ class MediaWorkspace(QWidget):
         hdr_row.addWidget(self.btn_select_all_audio)
         rl.addLayout(hdr_row)
 
-        # Audio pool table
-        self.audio_pool_table = QTableWidget()
+        # Audio pool table (draggable to Timeline)
+        self.audio_pool_table = DraggablePoolTable(
+            track_type="audio", id_column=1, title_column=2,
+        )
         self.audio_pool_table.setColumnCount(7)
         self.audio_pool_table.setHorizontalHeaderLabels(
             ["Auswahl", "ID", "Titel", "BPM", "Key", "Stems", "Dateipfad"]
@@ -588,7 +636,7 @@ class MediaWorkspace(QWidget):
         )
         self.audio_pool_table.setAlternatingRowColors(True)
         self.audio_pool_table.setToolTip(
-            "Audio Pool: Alle importierten Audio-Dateien"
+            "Audio Pool: Alle importierten Audio-Dateien — per Drag & Drop auf Timeline ziehen"
         )
         ah = self.audio_pool_table.horizontalHeader()
         ah.setStretchLastSection(True)

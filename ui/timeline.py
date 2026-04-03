@@ -1,6 +1,7 @@
 """Interactive Timeline with draggable clips, anchors, beat markers and zoom."""
 
 import bisect
+import json
 from collections import namedtuple
 from pathlib import Path
 
@@ -16,6 +17,9 @@ from sqlalchemy.orm import Session as DBSession
 from database import engine, AudioTrack, VideoClip, TimelineEntry, Beatgrid, ClipAnchor
 from services.pacing_service import CutPoint
 from ui.waveform_item import WaveformGraphicsItem
+
+# MIME type for internal clip drag & drop (must match media_workspace.py)
+CLIP_MIME_TYPE = "application/x-pb-studio-clip"
 
 _EntryStub = namedtuple("_EntryStub", ["start_time"])
 
@@ -234,6 +238,7 @@ class InteractiveTimeline(QGraphicsView):
         # Match BG0 and BG2 from Premium theme
         self.setStyleSheet("background-color: #0a0d12; border: 1px solid #161c26; border-radius: 8px;")
         self.setDragMode(QGraphicsView.DragMode.NoDrag)
+        self.setAcceptDrops(True)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
@@ -276,6 +281,10 @@ class InteractiveTimeline(QGraphicsView):
         self._total_duration: float = 0.0
         self._anchor_map: dict[int, list] = {}  # entry_id -> list[ClipAnchor]
         self._track_bg_items: list[QGraphicsRectItem] = []
+
+        # Drop indicator (visual feedback during drag-over)
+        self._drop_indicator: QGraphicsLineItem | None = None
+        self._drop_ghost: QGraphicsRectItem | None = None
 
         self._draw_track_backgrounds()
         self._draw_labels()
@@ -777,3 +786,141 @@ class InteractiveTimeline(QGraphicsView):
                 session.commit()
 
         return synced
+
+    # ==================================================================
+    # Drag & Drop — Accept clips from Media Pool
+    # ==================================================================
+
+    def _detect_track_from_y(self, scene_y: float) -> str | None:
+        """Detects which track lane the cursor is over."""
+        if AUDIO_TRACK_Y <= scene_y <= AUDIO_TRACK_Y + TRACK_HEIGHT:
+            return "audio"
+        if VIDEO_TRACK_Y <= scene_y <= VIDEO_TRACK_Y + TRACK_HEIGHT:
+            return "video"
+        # If between tracks or slightly off, snap to nearest
+        mid = (AUDIO_TRACK_Y + TRACK_HEIGHT + VIDEO_TRACK_Y) / 2
+        if scene_y < mid:
+            return "audio"
+        return "video"
+
+    def _clear_drop_indicator(self):
+        """Remove the drop-indicator line and ghost rectangle."""
+        if self._drop_indicator:
+            self._scene.removeItem(self._drop_indicator)
+            self._drop_indicator = None
+        if self._drop_ghost:
+            self._scene.removeItem(self._drop_ghost)
+            self._drop_ghost = None
+
+    def _show_drop_indicator(self, scene_pos: QPointF, track_type: str):
+        """Show a vertical line + translucent ghost rect at the drop position."""
+        self._clear_drop_indicator()
+
+        x = self._snap_x_to_beat(max(0, scene_pos.x()))
+        y = AUDIO_TRACK_Y if track_type == "audio" else VIDEO_TRACK_Y
+
+        # Vertical drop-position line (gold)
+        pen = QPen(QColor(212, 175, 55, 220), 2, Qt.PenStyle.DashLine)
+        self._drop_indicator = self._scene.addLine(
+            x, y, x, y + TRACK_HEIGHT, pen
+        )
+        self._drop_indicator.setZValue(20)
+
+        # Ghost rectangle showing approximate clip placement
+        ghost_w = 3 * PIXELS_PER_SECOND  # 3 seconds placeholder
+        ghost_color = (QColor(45, 85, 150, 60) if track_type == "audio"
+                       else QColor(212, 164, 74, 60))
+        self._drop_ghost = self._scene.addRect(
+            QRectF(x, y, ghost_w, TRACK_HEIGHT),
+            QPen(QColor(212, 175, 55, 140), 1, Qt.PenStyle.DashLine),
+            QBrush(ghost_color),
+        )
+        self._drop_ghost.setZValue(19)
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasFormat(CLIP_MIME_TYPE):
+            event.acceptProposedAction()
+        else:
+            super().dragEnterEvent(event)
+
+    def dragMoveEvent(self, event):
+        if not event.mimeData().hasFormat(CLIP_MIME_TYPE):
+            super().dragMoveEvent(event)
+            return
+        event.acceptProposedAction()
+
+        scene_pos = self.mapToScene(event.position().toPoint())
+        # Determine track from MIME data (preferred) or cursor Y
+        try:
+            payload = json.loads(
+                bytes(event.mimeData().data(CLIP_MIME_TYPE)).decode("utf-8")
+            )
+            track_type = payload.get("track_type", "video")
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            track_type = self._detect_track_from_y(scene_pos.y()) or "video"
+
+        self._show_drop_indicator(scene_pos, track_type)
+
+    def dragLeaveEvent(self, event):
+        self._clear_drop_indicator()
+        super().dragLeaveEvent(event)
+
+    def dropEvent(self, event):
+        if not event.mimeData().hasFormat(CLIP_MIME_TYPE):
+            super().dropEvent(event)
+            return
+
+        self._clear_drop_indicator()
+
+        try:
+            raw = bytes(event.mimeData().data(CLIP_MIME_TYPE)).decode("utf-8")
+            payload = json.loads(raw)
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            event.ignore()
+            return
+
+        track_type = payload.get("track_type", "video")
+        media_id = payload.get("media_id")
+        title = payload.get("title", "?")
+        if media_id is None:
+            event.ignore()
+            return
+
+        # Compute drop position (in seconds), snapped to beat
+        scene_pos = self.mapToScene(event.position().toPoint())
+        drop_x = self._snap_x_to_beat(max(0, scene_pos.x()))
+        start_time = drop_x / PIXELS_PER_SECOND
+
+        # Fetch duration from DB
+        with DBSession(engine) as session:
+            if track_type == "audio":
+                obj = session.get(AudioTrack, media_id)
+                duration = obj.duration if obj and obj.duration else 30.0
+            else:
+                obj = session.get(VideoClip, media_id)
+                duration = obj.duration if obj and obj.duration else 10.0
+
+        # Get active project
+        from database import get_active_project_id
+        project_id = get_active_project_id()
+
+        # Create clip via UndoCommand
+        from ui.undo_commands import AddClipCommand
+        cmd = AddClipCommand(
+            timeline=self,
+            project_id=project_id,
+            track_type=track_type,
+            media_id=media_id,
+            title=title,
+            start_time=start_time,
+            duration=duration,
+        )
+        self.undo_stack.push(cmd)
+
+        if self.console_log:
+            self.console_log(
+                f"[Timeline] {track_type.title()} '{title}' per Drag & Drop "
+                f"bei {start_time:.1f}s eingefuegt (Dauer: {duration:.1f}s)"
+            )
+
+        event.acceptProposedAction()
