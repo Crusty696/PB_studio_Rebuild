@@ -770,6 +770,190 @@ def _run_ffmpeg(cmd: list[str], timeout: int = 600, progress_cb=None,
         raise RuntimeError(f"FFmpeg fehlgeschlagen:\n{_sanitize_ffmpeg_error(stderr)}")
 
 
+def export_preview(project_id: int = 1, resolution: str = "1920x1080",
+                   fps: float = 30.0, duration_limit: float = 10.0,
+                   progress_cb=None) -> str:
+    """Rendert eine Vorschau der ersten N Sekunden der Timeline.
+
+    Identisch zu export_timeline(), aber begrenzt auf duration_limit Sekunden.
+    Gibt den Pfad zur temporaeren Preview-Datei zurueck.
+    """
+    _probe_cache.clear()
+    try:
+        w, h = resolution.split("x")
+    except ValueError:
+        raise ValueError(
+            f"Ungueltige Aufloesung: '{resolution}'. Erwartet: WIDTHxHEIGHT"
+        )
+
+    preview_dir = EXPORT_DIR / "previews"
+    preview_dir.mkdir(parents=True, exist_ok=True)
+    output_path = preview_dir / f"preview_{project_id}.mp4"
+
+    with Session(engine) as session:
+        entries = (
+            session.query(TimelineEntry)
+            .filter_by(project_id=project_id)
+            .order_by(TimelineEntry.start_time)
+            .all()
+        )
+        if not entries:
+            raise ValueError("Keine Timeline-Eintraege zum Vorschau-Rendern vorhanden")
+
+        video_entries = [e for e in entries if e.track == "video"]
+        audio_entries = [e for e in entries if e.track == "audio"]
+
+        _vid_ids = [ve.media_id for ve in video_entries]
+        _clips_by_id = (
+            {c.id: c for c in session.query(VideoClip).filter(
+                VideoClip.id.in_(_vid_ids)
+            ).all()}
+            if _vid_ids else {}
+        )
+
+        # Nur Segmente bis duration_limit aufnehmen
+        video_segments = []
+        for ve in video_entries:
+            if ve.start_time >= duration_limit:
+                break
+            clip = _clips_by_id.get(ve.media_id)
+            if not clip:
+                continue
+            source_start = ve.source_start or 0.0
+            source_end = ve.source_end
+            seg_duration = ve.end_time - ve.start_time if ve.end_time else (clip.duration or 10.0)
+            if source_end is not None and source_start is not None:
+                source_duration = source_end - source_start
+            else:
+                source_duration = seg_duration
+
+            # Clip ggf. am Preview-Limit abschneiden
+            end_time = ve.end_time or (ve.start_time + seg_duration)
+            if end_time > duration_limit:
+                trim = end_time - duration_limit
+                source_duration = max(0.1, source_duration - trim)
+                end_time = duration_limit
+
+            video_segments.append({
+                "path": clip.file_path,
+                "start": ve.start_time,
+                "end": end_time,
+                "duration": clip.duration or 10.0,
+                "source_start": source_start,
+                "source_duration": source_duration,
+                "crossfade": ve.crossfade_duration or 0.0,
+                "brightness": ve.brightness or 0.0,
+                "contrast": ve.contrast or 1.0,
+            })
+
+        audio_path = None
+        if audio_entries:
+            track = session.get(AudioTrack, audio_entries[0].media_id)
+            if track:
+                audio_path = track.file_path
+
+    if not video_segments:
+        raise ValueError("Keine Video-Clips auf der Timeline")
+
+    total_steps = 5 if audio_path else 4
+    has_effects = any(
+        seg["crossfade"] > 0 or seg["brightness"] != 0.0 or seg["contrast"] != 1.0
+        for seg in video_segments
+    )
+
+    if has_effects:
+        return _export_with_filtergraph(
+            video_segments, audio_path, output_path,
+            w, h, fps, progress_cb, total_steps
+        )
+    else:
+        return _export_optimized_concat(
+            video_segments, audio_path, output_path,
+            w, h, fps, progress_cb, total_steps
+        )
+
+
+def estimate_render_time(project_id: int = 1, resolution: str = "1920x1080",
+                         fps: float = 30.0) -> dict:
+    """Schaetzt die Renderzeit fuer den kompletten Timeline-Export.
+
+    Returns:
+        {
+            "estimated_seconds": float,
+            "estimated_label": str,       # z.B. "~2 Min 30 Sek"
+            "total_duration": float,      # Timeline-Dauer in Sekunden
+            "segment_count": int,
+            "has_effects": bool,
+            "preset_summary": str,        # z.B. "1920x1080 @ 30fps"
+        }
+    """
+    summary = get_timeline_summary(project_id)
+    total_dur = summary["estimated_duration"]
+    seg_count = summary["video_clips"]
+
+    if seg_count == 0 or total_dur <= 0:
+        return {
+            "estimated_seconds": 0.0,
+            "estimated_label": "Keine Clips",
+            "total_duration": 0.0,
+            "segment_count": 0,
+            "has_effects": False,
+            "preset_summary": f"{resolution} @ {fps:.0f}fps",
+        }
+
+    # Heuristik: Renderzeit basierend auf Segment-Anzahl, Aufloesung und Effekten
+    # Basis: ~0.5s pro Sekunde Video bei 1080p (H.264 fast preset)
+    try:
+        w, h = resolution.split("x")
+        pixel_factor = (int(w) * int(h)) / (1920 * 1080)
+    except (ValueError, ZeroDivisionError):
+        pixel_factor = 1.0
+
+    # Pruefen ob Effekte vorhanden sind (vereinfachte Pruefung via DB)
+    has_effects = False
+    with Session(engine) as session:
+        entries = (
+            session.query(TimelineEntry)
+            .filter_by(project_id=project_id, track="video")
+            .all()
+        )
+        has_effects = any(
+            (e.crossfade_duration or 0) > 0
+            or (e.brightness or 0) != 0
+            or (e.contrast or 1.0) != 1.0
+            for e in entries
+        )
+
+    base_time_per_sec = 0.5 * pixel_factor
+    if has_effects:
+        base_time_per_sec *= 1.8  # Filtergraph ~80% langsamer
+    # Overhead pro Segment (Preprocessing)
+    segment_overhead = seg_count * 0.3
+
+    estimated = total_dur * base_time_per_sec + segment_overhead
+
+    # Label formatieren
+    if estimated < 60:
+        label = f"~{estimated:.0f} Sek"
+    elif estimated < 3600:
+        mins = int(estimated // 60)
+        secs = int(estimated % 60)
+        label = f"~{mins} Min {secs} Sek"
+    else:
+        hours = int(estimated // 3600)
+        mins = int((estimated % 3600) // 60)
+        label = f"~{hours} Std {mins} Min"
+
+    return {
+        "estimated_seconds": round(estimated, 1),
+        "estimated_label": label,
+        "total_duration": total_dur,
+        "segment_count": seg_count,
+        "has_effects": has_effects,
+        "preset_summary": f"{resolution} @ {fps:.0f}fps",
+    }
+
+
 def get_timeline_summary(project_id: int = 1) -> dict:
     with Session(engine) as session:
         entries = (

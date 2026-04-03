@@ -10,7 +10,7 @@ from PySide6.QtCore import QObject, Signal
 from sqlalchemy.orm import Session as DBSession
 
 from database import engine, VideoClip
-from services.export_service import export_timeline
+from services.export_service import export_timeline, export_preview
 from services.ingest_service import ingest_audio, ingest_video
 from .base import CancellableMixin, format_user_error
 
@@ -44,6 +44,41 @@ class ExportWorker(QObject, CancellableMixin):
             _ok = True
         except Exception as e:
             logging.error("ExportWorker crashed: %s\n%s", e, traceback.format_exc())
+            self._errored = True
+            self.error.emit(format_user_error(e))
+        finally:
+            if not _ok and not self._errored:
+                self.finished.emit("")
+
+
+class PreviewExportWorker(QObject, CancellableMixin):
+    """Rendert eine Vorschau der ersten N Sekunden der Timeline."""
+    finished = Signal(str)
+    error = Signal(str)
+    progress = Signal(int, str)
+
+    def __init__(self, project_id: int, resolution: str = "1920x1080",
+                 fps: float = 30.0, duration_limit: float = 10.0):
+        super().__init__()
+        self.project_id = project_id
+        self.resolution = resolution
+        self.fps = fps
+        self.duration_limit = duration_limit
+
+    def run(self):
+        _ok = False
+        try:
+            path = export_preview(
+                project_id=self.project_id,
+                resolution=self.resolution,
+                fps=self.fps,
+                duration_limit=self.duration_limit,
+                progress_cb=lambda pct, msg: self.progress.emit(pct, msg),
+            )
+            self.finished.emit(path)
+            _ok = True
+        except Exception as e:
+            logging.error("PreviewExportWorker crashed: %s\n%s", e, traceback.format_exc())
             self._errored = True
             self.error.emit(format_user_error(e))
         finally:

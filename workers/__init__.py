@@ -14,6 +14,7 @@ _WORKER_MODULES = {
     "AutoDuckingWorker": ".audio",
     "TranscriptionWorker": ".audio",
     "ExportWorker": ".import_export",
+    "PreviewExportWorker": ".import_export",
     "FolderImportWorker": ".import_export",
     "BatchConvertWorker": ".import_export",
     "ProxyCreationWorker": ".import_export",

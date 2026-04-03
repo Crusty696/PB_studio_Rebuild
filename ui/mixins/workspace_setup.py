@@ -297,14 +297,29 @@ class WorkspaceSetupMixin:
         self.export_name_input = self._deliver_ws.export_name_input
         self.resolution_combo = self._deliver_ws.resolution_combo
         self.fps_combo = self._deliver_ws.fps_combo
+        self.preset_combo = self._deliver_ws.preset_combo
         self.btn_export = self._deliver_ws.btn_export
+        self.btn_preview = self._deliver_ws.btn_preview
         self.btn_refresh_production = self._deliver_ws.btn_refresh_production
         self.export_progress = self._deliver_ws.export_progress
         self.export_log = self._deliver_ws.export_log
+        self.render_estimate_label = self._deliver_ws.render_estimate_label
 
         # Wire DELIVER signals
         self.btn_export.clicked.connect(self._start_export)
+        self.btn_preview.clicked.connect(self._start_preview_export)
         self.btn_refresh_production.clicked.connect(self._refresh_production_info)
+        self.resolution_combo.currentIndexChanged.connect(
+            lambda: self._update_render_estimate()
+        )
+        self.fps_combo.currentIndexChanged.connect(
+            lambda: self._update_render_estimate()
+        )
+        self.preset_combo.currentIndexChanged.connect(
+            lambda: self._update_render_estimate()
+        )
+        self._deliver_ws.btn_preview_play.clicked.connect(self._play_preview)
+        self._deliver_ws.btn_preview_stop.clicked.connect(self._stop_preview)
 
     def _on_workspace_changed(self, index: int):
         """Workspace-Wechsel: Index setzen + workspace-spezifische Refresh-Logik."""
@@ -312,6 +327,9 @@ class WorkspaceSetupMixin:
         # CONVERT workspace (Index 3) — Effects-Combo mit Timeline-Clips befuellen
         if index == 3:
             self._refresh_effects_combos()
+        # DELIVER workspace (Index 4) — Renderzeit-Schaetzung aktualisieren
+        elif index == 4:
+            self._refresh_production_info()
 
     def _toggle_inspector(self):
         """Toggle inspector panel visibility."""
