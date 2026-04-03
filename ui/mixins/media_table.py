@@ -81,6 +81,12 @@ class MediaTableMixin:
             self.audio_pool_table.setItem(row, 5, QTableWidgetItem(item.get("stems", "-")))
             self.audio_pool_table.setItem(row, 6, QTableWidgetItem(item["file_path"]))
 
+        # Grid views (AUD-72) — update if they exist on self
+        if hasattr(self, "video_grid"):
+            self.video_grid.set_items(videos)
+        if hasattr(self, "audio_grid"):
+            self.audio_grid.set_items(audios)
+
         # Hidden proxy table — aus bereits geladenen Daten zusammenbauen
         media = [dict(m, type="Audio") for m in audios] + [dict(m, type="Video") for m in videos]
         self.media_table.setRowCount(len(media))

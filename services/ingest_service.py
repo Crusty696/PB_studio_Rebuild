@@ -222,6 +222,12 @@ def get_all_audio(project_id: int = 1, limit: int = 5000) -> list[dict]:
             result.append({
                 "id": t.id, "title": t.title, "file_path": t.file_path,
                 "type": "Audio", "bpm": t.bpm, "stems": stems,
+                # Extra fields for Grid View (AUD-72)
+                "key": t.key,
+                "mood": t.mood,
+                "genre": t.genre,
+                "duration": t.duration,
+                "energy_curve": t.energy_curve,
             })
         return result
 

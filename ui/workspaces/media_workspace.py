@@ -14,6 +14,7 @@ from PySide6.QtCore import Qt, QRect, QMimeData
 from PySide6.QtGui import QPainter, QColor, QDrag
 
 from services.stem_player import StemPlayer
+from ui.widgets.media_grid import MediaPoolGrid
 
 # MIME type for internal clip drag & drop
 CLIP_MIME_TYPE = "application/x-pb-studio-clip"
@@ -79,6 +80,25 @@ _MODE_BTN_STYLE = """
     }
 """
 
+
+_VIEW_TOGGLE_STYLE = """
+    QPushButton {
+        font-size: 13px;
+        background: #1a2030;
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 4px;
+        color: #6b7280;
+    }
+    QPushButton:checked {
+        background: rgba(212,164,74,0.15);
+        border: 1px solid #d4a44a;
+        color: #f0c866;
+    }
+    QPushButton:hover:!checked {
+        background: #222d40;
+        color: #e5e7eb;
+    }
+"""
 
 _CARD_STYLE = """
     QFrame {
@@ -404,6 +424,20 @@ class MediaWorkspace(QWidget):
         self.btn_select_all_video.setFixedSize(50, 22)
         self.btn_select_all_video.setToolTip("Alle Video-Checkboxen an-/abwaehlen")
         hdr_row.addWidget(self.btn_select_all_video)
+        # List / Grid view toggle
+        self.btn_video_list_view = QPushButton("☰")
+        self.btn_video_list_view.setCheckable(True)
+        self.btn_video_list_view.setChecked(True)
+        self.btn_video_list_view.setFixedSize(26, 22)
+        self.btn_video_list_view.setToolTip("Listen-Ansicht")
+        self.btn_video_list_view.setStyleSheet(_VIEW_TOGGLE_STYLE)
+        hdr_row.addWidget(self.btn_video_list_view)
+        self.btn_video_grid_view = QPushButton("⊞")
+        self.btn_video_grid_view.setCheckable(True)
+        self.btn_video_grid_view.setFixedSize(26, 22)
+        self.btn_video_grid_view.setToolTip("Kachel-Ansicht mit Thumbnails")
+        self.btn_video_grid_view.setStyleSheet(_VIEW_TOGGLE_STYLE)
+        hdr_row.addWidget(self.btn_video_grid_view)
         rl.addLayout(hdr_row)
 
         # Video pool table (draggable to Timeline)
@@ -437,7 +471,23 @@ class MediaWorkspace(QWidget):
         vh.resizeSection(4, 40)   # FPS
         vh.resizeSection(5, 60)   # Codec
         # Spalte 6 (Dateipfad) stretcht automatisch
-        rl.addWidget(self.video_pool_table)
+
+        # Grid view for video pool
+        self.video_grid = MediaPoolGrid(media_type="video")
+
+        # Stack: index 0 = list, index 1 = grid
+        self._video_pool_stack = QStackedWidget()
+        self._video_pool_stack.addWidget(self.video_pool_table)
+        self._video_pool_stack.addWidget(self.video_grid)
+        rl.addWidget(self._video_pool_stack)
+
+        # Wire toggle buttons (exclusive, manual)
+        self.btn_video_list_view.clicked.connect(
+            lambda: self._toggle_video_view(0)
+        )
+        self.btn_video_grid_view.clicked.connect(
+            lambda: self._toggle_video_view(1)
+        )
 
         # Delete row
         del_row = QHBoxLayout()
@@ -618,6 +668,20 @@ class MediaWorkspace(QWidget):
         self.btn_select_all_audio.setFixedSize(50, 22)
         self.btn_select_all_audio.setToolTip("Alle Audio-Checkboxen an-/abwaehlen")
         hdr_row.addWidget(self.btn_select_all_audio)
+        # List / Grid view toggle
+        self.btn_audio_list_view = QPushButton("☰")
+        self.btn_audio_list_view.setCheckable(True)
+        self.btn_audio_list_view.setChecked(True)
+        self.btn_audio_list_view.setFixedSize(26, 22)
+        self.btn_audio_list_view.setToolTip("Listen-Ansicht")
+        self.btn_audio_list_view.setStyleSheet(_VIEW_TOGGLE_STYLE)
+        hdr_row.addWidget(self.btn_audio_list_view)
+        self.btn_audio_grid_view = QPushButton("⊞")
+        self.btn_audio_grid_view.setCheckable(True)
+        self.btn_audio_grid_view.setFixedSize(26, 22)
+        self.btn_audio_grid_view.setToolTip("Kachel-Ansicht mit Wellenform")
+        self.btn_audio_grid_view.setStyleSheet(_VIEW_TOGGLE_STYLE)
+        hdr_row.addWidget(self.btn_audio_grid_view)
         rl.addLayout(hdr_row)
 
         # Audio pool table (draggable to Timeline)
@@ -648,7 +712,23 @@ class MediaWorkspace(QWidget):
         ah.resizeSection(4, 45)   # Key
         ah.resizeSection(5, 55)   # Stems
         # Spalte 6 (Dateipfad) stretcht automatisch
-        rl.addWidget(self.audio_pool_table, stretch=3)
+
+        # Grid view for audio pool
+        self.audio_grid = MediaPoolGrid(media_type="audio")
+
+        # Stack: index 0 = list, index 1 = grid
+        self._audio_pool_stack = QStackedWidget()
+        self._audio_pool_stack.addWidget(self.audio_pool_table)
+        self._audio_pool_stack.addWidget(self.audio_grid)
+        rl.addWidget(self._audio_pool_stack, stretch=3)
+
+        # Wire toggle buttons
+        self.btn_audio_list_view.clicked.connect(
+            lambda: self._toggle_audio_view(0)
+        )
+        self.btn_audio_grid_view.clicked.connect(
+            lambda: self._toggle_audio_view(1)
+        )
 
         # ── Audio Detail Cards ─────────────────────────────────
         self.audio_detail_container = QWidget()
@@ -804,9 +884,21 @@ class MediaWorkspace(QWidget):
         page_layout.addWidget(splitter)
         return page
 
-    # ── Slot ──────────────────────────────────────────────────
+    # ── Slots ─────────────────────────────────────────────────
     def _on_mode_toggled(self, checked: bool):
         self.mode_stack.setCurrentIndex(0 if checked else 1)
+
+    def _toggle_video_view(self, idx: int):
+        """Switch video pool between list (0) and grid (1) view."""
+        self._video_pool_stack.setCurrentIndex(idx)
+        self.btn_video_list_view.setChecked(idx == 0)
+        self.btn_video_grid_view.setChecked(idx == 1)
+
+    def _toggle_audio_view(self, idx: int):
+        """Switch audio pool between list (0) and grid (1) view."""
+        self._audio_pool_stack.setCurrentIndex(idx)
+        self.btn_audio_list_view.setChecked(idx == 0)
+        self.btn_audio_grid_view.setChecked(idx == 1)
 
     # ── Audio Detail Cards ─────────────────────────────────────
     def _update_audio_detail_cards(self, audio_track):
