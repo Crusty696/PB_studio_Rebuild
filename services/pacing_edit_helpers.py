@@ -4,6 +4,7 @@ Enthält:
 - Fortgeschrittene Cut-Beat-Auswahl (_compute_effective_step, _select_cut_beats_advanced)
 - Mindestdauer-Erzwingung (_enforce_minimum_durations)
 - Multi-dimensionales Clip-Fitness-Scoring (_precompute_mood_embeddings, _compute_clip_fitness)
+- Cross-Modal Audio-zu-Video Matching (CrossModalMatcher)
 - Clip-Matching (_match_video_for_segment, _match_video_by_motion)
 - Keyframe-String-Generator (generate_keyframe_string, generate_keyframe_strings_for_project)
 
@@ -14,6 +15,7 @@ um Test-Mocking via patch.object(svc, ...) zu unterstuetzen.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -310,6 +312,327 @@ SECTION_MOOD_QUERIES = {
     "VERSE":      ["moderate movement", "storytelling", "detail shots"],
 }
 
+# ======================================================================
+# AUD-82: Cross-Modal Audio-zu-Video Matching Engine
+# ======================================================================
+
+# Audio-Mood → Visual-Mood Mapping: Uebersetzt Audio-Eigenschaften in visuelle Praeferenzen
+AUDIO_MOOD_TO_VISUAL = {
+    "dark":        ["dark moody scene", "shadows", "low key lighting", "noir aesthetic"],
+    "energetic":   ["bright vibrant colors", "fast motion", "dynamic camera", "crowd energy"],
+    "melancholic": ["muted colors", "rain", "solitary figure", "desaturated tones"],
+    "aggressive":  ["harsh contrasts", "rapid cuts", "intense red", "strobe effects"],
+    "euphoric":    ["golden light", "sunrise", "celebration", "warm tones"],
+    "dreamy":      ["soft focus", "pastel colors", "flowing movement", "ethereal glow"],
+    "hypnotic":    ["repetitive patterns", "kaleidoscope", "geometric shapes", "tunnel vision"],
+    "minimal":     ["clean lines", "negative space", "monochrome", "abstract geometry"],
+}
+
+# Section-spezifische Clip-Strategien: Definiert visuelle Praeferenzen pro Section-Type
+SECTION_CLIP_STRATEGY = {
+    "DROP": {
+        "motion_range": (0.6, 1.0),   # Bevorzuge hohe Motion
+        "contrast_boost": True,         # Kontrast zum vorherigen Clip belohnen
+        "prefer_short_scenes": True,    # Kurze, impactvolle Szenen
+        "energy_weight": 0.50,          # Energie-Match hoeher gewichtet
+        "mood_weight": 0.20,
+        "coherence_weight": 0.05,       # Bewusst niedrig — Impact > Kontinuitaet
+        "freshness_weight": 0.15,
+        "duration_weight": 0.10,
+    },
+    "BREAKDOWN": {
+        "motion_range": (0.0, 0.35),   # Ruhige, langsame Clips
+        "contrast_boost": False,
+        "prefer_short_scenes": False,   # Laengere, atmosphaerische Szenen
+        "energy_weight": 0.20,
+        "mood_weight": 0.35,            # Stimmung wichtiger als Energie
+        "coherence_weight": 0.25,       # Sanfte Uebergaenge
+        "freshness_weight": 0.10,
+        "duration_weight": 0.10,
+    },
+    "BUILDUP": {
+        "motion_range": (0.3, 0.8),    # Steigend — Start ruhig, Ende dynamisch
+        "contrast_boost": False,
+        "prefer_short_scenes": False,
+        "energy_weight": 0.35,
+        "mood_weight": 0.25,
+        "coherence_weight": 0.20,       # Visueller Aufbau braucht Kontinuitaet
+        "freshness_weight": 0.10,
+        "duration_weight": 0.10,
+    },
+    "WARMUP": {
+        "motion_range": (0.05, 0.4),
+        "contrast_boost": False,
+        "prefer_short_scenes": False,
+        "energy_weight": 0.20,
+        "mood_weight": 0.30,
+        "coherence_weight": 0.25,
+        "freshness_weight": 0.10,
+        "duration_weight": 0.15,
+    },
+    "COOLDOWN": {
+        "motion_range": (0.0, 0.3),
+        "contrast_boost": False,
+        "prefer_short_scenes": False,
+        "energy_weight": 0.15,
+        "mood_weight": 0.35,
+        "coherence_weight": 0.30,       # Sanftes Ausklingen
+        "freshness_weight": 0.10,
+        "duration_weight": 0.10,
+    },
+    "CHORUS": {
+        "motion_range": (0.4, 0.9),
+        "contrast_boost": False,
+        "prefer_short_scenes": True,
+        "energy_weight": 0.40,
+        "mood_weight": 0.25,
+        "coherence_weight": 0.15,
+        "freshness_weight": 0.10,
+        "duration_weight": 0.10,
+    },
+    "VERSE": {
+        "motion_range": (0.2, 0.6),
+        "contrast_boost": False,
+        "prefer_short_scenes": False,
+        "energy_weight": 0.25,
+        "mood_weight": 0.30,
+        "coherence_weight": 0.20,
+        "freshness_weight": 0.10,
+        "duration_weight": 0.15,
+    },
+    "TRANSITION": {
+        "motion_range": (0.2, 0.7),
+        "contrast_boost": False,
+        "prefer_short_scenes": False,
+        "energy_weight": 0.25,
+        "mood_weight": 0.25,
+        "coherence_weight": 0.25,
+        "freshness_weight": 0.15,
+        "duration_weight": 0.10,
+    },
+}
+
+_DEFAULT_STRATEGY = SECTION_CLIP_STRATEGY["TRANSITION"]
+
+
+@dataclass
+class AudioContext:
+    """Kompakter Audio-Kontext fuer Cross-Modal Matching."""
+    bpm: float = 120.0
+    mood: str = ""
+    genre: str = ""
+    key: str = ""
+    avg_energy: float = 0.5
+    drum_ratio: float = 0.4       # Drum-Energie / Gesamt (0-1)
+    bass_ratio: float = 0.3       # Bass-Energie / Gesamt (0-1)
+    vocal_ratio: float = 0.1      # Vocal-Energie / Gesamt (0-1)
+
+
+class CrossModalMatcher:
+    """Cross-Modal Audio-zu-Video Matching Engine (AUD-82).
+
+    Verbindet Audio-Analyse mit Video-Selektion:
+    - Audio-Mood → visuelle Stimmungs-Praeferenz (dark audio → dark visuals)
+    - Stem-gewichtete Energie → Motion-Korrelation (RAFT)
+    - Section-spezifische Clip-Strategien (Breakdown → ruhig, Drop → dynamisch)
+    - Temporal Coherence via Sliding Window
+    """
+
+    def __init__(
+        self,
+        audio_ctx: AudioContext,
+        mood_embeddings: dict[str, np.ndarray] | None = None,
+    ):
+        self.audio_ctx = audio_ctx
+        self._mood_embeddings = mood_embeddings or {}
+        self._audio_mood_embedding: np.ndarray | None = None
+        self._recent_selections: list[dict] = []  # Sliding window fuer Temporal Coherence
+        self._selection_window = 5  # Letzte N Clips fuer Glaettung
+
+    def compute_audio_mood_embedding(self) -> np.ndarray | None:
+        """Berechnet ein Audio-Mood-Embedding basierend auf Audio-Metadaten.
+
+        Nutzt mood/genre/BPM/stem-Verhaeltnisse um visuelle Stimmungs-Queries zu generieren,
+        dann SigLIP Text-Encoder fuer ein gewichtetes Embedding.
+        """
+        if self._audio_mood_embedding is not None:
+            return self._audio_mood_embedding
+
+        # Visuelle Queries aus Audio-Mood ableiten
+        mood_queries = AUDIO_MOOD_TO_VISUAL.get(self.audio_ctx.mood, [])
+
+        # BPM-basierte Stimmungs-Erweiterung
+        if self.audio_ctx.bpm >= 140:
+            mood_queries = mood_queries + ["high energy", "fast paced", "intense"]
+        elif self.audio_ctx.bpm <= 90:
+            mood_queries = mood_queries + ["slow movement", "ambient", "contemplative"]
+
+        # Stem-basierte Erweiterung
+        if self.audio_ctx.drum_ratio > 0.5:
+            mood_queries = mood_queries + ["rhythmic motion", "percussion visual"]
+        if self.audio_ctx.bass_ratio > 0.4:
+            mood_queries = mood_queries + ["deep tones", "dark atmosphere", "sub bass visual"]
+        if self.audio_ctx.vocal_ratio > 0.25:
+            mood_queries = mood_queries + ["human presence", "portrait", "face close-up"]
+
+        if not mood_queries:
+            return None
+
+        try:
+            from services.video_analysis_service import texts_to_embeddings_batch
+            embeddings = texts_to_embeddings_batch(mood_queries)
+            if not embeddings:
+                return None
+
+            emb_list = list(embeddings.values())
+            mean_emb = np.mean(emb_list, axis=0).astype(np.float32)
+            mean_emb /= np.linalg.norm(mean_emb) + 1e-8
+            self._audio_mood_embedding = mean_emb
+            logger.info("Audio-Mood-Embedding berechnet (%d Queries, mood=%s, bpm=%.0f)",
+                        len(mood_queries), self.audio_ctx.mood, self.audio_ctx.bpm)
+            return mean_emb
+        except Exception as e:
+            logger.warning("Audio-Mood-Embedding fehlgeschlagen: %s", e)
+            return None
+
+    def get_section_strategy(self, section_type: str) -> dict:
+        """Gibt die Clip-Selektionsstrategie fuer einen Section-Type zurueck."""
+        return SECTION_CLIP_STRATEGY.get(section_type, _DEFAULT_STRATEGY)
+
+    def compute_motion_target(
+        self,
+        section_type: str,
+        section_progress: float,
+        energy_value: float,
+    ) -> float:
+        """Berechnet den Ziel-Motion-Score basierend auf Section + Audio-Energie.
+
+        BUILDUP: Motion steigt mit section_progress (visueller Aufbau).
+        DROP: Hohe Motion, leicht moduliert durch Audio-Energie.
+        BREAKDOWN: Niedrige Motion, Fokus auf Atmosphaere.
+        """
+        strategy = self.get_section_strategy(section_type)
+        lo, hi = strategy["motion_range"]
+
+        if section_type == "BUILDUP":
+            # Exponentieller Anstieg: Start bei lo, Ende bei hi
+            t = section_progress ** 1.5
+            base_target = lo + t * (hi - lo)
+        elif section_type == "DROP":
+            # Hohe Motion, Audio-Energie moduliert leicht
+            base_target = lo + energy_value * (hi - lo)
+        elif section_type in ("BREAKDOWN", "COOLDOWN", "WARMUP"):
+            # Niedrige Motion, wenig Einfluss von Energie
+            base_target = lo + energy_value * 0.3 * (hi - lo)
+        else:
+            # Standard: Linear nach Energie
+            base_target = lo + energy_value * (hi - lo)
+
+        # Stem-gewichtete Modulation: Drums treiben Motion hoch, Vocals daempfen
+        drum_boost = (self.audio_ctx.drum_ratio - 0.3) * 0.2  # [-0.06, +0.14]
+        vocal_dampen = (self.audio_ctx.vocal_ratio - 0.1) * -0.15  # [-0.06, +0.015]
+        base_target = np.clip(base_target + drum_boost + vocal_dampen, 0.0, 1.0)
+
+        return float(base_target)
+
+    def compute_cross_modal_fitness(
+        self,
+        clip_idx: int,
+        section_type: str,
+        section_progress: float,
+        energy_value: float,
+        motion_score: float,
+        scene_duration: float,
+        segment_duration: float,
+        prev_clip_idx: int | None,
+        clip_embeddings: np.ndarray,
+        used_recently: list[int],
+        fitness_matrix: dict[tuple, float],
+    ) -> float:
+        """Cross-Modal Fitness-Score mit section-spezifischer Gewichtung.
+
+        Ersetzt die festen Gewichte aus _compute_clip_fitness durch dynamische,
+        section-abhaengige Gewichte + Audio-Mood-Korrelation + Temporal Coherence.
+        """
+        strategy = self.get_section_strategy(section_type)
+
+        # 1. Energy-Motion-Match (RAFT-korreliert)
+        motion_target = self.compute_motion_target(section_type, section_progress, energy_value)
+        # Gausssche Aehnlichkeit statt linearem Abstand — bestraft Abweichungen staerker
+        motion_diff = motion_score - motion_target
+        energy_match = float(np.exp(-2.0 * motion_diff ** 2))
+
+        # 2. Mood-Match: Blende Section-Mood mit Audio-Mood
+        section_mood = fitness_matrix.get((clip_idx, section_type), 0.5)
+        audio_mood_score = 0.5
+        if self._audio_mood_embedding is not None and clip_embeddings.shape[0] > clip_idx:
+            clip_emb = clip_embeddings[clip_idx]
+            norm = np.linalg.norm(clip_emb) + 1e-8
+            audio_mood_score = float(np.dot(clip_emb / norm, self._audio_mood_embedding))
+        # Mische: 60% Section-Mood, 40% Audio-Mood
+        mood_match = section_mood * 0.6 + audio_mood_score * 0.4
+
+        # 3. Visual Coherence mit Temporal Smoothing
+        visual_coherence = 0.5
+        if prev_clip_idx is not None and clip_embeddings.shape[0] > 0:
+            if prev_clip_idx < clip_embeddings.shape[0] and clip_idx < clip_embeddings.shape[0]:
+                a = clip_embeddings[prev_clip_idx]
+                b = clip_embeddings[clip_idx]
+                sim = float(np.dot(a, b) / ((np.linalg.norm(a) + 1e-8) * (np.linalg.norm(b) + 1e-8)))
+                if strategy["contrast_boost"]:
+                    visual_coherence = 1.0 - sim  # DROP: Kontrast = Impact
+                else:
+                    visual_coherence = sim
+
+        # Temporal Coherence: Glaettung ueber letzte N Selektionen
+        if self._recent_selections and not strategy["contrast_boost"]:
+            recent_motions = [s["motion"] for s in self._recent_selections[-self._selection_window:]]
+            avg_recent_motion = np.mean(recent_motions)
+            # Bestrafe ploetzliche Motion-Spruenge (ausser bei DROP)
+            motion_jump = abs(motion_score - avg_recent_motion)
+            coherence_penalty = float(np.exp(-3.0 * motion_jump ** 2))
+            visual_coherence = visual_coherence * 0.7 + coherence_penalty * 0.3
+
+        # 4. Freshness
+        if clip_idx in used_recently[-3:]:
+            freshness = 0.0
+        elif clip_idx in used_recently[-5:]:
+            freshness = 0.3
+        else:
+            freshness = 1.0
+
+        # 5. Duration-Fit
+        if segment_duration > 0:
+            ratio = min(scene_duration, segment_duration) / max(scene_duration, segment_duration)
+            duration_fit = ratio
+            # Strategie-Praeferenz: Kurze Szenen fuer DROPs
+            if strategy["prefer_short_scenes"] and scene_duration < segment_duration * 0.8:
+                duration_fit = min(1.0, duration_fit + 0.2)
+        else:
+            duration_fit = 0.5
+
+        # Section-spezifische Gewichtung
+        score = (
+            strategy["energy_weight"] * energy_match
+            + strategy["mood_weight"] * mood_match
+            + strategy["coherence_weight"] * visual_coherence
+            + strategy["freshness_weight"] * freshness
+            + strategy["duration_weight"] * duration_fit
+        )
+
+        return float(score)
+
+    def record_selection(self, clip_idx: int, motion_score: float, section_type: str) -> None:
+        """Registriert eine Clip-Selektion fuer Temporal Coherence Tracking."""
+        self._recent_selections.append({
+            "clip_idx": clip_idx,
+            "motion": motion_score,
+            "section": section_type,
+        })
+        # Begrenze auf 2x Fenstergroesse
+        if len(self._recent_selections) > self._selection_window * 2:
+            self._recent_selections = self._recent_selections[-self._selection_window * 2:]
+
 
 def _precompute_mood_embeddings() -> dict[str, np.ndarray]:
     """Berechnet SigLIP Text-Embeddings fuer alle Section-Mood-Queries.
@@ -491,10 +814,13 @@ def _match_video_for_segment(
     clip_embeddings: np.ndarray | None = None,
     clip_metadata: list[dict] | None = None,
     prev_clip_idx: int | None = None,
+    cross_modal_matcher: CrossModalMatcher | None = None,
+    section_progress: float = 0.0,
 ) -> tuple[int, float, int | None]:
     """Waehlt den besten Video-Clip fuer ein Segment.
 
     Phase 3: Multi-dimensionales Fitness-Scoring mit SigLIP Mood-Matching.
+    AUD-82: Cross-Modal Matching wenn CrossModalMatcher verfuegbar.
     Fallback: Motion-Score Matching wenn keine Embeddings verfuegbar.
 
     Returns: (video_id, source_start, clip_idx_in_matrix)
@@ -516,7 +842,7 @@ def _match_video_for_segment(
         if pref_motion is not None:
             energy_value = energy_value * 0.6 + pref_motion * 0.4
 
-    # Phase 3: Multi-dimensionales Fitness-Scoring
+    # Phase 3 + AUD-82: Multi-dimensionales Fitness-Scoring
     if fitness_matrix and clip_metadata and clip_embeddings is not None and clip_embeddings.shape[0] > 0:
         # Mapping: video_path → video_id
         path_to_vid: dict[str, int] = {}
@@ -527,6 +853,7 @@ def _match_video_for_segment(
         best_vid = -1
         best_source_start = 0.0
         best_clip_idx = None
+        best_motion = 0.5
 
         for clip_idx, meta in enumerate(clip_metadata):
             vid = path_to_vid.get(meta["video_path"])
@@ -536,26 +863,46 @@ def _match_video_for_segment(
             scene_duration = meta["scene_end"] - meta["scene_start"]
             motion = meta.get("motion_score", 0.5)
 
-            score = _compute_clip_fitness(
-                clip_idx=clip_idx,
-                section_type=section_type,
-                energy_value=energy_value,
-                motion_score=motion,
-                scene_duration=scene_duration,
-                segment_duration=seg_duration,
-                prev_clip_idx=prev_clip_idx,
-                clip_embeddings=clip_embeddings,
-                used_recently=used_recently,
-                fitness_matrix=fitness_matrix,
-            )
+            # AUD-82: Cross-Modal Scoring wenn Matcher verfuegbar
+            if cross_modal_matcher is not None:
+                score = cross_modal_matcher.compute_cross_modal_fitness(
+                    clip_idx=clip_idx,
+                    section_type=section_type,
+                    section_progress=section_progress,
+                    energy_value=energy_value,
+                    motion_score=motion,
+                    scene_duration=scene_duration,
+                    segment_duration=seg_duration,
+                    prev_clip_idx=prev_clip_idx,
+                    clip_embeddings=clip_embeddings,
+                    used_recently=used_recently,
+                    fitness_matrix=fitness_matrix,
+                )
+            else:
+                score = _compute_clip_fitness(
+                    clip_idx=clip_idx,
+                    section_type=section_type,
+                    energy_value=energy_value,
+                    motion_score=motion,
+                    scene_duration=scene_duration,
+                    segment_duration=seg_duration,
+                    prev_clip_idx=prev_clip_idx,
+                    clip_embeddings=clip_embeddings,
+                    used_recently=used_recently,
+                    fitness_matrix=fitness_matrix,
+                )
 
             if score > best_score:
                 best_score = score
                 best_vid = vid
                 best_source_start = meta["scene_start"]
                 best_clip_idx = clip_idx
+                best_motion = motion
 
         if best_vid != -1:
+            # AUD-82: Selektion im Matcher registrieren fuer Temporal Coherence
+            if cross_modal_matcher is not None and best_clip_idx is not None:
+                cross_modal_matcher.record_selection(best_clip_idx, best_motion, section_type)
             return best_vid, best_source_start, best_clip_idx
 
     # Fallback: Vibe-Keyword Suche

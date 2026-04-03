@@ -26,6 +26,8 @@ class LUFSResult:
     short_term_max: float   # Short-Term Maximum (z.B. -5.1)
     loudness_range: float   # LRA in LU (z.B. 12.3)
     true_peak: float        # True Peak in dBTP (z.B. -0.3)
+    broadcast_compliant: bool = False  # EBU R128 Broadcast-Standard (-23 LUFS ±1 LU)
+    streaming_compliant: bool = False  # Streaming-konform (-16 bis -9 LUFS, TP ≤ -1 dBTP)
 
 
 def _parse_loudnorm_json(stderr: str) -> dict | None:
@@ -195,9 +197,13 @@ class LUFSService:
             file_path: Pfad zur Audio-Datei (fuer Logging)
 
         Returns:
-            LUFSResult mit gerundeten Werten
+            LUFSResult mit gerundeten Werten und EBU R128 Compliance-Status
         """
-        from services.audio_constants import ST_MAX_HEADROOM_DB
+        from services.audio_constants import (
+            ST_MAX_HEADROOM_DB,
+            EBU_R128_BROADCAST_TARGET, EBU_R128_BROADCAST_TOLERANCE,
+            EBU_R128_STREAMING_MIN, EBU_R128_STREAMING_MAX, EBU_TRUE_PEAK_MAX,
+        )
 
         integrated = _safe_float(data.get("input_i"), -14.0)
         loudness_range = _safe_float(data.get("input_lra"), 8.0)
@@ -212,9 +218,23 @@ class LUFSService:
         short_term_max = integrated + (loudness_range * 0.8)
         short_term_max = min(short_term_max, true_peak + ST_MAX_HEADROOM_DB)
 
+        # EBU R128 Compliance-Pruefung
+        broadcast_compliant = (
+            EBU_R128_BROADCAST_TARGET - EBU_R128_BROADCAST_TOLERANCE
+            <= integrated
+            <= EBU_R128_BROADCAST_TARGET + EBU_R128_BROADCAST_TOLERANCE
+            and true_peak <= EBU_TRUE_PEAK_MAX
+        )
+        streaming_compliant = (
+            EBU_R128_STREAMING_MIN <= integrated <= EBU_R128_STREAMING_MAX
+            and true_peak <= EBU_TRUE_PEAK_MAX
+        )
+
         log.info(
-            "LUFS-Analyse: integrated=%.1f, LRA=%.1f, TP=%.1f, ST_max=%.1f — %s",
-            integrated, loudness_range, true_peak, short_term_max, file_path,
+            "LUFS-Analyse: integrated=%.1f, LRA=%.1f, TP=%.1f, ST_max=%.1f, "
+            "broadcast=%s, streaming=%s — %s",
+            integrated, loudness_range, true_peak, short_term_max,
+            broadcast_compliant, streaming_compliant, file_path,
         )
 
         return LUFSResult(
@@ -222,4 +242,6 @@ class LUFSService:
             short_term_max=round(short_term_max, 2),
             loudness_range=round(loudness_range, 2),
             true_peak=round(true_peak, 2),
+            broadcast_compliant=broadcast_compliant,
+            streaming_compliant=streaming_compliant,
         )

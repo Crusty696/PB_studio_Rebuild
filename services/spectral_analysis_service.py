@@ -35,6 +35,18 @@ FREQUENCY_BANDS = [
     ("Air", 12000, 20000),
 ]
 
+# Band-Indizes fuer zielgerichtete Event-Erkennung
+SUB_BASS_BAND_IDX: int = 0    # "Sub Bass" (20-60Hz)
+BRILLIANCE_BAND_IDX: int = 6  # "Brilliance" (6-12kHz)
+
+# Genre-Referenz-Spektralkurven (normalisiert 0-1, 8 Baender)
+# Reihenfolge: Sub Bass, Bass, Low Mid, Mid, Upper Mid, Presence, Brilliance, Air
+GENRE_REFERENCE_CURVES: dict[str, list[float]] = {
+    "psytrance": [0.85, 0.75, 0.45, 0.70, 0.60, 0.55, 0.45, 0.20],
+    "techno":    [0.80, 0.85, 0.55, 0.60, 0.45, 0.35, 0.25, 0.10],
+    "house":     [0.70, 0.80, 0.65, 0.70, 0.55, 0.50, 0.35, 0.20],
+}
+
 
 @dataclass
 class SpectralBand:
@@ -61,6 +73,57 @@ class SpectralResult:
     events: list[SpectralEvent] = field(default_factory=list)
     dominant_band: str = ""
     spectral_centroid_mean: float = 0.0
+
+
+@dataclass
+class TemporalBandEnergy:
+    """Band-Energie fuer ein 1-Sekunden-Fenster."""
+    time_sec: float
+    band_energies: dict[str, float]  # band_name -> normalisierte Energie 0-1
+
+
+@dataclass
+class TimbralEvolution:
+    """Zeitliche Entwicklung der Klangfarbe (1-Sekunden-Hops)."""
+    times_sec: list[float]
+    spectral_centroids: list[float]   # Spektraler Schwerpunkt in Hz pro Sekunde
+    brightness_curve: list[float]     # Energie >3kHz / Gesamt (0-1) pro Sekunde
+    bass_treble_ratio: list[float]    # (Sub+Bass) / (Presence+Brilliance+Air)
+    spectral_flux: list[float]        # Energie-Differenz zum vorherigen Fenster
+
+
+@dataclass
+class GenreSpectralMatch:
+    """Vergleich mit Genre-Referenz-Spektralkurve (Kosinus-Aehnlichkeit)."""
+    genre: str
+    similarity: float                  # 0-1 (1.0 = perfekte Uebereinstimmung)
+    band_deviations: dict[str, float]  # band_name -> Abweichung von Referenz (-1 bis 1)
+
+
+@dataclass
+class DynamicRangeInfo:
+    """Dynamik-Kennzahlen aus dem Audiosignal."""
+    crest_factor_db: float    # Peak/RMS in dB (hoeher = mehr Dynamik)
+    dynamic_class: str        # "compressed" (<8dB), "moderate" (8-15dB), "wide" (>15dB)
+    peak_level: float         # Linearer Spitzenpegel (0-1+)
+    rms_level: float          # Linearer RMS-Pegel
+
+
+@dataclass
+class MasteringReport:
+    """Mastering-Grade Analyse-Bericht fuer ein Audio-File."""
+    spectral: SpectralResult
+    temporal_bands: list[TemporalBandEnergy]
+    timbral_evolution: TimbralEvolution
+    ebu_r128_integrated: float    # Integrated LUFS
+    ebu_r128_lra: float           # Loudness Range in LU
+    ebu_r128_true_peak: float     # True Peak in dBTP
+    broadcast_compliant: bool     # EBU R128 Broadcast-Standard (-23 LUFS ±1 LU)
+    streaming_compliant: bool     # Streaming-konform (-16 bis -9 LUFS, TP ≤ -1 dBTP)
+    dynamic_range: DynamicRangeInfo
+    genre_matches: list[GenreSpectralMatch]  # Sortiert nach Aehnlichkeit absteigend
+    best_genre_match: str         # Top-Genre
+    recommendations: list[str]   # Mastering-Empfehlungen auf Deutsch
 
 
 class SpectralAnalysisService:
@@ -363,3 +426,543 @@ class SpectralAnalysisService:
         """Konvertiert SpectralResult in JSON für DB-Speicherung."""
         import json
         return json.dumps([{"name": b.name, "energy": b.energy} for b in result.bands])
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Mastering-Grade Analyse (AUD-80)
+    # ──────────────────────────────────────────────────────────────────────────
+
+    def analyze_extended(
+        self,
+        file_path: str,
+        bpm: float | None = None,
+        lufs_integrated: float = -14.0,
+        lufs_lra: float = 8.0,
+        lufs_true_peak: float = -1.0,
+    ) -> MasteringReport:
+        """Mastering-Grade Analyse: temporale Bänder, Timbral-Evolution, EBU-Compliance.
+
+        Args:
+            file_path: Pfad zur Audio-Datei
+            bpm: Bekannter BPM-Wert (optional)
+            lufs_integrated: Integrated LUFS aus LUFSService.analyze()
+            lufs_lra: Loudness Range in LU aus LUFSService.analyze()
+            lufs_true_peak: True Peak in dBTP aus LUFSService.analyze()
+
+        Returns:
+            MasteringReport mit allen Mastering-Kennzahlen
+        """
+        from services.audio_constants import (
+            DEFAULT_SR, N_FFT, HOP_LENGTH, MAX_DURATION_SPECTRAL,
+            EBU_R128_BROADCAST_TARGET, EBU_R128_BROADCAST_TOLERANCE,
+            EBU_R128_STREAMING_MIN, EBU_R128_STREAMING_MAX, EBU_TRUE_PEAK_MAX,
+        )
+
+        # 1. Standard-Analyse (Bänder, Events, Centroid)
+        spectral = self.analyze(file_path, bpm)
+
+        if not _HAS_LIBROSA or not _HAS_NUMPY:
+            return MasteringReport(
+                spectral=spectral,
+                temporal_bands=[],
+                timbral_evolution=TimbralEvolution([], [], [], [], []),
+                ebu_r128_integrated=lufs_integrated,
+                ebu_r128_lra=lufs_lra,
+                ebu_r128_true_peak=lufs_true_peak,
+                broadcast_compliant=False,
+                streaming_compliant=False,
+                dynamic_range=DynamicRangeInfo(0.0, "unknown", 0.0, 0.0),
+                genre_matches=[],
+                best_genre_match="unknown",
+                recommendations=["librosa/numpy nicht verfuegbar — erweiterte Analyse uebersprungen."],
+            )
+
+        try:
+            y, sr = librosa.load(file_path, sr=DEFAULT_SR, mono=True, duration=MAX_DURATION_SPECTRAL)
+            if len(y) == 0:
+                raise ValueError("Audio-Datei ist leer")
+
+            stft_matrix = librosa.stft(y, n_fft=N_FFT, hop_length=HOP_LENGTH)
+            power_spec = np.abs(stft_matrix) ** 2
+
+            # 2. Temporale Band-Energien (1s Hops)
+            temporal_bands = self._compute_temporal_bands(power_spec, sr, HOP_LENGTH, N_FFT)
+
+            # 3. Timbral Evolution (Centroid, Brightness, Bass/Treble, Flux)
+            timbral_evo = self._compute_timbral_evolution(power_spec, sr, HOP_LENGTH, N_FFT)
+
+            # 4. Dynamik-Kennzahlen (Crest Factor)
+            dynamic_range = self._compute_crest_factor(y)
+
+            # 5. Band-spezifische Event-Erkennung (Sub-Bass + Brilliance)
+            band_events = self._detect_events_band_specific(
+                power_spec, sr, HOP_LENGTH, N_FFT, bpm, len(y) / sr
+            )
+            if band_events:
+                spectral.events = band_events
+
+            # 6. Genre-Referenz-Matching (Kosinus-Aehnlichkeit)
+            genre_matches = self._match_genre_references(spectral.bands)
+            best_genre = genre_matches[0].genre if genre_matches else "unknown"
+
+            # 7. EBU R128 Compliance
+            broadcast_compliant = (
+                EBU_R128_BROADCAST_TARGET - EBU_R128_BROADCAST_TOLERANCE
+                <= lufs_integrated
+                <= EBU_R128_BROADCAST_TARGET + EBU_R128_BROADCAST_TOLERANCE
+                and lufs_true_peak <= EBU_TRUE_PEAK_MAX
+            )
+            streaming_compliant = (
+                EBU_R128_STREAMING_MIN <= lufs_integrated <= EBU_R128_STREAMING_MAX
+                and lufs_true_peak <= EBU_TRUE_PEAK_MAX
+            )
+
+            # 8. Mastering-Empfehlungen
+            recommendations = self._generate_recommendations(
+                spectral, dynamic_range, genre_matches,
+                broadcast_compliant, streaming_compliant,
+                lufs_integrated, lufs_true_peak, lufs_lra,
+            )
+
+            log.info(
+                "Mastering-Report: genre=%s, crest=%.1fdB, broadcast=%s, streaming=%s, %d events",
+                best_genre, dynamic_range.crest_factor_db,
+                broadcast_compliant, streaming_compliant, len(spectral.events),
+            )
+
+            return MasteringReport(
+                spectral=spectral,
+                temporal_bands=temporal_bands,
+                timbral_evolution=timbral_evo,
+                ebu_r128_integrated=lufs_integrated,
+                ebu_r128_lra=lufs_lra,
+                ebu_r128_true_peak=lufs_true_peak,
+                broadcast_compliant=broadcast_compliant,
+                streaming_compliant=streaming_compliant,
+                dynamic_range=dynamic_range,
+                genre_matches=genre_matches,
+                best_genre_match=best_genre,
+                recommendations=recommendations,
+            )
+
+        except Exception as e:
+            log.exception("Fehler bei erweiterter Mastering-Analyse von %s", file_path)
+            log.warning("analyze_extended(): fallback MasteringReport wegen: %s", e)
+            return MasteringReport(
+                spectral=spectral,
+                temporal_bands=[],
+                timbral_evolution=TimbralEvolution([], [], [], [], []),
+                ebu_r128_integrated=lufs_integrated,
+                ebu_r128_lra=lufs_lra,
+                ebu_r128_true_peak=lufs_true_peak,
+                broadcast_compliant=False,
+                streaming_compliant=False,
+                dynamic_range=DynamicRangeInfo(0.0, "unknown", 0.0, 0.0),
+                genre_matches=[],
+                best_genre_match="unknown",
+                recommendations=[f"Analyse-Fehler: {e}"],
+            )
+
+    def _compute_temporal_bands(
+        self, power_spec, sr: int, hop_length: int, n_fft: int
+    ) -> list[TemporalBandEnergy]:
+        """Berechnet Band-Energie pro 1-Sekunden-Fenster (8 Baender).
+
+        Gibt eine zeitliche Band-Matrix zurueck, die den Spektral-Verlauf
+        des Tracks in 1s-Aufloesung zeigt (Timbral Evolution Tracking).
+        """
+        frames_per_sec = max(1, int(sr / hop_length))
+        n_frames = power_spec.shape[1]
+        n_seconds = n_frames // frames_per_sec
+        nyquist = sr / 2.0
+        result: list[TemporalBandEnergy] = []
+
+        for s in range(n_seconds):
+            start = s * frames_per_sec
+            end = min(start + frames_per_sec, n_frames)
+            window = power_spec[:, start:end]
+
+            raw: list[float] = []
+            band_energies: dict[str, float] = {}
+            for name, freq_low, freq_high in FREQUENCY_BANDS:
+                fh = min(freq_high, nyquist)
+                if fh <= freq_low:
+                    raw.append(0.0)
+                    band_energies[name] = 0.0
+                    continue
+                bl = max(0, int(freq_low * n_fft / sr))
+                bh = min(window.shape[0], max(bl + 1, int(fh * n_fft / sr)))
+                e = float(np.mean(window[bl:bh, :]))
+                raw.append(e)
+                band_energies[name] = e
+
+            max_e = max(raw) if raw else 1.0
+            if max_e > 0:
+                band_energies = {k: round(v / max_e, 4) for k, v in band_energies.items()}
+
+            result.append(TemporalBandEnergy(time_sec=float(s), band_energies=band_energies))
+
+        return result
+
+    def _compute_timbral_evolution(
+        self, power_spec, sr: int, hop_length: int, n_fft: int
+    ) -> TimbralEvolution:
+        """Berechnet zeitliche Klangfarben-Kennzahlen (1s Hops).
+
+        Tracks:
+        - Spektraler Schwerpunkt (Hz) — wo liegt das Energie-Gewicht
+        - Brightness — Energie-Anteil oberhalb 3 kHz
+        - Bass/Treble-Ratio — Wärme vs. Luftigkeit
+        - Spectral Flux — Wie schnell aendert sich das Spektrum
+        """
+        frames_per_sec = max(1, int(sr / hop_length))
+        n_frames = power_spec.shape[1]
+        n_seconds = n_frames // frames_per_sec
+
+        # Frequenzachse in Hz pro FFT-Bin
+        freqs = np.fft.rfftfreq(n_fft, d=1.0 / sr)[:power_spec.shape[0]]
+        freq_3khz_bin = min(power_spec.shape[0] - 1, int(3000 * n_fft / sr))
+        bass_bin_high = min(power_spec.shape[0], int(250 * n_fft / sr))   # Sub+Bass ≤ 250Hz
+        treble_bin_low = min(power_spec.shape[0], int(4000 * n_fft / sr)) # Presence+ ≥ 4kHz
+
+        times: list[float] = []
+        centroids: list[float] = []
+        brightness: list[float] = []
+        bass_treble: list[float] = []
+        flux: list[float] = []
+        prev_mean_power = None
+
+        for s in range(n_seconds):
+            start = s * frames_per_sec
+            end = min(start + frames_per_sec, n_frames)
+            window = power_spec[:, start:end]
+            mean_power = np.mean(window, axis=1)   # (n_bins,)
+            total = float(np.sum(mean_power)) + 1e-10
+
+            centroid_hz = float(np.dot(freqs, mean_power) / total)
+            brightness_val = float(np.sum(mean_power[freq_3khz_bin:])) / total
+            bass_power = float(np.sum(mean_power[:bass_bin_high]))
+            treble_power = float(np.sum(mean_power[treble_bin_low:])) + 1e-10
+            bt_ratio = min(10.0, bass_power / treble_power)
+
+            if prev_mean_power is not None:
+                flux_val = float(np.mean((mean_power - prev_mean_power) ** 2))
+            else:
+                flux_val = 0.0
+            prev_mean_power = mean_power
+
+            times.append(float(s))
+            centroids.append(round(centroid_hz, 1))
+            brightness.append(round(min(1.0, brightness_val), 4))
+            bass_treble.append(round(bt_ratio, 4))
+            flux.append(round(flux_val, 8))
+
+        return TimbralEvolution(
+            times_sec=times,
+            spectral_centroids=centroids,
+            brightness_curve=brightness,
+            bass_treble_ratio=bass_treble,
+            spectral_flux=flux,
+        )
+
+    def _compute_crest_factor(self, y) -> DynamicRangeInfo:
+        """Berechnet Crest Factor (Peak/RMS) als Mastering-Dynamik-Indikator.
+
+        Niedrig (<8dB): Stark komprimiert / hyperkomprimierter DJ-Master.
+        Mittel (8-15dB): Typisches EDM-Mastering.
+        Hoch (>15dB): Weite Dynamik, klingt gut aber pruefen auf Streaming.
+        """
+        from services.audio_constants import CREST_FACTOR_COMPRESSED_DB, CREST_FACTOR_WIDE_DB
+
+        if not _HAS_NUMPY or len(y) == 0:
+            return DynamicRangeInfo(0.0, "unknown", 0.0, 0.0)
+
+        peak = float(np.max(np.abs(y)))
+        rms = float(np.sqrt(np.mean(y.astype(np.float64) ** 2)))
+
+        if rms < 1e-10:
+            return DynamicRangeInfo(0.0, "silent", round(peak, 4), 0.0)
+
+        crest_db = float(20.0 * np.log10(peak / rms))
+
+        if crest_db < CREST_FACTOR_COMPRESSED_DB:
+            dyn_class = "compressed"
+        elif crest_db > CREST_FACTOR_WIDE_DB:
+            dyn_class = "wide"
+        else:
+            dyn_class = "moderate"
+
+        return DynamicRangeInfo(
+            crest_factor_db=round(crest_db, 2),
+            dynamic_class=dyn_class,
+            peak_level=round(peak, 4),
+            rms_level=round(rms, 6),
+        )
+
+    def _detect_events_band_specific(
+        self,
+        power_spec,
+        sr: int,
+        hop_length: int,
+        n_fft: int,
+        bpm: float | None,
+        duration_sec: float,
+    ) -> list[SpectralEvent]:
+        """Praezisere Event-Erkennung via Sub-Bass (Drops) und Brilliance (Buildups).
+
+        Sub-Bass-Surge → Drop: Kick kommt rein (typisch EDM-Drop-Moment)
+        Brilliance-Anstieg → Buildup: Filter oeffnet nach oben (Sweep)
+        Sub-Bass-Einbruch → Breakdown: Kick wird herausgenommen
+        """
+        from services.audio_constants import (
+            DROP_ENERGY_RATIO, BUILDUP_MIN_WINDOWS, BUILDUP_MIN_RISE,
+            BUILDUP_MAX_START_ENERGY, BUILDUP_JITTER_TOLERANCE,
+            BREAKDOWN_MIN_PREV_ENERGY, BREAKDOWN_DROP_RATIO,
+        )
+
+        if not _HAS_NUMPY:
+            return []
+
+        frames_per_sec = max(1, int(sr / hop_length))
+        n_frames = power_spec.shape[1]
+        n_seconds = n_frames // frames_per_sec
+
+        if n_seconds < 4:
+            return []
+
+        nyquist = sr / 2.0
+
+        def _band_bins(freq_low: float, freq_high: float) -> tuple[int, int]:
+            fh = min(freq_high, nyquist)
+            if fh <= freq_low:
+                return 0, 1
+            bl = max(0, int(freq_low * n_fft / sr))
+            bh = min(power_spec.shape[0], max(bl + 1, int(fh * n_fft / sr)))
+            return bl, bh
+
+        _, sb_low, sb_high = FREQUENCY_BANDS[SUB_BASS_BAND_IDX]
+        _, br_low, br_high = FREQUENCY_BANDS[BRILLIANCE_BAND_IDX]
+        sb_bl, sb_bh = _band_bins(sb_low, sb_high)
+        br_bl, br_bh = _band_bins(br_low, br_high)
+
+        sub_bass_e: list[float] = []
+        brilliance_e: list[float] = []
+
+        for s in range(n_seconds):
+            start = s * frames_per_sec
+            end = min(start + frames_per_sec, n_frames)
+            w = power_spec[:, start:end]
+            sub_bass_e.append(float(np.mean(w[sb_bl:sb_bh, :])))
+            brilliance_e.append(float(np.mean(w[br_bl:br_bh, :])))
+
+        sub_bass_n = np.array(sub_bass_e) / (max(sub_bass_e) + 1e-10)
+        brilliance_n = np.array(brilliance_e) / (max(brilliance_e) + 1e-10)
+
+        events: list[SpectralEvent] = []
+        min_buildup_sec = max(4, BUILDUP_MIN_WINDOWS // 2)
+
+        # Sub-Bass Drops (Kick kommt rein)
+        for t in range(1, n_seconds):
+            prev_sb = sub_bass_n[t - 1]
+            curr_sb = sub_bass_n[t]
+            if prev_sb > 0.01 and curr_sb / (prev_sb + 1e-10) > DROP_ENERGY_RATIO:
+                delta = float(curr_sb - prev_sb)
+                confidence = min(1.0, (curr_sb / (prev_sb + 1e-10) - 1.0) / 3.0)
+                events.append(SpectralEvent(
+                    time=round(float(t), 2),
+                    event_type="drop",
+                    energy_delta=round(delta, 4),
+                    confidence=round(confidence, 3),
+                ))
+
+        # Brilliance Buildups (Filter-Sweep nach oben)
+        i = 0
+        while i < n_seconds - min_buildup_sec:
+            if brilliance_n[i] > BUILDUP_MAX_START_ENERGY:
+                i += 1
+                continue
+            rise_len = 0
+            for j in range(i + 1, n_seconds):
+                if brilliance_n[j] >= brilliance_n[j - 1] * BUILDUP_JITTER_TOLERANCE:
+                    rise_len += 1
+                else:
+                    break
+            if rise_len >= min_buildup_sec:
+                end_idx = i + rise_len
+                total_rise = float(brilliance_n[end_idx] - brilliance_n[i])
+                if total_rise > BUILDUP_MIN_RISE * 0.5:
+                    confidence = min(1.0, total_rise / 0.6)
+                    events.append(SpectralEvent(
+                        time=round(float(i), 2),
+                        event_type="buildup",
+                        energy_delta=round(total_rise, 4),
+                        confidence=round(confidence, 3),
+                    ))
+                    i = end_idx
+                    continue
+            i += 1
+
+        # Sub-Bass Breakdowns (Kick raus)
+        for t in range(1, n_seconds):
+            prev_sb = sub_bass_n[t - 1]
+            curr_sb = sub_bass_n[t]
+            if (prev_sb > BREAKDOWN_MIN_PREV_ENERGY
+                    and (prev_sb - curr_sb) / (prev_sb + 1e-10) > BREAKDOWN_DROP_RATIO):
+                delta = float(curr_sb - prev_sb)
+                confidence = min(1.0, (prev_sb - curr_sb) / (prev_sb + 1e-10))
+                events.append(SpectralEvent(
+                    time=round(float(t), 2),
+                    event_type="breakdown",
+                    energy_delta=round(delta, 4),
+                    confidence=round(confidence, 3),
+                ))
+
+        events.sort(key=lambda e: e.time)
+        return self._deduplicate_events(events, 2.0)
+
+    def _match_genre_references(self, bands: list[SpectralBand]) -> list[GenreSpectralMatch]:
+        """Vergleicht das Spektralprofil mit Genre-Referenzkurven (Kosinus-Aehnlichkeit).
+
+        Psytrance: Heavy Sub-Bass, offene Brilliance-Schicht.
+        Techno: Dominanter Bass, dunkler Charakter, wenig Air.
+        House: Ausgeglichen, warme Mitte, punchy Bass.
+        """
+        if not _HAS_NUMPY or not bands:
+            return []
+
+        current = np.array([b.energy for b in bands], dtype=np.float64)
+        results: list[GenreSpectralMatch] = []
+
+        for genre, ref_curve in GENRE_REFERENCE_CURVES.items():
+            ref = np.array(ref_curve, dtype=np.float64)
+            denom = (np.linalg.norm(current) * np.linalg.norm(ref)) + 1e-10
+            similarity = float(np.dot(current, ref) / denom)
+
+            deviations: dict[str, float] = {}
+            for i, band in enumerate(bands):
+                if i < len(ref_curve):
+                    deviations[band.name] = round(float(current[i]) - ref_curve[i], 4)
+
+            results.append(GenreSpectralMatch(
+                genre=genre,
+                similarity=round(similarity, 4),
+                band_deviations=deviations,
+            ))
+
+        results.sort(key=lambda g: g.similarity, reverse=True)
+        return results
+
+    def _generate_recommendations(
+        self,
+        spectral: SpectralResult,
+        dynamic_range: DynamicRangeInfo,
+        genre_matches: list[GenreSpectralMatch],
+        broadcast_compliant: bool,
+        streaming_compliant: bool,
+        lufs_integrated: float,
+        lufs_true_peak: float,
+        lufs_lra: float,
+    ) -> list[str]:
+        """Generiert Mastering-Empfehlungen basierend auf allen Analyse-Ergebnissen."""
+        from services.audio_constants import (
+            EBU_R128_BROADCAST_TARGET, EBU_R128_BROADCAST_TOLERANCE,
+            EBU_R128_STREAMING_MIN, EBU_R128_STREAMING_MAX, EBU_TRUE_PEAK_MAX,
+        )
+
+        recs: list[str] = []
+
+        # Lautstaerke / Streaming
+        if lufs_integrated > EBU_R128_STREAMING_MAX:
+            recs.append(
+                f"LAUTSTAERKE: {lufs_integrated:.1f} LUFS ist zu laut fuer Streaming "
+                f"(Ziel: {EBU_R128_STREAMING_MIN} bis {EBU_R128_STREAMING_MAX} LUFS). "
+                "Reduziere Limiting oder Ausgangspegel."
+            )
+        elif lufs_integrated < EBU_R128_STREAMING_MIN:
+            recs.append(
+                f"LAUTSTAERKE: {lufs_integrated:.1f} LUFS ist zu leise fuer Streaming "
+                f"(Ziel: {EBU_R128_STREAMING_MIN} bis {EBU_R128_STREAMING_MAX} LUFS). "
+                "Normalisiere oder erhoehe Masterlevel."
+            )
+
+        # True Peak
+        if lufs_true_peak > EBU_TRUE_PEAK_MAX:
+            recs.append(
+                f"TRUE PEAK: {lufs_true_peak:.1f} dBTP liegt ueber dem Grenzwert von "
+                f"{EBU_TRUE_PEAK_MAX} dBTP. Aktiviere einen True Peak Limiter."
+            )
+
+        # Dynamik / Crest Factor
+        if dynamic_range.dynamic_class == "compressed":
+            recs.append(
+                f"DYNAMIK: Crest Factor {dynamic_range.crest_factor_db:.1f} dB — stark "
+                "komprimiert. Mehr Dynamik gibt dem Mix mehr Punch und Energie auf der Tanzflaeche."
+            )
+        elif dynamic_range.dynamic_class == "wide":
+            recs.append(
+                f"DYNAMIK: Crest Factor {dynamic_range.crest_factor_db:.1f} dB — sehr weite "
+                "Dynamik. Pruefen ob laute Passagen auf kleinen Anlagen clipping verursachen."
+            )
+
+        # Sub-Bass
+        sub_bass_band = next((b for b in spectral.bands if b.name == "Sub Bass"), None)
+        if sub_bass_band:
+            if sub_bass_band.energy < 0.2:
+                recs.append(
+                    "SUB-BASS (20-60Hz): Sehr wenig Energie. Low-Shelf-Boost oder "
+                    "Sub-Bass-Enhancement fuer besseren Kick auf Grossanlagen empfehlenswert."
+                )
+            elif sub_bass_band.energy > 0.95:
+                recs.append(
+                    "SUB-BASS (20-60Hz): Dominiert den Mix. Pruefe Mono-Kompatibilitaet "
+                    "und Verhalten auf kleinen Lautsprechern (Phone, Laptop)."
+                )
+
+        # LRA (Loudness Range)
+        if lufs_lra < 3.0:
+            recs.append(
+                f"LRA: {lufs_lra:.1f} LU — sehr enge Loudness Range. "
+                "Erwaege weniger Multiband-Kompression fuer natuerlicheren Klang."
+            )
+        elif lufs_lra > 20.0:
+            recs.append(
+                f"LRA: {lufs_lra:.1f} LU — sehr weite Loudness Range. "
+                "Leise Passagen koennen auf Streaming-Plattformen zu leise klingen."
+            )
+
+        # Genre-Matching
+        if genre_matches:
+            top = genre_matches[0]
+            if top.similarity >= 0.8:
+                recs.append(
+                    f"GENRE: Sehr gute Uebereinstimmung mit {top.genre.upper()} "
+                    f"({top.similarity:.2f} Kosinus-Aehnlichkeit). Spektralprofil passt zur Referenz."
+                )
+            elif top.similarity >= 0.65:
+                recs.append(
+                    f"GENRE: Gute Uebereinstimmung mit {top.genre.upper()} "
+                    f"({top.similarity:.2f}). Kleine Abweichungen vom Referenz-Spektrum."
+                )
+            else:
+                recs.append(
+                    f"GENRE: Geringe Uebereinstimmung mit allen Referenz-Genres "
+                    f"(bestes: {top.genre} mit {top.similarity:.2f}). "
+                    "Ungewoehnliches Spektralprofil — moeglicherweise experimentelles Genre."
+                )
+
+        # EBU R128 Broadcast
+        if not broadcast_compliant:
+            target_low = EBU_R128_BROADCAST_TARGET - EBU_R128_BROADCAST_TOLERANCE
+            target_high = EBU_R128_BROADCAST_TARGET + EBU_R128_BROADCAST_TOLERANCE
+            recs.append(
+                f"EBU R128 BROADCAST: Nicht konform (Ziel: {target_low} bis {target_high} LUFS, "
+                f"aktuell: {lufs_integrated:.1f} LUFS). Relevant fuer TV/Radio-Auslieferung."
+            )
+
+        if not recs:
+            recs.append(
+                "MASTERING: Alle Werte im optimalen Bereich. "
+                f"Mix klingt fuer {genre_matches[0].genre.upper() if genre_matches else 'das Genre'} "
+                "ausgewogen und streaming-bereit."
+            )
+
+        return recs

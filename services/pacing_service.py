@@ -83,6 +83,9 @@ from services.pacing_edit_helpers import (
     _motion_category,
     generate_keyframe_string,
     generate_keyframe_strings_for_project,
+    # AUD-82: Cross-Modal Matching
+    CrossModalMatcher,
+    AudioContext,
 )
 
 from services.pacing_memory import (
@@ -449,6 +452,48 @@ def auto_edit_phase3(
         except Exception as e:
             logger.warning("Fitness-Matrix uebersprungen: %s", e)
 
+    # AUD-82: Cross-Modal Matching Engine initialisieren
+    cross_modal_matcher: CrossModalMatcher | None = None
+    try:
+        from database import AudioTrack as _AudioTrack
+        with Session(engine) as session:
+            _track = session.get(_AudioTrack, audio_id)
+            if _track:
+                # Stem-Energie-Verhaeltnisse berechnen
+                _drum_ratio, _bass_ratio, _vocal_ratio = 0.4, 0.3, 0.1
+                if stem_energy is not None and energy_per_beat:
+                    _n = len(energy_per_beat)
+                    if _n > 0:
+                        _d_mean = np.mean(stem_energy.drums[:_n]) if stem_energy.drums else 0.4
+                        _b_mean = np.mean(stem_energy.bass[:_n]) if stem_energy.bass else 0.3
+                        _v_mean = np.mean(stem_energy.vocals[:_n]) if stem_energy.vocals else 0.1
+                        _total = _d_mean + _b_mean + _v_mean + 1e-8
+                        _drum_ratio = float(_d_mean / _total)
+                        _bass_ratio = float(_b_mean / _total)
+                        _vocal_ratio = float(_v_mean / _total)
+
+                audio_ctx = AudioContext(
+                    bpm=bpm_val,
+                    mood=_track.mood or "",
+                    genre=_track.genre or "",
+                    key=_track.key or "",
+                    avg_energy=avg_energy_val,
+                    drum_ratio=_drum_ratio,
+                    bass_ratio=_bass_ratio,
+                    vocal_ratio=_vocal_ratio,
+                )
+                cross_modal_matcher = CrossModalMatcher(
+                    audio_ctx=audio_ctx,
+                    mood_embeddings=mood_embeddings,
+                )
+                # Audio-Mood-Embedding berechnen (nutzt SigLIP, entlaedt sofort)
+                cross_modal_matcher.compute_audio_mood_embedding()
+                logger.info("AUD-82: CrossModalMatcher aktiv (mood=%s, genre=%s, bpm=%.0f)",
+                            audio_ctx.mood, audio_ctx.genre, audio_ctx.bpm)
+    except Exception as e:
+        logger.warning("AUD-82: CrossModalMatcher uebersprungen: %s", e)
+        cross_modal_matcher = None
+
     if progress_cb:
         progress_cb(60, "Erzeuge Timeline-Segmente...")
     # 6. Segmente erzeugen
@@ -524,7 +569,14 @@ def auto_edit_phase3(
                         break
             source_start = scene_info["start"] if scene_info else 0.0
         else:
-            # Normaler Clip-Match
+            # AUD-82: Section-Progress fuer Cross-Modal Matcher berechnen
+            _seg_section_progress = 0.0
+            if seg_section:
+                _sec_dur = max(seg_section.end - seg_section.start, 0.001)
+                _seg_section_progress = (seg_start - seg_section.start) / _sec_dur
+                _seg_section_progress = max(0.0, min(1.0, _seg_section_progress))
+
+            # Normaler Clip-Match (+ Cross-Modal wenn verfuegbar)
             vid, source_start, _clip_idx = _match_video_for_segment(
                 seg_start, seg_end, settings.vibe,
                 video_info, available_ids, clip_offsets, used_recently,
@@ -535,6 +587,8 @@ def auto_edit_phase3(
                 clip_embeddings=clip_embeddings_matrix,
                 clip_metadata=clip_metadata_list,
                 prev_clip_idx=prev_clip_idx,
+                cross_modal_matcher=cross_modal_matcher,
+                section_progress=_seg_section_progress,
             )
             prev_clip_idx = _clip_idx
 
