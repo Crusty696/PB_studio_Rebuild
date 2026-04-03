@@ -2,6 +2,7 @@
 
 import bisect
 import json
+import logging
 from collections import namedtuple
 from pathlib import Path
 
@@ -14,7 +15,9 @@ from PySide6.QtGui import QPainter, QColor, QFont, QBrush, QPen, QPolygonF, QUnd
 
 from sqlalchemy.orm import Session as DBSession
 
-from database import engine, AudioTrack, VideoClip, TimelineEntry, Beatgrid, ClipAnchor
+from database import engine, AudioTrack, VideoClip, TimelineEntry, Beatgrid, ClipAnchor, StructureSegment
+
+logger = logging.getLogger(__name__)
 from services.pacing_service import CutPoint
 from ui.waveform_item import WaveformGraphicsItem
 
@@ -390,6 +393,12 @@ class InteractiveTimeline(QGraphicsView):
         self._anchor_map: dict[int, list] = {}  # entry_id -> list[ClipAnchor]
         self._track_bg_items: list[QGraphicsRectItem] = []
 
+        # Beat Grid Overlay + Section Colors (AUD-70)
+        self._section_items: list = []        # Section color backgrounds
+        self._beat_grid_items: list = []      # Adaptive beat grid lines
+        self._drop_markers: list = []         # Drop event markers
+        self._current_zoom: float = 1.0       # Current horizontal zoom factor
+
         # Drop indicator (visual feedback during drag-over)
         self._drop_indicator: QGraphicsLineItem | None = None
         self._drop_ghost: QGraphicsRectItem | None = None
@@ -450,6 +459,9 @@ class InteractiveTimeline(QGraphicsView):
         for marker in self._beat_markers:
             self._scene.removeItem(marker)
         self._beat_markers.clear()
+        # Clear sections + beat grid + drop markers (AUD-70)
+        self._clear_sections()
+        self._clear_beat_grid()
 
         with DBSession(engine) as session:
             entries = (
@@ -629,6 +641,223 @@ class InteractiveTimeline(QGraphicsView):
             line = self._scene.addLine(x, AUDIO_TRACK_Y, x, marker_height, pen)
             line.setZValue(3)
             self._beat_markers.append(line)
+
+    # ── AUD-70: Beat Grid Overlay + Section Colors ───────────────
+
+    # Section color mapping: label -> (background_color, border_color)
+    SECTION_COLORS = {
+        "DROP":      (QColor(180, 40, 40, 35),   QColor(255, 60, 60, 100)),
+        "BUILDUP":   (QColor(200, 170, 30, 30),  QColor(255, 210, 40, 90)),
+        "BREAKDOWN": (QColor(40, 90, 180, 30),   QColor(60, 130, 255, 90)),
+        "INTRO":     (QColor(100, 100, 100, 20), QColor(140, 140, 140, 60)),
+        "OUTRO":     (QColor(100, 100, 100, 20), QColor(140, 140, 140, 60)),
+    }
+
+    def load_sections(self, audio_track_id: int) -> None:
+        """Laedt StructureSegments aus der DB und zeichnet farbige Sektions-Hintergruende."""
+        self._clear_sections()
+        with DBSession(engine) as session:
+            segments = (
+                session.query(StructureSegment)
+                .filter_by(audio_track_id=audio_track_id)
+                .order_by(StructureSegment.start_time)
+                .all()
+            )
+            if not segments:
+                return
+            for seg in segments:
+                self._draw_section(seg.label, seg.start_time, seg.end_time, seg.energy)
+
+    def set_sections(self, sections: list[dict]) -> None:
+        """Zeichnet Sektionen aus einer Liste von Dicts.
+
+        Args:
+            sections: [{"label": "DROP", "start": 30.0, "end": 45.0, "energy": 0.9}, ...]
+        """
+        self._clear_sections()
+        for sec in sections:
+            self._draw_section(
+                sec.get("label", ""),
+                sec.get("start", 0.0),
+                sec.get("end", 0.0),
+                sec.get("energy", 0.5),
+            )
+
+    def _clear_sections(self):
+        for item in self._section_items:
+            self._scene.removeItem(item)
+        self._section_items.clear()
+
+    def _draw_section(self, label: str, start: float, end: float, energy: float = 0.5):
+        """Zeichnet eine einzelne Sektion als farbigen Hintergrund ueber beide Tracks."""
+        colors = self.SECTION_COLORS.get(label.upper(), self.SECTION_COLORS.get("INTRO"))
+        if not colors:
+            return
+        bg_color, border_color = colors
+
+        x = start * PIXELS_PER_SECOND
+        w = (end - start) * PIXELS_PER_SECOND
+        if w < 1:
+            return
+
+        # Sektions-Hintergrund ueber Audio + Video Tracks
+        total_h = (VIDEO_TRACK_Y + TRACK_HEIGHT) - AUDIO_TRACK_Y
+        rect = self._scene.addRect(
+            QRectF(x, AUDIO_TRACK_Y, w, total_h),
+            QPen(border_color, 1),
+            QBrush(bg_color),
+        )
+        rect.setZValue(-5)  # Hinter Clips, ueber Track-BG
+        self._section_items.append(rect)
+
+        # Section-Label oben links
+        label_text = self._scene.addText(
+            label.upper(), QFont("Segoe UI Variable Small", 7, QFont.Weight.Bold)
+        )
+        label_text.setDefaultTextColor(border_color.lighter(130))
+        label_text.setPos(x + 3, AUDIO_TRACK_Y - 1)
+        label_text.setZValue(-4)
+        self._section_items.append(label_text)
+
+        # Drop-Marker: Blitz-Icon bei DROP-Sektionen
+        if label.upper() == "DROP":
+            self._draw_drop_marker(x, energy)
+
+    def _draw_drop_marker(self, x: float, energy: float = 0.8):
+        """Zeichnet ein Blitz-Symbol als Drop-Event-Marker."""
+        # Blitz-Polygon (Lightning Bolt)
+        bolt = QPolygonF([
+            QPointF(x + 4, AUDIO_TRACK_Y - 12),
+            QPointF(x + 8, AUDIO_TRACK_Y - 4),
+            QPointF(x + 6, AUDIO_TRACK_Y - 4),
+            QPointF(x + 9, AUDIO_TRACK_Y + 4),
+            QPointF(x + 3, AUDIO_TRACK_Y - 2),
+            QPointF(x + 5, AUDIO_TRACK_Y - 2),
+        ])
+        marker = self._scene.addPolygon(
+            bolt,
+            QPen(QColor(255, 200, 40, 230), 1),
+            QBrush(QColor(255, 60, 60, int(200 * energy))),
+        )
+        marker.setZValue(8)
+        self._drop_markers.append(marker)
+        self._section_items.append(marker)
+
+    def set_beat_grid(self, beat_times: list[float],
+                      downbeat_times: list[float] | None = None,
+                      energy_per_beat: list[float] | None = None) -> None:
+        """Zeichnet ein adaptives Beat-Grid auf die Timeline.
+
+        Das Grid passt die Dichte automatisch an den Zoom-Level an:
+        - Zoom < 0.5: Nur Downbeats (jeder 4.)
+        - Zoom 0.5-1.5: Halbe Beats (jeder 2.)
+        - Zoom > 1.5: Alle Beats
+
+        Args:
+            beat_times: Alle Beat-Positionen in Sekunden
+            downbeat_times: Optional: Downbeat-Positionen (jeder 1.)
+            energy_per_beat: Optional: Energie pro Beat [0.0-1.0] fuer Farb-Intensitaet
+        """
+        self._clear_beat_grid()
+        if not beat_times:
+            return
+
+        sorted_beats = sorted(beat_times)
+        downbeats = set(downbeat_times) if downbeat_times else set()
+        zoom = self._current_zoom
+
+        # Adaptive LOD: Beat-Dichte je nach Zoom
+        if zoom < 0.5:
+            step = 4  # Nur Downbeats
+        elif zoom < 1.5:
+            step = 2  # Halbe Beats
+        else:
+            step = 1  # Alle Beats
+
+        grid_top = AUDIO_TRACK_Y
+        grid_bottom = VIDEO_TRACK_Y + TRACK_HEIGHT
+
+        # Pens fuer verschiedene Beat-Typen
+        downbeat_pen = QPen(QColor(212, 175, 55, 140), 1, Qt.PenStyle.SolidLine)
+        beat_pen = QPen(QColor(90, 90, 100, 60), 1, Qt.PenStyle.DotLine)
+        half_beat_pen = QPen(QColor(60, 60, 70, 40), 1, Qt.PenStyle.DotLine)
+
+        for i, t in enumerate(sorted_beats):
+            if i % step != 0:
+                continue
+
+            x = t * PIXELS_PER_SECOND
+            is_downbeat = t in downbeats or (not downbeats and i % 4 == 0)
+
+            if is_downbeat:
+                pen = downbeat_pen
+            elif i % 2 == 0:
+                pen = beat_pen
+            else:
+                pen = half_beat_pen
+
+            # Energy-basierte Opacity (wenn verfuegbar)
+            if energy_per_beat and i < len(energy_per_beat):
+                e = max(0.2, min(1.0, energy_per_beat[i]))
+                pen_color = pen.color()
+                pen_color.setAlphaF(pen_color.alphaF() * e)
+                pen = QPen(pen_color, pen.widthF(), pen.style())
+
+            line = self._scene.addLine(x, grid_top, x, grid_bottom, pen)
+            line.setZValue(-3)  # Hinter Clips, ueber Sections
+            self._beat_grid_items.append(line)
+
+    def _clear_beat_grid(self):
+        for item in self._beat_grid_items:
+            self._scene.removeItem(item)
+        self._beat_grid_items.clear()
+        for marker in self._drop_markers:
+            if marker not in self._section_items:
+                self._scene.removeItem(marker)
+        self._drop_markers.clear()
+
+    def load_beat_grid_from_db(self, audio_track_id: int) -> None:
+        """Laedt Beatgrid + Sections aus der DB und zeichnet alles."""
+        with DBSession(engine) as session:
+            beatgrid = session.query(Beatgrid).filter_by(
+                audio_track_id=audio_track_id
+            ).first()
+            if not beatgrid:
+                return
+
+            beat_times = []
+            downbeat_times = []
+            energy_per_beat = []
+
+            if beatgrid.beat_positions:
+                try:
+                    beat_times = json.loads(beatgrid.beat_positions)
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+            if beatgrid.downbeat_positions:
+                try:
+                    downbeat_times = json.loads(beatgrid.downbeat_positions)
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+            if beatgrid.energy_per_beat:
+                try:
+                    energy_per_beat = json.loads(beatgrid.energy_per_beat)
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+            self.set_beat_grid(beat_times, downbeat_times or None,
+                               energy_per_beat or None)
+
+        # Sections laden
+        self.load_sections(audio_track_id)
+
+    def _update_beat_grid_lod(self):
+        """Aktualisiert die Beat-Grid Dichte nach Zoom-Aenderung."""
+        if self._beat_times:
+            # Re-zeichne mit aktuellem Zoom-Level
+            self.set_beat_grid(self._beat_times)
 
     def _snap_x_to_beat(self, x: float) -> float:
         """Rastet x (in Pixeln) an den naechsten Beat ein (Snap-Radius: 8px).
@@ -854,7 +1083,14 @@ class InteractiveTimeline(QGraphicsView):
         new_scale = current_scale * factor
         if new_scale < 0.01 or new_scale > 200.0:
             return
+        old_zoom = self._current_zoom
         self.scale(factor, 1.0)
+        self._current_zoom = new_scale
+        # LOD-Update nur bei signifikanter Zoom-Aenderung (Schwellwert-Ueberschreitung)
+        old_lod = 4 if old_zoom < 0.5 else (2 if old_zoom < 1.5 else 1)
+        new_lod = 4 if new_scale < 0.5 else (2 if new_scale < 1.5 else 1)
+        if old_lod != new_lod:
+            self._update_beat_grid_lod()
 
     def mousePressEvent(self, event):
         """Mittlere Maustaste oder Space+Links → Panning starten."""
