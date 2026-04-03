@@ -336,6 +336,19 @@ class TimelineClipItem(QGraphicsRectItem):
 class InteractiveTimeline(QGraphicsView):
     clip_moved = Signal(int, float)
     selection_changed = Signal(list)  # emits list of dicts with clip data
+
+    # AUD-71: Keyboard shortcut signals (wired to video preview / transport in PBWindow)
+    play_pause_toggled = Signal()         # Space
+    stop_requested = Signal()             # Escape
+    seek_forward = Signal(float)          # L / Right arrow (seconds delta)
+    seek_backward = Signal(float)         # J / Left arrow (seconds delta)
+    jump_to_start = Signal()              # Home
+    jump_to_end = Signal()                # End
+    zoom_in_requested = Signal()          # + / =
+    zoom_out_requested = Signal()         # -
+    set_in_point = Signal(float)          # I (current playhead time)
+    set_out_point = Signal(float)         # O (current playhead time)
+
     _RULER_FONT = QFont("Segoe UI Variable Small", 7)  # refined font
 
     def __init__(self, console_log=None):
@@ -402,6 +415,10 @@ class InteractiveTimeline(QGraphicsView):
         # Drop indicator (visual feedback during drag-over)
         self._drop_indicator: QGraphicsLineItem | None = None
         self._drop_ghost: QGraphicsRectItem | None = None
+
+        # AUD-71: Playhead and shuttle state
+        self._playhead_time: float = 0.0   # Current playhead position in seconds
+        self._shuttle_speed: int = 0        # JKL shuttle: -2,-1,0,1,2
 
         # Selection changed → inspector
         self._scene.selectionChanged.connect(self._on_selection_changed)
@@ -1093,9 +1110,8 @@ class InteractiveTimeline(QGraphicsView):
             self._update_beat_grid_lod()
 
     def mousePressEvent(self, event):
-        """Mittlere Maustaste oder Space+Links → Panning starten."""
-        if (event.button() == Qt.MouseButton.MiddleButton or
-                (self._space_held and event.button() == Qt.MouseButton.LeftButton)):
+        """Mittlere Maustaste → Panning starten (AUD-71: Space is now Play/Pause)."""
+        if event.button() == Qt.MouseButton.MiddleButton:
             self._panning = True
             self._pan_start = event.position()
             self.setDragMode(QGraphicsView.DragMode.NoDrag)
@@ -1128,26 +1144,135 @@ class InteractiveTimeline(QGraphicsView):
             return
         super().mouseReleaseEvent(event)
 
+    # ── AUD-71: Keyboard Shortcuts ──────────────────────────────────────
+
     def keyPressEvent(self, event):
-        """Space → Panning. M → Anker setzen. Delete/Backspace → Clip entfernen."""
-        if event.key() == Qt.Key.Key_Space and not event.isAutoRepeat():
-            self._space_held = True
-            self.setDragMode(QGraphicsView.DragMode.NoDrag)
-            self.setCursor(Qt.CursorShape.OpenHandCursor)
-        elif event.key() == Qt.Key.Key_M and not event.isAutoRepeat():
+        """Full keyboard shortcut system (AUD-71).
+
+        Space       = Play / Pause
+        J / K / L   = Shuttle (reverse / pause / forward)
+        I           = Set In-Point at playhead
+        O           = Set Out-Point at playhead
+        M           = Set Anchor on selected clip
+        Delete/Back = Remove selected clips
+        Home        = Jump to start
+        End         = Jump to end
+        Left/Right  = Frame step (0.04s) / Shift: 1s jump
+        +/=         = Zoom in
+        -           = Zoom out
+        Escape      = Stop / deselect
+        """
+        key = event.key()
+        shift = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+
+        if event.isAutoRepeat():
+            # Allow arrow key repeat for frame-stepping
+            if key in (Qt.Key.Key_Left, Qt.Key.Key_Right):
+                step = 1.0 if shift else 0.04
+                if key == Qt.Key.Key_Right:
+                    self.seek_forward.emit(step)
+                else:
+                    self.seek_backward.emit(step)
+            return
+
+        # Space = Play/Pause (NOT panning — use middle-mouse for panning)
+        if key == Qt.Key.Key_Space:
+            self.play_pause_toggled.emit()
+            return
+
+        # J / K / L = Shuttle control
+        if key == Qt.Key.Key_J:
+            self._shuttle_speed = max(self._shuttle_speed - 1, -2)
+            if self._shuttle_speed < 0:
+                speed = 2.0 if self._shuttle_speed == -2 else 0.5
+                self.seek_backward.emit(speed)
+            elif self._shuttle_speed == 0:
+                self.play_pause_toggled.emit()  # pause
+            return
+        if key == Qt.Key.Key_K:
+            self._shuttle_speed = 0
+            self.stop_requested.emit()
+            return
+        if key == Qt.Key.Key_L:
+            self._shuttle_speed = min(self._shuttle_speed + 1, 2)
+            if self._shuttle_speed > 0:
+                speed = 2.0 if self._shuttle_speed == 2 else 0.5
+                self.seek_forward.emit(speed)
+            elif self._shuttle_speed == 0:
+                self.play_pause_toggled.emit()  # pause
+            return
+
+        # I / O = In/Out points
+        if key == Qt.Key.Key_I:
+            self.set_in_point.emit(self._playhead_time)
+            return
+        if key == Qt.Key.Key_O:
+            self.set_out_point.emit(self._playhead_time)
+            return
+
+        # M = Set anchor
+        if key == Qt.Key.Key_M:
             self._set_anchor_on_selected()
-        elif event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace) and not event.isAutoRepeat():
+            return
+
+        # Delete / Backspace = Remove selected clips
+        if key in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
             self.remove_selected_clips()
+            return
+
+        # Home / End = Jump to start / end
+        if key == Qt.Key.Key_Home:
+            self.jump_to_start.emit()
+            return
+        if key == Qt.Key.Key_End:
+            self.jump_to_end.emit()
+            return
+
+        # Left / Right = Frame step (0.04s) or Shift+Arrow = 1s jump
+        if key == Qt.Key.Key_Left:
+            self.seek_backward.emit(1.0 if shift else 0.04)
+            return
+        if key == Qt.Key.Key_Right:
+            self.seek_forward.emit(1.0 if shift else 0.04)
+            return
+
+        # +/= = Zoom in, - = Zoom out
+        if key in (Qt.Key.Key_Plus, Qt.Key.Key_Equal):
+            self.zoom_in_requested.emit()
+            return
+        if key == Qt.Key.Key_Minus:
+            self.zoom_out_requested.emit()
+            return
+
+        # Escape = Stop / deselect all
+        if key == Qt.Key.Key_Escape:
+            self._scene.clearSelection()
+            self.stop_requested.emit()
+            return
+
         super().keyPressEvent(event)
 
     def keyReleaseEvent(self, event):
-        """Space losgelassen → Panning-Modus deaktivieren."""
-        if event.key() == Qt.Key.Key_Space and not event.isAutoRepeat():
-            self._space_held = False
-            if not self._panning:
-                self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
-                self.setCursor(Qt.CursorShape.ArrowCursor)
+        """No special release handling needed after Space remap (AUD-71)."""
         super().keyReleaseEvent(event)
+
+    def set_playhead_time(self, time_sec: float):
+        """Update playhead position (called by video preview position sync)."""
+        self._playhead_time = time_sec
+
+    def zoom_by_factor(self, factor: float):
+        """Programmatic zoom (for +/- shortcuts)."""
+        current_scale = self.transform().m11()
+        new_scale = current_scale * factor
+        if new_scale < 0.01 or new_scale > 200.0:
+            return
+        old_zoom = self._current_zoom
+        self.scale(factor, 1.0)
+        self._current_zoom = new_scale
+        old_lod = 4 if old_zoom < 0.5 else (2 if old_zoom < 1.5 else 1)
+        new_lod = 4 if new_scale < 0.5 else (2 if new_scale < 1.5 else 1)
+        if old_lod != new_lod:
+            self._update_beat_grid_lod()
 
     def _set_anchor_on_selected(self):
         """Setzt einen Anker in der Mitte des aktuell selektierten Clips (Taste M)."""

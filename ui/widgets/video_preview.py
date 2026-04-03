@@ -62,6 +62,23 @@ class VideoPreviewWidget(QLabel):
         else:
             self.play_from(self._current_time)
 
+    @property
+    def duration(self) -> float:
+        """Total duration of the currently loaded video (seconds)."""
+        return self._duration
+
+    def seek_to(self, time_sec: float):
+        """Seek to an absolute time position."""
+        if not self._current_path:
+            return
+        self._current_time = max(0.0, min(time_sec, self._duration) if self._duration > 0 else time_sec)
+        self.position_changed.emit(self._current_time, self._duration)
+        self._extract_and_show_frame(self._current_time)
+
+    def seek_relative(self, delta_sec: float):
+        """Seek forward (positive) or backward (negative) by delta seconds."""
+        self.seek_to(self._current_time + delta_sec)
+
     def _advance_frame(self):
         self._current_time += 1.0 / 10.0
         if self._duration > 0 and self._current_time >= self._duration:

@@ -245,6 +245,26 @@ class WorkspaceSetupMixin:
         # VideoPreview: position label + play-button icon state
         self.video_preview.position_changed.connect(self._on_preview_position_changed)
         self.video_preview.playback_state_changed.connect(self._on_preview_state_changed)
+
+        # AUD-71: Wire Timeline keyboard shortcut signals to video preview
+        self.timeline_view.play_pause_toggled.connect(self.video_preview.toggle_play)
+        self.timeline_view.stop_requested.connect(self.video_preview.stop)
+        self.timeline_view.seek_forward.connect(
+            lambda delta: self.video_preview.seek_relative(delta))
+        self.timeline_view.seek_backward.connect(
+            lambda delta: self.video_preview.seek_relative(-delta))
+        self.timeline_view.jump_to_start.connect(
+            lambda: self.video_preview.seek_to(0.0))
+        self.timeline_view.jump_to_end.connect(
+            lambda: self.video_preview.seek_to(self.video_preview.duration))
+        self.timeline_view.zoom_in_requested.connect(
+            lambda: self.timeline_view.zoom_by_factor(1.25))
+        self.timeline_view.zoom_out_requested.connect(
+            lambda: self.timeline_view.zoom_by_factor(1.0 / 1.25))
+        # Sync playhead time back to timeline for I/O points
+        self.video_preview.position_changed.connect(
+            lambda cur, _total: self.timeline_view.set_playhead_time(cur))
+
         self._refresh_director_combos()
 
         # --- STEMS workspace ---
