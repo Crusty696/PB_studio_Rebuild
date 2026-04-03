@@ -80,6 +80,13 @@ EXPECTED_ACTIONS = [
     "list_actions",
     "generate_keyframe_strings",
     "teste_ladebalken",
+    # AI actions (AUD-67)
+    "ask_ai",
+    "summarize_project",
+    "suggest_pacing",
+    "model_status",
+    "search_knowledge",
+    "explain_clip",
 ]
 
 
