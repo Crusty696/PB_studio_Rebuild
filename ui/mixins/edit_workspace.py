@@ -207,15 +207,17 @@ class EditWorkspaceMixin:
             task_manager.finish_task(task_id, "error", "Keine Segmente")
             return
 
-        # 1. SQLite TimelineEntries aktualisieren (via Service — atomar)
-        from services.timeline_service import apply_auto_edit_segments
-        apply_auto_edit_segments(segments, get_active_project_id())
+        # 1. SQLite TimelineEntries aktualisieren (via UndoCommand — atomar + undo-faehig)
+        from ui.undo_commands import ApplyAutoEditCommand
+        cmd = ApplyAutoEditCommand(
+            timeline=self.timeline_view,
+            project_id=get_active_project_id(),
+            new_segments=segments,
+        )
+        self.timeline_view.undo_stack.push(cmd)
 
         # 2. OTIO Timeline generieren
         self._build_otio_timeline(segments)
-
-        # 3. UI aktualisieren
-        self.timeline_view.load_from_db()
 
         # 4. CutPoints visualisieren
         if cut_points:
@@ -603,27 +605,18 @@ class EditWorkspaceMixin:
                 obj = session.get(VideoClip, media_id)
                 duration = obj.duration if obj and obj.duration else 10.0
 
-            entry = TimelineEntry(
-                project_id=get_active_project_id(),
-                track=track_type,
-                media_id=media_id,
-                start_time=round(start_time, 3),
-                end_time=round(start_time + duration, 3),
-                lane=0,
-            )
-            session.add(entry)
-            session.commit()
-            session.refresh(entry)
-            entry_id = entry.id
-
-        self.timeline_view.add_clip(
-            entry_id=entry_id,
-            media_id=media_id,
+        # Undo-faehig: AddClipCommand statt direktem DB-Write
+        from ui.undo_commands import AddClipCommand
+        cmd = AddClipCommand(
+            timeline=self.timeline_view,
+            project_id=get_active_project_id(),
             track_type=track_type,
+            media_id=media_id,
             title=title,
             start_time=start_time,
             duration=duration,
         )
+        self.timeline_view.undo_stack.push(cmd)
 
         self.console_text.append(
             f"[Timeline] {media_type} '{title}' hinzugefuegt bei {start_time:.1f}s "

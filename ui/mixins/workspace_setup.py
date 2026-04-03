@@ -229,6 +229,19 @@ class WorkspaceSetupMixin:
         if hasattr(self._edit_ws, 'style_preset_combo'):
             self._edit_ws.style_preset_combo.currentIndexChanged.connect(self._apply_style_preset)
         self.timeline_view.clip_moved.connect(self._on_timeline_clip_moved)
+
+        # Undo/Redo Shortcuts (Ctrl+Z / Ctrl+Y)
+        from PySide6.QtGui import QAction, QKeySequence
+        undo_action = QAction("Undo", self)
+        undo_action.setShortcut(QKeySequence.StandardKey.Undo)
+        undo_action.triggered.connect(self.timeline_view.undo_stack.undo)
+        self.addAction(undo_action)
+
+        redo_action = QAction("Redo", self)
+        redo_action.setShortcut(QKeySequence.StandardKey.Redo)
+        redo_action.triggered.connect(self.timeline_view.undo_stack.redo)
+        self.addAction(redo_action)
+
         # VideoPreview: position label + play-button icon state
         self.video_preview.position_changed.connect(self._on_preview_position_changed)
         self.video_preview.playback_state_changed.connect(self._on_preview_state_changed)

@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
     QGraphicsTextItem, QGraphicsLineItem, QGraphicsPolygonItem, QMenu,
 )
 from PySide6.QtCore import Qt, QRectF, QPointF, Signal, QTimer
-from PySide6.QtGui import QPainter, QColor, QFont, QBrush, QPen, QPolygonF
+from PySide6.QtGui import QPainter, QColor, QFont, QBrush, QPen, QPolygonF, QUndoStack
 
 from sqlalchemy.orm import Session as DBSession
 
@@ -106,6 +106,7 @@ class TimelineClipItem(QGraphicsRectItem):
         label.setPos(4, 2)
 
         self._track_y = y
+        self._drag_start_x: float | None = None  # Undo: alte Position vor Drag
         self._anchor_markers: list[AnchorMarkerItem] = []
         if anchors is not None:
             self._apply_anchors(anchors)
@@ -199,12 +200,20 @@ class TimelineClipItem(QGraphicsRectItem):
 
     def itemChange(self, change, value):
         if change == QGraphicsRectItem.GraphicsItemChange.ItemPositionChange:
+            # Drag-Start merken (erste Bewegung)
+            if self._drag_start_x is None:
+                self._drag_start_x = self.pos().x()
             new_pos = QPointF(max(0, value.x()), self._track_y)
             return new_pos
         if change == QGraphicsRectItem.GraphicsItemChange.ItemPositionHasChanged:
             if self.on_moved:
                 self.on_moved(self.entry_id, value.x())
         return super().itemChange(change, value)
+
+    def mouseReleaseEvent(self, event):
+        """Drag-Start zuruecksetzen nach Loslassen."""
+        super().mouseReleaseEvent(event)
+        self._drag_start_x = None
 
 
 # ======================================================================
@@ -217,6 +226,7 @@ class InteractiveTimeline(QGraphicsView):
 
     def __init__(self, console_log=None):
         super().__init__()
+        self.undo_stack = QUndoStack(self)
         self._scene = QGraphicsScene(self)
         self.setScene(self._scene)
         self.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -547,22 +557,79 @@ class InteractiveTimeline(QGraphicsView):
         self._move_timer.start()
 
     def _flush_pending_move(self):
-        """Schreibt den letzten Drag-Zustand in die DB (nach Debounce)."""
+        """Schreibt den letzten Drag-Zustand in die DB (via UndoCommand)."""
         if self._pending_move is None:
             return
         entry_id, new_start = self._pending_move
         self._pending_move = None
+
+        # Alte Position aus DB lesen (oder aus Drag-Start)
+        clip_item = self._find_clip_item(entry_id)
+        drag_start_x = clip_item._drag_start_x if clip_item else None
+
         from database import nullpool_session
         with nullpool_session() as session:
             entry = session.get(TimelineEntry, entry_id)
-            if entry:
-                old_start = entry.start_time
-                entry.start_time = round(new_start, 3)
-                if entry.end_time is not None:
-                    delta = new_start - old_start
-                    entry.end_time = round(entry.end_time + delta, 3)
-                session.commit()
+            if not entry:
+                return
+            old_start = entry.start_time
+            old_end = entry.end_time
+
+            # Falls drag_start_x vorhanden, nutze diesen als echten Ausgangspunkt
+            if drag_start_x is not None:
+                old_start = max(0, drag_start_x / PIXELS_PER_SECOND)
+                if old_end is not None:
+                    duration = entry.end_time - entry.start_time
+                    old_end = round(old_start + duration, 3)
+
+            new_end = None
+            if entry.end_time is not None:
+                duration = entry.end_time - entry.start_time
+                new_end = round(new_start + duration, 3)
+
+        from ui.undo_commands import MoveClipCommand
+        cmd = MoveClipCommand(
+            timeline=self,
+            entry_id=entry_id,
+            old_start=old_start,
+            old_end=old_end,
+            new_start=new_start,
+            new_end=new_end,
+        )
+        self.undo_stack.push(cmd)
         self.clip_moved.emit(entry_id, new_start)
+
+    def _find_clip_item(self, entry_id: int) -> TimelineClipItem | None:
+        """Sucht ein TimelineClipItem anhand seiner entry_id."""
+        for item in self.clip_items:
+            if item.entry_id == entry_id:
+                return item
+        return None
+
+    def _sync_clip_position(self, entry_id: int, start_time: float):
+        """Aktualisiert die visuelle Position eines Clips (fuer Undo/Redo)."""
+        item = self._find_clip_item(entry_id)
+        if item:
+            new_x = start_time * PIXELS_PER_SECOND
+            item.setPos(new_x, item._track_y)
+
+    def _remove_clip_item(self, entry_id: int):
+        """Entfernt ein Clip-Item aus der Scene (fuer Undo/Redo)."""
+        item = self._find_clip_item(entry_id)
+        if item:
+            self._scene.removeItem(item)
+            self.clip_items.remove(item)
+
+    def remove_selected_clips(self):
+        """Entfernt alle ausgewaehlten Clips via UndoCommand."""
+        selected = [item for item in self._scene.selectedItems()
+                    if isinstance(item, TimelineClipItem)]
+        if not selected:
+            return
+        from ui.undo_commands import RemoveClipCommand
+        for clip_item in selected:
+            cmd = RemoveClipCommand(timeline=self, entry_id=clip_item.entry_id)
+            self.undo_stack.push(cmd)
 
     def _update_scene_rect(self):
         r = self._scene.itemsBoundingRect()
@@ -616,12 +683,14 @@ class InteractiveTimeline(QGraphicsView):
         super().mouseReleaseEvent(event)
 
     def keyPressEvent(self, event):
-        """Space gedrückt → Panning-Modus. M → Anker setzen auf selektiertem Clip."""
+        """Space → Panning. M → Anker setzen. Delete → Clip entfernen."""
         if event.key() == Qt.Key.Key_Space and not event.isAutoRepeat():
             self._space_held = True
             self.setCursor(Qt.CursorShape.OpenHandCursor)
         elif event.key() == Qt.Key.Key_M and not event.isAutoRepeat():
             self._set_anchor_on_selected()
+        elif event.key() == Qt.Key.Key_Delete and not event.isAutoRepeat():
+            self.remove_selected_clips()
         super().keyPressEvent(event)
 
     def keyReleaseEvent(self, event):
