@@ -51,6 +51,8 @@ def _file_meta(path: Path) -> dict:
 
 def ingest_audio(file_path: str, project_id: int = 1) -> AudioTrack | None:
     path = Path(file_path)
+    if not path.exists():
+        raise FileNotFoundError(f"Audio-Datei nicht gefunden: {file_path}")
     if path.suffix.lower() not in AUDIO_EXTENSIONS:
         raise ValueError(f"Nicht unterstuetzte Audio-Extension: {path.suffix}")
     resolved = str(path.resolve())
@@ -118,6 +120,8 @@ def _probe_video_meta(file_path: str) -> dict:
 
 def ingest_video(file_path: str, project_id: int = 1) -> VideoClip | None:
     path = Path(file_path)
+    if not path.exists():
+        raise FileNotFoundError(f"Video-Datei nicht gefunden: {file_path}")
     if path.suffix.lower() not in VIDEO_EXTENSIONS:
         raise ValueError(f"Nicht unterstuetzte Video-Extension: {path.suffix}")
     resolved = str(path.resolve())
@@ -168,8 +172,8 @@ def get_audio_detail_data(audio_id: int) -> dict | None:
             if track.beatgrid and track.beatgrid.beat_positions:
                 try:
                     beat_count = len(_json.loads(track.beatgrid.beat_positions))
-                except Exception:
-                    pass
+                except (json.JSONDecodeError, TypeError, AttributeError) as e:
+                    logger.warning("beat_positions JSON parse fehlgeschlagen (audio_id=%d): %s", audio_id, e)
 
             camelot = CAMELOT_WHEEL.get(track.key) if track.key else None
             stems_status = "Ja" if track.stem_vocals_path else "Nein"
@@ -475,14 +479,25 @@ def import_video_folder(
     imported: list[VideoClip] = []
     skipped = 0
     for video_file in sorted(video_files):
+        if not video_file.exists():
+            logger.warning("Datei nicht mehr vorhanden, uebersprungen: %s", video_file)
+            skipped += 1
+            continue
+        if video_file.suffix.lower() not in VIDEO_EXTENSIONS:
+            logger.warning("Unbekannte Extension, uebersprungen: %s", video_file.name)
+            skipped += 1
+            continue
         try:
             clip = ingest_video(str(video_file), project_id=project_id)
             if clip:
                 imported.append(clip)
             else:
                 skipped += 1
-        except Exception as e:
+        except (FileNotFoundError, ValueError, OSError) as e:
             logger.warning("Import uebersprungen: %s — %s", video_file.name, e)
+            skipped += 1
+        except Exception as e:
+            logger.error("Unerwarteter Fehler bei Import von %s: %s", video_file.name, e)
             skipped += 1
 
     logger.info("Batch-Import fertig: %d importiert, %d uebersprungen",
