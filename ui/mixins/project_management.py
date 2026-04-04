@@ -79,6 +79,12 @@ class ProjectManagementMixin:
     def _on_project_changed(self, path):
         """Refresh all UI after a project switch."""
         path = Path(path)
+        # AUD-106: Record in recent projects list
+        try:
+            from services.recent_projects import RecentProjectsManager
+            RecentProjectsManager.add(path)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Could not update recent projects: %s", exc)
         project_name = path.name
         self._project_name_label.setText(project_name)
         app_version = getattr(self, "_app_version", APP_VERSION_PLACEHOLDER)

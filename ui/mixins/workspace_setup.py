@@ -10,9 +10,10 @@ Kapselt:
 """
 
 from PySide6.QtWidgets import (
-    QHBoxLayout, QLabel, QPushButton, QFrame, QWidget,
+    QHBoxLayout, QLabel, QPushButton, QFrame, QWidget, QMenu,
 )
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QAction
 
 
 class WorkspaceSetupMixin:
@@ -47,6 +48,16 @@ class WorkspaceSetupMixin:
         btn_open_project.setStatusTip("Ein bestehendes PB Studio Projekt oeffnen")
         btn_open_project.clicked.connect(self._open_project)
         top_layout.addWidget(btn_open_project)
+
+        # AUD-106: Recent projects dropdown
+        self._btn_recent = QPushButton("Zuletzt \u25be")
+        self._btn_recent.setObjectName("btn_secondary")
+        self._btn_recent.setFixedHeight(24)
+        self._btn_recent.setToolTip("Zuletzt geoeffnete Projekte")
+        self._btn_recent.setAccessibleName("Zuletzt geoeffnete Projekte")
+        self._btn_recent.setStatusTip("Schnell auf ein zuletzt geoeffnetes Projekt zugreifen")
+        self._btn_recent.clicked.connect(self._show_recent_projects_menu)
+        top_layout.addWidget(self._btn_recent)
 
         btn_save_as = QPushButton("Speichern unter")
         btn_save_as.setObjectName("btn_secondary")
@@ -109,7 +120,79 @@ class WorkspaceSetupMixin:
         btn_about.clicked.connect(self._show_about)
         top_layout.addWidget(btn_about)
 
+        # AUD-105: Shortcut help button
+        btn_help = QPushButton("?")
+        btn_help.setFixedSize(28, 28)
+        btn_help.setToolTip("Tastaturkürzel anzeigen (F1)")
+        btn_help.setAccessibleName("Tastaturkürzel-Hilfe")
+        btn_help.setStatusTip("Alle verfügbaren Tastaturkürzel in einer Übersicht anzeigen")
+        btn_help.clicked.connect(self._show_shortcut_help)
+        top_layout.addWidget(btn_help)
+
         main_layout.addWidget(top_bar)
+
+    # AUD-106: Recent projects menu ----------------------------------------
+
+    def _show_recent_projects_menu(self):
+        """Zeigt ein Dropdown-Menue mit den zuletzt geoeffneten Projekten."""
+        from pathlib import Path
+        from services.recent_projects import RecentProjectsManager
+
+        menu = QMenu(self)
+        menu.setStyleSheet(
+            "QMenu { background-color: #1e1e1e; color: #e8e6e3; border: 1px solid #3a3a3a; }"
+            "QMenu::item:selected { background-color: #2a2a2a; color: #FFD700; }"
+            "QMenu::separator { height: 1px; background: #3a3a3a; margin: 2px 4px; }"
+        )
+
+        recent = RecentProjectsManager.get_all()
+        if not recent:
+            empty = QAction("(Keine letzten Projekte)", self)
+            empty.setEnabled(False)
+            menu.addAction(empty)
+        else:
+            for path_str in recent:
+                p = Path(path_str)
+                action = QAction(p.name, self)
+                action.setToolTip(path_str)
+                action.setStatusTip(f"Projekt oeffnen: {path_str}")
+                action.setData(path_str)
+                action.triggered.connect(
+                    lambda checked=False, ps=path_str: self._open_recent_project(ps)
+                )
+                menu.addAction(action)
+            menu.addSeparator()
+            clear_action = QAction("Liste leeren", self)
+            clear_action.triggered.connect(self._clear_recent_projects)
+            menu.addAction(clear_action)
+
+        menu.exec(self._btn_recent.mapToGlobal(
+            self._btn_recent.rect().bottomLeft()
+        ))
+
+    def _open_recent_project(self, path_str: str) -> None:
+        """Oeffnet ein Projekt direkt aus der Recent-Liste."""
+        from pathlib import Path
+        path = Path(path_str)
+        try:
+            meta = self._project_manager.open_project(path)
+            self._console_append(f"[Projekt] Geoeffnet: {meta.get('name', path.name)}")
+        except (OSError, RuntimeError, ValueError) as exc:
+            from PySide6.QtWidgets import QMessageBox
+            from services.recent_projects import RecentProjectsManager
+            QMessageBox.critical(self, "Fehler", str(exc))
+            self._console_append(f"[Projekt-Fehler] {exc}")
+            # Remove stale entry (folder deleted / moved)
+            RecentProjectsManager.clear_entry(path_str)
+
+    def _clear_recent_projects(self) -> None:
+        """Loescht die gesamte Recent-Projekte-Liste."""
+        from services.recent_projects import RecentProjectsManager
+        RecentProjectsManager.clear()
+        if hasattr(self, "status_bar"):
+            self.status_bar.showMessage("Letzte Projekte geleert.", 3000)
+
+    # -----------------------------------------------------------------------
 
     def _create_workspaces(self):
         """Creates all 5 workspaces, promotes widgets, wires signals."""
