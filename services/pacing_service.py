@@ -449,6 +449,38 @@ def auto_edit_phase3(
             cut_beats.append(snapped)
     cut_beats.sort()
 
+    # AUD-101: Video-Szenen-Grenzen als zusaetzliche Beat-aligned Cut-Points injizieren.
+    # Wenn eine Video-Szene auf einen Beat faellt und dort noch kein Cut existiert,
+    # wird sie als "scene"-CutPoint eingefuegt. Nur bei hohen Motion-Deltas (>0.3).
+    _scene_cuts_added = 0
+    if beats_arr.size > 0:
+        for vid_data in video_info.values():
+            for scene in vid_data.get("scenes", []):
+                scene_time = scene.get("start_time", 0.0)
+                if scene_time <= 0 or scene_time >= total_duration:
+                    continue
+                # Nur Szenen-Wechsel mit deutlichem Motion-Delta (signifikante visuelle Aenderung)
+                motion = scene.get("energy", 0.5)
+                if motion < 0.4:
+                    continue
+                # Snap auf naechsten Beat
+                idx = np.searchsorted(beats_arr, scene_time)
+                if idx >= len(beats_arr):
+                    idx = len(beats_arr) - 1
+                snapped = float(beats_arr[idx])
+                if abs(snapped - scene_time) > 0.15:
+                    continue  # Szene liegt zu weit vom naechsten Beat entfernt
+                # Duplikat-Check via bisect
+                _si = bisect.bisect_left(cut_beats, snapped - 0.05)
+                _scene_dup = (_si < len(cut_beats) and abs(cut_beats[_si] - snapped) < 0.05)
+                if not _scene_dup:
+                    cut_beats.append(snapped)
+                    _scene_cuts_added += 1
+        if _scene_cuts_added > 0:
+            cut_beats.sort()
+            logger.info("AUD-101: %d Video-Szenen-Grenzen als Beat-aligned Cuts injiziert",
+                        _scene_cuts_added)
+
     # Phase 2: Mindestdauer erzwingen — zu kurze Segmente entfernen
     cut_beats = _enforce_minimum_durations(cut_beats, sections, total_duration)
 
@@ -523,6 +555,7 @@ def auto_edit_phase3(
                 cross_modal_matcher = CrossModalMatcher(
                     audio_ctx=audio_ctx,
                     mood_embeddings=mood_embeddings,
+                    beats=beats,
                 )
                 # Audio-Mood-Embedding berechnen (nutzt SigLIP, entlaedt sofort)
                 cross_modal_matcher.compute_audio_mood_embedding()
