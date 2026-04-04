@@ -29,8 +29,12 @@ class AnalysisWorker(QObject, CancellableMixin):
         self.started.emit(self.track_id, self.title)
         try:
             # Phase 1: Metadaten lesen (Dauer, Frequenzenergie via librosa STFT)
-            self.progress.emit(10, "Lese Metadaten (Dauer, Energie)...")
-            result = self.analyzer.analyze_and_store(self.track_id)
+            # progress_cb maps 0-100 → 0-45% for this phase
+            self.progress.emit(5, "Lese Metadaten (Dauer, Energie)...")
+            result = self.analyzer.analyze_and_store(
+                self.track_id,
+                progress_cb=lambda pct, msg: self.progress.emit(int(pct * 0.45), msg),
+            )
 
             # Phase 2: KI Beat-Analyse (Beatgrid mit Downbeats via beat_this)
             # BeatAnalysisService ist der alleinige Beatgrid-Writer.
@@ -39,7 +43,11 @@ class AnalysisWorker(QObject, CancellableMixin):
                     self.progress.emit(50, "Starte KI Beat-Analyse (beat_this)...")
                     from services.beat_analysis_service import BeatAnalysisService
                     beat_svc = BeatAnalysisService()
-                    beat_result = beat_svc.analyze_and_store(self.track_id)
+                    # progress_cb maps 0-100 → 50-90% for this phase
+                    beat_result = beat_svc.analyze_and_store(
+                        self.track_id,
+                        progress_cb=lambda pct, msg: self.progress.emit(50 + int(pct * 0.40), msg),
+                    )
                     result["beat_positions"] = beat_result.get("beats", [])
                     result["downbeats"] = beat_result.get("downbeats", [])
                     self.progress.emit(90, "Beat-Analyse fertig")

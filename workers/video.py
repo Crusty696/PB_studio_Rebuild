@@ -36,8 +36,10 @@ class VideoAnalysisWorker(QObject, CancellableMixin):
         self.started.emit(self.clip_id, self.title)
         self.progress.emit(0, f"Video-Analyse: {self.title}")
         try:
-            self.progress.emit(10, f"ffprobe + Proxy fuer {self.title}...")
-            result = self.analyzer.analyze_and_store(self.clip_id)
+            result = self.analyzer.analyze_and_store(
+                self.clip_id,
+                progress_cb=lambda pct, msg: self.progress.emit(pct, f"{self.title}: {msg}"),
+            )
             self.progress.emit(100, f"Analyse fertig: {self.title}")
             self.finished.emit(self.clip_id, result)
             _ok = True
