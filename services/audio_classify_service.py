@@ -297,7 +297,7 @@ class AudioClassifyService:
                 sub_genre=sub_genre if sub_genre != genre else "",
             )
 
-        except Exception as e:
+        except (OSError, IOError, ValueError, RuntimeError) as e:
             log.exception("classify() fehlgeschlagen fuer %s", file_path)
             log.warning("classify(): fallback result returned due to: %s", e)
             return _fallback_result("Analyse-Fehler")
@@ -375,7 +375,7 @@ class AudioClassifyService:
 
             return False
 
-        except Exception:
+        except (OSError, IOError, ValueError, RuntimeError):
             log.exception("detect_dj_mix() fehlgeschlagen fuer %s", file_path)
             return False
 
@@ -501,7 +501,7 @@ class AudioClassifyService:
                     "_quick_dj_mix_check: BPM-Diff %.1f zwischen Start/Ende", variance,
                 )
                 return True
-        except Exception:
+        except (OSError, IOError, ValueError, RuntimeError):
             log.debug("_quick_dj_mix_check: Fehler bei Segment-Analyse", exc_info=True)
 
         return False

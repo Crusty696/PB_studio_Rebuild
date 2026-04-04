@@ -98,7 +98,7 @@ def _do_apply_segments(segments: list[dict], project_id: int) -> int:
                 session.add(entry)
             try:
                 session.commit()
-            except Exception:
+            except Exception:  # broad catch intentional — SQLAlchemy commit can raise many error types
                 session.rollback()
                 raise
     finally:
@@ -350,7 +350,7 @@ class TimelineService:
         path.parent.mkdir(parents=True, exist_ok=True)
         try:
             otio.adapters.write_to_file(self.timeline, str(path), adapter_name="cmx_3600")
-        except Exception:
+        except (ImportError, ValueError, RuntimeError, OSError):
             raise RuntimeError(
                 "EDL-Export fehlgeschlagen — cmx_3600 Adapter nicht verfuegbar. "
                 "Installiere: pip install opentimelineio-contrib"
@@ -369,7 +369,7 @@ class TimelineService:
         try:
             dur = self.timeline.duration()
             return dur.value / dur.rate
-        except Exception as e:
+        except (ValueError, ZeroDivisionError, AttributeError) as e:
             logger.warning("Timeline-Dauer konnte nicht berechnet werden: %s", e)
             return 0.0
 

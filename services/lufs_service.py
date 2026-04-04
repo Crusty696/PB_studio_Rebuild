@@ -131,7 +131,7 @@ class LUFSService:
             log.error("FFmpeg LUFS-Analyse Timeout fuer: %s", file_path)
             return fallback
 
-        except Exception as e:
+        except (ValueError, RuntimeError, json.JSONDecodeError) as e:
             log.exception("Unerwarteter Fehler bei LUFS-Analyse fuer: %s", file_path)
             log.warning("analyze(): fallback result returned due to: %s", e)
             return fallback

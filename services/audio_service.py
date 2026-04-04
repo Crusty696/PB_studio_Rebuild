@@ -71,7 +71,7 @@ class AudioAnalyzer:
                 "energy_curve": energy_curve,
                 "beat_positions": beat_positions,
             }
-        except Exception as e:
+        except (OSError, IOError, ValueError, RuntimeError) as e:
             raise RuntimeError(f"Audio-Analyse fehlgeschlagen für {file_path}: {e}") from e
 
     def analyze_and_store(self, track_id: int, progress_cb=None) -> dict:
@@ -115,7 +115,7 @@ class AudioAnalyzer:
         try:
             from services.pacing_service import invalidate_pacing_caches
             invalidate_pacing_caches()
-        except Exception as e:
+        except (ImportError, AttributeError, RuntimeError) as e:
             logging.warning("invalidate_pacing_caches() fehlgeschlagen: %s", e)
 
         return result

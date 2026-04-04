@@ -87,7 +87,7 @@ def detect_scenes(
             video_path,
             ContentDetector(threshold=threshold, min_scene_len=int(min_scene_len * fps)),
         )
-    except Exception as e:
+    except (OSError, IOError, ValueError, RuntimeError) as e:
         logger.error("SceneDetect Fehler: %s — Fallback", e)
         return _fallback_single_scene(video_path)
 
@@ -119,7 +119,7 @@ def _load_raft_model():
         from services.model_manager import GPU_LOAD_LOCK, ModelManager
         with GPU_LOAD_LOCK:
             return ModelManager().load_raft()
-    except Exception as e:
+    except (ImportError, RuntimeError, OSError, MemoryError) as e:
         logger.warning("RAFT nicht verfügbar (%s) — nutze CPU-Fallback", e)
         return None, None
 
@@ -222,7 +222,7 @@ def compute_motion_scores(
                         scene.motion_score = _raft_motion_score(
                             raft_model, raft_device, frames_bgr[0], frames_bgr[1]
                         )
-                    except Exception as e:
+                    except (RuntimeError, OSError) as e:
                         logger.warning("RAFT Fehler bei Szene %d: %s — CPU-Fallback", scene.index, e)
                         scene.motion_score = _cpu_motion_score(frames_bgr[0], frames_bgr[1])
                     # Periodischer VRAM-Cleanup NUR wenn wir RAFT selbst geladen haben.
@@ -243,7 +243,7 @@ def compute_motion_scores(
             from services.model_manager import ModelManager
             try:
                 ModelManager().unload()
-            except Exception as exc:
+            except (RuntimeError, AttributeError) as exc:
                 logger.warning("ModelManager.unload() failed after RAFT cleanup: %s", exc)
             raft_model = None  # Lokale Referenz freigeben
             logger.info("RAFT entladen via ModelManager")
@@ -287,7 +287,7 @@ def _get_video_duration(video_path: str) -> float:
         )
         if p.returncode == 0 and p.stdout.strip():
             return float(p.stdout.strip())
-    except Exception as e:
+    except (subprocess.SubprocessError, OSError, ValueError) as e:
         logger.warning("ffprobe Dauer-Abfrage fehlgeschlagen für '%s': %s", video_path, e)
     return 60.0
 
@@ -346,7 +346,7 @@ def extract_keyframes(
                 stderr = (result.stderr or b"")[:200]
                 logger.warning("Keyframe-Extraktion fehlgeschlagen: Szene %d (rc=%d, %s)",
                                scene.index, result.returncode, stderr)
-        except Exception as e:
+        except (subprocess.SubprocessError, OSError, ValueError) as e:
             logger.warning("Keyframe-Fehler Szene %d: %s", scene.index, e)
 
     extracted = sum(1 for s in scenes if s.keyframe_path)
@@ -396,7 +396,7 @@ def generate_embeddings(
             with GPU_LOAD_LOCK:
                 model, processor = mm.load_siglip()
             logger.info("[SIGLIP] SigLIP geladen auf %s", mm.device)
-        except Exception as e:
+        except (ImportError, RuntimeError, OSError, MemoryError) as e:
             logger.error("[SIGLIP] SigLIP FEHLER: %s", e)
             logger.error("SigLIP konnte nicht geladen werden: %s", e)
             return scenes
@@ -409,7 +409,7 @@ def generate_embeddings(
         """Lädt ein Keyframe-Bild (I/O-bound, parallelisierbar)."""
         try:
             return scene, Image.open(scene.keyframe_path).convert("RGB")
-        except Exception as e:
+        except (OSError, IOError, ValueError) as e:
             logger.warning("Bild konnte nicht geladen werden: %s — %s", scene.keyframe_path, e)
             return scene, None
 
@@ -465,7 +465,7 @@ def generate_embeddings(
                 except torch.cuda.OutOfMemoryError:
                     torch.cuda.empty_cache()
                     logger.error("OOM auch bei Einzel-Inference — ueberspringe Bild %d", j)
-        except Exception as e:
+        except (RuntimeError, ValueError, AttributeError) as e:
             logger.error("SigLIP Embedding-Fehler: %s", e)
 
         # Inter-batch GPU-Cleanup NUR wenn wir SigLIP selbst geladen haben.
@@ -501,7 +501,7 @@ def store_embeddings(
     # Alte Embeddings für dieses Video löschen
     try:
         vdb.delete_by_video(video_path)
-    except Exception as e:
+    except (OSError, RuntimeError, ValueError) as e:
         logger.debug("delete_by_video fehlgeschlagen (ignoriert): %s", e)
 
     entries = []
@@ -551,7 +551,7 @@ def store_scenes_in_db(
                 session.add(db_scene)
 
             session.commit()
-        except Exception:
+        except Exception:  # broad catch intentional — SQLAlchemy commit can raise many error types
             session.rollback()
             logger.exception("Fehler beim Speichern der Szenen für VideoClip %d", video_clip_id)
             raise
@@ -581,7 +581,7 @@ def text_to_embedding(query: str) -> np.ndarray | None:
     with GPU_LOAD_LOCK:
         try:
             model, processor = mm.load_siglip()
-        except Exception as e:
+        except (ImportError, RuntimeError, OSError) as e:
             logger.error("SigLIP für Text-Suche nicht verfügbar: %s", e)
             return None
 
@@ -603,7 +603,7 @@ def text_to_embedding(query: str) -> np.ndarray | None:
             mm.unload()
             return result
 
-        except Exception as e:
+        except (RuntimeError, ValueError, AttributeError) as e:
             logger.error("Text-Embedding Fehler: %s", e)
             mm.unload()
             return None
@@ -627,7 +627,7 @@ def texts_to_embeddings_batch(queries: list[str]) -> dict[str, np.ndarray]:
     with GPU_LOAD_LOCK:
         try:
             model, processor = mm.load_siglip()
-        except Exception as e:
+        except (ImportError, RuntimeError, OSError) as e:
             logger.error("SigLIP fuer Batch-Text-Embedding nicht verfuegbar: %s", e)
             return {}
 
@@ -649,7 +649,7 @@ def texts_to_embeddings_batch(queries: list[str]) -> dict[str, np.ndarray]:
             for i, query in enumerate(queries):
                 results[query] = embeddings_np[i]
 
-        except Exception as e:
+        except (RuntimeError, ValueError, AttributeError) as e:
             logger.error("Batch Text-Embedding Fehler: %s", e)
         finally:
             mm.unload()
@@ -684,7 +684,7 @@ def search_videos_by_text(
         results = vdb.search(embedding, top_k=top_k, motion_filter=motion_filter)
         logger.info("Suche '%s': %d Ergebnisse", query, len(results))
         return results
-    except Exception as e:
+    except (OSError, RuntimeError, ValueError) as e:
         logger.error("LanceDB Suche fehlgeschlagen: %s", e)
         return []
 
@@ -727,7 +727,7 @@ def run_full_pipeline(
         with _Session(_engine) as _s:
             _clip = _s.get(_VideoClip, video_clip_id)
             original_video_path = _clip.file_path if _clip else video_path
-    except Exception:
+    except Exception:  # broad catch intentional — SQLAlchemy query at startup, DB may not be ready
         original_video_path = video_path
 
     result = PipelineResult(video_path=original_video_path)

@@ -111,7 +111,7 @@ class VisionAnalysisService:
                     "time": round(time_sec, 2),
                     "description": answer.strip(),
                 })
-            except Exception as e:
+            except (OSError, ValueError, RuntimeError, AttributeError) as e:
                 logger.warning("[Vision] Frame bei %.1fs fehlgeschlagen: %s", time_sec, e)
                 descriptions.append({
                     "time": round(time_sec, 2),

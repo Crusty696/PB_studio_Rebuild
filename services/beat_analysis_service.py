@@ -160,7 +160,7 @@ class BeatAnalysisService:
         # Audio einmalig laden (wird fuer Chunking UND Energie-Analyse wiederverwendet)
         try:
             y, sr = librosa.load(audio_path, sr=DEFAULT_SR, mono=True)
-        except Exception as e:
+        except (OSError, IOError, ValueError, RuntimeError) as e:
             raise RuntimeError(f"Audio konnte nicht geladen werden: {e}") from e
 
         if progress_cb:
@@ -375,7 +375,7 @@ class BeatAnalysisService:
 
                         session.commit()
                     break  # Erfolg
-                except Exception as e:
+                except Exception as e:  # broad catch intentional — catches both SQLAlchemy and DB-lock errors for retry logic
                     if "database is locked" in str(e) and attempt < max_retries - 1:
                         logger.warning(
                             "[BeatAnalysis] DB locked bei Beatgrid-Write, Retry %d/%d...",
@@ -388,7 +388,7 @@ class BeatAnalysisService:
             try:
                 from services.pacing_service import invalidate_pacing_caches
                 invalidate_pacing_caches()
-            except Exception as e:
+            except (ImportError, AttributeError, RuntimeError) as e:
                 logger.warning("invalidate_pacing_caches() fehlgeschlagen: %s", e)
 
             # AUD-83: Onset Rhythm Analysis (non-blocking, nach Beat-Analyse)
@@ -398,10 +398,10 @@ class BeatAnalysisService:
                 from services.onset_rhythm_service import OnsetRhythmService
                 onset_svc = OnsetRhythmService()
                 onset_svc.analyze_and_store(track_id, progress_cb=None)
-            except Exception as e:
+            except (ImportError, ValueError, RuntimeError, OSError) as e:
                 logger.warning("OnsetRhythmService.analyze_and_store() fehlgeschlagen: %s", e)
 
-        except Exception:
+        except Exception:  # broad catch intentional — re-raised after memory cleanup (B-004 fix)
             # B-004 Fix: Falls analyze() crasht, _last_y freigeben um Memory Leak zu vermeiden
             self._last_y = None
             self._last_sr = None

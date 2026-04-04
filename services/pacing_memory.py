@@ -129,7 +129,7 @@ def learn_from_anchor(
                 mem.id, bpm or 0.0, mood or "?", raft_motion or 0.0,
             )
             return True
-    except Exception as exc:
+    except Exception as exc:  # broad catch intentional — SQLAlchemy commit can raise many error types
         logger.error("learn_from_anchor fehlgeschlagen: %s", exc)
         return False
 
@@ -158,7 +158,7 @@ def record_rl_feedback(audio_track_id: int, sentiment: str, project_id: int = 1)
             logger.info("RL-Feedback gespeichert: %s, audio=%d, clips=%d",
                         sentiment, audio_track_id, entry_count)
             return True
-    except Exception as exc:
+    except Exception as exc:  # broad catch intentional — SQLAlchemy commit can raise many error types
         logger.error("record_rl_feedback fehlgeschlagen: %s", exc)
         return False
 
@@ -212,7 +212,7 @@ def _get_ai_memory_bias(bpm: float, overall_energy: float) -> dict | None:
                 "label": best_mem.label,
                 "similarity_score": best_score,
             }
-    except Exception as exc:
+    except Exception as exc:  # broad catch intentional — SQLAlchemy query can raise many error types
         logger.warning("AI Memory Abfrage fehlgeschlagen: %s", exc)
         return None
 

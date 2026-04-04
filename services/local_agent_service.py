@@ -195,7 +195,7 @@ class LocalAgentService:
                 version, self._ollama_model,
             )
             return True
-        except Exception as e:
+        except (ConnectionError, TimeoutError, OSError, RuntimeError) as e:
             logger.warning("LocalAgentService: Ollama-Check fehlgeschlagen: %s", e)
             return False
 
@@ -371,7 +371,7 @@ class LocalAgentService:
                 "LocalAgentService: Feedback gespeichert (Rating=%d, Aktion='%s').",
                 rating, action_name or "?",
             )
-        except Exception as e:
+        except Exception as e:  # broad catch intentional — SQLAlchemy commit can raise many error types
             logger.warning("LocalAgentService: Feedback konnte nicht gespeichert werden: %s", e)
 
     def _get_positive_few_shots(self, limit: int = 3) -> str:
@@ -399,7 +399,7 @@ class LocalAgentService:
                         f'  User: "{fb.user_query[:80]}" → Aktion: "{fb.action_name}"'
                     )
                 return "\n".join(lines)
-        except Exception as e:
+        except Exception as e:  # broad catch intentional — SQLAlchemy query can raise many error types
             logger.debug("Few-Shot-Laden fehlgeschlagen: %s", e)
             return ""
 
@@ -456,7 +456,7 @@ class LocalAgentService:
             knowledge_context = loader.build_context(query=user_query)
             if knowledge_context:
                 base += "\n\n" + knowledge_context
-        except Exception as e:
+        except (ImportError, ValueError, RuntimeError, OSError) as e:
             logger.debug("Knowledge-Base konnte nicht geladen werden: %s", e)
 
         # --- AP-5: Auto-Prompt-Optimization — Few-Shot aus positivem Feedback ---
@@ -498,7 +498,7 @@ class LocalAgentService:
             lines.append("Wenn der User 'alle' oder 'die Videos/Audios' sagt, lasse den ID-Parameter weg — die Aktion verarbeitet dann automatisch alle.")
 
             return "\n".join(lines)
-        except Exception as e:
+        except Exception as e:  # broad catch intentional — DB query + string formatting errors
             logger.warning("Medien-Kontext konnte nicht geladen werden: %s", e)
             return ""
 
@@ -524,7 +524,7 @@ class LocalAgentService:
         if self._use_ollama and self._ollama_model:
             try:
                 return self._generate_ollama(user_text, max_new_tokens)
-            except Exception as e:
+            except (ConnectionError, TimeoutError, OSError, RuntimeError) as e:
                 logger.warning("LocalAgentService: Ollama-Fehler -> Fallback. %s", e)
                 self._use_ollama = False
 
@@ -587,13 +587,13 @@ class LocalAgentService:
                             outputs = _future.result(timeout=120)
                     logger.info("LocalAgentService: OOM-Recovery erfolgreich (CPU-Fallback).")
                     return outputs[0]["generated_text"].strip()
-                except Exception as cpu_err:
+                except (RuntimeError, OSError, TimeoutError) as cpu_err:
                     logger.error("LocalAgentService: CPU-Retry nach OOM fehlgeschlagen: %s", cpu_err)
                     self.unload_model()
                     return ("KI-Dienst: GPU-Speicher erschöpft, CPU-Fallback fehlgeschlagen. "
                             "Bitte Ollama nutzen oder App neu starten.")
 
-        except Exception as e:
+        except (ImportError, RuntimeError, MemoryError) as e:
             logger.error("LocalAgentService: Kritischer Fehler im KI-Fallback: %s", e)
             return "KI-Dienst momentan nicht verfuegbar. (Verbindung zu Ollama fehlgeschlagen)"
 
@@ -661,7 +661,7 @@ class LocalAgentService:
                 result["action"] = action_def.name
                 try:
                     result["result"] = self.registry.execute(action_def.name, params)
-                except Exception as e:
+                except (ValueError, RuntimeError, TypeError, OSError) as e:
                     result["error"] = f"Fehler bei '{action_def.name}': {e}"
 
         return result
@@ -791,7 +791,7 @@ class LocalAgentService:
                                 single = self._execute_single_action(parsed_list[0])
                                 response.update(single)
                                 return response
-                    except Exception as e:
+                    except (ConnectionError, TimeoutError, ValueError, RuntimeError) as e:
                         logger.warning(
                             "LocalAgentService: Tool-Use fehlgeschlagen → JSON-Fallback. Fehler: %s", e
                         )
@@ -801,7 +801,7 @@ class LocalAgentService:
             if self._use_ollama and self._ollama_model and use_history:
                 try:
                     raw_output = self._generate_ollama_with_history(user_text)
-                except Exception as e:
+                except (ConnectionError, TimeoutError, ValueError, RuntimeError) as e:
                     logger.warning(
                         "LocalAgentService: History-Chat fehlgeschlagen → einfacher Ollama-Chat. Fehler: %s", e
                     )
@@ -843,7 +843,7 @@ class LocalAgentService:
                         user_text, response.get("message", raw_output[:200])
                     )
 
-        except Exception as e:
+        except Exception as e:  # broad catch intentional — top-level process() safety net
             logger.exception("Fehler bei KI-Verarbeitung")
             response["error"] = str(e)
 

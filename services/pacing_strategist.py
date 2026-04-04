@@ -122,7 +122,7 @@ class PacingStrategist:
             logger.info("PacingStrategist: Plan generiert mit %d Section-Overrides",
                         len(plan.section_overrides))
             return plan
-        except Exception as e:
+        except (ValueError, RuntimeError, OSError) as e:
             logger.warning("PacingStrategist Fehler, nutze Default-Plan: %s", e)
             return PacingPlan.default()
 
@@ -169,7 +169,7 @@ class PacingStrategist:
                         )
                         logger.info("PacingStrategist: Ollama-Antwort erhalten (%d chars)", len(result))
                         return result
-        except Exception as e:
+        except (ConnectionError, TimeoutError, ImportError, RuntimeError, OSError) as e:
             logger.warning("PacingStrategist: Ollama nicht verfuegbar (%s) — HuggingFace-Fallback.", e)
 
         # --- HuggingFace-Fallback ---

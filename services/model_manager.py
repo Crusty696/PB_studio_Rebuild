@@ -162,7 +162,7 @@ class ModelManager:
                 if obj is not None and hasattr(obj, 'cpu'):
                     try:
                         obj.cpu()
-                    except Exception as e:
+                    except (RuntimeError, AttributeError) as e:
                         logger.warning("Moving model to CPU before unload: %s", e)
 
             # Alle Referenzen löschen
@@ -428,7 +428,7 @@ class ModelManager:
                 self.unload()
                 from services.errors import CUDAOutOfMemoryError
                 raise CUDAOutOfMemoryError(operation=f"SigLIP '{model_id}' laden")
-            except Exception as e:
+            except (ImportError, OSError, MemoryError, ValueError, RuntimeError) as e:
                 logger.error(
                     "SigLIP '%s' konnte nicht geladen werden: %s — räume auf.",
                     model_id, e,
@@ -471,7 +471,7 @@ class ModelManager:
         try:
             from services.model_lifecycle_service import get_model_lifecycle_service
             get_model_lifecycle_service().touch_last_used(model_id)
-        except Exception as e:
+        except (ImportError, RuntimeError, AttributeError) as e:
             logger.warning("Updating last_used_at in model registry for '%s': %s", model_id, e)
 
         return result
@@ -569,7 +569,7 @@ class ModelManager:
         try:
             from services.model_lifecycle_service import get_model_lifecycle_service
             get_model_lifecycle_service(base_url).touch_last_used(model)
-        except Exception as e:
+        except (ImportError, RuntimeError, AttributeError) as e:
             logger.warning("Updating last_used_at in model registry for Ollama model '%s': %s", model, e)
 
         return handle

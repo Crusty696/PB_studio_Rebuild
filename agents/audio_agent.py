@@ -107,7 +107,7 @@ class AudioAgent(BaseAgent):
                     result["action"] = "transcribe_audio"
                     result["params"] = params
                     result["result"] = action_registry.execute("transcribe_audio", params)
-                except Exception as e:
+                except (ValueError, RuntimeError, OSError) as e:
                     result["error"] = str(e)
             else:
                 result["message"] = "Transkription benötigt eine track_id oder file_path."
@@ -133,14 +133,14 @@ class AudioAgent(BaseAgent):
                 result["action"] = "separate_stems"
                 result["params"] = params
                 result["result"] = action_registry.execute("separate_stems", params)
-            except Exception as e:
+            except (ValueError, RuntimeError, OSError) as e:
                 result["error"] = str(e)
         elif track_id is not None:
             try:
                 result["action"] = "analyze_audio"
                 result["params"] = {"track_id": track_id}
                 result["result"] = action_registry.execute("analyze_audio", {"track_id": track_id})
-            except Exception as e:
+            except (ValueError, RuntimeError, OSError) as e:
                 result["error"] = str(e)
         else:
             result["message"] = "Audio-Analyse benötigt eine track_id. Bitte einen Track importieren."

@@ -505,7 +505,7 @@ class OnsetRhythmService:
 
         try:
             y, sr = librosa.load(audio_path, sr=DEFAULT_SR, mono=True)
-        except Exception as e:
+        except (OSError, IOError, ValueError) as e:
             logger.error("Audio-Load fehlgeschlagen '%s': %s", audio_path, e)
             return None
 
@@ -514,7 +514,7 @@ class OnsetRhythmService:
             try:
                 drums_y, _ = librosa.load(drums_path, sr=DEFAULT_SR, mono=True)
                 logger.debug("Drums-Stem geladen: %s", drums_path)
-            except Exception as e:
+            except (OSError, IOError, ValueError) as e:
                 logger.warning("Drums-Stem load fehlgeschlagen '%s': %s", drums_path, e)
 
         # Beat-Positionen aus DB

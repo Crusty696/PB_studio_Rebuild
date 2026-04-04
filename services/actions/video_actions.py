@@ -263,7 +263,7 @@ def detect_scenes_action(clip_id: int, use_proxy: bool = True, threshold: float 
             "scenes": [{"index": s.index, "start": s.start_time, "end": s.end_time} for s in scenes],
             "message": f"{len(scenes)} Szenen erkannt.",
         }
-    except Exception as e:
+    except Exception as e:  # broad catch intentional — re-raised after task error logging
         if task and tm:
             tm.finish_task(task.task_id, "error", str(e))
         raise
@@ -332,7 +332,7 @@ def analyze_motion_action(clip_id: int, use_proxy: bool = True) -> dict:
             "avg_motion": round(sum(s.motion_score for s in scenes) / max(len(scenes), 1), 4),
             "message": f"Motion-Analyse für {len(scenes)} Szenen abgeschlossen.",
         }
-    except Exception as e:
+    except Exception as e:  # broad catch intentional — re-raised after task error logging
         if task and tm:
             tm.finish_task(task.task_id, "error", str(e))
         raise
@@ -406,7 +406,7 @@ def generate_embeddings_action(clip_id: int, use_proxy: bool = True) -> dict:
             "embeddings_stored": stored,
             "message": f"{stored} SigLIP-Embeddings in LanceDB gespeichert.",
         }
-    except Exception as e:
+    except Exception as e:  # broad catch intentional — re-raised after task error logging
         if task and tm:
             tm.finish_task(task.task_id, "error", str(e))
         raise

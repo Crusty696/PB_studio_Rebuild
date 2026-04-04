@@ -201,7 +201,7 @@ class ActionRegistry:
                 action.name, filtered, exc,
             )
             raise
-        except Exception as exc:
+        except Exception as exc:  # broad catch intentional — re-raised after logging, action functions can raise anything
             logger.error(
                 "Fehler beim Ausführen von '%s': %s",
                 action.name, exc, exc_info=True,

@@ -110,7 +110,7 @@ class VisionAgent(BaseAgent):
                     result["action"] = "analyze_video_content"
                     result["params"] = params
                     result["result"] = action_registry.execute("analyze_video_content", params)
-                except Exception as e:
+                except (ValueError, RuntimeError, OSError) as e:
                     result["error"] = str(e)
             else:
                 result["message"] = "Video-Inhaltsanalyse benötigt eine clip_id oder file_path."
@@ -121,7 +121,7 @@ class VisionAgent(BaseAgent):
                     result["action"] = "analyze_video"
                     result["params"] = {"clip_id": clip_id}
                     result["result"] = action_registry.execute("analyze_video", {"clip_id": clip_id})
-                except Exception as e:
+                except (ValueError, RuntimeError, OSError) as e:
                     result["error"] = str(e)
             else:
                 result["message"] = "Video-Analyse benötigt eine clip_id. Bitte einen Clip importieren."

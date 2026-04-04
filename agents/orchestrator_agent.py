@@ -202,7 +202,7 @@ class OrchestratorAgent(BaseAgent):
                 "result": vision_result,
                 "error": None,
             })
-        except Exception as e:
+        except (ValueError, RuntimeError, OSError) as e:
             error_msg = f"Vision-Analyse fehlgeschlagen: {e}"
             logger.error(error_msg)
             errors.append(error_msg)
@@ -227,7 +227,7 @@ class OrchestratorAgent(BaseAgent):
                         clip = session.get(VideoClip, media_id)
                         if clip and clip.file_path:
                             audio_params["file_path"] = clip.file_path
-                except Exception as e:
+                except Exception as e:  # broad catch intentional — SQLAlchemy query can raise many error types
                     # Bug-34 Fix: Fehler protokollieren statt zu verschlucken
                     logger.warning("Konnte VideoClip %d nicht laden für Transcription: %s", media_id, e)
                     audio_params["track_id"] = media_id
@@ -243,7 +243,7 @@ class OrchestratorAgent(BaseAgent):
                 "result": audio_result,
                 "error": None,
             })
-        except Exception as e:
+        except (ValueError, RuntimeError, OSError) as e:
             error_msg = f"Audio-Transkription fehlgeschlagen: {e}"
             logger.error(error_msg)
             errors.append(error_msg)
@@ -303,7 +303,7 @@ class OrchestratorAgent(BaseAgent):
                 video_ids = [c.id for c in session.query(VideoClip).all()]
 
             return {"audio_track_ids": audio_ids, "video_clip_ids": video_ids}
-        except Exception as e:
+        except Exception as e:  # broad catch intentional — SQLAlchemy query can raise many error types
             logger.error("Fehler beim Laden der importierten IDs: %s", e)
             return {"audio_track_ids": [], "video_clip_ids": []}
 
@@ -324,7 +324,7 @@ class OrchestratorAgent(BaseAgent):
                     "result": res,
                     "error": None,
                 })
-            except Exception as e:
+            except (ValueError, RuntimeError, OSError) as e:
                 errors.append(f"analyze_audio(track_id={track_id}): {e}")
                 results.append({
                     "action": "analyze_audio",
@@ -342,7 +342,7 @@ class OrchestratorAgent(BaseAgent):
                     "result": res,
                     "error": None,
                 })
-            except Exception as e:
+            except (ValueError, RuntimeError, OSError) as e:
                 errors.append(f"analyze_video(clip_id={clip_id}): {e}")
                 results.append({
                     "action": "analyze_video",
@@ -398,7 +398,7 @@ class OrchestratorAgent(BaseAgent):
                     "result": action_result,
                     "error": None,
                 })
-            except Exception as e:
+            except (ValueError, RuntimeError, OSError) as e:
                 error_msg = f"{action_name}: {e}"
                 logger.error("Compound-Action fehlgeschlagen: %s", error_msg)
                 errors.append(error_msg)
@@ -460,7 +460,7 @@ class OrchestratorAgent(BaseAgent):
             if category in valid_categories:
                 logger.info("LLM-Klassifizierung: '%s' → '%s'", user_text[:50], category)
                 return category
-        except Exception as e:
+        except (ConnectionError, TimeoutError, ValueError, RuntimeError) as e:
             logger.debug("LLM-Klassifizierung fehlgeschlagen: %s", e)
 
         return None
@@ -560,7 +560,7 @@ class OrchestratorAgent(BaseAgent):
                     "message": None,
                     "error": None,
                 }
-            except Exception as e:
+            except (ValueError, RuntimeError, OSError) as e:
                 return {
                     "agent": self.name,
                     "action": name,
@@ -579,7 +579,7 @@ class OrchestratorAgent(BaseAgent):
                 results.append({
                     "action": name, "params": params, "result": res, "error": None,
                 })
-            except Exception as e:
+            except (ValueError, RuntimeError, OSError) as e:
                 errors.append(f"{name}: {e}")
                 results.append({
                     "action": name, "params": params, "result": None, "error": str(e),
@@ -677,7 +677,7 @@ class OrchestratorAgent(BaseAgent):
                            "Verfügbare Agenten: Vision (Szenen-KI), Audio (Transkription), Editor.",
                 "error": None,
             }
-        except Exception as e:
+        except Exception as e:  # broad catch intentional — top-level orchestrator safety net
             # FIX B-1001: Fehler aus allen Agenten und Methoden loggen und zur UI schicken
             error_msg = f"Orchestrator-Fehler: {type(e).__name__}: {e}"
             logger.exception("Unerwarteter Fehler im Orchestrator-Agent")

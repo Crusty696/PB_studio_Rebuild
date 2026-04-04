@@ -224,7 +224,7 @@ class PBWindow(QMainWindow,
                 if reply == QMessageBox.StandardButton.No:
                     event.ignore()
                     return
-        except Exception as exc:
+        except (ImportError, AttributeError, RuntimeError) as exc:
             logger.warning("closeEvent: failed to check running tasks: %s", exc)
 
         # 1. Stop background timers
@@ -234,7 +234,7 @@ class PBWindow(QMainWindow,
         # FIX B-002: Shutdown-Flag setzen VOR Task-Abbruch
         try:
             GlobalTaskManager.instance()._shutting_down = True
-        except Exception as exc:
+        except (AttributeError, RuntimeError) as exc:
             logger.warning("closeEvent: failed to set shutdown flag: %s", exc)
 
         # 2. Alle Tasks im GlobalTaskManager abbrechen
@@ -243,7 +243,7 @@ class PBWindow(QMainWindow,
             for task in tm.get_all_tasks():
                 if task.status == "running":
                     tm.cancel_task(task.task_id)
-        except Exception as exc:
+        except (AttributeError, RuntimeError) as exc:
             logger.warning("closeEvent: failed to cancel running tasks: %s", exc)
 
         # 2. Legacy: direkt verwaltete Threads stoppen
@@ -260,7 +260,7 @@ class PBWindow(QMainWindow,
         if hasattr(self, "video_preview"):
             try:
                 self.video_preview.stop()
-            except Exception as exc:
+            except (RuntimeError, AttributeError) as exc:
                 logger.warning("closeEvent: failed to stop video preview: %s", exc)
 
         # 4. Stem Player + Workspace aufraeumen
@@ -279,14 +279,14 @@ class PBWindow(QMainWindow,
         try:
             from services.model_manager import ModelManager
             ModelManager().unload()
-        except Exception as exc:
+        except (ImportError, RuntimeError, AttributeError) as exc:
             logger.warning("closeEvent: failed to unload GPU models: %s", exc)
 
         # 5. Close DB connection pool
         try:
             from database import engine
             engine.dispose()
-        except Exception as exc:
+        except (ImportError, RuntimeError, OSError) as exc:
             logger.warning("closeEvent: failed to dispose DB connection pool: %s", exc)
 
         super().closeEvent(event)
@@ -341,7 +341,7 @@ def _global_exception_hook(exc_type, exc_value, exc_tb):
             from ui.dialogs.crash_dialog import CrashDialog
             dlg = CrashDialog(exc_type, exc_value, exc_tb)
             dlg.exec()
-    except Exception as exc:
+    except (ImportError, RuntimeError, AttributeError) as exc:
         logger.error("_global_exception_hook: crash dialog failed: %s", exc)
         print(f"[CRASH DIALOG FAILED] {exc}", flush=True)
 
@@ -400,7 +400,7 @@ def main():
 
     try:
         init_db()
-    except Exception as exc:
+    except (OSError, RuntimeError, ImportError) as exc:
         logging.basicConfig(level=logging.ERROR)
         logging.critical("Datenbank-Initialisierung fehlgeschlagen: %s", exc, exc_info=True)
         print(f"[FATAL] DB-Init fehlgeschlagen: {exc}")
@@ -447,7 +447,7 @@ def main():
     splash.show_message("Lade Benutzeroberfläche...")
     try:
         window = PBWindow()
-    except Exception as exc:
+    except (ImportError, RuntimeError, OSError) as exc:
         splash.close()
         logging.critical("Fenster-Initialisierung fehlgeschlagen: %s", exc, exc_info=True)
         print(f"[FATAL] Fenster konnte nicht erstellt werden: {exc}")

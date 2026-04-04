@@ -272,7 +272,7 @@ class KeyDetectionService:
                 harmonic_tension_curve=tension_curve,
             )
 
-        except Exception as e:
+        except (OSError, IOError, ValueError, RuntimeError) as e:
             log.exception("Fehler bei der Key-Erkennung fuer: %s", file_path)
             log.warning("detect_key(): fallback result returned due to: %s", e)
             return fallback
@@ -316,7 +316,7 @@ class KeyDetectionService:
                 tension_values.append(round(float(tension), 3))
 
             return tension_values
-        except Exception as e:
+        except (ValueError, RuntimeError, np.linalg.LinAlgError) as e:
             log.warning("Tension Curve Berechnung fehlgeschlagen: %s", e)
             return []
 
@@ -361,7 +361,7 @@ class KeyDetectionService:
             # Zusammenfassen: aufeinanderfolgende gleiche Keys mergen
             return _merge_modulation_segments(raw_segments)
 
-        except Exception as e:
+        except (ValueError, RuntimeError, OSError) as e:
             log.warning("Modulation Tracking fehlgeschlagen: %s", e)
             return []
 

@@ -96,7 +96,7 @@ def ask_ai(question: str, max_tokens: int = 512) -> dict:
             "answer": answer,
             "message": answer,
         }
-    except Exception as exc:
+    except (ConnectionError, TimeoutError, ValueError, RuntimeError) as exc:
         _logger.error("ask_ai fehlgeschlagen: %s", exc, exc_info=True)
         return {"status": "error", "action": "ask_ai", "message": str(exc)}
 
@@ -170,7 +170,7 @@ def summarize_project(project_id: int = 1) -> dict:
                     scene_count = session.query(Scene).filter(
                         Scene.video_clip_id.in_(video_ids)
                     ).count()
-        except Exception as exc:
+        except Exception as exc:  # broad catch intentional — SQLAlchemy query can raise many error types
             _logger.warning("Failed to query scene count in summarize_project: %s", exc)
 
         bpm_range = ""
@@ -198,7 +198,7 @@ def summarize_project(project_id: int = 1) -> dict:
             "videos": video_summary,
             "message": summary_text,
         }
-    except Exception as exc:
+    except Exception as exc:  # broad catch intentional — SQLAlchemy + analysis errors
         _logger.error("summarize_project fehlgeschlagen: %s", exc, exc_info=True)
         return {"status": "error", "action": "summarize_project", "message": str(exc)}
 
@@ -354,7 +354,7 @@ def suggest_pacing(audio_track_id: int | None = None) -> dict:
             "suggestions": suggestions,
             "message": summary,
         }
-    except Exception as exc:
+    except Exception as exc:  # broad catch intentional — DB + analysis errors
         _logger.error("suggest_pacing fehlgeschlagen: %s", exc, exc_info=True)
         return {"status": "error", "action": "suggest_pacing", "message": str(exc)}
 
@@ -392,7 +392,7 @@ def model_status() -> dict:
         result["current_model"] = mm.current_model_id
         result["model_type"] = mm.model_type
         result["model_loaded"] = mm.is_loaded
-    except Exception as exc:
+    except (ImportError, RuntimeError, AttributeError) as exc:
         result["gpu"] = {"name": "unbekannt", "error": str(exc)}
         result["device"] = "unbekannt"
         result["model_loaded"] = False
@@ -414,7 +414,7 @@ def model_status() -> dict:
             }
         else:
             result["vram"] = None
-    except Exception:
+    except (ImportError, RuntimeError):
         result["vram"] = None
 
     # Ollama status
@@ -427,7 +427,7 @@ def model_status() -> dict:
         else:
             result["ollama_version"] = None
             result["ollama_models"] = []
-    except Exception:
+    except (ConnectionError, TimeoutError, OSError):
         result["ollama_available"] = False
         result["ollama_models"] = []
 
@@ -521,7 +521,7 @@ def search_knowledge(query: str, max_chars: int = 2000) -> dict:
             "knowledge": context,
             "message": context,
         }
-    except Exception as exc:
+    except (ValueError, RuntimeError, ImportError) as exc:
         _logger.error("search_knowledge fehlgeschlagen: %s", exc, exc_info=True)
         return {"status": "error", "action": "search_knowledge", "message": str(exc)}
 
@@ -634,6 +634,6 @@ def explain_clip(clip_id: int) -> dict:
                 f"Bitte in 1-2 Minuten erneut fragen."
             ),
         }
-    except Exception as exc:
+    except Exception as exc:  # broad catch intentional — DB + vision service + file errors
         _logger.error("explain_clip fehlgeschlagen: %s", exc, exc_info=True)
         return {"status": "error", "action": "explain_clip", "message": str(exc)}

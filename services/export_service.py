@@ -74,7 +74,7 @@ def _probe_video(file_path: str) -> dict:
             "fps": round(fps, 2),
             "codec": s.get("codec_name", ""),
         }
-    except Exception as e:
+    except (subprocess.SubprocessError, OSError, _json.JSONDecodeError, ValueError) as e:
         logger.warning("[Export] ffprobe fehlgeschlagen fuer %s: %s", file_path, e)
         return {}
 
@@ -680,7 +680,7 @@ def _normalize_audio_lufs(input_path: str, output_path: str,
                         input_path, target_lufs)
             return True
         return False
-    except Exception as e:
+    except (subprocess.SubprocessError, OSError, ValueError) as e:
         logger.warning("[LUFS] Normalisierung fehlgeschlagen: %s", e)
         return False
 

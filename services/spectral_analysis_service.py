@@ -241,7 +241,7 @@ class SpectralAnalysisService:
                 spectral_centroid_mean=round(spectral_centroid_mean, 2),
             )
 
-        except Exception as e:
+        except (OSError, IOError, ValueError, RuntimeError) as e:
             log.exception("Fehler bei Spektral-Analyse von %s", file_path)
             log.warning("analyze(): fallback result returned due to: %s", e)
             return SpectralResult(
@@ -544,7 +544,7 @@ class SpectralAnalysisService:
                 recommendations=recommendations,
             )
 
-        except Exception as e:
+        except (OSError, IOError, ValueError, RuntimeError) as e:
             log.exception("Fehler bei erweiterter Mastering-Analyse von %s", file_path)
             log.warning("analyze_extended(): fallback MasteringReport wegen: %s", e)
             return MasteringReport(

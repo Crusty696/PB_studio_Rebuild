@@ -75,7 +75,7 @@ def ingest_audio(file_path: str, project_id: int = 1) -> AudioTrack | None:
             session.refresh(track)
             _invalidate_pacing_caches()
             return track
-    except Exception as e:
+    except Exception as e:  # broad catch intentional — re-raised after logging; SQLAlchemy + OS errors
         logger.error("ingest_audio fehlgeschlagen: %s", e)
         raise
 
@@ -113,7 +113,7 @@ def _probe_video_meta(file_path: str) -> dict:
             "fps": fps,
             "codec": video_stream.get("codec_name", ""),
         }
-    except Exception as e:
+    except (subprocess.SubprocessError, OSError, json.JSONDecodeError, ValueError) as e:
         logger.warning("ffprobe Metadaten-Abfrage fehlgeschlagen für '%s': %s", file_path, e)
         return {}
 
@@ -153,7 +153,7 @@ def ingest_video(file_path: str, project_id: int = 1) -> VideoClip | None:
             session.refresh(clip)
             _invalidate_pacing_caches()
             return clip
-    except Exception as e:
+    except Exception as e:  # broad catch intentional — re-raised after logging; SQLAlchemy + OS errors
         logger.error("ingest_video fehlgeschlagen: %s", e)
         raise
 
@@ -206,7 +206,7 @@ def get_audio_detail_data(audio_id: int) -> dict | None:
                 "stems_status": stems_status,
                 "structure_segments": segments,
             }
-    except Exception as e:
+    except Exception as e:  # broad catch intentional — SQLAlchemy query + JSON parse can raise many types
         logger.error("get_audio_detail_data(%d) fehlgeschlagen: %s", audio_id, e)
         return None
 
@@ -345,7 +345,7 @@ def delete_all_media(project_id: int = 1) -> int:
         # P2-01: VectorDB Cascade-Delete — alle Embeddings loeschen
         try:
             VectorDBService().delete_all()
-        except Exception as e:
+        except (RuntimeError, OSError, ImportError) as e:
             logger.warning("VectorDB delete_all fehlgeschlagen: %s", e)
 
         return count_a + count_v
@@ -440,7 +440,7 @@ def delete_selected_media(video_ids: list[int], audio_ids: list[int]) -> int:
         if video_ids:
             try:
                 VectorDBService().delete_by_clip_ids(video_ids)
-            except Exception as e:
+            except (RuntimeError, OSError, ImportError) as e:
                 logger.warning("VectorDB delete_by_clip_ids fehlgeschlagen: %s", e)
 
         return count_a + count_v
@@ -496,7 +496,7 @@ def import_video_folder(
         except (FileNotFoundError, ValueError, OSError) as e:
             logger.warning("Import uebersprungen: %s — %s", video_file.name, e)
             skipped += 1
-        except Exception as e:
+        except (OSError, IOError, RuntimeError) as e:
             logger.error("Unerwarteter Fehler bei Import von %s: %s", video_file.name, e)
             skipped += 1
 

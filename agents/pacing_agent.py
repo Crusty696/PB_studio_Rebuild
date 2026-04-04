@@ -255,7 +255,7 @@ class PacingAgent(BaseAgent):
                 f"energy_reactivity={settings_params.get('energy_reactivity', 50)}%, "
                 f"breakdown={settings_params.get('breakdown_behavior', 'halve')}"
             )
-        except Exception as e:
+        except (ImportError, ValueError, RuntimeError, OSError) as e:
             result["error"] = f"Auto-Edit fehlgeschlagen: {e}"
 
         return result
@@ -295,7 +295,7 @@ class PacingAgent(BaseAgent):
                 f"Drum-Stem Analyse: {len(cuts)} potentielle Schnittpunkte gefunden "
                 f"in {duration:.0f}s Audio."
             )
-        except Exception as e:
+        except (ImportError, ValueError, RuntimeError, OSError) as e:
             result["error"] = f"Drum-Cut-Analyse fehlgeschlagen: {e}"
 
         return result
@@ -362,7 +362,7 @@ class PacingAgent(BaseAgent):
             else:
                 result["message"] = "Keine signifikanten Drops erkannt."
 
-        except Exception as e:
+        except (ImportError, ValueError, RuntimeError, OSError) as e:
             result["error"] = f"Drop-Analyse fehlgeschlagen: {e}"
 
         return result
@@ -388,7 +388,7 @@ class PacingAgent(BaseAgent):
             keyframes = generate_keyframe_strings_for_project(project_id)
             result["result"] = {"keyframes": keyframes}
             result["message"] = keyframes
-        except Exception as e:
+        except (ImportError, ValueError, RuntimeError, OSError) as e:
             result["error"] = f"Info-Abfrage fehlgeschlagen: {e}"
 
         return result

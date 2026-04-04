@@ -163,7 +163,7 @@ class StemPlayer(QObject):
                 self._handles[name] = handle
                 self._channels_per_stem[name] = channels
                 self._total_frames = max(self._total_frames, frames)
-            except Exception as e:
+            except (OSError, IOError, ValueError, RuntimeError) as e:
                 logger.warning("[StemPlayer] Fehler beim Öffnen von %s: %s", name, e)
 
         if loaded_sr:
@@ -229,7 +229,7 @@ class StemPlayer(QObject):
                 try:
                     self._stream.stop()
                     self._stream.close()
-                except Exception as e:
+                except (OSError, RuntimeError, AttributeError) as e:
                     logger.warning("[StemPlayer] Stream-Cleanup Fehler: %s", e)
 
             self._stream = sd.OutputStream(
@@ -258,7 +258,7 @@ class StemPlayer(QObject):
                 try:
                     self._stream.stop()
                     self._stream.close()
-                except Exception as e:
+                except (OSError, RuntimeError, AttributeError) as e:
                     logger.warning("[StemPlayer] Pause-Cleanup Fehler: %s", e)
                 self._stream = None
 
@@ -273,7 +273,7 @@ class StemPlayer(QObject):
                 try:
                     self._stream.stop()
                     self._stream.close()
-                except Exception as e:
+                except (OSError, RuntimeError, AttributeError) as e:
                     logger.warning("[StemPlayer] Stop-Cleanup Fehler: %s", e)
                 self._stream = None
 
@@ -316,7 +316,7 @@ class StemPlayer(QObject):
             try:
                 target = min(frame, handle.frames)
                 handle.seek(target)
-            except Exception as e:
+            except (OSError, IOError, RuntimeError) as e:
                 # [C-04 FIX] Seek-Fehler loggen statt verschlucken
                 logger.warning("[StemPlayer] Seek-Fehler bei %s: %s", name, e)
 
@@ -348,7 +348,7 @@ class StemPlayer(QObject):
             for name, handle in self._handles.items():
                 try:
                     handle.seek(min(pending, handle.frames))
-                except Exception as e:
+                except (OSError, IOError, RuntimeError) as e:
                     # [M-03 FIX] Flag statt logger.warning() — RT-Callback ist nicht log-sicher
                     self._last_callback_error = f"Seek-Fehler bei {name}: {e}"
 
@@ -380,7 +380,7 @@ class StemPlayer(QObject):
             if need_resync and not is_muted:
                 try:
                     handle.seek(min(pos, handle.frames))
-                except Exception as e:
+                except (OSError, IOError, RuntimeError) as e:
                     # [M-03 FIX] Flag statt logger.warning() — RT-Callback ist nicht log-sicher
                     self._last_callback_error = f"Resync-Fehler bei {name}: {e}"
                     continue
@@ -421,7 +421,7 @@ class StemPlayer(QObject):
                 else:
                     mix[:read_frames] += chunk * vol
 
-            except Exception as e:
+            except (OSError, IOError, ValueError, RuntimeError) as e:
                 # [M-03 FIX] Flag statt logger.warning() — RT-Callback ist nicht log-sicher
                 self._last_callback_error = f"Read-Fehler bei {name}: {e}"
 
@@ -474,7 +474,7 @@ class StemPlayer(QObject):
         for name, handle in self._handles.items():
             try:
                 handle.close()
-            except Exception as e:
+            except (OSError, RuntimeError) as e:
                 # Bug-33 Fix: Fehler protokollieren statt zu verschlucken
                 logger.warning("SoundFile-Handle für '%s' konnte nicht geschlossen werden: %s", name, e)
         self._handles.clear()

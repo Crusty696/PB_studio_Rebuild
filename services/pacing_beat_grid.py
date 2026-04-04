@@ -392,7 +392,7 @@ def compute_stem_weighted_energy(
         """
         try:
             y, sr = _get_cached_stem_audio(audio_id, audio_path, stem_name, sr=DEFAULT_SR)
-        except Exception as e:
+        except (OSError, IOError, ValueError, RuntimeError) as e:
             logger.warning("Konnte Stem '%s' nicht laden: %s", audio_path, e)
             return [0.5] * len(beats_list)
 
@@ -631,7 +631,7 @@ def compute_vocal_activity(
     try:
         # P-028 Fix: Nutze _get_cached_stem_audio statt direktem librosa.load
         y, sr = _get_cached_stem_audio(audio_id, vocals_path, "vocals", sr=DEFAULT_SR)
-    except Exception as e:
+    except (OSError, IOError, ValueError, RuntimeError) as e:
         logger.warning("Konnte Vocal-Stem '%s' nicht laden: %s", vocals_path, e)
         return [False] * len(beats)
 
@@ -840,7 +840,7 @@ def compute_stem_snr(audio_id: int) -> StemSNR | None:
     def _snr_for_stem(stem_name: str, path: str) -> float:
         try:
             y, sr = _get_cached_stem_audio(audio_id, path, stem_name, sr=DEFAULT_SR)
-        except Exception as e:
+        except (OSError, IOError, ValueError, RuntimeError) as e:
             logger.warning("Konnte Stem '%s' nicht laden fuer SNR: %s", path, e)
             return 0.0
         frame_rms = librosa.feature.rms(y=y, frame_length=2048, hop_length=512)[0]
@@ -975,7 +975,7 @@ def detect_dj_mix_from_stems(audio_id: int, n_segments: int = 5) -> bool:
 
         return False
 
-    except Exception:
+    except (OSError, IOError, ValueError, RuntimeError):
         logger.exception("detect_dj_mix_from_stems fehlgeschlagen (audio_id=%d)", audio_id)
         return False
 
@@ -1024,7 +1024,7 @@ def compute_drum_onsets(
 
     try:
         y, sr = _get_cached_stem_audio(audio_id, drums_path, "drums", sr=DEFAULT_SR)
-    except Exception as e:
+    except (OSError, IOError, ValueError, RuntimeError) as e:
         logger.warning("Konnte Drums-Stem '%s' nicht laden: %s", drums_path, e)
         return []
 
@@ -1099,6 +1099,6 @@ def refine_cut_points_with_onsets(
         if analysis is None:
             return list(cut_times)
         return svc.refine_cut_points(cut_times, analysis, window_sec, min_onset_strength)
-    except Exception as e:
+    except (ImportError, ValueError, RuntimeError, OSError) as e:
         logger.warning("refine_cut_points_with_onsets: Fehler — %s", e)
         return list(cut_times)

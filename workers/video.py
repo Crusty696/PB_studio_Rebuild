@@ -288,9 +288,9 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                                 total_embeddings += result.embeddings_stored
                             else:
                                 raise RuntimeError(f"VideoClip {clip_id}: Original-Pfad nicht verfuegbar")
-                    except Exception as fallback_err:
+                    except (RuntimeError, OSError) as fallback_err:
                         raise RuntimeError(f"Clip {clip_id}: Proxy + Original fehlgeschlagen — {fallback_err}") from fallback_err
-                except Exception as e:
+                except (RuntimeError, OSError, ValueError) as e:
                     logging.error("VideoAnalysisPipelineWorker[%s] video %d/%d '%s' crashed: %s\n%s",
                                   clip_id, idx, total_videos, label, e, traceback.format_exc())
                     # C-04 Fix: Einzelner Fehler bricht nicht mehr die ganze Pipeline ab

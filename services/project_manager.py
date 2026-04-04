@@ -54,7 +54,7 @@ class ProjectManager(QObject):
             from services.task_manager import GlobalTaskManager
             tm = GlobalTaskManager.instance()
             return any(t.status == "running" for t in tm.get_all_tasks())
-        except Exception:
+        except (ImportError, AttributeError, RuntimeError):
             return False
 
     # ------------------------------------------------------------------
@@ -117,7 +117,7 @@ class ProjectManager(QObject):
             ))
             try:
                 session.commit()
-            except Exception:
+            except Exception:  # broad catch intentional — SQLAlchemy commit can raise many error types
                 session.rollback()
                 raise
 
@@ -166,7 +166,7 @@ class ProjectManager(QObject):
                 meta["name"] = row[0] or path.name
                 meta["resolution"] = row[1] or "1920x1080"
                 meta["fps"] = row[2] or 30.0
-        except Exception as exc:
+        except (OSError, sqlite3.Error, ValueError) as exc:
             logger.warning("Projekt-Meta konnte nicht gelesen werden: %s", exc)
 
         # Ensure sub-directories exist (older projects might lack some)
@@ -176,7 +176,7 @@ class ProjectManager(QObject):
         try:
             from services.pacing_service import invalidate_pacing_caches
             invalidate_pacing_caches()
-        except Exception as exc:
+        except (ImportError, AttributeError, RuntimeError) as exc:
             logger.warning("Failed to invalidate pacing caches in open_project: %s", exc)
 
         # Swap database engine

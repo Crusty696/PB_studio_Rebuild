@@ -217,7 +217,7 @@ def calculate_drum_cuts(audio_id: int, total_duration: float = 60.0,
         from services.audio_constants import DEFAULT_SR
         import librosa
         y, sr = librosa.load(drums_path, sr=DEFAULT_SR, mono=True)
-    except Exception as e:
+    except (OSError, IOError, ValueError, RuntimeError) as e:
         logger.warning("librosa.load fehlgeschlagen für Drums-Stem '%s': %s", drums_path, e)
         return []
     onset_env = librosa.onset.onset_strength(y=y, sr=sr)
@@ -377,7 +377,7 @@ def auto_edit_phase3(
                     logger.info("LLM Override: %s base → %d beats", ov_type, ov_cut_rate)
             # FIX-2.3: Override-Map als lokale Variable speichern fuer spaetere Nutzung
             # in _select_cut_beats_advanced() → _compute_effective_step(pacing_map=...)
-        except Exception as e:
+        except (ImportError, ValueError, RuntimeError) as e:
             logger.warning("LLM Pacing-Strategist uebersprungen: %s", e)
 
     # F-009: Vocal-Activity fuer Vocal-Aware Pacing
@@ -457,7 +457,7 @@ def auto_edit_phase3(
         progress_cb(55, "Lade KI-Modell fuer Video-Matching...")
     try:
         mood_embeddings = _precompute_mood_embeddings()
-    except Exception as e:
+    except (ImportError, RuntimeError, OSError) as e:
         logger.warning("Mood-Embeddings uebersprungen: %s", e)
         mood_embeddings = {}
 
@@ -473,7 +473,7 @@ def auto_edit_phase3(
                 fitness_matrix = _precompute_clip_fitness_matrix(
                     mood_embeddings, clip_embeddings_matrix, clip_metadata_list,
                 )
-        except Exception as e:
+        except (ImportError, ValueError, RuntimeError) as e:
             logger.warning("Fitness-Matrix uebersprungen: %s", e)
 
     # AUD-97: DJ-Mix-Flag aus DB lesen (Fallback: Stem-basierte BPM-Analyse)
@@ -528,7 +528,7 @@ def auto_edit_phase3(
                 cross_modal_matcher.compute_audio_mood_embedding()
                 logger.info("AUD-82: CrossModalMatcher aktiv (mood=%s, genre=%s, bpm=%.0f)",
                             audio_ctx.mood, audio_ctx.genre, audio_ctx.bpm)
-    except Exception as e:
+    except (ImportError, ValueError, RuntimeError) as e:
         logger.warning("AUD-82: CrossModalMatcher uebersprungen: %s", e)
         cross_modal_matcher = None
 

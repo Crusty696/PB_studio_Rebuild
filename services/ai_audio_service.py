@@ -78,7 +78,7 @@ class StemSeparator:
         try:
             from services.model_manager import ModelManager
             ModelManager().unload()
-        except Exception as e:
+        except (ImportError, RuntimeError, AttributeError) as e:
             logger.warning("ModelManager.unload() vor Demucs fehlgeschlagen: %s", e)
         gc.collect()
         if torch.cuda.is_available():
@@ -333,7 +333,7 @@ class StemSeparator:
 
         try:
             stems = self.separate(file_path, progress_cb=progress_cb)
-        except Exception as e:
+        except (OSError, IOError, ValueError, RuntimeError) as e:
             raise RuntimeError(f"Stem-Separation fehlgeschlagen fuer Track {track_id}: {e}") from e
 
         with Session(engine) as session:
@@ -346,7 +346,7 @@ class StemSeparator:
             track.stem_other_path = stems.get("other")
             try:
                 session.commit()
-            except Exception:
+            except Exception:  # broad catch intentional — SQLAlchemy commit can raise many error types
                 session.rollback()
                 raise
 
@@ -646,14 +646,14 @@ class FrequencyAnalyzer:
 
             try:
                 session.commit()
-            except Exception:
+            except Exception:  # broad catch intentional — SQLAlchemy commit can raise many error types
                 session.rollback()
                 raise
 
             try:
                 from services.pacing_service import invalidate_pacing_caches
                 invalidate_pacing_caches()
-            except Exception as e:
+            except (ImportError, AttributeError, RuntimeError) as e:
                 logger.warning("invalidate_pacing_caches() fehlgeschlagen: %s", e)
 
         return result

@@ -101,7 +101,7 @@ class OllamaClient:
             )
             with urllib.request.urlopen(req, timeout=2) as resp:
                 return resp.status == 200
-        except Exception:
+        except (ConnectionError, TimeoutError, OSError, ValueError):
             return False
 
     def get_version(self) -> str | None:
@@ -114,7 +114,7 @@ class OllamaClient:
             with urllib.request.urlopen(req, timeout=2) as resp:
                 data = json.loads(resp.read())
                 return data.get("version")
-        except Exception:
+        except (ConnectionError, TimeoutError, OSError, ValueError):
             return None
 
     # ------------------------------------------------------------------
@@ -137,7 +137,7 @@ class OllamaClient:
                 data = json.loads(resp.read())
                 models = data.get("models", [])
                 return [m["name"] for m in models if isinstance(m, dict) and "name" in m]
-        except Exception as e:
+        except (ConnectionError, TimeoutError, OSError, ValueError) as e:
             logger.debug("OllamaClient.list_models() fehlgeschlagen: %s", e)
             return []
 
@@ -444,7 +444,7 @@ class OllamaClient:
             )
             with urllib.request.urlopen(req, timeout=5) as resp:
                 return json.loads(resp.read())
-        except Exception:
+        except (ConnectionError, TimeoutError, OSError, ValueError):
             return {}
 
     def __repr__(self) -> str:

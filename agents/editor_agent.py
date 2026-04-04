@@ -71,7 +71,7 @@ class EditorAgent(BaseAgent):
                     result["action"] = "export_timeline"
                     result["params"] = {"project_id": project_id}
                     result["result"] = action_registry.execute("export_timeline", {"project_id": project_id})
-                except Exception as e:
+                except (ValueError, RuntimeError, OSError) as e:
                     result["error"] = str(e)
             else:
                 result["message"] = "Export benötigt eine project_id."
@@ -89,7 +89,7 @@ class EditorAgent(BaseAgent):
                     result["action"] = "auto_edit"
                     result["params"] = {"audio_track_id": track_id}
                     result["result"] = action_registry.execute("auto_edit", {"audio_track_id": track_id})
-                except Exception as e:
+                except (ValueError, RuntimeError, OSError) as e:
                     result["error"] = str(e)
             else:
                 result["message"] = "Auto-Edit benötigt eine audio_track_id."

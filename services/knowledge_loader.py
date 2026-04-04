@@ -118,7 +118,7 @@ class KnowledgeLoader:
             content = path.read_text(encoding="utf-8")
             self._cache[filename] = content
             return content
-        except Exception as e:
+        except (OSError, IOError, UnicodeDecodeError) as e:
             logger.warning("Fehler beim Lesen von %s: %s", filename, e)
             return ""
 

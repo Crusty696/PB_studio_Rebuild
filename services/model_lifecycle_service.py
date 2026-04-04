@@ -173,7 +173,7 @@ class ModelEntry:
                 return f"vor {delta.days} Tagen"
             else:
                 return dt.strftime("%d.%m.%Y")
-        except Exception:
+        except (ValueError, AttributeError):
             return self.last_used_at[:10]
 
     @property
@@ -184,7 +184,7 @@ class ModelEntry:
         try:
             dt = datetime.datetime.fromisoformat(self.last_used_at)
             return (datetime.datetime.utcnow() - dt).days
-        except Exception:
+        except (ValueError, AttributeError):
             return -1
 
 
@@ -249,7 +249,7 @@ class ModelLifecycleService:
                 existing.metadata_json = json.dumps(entry.metadata, ensure_ascii=False)
             try:
                 session.commit()
-            except Exception as e:
+            except Exception as e:  # broad catch intentional — SQLAlchemy commit can raise many error types
                 session.rollback()
                 logger.error("ModelRegistry upsert fehlgeschlagen: %s", e)
 
@@ -264,7 +264,7 @@ class ModelLifecycleService:
                 session.delete(entry)
                 try:
                     session.commit()
-                except Exception as e:
+                except Exception as e:  # broad catch intentional — SQLAlchemy commit can raise many error types
                     session.rollback()
                     logger.error("ModelRegistry delete fehlgeschlagen: %s", e)
 
@@ -279,7 +279,7 @@ class ModelLifecycleService:
                 entry.last_used_at = self._now_iso()
                 try:
                     session.commit()
-                except Exception as e:
+                except Exception as e:  # broad catch intentional — SQLAlchemy commit can raise many error types
                     session.rollback()
                     logger.debug("touch_last_used fehlgeschlagen: %s", e)
 
@@ -297,7 +297,7 @@ class ModelLifecycleService:
                     if row.metadata_json:
                         try:
                             meta = json.loads(row.metadata_json)
-                        except Exception as e:
+                        except (json.JSONDecodeError, ValueError) as e:
                             logger.warning("Parsing metadata_json for model '%s': %s", row.model_id, e)
                     entries.append(ModelEntry(
                         model_id=row.model_id,
@@ -310,7 +310,7 @@ class ModelLifecycleService:
                         local_path=row.local_path or "",
                         metadata=meta,
                     ))
-        except Exception as e:
+        except Exception as e:  # broad catch intentional — SQLAlchemy query can raise many error types
             logger.error("get_registry_entries fehlgeschlagen: %s", e)
         return entries
 
@@ -367,7 +367,7 @@ class ModelLifecycleService:
             logger.info("Ollama-Scan: %d Modelle gefunden.", len(entries))
         except urllib.error.URLError:
             logger.debug("Ollama nicht erreichbar bei Scan.")
-        except Exception as e:
+        except (ConnectionError, TimeoutError, OSError, ValueError) as e:
             logger.error("Ollama-Scan fehlgeschlagen: %s", e)
 
         return entries
@@ -459,7 +459,7 @@ class ModelLifecycleService:
 
                 logger.info("Ollama pull '%s' erfolgreich.", model_name)
 
-            except Exception as e:
+            except (ConnectionError, TimeoutError, OSError, ValueError, RuntimeError) as e:
                 prog.error = str(e)
                 prog.status = "error"
                 prog.finished = True
@@ -505,7 +505,7 @@ class ModelLifecycleService:
                 self._remove_from_registry(model_name)
                 logger.info("Ollama-Modell '%s' gelöscht.", model_name)
             return success
-        except Exception as e:
+        except (ConnectionError, TimeoutError, OSError, ValueError) as e:
             logger.error("Ollama delete '%s' fehlgeschlagen: %s", model_name, e)
             return False
 
@@ -515,7 +515,7 @@ class ModelLifecycleService:
             req = urllib.request.Request(f"{self.ollama_url}/api/version")
             with urllib.request.urlopen(req, timeout=2) as resp:
                 return resp.status == 200
-        except Exception:
+        except (ConnectionError, TimeoutError, OSError):
             return False
 
     # ──────────────────────────────────────────────────────────────────────
@@ -568,7 +568,7 @@ class ModelLifecycleService:
                     installed_at = datetime.datetime.fromtimestamp(
                         model_dir.stat().st_ctime
                     ).isoformat()[:19]
-                except Exception:
+                except OSError:
                     installed_at = self._now_iso()[:19]
 
                 entry = ModelEntry(
@@ -585,7 +585,7 @@ class ModelLifecycleService:
                 self._upsert_model(entry)
 
             logger.info("HF Cache-Scan: %d Modelle gefunden.", len(entries))
-        except Exception as e:
+        except OSError as e:
             logger.error("HF Cache-Scan fehlgeschlagen: %s", e)
 
         return entries
@@ -598,9 +598,9 @@ class ModelLifecycleService:
                 if p.is_file():
                     try:
                         total += p.stat().st_size
-                    except Exception as e:
+                    except OSError as e:
                         logger.warning("Reading file size for '%s': %s", p, e)
-        except Exception as e:
+        except OSError as e:
             logger.warning("Calculating directory size for '%s': %s", path, e)
         return total
 
@@ -713,7 +713,7 @@ class ModelLifecycleService:
                         status="installed",
                     ))
 
-            except Exception as e:
+            except (ConnectionError, TimeoutError, OSError, ImportError, RuntimeError) as e:
                 prog.error = str(e)
                 prog.status = "error"
                 prog.finished = True
@@ -769,7 +769,7 @@ class ModelLifecycleService:
                     logger.info("HF-Modell '%s' manuell gelöscht.", repo_id)
                     return True
 
-        except Exception as e:
+        except (OSError, RuntimeError) as e:
             logger.error("HF delete '%s' fehlgeschlagen: %s", repo_id, e)
 
         return False
@@ -833,7 +833,7 @@ class ModelLifecycleService:
                             last_used_at=row.last_used_at or "",
                             status="offline",
                         ))
-            except Exception as e:
+            except Exception as e:  # broad catch intentional — SQLAlchemy query can raise many error types
                 logger.warning("Loading offline Ollama models from registry: %s", e)
 
         entries.extend(self.scan_hf_cache())

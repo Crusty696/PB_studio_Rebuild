@@ -491,7 +491,7 @@ class CrossModalMatcher:
             logger.info("Audio-Mood-Embedding berechnet (%d Queries, mood=%s, bpm=%.0f)",
                         len(mood_queries), self.audio_ctx.mood, self.audio_ctx.bpm)
             return mean_emb
-        except Exception as e:
+        except (ImportError, ValueError, RuntimeError) as e:
             logger.warning("Audio-Mood-Embedding fehlgeschlagen: %s", e)
             return None
 
@@ -916,7 +916,7 @@ def _match_video_for_segment(
                     for vid, info in video_info.items():
                         if info["path"] == r_path:
                             return vid, r.get("scene_start", 0.0), None
-        except Exception as e:
+        except (ImportError, ValueError, RuntimeError) as e:
             logger.warning("Semantic Suche fehlgeschlagen: %s", e)
 
     # Fallback: Motion-basiertes Matching

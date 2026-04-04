@@ -84,7 +84,7 @@ def _check_ollama() -> bool:
                     **_subprocess_kwargs()
                 )
                 return True # Als OK markieren, Dienst startet im Hintergrund
-            except Exception as e:
+            except (OSError, FileNotFoundError, PermissionError) as e:
                 logger.warning("Fehler beim Auto-Start von Ollama: %s", e)
     
     return False
@@ -145,7 +145,7 @@ def _check_cuda() -> tuple[bool, str, int]:
             vram_mb = props.total_memory // (1024 * 1024)
     except ImportError:
         logger.debug("torch not installed — GPU check skipped")
-    except Exception as exc:
+    except (RuntimeError, AttributeError) as exc:
         logger.debug("CUDA check error: %s", exc)
     return cuda_ok, gpu_name, vram_mb
 
@@ -155,7 +155,7 @@ def _check_disk(path: Path) -> float:
     try:
         usage = shutil.disk_usage(path)
         return usage.free / (1024 ** 3)
-    except Exception as exc:
+    except OSError as exc:
         logger.debug("Disk check error: %s", exc)
         return 0.0
 
@@ -189,7 +189,7 @@ def check_system(app_root: Path | None = None) -> SystemStatus:
                     status.disk_ok = status.disk_free_gb >= 1.0
                 elif key == "ollama":
                     status.ollama_ok = future.result(timeout=5)
-            except Exception as exc:
+            except (TimeoutError, RuntimeError, OSError) as exc:
                 logger.warning("Startup check '%s' raised: %s", key, exc)
 
     if not status.ffmpeg_ok:

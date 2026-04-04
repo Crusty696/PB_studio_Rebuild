@@ -388,7 +388,7 @@ class GlobalTaskManager(QObject):
                     import torch
                     if torch.cuda.is_available():
                         torch.cuda.empty_cache()
-                except Exception as e:
+                except (ImportError, RuntimeError, AttributeError) as e:
                     logger.warning("VRAM cleanup after task terminate: %s", e)
                 gc.collect()
         self.finish_task(task_id, "cancelled", "Abgebrochen")
