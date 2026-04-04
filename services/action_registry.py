@@ -10,7 +10,7 @@ statt 'analyze_audio'), findet das Registry per thefuzz die beste Übereinstimmu
 
 import json
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Callable
 
 from thefuzz import fuzz, process

@@ -12,15 +12,14 @@ UI für Modell-Lifecycle-Management:
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Qt, QThread, Signal, QObject, QTimer
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QTabWidget, QWidget,
     QLabel, QPushButton, QTableWidget, QTableWidgetItem,
-    QProgressBar, QLineEdit, QGroupBox, QScrollArea, QFrame,
-    QSplitter, QMessageBox, QComboBox, QSpinBox, QHeaderView,
-    QSizePolicy, QAbstractItemView,
+    QProgressBar, QLineEdit, QGroupBox, QFrame,
+    QMessageBox, QSpinBox, QHeaderView,
+    QAbstractItemView,
 )
 
 from ui.theme import ACCENT, BG1, BG2, BG3, T1, T2, T3, OK, ERR, WARN

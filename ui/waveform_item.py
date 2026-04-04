@@ -16,7 +16,7 @@ from typing import Optional
 from PySide6.QtWidgets import QGraphicsItem, QStyleOptionGraphicsItem, QWidget
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import (
-    QPainter, QPixmap, QColor, QPen, QImage, QPainterPath, QBrush,
+    QPainter, QColor, QPen, QImage, QPainterPath, QBrush,
 )
 
 

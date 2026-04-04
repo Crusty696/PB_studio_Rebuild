@@ -15,7 +15,7 @@ um Test-Mocking via patch.object(svc, ...) zu unterstuetzen.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -429,25 +429,31 @@ class AudioContext:
 
 
 class CrossModalMatcher:
-    """Cross-Modal Audio-zu-Video Matching Engine (AUD-82).
+    """Cross-Modal Audio-zu-Video Matching Engine (AUD-82, AUD-101).
 
     Verbindet Audio-Analyse mit Video-Selektion:
     - Audio-Mood → visuelle Stimmungs-Praeferenz (dark audio → dark visuals)
     - Stem-gewichtete Energie → Motion-Korrelation (RAFT)
     - Section-spezifische Clip-Strategien (Breakdown → ruhig, Drop → dynamisch)
     - Temporal Coherence via Sliding Window
+    - AUD-101: Beat-Grid Alignment — belohnt Clips deren Szenen-Grenzen auf Beats fallen
     """
 
     def __init__(
         self,
         audio_ctx: AudioContext,
         mood_embeddings: dict[str, np.ndarray] | None = None,
+        beats: list[float] | None = None,
     ):
         self.audio_ctx = audio_ctx
         self._mood_embeddings = mood_embeddings or {}
         self._audio_mood_embedding: np.ndarray | None = None
         self._recent_selections: list[dict] = []  # Sliding window fuer Temporal Coherence
         self._selection_window = 5  # Letzte N Clips fuer Glaettung
+        # AUD-101: Beat-Grid fuer Scene-Beat Alignment Scoring
+        self._beats_arr: np.ndarray | None = (
+            np.array(beats, dtype=np.float64) if beats else None
+        )
 
     def compute_audio_mood_embedding(self) -> np.ndarray | None:
         """Berechnet ein Audio-Mood-Embedding basierend auf Audio-Metadaten.
@@ -535,6 +541,60 @@ class CrossModalMatcher:
 
         return float(base_target)
 
+    def compute_beat_sync_score(
+        self,
+        scene_start: float,
+        scene_end: float,
+        seg_start: float,
+        tolerance: float = 0.08,
+    ) -> float:
+        """AUD-101: Bewertet wie gut die Szenen-Grenzen eines Clips auf Audio-Beats fallen.
+
+        Ein Score von 1.0 bedeutet: Scene-Start faellt exakt auf einen Beat relativ
+        zum Segment-Start. Misst die zeitliche Distanz zum naechsten Beat und
+        bewertet mit Gauss-Falloff.
+
+        Args:
+            scene_start: Absoluter Zeitpunkt des Szenen-Starts im Video
+            scene_end: Absoluter Zeitpunkt des Szenen-Endes im Video
+            seg_start: Absoluter Zeitpunkt des Timeline-Segments (wo der Clip startet)
+            tolerance: Max. Abweichung in Sekunden fuer perfekten Score (default ~2 Frames @25fps)
+
+        Returns:
+            Beat-Sync Score (0.0-1.0). 1.0 = perfekte Ausrichtung.
+        """
+        if self._beats_arr is None or len(self._beats_arr) == 0:
+            return 0.5  # Neutral bei fehlendem Beat-Grid
+
+        # Szenen-Dauer relativ zum Segment: wo wuerde der naechste Szenen-Cut fallen?
+        scene_dur = scene_end - scene_start
+        if scene_dur <= 0:
+            return 0.5
+
+        # Berechne: Zeitpunkte in der Audio-Timeline an denen Video-Szenen-Grenzen liegen
+        # (= seg_start + N * scene_dur fuer N=1,2,... innerhalb des Beats-Range)
+        boundary_scores = []
+        # Pruefe den ersten Szenen-Uebergang nach dem Segment-Start
+        t_boundary = seg_start + scene_dur
+        max_check = min(seg_start + scene_dur * 4, self._beats_arr[-1])
+        while t_boundary <= max_check and len(boundary_scores) < 4:
+            # Naechsten Beat finden via bisect
+            idx = np.searchsorted(self._beats_arr, t_boundary)
+            best_dist = float("inf")
+            for check_idx in (idx - 1, idx):
+                if 0 <= check_idx < len(self._beats_arr):
+                    dist = abs(self._beats_arr[check_idx] - t_boundary)
+                    best_dist = min(best_dist, dist)
+            # Gauss-Score: sigma = tolerance
+            sync_score = float(np.exp(-0.5 * (best_dist / max(tolerance, 1e-6)) ** 2))
+            boundary_scores.append(sync_score)
+            t_boundary += scene_dur
+
+        if not boundary_scores:
+            return 0.5
+
+        return float(np.mean(boundary_scores))
+
     def compute_cross_modal_fitness(
         self,
         clip_idx: int,
@@ -548,11 +608,15 @@ class CrossModalMatcher:
         clip_embeddings: np.ndarray,
         used_recently: list[int],
         fitness_matrix: dict[tuple, float],
+        scene_start: float = 0.0,
+        scene_end: float = 0.0,
+        seg_start: float = 0.0,
     ) -> float:
         """Cross-Modal Fitness-Score mit section-spezifischer Gewichtung.
 
         Ersetzt die festen Gewichte aus _compute_clip_fitness durch dynamische,
         section-abhaengige Gewichte + Audio-Mood-Korrelation + Temporal Coherence.
+        AUD-101: Integriert Beat-Sync Score fuer Szenen-Beat-Alignment.
         """
         strategy = self.get_section_strategy(section_type)
 
@@ -611,13 +675,22 @@ class CrossModalMatcher:
         else:
             duration_fit = 0.5
 
-        # Section-spezifische Gewichtung
+        # 6. AUD-101: Beat-Sync Score — belohnt Clips deren Szenen-Grenzen auf Beats fallen
+        beat_sync = self.compute_beat_sync_score(scene_start, scene_end, seg_start)
+
+        # Section-spezifische Gewichtung (AUD-101: beat_sync anteilig aus duration_weight)
+        # Beat-Sync ist am wichtigsten bei DROPs (harte Cuts) und BUILDUPs
+        beat_sync_weight = 0.08 if section_type in ("DROP", "BUILDUP") else 0.05
+        # Reduziere duration_weight proportional um beat_sync_weight einzufuegen
+        adj_duration_weight = max(0.0, strategy["duration_weight"] - beat_sync_weight)
+
         score = (
             strategy["energy_weight"] * energy_match
             + strategy["mood_weight"] * mood_match
             + strategy["coherence_weight"] * visual_coherence
             + strategy["freshness_weight"] * freshness
-            + strategy["duration_weight"] * duration_fit
+            + adj_duration_weight * duration_fit
+            + beat_sync_weight * beat_sync
         )
 
         return float(score)
@@ -863,7 +936,7 @@ def _match_video_for_segment(
             scene_duration = meta["scene_end"] - meta["scene_start"]
             motion = meta.get("motion_score", 0.5)
 
-            # AUD-82: Cross-Modal Scoring wenn Matcher verfuegbar
+            # AUD-82 + AUD-101: Cross-Modal Scoring mit Beat-Sync
             if cross_modal_matcher is not None:
                 score = cross_modal_matcher.compute_cross_modal_fitness(
                     clip_idx=clip_idx,
@@ -877,6 +950,9 @@ def _match_video_for_segment(
                     clip_embeddings=clip_embeddings,
                     used_recently=used_recently,
                     fitness_matrix=fitness_matrix,
+                    scene_start=meta["scene_start"],
+                    scene_end=meta["scene_end"],
+                    seg_start=seg_start,
                 )
             else:
                 score = _compute_clip_fitness(

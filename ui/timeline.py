@@ -1013,7 +1013,6 @@ class InteractiveTimeline(QGraphicsView):
             old_source_start = entry.source_start
             old_source_end = entry.source_end
 
-        old_duration = old_width / PIXELS_PER_SECOND
         new_duration = new_width / PIXELS_PER_SECOND
 
         if edge == "right":
@@ -1348,7 +1347,6 @@ class InteractiveTimeline(QGraphicsView):
         offset = 0.5  # paste with slight time offset to avoid exact overlap
         for data in self._clipboard:
             new_start = data["start_time"] + offset
-            new_x = new_start * PIXELS_PER_SECOND
             # Re-use the same entry but shift position (visual paste — no DB write)
             # A full DB-backed paste would require duplicating TimelineEntry rows;
             # that is out of scope for AUD-71 (shortcut wiring only).

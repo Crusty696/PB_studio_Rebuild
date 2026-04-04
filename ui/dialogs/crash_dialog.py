@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QCoreApplication
 from PySide6.QtGui import QFont
 
-from ui.theme import BG0, BG1, BG3, BG4, ACCENT, ACCENT_BRIGHT, ERR, T2, T3, T4
+from ui.theme import BG0, BG1, BG3, BG4, ACCENT, ACCENT_BRIGHT, ERR, T2, T4
 
 
 _LOG_PATH = Path(__file__).parent.parent.parent / "logs" / "pb_studio.log"

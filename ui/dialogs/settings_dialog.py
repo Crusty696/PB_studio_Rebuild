@@ -12,7 +12,6 @@ und sind sofort aktiv (kein Neustart nötig).
 from __future__ import annotations
 
 import logging
-import threading
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Qt, QSettings, Signal, QObject, QThread
@@ -21,7 +20,7 @@ from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QGroupBox,
     QLabel, QLineEdit, QPushButton, QComboBox,
     QCheckBox, QDialogButtonBox, QWidget, QFormLayout,
-    QStatusBar, QTabWidget, QTableWidget, QTableWidgetItem,
+    QTabWidget, QTableWidget, QTableWidgetItem,
     QHeaderView, QAbstractItemView,
 )
 

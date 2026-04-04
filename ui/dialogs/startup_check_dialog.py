@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
 )
 
 from services.startup_checks import SystemStatus
-from ui.theme import ACCENT, ACCENT_BRIGHT, BG0, BG1, BG2, BG3, ERR, OK, T1, T2, T3, WARN
+from ui.theme import ACCENT, ACCENT_BRIGHT, BG0, BG1, BG2, ERR, OK, T1, T2, T3, WARN
 
 _HW_REQUIREMENTS_URL = "https://github.com/pbstudio/pb-studio-rebuild#hardware-requirements"
 

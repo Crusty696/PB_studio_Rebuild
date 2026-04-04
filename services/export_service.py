@@ -241,7 +241,6 @@ def export_timeline(project_id: int = 1, output_name: str = "output.mp4",
 
     # Berechne total_steps basierend auf Audio-Normalisierung
     total_steps = 5 if audio_path else 4
-    step = 0
 
     # Strategie: Bei vielen Segmenten (>10) oder ohne Effekte -> Concat
     # Bei wenigen mit Effekten -> Filtergraph

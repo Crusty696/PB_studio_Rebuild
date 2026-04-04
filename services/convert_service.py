@@ -15,7 +15,6 @@ from __future__ import annotations
 import functools
 import logging
 import os
-import re
 import subprocess
 import sys
 import threading

@@ -14,7 +14,6 @@ import logging
 from pathlib import Path
 
 from PySide6.QtWidgets import QDialog, QFileDialog
-from PySide6.QtCore import QTimer
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +97,12 @@ class ProjectManagementMixin:
         app_version = getattr(self, "_app_version", APP_VERSION_PLACEHOLDER)
         dialog = AboutDialog(version=app_version, parent=self)
         dialog.exec()
+
+    def _show_shortcut_help(self):
+        """AUD-105: Show keyboard shortcut help overlay (F1 / Ctrl+?)."""
+        from ui.dialogs.shortcut_help_dialog import ShortcutHelpDialog
+        dlg = ShortcutHelpDialog(parent=self)
+        dlg.exec()
 
     def _show_settings(self):
         """Oeffnet den Einstellungs-Dialog und wendet Aenderungen sofort an."""

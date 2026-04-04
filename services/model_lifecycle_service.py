@@ -16,12 +16,11 @@ import datetime
 import json
 import logging
 import os
-import subprocess
 import threading
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Any, Callable
+from typing import Callable
 
 logger = logging.getLogger(__name__)
 
@@ -646,9 +645,6 @@ class ModelLifecycleService:
 
                 try:
                     from huggingface_hub import snapshot_download
-                    from huggingface_hub.utils import tqdm as hf_tqdm
-                    import tqdm as _tqdm_module
-
                     class _ProgressTracker:
                         def __init__(self):
                             self._total = 0
@@ -745,7 +741,7 @@ class ModelLifecycleService:
         """
         try:
             try:
-                from huggingface_hub import scan_cache_dir, DeleteCacheStrategy
+                from huggingface_hub import scan_cache_dir
                 cache_info = scan_cache_dir()
                 for repo in cache_info.repos:
                     if repo.repo_id == repo_id:
@@ -789,8 +785,6 @@ class ModelLifecycleService:
             Liste von ModelEntry-Objekten (nur installierte, nicht aktive).
         """
         candidates = []
-        now = datetime.datetime.utcnow()
-
         for entry in self.get_registry_entries():
             if entry.status != "installed":
                 continue

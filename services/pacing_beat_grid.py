@@ -21,7 +21,7 @@ from pathlib import Path
 import numpy as np
 from sqlalchemy.orm import Session, joinedload
 
-from database import engine, AudioTrack, VideoClip, Scene, Beatgrid
+from database import engine, AudioTrack, VideoClip
 from services.audio_constants import DEFAULT_SR
 
 logger = logging.getLogger(__name__)

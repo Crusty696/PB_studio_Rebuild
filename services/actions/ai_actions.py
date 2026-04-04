@@ -163,7 +163,7 @@ def summarize_project(project_id: int = 1) -> dict:
         scene_count = 0
         try:
             from sqlalchemy.orm import Session as SASession
-            from database import engine, Scene, VideoClip
+            from database import engine, Scene
             with SASession(engine) as session:
                 video_ids = [v["id"] for v in videos]
                 if video_ids:
@@ -295,7 +295,6 @@ def suggest_pacing(audio_track_id: int | None = None) -> dict:
         # Energy reactivity
         if energy_data and isinstance(energy_data, list) and len(energy_data) > 10:
             import statistics
-            avg_energy = statistics.mean(energy_data)
             std_energy = statistics.stdev(energy_data)
             if std_energy > 0.3:
                 suggestions["energy_reactivity"] = 75

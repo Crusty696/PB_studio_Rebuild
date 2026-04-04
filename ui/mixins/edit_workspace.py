@@ -14,10 +14,10 @@ from sqlalchemy.orm import Session as DBSession
 
 from services.task_manager import GlobalTaskManager, TaskManagerProxy
 from services.pacing_service import (
-    PacingSettings, calculate_cut_points, CutPoint, auto_edit_to_beats,
+    PacingSettings, calculate_cut_points, CutPoint,
     AdvancedPacingSettings, generate_keyframe_strings_for_project,
 )
-from services.timeline_service import TimelineService, PB_NS
+from services.timeline_service import TimelineService
 from workers import AutoEditWorker
 
 logger = logging.getLogger(__name__)

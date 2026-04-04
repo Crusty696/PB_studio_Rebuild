@@ -7,7 +7,6 @@ Call get_app_icon() after QApplication is created.
 from __future__ import annotations
 
 import logging
-import math
 from pathlib import Path
 
 from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPixmap, QPen, QBrush

@@ -103,7 +103,7 @@ class ProjectManager(QObject):
         database.init_db()
 
         # Write project metadata (via ORM — engine already points to new DB)
-        from database import Project, Session, engine
+        from database import Project, engine
         from sqlalchemy.orm import Session as _Ses
         with _Ses(engine) as session:
             # Remove the auto-created "Default" project and insert ours
@@ -225,6 +225,6 @@ class ProjectManager(QObject):
         shutil.copytree(source, target_path)
 
         # Open the copy as the new active project
-        meta = self.open_project(target_path)
+        self.open_project(target_path)
         logger.info("Projekt gespeichert unter: %s", target_path)
         return target_path

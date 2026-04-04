@@ -7,12 +7,10 @@ Cosine-Similarity Suche via numpy — performant genug fuer 1000+ Videos.
 
 from __future__ import annotations
 
-import json
 import logging
 import sqlite3
 import threading
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 

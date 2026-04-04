@@ -8,7 +8,6 @@ Erkennt die Tonart eines Audio-Tracks mit:
 - Camelot-Wheel-Kompatibilitaet und harmonischer Distanz-Berechnung
 """
 
-import json
 import logging
 from dataclasses import dataclass, field
 

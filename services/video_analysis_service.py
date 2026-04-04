@@ -14,7 +14,6 @@ import gc
 import logging
 import subprocess
 import sys
-import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -133,7 +132,6 @@ def _raft_motion_score(
     und gibt einen normalisierten Score (0.0 – 1.0) zurück.
     """
     import torch
-    import torchvision.transforms.functional as F
 
     def prep(bgr: np.ndarray) -> torch.Tensor:
         rgb = bgr[..., ::-1].copy()  # BGR → RGB

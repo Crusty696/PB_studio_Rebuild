@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal, QTimer
 
 from services.task_manager import GlobalTaskManager
-from ui.theme import BG0, BG1, BG2, BG3, BG4, ACCENT, ACCENT_BRIGHT, ACCENT_DIM, DANGER_BG, ERR, OK, WARN, T1, T2, T3, T4
+from ui.theme import BG0, BG1, BG2, BG3, BG4, ACCENT, ACCENT_DIM, DANGER_BG, ERR, OK, WARN, T1, T2, T3, T4
 
 
 class TaskManagerDock(QDockWidget):

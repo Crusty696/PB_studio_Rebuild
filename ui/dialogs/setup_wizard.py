@@ -16,22 +16,19 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import urllib.request
-from pathlib import Path
-from typing import Callable
 
 from PySide6.QtCore import (
     Qt, QThread, Signal, QObject, QSettings, QTimer,
 )
 from PySide6.QtWidgets import (
-    QApplication, QCheckBox, QDialog, QFrame,
+    QCheckBox, QDialog, QFrame,
     QHBoxLayout, QLabel, QProgressBar, QPushButton,
-    QScrollArea, QSizePolicy, QStackedWidget, QVBoxLayout, QWidget,
+    QScrollArea, QStackedWidget, QVBoxLayout, QWidget,
 )
 
 from ui.theme import (
-    ACCENT, ACCENT_BRIGHT, ACCENT_DIM, BG0, BG1, BG2, BG3,
+    ACCENT, ACCENT_BRIGHT, BG0, BG1, BG2, BG3,
     ERR, OK, T1, T2, T3, WARN,
 )
 
@@ -186,7 +183,6 @@ class _DownloadWorker(QObject):
     # ── internals ──
 
     def _pull_ollama(self, model_name: str) -> tuple[bool, str]:
-        import time
         try:
             payload = json.dumps({"name": model_name, "stream": True}).encode()
             req = urllib.request.Request(
@@ -195,7 +191,6 @@ class _DownloadWorker(QObject):
                 headers={"Content-Type": "application/json"},
                 method="POST",
             )
-            t0 = time.time()
             with urllib.request.urlopen(req, timeout=3600) as resp:
                 for line in resp:
                     if self._cancelled:

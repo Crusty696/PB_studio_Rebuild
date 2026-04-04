@@ -10,7 +10,7 @@ Usage in main():
 from __future__ import annotations
 
 from PySide6.QtWidgets import QSplashScreen
-from PySide6.QtGui import QPainter, QColor, QFont, QPainterPath, QBrush, QPen, QPixmap
+from PySide6.QtGui import QPainter, QColor, QFont, QPainterPath, QBrush, QPixmap
 from PySide6.QtCore import Qt, QRect
 
 
