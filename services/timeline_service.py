@@ -13,6 +13,8 @@ from typing import Any
 
 import opentimelineio as otio
 
+from services.timeout_constants import DB_BUSY_TIMEOUT_MS
+
 logger = logging.getLogger(__name__)
 from opentimelineio.opentime import RationalTime, TimeRange
 
@@ -75,7 +77,7 @@ def _do_apply_segments(segments: list[dict], project_id: int) -> int:
         c = dbapi_conn.cursor()
         c.execute("PRAGMA journal_mode=WAL")
         c.execute("PRAGMA synchronous=NORMAL")
-        c.execute("PRAGMA busy_timeout=30000")
+        c.execute(f"PRAGMA busy_timeout={DB_BUSY_TIMEOUT_MS}")
         c.close()
 
     try:

@@ -22,6 +22,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
+from services.timeout_constants import (
+    FFMPEG_EXPORT_TIMEOUT_SEC,
+    FFMPEG_PROBE_TIMEOUT_SEC,
+    THREAD_JOIN_TIMEOUT_SEC,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -140,7 +146,7 @@ def detect_nvenc() -> dict:
     try:
         # FFmpeg Version
         p = subprocess.run(
-            [FFMPEG, "-version"], capture_output=True, text=True, timeout=10,
+            [FFMPEG, "-version"], capture_output=True, text=True, timeout=FFMPEG_PROBE_TIMEOUT_SEC,
             encoding="utf-8", errors="replace",
         )
         if p.returncode == 0 and p.stdout:
@@ -149,7 +155,7 @@ def detect_nvenc() -> dict:
         # Encoder pruefen
         p = subprocess.run(
             [FFMPEG, "-hide_banner", "-encoders"],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True, text=True, timeout=FFMPEG_PROBE_TIMEOUT_SEC,
             encoding="utf-8", errors="replace",
         )
         if p.returncode == 0:
@@ -159,7 +165,7 @@ def detect_nvenc() -> dict:
         # CUDA hwaccel
         p = subprocess.run(
             [FFMPEG, "-hide_banner", "-hwaccels"],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True, text=True, timeout=FFMPEG_PROBE_TIMEOUT_SEC,
             encoding="utf-8", errors="replace",
         )
         if p.returncode == 0:
@@ -306,7 +312,7 @@ def _get_duration(file_path: str) -> float:
         p = subprocess.run(
             [FFPROBE, "-v", "quiet", "-show_entries", "format=duration",
              "-of", "default=noprint_wrappers=1:nokey=1", file_path],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True, text=True, timeout=FFMPEG_PROBE_TIMEOUT_SEC,
             encoding="utf-8", errors="replace",
         )
         if p.returncode == 0 and p.stdout.strip():
@@ -377,15 +383,15 @@ def _run_ffmpeg_with_progress(
                 if progress_cb:
                     progress_cb(100, "Fertig")
 
-        process.wait(timeout=600)
+        process.wait(timeout=FFMPEG_EXPORT_TIMEOUT_SEC)
     except subprocess.TimeoutExpired:
         process.kill()
-        raise RuntimeError("FFmpeg Timeout (600s)")
+        raise RuntimeError(f"FFmpeg Timeout ({FFMPEG_EXPORT_TIMEOUT_SEC}s)")
     finally:
         # Bug-32 Fix: Stelle sicher dass Process terminiert wird, auch wenn Exception auftritt
         if process.poll() is None:
             process.kill()
-        stderr_thread.join(timeout=10)
+        stderr_thread.join(timeout=THREAD_JOIN_TIMEOUT_SEC)
 
     stderr = ''.join(stderr_lines)
     if process.returncode != 0:

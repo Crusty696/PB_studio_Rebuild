@@ -20,6 +20,8 @@ from typing import Callable
 
 import numpy as np
 
+from services.timeout_constants import FFMPEG_PROBE_TIMEOUT_SEC, FFMPEG_THUMBNAIL_TIMEOUT_SEC
+
 logger = logging.getLogger(__name__)
 
 
@@ -280,7 +282,7 @@ def _get_video_duration(video_path: str) -> float:
         p = subprocess.run(
             ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
              "-of", "default=noprint_wrappers=1:nokey=1", video_path],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True, text=True, timeout=FFMPEG_PROBE_TIMEOUT_SEC,
             encoding="utf-8", errors="replace",
         )
         if p.returncode == 0 and p.stdout.strip():
@@ -336,7 +338,7 @@ def extract_keyframes(
             kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
 
         try:
-            result = subprocess.run(cmd, capture_output=True, timeout=15,
+            result = subprocess.run(cmd, capture_output=True, timeout=FFMPEG_THUMBNAIL_TIMEOUT_SEC,
                                     stdin=subprocess.DEVNULL, **kwargs)
             if kf_path.exists():
                 scene.keyframe_path = str(kf_path)

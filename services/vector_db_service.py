@@ -10,6 +10,8 @@ from __future__ import annotations
 import logging
 import sqlite3
 import threading
+
+from services.timeout_constants import DB_SQLITE_CONNECT_TIMEOUT_SEC
 from pathlib import Path
 
 import numpy as np
@@ -72,7 +74,7 @@ class VectorDBService:
             conn.execute(_INDEX_SQL)
 
     def _connect(self) -> sqlite3.Connection:
-        return sqlite3.connect(str(self.db_path), timeout=30)
+        return sqlite3.connect(str(self.db_path), timeout=DB_SQLITE_CONNECT_TIMEOUT_SEC)
 
     def add_embedding(
         self,

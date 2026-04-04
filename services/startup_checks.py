@@ -16,6 +16,14 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from services.timeout_constants import (
+    STARTUP_DISK_CHECK_TIMEOUT_SEC,
+    STARTUP_FFMPEG_CHECK_TIMEOUT_SEC,
+    STARTUP_GPU_CHECK_TIMEOUT_SEC,
+    STARTUP_MODEL_CHECK_TIMEOUT_SEC,
+    STARTUP_OLLAMA_CHECK_TIMEOUT_SEC,
+)
+
 logger = logging.getLogger(__name__)
 
 _FFMPEG_BIN = os.environ.get("FFMPEG_PATH", "ffmpeg")
@@ -110,7 +118,7 @@ def _check_ffmpeg() -> tuple[bool, str, bool]:
     try:
         result = subprocess.run(
             [_FFMPEG_BIN, "-version"],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True, text=True, timeout=STARTUP_FFMPEG_CHECK_TIMEOUT_SEC,
             **_subprocess_kwargs(),
         )
         if result.returncode == 0:
@@ -126,7 +134,7 @@ def _check_ffmpeg() -> tuple[bool, str, bool]:
     try:
         r2 = subprocess.run(
             [_FFPROBE_BIN, "-version"],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True, text=True, timeout=STARTUP_FFMPEG_CHECK_TIMEOUT_SEC,
             **_subprocess_kwargs(),
         )
         ffprobe_ok = r2.returncode == 0
@@ -218,22 +226,22 @@ def check_system(app_root: Path | None = None) -> SystemStatus:
         for key, future in futures.items():
             try:
                 if key == "ffmpeg":
-                    ok, ver, probe_ok = future.result(timeout=8)
+                    ok, ver, probe_ok = future.result(timeout=STARTUP_FFMPEG_CHECK_TIMEOUT_SEC)
                     status.ffmpeg_ok = ok
                     status.ffmpeg_version = ver
                     status.ffprobe_ok = probe_ok
                 elif key == "cuda":
-                    ok, name, vram = future.result(timeout=3)
+                    ok, name, vram = future.result(timeout=STARTUP_GPU_CHECK_TIMEOUT_SEC)
                     status.cuda_ok = ok
                     status.gpu_name = name
                     status.gpu_vram_mb = vram
                 elif key == "disk":
-                    status.disk_free_gb = future.result(timeout=4)
+                    status.disk_free_gb = future.result(timeout=STARTUP_DISK_CHECK_TIMEOUT_SEC)
                     status.disk_ok = status.disk_free_gb >= 1.0
                 elif key == "ollama":
-                    status.ollama_ok = future.result(timeout=5)
+                    status.ollama_ok = future.result(timeout=STARTUP_OLLAMA_CHECK_TIMEOUT_SEC)
                 elif key == "ml":
-                    bt_ok, dmc_ok, wsp_cached = future.result(timeout=3)
+                    bt_ok, dmc_ok, wsp_cached = future.result(timeout=STARTUP_MODEL_CHECK_TIMEOUT_SEC)
                     status.beat_this_ok = bt_ok
                     status.demucs_ok = dmc_ok
                     status.whisper_cached = wsp_cached

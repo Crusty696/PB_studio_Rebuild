@@ -7,6 +7,7 @@ from pathlib import Path
 
 from sqlalchemy.orm import Session
 from database import engine, VideoClip
+from services.timeout_constants import FFMPEG_PROBE_TIMEOUT_SEC, FFMPEG_RENDER_TIMEOUT_SEC
 
 _FFMPEG = os.environ.get("FFMPEG_PATH", "ffmpeg")
 _FFPROBE = os.environ.get("FFPROBE_PATH", "ffprobe")
@@ -44,7 +45,7 @@ class VideoAnalyzer:
         kwargs = {}
         if sys.platform == "win32":
             kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, **kwargs)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=FFMPEG_PROBE_TIMEOUT_SEC, **kwargs)
         if result.returncode != 0:
             raise RuntimeError(f"ffprobe fehlgeschlagen: {_sanitize_ffmpeg_error(result.stderr)}")
 
@@ -98,7 +99,7 @@ class VideoAnalyzer:
             kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
         if progress_cb:
             progress_cb(20, "FFmpeg Proxy-Encoding...")
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300,
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=FFMPEG_RENDER_TIMEOUT_SEC,
                                 stdin=subprocess.DEVNULL, **kwargs)
         if result.returncode != 0:
             logger.info(f"[VideoAnalyzer] FFmpeg FEHLER (rc={result.returncode}):")

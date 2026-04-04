@@ -6,6 +6,7 @@ from pathlib import Path
 from sqlalchemy.orm import Session
 
 from database import engine, AudioTrack, VideoClip, StructureSegment
+from services.timeout_constants import FFMPEG_PROBE_TIMEOUT_SEC
 
 _FFPROBE = os.environ.get("FFPROBE_PATH", "ffprobe")
 from services.vector_db_service import VectorDBService
@@ -93,7 +94,7 @@ def _probe_video_meta(file_path: str) -> dict:
         kwargs = {}
         if sys.platform == "win32":
             kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10,
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=FFMPEG_PROBE_TIMEOUT_SEC,
                                 encoding="utf-8", errors="replace", **kwargs)
         if result.returncode != 0:
             return {}

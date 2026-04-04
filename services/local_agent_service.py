@@ -19,6 +19,7 @@ from typing import Any
 
 from services.action_registry import ActionRegistry, action_registry
 from services.model_manager import ModelManager
+from services.timeout_constants import AGENT_TASK_TIMEOUT_SEC, AGENT_TASK_LONG_TIMEOUT_SEC
 
 logger = logging.getLogger(__name__)
 
@@ -564,7 +565,7 @@ class LocalAgentService:
                             self._pipe, prompt_text, max_new_tokens=max_new_tokens,
                             do_sample=False, return_full_text=False,
                         )
-                        outputs = _future.result(timeout=60)
+                        outputs = _future.result(timeout=AGENT_TASK_TIMEOUT_SEC)
                 return outputs[0]["generated_text"].strip()
             except torch.cuda.OutOfMemoryError:
                 logger.error(
@@ -584,7 +585,7 @@ class LocalAgentService:
                                 self._pipe, prompt_text, max_new_tokens=max_new_tokens,
                                 do_sample=False, return_full_text=False,
                             )
-                            outputs = _future.result(timeout=120)
+                            outputs = _future.result(timeout=AGENT_TASK_LONG_TIMEOUT_SEC)
                     logger.info("LocalAgentService: OOM-Recovery erfolgreich (CPU-Fallback).")
                     return outputs[0]["generated_text"].strip()
                 except (RuntimeError, OSError, TimeoutError) as cpu_err:

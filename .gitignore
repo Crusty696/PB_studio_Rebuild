@@ -21,6 +21,7 @@ storage/test/
 # Exports and logs (generated at runtime)
 exports/
 logs/
+tests/*.log
 
 # Vector databases and data artifacts
 data/vector/

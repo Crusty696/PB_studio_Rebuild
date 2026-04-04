@@ -23,6 +23,8 @@ import urllib.error
 import urllib.request
 from typing import Any
 
+from services.timeout_constants import HTTP_API_TIMEOUT_SEC, HTTP_HEALTH_CHECK_TIMEOUT_SEC
+
 logger = logging.getLogger(__name__)
 
 # Default-Modelle für GTX 1060 (6 GB VRAM)
@@ -99,7 +101,7 @@ class OllamaClient:
                 f"{self.base_url}/api/version",
                 headers={"Accept": "application/json"},
             )
-            with urllib.request.urlopen(req, timeout=2) as resp:
+            with urllib.request.urlopen(req, timeout=HTTP_HEALTH_CHECK_TIMEOUT_SEC) as resp:
                 return resp.status == 200
         except (ConnectionError, TimeoutError, OSError, ValueError):
             return False
@@ -111,7 +113,7 @@ class OllamaClient:
                 f"{self.base_url}/api/version",
                 headers={"Accept": "application/json"},
             )
-            with urllib.request.urlopen(req, timeout=2) as resp:
+            with urllib.request.urlopen(req, timeout=HTTP_HEALTH_CHECK_TIMEOUT_SEC) as resp:
                 data = json.loads(resp.read())
                 return data.get("version")
         except (ConnectionError, TimeoutError, OSError, ValueError):
@@ -133,7 +135,7 @@ class OllamaClient:
                 f"{self.base_url}/api/tags",
                 headers={"Accept": "application/json"},
             )
-            with urllib.request.urlopen(req, timeout=5) as resp:
+            with urllib.request.urlopen(req, timeout=HTTP_API_TIMEOUT_SEC) as resp:
                 data = json.loads(resp.read())
                 models = data.get("models", [])
                 return [m["name"] for m in models if isinstance(m, dict) and "name" in m]
@@ -442,7 +444,7 @@ class OllamaClient:
                 headers={"Content-Type": "application/json"},
                 method="POST",
             )
-            with urllib.request.urlopen(req, timeout=5) as resp:
+            with urllib.request.urlopen(req, timeout=HTTP_API_TIMEOUT_SEC) as resp:
                 return json.loads(resp.read())
         except (ConnectionError, TimeoutError, OSError, ValueError):
             return {}

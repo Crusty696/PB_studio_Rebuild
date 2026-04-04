@@ -9,6 +9,7 @@ from pathlib import Path
 
 from services.errors import CUDAOutOfMemoryError
 from services.audio_constants import clamp_bpm
+from services.timeout_constants import FFMPEG_RENDER_TIMEOUT_SEC
 
 import numpy as np
 import librosa
@@ -399,7 +400,7 @@ class AutoDucker:
                 if sys.platform == "win32":
                     kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
                 result = subprocess.run(
-                    cmd, capture_output=True, timeout=300,
+                    cmd, capture_output=True, timeout=FFMPEG_RENDER_TIMEOUT_SEC,
                     **kwargs,
                 )
                 if result.returncode != 0:

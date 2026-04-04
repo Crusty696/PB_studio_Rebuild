@@ -22,6 +22,13 @@ import urllib.request
 from pathlib import Path
 from typing import Callable
 
+from services.timeout_constants import (
+    HTTP_API_TIMEOUT_SEC,
+    HTTP_HEALTH_CHECK_TIMEOUT_SEC,
+    MODEL_DOWNLOAD_TIMEOUT_SEC,
+    MODEL_VERIFY_TIMEOUT_SEC,
+)
+
 logger = logging.getLogger(__name__)
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -329,7 +336,7 @@ class ModelLifecycleService:
                 f"{self.ollama_url}/api/tags",
                 headers={"Accept": "application/json"},
             )
-            with urllib.request.urlopen(req, timeout=5) as resp:
+            with urllib.request.urlopen(req, timeout=HTTP_API_TIMEOUT_SEC) as resp:
                 data = json.loads(resp.read())
 
             for m in data.get("models", []):
@@ -415,7 +422,7 @@ class ModelLifecycleService:
                 )
 
                 t_start = time.time()
-                with urllib.request.urlopen(req, timeout=3600) as resp:
+                with urllib.request.urlopen(req, timeout=MODEL_DOWNLOAD_TIMEOUT_SEC) as resp:
                     for line in resp:
                         line = line.strip()
                         if not line:
@@ -497,7 +504,7 @@ class ModelLifecycleService:
                 headers={"Content-Type": "application/json"},
                 method="DELETE",
             )
-            with urllib.request.urlopen(req, timeout=30) as resp:
+            with urllib.request.urlopen(req, timeout=MODEL_VERIFY_TIMEOUT_SEC) as resp:
                 success = resp.status in (200, 204)
 
             if success:
@@ -512,7 +519,7 @@ class ModelLifecycleService:
         """Prüft ob Ollama läuft."""
         try:
             req = urllib.request.Request(f"{self.ollama_url}/api/version")
-            with urllib.request.urlopen(req, timeout=2) as resp:
+            with urllib.request.urlopen(req, timeout=HTTP_HEALTH_CHECK_TIMEOUT_SEC) as resp:
                 return resp.status == 200
         except (ConnectionError, TimeoutError, OSError):
             return False

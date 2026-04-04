@@ -14,6 +14,13 @@ from pathlib import Path
 
 from sqlalchemy.orm import Session
 from database import engine, TimelineEntry, AudioTrack, VideoClip, APP_ROOT
+from services.timeout_constants import (
+    FFMPEG_LUFS_MEASURE_TIMEOUT_SEC,
+    FFMPEG_LUFS_NORMALIZE_TIMEOUT_SEC,
+    FFMPEG_PROBE_TIMEOUT_SEC,
+    FFMPEG_RENDER_TIMEOUT_SEC,
+    THREAD_JOIN_TIMEOUT_SEC,
+)
 
 # FIX-1.2: FFmpeg-Pfad konfigurierbar (identisch mit convert_service.py)
 FFMPEG = os.environ.get("FFMPEG_PATH", "ffmpeg")
@@ -49,7 +56,7 @@ def _probe_video(file_path: str) -> dict:
         if sys.platform == "win32":
             kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
         result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=15,
+            cmd, capture_output=True, text=True, timeout=FFMPEG_PROBE_TIMEOUT_SEC,
             encoding="utf-8", errors="replace", **kwargs,
         )
         if result.returncode != 0:
@@ -135,7 +142,7 @@ def _preprocess_segment(seg: dict, index: int, w: str, h: str, fps: float,
         "-c:v", "libx264", "-preset", "fast", "-crf", "23",
         "-an", tmp.name,
     ]
-    _run_ffmpeg(std_cmd, timeout=300)
+    _run_ffmpeg(std_cmd, timeout=FFMPEG_RENDER_TIMEOUT_SEC)
     return {
         "path": tmp.name,
         "duration": source_duration,
@@ -346,7 +353,7 @@ def _export_optimized_concat(video_segments, audio_path, output_path,
                         "-c:v", "libx264", "-preset", "fast", "-crf", "23",
                         "-an", tmp.name,
                     ]
-                    _run_ffmpeg(std_cmd, timeout=300)
+                    _run_ffmpeg(std_cmd, timeout=FFMPEG_RENDER_TIMEOUT_SEC)
                     _std_cache[cache_key] = tmp.name
                     processed_segments.append({
                         "path": tmp.name,
@@ -630,7 +637,7 @@ def _normalize_audio_lufs(input_path: str, output_path: str,
             "-f", "null", "-"
         ]
         result = subprocess.run(
-            measure_cmd, capture_output=True, text=True, timeout=300,
+            measure_cmd, capture_output=True, text=True, timeout=FFMPEG_LUFS_MEASURE_TIMEOUT_SEC,
             encoding="utf-8", errors="replace", **kwargs
         )
         if result.returncode != 0:
@@ -667,7 +674,7 @@ def _normalize_audio_lufs(input_path: str, output_path: str,
             output_path,
         ]
         pass2_result = subprocess.run(
-            norm_cmd, capture_output=True, text=True, timeout=600,
+            norm_cmd, capture_output=True, text=True, timeout=FFMPEG_LUFS_NORMALIZE_TIMEOUT_SEC,
             encoding="utf-8", errors="replace", **kwargs
         )
         if pass2_result.returncode != 0:
@@ -762,7 +769,7 @@ def _run_ffmpeg(cmd: list[str], timeout: int = 600, progress_cb=None,
     finally:
         if process.poll() is None:
             process.kill()
-        stderr_thread.join(timeout=10)
+        stderr_thread.join(timeout=THREAD_JOIN_TIMEOUT_SEC)
 
     stderr = ''.join(stderr_lines)
     if process.returncode != 0:
