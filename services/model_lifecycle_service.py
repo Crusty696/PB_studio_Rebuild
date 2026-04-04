@@ -250,6 +250,7 @@ class ModelLifecycleService:
             try:
                 session.commit()
             except Exception as e:
+                session.rollback()
                 logger.error("ModelRegistry upsert fehlgeschlagen: %s", e)
 
     def _remove_from_registry(self, model_id: str) -> None:
@@ -264,6 +265,7 @@ class ModelLifecycleService:
                 try:
                     session.commit()
                 except Exception as e:
+                    session.rollback()
                     logger.error("ModelRegistry delete fehlgeschlagen: %s", e)
 
     def touch_last_used(self, model_id: str) -> None:
@@ -278,6 +280,7 @@ class ModelLifecycleService:
                 try:
                     session.commit()
                 except Exception as e:
+                    session.rollback()
                     logger.debug("touch_last_used fehlgeschlagen: %s", e)
 
     def get_registry_entries(self) -> list[ModelEntry]:

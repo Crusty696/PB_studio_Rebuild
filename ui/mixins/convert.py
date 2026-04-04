@@ -69,7 +69,11 @@ class ConvertMixin:
                 entry.brightness = brightness
                 entry.contrast = contrast
                 entry.crossfade_duration = crossfade
-                session.commit()
+                try:
+                    session.commit()
+                except Exception:
+                    session.rollback()
+                    raise
 
         self.console_text.append(
             f"[Effects] Clip {entry_id}: Helligkeit={brightness:.2f}, "

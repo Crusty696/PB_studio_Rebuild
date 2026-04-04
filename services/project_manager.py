@@ -115,7 +115,11 @@ class ProjectManager(QObject):
                 resolution=resolution,
                 fps=fps,
             ))
-            session.commit()
+            try:
+                session.commit()
+            except Exception:
+                session.rollback()
+                raise
 
         logger.info("Neues Projekt erstellt: %s (%s, %s fps)", name, resolution, fps)
         self.project_changed.emit(path)

@@ -96,7 +96,11 @@ def _do_apply_segments(segments: list[dict], project_id: int) -> int:
                     lane=0,
                 )
                 session.add(entry)
-            session.commit()
+            try:
+                session.commit()
+            except Exception:
+                session.rollback()
+                raise
     finally:
         _eng.dispose()
 

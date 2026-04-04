@@ -164,6 +164,11 @@ class _NullPoolSessionContext:
     def __exit__(self, exc_type, exc_val, exc_tb):
         try:
             if self._session is not None:
+                if exc_type is not None:
+                    try:
+                        self._session.rollback()
+                    except Exception as rb_err:  # broad catch intentional — rollback itself can fail on closed connection
+                        logger.warning("session.rollback() fehlgeschlagen: %s", rb_err)
                 self._session.close()
         finally:
             # B-008 Fix: dispose() Fehler abfangen statt still zu schlucken

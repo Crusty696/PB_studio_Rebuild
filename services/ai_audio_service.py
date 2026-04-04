@@ -344,7 +344,11 @@ class StemSeparator:
             track.stem_drums_path = stems.get("drums")
             track.stem_bass_path = stems.get("bass")
             track.stem_other_path = stems.get("other")
-            session.commit()
+            try:
+                session.commit()
+            except Exception:
+                session.rollback()
+                raise
 
         return stems
 
@@ -640,7 +644,11 @@ class FrequencyAnalyzer:
                 )
                 session.add(wd)
 
-            session.commit()
+            try:
+                session.commit()
+            except Exception:
+                session.rollback()
+                raise
 
             try:
                 from services.pacing_service import invalidate_pacing_caches
