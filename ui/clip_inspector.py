@@ -4,6 +4,8 @@ Zeigt und editiert Eigenschaften des ausgewaehlten Clips:
 Start, End, Duration, Brightness, Contrast, Crossfade.
 """
 
+import logging
+
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QDoubleSpinBox,
     QFrame, QSizePolicy,
@@ -13,6 +15,8 @@ from PySide6.QtGui import QFont
 
 from database import nullpool_session, TimelineEntry
 from ui.theme import ACCENT, BG1, BG2, BG4, T1, T2, T3, T4
+
+logger = logging.getLogger(__name__)
 
 
 class ClipInspectorPanel(QWidget):
@@ -134,10 +138,13 @@ class ClipInspectorPanel(QWidget):
         self._current_entry_id = entry_id
         self._set_fields_visible(True)
 
+        logger.debug("ClipInspector: loading entry_id=%s (%d clips selected)", entry_id, len(clip_data_list))
+
         # DB-Daten laden
         with nullpool_session() as session:
             entry = session.get(TimelineEntry, entry_id)
             if not entry:
+                logger.warning("ClipInspector: entry_id=%s not found in DB", entry_id)
                 self._set_fields_visible(False)
                 return
 
@@ -166,9 +173,12 @@ class ClipInspectorPanel(QWidget):
         if self._updating or self._current_entry_id is None:
             return
 
+        logger.debug("ClipInspector: entry_id=%s field=%s value=%s", self._current_entry_id, field, value)
+
         with nullpool_session() as session:
             entry = session.get(TimelineEntry, self._current_entry_id)
             if not entry:
+                logger.warning("ClipInspector: entry_id=%s not found when writing field=%s", self._current_entry_id, field)
                 return
             setattr(entry, field, round(value, 3))
             session.commit()
