@@ -12,7 +12,6 @@ werden OHNE LLM direkt an MainWindow-Methoden weitergeleitet.
 from __future__ import annotations
 
 import logging
-import re
 import threading
 from typing import TYPE_CHECKING
 
@@ -23,7 +22,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QThread, Signal, QObject
 from PySide6.QtGui import QFont, QColor, QTextCharFormat, QTextCursor
 
-from ui.theme import ACCENT, ACCENT_BRIGHT, BG1, BG2, ERR, INFO, OK, T1, T2, T3, T4, WARN
+from ui.theme import ACCENT, ACCENT_BRIGHT, BG1, BG2, ERR, INFO, OK, T2, T3, T4, WARN
 
 # Globaler GC-Schutz: Threads und Worker hier halten, damit der
 # Garbage Collector sie NIEMALS löscht, solange sie laufen.
@@ -173,6 +172,12 @@ class ChatDock(QDockWidget):
         self.chat_log.setReadOnly(True)
         self.chat_log.setFont(QFont("Cascadia Code", 10))
         self.chat_log.setToolTip(self.tr("Chat-Verlauf: Hier siehst du alle Nachrichten zwischen dir und dem KI-Assistenten sowie ausgefuehrte Aktionen"))
+        self.chat_log.setAccessibleName("KI-Assistent Chat Verlauf")
+        self.chat_log.setWhatsThis(
+            "Der Chat-Verlauf zeigt alle Nachrichten zwischen dir und dem lokalen KI-Assistenten. "
+            "Befehle wie 'analysiere', 'schneide' oder 'auto-edit' werden direkt verarbeitet. "
+            "Freie Texteingabe wird an das lokale Sprachmodell weitergeleitet."
+        )
         layout.addWidget(self.chat_log)
 
         # Agent-Status-Label (über dem Eingabefeld)
@@ -188,6 +193,7 @@ class ChatDock(QDockWidget):
             f"}}"
         )
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        self.status_label.setAccessibleName("KI-Assistent Status")
         layout.addWidget(self.status_label)
 
         # Eingabezeile + Button
@@ -199,6 +205,8 @@ class ChatDock(QDockWidget):
         self.input_field.setFont(QFont("Segoe UI", 10))
         self.input_field.setMinimumHeight(34)
         self.input_field.setToolTip(self.tr("Gib hier deine Nachricht oder deinen Befehl an den KI-Assistenten ein. Druecke Enter oder klicke Senden"))
+        self.input_field.setAccessibleName("Nachricht an KI-Assistent")
+        self.input_field.setStatusTip("Texteingabe fuer den KI-Assistenten — Enter zum Senden")
         self.input_field.returnPressed.connect(self._on_send)
         input_row.addWidget(self.input_field)
 
@@ -206,6 +214,8 @@ class ChatDock(QDockWidget):
         self.btn_send.setMinimumHeight(34)
         self.btn_send.setMinimumWidth(80)
         self.btn_send.setToolTip(self.tr("Sendet deine Nachricht an den lokalen KI-Assistenten. Der Agent verarbeitet die Anfrage im Hintergrund"))
+        self.btn_send.setAccessibleName("Nachricht senden")
+        self.btn_send.setStatusTip("Nachricht an den lokalen KI-Assistenten senden")
         self.btn_send.clicked.connect(self._on_send)
         input_row.addWidget(self.btn_send)
 

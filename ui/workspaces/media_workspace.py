@@ -8,7 +8,7 @@ import json
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel,
     QLineEdit, QPushButton, QProgressBar, QTableWidget, QHeaderView,
-    QSplitter, QStackedWidget, QFrame, QScrollArea, QSizePolicy,
+    QSplitter, QStackedWidget, QFrame, QSizePolicy,
 )
 from PySide6.QtCore import Qt, QRect, QMimeData
 from PySide6.QtGui import QPainter, QColor, QDrag
@@ -208,12 +208,16 @@ class MediaWorkspace(QWidget):
         self.btn_mode_video.setChecked(True)
         self.btn_mode_video.setFixedHeight(42)
         self.btn_mode_video.setStyleSheet(_MODE_BTN_STYLE)
+        self.btn_mode_video.setAccessibleName("Video Modus")
+        self.btn_mode_video.setStatusTip("Wechselt in den Video-Modus: Video-Pool und Analyse-Pipeline")
 
         self.btn_mode_audio = QPushButton("\U0001f3b5  AUDIO MODUS")
         self.btn_mode_audio.setCheckable(True)
         self.btn_mode_audio.setAutoExclusive(True)
         self.btn_mode_audio.setFixedHeight(42)
         self.btn_mode_audio.setStyleSheet(_MODE_BTN_STYLE)
+        self.btn_mode_audio.setAccessibleName("Audio Modus")
+        self.btn_mode_audio.setStatusTip("Wechselt in den Audio-Modus: Audio-Pool und Stem-Analyse")
 
         mode_bar.addWidget(self.btn_mode_video, stretch=1)
         mode_bar.addWidget(self.btn_mode_audio, stretch=1)
@@ -235,6 +239,8 @@ class MediaWorkspace(QWidget):
         self.btn_add_to_timeline.setFixedHeight(35)
         self.btn_add_to_timeline.setMaximumWidth(300)
         self.btn_add_to_timeline.setToolTip("Markierte Datei auf Timeline legen")
+        self.btn_add_to_timeline.setAccessibleName("Zur Timeline hinzufuegen")
+        self.btn_add_to_timeline.setStatusTip("Markierte Datei auf die Edit-Timeline legen")
         bottom_bar.addWidget(self.btn_add_to_timeline)
 
         self.progress_bar = QProgressBar()
@@ -291,6 +297,8 @@ class MediaWorkspace(QWidget):
         self.btn_import_video.setToolTip(
             "Video-Dateien (MP4, MOV, AVI, MKV) importieren"
         )
+        self.btn_import_video.setAccessibleName("Video importieren")
+        self.btn_import_video.setStatusTip("Video-Dateien (MP4, MOV, AVI, MKV) in den Video-Pool importieren")
         gl.addWidget(self.btn_import_video)
 
         self.btn_import_folder = QPushButton("Ordner importieren")
@@ -300,6 +308,8 @@ class MediaWorkspace(QWidget):
         self.btn_import_folder.setToolTip(
             "Alle Audio- und Video-Dateien aus einem Ordner importieren"
         )
+        self.btn_import_folder.setAccessibleName("Ordner importieren")
+        self.btn_import_folder.setStatusTip("Alle Audio- und Video-Dateien aus einem Ordner importieren")
         gl.addWidget(self.btn_import_folder)
         gl.addStretch()
         ll.addWidget(grp)
@@ -315,6 +325,8 @@ class MediaWorkspace(QWidget):
         self.btn_analyze_video.setToolTip(
             "Szenen-Schnitte und Shot-Boundaries erkennen"
         )
+        self.btn_analyze_video.setAccessibleName("Szenen-Erkennung starten")
+        self.btn_analyze_video.setStatusTip("Erkennt Szenen-Schnitte und Shot-Boundaries im ausgewaehlten Video")
         gl.addWidget(self.btn_analyze_video)
 
         self.btn_motion_analysis = QPushButton("Video analysieren")
@@ -324,6 +336,8 @@ class MediaWorkspace(QWidget):
         self.btn_motion_analysis.setToolTip(
             "Startet die Video-Analyse (Metadaten + Proxy)"
         )
+        self.btn_motion_analysis.setAccessibleName("Video analysieren")
+        self.btn_motion_analysis.setStatusTip("Startet die Video-Analyse: Metadaten extrahieren und Proxy erstellen")
         gl.addWidget(self.btn_motion_analysis)
 
         self.btn_siglip_embeddings = QPushButton("Voll-Pipeline")
@@ -333,6 +347,8 @@ class MediaWorkspace(QWidget):
         self.btn_siglip_embeddings.setToolTip(
             "Startet die komplette Pipeline (Szenen + Motion + Embeddings)"
         )
+        self.btn_siglip_embeddings.setAccessibleName("KI-Vollanalyse starten")
+        self.btn_siglip_embeddings.setStatusTip("Startet die komplette KI-Pipeline: Szenen, Motion und SigLIP-Embeddings")
         gl.addWidget(self.btn_siglip_embeddings)
 
         self.btn_video_pipeline = QPushButton("Voll-Pipeline (Szenen + KI)")
@@ -348,6 +364,8 @@ class MediaWorkspace(QWidget):
         self.btn_video_pipeline.setStyleSheet(
             "QPushButton { border: 1px solid #d4a44a; }"
         )
+        self.btn_video_pipeline.setAccessibleName("Vollstaendige Video-Pipeline starten")
+        self.btn_video_pipeline.setStatusTip("Vollstaendige 3-Schritt Pipeline: Szenen, Keyframes und SigLIP-Embeddings")
         gl.addWidget(self.btn_video_pipeline)
         gl.addStretch()
         ll.addWidget(grp)
@@ -363,6 +381,8 @@ class MediaWorkspace(QWidget):
         self.btn_clear_all.setObjectName("btn_danger")
         self.btn_clear_all.setFixedHeight(35)
         self.btn_clear_all.setMaximumWidth(300)
+        self.btn_clear_all.setAccessibleName("Mediensammlung loeschen")
+        self.btn_clear_all.setStatusTip("Alle Medien aus der Datenbank und Ansicht entfernen")
         gl.addWidget(self.btn_clear_all)
         gl.addStretch()
         ll.addWidget(grp)
@@ -394,17 +414,23 @@ class MediaWorkspace(QWidget):
             "Semantische Suche: z.B. 'person dancing on stage'..."
         )
         self.search_input.setToolTip("SigLIP Text-zu-Video Suche")
+        self.search_input.setAccessibleName("Semantische Suche Eingabe")
+        self.search_input.setStatusTip("Texteingabe fuer SigLIP-basierte semantische Video-Suche")
         search_row.addWidget(self.search_input, stretch=1)
 
         self.btn_search = QPushButton("Suchen")
         self.btn_search.setFixedWidth(80)
         self.btn_search.setToolTip("Semantische Suche starten (SigLIP + VectorDB)")
+        self.btn_search.setAccessibleName("Semantische Suche starten")
+        self.btn_search.setStatusTip("Startet die semantische Video-Suche per SigLIP-Embeddings")
         search_row.addWidget(self.btn_search)
 
         self.btn_search_clear = QPushButton("X")
         self.btn_search_clear.setFixedSize(35, 35)
         self.btn_search_clear.setObjectName("btn_danger")
         self.btn_search_clear.setToolTip("Suche zuruecksetzen")
+        self.btn_search_clear.setAccessibleName("Suche zuruecksetzen")
+        self.btn_search_clear.setStatusTip("Sucheingabe und Ergebnisse zuruecksetzen")
         search_row.addWidget(self.btn_search_clear)
         rl.addLayout(search_row)
 
@@ -423,6 +449,7 @@ class MediaWorkspace(QWidget):
         self.btn_select_all_video.setObjectName("btn_select_toggle")
         self.btn_select_all_video.setFixedSize(50, 22)
         self.btn_select_all_video.setToolTip("Alle Video-Checkboxen an-/abwaehlen")
+        self.btn_select_all_video.setAccessibleName("Alle Videos auswaehlen")
         hdr_row.addWidget(self.btn_select_all_video)
         # List / Grid view toggle
         self.btn_video_list_view = QPushButton("☰")
@@ -430,12 +457,14 @@ class MediaWorkspace(QWidget):
         self.btn_video_list_view.setChecked(True)
         self.btn_video_list_view.setFixedSize(26, 22)
         self.btn_video_list_view.setToolTip("Listen-Ansicht")
+        self.btn_video_list_view.setAccessibleName("Listen-Ansicht")
         self.btn_video_list_view.setStyleSheet(_VIEW_TOGGLE_STYLE)
         hdr_row.addWidget(self.btn_video_list_view)
         self.btn_video_grid_view = QPushButton("⊞")
         self.btn_video_grid_view.setCheckable(True)
         self.btn_video_grid_view.setFixedSize(26, 22)
         self.btn_video_grid_view.setToolTip("Kachel-Ansicht mit Thumbnails")
+        self.btn_video_grid_view.setAccessibleName("Kachel-Ansicht")
         self.btn_video_grid_view.setStyleSheet(_VIEW_TOGGLE_STYLE)
         hdr_row.addWidget(self.btn_video_grid_view)
         rl.addLayout(hdr_row)
@@ -460,6 +489,12 @@ class MediaWorkspace(QWidget):
         self.video_pool_table.setAlternatingRowColors(True)
         self.video_pool_table.setToolTip(
             "Video Pool: Alle importierten Video-Dateien — per Drag & Drop auf Timeline ziehen"
+        )
+        self.video_pool_table.setAccessibleName("Video Pool Tabelle")
+        self.video_pool_table.setWhatsThis(
+            "Der Video Pool zeigt alle importierten Video-Dateien. "
+            "Clips koennen per Drag & Drop auf die Edit-Timeline gezogen werden. "
+            "Mehrfachauswahl mit Shift/Strg. Checkbox-Spalte fuer Batch-Aktionen."
         )
         vh = self.video_pool_table.horizontalHeader()
         vh.setStretchLastSection(True)
@@ -501,6 +536,8 @@ class MediaWorkspace(QWidget):
         self.btn_delete_selected_video.setToolTip(
             "Alle angehakten Videos aus der Datenbank entfernen"
         )
+        self.btn_delete_selected_video.setAccessibleName("Ausgewaehlte Videos loeschen")
+        self.btn_delete_selected_video.setStatusTip("Alle per Checkbox markierten Videos aus der Datenbank loeschen")
         del_row.addWidget(self.btn_delete_selected_video)
         del_row.addStretch()
         rl.addLayout(del_row)
@@ -542,6 +579,8 @@ class MediaWorkspace(QWidget):
         self.btn_import_audio.setToolTip(
             "Audio-Dateien (WAV, MP3, FLAC, OGG) importieren"
         )
+        self.btn_import_audio.setAccessibleName("Audio importieren")
+        self.btn_import_audio.setStatusTip("Audio-Dateien (WAV, MP3, FLAC, OGG) in den Audio-Pool importieren")
         gl.addWidget(self.btn_import_audio)
 
         # Folder import on audio page — forwards to the primary btn_import_folder
@@ -568,6 +607,8 @@ class MediaWorkspace(QWidget):
         self.btn_analyze.setFixedHeight(32)
         self.btn_analyze.setMaximumWidth(300)
         self.btn_analyze.setToolTip("BPM, Beats und Energie-Verlauf erkennen")
+        self.btn_analyze.setAccessibleName("Audio analysieren")
+        self.btn_analyze.setStatusTip("BPM, Beats und Energie-Verlauf des Audio-Tracks erkennen")
         gl.addWidget(self.btn_analyze)
 
         self.btn_waveform = QPushButton("Wellenform")
@@ -577,6 +618,8 @@ class MediaWorkspace(QWidget):
         self.btn_waveform.setObjectName("btn_action")
         self.btn_waveform.setFixedHeight(32)
         self.btn_waveform.setMaximumWidth(300)
+        self.btn_waveform.setAccessibleName("Wellenform berechnen")
+        self.btn_waveform.setStatusTip("Frequenz-Wellenform (Low/Mid/High) und Beatgrid berechnen")
         gl.addWidget(self.btn_waveform)
 
         self.btn_key_detect = QPushButton("Key erkennen")
@@ -586,6 +629,8 @@ class MediaWorkspace(QWidget):
         self.btn_key_detect.setToolTip(
             "Tonart und Camelot-Wert erkennen"
         )
+        self.btn_key_detect.setAccessibleName("Tonart erkennen")
+        self.btn_key_detect.setStatusTip("Musikalische Tonart und Camelot-Wert erkennen")
         gl.addWidget(self.btn_key_detect)
 
         self.btn_lufs_analyze = QPushButton("LUFS / Loudness")
@@ -595,6 +640,8 @@ class MediaWorkspace(QWidget):
         self.btn_lufs_analyze.setToolTip(
             "Integrierte Lautheit (LUFS), True Peak und Dynamik messen"
         )
+        self.btn_lufs_analyze.setAccessibleName("LUFS Loudness messen")
+        self.btn_lufs_analyze.setStatusTip("Integrierte Lautheit (LUFS), True Peak und Dynamikbereich messen")
         gl.addWidget(self.btn_lufs_analyze)
 
         self.btn_structure_detect = QPushButton("Struktur erkennen")
@@ -604,6 +651,8 @@ class MediaWorkspace(QWidget):
         self.btn_structure_detect.setToolTip(
             "Song-Struktur erkennen (Intro, Buildup, Drop, Breakdown, Outro)"
         )
+        self.btn_structure_detect.setAccessibleName("Song-Struktur erkennen")
+        self.btn_structure_detect.setStatusTip("Song-Struktur-Segmente erkennen: Intro, Buildup, Drop, Breakdown, Outro")
         gl.addWidget(self.btn_structure_detect)
         gl.addStretch()
         ll.addWidget(grp)
@@ -619,6 +668,8 @@ class MediaWorkspace(QWidget):
         self.btn_stem_separate.setToolTip(
             "Demucs: Vocals, Drums, Bass, Other trennen"
         )
+        self.btn_stem_separate.setAccessibleName("Stems trennen")
+        self.btn_stem_separate.setStatusTip("Audio-Stems per Demucs-KI trennen: Vocals, Drums, Bass, Other")
         gl.addWidget(self.btn_stem_separate)
 
         self.btn_auto_duck = QPushButton("Auto-Ducking")
@@ -628,6 +679,8 @@ class MediaWorkspace(QWidget):
         self.btn_auto_duck.setToolTip(
             "Musik bei Sprache automatisch absenken"
         )
+        self.btn_auto_duck.setAccessibleName("Auto-Ducking aktivieren")
+        self.btn_auto_duck.setStatusTip("Musik bei erkannter Sprache automatisch per Sidechain-Ducking absenken")
         gl.addWidget(self.btn_auto_duck)
 
         # Komplett-Analyse: Alle Schritte sequentiell
@@ -639,6 +692,8 @@ class MediaWorkspace(QWidget):
             "Startet alle Analysen nacheinander:\n"
             "BPM/Beats -> Wellenform -> Key -> LUFS -> Struktur -> Stems"
         )
+        self.btn_analyze_all.setAccessibleName("Komplett-Analyse starten")
+        self.btn_analyze_all.setStatusTip("Alle Audio-Analysen nacheinander starten: BPM, Wellenform, Key, LUFS, Struktur, Stems")
         gl.addWidget(self.btn_analyze_all)
         gl.addStretch()
         ll.addWidget(grp)

@@ -40,6 +40,8 @@ class TransportBar(QWidget):
         self._btn_stop = QPushButton("\u25A0")
         self._btn_stop.setFixedSize(36, 36)
         self._btn_stop.setToolTip("Stop")
+        self._btn_stop.setAccessibleName("Stems Stop")
+        self._btn_stop.setStatusTip("Stem-Wiedergabe stoppen und zum Anfang zurueckspringen")
         self._btn_stop.setStyleSheet(btn_style)
         self._btn_stop.clicked.connect(self.stop_requested)
         layout.addWidget(self._btn_stop)
@@ -48,6 +50,8 @@ class TransportBar(QWidget):
         self._btn_play = QPushButton("\u25B6")
         self._btn_play.setFixedSize(36, 36)
         self._btn_play.setToolTip("Play / Pause")
+        self._btn_play.setAccessibleName("Stems Play / Pause")
+        self._btn_play.setStatusTip("Stem-Wiedergabe starten oder pausieren")
         self._btn_play.setStyleSheet(btn_style)
         self._btn_play.clicked.connect(self._on_play_clicked)
         layout.addWidget(self._btn_play)
@@ -67,6 +71,8 @@ class TransportBar(QWidget):
         self._pos_slider.setRange(0, 10000)
         self._pos_slider.setValue(0)
         self._pos_slider.setToolTip("Position")
+        self._pos_slider.setAccessibleName("Wiedergabe-Position")
+        self._pos_slider.setStatusTip("Wiedergabe-Position in der Stem-Spur")
         self._pos_slider.setObjectName("stem_seek_slider")
         self._pos_slider.setStyleSheet(
             "QSlider::groove:horizontal { background: #252525; height: 6px; border-radius: 3px; }"
@@ -103,6 +109,8 @@ class TransportBar(QWidget):
         self._zoom_slider.setValue(10)
         self._zoom_slider.setFixedWidth(100)
         self._zoom_slider.setToolTip("Waveform Zoom")
+        self._zoom_slider.setAccessibleName("Waveform Zoom")
+        self._zoom_slider.setStatusTip("Zoomstufe der Stem-Wellenform anpassen (1.0x bis 50.0x)")
         self._zoom_slider.setStyleSheet(
             "QSlider::groove:horizontal { background: #252525; height: 4px; border-radius: 2px; }"
             "QSlider::handle:horizontal { background: #555555; width: 8px; height: 8px; "

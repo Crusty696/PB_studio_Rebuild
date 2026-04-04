@@ -64,6 +64,13 @@ class StemWorkspace(QWidget):
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self.setObjectName("stem_workspace")
+        self.setAccessibleName("STEMS Workspace")
+        self.setWhatsThis(
+            "Der STEMS Workspace zeigt die vier separierten Audio-Spuren (Vocals, Drums, Bass, Other) "
+            "als Wellenform-Bander an. Jede Spur kann individuell abgespielt, stummgeschaltet oder "
+            "solo gehort werden. Der Transport-Bereich unten steuert die globale Wiedergabe und "
+            "den Zoom der Wellenform-Ansicht."
+        )
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -100,6 +107,8 @@ class StemWorkspace(QWidget):
             "border-radius: 3px; font-size: 10px; padding: 2px 10px; }"
             "QPushButton:hover { color: #B0B0B0; border-color: #484848; }"
         )
+        btn_reset.setAccessibleName("Alle Stems zuruecksetzen")
+        btn_reset.setStatusTip("Alle Stem-Lautstaerke, Mute und Solo auf Standard zuruecksetzen")
         btn_reset.clicked.connect(self._reset_all)
         header_layout.addWidget(btn_reset)
 

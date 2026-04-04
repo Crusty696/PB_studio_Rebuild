@@ -41,6 +41,8 @@ class ConvertWorkspace(QWidget):
             "1920x1080 (1080p)", "2560x1440 (2K)", "3840x2160 (4K)", "1280x720 (720p)"
         ])
         self.convert_resolution.setToolTip("Ziel-Aufloesung fuer alle Videos")
+        self.convert_resolution.setAccessibleName("Ziel-Aufloesung")
+        self.convert_resolution.setStatusTip("Ziel-Aufloesung fuer die Video-Konvertierung waehlen")
         res_row.addWidget(self.convert_resolution)
         format_layout.addLayout(res_row)
 
@@ -49,6 +51,8 @@ class ConvertWorkspace(QWidget):
         self.convert_fps = QComboBox()
         self.convert_fps.addItems(["30 fps", "24 fps", "25 fps", "50 fps", "60 fps"])
         self.convert_fps.setToolTip("Ziel-Framerate fuer alle Videos")
+        self.convert_fps.setAccessibleName("Ziel-Framerate")
+        self.convert_fps.setStatusTip("Ziel-Framerate (Bilder pro Sekunde) fuer die Video-Konvertierung waehlen")
         fps_row.addWidget(self.convert_fps)
         format_layout.addLayout(fps_row)
 
@@ -59,6 +63,8 @@ class ConvertWorkspace(QWidget):
             "mp4 (H.264)", "mp4 (H.265/HEVC)", "mov (ProRes)", "mkv (H.264)"
         ])
         self.convert_format.setToolTip("Ziel-Containerformat")
+        self.convert_format.setAccessibleName("Ziel-Containerformat")
+        self.convert_format.setStatusTip("Ziel-Containerformat und Video-Codec fuer die Konvertierung waehlen")
         fmt_row.addWidget(self.convert_format)
         format_layout.addLayout(fmt_row)
         format_layout.addStretch()
@@ -75,6 +81,8 @@ class ConvertWorkspace(QWidget):
         self.btn_standardize_all.setToolTip(
             "Konvertiert alle Videos im Video Pool in das gewaehlte Standardformat"
         )
+        self.btn_standardize_all.setAccessibleName("Alle Videos standardisieren")
+        self.btn_standardize_all.setStatusTip("Alle Videos im Pool in das gewaehlte Ziel-Format konvertieren")
         action_layout.addWidget(self.btn_standardize_all)
 
         self.convert_progress = QProgressBar()
@@ -92,6 +100,8 @@ class ConvertWorkspace(QWidget):
 
         self.effects_clip_combo = QComboBox()
         self.effects_clip_combo.setToolTip("Timeline-Clip fuer Effekt-Bearbeitung waehlen")
+        self.effects_clip_combo.setAccessibleName("Clip fuer Effekte waehlen")
+        self.effects_clip_combo.setStatusTip("Timeline-Clip auswaehlen, auf den die Effekte angewendet werden")
         effects_layout.addWidget(self.effects_clip_combo)
 
         # Brightness
@@ -101,9 +111,12 @@ class ConvertWorkspace(QWidget):
         self.brightness_slider.setRange(-100, 100)
         self.brightness_slider.setValue(0)
         self.brightness_slider.setToolTip("Helligkeit (-1.0 bis +1.0)")
+        self.brightness_slider.setAccessibleName("Helligkeit")
+        self.brightness_slider.setStatusTip("Helligkeit des Clips anpassen (-1.0 bis +1.0)")
         br_row.addWidget(self.brightness_slider)
         self.brightness_label = QLabel("0")
         self.brightness_label.setFixedWidth(30)
+        self.brightness_label.setAccessibleName("Helligkeit Wert")
         br_row.addWidget(self.brightness_label)
         effects_layout.addLayout(br_row)
 
@@ -114,9 +127,12 @@ class ConvertWorkspace(QWidget):
         self.contrast_slider.setRange(0, 300)
         self.contrast_slider.setValue(100)
         self.contrast_slider.setToolTip("Kontrast (0.0 bis 3.0)")
+        self.contrast_slider.setAccessibleName("Kontrast")
+        self.contrast_slider.setStatusTip("Kontrast des Clips anpassen (0.0 bis 3.0, Standard: 1.0)")
         ct_row.addWidget(self.contrast_slider)
         self.contrast_label = QLabel("100")
         self.contrast_label.setFixedWidth(30)
+        self.contrast_label.setAccessibleName("Kontrast Wert")
         ct_row.addWidget(self.contrast_label)
         effects_layout.addLayout(ct_row)
 
@@ -127,9 +143,12 @@ class ConvertWorkspace(QWidget):
         self.crossfade_slider.setRange(0, 50)
         self.crossfade_slider.setValue(0)
         self.crossfade_slider.setToolTip("Crossfade-Dauer in Sekunden (0-5.0)")
+        self.crossfade_slider.setAccessibleName("Crossfade Dauer")
+        self.crossfade_slider.setStatusTip("Ueberblendungs-Dauer zwischen Clips (0 bis 5.0 Sekunden)")
         cf_row.addWidget(self.crossfade_slider)
         self.crossfade_label = QLabel("0.0s")
         self.crossfade_label.setFixedWidth(35)
+        self.crossfade_label.setAccessibleName("Crossfade Wert")
         cf_row.addWidget(self.crossfade_label)
         effects_layout.addLayout(cf_row)
 
@@ -139,6 +158,8 @@ class ConvertWorkspace(QWidget):
         self.btn_apply_effects.setFixedHeight(32)
         self.btn_apply_effects.setMaximumWidth(300)
         self.btn_apply_effects.setToolTip("Helligkeit/Kontrast/Crossfade auf den gewaehlten Clip anwenden")
+        self.btn_apply_effects.setAccessibleName("Effekte anwenden")
+        self.btn_apply_effects.setStatusTip("Helligkeit, Kontrast und Crossfade-Einstellungen auf den Clip anwenden")
         effects_layout.addWidget(self.btn_apply_effects)
 
         # Preview
@@ -192,3 +213,13 @@ class ConvertWorkspace(QWidget):
         top_splitter.setCollapsible(1, False)
 
         layout.addWidget(top_splitter)
+
+        # Tab order: format settings → actions → effects
+        self.setTabOrder(self.convert_resolution, self.convert_fps)
+        self.setTabOrder(self.convert_fps, self.convert_format)
+        self.setTabOrder(self.convert_format, self.btn_standardize_all)
+        self.setTabOrder(self.btn_standardize_all, self.effects_clip_combo)
+        self.setTabOrder(self.effects_clip_combo, self.brightness_slider)
+        self.setTabOrder(self.brightness_slider, self.contrast_slider)
+        self.setTabOrder(self.contrast_slider, self.crossfade_slider)
+        self.setTabOrder(self.crossfade_slider, self.btn_apply_effects)

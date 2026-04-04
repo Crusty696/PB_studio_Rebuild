@@ -10,7 +10,7 @@ Kapselt:
 """
 
 from PySide6.QtWidgets import (
-    QHBoxLayout, QLabel, QPushButton, QFrame, QSlider, QWidget,
+    QHBoxLayout, QLabel, QPushButton, QFrame, QWidget,
 )
 from PySide6.QtCore import Qt
 
@@ -34,6 +34,8 @@ class WorkspaceSetupMixin:
         btn_new_project.setObjectName("btn_secondary")
         btn_new_project.setFixedHeight(24)
         btn_new_project.setToolTip("Neues Projekt erstellen")
+        btn_new_project.setAccessibleName("Neues Projekt erstellen")
+        btn_new_project.setStatusTip("Ein neues PB Studio Projekt anlegen")
         btn_new_project.clicked.connect(self._new_project)
         top_layout.addWidget(btn_new_project)
 
@@ -41,6 +43,8 @@ class WorkspaceSetupMixin:
         btn_open_project.setObjectName("btn_secondary")
         btn_open_project.setFixedHeight(24)
         btn_open_project.setToolTip("Bestehendes Projekt oeffnen")
+        btn_open_project.setAccessibleName("Projekt oeffnen")
+        btn_open_project.setStatusTip("Ein bestehendes PB Studio Projekt oeffnen")
         btn_open_project.clicked.connect(self._open_project)
         top_layout.addWidget(btn_open_project)
 
@@ -48,6 +52,8 @@ class WorkspaceSetupMixin:
         btn_save_as.setObjectName("btn_secondary")
         btn_save_as.setFixedHeight(24)
         btn_save_as.setToolTip("Projekt unter neuem Namen speichern")
+        btn_save_as.setAccessibleName("Projekt speichern unter")
+        btn_save_as.setStatusTip("Aktuelles Projekt unter einem neuen Namen speichern")
         btn_save_as.clicked.connect(self._save_project_as)
         top_layout.addWidget(btn_save_as)
 
@@ -63,6 +69,8 @@ class WorkspaceSetupMixin:
         self._btn_toggle_tasks.setChecked(True)
         self._btn_toggle_tasks.setFixedHeight(24)
         self._btn_toggle_tasks.setToolTip("Hintergrund-Tasks ein/ausblenden")
+        self._btn_toggle_tasks.setAccessibleName("Task-Panel ein/ausblenden")
+        self._btn_toggle_tasks.setStatusTip("Hintergrund-Task-Liste ein- oder ausblenden")
         top_layout.addWidget(self._btn_toggle_tasks)
 
         self._btn_toggle_console = QPushButton("Konsole")
@@ -70,6 +78,8 @@ class WorkspaceSetupMixin:
         self._btn_toggle_console.setChecked(True)
         self._btn_toggle_console.setFixedHeight(24)
         self._btn_toggle_console.setToolTip("System-Konsole ein/ausblenden")
+        self._btn_toggle_console.setAccessibleName("Konsole ein/ausblenden")
+        self._btn_toggle_console.setStatusTip("System-Konsolen-Ausgabe ein- oder ausblenden")
         top_layout.addWidget(self._btn_toggle_console)
 
         self._btn_toggle_chat = QPushButton("KI Chat")
@@ -77,12 +87,16 @@ class WorkspaceSetupMixin:
         self._btn_toggle_chat.setChecked(False)
         self._btn_toggle_chat.setFixedHeight(24)
         self._btn_toggle_chat.setToolTip("KI-Chat Panel ein/ausblenden")
+        self._btn_toggle_chat.setAccessibleName("KI-Chat Panel ein/ausblenden")
+        self._btn_toggle_chat.setStatusTip("KI-Assistent Chat-Panel ein- oder ausblenden")
         top_layout.addWidget(self._btn_toggle_chat)
 
         btn_settings = QPushButton("⚙ Einstellungen")
         btn_settings.setMaximumWidth(120)
         btn_settings.setFixedHeight(28)
         btn_settings.setToolTip("LLM-Backend, Ollama-URL und weitere Einstellungen")
+        btn_settings.setAccessibleName("Einstellungen oeffnen")
+        btn_settings.setStatusTip("LLM-Backend, Ollama-URL und weitere Anwendungseinstellungen konfigurieren")
         btn_settings.clicked.connect(self._show_settings)
         top_layout.addWidget(btn_settings)
 
@@ -90,6 +104,8 @@ class WorkspaceSetupMixin:
         btn_about.setMaximumWidth(80)
         btn_about.setFixedHeight(28)
         btn_about.setToolTip("Informationen ueber PB_studio anzeigen (Version, Technologie, Credits)")
+        btn_about.setAccessibleName("Ueber PB Studio")
+        btn_about.setStatusTip("Version, Technologie-Stack und Credits von PB Studio anzeigen")
         btn_about.clicked.connect(self._show_about)
         top_layout.addWidget(btn_about)
 

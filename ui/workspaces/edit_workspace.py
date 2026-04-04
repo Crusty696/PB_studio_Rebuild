@@ -59,17 +59,22 @@ class EditWorkspace(QWidget):
         self.btn_preview_play.setFixedSize(36, 36)
         self.btn_preview_play.setIconSize(QSize(24, 24))
         self.btn_preview_play.setToolTip("Play / Pause")
+        self.btn_preview_play.setAccessibleName("Vorschau Play / Pause")
+        self.btn_preview_play.setStatusTip("Video-Vorschau abspielen oder pausieren")
         transport_row.addWidget(self.btn_preview_play)
 
         self.btn_preview_stop = QPushButton("\u25A0")
         self.btn_preview_stop.setFixedSize(36, 36)
         self.btn_preview_stop.setIconSize(QSize(24, 24))
         self.btn_preview_stop.setToolTip("Stop")
+        self.btn_preview_stop.setAccessibleName("Vorschau Stop")
+        self.btn_preview_stop.setStatusTip("Video-Vorschau stoppen und zum Anfang zurueckspringen")
         # NOTE: btn_preview_stop is connected in main.py (PBWindow._wire_signals)
         transport_row.addWidget(self.btn_preview_stop)
 
         self.preview_time_label = QLabel("00:00 / 00:00")
         self.preview_time_label.setStyleSheet("color: #6b7280; font-size: 10px;")
+        self.preview_time_label.setAccessibleName("Vorschau Zeitanzeige")
         transport_row.addWidget(self.preview_time_label)
         transport_row.addStretch()
 
@@ -77,6 +82,8 @@ class EditWorkspace(QWidget):
         self.btn_toggle_inspector.setFixedSize(36, 36)
         self.btn_toggle_inspector.setIconSize(QSize(24, 24))
         self.btn_toggle_inspector.setToolTip("Inspector Panel ein-/ausklappen")
+        self.btn_toggle_inspector.setAccessibleName("Inspector Panel ein-/ausklappen")
+        self.btn_toggle_inspector.setStatusTip("Inspector-Panel mit Pacing-Einstellungen ein- oder ausklappen")
         transport_row.addWidget(self.btn_toggle_inspector)
 
         preview_layout.addLayout(transport_row)
@@ -114,15 +121,21 @@ class EditWorkspace(QWidget):
 
         self.audio_combo = QComboBox()
         self.audio_combo.setToolTip("Audio-Track fuer BPM-Pacing")
+        self.audio_combo.setAccessibleName("Audio-Track Auswahl")
+        self.audio_combo.setStatusTip("Audio-Track fuer die BPM-Analyse und das Pacing-Timing waehlen")
         insp.addWidget(self.audio_combo)
 
         self.video_combo = QComboBox()
         self.video_combo.setToolTip("Video-Clip fuer Vorschau")
+        self.video_combo.setAccessibleName("Video-Clip Auswahl")
+        self.video_combo.setStatusTip("Video-Clip fuer die Vorschau und den Auto-Edit waehlen")
         insp.addWidget(self.video_combo)
 
         self.vibe_input = QLineEdit()
         self.vibe_input.setPlaceholderText("Stimmung / Vibe...")
         self.vibe_input.setToolTip("Freitext: energetisch, melancholisch, aggressiv...")
+        self.vibe_input.setAccessibleName("Vibe Eingabe")
+        self.vibe_input.setStatusTip("Freitext-Beschreibung der gewuenschten Stimmung fuer den KI-gesteuerten Edit")
         insp.addWidget(self.vibe_input)
 
         self._add_separator(insp)
@@ -144,6 +157,8 @@ class EditWorkspace(QWidget):
         self.cut_rate_combo.addItems(["1 Beat", "2 Beat", "4 Beat", "8 Beat", "16 Beat"])
         self.cut_rate_combo.setCurrentIndex(2)
         self.cut_rate_combo.setToolTip("Basis-Schnittrate")
+        self.cut_rate_combo.setAccessibleName("Cut Rate")
+        self.cut_rate_combo.setStatusTip("Basis-Schnittrate: Alle N Beats wird ein Schnitt gesetzt")
         self.cut_rate_combo.setFixedHeight(22)
         cut_rate_row.addWidget(self.cut_rate_combo, stretch=1)
         insp.addLayout(cut_rate_row)
@@ -160,6 +175,13 @@ class EditWorkspace(QWidget):
         self.energy_reactivity_slider.setRange(0, 100)
         self.energy_reactivity_slider.setValue(50)
         self.energy_reactivity_slider.setFixedHeight(16)
+        self.energy_reactivity_slider.setAccessibleName("Energy Reaktivitaet")
+        self.energy_reactivity_slider.setStatusTip("Energy Reactivity: Erhoeht die Schnittrate bei hohem Audio-Pegel (0-100%)")
+        self.energy_reactivity_slider.setWhatsThis(
+            "Steuert wie stark die Schnittrate auf die Energie des Audio-Signals reagiert. "
+            "Hohe Werte: bei lauten Passagen schnellere Schnitte. "
+            "Niedrige Werte: gleichmaessige Schnittrate unabhaengig von der Energie."
+        )
         energy_row.addWidget(self.energy_reactivity_slider, stretch=1)
         self.energy_reactivity_spin = QSpinBox()
         self.energy_reactivity_spin.setRange(0, 100)
@@ -167,6 +189,7 @@ class EditWorkspace(QWidget):
         self.energy_reactivity_spin.setSuffix("%")
         self.energy_reactivity_spin.setFixedWidth(52)
         self.energy_reactivity_spin.setFixedHeight(20)
+        self.energy_reactivity_spin.setAccessibleName("Energy Reaktivitaet Wert")
         self.energy_reactivity_spin.setStyleSheet("font-size: 10px;")
         self.energy_reactivity_slider.valueChanged.connect(self.energy_reactivity_spin.setValue)
         self.energy_reactivity_spin.valueChanged.connect(self.energy_reactivity_slider.setValue)
@@ -188,6 +211,8 @@ class EditWorkspace(QWidget):
         ])
         self.style_preset_combo.setCurrentIndex(0)
         self.style_preset_combo.setToolTip("Genre-Preset fuer automatische Pacing-Anpassung")
+        self.style_preset_combo.setAccessibleName("Style Preset")
+        self.style_preset_combo.setStatusTip("Genre-basiertes Schnitt-Preset waehlen (z.B. Techno, House, Cinematic)")
         self.style_preset_combo.setFixedHeight(22)
         style_row.addWidget(self.style_preset_combo, stretch=1)
         insp.addLayout(style_row)
@@ -208,6 +233,8 @@ class EditWorkspace(QWidget):
             "16-Beat: Erzwingt 16-Beat Intervalle\n"
             "Keine Cuts: Keine Schnitte bei Breakdowns"
         )
+        self.breakdown_combo.setAccessibleName("Breakdown Verhalten")
+        self.breakdown_combo.setStatusTip("Verhalten bei niedrigem Audio-Pegel (Breakdowns/Intros) waehlen")
         self.breakdown_combo.setFixedHeight(22)
         bd_row.addWidget(self.breakdown_combo, stretch=1)
         insp.addLayout(bd_row)
@@ -225,6 +252,8 @@ class EditWorkspace(QWidget):
         self.btn_generate.setFixedHeight(35)
         self.btn_generate.setMaximumWidth(300)
         self.btn_generate.setToolTip("Berechnet Schnittpunkte (BPM + Pacing-Kurve)")
+        self.btn_generate.setAccessibleName("Timeline generieren")
+        self.btn_generate.setStatusTip("Berechnet Schnittpunkte basierend auf BPM und Pacing-Kurve")
         insp.addWidget(self.btn_generate)
 
         self.btn_auto_edit = QPushButton("Auto-Edit")
@@ -232,6 +261,8 @@ class EditWorkspace(QWidget):
         self.btn_auto_edit.setFixedHeight(35)
         self.btn_auto_edit.setMaximumWidth(300)
         self.btn_auto_edit.setToolTip("Phase 3: DJ-Pacing + OTIO Timeline + Anker + VectorDB Matching")
+        self.btn_auto_edit.setAccessibleName("Auto-Edit starten")
+        self.btn_auto_edit.setStatusTip("Vollstaendiger automatischer Edit: DJ-Pacing, OTIO-Timeline, Anker und KI-Clip-Matching")
         insp.addWidget(self.btn_auto_edit)
 
         self._add_separator(insp)
@@ -245,6 +276,13 @@ class EditWorkspace(QWidget):
         self.anchor_list.setHeaderLabels(["Zeit", "Video/Szene", "Label"])
         self.anchor_list.setMaximumHeight(100)
         self.anchor_list.setToolTip("Audio-Anker: Feste Clip-Positionen fuer den Auto-Edit")
+        self.anchor_list.setAccessibleName("Anker Liste")
+        self.anchor_list.setWhatsThis(
+            "Die Ankerliste zeigt alle fest fixierten Clip-Positionen auf der Timeline. "
+            "Anker werden beim Auto-Edit beruecksichtigt und erzwingen bestimmte Clips "
+            "zu bestimmten Zeitpunkten in der Musik. "
+            "Anker koennen per Rechtsklick auf der Timeline gesetzt werden."
+        )
         insp.addWidget(self.anchor_list)
 
         anchor_btn_row = QHBoxLayout()
@@ -253,18 +291,24 @@ class EditWorkspace(QWidget):
         self.btn_add_anchor.setFixedHeight(28)
         self.btn_add_anchor.setMaximumWidth(80)
         self.btn_add_anchor.setToolTip("Neuen Anker hinzufuegen")
+        self.btn_add_anchor.setAccessibleName("Anker hinzufuegen")
+        self.btn_add_anchor.setStatusTip("Neuen Audio-Anker an der aktuellen Position setzen")
         anchor_btn_row.addWidget(self.btn_add_anchor)
 
         self.btn_remove_anchor = QPushButton("- Anker")
         self.btn_remove_anchor.setFixedHeight(28)
         self.btn_remove_anchor.setMaximumWidth(80)
         self.btn_remove_anchor.setToolTip("Ausgewaehlten Anker entfernen")
+        self.btn_remove_anchor.setAccessibleName("Anker entfernen")
+        self.btn_remove_anchor.setStatusTip("Den in der Liste ausgewaehlten Anker loeschen")
         anchor_btn_row.addWidget(self.btn_remove_anchor)
 
         self.btn_sync_anchors = QPushButton("Sync")
         self.btn_sync_anchors.setFixedHeight(28)
         self.btn_sync_anchors.setMaximumWidth(60)
         self.btn_sync_anchors.setToolTip("Anker synchronisieren")
+        self.btn_sync_anchors.setAccessibleName("Anker synchronisieren")
+        self.btn_sync_anchors.setStatusTip("Anker-Positionen mit der aktuellen Timeline synchronisieren")
         anchor_btn_row.addWidget(self.btn_sync_anchors)
         anchor_btn_row.addStretch()
         insp.addLayout(anchor_btn_row)
@@ -278,6 +322,8 @@ class EditWorkspace(QWidget):
             "Speichert den ausgewaehlten Anker als KI-Lernregel.\n"
             "Der Auto-Edit beruecksichtigt diese Entscheidung bei aehnlichem Audio-Kontext."
         )
+        self.btn_learn_ai.setAccessibleName("Als KI-Lernregel speichern")
+        self.btn_learn_ai.setStatusTip("Speichert den Anker als KI-Lernregel fuer aehnliche Audio-Situationen")
         insp.addWidget(self.btn_learn_ai)
 
         # RL Feedback Buttons
@@ -288,6 +334,8 @@ class EditWorkspace(QWidget):
         self.btn_thumbs_up.setFixedHeight(32)
         self.btn_thumbs_up.setFixedWidth(48)
         self.btn_thumbs_up.setToolTip("Positives Feedback: Gute Edit-Entscheidung")
+        self.btn_thumbs_up.setAccessibleName("Positives Feedback")
+        self.btn_thumbs_up.setStatusTip("Positives Feedback: Diese Edit-Entscheidung war gut")
         rl_row.addWidget(self.btn_thumbs_up)
 
         self.btn_thumbs_down = QPushButton("\U0001f44e")
@@ -295,6 +343,8 @@ class EditWorkspace(QWidget):
         self.btn_thumbs_down.setFixedHeight(32)
         self.btn_thumbs_down.setFixedWidth(48)
         self.btn_thumbs_down.setToolTip("Negatives Feedback: Schlechte Edit-Entscheidung")
+        self.btn_thumbs_down.setAccessibleName("Negatives Feedback")
+        self.btn_thumbs_down.setStatusTip("Negatives Feedback: Diese Edit-Entscheidung war schlecht")
         rl_row.addWidget(self.btn_thumbs_down)
         rl_row.addStretch()
         insp.addLayout(rl_row)
@@ -311,6 +361,8 @@ class EditWorkspace(QWidget):
         self.btn_keyframe_string.setFixedHeight(35)
         self.btn_keyframe_string.setMaximumWidth(300)
         self.btn_keyframe_string.setToolTip("Generiert Text-String aller Video-Szenen mit Motion-Werten")
+        self.btn_keyframe_string.setAccessibleName("Keyframe-String generieren")
+        self.btn_keyframe_string.setStatusTip("Erzeugt einen Text-String mit allen Video-Szenen und Motion-Werten fuer KI-Verarbeitung")
         insp.addWidget(self.btn_keyframe_string)
 
         self.keyframe_text = QTextEdit()
@@ -347,11 +399,20 @@ class EditWorkspace(QWidget):
         btn_reset.setFixedHeight(24)
         btn_reset.setFixedWidth(52)
         btn_reset.setToolTip("Pacing-Kurve zuruecksetzen auf 50%")
+        btn_reset.setAccessibleName("Pacing-Kurve zuruecksetzen")
+        btn_reset.setStatusTip("Setzt die manuelle Pacing-Kurve auf den Ausgangswert (50%) zurueck")
         curve_hdr.addWidget(btn_reset)
         curve_hdr.addStretch()
         bottom_layout.addLayout(curve_hdr)
 
         self.pacing_curve = PacingCurveWidget()
+        self.pacing_curve.setAccessibleName("Manuelle Pacing-Kurve")
+        self.pacing_curve.setWhatsThis(
+            "Die manuelle Pacing-Kurve erlaubt es, die Schnittgeschwindigkeit ueber die "
+            "Zeitachse manuell zu steuern. Ziehe die Kurve nach oben fuer schnellere Schnitte "
+            "und nach unten fuer langsamere Schnitte. Diese Kurve ueberlagert das automatische "
+            "Energy-Reaktivitaets-Pacing."
+        )
         btn_reset.clicked.connect(self.pacing_curve.reset_curve)
         bottom_layout.addWidget(self.pacing_curve)
 
@@ -360,6 +421,13 @@ class EditWorkspace(QWidget):
         timeline_row.setSpacing(4)
         self.timeline_view = InteractiveTimeline()
         self.timeline_view.setToolTip("Timeline: Drag & Drop, Mausrad zum Zoomen, Rubber-Band Selection")
+        self.timeline_view.setAccessibleName("Edit Timeline")
+        self.timeline_view.setWhatsThis(
+            "Die Edit-Timeline zeigt alle Audio- und Video-Clips in zeitlicher Reihenfolge. "
+            "Clips koennen per Drag & Drop aus dem Media-Pool eingefuegt werden. "
+            "Mausrad: Zoomen. Linke Maustaste: Clips verschieben und Grenzen ziehen. "
+            "Rechtsklick auf Clip: Anker setzen. Rubber-Band: Mehrfachauswahl."
+        )
         timeline_row.addWidget(self.timeline_view, stretch=1)
 
         self.clip_inspector = ClipInspectorPanel()
@@ -381,3 +449,21 @@ class EditWorkspace(QWidget):
         main_splitter.setCollapsible(1, False)
 
         layout.addWidget(main_splitter)
+
+        # Tab order: logical navigation through inspector controls
+        self.setTabOrder(self.audio_combo, self.video_combo)
+        self.setTabOrder(self.video_combo, self.vibe_input)
+        self.setTabOrder(self.vibe_input, self.cut_rate_combo)
+        self.setTabOrder(self.cut_rate_combo, self.energy_reactivity_slider)
+        self.setTabOrder(self.energy_reactivity_slider, self.energy_reactivity_spin)
+        self.setTabOrder(self.energy_reactivity_spin, self.style_preset_combo)
+        self.setTabOrder(self.style_preset_combo, self.breakdown_combo)
+        self.setTabOrder(self.breakdown_combo, self.btn_generate)
+        self.setTabOrder(self.btn_generate, self.btn_auto_edit)
+        self.setTabOrder(self.btn_auto_edit, self.anchor_list)
+        self.setTabOrder(self.anchor_list, self.btn_add_anchor)
+        self.setTabOrder(self.btn_add_anchor, self.btn_remove_anchor)
+        self.setTabOrder(self.btn_remove_anchor, self.btn_sync_anchors)
+        self.setTabOrder(self.btn_sync_anchors, self.btn_learn_ai)
+        self.setTabOrder(self.btn_learn_ai, self.btn_thumbs_up)
+        self.setTabOrder(self.btn_thumbs_up, self.btn_thumbs_down)

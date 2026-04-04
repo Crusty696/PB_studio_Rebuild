@@ -62,6 +62,21 @@ class WorkspaceNavBar(QWidget):
             "DELIVER: Finales Video exportieren und rendern",
         ]
 
+        accessible_names = [
+            "MEDIA Workspace",
+            "EDIT Workspace",
+            "STEMS Workspace",
+            "CONVERT Workspace",
+            "DELIVER Workspace",
+        ]
+        status_tips = [
+            "MEDIA: Dateien importieren, verwalten und analysieren",
+            "EDIT: Timeline bearbeiten, Clips schneiden, KI-Pacing",
+            "STEMS: DAW-Ansicht mit 4 Stem-Wellenformen",
+            "CONVERT: Videos standardisieren (Aufloesung, FPS, Format)",
+            "DELIVER: Finales Video exportieren und rendern",
+        ]
+
         for i, name in enumerate(self.WORKSPACE_NAMES):
             btn = QPushButton(name)
             btn.setObjectName("workspace_btn")
@@ -69,6 +84,8 @@ class WorkspaceNavBar(QWidget):
             btn.setFixedHeight(36)
             btn.setMinimumWidth(90)
             btn.setToolTip(tooltips[i])
+            btn.setAccessibleName(accessible_names[i])
+            btn.setStatusTip(status_tips[i])
             btn.clicked.connect(lambda checked, idx=i: self._on_click(idx))
             layout.addWidget(btn)
             self._buttons.append(btn)

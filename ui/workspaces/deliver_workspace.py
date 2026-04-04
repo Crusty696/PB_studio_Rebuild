@@ -3,7 +3,6 @@
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel,
     QLineEdit, QComboBox, QPushButton, QProgressBar, QTextEdit,
-    QSplitter,
 )
 from PySide6.QtCore import Qt
 
@@ -45,6 +44,8 @@ class DeliverWorkspace(QWidget):
         settings_layout.addWidget(name_label)
         self.export_name_input = QLineEdit("output.mp4")
         self.export_name_input.setToolTip("Gib den gewuenschten Dateinamen fuer das exportierte Video ein")
+        self.export_name_input.setAccessibleName("Export Dateiname")
+        self.export_name_input.setStatusTip("Dateiname fuer das exportierte Video eingeben (z.B. output.mp4)")
         settings_layout.addWidget(self.export_name_input)
 
         res_label = QLabel("Aufloesung:")
@@ -52,6 +53,8 @@ class DeliverWorkspace(QWidget):
         self.resolution_combo = QComboBox()
         self.resolution_combo.addItems(["1920x1080", "1280x720", "854x480", "3840x2160"])
         self.resolution_combo.setToolTip("Waehle die Video-Aufloesung")
+        self.resolution_combo.setAccessibleName("Export Aufloesung")
+        self.resolution_combo.setStatusTip("Aufloesung des exportierten Videos waehlen")
         settings_layout.addWidget(self.resolution_combo)
 
         fps_label = QLabel("FPS:")
@@ -59,6 +62,8 @@ class DeliverWorkspace(QWidget):
         self.fps_combo = QComboBox()
         self.fps_combo.addItems(["30", "24", "25", "60"])
         self.fps_combo.setToolTip("Waehle die Bildrate")
+        self.fps_combo.setAccessibleName("Export Bildrate")
+        self.fps_combo.setStatusTip("Bildrate (FPS) des exportierten Videos waehlen")
         settings_layout.addWidget(self.fps_combo)
 
         preset_label = QLabel("Preset:")
@@ -71,6 +76,8 @@ class DeliverWorkspace(QWidget):
             "- Hohe Qualitaet: Beste Qualitaet, langsamer\n"
             "- Draft: Schnelle Vorschau, niedrigere Qualitaet"
         )
+        self.preset_combo.setAccessibleName("Export Preset")
+        self.preset_combo.setStatusTip("Qualitaets-Preset fuer den Video-Export waehlen")
         settings_layout.addWidget(self.preset_combo)
 
         settings_layout.addStretch()
@@ -101,6 +108,8 @@ class DeliverWorkspace(QWidget):
             "Rendert eine Vorschau der ersten 10 Sekunden der Timeline "
             "und spielt sie im Preview-Widget ab"
         )
+        self.btn_preview.setAccessibleName("Quick-Preview rendern")
+        self.btn_preview.setStatusTip("Rendert eine 10-Sekunden-Vorschau der Timeline mit FFmpeg")
         export_row.addWidget(self.btn_preview)
 
         self.btn_export = QPushButton("Video exportieren")
@@ -108,12 +117,16 @@ class DeliverWorkspace(QWidget):
         self.btn_export.setFixedHeight(35)
         self.btn_export.setMaximumWidth(300)
         self.btn_export.setToolTip("Finales Video mit FFmpeg rendern")
+        self.btn_export.setAccessibleName("Finales Video exportieren")
+        self.btn_export.setStatusTip("Startet den finalen Video-Export mit den gewaehlten Einstellungen")
         export_row.addWidget(self.btn_export)
 
         self.btn_refresh_production = QPushButton("Aktualisieren")
         self.btn_refresh_production.setFixedHeight(35)
         self.btn_refresh_production.setMaximumWidth(300)
         self.btn_refresh_production.setToolTip("Timeline-Status aktualisieren")
+        self.btn_refresh_production.setAccessibleName("Timeline-Status aktualisieren")
+        self.btn_refresh_production.setStatusTip("Timeline-Status und Clip-Anzahl neu laden")
         export_row.addWidget(self.btn_refresh_production)
 
         export_row.addStretch()
@@ -150,6 +163,8 @@ class DeliverWorkspace(QWidget):
         self.btn_preview_play.setMaximumWidth(80)
         self.btn_preview_play.setEnabled(False)
         self.btn_preview_play.setToolTip("Preview abspielen / pausieren")
+        self.btn_preview_play.setAccessibleName("Vorschau abspielen")
+        self.btn_preview_play.setStatusTip("Export-Vorschau abspielen oder pausieren")
         preview_controls.addWidget(self.btn_preview_play)
 
         self.btn_preview_stop = QPushButton("Stop")
@@ -157,6 +172,8 @@ class DeliverWorkspace(QWidget):
         self.btn_preview_stop.setMaximumWidth(80)
         self.btn_preview_stop.setEnabled(False)
         self.btn_preview_stop.setToolTip("Preview-Wiedergabe stoppen")
+        self.btn_preview_stop.setAccessibleName("Vorschau stoppen")
+        self.btn_preview_stop.setStatusTip("Export-Vorschau stoppen")
         preview_controls.addWidget(self.btn_preview_stop)
 
         self.preview_time_label = QLabel("0:00 / 0:00")
@@ -175,4 +192,15 @@ class DeliverWorkspace(QWidget):
         self.export_log = QTextEdit()
         self.export_log.setReadOnly(True)
         self.export_log.setToolTip("Protokoll des Export-Vorgangs")
+        self.export_log.setAccessibleName("Export Protokoll")
         layout.addWidget(self.export_log, stretch=1)
+
+        # Tab order: settings → export controls → preview controls
+        self.setTabOrder(self.export_name_input, self.resolution_combo)
+        self.setTabOrder(self.resolution_combo, self.fps_combo)
+        self.setTabOrder(self.fps_combo, self.preset_combo)
+        self.setTabOrder(self.preset_combo, self.btn_refresh_production)
+        self.setTabOrder(self.btn_refresh_production, self.btn_preview)
+        self.setTabOrder(self.btn_preview, self.btn_export)
+        self.setTabOrder(self.btn_export, self.btn_preview_play)
+        self.setTabOrder(self.btn_preview_play, self.btn_preview_stop)
