@@ -30,7 +30,7 @@ class DummyProgressWorker(QObject, CancellableMixin):
                 _t.sleep(self.interval_s)
             self.finished.emit(self.steps, self.steps)
             _ok = True
-        except Exception as e:
+        except Exception as e:  # broad catch intentional — top-level worker safety net
             self._errored = True
             self.error.emit(str(e))
         finally:

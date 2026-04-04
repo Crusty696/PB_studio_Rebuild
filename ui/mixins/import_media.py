@@ -1,5 +1,6 @@
 """Import-Media Mixin fuer PBWindow."""
 
+import logging
 import os
 from pathlib import Path
 
@@ -10,6 +11,8 @@ from services.ingest_service import (
     delete_all_media, delete_selected_media, AUDIO_EXTENSIONS, VIDEO_EXTENSIONS,
 )
 from workers import FolderImportWorker
+
+logger = logging.getLogger(__name__)
 
 
 class ImportMediaMixin:
@@ -127,8 +130,8 @@ class ImportMediaMixin:
                 if chk and id_item and chk.checkState() == Qt.CheckState.Checked:
                     try:
                         video_ids.append(int(id_item.text()))
-                    except ValueError:
-                        pass
+                    except ValueError as exc:
+                        logger.warning("_delete_selected_media: failed to parse video ID: %s", exc)
 
         if pool in ("audio", "both"):
             for row in range(self.audio_pool_table.rowCount()):
@@ -137,8 +140,8 @@ class ImportMediaMixin:
                 if chk and id_item and chk.checkState() == Qt.CheckState.Checked:
                     try:
                         audio_ids.append(int(id_item.text()))
-                    except ValueError:
-                        pass
+                    except ValueError as exc:
+                        logger.warning("_delete_selected_media: failed to parse audio ID: %s", exc)
 
         total = len(video_ids) + len(audio_ids)
         if total == 0:

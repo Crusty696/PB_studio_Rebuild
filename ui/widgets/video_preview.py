@@ -1,5 +1,6 @@
 """Video frame preview widget with timer-based playback."""
 
+import logging
 from pathlib import Path
 
 from PySide6.QtWidgets import QLabel
@@ -7,6 +8,8 @@ from PySide6.QtCore import Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QPixmap, QImage
 
 from workers.video import FrameExtractWorker
+
+logger = logging.getLogger(__name__)
 
 
 class VideoPreviewWidget(QLabel):
@@ -100,8 +103,8 @@ class VideoPreviewWidget(QLabel):
                 old_worker.frame_ready.disconnect(self._on_frame_ready)
                 old_worker.error.disconnect(self._on_frame_error)
                 old_thread.finished.disconnect(self._on_frame_thread_finished)
-            except (RuntimeError, TypeError):
-                pass
+            except (RuntimeError, TypeError) as exc:
+                logger.warning("VideoPreviewWidget.load: failed to disconnect old worker signals: %s", exc)
             old_thread.quit()
             old_thread.wait(500)
             if old_worker is not None:

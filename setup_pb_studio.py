@@ -11,12 +11,15 @@ Flags:
   --repair    Nur fehlende Packages nachinstallieren (kein venv-Neuaufbau)
 """
 
+import logging
 import os
 import sys
 import subprocess
 import shutil
 import time as _time
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 # -- Konfiguration ----------------------------------------------------------
 PROJECT_DIR = Path(__file__).parent.resolve()
@@ -134,8 +137,8 @@ def find_python311() -> Path | None:
             )
             if result2.returncode == 0:
                 return Path(result2.stdout.strip())
-    except FileNotFoundError:
-        pass
+    except FileNotFoundError as exc:
+        logger.warning("py launcher not found, skipping: %s", exc)
 
     # 3. PATH durchsuchen
     for name in ["python3.11", "python3", "python"]:
@@ -164,8 +167,8 @@ def check_nvidia() -> bool:
             gpu_info = result.stdout.strip()
             print(f"  [OK] NVIDIA GPU erkannt: {gpu_info}")
             return True
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        pass
+    except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
+        logger.warning("nvidia-smi check failed: %s", exc)
     print("  [WARN] Kein NVIDIA-Treiber gefunden - CUDA wird nicht verfuegbar sein!")
     return False
 

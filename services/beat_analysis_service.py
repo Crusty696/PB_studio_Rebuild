@@ -82,7 +82,7 @@ class BeatAnalysisService:
             # ModelManager entladen bevor beat_this GPU-Speicher beansprucht
             try:
                 ModelManager().unload()
-            except Exception as e:
+            except (RuntimeError, AttributeError) as e:
                 logger.warning("ModelManager.unload() vor beat_this fehlgeschlagen: %s", e)
             from beat_this.inference import File2Beats
             import torch, gc
@@ -108,7 +108,7 @@ class BeatAnalysisService:
             if hasattr(self._model, 'cpu'):
                 try:
                     self._model.cpu()
-                except Exception as e:
+                except (RuntimeError, AttributeError) as e:
                     logger.warning("model.cpu() VRAM-Freigabe fehlgeschlagen: %s", e)
             del self._model
             self._model = None
@@ -146,7 +146,7 @@ class BeatAnalysisService:
         # Dauer bestimmen
         try:
             duration = librosa.get_duration(path=audio_path)
-        except Exception as e:
+        except (OSError, IOError, ValueError) as e:
             raise RuntimeError(f"Audio-Dauer konnte nicht ermittelt werden: {e}") from e
         # Edge Case: Dateien <0.5s werden abgelehnt. Dateien 0.5s-2s werden verarbeitet,
         # koennen aber 0-1 Beats liefern. energy_per_beat wird dann [] (leer).

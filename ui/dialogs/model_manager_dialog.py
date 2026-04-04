@@ -576,8 +576,8 @@ class ModelManagerDialog(QDialog):
                     self._ollama_status_lbl.setText(f"Ollama v{version} ✓")
                     self._ollama_status_lbl.setStyleSheet(f"color: {OK}; font-size: 11px;")
                     return
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("_check_ollama_status: failed to reach Ollama: %s", exc)
         self._ollama_status_lbl.setText("Ollama: nicht erreichbar ✗")
         self._ollama_status_lbl.setStyleSheet(f"color: {ERR}; font-size: 11px;")
 

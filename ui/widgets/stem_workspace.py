@@ -256,12 +256,12 @@ class StemWorkspace(QWidget):
         with self._peak_lock:
             try:
                 self._peak_threads.remove(thread)
-            except ValueError:
-                pass
+            except ValueError as exc:
+                logger.warning("_remove_finished_thread: thread not in list: %s", exc)
             try:
                 self._peak_workers.remove(worker)
-            except ValueError:
-                pass
+            except ValueError as exc:
+                logger.warning("_remove_finished_thread: worker not in list: %s", exc)
 
     def _on_peaks_ready(self, stem_name: str, peaks: np.ndarray):
         """Callback wenn Peak-Daten fertig sind."""
@@ -295,8 +295,8 @@ class StemWorkspace(QWidget):
                 with self._peak_lock:
                     try:
                         self._peak_workers.remove(worker)
-                    except ValueError:
-                        pass
+                    except ValueError as exc:
+                        logger.warning("_cleanup_peak_threads: worker not in list: %s", exc)
         for thread in threads_to_quit:
             try:
                 if thread.isRunning():
@@ -306,8 +306,8 @@ class StemWorkspace(QWidget):
                 with self._peak_lock:
                     try:
                         self._peak_threads.remove(thread)
-                    except ValueError:
-                        pass
+                    except ValueError as exc:
+                        logger.warning("_cleanup_peak_threads: thread not in list: %s", exc)
 
     def _on_mute_toggled(self, stem_name: str, muted: bool):
         """Mute-Signal weiterleiten."""
@@ -400,8 +400,8 @@ class StemWorkspace(QWidget):
             self.pause_requested.disconnect()
             self.stop_requested.disconnect()
             self.seek_requested.disconnect()
-        except (TypeError, RuntimeError):
-            pass
+        except (TypeError, RuntimeError) as exc:
+            logger.warning("StemWorkspace.closeEvent: failed to disconnect signals: %s", exc)
 
         # Cleanup Peak Worker threads
         try:
@@ -409,7 +409,7 @@ class StemWorkspace(QWidget):
                 for thread in self._peak_threads:
                     thread.quit()
                     thread.wait(1000)
-        except (TypeError, RuntimeError):
-            pass
+        except (TypeError, RuntimeError) as exc:
+            logger.warning("StemWorkspace.closeEvent: failed to cleanup peak threads: %s", exc)
 
         super().closeEvent(event)

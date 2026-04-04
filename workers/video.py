@@ -41,7 +41,7 @@ class VideoAnalysisWorker(QObject, CancellableMixin):
             self.progress.emit(100, f"Analyse fertig: {self.title}")
             self.finished.emit(self.clip_id, result)
             _ok = True
-        except Exception as e:
+        except Exception as e:  # broad catch intentional — top-level worker safety net
             logging.error("VideoAnalysisWorker[%s] crashed: %s\n%s",
                           self.clip_id, e, traceback.format_exc())
             self._errored = True
@@ -52,8 +52,8 @@ class VideoAnalysisWorker(QObject, CancellableMixin):
                 import torch
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
-            except ImportError:
-                pass
+            except ImportError as e:
+                logger.warning("torch not available for VRAM cleanup after video analysis: %s", e)
             gc.collect()
             if not _ok and not self._errored:
                 self.finished.emit(self.clip_id, {})
@@ -100,7 +100,7 @@ class VideoBatchAnalysisWorker(QObject, CancellableMixin):
                     else:
                         info = "OK"
                     self.item_done.emit(clip_id, info)
-                except Exception as e:
+                except (ValueError, RuntimeError, OSError) as e:
                     errors += 1
                     logger.error("BatchAnalysis[%d] '%s' failed: %s\n%s",
                                  clip_id, title, e, traceback.format_exc())
@@ -111,7 +111,7 @@ class VideoBatchAnalysisWorker(QObject, CancellableMixin):
             self.progress.emit(100, f"Batch fertig: {done}/{total}")
             self.finished.emit(done, errors)
             _ok = True
-        except Exception as e:
+        except Exception as e:  # broad catch intentional — top-level worker safety net
             logger.error("VideoBatchAnalysisWorker crashed: %s\n%s", e, traceback.format_exc())
             self._errored = True
             self.error.emit(format_user_error(e))
@@ -215,7 +215,7 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                         logger.info("[BATCH] Lade SigLIP einmalig fuer %d Videos...", total_videos)
                         siglip_model_processor = mm.load_siglip()
                         logger.info("[BATCH] SigLIP vorgeladen auf %s", mm.device)
-                    except Exception as e:
+                    except (RuntimeError, OSError, MemoryError) as e:
                         logger.warning("[BATCH] SigLIP Vorladen fehlgeschlagen (%s) — Fallback: pro Video laden", e)
                         siglip_model_processor = None
                     try:
@@ -225,7 +225,7 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                             logger.info("[BATCH] RAFT vorgeladen — wird fuer alle %d Videos wiederverwendet", total_videos)
                         else:
                             raft_model_device = None
-                    except Exception as e:
+                    except (RuntimeError, OSError, MemoryError) as e:
                         logger.warning("[BATCH] RAFT Vorladen fehlgeschlagen (%s) — Fallback: pro Video laden", e)
                         raft_model_device = None
                         # RAFT-OOM-Pfad kann SigLIP evictet haben — Referenz invalidieren
@@ -319,7 +319,7 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                     if torch.cuda.is_available():
                         torch.cuda.empty_cache()
                     logger.info("[BATCH] RAFT nach Batch-Verarbeitung entladen")
-                except Exception as e:
+                except (RuntimeError, AttributeError) as e:
                     logger.warning("[BATCH] RAFT Entladen fehlgeschlagen: %s", e)
                 raft_model_device = None
 
@@ -329,7 +329,7 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                     mm = ModelManager()
                     mm.unload()
                     logger.info("[BATCH] SigLIP nach Batch-Verarbeitung entladen")
-                except Exception as e:
+                except (RuntimeError, AttributeError) as e:
                     logger.warning("[BATCH] SigLIP Entladen fehlgeschlagen: %s", e)
                 siglip_model_processor = None
 
@@ -339,7 +339,7 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                 "videos_processed": idx if self.should_stop() else total_videos,
             })
             _ok = True
-        except Exception as e:
+        except Exception as e:  # broad catch intentional — top-level worker safety net
             logging.error("VideoAnalysisPipelineWorker crashed (outer): %s\n%s",
                           e, traceback.format_exc())
             self._errored = True
@@ -356,14 +356,14 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                     gc.collect()
                     if torch.cuda.is_available():
                         torch.cuda.empty_cache()
-                except Exception:
-                    pass
+                except (RuntimeError, AttributeError) as e:
+                    logger.warning("RAFT cleanup failed during finally block: %s", e)
             if siglip_model_processor is not None:
                 try:
                     from services.model_manager import ModelManager
                     ModelManager().unload()
-                except Exception:
-                    pass
+                except (RuntimeError, AttributeError) as e:
+                    logger.warning("SigLIP cleanup failed during finally block: %s", e)
             # finished MUSS immer emittiert werden damit thread.quit() greift
             if not _ok:
                 self.finished.emit(last_clip_id, {})
@@ -401,7 +401,7 @@ class VisionAnalysisWorker(QObject, CancellableMixin):
                 "frame_count": result.frame_count,
             })
             _ok = True
-        except Exception as e:
+        except Exception as e:  # broad catch intentional — top-level worker safety net
             logging.error("VisionAnalysisWorker[%s] crashed: %s\n%s",
                           self.clip_id, e, traceback.format_exc())
             self._errored = True
@@ -411,8 +411,8 @@ class VisionAnalysisWorker(QObject, CancellableMixin):
                 import torch
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
-            except ImportError:
-                pass
+            except ImportError as e:
+                logger.warning("torch not available for VRAM cleanup after vision analysis: %s", e)
             gc.collect()
             if not _ok and not self._errored:
                 self.finished.emit(self.clip_id, {})
@@ -461,7 +461,7 @@ class FrameExtractWorker(QObject, CancellableMixin):
             else:
                 stderr_hint = result.stderr[:200].decode(errors="replace") if result.stderr else ""
                 self.error.emit(f"Frame @ {self.time_sec:.1f}s nicht verfuegbar: {stderr_hint}")
-        except Exception as e:
+        except (subprocess.SubprocessError, OSError, ValueError) as e:
             logging.error("FrameExtractWorker crashed: %s\n%s", e, traceback.format_exc())
             self._errored = True
             self.error.emit(format_user_error(e))

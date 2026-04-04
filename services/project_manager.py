@@ -172,8 +172,8 @@ class ProjectManager(QObject):
         try:
             from services.pacing_service import invalidate_pacing_caches
             invalidate_pacing_caches()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Failed to invalidate pacing caches in open_project: %s", exc)
 
         # Swap database engine
         import database

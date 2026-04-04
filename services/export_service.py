@@ -739,8 +739,8 @@ def _run_ffmpeg(cmd: list[str], timeout: int = 600, progress_cb=None,
                     current_sec = time_us / 1_000_000
                     pct = min(99, int(current_sec / total_duration * 100))
                     progress_cb(pct, f"Rendering {pct}%...")
-                except (ValueError, IndexError):
-                    pass
+                except (ValueError, IndexError) as e:
+                    logger.warning("Parsing FFmpeg export out_time_ms progress: %s", e)
             elif line.startswith("out_time=") and total_duration > 0 and progress_cb:
                 try:
                     time_str = line.split("=")[1]
@@ -750,8 +750,8 @@ def _run_ffmpeg(cmd: list[str], timeout: int = 600, progress_cb=None,
                         current_sec = h * 3600 + m * 60 + s
                         pct = min(99, int(current_sec / total_duration * 100))
                         progress_cb(pct, f"Rendering {pct}%...")
-                except (ValueError, IndexError):
-                    pass
+                except (ValueError, IndexError) as e:
+                    logger.warning("Parsing FFmpeg export out_time progress: %s", e)
 
         process.wait(timeout=timeout)
     except subprocess.TimeoutExpired:

@@ -40,7 +40,7 @@ def _needs_fk_cascade_migration(insp) -> bool:
                 # Wenn sql vorhanden aber kein CASCADE → Migration nötig
                 if row and row[0] and "ON DELETE CASCADE" not in row[0].upper():
                     return True
-    except Exception:
+    except Exception:  # broad catch intentional — DB inspection can fail in many ways
         return False
     return False
 
@@ -55,7 +55,7 @@ def _migrate_fk_cascade():
     try:
         raw = get_raw_engine()
         db_path = Path(str(raw.url).replace("sqlite:///", ""))
-    except Exception:
+    except (AttributeError, ValueError):
         db_path = APP_ROOT / "pb_studio.db"
     backup_path = None
     if db_path.exists():
@@ -102,7 +102,7 @@ def _migrate_fk_cascade():
 
         # Tabellen mit korrektem Schema neu erstellen
         Base.metadata.create_all(engine)
-    except Exception:
+    except Exception:  # broad catch intentional — re-raised after logging; covers all DB/IO errors
         logger.error("FK-CASCADE Migration FEHLGESCHLAGEN! Backup liegt unter: %s",
                      backup_path if db_path.exists() else "N/A")
         raise
@@ -264,7 +264,7 @@ def init_db():
             # B-003 Fix: Fehlerbehandlung für session.commit() hinzufügen
             try:
                 session.commit()
-            except Exception as e:
+            except Exception as e:  # broad catch intentional — SQLAlchemy commit can raise many error types
                 logger.error("Fehler beim Einfügen von Style-Presets: %s", e)
                 # Rollback automatisch beim Kontext-Exit
 
@@ -311,6 +311,6 @@ def init_db():
             # B-003 Fix: Fehlerbehandlung für session.commit() hinzufügen
             try:
                 session.commit()
-            except Exception as e:
+            except Exception as e:  # broad catch intentional — SQLAlchemy commit can raise many error types
                 logger.error("Fehler beim Einfügen des Standard-Projekts: %s", e)
                 # Rollback automatisch beim Kontext-Exit

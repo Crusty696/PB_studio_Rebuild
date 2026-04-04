@@ -100,8 +100,8 @@ class PanelSetupMixin:
                     vram = gpu_info.get("vram_total_mb", 0)
                     if gpu_name != "CPU" and vram > 0:
                         self.console_text.append(f"[GPU] HARDWARE AKTIV: {gpu_name} ({vram:.0f} MB VRAM)")
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.warning("_show_gpu_info_deferred: failed to get GPU info: %s", exc)
             QTimer.singleShot(2000, _show_gpu_info_deferred)
 
             _backend = "Ollama" if _ollama_cfg["enabled"] else "HuggingFace (lokal)"

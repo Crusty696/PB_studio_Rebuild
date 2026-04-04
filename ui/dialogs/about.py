@@ -1,5 +1,6 @@
 """About Dialog for PB Studio."""
 
+import logging
 import sys
 import datetime
 from pathlib import Path
@@ -10,6 +11,8 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 
 from ui.theme import BG1, ACCENT, T1
+
+logger = logging.getLogger(__name__)
 
 
 def _build_date() -> str:
@@ -29,8 +32,8 @@ def _gpu_info() -> str:
             name = torch.cuda.get_device_name(0)
             cuda = torch.version.cuda or "n/a"
             return f"{name}  |  CUDA {cuda}"
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("_gpu_info: failed to detect GPU: %s", exc)
     return "Keine CUDA-GPU erkannt"
 
 
@@ -203,5 +206,5 @@ class AboutDialog(QDialog):
                     subprocess.Popen(["open", str(docs_path)])
                 else:
                     subprocess.Popen(["xdg-open", str(docs_path)])
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("_open_docs: failed to open README: %s", exc)

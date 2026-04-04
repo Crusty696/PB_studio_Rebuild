@@ -52,8 +52,8 @@ def _parse_loudnorm_json(stderr: str) -> dict | None:
     if matches:
         try:
             return json.loads(matches[-1].group())
-        except json.JSONDecodeError:
-            pass
+        except json.JSONDecodeError as e:
+            log.warning("Parsing loudnorm JSON from regex match: %s", e)
 
     # Strategy 2: Broader — find the very last {...} block.
     brace_start = stderr.rfind("{")
@@ -61,8 +61,8 @@ def _parse_loudnorm_json(stderr: str) -> dict | None:
     if brace_start != -1 and brace_end > brace_start:
         try:
             return json.loads(stderr[brace_start:brace_end + 1])
-        except json.JSONDecodeError:
-            pass
+        except json.JSONDecodeError as e:
+            log.warning("Parsing loudnorm JSON from brace extraction: %s", e)
 
     return None
 

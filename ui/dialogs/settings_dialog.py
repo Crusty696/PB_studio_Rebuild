@@ -1,11 +1,9 @@
 """
 PB Studio — Einstellungs-Dialog.
 
-Aktuell: Ollama LLM-Backend-Konfiguration.
-- Ollama-URL (Standard: http://localhost:11434)
-- Modell-Auswahl (Dropdown + Refresh)
-- Auto-Detection ("Test"-Button)
-- Aktivieren/Deaktivieren
+Tabs:
+- LLM Backend: Ollama-Konfiguration
+- Shortcuts:   Konfigurierbares Tastaturkürzel-Mapping (AUD-71)
 
 Einstellungen werden in QSettings (Registry/Ini) gespeichert
 und sind sofort aktiv (kein Neustart nötig).
@@ -18,11 +16,13 @@ import threading
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Qt, QSettings, Signal, QObject, QThread
+from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QGroupBox,
     QLabel, QLineEdit, QPushButton, QComboBox,
     QCheckBox, QDialogButtonBox, QWidget, QFormLayout,
-    QStatusBar,
+    QStatusBar, QTabWidget, QTableWidget, QTableWidgetItem,
+    QHeaderView, QAbstractItemView,
 )
 
 from ui.theme import ACCENT, BG1, BG2, BG3, T1, T2, T3, OK, ERR, WARN
@@ -166,11 +166,155 @@ QDialogButtonBox QPushButton {{
 """
 
 
+# ---------------------------------------------------------------------------
+# Key-capture dialog
+# ---------------------------------------------------------------------------
+
+class _KeyCaptureDialog(QDialog):
+    """Modal dialog that captures a single key-press as a QKeySequence."""
+
+    def __init__(self, action_name: str, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Shortcut aufzeichnen")
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
+        self.setFixedSize(360, 140)
+        self.setStyleSheet(_DIALOG_STYLE)
+        self._captured: QKeySequence | None = None
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(12)
+        layout.setContentsMargins(20, 20, 20, 16)
+
+        lbl = QLabel(f'Neue Tastenkombination für <b>{action_name}</b>:')
+        lbl.setStyleSheet(f"color: {T1};")
+        lbl.setWordWrap(True)
+        layout.addWidget(lbl)
+
+        self._lbl_key = QLabel("— drücke eine Taste —")
+        self._lbl_key.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._lbl_key.setStyleSheet(
+            f"color: {ACCENT}; font-size: 18px; font-weight: bold;"
+            f" background: {BG3}; border-radius: 6px; padding: 6px;"
+        )
+        layout.addWidget(self._lbl_key)
+
+        btn_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        btn_box.accepted.connect(self.accept)
+        btn_box.rejected.connect(self.reject)
+        layout.addWidget(btn_box)
+
+    def keyPressEvent(self, event) -> None:
+        key = event.key()
+        if key in (Qt.Key.Key_Shift, Qt.Key.Key_Control, Qt.Key.Key_Alt, Qt.Key.Key_Meta):
+            return  # ignore bare modifier presses
+        seq = QKeySequence(key | int(event.modifiers()))
+        self._captured = seq
+        self._lbl_key.setText(seq.toString())
+
+    def captured_sequence(self) -> QKeySequence | None:
+        return self._captured
+
+
+# ---------------------------------------------------------------------------
+# Shortcut Editor Tab
+# ---------------------------------------------------------------------------
+
+class ShortcutEditorTab(QWidget):
+    """Tab widget showing all configurable shortcuts in a table."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        from ui.shortcut_manager import get_shortcut_manager, ACTIONS
+        self._sm = get_shortcut_manager()
+        self._actions = ACTIONS
+        self._build_ui()
+        self._populate()
+
+    def _build_ui(self) -> None:
+        layout = QVBoxLayout(self)
+        layout.setSpacing(8)
+        layout.setContentsMargins(12, 12, 12, 8)
+
+        lbl = QLabel("Doppelklick auf eine Zeile oder 'Bearbeiten' um den Shortcut zu ändern.")
+        lbl.setStyleSheet(f"color: {T2}; font-size: 11px;")
+        layout.addWidget(lbl)
+
+        self._table = QTableWidget(0, 3)
+        self._table.setHorizontalHeaderLabels(["Aktion", "Beschreibung", "Shortcut"])
+        self._table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        self._table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self._table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self._table.setAlternatingRowColors(True)
+        self._table.setStyleSheet(
+            f"QTableWidget {{ background: {BG2}; color: {T1}; gridline-color: {BG3};"
+            f" alternate-background-color: {BG1}; border: 1px solid {BG3}; }}"
+            f"QHeaderView::section {{ background: {BG3}; color: {T1}; border: none;"
+            f" padding: 4px 8px; font-weight: bold; }}"
+            f"QTableWidget::item:selected {{ background: {ACCENT}; color: #000; }}"
+        )
+        self._table.itemDoubleClicked.connect(self._edit_selected)
+        layout.addWidget(self._table)
+
+        btn_row = QHBoxLayout()
+        self._btn_edit = QPushButton("Bearbeiten")
+        self._btn_edit.clicked.connect(self._edit_selected)
+        self._btn_reset = QPushButton("Alle zurücksetzen")
+        self._btn_reset.clicked.connect(self._reset_all)
+        btn_row.addWidget(self._btn_edit)
+        btn_row.addStretch()
+        btn_row.addWidget(self._btn_reset)
+        layout.addLayout(btn_row)
+
+    def _populate(self) -> None:
+        self._table.setRowCount(0)
+        for action_id, (name, desc, _default) in self._actions.items():
+            row = self._table.rowCount()
+            self._table.insertRow(row)
+            item_name = QTableWidgetItem(name)
+            item_name.setData(Qt.ItemDataRole.UserRole, action_id)
+            self._table.setItem(row, 0, item_name)
+            self._table.setItem(row, 1, QTableWidgetItem(desc))
+            self._table.setItem(row, 2, QTableWidgetItem(
+                self._sm.display_text(action_id)
+            ))
+
+    def _edit_selected(self) -> None:
+        row = self._table.currentRow()
+        if row < 0:
+            return
+        name_item = self._table.item(row, 0)
+        action_id = name_item.data(Qt.ItemDataRole.UserRole)
+        action_name = name_item.text()
+
+        dlg = _KeyCaptureDialog(action_name, parent=self)
+        if dlg.exec() == QDialog.DialogCode.Accepted and dlg.captured_sequence():
+            seq = dlg.captured_sequence()
+            self._sm.set_sequence(action_id, seq)
+            self._table.item(row, 2).setText(seq.toString())
+
+    def _reset_all(self) -> None:
+        self._sm.reset_to_defaults()
+        self._populate()
+
+    def apply(self) -> None:
+        """Persist changes — called by SettingsDialog on OK."""
+        self._sm.save()
+
+
+# ---------------------------------------------------------------------------
+# Settings Dialog
+# ---------------------------------------------------------------------------
+
 class SettingsDialog(QDialog):
     """Einstellungs-Dialog für PB Studio.
 
-    Enthält aktuell:
-    - Ollama LLM-Backend-Konfiguration
+    Tabs:
+    - LLM Backend (Ollama)
+    - Shortcuts (AUD-71)
     """
 
     ollama_settings_changed = Signal(bool, str, str)  # (enabled, url, model)
@@ -178,7 +322,8 @@ class SettingsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("PB Studio — Einstellungen")
-        self.setMinimumWidth(520)
+        self.setMinimumWidth(560)
+        self.setMinimumHeight(440)
         self.setStyleSheet(_DIALOG_STYLE)
         self._test_thread: QThread | None = None
         self._test_worker: _OllamaTestWorker | None = None
@@ -198,21 +343,35 @@ class SettingsDialog(QDialog):
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
-        layout.setSpacing(12)
-        layout.setContentsMargins(16, 16, 16, 12)
+        layout.setSpacing(8)
+        layout.setContentsMargins(12, 12, 12, 10)
 
-        # --- Ollama-Gruppe ---
+        # --- Tab-Widget ---
+        self._tabs = QTabWidget()
+        self._tabs.setStyleSheet(
+            f"QTabWidget::pane {{ border: 1px solid {BG3}; background: {BG1}; }}"
+            f"QTabBar::tab {{ background: {BG2}; color: {T2}; padding: 6px 16px;"
+            f" border: 1px solid {BG3}; border-bottom: none; border-radius: 4px 4px 0 0; }}"
+            f"QTabBar::tab:selected {{ background: {BG1}; color: {ACCENT}; }}"
+        )
+        layout.addWidget(self._tabs, 1)
+
+        # ---- Tab 1: LLM Backend ----
+        llm_tab = QWidget()
+        llm_layout = QVBoxLayout(llm_tab)
+        llm_layout.setSpacing(12)
+        llm_layout.setContentsMargins(12, 12, 12, 8)
+
+        # Ollama-Gruppe
         ollama_group = QGroupBox("Lokales LLM-Backend (Ollama)")
         form_layout = QFormLayout(ollama_group)
         form_layout.setSpacing(8)
 
-        # Aktivieren
         self._chk_enabled = QCheckBox("Ollama als LLM-Backend nutzen")
         self._chk_enabled.setChecked(True)
         self._chk_enabled.toggled.connect(self._on_enabled_toggled)
         form_layout.addRow("", self._chk_enabled)
 
-        # URL
         url_row = QWidget()
         url_layout = QHBoxLayout(url_row)
         url_layout.setContentsMargins(0, 0, 0, 0)
@@ -226,13 +385,11 @@ class SettingsDialog(QDialog):
         url_layout.addWidget(self._btn_test)
         form_layout.addRow("Ollama-URL:", url_row)
 
-        # Status-Label
         self._lbl_status = QLabel("—")
         self._lbl_status.setStyleSheet(_STATUS_STYLE["info"])
         self._lbl_status.setWordWrap(True)
         form_layout.addRow("Status:", self._lbl_status)
 
-        # Modell-Auswahl
         model_row = QWidget()
         model_layout = QHBoxLayout(model_row)
         model_layout.setContentsMargins(0, 0, 0, 0)
@@ -248,7 +405,6 @@ class SettingsDialog(QDialog):
         model_layout.addWidget(self._btn_refresh)
         form_layout.addRow("Modell:", model_row)
 
-        # Empfehlungs-Hinweis
         from services.ollama_client import RECOMMENDED_MODELS
         hint_text = "Empfohlen für GTX 1060 (6 GB): " + ", ".join(RECOMMENDED_MODELS[:3])
         lbl_hint = QLabel(hint_text)
@@ -256,9 +412,8 @@ class SettingsDialog(QDialog):
         lbl_hint.setWordWrap(True)
         form_layout.addRow("", lbl_hint)
 
-        layout.addWidget(ollama_group)
+        llm_layout.addWidget(ollama_group)
 
-        # --- Modell-Manager ---
         mgr_group = QGroupBox("Modell-Verwaltung")
         mgr_layout = QHBoxLayout(mgr_group)
         lbl_mgr = QLabel("Modelle herunterladen, verwalten und ungenutzte aufräumen.")
@@ -268,16 +423,22 @@ class SettingsDialog(QDialog):
         self._btn_model_manager.setToolTip("Installierte Modelle anzeigen, neue herunterladen, aufräumen")
         self._btn_model_manager.clicked.connect(self._on_open_model_manager)
         mgr_layout.addWidget(self._btn_model_manager)
-        layout.addWidget(mgr_group)
+        llm_layout.addWidget(mgr_group)
 
-        # --- Info-Text ---
         lbl_info = QLabel(
             "Wenn Ollama nicht verfügbar ist, fällt PB Studio automatisch auf das lokale "
             "HuggingFace-Modell zurück (Qwen2.5-0.5B-Instruct)."
         )
         lbl_info.setStyleSheet(f"color: {T2}; font-size: 11px;")
         lbl_info.setWordWrap(True)
-        layout.addWidget(lbl_info)
+        llm_layout.addWidget(lbl_info)
+        llm_layout.addStretch()
+
+        self._tabs.addTab(llm_tab, "LLM Backend")
+
+        # ---- Tab 2: Shortcuts (AUD-71) ----
+        self._shortcut_tab = ShortcutEditorTab()
+        self._tabs.addTab(self._shortcut_tab, "Tastaturkürzel")
 
         # --- Buttons ---
         btn_box = QDialogButtonBox(
@@ -364,4 +525,8 @@ class SettingsDialog(QDialog):
             "SettingsDialog: Ollama-Einstellungen gespeichert — enabled=%s, url=%s, model=%s",
             enabled, url, model,
         )
+
+        # Save shortcut changes (AUD-71)
+        self._shortcut_tab.apply()
+
         self.accept()

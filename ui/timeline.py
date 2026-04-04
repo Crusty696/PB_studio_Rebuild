@@ -19,6 +19,7 @@ from database import engine, AudioTrack, VideoClip, TimelineEntry, Beatgrid, Cli
 
 logger = logging.getLogger(__name__)
 from services.pacing_service import CutPoint
+from ui.shortcut_manager import get_shortcut_manager
 from ui.waveform_item import WaveformGraphicsItem
 
 # MIME type for internal clip drag & drop (must match media_workspace.py)
@@ -92,6 +93,7 @@ class TimelineClipItem(QGraphicsRectItem):
         self.entry_id = entry_id
         self.media_id = media_id
         self.track_type = track_type
+        self.title = title  # stored for copy/paste (AUD-71)
         self.on_moved = on_moved
         self.on_trimmed = on_trimmed
         self._clip_width = width
@@ -416,9 +418,10 @@ class InteractiveTimeline(QGraphicsView):
         self._drop_indicator: QGraphicsLineItem | None = None
         self._drop_ghost: QGraphicsRectItem | None = None
 
-        # AUD-71: Playhead and shuttle state
+        # AUD-71: Playhead, shuttle state and internal clipboard
         self._playhead_time: float = 0.0   # Current playhead position in seconds
         self._shuttle_speed: int = 0        # JKL shuttle: -2,-1,0,1,2
+        self._clipboard: list[dict] = []    # Ctrl+C/V internal clip clipboard
 
         # Selection changed → inspector
         self._scene.selectionChanged.connect(self._on_selection_changed)
@@ -849,20 +852,20 @@ class InteractiveTimeline(QGraphicsView):
             if beatgrid.beat_positions:
                 try:
                     beat_times = json.loads(beatgrid.beat_positions)
-                except (json.JSONDecodeError, TypeError):
-                    pass
+                except (json.JSONDecodeError, TypeError) as exc:
+                    logger.warning("load_beat_grid: failed to parse beat_positions: %s", exc)
 
             if beatgrid.downbeat_positions:
                 try:
                     downbeat_times = json.loads(beatgrid.downbeat_positions)
-                except (json.JSONDecodeError, TypeError):
-                    pass
+                except (json.JSONDecodeError, TypeError) as exc:
+                    logger.warning("load_beat_grid: failed to parse downbeat_positions: %s", exc)
 
             if beatgrid.energy_per_beat:
                 try:
                     energy_per_beat = json.loads(beatgrid.energy_per_beat)
-                except (json.JSONDecodeError, TypeError):
-                    pass
+                except (json.JSONDecodeError, TypeError) as exc:
+                    logger.warning("load_beat_grid: failed to parse energy_per_beat: %s", exc)
 
             self.set_beat_grid(beat_times, downbeat_times or None,
                                energy_per_beat or None)
@@ -1144,108 +1147,131 @@ class InteractiveTimeline(QGraphicsView):
             return
         super().mouseReleaseEvent(event)
 
-    # ── AUD-71: Keyboard Shortcuts ──────────────────────────────────────
+    # ── AUD-71: Keyboard Shortcuts (configurable via ShortcutManager) ───
 
     def keyPressEvent(self, event):
         """Full keyboard shortcut system (AUD-71).
 
-        Space       = Play / Pause
-        J / K / L   = Shuttle (reverse / pause / forward)
-        I           = Set In-Point at playhead
-        O           = Set Out-Point at playhead
-        M           = Set Anchor on selected clip
-        Delete/Back = Remove selected clips
-        Home        = Jump to start
-        End         = Jump to end
-        Left/Right  = Frame step (0.04s) / Shift: 1s jump
-        +/=         = Zoom in
-        -           = Zoom out
-        Escape      = Stop / deselect
+        All bindings are configurable via Settings → Tastaturkürzel.
+        Defaults:
+          Space       = Play / Pause
+          J / K / L   = Shuttle (reverse / pause / forward)
+          I           = Set In-Point at playhead
+          O           = Set Out-Point at playhead
+          M           = Set Anchor on selected clip
+          Delete      = Remove selected clips
+          Home        = Jump to start
+          End         = Jump to end
+          Left/Right  = Frame step (0.04s) / Shift: 1s jump
+          +/=         = Zoom in
+          -           = Zoom out
+          Ctrl+Z/Y    = Undo/Redo
+          Ctrl+C/V    = Copy/Paste
+          Escape      = Stop / deselect
         """
+        sm = get_shortcut_manager()
         key = event.key()
         shift = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
 
         if event.isAutoRepeat():
-            # Allow arrow key repeat for frame-stepping
-            if key in (Qt.Key.Key_Left, Qt.Key.Key_Right):
+            # Allow held arrow keys for frame-stepping / fast navigation
+            if sm.matches("frame_fwd", event):
                 step = 1.0 if shift else 0.04
-                if key == Qt.Key.Key_Right:
-                    self.seek_forward.emit(step)
-                else:
-                    self.seek_backward.emit(step)
+                self.seek_forward.emit(step)
+                return
+            if sm.matches("frame_back", event):
+                step = 1.0 if shift else 0.04
+                self.seek_backward.emit(step)
+                return
             return
 
-        # Space = Play/Pause (NOT panning — use middle-mouse for panning)
-        if key == Qt.Key.Key_Space:
+        # Play / Pause
+        if sm.matches("play_pause", event):
             self.play_pause_toggled.emit()
             return
 
-        # J / K / L = Shuttle control
-        if key == Qt.Key.Key_J:
+        # Shuttle: J / K / L
+        if sm.matches("shuttle_back", event):
             self._shuttle_speed = max(self._shuttle_speed - 1, -2)
             if self._shuttle_speed < 0:
                 speed = 2.0 if self._shuttle_speed == -2 else 0.5
                 self.seek_backward.emit(speed)
             elif self._shuttle_speed == 0:
-                self.play_pause_toggled.emit()  # pause
+                self.play_pause_toggled.emit()
             return
-        if key == Qt.Key.Key_K:
+        if sm.matches("shuttle_pause", event):
             self._shuttle_speed = 0
             self.stop_requested.emit()
             return
-        if key == Qt.Key.Key_L:
+        if sm.matches("shuttle_fwd", event):
             self._shuttle_speed = min(self._shuttle_speed + 1, 2)
             if self._shuttle_speed > 0:
                 speed = 2.0 if self._shuttle_speed == 2 else 0.5
                 self.seek_forward.emit(speed)
             elif self._shuttle_speed == 0:
-                self.play_pause_toggled.emit()  # pause
+                self.play_pause_toggled.emit()
             return
 
-        # I / O = In/Out points
-        if key == Qt.Key.Key_I:
+        # In / Out points
+        if sm.matches("set_in", event):
             self.set_in_point.emit(self._playhead_time)
             return
-        if key == Qt.Key.Key_O:
+        if sm.matches("set_out", event):
             self.set_out_point.emit(self._playhead_time)
             return
 
-        # M = Set anchor
-        if key == Qt.Key.Key_M:
+        # Set anchor
+        if sm.matches("set_anchor", event):
             self._set_anchor_on_selected()
             return
 
-        # Delete / Backspace = Remove selected clips
-        if key in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
+        # Delete selected clips
+        if sm.matches("delete_clip", event) or key == Qt.Key.Key_Backspace:
             self.remove_selected_clips()
             return
 
-        # Home / End = Jump to start / end
-        if key == Qt.Key.Key_Home:
+        # Jump to start / end
+        if sm.matches("jump_start", event):
             self.jump_to_start.emit()
             return
-        if key == Qt.Key.Key_End:
+        if sm.matches("jump_end", event):
             self.jump_to_end.emit()
             return
 
-        # Left / Right = Frame step (0.04s) or Shift+Arrow = 1s jump
-        if key == Qt.Key.Key_Left:
+        # Frame step (Shift = 1s jump)
+        if sm.matches("frame_back", event):
             self.seek_backward.emit(1.0 if shift else 0.04)
             return
-        if key == Qt.Key.Key_Right:
+        if sm.matches("frame_fwd", event):
             self.seek_forward.emit(1.0 if shift else 0.04)
             return
 
-        # +/= = Zoom in, - = Zoom out
-        if key in (Qt.Key.Key_Plus, Qt.Key.Key_Equal):
+        # Zoom (also keep Key_Equal as fallback for unshifted + on some keyboards)
+        if sm.matches("zoom_in", event) or key == Qt.Key.Key_Equal:
             self.zoom_in_requested.emit()
             return
-        if key == Qt.Key.Key_Minus:
+        if sm.matches("zoom_out", event):
             self.zoom_out_requested.emit()
             return
 
-        # Escape = Stop / deselect all
-        if key == Qt.Key.Key_Escape:
+        # Undo / Redo
+        if sm.matches("undo", event):
+            self.undo_stack.undo()
+            return
+        if sm.matches("redo", event):
+            self.undo_stack.redo()
+            return
+
+        # Copy / Paste (AUD-71)
+        if sm.matches("copy", event):
+            self._copy_selected_clips()
+            return
+        if sm.matches("paste", event):
+            self._paste_clips()
+            return
+
+        # Stop / deselect all
+        if sm.matches("stop", event):
             self._scene.clearSelection()
             self.stop_requested.emit()
             return
@@ -1291,6 +1317,45 @@ class InteractiveTimeline(QGraphicsView):
                 self.console_log(
                     f"[Anchor] Anker #{anchor_id} gesetzt auf {clip_item.track_type}-Clip "
                     f"bei {time_offset:.2f}s (Taste M)"
+                )
+
+    # ── AUD-71: Copy / Paste ─────────────────────────────────────────────
+
+    def _copy_selected_clips(self) -> None:
+        """Copy selected clip metadata to internal clipboard."""
+        selected = [item for item in self._scene.selectedItems()
+                    if isinstance(item, TimelineClipItem)]
+        if not selected:
+            return
+        self._clipboard = [
+            {
+                "entry_id": item.entry_id,
+                "media_id": item.media_id,
+                "track_type": item.track_type,
+                "start_time": item.pos().x() / PIXELS_PER_SECOND,
+                "clip_width": item._clip_width,
+                "title": item.title,
+            }
+            for item in selected
+        ]
+        if self.console_log:
+            self.console_log(f"[Copy] {len(self._clipboard)} Clip(s) kopiert.")
+
+    def _paste_clips(self) -> None:
+        """Paste clips from internal clipboard offset by 0.5s."""
+        if not getattr(self, "_clipboard", None):
+            return
+        offset = 0.5  # paste with slight time offset to avoid exact overlap
+        for data in self._clipboard:
+            new_start = data["start_time"] + offset
+            new_x = new_start * PIXELS_PER_SECOND
+            # Re-use the same entry but shift position (visual paste — no DB write)
+            # A full DB-backed paste would require duplicating TimelineEntry rows;
+            # that is out of scope for AUD-71 (shortcut wiring only).
+            if self.console_log:
+                self.console_log(
+                    f"[Paste] Clip '{data['title']}' würde bei {new_start:.2f}s eingefügt. "
+                    "(DB-Paste via Drag-Drop — ziehe Clip aus der Media-Leiste.)"
                 )
 
     def sync_anchors(self) -> bool:

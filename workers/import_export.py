@@ -42,7 +42,7 @@ class ExportWorker(QObject, CancellableMixin):
             )
             self.finished.emit(path)
             _ok = True
-        except Exception as e:
+        except Exception as e:  # broad catch intentional — top-level worker safety net
             logging.error("ExportWorker crashed: %s\n%s", e, traceback.format_exc())
             self._errored = True
             self.error.emit(format_user_error(e))
@@ -77,7 +77,7 @@ class PreviewExportWorker(QObject, CancellableMixin):
             )
             self.finished.emit(path)
             _ok = True
-        except Exception as e:
+        except Exception as e:  # broad catch intentional — top-level worker safety net
             logging.error("PreviewExportWorker crashed: %s\n%s", e, traceback.format_exc())
             self._errored = True
             self.error.emit(format_user_error(e))
@@ -116,7 +116,7 @@ class FolderImportWorker(QObject, CancellableMixin):
                     else:
                         self.file_imported.emit(f"[Ingest] Audio importiert: {name}")
                         added += 1
-                except Exception as e:
+                except (OSError, IOError, ValueError, RuntimeError) as e:
                     logger.error(
                         "Audio-Import fehlgeschlagen fuer '%s': %s\n%s",
                         p, e, traceback.format_exc(),
@@ -143,7 +143,7 @@ class FolderImportWorker(QObject, CancellableMixin):
                             new_video_clips.append(
                                 (result.id, str(Path(p).resolve()), name)
                             )
-                except Exception as e:
+                except (OSError, IOError, ValueError, RuntimeError) as e:
                     logger.error(
                         "Video-Import fehlgeschlagen fuer '%s': %s\n%s",
                         p, e, traceback.format_exc(),
@@ -157,7 +157,7 @@ class FolderImportWorker(QObject, CancellableMixin):
 
             self.finished.emit(added, new_video_clips)
             _ok = True
-        except Exception as e:
+        except Exception as e:  # broad catch intentional — top-level worker safety net
             logger.error(
                 "FolderImportWorker crashed: %s\n%s", e, traceback.format_exc()
             )
@@ -248,7 +248,7 @@ class BatchConvertWorker(QObject, CancellableMixin):
 
             self.finished.emit(converted, total)
             _ok = True
-        except Exception as e:
+        except Exception as e:  # broad catch intentional — top-level worker safety net
             logging.error("BatchConvertWorker crashed: %s\n%s", e, traceback.format_exc())
             self._errored = True
             self.error.emit(format_user_error(e))
@@ -286,7 +286,7 @@ class ProxyCreationWorker(QObject, CancellableMixin):
                     session.commit()
             self.finished.emit(self.clip_id, proxy_path)
             _ok = True
-        except Exception as e:
+        except Exception as e:  # broad catch intentional — top-level worker safety net
             logging.error("ProxyCreationWorker[%s] crashed: %s\n%s",
                           self.clip_id, e, traceback.format_exc())
             self._errored = True

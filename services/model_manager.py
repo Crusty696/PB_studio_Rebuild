@@ -162,8 +162,8 @@ class ModelManager:
                 if obj is not None and hasattr(obj, 'cpu'):
                     try:
                         obj.cpu()
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.warning("Moving model to CPU before unload: %s", e)
 
             # Alle Referenzen löschen
             self._pipe = None
@@ -471,8 +471,8 @@ class ModelManager:
         try:
             from services.model_lifecycle_service import get_model_lifecycle_service
             get_model_lifecycle_service().touch_last_used(model_id)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Updating last_used_at in model registry for '%s': %s", model_id, e)
 
         return result
 
@@ -569,8 +569,8 @@ class ModelManager:
         try:
             from services.model_lifecycle_service import get_model_lifecycle_service
             get_model_lifecycle_service(base_url).touch_last_used(model)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Updating last_used_at in model registry for Ollama model '%s': %s", model, e)
 
         return handle
 

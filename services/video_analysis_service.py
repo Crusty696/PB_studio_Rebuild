@@ -243,8 +243,8 @@ def compute_motion_scores(
             from services.model_manager import ModelManager
             try:
                 ModelManager().unload()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("ModelManager.unload() failed after RAFT cleanup: %s", exc)
             raft_model = None  # Lokale Referenz freigeben
             logger.info("RAFT entladen via ModelManager")
 
@@ -805,8 +805,8 @@ def run_full_pipeline(
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
                 logger.info("[PIPELINE] VRAM-Cleanup: torch.cuda.empty_cache()")
-        except ImportError:
-            pass
+        except ImportError as exc:
+            logger.warning("torch not available for VRAM cleanup in pipeline: %s", exc)
     gc.collect()
 
     logger.info(

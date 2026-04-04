@@ -6,11 +6,14 @@ Call get_app_icon() after QApplication is created.
 
 from __future__ import annotations
 
+import logging
 import math
 from pathlib import Path
 
 from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPixmap, QPen, QBrush
 from PySide6.QtCore import Qt
+
+logger = logging.getLogger(__name__)
 
 _ICON_CACHE: QIcon | None = None
 _RESOURCE_DIR = Path(__file__).parent.parent / "resources"
@@ -104,7 +107,7 @@ def get_app_icon() -> QIcon:
     try:
         if not png_path.exists():
             _draw_icon(256).save(str(png_path))
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("get_app_icon: failed to persist icon PNG: %s", exc)
 
     return _ICON_CACHE

@@ -41,7 +41,7 @@ class EngineProxy:
         object.__setattr__(self, '_engine', new_engine)
         try:
             old.dispose()
-        except Exception as e:
+        except Exception as e:  # broad catch intentional — dispose() can raise various engine errors
             logger.warning("EngineProxy.swap() — old.dispose() fehlgeschlagen: %s", e)
 
     # Explicit delegates needed for SQLAlchemy internals that bypass __getattr__:
@@ -169,7 +169,7 @@ class _NullPoolSessionContext:
             # B-008 Fix: dispose() Fehler abfangen statt still zu schlucken
             try:
                 self._eng.dispose()
-            except Exception as dispose_err:
+            except Exception as dispose_err:  # broad catch intentional — dispose() can raise various engine errors
                 logger.warning("engine.dispose() fehlgeschlagen: %s", dispose_err)
         return False
 
@@ -181,7 +181,7 @@ def get_active_project_id() -> int:
         with Session(engine) as s:
             proj = s.query(Project).first()
             return proj.id if proj else 1
-    except Exception:
+    except Exception:  # broad catch intentional — fallback if DB is unavailable at startup
         return 1
 
 

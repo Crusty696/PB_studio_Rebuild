@@ -63,8 +63,8 @@ class StemsMixin:
             try:
                 if hasattr(self, "stem_workspace"):
                     self.stem_workspace.update_for_track(None, None)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("_update_stem_workspace: fallback cleanup failed: %s", exc)
 
     def _start_stem_separation(self):
         info = self._get_selected_audio_track()

@@ -30,8 +30,8 @@ def _invalidate_pacing_caches():
     try:
         from services.pacing_service import invalidate_pacing_caches
         invalidate_pacing_caches()
-    except ImportError:
-        pass
+    except ImportError as e:
+        logger.warning("Invalidating pacing caches after media import: %s", e)
 
 AUDIO_EXTENSIONS = {".mp3", ".wav", ".flac", ".ogg", ".aac", ".m4a", ".wma"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".wmv", ".webm", ".flv", ".m4v"}

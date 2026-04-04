@@ -312,8 +312,8 @@ def _get_duration(file_path: str) -> float:
         )
         if p.returncode == 0 and p.stdout.strip():
             return float(p.stdout.strip())
-    except (subprocess.TimeoutExpired, ValueError, FileNotFoundError):
-        pass
+    except (subprocess.TimeoutExpired, ValueError, FileNotFoundError) as e:
+        logger.warning("Getting media duration for '%s': %s", file_path, e)
     return 0.0
 
 
@@ -361,8 +361,8 @@ def _run_ffmpeg_with_progress(
                     current_sec = time_us / 1_000_000
                     pct = min(99, int(current_sec / total_duration * 100))
                     progress_cb(pct, f"{pct}%")
-                except (ValueError, IndexError):
-                    pass
+                except (ValueError, IndexError) as e:
+                    logger.warning("Parsing FFmpeg out_time_ms progress: %s", e)
             elif line.startswith("out_time=") and total_duration > 0 and progress_cb:
                 try:
                     time_str = line.split("=")[1]
@@ -372,8 +372,8 @@ def _run_ffmpeg_with_progress(
                         current_sec = h * 3600 + m * 60 + s
                         pct = min(99, int(current_sec / total_duration * 100))
                         progress_cb(pct, f"{pct}%")
-                except (ValueError, IndexError):
-                    pass
+                except (ValueError, IndexError) as e:
+                    logger.warning("Parsing FFmpeg out_time progress: %s", e)
             elif line == "progress=end":
                 if progress_cb:
                     progress_cb(100, "Fertig")

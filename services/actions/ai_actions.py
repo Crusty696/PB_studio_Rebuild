@@ -170,8 +170,8 @@ def summarize_project(project_id: int = 1) -> dict:
                     scene_count = session.query(Scene).filter(
                         Scene.video_clip_id.in_(video_ids)
                     ).count()
-        except Exception:
-            pass
+        except Exception as exc:
+            _logger.warning("Failed to query scene count in summarize_project: %s", exc)
 
         bpm_range = ""
         if bpm_values:
@@ -264,8 +264,8 @@ def suggest_pacing(audio_track_id: int | None = None) -> dict:
                     energy_data = _json.loads(beatgrid.energy_per_beat) if isinstance(
                         beatgrid.energy_per_beat, str
                     ) else beatgrid.energy_per_beat
-                except (ValueError, TypeError):
-                    pass
+                except (ValueError, TypeError) as exc:
+                    _logger.warning("Failed to parse energy_per_beat in suggest_pacing: %s", exc)
 
             # Structure segments
             from database import StructureSegment

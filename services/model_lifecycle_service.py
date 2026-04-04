@@ -294,8 +294,8 @@ class ModelLifecycleService:
                     if row.metadata_json:
                         try:
                             meta = json.loads(row.metadata_json)
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.warning("Parsing metadata_json for model '%s': %s", row.model_id, e)
                     entries.append(ModelEntry(
                         model_id=row.model_id,
                         source=row.source,
@@ -595,10 +595,10 @@ class ModelLifecycleService:
                 if p.is_file():
                     try:
                         total += p.stat().st_size
-                    except Exception:
-                        pass
-        except Exception:
-            pass
+                    except Exception as e:
+                        logger.warning("Reading file size for '%s': %s", p, e)
+        except Exception as e:
+            logger.warning("Calculating directory size for '%s': %s", path, e)
         return total
 
     def download_hf_model(
@@ -830,8 +830,8 @@ class ModelLifecycleService:
                             last_used_at=row.last_used_at or "",
                             status="offline",
                         ))
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Loading offline Ollama models from registry: %s", e)
 
         entries.extend(self.scan_hf_cache())
         return entries

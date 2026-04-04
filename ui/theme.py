@@ -98,6 +98,28 @@ def get_stylesheet() -> str:
         border-color: {T3};
     }}
 
+    /* AI Learning / KI-Gedaechtnis Buttons */
+    QPushButton[objectName="btn_learn_ai"],
+    QPushButton[objectName="btn_ai"] {{
+        background-color: {ACCENT_MUTED};
+        border: 1px solid {ACCENT_DIM};
+        color: {ACCENT_BRIGHT};
+        font-weight: 700;
+        font-size: 10px;
+        letter-spacing: 1px;
+        border-radius: 3px;
+    }}
+    QPushButton[objectName="btn_learn_ai"]:hover,
+    QPushButton[objectName="btn_ai"]:hover {{
+        background-color: rgba(212, 164, 74, 0.28);
+        border-color: {ACCENT};
+    }}
+    QPushButton[objectName="btn_learn_ai"]:pressed,
+    QPushButton[objectName="btn_ai"]:pressed {{
+        background-color: {ACCENT_DIM};
+        color: #0a0d12;
+    }}
+
     /* === LABELS === */
     QLabel {{
         background: transparent;

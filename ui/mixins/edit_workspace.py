@@ -1,5 +1,6 @@
 """Edit-Workspace Mixin fuer PBWindow."""
 
+import logging
 from pathlib import Path
 
 from PySide6.QtWidgets import (
@@ -18,6 +19,8 @@ from services.pacing_service import (
 )
 from services.timeline_service import TimelineService, PB_NS
 from workers import AutoEditWorker
+
+logger = logging.getLogger(__name__)
 
 task_manager = TaskManagerProxy()
 
@@ -145,8 +148,8 @@ class EditWorkspaceMixin:
             if _id_item:
                 try:
                     video_ids.append(int(_id_item.text()))
-                except ValueError:
-                    pass
+                except ValueError as exc:
+                    logger.warning("_start_auto_edit: failed to parse video clip ID: %s", exc)
 
         if not video_ids:
             self.console_text.append("[Auto-Edit] Keine Video-Clips vorhanden.")

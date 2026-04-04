@@ -33,6 +33,7 @@ class ClassifyResult:
     is_dj_mix: bool         # DJ-Mix erkannt (Übergänge, BPM-Wechsel)
     confidence: float       # 0.0-1.0
     description: str        # Menschenlesbarer Text
+    sub_genre: str = ""     # Sub-Genre z.B. "Dark Psytrance", "Deep House", "Neurofunk"
 
 
 # Feature-basierte Heuristiken für Genre-Erkennung
@@ -45,6 +46,134 @@ GENRE_BPM_RANGES = {
     "Psytrance": (140, 155),
     "Drum & Bass": (160, 180),
     "Dubstep": (135, 145),
+}
+
+
+# Sub-Genre Fingerprints: {parent_genre: {sub_genre: {feature: (min, max)}}}
+# Features: bpm, centroid (Hz), rms, zcr (zero-crossing rate)
+SUB_GENRE_FINGERPRINTS: dict[str, dict[str, dict[str, tuple[float, float]]]] = {
+    "Psytrance": {
+        "Full-On Psytrance": {
+            "bpm": (143.0, 150.0),
+            "centroid": (2800.0, 4500.0),
+            "rms": (0.07, 0.15),
+            "zcr": (0.05, 0.15),
+        },
+        "Progressive Psytrance": {
+            "bpm": (138.0, 145.0),
+            "centroid": (2000.0, 3500.0),
+            "rms": (0.05, 0.10),
+            "zcr": (0.03, 0.10),
+        },
+        "Dark Psytrance": {
+            "bpm": (148.0, 158.0),
+            "centroid": (1200.0, 2500.0),
+            "rms": (0.08, 0.18),
+            "zcr": (0.06, 0.18),
+        },
+        "Goa Trance": {
+            "bpm": (140.0, 148.0),
+            "centroid": (3000.0, 5000.0),
+            "rms": (0.06, 0.12),
+            "zcr": (0.04, 0.12),
+        },
+    },
+    "Techno": {
+        "Industrial Techno": {
+            "bpm": (140.0, 155.0),
+            "centroid": (2500.0, 5000.0),
+            "rms": (0.08, 0.20),
+            "zcr": (0.08, 0.25),
+        },
+        "Minimal Techno": {
+            "bpm": (128.0, 136.0),
+            "centroid": (1500.0, 3000.0),
+            "rms": (0.04, 0.08),
+            "zcr": (0.02, 0.08),
+        },
+        "Acid Techno": {
+            "bpm": (133.0, 145.0),
+            "centroid": (2000.0, 4000.0),
+            "rms": (0.06, 0.12),
+            "zcr": (0.04, 0.12),
+        },
+        "Detroit Techno": {
+            "bpm": (128.0, 138.0),
+            "centroid": (2000.0, 3500.0),
+            "rms": (0.05, 0.10),
+            "zcr": (0.03, 0.10),
+        },
+        "Hard Techno": {
+            "bpm": (145.0, 162.0),
+            "centroid": (2800.0, 5500.0),
+            "rms": (0.09, 0.22),
+            "zcr": (0.07, 0.22),
+        },
+    },
+    "House": {
+        "Deep House": {
+            "bpm": (118.0, 125.0),
+            "centroid": (1200.0, 2500.0),
+            "rms": (0.04, 0.08),
+            "zcr": (0.02, 0.07),
+        },
+        "Tech House": {
+            "bpm": (122.0, 130.0),
+            "centroid": (2000.0, 3500.0),
+            "rms": (0.06, 0.12),
+            "zcr": (0.04, 0.11),
+        },
+        "Melodic House": {
+            "bpm": (120.0, 127.0),
+            "centroid": (2500.0, 4500.0),
+            "rms": (0.05, 0.10),
+            "zcr": (0.03, 0.10),
+        },
+        "Progressive House": {
+            "bpm": (124.0, 132.0),
+            "centroid": (2200.0, 4000.0),
+            "rms": (0.06, 0.12),
+            "zcr": (0.03, 0.11),
+        },
+        "Afro House": {
+            "bpm": (118.0, 126.0),
+            "centroid": (1800.0, 3500.0),
+            "rms": (0.05, 0.10),
+            "zcr": (0.04, 0.12),
+        },
+    },
+    "Drum & Bass": {
+        "Liquid DnB": {
+            "bpm": (168.0, 180.0),
+            "centroid": (2200.0, 4000.0),
+            "rms": (0.05, 0.11),
+            "zcr": (0.04, 0.12),
+        },
+        "Neurofunk": {
+            "bpm": (172.0, 180.0),
+            "centroid": (1500.0, 3000.0),
+            "rms": (0.07, 0.15),
+            "zcr": (0.05, 0.18),
+        },
+        "Jump Up": {
+            "bpm": (172.0, 182.0),
+            "centroid": (2500.0, 5000.0),
+            "rms": (0.08, 0.18),
+            "zcr": (0.06, 0.20),
+        },
+        "Jungle": {
+            "bpm": (158.0, 172.0),
+            "centroid": (2000.0, 4000.0),
+            "rms": (0.06, 0.14),
+            "zcr": (0.05, 0.15),
+        },
+        "Drumstep": {
+            "bpm": (140.0, 160.0),
+            "centroid": (2000.0, 4000.0),
+            "rms": (0.06, 0.14),
+            "zcr": (0.04, 0.15),
+        },
+    },
 }
 
 
@@ -121,6 +250,16 @@ class AudioClassifyService:
             )
 
             # ----------------------------------------------------------
+            # 3b. Sub-Genre-Klassifikation (spektral + rhythmisch)
+            # ----------------------------------------------------------
+            sub_genre, sub_confidence = self._classify_sub_genre(
+                genre, tempo, spectral_centroid, rms_energy, zero_crossing,
+            )
+            # Wenn Sub-Genre erkannt → hebe Confidence an
+            if sub_genre != genre:
+                confidence = max(confidence, sub_confidence)
+
+            # ----------------------------------------------------------
             # 4. Mood-Klassifikation
             # ----------------------------------------------------------
             mood = self._classify_mood(spectral_centroid, rms_energy)
@@ -139,8 +278,9 @@ class AudioClassifyService:
             # ----------------------------------------------------------
             # 7. Beschreibung generieren
             # ----------------------------------------------------------
+            display_genre = sub_genre if sub_genre != genre else genre
             description = (
-                f"{genre}-Track, {mood} Stimmung, "
+                f"{display_genre}-Track, {mood} Stimmung, "
                 f"Energie {energy_level} "
                 f"(BPM {tempo:.0f}, Centroid {spectral_centroid:.0f} Hz)"
             )
@@ -154,6 +294,7 @@ class AudioClassifyService:
                 is_dj_mix=is_dj_mix,
                 confidence=confidence,
                 description=description,
+                sub_genre=sub_genre if sub_genre != genre else "",
             )
 
         except Exception as e:
@@ -364,3 +505,85 @@ class AudioClassifyService:
             log.debug("_quick_dj_mix_check: Fehler bei Segment-Analyse", exc_info=True)
 
         return False
+
+    @staticmethod
+    def _score_sub_genre(
+        fingerprint: dict[str, tuple[float, float]],
+        bpm: float,
+        centroid: float,
+        rms: float,
+        zcr: float,
+    ) -> float:
+        """Bewertet wie gut ein Sub-Genre-Fingerprint zu den Features passt.
+
+        Fuer jedes Feature wird der normalisierte Abstand vom Mittelpunkt des
+        Zielbereichs berechnet.  Score 1.0 = exakt im Zentrum, 0.5 = am Rand,
+        faellt linear ab ausserhalb des Bereichs.
+
+        Returns:
+            Mittlerer Score aller Features (0.0 – 1.0).
+        """
+        feature_values: dict[str, float] = {
+            "bpm": bpm,
+            "centroid": centroid,
+            "rms": rms,
+            "zcr": zcr,
+        }
+        scores: list[float] = []
+        for feat, (lo, hi) in fingerprint.items():
+            val = feature_values.get(feat, 0.0)
+            mid = (lo + hi) / 2.0
+            half_range = (hi - lo) / 2.0 if (hi - lo) > 0.0 else 1.0
+            dist = abs(val - mid) / half_range  # 0 = Zentrum, 1 = Rand, >1 = aussen
+            scores.append(max(0.0, 1.0 - 0.5 * dist))
+        return sum(scores) / len(scores) if scores else 0.0
+
+    def _classify_sub_genre(
+        self,
+        genre: str,
+        bpm: float,
+        centroid: float,
+        rms: float,
+        zcr: float,
+    ) -> tuple[str, float]:
+        """Praezise Sub-Genre-Erkennung auf Basis spektraler + rhythmischer Fingerprints.
+
+        Vergleicht die extrahierten Features gegen alle Sub-Genre-Fingerprints
+        des uebergeordneten Genres und waehlt das beste Match.
+
+        Args:
+            genre: Bereits erkanntes Haupt-Genre (muss in SUB_GENRE_FINGERPRINTS sein)
+            bpm: Erkanntes Tempo
+            centroid: Spektraler Schwerpunkt (Hz)
+            rms: Effektivwert-Energie
+            zcr: Zero-Crossing-Rate
+
+        Returns:
+            (sub_genre_name, score) – faellt auf parent genre zurueck wenn kein
+            Sub-Genre die MIN_SUB_GENRE_SCORE-Schwelle ueberschreitet.
+        """
+        from services.audio_constants import MIN_SUB_GENRE_SCORE
+
+        sub_genres = SUB_GENRE_FINGERPRINTS.get(genre)
+        if not sub_genres:
+            log.debug("_classify_sub_genre: kein Fingerprint fuer Genre '%s'", genre)
+            return (genre, 0.5)
+
+        best_name = genre
+        best_score = 0.0
+        for name, fingerprint in sub_genres.items():
+            score = self._score_sub_genre(fingerprint, bpm, centroid, rms, zcr)
+            log.debug("_classify_sub_genre: %s → score=%.3f", name, score)
+            if score > best_score:
+                best_score = score
+                best_name = name
+
+        if best_score < MIN_SUB_GENRE_SCORE:
+            log.debug(
+                "_classify_sub_genre: bester Score %.3f < %.2f — kein Sub-Genre",
+                best_score, MIN_SUB_GENRE_SCORE,
+            )
+            return (genre, best_score)
+
+        log.debug("_classify_sub_genre: %s (score=%.3f)", best_name, best_score)
+        return (best_name, best_score)

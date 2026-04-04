@@ -224,8 +224,8 @@ class PacingStrategist:
         try:
             data = json.loads(json_str)
             return PacingPlan.from_json(data)
-        except json.JSONDecodeError:
-            pass
+        except json.JSONDecodeError as e:
+            logger.warning("Direct JSON parsing of LLM response failed: %s", e)
 
         # Fallback: Suche nach { ... } im Text
         brace_start = raw.find("{")
@@ -234,7 +234,7 @@ class PacingStrategist:
             try:
                 data = json.loads(raw[brace_start:brace_end])
                 return PacingPlan.from_json(data)
-            except json.JSONDecodeError:
-                pass
+            except json.JSONDecodeError as e:
+                logger.warning("Fallback JSON brace-extraction from LLM response failed: %s", e)
 
         raise ValueError(f"Konnte kein JSON aus LLM-Antwort parsen: {raw[:200]}")

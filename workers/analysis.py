@@ -43,7 +43,7 @@ class AnalysisWorker(QObject, CancellableMixin):
                     result["beat_positions"] = beat_result.get("beats", [])
                     result["downbeats"] = beat_result.get("downbeats", [])
                     self.progress.emit(90, "Beat-Analyse fertig")
-                except Exception as e:
+                except (ValueError, RuntimeError, OSError) as e:
                     # Beat-Analyse ist optional — Grundanalyse reicht für den Betrieb
                     logging.warning("BeatAnalysis optional fehlgeschlagen: %s", e)
                     self.progress.emit(90, f"Beat-Analyse übersprungen: {e}")
@@ -51,7 +51,7 @@ class AnalysisWorker(QObject, CancellableMixin):
             self.progress.emit(100, "Analyse komplett")
             self.finished.emit(self.track_id, result)
             _ok = True
-        except Exception as e:
+        except Exception as e:  # broad catch intentional — top-level worker safety net
             logging.error("AnalysisWorker[%s] crashed: %s\n%s",
                           self.track_id, e, traceback.format_exc())
             self._errored = True
@@ -82,7 +82,7 @@ class WaveformAnalysisWorker(QObject, CancellableMixin):
             )
             self.finished.emit(self.track_id, result)
             _ok = True
-        except Exception as e:
+        except Exception as e:  # broad catch intentional — top-level worker safety net
             logging.error("WaveformAnalysisWorker[%s] crashed: %s\n%s",
                           self.track_id, e, traceback.format_exc())
             self._errored = True

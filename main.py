@@ -224,8 +224,8 @@ class PBWindow(QMainWindow,
                 if reply == QMessageBox.StandardButton.No:
                     event.ignore()
                     return
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("closeEvent: failed to check running tasks: %s", exc)
 
         # 1. Stop background timers
         if hasattr(self, '_task_mgr_dock') and hasattr(self._task_mgr_dock, '_timer'):
@@ -234,8 +234,8 @@ class PBWindow(QMainWindow,
         # FIX B-002: Shutdown-Flag setzen VOR Task-Abbruch
         try:
             GlobalTaskManager.instance()._shutting_down = True
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("closeEvent: failed to set shutdown flag: %s", exc)
 
         # 2. Alle Tasks im GlobalTaskManager abbrechen
         try:
@@ -243,8 +243,8 @@ class PBWindow(QMainWindow,
             for task in tm.get_all_tasks():
                 if task.status == "running":
                     tm.cancel_task(task.task_id)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("closeEvent: failed to cancel running tasks: %s", exc)
 
         # 2. Legacy: direkt verwaltete Threads stoppen
         for thread in list(self._active_threads):
@@ -260,8 +260,8 @@ class PBWindow(QMainWindow,
         if hasattr(self, "video_preview"):
             try:
                 self.video_preview.stop()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("closeEvent: failed to stop video preview: %s", exc)
 
         # 4. Stem Player + Workspace aufraeumen
         if hasattr(self, "stem_player"):
@@ -272,22 +272,22 @@ class PBWindow(QMainWindow,
                 try:
                     t.quit()
                     t.wait(1000)
-                except RuntimeError:
-                    pass
+                except RuntimeError as exc:
+                    logger.warning("closeEvent: failed to stop stem peak thread: %s", exc)
 
         # 4. GPU-VRAM freigeben
         try:
             from services.model_manager import ModelManager
             ModelManager().unload()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("closeEvent: failed to unload GPU models: %s", exc)
 
         # 5. Close DB connection pool
         try:
             from database import engine
             engine.dispose()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("closeEvent: failed to dispose DB connection pool: %s", exc)
 
         super().closeEvent(event)
 
@@ -341,8 +341,9 @@ def _global_exception_hook(exc_type, exc_value, exc_tb):
             from ui.dialogs.crash_dialog import CrashDialog
             dlg = CrashDialog(exc_type, exc_value, exc_tb)
             dlg.exec()
-    except Exception:
-        pass  # Never let the crash handler itself crash
+    except Exception as exc:
+        logger.error("_global_exception_hook: crash dialog failed: %s", exc)
+        print(f"[CRASH DIALOG FAILED] {exc}", flush=True)
 
 
 # Bekannte harmlose Qt-Warnings die das Log zuspammen

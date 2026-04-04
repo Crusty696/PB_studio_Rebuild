@@ -567,16 +567,16 @@ class ChatDock(QDockWidget):
         try:
             self.input_field.returnPressed.disconnect()
             self.btn_send.clicked.disconnect()
-        except (RuntimeError, TypeError):
-            pass
+        except (RuntimeError, TypeError) as exc:
+            logger.warning("ChatDock.closeEvent: failed to disconnect input signals: %s", exc)
 
         # Disconnect worker signals if thread is running (Zeile 275-277, 297-300)
         if hasattr(self, '_thread') and self._thread:
             try:
                 self._thread.quit()
                 self._thread.wait(2000)
-            except (RuntimeError, TypeError):
-                pass
+            except (RuntimeError, TypeError) as exc:
+                logger.warning("ChatDock.closeEvent: failed to stop worker thread: %s", exc)
 
         super().closeEvent(event)
 

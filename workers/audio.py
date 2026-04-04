@@ -31,7 +31,7 @@ class StemSeparationWorker(QObject, CancellableMixin):
             )
             self.finished.emit(self.track_id, result)
             _ok = True
-        except Exception as e:
+        except Exception as e:  # broad catch intentional — top-level worker safety net
             logging.error("StemSeparationWorker[%s] crashed: %s\n%s",
                           self.track_id, e, traceback.format_exc())
             self._errored = True
@@ -42,8 +42,8 @@ class StemSeparationWorker(QObject, CancellableMixin):
                 import torch
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
-            except ImportError:
-                pass
+            except ImportError as e:
+                logger.warning("torch not available for VRAM cleanup after stem separation: %s", e)
             gc.collect()
             if not _ok and not self._errored:
                 self.finished.emit(self.track_id, {})
@@ -71,7 +71,7 @@ class AutoDuckingWorker(QObject, CancellableMixin):
             )
             self.finished.emit(result)
             _ok = True
-        except Exception as e:
+        except Exception as e:  # broad catch intentional — top-level worker safety net
             logging.error("AutoDuckingWorker crashed: %s\n%s", e, traceback.format_exc())
             self._errored = True
             self.error.emit(format_user_error(e))
@@ -110,7 +110,7 @@ class TranscriptionWorker(QObject, CancellableMixin):
                 "duration": result.duration,
             })
             _ok = True
-        except Exception as e:
+        except Exception as e:  # broad catch intentional — top-level worker safety net
             logging.error("TranscriptionWorker[%s] crashed: %s\n%s",
                           self.track_id, e, traceback.format_exc())
             self._errored = True
@@ -120,8 +120,8 @@ class TranscriptionWorker(QObject, CancellableMixin):
                 import torch
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
-            except ImportError:
-                pass
+            except ImportError as e:
+                logger.warning("torch not available for VRAM cleanup after transcription: %s", e)
             gc.collect()
             if not _ok and not self._errored:
                 self.finished.emit(self.track_id, {})

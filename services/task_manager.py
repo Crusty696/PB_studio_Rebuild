@@ -6,6 +6,8 @@ import threading
 import time
 import uuid
 
+logger = logging.getLogger(__name__)
+
 from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import Qt, QThread, Signal, QObject
 
@@ -238,8 +240,8 @@ class GlobalTaskManager(QObject):
             )
             try:
                 worker.deleteLater()
-            except RuntimeError:
-                pass
+            except RuntimeError as exc:
+                logger.warning("worker.deleteLater() failed in _start_in_main_thread: %s", exc)
             return TaskInfo(task_id, name, description)  # Dummy, nie zu _tasks hinzugefügt
 
         task = TaskInfo(task_id, name, description)
@@ -386,8 +388,8 @@ class GlobalTaskManager(QObject):
                     import torch
                     if torch.cuda.is_available():
                         torch.cuda.empty_cache()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning("VRAM cleanup after task terminate: %s", e)
                 gc.collect()
         self.finish_task(task_id, "cancelled", "Abgebrochen")
         logging.info("[TaskEngine] Abgebrochen: %s", task_id)
@@ -415,13 +417,13 @@ class GlobalTaskManager(QObject):
                 if task.worker:
                     try:
                         task.worker.deleteLater()
-                    except RuntimeError:
-                        pass
+                    except RuntimeError as exc:
+                        logger.warning("task.worker.deleteLater() failed in cleanup: %s", exc)
                 if task.thread:
                     try:
                         task.thread.deleteLater()
-                    except RuntimeError:
-                        pass
+                    except RuntimeError as exc:
+                        logger.warning("task.thread.deleteLater() failed in cleanup: %s", exc)
 
     # ------------------------------------------------------------------
     # Interner Cleanup

@@ -230,7 +230,8 @@ class VectorDBService:
         try:
             with self._connect() as conn:
                 return conn.execute("SELECT COUNT(*) FROM clip_embeddings").fetchone()[0]
-        except Exception:
+        except Exception as e:
+            logger.warning("Counting embeddings in VectorDB: %s", e)
             return 0
 
     def delete_by_video(self, video_path: str) -> None:

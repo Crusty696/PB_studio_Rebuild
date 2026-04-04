@@ -10,6 +10,7 @@ AUD-72: Grid-View fuer Video Pool (Thumbnails) und Audio Pool (Waveform-Miniatur
 from __future__ import annotations
 
 import json
+import logging
 import os
 import subprocess
 from pathlib import Path
@@ -20,6 +21,8 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, Signal, QRect, QThread, QObject
 from PySide6.QtGui import QPixmap, QPainter, QColor, QPen, QFont, QFontMetrics
+
+logger = logging.getLogger(__name__)
 
 
 # ── Thumbnail cache ───────────────────────────────────────────────────────────
@@ -35,7 +38,7 @@ def _ensure_thumb_dir() -> None:
 
 def _thumb_path(file_path: str) -> Path:
     import hashlib
-    h = hashlib.md5(file_path.encode()).hexdigest()[:14]
+    h = hashlib.md5(file_path.encode(), usedforsecurity=False).hexdigest()[:14]
     return _THUMB_CACHE / f"{h}.jpg"
 
 
@@ -452,8 +455,8 @@ class MediaPoolGrid(QWidget):
                 if ec:
                     try:
                         energy = json.loads(ec)
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logger.warning("_populate: failed to parse energy_curve JSON: %s", exc)
                 card = AudioCard(
                     media_id=data["id"],
                     title=data.get("title", ""),
@@ -501,14 +504,14 @@ class MediaPoolGrid(QWidget):
                 parts = bpm_text.split("-", 1)
                 try:
                     bpm_min, bpm_max = float(parts[0]), float(parts[1])
-                except ValueError:
-                    pass
+                except ValueError as exc:
+                    logger.warning("_apply_filter: failed to parse BPM range: %s", exc)
             else:
                 try:
                     v = float(bpm_text)
                     bpm_min, bpm_max = v - 2.0, v + 2.0
-                except ValueError:
-                    pass
+                except ValueError as exc:
+                    logger.warning("_apply_filter: failed to parse BPM value: %s", exc)
 
         pairs: list[tuple[MediaCard, dict]] = []
         for card, data in zip(self._cards, self._all_items):

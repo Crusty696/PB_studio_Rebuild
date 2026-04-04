@@ -534,10 +534,20 @@ class LocalAgentService:
             if not torch.cuda.is_available():
                 return ("Der KI-Dienst (Ollama) ist aktuell nicht erreichbar. "
                         "Bitte starte Ollama oder nutze die manuellen Funktionen.")
-            
+
             if not self._loaded or self._pipe is None or not self.model_manager.is_loaded:
                 self._loaded = False
-                self.load_model()
+                try:
+                    self.load_model()
+                except torch.cuda.OutOfMemoryError:
+                    logger.error(
+                        "LocalAgentService: CUDA OOM beim Laden von '%s' — räume auf.",
+                        self.model_id,
+                    )
+                    torch.cuda.empty_cache()
+                    self.unload_model()
+                    return ("KI-Dienst: GPU-Speicher reicht nicht für das Modell. "
+                            "Bitte Ollama verwenden oder GPU-Speicher freigeben.")
 
             messages = self._build_messages(user_text)
             if hasattr(self._tokenizer, "apply_chat_template"):
@@ -547,14 +557,41 @@ class LocalAgentService:
             else:
                 prompt_text = f"<|system|>\n{messages[0]['content']}\n<|user|>\n{messages[1]['content']}\n<|assistant|>\n"
 
-            with self._lock:
-                with _cf.ThreadPoolExecutor(max_workers=1) as _pool:
-                    _future = _pool.submit(
-                        self._pipe, prompt_text, max_new_tokens=max_new_tokens,
-                        do_sample=False, return_full_text=False,
-                    )
-                    outputs = _future.result(timeout=60)
-            return outputs[0]["generated_text"].strip()
+            try:
+                with self._lock:
+                    with _cf.ThreadPoolExecutor(max_workers=1) as _pool:
+                        _future = _pool.submit(
+                            self._pipe, prompt_text, max_new_tokens=max_new_tokens,
+                            do_sample=False, return_full_text=False,
+                        )
+                        outputs = _future.result(timeout=60)
+                return outputs[0]["generated_text"].strip()
+            except torch.cuda.OutOfMemoryError:
+                logger.error(
+                    "LocalAgentService: CUDA OOM bei Inferenz für '%s' — räume auf.",
+                    self.model_id,
+                )
+                torch.cuda.empty_cache()
+                self.unload_model()
+                # CPU-Retry: Modell einmalig auf CPU neu laden und Inferenz wiederholen
+                logger.warning("LocalAgentService: OOM-Recovery — lade '%s' auf CPU.", self.model_id)
+                try:
+                    self.model_manager.device = "cpu"
+                    self.load_model()
+                    with self._lock:
+                        with _cf.ThreadPoolExecutor(max_workers=1) as _pool:
+                            _future = _pool.submit(
+                                self._pipe, prompt_text, max_new_tokens=max_new_tokens,
+                                do_sample=False, return_full_text=False,
+                            )
+                            outputs = _future.result(timeout=120)
+                    logger.info("LocalAgentService: OOM-Recovery erfolgreich (CPU-Fallback).")
+                    return outputs[0]["generated_text"].strip()
+                except Exception as cpu_err:
+                    logger.error("LocalAgentService: CPU-Retry nach OOM fehlgeschlagen: %s", cpu_err)
+                    self.unload_model()
+                    return ("KI-Dienst: GPU-Speicher erschöpft, CPU-Fallback fehlgeschlagen. "
+                            "Bitte Ollama nutzen oder App neu starten.")
 
         except Exception as e:
             logger.error("LocalAgentService: Kritischer Fehler im KI-Fallback: %s", e)
@@ -576,8 +613,8 @@ class LocalAgentService:
                 return parsed
             if isinstance(parsed, dict):
                 return [parsed]
-        except json.JSONDecodeError:
-            pass
+        except json.JSONDecodeError as e:
+            logger.warning("Direct JSON parsing of AI response failed: %s", e)
 
         # Iteratives String-Scanning: Suche nach '[' oder '{' und versuche json.loads()
         for i, ch in enumerate(raw):
@@ -589,10 +626,9 @@ class LocalAgentService:
                     if isinstance(parsed, dict):
                         return [parsed]
                 except json.JSONDecodeError:
-                    # Versuche kürzere Substrings ab dieser Position nicht —
                     # json.loads() konsumiert nur gültiges JSON vom Anfang,
-                    # also weiter zum nächsten '[' oder '{'
-                    pass
+                    # also weiter zum nächsten '[' or '{'
+                    continue
 
         # Fallback: keine gültige Aktion erkannt
         return [{"action": "none", "params": {}, "message": raw}]

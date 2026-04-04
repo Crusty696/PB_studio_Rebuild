@@ -402,8 +402,8 @@ class AudioAnalysisMixin:
         try:
             from database import engine
             engine.dispose()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("_on_sequential_step_done: failed to dispose DB engine: %s", exc)
 
         try:
             worker = worker_factory()

@@ -46,7 +46,7 @@ class AutoEditWorker(QObject, CancellableMixin):
             ]
             self.finished.emit(seg_dicts, cp_dicts)
             _ok = True
-        except Exception as e:
+        except Exception as e:  # broad catch intentional — top-level worker safety net
             logging.error("AutoEditWorker crashed: %s\n%s", e, traceback.format_exc())
             self._errored = True
             self.error.emit(format_user_error(e))
@@ -72,7 +72,7 @@ class SemanticSearchWorker(QObject, CancellableMixin):
             results = search_videos_by_text(self.query, top_k=self.top_k)
             self.finished.emit(results)
             _ok = True
-        except Exception as e:
+        except Exception as e:  # broad catch intentional — top-level worker safety net
             logging.error("SemanticSearchWorker crashed: %s\n%s", e, traceback.format_exc())
             self._errored = True
             self.error.emit(format_user_error(e))
