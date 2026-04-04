@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+    branches: ["main", "feature/**", "fix/**"]
+  pull_request:
+    branches: ["main"]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ──────────────────────────────────────────────
+  # 1. Lint  (fast, runs on Linux, no heavy deps)
+  # ──────────────────────────────────────────────
+  lint:
+    name: Lint (ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install ruff
+        run: pip install ruff
+
+      - name: Run ruff check
+        run: ruff check . --output-format=github
+
+      - name: Run ruff format check
+        run: ruff format --check .
+
+  # ──────────────────────────────────────────────
+  # 2. Unit tests  (Windows, CPU-only deps)
+  # ──────────────────────────────────────────────
+  test:
+    name: Unit Tests
+    runs-on: windows-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install CPU-only PyTorch first
+        # Avoid pulling the 5 GB CUDA wheel from the private source.
+        # CPU wheel is sufficient for unit tests that mock model inference.
+        run: |
+          pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Install project dependencies (no torch from poetry source)
+        run: |
+          pip install poetry
+          poetry config virtualenvs.create false
+          poetry install --no-interaction --without-extras 2>&1 | grep -v "^torch"
+        env:
+          POETRY_PYPI_SOURCES_PYTORCH_URL: "https://download.pytorch.org/whl/cpu"
+
+      - name: Run unit tests (non-GUI, non-model)
+        run: |
+          pytest tests/test_services/ tests/test_agents/ -v --tb=short -x \
+            -m "not gui and not e2e and not slow"
+        env:
+          QT_QPA_PLATFORM: offscreen
+          PB_STUDIO_CI: "1"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: test-report/
+          retention-days: 7

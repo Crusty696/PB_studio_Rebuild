@@ -9,6 +9,7 @@ package-mode = false
 python = ">=3.11,<3.13"
 pyside6 = ">=6.8.0,<7.0.0"
 sqlalchemy = ">=2.0.40,<3.0.0"
+alembic = ">=1.13.0,<2.0.0"
 librosa = ">=0.11.0,<0.12.0"
 numpy = ">=2.1.0,<3.0.0"
 demucs = ">=4.0.1,<5.0.0"
@@ -34,6 +35,35 @@ torchaudio = {version = ">=2.6.0,<3.0.0", source = "pytorch"}
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=9.0.2,<10.0.0"
+ruff = ">=0.9.0,<1.0.0"
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+exclude = [
+    ".git", "__pycache__", "dist", "build", ".venv",
+    "tests/", "installer/", "scripts/",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = [
+    "E501",   # line too long (handled by formatter)
+    "E402",   # module-level import not at top of file (common in PySide6 apps)
+    "F401",   # imported but unused (too noisy during refactoring)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"main.py" = ["E402"]
+"start_pb_studio.py" = ["E402"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "gui: marks tests that require a display (deselect with -m 'not gui')",
+    "e2e: marks end-to-end tests (deselect with -m 'not e2e')",
+    "slow: marks slow tests (deselect with -m 'not slow')",
+]
 
 [[tool.poetry.source]]
 name = "pytorch"
