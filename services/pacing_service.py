@@ -65,6 +65,7 @@ from services.pacing_beat_grid import (
     # F-010/F-011: Stem-Quality + Drum-Onset
     StemSNR,
     compute_stem_snr,
+    detect_dj_mix_from_stems,
     DrumOnset,
     compute_drum_onsets,
 )
@@ -308,8 +309,31 @@ def auto_edit_phase3(
     if progress_cb:
         progress_cb(30, "Analysiere Stems und Motion...")
 
-    # F-004: Stem-gewichtete Energie (ersetzt Stereo-Summe wenn Stems vorhanden)
-    stem_energy = compute_stem_weighted_energy(audio_id, beats)
+    # F-010: SNR-Qualitaets-Metriken — Stem-Weights proportional zur Trennungsqualitaet anpassen.
+    # Stems mit niedrigem SNR (viel Bleed-Through) erhalten weniger Gewicht.
+    stem_snr = compute_stem_snr(audio_id)
+    _w_drums, _w_bass, _w_vocals, _w_other = 0.40, 0.30, 0.10, 0.20
+    if stem_snr is not None:
+        def _snr_factor(snr_db: float) -> float:
+            # SNR >= 20 dB → volles Gewicht (1.0); SNR < 6 dB → Mindestgewicht (0.3)
+            return min(1.0, max(0.3, snr_db / 20.0))
+        _w_drums  = 0.40 * _snr_factor(stem_snr.drums)
+        _w_bass   = 0.30 * _snr_factor(stem_snr.bass)
+        _w_vocals = 0.10 * _snr_factor(stem_snr.vocals)
+        _w_other  = 0.20 * _snr_factor(stem_snr.other)
+        _total_w = _w_drums + _w_bass + _w_vocals + _w_other
+        if _total_w > 0:
+            _w_drums /= _total_w; _w_bass /= _total_w
+            _w_vocals /= _total_w; _w_other /= _total_w
+        logger.info(
+            "F-010 SNR-Weights: drums=%.2f (%.1fdB) bass=%.2f (%.1fdB) "
+            "vocals=%.2f (%.1fdB) other=%.2f (%.1fdB)",
+            _w_drums, stem_snr.drums, _w_bass, stem_snr.bass,
+            _w_vocals, stem_snr.vocals, _w_other, stem_snr.other,
+        )
+
+    # F-004: Stem-gewichtete Energie (SNR-adjustierte Weights, ersetzt Stereo-Summe wenn Stems vorhanden)
+    stem_energy = compute_stem_weighted_energy(audio_id, beats, _w_drums, _w_bass, _w_vocals, _w_other)
     if stem_energy is not None:
         energy_per_beat = stem_energy.weighted
         logger.info("Nutze Stem-gewichtete Energie statt Stereo-Summe")
@@ -452,6 +476,9 @@ def auto_edit_phase3(
         except Exception as e:
             logger.warning("Fitness-Matrix uebersprungen: %s", e)
 
+    # AUD-97: DJ-Mix-Flag aus DB lesen (Fallback: Stem-basierte BPM-Analyse)
+    track_is_dj_mix = False
+
     # AUD-82: Cross-Modal Matching Engine initialisieren
     cross_modal_matcher: CrossModalMatcher | None = None
     try:
@@ -459,6 +486,17 @@ def auto_edit_phase3(
         with Session(engine) as session:
             _track = session.get(_AudioTrack, audio_id)
             if _track:
+                # AUD-97: DJ-Mix-Status aus DB; wenn nicht gesetzt → Stem-basierte Erkennung
+                track_is_dj_mix = bool(getattr(_track, "is_dj_mix", False))
+                if not track_is_dj_mix:
+                    track_is_dj_mix = detect_dj_mix_from_stems(audio_id)
+                    if track_is_dj_mix:
+                        logger.info(
+                            "AUD-97: Stem-BPM-Analyse erkennt DJ-Mix (audio_id=%d)", audio_id,
+                        )
+                else:
+                    logger.info("AUD-97: DJ-Mix via DB-Flag (audio_id=%d)", audio_id)
+
                 # Stem-Energie-Verhaeltnisse berechnen
                 _drum_ratio, _bass_ratio, _vocal_ratio = 0.4, 0.3, 0.1
                 if stem_energy is not None and energy_per_beat:
@@ -516,8 +554,8 @@ def auto_edit_phase3(
             if sid:
                 try:
                     scene_ids.append(int(sid))
-                except (ValueError, TypeError):
-                    pass
+                except (ValueError, TypeError) as exc:
+                    logger.warning("Failed to parse scene_id in auto_edit_phase3: %s", exc)
         if scene_ids:
             with Session(engine) as session:
                 for scene in session.query(Scene).filter(Scene.id.in_(scene_ids)).all():
@@ -623,8 +661,9 @@ def auto_edit_phase3(
         is_in_transition = (_ti >= 0 and _ti < len(sorted_trans_ends) and seg_start < sorted_trans_ends[_ti])
         if is_in_transition and not is_drop:
             # DJ-Uebergang: Laengerer Crossfade als SECTION_CROSSFADE_MAP["TRANSITION"]=1.5s
-            # weil echte DJ-Transitions weicher sein muessen als Sektions-Wechsel
-            seg_crossfade = max(seg_crossfade, 2.0)
+            # AUD-97: Bei erkanntem DJ-Mix noch weichere Transitions (3.0s statt 2.0s)
+            _dj_crossfade_base = 3.0 if track_is_dj_mix else 2.0
+            seg_crossfade = max(seg_crossfade, _dj_crossfade_base)
 
         segments.append(TimelineSegment(
             video_id=vid,

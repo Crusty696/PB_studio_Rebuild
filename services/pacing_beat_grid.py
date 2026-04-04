@@ -175,8 +175,8 @@ def _get_beat_positions(audio_id: int | None) -> list[float]:
             try:
                 positions = json.loads(bg.beat_positions)
                 return [float(p) for p in positions]
-            except (json.JSONDecodeError, TypeError):
-                pass
+            except (json.JSONDecodeError, TypeError) as e:
+                logger.warning("Parsing beat_positions JSON for audio_id=%s: %s", audio_id, e)
         if bg.bpm and bg.bpm > 0:
             interval = 60.0 / bg.bpm
             # FIX-2.2: Guard gegen Endlosschleife bei extrem kleinem BPM
@@ -217,8 +217,8 @@ def _get_beat_data_combined(
         if bg.beat_positions:
             try:
                 beat_positions = [float(p) for p in json.loads(bg.beat_positions)]
-            except (json.JSONDecodeError, TypeError):
-                pass
+            except (json.JSONDecodeError, TypeError) as e:
+                logger.warning("Parsing beat_positions JSON in combined loader for audio_id=%s: %s", audio_id, e)
         if not beat_positions and bg.bpm and bg.bpm > 0:
             interval = 60.0 / bg.bpm
             # BUG-013 Fix: Guard gegen Endlosschleife bei extrem kleinem BPM (identisch zu _get_beat_positions)
@@ -236,16 +236,16 @@ def _get_beat_data_combined(
         if bg.downbeat_positions:
             try:
                 downbeat_positions = [float(p) for p in json.loads(bg.downbeat_positions)]
-            except (json.JSONDecodeError, TypeError):
-                pass
+            except (json.JSONDecodeError, TypeError) as e:
+                logger.warning("Parsing downbeat_positions JSON for audio_id=%s: %s", audio_id, e)
 
         # energy_per_beat
         energy_per_beat: list[float] = []
         if bg.energy_per_beat:
             try:
                 energy_per_beat = [float(e) for e in json.loads(bg.energy_per_beat)]
-            except (json.JSONDecodeError, TypeError):
-                pass
+            except (json.JSONDecodeError, TypeError) as e:
+                logger.warning("Parsing energy_per_beat JSON for audio_id=%s: %s", audio_id, e)
 
         return beat_positions, downbeat_positions, energy_per_beat
 
@@ -869,6 +869,115 @@ def compute_stem_snr(audio_id: int) -> StemSNR | None:
         result.drums, result.bass, result.vocals, result.other,
     )
     return result
+
+
+def detect_dj_mix_from_stems(audio_id: int, n_segments: int = 5) -> bool:
+    """AUD-97: Stem-basierte DJ-Mix-Erkennung auf dem isolierten Drums-Stem.
+
+    Primaer: Drums-Stem (isoliert, kein Bleed-Through von anderen Instrumenten).
+    Fallback: Bass-Stem, dann Vocals-Stem wenn Drums nicht verfuegbar.
+
+    Methode:
+    - Teilt den Stem in n_segments gleichmaessige Abschnitte
+    - Berechnet librosa.beat.beat_track() fuer jeden Abschnitt
+    - BPM-Varianz (max - min) > BPM_VARIANCE_THRESHOLD → DJ-Mix erkannt
+
+    Vorteil gegenueber Stereo-BPM-Analyse: Der isolierte Drums-Stem liefert
+    praezisere Beat-Tracking-Ergebnisse, weil keine harmonischen Stoersignale
+    (Bass, Melodie, Vocals) die Onset-Detection beeinflussen.
+
+    Returns True wenn DJ-Mix erkannt, False sonst.
+    """
+    with Session(engine) as session:
+        track = session.get(AudioTrack, audio_id)
+        if not track:
+            return False
+        stem_paths = {
+            "drums": track.stem_drums_path,
+            "bass":  track.stem_bass_path,
+            "vocals": track.stem_vocals_path,
+        }
+
+    # Bevorzuge Drums (praeziseste Rhythmus-Information), dann Bass, dann Vocals
+    chosen_stem: str | None = None
+    chosen_path: str | None = None
+    for stem_name in ("drums", "bass", "vocals"):
+        p = stem_paths.get(stem_name)
+        if p and Path(p).exists():
+            chosen_stem = stem_name
+            chosen_path = p
+            break
+
+    if chosen_path is None:
+        logger.debug("detect_dj_mix_from_stems: keine Stems verfuegbar (audio_id=%d)", audio_id)
+        return False
+
+    try:
+        import librosa
+    except ImportError:
+        logger.warning("detect_dj_mix_from_stems: librosa nicht verfuegbar")
+        return False
+
+    try:
+        from services.audio_constants import (
+            BPM_VARIANCE_THRESHOLD, MIN_MIX_DURATION_SEC, LIKELY_MIX_DURATION_SEC,
+        )
+
+        y, sr = _get_cached_stem_audio(audio_id, chosen_path, chosen_stem, sr=DEFAULT_SR)
+        duration = len(y) / sr
+
+        if duration < MIN_MIX_DURATION_SEC:
+            logger.debug(
+                "detect_dj_mix_from_stems: Stem zu kurz (%.0fs < %.0fs)",
+                duration, MIN_MIX_DURATION_SEC,
+            )
+            return False
+
+        if duration >= LIKELY_MIX_DURATION_SEC:
+            logger.info(
+                "detect_dj_mix_from_stems: Stem laenger als %.0fs — DJ-Mix angenommen",
+                LIKELY_MIX_DURATION_SEC,
+            )
+            return True
+
+        # Sicherstellen dass Segmente mindestens 10 Sekunden lang sind
+        min_seg_sec = 10
+        effective_n = min(n_segments, max(2, int(duration / min_seg_sec)))
+        seg_samples = int(duration / effective_n * sr)
+
+        tempos: list[float] = []
+        for i in range(effective_n):
+            start = i * seg_samples
+            end = min(start + seg_samples, len(y))
+            if (end - start) < sr * 5:  # Mindestens 5s Segment
+                continue
+            seg = y[start:end]
+            t, _ = librosa.beat.beat_track(y=seg, sr=sr)
+            tempos.append(float(np.atleast_1d(t)[0]))
+
+        if len(tempos) < 2:
+            logger.debug("detect_dj_mix_from_stems: zu wenig Segmente auswertbar")
+            return False
+
+        tempo_arr = np.array(tempos)
+        tempo_var = float(np.ptp(tempo_arr))  # max - min
+        logger.info(
+            "detect_dj_mix_from_stems (%s): BPMs=%s Varianz=%.2f BPM_THRESHOLD=%.1f",
+            chosen_stem, [round(t, 1) for t in tempos], tempo_var, BPM_VARIANCE_THRESHOLD,
+        )
+
+        if tempo_var > BPM_VARIANCE_THRESHOLD:
+            logger.info(
+                "detect_dj_mix_from_stems: BPM-Varianz %.2f > %.1f — DJ-Mix erkannt via Stems",
+                tempo_var, BPM_VARIANCE_THRESHOLD,
+            )
+            return True
+
+        return False
+
+    except Exception:
+        logger.exception("detect_dj_mix_from_stems fehlgeschlagen (audio_id=%d)", audio_id)
+        return False
 
 
 @dataclass
