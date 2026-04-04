@@ -47,9 +47,34 @@ class VisionAnalysisService:
             progress_cb(0, "Lade Moondream2 Modell...")
 
         # Modell laden (mit trust_remote_code fuer Moondream2)
-        with GPU_LOAD_LOCK:
-            mm = ModelManager()
-            model, tokenizer = mm.load_vision("vikhyatk/moondream2")
+        # Graceful degradation: wenn Modell nicht vorhanden, leeres Ergebnis zurueckgeben
+        from services.errors import MLModelNotFoundError, CUDAOutOfMemoryError
+        try:
+            with GPU_LOAD_LOCK:
+                mm = ModelManager()
+                model, tokenizer = mm.load_vision("vikhyatk/moondream2")
+        except MLModelNotFoundError as e:
+            logger.warning(
+                "Moondream2 nicht verfuegbar (nicht heruntergeladen): %s", e
+            )
+            if progress_cb:
+                progress_cb(100, "Moondream2 nicht verfuegbar")
+            result = VisionAnalysisResult()
+            result.summary = (
+                "Moondream2 Modell nicht heruntergeladen. "
+                "Bitte laden: huggingface-cli download vikhyatk/moondream2"
+            )
+            return result
+        except CUDAOutOfMemoryError as e:
+            logger.warning("Moondream2 OOM: %s", e)
+            if progress_cb:
+                progress_cb(100, "Nicht genug VRAM fuer Moondream2")
+            result = VisionAnalysisResult()
+            result.summary = (
+                f"Nicht genug VRAM fuer Moondream2: {e}. "
+                "Bitte andere GPU-Modelle zuerst entladen."
+            )
+            return result
 
         if progress_cb:
             progress_cb(10, "Extrahiere Frames...")

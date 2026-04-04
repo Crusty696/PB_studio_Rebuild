@@ -84,29 +84,45 @@ class StemSeparator:
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
-        # ── 2. Device bestimmen (CUDA erzwingen) ──
+        # ── 2. Device bestimmen (GPU bevorzugt, CPU-Fallback erlaubt) ──
         if torch.cuda.is_available():
             device = torch.device("cuda")
             logger.info(f"[StemSeparator] GPU erkannt: {torch.cuda.get_device_name(0)} "
                   f"({torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB VRAM)")
         else:
-            raise RuntimeError(
-                "Stem-Separation erfordert eine CUDA-faehige GPU (NVIDIA). "
-                "Keine GPU erkannt — Abbruch.\n"
-                "Loesung: NVIDIA-Treiber installieren und PyTorch CUDA-Version verwenden:\n"
-                "  poetry run pip install torch==2.5.1+cu121 "
-                "--index-url https://download.pytorch.org/whl/cu121"
+            device = torch.device("cpu")
+            logger.warning(
+                "[StemSeparator] Keine CUDA-GPU erkannt — CPU-Fallback aktiv. "
+                "Stem-Separation laeuft deutlich langsamer (5-10x). "
+                "Fuer GPU-Beschleunigung: NVIDIA-Treiber + torch CUDA installieren."
             )
 
         if progress_cb:
             progress_cb(5, "Lade Demucs-Modell...")
 
         # ── 3. Demucs-Modell laden (Python API) ──
-        from demucs.pretrained import get_model
-        from demucs.apply import apply_model
+        try:
+            from demucs.pretrained import get_model
+            from demucs.apply import apply_model
+        except ImportError as e:
+            from services.errors import MLUnavailableError
+            raise MLUnavailableError(
+                feature="Stem-Separation",
+                reason="demucs nicht installiert. Bitte installieren: pip install demucs",
+            ) from e
         from services.model_manager import GPU_LOAD_LOCK
         with GPU_LOAD_LOCK:
-            demucs_model = get_model(model)
+            try:
+                demucs_model = get_model(model)
+            except (OSError, EnvironmentError) as e:
+                from services.errors import MLModelNotFoundError
+                raise MLModelNotFoundError(
+                    model,
+                    hint=(
+                        "Demucs laedt Modelle automatisch beim ersten Start. "
+                        "Stelle sicher dass eine Internetverbindung besteht."
+                    ),
+                ) from e
             try:
                 demucs_model.to(device)
             except torch.cuda.OutOfMemoryError:

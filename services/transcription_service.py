@@ -72,11 +72,44 @@ class TranscriptionService:
             logger.info("[Whisper] Lade Modell '%s' auf %s (%s)...",
                         self._model_size, device, compute_type)
 
-            model = WhisperModel(
-                self._model_size,
-                device=device,
-                compute_type=compute_type,
-            )
+            try:
+                model = WhisperModel(
+                    self._model_size,
+                    device=device,
+                    compute_type=compute_type,
+                )
+            except (OSError, EnvironmentError) as e:
+                # Modell nicht lokal gecacht — kleineres Modell als Fallback versuchen
+                if self._model_size not in ("tiny", "base"):
+                    fallback_size = "base"
+                    logger.warning(
+                        "[Whisper] Modell '%s' nicht gefunden — versuche Fallback '%s': %s",
+                        self._model_size, fallback_size, e,
+                    )
+                    try:
+                        model = WhisperModel(fallback_size, device=device, compute_type=compute_type)
+                        self._model_size = fallback_size  # merken fuer naechste transcription
+                    except (OSError, EnvironmentError) as e2:
+                        from services.errors import MLModelNotFoundError
+                        raise MLModelNotFoundError(
+                            f"whisper-{self._model_size}",
+                            hint=(
+                                "Whisper-Modell nicht lokal gecacht. "
+                                "Beim ersten Start mit Internetverbindung wird es automatisch "
+                                "heruntergeladen. Offline-Download: "
+                                f"huggingface-cli download Systran/faster-whisper-{fallback_size}"
+                            ),
+                        ) from e2
+                else:
+                    from services.errors import MLModelNotFoundError
+                    raise MLModelNotFoundError(
+                        f"whisper-{self._model_size}",
+                        hint=(
+                            "Whisper-Modell nicht lokal gecacht. "
+                            "Offline-Download: "
+                            f"huggingface-cli download Systran/faster-whisper-{self._model_size}"
+                        ),
+                    ) from e
 
         if progress_cb:
             progress_cb(20, "Transkribiere...")

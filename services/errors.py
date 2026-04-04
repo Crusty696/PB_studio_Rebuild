@@ -80,6 +80,43 @@ class CUDAOutOfMemoryError(GPUError):
         )
 
 
+# ── ML Model availability ──────────────────────────────────────
+
+class MLError(PBStudioError):
+    """Allgemeiner ML/KI-Fehler."""
+
+
+class MLModelNotFoundError(MLError):
+    """Ein ML-Modell ist nicht heruntergeladen / nicht im lokalen Cache.
+
+    Wird ausgeloest wenn ein HuggingFace- oder beat_this-Modell nicht lokal
+    vorhanden ist und kein Internet-Download moeglich/gewuenscht ist.
+    """
+
+    def __init__(self, model_id: str, hint: str = ""):
+        msg = f"ML-Modell '{model_id}' nicht gefunden (nicht heruntergeladen)."
+        if hint:
+            msg += f" {hint}"
+        super().__init__(msg, {"model_id": model_id, "hint": hint})
+        self.model_id = model_id
+
+
+class MLUnavailableError(MLError):
+    """Ein ML-Feature ist nicht verfuegbar (kein Modell, kein GPU, kein Package).
+
+    Wird fuer den UI-sichtbaren Degradierungs-Pfad genutzt.
+    """
+
+    def __init__(self, feature: str, reason: str, fallback: str = ""):
+        msg = f"ML-Feature '{feature}' nicht verfuegbar: {reason}"
+        if fallback:
+            msg += f" Fallback: {fallback}"
+        super().__init__(msg, {"feature": feature, "reason": reason, "fallback": fallback})
+        self.feature = feature
+        self.reason = reason
+        self.fallback = fallback
+
+
 # ── Database ───────────────────────────────────────────────────
 
 class DatabaseError(PBStudioError):

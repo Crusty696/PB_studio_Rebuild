@@ -241,6 +241,17 @@ class ModelManager:
                     f"VRAM reicht nicht für transformers '{model_id}'. "
                     f"GPU-Speicher wurde freigegeben."
                 )
+            except (OSError, EnvironmentError) as e:
+                logger.error("Transformers-Modell '%s' nicht gefunden: %s", model_id, e)
+                self.unload()
+                from services.errors import MLModelNotFoundError
+                raise MLModelNotFoundError(
+                    model_id,
+                    hint=(
+                        f"Bitte Modell herunterladen: "
+                        f"huggingface-cli download {model_id}"
+                    ),
+                ) from e
 
             self._current_model_id = model_id
             self._model_type = "transformers"
@@ -309,6 +320,19 @@ class ModelManager:
                     f"VRAM reicht nicht für whisper '{model_size}'. "
                     f"GPU-Speicher wurde freigegeben."
                 )
+            except (OSError, EnvironmentError) as e:
+                logger.error("Whisper-Modell '%s' nicht gefunden: %s", model_size, e)
+                self.unload()
+                from services.errors import MLModelNotFoundError
+                raise MLModelNotFoundError(
+                    f"whisper-{model_size}",
+                    hint=(
+                        "faster-whisper laedt Modelle automatisch beim ersten Start. "
+                        "Stelle sicher dass eine Internetverbindung besteht oder "
+                        f"lade das Modell manuell: "
+                        f"huggingface-cli download Systran/faster-whisper-{model_size}"
+                    ),
+                ) from e
 
             self._current_model_id = model_id
             self._model_type = "whisper"
@@ -366,6 +390,17 @@ class ModelManager:
                 self.unload()
                 from services.errors import CUDAOutOfMemoryError
                 raise CUDAOutOfMemoryError(operation=f"Vision '{model_id}' laden")
+            except (OSError, EnvironmentError) as e:
+                logger.error("Vision-Modell '%s' nicht gefunden: %s", model_id, e)
+                self.unload()
+                from services.errors import MLModelNotFoundError
+                raise MLModelNotFoundError(
+                    model_id,
+                    hint=(
+                        f"Bitte Modell herunterladen: "
+                        f"huggingface-cli download {model_id}"
+                    ),
+                ) from e
 
             self._current_model_id = model_id
             self._model_type = "vision"
@@ -428,7 +463,18 @@ class ModelManager:
                 self.unload()
                 from services.errors import CUDAOutOfMemoryError
                 raise CUDAOutOfMemoryError(operation=f"SigLIP '{model_id}' laden")
-            except (ImportError, OSError, MemoryError, ValueError, RuntimeError) as e:
+            except (OSError, EnvironmentError) as e:
+                logger.error("SigLIP-Modell '%s' nicht gefunden: %s", model_id, e)
+                self.unload()
+                from services.errors import MLModelNotFoundError
+                raise MLModelNotFoundError(
+                    model_id,
+                    hint=(
+                        f"Bitte Modell herunterladen: "
+                        f"huggingface-cli download {model_id}"
+                    ),
+                ) from e
+            except (ImportError, MemoryError, ValueError, RuntimeError) as e:
                 logger.error(
                     "SigLIP '%s' konnte nicht geladen werden: %s — räume auf.",
                     model_id, e,

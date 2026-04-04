@@ -396,9 +396,14 @@ def generate_embeddings(
             with GPU_LOAD_LOCK:
                 model, processor = mm.load_siglip()
             logger.info("[SIGLIP] SigLIP geladen auf %s", mm.device)
-        except (ImportError, RuntimeError, OSError, MemoryError) as e:
-            logger.error("[SIGLIP] SigLIP FEHLER: %s", e)
-            logger.error("SigLIP konnte nicht geladen werden: %s", e)
+        except Exception as e:  # broad catch — MLModelNotFoundError, OOM, ImportError, RuntimeError
+            from services.errors import MLModelNotFoundError
+            if isinstance(e, MLModelNotFoundError):
+                logger.warning(
+                    "[SIGLIP] SigLIP nicht heruntergeladen — Embedding uebersprungen: %s", e
+                )
+            else:
+                logger.error("[SIGLIP] SigLIP FEHLER: %s", e)
             return scenes
 
     import torch
@@ -581,8 +586,12 @@ def text_to_embedding(query: str) -> np.ndarray | None:
     with GPU_LOAD_LOCK:
         try:
             model, processor = mm.load_siglip()
-        except (ImportError, RuntimeError, OSError) as e:
-            logger.error("SigLIP für Text-Suche nicht verfügbar: %s", e)
+        except Exception as e:  # broad — MLModelNotFoundError, OOM, ImportError, RuntimeError
+            from services.errors import MLModelNotFoundError
+            if isinstance(e, MLModelNotFoundError):
+                logger.warning("SigLIP nicht heruntergeladen — Text-Suche nicht verfuegbar: %s", e)
+            else:
+                logger.error("SigLIP fuer Text-Suche nicht verfuegbar: %s", e)
             return None
 
         import torch
@@ -627,8 +636,14 @@ def texts_to_embeddings_batch(queries: list[str]) -> dict[str, np.ndarray]:
     with GPU_LOAD_LOCK:
         try:
             model, processor = mm.load_siglip()
-        except (ImportError, RuntimeError, OSError) as e:
-            logger.error("SigLIP fuer Batch-Text-Embedding nicht verfuegbar: %s", e)
+        except Exception as e:  # broad — MLModelNotFoundError, OOM, ImportError, RuntimeError
+            from services.errors import MLModelNotFoundError
+            if isinstance(e, MLModelNotFoundError):
+                logger.warning(
+                    "SigLIP nicht heruntergeladen — Batch-Embedding nicht verfuegbar: %s", e
+                )
+            else:
+                logger.error("SigLIP fuer Batch-Text-Embedding nicht verfuegbar: %s", e)
             return {}
 
         import torch

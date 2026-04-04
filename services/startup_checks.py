@@ -34,6 +34,10 @@ class SystemStatus:
     disk_free_gb: float = 0.0
     disk_ok: bool = False
     ollama_ok: bool = False
+    beat_this_ok: bool = False
+    demucs_ok: bool = False
+    whisper_cached: bool = False
+    ml_warnings: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
 
@@ -44,7 +48,7 @@ class SystemStatus:
             parts.append(f"GPU: {self.gpu_name} {vram_gb}GB")
         else:
             parts.append("GPU: n/a")
-        
+
         ki_status = "Ollama" if self.ollama_ok else "KI: Fallback"
         parts.append(ki_status)
 
@@ -150,6 +154,44 @@ def _check_cuda() -> tuple[bool, str, int]:
     return cuda_ok, gpu_name, vram_mb
 
 
+def _check_ml_packages() -> tuple[bool, bool, bool]:
+    """Prueft ob ML-Pakete installiert und Modelle lokal gecacht sind.
+
+    Returns:
+        (beat_this_ok, demucs_ok, whisper_cached)
+    """
+    beat_this_ok = False
+    demucs_ok = False
+    whisper_cached = False
+
+    # beat_this — pruefe nur Import (Modell wird beim ersten Einsatz geladen)
+    try:
+        import beat_this  # noqa: F401
+        beat_this_ok = True
+    except ImportError:
+        logger.debug("beat_this nicht installiert")
+
+    # demucs — pruefe Import
+    try:
+        import demucs  # noqa: F401
+        demucs_ok = True
+    except ImportError:
+        logger.debug("demucs nicht installiert")
+
+    # faster-whisper — pruefe ob mindestens ein Modell lokal gecacht ist
+    try:
+        import os
+        from pathlib import Path as _Path
+        hf_home = _Path(os.environ.get("HF_HOME", os.path.expanduser("~/.cache/huggingface")))
+        hub_dir = hf_home / "hub"
+        whisper_dirs = list(hub_dir.glob("models--Systran--faster-whisper-*"))
+        whisper_cached = bool(whisper_dirs)
+    except (OSError, ImportError) as exc:
+        logger.debug("Whisper-Cache-Check fehlgeschlagen: %s", exc)
+
+    return beat_this_ok, demucs_ok, whisper_cached
+
+
 def _check_disk(path: Path) -> float:
     import shutil
     try:
@@ -166,11 +208,12 @@ def check_system(app_root: Path | None = None) -> SystemStatus:
 
     status = SystemStatus()
     futures: dict = {}
-    with ThreadPoolExecutor(max_workers=4, thread_name_prefix="startup_check") as pool:
+    with ThreadPoolExecutor(max_workers=5, thread_name_prefix="startup_check") as pool:
         futures["ffmpeg"] = pool.submit(_check_ffmpeg)
         futures["cuda"] = pool.submit(_check_cuda)
         futures["disk"] = pool.submit(_check_disk, app_root)
         futures["ollama"] = pool.submit(_check_ollama)
+        futures["ml"] = pool.submit(_check_ml_packages)
 
         for key, future in futures.items():
             try:
@@ -189,6 +232,11 @@ def check_system(app_root: Path | None = None) -> SystemStatus:
                     status.disk_ok = status.disk_free_gb >= 1.0
                 elif key == "ollama":
                     status.ollama_ok = future.result(timeout=5)
+                elif key == "ml":
+                    bt_ok, dmc_ok, wsp_cached = future.result(timeout=3)
+                    status.beat_this_ok = bt_ok
+                    status.demucs_ok = dmc_ok
+                    status.whisper_cached = wsp_cached
             except (TimeoutError, RuntimeError, OSError) as exc:
                 logger.warning("Startup check '%s' raised: %s", key, exc)
 
@@ -208,7 +256,25 @@ def check_system(app_root: Path | None = None) -> SystemStatus:
         status.warnings.append(
             f"PB Studio benötigt eine NVIDIA GPU mit CUDA (GTX 1060 6GB+).\n"
             f"Gefunden: {gefunden}\n"
-            "KI-Features (Demucs, SigLIP, beat_this) werden nicht funktionieren."
+            "KI-Features (Demucs, SigLIP, beat_this) laufen im CPU-Modus (langsamer)."
+        )
+
+    # ML package availability warnings (non-blocking — Fallbacks sind aktiv)
+    if not status.beat_this_ok:
+        status.ml_warnings.append(
+            "beat_this nicht installiert — Beat-Analyse nutzt librosa als Fallback "
+            "(geringere Praezision). Installation: pip install beat_this"
+        )
+    if not status.demucs_ok:
+        status.ml_warnings.append(
+            "demucs nicht installiert — Stem-Separation nicht verfuegbar. "
+            "Installation: pip install demucs"
+        )
+    if not status.whisper_cached:
+        status.ml_warnings.append(
+            "Kein Whisper-Modell lokal gecacht — Transkription laedt Modell beim ersten Start. "
+            "Fuer Offline-Nutzung vorab laden: "
+            "huggingface-cli download Systran/faster-whisper-small"
         )
 
     if not status.disk_ok:

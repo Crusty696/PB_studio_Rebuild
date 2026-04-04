@@ -127,6 +127,16 @@ class StartupCheckDialog(QDialog):
         cl.addWidget(_check_row("CUDA GPU", status.cuda_ok, gpu_detail))
         cl.addWidget(_check_row("Speicherplatz (>1 GB)", status.disk_ok, f"{status.disk_free_gb:.1f} GB frei"))
         cl.addWidget(_check_row("Ollama (KI-Dienst)", status.ollama_ok))
+        cl.addSpacing(8)
+
+        cl.addWidget(_section_label("KI-Modelle"))
+        cl.addSpacing(4)
+        cl.addWidget(_check_row("beat_this (Beat-Analyse)", status.beat_this_ok,
+                                "" if status.beat_this_ok else "Fallback: librosa"))
+        cl.addWidget(_check_row("demucs (Stem-Separation)", status.demucs_ok,
+                                "" if status.demucs_ok else "nicht verfuegbar"))
+        cl.addWidget(_check_row("Whisper (Transkription)", status.whisper_cached,
+                                "gecacht" if status.whisper_cached else "wird beim ersten Start geladen"))
         cl.addSpacing(12)
 
         if status.errors:
@@ -139,6 +149,12 @@ class StartupCheckDialog(QDialog):
             cl.addWidget(_section_label("Warnungen"))
             for msg in status.warnings:
                 cl.addWidget(_message_row(msg, WARN, "!"))
+
+        if status.ml_warnings:
+            cl.addSpacing(6)
+            cl.addWidget(_section_label("KI-Modell Hinweise"))
+            for msg in status.ml_warnings:
+                cl.addWidget(_message_row(msg, ACCENT, "i"))
 
         cl.addSpacing(12)
 

@@ -57,6 +57,9 @@ class BeatAnalysisService:
         self._last_sr = None
         # E-02 Fix: Lock um analyze() + _last_y Zugriff in analyze_and_store() atomar zu halten
         self._analysis_lock = threading.Lock()
+        # Graceful degradation: set to True when beat_this unavailable
+        self._beat_this_unavailable = False
+        self._beat_this_unavailable_reason = ""
 
     @property
     def device(self) -> str:
@@ -66,15 +69,25 @@ class BeatAnalysisService:
             self._device = "cuda" if torch.cuda.is_available() else "cpu"
         return self._device
 
+    @property
+    def is_available(self) -> bool:
+        """True wenn beat_this einsatzbereit ist (Modell vorhanden + ladbar)."""
+        return not self._beat_this_unavailable
+
     def _ensure_model(self) -> None:
         """Laedt das beat_this Modell (lazy, einmalig).
 
         WICHTIG: Entlaedt zuerst den ModelManager, damit kein anderes
         Modell gleichzeitig VRAM belegt (GTX 1060 = 6GB Budget).
         GPU_LOAD_LOCK serialisiert alle GPU-Lade-Operationen.
+
+        Bei fehlenden Modellen oder nicht installiertem beat_this wird
+        self._beat_this_unavailable gesetzt — kein crash, Fallback auf librosa.
         """
         if self._model is not None:
             return
+        if self._beat_this_unavailable:
+            return  # Bereits als unavailable markiert — nicht erneut versuchen
         from services.model_manager import ModelManager, GPU_LOAD_LOCK
         with GPU_LOAD_LOCK:
             if self._model is not None:  # Double-check nach Lock
@@ -84,8 +97,19 @@ class BeatAnalysisService:
                 ModelManager().unload()
             except (RuntimeError, AttributeError) as e:
                 logger.warning("ModelManager.unload() vor beat_this fehlgeschlagen: %s", e)
-            from beat_this.inference import File2Beats
             import torch, gc
+            try:
+                from beat_this.inference import File2Beats
+            except ImportError as e:
+                reason = (
+                    "beat_this nicht installiert. "
+                    "Fallback auf librosa BPM-Erkennung aktiv. "
+                    "Installation: pip install beat_this"
+                )
+                logger.warning("beat_this Import fehlgeschlagen — %s: %s", reason, e)
+                self._beat_this_unavailable = True
+                self._beat_this_unavailable_reason = reason
+                return
             if torch.cuda.is_available():
                 logger.info("GPU-ZWANG: beat_this wird auf CUDA geladen (%s)", torch.cuda.get_device_name(0))
             logger.info("Lade beat_this Modell (device=%s, dbn=False)...", self.device)
@@ -98,6 +122,16 @@ class BeatAnalysisService:
                     f"VRAM reicht nicht fuer beat_this auf '{self.device}'. "
                     "Bitte andere GPU-Modelle entladen."
                 )
+            except (OSError, EnvironmentError) as e:
+                reason = (
+                    "beat_this Modell nicht heruntergeladen. "
+                    "Fallback auf librosa BPM-Erkennung aktiv. "
+                    "Beim naechsten Start mit Internetverbindung wird das Modell automatisch geladen."
+                )
+                logger.warning("beat_this Modell nicht gefunden — %s: %s", reason, e)
+                self._beat_this_unavailable = True
+                self._beat_this_unavailable_reason = reason
+                return
             logger.info("beat_this Modell geladen.")
 
     def unload(self) -> None:
@@ -166,7 +200,17 @@ class BeatAnalysisService:
         if progress_cb:
             progress_cb(15, "Lade beat_this Modell...")
 
-        if duration <= CHUNK_DURATION_SEC:
+        # Graceful degradation: fallback auf librosa wenn beat_this nicht verfuegbar
+        self._ensure_model()
+        if self._beat_this_unavailable:
+            logger.warning(
+                "beat_this nicht verfuegbar — nutze librosa BPM-Fallback: %s",
+                self._beat_this_unavailable_reason,
+            )
+            if progress_cb:
+                progress_cb(20, "Librosa BPM-Analyse (Fallback)...")
+            beats, downbeats = self._analyze_librosa_fallback(y, sr)
+        elif duration <= CHUNK_DURATION_SEC:
             if progress_cb:
                 progress_cb(20, "Analysiere Beats...")
             # Kurze Datei: direkt analysieren
@@ -197,7 +241,7 @@ class BeatAnalysisService:
         self._last_y = y
         self._last_sr = sr
 
-        return {
+        result: dict = {
             "beats": [round(float(b), 4) for b in beats],
             "downbeats": [round(float(b), 4) for b in downbeats],
             "bpm": bpm,
@@ -205,6 +249,10 @@ class BeatAnalysisService:
             "num_beats": len(beats),
             "num_downbeats": len(downbeats),
         }
+        if self._beat_this_unavailable:
+            result["fallback"] = True
+            result["fallback_reason"] = self._beat_this_unavailable_reason
+        return result
 
     def _analyze_full(self, audio_path: str) -> tuple[np.ndarray, np.ndarray]:
         """Analysiert die komplette Datei in einem Durchgang."""
@@ -213,6 +261,26 @@ class BeatAnalysisService:
         with torch.no_grad():
             beats, downbeats = self._model(audio_path)
         return np.array(beats), np.array(downbeats)
+
+    def _analyze_librosa_fallback(
+        self, y: np.ndarray, sr: int,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Librosa-basierter BPM/Beat-Fallback wenn beat_this nicht verfuegbar.
+
+        Qualitaet: geringer als beat_this (kein Downbeat, weniger praezise),
+        aber fuer Basis-Pacing ausreichend.
+        """
+        import librosa
+        logger.info("Librosa Beat-Fallback: Analysiere %d samples @ %d Hz...", len(y), sr)
+        tempo, beat_frames = librosa.beat.beat_track(y=y, sr=sr)
+        beat_times = librosa.frames_to_time(beat_frames, sr=sr)
+        # Librosa liefert keine Downbeats — jeden 4. Beat als Downbeat schaetzen
+        downbeat_times = beat_times[::4] if len(beat_times) >= 4 else beat_times[:1]
+        logger.info(
+            "Librosa Beat-Fallback: %.1f BPM, %d Beats, %d Downbeats (geschaetzt)",
+            float(tempo), len(beat_times), len(downbeat_times),
+        )
+        return np.array(beat_times), np.array(downbeat_times)
 
     def _analyze_chunked(
         self, audio_path: str, total_duration: float,
