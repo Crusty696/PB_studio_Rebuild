@@ -1,6 +1,6 @@
 import datetime as _datetime
 
-from sqlalchemy import Column, Integer, String, Float, ForeignKey, Text, Boolean
+from sqlalchemy import Column, Integer, String, Float, ForeignKey, Text, Boolean, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, relationship
 
 
@@ -30,6 +30,9 @@ class Project(Base):
 
 class AudioTrack(Base):
     __tablename__ = "audio_tracks"
+    __table_args__ = (
+        UniqueConstraint("project_id", "file_path", name="uq_audio_tracks_project_file"),
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
@@ -72,6 +75,9 @@ class AudioTrack(Base):
 
 class VideoClip(Base):
     __tablename__ = "video_clips"
+    __table_args__ = (
+        UniqueConstraint("project_id", "file_path", name="uq_video_clips_project_file"),
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
@@ -111,7 +117,7 @@ class Beatgrid(Base):
     __tablename__ = "beatgrids"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    audio_track_id = Column(Integer, ForeignKey("audio_tracks.id", ondelete="CASCADE"), nullable=False)
+    audio_track_id = Column(Integer, ForeignKey("audio_tracks.id", ondelete="CASCADE"), nullable=False, unique=True)
     bpm = Column(Float, nullable=False)
     offset = Column(Float, nullable=False, default=0.0)
     beat_positions = Column(Text, nullable=True)
@@ -136,7 +142,7 @@ class WaveformData(Base):
     __tablename__ = "waveform_data"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    audio_track_id = Column(Integer, ForeignKey("audio_tracks.id", ondelete="CASCADE"), nullable=False)
+    audio_track_id = Column(Integer, ForeignKey("audio_tracks.id", ondelete="CASCADE"), nullable=False, unique=True)
 
     # Anzahl der Samples (Zeitschritte) — typisch 1 pro ~23ms (hop_length=512 bei sr=22050)
     num_samples = Column(Integer, nullable=False, default=0)

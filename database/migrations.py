@@ -282,6 +282,12 @@ def init_db():
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_clip_anchors_timeline_entry_id ON clip_anchors(timeline_entry_id)"))
         # P2-02: UNIQUE Index auf beatgrids.audio_track_id (verhindert Duplikate)
         conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_beatgrids_audio_track_id ON beatgrids(audio_track_id)"))
+        # AUD-109: UNIQUE Index auf waveform_data.audio_track_id (1:1 Beziehung erzwingen)
+        conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_waveform_data_audio_track_id ON waveform_data(audio_track_id)"))
+        # AUD-109: UNIQUE Constraint auf audio_tracks(project_id, file_path) — keine doppelten Imports
+        conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_audio_tracks_project_file ON audio_tracks(project_id, file_path)"))
+        # AUD-109: UNIQUE Constraint auf video_clips(project_id, file_path) — keine doppelten Imports
+        conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_video_clips_project_file ON video_clips(project_id, file_path)"))
         # Index auf ai_pacing_memory.audio_track_id (Abfrage-Performance bei vielen gelernten Regeln)
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ai_pacing_memory_audio_track_id ON ai_pacing_memory(audio_track_id)"))
 
