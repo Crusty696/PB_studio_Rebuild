@@ -952,7 +952,7 @@ class MediaWorkspace(QWidget):
                 vals = _json.loads(energy)
                 avg = sum(vals) / len(vals) if vals else 0
                 self._lbl_energy.setText(f"Energy: {avg:.2f} avg ({len(vals)} pts)")
-            except Exception:
+            except (json.JSONDecodeError, ValueError):
                 self._lbl_energy.setText("Energy: vorhanden")
         elif energy:
             self._lbl_energy.setText(f"Energy: {energy}")

@@ -107,7 +107,7 @@ def get_app_icon() -> QIcon:
     try:
         if not png_path.exists():
             _draw_icon(256).save(str(png_path))
-    except Exception as exc:
+    except (OSError, RuntimeError) as exc:
         logger.warning("get_app_icon: failed to persist icon PNG: %s", exc)
 
     return _ICON_CACHE

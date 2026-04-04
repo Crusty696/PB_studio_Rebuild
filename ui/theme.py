@@ -19,6 +19,8 @@ OK = "#4ade80"
 WARN = "#fbbf24"
 ERR = "#f87171"
 INFO = "#60a5fa"
+INFO_CYAN = "#00e5ff"    # CPU status bar
+DANGER_BG = "#3a1010"   # Error-state progress bar background
 
 T1 = "#f9fafb"  # High Contrast Text (Off-White)
 T2 = "#9ca3af"  # Secondary Text

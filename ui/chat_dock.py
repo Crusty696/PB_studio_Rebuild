@@ -86,7 +86,7 @@ class AIAgentWorker(QObject):
     def run(self):
         _ok = False
         try:
-            self.status_changed.emit("Denkt nach...")
+            self.status_changed.emit(self.tr("Denkt nach..."))
 
             # Thread-sicher: Lokale tracked_registry statt Agent-Objekt zu mutieren
             # Vermeidet Data-Race wenn Main-Thread parallel auf agent.registry zugreift
@@ -112,7 +112,7 @@ class AIAgentWorker(QObject):
                     if tracked_registry is not None:
                         with self._registry_lock:
                             self.agent.registry = original_registry
-                self.status_changed.emit("Bereit")
+                self.status_changed.emit(self.tr("Bereit"))
                 self.finished.emit(result)
                 _ok = True
             except _LoopBreakError as le:
@@ -126,7 +126,7 @@ class AIAgentWorker(QObject):
                 })
                 _ok = True
 
-        except Exception as e:
+        except Exception as e:  # broad catch intentional — top-level worker thread safety net
             logger.error("AIAgentWorker crashed: %s", e, exc_info=True)
             self.status_changed.emit("Fehler")
             self.error.emit(str(e))
@@ -148,7 +148,8 @@ class ChatDock(QDockWidget):
     """
 
     def __init__(self, parent=None):
-        super().__init__("KI Assistent", parent)
+        super().__init__(parent)
+        self.setWindowTitle(self.tr("KI Assistent"))
         self.setObjectName("chat_dock")
         self.setAllowedAreas(
             Qt.DockWidgetArea.RightDockWidgetArea
@@ -171,11 +172,11 @@ class ChatDock(QDockWidget):
         self.chat_log = QTextEdit()
         self.chat_log.setReadOnly(True)
         self.chat_log.setFont(QFont("Cascadia Code", 10))
-        self.chat_log.setToolTip("Chat-Verlauf: Hier siehst du alle Nachrichten zwischen dir und dem KI-Assistenten sowie ausgefuehrte Aktionen")
+        self.chat_log.setToolTip(self.tr("Chat-Verlauf: Hier siehst du alle Nachrichten zwischen dir und dem KI-Assistenten sowie ausgefuehrte Aktionen"))
         layout.addWidget(self.chat_log)
 
         # Agent-Status-Label (über dem Eingabefeld)
-        self.status_label = QLabel("Agent Status: Bereit")
+        self.status_label = QLabel(self.tr("Agent Status: Bereit"))
         self.status_label.setFont(QFont("Cascadia Code", 9))
         self.status_label.setStyleSheet(
             f"QLabel {{"
@@ -194,17 +195,17 @@ class ChatDock(QDockWidget):
         input_row.setSpacing(6)
 
         self.input_field = QLineEdit()
-        self.input_field.setPlaceholderText("Nachricht an KI-Assistent...")
+        self.input_field.setPlaceholderText(self.tr("Nachricht an KI-Assistent..."))
         self.input_field.setFont(QFont("Segoe UI", 10))
         self.input_field.setMinimumHeight(34)
-        self.input_field.setToolTip("Gib hier deine Nachricht oder deinen Befehl an den KI-Assistenten ein. Druecke Enter oder klicke Senden")
+        self.input_field.setToolTip(self.tr("Gib hier deine Nachricht oder deinen Befehl an den KI-Assistenten ein. Druecke Enter oder klicke Senden"))
         self.input_field.returnPressed.connect(self._on_send)
         input_row.addWidget(self.input_field)
 
-        self.btn_send = QPushButton("Senden")
+        self.btn_send = QPushButton(self.tr("Senden"))
         self.btn_send.setMinimumHeight(34)
         self.btn_send.setMinimumWidth(80)
-        self.btn_send.setToolTip("Sendet deine Nachricht an den lokalen KI-Assistenten. Der Agent verarbeitet die Anfrage im Hintergrund")
+        self.btn_send.setToolTip(self.tr("Sendet deine Nachricht an den lokalen KI-Assistenten. Der Agent verarbeitet die Anfrage im Hintergrund"))
         self.btn_send.clicked.connect(self._on_send)
         input_row.addWidget(self.btn_send)
 
@@ -432,7 +433,7 @@ class ChatDock(QDockWidget):
 
             self.append_divider()
 
-        except Exception as e:
+        except (RuntimeError, AttributeError) as e:
             logger.exception("Fehler bei _exec_analyze_all")
             self.append_error(f"Analyse konnte nicht gestartet werden: {e}")
 
@@ -458,7 +459,7 @@ class ChatDock(QDockWidget):
 
             self.append_divider()
 
-        except Exception as e:
+        except (RuntimeError, AttributeError) as e:
             logger.exception("Fehler bei _exec_auto_edit")
             self.append_error(f"Auto-Edit konnte nicht gestartet werden: {e}")
 
@@ -478,7 +479,7 @@ class ChatDock(QDockWidget):
                 )
             else:
                 self.append_ai("Keine CUDA-GPU erkannt. Alle Modelle laufen auf CPU.")
-        except Exception as e:
+        except (ImportError, OSError, AttributeError) as e:
             self.append_error(f"GPU-Status nicht abrufbar: {e}")
 
     def _on_agent_status(self, status: str) -> None:

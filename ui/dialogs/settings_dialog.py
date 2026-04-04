@@ -81,7 +81,7 @@ class _OllamaTestWorker(QObject):
                 f"Verbunden! Ollama v{version} — {len(models)} Modell(e) verfügbar.",
                 models,
             )
-        except Exception as e:
+        except (ImportError, OSError, RuntimeError) as e:
             self.finished.emit(False, f"Fehler: {e}", [])
 
 

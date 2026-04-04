@@ -56,14 +56,14 @@ class StemsMixin:
                         f"[StemPlayer] Track #{track_id} geladen: "
                         f"{self.stem_player.duration:.1f}s"
                     )
-        except Exception as e:
+        except (OSError, RuntimeError, ValueError) as e:
             logger.error("[StemWorkspace] CRASH in _update_stem_workspace(track=%s): %s",
                          track_id, e, exc_info=True)
             self.console_text.append(f"[Stem-Widget] Fehler: {e}")
             try:
                 if hasattr(self, "stem_workspace"):
                     self.stem_workspace.update_for_track(None, None)
-            except Exception as exc:
+            except (RuntimeError, AttributeError) as exc:
                 logger.warning("_update_stem_workspace: fallback cleanup failed: %s", exc)
 
     def _start_stem_separation(self):

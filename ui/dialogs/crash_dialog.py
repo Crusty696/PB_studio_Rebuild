@@ -18,10 +18,10 @@ from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QTextEdit, QFrame,
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QCoreApplication
 from PySide6.QtGui import QFont
 
-from ui.theme import BG1
+from ui.theme import BG0, BG1, BG3, BG4, ACCENT, ACCENT_BRIGHT, ERR, T2, T3, T4
 
 
 _LOG_PATH = Path(__file__).parent.parent.parent / "logs" / "pb_studio.log"
@@ -38,7 +38,7 @@ class CrashDialog(QDialog):
         parent=None,
     ):
         super().__init__(parent)
-        self.setWindowTitle("PB Studio — Unerwarteter Fehler")
+        self.setWindowTitle(self.tr("PB Studio — Unerwarteter Fehler"))
         self.setFixedSize(580, 460)
         self.setStyleSheet(f"background-color: {BG1};")
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint)
@@ -48,9 +48,9 @@ class CrashDialog(QDialog):
         layout.setContentsMargins(20, 18, 20, 18)
 
         # ── Header ─────────────────────────────────────────────────────
-        header = QLabel("Ein unerwarteter Fehler ist aufgetreten")
+        header = QLabel(self.tr("Ein unerwarteter Fehler ist aufgetreten"))
         header.setStyleSheet(
-            "font-size: 16px; font-weight: 700; color: #e05555; background: transparent;"
+            f"font-size: 16px; font-weight: 700; color: {ERR}; background: transparent;"
         )
         header.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(header)
@@ -60,18 +60,18 @@ class CrashDialog(QDialog):
         exc_msg = str(exc_value) if exc_value else ""
         summary = QLabel(f"<b>{exc_name}:</b> {exc_msg[:200]}")
         summary.setWordWrap(True)
-        summary.setStyleSheet("color: #c0c0c0; font-size: 12px; background: transparent;")
+        summary.setStyleSheet(f"color: {T2}; font-size: 12px; background: transparent;")
         layout.addWidget(summary)
 
         # ── Separator ─────────────────────────────────────────────────
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet("background-color: #2a2a2a;")
+        sep.setStyleSheet(f"background-color: {BG3};")
         layout.addWidget(sep)
 
         # ── Stacktrace (compressed — last 20 lines) ───────────────────
-        trace_label = QLabel("Stacktrace:")
-        trace_label.setStyleSheet("color: #606060; font-size: 10px; font-weight: 700;"
+        trace_label = QLabel(self.tr("Stacktrace:"))
+        trace_label.setStyleSheet(f"color: {T4}; font-size: 10px; font-weight: 700;"
                                    "letter-spacing: 1px; background: transparent;")
         layout.addWidget(trace_label)
 
@@ -80,7 +80,7 @@ class CrashDialog(QDialog):
         self._trace_edit.setReadOnly(True)
         self._trace_edit.setFont(QFont("Courier New", 9))
         self._trace_edit.setStyleSheet(
-            "background: #0d0e14; color: #c0c0c0; border: 1px solid #2a2a2a;"
+            f"background: {BG0}; color: {T2}; border: 1px solid {BG3};"
             "border-radius: 4px; padding: 6px;"
         )
         self._trace_edit.setPlainText(tb_text)
@@ -89,29 +89,31 @@ class CrashDialog(QDialog):
 
         # ── Hint ──────────────────────────────────────────────────────
         hint = QLabel(
-            "Die vollständige Fehler-Log-Datei enthält weitere Details. "
-            "Bitte sende sie beim Melden eines Bugs mit."
+            self.tr(
+                "Die vollständige Fehler-Log-Datei enthält weitere Details. "
+                "Bitte sende sie beim Melden eines Bugs mit."
+            )
         )
         hint.setWordWrap(True)
-        hint.setStyleSheet("color: #505060; font-size: 11px; background: transparent;")
+        hint.setStyleSheet(f"color: {T4}; font-size: 11px; background: transparent;")
         layout.addWidget(hint)
 
         # ── Buttons ───────────────────────────────────────────────────
         btn_row = QHBoxLayout()
         btn_row.setSpacing(8)
 
-        btn_log = QPushButton("Log-Datei öffnen")
+        btn_log = QPushButton(self.tr("Log-Datei öffnen"))
         btn_log.setStyleSheet(
-            "QPushButton { background: #2a2d3a; color: #c0c0c0; border: 1px solid #3a3d4a;"
+            f"QPushButton {{ background: {BG3}; color: {T2}; border: 1px solid {BG4};"
             "border-radius: 6px; padding: 8px 16px; font-weight: 600; font-size: 12px; }"
-            "QPushButton:hover { background: #3a3d4a; }"
+            f"QPushButton:hover {{ background: {BG4}; }}"
         )
         btn_log.clicked.connect(self._open_log)
         btn_row.addWidget(btn_log)
 
         btn_row.addStretch()
 
-        btn_close = QPushButton("Schliessen")
+        btn_close = QPushButton(self.tr("Schliessen"))
         btn_close.setStyleSheet(
             "QPushButton { background: #d4a44a; color: #1a1b23; border: none;"
             "border-radius: 6px; padding: 8px 20px; font-weight: 700; font-size: 13px; }"
@@ -132,14 +134,14 @@ class CrashDialog(QDialog):
         max_lines: int = 40,
     ) -> str:
         if exc_type is None:
-            return "(Kein Stacktrace verfügbar)"
+            return QCoreApplication.translate("CrashDialog", "(Kein Stacktrace verfügbar)")
         lines = traceback.format_exception(exc_type, exc_value, exc_tb)
         text = "".join(lines)
         # Trim to last max_lines lines
         all_lines = text.splitlines()
         if len(all_lines) > max_lines:
             omitted = len(all_lines) - max_lines
-            all_lines = [f"... ({omitted} Zeilen ausgeblendet) ..."] + all_lines[-max_lines:]
+            all_lines = [QCoreApplication.translate("CrashDialog", "... ({omitted} Zeilen ausgeblendet) ...").format(omitted=omitted)] + all_lines[-max_lines:]
         return "\n".join(all_lines)
 
     @staticmethod

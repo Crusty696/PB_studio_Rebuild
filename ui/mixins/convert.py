@@ -71,7 +71,7 @@ class ConvertMixin:
                 entry.crossfade_duration = crossfade
                 try:
                     session.commit()
-                except Exception:
+                except Exception:  # broad catch intentional — DB call from UI thread
                     session.rollback()
                     raise
 

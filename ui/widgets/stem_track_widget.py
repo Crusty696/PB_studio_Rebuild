@@ -133,7 +133,7 @@ class PeakWorker(QObject):
                 peaks = peaks[:peak_idx]
                 self.finished.emit(self._stem_name, peaks)
 
-        except Exception as e:
+        except (OSError, RuntimeError, ValueError) as e:
             if not self._cancelled:
                 self.error.emit(self._stem_name, str(e))
 

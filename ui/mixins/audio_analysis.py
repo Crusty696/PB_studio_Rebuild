@@ -156,7 +156,7 @@ class AudioAnalysisMixin:
             # Phase 4: Audio Detail Cards aktualisieren
             self._update_detail_cards_for_audio(audio_id)
 
-        except Exception as e:
+        except (RuntimeError, OSError, ValueError) as e:
             logger.error("[AudioPool] CRASH in _on_audio_pool_selected (row=%s): %s",
                          row, e, exc_info=True)
 
@@ -169,7 +169,7 @@ class AudioAnalysisMixin:
             track_data = get_audio_detail_data(audio_id)
             if track_data:
                 self._media_ws._update_audio_detail_cards(track_data)
-        except Exception as e:
+        except (ImportError, OSError, RuntimeError) as e:
             logger.error("[AudioPool] Detail-Cards Update fehlgeschlagen: %s", e, exc_info=True)
 
     def _analyze_selected_audio(self):
@@ -402,7 +402,7 @@ class AudioAnalysisMixin:
         try:
             from database import engine
             engine.dispose()
-        except Exception as exc:
+        except (ImportError, OSError, RuntimeError) as exc:
             logger.warning("_on_sequential_step_done: failed to dispose DB engine: %s", exc)
 
         try:
@@ -430,7 +430,7 @@ class AudioAnalysisMixin:
                 on_finish=lambda *args, _sn=step_name, _h=helper: _h.step_done.emit(_sn, True),
                 on_error=lambda *args, _sn=step_name, _h=helper: _h.step_done.emit(_sn, False),
             )
-        except Exception as e:
+        except (RuntimeError, OSError, ValueError) as e:
             logger.error("[Komplett] Fehler beim Starten von %s: %s", step_name, e)
             self.console_text.append(f"[Komplett] {step_name} konnte nicht gestartet werden: {e}")
             self._seq_errors += 1

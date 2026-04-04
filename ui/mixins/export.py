@@ -39,7 +39,7 @@ class ExportMixin:
                 f"{estimate['segment_count']} Clips | "
                 f"Preset: {preset_name}"
             )
-        except Exception as e:
+        except (OSError, RuntimeError, ValueError) as e:
             logger.debug("Render-Schaetzung fehlgeschlagen: %s", e)
             self.render_estimate_label.setText("Geschaetzte Renderzeit: —")
 

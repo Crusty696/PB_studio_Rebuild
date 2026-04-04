@@ -108,7 +108,7 @@ def main():
                     print(f"  {line}")
     except KeyboardInterrupt:
         print("\n  App durch Benutzer beendet.")
-    except Exception as e:
+    except (subprocess.SubprocessError, OSError, FileNotFoundError) as e:
         print(f"\n  FEHLER: {e}")
         input("\nDruecke Enter zum Beenden...")
         sys.exit(1)

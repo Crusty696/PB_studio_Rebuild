@@ -12,6 +12,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont
 
 from database import nullpool_session, TimelineEntry
+from ui.theme import ACCENT, BG1, BG2, BG4, T1, T2, T3, T4
 
 
 class ClipInspectorPanel(QWidget):
@@ -24,11 +25,11 @@ class ClipInspectorPanel(QWidget):
         self.setFixedWidth(220)
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
         self.setStyleSheet(
-            "QWidget { background-color: #0f1319; color: #c8c6c3; }"
-            "QLabel { font-size: 10px; color: #888; }"
-            "QDoubleSpinBox { background: #161c26; color: #e8e6e3; border: 1px solid #2a3040; "
-            "  border-radius: 3px; padding: 2px 4px; font-size: 10px; }"
-            "QDoubleSpinBox:focus { border-color: #d4af37; }"
+            f"QWidget {{ background-color: {BG1}; color: {T2}; }}"
+            f"QLabel {{ font-size: 10px; color: {T3}; }}"
+            f"QDoubleSpinBox {{ background: {BG2}; color: {T1}; border: 1px solid {BG4}; "
+            f"  border-radius: 3px; padding: 2px 4px; font-size: 10px; }}"
+            f"QDoubleSpinBox:focus {{ border-color: {ACCENT}; }}"
         )
 
         layout = QVBoxLayout(self)
@@ -38,22 +39,22 @@ class ClipInspectorPanel(QWidget):
         # Header
         header = QLabel("CLIP INSPECTOR")
         header.setFont(QFont("Segoe UI Variable Text", 9, QFont.Weight.Bold))
-        header.setStyleSheet("color: #d4af37; letter-spacing: 2px; font-size: 9px;")
+        header.setStyleSheet(f"color: {ACCENT}; letter-spacing: 2px; font-size: 9px;")
         layout.addWidget(header)
 
         # Separator
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet("background-color: #2a3040; max-height: 1px;")
+        sep.setStyleSheet(f"background-color: {BG4}; max-height: 1px;")
         layout.addWidget(sep)
 
         # Info labels (read-only)
         self._type_label = QLabel("Typ: --")
-        self._type_label.setStyleSheet("font-size: 11px; color: #a0a0a0;")
+        self._type_label.setStyleSheet(f"font-size: 11px; color: {T2};")
         layout.addWidget(self._type_label)
 
         self._media_label = QLabel("Media: --")
-        self._media_label.setStyleSheet("font-size: 10px; color: #888;")
+        self._media_label.setStyleSheet(f"font-size: 10px; color: {T3};")
         self._media_label.setWordWrap(True)
         layout.addWidget(self._media_label)
 
@@ -61,12 +62,12 @@ class ClipInspectorPanel(QWidget):
         self._start_spin = self._add_spin_row(layout, "Start (s)", 0.0, 36000.0, 3, 0.1)
         self._end_spin = self._add_spin_row(layout, "Ende (s)", 0.0, 36000.0, 3, 0.1)
         self._duration_label = QLabel("Dauer: --")
-        self._duration_label.setStyleSheet("font-size: 10px; color: #888; margin-bottom: 4px;")
+        self._duration_label.setStyleSheet(f"font-size: 10px; color: {T3}; margin-bottom: 4px;")
         layout.addWidget(self._duration_label)
 
         sep2 = QFrame()
         sep2.setFrameShape(QFrame.Shape.HLine)
-        sep2.setStyleSheet("background-color: #2a3040; max-height: 1px;")
+        sep2.setStyleSheet(f"background-color: {BG4}; max-height: 1px;")
         layout.addWidget(sep2)
 
         self._brightness_spin = self._add_spin_row(layout, "Helligkeit", -1.0, 1.0, 2, 0.05)
@@ -78,7 +79,7 @@ class ClipInspectorPanel(QWidget):
         # No-selection placeholder
         self._no_selection_label = QLabel("Kein Clip\nausgewaehlt")
         self._no_selection_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._no_selection_label.setStyleSheet("color: #444; font-size: 11px; margin-top: 20px;")
+        self._no_selection_label.setStyleSheet(f"color: {T4}; font-size: 11px; margin-top: 20px;")
         layout.addWidget(self._no_selection_label)
 
         self._current_entry_id: int | None = None

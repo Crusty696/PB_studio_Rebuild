@@ -47,7 +47,7 @@ class _ScanWorker(QObject):
             svc = get_model_lifecycle_service(self.ollama_url)
             entries = svc.scan_all()
             self.finished.emit(entries)
-        except Exception as e:
+        except (ImportError, OSError, RuntimeError) as e:
             self.error.emit(str(e))
 
 
@@ -576,7 +576,7 @@ class ModelManagerDialog(QDialog):
                     self._ollama_status_lbl.setText(f"Ollama v{version} ✓")
                     self._ollama_status_lbl.setStyleSheet(f"color: {OK}; font-size: 11px;")
                     return
-        except Exception as exc:
+        except (OSError, ValueError) as exc:
             logger.warning("_check_ollama_status: failed to reach Ollama: %s", exc)
         self._ollama_status_lbl.setText("Ollama: nicht erreichbar ✗")
         self._ollama_status_lbl.setStyleSheet(f"color: {ERR}; font-size: 11px;")

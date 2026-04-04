@@ -128,7 +128,7 @@ class ResourceMonitorWidget(QWidget):
                 used = torch.cuda.memory_allocated(idx) / (1024 ** 3)
                 total = torch.cuda.get_device_properties(idx).total_memory / (1024 ** 3)
                 pct = int((used / total) * 100) if total > 0 else 0
-            except Exception:
+            except (OSError, AttributeError):
                 used = total = 0.0
                 pct = 0
         else:

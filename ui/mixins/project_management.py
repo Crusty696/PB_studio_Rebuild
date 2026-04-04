@@ -39,7 +39,7 @@ class ProjectManagementMixin:
                 fps=vals["fps"],
             )
             self._console_append(f"[Projekt] Neues Projekt erstellt: {vals['name']}")
-        except Exception as exc:
+        except (OSError, RuntimeError, ValueError) as exc:
             from PySide6.QtWidgets import QMessageBox
             QMessageBox.critical(self, "Fehler", str(exc))
             self._console_append(f"[Projekt-Fehler] {exc}")
@@ -54,7 +54,7 @@ class ProjectManagementMixin:
         try:
             meta = self._project_manager.open_project(path)
             self._console_append(f"[Projekt] Geoeffnet: {meta.get('name', path.name)}")
-        except Exception as exc:
+        except (OSError, RuntimeError, ValueError) as exc:
             from PySide6.QtWidgets import QMessageBox
             QMessageBox.critical(self, "Fehler", str(exc))
             self._console_append(f"[Projekt-Fehler] {exc}")
@@ -72,7 +72,7 @@ class ProjectManagementMixin:
         try:
             self._project_manager.save_project_as(target)
             self._console_append(f"[Projekt] Gespeichert unter: {target}")
-        except Exception as exc:
+        except (OSError, RuntimeError, ValueError) as exc:
             from PySide6.QtWidgets import QMessageBox
             QMessageBox.critical(self, "Fehler", str(exc))
             self._console_append(f"[Projekt-Fehler] {exc}")
@@ -88,7 +88,7 @@ class ProjectManagementMixin:
         self._refresh_director_combos()
         try:
             self.timeline_view.load_from_db()
-        except Exception as e:
+        except (OSError, RuntimeError, ValueError) as e:
             logging.warning("Timeline-Reload nach Projektwechsel fehlgeschlagen: %s", e)
             self.console_text.append(f"[Warnung] Timeline konnte nicht geladen werden: {e}")
         self.status_bar.showMessage(f"Projekt: {project_name}  |  {path}")
@@ -121,5 +121,5 @@ class ProjectManagementMixin:
             self.console_text.append(msg)
             if hasattr(self, "status_bar"):
                 self.status_bar.showMessage(msg, 5000)
-        except Exception as e:
+        except (ImportError, AttributeError, RuntimeError) as e:
             logger.warning("Ollama-Einstellungen konnten nicht angewendet werden: %s", e)

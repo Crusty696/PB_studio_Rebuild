@@ -120,7 +120,7 @@ class _ThumbWorker(QObject):
                     capture_output=True,
                     timeout=10,
                 )
-            except Exception:
+            except (subprocess.SubprocessError, OSError, FileNotFoundError):
                 return _placeholder_pixmap(self._w, self._h, "▶")
         pix = QPixmap(str(dest))
         return pix if not pix.isNull() else _placeholder_pixmap(self._w, self._h, "▶")
@@ -455,7 +455,7 @@ class MediaPoolGrid(QWidget):
                 if ec:
                     try:
                         energy = json.loads(ec)
-                    except Exception as exc:
+                    except (json.JSONDecodeError, ValueError) as exc:
                         logger.warning("_populate: failed to parse energy_curve JSON: %s", exc)
                 card = AudioCard(
                     media_id=data["id"],

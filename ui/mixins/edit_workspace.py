@@ -540,7 +540,7 @@ class EditWorkspaceMixin:
                     f"Breakdown={preset.breakdown_behavior}"
                 )
                 self.statusBar().showMessage(f"Style-Preset '{preset_name}' angewendet", 3000)
-        except Exception as e:
+        except (OSError, RuntimeError, ValueError) as e:
             self.console_text.append(f"[Style-Preset] Fehler: {e}")
 
     def _show_keyframe_strings(self):
@@ -549,7 +549,7 @@ class EditWorkspaceMixin:
             kf_string = generate_keyframe_strings_for_project(project_id=get_active_project_id())
             self.keyframe_text.setPlainText(kf_string)
             self.console_text.append("[Pacing] Keyframe-Strings generiert.")
-        except Exception as e:
+        except (OSError, RuntimeError, ValueError) as e:
             self.keyframe_text.setPlainText(f"Fehler: {e}")
             self.console_text.append(f"[Pacing-Fehler] Keyframe-Strings: {e}")
 

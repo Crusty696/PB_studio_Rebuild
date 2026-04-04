@@ -100,7 +100,7 @@ class PanelSetupMixin:
                     vram = gpu_info.get("vram_total_mb", 0)
                     if gpu_name != "CPU" and vram > 0:
                         self.console_text.append(f"[GPU] HARDWARE AKTIV: {gpu_name} ({vram:.0f} MB VRAM)")
-                except Exception as exc:
+                except (ImportError, AttributeError, OSError) as exc:
                     logger.warning("_show_gpu_info_deferred: failed to get GPU info: %s", exc)
             QTimer.singleShot(2000, _show_gpu_info_deferred)
 
@@ -110,7 +110,7 @@ class PanelSetupMixin:
                 "Befehle: 'analysiere', 'schneide', 'gpu status'"
             )
             self.console_text.append("[KI] Chat-Assistent initialisiert (Modell wird bei erster Anfrage geladen).")
-        except Exception as e:
+        except (ImportError, AttributeError, RuntimeError) as e:
             logger.error("[B-014] register_actions / Agent-Init fehlgeschlagen: %s", e, exc_info=True)
             self.chat_dock.append_error(f"Agent konnte nicht initialisiert werden: {e}")
             self.console_text.append(f"[KI-Fehler] {e}")

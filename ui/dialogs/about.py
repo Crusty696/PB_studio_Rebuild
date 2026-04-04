@@ -8,9 +8,9 @@ from pathlib import Path
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QCoreApplication
 
-from ui.theme import BG1, ACCENT, T1
+from ui.theme import BG0, BG1, BG3, BG4, ACCENT, ACCENT_BRIGHT, T2, T3, T4
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +20,7 @@ def _build_date() -> str:
     try:
         mtime = Path(__file__).stat().st_mtime
         return datetime.datetime.fromtimestamp(mtime).strftime("%Y-%m-%d")
-    except Exception:
+    except OSError:
         return "n/a"
 
 
@@ -32,12 +32,12 @@ def _gpu_info() -> str:
             name = torch.cuda.get_device_name(0)
             cuda = torch.version.cuda or "n/a"
             return f"{name}  |  CUDA {cuda}"
-    except Exception as exc:
+    except (ImportError, AttributeError, OSError) as exc:
         logger.warning("_gpu_info: failed to detect GPU: %s", exc)
-    return "Keine CUDA-GPU erkannt"
+    return QCoreApplication.translate("AboutDialog", "Keine CUDA-GPU erkannt")
 
 
-def _badge(text: str, bg: str = "#2a2d3a", fg: str = "#c0c0c0") -> QLabel:
+def _badge(text: str, bg: str = BG3, fg: str = T2) -> QLabel:
     """Return a small colored badge label."""
     lbl = QLabel(text)
     lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -63,7 +63,7 @@ class AboutDialog(QDialog):
         title = QLabel("PB Studio")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title.setStyleSheet(
-            "font-size: 30px; font-weight: 800; color: #d4a44a; background: transparent;"
+            f"font-size: 30px; font-weight: 800; color: {ACCENT}; background: transparent;"
         )
         layout.addWidget(title)
 
@@ -71,21 +71,21 @@ class AboutDialog(QDialog):
         subtitle = QLabel("Director's Cockpit \u2014 Beat-Synchronized Video Editor")
         subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
         subtitle.setStyleSheet(
-            "font-size: 13px; color: #909090; font-weight: 600; background: transparent;"
+            f"font-size: 13px; color: {T3}; font-weight: 600; background: transparent;"
         )
         layout.addWidget(subtitle)
 
         # ── Separator ──
         line = QFrame()
         line.setFrameShape(QFrame.Shape.HLine)
-        line.setStyleSheet("background-color: #2a2a2a;")
+        line.setStyleSheet(f"background-color: {BG3};")
         layout.addWidget(line)
 
         # ── Version + Build Date ──
         ver_label = QLabel(f"Version {version}  ·  Build {_build_date()}")
         ver_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         ver_label.setStyleSheet(
-            "font-size: 14px; color: #d4a44a; font-weight: 700; background: transparent;"
+            f"font-size: 14px; color: {ACCENT}; font-weight: 700; background: transparent;"
         )
         layout.addWidget(ver_label)
 
@@ -95,7 +95,7 @@ class AboutDialog(QDialog):
         tech_label = QLabel("Tech Stack")
         tech_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         tech_label.setStyleSheet(
-            "font-size: 11px; color: #606060; font-weight: 600;"
+            f"font-size: 11px; color: {T4}; font-weight: 600;"
             "text-transform: uppercase; letter-spacing: 1px; background: transparent;"
         )
         layout.addWidget(tech_label)
@@ -131,7 +131,7 @@ class AboutDialog(QDialog):
         # ── Separator ──
         line2 = QFrame()
         line2.setFrameShape(QFrame.Shape.HLine)
-        line2.setStyleSheet("background-color: #2a2a2a;")
+        line2.setStyleSheet(f"background-color: {BG3};")
         layout.addWidget(line2)
 
         # ── Hardware / Runtime Info ──
@@ -140,7 +140,7 @@ class AboutDialog(QDialog):
         info = QLabel(f"{gpu_text}\n{py_ver}")
         info.setAlignment(Qt.AlignmentFlag.AlignCenter)
         info.setStyleSheet(
-            "color: #707070; font-size: 12px; line-height: 1.6; background: transparent;"
+            f"color: {T3}; font-size: 12px; line-height: 1.6; background: transparent;"
         )
         layout.addWidget(info)
 
@@ -149,14 +149,14 @@ class AboutDialog(QDialog):
         # ── Separator ──
         line3 = QFrame()
         line3.setFrameShape(QFrame.Shape.HLine)
-        line3.setStyleSheet("background-color: #2a2a2a;")
+        line3.setStyleSheet(f"background-color: {BG3};")
         layout.addWidget(line3)
 
         # ── Credits ──
         credits = QLabel("© 2024–2026 Paperclip / PB Studio Team")
         credits.setAlignment(Qt.AlignmentFlag.AlignCenter)
         credits.setStyleSheet(
-            "color: #505060; font-size: 11px; background: transparent;"
+            f"color: {T4}; font-size: 11px; background: transparent;"
         )
         layout.addWidget(credits)
 
@@ -164,29 +164,29 @@ class AboutDialog(QDialog):
         btn_row = QHBoxLayout()
         btn_row.setSpacing(8)
 
-        btn_docs = QPushButton("Dokumentation")
+        btn_docs = QPushButton(self.tr("Dokumentation"))
         btn_docs.setMaximumWidth(140)
         btn_docs.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_docs.setToolTip("Öffnet die PB Studio Dokumentation im Browser")
+        btn_docs.setToolTip(self.tr("Öffnet die PB Studio Dokumentation im Browser"))
         btn_docs.setStyleSheet(
-            "QPushButton { background: #2a2d3a; color: #c0c0c0; border: 1px solid #3a3d4a;"
+            f"QPushButton {{ background: {BG3}; color: {T2}; border: 1px solid {BG4};"
             "border-radius: 6px; padding: 7px 14px; font-weight: 600; font-size: 12px; }"
-            "QPushButton:hover { background: #3a3d4a; }"
+            f"QPushButton:hover {{ background: {BG4}; }}"
         )
         btn_docs.clicked.connect(self._open_docs)
         btn_row.addWidget(btn_docs)
 
         btn_row.addStretch()
 
-        btn = QPushButton("Schliessen")
+        btn = QPushButton(self.tr("Schliessen"))
         btn.setObjectName("btn_accent")
         btn.setMaximumWidth(140)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn.setToolTip("Diesen Dialog schliessen und zur App zurueckkehren")
+        btn.setToolTip(self.tr("Diesen Dialog schliessen und zur App zurueckkehren"))
         btn.setStyleSheet(
-            "QPushButton { background: #d4a44a; color: #1a1b23; border: none;"
+            f"QPushButton {{ background: {ACCENT}; color: {BG0}; border: none;"
             "border-radius: 6px; padding: 8px 20px; font-weight: 700; font-size: 13px; }"
-            "QPushButton:hover { background: #e0b65c; }"
+            f"QPushButton:hover {{ background: {ACCENT_BRIGHT}; }}"
         )
         btn.clicked.connect(self.accept)
         btn_row.addWidget(btn)
@@ -206,5 +206,5 @@ class AboutDialog(QDialog):
                     subprocess.Popen(["open", str(docs_path)])
                 else:
                     subprocess.Popen(["xdg-open", str(docs_path)])
-        except Exception as exc:
+        except (subprocess.SubprocessError, OSError) as exc:
             logger.warning("_open_docs: failed to open README: %s", exc)

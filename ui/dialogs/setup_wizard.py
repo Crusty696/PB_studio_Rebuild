@@ -107,7 +107,7 @@ def _ollama_running(url: str = "http://localhost:11434") -> bool:
     try:
         with urllib.request.urlopen(f"{url}/api/tags", timeout=2) as r:
             return r.status == 200
-    except Exception:
+    except OSError:
         return False
 
 
@@ -117,7 +117,7 @@ def _hf_cache_has(repo_id: str) -> bool:
         from huggingface_hub import scan_cache_dir
         cache = scan_cache_dir()
         return any(r.repo_id == repo_id for r in cache.repos)
-    except Exception:
+    except (ImportError, OSError):
         return False
 
 
@@ -127,7 +127,7 @@ def _ollama_has_model(model_id: str, url: str = "http://localhost:11434") -> boo
             data = json.loads(r.read())
         return any(m.get("name", "").startswith(model_id.split(":")[0])
                    for m in data.get("models", []))
-    except Exception:
+    except (OSError, ValueError):
         return False
 
 
@@ -213,7 +213,7 @@ class _DownloadWorker(QObject):
                     pct = (completed / total) if total > 0 else 0.0
                     self.step_progress.emit(model_name, pct, status_msg)
             return True, "OK"
-        except Exception as e:
+        except (OSError, ValueError) as e:
             return False, str(e)
 
     def _download_hf(self, repo_id: str) -> tuple[bool, str]:
@@ -223,7 +223,7 @@ class _DownloadWorker(QObject):
             snapshot_download(repo_id=repo_id, local_files_only=False)
             self.step_progress.emit(repo_id, 1.0, "Fertig")
             return True, "OK"
-        except Exception as e:
+        except (ImportError, OSError, RuntimeError) as e:
             return False, str(e)
 
 
@@ -324,7 +324,7 @@ class _PageHardware(QWidget):
         from services.startup_checks import run_startup_checks
         try:
             status = run_startup_checks()
-        except Exception as e:
+        except (ImportError, OSError, RuntimeError) as e:
             logger.warning("Startup check failed: %s", e)
             self._loading_lbl.setText(f"System-Check fehlgeschlagen: {e}")
             return
