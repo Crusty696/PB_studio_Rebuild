@@ -115,9 +115,9 @@ class CrashDialog(QDialog):
 
         btn_close = QPushButton(self.tr("Schliessen"))
         btn_close.setStyleSheet(
-            "QPushButton { background: #d4a44a; color: #1a1b23; border: none;"
+            f"QPushButton {{ background: {ACCENT}; color: {BG0}; border: none;"
             "border-radius: 6px; padding: 8px 20px; font-weight: 700; font-size: 13px; }"
-            "QPushButton:hover { background: #e0b65c; }"
+            f"QPushButton:hover {{ background: {ACCENT_BRIGHT}; }}"
         )
         btn_close.clicked.connect(self.accept)
         btn_row.addWidget(btn_close)

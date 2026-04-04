@@ -29,7 +29,7 @@ from PySide6.QtWidgets import (
     QSizePolicy, QSpacerItem, QMenu, QGraphicsPolygonItem, QSpinBox, QDoubleSpinBox,
     QScrollArea,
 )
-from PySide6.QtCore import Qt, QThread, Signal, QObject, QRectF, QPointF, QTimer
+from PySide6.QtCore import Qt, QThread, Signal, QObject, QRectF, QPointF, QTimer, QTranslator, QLocale
 from PySide6.QtGui import QPainter, QPainterPath, QColor, QFont, QBrush, QPen, QPixmap, QImage, QPolygonF, QAction
 
 # NEU: PB Studio Gold-Accent Theme (ersetzt qt_material)
@@ -146,6 +146,10 @@ class PBWindow(QMainWindow,
         # ── Top Bar ──
         self._build_top_bar(main_layout, APP_VERSION)
 
+        # ── Update-Notification Banner (hidden until a new version is found) ──
+        self._update_banner = self._build_update_banner()
+        main_layout.addWidget(self._update_banner)
+
         # ── Trennlinie ──
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
@@ -207,6 +211,76 @@ class PBWindow(QMainWindow,
 
         # P-016: Media-Tabelle NACH dem Window-Show laden (nicht im __init__)
         QTimer.singleShot(0, self._refresh_media_table)
+
+        # AUD-103: Version check — non-blocking, after window is visible
+        QTimer.singleShot(3000, self._start_version_check)
+
+    # ── AUD-103: Update notification ──────────────────────────────────────
+
+    def _build_update_banner(self) -> QFrame:
+        """Create the dismissible update-notification banner (hidden by default)."""
+        banner = QFrame()
+        banner.setObjectName("update_banner")
+        banner.setStyleSheet(
+            "#update_banner {"
+            "  background-color: #1a3a1a;"
+            "  border-bottom: 1px solid #2d6a2d;"
+            "}"
+        )
+        banner.setVisible(False)
+        banner.setFixedHeight(36)
+
+        layout = QHBoxLayout(banner)
+        layout.setContentsMargins(12, 4, 8, 4)
+        layout.setSpacing(8)
+
+        self._update_banner_label = QLabel()
+        self._update_banner_label.setStyleSheet("color: #7fff7f; font-size: 12px;")
+        layout.addWidget(self._update_banner_label, stretch=1)
+
+        self._update_banner_link = QPushButton("Download")
+        self._update_banner_link.setFlat(True)
+        self._update_banner_link.setStyleSheet(
+            "QPushButton { color: #aaffaa; text-decoration: underline; font-size: 12px; }"
+            "QPushButton:hover { color: #ffffff; }"
+        )
+        self._update_banner_link.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._update_banner_link.setVisible(False)
+        layout.addWidget(self._update_banner_link)
+
+        btn_close = QPushButton("✕")
+        btn_close.setFlat(True)
+        btn_close.setFixedSize(20, 20)
+        btn_close.setStyleSheet("QPushButton { color: #7fff7f; font-size: 11px; } QPushButton:hover { color: #ffffff; }")
+        btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_close.clicked.connect(banner.hide)
+        layout.addWidget(btn_close)
+
+        return banner
+
+    def _start_version_check(self) -> None:
+        """Launch the background version check thread."""
+        from services.version_check_service import VersionCheckWorker
+        self._version_checker = VersionCheckWorker(current_version=APP_VERSION)
+        self._version_checker.update_available.connect(self._on_update_available)
+        self._version_checker.finished.connect(self._version_checker.deleteLater)
+        self._version_checker.start()
+        logger.debug("Version check started (current=%s)", APP_VERSION)
+
+    def _on_update_available(self, latest_version: str, download_url: str) -> None:
+        """Show the update banner when a newer release is detected."""
+        self._update_banner_label.setText(
+            f"Update verfügbar: PB Studio v{latest_version}"
+        )
+        if download_url:
+            self._update_banner_link.setVisible(True)
+            self._update_banner_link.clicked.connect(
+                lambda: __import__("webbrowser").open(download_url)
+            )
+        self._update_banner.setVisible(True)
+        logger.info("Update banner shown: v%s available", latest_version)
+
+    # ── End AUD-103 ───────────────────────────────────────────────────────
 
     def closeEvent(self, event):
         # 0. Check for running tasks and ask user
@@ -407,6 +481,17 @@ def main():
         sys.exit(1)
 
     app = QApplication(sys.argv)
+
+    # ── i18n / Translations ───────────────────────────────────────────
+    # Load .qm file for the system locale (default: German).
+    # Compile .ts → .qm with: pyside6-lrelease translations/pb_studio_de.ts
+    _translator = QTranslator(app)
+    _trans_dir = Path(__file__).parent / "translations"
+    _locale_name = QLocale.system().name()  # e.g. "de_DE"
+    for _lang in (_locale_name, _locale_name.split("_")[0], "de"):
+        if _translator.load(f"pb_studio_{_lang}", str(_trans_dir)):
+            app.installTranslator(_translator)
+            break
 
     _tm = GlobalTaskManager.instance()
     _task_manager_module.task_manager = _tm
