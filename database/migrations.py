@@ -12,6 +12,9 @@ from database.models import (
 
 logger = logging.getLogger(__name__)
 
+# Alembic baseline revision — must match the revision in the initial migration file.
+_ALEMBIC_BASELINE_REV = "f10de11c421c"
+
 
 def _needs_fk_cascade_migration(insp) -> bool:
     """Prüft ob ON DELETE CASCADE in den Child-Tabellen fehlt.
@@ -109,10 +112,44 @@ def _migrate_fk_cascade():
     logger.info("FK-CASCADE Migration abgeschlossen.")
 
 
-def init_db():
-    """Erstellt alle Tabellen und ein Default-Projekt, falls noch keines existiert."""
-    Base.metadata.create_all(engine)
+def _run_alembic_migrations():
+    """Run Alembic migrations to bring the database to the latest schema version.
 
+    Handles three scenarios:
+    1. Fresh DB (no tables) → run upgrade("head") to create everything
+    2. Legacy DB (tables exist, no alembic_version) → stamp baseline, then upgrade
+    3. Alembic-managed DB → run upgrade("head") for any pending migrations
+    """
+    from alembic.config import Config
+    from alembic import command
+
+    _raw = get_raw_engine()
+    insp = inspect(_raw)
+    existing_tables = set(insp.get_table_names())
+
+    alembic_cfg = Config(str(APP_ROOT / "alembic.ini"))
+    alembic_cfg.set_main_option("script_location", str(APP_ROOT / "database" / "alembic"))
+    alembic_cfg.set_main_option("sqlalchemy.url", str(engine.url))
+
+    if "alembic_version" not in existing_tables and "projects" in existing_tables:
+        # Legacy DB: tables exist but Alembic was never used.
+        # Stamp the baseline revision so Alembic knows the schema is current.
+        logger.info("Legacy-DB erkannt — stampe Alembic Baseline (%s)", _ALEMBIC_BASELINE_REV)
+        command.stamp(alembic_cfg, _ALEMBIC_BASELINE_REV)
+
+    # Run any pending migrations (creates tables on fresh DBs, applies deltas on existing)
+    command.upgrade(alembic_cfg, "head")
+    logger.info("Alembic-Migrationen abgeschlossen (head).")
+
+
+def _run_legacy_migrations():
+    """Run legacy hand-written migrations for pre-Alembic schema updates.
+
+    These are idempotent ALTER TABLE / CREATE INDEX statements that bring
+    old databases up to the baseline schema. They are safe to run even on
+    databases that are already at the baseline — every statement checks
+    for column/index existence before acting.
+    """
     _raw = get_raw_engine()
     insp = inspect(_raw)
 
@@ -158,9 +195,6 @@ def init_db():
                 conn.execute(text("ALTER TABLE timeline_entries ADD COLUMN source_end FLOAT"))
 
     # Bug-13 Fix: crossfade_duration / brightness / contrast in timeline_entries nachrüsten
-    # Diese Spalten existieren im ORM-Modell aber fehlten in den ALTER TABLE Migrationen.
-    # Ohne diesen Block crasht _apply_effects() / _on_effects_clip_changed() auf bestehenden DBs
-    # mit: OperationalError: no such column: timeline_entries.crossfade_duration
     insp = inspect(get_raw_engine())
     if "timeline_entries" in insp.get_table_names():
         te_columns = {c["name"] for c in insp.get_columns("timeline_entries")}
@@ -185,7 +219,6 @@ def init_db():
                 ("siglip_tags", "TEXT"), ("section_type", "TEXT"),
                 ("audio_track_id", "INTEGER"), ("scene_id", "INTEGER"),
             ]:
-                # F-012 Fix: Echte Validierung statt assert (assert wird durch -O deaktiviert)
                 if not _VALID_COL.match(col_name):
                     raise ValueError(f"Ungueltiger Spaltenname: {col_name}")
                 if not _VALID_TYPE.match(col_type):
@@ -231,7 +264,6 @@ def init_db():
                 if col_name not in at_columns:
                     stmt = f"ALTER TABLE audio_tracks ADD COLUMN {col_name} {col_type}"
                     if col_default is not None:
-                        # P2-06: SQL-Injection Schutz fuer col_default
                         if not re.match(r"^[a-zA-Z0-9_.'\"-]+$", str(col_default)):
                             logger.warning("Skipping unsafe col_default: %s", col_default)
                             continue
@@ -246,29 +278,7 @@ def init_db():
         if "hotcues" in insp.get_table_names():
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_hotcues_audio_track_id ON hotcues(audio_track_id)"))
 
-    # Phase 4: Default Style-Presets einfügen (NullPool: init_db laeuft beim Start)
-    with nullpool_session() as session:
-        if "style_presets" in insp.get_table_names() and not session.query(StylePreset).first():
-            defaults = [
-                StylePreset(name="Standard", cut_rate=1.0, energy_reactivity=0.7, breakdown_behavior="halve", description="Ausgewogener Mix"),
-                StylePreset(name="Techno", cut_rate=1.2, energy_reactivity=0.9, breakdown_behavior="halve", beat_weight=1.5, kick_weight=1.5, description="Kick-betont, schnelle Cuts"),
-                StylePreset(name="House", cut_rate=0.8, energy_reactivity=0.6, breakdown_behavior="halve", description="Groovy, mittleres Tempo"),
-                StylePreset(name="Drum & Bass", cut_rate=1.5, energy_reactivity=0.95, breakdown_behavior="16beat", beat_weight=1.2, snare_weight=1.5, description="Schnell, Snare-fokussiert"),
-                StylePreset(name="Hip-Hop", cut_rate=0.6, energy_reactivity=0.5, breakdown_behavior="none", description="Laid-back, langsame Cuts"),
-                StylePreset(name="Ambient", cut_rate=0.3, energy_reactivity=0.2, breakdown_behavior="none", min_clip_duration=4.0, max_clip_duration=15.0, description="Atmosphärisch, lange Clips"),
-                StylePreset(name="Minimal", cut_rate=0.7, energy_reactivity=0.4, breakdown_behavior="halve", description="Reduziert, subtile Wechsel"),
-                StylePreset(name="Cinematic", cut_rate=0.5, energy_reactivity=0.6, breakdown_behavior="none", min_clip_duration=3.0, max_clip_duration=12.0, description="Filmisch, dramatische Übergänge"),
-                StylePreset(name="Festival", cut_rate=1.8, energy_reactivity=1.0, breakdown_behavior="16beat", beat_weight=1.5, kick_weight=1.5, snare_weight=1.2, description="Maximum Energy, schnellste Cuts"),
-            ]
-            session.add_all(defaults)
-            # B-003 Fix: Fehlerbehandlung für session.commit() hinzufügen
-            try:
-                session.commit()
-            except Exception as e:  # broad catch intentional — SQLAlchemy commit can raise many error types
-                logger.error("Fehler beim Einfügen von Style-Presets: %s", e)
-                # Rollback automatisch beim Kontext-Exit
-
-    # H5 Fix: Indizes auf Foreign-Key-Spalten erstellen (SQLite macht das nicht automatisch)
+    # H5 Fix: Indizes auf Foreign-Key-Spalten erstellen
     with engine.begin() as conn:
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_audio_tracks_project_id ON audio_tracks(project_id)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_video_clips_project_id ON video_clips(project_id)"))
@@ -276,19 +286,13 @@ def init_db():
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_beatgrids_audio_track_id ON beatgrids(audio_track_id)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_waveform_data_audio_track_id ON waveform_data(audio_track_id)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_timeline_entries_project_id ON timeline_entries(project_id)"))
-        # DB-23/24 Fix: Fehlende Indizes auf audio_video_anchors + clip_anchors
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_audio_video_anchors_audio_track_id ON audio_video_anchors(audio_track_id)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_audio_video_anchors_video_clip_id ON audio_video_anchors(video_clip_id)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_clip_anchors_timeline_entry_id ON clip_anchors(timeline_entry_id)"))
-        # P2-02: UNIQUE Index auf beatgrids.audio_track_id (verhindert Duplikate)
         conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_beatgrids_audio_track_id ON beatgrids(audio_track_id)"))
-        # AUD-109: UNIQUE Index auf waveform_data.audio_track_id (1:1 Beziehung erzwingen)
         conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_waveform_data_audio_track_id ON waveform_data(audio_track_id)"))
-        # AUD-109: UNIQUE Constraint auf audio_tracks(project_id, file_path) — keine doppelten Imports
         conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_audio_tracks_project_file ON audio_tracks(project_id, file_path)"))
-        # AUD-109: UNIQUE Constraint auf video_clips(project_id, file_path) — keine doppelten Imports
         conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_video_clips_project_file ON video_clips(project_id, file_path)"))
-        # Index auf ai_pacing_memory.audio_track_id (Abfrage-Performance bei vielen gelernten Regeln)
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ai_pacing_memory_audio_track_id ON ai_pacing_memory(audio_track_id)"))
 
     # AUD-11: model_registry Index
@@ -296,7 +300,7 @@ def init_db():
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_model_registry_source ON model_registry(source)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_model_registry_last_used ON model_registry(last_used_at)"))
 
-    # AUD-12: agent_feedback Index (AP-5 — Auto-Prompt-Optimization)
+    # AUD-12: agent_feedback Index
     with engine.begin() as conn:
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_agent_feedback_rating ON agent_feedback(rating)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_agent_feedback_action ON agent_feedback(action_name)"))
@@ -311,12 +315,59 @@ def init_db():
             if "harmonic_tension_curve" not in at_cols:
                 conn.execute(text("ALTER TABLE audio_tracks ADD COLUMN harmonic_tension_curve TEXT"))
 
+
+def _seed_defaults():
+    """Insert default style presets and project if missing."""
+    insp = inspect(get_raw_engine())
+
+    with nullpool_session() as session:
+        if "style_presets" in insp.get_table_names() and not session.query(StylePreset).first():
+            defaults = [
+                StylePreset(name="Standard", cut_rate=1.0, energy_reactivity=0.7, breakdown_behavior="halve", description="Ausgewogener Mix"),
+                StylePreset(name="Techno", cut_rate=1.2, energy_reactivity=0.9, breakdown_behavior="halve", beat_weight=1.5, kick_weight=1.5, description="Kick-betont, schnelle Cuts"),
+                StylePreset(name="House", cut_rate=0.8, energy_reactivity=0.6, breakdown_behavior="halve", description="Groovy, mittleres Tempo"),
+                StylePreset(name="Drum & Bass", cut_rate=1.5, energy_reactivity=0.95, breakdown_behavior="16beat", beat_weight=1.2, snare_weight=1.5, description="Schnell, Snare-fokussiert"),
+                StylePreset(name="Hip-Hop", cut_rate=0.6, energy_reactivity=0.5, breakdown_behavior="none", description="Laid-back, langsame Cuts"),
+                StylePreset(name="Ambient", cut_rate=0.3, energy_reactivity=0.2, breakdown_behavior="none", min_clip_duration=4.0, max_clip_duration=15.0, description="Atmosphärisch, lange Clips"),
+                StylePreset(name="Minimal", cut_rate=0.7, energy_reactivity=0.4, breakdown_behavior="halve", description="Reduziert, subtile Wechsel"),
+                StylePreset(name="Cinematic", cut_rate=0.5, energy_reactivity=0.6, breakdown_behavior="none", min_clip_duration=3.0, max_clip_duration=12.0, description="Filmisch, dramatische Übergänge"),
+                StylePreset(name="Festival", cut_rate=1.8, energy_reactivity=1.0, breakdown_behavior="16beat", beat_weight=1.5, kick_weight=1.5, snare_weight=1.2, description="Maximum Energy, schnellste Cuts"),
+            ]
+            session.add_all(defaults)
+            try:
+                session.commit()
+            except Exception as e:  # broad catch intentional — SQLAlchemy commit can raise many error types
+                logger.error("Fehler beim Einfügen von Style-Presets: %s", e)
+
     with nullpool_session() as session:
         if not session.query(Project).first():
             session.add(Project(name="Default", path=".", resolution="1920x1080", fps=30.0))
-            # B-003 Fix: Fehlerbehandlung für session.commit() hinzufügen
             try:
                 session.commit()
             except Exception as e:  # broad catch intentional — SQLAlchemy commit can raise many error types
                 logger.error("Fehler beim Einfügen des Standard-Projekts: %s", e)
-                # Rollback automatisch beim Kontext-Exit
+
+
+def init_db():
+    """Initialise the database schema and seed defaults.
+
+    Migration strategy:
+    1. Ensure tables exist via create_all() (backward compat safety net)
+    2. Run legacy hand-written migrations (idempotent ALTER/INDEX for old DBs)
+    3. Run Alembic migrations (stamps baseline on legacy DBs, applies deltas)
+    4. Seed default data (style presets, default project)
+    """
+    # Safety net: create_all() ensures tables exist even if Alembic has issues
+    Base.metadata.create_all(engine)
+
+    # Legacy migrations bring old schemas up to baseline
+    _run_legacy_migrations()
+
+    # Alembic takes over for versioned migrations going forward
+    try:
+        _run_alembic_migrations()
+    except Exception as e:  # broad catch intentional — Alembic errors must not block app startup
+        logger.error("Alembic-Migration fehlgeschlagen (App startet trotzdem): %s", e)
+
+    # Seed default data
+    _seed_defaults()
