@@ -17,7 +17,7 @@ import numpy as np
 
 from sqlalchemy.orm import Session
 from database import engine, AudioTrack, Beatgrid
-from services.audio_constants import DEFAULT_SR
+from services.audio_constants import DEFAULT_SR, clamp_bpm
 
 logger = logging.getLogger(__name__)
 
@@ -343,7 +343,7 @@ class BeatAnalysisService:
                         if track is None:
                             raise ValueError(f"AudioTrack {track_id} nicht gefunden")
 
-                        track.bpm = result["bpm"]
+                        track.bpm = clamp_bpm(result["bpm"])
                         track.duration = result["duration"]
 
                         # Beatgrid aktualisieren mit allen Beats + Downbeats + Energie
@@ -357,7 +357,7 @@ class BeatAnalysisService:
                         ).first()
 
                         if existing_bg:
-                            existing_bg.bpm = result["bpm"]
+                            existing_bg.bpm = clamp_bpm(result["bpm"])
                             existing_bg.beat_positions = beat_positions_json
                             existing_bg.downbeat_positions = downbeat_positions_json
                             existing_bg.energy_per_beat = energy_json
@@ -365,7 +365,7 @@ class BeatAnalysisService:
                         else:
                             bg = Beatgrid(
                                 audio_track_id=track_id,
-                                bpm=result["bpm"],
+                                bpm=clamp_bpm(result["bpm"]),
                                 offset=result["beats"][0] if result["beats"] else 0.0,
                                 beat_positions=beat_positions_json,
                                 downbeat_positions=downbeat_positions_json,

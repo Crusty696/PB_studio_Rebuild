@@ -83,6 +83,48 @@ SPECTRAL_CENTROID_LOW: float = 0.35      # Normalized centroid → calm section
 BEAT_REGULARITY_THRESHOLD: float = 0.12  # IBI std-dev threshold (regular = EDM drop)
 MULTI_FEATURE_BASS_DROP_THRESHOLD: float = 0.6   # Bass energy threshold for DROP label
 
+# -- Input Validation Ranges -------------------------------------------
+BPM_MIN: float = 40.0       # Untergrenze: langsamstes sinnvolles BPM (Downtempo)
+BPM_MAX: float = 300.0      # Obergrenze: schnellstes sinnvolles BPM (Hardcore/Speedcore)
+CONFIDENCE_MIN: float = 0.0  # Konfidenz-Werte immer im Bereich [0, 1]
+CONFIDENCE_MAX: float = 1.0
+ENERGY_MIN: float = 0.0      # Normalisierte Energie immer im Bereich [0, 1]
+ENERGY_MAX: float = 1.0
+
+
+def clamp_bpm(value: float) -> float:
+    """Clamp BPM to the valid DJ/music range [40, 300].
+
+    Returns None if value is None; raises ValueError for NaN/inf.
+    """
+    if value is None:
+        return None
+    import math
+    if math.isnan(value) or math.isinf(value):
+        raise ValueError(f"Ungültiger BPM-Wert: {value}")
+    return max(BPM_MIN, min(BPM_MAX, float(value)))
+
+
+def clamp_confidence(value: float) -> float:
+    """Clamp confidence score to [0.0, 1.0].
+
+    Returns None if value is None.
+    """
+    if value is None:
+        return None
+    return max(CONFIDENCE_MIN, min(CONFIDENCE_MAX, float(value)))
+
+
+def clamp_energy(value: float) -> float:
+    """Clamp a single normalized energy value to [0.0, 1.0].
+
+    Returns None if value is None.
+    """
+    if value is None:
+        return None
+    return max(ENERGY_MIN, min(ENERGY_MAX, float(value)))
+
+
 # -- Genre Detection (BPM-based) ---------------------------------------
 GENRE_PSYTRANCE_BPM_MIN: float = 138.0
 GENRE_PSYTRANCE_BPM_MAX: float = 150.0

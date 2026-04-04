@@ -6,7 +6,7 @@ import librosa
 
 from sqlalchemy.orm import Session
 from database import engine, AudioTrack
-from services.audio_constants import DEFAULT_SR
+from services.audio_constants import DEFAULT_SR, clamp_bpm
 
 # Per-Track Lock um Race Conditions bei parallelen Analysen desselben Tracks zu verhindern
 _track_locks: dict[int, threading.Lock] = {}
@@ -105,7 +105,7 @@ class AudioAnalyzer:
             if track is None:
                 raise ValueError(f"AudioTrack {track_id} nach Analyse nicht mehr gefunden")
 
-            track.bpm = result["bpm"]
+            track.bpm = clamp_bpm(result["bpm"])
             track.duration = result["duration"]
             track.sample_rate = result["sample_rate"]
             track.energy_curve = json.dumps(result["energy_curve"])

@@ -11,6 +11,7 @@ from pathlib import Path
 from services.errors import (
     StemSeparationError, AudioLoadError, CUDAOutOfMemoryError, VRAMInsufficientError,
 )
+from services.audio_constants import clamp_bpm
 
 import numpy as np
 import librosa
@@ -614,7 +615,7 @@ class FrequencyAnalyzer:
             # und liefert praezisere BPM. FrequencyAnalyzer (librosa) laeuft danach
             # und soll den genaueren beat_this-Wert nicht ueberschreiben.
             if track.bpm is None:
-                track.bpm = result["bpm"]
+                track.bpm = clamp_bpm(result["bpm"])
             track.duration = result["duration"]
 
             # DB-07 Fix: Expliziter Query-Check gegen Duplikate

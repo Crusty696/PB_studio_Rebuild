@@ -12,6 +12,7 @@ from abc import abstractmethod
 from PySide6.QtCore import QObject, Signal
 
 from .base import CancellableMixin, format_user_error
+from services.audio_constants import clamp_confidence
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +53,7 @@ class BaseAnalysisWorker(QObject, CancellableMixin):
             self.progress.emit(100, "Fertig")
             self.finished.emit(self.audio_track_id, self._result_to_dict(result))
             _ok = True
-        except Exception as e:
+        except Exception as e:  # broad catch intentional — top-level worker safety net
             logger.error(
                 "%s[%s] crashed: %s\n%s",
                 type(self).__name__, self.audio_track_id, e, traceback.format_exc(),
@@ -120,7 +121,7 @@ class KeyDetectionWorker(BaseAnalysisWorker):
             track = session.get(AudioTrack, self.audio_track_id)
             if track:
                 track.key = result.key
-                track.key_confidence = result.confidence
+                track.key_confidence = clamp_confidence(result.confidence)
                 if result.modulation_segments:
                     track.key_modulation_data = json.dumps(result.modulation_segments)
                 if result.harmonic_tension_curve:
