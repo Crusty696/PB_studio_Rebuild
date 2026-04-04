@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QThread, Signal, QObject
 from PySide6.QtGui import QFont, QColor, QTextCharFormat, QTextCursor
 
-from ui.theme import ACCENT, BG1, BG2, T1, T2, T3
+from ui.theme import ACCENT, ACCENT_BRIGHT, BG1, BG2, ERR, INFO, OK, T1, T2, T3, T4, WARN
 
 # Globaler GC-Schutz: Threads und Worker hier halten, damit der
 # Garbage Collector sie NIEMALS löscht, solange sie laufen.
@@ -244,7 +244,6 @@ class ChatDock(QDockWidget):
 
     def append_error(self, text: str) -> None:
         """Zeigt eine Fehlermeldung im Chat an."""
-        from ui.theme import ERR
         self._append_colored(f"✖ {text}", ERR)
 
     def append_divider(self) -> None:
@@ -284,7 +283,7 @@ class ChatDock(QDockWidget):
         self.input_field.setEnabled(False)
         self.btn_send.setEnabled(False)
         self._status_cursor_pos = self.chat_log.textCursor().position()
-        self._append_colored("Agent arbeitet...", "#555555")
+        self._append_colored("Agent arbeitet...", T4)
 
         # Worker ueber zentrale Task-Engine starten
         worker = AIAgentWorker(self._agent, text)
@@ -488,13 +487,13 @@ class ChatDock(QDockWidget):
 
         # Farbe je nach Status
         if "Loop erkannt" in status or "Fehler" in status or "Abgebrochen" in status:
-            color = "#FF5252"  # Rot
+            color = ERR
         elif "Bereit" in status or "Wartet" in status:
-            color = "#00E676"  # Grün
+            color = OK
         elif "Führt" in status:
-            color = "#00B0FF"  # Blau — Tool wird ausgeführt
+            color = INFO
         else:
-            color = "#FFC107"  # Gelb — Denkt nach
+            color = WARN  # Denkt nach
 
         self.status_label.setStyleSheet(
             f"QLabel {{"

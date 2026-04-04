@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal, QTimer
 
 from services.task_manager import GlobalTaskManager
-from ui.theme import BG0, BG1, BG2, BG3, BG4, ACCENT, ACCENT_BRIGHT, ACCENT_DIM, ERR, T1, T2, T3
+from ui.theme import BG0, BG1, BG2, BG3, BG4, ACCENT, ACCENT_BRIGHT, ACCENT_DIM, DANGER_BG, ERR, OK, WARN, T1, T2, T3, T4
 
 
 class TaskManagerDock(QDockWidget):
@@ -39,7 +39,7 @@ class TaskManagerDock(QDockWidget):
         header_row.setContentsMargins(0, 0, 0, 0)
         header_label = QLabel("HINTERGRUND-PROZESSE")
         header_label.setStyleSheet(
-            "color: #808080; font-size: 10px; font-weight: 700; letter-spacing: 1px;"
+            f"color: {T3}; font-size: 10px; font-weight: 700; letter-spacing: 1px;"
         )
         header_row.addWidget(header_label)
         header_row.addStretch()
@@ -92,7 +92,7 @@ class TaskManagerDock(QDockWidget):
         self._empty_label = QLabel("Keine laufenden Tasks")
         self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._empty_label.setStyleSheet(
-            "color: #505050; font-size: 11px; font-style: italic; border: none; padding: 8px;"
+            f"color: {T4}; font-size: 11px; font-style: italic; border: none; padding: 8px;"
         )
         self._task_container.addWidget(self._empty_label)
 
@@ -150,7 +150,7 @@ class TaskManagerDock(QDockWidget):
 
         row_widget = QWidget()
         row_widget.setStyleSheet(
-            "QWidget { background: #0E0E14; border: 1px solid #1E1E2E; border-radius: 3px; }"
+            f"QWidget {{ background: {BG0}; border: 1px solid {BG2}; border-radius: 3px; }}"
         )
         row_layout = QHBoxLayout(row_widget)
         row_layout.setContentsMargins(6, 3, 6, 3)
@@ -158,12 +158,12 @@ class TaskManagerDock(QDockWidget):
 
         name_label = QLabel(task.name)
         name_label.setFixedWidth(200)
-        name_label.setStyleSheet("color: #C0C0C0; font-size: 11px; font-weight: 600; border: none;")
+        name_label.setStyleSheet(f"color: {T2}; font-size: 11px; font-weight: 600; border: none;")
         row_layout.addWidget(name_label)
 
         status_label = QLabel("Running")
         status_label.setFixedWidth(70)
-        status_label.setStyleSheet("color: #00E676; font-size: 11px; font-weight: bold; border: none;")
+        status_label.setStyleSheet(f"color: {OK}; font-size: 11px; font-weight: bold; border: none;")
         row_layout.addWidget(status_label)
 
         progress_bar = QProgressBar()
@@ -172,23 +172,23 @@ class TaskManagerDock(QDockWidget):
         progress_bar.setTextVisible(True)
         progress_bar.setFormat("%p%")
         progress_bar.setStyleSheet(
-            "QProgressBar { background: #1A1A1A; border: 1px solid #2A2A2A; border-radius: 3px; "
-            "text-align: center; color: #D0D0D0; font-size: 11px; "
+            f"QProgressBar {{ background: {BG1}; border: 1px solid {BG3}; border-radius: 3px; "
+            f"text-align: center; color: {T1}; font-size: 11px; "
             "min-height: 18px; max-height: 18px; }"
-            "QProgressBar::chunk { background: qlineargradient("
-            "x1:0, y1:0, x2:1, y2:0, stop:0 #7A6010, stop:1 #D4AF37); border-radius: 2px; }"
+            f"QProgressBar::chunk {{ background: qlineargradient("
+            f"x1:0, y1:0, x2:1, y2:0, stop:0 {ACCENT_DIM}, stop:1 {ACCENT}); border-radius: 2px; }}"
         )
         row_layout.addWidget(progress_bar, stretch=1)
 
         msg_label = QLabel("")
         msg_label.setMinimumWidth(150)
-        msg_label.setStyleSheet("color: #909090; font-size: 10px; border: none;")
+        msg_label.setStyleSheet(f"color: {T3}; font-size: 10px; border: none;")
         row_layout.addWidget(msg_label, stretch=1)
 
         time_label = QLabel("0s")
         time_label.setFixedWidth(50)
         time_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        time_label.setStyleSheet("color: #707070; font-size: 10px; border: none;")
+        time_label.setStyleSheet(f"color: {T3}; font-size: 10px; border: none;")
         row_layout.addWidget(time_label)
 
         self._task_container.addWidget(row_widget)
@@ -231,26 +231,26 @@ class TaskManagerDock(QDockWidget):
 
         if task.status == "finished":
             status_label.setText("Fertig")
-            status_label.setStyleSheet("color: #D4AF37; font-size: 11px; font-weight: bold; border: none;")
+            status_label.setStyleSheet(f"color: {ACCENT}; font-size: 11px; font-weight: bold; border: none;")
             progress_bar.setValue(progress_bar.maximum())
             progress_bar.setFormat("100%")
             progress_bar.setStyleSheet(
-                "QProgressBar { background: #1A1A1A; border: 1px solid #2A2A2A; border-radius: 3px; "
-                "text-align: center; color: #D0D0D0; font-size: 11px; "
+                f"QProgressBar {{ background: {BG1}; border: 1px solid {BG3}; border-radius: 3px; "
+                f"text-align: center; color: {T1}; font-size: 11px; "
                 "min-height: 18px; max-height: 18px; }"
-                "QProgressBar::chunk { background: #D4AF37; border-radius: 2px; }"
+                f"QProgressBar::chunk {{ background: {ACCENT}; border-radius: 2px; }}"
             )
         elif task.status == "cancelled":
             status_label.setText("Abbruch")
-            status_label.setStyleSheet("color: #FFB040; font-size: 11px; font-weight: bold; border: none;")
+            status_label.setStyleSheet(f"color: {WARN}; font-size: 11px; font-weight: bold; border: none;")
         else:
             status_label.setText("Fehler")
-            status_label.setStyleSheet("color: #FF5050; font-size: 11px; font-weight: bold; border: none;")
+            status_label.setStyleSheet(f"color: {ERR}; font-size: 11px; font-weight: bold; border: none;")
             progress_bar.setStyleSheet(
-                "QProgressBar { background: #1A1A1A; border: 1px solid #3A1010; border-radius: 3px; "
-                "text-align: center; color: #FF5050; font-size: 11px; "
+                f"QProgressBar {{ background: {BG1}; border: 1px solid {DANGER_BG}; border-radius: 3px; "
+                f"text-align: center; color: {ERR}; font-size: 11px; "
                 "min-height: 18px; max-height: 18px; }"
-                "QProgressBar::chunk { background: #CC3333; border-radius: 2px; }"
+                f"QProgressBar::chunk {{ background: {ERR}; border-radius: 2px; }}"
             )
 
         msg_label.setText(task.message[:60] if task.message else "")

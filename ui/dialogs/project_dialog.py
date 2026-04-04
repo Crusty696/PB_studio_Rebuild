@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QMessageBox,
 )
 
-from ui.theme import ACCENT, ACCENT_DIM, BG1, BG2, BG3, T1, T2, T3
+from ui.theme import ACCENT, ACCENT_DIM, BG1, BG2, BG3, T1, T2, T3, OK, ERR
 
 
 # ======================================================================
@@ -288,10 +288,10 @@ class OpenProjectDialog(QDialog):
         p = Path(folder) / "pb_studio.db"
         if p.exists():
             self.status_label.setText(f"pb_studio.db gefunden")
-            self.status_label.setStyleSheet(f"color: #4ade80; font-size: 11px; background: transparent;")
+            self.status_label.setStyleSheet(f"color: {OK}; font-size: 11px; background: transparent;")
         else:
             self.status_label.setText("pb_studio.db NICHT gefunden!")
-            self.status_label.setStyleSheet(f"color: #f87171; font-size: 11px; background: transparent;")
+            self.status_label.setStyleSheet(f"color: {ERR}; font-size: 11px; background: transparent;")
 
     def _validate_and_accept(self):
         path = self.path_input.text().strip()

@@ -3,6 +3,8 @@
 from PySide6.QtWidgets import QWidget, QHBoxLayout, QLabel, QProgressBar
 from PySide6.QtCore import QTimer
 
+from ui.theme import ACCENT, BG2, INFO_CYAN, OK, T3, WARN
+
 # ---------------------------------------------------------------------------
 # Optional dependencies — graceful fallback
 # ---------------------------------------------------------------------------
@@ -22,15 +24,15 @@ except ImportError:
 def _bar_style(color: str) -> str:
     """Return a minimal QProgressBar stylesheet for the given accent color."""
     return (
-        "QProgressBar {"
-        "  background: #23242d; border: none; border-radius: 3px;"
+        f"QProgressBar {{"
+        f"  background: {BG2}; border: none; border-radius: 3px;"
         "  min-width: 50px; max-width: 50px; min-height: 8px; max-height: 8px;"
         "}"
         f"QProgressBar::chunk {{ background: {color}; border-radius: 3px; }}"
     )
 
 
-_LABEL_STYLE = "color: #909090; font-size: 10px; padding: 0 2px;"
+_LABEL_STYLE = f"color: {T3}; font-size: 10px; padding: 0 2px;"
 
 
 class ResourceMonitorWidget(QWidget):
@@ -56,7 +58,7 @@ class ResourceMonitorWidget(QWidget):
         self._cpu_bar.setRange(0, 100)
         self._cpu_bar.setValue(0)
         self._cpu_bar.setTextVisible(False)
-        self._cpu_bar.setStyleSheet(_bar_style("#00e5ff"))
+        self._cpu_bar.setStyleSheet(_bar_style(INFO_CYAN))
         layout.addWidget(self._cpu_label)
         layout.addWidget(self._cpu_bar)
 
@@ -67,7 +69,7 @@ class ResourceMonitorWidget(QWidget):
         self._ram_bar.setRange(0, 100)
         self._ram_bar.setValue(0)
         self._ram_bar.setTextVisible(False)
-        self._ram_bar.setStyleSheet(_bar_style("#4ade80"))
+        self._ram_bar.setStyleSheet(_bar_style(OK))
         layout.addWidget(self._ram_label)
         layout.addWidget(self._ram_bar)
 
@@ -78,7 +80,7 @@ class ResourceMonitorWidget(QWidget):
         self._gpu_bar.setRange(0, 100)
         self._gpu_bar.setValue(0)
         self._gpu_bar.setTextVisible(False)
-        self._gpu_bar.setStyleSheet(_bar_style("#facc15"))  # gold default
+        self._gpu_bar.setStyleSheet(_bar_style(ACCENT))  # gold default
         layout.addWidget(self._gpu_label)
         layout.addWidget(self._gpu_bar)
 
@@ -135,11 +137,11 @@ class ResourceMonitorWidget(QWidget):
             used = total = 0.0
             pct = 0
 
-        # Color: gold when <70%, orange-red when >=70%
+        # Color: gold when <70%, amber warning when >=70%
         if pct >= 70:
-            color = "#f97316"  # warn orange
+            color = WARN
         else:
-            color = "#facc15"  # gold
+            color = ACCENT
         self._gpu_bar.setStyleSheet(_bar_style(color))
         self._gpu_bar.setValue(pct)
         self._gpu_label.setText(f"GPU {used:.1f}/{total:.1f}")
