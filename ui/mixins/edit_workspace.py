@@ -130,6 +130,7 @@ class EditWorkspaceMixin:
         if drop_cuts: info_parts.append(f"Drop:{drop_cuts}")
         info_parts.append(f"{total_dur:.0f}s")
         self.cut_info_label.setText(" | ".join(info_parts))
+        self._mark_dirty()  # AUD-108
         self.console_text.append(
             f"[Pacing] {len(cuts)} Cuts generiert (Manual Curve aktiv)"
         )
@@ -244,6 +245,7 @@ class EditWorkspaceMixin:
             parts.append(f"{total_dur:.0f}s | {len(segments)} Segmente")
             self.cut_info_label.setText(" | ".join(parts))
 
+        self._mark_dirty()  # AUD-108
         self.console_text.append(
             f"[Auto-Edit] Phase 3 fertig: {len(segments)} Segmente, "
             f"OTIO Timeline generiert."
@@ -554,6 +556,7 @@ class EditWorkspaceMixin:
             self.console_text.append(f"[Pacing-Fehler] Keyframe-Strings: {e}")
 
     def _on_timeline_clip_moved(self, entry_id: int, new_start: float):
+        self._mark_dirty()  # AUD-108
         self.console_text.append(
             f"[Timeline] Clip {entry_id} verschoben -> Start: {new_start:.2f}s"
         )
@@ -620,6 +623,7 @@ class EditWorkspaceMixin:
             duration=duration,
         )
         self.timeline_view.undo_stack.push(cmd)
+        self._mark_dirty()  # AUD-108
 
         self.console_text.append(
             f"[Timeline] {media_type} '{title}' hinzugefuegt bei {start_time:.1f}s "

@@ -49,6 +49,7 @@ class ImportMediaMixin:
                 self._refresh_media_table()
                 for clip_id, video_path, title in new_video_clips:
                     self._start_proxy_creation(clip_id, video_path, title)
+                self._mark_dirty()  # AUD-108
             self.status_bar.showMessage(f"{added} Datei(en) importiert | System bereit")
 
         def _on_error(msg: str):
@@ -91,6 +92,7 @@ class ImportMediaMixin:
                 self._refresh_media_table()
                 for clip_id, video_path, title in new_video_clips:
                     self._start_proxy_creation(clip_id, video_path, title)
+                self._mark_dirty()  # AUD-108
             self.status_bar.showMessage(
                 f"{added} Datei(en) aus Ordner importiert | System bereit"
             )
@@ -113,6 +115,7 @@ class ImportMediaMixin:
         if reply == QMessageBox.StandardButton.Yes:
             count = delete_all_media()
             self._refresh_media_table()
+            self._mark_dirty()  # AUD-108
             self.console_text.append(f"[System] {count} Medien-Eintraege geloescht.")
             self.status_bar.showMessage(f"Sammlung bereinigt ({count} Eintraege) | System bereit")
 
@@ -161,5 +164,6 @@ class ImportMediaMixin:
         if reply == QMessageBox.StandardButton.Yes:
             count = delete_selected_media(video_ids, audio_ids)
             self._refresh_media_table()
+            self._mark_dirty()  # AUD-108
             self.console_text.append(f"[System] {count} Medien-Eintraege geloescht.")
             self.status_bar.showMessage(f"{count} Medien geloescht | System bereit")

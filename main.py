@@ -29,7 +29,7 @@ from PySide6.QtWidgets import (
     QSizePolicy, QSpacerItem, QMenu, QGraphicsPolygonItem, QSpinBox, QDoubleSpinBox,
     QScrollArea,
 )
-from PySide6.QtCore import Qt, QThread, Signal, QObject, QRectF, QPointF, QTimer, QTranslator, QLocale
+from PySide6.QtCore import Qt, QThread, Signal, QObject, QRectF, QPointF, QTimer, QTranslator, QLocale, QSettings
 from PySide6.QtGui import QPainter, QPainterPath, QColor, QFont, QBrush, QPen, QPixmap, QImage, QPolygonF, QAction
 
 # NEU: PB Studio Gold-Accent Theme (ersetzt qt_material)
@@ -102,6 +102,7 @@ from ui.widgets.video_preview import VideoPreviewWidget
 from ui.widgets.task_manager_dock import TaskManagerDock
 from ui.widgets.nav_bar import WorkspaceNavBar
 from ui.dialogs.about import AboutDialog
+from ui.dialogs.shortcut_help_dialog import ShortcutHelpDialog
 from ui.dialogs.project_dialog import NewProjectDialog, OpenProjectDialog
 from services.project_manager import ProjectManager
 from ui.widgets.resource_monitor import ResourceMonitorWidget
@@ -133,6 +134,7 @@ class PBWindow(QMainWindow,
         self._active_workers: list[QObject] = []
         self._otio_timeline_service: TimelineService | None = None
         self._refresh_pending = False
+        self._dirty = False  # AUD-108: unsaved changes tracking
         self._project_manager = ProjectManager(self)
         self._project_manager.project_changed.connect(self._on_project_changed)
 
@@ -209,11 +211,19 @@ class PBWindow(QMainWindow,
         self._btn_toggle_chat.toggled.connect(self.chat_dock.setVisible)
         self.chat_dock.visibilityChanged.connect(self._btn_toggle_chat.setChecked)
 
+        # AUD-107: Restore window state after event loop starts (docks need a shown window)
+        QTimer.singleShot(0, self._restore_window_state)
+
         # P-016: Media-Tabelle NACH dem Window-Show laden (nicht im __init__)
         QTimer.singleShot(0, self._refresh_media_table)
 
         # AUD-103: Version check — non-blocking, after window is visible
         QTimer.singleShot(3000, self._start_version_check)
+
+        # AUD-105: Keyboard shortcut help overlay (F1 + Ctrl+?)
+        from PySide6.QtGui import QShortcut, QKeySequence as _QKS
+        QShortcut(_QKS(Qt.Key.Key_F1), self, self._show_shortcut_help)
+        QShortcut(_QKS("Ctrl+?"), self, self._show_shortcut_help)
 
     # ── AUD-103: Update notification ──────────────────────────────────────
 
@@ -282,7 +292,103 @@ class PBWindow(QMainWindow,
 
     # ── End AUD-103 ───────────────────────────────────────────────────────
 
+    # ── AUD-107: Persistent window state ──────────────────────────────────
+
+    def _save_window_state(self) -> None:
+        """Persist window geometry, dock positions and splitter sizes via QSettings."""
+        settings = QSettings("PBStudio", "PBStudioApp")
+        settings.setValue("window/geometry", self.saveGeometry())
+        settings.setValue("window/state", self.saveState())
+        settings.setValue("window/mainSplitterSizes", self._main_splitter.sizes())
+        settings.setValue("window/innerSplitterSizes", self._inner_splitter.sizes())
+        settings.setValue("window/workspaceIndex", self.workspace_stack.currentIndex())
+        logger.debug("Window state saved")
+
+    def _restore_window_state(self) -> None:
+        """Restore window geometry, dock positions and splitter sizes from QSettings."""
+        settings = QSettings("PBStudio", "PBStudioApp")
+
+        geometry = settings.value("window/geometry")
+        if geometry:
+            self.restoreGeometry(geometry)
+
+        state = settings.value("window/state")
+        if state:
+            self.restoreState(state)
+
+        main_sizes = settings.value("window/mainSplitterSizes")
+        if main_sizes:
+            self._main_splitter.setSizes([int(s) for s in main_sizes])
+
+        inner_sizes = settings.value("window/innerSplitterSizes")
+        if inner_sizes:
+            self._inner_splitter.setSizes([int(s) for s in inner_sizes])
+
+        workspace_idx = settings.value("window/workspaceIndex")
+        if workspace_idx is not None:
+            self.nav_bar.set_workspace(int(workspace_idx))
+
+        logger.debug("Window state restored")
+
+    # ── AUD-105: Shortcut help overlay ────────────────────────────────────
+
+    def _show_shortcut_help(self) -> None:
+        """Open the keyboard shortcut help dialog (F1 / Ctrl+?)."""
+        dlg = ShortcutHelpDialog(self)
+        dlg.exec()
+
+    # ── End AUD-107 ────────────────────────────────────────────────────────
+
+    # ── AUD-108: Unsaved changes indicator ────────────────────────────────
+
+    def _mark_dirty(self):
+        """Mark the session as having unsaved changes."""
+        if not self._dirty:
+            self._dirty = True
+            self._update_window_title()
+
+    def _mark_clean(self):
+        """Mark the session as saved (no pending changes)."""
+        if self._dirty:
+            self._dirty = False
+            self._update_window_title()
+
+    def _update_window_title(self):
+        """Rebuild the window title, appending '*' when dirty."""
+        import database
+        app_version = self._app_version
+        if database.APP_ROOT:
+            project_name = Path(database.APP_ROOT).name
+            title = f"PB_studio v{app_version} — {project_name}"
+        else:
+            title = f"PB_studio v{app_version} — Director's Cockpit"
+        if self._dirty:
+            title += " *"
+        self.setWindowTitle(title)
+
+    # ── End AUD-108 ──────────────────────────────────────────────────────
+
     def closeEvent(self, event):
+        # AUD-107: Save window state before anything else (before running-task check
+        # so state is persisted even if the user later cancels the close).
+        try:
+            self._save_window_state()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("closeEvent: failed to save window state: %s", exc)
+
+        # AUD-108: Prompt if unsaved changes
+        if self._dirty:
+            from PySide6.QtWidgets import QMessageBox
+            reply = QMessageBox.question(
+                self, "Ungespeicherte Änderungen",
+                "Es gibt ungespeicherte Änderungen. Trotzdem beenden?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if reply == QMessageBox.StandardButton.No:
+                event.ignore()
+                return
+
         # 0. Check for running tasks and ask user
         try:
             tm = GlobalTaskManager.instance()
@@ -371,7 +477,14 @@ class PBWindow(QMainWindow,
 # ======================================================================
 
 def setup_logging():
-    """Konfiguriert das Logging-System: Console + RotatingFileHandler fuer logs/pb_studio.log."""
+    """Konfiguriert das Logging-System.
+
+    Console + RotatingFileHandler (5 MB, 3 Backups) fuer logs/pb_studio.log.
+    Optionaler JSON-Format-Modus fuer Produktions-Builds:
+      PB_STUDIO_JSON_LOGS=1  →  strukturiertes JSON (eine Zeile pro Record)
+    """
+    import json as _json
+    import os
     from logging.handlers import RotatingFileHandler
 
     log_dir = Path(__file__).parent / "logs"
@@ -381,16 +494,34 @@ def setup_logging():
     root = logging.getLogger()
     root.setLevel(logging.INFO)
 
-    fmt = logging.Formatter(
-        "%(asctime)s [%(levelname)-8s] %(name)s: %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
+    use_json = os.environ.get("PB_STUDIO_JSON_LOGS", "").strip() == "1"
+
+    if use_json:
+        class _JsonFormatter(logging.Formatter):
+            def format(self, record: logging.LogRecord) -> str:  # type: ignore[override]
+                payload = {
+                    "ts": self.formatTime(record, "%Y-%m-%dT%H:%M:%S"),
+                    "level": record.levelname,
+                    "logger": record.name,
+                    "msg": record.getMessage(),
+                }
+                if record.exc_info:
+                    payload["exc"] = self.formatException(record.exc_info)
+                return _json.dumps(payload, ensure_ascii=False)
+
+        fmt: logging.Formatter = _JsonFormatter()
+    else:
+        fmt = logging.Formatter(
+            "%(asctime)s [%(levelname)-8s] %(name)s: %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
 
     ch = logging.StreamHandler()
     ch.setLevel(logging.INFO)
     ch.setFormatter(fmt)
     root.addHandler(ch)
 
+    # Rotation: 5 MB pro Datei, 3 Backups → max 20 MB Gesamtgröße
     fh = RotatingFileHandler(
         log_file, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8"
     )
@@ -398,7 +529,10 @@ def setup_logging():
     fh.setFormatter(fmt)
     root.addHandler(fh)
 
-    logging.info("Logging initialisiert → %s", log_file)
+    logging.info(
+        "Logging initialisiert → %s (json=%s, rotation=5MB×3)",
+        log_file, use_json,
+    )
 
 
 def _global_exception_hook(exc_type, exc_value, exc_tb):

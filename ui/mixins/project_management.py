@@ -37,6 +37,7 @@ class ProjectManagementMixin:
                 resolution=vals["resolution"],
                 fps=vals["fps"],
             )
+            self._mark_clean()  # AUD-108: fresh project
             self._console_append(f"[Projekt] Neues Projekt erstellt: {vals['name']}")
         except (OSError, RuntimeError, ValueError) as exc:
             from PySide6.QtWidgets import QMessageBox
@@ -52,6 +53,7 @@ class ProjectManagementMixin:
         path = dlg.get_path()
         try:
             meta = self._project_manager.open_project(path)
+            self._mark_clean()  # AUD-108: freshly opened project
             self._console_append(f"[Projekt] Geoeffnet: {meta.get('name', path.name)}")
         except (OSError, RuntimeError, ValueError) as exc:
             from PySide6.QtWidgets import QMessageBox
@@ -70,6 +72,7 @@ class ProjectManagementMixin:
         target = Path(folder) / name.strip()
         try:
             self._project_manager.save_project_as(target)
+            self._mark_clean()  # AUD-108: just saved
             self._console_append(f"[Projekt] Gespeichert unter: {target}")
         except (OSError, RuntimeError, ValueError) as exc:
             from PySide6.QtWidgets import QMessageBox
@@ -87,8 +90,7 @@ class ProjectManagementMixin:
             logger.warning("Could not update recent projects: %s", exc)
         project_name = path.name
         self._project_name_label.setText(project_name)
-        app_version = getattr(self, "_app_version", APP_VERSION_PLACEHOLDER)
-        self.setWindowTitle(f"PB_studio v{app_version} — {project_name}")
+        self._update_window_title()  # AUD-108: respects dirty flag
         self._refresh_media_table()
         self._refresh_director_combos()
         try:
