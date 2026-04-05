@@ -499,11 +499,11 @@ class MediaWorkspace(QWidget):
         vh = self.video_pool_table.horizontalHeader()
         vh.setStretchLastSection(True)
         vh.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
-        vh.resizeSection(0, 45)   # Auswahl
+        vh.resizeSection(0, 60)   # Auswahl
         vh.resizeSection(1, 35)   # ID
         vh.resizeSection(2, 200)  # Titel
-        vh.resizeSection(3, 70)   # Aufloesung
-        vh.resizeSection(4, 40)   # FPS
+        vh.resizeSection(3, 80)   # Aufloesung
+        vh.resizeSection(4, 50)   # FPS
         vh.resizeSection(5, 60)   # Codec
         # Spalte 6 (Dateipfad) stretcht automatisch
 

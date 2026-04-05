@@ -250,6 +250,7 @@ def get_all_video(project_id: int = 1, limit: int = 5000) -> list[dict]:
                 "type": "Video",
                 "resolution": res,
                 "fps": c.fps,
+                "codec": getattr(c, "codec", None) or "-",
                 "stems": "-",
             })
         return result

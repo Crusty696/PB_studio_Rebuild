@@ -63,7 +63,7 @@ class MediaTableMixin:
             self.video_pool_table.setItem(row, 3, QTableWidgetItem(item.get("resolution") or "-"))
             fps_str = str(item.get("fps", "")) if item.get("fps") else "-"
             self.video_pool_table.setItem(row, 4, QTableWidgetItem(fps_str))
-            self.video_pool_table.setItem(row, 5, QTableWidgetItem("-"))
+            self.video_pool_table.setItem(row, 5, QTableWidgetItem(item.get("codec") or "-"))
             self.video_pool_table.setItem(row, 6, QTableWidgetItem(item["file_path"]))
 
         # Audio Pool
@@ -77,7 +77,7 @@ class MediaTableMixin:
             self.audio_pool_table.setItem(row, 2, QTableWidgetItem(item["title"]))
             bpm_str = str(item["bpm"]) if item.get("bpm") else "-"
             self.audio_pool_table.setItem(row, 3, QTableWidgetItem(bpm_str))
-            self.audio_pool_table.setItem(row, 4, QTableWidgetItem("-"))
+            self.audio_pool_table.setItem(row, 4, QTableWidgetItem(item.get("key") or "-"))
             self.audio_pool_table.setItem(row, 5, QTableWidgetItem(item.get("stems", "-")))
             self.audio_pool_table.setItem(row, 6, QTableWidgetItem(item["file_path"]))
 
