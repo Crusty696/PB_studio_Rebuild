@@ -22,6 +22,8 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal, QRect, QThread, QObject
 from PySide6.QtGui import QPixmap, QPainter, QColor, QPen, QFont, QFontMetrics
 
+from services.timeout_constants import FFMPEG_THUMBNAIL_TIMEOUT_SEC
+
 logger = logging.getLogger(__name__)
 
 
@@ -106,6 +108,9 @@ class _ThumbWorker(QObject):
     def _extract(self) -> QPixmap:
         _ensure_thumb_dir()
         dest = _thumb_path(self._path)
+        if not self._path or not Path(self._path).exists():
+            return _placeholder_pixmap(self._w, self._h, "✖")
+
         if not dest.exists():
             try:
                 subprocess.run(
@@ -118,7 +123,7 @@ class _ThumbWorker(QObject):
                         str(dest),
                     ],
                     capture_output=True,
-                    timeout=10,
+                    timeout=FFMPEG_THUMBNAIL_TIMEOUT_SEC,
                 )
             except (subprocess.SubprocessError, OSError, FileNotFoundError):
                 return _placeholder_pixmap(self._w, self._h, "▶")
@@ -448,7 +453,8 @@ class MediaPoolGrid(QWidget):
                     resolution=data.get("resolution", ""),
                     fps=data.get("fps"),
                 )
-                self._start_thumb_loader(card, data["file_path"])
+                # Disable automatic thumb loading for stability testing
+                # self._start_thumb_loader(card, data["file_path"])
             else:
                 energy: list[float] = []
                 ec = data.get("energy_curve")

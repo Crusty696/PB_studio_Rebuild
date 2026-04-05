@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session as DBSession
 from database import engine, VideoClip
 from services.export_service import export_timeline, export_preview
 from services.ingest_service import ingest_audio, ingest_video
+from services.timeout_constants import FFMPEG_EXPORT_TIMEOUT_SEC
 from .base import CancellableMixin, format_user_error
 
 logger = logging.getLogger(__name__)
@@ -230,7 +231,7 @@ class BatchConvertWorker(QObject, CancellableMixin):
                 ]
                 try:
                     result = subprocess.run(
-                        cmd, capture_output=True, timeout=600,
+                        cmd, capture_output=True, timeout=FFMPEG_EXPORT_TIMEOUT_SEC,
                         creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
                     )
                     if result.returncode == 0:

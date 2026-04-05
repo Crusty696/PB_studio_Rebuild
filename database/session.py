@@ -6,6 +6,13 @@ from pathlib import Path
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session
 
+from services.timeout_constants import (
+    DB_BUSY_TIMEOUT_ANALYSIS_MS,
+    DB_BUSY_TIMEOUT_MS,
+    DB_POOL_TIMEOUT_SEC,
+    DB_SQLITE_CONNECT_TIMEOUT_SEC,
+)
+
 logger = logging.getLogger(__name__)
 
 # Zentraler Projektpfad — alle Services importieren APP_ROOT statt relative Pfade zu nutzen
@@ -76,13 +83,13 @@ def _make_engine(db_path: Path):
     eng = create_engine(
         f"sqlite:///{db_path}",
         echo=False,
-        connect_args={"check_same_thread": False, "timeout": 60},
+        connect_args={"check_same_thread": False, "timeout": DB_SQLITE_CONNECT_TIMEOUT_SEC},
         # Pool fuer schnelle Reads. Worker nutzen nullpool_session() fuer Writes.
         # pool_size=5 idle Connections, max_overflow=15 Burst-Kapazitaet fuer
         # Batch-Operationen (z.B. 10+ Video-Clips gleichzeitig laden).
         pool_size=5,
         max_overflow=15,
-        pool_timeout=60,
+        pool_timeout=DB_POOL_TIMEOUT_SEC,
         pool_recycle=300,
     )
 
@@ -92,7 +99,7 @@ def _make_engine(db_path: Path):
         cursor.execute("PRAGMA foreign_keys=ON")
         cursor.execute("PRAGMA journal_mode=WAL")
         cursor.execute("PRAGMA synchronous=NORMAL")  # WAL-optimiert: fsync nur bei Checkpoint
-        cursor.execute("PRAGMA busy_timeout=120000")  # 120s warten bei locked DB (Multi-Worker + lange Analyse)
+        cursor.execute(f"PRAGMA busy_timeout={DB_BUSY_TIMEOUT_ANALYSIS_MS}")  # 120s warten bei locked DB (Multi-Worker + lange Analyse)
         cursor.close()
 
     return eng
@@ -134,7 +141,7 @@ def nullpool_session():
     _eng = _ce(
         str(engine.url),
         echo=False,
-        connect_args={"check_same_thread": False, "timeout": 30},
+        connect_args={"check_same_thread": False, "timeout": DB_SQLITE_CONNECT_TIMEOUT_SEC},
         poolclass=NullPool,
     )
 
@@ -143,7 +150,7 @@ def nullpool_session():
         c = dbapi_conn.cursor()
         c.execute("PRAGMA journal_mode=WAL")
         c.execute("PRAGMA synchronous=NORMAL")
-        c.execute("PRAGMA busy_timeout=30000")
+        c.execute(f"PRAGMA busy_timeout={DB_BUSY_TIMEOUT_MS}")
         c.execute("PRAGMA foreign_keys=ON")
         c.close()
 

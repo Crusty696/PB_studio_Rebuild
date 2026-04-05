@@ -13,6 +13,7 @@ from PySide6.QtCore import QObject, Signal
 from sqlalchemy.orm import Session as DBSession
 
 from database import engine, VideoClip
+from services.timeout_constants import FFMPEG_THUMBNAIL_TIMEOUT_SEC
 from services.video_service import VideoAnalyzer
 from .base import CancellableMixin, format_user_error
 
@@ -454,7 +455,7 @@ class FrameExtractWorker(QObject, CancellableMixin):
                 "-v", "quiet", "-y", "pipe:1"
             ]
             result = subprocess.run(
-                cmd, capture_output=True, timeout=5,
+                cmd, capture_output=True, timeout=FFMPEG_THUMBNAIL_TIMEOUT_SEC,
                 creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
             )
             expected = self.width * self.height * 3

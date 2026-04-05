@@ -18,6 +18,8 @@ import json
 import logging
 import urllib.request
 
+from services.timeout_constants import HTTP_HEALTH_CHECK_TIMEOUT_SEC, MODEL_DOWNLOAD_TIMEOUT_SEC
+
 from PySide6.QtCore import (
     Qt, QThread, Signal, QObject, QSettings, QTimer,
 )
@@ -102,7 +104,7 @@ def mark_setup_complete() -> None:
 
 def _ollama_running(url: str = "http://localhost:11434") -> bool:
     try:
-        with urllib.request.urlopen(f"{url}/api/tags", timeout=2) as r:
+        with urllib.request.urlopen(f"{url}/api/tags", timeout=HTTP_HEALTH_CHECK_TIMEOUT_SEC) as r:
             return r.status == 200
     except OSError:
         return False
@@ -120,7 +122,7 @@ def _hf_cache_has(repo_id: str) -> bool:
 
 def _ollama_has_model(model_id: str, url: str = "http://localhost:11434") -> bool:
     try:
-        with urllib.request.urlopen(f"{url}/api/tags", timeout=2) as r:
+        with urllib.request.urlopen(f"{url}/api/tags", timeout=HTTP_HEALTH_CHECK_TIMEOUT_SEC) as r:
             data = json.loads(r.read())
         return any(m.get("name", "").startswith(model_id.split(":")[0])
                    for m in data.get("models", []))
@@ -191,7 +193,7 @@ class _DownloadWorker(QObject):
                 headers={"Content-Type": "application/json"},
                 method="POST",
             )
-            with urllib.request.urlopen(req, timeout=3600) as resp:
+            with urllib.request.urlopen(req, timeout=MODEL_DOWNLOAD_TIMEOUT_SEC) as resp:
                 for line in resp:
                     if self._cancelled:
                         return False, "Abgebrochen"

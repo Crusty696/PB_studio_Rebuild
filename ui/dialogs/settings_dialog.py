@@ -29,6 +29,8 @@ from ui.theme import ACCENT, BG1, BG2, BG3, T1, T2, T3, OK, ERR, WARN
 if TYPE_CHECKING:
     pass
 
+from services.timeout_constants import HTTP_API_TIMEOUT_SEC
+
 logger = logging.getLogger(__name__)
 
 SETTINGS_ORG = "PBStudio"
@@ -69,7 +71,7 @@ class _OllamaTestWorker(QObject):
     def run(self) -> None:
         try:
             from services.ollama_client import OllamaClient
-            client = OllamaClient(base_url=self.url, timeout=5)
+            client = OllamaClient(base_url=self.url, timeout=HTTP_API_TIMEOUT_SEC)
             if not client.is_available():
                 self.finished.emit(False, f"Ollama nicht erreichbar unter {self.url}", [])
                 return

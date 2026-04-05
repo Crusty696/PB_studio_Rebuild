@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
 )
 
+from services.timeout_constants import HTTP_HEALTH_CHECK_TIMEOUT_SEC
 from ui.theme import ACCENT, BG1, BG2, BG3, T1, T2, T3, OK, ERR, WARN
 
 logger = logging.getLogger(__name__)
@@ -567,7 +568,7 @@ class ModelManagerDialog(QDialog):
         import urllib.request
         try:
             req = urllib.request.Request(f"{self.ollama_url}/api/version")
-            with urllib.request.urlopen(req, timeout=2) as resp:
+            with urllib.request.urlopen(req, timeout=HTTP_HEALTH_CHECK_TIMEOUT_SEC) as resp:
                 if resp.status == 200:
                     import json
                     data = json.loads(resp.read())
