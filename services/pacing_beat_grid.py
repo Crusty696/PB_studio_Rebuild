@@ -47,29 +47,36 @@ def _get_cached_stem_audio(audio_id: int, stem_path: str, stem_name: str, sr: in
         if audio_id not in _stem_audio_cache:
             _stem_audio_cache[audio_id] = {}
             # LRU-Eviction: aeltesten Eintrag entfernen wenn Limit erreicht
+            evicted_items = []
             while len(_stem_audio_cache) > _STEM_CACHE_MAX:
                 evicted_id, evicted_data = _stem_audio_cache.popitem(last=False)
-                # P-01 Fix: Explizit numpy arrays freigeben (sonst haelt Python GC sie)
-                for _y_ref, _sr_ref in evicted_data.values():
-                    del _y_ref
-                del evicted_data
-                import gc as _gc
-                _gc.collect()
+                evicted_items.append((evicted_id, evicted_data))
                 logger.debug("[StemCache] Evicted audio_id=%d", evicted_id)
         else:
+            evicted_items = []
             # Move to end (most recently used)
             _stem_audio_cache.move_to_end(audio_id)
         cache = _stem_audio_cache[audio_id]
         if stem_name in cache:
             return cache[stem_name]
 
+    # GC outside lock to avoid holding it during collection
+    for _evicted_id, evicted_data in evicted_items:
+        for _y_ref, _sr_ref in evicted_data.values():
+            del _y_ref
+        del evicted_data
+    if evicted_items:
+        import gc as _gc
+        _gc.collect()
+
     # librosa.load AUSSERHALB des Locks (CPU-intensiv, soll nicht blockieren)
     import librosa
     y, loaded_sr = librosa.load(stem_path, sr=sr, mono=True)
 
     with _cache_lock:
-        if audio_id in _stem_audio_cache:
-            _stem_audio_cache[audio_id][stem_name] = (y, loaded_sr)
+        if audio_id not in _stem_audio_cache:
+            _stem_audio_cache[audio_id] = {}
+        _stem_audio_cache[audio_id][stem_name] = (y, loaded_sr)
     return (y, loaded_sr)
 
 
@@ -579,6 +586,7 @@ def detect_sections(
 # P-021: Bisect-Cache fuer get_section_at_time (O(log N) statt O(N), aufgerufen 5451x)
 _section_starts_cache: list[float] = []
 _section_list_cache: list[Section] = []
+_section_cache_id: int | None = None
 _section_cache_lock = threading.Lock()
 
 
@@ -588,14 +596,16 @@ def get_section_at_time(sections: list[Section], time: float) -> Section | None:
     Thread-safe durch _section_cache_lock (verhindert Race Conditions bei
     parallelen Aufrufen mit unterschiedlichen Section-Listen).
     """
-    global _section_starts_cache, _section_list_cache
+    global _section_starts_cache, _section_list_cache, _section_cache_id
     if not sections:
         return None
+    sections_id = id(sections)
     with _section_cache_lock:
-        # Build cache on first call or when sections change
-        if len(_section_list_cache) != len(sections) or (sections and _section_list_cache[0] != sections[0]):
+        # Build cache on first call or when sections list identity changes
+        if _section_cache_id != sections_id:
             _section_starts_cache = [s.start for s in sections]
             _section_list_cache = list(sections)
+            _section_cache_id = sections_id
         idx = bisect.bisect_right(_section_starts_cache, time) - 1
         if 0 <= idx < len(_section_list_cache):
             sec = _section_list_cache[idx]

@@ -381,7 +381,6 @@ class VisionAnalysisWorker(QObject, CancellableMixin):
     def __init__(self, clip_id: int, video_path: str,
                  interval_sec: float = 5.0, max_frames: int = 10):
         super().__init__()
-        CancellableMixin.__init__(self)
         self.clip_id = clip_id
         self.video_path = video_path
         self.interval_sec = interval_sec

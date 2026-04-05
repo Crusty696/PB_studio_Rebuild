@@ -52,8 +52,8 @@ def _message_row(text: str, color: str, icon: str) -> QWidget:
     row = QFrame()
     row.setObjectName("card")
     row.setStyleSheet(
-        f"QFrame#card {{ background: {BG2}; border: 1px solid rgba(255,255,255,0.05); "
-        "border-radius: 10px; }}"
+        f"background: {BG2}; border: 1px solid rgba(255,255,255,13); "
+        "border-radius: 10px;"
     )
     layout = QHBoxLayout(row)
     layout.setContentsMargins(14, 10, 14, 10)
@@ -184,9 +184,9 @@ class StartupCheckDialog(QDialog):
         if status.errors:
             btn_quit = QPushButton("Beenden")
             btn_quit.setStyleSheet(
-                f"QPushButton {{ background: rgba(248,113,113,0.15); color: {ERR}; "
+                f"QPushButton {{ background: rgba(248,113,113,38); color: {ERR}; "
                 f"border: 1px solid {ERR}; border-radius: 6px; padding: 6px 18px; font-weight: 700; }}"
-                f"QPushButton:hover {{ background: rgba(248,113,113,0.30); }}"
+                f"QPushButton:hover {{ background: rgba(248,113,113,77); }}"
             )
             btn_quit.clicked.connect(self.reject)
             f_layout.addWidget(btn_quit)
@@ -195,9 +195,9 @@ class StartupCheckDialog(QDialog):
 
             btn_start = QPushButton("Trotzdem starten (degradierter Modus)")
             btn_start.setStyleSheet(
-                f"QPushButton {{ background: rgba(251,191,36,0.15); color: {WARN}; "
+                f"QPushButton {{ background: rgba(251,191,36,38); color: {WARN}; "
                 f"border: 1px solid {WARN}; border-radius: 6px; padding: 6px 18px; font-weight: 700; }}"
-                f"QPushButton:hover {{ background: rgba(251,191,36,0.30); }}"
+                f"QPushButton:hover {{ background: rgba(251,191,36,77); }}"
             )
             btn_start.clicked.connect(self.accept)
             f_layout.addWidget(btn_start)

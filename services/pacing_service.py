@@ -456,7 +456,7 @@ def auto_edit_phase3(
     if beats_arr.size > 0:
         for vid_data in video_info.values():
             for scene in vid_data.get("scenes", []):
-                scene_time = scene.get("start_time", 0.0)
+                scene_time = scene.get("start", 0.0)
                 if scene_time <= 0 or scene_time >= total_duration:
                     continue
                 # Nur Szenen-Wechsel mit deutlichem Motion-Delta (signifikante visuelle Aenderung)

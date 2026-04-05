@@ -13,7 +13,7 @@ BG4 = "#283040"  # Active/Hover Surface
 ACCENT = "#d4a44a"  # Premium Gold
 ACCENT_BRIGHT = "#f0c866" # Highlight Gold
 ACCENT_DIM = "#a07830"  # Deep Gold
-ACCENT_MUTED = "rgba(212, 164, 74, 0.15)" # Subtle Gold Wash
+ACCENT_MUTED = "rgba(212, 164, 74, 38)" # Subtle Gold Wash (alpha 0.15 * 255 ≈ 38)
 
 OK = "#4ade80"
 WARN = "#fbbf24"
@@ -79,7 +79,7 @@ def get_stylesheet() -> str:
         color: {BG0};
         border: none;
         font-weight: 700;
-        letter-spacing: 0.5px;
+        /* letter-spacing not supported in Qt QSS */
     }}
     QPushButton[objectName="btn_accent"]:hover,
     QPushButton[objectName="btn_primary"]:hover {{
@@ -108,12 +108,12 @@ def get_stylesheet() -> str:
         color: {ACCENT_BRIGHT};
         font-weight: 700;
         font-size: 10px;
-        letter-spacing: 1px;
+        /* letter-spacing not supported in Qt QSS */
         border-radius: 3px;
     }}
     QPushButton[objectName="btn_learn_ai"]:hover,
     QPushButton[objectName="btn_ai"]:hover {{
-        background-color: rgba(212, 164, 74, 0.28);
+        background-color: rgba(212, 164, 74, 71);
         border-color: {ACCENT};
     }}
     QPushButton[objectName="btn_learn_ai"]:pressed,
@@ -135,8 +135,8 @@ def get_stylesheet() -> str:
     QLabel#subtitle {{
         color: {T3};
         font-size: 11px;
-        text-transform: uppercase;
-        letter-spacing: 1px;
+        /* text-transform not supported in Qt QSS — use Python .upper() */
+        /* letter-spacing not supported in Qt QSS */
     }}
 
     /* === INPUTS === */
@@ -212,8 +212,8 @@ def get_stylesheet() -> str:
         padding: 6px 10px;
         font-size: 10px;
         font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
+        /* text-transform not supported in Qt QSS — use Python .upper() */
+        /* letter-spacing not supported in Qt QSS */
     }}
 
     /* === SCROLLBARS === */
@@ -324,8 +324,8 @@ def get_stylesheet() -> str:
         padding: 8px 12px;
         font-weight: 700;
         font-size: 11px;
-        text-transform: uppercase;
-        letter-spacing: 1px;
+        /* text-transform not supported in Qt QSS — use Python .upper() */
+        /* letter-spacing not supported in Qt QSS */
         border-bottom: 1px solid rgba(255,255,255,0.05);
     }}
 
@@ -337,7 +337,7 @@ def get_stylesheet() -> str:
         border-radius: 8px;
         font-family: 'Cascadia Code', 'Consolas', 'JetBrains Mono', monospace;
         font-size: 11px;
-        line-height: 1.5;
+        /* line-height not supported in Qt QSS */
         padding: 10px;
     }}
 
@@ -357,7 +357,7 @@ def get_stylesheet() -> str:
         padding: 0px 10px;
         color: {T3};
         font-size: 10px;
-        text-transform: uppercase;
+        /* text-transform not supported in Qt QSS — use Python .upper() */
         letter-spacing: 1.5px;
     }}
 

@@ -245,6 +245,7 @@ class BatchConvertWorker(QObject, CancellableMixin):
                 except FileNotFoundError:
                     self._errored = True
                     self.error.emit("ffmpeg nicht gefunden!")
+                    self.finished.emit(converted, total)
                     return
 
             self.finished.emit(converted, total)

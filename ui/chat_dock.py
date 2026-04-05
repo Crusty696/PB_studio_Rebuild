@@ -359,7 +359,8 @@ class ChatDock(QDockWidget):
             cursor.movePosition(QTextCursor.MoveOperation.EndOfBlock, QTextCursor.MoveMode.KeepAnchor)
             if not cursor.selectedText().strip():
                 cursor.removeSelectedText()
-                cursor.deletePreviousChar()  # Newline davor
+                if cursor.position() > 0:
+                    cursor.deletePreviousChar()  # Newline davor
         self._status_cursor_pos = None
 
     # ------------------------------------------------------------------

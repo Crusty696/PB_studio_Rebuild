@@ -31,9 +31,10 @@ def _build_splash_pixmap(version: str) -> QPixmap:
     from PySide6.QtGui import QLinearGradient
     grad = QLinearGradient(0, 0, _W, 0)
     grad.setColorAt(0.0, QColor(0, 0, 0, 0))
+    grad.setColorAt(0.4, QColor(212, 164, 74, 60))
     grad.setColorAt(0.5, QColor("#d4a44a"))
+    grad.setColorAt(0.6, QColor(212, 164, 74, 60))
     grad.setColorAt(1.0, QColor(0, 0, 0, 0))
-    grad.setColorAt(0.5, QColor(212, 164, 74, 60))
     p.fillRect(0, 0, _W, 3, grad)
 
     # ── Waveform decoration (bottom area) ────────────────────────────
@@ -47,7 +48,7 @@ def _build_splash_pixmap(version: str) -> QPixmap:
 
     # ── Tagline ───────────────────────────────────────────────────────
     tag_font = QFont("Arial", 13)
-    tag_font.setWeight(600)
+    tag_font.setWeight(QFont.Weight.DemiBold)
     p.setFont(tag_font)
     p.setPen(QColor("#808080"))
     p.drawText(QRect(0, 110, _W, 30), Qt.AlignmentFlag.AlignCenter,
@@ -55,7 +56,7 @@ def _build_splash_pixmap(version: str) -> QPixmap:
 
     # ── "Powered by AI" badge ─────────────────────────────────────────
     badge_font = QFont("Arial", 10)
-    badge_font.setWeight(600)
+    badge_font.setWeight(QFont.Weight.DemiBold)
     p.setFont(badge_font)
     bw, bh = 120, 22
     bx, by = (_W - bw) // 2, 152

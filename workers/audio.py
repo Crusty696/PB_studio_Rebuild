@@ -88,7 +88,6 @@ class TranscriptionWorker(QObject, CancellableMixin):
 
     def __init__(self, track_id: int, language: str | None = None):
         super().__init__()
-        CancellableMixin.__init__(self)
         self.track_id = track_id
         self.language = language
 
