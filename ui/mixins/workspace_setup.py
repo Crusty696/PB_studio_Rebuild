@@ -288,9 +288,7 @@ class WorkspaceSetupMixin:
         self.energy_reactivity_slider = self._edit_ws.energy_reactivity_slider
         self.energy_reactivity_spin = self._edit_ws.energy_reactivity_spin
         self.breakdown_combo = self._edit_ws.breakdown_combo
-        self.tempo_slider = self._edit_ws.tempo_slider
-        self.energy_slider = self._edit_ws.energy_slider
-        self.density_slider = self._edit_ws.density_slider
+        # Legacy slider refs removed — use energy_reactivity_slider directly
         self.btn_generate = self._edit_ws.btn_generate
         self.btn_auto_edit = self._edit_ws.btn_auto_edit
         self.anchor_list = self._edit_ws.anchor_list

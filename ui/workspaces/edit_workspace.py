@@ -239,10 +239,8 @@ class EditWorkspace(QWidget):
         bd_row.addWidget(self.breakdown_combo, stretch=1)
         insp.addLayout(bd_row)
 
-        # Legacy slider refs
-        self.tempo_slider = self.energy_reactivity_slider
-        self.energy_slider = self.energy_reactivity_slider
-        self.density_slider = self.energy_reactivity_slider
+        # Legacy slider refs removed — all three were aliased to energy_reactivity_slider
+        # and never accessed independently. Use self.energy_reactivity_slider directly.
 
         self._add_separator(insp)
 
@@ -393,7 +391,7 @@ class EditWorkspace(QWidget):
         curve_hdr = QHBoxLayout()
         curve_hdr.setSpacing(4)
         curve_lbl = QLabel("MANUAL PACING")
-        curve_lbl.setStyleSheet("color: #6b7280; font-size: 9px; font-weight: 600; letter-spacing: 1px;")
+        curve_lbl.setStyleSheet("color: #6b7280; font-size: 9px; font-weight: 600;")
         curve_hdr.addWidget(curve_lbl)
         btn_reset = QPushButton("Reset")
         btn_reset.setFixedHeight(24)

@@ -43,7 +43,7 @@ class ClipInspectorPanel(QWidget):
         # Header
         header = QLabel("CLIP INSPECTOR")
         header.setFont(QFont("Segoe UI Variable Text", 9, QFont.Weight.Bold))
-        header.setStyleSheet(f"color: {ACCENT}; letter-spacing: 2px; font-size: 9px;")
+        header.setStyleSheet(f"color: {ACCENT}; font-size: 9px;")
         layout.addWidget(header)
 
         # Separator
@@ -101,7 +101,9 @@ class ClipInspectorPanel(QWidget):
     def _add_spin_row(self, layout: QVBoxLayout, label_text: str,
                       min_val: float, max_val: float, decimals: int,
                       step: float) -> QDoubleSpinBox:
-        row = QHBoxLayout()
+        container = QWidget()
+        row = QHBoxLayout(container)
+        row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(6)
         lbl = QLabel(label_text)
         lbl.setFixedWidth(80)
@@ -112,7 +114,8 @@ class ClipInspectorPanel(QWidget):
         spin.setSingleStep(step)
         spin.setFixedHeight(22)
         row.addWidget(spin)
-        layout.addLayout(row)
+        layout.addWidget(container)
+        spin._row_container = container  # store ref for visibility toggle
         return spin
 
     def _set_fields_visible(self, visible: bool):
@@ -121,8 +124,10 @@ class ClipInspectorPanel(QWidget):
             w.setVisible(visible)
         for spin in (self._start_spin, self._end_spin,
                      self._brightness_spin, self._contrast_spin, self._crossfade_spin):
-            spin.setVisible(visible)
-            spin.parent().setVisible(visible) if spin.parent() else None
+            if hasattr(spin, '_row_container'):
+                spin._row_container.setVisible(visible)
+            else:
+                spin.setVisible(visible)
         self._no_selection_label.setVisible(not visible)
 
     def update_from_selection(self, clip_data_list: list[dict]):

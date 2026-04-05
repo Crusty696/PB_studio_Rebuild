@@ -432,9 +432,11 @@ class MediaPoolGrid(QWidget):
     # ── Internal ─────────────────────────────────────────────────────
 
     def _rebuild_cards(self) -> None:
-        # Stop pending thumbnail threads
+        # Stop pending thumbnail threads and wait for cleanup
         for t in self._thumb_threads:
             t.quit()
+        for t in self._thumb_threads:
+            t.wait(200)
         self._thumb_threads.clear()
 
         # Remove all cards from layout and delete

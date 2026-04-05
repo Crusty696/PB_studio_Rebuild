@@ -258,7 +258,7 @@ def _sub(text: str) -> QLabel:
 def _status_chip(text: str, ok: bool) -> QLabel:
     lbl = QLabel(text)
     color = OK if ok else ERR
-    bg = "rgba(74,222,128,0.12)" if ok else "rgba(248,113,113,0.12)"
+    bg = "rgba(74,222,128,31)" if ok else "rgba(248,113,113,31)"
     lbl.setStyleSheet(
         f"background: {bg}; color: {color}; border-radius: 6px; "
         "font-size: 10px; font-weight: 700; padding: 3px 8px;"
@@ -274,13 +274,13 @@ def _btn(text: str, primary: bool = False) -> QPushButton:
             f"QPushButton {{ background: {ACCENT}; color: {BG0}; border-radius: 8px; "
             "font-size: 12px; font-weight: 700; padding: 8px 22px; border: none; }}"
             f"QPushButton:hover {{ background: {ACCENT_BRIGHT}; }}"
-            f"QPushButton:disabled {{ background: rgba(212,164,74,0.3); color: rgba(0,0,0,0.4); }}"
+            f"QPushButton:disabled {{ background: rgba(212,164,74,77); color: rgba(0,0,0,102); }}"
         )
     else:
         b.setStyleSheet(
             f"QPushButton {{ background: {BG3}; color: {T2}; border-radius: 8px; "
-            "font-size: 12px; padding: 8px 18px; border: 1px solid rgba(255,255,255,0.08); }}"
-            f"QPushButton:hover {{ background: rgba(255,255,255,0.08); color: {T1}; }}"
+            "font-size: 12px; padding: 8px 18px; border: 1px solid rgba(255,255,255,20); }}"
+            f"QPushButton:hover {{ background: rgba(255,255,255,20); color: {T1}; }}"
         )
     return b
 
@@ -360,7 +360,7 @@ class _PageHardware(QWidget):
             )
             warn.setWordWrap(True)
             warn.setStyleSheet(
-                f"color: {WARN}; font-size: 11px; background: rgba(251,191,36,0.08); "
+                f"color: {WARN}; font-size: 11px; background: rgba(251,191,36,20); "
                 "border-radius: 6px; padding: 8px 10px;"
             )
             self._check_layout.addWidget(warn)
@@ -416,7 +416,7 @@ class _PageModels(QWidget):
     def _model_row(self, layout: QVBoxLayout, m: dict, already: bool = False) -> QCheckBox:
         row = QFrame()
         row.setStyleSheet(
-            f"QFrame {{ background: {BG2}; border: 1px solid rgba(255,255,255,0.06); "
+            f"QFrame {{ background: {BG2}; border: 1px solid rgba(255,255,255,15); "
             "border-radius: 8px; }}"
         )
         hl = QHBoxLayout(row)
@@ -444,14 +444,14 @@ class _PageModels(QWidget):
         if m.get("required"):
             req_chip = QLabel("Erforderlich")
             req_chip.setStyleSheet(
-                f"background: rgba(212,164,74,0.15); color: {ACCENT}; "
+                f"background: rgba(212,164,74,38); color: {ACCENT}; "
                 "border-radius: 4px; font-size: 9px; font-weight: 700; padding: 2px 6px;"
             )
             name_row.addWidget(req_chip)
         if already:
             done_chip = QLabel("Bereits installiert")
             done_chip.setStyleSheet(
-                f"background: rgba(74,222,128,0.12); color: {OK}; "
+                f"background: rgba(74,222,128,31); color: {OK}; "
                 "border-radius: 4px; font-size: 9px; font-weight: 700; padding: 2px 6px;"
             )
             name_row.addWidget(done_chip)
@@ -567,7 +567,7 @@ class _PageDownload(QWidget):
     def _add_row(self, model_id: str) -> None:
         frame = QFrame()
         frame.setStyleSheet(
-            f"QFrame {{ background: {BG2}; border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; }}"
+            f"QFrame {{ background: {BG2}; border: 1px solid rgba(255,255,255,15); border-radius: 8px; }}"
         )
         vl = QVBoxLayout(frame)
         vl.setContentsMargins(12, 10, 12, 10)
@@ -784,7 +784,7 @@ class SetupWizard(QDialog):
             if i == page:
                 lbl.setStyleSheet(
                     f"color: {ACCENT}; font-size: 11px; font-weight: 700; "
-                    f"background: rgba(212,164,74,0.12); border-radius: 6px; padding: 3px 6px;"
+                    f"background: rgba(212,164,74,31); border-radius: 6px; padding: 3px 6px;"
                 )
             elif i < page:
                 lbl.setStyleSheet(

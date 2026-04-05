@@ -478,11 +478,11 @@ class EditWorkspaceMixin:
             # Visuelles Feedback: kurz gruen aufleuchten
             self.btn_learn_ai.setStyleSheet(
                 "background-color: #4ade80; color: #0a0d12; font-weight: 800; "
-                "font-size: 10px; border-radius: 3px; letter-spacing: 1px;"
+                "font-size: 10px; border-radius: 3px;"
             )
             QTimer.singleShot(2000, lambda: self.btn_learn_ai.setStyleSheet(
                 "background-color: #d4a44a; color: #0a0d12; font-weight: 800; "
-                "font-size: 10px; border-radius: 3px; letter-spacing: 1px;"
+                "font-size: 10px; border-radius: 3px;"
             ))
         else:
             self.console_text.append("[KI-Gedaechtnis] Fehler beim Speichern der Regel.")

@@ -33,7 +33,7 @@ def _check_row(label: str, ok: bool, detail: str = "") -> QWidget:
     indicator.setFixedWidth(44)
     indicator.setAlignment(Qt.AlignmentFlag.AlignCenter)
     indicator.setStyleSheet(
-        f"background: {'rgba(74,222,128,0.12)' if ok else 'rgba(248,113,113,0.12)'}; "
+        f"background: {'rgba(74,222,128,31)' if ok else 'rgba(248,113,113,31)'}; "
         f"color: {OK if ok else ERR}; border-radius: 6px; "
         "font-size: 10px; font-weight: 800; padding: 3px 0;"
     )
@@ -90,7 +90,7 @@ class StartupCheckDialog(QDialog):
         # Header
         header = QWidget()
         header.setFixedHeight(64)
-        header.setStyleSheet(f"background-color: {BG1}; border-bottom: 1px solid rgba(255,255,255,0.05);")
+        header.setStyleSheet(f"background-color: {BG1}; border-bottom: 1px solid rgba(255,255,255,13);")
         h_layout = QHBoxLayout(header)
         h_layout.setContentsMargins(24, 0, 24, 0)
         title = QLabel("System Check")
