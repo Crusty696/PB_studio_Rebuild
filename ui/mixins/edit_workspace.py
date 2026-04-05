@@ -63,10 +63,11 @@ class EditWorkspaceMixin:
             track = session.get(AudioTrack, audio_id)
             if track and track.duration:
                 self.pacing_curve.set_duration(track.duration)
-                self.console_text.append(
-                    f"[Edit] Audio gewechselt: {track.title or 'Track'} "
-                    f"({track.duration:.1f}s) — Pacing-Kurve aktualisiert."
-                )
+                if hasattr(self, "console_text"):
+                    self.console_text.append(
+                        f"[Edit] Audio gewechselt: {track.title or 'Track'} "
+                        f"({track.duration:.1f}s) — Pacing-Kurve aktualisiert."
+                    )
 
     def _generate_timeline(self):
         audio_id = self.audio_combo.currentData()
@@ -221,7 +222,12 @@ class EditWorkspaceMixin:
         self.timeline_view.undo_stack.push(cmd)
 
         # 2. OTIO Timeline generieren
-        self._build_otio_timeline(segments)
+        try:
+            self._build_otio_timeline(segments)
+        except Exception as exc:
+            logger.warning("OTIO export failed: %s", exc)
+            if hasattr(self, "console_text"):
+                self.console_text.append(f"[OTIO] Export-Fehler: {exc}")
 
         # 4. CutPoints visualisieren
         if cut_points:
@@ -276,7 +282,10 @@ class EditWorkspaceMixin:
         # Video-Clips hinzufuegen
         video_track = tls.get_video_track()
         for seg in segments:
-            source_duration = seg.get("source_end", seg["end"]) - seg.get("source_start", seg["start"])
+            source_duration = max(
+                0.04,  # minimum ~1 frame at 25fps
+                seg.get("source_end", seg["end"]) - seg.get("source_start", seg["start"]),
+            )
             metadata = {}
             if seg.get("is_anchor"):
                 metadata = {"scene_id": seg.get("scene_id", ""), "type": "anchor"}
@@ -360,21 +369,24 @@ class EditWorkspaceMixin:
         scene_combo.addItem("-- Szene waehlen --", "")
         # Alle Szenen aus der DB laden (joinedload verhindert N+1)
         from sqlalchemy.orm import joinedload
-        with DBSession(engine) as session:
-            clips = session.query(VideoClip).options(
-                joinedload(VideoClip.scenes)
-            ).filter_by(project_id=get_active_project_id()).all()
-            for clip in clips:
-                clip_name = Path(clip.file_path).stem[:20]
-                for scene in clip.scenes:
-                    label = (
-                        f"{clip_name} | Szene {scene.id} "
-                        f"({scene.start_time:.1f}-{scene.end_time:.1f}s)"
-                    )
-                    scene_combo.addItem(label, str(scene.id))
-                # Falls keine Szenen: ganzen Clip anbieten
-                if not clip.scenes:
-                    scene_combo.addItem(f"{clip_name} (komplett)", f"clip_{clip.id}")
+        try:
+            with DBSession(engine) as session:
+                clips = session.query(VideoClip).options(
+                    joinedload(VideoClip.scenes)
+                ).filter_by(project_id=get_active_project_id()).all()
+                for clip in clips:
+                    clip_name = Path(clip.file_path).stem[:20]
+                    for scene in clip.scenes:
+                        label = (
+                            f"{clip_name} | Szene {scene.id} "
+                            f"({scene.start_time:.1f}-{scene.end_time:.1f}s)"
+                        )
+                        scene_combo.addItem(label, str(scene.id))
+                    # Falls keine Szenen: ganzen Clip anbieten
+                    if not clip.scenes:
+                        scene_combo.addItem(f"{clip_name} (komplett)", f"clip_{clip.id}")
+        except Exception as exc:
+            logger.warning("_add_anchor_dialog: DB error loading scenes: %s", exc)
         scene_row.addWidget(scene_combo)
         layout.addLayout(scene_row)
 

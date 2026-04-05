@@ -99,6 +99,13 @@ class TimelineClipItem(QGraphicsRectItem):
         self._clip_width = width
         self._clip_height = height
 
+        # State initialization (MUST happen before setFlag/setPos)
+        self._trim_mode: str | None = None  # "left", "right", or None
+        self._trim_start_mouse_x: float = 0.0
+        self._trim_start_width: float = 0.0
+        self._trim_start_pos_x: float = 0.0
+        self._drag_start_x: float | None = None
+
         self.setPos(x, y)
         self.setFlag(QGraphicsRectItem.GraphicsItemFlag.ItemIsMovable, True)
         self.setFlag(QGraphicsRectItem.GraphicsItemFlag.ItemIsSelectable, True)
@@ -133,12 +140,6 @@ class TimelineClipItem(QGraphicsRectItem):
         self._right_handle.setVisible(False)
 
         self._track_y = y
-        self._drag_start_x: float | None = None  # Undo: alte Position vor Drag
-        self._trim_mode: str | None = None  # "left", "right", or None
-        self._trim_start_mouse_x: float = 0.0
-        self._trim_start_width: float = 0.0
-        self._trim_start_pos_x: float = 0.0
-
         self._anchor_markers: list[AnchorMarkerItem] = []
         if anchors is not None:
             self._apply_anchors(anchors)
@@ -940,41 +941,42 @@ class InteractiveTimeline(QGraphicsView):
         if use_macro:
             self.undo_stack.beginMacro(f"{len(moves)} Clips verschieben")
 
-        for entry_id, new_start in moves.items():
-            clip_item = self._find_clip_item(entry_id)
-            drag_start_x = clip_item._drag_start_x if clip_item else None
+        try:
+            for entry_id, new_start in moves.items():
+                clip_item = self._find_clip_item(entry_id)
+                drag_start_x = clip_item._drag_start_x if clip_item else None
 
-            with nullpool_session() as session:
-                entry = session.get(TimelineEntry, entry_id)
-                if not entry:
-                    continue
-                old_start = entry.start_time
-                old_end = entry.end_time
+                with nullpool_session() as session:
+                    entry = session.get(TimelineEntry, entry_id)
+                    if not entry:
+                        continue
+                    old_start = entry.start_time
+                    old_end = entry.end_time
 
-                if drag_start_x is not None:
-                    old_start = max(0, drag_start_x / PIXELS_PER_SECOND)
-                    if old_end is not None:
+                    if drag_start_x is not None:
+                        old_start = max(0, drag_start_x / PIXELS_PER_SECOND)
+                        if old_end is not None:
+                            duration = entry.end_time - entry.start_time
+                            old_end = round(old_start + duration, 3)
+
+                    new_end = None
+                    if entry.end_time is not None:
                         duration = entry.end_time - entry.start_time
-                        old_end = round(old_start + duration, 3)
+                        new_end = round(new_start + duration, 3)
 
-                new_end = None
-                if entry.end_time is not None:
-                    duration = entry.end_time - entry.start_time
-                    new_end = round(new_start + duration, 3)
-
-            cmd = MoveClipCommand(
-                timeline=self,
-                entry_id=entry_id,
-                old_start=old_start,
-                old_end=old_end,
-                new_start=new_start,
-                new_end=new_end,
-            )
-            self.undo_stack.push(cmd)
-            self.clip_moved.emit(entry_id, new_start)
-
-        if use_macro:
-            self.undo_stack.endMacro()
+                cmd = MoveClipCommand(
+                    timeline=self,
+                    entry_id=entry_id,
+                    old_start=old_start,
+                    old_end=old_end,
+                    new_start=new_start,
+                    new_end=new_end,
+                )
+                self.undo_stack.push(cmd)
+                self.clip_moved.emit(entry_id, new_start)
+        finally:
+            if use_macro:
+                self.undo_stack.endMacro()
 
     def _find_clip_item(self, entry_id: int) -> TimelineClipItem | None:
         """Sucht ein TimelineClipItem anhand seiner entry_id."""
