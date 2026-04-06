@@ -74,7 +74,7 @@ def ask_ai(question: str, max_tokens: int = 512) -> dict:
             return {
                 "status": "error",
                 "action": "ask_ai",
-                "message": "Kein Ollama-Modell installiert. Tipp: 'ollama pull qwen2.5:1.5b-instruct'.",
+                "message": "Kein Ollama-Modell installiert. Tipp: 'ollama pull gemma4:e4b'.",
             }
 
         system_prompt = (

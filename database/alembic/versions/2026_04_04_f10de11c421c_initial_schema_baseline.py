@@ -85,6 +85,9 @@ def upgrade() -> None:
         sa.Column('end_time', sa.Float(), nullable=False),
         sa.Column('label', sa.String(), nullable=True),
         sa.Column('energy', sa.Float(), nullable=True),
+        sa.Column('ai_caption', sa.Text(), nullable=True),
+        sa.Column('ai_mood', sa.String(), nullable=True),
+        sa.Column('ai_tags', sa.Text(), nullable=True),
     )
     op.create_index('ix_scenes_video_clip_id', 'scenes', ['video_clip_id'])
 

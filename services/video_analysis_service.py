@@ -11,6 +11,7 @@ Nutzt ModelManager Singleton für VRAM-Schutz.
 from __future__ import annotations
 
 import gc
+import json
 import logging
 import subprocess
 import sys
@@ -40,6 +41,10 @@ class SceneInfo:
     motion_score: float = 0.0
     keyframe_path: str | None = None
     embedding: np.ndarray | None = None
+    # AUD-128: Gemma 4 Vision captioning
+    ai_caption: dict | None = None   # {description, mood, motion, tags}
+    ai_mood: str | None = None       # energetic|calm|dramatic|ambient
+    ai_tags: list | None = None      # ['tag1', 'tag2', ...]
 
 
 @dataclass
@@ -76,6 +81,10 @@ def detect_scenes(
     """
     if progress_cb:
         progress_cb(0, "Szenen-Erkennung...")
+
+    if not video_path or not Path(video_path).exists():
+        logger.error("Video-Datei nicht gefunden: %s", video_path)
+        return []
 
     try:
         from scenedetect import detect, ContentDetector
@@ -171,6 +180,10 @@ def compute_motion_scores(
     """
     if progress_cb:
         progress_cb(30, "Motion-Analyse...")
+
+    if not video_path or not Path(video_path).exists():
+        logger.error("Video-Datei nicht gefunden (Motion-Analyse abgebrochen): %s", video_path)
+        return scenes
 
     try:
         import cv2
@@ -308,6 +321,10 @@ def extract_keyframes(
     """
     if progress_cb:
         progress_cb(50, "Keyframes extrahieren...")
+
+    if not video_path or not Path(video_path).exists():
+        logger.error("Video-Datei nicht gefunden (Keyframe-Extraktion abgebrochen): %s", video_path)
+        return scenes
 
     out_dir = output_dir or _keyframe_dir()
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -488,6 +505,128 @@ def generate_embeddings(
     return scenes
 
 
+# ======================================================================
+# Schritt 4: Gemma Vision Captioning (AUD-128)
+# ======================================================================
+
+# Ollama-Modell für Vision-Captioning (muss Vision-fähig sein)
+_VISION_MODEL = "gemma3:4b"
+
+_CAPTION_SYSTEM_PROMPT = """\
+You are a video scene analyzer for a DJ/music video editor.
+Analyze the provided keyframe(s) and return ONLY valid JSON (no markdown, no extra text):
+{"description": "<1-2 sentence scene description>", "mood": "<energetic|calm|dramatic|ambient>", "motion": "<static|slow|medium|fast>", "tags": ["<tag1>", "<tag2>", "<tag3>"]}
+"""
+
+_CAPTION_USER_PROMPT = "Analyze this DJ/music video scene. Return JSON only."
+
+
+def _encode_keyframe_base64(image_path: str) -> str | None:
+    """Lädt ein Keyframe-Bild und kodiert es als base64-String für Ollama."""
+    import base64
+    try:
+        with open(image_path, "rb") as f:
+            return base64.b64encode(f.read()).decode("utf-8")
+    except (OSError, IOError) as e:
+        logger.warning("Keyframe-base64-Encoding fehlgeschlagen: %s — %s", image_path, e)
+        return None
+
+
+def analyze_scene_with_caption(
+    scenes: list[SceneInfo],
+    progress_cb: Callable[[int, str], None] | None = None,
+    vision_model: str = _VISION_MODEL,
+) -> list[SceneInfo]:
+    """Analysiert Szenen mit Gemma Vision und befüllt ai_caption, ai_mood, ai_tags.
+
+    Schritt 4 der Pipeline: SceneDetect → RAFT → SigLIP → Gemma Caption (dieser Step).
+    Nutzt OllamaClient für multimodales Inference via base64-codierten Keyframes.
+    Max. 3 Keyframes pro Szene werden übergeben.
+
+    Graceful degradation: Wenn Ollama nicht erreichbar → Warning, skip, Pipeline läuft weiter.
+
+    Args:
+        scenes: Liste von SceneInfo mit keyframe_path gesetzt
+        progress_cb: Callback(percent, message)
+        vision_model: Ollama-Modellname (Standard: gemma3:4b)
+
+    Returns:
+        scenes mit befüllten ai_caption / ai_mood / ai_tags Feldern
+    """
+    if progress_cb:
+        progress_cb(85, "Gemma Vision Captioning...")
+
+    keyframe_scenes = [s for s in scenes if s.keyframe_path and Path(s.keyframe_path).exists()]
+    if not keyframe_scenes:
+        logger.info("[CAPTION] Keine Keyframes vorhanden — Caption-Schritt übersprungen")
+        return scenes
+
+    from services.ollama_client import get_ollama_client
+    client = get_ollama_client()
+
+    if not client.is_available():
+        logger.warning(
+            "[CAPTION] Ollama nicht erreichbar — Vision-Captioning übersprungen. "
+            "Starte Ollama und lade '%s' für automatische Captions.", vision_model
+        )
+        return scenes
+
+    logger.info("[CAPTION] Starte Vision-Captioning für %d Szenen mit '%s'...",
+                len(keyframe_scenes), vision_model)
+
+    for scene in keyframe_scenes:
+        # Max 3 Keyframes: für jetzt haben wir 1 pro Szene, aber Struktur erlaubt mehrere
+        keyframe_paths = [scene.keyframe_path]
+        images_b64 = [enc for kp in keyframe_paths if (enc := _encode_keyframe_base64(kp))]
+
+        if not images_b64:
+            logger.debug("[CAPTION] Szene %d: Keyframe-Encoding fehlgeschlagen", scene.index)
+            continue
+
+        try:
+            raw = client.chat_vision(
+                model=vision_model,
+                user_message=_CAPTION_USER_PROMPT,
+                images_base64=images_b64,
+                system_prompt=_CAPTION_SYSTEM_PROMPT,
+                temperature=0.1,
+                max_tokens=256,
+            )
+
+            # JSON parsen — LLMs wrappen manchmal in Markdown-Fences
+            import re as _re
+            cleaned = raw.strip()
+            if "```" in cleaned:
+                fence = _re.search(r"```(?:json)?\s*\n?(.*?)\n?\s*```", cleaned, _re.DOTALL)
+                if fence:
+                    cleaned = fence.group(1).strip()
+
+            parsed = json.loads(cleaned)
+            if isinstance(parsed, dict):
+                scene.ai_caption = parsed
+                scene.ai_mood = parsed.get("mood")
+                scene.ai_tags = parsed.get("tags", [])
+                logger.debug(
+                    "[CAPTION] Szene %d: mood=%s, tags=%s",
+                    scene.index, scene.ai_mood, scene.ai_tags,
+                )
+
+        except json.JSONDecodeError:
+            logger.warning(
+                "[CAPTION] Szene %d: LLM-Antwort war kein valides JSON: %s",
+                scene.index, raw[:100],
+            )
+        except RuntimeError as e:
+            logger.warning("[CAPTION] Szene %d: Ollama-Fehler: %s — übersprungen", scene.index, e)
+            break  # Ollama nicht erreichbar — restliche Szenen überspringen
+        except Exception as e:  # broad catch — unexpected LLM errors must not crash pipeline
+            logger.error("[CAPTION] Szene %d: Unerwarteter Fehler: %s", scene.index, e)
+
+    captioned = sum(1 for s in scenes if s.ai_caption is not None)
+    logger.info("[CAPTION] Vision-Captioning abgeschlossen: %d/%d Szenen", captioned, len(scenes))
+    return scenes
+
+
 def store_embeddings(
     video_path: str,
     scenes: list[SceneInfo],
@@ -552,6 +691,9 @@ def store_scenes_in_db(
                     end_time=scene.end_time,
                     energy=scene.motion_score,
                     label=f"Scene {scene.index}",
+                    ai_caption=json.dumps(scene.ai_caption) if scene.ai_caption else None,
+                    ai_mood=scene.ai_mood,
+                    ai_tags=json.dumps(scene.ai_tags) if scene.ai_tags else None,
                 )
                 session.add(db_scene)
 
@@ -717,24 +859,10 @@ def run_full_pipeline(
     siglip_model_processor: tuple | None = None,
     raft_model_device: tuple | None = None,
 ) -> PipelineResult:
-    """Führt die komplette 3-Schritt Video-Analyse-Pipeline aus.
-
-    1. SceneDetect + RAFT Motion
-    2. Keyframe-Extraktion
-    3. SigLIP Embeddings → LanceDB
-
-    Args:
-        video_path: Pfad zum Video
-        video_clip_id: DB-ID des VideoClip
-        threshold: SceneDetect Schwellwert
-        progress_cb: Callback(step, total, message)
-        should_stop: Abbruch-Check Callback
-        siglip_model_processor: Optional (model, processor) Tupel für Batch-Modus.
-            Wenn übergeben, wird SigLIP NICHT pro Video geladen/entladen.
-
-    Returns:
-        PipelineResult mit allen Szenen und Embedding-Count
-    """
+    """Führt die komplette 3-Schritt Video-Analyse-Pipeline aus."""
+    if not video_path or not Path(video_path).exists():
+        logger.error("Video-Pipeline abgebrochen: Datei fehlt -> %s", video_path)
+        return PipelineResult(video_path=video_path)
     # Proxy-First: video_path kann Proxy sein — Original aus DB laden für LanceDB-Storage
     try:
         from sqlalchemy.orm import Session as _Session
@@ -748,7 +876,7 @@ def run_full_pipeline(
     result = PipelineResult(video_path=original_video_path)
 
     # Schritt 1: Scene Detection
-    logger.info("[PIPELINE] Schritt 1/6: Szenen erkennen für %s (Analyse-Pfad: %s)...",
+    logger.info("[PIPELINE] Schritt 1/7: Szenen erkennen für %s (Analyse-Pfad: %s)...",
                 Path(original_video_path).name, Path(video_path).name)
     if progress_cb:
         progress_cb(5, "Szenen erkennen...")
@@ -761,7 +889,7 @@ def run_full_pipeline(
     logger.info("[PIPELINE] Szenen-Erkennung FERTIG: %d Szenen gefunden", len(scenes))
 
     # Schritt 1b: Motion Scores
-    logger.info("[PIPELINE] Schritt 2/6: RAFT Motion-Analyse für %d Szenen...", len(scenes))
+    logger.info("[PIPELINE] Schritt 2/7: RAFT Motion-Analyse für %d Szenen...", len(scenes))
     if progress_cb:
         progress_cb(20, f"Motion-Analyse ({len(scenes)} Szenen)...")
     if should_stop and should_stop():
@@ -771,7 +899,7 @@ def run_full_pipeline(
     logger.info("[PIPELINE] Motion-Analyse FERTIG")
 
     # Schritt 2: Keyframes
-    logger.info("[PIPELINE] Schritt 3/6: Keyframes extrahieren...")
+    logger.info("[PIPELINE] Schritt 3/7: Keyframes extrahieren...")
     if progress_cb:
         progress_cb(40, "Keyframes extrahieren...")
     if should_stop and should_stop():
@@ -781,7 +909,7 @@ def run_full_pipeline(
     logger.info("[PIPELINE] Keyframes FERTIG")
 
     # Schritt 3: SigLIP Embeddings
-    logger.info("[PIPELINE] Schritt 4/6: Lade SigLIP Modell + Embeddings generieren...")
+    logger.info("[PIPELINE] Schritt 4/7: Lade SigLIP Modell + Embeddings generieren...")
     if progress_cb:
         progress_cb(55, "SigLIP Embeddings generieren...")
     if should_stop and should_stop():
@@ -791,9 +919,9 @@ def run_full_pipeline(
     logger.info("[PIPELINE] SigLIP Embeddings FERTIG")
 
     # Schritt 3b: In LanceDB speichern
-    logger.info("[PIPELINE] Schritt 5/6: In LanceDB speichern...")
+    logger.info("[PIPELINE] Schritt 5/7: In LanceDB speichern...")
     if progress_cb:
-        progress_cb(80, "In LanceDB speichern...")
+        progress_cb(75, "In LanceDB speichern...")
     if should_stop and should_stop():
         return result
 
@@ -801,10 +929,20 @@ def run_full_pipeline(
     result.embeddings_stored = store_embeddings(original_video_path, scenes, video_clip_id)
     logger.info("[PIPELINE] LanceDB FERTIG: %d Embeddings", result.embeddings_stored)
 
-    # Szenen in SQLite speichern
-    logger.info("[PIPELINE] Schritt 6/6: Szenen in SQLite speichern...")
+    # Schritt 4: Gemma Vision Captioning
+    logger.info("[PIPELINE] Schritt 6/7: Gemma Vision Captioning...")
     if progress_cb:
-        progress_cb(90, "Szenen in DB speichern...")
+        progress_cb(85, "Gemma Vision Captioning...")
+    if should_stop and should_stop():
+        return result
+
+    scenes = analyze_scene_with_caption(scenes)
+    logger.info("[PIPELINE] Vision-Captioning FERTIG")
+
+    # Szenen in SQLite speichern
+    logger.info("[PIPELINE] Schritt 7/7: Szenen in SQLite speichern...")
+    if progress_cb:
+        progress_cb(93, "Szenen in DB speichern...")
 
     store_scenes_in_db(video_clip_id, scenes)
     logger.info("[PIPELINE] Pipeline KOMPLETT für %s", Path(original_video_path).name)

@@ -35,7 +35,8 @@ class TestVideoAnalyzerProbe:
         mock_result.returncode = 0
         mock_result.stdout = fake_output
 
-        with patch("services.video_service.subprocess.run", return_value=mock_result):
+        with patch("services.video_service.subprocess.run", return_value=mock_result), \
+             patch("services.video_service.Path.exists", return_value=True):
             info = VideoAnalyzer().probe("/fake/video.mp4")
 
         assert info["width"] == 1920
@@ -52,7 +53,8 @@ class TestVideoAnalyzerProbe:
         mock_result.returncode = 1
         mock_result.stderr = "No such file"
 
-        with patch("services.video_service.subprocess.run", return_value=mock_result):
+        with patch("services.video_service.subprocess.run", return_value=mock_result), \
+             patch("services.video_service.Path.exists", return_value=True):
             with pytest.raises(RuntimeError, match="ffprobe fehlgeschlagen"):
                 VideoAnalyzer().probe("/nonexistent.mp4")
 
@@ -66,7 +68,8 @@ class TestVideoAnalyzerProbe:
         mock_result.returncode = 0
         mock_result.stdout = fake_output
 
-        with patch("services.video_service.subprocess.run", return_value=mock_result):
+        with patch("services.video_service.subprocess.run", return_value=mock_result), \
+             patch("services.video_service.Path.exists", return_value=True):
             with pytest.raises(ValueError, match="Kein Video-Stream"):
                 VideoAnalyzer().probe("/video_without_stream.mp4")
 

@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
 
-STRATEGIST_MODEL_ID = "Qwen/Qwen2.5-1.5B-Instruct"
+STRATEGIST_MODEL_ID = "gemma4:e4b"
 
 SYSTEM_PROMPT = """\
 Du bist ein DJ-Video-Pacing-Experte. Du bekommst die Struktur eines DJ-Mixes \

@@ -69,7 +69,8 @@ def _draw_icon(size: int) -> QPixmap:
     p.setPen(QPen(QColor("#d4a44a")))
     font = p.font()
     font.setPixelSize(max(8, int(s * 0.28)))
-    font.setWeight(700)
+    from PySide6.QtGui import QFont
+    font.setWeight(QFont.Weight.Bold)
     font.setFamily("Arial")
     p.setFont(font)
     text_rect = px.rect().adjusted(0, 0, 0, -int(s * 0.28))

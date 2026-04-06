@@ -83,8 +83,19 @@ class PanelSetupMixin:
         try:
             import services.register_actions  # noqa: F401
             from services.local_agent_service import LocalAgentService
+            from services.llm_service import LocalLLMService
             from ui.dialogs.settings_dialog import get_ollama_settings
             _ollama_cfg = get_ollama_settings()
+
+            # Auto-Start: Ollama-Prozess im Hintergrund starten (wenn aktiviert)
+            self._llm_service = LocalLLMService.instance()
+            if _ollama_cfg["enabled"]:
+                _model = _ollama_cfg.get("model") or None
+                if self._llm_service.start(model=_model):
+                    self.console_text.append("[LLM] Ollama-Server gestartet.")
+                else:
+                    self.console_text.append("[LLM] Ollama konnte nicht gestartet werden — Fallback auf HuggingFace.")
+
             self._ai_agent = LocalAgentService(
                 ollama_url=_ollama_cfg["url"],
                 ollama_model=_ollama_cfg["model"] or None,

@@ -315,6 +315,19 @@ def _run_legacy_migrations():
             if "harmonic_tension_curve" not in at_cols:
                 conn.execute(text("ALTER TABLE audio_tracks ADD COLUMN harmonic_tension_curve TEXT"))
 
+    # AUD-128: Gemma 4 Vision captioning — neue Spalten in scenes nachrüsten
+    insp = inspect(get_raw_engine())
+    if "scenes" in insp.get_table_names():
+        scene_cols = {c["name"] for c in insp.get_columns("scenes")}
+        with engine.begin() as conn:
+            for col_name, col_type in [
+                ("ai_caption", "TEXT"),
+                ("ai_mood", "TEXT"),
+                ("ai_tags", "TEXT"),
+            ]:
+                if col_name not in scene_cols:
+                    conn.execute(text(f"ALTER TABLE scenes ADD COLUMN {col_name} {col_type}"))
+
 
 def _seed_defaults():
     """Insert default style presets and project if missing."""

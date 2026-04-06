@@ -107,6 +107,11 @@ class Scene(Base):
     label = Column(String, nullable=True)
     energy = Column(Float, nullable=True)
 
+    # AUD-128: Gemma 4 Vision captioning
+    ai_caption = Column(Text, nullable=True)    # JSON: {description, mood, motion, tags}
+    ai_mood = Column(String, nullable=True)     # energetic|calm|dramatic|ambient
+    ai_tags = Column(Text, nullable=True)       # JSON: ['tag1', 'tag2', ...]
+
     video_clip = relationship("VideoClip", back_populates="scenes")
 
     def __repr__(self):
@@ -295,7 +300,7 @@ class ModelRegistry(Base):
     __tablename__ = "model_registry"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    model_id = Column(String, nullable=False, unique=True)   # "qwen2.5:7b" | "openai/whisper-large-v3"
+    model_id = Column(String, nullable=False, unique=True)   # "gemma4:e4b" | "openai/whisper-large-v3"
     source = Column(String, nullable=False)                   # "ollama" | "huggingface"
     display_name = Column(String, nullable=True)
     size_mb = Column(Float, nullable=True)
@@ -324,7 +329,7 @@ class AgentFeedback(Base):
 
     # ── Kontext ──
     session_id = Column(String, nullable=True)           # Chat-Session-ID
-    model_id = Column(String, nullable=True)             # "qwen2.5:7b" oder "Qwen/Qwen2.5-0.5B"
+    model_id = Column(String, nullable=True)             # "gemma4:e4b" oder "google/gemma-4-e4b"
     backend = Column(String, nullable=True, default="ollama")  # "ollama" | "huggingface"
 
     # ── Query + Antwort ──

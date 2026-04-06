@@ -217,8 +217,8 @@ class PBWindow(QMainWindow,
         # P-016: Media-Tabelle NACH dem Window-Show laden (nicht im __init__)
         QTimer.singleShot(0, self._refresh_media_table)
 
-        # AUD-103: Version check — non-blocking, after window is visible
-        QTimer.singleShot(3000, self._start_version_check)
+        # AUD-103: Version check — disabled for stability testing
+        # QTimer.singleShot(3000, self._start_version_check)
 
         # AUD-105: Keyboard shortcut help overlay (F1 + Ctrl+?)
         from PySide6.QtGui import QShortcut, QKeySequence as _QKS
@@ -642,12 +642,15 @@ def main():
     from ui.splash import PBSplashScreen
     splash = PBSplashScreen(APP_VERSION)
     splash.show()
+    QApplication.processEvents()
     splash.show_message("Initialisiere Datenbank...")
+    QApplication.processEvents()
 
     from services.startup_checks import check_system
     from ui.dialogs.startup_check_dialog import maybe_show_startup_dialog
     _sys_status = check_system()
     app.system_status = _sys_status
+    QApplication.processEvents()
 
     # ── First-Run Setup Wizard (AUD-62) ──────────────────────────────
     from ui.dialogs.setup_wizard import is_setup_complete, SetupWizard
@@ -657,13 +660,16 @@ def main():
         wizard.exec()
         splash = PBSplashScreen(APP_VERSION)
         splash.show()
+        QApplication.processEvents()
 
     splash.show_message("Prüfe System-Abhängigkeiten...")
+    QApplication.processEvents()
     if not maybe_show_startup_dialog(_sys_status):
         splash.close()
         sys.exit(0)
 
     splash.show_message("Lade Benutzeroberfläche...")
+    QApplication.processEvents()
     try:
         window = PBWindow()
     except (ImportError, RuntimeError, OSError) as exc:
@@ -677,12 +683,36 @@ def main():
     window.setWindowIcon(_app_icon)
 
     splash.show_message("Bereit.")
+    QApplication.processEvents()
     window.console_text.append("[System] SQLite Datenbank (pb_studio.db) erfolgreich initialisiert.")
     window.console_text.append("[System] PB Studio Gold-Accent Theme aktiv — v0.5 Design.")
     window.console_text.append(f"[System] Version {APP_VERSION} — Workspace UI + KI-Pacing + Beat-Snap.")
     window.console_text.append(f"[System] {_sys_status.status_bar_text()}")
-    window.status_bar.showMessage(f"PB_studio v{APP_VERSION}  |  {_sys_status.status_bar_text()}")
+
+    # [KI] Startup-Status
+    try:
+        from services.ollama_client import OllamaClient as _OC
+        _ai_ready = _OC().is_available()
+    except Exception:
+        _ai_ready = False
+    if _ai_ready:
+        window.console_text.append("[KI] AI-Engine aktiv. Modell: lokal.")
+        _ai_status_text = "✓ AI ready"
+    else:
+        window.console_text.append("[KI] AI-Engine wird im Hintergrund gestartet...")
+        _ai_status_text = "⟳ AI loading..."
+
+    window.status_bar.showMessage(
+        f"PB_studio v{APP_VERSION}  |  {_sys_status.status_bar_text()}  |  {_ai_status_text}"
+    )
     window.showMaximized()
     splash.finish(window)  # Closes splash when main window is ready
-    QTimer.singleShot(0, window.timeline_view.load_from_db)
+    
+    QTimer.singleShot(2000, window.timeline_view.load_from_db)
+    QTimer.singleShot(0, window._refresh_media_table)
+    
     sys.exit(app.exec())
+
+
+if __name__ == "__main__":
+    main()

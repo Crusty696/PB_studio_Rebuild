@@ -35,6 +35,10 @@ class VideoAnalyzer:
 
     def probe(self, file_path: str) -> dict:
         """Liest Auflösung, FPS, Codec und Duration aus einer Videodatei."""
+        if not file_path or not Path(file_path).exists():
+            logger.error("Video-Datei nicht gefunden: %s", file_path)
+            return {"width": 0, "height": 0, "fps": 0.0, "codec": "unknown", "duration": 0.0}
+
         cmd = [
             _FFPROBE, "-v", "quiet",
             "-print_format", "json",

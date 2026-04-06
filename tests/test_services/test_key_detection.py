@@ -83,6 +83,7 @@ class TestKeyDetection:
         mock_librosa = MagicMock()
         mock_librosa.load.return_value = (np.random.randn(22050 * 10), 22050)
         mock_librosa.feature.chroma_cqt.return_value = c_major_chroma
+        mock_librosa.feature.chroma_cens.return_value = c_major_chroma
 
         with patch("services.key_detection_service._HAS_LIBROSA", True), \
              patch("services.key_detection_service.librosa", mock_librosa):

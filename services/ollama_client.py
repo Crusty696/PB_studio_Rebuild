@@ -50,7 +50,7 @@ class OllamaClient:
         client = OllamaClient()
         if client.is_available():
             models = client.list_models()
-            reply = client.chat("qwen2.5:1.5b-instruct", "Hallo!")
+            reply = client.chat("gemma4:e4b", "Hallo!")
     """
 
     def __init__(
@@ -290,6 +290,91 @@ class OllamaClient:
             raise RuntimeError(f"Ollama nicht erreichbar: {e}") from e
 
     # ------------------------------------------------------------------
+    # Vision / Multimodal Inference (AUD-128)
+    # ------------------------------------------------------------------
+
+    def chat_vision(
+        self,
+        model: str,
+        user_message: str,
+        images_base64: list[str],
+        system_prompt: str | None = None,
+        temperature: float = 0.1,
+        max_tokens: int = 512,
+    ) -> str:
+        """Sendet eine multimodale Chat-Anfrage mit Bildern an Ollama.
+
+        Funktioniert mit Vision-fähigen Modellen (z.B. gemma3:4b, llava, bakllava).
+        Bilder werden als base64-Strings übergeben.
+
+        Args:
+            model: Ollama-Modellname (muss Vision unterstützen)
+            user_message: Text-Prompt zum Bild
+            images_base64: Liste von base64-codierten JPEG/PNG Bildern (max 3)
+            system_prompt: Optionaler System-Prompt
+            temperature: Kreativität (Standard: 0.1 für strukturierten JSON-Output)
+            max_tokens: Maximale Ausgabelänge
+
+        Returns:
+            Generierter Text
+
+        Raises:
+            RuntimeError: Wenn Ollama nicht erreichbar oder pausiert
+        """
+        with self._lock:
+            if self._paused:
+                raise RuntimeError(
+                    "OllamaClient ist pausiert (GPU-intensive Operation läuft)."
+                )
+
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({
+            "role": "user",
+            "content": user_message,
+            "images": images_base64,
+        })
+
+        payload = {
+            "model": model,
+            "messages": messages,
+            "stream": False,
+            "options": {
+                "temperature": temperature,
+                "num_predict": max_tokens,
+            },
+        }
+
+        body = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(
+            f"{self.base_url}/api/chat",
+            data=body,
+            headers={
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+            },
+            method="POST",
+        )
+
+        logger.debug(
+            "OllamaClient.chat_vision: Modell '%s', %d Bild(er).", model, len(images_base64)
+        )
+
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                raw = resp.read()
+                data = json.loads(raw)
+                content = data.get("message", {}).get("content", "")
+                return content.strip()
+        except urllib.error.URLError as e:
+            logger.error("OllamaClient.chat_vision: Verbindungsfehler: %s", e)
+            raise RuntimeError(f"Ollama nicht erreichbar: {e}") from e
+        except json.JSONDecodeError as e:
+            logger.error("OllamaClient.chat_vision: Ungültige JSON-Antwort: %s", e)
+            raise RuntimeError(f"Ollama hat ungültiges JSON zurückgegeben: {e}") from e
+
+    # ------------------------------------------------------------------
     # Tool-Use / Function-Calling (AP-5)
     # ------------------------------------------------------------------
 
@@ -302,6 +387,7 @@ class OllamaClient:
         supported_prefixes = [
             "qwen2.5:", "qwen2:", "llama3.1:", "llama3.2:",
             "llama3.3:", "mistral:", "phi3:", "gemma2:",
+            "gemma3:", "gemma4:",
         ]
         model_lower = model.lower()
         for prefix in supported_prefixes:

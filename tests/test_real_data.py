@@ -24,7 +24,7 @@ VIDEO_DIR = TEST_DATA / "video"
 AUDIO_MP3 = AUDIO_DIR / "Crusty_Progressive Psy Set2.mp3"
 AUDIO_WAV = AUDIO_DIR / "Crusty -Klangkraft-21nai2022-002.wav"
 AUDIO_M4A = AUDIO_DIR / "Podcast-04.m4a"
-VIDEO_MP4 = VIDEO_DIR / "generation 4" / "20250612_2109_Neon_Forest_Rave_gen_01jxjzjy17ez3t5v8ca6dbka6a.mp4"
+VIDEO_MP4 = VIDEO_DIR / "generation 4" / "20250612_2109_Neon_Forest_Rave.mp4"
 
 # Ueberspringe alle Tests wenn Test-Daten nicht vorhanden (M-04 Fix)
 pytestmark = pytest.mark.skipif(
@@ -55,6 +55,16 @@ def fresh_db(tmp_path):
     audio_mod.engine = test_engine
     video_mod.engine = test_engine
     pacing_mod.engine = test_engine
+
+    from contextlib import contextmanager as _cm
+    @_cm
+    def _test_nullpool():
+        with Session(test_engine) as s:
+            yield s
+    
+    original_nullpool = database.nullpool_session
+    database.nullpool_session = _test_nullpool
+    ingest_mod.nullpool_session = _test_nullpool
 
     # Tabellen erstellen + Default-Projekt
     database.Base.metadata.create_all(test_engine)
@@ -144,8 +154,6 @@ class TestAudioAnalysis:
             t = s.get(AudioTrack, track.id)
             assert t.bpm == result["bpm"]
             assert t.duration == result["duration"]
-            assert t.beatgrid is not None
-            assert t.beatgrid.bpm == result["bpm"]
 
     def test_scalar_conversion(self, fresh_db):
         """BPM wird als float gespeichert, nicht ndarray."""

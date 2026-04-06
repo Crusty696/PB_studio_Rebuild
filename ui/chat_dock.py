@@ -23,6 +23,7 @@ from PySide6.QtCore import Qt, QThread, Signal, QObject
 from PySide6.QtGui import QFont, QColor, QTextCharFormat, QTextCursor
 
 from ui.theme import ACCENT, ACCENT_BRIGHT, BG1, BG2, ERR, INFO, OK, T2, T3, T4, WARN
+from ui.widgets.ai_status_dot import AiStatusDot
 
 # Globaler GC-Schutz: Threads und Worker hier halten, damit der
 # Garbage Collector sie NIEMALS löscht, solange sie laufen.
@@ -166,6 +167,18 @@ class ChatDock(QDockWidget):
         layout = QVBoxLayout(container)
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(6)
+
+        # Header: Titel + AI Status Dot (rechts)
+        header_row = QHBoxLayout()
+        header_row.setContentsMargins(0, 0, 0, 0)
+        header_label = QLabel(self.tr("KI Assistent"))
+        header_label.setFont(QFont("Segoe UI", 10))
+        header_label.setStyleSheet(f"color: {ACCENT};")
+        header_row.addWidget(header_label)
+        header_row.addStretch()
+        self.ai_status_dot = AiStatusDot()
+        header_row.addWidget(self.ai_status_dot)
+        layout.addLayout(header_row)
 
         # Chat-Verlauf
         self.chat_log = QTextEdit()

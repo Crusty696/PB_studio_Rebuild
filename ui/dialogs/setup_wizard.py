@@ -47,28 +47,19 @@ _SETUP_KEY    = "setup/setup_complete"
 # Models offered in wizard
 _OLLAMA_MODELS = [
     {
-        "id": "qwen2.5:1.5b-instruct",
-        "display": "Qwen 2.5 1.5B",
-        "size_gb": 1.0,
-        "description": "Minimal LLM — sehr schnell, wenig VRAM",
+        "id": "gemma4:e4b",
+        "display": "AI-Modell 9B (Standard)",
+        "size_gb": 9.6,
+        "description": "Empfohlen — beste Qualität für Action-Parsing und KI-Chat",
         "required": True,
         "default": True,
         "tags": ["ollama", "llm"],
     },
     {
         "id": "phi3:mini",
-        "display": "Phi-3 Mini 3.8B",
+        "display": "AI-Modell 3.8B (Leicht)",
         "size_gb": 2.3,
-        "description": "Empfohlen für Action-Parsing und KI-Chat",
-        "required": False,
-        "default": False,
-        "tags": ["ollama", "llm"],
-    },
-    {
-        "id": "qwen2.5:7b-instruct-q4_K_M",
-        "display": "Qwen 2.5 7B (Q4)",
-        "size_gb": 4.5,
-        "description": "Beste Qualität für GTX 1060 6GB",
+        "description": "Leichtgewichtige Alternative für wenig VRAM",
         "required": False,
         "default": False,
         "tags": ["ollama", "llm"],
@@ -334,7 +325,7 @@ class _PageHardware(QWidget):
              f"{status.gpu_name}  {status.gpu_vram_mb // 1024} GB" if status.cuda_ok else "Nicht gefunden — CPU-Modus"),
             ("FFmpeg", status.ffmpeg_ok,
              status.ffmpeg_version if status.ffmpeg_ok else "Nicht gefunden"),
-            ("Ollama", status.ollama_ok,
+            ("KI-Dienst", status.ollama_ok,
              "Läuft" if status.ollama_ok else "Nicht gestartet — wird im Hintergrund gestartet"),
             ("Festplatte", status.disk_ok,
              f"{status.disk_free_gb:.1f} GB frei"),
@@ -393,7 +384,7 @@ class _PageModels(QWidget):
 
         self._checkboxes: dict[str, QCheckBox] = {}
 
-        inner_layout.addWidget(_heading("Ollama Sprachmodelle", 11))
+        inner_layout.addWidget(_heading("KI-Modelle", 11))
         for m in _OLLAMA_MODELS:
             cb = self._model_row(inner_layout, m)
             self._checkboxes[m["id"]] = cb

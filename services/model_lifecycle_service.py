@@ -375,7 +375,7 @@ class ModelLifecycleService:
         ``progress_cb`` gemeldet (läuft in einem Thread).
 
         Args:
-            model_name: Ollama-Modellname (z.B. "qwen2.5:7b")
+            model_name: Ollama-Modellname (z.B. "gemma4:e4b")
             progress_cb: Callable mit (DownloadProgress) — wird aus Thread aufgerufen
 
         Returns:

@@ -428,7 +428,7 @@ class SettingsDialog(QDialog):
 
         lbl_info = QLabel(
             "Wenn Ollama nicht verfügbar ist, fällt PB Studio automatisch auf das lokale "
-            "HuggingFace-Modell zurück (Qwen2.5-0.5B-Instruct)."
+            "HuggingFace-Modell zurück (Gemma 4 E4B)."
         )
         lbl_info.setStyleSheet(f"color: {T2}; font-size: 11px;")
         lbl_info.setWordWrap(True)

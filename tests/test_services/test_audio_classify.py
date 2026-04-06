@@ -88,8 +88,8 @@ class TestClassifyService:
 
     def test_fallback_without_librosa(self):
         """Ohne librosa → Fallback-Result."""
-        with patch("services.audio_classify_service.librosa", None), \
-             patch("services.audio_classify_service.np", None):
+        with patch("services.audio_classify_service._HAS_LIBROSA", False), \
+             patch("services.audio_classify_service._HAS_NUMPY", False):
             svc = AudioClassifyService()
             result = svc.classify("/nonexistent.mp3")
             assert result.confidence == 0.0
