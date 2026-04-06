@@ -27,7 +27,7 @@ from services.timeout_constants import HTTP_API_TIMEOUT_SEC, HTTP_HEALTH_CHECK_T
 
 logger = logging.getLogger(__name__)
 
-# Default-Modelle für AMD RX 7800 XT (16 GB VRAM)
+# Default-Modelle für NVIDIA CUDA GPU
 RECOMMENDED_MODELS = [
     "gemma4:e4b",                    # ~9.6 GB Q4_K_M — Hauptmodell
     "phi3:mini",                      # ~2.3 GB — schnell, kompakt

@@ -40,7 +40,7 @@ RECOMMENDED_OLLAMA_MODELS = [
         "id": "gemma4:e4b",
         "display": "Gemma 4 E4B (Q4_K_M)",
         "size_gb": 9.6,
-        "description": "Hauptmodell für AMD RX 7800 XT — Empfohlen",
+        "description": "Hauptmodell — Empfohlen (NVIDIA CUDA)",
         "tags": ["empfohlen", "de"],
     },
     {

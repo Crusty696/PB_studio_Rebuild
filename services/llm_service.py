@@ -156,10 +156,9 @@ class LocalLLMService:
                 cmd = [str(self._ollama_bin), "serve"]
                 creation_flags = CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
-                # AMD RX 7800 XT compatibility + VRAM-freundliches Verhalten
+                # VRAM-freundliches Verhalten (NVIDIA CUDA)
                 env = os.environ.copy()
                 env["OLLAMA_KEEP_ALIVE"] = "0"           # Modell sofort aus VRAM nach Inference
-                env["HSA_OVERRIDE_GFX_VERSION"] = "11.0.0"  # AMD RX 7800 XT ROCm-Kompatibilität
 
                 self._process = subprocess.Popen(
                     cmd,
