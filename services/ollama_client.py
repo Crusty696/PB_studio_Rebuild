@@ -62,6 +62,7 @@ class OllamaClient:
         self.timeout = timeout
         self._lock = threading.Lock()
         self._paused = False  # VRAM-Koordination: True = keine neuen Requests
+        self._unloadable_models: set[str] = set()  # Models that failed to load (RAM/VRAM)
 
     # ------------------------------------------------------------------
     # VRAM-Koordination
@@ -146,17 +147,80 @@ class OllamaClient:
         """Prüft ob ein bestimmtes Modell lokal verfügbar ist."""
         return model_name in self.list_models()
 
-    def get_best_available_model(self) -> str | None:
+    def probe_model(self, model_name: str) -> bool:
+        """Prüft ob ein Modell tatsächlich geladen werden kann (nicht nur heruntergeladen).
+
+        Sendet eine minimale Inference-Anfrage. Gibt False zurück wenn das Modell
+        z.B. wegen RAM/VRAM-Mangel nicht geladen werden kann.
+        """
+        payload = json.dumps({
+            "model": model_name,
+            "prompt": "hi",
+            "stream": False,
+            "options": {"num_predict": 1},
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            f"{self.base_url}/api/generate",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                return resp.status == 200
+        except urllib.error.HTTPError as e:
+            body = e.read().decode("utf-8", errors="replace")
+            if "memory layout" in body:
+                logger.warning(
+                    "OllamaClient: Modell '%s' kann nicht geladen werden "
+                    "(nicht genug RAM/VRAM): %s", model_name, body.strip(),
+                )
+            else:
+                logger.warning("OllamaClient: probe_model('%s') HTTP %d: %s",
+                               model_name, e.code, body.strip())
+            return False
+        except (ConnectionError, TimeoutError, OSError) as e:
+            logger.debug("OllamaClient: probe_model('%s') fehlgeschlagen: %s", model_name, e)
+            return False
+
+    def get_best_available_model(self, probe: bool = False) -> str | None:
         """Gibt das beste verfügbare Modell aus RECOMMENDED_MODELS zurück.
 
-        Reihenfolge: Qualität vs. VRAM-Bedarf (bevorzugt kleinere Modelle
-        die sicher in 6 GB passen wenn GPU-Applikation auch läuft).
+        Args:
+            probe: Wenn True, wird jedes Modell per Mini-Inference getestet.
+                   Langsam (~5s pro Modell), aber erkennt RAM/VRAM-Probleme.
+                   Standard False für schnelle Checks, True beim App-Start.
         """
         available = set(self.list_models())
         for model in RECOMMENDED_MODELS:
             if model in available:
+                if probe:
+                    if self.probe_model(model):
+                        logger.info("OllamaClient: Bestes ladbares Modell: '%s'", model)
+                        return model
+                    else:
+                        logger.info("OllamaClient: '%s' heruntergeladen aber nicht ladbar, überspringe.", model)
+                        continue
                 return model
         # Fallback: erstes verfügbares Modell
+        if available:
+            candidate = next(iter(available))
+            if probe and not self.probe_model(candidate):
+                return None
+            return candidate
+        return None
+
+    # ------------------------------------------------------------------
+    # Model Fallback
+    # ------------------------------------------------------------------
+
+    def _find_fallback_model(self, failed_model: str) -> str | None:
+        """Findet ein alternatives Modell wenn das gewünschte nicht ladbar ist."""
+        self._unloadable_models.add(failed_model)
+        available = set(self.list_models()) - self._unloadable_models
+        for model in RECOMMENDED_MODELS:
+            if model in available:
+                return model
         if available:
             return next(iter(available))
         return None
@@ -232,6 +296,22 @@ class OllamaClient:
                 content = data.get("message", {}).get("content", "")
                 logger.debug("OllamaClient: Antwort erhalten (%d Zeichen).", len(content))
                 return content.strip()
+        except urllib.error.HTTPError as e:
+            body = e.read().decode("utf-8", errors="replace")
+            if "memory layout" in body:
+                logger.warning(
+                    "OllamaClient: Modell '%s' passt nicht in RAM/VRAM. "
+                    "Suche alternatives Modell...", model,
+                )
+                fallback = self._find_fallback_model(model)
+                if fallback:
+                    logger.info("OllamaClient: Fallback auf '%s'.", fallback)
+                    return self.chat(fallback, user_message, system_prompt, temperature, max_tokens)
+                raise RuntimeError(
+                    f"Modell '{model}' passt nicht in RAM/VRAM und kein Fallback verfügbar."
+                ) from e
+            logger.error("OllamaClient: HTTP-Fehler %d: %s", e.code, body.strip())
+            raise RuntimeError(f"Ollama HTTP-Fehler {e.code}: {body.strip()}") from e
         except urllib.error.URLError as e:
             logger.error("OllamaClient: Verbindungsfehler: %s", e)
             raise RuntimeError(f"Ollama nicht erreichbar: {e}") from e
@@ -286,6 +366,14 @@ class OllamaClient:
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                 data = json.loads(resp.read())
                 return data.get("message", {}).get("content", "").strip()
+        except urllib.error.HTTPError as e:
+            err_body = e.read().decode("utf-8", errors="replace")
+            if "memory layout" in err_body:
+                fallback = self._find_fallback_model(model)
+                if fallback:
+                    logger.warning("OllamaClient: '%s' nicht ladbar, Fallback auf '%s'.", model, fallback)
+                    return self.chat_with_history(fallback, messages, temperature, max_tokens)
+            raise RuntimeError(f"Ollama HTTP-Fehler {e.code}: {err_body.strip()}") from e
         except urllib.error.URLError as e:
             raise RuntimeError(f"Ollama nicht erreichbar: {e}") from e
 
@@ -367,6 +455,15 @@ class OllamaClient:
                 data = json.loads(raw)
                 content = data.get("message", {}).get("content", "")
                 return content.strip()
+        except urllib.error.HTTPError as e:
+            err_body = e.read().decode("utf-8", errors="replace")
+            if "memory layout" in err_body:
+                fallback = self._find_fallback_model(model)
+                if fallback:
+                    logger.warning("OllamaClient.chat_vision: '%s' nicht ladbar, Fallback auf '%s'.", model, fallback)
+                    return self.chat_vision(fallback, user_message, images_base64, system_prompt, temperature, max_tokens)
+            logger.error("OllamaClient.chat_vision: HTTP %d: %s", e.code, err_body.strip())
+            raise RuntimeError(f"Ollama nicht erreichbar: {err_body.strip()}") from e
         except urllib.error.URLError as e:
             logger.error("OllamaClient.chat_vision: Verbindungsfehler: %s", e)
             raise RuntimeError(f"Ollama nicht erreichbar: {e}") from e

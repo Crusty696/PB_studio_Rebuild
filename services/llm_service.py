@@ -185,6 +185,18 @@ class LocalLLMService:
                 return False
 
             self._started = True
+            # Probe: select best model that actually fits in RAM/VRAM
+            best = self._client.get_best_available_model(probe=True)
+            if best and best != self._model:
+                logger.info(
+                    "LocalLLMService: '%s' nicht ladbar auf dieser Hardware, "
+                    "nutze '%s' stattdessen.", self._model, best,
+                )
+                self._model = best
+            elif best:
+                logger.info("LocalLLMService: Modell '%s' verfügbar und ladbar.", best)
+            else:
+                logger.warning("LocalLLMService: Kein ladbares Modell gefunden.")
             logger.info("LocalLLMService: Server bereit.")
             return True
 
