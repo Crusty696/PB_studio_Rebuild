@@ -37,10 +37,10 @@ logger = logging.getLogger(__name__)
 
 RECOMMENDED_OLLAMA_MODELS = [
     {
-        "id": "qwen2.5:7b-instruct-q4_K_M",
-        "display": "Qwen 2.5 7B (Q4)",
-        "size_gb": 4.5,
-        "description": "Beste Qualität für GTX 1060 6GB — Empfohlen",
+        "id": "gemma4:e4b",
+        "display": "Gemma 4 E4B (Q4_K_M)",
+        "size_gb": 9.6,
+        "description": "Hauptmodell für AMD RX 7800 XT — Empfohlen",
         "tags": ["empfohlen", "de"],
     },
     {
@@ -56,20 +56,6 @@ RECOMMENDED_OLLAMA_MODELS = [
         "size_gb": 4.7,
         "description": "Meta's Allrounder — gute Deutsch-Kenntnisse",
         "tags": ["allrounder", "de"],
-    },
-    {
-        "id": "qwen2.5:1.5b-instruct",
-        "display": "Qwen 2.5 1.5B",
-        "size_gb": 1.0,
-        "description": "Sehr klein, ideal für schwache Hardware",
-        "tags": ["klein", "schnell"],
-    },
-    {
-        "id": "qwen2.5:0.5b-instruct",
-        "display": "Qwen 2.5 0.5B",
-        "size_gb": 0.4,
-        "description": "Minimal-Modell — sehr schnell",
-        "tags": ["minimal", "schnell"],
     },
     {
         "id": "mistral:7b-instruct-q4_K_M",

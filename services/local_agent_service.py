@@ -23,8 +23,8 @@ from services.timeout_constants import AGENT_TASK_TIMEOUT_SEC, AGENT_TASK_LONG_T
 
 logger = logging.getLogger(__name__)
 
-# Standard-Modell: winzig, schnell, Instruction-tuned (Fallback wenn Ollama nicht verfügbar)
-DEFAULT_MODEL_ID = "Qwen/Qwen2.5-0.5B-Instruct"
+# Standard-Modell: Gemma 4 E4B via Ollama (Hauptmodell)
+DEFAULT_MODEL_ID = "gemma4:e4b"
 
 # Ollama-Einstellungen (werden von Settings-Dialog gesetzt)
 OLLAMA_DEFAULT_URL = "http://localhost:11434"
@@ -186,7 +186,7 @@ class LocalAgentService:
             if not self._ollama_model:
                 logger.warning(
                     "LocalAgentService: Ollama läuft, aber keine Modelle installiert. "
-                    "Tipp: 'ollama pull qwen2.5:1.5b-instruct' → HuggingFace-Fallback."
+                    "Tipp: 'ollama pull gemma4:e4b' (9.6 GB)"
                 )
                 return False
 

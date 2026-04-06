@@ -443,7 +443,7 @@ class OrchestratorAgent(BaseAgent):
             # Kleines Modell bevorzugen für schnelle Klassifizierung
             available = set(client.list_models())
             fast_models = [
-                "qwen2.5:1.5b-instruct", "qwen2.5:0.5b-instruct",
+                "gemma4:e4b",
                 "phi3:mini", "gemma2:2b-instruct-q4_K_M",
             ]
             classify_model = next((m for m in fast_models if m in available), model)

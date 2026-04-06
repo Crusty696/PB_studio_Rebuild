@@ -27,15 +27,14 @@ from services.timeout_constants import HTTP_API_TIMEOUT_SEC, HTTP_HEALTH_CHECK_T
 
 logger = logging.getLogger(__name__)
 
-# Default-Modelle für GTX 1060 (6 GB VRAM)
+# Default-Modelle für AMD RX 7800 XT (16 GB VRAM)
 RECOMMENDED_MODELS = [
-    "qwen2.5:7b-instruct-q4_K_M",   # ~4.5 GB — beste Qualität
+    "gemma4:e4b",                    # ~9.6 GB Q4_K_M — Hauptmodell
     "phi3:mini",                      # ~2.3 GB — schnell, kompakt
     "llama3.1:8b-instruct-q4_K_M",   # ~4.7 GB — Allrounder
     "llama3.1:8b",                   # ~4.7 GB — Allrounder (Standard-Tag)
     "llama3:8b",                     # ~4.3 GB — Bewährt, wird aktiv eingesetzt
-    "qwen2.5:1.5b-instruct",         # ~1.0 GB — sehr klein, schnell
-    "qwen2.5:0.5b-instruct",         # ~0.4 GB — minimal
+    "gemma2:2b-instruct-q4_K_M",     # ~1.5 GB — sehr klein, schnell
 ]
 
 DEFAULT_OLLAMA_URL = "http://localhost:11434"
