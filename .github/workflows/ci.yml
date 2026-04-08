@@ -34,6 +34,11 @@ jobs:
       - name: Run ruff format check
         run: ruff format --check .
 
+      - name: Run bandit security scan
+        run: |
+          pip install bandit
+          bandit -r . -x ./tests,./installer,./scripts -ll
+
   # ──────────────────────────────────────────────
   # 2. Unit tests  (Windows, CPU-only deps)
   # ──────────────────────────────────────────────

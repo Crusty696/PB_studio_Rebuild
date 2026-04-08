@@ -1,6 +1,14 @@
+"""
+Database models for PB Studio.
+
+P3-NOTE: No Soft Deletes - All deletes are hard CASCADE deletes for simplicity.
+For production applications with user-generated content, consider implementing
+a soft-delete pattern (deleted_at timestamp column) to allow recovery.
+Current design prioritizes performance and simplicity for video editing workflow.
+"""
 import datetime as _datetime
 
-from sqlalchemy import Column, Integer, String, Float, ForeignKey, Text, Boolean, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Float, ForeignKey, Text, Boolean, UniqueConstraint, JSON, DateTime
 from sqlalchemy.orm import DeclarativeBase, relationship
 
 
@@ -16,13 +24,14 @@ class Project(Base):
     path = Column(String, nullable=False)
     resolution = Column(String, nullable=False, default="1920x1080")
     fps = Column(Float, nullable=False, default=30.0)
+    deleted_at = Column(DateTime, nullable=True)  # P1-FIX: Soft-Delete Support
 
-    # Relationships
-    audio_tracks = relationship("AudioTrack", back_populates="project", cascade="all, delete-orphan", passive_deletes=True)
-    video_clips = relationship("VideoClip", back_populates="project", cascade="all, delete-orphan", passive_deletes=True)
+    # Relationships — P1-FIX: lazy='selectin' verhindert N+1 Queries
+    audio_tracks = relationship("AudioTrack", back_populates="project", cascade="all, delete-orphan", passive_deletes=True, lazy='selectin')
+    video_clips = relationship("VideoClip", back_populates="project", cascade="all, delete-orphan", passive_deletes=True, lazy='selectin')
     # Bug-20 Fix: fehlende back_populates ergänzt
-    pacing_blueprints = relationship("PacingBlueprint", back_populates="project", cascade="all, delete-orphan", passive_deletes=True)
-    timeline_entries = relationship("TimelineEntry", back_populates="project", cascade="all, delete-orphan", passive_deletes=True)
+    pacing_blueprints = relationship("PacingBlueprint", back_populates="project", cascade="all, delete-orphan", passive_deletes=True, lazy='selectin')
+    timeline_entries = relationship("TimelineEntry", back_populates="project", cascade="all, delete-orphan", passive_deletes=True, lazy='selectin')
 
     def __repr__(self):
         return f"<Project(id={self.id}, name='{self.name}', fps={self.fps})>"
@@ -42,7 +51,7 @@ class AudioTrack(Base):
     sample_rate = Column(Integer, nullable=True, default=44100)
     bpm = Column(Float, nullable=True)
     key = Column(String, nullable=True)
-    energy_curve = Column(Text, nullable=True)
+    energy_curve = Column(JSON, nullable=True)  # P1.7-FIX: JSON type for automatic serialization
 
     # Stem-Pfade (Phase 1: AI Stem Separation)
     stem_vocals_path = Column(String, nullable=True)
@@ -56,18 +65,20 @@ class AudioTrack(Base):
     mood = Column(String, nullable=True)                # "energetic", "melancholic", "dark", ...
     genre = Column(String, nullable=True)               # "Psytrance", "Techno", "House", ...
     is_dj_mix = Column(Boolean, nullable=True, default=False)  # DJ-Mix erkannt?
-    spectral_bands = Column(Text, nullable=True)        # JSON: 8-Band Frequenz-Energien
+    spectral_bands = Column(JSON, nullable=True)        # P1.7-FIX: 8-Band Frequenz-Energien
+    deleted_at = Column(DateTime, nullable=True)       # P1-FIX: Soft-Delete Support
 
     # AUD-84: ML Key Detection — Modulation + Tension
-    key_modulation_data = Column(Text, nullable=True)   # JSON: [{time, key, camelot, confidence}, ...]
-    harmonic_tension_curve = Column(Text, nullable=True)  # JSON: [float, ...] Dissonanz pro Zeitschritt
+    key_modulation_data = Column(JSON, nullable=True)   # P1.7-FIX: [{time, key, camelot, confidence}, ...]
+    harmonic_tension_curve = Column(JSON, nullable=True)  # P1.7-FIX: [float, ...] Dissonanz pro Zeitschritt
 
-    project = relationship("Project", back_populates="audio_tracks")
-    beatgrid = relationship("Beatgrid", back_populates="audio_track", uselist=False, cascade="all, delete-orphan", passive_deletes=True)
-    waveform_data = relationship("WaveformData", back_populates="audio_track", uselist=False, cascade="all, delete-orphan", passive_deletes=True)
-    structure_segments = relationship("StructureSegment", back_populates="audio_track", cascade="all, delete-orphan", passive_deletes=True)
-    hotcues = relationship("HotCue", back_populates="audio_track", cascade="all, delete-orphan", passive_deletes=True)
-    audio_video_anchors = relationship("AudioVideoAnchor", back_populates="audio_track", foreign_keys="AudioVideoAnchor.audio_track_id", cascade="all, delete-orphan", passive_deletes=True)
+    # P1-FIX: Lazy loading optimiert für N+1 Query Prevention
+    project = relationship("Project", back_populates="audio_tracks", lazy='joined')
+    beatgrid = relationship("Beatgrid", back_populates="audio_track", uselist=False, cascade="all, delete-orphan", passive_deletes=True, lazy='joined')
+    waveform_data = relationship("WaveformData", back_populates="audio_track", uselist=False, cascade="all, delete-orphan", passive_deletes=True, lazy='joined')
+    structure_segments = relationship("StructureSegment", back_populates="audio_track", cascade="all, delete-orphan", passive_deletes=True, lazy='selectin')
+    hotcues = relationship("HotCue", back_populates="audio_track", cascade="all, delete-orphan", passive_deletes=True, lazy='selectin')
+    audio_video_anchors = relationship("AudioVideoAnchor", back_populates="audio_track", foreign_keys="AudioVideoAnchor.audio_track_id", cascade="all, delete-orphan", passive_deletes=True, lazy='selectin')
 
     def __repr__(self):
         return f"<AudioTrack(id={self.id}, title='{self.title}', bpm={self.bpm})>"
@@ -88,10 +99,13 @@ class VideoClip(Base):
     height = Column(Integer, nullable=True)
     fps = Column(Float, nullable=True)
     codec = Column(String, nullable=True)
+    playback_offset = Column(Float, nullable=False, default=0.0)  # F-001: Persistence für Auto-Edit Offset
+    deleted_at = Column(DateTime, nullable=True)                 # P1-FIX: Soft-Delete Support
 
-    project = relationship("Project", back_populates="video_clips")
-    scenes = relationship("Scene", back_populates="video_clip", cascade="all, delete-orphan", passive_deletes=True)
-    audio_video_anchors = relationship("AudioVideoAnchor", back_populates="video_clip", foreign_keys="AudioVideoAnchor.video_clip_id", cascade="all, delete-orphan", passive_deletes=True)
+    # P1-FIX: Lazy loading optimiert
+    project = relationship("Project", back_populates="video_clips", lazy='joined')
+    scenes = relationship("Scene", back_populates="video_clip", cascade="all, delete-orphan", passive_deletes=True, lazy='selectin')
+    audio_video_anchors = relationship("AudioVideoAnchor", back_populates="video_clip", foreign_keys="AudioVideoAnchor.video_clip_id", cascade="all, delete-orphan", passive_deletes=True, lazy='selectin')
 
     def __repr__(self):
         return f"<VideoClip(id={self.id}, path='{self.file_path}')>"
@@ -108,11 +122,11 @@ class Scene(Base):
     energy = Column(Float, nullable=True)
 
     # AUD-128: Gemma 4 Vision captioning
-    ai_caption = Column(Text, nullable=True)    # JSON: {description, mood, motion, tags}
+    ai_caption = Column(JSON, nullable=True)    # P1.7-FIX: {description, mood, motion, tags}
     ai_mood = Column(String, nullable=True)     # energetic|calm|dramatic|ambient
-    ai_tags = Column(Text, nullable=True)       # JSON: ['tag1', 'tag2', ...]
+    ai_tags = Column(JSON, nullable=True)       # P1.7-FIX: ['tag1', 'tag2', ...]
 
-    video_clip = relationship("VideoClip", back_populates="scenes")
+    video_clip = relationship("VideoClip", back_populates="scenes", lazy='joined')
 
     def __repr__(self):
         return f"<Scene(id={self.id}, start={self.start_time}, end={self.end_time})>"
@@ -125,18 +139,19 @@ class Beatgrid(Base):
     audio_track_id = Column(Integer, ForeignKey("audio_tracks.id", ondelete="CASCADE"), nullable=False, unique=True)
     bpm = Column(Float, nullable=False)
     offset = Column(Float, nullable=False, default=0.0)
-    beat_positions = Column(Text, nullable=True)
-    downbeat_positions = Column(Text, nullable=True)   # Phase 3: JSON list of downbeat timestamps
-    energy_per_beat = Column(Text, nullable=True)       # Phase 3: JSON list of RMS energy per beat [0.0-1.0]
+    beat_positions = Column(JSON, nullable=True)  # P1.7-FIX: JSON list of beat timestamps
+    downbeat_positions = Column(JSON, nullable=True)   # P1.7-FIX: JSON list of downbeat timestamps
+    energy_per_beat = Column(JSON, nullable=True)       # P1.7-FIX: JSON list of RMS energy per beat [0.0-1.0]
+    stem_weighted_energy = Column(JSON, nullable=True)  # P1.7-FIX: JSON list of stem-weighted energy per beat [0.0-1.0]
 
     # AUD-83: Onset Rhythm Intelligence (OnsetRhythmService)
-    onset_kick_data = Column(Text, nullable=True)    # JSON: [[time, strength], ...]
-    onset_snare_data = Column(Text, nullable=True)   # JSON: [[time, strength], ...]
-    onset_hihat_data = Column(Text, nullable=True)   # JSON: [[time, strength], ...]
+    onset_kick_data = Column(JSON, nullable=True)    # P1.7-FIX: [[time, strength], ...]
+    onset_snare_data = Column(JSON, nullable=True)   # P1.7-FIX: [[time, strength], ...]
+    onset_hihat_data = Column(JSON, nullable=True)   # P1.7-FIX: [[time, strength], ...]
     syncopation_score = Column(Float, nullable=True) # 0.0 (gerade) – 1.0 (synkopiert)
-    groove_template = Column(Text, nullable=True)    # Gematchtes Template (z.B. "4on4_techno")
+    groove_template = Column(String, nullable=True)  # String is correct for template name
 
-    audio_track = relationship("AudioTrack", back_populates="beatgrid")
+    audio_track = relationship("AudioTrack", back_populates="beatgrid", lazy='joined')
 
     def __repr__(self):
         return f"<Beatgrid(id={self.id}, bpm={self.bpm})>"
@@ -153,12 +168,12 @@ class WaveformData(Base):
     num_samples = Column(Integer, nullable=False, default=0)
     duration = Column(Float, nullable=False, default=0.0)
 
-    # JSON-Arrays mit Amplituden [0.0 .. 1.0] pro Zeitschritt
-    band_low = Column(Text, nullable=False)    # Bass: 20-250 Hz (blau)
-    band_mid = Column(Text, nullable=False)    # Mitten: 250-4000 Hz (rosa/rot)
-    band_high = Column(Text, nullable=False)   # Höhen: 4000-20000 Hz (weiß/gelb)
+    # P1.7-FIX: JSON-Arrays mit Amplituden [0.0 .. 1.0] pro Zeitschritt
+    band_low = Column(JSON, nullable=False)    # Bass: 20-250 Hz (blau)
+    band_mid = Column(JSON, nullable=False)    # Mitten: 250-4000 Hz (rosa/rot)
+    band_high = Column(JSON, nullable=False)   # Höhen: 4000-20000 Hz (weiß/gelb)
 
-    audio_track = relationship("AudioTrack", back_populates="waveform_data")
+    audio_track = relationship("AudioTrack", back_populates="waveform_data", lazy='joined')
 
     def __repr__(self):
         return f"<WaveformData(id={self.id}, samples={self.num_samples})>"
@@ -172,10 +187,10 @@ class PacingBlueprint(Base):
     name = Column(String, nullable=False)
     style = Column(String, nullable=True)
     cuts_per_bar = Column(Integer, nullable=True, default=1)
-    energy_curve = Column(Text, nullable=True)
+    energy_curve = Column(JSON, nullable=True)  # P1.7-FIX: JSON array of energy values
 
     # Bug-20 Fix: back_populates ergänzt
-    project = relationship("Project", back_populates="pacing_blueprints")
+    project = relationship("Project", back_populates="pacing_blueprints", lazy='joined')
 
     def __repr__(self):
         return f"<PacingBlueprint(id={self.id}, name='{self.name}')>"
@@ -192,8 +207,8 @@ class AudioVideoAnchor(Base):
     anchor_type = Column(String, nullable=True, default="beat")
 
     # Bug-20 Fix: fehlende Relationships ergänzt + DB-19 Fix: back_populates
-    audio_track = relationship("AudioTrack", back_populates="audio_video_anchors", foreign_keys=[audio_track_id])
-    video_clip = relationship("VideoClip", back_populates="audio_video_anchors", foreign_keys=[video_clip_id])
+    audio_track = relationship("AudioTrack", back_populates="audio_video_anchors", foreign_keys=[audio_track_id], lazy='joined')
+    video_clip = relationship("VideoClip", back_populates="audio_video_anchors", foreign_keys=[video_clip_id], lazy='joined')
 
     def __repr__(self):
         return f"<AudioVideoAnchor(id={self.id}, type='{self.anchor_type}')>"
@@ -215,7 +230,7 @@ class ClipAnchor(Base):
     color = Column(String, nullable=True, default="#FF3333")
 
     # Bug-20 Fix: Rückbeziehung zu TimelineEntry ergänzt
-    timeline_entry = relationship("TimelineEntry", back_populates="anchors")
+    timeline_entry = relationship("TimelineEntry", back_populates="anchors", lazy='joined')
 
     def __repr__(self):
         return f"<ClipAnchor(id={self.id}, entry={self.timeline_entry_id}, offset={self.time_offset})>"
@@ -242,7 +257,7 @@ class AIPacingMemory(Base):
 
     # ── Video-Entscheidung ──
     raft_motion = Column(Float, nullable=True)       # RAFT motion score (0.0-1.0)
-    siglip_tags = Column(Text, nullable=True)        # JSON: ["outdoor", "energetic", ...]
+    siglip_tags = Column(JSON, nullable=True)        # P1.7-FIX: ["outdoor", "energetic", ...]
     cut_type = Column(String, nullable=True)         # "hard_cut", "crossfade", "loop", "trim"
     crossfade_duration = Column(Float, nullable=True, default=0.0)
     section_type = Column(String, nullable=True)     # "DROP", "BUILDUP", "BREAKDOWN", ...
@@ -268,7 +283,7 @@ class StructureSegment(Base):
     energy = Column(Float, nullable=True)                # Durchschnittliche Energie 0.0-1.0
     confidence = Column(Float, nullable=True)            # Erkennungs-Confidence 0.0-1.0
 
-    audio_track = relationship("AudioTrack", back_populates="structure_segments")
+    audio_track = relationship("AudioTrack", back_populates="structure_segments", lazy='joined')
 
     def __repr__(self):
         return f"<StructureSegment(id={self.id}, label='{self.label}', {self.start_time:.1f}-{self.end_time:.1f})>"
@@ -285,7 +300,7 @@ class HotCue(Base):
     color = Column(String, nullable=True, default="#FF3333")  # Hex-Farbe
     cue_type = Column(String, nullable=True, default="cue")   # "cue", "loop", "fade"
 
-    audio_track = relationship("AudioTrack", back_populates="hotcues")
+    audio_track = relationship("AudioTrack", back_populates="hotcues", lazy='joined')
 
     def __repr__(self):
         return f"<HotCue(id={self.id}, time={self.time:.2f}, label='{self.label}')>"
@@ -308,7 +323,7 @@ class ModelRegistry(Base):
     last_used_at = Column(String, nullable=True)              # ISO datetime
     status = Column(String, nullable=False, default="installed")  # "installed" | "downloading" | "error"
     local_path = Column(String, nullable=True)                # HF-Cache-Pfad
-    metadata_json = Column(Text, nullable=True)               # JSON: Parameter, Tags, Quantisierung
+    metadata_json = Column(JSON, nullable=True)               # P1.7-FIX: Parameter, Tags, Quantisierung
 
     def __repr__(self):
         return f"<ModelRegistry(model_id='{self.model_id}', source='{self.source}', size={self.size_mb})>"
@@ -390,8 +405,8 @@ class TimelineEntry(Base):
     contrast = Column(Float, nullable=True, default=1.0)     # 0.0 bis 3.0
 
     # Bug-20 Fix: Rückbeziehungen zu Project und ClipAnchor ergänzt
-    project = relationship("Project", back_populates="timeline_entries")
-    anchors = relationship("ClipAnchor", back_populates="timeline_entry", cascade="all, delete-orphan", passive_deletes=True)
+    project = relationship("Project", back_populates="timeline_entries", lazy='joined')
+    anchors = relationship("ClipAnchor", back_populates="timeline_entry", cascade="all, delete-orphan", passive_deletes=True, lazy='selectin')
 
     def __repr__(self):
         return f"<TimelineEntry(id={self.id}, track='{self.track}', start={self.start_time})>"
