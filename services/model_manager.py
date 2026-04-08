@@ -14,6 +14,7 @@ Unterstützte Modell-Typen:
 import gc
 import logging
 import threading
+import psutil
 from typing import Any
 
 # torch wird LAZY importiert (spart ~11s Startup wenn ModelManager nicht sofort gebraucht wird)
@@ -24,6 +25,11 @@ logger = logging.getLogger(__name__)
 # Globaler GPU-Semaphore: Serialisiert alle GPU-Modell-Lade-Operationen
 # (SigLIP, RAFT, beat_this) um VRAM-Races auf 6GB GTX 1060 zu verhindern
 GPU_LOAD_LOCK = threading.Lock()
+
+# F-011: OOM-Handler Schwellwerte (in GB)
+# Wenn weniger als diese Werte verfügbar sind, wird proaktiv entladen
+OOM_RAM_THRESHOLD_GB = 2.0  # Min 2GB freier RAM
+OOM_VRAM_THRESHOLD_GB = 1.5  # Min 1.5GB freies VRAM
 
 
 def _ensure_torch():
@@ -145,6 +151,117 @@ class ModelManager:
     def model_type(self) -> str | None:
         return self._model_type
 
+    def check_memory_available(self) -> dict:
+        """F-011: Prüft verfügbaren RAM und VRAM.
+
+        Returns:
+            dict mit {
+                "ram_available_gb": float,
+                "vram_available_gb": float,
+                "ram_sufficient": bool,
+                "vram_sufficient": bool,
+                "needs_unload": bool
+            }
+        """
+        _ensure_torch()
+
+        # RAM-Check mit psutil
+        ram_stats = psutil.virtual_memory()
+        ram_available_gb = ram_stats.available / (1024**3)
+        ram_sufficient = ram_available_gb >= OOM_RAM_THRESHOLD_GB
+
+        # VRAM-Check (nur bei CUDA)
+        vram_available_gb = 0.0
+        vram_sufficient = True
+        if torch.cuda.is_available():
+            props = torch.cuda.get_device_properties(0)
+            vram_total = props.total_memory
+            vram_used = torch.cuda.memory_allocated(0)
+            vram_available_gb = (vram_total - vram_used) / (1024**3)
+            vram_sufficient = vram_available_gb >= OOM_VRAM_THRESHOLD_GB
+
+        needs_unload = not ram_sufficient or not vram_sufficient
+
+        return {
+            "ram_available_gb": round(ram_available_gb, 2),
+            "vram_available_gb": round(vram_available_gb, 2),
+            "ram_sufficient": ram_sufficient,
+            "vram_sufficient": vram_sufficient,
+            "needs_unload": needs_unload,
+        }
+
+    def _handle_oom_prevention(self, operation: str = "model load") -> None:
+        """F-011: Proaktiver OOM-Handler — entlädt Modelle wenn Speicher knapp wird.
+
+        Args:
+            operation: Beschreibung der Operation (für Logging)
+
+        Raises:
+            RuntimeError: Wenn auch nach Unload nicht genug Speicher verfügbar ist
+        """
+        mem_status = self.check_memory_available()
+
+        if not mem_status["needs_unload"]:
+            return  # Genug Speicher verfügbar
+
+        logger.warning(
+            "F-011 OOM-Handler: Niedriger Speicher erkannt vor %s — "
+            "RAM: %.2f GB verfügbar (Min: %.1f GB), VRAM: %.2f GB verfügbar (Min: %.1f GB)",
+            operation,
+            mem_status["ram_available_gb"],
+            OOM_RAM_THRESHOLD_GB,
+            mem_status["vram_available_gb"],
+            OOM_VRAM_THRESHOLD_GB,
+        )
+
+        # Wenn ein Modell geladen ist, proaktiv entladen
+        if self.is_loaded:
+            logger.info(
+                "F-011 OOM-Handler: Entlade aktuelles Modell '%s' um OOM zu vermeiden...",
+                self._current_model_id,
+            )
+            self.unload()
+
+            # Nach Unload nochmal prüfen
+            mem_status = self.check_memory_available()
+            if mem_status["needs_unload"]:
+                # Immer noch zu wenig Speicher — kritischer Zustand
+                logger.error(
+                    "F-011 OOM-Handler: KRITISCH — Nach Unload immer noch zu wenig Speicher! "
+                    "RAM: %.2f GB, VRAM: %.2f GB",
+                    mem_status["ram_available_gb"],
+                    mem_status["vram_available_gb"],
+                )
+                raise RuntimeError(
+                    f"OOM: Nicht genug Speicher für {operation}. "
+                    f"RAM: {mem_status['ram_available_gb']:.2f} GB verfügbar "
+                    f"(Min: {OOM_RAM_THRESHOLD_GB:.1f} GB), "
+                    f"VRAM: {mem_status['vram_available_gb']:.2f} GB verfügbar "
+                    f"(Min: {OOM_VRAM_THRESHOLD_GB:.1f} GB). "
+                    "Bitte andere Programme schließen oder System-RAM erhöhen."
+                )
+            else:
+                logger.info(
+                    "F-011 OOM-Handler: Nach Unload genug Speicher frei — "
+                    "RAM: %.2f GB, VRAM: %.2f GB",
+                    mem_status["ram_available_gb"],
+                    mem_status["vram_available_gb"],
+                )
+        else:
+            # Kein Modell geladen aber Speicher trotzdem knapp — systemweites Problem
+            logger.error(
+                "F-011 OOM-Handler: KRITISCH — Niedriger Speicher aber kein Modell geladen! "
+                "Systemweiter Speichermangel. RAM: %.2f GB, VRAM: %.2f GB",
+                mem_status["ram_available_gb"],
+                mem_status["vram_available_gb"],
+            )
+            raise RuntimeError(
+                f"OOM: Systemweiter Speichermangel vor {operation}. "
+                f"RAM: {mem_status['ram_available_gb']:.2f} GB verfügbar "
+                f"(Min: {OOM_RAM_THRESHOLD_GB:.1f} GB). "
+                "Bitte andere Programme schließen oder System-RAM erhöhen."
+            )
+
     def unload(self) -> None:
         """Entlädt das aktuelle Modell komplett und gibt GPU/RAM frei."""
         # BUG-016 Fix: torch ist auf Modul-Ebene None bis _ensure_torch() laeuft
@@ -164,6 +281,14 @@ class ModelManager:
                         obj.cpu()
                     except (RuntimeError, AttributeError) as e:
                         logger.warning("Moving model to CPU before unload: %s", e)
+
+            # F-019 Fix: Move _extras objects to CPU before clearing
+            for key, obj in list(self._extras.items()):
+                if obj is not None and hasattr(obj, 'cpu'):
+                    try:
+                        obj.cpu()
+                    except (RuntimeError, AttributeError) as e:
+                        logger.warning("Moving extra '%s' to CPU before unload: %s", key, e)
 
             # Alle Referenzen löschen
             self._pipe = None
@@ -204,6 +329,9 @@ class ModelManager:
 
             # Altes Modell entladen
             self.unload()
+
+            # F-011: Proaktiver OOM-Check vor Laden
+            self._handle_oom_prevention(f"transformers '{model_id}' laden")
 
             # B-05: VRAM pre-check — fragmentierten Speicher freigeben vor dem Laden
             if torch.cuda.is_available():
@@ -279,6 +407,9 @@ class ModelManager:
 
             # Altes Modell entladen
             self.unload()
+
+            # F-011: Proaktiver OOM-Check vor Laden
+            self._handle_oom_prevention(f"whisper '{model_size}' laden")
 
             # B-05: VRAM pre-check — fragmentierten Speicher freigeben vor dem Laden
             if torch.cuda.is_available():
@@ -356,6 +487,9 @@ class ModelManager:
             # Altes Modell entladen
             self.unload()
 
+            # F-011: Proaktiver OOM-Check vor Laden
+            self._handle_oom_prevention(f"vision '{model_id}' laden")
+
             logger.info("ModelManager: Lade Vision-Modell '%s' auf %s...", model_id, self.device)
 
             from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -424,6 +558,9 @@ class ModelManager:
             self._pause_ollama_if_active()
 
             self.unload()
+
+            # F-011: Proaktiver OOM-Check vor Laden
+            self._handle_oom_prevention(f"SigLIP '{model_id}' laden")
 
             # P1 Fix: VRAM aggressiv freigeben und warten bevor neues Modell geladen wird.
             # GTX 1060 (6 GB): beat_this belegt ~2 GB, SigLIP braucht ~2.5 GB.
@@ -543,6 +680,9 @@ class ModelManager:
             # SigLIP (~2.5 GB) + RAFT (~0.1 GB) passt auf 6 GB — Koexistenz erlaubt
             if self._model_type != "siglip":
                 self.unload()
+
+            # F-011: Proaktiver OOM-Check vor Laden (RAFT ist klein, aber Sicherheit)
+            self._handle_oom_prevention("RAFT Small laden")
 
             if torch.cuda.is_available():
                 torch.cuda.synchronize()

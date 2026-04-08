@@ -1,0 +1,41 @@
+# Anleitung: Fehlerbehebung Gemini CLI (Version 0.36.0)
+
+Diese Anleitung hilft dir, den Fehler "Cannot use both a positional prompt and the --prompt flag" zu verstehen und zu beheben.
+
+---
+
+### 1. Was ist das Problem?
+Deine "Gemini CLI" (das Programm im Hintergrund) hat vor kurzem ein Update auf Version 0.36.0 erhalten. In dieser neuen Version wurde die Art und Weise geändert, wie man Befehle eingibt. 
+Das Programm, das die Gemini CLI für dich startet (z.B. die Erweiterung in VS Code), nutzt noch den "alten Weg" und sendet zwei Informationen gleichzeitig, was jetzt zu einem Konflikt führt.
+
+### 2. Schritt-für-Schritt-Lösung
+
+#### Schritt A: VS Code Erweiterungen aktualisieren
+In den meisten Fällen liegt der Fehler an einer veralteten Erweiterung in deinem Editor (VS Code).
+1. Öffne **VS Code**.
+2. Klicke links auf das Symbol für **Extensions** (die Quadrate) oder drücke `Strg + Umschalt + X`.
+3. Suche nach "Gemini" oder "Google Cloud Code".
+4. Wenn dort eine Schaltfläche **"Update"** (Aktualisieren) steht, klicke darauf.
+5. Starte VS Code danach neu.
+
+#### Schritt B: Die Gemini CLI selbst aktualisieren
+Stelle sicher, dass du wirklich die allerneueste Version hast:
+1. Öffne ein Terminal (PowerShell oder CMD).
+2. Gib folgenden Befehl ein und drücke Enter:
+   `npm install -g @google/gemini-cli`
+3. Warte, bis die Installation abgeschlossen ist.
+
+#### Schritt C: Testen, ob es funktioniert
+Um zu prüfen, ob die CLI bereit ist, gib diesen Befehl im Terminal ein:
+`gemini --version`
+Wenn dort "0.36.0" (oder höher) steht, ist alles bereit.
+
+### 3. Der wichtigste Unterschied für die Zukunft
+Wenn du Gemini selbst Befehle über die Konsole gibst:
+
+*   **FALSCH (alt):** `gemini "Hallo" --prompt "Hallo"` (Das verursacht den Fehler!)
+*   **RICHTIG (neu - interaktiv):** `gemini "Hallo"`
+*   **RICHTIG (neu - direkt):** `gemini --prompt "Hallo"`
+
+---
+Diese Anleitung wurde im Projektordner gespeichert, um dir bei der Einrichtung zu helfen.

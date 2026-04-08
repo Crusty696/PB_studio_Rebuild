@@ -328,6 +328,9 @@ class ChatDock(QDockWidget):
             # start_task gibt TaskInfo (Main-Thread) oder task_id str (BG-Thread) zurueck
             self._thread = result.thread if hasattr(result, 'thread') else None
             self._worker = worker
+            # F-010 Fix: Cleanup auch im TaskManager-Pfad registrieren
+            worker.finished.connect(self._cleanup_thread)
+            worker.error.connect(self._cleanup_thread)
         except (ImportError, AttributeError):
             # Fallback: direkter Thread-Start
             thread = QThread()

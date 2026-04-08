@@ -13,6 +13,7 @@ Kein torch-Import auf Modul-Ebene (lazy — spart Startup-Zeit).
 from __future__ import annotations
 
 import datetime
+import gc
 import json
 import logging
 import os
@@ -687,8 +688,13 @@ class ModelLifecycleService:
                         progress_cb(prog)
 
                     from transformers import AutoModel, AutoTokenizer
-                    AutoTokenizer.from_pretrained(repo_id, revision=revision)
-                    AutoModel.from_pretrained(repo_id, revision=revision)
+                    # F-019 Fix: Load and immediately unload to prevent memory accumulation
+                    tokenizer = AutoTokenizer.from_pretrained(repo_id, revision=revision)
+                    model = AutoModel.from_pretrained(repo_id, revision=revision)
+
+                    # Explicit cleanup: delete references and run GC
+                    del tokenizer, model
+                    gc.collect()
 
                     prog.progress = 1.0
                     prog.finished = True

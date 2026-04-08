@@ -9,6 +9,7 @@ from database.session import engine, get_raw_engine, nullpool_session, APP_ROOT
 from database.models import (
     Base, Project, StylePreset,
 )
+from services.errors import MigrationError
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +69,7 @@ def _migrate_fk_cascade():
         original_size = db_path.stat().st_size
         backup_size = backup_path.stat().st_size if backup_path.exists() else 0
         if not backup_path.exists() or backup_size != original_size:
-            raise RuntimeError(
+            raise MigrationError(
                 f"FK-Migration abgebrochen: Backup-Verifikation fehlgeschlagen "
                 f"(original={original_size}B, backup={backup_size}B). Daten unveraendert."
             )
@@ -97,7 +98,7 @@ def _migrate_fk_cascade():
             for tname in table_names:
                 # F-012 Fix: Echte Validierung statt assert (assert wird durch -O deaktiviert)
                 if tname not in _ALLOWED_TABLES:
-                    raise ValueError(f"Unerlaubter Tabellenname: {tname}")
+                    raise MigrationError(f"Unerlaubter Tabellenname: {tname}", table=tname)
                 conn.execute(text('DROP TABLE IF EXISTS "' + tname + '"'))
 
             # FK wieder an
@@ -220,9 +221,9 @@ def _run_legacy_migrations():
                 ("audio_track_id", "INTEGER"), ("scene_id", "INTEGER"),
             ]:
                 if not _VALID_COL.match(col_name):
-                    raise ValueError(f"Ungueltiger Spaltenname: {col_name}")
+                    raise MigrationError(f"Ungueltiger Spaltenname: {col_name}", column=col_name)
                 if not _VALID_TYPE.match(col_type):
-                    raise ValueError(f"Ungueltiger Spaltentyp: {col_type}")
+                    raise MigrationError(f"Ungueltiger Spaltentyp: {col_type}", column=col_name)
                 if col_name not in ai_cols:
                     conn.execute(text(
                         'ALTER TABLE ai_pacing_memory ADD COLUMN "' + col_name + '" ' + col_type
@@ -258,9 +259,9 @@ def _run_legacy_migrations():
                 ("spectral_bands", "TEXT", None),
             ]:
                 if not _VALID_COL4.match(col_name):
-                    raise ValueError(f"Ungueltiger Spaltenname: {col_name}")
+                    raise MigrationError(f"Ungueltiger Spaltenname: {col_name}", column=col_name)
                 if not _VALID_TYPE4.match(col_type):
-                    raise ValueError(f"Ungueltiger Spaltentyp: {col_type}")
+                    raise MigrationError(f"Ungueltiger Spaltentyp: {col_type}", column=col_name)
                 if col_name not in at_columns:
                     stmt = f"ALTER TABLE audio_tracks ADD COLUMN {col_name} {col_type}"
                     if col_default is not None:
@@ -269,6 +270,14 @@ def _run_legacy_migrations():
                             continue
                         stmt += f" DEFAULT {col_default}"
                     conn.execute(text(stmt))
+
+    # F-001 Fix: playback_offset in video_clips nachrüsten
+    insp = inspect(get_raw_engine())
+    if "video_clips" in insp.get_table_names():
+        vc_columns = {c["name"] for c in insp.get_columns("video_clips")}
+        with engine.begin() as conn:
+            if "playback_offset" not in vc_columns:
+                conn.execute(text("ALTER TABLE video_clips ADD COLUMN playback_offset FLOAT DEFAULT 0.0"))
 
     # Phase 4: Indizes auf neue Tabellen
     insp = inspect(get_raw_engine())

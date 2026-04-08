@@ -119,28 +119,34 @@ def _compute_effective_step(
 
     # 3. Energy Reactivity — Energie-Schritt berechnen, dann mit Section blenden
     reactivity = energy_reactivity / 100.0
-    energy = 0.5
     energy_step = effective
+
+    # F-007 Fix: Warne bei fehlenden Energy-Daten, nutze 0.5 als Fallback
     if reactivity > 0 and beat_index < len(energy_per_beat):
         energy = energy_per_beat[beat_index]
+    else:
+        energy = 0.5
+        if reactivity > 0:
+            logger.warning("F-007: Energy-Fallback 0.5 @ beat %d (reactivity=%.2f, energy_per_beat_len=%d)",
+                          beat_index, reactivity, len(energy_per_beat))
 
-        # Hohe Energie (>0.7): Step reduzieren (mehr Cuts)
-        if energy > 0.7:
-            speed_boost = 1.0 + (energy - 0.7) * 3.0 * reactivity  # max ~1.9x
-            energy_step = max(1, int(effective / speed_boost))
+    # Hohe Energie (>0.7): Step reduzieren (mehr Cuts)
+    if energy > 0.7:
+        speed_boost = 1.0 + (energy - 0.7) * 3.0 * reactivity  # max ~1.9x
+        energy_step = max(1, int(effective / speed_boost))
 
-        # Niedrige Energie (<0.3): Breakdown-Verhalten anwenden
-        elif energy < 0.3:
-            if breakdown_behavior == "halve":
-                energy_step = min(16, effective * 2)
-            elif breakdown_behavior == "force16":
-                energy_step = 16
-            elif breakdown_behavior == "none":
-                energy_step = _STEP_NO_CUT
+    # Niedrige Energie (<0.3): Breakdown-Verhalten anwenden
+    elif energy < 0.3:
+        if breakdown_behavior == "halve":
+            energy_step = min(16, effective * 2)
+        elif breakdown_behavior == "force16":
+            energy_step = 16
+        elif breakdown_behavior == "none":
+            energy_step = _STEP_NO_CUT
 
-        # Mittlere Energie (0.3-0.7): Leichte Modulation
-        elif 0.3 <= energy <= 0.5:
-            energy_step = min(16, int(effective * 1.5))
+    # Mittlere Energie (0.3-0.7): Leichte Modulation
+    elif 0.3 <= energy <= 0.5:
+        energy_step = min(16, int(effective * 1.5))
 
     # Section + Energy blenden: 60% Section, 40% Energy
     if section_type and section_type in SECTION_PACING_MAP:
@@ -850,6 +856,11 @@ def _match_video_by_motion(
     if not candidates:
         candidates = available_ids
 
+    # F-008 Fix: Additional safety check for empty candidates list
+    if not candidates:
+        logger.error("_match_video_by_motion: candidates is empty after fallback (should not happen)")
+        return -1, 0.0
+
     best_vid = candidates[0]
     best_score = -1.0
     best_source_start = 0.0
@@ -900,14 +911,21 @@ def _match_video_for_segment(
     """
     seg_duration = seg_end - seg_start
 
-    # Berechne Audio-Energie am Segment-Mittelpunkt
-    energy_value = 0.5
+    # F-007 Fix: Berechne Audio-Energie am Segment-Mittelpunkt, warne bei Fallback
     if energy_per_beat and beats:
         seg_mid = (seg_start + seg_end) / 2.0
         beat_idx = int(np.searchsorted(np.array(beats), seg_mid))
         beat_idx = min(beat_idx, len(energy_per_beat) - 1)
         if beat_idx >= 0:
             energy_value = energy_per_beat[beat_idx]
+        else:
+            energy_value = 0.5
+            logger.warning("F-007: Segment energy fallback 0.5 (beat_idx=%d < 0)", beat_idx)
+    else:
+        energy_value = 0.5
+        logger.warning("F-007: Segment energy fallback 0.5 (energy_per_beat=%s, beats=%s)",
+                      "None" if energy_per_beat is None else f"len={len(energy_per_beat)}",
+                      "None" if beats is None else f"len={len(beats)}")
 
     # KI-Gedaechtnis einblenden
     if memory_bias is not None:

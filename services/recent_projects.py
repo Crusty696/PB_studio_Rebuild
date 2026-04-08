@@ -1,7 +1,6 @@
 """RecentProjectsManager — Persistiert die zuletzt geoeffneten Projekte.
 
-Speichert bis zu MAX_ENTRIES Projekt-Pfade in QSettings (native Registry
-auf Windows, ~/.config auf Linux/macOS).  Kein zusaetzlicher Datei-Overhead.
+Speichert bis zu MAX_ENTRIES Projekt-Pfade in JSON settings.
 """
 
 from __future__ import annotations
@@ -9,20 +8,15 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from PySide6.QtCore import QSettings
+from services.settings_store import get_settings_store
 
 logger = logging.getLogger(__name__)
 
-_ORG = "Paperclip"
-_APP = "PBStudio"
-_KEY = "recentProjects"
 MAX_ENTRIES = 10
 
 
 class RecentProjectsManager:
     """Singleton-artiger Helfer fuer die Liste zuletzt geoeffneter Projekte."""
-
-    _settings = QSettings(_ORG, _APP)
 
     # ------------------------------------------------------------------
     # public API
@@ -37,8 +31,7 @@ class RecentProjectsManager:
         entries = [e for e in entries if e != path_str]
         entries.insert(0, path_str)
         entries = entries[:MAX_ENTRIES]
-        cls._settings.setValue(_KEY, entries)
-        cls._settings.sync()
+        get_settings_store().set_recent_projects(entries)
         logger.debug("Recent projects updated: %s", entries)
 
     @classmethod
@@ -47,19 +40,14 @@ class RecentProjectsManager:
 
         Pfade, die nicht mehr existieren, werden still herausgefiltert.
         """
-        raw = cls._settings.value(_KEY, defaultValue=[])
-        if isinstance(raw, str):
-            raw = [raw]
-        if not isinstance(raw, list):
-            raw = list(raw)
+        raw = get_settings_store().get_recent_projects()
         # Filter missing paths
         valid: list[str] = []
         for p in raw:
             if isinstance(p, str) and Path(p).exists():
                 valid.append(p)
         if len(valid) != len(raw):
-            cls._settings.setValue(_KEY, valid)
-            cls._settings.sync()
+            get_settings_store().set_recent_projects(valid)
         return valid
 
     @classmethod
@@ -67,11 +55,9 @@ class RecentProjectsManager:
         """Entfernt einen einzelnen Eintrag aus der Liste (z.B. nach FileNotFoundError)."""
         path_str = str(Path(path).resolve())
         entries = [e for e in cls.get_all() if e != path_str]
-        cls._settings.setValue(_KEY, entries)
-        cls._settings.sync()
+        get_settings_store().set_recent_projects(entries)
 
     @classmethod
     def clear(cls) -> None:
         """Loescht die gesamte Liste."""
-        cls._settings.remove(_KEY)
-        cls._settings.sync()
+        get_settings_store().set_recent_projects([])

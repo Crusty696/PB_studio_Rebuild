@@ -249,6 +249,9 @@ def compute_motion_scores(
                     scene.motion_score = _cpu_motion_score(frames_bgr[0], frames_bgr[1])
             else:
                 scene.motion_score = 0.0
+
+            # F-019 Fix: Clear frame buffer to prevent memory accumulation
+            frames_bgr.clear()
     finally:
         cap.release()
         # RAFT nur entladen wenn WIR es geladen haben (nicht im Batch-Modus)
@@ -413,7 +416,7 @@ def generate_embeddings(
             with GPU_LOAD_LOCK:
                 model, processor = mm.load_siglip()
             logger.info("[SIGLIP] SigLIP geladen auf %s", mm.device)
-        except Exception as e:  # broad catch — MLModelNotFoundError, OOM, ImportError, RuntimeError
+        except Exception as e:  # broad catch intentional — MLModelNotFoundError, OOM, ImportError, RuntimeError
             from services.errors import MLModelNotFoundError
             if isinstance(e, MLModelNotFoundError):
                 logger.warning(
@@ -468,6 +471,11 @@ def generate_embeddings(
             for i, scene in enumerate(valid_scenes):
                 scene.embedding = embeddings[i]
 
+            # F-019 Fix: Explicit cleanup to prevent unbounded memory growth
+            del inputs, outputs, embeddings
+            images.clear()
+            valid_scenes.clear()
+
         except torch.cuda.OutOfMemoryError:
             torch.cuda.empty_cache()
             gc.collect()
@@ -487,8 +495,14 @@ def generate_embeddings(
                 except torch.cuda.OutOfMemoryError:
                     torch.cuda.empty_cache()
                     logger.error("OOM auch bei Einzel-Inference — ueberspringe Bild %d", j)
+            # F-019 Fix: Clear buffers after OOM recovery
+            images.clear()
+            valid_scenes.clear()
         except (RuntimeError, ValueError, AttributeError) as e:
             logger.error("SigLIP Embedding-Fehler: %s", e)
+            # F-019 Fix: Clear buffers on exception
+            images.clear()
+            valid_scenes.clear()
 
         # Inter-batch GPU-Cleanup NUR wenn wir SigLIP selbst geladen haben.
         # Im Batch-Modus (siglip_model_processor uebergeben) KEIN empty_cache() —
@@ -619,7 +633,7 @@ def analyze_scene_with_caption(
         except RuntimeError as e:
             logger.warning("[CAPTION] Szene %d: Ollama-Fehler: %s — übersprungen", scene.index, e)
             break  # Ollama nicht erreichbar — restliche Szenen überspringen
-        except Exception as e:  # broad catch — unexpected LLM errors must not crash pipeline
+        except Exception as e:  # broad catch intentional — unexpected LLM errors must not crash pipeline
             logger.error("[CAPTION] Szene %d: Unerwarteter Fehler: %s", scene.index, e)
 
     captioned = sum(1 for s in scenes if s.ai_caption is not None)
@@ -728,7 +742,7 @@ def text_to_embedding(query: str) -> np.ndarray | None:
     with GPU_LOAD_LOCK:
         try:
             model, processor = mm.load_siglip()
-        except Exception as e:  # broad — MLModelNotFoundError, OOM, ImportError, RuntimeError
+        except Exception as e:  # broad catch intentional — MLModelNotFoundError, OOM, ImportError, RuntimeError
             from services.errors import MLModelNotFoundError
             if isinstance(e, MLModelNotFoundError):
                 logger.warning("SigLIP nicht heruntergeladen — Text-Suche nicht verfuegbar: %s", e)
@@ -778,7 +792,7 @@ def texts_to_embeddings_batch(queries: list[str]) -> dict[str, np.ndarray]:
     with GPU_LOAD_LOCK:
         try:
             model, processor = mm.load_siglip()
-        except Exception as e:  # broad — MLModelNotFoundError, OOM, ImportError, RuntimeError
+        except Exception as e:  # broad catch intentional — MLModelNotFoundError, OOM, ImportError, RuntimeError
             from services.errors import MLModelNotFoundError
             if isinstance(e, MLModelNotFoundError):
                 logger.warning(

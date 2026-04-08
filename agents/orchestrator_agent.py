@@ -92,9 +92,15 @@ class OrchestratorAgent(BaseAgent):
     name = "orchestrator"
     domain = "orchestrator"
 
-    def __init__(self):
+    def __init__(self, agents: list[BaseAgent] | None = None):
+        """Initialisiert den Orchestrator.
+
+        Args:
+            agents: Liste von spezialisierten Agenten. Falls None, wird die
+                   Default-Liste verwendet. P2-FIX: Dependency Injection für Testbarkeit.
+        """
         super().__init__()
-        self._agents: list[BaseAgent] = [
+        self._agents: list[BaseAgent] = agents or [
             PacingAgent(),   # Highest priority for pacing/auto-edit queries
             VisionAgent(),
             AudioAgent(),
@@ -119,6 +125,8 @@ class OrchestratorAgent(BaseAgent):
         try:
             from thefuzz import fuzz
         except ImportError:
+            # P3-FIX: Log warning when fuzzy matching is unavailable
+            logger.warning("thefuzz not available - fuzzy matching disabled for analyze-all detection")
             return False  # Fuzzy-Matching nicht verfuegbar
 
         text_lower = user_text.lower()

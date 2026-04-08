@@ -1,0 +1,80 @@
+name: Support Request
+description: Get help with installation, configuration, or usage questions
+title: "[SUPPORT] "
+labels: ["support", "question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Need help with PB Studio? Fill out this form and we'll assist you.
+
+        **Before submitting**, please check:
+        - [Troubleshooting Guide](../docs/user/troubleshooting.md)
+        - [FAQ](../docs/user/faq.md)
+        - [Installation Guide](../docs/user/INSTALLATION_GUIDE.md)
+
+  - type: dropdown
+    id: support-type
+    attributes:
+      label: Support Type
+      description: What kind of help do you need?
+      options:
+        - Installation/Setup Issues
+        - Configuration Help
+        - Usage/How-to Question
+        - Performance Issues
+        - Hardware/GPU Questions
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: PB Studio Version
+      description: What version are you using?
+      placeholder: "e.g., v1.0.0"
+    validations:
+      required: true
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Question/Issue
+      description: Describe what you need help with
+      placeholder: "I'm trying to... but..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: attempted
+    attributes:
+      label: What Have You Tried?
+      description: What steps have you already taken to solve this?
+      placeholder: |
+        - Checked documentation
+        - Tried reinstalling
+        - etc.
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment Details
+      description: |
+        Please provide:
+        - Operating System
+        - Hardware (GPU, RAM)
+        - Python version
+      placeholder: |
+        OS: Windows 11
+        GPU: NVIDIA RTX 3060
+        RAM: 16GB
+        Python: 3.11.5
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Information
+      description: Any other context, screenshots, or logs that might help

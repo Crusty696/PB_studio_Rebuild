@@ -15,7 +15,7 @@ class TestSegmentLabels:
 
     def test_required_labels_present(self):
         """Alle Kern-Labels vorhanden."""
-        required = ["INTRO", "BUILDUP", "DROP", "BREAKDOWN", "OUTRO"]
+        required = ["INTRO", "WARMUP", "BUILDUP", "DROP", "BREAKDOWN", "OUTRO"]
         for label in required:
             assert label in SEGMENT_LABELS
 
@@ -67,6 +67,45 @@ class TestStructureDetection:
         # Prüfe dass mindestens 1 DROP und 1 INTRO/OUTRO erkannt werden
         labels = [s.label for s in result.segments]
         assert any(l in ("DROP", "CHORUS") for l in labels), f"Kein DROP/CHORUS in {labels}"
+
+    def test_warmup_detection(self):
+        """WARMUP-Erkennung: moderate Energie mit sanftem Anstieg am Track-Anfang."""
+        svc = self._make_service()
+        n_beats = 200
+        energy = []
+        # INTRO: Beats 0-15 (niedrig)
+        energy.extend([0.15] * 15)
+        # WARMUP: Beats 15-45 (moderate Energie, sanfter Anstieg 0.3→0.5)
+        for i in range(30):
+            energy.append(0.3 + (i / 30) * 0.2)
+        # BUILDUP: Beats 45-70 (steilerer Anstieg 0.5→0.85)
+        for i in range(25):
+            energy.append(0.5 + (i / 25) * 0.35)
+        # DROP: Beats 70-120 (hoch)
+        energy.extend([0.88] * 50)
+        # BREAKDOWN: Beats 120-160 (niedrig)
+        energy.extend([0.28] * 40)
+        # VERSE/CHORUS: Beats 160-180 (mittel)
+        energy.extend([0.45] * 20)
+        # OUTRO: Beats 180-200 (niedrig)
+        energy.extend([0.12] * 20)
+
+        beats = [i * 0.5 for i in range(n_beats)]  # 120 BPM
+
+        result = svc.detect("/dummy.mp3", bpm=120, beat_positions=beats, energy_per_beat=energy)
+        assert isinstance(result, StructureResult)
+
+        # Prüfe dass WARMUP erkannt wird
+        labels = [s.label for s in result.segments]
+        assert "WARMUP" in labels, f"WARMUP nicht erkannt in {labels}"
+
+        # WARMUP sollte früh im Track sein (erste 40%)
+        warmup_segments = [s for s in result.segments if s.label == "WARMUP"]
+        if warmup_segments:
+            warmup_start = warmup_segments[0].start_time
+            track_duration = beats[-1]
+            warmup_position = warmup_start / track_duration
+            assert warmup_position < 0.5, f"WARMUP zu spät im Track (Position: {warmup_position:.1%})"
 
     def test_constant_energy(self):
         """Konstante Energie → hauptsächlich VERSE/CHORUS Segmente."""

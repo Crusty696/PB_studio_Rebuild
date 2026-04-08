@@ -76,6 +76,14 @@ BREAKDOWN_EXTEND_THRESHOLD: float = 0.45
 VERSE_CHORUS_SPLIT: float = 0.5
 MIN_SEGMENT_BEATS: int = 8
 
+# -- WARMUP Detection (F-005) ------------------------------------------
+WARMUP_ENERGY_MIN: float = 0.3        # Min. Energie fuer WARMUP
+WARMUP_ENERGY_MAX: float = 0.55       # Max. Energie fuer WARMUP
+WARMUP_MIN_BEATS: int = 8             # Min. Laenge eines WARMUP
+WARMUP_MAX_POSITION: float = 0.4      # WARMUP nur in ersten 40% des Tracks
+WARMUP_GRADIENT_MIN: float = 0.005    # Min. positive Gradient (sanfter Anstieg)
+WARMUP_CENTROID_RISING: float = 0.4   # Min. Spectral Centroid fuer WARMUP
+
 # -- Multi-Feature Section Detection -----------------------------------
 BASS_FREQ_MAX_HZ: float = 250.0          # Bass band cutoff (Hz)
 SPECTRAL_CENTROID_HIGH: float = 0.65     # Normalized centroid → high-energy section

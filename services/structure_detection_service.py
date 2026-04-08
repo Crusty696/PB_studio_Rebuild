@@ -26,7 +26,7 @@ except ImportError:
 log = logging.getLogger(__name__)
 
 # Gültige Segment-Labels
-SEGMENT_LABELS = ["INTRO", "BUILDUP", "DROP", "BREAKDOWN", "OUTRO", "VERSE", "CHORUS", "BRIDGE"]
+SEGMENT_LABELS = ["INTRO", "WARMUP", "BUILDUP", "DROP", "BREAKDOWN", "OUTRO", "VERSE", "CHORUS", "BRIDGE"]
 
 # Bekannte Genres
 KNOWN_GENRES = ["psytrance", "techno", "house", ""]
@@ -179,6 +179,7 @@ class StructureDetectionService:
             labels = [""] * n_beats
 
             self._label_intro_outro(labels, energy_smooth, n_beats)
+            self._label_warmups(labels, energy_smooth, centroid_smooth, gradient, n_beats)
             self._label_buildups(labels, gradient, energy_smooth, n_beats)
             self._label_drops_multi(labels, energy_smooth, bass_smooth, centroid_smooth,
                                     regularity_per_beat, n_beats)
@@ -582,6 +583,77 @@ class StructureDetectionService:
                         labels[i] = "OUTRO"
                     else:
                         break
+
+    def _label_warmups(
+        self,
+        labels: list[str],
+        energy_norm,
+        centroid_norm,
+        gradient,
+        n_beats: int,
+    ) -> None:
+        """Labelt WARMUP-Bereiche: moderate Energie, sanfter Anstieg, fruehe Track-Position.
+
+        WARMUP ist die Eroeffnungsphase nach dem INTRO, wo Energie und musikalische
+        Komplexitaet graduell zunehmen, bevor der Hauptteil (BUILDUP/DROP) beginnt.
+
+        Kriterien:
+        - Energie im mittleren Bereich (WARMUP_ENERGY_MIN bis WARMUP_ENERGY_MAX)
+        - Position: Nur in den ersten WARMUP_MAX_POSITION (40%) des Tracks
+        - Sanfter positiver Gradient (weniger steil als BUILDUP)
+        - Steigender Spectral Centroid (mehr Frequenzinhalt)
+        - Min. Laenge: WARMUP_MIN_BEATS
+        """
+        from services.audio_constants import (
+            WARMUP_ENERGY_MIN, WARMUP_ENERGY_MAX, WARMUP_MIN_BEATS,
+            WARMUP_MAX_POSITION, WARMUP_GRADIENT_MIN, WARMUP_CENTROID_RISING,
+        )
+
+        max_warmup_beat = int(n_beats * WARMUP_MAX_POSITION)
+        if max_warmup_beat < WARMUP_MIN_BEATS:
+            return
+
+        i = 0
+        while i < max_warmup_beat - WARMUP_MIN_BEATS:
+            if labels[i]:
+                i += 1
+                continue
+
+            # Pruefe ob aktueller Beat WARMUP-Kriterien erfuellt
+            if not (WARMUP_ENERGY_MIN <= energy_norm[i] <= WARMUP_ENERGY_MAX):
+                i += 1
+                continue
+
+            # Finde zusammenhaengenden WARMUP-Bereich
+            run_length = 0
+            has_rising_trend = False
+            for j in range(i, min(max_warmup_beat, n_beats)):
+                # Energie im WARMUP-Bereich?
+                in_warmup_range = WARMUP_ENERGY_MIN <= energy_norm[j] <= WARMUP_ENERGY_MAX
+                # Sanfter positiver Gradient?
+                positive_gradient = gradient[j] >= WARMUP_GRADIENT_MIN
+                # Spectral Centroid hoch genug? (musikalischer Inhalt vorhanden)
+                centroid_ok = centroid_norm[j] >= WARMUP_CENTROID_RISING
+
+                if in_warmup_range and (positive_gradient or centroid_ok):
+                    run_length += 1
+                    if positive_gradient:
+                        has_rising_trend = True
+                elif run_length > 0 and in_warmup_range:
+                    # Toleriere kurze Plateaus innerhalb eines WARMUP
+                    run_length += 1
+                else:
+                    break
+
+            # WARMUP nur wenn lang genug UND steigende Tendenz vorhanden
+            if run_length >= WARMUP_MIN_BEATS and has_rising_trend:
+                end_idx = i + run_length
+                for k in range(i, min(end_idx, n_beats)):
+                    if not labels[k]:
+                        labels[k] = "WARMUP"
+                i = end_idx
+                continue
+            i += 1
 
     def _label_buildups(self, labels: list[str], gradient, energy_norm, n_beats: int) -> None:
         """Labelt BUILDUP-Bereiche: sustained positive gradient."""

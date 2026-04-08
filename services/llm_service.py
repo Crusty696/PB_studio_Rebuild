@@ -335,7 +335,7 @@ class LocalLLMService:
                 )
                 return {"result": raw_response, "confidence": 0.3}
 
-        except Exception as e:
+        except Exception as e:  # broad catch intentional — LLM client can raise connection, timeout, or model-specific errors
             logger.error("LocalLLMService.prompt_to_edit() Fehler: %s", e)
             return {"error": str(e), "result": None, "confidence": 0.0}
 

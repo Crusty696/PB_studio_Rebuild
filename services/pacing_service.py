@@ -574,7 +574,13 @@ def auto_edit_phase3(
     if not available_ids:
         return [], []
 
-    clip_offsets: dict[int, float] = {vid: 0.0 for vid in available_ids}
+    # F-001 Fix: Load playback_offset from database for persistence
+    clip_offsets: dict[int, float] = {}
+    with Session(engine) as session:
+        from database import VideoClip
+        for vid in available_ids:
+            video_clip = session.get(VideoClip, vid)
+            clip_offsets[vid] = video_clip.playback_offset if video_clip else 0.0
     used_recently: list[int] = []
     prev_clip_idx: int | None = None
 
@@ -746,4 +752,14 @@ def auto_edit_phase3(
         "Phase 3: %d Segmente, %d CutPoints, %.1fs Gesamtdauer",
         len(segments), len(cut_points), total_duration,
     )
+
+    # F-001 Fix: Save playback_offset to database for persistence
+    with Session(engine) as session:
+        from database import VideoClip
+        for vid, offset in clip_offsets.items():
+            video_clip = session.get(VideoClip, vid)
+            if video_clip:
+                video_clip.playback_offset = offset
+        session.commit()
+
     return segments, cut_points

@@ -47,4 +47,15 @@ docs/qa_screenshots/e2e_run/
 Thumbs.db
 desktop.ini
 .DS_Store
+
+# Virtual environment
 .venv/
+
+# Ollama models (large, regenerate on demand)
+bin/ollama/
+
+# Pytest cache
+.pytest_cache/
+
+# Node modules (if used)
+node_modules/

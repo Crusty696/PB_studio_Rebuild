@@ -1,6 +1,7 @@
 import logging
 import re
 import sys
+import threading
 from pathlib import Path
 
 from sqlalchemy import create_engine, event
@@ -18,6 +19,9 @@ logger = logging.getLogger(__name__)
 # Zentraler Projektpfad — alle Services importieren APP_ROOT statt relative Pfade zu nutzen
 # F-019: .resolve() stellt sicher dass der Pfad immer absolut ist (unabhaengig von CWD)
 APP_ROOT = Path(__file__).resolve().parent.parent
+
+# P0-FIX: Threading lock for APP_ROOT mutation to prevent race conditions
+_APP_ROOT_LOCK = threading.Lock()
 
 
 # ======================================================================
@@ -79,6 +83,11 @@ def _make_engine(db_path: Path):
 
     The pragma setup is done via an event listener attached to each new
     engine instance (not a global decorator).
+
+    P3-FIX: SQLite Transaction Isolation: SQLite in WAL mode uses SERIALIZABLE
+    by default, which is appropriate for this application. READ COMMITTED is
+    not fully supported in SQLite and SERIALIZABLE is the recommended mode
+    for WAL (Write-Ahead Logging) to ensure data consistency.
     """
     eng = create_engine(
         f"sqlite:///{db_path}",
@@ -150,7 +159,8 @@ def nullpool_session():
         c = dbapi_conn.cursor()
         c.execute("PRAGMA journal_mode=WAL")
         c.execute("PRAGMA synchronous=NORMAL")
-        c.execute(f"PRAGMA busy_timeout={DB_BUSY_TIMEOUT_MS}")
+        # P1-FIX: Konsistenz mit Haupt-Engine (120s für Worker-Threads mit langen Ops)
+        c.execute(f"PRAGMA busy_timeout={DB_BUSY_TIMEOUT_ANALYSIS_MS}")
         c.execute("PRAGMA foreign_keys=ON")
         c.close()
 
@@ -228,13 +238,19 @@ def set_project(project_path: Path):
     - Atomically swaps it into the global ``engine`` proxy
     - Updates ``APP_ROOT``
     - Patches service module-level path constants
+
+    Thread-safe: Uses _APP_ROOT_LOCK to prevent race conditions during project switch.
     """
     global APP_ROOT
     project_path = Path(project_path)
     db_file = project_path / "pb_studio.db"
 
     new_engine = _make_engine(db_file)
-    engine.swap(new_engine)
-    APP_ROOT = project_path
-    _patch_service_paths(project_path)
+
+    # P0-FIX: Lock APP_ROOT mutation to prevent race conditions
+    with _APP_ROOT_LOCK:
+        engine.swap(new_engine)
+        APP_ROOT = project_path
+        _patch_service_paths(project_path)
+
     logger.info("Projekt gewechselt: %s", project_path)

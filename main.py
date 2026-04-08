@@ -1,6 +1,6 @@
 # main.py
 """
-PB_studio v0.4.0 — DaVinci Resolve Style UI Rebuild
+PB_studio v0.5.0 — DaVinci Resolve Style UI Rebuild
 =====================================================
 4 Arbeitsbereiche: MEDIA | EDIT | CONVERT | DELIVER
 Bottom-Navigationsleiste wie DaVinci Resolve.
@@ -9,6 +9,11 @@ Optimierte Timeline mit Caching.
 
 from dotenv import load_dotenv
 load_dotenv()
+
+# P1-FIX: Feature flags für optionale Features (ersetzt main_safe.py Duplikation)
+import os
+ENABLE_VERSION_CHECK = os.getenv("PB_STUDIO_ENABLE_VERSION_CHECK", "1") == "1"
+ENABLE_SETUP_WIZARD = os.getenv("PB_STUDIO_ENABLE_SETUP_WIZARD", "1") == "1"
 
 import gc
 import sys
@@ -39,8 +44,8 @@ APP_VERSION = "0.5.0"
 
 logger = logging.getLogger(__name__)
 
-# P-017: Legacy Thread-Registry — importiert aus WorkerDispatcherMixin-Modul.
-from ui.mixins.worker_dispatcher import _GLOBAL_ACTIVE_THREADS
+# P-017: Legacy Thread-Registry — importiert aus WorkerDispatcher-Controller.
+from ui.controllers.worker_dispatcher import _GLOBAL_ACTIVE_THREADS
 STYLE_DIR = Path(__file__).parent / "styles"
 RESOURCE_DIR = Path(__file__).parent / "resources"
 
@@ -66,10 +71,10 @@ from ui.waveform_item import WaveformGraphicsItem
 # Task-Engine (extracted to services/task_manager.py)
 # ======================================================================
 import services.task_manager as _task_manager_module
-from services.task_manager import TaskInfo, GlobalTaskManager, TaskManagerProxy
+from services.task_manager import TaskInfo, GlobalTaskManager
 
-# FIX B-010: TaskManagerProxy ist lazy und verbietet Zugriff vor QApplication
-task_manager = TaskManagerProxy()
+# P3-FIX: TaskManagerProxy entfernt da überall GlobalTaskManager.instance() direkt
+# verwendet wird. Der Proxy wurde nie wirklich genutzt.
 
 
 # ======================================================================
@@ -106,11 +111,12 @@ from ui.dialogs.shortcut_help_dialog import ShortcutHelpDialog
 from ui.dialogs.project_dialog import NewProjectDialog, OpenProjectDialog
 from services.project_manager import ProjectManager
 from ui.widgets.resource_monitor import ResourceMonitorWidget
-from ui.mixins import (
-    WorkerDispatcherMixin,
-    AudioAnalysisMixin, VideoAnalysisMixin, EditWorkspaceMixin,
-    ImportMediaMixin, ConvertMixin, ExportMixin, StemsMixin, SearchMixin,
-    WorkspaceSetupMixin, PanelSetupMixin, ProjectManagementMixin, MediaTableMixin,
+from ui.controllers import (
+    WorkerDispatcherController, AudioAnalysisController, VideoAnalysisController,
+    EditWorkspaceController, ImportMediaController, ConvertController,
+    ExportController, StemsController, SearchController,
+    WorkspaceSetupController, PanelSetupController,
+    ProjectManagementController, MediaTableController,
 )
 
 
@@ -118,15 +124,11 @@ from ui.mixins import (
 # Hauptfenster — DaVinci Resolve Style
 # ======================================================================
 
-class PBWindow(QMainWindow,
-               WorkerDispatcherMixin, AudioAnalysisMixin, VideoAnalysisMixin,
-               EditWorkspaceMixin, ImportMediaMixin, ConvertMixin,
-               ExportMixin, StemsMixin, SearchMixin,
-               WorkspaceSetupMixin, PanelSetupMixin,
-               ProjectManagementMixin, MediaTableMixin):
+class PBWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
+        self.logger = logger
         self._app_version = APP_VERSION
         self.setWindowTitle(f"PB_studio v{APP_VERSION} — Director's Cockpit")
         self.resize(1500, 900)
@@ -135,8 +137,24 @@ class PBWindow(QMainWindow,
         self._otio_timeline_service: TimelineService | None = None
         self._refresh_pending = False
         self._dirty = False  # AUD-108: unsaved changes tracking
+
+        # Controllers (Composition instead of Mixins)
+        self.worker_dispatcher = WorkerDispatcherController(self)
+        self.audio_analysis = AudioAnalysisController(self)
+        self.video_analysis = VideoAnalysisController(self)
+        self.edit_workspace = EditWorkspaceController(self)
+        self.import_media = ImportMediaController(self)
+        self.convert = ConvertController(self)
+        self.export = ExportController(self)
+        self.stems = StemsController(self)
+        self.search = SearchController(self)
+        self.workspace_setup = WorkspaceSetupController(self)
+        self.panel_setup = PanelSetupController(self)
+        self.project_management = ProjectManagementController(self)
+        self.media_table_controller = MediaTableController(self)
+
         self._project_manager = ProjectManager(self)
-        self._project_manager.project_changed.connect(self._on_project_changed)
+        self._project_manager.project_changed.connect(self.project_management._on_project_changed)
 
         # Zentrales Widget
         central_widget = QWidget()
@@ -161,7 +179,7 @@ class PBWindow(QMainWindow,
 
         # ── Workspace Stack ──
         self.workspace_stack = QStackedWidget()
-        self._create_workspaces()
+        self.workspace_setup._create_workspaces()
 
         # ── Vertikaler QSplitter: Workspace oben | System-Panel unten ──
         self._main_splitter = QSplitter(Qt.Orientation.Vertical)
@@ -184,7 +202,7 @@ class PBWindow(QMainWindow,
 
         # ── Bottom Navigation Bar (DaVinci Style) ──
         self.nav_bar = WorkspaceNavBar()
-        self.nav_bar.workspace_changed.connect(self._on_workspace_changed)
+        self.nav_bar.workspace_changed.connect(self.workspace_setup._on_workspace_changed)
         main_layout.addWidget(self.nav_bar)
 
         # ── Status Bar ──
@@ -197,9 +215,9 @@ class PBWindow(QMainWindow,
         self.statusBar().addPermanentWidget(resource_monitor)
 
         # ── Panel Widgets (Tasks + Konsole als QSplitter, Chat als Dock) ──
-        self.setup_task_dock()
-        self.setup_console()
-        self.setup_chat_dock()
+        self.panel_setup.setup_task_dock()
+        self.panel_setup.setup_console()
+        self.panel_setup.setup_chat_dock()
 
         # Splitter-Groessen: Workspace dominiert, unteres Panel sichtbar
         self._main_splitter.setSizes([700, 150])
@@ -212,18 +230,19 @@ class PBWindow(QMainWindow,
         self.chat_dock.visibilityChanged.connect(self._btn_toggle_chat.setChecked)
 
         # AUD-107: Restore window state after event loop starts (docks need a shown window)
-        QTimer.singleShot(0, self._restore_window_state)
+        QTimer.singleShot(0, self.workspace_setup._restore_window_state)
 
         # P-016: Media-Tabelle NACH dem Window-Show laden (nicht im __init__)
-        QTimer.singleShot(0, self._refresh_media_table)
+        QTimer.singleShot(0, self.media_table_controller._refresh_media_table)
 
-        # AUD-103: Version check — disabled for stability testing
-        # QTimer.singleShot(3000, self._start_version_check)
+        # AUD-103: Version check — P1-FIX: gesteuert durch Feature-Flag
+        if ENABLE_VERSION_CHECK:
+            QTimer.singleShot(3000, self._start_version_check)
 
         # AUD-105: Keyboard shortcut help overlay (F1 + Ctrl+?)
         from PySide6.QtGui import QShortcut, QKeySequence as _QKS
-        QShortcut(_QKS(Qt.Key.Key_F1), self, self._show_shortcut_help)
-        QShortcut(_QKS("Ctrl+?"), self, self._show_shortcut_help)
+        QShortcut(_QKS(Qt.Key.Key_F1), self, self.project_management._show_shortcut_help)
+        QShortcut(_QKS("Ctrl+?"), self, self.project_management._show_shortcut_help)
 
     # ── AUD-103: Update notification ──────────────────────────────────────
 
@@ -292,82 +311,6 @@ class PBWindow(QMainWindow,
 
     # ── End AUD-103 ───────────────────────────────────────────────────────
 
-    # ── AUD-107: Persistent window state ──────────────────────────────────
-
-    def _save_window_state(self) -> None:
-        """Persist window geometry, dock positions and splitter sizes via QSettings."""
-        settings = QSettings("PBStudio", "PBStudioApp")
-        settings.setValue("window/geometry", self.saveGeometry())
-        settings.setValue("window/state", self.saveState())
-        settings.setValue("window/mainSplitterSizes", self._main_splitter.sizes())
-        settings.setValue("window/innerSplitterSizes", self._inner_splitter.sizes())
-        settings.setValue("window/workspaceIndex", self.workspace_stack.currentIndex())
-        logger.debug("Window state saved")
-
-    def _restore_window_state(self) -> None:
-        """Restore window geometry, dock positions and splitter sizes from QSettings."""
-        settings = QSettings("PBStudio", "PBStudioApp")
-
-        geometry = settings.value("window/geometry")
-        if geometry:
-            self.restoreGeometry(geometry)
-
-        state = settings.value("window/state")
-        if state:
-            self.restoreState(state)
-
-        main_sizes = settings.value("window/mainSplitterSizes")
-        if main_sizes:
-            self._main_splitter.setSizes([int(s) for s in main_sizes])
-
-        inner_sizes = settings.value("window/innerSplitterSizes")
-        if inner_sizes:
-            self._inner_splitter.setSizes([int(s) for s in inner_sizes])
-
-        workspace_idx = settings.value("window/workspaceIndex")
-        if workspace_idx is not None:
-            self.nav_bar.set_workspace(int(workspace_idx))
-
-        logger.debug("Window state restored")
-
-    # ── AUD-105: Shortcut help overlay ────────────────────────────────────
-
-    def _show_shortcut_help(self) -> None:
-        """Open the keyboard shortcut help dialog (F1 / Ctrl+?)."""
-        dlg = ShortcutHelpDialog(self)
-        dlg.exec()
-
-    # ── End AUD-107 ────────────────────────────────────────────────────────
-
-    # ── AUD-108: Unsaved changes indicator ────────────────────────────────
-
-    def _mark_dirty(self):
-        """Mark the session as having unsaved changes."""
-        if not self._dirty:
-            self._dirty = True
-            self._update_window_title()
-
-    def _mark_clean(self):
-        """Mark the session as saved (no pending changes)."""
-        if self._dirty:
-            self._dirty = False
-            self._update_window_title()
-
-    def _update_window_title(self):
-        """Rebuild the window title, appending '*' when dirty."""
-        import database
-        app_version = self._app_version
-        if database.APP_ROOT:
-            project_name = Path(database.APP_ROOT).name
-            title = f"PB_studio v{app_version} — {project_name}"
-        else:
-            title = f"PB_studio v{app_version} — Director's Cockpit"
-        if self._dirty:
-            title += " *"
-        self.setWindowTitle(title)
-
-    # ── End AUD-108 ──────────────────────────────────────────────────────
-
     def closeEvent(self, event):
         # AUD-107: Save window state before anything else (before running-task check
         # so state is persisted even if the user later cancels the close).
@@ -426,24 +369,31 @@ class PBWindow(QMainWindow,
         except (AttributeError, RuntimeError) as exc:
             logger.warning("closeEvent: failed to cancel running tasks: %s", exc)
 
-        # 2. Legacy: direkt verwaltete Threads stoppen
+        # 3. Legacy: direkt verwaltete Threads stoppen
+        # P0-FIX: Graceful shutdown without terminate() to prevent resource corruption
         for thread in list(self._active_threads):
             thread.quit()
-            if not thread.wait(3000):
-                thread.terminate()
-                thread.wait(1000)
+            # Increased timeout to 10s for graceful shutdown
+            if not thread.wait(10000):
+                logger.warning(
+                    "Thread %s did not exit after 10s quit request - forcing close without terminate() "
+                    "to avoid resource corruption. Thread may be leaked.",
+                    thread.objectName() or repr(thread)
+                )
+                # Do NOT call terminate() - it can corrupt DB/GPU resources
+                # The thread will be orphaned but this is safer than corrupting state
         self._active_threads.clear()
         self._active_workers.clear()
         _GLOBAL_ACTIVE_THREADS.clear()
 
-        # 3. Video Preview stoppen
+        # 4. Video Preview stoppen
         if hasattr(self, "video_preview"):
             try:
                 self.video_preview.stop()
             except (RuntimeError, AttributeError) as exc:
                 logger.warning("closeEvent: failed to stop video preview: %s", exc)
 
-        # 4. Stem Player + Workspace aufraeumen
+        # 5. Stem Player + Workspace aufraeumen
         if hasattr(self, "stem_player"):
             self.stem_player.cleanup()
         if hasattr(self, "stem_workspace"):
@@ -455,14 +405,14 @@ class PBWindow(QMainWindow,
                 except RuntimeError as exc:
                     logger.warning("closeEvent: failed to stop stem peak thread: %s", exc)
 
-        # 4. GPU-VRAM freigeben
+        # 6. GPU-VRAM freigeben
         try:
             from services.model_manager import ModelManager
             ModelManager().unload()
         except (ImportError, RuntimeError, AttributeError) as exc:
             logger.warning("closeEvent: failed to unload GPU models: %s", exc)
 
-        # 5. Close DB connection pool
+        # 7. Close DB connection pool
         try:
             from database import engine
             engine.dispose()
@@ -653,14 +603,16 @@ def main():
     QApplication.processEvents()
 
     # ── First-Run Setup Wizard (AUD-62) ──────────────────────────────
-    from ui.dialogs.setup_wizard import is_setup_complete, SetupWizard
-    if not is_setup_complete():
-        splash.close()
-        wizard = SetupWizard()
-        wizard.exec()
-        splash = PBSplashScreen(APP_VERSION)
-        splash.show()
-        QApplication.processEvents()
+    # P1-FIX: Gesteuert durch Feature-Flag
+    if ENABLE_SETUP_WIZARD:
+        from ui.dialogs.setup_wizard import is_setup_complete, SetupWizard
+        if not is_setup_complete():
+            splash.close()
+            wizard = SetupWizard()
+            wizard.exec()
+            splash = PBSplashScreen(APP_VERSION)
+            splash.show()
+            QApplication.processEvents()
 
     splash.show_message("Prüfe System-Abhängigkeiten...")
     QApplication.processEvents()

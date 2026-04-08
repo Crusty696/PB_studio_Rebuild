@@ -1,7 +1,7 @@
 """
 PB Studio — Keyboard Shortcut Manager (AUD-71).
 
-Provides configurable key mappings persisted via QSettings.
+Provides configurable key mappings persisted via JSON settings.
 Usage:
     from ui.shortcut_manager import get_shortcut_manager
     sm = get_shortcut_manager()
@@ -10,12 +10,8 @@ Usage:
 
 from __future__ import annotations
 
-from PySide6.QtCore import QSettings
 from PySide6.QtGui import QKeySequence
-
-_SETTINGS_ORG = "PBStudio"
-_SETTINGS_APP = "PBStudio"
-_PREFIX = "shortcuts/"
+from services.settings_store import get_settings_store
 
 
 # fmt: off
@@ -61,19 +57,17 @@ class ShortcutManager:
     # ------------------------------------------------------------------
 
     def load(self) -> None:
-        """Load shortcuts from QSettings (falling back to defaults)."""
-        s = QSettings(_SETTINGS_ORG, _SETTINGS_APP)
+        """Load shortcuts from JSON settings (falling back to defaults)."""
+        store = get_settings_store()
         for action_id, (_name, _desc, default) in ACTIONS.items():
-            stored = s.value(f"{_PREFIX}{action_id}", default, type=str)
+            stored = store.get_shortcut(action_id, default)
             seq = QKeySequence(stored)
             self._sequences[action_id] = seq if not seq.isEmpty() else QKeySequence(default)
 
     def save(self) -> None:
-        """Persist current shortcuts to QSettings."""
-        s = QSettings(_SETTINGS_ORG, _SETTINGS_APP)
-        for action_id, seq in self._sequences.items():
-            s.setValue(f"{_PREFIX}{action_id}", seq.toString())
-        s.sync()
+        """Persist current shortcuts to JSON settings."""
+        shortcuts = {action_id: seq.toString() for action_id, seq in self._sequences.items()}
+        get_settings_store().set_all_shortcuts(shortcuts)
 
     def reset_to_defaults(self) -> None:
         """Reset all shortcuts to their factory defaults."""

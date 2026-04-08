@@ -1,0 +1,14 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://github.com/YOUR_USERNAME/PB_studio_Rebuild/tree/main/docs/user
+    about: Check our comprehensive user documentation
+  - name: Troubleshooting Guide
+    url: https://github.com/YOUR_USERNAME/PB_studio_Rebuild/blob/main/docs/user/troubleshooting.md
+    about: Common issues and solutions
+  - name: FAQ
+    url: https://github.com/YOUR_USERNAME/PB_studio_Rebuild/blob/main/docs/user/faq.md
+    about: Frequently asked questions
+  - name: Discussions
+    url: https://github.com/YOUR_USERNAME/PB_studio_Rebuild/discussions
+    about: Community discussions, ideas, and general questions

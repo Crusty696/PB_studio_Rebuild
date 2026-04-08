@@ -295,3 +295,169 @@ class TestCutPoint:
         assert cp.time == 1.5
         assert cp.source == "beat"
         assert cp.strength == 0.8
+
+
+# ---------------------------------------------------------------------------
+# F-009: Vocal-Active Pacing Tests
+# ---------------------------------------------------------------------------
+
+class TestVocalActivePacing:
+    """Tests fuer F-009: Vocal-Active Pacing Algorithm.
+
+    PhD-Spec Abschnitt 7.3: Wenn Vocals aktiv sind, wird die Schnittfrequenz
+    reduziert (S_eff x 2) fuer visuelle Stabilitaet waehrend Gesang.
+    """
+
+    def test_compute_vocal_activity_no_vocals(self, test_engine):
+        """Ohne Vocal-Stem werden alle Beats als nicht-vokal markiert."""
+        import services.pacing_service as svc
+        from services.pacing_service import compute_vocal_activity
+
+        svc.engine = test_engine
+
+        # Erstelle Track ohne Vocal-Stem
+        with Session(test_engine) as session:
+            track = AudioTrack(
+                project_id=1,
+                filename="test.mp3",
+                file_path="/test.mp3",
+                duration=10.0,
+                stem_vocals_path=None,
+            )
+            session.add(track)
+            session.commit()
+            audio_id = track.id
+
+        beats = [0.0, 0.5, 1.0, 1.5, 2.0]
+        activity = compute_vocal_activity(audio_id, beats)
+
+        assert len(activity) == len(beats)
+        assert all(not active for active in activity), "Alle Beats sollten nicht-vokal sein"
+
+    def test_compute_vocal_activity_with_vocals(self, test_engine, tmp_path):
+        """Mit Vocal-Stem wird RMS-basierte Aktivitaet berechnet."""
+        import services.pacing_service as svc
+        from services.pacing_service import compute_vocal_activity
+        import numpy as np
+        import soundfile as sf
+
+        svc.engine = test_engine
+
+        # Erstelle synthetisches Vocal-Audio (44.1kHz, 3 Sekunden)
+        sr = 44100
+        duration = 3.0
+        t = np.linspace(0, duration, int(sr * duration))
+
+        # Erste Sekunde: leise (kein Vocal), zweite+dritte: laut (Vocal aktiv)
+        audio = np.concatenate([
+            np.random.randn(sr) * 0.01,  # 0-1s: sehr leise
+            np.random.randn(sr * 2) * 0.5,  # 1-3s: laut
+        ])
+
+        vocal_path = tmp_path / "vocals.wav"
+        sf.write(str(vocal_path), audio, sr)
+
+        # Erstelle Track mit Vocal-Stem
+        with Session(test_engine) as session:
+            track = AudioTrack(
+                project_id=1,
+                filename="test.mp3",
+                file_path="/test.mp3",
+                duration=3.0,
+                stem_vocals_path=str(vocal_path),
+            )
+            session.add(track)
+            session.commit()
+            audio_id = track.id
+
+        # Beats: alle 0.5 Sekunden
+        beats = [0.0, 0.5, 1.0, 1.5, 2.0, 2.5]
+        activity = compute_vocal_activity(audio_id, beats, threshold=0.15)
+
+        assert len(activity) == len(beats)
+        # Erste Beats (0-1s) sollten nicht-vokal sein, spaetere Beats vokal
+        assert not activity[0], "Beat bei 0.0s sollte nicht-vokal sein (leises Segment)"
+        assert activity[2] or activity[3], "Mindestens ein Beat bei 1.0s+ sollte vokal sein"
+
+    def test_vocal_active_doubles_cut_interval(self):
+        """F-009: Vocal-Active verdoppelt den effektiven Schritt (weniger Cuts)."""
+        from services.pacing_service import _compute_effective_step
+
+        # Basis-Fall: ohne Vocals
+        step_no_vocal = _compute_effective_step(
+            base_step=4,
+            beat_index=0,
+            beat_time=1.0,
+            total_duration=60.0,
+            energy_per_beat=[0.8],
+            energy_reactivity=0,
+            breakdown_behavior="none",
+            pacing_curve=None,
+            vocal_active=False,
+        )
+
+        # Mit Vocals: Step sollte verdoppelt sein
+        step_with_vocal = _compute_effective_step(
+            base_step=4,
+            beat_index=0,
+            beat_time=1.0,
+            total_duration=60.0,
+            energy_per_beat=[0.8],
+            energy_reactivity=0,
+            breakdown_behavior="none",
+            pacing_curve=None,
+            vocal_active=True,
+        )
+
+        assert step_with_vocal == step_no_vocal * 2, \
+            f"Vocal-Active sollte Step verdoppeln: {step_no_vocal} → {step_with_vocal}"
+
+    def test_vocal_active_caps_at_16(self):
+        """F-009: Vocal-Active ist auf maximal 16 Beats begrenzt."""
+        from services.pacing_service import _compute_effective_step
+
+        # Basis-Step = 12, mit Vocals wuerde das 24 ergeben, aber Cap ist 16
+        step = _compute_effective_step(
+            base_step=12,
+            beat_index=0,
+            beat_time=1.0,
+            total_duration=60.0,
+            energy_per_beat=[0.5],
+            energy_reactivity=0,
+            breakdown_behavior="none",
+            pacing_curve=None,
+            vocal_active=True,
+        )
+
+        assert step == 16, f"Vocal-Active Step sollte auf 16 begrenzt sein, erhalten: {step}"
+
+    def test_vocal_active_integration_in_select_cut_beats(self):
+        """F-009: Integration Test — vocal_activity wird in _select_cut_beats_advanced verwendet."""
+        from services.pacing_service import _select_cut_beats_advanced, AdvancedPacingSettings
+
+        beats = [0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0]
+        energy = [0.5] * len(beats)
+        settings = AdvancedPacingSettings(base_cut_rate=2, energy_reactivity=0)
+
+        # Fall 1: Keine Vocals (alle False)
+        vocal_activity_none = [False] * len(beats)
+        cuts_no_vocal = _select_cut_beats_advanced(
+            beats, 5.0, settings, energy,
+            vocal_activity=vocal_activity_none,
+        )
+
+        # Fall 2: Alle Beats haben Vocals (alle True)
+        vocal_activity_all = [True] * len(beats)
+        cuts_with_vocal = _select_cut_beats_advanced(
+            beats, 5.0, settings, energy,
+            vocal_activity=vocal_activity_all,
+        )
+
+        # Mit Vocals sollten deutlich weniger Cuts entstehen (weil Step verdoppelt wird)
+        assert len(cuts_with_vocal) < len(cuts_no_vocal), \
+            f"Mit Vocals sollten weniger Cuts sein: {len(cuts_with_vocal)} < {len(cuts_no_vocal)}"
+
+        # Mindestens 30% weniger Cuts bei aktiven Vocals
+        reduction = (len(cuts_no_vocal) - len(cuts_with_vocal)) / len(cuts_no_vocal)
+        assert reduction >= 0.3, \
+            f"Vocal-Active sollte mindestens 30% weniger Cuts erzeugen, aber nur {reduction*100:.0f}%"

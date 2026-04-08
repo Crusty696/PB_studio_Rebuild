@@ -67,7 +67,7 @@ class VersionCheckWorker(QThread):
     def run(self) -> None:
         try:
             self._do_check()
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # broad catch intentional — background version check must never crash app, network/parse errors possible
             # Any unexpected error: log at DEBUG level, never surface to user
             logger.debug("Version check failed unexpectedly: %s", exc)
         finally:

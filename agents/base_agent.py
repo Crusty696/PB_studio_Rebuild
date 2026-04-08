@@ -19,6 +19,10 @@ class BaseAgent(ABC):
     - eine Domäne (audio, vision, editor, orchestrator)
     - optionale Modell-Anforderungen (model_id)
     - eine process()-Methode
+
+    P2-FIX: Class-Variablen (name, domain, model_id) werden von Subklassen
+    überschrieben. Dies ist das korrekte Pattern für diese Anwendung, da
+    jede Agent-Klasse nur einmal instanziiert wird.
     """
 
     name: str = "base"

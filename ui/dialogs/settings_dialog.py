@@ -5,7 +5,7 @@ Tabs:
 - LLM Backend: Ollama-Konfiguration
 - Shortcuts:   Konfigurierbares Tastaturkürzel-Mapping (AUD-71)
 
-Einstellungen werden in QSettings (Registry/Ini) gespeichert
+Einstellungen werden in JSON-Format gespeichert
 und sind sofort aktiv (kein Neustart nötig).
 """
 
@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import Qt, QSettings, Signal, QObject, QThread
+from PySide6.QtCore import Qt, Signal, QObject, QThread
 from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QGroupBox,
@@ -30,34 +30,19 @@ if TYPE_CHECKING:
     pass
 
 from services.timeout_constants import HTTP_API_TIMEOUT_SEC
+from services.settings_store import get_settings_store
 
 logger = logging.getLogger(__name__)
-
-SETTINGS_ORG = "PBStudio"
-SETTINGS_APP = "PBStudio"
-
-
-def _load_settings() -> QSettings:
-    return QSettings(SETTINGS_ORG, SETTINGS_APP)
 
 
 def get_ollama_settings() -> dict:
     """Gibt die gespeicherten Ollama-Einstellungen zurück."""
-    s = _load_settings()
-    return {
-        "enabled": s.value("ollama/enabled", True, type=bool),
-        "url": s.value("ollama/url", "http://localhost:11434", type=str),
-        "model": s.value("ollama/model", "", type=str),
-    }
+    return get_settings_store().get_ollama_settings()
 
 
 def save_ollama_settings(enabled: bool, url: str, model: str) -> None:
     """Speichert Ollama-Einstellungen dauerhaft."""
-    s = _load_settings()
-    s.setValue("ollama/enabled", enabled)
-    s.setValue("ollama/url", url)
-    s.setValue("ollama/model", model)
-    s.sync()
+    get_settings_store().save_ollama_settings(enabled, url, model)
 
 
 class _OllamaTestWorker(QObject):

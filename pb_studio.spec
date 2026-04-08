@@ -83,7 +83,7 @@ all_hidden = list(set([
     'ui.workspaces',
     'ui.widgets',
     'ui.dialogs',
-    'ui.mixins',
+    'ui.controllers',
     # Audio/ML
     'librosa',
     'librosa.core',

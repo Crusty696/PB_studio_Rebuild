@@ -27,6 +27,7 @@ from services.timeout_constants import (
     FFMPEG_PROBE_TIMEOUT_SEC,
     THREAD_JOIN_TIMEOUT_SEC,
 )
+from services.errors import ConversionError, FFmpegError, FFmpegTimeoutError
 
 logger = logging.getLogger(__name__)
 
@@ -196,9 +197,9 @@ def convert(
     """
     preset = PRESETS.get(preset_name)
     if preset is None:
-        raise ValueError(
-            f"Unbekanntes Preset: {preset_name}. "
-            f"Verfuegbar: {list(PRESETS.keys())}"
+        raise ConversionError(
+            f"Unbekanntes Preset: {preset_name}. Verfuegbar: {list(PRESETS.keys())}",
+            output_format=preset_name
         )
 
     input_path = Path(input_path)
@@ -290,7 +291,11 @@ def convert(
     if not output_path.exists():
         logger.error(f"[ConvertService] FFmpeg lief durch (rc=0), aber Ausgabedatei fehlt!")
         logger.error(f"[ConvertService] stderr: {ffmpeg_stderr[-1000:]}")
-        raise RuntimeError(f"Konvertierung fehlgeschlagen: Ausgabe nicht erstellt. stderr: {_sanitize_ffmpeg_error(ffmpeg_stderr)}")
+        raise ConversionError(
+            f"Konvertierung fehlgeschlagen: Ausgabe nicht erstellt. stderr: {_sanitize_ffmpeg_error(ffmpeg_stderr)}",
+            input_file=str(input_path),
+            output_format=preset_name
+        )
 
     file_size = output_path.stat().st_size
     size_mb = file_size / (1024 * 1024)
@@ -298,8 +303,10 @@ def convert(
         logger.error(f"[ConvertService] FFmpeg lief durch (rc=0), aber Ausgabedatei ist 0 Bytes!")
         logger.error(f"[ConvertService] stderr: {ffmpeg_stderr[-1000:]}")
         output_path.unlink(missing_ok=True)
-        raise RuntimeError(
-            f"Konvertierung fehlgeschlagen: Ausgabedatei ist 0 Bytes. stderr: {ffmpeg_stderr[-500:]}"
+        raise ConversionError(
+            f"Konvertierung fehlgeschlagen: Ausgabedatei ist 0 Bytes. stderr: {ffmpeg_stderr[-500:]}",
+            input_file=str(input_path),
+            output_format=preset_name
         )
     logger.info("Konvertierung abgeschlossen: %s (%.1f MB)", output_path.name, size_mb)
 
@@ -386,7 +393,7 @@ def _run_ffmpeg_with_progress(
         process.wait(timeout=FFMPEG_EXPORT_TIMEOUT_SEC)
     except subprocess.TimeoutExpired:
         process.kill()
-        raise RuntimeError(f"FFmpeg Timeout ({FFMPEG_EXPORT_TIMEOUT_SEC}s)")
+        raise FFmpegTimeoutError(FFMPEG_EXPORT_TIMEOUT_SEC)
     finally:
         # Bug-32 Fix: Stelle sicher dass Process terminiert wird, auch wenn Exception auftritt
         if process.poll() is None:
@@ -397,8 +404,10 @@ def _run_ffmpeg_with_progress(
     if process.returncode != 0:
         logger.error(f"[ConvertService] FFmpeg FEHLER (rc={process.returncode}):")
         logger.error(f"[ConvertService] stderr: {stderr[-1000:]}")
-        raise RuntimeError(
-            f"FFmpeg fehlgeschlagen (rc={process.returncode}):\n{stderr[-500:]}"
+        raise FFmpegError(
+            f"FFmpeg fehlgeschlagen:\n{stderr[-500:]}",
+            returncode=process.returncode,
+            stderr=stderr
         )
     return stderr
 

@@ -24,6 +24,12 @@ import urllib.request
 from typing import Any
 
 from services.timeout_constants import HTTP_API_TIMEOUT_SEC, HTTP_HEALTH_CHECK_TIMEOUT_SEC
+from services.errors import (
+    OllamaError,
+    OllamaNotAvailableError,
+    OllamaModelNotFoundError,
+    OllamaPausedError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -250,12 +256,14 @@ class OllamaClient:
             Generierter Text
 
         Raises:
-            RuntimeError: Wenn Ollama nicht erreichbar oder pausiert
-            urllib.error.URLError: Bei Netzwerkfehler
+            OllamaPausedError: Wenn OllamaClient pausiert ist
+            OllamaNotAvailableError: Wenn Ollama nicht erreichbar
+            OllamaModelNotFoundError: Wenn Modell nicht in RAM/VRAM passt
+            OllamaError: Bei HTTP oder JSON-Fehlern
         """
         with self._lock:
             if self._paused:
-                raise RuntimeError(
+                raise OllamaPausedError(
                     "OllamaClient ist pausiert (GPU-intensive Operation läuft). "
                     "Bitte später erneut versuchen."
                 )
@@ -307,17 +315,18 @@ class OllamaClient:
                 if fallback:
                     logger.info("OllamaClient: Fallback auf '%s'.", fallback)
                     return self.chat(fallback, user_message, system_prompt, temperature, max_tokens)
-                raise RuntimeError(
-                    f"Modell '{model}' passt nicht in RAM/VRAM und kein Fallback verfügbar."
+                raise OllamaModelNotFoundError(
+                    model=model,
+                    reason="Passt nicht in RAM/VRAM und kein Fallback verfuegbar"
                 ) from e
             logger.error("OllamaClient: HTTP-Fehler %d: %s", e.code, body.strip())
-            raise RuntimeError(f"Ollama HTTP-Fehler {e.code}: {body.strip()}") from e
+            raise OllamaError(f"HTTP-Fehler {e.code}: {body.strip()}", model=model, http_code=e.code) from e
         except urllib.error.URLError as e:
             logger.error("OllamaClient: Verbindungsfehler: %s", e)
-            raise RuntimeError(f"Ollama nicht erreichbar: {e}") from e
+            raise OllamaNotAvailableError(f"Ollama nicht erreichbar: {e}") from e
         except json.JSONDecodeError as e:
             logger.error("OllamaClient: Ungültige JSON-Antwort: %s", e)
-            raise RuntimeError(f"Ollama hat ungültiges JSON zurückgegeben: {e}") from e
+            raise OllamaError(f"Ungültiges JSON von Ollama: {e}", model=model) from e
 
     def chat_with_history(
         self,
@@ -339,7 +348,7 @@ class OllamaClient:
         """
         with self._lock:
             if self._paused:
-                raise RuntimeError("OllamaClient ist pausiert.")
+                raise OllamaPausedError("OllamaClient ist pausiert.")
 
         payload = {
             "model": model,
@@ -373,9 +382,9 @@ class OllamaClient:
                 if fallback:
                     logger.warning("OllamaClient: '%s' nicht ladbar, Fallback auf '%s'.", model, fallback)
                     return self.chat_with_history(fallback, messages, temperature, max_tokens)
-            raise RuntimeError(f"Ollama HTTP-Fehler {e.code}: {err_body.strip()}") from e
+            raise OllamaError(f"HTTP-Fehler {e.code}: {err_body.strip()}", model=model, http_code=e.code) from e
         except urllib.error.URLError as e:
-            raise RuntimeError(f"Ollama nicht erreichbar: {e}") from e
+            raise OllamaNotAvailableError(f"Ollama nicht erreichbar: {e}") from e
 
     # ------------------------------------------------------------------
     # Vision / Multimodal Inference (AUD-128)
@@ -407,11 +416,13 @@ class OllamaClient:
             Generierter Text
 
         Raises:
-            RuntimeError: Wenn Ollama nicht erreichbar oder pausiert
+            OllamaPausedError: Wenn OllamaClient pausiert ist
+            OllamaNotAvailableError: Wenn Ollama nicht erreichbar
+            OllamaError: Bei HTTP oder JSON-Fehlern
         """
         with self._lock:
             if self._paused:
-                raise RuntimeError(
+                raise OllamaPausedError(
                     "OllamaClient ist pausiert (GPU-intensive Operation läuft)."
                 )
 
@@ -463,13 +474,13 @@ class OllamaClient:
                     logger.warning("OllamaClient.chat_vision: '%s' nicht ladbar, Fallback auf '%s'.", model, fallback)
                     return self.chat_vision(fallback, user_message, images_base64, system_prompt, temperature, max_tokens)
             logger.error("OllamaClient.chat_vision: HTTP %d: %s", e.code, err_body.strip())
-            raise RuntimeError(f"Ollama nicht erreichbar: {err_body.strip()}") from e
+            raise OllamaError(f"HTTP-Fehler {e.code}: {err_body.strip()}", model=model, http_code=e.code) from e
         except urllib.error.URLError as e:
             logger.error("OllamaClient.chat_vision: Verbindungsfehler: %s", e)
-            raise RuntimeError(f"Ollama nicht erreichbar: {e}") from e
+            raise OllamaNotAvailableError(f"Ollama nicht erreichbar: {e}") from e
         except json.JSONDecodeError as e:
             logger.error("OllamaClient.chat_vision: Ungültige JSON-Antwort: %s", e)
-            raise RuntimeError(f"Ollama hat ungültiges JSON zurückgegeben: {e}") from e
+            raise OllamaError(f"Ungültiges JSON von Ollama: {e}", model=model) from e
 
     # ------------------------------------------------------------------
     # Tool-Use / Function-Calling (AP-5)
@@ -528,11 +539,13 @@ class OllamaClient:
             }
 
         Raises:
-            RuntimeError: Wenn Ollama nicht erreichbar oder pausiert
+            OllamaPausedError: Wenn OllamaClient pausiert ist
+            OllamaNotAvailableError: Wenn Ollama nicht erreichbar
+            OllamaError: Bei HTTP oder JSON-Fehlern
         """
         with self._lock:
             if self._paused:
-                raise RuntimeError("OllamaClient ist pausiert.")
+                raise OllamaPausedError("OllamaClient ist pausiert.")
 
         if messages is None:
             messages = []
@@ -608,9 +621,9 @@ class OllamaClient:
                 }
 
         except urllib.error.URLError as e:
-            raise RuntimeError(f"Ollama nicht erreichbar: {e}") from e
+            raise OllamaNotAvailableError(f"Ollama nicht erreichbar: {e}") from e
         except json.JSONDecodeError as e:
-            raise RuntimeError(f"Ollama hat ungültiges JSON zurückgegeben: {e}") from e
+            raise OllamaError(f"Ungültiges JSON von Ollama: {e}", model=model) from e
 
     # ------------------------------------------------------------------
     # Kontext-Info

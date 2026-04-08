@@ -49,6 +49,10 @@ class SceneDetectionError(VideoError):
     """Szenen-Erkennung fehlgeschlagen."""
 
 
+class VideoAnalysisError(VideoError):
+    """Video-Analyse fehlgeschlagen (Moondream, SigLIP, etc.)."""
+
+
 # ── GPU ────────────────────────────────────────────────────────
 
 class GPUError(PBStudioError):
@@ -117,6 +121,40 @@ class MLUnavailableError(MLError):
         self.fallback = fallback
 
 
+# ── LLM / Ollama ───────────────────────────────────────────────
+
+class LLMError(PBStudioError):
+    """Allgemeiner LLM/Chat-Fehler."""
+
+
+class OllamaError(LLMError):
+    """Ollama-spezifischer Fehler."""
+
+    def __init__(self, message: str, model: str = "", http_code: int = 0):
+        super().__init__(message, {"model": model, "http_code": http_code})
+        self.model = model
+        self.http_code = http_code
+
+
+class OllamaNotAvailableError(OllamaError):
+    """Ollama-Server ist nicht erreichbar."""
+
+
+class OllamaModelNotFoundError(OllamaError):
+    """Ollama-Modell nicht vorhanden oder zu groß für RAM/VRAM."""
+
+    def __init__(self, model: str, reason: str = ""):
+        msg = f"Ollama-Modell '{model}' nicht verfuegbar"
+        if reason:
+            msg += f": {reason}"
+        super().__init__(msg, model=model)
+        self.reason = reason
+
+
+class OllamaPausedError(OllamaError):
+    """Ollama ist pausiert (GPU-intensive Operation laeuft)."""
+
+
 # ── Database ───────────────────────────────────────────────────
 
 class DatabaseError(PBStudioError):
@@ -127,10 +165,28 @@ class DatabaseLockedError(DatabaseError):
     """SQLite database is locked (zu viele gleichzeitige Writer)."""
 
 
+class MigrationError(DatabaseError):
+    """Fehler bei Datenbank-Migration."""
+
+    def __init__(self, message: str, table: str = "", column: str = ""):
+        super().__init__(message, {"table": table, "column": column})
+        self.table = table
+        self.column = column
+
+
 # ── Export ─────────────────────────────────────────────────────
 
 class ExportError(PBStudioError):
     """Fehler beim Video-Export."""
+
+
+class ConversionError(PBStudioError):
+    """Fehler bei Audio/Video-Konvertierung."""
+
+    def __init__(self, message: str, input_file: str = "", output_format: str = ""):
+        super().__init__(message, {"input_file": input_file, "output_format": output_format})
+        self.input_file = input_file
+        self.output_format = output_format
 
 
 class FFmpegError(PBStudioError):
@@ -140,6 +196,38 @@ class FFmpegError(PBStudioError):
         super().__init__(message, {"returncode": returncode, "stderr": stderr[:500]})
         self.returncode = returncode
         self.stderr = stderr
+
+
+class FFmpegTimeoutError(FFmpegError):
+    """FFmpeg-Prozess hat Timeout ueberschritten."""
+
+    def __init__(self, timeout_sec: int):
+        super().__init__(
+            f"FFmpeg Timeout nach {timeout_sec}s",
+            returncode=-1,
+            stderr="Timeout"
+        )
+        self.timeout_sec = timeout_sec
+
+
+# ── Timeline / Project ─────────────────────────────────────────
+
+class TimelineError(PBStudioError):
+    """Fehler in der Timeline-Verwaltung."""
+
+
+class ProjectError(PBStudioError):
+    """Fehler in der Projekt-Verwaltung."""
+
+
+# ── Workers ────────────────────────────────────────────────────
+
+class WorkerError(PBStudioError):
+    """Fehler in QThread-Workern."""
+
+    def __init__(self, message: str, worker_name: str = ""):
+        super().__init__(message, {"worker_name": worker_name})
+        self.worker_name = worker_name
 
 
 # ── Result Pattern ─────────────────────────────────────────────

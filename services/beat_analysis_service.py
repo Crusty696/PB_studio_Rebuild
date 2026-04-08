@@ -397,6 +397,17 @@ class BeatAnalysisService:
                 energy_per_beat = []
             del y  # free numpy array before DB writes
 
+            # F-004: Stem-weighted energy computation (if stems are available)
+            stem_weighted_energy = []
+            try:
+                from services.pacing_beat_grid import compute_stem_weighted_energy
+                stem_energy = compute_stem_weighted_energy(track_id, result["beats"])
+                if stem_energy:
+                    stem_weighted_energy = stem_energy.weighted
+                    logger.info("Stem-weighted energy computed: %d values", len(stem_weighted_energy))
+            except (ImportError, ValueError, RuntimeError, OSError) as e:
+                logger.info("Stem-weighted energy nicht verfuegbar (Stems nicht vorhanden oder Fehler): %s", e)
+
             # FIX-1.1b: NullPool-Session fuer DB-Writes — verhindert "database is locked"
             # Der Connection Pool hielt Connections offen die beim sequentiellen
             # Komplett-Analyse-Flow (BPM → Wellenform → Key → ...) zu Locks fuehrten.
@@ -418,6 +429,7 @@ class BeatAnalysisService:
                         beat_positions_json = json.dumps(result["beats"])
                         downbeat_positions_json = json.dumps(result["downbeats"])
                         energy_json = json.dumps(energy_per_beat)
+                        stem_weighted_energy_json = json.dumps(stem_weighted_energy) if stem_weighted_energy else None
 
                         # DB-07 Fix: Expliziter Query-Check gegen Duplikate
                         existing_bg = track.beatgrid or session.query(Beatgrid).filter_by(
@@ -429,6 +441,7 @@ class BeatAnalysisService:
                             existing_bg.beat_positions = beat_positions_json
                             existing_bg.downbeat_positions = downbeat_positions_json
                             existing_bg.energy_per_beat = energy_json
+                            existing_bg.stem_weighted_energy = stem_weighted_energy_json
                             existing_bg.offset = result["beats"][0] if result["beats"] else 0.0
                         else:
                             bg = Beatgrid(
@@ -438,6 +451,7 @@ class BeatAnalysisService:
                                 beat_positions=beat_positions_json,
                                 downbeat_positions=downbeat_positions_json,
                                 energy_per_beat=energy_json,
+                                stem_weighted_energy=stem_weighted_energy_json,
                             )
                             session.add(bg)
 
