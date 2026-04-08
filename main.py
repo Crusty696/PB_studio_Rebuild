@@ -21,6 +21,7 @@ import subprocess
 import time
 import logging
 import traceback
+import threading
 from pathlib import Path
 
 from PySide6.QtWidgets import (
@@ -535,6 +536,53 @@ def _qt_message_handler(mode, context, message):
 
 
 def main():
+    # CLI-Argumente prüfen (HEADLESS MODE für Installer/Pre-Caching)
+    if "--pre-cache" in sys.argv:
+        print("\n" + "=" * 60)
+        print("  PB Studio — Model Pre-Caching Mode (Headless)")
+        print("=" * 60)
+        
+        from services.model_lifecycle_service import get_model_lifecycle_service, RECOMMENDED_HF_MODELS
+        import time
+        
+        service = get_model_lifecycle_service()
+        models_to_download = [m["id"] for m in RECOMMENDED_HF_MODELS]
+        
+        # Zusätzliche Modelle aus pre_cache_models.py (falls nicht in RECOMMENDED_HF_MODELS)
+        additional = ["facebook/htdemucs", "CPJKU/beat_this", "Systran/faster-whisper-large-v3"]
+        for m_id in additional:
+            if m_id not in models_to_download:
+                models_to_download.append(m_id)
+        
+        print(f"\nStarte Download von {len(models_to_download)} Modellen...")
+        
+        for m_id in models_to_download:
+            print(f"\n[{m_id}] Prüfe/Lade...")
+            
+            # Download starten (blockierend für CLI)
+            done_event = threading.Event()
+            
+            def _prog(p):
+                if p.finished:
+                    done_event.set()
+                elif p.status == "downloading":
+                    print(f"  Progress: {p.progress*100:.1f}% | Speed: {p.speed_mbps:.1f} MB/s | ETA: {p.eta_sec}s", end="\r")
+            
+            success = service.download_hf_model(m_id, progress_cb=_prog)
+            if success:
+                # Warten bis fertig (max 30 min pro Modell)
+                if not done_event.wait(timeout=1800):
+                    print(f"\n[ERROR] Timeout beim Download von {m_id}")
+                else:
+                    print(f"\n[OK] {m_id} erfolgreich verarbeitet.")
+            else:
+                print(f"[SKIP/ERROR] Download konnte nicht gestartet werden für {m_id}")
+        
+        print("\n" + "=" * 60)
+        print("  Pre-Caching abgeschlossen.")
+        print("=" * 60 + "\n")
+        sys.exit(0)
+
     setup_logging()
 
     from PySide6.QtCore import qInstallMessageHandler

@@ -307,8 +307,8 @@ class OrchestratorAgent(BaseAgent):
             from database import engine, AudioTrack, VideoClip
 
             with Session(engine) as session:
-                audio_ids = [t.id for t in session.query(AudioTrack).all()]
-                video_ids = [c.id for c in session.query(VideoClip).all()]
+                audio_ids = [t.id for t in session.query(AudioTrack).filter(AudioTrack.deleted_at.is_(None)).all()]
+                video_ids = [c.id for c in session.query(VideoClip).filter(VideoClip.deleted_at.is_(None)).all()]
 
             return {"audio_track_ids": audio_ids, "video_clip_ids": video_ids}
         except Exception as e:  # broad catch intentional — SQLAlchemy query can raise many error types

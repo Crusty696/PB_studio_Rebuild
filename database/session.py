@@ -201,7 +201,7 @@ def get_active_project_id() -> int:
     try:
         from database.models import Project
         with Session(engine) as s:
-            proj = s.query(Project).first()
+            proj = s.query(Project).filter(Project.deleted_at.is_(None)).first()
             return proj.id if proj else 1
     except Exception:  # broad catch intentional — fallback if DB is unavailable at startup
         return 1

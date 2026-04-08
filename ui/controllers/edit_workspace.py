@@ -334,7 +334,10 @@ class EditWorkspaceController(PBComponent):
             with DBSession(engine) as session:
                 clips = session.query(VideoClip).options(
                     joinedload(VideoClip.scenes)
-                ).filter_by(project_id=get_active_project_id()).all()
+                ).filter(
+                    VideoClip.project_id == get_active_project_id(),
+                    VideoClip.deleted_at.is_(None)
+                ).all()
                 for clip in clips:
                     clip_name = Path(clip.file_path).stem[:20]
                     for scene in clip.scenes:

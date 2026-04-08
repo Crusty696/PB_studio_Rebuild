@@ -149,6 +149,11 @@ Section "Start Menu Entry" SecStartMenu
   CreateShortCut  "$SMPROGRAMS\${APP_NAME}\Uninstall.lnk"          "$INSTDIR\Uninstall.exe"
 SectionEnd
 
+Section "Download AI Models (requires internet)" SecModels
+  DetailPrint "Pre-caching AI models... This may take several minutes."
+  nsExec::ExecToLog '"$INSTDIR\${APP_EXE}" --pre-cache'
+SectionEnd
+
 ;--------------------------------
 ; Section descriptions
 ;--------------------------------
@@ -157,6 +162,7 @@ SectionEnd
   !insertmacro MUI_DESCRIPTION_TEXT ${SecMain}      "PB Studio application files (required)"
   !insertmacro MUI_DESCRIPTION_TEXT ${SecDesktop}   "Add a shortcut to the Desktop"
   !insertmacro MUI_DESCRIPTION_TEXT ${SecStartMenu} "Add entries to the Start Menu"
+  !insertmacro MUI_DESCRIPTION_TEXT ${SecModels}    "Download and cache AI models now (Whisper, SigLIP, etc.) to enable offline use and faster first start."
 !insertmacro MUI_FUNCTION_DESCRIPTION_END
 
 ;--------------------------------

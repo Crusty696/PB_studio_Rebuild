@@ -107,7 +107,7 @@ class ProjectManager(QObject):
         from sqlalchemy.orm import Session as _Ses
         with _Ses(engine) as session:
             # Remove the auto-created "Default" project and insert ours
-            for p in session.query(Project).all():
+            for p in session.query(Project).filter(Project.deleted_at.is_(None)).all():
                 session.delete(p)
             session.add(Project(
                 name=name,

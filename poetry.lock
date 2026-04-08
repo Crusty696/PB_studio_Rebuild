@@ -165,10 +165,8 @@ torch = ">=2"
 torchaudio = "*"
 
 [package.source]
-type = "git"
-url = "https://github.com/CPJKU/beat_this.git"
-reference = "main"
-resolved_reference = "c8c320e84f1a4e5b291327debe754734ea802afc"
+type = "directory"
+url = "vendor/beat_this"
 
 [[package]]
 name = "certifi"
@@ -3444,4 +3442,4 @@ zstd = ["backports-zstd (>=1.0.0) ; python_version < \"3.14\""]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11,<3.12"
-content-hash = "eb5d278b5ebca5b430691e34af8e3098a1fb1a017a661b68cb6e462bc999c85a"
+content-hash = "178265c512b105ed680eed87c97a75312bd4c04d9868bb3029337532356d12d7"

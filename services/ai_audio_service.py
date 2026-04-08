@@ -28,6 +28,8 @@ from sqlalchemy.orm import Session
 
 from database import engine, AudioTrack, WaveformData, APP_ROOT
 
+from services.model_manager import ModelManager, oom_recovery
+
 logger = logging.getLogger(__name__)
 
 STEMS_DIR = APP_ROOT / "storage" / "stems"
@@ -54,6 +56,7 @@ class StemSeparator:
     (z.B. GTX 1060 6GB) einzuhalten und CPU-Fallback zu vermeiden.
     """
 
+    @oom_recovery
     def separate(self, file_path: str, model: str = "htdemucs_ft",
                  progress_cb=None) -> dict[str, str]:
         """Fuehrt Demucs Stem Separation mit Chunking + CUDA-Zwang aus.

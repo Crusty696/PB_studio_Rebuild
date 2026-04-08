@@ -118,6 +118,7 @@ class AdvancedPacingSettings:
     base_cut_rate: int = 4          # 1, 2, 4, 8, 16 Beats
     energy_reactivity: int = 50     # 0-100%
     breakdown_behavior: str = "halve"  # "halve", "force16", "none"
+    high_energy_behavior: str = "none"  # "none", "force1", "peak-time"
     vibe: str = ""                  # Keyword fuer Semantic Search
     manual_density_curve: list[float] | None = None
     anchors: list[dict] | None = None  # [{"time": float, "scene_id": str}, ...]

@@ -189,6 +189,47 @@ class TestComputeEffectiveStep:
         )
         assert step < 8, f"Erwartet < 8, erhalten: {step}"
 
+    def test_high_energy_force1(self):
+        """high_energy_behavior='force1' erzwingt Step=1 bei hoher Energie."""
+        from services.pacing_service import _compute_effective_step
+
+        step = _compute_effective_step(
+            base_step=8,
+            beat_index=0,
+            beat_time=1.0,
+            total_duration=60.0,
+            energy_per_beat=[0.8],
+            energy_reactivity=0,
+            breakdown_behavior="none",
+            pacing_curve=None,
+            high_energy_behavior="force1",
+        )
+        assert step == 1
+
+    def test_high_energy_peak_time(self):
+        """high_energy_behavior='peak-time' erzwingt Step=1 oder 2."""
+        from services.pacing_service import _compute_effective_step
+
+        # Sehr hohe Energie -> Step 1
+        step1 = _compute_effective_step(
+            base_step=8,
+            energy_per_beat=[0.9],
+            high_energy_behavior="peak-time",
+            beat_index=0, beat_time=1.0, total_duration=60.0,
+            energy_reactivity=0, breakdown_behavior="none", pacing_curve=None,
+        )
+        assert step1 == 1
+
+        # Moderat hohe Energie -> Step 2
+        step2 = _compute_effective_step(
+            base_step=8,
+            energy_per_beat=[0.75],
+            high_energy_behavior="peak-time",
+            beat_index=0, beat_time=1.0, total_duration=60.0,
+            energy_reactivity=0, breakdown_behavior="none", pacing_curve=None,
+        )
+        assert step2 == 2
+
     def test_low_energy_with_halve_doubles_step(self):
         """Niedrige Energie (<0.3) mit halve verdoppelt den Schritt."""
         from services.pacing_service import _compute_effective_step

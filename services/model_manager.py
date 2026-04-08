@@ -15,9 +15,11 @@ import gc
 import logging
 import threading
 import psutil
+from functools import wraps
 from typing import Any
 
-# torch wird LAZY importiert (spart ~11s Startup wenn ModelManager nicht sofort gebraucht wird)
+# torch wird LAZY importiert
+ (spart ~11s Startup wenn ModelManager nicht sofort gebraucht wird)
 torch = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
@@ -39,6 +41,41 @@ def _ensure_torch():
         import torch as _torch
         torch = _torch
     return torch
+
+
+def oom_recovery(func):
+    """Decorator für Error-Recovery bei OOM-Fehlern.
+    
+    Fängt torch.cuda.OutOfMemoryError und RuntimeError ("out of memory") ab,
+    leert den GPU-Cache und versucht den Aufruf einmalig zu wiederholen.
+    """
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            # Prüfen ob es ein OOM-Fehler ist (Torch-spezifisch oder generisch)
+            error_str = str(e).lower()
+            is_oom = "out of memory" in error_str or "cuda error: out of memory" in error_str
+            
+            if not is_oom:
+                raise e
+                
+            logger.warning(f"OOM in {func.__name__} erkannt — versuche Recovery...")
+            _ensure_torch()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            
+            # Einmaliger Wiederholungsversuch
+            try:
+                return func(*args, **kwargs)
+            except Exception as e2:
+                logger.error(f"Recovery für {func.__name__} fehlgeschlagen: {e2}")
+                raise e2
+    return wrapper
 
 
 class ModelManager:
@@ -792,6 +829,39 @@ class ModelManager:
             "model_type": self._model_type,
         }
 
+    def _ensure_vram_for_model(self, required_vram_gb: float) -> None:
+        """F-011: Stellt sicher, dass genug VRAM für ein Modell verfügbar ist.
+
+        Entlädt das aktuell geladene Modell (z.B. Vision/Moondream), falls
+        der freie VRAM nicht ausreicht oder der Gesamt-VRAM knapp ist (< 6GB).
+        """
+        if not torch.cuda.is_available():
+            return
+
+        props = torch.cuda.get_device_properties(0)
+        total_vram_gb = props.total_memory / (1024**3)
+        
+        mem_status = self.check_memory_available()
+        vram_available_gb = mem_status["vram_available_gb"]
+
+        # Wenn Gesamt-VRAM < 6GB, sind wir besonders aggressiv beim Entladen
+        is_low_vram_gpu = total_vram_gb < 6.0
+        
+        needs_unload = False
+        if vram_available_gb < required_vram_gb:
+            needs_unload = True
+            reason = f"Zu wenig freier VRAM (Verfügbar: {vram_available_gb:.1f}GB, Benötigt: {required_vram_gb:.1f}GB)"
+        elif is_low_vram_gpu and self.is_loaded:
+            # Auf 6GB Karten (GTX 1060 etc.) entladen wir IMMER bevor wir ein LLM via Ollama nutzen,
+            # um Segfaults/Swapping zu minimieren.
+            needs_unload = True
+            reason = f"Low-VRAM GPU erkannt ({total_vram_gb:.1f}GB Gesamt-VRAM)"
+
+        if needs_unload and self.is_loaded:
+            logger.info("ModelManager: Entlade '%s' für VRAM-Koordination (%s).", 
+                        self._current_model_id, reason)
+            self.unload()
+
 
 class OllamaHandle:
     """Leichter Wrapper der den Ollama-Client an den ModelManager koppelt.
@@ -813,6 +883,10 @@ class OllamaHandle:
         max_tokens: int = 512,
     ) -> str:
         """Delegiert an OllamaClient.chat() mit VRAM-Schutz."""
+        # VRAM koordinieren: Falls Gemma 4 (oder andere) VRAM braucht, 
+        # Vision-Modell entladen falls Speicher knapp.
+        self._manager._ensure_vram_for_model(required_vram_gb=2.5)
+        
         return self._client.chat(
             model=self.model,
             user_message=user_message,
@@ -823,6 +897,9 @@ class OllamaHandle:
 
     def chat_with_history(self, messages: list[dict], **kwargs) -> str:
         """Delegiert an OllamaClient.chat_with_history()."""
+        # VRAM koordinieren
+        self._manager._ensure_vram_for_model(required_vram_gb=2.5)
+        
         return self._client.chat_with_history(
             model=self.model,
             messages=messages,

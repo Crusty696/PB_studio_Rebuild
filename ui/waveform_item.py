@@ -79,6 +79,14 @@ class WaveformGraphicsItem(QGraphicsItem):
         # ItemUsesExtendedStyleOption sorgt dafür, dass exposedRect korrekt befüllt wird
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemUsesExtendedStyleOption, True)
 
+    def __del__(self):
+        """Expliziter Cleanup des Tile-Caches beim Löschen des Items."""
+        try:
+            if hasattr(self, '_tile_cache'):
+                self._tile_cache.clear()
+        except Exception:
+            pass
+
     def boundingRect(self) -> QRectF:
         return QRectF(0, 0, self._width, self._height)
 

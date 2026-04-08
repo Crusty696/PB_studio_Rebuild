@@ -197,6 +197,11 @@ def main():
             "size_estimate": "~1.8 GB"
         },
         {
+            "repo_id": "vikhyatk/moondream2",
+            "description": "Moondream2 (Visual LLM)",
+            "size_estimate": "~1.7 GB"
+        },
+        {
             "repo_id": "CPJKU/beat_this",
             "description": "beat_this (Beat Detection)",
             "size_estimate": "~200 MB"
@@ -209,8 +214,8 @@ def main():
     print("=" * 60)
     print(f"\nCache Directory: {cache_dir}")
     print(f"Models to cache: {len(models)}")
-    print(f"Estimated download: ~4 GB")
-    print(f"Time estimate: 10-30 minutes (depending on connection)")
+    print(f"Estimated download: ~5.7 GB")
+    print(f"Time estimate: 15-45 minutes (depending on connection)")
 
     # Create cache directory if it doesn't exist
     Path(cache_dir).mkdir(parents=True, exist_ok=True)

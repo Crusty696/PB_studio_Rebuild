@@ -23,6 +23,8 @@ import numpy as np
 
 from services.timeout_constants import FFMPEG_PROBE_TIMEOUT_SEC, FFMPEG_THUMBNAIL_TIMEOUT_SEC
 
+from services.model_manager import ModelManager, oom_recovery
+
 logger = logging.getLogger(__name__)
 
 
@@ -134,6 +136,7 @@ def _load_raft_model():
         return None, None
 
 
+@oom_recovery
 def _raft_motion_score(
     raft_model, device, frame1_bgr: np.ndarray, frame2_bgr: np.ndarray,
 ) -> float:
@@ -378,6 +381,7 @@ def extract_keyframes(
 # Schritt 3: SigLIP Embeddings → LanceDB
 # ======================================================================
 
+@oom_recovery
 def generate_embeddings(
     scenes: list[SceneInfo],
     progress_cb: Callable[[int, str], None] | None = None,

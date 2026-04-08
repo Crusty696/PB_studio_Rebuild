@@ -65,6 +65,7 @@ def _compute_effective_step(
     section_type: str = "",
     section_progress: float = 0.0,
     pacing_map: dict | None = None,
+    high_energy_behavior: str = "none",
 ) -> int:
     """Berechnet den effektiven Beat-Schritt fuer einen bestimmten Beat.
 
@@ -73,6 +74,7 @@ def _compute_effective_step(
     - section_type / section_progress (SECTION_PACING_MAP, Phase 1+4)
     - energy_reactivity (erhoeht Cuts bei hohem RMS)
     - breakdown_behavior (reduziert Cuts bei niedrigem RMS)
+    - high_energy_behavior (erzwingt Pacing bei hohem RMS)
     - manual_density_curve (optionale Ueberschreibung)
     - avg_motion (RAFT Motion-Score, PhD-Spec Schritt 3)
     - vocal_active (PhD-Spec: S_eff x 2 bei aktiven Vocals)
@@ -132,8 +134,16 @@ def _compute_effective_step(
 
     # Hohe Energie (>0.7): Step reduzieren (mehr Cuts)
     if energy > 0.7:
-        speed_boost = 1.0 + (energy - 0.7) * 3.0 * reactivity  # max ~1.9x
-        energy_step = max(1, int(effective / speed_boost))
+        if high_energy_behavior == "force1":
+            energy_step = 1
+        elif high_energy_behavior == "force16":
+            energy_step = 16
+        elif high_energy_behavior == "peak-time":
+            # Sehr aggressiv: Step 1 bei sehr hoher Energie, sonst 2
+            energy_step = 1 if energy > 0.85 else 2
+        else:
+            speed_boost = 1.0 + (energy - 0.7) * 3.0 * reactivity  # max ~1.9x
+            energy_step = max(1, int(effective / speed_boost))
 
     # Niedrige Energie (<0.3): Breakdown-Verhalten anwenden
     elif energy < 0.3:
@@ -233,6 +243,7 @@ def _select_cut_beats_advanced(
             section_type=section_type,
             section_progress=section_progress,
             pacing_map=pacing_map,
+            high_energy_behavior=settings.high_energy_behavior,
         )
 
         beats_since_last_cut += 1

@@ -590,20 +590,42 @@ class ChatDock(QDockWidget):
 
     def closeEvent(self, event):
         """Cleanup beim Schließen des Chat-Docks — Signals disconnecten (Bug #25)"""
-        # Disconnect input signals (Zeile 187, 194)
+        # Disconnect input signals
         try:
             self.input_field.returnPressed.disconnect()
             self.btn_send.clicked.disconnect()
-        except (RuntimeError, TypeError) as exc:
-            logger.warning("ChatDock.closeEvent: failed to disconnect input signals: %s", exc)
+        except (RuntimeError, TypeError):
+            pass
 
-        # Disconnect worker signals if thread is running (Zeile 275-277, 297-300)
-        if hasattr(self, '_thread') and self._thread:
+        # Worker und Thread aufräumen
+        if self._worker:
             try:
-                self._thread.quit()
-                self._thread.wait(2000)
-            except (RuntimeError, TypeError) as exc:
-                logger.warning("ChatDock.closeEvent: failed to stop worker thread: %s", exc)
+                self._worker.status_changed.disconnect()
+                self._worker.finished.disconnect()
+                self._worker.error.disconnect()
+            except (RuntimeError, TypeError):
+                pass
 
+        if self._thread:
+            try:
+                if self._thread.isRunning():
+                    self._thread.quit()
+                    self._thread.wait(1000)
+                self._thread.deleteLater()
+            except (RuntimeError, TypeError):
+                pass
+
+        # Globalen GC-Schutz für diesen spezifischen Thread/Worker aufheben
+        if self._thread is not None and self._worker is not None:
+            pair = (self._thread, self._worker)
+            if pair in _GLOBAL_ACTIVE_THREADS:
+                _GLOBAL_ACTIVE_THREADS.remove(pair)
+
+        # Internes Widget explizit löschen für GC
+        if self.widget():
+            self.widget().deleteLater()
+
+        self._thread = None
+        self._worker = None
         super().closeEvent(event)
 
