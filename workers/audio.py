@@ -24,11 +24,16 @@ class StemSeparationWorker(QObject, CancellableMixin):
         _ok = False
         try:
             from services.ai_audio_service import StemSeparator
+            from services.model_manager import GPU_EXECUTION_LOCK
             separator = StemSeparator()
-            result = separator.separate_and_store(
-                self.track_id,
-                progress_cb=lambda pct, msg: self.progress.emit(pct, msg),
-            )
+            
+            # F-004 Fix: Inferenz-Phase global locken
+            with GPU_EXECUTION_LOCK:
+                result = separator.separate_and_store(
+                    self.track_id,
+                    progress_cb=lambda pct, msg: self.progress.emit(pct, msg),
+                )
+            
             self.finished.emit(self.track_id, result)
             _ok = True
         except Exception as e:  # broad catch intentional — top-level worker safety net
@@ -95,12 +100,17 @@ class TranscriptionWorker(QObject, CancellableMixin):
         _ok = False
         try:
             from services.transcription_service import TranscriptionService
+            from services.model_manager import GPU_EXECUTION_LOCK
             svc = TranscriptionService()
-            result = svc.transcribe_and_store(
-                self.track_id,
-                language=self.language,
-                progress_cb=lambda pct, msg: self.progress.emit(pct, msg),
-            )
+            
+            # F-004 Fix: Inferenz-Phase global locken
+            with GPU_EXECUTION_LOCK:
+                result = svc.transcribe_and_store(
+                    self.track_id,
+                    language=self.language,
+                    progress_cb=lambda pct, msg: self.progress.emit(pct, msg),
+                )
+            
             self.finished.emit(self.track_id, {
                 "text": result.text,
                 "language": result.language,

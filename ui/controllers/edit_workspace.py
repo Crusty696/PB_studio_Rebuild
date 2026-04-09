@@ -128,13 +128,15 @@ class EditWorkspaceController(PBComponent):
             return
 
         video_ids = []
-        for _row in range(self.window.video_pool_table.rowCount()):
-            _id_item = self.window.video_pool_table.item(_row, 1)
-            if _id_item:
-                try:
-                    video_ids.append(int(_id_item.text()))
-                except ValueError as exc:
-                    logger.warning("_start_auto_edit: failed to parse video clip ID: %s", exc)
+        v_model = self.window.video_pool_table.model()
+        if v_model:
+            for _row in range(v_model.rowCount()):
+                _id_val = v_model.index(_row, 1).data()
+                if _id_val:
+                    try:
+                        video_ids.append(int(_id_val))
+                    except ValueError as exc:
+                        logger.warning("_start_auto_edit: failed to parse video clip ID: %s", exc)
 
         if not video_ids:
             self.window.console_text.append("[Auto-Edit] Keine Video-Clips vorhanden.")
@@ -480,23 +482,32 @@ class EditWorkspaceController(PBComponent):
         media_type = None
         media_id = None
         title = None
-        audio_row = self.window.audio_pool_table.currentRow()
-        if audio_row >= 0:
-            id_item = self.window.audio_pool_table.item(audio_row, 1)
-            title_item = self.window.audio_pool_table.item(audio_row, 2)
-            if id_item and id_item.text().isdigit():
+        
+        # 1. Audio Pool prüfen
+        a_view = self.window.audio_pool_table
+        a_model = a_view.model()
+        a_indexes = a_view.selectionModel().selectedRows()
+        if a_indexes:
+            row = a_indexes[0].row()
+            mid = a_model.index(row, 1).data()
+            if mid and str(mid).isdigit():
                 media_type = "Audio"
-                media_id = int(id_item.text())
-                title = title_item.text() if title_item else f"Audio #{media_id}"
+                media_id = int(mid)
+                title = a_model.index(row, 2).data() or f"Audio #{media_id}"
+
+        # 2. Falls kein Audio, Video Pool prüfen
         if media_id is None:
-            video_row = self.window.video_pool_table.currentRow()
-            if video_row >= 0:
-                id_item = self.window.video_pool_table.item(video_row, 1)
-                title_item = self.window.video_pool_table.item(video_row, 2)
-                if id_item and id_item.text().isdigit():
+            v_view = self.window.video_pool_table
+            v_model = v_view.model()
+            v_indexes = v_view.selectionModel().selectedRows()
+            if v_indexes:
+                row = v_indexes[0].row()
+                mid = v_model.index(row, 1).data()
+                if mid and str(mid).isdigit():
                     media_type = "Video"
-                    media_id = int(id_item.text())
-                    title = title_item.text() if title_item else f"Video #{media_id}"
+                    media_id = int(mid)
+                    title = v_model.index(row, 2).data() or f"Video #{media_id}"
+
         if media_id is None:
             self.window.console_text.append("[Warnung] Keine Datei ausgewaehlt.")
             return

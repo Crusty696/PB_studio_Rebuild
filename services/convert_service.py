@@ -28,6 +28,7 @@ from services.timeout_constants import (
     THREAD_JOIN_TIMEOUT_SEC,
 )
 from services.errors import ConversionError, FFmpegError, FFmpegTimeoutError
+from services.startup_checks import get_ffmpeg_bin, get_ffprobe_bin
 
 logger = logging.getLogger(__name__)
 
@@ -44,8 +45,8 @@ def _master_dir() -> Path:
     return APP_ROOT / "exports"
 
 # FFmpeg Pfad — Chocolatey oder PATH
-FFMPEG = os.environ.get("FFMPEG_PATH", "ffmpeg")
-FFPROBE = os.environ.get("FFPROBE_PATH", "ffprobe")
+FFMPEG = get_ffmpeg_bin()
+FFPROBE = get_ffprobe_bin()
 
 # Windows reserved device names (case-insensitive)
 _WIN_RESERVED = frozenset(
@@ -178,6 +179,11 @@ def detect_nvenc() -> dict:
     return result
 
 
+# F-011 Fix: NVENC Session Limit für Consumer GPUs (Pascal/GTX 1060)
+# Begrenzt gleichzeitige Hardware-Encodes auf 2, um FFmpeg-Abstürze zu verhindern.
+NVENC_SEMAPHORE = threading.Semaphore(2)
+
+
 def convert(
     input_path: str | Path,
     preset_name: str = "edit_proxy",
@@ -208,7 +214,9 @@ def convert(
 
     # [H-02 FIX] NVENC-Fallback: Pruefe Verfuegbarkeit vor dem Encoding
     _nvenc_codecs = {"h264_nvenc", "hevc_nvenc"}
-    if preset.video_codec in _nvenc_codecs:
+    is_nvenc = preset.video_codec in _nvenc_codecs
+    
+    if is_nvenc:
         nvenc_info = detect_nvenc()
         if not nvenc_info.get("h264_nvenc"):
             logger.warning(
@@ -222,6 +230,7 @@ def convert(
                 video_codec="libx264",
                 codec_params=["-preset", "medium", "-crf", "23"],
             )
+            is_nvenc = False
 
     # Ausgabepfad bestimmen — lazy dir resolution, re-reads APP_ROOT each call
     if output_path is None:
@@ -285,8 +294,13 @@ def convert(
 
     logger.info("Konvertiere mit Preset '%s': %s", preset_name, input_path.name)
 
-    # FFmpeg mit Progress-Parsing ausfuehren
-    ffmpeg_stderr = _run_ffmpeg_with_progress(cmd, total_duration, progress_cb)
+    # F-011 Fix: Semaphore nutzen für NVENC-Tasks
+    if is_nvenc:
+        logger.debug("[ConvertService] Warte auf NVENC-Slot...")
+        with NVENC_SEMAPHORE:
+            ffmpeg_stderr = _run_ffmpeg_with_progress(cmd, total_duration, progress_cb)
+    else:
+        ffmpeg_stderr = _run_ffmpeg_with_progress(cmd, total_duration, progress_cb)
 
     if not output_path.exists():
         logger.error(f"[ConvertService] FFmpeg lief durch (rc=0), aber Ausgabedatei fehlt!")

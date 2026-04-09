@@ -291,23 +291,29 @@ class GlobalTaskManager(QObject):
         if hasattr(worker, "error"):
             worker.error.connect(thread.quit)
         def _safe_cleanup(_tid=task_id):
-            """Guard: deleteLater nur wenn C++ Objekt noch existiert."""
-            # FIX AUD-33: Schütze dict-Zugriff mit Lock (Race Condition)
+            """Guard: Sicherer Cleanup von Worker und Thread (Fix A-02)."""
+            app_thread = QApplication.instance().thread()
             with self._tasks_lock:
                 task = self._tasks.get(_tid)
+            
             if task:
                 if task.worker:
                     try:
+                        # KRITISCH: Falls der Thread tot ist, wuerde deleteLater() nie feuern.
+                        # Wir holen den Worker zurueck in den Main-Thread fuer sicheren Cleanup.
+                        task.worker.moveToThread(app_thread)
                         task.worker.deleteLater()
-                    except RuntimeError:
-                        pass  # C++ object already deleted
+                    except (RuntimeError, AttributeError):
+                        pass
                     task.worker = None
+                
                 if task.thread:
                     try:
                         task.thread.deleteLater()
-                    except RuntimeError:
-                        pass  # C++ object already deleted
+                    except (RuntimeError, AttributeError):
+                        pass
                     task.thread = None
+            
             self._on_thread_done(_tid)
         thread.finished.connect(_safe_cleanup)
 
@@ -364,16 +370,38 @@ class GlobalTaskManager(QObject):
                 t.message = message
         self.task_finished.emit(task_id)
 
+    def unload_in_background(self):
+        """Führt ModelManager.unload() in einem Hintergrund-Thread aus (Fix A-03)."""
+        class UnloadWorker(QObject):
+            finished = Signal()
+            def run(self):
+                try:
+                    from services.model_manager import ModelManager
+                    ModelManager().unload()
+                except Exception as e:
+                    logging.warning("[TaskEngine] Background unload failed: %s", e)
+                finally:
+                    self.finished.emit()
+
+        worker = UnloadWorker()
+        self.start_task(
+            name="VRAM aufräumen",
+            worker=worker,
+            description="Entlädt KI-Modelle im Hintergrund"
+        )
+
     def cancel_task(self, task_id: str):
-        """Bricht einen laufenden Task ab."""
+        """Bricht einen laufenden Task ab (F-002 Fix)."""
         # FIX B-011: Schütze dict-Zugriff mit Lock
         with self._tasks_lock:
             task = self._tasks.get(task_id)
         if not task or task.status != "running":
             return
+        
         worker = task.worker
         if worker and hasattr(worker, "cancel"):
             worker.cancel()
+            
         thread = task.thread
         if thread and thread.isRunning():
             thread.quit()
@@ -383,14 +411,29 @@ class GlobalTaskManager(QObject):
                     task_id,
                 )
                 thread.terminate()
-                # VRAM-Cleanup nach hartem terminate()
+                # KRITISCH F-002: VRAM-Cleanup nach hartem terminate()
+                # Da terminate() keine finally-Bloecke ausfuehrt, muessen wir 
+                # manuell aufraeumen.
                 try:
-                    import torch
-                    if torch.cuda.is_available():
-                        torch.cuda.empty_cache()
-                except (ImportError, RuntimeError, AttributeError) as e:
-                    logger.warning("VRAM cleanup after task terminate: %s", e)
+                    from services.model_manager import ModelManager, GPU_LOAD_LOCK, GPU_EXECUTION_LOCK
+                    # FIX A-04: Locks gewaltsam freigeben, falls der Thread sie hielt
+                    if hasattr(GPU_LOAD_LOCK, "_release_save"): # Falls wir ein RLock-Wrapper haetten
+                        pass 
+                    # Bei Standard-Locks/RLocks muessen wir sicherstellen, dass sie 
+                    # fuer andere Threads wieder nutzbar sind.
+                    # Ein RLock kann mehrfach geacquired worden sein.
+                    try:
+                        while GPU_LOAD_LOCK.release(): pass
+                    except RuntimeError: pass
+                    try:
+                        while GPU_EXECUTION_LOCK.release(): pass
+                    except RuntimeError: pass
+                    
+                    ModelManager().unload()  # Erzwingt VRAM-Freigabe
+                except Exception as e:
+                    logger.warning("VRAM cleanup after task terminate failed: %s", e)
                 gc.collect()
+        
         self.finish_task(task_id, "cancelled", "Abgebrochen")
         logging.info("[TaskEngine] Abgebrochen: %s", task_id)
 

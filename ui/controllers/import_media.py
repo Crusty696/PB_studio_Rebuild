@@ -115,31 +115,24 @@ class ImportMediaController(PBComponent):
             self.window.status_bar.showMessage(f"Sammlung bereinigt ({count} Eintraege) | System bereit")
 
     def _delete_selected_media(self, pool: str):
-        """Loescht alle angehakten Medien."""
+        """Loescht alle angehakten Medien (Fix F-006: Model/View)."""
         from PySide6.QtWidgets import QMessageBox
         video_ids = []
         audio_ids = []
+        
         if pool in ("video", "both"):
-            for row in range(self.window.video_pool_table.rowCount()):
-                chk = self.window.video_pool_table.item(row, 0)
-                id_item = self.window.video_pool_table.item(row, 1)
-                if chk and id_item and chk.checkState() == Qt.CheckState.Checked:
-                    try:
-                        video_ids.append(int(id_item.text()))
-                    except ValueError:
-                        pass
+            v_model = self.window.video_pool_table.model()
+            if v_model:
+                video_ids = v_model.get_checked_ids()
+                
         if pool in ("audio", "both"):
-            for row in range(self.window.audio_pool_table.rowCount()):
-                chk = self.window.audio_pool_table.item(row, 0)
-                id_item = self.window.audio_pool_table.item(row, 1)
-                if chk and id_item and chk.checkState() == Qt.CheckState.Checked:
-                    try:
-                        audio_ids.append(int(id_item.text()))
-                    except ValueError:
-                        pass
+            a_model = self.window.audio_pool_table.model()
+            if a_model:
+                audio_ids = a_model.get_checked_ids()
+
         total = len(video_ids) + len(audio_ids)
         if total == 0:
-            QMessageBox.information(self.window, "Nichts ausgewaehlt", "Bitte setze zuerst die Checkboxen.")
+            QMessageBox.information(self.window, "Nichts ausgewaehlt", "Bitte setze zuerst die Checkboxen im Media Pool.")
             return
 
         reply = QMessageBox.question(

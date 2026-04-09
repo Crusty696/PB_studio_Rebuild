@@ -8,9 +8,10 @@ from pathlib import Path
 from sqlalchemy.orm import Session
 from database import engine, VideoClip
 from services.timeout_constants import FFMPEG_PROBE_TIMEOUT_SEC, FFMPEG_RENDER_TIMEOUT_SEC
+from services.startup_checks import get_ffmpeg_bin, get_ffprobe_bin
 
-_FFMPEG = os.environ.get("FFMPEG_PATH", "ffmpeg")
-_FFPROBE = os.environ.get("FFPROBE_PATH", "ffprobe")
+_FFMPEG = get_ffmpeg_bin()
+_FFPROBE = get_ffprobe_bin()
 
 logger = logging.getLogger(__name__)
 

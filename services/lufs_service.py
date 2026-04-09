@@ -15,8 +15,10 @@ from dataclasses import dataclass
 
 log = logging.getLogger(__name__)
 
+from services.startup_checks import get_ffmpeg_bin
+
 # FFmpeg binary — honour env override (same convention as convert_service.py)
-_FFMPEG = os.environ.get("FFMPEG_PATH", "ffmpeg")
+_FFMPEG = get_ffmpeg_bin()
 
 
 @dataclass

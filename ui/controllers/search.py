@@ -33,23 +33,24 @@ class SearchController(PBComponent):
             return
 
         self.window.console_text.append(f"[Suche] {len(results)} Ergebnisse gefunden.")
-        self.window.video_pool_table.setRowCount(len(results))
-        for row, r in enumerate(results):
+        
+        # Transformiere Ergebnisse für das Model
+        formatted_results = []
+        for r in results:
             video_name = Path(r["video_path"]).stem
             scene_info = f"Sz{r['scene_index']} ({r['scene_start']:.1f}-{r['scene_end']:.1f}s)"
-            distance = f"dist:{r['_distance']:.3f}"
-            motion = f"motion:{r['motion_score']:.2f}"
-
-            chk = QTableWidgetItem()
-            chk.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
-            chk.setCheckState(Qt.CheckState.Unchecked)
-            self.window.video_pool_table.setItem(row, 0, chk)
-            self.window.video_pool_table.setItem(row, 1, QTableWidgetItem(str(r.get("id", ""))))
-            self.window.video_pool_table.setItem(row, 2, QTableWidgetItem(f"{video_name} | {scene_info}"))
-            self.window.video_pool_table.setItem(row, 3, QTableWidgetItem(motion))
-            self.window.video_pool_table.setItem(row, 4, QTableWidgetItem(distance))
-            self.window.video_pool_table.setItem(row, 5, QTableWidgetItem("-"))
-            self.window.video_pool_table.setItem(row, 6, QTableWidgetItem(r["video_path"]))
+            formatted_results.append({
+                "id": r.get("id", 0),
+                "title": f"{video_name} | {scene_info}",
+                "resolution": f"dist:{r.get('_distance', 0):.3f}", # Missbrauche Spalten für Search-Info
+                "fps": f"mot:{r.get('motion_score', 0):.2f}",
+                "codec": "-",
+                "file_path": r["video_path"]
+            })
+        
+        # Model aktualisieren
+        if hasattr(self.window, "video_pool_model"):
+            self.window.video_pool_model.set_items(formatted_results)
 
     def _on_search_error(self, error_msg: str):
         self.window.btn_search.setEnabled(True)

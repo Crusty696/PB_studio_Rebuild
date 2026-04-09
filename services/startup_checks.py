@@ -26,8 +26,26 @@ from services.timeout_constants import (
 
 logger = logging.getLogger(__name__)
 
-_FFMPEG_BIN = os.environ.get("FFMPEG_PATH", "ffmpeg")
-_FFPROBE_BIN = os.environ.get("FFPROBE_PATH", "ffprobe")
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+_BIN_DIR = _PROJECT_ROOT / "bin"
+
+def get_ffmpeg_bin():
+    """Finds the FFmpeg binary, preferring the local bin/ folder."""
+    # Suche zuerst im lokalen bin-Ordner (absoluter Pfad)
+    local_ffmpeg = _BIN_DIR / ("ffmpeg.exe" if sys.platform == "win32" else "ffmpeg")
+    if local_ffmpeg.exists():
+        return str(local_ffmpeg.resolve())
+    return os.environ.get("FFMPEG_PATH", "ffmpeg")
+
+def get_ffprobe_bin():
+    """Finds the FFprobe binary, preferring the local bin/ folder."""
+    local_ffprobe = _BIN_DIR / ("ffprobe.exe" if sys.platform == "win32" else "ffprobe")
+    if local_ffprobe.exists():
+        return str(local_ffprobe.resolve())
+    return os.environ.get("FFPROBE_PATH", "ffprobe")
+
+_FFMPEG_BIN = get_ffmpeg_bin()
+_FFPROBE_BIN = get_ffprobe_bin()
 _MIN_DISK_BYTES = 1 * 1024 ** 3  # 1 GiB
 
 
@@ -150,15 +168,27 @@ def _check_cuda() -> tuple[bool, str, int]:
     vram_mb = 0
     try:
         import torch
-        if torch.cuda.is_available():
+        # Erzwinge Initialisierung
+        if hasattr(torch.cuda, "init"):
+            torch.cuda.init()
+        
+        available = torch.cuda.is_available()
+        logger.info(f"PyTorch CUDA available check: {available}")
+        
+        if available:
             cuda_ok = True
             gpu_name = torch.cuda.get_device_name(0)
             props = torch.cuda.get_device_properties(0)
             vram_mb = props.total_memory // (1024 * 1024)
+            logger.info(f"GPU erkannt: {gpu_name} ({vram_mb} MB VRAM)")
+        else:
+            # Detaillierte Fehlerdiagnose
+            if not torch.cuda.is_available():
+                logger.warning("torch.cuda.is_available() ist False. Prüfe Treiber/Toolkit.")
     except ImportError:
-        logger.debug("torch not installed — GPU check skipped")
-    except (RuntimeError, AttributeError) as exc:
-        logger.debug("CUDA check error: %s", exc)
+        logger.error("torch nicht installiert — GPU check fehlgeschlagen")
+    except Exception as exc:
+        logger.error(f"Kritischer CUDA Check Fehler: {exc}", exc_info=True)
     return cuda_ok, gpu_name, vram_mb
 
 
@@ -215,10 +245,14 @@ def check_system(app_root: Path | None = None) -> SystemStatus:
         app_root = Path(__file__).parent.parent
 
     status = SystemStatus()
+    
+    # CUDA-Check zuerst und im Haupt-Thread erzwingen, da Background-Threads oft Probleme mit GPU-Context haben
+    logger.info("Starte CUDA-Check...")
+    status.cuda_ok, status.gpu_name, status.gpu_vram_mb = _check_cuda()
+
     futures: dict = {}
-    with ThreadPoolExecutor(max_workers=5, thread_name_prefix="startup_check") as pool:
+    with ThreadPoolExecutor(max_workers=4, thread_name_prefix="startup_check") as pool:
         futures["ffmpeg"] = pool.submit(_check_ffmpeg)
-        futures["cuda"] = pool.submit(_check_cuda)
         futures["disk"] = pool.submit(_check_disk, app_root)
         futures["ollama"] = pool.submit(_check_ollama)
         futures["ml"] = pool.submit(_check_ml_packages)
@@ -260,11 +294,12 @@ def check_system(app_root: Path | None = None) -> SystemStatus:
         )
 
     if not status.cuda_ok:
-        gefunden = status.gpu_name if status.gpu_name else "Keine GPU erkannt"
-        status.warnings.append(
-            f"PB Studio benötigt eine NVIDIA GPU mit CUDA (GTX 1060 6GB+).\n"
+        gefunden = status.gpu_name if status.gpu_name else "Keine kompatible NVIDIA GPU erkannt"
+        status.errors.append(
+            f"KRITISCHER FEHLER: Keine NVIDIA GPU mit CUDA verfügbar!\n"
             f"Gefunden: {gefunden}\n"
-            "KI-Features (Demucs, SigLIP, beat_this) laufen im CPU-Modus (langsamer)."
+            "PB Studio erfordert zwingend eine NVIDIA GPU für KI-Features (Demucs, SigLIP, beat_this).\n"
+            "Der Start wurde abgebrochen, da GPU-Pflicht besteht."
         )
 
     # ML package availability warnings (non-blocking — Fallbacks sind aktiv)

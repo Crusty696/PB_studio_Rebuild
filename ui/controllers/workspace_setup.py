@@ -168,9 +168,11 @@ class WorkspaceSetupController(PBComponent):
         self.window.btn_search_clear = self.window._media_ws.btn_search_clear
         self.window.btn_select_all_video = self.window._media_ws.btn_select_all_video
         self.window.video_pool_table = self.window._media_ws.video_pool_table
+        self.window.video_pool_model = self.window._media_ws.video_pool_model
         self.window.btn_delete_selected_video = self.window._media_ws.btn_delete_selected_video
         self.window.btn_select_all_audio = self.window._media_ws.btn_select_all_audio
         self.window.audio_pool_table = self.window._media_ws.audio_pool_table
+        self.window.audio_pool_model = self.window._media_ws.audio_pool_model
         self.window.btn_delete_selected_audio = self.window._media_ws.btn_delete_selected_audio
         self.window.stem_player = self.window._media_ws.stem_player
         self.window.media_table = self.window._media_ws.media_table
@@ -203,8 +205,13 @@ class WorkspaceSetupController(PBComponent):
         self.window.btn_delete_selected_audio.clicked.connect(
             lambda: self.window.import_media._delete_selected_media("audio")
         )
-        self.window.video_pool_table.currentCellChanged.connect(self.window.video_analysis._on_video_pool_selected)
-        self.window.audio_pool_table.currentCellChanged.connect(self.window.audio_analysis._on_audio_pool_selected)
+        # Selection sync (Fix F-006: Model/View)
+        self.window.video_pool_table.selectionModel().currentChanged.connect(
+            lambda curr, prev: self.window.video_analysis._on_video_pool_selected(curr.row(), curr.column(), prev.row(), prev.column())
+        )
+        self.window.audio_pool_table.selectionModel().currentChanged.connect(
+            lambda curr, prev: self.window.audio_analysis._on_audio_pool_selected(curr.row(), curr.column(), prev.row(), prev.column())
+        )
         self.window.stem_player.playback_finished.connect(self.window.stems._on_stem_playback_finished)
 
         # Phase 4: Media-Buttons

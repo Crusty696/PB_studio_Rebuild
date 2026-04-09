@@ -58,6 +58,15 @@ class PanelSetupController(PBComponent):
         # Alias fuer Kompatibilitaet
         self.window.console_dock = console_panel
 
+        # F-022/F-034 Fix: Throttled Console Buffer with Thread-Safety
+        import threading
+        self._console_lock = threading.Lock()
+        self._console_buffer = []
+        self._console_timer = QTimer(self.window)
+        self._console_timer.setInterval(250)  # 4 Updates pro Sekunde
+        self._console_timer.timeout.connect(self._flush_console_buffer)
+        self._console_timer.start()
+
     def setup_chat_dock(self):
         self.window.chat_dock = ChatDock(self.window)
         self.window.chat_dock.setMinimumWidth(200)
@@ -116,5 +125,16 @@ class PanelSetupController(PBComponent):
             self.window.console_text.append(f"[KI-Fehler] {e}")
 
     def _console_append(self, text: str) -> None:
-        """Thread-safe console append via QTimer."""
-        QTimer.singleShot(0, lambda: self.window.console_text.append(text))
+        """Puffert Konsolen-Nachrichten thread-sicher (Fix F-034)."""
+        with self._console_lock:
+            self._console_buffer.append(text)
+
+    def _flush_console_buffer(self):
+        """Schreibt gepufferte Nachrichten gesammelt ins UI-Widget."""
+        with self._console_lock:
+            if not self._console_buffer:
+                return
+            full_text = "\n".join(self._console_buffer)
+            self._console_buffer.clear()
+        
+        self.window.console_text.append(full_text)

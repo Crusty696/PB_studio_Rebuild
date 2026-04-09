@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPixmap, QPen, QBrush
+from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPainterPath, QPixmap, QPen, QBrush
 from PySide6.QtCore import Qt
 
 logger = logging.getLogger(__name__)
@@ -65,16 +65,16 @@ def _draw_icon(size: int) -> QPixmap:
         path.addRoundedRect(bx, by, bar_w, bh, radius, radius)
         p.drawPath(path)
 
-    # ── "PB" text ─────────────────────────────────────────────────────
+    # ── "PB" text ─────────────────────────────────────────────────────────────
     p.setPen(QPen(QColor("#d4a44a")))
     font = p.font()
     font.setPixelSize(max(8, int(s * 0.28)))
-    from PySide6.QtGui import QFont
-    font.setWeight(QFont.Weight.Bold)
+    font.setBold(True)
     font.setFamily("Arial")
     p.setFont(font)
     text_rect = px.rect().adjusted(0, 0, 0, -int(s * 0.28))
     p.drawText(text_rect, Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter, "PB")
+
 
     # ── Outer ring ────────────────────────────────────────────────────
     pen = QPen(QColor("#d4a44a"), max(1, s * 0.025))

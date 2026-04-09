@@ -58,7 +58,7 @@ class StemSeparator:
 
     @oom_recovery
     def separate(self, file_path: str, model: str = "htdemucs_ft",
-                 progress_cb=None) -> dict[str, str]:
+                 progress_cb=None, should_stop=None) -> dict[str, str]:
         """Fuehrt Demucs Stem Separation mit Chunking + CUDA-Zwang aus.
 
         Returns: dict mit Keys 'vocals', 'drums', 'bass', 'other' -> Pfade.
@@ -214,6 +214,11 @@ class StemSeparator:
         # B-601 Fix: GPU-Code in try/finally um ANY Exception zu handhaben
         try:
             for i in range(num_chunks):
+                # F-008 Fix: Abbruch-Check
+                if should_stop and should_stop():
+                    logger.info("[StemSeparator] Abbruch durch Benutzer.")
+                    break
+
                 start = i * step_samples
                 end = min(start + chunk_samples, total_samples)
                 chunk = waveform[:, start:end]

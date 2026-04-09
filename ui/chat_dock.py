@@ -358,25 +358,35 @@ class ChatDock(QDockWidget):
         self._worker = None
 
     def _remove_status_line(self) -> None:
-        """Entfernt die 'Agent arbeitet...' Zeile aus dem Chat-Log."""
+        """Entfernt die 'Agent arbeitet...' Zeile aus dem Chat-Log (Fix: Validiert Position)."""
         pos = getattr(self, '_status_cursor_pos', None)
         if pos is None:
             return
+        
+        doc = self.chat_log.document()
+        if pos > doc.characterCount():
+            self._status_cursor_pos = None
+            return
+
         cursor = self.chat_log.textCursor()
-        cursor.setPosition(pos)
-        cursor.movePosition(QTextCursor.MoveOperation.End, QTextCursor.MoveMode.KeepAnchor)
-        text = cursor.selectedText()
-        # Nur entfernen wenn es die Status-Zeile ist
-        if "Agent arbeitet..." in text:
-            cursor.removeSelectedText()
-            # Trailing newline entfernen
+        try:
             cursor.setPosition(pos)
-            cursor.movePosition(QTextCursor.MoveOperation.StartOfBlock)
-            cursor.movePosition(QTextCursor.MoveOperation.EndOfBlock, QTextCursor.MoveMode.KeepAnchor)
-            if not cursor.selectedText().strip():
+            cursor.movePosition(QTextCursor.MoveOperation.End, QTextCursor.MoveMode.KeepAnchor)
+            text = cursor.selectedText()
+            # Nur entfernen wenn es die Status-Zeile ist
+            if "Agent arbeitet..." in text:
                 cursor.removeSelectedText()
-                if cursor.position() > 0:
-                    cursor.deletePreviousChar()  # Newline davor
+                # Trailing newline entfernen
+                if cursor.position() < doc.characterCount():
+                    cursor.setPosition(pos)
+                    cursor.movePosition(QTextCursor.MoveOperation.StartOfBlock)
+                    cursor.movePosition(QTextCursor.MoveOperation.EndOfBlock, QTextCursor.MoveMode.KeepAnchor)
+                    if not cursor.selectedText().strip():
+                        cursor.removeSelectedText()
+                        if cursor.position() > 0:
+                            cursor.deletePreviousChar()
+        except (RuntimeError, ValueError):
+            pass
         self._status_cursor_pos = None
 
     # ------------------------------------------------------------------
@@ -435,21 +445,25 @@ class ChatDock(QDockWidget):
         return any(p in text for p in patterns)
 
     def _exec_analyze_all(self) -> None:
-        """Markiert alle Videos im Pool und startet die Pipeline."""
+        """Markiert alle Videos im Pool und startet die Pipeline (Fix F-006: Model/View)."""
         mw = self._main_window
         try:
-            table = mw.video_pool_table
-            row_count = table.rowCount()
-
-            if row_count == 0:
+            view = mw.video_pool_table
+            model = view.model()
+            
+            if not model or model.rowCount() == 0:
                 self.append_ai("Keine Videos im Pool vorhanden. Importiere zuerst Videos.")
                 return
 
-            # Alle Zeilen im Video Pool selektieren
-            table.selectAll()
+            count = model.rowCount()
+            # Alle Zeilen im Model toggeln (Fix F-006)
+            if hasattr(model, "toggle_all"):
+                model.toggle_all()
+            else:
+                view.selectAll()
 
             self.append_ai(
-                f"Ich habe alle {row_count} Videos markiert und starte "
+                f"Ich habe alle {count} Videos markiert und starte "
                 f"die Analyse auf der GPU!"
             )
 

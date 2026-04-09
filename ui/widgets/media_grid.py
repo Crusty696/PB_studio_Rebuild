@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
     QWidget, QScrollArea, QGridLayout, QFrame, QVBoxLayout,
     QHBoxLayout, QLabel, QLineEdit, QComboBox,
 )
-from PySide6.QtCore import Qt, Signal, QRect, QThread, QObject
+from PySide6.QtCore import Qt, Signal, QRect, QThread, QObject, QTimer
 from PySide6.QtGui import QPixmap, QPainter, QColor, QPen, QFont, QFontMetrics
 
 from services.timeout_constants import FFMPEG_THUMBNAIL_TIMEOUT_SEC
@@ -58,8 +58,15 @@ def _placeholder_pixmap(w: int, h: int, icon: str = "") -> QPixmap:
     return pix
 
 
+# F-029: Performance & Stabilitäts-Optimierung
+_WAVEFORM_CACHE = {}
+
 def _paint_waveform(w: int, h: int, energy: list[float]) -> QPixmap:
-    """Paint a two-tone (top/bottom) waveform pixmap from energy [0..1] data."""
+    """Paint a two-tone waveform with caching (Fix F-029)."""
+    cache_key = (w, h, tuple(energy[:100]), len(energy)) # Simple heuristic key
+    if cache_key in _WAVEFORM_CACHE:
+        return _WAVEFORM_CACHE[cache_key]
+
     pix = QPixmap(w, h)
     pix.fill(QColor("#0d1117"))
     if not energy:
@@ -88,6 +95,10 @@ def _paint_waveform(w: int, h: int, energy: list[float]) -> QPixmap:
         p.drawLine(x, mid, x, mid + bar)
 
     p.end()
+    
+    if len(_WAVEFORM_CACHE) > 200:
+        _WAVEFORM_CACHE.clear()
+    _WAVEFORM_CACHE[cache_key] = pix
     return pix
 
 
@@ -148,6 +159,16 @@ _CARD_SEL_STYLE = (
 )
 
 
+# F-026 Fix: Shared resources for better performance
+_ELIDE_FONT = QFont("Segoe UI", 8)
+_ELIDE_METRICS = None
+
+def _get_metrics():
+    global _ELIDE_METRICS
+    if _ELIDE_METRICS is None:
+        _ELIDE_METRICS = QFontMetrics(_ELIDE_FONT)
+    return _ELIDE_METRICS
+
 class MediaCard(QFrame):
     """Base clickable pool card."""
     clicked = Signal(int)  # media_id
@@ -157,12 +178,16 @@ class MediaCard(QFrame):
         self._id = media_id
         self._title = title
         self.setObjectName("MediaCard")
+        self.setProperty("selected", False)
         self.setFixedSize(_CW, _CH)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setStyleSheet(_CARD_STYLE)
+        # Shared styling via parent or object name is faster than setStyleSheet(str) 100x
 
     def set_selected(self, sel: bool) -> None:
-        self.setStyleSheet(_CARD_SEL_STYLE if sel else _CARD_STYLE)
+        if self.property("selected") != sel:
+            self.setProperty("selected", sel)
+            self.style().unpolish(self)
+            self.style().polish(self)
 
     def mousePressEvent(self, event) -> None:  # noqa: N802
         if event.button() == Qt.MouseButton.LeftButton:
@@ -171,15 +196,12 @@ class MediaCard(QFrame):
 
     @staticmethod
     def _elide(text: str, max_w: int) -> str:
-        fm = QFontMetrics(QFont("Segoe UI", 8))
-        return fm.elidedText(text, Qt.TextElideMode.ElideRight, max_w)
+        return _get_metrics().elidedText(text, Qt.TextElideMode.ElideRight, max_w)
 
     @staticmethod
     def _meta_lbl(text: str, color: str) -> QLabel:
         lbl = QLabel(text)
-        lbl.setStyleSheet(
-            f"color:{color};font-size:8px;background:transparent;border:none;"
-        )
+        lbl.setStyleSheet(f"color:{color}; font-size:8px;")
         return lbl
 
 
@@ -207,18 +229,14 @@ class VideoCard(MediaCard):
         vl.setSpacing(3)
 
         self._thumb = QLabel()
+        self._thumb.setObjectName("MediaCard_Thumb")
         self._thumb.setFixedSize(_CW - 8, _TH)
         self._thumb.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._thumb.setStyleSheet(
-            "border-radius:4px;background:#0d1117;border:none;"
-        )
         self._thumb.setPixmap(_placeholder_pixmap(_CW - 8, _TH, "▶"))
         vl.addWidget(self._thumb)
 
         title_lbl = QLabel(self._elide(self._title, _CW - 10))
-        title_lbl.setStyleSheet(
-            "color:#e5e7eb;font-size:9px;font-weight:600;background:transparent;border:none;"
-        )
+        title_lbl.setObjectName("MediaCard_Title")
         vl.addWidget(title_lbl)
 
         meta = QHBoxLayout()
@@ -271,9 +289,9 @@ class AudioCard(MediaCard):
         vl.setSpacing(3)
 
         wave_lbl = QLabel()
+        wave_lbl.setObjectName("MediaCard_Thumb")
         wave_lbl.setFixedSize(_CW - 8, _TH)
         wave_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        wave_lbl.setStyleSheet("border-radius:4px;border:none;")
         if self._energy:
             wave_lbl.setPixmap(_paint_waveform(_CW - 8, _TH, self._energy))
         else:
@@ -338,6 +356,14 @@ class MediaPoolGrid(QWidget):
         self._filtered: list[MediaCard] = []
         self._selected_id: int | None = None
         self._thumb_threads: list[QThread] = []
+        self._in_relayout = False  # Rekursions-Guard (Fix: Freeze)
+        
+        # Debounce timer fuer Relayout (Fix F-029)
+        self._relayout_timer = QTimer(self)
+        self._relayout_timer.setSingleShot(True)
+        self._relayout_timer.setInterval(100) # Max 10 Layouts pro Sekunde
+        self._relayout_timer.timeout.connect(self._do_relayout_debounced)
+        
         self._build_ui()
 
     # ── Construction ─────────────────────────────────────────────────
@@ -432,55 +458,72 @@ class MediaPoolGrid(QWidget):
     # ── Internal ─────────────────────────────────────────────────────
 
     def _rebuild_cards(self) -> None:
-        # Stop pending thumbnail threads and wait for cleanup
-        for t in self._thumb_threads:
-            t.quit()
-        for t in self._thumb_threads:
-            t.wait(200)
-        self._thumb_threads.clear()
+        if self._in_relayout:
+            return
+        self._in_relayout = True
+        try:
+            # Stop pending thumbnail threads and wait for cleanup
+            for t in self._thumb_threads:
+                t.quit()
+            for t in self._thumb_threads:
+                t.wait(200)
+            self._thumb_threads.clear()
 
-        # Remove all cards from layout and delete
-        while self._grid.count():
-            item = self._grid.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
-        self._cards.clear()
+            # Remove all cards from layout and delete
+            while self._grid.count():
+                item = self._grid.takeAt(0)
+                if item.widget():
+                    item.widget().deleteLater()
+            self._cards.clear()
 
-        for data in self._all_items:
+            # Fix: Inkrementelles Laden via Timer (F-020)
+            self._load_index = 0
+            self._load_timer = QTimer(self)
+            self._load_timer.timeout.connect(self._load_next_chunk)
+            self._load_timer.start(20)  # Alle 20ms ein Chunk (stabiler als 5ms)
+        except Exception as e:
+            logger.error("Fehler beim Vorbereiten des Card-Rebuilds: %s", e)
+            self._in_relayout = False
+
+    def _load_next_chunk(self):
+        """Erstellt Karten in kleinen Batches um UI-Freeze zu verhindern."""
+        chunk_size = 10  # Groessere Batches fuer Effizienz
+        end = min(self._load_index + chunk_size, len(self._all_items))
+        
+        for i in range(self._load_index, end):
+            data = self._all_items[i]
             if self._type == "video":
-                card: MediaCard = VideoCard(
+                card = VideoCard(
                     media_id=data["id"],
                     title=data.get("title", ""),
                     file_path=data.get("file_path", ""),
                     resolution=data.get("resolution", ""),
                     fps=data.get("fps"),
                 )
-                # Disable automatic thumb loading for stability testing
-                # self._start_thumb_loader(card, data["file_path"])
             else:
-                energy: list[float] = []
+                energy = []
                 ec = data.get("energy_curve")
                 if ec:
-                    try:
-                        energy = json.loads(ec)
-                    except (json.JSONDecodeError, ValueError) as exc:
-                        logger.warning("_populate: failed to parse energy_curve JSON: %s", exc)
+                    try: energy = json.loads(ec)
+                    except: pass
                 card = AudioCard(
                     media_id=data["id"],
                     title=data.get("title", ""),
                     file_path=data.get("file_path", ""),
                     bpm=data.get("bpm"),
                     key=data.get("key"),
-                    mood=data.get("mood"),
-                    genre=data.get("genre"),
                     energy_data=energy,
                 )
-
             card.clicked.connect(self._on_card_clicked)
             self._cards.append(card)
 
-        self._filtered = list(self._cards)
-        self._apply_filter()
+        self._load_index = end
+        if self._load_index >= len(self._all_items):
+            self._load_timer.stop()
+            self._filtered = list(self._cards)
+            self._in_relayout = False
+            self._apply_filter()
+        # KEIN processEvents() hier — der Timer gibt Qt bereits genug Zeit zum Zeichnen
 
     def _start_thumb_loader(self, card: VideoCard, file_path: str) -> None:
         thread = QThread(self)
@@ -501,83 +544,103 @@ class MediaPoolGrid(QWidget):
         thread.start()
 
     def _apply_filter(self) -> None:
-        text = self._filter_edit.text().lower().strip()
-        bpm_text = self._bpm_edit.text().strip() if self._bpm_edit else ""
-        key_text = self._key_edit.text().strip().upper() if self._key_edit else ""
-        genre_text = self._genre_edit.text().strip().lower() if self._genre_edit else ""
+        if self._in_relayout:
+            return
+        self._in_relayout = True
+        try:
+            text = self._filter_edit.text().lower().strip()
+            bpm_text = self._bpm_edit.text().strip() if self._bpm_edit else ""
+            key_text = self._key_edit.text().strip().upper() if self._key_edit else ""
+            genre_text = self._genre_edit.text().strip().lower() if self._genre_edit else ""
 
-        bpm_min, bpm_max = None, None
-        if bpm_text:
-            if "-" in bpm_text:
-                parts = bpm_text.split("-", 1)
-                try:
-                    bpm_min, bpm_max = float(parts[0]), float(parts[1])
-                except ValueError as exc:
-                    logger.warning("_apply_filter: failed to parse BPM range: %s", exc)
-            else:
-                try:
-                    v = float(bpm_text)
-                    bpm_min, bpm_max = v - 2.0, v + 2.0
-                except ValueError as exc:
-                    logger.warning("_apply_filter: failed to parse BPM value: %s", exc)
+            bpm_min, bpm_max = None, None
+            if bpm_text:
+                if "-" in bpm_text:
+                    parts = bpm_text.split("-", 1)
+                    try:
+                        bpm_min, bpm_max = float(parts[0]), float(parts[1])
+                    except ValueError as exc:
+                        logger.warning("_apply_filter: failed to parse BPM range: %s", exc)
+                else:
+                    try:
+                        v = float(bpm_text)
+                        bpm_min, bpm_max = v - 2.0, v + 2.0
+                    except ValueError as exc:
+                        logger.warning("_apply_filter: failed to parse BPM value: %s", exc)
 
-        pairs: list[tuple[MediaCard, dict]] = []
-        for card, data in zip(self._cards, self._all_items):
-            title = data.get("title", "").lower()
-            if text and text not in title:
-                continue
-            if bpm_min is not None:
-                bpm = data.get("bpm")
-                if bpm is None or not (bpm_min <= bpm <= bpm_max):
+            pairs: list[tuple[MediaCard, dict]] = []
+            for card, data in zip(self._cards, self._all_items):
+                title = data.get("title", "").lower()
+                if text and text not in title:
                     continue
-            if key_text and key_text not in (data.get("key") or "").upper():
-                continue
-            if genre_text and genre_text not in (data.get("genre") or "").lower():
-                continue
-            pairs.append((card, data))
+                if bpm_min is not None:
+                    bpm = data.get("bpm")
+                    if bpm is None or not (bpm_min <= bpm <= bpm_max):
+                        continue
+                if key_text and key_text not in (data.get("key") or "").upper():
+                    continue
+                if genre_text and genre_text not in (data.get("genre") or "").lower():
+                    continue
+                pairs.append((card, data))
 
-        sort_key = self._sort_combo.currentText()
-        if sort_key == "BPM ▲":
-            pairs.sort(key=lambda x: x[1].get("bpm") or 0)
-        elif sort_key == "BPM ▼":
-            pairs.sort(key=lambda x: x[1].get("bpm") or 0, reverse=True)
-        elif sort_key == "Key":
-            pairs.sort(key=lambda x: x[1].get("key") or "")
-        elif sort_key == "Genre":
-            pairs.sort(key=lambda x: x[1].get("genre") or "")
-        elif sort_key == "Mood":
-            pairs.sort(key=lambda x: x[1].get("mood") or "")
-        elif sort_key == "Aufloesung":
-            pairs.sort(key=lambda x: x[1].get("resolution") or "")
-        elif sort_key == "FPS ▼":
-            pairs.sort(key=lambda x: x[1].get("fps") or 0, reverse=True)
-        else:
-            pairs.sort(key=lambda x: x[1].get("title") or "")
+            sort_key = self._sort_combo.currentText()
+            if sort_key == "BPM ▲":
+                pairs.sort(key=lambda x: x[1].get("bpm") or 0)
+            elif sort_key == "BPM ▼":
+                pairs.sort(key=lambda x: x[1].get("bpm") or 0, reverse=True)
+            elif sort_key == "Key":
+                pairs.sort(key=lambda x: x[1].get("key") or "")
+            elif sort_key == "Genre":
+                pairs.sort(key=lambda x: x[1].get("genre") or "")
+            elif sort_key == "Mood":
+                pairs.sort(key=lambda x: x[1].get("mood") or "")
+            elif sort_key == "Aufloesung":
+                pairs.sort(key=lambda x: x[1].get("resolution") or "")
+            elif sort_key == "FPS ▼":
+                pairs.sort(key=lambda x: x[1].get("fps") or 0, reverse=True)
+            else:
+                pairs.sort(key=lambda x: x[1].get("title") or "")
 
-        self._filtered = [c for c, _ in pairs]
-        self._relayout()
+            self._filtered = [c for c, _ in pairs]
+            self._relayout()
+        finally:
+            self._in_relayout = False
 
     def _relayout(self) -> None:
+        """Trigger debounced relayout (Fix F-029)."""
+        self._relayout_timer.start()
+
+    def _do_relayout_debounced(self) -> None:
         """Place filtered cards into grid, hide the rest."""
-        while self._grid.count():
-            item = self._grid.takeAt(0)
-            if item.widget():
-                item.widget().setParent(None)
+        if self._in_relayout or not self.isVisible():
+            return
+        
+        self._in_relayout = True
+        try:
+            while self._grid.count():
+                item = self._grid.takeAt(0)
+                if item.widget():
+                    item.widget().setParent(None)
 
-        avail_w = max(_CW + _GAP, self._scroll.viewport().width())
-        cols = max(1, (avail_w + _GAP) // (_CW + _GAP))
+            avail_w = max(_CW + _GAP, self._scroll.viewport().width())
+            cols = max(1, (avail_w + _GAP) // (_CW + _GAP))
 
-        for i, card in enumerate(self._filtered):
-            row, col = divmod(i, cols)
-            self._grid.addWidget(card, row, col)
-            card.show()
+            for i, card in enumerate(self._filtered):
+                row, col = divmod(i, cols)
+                self._grid.addWidget(card, row, col)
+                card.show()
 
-        for card in self._cards:
-            if card not in self._filtered:
-                card.hide()
+            for card in self._cards:
+                if card not in self._filtered:
+                    card.hide()
 
-        rows = (len(self._filtered) + cols - 1) // cols if self._filtered else 0
-        self._container.setMinimumHeight(rows * (_CH + _GAP) + 4)
+            rows = (len(self._filtered) + cols - 1) // cols if self._filtered else 0
+            # Blockiere Signale um Resize-Loops zu vermeiden
+            self._container.blockSignals(True)
+            self._container.setMinimumHeight(rows * (_CH + _GAP) + 10)
+            self._container.blockSignals(False)
+        finally:
+            self._in_relayout = False
 
     def _on_card_clicked(self, media_id: int) -> None:
         for card in self._cards:

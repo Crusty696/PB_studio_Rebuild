@@ -7,47 +7,53 @@ import json
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel,
-    QLineEdit, QPushButton, QProgressBar, QTableWidget, QHeaderView,
-    QSplitter, QStackedWidget, QFrame, QSizePolicy,
+    QLineEdit, QPushButton, QProgressBar, QTableView, QHeaderView,
+    QSplitter, QStackedWidget, QFrame, QSizePolicy, QTableWidget,
 )
-from PySide6.QtCore import Qt, QRect, QMimeData
+from PySide6.QtCore import Qt, QRect, QMimeData, QItemSelectionModel
 from PySide6.QtGui import QPainter, QColor, QDrag
 
 from services.stem_player import StemPlayer
 from ui.widgets.media_grid import MediaPoolGrid
+from ui.models.media_table_model import MediaTableModel
 
 # MIME type for internal clip drag & drop
 CLIP_MIME_TYPE = "application/x-pb-studio-clip"
 
 
-class DraggablePoolTable(QTableWidget):
-    """QTableWidget that supports drag-start for Timeline Drag & Drop.
+class DraggablePoolView(QTableView):
+    """QTableView that supports drag-start for Timeline Drag & Drop (Fix F-006)."""
 
-    Encodes the selected row's media info as JSON in QMimeData.
-    """
-
-    def __init__(self, track_type: str, id_column: int = 1,
-                 title_column: int = 2, parent=None):
+    def __init__(self, track_type: str, parent=None):
         super().__init__(parent)
         self._track_type = track_type  # "audio" or "video"
-        self._id_column = id_column
-        self._title_column = title_column
         self.setDragEnabled(True)
-        self.setDragDropMode(QTableWidget.DragDropMode.DragOnly)
+        self.setAcceptDrops(False)
+        self.setDragDropMode(QTableView.DragDropMode.DragOnly)
+        self.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
+        self.setSelectionMode(QTableView.SelectionMode.ExtendedSelection)
+        self.setAlternatingRowColors(True)
 
     def startDrag(self, supportedActions):
-        row = self.currentRow()
-        if row < 0:
+        indexes = self.selectionModel().selectedRows()
+        if not indexes:
             return
-        id_item = self.item(row, self._id_column)
-        title_item = self.item(row, self._title_column)
-        if not id_item or not id_item.text().isdigit():
+        
+        # Wir nehmen das erste selektierte Item für das Drag-Objekt
+        index = indexes[0]
+        model = self.model()
+        
+        # ID ist in Spalte 1, Titel in Spalte 2 (laut MediaTableModel)
+        id_val = model.index(index.row(), 1).data()
+        title_val = model.index(index.row(), 2).data()
+
+        if id_val is None:
             return
 
         payload = {
             "track_type": self._track_type,
-            "media_id": int(id_item.text()),
-            "title": title_item.text() if title_item else f"#{id_item.text()}",
+            "media_id": int(id_val),
+            "title": str(title_val),
         }
 
         mime = QMimeData()
@@ -469,37 +475,15 @@ class MediaWorkspace(QWidget):
         hdr_row.addWidget(self.btn_video_grid_view)
         rl.addLayout(hdr_row)
 
-        # Video pool table (draggable to Timeline)
-        self.video_pool_table = DraggablePoolTable(
-            track_type="video", id_column=1, title_column=2,
-        )
-        self.video_pool_table.setColumnCount(7)
-        self.video_pool_table.setHorizontalHeaderLabels(
-            ["Auswahl", "ID", "Titel", "Aufloesung", "FPS", "Codec", "Dateipfad"]
-        )
-        self.video_pool_table.setEditTriggers(
-            QTableWidget.EditTrigger.NoEditTriggers
-        )
-        self.video_pool_table.setSelectionBehavior(
-            QTableWidget.SelectionBehavior.SelectRows
-        )
-        self.video_pool_table.setSelectionMode(
-            QTableWidget.SelectionMode.ExtendedSelection
-        )
-        self.video_pool_table.setAlternatingRowColors(True)
-        self.video_pool_table.setToolTip(
-            "Video Pool: Alle importierten Video-Dateien — per Drag & Drop auf Timeline ziehen"
-        )
-        self.video_pool_table.setAccessibleName("Video Pool Tabelle")
-        self.video_pool_table.setWhatsThis(
-            "Der Video Pool zeigt alle importierten Video-Dateien. "
-            "Clips koennen per Drag & Drop auf die Edit-Timeline gezogen werden. "
-            "Mehrfachauswahl mit Shift/Strg. Checkbox-Spalte fuer Batch-Aktionen."
-        )
+        # Video pool table (Fix F-006: Model/View)
+        self.video_pool_model = MediaTableModel(media_type="Video")
+        self.video_pool_table = DraggablePoolView(track_type="video")
+        self.video_pool_table.setModel(self.video_pool_model)
+        
         vh = self.video_pool_table.horizontalHeader()
         vh.setStretchLastSection(True)
         vh.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
-        vh.resizeSection(0, 60)   # Auswahl
+        vh.resizeSection(0, 45)   # Auswahl
         vh.resizeSection(1, 35)   # ID
         vh.resizeSection(2, 200)  # Titel
         vh.resizeSection(3, 80)   # Aufloesung
@@ -739,24 +723,11 @@ class MediaWorkspace(QWidget):
         hdr_row.addWidget(self.btn_audio_grid_view)
         rl.addLayout(hdr_row)
 
-        # Audio pool table (draggable to Timeline)
-        self.audio_pool_table = DraggablePoolTable(
-            track_type="audio", id_column=1, title_column=2,
-        )
-        self.audio_pool_table.setColumnCount(7)
-        self.audio_pool_table.setHorizontalHeaderLabels(
-            ["Auswahl", "ID", "Titel", "BPM", "Key", "Stems", "Dateipfad"]
-        )
-        self.audio_pool_table.setEditTriggers(
-            QTableWidget.EditTrigger.NoEditTriggers
-        )
-        self.audio_pool_table.setSelectionBehavior(
-            QTableWidget.SelectionBehavior.SelectRows
-        )
-        self.audio_pool_table.setAlternatingRowColors(True)
-        self.audio_pool_table.setToolTip(
-            "Audio Pool: Alle importierten Audio-Dateien — per Drag & Drop auf Timeline ziehen"
-        )
+        # Audio pool table (Fix F-006: Model/View)
+        self.audio_pool_model = MediaTableModel(media_type="Audio")
+        self.audio_pool_table = DraggablePoolView(track_type="audio")
+        self.audio_pool_table.setModel(self.audio_pool_model)
+        
         ah = self.audio_pool_table.horizontalHeader()
         ah.setStretchLastSection(True)
         ah.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)

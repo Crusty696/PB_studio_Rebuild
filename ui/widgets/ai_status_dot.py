@@ -22,30 +22,39 @@ _DOT_STYLE = (
 
 
 class AiStatusDot(QLabel):
-    """Kleines Ampel-Dot-Widget das den AI-Verfügbarkeitsstatus anzeigt."""
+    """Kleines Ampel-Dot-Widget das den AI-Verfügbarkeitsstatus anzeigt.
+    
+    F-033 Fix: Polling runs in a background thread to prevent UI stutter.
+    """
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._ready = False
         self._apply_style()
 
-        self._timer = QTimer(self)
-        self._timer.setInterval(5000)
-        self._timer.timeout.connect(self._poll)
-        self._timer.start()
+        from PySide6.QtCore import QThread, QObject, Signal
+        
+        class PollWorker(QObject):
+            result = Signal(bool)
+            def run(self):
+                import time
+                while True:
+                    try:
+                        from services.ollama_client import OllamaClient
+                        ready = OllamaClient().is_available()
+                    except:
+                        ready = False
+                    self.result.emit(ready)
+                    time.sleep(5)
 
-        # Ersten Check sofort
-        self._poll()
+        self._worker = PollWorker()
+        self._thread = QThread(self)
+        self._worker.moveToThread(self._thread)
+        self._worker.result.connect(self._on_poll_result)
+        self._thread.started.connect(self._worker.run)
+        self._thread.start()
 
-    # ------------------------------------------------------------------
-
-    def _poll(self) -> None:
-        try:
-            from services.ollama_client import OllamaClient
-            ready = OllamaClient().is_available()
-        except Exception:
-            ready = False
-
+    def _on_poll_result(self, ready: bool):
         if ready != self._ready:
             self._ready = ready
             self._apply_style()

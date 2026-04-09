@@ -38,11 +38,8 @@ _LABEL_STYLE = f"color: {T3}; font-size: 10px; padding: 0 2px;"
 class ResourceMonitorWidget(QWidget):
     """Lightweight CPU / RAM / GPU VRAM monitor for the status bar.
 
-    Updates every 3 seconds via QTimer. If *psutil* or *torch* are not
-    installed the corresponding bar simply stays at 0 %.
+    F-032 Fix: Polling runs in a background thread to prevent UI stutter.
     """
-
-    _UPDATE_INTERVAL_MS = 3000
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -80,94 +77,67 @@ class ResourceMonitorWidget(QWidget):
         self._gpu_bar.setRange(0, 100)
         self._gpu_bar.setValue(0)
         self._gpu_bar.setTextVisible(False)
-        self._gpu_bar.setStyleSheet(_bar_style(ACCENT))  # gold default
+        self._gpu_bar.setStyleSheet(_bar_style(ACCENT))
         layout.addWidget(self._gpu_label)
         layout.addWidget(self._gpu_bar)
 
-        # -- Timer --
-        self._timer = QTimer(self)
-        self._timer.timeout.connect(self._update)
-        self._timer.start(self._UPDATE_INTERVAL_MS)
+        # Background Worker for polling
+        from PySide6.QtCore import QThread, QObject, Signal
+        
+        class MonitorWorker(QObject):
+            updated = Signal(dict)
+            def run(self):
+                import time
+                while True:
+                    stats = {}
+                    # CPU
+                    if _HAS_PSUTIL: stats['cpu'] = int(psutil.cpu_percent())
+                    # RAM
+                    if _HAS_PSUTIL:
+                        mem = psutil.virtual_memory()
+                        stats['ram_used'] = mem.used / (1024**3)
+                        stats['ram_total'] = mem.total / (1024**3)
+                        stats['ram_pct'] = int(mem.percent)
+                    # GPU
+                    if _HAS_TORCH and torch.cuda.is_available():
+                        try:
+                            idx = torch.cuda.current_device()
+                            stats['gpu_used'] = torch.cuda.memory_allocated(idx) / (1024**3)
+                            stats['gpu_total'] = torch.cuda.get_device_properties(idx).total_memory / (1024**3)
+                            stats['gpu_pct'] = int((stats['gpu_used'] / stats['gpu_total']) * 100) if stats['gpu_total'] > 0 else 0
+                        except: pass
+                    
+                    self.updated.emit(stats)
+                    time.sleep(3) # Polling Intervall
 
-        # Initial read
-        self._update()
+        self._worker = MonitorWorker()
+        self._thread = QThread(self)
+        self._worker.moveToThread(self._thread)
+        self._worker.updated.connect(self._on_stats_updated)
+        self._thread.started.connect(self._worker.run)
+        self._thread.start()
 
-    # ------------------------------------------------------------------
-    def _update(self):
-        """Poll system metrics (lightweight — runs on UI thread)."""
-        self._update_cpu()
-        self._update_ram()
-        self._update_gpu()
+    def _on_stats_updated(self, stats: dict):
+        """Update UI with stats from background thread."""
+        if 'cpu' in stats:
+            self._cpu_bar.setValue(stats['cpu'])
+            self._cpu_label.setText(f"CPU {stats['cpu']}%")
+        
+        if 'ram_pct' in stats:
+            self._ram_bar.setValue(stats['ram_pct'])
+            self._ram_label.setText(f"RAM {stats['ram_used']:.1f}/{stats['ram_total']:.1f}")
+            
+        if 'gpu_pct' in stats:
+            pct = stats['gpu_pct']
+            color = WARN if pct >= 70 else ACCENT
+            self._gpu_bar.setStyleSheet(_bar_style(color))
+            self._gpu_bar.setValue(pct)
+            self._gpu_label.setText(f"GPU {stats.get('gpu_used', 0.0):.1f}/{stats.get('gpu_total', 0.0):.1f}")
 
-    # ------------------------------------------------------------------
-    def _update_cpu(self):
-        if _HAS_PSUTIL:
-            pct = psutil.cpu_percent(interval=None)
-        else:
-            pct = 0
-        pct = int(pct)
-        self._cpu_bar.setValue(pct)
-        self._cpu_label.setText(f"CPU {pct}%")
-
-    # ------------------------------------------------------------------
-    def _update_ram(self):
-        if _HAS_PSUTIL:
-            mem = psutil.virtual_memory()
-            used_gb = mem.used / (1024 ** 3)
-            total_gb = mem.total / (1024 ** 3)
-            pct = int(mem.percent)
-        else:
-            used_gb = total_gb = 0.0
-            pct = 0
-        self._ram_bar.setValue(pct)
-        self._ram_label.setText(f"RAM {used_gb:.1f}/{total_gb:.1f}")
-
-    # ------------------------------------------------------------------
-    def _update_gpu(self):
-        if _HAS_TORCH and torch.cuda.is_available():
-            try:
-                idx = torch.cuda.current_device()
-                used = torch.cuda.memory_allocated(idx) / (1024 ** 3)
-                total = torch.cuda.get_device_properties(idx).total_memory / (1024 ** 3)
-                pct = int((used / total) * 100) if total > 0 else 0
-            except (OSError, AttributeError):
-                used = total = 0.0
-                pct = 0
-        else:
-            used = total = 0.0
-            pct = 0
-
-        # Color: gold when <70%, amber warning when >=70%
-        if pct >= 70:
-            color = WARN
-        else:
-            color = ACCENT
-        self._gpu_bar.setStyleSheet(_bar_style(color))
-        self._gpu_bar.setValue(pct)
-        self._gpu_label.setText(f"GPU {used:.1f}/{total:.1f}")
-
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
     def stop(self):
-        """Stop the background polling timer."""
-        self._timer.stop()
+        self._thread.terminate()
+        self._thread.wait()
 
     def start(self):
-        """(Re-)start the background polling timer."""
-        if not self._timer.isActive():
-            self._timer.start(self._UPDATE_INTERVAL_MS)
-
-    # ------------------------------------------------------------------
-    # Visibility-aware timer management
-    # ------------------------------------------------------------------
-    def hideEvent(self, event):
-        """Stop polling when the widget is hidden."""
-        self._timer.stop()
-        super().hideEvent(event)
-
-    def showEvent(self, event):
-        """Restart polling when the widget becomes visible."""
-        if not self._timer.isActive():
-            self._timer.start(self._UPDATE_INTERVAL_MS)
-        super().showEvent(event)
+        if not self._thread.isRunning():
+            self._thread.start()

@@ -40,13 +40,14 @@ def _build_splash_pixmap(version: str) -> QPixmap:
     # ── Waveform decoration (bottom area) ────────────────────────────
     _draw_mini_waveform(p, x0=30, y_center=220, width=_W - 60, height=40)
 
-    # ── Title ─────────────────────────────────────────────────────────
-    title_font = QFont("Arial", 42, QFont.Weight.Bold)
+    # ── Title ─────────────────────────────────────────────────────────────
+    title_font = QFont("Arial", 42)
+    title_font.setWeight(QFont.Weight.Bold)
     p.setFont(title_font)
     p.setPen(QColor("#d4a44a"))
     p.drawText(QRect(0, 40, _W, 80), Qt.AlignmentFlag.AlignCenter, "PB Studio")
 
-    # ── Tagline ───────────────────────────────────────────────────────
+    # ── Tagline ───────────────────────────────────────────────────────────
     tag_font = QFont("Arial", 13)
     tag_font.setWeight(QFont.Weight.DemiBold)
     p.setFont(tag_font)
@@ -54,9 +55,10 @@ def _build_splash_pixmap(version: str) -> QPixmap:
     p.drawText(QRect(0, 110, _W, 30), Qt.AlignmentFlag.AlignCenter,
                "Director's Cockpit  —  Beat-Synchronized Video Editor")
 
-    # ── "Powered by AI" badge ─────────────────────────────────────────
+    # ── "Powered by AI" badge ─────────────────────────────────────────────
     badge_font = QFont("Arial", 10)
     badge_font.setWeight(QFont.Weight.DemiBold)
+
     p.setFont(badge_font)
     bw, bh = 120, 22
     bx, by = (_W - bw) // 2, 152

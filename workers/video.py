@@ -249,19 +249,22 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                 )
 
                 try:
-                    result = run_full_pipeline(
-                        video_path=video_path,
-                        video_clip_id=clip_id,
-                        progress_cb=lambda pct, msg, _base=batch_base_pct, _range=batch_range, _i=idx, _tv=total_videos: (
-                            _throttled_progress(
-                                min(99, _base + int(pct / 100 * _range)),
-                                f"[{_i}/{_tv}] {msg}"
-                            )
-                        ),
-                        should_stop=self.should_stop,
-                        siglip_model_processor=siglip_model_processor,
-                        raft_model_device=raft_model_device,
-                    )
+                    # F-004 Fix: Inferenz-Phase global locken um OOM bei paralleler Last zu verhindern
+                    from services.model_manager import GPU_EXECUTION_LOCK
+                    with GPU_EXECUTION_LOCK:
+                        result = run_full_pipeline(
+                            video_path=video_path,
+                            video_clip_id=clip_id,
+                            progress_cb=lambda pct, msg, _base=batch_base_pct, _range=batch_range, _i=idx, _tv=total_videos: (
+                                _throttled_progress(
+                                    min(99, _base + int(pct / 100 * _range)),
+                                    f"[{_i}/{_tv}] {msg}"
+                                )
+                            ),
+                            should_stop=self.should_stop,
+                            siglip_model_processor=siglip_model_processor,
+                            raft_model_device=raft_model_device,
+                        )
                     total_scenes += len(result.scenes)
                     total_embeddings += result.embeddings_stored
 
@@ -303,12 +306,9 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                     )
                     continue  # naechstes Video statt Abbruch
                 finally:
-                    # VRAM-Schutz: gc.collect() nach JEDEM Video fuer Python-Objekte.
-                    # empty_cache() wird NICHT im Batch-Modus aufgerufen solange
-                    # SigLIP/RAFT resident sind — das korrumpiert den Heap (0xC0000374)
-                    # bzw. den CUDA-Kontext (0xC0000005).
-                    # Cleanup passiert NUR am Ende der gesamten Batch.
-                    gc.collect()
+                    # F-036 Fix: gc.collect() nur alle 25 Videos um Main-Thread Pausen zu minimieren
+                    if idx % 25 == 0:
+                        gc.collect()
 
             # ── BATCH-CLEANUP: SigLIP + RAFT am Ende der gesamten Batch entladen ──
             if raft_model_device is not None:

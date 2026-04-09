@@ -90,6 +90,9 @@ def detect_scenes(
 
     try:
         from scenedetect import detect, ContentDetector
+        import logging as _logging
+        # F-025 Fix: Deaktiviere pyscenedetect Info-Logs um Main-Thread zu entlasten
+        _logging.getLogger("pyscenedetect").setLevel(_logging.WARNING)
     except ImportError:
         logger.warning("PySceneDetect nicht installiert — Fallback: eine Szene pro Video")
         return _fallback_single_scene(video_path)
@@ -297,12 +300,19 @@ def _fallback_single_scene(video_path: str) -> list[SceneInfo]:
 
 def _get_video_duration(video_path: str) -> float:
     """Ermittelt Video-Dauer via ffprobe."""
+    from services.startup_checks import get_ffprobe_bin
+    ffprobe_bin = get_ffprobe_bin()
+    
+    kwargs = {}
+    if sys.platform == "win32":
+        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+
     try:
         p = subprocess.run(
-            ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
+            [ffprobe_bin, "-v", "quiet", "-show_entries", "format=duration",
              "-of", "default=noprint_wrappers=1:nokey=1", video_path],
             capture_output=True, text=True, timeout=FFMPEG_PROBE_TIMEOUT_SEC,
-            encoding="utf-8", errors="replace",
+            encoding="utf-8", errors="replace", **kwargs
         )
         if p.returncode == 0 and p.stdout.strip():
             return float(p.stdout.strip())
@@ -332,6 +342,9 @@ def extract_keyframes(
         logger.error("Video-Datei nicht gefunden (Keyframe-Extraktion abgebrochen): %s", video_path)
         return scenes
 
+    from services.startup_checks import get_ffmpeg_bin
+    ffmpeg_bin = get_ffmpeg_bin()
+
     out_dir = output_dir or _keyframe_dir()
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -347,7 +360,7 @@ def extract_keyframes(
             continue
 
         cmd = [
-            "ffmpeg", "-y", "-ss", str(mid_time),
+            ffmpeg_bin, "-y", "-ss", str(mid_time),
             "-i", video_path,
             "-frames:v", "1",
             "-vf", "scale=384:384:force_original_aspect_ratio=decrease,pad=384:384:(ow-iw)/2:(oh-ih)/2",
@@ -587,6 +600,10 @@ def analyze_scene_with_caption(
             "[CAPTION] Ollama nicht erreichbar — Vision-Captioning übersprungen. "
             "Starte Ollama und lade '%s' für automatische Captions.", vision_model
         )
+        return scenes
+
+    if client.is_paused:
+        logger.info("[CAPTION] Ollama ist pausiert (GPU-Task aktiv) — überspringe Captions für diese Batch.")
         return scenes
 
     logger.info("[CAPTION] Starte Vision-Captioning für %d Szenen mit '%s'...",

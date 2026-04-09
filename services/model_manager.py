@@ -19,14 +19,20 @@ from functools import wraps
 from typing import Any
 
 # torch wird LAZY importiert
- (spart ~11s Startup wenn ModelManager nicht sofort gebraucht wird)
+# (spart ~11s Startup wenn ModelManager nicht sofort gebraucht wird)
 torch = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
 
 # Globaler GPU-Semaphore: Serialisiert alle GPU-Modell-Lade-Operationen
-# (SigLIP, RAFT, beat_this) um VRAM-Races auf 6GB GTX 1060 zu verhindern
-GPU_LOAD_LOCK = threading.Lock()
+# (SigLIP, RAFT, beat_this) um VRAM-Races auf 6GB GTX 1060 zu verhindern.
+# FIX: RLock erlaubt verschachtelte Aufrufe (reentrant).
+GPU_LOAD_LOCK = threading.RLock()
+
+# Globaler Inferenz-Lock: Verhindert gleichzeitige Berechnungen auf der GPU
+# (z.B. Vision-Analyse + Audio-Separation), was auf 6GB-Karten zu OOM führt.
+# FIX: RLock für maximale Stabilität bei komplexen Pipelines.
+GPU_EXECUTION_LOCK = threading.RLock()
 
 # F-011: OOM-Handler Schwellwerte (in GB)
 # Wenn weniger als diese Werte verfügbar sind, wird proaktiv entladen
@@ -771,7 +777,7 @@ class ModelManager:
         geladen werden, wird Ollama automatisch pausiert.
 
         Returns:
-            OllamaHandle — Wrapper der chat() delegiert und VRAM-Events empfängt.
+            OllamaHandle — Wrapper der chat() delegiert und VRAM-Events empvängt.
         """
         from services.ollama_client import get_ollama_client
 
@@ -798,7 +804,7 @@ class ModelManager:
         return handle
 
     def _pause_ollama_if_active(self) -> None:
-        """Pausiert den Ollama-Client falls registriert.
+        """Pausiert den Ollama-Client und erzwingt VRAM-Freigabe (F-001 Fix).
 
         Wird intern vor dem Laden GPU-intensiver Modelle aufgerufen.
         """
@@ -806,6 +812,16 @@ class ModelManager:
         if _default_client is not None and not _default_client.is_paused:
             _default_client.pause()
             logger.info("ModelManager: Ollama pausiert vor GPU-Modell-Load.")
+            
+            # Echter VRAM-Unload via API (Best-Effort)
+            try:
+                import requests
+                # Wir schicken keep_alive: 0 an die API, um den Speicher sofort zu leeren
+                url = f"{_default_client.base_url}/api/generate"
+                requests.post(url, json={"model": "gemma2:2b", "prompt": "", "keep_alive": 0}, timeout=1.0)
+                logger.info("Ollama VRAM-Unload (keep_alive: 0) angefordert.")
+            except Exception as e:
+                logger.debug("Ollama VRAM-Unload fehlgeschlagen: %s", e)
 
     def _resume_ollama_if_paused(self) -> None:
         """Setzt den Ollama-Client fort falls pausiert."""

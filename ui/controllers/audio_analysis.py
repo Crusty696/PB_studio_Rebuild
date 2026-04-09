@@ -22,21 +22,19 @@ class AudioAnalysisController(PBComponent):
         from sqlalchemy.orm import Session as DBSession
 
         audio_id = None
-        pool_row = self.window.audio_pool_table.currentRow()
-        if pool_row >= 0:
-            id_item = self.window.audio_pool_table.item(pool_row, 1)
-            if id_item and id_item.text().isdigit():
-                audio_id = int(id_item.text())
-
-        if audio_id is None:
-            mt_row = self.window.media_table.currentRow()
-            if mt_row >= 0:
-                type_item = self.window.media_table.item(mt_row, 1)
-                id_item = self.window.media_table.item(mt_row, 0)
-                if (type_item and id_item
-                        and type_item.text() == "Audio"
-                        and id_item.text().isdigit()):
-                    audio_id = int(id_item.text())
+        
+        # 1. Versuche Auswahl aus der Audio-Pool Tabelle (QTableView)
+        view = self.window.audio_pool_table
+        model = view.model()
+        indexes = view.selectionModel().selectedRows()
+        
+        if indexes:
+            # Wir nehmen die erste selektierte Zeile
+            row = indexes[0].row()
+            # ID ist in Spalte 1 (laut MediaTableModel)
+            val = model.index(row, 1).data()
+            if val and str(val).isdigit():
+                audio_id = int(val)
 
         if audio_id is None:
             self.window.console_text.append("[Warnung] Kein Audio-Track ausgewählt.")
@@ -107,32 +105,23 @@ class AudioAnalysisController(PBComponent):
         self.window.console_text.append(f"[Struktur] Starte Struktur-Erkennung für '{title}'...")
 
     def _on_audio_pool_selected(self, row, col, prev_row, prev_col):
-        """Sync audio pool selection to hidden media_table + StemWorkspace."""
+        """Sync audio pool selection to StemWorkspace and detail cards."""
         try:
             if row < 0:
                 self.window.stem_player.stop()
                 if hasattr(self.window, "stem_workspace"):
                     self.window.stem_workspace.update_for_track(None, None)
                 return
-            aud_id_item = self.window.audio_pool_table.item(row, 1)
-            if not aud_id_item:
-                self.window.stem_player.stop()
-                if hasattr(self.window, "stem_workspace"):
-                    self.window.stem_workspace.update_for_track(None, None)
-                return
-            aud_id = aud_id_item.text()
-            if not aud_id or not aud_id.isdigit():
-                logger.warning("[AudioPool] Ungueltige Audio-ID in Zeile %d: '%s'", row, aud_id)
+            
+            view = self.window.audio_pool_table
+            model = view.model()
+            # ID ist in Spalte 1
+            aud_id_val = model.index(row, 1).data()
+            
+            if not aud_id_val or not str(aud_id_val).isdigit():
                 return
 
-            for r in range(self.window.media_table.rowCount()):
-                item = self.window.media_table.item(r, 0)
-                type_item = self.window.media_table.item(r, 1)
-                if item and type_item and item.text() == aud_id and type_item.text() == "Audio":
-                    self.window.media_table.setCurrentCell(r, 0)
-                    break
-
-            audio_id = int(aud_id)
+            audio_id = int(aud_id_val)
             self.window.stems._update_stem_workspace(audio_id)
             self._update_detail_cards_for_audio(audio_id)
 

@@ -65,8 +65,20 @@ class VectorDBService:
         self.db_path = Path(db_path) if db_path else DB_FILE
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._write_lock = threading.Lock()
+        
+        # F-005 Fix: In-Memory Cache
+        self._cache_matrix: np.ndarray | None = None
+        self._cache_metadata: list[dict] | None = None
+        self._cache_lock = threading.Lock()
+        
         self._init_db()
         self._initialized = True
+
+    def _invalidate_cache(self):
+        """Invalidiert den In-Memory Cache nach Schreiboperationen."""
+        with self._cache_lock:
+            self._cache_matrix = None
+            self._cache_metadata = None
 
     def _init_db(self):
         with sqlite3.connect(str(self.db_path)) as conn:
@@ -87,7 +99,7 @@ class VectorDBService:
         motion_score: float = 0.0,
         description: str = "",
     ) -> None:
-        """Fuegt ein einzelnes Clip-Embedding hinzu."""
+        """Fuegt ein einzelnes Clip-Embedding hinzu (F-007 Fix: ID vereinheitlicht)."""
         if isinstance(embedding, list):
             embedding = np.array(embedding, dtype=np.float32)
         if len(embedding) != EMBEDDING_DIM:
@@ -95,16 +107,21 @@ class VectorDBService:
                 f"Embedding muss {EMBEDDING_DIM} Dimensionen haben, "
                 f"hat aber {len(embedding)}"
             )
+        
+        # F-007 Fix: Composite ID zwingend verwenden
+        composite_id = clip_id * 1_000_000 + scene_index
         blob = embedding.astype(np.float32).tobytes()
+        
         with self._write_lock:
             with self._connect() as conn:
                 conn.execute(
                     "INSERT OR REPLACE INTO clip_embeddings "
                     "(id, video_path, scene_index, scene_start, scene_end, "
                     "motion_score, description, embedding) VALUES (?,?,?,?,?,?,?,?)",
-                    (clip_id, video_path, scene_index, scene_start, scene_end,
+                    (composite_id, video_path, scene_index, scene_start, scene_end,
                      motion_score, description, blob),
                 )
+        self._invalidate_cache()
 
     def add_embeddings_batch(self, entries: list[dict]) -> None:
         """Fuegt mehrere Embeddings auf einmal hinzu."""
@@ -138,6 +155,7 @@ class VectorDBService:
                     rows,
                 )
         logger.info("VectorDB: %d Embeddings gespeichert", len(rows))
+        self._invalidate_cache()
 
     def search(
         self,
@@ -145,45 +163,71 @@ class VectorDBService:
         top_k: int = 5,
         motion_filter: float | None = None,
     ) -> list[dict]:
-        """Semantische Suche via Cosine-Similarity."""
+        """Semantische Suche via Cosine-Similarity (F-005 Fix: Nutzt Cache)."""
         if isinstance(query_embedding, list):
             query_embedding = np.array(query_embedding, dtype=np.float32)
+        
+        # Query normalisieren
         query_norm = query_embedding / (np.linalg.norm(query_embedding) + 1e-8)
 
-        sql = "SELECT id, video_path, scene_index, scene_start, scene_end, motion_score, description, embedding FROM clip_embeddings"
-        params: list = []
-        if motion_filter is not None:
-            sql += " WHERE motion_score > ?"
-            params.append(float(motion_filter))
+        # Cache prüfen oder laden
+        with self._cache_lock:
+            if self._cache_matrix is None:
+                self._cache_matrix, self._cache_metadata = self._load_full_data()
+            
+            embeddings = self._cache_matrix
+            metadata = self._cache_metadata
 
-        with self._connect() as conn:
-            rows = conn.execute(sql, params).fetchall()
-
-        if not rows:
+        if embeddings.size == 0:
             return []
 
-        # Vectorized similarity: numpy statt Python-Loop (~100x schneller, weniger RAM)
-        embeddings = np.vstack([np.frombuffer(row[7], dtype=np.float32) for row in rows])
+        # Motion-Filter auf Metadaten anwenden (falls gesetzt)
+        valid_indices = np.arange(len(metadata))
+        if motion_filter is not None:
+            valid_indices = [i for i, m in enumerate(metadata) if m["motion_score"] > motion_filter]
+            if not valid_indices:
+                return []
+            embeddings = embeddings[valid_indices]
+
+        # Vectorized similarity
         norms = np.linalg.norm(embeddings, axis=1, keepdims=True) + 1e-8
         similarities = (embeddings / norms) @ query_norm
-        # Top-K Indices ohne vollstaendiges Sort (O(n) statt O(n log n))
-        top_indices = np.argpartition(-similarities, min(top_k, len(similarities) - 1))[:top_k]
-        top_indices = top_indices[np.argsort(-similarities[top_indices])]
+        
+        # Top-K Indices
+        k = min(top_k, len(similarities))
+        top_sub_indices = np.argpartition(-similarities, k - 1)[:k]
+        top_sub_indices = top_sub_indices[np.argsort(-similarities[top_sub_indices])]
 
         results = []
-        for idx in top_indices:
-            row = rows[idx]
+        for idx in top_sub_indices:
+            orig_idx = valid_indices[idx]
+            m = metadata[orig_idx]
             results.append({
-                "id": row[0],
-                "video_path": row[1],
-                "scene_index": row[2],
-                "scene_start": row[3],
-                "scene_end": row[4],
-                "motion_score": row[5],
-                "description": row[6],
+                **m,
                 "_distance": 1.0 - float(similarities[idx]),
             })
         return results
+
+    def _load_full_data(self) -> tuple[np.ndarray, list[dict]]:
+        """Lädt alle Daten aus der DB (interner Helper für Cache)."""
+        sql = ("SELECT id, video_path, scene_index, scene_start, scene_end, "
+               "motion_score, description, embedding FROM clip_embeddings")
+        with self._connect() as conn:
+            rows = conn.execute(sql).fetchall()
+
+        if not rows:
+            return np.empty((0, EMBEDDING_DIM), dtype=np.float32), []
+
+        embeddings = np.vstack([np.frombuffer(row[7], dtype=np.float32) for row in rows])
+        metadata = [
+            {
+                "id": row[0], "video_path": row[1], "scene_index": row[2],
+                "scene_start": row[3], "scene_end": row[4],
+                "motion_score": row[5], "description": row[6]
+            }
+            for row in rows
+        ]
+        return embeddings, metadata
 
     def search_by_text(
         self,

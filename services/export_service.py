@@ -21,10 +21,11 @@ from services.timeout_constants import (
     FFMPEG_RENDER_TIMEOUT_SEC,
     THREAD_JOIN_TIMEOUT_SEC,
 )
+from services.startup_checks import get_ffmpeg_bin, get_ffprobe_bin
 
 # FIX-1.2: FFmpeg-Pfad konfigurierbar (identisch mit convert_service.py)
-FFMPEG = os.environ.get("FFMPEG_PATH", "ffmpeg")
-FFPROBE = os.environ.get("FFPROBE_PATH", "ffprobe")
+FFMPEG = get_ffmpeg_bin()
+FFPROBE = get_ffprobe_bin()
 
 
 def _sanitize_ffmpeg_error(stderr: str, max_lines: int = 3) -> str:

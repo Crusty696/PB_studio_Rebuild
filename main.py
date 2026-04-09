@@ -165,7 +165,7 @@ class PBWindow(QMainWindow):
         main_layout.setSpacing(0)
 
         # ── Top Bar ──
-        self._build_top_bar(main_layout, APP_VERSION)
+        self.workspace_setup._build_top_bar(main_layout, APP_VERSION)
 
         # ── Update-Notification Banner (hidden until a new version is found) ──
         self._update_banner = self._build_update_banner()
@@ -312,15 +312,21 @@ class PBWindow(QMainWindow):
 
     # ── End AUD-103 ───────────────────────────────────────────────────────
 
+    def _save_window_state(self):
+        self.workspace_setup._save_window_state()
+
+    def _mark_dirty(self):
+        self.project_management._mark_dirty()
+
     def closeEvent(self, event):
-        # AUD-107: Save window state before anything else (before running-task check
-        # so state is persisted even if the user later cancels the close).
+        """Behandelt das Schließen der Anwendung (Fix F-003: Asynchroner Shutdown)."""
+        # 1. Fenster-Zustand sofort sichern
         try:
             self._save_window_state()
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.warning("closeEvent: failed to save window state: %s", exc)
 
-        # AUD-108: Prompt if unsaved changes
+        # 2. Prüfung auf ungespeicherte Änderungen
         if self._dirty:
             from PySide6.QtWidgets import QMessageBox
             reply = QMessageBox.question(
@@ -333,7 +339,7 @@ class PBWindow(QMainWindow):
                 event.ignore()
                 return
 
-        # 0. Check for running tasks and ask user
+        # 3. Laufende Tasks prüfen
         try:
             tm = GlobalTaskManager.instance()
             running = [t for t in tm.get_all_tasks() if t.status == "running"]
@@ -348,70 +354,57 @@ class PBWindow(QMainWindow):
                 if reply == QMessageBox.StandardButton.No:
                     event.ignore()
                     return
-        except (ImportError, AttributeError, RuntimeError) as exc:
+        except Exception as exc:
             logger.warning("closeEvent: failed to check running tasks: %s", exc)
 
-        # 1. Stop background timers
+        # ── AB HIER STARTET DER ASYNCHRONE SHUTDOWN ──
+        # Fenster sofort verstecken für gefühlt "sofortiges" Beenden
+        self.hide()
+        QApplication.processEvents()
+        logger.info("Shutdown eingeleitet: Fenster versteckt, beginne Cleanup...")
+
+        # 4. Timer und Flag setzen
         if hasattr(self, '_task_mgr_dock') and hasattr(self._task_mgr_dock, '_timer'):
             self._task_mgr_dock._timer.stop()
-
-        # FIX B-002: Shutdown-Flag setzen VOR Task-Abbruch
+        
         try:
             GlobalTaskManager.instance()._shutting_down = True
-        except (AttributeError, RuntimeError) as exc:
-            logger.warning("closeEvent: failed to set shutdown flag: %s", exc)
+        except Exception: pass
 
-        # 2. Alle Tasks im GlobalTaskManager abbrechen
+        # 5. Alle Hintergrund-Tasks abbrechen
         try:
             tm = GlobalTaskManager.instance()
             for task in tm.get_all_tasks():
                 if task.status == "running":
                     tm.cancel_task(task.task_id)
-        except (AttributeError, RuntimeError) as exc:
-            logger.warning("closeEvent: failed to cancel running tasks: %s", exc)
+        except Exception: pass
 
-        # 3. Legacy: direkt verwaltete Threads stoppen
-        # P0-FIX: Graceful shutdown without terminate() to prevent resource corruption
+        # 6. Legacy-Threads stoppen (minimales Warten)
         for thread in list(self._active_threads):
             thread.quit()
-            # Increased timeout to 10s for graceful shutdown
-            if not thread.wait(10000):
-                logger.warning(
-                    "Thread %s did not exit after 10s quit request - forcing close without terminate() "
-                    "to avoid resource corruption. Thread may be leaked.",
-                    thread.objectName() or repr(thread)
-                )
-                # Do NOT call terminate() - it can corrupt DB/GPU resources
-                # The thread will be orphaned but this is safer than corrupting state
+            if not thread.wait(500):
+                logger.warning("Thread %s reagiert nicht, wird verwaist.", thread)
+
         self._active_threads.clear()
         self._active_workers.clear()
         _GLOBAL_ACTIVE_THREADS.clear()
 
-        # 4. Video Preview stoppen
+        # 7. Video & Audio Cleanup
         if hasattr(self, "video_preview"):
-            try:
-                self.video_preview.stop()
-            except (RuntimeError, AttributeError) as exc:
-                logger.warning("closeEvent: failed to stop video preview: %s", exc)
-
-        # 5. Stem Player + Workspace aufraeumen
+            try: self.video_preview.stop()
+            except Exception: pass
+        
         if hasattr(self, "stem_player"):
             self.stem_player.cleanup()
-        if hasattr(self, "stem_workspace"):
-            self.stem_workspace._cleanup_peak_threads()
-            for t in list(self.stem_workspace._peak_threads):
-                try:
-                    t.quit()
-                    t.wait(1000)
-                except RuntimeError as exc:
-                    logger.warning("closeEvent: failed to stop stem peak thread: %s", exc)
 
-        # 6. GPU-VRAM freigeben
+        # 8. VRAM final freigeben (Fix A-03: Asynchron im Hintergrund)
         try:
-            from services.model_manager import ModelManager
-            ModelManager().unload()
-        except (ImportError, RuntimeError, AttributeError) as exc:
-            logger.warning("closeEvent: failed to unload GPU models: %s", exc)
+            tm = GlobalTaskManager.instance()
+            tm.unload_in_background()
+        except Exception: pass
+
+        logger.info("Cleanup-Tasks gestartet. App-Fenster wird geschlossen.")
+        event.accept()
 
         # 7. Close DB connection pool
         try:
@@ -538,6 +531,7 @@ def _qt_message_handler(mode, context, message):
 def main():
     # CLI-Argumente prüfen (HEADLESS MODE für Installer/Pre-Caching)
     if "--pre-cache" in sys.argv:
+        import threading
         print("\n" + "=" * 60)
         print("  PB Studio — Model Pre-Caching Mode (Headless)")
         print("=" * 60)
@@ -604,14 +598,6 @@ def main():
             _orig_excepthook(args)
     threading.excepthook = _thread_exception_hook
 
-    try:
-        init_db()
-    except (OSError, RuntimeError, ImportError) as exc:
-        logging.basicConfig(level=logging.ERROR)
-        logging.critical("Datenbank-Initialisierung fehlgeschlagen: %s", exc, exc_info=True)
-        print(f"[FATAL] DB-Init fehlgeschlagen: {exc}")
-        sys.exit(1)
-
     app = QApplication(sys.argv)
 
     # ── i18n / Translations ───────────────────────────────────────────
@@ -644,72 +630,55 @@ def main():
     splash.show_message("Initialisiere Datenbank...")
     QApplication.processEvents()
 
-    from services.startup_checks import check_system
-    from ui.dialogs.startup_check_dialog import maybe_show_startup_dialog
-    _sys_status = check_system()
-    app.system_status = _sys_status
-    QApplication.processEvents()
-
-    # ── First-Run Setup Wizard (AUD-62) ──────────────────────────────
-    # P1-FIX: Gesteuert durch Feature-Flag
-    if ENABLE_SETUP_WIZARD:
-        from ui.dialogs.setup_wizard import is_setup_complete, SetupWizard
-        if not is_setup_complete():
-            splash.close()
-            wizard = SetupWizard()
-            wizard.exec()
-            splash = PBSplashScreen(APP_VERSION)
-            splash.show()
-            QApplication.processEvents()
-
-    splash.show_message("Prüfe System-Abhängigkeiten...")
-    QApplication.processEvents()
-    if not maybe_show_startup_dialog(_sys_status):
-        splash.close()
-        sys.exit(0)
-
+    # ── Startup ───────────────────────────────────────────────────────
+    # P1-FIX: Fenster sofort zeigen, damit der User Feedback hat.
+    # Schwere Operationen werden verzögert ausgeführt.
     splash.show_message("Lade Benutzeroberfläche...")
     QApplication.processEvents()
+    
     try:
         window = PBWindow()
     except (ImportError, RuntimeError, OSError) as exc:
         splash.close()
         logging.critical("Fenster-Initialisierung fehlgeschlagen: %s", exc, exc_info=True)
-        print(f"[FATAL] Fenster konnte nicht erstellt werden: {exc}")
-        traceback.print_exc()
         sys.exit(1)
 
-    # Set window icon explicitly (taskbar + title bar)
     window.setWindowIcon(_app_icon)
-
-    splash.show_message("Bereit.")
-    QApplication.processEvents()
-    window.console_text.append("[System] SQLite Datenbank (pb_studio.db) erfolgreich initialisiert.")
-    window.console_text.append("[System] PB Studio Gold-Accent Theme aktiv — v0.5 Design.")
-    window.console_text.append(f"[System] Version {APP_VERSION} — Workspace UI + KI-Pacing + Beat-Snap.")
-    window.console_text.append(f"[System] {_sys_status.status_bar_text()}")
-
-    # [KI] Startup-Status
-    try:
-        from services.ollama_client import OllamaClient as _OC
-        _ai_ready = _OC().is_available()
-    except Exception:
-        _ai_ready = False
-    if _ai_ready:
-        window.console_text.append("[KI] AI-Engine aktiv. Modell: lokal.")
-        _ai_status_text = "✓ AI ready"
-    else:
-        window.console_text.append("[KI] AI-Engine wird im Hintergrund gestartet...")
-        _ai_status_text = "⟳ AI loading..."
-
-    window.status_bar.showMessage(
-        f"PB_studio v{APP_VERSION}  |  {_sys_status.status_bar_text()}  |  {_ai_status_text}"
-    )
     window.showMaximized()
-    splash.finish(window)  # Closes splash when main window is ready
-    
-    QTimer.singleShot(2000, window.timeline_view.load_from_db)
-    QTimer.singleShot(0, window._refresh_media_table)
+    splash.finish(window)
+
+    # ── Verzögerte Initialisierung (Fix F-035) ────────────────────────
+    def final_init():
+        try:
+            # 1. Datenbank
+            from database import init_db
+            init_db()
+            window.console_text.append("[System] Datenbank bereit.")
+            
+            # 2. System Check (async via Worker um UI flüssig zu halten)
+            from workers.startup import StartupCheckWorker
+            check_worker = StartupCheckWorker()
+            check_thread = QThread(window)
+            check_worker.moveToThread(check_thread)
+            
+            def on_done(status):
+                app.system_status = status
+                window.status_bar.showMessage(f"System bereit | {status.status_bar_text()}")
+                window.console_text.append(f"[System] {status.status_bar_text()}")
+                # 3. Timeline laden wenn alles bereit ist
+                window.timeline_view.load_from_db()
+                check_thread.quit()
+            
+            check_worker.finished.connect(on_done)
+            check_worker.progress.connect(lambda msg: window.status_bar.showMessage(msg))
+            check_thread.started.connect(check_worker.run)
+            check_thread.start()
+            
+        except Exception as e:
+            logger.error("Fehler bei finaler Initialisierung: %s", e, exc_info=True)
+
+    # Startet 500ms nach dem das Fenster sichtbar ist
+    QTimer.singleShot(500, final_init)
     
     sys.exit(app.exec())
 

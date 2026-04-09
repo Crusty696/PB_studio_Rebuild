@@ -1,5 +1,6 @@
-"""VideoAnalysisController — Refactored from VideoAnalysisMixin."""
+"""VideoAnalysisController — Refactored to Model/View (Fix F-006)."""
 
+import logging
 from PySide6.QtCore import Qt
 from services.task_manager import TaskManagerProxy
 from workers import (
@@ -8,54 +9,46 @@ from workers import (
 )
 from ui.base_component import PBComponent
 
+logger = logging.getLogger(__name__)
 task_manager = TaskManagerProxy()
 
 class VideoAnalysisController(PBComponent):
-    """Video analysis methods for PBWindow."""
+    """Video analysis methods for PBWindow.
+    
+    Fully refactored to use MediaTableModel (Fix F-006).
+    """
 
     def _on_video_pool_selected(self, row, col, prev_row, prev_col):
-        """Sync video pool selection to hidden media_table."""
-        if row < 0:
-            return
-        vid_id_item = self.window.video_pool_table.item(row, 1)
-        if not vid_id_item:
-            return
-        vid_id = vid_id_item.text()
-        for r in range(self.window.media_table.rowCount()):
-            item = self.window.media_table.item(r, 0)
-            type_item = self.window.media_table.item(r, 1)
-            if item and type_item and item.text() == vid_id and type_item.text() == "Video":
-                self.window.media_table.setCurrentCell(r, 0)
-                break
+        """Selection sync logic (Fix F-006)."""
+        # Legacy media_table sync removed. 
+        # Future: update detail cards here.
+        pass
 
     def _analyze_selected_video(self):
-        # Batch: Alle angehakten Zeilen im Video Pool auslesen
-        checked_rows = []
-        for row in range(self.window.video_pool_table.rowCount()):
-            chk_item = self.window.video_pool_table.item(row, 0)
-            if chk_item and chk_item.checkState() == Qt.CheckState.Checked:
-                checked_rows.append(row)
+        """Startet Metadaten-Analyse + Proxy für ausgewählte Videos."""
+        view = self.window.video_pool_table
+        model = view.model()
+        if not model: return
 
-        if not checked_rows:
-            row = self.window.video_pool_table.currentRow()
-            if row >= 0:
-                checked_rows.append(row)
-
-        if not checked_rows:
-            self.window.console_text.append("[Warnung] Keine Zeile im Video Pool ausgewaehlt oder angehakt.")
-            return
-
+        # 1. Batch aus angehakten IDs
+        checked_ids = model.get_checked_ids()
         batch = []
-        for row in checked_rows:
-            id_item = self.window.video_pool_table.item(row, 1)
-            title_item = self.window.video_pool_table.item(row, 2)
-            if not id_item:
-                continue
-            clip_id = int(id_item.text())
-            title = title_item.text() if title_item else f"Clip {clip_id}"
-            batch.append((clip_id, title))
+        
+        if checked_ids:
+            for cid in checked_ids:
+                batch.append((cid, f"Clip {cid}"))
+        else:
+            # 2. Falls nichts angehakt, aktuelle Selektion
+            indexes = view.selectionModel().selectedRows()
+            if indexes:
+                row = indexes[0].row()
+                cid = model.index(row, 1).data()
+                title = model.index(row, 2).data()
+                if cid:
+                    batch.append((int(cid), str(title)))
 
         if not batch:
+            self.window.console_text.append("[Warnung] Keine Zeile im Video Pool ausgewaehlt oder angehakt.")
             return
 
         self.window.btn_analyze_video.setEnabled(False)
@@ -88,7 +81,6 @@ class VideoAnalysisController(PBComponent):
         self.window.worker_dispatcher._start_worker_thread(worker)
 
     def _on_video_batch_item_done(self, clip_id: int, info: str):
-        """Ein einzelnes Video im Batch ist fertig."""
         self._video_batch_done += 1
         self.window.progress_bar.setValue(self._video_batch_done)
         self.window.btn_analyze_video.setText(
@@ -99,7 +91,6 @@ class VideoAnalysisController(PBComponent):
         )
 
     def _on_video_batch_item_error(self, clip_id: int, error_msg: str):
-        """Ein einzelnes Video im Batch ist fehlgeschlagen."""
         self._video_batch_errors += 1
         self._video_batch_done += 1
         self.window.progress_bar.setValue(self._video_batch_done)
@@ -111,7 +102,6 @@ class VideoAnalysisController(PBComponent):
         )
 
     def _on_video_batch_finished(self, done: int, errors: int, task_id: str):
-        """Gesamter Batch ist fertig."""
         self.window.btn_analyze_video.setEnabled(True)
         self.window.btn_analyze_video.setText("Video analysieren")
         self.window.progress_bar.setVisible(False)
@@ -128,32 +118,25 @@ class VideoAnalysisController(PBComponent):
             task_manager.finish_task(task_id, status, f"{done} fertig{errors_info}")
 
     def _start_video_pipeline(self):
-        """Startet die 3-Schritt Video-Analyse-Pipeline für ALLE ausgewählten Videos."""
-        selected_rows = set()
-        for row in range(self.window.video_pool_table.rowCount()):
-            chk_item = self.window.video_pool_table.item(row, 0)
-            if chk_item and chk_item.checkState() == Qt.CheckState.Checked:
-                selected_rows.add(row)
-        if not selected_rows:
-            for index in self.window.video_pool_table.selectionModel().selectedRows():
-                selected_rows.add(index.row())
-        if not selected_rows:
-            row = self.window.video_pool_table.currentRow()
-            if row >= 0:
-                selected_rows.add(row)
-        if not selected_rows:
-            self.window.console_text.append("[Warnung] Keine Zeile im Video Pool ausgewaehlt oder angehakt.")
-            return
+        """Startet die 3-Schritt Video-Analyse-Pipeline (Fix F-006: Model/View)."""
+        view = self.window.video_pool_table
+        model = view.model()
+        if not model: return
 
+        # IDs sammeln (angehakt oder selektiert)
+        checked_ids = model.get_checked_ids()
         batch = []
-        for row in sorted(selected_rows):
-            id_item = self.window.video_pool_table.item(row, 1)
-            title_item = self.window.video_pool_table.item(row, 2)
-            if not id_item:
-                continue
-            clip_id = int(id_item.text())
-            title = title_item.text() if title_item else f"Clip {clip_id}"
-            batch.append((clip_id, title))
+        
+        if checked_ids:
+            for cid in checked_ids:
+                batch.append((cid, f"Clip {cid}"))
+        else:
+            indexes = view.selectionModel().selectedRows()
+            for idx in indexes:
+                cid = model.index(idx.row(), 1).data()
+                title = model.index(idx.row(), 2).data()
+                if cid:
+                    batch.append((int(cid), str(title)))
 
         if not batch:
             self.window.console_text.append("[Warnung] Keine gültigen Videos in der Auswahl.")
@@ -237,7 +220,6 @@ class VideoAnalysisController(PBComponent):
             task_manager.finish_task(task_id, "error", error_msg)
 
     def _start_proxy_creation(self, clip_id: int, video_path: str, title: str):
-        """Startet NVENC Proxy-Erstellung im Hintergrund."""
         task = task_manager.create_task(
             f"Proxy: {title}", "NVENC 540p Edit-Proxy"
         )
