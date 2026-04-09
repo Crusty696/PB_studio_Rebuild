@@ -50,37 +50,46 @@ def _ensure_torch():
 
 
 def oom_recovery(func):
-    """Decorator für Error-Recovery bei OOM-Fehlern.
+    """Decorator für robuste Error-Recovery bei OOM-Fehlern (Fix F-047).
     
-    Fängt torch.cuda.OutOfMemoryError und RuntimeError ("out of memory") ab,
-    leert den GPU-Cache und versucht den Aufruf einmalig zu wiederholen.
+    Versucht bis zu 3-mal, eine GPU-Operation durchzuführen, wobei zwischen 
+    den Versuchen zunehmend aggressiv Speicher freigegeben wird.
     """
     @wraps(func)
     def wrapper(*args, **kwargs):
-        try:
-            return func(*args, **kwargs)
-        except Exception as e:
-            # Prüfen ob es ein OOM-Fehler ist (Torch-spezifisch oder generisch)
-            error_str = str(e).lower()
-            is_oom = "out of memory" in error_str or "cuda error: out of memory" in error_str
-            
-            if not is_oom:
-                raise e
-                
-            logger.warning(f"OOM in {func.__name__} erkannt — versuche Recovery...")
-            _ensure_torch()
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-            gc.collect()
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-            
-            # Einmaliger Wiederholungsversuch
+        import time as _time
+        max_retries = 3
+        for attempt in range(max_retries):
             try:
                 return func(*args, **kwargs)
-            except Exception as e2:
-                logger.error(f"Recovery für {func.__name__} fehlgeschlagen: {e2}")
-                raise e2
+            except Exception as e:
+                error_str = str(e).lower()
+                is_oom = "out of memory" in error_str or "cuda error: out of memory" in error_str
+                
+                if not is_oom or attempt == max_retries - 1:
+                    raise e
+                
+                wait_time = (attempt + 1) * 2
+                logger.warning(
+                    "OOM in %s (Versuch %d/%d) — warte %ds und räume auf...",
+                    func.__name__, attempt + 1, max_retries, wait_time
+                )
+                
+                _ensure_torch()
+                # Aggressiver Cleanup
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                    torch.cuda.synchronize()
+                
+                # Kurze Pause damit Treiber/OS sich fangen kann
+                _time.sleep(wait_time)
+                
+                if attempt == 1:
+                    # Im zweiten Versuch entladen wir ALLES
+                    logger.info("OOM persistiert — erzwinge vollständigen Modell-Unload.")
+                    ModelManager().unload()
+        
     return wrapper
 
 

@@ -82,11 +82,16 @@ class VectorDBService:
 
     def _init_db(self):
         with sqlite3.connect(str(self.db_path)) as conn:
+            # F-042 Fix: WAL Modus für parallele Zugriffe
+            conn.execute("PRAGMA journal_mode=WAL")
             conn.execute(_CREATE_SQL)
             conn.execute(_INDEX_SQL)
 
     def _connect(self) -> sqlite3.Connection:
-        return sqlite3.connect(str(self.db_path), timeout=DB_SQLITE_CONNECT_TIMEOUT_SEC)
+        conn = sqlite3.connect(str(self.db_path), timeout=DB_SQLITE_CONNECT_TIMEOUT_SEC)
+        # F-042 Fix: WAL Modus auch für neue Connections sicherstellen
+        conn.execute("PRAGMA journal_mode=WAL")
+        return conn
 
     def add_embedding(
         self,
@@ -99,7 +104,7 @@ class VectorDBService:
         motion_score: float = 0.0,
         description: str = "",
     ) -> None:
-        """Fuegt ein einzelnes Clip-Embedding hinzu (F-007 Fix: ID vereinheitlicht)."""
+        """Fuegt ein einzelnes Clip-Embedding hinzu (F-007/F-043 Fix)."""
         if isinstance(embedding, list):
             embedding = np.array(embedding, dtype=np.float32)
         if len(embedding) != EMBEDDING_DIM:
@@ -108,7 +113,7 @@ class VectorDBService:
                 f"hat aber {len(embedding)}"
             )
         
-        # F-007 Fix: Composite ID zwingend verwenden
+        # F-043 Fix: ID-Berechnung zentralisiert
         composite_id = clip_id * 1_000_000 + scene_index
         blob = embedding.astype(np.float32).tobytes()
         
@@ -123,8 +128,8 @@ class VectorDBService:
                 )
         self._invalidate_cache()
 
-    def add_embeddings_batch(self, entries: list[dict]) -> None:
-        """Fuegt mehrere Embeddings auf einmal hinzu."""
+    def add_embeddings_batch(self, clip_id: int, entries: list[dict]) -> None:
+        """Fuegt mehrere Embeddings auf einmal hinzu (Fix F-043: clip_id als Basis)."""
         rows = []
         for entry in entries:
             emb = entry.get("embedding")
@@ -138,8 +143,13 @@ class VectorDBService:
                 blob = emb.astype(np.float32).tobytes()
             else:
                 continue
+            
+            # F-043 Fix: ID hier berechnen statt vom Caller zu erwarten
+            idx = entry["scene_index"]
+            composite_id = clip_id * 1_000_000 + idx
+            
             rows.append((
-                entry["id"], entry["video_path"], entry["scene_index"],
+                composite_id, entry["video_path"], idx,
                 entry["scene_start"], entry["scene_end"],
                 entry.get("motion_score", 0.0), entry.get("description", ""),
                 blob,
@@ -154,7 +164,7 @@ class VectorDBService:
                     "motion_score, description, embedding) VALUES (?,?,?,?,?,?,?,?)",
                     rows,
                 )
-        logger.info("VectorDB: %d Embeddings gespeichert", len(rows))
+        logger.info("VectorDB: %d Embeddings gespeichert fuer Clip %d", len(rows), clip_id)
         self._invalidate_cache()
 
     def search(

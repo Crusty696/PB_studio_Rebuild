@@ -8,7 +8,7 @@ Current design prioritizes performance and simplicity for video editing workflow
 """
 import datetime as _datetime
 
-from sqlalchemy import Column, Integer, String, Float, ForeignKey, Text, Boolean, UniqueConstraint, JSON, DateTime
+from sqlalchemy import Column, Integer, String, Float, ForeignKey, Text, Boolean, UniqueConstraint, JSON, DateTime, Index
 from sqlalchemy.orm import DeclarativeBase, relationship
 
 
@@ -41,6 +41,7 @@ class AudioTrack(Base):
     __tablename__ = "audio_tracks"
     __table_args__ = (
         UniqueConstraint("project_id", "file_path", name="uq_audio_tracks_project_file"),
+        Index("idx_audio_project", "project_id"),
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -88,6 +89,7 @@ class VideoClip(Base):
     __tablename__ = "video_clips"
     __table_args__ = (
         UniqueConstraint("project_id", "file_path", name="uq_video_clips_project_file"),
+        Index("idx_video_project", "project_id"),
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -113,6 +115,9 @@ class VideoClip(Base):
 
 class Scene(Base):
     __tablename__ = "scenes"
+    __table_args__ = (
+        Index("idx_scene_video", "video_clip_id"),
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     video_clip_id = Column(Integer, ForeignKey("video_clips.id", ondelete="CASCADE"), nullable=False)
@@ -134,6 +139,9 @@ class Scene(Base):
 
 class Beatgrid(Base):
     __tablename__ = "beatgrids"
+    __table_args__ = (
+        Index("idx_beatgrid_audio", "audio_track_id"),
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     audio_track_id = Column(Integer, ForeignKey("audio_tracks.id", ondelete="CASCADE"), nullable=False, unique=True)
@@ -160,6 +168,9 @@ class Beatgrid(Base):
 class WaveformData(Base):
     """Frequenz-basierte Wellenform-Daten (Rekordbox-Style) pro Audio-Track."""
     __tablename__ = "waveform_data"
+    __table_args__ = (
+        Index("idx_waveform_audio", "audio_track_id"),
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     audio_track_id = Column(Integer, ForeignKey("audio_tracks.id", ondelete="CASCADE"), nullable=False, unique=True)
@@ -181,6 +192,9 @@ class WaveformData(Base):
 
 class PacingBlueprint(Base):
     __tablename__ = "pacing_blueprints"
+    __table_args__ = (
+        Index("idx_blueprint_project", "project_id"),
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
@@ -198,6 +212,10 @@ class PacingBlueprint(Base):
 
 class AudioVideoAnchor(Base):
     __tablename__ = "audio_video_anchors"
+    __table_args__ = (
+        Index("idx_anchor_audio", "audio_track_id"),
+        Index("idx_anchor_video", "video_clip_id"),
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     audio_track_id = Column(Integer, ForeignKey("audio_tracks.id", ondelete="CASCADE"), nullable=False)
@@ -222,6 +240,9 @@ class ClipAnchor(Base):
     ausgerichtet werden.
     """
     __tablename__ = "clip_anchors"
+    __table_args__ = (
+        Index("idx_clip_anchor_entry", "timeline_entry_id"),
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     timeline_entry_id = Column(Integer, ForeignKey("timeline_entries.id", ondelete="CASCADE"), nullable=False)
@@ -243,6 +264,10 @@ class AIPacingMemory(Base):
     aus Audio-Kontext und Video-Entscheidung beeinflusst kuenftige Auto-Edits.
     """
     __tablename__ = "ai_pacing_memory"
+    __table_args__ = (
+        Index("idx_pacing_memory_audio", "audio_track_id"),
+        Index("idx_pacing_memory_scene", "scene_id"),
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     created_at = Column(String, nullable=True, default=lambda: _datetime.datetime.utcnow().isoformat())
@@ -264,7 +289,7 @@ class AIPacingMemory(Base):
 
     # ── Referenz ──
     scene_id = Column(Integer, ForeignKey("scenes.id", ondelete="SET NULL"), nullable=True)
-    audio_track_id = Column(Integer, ForeignKey("audio_tracks.id", ondelete="CASCADE"), nullable=True)
+    audio_track_id = Column(Integer, ForeignKey("audio_tracks.id", ondelete="SET NULL"), nullable=True)
     label = Column(String, nullable=True)
 
     def __repr__(self):
@@ -274,6 +299,9 @@ class AIPacingMemory(Base):
 class StructureSegment(Base):
     """Song-Struktur Segment (INTRO, BUILDUP, DROP, BREAKDOWN, OUTRO etc.)."""
     __tablename__ = "structure_segments"
+    __table_args__ = (
+        Index("idx_structure_audio", "audio_track_id"),
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     audio_track_id = Column(Integer, ForeignKey("audio_tracks.id", ondelete="CASCADE"), nullable=False)

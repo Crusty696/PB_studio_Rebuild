@@ -419,7 +419,14 @@ class EditWorkspaceController(PBComponent):
         if success:
             self.window.console_text.append(f"[KI-Gedaechtnis] Regel gelernt: {time_text} — Wird beim naechsten Auto-Edit beruecksichtigt.")
             self.window.btn_learn_ai.setStyleSheet("background-color: #4ade80; color: #0a0d12; font-weight: 800; font-size: 10px; border-radius: 3px;")
-            QTimer.singleShot(2000, lambda: self.window.btn_learn_ai.setStyleSheet("background-color: #d4a44a; color: #0a0d12; font-weight: 800; font-size: 10px; border-radius: 3px;"))
+            def _reset_btn():
+                if self.window and self.window.isVisible():
+                    self.window.btn_learn_ai.setStyleSheet(
+                        "background-color: #d4a44a; color: #0a0d12; "
+                        "font-weight: 800; font-size: 10px; border-radius: 3px;"
+                    )
+            
+            QTimer.singleShot(2000, _reset_btn)
         else:
             self.window.console_text.append("[KI-Gedaechtnis] Fehler beim Speichern der Regel.")
 
@@ -479,11 +486,12 @@ class EditWorkspaceController(PBComponent):
         self.window.console_text.append(f"[Timeline] Clip {entry_id} verschoben -> Start: {new_start:.2f}s")
 
     def _add_selected_to_timeline(self):
+        """Fügt selektiertes Medium asynchron zur Timeline hinzu (Fix F-045)."""
         media_type = None
         media_id = None
         title = None
         
-        # 1. Audio Pool prüfen
+        # 1. Auswahl-Ermittlung (bleibt im UI-Thread)
         a_view = self.window.audio_pool_table
         a_model = a_view.model()
         a_indexes = a_view.selectionModel().selectedRows()
@@ -491,11 +499,9 @@ class EditWorkspaceController(PBComponent):
             row = a_indexes[0].row()
             mid = a_model.index(row, 1).data()
             if mid and str(mid).isdigit():
-                media_type = "Audio"
-                media_id = int(mid)
+                media_type = "Audio"; media_id = int(mid)
                 title = a_model.index(row, 2).data() or f"Audio #{media_id}"
 
-        # 2. Falls kein Audio, Video Pool prüfen
         if media_id is None:
             v_view = self.window.video_pool_table
             v_model = v_view.model()
@@ -504,8 +510,7 @@ class EditWorkspaceController(PBComponent):
                 row = v_indexes[0].row()
                 mid = v_model.index(row, 1).data()
                 if mid and str(mid).isdigit():
-                    media_type = "Video"
-                    media_id = int(mid)
+                    media_type = "Video"; media_id = int(mid)
                     title = v_model.index(row, 2).data() or f"Video #{media_id}"
 
         if media_id is None:
@@ -513,19 +518,39 @@ class EditWorkspaceController(PBComponent):
             return
 
         track_type = "audio" if media_type == "Audio" else "video"
-        with DBSession(engine) as session:
-            existing = session.query(TimelineEntry).filter_by(project_id=get_active_project_id(), track=track_type).order_by(TimelineEntry.start_time.desc()).first()
-            start_time = existing.end_time if existing and existing.end_time else 0.0
-            if track_type == "audio":
-                obj = session.get(AudioTrack, media_id)
-                duration = obj.duration if obj and obj.duration else 30.0
-            else:
-                obj = session.get(VideoClip, media_id)
-                duration = obj.duration if obj and obj.duration else 10.0
+        
+        # 2. DB-Abfrage in Hintergrund-Thread auslagern
+        from PySide6.QtCore import QObject, Signal
+        class AddClipWorker(QObject):
+            finished = Signal(float, float) # start_time, duration
+            error = Signal(str)
+            def run(self):
+                try:
+                    from database import nullpool_session, TimelineEntry, AudioTrack, VideoClip, get_active_project_id
+                    with nullpool_session() as session:
+                        existing = session.query(TimelineEntry).filter_by(
+                            project_id=get_active_project_id(), track=track_type
+                        ).order_by(TimelineEntry.start_time.desc()).first()
+                        st = existing.end_time if existing and existing.end_time else 0.0
+                        if track_type == "audio":
+                            obj = session.get(AudioTrack, media_id)
+                            dur = obj.duration if obj and obj.duration else 30.0
+                        else:
+                            obj = session.get(VideoClip, media_id)
+                            dur = obj.duration if obj and obj.duration else 10.0
+                        self.finished.emit(st, dur)
+                except Exception as e: self.error.emit(str(e))
 
-        from ui.undo_commands import AddClipCommand
-        cmd = AddClipCommand(self.window.timeline_view, get_active_project_id(), track_type, media_id, title, start_time, duration)
-        self.window.timeline_view.undo_stack.push(cmd)
-        self.window._mark_dirty()
-        self.window.console_text.append(f"[Timeline] {media_type} '{title}' hinzugefuegt.")
-        self.window.nav_bar.set_workspace(1)
+        worker = AddClipWorker()
+        def _on_done(start_time, duration):
+            from ui.undo_commands import AddClipCommand
+            cmd = AddClipCommand(self.window.timeline_view, get_active_project_id(), 
+                               track_type, media_id, title, start_time, duration)
+            self.window.timeline_view.undo_stack.push(cmd)
+            self.window._mark_dirty()
+            self.window.console_text.append(f"[Timeline] {media_type} '{title}' hinzugefuegt.")
+            self.window.nav_bar.set_workspace(1)
+
+        GlobalTaskManager.instance().start_task(
+            name="Clip zur Timeline", worker=worker, on_finish=_on_done
+        )

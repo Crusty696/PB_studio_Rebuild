@@ -689,7 +689,6 @@ def store_embeddings(
             continue
 
         entries.append({
-            "id": video_clip_id * 1_000_000 + scene.index,
             "video_path": video_path,
             "scene_index": scene.index,
             "scene_start": scene.start_time,
@@ -700,8 +699,8 @@ def store_embeddings(
         })
 
     if entries:
-        logger.info("[VectorDB] add_embeddings_batch (%d entries)...", len(entries))
-        vdb.add_embeddings_batch(entries)
+        logger.info("[VectorDB] add_embeddings_batch (%d entries) fuer Clip %d...", len(entries), video_clip_id)
+        vdb.add_embeddings_batch(video_clip_id, entries)
         logger.info("[VectorDB] %d Embeddings gespeichert fuer %s", len(entries), Path(video_path).name)
 
     return len(entries)

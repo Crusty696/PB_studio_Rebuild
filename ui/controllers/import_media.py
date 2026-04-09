@@ -99,7 +99,7 @@ class ImportMediaController(PBComponent):
         self.window.worker_dispatcher._start_worker_thread(worker, on_finish=_on_finish, on_error=_on_error)
 
     def _clear_all_media(self):
-        """Loescht alle Medien aus Datenbank und UI."""
+        """Loescht alle Medien asynchron aus Datenbank und UI (Fix F-045)."""
         from PySide6.QtWidgets import QMessageBox
         reply = QMessageBox.question(
             self.window, "Sammlung bereinigen",
@@ -108,14 +108,29 @@ class ImportMediaController(PBComponent):
             QMessageBox.StandardButton.No,
         )
         if reply == QMessageBox.StandardButton.Yes:
-            count = delete_all_media()
-            self.window.media_table_controller._refresh_media_table()
-            self.window._mark_dirty()
-            self.window.console_text.append(f"[System] {count} Medien-Eintraege geloescht.")
-            self.window.status_bar.showMessage(f"Sammlung bereinigt ({count} Eintraege) | System bereit")
+            from PySide6.QtCore import QObject, Signal
+            class DeleteWorker(QObject):
+                finished = Signal(int)
+                def run(self):
+                    count = delete_all_media()
+                    self.finished.emit(count)
+
+            worker = DeleteWorker()
+            def _on_done(count):
+                self.window.media_table_controller._refresh_media_table()
+                self.window._mark_dirty()
+                self.window.console_text.append(f"[System] {count} Medien-Eintraege geloescht.")
+                self.window.status_bar.showMessage(f"Sammlung bereinigt ({count} Eintraege)")
+
+            from services.task_manager import GlobalTaskManager
+            GlobalTaskManager.instance().start_task(
+                name="Datenbank bereinigen",
+                worker=worker,
+                description="Entfernt alle Medien-Eintraege"
+            )
 
     def _delete_selected_media(self, pool: str):
-        """Loescht alle angehakten Medien (Fix F-006: Model/View)."""
+        """Loescht alle angehakten Medien asynchron (Fix F-045)."""
         from PySide6.QtWidgets import QMessageBox
         video_ids = []
         audio_ids = []
@@ -142,8 +157,23 @@ class ImportMediaController(PBComponent):
             QMessageBox.StandardButton.No,
         )
         if reply == QMessageBox.StandardButton.Yes:
-            count = delete_selected_media(video_ids, audio_ids)
-            self.window.media_table_controller._refresh_media_table()
-            self.window._mark_dirty()
-            self.window.console_text.append(f"[System] {count} Medien-Eintraege geloescht.")
-            self.window.status_bar.showMessage(f"{count} Medien geloescht | System bereit")
+            from PySide6.QtCore import QObject, Signal
+            class PartialDeleteWorker(QObject):
+                finished = Signal(int)
+                def run(self):
+                    count = delete_selected_media(video_ids, audio_ids)
+                    self.finished.emit(count)
+
+            worker = PartialDeleteWorker()
+            def _on_done(count):
+                self.window.media_table_controller._refresh_media_table()
+                self.window._mark_dirty()
+                self.window.console_text.append(f"[System] {count} Medien-Eintraege geloescht.")
+                self.window.status_bar.showMessage(f"{count} Medien geloescht")
+
+            from services.task_manager import GlobalTaskManager
+            GlobalTaskManager.instance().start_task(
+                name="Medien loeschen",
+                worker=worker,
+                description=f"Entfernt {total} ausgewaehlte Medien"
+            )

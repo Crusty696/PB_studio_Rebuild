@@ -390,13 +390,18 @@ class VisionAnalysisWorker(QObject, CancellableMixin):
         _ok = False
         try:
             from services.vision_analysis_service_moondream import VisionAnalysisService
+            from services.model_manager import GPU_EXECUTION_LOCK
             svc = VisionAnalysisService()
-            result = svc.analyze(
-                self.video_path,
-                interval_sec=self.interval_sec,
-                max_frames=self.max_frames,
-                progress_cb=lambda pct, msg: self.progress.emit(pct, msg),
-            )
+            
+            # F-041 Fix: Inferenz-Phase global locken
+            with GPU_EXECUTION_LOCK:
+                result = svc.analyze(
+                    self.video_path,
+                    interval_sec=self.interval_sec,
+                    max_frames=self.max_frames,
+                    progress_cb=lambda pct, msg: self.progress.emit(pct, msg),
+                )
+            
             self.finished.emit(self.clip_id, {
                 "descriptions": result.descriptions,
                 "summary": result.summary,

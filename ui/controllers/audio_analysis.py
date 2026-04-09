@@ -311,6 +311,11 @@ class AudioAnalysisController(PBComponent):
 
     def _run_next_sequential_step(self):
         """Startet den naechsten Schritt in der sequentiellen Analyse-Queue."""
+        # F-046 Fix: Abbrechen wenn Fenster nicht mehr da oder versteckt (Shutdown-Schutz)
+        if not self.window or not self.window.isVisible():
+            logger.info("[Komplett] Analyse-Kette abgebrochen (Fenster nicht aktiv).")
+            return
+
         if self._seq_index >= self._seq_total:
             self.window._media_ws.btn_analyze_all.setEnabled(True)
             self.window._media_ws.btn_analyze_all.setText("KOMPLETT-ANALYSE")
@@ -360,6 +365,10 @@ class AudioAnalysisController(PBComponent):
             QTimer.singleShot(500, self._run_next_sequential_step)
 
     def _on_seq_step_done(self, step_name: str, success: bool):
+        # F-046 Fix: Abbrechen wenn Fenster nicht mehr aktiv
+        if not self.window or not self.window.isVisible():
+            return
+
         if success:
             self._seq_done += 1
             self.window.console_text.append(f"[Komplett] {step_name} OK")
@@ -368,7 +377,9 @@ class AudioAnalysisController(PBComponent):
             self.window.console_text.append(f"[Komplett] {step_name} FEHLER (uebersprungen)")
 
         self._seq_index += 1
-        QTimer.singleShot(500, self._run_next_sequential_step)
+        # F-046 Fix: Kuerzerer Timer fuer Responsiveness + Guard
+        if self.window.isVisible():
+            QTimer.singleShot(100, self._run_next_sequential_step)
 
     def _create_analysis_worker(self, track_id: int, title: str):
         return AnalysisWorker(track_id, title)
