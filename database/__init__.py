@@ -32,6 +32,7 @@ from database.models import (  # noqa: F401
     AgentFeedback,
     StylePreset,
     TimelineEntry,
+    AnalysisStatus,
 )
 
 from database.migrations import init_db  # noqa: F401
