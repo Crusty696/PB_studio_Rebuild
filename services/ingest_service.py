@@ -214,64 +214,67 @@ def get_audio_detail_data(audio_id: int) -> dict | None:
 
 def get_all_audio(project_id: int = 1, limit: int = 5000) -> list[dict]:
     from services import analysis_status_service
+    # Collect ORM data first, then close session before calling analysis_status_service
+    # to avoid connection pool exhaustion (selectin loaders hold pool connections).
     with Session(engine) as session:
         tracks = session.query(AudioTrack).filter_by(project_id=project_id).limit(limit).all()
-        result = []
+        raw_data = []
         for t in tracks:
-            # Stem-Status berechnen
             stem_count = sum(1 for p in [
                 t.stem_vocals_path, t.stem_drums_path,
                 t.stem_bass_path, t.stem_other_path
             ] if p)
-            stems = f"{stem_count}/4" if stem_count > 0 else "-"
-
-            # Get analysis completion percentage
-            try:
-                analysis_percent = analysis_status_service.get_completion_percent("audio", t.id)
-            except Exception:
-                analysis_percent = 0
-
-            result.append({
+            raw_data.append({
                 "id": t.id, "title": t.title, "file_path": t.file_path,
-                "type": "Audio", "bpm": t.bpm, "stems": stems,
-                # Extra fields for Grid View (AUD-72)
+                "type": "Audio", "bpm": t.bpm,
+                "stems": f"{stem_count}/4" if stem_count > 0 else "-",
                 "key": t.key,
                 "mood": t.mood,
                 "genre": t.genre,
                 "duration": t.duration,
                 "energy_curve": t.energy_curve,
-                "analysis_percent": analysis_percent,
             })
-        return result
+
+    # Session is closed — safe to call analysis_status_service (opens its own session)
+    for item in raw_data:
+        try:
+            item["analysis_percent"] = analysis_status_service.get_completion_percent("audio", item["id"])
+        except Exception:
+            item["analysis_percent"] = 0
+
+    return raw_data
 
 
 def get_all_video(project_id: int = 1, limit: int = 5000) -> list[dict]:
     from services import analysis_status_service
+    # Collect ORM data first, then close session before calling analysis_status_service
+    # to avoid connection pool exhaustion (selectin loaders hold pool connections).
     with Session(engine) as session:
         clips = session.query(VideoClip).filter(
             VideoClip.project_id == project_id,
             VideoClip.deleted_at.is_(None)
         ).limit(limit).all()
-        result = []
+        raw_data = []
         for c in clips:
-            res = f"{c.width}x{c.height}" if c.width and c.height else None
-            # Get analysis completion percentage
-            try:
-                analysis_percent = analysis_status_service.get_completion_percent("video", c.id)
-            except Exception:
-                analysis_percent = 0
-            result.append({
+            raw_data.append({
                 "id": c.id,
                 "title": Path(c.file_path).stem,
                 "file_path": c.file_path,
                 "type": "Video",
-                "resolution": res,
+                "resolution": f"{c.width}x{c.height}" if c.width and c.height else None,
                 "fps": c.fps,
                 "codec": getattr(c, "codec", None) or "-",
                 "stems": "-",
-                "analysis_percent": analysis_percent,
             })
-        return result
+
+    # Session is closed — safe to call analysis_status_service (opens its own session)
+    for item in raw_data:
+        try:
+            item["analysis_percent"] = analysis_status_service.get_completion_percent("video", item["id"])
+        except Exception:
+            item["analysis_percent"] = 0
+
+    return raw_data
 
 
 def get_all_media(project_id: int = 1) -> list[dict]:
