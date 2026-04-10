@@ -77,11 +77,14 @@ class AIAgentWorker(QObject):
     # 10 erlaubt echte Batch-Operationen (z.B. 4 Audio + 4 Video + 2 Misc)
     MAX_CONSECUTIVE_CALLS = 10
 
+    # H-30 FIX: Shared class-level lock to protect agent.registry across all worker instances
+    # (instance-level lock would not protect against concurrent access from multiple workers)
+    _registry_lock = threading.Lock()
+
     def __init__(self, agent, user_text: str):
         super().__init__()
         self.agent = agent
         self.user_text = user_text
-        self._registry_lock = threading.Lock()
 
     def run(self):
         _ok = False

@@ -13,7 +13,9 @@ from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
 
-STRATEGIST_MODEL_ID = "gemma4:e4b"
+# H-16 FIX: Use HuggingFace model ID instead of Ollama ID for HF transformers fallback
+# (Ollama is tried first in _generate(), this is the HF fallback)
+STRATEGIST_MODEL_ID = "Qwen/Qwen2.5-1.5B-Instruct"
 
 SYSTEM_PROMPT = """\
 Du bist ein DJ-Video-Pacing-Experte. Du bekommst die Struktur eines DJ-Mixes \

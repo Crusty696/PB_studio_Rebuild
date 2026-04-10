@@ -51,8 +51,8 @@ def _ensure_torch():
 
 def oom_recovery(func):
     """Decorator für robuste Error-Recovery bei OOM-Fehlern (Fix F-047).
-    
-    Versucht bis zu 3-mal, eine GPU-Operation durchzuführen, wobei zwischen 
+
+    Versucht bis zu 3-mal, eine GPU-Operation durchzuführen, wobei zwischen
     den Versuchen zunehmend aggressiv Speicher freigegeben wird.
     """
     @wraps(func)
@@ -65,31 +65,38 @@ def oom_recovery(func):
             except Exception as e:
                 error_str = str(e).lower()
                 is_oom = "out of memory" in error_str or "cuda error: out of memory" in error_str
-                
+
                 if not is_oom or attempt == max_retries - 1:
                     raise e
-                
+
                 wait_time = (attempt + 1) * 2
                 logger.warning(
                     "OOM in %s (Versuch %d/%d) — warte %ds und räume auf...",
                     func.__name__, attempt + 1, max_retries, wait_time
                 )
-                
+
                 _ensure_torch()
                 # Aggressiver Cleanup
                 gc.collect()
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
                     torch.cuda.synchronize()
-                
+
                 # Kurze Pause damit Treiber/OS sich fangen kann
                 _time.sleep(wait_time)
-                
+
                 if attempt == 1:
                     # Im zweiten Versuch entladen wir ALLES
                     logger.info("OOM persistiert — erzwinge vollständigen Modell-Unload.")
-                    ModelManager().unload()
-        
+                    # C-6 FIX: Acquire GPU_LOAD_LOCK first to maintain consistent lock ordering
+                    # (GPU_LOAD_LOCK -> _swap_lock) and prevent deadlock
+                    with GPU_LOAD_LOCK:
+                        ModelManager().unload()
+
+        # H-6 FIX: Return None if all retries exhausted without raising
+        # (should not normally reach here, but explicit is better than implicit)
+        return None
+
     return wrapper
 
 
@@ -155,7 +162,21 @@ class ModelManager:
                 return
             ModelManager._gpu_logged = True
 
-        if torch.cuda.is_available():
+        _ensure_torch()
+        
+        # Versuche CUDA initialisierung zu erzwingen um echte Fehler zu sehen
+        cuda_ok = False
+        cuda_error = ""
+        try:
+            cuda_ok = torch.cuda.is_available()
+            if not cuda_ok:
+                # Prüfen ob CUDA-DLLs fehlen
+                torch.cuda.init() # Erzwingt init
+        except Exception as e:
+            cuda_error = str(e)
+            cuda_ok = False
+
+        if cuda_ok:
             gpu_name = torch.cuda.get_device_name(0)
             props = torch.cuda.get_device_properties(0)
             vram_total = float(props.total_memory) / 1024 / 1024
@@ -166,25 +187,25 @@ class ModelManager:
             }
             banner = (
                 f"\n{'=' * 60}\n"
-                f"  HARDWARE AKTIV: {gpu_name}\n"
+                f"  🚀 HARDWARE BESCHLEUNIGUNG AKTIV: {gpu_name}\n"
                 f"  VRAM: {vram_total:.0f} MB | CUDA: {self._gpu_info['cuda_version']}\n"
-                f"  GPU-ZWANG: Alle KI-Modelle laufen auf CUDA\n"
+                f"  STATUS: Alle KI-Modelle laufen auf der GPU\n"
                 f"{'=' * 60}\n"
             )
-            # Direkt auf stdout für maximale Sichtbarkeit
             print(banner)
-            logger.info("HARDWARE AKTIV: %s (%.0f MB VRAM, CUDA %s)",
-                        gpu_name, vram_total, self._gpu_info['cuda_version'])
         else:
             self._gpu_info = {"name": "CPU", "vram_total_mb": 0, "cuda_version": None}
             banner = (
-                f"\n{'=' * 60}\n"
-                f"  WARNUNG: Keine CUDA-GPU erkannt!\n"
-                f"  Alle KI-Modelle laufen auf CPU (langsam)\n"
-                f"{'=' * 60}\n"
+                f"\n{'!' * 60}\n"
+                f"  🚨 WARNUNG: GPU-BESCHLEUNIGUNG NICHT MÖGLICH!\n"
+                f"  Fehler: {cuda_error or 'Keine CUDA-GPU erkannt'}\n"
+                f"  Grund: Meistens fehlt der NVIDIA-Treiber (Version 530+).\n"
+                f"  AKTION: Bitte NVIDIA-Treiber installieren und PC neustarten!\n"
+                f"  HINWEIS: Modelle laufen jetzt EXTREM LANGSAM auf der CPU.\n"
+                f"{'!' * 60}\n"
             )
             print(banner)
-            logger.warning("Keine CUDA-GPU erkannt — CPU-Modus aktiv")
+            logger.error("CUDA-Initialisierungsfehler: %s", cuda_error)
 
     @property
     def gpu_info(self) -> dict:
@@ -365,79 +386,6 @@ class ModelManager:
 
             # Ollama fortsetzen — GPU ist jetzt frei
             self._resume_ollama_if_paused()
-
-    def load_transformers(self, model_id: str) -> tuple:
-        """Lädt ein HuggingFace transformers Modell (Text-Generation).
-
-        Returns:
-            (tokenizer, model, pipeline)
-        """
-        with self._swap_lock:
-            if self._current_model_id == model_id and self._model_type == "transformers":
-                return self._tokenizer, self._model, self._pipe
-
-            # Ollama pausieren, bevor GPU belegt wird
-            self._pause_ollama_if_active()
-
-            # Altes Modell entladen
-            self.unload()
-
-            # F-011: Proaktiver OOM-Check vor Laden
-            self._handle_oom_prevention(f"transformers '{model_id}' laden")
-
-            # B-05: VRAM pre-check — fragmentierten Speicher freigeben vor dem Laden
-            if torch.cuda.is_available():
-                torch.cuda.synchronize()
-                torch.cuda.empty_cache()
-                gc.collect()
-                torch.cuda.empty_cache()
-
-            logger.info("ModelManager: Lade transformers '%s' auf %s...", model_id, self.device)
-
-            from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
-
-            try:
-                self._tokenizer = AutoTokenizer.from_pretrained(
-                    model_id,
-                )
-                dtype = torch.float32 if self.device == "cpu" else torch.float16
-                self._model = AutoModelForCausalLM.from_pretrained(
-                    model_id,
-                    torch_dtype=dtype,
-                    device_map={"": self.device},
-                )
-                self._model.eval()
-
-                # KEIN device= wenn device_map verwendet wurde (HuggingFace ValueError)
-                self._pipe = pipeline(
-                    "text-generation",
-                    model=self._model,
-                    tokenizer=self._tokenizer,
-                )
-            except torch.cuda.OutOfMemoryError:
-                logger.error("OOM beim Laden von transformers '%s' — räume auf.", model_id)
-                self.unload()
-                raise RuntimeError(
-                    f"VRAM reicht nicht für transformers '{model_id}'. "
-                    f"GPU-Speicher wurde freigegeben."
-                )
-            except (OSError, EnvironmentError) as e:
-                logger.error("Transformers-Modell '%s' nicht gefunden: %s", model_id, e)
-                self.unload()
-                from services.errors import MLModelNotFoundError
-                raise MLModelNotFoundError(
-                    model_id,
-                    hint=(
-                        f"Bitte Modell herunterladen: "
-                        f"huggingface-cli download {model_id}"
-                    ),
-                ) from e
-
-            self._current_model_id = model_id
-            self._model_type = "transformers"
-            logger.info("ModelManager: transformers '%s' geladen.", model_id)
-
-            return self._tokenizer, self._model, self._pipe
 
     def load_whisper(self, model_size: str = "large-v3") -> Any:
         """Lädt ein faster-whisper Modell für Transkription.
@@ -813,24 +761,14 @@ class ModelManager:
         return handle
 
     def _pause_ollama_if_active(self) -> None:
-        """Pausiert den Ollama-Client und erzwingt VRAM-Freigabe (F-001 Fix).
-
-        Wird intern vor dem Laden GPU-intensiver Modelle aufgerufen.
+        """Pausiert den Ollama-Client (F-001 Fix).
+        Da OLLAMA_KEEP_ALIVE=0 gesetzt ist, ist der VRAM bereits leer.
+        Das Flag verhindert lediglich neue Inferenz-Anfragen während GPU-Tasks.
         """
         from services.ollama_client import _default_client
         if _default_client is not None and not _default_client.is_paused:
             _default_client.pause()
             logger.info("ModelManager: Ollama pausiert vor GPU-Modell-Load.")
-            
-            # Echter VRAM-Unload via API (Best-Effort)
-            try:
-                import requests
-                # Wir schicken keep_alive: 0 an die API, um den Speicher sofort zu leeren
-                url = f"{_default_client.base_url}/api/generate"
-                requests.post(url, json={"model": "gemma2:2b", "prompt": "", "keep_alive": 0}, timeout=1.0)
-                logger.info("Ollama VRAM-Unload (keep_alive: 0) angefordert.")
-            except Exception as e:
-                logger.debug("Ollama VRAM-Unload fehlgeschlagen: %s", e)
 
     def _resume_ollama_if_paused(self) -> None:
         """Setzt den Ollama-Client fort falls pausiert."""

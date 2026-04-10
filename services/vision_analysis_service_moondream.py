@@ -49,6 +49,10 @@ class VisionAnalysisService:
         # Modell laden (mit trust_remote_code fuer Moondream2)
         # Graceful degradation: wenn Modell nicht vorhanden, leeres Ergebnis zurueckgeben
         from services.errors import MLModelNotFoundError, CUDAOutOfMemoryError
+
+        # H-9 FIX: Initialize mm to None to prevent NameError in finally block
+        mm = None
+
         try:
             with GPU_LOAD_LOCK:
                 mm = ModelManager()
@@ -111,59 +115,61 @@ class VisionAnalysisService:
         if progress_cb:
             progress_cb(20, f"Analysiere {len(frames)} Frames...")
 
-        # Frames mit Moondream2 beschreiben
-        from PIL import Image
-        import torch
+        # H-9 FIX: Wrap frame processing in try-finally to ensure VRAM cleanup
+        try:
+            # Frames mit Moondream2 beschreiben
+            from PIL import Image
+            import torch
 
-        descriptions = []
-        for i, (time_sec, frame_rgb) in enumerate(frames):
+            descriptions = []
+            for i, (time_sec, frame_rgb) in enumerate(frames):
+                if progress_cb:
+                    pct = 20 + int(70 * (i + 1) / len(frames))
+                    progress_cb(pct, f"Frame {i+1}/{len(frames)} ({time_sec:.1f}s)...")
+
+                try:
+                    pil_image = Image.fromarray(frame_rgb)
+
+                    # Moondream2 API: model.answer_question(image, question, tokenizer)
+                    with torch.no_grad():
+                        answer = model.answer_question(
+                            tokenizer=tokenizer,
+                            image=pil_image,
+                            question="Describe this video frame in detail. What do you see?",
+                        )
+
+                    descriptions.append({
+                        "time": round(time_sec, 2),
+                        "description": answer.strip(),
+                    })
+                except (OSError, ValueError, RuntimeError, AttributeError) as e:
+                    logger.warning("[Vision] Frame bei %.1fs fehlgeschlagen: %s", time_sec, e)
+                    descriptions.append({
+                        "time": round(time_sec, 2),
+                        "description": f"[Analyse-Fehler: {e}]",
+                    })
+
+            # Summary aus allen Beschreibungen
+            if descriptions:
+                all_texts = [d["description"] for d in descriptions if not d["description"].startswith("[")]
+                summary = " | ".join(all_texts[:5])  # Erste 5 Beschreibungen als Summary
+            else:
+                summary = ""
+
             if progress_cb:
-                pct = 20 + int(70 * (i + 1) / len(frames))
-                progress_cb(pct, f"Frame {i+1}/{len(frames)} ({time_sec:.1f}s)...")
+                progress_cb(100, "Fertig")
 
-            try:
-                pil_image = Image.fromarray(frame_rgb)
+            logger.info("[Vision] Analyse fertig: %s, %d Frames, %d Beschreibungen",
+                        path.name, len(frames), len(descriptions))
 
-                # Moondream2 API: model.answer_question(image, question, tokenizer)
-                with torch.no_grad():
-                    answer = model.answer_question(
-                        tokenizer=tokenizer,
-                        image=pil_image,
-                        question="Describe this video frame in detail. What do you see?",
-                    )
-
-                descriptions.append({
-                    "time": round(time_sec, 2),
-                    "description": answer.strip(),
-                })
-            except (OSError, ValueError, RuntimeError, AttributeError) as e:
-                logger.warning("[Vision] Frame bei %.1fs fehlgeschlagen: %s", time_sec, e)
-                descriptions.append({
-                    "time": round(time_sec, 2),
-                    "description": f"[Analyse-Fehler: {e}]",
-                })
-
-        # Summary aus allen Beschreibungen
-        if descriptions:
-            all_texts = [d["description"] for d in descriptions if not d["description"].startswith("[")]
-            summary = " | ".join(all_texts[:5])  # Erste 5 Beschreibungen als Summary
-        else:
-            summary = ""
-
-        if progress_cb:
-            progress_cb(95, "Aufraemen...")
-
-        # VRAM freigeben
-        mm.unload()
-
-        if progress_cb:
-            progress_cb(100, "Fertig")
-
-        logger.info("[Vision] Analyse fertig: %s, %d Frames, %d Beschreibungen",
-                    path.name, len(frames), len(descriptions))
-
-        return VisionAnalysisResult(
-            descriptions=descriptions,
-            summary=summary,
-            frame_count=len(frames),
-        )
+            return VisionAnalysisResult(
+                descriptions=descriptions,
+                summary=summary,
+                frame_count=len(frames),
+            )
+        finally:
+            # H-9 FIX: Always unload model to prevent VRAM leak, even on exception
+            if progress_cb:
+                progress_cb(95, "Aufraemen...")
+            if mm is not None:
+                mm.unload()

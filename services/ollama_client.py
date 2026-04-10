@@ -222,8 +222,11 @@ class OllamaClient:
 
     def _find_fallback_model(self, failed_model: str) -> str | None:
         """Findet ein alternatives Modell wenn das gewünschte nicht ladbar ist."""
-        self._unloadable_models.add(failed_model)
-        available = set(self.list_models()) - self._unloadable_models
+        # H-20 FIX: Protect _unloadable_models set access with lock (thread-safe)
+        with self._lock:
+            self._unloadable_models.add(failed_model)
+            available = set(self.list_models()) - self._unloadable_models
+
         for model in RECOMMENDED_MODELS:
             if model in available:
                 return model
@@ -242,6 +245,7 @@ class OllamaClient:
         system_prompt: str | None = None,
         temperature: float = 0.1,
         max_tokens: int = 512,
+        _in_fallback: bool = False,
     ) -> str:
         """Sendet eine Chat-Anfrage an Ollama und gibt die Antwort zurück.
 
@@ -251,6 +255,7 @@ class OllamaClient:
             system_prompt: Optional System-Prompt
             temperature: Kreativität (0.0-1.0, Standard 0.1 für JSON-Output)
             max_tokens: Maximale Ausgabelänge
+            _in_fallback: Internal flag to prevent infinite recursion (H-5 fix)
 
         Returns:
             Generierter Text
@@ -307,6 +312,17 @@ class OllamaClient:
         except urllib.error.HTTPError as e:
             body = e.read().decode("utf-8", errors="replace")
             if "memory layout" in body:
+                # H-5 FIX: Prevent infinite recursion by disallowing fallback-of-fallback
+                if _in_fallback:
+                    logger.error(
+                        "OllamaClient: Fallback-Modell '%s' passt auch nicht in RAM/VRAM. "
+                        "Keine weiteren Fallbacks möglich.", model,
+                    )
+                    raise OllamaModelNotFoundError(
+                        model=model,
+                        reason="Fallback-Modell passt nicht in RAM/VRAM"
+                    ) from e
+
                 logger.warning(
                     "OllamaClient: Modell '%s' passt nicht in RAM/VRAM. "
                     "Suche alternatives Modell...", model,
@@ -314,7 +330,7 @@ class OllamaClient:
                 fallback = self._find_fallback_model(model)
                 if fallback:
                     logger.info("OllamaClient: Fallback auf '%s'.", fallback)
-                    return self.chat(fallback, user_message, system_prompt, temperature, max_tokens)
+                    return self.chat(fallback, user_message, system_prompt, temperature, max_tokens, _in_fallback=True)
                 raise OllamaModelNotFoundError(
                     model=model,
                     reason="Passt nicht in RAM/VRAM und kein Fallback verfuegbar"

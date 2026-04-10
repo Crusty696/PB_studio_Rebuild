@@ -50,7 +50,7 @@ class TranscriptionService:
             TranscriptionResult mit Text, Sprache und Segmenten.
         """
         from faster_whisper import WhisperModel
-        from services.model_manager import ModelManager, GPU_LOAD_LOCK
+        from services.model_manager import ModelManager, GPU_LOAD_LOCK, GPU_EXECUTION_LOCK
 
         path = Path(audio_path)
         if not path.exists():
@@ -116,35 +116,38 @@ class TranscriptionService:
 
         logger.info("[Whisper] Starte Transkription: %s", path.name)
 
-        segments_list, info = model.transcribe(
-            str(audio_path),
-            language=language,
-            beam_size=5,
-            vad_filter=True,       # Voice Activity Detection — filtert Stille
-            vad_parameters=dict(
-                min_silence_duration_ms=500,
-            ),
-        )
+        # C-5 FIX: GPU_EXECUTION_LOCK prevents concurrent GPU operations during inference
+        # (other models could crash CUDA if they try to load while Whisper is running)
+        with GPU_EXECUTION_LOCK:
+            segments_list, info = model.transcribe(
+                str(audio_path),
+                language=language,
+                beam_size=5,
+                vad_filter=True,       # Voice Activity Detection — filtert Stille
+                vad_parameters=dict(
+                    min_silence_duration_ms=500,
+                ),
+            )
 
-        # Segmente sammeln
-        result_segments = []
-        full_text_parts = []
-        total_duration = 0.0
+            # Segmente sammeln
+            result_segments = []
+            full_text_parts = []
+            total_duration = 0.0
 
-        for i, segment in enumerate(segments_list):
-            result_segments.append({
-                "start": round(segment.start, 2),
-                "end": round(segment.end, 2),
-                "text": segment.text.strip(),
-            })
-            full_text_parts.append(segment.text.strip())
-            total_duration = max(total_duration, segment.end)
+            for i, segment in enumerate(segments_list):
+                result_segments.append({
+                    "start": round(segment.start, 2),
+                    "end": round(segment.end, 2),
+                    "text": segment.text.strip(),
+                })
+                full_text_parts.append(segment.text.strip())
+                total_duration = max(total_duration, segment.end)
 
-            if progress_cb and i % 10 == 0:
-                progress_cb(20 + int(70 * segment.end / max(total_duration, 1)),
-                            f"Segment {i+1}...")
+                if progress_cb and i % 10 == 0:
+                    progress_cb(20 + int(70 * segment.end / max(total_duration, 1)),
+                                f"Segment {i+1}...")
 
-        full_text = " ".join(full_text_parts)
+            full_text = " ".join(full_text_parts)
 
         if progress_cb:
             progress_cb(95, "Aufraemen...")
