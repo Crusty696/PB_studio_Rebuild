@@ -168,6 +168,20 @@ class ProjectManagementController(PBComponent):
         dlg.ollama_settings_changed.connect(self._apply_ollama_settings)
         dlg.exec()
 
+    def _apply_ollama_settings(self, enabled: bool, url: str, model: str):
+        """Apply changed Ollama settings to running services."""
+        logger.info(
+            "Ollama settings applied — enabled=%s, url=%s, model=%s",
+            enabled, url, model,
+        )
+        if enabled:
+            from services.ollama_client import get_ollama_client
+            get_ollama_client(base_url=url)
+        status = "aktiviert" if enabled else "deaktiviert"
+        self.window.status_bar.showMessage(
+            f"Ollama {status} | URL: {url} | Modell: {model}"
+        )
+
     def _mark_dirty(self):
         """Mark the session as having unsaved changes."""
         if not self.window._dirty:
