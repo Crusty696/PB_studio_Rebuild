@@ -15,6 +15,7 @@ from PySide6.QtGui import QPainter, QColor, QDrag
 
 from services.stem_player import StemPlayer
 from ui.widgets.media_grid import MediaPoolGrid
+from ui.widgets.analysis_status_panel import AnalysisStatusPanel
 from ui.models.media_table_model import MediaTableModel
 
 # MIME type for internal clip drag & drop
@@ -498,15 +499,16 @@ class MediaWorkspace(QWidget):
         self._video_pool_stack = QStackedWidget()
         self._video_pool_stack.addWidget(self.video_pool_table)
         self._video_pool_stack.addWidget(self.video_grid)
-        rl.addWidget(self._video_pool_stack)
 
-        # Wire toggle buttons (exclusive, manual)
-        self.btn_video_list_view.clicked.connect(
-            lambda: self._toggle_video_view(0)
-        )
-        self.btn_video_grid_view.clicked.connect(
-            lambda: self._toggle_video_view(1)
-        )
+        # Create vertical splitter for pool + analysis status
+        pool_analysis_splitter = QSplitter(Qt.Orientation.Vertical)
+
+        # Top: Pool table/grid
+        pool_container = QWidget()
+        pool_layout = QVBoxLayout(pool_container)
+        pool_layout.setContentsMargins(0, 0, 0, 0)
+        pool_layout.setSpacing(4)
+        pool_layout.addWidget(self._video_pool_stack)
 
         # Delete row
         del_row = QHBoxLayout()
@@ -524,7 +526,35 @@ class MediaWorkspace(QWidget):
         self.btn_delete_selected_video.setStatusTip("Alle per Checkbox markierten Videos aus der Datenbank loeschen")
         del_row.addWidget(self.btn_delete_selected_video)
         del_row.addStretch()
-        rl.addLayout(del_row)
+        pool_layout.addLayout(del_row)
+
+        pool_analysis_splitter.addWidget(pool_container)
+
+        # Bottom: Analysis Status Panel
+        self.video_analysis_panel = AnalysisStatusPanel()
+        pool_analysis_splitter.addWidget(self.video_analysis_panel)
+
+        # Set initial splitter sizes (70% pool, 30% analysis)
+        pool_analysis_splitter.setStretchFactor(0, 7)
+        pool_analysis_splitter.setStretchFactor(1, 3)
+        pool_analysis_splitter.setSizes([600, 300])
+        pool_analysis_splitter.setCollapsible(0, False)
+        pool_analysis_splitter.setCollapsible(1, True)
+
+        rl.addWidget(pool_analysis_splitter)
+
+        # Wire toggle buttons (exclusive, manual)
+        self.btn_video_list_view.clicked.connect(
+            lambda: self._toggle_video_view(0)
+        )
+        self.btn_video_grid_view.clicked.connect(
+            lambda: self._toggle_video_view(1)
+        )
+
+        # Wire selection changes to update analysis panel
+        self.video_pool_table.selectionModel().selectionChanged.connect(
+            self._on_video_selection_changed
+        )
 
         splitter.addWidget(right)
         splitter.setStretchFactor(0, 1)
@@ -746,7 +776,16 @@ class MediaWorkspace(QWidget):
         self._audio_pool_stack = QStackedWidget()
         self._audio_pool_stack.addWidget(self.audio_pool_table)
         self._audio_pool_stack.addWidget(self.audio_grid)
-        rl.addWidget(self._audio_pool_stack, stretch=3)
+
+        # Create vertical splitter for pool + analysis status
+        pool_analysis_splitter = QSplitter(Qt.Orientation.Vertical)
+
+        # Top: Pool table/grid
+        pool_container = QWidget()
+        pool_layout = QVBoxLayout(pool_container)
+        pool_layout.setContentsMargins(0, 0, 0, 0)
+        pool_layout.setSpacing(4)
+        pool_layout.addWidget(self._audio_pool_stack, stretch=3)
 
         # Wire toggle buttons
         self.btn_audio_list_view.clicked.connect(
@@ -882,7 +921,7 @@ class MediaWorkspace(QWidget):
         self.structure_bar = StructureBarWidget()
         detail_layout.addWidget(self.structure_bar)
 
-        rl.addWidget(self.audio_detail_container)
+        pool_layout.addWidget(self.audio_detail_container)
 
         # Delete row
         del_row = QHBoxLayout()
@@ -898,7 +937,27 @@ class MediaWorkspace(QWidget):
         )
         del_row.addWidget(self.btn_delete_selected_audio)
         del_row.addStretch()
-        rl.addLayout(del_row)
+        pool_layout.addLayout(del_row)
+
+        pool_analysis_splitter.addWidget(pool_container)
+
+        # Bottom: Analysis Status Panel
+        self.audio_analysis_panel = AnalysisStatusPanel()
+        pool_analysis_splitter.addWidget(self.audio_analysis_panel)
+
+        # Set initial splitter sizes (70% pool, 30% analysis)
+        pool_analysis_splitter.setStretchFactor(0, 7)
+        pool_analysis_splitter.setStretchFactor(1, 3)
+        pool_analysis_splitter.setSizes([600, 300])
+        pool_analysis_splitter.setCollapsible(0, False)
+        pool_analysis_splitter.setCollapsible(1, True)
+
+        rl.addWidget(pool_analysis_splitter)
+
+        # Wire selection changes to update analysis panel
+        self.audio_pool_table.selectionModel().selectionChanged.connect(
+            self._on_audio_selection_changed
+        )
 
         splitter.addWidget(right)
         splitter.setStretchFactor(0, 1)
@@ -925,6 +984,48 @@ class MediaWorkspace(QWidget):
         self._audio_pool_stack.setCurrentIndex(idx)
         self.btn_audio_list_view.setChecked(idx == 0)
         self.btn_audio_grid_view.setChecked(idx == 1)
+
+    def _on_video_selection_changed(self):
+        """Update video analysis panel when selection changes."""
+        indexes = self.video_pool_table.selectionModel().selectedRows()
+        if not indexes:
+            return
+
+        # Get first selected row
+        row = indexes[0].row()
+        model = self.video_pool_model
+
+        # Get video_id from column 1
+        video_id_idx = model.index(row, 1)
+        video_id = video_id_idx.data()
+
+        # Get title from column 2
+        title_idx = model.index(row, 2)
+        title = title_idx.data()
+
+        if video_id is not None:
+            self.video_analysis_panel.set_media("video", int(video_id), str(title or ""))
+
+    def _on_audio_selection_changed(self):
+        """Update audio analysis panel when selection changes."""
+        indexes = self.audio_pool_table.selectionModel().selectedRows()
+        if not indexes:
+            return
+
+        # Get first selected row
+        row = indexes[0].row()
+        model = self.audio_pool_model
+
+        # Get audio_id from column 1
+        audio_id_idx = model.index(row, 1)
+        audio_id = audio_id_idx.data()
+
+        # Get title from column 2
+        title_idx = model.index(row, 2)
+        title = title_idx.data()
+
+        if audio_id is not None:
+            self.audio_analysis_panel.set_media("audio", int(audio_id), str(title or ""))
 
     # ── Audio Detail Cards ─────────────────────────────────────
     def _update_audio_detail_cards(self, audio_track):
