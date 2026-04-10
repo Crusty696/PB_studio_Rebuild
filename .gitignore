@@ -22,6 +22,8 @@ storage/test/
 exports/
 logs/
 tests/*.log
+*.log
+*.txt
 
 # Vector databases and data artifacts
 data/vector/
@@ -51,8 +53,9 @@ desktop.ini
 # Virtual environment
 .venv/
 
-# Ollama models (large, regenerate on demand)
-bin/ollama/
+# Binaries and downloaded tools (FFmpeg, Ollama - large, regenerate on demand)
+bin/
+*.zip
 
 # Pytest cache
 .pytest_cache/
