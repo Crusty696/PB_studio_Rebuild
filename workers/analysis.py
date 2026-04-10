@@ -7,6 +7,7 @@ import traceback
 from PySide6.QtCore import QObject, Signal
 
 from services.audio_service import AudioAnalyzer
+from services.analysis_status_service import mark_started, mark_done, mark_error
 from .base import CancellableMixin, format_user_error
 
 logger = logging.getLogger(__name__)
@@ -40,6 +41,7 @@ class AnalysisWorker(QObject, CancellableMixin):
             # BeatAnalysisService ist der alleinige Beatgrid-Writer.
             if not self.should_stop():
                 try:
+                    mark_started("audio", self.track_id, "bpm_detection")
                     self.progress.emit(50, "Starte KI Beat-Analyse (beat_this)...")
                     from services.beat_analysis_service import BeatAnalysisService
                     beat_svc = BeatAnalysisService()
@@ -51,10 +53,16 @@ class AnalysisWorker(QObject, CancellableMixin):
                     result["beat_positions"] = beat_result.get("beats", [])
                     result["downbeats"] = beat_result.get("downbeats", [])
                     self.progress.emit(90, "Beat-Analyse fertig")
+                    mark_done("audio", self.track_id, "bpm_detection", {
+                        "bpm": beat_result.get("bpm"),
+                        "beats": len(beat_result.get("beats", [])),
+                        "downbeats": len(beat_result.get("downbeats", [])),
+                    })
                 except (ValueError, RuntimeError, OSError) as e:
                     # Beat-Analyse ist optional — Grundanalyse reicht für den Betrieb
                     logging.warning("BeatAnalysis optional fehlgeschlagen: %s", e)
                     self.progress.emit(90, f"Beat-Analyse übersprungen: {e}")
+                    mark_error("audio", self.track_id, "bpm_detection", str(e))
 
             self.progress.emit(100, "Analyse komplett")
             self.finished.emit(self.track_id, result)
@@ -82,18 +90,23 @@ class WaveformAnalysisWorker(QObject, CancellableMixin):
     def run(self):
         _ok = False
         try:
+            mark_started("audio", self.track_id, "waveform_analysis")
             from services.ai_audio_service import FrequencyAnalyzer
             analyzer = FrequencyAnalyzer()
             result = analyzer.analyze_and_store(
                 self.track_id,
                 progress_cb=lambda pct, msg: self.progress.emit(pct, msg),
             )
+            mark_done("audio", self.track_id, "waveform_analysis", {
+                "num_samples": result.get("num_samples"),
+            })
             self.finished.emit(self.track_id, result)
             _ok = True
         except Exception as e:  # broad catch intentional — top-level worker safety net
             logging.error("WaveformAnalysisWorker[%s] crashed: %s\n%s",
                           self.track_id, e, traceback.format_exc())
             self._errored = True
+            mark_error("audio", self.track_id, "waveform_analysis", str(e))
             self.error.emit(self.track_id, format_user_error(e))
         finally:
             if not _ok and not self._errored:

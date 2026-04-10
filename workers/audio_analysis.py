@@ -13,6 +13,7 @@ from PySide6.QtCore import QObject, Signal
 
 from .base import CancellableMixin, format_user_error
 from services.audio_constants import clamp_confidence
+from services.analysis_status_service import mark_started, mark_done, mark_error
 
 logger = logging.getLogger(__name__)
 
@@ -24,9 +25,11 @@ class BaseAnalysisWorker(QObject, CancellableMixin):
     """Template-Basis fuer alle Audio-Analyse Worker.
 
     Subklassen implementieren:
+        _step_key() -> str (AnalysisStatus step identifier)
         _start_message() -> str
         _analyze() -> object (Service-spezifisches Result)
         _done_message(result) -> str
+        _value_summary(result) -> dict (fuer AnalysisStatus)
         _save_to_db(result) -> None
         _result_to_dict(result) -> dict (fuer finished-Signal)
     """
@@ -46,10 +49,12 @@ class BaseAnalysisWorker(QObject, CancellableMixin):
         self._errored = False
         _ok = False
         try:
+            mark_started("audio", self.audio_track_id, self._step_key())
             self.progress.emit(10, self._start_message())
             result = self._analyze()
             self.progress.emit(80, self._done_message(result))
             self._save_to_db(result)
+            mark_done("audio", self.audio_track_id, self._step_key(), self._value_summary(result))
             self.progress.emit(100, "Fertig")
             self.finished.emit(self.audio_track_id, self._result_to_dict(result))
             _ok = True
@@ -59,10 +64,14 @@ class BaseAnalysisWorker(QObject, CancellableMixin):
                 type(self).__name__, self.audio_track_id, e, traceback.format_exc(),
             )
             self._errored = True
+            mark_error("audio", self.audio_track_id, self._step_key(), str(e))
             self.error.emit(self.audio_track_id, format_user_error(e))
         finally:
             if not _ok and not self._errored:
                 self.finished.emit(self.audio_track_id, {})
+
+    @abstractmethod
+    def _step_key(self) -> str: ...
 
     @abstractmethod
     def _start_message(self) -> str: ...
@@ -72,6 +81,9 @@ class BaseAnalysisWorker(QObject, CancellableMixin):
 
     @abstractmethod
     def _done_message(self, result) -> str: ...
+
+    @abstractmethod
+    def _value_summary(self, result) -> dict: ...
 
     @abstractmethod
     def _save_to_db(self, result) -> None: ...
@@ -102,6 +114,9 @@ class BaseAnalysisWorker(QObject, CancellableMixin):
 class KeyDetectionWorker(BaseAnalysisWorker):
     """Background-Worker fuer Key-Erkennung (ML-Ensemble: KK + TKP, CENS + CQT)."""
 
+    def _step_key(self) -> str:
+        return "key_detection"
+
     def _start_message(self) -> str:
         return "Key-Erkennung (ML-Ensemble) gestartet..."
 
@@ -113,6 +128,12 @@ class KeyDetectionWorker(BaseAnalysisWorker):
         n_mod = len(result.modulation_segments)
         mod_info = f", {n_mod} Modulationen" if n_mod > 1 else ""
         return f"Key erkannt: {result.key} ({result.camelot}), Confidence={result.confidence:.2f}{mod_info}"
+
+    def _value_summary(self, result) -> dict:
+        return {
+            "key": result.key,
+            "confidence": result.confidence,
+        }
 
     def _save_to_db(self, result) -> None:
         import json
@@ -143,6 +164,9 @@ class KeyDetectionWorker(BaseAnalysisWorker):
 class LUFSAnalysisWorker(BaseAnalysisWorker):
     """Background-Worker fuer LUFS-Lautstaerke-Analyse (EBU R128)."""
 
+    def _step_key(self) -> str:
+        return "lufs_analysis"
+
     def _start_message(self) -> str:
         return "LUFS-Analyse gestartet..."
 
@@ -152,6 +176,11 @@ class LUFSAnalysisWorker(BaseAnalysisWorker):
 
     def _done_message(self, result) -> str:
         return f"LUFS: {result.integrated:.1f} dB"
+
+    def _value_summary(self, result) -> dict:
+        return {
+            "lufs": result.integrated,
+        }
 
     def _save_to_db(self, result) -> None:
         from database import AudioTrack
@@ -177,6 +206,9 @@ class AudioClassifyWorker(BaseAnalysisWorker):
         super().__init__(audio_track_id, file_path)
         self.bpm = bpm
 
+    def _step_key(self) -> str:
+        return "mood_genre_classify"
+
     def _start_message(self) -> str:
         return "Audio-Klassifikation gestartet..."
 
@@ -186,6 +218,12 @@ class AudioClassifyWorker(BaseAnalysisWorker):
 
     def _done_message(self, result) -> str:
         return f"Genre: {result.genre}, Mood: {result.mood}"
+
+    def _value_summary(self, result) -> dict:
+        return {
+            "mood": result.mood,
+            "genre": result.genre,
+        }
 
     def _save_to_db(self, result) -> None:
         from database import AudioTrack
@@ -217,6 +255,9 @@ class SpectralAnalysisWorker(BaseAnalysisWorker):
         # that _analyze() has not been run yet, rather than raising AttributeError.
         self._svc = None
 
+    def _step_key(self) -> str:
+        return "spectral_analysis"
+
     def _start_message(self) -> str:
         return "Spektral-Analyse gestartet..."
 
@@ -227,6 +268,11 @@ class SpectralAnalysisWorker(BaseAnalysisWorker):
 
     def _done_message(self, result) -> str:
         return f"Dominant: {result.dominant_band}"
+
+    def _value_summary(self, result) -> dict:
+        return {
+            "bands": len(result.bands) if hasattr(result, "bands") else "present",
+        }
 
     def _save_to_db(self, result) -> None:
         if self._svc is None:
@@ -265,6 +311,9 @@ class StructureDetectionWorker(BaseAnalysisWorker):
         # that _analyze() has not been run yet.
         self._svc = None
 
+    def _step_key(self) -> str:
+        return "structure_detection"
+
     def _start_message(self) -> str:
         return "Struktur-Erkennung gestartet..."
 
@@ -280,6 +329,11 @@ class StructureDetectionWorker(BaseAnalysisWorker):
 
     def _done_message(self, result) -> str:
         return f"{len(result.segments)} Segmente erkannt"
+
+    def _value_summary(self, result) -> dict:
+        return {
+            "segments": len(result.segments),
+        }
 
     def _save_to_db(self, result) -> None:
         if self._svc is None:
