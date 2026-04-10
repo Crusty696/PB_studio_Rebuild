@@ -25,6 +25,10 @@ tests/*.log
 *.log
 *.txt
 
+# Security scan results (generated files)
+security_scan_results.json
+security_scan_report.txt
+
 # Vector databases and data artifacts
 data/vector/
 data/*.sqlite
