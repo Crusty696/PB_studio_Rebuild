@@ -9,8 +9,8 @@ def run_cmd(cmd):
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, shell=True)
         return result.stdout.strip()
-    except:
-        return "Fehler beim Ausführen"
+    except (subprocess.SubprocessError, OSError) as e:
+        return f"Fehler beim Ausführen: {e}"
 
 def check_gpu_health():
     print("="*60)
