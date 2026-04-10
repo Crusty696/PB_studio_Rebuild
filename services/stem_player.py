@@ -400,7 +400,9 @@ class StemPlayer(QObject):
                 continue
 
             try:
-                read_count = min(actual_frames, handle.frames - min(pos, handle.frames))
+                # H-10 FIX: Use handle's actual position (.tell()), not master clock
+                handle_pos = handle.tell()
+                read_count = min(actual_frames, max(0, handle.frames - handle_pos))
                 if read_count <= 0:
                     continue
 

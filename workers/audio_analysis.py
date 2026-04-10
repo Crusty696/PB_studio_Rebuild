@@ -136,17 +136,17 @@ class KeyDetectionWorker(BaseAnalysisWorker):
         }
 
     def _save_to_db(self, result) -> None:
-        import json
         from database import AudioTrack
         with self._get_session_context() as session:
             track = session.get(AudioTrack, self.audio_track_id)
             if track:
                 track.key = result.key
                 track.key_confidence = clamp_confidence(result.confidence)
+                # H-23 FIX: SQLAlchemy JSON columns auto-serialize, no json.dumps() needed
                 if result.modulation_segments:
-                    track.key_modulation_data = json.dumps(result.modulation_segments)
+                    track.key_modulation_data = result.modulation_segments
                 if result.harmonic_tension_curve:
-                    track.harmonic_tension_curve = json.dumps(result.harmonic_tension_curve)
+                    track.harmonic_tension_curve = result.harmonic_tension_curve
                 session.commit()
 
     def _result_to_dict(self, result) -> dict:

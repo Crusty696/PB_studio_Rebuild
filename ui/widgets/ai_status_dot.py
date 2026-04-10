@@ -4,9 +4,11 @@ Grün (#2ECC71) = AI bereit, Gelb (#F39C12) = wird geladen.
 Kein Ollama/Gemma in Tooltips — nur "AI: bereit" / "AI: wird geladen...".
 """
 
+import logging
 from PySide6.QtWidgets import QLabel
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QTimer, QThread, QObject, Signal
 
+logger = logging.getLogger(__name__)
 
 _COLOR_READY = "#2ECC71"
 _COLOR_LOADING = "#F39C12"
@@ -21,31 +23,50 @@ _DOT_STYLE = (
 )
 
 
+class PollWorker(QObject):
+    """Worker für das Polling im Hintergrund."""
+    result = Signal(bool)
+    
+    def __init__(self):
+        super().__init__()
+        self._running = True
+
+    def stop(self):
+        """Signalisiert dem Worker, dass er stoppen soll."""
+        self._running = False
+
+    def run(self):
+        import time
+        while self._running:
+            try:
+                from services.ollama_client import get_ollama_client
+                # Wir nutzen das Singleton um unnötige Instanziierungen zu vermeiden
+                ready = get_ollama_client().is_available()
+            except Exception as e:
+                # B-035 Fix: Intentional broad catch for network/import errors
+                logger.debug("AiStatusDot Poll Error: %s", e)
+                ready = False
+            
+            if self._running:
+                self.result.emit(ready)
+                
+            # Schlafen in kleinen Häppchen für schnelleres Beenden
+            for _ in range(50): # 5 Sekunden total
+                if not self._running: break
+                time.sleep(0.1)
+
+
 class AiStatusDot(QLabel):
     """Kleines Ampel-Dot-Widget das den AI-Verfügbarkeitsstatus anzeigt.
     
     F-033 Fix: Polling runs in a background thread to prevent UI stutter.
+    B-036 Fix: Graceful shutdown via closeEvent and stop-flag.
     """
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._ready = False
         self._apply_style()
-
-        from PySide6.QtCore import QThread, QObject, Signal
-        
-        class PollWorker(QObject):
-            result = Signal(bool)
-            def run(self):
-                import time
-                while True:
-                    try:
-                        from services.ollama_client import OllamaClient
-                        ready = OllamaClient().is_available()
-                    except Exception:  # B-035 Fix: broad catch intentional — import/network errors expected
-                        ready = False
-                    self.result.emit(ready)
-                    time.sleep(5)
 
         self._worker = PollWorker()
         self._thread = QThread(self)
@@ -66,3 +87,12 @@ class AiStatusDot(QLabel):
             self.setToolTip(self.tr("AI: bereit"))
         else:
             self.setToolTip(self.tr("AI: wird geladen..."))
+
+    def closeEvent(self, event):
+        """B-036 Fix: Cleanup beim Schließen des Widgets/Fensters."""
+        if self._worker:
+            self._worker.stop()
+        if self._thread and self._thread.isRunning():
+            self._thread.quit()
+            self._thread.wait(1000)
+        super().closeEvent(event)

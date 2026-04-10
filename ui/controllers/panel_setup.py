@@ -81,18 +81,18 @@ class PanelSetupController(PBComponent):
         try:
             import services.register_actions  # noqa: F401
             from services.local_agent_service import LocalAgentService
-            from services.llm_service import LocalLLMService
+            from services.ollama_service import OllamaService
             from ui.dialogs.settings_dialog import get_ollama_settings
             _ollama_cfg = get_ollama_settings()
 
             # Auto-Start: Ollama-Prozess im Hintergrund starten (wenn aktiviert)
-            self.window._llm_service = LocalLLMService.instance()
+            self.window._ollama_svc = OllamaService.get()
             if _ollama_cfg["enabled"]:
-                _model = _ollama_cfg.get("model") or None
-                if self.window._llm_service.start(model=_model):
-                    self.window.console_text.append("[LLM] Ollama-Server gestartet.")
+                self.window._ollama_svc.start()
+                if self.window._ollama_svc.is_ready:
+                    self.window.console_text.append("[LLM] Ollama-Engine aktiv.")
                 else:
-                    self.window.console_text.append("[LLM] Ollama konnte nicht gestartet werden — Fallback auf HuggingFace.")
+                    self.window.console_text.append("[LLM] Ollama wird im Hintergrund gestartet...")
 
             self.window._ai_agent = LocalAgentService(
                 ollama_url=_ollama_cfg["url"],

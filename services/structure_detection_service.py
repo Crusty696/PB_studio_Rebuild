@@ -884,9 +884,11 @@ class StructureDetectionService:
 
     def _form_segments(self, labels: list[str], beats, energy_norm, n_beats: int) -> list[StructureSegmentResult]:
         """Formt zusammenhaengende Labels zu StructureSegmentResult-Liste (Legacy)."""
-        dummy = np.full(n_beats, 0.5)
+        # F-044 Fix: Nutze realistische Durchschnittswerte statt 0.5er Dummy-Array
+        mean_energy = np.mean(energy_norm) if len(energy_norm) > 0 else 0.5
+        avg_energy = np.full(n_beats, mean_energy)
         return self._form_segments_multi(
-            labels, beats, energy_norm, dummy, dummy, np.ones(n_beats), n_beats
+            labels, beats, energy_norm, avg_energy, avg_energy, np.ones(n_beats), n_beats
         )
 
     # ── Weitere Hilfsmethoden ─────────────────────────────────────────────

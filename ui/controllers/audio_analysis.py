@@ -275,6 +275,11 @@ class AudioAnalysisController(PBComponent):
 
     def _analyze_all_sequential(self):
         """Startet alle Audio-Analysen nacheinander fuer den ausgewaehlten Track."""
+        # H-37 FIX: Guard against double-click race condition
+        if getattr(self, '_seq_running', False):
+            logger.warning("[Komplett] Analyse laeuft bereits, Doppel-Klick ignoriert.")
+            return
+
         info = self._get_selected_audio_track()
         if not info:
             return
@@ -289,6 +294,8 @@ class AudioAnalysisController(PBComponent):
             ("Stems", lambda: self._create_stem_worker(track_id)),
         ]
 
+        # H-37 FIX: Set running flag to prevent race condition
+        self._seq_running = True
         self._seq_steps = steps
         self._seq_index = 0
         self._seq_done = 0
@@ -317,6 +324,8 @@ class AudioAnalysisController(PBComponent):
             return
 
         if self._seq_index >= self._seq_total:
+            # H-37 FIX: Reset running flag on completion
+            self._seq_running = False
             self.window._media_ws.btn_analyze_all.setEnabled(True)
             self.window._media_ws.btn_analyze_all.setText("KOMPLETT-ANALYSE")
             self.window.progress_bar.setVisible(False)

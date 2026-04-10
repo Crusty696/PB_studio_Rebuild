@@ -20,7 +20,6 @@ _WORKER_MODULES = {
     "ProxyCreationWorker": ".import_export",
     "AutoEditWorker": ".edit",
     "SemanticSearchWorker": ".edit",
-    "DummyProgressWorker": ".debug",
     "KeyDetectionWorker": ".audio_analysis",
     "LUFSAnalysisWorker": ".audio_analysis",
     "AudioClassifyWorker": ".audio_analysis",

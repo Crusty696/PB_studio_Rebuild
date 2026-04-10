@@ -431,16 +431,25 @@ def generate_embeddings(
     else:
         logger.info("[SIGLIP] Lade SigLIP Modell...")
         from services.model_manager import GPU_LOAD_LOCK
+        
+        # Robust: Torch explizit laden bevor mm.load_siglip gerufen wird (HF Fix)
+        import torch
+        
         try:
             with GPU_LOAD_LOCK:
                 model, processor = mm.load_siglip()
+            
+            if model is None or processor is None:
+                raise RuntimeError("Modell oder Processor konnte nicht geladen werden")
+                
             logger.info("[SIGLIP] SigLIP geladen auf %s", mm.device)
         except Exception as e:  # broad catch intentional — MLModelNotFoundError, OOM, ImportError, RuntimeError
             from services.errors import MLModelNotFoundError
-            if isinstance(e, MLModelNotFoundError):
-                logger.warning(
-                    "[SIGLIP] SigLIP nicht heruntergeladen — Embedding uebersprungen: %s", e
-                )
+            error_msg = str(e)
+            if "PyTorch library but it was not found" in error_msg:
+                logger.error("[SIGLIP] HuggingFace findet Torch nicht (Version-Mismatch). Überspringe Embeddings.")
+            elif isinstance(e, MLModelNotFoundError):
+                logger.warning("[SIGLIP] SigLIP nicht heruntergeladen: %s", e)
             else:
                 logger.error("[SIGLIP] SigLIP FEHLER: %s", e)
             return scenes
@@ -587,61 +596,57 @@ def analyze_scene_with_caption(
         scenes mit befüllten ai_caption / ai_mood / ai_tags Feldern
     """
     if progress_cb:
-        progress_cb(85, "Gemma Vision Captioning...")
+        progress_cb(85, "Gemma 4 Vision Captioning...")
 
     keyframe_scenes = [s for s in scenes if s.keyframe_path and Path(s.keyframe_path).exists()]
     if not keyframe_scenes:
         logger.info("[CAPTION] Keine Keyframes vorhanden — Caption-Schritt übersprungen")
         return scenes
 
-    from services.ollama_client import get_ollama_client
-    client = get_ollama_client()
-
-    if not client.is_available():
+    from services.ollama_service import OllamaService
+    svc = OllamaService.get()
+    
+    if not svc.is_ready:
         logger.warning(
             "[CAPTION] Ollama nicht erreichbar — Vision-Captioning übersprungen. "
-            "Starte Ollama und lade '%s' für automatische Captions.", vision_model
+            "Modell: %s", vision_model
         )
         return scenes
 
+    from services.ollama_client import get_ollama_client
+    client = get_ollama_client()
+
     if client.is_paused:
-        logger.info("[CAPTION] Ollama ist pausiert (GPU-Task aktiv) — überspringe Captions für diese Batch.")
+        logger.info("[CAPTION] Ollama ist pausiert (GPU-Task aktiv) — überspringe Captions.")
         return scenes
 
-    logger.info("[CAPTION] Starte Vision-Captioning für %d Szenen mit '%s'...",
+    logger.info("[CAPTION] Starte Vision-Captioning für %d Szenen mit '%s' via OllamaService...",
                 len(keyframe_scenes), vision_model)
+
+    import asyncio
+    import json
+    import re as _re
 
     for scene in keyframe_scenes:
         # B-034 Fix: Check pause state in loop to handle GPU operations starting mid-captioning
         if client.is_paused:
             logger.debug("[CAPTION] Szene %d: Ollama pausiert — überspringe verbleibende Szenen", scene.index)
-            break  # Stop processing remaining scenes if client becomes paused
-
-        # Max 3 Keyframes: für jetzt haben wir 1 pro Szene, aber Struktur erlaubt mehrere
-        keyframe_paths = [scene.keyframe_path]
-        images_b64 = [enc for kp in keyframe_paths if (enc := _encode_keyframe_base64(kp))]
-
-        if not images_b64:
-            logger.debug("[CAPTION] Szene %d: Keyframe-Encoding fehlgeschlagen", scene.index)
-            continue
+            break 
 
         try:
-            raw = client.chat_vision(
-                model=vision_model,
-                user_message=_CAPTION_USER_PROMPT,
-                images_base64=images_b64,
-                system_prompt=_CAPTION_SYSTEM_PROMPT,
-                temperature=0.1,
-                max_tokens=256,
-            )
+            raw = asyncio.run(svc.vision(
+                image_paths=[scene.keyframe_path],
+                prompt=_CAPTION_USER_PROMPT,
+                model=vision_model
+            ))
 
-            # JSON parsen — LLMs wrappen manchmal in Markdown-Fences
-            import re as _re
             cleaned = raw.strip()
             if "```" in cleaned:
                 fence = _re.search(r"```(?:json)?\s*\n?(.*?)\n?\s*```", cleaned, _re.DOTALL)
                 if fence:
                     cleaned = fence.group(1).strip()
+            elif "{" in cleaned:
+                cleaned = cleaned[cleaned.find("{"):cleaned.rfind("}")+1]
 
             parsed = json.loads(cleaned)
             if isinstance(parsed, dict):
@@ -649,23 +654,15 @@ def analyze_scene_with_caption(
                 scene.ai_mood = parsed.get("mood")
                 scene.ai_tags = parsed.get("tags", [])
                 logger.debug(
-                    "[CAPTION] Szene %d: mood=%s, tags=%s",
-                    scene.index, scene.ai_mood, scene.ai_tags,
+                    "[CAPTION] Szene %d: mood=%s",
+                    scene.index, scene.ai_mood,
                 )
 
-        except json.JSONDecodeError:
-            logger.warning(
-                "[CAPTION] Szene %d: LLM-Antwort war kein valides JSON: %s",
-                scene.index, raw[:100],
-            )
-        except OllamaPausedError:
-            logger.debug("[CAPTION] Szene %d: Ollama pausiert (GPU-intensive Operation) — überspringe verbleibende Szenen", scene.index)
-            break  # Client became paused during captioning — stop processing remaining scenes
-        except RuntimeError as e:
-            logger.warning("[CAPTION] Szene %d: Ollama-Fehler: %s — übersprungen", scene.index, e)
-            break  # Ollama nicht erreichbar — restliche Szenen überspringen
-        except Exception as e:  # broad catch intentional — unexpected LLM errors must not crash pipeline
-            logger.error("[CAPTION] Szene %d: Unerwarteter Fehler: %s", scene.index, e)
+        except Exception as e:
+            if "pausiert" in str(e).lower() or "paused" in str(e).lower():
+                logger.debug("[CAPTION] Szene %d: Ollama pausiert (GPU-intensive Operation) — Abbruch", scene.index)
+                break
+            logger.warning("[CAPTION] Szene %d: Fehler: %s — übersprungen", scene.index, e)
 
     captioned = sum(1 for s in scenes if s.ai_caption is not None)
     logger.info("[CAPTION] Vision-Captioning abgeschlossen: %d/%d Szenen", captioned, len(scenes))

@@ -38,12 +38,11 @@ class MediaTableController(PBComponent):
 
     def _refresh_media_table(self, _also_combos: bool = True):
         """Aktualisiert die Medien-Listen asynchron (Fix F-028)."""
-        from workers import DummyProgressWorker # Wir nutzen einen einfachen Worker für DB-Queries
-        
         class DBFetchWorker(QObject):
             finished = Signal(list, list)
             def run(self):
                 try:
+                    from services.ingest_service import get_all_audio, get_all_video
                     v = get_all_video()
                     a = get_all_audio()
                     self.finished.emit(v, a)

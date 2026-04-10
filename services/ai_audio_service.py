@@ -10,6 +10,7 @@ from pathlib import Path
 from services.errors import CUDAOutOfMemoryError
 from services.audio_constants import clamp_bpm
 from services.timeout_constants import FFMPEG_RENDER_TIMEOUT_SEC
+from services.startup_checks import get_ffmpeg_bin
 
 import numpy as np
 import librosa
@@ -402,7 +403,8 @@ class AutoDucker:
         tmp_voice = out.parent / "_tmp_voice.wav"
         try:
             for src, dst in [(music_path, str(tmp_music)), (voice_path, str(tmp_voice))]:
-                cmd = ["ffmpeg", "-y", "-i", src, "-ar", "44100", "-ac", "1",
+                # H-11 FIX: Use managed ffmpeg binary instead of bare "ffmpeg"
+                cmd = [get_ffmpeg_bin(), "-y", "-i", src, "-ar", "44100", "-ac", "1",
                        "-c:a", "pcm_s16le", str(dst)]
                 kwargs = {}
                 if sys.platform == "win32":

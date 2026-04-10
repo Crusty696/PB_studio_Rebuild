@@ -5,6 +5,9 @@ echo   PB Studio Rebuild - App starten
 echo ============================================
 echo.
 
+:: NVIDIA GTX 1060 Fix: Lazy Loading für CUDA Module (verhindert oft init errors)
+set CUDA_MODULE_LOADING=LAZY
+
 :: Pruefen ob .venv existiert
 if exist "%~dp0.venv\Scripts\python.exe" (
     echo   venv gefunden: .venv\

@@ -82,6 +82,9 @@ def main():
     env = os.environ.copy()
     env["VIRTUAL_ENV"] = str(VENV_DIR)
     env["PATH"] = str(VENV_DIR / "Scripts") + os.pathsep + env.get("PATH", "")
+    
+    # NVIDIA GTX 1060 Fix: Lazy Loading für CUDA Module
+    env["CUDA_MODULE_LOADING"] = "LAZY"
 
     try:
         result = subprocess.run(

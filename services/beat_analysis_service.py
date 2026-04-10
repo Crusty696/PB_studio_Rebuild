@@ -171,6 +171,11 @@ class BeatAnalysisService:
                 "num_downbeats": int,
             }
         """
+        # H-12 FIX: Clear previous arrays before loading new audio to prevent memory leak
+        # when analyze() is called standalone without analyze_and_store()
+        self._last_y = None
+        self._last_sr = None
+
         import librosa
         audio_path = str(audio_path)
 

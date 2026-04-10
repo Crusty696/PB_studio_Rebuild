@@ -33,6 +33,7 @@ from agents.vision_agent import VisionAgent
 from agents.audio_agent import AudioAgent
 from agents.editor_agent import EditorAgent
 from agents.pacing_agent import PacingAgent
+from services.ollama_service import OllamaService
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +50,14 @@ Klassifiziere die Anfrage in GENAU EINE dieser Kategorien:
 - "general": Allgemeine Frage, kein konkreter App-Befehl
 
 Antworte NUR mit dem Kategorie-Namen (einem Wort, lowercase). Kein anderer Text.
+"""
+
+# System-Prompt für allgemeine Fragen (Fallback)
+_GENERAL_SYSTEM_PROMPT = """\
+Du bist der KI-Assistent von PB Studio, einem professionellen Tool für DJ-Video-Produktion.
+Beantworte Fragen präzise, hilfreich und auf Deutsch.
+Wenn du Pacing-Aufgaben oder Auto-Edits erklärst, sei fachlich fundiert (BPM, Phrasen-Schnitt, Energie-Level).
+Du hast Zugriff auf spezialisierte Agenten für Vision, Audio und Pacing.
 """
 
 # Generische Analyse-Keywords (treffen auf mehrere Domänen zu)
@@ -435,40 +444,26 @@ class OrchestratorAgent(BaseAgent):
         Gibt eine Kategorie zurück: "pacing" | "vision" | "audio" | "editor" | "action" | "general"
         Gibt None zurück wenn Ollama nicht verfügbar.
         """
-        if self._model_manager is None:
-            return None  # Kein Modell-Manager = kein Ollama-Zugriff
+        svc = OllamaService.get()
+        if not svc.is_ready:
+            return None
 
         try:
-            from services.ollama_client import get_ollama_client
-            client = get_ollama_client()
-            if not client.is_available():
-                return None
-
-            model = client.get_best_available_model()
-            if not model:
-                return None
-
-            # Kleines Modell bevorzugen für schnelle Klassifizierung
-            available = set(client.list_models())
-            fast_models = [
-                "gemma4:e4b",
-                "phi3:mini", "gemma2:2b-instruct-q4_K_M",
-            ]
-            classify_model = next((m for m in fast_models if m in available), model)
-
-            result = client.chat(
-                model=classify_model,
-                user_message=user_text,
-                system_prompt=_CLASSIFY_SYSTEM_PROMPT,
-                temperature=0.0,
-                max_tokens=10,
-            )
+            import asyncio
+            result = asyncio.run(svc.chat(
+                messages=[
+                    {"role": "system", "content": _CLASSIFY_SYSTEM_PROMPT},
+                    {"role": "user", "content": user_text}
+                ],
+                model="gemma4:e4b"
+            ))
+            
             category = result.strip().lower().split()[0] if result.strip() else ""
             valid_categories = {"pacing", "vision", "audio", "editor", "action", "general"}
             if category in valid_categories:
                 logger.info("LLM-Klassifizierung: '%s' → '%s'", user_text[:50], category)
                 return category
-        except (ConnectionError, TimeoutError, ValueError, RuntimeError) as e:
+        except Exception as e:
             logger.debug("LLM-Klassifizierung fehlgeschlagen: %s", e)
 
         return None
@@ -675,14 +670,33 @@ class OrchestratorAgent(BaseAgent):
             if registry_result is not None:
                 return registry_result
 
-            # 5. Fallback: Kein passender Agent/Action gefunden
+            # 5. Fallback: Keine passender Agent/Action gefunden → Ollama-Chat (Gemma 4)
+            svc = OllamaService.get()
+            if svc.is_ready:
+                import asyncio
+                llm_response = asyncio.run(svc.chat(
+                    messages=[
+                        {"role": "system", "content": _GENERAL_SYSTEM_PROMPT},
+                        {"role": "user", "content": user_text}
+                    ],
+                    model="gemma4:e4b"
+                ))
+                return {
+                    "agent": self.name,
+                    "action": "chat",
+                    "params": {"user_text": user_text},
+                    "result": llm_response,
+                    "message": llm_response,
+                    "error": None,
+                }
+
             return {
                 "agent": self.name,
                 "action": "none",
                 "params": {},
                 "result": None,
                 "message": f"Ich konnte keinen passenden Agenten oder Aktion finden für: '{user_text[:80]}'. "
-                           "Verfügbare Agenten: Vision (Szenen-KI), Audio (Transkription), Editor.",
+                           "Die KI-Engine (Ollama) ist zudem nicht aktiv.",
                 "error": None,
             }
         except Exception as e:  # broad catch intentional — top-level orchestrator safety net

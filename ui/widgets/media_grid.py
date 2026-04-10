@@ -562,6 +562,9 @@ class MediaPoolGrid(QWidget):
             lambda _path, _pix, t=thread: t.quit()
         )
         thread.finished.connect(thread.deleteLater)
+        thread.finished.connect(
+            lambda t=thread: self._thumb_threads.remove(t) if t in self._thumb_threads else None
+        )
 
         self._thumb_threads.append(thread)
         thread.start()

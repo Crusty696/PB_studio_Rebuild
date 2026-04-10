@@ -12,7 +12,6 @@ from .audio import StemSeparationWorker
 from .video import VideoAnalysisWorker
 from .import_export import ExportWorker, ProxyCreationWorker
 from .edit import AutoEditWorker
-from .debug import DummyProgressWorker
 
 
 GlobalTaskManager.register_worker(
@@ -65,13 +64,6 @@ GlobalTaskManager.register_worker(
         "resolution": kw.get("resolution", "1920x1080"),
         "fps": kw.get("fps", 30),
     },
-)
-
-GlobalTaskManager.register_worker(
-    "teste_ladebalken",
-    DummyProgressWorker,
-    "Test-Ladebalken ({steps}s)",
-    mapper=lambda kw: {"steps": kw.get("steps", 10), "interval_ms": kw.get("interval_ms", 1000)},
 )
 
 # --- Phase 4: Audio-Analyse Worker ---
