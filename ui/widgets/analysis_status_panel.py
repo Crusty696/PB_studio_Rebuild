@@ -18,10 +18,10 @@ from typing import Optional
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QProgressBar, QTableWidget, QTableWidgetItem, QHeaderView,
-    QPushButton, QFrame,
+    QPushButton, QFrame, QComboBox,
 )
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QColor, QBrush, QFont
+from PySide6.QtCore import Qt, Signal, QEvent
+from PySide6.QtGui import QColor, QBrush, QFont, QKeySequence, QShortcut
 
 from services import analysis_status_service
 from database import AnalysisStatus
@@ -80,7 +80,9 @@ class AnalysisStatusPanel(QWidget):
         super().__init__(parent)
         self._media_type: Optional[str] = None
         self._media_id: Optional[int] = None
+        self._filter_mode: str = "all"  # "all", "pending", "error"
         self._build_ui()
+        self._setup_shortcuts()
 
     def _build_ui(self):
         """Erstellt das UI-Layout."""
@@ -125,6 +127,48 @@ class AnalysisStatusPanel(QWidget):
             }
         """)
         layout.addWidget(self.progress_bar)
+
+        # Filter row
+        filter_row = QHBoxLayout()
+        filter_row.setContentsMargins(0, 4, 0, 0)
+        filter_row.setSpacing(8)
+
+        filter_label = QLabel("Filter:")
+        filter_label.setStyleSheet("color: #9ca3af; font-size: 10px; font-weight: 600;")
+        filter_row.addWidget(filter_label)
+
+        self.filter_combo = QComboBox()
+        self.filter_combo.addItems(["Alle", "Nur Ausstehend", "Nur Fehler"])
+        self.filter_combo.setFixedHeight(24)
+        self.filter_combo.setFixedWidth(140)
+        self.filter_combo.setStyleSheet("""
+            QComboBox {
+                background: #1a2030;
+                border: 1px solid rgba(255,255,255,0.08);
+                border-radius: 4px;
+                color: #e5e7eb;
+                font-size: 10px;
+                padding: 2px 8px;
+            }
+            QComboBox:hover {
+                border-color: #d4a44a;
+            }
+            QComboBox::drop-down {
+                border: none;
+            }
+            QComboBox::down-arrow {
+                image: none;
+                border-left: 4px solid transparent;
+                border-right: 4px solid transparent;
+                border-top: 5px solid #9ca3af;
+                margin-right: 8px;
+            }
+        """)
+        self.filter_combo.currentIndexChanged.connect(self._on_filter_changed)
+        filter_row.addWidget(self.filter_combo)
+        filter_row.addStretch()
+
+        layout.addLayout(filter_row)
 
         # Status table
         self.table = QTableWidget()
@@ -192,6 +236,33 @@ class AnalysisStatusPanel(QWidget):
             }
         """)
         actions_layout.addWidget(self.btn_refresh)
+
+        self.btn_retry_errors = QPushButton("Alle Fehler wiederholen")
+        self.btn_retry_errors.setFixedHeight(32)
+        self.btn_retry_errors.clicked.connect(self._on_retry_all_errors)
+        self.btn_retry_errors.setStyleSheet("""
+            QPushButton {
+                background: rgba(239,68,68,0.15);
+                border: 1px solid #ef4444;
+                border-radius: 4px;
+                color: #fca5a5;
+                font-size: 11px;
+                font-weight: 600;
+                padding: 4px 12px;
+            }
+            QPushButton:hover {
+                background: rgba(239,68,68,0.25);
+                color: #fef2f2;
+            }
+            QPushButton:disabled {
+                background: rgba(75,85,99,0.15);
+                border-color: #4b5563;
+                color: #6b7280;
+            }
+        """)
+        self.btn_retry_errors.setEnabled(False)  # Will be enabled when errors exist
+        actions_layout.addWidget(self.btn_retry_errors)
+
         actions_layout.addStretch()
 
         layout.addLayout(actions_layout)
@@ -240,11 +311,31 @@ class AnalysisStatusPanel(QWidget):
         else:
             steps = []
 
+        # Apply filter
+        filtered_steps = []
+        error_count = 0
+
+        for step_key in steps:
+            status_entry = status_dict.get(step_key)
+            status = status_entry.status if status_entry else "pending"
+
+            # Track errors for button state
+            if status == "error":
+                error_count += 1
+
+            # Apply filter
+            if self._filter_mode == "pending" and status != "pending":
+                continue
+            elif self._filter_mode == "error" and status != "error":
+                continue
+
+            filtered_steps.append(step_key)
+
         # Update table
-        self.table.setRowCount(len(steps))
+        self.table.setRowCount(len(filtered_steps))
         completed_count = 0
 
-        for row_idx, step_key in enumerate(steps):
+        for row_idx, step_key in enumerate(filtered_steps):
             status_entry = status_dict.get(step_key)
 
             if status_entry:
@@ -323,6 +414,13 @@ class AnalysisStatusPanel(QWidget):
         self.progress_bar.setMaximum(total_steps)
         self.progress_bar.setValue(completed_count)
 
+        # Enable/disable retry button based on error count
+        self.btn_retry_errors.setEnabled(error_count > 0)
+        if error_count > 0:
+            self.btn_retry_errors.setText(f"Alle Fehler wiederholen ({error_count})")
+        else:
+            self.btn_retry_errors.setText("Alle Fehler wiederholen")
+
     def _format_value_summary(self, summary: dict) -> str:
         """Formatiert value_summary für Anzeige."""
         if not summary:
@@ -362,6 +460,54 @@ class AnalysisStatusPanel(QWidget):
             if step_key:
                 logger.info("Analysis requested for step: %s", step_key)
                 self.analysis_requested.emit(step_key)
+
+    def _setup_shortcuts(self):
+        """Richtet Tastatur-Shortcuts ein."""
+        # F5 - Refresh
+        refresh_shortcut = QShortcut(QKeySequence("F5"), self)
+        refresh_shortcut.activated.connect(self.refresh)
+
+        # Ctrl+R - Refresh (alternative)
+        refresh_alt_shortcut = QShortcut(QKeySequence("Ctrl+R"), self)
+        refresh_alt_shortcut.activated.connect(self.refresh)
+
+    def _on_filter_changed(self, index: int):
+        """Handler für Filter-Änderungen."""
+        # Map combo index to filter mode
+        filter_map = {0: "all", 1: "pending", 2: "error"}
+        self._filter_mode = filter_map.get(index, "all")
+        self.refresh()
+
+    def _on_retry_all_errors(self):
+        """Sendet analysis_requested Signal für alle fehlgeschlagenen Schritte."""
+        if self._media_type is None or self._media_id is None:
+            return
+
+        # Get status
+        status_dict = analysis_status_service.get_status(self._media_type, self._media_id)
+
+        # Get steps for this media type
+        if self._media_type == "video":
+            steps = analysis_status_service.VIDEO_STEPS
+        elif self._media_type == "audio":
+            steps = analysis_status_service.AUDIO_STEPS
+        else:
+            return
+
+        # Find all error steps
+        error_steps = []
+        for step_key in steps:
+            status_entry = status_dict.get(step_key)
+            if status_entry and status_entry.status == "error":
+                error_steps.append(step_key)
+
+        # Emit signal for each error step
+        for step_key in error_steps:
+            logger.info("Retrying error step: %s", step_key)
+            self.analysis_requested.emit(step_key)
+
+        if error_steps:
+            logger.info("Retrying %d error steps", len(error_steps))
 
     def _clear_display(self):
         """Leert die Anzeige."""
