@@ -504,8 +504,10 @@ class MediaPoolGrid(QWidget):
                 energy = []
                 ec = data.get("energy_curve")
                 if ec:
-                    try: energy = json.loads(ec)
-                    except: pass
+                    try:
+                        energy = json.loads(ec)
+                    except (json.JSONDecodeError, TypeError):  # B-035 Fix: Specific exception types
+                        pass  # Invalid JSON or wrong type — use empty list fallback
                 card = AudioCard(
                     media_id=data["id"],
                     title=data.get("title", ""),

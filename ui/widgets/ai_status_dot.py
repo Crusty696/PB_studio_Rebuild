@@ -42,7 +42,7 @@ class AiStatusDot(QLabel):
                     try:
                         from services.ollama_client import OllamaClient
                         ready = OllamaClient().is_available()
-                    except:
+                    except Exception:  # B-035 Fix: broad catch intentional — import/network errors expected
                         ready = False
                     self.result.emit(ready)
                     time.sleep(5)

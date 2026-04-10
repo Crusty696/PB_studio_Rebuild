@@ -369,7 +369,8 @@ class PBWindow(QMainWindow):
         
         try:
             GlobalTaskManager.instance()._shutting_down = True
-        except Exception: pass
+        except Exception as e:  # B-035 Fix: Log instead of silent pass
+            logger.debug("Failed to set shutdown flag: %s", e)
 
         # 5. Alle Hintergrund-Tasks abbrechen
         try:
@@ -377,7 +378,8 @@ class PBWindow(QMainWindow):
             for task in tm.get_all_tasks():
                 if task.status == "running":
                     tm.cancel_task(task.task_id)
-        except Exception: pass
+        except Exception as e:  # B-035 Fix: Log instead of silent pass
+            logger.warning("Failed to cancel tasks on shutdown: %s", e)
 
         # 6. Legacy-Threads stoppen (minimales Warten)
         for thread in list(self._active_threads):
@@ -391,9 +393,11 @@ class PBWindow(QMainWindow):
 
         # 7. Video & Audio Cleanup
         if hasattr(self, "video_preview"):
-            try: self.video_preview.stop()
-            except Exception: pass
-        
+            try:
+                self.video_preview.stop()
+            except Exception as e:  # B-035 Fix: Log instead of silent pass
+                logger.debug("Video preview stop failed: %s", e)
+
         if hasattr(self, "stem_player"):
             self.stem_player.cleanup()
 
@@ -401,7 +405,8 @@ class PBWindow(QMainWindow):
         try:
             tm = GlobalTaskManager.instance()
             tm.unload_in_background()
-        except Exception: pass
+        except Exception as e:  # B-035 Fix: Log instead of silent pass
+            logger.debug("Unload in background failed: %s", e)
 
         logger.info("Cleanup-Tasks gestartet. App-Fenster wird geschlossen.")
         event.accept()

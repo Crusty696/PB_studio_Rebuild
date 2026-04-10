@@ -83,12 +83,21 @@ class ResourceMonitorWidget(QWidget):
 
         # Background Worker for polling
         from PySide6.QtCore import QThread, QObject, Signal
-        
+
         class MonitorWorker(QObject):
             updated = Signal(dict)
+
+            def __init__(self):
+                super().__init__()
+                self._running = True  # B-036 Fix: Graceful shutdown flag
+
+            def stop(self):
+                """Signal worker to stop gracefully."""
+                self._running = False
+
             def run(self):
                 import time
-                while True:
+                while self._running:  # B-036 Fix: Check flag instead of infinite loop
                     stats = {}
                     # CPU
                     if _HAS_PSUTIL: stats['cpu'] = int(psutil.cpu_percent())
@@ -105,10 +114,17 @@ class ResourceMonitorWidget(QWidget):
                             stats['gpu_used'] = torch.cuda.memory_allocated(idx) / (1024**3)
                             stats['gpu_total'] = torch.cuda.get_device_properties(idx).total_memory / (1024**3)
                             stats['gpu_pct'] = int((stats['gpu_used'] / stats['gpu_total']) * 100) if stats['gpu_total'] > 0 else 0
-                        except: pass
-                    
-                    self.updated.emit(stats)
-                    time.sleep(3) # Polling Intervall
+                        except Exception:  # B-035 Fix: Specify exception type (was bare except)
+                            pass  # broad catch intentional — GPU stats are non-critical, failure OK
+
+                    if self._running:  # Check before emit
+                        self.updated.emit(stats)
+
+                    # B-036 Fix: Sleep in small chunks for faster shutdown response
+                    for _ in range(30):  # 3 seconds = 30 × 100ms
+                        if not self._running:
+                            break
+                        time.sleep(0.1)
 
         self._worker = MonitorWorker()
         self._thread = QThread(self)
@@ -135,8 +151,12 @@ class ResourceMonitorWidget(QWidget):
             self._gpu_label.setText(f"GPU {stats.get('gpu_used', 0.0):.1f}/{stats.get('gpu_total', 0.0):.1f}")
 
     def stop(self):
-        self._thread.terminate()
-        self._thread.wait()
+        """B-036 Fix: Graceful shutdown instead of terminate()."""
+        if self._worker:
+            self._worker.stop()  # Signal worker to stop
+        if self._thread and self._thread.isRunning():
+            self._thread.quit()   # Request event loop exit
+            self._thread.wait(5000)  # Wait up to 5 seconds
 
     def start(self):
         if not self._thread.isRunning():

@@ -610,6 +610,11 @@ def analyze_scene_with_caption(
                 len(keyframe_scenes), vision_model)
 
     for scene in keyframe_scenes:
+        # B-034 Fix: Check pause state in loop to handle GPU operations starting mid-captioning
+        if client.is_paused:
+            logger.debug("[CAPTION] Szene %d: Ollama pausiert — überspringe verbleibende Szenen", scene.index)
+            break  # Stop processing remaining scenes if client becomes paused
+
         # Max 3 Keyframes: für jetzt haben wir 1 pro Szene, aber Struktur erlaubt mehrere
         keyframe_paths = [scene.keyframe_path]
         images_b64 = [enc for kp in keyframe_paths if (enc := _encode_keyframe_base64(kp))]
