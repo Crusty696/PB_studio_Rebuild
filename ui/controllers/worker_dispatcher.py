@@ -26,8 +26,12 @@ class WorkerDispatcherController(PBComponent):
         tm = GlobalTaskManager.instance()
         existing_task_id = getattr(worker, 'task_id', None)
 
-        if existing_task_id and existing_task_id in tm._tasks:
-            task = tm._tasks[existing_task_id]
+        if existing_task_id:
+            task = tm.get_task(existing_task_id)
+        else:
+            task = None
+
+        if task:
             thread = QThread()
             worker.moveToThread(thread)
             thread.started.connect(worker.run)

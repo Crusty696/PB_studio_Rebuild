@@ -56,23 +56,23 @@ class VectorDBService:
                 if _instance is None:
                     obj = super().__new__(cls)
                     obj._initialized = False
+                    obj.db_path = Path(db_path) if db_path else DB_FILE
+                    obj.db_path.parent.mkdir(parents=True, exist_ok=True)
+                    obj._write_lock = threading.Lock()
+
+                    # F-005 Fix: In-Memory Cache
+                    obj._cache_matrix = None
+                    obj._cache_metadata = None
+                    obj._cache_lock = threading.Lock()
+
+                    obj._init_db()
+                    obj._initialized = True
                     _instance = obj
         return _instance
 
     def __init__(self, db_path: str | Path | None = None):
-        if getattr(self, "_initialized", False):
-            return
-        self.db_path = Path(db_path) if db_path else DB_FILE
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._write_lock = threading.Lock()
-        
-        # F-005 Fix: In-Memory Cache
-        self._cache_matrix: np.ndarray | None = None
-        self._cache_metadata: list[dict] | None = None
-        self._cache_lock = threading.Lock()
-        
-        self._init_db()
-        self._initialized = True
+        # All initialization now done in __new__ to prevent race condition
+        pass
 
     def _invalidate_cache(self):
         """Invalidiert den In-Memory Cache nach Schreiboperationen."""
@@ -296,6 +296,7 @@ class VectorDBService:
                     "DELETE FROM clip_embeddings WHERE video_path = ?",
                     (video_path,),
                 )
+            self._invalidate_cache()
 
     def delete_by_clip_ids(self, clip_ids: list[int]) -> None:
         """Loescht alle Embeddings deren clip_id (id // 1_000_000) in clip_ids liegt."""

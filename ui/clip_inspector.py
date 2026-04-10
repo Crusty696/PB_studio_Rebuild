@@ -154,24 +154,24 @@ class ClipInspectorPanel(QWidget):
                 return
 
             self._updating = True
+            try:
+                self._type_label.setText(
+                    f"Typ: {'Audio' if entry.track == 'audio' else 'Video'}"
+                    + (f"  |  {len(clip_data_list)} Clips" if len(clip_data_list) > 1 else "")
+                )
+                self._media_label.setText(f"Media ID: {entry.media_id}")
 
-            self._type_label.setText(
-                f"Typ: {'Audio' if entry.track == 'audio' else 'Video'}"
-                + (f"  |  {len(clip_data_list)} Clips" if len(clip_data_list) > 1 else "")
-            )
-            self._media_label.setText(f"Media ID: {entry.media_id}")
+                self._start_spin.setValue(entry.start_time or 0.0)
+                self._end_spin.setValue(entry.end_time or 0.0)
 
-            self._start_spin.setValue(entry.start_time or 0.0)
-            self._end_spin.setValue(entry.end_time or 0.0)
+                duration = (entry.end_time - entry.start_time) if entry.end_time else 0.0
+                self._duration_label.setText(f"Dauer: {duration:.2f}s")
 
-            duration = (entry.end_time - entry.start_time) if entry.end_time else 0.0
-            self._duration_label.setText(f"Dauer: {duration:.2f}s")
-
-            self._brightness_spin.setValue(entry.brightness if entry.brightness is not None else 0.0)
-            self._contrast_spin.setValue(entry.contrast if entry.contrast is not None else 1.0)
-            self._crossfade_spin.setValue(entry.crossfade_duration if entry.crossfade_duration is not None else 0.0)
-
-            self._updating = False
+                self._brightness_spin.setValue(entry.brightness if entry.brightness is not None else 0.0)
+                self._contrast_spin.setValue(entry.contrast if entry.contrast is not None else 1.0)
+                self._crossfade_spin.setValue(entry.crossfade_duration if entry.crossfade_duration is not None else 0.0)
+            finally:
+                self._updating = False
 
     def _on_field_changed(self, field: str, value: float):
         """Spinbox-Aenderung → DB schreiben."""

@@ -281,15 +281,15 @@ class ApplyAutoEditCommand(QUndoCommand):
 
     def redo(self):
         # Alte Video-Entries sichern
+        old_entries_backup = []
         with nullpool_session() as session:
             old = (
                 session.query(TimelineEntry)
                 .filter_by(project_id=self._project_id, track="video")
                 .all()
             )
-            self._old_entries = []
             for e in old:
-                self._old_entries.append({
+                old_entries_backup.append({
                     "project_id": e.project_id,
                     "track": e.track,
                     "media_id": e.media_id,
@@ -306,6 +306,8 @@ class ApplyAutoEditCommand(QUndoCommand):
         from services.timeline_service import apply_auto_edit_segments
         apply_auto_edit_segments(self._new_segments, self._project_id)
         self._timeline.load_from_db(self._project_id)
+        # Only save old_entries if redo succeeded
+        self._old_entries = old_entries_backup
 
     def undo(self):
         if self._old_entries is None:
