@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from PySide6.QtCore import QTimer
 from PySide6.QtGui import QUndoCommand
 
 from database import nullpool_session, TimelineEntry
@@ -53,7 +54,8 @@ class MoveClipCommand(QUndoCommand):
                 if end is not None:
                     entry.end_time = round(end, 3)
                 session.commit()
-        self._timeline._sync_clip_position(self._entry_id, start)
+        # FIX C-7: Queue UI update to main thread to avoid Qt threading violation
+        QTimer.singleShot(0, lambda: self._timeline._sync_clip_position(self._entry_id, start))
 
     def id(self) -> int:
         """Merge-ID: Aufeinanderfolgende Moves desselben Clips verschmelzen."""
@@ -149,14 +151,15 @@ class RemoveClipCommand(QUndoCommand):
     ):
         super().__init__(f"Clip {entry_id} entfernen")
         self._timeline = timeline
-        self._entry_id = entry_id
+        self._original_entry_id = entry_id  # M-55 Fix: Store original ID separately
+        self._current_entry_id = entry_id   # ID that changes with undo/redo cycles
         # Snapshot fuer Undo
         self._snapshot: dict | None = None
 
     def redo(self):
         # Snapshot vor dem Loeschen speichern
         with nullpool_session() as session:
-            entry = session.get(TimelineEntry, self._entry_id)
+            entry = session.get(TimelineEntry, self._current_entry_id)
             if entry:
                 self._snapshot = {
                     "project_id": entry.project_id,
@@ -173,37 +176,44 @@ class RemoveClipCommand(QUndoCommand):
                 }
                 session.delete(entry)
                 session.commit()
-        self._timeline._remove_clip_item(self._entry_id)
+        self._timeline._remove_clip_item(self._current_entry_id)
 
     def undo(self):
         if self._snapshot is None:
             return
-        with nullpool_session() as session:
-            entry = TimelineEntry(**self._snapshot)
-            session.add(entry)
-            session.commit()
-            session.refresh(entry)
-            self._entry_id = entry.id
 
-        # Clip-Titel und Dauer ermitteln
+        # Combine both DB operations in a single session to avoid orphaned rows
         from database import AudioTrack, VideoClip
+        from pathlib import Path
+
         title = f"Clip #{self._snapshot['media_id']}"
         duration = 30.0 if self._snapshot["track"] == "audio" else 10.0
+
         with nullpool_session() as session:
+            # Create and add the TimelineEntry
+            entry = TimelineEntry(**self._snapshot)
+            session.add(entry)
+
+            # Look up title and duration in the same session
             if self._snapshot["track"] == "audio":
                 obj = session.get(AudioTrack, self._snapshot["media_id"])
                 if obj:
                     title = obj.title or title
                     duration = obj.duration or duration
             else:
-                from pathlib import Path
                 obj = session.get(VideoClip, self._snapshot["media_id"])
                 if obj:
                     title = Path(obj.file_path).stem
                     duration = obj.duration or duration
 
+            # Commit once after all DB operations complete
+            session.commit()
+            session.refresh(entry)
+            # M-55 Fix: Store restored ID separately to handle repeated undo/redo cycles
+            self._current_entry_id = entry.id
+
         self._timeline.add_clip(
-            entry_id=self._entry_id,
+            entry_id=self._current_entry_id,
             media_id=self._snapshot["media_id"],
             track_type=self._snapshot["track"],
             title=title,

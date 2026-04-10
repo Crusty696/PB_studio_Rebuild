@@ -40,6 +40,7 @@ from PySide6.QtGui import QPainter, QPainterPath, QColor, QFont, QBrush, QPen, Q
 
 # NEU: PB Studio Gold-Accent Theme (ersetzt qt_material)
 from ui.theme import get_stylesheet
+from services.ollama_service import OllamaService
 
 APP_VERSION = "0.5.0"
 
@@ -88,7 +89,6 @@ from workers import (
     StemSeparationWorker, AutoDuckingWorker,
     ExportWorker, FolderImportWorker, BatchConvertWorker, ProxyCreationWorker,
     AutoEditWorker, SemanticSearchWorker,
-    DummyProgressWorker,
 )
 
 # Command Pattern: Worker-Registry (side-effect import registriert alle Worker)
@@ -304,6 +304,11 @@ class PBWindow(QMainWindow):
         )
         if download_url:
             self._update_banner_link.setVisible(True)
+            # FIX H-1: Disconnect previous connections to prevent accumulation
+            try:
+                self._update_banner_link.clicked.disconnect()
+            except RuntimeError:
+                pass  # No connections yet
             self._update_banner_link.clicked.connect(
                 lambda: __import__("webbrowser").open(download_url)
             )
@@ -401,22 +406,29 @@ class PBWindow(QMainWindow):
         if hasattr(self, "stem_player"):
             self.stem_player.cleanup()
 
-        # 8. VRAM final freigeben (Fix A-03: Asynchron im Hintergrund)
+        # 8. Ollama stoppen (Gemma 4 Arbeitsplan)
+        try:
+            OllamaService.get().stop()
+            logger.info("closeEvent: Ollama gestoppt.")
+        except Exception as exc:
+            logger.warning("closeEvent: Ollama-Stop fehlgeschlagen: %s", exc)
+
+        # 9. VRAM final freigeben (Fix A-03: Asynchron im Hintergrund)
         try:
             tm = GlobalTaskManager.instance()
             tm.unload_in_background()
         except Exception as e:  # B-035 Fix: Log instead of silent pass
             logger.debug("Unload in background failed: %s", e)
 
-        logger.info("Cleanup-Tasks gestartet. App-Fenster wird geschlossen.")
-        event.accept()
-
-        # 7. Close DB connection pool
+        # 10. Close DB connection pool (FIX C-2: BEFORE event.accept())
         try:
             from database import engine
             engine.dispose()
         except (ImportError, RuntimeError, OSError) as exc:
             logger.warning("closeEvent: failed to dispose DB connection pool: %s", exc)
+
+        logger.info("Cleanup-Tasks gestartet. App-Fenster wird geschlossen.")
+        event.accept()
 
         super().closeEvent(event)
 
@@ -557,23 +569,30 @@ def main():
         
         for m_id in models_to_download:
             print(f"\n[{m_id}] Prüfe/Lade...")
-            
+
             # Download starten (blockierend für CLI)
             done_event = threading.Event()
-            
+            download_started = False
+
             def _prog(p):
+                nonlocal download_started
                 if p.finished:
                     done_event.set()
                 elif p.status == "downloading":
+                    download_started = True
                     print(f"  Progress: {p.progress*100:.1f}% | Speed: {p.speed_mbps:.1f} MB/s | ETA: {p.eta_sec}s", end="\r")
-            
+
             success = service.download_hf_model(m_id, progress_cb=_prog)
             if success:
-                # Warten bis fertig (max 30 min pro Modell)
-                if not done_event.wait(timeout=1800):
-                    print(f"\n[ERROR] Timeout beim Download von {m_id}")
+                # FIX H-19: Only wait if download actually started; reduce timeout to 5 min
+                if download_started:
+                    if not done_event.wait(timeout=300):
+                        print(f"\n[ERROR] Timeout beim Download von {m_id}")
+                    else:
+                        print(f"\n[OK] {m_id} erfolgreich verarbeitet.")
                 else:
-                    print(f"\n[OK] {m_id} erfolgreich verarbeitet.")
+                    # Model already cached, no download needed
+                    print(f"\n[OK] {m_id} bereits vorhanden.")
             else:
                 print(f"[SKIP/ERROR] Download konnte nicht gestartet werden für {m_id}")
         
@@ -619,6 +638,8 @@ def main():
     _tm = GlobalTaskManager.instance()
     _task_manager_module.task_manager = _tm
     app.task_manager = _tm
+    # FIX H-18: Initialize system_status before use in final_init
+    app.system_status = None
 
     app.setStyleSheet(get_stylesheet())
 
@@ -636,11 +657,15 @@ def main():
     QApplication.processEvents()
 
     # ── Startup ───────────────────────────────────────────────────────
+    # FIX H-22: Create DB tables before PBWindow to prevent access errors
+    from database import Base, engine
+    Base.metadata.create_all(engine)
+
     # P1-FIX: Fenster sofort zeigen, damit der User Feedback hat.
     # Schwere Operationen werden verzögert ausgeführt.
     splash.show_message("Lade Benutzeroberfläche...")
     QApplication.processEvents()
-    
+
     try:
         window = PBWindow()
     except (ImportError, RuntimeError, OSError) as exc:
@@ -655,29 +680,37 @@ def main():
     # ── Verzögerte Initialisierung (Fix F-035) ────────────────────────
     def final_init():
         try:
-            # 1. Datenbank
-            from database import init_db
-            init_db()
-            window.console_text.append("[System] Datenbank bereit.")
-            
-            # 2. System Check (async via Worker um UI flüssig zu halten)
+            # FIX H-21: Removed duplicate init_db() call - StartupCheckWorker handles it
+            # 1. KI-Engine (Gemma 4 Arbeitsplan)
+            try:
+                OllamaService.get().start()
+                if OllamaService.get().is_ready:
+                    window.console_text.append("[KI] AI-Engine aktiv. Modell: Gemma 4 E4B (lokal).")
+                else:
+                    window.console_text.append("[KI] AI-Engine wird im Hintergrund gestartet...")
+            except Exception as exc:
+                logger.warning("Ollama-Start fehlgeschlagen: %s", exc)
+
+            # 3. System Check (async via Worker um UI flüssig zu halten)
+            # FIX C-4: Store worker refs on window to prevent GC while thread runs
             from workers.startup import StartupCheckWorker
-            check_worker = StartupCheckWorker()
-            check_thread = QThread(window)
-            check_worker.moveToThread(check_thread)
-            
+            window._startup_check_worker = StartupCheckWorker()
+            window._startup_check_thread = QThread(window)
+            window._startup_check_worker.moveToThread(window._startup_check_thread)
+
             def on_done(status):
                 app.system_status = status
-                window.status_bar.showMessage(f"System bereit | {status.status_bar_text()}")
+                _ai_status = '● AI ready' if OllamaService.get().is_ready else '● AI loading...'
+                window.status_bar.showMessage(f"System bereit | {status.status_bar_text()} | {_ai_status}")
                 window.console_text.append(f"[System] {status.status_bar_text()}")
                 # 3. Timeline laden wenn alles bereit ist
                 window.timeline_view.load_from_db()
-                check_thread.quit()
-            
-            check_worker.finished.connect(on_done)
-            check_worker.progress.connect(lambda msg: window.status_bar.showMessage(msg))
-            check_thread.started.connect(check_worker.run)
-            check_thread.start()
+                window._startup_check_thread.quit()
+
+            window._startup_check_worker.finished.connect(on_done)
+            window._startup_check_worker.progress.connect(lambda msg: window.status_bar.showMessage(msg))
+            window._startup_check_thread.started.connect(window._startup_check_worker.run)
+            window._startup_check_thread.start()
             
         except Exception as e:
             logger.error("Fehler bei finaler Initialisierung: %s", e, exc_info=True)

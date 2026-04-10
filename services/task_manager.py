@@ -416,19 +416,20 @@ class GlobalTaskManager(QObject):
                 # manuell aufraeumen.
                 try:
                     from services.model_manager import ModelManager, GPU_LOAD_LOCK, GPU_EXECUTION_LOCK
-                    # FIX A-04: Locks gewaltsam freigeben, falls der Thread sie hielt
-                    if hasattr(GPU_LOAD_LOCK, "_release_save"): # Falls wir ein RLock-Wrapper haetten
-                        pass 
-                    # Bei Standard-Locks/RLocks muessen wir sicherstellen, dass sie 
-                    # fuer andere Threads wieder nutzbar sind.
-                    # Ein RLock kann mehrfach geacquired worden sein.
-                    try:
-                        while GPU_LOAD_LOCK.release(): pass
-                    except RuntimeError: pass
-                    try:
-                        while GPU_EXECUTION_LOCK.release(): pass
-                    except RuntimeError: pass
-                    
+                    # FIX C-1: Locks gewaltsam freigeben, falls der Thread sie hielt
+                    # RLock.release() gibt None zurück, nicht bool → while-Loop war no-op
+                    # Fix: Bounded loop mit try/except bis RuntimeError
+                    for _ in range(100):  # Upper bound prevents infinite loop
+                        try:
+                            GPU_LOAD_LOCK.release()
+                        except RuntimeError:
+                            break
+                    for _ in range(100):
+                        try:
+                            GPU_EXECUTION_LOCK.release()
+                        except RuntimeError:
+                            break
+
                     ModelManager().unload()  # Erzwingt VRAM-Freigabe
                 except Exception as e:
                     logger.warning("VRAM cleanup after task terminate failed: %s", e)

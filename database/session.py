@@ -1,5 +1,4 @@
 import logging
-import re
 import sys
 import threading
 from pathlib import Path
@@ -45,6 +44,10 @@ class EngineProxy:
 
     def __getattr__(self, name):
         return getattr(object.__getattribute__(self, '_engine'), name)
+
+    def __setattr__(self, name, value):
+        """Delegate attribute setting to the real engine."""
+        setattr(object.__getattribute__(self, '_engine'), name, value)
 
     def swap(self, new_engine):
         """Atomically replace the wrapped engine; dispose the old one."""
@@ -186,6 +189,17 @@ class _NullPoolSessionContext:
                         self._session.rollback()
                     except Exception as rb_err:  # broad catch intentional — rollback itself can fail on closed connection
                         logger.warning("session.rollback() fehlgeschlagen: %s", rb_err)
+                else:
+                    # Auto-commit if no exception occurred
+                    try:
+                        self._session.commit()
+                    except Exception as commit_err:  # broad catch intentional — commit can fail on DB constraints
+                        logger.warning("session.commit() fehlgeschlagen: %s", commit_err)
+                        try:
+                            self._session.rollback()
+                        except Exception as rb_err:  # rollback after failed commit
+                            logger.warning("session.rollback() nach fehlgeschlagenem commit: %s", rb_err)
+                        raise  # Re-raise commit error so caller knows operation failed
                 self._session.close()
         finally:
             # B-008 Fix: dispose() Fehler abfangen statt still zu schlucken
@@ -203,7 +217,8 @@ def get_active_project_id() -> int:
         with Session(engine) as s:
             proj = s.query(Project).filter(Project.deleted_at.is_(None)).first()
             return proj.id if proj else 1
-    except Exception:  # broad catch intentional — fallback if DB is unavailable at startup
+    except Exception as e:  # broad catch intentional — fallback if DB is unavailable at startup
+        logger.warning("get_active_project_id() failed, returning default project_id=1: %s", e)
         return 1
 
 
@@ -245,10 +260,9 @@ def set_project(project_path: Path):
     project_path = Path(project_path)
     db_file = project_path / "pb_studio.db"
 
-    new_engine = _make_engine(db_file)
-
-    # P0-FIX: Lock APP_ROOT mutation to prevent race conditions
+    # FIX H-7: Create engine inside lock to prevent race window
     with _APP_ROOT_LOCK:
+        new_engine = _make_engine(db_file)
         engine.swap(new_engine)
         APP_ROOT = project_path
         _patch_service_paths(project_path)

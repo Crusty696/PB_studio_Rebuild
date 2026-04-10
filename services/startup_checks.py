@@ -84,39 +84,30 @@ class SystemStatus:
 
 
 def _check_ollama() -> bool:
-    """Prueft ob Ollama laeuft, falls nicht: Auto-Start-Versuch."""
-    import socket
-    from pathlib import Path
-
-    def is_port_open(port: int) -> bool:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.settimeout(0.5)
-            return s.connect_ex(("localhost", port)) == 0
-
-    if is_port_open(11434):
+    """Prueft ob Ollama laeuft, falls nicht: Auto-Start-Versuch via OllamaService."""
+    import time
+    from services.ollama_service import OllamaService
+    svc = OllamaService.get()
+    if svc.is_ready:
         return True
 
-    # Versuch Ollama zu finden und zu starten
-    paths = [
-        Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Ollama" / "ollama.exe",
-        Path(os.environ.get("LOCALAPPDATA", "")) / "Ollama" / "ollama.exe",
-        Path("C:/Program Files/Ollama/ollama.exe"),
-    ]
-    
-    for p in paths:
-        if p.exists():
-            try:
-                logger.info("Starte Ollama automatisch: %s", p)
-                subprocess.Popen(
-                    [str(p), "serve"],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    **_subprocess_kwargs()
-                )
-                return True # Als OK markieren, Dienst startet im Hintergrund
-            except (OSError, FileNotFoundError, PermissionError) as e:
-                logger.warning("Fehler beim Auto-Start von Ollama: %s", e)
-    
+    try:
+        logger.info("Starte Ollama automatisch via OllamaService...")
+        svc.start()
+        # FIX H-17: Wait for Ollama to actually be ready before returning True
+        # Poll is_ready with timeout to ensure server is actually running
+        timeout = 30  # seconds
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            if svc.is_ready:
+                logger.info("Ollama ist bereit nach %.1fs", time.time() - start_time)
+                return True
+            time.sleep(0.5)
+        logger.warning("Ollama start timeout nach %ds", timeout)
+        return False
+    except Exception as e:
+        logger.warning("Fehler beim Auto-Start von Ollama: %s", e)
+
     return False
 
 
