@@ -122,6 +122,9 @@ class ImportMediaController(PBComponent):
                 self.window.console_text.append(f"[System] {count} Medien-Eintraege geloescht.")
                 self.window.status_bar.showMessage(f"Sammlung bereinigt ({count} Eintraege)")
 
+            # H-36 FIX: Connect the on_finish callback to worker.finished signal
+            worker.finished.connect(_on_done)
+
             from services.task_manager import GlobalTaskManager
             GlobalTaskManager.instance().start_task(
                 name="Datenbank bereinigen",

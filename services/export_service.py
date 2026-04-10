@@ -91,6 +91,12 @@ def _probe_video(file_path: str) -> dict:
 _probe_cache: dict[str, dict] = {}
 
 
+def clear_probe_cache():
+    """H-3 FIX: Clears the probe cache to prevent unbounded memory growth and stale data."""
+    _probe_cache.clear()
+    logger.debug("[Export] Probe cache cleared")
+
+
 def _needs_preprocessing(file_path: str, target_w: int, target_h: int,
                           target_fps: float) -> bool:
     """Prueft ob ein Video vor dem Concat standardisiert werden muss.

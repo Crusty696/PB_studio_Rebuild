@@ -46,7 +46,7 @@ def apply_auto_edit_segments(segments: list[dict], project_id: int | None = None
     for attempt in range(max_retries):
         try:
             if attempt > 0:
-                engine.dispose()
+                # H-15 FIX: Don't dispose shared engine in retry loop — just wait
                 _time.sleep(1)
             return _do_apply_segments(segments, project_id)
         except OperationalError as e:

@@ -172,9 +172,10 @@ def get_audio_detail_data(audio_id: int) -> dict | None:
             beat_count = None
             if track.beatgrid and track.beatgrid.beat_positions:
                 try:
-                    beat_count = len(_json.loads(track.beatgrid.beat_positions))
-                except (json.JSONDecodeError, TypeError, AttributeError) as e:
-                    logger.warning("beat_positions JSON parse fehlgeschlagen (audio_id=%d): %s", audio_id, e)
+                    # C-3 FIX: SQLAlchemy auto-deserializes JSON columns — no manual json.loads() needed
+                    beat_count = len(track.beatgrid.beat_positions)
+                except (TypeError, AttributeError) as e:
+                    logger.warning("beat_positions length fehlgeschlagen (audio_id=%d): %s", audio_id, e)
 
             camelot = CAMELOT_WHEEL.get(track.key) if track.key else None
             stems_status = "Ja" if track.stem_vocals_path else "Nein"
@@ -217,7 +218,12 @@ def get_all_audio(project_id: int = 1, limit: int = 5000) -> list[dict]:
     # Collect ORM data first, then close session before calling analysis_status_service
     # to avoid connection pool exhaustion (selectin loaders hold pool connections).
     with Session(engine) as session:
-        tracks = session.query(AudioTrack).filter_by(project_id=project_id).limit(limit).all()
+        # H-4 FIX: Filter out soft-deleted tracks (deleted_at is None)
+        tracks = session.query(AudioTrack).filter_by(
+            project_id=project_id
+        ).filter(
+            AudioTrack.deleted_at.is_(None)
+        ).limit(limit).all()
         raw_data = []
         for t in tracks:
             stem_count = sum(1 for p in [
@@ -296,11 +302,16 @@ def delete_all_media(project_id: int = 1) -> int:
     from database import nullpool_session
     with nullpool_session() as session:
         # IDs der betroffenen Parent-Rows sammeln
+        # H-8 FIX: Filter out soft-deleted items (deleted_at is None)
         audio_ids = [
-            r[0] for r in session.query(AudioTrack.id).filter_by(project_id=project_id).all()
+            r[0] for r in session.query(AudioTrack.id).filter_by(
+                project_id=project_id
+            ).filter(AudioTrack.deleted_at.is_(None)).all()
         ]
         video_ids = [
-            r[0] for r in session.query(VideoClip.id).filter_by(project_id=project_id).all()
+            r[0] for r in session.query(VideoClip.id).filter_by(
+                project_id=project_id
+            ).filter(VideoClip.deleted_at.is_(None)).all()
         ]
         timeline_ids = [
             r[0] for r in session.query(TimelineEntry.id).filter_by(project_id=project_id).all()
