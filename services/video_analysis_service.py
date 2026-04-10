@@ -25,6 +25,7 @@ from services.timeout_constants import FFMPEG_PROBE_TIMEOUT_SEC, FFMPEG_THUMBNAI
 
 from services.model_manager import ModelManager, oom_recovery
 from services import analysis_status_service
+from services.errors import OllamaPausedError
 
 logger = logging.getLogger(__name__)
 
@@ -657,6 +658,9 @@ def analyze_scene_with_caption(
                 "[CAPTION] Szene %d: LLM-Antwort war kein valides JSON: %s",
                 scene.index, raw[:100],
             )
+        except OllamaPausedError:
+            logger.debug("[CAPTION] Szene %d: Ollama pausiert (GPU-intensive Operation) — überspringe verbleibende Szenen", scene.index)
+            break  # Client became paused during captioning — stop processing remaining scenes
         except RuntimeError as e:
             logger.warning("[CAPTION] Szene %d: Ollama-Fehler: %s — übersprungen", scene.index, e)
             break  # Ollama nicht erreichbar — restliche Szenen überspringen
