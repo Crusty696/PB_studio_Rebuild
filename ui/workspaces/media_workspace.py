@@ -556,6 +556,11 @@ class MediaWorkspace(QWidget):
             self._on_video_selection_changed
         )
 
+        # Wire analysis_requested signal to dispatch workers
+        self.video_analysis_panel.analysis_requested.connect(
+            self._on_analysis_requested
+        )
+
         splitter.addWidget(right)
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 6)
@@ -959,6 +964,11 @@ class MediaWorkspace(QWidget):
             self._on_audio_selection_changed
         )
 
+        # Wire analysis_requested signal to dispatch workers
+        self.audio_analysis_panel.analysis_requested.connect(
+            self._on_analysis_requested
+        )
+
         splitter.addWidget(right)
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 6)
@@ -1026,6 +1036,204 @@ class MediaWorkspace(QWidget):
 
         if audio_id is not None:
             self.audio_analysis_panel.set_media("audio", int(audio_id), str(title or ""))
+
+    def _on_analysis_requested(self, step_key: str):
+        """Handle analysis_requested signal from AnalysisStatusPanel.
+
+        Dispatches the appropriate worker based on step_key and current media type.
+        """
+        # Determine which panel sent the signal and get media info
+        sender_panel = self.sender()
+
+        if sender_panel == self.video_analysis_panel:
+            media_type = "video"
+            media_id = self.video_analysis_panel._media_id
+            title = self.video_analysis_panel.file_info_label.text()
+        elif sender_panel == self.audio_analysis_panel:
+            media_type = "audio"
+            media_id = self.audio_analysis_panel._media_id
+            title = self.audio_analysis_panel.file_info_label.text()
+        else:
+            return
+
+        if media_id is None:
+            return
+
+        # Delegate to PBWindow controllers
+        # Access parent window through the workspace hierarchy
+        pb_window = self.parent()
+        while pb_window and not hasattr(pb_window, 'worker_dispatcher'):
+            pb_window = pb_window.parent()
+
+        if not pb_window:
+            return
+
+        # Dispatch based on step_key
+        try:
+            if media_type == "audio":
+                self._dispatch_audio_analysis(pb_window, media_id, title, step_key)
+            else:
+                self._dispatch_video_analysis(pb_window, media_id, title, step_key)
+        except Exception as e:
+            import logging
+            logging.error("Failed to dispatch analysis for %s: %s", step_key, e, exc_info=True)
+
+    def _dispatch_audio_analysis(self, pb_window, audio_id: int, title: str, step_key: str):
+        """Dispatch audio analysis worker based on step_key."""
+        from database import engine, AudioTrack
+        from sqlalchemy.orm import Session as DBSession
+        from services.task_manager import TaskManagerProxy
+        import workers
+
+        task_manager = TaskManagerProxy()
+
+        # Get file_path and bpm from DB
+        with DBSession(engine) as session:
+            track = session.get(AudioTrack, audio_id)
+            if not track:
+                return
+            file_path = track.file_path
+            bpm = track.bpm
+
+        # Map step_key to worker
+        worker = None
+        task_name = ""
+
+        if step_key == "bpm_detection":
+            task_name = f"BPM: {title}"
+            task = task_manager.create_task(task_name, "BPM + Beat-Analyse")
+            worker = workers.AnalysisWorker(audio_id, title)
+            worker.task_id = task.task_id
+            worker.progress.connect(lambda pct, msg: pb_window._console_append(f"[BPM] {msg}"))
+            worker.finished.connect(lambda tid, res: (
+                pb_window._console_append(f"[BPM] Done: {res.get('bpm', '?')} BPM, {len(res.get('beat_positions', []))} beats"),
+                pb_window.media_table_controller._refresh_media_table_debounced(),
+                self.audio_analysis_panel.refresh(),
+            ))
+
+        elif step_key == "waveform_analysis":
+            task_name = f"Waveform: {title}"
+            task = task_manager.create_task(task_name, "3-Band Waveform")
+            worker = workers.WaveformAnalysisWorker(audio_id)
+            worker.task_id = task.task_id
+            worker.progress.connect(lambda pct, msg: pb_window._console_append(f"[Waveform] {msg}"))
+            worker.finished.connect(lambda tid, res: (
+                pb_window._console_append(f"[Waveform] Done: {res.get('num_samples', 0)} samples"),
+                pb_window.media_table_controller._refresh_media_table_debounced(),
+                self.audio_analysis_panel.refresh(),
+            ))
+
+        elif step_key == "key_detection":
+            task_name = f"Key: {title}"
+            task = task_manager.create_task(task_name, "Key-Erkennung")
+            worker = workers.KeyDetectionWorker(audio_id, file_path)
+            worker.task_id = task.task_id
+            worker.progress.connect(lambda pct, msg: pb_window._console_append(f"[Key] {msg}"))
+            worker.finished.connect(lambda tid, res: (
+                pb_window._console_append(f"[Key] {res.get('key', '?')} ({res.get('camelot', '?')})"),
+                pb_window.media_table_controller._refresh_media_table_debounced(),
+                self.audio_analysis_panel.refresh(),
+            ))
+
+        elif step_key == "lufs_analysis":
+            task_name = f"LUFS: {title}"
+            task = task_manager.create_task(task_name, "LUFS-Analyse")
+            worker = workers.LUFSAnalysisWorker(audio_id, file_path)
+            worker.task_id = task.task_id
+            worker.progress.connect(lambda pct, msg: pb_window._console_append(f"[LUFS] {msg}"))
+            worker.finished.connect(lambda tid, res: (
+                pb_window._console_append(f"[LUFS] {res.get('integrated', 0):.1f} dB"),
+                pb_window.media_table_controller._refresh_media_table_debounced(),
+                self.audio_analysis_panel.refresh(),
+            ))
+
+        elif step_key == "mood_genre_classify":
+            task_name = f"Classify: {title}"
+            task = task_manager.create_task(task_name, "Mood/Genre AI")
+            worker = workers.AudioClassifyWorker(audio_id, file_path)
+            worker.task_id = task.task_id
+            worker.progress.connect(lambda pct, msg: pb_window._console_append(f"[Classify] {msg}"))
+            worker.finished.connect(lambda tid, res: (
+                pb_window._console_append(f"[Classify] {res.get('mood', '?')} / {res.get('genre', '?')}"),
+                pb_window.media_table_controller._refresh_media_table_debounced(),
+                self.audio_analysis_panel.refresh(),
+            ))
+
+        elif step_key == "spectral_analysis":
+            task_name = f"Spectral: {title}"
+            task = task_manager.create_task(task_name, "8-Band Spektral")
+            worker = workers.SpectralAnalysisWorker(audio_id, file_path)
+            worker.task_id = task.task_id
+            worker.progress.connect(lambda pct, msg: pb_window._console_append(f"[Spectral] {msg}"))
+            worker.finished.connect(lambda tid, res: (
+                pb_window._console_append(f"[Spectral] Done"),
+                pb_window.media_table_controller._refresh_media_table_debounced(),
+                self.audio_analysis_panel.refresh(),
+            ))
+
+        elif step_key == "structure_detection":
+            task_name = f"Structure: {title}"
+            task = task_manager.create_task(task_name, "Song-Struktur")
+            worker = workers.StructureDetectionWorker(audio_id, file_path, bpm=bpm)
+            worker.task_id = task.task_id
+            worker.progress.connect(lambda pct, msg: pb_window._console_append(f"[Structure] {msg}"))
+            worker.finished.connect(lambda tid, res: (
+                pb_window._console_append(f"[Structure] {len(res.get('segments', []))} segments"),
+                pb_window.media_table_controller._refresh_media_table_debounced(),
+                self.audio_analysis_panel.refresh(),
+            ))
+
+        elif step_key == "stem_separation":
+            task_name = f"Stems: {title}"
+            task = task_manager.create_task(task_name, "Demucs Stem Separation")
+            worker = workers.StemSeparationWorker(audio_id, file_path)
+            worker.task_id = task.task_id
+            worker.progress.connect(lambda pct, msg: pb_window._console_append(f"[Stems] {msg}"))
+            worker.finished.connect(lambda tid, res: (
+                pb_window._console_append(f"[Stems] {len(res.get('stems', []))} stems created"),
+                pb_window.media_table_controller._refresh_media_table_debounced(),
+                self.audio_analysis_panel.refresh(),
+            ))
+
+        if worker:
+            worker.error.connect(lambda tid, err: (
+                pb_window._console_append(f"[{step_key}] Error: {err}"),
+                self.audio_analysis_panel.refresh(),
+            ))
+            pb_window.worker_dispatcher._start_worker_thread(worker)
+            pb_window.console_text.append(f"[{step_key}] Starting analysis for '{title}'...")
+
+    def _dispatch_video_analysis(self, pb_window, video_id: int, title: str, step_key: str):
+        """Dispatch video analysis worker based on step_key.
+
+        Note: Most video steps are part of the full pipeline.
+        For now, we trigger the full pipeline for any video step.
+        """
+        from services.task_manager import TaskManagerProxy
+        import workers
+
+        task_manager = TaskManagerProxy()
+
+        # For video, most steps are part of the full pipeline
+        # Trigger the full pipeline worker
+        task_name = f"Video Pipeline: {title}"
+        task = task_manager.create_task(task_name, "Full Video Analysis Pipeline")
+
+        worker = workers.VideoAnalysisPipelineWorker(video_id)
+        worker.task_id = task.task_id
+        worker.progress.connect(lambda pct, msg: pb_window._console_append(f"[Video] {msg}"))
+        worker.finished.connect(lambda vid, res: (
+            pb_window._console_append(f"[Video] Pipeline complete for {title}"),
+            pb_window.media_table_controller._refresh_media_table_debounced(),
+            self.video_analysis_panel.refresh(),
+        ))
+        worker.error.connect(lambda vid, err: (
+            pb_window._console_append(f"[Video] Error: {err}"),
+            self.video_analysis_panel.refresh(),
+        ))
+
+        pb_window.worker_dispatcher._start_worker_thread(worker)
+        pb_window.console_text.append(f"[Video] Starting full pipeline for '{title}'...")
 
     # ── Audio Detail Cards ─────────────────────────────────────
     def _update_audio_detail_cards(self, audio_track):
