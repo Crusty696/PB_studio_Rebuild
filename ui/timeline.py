@@ -15,7 +15,7 @@ from PySide6.QtGui import QPainter, QColor, QFont, QBrush, QPen, QPolygonF, QUnd
 
 from sqlalchemy.orm import Session as DBSession
 
-from database import engine, AudioTrack, VideoClip, TimelineEntry, Beatgrid, ClipAnchor, StructureSegment
+from database import engine, AudioTrack, VideoClip, TimelineEntry, Beatgrid, ClipAnchor, StructureSegment, nullpool_session
 
 logger = logging.getLogger(__name__)
 from services.pacing_service import CutPoint
@@ -156,7 +156,7 @@ class TimelineClipItem(QGraphicsRectItem):
 
     def _load_anchors(self):
         """Laedt bestehende Anker aus der DB und zeichnet sie."""
-        with DBSession(engine) as session:
+        with nullpool_session() as session:
             anchors = session.query(ClipAnchor).filter_by(
                 timeline_entry_id=self.entry_id
             ).all()
@@ -198,7 +198,7 @@ class TimelineClipItem(QGraphicsRectItem):
 
     def get_first_anchor_time(self) -> float | None:
         """Gibt den Zeitstempel des ersten Ankers zurueck (relativ zum Clip-Start)."""
-        with DBSession(engine) as session:
+        with nullpool_session() as session:
             anchor = session.query(ClipAnchor).filter_by(
                 timeline_entry_id=self.entry_id
             ).order_by(ClipAnchor.time_offset).first()
@@ -463,9 +463,12 @@ class InteractiveTimeline(QGraphicsView):
             txt.setZValue(10)
 
     def load_from_db(self, project_id: int | None = None):
+        """Asynchrones Laden der Timeline-Daten (Fix für Main-Thread Blocking)."""
         if project_id is None:
             from database import get_active_project_id
             project_id = get_active_project_id()
+            
+        # UI sofort bereinigen
         for item in self.clip_items:
             self._scene.removeItem(item)
         self.clip_items.clear()
@@ -484,76 +487,109 @@ class InteractiveTimeline(QGraphicsView):
         self._clear_sections()
         self._clear_beat_grid()
 
-        with DBSession(engine) as session:
-            entries = (
-                session.query(TimelineEntry)
-                .filter_by(project_id=project_id)
-                .all()
+        # Hintergrund-Worker für die Datenbankabfrage
+        from PySide6.QtCore import QObject, Signal, QThread
+        
+        class TimelineDBWorker(QObject):
+            finished = Signal(list, dict, dict, dict)  # entries, audio_map, video_map, anchor_map
+            
+            def __init__(self, pid):
+                super().__init__(None) # Parent explizit None für moveToThread
+                self.pid = pid
+                
+            def run(self):
+                try:
+                    with nullpool_session() as session:
+                        entries = session.query(TimelineEntry).filter_by(project_id=self.pid).all()
+                        
+                        _audio_ids = [e.media_id for e in entries if e.track == "audio"]
+                        _video_ids = [e.media_id for e in entries if e.track == "video"]
+                        
+                        _audio_map = (
+                            {t.id: t for t in session.query(AudioTrack).filter(
+                                AudioTrack.id.in_(_audio_ids)).all()}
+                            if _audio_ids else {}
+                        )
+                        _video_map = (
+                            {c.id: c for c in session.query(VideoClip).filter(
+                                VideoClip.id.in_(_video_ids)).all()}
+                            if _video_ids else {}
+                        )
+
+                        _entry_ids = [e.id for e in entries]
+                        _all_anchors = (
+                            session.query(ClipAnchor).filter(
+                                ClipAnchor.timeline_entry_id.in_(_entry_ids)
+                            ).all() if _entry_ids else []
+                        )
+                        
+                        _anchor_map = {}
+                        for anc in _all_anchors:
+                            _anchor_map.setdefault(anc.timeline_entry_id, []).append(anc)
+                            
+                        # Objekte vom Session-State lösen für sichere Übergabe an Main-Thread
+                        session.expunge_all()
+                        self.finished.emit(entries, _audio_map, _video_map, _anchor_map)
+                except Exception as e:
+                    logger.error("TimelineDBWorker Fehler: %s", e)
+                    self.finished.emit([], {}, {}, {})
+
+        self._db_worker = TimelineDBWorker(project_id)
+        self._db_thread = QThread(self)
+        self._db_worker.moveToThread(self._db_thread)
+        
+        self._db_worker.finished.connect(self._on_db_load_finished)
+        self._db_worker.finished.connect(self._db_thread.quit)
+        self._db_thread.finished.connect(self._db_thread.deleteLater)
+        self._db_thread.started.connect(self._db_worker.run)
+        
+        self._db_thread.start()
+
+    def _on_db_load_finished(self, entries, audio_map, video_map, anchor_map):
+        """Wird aufgerufen, sobald die Daten vom Hintergrund-Thread geladen wurden."""
+        self._anchor_map = anchor_map
+        
+        for entry in entries:
+            has_waveform = False
+            if entry.track == "audio":
+                track = audio_map.get(entry.media_id)
+                title = track.title if track else "?"
+                dur = track.duration if track and track.duration else 30.0
+                y = AUDIO_TRACK_Y
+
+                # Rekordbox Waveform laden (falls vorhanden)
+                if track and track.waveform_data:
+                    has_waveform = True
+                    # Wir öffnen eine kurze Read-Only Session für den Waveform-Fetch
+                    with DBSession(engine) as session:
+                        fresh_track = session.merge(track)
+                        self._load_waveform_for_track(session, fresh_track, entry, dur, y)
+
+            elif entry.track == "video":
+                clip = video_map.get(entry.media_id)
+                title = Path(clip.file_path).stem if clip else "?"
+                dur = clip.duration if clip and clip.duration else 10.0
+                y = VIDEO_TRACK_Y
+            else:
+                continue
+
+            width = dur * PIXELS_PER_SECOND
+            x = entry.start_time * PIXELS_PER_SECOND
+
+            item = TimelineClipItem(
+                entry_id=entry.id,
+                media_id=entry.media_id,
+                track_type=entry.track,
+                title=title,
+                x=x, y=y,
+                width=width, height=TRACK_HEIGHT,
+                on_moved=self._on_clip_moved,
+                on_trimmed=self._on_clip_trimmed,
+                has_waveform=has_waveform,
+                anchors=anchor_map.get(entry.id, []),
             )
-            # Bug-17 Fix: Bulk-Load AudioTracks und VideoClips — verhindert N+1
-            _audio_ids = [e.media_id for e in entries if e.track == "audio"]
-            _video_ids = [e.media_id for e in entries if e.track == "video"]
-            _audio_map = (
-                {t.id: t for t in session.query(AudioTrack).filter(
-                    AudioTrack.id.in_(_audio_ids)).all()}
-                if _audio_ids else {}
-            )
-            _video_map = (
-                {c.id: c for c in session.query(VideoClip).filter(
-                    VideoClip.id.in_(_video_ids)).all()}
-                if _video_ids else {}
-            )
-
-            # Bulk-Load aller ClipAnchors — verhindert N+1 pro Clip
-            _entry_ids = [e.id for e in entries]
-            _all_anchors = (
-                session.query(ClipAnchor).filter(
-                    ClipAnchor.timeline_entry_id.in_(_entry_ids)
-                ).all() if _entry_ids else []
-            )
-            self._anchor_map = {}
-            for anc in _all_anchors:
-                self._anchor_map.setdefault(anc.timeline_entry_id, []).append(anc)
-            _anchor_map = self._anchor_map
-
-            for entry in entries:
-                has_waveform = False
-                if entry.track == "audio":
-                    track = _audio_map.get(entry.media_id)
-                    title = track.title if track else "?"
-                    dur = track.duration if track and track.duration else 30.0
-                    y = AUDIO_TRACK_Y
-
-                    # Rekordbox Waveform laden (falls vorhanden)
-                    if track and track.waveform_data:
-                        has_waveform = True
-                        self._load_waveform_for_track(session, track, entry, dur, y)
-
-                elif entry.track == "video":
-                    clip = _video_map.get(entry.media_id)
-                    title = Path(clip.file_path).stem if clip else "?"
-                    dur = clip.duration if clip and clip.duration else 10.0
-                    y = VIDEO_TRACK_Y
-                else:
-                    continue
-
-                width = dur * PIXELS_PER_SECOND
-                x = entry.start_time * PIXELS_PER_SECOND
-
-                item = TimelineClipItem(
-                    entry_id=entry.id,
-                    media_id=entry.media_id,
-                    track_type=entry.track,
-                    title=title,
-                    x=x, y=y,
-                    width=width, height=TRACK_HEIGHT,
-                    on_moved=self._on_clip_moved,
-                    on_trimmed=self._on_clip_trimmed,
-                    has_waveform=has_waveform,
-                    anchors=_anchor_map.get(entry.id, []),
-                )
-                self._scene.addItem(item)
-                self.clip_items.append(item)
+            self._scene.addItem(item)
+            self.clip_items.append(item)
 
         # Compute total duration from loaded clips for dynamic background width
         max_end = 0.0
@@ -563,7 +599,6 @@ class InteractiveTimeline(QGraphicsView):
                 max_end = clip_end
         self._total_duration = max_end
         self._draw_track_backgrounds()
-
         self._update_scene_rect()
 
     def _load_waveform_for_track(self, session, track, entry, dur, y):
@@ -1441,7 +1476,7 @@ class InteractiveTimeline(QGraphicsView):
             self._scene.removeItem(self._drop_ghost)
             self._drop_ghost = None
 
-    def _show_drop_indicator(self, scene_pos: QPointF, track_type: str):
+    def _show_drop_indicator(self, scene_pos: QPointF, track_type: str, duration: float = 4.0):
         """Show a vertical line + translucent ghost rect at the drop position."""
         self._clear_drop_indicator()
 
@@ -1455,8 +1490,8 @@ class InteractiveTimeline(QGraphicsView):
         )
         self._drop_indicator.setZValue(20)
 
-        # Ghost rectangle showing approximate clip placement
-        ghost_w = 3 * PIXELS_PER_SECOND  # 3 seconds placeholder
+        # Ghost rectangle showing actual clip placement
+        ghost_w = duration * PIXELS_PER_SECOND
         ghost_color = (QColor(45, 85, 150, 60) if track_type == "audio"
                        else QColor(212, 164, 74, 60))
         self._drop_ghost = self._scene.addRect(
@@ -1479,16 +1514,19 @@ class InteractiveTimeline(QGraphicsView):
         event.acceptProposedAction()
 
         scene_pos = self.mapToScene(event.position().toPoint())
-        # Determine track from MIME data (preferred) or cursor Y
+        # Determine track and duration from MIME data (preferred) or cursor Y
+        duration = 4.0 # default fallback
         try:
             payload = json.loads(
                 bytes(event.mimeData().data(CLIP_MIME_TYPE)).decode("utf-8")
             )
             track_type = payload.get("track_type", "video")
-        except (json.JSONDecodeError, UnicodeDecodeError):
+            if "duration" in payload:
+                duration = float(payload["duration"])
+        except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
             track_type = self._detect_track_from_y(scene_pos.y()) or "video"
 
-        self._show_drop_indicator(scene_pos, track_type)
+        self._show_drop_indicator(scene_pos, track_type, duration)
 
     def dragLeaveEvent(self, event):
         self._clear_drop_indicator()

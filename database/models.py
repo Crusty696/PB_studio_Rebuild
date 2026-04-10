@@ -27,11 +27,13 @@ class Project(Base):
     deleted_at = Column(DateTime, nullable=True)  # P1-FIX: Soft-Delete Support
 
     # Relationships — P1-FIX: lazy='selectin' verhindert N+1 Queries
-    audio_tracks = relationship("AudioTrack", back_populates="project", cascade="all, delete-orphan", passive_deletes=True, lazy='selectin')
-    video_clips = relationship("VideoClip", back_populates="project", cascade="all, delete-orphan", passive_deletes=True, lazy='selectin')
+    # M-37 Fix: Changed from lazy='selectin' to lazy='select' (on-demand loading)
+    # This avoids 4 extra SELECTs on every Project load when relationships aren't needed
+    audio_tracks = relationship("AudioTrack", back_populates="project", cascade="all, delete-orphan", passive_deletes=True, lazy='select')
+    video_clips = relationship("VideoClip", back_populates="project", cascade="all, delete-orphan", passive_deletes=True, lazy='select')
     # Bug-20 Fix: fehlende back_populates ergänzt
-    pacing_blueprints = relationship("PacingBlueprint", back_populates="project", cascade="all, delete-orphan", passive_deletes=True, lazy='selectin')
-    timeline_entries = relationship("TimelineEntry", back_populates="project", cascade="all, delete-orphan", passive_deletes=True, lazy='selectin')
+    pacing_blueprints = relationship("PacingBlueprint", back_populates="project", cascade="all, delete-orphan", passive_deletes=True, lazy='select')
+    timeline_entries = relationship("TimelineEntry", back_populates="project", cascade="all, delete-orphan", passive_deletes=True, lazy='select')
 
     def __repr__(self):
         return f"<Project(id={self.id}, name='{self.name}', fps={self.fps})>"
@@ -416,6 +418,8 @@ class TimelineEntry(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
     track = Column(String, nullable=False)          # "audio" oder "video"
+    # M-39 LIMITATION: media_id has no FK constraint because it's polymorphic (AudioTrack OR VideoClip)
+    # TODO: Redesign with audio_track_id + video_clip_id nullable FKs + CHECK constraint
     media_id = Column(Integer, nullable=False)       # AudioTrack.id oder VideoClip.id
     start_time = Column(Float, nullable=False, default=0.0)
     end_time = Column(Float, nullable=True)

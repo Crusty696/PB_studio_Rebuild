@@ -105,7 +105,26 @@ def _migrate_fk_cascade():
             conn.execute(text("PRAGMA foreign_keys=ON"))
 
         # Tabellen mit korrektem Schema neu erstellen
-        Base.metadata.create_all(engine)
+        try:
+            Base.metadata.create_all(engine)
+        except Exception as create_error:
+            # Automatic restore from backup if create_all() fails
+            logger.error("create_all() failed after DROP — attempting automatic restore from backup")
+            if backup_path and backup_path.exists():
+                try:
+                    # Dispose engine connections before overwriting the DB file
+                    engine.dispose()
+                    shutil.copy2(backup_path, db_path)
+                    logger.info("Backup restored successfully from: %s", backup_path)
+                except Exception as restore_error:
+                    logger.critical("Backup restore FAILED: %s — database is in broken state!", restore_error)
+                    raise MigrationError(
+                        f"Migration failed AND backup restore failed. "
+                        f"Manual restore required from: {backup_path}"
+                    ) from create_error
+            raise MigrationError(
+                f"create_all() failed after DROP. Backup restored from: {backup_path}"
+            ) from create_error
     except Exception:  # broad catch intentional — re-raised after logging; covers all DB/IO errors
         logger.error("FK-CASCADE Migration FEHLGESCHLAGEN! Backup liegt unter: %s",
                      backup_path if db_path.exists() else "N/A")
@@ -287,32 +306,46 @@ def _run_legacy_migrations():
         if "hotcues" in insp.get_table_names():
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_hotcues_audio_track_id ON hotcues(audio_track_id)"))
 
-    # H5 Fix: Indizes auf Foreign-Key-Spalten erstellen
-    with engine.begin() as conn:
-        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_audio_tracks_project_id ON audio_tracks(project_id)"))
-        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_video_clips_project_id ON video_clips(project_id)"))
-        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_scenes_video_clip_id ON scenes(video_clip_id)"))
-        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_beatgrids_audio_track_id ON beatgrids(audio_track_id)"))
-        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_waveform_data_audio_track_id ON waveform_data(audio_track_id)"))
-        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_timeline_entries_project_id ON timeline_entries(project_id)"))
-        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_audio_video_anchors_audio_track_id ON audio_video_anchors(audio_track_id)"))
-        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_audio_video_anchors_video_clip_id ON audio_video_anchors(video_clip_id)"))
-        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_clip_anchors_timeline_entry_id ON clip_anchors(timeline_entry_id)"))
-        conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_beatgrids_audio_track_id ON beatgrids(audio_track_id)"))
-        conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_waveform_data_audio_track_id ON waveform_data(audio_track_id)"))
-        conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_audio_tracks_project_file ON audio_tracks(project_id, file_path)"))
-        conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_video_clips_project_file ON video_clips(project_id, file_path)"))
-        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ai_pacing_memory_audio_track_id ON ai_pacing_memory(audio_track_id)"))
+    # H5 Fix: Indizes auf Foreign-Key-Spalten erstellen (M-40 Fix: mit Tabellen-Existenz-Checks)
+    insp = inspect(get_raw_engine())
+    existing_tables = set(insp.get_table_names())
 
-    # AUD-11: model_registry Index
     with engine.begin() as conn:
-        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_model_registry_source ON model_registry(source)"))
-        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_model_registry_last_used ON model_registry(last_used_at)"))
+        if "audio_tracks" in existing_tables:
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_audio_tracks_project_id ON audio_tracks(project_id)"))
+            conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_audio_tracks_project_file ON audio_tracks(project_id, file_path)"))
+        if "video_clips" in existing_tables:
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_video_clips_project_id ON video_clips(project_id)"))
+            conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_video_clips_project_file ON video_clips(project_id, file_path)"))
+        if "scenes" in existing_tables:
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_scenes_video_clip_id ON scenes(video_clip_id)"))
+        if "beatgrids" in existing_tables:
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_beatgrids_audio_track_id ON beatgrids(audio_track_id)"))
+            conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_beatgrids_audio_track_id ON beatgrids(audio_track_id)"))
+        if "waveform_data" in existing_tables:
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_waveform_data_audio_track_id ON waveform_data(audio_track_id)"))
+            conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_waveform_data_audio_track_id ON waveform_data(audio_track_id)"))
+        if "timeline_entries" in existing_tables:
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_timeline_entries_project_id ON timeline_entries(project_id)"))
+        if "audio_video_anchors" in existing_tables:
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_audio_video_anchors_audio_track_id ON audio_video_anchors(audio_track_id)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_audio_video_anchors_video_clip_id ON audio_video_anchors(video_clip_id)"))
+        if "clip_anchors" in existing_tables:
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_clip_anchors_timeline_entry_id ON clip_anchors(timeline_entry_id)"))
+        if "ai_pacing_memory" in existing_tables:
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ai_pacing_memory_audio_track_id ON ai_pacing_memory(audio_track_id)"))
 
-    # AUD-12: agent_feedback Index
-    with engine.begin() as conn:
-        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_agent_feedback_rating ON agent_feedback(rating)"))
-        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_agent_feedback_action ON agent_feedback(action_name)"))
+    # AUD-11: model_registry Index (M-40 Fix: mit Tabellen-Existenz-Check)
+    if "model_registry" in existing_tables:
+        with engine.begin() as conn:
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_model_registry_source ON model_registry(source)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_model_registry_last_used ON model_registry(last_used_at)"))
+
+    # AUD-12: agent_feedback Index (M-40 Fix: mit Tabellen-Existenz-Check)
+    if "agent_feedback" in existing_tables:
+        with engine.begin() as conn:
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_agent_feedback_rating ON agent_feedback(rating)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_agent_feedback_action ON agent_feedback(action_name)"))
 
     # AUD-84: ML Key Detection — Modulation + Tension Spalten nachrüsten
     insp = inspect(get_raw_engine())
