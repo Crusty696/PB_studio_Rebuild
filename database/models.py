@@ -438,3 +438,29 @@ class TimelineEntry(Base):
 
     def __repr__(self):
         return f"<TimelineEntry(id={self.id}, track='{self.track}', start={self.start_time})>"
+
+
+class AnalysisStatus(Base):
+    """Status-Tracking fuer Daten-Analyse-Schritte pro Medien-Datei — VAD-36.
+
+    Ermoeglicht Persistenz des Analyse-Fortschritts (scene_detection, bpm_detection, etc.)
+    ueber App-Neustarts hinweg. Verhindert Doppel-Analysen und bietet Basis fuer UI-Dashboard.
+    """
+    __tablename__ = "analysis_status"
+    __table_args__ = (
+        UniqueConstraint("media_type", "media_id", "step_key", name="uq_analysis_status_media_step"),
+        Index("idx_analysis_media", "media_type", "media_id"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    media_type = Column(String, nullable=False)              # "video" | "audio"
+    media_id = Column(Integer, nullable=False)               # FK to video_clips.id or audio_tracks.id
+    step_key = Column(String, nullable=False)                # "scene_detection", "bpm_detection", etc.
+    status = Column(String, nullable=False, default="pending")  # "pending" | "running" | "done" | "error"
+    value_summary = Column(JSON, nullable=True)              # Summary of results, e.g. {"scenes": 12, "avg_motion": 0.73}
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    error_message = Column(Text, nullable=True)
+
+    def __repr__(self):
+        return f"<AnalysisStatus(id={self.id}, media_type='{self.media_type}', media_id={self.media_id}, step='{self.step_key}', status='{self.status}')>"
