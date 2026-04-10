@@ -561,6 +561,17 @@ class MediaWorkspace(QWidget):
             self._on_analysis_requested
         )
 
+        # Wire grid view signals — context menu and selection
+        self.video_grid.item_selected.connect(
+            lambda mid: self._on_grid_item_selected("video", mid)
+        )
+        self.video_grid.show_status_requested.connect(
+            lambda mid: self._on_grid_show_status("video", mid)
+        )
+        self.video_grid.run_all_requested.connect(
+            lambda mid: self._on_grid_run_all("video", mid)
+        )
+
         splitter.addWidget(right)
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 6)
@@ -969,6 +980,17 @@ class MediaWorkspace(QWidget):
             self._on_analysis_requested
         )
 
+        # Wire grid view signals — context menu and selection
+        self.audio_grid.item_selected.connect(
+            lambda mid: self._on_grid_item_selected("audio", mid)
+        )
+        self.audio_grid.show_status_requested.connect(
+            lambda mid: self._on_grid_show_status("audio", mid)
+        )
+        self.audio_grid.run_all_requested.connect(
+            lambda mid: self._on_grid_run_all("audio", mid)
+        )
+
         splitter.addWidget(right)
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 6)
@@ -1036,6 +1058,63 @@ class MediaWorkspace(QWidget):
 
         if audio_id is not None:
             self.audio_analysis_panel.set_media("audio", int(audio_id), str(title or ""))
+
+    # ── Grid view context menu handlers ──────────────────────────
+
+    def _get_media_title(self, media_type: str, media_id: int) -> str:
+        """Look up the title for a media_id from the loaded items."""
+        grid = self.video_grid if media_type == "video" else self.audio_grid
+        for item in grid._all_items:
+            if item.get("id") == media_id:
+                return item.get("title", f"{media_type.title()} {media_id}")
+        return f"{media_type.title()} {media_id}"
+
+    def _on_grid_item_selected(self, media_type: str, media_id: int):
+        """Update analysis panel when a grid card is clicked."""
+        title = self._get_media_title(media_type, media_id)
+        panel = self.video_analysis_panel if media_type == "video" else self.audio_analysis_panel
+        panel.set_media(media_type, media_id, title)
+
+    def _on_grid_show_status(self, media_type: str, media_id: int):
+        """Show analysis status panel for a grid card (context menu)."""
+        title = self._get_media_title(media_type, media_id)
+        panel = self.video_analysis_panel if media_type == "video" else self.audio_analysis_panel
+        panel.set_media(media_type, media_id, title)
+        panel.setVisible(True)
+
+    def _on_grid_run_all(self, media_type: str, media_id: int):
+        """Run all pending analyses for a media item (context menu)."""
+        from services import analysis_status_service as svc
+
+        title = self._get_media_title(media_type, media_id)
+        panel = self.video_analysis_panel if media_type == "video" else self.audio_analysis_panel
+        panel.set_media(media_type, media_id, title)
+        panel.setVisible(True)
+
+        # Get current status and dispatch each pending/error step
+        steps = svc.VIDEO_STEPS if media_type == "video" else svc.AUDIO_STEPS
+        status_map = svc.get_status(media_type, media_id)
+
+        pb_window = self.parent()
+        while pb_window and not hasattr(pb_window, 'worker_dispatcher'):
+            pb_window = pb_window.parent()
+        if not pb_window:
+            return
+
+        dispatched = False
+        for step_key in steps:
+            entry = status_map.get(step_key)
+            if entry is None or entry.status in ("pending", "error"):
+                try:
+                    if media_type == "audio":
+                        self._dispatch_audio_analysis(pb_window, media_id, title, step_key)
+                    else:
+                        self._dispatch_video_analysis(pb_window, media_id, title, step_key)
+                        break  # Video dispatches full pipeline in one call
+                    dispatched = True
+                except Exception as e:
+                    import logging
+                    logging.error("Grid run-all dispatch error: %s", e, exc_info=True)
 
     def _on_analysis_requested(self, step_key: str):
         """Handle analysis_requested signal from AnalysisStatusPanel.

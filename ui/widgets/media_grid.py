@@ -17,7 +17,7 @@ from pathlib import Path
 
 from PySide6.QtWidgets import (
     QWidget, QScrollArea, QGridLayout, QFrame, QVBoxLayout,
-    QHBoxLayout, QLabel, QLineEdit, QComboBox,
+    QHBoxLayout, QLabel, QLineEdit, QComboBox, QMenu,
 )
 from PySide6.QtCore import Qt, Signal, QRect, QThread, QObject, QTimer
 from PySide6.QtGui import QPixmap, QPainter, QColor, QPen, QFont, QFontMetrics
@@ -172,6 +172,8 @@ def _get_metrics():
 class MediaCard(QFrame):
     """Base clickable pool card."""
     clicked = Signal(int)  # media_id
+    show_status_requested = Signal(int)   # media_id — context menu: show analysis status
+    run_all_requested = Signal(int)       # media_id — context menu: run all analyses
 
     def __init__(self, media_id: int, title: str, parent=None) -> None:
         super().__init__(parent)
@@ -181,7 +183,8 @@ class MediaCard(QFrame):
         self.setProperty("selected", False)
         self.setFixedSize(_CW, _CH)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        # Shared styling via parent or object name is faster than setStyleSheet(str) 100x
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.customContextMenuRequested.connect(self._show_context_menu)
 
     def set_selected(self, sel: bool) -> None:
         if self.property("selected") != sel:
@@ -193,6 +196,20 @@ class MediaCard(QFrame):
         if event.button() == Qt.MouseButton.LeftButton:
             self.clicked.emit(self._id)
         super().mousePressEvent(event)
+
+    def _show_context_menu(self, pos) -> None:
+        menu = QMenu(self)
+        menu.setStyleSheet(
+            "QMenu{background:#1a2030;color:#e5e7eb;border:1px solid rgba(255,255,255,0.1);}"
+            "QMenu::item:selected{background:#d4a44a;color:#0d1117;}"
+        )
+        act_status = menu.addAction("Analyse-Status anzeigen")
+        act_run = menu.addAction("Alle Analysen starten")
+        action = menu.exec(self.mapToGlobal(pos))
+        if action == act_status:
+            self.show_status_requested.emit(self._id)
+        elif action == act_run:
+            self.run_all_requested.emit(self._id)
 
     @staticmethod
     def _elide(text: str, max_w: int) -> str:
@@ -343,6 +360,8 @@ class MediaPoolGrid(QWidget):
     """
 
     item_selected = Signal(int)
+    show_status_requested = Signal(int)   # media_id — show analysis status panel
+    run_all_requested = Signal(int)       # media_id — run all pending analyses
 
     def __init__(self, media_type: str = "audio", parent=None) -> None:
         """
@@ -517,6 +536,8 @@ class MediaPoolGrid(QWidget):
                     energy_data=energy,
                 )
             card.clicked.connect(self._on_card_clicked)
+            card.show_status_requested.connect(self.show_status_requested)
+            card.run_all_requested.connect(self.run_all_requested)
             self._cards.append(card)
 
         self._load_index = end

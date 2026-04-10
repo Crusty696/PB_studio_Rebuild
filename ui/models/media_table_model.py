@@ -17,11 +17,11 @@ class MediaTableModel(QAbstractTableModel):
         
         # Header Definitionen
         if media_type == "Video":
-            self._headers = ["✓", "ID", "Titel", "Auflösung", "FPS", "Codec", "Pfad"]
-            self._keys = ["_chk", "id", "title", "resolution", "fps", "codec", "file_path"]
+            self._headers = ["✓", "ID", "Titel", "Auflösung", "FPS", "Codec", "Analyse %", "Pfad"]
+            self._keys = ["_chk", "id", "title", "resolution", "fps", "codec", "analysis_percent", "file_path"]
         else:
-            self._headers = ["✓", "ID", "Titel", "BPM", "Tonart", "Stems", "Pfad"]
-            self._keys = ["_chk", "id", "title", "bpm", "key", "stems", "file_path"]
+            self._headers = ["✓", "ID", "Titel", "BPM", "Tonart", "Stems", "Analyse %", "Pfad"]
+            self._keys = ["_chk", "id", "title", "bpm", "key", "stems", "analysis_percent", "file_path"]
 
     def rowCount(self, parent=QModelIndex()) -> int:
         return len(self._items)
@@ -37,7 +37,7 @@ class MediaTableModel(QAbstractTableModel):
     def data(self, index: QModelIndex, role: int = Qt.ItemDataRole.DisplayRole):
         if not index.isValid():
             return None
-        
+
         row = index.row()
         col = index.column()
         item = self._items[row]
@@ -45,8 +45,26 @@ class MediaTableModel(QAbstractTableModel):
 
         if role == Qt.ItemDataRole.DisplayRole:
             if key == "_chk": return ""
+            if key == "analysis_percent":
+                percent = item.get(key, 0)
+                if isinstance(percent, (int, float)):
+                    return f"{int(percent)}%"
+                return "-"
             val = item.get(key)
             return str(val) if val is not None else "-"
+
+        # Color coding for analysis_percent column
+        if role == Qt.ItemDataRole.ForegroundRole and key == "analysis_percent":
+            from PySide6.QtGui import QColor, QBrush
+            percent = item.get(key, 0)
+            if isinstance(percent, (int, float)):
+                if percent >= 100:
+                    return QBrush(QColor(74, 222, 128))  # Green
+                elif percent >= 50:
+                    return QBrush(QColor(212, 164, 74))  # Yellow
+                elif percent > 0:
+                    return QBrush(QColor(156, 163, 175))  # Gray
+            return QBrush(QColor(107, 114, 128))  # Dark gray for 0%
 
         if role == Qt.ItemDataRole.CheckStateRole and key == "_chk":
             return Qt.CheckState.Checked if item["id"] in self._checked_ids else Qt.CheckState.Unchecked
