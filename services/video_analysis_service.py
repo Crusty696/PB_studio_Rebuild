@@ -970,7 +970,7 @@ def run_full_pipeline(
 
         scenes = extract_keyframes(video_path, scenes)
         logger.info("[PIPELINE] Keyframes FERTIG")
-        keyframe_count = sum(1 for s in scenes if s.keyframe_data)
+        keyframe_count = sum(1 for s in scenes if s.keyframe_path)
         analysis_status_service.mark_done("video", video_clip_id, "keyframe_extraction", {
             "keyframes": keyframe_count,
         })
