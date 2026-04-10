@@ -24,6 +24,7 @@ import numpy as np
 from services.timeout_constants import FFMPEG_PROBE_TIMEOUT_SEC, FFMPEG_THUMBNAIL_TIMEOUT_SEC
 
 from services.model_manager import ModelManager, oom_recovery
+from services import analysis_status_service
 
 logger = logging.getLogger(__name__)
 
@@ -915,76 +916,137 @@ def run_full_pipeline(
     result = PipelineResult(video_path=original_video_path)
 
     # Schritt 1: Scene Detection
-    logger.info("[PIPELINE] Schritt 1/7: Szenen erkennen für %s (Analyse-Pfad: %s)...",
-                Path(original_video_path).name, Path(video_path).name)
-    if progress_cb:
-        progress_cb(5, "Szenen erkennen...")
-    if should_stop and should_stop():
-        return result
+    analysis_status_service.mark_started("video", video_clip_id, "scene_detection")
+    try:
+        logger.info("[PIPELINE] Schritt 1/7: Szenen erkennen für %s (Analyse-Pfad: %s)...",
+                    Path(original_video_path).name, Path(video_path).name)
+        if progress_cb:
+            progress_cb(5, "Szenen erkennen...")
+        if should_stop and should_stop():
+            return result
 
-    scenes = detect_scenes(video_path, threshold=threshold)
-    result.scenes = scenes
-    result.total_duration = scenes[-1].end_time if scenes else 0.0
-    logger.info("[PIPELINE] Szenen-Erkennung FERTIG: %d Szenen gefunden", len(scenes))
+        scenes = detect_scenes(video_path, threshold=threshold)
+        result.scenes = scenes
+        result.total_duration = scenes[-1].end_time if scenes else 0.0
+        logger.info("[PIPELINE] Szenen-Erkennung FERTIG: %d Szenen gefunden", len(scenes))
+        analysis_status_service.mark_done("video", video_clip_id, "scene_detection", {
+            "scenes": len(scenes),
+        })
+    except Exception as e:
+        analysis_status_service.mark_error("video", video_clip_id, "scene_detection", str(e))
+        raise
 
     # Schritt 1b: Motion Scores
-    logger.info("[PIPELINE] Schritt 2/7: RAFT Motion-Analyse für %d Szenen...", len(scenes))
-    if progress_cb:
-        progress_cb(20, f"Motion-Analyse ({len(scenes)} Szenen)...")
-    if should_stop and should_stop():
-        return result
+    analysis_status_service.mark_started("video", video_clip_id, "motion_scores")
+    try:
+        logger.info("[PIPELINE] Schritt 2/7: RAFT Motion-Analyse für %d Szenen...", len(scenes))
+        if progress_cb:
+            progress_cb(20, f"Motion-Analyse ({len(scenes)} Szenen)...")
+        if should_stop and should_stop():
+            return result
 
-    scenes = compute_motion_scores(video_path, scenes, raft_model_device=raft_model_device)
-    logger.info("[PIPELINE] Motion-Analyse FERTIG")
+        scenes = compute_motion_scores(video_path, scenes, raft_model_device=raft_model_device)
+        logger.info("[PIPELINE] Motion-Analyse FERTIG")
+        avg_motion = sum(s.motion_score for s in scenes if s.motion_score) / len(scenes) if scenes else 0.0
+        analysis_status_service.mark_done("video", video_clip_id, "motion_scores", {
+            "avg_motion": round(avg_motion, 3),
+        })
+    except Exception as e:
+        analysis_status_service.mark_error("video", video_clip_id, "motion_scores", str(e))
+        raise
 
     # Schritt 2: Keyframes
-    logger.info("[PIPELINE] Schritt 3/7: Keyframes extrahieren...")
-    if progress_cb:
-        progress_cb(40, "Keyframes extrahieren...")
-    if should_stop and should_stop():
-        return result
+    analysis_status_service.mark_started("video", video_clip_id, "keyframe_extraction")
+    try:
+        logger.info("[PIPELINE] Schritt 3/7: Keyframes extrahieren...")
+        if progress_cb:
+            progress_cb(40, "Keyframes extrahieren...")
+        if should_stop and should_stop():
+            return result
 
-    scenes = extract_keyframes(video_path, scenes)
-    logger.info("[PIPELINE] Keyframes FERTIG")
+        scenes = extract_keyframes(video_path, scenes)
+        logger.info("[PIPELINE] Keyframes FERTIG")
+        keyframe_count = sum(1 for s in scenes if s.keyframe_data)
+        analysis_status_service.mark_done("video", video_clip_id, "keyframe_extraction", {
+            "keyframes": keyframe_count,
+        })
+    except Exception as e:
+        analysis_status_service.mark_error("video", video_clip_id, "keyframe_extraction", str(e))
+        raise
 
     # Schritt 3: SigLIP Embeddings
-    logger.info("[PIPELINE] Schritt 4/7: Lade SigLIP Modell + Embeddings generieren...")
-    if progress_cb:
-        progress_cb(55, "SigLIP Embeddings generieren...")
-    if should_stop and should_stop():
-        return result
+    analysis_status_service.mark_started("video", video_clip_id, "siglip_embeddings")
+    try:
+        logger.info("[PIPELINE] Schritt 4/7: Lade SigLIP Modell + Embeddings generieren...")
+        if progress_cb:
+            progress_cb(55, "SigLIP Embeddings generieren...")
+        if should_stop and should_stop():
+            return result
 
-    scenes = generate_embeddings(scenes, siglip_model_processor=siglip_model_processor)
-    logger.info("[PIPELINE] SigLIP Embeddings FERTIG")
+        scenes = generate_embeddings(scenes, siglip_model_processor=siglip_model_processor)
+        logger.info("[PIPELINE] SigLIP Embeddings FERTIG")
+        embedding_count = sum(1 for s in scenes if s.embedding is not None)
+        analysis_status_service.mark_done("video", video_clip_id, "siglip_embeddings", {
+            "dimension": 1152,
+            "embeddings": embedding_count,
+        })
+    except Exception as e:
+        analysis_status_service.mark_error("video", video_clip_id, "siglip_embeddings", str(e))
+        raise
 
     # Schritt 3b: In LanceDB speichern
-    logger.info("[PIPELINE] Schritt 5/7: In LanceDB speichern...")
-    if progress_cb:
-        progress_cb(75, "In LanceDB speichern...")
-    if should_stop and should_stop():
-        return result
+    analysis_status_service.mark_started("video", video_clip_id, "vector_db_storage")
+    try:
+        logger.info("[PIPELINE] Schritt 5/7: In LanceDB speichern...")
+        if progress_cb:
+            progress_cb(75, "In LanceDB speichern...")
+        if should_stop and should_stop():
+            return result
 
-    # Original-Pfad für LanceDB-Storage verwenden (nicht Proxy-Pfad)
-    result.embeddings_stored = store_embeddings(original_video_path, scenes, video_clip_id)
-    logger.info("[PIPELINE] LanceDB FERTIG: %d Embeddings", result.embeddings_stored)
+        # Original-Pfad für LanceDB-Storage verwenden (nicht Proxy-Pfad)
+        result.embeddings_stored = store_embeddings(original_video_path, scenes, video_clip_id)
+        logger.info("[PIPELINE] LanceDB FERTIG: %d Embeddings", result.embeddings_stored)
+        analysis_status_service.mark_done("video", video_clip_id, "vector_db_storage", {
+            "vectors": result.embeddings_stored,
+        })
+    except Exception as e:
+        analysis_status_service.mark_error("video", video_clip_id, "vector_db_storage", str(e))
+        raise
 
     # Schritt 4: Gemma Vision Captioning
-    logger.info("[PIPELINE] Schritt 6/7: Gemma Vision Captioning...")
-    if progress_cb:
-        progress_cb(85, "Gemma Vision Captioning...")
-    if should_stop and should_stop():
-        return result
+    analysis_status_service.mark_started("video", video_clip_id, "ai_scene_caption")
+    try:
+        logger.info("[PIPELINE] Schritt 6/7: Gemma Vision Captioning...")
+        if progress_cb:
+            progress_cb(85, "Gemma Vision Captioning...")
+        if should_stop and should_stop():
+            return result
 
-    scenes = analyze_scene_with_caption(scenes)
-    logger.info("[PIPELINE] Vision-Captioning FERTIG")
+        scenes = analyze_scene_with_caption(scenes)
+        logger.info("[PIPELINE] Vision-Captioning FERTIG")
+        captioned_count = sum(1 for s in scenes if hasattr(s, 'ai_caption') and s.ai_caption)
+        analysis_status_service.mark_done("video", video_clip_id, "ai_scene_caption", {
+            "captioned_scenes": captioned_count,
+        })
+    except Exception as e:
+        analysis_status_service.mark_error("video", video_clip_id, "ai_scene_caption", str(e))
+        raise
 
     # Szenen in SQLite speichern
-    logger.info("[PIPELINE] Schritt 7/7: Szenen in SQLite speichern...")
-    if progress_cb:
-        progress_cb(93, "Szenen in DB speichern...")
+    analysis_status_service.mark_started("video", video_clip_id, "scene_db_storage")
+    try:
+        logger.info("[PIPELINE] Schritt 7/7: Szenen in SQLite speichern...")
+        if progress_cb:
+            progress_cb(93, "Szenen in DB speichern...")
 
-    store_scenes_in_db(video_clip_id, scenes)
-    logger.info("[PIPELINE] Pipeline KOMPLETT für %s", Path(original_video_path).name)
+        store_scenes_in_db(video_clip_id, scenes)
+        logger.info("[PIPELINE] Pipeline KOMPLETT für %s", Path(original_video_path).name)
+        analysis_status_service.mark_done("video", video_clip_id, "scene_db_storage", {
+            "scenes": len(scenes),
+        })
+    except Exception as e:
+        analysis_status_service.mark_error("video", video_clip_id, "scene_db_storage", str(e))
+        raise
 
     # VRAM-Schutz: GPU-Speicher nach Pipeline freigeben
     # Im Batch-Modus (siglip_model_processor/raft_model_device uebergeben) KEIN

@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from database import engine, VideoClip
 from services.timeout_constants import FFMPEG_PROBE_TIMEOUT_SEC, FFMPEG_RENDER_TIMEOUT_SEC
 from services.startup_checks import get_ffmpeg_bin, get_ffprobe_bin
+from services import analysis_status_service
 
 _FFMPEG = get_ffmpeg_bin()
 _FFPROBE = get_ffprobe_bin()
@@ -136,28 +137,40 @@ class VideoAnalyzer:
             file_path = clip.file_path
 
         # 2) ffprobe AUSSERHALB der Session (schnell, ~30ms)
-        if progress_cb:
-            progress_cb(0, "ffprobe Metadaten lesen...")
-        logger.info("--> [VideoAnalyzer] ffprobe START für %s", file_path)
-        info = self.probe(file_path)
-        logger.info("--> [VideoAnalyzer] ffprobe FERTIG: %sx%s @ %sfps",
-                    info['width'], info['height'], info['fps'])
+        analysis_status_service.mark_started("video", clip_id, "metadata_extract")
+        try:
+            if progress_cb:
+                progress_cb(0, "ffprobe Metadaten lesen...")
+            logger.info("--> [VideoAnalyzer] ffprobe START für %s", file_path)
+            info = self.probe(file_path)
+            logger.info("--> [VideoAnalyzer] ffprobe FERTIG: %sx%s @ %sfps",
+                        info['width'], info['height'], info['fps'])
 
-        # 3) NullPool-Session: Metadaten sofort committen (verhindert DB-Lock)
-        from database import nullpool_session
-        with nullpool_session() as session:
-            clip = session.get(VideoClip, clip_id)
-            if clip is None:
-                raise ValueError(f"VideoClip {clip_id} nach ffprobe nicht mehr gefunden")
-            clip.width = info["width"]
-            clip.height = info["height"]
-            clip.fps = info["fps"]
-            clip.codec = info["codec"]
-            clip.duration = info["duration"]
-            session.commit()
-            logger.info("--> [VideoAnalyzer] Metadaten-Commit FERTIG für clip_id=%s", clip_id)
-        if progress_cb:
-            progress_cb(30, "Metadaten gespeichert")
+            # 3) NullPool-Session: Metadaten sofort committen (verhindert DB-Lock)
+            from database import nullpool_session
+            with nullpool_session() as session:
+                clip = session.get(VideoClip, clip_id)
+                if clip is None:
+                    raise ValueError(f"VideoClip {clip_id} nach ffprobe nicht mehr gefunden")
+                clip.width = info["width"]
+                clip.height = info["height"]
+                clip.fps = info["fps"]
+                clip.codec = info["codec"]
+                clip.duration = info["duration"]
+                session.commit()
+                logger.info("--> [VideoAnalyzer] Metadaten-Commit FERTIG für clip_id=%s", clip_id)
+
+            analysis_status_service.mark_done("video", clip_id, "metadata_extract", {
+                "duration": info["duration"],
+                "resolution": f"{info['width']}x{info['height']}",
+                "fps": info["fps"],
+                "codec": info["codec"],
+            })
+            if progress_cb:
+                progress_cb(30, "Metadaten gespeichert")
+        except Exception as e:
+            analysis_status_service.mark_error("video", clip_id, "metadata_extract", str(e))
+            raise
 
         # 4) Proxy-Erstellung AUSSERHALB der Session (kann bis 300s dauern)
         if create_proxy:
