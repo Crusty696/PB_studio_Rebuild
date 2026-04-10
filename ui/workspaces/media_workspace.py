@@ -490,7 +490,8 @@ class MediaWorkspace(QWidget):
         vh.resizeSection(3, 80)   # Aufloesung
         vh.resizeSection(4, 50)   # FPS
         vh.resizeSection(5, 60)   # Codec
-        # Spalte 6 (Dateipfad) stretcht automatisch
+        vh.resizeSection(6, 70)   # Analyse %
+        # Spalte 7 (Dateipfad) stretcht automatisch
 
         # Grid view for video pool
         self.video_grid = MediaPoolGrid(media_type="video")
@@ -783,7 +784,8 @@ class MediaWorkspace(QWidget):
         ah.resizeSection(3, 55)   # BPM
         ah.resizeSection(4, 45)   # Key
         ah.resizeSection(5, 55)   # Stems
-        # Spalte 6 (Dateipfad) stretcht automatisch
+        ah.resizeSection(6, 70)   # Analyse %
+        # Spalte 7 (Dateipfad) stretcht automatisch
 
         # Grid view for audio pool
         self.audio_grid = MediaPoolGrid(media_type="audio")

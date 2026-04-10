@@ -213,6 +213,7 @@ def get_audio_detail_data(audio_id: int) -> dict | None:
 
 
 def get_all_audio(project_id: int = 1, limit: int = 5000) -> list[dict]:
+    from services import analysis_status_service
     with Session(engine) as session:
         tracks = session.query(AudioTrack).filter_by(project_id=project_id).limit(limit).all()
         result = []
@@ -224,6 +225,12 @@ def get_all_audio(project_id: int = 1, limit: int = 5000) -> list[dict]:
             ] if p)
             stems = f"{stem_count}/4" if stem_count > 0 else "-"
 
+            # Get analysis completion percentage
+            try:
+                analysis_percent = analysis_status_service.get_completion_percent("audio", t.id)
+            except Exception:
+                analysis_percent = 0
+
             result.append({
                 "id": t.id, "title": t.title, "file_path": t.file_path,
                 "type": "Audio", "bpm": t.bpm, "stems": stems,
@@ -233,11 +240,13 @@ def get_all_audio(project_id: int = 1, limit: int = 5000) -> list[dict]:
                 "genre": t.genre,
                 "duration": t.duration,
                 "energy_curve": t.energy_curve,
+                "analysis_percent": analysis_percent,
             })
         return result
 
 
 def get_all_video(project_id: int = 1, limit: int = 5000) -> list[dict]:
+    from services import analysis_status_service
     with Session(engine) as session:
         clips = session.query(VideoClip).filter(
             VideoClip.project_id == project_id,
@@ -246,6 +255,11 @@ def get_all_video(project_id: int = 1, limit: int = 5000) -> list[dict]:
         result = []
         for c in clips:
             res = f"{c.width}x{c.height}" if c.width and c.height else None
+            # Get analysis completion percentage
+            try:
+                analysis_percent = analysis_status_service.get_completion_percent("video", c.id)
+            except Exception:
+                analysis_percent = 0
             result.append({
                 "id": c.id,
                 "title": Path(c.file_path).stem,
@@ -255,6 +269,7 @@ def get_all_video(project_id: int = 1, limit: int = 5000) -> list[dict]:
                 "fps": c.fps,
                 "codec": getattr(c, "codec", None) or "-",
                 "stems": "-",
+                "analysis_percent": analysis_percent,
             })
         return result
 
