@@ -12,9 +12,12 @@ echo PB Studio Security Scan with Bandit
 echo ======================================
 echo.
 
-REM Activate virtual environment
-if exist "%PROJECT_ROOT%\.venv\Scripts\activate.bat" (
-    echo Activating virtual environment...
+REM Activate virtual environment (.venv310 bevorzugt)
+if exist "%PROJECT_ROOT%\.venv310\Scripts\activate.bat" (
+    echo Activating virtual environment (.venv310)...
+    call "%PROJECT_ROOT%\.venv310\Scripts\activate.bat"
+) else if exist "%PROJECT_ROOT%\.venv\Scripts\activate.bat" (
+    echo Activating virtual environment (.venv)...
     call "%PROJECT_ROOT%\.venv\Scripts\activate.bat"
 )
 
@@ -32,7 +35,7 @@ echo.
 
 REM Run with medium+ severity for CI/CD
 bandit -r "%PROJECT_ROOT%" ^
-    -x "./.venv/*,./vendor/*,./tests/*,./installer/*,./scripts/*" ^
+    -x "./.venv/*,./.venv310/*,./vendor/*,./tests/*,./installer/*,./scripts/*" ^
     -ll ^
     -f txt ^
     -o "%PROJECT_ROOT%\security_scan_report.txt"
@@ -44,7 +47,7 @@ echo.
 
 REM Also generate JSON for machine parsing
 bandit -r "%PROJECT_ROOT%" ^
-    -x "./.venv/*,./vendor/*,./tests/*,./installer/*,./scripts/*" ^
+    -x "./.venv/*,./.venv310/*,./vendor/*,./tests/*,./installer/*,./scripts/*" ^
     -f json ^
     -o "%PROJECT_ROOT%\security_scan_results.json"
 

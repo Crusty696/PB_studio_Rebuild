@@ -18,6 +18,11 @@ if %ERRORLEVEL% NEQ 0 (
 )
 
 echo Starte PB Studio...
-.\.venv\Scripts\python.exe main.py
+:: .venv310 bevorzugen (Python 3.10 + CUDA 11.3)
+if exist ".venv310\Scripts\python.exe" (
+    .\.venv310\Scripts\python.exe main.py
+) else (
+    .\.venv\Scripts\python.exe main.py
+)
 pause
 endlocal

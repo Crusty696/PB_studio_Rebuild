@@ -43,7 +43,10 @@ def _find_nv_driver_dir() -> str | None:
     return str(candidates[0]) if candidates else None
 
 _NV_DRIVER = _find_nv_driver_dir()
-_VENV_DLLS = str(_APP_ROOT / ".venv" / "Lib" / "site-packages" / "torch" / "lib")
+# .venv310 bevorzugen (Python 3.10 + CUDA 11.3), Fallback .venv
+_VENV310_TORCH = _APP_ROOT / ".venv310" / "Lib" / "site-packages" / "torch" / "lib"
+_VENV_TORCH = _APP_ROOT / ".venv" / "Lib" / "site-packages" / "torch" / "lib"
+_VENV_DLLS = str(_VENV310_TORCH if _VENV310_TORCH.exists() else _VENV_TORCH)
 
 _DLL_DIRS = [_VENV_DLLS]
 if _NV_DRIVER:

@@ -12,7 +12,10 @@ import subprocess
 from pathlib import Path
 
 PROJECT_DIR = Path(__file__).parent.resolve()
-VENV_DIR = PROJECT_DIR / ".venv"
+# .venv310 (Python 3.10 + CUDA 11.3) hat Prioritaet, Fallback auf .venv
+VENV_DIR = PROJECT_DIR / ".venv310"
+if not (VENV_DIR / "Scripts" / "python.exe").exists():
+    VENV_DIR = PROJECT_DIR / ".venv"
 VENV_PYTHON = VENV_DIR / "Scripts" / "python.exe"
 MAIN_PY = PROJECT_DIR / "main.py"
 CRASH_LOG = PROJECT_DIR / "logs" / "crash.log"

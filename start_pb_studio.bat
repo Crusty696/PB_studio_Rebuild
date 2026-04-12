@@ -8,31 +8,22 @@ echo.
 :: NVIDIA GTX 1060 Fix: Lazy Loading für CUDA Module (verhindert oft init errors)
 set CUDA_MODULE_LOADING=LAZY
 
-:: Pruefen ob .venv existiert
-if exist "%~dp0.venv\Scripts\python.exe" (
-    echo   venv gefunden: .venv\
+:: Pruefen ob .venv310 existiert (Python 3.10 + CUDA 11.3)
+if exist "%~dp0.venv310\Scripts\python.exe" (
+    echo   venv gefunden: .venv310\ (Python 3.10 + CUDA 11.3)
+    echo   Starte PB Studio...
+    echo.
+    "%~dp0.venv310\Scripts\python.exe" "%~dp0main.py"
+) else if exist "%~dp0.venv\Scripts\python.exe" (
+    echo   venv gefunden: .venv\ (Legacy)
     echo   Starte PB Studio...
     echo.
     "%~dp0.venv\Scripts\python.exe" "%~dp0main.py"
 ) else (
-    echo   .venv nicht gefunden - starte Setup zuerst...
-    echo.
-    if exist "%~dp0setup_pb_studio.bat" (
-        call "%~dp0setup_pb_studio.bat"
-        if exist "%~dp0.venv\Scripts\python.exe" (
-            echo.
-            echo   Setup fertig - starte PB Studio...
-            "%~dp0.venv\Scripts\python.exe" "%~dp0main.py"
-        ) else (
-            echo   Setup fehlgeschlagen. Bitte manuell pruefen.
-            pause
-            exit /b 1
-        )
-    ) else (
-        echo   FEHLER: Weder .venv noch setup_pb_studio.bat gefunden!
-        pause
-        exit /b 1
-    )
+    echo   Kein venv gefunden!
+    echo   Bitte zuerst ausfuehren: py -3.10 scripts\setup_py310_gpu.py
+    pause
+    exit /b 1
 )
 
 if %ERRORLEVEL% NEQ 0 (
