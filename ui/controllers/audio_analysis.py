@@ -64,7 +64,7 @@ class AudioAnalysisController(PBComponent):
         worker.finished.connect(lambda tid, res: (
             self.window._console_append(f"[Key] Erkannt: {res.get('key','?')} ({res.get('camelot','?')}) Conf={res.get('confidence',0):.0%}"),
             self.window.media_table_controller._refresh_media_table_debounced(),
-        ), Qt.ConnectionType.QueuedConnection)
+        ))
         worker.error.connect(
             lambda tid, err: self.window._console_append(f"[Key] Fehler: {err}"),
             Qt.ConnectionType.QueuedConnection
@@ -89,7 +89,7 @@ class AudioAnalysisController(PBComponent):
         worker.finished.connect(lambda tid, res: (
             self.window._console_append(f"[LUFS] Integrated: {res.get('integrated',0):.1f} dB, LRA: {res.get('loudness_range',0):.1f} LU, TP: {res.get('true_peak',0):.1f} dBTP"),
             self.window.media_table_controller._refresh_media_table_debounced(),
-        ), Qt.ConnectionType.QueuedConnection)
+        ))
         worker.error.connect(
             lambda tid, err: self.window._console_append(f"[LUFS] Fehler: {err}"),
             Qt.ConnectionType.QueuedConnection
@@ -114,7 +114,7 @@ class AudioAnalysisController(PBComponent):
         worker.finished.connect(lambda tid, res: (
             self.window._console_append(f"[Struktur] {len(res.get('segments',[]))} Segmente erkannt"),
             self.window.media_table_controller._refresh_media_table_debounced(),
-        ), Qt.ConnectionType.QueuedConnection)
+        ))
         worker.error.connect(
             lambda tid, err: self.window._console_append(f"[Struktur] Fehler: {err}"),
             Qt.ConnectionType.QueuedConnection
@@ -168,7 +168,7 @@ class AudioAnalysisController(PBComponent):
         task = task_manager.create_task(f"Audio: {title}", "BPM + Beat-Analyse")
         worker = AnalysisWorker(track_id, title)
         worker.task_id = task.task_id
-        worker.started.connect(self._on_analysis_started, Qt.ConnectionType.QueuedConnection)
+        worker.started.connect(self._on_analysis_started)
         worker.finished.connect(
             self.window,
             lambda tid, r: self._on_analysis_finished(tid, r, task.task_id),

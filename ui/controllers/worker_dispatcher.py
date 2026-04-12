@@ -40,10 +40,10 @@ class WorkerDispatcherController(PBComponent):
                 def _guarded_finish(*args, _w=worker, _cb=on_finish):
                     if not getattr(_w, '_errored', False):
                         _cb(*args)
-                worker.finished.connect(_guarded_finish, Qt.ConnectionType.QueuedConnection)
-            
+                worker.finished.connect(_guarded_finish)
+
             if on_error:
-                worker.error.connect(on_error, Qt.ConnectionType.QueuedConnection)
+                worker.error.connect(on_error)
             else:
                 def _default_error_handler(*args, _tid=existing_task_id, _name=worker_name, _tm=tm):
                     err_msg = str(args[-1]) if args else "Unbekannter Fehler"
@@ -52,7 +52,7 @@ class WorkerDispatcherController(PBComponent):
                         _name, _tid, err_msg,
                     )
                     _tm.finish_task(_tid, status="error", message=err_msg)
-                worker.error.connect(_default_error_handler, Qt.ConnectionType.QueuedConnection)
+                worker.error.connect(_default_error_handler)
 
             if hasattr(worker, "progress"):
                 worker.progress.connect(
