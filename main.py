@@ -337,6 +337,11 @@ class PBWindow(QMainWindow):
 
         return banner
 
+    def _console_append(self, text: str) -> None:
+        """Convenience: Text in die Konsole schreiben."""
+        if hasattr(self, 'console_text') and self.console_text is not None:
+            self.console_text.append(text)
+
     def _start_version_check(self) -> None:
         """Launch the background version check thread."""
         from services.version_check_service import VersionCheckWorker
