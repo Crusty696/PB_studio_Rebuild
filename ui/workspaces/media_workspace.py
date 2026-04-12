@@ -190,6 +190,9 @@ class MediaWorkspace(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        # Surface Book 2 Fix: Maximale Groesse begrenzen damit
+        # CreateDIBSection bei vielen Medien nicht crasht
+        self.setMaximumSize(3840, 2160)
         self._build_ui()
 
     # ── public helpers ────────────────────────────────────────

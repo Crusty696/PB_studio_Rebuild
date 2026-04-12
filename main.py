@@ -182,6 +182,10 @@ class PBWindow(QMainWindow):
         self._app_version = APP_VERSION
         self.setWindowTitle(f"PB_studio v{APP_VERSION} — Director's Cockpit")
         self.resize(1500, 900)
+        # Surface Book 2: Fenstergroesse begrenzen damit CreateDIBSection nicht crasht
+        # bei vielen importierten Medien (Widget-minimumSize kann explodieren)
+        self.setMinimumSize(800, 600)
+        self.setMaximumSize(3840, 2160)
         self._active_threads: list[QThread] = []
         self._active_workers: list[QObject] = []
         self._otio_timeline_service: TimelineService | None = None
