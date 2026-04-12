@@ -1,8 +1,7 @@
 """Lokaler LLM Pacing-Strategist — generiert Pacing-Plaene offline.
 
-Nutzt Qwen2.5-1.5B-Instruct lokal via HuggingFace Transformers.
-Kein Internet, keine API-Kosten. Laeuft auf GTX 1060 (6 GB VRAM).
-VRAM-Sequenz: Strategist laden → Plan generieren → entladen → weiter.
+Nutzt Gemma 4 E4B via Ollama. Kein Internet, keine API-Kosten.
+Fallback: PacingPlan.default() wenn Ollama nicht verfuegbar.
 """
 
 from __future__ import annotations
@@ -13,9 +12,7 @@ from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
 
-# H-16 FIX: Use HuggingFace model ID instead of Ollama ID for HF transformers fallback
-# (Ollama is tried first in _generate(), this is the HF fallback)
-STRATEGIST_MODEL_ID = "Qwen/Qwen2.5-1.5B-Instruct"
+STRATEGIST_MODEL_ID = "gemma4:e4b"
 
 SYSTEM_PROMPT = """\
 Du bist ein DJ-Video-Pacing-Experte. Du bekommst die Struktur eines DJ-Mixes \
@@ -69,15 +66,12 @@ class PacingPlan:
 
 
 class PacingStrategist:
-    """Generiert Pacing-Plaene mit einem lokalen Qwen-Modell.
+    """Generiert Pacing-Plaene mit Gemma 4 E4B via Ollama.
 
     Workflow:
-    1. Modell laden (~3 GB VRAM, ~15s)
-    2. Strukturierten Prompt mit Mix-Summary senden
-    3. JSON Pacing-Plan parsen
-    4. Modell entladen (VRAM frei fuer SigLIP)
-
-    Fallback: Bei Fehler wird PacingPlan.default() zurueckgegeben.
+    1. Prompt mit Mix-Summary an Ollama senden
+    2. JSON Pacing-Plan parsen
+    3. Fallback: PacingPlan.default() wenn Ollama nicht verfuegbar
     """
 
     def __init__(self, model_id: str = STRATEGIST_MODEL_ID):
@@ -143,71 +137,36 @@ class PacingStrategist:
         return "\n".join(lines)
 
     def _generate(self, user_text: str) -> str:
-        """Generiert Text — Ollama-first, HuggingFace als Fallback.
+        """Generiert Text via Ollama (Gemma 4 E4B).
 
-        Fallback-Kette:
-        1. Ollama (wenn verfügbar, kein VRAM-Verbrauch)
-        2. Lokales HuggingFace-Modell (Qwen2.5-1.5B, ~3 GB VRAM)
+        Raises RuntimeError wenn Ollama nicht verfuegbar — Caller
+        faengt das ab und nutzt PacingPlan.default().
         """
-        # --- Ollama-Versuch ---
-        try:
-            from services.ollama_client import get_ollama_client
-            from ui.dialogs.settings_dialog import get_ollama_settings
-            cfg = get_ollama_settings()
-            if cfg.get("enabled", True):
-                client = get_ollama_client(cfg.get("url", "http://localhost:11434"))
-                if client.is_available():
-                    model = cfg.get("model") or client.get_best_available_model()
-                    if model:
-                        logger.info(
-                            "PacingStrategist: Nutze Ollama-Modell '%s' fuer Pacing-Plan.", model
-                        )
-                        result = client.chat(
-                            model=model,
-                            user_message=user_text,
-                            system_prompt=SYSTEM_PROMPT,
-                            temperature=0.1,
-                            max_tokens=1024,
-                        )
-                        logger.info("PacingStrategist: Ollama-Antwort erhalten (%d chars)", len(result))
-                        return result
-        except (ConnectionError, TimeoutError, ImportError, RuntimeError, OSError) as e:
-            logger.warning("PacingStrategist: Ollama nicht verfuegbar (%s) — HuggingFace-Fallback.", e)
+        from services.ollama_client import get_ollama_client
+        from ui.dialogs.settings_dialog import get_ollama_settings
 
-        # --- HuggingFace-Fallback ---
-        from services.model_manager import ModelManager, GPU_LOAD_LOCK
+        cfg = get_ollama_settings()
+        if not cfg.get("enabled", True):
+            raise RuntimeError("Ollama ist deaktiviert in den Einstellungen")
 
-        with GPU_LOAD_LOCK:
-            mm = ModelManager()
+        client = get_ollama_client(cfg.get("url", "http://localhost:11434"))
+        if not client.is_available():
+            raise RuntimeError("Ollama-Server nicht erreichbar")
 
-            logger.info("PacingStrategist: Lade %s...", self.model_id)
-            tokenizer, model, pipe = mm.load_transformers(self.model_id)
+        model = cfg.get("model") or client.get_best_available_model()
+        if not model:
+            raise RuntimeError("Kein Ollama-Modell verfuegbar")
 
-            try:
-                messages = [
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": user_text},
-                ]
-
-                if hasattr(tokenizer, "apply_chat_template"):
-                    prompt = tokenizer.apply_chat_template(
-                        messages, tokenize=False, add_generation_prompt=True
-                    )
-                else:
-                    prompt = f"<|system|>\n{SYSTEM_PROMPT}\n<|user|>\n{user_text}\n<|assistant|>\n"
-
-                outputs = pipe(
-                    prompt,
-                    max_new_tokens=1024,
-                    do_sample=False,
-                    return_full_text=False,
-                )
-                raw = outputs[0]["generated_text"].strip()
-                logger.info("PacingStrategist: Antwort erhalten (%d chars)", len(raw))
-                return raw
-            finally:
-                mm.unload()
-                logger.info("PacingStrategist: Modell entladen")
+        logger.info("PacingStrategist: Nutze Ollama '%s' fuer Pacing-Plan.", model)
+        result = client.chat(
+            model=model,
+            user_message=user_text,
+            system_prompt=SYSTEM_PROMPT,
+            temperature=0.1,
+            max_tokens=1024,
+        )
+        logger.info("PacingStrategist: Antwort erhalten (%d chars)", len(result))
+        return result
 
     def _parse_response(self, raw: str) -> PacingPlan:
         """Parst die JSON-Antwort des LLM."""
