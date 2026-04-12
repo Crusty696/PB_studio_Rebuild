@@ -1,7 +1,7 @@
 """AudioAnalysisController — Refactored from AudioAnalysisMixin."""
 
 import logging
-from PySide6.QtCore import QObject, Signal, QTimer
+from PySide6.QtCore import Qt, QObject, Signal, QTimer
 from services.task_manager import TaskManagerProxy
 from workers import AnalysisWorker, WaveformAnalysisWorker
 from ui.base_component import PBComponent
@@ -17,27 +17,25 @@ class AudioAnalysisController(PBComponent):
     """Audio analysis methods for PBWindow."""
 
     def _get_selected_audio_track(self):
-        """Hilfsmethode: Gibt (track_id, file_path, title, bpm) des ausgewählten Audio-Tracks zurück."""
+        """Hilfsmethode: Gibt (track_id, file_path, title, bpm) des ausgewaehlten Audio-Tracks zurueck."""
         from database import engine, AudioTrack
         from sqlalchemy.orm import Session as DBSession
 
         audio_id = None
-        
+
         # 1. Versuche Auswahl aus der Audio-Pool Tabelle (QTableView)
         view = self.window.audio_pool_table
         model = view.model()
         indexes = view.selectionModel().selectedRows()
-        
+
         if indexes:
-            # Wir nehmen die erste selektierte Zeile
             row = indexes[0].row()
-            # ID ist in Spalte 1 (laut MediaTableModel)
             val = model.index(row, 1).data()
             if val and str(val).isdigit():
                 audio_id = int(val)
 
         if audio_id is None:
-            self.window.console_text.append("[Warnung] Kein Audio-Track ausgewählt.")
+            self.window.console_text.append("[Warnung] Kein Audio-Track ausgewaehlt.")
             return None
 
         with DBSession(engine) as session:
@@ -48,7 +46,7 @@ class AudioAnalysisController(PBComponent):
             return (track.id, track.file_path, track.title or "Unbekannt", track.bpm)
 
     def _detect_key(self):
-        """Erkennt die musikalische Tonart des ausgewählten Audio-Tracks."""
+        """Erkennt die musikalische Tonart des ausgewaehlten Audio-Tracks."""
         info = self._get_selected_audio_track()
         if not info:
             return
@@ -58,22 +56,20 @@ class AudioAnalysisController(PBComponent):
         worker = KeyDetectionWorker(track_id, file_path)
         worker.task_id = task.task_id
         worker.progress.connect(
-            lambda pct, msg: self.window._console_append(f"[Key] {msg}"),
-            Qt.ConnectionType.QueuedConnection
+            lambda pct, msg: self.window._console_append(f"[Key] {msg}")
         )
         worker.finished.connect(lambda tid, res: (
             self.window._console_append(f"[Key] Erkannt: {res.get('key','?')} ({res.get('camelot','?')}) Conf={res.get('confidence',0):.0%}"),
             self.window.media_table_controller._refresh_media_table_debounced(),
         ))
         worker.error.connect(
-            lambda tid, err: self.window._console_append(f"[Key] Fehler: {err}"),
-            Qt.ConnectionType.QueuedConnection
+            lambda tid, err: self.window._console_append(f"[Key] Fehler: {err}")
         )
         self.window.worker_dispatcher._start_worker_thread(worker)
-        self.window.console_text.append(f"[Key] Starte Key-Erkennung für '{title}'...")
+        self.window.console_text.append(f"[Key] Starte Key-Erkennung fuer '{title}'...")
 
     def _analyze_lufs(self):
-        """Analysiert die Lautstärke nach EBU R128."""
+        """Analysiert die Lautstaerke nach EBU R128."""
         info = self._get_selected_audio_track()
         if not info:
             return
@@ -83,19 +79,17 @@ class AudioAnalysisController(PBComponent):
         worker = LUFSAnalysisWorker(track_id, file_path)
         worker.task_id = task.task_id
         worker.progress.connect(
-            lambda pct, msg: self.window._console_append(f"[LUFS] {msg}"),
-            Qt.ConnectionType.QueuedConnection
+            lambda pct, msg: self.window._console_append(f"[LUFS] {msg}")
         )
         worker.finished.connect(lambda tid, res: (
             self.window._console_append(f"[LUFS] Integrated: {res.get('integrated',0):.1f} dB, LRA: {res.get('loudness_range',0):.1f} LU, TP: {res.get('true_peak',0):.1f} dBTP"),
             self.window.media_table_controller._refresh_media_table_debounced(),
         ))
         worker.error.connect(
-            lambda tid, err: self.window._console_append(f"[LUFS] Fehler: {err}"),
-            Qt.ConnectionType.QueuedConnection
+            lambda tid, err: self.window._console_append(f"[LUFS] Fehler: {err}")
         )
         self.window.worker_dispatcher._start_worker_thread(worker)
-        self.window.console_text.append(f"[LUFS] Starte LUFS-Analyse für '{title}'...")
+        self.window.console_text.append(f"[LUFS] Starte LUFS-Analyse fuer '{title}'...")
 
     def _detect_structure(self):
         """Erkennt die Song-Struktur (INTRO/BUILDUP/DROP/BREAKDOWN/OUTRO)."""
@@ -108,19 +102,17 @@ class AudioAnalysisController(PBComponent):
         worker = StructureDetectionWorker(track_id, file_path, bpm=bpm)
         worker.task_id = task.task_id
         worker.progress.connect(
-            lambda pct, msg: self.window._console_append(f"[Struktur] {msg}"),
-            Qt.ConnectionType.QueuedConnection
+            lambda pct, msg: self.window._console_append(f"[Struktur] {msg}")
         )
         worker.finished.connect(lambda tid, res: (
             self.window._console_append(f"[Struktur] {len(res.get('segments',[]))} Segmente erkannt"),
             self.window.media_table_controller._refresh_media_table_debounced(),
         ))
         worker.error.connect(
-            lambda tid, err: self.window._console_append(f"[Struktur] Fehler: {err}"),
-            Qt.ConnectionType.QueuedConnection
+            lambda tid, err: self.window._console_append(f"[Struktur] Fehler: {err}")
         )
         self.window.worker_dispatcher._start_worker_thread(worker)
-        self.window.console_text.append(f"[Struktur] Starte Struktur-Erkennung für '{title}'...")
+        self.window.console_text.append(f"[Struktur] Starte Struktur-Erkennung fuer '{title}'...")
 
     def _on_audio_pool_selected(self, row, col, prev_row, prev_col):
         """Sync audio pool selection to StemWorkspace and detail cards."""
@@ -130,12 +122,11 @@ class AudioAnalysisController(PBComponent):
                 if hasattr(self.window, "stem_workspace"):
                     self.window.stem_workspace.update_for_track(None, None)
                 return
-            
+
             view = self.window.audio_pool_table
             model = view.model()
-            # ID ist in Spalte 1
             aud_id_val = model.index(row, 1).data()
-            
+
             if not aud_id_val or not str(aud_id_val).isdigit():
                 return
 
@@ -170,19 +161,13 @@ class AudioAnalysisController(PBComponent):
         worker.task_id = task.task_id
         worker.started.connect(self._on_analysis_started)
         worker.finished.connect(
-            self.window,
-            lambda tid, r: self._on_analysis_finished(tid, r, task.task_id),
-            Qt.ConnectionType.QueuedConnection
+            lambda tid, r: self._on_analysis_finished(tid, r, task.task_id)
         )
         worker.error.connect(
-            self.window,
-            lambda tid, err: self._on_analysis_error(tid, err, task.task_id),
-            Qt.ConnectionType.QueuedConnection
+            lambda tid, err: self._on_analysis_error(tid, err, task.task_id)
         )
         worker.progress.connect(
-            self.window,
-            lambda pct, msg: self.window._console_append(f"[Audio] {msg}"),
-            Qt.ConnectionType.QueuedConnection
+            lambda pct, msg: self.window._console_append(f"[Audio] {msg}")
         )
 
         self.window.btn_analyze.setEnabled(False)
@@ -209,7 +194,7 @@ class AudioAnalysisController(PBComponent):
             self.window.btn_analyze.setText("Audio analysieren")
             self.window.progress_bar.setVisible(False)
             if task_id:
-                task_manager.finish_task(task_id, "error", "Unvollständiges Analyse-Ergebnis")
+                task_manager.finish_task(task_id, "error", "Unvollstaendiges Analyse-Ergebnis")
             return
         beats = len(result.get("beat_positions", []))
         self.window.console_text.append(
@@ -234,7 +219,7 @@ class AudioAnalysisController(PBComponent):
             task_manager.finish_task(task_id, "error", error_msg)
 
     def _analyze_waveform(self):
-        """Startet Rekordbox-Style Frequenzanalyse für den ausgewählten Audio-Track."""
+        """Startet Rekordbox-Style Frequenzanalyse fuer den ausgewaehlten Audio-Track."""
         info = self._get_selected_audio_track()
         if not info:
             return
@@ -246,19 +231,13 @@ class AudioAnalysisController(PBComponent):
         worker = WaveformAnalysisWorker(track_id)
         worker.task_id = task.task_id
         worker.progress.connect(
-            self.window,
-            lambda pct, msg: self._on_waveform_progress(pct, msg, task.task_id),
-            Qt.ConnectionType.QueuedConnection
+            lambda pct, msg: self._on_waveform_progress(pct, msg, task.task_id)
         )
         worker.finished.connect(
-            self.window,
-            lambda tid, r: self._on_waveform_finished(tid, r, title, task.task_id),
-            Qt.ConnectionType.QueuedConnection
+            lambda tid, r: self._on_waveform_finished(tid, r, title, task.task_id)
         )
         worker.error.connect(
-            self.window,
-            lambda tid, err: self._on_waveform_error(tid, err, task.task_id),
-            Qt.ConnectionType.QueuedConnection
+            lambda tid, err: self._on_waveform_error(tid, err, task.task_id)
         )
 
         self.window.btn_waveform.setEnabled(False)
