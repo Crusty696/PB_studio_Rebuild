@@ -107,7 +107,6 @@ class AboutDialog(QDialog):
             ("RAFT", "#3b2a1a", "#f59e42"),
             ("FFmpeg", "#1a2e1a", "#66bb6a"),
             ("PySceneDetect", "#2a2a3a", "#90caf9"),
-            ("faster-whisper", "#2a1a2a", "#f48fb1"),
         ]
 
         row1 = QHBoxLayout()

@@ -1,7 +1,7 @@
 """PB Studio — GPU & CUDA Health Check.
 
 Vollstaendige Diagnose: Treiber, CUDA-Version, PyTorch-Kompatibilitaet,
-ctranslate2, und klare Reparatur-Anweisungen.
+und klare Reparatur-Anweisungen.
 """
 
 import os
@@ -166,28 +166,8 @@ def check():
         print(f"  FEHLER: {e}")
         issues.append("cuda_init_error")
 
-    # ── 4. ctranslate2 (faster-whisper Backend) ─────────────────────────
-    print("\n[4/5] ctranslate2 (Whisper Backend)...")
-    try:
-        import ctranslate2
-        print(f"  Version:  {ctranslate2.__version__}")
-        try:
-            n = ctranslate2.get_cuda_device_count()
-            if n > 0:
-                types = ctranslate2.get_supported_compute_types("cuda")
-                print(f"  CUDA:     {n} Device(s), Typen: {', '.join(types)}")
-            else:
-                print(f"  CUDA:     Keine Devices (Treiber-Problem?)")
-                issues.append("ct2_no_cuda")
-        except RuntimeError as e:
-            print(f"  CUDA:     FEHLER — {e}")
-            issues.append("ct2_cuda_error")
-    except ImportError:
-        print("  NICHT INSTALLIERT")
-        issues.append("no_ct2")
-
-    # ── 5. Umgebungs-Variablen ──────────────────────────────────────────
-    print("\n[5/5] Umgebung...")
+    # ── 4. Umgebungs-Variablen ──────────────────────────────────────────
+    print("\n[4/5] Umgebung...")
     cuda_visible = os.environ.get("CUDA_VISIBLE_DEVICES", "<nicht gesetzt>")
     print(f"  CUDA_VISIBLE_DEVICES: {cuda_visible}")
     if cuda_visible not in ("<nicht gesetzt>", "", "0"):

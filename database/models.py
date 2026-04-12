@@ -69,6 +69,7 @@ class AudioTrack(Base):
     genre = Column(String, nullable=True)               # "Psytrance", "Techno", "House", ...
     is_dj_mix = Column(Boolean, nullable=True, default=False)  # DJ-Mix erkannt?
     spectral_bands = Column(JSON, nullable=True)        # P1.7-FIX: 8-Band Frequenz-Energien
+    transcription = Column(JSON, nullable=True)         # DEPRECATED: kept for DB compatibility
     deleted_at = Column(DateTime, nullable=True)       # P1-FIX: Soft-Delete Support
 
     # AUD-84: ML Key Detection — Modulation + Tension
@@ -272,7 +273,7 @@ class AIPacingMemory(Base):
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    created_at = Column(String, nullable=True, default=lambda: _datetime.datetime.utcnow().isoformat())
+    created_at = Column(DateTime, nullable=True, default=lambda: _datetime.datetime.utcnow())
 
     # ── Audio-Kontext ──
     bpm = Column(Float, nullable=True)
@@ -345,12 +346,12 @@ class ModelRegistry(Base):
     __tablename__ = "model_registry"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    model_id = Column(String, nullable=False, unique=True)   # "gemma4:e4b" | "openai/whisper-large-v3"
+    model_id = Column(String, nullable=False, unique=True)   # "gemma4:e4b" | "google/siglip-so400m-patch14-384"
     source = Column(String, nullable=False)                   # "ollama" | "huggingface"
     display_name = Column(String, nullable=True)
     size_mb = Column(Float, nullable=True)
-    installed_at = Column(String, nullable=True)              # ISO datetime
-    last_used_at = Column(String, nullable=True)              # ISO datetime
+    installed_at = Column(DateTime, nullable=True)            # M-38 Fix: DateTime instead of String
+    last_used_at = Column(DateTime, nullable=True)            # M-38 Fix: DateTime instead of String
     status = Column(String, nullable=False, default="installed")  # "installed" | "downloading" | "error"
     local_path = Column(String, nullable=True)                # HF-Cache-Pfad
     metadata_json = Column(JSON, nullable=True)               # P1.7-FIX: Parameter, Tags, Quantisierung
@@ -370,7 +371,7 @@ class AgentFeedback(Base):
     __tablename__ = "agent_feedback"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    created_at = Column(String, nullable=True, default=lambda: _datetime.datetime.utcnow().isoformat())
+    created_at = Column(DateTime, nullable=True, default=lambda: _datetime.datetime.utcnow())
 
     # ── Kontext ──
     session_id = Column(String, nullable=True)           # Chat-Session-ID

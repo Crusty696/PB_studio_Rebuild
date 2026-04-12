@@ -3,7 +3,7 @@
 #
 # Fixes torch CUDA discovery inside a frozen PyInstaller bundle:
 # - Sets CUDA_PATH so torch finds cuDNN / cublas DLLs in _MEIPASS
-# - Adds the bundle root to PATH so ctranslate2 finds its DLLs
+# - Adds the bundle root to PATH so bundled DLLs are discoverable
 # - Disables torch's online version check (network call at import time)
 
 import os

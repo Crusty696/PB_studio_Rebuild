@@ -78,8 +78,7 @@ def test_model_load_with_oom_check():
     logger.info("Test 4: Model Load mit OOM Check")
     logger.info("=" * 60)
 
-    # Versuche ein kleines Whisper-Modell zu laden
-    # (nur wenn genug Speicher da ist)
+    # Test model load with OOM check (using SigLIP as test model)
     mem_before = mm.check_memory_available()
     logger.info(f"RAM vor Load: {mem_before['ram_available_gb']} GB")
     logger.info(f"VRAM vor Load: {mem_before['vram_available_gb']} GB")
@@ -89,8 +88,8 @@ def test_model_load_with_oom_check():
         return
 
     try:
-        logger.info("Lade kleines Whisper-Modell...")
-        model = mm.load_whisper("tiny")
+        logger.info("Lade SigLIP-Modell...")
+        model, processor = mm.load_siglip()
 
         mem_after = mm.check_memory_available()
         logger.info(f"RAM nach Load: {mem_after['ram_available_gb']} GB")
@@ -104,10 +103,10 @@ def test_model_load_with_oom_check():
         logger.info(f"RAM nach Unload: {mem_final['ram_available_gb']} GB")
         logger.info(f"VRAM nach Unload: {mem_final['vram_available_gb']} GB")
 
-        logger.info("✓ Model Load mit OOM Check funktioniert")
+        logger.info("Model Load mit OOM Check funktioniert")
 
     except RuntimeError as e:
-        logger.error(f"✗ OOM beim Test: {e}")
+        logger.error(f"OOM beim Test: {e}")
         logger.info("Das ist OK — OOM-Handler funktioniert wie erwartet")
 
 

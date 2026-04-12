@@ -28,25 +28,7 @@ def main():
     results = {}
     total_start = time.time()
 
-    # TEST 1: Audio-Stream-Check
-    print("\n[TEST 1] Video ohne Audio -> Fehler erwartet", flush=True)
-    r = action_registry.execute("transcribe_audio", {"file_path": VIDEO_NO_AUDIO})
-    ok = "Keine Audio-Spur" in str(r.get("error", ""))
-    results["audio_stream_check"] = ok
-    print(f"  {'PASS' if ok else 'FAIL'}: {r.get('error', 'no error')}", flush=True)
-
-    # TEST 2: Whisper Transkription
-    print("\n[TEST 2] Whisper auf 8s Video mit Audio", flush=True)
-    start = time.time()
-    r = action_registry.execute("transcribe_audio", {"file_path": VIDEO_WITH_AUDIO})
-    elapsed = time.time() - start
-    has_no_error = r.get("error") is None
-    results["whisper_transcription"] = has_no_error
-    print(f"  {'PASS' if has_no_error else 'FAIL'}: lang={r.get('language')}, segments={r.get('segment_count')}, {elapsed:.1f}s", flush=True)
-    print(f"  Text: {r.get('full_text', '(kein Text)')[:150]}", flush=True)
-    print(f"  Model: {mm.current_model_id} ({mm.model_type})", flush=True)
-
-    # TEST 3: Vision-Analyse
+    # TEST 1: Vision-Analyse
     print("\n[TEST 3] Vision-Analyse auf Video", flush=True)
     mode = "GPU/Moondream2" if torch.cuda.is_available() else "CPU/OpenCV-Fallback"
     print(f"  Modus: {mode}", flush=True)
@@ -66,18 +48,14 @@ def main():
     else:
         print(f"  Error: {r.get('error')}", flush=True)
 
-    # TEST 4: Model Swap
-    print("\n[TEST 4] Model Swap Verification", flush=True)
-    mm.load_whisper("tiny")
-    ok = mm.model_type == "whisper" and mm.current_model_id == "whisper-tiny"
-    results["model_swap"] = ok
-    print(f"  {'PASS' if ok else 'FAIL'}: type={mm.model_type}, id={mm.current_model_id}", flush=True)
+    # TEST 2: Model Unload
+    print("\n[TEST 2] Model Unload Verification", flush=True)
     mm.unload()
     ok2 = mm.current_model_id is None
     results["model_unload"] = ok2
     print(f"  {'PASS' if ok2 else 'FAIL'}: unloaded={mm.current_model_id is None}", flush=True)
 
-    # TEST 5: Orchestrator Multi-Step Detection
+    # TEST 3: Orchestrator Multi-Step Detection
     print("\n[TEST 5] Orchestrator Multi-Step Detection", flush=True)
     from agents.orchestrator_agent import OrchestratorAgent
     orch = OrchestratorAgent()
@@ -89,11 +67,11 @@ def main():
     results["multi_step_detection"] = tests_ok
     print(f"  {'PASS' if tests_ok else 'FAIL'}", flush=True)
 
-    # TEST 6: Full Agent Routing
-    print("\n[TEST 6] Agent Routing", flush=True)
+    # TEST 4: Full Agent Routing
+    print("\n[TEST 4] Agent Routing", flush=True)
     from agents.audio_agent import AudioAgent
     from agents.vision_agent import VisionAgent
-    a = orch._route_to_agent("Transkribiere Audio Track 1")
+    a = orch._route_to_agent("Analysiere Audio Track 1")
     v = orch._route_to_agent("Was passiert visuell im Video?")
     ok = isinstance(a, AudioAgent) and isinstance(v, VisionAgent)
     results["agent_routing"] = ok

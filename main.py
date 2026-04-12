@@ -605,7 +605,7 @@ def main():
         models_to_download = [m["id"] for m in RECOMMENDED_HF_MODELS]
         
         # Zusätzliche Modelle aus pre_cache_models.py (falls nicht in RECOMMENDED_HF_MODELS)
-        additional = ["facebook/htdemucs", "CPJKU/beat_this", "Systran/faster-whisper-large-v3"]
+        additional = ["facebook/htdemucs", "CPJKU/beat_this"]
         for m_id in additional:
             if m_id not in models_to_download:
                 models_to_download.append(m_id)

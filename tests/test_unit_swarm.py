@@ -14,7 +14,6 @@ print("OK1: ModelManager Singleton")
 import services.register_actions
 from services.action_registry import action_registry
 actions = action_registry.list_actions()
-assert "transcribe_audio" in actions
 assert "analyze_video_content" in actions
 print(f"OK2: Actions = {actions}")
 

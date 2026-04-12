@@ -7,7 +7,6 @@ Wenn der Vision-Agent lädt, muss der Audio-Agent entladen werden
 
 Unterstützte Modell-Typen:
 - HuggingFace transformers (AutoModel)
-- faster-whisper (WhisperModel)
 - Custom models (via load_custom callback)
 """
 
@@ -146,7 +145,7 @@ class ModelManager:
         self._model: Any = None
         self._tokenizer: Any = None
         self._pipe: Any = None
-        self._model_type: str | None = None  # "transformers", "whisper", "vision"
+        self._model_type: str | None = None  # "transformers", "vision", "siglip", "raft"
         self._extras: dict[str, Any] = {}  # Zusätzliche Objekte (Processor etc.)
         self._swap_lock = threading.RLock()  # Reentrant — erlaubt nested acquire
 
@@ -386,90 +385,6 @@ class ModelManager:
             # Ollama fortsetzen — GPU ist jetzt frei
             self._resume_ollama_if_paused()
 
-    def load_whisper(self, model_size: str = "large-v3") -> Any:
-        """Lädt ein faster-whisper Modell für Transkription.
-
-        Args:
-            model_size: "tiny", "base", "small", "medium", "large-v3"
-
-        Returns:
-            WhisperModel-Instanz
-        """
-        model_id = f"whisper-{model_size}"
-
-        with self._swap_lock:
-            if self._current_model_id == model_id and self._model_type == "whisper":
-                return self._model
-
-            # Ollama pausieren, bevor GPU belegt wird
-            self._pause_ollama_if_active()
-
-            # Altes Modell entladen
-            self.unload()
-
-            # F-011: Proaktiver OOM-Check vor Laden
-            self._handle_oom_prevention(f"whisper '{model_size}' laden")
-
-            # B-05: VRAM pre-check — fragmentierten Speicher freigeben vor dem Laden
-            if torch.cuda.is_available():
-                torch.cuda.synchronize()
-                torch.cuda.empty_cache()
-                gc.collect()
-                torch.cuda.empty_cache()
-
-            logger.info("ModelManager: Lade faster-whisper '%s' auf %s...", model_size, self.device)
-
-            from faster_whisper import WhisperModel
-
-            try:
-                # Compute-Type nach GPU-Architektur:
-                # - Volta/Turing/Ampere (sm >= 7.0): float16 (schnell, ~3GB fuer large-v3)
-                # - Pascal (sm 6.x, GTX 1060): int8 (unterstuetzt ab sm_6.1, ~1.5GB fuer large-v3)
-                # - CPU: int8
-                if self.device == "cuda":
-                    cap = torch.cuda.get_device_capability(0)
-                    compute_type = "float16" if cap[0] >= 7 else "int8"
-                    logger.info(
-                        "ModelManager: faster-whisper compute_type=%s (GPU sm %d.%d)",
-                        compute_type, cap[0], cap[1],
-                    )
-                else:
-                    compute_type = "int8"
-                    logger.info(
-                        "ModelManager: faster-whisper compute_type=%s (CPU)", compute_type,
-                    )
-                self._model = WhisperModel(
-                    model_size,
-                    device=self.device,
-                    compute_type=compute_type,
-                )
-            except torch.cuda.OutOfMemoryError:
-                logger.error("OOM beim Laden von whisper '%s' — räume auf.", model_size)
-                self.unload()
-                raise RuntimeError(
-                    f"VRAM reicht nicht für whisper '{model_size}'. "
-                    f"GPU-Speicher wurde freigegeben."
-                )
-            except (OSError, EnvironmentError) as e:
-                logger.error("Whisper-Modell '%s' nicht gefunden: %s", model_size, e)
-                self.unload()
-                from services.errors import MLModelNotFoundError
-                raise MLModelNotFoundError(
-                    f"whisper-{model_size}",
-                    hint=(
-                        "faster-whisper laedt Modelle automatisch beim ersten Start. "
-                        "Stelle sicher dass eine Internetverbindung besteht oder "
-                        f"lade das Modell manuell: "
-                        f"huggingface-cli download Systran/faster-whisper-{model_size}"
-                    ),
-                ) from e
-
-            self._current_model_id = model_id
-            self._model_type = "whisper"
-            logger.info("ModelManager: faster-whisper '%s' geladen.", model_size)
-
-            return self._model
-
     def load_vision(self, model_id: str = "vikhyatk/moondream2") -> tuple:
         """Lädt ein Vision-Modell (Moondream2) für Bildanalyse.
 
@@ -666,14 +581,12 @@ class ModelManager:
         um VRAM-Crashes zu verhindern wenn mehrere Agenten gleichzeitig laden.
 
         Args:
-            model_id: Modell-ID oder Whisper-Größe
-            model_type: "transformers", "whisper", "vision"
+            model_id: Modell-ID
+            model_type: "transformers", "vision", "siglip", "raft"
         """
         # FIX B-006: Globaler GPU_LOAD_LOCK verhindert Race-Condition bei concurrent loads
         with GPU_LOAD_LOCK:
-            if model_type == "whisper":
-                result = self.load_whisper(model_id)
-            elif model_type == "vision":
+            if model_type == "vision":
                 result = self.load_vision(model_id)
             elif model_type == "siglip":
                 result = self.load_siglip(model_id)
@@ -695,7 +608,7 @@ class ModelManager:
         """Lädt RAFT Small Optical Flow Modell für Motion-Analyse.
 
         Registriert RAFT im ModelManager sodass es beim Laden anderer
-        Modelle (Whisper, SigLIP, beat_this) automatisch entladen wird.
+        Modelle (SigLIP, beat_this) automatisch entladen wird.
         SigLIP (~2.5 GB) + RAFT (~0.1 GB) dürfen koexistieren auf 6 GB VRAM.
 
         Returns:

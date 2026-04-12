@@ -127,7 +127,7 @@ def _load_raft_model():
     """Lädt RAFT Optical Flow Modell via ModelManager (GPU-koordiniert).
 
     ModelManager registriert RAFT sodass andere GPU-Konsumenten
-    (Whisper, SigLIP, beat_this) es automatisch entladen können.
+    (SigLIP, beat_this) es automatisch entladen können.
 
     Returns:
         (raft_model, device) oder (None, None) bei Fehler.
@@ -263,14 +263,19 @@ def compute_motion_scores(
     finally:
         cap.release()
         # RAFT nur entladen wenn WIR es geladen haben (nicht im Batch-Modus)
+        # M-13 Fix: Only unload if RAFT is still current (avoid evicting concurrent model)
         if _owns_raft and use_raft and raft_model is not None:
             from services.model_manager import ModelManager
             try:
-                ModelManager().unload()
+                mgr = ModelManager()
+                if mgr.current_model_id == "raft_small":
+                    mgr.unload()
+                    logger.info("RAFT entladen via ModelManager")
+                else:
+                    logger.debug("RAFT already swapped out — skip unload")
             except (RuntimeError, AttributeError) as exc:
                 logger.warning("ModelManager.unload() failed after RAFT cleanup: %s", exc)
             raft_model = None  # Lokale Referenz freigeben
-            logger.info("RAFT entladen via ModelManager")
 
     logger.info("Motion-Scores berechnet für %d Szenen (%s)", len(scenes),
                 "RAFT/CUDA" if use_raft else "CPU-Fallback")
@@ -552,7 +557,7 @@ def generate_embeddings(
 # ======================================================================
 
 # Ollama-Modell für Vision-Captioning (muss Vision-fähig sein)
-_VISION_MODEL = "gemma3:4b"
+_VISION_MODEL = "gemma4:e4b"
 
 _CAPTION_SYSTEM_PROMPT = """\
 You are a video scene analyzer for a DJ/music video editor.

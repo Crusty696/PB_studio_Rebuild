@@ -1,12 +1,8 @@
 """
-Audio Agent — Spezialisiert auf Audio-Analyse, Stem-Separation und Transkription.
+Audio Agent — Spezialisiert auf Audio-Analyse und Stem-Separation.
 
-Zuständig für: analyze_audio, separate_stems, transcribe_audio (faster-whisper).
-
-Transkription nutzt faster-whisper über den ModelManager:
-- Modell-Größe: 'base' (Standard) für RAM-Effizienz
-- Gibt Zeitstempel zurück
-- Unterstützt Audio- und Video-Dateien
+Zuständig für: analyze_audio, separate_stems, detect_key, analyze_lufs,
+classify_audio, analyze_spectral, detect_structure.
 """
 
 from __future__ import annotations
@@ -25,8 +21,6 @@ AUDIO_KEYWORDS = [
     "drums", "bass", "ton", "sound", "track", "song", "lied",
     "analyse audio", "analyze audio", "analysiere audio",
     "trennen", "separate", "separation",
-    "transkri", "transcri", "speech", "sprache", "gesagt",
-    "untertitel", "subtitle", "whisper",
     # DJ-Mix spezifisch
     "dj", "mix", "set", "transition", "drop", "breakdown",
     "buildup", "pacing", "energie", "energy", "makro",
@@ -34,15 +28,14 @@ AUDIO_KEYWORDS = [
 
 
 class AudioAgent(BaseAgent):
-    """Agent für Audio-Analyse, Stem-Separation und Transkription.
+    """Agent für Audio-Analyse und Stem-Separation.
 
-    Erkennt automatisch ob Transkription oder Analyse gewünscht ist.
-    Nutzt den ModelManager für VRAM-sicheres Laden von faster-whisper.
+    Erkennt automatisch ob Stem-Separation oder Analyse gewünscht ist.
     """
 
     name = "audio"
     domain = "audio"
-    model_id = None  # Dynamisch: whisper oder keins
+    model_id = None
 
     def __init__(self):
         super().__init__()
@@ -57,15 +50,6 @@ class AudioAgent(BaseAgent):
         if not matches:
             return 0.0
         return min(0.3 + 0.15 * len(matches), 0.95)
-
-    def _is_transcription(self, text_lower: str) -> bool:
-        """Erkennt ob eine Transkription gewünscht ist."""
-        transcription_keywords = [
-            "transkri", "transcri", "speech", "sprache", "gesagt",
-            "text aus", "untertitel", "subtitle", "whisper",
-            "was wird gesagt", "was sagt", "gesprochene",
-        ]
-        return any(kw in text_lower for kw in transcription_keywords)
 
     def process(self, user_text: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
         from services.action_registry import action_registry
@@ -82,36 +66,6 @@ class AudioAgent(BaseAgent):
         }
 
         text_lower = user_text.lower()
-
-        # Transkriptions-Erkennung
-        if self._is_transcription(text_lower):
-            # Suche nach file_path oder track_id
-            track_id = None
-            file_path = None
-            if context:
-                track_id = context.get("track_id") or context.get("extracted_id")
-                file_path = context.get("file_path")
-
-            if track_id is None:
-                numbers = re.findall(r'\d+', user_text)
-                if numbers:
-                    track_id = int(numbers[0])
-
-            if track_id is not None or file_path is not None:
-                try:
-                    params = {}
-                    if file_path:
-                        params["file_path"] = file_path
-                    elif track_id is not None:
-                        params["track_id"] = track_id
-                    result["action"] = "transcribe_audio"
-                    result["params"] = params
-                    result["result"] = action_registry.execute("transcribe_audio", params)
-                except (ValueError, RuntimeError, OSError) as e:
-                    result["error"] = str(e)
-            else:
-                result["message"] = "Transkription benötigt eine track_id oder file_path."
-            return result
 
         # Stem-Separation oder Audio-Analyse
         is_stem = any(kw in text_lower for kw in [

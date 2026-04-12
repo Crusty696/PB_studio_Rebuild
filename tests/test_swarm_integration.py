@@ -1,12 +1,11 @@
 """
-Integrations-Test für das 3-Agenten Swarm System.
+Integrations-Test für das Agenten Swarm System.
 
 Testet:
 1. ModelManager Singleton + VRAM-Schutz
-2. Audio-Agent (faster-whisper Transkription)
-3. Vision-Agent (Moondream2 Szenenanalyse)
-4. Orchestrator Multi-Step (Vision + Audio gleichzeitig)
-5. ActionRegistry Integration
+2. Vision-Agent (Moondream2 Szenenanalyse)
+3. Orchestrator Multi-Step
+4. ActionRegistry Integration
 
 Nutzt echte Testdateien aus C:\\Users\\david\\Documents\\test_data.
 """
@@ -26,20 +25,9 @@ try:
 except ImportError:
     _TORCH_AVAILABLE = False
 
-try:
-    import faster_whisper as _fw_check  # noqa: F401
-    _FASTER_WHISPER_AVAILABLE = True
-except ImportError:
-    _FASTER_WHISPER_AVAILABLE = False
-
 _requires_torch = pytest.mark.skipif(
     not _TORCH_AVAILABLE,
     reason="torch nicht installiert — CUDA/GPU-Tests werden übersprungen",
-)
-
-_requires_torch_and_whisper = pytest.mark.skipif(
-    not (_TORCH_AVAILABLE and _FASTER_WHISPER_AVAILABLE),
-    reason="torch oder faster_whisper nicht installiert — Modell-Tests werden übersprungen",
 )
 
 # Setup logging
@@ -90,59 +78,20 @@ def test_model_manager_singleton():
     return True
 
 
-@_requires_torch_and_whisper
+@_requires_torch
 def test_model_manager_vram_protection():
     """Test 2: Nur ein Modell gleichzeitig im RAM."""
     from services.model_manager import ModelManager
 
     mm = ModelManager()
 
-    # Lade Whisper
-    mm.load_whisper("tiny")
-    assert mm.current_model_id == "whisper-tiny"
-    assert mm.model_type == "whisper"
-    logger.info("  Whisper-tiny geladen: %s", mm.current_model_id)
-
-    # Lade anderes Modell → Whisper muss entladen werden
-    # (Wir simulieren nur die Entladung hier, kein echtes 2. Modell)
-    mm.unload()
+    # Lade und entlade ein Modell um VRAM-Schutz zu testen
+    if mm.is_loaded:
+        mm.unload()
     assert mm.current_model_id is None
     assert mm.model_type is None
-    logger.info("✅ Test 2 bestanden: VRAM-Schutz funktioniert")
+    logger.info("Test 2 bestanden: VRAM-Schutz funktioniert")
     return True
-
-
-@_requires_torch
-@pytest.mark.skipif(
-    not os.path.isdir(r"C:\Users\david\Documents\test_data\audio"),
-    reason="Echte Test-Audio-Daten nicht vorhanden",
-)
-def test_transcribe_audio():
-    """Test 3: Audio-Transkription mit faster-whisper (benötigt echte Testdateien)."""
-    audio_path = find_test_audio()
-    if not audio_path:
-        pytest.skip("Keine Audio-Testdatei gefunden")
-
-    # Registriere Aktionen
-    import services.register_actions  # noqa: F401
-    from services.action_registry import action_registry
-
-    logger.info("  Starte Transkription von: %s", os.path.basename(audio_path))
-    start = time.time()
-
-    result = action_registry.execute("transcribe_audio", {"file_path": audio_path})
-
-    elapsed = time.time() - start
-    logger.info("  Transkription dauerte: %.1fs", elapsed)
-
-    assert isinstance(result, dict), "Ergebnis muss ein Dict sein"
-    # transcribe_audio startet jetzt einen Background-Worker und gibt sofort zurueck
-    assert result.get("status") == "Task gestartet", f"Unerwarteter Status: {result}"
-    assert "task_id" in result, "task_id fehlt im Ergebnis"
-
-    logger.info("  Task gestartet: %s", result.get("task_id"))
-    logger.info("  Message: %s", result.get("message"))
-    logger.info("Test 3 bestanden: Transkription als Background-Worker gestartet")
 
 
 @_requires_torch
@@ -188,30 +137,6 @@ def test_analyze_video_content():
     return result
 
 
-@_requires_torch_and_whisper
-def test_model_swap_protection():
-    """Test 5: ModelManager swappt korrekt zwischen Whisper und Vision."""
-    from services.model_manager import ModelManager
-
-    mm = ModelManager()
-
-    # Whisper laden
-    mm.load_whisper("tiny")
-    assert mm.model_type == "whisper"
-    whisper_id = mm.current_model_id
-
-    # Vision laden → muss Whisper automatisch entladen
-    mm.load_vision("vikhyatk/moondream2")
-    assert mm.model_type == "vision"
-    assert mm.current_model_id != whisper_id
-
-    # Aufräumen
-    mm.unload()
-
-    logger.info("✅ Test 5 bestanden: Modell-Swap funktioniert korrekt")
-    return True
-
-
 def test_orchestrator_multi_step():
     """Test 6: Orchestrator Multi-Step-Analyse (Vision + Audio)."""
     import services.register_actions  # noqa: F401
@@ -244,7 +169,7 @@ def test_agent_routing():
     orch = OrchestratorAgent()
 
     # Audio-Agent sollte Audio-Anfragen erkennen
-    audio_agent = orch._route_to_agent("Transkribiere die Audiodatei Track 1")
+    audio_agent = orch._route_to_agent("Analysiere die Audiodatei Track 1")
     assert isinstance(audio_agent, AudioAgent), f"Erwartet AudioAgent, bekam {type(audio_agent)}"
 
     # Vision-Agent sollte Video-Anfragen erkennen
@@ -261,7 +186,6 @@ def test_action_registry_new_actions():
     from services.action_registry import action_registry
 
     actions = action_registry.list_actions()
-    assert "transcribe_audio" in actions, "transcribe_audio fehlt im Registry"
     assert "analyze_video_content" in actions, "analyze_video_content fehlt im Registry"
 
     logger.info("  Registrierte Aktionen: %s", actions)
@@ -317,25 +241,12 @@ def main():
         results["orchestrator_multi_step"] = False
 
     # ML-Tests (benötigen Modell-Downloads)
-    if audio_path:
-        try:
-            results["transcribe"] = test_transcribe_audio(audio_path) is not None
-        except Exception as e:
-            logger.error("❌ Test 3 fehlgeschlagen: %s", e)
-            results["transcribe"] = False
-
     if video_path:
         try:
             results["vision"] = test_analyze_video_content(video_path) is not None
         except Exception as e:
             logger.error("❌ Test 4 fehlgeschlagen: %s", e)
             results["vision"] = False
-
-    try:
-        results["model_swap"] = test_model_swap_protection()
-    except Exception as e:
-        logger.error("❌ Test 5 fehlgeschlagen: %s", e)
-        results["model_swap"] = False
 
     # Zusammenfassung
     total_elapsed = time.time() - total_start

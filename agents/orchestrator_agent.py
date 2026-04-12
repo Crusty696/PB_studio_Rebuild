@@ -44,7 +44,7 @@ Klassifiziere die Anfrage in GENAU EINE dieser Kategorien:
 
 - "pacing": Auto-Edit, Schnitte zur Musik, Beat-Sync, BPM, Pacing-Strategie, Auto-Edit
 - "vision": Video-Inhalt analysieren, Szenen beschreiben, visuelle Analyse, Moondream
-- "audio": Transkription, Stems trennen, Audio-Analyse, BPM-Erkennung, Whisper
+- "audio": Stems trennen, Audio-Analyse, BPM-Erkennung, Key-Erkennung
 - "editor": Timeline bearbeiten, Clips verschieben, Export, Render
 - "action": Direkte App-Aktion (Proxy erstellen, Datei importieren, Einstellungen)
 - "general": Allgemeine Frage, kein konkreter App-Befehl
@@ -231,48 +231,7 @@ class OrchestratorAgent(BaseAgent):
                 "error": error_msg,
             })
 
-        # Schritt 2: Audio-Agent (faster-whisper)
-        # Versuche zuerst mit track_id, dann mit file_path des VideoClips
-        audio_params: dict = {}
-        try:
-            if media_id is not None:
-                # Versuche file_path des VideoClips für Whisper
-                try:
-                    from sqlalchemy.orm import Session as SASession
-                    from database import engine, VideoClip
-                    with SASession(engine) as session:
-                        clip = session.get(VideoClip, media_id)
-                        if clip and clip.file_path:
-                            audio_params["file_path"] = clip.file_path
-                except Exception as e:  # broad catch intentional — SQLAlchemy query can raise many error types
-                    # Bug-34 Fix: Fehler protokollieren statt zu verschlucken
-                    logger.warning("Konnte VideoClip %d nicht laden für Transcription: %s", media_id, e)
-                    audio_params["track_id"] = media_id
-
-            if not audio_params:
-                audio_params["track_id"] = media_id
-
-            audio_result = action_registry.execute("transcribe_audio", audio_params)
-            results.append({
-                "agent": "audio",
-                "action": "transcribe_audio",
-                "params": audio_params,
-                "result": audio_result,
-                "error": None,
-            })
-        except (ValueError, RuntimeError, OSError) as e:
-            error_msg = f"Audio-Transkription fehlgeschlagen: {e}"
-            logger.error(error_msg)
-            errors.append(error_msg)
-            results.append({
-                "agent": "audio",
-                "action": "transcribe_audio",
-                "params": audio_params,
-                "result": None,
-                "error": error_msg,
-            })
-
-        # Schritt 3: Zusammenfassung erstellen
+        # Schritt 2: Zusammenfassung erstellen
         summary_parts = []
 
         # Vision-Zusammenfassung
@@ -285,17 +244,6 @@ class OrchestratorAgent(BaseAgent):
                     summary_parts.append(
                         f"  [{scene['timestamp_sec']}s] {scene['description'][:100]}"
                     )
-
-        # Audio-Zusammenfassung
-        audio_data = results[1].get("result") if len(results) > 1 else None
-        if audio_data and not audio_data.get("error"):
-            full_text = audio_data.get("full_text", "")
-            lang = audio_data.get("language", "?")
-            summary_parts.append(f"\n🎤 TRANSKRIPTION (Sprache: {lang}):")
-            if full_text:
-                summary_parts.append(f"  {full_text[:300]}")
-            else:
-                summary_parts.append("  (Kein gesprochener Text erkannt)")
 
         summary = "\n".join(summary_parts) if summary_parts else "Keine Ergebnisse."
 
@@ -658,7 +606,7 @@ class OrchestratorAgent(BaseAgent):
                 # ModelManager: Agent-Modell laden falls nötig (mit korrektem model_type)
                 if self._model_manager and agent.model_id:
                     # model_type aus der Agent-Domain ableiten
-                    model_type_map = {"vision": "vision", "audio": "whisper"}
+                    model_type_map = {"vision": "vision"}
                     model_type = model_type_map.get(agent.domain, "transformers")
                     self._model_manager.ensure_loaded(agent.model_id, model_type)
                 # Context aufbauen und an den Agenten weiterreichen

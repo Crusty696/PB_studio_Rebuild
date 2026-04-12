@@ -187,11 +187,6 @@ def main():
             "size_estimate": "~300 MB"
         },
         {
-            "repo_id": "Systran/faster-whisper-large-v3",
-            "description": "Faster Whisper (Speech Transcription)",
-            "size_estimate": "~1.5 GB"
-        },
-        {
             "repo_id": "google/siglip-so400m-patch14-384",
             "description": "SigLIP (Visual Understanding)",
             "size_estimate": "~1.8 GB"

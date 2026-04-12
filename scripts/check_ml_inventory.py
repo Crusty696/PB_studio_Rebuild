@@ -8,7 +8,7 @@ def check_local_models():
     print("   PB STUDIO - LOKALE ML-MODELL INVENTUR")
     print("="*60)
 
-    # 1. HuggingFace Cache (SigLIP, Whisper)
+    # 1. HuggingFace Cache (SigLIP, Moondream)
     hf_home = os.environ.get("HF_HOME", os.path.expanduser("~/.cache/huggingface"))
     hub_dir = Path(hf_home) / "hub"
     

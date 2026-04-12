@@ -12,7 +12,7 @@
 #   dist/pb_studio.exe       <- single launcher (optional)
 #
 # NOTE: Full CUDA build is ~15-20 GB. Use --onedir (default here), not --onefile.
-# Models (Demucs, Whisper) are NOT bundled — downloaded to %USERPROFILE%\.cache on first use.
+# Models (Demucs, SigLIP) are NOT bundled — downloaded to %USERPROFILE%\.cache on first use.
 
 import sys
 from pathlib import Path
@@ -27,7 +27,6 @@ ROOT = Path(SPEC).parent  # project root
 torch_datas,       torch_bins,       torch_hidden       = collect_all('torch')
 torchaudio_datas,  torchaudio_bins,  torchaudio_hidden  = collect_all('torchaudio')
 torchvision_datas, torchvision_bins, torchvision_hidden = collect_all('torchvision')
-ct2_datas,         ct2_bins,         ct2_hidden         = collect_all('ctranslate2')
 pyside6_datas,     pyside6_bins,     pyside6_hidden     = collect_all('PySide6')
 
 # ---------------------------------------------------------------------------
@@ -39,8 +38,8 @@ project_datas = [
     (str(ROOT / 'knowledge'),  'knowledge'),
 ]
 
-all_datas    = project_datas + torch_datas + torchaudio_datas + torchvision_datas + ct2_datas + pyside6_datas
-all_binaries = torch_bins + torchaudio_bins + torchvision_bins + ct2_bins + pyside6_bins
+all_datas    = project_datas + torch_datas + torchaudio_datas + torchvision_datas + pyside6_datas
+all_binaries = torch_bins + torchaudio_bins + torchvision_bins + pyside6_bins
 
 # ---------------------------------------------------------------------------
 # Hidden imports — packages that PyInstaller can't auto-detect
@@ -99,7 +98,6 @@ all_hidden = list(set([
     'demucs',
     'demucs.pretrained',
     'demucs.apply',
-    'faster_whisper',
     'beat_this',
     # Vision
     'cv2',
@@ -121,11 +119,9 @@ all_hidden = list(set([
     *torch_hidden,
     *torchaudio_hidden,
     *torchvision_hidden,
-    *ct2_hidden,
     *pyside6_hidden,
     *collect_submodules('librosa'),
     *collect_submodules('demucs'),
-    *collect_submodules('faster_whisper'),
 ]))
 
 # ---------------------------------------------------------------------------

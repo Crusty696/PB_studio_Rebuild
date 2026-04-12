@@ -62,7 +62,6 @@ class SystemStatus:
     ollama_ok: bool = False
     beat_this_ok: bool = False
     demucs_ok: bool = False
-    whisper_cached: bool = False
     ml_warnings: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
@@ -278,15 +277,14 @@ def _check_cuda() -> tuple[bool, str, int]:
     return cuda_ok, gpu_name, vram_mb
 
 
-def _check_ml_packages() -> tuple[bool, bool, bool]:
+def _check_ml_packages() -> tuple[bool, bool]:
     """Prueft ob ML-Pakete installiert und Modelle lokal gecacht sind.
 
     Returns:
-        (beat_this_ok, demucs_ok, whisper_cached)
+        (beat_this_ok, demucs_ok)
     """
     beat_this_ok = False
     demucs_ok = False
-    whisper_cached = False
 
     # beat_this — pruefe nur Import (Modell wird beim ersten Einsatz geladen)
     try:
@@ -302,18 +300,7 @@ def _check_ml_packages() -> tuple[bool, bool, bool]:
     except ImportError:
         logger.debug("demucs nicht installiert")
 
-    # faster-whisper — pruefe ob mindestens ein Modell lokal gecacht ist
-    try:
-        import os
-        from pathlib import Path as _Path
-        hf_home = _Path(os.environ.get("HF_HOME", os.path.expanduser("~/.cache/huggingface")))
-        hub_dir = hf_home / "hub"
-        whisper_dirs = list(hub_dir.glob("models--Systran--faster-whisper-*"))
-        whisper_cached = bool(whisper_dirs)
-    except (OSError, ImportError) as exc:
-        logger.debug("Whisper-Cache-Check fehlgeschlagen: %s", exc)
-
-    return beat_this_ok, demucs_ok, whisper_cached
+    return beat_this_ok, demucs_ok
 
 
 def _check_disk(path: Path) -> float:
@@ -361,10 +348,9 @@ def check_system(app_root: Path | None = None) -> SystemStatus:
                 elif key == "ollama":
                     status.ollama_ok = future.result(timeout=STARTUP_OLLAMA_CHECK_TIMEOUT_SEC)
                 elif key == "ml":
-                    bt_ok, dmc_ok, wsp_cached = future.result(timeout=STARTUP_MODEL_CHECK_TIMEOUT_SEC)
+                    bt_ok, dmc_ok = future.result(timeout=STARTUP_MODEL_CHECK_TIMEOUT_SEC)
                     status.beat_this_ok = bt_ok
                     status.demucs_ok = dmc_ok
-                    status.whisper_cached = wsp_cached
             except (TimeoutError, RuntimeError, OSError) as exc:
                 logger.warning("Startup check '%s' raised: %s", key, exc)
 
@@ -413,12 +399,6 @@ def check_system(app_root: Path | None = None) -> SystemStatus:
         status.ml_warnings.append(
             "demucs nicht installiert — Stem-Separation nicht verfuegbar. "
             "Installation: pip install demucs"
-        )
-    if not status.whisper_cached:
-        status.ml_warnings.append(
-            "Kein Whisper-Modell lokal gecacht — Transkription laedt Modell beim ersten Start. "
-            "Fuer Offline-Nutzung vorab laden: "
-            "huggingface-cli download Systran/faster-whisper-small"
         )
 
     if not status.disk_ok:

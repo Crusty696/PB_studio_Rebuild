@@ -1,4 +1,4 @@
-"""Audio actions: import, beat analysis, stem separation, transcription,
+"""Audio actions: import, beat analysis, stem separation,
 key detection, LUFS, classification, spectral analysis, structure detection.
 """
 
@@ -119,59 +119,6 @@ def separate_stems(track_id: int | None = None) -> dict:
         "action": "separate_stems",
         "track_id": track_id,
         "message": f"Stem-Separation fuer Track #{track_id} gestartet. Fortschritt im TaskManagerDock.",
-    }
-
-
-@action_registry.register(
-    name="transcribe_audio",
-    description="Transkribiert gesprochenen Text aus einer Audio/Video-Datei mit Zeitstempeln (faster-whisper).",
-    param_schema={
-        "type": "object",
-        "properties": {
-            "track_id": {
-                "type": "integer",
-                "description": "ID des AudioTracks in der Datenbank."
-            },
-            "file_path": {
-                "type": "string",
-                "description": "Alternativ: Direkter Pfad zur Audio/Video-Datei."
-            }
-        },
-    }
-)
-def transcribe_audio(track_id: int | None = None, file_path: str | None = None) -> dict:
-    """Transkription via faster-whisper — startet als Background-Worker."""
-    if track_id is None and file_path is None:
-        return {"status": "error", "message": "Weder track_id noch file_path angegeben."}
-
-    # Wenn nur file_path gegeben, versuche track_id aus DB zu finden
-    if track_id is None and file_path:
-        from database import engine, AudioTrack
-        from sqlalchemy.orm import Session
-        with Session(engine) as session:
-            track = session.query(AudioTrack).filter_by(file_path=file_path).first()
-            if track:
-                track_id = track.id
-            else:
-                return {"status": "error", "message": f"Audio-Datei nicht in DB: {file_path}"}
-
-    label = f"Track #{track_id}"
-    tm = _get_task_manager()
-
-    from workers.audio import TranscriptionWorker
-    worker = TranscriptionWorker(track_id)
-    task = tm.start_task(
-        name=f"Transkription: {label}",
-        worker=worker,
-        description="faster-whisper Transkription",
-    )
-
-    task_id = task.task_id if hasattr(task, 'task_id') else str(task)
-    return {
-        "status": "Task gestartet",
-        "action": "transcribe_audio",
-        "task_id": task_id,
-        "message": f"Transkription fuer {label} laeuft im Hintergrund.",
     }
 
 

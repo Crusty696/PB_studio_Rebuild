@@ -104,7 +104,6 @@ EXPECTED_ACTIONS = [
     "auto_edit",
     "import_file",
     "export_timeline",
-    "transcribe_audio",
     "analyze_video_content",
     "create_proxy",
     "detect_scenes",

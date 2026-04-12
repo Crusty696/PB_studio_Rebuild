@@ -46,14 +46,7 @@ def test_models():
     except Exception as e:
         print(f"[FAIL] beat_this Fehler: {e}")
 
-    # 5. Faster-Whisper Check
-    try:
-        from faster_whisper import WhisperModel
-        print("[OK] faster-whisper Bibliothek importierbar.")
-    except Exception as e:
-        print(f"[FAIL] Whisper Fehler: {e}")
-
-    # 6. RAFT Check
+    # 5. RAFT Check
     try:
         from torchvision.models.optical_flow import raft_small
         m = raft_small(pretrained=False) # Nur Struktur prüfen

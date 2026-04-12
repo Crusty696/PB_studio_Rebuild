@@ -66,17 +66,7 @@ _OLLAMA_MODELS = [
     },
 ]
 
-_HF_MODELS = [
-    {
-        "id": "Systran/faster-whisper-base",
-        "display": "Whisper Base",
-        "size_gb": 0.3,
-        "description": "Audio-Transkription (erforderlich für Beat-Analyse)",
-        "required": True,
-        "default": True,
-        "tags": ["hf", "audio"],
-    },
-]
+_HF_MODELS = []
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

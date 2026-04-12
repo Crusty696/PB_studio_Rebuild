@@ -76,27 +76,6 @@ RECOMMENDED_OLLAMA_MODELS = [
 
 RECOMMENDED_HF_MODELS = [
     {
-        "id": "openai/whisper-large-v3",
-        "display": "Whisper Large-v3",
-        "size_gb": 3.1,
-        "description": "Beste Transkriptions-Qualität",
-        "tags": ["transcription", "audio"],
-    },
-    {
-        "id": "openai/whisper-medium",
-        "display": "Whisper Medium",
-        "size_gb": 1.5,
-        "description": "Gute Balance Qualität/Geschwindigkeit",
-        "tags": ["transcription", "audio", "schnell"],
-    },
-    {
-        "id": "openai/whisper-small",
-        "display": "Whisper Small",
-        "size_gb": 0.5,
-        "description": "Schnell, für Echtzeit-Preview",
-        "tags": ["transcription", "audio", "minimal"],
-    },
-    {
         "id": "google/siglip-so400m-patch14-384",
         "display": "SigLIP Vision (Google)",
         "size_gb": 1.6,
@@ -609,7 +588,7 @@ class ModelLifecycleService:
         Fallback: Einfacher Download über transformers AutoModel.
 
         Args:
-            repo_id: HF-Repo-ID (z.B. "openai/whisper-large-v3")
+            repo_id: HF-Repo-ID (z.B. "google/siglip-so400m-patch14-384")
             progress_cb: Progress-Callback
             revision: Git-Revision (Default: "main")
 

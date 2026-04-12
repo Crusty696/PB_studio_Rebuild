@@ -51,6 +51,58 @@ class _ScanWorker(QObject):
             self.error.emit(str(e))
 
 
+class _OllamaStatusWorker(QObject):
+    """Checks Ollama availability in background (H-27 fix)."""
+    success = Signal(str)  # version string
+    error = Signal(str)    # error message
+
+    def __init__(self, ollama_url: str):
+        super().__init__()
+        self.ollama_url = ollama_url
+
+    def run(self) -> None:
+        import urllib.request
+        import json
+        try:
+            req = urllib.request.Request(f"{self.ollama_url}/api/version")
+            from services.timeout_constants import HTTP_HEALTH_CHECK_TIMEOUT_SEC
+            with urllib.request.urlopen(req, timeout=HTTP_HEALTH_CHECK_TIMEOUT_SEC) as resp:
+                if resp.status == 200:
+                    data = json.loads(resp.read())
+                    version = data.get("version", "?")
+                    self.success.emit(version)
+                    return
+            self.error.emit("Invalid response")
+        except (OSError, ValueError) as exc:
+            self.error.emit(str(exc))
+
+
+class _DownloadWorker(QObject):
+    """Downloads models in background (H-28 fix)."""
+    finished = Signal(bool)  # success status
+    progress = Signal(object)  # progress updates
+
+    def __init__(self, ollama_url: str, model_id: str, source: str):
+        super().__init__()
+        self.ollama_url = ollama_url
+        self.model_id = model_id
+        self.source = source
+
+    def run(self) -> None:
+        from services.model_lifecycle_service import get_model_lifecycle_service
+        svc = get_model_lifecycle_service(self.ollama_url)
+
+        def _cb(prog):
+            self.progress.emit(prog)
+
+        if self.source == "ollama":
+            ok = svc.pull_ollama_model(self.model_id, progress_cb=_cb)
+        else:
+            ok = svc.download_hf_model(self.model_id, progress_cb=_cb)
+
+        self.finished.emit(ok)
+
+
 class _ProgressRelay(QObject):
     """Leitet Thread-sichere Progress-Updates an den GUI-Thread weiter."""
     update = Signal(object)     # DownloadProgress
@@ -68,6 +120,10 @@ class ModelManagerDialog(QDialog):
         self.ollama_url = ollama_url
         self._scan_thread: QThread | None = None
         self._scan_worker: _ScanWorker | None = None
+        self._status_thread: QThread | None = None
+        self._status_worker: _OllamaStatusWorker | None = None
+        self._download_threads: dict[str, QThread] = {}  # model_id → thread
+        self._download_workers: dict[str, _DownloadWorker] = {}  # model_id → worker
         self._progress_relays: dict[str, _ProgressRelay] = {}
         self._download_rows: dict[str, int] = {}  # model_id → Tabellenzeile
         self._entries: list = []
@@ -85,6 +141,13 @@ class ModelManagerDialog(QDialog):
         if self._scan_thread is not None and self._scan_thread.isRunning():
             self._scan_thread.quit()
             self._scan_thread.wait(2000)
+        if self._status_thread is not None and self._status_thread.isRunning():
+            self._status_thread.quit()
+            self._status_thread.wait(2000)
+        for thread in self._download_threads.values():
+            if thread.isRunning():
+                thread.quit()
+                thread.wait(2000)
         super().closeEvent(event)
 
     def _apply_styles(self):
@@ -330,7 +393,7 @@ class ModelManagerDialog(QDialog):
 
         hf_hint = QLabel(
             "Lokale Modelle aus dem HuggingFace-Hub. "
-            "Whisper (Transkription), SigLIP (Video-Analyse), Moondream (Vision)."
+            "SigLIP (Video-Analyse), Moondream (Vision)."
         )
         hf_hint.setWordWrap(True)
         hf_hint.setStyleSheet(f"color: {T2}; font-size: 10px;")
@@ -564,22 +627,36 @@ class ModelManagerDialog(QDialog):
         self._check_ollama_status()
 
     def _check_ollama_status(self):
-        """Prüft Ollama-Verfügbarkeit und aktualisiert Status-Label."""
-        import urllib.request
-        try:
-            req = urllib.request.Request(f"{self.ollama_url}/api/version")
-            with urllib.request.urlopen(req, timeout=HTTP_HEALTH_CHECK_TIMEOUT_SEC) as resp:
-                if resp.status == 200:
-                    import json
-                    data = json.loads(resp.read())
-                    version = data.get("version", "?")
-                    self._ollama_status_lbl.setText(f"Ollama v{version} ✓")
-                    self._ollama_status_lbl.setStyleSheet(f"color: {OK}; font-size: 11px;")
-                    return
-        except (OSError, ValueError) as exc:
-            logger.warning("_check_ollama_status: failed to reach Ollama: %s", exc)
+        """Prüft Ollama-Verfügbarkeit und aktualisiert Status-Label (H-27 fix: async)."""
+        self._status_worker = _OllamaStatusWorker(self.ollama_url)
+        self._status_thread = QThread()
+        self._status_worker.moveToThread(self._status_thread)
+
+        self._status_worker.success.connect(self._on_ollama_status_success)
+        self._status_worker.error.connect(self._on_ollama_status_error)
+        self._status_thread.started.connect(self._status_worker.run)
+        self._status_thread.finished.connect(self._status_thread.deleteLater)
+
+        self._status_thread.start()
+
+    def _on_ollama_status_success(self, version: str):
+        """Handle successful Ollama status check."""
+        if not self.isVisible():
+            return
+        self._ollama_status_lbl.setText(f"Ollama v{version} ✓")
+        self._ollama_status_lbl.setStyleSheet(f"color: {OK}; font-size: 11px;")
+        if self._status_thread:
+            self._status_thread.quit()
+
+    def _on_ollama_status_error(self, error: str):
+        """Handle failed Ollama status check."""
+        if not self.isVisible():
+            return
+        logger.warning("_check_ollama_status: failed to reach Ollama: %s", error)
         self._ollama_status_lbl.setText("Ollama: nicht erreichbar ✗")
         self._ollama_status_lbl.setStyleSheet(f"color: {ERR}; font-size: 11px;")
+        if self._status_thread:
+            self._status_thread.quit()
 
     def _on_scan_finished(self, entries: list):
         """Wird aufgerufen wenn Scan abgeschlossen."""
@@ -622,30 +699,38 @@ class ModelManagerDialog(QDialog):
             self._start_download(repo, "huggingface")
 
     def _start_download(self, model_id: str, source: str):
-        """Startet einen Download und zeigt Progress-Widget."""
-        from services.model_lifecycle_service import get_model_lifecycle_service
-
-        svc = get_model_lifecycle_service(self.ollama_url)
-
+        """Startet einen Download und zeigt Progress-Widget (H-28 fix: async)."""
         # Progress-Row erstellen
         row_widget = self._add_progress_row(model_id)
         self._no_downloads_lbl.setVisible(False)
 
-        # Relay für Thread-sicheres Signal
-        relay = _ProgressRelay()
-        relay.update.connect(lambda p: self._on_progress_update(p, row_widget))
-        self._progress_relays[model_id] = relay
+        # Worker und Thread erstellen
+        worker = _DownloadWorker(self.ollama_url, model_id, source)
+        thread = QThread()
+        worker.moveToThread(thread)
 
-        def _cb(prog):
-            relay.update.emit(prog)
+        # Progress-Updates verarbeiten
+        worker.progress.connect(lambda p: self._on_progress_update(p, row_widget))
+        worker.finished.connect(lambda ok: self._on_download_finished(model_id, ok))
+        thread.started.connect(worker.run)
+        thread.finished.connect(thread.deleteLater)
 
-        if source == "ollama":
-            ok = svc.pull_ollama_model(model_id, progress_cb=_cb)
-        else:
-            ok = svc.download_hf_model(model_id, progress_cb=_cb)
+        # Thread tracken und starten
+        self._download_threads[model_id] = thread
+        self._download_workers[model_id] = worker
+        thread.start()
 
-        if not ok:
+    def _on_download_finished(self, model_id: str, ok: bool):
+        """Handle download completion."""
+        if not ok and self.isVisible():
             self._status_lbl.setText(f"Download für '{model_id}' konnte nicht gestartet werden.")
+
+        # Cleanup
+        if model_id in self._download_threads:
+            self._download_threads[model_id].quit()
+            del self._download_threads[model_id]
+        if model_id in self._download_workers:
+            del self._download_workers[model_id]
 
     def _add_progress_row(self, model_id: str) -> QFrame:
         """Erstellt ein Progress-Widget für einen Download."""
