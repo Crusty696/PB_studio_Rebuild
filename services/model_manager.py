@@ -43,7 +43,7 @@ GPU_EXECUTION_LOCK = threading.RLock()
 
 # F-011: OOM-Handler Schwellwerte (in GB)
 # Wenn weniger als diese Werte verfügbar sind, wird proaktiv entladen
-OOM_RAM_THRESHOLD_GB = 2.0  # Min 2GB freier RAM
+OOM_RAM_THRESHOLD_GB = 1.0  # Min 1GB freier RAM (Surface Book 2: begrenzt)
 OOM_VRAM_THRESHOLD_GB = 1.5  # Min 1.5GB freies VRAM
 
 
@@ -285,6 +285,11 @@ class ModelManager:
         Raises:
             RuntimeError: Wenn auch nach Unload nicht genug Speicher verfügbar ist
         """
+        # Aggressiver GC vor dem Check — Python haelt oft GB an toten Objekten
+        gc.collect()
+        if torch is not None and hasattr(torch, 'cuda') and torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
         mem_status = self.check_memory_available()
 
         if not mem_status["needs_unload"]:
@@ -413,91 +418,60 @@ class ModelManager:
             # Ollama pausieren, bevor GPU belegt wird
             self._pause_ollama_if_active()
 
-            # Altes Modell entladen
-            self.unload()
-
-            # F-011: Proaktiver OOM-Check vor Laden
-            self._handle_oom_prevention(f"vision '{model_id}' laden")
-
-            logger.info("ModelManager: Lade Vision-Modell '%s' auf %s...", model_id, self.device)
-
-            from transformers import AutoModelForCausalLM, AutoTokenizer
-
-            # Moondream2 hat Custom-Architektur die trust_remote_code braucht.
-            # Erlaubt nur fuer verifizierte Modelle (siehe pb-commander Governance).
-            _TRUSTED_MODELS = {"vikhyatk/moondream2"}
-            needs_trust = model_id in _TRUSTED_MODELS
-
-            # VRAM aggressiv freigeben vor dem Laden (P1 Fix)
-            if torch.cuda.is_available():
-                torch.cuda.synchronize()
-                torch.cuda.empty_cache()
-                gc.collect()
-                torch.cuda.empty_cache()
-
             try:
+                self.unload()
+                self._handle_oom_prevention(f"vision '{model_id}' laden")
+
+                logger.info("ModelManager: Lade Vision-Modell '%s' auf %s...", model_id, self.device)
+
+                from transformers import AutoModelForCausalLM, AutoTokenizer
+
+                _TRUSTED_MODELS = {"vikhyatk/moondream2"}
+                needs_trust = model_id in _TRUSTED_MODELS
+
+                if torch.cuda.is_available():
+                    torch.cuda.synchronize()
+                    torch.cuda.empty_cache()
+                    gc.collect()
+                    torch.cuda.empty_cache()
+
                 self._tokenizer = AutoTokenizer.from_pretrained(
-                    model_id,
-                    trust_remote_code=needs_trust,
+                    model_id, trust_remote_code=needs_trust,
                 )
                 dtype = torch.float32 if self.device == "cpu" else torch.float16
 
-                # FIX: transformers >=5.3 ruft model.all_tied_weights_keys.keys()
-                # in mark_tied_weights_as_initialized() auf.  Moondream2's
-                # HfMoondream-Klasse definiert dieses Attribut nicht, was einen
-                # AttributeError INNERHALB von from_pretrained() auslöst.
-                # Workaround: PreTrainedModel temporär patchen, damit jede
-                # Subklasse einen Fallback-Wert erbt.
+                # Moondream2 Compat: all_tied_weights_keys Patch
                 from transformers.modeling_utils import PreTrainedModel
                 _had_attr = hasattr(PreTrainedModel, "all_tied_weights_keys")
                 if not _had_attr:
                     PreTrainedModel.all_tied_weights_keys = {}
-
                 try:
                     self._model = AutoModelForCausalLM.from_pretrained(
-                        model_id,
-                        torch_dtype=dtype,
+                        model_id, torch_dtype=dtype,
                         device_map={"": self.device},
                         trust_remote_code=needs_trust,
                     )
                 finally:
-                    # Patch wieder entfernen, wenn es vorher nicht existierte,
-                    # damit andere Modelle nicht beeinflusst werden.
                     if not _had_attr:
                         try:
                             del PreTrainedModel.all_tied_weights_keys
                         except AttributeError:
                             pass
 
-                # Sicherheitsnetz: Falls das geladene Modell-Objekt selbst
-                # das Attribut immer noch nicht hat (z.B. bei zukünftigen
-                # transformers-Versionen), setzen wir es direkt.
                 if not hasattr(self._model, "all_tied_weights_keys"):
                     self._model.all_tied_weights_keys = {}
 
                 self._model.eval()
-            except RuntimeError:
-                logger.error("OOM beim Laden von vision '%s' — räume auf.", model_id)
-                self.unload()
-                from services.errors import CUDAOutOfMemoryError
-                raise CUDAOutOfMemoryError(operation=f"Vision '{model_id}' laden")
-            except (OSError, EnvironmentError) as e:
-                logger.error("Vision-Modell '%s' nicht gefunden: %s", model_id, e)
-                self.unload()
-                from services.errors import MLModelNotFoundError
-                raise MLModelNotFoundError(
-                    model_id,
-                    hint=(
-                        f"Bitte Modell herunterladen: "
-                        f"huggingface-cli download {model_id}"
-                    ),
-                ) from e
+                self._current_model_id = model_id
+                self._model_type = "vision"
+                logger.info("ModelManager: Vision '%s' geladen.", model_id)
+                return self._model, self._tokenizer
 
-            self._current_model_id = model_id
-            self._model_type = "vision"
-            logger.info("ModelManager: Vision '%s' geladen.", model_id)
-
-            return self._model, self._tokenizer
+            except Exception:
+                self.unload()
+                raise
+            finally:
+                self._resume_ollama_if_paused()
 
     def load_siglip(self, model_id: str = "google/siglip-so400m-patch14-384") -> tuple:
         """Lädt SigLIP Vision+Text Encoder für 1152-dim Embeddings.
@@ -514,39 +488,24 @@ class ModelManager:
             # Ollama pausieren, bevor GPU belegt wird
             self._pause_ollama_if_active()
 
-            self.unload()
+            try:
+                self.unload()
 
-            # F-011: Proaktiver OOM-Check vor Laden
-            self._handle_oom_prevention(f"SigLIP '{model_id}' laden")
+                # F-011: Proaktiver OOM-Check vor Laden
+                self._handle_oom_prevention(f"SigLIP '{model_id}' laden")
 
-            # P1 Fix: VRAM aggressiv freigeben und warten bevor neues Modell geladen wird.
-            # GTX 1060 (6 GB): beat_this belegt ~2 GB, SigLIP braucht ~2.5 GB.
-            # Ohne Pause kann fragmentierter VRAM einen Segfault verursachen.
-            if torch.cuda.is_available():
-                torch.cuda.synchronize()
-                torch.cuda.empty_cache()
-                gc.collect()
-                torch.cuda.empty_cache()
-                vram_free = (torch.cuda.get_device_properties(0).total_memory
-                             - torch.cuda.memory_allocated(0)) / (1024**3)
-                logger.info("ModelManager: VRAM frei vor SigLIP-Load: %.1f GB", vram_free)
-                if vram_free < 3.0:
-                    logger.warning("ModelManager: Wenig VRAM (%.1f GB) — warte 2s fuer Cleanup", vram_free)
-                    _time.sleep(2)
+                # P1 Fix: VRAM aggressiv freigeben
+                if torch.cuda.is_available():
+                    torch.cuda.synchronize()
+                    torch.cuda.empty_cache()
                     gc.collect()
                     torch.cuda.empty_cache()
-                    vram_free = (torch.cuda.get_device_properties(0).total_memory
-                                 - torch.cuda.memory_allocated(0)) / (1024**3)
-                    logger.info("ModelManager: VRAM nach Cleanup: %.1f GB", vram_free)
 
-            logger.info("ModelManager: Lade SigLIP '%s' auf %s...", model_id, self.device)
+                logger.info("ModelManager: Lade SigLIP '%s' auf %s...", model_id, self.device)
 
-            from transformers import AutoModel, AutoProcessor
+                from transformers import AutoModel, AutoProcessor
 
-            try:
-                # use_fast=False: Die neue Rust-basierte Fast-Processor-Variante
-                # (SiglipImageProcessor) erzeugt interne Threads, die mit Qt's
-                # Thread-Modell kollidieren und zu ACCESS_VIOLATION fuehren.
+                # use_fast=False: Rust Fast-Processor kollidiert mit Qt Threads
                 self._extras["processor"] = AutoProcessor.from_pretrained(
                     model_id, use_fast=False
                 )
@@ -557,37 +516,20 @@ class ModelManager:
                 )
                 self._model.to(self.device)
                 self._model.eval()
-            except RuntimeError:
-                logger.error("OOM beim Laden von SigLIP '%s' — räume auf.", model_id)
-                self.unload()
-                from services.errors import CUDAOutOfMemoryError
-                raise CUDAOutOfMemoryError(operation=f"SigLIP '{model_id}' laden")
-            except (OSError, EnvironmentError) as e:
-                logger.error("SigLIP-Modell '%s' nicht gefunden: %s", model_id, e)
-                self.unload()
-                from services.errors import MLModelNotFoundError
-                raise MLModelNotFoundError(
-                    model_id,
-                    hint=(
-                        f"Bitte Modell herunterladen: "
-                        f"huggingface-cli download {model_id}"
-                    ),
-                ) from e
-            except (ImportError, MemoryError, ValueError, RuntimeError) as e:
-                logger.error(
-                    "SigLIP '%s' konnte nicht geladen werden: %s — räume auf.",
-                    model_id, e,
-                )
-                self.unload()
-                raise RuntimeError(
-                    f"SigLIP '{model_id}' Laden fehlgeschlagen: {e}"
-                ) from e
 
-            self._current_model_id = model_id
-            self._model_type = "siglip"
-            logger.info("ModelManager: SigLIP '%s' geladen.", model_id)
+                self._current_model_id = model_id
+                self._model_type = "siglip"
+                logger.info("ModelManager: SigLIP '%s' geladen.", model_id)
 
-            return self._model, self._extras["processor"]
+                return self._model, self._extras["processor"]
+
+            except Exception:
+                # Bei JEDEM Fehler: aufraeeumen und Ollama IMMER resumieren
+                self.unload()
+                raise
+            finally:
+                # Ollama IMMER fortsetzen — auch bei OOM/Fehler
+                self._resume_ollama_if_paused()
 
     def ensure_loaded(self, model_id: str, model_type: str = "transformers") -> Any:
         """Stellt sicher, dass das angegebene Modell geladen ist.
@@ -637,54 +579,51 @@ class ModelManager:
 
             self._pause_ollama_if_active()
 
-            # SigLIP (~2.5 GB) + RAFT (~0.1 GB) passt auf 6 GB — Koexistenz erlaubt
-            if self._model_type != "siglip":
-                self.unload()
-
-            # F-011: Proaktiver OOM-Check vor Laden (RAFT ist klein, aber Sicherheit)
-            self._handle_oom_prevention("RAFT Small laden")
-
-            if torch.cuda.is_available():
-                torch.cuda.synchronize()
-                torch.cuda.empty_cache()
-                gc.collect()
-                torch.cuda.empty_cache()
-                logger.info(
-                    "ModelManager: Lade RAFT Small auf CUDA (%s)...",
-                    torch.cuda.get_device_name(0),
-                )
-            else:
-                logger.info("ModelManager: Lade RAFT Small auf CPU...")
-
-            import torchvision.models.optical_flow as _of
-
-            device = torch.device(self.device)
-            raft = _of.raft_small(weights=_of.Raft_Small_Weights.DEFAULT)
             try:
-                raft = raft.to(device)
-            except RuntimeError:
-                logger.warning("[RAFT] OOM — entlade SigLIP und versuche erneut...")
-                # SigLIP jetzt auch entladen und nochmal versuchen
-                self.unload()
-                torch.cuda.empty_cache()
-                gc.collect()
-                torch.cuda.empty_cache()
+                # SigLIP (~2.5 GB) + RAFT (~0.1 GB) passt auf 6 GB — Koexistenz erlaubt
+                if self._model_type != "siglip":
+                    self.unload()
+
+                # F-011: Proaktiver OOM-Check vor Laden (RAFT ist klein, aber Sicherheit)
+                self._handle_oom_prevention("RAFT Small laden")
+
+                if torch.cuda.is_available():
+                    torch.cuda.synchronize()
+                    torch.cuda.empty_cache()
+                    gc.collect()
+                    torch.cuda.empty_cache()
+                    logger.info(
+                        "ModelManager: Lade RAFT Small auf CUDA (%s)...",
+                        torch.cuda.get_device_name(0),
+                    )
+                else:
+                    logger.info("ModelManager: Lade RAFT Small auf CPU...")
+
+                import torchvision.models.optical_flow as _of
+
+                device = torch.device(self.device)
+                raft = _of.raft_small(weights=_of.Raft_Small_Weights.DEFAULT)
                 try:
                     raft = raft.to(device)
                 except RuntimeError:
-                    logger.error("OOM beim Laden von RAFT — VRAM nicht ausreichend")
-                    del raft
-                    raise RuntimeError(
-                        "VRAM reicht nicht für RAFT. GPU-Speicher wurde freigegeben."
-                    )
+                    logger.warning("[RAFT] OOM — entlade und versuche erneut...")
+                    self.unload()
+                    torch.cuda.empty_cache()
+                    gc.collect()
+                    raft = raft.to(device)
 
-            raft = raft.eval()
-            self._model = raft
-            self._current_model_id = model_id
-            self._model_type = "raft"
-            logger.info("ModelManager: RAFT Small geladen auf %s", device)
+                raft = raft.eval()
+                self._model = raft
+                self._current_model_id = model_id
+                self._model_type = "raft"
+                logger.info("ModelManager: RAFT Small geladen auf %s", device)
+                return self._model, device
 
-            return self._model, device
+            except Exception:
+                self.unload()
+                raise
+            finally:
+                self._resume_ollama_if_paused()
 
     def load_ollama(self, model: str, base_url: str = "http://localhost:11434") -> "OllamaHandle":
         """Registriert Ollama als aktiven LLM-Backend im ModelManager.
