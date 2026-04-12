@@ -4,7 +4,7 @@ AUD-77: Analysiert die 917 Clips, die noch kein SigLIP-Embedding haben.
 Laedt SigLIP und RAFT EINMAL fuer alle Videos (VRAM-effizient).
 
 Aufruf:
-    .venv/Scripts/python.exe scripts/batch_embed_all_clips.py [--dry-run] [--limit N] [--start-from ID]
+    .venv310/Scripts/python.exe scripts/batch_embed_all_clips.py [--dry-run] [--limit N] [--start-from ID]
 
 Optionen:
     --dry-run     Zeigt an welche Clips verarbeitet wuerden, ohne es zu tun

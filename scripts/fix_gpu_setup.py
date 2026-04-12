@@ -1,11 +1,11 @@
 """PB Studio — GPU/PyTorch Reparatur-Skript.
 
 Prueft den NVIDIA-Treiber, deinstalliert falsche PyTorch-Versionen,
-und installiert die korrekte cu124-Version.
+und installiert die korrekte cu113-Version in .venv310.
 
 Ausfuehrung:
     python scripts/fix_gpu_setup.py          # Diagnose + Reparatur
-    python scripts/fix_gpu_setup.py --check  # Nur Diagnose, keine Aenderungen
+    python scripts/fix_gpu_setup.py --check  # Nur Diagnose
 """
 
 import argparse
@@ -14,13 +14,12 @@ import sys
 import os
 
 
-# ── Ziel-Konfiguration ─────────────────────────────────────────────────
-TARGET_CUDA = "cu124"
-TARGET_TORCH = "2.5.1"
-TARGET_TORCHAUDIO = "2.5.1"
-TARGET_TORCHVISION = "0.20.1"
-TORCH_INDEX = "https://download.pytorch.org/whl/cu124"
-MIN_DRIVER_VERSION = 550.0  # Fuer CUDA 12.4
+# Ziel-Konfiguration (Surface Book 2, Treiber 461.40)
+TARGET_CUDA = "cu113"
+TARGET_TORCH = "1.12.1"
+TARGET_TORCHAUDIO = "0.12.1"
+TARGET_TORCHVISION = "0.13.1"
+TORCH_INDEX = "https://download.pytorch.org/whl/cu113"
 
 
 def _run(cmd: list[str], check: bool = True, timeout: int = 600) -> subprocess.CompletedProcess:
@@ -58,7 +57,7 @@ def _get_driver_version() -> float:
 
 
 def _get_installed_torch() -> tuple[str, str]:
-    """Returns (torch_version, cuda_tag) z.B. ('2.7.1+cu118', 'cu118')."""
+    """Returns (torch_version, cuda_tag)."""
     try:
         r = subprocess.run(
             [sys.executable, "-c", "import torch; print(torch.__version__)"],
@@ -77,38 +76,20 @@ def main():
     args = parser.parse_args()
 
     print("=" * 60)
-    print("   PB STUDIO — GPU SETUP REPARATUR")
+    print("   PB STUDIO - GPU SETUP REPARATUR")
     print("=" * 60)
 
-    # ── Schritt 1: Treiber pruefen ──────────────────────────────────────
+    # Schritt 1: Treiber pruefen
     print("\n[1/4] NVIDIA-Treiber pruefen...")
     driver = _get_driver_version()
     if driver == 0.0:
         print("  FEHLER: Kein NVIDIA-Treiber erkannt!")
-        print("  Bitte zuerst Treiber installieren: https://www.nvidia.com/drivers/")
-        print("  Nach Installation: PC neustarten, dann dieses Skript erneut ausfuehren.")
+        print("  Bitte zuerst Treiber installieren.")
         sys.exit(1)
 
     print(f"  Treiber-Version: {driver:.2f}")
-    if driver < MIN_DRIVER_VERSION:
-        print(f"  FEHLER: Treiber {driver:.2f} zu alt! Mindestens {MIN_DRIVER_VERSION:.0f} benoetigt.")
-        print()
-        print("  +------------------------------------------------------+")
-        print("  |  NVIDIA-Treiber muss zuerst aktualisiert werden!    |")
-        print("  |                                                      |")
-        print("  |  1. https://www.nvidia.com/drivers/ oeffnen         |")
-        print("  |  2. GPU: GeForce GTX 1060                           |")
-        print("  |     OS:  Windows 11                                  |")
-        print("  |     Typ: Game Ready oder Studio Driver               |")
-        print("  |  3. Treiber herunterladen und installieren           |")
-        print("  |  4. PC NEUSTARTEN                                    |")
-        print("  |  5. Dieses Skript erneut ausfuehren                 |")
-        print("  +------------------------------------------------------+")
-        sys.exit(1)
 
-    print(f"  OK: Treiber {driver:.2f} >= {MIN_DRIVER_VERSION:.0f}")
-
-    # ── Schritt 2: Installierte PyTorch-Version pruefen ─────────────────
+    # Schritt 2: PyTorch pruefen
     print("\n[2/4] PyTorch-Installation pruefen...")
     torch_ver, cuda_tag = _get_installed_torch()
     target_full = f"{TARGET_TORCH}+{TARGET_CUDA}"
@@ -116,40 +97,30 @@ def main():
     if torch_ver:
         print(f"  Installiert: torch {torch_ver}")
         if torch_ver == target_full:
-            print(f"  OK: Korrekte Version bereits installiert!")
+            print(f"  OK: Korrekte Version!")
             _verify_cuda()
             sys.exit(0)
         else:
-            print(f"  FALSCH: Erwartet torch {target_full}")
-            if cuda_tag and cuda_tag != TARGET_CUDA:
-                print(f"          CUDA-Version: {cuda_tag} statt {TARGET_CUDA}")
+            print(f"  FALSCH: Erwartet {target_full}")
     else:
         print("  PyTorch nicht installiert.")
 
     if args.check:
-        print("\n  --check Modus: Keine Aenderungen. Fuehre ohne --check aus fuer Reparatur.")
+        print("\n  --check Modus: Keine Aenderungen.")
         sys.exit(1)
 
-    # ── Schritt 3: Falsche Versionen deinstallieren ─────────────────────
+    # Schritt 3: Reparieren
     print("\n[3/4] PyTorch deinstallieren und neu installieren...")
-    print("  Deinstalliere alte Versionen...")
     _pip("uninstall", "-y", "torch", "torchaudio", "torchvision", check=False)
 
-    # Installiere korrekte Versionen
-    print(f"\n  Installiere torch=={TARGET_TORCH}+{TARGET_CUDA} von {TORCH_INDEX}...")
     packages = [
         f"torch=={TARGET_TORCH}+{TARGET_CUDA}",
         f"torchaudio=={TARGET_TORCHAUDIO}+{TARGET_CUDA}",
         f"torchvision=={TARGET_TORCHVISION}+{TARGET_CUDA}",
     ]
-    _pip(
-        "install",
-        "--extra-index-url", TORCH_INDEX,
-        *packages,
-        timeout=900,  # 15 min — grosse Downloads
-    )
+    _pip("install", "--extra-index-url", TORCH_INDEX, *packages, timeout=900)
 
-    # ── Schritt 4: Verifikation ─────────────────────────────────────────
+    # Schritt 4: Verifizieren
     print("\n[4/4] Verifikation...")
     _verify_cuda()
 
@@ -165,9 +136,6 @@ print(f"CUDA compiled: {torch.version.cuda}")
 print(f"CUDA available: {torch.cuda.is_available()}")
 if torch.cuda.is_available():
     print(f"GPU: {torch.cuda.get_device_name(0)}")
-    props = torch.cuda.get_device_properties(0)
-    print(f"VRAM: {props.total_memory // (1024**3)} GB")
-    # Schnelltest: Tensor auf GPU
     t = torch.randn(100, 100, device="cuda")
     print(f"GPU Tensor Test: OK ({t.sum().item():.2f})")
 else:
@@ -177,24 +145,13 @@ else:
     )
     for line in r.stdout.strip().splitlines():
         print(f"  {line}")
-    if r.stderr:
-        for line in r.stderr.strip().splitlines():
-            if "warning" in line.lower() or "error" in line.lower():
-                print(f"  WARN: {line.strip()}")
 
     if "CUDA available: True" in r.stdout:
-        print("\n  +------------------------------------------------------+")
-        print("  |  GPU-SETUP ERFOLGREICH!                              |")
-        print("  |  CUDA ist aktiv. PB Studio kann gestartet werden.    |")
-        print("  +------------------------------------------------------+")
+        print("\n  GPU-SETUP ERFOLGREICH!")
     elif "CUDA available: False" in r.stdout:
-        print("\n  WARNUNG: CUDA noch nicht verfuegbar.")
-        print("  Moegliche Ursachen:")
-        print("  - PC muss nach Treiber-Update neugestartet werden")
-        print("  - CUDA_VISIBLE_DEVICES Umgebungsvariable blockiert GPU")
-        print("  - Treiber-Installation fehlgeschlagen")
-    else:
-        print("\n  FEHLER bei Verifikation. Ausgabe oben pruefen.")
+        print("\n  WARNUNG: CUDA nicht verfuegbar.")
+        print("  - PC neustarten (GPU Error 47?)")
+        print("  - GPU_FIX_PERMISSIONS.bat als Admin ausfuehren")
 
 
 if __name__ == "__main__":
