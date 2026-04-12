@@ -10,19 +10,63 @@ Optimierte Timeline mit Caching.
 from dotenv import load_dotenv
 load_dotenv()
 
-# P1-FIX: Feature flags für optionale Features (ersetzt main_safe.py Duplikation)
+# --- ABSOLUTE EARLY INIT (BEFORE QT) ---
 import os
-ENABLE_VERSION_CHECK = os.getenv("PB_STUDIO_ENABLE_VERSION_CHECK", "1") == "1"
-ENABLE_SETUP_WIZARD = os.getenv("PB_STUDIO_ENABLE_SETUP_WIZARD", "1") == "1"
-
-import gc
 import sys
-import subprocess
-import time
-import logging
-import traceback
-import threading
 from pathlib import Path
+
+# P1-FIX: Lokales bin-Verzeichnis zum PATH hinzufügen (ffmpeg/ffprobe Support)
+_APP_ROOT = Path(__file__).parent.absolute()
+_BIN_DIR = str(_APP_ROOT / "bin")
+if _BIN_DIR not in os.environ["PATH"]:
+    os.environ["PATH"] = _BIN_DIR + os.pathsep + os.environ["PATH"]
+
+# CUDA-FIX: NVIDIA Treiber und VENV DLLs injizieren
+# Dynamisch den NVIDIA-Treiber-Ordner im DriverStore finden (aendert sich bei Updates).
+def _find_nv_driver_dir() -> str | None:
+    driver_store = Path(r"C:\Windows\System32\DriverStore\FileRepository")
+    if not driver_store.exists():
+        return None
+    # NVIDIA Display-Treiber-Ordner: nv*.inf_amd64_*
+    # Mehrere koennen existieren — nehme den neuesten (hoechstes Aenderungsdatum).
+    candidates = sorted(
+        (d for d in driver_store.iterdir()
+         if d.is_dir() and d.name.startswith("nv") and "amd64" in d.name),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    for d in candidates:
+        # Pruefe ob CUDA-relevante DLLs vorhanden sind (OpenCL, NvFBC, nvcuda)
+        if any((d / n).exists() for n in ("nvcuda64.dll", "nvcuda.dll", "OpenCL64.dll", "NvFBC64.dll")):
+            return str(d)
+    # Fallback: erster nv*-Ordner
+    return str(candidates[0]) if candidates else None
+
+_NV_DRIVER = _find_nv_driver_dir()
+_VENV_DLLS = str(_APP_ROOT / ".venv" / "Lib" / "site-packages" / "torch" / "lib")
+
+_DLL_DIRS = [_VENV_DLLS]
+if _NV_DRIVER:
+    _DLL_DIRS.insert(0, _NV_DRIVER)
+
+for _p in _DLL_DIRS:
+    if _p not in os.environ["PATH"]:
+        os.environ["PATH"] = _p + os.pathsep + os.environ["PATH"]
+    if hasattr(os, "add_dll_directory"):
+        try:
+            os.add_dll_directory(_p)
+        except Exception:
+            pass
+
+# FORCE CUDA INIT BEFORE QT LOADS
+try:
+    import torch
+    if torch.cuda.is_available():
+        # Trigger actual context creation
+        torch.cuda.get_device_name(0)
+except Exception:
+    pass
+# ---------------------------------------
 
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout,
@@ -44,6 +88,7 @@ from services.ollama_service import OllamaService
 
 APP_VERSION = "0.5.0"
 
+import logging
 logger = logging.getLogger(__name__)
 
 # P-017: Legacy Thread-Registry — importiert aus WorkerDispatcher-Controller.

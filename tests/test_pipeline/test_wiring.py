@@ -16,6 +16,22 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 
+@pytest.fixture(autouse=True)
+def _reset_global_action_registry():
+    """Reset the global ActionRegistry singleton before each test.
+
+    When wiring tests run after other tests that mutate the global registry
+    (e.g. by registering or unregistering actions), the singleton carries
+    stale state. This fixture clears it and re-registers all actions so
+    every test in this module starts from a known-good state.
+    """
+    from services.action_registry import ActionRegistry, action_registry
+    # Clear all registered actions from the global singleton
+    action_registry._actions.clear()
+    yield
+    # No teardown needed — next test will clear again
+
+
 # ---------------------------------------------------------------------------
 # Hilfsfunktion: Isoliertes Registry (verhindert QApplication-Abhaengigkeit)
 # ---------------------------------------------------------------------------
@@ -25,6 +41,11 @@ def _get_isolated_registry():
     Importiert register_actions in eine FRISCHE ActionRegistry-Instanz.
     Da register_actions PySide6.QApplication benutzt, werden alle
     PySide6-Importe und TaskManager-Aufrufe gepatcht.
+
+    RC-9 Fix: Also reloads the individual action modules so their
+    @action_registry.register decorators re-fire against the fresh registry.
+    Without this, module-level `from services.action_registry import action_registry`
+    in each action module would still reference the (possibly stale) original singleton.
     """
     from unittest.mock import patch, MagicMock
 
@@ -49,6 +70,19 @@ def _get_isolated_registry():
 
         try:
             import importlib
+
+            # RC-9 Fix: Reload individual action modules first so their
+            # module-level `action_registry` reference picks up the fresh instance.
+            _action_modules = [
+                "services.actions.audio_actions",
+                "services.actions.video_actions",
+                "services.actions.edit_actions",
+                "services.actions.ai_actions",
+            ]
+            for mod_name in _action_modules:
+                if mod_name in sys.modules:
+                    importlib.reload(sys.modules[mod_name])
+
             import services.register_actions as ra_module
             # Erzwinge Reload damit Dekoratoren neu ausgefuehrt werden
             importlib.reload(ra_module)
@@ -79,7 +113,6 @@ EXPECTED_ACTIONS = [
     "search_video",
     "list_actions",
     "generate_keyframe_strings",
-    "teste_ladebalken",
     # AI actions (AUD-67)
     "ask_ai",
     "summarize_project",

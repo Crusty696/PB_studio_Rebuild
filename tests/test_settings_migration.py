@@ -43,6 +43,14 @@ def test_settings_store_creation(mock_settings_path):
 
 def test_empty_settings_initialization(mock_settings_path):
     """Test initialization with no existing settings."""
+    # QSettings aus vorherigen Tests aufraeeumen damit Migration nichts findet
+    qs1 = QSettings("PBStudio", "PBStudio")
+    qs1.clear()
+    qs1.sync()
+    qs2 = QSettings("Paperclip", "PBStudio")
+    qs2.clear()
+    qs2.sync()
+
     store = SettingsStore()
     assert store.get_ollama_settings()["enabled"] is True
     assert store.get_ollama_settings()["url"] == "http://localhost:11434"

@@ -153,33 +153,128 @@ def _check_ffmpeg() -> tuple[bool, str, bool]:
     return ffmpeg_ok, ffmpeg_version, ffprobe_ok
 
 
+def _get_nvidia_driver_version() -> tuple[str, str]:
+    """Ermittelt NVIDIA-Treiber-Version via WMI (Windows) oder nvidia-smi.
+
+    Returns:
+        (nvidia_version_str, gpu_name)  z.B. ("561.09", "NVIDIA GeForce GTX 1060")
+        Leere Strings wenn nicht ermittelbar.
+    """
+    gpu_name = ""
+    driver_ver = ""
+    try:
+        result = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-Command",
+             "Get-CimInstance Win32_VideoController "
+             "| Where-Object { $_.Name -match 'NVIDIA' } "
+             "| Select-Object -First 1 Name, DriverVersion "
+             "| Format-List"],
+            capture_output=True, text=True, timeout=8,
+            **_subprocess_kwargs(),
+        )
+        for line in result.stdout.splitlines():
+            line = line.strip()
+            if line.startswith("Name"):
+                gpu_name = line.split(":", 1)[-1].strip()
+            elif line.startswith("DriverVersion"):
+                raw = line.split(":", 1)[-1].strip()
+                # Windows-Format: 27.21.14.6140 → NVIDIA 461.40
+                # Letzte zwei Gruppen konkatenieren und als 5-stellig lesen
+                parts = raw.split(".")
+                if len(parts) >= 4:
+                    combined = parts[-2] + parts[-1]
+                    # Letzte 5 Ziffern → z.B. "46140" → "461.40"
+                    if len(combined) >= 5:
+                        nv = combined[-5:-2] + "." + combined[-2:]
+                        driver_ver = nv
+                    else:
+                        driver_ver = raw
+                else:
+                    driver_ver = raw
+    except (subprocess.TimeoutExpired, OSError, FileNotFoundError) as exc:
+        logger.debug("NVIDIA driver version check via WMI failed: %s", exc)
+    return driver_ver, gpu_name
+
+
+# Mindest-Treiber-Versionen fuer PyTorch CUDA-Builds (Windows)
+_MIN_DRIVER_FOR_CUDA = {
+    "12.8": 570.0,
+    "12.6": 560.0,
+    "12.4": 550.0,
+    "12.1": 530.0,
+    "11.8": 522.0,
+    "11.7": 516.0,
+    "11.6": 510.0,
+    "11.3": 461.0,
+}
+
+
 def _check_cuda() -> tuple[bool, str, int]:
     cuda_ok = False
     gpu_name = ""
     vram_mb = 0
     try:
         import torch
+
+        # Treiber-Version zuerst ermitteln (unabhaengig von torch.cuda)
+        driver_ver_str, wmi_gpu_name = _get_nvidia_driver_version()
+        if wmi_gpu_name:
+            gpu_name = wmi_gpu_name
+
+        # PyTorch-CUDA-Version pruefen
+        torch_cuda_ver = getattr(torch.version, "cuda", None) or ""
+        logger.info("PyTorch CUDA compiled: %s, Treiber: %s", torch_cuda_ver, driver_ver_str)
+
+        # Kompatibilitaets-Check: Treiber vs. PyTorch CUDA
+        if driver_ver_str and torch_cuda_ver:
+            try:
+                driver_num = float(driver_ver_str)
+                # Finde die passende Mindest-Version
+                cuda_major_minor = ".".join(torch_cuda_ver.split(".")[:2])
+                min_driver = _MIN_DRIVER_FOR_CUDA.get(cuda_major_minor, 0)
+                if min_driver > 0 and driver_num < min_driver:
+                    logger.error(
+                        "TREIBER-INKOMPATIBEL: NVIDIA-Treiber %.2f ist zu alt fuer "
+                        "PyTorch CUDA %s (mindestens %.0f benoetigt). "
+                        "Bitte Treiber aktualisieren: https://www.nvidia.com/drivers/",
+                        driver_num, torch_cuda_ver, min_driver,
+                    )
+                    return False, gpu_name, 0
+            except (ValueError, TypeError):
+                logger.debug("Konnte Treiber-Version nicht parsen: %s", driver_ver_str)
+
         # Erzwinge Initialisierung
         if hasattr(torch.cuda, "init"):
             torch.cuda.init()
-        
+
         available = torch.cuda.is_available()
-        logger.info(f"PyTorch CUDA available check: {available}")
-        
+        logger.info("PyTorch CUDA available check: %s", available)
+
         if available:
             cuda_ok = True
             gpu_name = torch.cuda.get_device_name(0)
             props = torch.cuda.get_device_properties(0)
             vram_mb = props.total_memory // (1024 * 1024)
-            logger.info(f"GPU erkannt: {gpu_name} ({vram_mb} MB VRAM)")
+            logger.info("GPU erkannt: %s (%d MB VRAM)", gpu_name, vram_mb)
         else:
-            # Detaillierte Fehlerdiagnose
-            if not torch.cuda.is_available():
-                logger.warning("torch.cuda.is_available() ist False. Prüfe Treiber/Toolkit.")
+            if driver_ver_str:
+                logger.warning(
+                    "torch.cuda.is_available() ist False trotz Treiber %s. "
+                    "Moeglicherweise falsche PyTorch-CUDA-Version installiert. "
+                    "Installiert: torch %s (CUDA %s). "
+                    "Reparatur: python scripts/fix_gpu_setup.py",
+                    driver_ver_str, torch.__version__, torch_cuda_ver,
+                )
+            else:
+                logger.warning(
+                    "torch.cuda.is_available() ist False. "
+                    "Kein NVIDIA-Treiber erkannt. "
+                    "Bitte NVIDIA-Treiber installieren: https://www.nvidia.com/drivers/"
+                )
     except ImportError:
         logger.error("torch nicht installiert — GPU check fehlgeschlagen")
     except Exception as exc:
-        logger.error(f"Kritischer CUDA Check Fehler: {exc}", exc_info=True)
+        logger.error("Kritischer CUDA Check Fehler: %s", exc, exc_info=True)
     return cuda_ok, gpu_name, vram_mb
 
 
@@ -286,11 +381,26 @@ def check_system(app_root: Path | None = None) -> SystemStatus:
 
     if not status.cuda_ok:
         gefunden = status.gpu_name if status.gpu_name else "Keine kompatible NVIDIA GPU erkannt"
+        # Detaillierte Fehlermeldung mit Reparaturanweisung
+        try:
+            import torch
+            torch_ver = torch.__version__
+            cuda_ver = getattr(torch.version, "cuda", "?")
+        except ImportError:
+            torch_ver = "nicht installiert"
+            cuda_ver = "?"
+        driver_ver, _ = _get_nvidia_driver_version()
         status.errors.append(
-            f"KRITISCHER FEHLER: Keine NVIDIA GPU mit CUDA verfügbar!\n"
-            f"Gefunden: {gefunden}\n"
-            "PB Studio erfordert zwingend eine NVIDIA GPU für KI-Features (Demucs, SigLIP, beat_this).\n"
-            "Der Start wurde abgebrochen, da GPU-Pflicht besteht."
+            f"GPU-BESCHLEUNIGUNG NICHT VERFUEGBAR\n"
+            f"GPU: {gefunden}\n"
+            f"NVIDIA-Treiber: {driver_ver or 'nicht erkannt'}\n"
+            f"PyTorch: {torch_ver} (CUDA {cuda_ver})\n\n"
+            "REPARATUR:\n"
+            "1. NVIDIA-Treiber aktualisieren: https://www.nvidia.com/drivers/\n"
+            "   (Mindestens Version 550+ fuer CUDA 12.4)\n"
+            "2. PyTorch reparieren: python scripts/fix_gpu_setup.py\n"
+            "3. PC neustarten\n\n"
+            "HINWEIS: Modelle laufen ohne GPU extrem langsam auf der CPU."
         )
 
     # ML package availability warnings (non-blocking — Fallbacks sind aktiv)

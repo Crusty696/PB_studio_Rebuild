@@ -41,7 +41,7 @@ def test_grid_with_invalid_paths():
         app.quit()
 
     QTimer.singleShot(2000, finish)
-    sys.exit(app.exec())
+    app.exec()
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)

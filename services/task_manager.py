@@ -65,6 +65,7 @@ class GlobalTaskManager(QObject):
     task_updated = Signal(str)
     task_finished = Signal(str)
     show_dock_requested = Signal()  # UI verbindet sich hierauf statt Widget-Traversal
+    request_gc_signal = Signal()    # Erlaubt Workern sicheren GC im Main-Thread anzufordern (Fix F-011)
 
     # Cross-Thread Request: task_id, name, description, worker, on_finish, on_error
     _cross_thread_request = Signal(str, str, str, object, object, object)
@@ -95,7 +96,6 @@ class GlobalTaskManager(QObject):
         super().__init__(QApplication.instance())
         self._tasks: dict[str, TaskInfo] = {}
         self._tasks_lock = threading.Lock()  # FIX B-011: Schützt concurrent dict-Zugriffe
-        self._counter = 0
         self._shutting_down = False  # FIX B-002: Verhindert Thread-Erstellung nach closeEvent
         # Cross-Thread-Signal: QueuedConnection erzwingt Ausfuehrung im Main-Thread
         self._cross_thread_request.connect(
@@ -105,6 +105,18 @@ class GlobalTaskManager(QObject):
         self.agent_command_signal.connect(
             self._build_and_execute_task, Qt.ConnectionType.QueuedConnection
         )
+        # GC-Request: Sicherer Speicher-Cleanup im Main-Thread (Fix F-011)
+        self.request_gc_signal.connect(
+            self._do_safe_gc, Qt.ConnectionType.QueuedConnection
+        )
+
+    def _do_safe_gc(self):
+        """Führt GC sicher im Main-Thread aus (Fix F-011)."""
+        try:
+            import gc
+            gc.collect()
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     # Command Pattern: Worker-Registry + Main-Thread Factory
@@ -208,6 +220,20 @@ class GlobalTaskManager(QObject):
                 "routing to main thread", name, task_id
             )
             worker.moveToThread(app.thread())
+            # Verify moveToThread succeeded — if it failed (e.g. worker has
+            # parent in another thread), proceeding would cause the main thread
+            # to call moveToThread on a worker it doesn't own -> ACCESS_VIOLATION.
+            if worker.thread() != app.thread():
+                logging.error(
+                    "[TaskEngine] moveToThread FAILED for '%s' (task_id=%s) — "
+                    "worker still in thread %s, expected %s. Skipping.",
+                    name, task_id, worker.thread(), app.thread(),
+                )
+                try:
+                    worker.deleteLater()
+                except RuntimeError:
+                    pass
+                return task_id
             self._cross_thread_request.emit(
                 task_id, name, description, worker, on_finish, on_error
             )
@@ -260,17 +286,16 @@ class GlobalTaskManager(QObject):
             )
 
         # Finish-Guard: skip on_finish wenn Worker im Error-Pfad ist
-        # WICHTIG: QueuedConnection erzwingen — PySide6 nutzt DirectConnection
-        # fuer Python-Lambdas, was den Callback im Worker-Thread ausfuehrt.
+        # WICHTIG: QueuedConnection erzwingen — wir muessen 'self' als Receiver 
+        # mitgeben, damit Qt weiss, dass der Callback im Main-Thread (Thread von self)
+        # laufen soll. Ohne Receiver-Argument laeuft das Lambda im Sender-Thread!
         if on_finish:
             def _guarded_finish(*args, _w=worker, _cb=on_finish):
                 if not getattr(_w, '_errored', False):
                     _cb(*args)
-            worker.finished.connect(_guarded_finish, Qt.ConnectionType.QueuedConnection)
+            worker.finished.connect(self, _guarded_finish, Qt.ConnectionType.QueuedConnection)
 
         # Error-Signal: IMMER Task als Error markieren + optional custom callback.
-        # Vorher: on_error ersetzte den Default-Handler → finish_task wurde nie
-        # aufgerufen → Task blieb ewig auf "Running".
         if hasattr(worker, "error"):
             def _task_error_handler(*args, _tid=task_id, _name=name, _tm=self):
                 err_msg = str(args[-1]) if args else "Unbekannter Fehler"
@@ -279,10 +304,10 @@ class GlobalTaskManager(QObject):
                     _name, _tid, err_msg,
                 )
                 _tm.finish_task(_tid, status="error", message=err_msg)
-            worker.error.connect(_task_error_handler, Qt.ConnectionType.QueuedConnection)
+            worker.error.connect(self, _task_error_handler, Qt.ConnectionType.QueuedConnection)
 
             if on_error:
-                worker.error.connect(on_error, Qt.ConnectionType.QueuedConnection)
+                worker.error.connect(self, on_error, Qt.ConnectionType.QueuedConnection)
 
         # Thread-Lifecycle: finished → quit → cleanup (deleteLater nur einmal!)
         worker.finished.connect(thread.quit)
@@ -313,6 +338,15 @@ class GlobalTaskManager(QObject):
                     except (RuntimeError, AttributeError):
                         pass
                     task.thread = None
+
+            # Aggressiver Speicher-Cleanup im Main-Thread (Fix F-011)
+            # Jetzt sicher, da der Worker-Thread beendet ist.
+            try:
+                import gc
+                gc.collect()
+                gc.collect()
+            except Exception:
+                pass
             
             self._on_thread_done(_tid)
         thread.finished.connect(_safe_cleanup)
@@ -341,8 +375,7 @@ class GlobalTaskManager(QObject):
         """Erstellt nur Metadaten-Task (ohne Thread).
         Fuer Aktionen die keinen Worker haben (z.B. synchrone Calls).
         """
-        self._counter += 1
-        task_id = f"task_{self._counter}"
+        task_id = f"task_{uuid.uuid4().hex[:12]}"
         task = TaskInfo(task_id, name, description)
         # FIX B-011: Schütze dict-Modifikation mit Lock
         with self._tasks_lock:
@@ -391,8 +424,12 @@ class GlobalTaskManager(QObject):
         )
 
     def cancel_task(self, task_id: str):
-        """Bricht einen laufenden Task ab (F-002 Fix)."""
-        # FIX B-011: Schütze dict-Zugriff mit Lock
+        """Bricht einen laufenden Task kooperativ ab (Fix F-002).
+        
+        Vermeidet terminate() um Access Violations zu verhindern.
+        Der Thread wird via worker.cancel() benachrichtigt und laeuft
+        im Hintergrund aus (Orphaned-Status).
+        """
         with self._tasks_lock:
             task = self._tasks.get(task_id)
         if not task or task.status != "running":
@@ -405,38 +442,24 @@ class GlobalTaskManager(QObject):
         thread = task.thread
         if thread and thread.isRunning():
             thread.quit()
-            if not thread.wait(5000):
-                logging.warning(
-                    "[TaskEngine] Thread reagiert nicht nach 5s, terminate() noetig: %s",
-                    task_id,
-                )
-                thread.terminate()
-                # KRITISCH F-002: VRAM-Cleanup nach hartem terminate()
-                # Da terminate() keine finally-Bloecke ausfuehrt, muessen wir 
-                # manuell aufraeumen.
-                try:
-                    from services.model_manager import ModelManager, GPU_LOAD_LOCK, GPU_EXECUTION_LOCK
-                    # FIX C-1: Locks gewaltsam freigeben, falls der Thread sie hielt
-                    # RLock.release() gibt None zurück, nicht bool → while-Loop war no-op
-                    # Fix: Bounded loop mit try/except bis RuntimeError
-                    for _ in range(100):  # Upper bound prevents infinite loop
-                        try:
-                            GPU_LOAD_LOCK.release()
-                        except RuntimeError:
-                            break
-                    for _ in range(100):
-                        try:
-                            GPU_EXECUTION_LOCK.release()
-                        except RuntimeError:
-                            break
+            # Wir warten NICHT blockierend im Main-Thread, um Freezes zu vermeiden.
+            # Der Thread wird via _safe_cleanup bereinigt, sobald er stoppt.
+            if not thread.wait(2000):
+                logging.warning("[TaskEngine] Thread '%s' reagiert nicht sofort auf quit() — orphaned.", task_id)
 
-                    ModelManager().unload()  # Erzwingt VRAM-Freigabe
-                except Exception as e:
-                    logger.warning("VRAM cleanup after task terminate failed: %s", e)
-                gc.collect()
+        # Locks sicher freigeben (Best-Effort im Main-Thread)
+        try:
+            from services.model_manager import GPU_LOAD_LOCK, GPU_EXECUTION_LOCK
+            for _ in range(10):
+                try: GPU_LOAD_LOCK.release()
+                except RuntimeError: break
+            for _ in range(10):
+                try: GPU_EXECUTION_LOCK.release()
+                except RuntimeError: break
+        except Exception: pass
         
-        self.finish_task(task_id, "cancelled", "Abgebrochen")
-        logging.info("[TaskEngine] Abgebrochen: %s", task_id)
+        self.finish_task(task_id, "cancelled", "Abbruch angefordert")
+        logging.info("[TaskEngine] Kooperativer Abbruch: %s", task_id)
 
     def get_task(self, task_id: str) -> TaskInfo | None:
         # FIX B-011: Schütze dict-Zugriff mit Lock

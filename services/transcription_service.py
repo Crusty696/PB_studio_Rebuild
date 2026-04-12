@@ -11,6 +11,18 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 
+def _seg_val(seg, key):
+    """Access a segment field by *key*, whether *seg* is a dict or an object.
+
+    faster-whisper may return Segment namedtuples (attribute access) **or**
+    plain dicts depending on the installed version.  This helper handles both
+    transparently.
+    """
+    if isinstance(seg, dict):
+        return seg[key]
+    return getattr(seg, key)
+
+
 @dataclass
 class TranscriptionResult:
     """Ergebnis einer Transkription."""
@@ -135,16 +147,20 @@ class TranscriptionService:
             total_duration = 0.0
 
             for i, segment in enumerate(segments_list):
+                seg_start = _seg_val(segment, "start")
+                seg_end = _seg_val(segment, "end")
+                seg_text = _seg_val(segment, "text").strip()
+
                 result_segments.append({
-                    "start": round(segment.start, 2),
-                    "end": round(segment.end, 2),
-                    "text": segment.text.strip(),
+                    "start": round(seg_start, 2),
+                    "end": round(seg_end, 2),
+                    "text": seg_text,
                 })
-                full_text_parts.append(segment.text.strip())
-                total_duration = max(total_duration, segment.end)
+                full_text_parts.append(seg_text)
+                total_duration = max(total_duration, seg_end)
 
                 if progress_cb and i % 10 == 0:
-                    progress_cb(20 + int(70 * segment.end / max(total_duration, 1)),
+                    progress_cb(20 + int(70 * seg_end / max(total_duration, 1)),
                                 f"Segment {i+1}...")
 
             full_text = " ".join(full_text_parts)
@@ -190,10 +206,27 @@ class TranscriptionService:
         # Transkribieren
         result = self.transcribe(audio_path, language=language, progress_cb=progress_cb)
 
-        # In DB speichern (transcription Feld auf AudioTrack falls vorhanden)
-        # Hinweis: AudioTrack hat aktuell kein transcription-Feld.
-        # Das Ergebnis wird als JSON in der Console angezeigt.
-        logger.info("[Whisper] Transkription fuer Track #%d gespeichert: %d Zeichen, %d Segmente",
-                    track_id, len(result.text), len(result.segments))
+        # M-20 FIX: Store transcription result in database
+        with Session(engine) as session:
+            track = session.get(AudioTrack, track_id)
+            if track:
+                # Serialize result to JSON
+                track.transcription = {
+                    "text": result.text,
+                    "language": result.language,
+                    "language_probability": result.language_probability,
+                    "duration": result.duration,
+                    "segments": [
+                        {
+                            "start": _seg_val(seg, "start"),
+                            "end": _seg_val(seg, "end"),
+                            "text": _seg_val(seg, "text"),
+                        }
+                        for seg in result.segments
+                    ]
+                }
+                session.commit()
+                logger.info("[Whisper] Transkription fuer Track #%d gespeichert: %d Zeichen, %d Segmente",
+                            track_id, len(result.text), len(result.segments))
 
         return result

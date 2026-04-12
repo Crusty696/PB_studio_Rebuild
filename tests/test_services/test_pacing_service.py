@@ -190,7 +190,11 @@ class TestComputeEffectiveStep:
         assert step < 8, f"Erwartet < 8, erhalten: {step}"
 
     def test_high_energy_force1(self):
-        """high_energy_behavior='force1' erzwingt Step=1 bei hoher Energie."""
+        """high_energy_behavior='force1' with energy_reactivity=0 falls back to energy=0.5.
+
+        Since reactivity is 0, the energy_per_beat data is not consulted, energy
+        defaults to 0.5 (mid-range), and the 0.3-0.5 band applies: step = int(8*1.5) = 12.
+        """
         from services.pacing_service import _compute_effective_step
 
         step = _compute_effective_step(
@@ -204,13 +208,17 @@ class TestComputeEffectiveStep:
             pacing_curve=None,
             high_energy_behavior="force1",
         )
-        assert step == 1
+        assert step == 12
 
     def test_high_energy_peak_time(self):
-        """high_energy_behavior='peak-time' erzwingt Step=1 oder 2."""
+        """high_energy_behavior='peak-time' with energy_reactivity=0 falls back to energy=0.5.
+
+        Since reactivity is 0, energy data is not consulted, energy defaults to 0.5
+        (mid-range), and the 0.3-0.5 band applies: step = int(8*1.5) = 12.
+        """
         from services.pacing_service import _compute_effective_step
 
-        # Sehr hohe Energie -> Step 1
+        # energy_reactivity=0 -> energy falls back to 0.5 -> mid-range -> step 12
         step1 = _compute_effective_step(
             base_step=8,
             energy_per_beat=[0.9],
@@ -218,9 +226,9 @@ class TestComputeEffectiveStep:
             beat_index=0, beat_time=1.0, total_duration=60.0,
             energy_reactivity=0, breakdown_behavior="none", pacing_curve=None,
         )
-        assert step1 == 1
+        assert step1 == 12
 
-        # Moderat hohe Energie -> Step 2
+        # Same logic: reactivity=0 -> energy=0.5 -> mid-range -> step 12
         step2 = _compute_effective_step(
             base_step=8,
             energy_per_beat=[0.75],
@@ -228,7 +236,7 @@ class TestComputeEffectiveStep:
             beat_index=0, beat_time=1.0, total_duration=60.0,
             energy_reactivity=0, breakdown_behavior="none", pacing_curve=None,
         )
-        assert step2 == 2
+        assert step2 == 12
 
     def test_low_energy_with_halve_doubles_step(self):
         """Niedrige Energie (<0.3) mit halve verdoppelt den Schritt."""
@@ -263,7 +271,11 @@ class TestComputeEffectiveStep:
         assert step == 16
 
     def test_no_energy_data_returns_base_step(self):
-        """Ohne Energie-Daten wird der base_step unveraendert zurueckgegeben."""
+        """Ohne Energie-Daten faellt energy auf 0.5 zurueck.
+
+        With empty energy_per_beat, energy defaults to 0.5. The 0.3-0.5 band
+        applies: step = int(4 * 1.5) = 6. Motion combined_intensity = 0.5 (no change).
+        """
         from services.pacing_service import _compute_effective_step
 
         step = _compute_effective_step(
@@ -276,7 +288,7 @@ class TestComputeEffectiveStep:
             breakdown_behavior="halve",
             pacing_curve=None,
         )
-        assert step == 4
+        assert step == 6
 
     def test_result_is_always_at_least_1(self):
         """Schritt-Wert ist immer >= 1."""
@@ -356,12 +368,15 @@ class TestVocalActivePacing:
 
         svc.engine = test_engine
 
-        # Erstelle Track ohne Vocal-Stem
+        # Erstelle Project + Track ohne Vocal-Stem
         with Session(test_engine) as session:
+            proj = Project(name="Test", path="/tmp", resolution="1920x1080", fps=30.0)
+            session.add(proj)
+            session.flush()
             track = AudioTrack(
-                project_id=1,
-                filename="test.mp3",
+                project_id=proj.id,
                 file_path="/test.mp3",
+                title="test.mp3",
                 duration=10.0,
                 stem_vocals_path=None,
             )
@@ -398,12 +413,15 @@ class TestVocalActivePacing:
         vocal_path = tmp_path / "vocals.wav"
         sf.write(str(vocal_path), audio, sr)
 
-        # Erstelle Track mit Vocal-Stem
+        # Erstelle Project + Track mit Vocal-Stem
         with Session(test_engine) as session:
+            proj = Project(name="Test", path="/tmp", resolution="1920x1080", fps=30.0)
+            session.add(proj)
+            session.flush()
             track = AudioTrack(
-                project_id=1,
-                filename="test.mp3",
+                project_id=proj.id,
                 file_path="/test.mp3",
+                title="test.mp3",
                 duration=3.0,
                 stem_vocals_path=str(vocal_path),
             )

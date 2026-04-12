@@ -76,22 +76,21 @@ def oom_recovery(func):
                 )
 
                 _ensure_torch()
-                # Aggressiver Cleanup
-                gc.collect()
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-                    torch.cuda.synchronize()
+                # C-6 FIX: Alle GPU-Operationen muessen gelockt sein
+                with GPU_LOAD_LOCK:
+                    # Aggressiver Cleanup
+                    gc.collect()
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                        torch.cuda.synchronize()
+
+                    if attempt == 1:
+                        # Im zweiten Versuch entladen wir ALLES
+                        logger.info("OOM persistiert — erzwinge vollständigen Modell-Unload.")
+                        ModelManager().unload()
 
                 # Kurze Pause damit Treiber/OS sich fangen kann
                 _time.sleep(wait_time)
-
-                if attempt == 1:
-                    # Im zweiten Versuch entladen wir ALLES
-                    logger.info("OOM persistiert — erzwinge vollständigen Modell-Unload.")
-                    # C-6 FIX: Acquire GPU_LOAD_LOCK first to maintain consistent lock ordering
-                    # (GPU_LOAD_LOCK -> _swap_lock) and prevent deadlock
-                    with GPU_LOAD_LOCK:
-                        ModelManager().unload()
 
         # H-6 FIX: Return None if all retries exhausted without raising
         # (should not normally reach here, but explicit is better than implicit)
@@ -512,12 +511,40 @@ class ModelManager:
                     trust_remote_code=needs_trust,
                 )
                 dtype = torch.float32 if self.device == "cpu" else torch.float16
-                self._model = AutoModelForCausalLM.from_pretrained(
-                    model_id,
-                    torch_dtype=dtype,
-                    device_map={"": self.device},
-                    trust_remote_code=needs_trust,
-                )
+
+                # FIX: transformers >=5.3 ruft model.all_tied_weights_keys.keys()
+                # in mark_tied_weights_as_initialized() auf.  Moondream2's
+                # HfMoondream-Klasse definiert dieses Attribut nicht, was einen
+                # AttributeError INNERHALB von from_pretrained() auslöst.
+                # Workaround: PreTrainedModel temporär patchen, damit jede
+                # Subklasse einen Fallback-Wert erbt.
+                from transformers.modeling_utils import PreTrainedModel
+                _had_attr = hasattr(PreTrainedModel, "all_tied_weights_keys")
+                if not _had_attr:
+                    PreTrainedModel.all_tied_weights_keys = {}
+
+                try:
+                    self._model = AutoModelForCausalLM.from_pretrained(
+                        model_id,
+                        torch_dtype=dtype,
+                        device_map={"": self.device},
+                        trust_remote_code=needs_trust,
+                    )
+                finally:
+                    # Patch wieder entfernen, wenn es vorher nicht existierte,
+                    # damit andere Modelle nicht beeinflusst werden.
+                    if not _had_attr:
+                        try:
+                            del PreTrainedModel.all_tied_weights_keys
+                        except AttributeError:
+                            pass
+
+                # Sicherheitsnetz: Falls das geladene Modell-Objekt selbst
+                # das Attribut immer noch nicht hat (z.B. bei zukünftigen
+                # transformers-Versionen), setzen wir es direkt.
+                if not hasattr(self._model, "all_tied_weights_keys"):
+                    self._model.all_tied_weights_keys = {}
+
                 self._model.eval()
             except torch.cuda.OutOfMemoryError:
                 logger.error("OOM beim Laden von vision '%s' — räume auf.", model_id)
@@ -587,7 +614,12 @@ class ModelManager:
             from transformers import AutoModel, AutoProcessor
 
             try:
-                self._extras["processor"] = AutoProcessor.from_pretrained(model_id)
+                # use_fast=False: Die neue Rust-basierte Fast-Processor-Variante
+                # (SiglipImageProcessor) erzeugt interne Threads, die mit Qt's
+                # Thread-Modell kollidieren und zu ACCESS_VIOLATION fuehren.
+                self._extras["processor"] = AutoProcessor.from_pretrained(
+                    model_id, use_fast=False
+                )
                 dtype = torch.float32 if self.device == "cpu" else torch.float16
                 self._model = AutoModel.from_pretrained(
                     model_id,

@@ -109,7 +109,7 @@ def learn_from_anchor(
             section_type = _MOOD_TO_SECTION.get(mood, mood.upper() if mood else None)
 
             mem = AIPacingMemory(
-                created_at=datetime.datetime.now().isoformat(),
+                created_at=datetime.datetime.now(),
                 bpm=bpm,
                 overall_energy=overall_energy,
                 mood=mood,
@@ -146,7 +146,7 @@ def record_rl_feedback(audio_track_id: int, sentiment: str, project_id: int = 1)
             ).count()
 
             mem = AIPacingMemory(
-                created_at=datetime.now().isoformat(),
+                created_at=datetime.now(),
                 audio_track_id=audio_track_id,
                 bpm=track.bpm if track else None,
                 label=f"rl_feedback_{sentiment}",

@@ -356,7 +356,7 @@ class LocalAgentService:
             from database import nullpool_session, AgentFeedback
             with nullpool_session() as session:
                 feedback = AgentFeedback(
-                    created_at=datetime.datetime.utcnow().isoformat(),
+                    created_at=datetime.datetime.utcnow(),
                     session_id="local_agent_default",
                     model_id=self._ollama_model or self.model_id,
                     backend="ollama" if self._use_ollama else "huggingface",

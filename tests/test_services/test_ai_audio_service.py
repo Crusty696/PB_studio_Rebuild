@@ -78,6 +78,15 @@ class TestStemSeparatorAndStore:
         """separate_and_store() speichert Stem-Pfade in der DB."""
         import services.ai_audio_service as svc
         svc.engine = test_engine
+        # Fix: nullpool_session Alias im Modul patchen (Import-Aliasing)
+        from contextlib import contextmanager as _cm
+
+        @_cm
+        def _test_nullpool():
+            with Session(test_engine) as s:
+                yield s
+
+        svc.nullpool_session = _test_nullpool
 
         track_id = self._setup_track(test_engine)
         fake_stems = {
