@@ -186,7 +186,7 @@ class ModelManager:
             }
             banner = (
                 f"\n{'=' * 60}\n"
-                f"  🚀 HARDWARE BESCHLEUNIGUNG AKTIV: {gpu_name}\n"
+                f"  HARDWARE BESCHLEUNIGUNG AKTIV: {gpu_name}\n"
                 f"  VRAM: {vram_total:.0f} MB | CUDA: {self._gpu_info['cuda_version']}\n"
                 f"  STATUS: Alle KI-Modelle laufen auf der GPU\n"
                 f"{'=' * 60}\n"
@@ -196,7 +196,7 @@ class ModelManager:
             self._gpu_info = {"name": "CPU", "vram_total_mb": 0, "cuda_version": None}
             banner = (
                 f"\n{'!' * 60}\n"
-                f"  🚨 WARNUNG: GPU-BESCHLEUNIGUNG NICHT MÖGLICH!\n"
+                f"  WARNUNG: GPU-BESCHLEUNIGUNG NICHT MOEGLICH!\n"
                 f"  Fehler: {cuda_error or 'Keine CUDA-GPU erkannt'}\n"
                 f"  Grund: Meistens fehlt der NVIDIA-Treiber (Version 530+).\n"
                 f"  AKTION: Bitte NVIDIA-Treiber installieren und PC neustarten!\n"
