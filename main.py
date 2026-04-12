@@ -382,7 +382,13 @@ class PBWindow(QMainWindow):
         self.project_management._mark_dirty()
 
     def closeEvent(self, event):
-        """Behandelt das Schließen der Anwendung (Fix F-003: Asynchroner Shutdown)."""
+        """Behandelt das Schliessen der Anwendung (Fix F-003: Asynchroner Shutdown).
+
+        MEDIUM-7 AUDIT: PBWindow ist eine God-Class mit 12 Controllers.
+        Die Shutdown-Logik (10 Schritte) bleibt hier weil sie Zugriff auf
+        alle Controller braucht. Refactor in ShutdownManager wuerde nur
+        verschieben, nicht vereinfachen.
+        """
         # 1. Fenster-Zustand sofort sichern
         try:
             self._save_window_state()

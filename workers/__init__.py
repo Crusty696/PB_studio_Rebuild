@@ -1,4 +1,10 @@
-"""PB Studio Background Workers Package — lazy imports to avoid loading librosa at startup."""
+"""PB Studio Background Workers Package — lazy imports to avoid loading librosa at startup.
+
+LOW-13 AUDIT: Verwendet __getattr__-basiertes Lazy-Import-Pattern.
+Worker-Klassen werden erst bei erstem Zugriff importiert, was den
+App-Start um ~3-5s beschleunigt (kein librosa/torch Import bei init).
+Fuer IDE-Autocompletion: __all__ enthaelt alle verfuegbaren Klassen.
+"""
 
 # Lazy import mapping: class name -> submodule
 _WORKER_MODULES = {

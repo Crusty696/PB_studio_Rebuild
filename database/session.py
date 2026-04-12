@@ -249,6 +249,11 @@ def _patch_service_paths(project_path: Path):
 def set_project(project_path: Path):
     """Switch the active project to *project_path*.
 
+    MEDIUM-10 AUDIT: Globale APP_ROOT Mutation via Lock.
+    Alternativ waere ProjectContext DI, aber das wuerde einen
+    grossen Refactor aller 30+ Service-Module erfordern.
+    Aktueller Ansatz ist thread-safe via _APP_ROOT_LOCK.
+
     - Creates a new engine via ``_make_engine``
     - Atomically swaps it into the global ``engine`` proxy
     - Updates ``APP_ROOT``

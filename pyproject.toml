@@ -5,34 +5,40 @@ description = "DaVinci Resolve Style Video/Audio Production Studio"
 authors = ["Your Name <you@example.com>"]
 package-mode = false
 
+# MEDIUM-11: Dual-Python Strategie dokumentiert:
+# - Python 3.11 + torch 2.5.1+cu124: Standard-Setup (requirements.txt)
+# - Python 3.10 + torch 1.12.1+cu113: Surface Book 2 / Treiber 461.40 (requirements-py310-cu113.txt)
+# pyproject.toml definiert die PRIMARY (3.11) Constraints.
+# Fuer Python 3.10 Setup: .venv310/Scripts/python.exe nutzen.
 [tool.poetry.dependencies]
-python = ">=3.11,<3.12"
-pyside6 = ">=6.8.0,<7.0.0"
-sqlalchemy = ">=2.0.40,<3.0.0"
+python = ">=3.10,<3.12"
+pyside6 = ">=6.6.0,<7.0.0"
+sqlalchemy = ">=2.0.20,<3.0.0"
 alembic = ">=1.13.0,<2.0.0"
-librosa = ">=0.11.0,<0.12.0"
-numpy = ">=2.1.0,<3.0.0"
+librosa = ">=0.10.0,<0.12.0"
+numpy = ">=1.24.0,<3.0.0"
 demucs = ">=4.0.1,<5.0.0"
-opencv-python = ">=4.10.0,<5.0.0"
-scipy = ">=1.14.0,<2.0.0"
-transformers = ">=4.47.0,<6.0.0"
+opencv-python = ">=4.8.0,<5.0.0"
+scipy = ">=1.11.0,<2.0.0"
+transformers = ">=4.35.0,<5.0.0"
 thefuzz = ">=0.22.1,<0.23.0"
 einops = ">=0.8.0,<0.9.0"
-pillow = ">=11.0.0,<13.0.0"
-accelerate = ">=1.2.0,<2.0.0"
-opentimelineio = ">=0.18.0,<1.0.0"
-pyarrow = ">=18.0.0,<24.0.0"
+pillow = ">=10.0.0,<13.0.0"
+accelerate = ">=0.27.0,<2.0.0"
+opentimelineio = ">=0.17.0,<1.0.0"
+pyarrow = ">=14.0.0,<24.0.0"
 python-dotenv = ">=1.0.0,<2.0.0"
 scenedetect = ">=0.6.0,<1.0.0"
 sounddevice = ">=0.5.0,<1.0.0"
 soundfile = ">=0.12.0,<1.0.0"
-click = ">=8.0.0,<8.4.0"  # P3-FIX: Lower bound added for stability
-# P2.12: git-pin is necessary as no stable tagged release exists on PyPI. Vendorized for stability.
+click = ">=8.0.0,<8.4.0"
+# LOW-18: Vendored von git commit c8c320e (CPJKU/beat_this).
+# Bei Updates: vendor/beat_this aktualisieren UND requirements.txt git-pin anpassen.
 beat-this = {path = "vendor/beat_this", develop = false}
-# H-24 FIX: Aligned with requirements.txt (torch 2.5.1+cu124) to prevent version/CUDA conflicts
-torch = {version = ">=2.5.0,<2.6.0", source = "pytorch", markers = "sys_platform == 'win32' or sys_platform == 'linux'"}
-torchvision = {version = ">=0.20.0,<0.21.0", source = "pytorch", markers = "sys_platform == 'win32' or sys_platform == 'linux'"}
-torchaudio = {version = ">=2.5.0,<2.6.0", source = "pytorch", markers = "sys_platform == 'win32' or sys_platform == 'linux'"}
+# Torch-Versions sind Setup-abhaengig — siehe requirements*.txt
+torch = {version = ">=1.10.0", source = "pytorch", markers = "sys_platform == 'win32' or sys_platform == 'linux'"}
+torchvision = {version = ">=0.11.0", source = "pytorch", markers = "sys_platform == 'win32' or sys_platform == 'linux'"}
+torchaudio = {version = ">=0.10.0", source = "pytorch", markers = "sys_platform == 'win32' or sys_platform == 'linux'"}
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=9.0.2,<10.0.0"
@@ -41,9 +47,9 @@ bandit = ">=1.8.0,<2.0.0"
 
 [tool.ruff]
 line-length = 120
-target-version = "py311"
+target-version = "py310"
 exclude = [
-    ".git", "__pycache__", "dist", "build", ".venv",
+    ".git", "__pycache__", "dist", "build", ".venv", ".venv310",
     "tests/", "installer/", "scripts/",
 ]
 
@@ -68,13 +74,8 @@ markers = [
 ]
 
 [[tool.poetry.source]]
-name = "pytorch-cu118"
-url = "https://download.pytorch.org/whl/cu118"
-priority = "explicit"
-
-[[tool.poetry.source]]
 name = "pytorch"
-url = "https://download.pytorch.org/whl/cu124"
+url = "https://download.pytorch.org/whl/cu113"
 priority = "explicit"
 
 [build-system]
