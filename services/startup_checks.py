@@ -208,12 +208,78 @@ _MIN_DRIVER_FOR_CUDA = {
 }
 
 
+def _recover_gpu_error47() -> bool:
+    """Surface Book 2 Fix: GPU aus Error-State (Code 47) reaktivieren.
+
+    Das Surface Book 2 hat die GTX 1060 im abnehmbaren Dock.
+    Windows setzt die GPU nach Treiber-Crashes in den "safe removal"
+    Zustand (Error 47). Disable+Enable reaktiviert sie ohne Neustart.
+
+    Returns:
+        True wenn Recovery erfolgreich oder nicht noetig.
+    """
+    if sys.platform != "win32":
+        return True
+    try:
+        result = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-Command",
+             "Get-CimInstance Win32_VideoController "
+             "| Where-Object { $_.Name -match 'NVIDIA' } "
+             "| Select-Object -First 1 ConfigManagerErrorCode "
+             "| Format-List"],
+            capture_output=True, text=True, timeout=8,
+            **_subprocess_kwargs(),
+        )
+        for line in result.stdout.splitlines():
+            if "ConfigManagerErrorCode" in line:
+                code = line.split(":", 1)[-1].strip()
+                if code == "47":
+                    logger.warning(
+                        "GPU im Error-State (Code 47, Surface Book Dock). "
+                        "Versuche automatische Reaktivierung..."
+                    )
+                    # Disable + Enable via PowerShell
+                    recovery = subprocess.run(
+                        ["powershell.exe", "-NoProfile", "-Command",
+                         "$gpu = Get-PnpDevice | Where-Object "
+                         "{ $_.FriendlyName -match 'NVIDIA' -and $_.Class -eq 'Display' }; "
+                         "if ($gpu) { "
+                         "Disable-PnpDevice -InstanceId $gpu.InstanceId -Confirm:$false; "
+                         "Start-Sleep -Seconds 3; "
+                         "Enable-PnpDevice -InstanceId $gpu.InstanceId -Confirm:$false; "
+                         "Start-Sleep -Seconds 2; "
+                         "$g2 = Get-CimInstance Win32_VideoController | Where-Object { $_.Name -match 'NVIDIA' }; "
+                         "Write-Host $g2.ConfigManagerErrorCode "
+                         "}"],
+                        capture_output=True, text=True, timeout=20,
+                        **_subprocess_kwargs(),
+                    )
+                    new_code = recovery.stdout.strip()
+                    if new_code == "0":
+                        logger.info("GPU erfolgreich reaktiviert (Error 47 -> OK)")
+                        return True
+                    else:
+                        logger.error(
+                            "GPU-Recovery fehlgeschlagen (Code %s). "
+                            "PC-Neustart erforderlich.", new_code or "unbekannt"
+                        )
+                        return False
+                elif code == "0":
+                    return True  # GPU ist OK
+    except (subprocess.TimeoutExpired, OSError, FileNotFoundError) as exc:
+        logger.debug("GPU Error-47 Check fehlgeschlagen: %s", exc)
+    return True
+
+
 def _check_cuda() -> tuple[bool, str, int]:
     cuda_ok = False
     gpu_name = ""
     vram_mb = 0
     try:
         import torch
+
+        # Surface Book 2: GPU aus Error-47 reaktivieren BEVOR CUDA initialisiert wird
+        _recover_gpu_error47()
 
         # Treiber-Version zuerst ermitteln (unabhaengig von torch.cuda)
         driver_ver_str, wmi_gpu_name = _get_nvidia_driver_version()

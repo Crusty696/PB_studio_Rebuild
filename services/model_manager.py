@@ -169,7 +169,14 @@ class ModelManager:
             ModelManager._gpu_logged = True
 
         _ensure_torch()
-        
+
+        # Surface Book 2: GPU aus Error-47 reaktivieren bevor CUDA init
+        try:
+            from services.startup_checks import _recover_gpu_error47
+            _recover_gpu_error47()
+        except (ImportError, Exception) as exc:
+            logger.debug("GPU Error-47 Recovery uebersprungen: %s", exc)
+
         # Versuche CUDA initialisierung zu erzwingen um echte Fehler zu sehen
         cuda_ok = False
         cuda_error = ""
