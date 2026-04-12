@@ -101,10 +101,12 @@ class PanelSetupController(PBComponent):
             )
             self.window.chat_dock.set_agent(self.window._ai_agent)
 
-            # GPU-Status LAZY anzeigen — torch-Import erst beim ersten KI-Aufruf
+            # GPU-Status LAZY anzeigen via ModelManager direkt (nicht ueber Agent)
             def _show_gpu_info_deferred():
                 try:
-                    gpu_info = self.window._ai_agent.model_manager.gpu_info
+                    from services.model_manager import ModelManager
+                    mm = ModelManager()
+                    gpu_info = mm.gpu_info
                     gpu_name = gpu_info.get("name", "unbekannt")
                     vram = gpu_info.get("vram_total_mb", 0)
                     if gpu_name != "CPU" and vram > 0:
