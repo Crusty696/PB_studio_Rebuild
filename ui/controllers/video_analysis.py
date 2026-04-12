@@ -69,11 +69,10 @@ class VideoAnalysisController(PBComponent):
         worker.item_done.connect(self._on_video_batch_item_done, Qt.ConnectionType.QueuedConnection)
         worker.item_error.connect(self._on_video_batch_item_error, Qt.ConnectionType.QueuedConnection)
         worker.finished.connect(
-            self.window,
             lambda done, errors: self._on_video_batch_finished(done, errors, task.task_id),
-            Qt.ConnectionType.QueuedConnection
+            Qt.ConnectionType.QueuedConnection,
         )
-        worker.error.connect(self.window, lambda err: (
+        worker.error.connect(lambda err: (
             self.window.console_text.append(f"[Video-Batch] Kritischer Fehler: {err}"),
             self._on_video_batch_finished(0, 1, task.task_id),
         ), Qt.ConnectionType.QueuedConnection)
@@ -166,19 +165,16 @@ class VideoAnalysisController(PBComponent):
         worker = VideoAnalysisPipelineWorker(batch=batch)
         worker.task_id = task.task_id
         worker.progress.connect(
-            self.window,
             lambda pct, msg: self._on_pipeline_progress(pct, msg, task.task_id),
-            Qt.ConnectionType.QueuedConnection
+            Qt.ConnectionType.QueuedConnection,
         )
         worker.finished.connect(
-            self.window,
             lambda cid, r: self._on_pipeline_finished(cid, r, label, task.task_id),
-            Qt.ConnectionType.QueuedConnection
+            Qt.ConnectionType.QueuedConnection,
         )
         worker.error.connect(
-            self.window,
             lambda cid, err: self._on_pipeline_error(cid, err, task.task_id),
-            Qt.ConnectionType.QueuedConnection
+            Qt.ConnectionType.QueuedConnection,
         )
 
         self.window.worker_dispatcher._start_worker_thread(worker)
