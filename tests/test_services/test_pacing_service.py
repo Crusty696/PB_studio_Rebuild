@@ -364,9 +364,11 @@ class TestVocalActivePacing:
     def test_compute_vocal_activity_no_vocals(self, test_engine):
         """Ohne Vocal-Stem werden alle Beats als nicht-vokal markiert."""
         import services.pacing_service as svc
+        import services.pacing_beat_grid as pbg
         from services.pacing_service import compute_vocal_activity
 
         svc.engine = test_engine
+        pbg.engine = test_engine
 
         # Erstelle Project + Track ohne Vocal-Stem
         with Session(test_engine) as session:
@@ -393,11 +395,13 @@ class TestVocalActivePacing:
     def test_compute_vocal_activity_with_vocals(self, test_engine, tmp_path):
         """Mit Vocal-Stem wird RMS-basierte Aktivitaet berechnet."""
         import services.pacing_service as svc
+        import services.pacing_beat_grid as pbg
         from services.pacing_service import compute_vocal_activity
         import numpy as np
         import soundfile as sf
 
         svc.engine = test_engine
+        pbg.engine = test_engine
 
         # Erstelle synthetisches Vocal-Audio (44.1kHz, 3 Sekunden)
         sr = 44100

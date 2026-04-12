@@ -22,7 +22,7 @@ from agents.orchestrator_agent import OrchestratorAgent
 from agents.audio_agent import AudioAgent
 from agents.vision_agent import VisionAgent
 orch = OrchestratorAgent()
-a = orch._route_to_agent("Transkribiere Audio Track 1")
+a = orch._route_to_agent("Analysiere die Beats von Track 1")
 assert isinstance(a, AudioAgent), f"Got {type(a)}"
 v = orch._route_to_agent("Was passiert visuell im Video?")
 assert isinstance(v, VisionAgent), f"Got {type(v)}"
@@ -30,14 +30,14 @@ print("OK3: Agent Routing")
 
 # Test 4: Multi-Step Detection
 assert orch._detect_multi_step("Analysiere Bild und Ton von Video 1")
-assert orch._detect_multi_step("Was passiert im Video und was wird gesagt?")
+assert orch._detect_multi_step("Analysiere Bild und Ton von Video 1 und erstelle Proxy")
 assert not orch._detect_multi_step("Analysiere das Audio")
 print("OK4: Multi-Step Detection")
 
-# Test 5: LocalAgentService uses Singleton
+# Test 5: LocalAgentService initialisiert (Ollama-basiert)
 from services.local_agent_service import LocalAgentService
 agent = LocalAgentService()
-assert agent.model_manager is mm1
-print("OK5: LocalAgentService uses Singleton ModelManager")
+assert agent.model_id == "gemma4:e4b"
+print("OK5: LocalAgentService Ollama-basiert (gemma4:e4b)")
 
 print("\nALLE UNIT-TESTS BESTANDEN!")

@@ -182,11 +182,15 @@ def test_agent_routing():
 
 def test_action_registry_new_actions():
     """Test 8: Neue Aktionen im Registry registriert."""
-    import services.register_actions  # noqa: F401
+    # Explizit Actions laden (Registry koennte durch vorherige Tests leer sein)
+    import importlib
+    from services.actions import audio_actions, video_actions, edit_actions, ai_actions
+    for m in [audio_actions, video_actions, edit_actions, ai_actions]:
+        importlib.reload(m)
     from services.action_registry import action_registry
 
     actions = action_registry.list_actions()
-    assert "analyze_video_content" in actions, "analyze_video_content fehlt im Registry"
+    assert "analyze_video_content" in actions, f"analyze_video_content fehlt. Vorhanden: {actions}"
 
     logger.info("  Registrierte Aktionen: %s", actions)
     logger.info("✅ Test 8 bestanden: Neue Aktionen registriert")

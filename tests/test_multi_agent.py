@@ -191,14 +191,14 @@ class TestModelManager:
     """Testet den ModelManager (ohne echtes Modell-Laden)."""
 
     def test_initial_state(self):
-        from services.local_agent_service import ModelManager
+        from services.model_manager import ModelManager
         mm = ModelManager(device="cpu")
         assert mm.current_model_id is None
         assert mm.is_loaded is False
 
     def test_unload_empty(self):
         """Unload auf leeren Manager soll nicht crashen."""
-        from services.local_agent_service import ModelManager
+        from services.model_manager import ModelManager
         mm = ModelManager(device="cpu")
         mm.unload()  # Sollte ohne Fehler durchlaufen
         assert mm.is_loaded is False
