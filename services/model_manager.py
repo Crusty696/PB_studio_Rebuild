@@ -23,6 +23,14 @@ torch = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
 
+# Compat: RuntimeError existiert erst ab PyTorch 2.0.
+# In torch 1.12 ist es ein normaler RuntimeError.
+def _is_cuda_oom(exc: Exception) -> bool:
+    """Prueft ob eine Exception ein CUDA OOM ist (kompatibel mit torch 1.12+)."""
+    if hasattr(torch, 'cuda') and hasattr(torch.cuda, 'OutOfMemoryError'):
+        return isinstance(exc, RuntimeError)
+    return isinstance(exc, RuntimeError) and "out of memory" in str(exc).lower()
+
 # Globaler GPU-Semaphore: Serialisiert alle GPU-Modell-Lade-Operationen
 # (SigLIP, RAFT, beat_this) um VRAM-Races auf 6GB GTX 1060 zu verhindern.
 # FIX: RLock erlaubt verschachtelte Aufrufe (reentrant).
@@ -461,7 +469,7 @@ class ModelManager:
                     self._model.all_tied_weights_keys = {}
 
                 self._model.eval()
-            except torch.cuda.OutOfMemoryError:
+            except RuntimeError:
                 logger.error("OOM beim Laden von vision '%s' — räume auf.", model_id)
                 self.unload()
                 from services.errors import CUDAOutOfMemoryError
@@ -542,7 +550,7 @@ class ModelManager:
                 )
                 self._model.to(self.device)
                 self._model.eval()
-            except torch.cuda.OutOfMemoryError:
+            except RuntimeError:
                 logger.error("OOM beim Laden von SigLIP '%s' — räume auf.", model_id)
                 self.unload()
                 from services.errors import CUDAOutOfMemoryError
@@ -647,7 +655,7 @@ class ModelManager:
             raft = _of.raft_small(weights=_of.Raft_Small_Weights.DEFAULT)
             try:
                 raft = raft.to(device)
-            except torch.cuda.OutOfMemoryError:
+            except RuntimeError:
                 logger.warning("[RAFT] OOM — entlade SigLIP und versuche erneut...")
                 # SigLIP jetzt auch entladen und nochmal versuchen
                 self.unload()
@@ -656,7 +664,7 @@ class ModelManager:
                 torch.cuda.empty_cache()
                 try:
                     raft = raft.to(device)
-                except torch.cuda.OutOfMemoryError:
+                except RuntimeError:
                     logger.error("OOM beim Laden von RAFT — VRAM nicht ausreichend")
                     del raft
                     raise RuntimeError(

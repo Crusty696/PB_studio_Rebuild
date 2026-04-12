@@ -509,7 +509,7 @@ def generate_embeddings(
             images.clear()
             valid_scenes.clear()
 
-        except torch.cuda.OutOfMemoryError:
+        except RuntimeError:
             torch.cuda.empty_cache()
             gc.collect()
             # Adaptive Retry: Batch halbieren und einzeln verarbeiten
@@ -525,7 +525,7 @@ def generate_embeddings(
                         emb = out / out.norm(p=2, dim=-1, keepdim=True)
                         scene.embedding = emb.cpu().numpy().astype(np.float32)[0]
                     del inp, out, emb
-                except torch.cuda.OutOfMemoryError:
+                except RuntimeError:
                     torch.cuda.empty_cache()
                     logger.error("OOM auch bei Einzel-Inference — ueberspringe Bild %d", j)
             # F-019 Fix: Clear buffers after OOM recovery

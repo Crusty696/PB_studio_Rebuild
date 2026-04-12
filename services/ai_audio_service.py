@@ -127,7 +127,7 @@ class StemSeparator:
                 ) from e
             try:
                 demucs_model.to(device)
-            except torch.cuda.OutOfMemoryError:
+            except RuntimeError:
                 torch.cuda.empty_cache()
                 gc.collect()
                 raise CUDAOutOfMemoryError(operation=f"Demucs '{model}' laden")
@@ -243,7 +243,7 @@ class StemSeparator:
                             overlap=0.25,
                             progress=False,
                         )
-                    except torch.cuda.OutOfMemoryError:
+                    except RuntimeError:
                         logger.warning(
                             "[StemSeparator] OOM bei Chunk %d/%d — halbiere Chunk und retrie...",
                             i + 1, num_chunks,
@@ -266,7 +266,7 @@ class StemSeparator:
                             torch.cuda.empty_cache()
                             estimates = torch.cat([est_a, est_b], dim=-1)
                             del est_a, est_b
-                        except torch.cuda.OutOfMemoryError:
+                        except RuntimeError:
                             torch.cuda.empty_cache()
                             gc.collect()
                             raise CUDAOutOfMemoryError(

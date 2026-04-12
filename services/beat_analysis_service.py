@@ -134,7 +134,7 @@ class BeatAnalysisService:
             logger.info("Lade beat_this Modell (device=%s, dbn=False)...", self.device)
             try:
                 self._model = File2Beats(device=self.device, dbn=False)
-            except torch.cuda.OutOfMemoryError:
+            except RuntimeError:
                 torch.cuda.empty_cache()
                 gc.collect()
                 raise RuntimeError(
