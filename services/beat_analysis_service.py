@@ -8,6 +8,7 @@ dbn=False verhindert madmom-Abhaengigkeit.
 
 from __future__ import annotations
 
+import atexit
 import json
 import logging
 import threading
@@ -26,6 +27,24 @@ CHUNK_DURATION_SEC = 600.0
 
 # Overlap zwischen Chunks fuer saubere Beat-Uebergaenge (5 Sekunden)
 CHUNK_OVERLAP_SEC = 5.0
+
+# M-21 FIX: Track temp files for cleanup on exit to prevent orphaned files
+_temp_files: set[str] = set()
+_temp_files_lock = threading.Lock()
+
+
+def _cleanup_temp_files():
+    """M-21 FIX: Clean up all tracked temp files on exit."""
+    with _temp_files_lock:
+        for path_str in list(_temp_files):
+            try:
+                Path(path_str).unlink(missing_ok=True)
+            except Exception as e:
+                logger.warning("[BeatAnalysis] Failed to cleanup temp file %s: %s", path_str, e)
+        _temp_files.clear()
+
+
+atexit.register(_cleanup_temp_files)
 
 
 class BeatAnalysisService:

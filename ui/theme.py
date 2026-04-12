@@ -358,7 +358,7 @@ def get_stylesheet() -> str:
         color: {T3};
         font-size: 10px;
         /* text-transform not supported in Qt QSS — use Python .upper() */
-        letter-spacing: 1.5px;
+        /* letter-spacing not supported in Qt QSS */
     }}
 
     /* === FRAMES (Cards) === */

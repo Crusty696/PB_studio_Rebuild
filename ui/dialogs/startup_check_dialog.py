@@ -135,8 +135,6 @@ class StartupCheckDialog(QDialog):
                                 "" if status.beat_this_ok else "Fallback: librosa"))
         cl.addWidget(_check_row("demucs (Stem-Separation)", status.demucs_ok,
                                 "" if status.demucs_ok else "nicht verfuegbar"))
-        cl.addWidget(_check_row("Whisper (Transkription)", status.whisper_cached,
-                                "gecacht" if status.whisper_cached else "wird beim ersten Start geladen"))
         cl.addSpacing(12)
 
         if status.errors:

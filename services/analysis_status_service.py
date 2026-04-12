@@ -16,7 +16,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from database import engine, AnalysisStatus, VideoClip, AudioTrack, Scene, Beatgrid, WaveformData
+from database import nullpool_session, AnalysisStatus, VideoClip, AudioTrack, Scene, Beatgrid, WaveformData
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +50,7 @@ def mark_started(media_type: str, media_id: int, step_key: str) -> None:
     Setzt status='running' und started_at=now.
     Wenn der Eintrag noch nicht existiert, wird er angelegt.
     """
-    with Session(engine) as session:
+    with nullpool_session() as session:
         stmt = select(AnalysisStatus).where(
             AnalysisStatus.media_type == media_type,
             AnalysisStatus.media_id == media_id,
@@ -81,7 +81,7 @@ def mark_done(media_type: str, media_id: int, step_key: str, value_summary: dict
 
     Setzt status='done', completed_at=now und speichert value_summary.
     """
-    with Session(engine) as session:
+    with nullpool_session() as session:
         stmt = select(AnalysisStatus).where(
             AnalysisStatus.media_type == media_type,
             AnalysisStatus.media_id == media_id,
@@ -117,7 +117,7 @@ def mark_error(media_type: str, media_id: int, step_key: str, error_msg: str) ->
 
     Setzt status='error' und speichert error_message.
     """
-    with Session(engine) as session:
+    with nullpool_session() as session:
         stmt = select(AnalysisStatus).where(
             AnalysisStatus.media_type == media_type,
             AnalysisStatus.media_id == media_id,
@@ -150,7 +150,7 @@ def get_status(media_type: str, media_id: int) -> dict[str, AnalysisStatus]:
         Dict mit step_key -> AnalysisStatus Mapping.
         Fehlende Schritte haben automatisch status='pending'.
     """
-    with Session(engine) as session:
+    with nullpool_session() as session:
         stmt = select(AnalysisStatus).where(
             AnalysisStatus.media_type == media_type,
             AnalysisStatus.media_id == media_id,
@@ -192,7 +192,7 @@ def infer_from_db(media_type: str, media_id: int) -> None:
 
     Wird beim ersten Laden einer Datei aufgerufen, um bestehende Analysen zu erkennen.
     """
-    with Session(engine) as session:
+    with nullpool_session() as session:
         if media_type == "video":
             _infer_video_status(session, media_id)
         elif media_type == "audio":

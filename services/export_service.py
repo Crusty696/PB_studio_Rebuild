@@ -10,6 +10,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
 from pathlib import Path
 
 from sqlalchemy.orm import Session
@@ -89,11 +90,13 @@ def _probe_video(file_path: str) -> dict:
 
 # Cache: Probe-Ergebnisse pro Dateipfad (gleiche Datei wird oft mehrfach referenziert)
 _probe_cache: dict[str, dict] = {}
+_probe_cache_lock = threading.Lock()
 
 
 def clear_probe_cache():
     """H-3 FIX: Clears the probe cache to prevent unbounded memory growth and stale data."""
-    _probe_cache.clear()
+    with _probe_cache_lock:
+        _probe_cache.clear()
     logger.debug("[Export] Probe cache cleared")
 
 
@@ -103,9 +106,10 @@ def _needs_preprocessing(file_path: str, target_w: int, target_h: int,
 
     True wenn: andere Aufloesung, andere FPS, oder nicht-H.264 Codec.
     """
-    if file_path not in _probe_cache:
-        _probe_cache[file_path] = _probe_video(file_path)
-    info = _probe_cache[file_path]
+    with _probe_cache_lock:
+        if file_path not in _probe_cache:
+            _probe_cache[file_path] = _probe_video(file_path)
+        info = _probe_cache[file_path]
     if not info:
         return True  # Im Zweifel: standardisieren
     # Aufloesung pruefen (Toleranz: exakt match oder kleiner mit Padding)
@@ -185,10 +189,14 @@ def export_timeline(project_id: int = 1, output_name: str = "output.mp4",
                     progress_cb=None) -> str:
     """Exportiert alle Timeline-Eintraege als zusammengeschnittenes Video."""
     # BUG-003: Cache leeren — re-enkodierte Proxies haetten sonst veraltete Metadaten
-    _probe_cache.clear()
+    # M-7 FIX: Use thread-safe clear function instead of direct dict access
+    clear_probe_cache()
     # F-sprint3: Validiere Resolution frueh — vor DB-Zugriff und Dateisystem-Operationen
     try:
         w, h = resolution.split("x")
+        # M-28 FIX: Validate that width and height are numeric
+        int(w)
+        int(h)
     except ValueError:
         raise ValueError(
             f"Ungültige Auflösung Format: '{resolution}'. Erwartet: WIDTHxHEIGHT (z.B. '1920x1080')"
@@ -791,7 +799,8 @@ def export_preview(project_id: int = 1, resolution: str = "1920x1080",
     Identisch zu export_timeline(), aber begrenzt auf duration_limit Sekunden.
     Gibt den Pfad zur temporaeren Preview-Datei zurueck.
     """
-    _probe_cache.clear()
+    # M-7 FIX: Use thread-safe clear function instead of direct dict access
+    clear_probe_cache()
     try:
         w, h = resolution.split("x")
     except ValueError:

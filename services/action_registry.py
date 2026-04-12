@@ -20,6 +20,9 @@ logger = logging.getLogger(__name__)
 # Minimaler Score (0-100) für Fuzzy-Matching. Darunter wird keine Aktion akzeptiert.
 FUZZY_THRESHOLD = 55
 
+# L-17 FIX: Cache for inspect.signature results to avoid repeated calls
+_signature_cache: dict[Callable, Any] = {}
+
 
 @dataclass
 class ActionDef:
@@ -178,7 +181,10 @@ class ActionRegistry:
 
         # Tolerante Parameter: Unbekannte Keys werden entfernt (mit Hinweis)
         import inspect
-        sig = inspect.signature(action.handler)
+        # L-17 FIX: Use cached signature instead of calling inspect.signature every time
+        if action.handler not in _signature_cache:
+            _signature_cache[action.handler] = inspect.signature(action.handler)
+        sig = _signature_cache[action.handler]
         valid_params = set(sig.parameters.keys())
         filtered = {k: v for k, v in params.items() if k in valid_params}
 

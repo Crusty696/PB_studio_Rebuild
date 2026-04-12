@@ -66,15 +66,17 @@ class VideoAnalysisController(PBComponent):
 
         worker = VideoBatchAnalysisWorker(batch)
         worker.task_id = task.task_id
-        worker.item_done.connect(self._on_video_batch_item_done)
-        worker.item_error.connect(self._on_video_batch_item_error)
+        worker.item_done.connect(self._on_video_batch_item_done, Qt.ConnectionType.QueuedConnection)
+        worker.item_error.connect(self._on_video_batch_item_error, Qt.ConnectionType.QueuedConnection)
         worker.finished.connect(
-            lambda done, errors: self._on_video_batch_finished(done, errors, task.task_id)
+            self.window,
+            lambda done, errors: self._on_video_batch_finished(done, errors, task.task_id),
+            Qt.ConnectionType.QueuedConnection
         )
-        worker.error.connect(lambda err: (
+        worker.error.connect(self.window, lambda err: (
             self.window.console_text.append(f"[Video-Batch] Kritischer Fehler: {err}"),
             self._on_video_batch_finished(0, 1, task.task_id),
-        ))
+        ), Qt.ConnectionType.QueuedConnection)
         self._video_batch_total = len(batch)
         self._video_batch_done = 0
         self._video_batch_errors = 0
@@ -164,13 +166,19 @@ class VideoAnalysisController(PBComponent):
         worker = VideoAnalysisPipelineWorker(batch=batch)
         worker.task_id = task.task_id
         worker.progress.connect(
-            lambda pct, msg: self._on_pipeline_progress(pct, msg, task.task_id)
+            self.window,
+            lambda pct, msg: self._on_pipeline_progress(pct, msg, task.task_id),
+            Qt.ConnectionType.QueuedConnection
         )
         worker.finished.connect(
-            lambda cid, r: self._on_pipeline_finished(cid, r, label, task.task_id)
+            self.window,
+            lambda cid, r: self._on_pipeline_finished(cid, r, label, task.task_id),
+            Qt.ConnectionType.QueuedConnection
         )
         worker.error.connect(
-            lambda cid, err: self._on_pipeline_error(cid, err, task.task_id)
+            self.window,
+            lambda cid, err: self._on_pipeline_error(cid, err, task.task_id),
+            Qt.ConnectionType.QueuedConnection
         )
 
         self.window.worker_dispatcher._start_worker_thread(worker)
@@ -228,10 +236,14 @@ class VideoAnalysisController(PBComponent):
         worker = ProxyCreationWorker(clip_id, video_path)
         worker.task_id = task.task_id
         worker.finished.connect(
-            lambda cid, path: self._on_proxy_finished(cid, path, title, task.task_id)
+            self.window,
+            lambda cid, path: self._on_proxy_finished(cid, path, title, task.task_id),
+            Qt.ConnectionType.QueuedConnection
         )
         worker.error.connect(
-            lambda cid, err: self._on_proxy_error(cid, err, title, task.task_id)
+            self.window,
+            lambda cid, err: self._on_proxy_error(cid, err, title, task.task_id),
+            Qt.ConnectionType.QueuedConnection
         )
 
         self.window.worker_dispatcher._start_worker_thread(worker)

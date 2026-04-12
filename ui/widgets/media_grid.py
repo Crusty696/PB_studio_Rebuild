@@ -481,11 +481,10 @@ class MediaPoolGrid(QWidget):
             return
         self._in_relayout = True
         try:
-            # Stop pending thumbnail threads and wait for cleanup
+            # Stop pending thumbnail threads (H-29 fix: non-blocking)
             for t in self._thumb_threads:
                 t.quit()
-            for t in self._thumb_threads:
-                t.wait(200)
+            # No blocking wait() - threads clean up asynchronously
             self._thumb_threads.clear()
 
             # Remove all cards from layout and delete

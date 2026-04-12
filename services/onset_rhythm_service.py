@@ -24,6 +24,9 @@ from services.audio_constants import DEFAULT_SR, HOP_LENGTH
 
 logger = logging.getLogger(__name__)
 
+# M-17 Fix: Prevent RAM exhaustion from long files (30 min ≈ 650 MB at 22050 Hz mono)
+MAX_DURATION_SEC = 1800  # 30 minutes
+
 # ── Mel-Band Grenzen (bei N_MELS=128, sr=22050) ──────────────────────────────
 # Kick:  Mel-Bins  0–20  ≈   0–250 Hz  (Low/Sub, perkussiver Impact)
 # Snare: Mel-Bins 20–80  ≈ 250–4000 Hz (Mid, Crack und Body)
@@ -504,7 +507,14 @@ class OnsetRhythmService:
             drums_path = track.stem_drums_path
 
         try:
-            y, sr = librosa.load(audio_path, sr=DEFAULT_SR, mono=True)
+            # M-17 Fix: Load with duration limit to prevent RAM exhaustion
+            y, sr = librosa.load(audio_path, sr=DEFAULT_SR, mono=True, duration=MAX_DURATION_SEC)
+            actual_duration = len(y) / sr
+            if actual_duration >= MAX_DURATION_SEC - 1:
+                logger.warning(
+                    "Audio truncated to %d sec (file may be longer): %s",
+                    MAX_DURATION_SEC, audio_path
+                )
         except (OSError, IOError, ValueError) as e:
             logger.error("Audio-Load fehlgeschlagen '%s': %s", audio_path, e)
             return None

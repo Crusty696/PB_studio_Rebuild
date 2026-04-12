@@ -298,8 +298,8 @@ class AudioClassifyService:
             )
 
         except (OSError, IOError, ValueError, RuntimeError) as e:
+            # M-16 Fix: Remove redundant warning (exception already logs stack trace + message)
             log.exception("classify() fehlgeschlagen fuer %s", file_path)
-            log.warning("classify(): fallback result returned due to: %s", e)
             return _fallback_result("Analyse-Fehler")
 
     def detect_dj_mix(self, file_path: str) -> bool:

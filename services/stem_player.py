@@ -111,6 +111,11 @@ class StemPlayer(QObject):
     def state(self) -> str:
         return self._state
 
+    def _set_state_safe(self, new_state: str):
+        """M-19 FIX: Thread-safe state setter for use in callbacks."""
+        with self._lock:
+            self._state = new_state
+
     @property
     def is_loaded(self) -> bool:
         return self._total_frames > 0
@@ -432,7 +437,8 @@ class StemPlayer(QObject):
         if peak > 0.95:
             scale = 1.0 / max(peak, 0.01)
             np.multiply(mix, scale, out=mix)
-            np.tanh(mix, out=mix)
+            # M-18 FIX: Use np.clip() instead of np.tanh() in RT callback for performance
+            np.clip(mix, -1.0, 1.0, out=mix)
             np.multiply(mix, 0.95, out=mix)
 
         # H-01: outdata[:frames] statt [:actual_frames] ist korrekt:
@@ -456,7 +462,8 @@ class StemPlayer(QObject):
         daher alles via QTimer.singleShot(0, ...) in den GUI-Thread verlagern.
         """
         QTimer.singleShot(0, self._pos_timer.stop)
-        QTimer.singleShot(0, lambda: setattr(self, '_state', 'stopped'))
+        # M-19 FIX: Use thread-safe state setter instead of direct setattr
+        QTimer.singleShot(0, lambda: self._set_state_safe('stopped'))
         QTimer.singleShot(0, lambda: self.playback_finished.emit())
         QTimer.singleShot(0, lambda: self.state_changed.emit("stopped"))
 

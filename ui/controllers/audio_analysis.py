@@ -57,12 +57,18 @@ class AudioAnalysisController(PBComponent):
         task = task_manager.create_task(f"Key: {title}", "Key-Erkennung (Krumhansl-Kessler)")
         worker = KeyDetectionWorker(track_id, file_path)
         worker.task_id = task.task_id
-        worker.progress.connect(lambda pct, msg: self.window._console_append(f"[Key] {msg}"))
+        worker.progress.connect(
+            lambda pct, msg: self.window._console_append(f"[Key] {msg}"),
+            Qt.ConnectionType.QueuedConnection
+        )
         worker.finished.connect(lambda tid, res: (
             self.window._console_append(f"[Key] Erkannt: {res.get('key','?')} ({res.get('camelot','?')}) Conf={res.get('confidence',0):.0%}"),
             self.window.media_table_controller._refresh_media_table_debounced(),
-        ))
-        worker.error.connect(lambda tid, err: self.window._console_append(f"[Key] Fehler: {err}"))
+        ), Qt.ConnectionType.QueuedConnection)
+        worker.error.connect(
+            lambda tid, err: self.window._console_append(f"[Key] Fehler: {err}"),
+            Qt.ConnectionType.QueuedConnection
+        )
         self.window.worker_dispatcher._start_worker_thread(worker)
         self.window.console_text.append(f"[Key] Starte Key-Erkennung für '{title}'...")
 
@@ -76,12 +82,18 @@ class AudioAnalysisController(PBComponent):
         task = task_manager.create_task(f"LUFS: {title}", "LUFS-Analyse (EBU R128)")
         worker = LUFSAnalysisWorker(track_id, file_path)
         worker.task_id = task.task_id
-        worker.progress.connect(lambda pct, msg: self.window._console_append(f"[LUFS] {msg}"))
+        worker.progress.connect(
+            lambda pct, msg: self.window._console_append(f"[LUFS] {msg}"),
+            Qt.ConnectionType.QueuedConnection
+        )
         worker.finished.connect(lambda tid, res: (
             self.window._console_append(f"[LUFS] Integrated: {res.get('integrated',0):.1f} dB, LRA: {res.get('loudness_range',0):.1f} LU, TP: {res.get('true_peak',0):.1f} dBTP"),
             self.window.media_table_controller._refresh_media_table_debounced(),
-        ))
-        worker.error.connect(lambda tid, err: self.window._console_append(f"[LUFS] Fehler: {err}"))
+        ), Qt.ConnectionType.QueuedConnection)
+        worker.error.connect(
+            lambda tid, err: self.window._console_append(f"[LUFS] Fehler: {err}"),
+            Qt.ConnectionType.QueuedConnection
+        )
         self.window.worker_dispatcher._start_worker_thread(worker)
         self.window.console_text.append(f"[LUFS] Starte LUFS-Analyse für '{title}'...")
 
@@ -95,12 +107,18 @@ class AudioAnalysisController(PBComponent):
         task = task_manager.create_task(f"Struktur: {title}", "Song-Struktur Erkennung")
         worker = StructureDetectionWorker(track_id, file_path, bpm=bpm)
         worker.task_id = task.task_id
-        worker.progress.connect(lambda pct, msg: self.window._console_append(f"[Struktur] {msg}"))
+        worker.progress.connect(
+            lambda pct, msg: self.window._console_append(f"[Struktur] {msg}"),
+            Qt.ConnectionType.QueuedConnection
+        )
         worker.finished.connect(lambda tid, res: (
             self.window._console_append(f"[Struktur] {len(res.get('segments',[]))} Segmente erkannt"),
             self.window.media_table_controller._refresh_media_table_debounced(),
-        ))
-        worker.error.connect(lambda tid, err: self.window._console_append(f"[Struktur] Fehler: {err}"))
+        ), Qt.ConnectionType.QueuedConnection)
+        worker.error.connect(
+            lambda tid, err: self.window._console_append(f"[Struktur] Fehler: {err}"),
+            Qt.ConnectionType.QueuedConnection
+        )
         self.window.worker_dispatcher._start_worker_thread(worker)
         self.window.console_text.append(f"[Struktur] Starte Struktur-Erkennung für '{title}'...")
 
@@ -150,10 +168,22 @@ class AudioAnalysisController(PBComponent):
         task = task_manager.create_task(f"Audio: {title}", "BPM + Beat-Analyse")
         worker = AnalysisWorker(track_id, title)
         worker.task_id = task.task_id
-        worker.started.connect(self._on_analysis_started)
-        worker.finished.connect(lambda tid, r: self._on_analysis_finished(tid, r, task.task_id))
-        worker.error.connect(lambda tid, err: self._on_analysis_error(tid, err, task.task_id))
-        worker.progress.connect(lambda pct, msg: self.window._console_append(f"[Audio] {msg}"))
+        worker.started.connect(self._on_analysis_started, Qt.ConnectionType.QueuedConnection)
+        worker.finished.connect(
+            self.window,
+            lambda tid, r: self._on_analysis_finished(tid, r, task.task_id),
+            Qt.ConnectionType.QueuedConnection
+        )
+        worker.error.connect(
+            self.window,
+            lambda tid, err: self._on_analysis_error(tid, err, task.task_id),
+            Qt.ConnectionType.QueuedConnection
+        )
+        worker.progress.connect(
+            self.window,
+            lambda pct, msg: self.window._console_append(f"[Audio] {msg}"),
+            Qt.ConnectionType.QueuedConnection
+        )
 
         self.window.btn_analyze.setEnabled(False)
         self.window.btn_analyze.setText("Analyse laeuft...")
@@ -216,13 +246,19 @@ class AudioAnalysisController(PBComponent):
         worker = WaveformAnalysisWorker(track_id)
         worker.task_id = task.task_id
         worker.progress.connect(
-            lambda pct, msg: self._on_waveform_progress(pct, msg, task.task_id)
+            self.window,
+            lambda pct, msg: self._on_waveform_progress(pct, msg, task.task_id),
+            Qt.ConnectionType.QueuedConnection
         )
         worker.finished.connect(
-            lambda tid, r: self._on_waveform_finished(tid, r, title, task.task_id)
+            self.window,
+            lambda tid, r: self._on_waveform_finished(tid, r, title, task.task_id),
+            Qt.ConnectionType.QueuedConnection
         )
         worker.error.connect(
-            lambda tid, err: self._on_waveform_error(tid, err, task.task_id)
+            self.window,
+            lambda tid, err: self._on_waveform_error(tid, err, task.task_id),
+            Qt.ConnectionType.QueuedConnection
         )
 
         self.window.btn_waveform.setEnabled(False)

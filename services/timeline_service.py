@@ -8,6 +8,7 @@ Konvertierungsfunktion list() MUSS vor Zugriff auf audio_features aufgerufen wer
 from __future__ import annotations
 
 import logging
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +23,9 @@ from database import APP_ROOT, engine, get_active_project_id
 from database import TimelineEntry
 from sqlalchemy.orm import Session
 
+# M-12 Fix: Thread-safe lock for timeline writes to prevent data races
+_timeline_write_lock = threading.Lock()
+
 EXPORTS_DIR = APP_ROOT / "exports"
 
 # PB Studio namespace in OTIO metadata
@@ -35,6 +39,8 @@ def apply_auto_edit_segments(segments: list[dict], project_id: int | None = None
     Atomar: DELETE + INSERT in einer einzigen Transaktion.
     Verwendet eine eigene NullPool-Engine um DB-Lock durch verwaiste
     Pool-Connections anderer Worker zu umgehen.
+
+    M-12 Fix: Thread-safe with lock to prevent data races on concurrent calls.
     Returns: Anzahl der eingefuegten Eintraege.
     """
     import time as _time
@@ -43,25 +49,27 @@ def apply_auto_edit_segments(segments: list[dict], project_id: int | None = None
     if project_id is None:
         project_id = get_active_project_id()
 
-    for attempt in range(max_retries):
-        try:
-            if attempt > 0:
-                # H-15 FIX: Don't dispose shared engine in retry loop — just wait
-                _time.sleep(1)
-            return _do_apply_segments(segments, project_id)
-        except OperationalError as e:
-            if "database is locked" in str(e) and attempt < max_retries - 1:
-                wait = 5 * (attempt + 1)
-                logger.warning("DB locked bei Timeline-Write, Retry %d/%d (warte %ds)...",
-                               attempt + 1, max_retries, wait)
-                _time.sleep(wait)
-            else:
-                raise
+    # M-12 Fix: Acquire lock to serialize timeline writes and prevent race conditions
+    with _timeline_write_lock:
+        for attempt in range(max_retries):
+            try:
+                if attempt > 0:
+                    # H-15 FIX: Don't dispose shared engine in retry loop — just wait
+                    _time.sleep(1)
+                return _do_apply_segments(segments, project_id)
+            except OperationalError as e:
+                if "database is locked" in str(e) and attempt < max_retries - 1:
+                    wait = 5 * (attempt + 1)
+                    logger.warning("DB locked bei Timeline-Write, Retry %d/%d (warte %ds)...",
+                                   attempt + 1, max_retries, wait)
+                    _time.sleep(wait)
+                else:
+                    raise
 
 
 def _do_apply_segments(segments: list[dict], project_id: int) -> int:
     from database import APP_ROOT
-    from sqlalchemy import create_engine as _create_engine, event as _event
+    from sqlalchemy import create_engine as _create_engine, event as _event, text as _text
     from sqlalchemy.pool import NullPool
 
     db_path = APP_ROOT / 'pb_studio.db'
@@ -70,6 +78,8 @@ def _do_apply_segments(segments: list[dict], project_id: int) -> int:
         echo=False,
         connect_args={"check_same_thread": False, "timeout": 30},
         poolclass=NullPool,
+        # M-12 Fix: Use SERIALIZABLE isolation to prevent phantom reads during concurrent access
+        isolation_level="SERIALIZABLE",
     )
 
     @_event.listens_for(_eng, "connect")
@@ -82,6 +92,10 @@ def _do_apply_segments(segments: list[dict], project_id: int) -> int:
 
     try:
         with Session(_eng) as session:
+            # M-12 Fix: Start transaction with IMMEDIATE lock to prevent race conditions
+            # This acquires a write lock immediately, preventing other writers
+            session.connection().execute(text("BEGIN IMMEDIATE"))
+
             session.query(TimelineEntry).filter_by(
                 project_id=project_id, track="video"
             ).delete()

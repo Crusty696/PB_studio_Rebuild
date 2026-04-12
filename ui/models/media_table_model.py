@@ -1,6 +1,7 @@
 """QAbstractTableModel for efficient Media Pool rendering (Fix F-006)."""
 
 from __future__ import annotations
+from typing import Any
 from PySide6.QtCore import Qt, QAbstractTableModel, QModelIndex
 import logging
 
@@ -71,7 +72,7 @@ class MediaTableModel(QAbstractTableModel):
 
         return None
 
-    def setData(self, index: QModelIndex, value: any, role: int = Qt.ItemDataRole.EditRole) -> bool:
+    def setData(self, index: QModelIndex, value: Any, role: int = Qt.ItemDataRole.EditRole) -> bool:
         if role == Qt.ItemDataRole.CheckStateRole and self._keys[index.column()] == "_chk":
             item_id = self._items[index.row()]["id"]
             if value == Qt.CheckState.Checked:

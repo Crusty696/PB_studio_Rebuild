@@ -50,14 +50,6 @@ class VideoAnalysisWorker(QObject, CancellableMixin):
             self._errored = True
             self.error.emit(self.clip_id, format_user_error(e))
         finally:
-            # VRAM-Schutz: GPU-Speicher freigeben
-            try:
-                import torch
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-            except ImportError as e:
-                logger.warning("torch not available for VRAM cleanup after video analysis: %s", e)
-            gc.collect()
             if not _ok and not self._errored:
                 self.finished.emit(self.clip_id, {})
 
@@ -108,8 +100,6 @@ class VideoBatchAnalysisWorker(QObject, CancellableMixin):
                     logger.error("BatchAnalysis[%d] '%s' failed: %s\n%s",
                                  clip_id, title, e, traceback.format_exc())
                     self.item_error.emit(clip_id, format_user_error(e))
-                finally:
-                    gc.collect()
 
             self.progress.emit(100, f"Batch fertig: {done}/{total}")
             self.finished.emit(done, errors)
@@ -205,8 +195,8 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                 from services.model_manager import ModelManager, GPU_LOAD_LOCK
                 # AUD-35 Fix: SigLIP + RAFT muessen innerhalb eines einzigen GPU_LOAD_LOCK-Blocks
                 # geladen werden. Ein Gap zwischen den beiden Locks erlaubt anderen Threads
-                # (z.B. BeatAnalysisService), GPU_LOAD_LOCK zu akquirieren und load_whisper()
-                # aufzurufen, was unload() triggert und SigLIP-Tensoren auf CPU verschiebt.
+                # (z.B. BeatAnalysisService), GPU_LOAD_LOCK zu akquirieren und ein anderes Modell
+                # zu laden, was unload() triggert und SigLIP-Tensoren auf CPU verschiebt.
                 # Die siglip_model_processor-Referenz zeigte danach auf CPU-Tensoren waehrend
                 # Inputs auf CUDA lagen → CUDA RuntimeError.
                 # Fix: mm.load_raft() direkt aufrufen (nutzt nur _swap_lock intern),
@@ -307,9 +297,10 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                         )
                         continue  # naechstes Video statt Abbruch
                     finally:
-                        # F-036 Fix: gc.collect() nur alle 25 Videos um Main-Thread Pausen zu minimieren
+                        # F-036 Fix: Cleanup sicher via Main-Thread anfordern
                         if idx % 25 == 0:
-                            gc.collect()
+                            from services.task_manager import GlobalTaskManager
+                            GlobalTaskManager.instance().request_gc_signal.emit()
 
                 # ── BATCH-CLEANUP: SigLIP + RAFT am Ende der gesamten Batch entladen ──
                 if raft_model_device is not None:
@@ -415,13 +406,6 @@ class VisionAnalysisWorker(QObject, CancellableMixin):
             self._errored = True
             self.error.emit(self.clip_id, format_user_error(e))
         finally:
-            try:
-                import torch
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-            except ImportError as e:
-                logger.warning("torch not available for VRAM cleanup after vision analysis: %s", e)
-            gc.collect()
             if not _ok and not self._errored:
                 self.finished.emit(self.clip_id, {})
 

@@ -203,6 +203,25 @@ class BatchConvertWorker(QObject, CancellableMixin):
             except (ValueError, IndexError) as e:
                 raise ValueError(f"Ungültige Auflösung '{self.resolution}': {e}")
 
+            # M-44 Fix: Validate FPS and vcodec parameters
+            try:
+                fps_float = float(self.fps)
+                if fps_float <= 0 or fps_float > 240:
+                    raise ValueError("FPS muss zwischen 0 und 240 liegen")
+            except (ValueError, TypeError) as e:
+                raise ValueError(f"Ungültiger FPS-Wert '{self.fps}': {e}")
+
+            # Whitelist known safe video codecs
+            ALLOWED_VCODECS = {
+                "libx264", "libx265", "h264_nvenc", "hevc_nvenc",
+                "libvpx", "libvpx-vp9", "libaom-av1", "copy"
+            }
+            if self.vcodec not in ALLOWED_VCODECS:
+                raise ValueError(
+                    f"Nicht unterstützter Codec '{self.vcodec}'. "
+                    f"Erlaubte Codecs: {', '.join(sorted(ALLOWED_VCODECS))}"
+                )
+
             for i, v in enumerate(self.videos):
                 if self.should_stop():
                     break

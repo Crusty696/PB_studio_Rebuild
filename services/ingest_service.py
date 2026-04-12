@@ -1,17 +1,21 @@
 import json
 import logging
 import os
+import shutil
 from pathlib import Path
 
 from sqlalchemy.orm import Session
 
 from database import engine, AudioTrack, VideoClip, StructureSegment
 from services.timeout_constants import FFMPEG_PROBE_TIMEOUT_SEC
-
-_FFPROBE = os.environ.get("FFPROBE_PATH", "ffprobe")
 from services.vector_db_service import VectorDBService
 
 logger = logging.getLogger(__name__)
+
+# FFmpeg/FFprobe Pfade werden zentral in main.py via PATH injiziert.
+# Hier erlauben wir Overrides via Umgebungsvariablen.
+_FFPROBE = os.environ.get("FFPROBE_PATH", "ffprobe")
+_FFMPEG = os.environ.get("FFMPEG_PATH", "ffmpeg")
 
 
 def _json_loads_safe(value):
@@ -517,10 +521,7 @@ def import_video_folder(
             logger.warning("Datei nicht mehr vorhanden, uebersprungen: %s", video_file)
             skipped += 1
             continue
-        if video_file.suffix.lower() not in VIDEO_EXTENSIONS:
-            logger.warning("Unbekannte Extension, uebersprungen: %s", video_file.name)
-            skipped += 1
-            continue
+        # L-4 FIX: Extension check removed - already filtered by glob above
         try:
             clip = ingest_video(str(video_file), project_id=project_id)
             if clip:
@@ -530,7 +531,7 @@ def import_video_folder(
         except (FileNotFoundError, ValueError, OSError) as e:
             logger.warning("Import uebersprungen: %s — %s", video_file.name, e)
             skipped += 1
-        except (OSError, IOError, RuntimeError) as e:
+        except (IOError, RuntimeError) as e:
             logger.error("Unerwarteter Fehler bei Import von %s: %s", video_file.name, e)
             skipped += 1
 

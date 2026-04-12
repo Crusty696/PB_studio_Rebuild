@@ -27,7 +27,7 @@ except ImportError:
     _TORCH_AVAILABLE = False
 from sqlalchemy.orm import Session
 
-from database import engine, AudioTrack, WaveformData, APP_ROOT
+from database import engine, AudioTrack, WaveformData, APP_ROOT, nullpool_session
 
 from services.model_manager import ModelManager, oom_recovery
 
@@ -251,14 +251,16 @@ class StemSeparator:
                         del chunk_gpu
                         torch.cuda.empty_cache()
                         gc.collect()
-                        # Retry mit halber Chunk-Laenge (nur den aktuellen Chunk)
+                        # M-15 Fix: Retry mit halber Chunk-Laenge (nur den aktuellen Chunk)
+                        # Allocate and process chunks sequentially to avoid double GPU allocation
                         half = chunk.shape[1] // 2
                         chunk_gpu_a = chunk[:, :half].unsqueeze(0).to(device)
-                        chunk_gpu_b = chunk[:, half:].unsqueeze(0).to(device)
                         try:
                             est_a = apply_model(demucs_model, chunk_gpu_a, overlap=0.25, progress=False)
                             del chunk_gpu_a
                             torch.cuda.empty_cache()
+                            # Only allocate second chunk after first is freed
+                            chunk_gpu_b = chunk[:, half:].unsqueeze(0).to(device)
                             est_b = apply_model(demucs_model, chunk_gpu_b, overlap=0.25, progress=False)
                             del chunk_gpu_b
                             torch.cuda.empty_cache()
@@ -359,7 +361,8 @@ class StemSeparator:
         except (OSError, IOError, ValueError, RuntimeError) as e:
             raise RuntimeError(f"Stem-Separation fehlgeschlagen fuer Track {track_id}: {e}") from e
 
-        with Session(engine) as session:
+        # M-14 Fix: Use nullpool_session() to avoid "database is locked" under concurrent writes
+        with nullpool_session() as session:
             track = session.get(AudioTrack, track_id)
             if track is None:
                 raise ValueError(f"AudioTrack {track_id} nach Separation nicht mehr gefunden")

@@ -14,7 +14,8 @@ from services.errors import MigrationError
 logger = logging.getLogger(__name__)
 
 # Alembic baseline revision — must match the revision in the initial migration file.
-_ALEMBIC_BASELINE_REV = "f10de11c421c"
+# M-41 Fix: Updated to match actual initial migration revision
+_ALEMBIC_BASELINE_REV = "beb242bcd1fb"
 
 
 def _needs_fk_cascade_migration(insp) -> bool:
@@ -65,7 +66,9 @@ def _migrate_fk_cascade():
     if db_path.exists():
         backup_path = db_path.with_suffix(".db.backup_before_fk_migration")
         shutil.copy2(db_path, backup_path)
-        # Sicherheits-Check: Backup muss existieren und gleiche Groesse haben
+
+        # M-6 Fix: Enhanced backup verification
+        # 1. Check: Backup must exist and have same size
         original_size = db_path.stat().st_size
         backup_size = backup_path.stat().st_size if backup_path.exists() else 0
         if not backup_path.exists() or backup_size != original_size:
@@ -73,6 +76,24 @@ def _migrate_fk_cascade():
                 f"FK-Migration abgebrochen: Backup-Verifikation fehlgeschlagen "
                 f"(original={original_size}B, backup={backup_size}B). Daten unveraendert."
             )
+
+        # 2. Check: Backup must be a valid, readable SQLite database
+        import sqlite3
+        try:
+            with sqlite3.connect(str(backup_path), timeout=5.0) as backup_conn:
+                cursor = backup_conn.cursor()
+                # Verify we can read the schema (ensures DB is not corrupted)
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' LIMIT 1")
+                cursor.fetchone()
+        except (sqlite3.Error, OSError) as e:
+            # If backup is unreadable, remove it and fail the migration
+            if backup_path.exists():
+                backup_path.unlink()
+            raise MigrationError(
+                f"FK-Migration abgebrochen: Backup ist nicht lesbar oder korrupt ({e}). "
+                f"Daten unveraendert."
+            ) from e
+
         logger.info("FK-CASCADE Migration: Backup verifiziert (%d Bytes): %s", backup_size, backup_path)
 
     logger.info("FK-CASCADE Migration: Recreating tables with ON DELETE CASCADE...")
@@ -289,6 +310,14 @@ def _run_legacy_migrations():
                             continue
                         stmt += f" DEFAULT {col_default}"
                     conn.execute(text(stmt))
+
+    # K3 Fix: transcription Spalte in audio_tracks nachrüsten
+    insp = inspect(get_raw_engine())
+    if "audio_tracks" in insp.get_table_names():
+        at_columns = {c["name"] for c in insp.get_columns("audio_tracks")}
+        with engine.begin() as conn:
+            if "transcription" not in at_columns:
+                conn.execute(text("ALTER TABLE audio_tracks ADD COLUMN transcription TEXT"))
 
     # F-001 Fix: playback_offset in video_clips nachrüsten
     insp = inspect(get_raw_engine())

@@ -105,6 +105,7 @@ class TimelineClipItem(QGraphicsRectItem):
         self._trim_start_width: float = 0.0
         self._trim_start_pos_x: float = 0.0
         self._drag_start_x: float | None = None
+        self._drag_duration: float | None = None  # H-34 fix: cache duration for non-blocking flush
 
         self.setPos(x, y)
         self.setFlag(QGraphicsRectItem.GraphicsItemFlag.ItemIsMovable, True)
@@ -300,9 +301,15 @@ class TimelineClipItem(QGraphicsRectItem):
         if self._trim_mode:
             return super().itemChange(change, value)
         if change == QGraphicsRectItem.GraphicsItemChange.ItemPositionChange:
-            # Drag-Start merken (erste Bewegung)
+            # Drag-Start merken (erste Bewegung) + H-34 fix: cache duration
             if self._drag_start_x is None:
                 self._drag_start_x = self.pos().x()
+                # Cache duration from DB to avoid blocking read during flush
+                from database import nullpool_session, TimelineEntry
+                with nullpool_session() as session:
+                    entry = session.get(TimelineEntry, self.entry_id)
+                    if entry and entry.end_time is not None:
+                        self._drag_duration = entry.end_time - entry.start_time
             new_pos = QPointF(max(0, value.x()), self._track_y)
             return new_pos
         if change == QGraphicsRectItem.GraphicsItemChange.ItemPositionHasChanged:
@@ -330,6 +337,7 @@ class TimelineClipItem(QGraphicsRectItem):
             return
         super().mouseReleaseEvent(event)
         self._drag_start_x = None
+        self._drag_duration = None  # H-34 fix: clear cached duration
 
 
 # ======================================================================
@@ -963,13 +971,13 @@ class InteractiveTimeline(QGraphicsView):
         self._move_timer.start()
 
     def _flush_pending_moves(self):
-        """Schreibt alle Drag-Zustaende in die DB (via UndoCommand, als Macro bei Multi-Select)."""
+        """Schreibt alle Drag-Zustaende in die DB (via UndoCommand, als Macro bei Multi-Select).
+        H-34 fix: Uses cached duration to avoid blocking DB reads on GUI thread."""
         if not self._pending_moves:
             return
         moves = dict(self._pending_moves)
         self._pending_moves.clear()
 
-        from database import nullpool_session
         from ui.undo_commands import MoveClipCommand
 
         use_macro = len(moves) > 1
@@ -979,25 +987,21 @@ class InteractiveTimeline(QGraphicsView):
         try:
             for entry_id, new_start in moves.items():
                 clip_item = self._find_clip_item(entry_id)
-                drag_start_x = clip_item._drag_start_x if clip_item else None
+                if not clip_item:
+                    continue
 
-                with nullpool_session() as session:
-                    entry = session.get(TimelineEntry, entry_id)
-                    if not entry:
-                        continue
-                    old_start = entry.start_time
-                    old_end = entry.end_time
+                # Use cached values from drag start - no DB read needed
+                drag_start_x = clip_item._drag_start_x
+                duration = clip_item._drag_duration
 
-                    if drag_start_x is not None:
-                        old_start = max(0, drag_start_x / PIXELS_PER_SECOND)
-                        if old_end is not None:
-                            duration = entry.end_time - entry.start_time
-                            old_end = round(old_start + duration, 3)
+                if drag_start_x is None or duration is None:
+                    # Fallback: skip this clip if no cached data
+                    logger.warning("Clip %d: No cached drag data, skipping flush", entry_id)
+                    continue
 
-                    new_end = None
-                    if entry.end_time is not None:
-                        duration = entry.end_time - entry.start_time
-                        new_end = round(new_start + duration, 3)
+                old_start = max(0, drag_start_x / PIXELS_PER_SECOND)
+                old_end = round(old_start + duration, 3) if duration else None
+                new_end = round(new_start + duration, 3) if duration else None
 
                 cmd = MoveClipCommand(
                     timeline=self,
