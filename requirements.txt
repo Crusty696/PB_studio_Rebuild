@@ -1,3 +1,5 @@
+# LEGACY: Python 3.11 + cu124 Requirements (braucht Treiber >=550)
+# AKTIV: Fuer Surface Book 2 nutze requirements-py310-cu113.txt
 --extra-index-url https://download.pytorch.org/whl/cu124
 
 accelerate==1.13.0 ; python_version >= "3.11" and python_version < "3.13"

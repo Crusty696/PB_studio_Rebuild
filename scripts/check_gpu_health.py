@@ -21,10 +21,10 @@ MIN_DRIVER = {
     "11.6": 510.0,
 }
 
-# Ziel-Konfiguration fuer PB Studio
-TARGET_CUDA = "12.4"
-TARGET_TORCH = "2.5.1+cu124"
-TARGET_MIN_DRIVER = 550.0
+# Ziel-Konfiguration fuer PB Studio (Surface Book 2, Treiber 461.40)
+TARGET_CUDA = "11.3"
+TARGET_TORCH = "1.12.1+cu113"
+TARGET_MIN_DRIVER = 461.0
 
 
 def _run_ps(cmd: str) -> str:
@@ -103,11 +103,11 @@ def check():
         print(f"  CUDA built: {torch_cuda}")
 
         # Pruefe ob richtige CUDA-Version
-        if "+cu124" in torch_ver:
+        if "+cu113" in torch_ver:
             print(f"  OK:         Korrekte CUDA 12.4 Version")
         elif "+cu" in torch_ver:
             actual_cu = torch_ver.split("+")[1] if "+" in torch_ver else "?"
-            print(f"  FEHLER:     Falsche CUDA-Version! Installiert: {actual_cu}, erwartet: cu124")
+            print(f"  FEHLER:     Falsche CUDA-Version! Installiert: {actual_cu}, erwartet: cu113")
             print(f"              Reparatur: python scripts/fix_gpu_setup.py")
             issues.append("wrong_cuda")
         elif "+cpu" in torch_ver:
