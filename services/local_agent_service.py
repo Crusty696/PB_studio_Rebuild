@@ -1,14 +1,11 @@
 """
-Lokaler KI-Agent auf Basis eines Small Language Model (SLM).
+Lokaler KI-Agent — Gemma 4 E4B via Ollama.
 
-Läuft 100% offline auf CPU/GPU. Nutzt das ActionRegistry,
-um App-Funktionen per natürlicher Sprache auszuführen.
+Laeuft 100% offline. Nutzt das ActionRegistry,
+um App-Funktionen per natuerlicher Sprache auszufuehren.
 
-Unterstützt Multi-Action: Die KI kann mehrere Aktionen als
-JSON-Array zurückgeben, wenn der User mehrere Dinge verlangt.
-
-Nutzt den zentralen Singleton-ModelManager für Ressourcen-Schutz:
-Nur EIN Modell darf gleichzeitig im RAM/VRAM liegen.
+Unterstuetzt Multi-Action: Die KI kann mehrere Aktionen als
+JSON-Array zurueckgeben, wenn der User mehrere Dinge verlangt.
 """
 
 import concurrent.futures as _cf
@@ -18,7 +15,6 @@ import threading
 from typing import Any
 
 from services.action_registry import ActionRegistry, action_registry
-from services.model_manager import ModelManager
 from services.timeout_constants import AGENT_TASK_TIMEOUT_SEC, AGENT_TASK_LONG_TIMEOUT_SEC
 
 logger = logging.getLogger(__name__)
@@ -109,14 +105,6 @@ class LocalAgentService:
         self._device_override = device
         self._device_resolved = False
         self.device = device  # None = ModelManager waehlt automatisch (GPU-ZWANG)
-
-        # ModelManager wird LAZY initialisiert (spart ~11s Startup durch verzögerten torch-Import)
-        self._model_manager = None
-
-        self._tokenizer = None
-        self._model = None
-        self._pipe = None
-        self._loaded = False
 
         # Thread-Safety: RLock erlaubt rekursive Aufrufe im selben Thread
         self._lock = threading.RLock()
@@ -405,39 +393,9 @@ class LocalAgentService:
             return ""
 
     @property
-    def model_manager(self) -> ModelManager:
-        """Lazy ModelManager — torch wird erst beim ersten Zugriff importiert."""
-        if self._model_manager is None:
-            self._model_manager = ModelManager(device=self.device)
-        return self._model_manager
-
-    @property
     def is_loaded(self) -> bool:
-        return self._loaded
-
-    def load_model(self) -> None:
-        """Lädt Modell und Tokenizer über den ModelManager."""
-        with self._lock:
-            if self._loaded:
-                return
-
-            logger.info("Lade lokales KI-Modell: %s auf %s ...", self.model_id, self.device)
-
-            self._tokenizer, self._model, self._pipe = self.model_manager.load_transformers(
-                self.model_id
-            )
-            self._loaded = True
-            logger.info("KI-Modell geladen: %s", self.model_id)
-
-    def unload_model(self) -> None:
-        """Gibt GPU/RAM frei über den ModelManager."""
-        with self._lock:
-            self.model_manager.unload()
-            self._pipe = None
-            self._model = None
-            self._tokenizer = None
-            self._loaded = False
-            logger.info("KI-Modell entladen.")
+        """Ollama ist 'geladen' wenn verfuegbar und Modell gewaehlt."""
+        return self._use_ollama is True and self._ollama_model is not None
 
     def _build_system_prompt(self, user_query: str = "") -> str:
         """Baut den System-Prompt mit Aktionen + Medien-Kontext + Knowledge-Base + Few-Shots."""
@@ -511,14 +469,7 @@ class LocalAgentService:
         ]
 
     def _generate(self, user_text: str, max_new_tokens: int = 512) -> str:
-        """Erzeugt die rohe Modellantwort.
-
-        Fallback-Kette:
-        1. Ollama (wenn verfügbar)
-        2. Lokales HuggingFace-Modell (NUR wenn CUDA verfügbar ist)
-        3. Höfliche Fehlermeldung
-        """
-        # --- Ollama-Pfad ---
+        """Erzeugt die rohe Modellantwort via Ollama (Gemma 4 E4B)."""
         if self._use_ollama is None:
             self._use_ollama = self._auto_detect_ollama()
 
@@ -526,77 +477,10 @@ class LocalAgentService:
             try:
                 return self._generate_ollama(user_text, max_new_tokens)
             except (ConnectionError, TimeoutError, OSError, RuntimeError) as e:
-                logger.warning("LocalAgentService: Ollama-Fehler -> Fallback. %s", e)
-                self._use_ollama = False
+                logger.warning("LocalAgentService: Ollama-Fehler: %s", e)
 
-        # --- HuggingFace-Pfad (Nur mit GPU!) ---
-        try:
-            import torch
-            if not torch.cuda.is_available():
-                return ("Der KI-Dienst (Ollama) ist aktuell nicht erreichbar. "
-                        "Bitte starte Ollama oder nutze die manuellen Funktionen.")
-
-            if not self._loaded or self._pipe is None or not self.model_manager.is_loaded:
-                self._loaded = False
-                try:
-                    self.load_model()
-                except torch.cuda.OutOfMemoryError:
-                    logger.error(
-                        "LocalAgentService: CUDA OOM beim Laden von '%s' — räume auf.",
-                        self.model_id,
-                    )
-                    torch.cuda.empty_cache()
-                    self.unload_model()
-                    return ("KI-Dienst: GPU-Speicher reicht nicht für das Modell. "
-                            "Bitte Ollama verwenden oder GPU-Speicher freigeben.")
-
-            messages = self._build_messages(user_text)
-            if hasattr(self._tokenizer, "apply_chat_template"):
-                prompt_text = self._tokenizer.apply_chat_template(
-                    messages, tokenize=False, add_generation_prompt=True
-                )
-            else:
-                prompt_text = f"<|system|>\n{messages[0]['content']}\n<|user|>\n{messages[1]['content']}\n<|assistant|>\n"
-
-            try:
-                with self._lock:
-                    with _cf.ThreadPoolExecutor(max_workers=1) as _pool:
-                        _future = _pool.submit(
-                            self._pipe, prompt_text, max_new_tokens=max_new_tokens,
-                            do_sample=False, return_full_text=False,
-                        )
-                        outputs = _future.result(timeout=AGENT_TASK_TIMEOUT_SEC)
-                return outputs[0]["generated_text"].strip()
-            except torch.cuda.OutOfMemoryError:
-                logger.error(
-                    "LocalAgentService: CUDA OOM bei Inferenz für '%s' — räume auf.",
-                    self.model_id,
-                )
-                torch.cuda.empty_cache()
-                self.unload_model()
-                # CPU-Retry: Modell einmalig auf CPU neu laden und Inferenz wiederholen
-                logger.warning("LocalAgentService: OOM-Recovery — lade '%s' auf CPU.", self.model_id)
-                try:
-                    self.model_manager.device = "cpu"
-                    self.load_model()
-                    with self._lock:
-                        with _cf.ThreadPoolExecutor(max_workers=1) as _pool:
-                            _future = _pool.submit(
-                                self._pipe, prompt_text, max_new_tokens=max_new_tokens,
-                                do_sample=False, return_full_text=False,
-                            )
-                            outputs = _future.result(timeout=AGENT_TASK_LONG_TIMEOUT_SEC)
-                    logger.info("LocalAgentService: OOM-Recovery erfolgreich (CPU-Fallback).")
-                    return outputs[0]["generated_text"].strip()
-                except (RuntimeError, OSError, TimeoutError) as cpu_err:
-                    logger.error("LocalAgentService: CPU-Retry nach OOM fehlgeschlagen: %s", cpu_err)
-                    self.unload_model()
-                    return ("KI-Dienst: GPU-Speicher erschöpft, CPU-Fallback fehlgeschlagen. "
-                            "Bitte Ollama nutzen oder App neu starten.")
-
-        except (ImportError, RuntimeError, MemoryError) as e:
-            logger.error("LocalAgentService: Kritischer Fehler im KI-Fallback: %s", e)
-            return "KI-Dienst momentan nicht verfuegbar. (Verbindung zu Ollama fehlgeschlagen)"
+        return ("Der KI-Dienst (Ollama) ist aktuell nicht erreichbar. "
+                "Bitte starte Ollama oder nutze die manuellen Funktionen.")
 
     @staticmethod
     def _extract_json(raw: str) -> list[dict]:
