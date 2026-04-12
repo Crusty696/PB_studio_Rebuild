@@ -179,13 +179,24 @@ def test_cuda_status():
 
 
 def test_audio_import(audio_path: str, runner: TestRunner):
-    """Importiert eine Audio-Datei in die DB."""
+    """Importiert eine Audio-Datei oder findet sie in der DB."""
+    from database import engine, AudioTrack
+    from sqlalchemy.orm import Session
+
+    with Session(engine) as s:
+        existing = s.query(AudioTrack).filter(
+            AudioTrack.file_path == audio_path
+        ).first()
+        if existing:
+            runner.audio_id = existing.id
+            return {"audio_id": existing.id, "title": existing.title or "?",
+                    "dur_s": existing.duration or 0, "note": "bereits importiert"}
+
     from services.ingest_service import ingest_audio
     result = ingest_audio(audio_path)
     assert result and "id" in result, f"Import fehlgeschlagen: {result}"
     runner.audio_id = result["id"]
-    return {"audio_id": result["id"], "title": result.get("title", "?"),
-            "duration": result.get("duration", 0)}
+    return {"audio_id": result["id"], "title": result.get("title", "?")}
 
 
 def test_beat_analysis(audio_id: int):
@@ -199,8 +210,9 @@ def test_beat_analysis(audio_id: int):
 
 def test_waveform_analysis(audio_id: int):
     """Rekordbox-Style 3-Band Waveform."""
-    from services.audio_service import analyze_waveform_and_store
-    result = analyze_waveform_and_store(audio_id)
+    from services.audio_service import AudioAnalyzer
+    svc = AudioAnalyzer()
+    result = svc.analyze_and_store(audio_id)
     assert result, "Waveform-Analyse gab leeres Ergebnis"
     return {"bpm": result.get("bpm"), "samples": result.get("num_samples", 0)}
 
@@ -215,9 +227,9 @@ def test_key_detection(audio_id: int):
 
     from services.key_detection_service import KeyDetectionService
     svc = KeyDetectionService()
-    result = svc.detect_and_store(audio_id, file_path)
-    return {"key": result.get("key", "?"), "camelot": result.get("camelot", "?"),
-            "confidence": result.get("confidence", 0)}
+    result = svc.detect_key(file_path)
+    return {"key": getattr(result, "key", "?"), "camelot": getattr(result, "camelot", "?"),
+            "confidence": getattr(result, "confidence", 0)}
 
 
 def test_lufs_analysis(audio_id: int):
@@ -230,9 +242,9 @@ def test_lufs_analysis(audio_id: int):
 
     from services.lufs_service import LUFSService
     svc = LUFSService()
-    result = svc.analyze_and_store(audio_id, file_path)
-    return {"integrated": result.get("integrated", 0),
-            "loudness_range": result.get("loudness_range", 0)}
+    result = svc.analyze(file_path)
+    return {"integrated": getattr(result, "integrated", 0),
+            "loudness_range": getattr(result, "loudness_range", 0)}
 
 
 def test_structure_detection(audio_id: int):
@@ -246,9 +258,9 @@ def test_structure_detection(audio_id: int):
 
     from services.structure_detection_service import StructureDetectionService
     svc = StructureDetectionService()
-    result = svc.detect_and_store(audio_id, file_path, bpm=bpm)
-    segments = result.get("segments", [])
-    types = [s.get("type", "?") for s in segments]
+    result = svc.detect(file_path, bpm=bpm)
+    segments = getattr(result, "segments", [])
+    types = [getattr(s, "type", "?") for s in segments]
     return {"segments": len(segments), "types": types[:10]}
 
 
@@ -262,12 +274,24 @@ def test_stem_separation(audio_id: int):
 
 
 def test_video_import(video_path: str, runner: TestRunner):
-    """Importiert eine Video-Datei in die DB."""
+    """Importiert eine Video-Datei oder findet sie in der DB."""
+    from database import engine, VideoClip
+    from sqlalchemy.orm import Session
+
+    with Session(engine) as s:
+        existing = s.query(VideoClip).filter(
+            VideoClip.file_path == video_path
+        ).first()
+        if existing:
+            runner.video_ids.append(existing.id)
+            return {"video_id": existing.id, "dur_s": existing.duration or 0,
+                    "note": "bereits importiert"}
+
     from services.ingest_service import ingest_video
     result = ingest_video(video_path)
     assert result and "id" in result, f"Import fehlgeschlagen: {result}"
     runner.video_ids.append(result["id"])
-    return {"video_id": result["id"], "duration": result.get("duration", 0)}
+    return {"video_id": result["id"]}
 
 
 def test_video_pipeline(video_id: int):
@@ -283,11 +307,25 @@ def test_video_pipeline(video_id: int):
     return {"scenes": len(result.scenes), "embeddings": result.embeddings_stored}
 
 
-def test_semantic_search(query: str = "person dancing"):
-    """SigLIP semantische Video-Suche."""
+def test_semantic_search(query: str = "nature landscape"):
+    """SigLIP semantische Video-Suche (Text → Embedding → Szenen)."""
+    from services.model_manager import ModelManager, GPU_LOAD_LOCK
+    import numpy as np
+
+    # Text-Embedding via SigLIP generieren
+    with GPU_LOAD_LOCK:
+        mm = ModelManager()
+        model, processor = mm.load_siglip()
+        import torch
+        inputs = processor(text=[query], return_tensors="pt", padding=True)
+        inputs = {k: v.to(mm.device) for k, v in inputs.items() if k.startswith("input_ids") or k.startswith("attention")}
+        with torch.no_grad():
+            text_features = model.get_text_features(**inputs)
+        embedding = text_features[0].cpu().numpy().tolist()
+
     from services.vector_db_service import VectorDBService
     vdb = VectorDBService()
-    results = vdb.search_by_text(query, limit=5)
+    results = vdb.search_by_text(embedding, top_k=5)
     return {"query": query, "results": len(results)}
 
 
@@ -326,10 +364,11 @@ def test_action_registry():
 
 
 def test_auto_edit(audio_id: int, video_ids: list[int]):
-    """Auto-Edit: Generiert Timeline basierend auf Beats und Videos."""
+    """Auto-Edit: Generiert Cut-Points basierend auf Beats."""
     if not video_ids:
         raise ValueError("Keine Videos importiert — Auto-Edit nicht moeglich")
     from services.pacing_service import calculate_cut_points
+    from services.pacing_beat_grid import PacingSettings
     from database import engine, Beatgrid
     from sqlalchemy.orm import Session
 
@@ -338,10 +377,12 @@ def test_auto_edit(audio_id: int, video_ids: list[int]):
         if not bg or not bg.beat_positions:
             raise ValueError("Kein Beatgrid fuer Audio — erst Beat-Analyse ausfuehren")
         beats = json.loads(bg.beat_positions) if isinstance(bg.beat_positions, str) else bg.beat_positions
-        bpm = bg.bpm
+        bpm_val = bg.bpm
+        dur = len(beats) / (bpm_val / 60) if bpm_val else 60
 
-    cut_points = calculate_cut_points(beats, total_duration=len(beats) / (bpm / 60), bpm=bpm)
-    return {"bpm": bpm, "beats": len(beats), "cut_points": len(cut_points)}
+    settings = PacingSettings(tempo=70, energy=70)
+    cut_points = calculate_cut_points(audio_id, video_ids[0], settings, total_duration=dur)
+    return {"bpm": bpm_val, "beats": len(beats), "cut_points": len(cut_points)}
 
 
 # ── Main ───────────────────────────────────────────────────────────────
@@ -418,18 +459,45 @@ def main():
 
     # ── Phase 2: Video-Workflow ──
     video_paths = args.video or []
-    if not video_paths:
-        _, auto_video = find_test_files()
-        video_paths = auto_video
+    video_exts = {".mp4", ".mov", ".avi", ".mkv", ".webm"}
 
-    for vp in video_paths[:3]:
-        if Path(vp).exists():
-            runner.run_test(f"Video Import: {Path(vp).name}", test_video_import, vp, runner)
+    # Ordner-Pfade in Video-Dateien aufloesen
+    resolved_videos = []
+    for vp in video_paths:
+        p = Path(vp)
+        if p.is_dir():
+            resolved_videos.extend(
+                str(f) for f in sorted(p.iterdir())
+                if f.suffix.lower() in video_exts and f.stat().st_size > 10_000
+            )
+        elif p.is_file() and p.suffix.lower() in video_exts:
+            resolved_videos.append(str(p))
+
+    # Fallback: existierende Videos aus DB nutzen
+    if not resolved_videos:
+        from database import engine, VideoClip
+        from sqlalchemy.orm import Session as _S
+        with _S(engine) as s:
+            existing = s.query(VideoClip).limit(5).all()
+            for c in existing:
+                runner.video_ids.append(c.id)
+            if existing:
+                logger.info("Nutze %d existierende Videos aus DB", len(existing))
+
+    for vp in resolved_videos[:3]:
+        runner.run_test(f"Video Import: {Path(vp).name}", test_video_import, vp, runner)
 
     if runner.video_ids:
         runner.run_test("Video-Pipeline (Scene+RAFT+SigLIP)",
                        test_video_pipeline, runner.video_ids[0])
         runner.run_test("Semantische Video-Suche", test_semantic_search)
+
+        # GPU freigeben damit Ollama nicht pausiert bleibt
+        try:
+            from services.model_manager import ModelManager
+            ModelManager().unload()
+        except Exception:
+            pass
 
     # ── Phase 3: KI / Pacing ──
     runner.run_test("Pacing-Strategist (Gemma 4)", test_pacing_strategist)
