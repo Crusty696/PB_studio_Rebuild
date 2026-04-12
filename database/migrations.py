@@ -120,6 +120,9 @@ def _migrate_fk_cascade():
                 # F-012 Fix: Echte Validierung statt assert (assert wird durch -O deaktiviert)
                 if tname not in _ALLOWED_TABLES:
                     raise MigrationError(f"Unerlaubter Tabellenname: {tname}", table=tname)
+                # MEDIUM-6 FIX: Defense-in-depth regex validator against SQL injection
+                if not re.match(r'^[a-z_]+$', tname):
+                    raise ValueError(f"Invalid table name: {tname}")
                 conn.execute(text('DROP TABLE IF EXISTS "' + tname + '"'))
 
             # FK wieder an

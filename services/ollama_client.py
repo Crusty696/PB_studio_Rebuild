@@ -350,6 +350,7 @@ class OllamaClient:
         messages: list[dict[str, str]],
         temperature: float = 0.1,
         max_tokens: int = 512,
+        _in_fallback: bool = False,
     ) -> str:
         """Sendet eine Chat-Anfrage mit vollständiger Message-History.
 
@@ -358,6 +359,7 @@ class OllamaClient:
             messages: Liste von {"role": "system/user/assistant", "content": "..."}
             temperature: Kreativität
             max_tokens: Maximale Ausgabelänge
+            _in_fallback: Internal flag to prevent infinite recursion (HIGH-1 fix)
 
         Returns:
             Generierter Text
@@ -394,10 +396,25 @@ class OllamaClient:
         except urllib.error.HTTPError as e:
             err_body = e.read().decode("utf-8", errors="replace")
             if "memory layout" in err_body:
+                # HIGH-1 FIX: Prevent infinite recursion by disallowing fallback-of-fallback
+                if _in_fallback:
+                    logger.error(
+                        "OllamaClient: Fallback-Modell '%s' passt auch nicht in RAM/VRAM. "
+                        "Keine weiteren Fallbacks möglich.", model,
+                    )
+                    raise OllamaModelNotFoundError(
+                        model=model,
+                        reason="Fallback-Modell passt nicht in RAM/VRAM"
+                    ) from e
+
                 fallback = self._find_fallback_model(model)
                 if fallback:
                     logger.warning("OllamaClient: '%s' nicht ladbar, Fallback auf '%s'.", model, fallback)
-                    return self.chat_with_history(fallback, messages, temperature, max_tokens)
+                    return self.chat_with_history(fallback, messages, temperature, max_tokens, _in_fallback=True)
+                raise OllamaModelNotFoundError(
+                    model=model,
+                    reason="Passt nicht in RAM/VRAM und kein Fallback verfuegbar"
+                ) from e
             raise OllamaError(f"HTTP-Fehler {e.code}: {err_body.strip()}", model=model, http_code=e.code) from e
         except urllib.error.URLError as e:
             raise OllamaNotAvailableError(f"Ollama nicht erreichbar: {e}") from e
@@ -414,6 +431,7 @@ class OllamaClient:
         system_prompt: str | None = None,
         temperature: float = 0.1,
         max_tokens: int = 512,
+        _in_fallback: bool = False,
     ) -> str:
         """Sendet eine multimodale Chat-Anfrage mit Bildern an Ollama.
 
@@ -427,6 +445,7 @@ class OllamaClient:
             system_prompt: Optionaler System-Prompt
             temperature: Kreativität (Standard: 0.1 für strukturierten JSON-Output)
             max_tokens: Maximale Ausgabelänge
+            _in_fallback: Internal flag to prevent infinite recursion (HIGH-2 fix)
 
         Returns:
             Generierter Text
@@ -485,10 +504,25 @@ class OllamaClient:
         except urllib.error.HTTPError as e:
             err_body = e.read().decode("utf-8", errors="replace")
             if "memory layout" in err_body:
+                # HIGH-2 FIX: Prevent infinite recursion by disallowing fallback-of-fallback
+                if _in_fallback:
+                    logger.error(
+                        "OllamaClient.chat_vision: Fallback-Modell '%s' passt auch nicht in RAM/VRAM. "
+                        "Keine weiteren Fallbacks möglich.", model,
+                    )
+                    raise OllamaModelNotFoundError(
+                        model=model,
+                        reason="Fallback-Modell passt nicht in RAM/VRAM"
+                    ) from e
+
                 fallback = self._find_fallback_model(model)
                 if fallback:
                     logger.warning("OllamaClient.chat_vision: '%s' nicht ladbar, Fallback auf '%s'.", model, fallback)
-                    return self.chat_vision(fallback, user_message, images_base64, system_prompt, temperature, max_tokens)
+                    return self.chat_vision(fallback, user_message, images_base64, system_prompt, temperature, max_tokens, _in_fallback=True)
+                raise OllamaModelNotFoundError(
+                    model=model,
+                    reason="Passt nicht in RAM/VRAM und kein Fallback verfuegbar"
+                ) from e
             logger.error("OllamaClient.chat_vision: HTTP %d: %s", e.code, err_body.strip())
             raise OllamaError(f"HTTP-Fehler {e.code}: {err_body.strip()}", model=model, http_code=e.code) from e
         except urllib.error.URLError as e:

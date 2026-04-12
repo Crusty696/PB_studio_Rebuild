@@ -427,7 +427,19 @@ class ModelManager:
                 from transformers import AutoModelForCausalLM, AutoTokenizer
 
                 _TRUSTED_MODELS = {"vikhyatk/moondream2"}
+                # HIGH-3 FIX: Pin trusted models to known-good revisions to prevent
+                # arbitrary code execution from a compromised HuggingFace repo.
+                _TRUSTED_REVISIONS: dict[str, str] = {
+                    "vikhyatk/moondream2": "2025.01.11",
+                }
                 needs_trust = model_id in _TRUSTED_MODELS
+                pinned_revision = _TRUSTED_REVISIONS.get(model_id)
+                if needs_trust and pinned_revision is None:
+                    logger.warning(
+                        "HIGH-3: trust_remote_code=True fuer '%s' ohne Revision-Pin! "
+                        "Bitte eine bekannte Revision in _TRUSTED_REVISIONS eintragen.",
+                        model_id,
+                    )
 
                 if torch.cuda.is_available():
                     torch.cuda.synchronize()
@@ -437,6 +449,7 @@ class ModelManager:
 
                 self._tokenizer = AutoTokenizer.from_pretrained(
                     model_id, trust_remote_code=needs_trust,
+                    revision=pinned_revision,
                 )
                 dtype = torch.float32 if self.device == "cpu" else torch.float16
 
@@ -450,6 +463,7 @@ class ModelManager:
                         model_id, torch_dtype=dtype,
                         device_map={"": self.device},
                         trust_remote_code=needs_trust,
+                        revision=pinned_revision,
                     )
                 finally:
                     if not _had_attr:

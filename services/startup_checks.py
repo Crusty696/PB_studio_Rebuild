@@ -220,6 +220,14 @@ def _recover_gpu_error47() -> bool:
     """
     if sys.platform != "win32":
         return True
+
+    # MEDIUM-12 FIX: Check admin privileges before attempting GPU recovery.
+    # Disable-PnpDevice / Enable-PnpDevice require elevated privileges.
+    import ctypes
+    if not ctypes.windll.shell32.IsUserAnAdmin():
+        logger.info("GPU Error-47 Recovery uebersprungen (keine Admin-Rechte)")
+        return True
+
     try:
         result = subprocess.run(
             ["powershell.exe", "-NoProfile", "-Command",

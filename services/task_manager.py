@@ -445,16 +445,17 @@ class GlobalTaskManager(QObject):
             if not thread.wait(2000):
                 logging.warning("[TaskEngine] Thread '%s' reagiert nicht sofort auf quit() — orphaned.", task_id)
 
-        # Locks sicher freigeben (Best-Effort im Main-Thread)
+        # MEDIUM-8 FIX: Only release locks if the current thread actually holds them.
+        # The previous brute-force loop could release locks owned by other threads,
+        # corrupting lock state.
         try:
             from services.model_manager import GPU_LOAD_LOCK, GPU_EXECUTION_LOCK
-            for _ in range(10):
-                try: GPU_LOAD_LOCK.release()
-                except RuntimeError: break
-            for _ in range(10):
-                try: GPU_EXECUTION_LOCK.release()
-                except RuntimeError: break
-        except Exception: pass
+            if GPU_LOAD_LOCK._is_owned():
+                GPU_LOAD_LOCK.release()
+            if GPU_EXECUTION_LOCK._is_owned():
+                GPU_EXECUTION_LOCK.release()
+        except Exception:
+            pass
         
         self.finish_task(task_id, "cancelled", "Abbruch angefordert")
         logging.info("[TaskEngine] Kooperativer Abbruch: %s", task_id)

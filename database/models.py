@@ -420,6 +420,7 @@ class TimelineEntry(Base):
     project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
     track = Column(String, nullable=False)          # "audio" oder "video"
     # M-39 LIMITATION: media_id has no FK constraint because it's polymorphic (AudioTrack OR VideoClip)
+    # LOW-17 AUDIT: No FK on media_id — referential integrity is enforced at the application layer.
     # TODO: Redesign with audio_track_id + video_clip_id nullable FKs + CHECK constraint
     media_id = Column(Integer, nullable=False)       # AudioTrack.id oder VideoClip.id
     start_time = Column(Float, nullable=False, default=0.0)
