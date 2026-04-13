@@ -5,26 +5,26 @@ echo   PB Studio Rebuild - App starten
 echo ============================================
 echo.
 
-:: NVIDIA GTX 1060 Fix: Lazy Loading für CUDA Module (verhindert oft init errors)
+:: Ins Skript-Verzeichnis wechseln (wichtig bei Shortcuts)
+cd /d "%~dp0"
+
+:: NVIDIA GTX 1060 Fix: Lazy Loading fuer CUDA Module
 set CUDA_MODULE_LOADING=LAZY
 
-:: Pruefen ob .venv310 existiert (Python 3.10 + CUDA 11.3)
-if exist "%~dp0.venv310\Scripts\python.exe" (
-    echo   venv gefunden: .venv310\ (Python 3.10 + CUDA 11.3)
-    echo   Starte PB Studio...
+:: .venv310 ist das einzige unterstuetzte Setup
+if not exist ".venv310\Scripts\python.exe" (
+    echo   FEHLER: .venv310 nicht gefunden!
+    echo   Bitte zuerst Setup ausfuehren:
+    echo     py -3.10 scripts\setup_py310_gpu.py
     echo.
-    "%~dp0.venv310\Scripts\python.exe" "%~dp0main.py"
-) else if exist "%~dp0.venv\Scripts\python.exe" (
-    echo   venv gefunden: .venv\ (Legacy)
-    echo   Starte PB Studio...
-    echo.
-    "%~dp0.venv\Scripts\python.exe" "%~dp0main.py"
-) else (
-    echo   Kein venv gefunden!
-    echo   Bitte zuerst ausfuehren: py -3.10 scripts\setup_py310_gpu.py
     pause
     exit /b 1
 )
+
+echo   Python 3.10 + CUDA 11.3 (.venv310)
+echo   Starte PB Studio...
+echo.
+".venv310\Scripts\python.exe" main.py
 
 if %ERRORLEVEL% NEQ 0 (
     echo.
