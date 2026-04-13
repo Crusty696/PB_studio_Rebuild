@@ -183,9 +183,11 @@ def test_audio_import(audio_path: str, runner: TestRunner):
     from database import engine, AudioTrack
     from sqlalchemy.orm import Session
 
+    resolved = str(Path(audio_path).resolve())
+
     with Session(engine) as s:
         existing = s.query(AudioTrack).filter(
-            AudioTrack.file_path == audio_path
+            AudioTrack.file_path == resolved
         ).first()
         if existing:
             runner.audio_id = existing.id
@@ -194,9 +196,15 @@ def test_audio_import(audio_path: str, runner: TestRunner):
 
     from services.ingest_service import ingest_audio
     result = ingest_audio(audio_path)
-    assert result and "id" in result, f"Import fehlgeschlagen: {result}"
-    runner.audio_id = result["id"]
-    return {"audio_id": result["id"], "title": result.get("title", "?")}
+    if result is None:
+        # Track wurde zwischen Check und Import von anderem Thread eingefuegt
+        with Session(engine) as s:
+            track = s.query(AudioTrack).filter(AudioTrack.file_path == resolved).first()
+            assert track, f"Import gab None und Track nicht in DB: {resolved}"
+            runner.audio_id = track.id
+            return {"audio_id": track.id, "title": track.title or "?", "note": "bereits importiert (race)"}
+    runner.audio_id = result.id
+    return {"audio_id": result.id, "title": result.title or "?"}
 
 
 def test_beat_analysis(audio_id: int):
@@ -210,8 +218,8 @@ def test_beat_analysis(audio_id: int):
 
 def test_waveform_analysis(audio_id: int):
     """Rekordbox-Style 3-Band Waveform."""
-    from services.audio_service import AudioAnalyzer
-    svc = AudioAnalyzer()
+    from services.ai_audio_service import FrequencyAnalyzer
+    svc = FrequencyAnalyzer()
     result = svc.analyze_and_store(audio_id)
     assert result, "Waveform-Analyse gab leeres Ergebnis"
     return {"bpm": result.get("bpm"), "samples": result.get("num_samples", 0)}
@@ -260,8 +268,8 @@ def test_structure_detection(audio_id: int):
     svc = StructureDetectionService()
     result = svc.detect(file_path, bpm=bpm)
     segments = getattr(result, "segments", [])
-    types = [getattr(s, "type", "?") for s in segments]
-    return {"segments": len(segments), "types": types[:10]}
+    labels = [getattr(s, "label", "?") for s in segments]
+    return {"segments": len(segments), "labels": labels[:10]}
 
 
 def test_stem_separation(audio_id: int):
@@ -278,9 +286,11 @@ def test_video_import(video_path: str, runner: TestRunner):
     from database import engine, VideoClip
     from sqlalchemy.orm import Session
 
+    resolved = str(Path(video_path).resolve())
+
     with Session(engine) as s:
         existing = s.query(VideoClip).filter(
-            VideoClip.file_path == video_path
+            VideoClip.file_path == resolved
         ).first()
         if existing:
             runner.video_ids.append(existing.id)
@@ -289,9 +299,14 @@ def test_video_import(video_path: str, runner: TestRunner):
 
     from services.ingest_service import ingest_video
     result = ingest_video(video_path)
-    assert result and "id" in result, f"Import fehlgeschlagen: {result}"
-    runner.video_ids.append(result["id"])
-    return {"video_id": result["id"]}
+    if result is None:
+        with Session(engine) as s:
+            clip = s.query(VideoClip).filter(VideoClip.file_path == resolved).first()
+            assert clip, f"Import gab None und Video nicht in DB: {resolved}"
+            runner.video_ids.append(clip.id)
+            return {"video_id": clip.id, "note": "bereits importiert (race)"}
+    runner.video_ids.append(result.id)
+    return {"video_id": result.id}
 
 
 def test_video_pipeline(video_id: int):
