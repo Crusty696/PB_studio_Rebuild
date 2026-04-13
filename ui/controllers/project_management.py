@@ -44,6 +44,10 @@ class ProjectManagementController(PBComponent):
         worker.manager = self.window._project_manager
         
         def _on_done(path):
+            # H-41 fix: Check window still exists before accessing
+            if not self.window or not hasattr(self.window, 'panel_setup'):
+                logger.debug("Window destroyed before CreateWorker finished, skipping UI update")
+                return
             self._mark_clean()
             self.window.panel_setup._console_append(f"[Projekt] Neues Projekt erstellt: {vals['name']}")
             self.window.status_bar.showMessage(f"Projekt erstellt: {vals['name']}")
@@ -79,6 +83,10 @@ class ProjectManagementController(PBComponent):
         worker.manager = self.window._project_manager
 
         def _on_done(meta):
+            # H-41 fix: Check window still exists before accessing
+            if not self.window or not hasattr(self.window, 'panel_setup'):
+                logger.debug("Window destroyed before OpenWorker finished, skipping UI update")
+                return
             self._mark_clean()
             self.window.panel_setup._console_append(f"[Projekt] Geoeffnet: {meta.get('name', path.name)}")
             self.window.status_bar.showMessage(f"Projekt geladen: {meta.get('name')}")
@@ -116,6 +124,10 @@ class ProjectManagementController(PBComponent):
         worker.manager = self.window._project_manager
 
         def _on_done(path):
+            # H-41 fix: Check window still exists before accessing
+            if not self.window or not hasattr(self.window, 'panel_setup'):
+                logger.debug("Window destroyed before SaveAsWorker finished, skipping UI update")
+                return
             self._mark_clean()
             self.window.panel_setup._console_append(f"[Projekt] Gespeichert unter: {path}")
             self.window.status_bar.showMessage(f"Projekt gespeichert: {path.name}")
