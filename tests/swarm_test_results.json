@@ -1,9 +1,0 @@
-{
-  "audio_stream_check": true,
-  "whisper_transcription": true,
-  "vision_analysis": true,
-  "model_swap": true,
-  "model_unload": true,
-  "multi_step_detection": true,
-  "agent_routing": true
-}

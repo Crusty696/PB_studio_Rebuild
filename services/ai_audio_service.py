@@ -25,8 +25,6 @@ try:
     _TORCH_AVAILABLE = True
 except ImportError:
     _TORCH_AVAILABLE = False
-from sqlalchemy.orm import Session
-
 from database import engine, AudioTrack, WaveformData, APP_ROOT, nullpool_session
 
 from services.model_manager import ModelManager, oom_recovery
@@ -350,7 +348,7 @@ class StemSeparator:
 
     def separate_and_store(self, track_id: int, progress_cb=None) -> dict:
         """Separiert Stems und speichert Pfade in der DB."""
-        with Session(engine) as session:
+        with nullpool_session() as session:
             track = session.get(AudioTrack, track_id)
             if track is None:
                 raise ValueError(f"AudioTrack {track_id} nicht gefunden")
@@ -628,7 +626,9 @@ class FrequencyAnalyzer:
 
     def analyze_and_store(self, track_id: int, progress_cb=None) -> dict:
         """Analysiert einen AudioTrack und speichert Waveform + Beatgrid in der DB."""
-        with Session(engine) as session:
+        import time as _time
+
+        with nullpool_session() as session:
             track = session.get(AudioTrack, track_id)
             if track is None:
                 raise ValueError(f"AudioTrack {track_id} nicht gefunden")
@@ -636,51 +636,60 @@ class FrequencyAnalyzer:
 
         result = self.analyze(file_path, progress_cb=progress_cb)
 
-        with Session(engine) as session:
-            track = session.get(AudioTrack, track_id)
-            if track is None:
-                raise ValueError(f"AudioTrack {track_id} nach Frequenzanalyse nicht mehr gefunden")
-
-            # J-01 Fix: BPM nur setzen wenn noch kein BPM vorhanden ist.
-            # In der Komplett-Analyse laeuft BeatAnalysisService (beat_this) zuerst
-            # und liefert praezisere BPM. FrequencyAnalyzer (librosa) laeuft danach
-            # und soll den genaueren beat_this-Wert nicht ueberschreiben.
-            if track.bpm is None:
-                track.bpm = clamp_bpm(result["bpm"])
-            track.duration = result["duration"]
-
-            # DB-07 Fix: Expliziter Query-Check gegen Duplikate
-            existing_wd = track.waveform_data or session.query(WaveformData).filter_by(
-                audio_track_id=track_id
-            ).first()
-
-            if existing_wd:
-                existing_wd.num_samples = result["num_samples"]
-                existing_wd.duration = result["duration"]
-                existing_wd.band_low = json.dumps(result["band_low"])
-                existing_wd.band_mid = json.dumps(result["band_mid"])
-                existing_wd.band_high = json.dumps(result["band_high"])
-            else:
-                wd = WaveformData(
-                    audio_track_id=track_id,
-                    num_samples=result["num_samples"],
-                    duration=result["duration"],
-                    band_low=json.dumps(result["band_low"]),
-                    band_mid=json.dumps(result["band_mid"]),
-                    band_high=json.dumps(result["band_high"]),
-                )
-                session.add(wd)
-
+        max_retries = 3
+        for attempt in range(max_retries):
             try:
-                session.commit()
-            except Exception:  # broad catch intentional — SQLAlchemy commit can raise many error types
-                session.rollback()
-                raise
+                with nullpool_session() as session:
+                    track = session.get(AudioTrack, track_id)
+                    if track is None:
+                        raise ValueError(f"AudioTrack {track_id} nach Frequenzanalyse nicht mehr gefunden")
 
-            try:
-                from services.pacing_service import invalidate_pacing_caches
-                invalidate_pacing_caches()
-            except (ImportError, AttributeError, RuntimeError) as e:
-                logger.warning("invalidate_pacing_caches() fehlgeschlagen: %s", e)
+                    # J-01 Fix: BPM nur setzen wenn noch kein BPM vorhanden ist.
+                    # In der Komplett-Analyse laeuft BeatAnalysisService (beat_this) zuerst
+                    # und liefert praezisere BPM. FrequencyAnalyzer (librosa) laeuft danach
+                    # und soll den genaueren beat_this-Wert nicht ueberschreiben.
+                    if track.bpm is None:
+                        track.bpm = clamp_bpm(result["bpm"])
+                    track.duration = result["duration"]
+
+                    # DB-07 Fix: Expliziter Query-Check gegen Duplikate
+                    existing_wd = track.waveform_data or session.query(WaveformData).filter_by(
+                        audio_track_id=track_id
+                    ).first()
+
+                    if existing_wd:
+                        existing_wd.num_samples = result["num_samples"]
+                        existing_wd.duration = result["duration"]
+                        existing_wd.band_low = json.dumps(result["band_low"])
+                        existing_wd.band_mid = json.dumps(result["band_mid"])
+                        existing_wd.band_high = json.dumps(result["band_high"])
+                    else:
+                        wd = WaveformData(
+                            audio_track_id=track_id,
+                            num_samples=result["num_samples"],
+                            duration=result["duration"],
+                            band_low=json.dumps(result["band_low"]),
+                            band_mid=json.dumps(result["band_mid"]),
+                            band_high=json.dumps(result["band_high"]),
+                        )
+                        session.add(wd)
+
+                    session.commit()
+                break  # Erfolg
+            except Exception as e:
+                if "database is locked" in str(e) and attempt < max_retries - 1:
+                    logger.warning(
+                        "[FrequencyAnalyzer] DB locked bei Waveform-Write, Retry %d/%d...",
+                        attempt + 1, max_retries,
+                    )
+                    _time.sleep(2 * (attempt + 1))
+                else:
+                    raise
+
+        try:
+            from services.pacing_service import invalidate_pacing_caches
+            invalidate_pacing_caches()
+        except (ImportError, AttributeError, RuntimeError) as e:
+            logger.warning("invalidate_pacing_caches() fehlgeschlagen: %s", e)
 
         return result

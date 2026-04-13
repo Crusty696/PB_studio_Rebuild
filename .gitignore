@@ -23,7 +23,6 @@ exports/
 logs/
 tests/*.log
 *.log
-*.txt
 
 # Security scan results (generated files)
 security_scan_results.json
@@ -38,9 +37,11 @@ poc_lancedb_data/
 *.txn
 *.manifest
 
-# Claude Code internals
+# Claude Code / Gemini internals
 .agents/
 .claude/
+.gemini/
+skills/
 skills-lock.json
 
 # QA screenshots and recordings (binary assets)
@@ -49,13 +50,17 @@ docs/qa_screenshots/**/*.mp4
 docs/qa_screenshots/e2e_2026_03_26/
 docs/qa_screenshots/e2e_run/
 
+# Test reports (generated at runtime)
+test-report/
+
 # OS
 Thumbs.db
 desktop.ini
 .DS_Store
 
-# Virtual environment
+# Virtual environments
 .venv/
+.venv310/
 
 # Binaries and downloaded tools (FFmpeg, Ollama - large, regenerate on demand)
 bin/
@@ -66,6 +71,3 @@ bin/
 
 # Node modules (if used)
 node_modules/
-
-# MEDIUM-5: User-specific utility with hardcoded paths and API key references
-upload_plan.py
