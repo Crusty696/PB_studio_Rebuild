@@ -3,11 +3,15 @@ OllamaService — zentraler Lifecycle-Manager für Ollama + Gemma 4.
 
 Alle Aufrufe aus dem Rest der App laufen ausschliesslich über diese Klasse.
 Kein anderes Modul importiert httpx oder kennt Port 11434.
+
+K7-Fix: chat() und vision() sind jetzt SYNCHRON (httpx.Client statt AsyncClient).
+        Kein asyncio.run() mehr noetig — kein GUI-Freeze.
+K8-Fix: Vor jedem Inference wird der Pause-Status des OllamaClient geprueft,
+        damit der VRAM-Schutz nicht umgangen wird.
 """
 
 import subprocess
 import os
-import asyncio
 import httpx
 import json
 import socket
@@ -122,38 +126,42 @@ class OllamaService:
 
     # ── Modell-Management ──────────────────────────────────────
 
-    async def ensure_model(self, model_name: str = OLLAMA_MODEL, progress_cb: Callable[[str, float], None] | None = None) -> bool:
-        """Stellt sicher dass das Modell geladen ist (lädt falls nötig)."""
+    def ensure_model(self, model_name: str = OLLAMA_MODEL, progress_cb: Callable[[str, float], None] | None = None) -> bool:
+        """Stellt sicher dass das Modell geladen ist (laedt falls noetig).
+
+        Synchron — blockiert den aufrufenden Thread bis der Download abgeschlossen ist.
+        """
         if not self.is_ready:
             return False
 
-        async with httpx.AsyncClient(base_url=OLLAMA_BASE, timeout=None) as client:
-            # Prüfen ob Modell bereits da ist
+        with httpx.Client(base_url=OLLAMA_BASE, timeout=None) as client:
+            # Pruefen ob Modell bereits da ist
             try:
-                tags = await client.get("/api/tags")
+                tags = client.get("/api/tags")
                 if tags.status_code == 200:
                     models = tags.json().get("models", [])
                     if any(m.get("name") == model_name for m in models):
                         logger.info("Modell '%s' bereits vorhanden.", model_name)
                         return True
             except Exception as e:
-                logger.warning("Fehler beim Prüfen der Modelle: %s", e)
+                logger.warning("Fehler beim Pruefen der Modelle: %s", e)
 
             # Modell laden via API
             logger.info("Lade Modell '%s' herunter...", model_name)
             try:
-                async with client.stream("POST", "/api/pull", json={"name": model_name}) as response:
-                    async for line in response.aiter_lines():
-                        if not line: continue
+                with client.stream("POST", "/api/pull", json={"name": model_name}) as response:
+                    for line in response.iter_lines():
+                        if not line:
+                            continue
                         chunk = json.loads(line)
                         status = chunk.get('status', '')
                         total = chunk.get('total', 0)
                         completed = chunk.get('completed', 0)
-                        
+
                         pct = completed / total if total > 0 else 0
                         if progress_cb:
                             progress_cb(status, pct)
-                            
+
                 logger.info("Modell '%s' erfolgreich geladen.", model_name)
                 return True
             except Exception as e:
@@ -162,35 +170,61 @@ class OllamaService:
 
     # ── Inference ─────────────────────────────────────────────
 
-    async def chat(self, messages: list[dict], model: str = OLLAMA_MODEL) -> str:
-        """Wrapper für Chat-Inference."""
-        async with httpx.AsyncClient(base_url=OLLAMA_BASE, timeout=60.0) as client:
+    def chat(self, messages: list[dict], model: str = OLLAMA_MODEL) -> str:
+        """Synchroner Wrapper fuer Chat-Inference (K7-Fix: kein async mehr).
+
+        Prueft vor dem Request den Pause-Status des OllamaClient (K8-Fix),
+        damit VRAM-Schutz nicht umgangen wird.
+        """
+        # K8-Fix: Pause-Check — VRAM-Schutz respektieren
+        from services.ollama_client import get_ollama_client
+        oc = get_ollama_client()
+        if oc.is_paused:
+            logger.warning("OllamaService.chat(): OllamaClient ist pausiert — Request abgelehnt.")
+            return "Fehler: OllamaClient ist pausiert (GPU-intensive Operation laeuft)"
+
+        with httpx.Client(base_url=OLLAMA_BASE, timeout=60.0) as client:
             try:
-                response = await client.post("/api/chat", json={
+                response = client.post("/api/chat", json={
                     "model": model,
                     "messages": messages,
                     "stream": False
                 })
                 if response.status_code == 200:
-                    return response.json().get("message", {}).get("content", "")
+                    # B1-Fix: Thinking models return response in "thinking" field instead of "content"
+                    content = response.json().get("message", {}).get("content", "")
+                    if not content:
+                        content = response.json().get("message", {}).get("thinking", "")
+                    return content
                 return f"Fehler: {response.status_code}"
             except Exception as e:
                 logger.error("Ollama Chat Fehler: %s", e)
                 return f"Fehler: {e}"
 
-    async def vision(self, image_paths: list[str], prompt: str, model: str = OLLAMA_MODEL) -> str:
-        """Wrapper für Vision-Inference."""
+    def vision(self, image_paths: list[str], prompt: str, model: str = OLLAMA_MODEL) -> str:
+        """Synchroner Wrapper fuer Vision-Inference (K7-Fix: kein async mehr).
+
+        Prueft vor dem Request den Pause-Status des OllamaClient (K8-Fix),
+        damit VRAM-Schutz nicht umgangen wird.
+        """
+        # K8-Fix: Pause-Check — VRAM-Schutz respektieren
+        from services.ollama_client import get_ollama_client
+        oc = get_ollama_client()
+        if oc.is_paused:
+            logger.warning("OllamaService.vision(): OllamaClient ist pausiert — Request abgelehnt.")
+            return "Fehler: OllamaClient ist pausiert (GPU-intensive Operation laeuft)"
+
         import base64
-        
+
         def encode_image(path):
             with open(path, "rb") as image_file:
                 return base64.b64encode(image_file.read()).decode('utf-8')
 
         images_b64 = [encode_image(p) for p in image_paths if os.path.exists(p)]
-        
-        async with httpx.AsyncClient(base_url=OLLAMA_BASE, timeout=120.0) as client:
+
+        with httpx.Client(base_url=OLLAMA_BASE, timeout=120.0) as client:
             try:
-                response = await client.post("/api/chat", json={
+                response = client.post("/api/chat", json={
                     "model": model,
                     "messages": [{
                         "role": "user",

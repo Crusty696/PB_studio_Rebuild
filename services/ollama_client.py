@@ -306,7 +306,10 @@ class OllamaClient:
                 raw = resp.read()
                 data = json.loads(raw)
                 # Ollama non-streaming response: {"message": {"role": "assistant", "content": "..."}}
+                # B1-Fix: Thinking models return response in "thinking" field instead of "content"
                 content = data.get("message", {}).get("content", "")
+                if not content:
+                    content = data.get("message", {}).get("thinking", "")
                 logger.debug("OllamaClient: Antwort erhalten (%d Zeichen).", len(content))
                 return content.strip()
         except urllib.error.HTTPError as e:
@@ -392,7 +395,11 @@ class OllamaClient:
         try:
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                 data = json.loads(resp.read())
-                return data.get("message", {}).get("content", "").strip()
+                # B1-Fix: Thinking models return response in "thinking" field instead of "content"
+                content = data.get("message", {}).get("content", "")
+                if not content:
+                    content = data.get("message", {}).get("thinking", "")
+                return content.strip()
         except urllib.error.HTTPError as e:
             err_body = e.read().decode("utf-8", errors="replace")
             if "memory layout" in err_body:
