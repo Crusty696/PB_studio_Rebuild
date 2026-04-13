@@ -162,6 +162,10 @@ class ActionRegistry:
         """Gibt alle registrierten Aktionsnamen zurück."""
         return list(self._actions.keys())
 
+    def list_all(self) -> list[ActionDef]:
+        """Gibt alle registrierten ActionDef-Objekte zurück (B3-Fix)."""
+        return list(self._actions.values())
+
     def execute(self, name: str, params: dict | None = None) -> Any:
         """Führt eine registrierte Aktion aus.
 
