@@ -6,6 +6,7 @@ Displays a compressed stacktrace and lets the user open the log file.
 
 from __future__ import annotations
 
+import html
 import os
 import subprocess
 import sys
@@ -56,9 +57,10 @@ class CrashDialog(QDialog):
         layout.addWidget(header)
 
         # ── Error type + message ───────────────────────────────────────
+        # M-59 FIX: Escape HTML to prevent injection
         exc_name = exc_type.__name__ if exc_type else "Exception"
         exc_msg = str(exc_value) if exc_value else ""
-        summary = QLabel(f"<b>{exc_name}:</b> {exc_msg[:200]}")
+        summary = QLabel(f"<b>{html.escape(exc_name)}:</b> {html.escape(exc_msg[:200])}")
         summary.setWordWrap(True)
         summary.setStyleSheet(f"color: {T2}; font-size: 12px; background: transparent;")
         layout.addWidget(summary)

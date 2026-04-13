@@ -9,6 +9,7 @@ AUD-72: Grid-View fuer Video Pool (Thumbnails) und Audio Pool (Waveform-Miniatur
 
 from __future__ import annotations
 
+from collections import OrderedDict
 import json
 import logging
 import os
@@ -59,12 +60,16 @@ def _placeholder_pixmap(w: int, h: int, icon: str = "") -> QPixmap:
 
 
 # F-029: Performance & Stabilitäts-Optimierung
-_WAVEFORM_CACHE = {}
+# L-37 FIX: Use OrderedDict with LRU eviction instead of full clear
+_WAVEFORM_CACHE: OrderedDict = OrderedDict()
+_WAVEFORM_CACHE_MAX = 200
 
 def _paint_waveform(w: int, h: int, energy: list[float]) -> QPixmap:
     """Paint a two-tone waveform with caching (Fix F-029)."""
     cache_key = (w, h, tuple(energy[:100]), len(energy)) # Simple heuristic key
     if cache_key in _WAVEFORM_CACHE:
+        # L-37 FIX: Move to end to mark as recently used
+        _WAVEFORM_CACHE.move_to_end(cache_key)
         return _WAVEFORM_CACHE[cache_key]
 
     pix = QPixmap(w, h)
@@ -95,9 +100,10 @@ def _paint_waveform(w: int, h: int, energy: list[float]) -> QPixmap:
         p.drawLine(x, mid, x, mid + bar)
 
     p.end()
-    
-    if len(_WAVEFORM_CACHE) > 200:
-        _WAVEFORM_CACHE.clear()
+
+    # L-37 FIX: LRU eviction - remove oldest item when cache is full
+    if len(_WAVEFORM_CACHE) >= _WAVEFORM_CACHE_MAX:
+        _WAVEFORM_CACHE.popitem(last=False)  # Remove oldest (FIFO/LRU)
     _WAVEFORM_CACHE[cache_key] = pix
     return pix
 
@@ -481,10 +487,10 @@ class MediaPoolGrid(QWidget):
             return
         self._in_relayout = True
         try:
-            # Stop pending thumbnail threads (H-29 fix: non-blocking)
+            # H-27 Fix: Threads sauber beenden mit deleteLater nach finished
             for t in self._thumb_threads:
+                t.finished.connect(t.deleteLater)
                 t.quit()
-            # No blocking wait() - threads clean up asynchronously
             self._thumb_threads.clear()
 
             # Remove all cards from layout and delete
@@ -522,10 +528,14 @@ class MediaPoolGrid(QWidget):
                 energy = []
                 ec = data.get("energy_curve")
                 if ec:
-                    try:
-                        energy = json.loads(ec)
-                    except (json.JSONDecodeError, TypeError):  # B-035 Fix: Specific exception types
-                        pass  # Invalid JSON or wrong type — use empty list fallback
+                    # H7-FIX: Column(JSON) deserialisiert automatisch.
+                    if isinstance(ec, (list, tuple)):
+                        energy = ec
+                    elif isinstance(ec, str):
+                        try:
+                            energy = json.loads(ec)
+                        except (json.JSONDecodeError, TypeError):  # B-035 Fix: Specific exception types
+                            pass  # Invalid JSON or wrong type — use empty list fallback
                 card = AudioCard(
                     media_id=data["id"],
                     title=data.get("title", ""),

@@ -50,10 +50,13 @@ GENRE_REFERENCE_CURVES: dict[str, list[float]] = {
 
 @dataclass
 class SpectralBand:
-    """Energie eines einzelnen Frequenzbands."""
+    """Energie eines einzelnen Frequenzbands.
+
+    L-11 FIX: freq_low/freq_high are float (Nyquist clamp can produce fractional Hz).
+    """
     name: str
-    freq_low: int
-    freq_high: int
+    freq_low: float
+    freq_high: float
     energy: float           # 0.0-1.0 normalisiert
 
 
