@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 MAX_TURNS_DEFAULT = 8           # 8 Turns = 16 Messages (User + Assistant)
 MAX_TURNS_HARD_LIMIT = 20       # Absolutes Maximum — darüber wird gewarnt
 SUMMARY_TRIGGER_TURNS = 12      # Ab hier wird eine Zusammenfassung erstellt
+MAX_SUMMARY_LENGTH = 2000       # Maximale Länge der Zusammenfassung (Zeichen)
 
 # Separater Singleton-Manager für alle Sessions
 _manager_instance: ConversationMemoryManager | None = None
@@ -84,6 +85,14 @@ class ConversationMemory:
                     new_summary = " | ".join(summaries)
                     if self._summary:
                         self._summary = self._summary + " | " + new_summary
+                        # M-4 FIX: Truncate summary if it grows too long
+                        if len(self._summary) > MAX_SUMMARY_LENGTH:
+                            # Keep only the most recent portion
+                            self._summary = "..." + self._summary[-MAX_SUMMARY_LENGTH:]
+                            logger.debug(
+                                "ConversationMemory[%s]: Summary truncated to %d chars.",
+                                self.session_id, MAX_SUMMARY_LENGTH,
+                            )
                     else:
                         self._summary = new_summary
 
