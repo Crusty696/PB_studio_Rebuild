@@ -508,16 +508,36 @@ class PBWindow(QMainWindow):
 # Logging + Entry Point
 # ======================================================================
 
+_log_listener = None  # Modul-global, damit atexit/shutdown ihn erreichen
+
+
 def setup_logging():
-    """Konfiguriert das Logging-System.
+    """Konfiguriert das Logging-System mit QueueHandler+QueueListener.
+
+    Design (Fix fuer die in docs/BUG_logging_second_cause.md beschriebene Log-
+    Stille nach Qt moveToThread-Warnings in Worker-Threads):
+
+    * Loggende Threads (inkl. Qt-Worker) haengen nur `QueueHandler` am Root,
+      der legt LogRecords in eine thread-safe `queue.Queue` — kein File-I/O,
+      kein exclusive-Handle, kein Logging-Lock-Stau zwischen Workern.
+    * Ein einziger `QueueListener`-Thread entleert die Queue in die echten
+      Handler (StreamHandler + RotatingFileHandler). Damit gibt es genau
+      einen Owner pro File-Handle.
+    * Bei App-Shutdown: `_log_listener.stop()` via atexit, damit die Queue
+      vor dem Prozessende geleert wird (sonst verliert man die letzten
+      ~10 Records beim Crash).
 
     Console + RotatingFileHandler (5 MB, 3 Backups) fuer logs/pb_studio.log.
     Optionaler JSON-Format-Modus fuer Produktions-Builds:
       PB_STUDIO_JSON_LOGS=1  →  strukturiertes JSON (eine Zeile pro Record)
     """
+    import atexit
     import json as _json
     import os
-    from logging.handlers import RotatingFileHandler
+    import queue
+    from logging.handlers import QueueHandler, QueueListener, RotatingFileHandler
+
+    global _log_listener
 
     log_dir = Path(__file__).parent / "logs"
     log_dir.mkdir(exist_ok=True)
@@ -548,21 +568,37 @@ def setup_logging():
             datefmt="%Y-%m-%d %H:%M:%S",
         )
 
+    # Echte Sinks — bekommen Formatter + Level, laufen aber NUR im Listener-Thread
     ch = logging.StreamHandler()
     ch.setLevel(logging.INFO)
     ch.setFormatter(fmt)
-    root.addHandler(ch)
 
-    # Rotation: 5 MB pro Datei, 3 Backups → max 20 MB Gesamtgröße
     fh = RotatingFileHandler(
         log_file, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8"
     )
     fh.setLevel(logging.INFO)
     fh.setFormatter(fmt)
-    root.addHandler(fh)
+
+    # Falls setup_logging mehrfach aufgerufen werden sollte: alten Listener stoppen
+    if _log_listener is not None:
+        try:
+            _log_listener.stop()
+        except Exception:  # pragma: no cover
+            pass
+    # Alte Handler am Root entfernen, um Doppel-Logs zu vermeiden
+    for _h in list(root.handlers):
+        root.removeHandler(_h)
+
+    log_queue: queue.Queue = queue.Queue(-1)  # unbegrenzt — wir trauen dem Listener
+    qh = QueueHandler(log_queue)
+    root.addHandler(qh)
+
+    _log_listener = QueueListener(log_queue, ch, fh, respect_handler_level=True)
+    _log_listener.start()
+    atexit.register(_log_listener.stop)
 
     logging.info(
-        "Logging initialisiert → %s (json=%s, rotation=5MB×3)",
+        "Logging initialisiert → %s (json=%s, rotation=5MB×3, queue=async)",
         log_file, use_json,
     )
 

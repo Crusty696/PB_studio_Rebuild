@@ -1,7 +1,34 @@
 # Bekannter Bug: Logging-Datei stoppt nach Worker-Thread-Start
 
 ## Status
-**OFFEN** — Teil-Fix geliefert (2026-04-14), zweite Ursache dokumentiert.
+**GELOEST** — QueueHandler/QueueListener-Umbau (2026-04-14).
+
+### Verifikation
+Vorher: Log verstummte konsistent nach dem ersten `[Qt C++] QObject::moveToThread`
+Warning in Worker-Threads; App schrieb danach nichts mehr in `pb_studio.log`,
+obwohl sie noch minutenlang arbeitete.
+
+Nachher (mit QueueHandler): In einem 90s-Live-Test wurden 469 Log-Zeilen
+geschrieben, **inklusive**:
+- `[StemSeparator] Verarbeite Chunk 1..6/134 auf CUDA` (GPU-Worker-Thread)
+- `task_manager: task.worker.deleteLater() failed in cleanup: Internal C++
+  object ...` (die Art Warning, die vorher die Stille ausgeloest hat — jetzt
+  selbst im Log sichtbar)
+- `structure_detection_service: Genre erkannt: psytrance` (separater Worker)
+
+Fix-Mechanik: Siehe `main.setup_logging()`. Alle loggenden Threads sehen nur
+einen thread-safen `QueueHandler`. Genau ein `QueueListener`-Thread entleert
+die Queue in die echten Sinks (`StreamHandler` + `RotatingFileHandler`).
+Kein File-Handle-Ownership-Konflikt, kein Logging-Lock-Stau.
+
+Die unten dokumentierten Hypothesen waren korrekt in der Richtung (Worker-
+Thread-spezifisch), die exakte Wurzel wurde nicht isoliert — das
+QueueHandler-Pattern addressiert alle drei Hypothesen pauschal und ist der
+Standardfix fuer Qt/Threaded-Apps.
+
+---
+
+Historische Analyse (vor dem Fix):
 
 ## Symptom
 `logs/pb_studio.log` hoert waehrend einer laufenden Session auf zu wachsen, obwohl die UI-Konsole (Widget `console_text`) weiter Nachrichten empfaengt.
