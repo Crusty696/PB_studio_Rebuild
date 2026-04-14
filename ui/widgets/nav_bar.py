@@ -12,13 +12,13 @@ _NAV_STYLE = """
         background: transparent;
         color: #6b7280;
         border: none;
-        border-bottom: 3px solid transparent;
+        border-bottom: 2px solid transparent;
         border-radius: 0px;
         font-weight: 700;
-        font-size: 11px;
-        letter-spacing: 1.2px;
-        padding: 8px 24px;
-        min-height: 38px;
+        font-size: 10px;
+        letter-spacing: 1.0px;
+        padding: 1px 14px;
+        min-height: 16px;
         text-transform: uppercase;
     }
     QPushButton#workspace_btn:hover {
@@ -27,7 +27,7 @@ _NAV_STYLE = """
     }
     QPushButton#workspace_btn:checked {
         color: #f0c866;
-        border-bottom: 3px solid #d4a44a;
+        border-bottom: 2px solid #d4a44a;
         background: rgba(212, 164, 74, 0.08);
     }
 """
@@ -42,7 +42,8 @@ class WorkspaceNavBar(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("workspace_nav")
-        self.setFixedHeight(42)
+        # P9-LAYOUT: kompakte Tab-Bar (vorher 42 px riesig), siehe LAYOUT_PLAN.md
+        self.setFixedHeight(20)
         self.setStyleSheet(_NAV_STYLE)
 
         layout = QHBoxLayout(self)
@@ -81,8 +82,9 @@ class WorkspaceNavBar(QWidget):
             btn = QPushButton(name)
             btn.setObjectName("workspace_btn")
             btn.setCheckable(True)
-            btn.setFixedHeight(36)
-            btn.setMinimumWidth(90)
+            # P9-LAYOUT: kompakte Tab-Buttons (vorher 36 px hoch)
+            btn.setFixedHeight(18)
+            btn.setMinimumWidth(80)
             btn.setToolTip(tooltips[i])
             btn.setAccessibleName(accessible_names[i])
             btn.setStatusTip(status_tips[i])

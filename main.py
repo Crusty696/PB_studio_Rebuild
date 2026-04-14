@@ -181,11 +181,13 @@ class PBWindow(QMainWindow):
         self.logger = logger
         self._app_version = APP_VERSION
         self.setWindowTitle(f"PB_studio v{APP_VERSION} — Director's Cockpit")
-        self.resize(1500, 900)
-        # Surface Book 2: Fenstergroesse begrenzen damit CreateDIBSection nicht crasht
-        # bei vielen importierten Medien (Widget-minimumSize kann explodieren)
-        self.setMinimumSize(800, 600)
-        self.setMaximumSize(3840, 2160)
+        # P9-LAYOUT: Festes Fenster 1513×936. Kein Resize, keine Splitter.
+        # Begruendung: Vorgabe aus docs/ui_audit/LAYOUT_PLAN.md — Inhalt soll
+        # IMMER vollstaendig sichtbar sein, ohne Scrollen oder Verschieben.
+        # Maximize-Button via WindowFlags abschalten.
+        self.setFixedSize(1513, 936)
+        from PySide6.QtCore import Qt as _Qt
+        self.setWindowFlag(_Qt.WindowType.WindowMaximizeButtonHint, False)
         self._active_threads: list[QThread] = []
         self._active_workers: list[QObject] = []
         self._otio_timeline_service: TimelineService | None = None
@@ -285,8 +287,11 @@ class PBWindow(QMainWindow):
         self.nav_bar.workspace_changed.connect(self.workspace_setup._on_workspace_changed)
         main_layout.addWidget(self.nav_bar)
 
-        # ── Status Bar ──
+        # ── Status Bar ── (P9-LAYOUT: kompakt, kein Size-Grip, fixed 18 px)
         self.status_bar = QStatusBar()
+        self.status_bar.setSizeGripEnabled(False)
+        self.status_bar.setFixedHeight(18)
+        self.status_bar.setStyleSheet("QStatusBar { font-size: 10px; padding: 0; }")
         self.setStatusBar(self.status_bar)
         self.status_bar.showMessage(f"PB_studio v{APP_VERSION} | System bereit")
 

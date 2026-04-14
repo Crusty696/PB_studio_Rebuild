@@ -11,44 +11,45 @@ class WorkspaceSetupController(PBComponent):
     """Controller fuer MainWindow: Workspace-Erstellung und Top-Bar-Aufbau."""
 
     def _build_top_bar(self, main_layout, app_version: str):
-        """Erstellt die Top-Bar (Titel, Projekt-Buttons, Panel-Toggles) und fuegt sie main_layout hinzu."""
+        """Erstellt die kompakte Top-Bar (P9-LAYOUT: 28 px statt 36)."""
         top_bar = QWidget()
         top_bar.setObjectName("top_bar")
-        top_bar.setFixedHeight(36)
+        top_bar.setFixedHeight(28)  # P9: -8 px
         top_layout = QHBoxLayout(top_bar)
-        top_layout.setContentsMargins(12, 0, 12, 0)
+        top_layout.setContentsMargins(8, 0, 8, 0)
+        top_layout.setSpacing(4)
 
         app_title = QLabel(f"PB_studio v{app_version}")
-        app_title.setStyleSheet("color: #e8e6e3; font-weight: 700; font-size: 13px; background: transparent;")
+        app_title.setStyleSheet("color: #e8e6e3; font-weight: 700; font-size: 11px; background: transparent;")
         top_layout.addWidget(app_title)
 
         btn_new_project = QPushButton("+ Neu")
         btn_new_project.setObjectName("btn_secondary")
-        btn_new_project.setFixedHeight(24)
+        btn_new_project.setFixedHeight(22)
         btn_new_project.clicked.connect(self.window.project_management._new_project)
         top_layout.addWidget(btn_new_project)
 
         btn_open_project = QPushButton("Oeffnen")
         btn_open_project.setObjectName("btn_secondary")
-        btn_open_project.setFixedHeight(24)
+        btn_open_project.setFixedHeight(22)
         btn_open_project.clicked.connect(self.window.project_management._open_project)
         top_layout.addWidget(btn_open_project)
 
         self.window._btn_recent = QPushButton("Zuletzt \u25be")
         self.window._btn_recent.setObjectName("btn_secondary")
-        self.window._btn_recent.setFixedHeight(24)
+        self.window._btn_recent.setFixedHeight(22)
         self.window._btn_recent.clicked.connect(self._show_recent_projects_menu)
         top_layout.addWidget(self.window._btn_recent)
 
         btn_save_as = QPushButton("Speichern unter")
         btn_save_as.setObjectName("btn_secondary")
-        btn_save_as.setFixedHeight(24)
+        btn_save_as.setFixedHeight(22)
         btn_save_as.clicked.connect(self.window.project_management._save_project_as)
         top_layout.addWidget(btn_save_as)
 
         self.window._project_name_label = QLabel("")
         self.window._project_name_label.setObjectName("title")
-        self.window._project_name_label.setStyleSheet("color: #d4a44a; padding: 0 10px;")
+        self.window._project_name_label.setStyleSheet("color: #d4a44a; padding: 0 8px; font-size: 11px;")
         top_layout.addWidget(self.window._project_name_label)
 
         top_layout.addStretch()
@@ -56,35 +57,35 @@ class WorkspaceSetupController(PBComponent):
         self.window._btn_toggle_tasks = QPushButton("Tasks")
         self.window._btn_toggle_tasks.setCheckable(True)
         self.window._btn_toggle_tasks.setChecked(True)
-        self.window._btn_toggle_tasks.setFixedHeight(24)
+        self.window._btn_toggle_tasks.setFixedHeight(22)
         top_layout.addWidget(self.window._btn_toggle_tasks)
 
         self.window._btn_toggle_console = QPushButton("Konsole")
         self.window._btn_toggle_console.setCheckable(True)
         self.window._btn_toggle_console.setChecked(True)
-        self.window._btn_toggle_console.setFixedHeight(24)
+        self.window._btn_toggle_console.setFixedHeight(22)
         top_layout.addWidget(self.window._btn_toggle_console)
 
         self.window._btn_toggle_chat = QPushButton("KI Chat")
         self.window._btn_toggle_chat.setCheckable(True)
         self.window._btn_toggle_chat.setChecked(False)
-        self.window._btn_toggle_chat.setFixedHeight(24)
+        self.window._btn_toggle_chat.setFixedHeight(22)
         top_layout.addWidget(self.window._btn_toggle_chat)
 
         btn_settings = QPushButton("⚙ Einstellungen")
-        btn_settings.setMaximumWidth(120)
-        btn_settings.setFixedHeight(28)
+        btn_settings.setMaximumWidth(110)
+        btn_settings.setFixedHeight(22)
         btn_settings.clicked.connect(self.window.project_management._show_settings)
         top_layout.addWidget(btn_settings)
 
         btn_about = QPushButton("About")
-        btn_about.setMaximumWidth(80)
-        btn_about.setFixedHeight(28)
+        btn_about.setMaximumWidth(64)
+        btn_about.setFixedHeight(22)
         btn_about.clicked.connect(self.window.project_management._show_about)
         top_layout.addWidget(btn_about)
 
         btn_help = QPushButton("?")
-        btn_help.setFixedSize(28, 28)
+        btn_help.setFixedSize(22, 22)
         btn_help.clicked.connect(self.window.project_management._show_shortcut_help)
         top_layout.addWidget(btn_help)
 
