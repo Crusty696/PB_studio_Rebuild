@@ -204,33 +204,47 @@ class MediaWorkspace(QWidget):
 
     # ── UI construction ───────────────────────────────────────
     def _build_ui(self):
+        # P9-Step3a: kompakte Margins (vorher 8/8/8/4)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 4)
+        layout.setContentsMargins(4, 4, 4, 2)
+        layout.setSpacing(2)
 
-        # ── Mode Toggle Bar ──────────────────────────────────
+        # P9-Step3a: Mode-Toggle als schmale Tab-Bar (vorher 2 Buttons à 42 px,
+        # nahmen 1200×92 px Platz weg). Jetzt kompakte Tab-Bar 24 px.
+        _TAB_STYLE = (
+            "QPushButton { background:transparent; color:#6b7280; border:none;"
+            " border-bottom:2px solid transparent; padding:2px 14px; min-height:18px;"
+            " font-size:10px; font-weight:700; letter-spacing:1px; text-transform:uppercase; }"
+            "QPushButton:hover { color:#9ca3af; background:rgba(255,255,255,0.03); }"
+            "QPushButton:checked { color:#f0c866; border-bottom:2px solid #d4a44a;"
+            " background:rgba(212,164,74,0.08); }"
+        )
         mode_bar = QHBoxLayout()
-        mode_bar.setContentsMargins(0, 0, 0, 4)
-        mode_bar.setSpacing(8)
+        mode_bar.setContentsMargins(0, 0, 0, 0)
+        mode_bar.setSpacing(0)
 
-        self.btn_mode_video = QPushButton("\U0001f3ac  VIDEO MODUS")
+        self.btn_mode_video = QPushButton("VIDEO")
         self.btn_mode_video.setCheckable(True)
         self.btn_mode_video.setAutoExclusive(True)
         self.btn_mode_video.setChecked(True)
-        self.btn_mode_video.setFixedHeight(42)
-        self.btn_mode_video.setStyleSheet(_MODE_BTN_STYLE)
+        self.btn_mode_video.setFixedHeight(22)
+        self.btn_mode_video.setMinimumWidth(80)
+        self.btn_mode_video.setStyleSheet(_TAB_STYLE)
         self.btn_mode_video.setAccessibleName("Video Modus")
         self.btn_mode_video.setStatusTip("Wechselt in den Video-Modus: Video-Pool und Analyse-Pipeline")
 
-        self.btn_mode_audio = QPushButton("\U0001f3b5  AUDIO MODUS")
+        self.btn_mode_audio = QPushButton("AUDIO")
         self.btn_mode_audio.setCheckable(True)
         self.btn_mode_audio.setAutoExclusive(True)
-        self.btn_mode_audio.setFixedHeight(42)
-        self.btn_mode_audio.setStyleSheet(_MODE_BTN_STYLE)
+        self.btn_mode_audio.setFixedHeight(22)
+        self.btn_mode_audio.setMinimumWidth(80)
+        self.btn_mode_audio.setStyleSheet(_TAB_STYLE)
         self.btn_mode_audio.setAccessibleName("Audio Modus")
         self.btn_mode_audio.setStatusTip("Wechselt in den Audio-Modus: Audio-Pool und Stem-Analyse")
 
-        mode_bar.addWidget(self.btn_mode_video, stretch=1)
-        mode_bar.addWidget(self.btn_mode_audio, stretch=1)
+        mode_bar.addWidget(self.btn_mode_video)
+        mode_bar.addWidget(self.btn_mode_audio)
+        mode_bar.addStretch()
         layout.addLayout(mode_bar)
 
         # ── Stacked Widget ───────────────────────────────────
@@ -239,15 +253,15 @@ class MediaWorkspace(QWidget):
         self.mode_stack.addWidget(self._build_audio_page())   # index 1
         layout.addWidget(self.mode_stack, stretch=1)
 
-        # ── Shared Bottom Bar (always visible) ───────────────
+        # ── Shared Bottom Bar (always visible) ──── P9-Step3a kompakter
         bottom_bar = QHBoxLayout()
-        bottom_bar.setContentsMargins(0, 4, 0, 0)
-        bottom_bar.setSpacing(8)
+        bottom_bar.setContentsMargins(0, 2, 0, 0)
+        bottom_bar.setSpacing(4)
 
         self.btn_add_to_timeline = QPushButton("Zur Timeline hinzufuegen")
         self.btn_add_to_timeline.setObjectName("btn_accent")
-        self.btn_add_to_timeline.setFixedHeight(35)
-        self.btn_add_to_timeline.setMaximumWidth(300)
+        self.btn_add_to_timeline.setFixedHeight(24)
+        self.btn_add_to_timeline.setMaximumWidth(220)
         self.btn_add_to_timeline.setToolTip("Markierte Datei auf Timeline legen")
         self.btn_add_to_timeline.setAccessibleName("Zur Timeline hinzufuegen")
         self.btn_add_to_timeline.setStatusTip("Markierte Datei auf die Edit-Timeline legen")
@@ -258,6 +272,7 @@ class MediaWorkspace(QWidget):
         self.progress_bar.setVisible(False)
         self.progress_bar.setTextVisible(True)
         self.progress_bar.setFormat("Analyse laeuft...")
+        self.progress_bar.setFixedHeight(20)  # P9-Step3a
         self.progress_bar.setToolTip(
             "Zeigt den Fortschritt der aktuellen Hintergrund-Analyse an"
         )
