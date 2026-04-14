@@ -301,15 +301,15 @@ class TimelineClipItem(QGraphicsRectItem):
         if self._trim_mode:
             return super().itemChange(change, value)
         if change == QGraphicsRectItem.GraphicsItemChange.ItemPositionChange:
-            # Drag-Start merken (erste Bewegung) + H-34 fix: cache duration
+            # Drag-Start merken (erste Bewegung).
+            # P8-A1-FIX: Duration aus der Item-Breite ableiten, NICHT aus der DB.
+            # Vorher: nullpool_session()+session.get(TimelineEntry) bei JEDEM
+            # Drag-Start — blockierte den Qt-Event-Loop bei jeder Maus-Bewegung
+            # ueber einen nicht-selektierten Clip. Die Breite ist sowieso im
+            # Item gespeichert (wird beim Trim aktualisiert), also lokal.
             if self._drag_start_x is None:
                 self._drag_start_x = self.pos().x()
-                # Cache duration from DB to avoid blocking read during flush
-                from database import nullpool_session, TimelineEntry
-                with nullpool_session() as session:
-                    entry = session.get(TimelineEntry, self.entry_id)
-                    if entry and entry.end_time is not None:
-                        self._drag_duration = entry.end_time - entry.start_time
+                self._drag_duration = self._clip_width / PIXELS_PER_SECOND
             new_pos = QPointF(max(0, value.x()), self._track_y)
             return new_pos
         if change == QGraphicsRectItem.GraphicsItemChange.ItemPositionHasChanged:
@@ -674,6 +674,7 @@ class InteractiveTimeline(QGraphicsView):
             title=title, x=x, y=y, width=width, height=TRACK_HEIGHT,
             on_moved=self._on_clip_moved, on_trimmed=self._on_clip_trimmed,
             has_waveform=has_waveform,
+            anchors=[],  # P8-A2-FIX: neue Clips haben keine Anker → keine DB-Query
         )
         self._scene.addItem(item)
         self.clip_items.append(item)
