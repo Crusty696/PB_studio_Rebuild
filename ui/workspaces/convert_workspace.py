@@ -1,19 +1,35 @@
-"""CONVERT Workspace: Video standardization and batch conversion."""
+"""CONVERT Workspace: Video standardization, batch conversion, clip effects.
+
+P9-Step5: Tab-Layout (BATCH | EFFEKTE) + kompakter LOG-Fuss.
+"""
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel,
-    QComboBox, QPushButton, QProgressBar, QTextEdit, QSplitter, QSlider,
+    QComboBox, QPushButton, QProgressBar, QTextEdit, QSlider,
+    QTabWidget,
 )
 from PySide6.QtCore import Qt
 
 from ui.theme import BG0, T1
 
 
-class ConvertWorkspace(QWidget):
-    """Convert workspace — format settings, batch conversion, log.
+_SUB_TAB_STYLE = """
+QTabBar::tab {
+    background: transparent; color: #6b7280; border: none;
+    border-bottom: 2px solid transparent; padding: 2px 14px;
+    min-height: 18px; font-size: 10px; font-weight: 700; letter-spacing: 1px;
+}
+QTabBar::tab:hover { color: #9ca3af; background: rgba(255,255,255,0.03); }
+QTabBar::tab:selected {
+    color: #f0c866; border-bottom: 2px solid #d4a44a;
+    background: rgba(212,164,74,0.08);
+}
+QTabWidget::pane { border: none; }
+"""
 
-    Signal wiring is done by PBWindow after construction.
-    """
+
+class ConvertWorkspace(QWidget):
+    """Convert workspace — 2 Sub-Tabs (Batch / Effekte) + LOG-Fuss."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -21,160 +37,185 @@ class ConvertWorkspace(QWidget):
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 4)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(2)
 
-        top_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self._tabs = QTabWidget()
+        self._tabs.setStyleSheet(_SUB_TAB_STYLE)
+        self._tabs.setDocumentMode(True)
+        self._tabs.addTab(self._build_batch_tab(), "BATCH-STANDARDISIERUNG")
+        self._tabs.addTab(self._build_effects_tab(), "CLIP-EFFEKTE")
+        layout.addWidget(self._tabs, stretch=1)
 
-        # Left: Settings
-        settings_panel = QWidget()
-        settings_panel.setMaximumWidth(350)
-        settings_layout = QVBoxLayout(settings_panel)
-        settings_layout.setSpacing(8)
+        # LOG-Fuss (fest 110 px)
+        log_lbl = QLabel("CONVERT LOG")
+        log_lbl.setStyleSheet("color: #6b7280; font-size: 9px; font-weight: 700; letter-spacing: 1px; padding: 2px 4px;")
+        layout.addWidget(log_lbl)
+        self.convert_log = QTextEdit()
+        self.convert_log.setReadOnly(True)
+        self.convert_log.setFixedHeight(110)
+        self.convert_log.setStyleSheet(
+            f"background-color: {BG0}; border: 1px solid rgba(255,255,255,15); "
+            f"color: {T1}; font-family: 'Consolas'; font-size: 10px;"
+        )
+        self.convert_log.setToolTip("Protokoll der Video-Konvertierungen")
+        self.convert_log.append("[Convert] Bereit. Waehle Ziel-Format und klicke 'Alle Videos standardisieren'.")
+        layout.addWidget(self.convert_log)
+
+        # Tab-Order
+        self.setTabOrder(self.convert_resolution, self.convert_fps)
+        self.setTabOrder(self.convert_fps, self.convert_format)
+        self.setTabOrder(self.convert_format, self.btn_standardize_all)
+        self.setTabOrder(self.btn_standardize_all, self.effects_clip_combo)
+        self.setTabOrder(self.effects_clip_combo, self.brightness_slider)
+        self.setTabOrder(self.brightness_slider, self.contrast_slider)
+        self.setTabOrder(self.contrast_slider, self.crossfade_slider)
+        self.setTabOrder(self.crossfade_slider, self.btn_apply_effects)
+
+    # ------------------------------------------------------------------
+    def _build_batch_tab(self) -> QWidget:
+        page = QWidget()
+        v = QVBoxLayout(page)
+        v.setContentsMargins(8, 6, 8, 6)
+        v.setSpacing(8)
 
         format_group = QGroupBox("Ziel-Format")
-        format_layout = QVBoxLayout(format_group)
+        format_layout = QHBoxLayout(format_group)
+        format_layout.setSpacing(8)
 
-        res_row = QHBoxLayout()
-        res_row.addWidget(QLabel("Aufloesung:"))
+        format_layout.addWidget(QLabel("Aufloesung:"))
         self.convert_resolution = QComboBox()
         self.convert_resolution.addItems([
             "1920x1080 (1080p)", "2560x1440 (2K)", "3840x2160 (4K)", "1280x720 (720p)"
         ])
-        self.convert_resolution.setToolTip("Ziel-Aufloesung fuer alle Videos")
+        self.convert_resolution.setFixedHeight(22)
         self.convert_resolution.setAccessibleName("Ziel-Aufloesung")
-        self.convert_resolution.setStatusTip("Ziel-Aufloesung fuer die Video-Konvertierung waehlen")
-        res_row.addWidget(self.convert_resolution)
-        format_layout.addLayout(res_row)
+        format_layout.addWidget(self.convert_resolution, stretch=1)
 
-        fps_row = QHBoxLayout()
-        fps_row.addWidget(QLabel("Framerate:"))
+        format_layout.addWidget(QLabel("Framerate:"))
         self.convert_fps = QComboBox()
         self.convert_fps.addItems(["30 fps", "24 fps", "25 fps", "50 fps", "60 fps"])
-        self.convert_fps.setToolTip("Ziel-Framerate fuer alle Videos")
+        self.convert_fps.setFixedHeight(22)
         self.convert_fps.setAccessibleName("Ziel-Framerate")
-        self.convert_fps.setStatusTip("Ziel-Framerate (Bilder pro Sekunde) fuer die Video-Konvertierung waehlen")
-        fps_row.addWidget(self.convert_fps)
-        format_layout.addLayout(fps_row)
+        format_layout.addWidget(self.convert_fps, stretch=1)
 
-        fmt_row = QHBoxLayout()
-        fmt_row.addWidget(QLabel("Container:"))
+        format_layout.addWidget(QLabel("Container:"))
         self.convert_format = QComboBox()
         self.convert_format.addItems([
             "mp4 (H.264)", "mp4 (H.265/HEVC)", "mov (ProRes)", "mkv (H.264)"
         ])
-        self.convert_format.setToolTip("Ziel-Containerformat")
+        self.convert_format.setFixedHeight(22)
         self.convert_format.setAccessibleName("Ziel-Containerformat")
-        self.convert_format.setStatusTip("Ziel-Containerformat und Video-Codec fuer die Konvertierung waehlen")
-        fmt_row.addWidget(self.convert_format)
-        format_layout.addLayout(fmt_row)
-        format_layout.addStretch()
+        format_layout.addWidget(self.convert_format, stretch=1)
 
-        settings_layout.addWidget(format_group)
+        v.addWidget(format_group)
 
-        action_group = QGroupBox("Aktionen")
-        action_layout = QVBoxLayout(action_group)
-
+        # Action-Row
+        action_row = QHBoxLayout()
+        action_row.setSpacing(6)
         self.btn_standardize_all = QPushButton("Alle Videos standardisieren")
         self.btn_standardize_all.setObjectName("btn_accent")
-        self.btn_standardize_all.setFixedHeight(35)
-        self.btn_standardize_all.setMaximumWidth(300)
-        self.btn_standardize_all.setToolTip(
-            "Konvertiert alle Videos im Video Pool in das gewaehlte Standardformat"
-        )
+        self.btn_standardize_all.setFixedHeight(28)
+        self.btn_standardize_all.setMaximumWidth(260)
         self.btn_standardize_all.setAccessibleName("Alle Videos standardisieren")
-        self.btn_standardize_all.setStatusTip("Alle Videos im Pool in das gewaehlte Ziel-Format konvertieren")
-        action_layout.addWidget(self.btn_standardize_all)
+        action_row.addWidget(self.btn_standardize_all)
 
         self.convert_progress = QProgressBar()
         self.convert_progress.setVisible(False)
         self.convert_progress.setTextVisible(True)
+        self.convert_progress.setFixedHeight(22)
         self.convert_progress.setFormat("Konvertierung...")
-        action_layout.addWidget(self.convert_progress)
-        action_layout.addStretch()
+        action_row.addWidget(self.convert_progress, stretch=1)
+        v.addLayout(action_row)
+        v.addStretch(1)
+        return page
 
-        settings_layout.addWidget(action_group)
+    # ------------------------------------------------------------------
+    def _build_effects_tab(self) -> QWidget:
+        page = QWidget()
+        v = QVBoxLayout(page)
+        v.setContentsMargins(8, 6, 8, 6)
+        v.setSpacing(8)
 
-        # ── Clip-Effekte ──────────────────────────────────
-        effects_group = QGroupBox("Clip-Effekte")
-        effects_layout = QVBoxLayout(effects_group)
-
+        # Clip-Picker
+        pick_row = QHBoxLayout()
+        pick_row.setSpacing(6)
+        pick_row.addWidget(QLabel("Clip:"))
         self.effects_clip_combo = QComboBox()
-        self.effects_clip_combo.setToolTip("Timeline-Clip fuer Effekt-Bearbeitung waehlen")
+        self.effects_clip_combo.setFixedHeight(22)
         self.effects_clip_combo.setAccessibleName("Clip fuer Effekte waehlen")
-        self.effects_clip_combo.setStatusTip("Timeline-Clip auswaehlen, auf den die Effekte angewendet werden")
-        effects_layout.addWidget(self.effects_clip_combo)
+        pick_row.addWidget(self.effects_clip_combo, stretch=1)
+        v.addLayout(pick_row)
 
-        # Brightness
+        # Helligkeit
         br_row = QHBoxLayout()
-        br_row.addWidget(QLabel("Helligkeit:"))
+        br_lbl = QLabel("Helligkeit:")
+        br_lbl.setFixedWidth(80)
+        br_row.addWidget(br_lbl)
         self.brightness_slider = QSlider(Qt.Orientation.Horizontal)
         self.brightness_slider.setRange(-100, 100)
         self.brightness_slider.setValue(0)
-        self.brightness_slider.setToolTip("Helligkeit (-1.0 bis +1.0)")
+        self.brightness_slider.setFixedHeight(18)
         self.brightness_slider.setAccessibleName("Helligkeit")
-        self.brightness_slider.setStatusTip("Helligkeit des Clips anpassen (-1.0 bis +1.0)")
-        br_row.addWidget(self.brightness_slider)
+        br_row.addWidget(self.brightness_slider, stretch=1)
         self.brightness_label = QLabel("0")
-        self.brightness_label.setFixedWidth(30)
+        self.brightness_label.setFixedWidth(40)
         self.brightness_label.setAccessibleName("Helligkeit Wert")
         br_row.addWidget(self.brightness_label)
-        effects_layout.addLayout(br_row)
+        v.addLayout(br_row)
 
-        # Contrast
+        # Kontrast
         ct_row = QHBoxLayout()
-        ct_row.addWidget(QLabel("Kontrast:"))
+        ct_lbl = QLabel("Kontrast:")
+        ct_lbl.setFixedWidth(80)
+        ct_row.addWidget(ct_lbl)
         self.contrast_slider = QSlider(Qt.Orientation.Horizontal)
         self.contrast_slider.setRange(0, 300)
         self.contrast_slider.setValue(100)
-        self.contrast_slider.setToolTip("Kontrast (0.0 bis 3.0)")
+        self.contrast_slider.setFixedHeight(18)
         self.contrast_slider.setAccessibleName("Kontrast")
-        self.contrast_slider.setStatusTip("Kontrast des Clips anpassen (0.0 bis 3.0, Standard: 1.0)")
-        ct_row.addWidget(self.contrast_slider)
+        ct_row.addWidget(self.contrast_slider, stretch=1)
         self.contrast_label = QLabel("100")
-        self.contrast_label.setFixedWidth(30)
+        self.contrast_label.setFixedWidth(40)
         self.contrast_label.setAccessibleName("Kontrast Wert")
         ct_row.addWidget(self.contrast_label)
-        effects_layout.addLayout(ct_row)
+        v.addLayout(ct_row)
 
         # Crossfade
         cf_row = QHBoxLayout()
-        cf_row.addWidget(QLabel("Crossfade:"))
+        cf_lbl = QLabel("Crossfade:")
+        cf_lbl.setFixedWidth(80)
+        cf_row.addWidget(cf_lbl)
         self.crossfade_slider = QSlider(Qt.Orientation.Horizontal)
         self.crossfade_slider.setRange(0, 50)
         self.crossfade_slider.setValue(0)
-        self.crossfade_slider.setToolTip("Crossfade-Dauer in Sekunden (0-5.0)")
+        self.crossfade_slider.setFixedHeight(18)
         self.crossfade_slider.setAccessibleName("Crossfade Dauer")
-        self.crossfade_slider.setStatusTip("Ueberblendungs-Dauer zwischen Clips (0 bis 5.0 Sekunden)")
-        cf_row.addWidget(self.crossfade_slider)
+        cf_row.addWidget(self.crossfade_slider, stretch=1)
         self.crossfade_label = QLabel("0.0s")
-        self.crossfade_label.setFixedWidth(35)
+        self.crossfade_label.setFixedWidth(40)
         self.crossfade_label.setAccessibleName("Crossfade Wert")
         cf_row.addWidget(self.crossfade_label)
-        effects_layout.addLayout(cf_row)
+        v.addLayout(cf_row)
 
-        # Apply Button
+        # Apply
         self.btn_apply_effects = QPushButton("Effekte anwenden")
         self.btn_apply_effects.setObjectName("btn_action")
-        self.btn_apply_effects.setFixedHeight(32)
-        self.btn_apply_effects.setMaximumWidth(300)
-        self.btn_apply_effects.setToolTip("Helligkeit/Kontrast/Crossfade auf den gewaehlten Clip anwenden")
+        self.btn_apply_effects.setFixedHeight(26)
+        self.btn_apply_effects.setMaximumWidth(220)
         self.btn_apply_effects.setAccessibleName("Effekte anwenden")
-        self.btn_apply_effects.setStatusTip("Helligkeit, Kontrast und Crossfade-Einstellungen auf den Clip anwenden")
-        effects_layout.addWidget(self.btn_apply_effects)
+        v.addWidget(self.btn_apply_effects)
 
         # Preview
         self.effects_preview = QLabel("")
-        self.effects_preview.setFixedHeight(180)
+        self.effects_preview.setMinimumHeight(360)
         self.effects_preview.setStyleSheet(
             "background: #0a0d12; border: 1px solid rgba(255,255,255,10); border-radius: 4px;"
         )
         self.effects_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        effects_layout.addWidget(self.effects_preview)
+        v.addWidget(self.effects_preview, stretch=1)
 
-        effects_layout.addStretch()
-        settings_layout.addWidget(effects_group)
-
-        # Slider-Label Sync (intern)
+        # Slider-Label-Sync
         self.brightness_slider.valueChanged.connect(
             lambda v: self.brightness_label.setText(str(v))
         )
@@ -184,42 +225,4 @@ class ConvertWorkspace(QWidget):
         self.crossfade_slider.valueChanged.connect(
             lambda v: self.crossfade_label.setText(f"{v / 10:.1f}s")
         )
-
-        settings_layout.addStretch()
-        top_splitter.addWidget(settings_panel)
-
-        # Right: Log
-        log_panel = QWidget()
-        log_layout = QVBoxLayout(log_panel)
-
-        log_title = QLabel("CONVERT LOG")
-        log_title.setStyleSheet("color: #9ca3af; font-weight: 700; font-size: 11px; padding: 2px 4px;")
-        log_layout.addWidget(log_title)
-
-        self.convert_log = QTextEdit()
-        self.convert_log.setReadOnly(True)
-        self.convert_log.setStyleSheet(
-            f"background-color: {BG0}; border: 1px solid rgba(255,255,255,15); "
-            f"color: {T1}; font-family: 'Consolas';"
-        )
-        self.convert_log.setToolTip("Protokoll der Video-Konvertierungen")
-        self.convert_log.append("[Convert] Bereit. Waehle Ziel-Format und klicke 'Alle Videos standardisieren'.")
-        log_layout.addWidget(self.convert_log)
-
-        top_splitter.addWidget(log_panel)
-        top_splitter.setStretchFactor(0, 1)
-        top_splitter.setStretchFactor(1, 4)
-        top_splitter.setCollapsible(0, True)
-        top_splitter.setCollapsible(1, False)
-
-        layout.addWidget(top_splitter)
-
-        # Tab order: format settings → actions → effects
-        self.setTabOrder(self.convert_resolution, self.convert_fps)
-        self.setTabOrder(self.convert_fps, self.convert_format)
-        self.setTabOrder(self.convert_format, self.btn_standardize_all)
-        self.setTabOrder(self.btn_standardize_all, self.effects_clip_combo)
-        self.setTabOrder(self.effects_clip_combo, self.brightness_slider)
-        self.setTabOrder(self.brightness_slider, self.contrast_slider)
-        self.setTabOrder(self.contrast_slider, self.crossfade_slider)
-        self.setTabOrder(self.crossfade_slider, self.btn_apply_effects)
+        return page
