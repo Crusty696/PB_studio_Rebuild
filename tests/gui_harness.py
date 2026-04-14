@@ -373,13 +373,176 @@ def cmd_screenshot(args) -> int:
 
 def cmd_click(args) -> int:
     import pyautogui
+    mods = [m.strip() for m in (args.modifiers or "").split(",") if m.strip()]
     try:
-        pyautogui.click(args.x, args.y, clicks=args.clicks, button=args.button)
-        _ok(x=args.x, y=args.y, button=args.button, clicks=args.clicks)
+        for m in mods:
+            pyautogui.keyDown(m)
+        try:
+            pyautogui.click(args.x, args.y, clicks=args.clicks, button=args.button)
+        finally:
+            for m in reversed(mods):
+                pyautogui.keyUp(m)
+        _ok(x=args.x, y=args.y, button=args.button, clicks=args.clicks, modifiers=mods)
         return 0
     except Exception as exc:
         _fail(f"click failed: {exc}")
         return 7
+
+
+def cmd_drag(args) -> int:
+    """Drag von (from_x, from_y) nach (to_x, to_y).
+
+    Realer Mausgesten-Drag (mouseDown, kontinuierliche Bewegung, mouseUp).
+    Wichtig fuer: Clip-Drag in Timeline, Slider-Drag, Drag&Drop von Files.
+    """
+    import pyautogui
+    try:
+        pyautogui.moveTo(args.from_x, args.from_y, duration=0.05)
+        pyautogui.mouseDown(button=args.button)
+        # Bewegung in mehreren Schritten — manche Apps reagieren empfindlich auf
+        # zu schnellen Maus-Sprung
+        steps = max(5, args.steps)
+        dx = (args.to_x - args.from_x) / steps
+        dy = (args.to_y - args.from_y) / steps
+        for i in range(1, steps + 1):
+            pyautogui.moveTo(args.from_x + dx * i, args.from_y + dy * i,
+                             duration=args.duration / steps)
+        pyautogui.mouseUp(button=args.button)
+        _ok(from_=[args.from_x, args.from_y], to=[args.to_x, args.to_y],
+            button=args.button, steps=steps, duration=args.duration)
+        return 0
+    except Exception as exc:
+        _fail(f"drag failed: {exc}")
+        return 7
+
+
+def cmd_mouse_down(args) -> int:
+    import pyautogui
+    try:
+        pyautogui.moveTo(args.x, args.y)
+        pyautogui.mouseDown(button=args.button)
+        _ok(x=args.x, y=args.y, button=args.button)
+        return 0
+    except Exception as exc:
+        _fail(f"mouse-down failed: {exc}")
+        return 7
+
+
+def cmd_mouse_up(args) -> int:
+    import pyautogui
+    try:
+        pyautogui.mouseUp(button=args.button)
+        _ok(button=args.button)
+        return 0
+    except Exception as exc:
+        _fail(f"mouse-up failed: {exc}")
+        return 7
+
+
+def cmd_scroll(args) -> int:
+    """Mausrad-Scroll an gegebener Position. delta>0 = nach oben, <0 = nach unten."""
+    import pyautogui
+    try:
+        if args.x is not None and args.y is not None:
+            pyautogui.moveTo(args.x, args.y)
+        pyautogui.scroll(args.delta)
+        _ok(delta=args.delta, x=args.x, y=args.y)
+        return 0
+    except Exception as exc:
+        _fail(f"scroll failed: {exc}")
+        return 7
+
+
+def cmd_set_value(args) -> int:
+    """Setzt einen QSpinBox / QSlider / QLineEdit per UIA SetValue.
+
+    Funktioniert fuer Qt-Widgets die das ValuePattern implementieren.
+    Fuer SpinBox: triggert die normale valueChanged-Signal-Kette wie ein
+    User-Input — also ideal fuer Inspector-Tests.
+    """
+    try:
+        top = _pwa_app(args.window_title)
+        import re
+        name_pat = re.compile(args.name_re, re.IGNORECASE) if args.name_re else None
+        target = None
+        target_info = None
+        for el, _ in _walk_children(top, max_depth=args.depth):
+            info = _element_info(el)
+            if name_pat and not name_pat.search(info.get("name", "")):
+                continue
+            if args.auto_id and info.get("auto_id", "") != args.auto_id:
+                continue
+            if args.control_type and info.get("control_type", "") != args.control_type:
+                continue
+            target = el
+            target_info = info
+            break
+        if target is None:
+            _fail("no element matched")
+            return 10
+        # Versuche ValuePattern → set_value(); fallback: triple-click + type
+        try:
+            target.set_value(str(args.value))
+            _ok(method="set_value", value=args.value, element=target_info)
+            return 0
+        except Exception:
+            pass
+        # Fallback: focus, select-all, type
+        import pyautogui
+        cx, cy = target_info["center_x"], target_info["center_y"]
+        pyautogui.tripleClick(cx, cy)
+        pyautogui.typewrite(str(args.value), interval=0.02)
+        pyautogui.press("tab")
+        _ok(method="type-fallback", value=args.value, element=target_info)
+        return 0
+    except Exception as exc:
+        _fail(f"set-value failed: {exc}")
+        return 9
+
+
+def cmd_select_combo(args) -> int:
+    """Waehlt eine ComboBox-Option per Text-Label.
+
+    Versucht UIA select_pattern; fallback: Combo oeffnen + Pfeiltasten + Enter.
+    """
+    try:
+        top = _pwa_app(args.window_title)
+        import re
+        name_pat = re.compile(args.name_re, re.IGNORECASE) if args.name_re else None
+        combo = None
+        combo_info = None
+        for el, _ in _walk_children(top, max_depth=args.depth):
+            info = _element_info(el)
+            if info.get("control_type") != "ComboBox":
+                continue
+            if name_pat and not name_pat.search(info.get("name", "")):
+                continue
+            combo = el
+            combo_info = info
+            break
+        if combo is None:
+            _fail("no combo matched")
+            return 10
+        # Versuche select via Selection/Value
+        try:
+            combo.select(args.option)
+            _ok(method="select", option=args.option, combo=combo_info)
+            return 0
+        except Exception:
+            pass
+        # Fallback: anklicken, dann ggf. tippen
+        import pyautogui
+        pyautogui.click(combo_info["center_x"], combo_info["center_y"])
+        time.sleep(0.3)
+        if args.option:
+            pyautogui.typewrite(args.option[:30], interval=0.02)
+            time.sleep(0.2)
+        pyautogui.press("enter")
+        _ok(method="click-type-enter", option=args.option, combo=combo_info)
+        return 0
+    except Exception as exc:
+        _fail(f"select-combo failed: {exc}")
+        return 9
 
 
 def _pwa_app(window_title: str):
@@ -665,7 +828,51 @@ def main() -> int:
     cl.add_argument("--y", type=int, required=True)
     cl.add_argument("--button", default="left", choices=["left", "right", "middle"])
     cl.add_argument("--clicks", type=int, default=1)
+    cl.add_argument("--modifiers", default="",
+                    help="Komma-separierte Modifier: shift,ctrl,alt (fuer Multi-Select etc.)")
     cl.set_defaults(func=cmd_click)
+
+    dr = sub.add_parser("drag", help="Drag von (from_x,from_y) nach (to_x,to_y)")
+    dr.add_argument("--from-x", type=int, required=True, dest="from_x")
+    dr.add_argument("--from-y", type=int, required=True, dest="from_y")
+    dr.add_argument("--to-x", type=int, required=True, dest="to_x")
+    dr.add_argument("--to-y", type=int, required=True, dest="to_y")
+    dr.add_argument("--button", default="left", choices=["left", "right", "middle"])
+    dr.add_argument("--steps", type=int, default=20, help="Anzahl Zwischenschritte (>=5)")
+    dr.add_argument("--duration", type=float, default=0.4, help="Gesamt-Drag-Dauer in s")
+    dr.set_defaults(func=cmd_drag)
+
+    md = sub.add_parser("mouse-down")
+    md.add_argument("--x", type=int, required=True)
+    md.add_argument("--y", type=int, required=True)
+    md.add_argument("--button", default="left", choices=["left", "right", "middle"])
+    md.set_defaults(func=cmd_mouse_down)
+
+    mu = sub.add_parser("mouse-up")
+    mu.add_argument("--button", default="left", choices=["left", "right", "middle"])
+    mu.set_defaults(func=cmd_mouse_up)
+
+    sc = sub.add_parser("scroll", help="Mausrad-Scroll. delta>0 nach oben, <0 nach unten")
+    sc.add_argument("--delta", type=int, required=True)
+    sc.add_argument("--x", type=int, default=None)
+    sc.add_argument("--y", type=int, default=None)
+    sc.set_defaults(func=cmd_scroll)
+
+    sv = sub.add_parser("set-value", help="QSpinBox/QSlider/QLineEdit-Wert setzen via UIA")
+    sv.add_argument("--window-title", default="PB_studio")
+    sv.add_argument("--name-re", default=None)
+    sv.add_argument("--auto-id", default=None)
+    sv.add_argument("--control-type", default=None)
+    sv.add_argument("--depth", type=int, default=10)
+    sv.add_argument("--value", required=True)
+    sv.set_defaults(func=cmd_set_value)
+
+    cb = sub.add_parser("select-combo", help="ComboBox-Option per Label auswaehlen")
+    cb.add_argument("--window-title", default="PB_studio")
+    cb.add_argument("--name-re", default=None)
+    cb.add_argument("--depth", type=int, default=10)
+    cb.add_argument("--option", required=True)
+    cb.set_defaults(func=cmd_select_combo)
 
     tp = sub.add_parser("type"); tp.add_argument("--text", required=True); tp.set_defaults(func=cmd_type)
 
