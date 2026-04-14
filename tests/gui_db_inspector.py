@@ -59,6 +59,17 @@ def _list_tables(conn: sqlite3.Connection) -> list[str]:
     return [r["name"] for r in rows]
 
 
+def _assert_valid_table(conn: sqlite3.Connection, table: str) -> None:
+    """Whitelist-Validierung: Tabellen-Name muss in sqlite_master existieren.
+
+    Gegen SQL-Identifier-Injection in f-string Queries. ?mode=ro blockt zwar
+    alle Writes, aber manipulierte Identifier koennen trotzdem den Parser
+    verwirren oder unerwartete Resultate liefern.
+    """
+    if table not in _list_tables(conn):
+        raise ValueError(f"unknown table {table!r}")
+
+
 def cmd_tables(args) -> int:
     with _open_ro(Path(args.db)) as conn:
         _ok(tables=_list_tables(conn))
@@ -76,6 +87,7 @@ def cmd_counts(args) -> int:
 
 
 def _latest(conn: sqlite3.Connection, table: str, limit: int) -> list[dict]:
+    _assert_valid_table(conn, table)
     cols = [r["name"] for r in conn.execute(f"PRAGMA table_info(\"{table}\")").fetchall()]
     order_col = "id" if "id" in cols else "rowid"
     rows = conn.execute(
@@ -86,7 +98,12 @@ def _latest(conn: sqlite3.Connection, table: str, limit: int) -> list[dict]:
 
 def cmd_latest(args) -> int:
     with _open_ro(Path(args.db)) as conn:
-        _ok(table=args.table, rows=_latest(conn, args.table, args.limit))
+        try:
+            rows = _latest(conn, args.table, args.limit)
+        except ValueError as exc:
+            _fail(str(exc))
+            return 4
+        _ok(table=args.table, rows=rows)
     return 0
 
 

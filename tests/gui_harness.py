@@ -63,6 +63,25 @@ def _fail(error: str, **kw) -> None:
     _emit({"ok": False, "error": error, **kw})
 
 
+APP_STDOUT = ARTIFACT_DIR / ".app_stdout.log"
+APP_STDERR = ARTIFACT_DIR / ".app_stderr.log"
+
+
+def _pid_is_alive(pid: int) -> bool:
+    """Check if a PID is still running. Windows: tasklist; Unix: os.kill(pid, 0)."""
+    try:
+        if sys.platform == "win32":
+            out = subprocess.run(
+                ["tasklist", "/FI", f"PID eq {pid}", "/NH", "/FO", "CSV"],
+                capture_output=True, text=True, check=False,
+            )
+            return str(pid) in (out.stdout or "")
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
 def cmd_start(args) -> int:
     if not VENV_PYTHON.exists():
         _fail(f"venv python not found: {VENV_PYTHON}")
@@ -71,6 +90,29 @@ def cmd_start(args) -> int:
         _fail(f"main.py not found: {MAIN_PY}")
         return 2
 
+    # Duplikats-Schutz: existierender lebender Prozess aus vorigem start?
+    if PID_FILE.exists():
+        try:
+            existing = int(PID_FILE.read_text(encoding="utf-8").strip())
+        except (ValueError, OSError):
+            existing = 0
+        if existing and _pid_is_alive(existing):
+            if getattr(args, "force", False):
+                # Erst alten Prozess killen, dann neu starten
+                if sys.platform == "win32":
+                    subprocess.run(["taskkill", "/F", "/T", "/PID", str(existing)],
+                                   capture_output=True, check=False)
+                else:
+                    os.kill(existing, signal.SIGTERM)
+                time.sleep(0.5)
+            else:
+                _fail(
+                    f"app still running as PID {existing}. Use `kill` first or pass --force.",
+                    existing_pid=existing,
+                )
+                return 11
+        # Stale PID-File — einfach ueberschreiben
+
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
 
@@ -78,16 +120,27 @@ def cmd_start(args) -> int:
     if sys.platform == "win32":
         creationflags = subprocess.CREATE_NEW_PROCESS_GROUP
 
-    proc = subprocess.Popen(
-        [str(VENV_PYTHON), str(MAIN_PY)],
-        cwd=str(PROJECT_ROOT),
-        env=env,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        creationflags=creationflags,
-    )
+    # Important-Fix: stdout/stderr in Dateien statt DEVNULL, damit Crashes *vor*
+    # dem setup_logging() (Import-Errors, syntaxfehler, fehlende venv-Pakete)
+    # einen sichtbaren Traceback im Artefakt-Ordner hinterlassen.
+    stdout_fh = APP_STDOUT.open("ab")
+    stderr_fh = APP_STDERR.open("ab")
+    try:
+        proc = subprocess.Popen(
+            [str(VENV_PYTHON), str(MAIN_PY)],
+            cwd=str(PROJECT_ROOT),
+            env=env,
+            stdout=stdout_fh,
+            stderr=stderr_fh,
+            creationflags=creationflags,
+        )
+    finally:
+        # File-Handles im Parent schliessen — Child hat eigene Duplicates
+        stdout_fh.close()
+        stderr_fh.close()
     PID_FILE.write_text(str(proc.pid), encoding="utf-8")
-    _ok(pid=proc.pid, log_file=str(LOG_FILE))
+    _ok(pid=proc.pid, log_file=str(LOG_FILE),
+        stdout_file=str(APP_STDOUT), stderr_file=str(APP_STDERR))
     return 0
 
 
@@ -515,7 +568,10 @@ def main() -> int:
     p = argparse.ArgumentParser(prog="gui_harness")
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    sub.add_parser("start").set_defaults(func=cmd_start)
+    sp_start = sub.add_parser("start")
+    sp_start.add_argument("--force", action="store_true",
+                          help="Laufende App vorher killen statt Fehler zu werfen")
+    sp_start.set_defaults(func=cmd_start)
 
     kp = sub.add_parser("kill"); kp.add_argument("--pid", type=int, default=None); kp.set_defaults(func=cmd_kill)
 
