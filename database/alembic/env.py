@@ -16,8 +16,10 @@ from database.session import get_raw_engine
 # Alembic Config object — provides access to alembic.ini values
 config = context.config
 
-# Set up loggers from alembic.ini
-if config.config_file_name is not None:
+# Set up loggers from alembic.ini — nur wenn die Host-App noch kein Logging
+# konfiguriert hat. Sonst wuerde fileConfig den RotatingFileHandler aus
+# main.setup_logging() entfernen und die Datei-Logs blind machen.
+if config.config_file_name is not None and not logging.getLogger().handlers:
     fileConfig(config.config_file_name)
 
 logger = logging.getLogger("alembic.env")

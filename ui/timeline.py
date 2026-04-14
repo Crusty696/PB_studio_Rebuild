@@ -478,9 +478,12 @@ class InteractiveTimeline(QGraphicsView):
             except (TypeError, RuntimeError):
                 pass  # Bereits disconnected
         if hasattr(self, '_db_thread') and self._db_thread is not None:
-            if self._db_thread.isRunning():
-                self._db_thread.quit()
-                self._db_thread.wait(2000)
+            try:
+                if self._db_thread.isRunning():
+                    self._db_thread.quit()
+                    self._db_thread.wait(2000)
+            except RuntimeError:
+                pass  # Underlying C++ QThread already deleted (auto-deleted after finished)
             self._db_worker = None
             self._db_thread = None
 

@@ -208,10 +208,10 @@ class ProjectManagementController(PBComponent):
 
     def _update_window_title(self):
         """Rebuild the window title, appending '*' when dirty."""
-        import database
+        import database.session as _session
         app_version = getattr(self.window, "_app_version", "0.5.0")
-        if database.APP_ROOT:
-            project_name = Path(database.APP_ROOT).name
+        if _session.APP_ROOT:
+            project_name = Path(_session.APP_ROOT).name
             title = f"PB_studio v{app_version} — {project_name}"
         else:
             title = f"PB_studio v{app_version} — Director's Cockpit"

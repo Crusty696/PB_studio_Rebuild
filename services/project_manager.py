@@ -207,13 +207,13 @@ class ProjectManager(QObject):
                 "Bitte warte bis alle Tasks beendet sind."
             )
 
-        import database
-        # Null-Check für APP_ROOT (B-001 Fix: database.APP_ROOT könnte None sein)
-        if database.APP_ROOT is None:
+        import database.session as _session
+        # Null-Check für APP_ROOT (B-001 Fix: database.session.APP_ROOT könnte None sein)
+        if _session.APP_ROOT is None:
             raise RuntimeError(
                 "Kein aktives Projekt geöffnet. APP_ROOT ist nicht initialisiert."
             )
-        source = Path(database.APP_ROOT)
+        source = Path(_session.APP_ROOT)
         target_path = Path(target_path)
 
         if target_path.exists():
