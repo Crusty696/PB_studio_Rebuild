@@ -441,14 +441,44 @@ class PBWindow(QMainWindow):
         except Exception as e:  # B-035 Fix: Log instead of silent pass
             logger.debug("Failed to set shutdown flag: %s", e)
 
-        # 5. Alle Hintergrund-Tasks abbrechen
+        # 5. Alle Hintergrund-Tasks abbrechen UND warten (P7-FIX).
+        # Vorher wurde cancel_task() gefeuert, aber auf die QThreads nicht
+        # gewartet → bei ffmpeg-Export u.ä. loesst Qt beim nachfolgenden
+        # event.accept() den FATAL "QThread: Destroyed while thread is still
+        # running" aus, mit Risiko von DB-Korruption bei offenen Sessions.
         try:
+            import time as _time
             tm = GlobalTaskManager.instance()
-            for task in tm.get_all_tasks():
-                if task.status == "running":
-                    tm.cancel_task(task.task_id)
+            running_tasks = [t for t in tm.get_all_tasks() if t.status == "running"]
+            for task in running_tasks:
+                tm.cancel_task(task.task_id)
+            # Gebe jeder Task zusammen max. 10s, pro Task max 3s
+            deadline = _time.monotonic() + 10.0
+            for task in running_tasks:
+                thread = getattr(task, "thread", None)
+                if thread is None:
+                    continue
+                try:
+                    if not thread.isRunning():
+                        continue
+                except RuntimeError:
+                    continue  # C++-Teil bereits weg
+                remaining = max(0.1, deadline - _time.monotonic())
+                per_task_ms = int(min(3.0, remaining) * 1000)
+                try:
+                    thread.quit()
+                    if not thread.wait(per_task_ms):
+                        logger.warning(
+                            "closeEvent: Task %s beendet sich nicht in %dms, force terminate.",
+                            task.task_id, per_task_ms,
+                        )
+                        thread.terminate()
+                        thread.wait(500)
+                except RuntimeError as exc:
+                    logger.debug("closeEvent: thread cleanup raced with auto-delete (%s): %s",
+                                 task.task_id, exc)
         except Exception as e:  # B-035 Fix: Log instead of silent pass
-            logger.warning("Failed to cancel tasks on shutdown: %s", e)
+            logger.warning("Failed to cancel/wait tasks on shutdown: %s", e)
 
         # 6. Legacy-Threads stoppen (minimales Warten)
         for thread in list(self._active_threads):

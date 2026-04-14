@@ -260,6 +260,24 @@ def calculate_drum_cuts(audio_id: int, total_duration: float = 60.0,
 # Phase 3: AdvancedPacingEngine — Haupt-API
 # ======================================================================
 
+def _make_auto_edit_engine():
+    """P7-FIX: Lokale NullPool-Engine fuer auto_edit_phase3.
+
+    Der gemeinsame Pool (pool_size=10, overflow=30) wird bei parallelen
+    Workern (StemSeparator, Export, etc.) zusaetzlich belastet. Auto-Edit
+    oeffnet bis zu 4 Sessions auf 101+ Clips. Eigene NullPool-Engine pro
+    Worker-Aufruf entkoppelt den langen DB-intensiven Pfad vom UI-Pool.
+    """
+    from sqlalchemy import create_engine as _create_engine
+    from sqlalchemy.pool import NullPool
+    import database.session as _session
+    return _create_engine(
+        f"sqlite:///{_session.APP_ROOT / 'pb_studio.db'}",
+        connect_args={"check_same_thread": False, "timeout": 30},
+        poolclass=NullPool,
+    )
+
+
 def auto_edit_phase3(
     audio_id: int,
     video_clip_ids: list[int],
@@ -273,6 +291,7 @@ def auto_edit_phase3(
     Returns:
         (segments, cut_points) — Segmente fuer OTIO + CutPoints fuer UI-Visualisierung
     """
+    _ae_eng = _make_auto_edit_engine()  # P7-FIX: siehe _make_auto_edit_engine Docstring
     # 1. Audio-Dauer = Timeline-Laenge
     if progress_cb:
         progress_cb(0, "Lade Audio-Daten...")
@@ -295,6 +314,7 @@ def auto_edit_phase3(
                 t += interval
 
     if not beats or not video_clip_ids:
+        _ae_eng.dispose()
         return [], []
 
     if progress_cb:
@@ -302,6 +322,7 @@ def auto_edit_phase3(
     # 3. Video-Info laden
     video_info = _get_video_info(video_clip_ids)
     if not video_info:
+        _ae_eng.dispose()
         return [], []
 
     # 4. Anker sammeln (erzwungene Video-Zuweisungen)
@@ -525,7 +546,7 @@ def auto_edit_phase3(
         _track_genre = ""
         _track_key = ""
         _track_found = False
-        with Session(engine) as session:
+        with Session(_ae_eng) as session:
             _track = session.query(_AudioTrack).filter(
                 _AudioTrack.id == audio_id, _AudioTrack.deleted_at.is_(None)
             ).first()
@@ -590,11 +611,12 @@ def auto_edit_phase3(
     cut_points: list[CutPoint] = []
     available_ids = [vid for vid in video_clip_ids if vid in video_info]
     if not available_ids:
+        _ae_eng.dispose()
         return [], []
 
     # F-001 Fix: Load playback_offset from database for persistence
     clip_offsets: dict[int, float] = {}
-    with Session(engine) as session:
+    with Session(_ae_eng) as session:
         from database import VideoClip
         for vid in available_ids:
             video_clip = session.query(VideoClip).filter(
@@ -616,7 +638,7 @@ def auto_edit_phase3(
                 except (ValueError, TypeError) as exc:
                     logger.warning("Failed to parse scene_id in auto_edit_phase3: %s", exc)
         if scene_ids:
-            with Session(engine) as session:
+            with Session(_ae_eng) as session:
                 for scene in session.query(Scene).filter(Scene.id.in_(scene_ids)).all():
                     anchor_scene_map[str(scene.id)] = scene.video_clip_id
 
@@ -774,7 +796,7 @@ def auto_edit_phase3(
     )
 
     # F-001 Fix: Save playback_offset to database for persistence
-    with Session(engine) as session:
+    with Session(_ae_eng) as session:
         from database import VideoClip
         for vid, offset in clip_offsets.items():
             video_clip = session.query(VideoClip).filter(
@@ -784,4 +806,5 @@ def auto_edit_phase3(
                 video_clip.playback_offset = offset
         session.commit()
 
+    _ae_eng.dispose()
     return segments, cut_points

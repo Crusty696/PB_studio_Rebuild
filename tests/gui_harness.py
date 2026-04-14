@@ -145,21 +145,76 @@ def cmd_start(args) -> int:
 
 
 def cmd_kill(args) -> int:
+    """Beende die App — standardmaessig GRACEFUL (WM_CLOSE + Warten).
+
+    Hart-Kill via /F nur mit --force oder wenn graceful nach --grace-sec
+    Sekunden nicht geklappt hat. Grund: taskkill /F waehrend CUDA-Workload
+    kann den NVIDIA-Treiber in einen stuck state bringen (`CUDA unknown
+    error` bei Re-Init). Die App selbst hat einen funktionierenden
+    closeEvent, der Worker sauber abbaut — also nutzen.
+    """
     pid = args.pid or (int(PID_FILE.read_text()) if PID_FILE.exists() else None)
     if not pid:
         _fail("no pid provided and no .app_pid file")
         return 2
+
+    method_used = None
     try:
-        if sys.platform == "win32":
-            subprocess.run(
-                ["taskkill", "/F", "/T", "/PID", str(pid)],
-                capture_output=True, check=False,
-            )
-        else:
-            os.kill(pid, signal.SIGTERM)
+        if not args.force:
+            # 1) Graceful: WM_CLOSE an alle PB_studio-Fenster + taskkill ohne /F
+            if sys.platform == "win32":
+                try:
+                    import pygetwindow as gw
+                    for w in gw.getAllWindows():
+                        if "PB_studio" in (w.title or "") and _is_real_app_window(w, "PB_studio"):
+                            try:
+                                w.close()  # WM_CLOSE
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
+                # Als Backup taskkill ohne /F (auch das sendet WM_CLOSE)
+                subprocess.run(
+                    ["taskkill", "/PID", str(pid)],
+                    capture_output=True, check=False,
+                )
+            else:
+                os.kill(pid, signal.SIGTERM)
+
+            # Auf saubere Beendigung warten
+            deadline = time.monotonic() + args.grace_sec
+            while time.monotonic() < deadline:
+                if sys.platform == "win32":
+                    out = subprocess.run(
+                        ["tasklist", "/FI", f"PID eq {pid}", "/NH", "/FO", "CSV"],
+                        capture_output=True, text=True, check=False,
+                    )
+                    alive = str(pid) in (out.stdout or "")
+                else:
+                    try:
+                        os.kill(pid, 0)
+                        alive = True
+                    except OSError:
+                        alive = False
+                if not alive:
+                    method_used = "graceful"
+                    break
+                time.sleep(0.5)
+
+        # 2) Force-Fallback (oder direkt bei --force)
+        if method_used is None:
+            if sys.platform == "win32":
+                subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(pid)],
+                    capture_output=True, check=False,
+                )
+            else:
+                os.kill(pid, signal.SIGKILL)
+            method_used = "force"
+
         if PID_FILE.exists():
             PID_FILE.unlink()
-        _ok(pid=pid, killed=True)
+        _ok(pid=pid, killed=True, method=method_used, grace_sec=args.grace_sec)
         return 0
     except Exception as exc:
         _fail(f"kill failed: {exc}")
@@ -573,7 +628,14 @@ def main() -> int:
                           help="Laufende App vorher killen statt Fehler zu werfen")
     sp_start.set_defaults(func=cmd_start)
 
-    kp = sub.add_parser("kill"); kp.add_argument("--pid", type=int, default=None); kp.set_defaults(func=cmd_kill)
+    kp = sub.add_parser("kill")
+    kp.add_argument("--pid", type=int, default=None)
+    kp.add_argument("--force", action="store_true",
+                    help="Sofort /F /T (taskkill hart). Sonst graceful + Fallback.")
+    kp.add_argument("--grace-sec", type=float, default=15.0,
+                    help="Wartezeit fuer graceful exit bevor /F greift (default: 15). "
+                         "closeEvent hat eigene 10s Task-Wait-Deadline — 15 gibt Puffer.")
+    kp.set_defaults(func=cmd_kill)
 
     ww = sub.add_parser("wait-window")
     ww.add_argument("--title", default="PB_studio")

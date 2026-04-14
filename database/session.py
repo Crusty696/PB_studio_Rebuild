@@ -111,10 +111,13 @@ def _make_engine(db_path: Path):
         echo=False,
         connect_args={"check_same_thread": False, "timeout": DB_SQLITE_CONNECT_TIMEOUT_SEC},
         # Pool fuer schnelle Reads. Worker nutzen nullpool_session() fuer Writes.
-        # pool_size=5 idle Connections, max_overflow=15 Burst-Kapazitaet fuer
-        # Batch-Operationen (z.B. 10+ Video-Clips gleichzeitig laden).
-        pool_size=5,
-        max_overflow=15,
+        # pool_size=10 idle Connections, max_overflow=30 Burst-Kapazitaet
+        # (P7-FIX): vorher 5+15=20, das reicht nicht bei 3+ parallelen Workern
+        # (StemSeparator, AutoEdit mit 101 Clips, Export, Main-Thread UI-Reads,
+        # periodischer "Medien-DB laden"-Task). Gemessener Peak-Bedarf: ~12-20.
+        # Neuer Headroom 40 liefert Puffer, ohne SQLite zu ueberfordern.
+        pool_size=10,
+        max_overflow=30,
         pool_timeout=DB_POOL_TIMEOUT_SEC,
         pool_recycle=300,
     )
