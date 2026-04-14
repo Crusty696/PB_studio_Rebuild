@@ -105,7 +105,7 @@ class VideoAnalysisController(PBComponent):
         self.window.btn_analyze_video.setEnabled(True)
         self.window.btn_analyze_video.setText("Video analysieren")
         self.window.progress_bar.setVisible(False)
-        self.window.media_table_controller._refresh_media_table()
+        self.window.media_table_controller._refresh_media_table_debounced()
         errors_info = f" ({errors} Fehler)" if errors else ""
         self.window.console_text.append(
             f"[Video] Batch-Analyse abgeschlossen: {done}/{self._video_batch_total}{errors_info}"
@@ -203,7 +203,7 @@ class VideoAnalysisController(PBComponent):
             f"Pipeline fertig: {title} | {videos_done} Video(s), "
             f"{scenes} Szenen, {embeddings} Embeddings"
         )
-        self.window.media_table_controller._refresh_media_table()
+        self.window.media_table_controller._refresh_media_table_debounced()
         if task_id:
             task_manager.finish_task(
                 task_id, "finished",
@@ -241,7 +241,7 @@ class VideoAnalysisController(PBComponent):
             task_manager.finish_task(task_id, "error", "Leerer Proxy-Pfad")
             return
         self.window.console_text.append(f"[Proxy] Fertig: '{title}' → {proxy_path}")
-        self.window.media_table_controller._refresh_media_table()
+        self.window.media_table_controller._refresh_media_table_debounced()
         task_manager.finish_task(task_id, "finished", proxy_path)
 
     def _on_proxy_error(self, clip_id: int, error_msg: str, title: str, task_id: str):

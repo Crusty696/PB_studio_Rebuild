@@ -44,7 +44,7 @@ class ImportMediaController(PBComponent):
 
         def _on_finish(added: int, new_video_clips: list):
             if added:
-                self.window.media_table_controller._refresh_media_table()
+                self.window.media_table_controller._refresh_media_table_debounced()
                 for clip_id, video_path, title in new_video_clips:
                     self.window.video_analysis._start_proxy_creation(clip_id, video_path, title)
                 self.window._mark_dirty()
@@ -86,7 +86,7 @@ class ImportMediaController(PBComponent):
 
         def _on_finish(added: int, new_video_clips: list):
             if added:
-                self.window.media_table_controller._refresh_media_table()
+                self.window.media_table_controller._refresh_media_table_debounced()
                 for clip_id, video_path, title in new_video_clips:
                     self.window.video_analysis._start_proxy_creation(clip_id, video_path, title)
                 self.window._mark_dirty()
@@ -121,7 +121,7 @@ class ImportMediaController(PBComponent):
 
             worker = DeleteWorker()
             def _on_done(count):
-                self.window.media_table_controller._refresh_media_table()
+                self.window.media_table_controller._refresh_media_table_debounced()
                 self.window._mark_dirty()
                 self.window.console_text.append(f"[System] {count} Medien-Eintraege geloescht.")
                 self.window.status_bar.showMessage(f"Sammlung bereinigt ({count} Eintraege)")
@@ -177,7 +177,7 @@ class ImportMediaController(PBComponent):
 
             worker = PartialDeleteWorker()
             def _on_done(count):
-                self.window.media_table_controller._refresh_media_table()
+                self.window.media_table_controller._refresh_media_table_debounced()
                 self.window._mark_dirty()
                 self.window.console_text.append(f"[System] {count} Medien-Eintraege geloescht.")
                 self.window.status_bar.showMessage(f"{count} Medien geloescht")

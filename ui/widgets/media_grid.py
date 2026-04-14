@@ -193,10 +193,23 @@ class MediaCard(QFrame):
         self.customContextMenuRequested.connect(self._show_context_menu)
 
     def set_selected(self, sel: bool) -> None:
-        if self.property("selected") != sel:
-            self.setProperty("selected", sel)
-            self.style().unpolish(self)
-            self.style().polish(self)
+        # P8-F2-FIX: unpolish+polish in Click-Pfad triggerte O(N)-Style-
+        # Rebuild ueber alle Child-Widgets (bei vielen Cards laggy bei
+        # Shift-Select). polish() ist noetig, damit der Stylesheet
+        # [selected="true"] Selektor greift — wir schieben es per
+        # QTimer.singleShot(0) aus dem Event-Handler raus, sodass der
+        # Klick-Event sofort zurueckkommt und der Repaint danach async.
+        if self.property("selected") == sel:
+            return
+        self.setProperty("selected", sel)
+        from PySide6.QtCore import QTimer
+        def _repolish(w=self):
+            try:
+                w.style().unpolish(w)
+                w.style().polish(w)
+            except RuntimeError:
+                pass  # widget wurde schon zerstoert
+        QTimer.singleShot(0, _repolish)
 
     def mousePressEvent(self, event) -> None:  # noqa: N802
         if event.button() == Qt.MouseButton.LeftButton:
@@ -273,13 +286,12 @@ class VideoCard(MediaCard):
         vl.addLayout(meta)
 
     def set_thumbnail(self, pix: QPixmap) -> None:
+        # P8-H1-FIX: ffmpeg hat das Thumbnail im Worker bereits auf die
+        # Zielgroesse (_CW-8 × _TH) gerendert und gepadded. Zusaetzliche
+        # SmoothTransformation-Skalierung im Main-Thread war redundant
+        # und bei 100+ Cards im Pool ein Scroll-Freeze.
         if not pix.isNull():
-            scaled = pix.scaled(
-                _CW - 8, _TH,
-                Qt.AspectRatioMode.KeepAspectRatioByExpanding,
-                Qt.TransformationMode.SmoothTransformation,
-            )
-            self._thumb.setPixmap(scaled)
+            self._thumb.setPixmap(pix)
 
 
 class AudioCard(MediaCard):

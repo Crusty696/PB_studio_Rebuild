@@ -205,7 +205,7 @@ class AudioAnalysisController(PBComponent):
         self.window.btn_analyze.setText("Audio analysieren")
         self.window.progress_bar.setVisible(False)
         self.window.status_bar.showMessage("Analyse abgeschlossen | System bereit")
-        self.window.media_table_controller._refresh_media_table()
+        self.window.media_table_controller._refresh_media_table_debounced()
         if task_id:
             task_manager.finish_task(task_id, "finished", f"{bpm} BPM, {beats} Beats")
 
@@ -268,7 +268,7 @@ class AudioAnalysisController(PBComponent):
         self.window.btn_waveform.setText("Rekordbox Wellenform")
         self.window.progress_bar.setVisible(False)
         self.window.status_bar.showMessage(f"Wellenform fertig: {title} | {bpm} BPM")
-        self.window.media_table_controller._refresh_media_table()
+        self.window.media_table_controller._refresh_media_table_debounced()
         self.window.timeline_view.load_from_db()
 
         if task_id:
@@ -364,7 +364,7 @@ class AudioAnalysisController(PBComponent):
             self.window._media_ws.btn_analyze_all.setEnabled(True)
             self.window._media_ws.btn_analyze_all.setText("KOMPLETT-ANALYSE")
             self.window.progress_bar.setVisible(False)
-            self.window.media_table_controller._refresh_media_table()
+            self.window.media_table_controller._refresh_media_table_debounced()
             errors_info = f" ({self._seq_errors} Fehler)" if self._seq_errors else ""
             self.window.console_text.append(
                 f"[Komplett] Analyse abgeschlossen: {self._seq_done}/{self._seq_total} OK{errors_info}"

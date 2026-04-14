@@ -337,15 +337,12 @@ class GlobalTaskManager(QObject):
                         pass
                     task.thread = None
 
-            # Aggressiver Speicher-Cleanup im Main-Thread (Fix F-011)
-            # Jetzt sicher, da der Worker-Thread beendet ist.
-            try:
-                import gc
-                gc.collect()
-                gc.collect()
-            except Exception:
-                pass
-            
+            # P8-G1-FIX: Doppeltes gc.collect() im Main-Thread entfernt.
+            # Vorher: nach JEDEM Worker-Ende 2x aggressiver Full-GC in der
+            # Qt Event-Loop — 200-1000 ms Main-Thread-Pause pro Task, bei
+            # 10 parallelen Analysen = mehrere Sekunden Freeze. Python
+            # macht eigenen Gen-GC automatisch; zusaetzliches Forcen ist
+            # nur bei bekanntem Reference-Cycle noetig.
             self._on_thread_done(_tid)
         thread.finished.connect(_safe_cleanup)
 
