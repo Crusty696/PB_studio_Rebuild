@@ -367,7 +367,11 @@ class InteractiveTimeline(QGraphicsView):
         self.undo_stack = QUndoStack(self)
         self._scene = QGraphicsScene(self)
         self.setScene(self._scene)
-        self.setRenderHint(QPainter.RenderHint.Antialiasing)
+        # P8-B1-FIX: Kein Full-Antialiasing mehr. Bei 101 Clips + 7200 Beat-
+        # Linien + Waveform-Tiles rechnet Qt sonst AA fuer alle Items bei
+        # jedem Paint — merklicher Scroll-Lag. TextAntialiasing reicht fuer
+        # Clip-Labels und Ruler; Linien profitieren kaum von AA.
+        self.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
         self.setMinimumHeight(120)
         # Match BG0 and BG2 from Premium theme
         self.setStyleSheet("background-color: #0a0d12; border: 1px solid #161c26; border-radius: 8px;")
@@ -949,10 +953,22 @@ class InteractiveTimeline(QGraphicsView):
         self.load_sections(audio_track_id)
 
     def _update_beat_grid_lod(self):
-        """Aktualisiert die Beat-Grid Dichte nach Zoom-Aenderung."""
-        if self._beat_times:
-            # Re-zeichne mit aktuellem Zoom-Level
+        """Aktualisiert die Beat-Grid Dichte nach Zoom-Aenderung.
+
+        P8-B2-FIX: Scene-Updates waehrend des Clear+Rebuild-Zyklus stummschalten.
+        Vorher: 7200 removeItem + 7200 addLine → 14400 einzelne Paint-Events,
+        Qt versucht nach jedem Call die Scene neu zu zeichnen → Scroll-Hickser.
+        Jetzt: genau 1 Paint nach dem Rebuild.
+        """
+        if not self._beat_times:
+            return
+        vp = self.viewport()
+        vp.setUpdatesEnabled(False)
+        try:
             self.set_beat_grid(self._beat_times)
+        finally:
+            vp.setUpdatesEnabled(True)
+            vp.update()
 
     def _snap_x_to_beat(self, x: float) -> float:
         """Rastet x (in Pixeln) an den naechsten Beat ein (Snap-Radius: 8px).
