@@ -29,12 +29,12 @@ T4 = "#4b5563"  # Deep Muted Text
 
 def get_stylesheet() -> str:
     return f"""
-    /* === GLOBAL === */
+    /* === GLOBAL ===   P9-Step6: kompaktere Defaults */
     QWidget {{
         background-color: {BG0};
         color: {T1};
         font-family: 'Segoe UI Variable Text', 'Segoe UI', system-ui, -apple-system, sans-serif;
-        font-size: 12px;
+        font-size: 11px;
         outline: none;
     }}
 
@@ -42,16 +42,16 @@ def get_stylesheet() -> str:
         background-color: {BG0};
     }}
 
-    /* === BUTTONS === */
+    /* === BUTTONS ===  P9-Step6: 28→24 height, 11→10 font */
     QPushButton {{
         background-color: {BG3};
         color: {T2};
         border: 1px solid rgba(255, 255, 255, 20);
-        border-radius: 8px;
-        padding: 5px 14px;
+        border-radius: 6px;
+        padding: 3px 10px;
         font-weight: 600;
-        font-size: 11px;
-        min-height: 28px;
+        font-size: 10px;
+        min-height: 22px;
     }}
     QPushButton:hover {{
         background-color: {BG4};
@@ -130,39 +130,40 @@ def get_stylesheet() -> str:
     QLabel#title {{
         color: {T1};
         font-weight: 700;
-        font-size: 14px;
+        font-size: 12px;
     }}
     QLabel#subtitle {{
         color: {T3};
-        font-size: 11px;
+        font-size: 10px;
+        font-weight: 700;
         /* text-transform not supported in Qt QSS — use Python .upper() */
         /* letter-spacing not supported in Qt QSS */
     }}
 
-    /* === INPUTS === */
+    /* === INPUTS ===  P9-Step6: kompakter (26→22, 11→10) */
     QLineEdit, QSpinBox, QDoubleSpinBox, QDateTimeEdit {{
         background-color: {BG1};
         color: {T1};
         border: 1px solid rgba(255,255,255,0.1);
-        border-radius: 6px;
-        padding: 5px 10px;
-        font-size: 11px;
-        min-height: 26px;
+        border-radius: 4px;
+        padding: 3px 8px;
+        font-size: 10px;
+        min-height: 20px;
     }}
     QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus {{
         border: 1px solid {ACCENT};
         background-color: {BG2};
     }}
 
-    /* === COMBOBOX === */
+    /* === COMBOBOX ===  P9-Step6: kompakter */
     QComboBox {{
         background-color: {BG1};
         color: {T1};
         border: 1px solid rgba(255,255,255,0.1);
-        border-radius: 6px;
-        padding: 4px 10px;
-        font-size: 11px;
-        min-height: 26px;
+        border-radius: 4px;
+        padding: 2px 8px;
+        font-size: 10px;
+        min-height: 20px;
     }}
     QComboBox::drop-down {{
         border: none;
@@ -185,18 +186,18 @@ def get_stylesheet() -> str:
         outline: none;
     }}
 
-    /* === TABLES & TREES === */
+    /* === TABLES & TREES ===  P9-Step6: kompakter padding */
     QTableWidget, QTreeWidget, QListView {{
         background-color: {BG1};
         alternate-background-color: {BG2};
         color: {T2};
         border: 1px solid rgba(255,255,255,0.05);
-        border-radius: 8px;
+        border-radius: 6px;
         gridline-color: rgba(255,255,255,0.03);
-        font-size: 11px;
+        font-size: 10px;
     }}
     QTableWidget::item, QTreeWidget::item {{
-        padding: 6px 10px;
+        padding: 3px 8px;
         border-bottom: 1px solid rgba(255,255,255,0.02);
     }}
     QTableWidget::item:selected, QTreeWidget::item:selected {{
@@ -209,11 +210,9 @@ def get_stylesheet() -> str:
         color: {T3};
         border: none;
         border-bottom: 1px solid {BG3};
-        padding: 6px 10px;
-        font-size: 10px;
+        padding: 3px 8px;
+        font-size: 9px;
         font-weight: 700;
-        /* text-transform not supported in Qt QSS — use Python .upper() */
-        /* letter-spacing not supported in Qt QSS */
     }}
 
     /* === SCROLLBARS === */
@@ -329,36 +328,35 @@ def get_stylesheet() -> str:
         border-bottom: 1px solid rgba(255,255,255,0.05);
     }}
 
-    /* === TEXTEDIT (Console, Log) === */
+    /* === TEXTEDIT (Console, Log) ===  P9-Step6: kompakter */
     QTextEdit, QPlainTextEdit {{
         background-color: {BG0};
         color: {T2};
         border: 1px solid rgba(255,255,255,0.05);
-        border-radius: 8px;
+        border-radius: 4px;
         font-family: 'Cascadia Code', 'Consolas', 'JetBrains Mono', monospace;
-        font-size: 11px;
-        /* line-height not supported in Qt QSS */
-        padding: 10px;
+        font-size: 10px;
+        padding: 4px;
     }}
 
-    /* === GROUPBOX === */
+    /* === GROUPBOX ===  P9-Step6: deutlich kompakter (margin 14→6, padding 20→10) */
     QGroupBox {{
         background-color: {BG2};
         border: 1px solid rgba(255,255,255,0.05);
-        border-radius: 12px;
-        margin-top: 14px;
-        padding-top: 20px;
+        border-radius: 6px;
+        margin-top: 8px;
+        padding-top: 12px;
+        padding-left: 4px;
+        padding-right: 4px;
         font-weight: 700;
         color: {ACCENT};
     }}
     QGroupBox::title {{
         subcontrol-origin: margin;
         subcontrol-position: top left;
-        padding: 0px 10px;
+        padding: 0px 6px;
         color: {T3};
-        font-size: 10px;
-        /* text-transform not supported in Qt QSS — use Python .upper() */
-        /* letter-spacing not supported in Qt QSS */
+        font-size: 9px;
     }}
 
     /* === FRAMES (Cards) === */
@@ -381,13 +379,13 @@ def get_stylesheet() -> str:
         background-color: {ACCENT_MUTED};
     }}
 
-    /* === STATUSBAR === */
+    /* === STATUSBAR ===  P9-Step6: 22→16 height */
     QStatusBar {{
         background-color: {BG0};
         color: {T3};
         border-top: 1px solid rgba(255,255,255,0.03);
-        font-size: 10px;
-        min-height: 22px;
+        font-size: 9px;
+        min-height: 14px;
     }}
 
     /* === MENU === */
