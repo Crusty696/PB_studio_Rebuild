@@ -28,10 +28,11 @@ sys.path.insert(0, str(PROJECT_ROOT))
 BIN_DIR = PROJECT_ROOT / "bin"
 os.environ["PATH"] = str(BIN_DIR) + os.pathsep + os.environ.get("PATH", "")
 
-VIDEO_FILE = Path(
+VIDEO_FILE = Path(os.environ.get(
+    "PB_TEST_VIDEO",
     r"C:\Users\David Lochmann\Documents\Solo_Natur-20260406T220640Z-3-001"
-    r"\Solo_Natur\20250612_2128_Neon_Jungle_Dreamscape_v1.mp4"
-)
+    r"\Solo_Natur\20250612_2128_Neon_Jungle_Dreamscape_v1.mp4",
+))
 
 # ---------------------------------------------------------------------------
 # Logging

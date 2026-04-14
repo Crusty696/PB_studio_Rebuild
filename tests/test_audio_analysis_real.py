@@ -27,7 +27,8 @@ sys.path.insert(0, str(PROJECT_ROOT))
 # --------------------------------------------------------------------------
 # Configuration
 # --------------------------------------------------------------------------
-AUDIO_FILE = r"C:\Users\David Lochmann\Music\Crusty_Progressive Psy Set2.mp3"
+_DEFAULT_AUDIO = Path(__file__).resolve().parent.parent / "vendor" / "beat_this" / "tests" / "It Don't Mean A Thing - Kings of Swing.mp3"
+AUDIO_FILE = os.environ.get("PB_TEST_AUDIO", str(_DEFAULT_AUDIO))
 TIMEOUT_SEC = 300  # 5 minutes max per function
 
 logging.basicConfig(
@@ -119,20 +120,40 @@ def setup_temp_db():
     return tmp_dir, db_path, project_id, new_eng
 
 
+_track_cache: dict[tuple[int, str], int] = {}
+
+
 def insert_test_track(engine, project_id: int, file_path: str) -> int:
-    """Insert a minimal AudioTrack row and return its id."""
+    """Insert or reuse a minimal AudioTrack row and return its id.
+
+    The DB has UNIQUE(project_id, file_path). When multiple tests share the
+    same real audio file, we reuse the existing row instead of failing.
+    The file_path MUST stay real — services load the audio via librosa.
+    """
     from sqlalchemy.orm import Session
     from database.models import AudioTrack
 
+    key = (project_id, file_path)
+    if key in _track_cache:
+        log.info("Reusing AudioTrack id=%d for %s", _track_cache[key], Path(file_path).name)
+        return _track_cache[key]
+
     with Session(engine) as s:
-        track = AudioTrack(
-            project_id=project_id,
-            file_path=file_path,
-            title=Path(file_path).stem,
-        )
-        s.add(track)
-        s.commit()
-        tid = track.id
+        existing = s.query(AudioTrack).filter_by(
+            project_id=project_id, file_path=file_path
+        ).first()
+        if existing:
+            tid = existing.id
+        else:
+            track = AudioTrack(
+                project_id=project_id,
+                file_path=file_path,
+                title=Path(file_path).stem,
+            )
+            s.add(track)
+            s.commit()
+            tid = track.id
+    _track_cache[key] = tid
     log.info("Inserted AudioTrack id=%d for %s", tid, Path(file_path).name)
     return tid
 

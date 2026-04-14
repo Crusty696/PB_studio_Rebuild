@@ -29,8 +29,10 @@ soxr==0.3.7
 # === Beat Detection ===
 # beat_this separat installieren: pip install ./vendor/beat_this --no-deps
 # beat-this (skipped - install manually from vendor/)
-einops==0.8.2
-rotary-embedding-torch==0.8.9
+einops==0.8.0
+# rotary-embedding-torch 0.3.6 ist letzte Version ohne torch>=2.0 Zwang
+# (fuer torch 1.12 — beat_this funktioniert damit in der Inferenz-Phase)
+rotary-embedding-torch==0.3.6
 
 # === Video ===
 opencv-python>=4.8.0,<5.0.0

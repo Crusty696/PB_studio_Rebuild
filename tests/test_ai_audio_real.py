@@ -82,7 +82,8 @@ logging.basicConfig(
 logger = logging.getLogger("AI_AUDIO_TEST")
 
 # ── Constants ────────────────────────────────────────────────────────────
-AUDIO_FILE = r"C:\Users\David Lochmann\Music\Crusty_Progressive Psy Set2.mp3"
+_DEFAULT_AUDIO = APP_ROOT / "vendor" / "beat_this" / "tests" / "It Don't Mean A Thing - Kings of Swing.mp3"
+AUDIO_FILE = os.environ.get("PB_TEST_AUDIO", str(_DEFAULT_AUDIO))
 STEM_NAMES = ["vocals", "drums", "bass", "other"]
 
 # ── Helper Functions ─────────────────────────────────────────────────────
@@ -137,33 +138,43 @@ def setup_temp_db(tmp_dir: Path):
     return project_id
 
 
-_track_counter = 0
+_track_cache: dict[tuple[int, str], int] = {}
 
-def ingest_audio_track(tmp_dir: Path, project_id: int, file_path: str) -> int:
-    """Insert a minimal AudioTrack record and return its ID.
 
-    Uses a unique suffix on file_path to avoid UNIQUE constraint violations
-    when the same audio file is ingested multiple times in the test.
+def ingest_audio_track(tmp_dir: Path, project_id: int, file_path: str) -> tuple[int, str]:
+    """Insert or reuse an AudioTrack record and return (id, file_path).
+
+    The file_path MUST stay real — services load the audio via librosa/Demucs
+    from the path stored in the DB. We cache by (project_id, file_path) so
+    repeated calls with the same file return the same track_id instead of
+    violating UNIQUE(project_id, file_path).
     """
-    global _track_counter
-    _track_counter += 1
     from database.session import engine
     from database.models import AudioTrack
     from sqlalchemy.orm import Session
 
-    # Append counter to make file_path unique per test (DB has UNIQUE on project_id+file_path)
-    unique_path = f"{file_path}#test{_track_counter}"
-    with Session(engine) as s:
-        track = AudioTrack(
-            project_id=project_id,
-            file_path=unique_path,
-            title=Path(file_path).stem,
-        )
-        s.add(track)
-        s.commit()
-        track_id = track.id
+    key = (project_id, file_path)
+    if key in _track_cache:
+        return _track_cache[key], file_path
 
-    return track_id, unique_path
+    with Session(engine) as s:
+        existing = s.query(AudioTrack).filter_by(
+            project_id=project_id, file_path=file_path
+        ).first()
+        if existing:
+            track_id = existing.id
+        else:
+            track = AudioTrack(
+                project_id=project_id,
+                file_path=file_path,
+                title=Path(file_path).stem,
+            )
+            s.add(track)
+            s.commit()
+            track_id = track.id
+
+    _track_cache[key] = track_id
+    return track_id, file_path
 
 
 results = []
@@ -302,7 +313,7 @@ def main():
             from database.models import AudioTrack, WaveformData
             from sqlalchemy.orm import Session
 
-            track_id_freq = ingest_audio_track(tmp_dir, project_id, AUDIO_FILE)
+            track_id_freq, _ = ingest_audio_track(tmp_dir, project_id, AUDIO_FILE)
             fa = FrequencyAnalyzer()
             result = fa.analyze_and_store(track_id_freq)
 
@@ -419,7 +430,7 @@ def main():
             from database.models import AudioTrack
             from sqlalchemy.orm import Session
 
-            track_id_stems = ingest_audio_track(tmp_dir, project_id, AUDIO_FILE)
+            track_id_stems, _ = ingest_audio_track(tmp_dir, project_id, AUDIO_FILE)
             ss = StemSeparator()
 
             def progress_cb2(pct, msg):

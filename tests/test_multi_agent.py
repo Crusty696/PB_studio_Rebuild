@@ -190,6 +190,14 @@ class TestAgentScoring:
 class TestModelManager:
     """Testet den ModelManager (ohne echtes Modell-Laden)."""
 
+    def setup_method(self):
+        # B10-Fix: ModelManager ist Singleton — prior Tests koennten ein Modell geladen haben.
+        # Reset zwingt sauberen Zustand fuer diese Testklasse.
+        from services.model_manager import ModelManager
+        mm = ModelManager()
+        if mm.is_loaded:
+            mm.unload()
+
     def test_initial_state(self):
         from services.model_manager import ModelManager
         mm = ModelManager(device="cpu")
