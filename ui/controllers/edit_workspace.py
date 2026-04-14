@@ -66,6 +66,26 @@ class EditWorkspaceController(PBComponent):
                     )
 
     def _generate_timeline(self):
+        """P8-FREEZE-FIX: Debounced + Worker-based.
+
+        Vorher: Klick in Pacing-Kurve → mouseReleaseEvent → curve_changed
+        Signal → DIESE Methode synchron. calculate_cut_points laed Beat-
+        Positions aus der DB (grosser JSON-Blob) + macht O(N)-Berechnung
+        ueber alle Beats — 4+ Sekunden Main-Thread-Freeze pro Klick.
+
+        Jetzt: 250ms Debounce schluckt Klick-Spam. Der echte Aufruf geht
+        in einen Worker-Thread, UI-Updates folgen via finished-Signal.
+        """
+        from PySide6.QtCore import QTimer
+        if not hasattr(self, "_gen_debounce_timer") or self._gen_debounce_timer is None:
+            self._gen_debounce_timer = QTimer(self.window)
+            self._gen_debounce_timer.setSingleShot(True)
+            self._gen_debounce_timer.timeout.connect(self._generate_timeline_impl)
+        self._gen_debounce_timer.start(250)
+
+    def _generate_timeline_impl(self):
+        from PySide6.QtCore import QObject, Signal, QThread
+
         audio_id = self.window.audio_combo.currentData()
         video_id = self.window.video_combo.currentData()
         densities = self.window.pacing_curve.get_all_densities()
@@ -81,6 +101,7 @@ class EditWorkspaceController(PBComponent):
             manual_density_curve=densities,
         )
 
+        # Duration-Lookup ist O(1) auf indexed PK — bleibt im Main-Thread
         audio_dur = 0.0
         video_dur = 0.0
         if audio_id is not None:
@@ -96,7 +117,47 @@ class EditWorkspaceController(PBComponent):
 
         total_dur = max(audio_dur, video_dur, 30.0)
         self.window.pacing_curve.set_duration(total_dur)
-        cuts = calculate_cut_points(audio_id, video_id, settings, total_dur)
+
+        # P8-FREEZE-FIX: Schwere Berechnung in Worker-Thread.
+        # Vorher: 4s Main-Thread-Block bei jedem Pacing-Kurve-Klick.
+        # Vor neuem Worker: alten cancellen (User klickt schnell hintereinander)
+        existing = getattr(self, "_cuts_thread", None)
+        if existing is not None:
+            try:
+                if existing.isRunning():
+                    existing.requestInterruption()
+                    existing.quit()
+                    existing.wait(500)
+            except RuntimeError:
+                pass
+
+        class _CutsWorker(QObject):
+            done = Signal(list, float)
+            failed = Signal(str)
+
+            def __init__(self, audio_id, video_id, settings, total_dur):
+                super().__init__()
+                self._args = (audio_id, video_id, settings, total_dur)
+
+            def run(self):
+                try:
+                    cuts = calculate_cut_points(*self._args)
+                    self.done.emit(cuts, self._args[3])
+                except Exception as exc:
+                    self.failed.emit(str(exc))
+
+        self._cuts_worker = _CutsWorker(audio_id, video_id, settings, total_dur)
+        self._cuts_thread = QThread(self.window)
+        self._cuts_worker.moveToThread(self._cuts_thread)
+        self._cuts_thread.started.connect(self._cuts_worker.run)
+        self._cuts_worker.done.connect(self._on_cuts_done)
+        self._cuts_worker.failed.connect(self._on_cuts_failed)
+        self._cuts_worker.done.connect(self._cuts_thread.quit)
+        self._cuts_worker.failed.connect(self._cuts_thread.quit)
+        self._cuts_thread.finished.connect(self._cuts_worker.deleteLater)
+        self._cuts_thread.start()
+
+    def _on_cuts_done(self, cuts: list, total_dur: float):
         beat_times = [cp.time for cp in cuts if cp.source == "beat"]
         self.window.timeline_view.set_beat_markers(beat_times)
         self.window.timeline_view.load_from_db()
@@ -119,6 +180,10 @@ class EditWorkspaceController(PBComponent):
         self.window.cut_info_label.setText(" | ".join(info_parts))
         self.window._mark_dirty()
         self.window.console_text.append(f"[Pacing] {len(cuts)} Cuts generiert (Manual Curve aktiv)")
+
+    def _on_cuts_failed(self, err: str):
+        logger.warning("calculate_cut_points failed: %s", err)
+        self.window.console_text.append(f"[Pacing-Fehler] {err}")
 
     def _auto_edit_to_beat(self):
         """Phase 3: DJ-Pacing Auto-Edit mit OTIO Timeline."""
