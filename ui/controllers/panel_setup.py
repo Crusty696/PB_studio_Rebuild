@@ -14,35 +14,36 @@ class PanelSetupController(PBComponent):
     """Controller for TaskDock, Console, and ChatDock in PBWindow."""
 
     def setup_task_dock(self):
-        """TaskManager als QWidget im unteren QSplitter-Panel."""
+        """P9-Step2: TaskManager als TASKS-Tab im Right-Panel.
+
+        TaskManagerDock erbt zwar von QDockWidget, aber wir nutzen nur den
+        Inner-Container via .widget() und packen den ins QTabWidget. Das
+        QDockWidget-Object selbst wird nicht in's MainWindow added — bleibt
+        als Logik-Container fuer Signals (cancel_requested, _add_task, etc.).
+        """
         self.window._task_mgr_dock = TaskManagerDock(self.window)
         self.window._task_mgr_dock.cancel_requested.connect(self.window.worker_dispatcher._cancel_worker_for_task)
         task_w = self.window._task_mgr_dock.widget()
-        task_w.setMinimumWidth(180)
-        self.window._inner_splitter.addWidget(task_w)
+        # Wichtig: re-parent zum Right-Panel, sonst stirbt das Widget mit dem Dock
+        task_w.setParent(self.window.right_panel)
+        self.window.right_panel.addTab(task_w, "TASKS")
         self.window._task_panel_widget = task_w
-        # Alias fuer Kompatibilitaet
         self.window.task_dock = task_w
-        # TaskManager show_dock Signal verbinden
-        GlobalTaskManager.instance().show_dock_requested.connect(
-            lambda: self.window._task_panel_widget.setVisible(True)
-        )
+        # show_dock_requested → bringt TASKS-Tab nach vorn
+        def _focus_tasks():
+            for i in range(self.window.right_panel.count()):
+                if self.window.right_panel.tabText(i) == "TASKS":
+                    self.window.right_panel.setCurrentIndex(i)
+                    return
+        GlobalTaskManager.instance().show_dock_requested.connect(_focus_tasks)
 
     def setup_console(self):
-        """System-Konsole als QWidget im unteren QSplitter-Panel."""
+        """P9-Step2: System-Konsole als LOG-Tab im Right-Panel."""
         console_panel = QWidget()
         console_panel.setObjectName("console_dock")
-        console_panel.setMinimumWidth(120)
         cl = QVBoxLayout(console_panel)
         cl.setContentsMargins(4, 2, 4, 4)
         cl.setSpacing(0)
-
-        hdr = QLabel("KONSOLE")
-        hdr.setStyleSheet(
-            "color: #6b7280; font-size: 10px; font-weight: 700; "
-            "letter-spacing: 1px; background: transparent; padding: 2px 0;"
-        )
-        cl.addWidget(hdr)
 
         self.window.console_text = QTextEdit()
         self.window.console_text.setReadOnly(True)
@@ -53,9 +54,8 @@ class PanelSetupController(PBComponent):
         self.window.console_text.append("[System] PB_studio Core Engine erfolgreich gestartet.")
         cl.addWidget(self.window.console_text)
 
-        self.window._inner_splitter.addWidget(console_panel)
+        self.window.right_panel.addTab(console_panel, "LOG")
         self.window._console_panel_widget = console_panel
-        # Alias fuer Kompatibilitaet
         self.window.console_dock = console_panel
 
         # F-022/F-034 Fix: Throttled Console Buffer with Thread-Safety
@@ -63,17 +63,18 @@ class PanelSetupController(PBComponent):
         self._console_lock = threading.Lock()
         self._console_buffer = []
         self._console_timer = QTimer(self.window)
-        self._console_timer.setInterval(250)  # 4 Updates pro Sekunde
+        self._console_timer.setInterval(250)
         self._console_timer.timeout.connect(self._flush_console_buffer)
         self._console_timer.start()
 
     def setup_chat_dock(self):
+        """P9-Step2: ChatDock-Inhalt als CHAT-Tab im Right-Panel."""
         self.window.chat_dock = ChatDock(self.window)
-        self.window.chat_dock.setMinimumWidth(200)
-        self.window.chat_dock.setMaximumWidth(400)
-        self.window.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.window.chat_dock)
-        # Start collapsed — user can open via View menu or toggleViewAction
-        self.window.chat_dock.setVisible(False)
+        chat_w = self.window.chat_dock.widget()
+        chat_w.setParent(self.window.right_panel)
+        # CHAT zuerst → erster Tab (Chat = primaerer Sidebar-Use-Case)
+        self.window.right_panel.insertTab(0, chat_w, "CHAT")
+        self.window.right_panel.setCurrentIndex(0)
 
         # MainWindow-Referenz fuer direkte Kommandos (analysiere, schneide, etc.)
         self.window.chat_dock.set_main_window(self.window)

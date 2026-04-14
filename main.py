@@ -259,28 +259,36 @@ class PBWindow(QMainWindow):
         sep.setStyleSheet("background-color: rgba(255,255,255,6);")
         main_layout.addWidget(sep)
 
-        # ── Workspace Stack ──
+        # ── Workspace Stack ── (P9-Step2: feste Breite, kein Splitter mehr)
         self.workspace_stack = QStackedWidget()
+        self.workspace_stack.setFixedWidth(1213)
         self.workspace_setup._create_workspaces()
 
-        # ── Vertikaler QSplitter: Workspace oben | System-Panel unten ──
-        self._main_splitter = QSplitter(Qt.Orientation.Vertical)
-        self._main_splitter.setChildrenCollapsible(True)
-        self._main_splitter.setHandleWidth(4)
-        self._main_splitter.addWidget(self.workspace_stack)
+        # ── P9-Step2: Right-Panel als QTabWidget (300×836). Ersetzt den
+        # Vertikal/Horizontal-Splitter + 3 QDockWidgets. Tabs werden in
+        # panel_setup.setup_*() befuellt.
+        from PySide6.QtWidgets import QTabWidget as _QTab
+        self.right_panel = _QTab()
+        self.right_panel.setFixedWidth(300)
+        self.right_panel.setObjectName("right_panel")
+        self.right_panel.setDocumentMode(True)
+        self.right_panel.setTabPosition(_QTab.TabPosition.North)
 
-        # Unteres Panel: horizontaler QSplitter (Tasks | Konsole)
-        self._bottom_panel = QWidget()
-        self._bottom_panel.setObjectName("bottom_panel")
-        self._bottom_panel.setMinimumHeight(80)
-        _bp_layout = QHBoxLayout(self._bottom_panel)
-        _bp_layout.setContentsMargins(0, 0, 0, 0)
-        _bp_layout.setSpacing(0)
-        self._inner_splitter = QSplitter(Qt.Orientation.Horizontal)
-        _bp_layout.addWidget(self._inner_splitter)
-        self._main_splitter.addWidget(self._bottom_panel)
+        # Hauptbereich: Workspace links + Right-Panel rechts (HBox)
+        _content = QWidget()
+        _content_h = QHBoxLayout(_content)
+        _content_h.setContentsMargins(0, 0, 0, 0)
+        _content_h.setSpacing(0)
+        _content_h.addWidget(self.workspace_stack)
+        _content_h.addWidget(self.right_panel)
+        main_layout.addWidget(_content, stretch=1)
 
-        main_layout.addWidget(self._main_splitter, stretch=1)
+        # Kompatibilitaets-Aliase (alter Code referenziert _main_splitter
+        # / _inner_splitter — gibt's nicht mehr, aber wir setzen None damit
+        # alte Aufrufe leise fehlschlagen statt AttributeError).
+        self._main_splitter = None
+        self._inner_splitter = None
+        self._bottom_panel = None
 
         # ── Bottom Navigation Bar (DaVinci Style) ──
         self.nav_bar = WorkspaceNavBar()
@@ -299,20 +307,22 @@ class PBWindow(QMainWindow):
         resource_monitor = ResourceMonitorWidget()
         self.statusBar().addPermanentWidget(resource_monitor)
 
-        # ── Panel Widgets (Tasks + Konsole als QSplitter, Chat als Dock) ──
+        # ── Panel Widgets — alle in das Right-Panel-TabWidget ──
         self.panel_setup.setup_task_dock()
         self.panel_setup.setup_console()
         self.panel_setup.setup_chat_dock()
 
-        # Splitter-Groessen: Workspace dominiert, unteres Panel sichtbar
-        self._main_splitter.setSizes([700, 150])
-        self._inner_splitter.setSizes([500, 500])
-
-        # Wire toggle buttons to panel visibility
-        self._btn_toggle_tasks.toggled.connect(self._task_panel_widget.setVisible)
-        self._btn_toggle_console.toggled.connect(self._console_panel_widget.setVisible)
-        self._btn_toggle_chat.toggled.connect(self.chat_dock.setVisible)
-        self.chat_dock.visibilityChanged.connect(self._btn_toggle_chat.setChecked)
+        # P9-Step2: Toggle-Buttons in Top-Bar wechseln den aktiven Tab im
+        # Right-Panel statt Sichtbarkeit zu togglen. Right-Panel selbst
+        # bleibt immer sichtbar (300 px Sidebar).
+        def _to_tab(label_substring):
+            for i in range(self.right_panel.count()):
+                if label_substring.lower() in self.right_panel.tabText(i).lower():
+                    self.right_panel.setCurrentIndex(i)
+                    return
+        self._btn_toggle_tasks.clicked.connect(lambda: _to_tab("tasks"))
+        self._btn_toggle_console.clicked.connect(lambda: _to_tab("log"))
+        self._btn_toggle_chat.clicked.connect(lambda: _to_tab("chat"))
 
         # AUD-107: Restore window state after event loop starts (docks need a shown window)
         QTimer.singleShot(0, self.workspace_setup._restore_window_state)

@@ -381,42 +381,35 @@ class WorkspaceSetupController(PBComponent):
                 self.window.export._refresh_production_info()
 
     def _save_window_state(self) -> None:
-        """Persist window geometry, dock positions and splitter sizes via QSettings."""
+        """P9-Step2: Splitter und Docks gibt's nicht mehr — nur den aktiven
+        Workspace-Index speichern. Geometrie ist via setFixedSize fest."""
         from PySide6.QtCore import QSettings
         settings = QSettings("PBStudio", "PBStudioApp")
-        settings.setValue("window/geometry", self.window.saveGeometry())
-        settings.setValue("window/state", self.window.saveState())
-        settings.setValue("window/mainSplitterSizes", self.window._main_splitter.sizes())
-        settings.setValue("window/innerSplitterSizes", self.window._inner_splitter.sizes())
-        settings.setValue("window/workspaceIndex", self.window.workspace_stack.currentIndex())
-        self.logger.debug("Window state saved")
+        try:
+            settings.setValue("window/workspaceIndex", self.window.workspace_stack.currentIndex())
+        except Exception as exc:
+            self.logger.debug("save workspaceIndex: %s", exc)
+        try:
+            settings.setValue("window/rightTabIndex", self.window.right_panel.currentIndex())
+        except Exception as exc:
+            self.logger.debug("save rightTabIndex: %s", exc)
 
     def _restore_window_state(self) -> None:
-        """Restore window geometry, dock positions and splitter sizes from QSettings."""
+        """P9-Step2: Nur Workspace + Right-Panel-Tab wiederherstellen."""
         from PySide6.QtCore import QSettings
         settings = QSettings("PBStudio", "PBStudioApp")
-
-        geometry = settings.value("window/geometry")
-        if geometry:
-            self.window.restoreGeometry(geometry)
-
-        state = settings.value("window/state")
-        if state:
-            self.window.restoreState(state)
-
-        main_sizes = settings.value("window/mainSplitterSizes")
-        if main_sizes:
-            self.window._main_splitter.setSizes([int(s) for s in main_sizes])
-
-        inner_sizes = settings.value("window/innerSplitterSizes")
-        if inner_sizes:
-            self.window._inner_splitter.setSizes([int(s) for s in inner_sizes])
-
         workspace_idx = settings.value("window/workspaceIndex")
         if workspace_idx is not None:
-            self.window.nav_bar.set_workspace(int(workspace_idx))
-
-        self.logger.debug("Window state restored")
+            try:
+                self.window.nav_bar.set_workspace(int(workspace_idx))
+            except (ValueError, TypeError):
+                pass
+        right_idx = settings.value("window/rightTabIndex")
+        if right_idx is not None:
+            try:
+                self.window.right_panel.setCurrentIndex(int(right_idx))
+            except (ValueError, TypeError):
+                pass
 
     def _toggle_inspector(self):
         if self.window.inspector_panel.isVisible():
