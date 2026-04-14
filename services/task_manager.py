@@ -475,17 +475,22 @@ class GlobalTaskManager(QObject):
                     to_remove.append(k)
             for k in to_remove:
                 task = self._tasks.pop(k)
-                # Guard: nur deleteLater wenn noch nicht vom thread.finished-Handler erledigt
+                # Race zwischen diesem Pfad (User klickt "Fertige loeschen" /
+                # Auto-Cleanup) und _safe_cleanup (via thread.finished-Signal,
+                # asynchron im Main-Thread): laeuft _safe_cleanup zuerst, sind
+                # die C++-Objekte bereits via Qt deleteLater freigegeben,
+                # waehrend Python-Refs noch auf die Task zeigen. RuntimeError
+                # ist dann erwartet und kein Bug — nur DEBUG-Log, keine Warning.
                 if task.worker:
                     try:
                         task.worker.deleteLater()
-                    except RuntimeError as exc:
-                        logger.warning("task.worker.deleteLater() failed in cleanup: %s", exc)
+                    except RuntimeError:
+                        logger.debug("worker already deleted by _safe_cleanup (%s)", k)
                 if task.thread:
                     try:
                         task.thread.deleteLater()
-                    except RuntimeError as exc:
-                        logger.warning("task.thread.deleteLater() failed in cleanup: %s", exc)
+                    except RuntimeError:
+                        logger.debug("thread already deleted by _safe_cleanup (%s)", k)
 
     # ------------------------------------------------------------------
     # Interner Cleanup
