@@ -26,6 +26,8 @@ class StemsController(PBComponent):
                 if not track:
                     if hasattr(self.window, "stem_workspace"):
                         self.window.stem_workspace.update_for_track(None, None)
+                    if hasattr(self.window, "_stems_ws"):
+                        self.window._stems_ws.update_analysis(None)
                     self.window.stem_player.stop()
                     return
                 stem_paths = {
@@ -41,6 +43,8 @@ class StemsController(PBComponent):
                         self.window.stem_workspace.set_duration(self.window.stem_player.duration)
                     else:
                         self.window.stem_workspace.set_duration(0.0)
+                if hasattr(self.window, "_stems_ws"):
+                    self.window._stems_ws.update_analysis(track)
                 if loaded:
                     self.window.console_text.append(f"[StemPlayer] Track #{track_id} geladen: {self.window.stem_player.duration:.1f}s")
         except Exception as e:

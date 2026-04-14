@@ -121,6 +121,8 @@ class AudioAnalysisController(PBComponent):
                 self.window.stem_player.stop()
                 if hasattr(self.window, "stem_workspace"):
                     self.window.stem_workspace.update_for_track(None, None)
+                if hasattr(self.window, "_stems_ws"):
+                    self.window._stems_ws.update_analysis(None)
                 return
 
             view = self.window.audio_pool_table
