@@ -6,17 +6,17 @@ Flip-switch design — VIDEO MODUS and AUDIO MODUS as two exclusive pages.
 import json
 
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel,
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QLineEdit, QPushButton, QProgressBar, QTableView, QHeaderView,
-    QSplitter, QStackedWidget, QFrame, QSizePolicy, QTableWidget,
+    QStackedWidget, QFrame, QSizePolicy, QTableWidget, QTabWidget,
 )
-from PySide6.QtCore import Qt, QRect, QMimeData, QItemSelectionModel
+from PySide6.QtCore import Qt, QRect, QMimeData
 from PySide6.QtGui import QPainter, QColor, QDrag
 
 from services.stem_player import StemPlayer
 from ui.widgets.media_grid import MediaPoolGrid
 from ui.widgets.analysis_status_panel import AnalysisStatusPanel
-from ui.models.media_table_model import MediaTableModel
+from ui.models.media_table_model import MediaTableModel, PagedProxyModel
 
 # MIME type for internal clip drag & drop
 CLIP_MIME_TYPE = "application/x-pb-studio-clip"
@@ -130,6 +130,37 @@ _CARD_TAG_BASE = (
     "font-size: 9px; font-weight: 600; padding: 2px 6px; "
     "border-radius: 3px;"
 )
+
+
+_SUB_TAB_STYLE = """
+QTabBar::tab {
+    background: transparent; color: #6b7280; border: none;
+    border-bottom: 2px solid transparent; padding: 2px 14px;
+    min-height: 18px; font-size: 10px; font-weight: 700; letter-spacing: 1px;
+}
+QTabBar::tab:hover { color: #9ca3af; background: rgba(255,255,255,0.03); }
+QTabBar::tab:selected {
+    color: #f0c866; border-bottom: 2px solid #d4a44a;
+    background: rgba(212,164,74,0.08);
+}
+QTabWidget::pane { border: none; }
+"""
+
+
+def _toolbar_btn(text: str, tip: str, *, danger: bool = False, width: int | None = None) -> QPushButton:
+    """Kompakter 24-px Toolbar-Button (P9-C)."""
+    b = QPushButton(text)
+    b.setFixedHeight(24)
+    b.setToolTip(tip)
+    b.setAccessibleName(tip)
+    b.setStatusTip(tip)
+    if width is not None:
+        b.setFixedWidth(width)
+    if danger:
+        b.setObjectName("btn_danger")
+    else:
+        b.setObjectName("btn_secondary")
+    return b
 
 _SEGMENT_COLORS = {
     "INTRO": "#4ade80",
@@ -297,539 +328,330 @@ class MediaWorkspace(QWidget):
 
     # ── VIDEO PAGE ────────────────────────────────────────────
     def _build_video_page(self):
+        """P9-C: Sidebar entfernt — Toolbar oben, Pool im Zentrum,
+        Sub-Tabs (ANALYSE / STATUS / FILTER) unten, Paginierung 16 Zeilen.
+        """
         page = QWidget()
         page_layout = QVBoxLayout(page)
-        page_layout.setContentsMargins(0, 0, 0, 0)
+        page_layout.setContentsMargins(4, 2, 4, 2)
+        page_layout.setSpacing(4)
 
-        splitter = QSplitter(Qt.Orientation.Horizontal)
+        # -------- Model + Proxy (Paginierung) --------
+        self.video_pool_model = MediaTableModel(media_type="Video")
+        self._video_pool_proxy = PagedProxyModel(page_size=16)
+        self._video_pool_proxy.setSourceModel(self.video_pool_model)
 
-        # Left panel — video actions
-        left = QWidget()
-        left.setMaximumWidth(260)
-        left.setMinimumWidth(180)
-        ll = QVBoxLayout(left)
-        ll.setContentsMargins(4, 4, 4, 4)
-        ll.setSpacing(4)
+        self.video_pool_table = DraggablePoolView(track_type="video")
+        self.video_pool_table.setModel(self._video_pool_proxy)
+        vh = self.video_pool_table.horizontalHeader()
+        vh.setStretchLastSection(True)
+        vh.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        vh.resizeSection(0, 36)
+        vh.resizeSection(1, 40)
+        vh.resizeSection(2, 260)
+        vh.resizeSection(3, 90)
+        vh.resizeSection(4, 50)
+        vh.resizeSection(5, 70)
+        vh.resizeSection(6, 80)
+        self.video_pool_table.verticalHeader().setDefaultSectionSize(24)
+        self.video_pool_table.verticalHeader().setVisible(False)
+        self.video_pool_table.setFixedHeight(448)  # 16 Zeilen × 28 px
 
-        # Import
-        grp = QGroupBox("Import")
-        gl = QVBoxLayout(grp)
+        self.video_grid = MediaPoolGrid(media_type="video")
+        self._video_pool_stack = QStackedWidget()
+        self._video_pool_stack.addWidget(self.video_pool_table)
+        self._video_pool_stack.addWidget(self.video_grid)
+        self._video_pool_stack.setFixedHeight(448)
 
-        self.btn_import_video = QPushButton("Video importieren")
-        self.btn_import_video.setObjectName("btn_action")
-        self.btn_import_video.setFixedHeight(35)
-        self.btn_import_video.setMaximumWidth(300)
-        self.btn_import_video.setToolTip(
-            "Video-Dateien (MP4, MOV, AVI, MKV) importieren"
+        # -------- Toolbar (Import + Aktionen + Pager + View + Select) --------
+        tb = QHBoxLayout()
+        tb.setContentsMargins(0, 0, 0, 0)
+        tb.setSpacing(4)
+
+        self.btn_import_video = _toolbar_btn("+ Video", "Video importieren")
+        self.btn_import_folder = _toolbar_btn("+ Ordner", "Ordner importieren")
+        self.btn_delete_selected_video = _toolbar_btn(
+            "Loeschen", "Ausgewaehlte Videos loeschen", danger=True,
         )
-        self.btn_import_video.setAccessibleName("Video importieren")
-        self.btn_import_video.setStatusTip("Video-Dateien (MP4, MOV, AVI, MKV) in den Video-Pool importieren")
-        gl.addWidget(self.btn_import_video)
+        tb.addWidget(self.btn_import_video)
+        tb.addWidget(self.btn_import_folder)
+        tb.addWidget(self.btn_delete_selected_video)
 
-        self.btn_import_folder = QPushButton("Ordner importieren")
-        self.btn_import_folder.setObjectName("btn_action")
-        self.btn_import_folder.setFixedHeight(35)
-        self.btn_import_folder.setMaximumWidth(300)
-        self.btn_import_folder.setToolTip(
-            "Alle Audio- und Video-Dateien aus einem Ordner importieren"
-        )
-        self.btn_import_folder.setAccessibleName("Ordner importieren")
-        self.btn_import_folder.setStatusTip("Alle Audio- und Video-Dateien aus einem Ordner importieren")
-        gl.addWidget(self.btn_import_folder)
-        gl.addStretch()
-        ll.addWidget(grp)
-
-        # Analyse-Pipeline
-        grp = QGroupBox("Analyse-Pipeline")
-        gl = QVBoxLayout(grp)
-
-        self.btn_analyze_video = QPushButton("Szenen-Erkennung")
-        self.btn_analyze_video.setObjectName("btn_action")
-        self.btn_analyze_video.setFixedHeight(32)
-        self.btn_analyze_video.setMaximumWidth(300)
-        self.btn_analyze_video.setToolTip(
-            "Szenen-Schnitte und Shot-Boundaries erkennen"
-        )
-        self.btn_analyze_video.setAccessibleName("Szenen-Erkennung starten")
-        self.btn_analyze_video.setStatusTip("Erkennt Szenen-Schnitte und Shot-Boundaries im ausgewaehlten Video")
-        gl.addWidget(self.btn_analyze_video)
-
-        self.btn_motion_analysis = QPushButton("Video analysieren")
-        self.btn_motion_analysis.setObjectName("btn_action")
-        self.btn_motion_analysis.setFixedHeight(32)
-        self.btn_motion_analysis.setMaximumWidth(300)
-        self.btn_motion_analysis.setToolTip(
-            "Startet die Video-Analyse (Metadaten + Proxy)"
-        )
-        self.btn_motion_analysis.setAccessibleName("Video analysieren")
-        self.btn_motion_analysis.setStatusTip("Startet die Video-Analyse: Metadaten extrahieren und Proxy erstellen")
-        gl.addWidget(self.btn_motion_analysis)
-
-        self.btn_siglip_embeddings = QPushButton("Voll-Pipeline")
-        self.btn_siglip_embeddings.setObjectName("btn_ai")
-        self.btn_siglip_embeddings.setFixedHeight(32)
-        self.btn_siglip_embeddings.setMaximumWidth(300)
-        self.btn_siglip_embeddings.setToolTip(
-            "Startet die komplette Pipeline (Szenen + Motion + Embeddings)"
-        )
-        self.btn_siglip_embeddings.setAccessibleName("KI-Vollanalyse starten")
-        self.btn_siglip_embeddings.setStatusTip("Startet die komplette KI-Pipeline: Szenen, Motion und SigLIP-Embeddings")
-        gl.addWidget(self.btn_siglip_embeddings)
-
-        self.btn_video_pipeline = QPushButton("Voll-Pipeline (Szenen + KI)")
-        self.btn_video_pipeline.setToolTip(
-            "Vollstaendige 3-Schritt Pipeline:\n"
-            "1. Szenen-Erkennung + Motion-Analyse\n"
-            "2. Keyframe-Extraktion\n"
-            "3. SigLIP Embeddings -> VectorDB"
-        )
-        self.btn_video_pipeline.setObjectName("btn_ai")
-        self.btn_video_pipeline.setFixedHeight(32)
-        self.btn_video_pipeline.setMaximumWidth(300)
-        self.btn_video_pipeline.setStyleSheet(
-            "QPushButton { border: 1px solid #d4a44a; }"
-        )
-        self.btn_video_pipeline.setAccessibleName("Vollstaendige Video-Pipeline starten")
-        self.btn_video_pipeline.setStatusTip("Vollstaendige 3-Schritt Pipeline: Szenen, Keyframes und SigLIP-Embeddings")
-        gl.addWidget(self.btn_video_pipeline)
-        gl.addStretch()
-        ll.addWidget(grp)
-
-        # Verwaltung
-        grp = QGroupBox("Verwaltung")
-        gl = QVBoxLayout(grp)
-
-        self.btn_clear_all = QPushButton("Sammlung bereinigen")
-        self.btn_clear_all.setToolTip(
-            "Alle Medien aus Datenbank und Ansicht entfernen"
-        )
-        self.btn_clear_all.setObjectName("btn_danger")
-        self.btn_clear_all.setFixedHeight(35)
-        self.btn_clear_all.setMaximumWidth(300)
-        self.btn_clear_all.setAccessibleName("Mediensammlung loeschen")
-        self.btn_clear_all.setStatusTip("Alle Medien aus der Datenbank und Ansicht entfernen")
-        gl.addWidget(self.btn_clear_all)
-        gl.addStretch()
-        ll.addWidget(grp)
-
-        ll.addStretch()
-        splitter.addWidget(left)
-
-        # Right panel — SigLIP search + video pool table
-        right = QWidget()
-        rl = QVBoxLayout(right)
-        rl.setContentsMargins(0, 0, 0, 0)
-        rl.setSpacing(4)
-
-        # Semantic search bar
-        search_row = QHBoxLayout()
-        search_row.setContentsMargins(0, 0, 0, 0)
-        search_row.setSpacing(4)
-
+        tb.addSpacing(10)
         lbl = QLabel("SigLIP")
         lbl.setStyleSheet(
             "color: #9ca3af; font-weight: 700; font-size: 9px; padding: 2px 6px; "
             "background: #0f1318; border: 1px solid rgba(255,255,255,15); border-radius: 3px;"
         )
-        lbl.setFixedWidth(46)
-        search_row.addWidget(lbl)
+        lbl.setFixedHeight(24)
+        tb.addWidget(lbl)
 
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText(
-            "Semantische Suche: z.B. 'person dancing on stage'..."
-        )
-        self.search_input.setToolTip("SigLIP Text-zu-Video Suche")
-        self.search_input.setAccessibleName("Semantische Suche Eingabe")
-        self.search_input.setStatusTip("Texteingabe fuer SigLIP-basierte semantische Video-Suche")
-        search_row.addWidget(self.search_input, stretch=1)
+        self.search_input.setPlaceholderText("Semantische Suche: 'person dancing on stage'…")
+        self.search_input.setFixedHeight(24)
+        tb.addWidget(self.search_input, stretch=1)
 
-        self.btn_search = QPushButton("Suchen")
-        self.btn_search.setFixedWidth(80)
-        self.btn_search.setToolTip("Semantische Suche starten (SigLIP + VectorDB)")
-        self.btn_search.setAccessibleName("Semantische Suche starten")
-        self.btn_search.setStatusTip("Startet die semantische Video-Suche per SigLIP-Embeddings")
-        search_row.addWidget(self.btn_search)
+        self.btn_search = _toolbar_btn("Suchen", "Semantische Suche starten")
+        tb.addWidget(self.btn_search)
+        self.btn_search_clear = _toolbar_btn("X", "Suche zuruecksetzen", danger=True, width=28)
+        tb.addWidget(self.btn_search_clear)
 
-        self.btn_search_clear = QPushButton("X")
-        self.btn_search_clear.setFixedSize(35, 35)
-        self.btn_search_clear.setObjectName("btn_danger")
-        self.btn_search_clear.setToolTip("Suche zuruecksetzen")
-        self.btn_search_clear.setAccessibleName("Suche zuruecksetzen")
-        self.btn_search_clear.setStatusTip("Sucheingabe und Ergebnisse zuruecksetzen")
-        search_row.addWidget(self.btn_search_clear)
-        rl.addLayout(search_row)
-
-        # Video pool header
-        hdr_row = QHBoxLayout()
-        hdr_row.setContentsMargins(0, 0, 0, 0)
-        hdr_row.setSpacing(4)
-        hdr = QLabel("VIDEO POOL")
-        hdr.setStyleSheet(
-            "color: #d4a44a; font-weight: 700; font-size: 11px; "
-            "padding: 2px 4px; background: #0a0d12;"
-        )
-        hdr_row.addWidget(hdr)
-        hdr_row.addStretch()
-        self.btn_select_all_video = QPushButton("Alle")
+        tb.addSpacing(10)
+        self.btn_select_all_video = _toolbar_btn("Alle", "Alle Videos an-/abwaehlen", width=48)
         self.btn_select_all_video.setObjectName("btn_select_toggle")
-        self.btn_select_all_video.setFixedSize(50, 22)
-        self.btn_select_all_video.setToolTip("Alle Video-Checkboxen an-/abwaehlen")
-        self.btn_select_all_video.setAccessibleName("Alle Videos auswaehlen")
-        hdr_row.addWidget(self.btn_select_all_video)
-        # List / Grid view toggle
-        self.btn_video_list_view = QPushButton("☰")
+        tb.addWidget(self.btn_select_all_video)
+
+        self.btn_video_list_view = _toolbar_btn("☰", "Listen-Ansicht", width=28)
         self.btn_video_list_view.setCheckable(True)
         self.btn_video_list_view.setChecked(True)
-        self.btn_video_list_view.setFixedSize(26, 22)
-        self.btn_video_list_view.setToolTip("Listen-Ansicht")
-        self.btn_video_list_view.setAccessibleName("Listen-Ansicht")
         self.btn_video_list_view.setStyleSheet(_VIEW_TOGGLE_STYLE)
-        hdr_row.addWidget(self.btn_video_list_view)
-        self.btn_video_grid_view = QPushButton("⊞")
+        tb.addWidget(self.btn_video_list_view)
+
+        self.btn_video_grid_view = _toolbar_btn("⊞", "Kachel-Ansicht", width=28)
         self.btn_video_grid_view.setCheckable(True)
-        self.btn_video_grid_view.setFixedSize(26, 22)
-        self.btn_video_grid_view.setToolTip("Kachel-Ansicht mit Thumbnails")
-        self.btn_video_grid_view.setAccessibleName("Kachel-Ansicht")
         self.btn_video_grid_view.setStyleSheet(_VIEW_TOGGLE_STYLE)
-        hdr_row.addWidget(self.btn_video_grid_view)
-        rl.addLayout(hdr_row)
+        tb.addWidget(self.btn_video_grid_view)
 
-        # Video pool table (Fix F-006: Model/View)
-        self.video_pool_model = MediaTableModel(media_type="Video")
-        self.video_pool_table = DraggablePoolView(track_type="video")
-        self.video_pool_table.setModel(self.video_pool_model)
-        
-        vh = self.video_pool_table.horizontalHeader()
-        vh.setStretchLastSection(True)
-        vh.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
-        vh.resizeSection(0, 45)   # Auswahl
-        vh.resizeSection(1, 35)   # ID
-        vh.resizeSection(2, 200)  # Titel
-        vh.resizeSection(3, 80)   # Aufloesung
-        vh.resizeSection(4, 50)   # FPS
-        vh.resizeSection(5, 60)   # Codec
-        vh.resizeSection(6, 70)   # Analyse %
-        # Spalte 7 (Dateipfad) stretcht automatisch
+        tb.addSpacing(10)
+        self.btn_video_page_prev = _toolbar_btn("◀", "Vorherige Seite", width=28)
+        self.btn_video_page_next = _toolbar_btn("▶", "Naechste Seite", width=28)
+        self._lbl_video_page = QLabel("Seite 1 / 1")
+        self._lbl_video_page.setStyleSheet("color:#9ca3af; font-size:10px; font-weight:600;")
+        self._lbl_video_page.setFixedHeight(24)
+        tb.addWidget(self.btn_video_page_prev)
+        tb.addWidget(self._lbl_video_page)
+        tb.addWidget(self.btn_video_page_next)
 
-        # Grid view for video pool
-        self.video_grid = MediaPoolGrid(media_type="video")
+        page_layout.addLayout(tb)
 
-        # Stack: index 0 = list, index 1 = grid
-        self._video_pool_stack = QStackedWidget()
-        self._video_pool_stack.addWidget(self.video_pool_table)
-        self._video_pool_stack.addWidget(self.video_grid)
+        # -------- Pool --------
+        page_layout.addWidget(self._video_pool_stack)
 
-        # Create vertical splitter for pool + analysis status
-        pool_analysis_splitter = QSplitter(Qt.Orientation.Vertical)
+        # -------- Sub-Tabs (ANALYSE / STATUS / FILTER) --------
+        self._video_sub_tabs = QTabWidget()
+        self._video_sub_tabs.setStyleSheet(_SUB_TAB_STYLE)
+        self._video_sub_tabs.setDocumentMode(True)
 
-        # Top: Pool table/grid
-        pool_container = QWidget()
-        pool_layout = QVBoxLayout(pool_container)
-        pool_layout.setContentsMargins(0, 0, 0, 0)
-        pool_layout.setSpacing(4)
-        pool_layout.addWidget(self._video_pool_stack)
-
-        # Delete row
-        del_row = QHBoxLayout()
-        del_row.setContentsMargins(0, 4, 0, 0)
-        self.btn_delete_selected_video = QPushButton(
-            "Ausgewaehlte Videos loeschen"
+        # ANALYSE
+        analyse = QWidget()
+        alay = QHBoxLayout(analyse)
+        alay.setContentsMargins(8, 6, 8, 6)
+        alay.setSpacing(6)
+        self.btn_analyze_video = _toolbar_btn(
+            "Szenen-Erkennung", "Szenen-Schnitte und Shot-Boundaries erkennen",
         )
-        self.btn_delete_selected_video.setObjectName("btn_danger")
-        self.btn_delete_selected_video.setFixedHeight(35)
-        self.btn_delete_selected_video.setMaximumWidth(300)
-        self.btn_delete_selected_video.setToolTip(
-            "Alle angehakten Videos aus der Datenbank entfernen"
+        self.btn_motion_analysis = _toolbar_btn(
+            "Video analysieren", "Startet Video-Analyse (Metadaten + Proxy)",
         )
-        self.btn_delete_selected_video.setAccessibleName("Ausgewaehlte Videos loeschen")
-        self.btn_delete_selected_video.setStatusTip("Alle per Checkbox markierten Videos aus der Datenbank loeschen")
-        del_row.addWidget(self.btn_delete_selected_video)
-        del_row.addStretch()
-        pool_layout.addLayout(del_row)
+        self.btn_siglip_embeddings = _toolbar_btn(
+            "Voll-Pipeline", "Komplette Pipeline (Szenen + Motion + Embeddings)",
+        )
+        self.btn_video_pipeline = _toolbar_btn(
+            "Voll-Pipeline (Szenen + KI)",
+            "3-Schritt Pipeline: Szenen + Keyframes + SigLIP",
+        )
+        self.btn_video_pipeline.setObjectName("btn_accent")
+        for b in (
+            self.btn_analyze_video, self.btn_motion_analysis,
+            self.btn_siglip_embeddings, self.btn_video_pipeline,
+        ):
+            alay.addWidget(b)
+        alay.addStretch()
+        self._video_sub_tabs.addTab(analyse, "ANALYSE")
 
-        pool_analysis_splitter.addWidget(pool_container)
-
-        # Bottom: Analysis Status Panel
+        # STATUS
         self.video_analysis_panel = AnalysisStatusPanel()
-        pool_analysis_splitter.addWidget(self.video_analysis_panel)
+        self._video_sub_tabs.addTab(self.video_analysis_panel, "STATUS")
 
-        # Set initial splitter sizes (70% pool, 30% analysis)
-        pool_analysis_splitter.setStretchFactor(0, 7)
-        pool_analysis_splitter.setStretchFactor(1, 3)
-        pool_analysis_splitter.setSizes([600, 300])
-        pool_analysis_splitter.setCollapsible(0, False)
-        pool_analysis_splitter.setCollapsible(1, True)
-
-        rl.addWidget(pool_analysis_splitter)
-
-        # Wire toggle buttons (exclusive, manual)
-        self.btn_video_list_view.clicked.connect(
-            lambda: self._toggle_video_view(0)
+        # FILTER (Sammlungsverwaltung + Platzhalter fuer Filter)
+        filt = QWidget()
+        flay = QHBoxLayout(filt)
+        flay.setContentsMargins(8, 6, 8, 6)
+        flay.setSpacing(6)
+        self.btn_clear_all = _toolbar_btn(
+            "Sammlung bereinigen", "Alle Medien aus DB und Ansicht entfernen",
+            danger=True,
         )
-        self.btn_video_grid_view.clicked.connect(
-            lambda: self._toggle_video_view(1)
-        )
+        flay.addWidget(self.btn_clear_all)
+        flay.addStretch()
+        self._video_sub_tabs.addTab(filt, "FILTER")
 
-        # Wire selection changes to update analysis panel
+        page_layout.addWidget(self._video_sub_tabs, stretch=1)
+
+        # -------- Wiring --------
+        self.btn_video_list_view.clicked.connect(lambda: self._toggle_video_view(0))
+        self.btn_video_grid_view.clicked.connect(lambda: self._toggle_video_view(1))
         self.video_pool_table.selectionModel().selectionChanged.connect(
-            self._on_video_selection_changed
+            self._on_video_selection_changed,
         )
-
-        # Wire analysis_requested signal to dispatch workers
-        self.video_analysis_panel.analysis_requested.connect(
-            self._on_analysis_requested
-        )
-
-        # Wire grid view signals — context menu and selection
+        self.video_analysis_panel.analysis_requested.connect(self._on_analysis_requested)
         self.video_grid.item_selected.connect(
-            lambda mid: self._on_grid_item_selected("video", mid)
+            lambda mid: self._on_grid_item_selected("video", mid),
         )
         self.video_grid.show_status_requested.connect(
-            lambda mid: self._on_grid_show_status("video", mid)
+            lambda mid: self._on_grid_show_status("video", mid),
         )
         self.video_grid.run_all_requested.connect(
-            lambda mid: self._on_grid_run_all("video", mid)
+            lambda mid: self._on_grid_run_all("video", mid),
         )
 
-        splitter.addWidget(right)
-        splitter.setStretchFactor(0, 1)
-        splitter.setStretchFactor(1, 6)
-        splitter.setCollapsible(0, True)
-        splitter.setCollapsible(1, False)
-        splitter.setSizes([220, 1200])
-
-        page_layout.addWidget(splitter)
+        self.btn_video_page_prev.clicked.connect(self._video_pool_proxy.prev_page)
+        self.btn_video_page_next.clicked.connect(self._video_pool_proxy.next_page)
+        self._video_pool_proxy.pagesChanged.connect(self._refresh_video_pager)
+        self._refresh_video_pager()
         return page
 
     # ── AUDIO PAGE ────────────────────────────────────────────
     def _build_audio_page(self):
+        """P9-C: gleiches Schema wie Video-Page — Toolbar + Pool + Sub-Tabs."""
         page = QWidget()
         page_layout = QVBoxLayout(page)
-        page_layout.setContentsMargins(0, 0, 0, 0)
+        page_layout.setContentsMargins(4, 2, 4, 2)
+        page_layout.setSpacing(4)
 
-        splitter = QSplitter(Qt.Orientation.Horizontal)
+        # -------- Model + Proxy --------
+        self.audio_pool_model = MediaTableModel(media_type="Audio")
+        self._audio_pool_proxy = PagedProxyModel(page_size=16)
+        self._audio_pool_proxy.setSourceModel(self.audio_pool_model)
 
-        # Left panel — audio actions
-        left = QWidget()
-        left.setMaximumWidth(260)
-        left.setMinimumWidth(180)
-        ll = QVBoxLayout(left)
-        ll.setContentsMargins(4, 4, 4, 4)
-        ll.setSpacing(4)
+        self.audio_pool_table = DraggablePoolView(track_type="audio")
+        self.audio_pool_table.setModel(self._audio_pool_proxy)
+        ah = self.audio_pool_table.horizontalHeader()
+        ah.setStretchLastSection(True)
+        ah.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        ah.resizeSection(0, 36)
+        ah.resizeSection(1, 40)
+        ah.resizeSection(2, 260)
+        ah.resizeSection(3, 60)
+        ah.resizeSection(4, 50)
+        ah.resizeSection(5, 60)
+        ah.resizeSection(6, 80)
+        self.audio_pool_table.verticalHeader().setDefaultSectionSize(24)
+        self.audio_pool_table.verticalHeader().setVisible(False)
+        self.audio_pool_table.setFixedHeight(448)
 
-        # Import
-        grp = QGroupBox("Import")
-        gl = QVBoxLayout(grp)
+        self.audio_grid = MediaPoolGrid(media_type="audio")
+        self._audio_pool_stack = QStackedWidget()
+        self._audio_pool_stack.addWidget(self.audio_pool_table)
+        self._audio_pool_stack.addWidget(self.audio_grid)
+        self._audio_pool_stack.setFixedHeight(448)
 
-        self.btn_import_audio = QPushButton("Audio importieren")
-        self.btn_import_audio.setObjectName("btn_action")
-        self.btn_import_audio.setFixedHeight(35)
-        self.btn_import_audio.setMaximumWidth(300)
-        self.btn_import_audio.setToolTip(
-            "Audio-Dateien (WAV, MP3, FLAC, OGG) importieren"
-        )
-        self.btn_import_audio.setAccessibleName("Audio importieren")
-        self.btn_import_audio.setStatusTip("Audio-Dateien (WAV, MP3, FLAC, OGG) in den Audio-Pool importieren")
-        gl.addWidget(self.btn_import_audio)
+        # -------- Toolbar --------
+        tb = QHBoxLayout()
+        tb.setContentsMargins(0, 0, 0, 0)
+        tb.setSpacing(4)
 
-        # Folder import on audio page — forwards to the primary btn_import_folder
-        self._btn_import_folder_audio = QPushButton("Ordner importieren")
-        self._btn_import_folder_audio.setObjectName("btn_action")
-        self._btn_import_folder_audio.setFixedHeight(35)
-        self._btn_import_folder_audio.setMaximumWidth(300)
-        self._btn_import_folder_audio.setToolTip(
-            "Alle Audio- und Video-Dateien aus einem Ordner importieren"
+        self.btn_import_audio = _toolbar_btn("+ Audio", "Audio importieren")
+        self._btn_import_folder_audio = _toolbar_btn(
+            "+ Ordner", "Alle Audio-/Video-Dateien aus Ordner importieren",
         )
         self._btn_import_folder_audio.clicked.connect(
             lambda: self.btn_import_folder.click()
         )
-        gl.addWidget(self._btn_import_folder_audio)
-        gl.addStretch()
-        ll.addWidget(grp)
-
-        # Analyse
-        grp = QGroupBox("Analyse")
-        gl = QVBoxLayout(grp)
-
-        self.btn_analyze = QPushButton("Audio analysieren")
-        self.btn_analyze.setObjectName("btn_action")
-        self.btn_analyze.setFixedHeight(32)
-        self.btn_analyze.setMaximumWidth(300)
-        self.btn_analyze.setToolTip("BPM, Beats und Energie-Verlauf erkennen")
-        self.btn_analyze.setAccessibleName("Audio analysieren")
-        self.btn_analyze.setStatusTip("BPM, Beats und Energie-Verlauf des Audio-Tracks erkennen")
-        gl.addWidget(self.btn_analyze)
-
-        self.btn_waveform = QPushButton("Wellenform")
-        self.btn_waveform.setToolTip(
-            "Frequenz-Wellenform (Low/Mid/High) + Beatgrid berechnen"
+        self.btn_delete_selected_audio = _toolbar_btn(
+            "Loeschen", "Ausgewaehlte Audio-Dateien loeschen", danger=True,
         )
-        self.btn_waveform.setObjectName("btn_action")
-        self.btn_waveform.setFixedHeight(32)
-        self.btn_waveform.setMaximumWidth(300)
-        self.btn_waveform.setAccessibleName("Wellenform berechnen")
-        self.btn_waveform.setStatusTip("Frequenz-Wellenform (Low/Mid/High) und Beatgrid berechnen")
-        gl.addWidget(self.btn_waveform)
+        tb.addWidget(self.btn_import_audio)
+        tb.addWidget(self._btn_import_folder_audio)
+        tb.addWidget(self.btn_delete_selected_audio)
 
-        self.btn_key_detect = QPushButton("Key erkennen")
-        self.btn_key_detect.setObjectName("btn_action")
-        self.btn_key_detect.setFixedHeight(32)
-        self.btn_key_detect.setMaximumWidth(300)
-        self.btn_key_detect.setToolTip(
-            "Tonart und Camelot-Wert erkennen"
+        tb.addStretch()
+
+        self.btn_select_all_audio = _toolbar_btn(
+            "Alle", "Alle Audio-Checkboxen an-/abwaehlen", width=48,
         )
-        self.btn_key_detect.setAccessibleName("Tonart erkennen")
-        self.btn_key_detect.setStatusTip("Musikalische Tonart und Camelot-Wert erkennen")
-        gl.addWidget(self.btn_key_detect)
-
-        self.btn_lufs_analyze = QPushButton("LUFS / Loudness")
-        self.btn_lufs_analyze.setObjectName("btn_action")
-        self.btn_lufs_analyze.setFixedHeight(32)
-        self.btn_lufs_analyze.setMaximumWidth(300)
-        self.btn_lufs_analyze.setToolTip(
-            "Integrierte Lautheit (LUFS), True Peak und Dynamik messen"
-        )
-        self.btn_lufs_analyze.setAccessibleName("LUFS Loudness messen")
-        self.btn_lufs_analyze.setStatusTip("Integrierte Lautheit (LUFS), True Peak und Dynamikbereich messen")
-        gl.addWidget(self.btn_lufs_analyze)
-
-        self.btn_structure_detect = QPushButton("Struktur erkennen")
-        self.btn_structure_detect.setObjectName("btn_action")
-        self.btn_structure_detect.setFixedHeight(32)
-        self.btn_structure_detect.setMaximumWidth(300)
-        self.btn_structure_detect.setToolTip(
-            "Song-Struktur erkennen (Intro, Buildup, Drop, Breakdown, Outro)"
-        )
-        self.btn_structure_detect.setAccessibleName("Song-Struktur erkennen")
-        self.btn_structure_detect.setStatusTip("Song-Struktur-Segmente erkennen: Intro, Buildup, Drop, Breakdown, Outro")
-        gl.addWidget(self.btn_structure_detect)
-        gl.addStretch()
-        ll.addWidget(grp)
-
-        # KI-Werkzeuge
-        grp = QGroupBox("KI-Werkzeuge")
-        gl = QVBoxLayout(grp)
-
-        self.btn_stem_separate = QPushButton("Stems trennen")
-        self.btn_stem_separate.setObjectName("btn_ai")
-        self.btn_stem_separate.setFixedHeight(32)
-        self.btn_stem_separate.setMaximumWidth(300)
-        self.btn_stem_separate.setToolTip(
-            "Demucs: Vocals, Drums, Bass, Other trennen"
-        )
-        self.btn_stem_separate.setAccessibleName("Stems trennen")
-        self.btn_stem_separate.setStatusTip("Audio-Stems per Demucs-KI trennen: Vocals, Drums, Bass, Other")
-        gl.addWidget(self.btn_stem_separate)
-
-        self.btn_auto_duck = QPushButton("Auto-Ducking")
-        self.btn_auto_duck.setObjectName("btn_ai")
-        self.btn_auto_duck.setFixedHeight(32)
-        self.btn_auto_duck.setMaximumWidth(300)
-        self.btn_auto_duck.setToolTip(
-            "Musik bei Sprache automatisch absenken"
-        )
-        self.btn_auto_duck.setAccessibleName("Auto-Ducking aktivieren")
-        self.btn_auto_duck.setStatusTip("Musik bei erkannter Sprache automatisch per Sidechain-Ducking absenken")
-        gl.addWidget(self.btn_auto_duck)
-
-        # Komplett-Analyse: Alle Schritte sequentiell
-        self.btn_analyze_all = QPushButton("KOMPLETT-ANALYSE")
-        self.btn_analyze_all.setObjectName("btn_accent")
-        self.btn_analyze_all.setFixedHeight(35)
-        self.btn_analyze_all.setMaximumWidth(300)
-        self.btn_analyze_all.setToolTip(
-            "Startet alle Analysen nacheinander:\n"
-            "BPM/Beats -> Wellenform -> Key -> LUFS -> Struktur -> Stems"
-        )
-        self.btn_analyze_all.setAccessibleName("Komplett-Analyse starten")
-        self.btn_analyze_all.setStatusTip("Alle Audio-Analysen nacheinander starten: BPM, Wellenform, Key, LUFS, Struktur, Stems")
-        gl.addWidget(self.btn_analyze_all)
-        gl.addStretch()
-        ll.addWidget(grp)
-
-        ll.addStretch()
-        splitter.addWidget(left)
-
-        # Right panel — audio pool table
-        right = QWidget()
-        rl = QVBoxLayout(right)
-        rl.setContentsMargins(0, 0, 0, 0)
-        rl.setSpacing(4)
-
-        # Audio pool header
-        hdr_row = QHBoxLayout()
-        hdr_row.setContentsMargins(0, 0, 0, 0)
-        hdr_row.setSpacing(4)
-        hdr = QLabel("AUDIO POOL")
-        hdr.setStyleSheet(
-            "color: #d4a44a; font-weight: 700; font-size: 11px; "
-            "padding: 2px 4px; background: #0a0d12;"
-        )
-        hdr_row.addWidget(hdr)
-        hdr_row.addStretch()
-        self.btn_select_all_audio = QPushButton("Alle")
         self.btn_select_all_audio.setObjectName("btn_select_toggle")
-        self.btn_select_all_audio.setFixedSize(50, 22)
-        self.btn_select_all_audio.setToolTip("Alle Audio-Checkboxen an-/abwaehlen")
-        hdr_row.addWidget(self.btn_select_all_audio)
-        # List / Grid view toggle
-        self.btn_audio_list_view = QPushButton("☰")
+        tb.addWidget(self.btn_select_all_audio)
+
+        self.btn_audio_list_view = _toolbar_btn("☰", "Listen-Ansicht", width=28)
         self.btn_audio_list_view.setCheckable(True)
         self.btn_audio_list_view.setChecked(True)
-        self.btn_audio_list_view.setFixedSize(26, 22)
-        self.btn_audio_list_view.setToolTip("Listen-Ansicht")
         self.btn_audio_list_view.setStyleSheet(_VIEW_TOGGLE_STYLE)
-        hdr_row.addWidget(self.btn_audio_list_view)
-        self.btn_audio_grid_view = QPushButton("⊞")
+        tb.addWidget(self.btn_audio_list_view)
+
+        self.btn_audio_grid_view = _toolbar_btn("⊞", "Kachel-Ansicht", width=28)
         self.btn_audio_grid_view.setCheckable(True)
-        self.btn_audio_grid_view.setFixedSize(26, 22)
-        self.btn_audio_grid_view.setToolTip("Kachel-Ansicht mit Wellenform")
         self.btn_audio_grid_view.setStyleSheet(_VIEW_TOGGLE_STYLE)
-        hdr_row.addWidget(self.btn_audio_grid_view)
-        rl.addLayout(hdr_row)
+        tb.addWidget(self.btn_audio_grid_view)
 
-        # Audio pool table (Fix F-006: Model/View)
-        self.audio_pool_model = MediaTableModel(media_type="Audio")
-        self.audio_pool_table = DraggablePoolView(track_type="audio")
-        self.audio_pool_table.setModel(self.audio_pool_model)
-        
-        ah = self.audio_pool_table.horizontalHeader()
-        ah.setStretchLastSection(True)
-        ah.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
-        ah.resizeSection(0, 45)   # Auswahl
-        ah.resizeSection(1, 35)   # ID
-        ah.resizeSection(2, 200)  # Titel
-        ah.resizeSection(3, 55)   # BPM
-        ah.resizeSection(4, 45)   # Key
-        ah.resizeSection(5, 55)   # Stems
-        ah.resizeSection(6, 70)   # Analyse %
-        # Spalte 7 (Dateipfad) stretcht automatisch
+        tb.addSpacing(10)
+        self.btn_audio_page_prev = _toolbar_btn("◀", "Vorherige Seite", width=28)
+        self.btn_audio_page_next = _toolbar_btn("▶", "Naechste Seite", width=28)
+        self._lbl_audio_page = QLabel("Seite 1 / 1")
+        self._lbl_audio_page.setStyleSheet("color:#9ca3af; font-size:10px; font-weight:600;")
+        self._lbl_audio_page.setFixedHeight(24)
+        tb.addWidget(self.btn_audio_page_prev)
+        tb.addWidget(self._lbl_audio_page)
+        tb.addWidget(self.btn_audio_page_next)
 
-        # Grid view for audio pool
-        self.audio_grid = MediaPoolGrid(media_type="audio")
+        page_layout.addLayout(tb)
+        page_layout.addWidget(self._audio_pool_stack)
 
-        # Stack: index 0 = list, index 1 = grid
-        self._audio_pool_stack = QStackedWidget()
-        self._audio_pool_stack.addWidget(self.audio_pool_table)
-        self._audio_pool_stack.addWidget(self.audio_grid)
+        # -------- Sub-Tabs (ANALYSE / STATUS / FILTER) --------
+        self._audio_sub_tabs = QTabWidget()
+        self._audio_sub_tabs.setStyleSheet(_SUB_TAB_STYLE)
+        self._audio_sub_tabs.setDocumentMode(True)
 
-        # Create vertical splitter for pool + analysis status
-        pool_analysis_splitter = QSplitter(Qt.Orientation.Vertical)
+        # ANALYSE
+        analyse = QWidget()
+        alay = QVBoxLayout(analyse)
+        alay.setContentsMargins(8, 6, 8, 6)
+        alay.setSpacing(4)
+        row1 = QHBoxLayout()
+        row1.setSpacing(4)
+        self.btn_analyze = _toolbar_btn("BPM/Beats", "BPM, Beats, Energie")
+        self.btn_waveform = _toolbar_btn("Wellenform", "3-Band Wellenform + Beatgrid")
+        self.btn_key_detect = _toolbar_btn("Key", "Tonart + Camelot")
+        self.btn_lufs_analyze = _toolbar_btn("LUFS", "Lautheit / True Peak")
+        self.btn_structure_detect = _toolbar_btn("Struktur", "Intro/Buildup/Drop/...")
+        self.btn_stem_separate = _toolbar_btn("Stems", "Demucs Vocals/Drums/Bass/Other")
+        for b in (
+            self.btn_analyze, self.btn_waveform, self.btn_key_detect,
+            self.btn_lufs_analyze, self.btn_structure_detect, self.btn_stem_separate,
+        ):
+            row1.addWidget(b)
+        row1.addStretch()
+        alay.addLayout(row1)
 
-        # Top: Pool table/grid
-        pool_container = QWidget()
-        pool_layout = QVBoxLayout(pool_container)
-        pool_layout.setContentsMargins(0, 0, 0, 0)
-        pool_layout.setSpacing(4)
-        pool_layout.addWidget(self._audio_pool_stack, stretch=3)
-
-        # Wire toggle buttons
-        self.btn_audio_list_view.clicked.connect(
-            lambda: self._toggle_audio_view(0)
+        row2 = QHBoxLayout()
+        row2.setSpacing(4)
+        self.btn_auto_duck = _toolbar_btn("Auto-Ducking", "Musik bei Sprache absenken")
+        self.btn_analyze_all = _toolbar_btn(
+            "KOMPLETT-ANALYSE", "Alle Analysen nacheinander",
         )
-        self.btn_audio_grid_view.clicked.connect(
-            lambda: self._toggle_audio_view(1)
-        )
+        self.btn_analyze_all.setObjectName("btn_accent")
+        row2.addWidget(self.btn_auto_duck)
+        row2.addWidget(self.btn_analyze_all)
+        row2.addStretch()
+        alay.addLayout(row2)
+        alay.addStretch()
+        self._audio_sub_tabs.addTab(analyse, "ANALYSE")
+
+        # STATUS
+        self.audio_analysis_panel = AnalysisStatusPanel()
+        self._audio_sub_tabs.addTab(self.audio_analysis_panel, "STATUS")
+
+        # FILTER
+        filt = QWidget()
+        flay = QHBoxLayout(filt)
+        flay.setContentsMargins(8, 6, 8, 6)
+        flay.setSpacing(6)
+        # Shared clear-all button lives on video page; hier nur Hinweis.
+        hint = QLabel("Filter/Sortierung folgen (Shared: 'Sammlung bereinigen' auf VIDEO-Tab FILTER).")
+        hint.setStyleSheet("color: #6b7280; font-size: 10px;")
+        flay.addWidget(hint)
+        flay.addStretch()
+        self._audio_sub_tabs.addTab(filt, "FILTER")
+
+        page_layout.addWidget(self._audio_sub_tabs, stretch=1)
+
+        # -------- Wiring --------
+        self.btn_audio_list_view.clicked.connect(lambda: self._toggle_audio_view(0))
+        self.btn_audio_grid_view.clicked.connect(lambda: self._toggle_audio_view(1))
+        self.btn_audio_page_prev.clicked.connect(self._audio_pool_proxy.prev_page)
+        self.btn_audio_page_next.clicked.connect(self._audio_pool_proxy.next_page)
+        self._audio_pool_proxy.pagesChanged.connect(self._refresh_audio_pager)
+        self._refresh_audio_pager()
 
         # ── Audio Detail Cards ─────────────────────────────────
         self.audio_detail_container = QWidget()
@@ -957,50 +779,16 @@ class MediaWorkspace(QWidget):
         self.structure_bar = StructureBarWidget()
         detail_layout.addWidget(self.structure_bar)
 
-        pool_layout.addWidget(self.audio_detail_container)
+        # P9-C: Detail-Container wird zwischen Pool und Sub-Tabs eingefuegt.
+        page_layout.insertWidget(2, self.audio_detail_container)
 
-        # Delete row
-        del_row = QHBoxLayout()
-        del_row.setContentsMargins(0, 4, 0, 0)
-        self.btn_delete_selected_audio = QPushButton(
-            "Ausgewaehlte Audios loeschen"
-        )
-        self.btn_delete_selected_audio.setObjectName("btn_danger")
-        self.btn_delete_selected_audio.setFixedHeight(35)
-        self.btn_delete_selected_audio.setMaximumWidth(300)
-        self.btn_delete_selected_audio.setToolTip(
-            "Alle angehakten Audio-Dateien aus der Datenbank entfernen"
-        )
-        del_row.addWidget(self.btn_delete_selected_audio)
-        del_row.addStretch()
-        pool_layout.addLayout(del_row)
-
-        pool_analysis_splitter.addWidget(pool_container)
-
-        # Bottom: Analysis Status Panel
-        self.audio_analysis_panel = AnalysisStatusPanel()
-        pool_analysis_splitter.addWidget(self.audio_analysis_panel)
-
-        # Set initial splitter sizes (70% pool, 30% analysis)
-        pool_analysis_splitter.setStretchFactor(0, 7)
-        pool_analysis_splitter.setStretchFactor(1, 3)
-        pool_analysis_splitter.setSizes([600, 300])
-        pool_analysis_splitter.setCollapsible(0, False)
-        pool_analysis_splitter.setCollapsible(1, True)
-
-        rl.addWidget(pool_analysis_splitter)
-
-        # Wire selection changes to update analysis panel
+        # Pool-Selektion -> Analysis Panel
         self.audio_pool_table.selectionModel().selectionChanged.connect(
             self._on_audio_selection_changed
         )
-
-        # Wire analysis_requested signal to dispatch workers
         self.audio_analysis_panel.analysis_requested.connect(
             self._on_analysis_requested
         )
-
-        # Wire grid view signals — context menu and selection
         self.audio_grid.item_selected.connect(
             lambda mid: self._on_grid_item_selected("audio", mid)
         )
@@ -1010,15 +798,6 @@ class MediaWorkspace(QWidget):
         self.audio_grid.run_all_requested.connect(
             lambda mid: self._on_grid_run_all("audio", mid)
         )
-
-        splitter.addWidget(right)
-        splitter.setStretchFactor(0, 1)
-        splitter.setStretchFactor(1, 6)
-        splitter.setCollapsible(0, True)
-        splitter.setCollapsible(1, False)
-        splitter.setSizes([220, 1200])
-
-        page_layout.addWidget(splitter)
         return page
 
     # ── Slots ─────────────────────────────────────────────────
@@ -1038,23 +817,17 @@ class MediaWorkspace(QWidget):
         self.btn_audio_grid_view.setChecked(idx == 1)
 
     def _on_video_selection_changed(self):
-        """Update video analysis panel when selection changes."""
+        """Update video analysis panel when selection changes.
+
+        P9-C: nutzt das View-Model (Proxy), damit die Seiten-Indizes stimmen.
+        """
         indexes = self.video_pool_table.selectionModel().selectedRows()
         if not indexes:
             return
-
-        # Get first selected row
-        row = indexes[0].row()
-        model = self.video_pool_model
-
-        # Get video_id from column 1
-        video_id_idx = model.index(row, 1)
-        video_id = video_id_idx.data()
-
-        # Get title from column 2
-        title_idx = model.index(row, 2)
-        title = title_idx.data()
-
+        idx = indexes[0]
+        model = self.video_pool_table.model()
+        video_id = model.index(idx.row(), 1).data()
+        title = model.index(idx.row(), 2).data()
         if video_id is not None:
             self.video_analysis_panel.set_media("video", int(video_id), str(title or ""))
 
@@ -1063,21 +836,25 @@ class MediaWorkspace(QWidget):
         indexes = self.audio_pool_table.selectionModel().selectedRows()
         if not indexes:
             return
-
-        # Get first selected row
-        row = indexes[0].row()
-        model = self.audio_pool_model
-
-        # Get audio_id from column 1
-        audio_id_idx = model.index(row, 1)
-        audio_id = audio_id_idx.data()
-
-        # Get title from column 2
-        title_idx = model.index(row, 2)
-        title = title_idx.data()
-
+        idx = indexes[0]
+        model = self.audio_pool_table.model()
+        audio_id = model.index(idx.row(), 1).data()
+        title = model.index(idx.row(), 2).data()
         if audio_id is not None:
             self.audio_analysis_panel.set_media("audio", int(audio_id), str(title or ""))
+
+    # ── Pager helpers ─────────────────────────────────────────
+    def _refresh_video_pager(self):
+        p = self._video_pool_proxy
+        self._lbl_video_page.setText(f"Seite {p.page() + 1} / {p.page_count()}")
+        self.btn_video_page_prev.setEnabled(p.page() > 0)
+        self.btn_video_page_next.setEnabled(p.page() < p.page_count() - 1)
+
+    def _refresh_audio_pager(self):
+        p = self._audio_pool_proxy
+        self._lbl_audio_page.setText(f"Seite {p.page() + 1} / {p.page_count()}")
+        self.btn_audio_page_prev.setEnabled(p.page() > 0)
+        self.btn_audio_page_next.setEnabled(p.page() < p.page_count() - 1)
 
     # ── Grid view context menu handlers ──────────────────────────
 

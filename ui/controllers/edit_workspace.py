@@ -193,7 +193,9 @@ class EditWorkspaceController(PBComponent):
             return
 
         video_ids = []
-        v_model = self.window.video_pool_table.model()
+        # P9-C: direkt das Source-Model nehmen — der Proxy paginiert und
+        # wuerde sonst nur die aktuell sichtbaren 16 Zeilen liefern.
+        v_model = getattr(self.window, "video_pool_model", None) or self.window.video_pool_table.model()
         if v_model:
             for _row in range(v_model.rowCount()):
                 _id_val = v_model.index(_row, 1).data()

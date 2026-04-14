@@ -1,8 +1,15 @@
-"""QAbstractTableModel for efficient Media Pool rendering (Fix F-006)."""
+"""QAbstractTableModel for efficient Media Pool rendering (Fix F-006).
+
+P9-C: ``PagedProxyModel`` unten haelt den Pool auf eine feste Seiten-
+groesse (Default 16 Zeilen) — damit brauchen wir in der UI keine
+Scrollbar und die Toolbar zeigt die klassische ``Seite 1 / N``-Pager.
+"""
 
 from __future__ import annotations
 from typing import Any
-from PySide6.QtCore import Qt, QAbstractTableModel, QModelIndex
+from PySide6.QtCore import (
+    Qt, QAbstractTableModel, QModelIndex, QSortFilterProxyModel, Signal,
+)
 import logging
 
 logger = logging.getLogger(__name__)
@@ -108,3 +115,107 @@ class MediaTableModel(QAbstractTableModel):
         else:
             self._checked_ids = {i["id"] for i in self._items}
         self.layoutChanged.emit()
+
+
+class PagedProxyModel(QSortFilterProxyModel):
+    """Paginations-Proxy fuer den MEDIA-Pool.
+
+    Zeigt immer genau ``page_size`` Zeilen (Default 16) aus dem Source-Model;
+    per ``set_page(n)`` wechselt die UI den Ausschnitt.
+    """
+
+    pagesChanged = Signal()  # emittiert wenn Seitenzahl sich aendert
+
+    def __init__(self, page_size: int = 16, parent=None):
+        super().__init__(parent)
+        self._page_size = max(1, int(page_size))
+        self._page = 0
+
+    # ------------------------------------------------------------------
+    def filterAcceptsRow(self, source_row: int, _parent: QModelIndex) -> bool:  # type: ignore[override]
+        start = self._page * self._page_size
+        end = start + self._page_size
+        return start <= source_row < end
+
+    # ------------------------------------------------------------------
+    def setSourceModel(self, source):  # type: ignore[override]
+        old = self.sourceModel()
+        if old is not None:
+            try:
+                old.modelReset.disconnect(self._on_source_changed)
+                old.rowsInserted.disconnect(self._on_source_changed)
+                old.rowsRemoved.disconnect(self._on_source_changed)
+            except (TypeError, RuntimeError):
+                pass
+        super().setSourceModel(source)
+        if source is not None:
+            source.modelReset.connect(self._on_source_changed)
+            source.rowsInserted.connect(self._on_source_changed)
+            source.rowsRemoved.connect(self._on_source_changed)
+        self._clamp_page()
+        self.pagesChanged.emit()
+
+    def _on_source_changed(self, *_args):
+        self._clamp_page()
+        self.invalidateFilter()
+        self.pagesChanged.emit()
+
+    # ------------------------------------------------------------------
+    def page_size(self) -> int:
+        return self._page_size
+
+    def set_page_size(self, n: int):
+        n = max(1, int(n))
+        if n != self._page_size:
+            self._page_size = n
+            self._clamp_page()
+            self.invalidateFilter()
+            self.pagesChanged.emit()
+
+    def page(self) -> int:
+        return self._page
+
+    def page_count(self) -> int:
+        src = self.sourceModel()
+        total = src.rowCount() if src is not None else 0
+        return max(1, (total + self._page_size - 1) // self._page_size)
+
+    def set_page(self, page: int):
+        page = max(0, min(int(page), self.page_count() - 1))
+        if page != self._page:
+            self._page = page
+            self.invalidateFilter()
+            self.pagesChanged.emit()
+
+    def next_page(self):
+        self.set_page(self._page + 1)
+
+    def prev_page(self):
+        self.set_page(self._page - 1)
+
+    def _clamp_page(self):
+        pc = self.page_count()
+        if self._page >= pc:
+            self._page = pc - 1
+        if self._page < 0:
+            self._page = 0
+
+    # ------------------------------------------------------------------
+    # Pass-through helpers — der Proxy leitet die Model-spezifischen APIs
+    # (Check-Listen, Toggle, set_items) ans Source-Model weiter, damit
+    # bestehende Controller weiterhin `pool_table.model().<...>` nutzen
+    # koennen.
+    # ------------------------------------------------------------------
+    def get_checked_ids(self) -> list[int]:
+        src = self.sourceModel()
+        return src.get_checked_ids() if src is not None else []
+
+    def toggle_all(self):
+        src = self.sourceModel()
+        if src is not None:
+            src.toggle_all()
+
+    def set_items(self, items: list[dict]):
+        src = self.sourceModel()
+        if src is not None:
+            src.set_items(items)
