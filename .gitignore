@@ -50,6 +50,9 @@ docs/qa_screenshots/**/*.mp4
 docs/qa_screenshots/e2e_2026_03_26/
 docs/qa_screenshots/e2e_run/
 
+# pb-gui-tester harness artifacts (screenshots, JSON snapshots, run reports)
+tests/qa_artifacts/
+
 # Test reports (generated at runtime)
 test-report/
 
