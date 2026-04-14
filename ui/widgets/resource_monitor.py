@@ -78,19 +78,22 @@ class _MonitorWorker(QObject):
             stats['ram_used'] = mem.used / (1024 ** 3)
             stats['ram_total'] = mem.total / (1024 ** 3)
             stats['ram_pct'] = int(mem.percent)
-        # GPU
-        if _HAS_TORCH and torch.cuda.is_available():
-            try:
-                idx = torch.cuda.current_device()
-                stats['gpu_used'] = torch.cuda.memory_allocated(idx) / (1024 ** 3)
-                stats['gpu_total'] = torch.cuda.get_device_properties(idx).total_memory / (1024 ** 3)
-                stats['gpu_pct'] = (
-                    int((stats['gpu_used'] / stats['gpu_total']) * 100)
-                    if stats['gpu_total'] > 0
-                    else 0
-                )
-            except Exception:
-                pass  # GPU stats are non-critical
+        # GPU — P8-FIX: ueber gpu_info Cache + defensiver memory_allocated
+        # statt jeden Tick torch.cuda.is_available(). Vermeidet 60s-Timeouts
+        # bei stuck CUDA-Driver (zwar im Worker, aber der Worker wuerde blocken
+        # und der ResourceMonitor-Thread wuerde nie mehr updaten).
+        try:
+            from services.gpu_info import get_gpu_info, try_memory_allocated
+            info = get_gpu_info()
+            if info.available:
+                total_gb = info.total_mb / 1024.0
+                used_mb = try_memory_allocated(0)
+                if used_mb is not None and total_gb > 0:
+                    stats['gpu_used'] = used_mb / 1024.0
+                    stats['gpu_total'] = total_gb
+                    stats['gpu_pct'] = int((stats['gpu_used'] / total_gb) * 100)
+        except Exception:
+            pass  # GPU stats are non-critical
         self.updated.emit(stats)
 
 

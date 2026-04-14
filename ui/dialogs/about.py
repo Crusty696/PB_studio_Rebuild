@@ -25,15 +25,16 @@ def _build_date() -> str:
 
 
 def _gpu_info() -> str:
-    """Try to detect GPU name + CUDA version."""
-    try:
-        import torch  # type: ignore
-        if torch.cuda.is_available():
-            name = torch.cuda.get_device_name(0)
-            cuda = torch.version.cuda or "n/a"
-            return f"{name}  |  CUDA {cuda}"
-    except (ImportError, AttributeError, OSError) as exc:
-        logger.warning("_gpu_info: failed to detect GPU: %s", exc)
+    """GPU-Name + CUDA-Version aus dem Boot-Cache.
+
+    P8-FIX: vorher wurde torch.cuda.is_available()/get_device_name() bei
+    jedem Dialog-Open live aufgerufen. Bei stuck CUDA-Treiber hat das
+    den Main-Thread minutenlang blockiert (About-Dialog = Freeze-Falle).
+    """
+    from services.gpu_info import get_gpu_info
+    info = get_gpu_info()
+    if info.available:
+        return f"{info.name}  |  CUDA {info.cuda_version}"
     return QCoreApplication.translate("AboutDialog", "Keine CUDA-GPU erkannt")
 
 

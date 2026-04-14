@@ -512,23 +512,24 @@ class ChatDock(QDockWidget):
             self.append_error(f"Auto-Edit konnte nicht gestartet werden: {e}")
 
     def _exec_gpu_status(self) -> None:
-        """Zeigt GPU-Hardware-Status im Chat an."""
-        try:
-            import torch
-            if torch.cuda.is_available():
-                name = torch.cuda.get_device_name(0)
-                used = torch.cuda.memory_allocated() / 1024 / 1024
-                total = torch.cuda.get_device_properties(0).total_memory / 1024 / 1024
-                self.append_ai(
-                    f"HARDWARE AKTIV: {name}\n"
-                    f"  VRAM: {used:.0f} MB / {total:.0f} MB belegt\n"
-                    f"  CUDA: {torch.version.cuda or 'N/A'}\n"
-                    f"  GPU-Zwang: AKTIV"
-                )
-            else:
-                self.append_ai("Keine CUDA-GPU erkannt. Alle Modelle laufen auf CPU.")
-        except (ImportError, OSError, AttributeError) as e:
-            self.append_error(f"GPU-Status nicht abrufbar: {e}")
+        """Zeigt GPU-Hardware-Status im Chat an.
+
+        P8-FIX: Liest aus dem GPU-Info-Boot-Cache + try_memory_allocated
+        mit Fallback. Kein torch.cuda.*-Call im Main-Thread bei stuck Driver.
+        """
+        from services.gpu_info import get_gpu_info, try_memory_allocated
+        info = get_gpu_info()
+        if not info.available:
+            self.append_ai(f"Keine CUDA-GPU aktiv. Alle Modelle laufen auf CPU. ({info.error or '-'})")
+            return
+        used = try_memory_allocated(0)
+        used_str = f"{used:.0f} MB" if used is not None else "n/a"
+        self.append_ai(
+            f"HARDWARE AKTIV: {info.name}\n"
+            f"  VRAM: {used_str} / {info.total_mb:.0f} MB belegt\n"
+            f"  CUDA: {info.cuda_version}\n"
+            f"  GPU-Zwang: AKTIV"
+        )
 
     def _on_agent_status(self, status: str) -> None:
         """Aktualisiert das Agent-Status-Label live."""

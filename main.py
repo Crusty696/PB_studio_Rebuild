@@ -740,6 +740,16 @@ def main():
 
     setup_logging()
 
+    # P8-FIX: GPU-Info einmal beim Boot cachen. Vermeidet torch.cuda.*
+    # Aufrufe im Main-Thread (z.B. About-Dialog, Chat-Status), die bei
+    # stuck CUDA-Treiber minutenlang blockieren koennen.
+    try:
+        from services.gpu_info import initialize_gpu_info_cache
+        _gpu = initialize_gpu_info_cache()
+        logging.info("GPU-Info Cache: %s", _gpu.summary())
+    except Exception as _exc:  # pragma: no cover
+        logging.warning("GPU-Info Cache-Init fehlgeschlagen: %s", _exc)
+
     from PySide6.QtCore import qInstallMessageHandler
     qInstallMessageHandler(_qt_message_handler)
 
