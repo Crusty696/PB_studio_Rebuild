@@ -462,24 +462,11 @@ def cmd_set_value(args) -> int:
     """
     try:
         top = _pwa_app(args.window_title)
-        import re
-        name_pat = re.compile(args.name_re, re.IGNORECASE) if args.name_re else None
-        target = None
-        target_info = None
-        for el, _ in _walk_children(top, max_depth=args.depth):
-            info = _element_info(el)
-            if name_pat and not name_pat.search(info.get("name", "")):
-                continue
-            if args.auto_id and info.get("auto_id", "") != args.auto_id:
-                continue
-            if args.control_type and info.get("control_type", "") != args.control_type:
-                continue
-            target = el
-            target_info = info
-            break
-        if target is None:
+        first = next(_iter_matching_elements(top, args, max_count=1), None)
+        if first is None:
             _fail("no element matched")
             return 10
+        target, target_info = first
         # Versuche ValuePattern → set_value(); fallback: triple-click + type
         try:
             target.set_value(str(args.value))
@@ -622,6 +609,34 @@ def _element_info(el) -> dict:
         return {"name": "?", "error": str(exc)}
 
 
+def _iter_matching_elements(top, args, max_count: int = 9999):
+    """P9-E: Gemeinsame Match-Schleife fuer find/click/set-value/select-combo.
+
+    Liefert (element, info) Paare die alle Filter erfuellen.
+    Vorher 3x dupliziert in cmd_find/click/set_value.
+    """
+    import re
+    name_pat = re.compile(args.name_re, re.IGNORECASE) if getattr(args, "name_re", None) else None
+    auto_id = getattr(args, "auto_id", None) or None
+    ctrl_type = getattr(args, "control_type", None) or None
+    only_vis = bool(getattr(args, "only_visible", False))
+    yielded = 0
+    for el, _depth in _walk_children(top, max_depth=getattr(args, "depth", 8)):
+        info = _element_info(el)
+        if name_pat and not name_pat.search(info.get("name", "")):
+            continue
+        if auto_id and info.get("auto_id", "") != auto_id:
+            continue
+        if ctrl_type and info.get("control_type", "") != ctrl_type:
+            continue
+        if only_vis and not info.get("visible", False):
+            continue
+        yield el, info
+        yielded += 1
+        if yielded >= max_count:
+            return
+
+
 def cmd_list_elements(args) -> int:
     try:
         top = _pwa_app(args.window_title)
@@ -644,25 +659,10 @@ def cmd_list_elements(args) -> int:
 
 
 def cmd_find_element(args) -> int:
-    """Finde ein Element anhand name_re / auto_id / control_type. Gib Geometrie fuer klick zurueck."""
-    import re
+    """Finde Elemente anhand name_re / auto_id / control_type."""
     try:
         top = _pwa_app(args.window_title)
-        name_pat = re.compile(args.name_re, re.IGNORECASE) if args.name_re else None
-        matches = []
-        for el, _ in _walk_children(top, max_depth=args.depth):
-            info = _element_info(el)
-            if name_pat and not name_pat.search(info.get("name", "")):
-                continue
-            if args.auto_id and info.get("auto_id", "") != args.auto_id:
-                continue
-            if args.control_type and info.get("control_type", "") != args.control_type:
-                continue
-            if args.only_visible and not info.get("visible", False):
-                continue
-            matches.append(info)
-            if len(matches) >= args.limit:
-                break
+        matches = [info for _el, info in _iter_matching_elements(top, args, max_count=args.limit)]
         _ok(count=len(matches), matches=matches)
         return 0 if matches else 10
     except Exception as exc:
@@ -671,29 +671,14 @@ def cmd_find_element(args) -> int:
 
 
 def cmd_click_element(args) -> int:
-    """Klickt das erste passende Element per pywinauto invoke (wenn invokable) oder Mittelpunkt-Klick."""
-    import re
+    """Klickt das erste passende Element per pywinauto invoke / Center-Klick Fallback."""
     try:
         top = _pwa_app(args.window_title)
-        name_pat = re.compile(args.name_re, re.IGNORECASE) if args.name_re else None
-        target = None
-        target_info = None
-        for el, _ in _walk_children(top, max_depth=args.depth):
-            info = _element_info(el)
-            if name_pat and not name_pat.search(info.get("name", "")):
-                continue
-            if args.auto_id and info.get("auto_id", "") != args.auto_id:
-                continue
-            if args.control_type and info.get("control_type", "") != args.control_type:
-                continue
-            if args.only_visible and not info.get("visible", False):
-                continue
-            target = el
-            target_info = info
-            break
-        if target is None:
+        first = next(_iter_matching_elements(top, args, max_count=1), None)
+        if first is None:
             _fail("no element matched")
             return 10
+        target, target_info = first
         method = "invoke"
         try:
             target.invoke()
@@ -709,6 +694,12 @@ def cmd_click_element(args) -> int:
 
 
 def cmd_type(args) -> int:
+    """Tippt args.text per pyautogui.typewrite.
+
+    P9-E LIMITATION: typewrite akzeptiert nur ASCII. Umlaute / Sonderzeichen
+    (ä, ö, ü, é) erzeugen je nach Locale unerwartete oder gar keine Eingabe.
+    Fuer Pfade mit Sonderzeichen besser pyperclip + Ctrl+V Variante (TODO).
+    """
     import pyautogui
     try:
         pyautogui.typewrite(args.text, interval=0.02)
@@ -720,6 +711,13 @@ def cmd_type(args) -> int:
 
 
 def cmd_key(args) -> int:
+    """Druckt eine Taste oder Hotkey-Kombi.
+
+    Beispiele: --key enter, --key ctrl+s, --key alt+f4
+    P9-E LIMITATION: literales "+" als einzelne Taste ist nicht moeglich
+    (interner Split-Trigger). Workaround: pyautogui.press('+') direkt nutzen
+    in einem custom-Skript, oder Combo wie shift+= verwenden.
+    """
     import pyautogui
     try:
         if "+" in args.key:

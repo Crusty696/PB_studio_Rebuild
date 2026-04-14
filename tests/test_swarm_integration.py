@@ -75,7 +75,8 @@ def test_model_manager_singleton():
     mm2 = ModelManager()
     assert mm1 is mm2, "ModelManager muss ein Singleton sein!"
     logger.info("✅ Test 1 bestanden: ModelManager ist Singleton")
-    return True
+    # P9-E: kein 'return True' mehr (PytestReturnNotNoneWarning) — die assert-
+    # Statements oben sind die eigentlichen Test-Checks.
 
 
 @_requires_torch
@@ -91,7 +92,8 @@ def test_model_manager_vram_protection():
     assert mm.current_model_id is None
     assert mm.model_type is None
     logger.info("Test 2 bestanden: VRAM-Schutz funktioniert")
-    return True
+    # P9-E: kein 'return True' mehr (PytestReturnNotNoneWarning) — die assert-
+    # Statements oben sind die eigentlichen Test-Checks.
 
 
 @_requires_torch
@@ -157,7 +159,8 @@ def test_orchestrator_multi_step():
     assert not orch._detect_multi_step("Analysiere das Audio")
 
     logger.info("✅ Test 6 bestanden: Orchestrator Multi-Step-Erkennung funktioniert")
-    return True
+    # P9-E: kein 'return True' mehr (PytestReturnNotNoneWarning) — die assert-
+    # Statements oben sind die eigentlichen Test-Checks.
 
 
 def test_agent_routing():
@@ -177,7 +180,8 @@ def test_agent_routing():
     assert isinstance(vision_agent, VisionAgent), f"Erwartet VisionAgent, bekam {type(vision_agent)}"
 
     logger.info("✅ Test 7 bestanden: Agent-Routing funktioniert korrekt")
-    return True
+    # P9-E: kein 'return True' mehr (PytestReturnNotNoneWarning) — die assert-
+    # Statements oben sind die eigentlichen Test-Checks.
 
 
 def test_action_registry_new_actions():
@@ -194,7 +198,8 @@ def test_action_registry_new_actions():
 
     logger.info("  Registrierte Aktionen: %s", actions)
     logger.info("✅ Test 8 bestanden: Neue Aktionen registriert")
-    return True
+    # P9-E: kein 'return True' mehr (PytestReturnNotNoneWarning) — die assert-
+    # Statements oben sind die eigentlichen Test-Checks.
 
 
 def main():
