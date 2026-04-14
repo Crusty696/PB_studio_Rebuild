@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QDoubleSpinBox,
     QFrame, QSizePolicy,
 )
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QTimer
 from PySide6.QtGui import QFont
 
 from database import nullpool_session, TimelineEntry
@@ -88,6 +88,14 @@ class ClipInspectorPanel(QWidget):
 
         self._current_entry_id: int | None = None
         self._updating = False  # prevent feedback loop
+
+        # M2-FIX: Debounce-Timer um DB-Spam bei gehaltener SpinBox zu vermeiden
+        self._debounce_timer = QTimer(self)
+        self._debounce_timer.setSingleShot(True)
+        self._debounce_timer.setInterval(300)
+        self._debounce_timer.timeout.connect(self._flush_pending_change)
+        self._pending_field: str | None = None
+        self._pending_value: float = 0.0
 
         # Connect spinbox changes
         self._start_spin.valueChanged.connect(lambda v: self._on_field_changed("start_time", v))
@@ -174,24 +182,44 @@ class ClipInspectorPanel(QWidget):
                 self._updating = False
 
     def _on_field_changed(self, field: str, value: float):
-        """Spinbox-Aenderung → DB schreiben."""
+        """Spinbox-Aenderung → Debounced DB-Write (M2-FIX).
+
+        Statt sofort bei jedem SpinBox-Event in die DB zu schreiben,
+        wird ein 300ms Timer gestartet. Bei schnellem Scrollen wird
+        nur der letzte Wert geschrieben.
+        """
         if self._updating or self._current_entry_id is None:
             return
 
-        logger.debug("ClipInspector: entry_id=%s field=%s value=%s", self._current_entry_id, field, value)
+        self._pending_field = field
+        self._pending_value = value
+        self._debounce_timer.start()  # (Re-)Start: setzt Timer auf 300ms zurueck
 
-        with nullpool_session() as session:
-            entry = session.get(TimelineEntry, self._current_entry_id)
-            if not entry:
-                logger.warning("ClipInspector: entry_id=%s not found when writing field=%s", self._current_entry_id, field)
-                return
-            setattr(entry, field, round(value, 3))
-            session.commit()
-
-        # Update duration label
+        # Update duration label sofort (rein visuell, kein DB-Zugriff)
         if field in ("start_time", "end_time"):
             start = self._start_spin.value()
             end = self._end_spin.value()
             self._duration_label.setText(f"Dauer: {end - start:.2f}s")
 
-        self.clip_property_changed.emit(self._current_entry_id, field, value)
+    def _flush_pending_change(self):
+        """M2-FIX: Debounced DB-Write — wird 300ms nach letzter SpinBox-Aenderung aufgerufen."""
+        field = self._pending_field
+        value = self._pending_value
+        entry_id = self._current_entry_id
+
+        if field is None or entry_id is None:
+            return
+
+        self._pending_field = None
+
+        logger.debug("ClipInspector: entry_id=%s field=%s value=%s (debounced)", entry_id, field, value)
+
+        with nullpool_session() as session:
+            entry = session.get(TimelineEntry, entry_id)
+            if not entry:
+                logger.warning("ClipInspector: entry_id=%s not found when writing field=%s", entry_id, field)
+                return
+            setattr(entry, field, round(value, 3))
+            session.commit()
+
+        self.clip_property_changed.emit(entry_id, field, value)

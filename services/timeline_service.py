@@ -19,14 +19,21 @@ from services.timeout_constants import DB_BUSY_TIMEOUT_MS
 logger = logging.getLogger(__name__)
 from opentimelineio.opentime import RationalTime, TimeRange
 
-from database import APP_ROOT, engine, get_active_project_id
+from database import engine, get_active_project_id
 from database import TimelineEntry
 from sqlalchemy.orm import Session
 
 # M-12 Fix: Thread-safe lock for timeline writes to prevent data races
 _timeline_write_lock = threading.Lock()
 
-EXPORTS_DIR = APP_ROOT / "exports"
+def _get_exports_dir() -> Path:
+    """Return exports directory for the current project (lazy APP_ROOT read).
+
+    BUG-FIX: Was module-level constant that became stale after set_project().
+    Now reads APP_ROOT at call time so project switches are respected.
+    """
+    import database.session as _session
+    return _session.APP_ROOT / "exports"
 
 # PB Studio namespace in OTIO metadata
 PB_NS = "pb_studio"
@@ -68,11 +75,11 @@ def apply_auto_edit_segments(segments: list[dict], project_id: int | None = None
 
 
 def _do_apply_segments(segments: list[dict], project_id: int) -> int:
-    from database import APP_ROOT
-    from sqlalchemy import create_engine as _create_engine, event as _event, text as _text
+    import database.session as _session
+    from sqlalchemy import create_engine as _create_engine, event as _event
     from sqlalchemy.pool import NullPool
 
-    db_path = APP_ROOT / 'pb_studio.db'
+    db_path = _session.APP_ROOT / 'pb_studio.db'
     _eng = _create_engine(
         f"sqlite:///{db_path}",
         echo=False,
@@ -92,10 +99,6 @@ def _do_apply_segments(segments: list[dict], project_id: int) -> int:
 
     try:
         with Session(_eng) as session:
-            # M-12 Fix: Start transaction with IMMEDIATE lock to prevent race conditions
-            # This acquires a write lock immediately, preventing other writers
-            session.connection().execute(text("BEGIN IMMEDIATE"))
-
             session.query(TimelineEntry).filter_by(
                 project_id=project_id, track="video"
             ).delete()
@@ -359,14 +362,15 @@ class TimelineService:
 
     def export_edl(self, path: str | Path | None = None) -> str:
         """Exportiert die Timeline als CMX 3600 EDL (DaVinci Resolve kompatibel)."""
-        EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
+        exports_dir = _get_exports_dir()
+        exports_dir.mkdir(parents=True, exist_ok=True)
         if path is None:
-            path = EXPORTS_DIR / f"{self.timeline.name}.edl"
+            path = exports_dir / f"{self.timeline.name}.edl"
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         try:
             otio.adapters.write_to_file(self.timeline, str(path), adapter_name="cmx_3600")
-        except (ImportError, ValueError, RuntimeError, OSError):
+        except (ImportError, ValueError, RuntimeError, OSError, otio.exceptions.NotSupportedError):
             raise RuntimeError(
                 "EDL-Export fehlgeschlagen — cmx_3600 Adapter nicht verfuegbar. "
                 "Installiere: pip install opentimelineio-contrib"
@@ -375,9 +379,10 @@ class TimelineService:
 
     def export_otio_json(self, path: str | Path | None = None) -> str:
         """Exportiert die Timeline als OTIO-JSON."""
-        EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
+        exports_dir = _get_exports_dir()
+        exports_dir.mkdir(parents=True, exist_ok=True)
         if path is None:
-            path = EXPORTS_DIR / f"{self.timeline.name}.otio"
+            path = exports_dir / f"{self.timeline.name}.otio"
         return self.save_otio(path)
 
     def get_duration(self) -> float:

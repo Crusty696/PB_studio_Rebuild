@@ -95,7 +95,9 @@ def _check_ollama() -> bool:
         svc.start()
         # FIX H-17: Wait for Ollama to actually be ready before returning True
         # Poll is_ready with timeout to ensure server is actually running
-        timeout = 30  # seconds
+        # FIX H-1: Internal timeout must match STARTUP_OLLAMA_CHECK_TIMEOUT_SEC
+        # to avoid the future.result() killing us before we finish polling.
+        timeout = 10  # seconds — aligned with STARTUP_OLLAMA_CHECK_TIMEOUT_SEC
         start_time = time.time()
         while time.time() - start_time < timeout:
             if svc.is_ready:
@@ -316,15 +318,17 @@ def _check_cuda() -> tuple[bool, str, int]:
             except (ValueError, TypeError):
                 logger.debug("Konnte Treiber-Version nicht parsen: %s", driver_ver_str)
 
-        # Erzwinge Initialisierung
-        if hasattr(torch.cuda, "init"):
-            torch.cuda.init()
-
+        # H3 FIX: NICHT torch.cuda.init() aufrufen — das erzeugt einen
+        # zweiten CUDA-Kontext (+200-300MB VRAM) wenn main.py bereits
+        # torch.cuda.get_device_name(0) aufgerufen hat.
+        # torch.cuda.is_available() prueft CUDA ohne Kontext-Erzeugung.
         available = torch.cuda.is_available()
         logger.info("PyTorch CUDA available check: %s", available)
 
         if available:
             cuda_ok = True
+            # get_device_name/get_device_properties nutzen den bereits
+            # existierenden Kontext aus main.py — kein neuer Kontext.
             gpu_name = torch.cuda.get_device_name(0)
             props = torch.cuda.get_device_properties(0)
             vram_mb = props.total_memory // (1024 * 1024)

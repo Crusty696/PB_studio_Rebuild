@@ -166,6 +166,11 @@ class EditWorkspaceController(PBComponent):
         self.window.btn_auto_edit.setEnabled(False)
         self.window.btn_auto_edit.setText("laeuft...")
 
+        # K11 FIX: engine.dispose() ENTFERNT — schloss ALLE Pool-Connections
+        # inklusive derer von anderen Threads (z.B. laufende Analysen).
+        # QueuePool-Exhaustion wird durch korrekte Session-Nutzung (with-Blocks)
+        # und nullpool_session() fuer Worker-Threads verhindert.
+
         tm = GlobalTaskManager.instance()
         task = tm.create_task(
             "Auto-Edit (Phase 3)",

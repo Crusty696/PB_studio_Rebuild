@@ -1,4 +1,3 @@
-import json
 import logging
 import threading
 import numpy as np
@@ -83,13 +82,21 @@ class AudioAnalyzer:
         """
         lock = _get_track_lock(track_id)
         with lock:
-            return self._analyze_and_store_locked(track_id, progress_cb)
+            try:
+                return self._analyze_and_store_locked(track_id, progress_cb)
+            finally:
+                # FIX H-10: Remove lock after analysis to prevent memory leak.
+                # The lock is no longer needed once the analysis is complete.
+                with _track_locks_guard:
+                    _track_locks.pop(track_id, None)
 
     def _analyze_and_store_locked(self, track_id: int, progress_cb=None) -> dict:
         """Interne Implementierung von analyze_and_store (unter Lock)."""
         # 1) Erste Session: nur file_path laden, dann Session schließen
         with Session(engine) as session:
-            track = session.get(AudioTrack, track_id)
+            track = session.query(AudioTrack).filter(
+                AudioTrack.id == track_id, AudioTrack.deleted_at.is_(None)
+            ).first()
             if track is None:
                 raise ValueError(f"AudioTrack {track_id} nicht gefunden")
             file_path = track.file_path
@@ -101,14 +108,16 @@ class AudioAnalyzer:
         # NullPool verhindert "database is locked" bei sequentiellen Worker-Writes
         from database import nullpool_session
         with nullpool_session() as session:
-            track = session.get(AudioTrack, track_id)
+            track = session.query(AudioTrack).filter(
+                AudioTrack.id == track_id, AudioTrack.deleted_at.is_(None)
+            ).first()
             if track is None:
                 raise ValueError(f"AudioTrack {track_id} nach Analyse nicht mehr gefunden")
 
             track.bpm = clamp_bpm(result["bpm"])
             track.duration = result["duration"]
             track.sample_rate = result["sample_rate"]
-            track.energy_curve = json.dumps(result["energy_curve"])
+            track.energy_curve = result["energy_curve"]
 
             session.commit()
 

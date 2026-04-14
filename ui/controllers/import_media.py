@@ -111,9 +111,13 @@ class ImportMediaController(PBComponent):
             from PySide6.QtCore import QObject, Signal
             class DeleteWorker(QObject):
                 finished = Signal(int)
+                error = Signal(str)
                 def run(self):
-                    count = delete_all_media()
-                    self.finished.emit(count)
+                    try:
+                        count = delete_all_media()
+                        self.finished.emit(count)
+                    except Exception as e:
+                        self.error.emit(str(e))
 
             worker = DeleteWorker()
             def _on_done(count):
@@ -163,9 +167,13 @@ class ImportMediaController(PBComponent):
             from PySide6.QtCore import QObject, Signal
             class PartialDeleteWorker(QObject):
                 finished = Signal(int)
+                error = Signal(str)
                 def run(self):
-                    count = delete_selected_media(video_ids, audio_ids)
-                    self.finished.emit(count)
+                    try:
+                        count = delete_selected_media(video_ids, audio_ids)
+                        self.finished.emit(count)
+                    except Exception as e:
+                        self.error.emit(str(e))
 
             worker = PartialDeleteWorker()
             def _on_done(count):

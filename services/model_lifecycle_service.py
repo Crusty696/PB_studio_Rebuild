@@ -218,7 +218,7 @@ class ModelLifecycleService:
             existing.status = entry.status
             existing.local_path = entry.local_path
             if entry.metadata:
-                existing.metadata_json = json.dumps(entry.metadata, ensure_ascii=False)
+                existing.metadata_json = entry.metadata
             try:
                 session.commit()
             except Exception as e:  # broad catch intentional — SQLAlchemy commit can raise many error types
@@ -268,7 +268,9 @@ class ModelLifecycleService:
                     meta = {}
                     if row.metadata_json:
                         try:
-                            meta = json.loads(row.metadata_json)
+                            # H7-FIX: Column(JSON) deserialisiert automatisch.
+                            # isinstance-Check fuer Backward-compat.
+                            meta = json.loads(row.metadata_json) if isinstance(row.metadata_json, str) else row.metadata_json
                         except (json.JSONDecodeError, ValueError) as e:
                             logger.warning("Parsing metadata_json for model '%s': %s", row.model_id, e)
                     entries.append(ModelEntry(

@@ -49,6 +49,9 @@ HTTP_HEALTH_CHECK_TIMEOUT_SEC: int = 2
 # Normale API-Aufrufe (Ollama /api/tags, /api/generate mit kleinen Prompts)
 HTTP_API_TIMEOUT_SEC: int = 5
 
+# Model-Info Abfrage (Ollama /api/show — Cold-Start kann 10-15s brauchen)
+HTTP_MODEL_INFO_TIMEOUT_SEC: int = 15
+
 # Update-Check (externe URL, muss nicht sofort antworten)
 HTTP_VERSION_CHECK_TIMEOUT_SEC: int = 10
 
@@ -85,7 +88,7 @@ DB_SQLITE_CONNECT_TIMEOUT_SEC: int = 30
 STARTUP_FFMPEG_CHECK_TIMEOUT_SEC: int = 8
 STARTUP_GPU_CHECK_TIMEOUT_SEC: int = 3
 STARTUP_DISK_CHECK_TIMEOUT_SEC: int = 4
-STARTUP_OLLAMA_CHECK_TIMEOUT_SEC: int = 5
+STARTUP_OLLAMA_CHECK_TIMEOUT_SEC: int = 10  # FIX H-1: aligned with _check_ollama() internal timeout
 STARTUP_MODEL_CHECK_TIMEOUT_SEC: int = 3
 
 # ---------------------------------------------------------------------------

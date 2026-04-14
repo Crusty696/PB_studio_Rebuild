@@ -209,7 +209,9 @@ def calculate_drum_cuts(audio_id: int, total_duration: float = 60.0,
     """Berechnet Schnittpunkte basierend auf dem Drums-Stem."""
     from database import AudioTrack as _AudioTrack
     with Session(engine) as session:
-        track = session.get(_AudioTrack, audio_id)
+        track = session.query(_AudioTrack).filter(
+            _AudioTrack.id == audio_id, _AudioTrack.deleted_at.is_(None)
+        ).first()
         if not track or not track.stem_drums_path:
             return []
         drums_path = track.stem_drums_path
@@ -512,55 +514,71 @@ def auto_edit_phase3(
     track_is_dj_mix = False
 
     # AUD-82: Cross-Modal Matching Engine initialisieren
+    # FIX: DB-Session schnell schliessen, DANN schwere Berechnung ausfuehren.
+    # Vorher: Session blieb offen waehrend detect_dj_mix_from_stems() (Audio laden + Beat-Tracking)
+    # UND compute_audio_mood_embedding() (SigLIP GPU-Inferenz) liefen — Pool-Exhaustion.
     cross_modal_matcher: CrossModalMatcher | None = None
     try:
         from database import AudioTrack as _AudioTrack
+        # Schritt 1: Nur DB-Daten lesen, Session sofort schliessen
+        _track_mood = ""
+        _track_genre = ""
+        _track_key = ""
+        _track_found = False
         with Session(engine) as session:
-            _track = session.get(_AudioTrack, audio_id)
+            _track = session.query(_AudioTrack).filter(
+                _AudioTrack.id == audio_id, _AudioTrack.deleted_at.is_(None)
+            ).first()
             if _track:
-                # AUD-97: DJ-Mix-Status aus DB; wenn nicht gesetzt → Stem-basierte Erkennung
+                _track_found = True
                 track_is_dj_mix = bool(getattr(_track, "is_dj_mix", False))
-                if not track_is_dj_mix:
-                    track_is_dj_mix = detect_dj_mix_from_stems(audio_id)
-                    if track_is_dj_mix:
-                        logger.info(
-                            "AUD-97: Stem-BPM-Analyse erkennt DJ-Mix (audio_id=%d)", audio_id,
-                        )
-                else:
-                    logger.info("AUD-97: DJ-Mix via DB-Flag (audio_id=%d)", audio_id)
+                _track_mood = _track.mood or ""
+                _track_genre = _track.genre or ""
+                _track_key = _track.key or ""
 
-                # Stem-Energie-Verhaeltnisse berechnen
-                _drum_ratio, _bass_ratio, _vocal_ratio = 0.4, 0.3, 0.1
-                if stem_energy is not None and energy_per_beat:
-                    _n = len(energy_per_beat)
-                    if _n > 0:
-                        _d_mean = np.mean(stem_energy.drums[:_n]) if stem_energy.drums else 0.4
-                        _b_mean = np.mean(stem_energy.bass[:_n]) if stem_energy.bass else 0.3
-                        _v_mean = np.mean(stem_energy.vocals[:_n]) if stem_energy.vocals else 0.1
-                        _total = _d_mean + _b_mean + _v_mean + 1e-8
-                        _drum_ratio = float(_d_mean / _total)
-                        _bass_ratio = float(_b_mean / _total)
-                        _vocal_ratio = float(_v_mean / _total)
+        # Schritt 2: Schwere Berechnung AUSSERHALB der Session
+        if _track_found:
+            if not track_is_dj_mix:
+                track_is_dj_mix = detect_dj_mix_from_stems(audio_id)
+                if track_is_dj_mix:
+                    logger.info(
+                        "AUD-97: Stem-BPM-Analyse erkennt DJ-Mix (audio_id=%d)", audio_id,
+                    )
+            else:
+                logger.info("AUD-97: DJ-Mix via DB-Flag (audio_id=%d)", audio_id)
 
-                audio_ctx = AudioContext(
-                    bpm=bpm_val,
-                    mood=_track.mood or "",
-                    genre=_track.genre or "",
-                    key=_track.key or "",
-                    avg_energy=avg_energy_val,
-                    drum_ratio=_drum_ratio,
-                    bass_ratio=_bass_ratio,
-                    vocal_ratio=_vocal_ratio,
-                )
-                cross_modal_matcher = CrossModalMatcher(
-                    audio_ctx=audio_ctx,
-                    mood_embeddings=mood_embeddings,
-                    beats=beats,
-                )
-                # Audio-Mood-Embedding berechnen (nutzt SigLIP, entlaedt sofort)
-                cross_modal_matcher.compute_audio_mood_embedding()
-                logger.info("AUD-82: CrossModalMatcher aktiv (mood=%s, genre=%s, bpm=%.0f)",
-                            audio_ctx.mood, audio_ctx.genre, audio_ctx.bpm)
+            # Stem-Energie-Verhaeltnisse berechnen
+            _drum_ratio, _bass_ratio, _vocal_ratio = 0.4, 0.3, 0.1
+            if stem_energy is not None and energy_per_beat:
+                _n = len(energy_per_beat)
+                if _n > 0:
+                    _d_mean = np.mean(stem_energy.drums[:_n]) if stem_energy.drums else 0.4
+                    _b_mean = np.mean(stem_energy.bass[:_n]) if stem_energy.bass else 0.3
+                    _v_mean = np.mean(stem_energy.vocals[:_n]) if stem_energy.vocals else 0.1
+                    _total = _d_mean + _b_mean + _v_mean + 1e-8
+                    _drum_ratio = float(_d_mean / _total)
+                    _bass_ratio = float(_b_mean / _total)
+                    _vocal_ratio = float(_v_mean / _total)
+
+            audio_ctx = AudioContext(
+                bpm=bpm_val,
+                mood=_track_mood,
+                genre=_track_genre,
+                key=_track_key,
+                avg_energy=avg_energy_val,
+                drum_ratio=_drum_ratio,
+                bass_ratio=_bass_ratio,
+                vocal_ratio=_vocal_ratio,
+            )
+            cross_modal_matcher = CrossModalMatcher(
+                audio_ctx=audio_ctx,
+                mood_embeddings=mood_embeddings,
+                beats=beats,
+            )
+            # Audio-Mood-Embedding berechnen (nutzt SigLIP, entlaedt sofort)
+            cross_modal_matcher.compute_audio_mood_embedding()
+            logger.info("AUD-82: CrossModalMatcher aktiv (mood=%s, genre=%s, bpm=%.0f)",
+                        audio_ctx.mood, audio_ctx.genre, audio_ctx.bpm)
     except (ImportError, ValueError, RuntimeError) as e:
         logger.warning("AUD-82: CrossModalMatcher uebersprungen: %s", e)
         cross_modal_matcher = None
@@ -579,7 +597,9 @@ def auto_edit_phase3(
     with Session(engine) as session:
         from database import VideoClip
         for vid in available_ids:
-            video_clip = session.get(VideoClip, vid)
+            video_clip = session.query(VideoClip).filter(
+                VideoClip.id == vid, VideoClip.deleted_at.is_(None)
+            ).first()
             clip_offsets[vid] = video_clip.playback_offset if video_clip else 0.0
     used_recently: list[int] = []
     prev_clip_idx: int | None = None
@@ -757,7 +777,9 @@ def auto_edit_phase3(
     with Session(engine) as session:
         from database import VideoClip
         for vid, offset in clip_offsets.items():
-            video_clip = session.get(VideoClip, vid)
+            video_clip = session.query(VideoClip).filter(
+                VideoClip.id == vid, VideoClip.deleted_at.is_(None)
+            ).first()
             if video_clip:
                 video_clip.playback_offset = offset
         session.commit()

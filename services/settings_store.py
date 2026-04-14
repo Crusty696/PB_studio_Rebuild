@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -45,21 +46,23 @@ class SettingsStore:
     def __init__(self):
         self._path = _get_settings_path()
         self._data: dict[str, Any] = {}
+        self._lock = threading.RLock()  # FIX H-14: Thread-safe access to _data
         self._load()
 
     def _load(self) -> None:
         """Load settings from JSON file, migrating from QSettings if needed."""
-        if self._path.exists():
-            try:
-                with open(self._path, 'r', encoding='utf-8') as f:
-                    self._data = json.load(f)
-                logger.info("Settings loaded from %s", self._path)
-            except (json.JSONDecodeError, OSError) as e:
-                logger.warning("Failed to load settings from %s: %s", self._path, e)
-                self._data = {}
-        else:
-            logger.info("Settings file not found, checking for legacy QSettings data")
-            self._migrate_from_qsettings()
+        with self._lock:
+            if self._path.exists():
+                try:
+                    with open(self._path, 'r', encoding='utf-8') as f:
+                        self._data = json.load(f)
+                    logger.info("Settings loaded from %s", self._path)
+                except (json.JSONDecodeError, OSError) as e:
+                    logger.warning("Failed to load settings from %s: %s", self._path, e)
+                    self._data = {}
+            else:
+                logger.info("Settings file not found, checking for legacy QSettings data")
+                self._migrate_from_qsettings()
 
     def _migrate_from_qsettings(self) -> None:
         """Migrate existing data from QSettings to JSON format."""
@@ -111,12 +114,13 @@ class SettingsStore:
 
     def _save(self) -> None:
         """Persist current settings to JSON file."""
-        try:
-            with open(self._path, 'w', encoding='utf-8') as f:
-                json.dump(self._data, f, indent=2, ensure_ascii=False)
-            logger.debug("Settings saved to %s", self._path)
-        except OSError as e:
-            logger.error("Failed to save settings to %s: %s", self._path, e)
+        with self._lock:
+            try:
+                with open(self._path, 'w', encoding='utf-8') as f:
+                    json.dump(self._data, f, indent=2, ensure_ascii=False)
+                logger.debug("Settings saved to %s", self._path)
+            except OSError as e:
+                logger.error("Failed to save settings to %s: %s", self._path, e)
 
     # ------------------------------------------------------------------
     # Generic access
@@ -124,45 +128,51 @@ class SettingsStore:
 
     def get(self, key: str, default: Any = None) -> Any:
         """Get a top-level setting value."""
-        return self._data.get(key, default)
+        with self._lock:
+            return self._data.get(key, default)
 
     def set(self, key: str, value: Any) -> None:
         """Set a top-level setting value and persist."""
-        self._data[key] = value
+        with self._lock:
+            self._data[key] = value
         self._save()
 
     def get_nested(self, *path: str, default: Any = None) -> Any:
         """Get a nested setting value (e.g., get_nested('ollama', 'enabled'))."""
-        current = self._data
-        for key in path:
-            if not isinstance(current, dict):
-                return default
-            current = current.get(key)
-            if current is None:
-                return default
-        return current
+        with self._lock:
+            current = self._data
+            for key in path:
+                if not isinstance(current, dict):
+                    return default
+                current = current.get(key)
+                if current is None:
+                    return default
+            return current
 
     def set_nested(self, *path: str, value: Any) -> None:
         """Set a nested setting value and persist (e.g., set_nested('ollama', 'enabled', value=True))."""
         if not path:
             return
 
-        current = self._data
-        for key in path[:-1]:
-            if key not in current:
-                current[key] = {}
-            current = current[key]
+        with self._lock:
+            current = self._data
+            for key in path[:-1]:
+                if key not in current:
+                    current[key] = {}
+                current = current[key]
 
-        current[path[-1]] = value
+            current[path[-1]] = value
         self._save()
 
     def get_section(self, section: str) -> dict[str, Any]:
         """Get an entire settings section as a dict."""
-        return self._data.get(section, {})
+        with self._lock:
+            return self._data.get(section, {})
 
     def set_section(self, section: str, data: dict[str, Any]) -> None:
         """Set an entire settings section and persist."""
-        self._data[section] = data
+        with self._lock:
+            self._data[section] = data
         self._save()
 
     # ------------------------------------------------------------------
@@ -179,41 +189,48 @@ class SettingsStore:
 
     def save_ollama_settings(self, enabled: bool, url: str, model: str) -> None:
         """Save Ollama configuration."""
-        self._data["ollama"] = {
-            "enabled": enabled,
-            "url": url,
-            "model": model,
-        }
+        with self._lock:
+            self._data["ollama"] = {
+                "enabled": enabled,
+                "url": url,
+                "model": model,
+            }
         self._save()
 
     def get_shortcut(self, action_id: str, default: str = "") -> str:
         """Get a keyboard shortcut sequence."""
-        shortcuts = self._data.get("shortcuts", {})
-        return shortcuts.get(action_id, default)
+        with self._lock:
+            shortcuts = self._data.get("shortcuts", {})
+            return shortcuts.get(action_id, default)
 
     def set_shortcut(self, action_id: str, sequence: str) -> None:
         """Set a keyboard shortcut sequence."""
-        if "shortcuts" not in self._data:
-            self._data["shortcuts"] = {}
-        self._data["shortcuts"][action_id] = sequence
+        with self._lock:
+            if "shortcuts" not in self._data:
+                self._data["shortcuts"] = {}
+            self._data["shortcuts"][action_id] = sequence
         self._save()
 
     def get_all_shortcuts(self) -> dict[str, str]:
         """Get all keyboard shortcuts."""
-        return self._data.get("shortcuts", {})
+        with self._lock:
+            return self._data.get("shortcuts", {})
 
     def set_all_shortcuts(self, shortcuts: dict[str, str]) -> None:
         """Set all keyboard shortcuts at once."""
-        self._data["shortcuts"] = shortcuts
+        with self._lock:
+            self._data["shortcuts"] = shortcuts
         self._save()
 
     def get_recent_projects(self) -> list[str]:
         """Get list of recent project paths."""
-        return self._data.get("recentProjects", [])
+        with self._lock:
+            return self._data.get("recentProjects", [])
 
     def set_recent_projects(self, projects: list[str]) -> None:
         """Set list of recent project paths."""
-        self._data["recentProjects"] = projects
+        with self._lock:
+            self._data["recentProjects"] = projects
         self._save()
 
 

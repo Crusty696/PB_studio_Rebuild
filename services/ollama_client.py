@@ -23,7 +23,11 @@ import urllib.error
 import urllib.request
 from typing import Any
 
-from services.timeout_constants import HTTP_API_TIMEOUT_SEC, HTTP_HEALTH_CHECK_TIMEOUT_SEC
+from services.timeout_constants import (
+    HTTP_API_TIMEOUT_SEC,
+    HTTP_HEALTH_CHECK_TIMEOUT_SEC,
+    HTTP_MODEL_INFO_TIMEOUT_SEC,
+)
 from services.errors import (
     OllamaError,
     OllamaNotAvailableError,
@@ -696,7 +700,7 @@ class OllamaClient:
                 headers={"Content-Type": "application/json"},
                 method="POST",
             )
-            with urllib.request.urlopen(req, timeout=HTTP_API_TIMEOUT_SEC) as resp:
+            with urllib.request.urlopen(req, timeout=HTTP_MODEL_INFO_TIMEOUT_SEC) as resp:
                 return json.loads(resp.read())
         except (ConnectionError, TimeoutError, OSError, ValueError):
             return {}

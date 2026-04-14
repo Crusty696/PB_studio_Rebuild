@@ -70,8 +70,10 @@ def learn_from_anchor(
                 audio_track_id=audio_track_id
             ).first()
             if beatgrid and beatgrid.energy_per_beat and beatgrid.beat_positions:
-                energy_data = json.loads(beatgrid.energy_per_beat)
-                beats_pos = json.loads(beatgrid.beat_positions)
+                # H7-FIX: Column(JSON) deserialisiert automatisch.
+                # Backward-compat: isinstance-Check fuer alte doppelt-serialisierte Daten.
+                energy_data = json.loads(beatgrid.energy_per_beat) if isinstance(beatgrid.energy_per_beat, str) else beatgrid.energy_per_beat
+                beats_pos = json.loads(beatgrid.beat_positions) if isinstance(beatgrid.beat_positions, str) else beatgrid.beat_positions
                 if beats_pos:
                     beats_arr = np.array(beats_pos)
                     idx = int(np.argmin(np.abs(beats_arr - anchor_time)))

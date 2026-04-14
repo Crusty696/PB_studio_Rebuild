@@ -57,5 +57,8 @@ def test_analyze_and_store_updates_db(tmp_path, project):
         db_track = session.get(AudioTrack, track.id)
         assert db_track.bpm == 140.0
         assert db_track.energy_curve is not None
-        energy = json.loads(db_track.energy_curve)
+        # H7-FIX: Column(JSON) deserialisiert automatisch — kein json.loads() noetig.
+        energy = db_track.energy_curve
+        if isinstance(energy, str):
+            energy = json.loads(energy)
         assert len(energy) == 3

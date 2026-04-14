@@ -1,7 +1,7 @@
 """Resource Monitor Widget — shows CPU / RAM / GPU VRAM in the status bar."""
 
 from PySide6.QtWidgets import QWidget, QHBoxLayout, QLabel, QProgressBar
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QObject, QThread, QTimer, Signal, Slot
 
 from ui.theme import ACCENT, BG2, INFO_CYAN, OK, T3, WARN
 
@@ -35,10 +35,70 @@ def _bar_style(color: str) -> str:
 _LABEL_STYLE = f"color: {T3}; font-size: 10px; padding: 0 2px;"
 
 
+_POLL_INTERVAL_MS = 3000  # 3 seconds between polls
+
+
+class _MonitorWorker(QObject):
+    """Collects CPU/RAM/GPU metrics via QTimer (non-blocking).
+
+    K-012 Fix: Replaced blocking while-loop with QTimer so the thread's
+    event-loop stays alive and thread.quit() works reliably.
+    """
+
+    updated = Signal(dict)
+
+    def __init__(self):
+        super().__init__()
+        self._timer: QTimer | None = None
+
+    @Slot()
+    def start_polling(self):
+        """Called once the worker's thread is running.  Starts the QTimer."""
+        self._timer = QTimer()
+        self._timer.setInterval(_POLL_INTERVAL_MS)
+        self._timer.timeout.connect(self._collect)
+        self._timer.start()
+        # fire immediately so first values appear without waiting
+        self._collect()
+
+    @Slot()
+    def stop(self):
+        """Stop the timer (safe to call from any thread via QMetaObject)."""
+        if self._timer is not None:
+            self._timer.stop()
+
+    def _collect(self):
+        stats: dict = {}
+        # CPU
+        if _HAS_PSUTIL:
+            stats['cpu'] = int(psutil.cpu_percent())
+        # RAM
+        if _HAS_PSUTIL:
+            mem = psutil.virtual_memory()
+            stats['ram_used'] = mem.used / (1024 ** 3)
+            stats['ram_total'] = mem.total / (1024 ** 3)
+            stats['ram_pct'] = int(mem.percent)
+        # GPU
+        if _HAS_TORCH and torch.cuda.is_available():
+            try:
+                idx = torch.cuda.current_device()
+                stats['gpu_used'] = torch.cuda.memory_allocated(idx) / (1024 ** 3)
+                stats['gpu_total'] = torch.cuda.get_device_properties(idx).total_memory / (1024 ** 3)
+                stats['gpu_pct'] = (
+                    int((stats['gpu_used'] / stats['gpu_total']) * 100)
+                    if stats['gpu_total'] > 0
+                    else 0
+                )
+            except Exception:
+                pass  # GPU stats are non-critical
+        self.updated.emit(stats)
+
+
 class ResourceMonitorWidget(QWidget):
     """Lightweight CPU / RAM / GPU VRAM monitor for the status bar.
 
     F-032 Fix: Polling runs in a background thread to prevent UI stutter.
+    K-012 Fix: Worker uses QTimer instead of blocking while-loop.
     """
 
     def __init__(self, parent=None):
@@ -82,55 +142,13 @@ class ResourceMonitorWidget(QWidget):
         layout.addWidget(self._gpu_bar)
 
         # Background Worker for polling
-        from PySide6.QtCore import QThread, QObject, Signal
-
-        class MonitorWorker(QObject):
-            updated = Signal(dict)
-
-            def __init__(self):
-                super().__init__()
-                self._running = True  # B-036 Fix: Graceful shutdown flag
-
-            def stop(self):
-                """Signal worker to stop gracefully."""
-                self._running = False
-
-            def run(self):
-                import time
-                while self._running:  # B-036 Fix: Check flag instead of infinite loop
-                    stats = {}
-                    # CPU
-                    if _HAS_PSUTIL: stats['cpu'] = int(psutil.cpu_percent())
-                    # RAM
-                    if _HAS_PSUTIL:
-                        mem = psutil.virtual_memory()
-                        stats['ram_used'] = mem.used / (1024**3)
-                        stats['ram_total'] = mem.total / (1024**3)
-                        stats['ram_pct'] = int(mem.percent)
-                    # GPU
-                    if _HAS_TORCH and torch.cuda.is_available():
-                        try:
-                            idx = torch.cuda.current_device()
-                            stats['gpu_used'] = torch.cuda.memory_allocated(idx) / (1024**3)
-                            stats['gpu_total'] = torch.cuda.get_device_properties(idx).total_memory / (1024**3)
-                            stats['gpu_pct'] = int((stats['gpu_used'] / stats['gpu_total']) * 100) if stats['gpu_total'] > 0 else 0
-                        except Exception:  # B-035 Fix: Specify exception type (was bare except)
-                            pass  # broad catch intentional — GPU stats are non-critical, failure OK
-
-                    if self._running:  # Check before emit
-                        self.updated.emit(stats)
-
-                    # B-036 Fix: Sleep in small chunks for faster shutdown response
-                    for _ in range(30):  # 3 seconds = 30 × 100ms
-                        if not self._running:
-                            break
-                        time.sleep(0.1)
-
-        self._worker = MonitorWorker()
+        self._worker = _MonitorWorker()
         self._thread = QThread(self)
         self._worker.moveToThread(self._thread)
         self._worker.updated.connect(self._on_stats_updated)
-        self._thread.started.connect(self._worker.run)
+        self._thread.started.connect(self._worker.start_polling)
+        self._thread.finished.connect(self._worker.deleteLater)
+        self._thread.finished.connect(self._thread.deleteLater)
         self._thread.start()
 
     def _on_stats_updated(self, stats: dict):
@@ -151,12 +169,12 @@ class ResourceMonitorWidget(QWidget):
             self._gpu_label.setText(f"GPU {stats.get('gpu_used', 0.0):.1f}/{stats.get('gpu_total', 0.0):.1f}")
 
     def stop(self):
-        """B-036 Fix: Graceful shutdown instead of terminate()."""
+        """K-012 / B-036 Fix: Graceful shutdown — stop timer, then quit event-loop."""
         if self._worker:
-            self._worker.stop()  # Signal worker to stop
+            self._worker.stop()  # stops the QTimer
         if self._thread and self._thread.isRunning():
-            self._thread.quit()   # Request event loop exit
-            self._thread.wait(5000)  # Wait up to 5 seconds
+            self._thread.quit()   # exits the thread's event-loop (now works!)
+            self._thread.wait(5000)
 
     def start(self):
         if not self._thread.isRunning():

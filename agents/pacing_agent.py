@@ -28,8 +28,9 @@ logger = logging.getLogger(__name__)
 # Keywords die auf Pacing-Anfragen hindeuten
 PACING_KEYWORDS = [
     "pacing", "pace", "schnittrate", "cut rate", "cut-rate",
-    "auto edit", "auto_edit", "auto-edit", "automatisch schneiden",
-    "beat sync", "beat-sync", "beatsync",
+    "auto edit", "auto_edit", "auto-edit", "autoedit", "automatisch schneiden",
+    "beat sync", "beat-sync", "beatsync", "beat", "zum beat", "beat schnitt",
+    "schneide", "schnitt",
     "drop", "breakdown", "buildup", "build-up",
     "energy", "energie", "reaktivität", "reactivity",
     "dj set", "dj-set", "djset", "mix schneiden",

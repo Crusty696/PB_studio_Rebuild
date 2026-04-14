@@ -202,7 +202,11 @@ class TestFrequencyAnalyzerAndStore:
             assert track.duration == 60.0
             assert track.waveform_data is not None
             assert track.waveform_data.num_samples == 3
-            assert json.loads(track.waveform_data.band_low) == [0.1, 0.2, 0.3]
+            # H7-FIX: Column(JSON) deserialisiert automatisch — kein json.loads() noetig.
+            band_low = track.waveform_data.band_low
+            if isinstance(band_low, str):
+                band_low = json.loads(band_low)
+            assert band_low == [0.1, 0.2, 0.3]
 
     def test_analyze_and_store_updates_existing_waveform_data(self, test_engine):
         """analyze_and_store() aktualisiert vorhandene WaveformData (kein Duplikat)."""

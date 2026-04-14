@@ -4,7 +4,6 @@ Tests fuer services/pacing_memory.py
 Getestet: learn_from_anchor(), record_rl_feedback(), _get_ai_memory_bias()
 """
 
-import json
 import pytest
 from sqlalchemy.orm import Session
 
@@ -50,8 +49,8 @@ class TestLearnFromAnchor:
         bg = Beatgrid(
             audio_track_id=audio_track.id,
             bpm=128.0,
-            beat_positions=json.dumps(beats),
-            energy_per_beat=json.dumps(energy),
+            beat_positions=beats,
+            energy_per_beat=energy,
         )
         db_session.add(bg)
         db_session.commit()
@@ -78,8 +77,8 @@ class TestLearnFromAnchor:
         bg = Beatgrid(
             audio_track_id=audio_track.id,
             bpm=128.0,
-            beat_positions=json.dumps(beats),
-            energy_per_beat=json.dumps(energy),
+            beat_positions=beats,
+            energy_per_beat=energy,
         )
         db_session.add(bg)
         db_session.commit()
@@ -182,8 +181,8 @@ class TestLearnFromAnchor:
                 bg = Beatgrid(
                     audio_track_id=audio_track.id,
                     bpm=128.0,
-                    beat_positions=json.dumps([0.0, 1.0]),
-                    energy_per_beat=json.dumps([energy_val, energy_val]),
+                    beat_positions=[0.0, 1.0],
+                    energy_per_beat=[energy_val, energy_val],
                 )
                 s.add(bg)
                 s.commit()

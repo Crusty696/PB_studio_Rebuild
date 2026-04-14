@@ -191,6 +191,9 @@ def get_audio_detail_data(audio_id: int) -> dict | None:
             if seg_rows:
                 duration = track.duration or 1.0
                 for seg in seg_rows:
+                    # FIX H-16: Guard against None start_time/end_time to prevent TypeError
+                    if seg.start_time is None or seg.end_time is None:
+                        continue
                     segments.append({
                         "label": seg.label,
                         "start": seg.start_time / duration,

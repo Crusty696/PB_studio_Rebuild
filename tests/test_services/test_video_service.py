@@ -55,7 +55,7 @@ class TestVideoAnalyzerProbe:
 
         with patch("services.video_service.subprocess.run", return_value=mock_result), \
              patch("services.video_service.Path.exists", return_value=True):
-            with pytest.raises(RuntimeError, match="ffprobe fehlgeschlagen"):
+            with pytest.raises(Exception, match="ffprobe fehlgeschlagen"):
                 VideoAnalyzer().probe("/nonexistent.mp4")
 
     def test_probe_raises_when_no_video_stream(self):

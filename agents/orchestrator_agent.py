@@ -397,14 +397,13 @@ class OrchestratorAgent(BaseAgent):
             return None
 
         try:
-            import asyncio
-            result = asyncio.run(svc.chat(
+            result = svc.chat(
                 messages=[
                     {"role": "system", "content": _CLASSIFY_SYSTEM_PROMPT},
                     {"role": "user", "content": user_text}
                 ],
                 model="gemma4:e4b"
-            ))
+            )
             
             category = result.strip().lower().split()[0] if result.strip() else ""
             valid_categories = {"pacing", "vision", "audio", "editor", "action", "general"}
@@ -621,14 +620,13 @@ class OrchestratorAgent(BaseAgent):
             # 5. Fallback: Keine passender Agent/Action gefunden → Ollama-Chat (Gemma 4)
             svc = OllamaService.get()
             if svc.is_ready:
-                import asyncio
-                llm_response = asyncio.run(svc.chat(
+                llm_response = svc.chat(
                     messages=[
                         {"role": "system", "content": _GENERAL_SYSTEM_PROMPT},
                         {"role": "user", "content": user_text}
                     ],
                     model="gemma4:e4b"
-                ))
+                )
                 return {
                     "agent": self.name,
                     "action": "chat",

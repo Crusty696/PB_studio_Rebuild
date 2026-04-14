@@ -18,6 +18,7 @@ import os
 import subprocess
 import sys
 import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -35,14 +36,14 @@ logger = logging.getLogger(__name__)
 
 def _proxy_dir() -> Path:
     """Returns proxy directory for the current project (lazy APP_ROOT read)."""
-    from database import APP_ROOT
-    return APP_ROOT / "storage" / "proxies"
+    import database.session as _session
+    return _session.APP_ROOT / "storage" / "proxies"
 
 
 def _master_dir() -> Path:
     """Returns master/export directory for the current project (lazy APP_ROOT read)."""
-    from database import APP_ROOT
-    return APP_ROOT / "exports"
+    import database.session as _session
+    return _session.APP_ROOT / "exports"
 
 # FFmpeg Pfad — Chocolatey oder PATH
 FFMPEG = get_ffmpeg_bin()
@@ -131,9 +132,19 @@ PRESETS = {
 }
 
 
-@functools.cache
+# M8-FIX: TTL-basiertes Caching statt permanentem @functools.cache.
+# Cache wird nach 60 Sekunden invalidiert, sodass Aenderungen an
+# FFmpeg/GPU-Treibern erkannt werden koennen.
+_nvenc_cache: dict | None = None
+_nvenc_cache_time: float = 0.0
+_NVENC_CACHE_TTL: float = 60.0  # Sekunden
+
+
 def detect_nvenc() -> dict:
     """Prueft ob NVENC (h264_nvenc) verfuegbar ist.
+
+    M8-FIX: Ergebnis wird 60s gecacht und danach neu ermittelt.
+    VAD-74-FIX: Echter 1-Frame Encode-Test statt nur Encoder-List-Check.
 
     Returns:
         {
@@ -143,6 +154,12 @@ def detect_nvenc() -> dict:
             "ffmpeg_version": str,
         }
     """
+    global _nvenc_cache, _nvenc_cache_time
+
+    now = time.monotonic()
+    if _nvenc_cache is not None and (now - _nvenc_cache_time) < _NVENC_CACHE_TTL:
+        return _nvenc_cache
+
     result = {"h264_nvenc": False, "hevc_nvenc": False,
               "cuda_hwaccel": False, "ffmpeg_version": "unknown"}
     try:
@@ -154,15 +171,51 @@ def detect_nvenc() -> dict:
         if p.returncode == 0 and p.stdout:
             result["ffmpeg_version"] = p.stdout.strip().split("\n")[0]
 
-        # Encoder pruefen
+        # Encoder pruefen (nur Liste, kein echter Test)
         p = subprocess.run(
             [FFMPEG, "-hide_banner", "-encoders"],
             capture_output=True, text=True, timeout=FFMPEG_PROBE_TIMEOUT_SEC,
             encoding="utf-8", errors="replace",
         )
+        h264_in_list = False
+        hevc_in_list = False
         if p.returncode == 0:
-            result["h264_nvenc"] = "h264_nvenc" in p.stdout
-            result["hevc_nvenc"] = "hevc_nvenc" in p.stdout
+            h264_in_list = "h264_nvenc" in p.stdout
+            hevc_in_list = "hevc_nvenc" in p.stdout
+
+        # VAD-74: Echter 1-Frame Encode-Test fuer h264_nvenc
+        if h264_in_list:
+            p = subprocess.run(
+                [FFMPEG, "-f", "lavfi", "-i", "nullsrc=s=256x256:d=0.04",
+                 "-c:v", "h264_nvenc", "-f", "null", "-"],
+                capture_output=True, timeout=FFMPEG_PROBE_TIMEOUT_SEC,
+                encoding="utf-8", errors="replace",
+            )
+            if p.returncode == 0:
+                result["h264_nvenc"] = True
+            else:
+                logger.warning(
+                    "h264_nvenc in Encoder-Liste, aber 1-Frame Test fehlgeschlagen. "
+                    "Vermutlich NVENC API-Inkompatibilitaet (Treiber zu alt). Fallback auf libx264."
+                )
+                result["h264_nvenc"] = False
+
+        # VAD-74: Echter 1-Frame Encode-Test fuer hevc_nvenc
+        if hevc_in_list:
+            p = subprocess.run(
+                [FFMPEG, "-f", "lavfi", "-i", "nullsrc=s=256x256:d=0.04",
+                 "-c:v", "hevc_nvenc", "-f", "null", "-"],
+                capture_output=True, timeout=FFMPEG_PROBE_TIMEOUT_SEC,
+                encoding="utf-8", errors="replace",
+            )
+            if p.returncode == 0:
+                result["hevc_nvenc"] = True
+            else:
+                logger.warning(
+                    "hevc_nvenc in Encoder-Liste, aber 1-Frame Test fehlgeschlagen. "
+                    "Vermutlich NVENC API-Inkompatibilitaet (Treiber zu alt)."
+                )
+                result["hevc_nvenc"] = False
 
         # CUDA hwaccel
         p = subprocess.run(
@@ -176,6 +229,8 @@ def detect_nvenc() -> dict:
     except (subprocess.TimeoutExpired, FileNotFoundError) as e:
         logger.warning("NVENC-Detection fehlgeschlagen: %s", e)
 
+    _nvenc_cache = result
+    _nvenc_cache_time = now
     return result
 
 

@@ -175,13 +175,17 @@ def _get_beat_positions(audio_id: int | None) -> list[float]:
     if audio_id is None:
         return []
     with Session(engine) as session:
-        track = session.get(AudioTrack, audio_id, options=[joinedload(AudioTrack.beatgrid)])
+        track = session.query(AudioTrack).filter(
+            AudioTrack.id == audio_id, AudioTrack.deleted_at.is_(None)
+        ).options(joinedload(AudioTrack.beatgrid)).first()
         if not track or not track.beatgrid:
             return []
         bg = track.beatgrid
         if bg.beat_positions:
             try:
-                positions = json.loads(bg.beat_positions)
+                # H7-FIX: Column(JSON) deserialisiert automatisch.
+                # Backward-compat: isinstance-Check fuer alte doppelt-serialisierte Daten.
+                positions = json.loads(bg.beat_positions) if isinstance(bg.beat_positions, str) else bg.beat_positions
                 return [float(p) for p in positions]
             except (json.JSONDecodeError, TypeError) as e:
                 logger.warning("Parsing beat_positions JSON for audio_id=%s: %s", audio_id, e)
@@ -215,7 +219,9 @@ def _get_beat_data_combined(
     if audio_id is None:
         return [], [], []
     with Session(engine) as session:
-        track = session.get(AudioTrack, audio_id, options=[joinedload(AudioTrack.beatgrid)])
+        track = session.query(AudioTrack).filter(
+            AudioTrack.id == audio_id, AudioTrack.deleted_at.is_(None)
+        ).options(joinedload(AudioTrack.beatgrid)).first()
         if not track or not track.beatgrid:
             return [], [], []
         bg = track.beatgrid
@@ -224,7 +230,9 @@ def _get_beat_data_combined(
         beat_positions: list[float] = []
         if bg.beat_positions:
             try:
-                beat_positions = [float(p) for p in json.loads(bg.beat_positions)]
+                # H7-FIX: Column(JSON) deserialisiert automatisch — isinstance-Check fuer Backward-compat.
+                raw_bp = json.loads(bg.beat_positions) if isinstance(bg.beat_positions, str) else bg.beat_positions
+                beat_positions = [float(p) for p in raw_bp]
             except (json.JSONDecodeError, TypeError) as e:
                 logger.warning("Parsing beat_positions JSON in combined loader for audio_id=%s: %s", audio_id, e)
         if not beat_positions and bg.bpm and bg.bpm > 0:
@@ -243,7 +251,9 @@ def _get_beat_data_combined(
         downbeat_positions: list[float] = []
         if bg.downbeat_positions:
             try:
-                downbeat_positions = [float(p) for p in json.loads(bg.downbeat_positions)]
+                # H7-FIX: Column(JSON) deserialisiert automatisch — isinstance-Check fuer Backward-compat.
+                raw_dp = json.loads(bg.downbeat_positions) if isinstance(bg.downbeat_positions, str) else bg.downbeat_positions
+                downbeat_positions = [float(p) for p in raw_dp]
             except (json.JSONDecodeError, TypeError) as e:
                 logger.warning("Parsing downbeat_positions JSON for audio_id=%s: %s", audio_id, e)
 
@@ -251,7 +261,9 @@ def _get_beat_data_combined(
         energy_per_beat: list[float] = []
         if bg.energy_per_beat:
             try:
-                energy_per_beat = [float(e) for e in json.loads(bg.energy_per_beat)]
+                # H7-FIX: Column(JSON) deserialisiert automatisch — isinstance-Check fuer Backward-compat.
+                raw_epb = json.loads(bg.energy_per_beat) if isinstance(bg.energy_per_beat, str) else bg.energy_per_beat
+                energy_per_beat = [float(e) for e in raw_epb]
             except (json.JSONDecodeError, TypeError) as e:
                 logger.warning("Parsing energy_per_beat JSON for audio_id=%s: %s", audio_id, e)
 
@@ -262,7 +274,9 @@ def _get_beat_data_combined(
 def _get_audio_duration(audio_id: int) -> float:
     """Gibt die Dauer des Audio-Tracks in Sekunden zurueck."""
     with Session(engine) as session:
-        track = session.get(AudioTrack, audio_id)
+        track = session.query(AudioTrack).filter(
+            AudioTrack.id == audio_id, AudioTrack.deleted_at.is_(None)
+        ).first()
         return track.duration if track and track.duration else 60.0
 
 
@@ -270,7 +284,9 @@ def _get_audio_duration(audio_id: int) -> float:
 def _get_audio_path(audio_id: int) -> str:
     """Gibt den Dateipfad des Audio-Tracks zurueck."""
     with Session(engine) as session:
-        track = session.get(AudioTrack, audio_id)
+        track = session.query(AudioTrack).filter(
+            AudioTrack.id == audio_id, AudioTrack.deleted_at.is_(None)
+        ).first()
         return track.file_path if track else ""
 
 
@@ -279,7 +295,9 @@ def _get_bpm(audio_id: int | None) -> float | None:
     if audio_id is None:
         return None
     with Session(engine) as session:
-        track = session.get(AudioTrack, audio_id)
+        track = session.query(AudioTrack).filter(
+            AudioTrack.id == audio_id, AudioTrack.deleted_at.is_(None)
+        ).first()
         return track.bpm if track else None
 
 
@@ -304,7 +322,7 @@ def _get_video_info_cached(video_ids: tuple[int, ...]) -> dict[int, dict]:
         clips = (
             session.query(VideoClip)
             .options(joinedload(VideoClip.scenes))
-            .filter(VideoClip.id.in_(video_ids))
+            .filter(VideoClip.id.in_(video_ids), VideoClip.deleted_at.is_(None))
             .all()
         )
         for clip in clips:
@@ -325,7 +343,9 @@ def _get_scenes(video_id: int | None) -> list[dict]:
     if video_id is None:
         return []
     with Session(engine) as session:
-        clip = session.get(VideoClip, video_id, options=[joinedload(VideoClip.scenes)])
+        clip = session.query(VideoClip).filter(
+            VideoClip.id == video_id, VideoClip.deleted_at.is_(None)
+        ).options(joinedload(VideoClip.scenes)).first()
         if clip is None:
             return []
         # P2-07: Dicts statt ORM-Objekte zurueckgeben (Session wird geschlossen)
@@ -368,7 +388,9 @@ def compute_stem_weighted_energy(
     Faellt auf die Stereo-Summe zurueck wenn Stems nicht vorhanden sind.
     """
     with Session(engine) as session:
-        track = session.get(AudioTrack, audio_id)
+        track = session.query(AudioTrack).filter(
+            AudioTrack.id == audio_id, AudioTrack.deleted_at.is_(None)
+        ).first()
         if not track:
             return None
         stem_paths = {
@@ -628,7 +650,9 @@ def compute_vocal_activity(
     Returns: Liste von booleans, True = Vocals aktiv bei diesem Beat.
     """
     with Session(engine) as session:
-        track = session.get(AudioTrack, audio_id)
+        track = session.query(AudioTrack).filter(
+            AudioTrack.id == audio_id, AudioTrack.deleted_at.is_(None)
+        ).first()
         if not track or not track.stem_vocals_path:
             return [False] * len(beats)
         vocals_path = track.stem_vocals_path
@@ -827,7 +851,9 @@ def compute_stem_snr(audio_id: int) -> StemSNR | None:
     Returns None wenn keine Stems vorhanden sind.
     """
     with Session(engine) as session:
-        track = session.get(AudioTrack, audio_id)
+        track = session.query(AudioTrack).filter(
+            AudioTrack.id == audio_id, AudioTrack.deleted_at.is_(None)
+        ).first()
         if not track:
             return None
         stem_paths = {
@@ -900,7 +926,9 @@ def detect_dj_mix_from_stems(audio_id: int, n_segments: int = 5) -> bool:
     Returns True wenn DJ-Mix erkannt, False sonst.
     """
     with Session(engine) as session:
-        track = session.get(AudioTrack, audio_id)
+        track = session.query(AudioTrack).filter(
+            AudioTrack.id == audio_id, AudioTrack.deleted_at.is_(None)
+        ).first()
         if not track:
             return False
         stem_paths = {
@@ -1019,7 +1047,9 @@ def compute_drum_onsets(
     Returns: Zeitlich sortierte Liste von DrumOnset-Objekten.
     """
     with Session(engine) as session:
-        track = session.get(AudioTrack, audio_id)
+        track = session.query(AudioTrack).filter(
+            AudioTrack.id == audio_id, AudioTrack.deleted_at.is_(None)
+        ).first()
         if not track or not track.stem_drums_path:
             return []
         drums_path = track.stem_drums_path

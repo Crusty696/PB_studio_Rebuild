@@ -14,7 +14,7 @@ import threading
 from pathlib import Path
 
 from sqlalchemy.orm import Session
-from database import engine, TimelineEntry, AudioTrack, VideoClip, APP_ROOT
+from database import engine, TimelineEntry, AudioTrack, VideoClip
 from services.timeout_constants import (
     FFMPEG_LUFS_MEASURE_TIMEOUT_SEC,
     FFMPEG_LUFS_NORMALIZE_TIMEOUT_SEC,
@@ -162,7 +162,14 @@ def _preprocess_segment(seg: dict, index: int, w: str, h: str, fps: float,
         "standardized": True,
     }
 
-EXPORT_DIR = APP_ROOT / "exports"
+def _get_export_dir() -> Path:
+    """Return export directory for the current project (lazy APP_ROOT read).
+
+    BUG-FIX: Was module-level constant that became stale after set_project().
+    Now reads APP_ROOT at call time so project switches are respected.
+    """
+    import database.session as _session
+    return _session.APP_ROOT / "exports"
 
 
 def _prepare_normalized_audio(audio_path: str | None, temp_files: list,
@@ -202,8 +209,9 @@ def export_timeline(project_id: int = 1, output_name: str = "output.mp4",
             f"Ungültige Auflösung Format: '{resolution}'. Erwartet: WIDTHxHEIGHT (z.B. '1920x1080')"
         )
 
-    EXPORT_DIR.mkdir(parents=True, exist_ok=True)
-    output_path = EXPORT_DIR / output_name
+    export_dir = _get_export_dir()
+    export_dir.mkdir(parents=True, exist_ok=True)
+    output_path = export_dir / output_name
 
     with Session(engine) as session:
         entries = (
@@ -223,7 +231,7 @@ def export_timeline(project_id: int = 1, output_name: str = "output.mp4",
         _vid_ids = [ve.media_id for ve in video_entries]
         _clips_by_id = (
             {c.id: c for c in session.query(VideoClip).filter(
-                VideoClip.id.in_(_vid_ids)
+                VideoClip.id.in_(_vid_ids), VideoClip.deleted_at.is_(None)
             ).all()}
             if _vid_ids else {}
         )
@@ -254,7 +262,9 @@ def export_timeline(project_id: int = 1, output_name: str = "output.mp4",
 
         audio_path = None
         if audio_entries:
-            track = session.get(AudioTrack, audio_entries[0].media_id)
+            track = session.query(AudioTrack).filter(
+                AudioTrack.id == audio_entries[0].media_id, AudioTrack.deleted_at.is_(None)
+            ).first()
             if track:
                 audio_path = track.file_path
 
@@ -407,8 +417,11 @@ def _export_optimized_concat(video_segments, audio_path, output_path,
         temp_files.append(concat_file.name)
 
         for ps in processed_segments:
-            # BUG-008 Fix: FFmpeg-native concat escaping (shell-style '\\'' ist falsch fuer concat demuxer)
-            safe_path = ps["path"].replace("\\", "/").replace("'", "\\'")
+            # FIX H-11: Proper FFmpeg concat demuxer escaping.
+            # The concat demuxer requires single-quoted paths where internal
+            # single quotes are escaped as '\'' (close-quote, escaped-quote, open-quote).
+            # Backslashes must also be normalized to forward slashes for cross-platform compat.
+            safe_path = ps["path"].replace("\\", "/").replace("'", "'\\''")
             concat_file.write(f"file '{safe_path}'\n")
             if ps["inpoint"] is not None:
                 concat_file.write(f"inpoint {ps['inpoint']:.3f}\n")
@@ -808,7 +821,7 @@ def export_preview(project_id: int = 1, resolution: str = "1920x1080",
             f"Ungueltige Aufloesung: '{resolution}'. Erwartet: WIDTHxHEIGHT"
         )
 
-    preview_dir = EXPORT_DIR / "previews"
+    preview_dir = _get_export_dir() / "previews"
     preview_dir.mkdir(parents=True, exist_ok=True)
     output_path = preview_dir / f"preview_{project_id}.mp4"
 
@@ -828,7 +841,7 @@ def export_preview(project_id: int = 1, resolution: str = "1920x1080",
         _vid_ids = [ve.media_id for ve in video_entries]
         _clips_by_id = (
             {c.id: c for c in session.query(VideoClip).filter(
-                VideoClip.id.in_(_vid_ids)
+                VideoClip.id.in_(_vid_ids), VideoClip.deleted_at.is_(None)
             ).all()}
             if _vid_ids else {}
         )
@@ -870,7 +883,9 @@ def export_preview(project_id: int = 1, resolution: str = "1920x1080",
 
         audio_path = None
         if audio_entries:
-            track = session.get(AudioTrack, audio_entries[0].media_id)
+            track = session.query(AudioTrack).filter(
+                AudioTrack.id == audio_entries[0].media_id, AudioTrack.deleted_at.is_(None)
+            ).first()
             if track:
                 audio_path = track.file_path
 

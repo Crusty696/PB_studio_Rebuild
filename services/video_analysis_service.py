@@ -32,8 +32,8 @@ logger = logging.getLogger(__name__)
 
 def _keyframe_dir() -> Path:
     """Returns keyframe directory for the current project (lazy APP_ROOT read)."""
-    from database import APP_ROOT
-    return APP_ROOT / "storage" / "keyframes"
+    import database.session as _session
+    return _session.APP_ROOT / "storage" / "keyframes"
 
 
 @dataclass
@@ -628,7 +628,6 @@ def analyze_scene_with_caption(
     logger.info("[CAPTION] Starte Vision-Captioning für %d Szenen mit '%s' via OllamaService...",
                 len(keyframe_scenes), vision_model)
 
-    import asyncio
     import json
     import re as _re
 
@@ -636,14 +635,14 @@ def analyze_scene_with_caption(
         # B-034 Fix: Check pause state in loop to handle GPU operations starting mid-captioning
         if client.is_paused:
             logger.debug("[CAPTION] Szene %d: Ollama pausiert — überspringe verbleibende Szenen", scene.index)
-            break 
+            break
 
         try:
-            raw = asyncio.run(svc.vision(
+            raw = svc.vision(
                 image_paths=[scene.keyframe_path],
                 prompt=_CAPTION_USER_PROMPT,
                 model=vision_model
-            ))
+            )
 
             cleaned = raw.strip()
             if "```" in cleaned:
@@ -737,9 +736,9 @@ def store_scenes_in_db(
                     end_time=scene.end_time,
                     energy=scene.motion_score,
                     label=f"Scene {scene.index}",
-                    ai_caption=json.dumps(scene.ai_caption) if scene.ai_caption else None,
+                    ai_caption=scene.ai_caption if scene.ai_caption else None,
                     ai_mood=scene.ai_mood,
-                    ai_tags=json.dumps(scene.ai_tags) if scene.ai_tags else None,
+                    ai_tags=scene.ai_tags if scene.ai_tags else None,
                 )
                 session.add(db_scene)
 

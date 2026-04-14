@@ -357,6 +357,11 @@ class ChatDock(QDockWidget):
             pair = (self._thread, self._worker)
             if pair in _GLOBAL_ACTIVE_THREADS:
                 _GLOBAL_ACTIVE_THREADS.remove(pair)
+        # H-22 Fix: deleteLater() fuer Worker und Thread um Memory Leak zu vermeiden
+        if self._worker is not None:
+            self._worker.deleteLater()
+        if self._thread is not None:
+            self._thread.deleteLater()
         self._thread = None
         self._worker = None
 

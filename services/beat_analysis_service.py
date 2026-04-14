@@ -9,15 +9,13 @@ dbn=False verhindert madmom-Abhaengigkeit.
 from __future__ import annotations
 
 import atexit
-import json
 import logging
 import threading
 from pathlib import Path
 
 import numpy as np
 
-from sqlalchemy.orm import Session
-from database import engine, AudioTrack, Beatgrid
+from database import AudioTrack, Beatgrid
 from services.audio_constants import DEFAULT_SR, clamp_bpm
 
 logger = logging.getLogger(__name__)
@@ -392,8 +390,12 @@ class BeatAnalysisService:
         Aktualisiert den Beatgrid-Eintrag mit beat_this-Ergebnissen.
         Phase 3: Speichert auch Downbeats und Per-Beat-RMS-Energie.
         """
-        with Session(engine) as session:
-            track = session.get(AudioTrack, track_id)
+        # H19-FIX: nullpool_session() statt Session(engine) — verhindert Pool-Contention
+        from database import nullpool_session as _np_session
+        with _np_session() as session:
+            track = session.query(AudioTrack).filter(
+                AudioTrack.id == track_id, AudioTrack.deleted_at.is_(None)
+            ).first()
             if track is None:
                 raise ValueError(f"AudioTrack {track_id} nicht gefunden")
             file_path = track.file_path
@@ -442,7 +444,9 @@ class BeatAnalysisService:
             for attempt in range(max_retries):
                 try:
                     with nullpool_session() as session:
-                        track = session.get(AudioTrack, track_id)
+                        track = session.query(AudioTrack).filter(
+                            AudioTrack.id == track_id, AudioTrack.deleted_at.is_(None)
+                        ).first()
                         if track is None:
                             raise ValueError(f"AudioTrack {track_id} nicht gefunden")
 
@@ -450,10 +454,12 @@ class BeatAnalysisService:
                         track.duration = result["duration"]
 
                         # Beatgrid aktualisieren mit allen Beats + Downbeats + Energie
-                        beat_positions_json = json.dumps(result["beats"])
-                        downbeat_positions_json = json.dumps(result["downbeats"])
-                        energy_json = json.dumps(energy_per_beat)
-                        stem_weighted_energy_json = json.dumps(stem_weighted_energy) if stem_weighted_energy else None
+                        # H7-FIX: Kein json.dumps() — Spalten sind Column(JSON),
+                        # SQLAlchemy serialisiert automatisch.
+                        beat_positions_data = result["beats"]
+                        downbeat_positions_data = result["downbeats"]
+                        energy_data = energy_per_beat
+                        stem_energy_data = stem_weighted_energy if stem_weighted_energy else None
 
                         # DB-07 Fix: Expliziter Query-Check gegen Duplikate
                         existing_bg = track.beatgrid or session.query(Beatgrid).filter_by(
@@ -462,20 +468,20 @@ class BeatAnalysisService:
 
                         if existing_bg:
                             existing_bg.bpm = clamp_bpm(result["bpm"])
-                            existing_bg.beat_positions = beat_positions_json
-                            existing_bg.downbeat_positions = downbeat_positions_json
-                            existing_bg.energy_per_beat = energy_json
-                            existing_bg.stem_weighted_energy = stem_weighted_energy_json
+                            existing_bg.beat_positions = beat_positions_data
+                            existing_bg.downbeat_positions = downbeat_positions_data
+                            existing_bg.energy_per_beat = energy_data
+                            existing_bg.stem_weighted_energy = stem_energy_data
                             existing_bg.offset = result["beats"][0] if result["beats"] else 0.0
                         else:
                             bg = Beatgrid(
                                 audio_track_id=track_id,
                                 bpm=clamp_bpm(result["bpm"]),
                                 offset=result["beats"][0] if result["beats"] else 0.0,
-                                beat_positions=beat_positions_json,
-                                downbeat_positions=downbeat_positions_json,
-                                energy_per_beat=energy_json,
-                                stem_weighted_energy=stem_weighted_energy_json,
+                                beat_positions=beat_positions_data,
+                                downbeat_positions=downbeat_positions_data,
+                                energy_per_beat=energy_data,
+                                stem_weighted_energy=stem_energy_data,
                             )
                             session.add(bg)
 

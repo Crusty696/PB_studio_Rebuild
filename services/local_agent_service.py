@@ -141,7 +141,8 @@ class LocalAgentService:
         if self._orchestrator is None:
             from agents.orchestrator_agent import OrchestratorAgent
             self._orchestrator = OrchestratorAgent()
-            self._orchestrator.set_model_manager(self.model_manager)
+            from services.model_manager import ModelManager
+            self._orchestrator.set_model_manager(ModelManager())
         return self._orchestrator
 
     # ------------------------------------------------------------------

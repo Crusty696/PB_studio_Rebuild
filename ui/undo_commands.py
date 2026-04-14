@@ -190,9 +190,10 @@ class RemoveClipCommand(QUndoCommand):
         duration = 30.0 if self._snapshot["track"] == "audio" else 10.0
 
         with nullpool_session() as session:
-            # Create and add the TimelineEntry
-            entry = TimelineEntry(**self._snapshot)
-            session.add(entry)
+            # M4-FIX: Gleiche ID wiederverwenden statt auto-increment,
+            # damit andere Code-Teile die die alte ID gecacht haben weiterhin funktionieren.
+            entry = TimelineEntry(id=self._current_entry_id, **self._snapshot)
+            session.merge(entry)  # merge statt add: nutzt vorhandene ID
 
             # Look up title and duration in the same session
             if self._snapshot["track"] == "audio":
@@ -208,9 +209,6 @@ class RemoveClipCommand(QUndoCommand):
 
             # Commit once after all DB operations complete
             session.commit()
-            session.refresh(entry)
-            # M-55 Fix: Store restored ID separately to handle repeated undo/redo cycles
-            self._current_entry_id = entry.id
 
         self._timeline.add_clip(
             entry_id=self._current_entry_id,

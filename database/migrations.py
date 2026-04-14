@@ -4,6 +4,7 @@ import shutil
 from pathlib import Path
 
 from sqlalchemy import text, inspect
+from sqlalchemy.schema import CreateTable
 
 from database.session import engine, get_raw_engine, nullpool_session, APP_ROOT
 from database.models import (
@@ -16,6 +17,14 @@ logger = logging.getLogger(__name__)
 # Alembic baseline revision — must match the revision in the initial migration file.
 # M-41 Fix: Updated to match actual initial migration revision
 _ALEMBIC_BASELINE_REV = "beb242bcd1fb"
+
+
+def _get_create_table_ddl(sa_table, eng) -> str:
+    """Render the CREATE TABLE DDL for a SQLAlchemy Table object.
+
+    Uses the engine's dialect so the output is valid SQLite SQL.
+    """
+    return str(CreateTable(sa_table).compile(eng)).strip()
 
 
 def _needs_fk_cascade_migration(insp) -> bool:
@@ -96,64 +105,148 @@ def _migrate_fk_cascade():
 
         logger.info("FK-CASCADE Migration: Backup verifiziert (%d Bytes): %s", backup_size, backup_path)
 
-    logger.info("FK-CASCADE Migration: Recreating tables with ON DELETE CASCADE...")
+    logger.info("FK-CASCADE Migration: Recreating tables with ON DELETE CASCADE (rename-and-copy)...")
+
+    # Tables that need FK CASCADE rebuild, ordered children-first to respect FK deps.
+    table_names = [
+        "clip_anchors", "audio_video_anchors", "scenes",
+        "beatgrids", "waveform_data", "pacing_blueprints",
+        "timeline_entries", "structure_segments", "hotcues",
+        "ai_pacing_memory", "style_presets",
+        "audio_tracks", "video_clips",
+    ]
+    _ALLOWED_TABLES = {
+        "audio_tracks", "video_clips", "scenes", "beatgrids",
+        "waveform_data", "pacing_blueprints", "audio_video_anchors",
+        "clip_anchors", "timeline_entries", "structure_segments",
+        "hotcues", "ai_pacing_memory", "style_presets",
+    }
+    for tname in table_names:
+        # F-012 Fix: Echte Validierung statt assert (assert wird durch -O deaktiviert)
+        if tname not in _ALLOWED_TABLES:
+            raise MigrationError(f"Unerlaubter Tabellenname: {tname}", table=tname)
+        # MEDIUM-6 FIX: Defense-in-depth regex validator against SQL injection
+        if not re.match(r'^[a-z_]+$', tname):
+            raise ValueError(f"Invalid table name: {tname}")
 
     try:
-        with engine.begin() as conn:
-            # FK temporaer aus, damit wir Tabellen droppen koennen
-            conn.execute(text("PRAGMA foreign_keys=OFF"))
-
-            table_names = [
-                "clip_anchors", "audio_video_anchors", "scenes",
-                "beatgrids", "waveform_data", "pacing_blueprints",
-                "timeline_entries", "structure_segments", "hotcues",
-                "ai_pacing_memory", "style_presets",
-                "audio_tracks", "video_clips",
-            ]
-            _ALLOWED_TABLES = {
-                "audio_tracks", "video_clips", "scenes", "beatgrids",
-                "waveform_data", "pacing_blueprints", "audio_video_anchors",
-                "clip_anchors", "timeline_entries", "structure_segments",
-                "hotcues", "ai_pacing_memory", "style_presets",
-            }
-            for tname in table_names:
-                # F-012 Fix: Echte Validierung statt assert (assert wird durch -O deaktiviert)
-                if tname not in _ALLOWED_TABLES:
-                    raise MigrationError(f"Unerlaubter Tabellenname: {tname}", table=tname)
-                # MEDIUM-6 FIX: Defense-in-depth regex validator against SQL injection
-                if not re.match(r'^[a-z_]+$', tname):
-                    raise ValueError(f"Invalid table name: {tname}")
-                conn.execute(text('DROP TABLE IF EXISTS "' + tname + '"'))
-
-            # FK wieder an
-            conn.execute(text("PRAGMA foreign_keys=ON"))
-
-        # Tabellen mit korrektem Schema neu erstellen
+        # SQLite PRAGMA foreign_keys MUST be set OUTSIDE a transaction.
+        # Use a raw DBAPI connection to avoid SQLAlchemy's auto-transaction
+        # and bypass the connect-event listener that sets foreign_keys=ON.
+        raw_engine = get_raw_engine()
+        raw_conn = raw_engine.raw_connection()
         try:
-            Base.metadata.create_all(engine)
-        except Exception as create_error:
-            # Automatic restore from backup if create_all() fails
-            logger.error("create_all() failed after DROP — attempting automatic restore from backup")
-            if backup_path and backup_path.exists():
-                try:
-                    # Dispose engine connections before overwriting the DB file
-                    engine.dispose()
-                    shutil.copy2(backup_path, db_path)
-                    logger.info("Backup restored successfully from: %s", backup_path)
-                except Exception as restore_error:
-                    logger.critical("Backup restore FAILED: %s — database is in broken state!", restore_error)
-                    raise MigrationError(
-                        f"Migration failed AND backup restore failed. "
-                        f"Manual restore required from: {backup_path}"
-                    ) from create_error
-            raise MigrationError(
-                f"create_all() failed after DROP. Backup restored from: {backup_path}"
-            ) from create_error
-    except Exception:  # broad catch intentional — re-raised after logging; covers all DB/IO errors
+            raw_conn.isolation_level = None  # autocommit mode — PRAGMAs work here
+            cursor = raw_conn.cursor()
+            cursor.execute("PRAGMA foreign_keys=OFF")
+
+            # Verify PRAGMA actually took effect
+            cursor.execute("PRAGMA foreign_keys")
+            fk_status = cursor.fetchone()
+            if fk_status and fk_status[0] != 0:
+                raise MigrationError(
+                    "PRAGMA foreign_keys=OFF konnte nicht gesetzt werden. "
+                    "Migration abgebrochen um Datenverlust zu vermeiden."
+                )
+
+            # Determine which tables actually exist in the DB
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            existing_tables = {row[0] for row in cursor.fetchall()}
+
+            # Use the SQLite "rename-and-copy" pattern for each table:
+            # 1. ALTER TABLE x RENAME TO x_old_fk_backup
+            # 2. CREATE TABLE x (with correct FK CASCADE from SQLAlchemy metadata)
+            # 3. INSERT INTO x SELECT matching_columns FROM x_old_fk_backup
+            # 4. DROP TABLE x_old_fk_backup
+            # This preserves ALL data.
+            cursor.execute("BEGIN")
+            try:
+                for tname in table_names:
+                    if tname not in existing_tables:
+                        continue
+                    backup_tname = f"{tname}_old_fk_backup"
+
+                    # Step 1: Rename the old table
+                    cursor.execute(f'ALTER TABLE "{tname}" RENAME TO "{backup_tname}"')
+
+                    # Step 2: Create the new table with correct schema from models
+                    sa_table = Base.metadata.tables.get(tname)
+                    if sa_table is None:
+                        # Table not in models — rename back and skip
+                        cursor.execute(f'ALTER TABLE "{backup_tname}" RENAME TO "{tname}"')
+                        logger.warning("FK-Migration: Tabelle '%s' nicht in Modellen — uebersprungen", tname)
+                        continue
+
+                    create_ddl = _get_create_table_ddl(sa_table, raw_engine)
+                    cursor.execute(create_ddl)
+
+                    # Step 3: Copy data — use column intersection (old table may have
+                    # fewer columns than new schema, or columns may have been removed)
+                    cursor.execute(f'PRAGMA table_info("{backup_tname}")')
+                    old_columns = {row[1] for row in cursor.fetchall()}
+                    cursor.execute(f'PRAGMA table_info("{tname}")')
+                    new_columns = {row[1] for row in cursor.fetchall()}
+                    common_columns = sorted(old_columns & new_columns)
+
+                    if common_columns:
+                        cols_str = ", ".join(f'"{c}"' for c in common_columns)
+                        cursor.execute(
+                            f'INSERT INTO "{tname}" ({cols_str}) SELECT {cols_str} FROM "{backup_tname}"'
+                        )
+                        copied_rows = cursor.rowcount
+                        logger.info("FK-Migration: %s — %d Zeilen kopiert (%d Spalten)",
+                                    tname, copied_rows, len(common_columns))
+                    else:
+                        logger.warning("FK-Migration: %s — keine gemeinsamen Spalten, Tabelle leer", tname)
+
+                    # Step 4: Drop the old backup table
+                    cursor.execute(f'DROP TABLE "{backup_tname}"')
+
+                cursor.execute("COMMIT")
+            except Exception:
+                cursor.execute("ROLLBACK")
+                # After rollback, check if any _old_fk_backup tables remain
+                # and rename them back to recover
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE '%_old_fk_backup'")
+                orphaned = [row[0] for row in cursor.fetchall()]
+                for orphan in orphaned:
+                    original = orphan.replace("_old_fk_backup", "")
+                    try:
+                        # Drop the partially-created new table if it exists
+                        cursor.execute(f'DROP TABLE IF EXISTS "{original}"')
+                        cursor.execute(f'ALTER TABLE "{orphan}" RENAME TO "{original}"')
+                        logger.info("FK-Migration Rollback: '%s' -> '%s' wiederhergestellt", orphan, original)
+                    except Exception as rename_err:
+                        logger.error("FK-Migration Rollback fehlgeschlagen fuer '%s': %s", orphan, rename_err)
+                raise
+
+            # Re-enable foreign keys
+            cursor.execute("PRAGMA foreign_keys=ON")
+            cursor.close()
+        finally:
+            raw_conn.close()
+
+        # Create any tables that are in metadata but did not exist yet
+        Base.metadata.create_all(engine)
+
+    except MigrationError:
         logger.error("FK-CASCADE Migration FEHLGESCHLAGEN! Backup liegt unter: %s",
                      backup_path if db_path.exists() else "N/A")
         raise
-    logger.info("FK-CASCADE Migration abgeschlossen.")
+    except Exception:
+        logger.error("FK-CASCADE Migration FEHLGESCHLAGEN! Backup liegt unter: %s",
+                     backup_path if db_path.exists() else "N/A")
+        # Attempt automatic restore from backup
+        if backup_path and backup_path.exists():
+            try:
+                engine.dispose()
+                shutil.copy2(backup_path, db_path)
+                logger.info("Backup automatisch wiederhergestellt von: %s", backup_path)
+            except Exception as restore_error:
+                logger.critical("Backup-Wiederherstellung FEHLGESCHLAGEN: %s — Manuell wiederherstellen von: %s",
+                                restore_error, backup_path)
+        raise
+    logger.info("FK-CASCADE Migration abgeschlossen — alle Daten erhalten.")
 
 
 def _run_alembic_migrations():
@@ -421,18 +514,12 @@ def _seed_defaults():
                 StylePreset(name="Festival", cut_rate=1.8, energy_reactivity=1.0, breakdown_behavior="16beat", beat_weight=1.5, kick_weight=1.5, snare_weight=1.2, description="Maximum Energy, schnellste Cuts"),
             ]
             session.add_all(defaults)
-            try:
-                session.commit()
-            except Exception as e:  # broad catch intentional — SQLAlchemy commit can raise many error types
-                logger.error("Fehler beim Einfügen von Style-Presets: %s", e)
+            # M7-FIX: Kein expliziter commit() — __exit__ macht auto-commit
 
     with nullpool_session() as session:
         if not session.query(Project).first():
             session.add(Project(name="Default", path=".", resolution="1920x1080", fps=30.0))
-            try:
-                session.commit()
-            except Exception as e:  # broad catch intentional — SQLAlchemy commit can raise many error types
-                logger.error("Fehler beim Einfügen des Standard-Projekts: %s", e)
+            # M7-FIX: Kein expliziter commit() — __exit__ macht auto-commit
 
 
 def init_db():

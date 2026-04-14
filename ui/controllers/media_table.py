@@ -40,6 +40,7 @@ class MediaTableController(PBComponent):
         """Aktualisiert die Medien-Listen asynchron (Fix F-028)."""
         class DBFetchWorker(QObject):
             finished = Signal(list, list)
+            error = Signal(str)
             def run(self):
                 try:
                     from services.ingest_service import get_all_audio, get_all_video
@@ -48,6 +49,7 @@ class MediaTableController(PBComponent):
                     self.finished.emit(v, a)
                 except Exception as e:
                     logger.error("Fehler beim asynchronen DB-Fetch: %s", e)
+                    self.error.emit(str(e))
 
         worker = DBFetchWorker()
         worker.finished.connect(lambda v, a: self._apply_refreshed_data(v, a, _also_combos))

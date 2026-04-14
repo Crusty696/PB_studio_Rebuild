@@ -155,17 +155,17 @@ class ProjectManager(QObject):
             )
 
         # Read project meta directly via sqlite3 (no ORM dependency)
+        # H12-FIX: with-Statement statt manuelles conn.close() — verhindert Connection Leak bei Exception
         meta = {"name": path.name, "resolution": "1920x1080", "fps": 30.0}
         try:
-            conn = sqlite3.connect(str(db_file))
-            row = conn.execute(
-                "SELECT name, resolution, fps FROM projects LIMIT 1"
-            ).fetchone()
-            conn.close()
-            if row:
-                meta["name"] = row[0] or path.name
-                meta["resolution"] = row[1] or "1920x1080"
-                meta["fps"] = row[2] or 30.0
+            with sqlite3.connect(str(db_file)) as conn:
+                row = conn.execute(
+                    "SELECT name, resolution, fps FROM projects LIMIT 1"
+                ).fetchone()
+                if row:
+                    meta["name"] = row[0] or path.name
+                    meta["resolution"] = row[1] or "1920x1080"
+                    meta["fps"] = row[2] or 30.0
         except (OSError, sqlite3.Error, ValueError) as exc:
             logger.warning("Projekt-Meta konnte nicht gelesen werden: %s", exc)
 

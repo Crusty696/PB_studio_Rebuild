@@ -27,8 +27,12 @@ logger = logging.getLogger(__name__)
 # In torch 1.12 ist es ein normaler RuntimeError.
 def _is_cuda_oom(exc: Exception) -> bool:
     """Prueft ob eine Exception ein CUDA OOM ist (kompatibel mit torch 1.12+)."""
+    # H20 FIX: torch ist auf Modul-Ebene None bis _ensure_torch() laeuft
+    if torch is None:
+        return False
+    # K6 FIX: Pruefe auf torch.cuda.OutOfMemoryError (nicht alle RuntimeErrors!)
     if hasattr(torch, 'cuda') and hasattr(torch.cuda, 'OutOfMemoryError'):
-        return isinstance(exc, RuntimeError)
+        return isinstance(exc, torch.cuda.OutOfMemoryError)
     return isinstance(exc, RuntimeError) and "out of memory" in str(exc).lower()
 
 # Globaler GPU-Semaphore: Serialisiert alle GPU-Modell-Lade-Operationen
@@ -99,9 +103,12 @@ def oom_recovery(func):
                 # Kurze Pause damit Treiber/OS sich fangen kann
                 _time.sleep(wait_time)
 
-        # H-6 FIX: Return None if all retries exhausted without raising
-        # (should not normally reach here, but explicit is better than implicit)
-        return None
+        # H21 FIX: Alle Retries erschoepft — letzte Exception werfen statt None
+        # zurueckzugeben, da Caller oft ein Tuple erwarten und sonst mit
+        # TypeError crashen.
+        raise RuntimeError(
+            f"OOM in {func.__name__}: Alle {max_retries} Retries erschoepft."
+        )
 
     return wrapper
 
@@ -177,14 +184,15 @@ class ModelManager:
         except (ImportError, Exception) as exc:
             logger.debug("GPU Error-47 Recovery uebersprungen: %s", exc)
 
-        # Versuche CUDA initialisierung zu erzwingen um echte Fehler zu sehen
+        # H3 FIX: NICHT torch.cuda.init() aufrufen — das erzeugt einen
+        # zweiten CUDA-Kontext (+200-300MB VRAM) wenn main.py bereits
+        # den Kontext initialisiert hat. is_available() genuegt.
         cuda_ok = False
         cuda_error = ""
         try:
             cuda_ok = torch.cuda.is_available()
             if not cuda_ok:
-                # Prüfen ob CUDA-DLLs fehlen
-                torch.cuda.init() # Erzwingt init
+                cuda_error = "torch.cuda.is_available() returned False"
         except Exception as e:
             cuda_error = str(e)
             cuda_ok = False
@@ -594,9 +602,11 @@ class ModelManager:
             self._pause_ollama_if_active()
 
             try:
-                # SigLIP (~2.5 GB) + RAFT (~0.1 GB) passt auf 6 GB — Koexistenz erlaubt
-                if self._model_type != "siglip":
-                    self.unload()
+                # H17 FIX: IMMER entladen bevor RAFT geladen wird.
+                # Vorher wurde SigLIP nicht entladen (Koexistenz-Versuch),
+                # aber der ModelManager tracked nur EIN Modell (_current_model_id).
+                # Nach RAFT-Load ging die SigLIP-Referenz verloren (2.5GB VRAM-Leak).
+                self.unload()
 
                 # F-011: Proaktiver OOM-Check vor Laden (RAFT ist klein, aber Sicherheit)
                 self._handle_oom_prevention("RAFT Small laden")

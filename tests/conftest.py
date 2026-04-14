@@ -73,6 +73,8 @@ def test_engine(monkeypatch):
             mod = importlib.import_module(mod_name)
             if hasattr(mod, "engine"):
                 monkeypatch.setattr(mod, "engine", engine)
+            if hasattr(mod, "nullpool_session"):
+                monkeypatch.setattr(mod, "nullpool_session", _test_nullpool)
         except ImportError:
             pass
 

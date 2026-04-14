@@ -37,22 +37,30 @@ class EngineProxy:
     dispose the old one.  All existing references (``Session(engine)``,
     ``Base.metadata.create_all(engine)``) keep working because they go
     through this proxy.
+
+    M6-FIX: RLock schuetzt swap() und alle Zugriffe, damit andere Threads
+    waehrend eines swap() nicht die alte (disposed) Engine erwischen.
     """
 
     def __init__(self, real_engine):
         object.__setattr__(self, '_engine', real_engine)
+        object.__setattr__(self, '_lock', threading.RLock())
 
     def __getattr__(self, name):
-        return getattr(object.__getattribute__(self, '_engine'), name)
+        with object.__getattribute__(self, '_lock'):
+            return getattr(object.__getattribute__(self, '_engine'), name)
 
     def __setattr__(self, name, value):
         """Delegate attribute setting to the real engine."""
-        setattr(object.__getattribute__(self, '_engine'), name, value)
+        with object.__getattribute__(self, '_lock'):
+            setattr(object.__getattribute__(self, '_engine'), name, value)
 
     def swap(self, new_engine):
         """Atomically replace the wrapped engine; dispose the old one."""
-        old = object.__getattribute__(self, '_engine')
-        object.__setattr__(self, '_engine', new_engine)
+        with object.__getattribute__(self, '_lock'):
+            old = object.__getattribute__(self, '_engine')
+            object.__setattr__(self, '_engine', new_engine)
+        # dispose() ausserhalb des Locks — kann langsam sein und braucht keinen Lock
         try:
             old.dispose()
         except Exception as e:  # broad catch intentional — dispose() can raise various engine errors
@@ -60,25 +68,31 @@ class EngineProxy:
 
     # Explicit delegates needed for SQLAlchemy internals that bypass __getattr__:
     def connect(self, *a, **kw):
-        return object.__getattribute__(self, '_engine').connect(*a, **kw)
+        with object.__getattribute__(self, '_lock'):
+            return object.__getattribute__(self, '_engine').connect(*a, **kw)
 
     def begin(self, *a, **kw):
-        return object.__getattribute__(self, '_engine').begin(*a, **kw)
+        with object.__getattribute__(self, '_lock'):
+            return object.__getattribute__(self, '_engine').begin(*a, **kw)
 
     def dispose(self, *a, **kw):
-        return object.__getattribute__(self, '_engine').dispose(*a, **kw)
+        with object.__getattribute__(self, '_lock'):
+            return object.__getattribute__(self, '_engine').dispose(*a, **kw)
 
     @property
     def dialect(self):
-        return object.__getattribute__(self, '_engine').dialect
+        with object.__getattribute__(self, '_lock'):
+            return object.__getattribute__(self, '_engine').dialect
 
     @property
     def url(self):
-        return object.__getattribute__(self, '_engine').url
+        with object.__getattribute__(self, '_lock'):
+            return object.__getattribute__(self, '_engine').url
 
     @property
     def pool(self):
-        return object.__getattribute__(self, '_engine').pool
+        with object.__getattribute__(self, '_lock'):
+            return object.__getattribute__(self, '_engine').pool
 
 
 def _make_engine(db_path: Path):
@@ -113,6 +127,17 @@ def _make_engine(db_path: Path):
         cursor.execute("PRAGMA synchronous=NORMAL")  # WAL-optimiert: fsync nur bei Checkpoint
         cursor.execute(f"PRAGMA busy_timeout={DB_BUSY_TIMEOUT_ANALYSIS_MS}")  # 120s warten bei locked DB (Multi-Worker + lange Analyse)
         cursor.close()
+
+    # Pool-Diagnose: Logge Warnung wenn Pool-Overflow-Bereich erreicht wird
+    _pool_max = eng.pool.size() + eng.pool._max_overflow
+    @event.listens_for(eng.pool, "checkout")
+    def _on_pool_checkout(dbapi_connection, connection_record, connection_proxy):
+        checked_out = eng.pool.checkedout()
+        if checked_out >= eng.pool.size():  # Overflow-Bereich erreicht
+            logger.warning(
+                "[DB-Pool] Hohe Auslastung: %d/%d Connections checked out",
+                checked_out, _pool_max,
+            )
 
     return eng
 
@@ -171,26 +196,36 @@ def nullpool_session():
 
 
 class _NullPoolSessionContext:
-    """Context-Manager fuer NullPool-Sessions. Disposed die Engine beim Verlassen."""
+    """Context-Manager fuer NullPool-Sessions. Disposed die Engine beim Verlassen.
+
+    M5-FIX: Auto-Commit wird uebersprungen wenn der Caller bereits explizit
+    ``session.commit()`` oder ``session.rollback()`` aufgerufen hat. Dadurch
+    werden doppelte Commits und Commits nach Rollback vermieden.
+    """
 
     def __init__(self, eng):
         self._eng = eng
         self._session = None
+        self._explicitly_committed = False
+        self._explicitly_rolled_back = False
 
     def __enter__(self):
-        self._session = Session(self._eng)
+        self._session = _TrackedSession(self._eng, self)
         return self._session
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         try:
             if self._session is not None:
                 if exc_type is not None:
-                    try:
-                        self._session.rollback()
-                    except Exception as rb_err:  # broad catch intentional — rollback itself can fail on closed connection
-                        logger.warning("session.rollback() fehlgeschlagen: %s", rb_err)
-                else:
-                    # Auto-commit if no exception occurred
+                    # Exception im with-Block: Rollback
+                    if not self._explicitly_rolled_back:
+                        try:
+                            self._session.rollback()
+                        except Exception as rb_err:  # broad catch intentional — rollback itself can fail on closed connection
+                            logger.warning("session.rollback() fehlgeschlagen: %s", rb_err)
+                elif not self._explicitly_committed and not self._explicitly_rolled_back:
+                    # M5-FIX: Auto-commit NUR wenn weder commit() noch rollback()
+                    # explizit aufgerufen wurden
                     try:
                         self._session.commit()
                     except Exception as commit_err:  # broad catch intentional — commit can fail on DB constraints
@@ -210,16 +245,39 @@ class _NullPoolSessionContext:
         return False
 
 
-def get_active_project_id() -> int:
-    """Gibt die ID des aktiven Projekts zurueck (erstes in der DB, Default=1)."""
+class _TrackedSession(Session):
+    """M5-FIX: Session-Subklasse die commit/rollback Aufrufe tracked."""
+
+    def __init__(self, eng, ctx: _NullPoolSessionContext):
+        super().__init__(eng)
+        self._ctx = ctx
+
+    def commit(self):
+        self._ctx._explicitly_committed = True
+        return super().commit()
+
+    def rollback(self):
+        self._ctx._explicitly_rolled_back = True
+        return super().rollback()
+
+
+def get_active_project_id() -> int | None:
+    """Gibt die ID des aktiven Projekts zurueck (erstes in der DB, oder None).
+
+    H9-FIX: Kein Fallback auf ID=1 mehr — das konnte auf ein nicht-existentes
+    Projekt verweisen. Caller muessen mit None umgehen koennen.
+    """
     try:
         from database.models import Project
         with Session(engine) as s:
             proj = s.query(Project).filter(Project.deleted_at.is_(None)).first()
-            return proj.id if proj else 1
+            if proj is not None:
+                return proj.id
+            logger.warning("get_active_project_id(): Kein aktives Projekt in der DB gefunden")
+            return None
     except Exception as e:  # broad catch intentional — fallback if DB is unavailable at startup
-        logger.warning("get_active_project_id() failed, returning default project_id=1: %s", e)
-        return 1
+        logger.warning("get_active_project_id() failed: %s", e)
+        return None
 
 
 def _patch_service_paths(project_path: Path):
@@ -227,11 +285,10 @@ def _patch_service_paths(project_path: Path):
     new project folder.  Uses ``sys.modules`` so already-imported modules
     get updated in-place.
     """
-    # video_service, convert_service, video_analysis_service no longer need patching
+    # ai_audio_service, export_service, timeline_service, video_service,
+    # convert_service, video_analysis_service no longer need patching
     # — they use lazy getter functions that re-read APP_ROOT at call time (BUG-002 fix)
     patches = {
-        "services.ai_audio_service": {"STEMS_DIR": project_path / "storage" / "stems"},
-        "services.export_service": {"EXPORT_DIR": project_path / "exports"},
         "services.vector_db_service": {
             "DB_DIR": project_path / "data" / "vector",
             "DB_FILE": project_path / "data" / "vector" / "embeddings.db",

@@ -214,7 +214,7 @@ class BatchConvertWorker(QObject, CancellableMixin):
             # Whitelist known safe video codecs
             ALLOWED_VCODECS = {
                 "libx264", "libx265", "h264_nvenc", "hevc_nvenc",
-                "libvpx", "libvpx-vp9", "libaom-av1", "copy"
+                "libvpx", "libvpx-vp9", "libaom-av1", "prores_ks", "copy"
             }
             if self.vcodec not in ALLOWED_VCODECS:
                 raise ValueError(

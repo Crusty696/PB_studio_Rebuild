@@ -460,6 +460,13 @@ class PBWindow(QMainWindow):
         self._active_workers.clear()
         _GLOBAL_ACTIVE_THREADS.clear()
 
+        # M-9 Fix: Stop version check thread with timeout guard
+        if hasattr(self, '_version_checker') and self._version_checker is not None:
+            if self._version_checker.isRunning():
+                self._version_checker.quit()
+                if not self._version_checker.wait(2000):  # 2 second timeout
+                    logger.warning("Version check thread did not stop gracefully")
+
         # 7. Video & Audio Cleanup
         if hasattr(self, "video_preview"):
             try:
@@ -767,6 +774,12 @@ def main():
                 _ai_status = '● AI ready' if OllamaService.get().is_ready else '● AI loading...'
                 window.status_bar.showMessage(f"System bereit | {status.status_bar_text()} | {_ai_status}")
                 window.console_text.append(f"[System] {status.status_bar_text()}")
+                # FIX H-4: Show startup check dialog if there are errors or warnings
+                from ui.dialogs.startup_check_dialog import maybe_show_startup_dialog
+                if not maybe_show_startup_dialog(status, window):
+                    # User chose "Beenden" — exit the application
+                    app.quit()
+                    return
                 # 3. Timeline laden wenn alles bereit ist
                 window.timeline_view.load_from_db()
                 window._startup_check_thread.quit()

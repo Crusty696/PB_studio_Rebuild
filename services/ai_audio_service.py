@@ -25,13 +25,20 @@ try:
     _TORCH_AVAILABLE = True
 except ImportError:
     _TORCH_AVAILABLE = False
-from database import engine, AudioTrack, WaveformData, APP_ROOT, nullpool_session
+from database import engine, AudioTrack, WaveformData, nullpool_session
 
 from services.model_manager import ModelManager, oom_recovery
 
 logger = logging.getLogger(__name__)
 
-STEMS_DIR = APP_ROOT / "storage" / "stems"
+def _get_stems_dir() -> Path:
+    """Return stems directory for the current project (lazy APP_ROOT read).
+
+    BUG-FIX: Was module-level constant that became stale after set_project().
+    Now reads APP_ROOT at call time so project switches are respected.
+    """
+    import database.session as _session
+    return _session.APP_ROOT / "storage" / "stems"
 
 
 def _sanitize_ffmpeg_error(stderr: str, max_lines: int = 3) -> str:
@@ -71,7 +78,7 @@ class StemSeparator:
         import torch  # noqa: F811 — überschreibt lokalen Scope bewusst
         import torchaudio  # noqa: F811
 
-        STEMS_DIR.mkdir(parents=True, exist_ok=True)
+        _get_stems_dir().mkdir(parents=True, exist_ok=True)
         src = Path(file_path)
 
         # ── 1. VRAM freigeben: alle anderen Modelle entladen ──
@@ -325,7 +332,7 @@ class StemSeparator:
             progress_cb(90, "Speichere Stems als WAV...")
 
         # ── 7. Stems als WAV speichern ──
-        stem_dir = STEMS_DIR / model / src.stem
+        stem_dir = _get_stems_dir() / model / src.stem
         stem_dir.mkdir(parents=True, exist_ok=True)
 
         # A-02: result_stems ist bereits float32 (kein float16-Pfad mehr)
@@ -660,17 +667,17 @@ class FrequencyAnalyzer:
                     if existing_wd:
                         existing_wd.num_samples = result["num_samples"]
                         existing_wd.duration = result["duration"]
-                        existing_wd.band_low = json.dumps(result["band_low"])
-                        existing_wd.band_mid = json.dumps(result["band_mid"])
-                        existing_wd.band_high = json.dumps(result["band_high"])
+                        existing_wd.band_low = result["band_low"]
+                        existing_wd.band_mid = result["band_mid"]
+                        existing_wd.band_high = result["band_high"]
                     else:
                         wd = WaveformData(
                             audio_track_id=track_id,
                             num_samples=result["num_samples"],
                             duration=result["duration"],
-                            band_low=json.dumps(result["band_low"]),
-                            band_mid=json.dumps(result["band_mid"]),
-                            band_high=json.dumps(result["band_high"]),
+                            band_low=result["band_low"],
+                            band_mid=result["band_mid"],
+                            band_high=result["band_high"],
                         )
                         session.add(wd)
 

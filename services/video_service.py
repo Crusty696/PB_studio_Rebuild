@@ -20,8 +20,8 @@ logger = logging.getLogger(__name__)
 
 def _proxy_dir() -> Path:
     """Returns proxy directory for the current project (lazy APP_ROOT read)."""
-    from database import APP_ROOT
-    return APP_ROOT / "storage" / "proxies"
+    import database.session as _session
+    return _session.APP_ROOT / "storage" / "proxies"
 
 
 def _sanitize_ffmpeg_error(stderr: str, max_lines: int = 3) -> str:
@@ -144,7 +144,9 @@ class VideoAnalyzer:
         """
         # 1) Erste Session: file_path laden, sofort schließen
         with Session(engine) as session:
-            clip = session.get(VideoClip, clip_id)
+            clip = session.query(VideoClip).filter(
+                VideoClip.id == clip_id, VideoClip.deleted_at.is_(None)
+            ).first()
             if clip is None:
                 raise ValueError(f"VideoClip {clip_id} nicht gefunden")
             file_path = clip.file_path
@@ -162,7 +164,9 @@ class VideoAnalyzer:
             # 3) NullPool-Session: Metadaten sofort committen (verhindert DB-Lock)
             from database import nullpool_session
             with nullpool_session() as session:
-                clip = session.get(VideoClip, clip_id)
+                clip = session.query(VideoClip).filter(
+                    VideoClip.id == clip_id, VideoClip.deleted_at.is_(None)
+                ).first()
                 if clip is None:
                     raise ValueError(f"VideoClip {clip_id} nach ffprobe nicht mehr gefunden")
                 clip.width = info["width"]
@@ -196,7 +200,9 @@ class VideoAnalyzer:
 
             # 5) NullPool-Session: Proxy-Pfad committen
             with nullpool_session() as session:
-                clip = session.get(VideoClip, clip_id)
+                clip = session.query(VideoClip).filter(
+                    VideoClip.id == clip_id, VideoClip.deleted_at.is_(None)
+                ).first()
                 if clip is None:
                     raise ValueError(f"VideoClip {clip_id} nach Proxy-Erstellung nicht mehr gefunden")
                 clip.proxy_path = proxy

@@ -105,11 +105,11 @@ class VideoPreviewWidget(QLabel):
                 old_thread.finished.disconnect(self._on_frame_thread_finished)
             except (RuntimeError, TypeError) as exc:
                 logger.warning("VideoPreviewWidget.load: failed to disconnect old worker signals: %s", exc)
-            old_thread.quit()
-            old_thread.wait(500)
+            # H-24 Fix: Asynchrones Cleanup statt blockierendem wait(500)
             if old_worker is not None:
-                old_worker.deleteLater()
-            old_thread.deleteLater()
+                old_thread.finished.connect(old_worker.deleteLater)
+            old_thread.finished.connect(old_thread.deleteLater)
+            old_thread.quit()
             self._frame_thread = None
             self._frame_worker = None
 

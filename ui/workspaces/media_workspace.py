@@ -1364,14 +1364,19 @@ class MediaWorkspace(QWidget):
         mood = get("mood", None)
         self._lbl_mood.setText(f"Mood: {mood}" if mood else "Mood: --")
         energy = get("energy", None)
-        if energy and isinstance(energy, str) and energy.startswith("["):
-            # energy_curve ist ein JSON-Array — Durchschnitt anzeigen statt rohen String
+        if energy and isinstance(energy, (list, tuple)):
+            # H7-FIX: Column(JSON) liefert direkt eine Liste
+            vals = energy
+            avg = sum(vals) / len(vals) if vals else 0
+            self._lbl_energy.setText(f"Energy: {avg:.2f} avg ({len(vals)} pts)")
+        elif energy and isinstance(energy, str) and energy.startswith("["):
+            # Backward-compat: alte doppelt-serialisierte Daten
             try:
                 import json as _json
                 vals = _json.loads(energy)
                 avg = sum(vals) / len(vals) if vals else 0
                 self._lbl_energy.setText(f"Energy: {avg:.2f} avg ({len(vals)} pts)")
-            except (json.JSONDecodeError, ValueError):
+            except (ValueError, TypeError):
                 self._lbl_energy.setText("Energy: vorhanden")
         elif energy:
             self._lbl_energy.setText(f"Energy: {energy}")

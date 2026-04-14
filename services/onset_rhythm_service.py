@@ -499,7 +499,9 @@ class OnsetRhythmService:
             progress_cb(0, "Lade Audio für Rhythmus-Analyse...")
 
         with Session(engine) as session:
-            track = session.get(AudioTrack, track_id)
+            track = session.query(AudioTrack).filter(
+                AudioTrack.id == track_id, AudioTrack.deleted_at.is_(None)
+            ).first()
             if track is None:
                 logger.warning("OnsetRhythmService: AudioTrack %d nicht gefunden", track_id)
                 return None
@@ -550,9 +552,11 @@ class OnsetRhythmService:
         """Persistiert Onset-Daten im Beatgrid-Eintrag der DB."""
         from database import Beatgrid, nullpool_session
 
-        kick_json = json.dumps([[o.time, o.strength] for o in analysis.onsets_kick])
-        snare_json = json.dumps([[o.time, o.strength] for o in analysis.onsets_snare])
-        hihat_json = json.dumps([[o.time, o.strength] for o in analysis.onsets_hihat])
+        # H7-FIX: Kein json.dumps() — Spalten sind Column(JSON),
+        # SQLAlchemy serialisiert automatisch.
+        kick_data = [[o.time, o.strength] for o in analysis.onsets_kick]
+        snare_data = [[o.time, o.strength] for o in analysis.onsets_snare]
+        hihat_data = [[o.time, o.strength] for o in analysis.onsets_hihat]
 
         with nullpool_session() as session:
             bg = session.query(Beatgrid).filter_by(audio_track_id=track_id).first()
@@ -564,9 +568,9 @@ class OnsetRhythmService:
                 )
                 return
 
-            bg.onset_kick_data = kick_json
-            bg.onset_snare_data = snare_json
-            bg.onset_hihat_data = hihat_json
+            bg.onset_kick_data = kick_data
+            bg.onset_snare_data = snare_data
+            bg.onset_hihat_data = hihat_data
             bg.syncopation_score = analysis.syncopation_score
             bg.groove_template = analysis.groove_template
             session.commit()
@@ -599,10 +603,20 @@ class OnsetRhythmService:
             if not bg.onset_kick_data:
                 return None
 
+            # H7-FIX: Column(JSON) deserialisiert automatisch — json.loads() nicht noetig.
+            # Backward-compat: Falls alte Daten als doppelt-serialisierter String vorliegen,
+            # wird json.loads() als Fallback versucht.
             try:
-                kick_raw = json.loads(bg.onset_kick_data or "[]")
-                snare_raw = json.loads(bg.onset_snare_data or "[]")
-                hihat_raw = json.loads(bg.onset_hihat_data or "[]")
+                kick_raw = bg.onset_kick_data or []
+                snare_raw = bg.onset_snare_data or []
+                hihat_raw = bg.onset_hihat_data or []
+                # Backward-compat: alte Daten koennten noch als String vorliegen
+                if isinstance(kick_raw, str):
+                    kick_raw = json.loads(kick_raw)
+                if isinstance(snare_raw, str):
+                    snare_raw = json.loads(snare_raw)
+                if isinstance(hihat_raw, str):
+                    hihat_raw = json.loads(hihat_raw)
             except (json.JSONDecodeError, TypeError) as e:
                 logger.warning("Onset-Daten konnten nicht geladen werden: %s", e)
                 return None

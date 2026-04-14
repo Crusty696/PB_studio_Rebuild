@@ -333,9 +333,29 @@ class AudioAnalysisController(PBComponent):
 
     def _run_next_sequential_step(self):
         """Startet den naechsten Schritt in der sequentiellen Analyse-Queue."""
+        try:
+            self._run_next_sequential_step_inner()
+        except Exception as exc:
+            # K11 FIX: _seq_running IMMER zuruecksetzen bei unerwarteten Exceptions,
+            # damit der Button nicht dauerhaft blockiert bleibt.
+            logger.error("[Komplett] Unerwarteter Fehler in Analyse-Kette: %s", exc, exc_info=True)
+            self._seq_running = False
+            try:
+                self.window._media_ws.btn_analyze_all.setEnabled(True)
+                self.window._media_ws.btn_analyze_all.setText("KOMPLETT-ANALYSE")
+                self.window.progress_bar.setVisible(False)
+                self.window.console_text.append(
+                    f"[Komplett] Analyse abgebrochen wegen Fehler: {exc}"
+                )
+            except Exception:
+                pass  # UI evtl. schon zerstoert
+
+    def _run_next_sequential_step_inner(self):
+        """Innere Implementierung der sequentiellen Analyse-Queue."""
         # F-046 Fix: Abbrechen wenn Fenster nicht mehr da oder versteckt (Shutdown-Schutz)
         if not self.window or not self.window.isVisible():
             logger.info("[Komplett] Analyse-Kette abgebrochen (Fenster nicht aktiv).")
+            self._seq_running = False
             return
 
         if self._seq_index >= self._seq_total:
@@ -359,11 +379,10 @@ class AudioAnalysisController(PBComponent):
         self.window.progress_bar.setValue(self._seq_index)
         self.window.console_text.append(f"[Komplett] Schritt {self._seq_index + 1}/{self._seq_total}: {step_name}...")
 
-        try:
-            from database import engine
-            engine.dispose()
-        except (ImportError, OSError, RuntimeError) as exc:
-            logger.warning("_on_sequential_step_done: failed to dispose DB engine: %s", exc)
+        # K11 FIX: engine.dispose() ENTFERNT — schloss ALLE Pool-Connections
+        # inklusive derer von anderen Threads. Connection-Leaks werden jetzt
+        # durch korrekte Session-Nutzung (with-Blocks) verhindert, nicht durch
+        # Pool-Reset zwischen Schritten.
 
         try:
             worker = worker_factory()
@@ -391,6 +410,8 @@ class AudioAnalysisController(PBComponent):
     def _on_seq_step_done(self, step_name: str, success: bool):
         # F-046 Fix: Abbrechen wenn Fenster nicht mehr aktiv
         if not self.window or not self.window.isVisible():
+            # K11 FIX: _seq_running zuruecksetzen auch bei Fenster-Abbruch
+            self._seq_running = False
             return
 
         if success:

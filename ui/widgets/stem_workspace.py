@@ -63,6 +63,7 @@ class StemWorkspace(QWidget):
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
+        self._is_being_destroyed = False  # M1-FIX: Flag fuer endgueltiges Destroy
         self.setObjectName("stem_workspace")
         self.setAccessibleName("STEMS Workspace")
         self.setWhatsThis(
@@ -399,10 +400,21 @@ class StemWorkspace(QWidget):
             track.reset()
 
     def closeEvent(self, event):
-        """Cleanup beim Schließen der StemWorkspace — Bug #26 Fix"""
-        # Disconnect signals wenn noch verbunden
+        """Cleanup beim Schliessen der StemWorkspace — Bug #26 Fix.
+
+        M1-FIX: Nur beim endgueltigen Destroy (nicht bei Tab-/Workspace-Wechsel)
+        Signale disconnecten. ``event.spontaneous()`` ist True bei Fenster-Close
+        durch den Window-Manager, aber bei programmatischem hide/show ist es False.
+        Stattdessen pruefen wir, ob das Widget tatsaechlich zerstoert wird
+        (d.h. nicht nur versteckt).
+        """
+        if not self._is_being_destroyed:
+            # Nur versteckt (z.B. Tab-Wechsel) — Signale intakt lassen
+            super().closeEvent(event)
+            return
+
+        # Endgueltiger Destroy — Signale und Threads aufraeumen
         try:
-            # Main Workspace signals
             self.stem_volume_changed.disconnect()
             self.stem_mute_toggled.disconnect()
             self.play_requested.disconnect()
@@ -422,3 +434,8 @@ class StemWorkspace(QWidget):
             logger.warning("StemWorkspace.closeEvent: failed to cleanup peak threads: %s", exc)
 
         super().closeEvent(event)
+
+    def destroy_workspace(self):
+        """Explizit aufrufen wenn das Widget endgueltig zerstoert werden soll."""
+        self._is_being_destroyed = True
+        self.close()

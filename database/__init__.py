@@ -5,7 +5,6 @@
 from sqlalchemy.orm import Session  # noqa: F401  (re-export für project_manager)
 
 from database.session import (  # noqa: F401
-    APP_ROOT,
     EngineProxy,
     engine,
     get_raw_engine,
