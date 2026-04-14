@@ -114,3 +114,73 @@ def try_memory_allocated(device: int = 0) -> float | None:
     except Exception as exc:
         logger.debug("try_memory_allocated failed: %s", exc)
         return None
+
+
+def detect_stuck_driver() -> tuple[bool, str]:
+    """Erkennt, ob der CUDA-Driver im "stuck" Zustand ist.
+
+    Typisches Symptom nach hartem Kill eines CUDA-Workloads:
+      - torch.cuda.is_available() = False
+      - Unmittelbar nach Treiber-Install/Reset waere True erwartet
+      - Error-Msg enthaelt "CUDA unknown error" oder "CUDA initialization"
+
+    Returns:
+        (is_stuck, error_message)
+    """
+    try:
+        import torch  # type: ignore
+    except Exception as exc:
+        return False, f"torch import failed: {exc}"
+
+    # Wenn kein CUDA-compiled, kein Stuck-Zustand — ist einfach CPU-only
+    if not getattr(torch.version, "cuda", ""):
+        return False, "torch ohne CUDA kompiliert"
+
+    # Forcieren eines frischen Init-Versuchs. Wenn der Treiber stuck ist,
+    # wirft torch hier typischerweise einen "CUDA unknown error" UserWarning
+    # und gibt False zurueck.
+    import warnings
+    captured = []
+    with warnings.catch_warnings(record=True) as ws:
+        warnings.simplefilter("always")
+        try:
+            available = bool(torch.cuda.is_available())
+        except Exception as exc:
+            return True, f"is_available() raised: {exc}"
+        for w in ws:
+            msg = str(w.message)
+            if "CUDA" in msg and ("unknown error" in msg or "initialization" in msg):
+                captured.append(msg)
+
+    if available:
+        return False, "OK"
+    if captured:
+        return True, captured[0][:200]
+    # CUDA compiled aber nicht verfuegbar — koennte auch fehlender Treiber sein,
+    # das ist dann NICHT stuck. Wir geben False zurueck damit der User nicht
+    # einen Recovery-Prompt bekommt, wenn er einfach keine NVIDIA-GPU hat.
+    return False, "torch.cuda.is_available() = False (kein Treiber-Fehler erkannt)"
+
+
+def run_recovery_script() -> bool:
+    """Startet scripts/cuda_recovery.ps1 via UAC-Elevation.
+
+    Gibt True zurueck wenn der Subprozess sauber gestartet wurde (der User
+    muss den UAC-Dialog bestaetigen; der Erfolg der Recovery ist damit nicht
+    garantiert).
+    """
+    import subprocess
+    from pathlib import Path
+    script = Path(__file__).resolve().parent.parent / "scripts" / "cuda_recovery.ps1"
+    if not script.exists():
+        logger.warning("cuda_recovery.ps1 nicht gefunden: %s", script)
+        return False
+    try:
+        subprocess.Popen(
+            ["powershell.exe", "-ExecutionPolicy", "Bypass", "-File", str(script)],
+            creationflags=0x00000008 if hasattr(subprocess, "DETACHED_PROCESS") else 0,  # DETACHED_PROCESS
+        )
+        return True
+    except Exception as exc:
+        logger.warning("cuda_recovery.ps1 start failed: %s", exc)
+        return False

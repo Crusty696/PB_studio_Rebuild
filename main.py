@@ -192,6 +192,15 @@ class PBWindow(QMainWindow):
         self._refresh_pending = False
         self._dirty = False  # AUD-108: unsaved changes tracking
 
+        # P8-CUDA-FIX: Wenn der Boot CUDA als stuck erkannt hat (siehe main()),
+        # bieten wir dem User sofort den Recovery-Dialog an. Der kann ihn auch
+        # ablehnen → App laeuft dann mit CPU-Fallback weiter.
+        import os as _os_stuck
+        if _os_stuck.environ.get("PB_STUDIO_CUDA_STUCK") == "1":
+            # Dialog nachladen via QTimer, damit der ctor zuerst durchlaeuft
+            from PySide6.QtCore import QTimer as _QTStuck
+            _QTStuck.singleShot(500, self._offer_cuda_recovery)
+
         # Controllers (Composition instead of Mixins)
         self.worker_dispatcher = WorkerDispatcherController(self)
         self.audio_analysis = AudioAnalysisController(self)
@@ -381,6 +390,54 @@ class PBWindow(QMainWindow):
     def _mark_dirty(self):
         self.project_management._mark_dirty()
 
+    def _offer_cuda_recovery(self):
+        """P8-CUDA-FIX: Dialog bei stuck CUDA-Driver, bietet Recovery an.
+
+        Recovery-Script braucht Admin-Rechte (UAC-Prompt). Wenn der User
+        akzeptiert, wird die GPU disabled + enabled und die App-Session
+        weiterlaufen mit CPU-Fallback. Beim naechsten App-Start ist CUDA
+        wieder aktiv.
+        """
+        try:
+            from PySide6.QtWidgets import QMessageBox
+            import os as _os
+            err = _os.environ.get("PB_STUDIO_CUDA_ERR", "CUDA unknown error")
+            reply = QMessageBox.warning(
+                self,
+                "CUDA-Treiber blockiert",
+                "Der NVIDIA-Treiber meldet einen stuck state:\n\n"
+                f"  {err}\n\n"
+                "Das passiert nach einem harten Prozess-Kill waehrend "
+                "aktivem CUDA-Workload. Fuer diese Session laeuft die App "
+                "mit CPU-Fallback.\n\n"
+                "Jetzt automatisch reparieren?\n"
+                "(Es wird ein UAC-Dialog folgen; Klick dort auf 'Ja'.\n"
+                " Die GPU wird kurz deaktiviert und wieder aktiviert —\n"
+                " kein Neustart noetig.)",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes,
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                from services.gpu_info import run_recovery_script
+                if run_recovery_script():
+                    QMessageBox.information(
+                        self, "CUDA-Recovery gestartet",
+                        "Das Recovery-Script laeuft jetzt in einem separaten Fenster.\n"
+                        "Nach Abschluss: App bitte neu starten, damit CUDA erkannt wird.",
+                    )
+                else:
+                    QMessageBox.critical(
+                        self, "Recovery fehlgeschlagen",
+                        "Das Recovery-Script konnte nicht gestartet werden.\n"
+                        "Bitte manuell ausfuehren:\n"
+                        "  scripts\\cuda_recovery.ps1\n"
+                        "Oder Computer neu starten.",
+                    )
+            # Flag zuruecksetzen, damit der Dialog nicht wiederholt erscheint
+            _os.environ.pop("PB_STUDIO_CUDA_STUCK", None)
+        except Exception as exc:
+            logger.warning("_offer_cuda_recovery failed: %s", exc)
+
     def closeEvent(self, event):
         """Behandelt das Schliessen der Anwendung (Fix F-003: Asynchroner Shutdown).
 
@@ -514,12 +571,33 @@ class PBWindow(QMainWindow):
         except Exception as exc:
             logger.warning("closeEvent: Ollama-Stop fehlgeschlagen: %s", exc)
 
-        # 9. VRAM final freigeben (Fix A-03: Asynchron im Hintergrund)
+        # 9. VRAM final freigeben — **SYNCHRON**. P8-CUDA-FIX: Vorher
+        # `unload_in_background()` → startet Worker-Thread, dann sofort
+        # event.accept() → Prozess stirbt mit aktivem CUDA-Context.
+        # Der NVIDIA-Treiber behaelt dann den Context gesperrt (Windows
+        # WDDM-Eigenheit), `torch.cuda.is_available()` liefert beim naechsten
+        # App-Start "CUDA unknown error" und die GPU ist fuer ALLE Prozesse
+        # geblockt bis zum Device-Reset. Deshalb jetzt:
+        #   - synchron entladen
+        #   - torch.cuda.synchronize() + empty_cache() (schon in unload)
+        #   - auch Worker-Pools (Demucs-Modell, SigLIP, beat_this) einzeln entladen
         try:
-            tm = GlobalTaskManager.instance()
-            tm.unload_in_background()
-        except Exception as e:  # B-035 Fix: Log instead of silent pass
-            logger.debug("Unload in background failed: %s", e)
+            from services.model_manager import ModelManager
+            ModelManager().unload()
+            logger.info("closeEvent: ModelManager.unload() synchron abgeschlossen")
+        except Exception as exc:
+            logger.warning("closeEvent: ModelManager.unload() fehlgeschlagen: %s", exc)
+
+        # Finaler CUDA-Cleanup — auch falls der ModelManager schon leer war,
+        # koennen Worker-lokale Tensor-Referenzen noch VRAM halten.
+        try:
+            import torch  # type: ignore
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+                torch.cuda.empty_cache()
+                logger.info("closeEvent: CUDA synchronize + empty_cache")
+        except Exception as exc:
+            logger.debug("closeEvent: final CUDA cleanup: %s", exc)
 
         # 10. Close DB connection pool (FIX C-2: BEFORE event.accept())
         try:
@@ -744,11 +822,37 @@ def main():
     # Aufrufe im Main-Thread (z.B. About-Dialog, Chat-Status), die bei
     # stuck CUDA-Treiber minutenlang blockieren koennen.
     try:
-        from services.gpu_info import initialize_gpu_info_cache
+        from services.gpu_info import initialize_gpu_info_cache, detect_stuck_driver, run_recovery_script
         _gpu = initialize_gpu_info_cache()
         logging.info("GPU-Info Cache: %s", _gpu.summary())
+
+        # P8-CUDA-RECOVERY: Wenn CUDA kompiliert aber nicht verfuegbar → Stuck?
+        if not _gpu.available and _gpu.compiled_cuda:
+            is_stuck, err = detect_stuck_driver()
+            if is_stuck:
+                logging.error("CUDA-Treiber im Stuck-State erkannt: %s", err)
+                # UAC-Recovery-Prompt anbieten — Qt-Dialog erst nach App-Start
+                # Wir merken uns das und zeigen's im PBWindow ctor.
+                import os
+                os.environ["PB_STUDIO_CUDA_STUCK"] = "1"
+                os.environ["PB_STUDIO_CUDA_ERR"] = err[:200]
     except Exception as _exc:  # pragma: no cover
         logging.warning("GPU-Info Cache-Init fehlgeschlagen: %s", _exc)
+
+    # P8-CUDA-FIX: atexit-Safety-Net. Wird bei jeder regulaeren
+    # Prozess-Beendigung aufgerufen (auch sys.exit, nicht aber taskkill /F).
+    # Falls closeEvent aus irgend einem Grund nicht lief, entladen wir hier
+    # noch einmal defensiv. Verhindert Stuck-Driver bei unerwarteten Exits.
+    def _cuda_atexit_cleanup():
+        try:
+            import torch  # type: ignore
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+                torch.cuda.empty_cache()
+        except Exception:
+            pass
+    import atexit as _atexit_cuda
+    _atexit_cuda.register(_cuda_atexit_cleanup)
 
     from PySide6.QtCore import qInstallMessageHandler
     qInstallMessageHandler(_qt_message_handler)
