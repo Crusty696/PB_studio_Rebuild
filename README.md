@@ -167,8 +167,7 @@ pb-studio-rebuild/
 | Stem Separation | Demucs `htdemucs_ft` |
 | Optical Flow | RAFT (torchvision) |
 | Visual Embeddings | SigLIP-so400m-patch14-384 |
-| Transcription | faster-whisper |
-| Local LLM | Qwen 2.5 0.5B Instruct |
+| Local LLM | Gemma 4 (Ollama) |
 | Video Processing | FFmpeg + OpenCV + PySceneDetect |
 | Audio Analysis | librosa |
 

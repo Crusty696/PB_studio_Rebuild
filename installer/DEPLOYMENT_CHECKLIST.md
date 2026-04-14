@@ -174,12 +174,11 @@ Use this checklist when preparing a production deployment of PB Studio.
 
 ## Model Pre-Caching (Optional for Offline Deployment)
 
-- [x] Run pre-cache script: `python installer/pre_cache_models.py` (Verified: includes htdemucs, whisper, siglip, moondream2, beat_this)
+- [x] Run pre-cache script: `python installer/pre_cache_models.py` (Verified: includes htdemucs, siglip, moondream2, beat_this)
 - [x] Integrate pre-caching into application CLI: `pb_studio.exe --pre-cache` (Implemented in main.py)
 - [x] Integrate pre-caching into installer: Optional section in `pb_studio.nsi` (Implemented)
 - [x] Verify all models downloaded:
   - [x] Demucs (~300 MB)
-  - [x] Faster Whisper (~1.5 GB)
   - [x] SigLIP (~1.8 GB)
   - [x] Moondream2 (~1.7 GB)
   - [x] beat_this (~200 MB)

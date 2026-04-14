@@ -143,8 +143,8 @@ On first launch, PB Studio will:
 1. Create user configuration directory: `%USERPROFILE%\.pb_studio\`
 2. Download AI models to: `%USERPROFILE%\.cache\`
    - Demucs (stem separation): ~300 MB
-   - Whisper (transcription): ~1.5 GB
    - SigLIP (vision): ~1.8 GB
+   - Moondream2 (vision LLM): ~1.7 GB
    - beat_this (beat detection): ~200 MB
 
 ### Environment Configuration

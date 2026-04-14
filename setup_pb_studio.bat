@@ -48,5 +48,13 @@ exit /b 1
 :found
 echo.
 %PYEXE% "%~dp0scripts\setup_py310_gpu.py" %*
+set "SETUP_EXIT=%ERRORLEVEL%"
 
-exit /b %ERRORLEVEL%
+echo.
+if %SETUP_EXIT% EQU 0 (
+    echo   Setup fertig. Du kannst das Fenster schliessen.
+) else (
+    echo   Setup mit Fehlercode %SETUP_EXIT% beendet.
+)
+pause
+exit /b %SETUP_EXIT%

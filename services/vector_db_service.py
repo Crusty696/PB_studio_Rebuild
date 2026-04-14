@@ -176,7 +176,16 @@ class VectorDBService:
         """Semantische Suche via Cosine-Similarity (F-005 Fix: Nutzt Cache)."""
         if isinstance(query_embedding, list):
             query_embedding = np.array(query_embedding, dtype=np.float32)
-        
+
+        # B9-Fix: Dimension validieren — klarer Fehler statt kryptischer matmul-Crash
+        query_embedding = np.asarray(query_embedding, dtype=np.float32).reshape(-1)
+        if query_embedding.shape[0] != EMBEDDING_DIM:
+            raise ValueError(
+                f"Query-Embedding muss {EMBEDDING_DIM} Dimensionen haben, "
+                f"hat aber {query_embedding.shape[0]}. "
+                f"Vermutlich wurde die SigLIP-Ausgabe falsch extrahiert."
+            )
+
         # Query normalisieren
         query_norm = query_embedding / (np.linalg.norm(query_embedding) + 1e-8)
 

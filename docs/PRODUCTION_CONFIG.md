@@ -149,15 +149,15 @@ snapshot_download(
     cache_dir=r"C:\Models\huggingface"
 )
 
-# Download Whisper
-snapshot_download(
-    "Systran/faster-whisper-large-v3",
-    cache_dir=r"C:\Models\huggingface"
-)
-
 # Download SigLIP
 snapshot_download(
     "google/siglip-so400m-patch14-384",
+    cache_dir=r"C:\Models\huggingface"
+)
+
+# Download Moondream2
+snapshot_download(
+    "vikhyatk/moondream2",
     cache_dir=r"C:\Models\huggingface"
 )
 
