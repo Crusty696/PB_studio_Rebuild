@@ -14,8 +14,11 @@ class MediaTableController(PBComponent):
     """
 
     def _refresh_director_combos(self):
-        from services.ingest_service import get_all_media
-        media = get_all_media()
+        # P8-FREEZE-FIX: Lightweight-Query ohne energy_curve/analysis_percent.
+        # Vorher blockierte get_all_media() den Main-Thread beim Boot
+        # mehrere Sekunden (grosse JSON-Blobs + N+1 Status-Queries).
+        from services.ingest_service import get_combo_items
+        media = get_combo_items()
         self.window.audio_combo.clear()
         self.window.video_combo.clear()
         self.window.audio_combo.addItem("-- kein Audio --", None)

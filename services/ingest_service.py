@@ -294,6 +294,39 @@ def get_all_media(project_id: int = 1) -> list[dict]:
     return get_all_audio(project_id) + get_all_video(project_id)
 
 
+def get_combo_items(project_id: int = 1) -> list[dict]:
+    """Lightweight Variante von get_all_media() — **NUR** fuer Director-Combos.
+
+    P8-FREEZE-FIX: Vorher nutzten die Audio-/Video-Combos `get_all_media()`,
+    das fuer jeden Audio-Track das riesige `energy_curve` JSON-Blob laedt
+    (MB-Groesse bei langen Tracks) und pro Item einen extra
+    `analysis_status_service.get_completion_percent()`-Call macht (N+1).
+    Beim App-Boot blockierte das den Main-Thread mehrere Sekunden.
+
+    Diese Funktion liefert nur id/title/type/bpm — ausreichend fuer den
+    Combo-Label `[id] Title (bpm BPM)`.
+    """
+    items: list[dict] = []
+    with Session(engine) as session:
+        audios = session.query(
+            AudioTrack.id, AudioTrack.title, AudioTrack.bpm,
+        ).filter_by(project_id=project_id).filter(
+            AudioTrack.deleted_at.is_(None)
+        ).all()
+        for aid, title, bpm in audios:
+            items.append({"id": aid, "title": title, "bpm": bpm, "type": "Audio"})
+
+        videos = session.query(
+            VideoClip.id, VideoClip.file_path,
+        ).filter(
+            VideoClip.project_id == project_id,
+            VideoClip.deleted_at.is_(None),
+        ).all()
+        for vid, path in videos:
+            items.append({"id": vid, "title": Path(path).stem, "type": "Video"})
+    return items
+
+
 def delete_all_media(project_id: int = 1) -> int:
     """Loescht alle Audio- und Video-Eintraege aus der Datenbank.
 

@@ -115,6 +115,9 @@ def cmd_start(args) -> int:
 
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
+    # Optionaler Freeze-Profiler aktivieren ueber Harness:
+    if getattr(args, "freeze_probe", False):
+        env["PB_STUDIO_FREEZE_PROBE"] = "1"
 
     creationflags = 0
     if sys.platform == "win32":
@@ -626,6 +629,8 @@ def main() -> int:
     sp_start = sub.add_parser("start")
     sp_start.add_argument("--force", action="store_true",
                           help="Laufende App vorher killen statt Fehler zu werfen")
+    sp_start.add_argument("--freeze-probe", action="store_true",
+                          help="Aktiviert faulthandler → dumped Stack bei >3s Hangs in logs/freeze_stacks.log")
     sp_start.set_defaults(func=cmd_start)
 
     kp = sub.add_parser("kill")

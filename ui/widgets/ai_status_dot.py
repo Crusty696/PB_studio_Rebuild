@@ -6,7 +6,7 @@ Kein Ollama/Gemma in Tooltips — nur "AI: bereit" / "AI: wird geladen...".
 
 import logging
 from PySide6.QtWidgets import QLabel
-from PySide6.QtCore import QTimer, QThread, QObject, Signal, Slot
+from PySide6.QtCore import QTimer, QThread, QObject, Signal, Slot, Qt
 
 logger = logging.getLogger(__name__)
 
@@ -39,13 +39,20 @@ class PollWorker(QObject):
 
     @Slot()
     def start_polling(self):
-        """Called once the worker's thread is running.  Starts the QTimer."""
+        """Called once the worker's thread is running.  Starts the QTimer.
+
+        P8-FREEZE-FIX: _poll() ruft synchron Ollama-HTTP mit 2s Timeout.
+        Wenn start_polling durch Race-Condition im Main-Thread laeuft
+        (Auto-Connection kann DirectConnection werden), blockiert das
+        den UI-Event-Loop. Fix: ersten Poll per QTimer.singleShot(0, ...)
+        absetzen — das garantiert Ausfuehrung im *worker* Event-Loop.
+        """
         self._timer = QTimer()
         self._timer.setInterval(_POLL_INTERVAL_MS)
         self._timer.timeout.connect(self._poll)
         self._timer.start()
-        # fire immediately so the dot updates without waiting
-        self._poll()
+        # Erster Poll deferred — MUSS im Worker-Event-Loop laufen
+        QTimer.singleShot(0, self._poll)
 
     @Slot()
     def stop(self):
@@ -78,8 +85,12 @@ class AiStatusDot(QLabel):
         self._worker = PollWorker()
         self._thread = QThread(self)
         self._worker.moveToThread(self._thread)
-        self._worker.result.connect(self._on_poll_result)
-        self._thread.started.connect(self._worker.start_polling)
+        # P8-FREEZE-FIX: explizit QueuedConnection, damit start_polling
+        # und _poll NIEMALS im Main-Thread laufen koennen. Auto-Connection
+        # hat in einem Race-Fenster DirectConnection geliefert → Main-Thread
+        # hing in socket.create_connection() fuer 2s pro Poll-Cycle.
+        self._worker.result.connect(self._on_poll_result, Qt.ConnectionType.QueuedConnection)
+        self._thread.started.connect(self._worker.start_polling, Qt.ConnectionType.QueuedConnection)
         self._thread.finished.connect(self._worker.deleteLater)
         self._thread.finished.connect(self._thread.deleteLater)
         self._thread.start()

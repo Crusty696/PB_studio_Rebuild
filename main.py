@@ -192,6 +192,23 @@ class PBWindow(QMainWindow):
         self._refresh_pending = False
         self._dirty = False  # AUD-108: unsaved changes tracking
 
+        # P8-FREEZE-PROBE: Heartbeat fuer den Watchdog-Thread (siehe main()).
+        # Der QTimer tickt alle 200ms → setzt den Zeitstempel. Watchdog
+        # vergleicht: wenn Zeitstempel >1.5s alt → Stack-Dump (Main-Thread hing).
+        import os as _os_hb
+        if _os_hb.environ.get("PB_STUDIO_FREEZE_PROBE") == "1":
+            import time as _time_hb
+            from PySide6.QtCore import QTimer as _QTHb
+            self._fh_timer = _QTHb(self)
+            self._fh_timer.setInterval(200)
+            def _tick():
+                import sys as _s
+                _mod = _s.modules.get("__main__")
+                if _mod is not None:
+                    _mod.__dict__["_fh_heartbeat"] = _time_hb.monotonic()
+            self._fh_timer.timeout.connect(_tick)
+            self._fh_timer.start()
+
         # P8-CUDA-FIX: Wenn der Boot CUDA als stuck erkannt hat (siehe main()),
         # bieten wir dem User sofort den Recovery-Dialog an. Der kann ihn auch
         # ablehnen → App laeuft dann mit CPU-Fallback weiter.
@@ -817,6 +834,41 @@ def main():
         sys.exit(0)
 
     setup_logging()
+
+    # P8-FAULTHANDLER: Heartbeat-Watchdog — dumpt NUR wenn der Qt-Main-Thread
+    # den Event-Loop >1.5s nicht mehr bedient. Aktiv wenn PB_STUDIO_FREEZE_PROBE=1.
+    #
+    # Mechanik:
+    #   - QTimer im Main-Thread tickt alle 200ms → aktualisiert _heartbeat_ts.
+    #   - Watchdog-Thread prueft alle 500ms: wenn _heartbeat_ts > 1.5s alt,
+    #     dumpt faulthandler.dump_traceback(all_threads=True).
+    #   - Kein periodischer Dump bei idle. Nur bei echten Main-Thread-Hangs.
+    import os as _os_fh
+    if _os_fh.environ.get("PB_STUDIO_FREEZE_PROBE") == "1":
+        import faulthandler as _fh
+        import threading as _threading_fh
+        import time as _time_fh
+        from pathlib import Path as _P
+        _freeze_log = _P(__file__).parent / "logs" / "freeze_stacks.log"
+        _freeze_log.parent.mkdir(exist_ok=True)
+        _freeze_fp = open(_freeze_log, "a", buffering=1, encoding="utf-8")
+        _fh.enable(file=_freeze_fp)
+        # Modul-globaler Heartbeat — wird vom QTimer im Main-Thread aktualisiert
+        globals()["_fh_heartbeat"] = _time_fh.monotonic()
+        globals()["_fh_fp"] = _freeze_fp
+        def _watchdog():
+            last_dump = 0.0
+            while True:
+                _time_fh.sleep(0.5)
+                delta = _time_fh.monotonic() - globals().get("_fh_heartbeat", 0)
+                if delta > 1.5 and (_time_fh.monotonic() - last_dump) > 2.0:
+                    _freeze_fp.write(f"\n=== WATCHDOG: Main-Thread blockiert seit {delta:.1f}s ===\n")
+                    _freeze_fp.flush()
+                    _fh.dump_traceback(file=_freeze_fp, all_threads=True)
+                    last_dump = _time_fh.monotonic()
+        _wd = _threading_fh.Thread(target=_watchdog, daemon=True, name="freeze-watchdog")
+        _wd.start()
+        logging.info("[FREEZE-PROBE] Heartbeat-Watchdog aktiv → %s (dumpt nur bei echten Main-Thread-Hangs >1.5s)", _freeze_log)
 
     # P8-FIX: GPU-Info einmal beim Boot cachen. Vermeidet torch.cuda.*
     # Aufrufe im Main-Thread (z.B. About-Dialog, Chat-Status), die bei
