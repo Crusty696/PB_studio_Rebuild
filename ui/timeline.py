@@ -470,12 +470,29 @@ class InteractiveTimeline(QGraphicsView):
             txt.setPos(-35, y + 15)
             txt.setZValue(10)
 
+    def _cancel_pending_db_load(self):
+        """M3-FIX: Laufenden DB-Worker canceln/disconnecten bevor ein neuer gestartet wird."""
+        if hasattr(self, '_db_worker') and self._db_worker is not None:
+            try:
+                self._db_worker.finished.disconnect(self._on_db_load_finished)
+            except (TypeError, RuntimeError):
+                pass  # Bereits disconnected
+        if hasattr(self, '_db_thread') and self._db_thread is not None:
+            if self._db_thread.isRunning():
+                self._db_thread.quit()
+                self._db_thread.wait(2000)
+            self._db_worker = None
+            self._db_thread = None
+
     def load_from_db(self, project_id: int | None = None):
         """Asynchrones Laden der Timeline-Daten (Fix für Main-Thread Blocking)."""
+        # M3-FIX: Alten Worker canceln bevor ein neuer gestartet wird
+        self._cancel_pending_db_load()
+
         if project_id is None:
             from database import get_active_project_id
             project_id = get_active_project_id()
-            
+
         # UI sofort bereinigen
         for item in self.clip_items:
             self._scene.removeItem(item)
@@ -515,12 +532,12 @@ class InteractiveTimeline(QGraphicsView):
                         
                         _audio_map = (
                             {t.id: t for t in session.query(AudioTrack).filter(
-                                AudioTrack.id.in_(_audio_ids)).all()}
+                                AudioTrack.id.in_(_audio_ids), AudioTrack.deleted_at.is_(None)).all()}
                             if _audio_ids else {}
                         )
                         _video_map = (
                             {c.id: c for c in session.query(VideoClip).filter(
-                                VideoClip.id.in_(_video_ids)).all()}
+                                VideoClip.id.in_(_video_ids), VideoClip.deleted_at.is_(None)).all()}
                             if _video_ids else {}
                         )
 
@@ -641,7 +658,9 @@ class InteractiveTimeline(QGraphicsView):
         has_waveform = False
         if track_type == "audio":
             with DBSession(engine) as session:
-                track = session.get(AudioTrack, media_id)
+                track = session.query(AudioTrack).filter(
+                    AudioTrack.id == media_id, AudioTrack.deleted_at.is_(None)
+                ).first()
                 if track and track.waveform_data:
                     has_waveform = True
                     entry_stub = _EntryStub(start_time=start_time)
@@ -893,21 +912,29 @@ class InteractiveTimeline(QGraphicsView):
             downbeat_times = []
             energy_per_beat = []
 
+            # H7-FIX: Column(JSON) deserialisiert automatisch.
+            # isinstance-Check fuer Backward-compat mit alten doppelt-serialisierten Daten.
             if beatgrid.beat_positions:
                 try:
-                    beat_times = json.loads(beatgrid.beat_positions)
+                    beat_times = (json.loads(beatgrid.beat_positions)
+                                  if isinstance(beatgrid.beat_positions, str)
+                                  else beatgrid.beat_positions)
                 except (json.JSONDecodeError, TypeError) as exc:
                     logger.warning("load_beat_grid: failed to parse beat_positions: %s", exc)
 
             if beatgrid.downbeat_positions:
                 try:
-                    downbeat_times = json.loads(beatgrid.downbeat_positions)
+                    downbeat_times = (json.loads(beatgrid.downbeat_positions)
+                                      if isinstance(beatgrid.downbeat_positions, str)
+                                      else beatgrid.downbeat_positions)
                 except (json.JSONDecodeError, TypeError) as exc:
                     logger.warning("load_beat_grid: failed to parse downbeat_positions: %s", exc)
 
             if beatgrid.energy_per_beat:
                 try:
-                    energy_per_beat = json.loads(beatgrid.energy_per_beat)
+                    energy_per_beat = (json.loads(beatgrid.energy_per_beat)
+                                       if isinstance(beatgrid.energy_per_beat, str)
+                                       else beatgrid.energy_per_beat)
                 except (json.JSONDecodeError, TypeError) as exc:
                     logger.warning("load_beat_grid: failed to parse energy_per_beat: %s", exc)
 
@@ -1565,10 +1592,14 @@ class InteractiveTimeline(QGraphicsView):
         # Fetch duration from DB
         with DBSession(engine) as session:
             if track_type == "audio":
-                obj = session.get(AudioTrack, media_id)
+                obj = session.query(AudioTrack).filter(
+                    AudioTrack.id == media_id, AudioTrack.deleted_at.is_(None)
+                ).first()
                 duration = obj.duration if obj and obj.duration else 30.0
             else:
-                obj = session.get(VideoClip, media_id)
+                obj = session.query(VideoClip).filter(
+                    VideoClip.id == media_id, VideoClip.deleted_at.is_(None)
+                ).first()
                 duration = obj.duration if obj and obj.duration else 10.0
 
         # Get active project
