@@ -578,9 +578,22 @@ class InteractiveTimeline(QGraphicsView):
         self._db_thread.start()
 
     def _on_db_load_finished(self, entries, audio_map, video_map, anchor_map):
-        """Wird aufgerufen, sobald die Daten vom Hintergrund-Thread geladen wurden."""
+        """Wird aufgerufen, sobald die Daten vom Hintergrund-Thread geladen wurden.
+
+        P8-E-FIX: Viewport-Updates waehrend des Aufbaus von 101+ Items
+        stummschalten. Sonst triggert jeder addItem/Draw einen partial
+        paint, die Summe blockiert den Main-Thread spuerbar.
+        """
         self._anchor_map = anchor_map
-        
+        vp = self.viewport()
+        vp.setUpdatesEnabled(False)
+        try:
+            self._build_entries(entries, audio_map, video_map, anchor_map)
+        finally:
+            vp.setUpdatesEnabled(True)
+            vp.update()
+
+    def _build_entries(self, entries, audio_map, video_map, anchor_map):
         for entry in entries:
             has_waveform = False
             if entry.track == "audio":

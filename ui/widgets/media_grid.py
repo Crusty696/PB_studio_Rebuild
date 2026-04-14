@@ -498,6 +498,12 @@ class MediaPoolGrid(QWidget):
         if self._in_relayout:
             return
         self._in_relayout = True
+        # P8-F1-FIX: Bulk-Remove triggert sonst N Layout-Recomputes +
+        # Paint-Events waehrend des while-Loops. Updates aus fuer die
+        # Dauer des Rebuilds stummschalten.
+        _parent = self._grid.parentWidget() if hasattr(self._grid, "parentWidget") else None
+        if _parent is not None:
+            _parent.setUpdatesEnabled(False)
         try:
             # H-27 Fix: Threads sauber beenden mit deleteLater nach finished
             for t in self._thumb_threads:
@@ -520,6 +526,10 @@ class MediaPoolGrid(QWidget):
         except Exception as e:
             logger.error("Fehler beim Vorbereiten des Card-Rebuilds: %s", e)
             self._in_relayout = False
+        finally:
+            # P8-F1-FIX: Updates in jedem Fall wieder aktivieren
+            if _parent is not None:
+                _parent.setUpdatesEnabled(True)
 
     def _load_next_chunk(self):
         """Erstellt Karten in kleinen Batches um UI-Freeze zu verhindern."""
