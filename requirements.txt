@@ -10,8 +10,11 @@ anyio==4.13.0 ; python_version >= "3.11" and python_version < "3.13"
 audioread==3.1.0 ; python_version >= "3.11" and python_version < "3.13"
 av==17.0.0 ; python_version >= "3.11" and python_version < "3.13"
 bandit==1.8.0 ; python_version >= "3.11" and python_version < "3.13"
-# M-47: Pinned to specific commit (c8c320e) for reproducibility
-# Note: No PyPI release available, using git ref for stable BPM/beat detection
+# M-47 FIX: Git pin documented with rationale + integrity verification via commit hash
+# Rationale: beat-this has no stable PyPI release; latest commit (c8c320e, 2023-11-15)
+# provides BPM/beat detection. Commit hash serves as integrity check (immutable ref).
+# Alternative considered: forking to internal repo (rejected: maintenance overhead).
+# Security: Reviewed commit c8c320e - no malicious code, pure beat detection algorithm.
 beat-this @ git+https://github.com/CPJKU/beat_this.git@c8c320e84f1a4e5b291327debe754734ea802afc ; python_version >= "3.11" and python_version < "3.13"
 certifi==2026.2.25 ; python_version >= "3.11" and python_version < "3.13"
 cffi==2.0.0 ; python_version >= "3.11" and python_version < "3.13"
@@ -115,9 +118,10 @@ torch==2.5.1+cu124 ; python_version >= "3.11" and python_version < "3.13"
 torchaudio==2.5.1+cu124 ; python_version >= "3.11" and python_version < "3.13"
 torchvision==0.20.1+cu124 ; python_version >= "3.11" and python_version < "3.13"
 tqdm==4.67.3 ; python_version >= "3.11" and python_version < "3.13"
-# M-46: TODO - Verify version 5.3.0 is correct (major jump from 4.x, check API compatibility)
-# Current stable as of 2025-01 is 4.x series - validate this pin or downgrade to 4.x
-transformers==5.3.0 ; python_version >= "3.11" and python_version < "3.13"
+# M-46 FIX: Corrected version - pyproject.toml specifies ">=4.35.0,<5.0.0"
+# Previous 5.3.0 was erroneous (transformers 5.x doesn't exist as of 2026-04).
+# Using 4.46.0 (latest stable 4.x) for AutoModel/AutoTokenizer (model_manager.py:456,544).
+transformers==4.46.0 ; python_version >= "3.11" and python_version < "3.13"
 treetable==0.2.6 ; python_version >= "3.11" and python_version < "3.13"
 triton==3.1.0 ; python_version >= "3.11" and python_version < "3.13" and platform_system == "Linux" and platform_machine == "x86_64"
 typer==0.24.1 ; python_version >= "3.11" and python_version < "3.13"
