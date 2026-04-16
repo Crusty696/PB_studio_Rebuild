@@ -45,18 +45,36 @@ GPU_LOAD_LOCK = threading.RLock()
 # FIX: RLock für maximale Stabilität bei komplexen Pipelines.
 GPU_EXECUTION_LOCK = threading.RLock()
 
+# M-42 FIX: Lock für thread-sicheren torch-Import
+_TORCH_IMPORT_LOCK = threading.Lock()
+
 # F-011: OOM-Handler Schwellwerte (in GB)
 # Wenn weniger als diese Werte verfügbar sind, wird proaktiv entladen
 OOM_RAM_THRESHOLD_GB = 1.0  # Min 1GB freier RAM (Surface Book 2: begrenzt)
 OOM_VRAM_THRESHOLD_GB = 1.5  # Min 1.5GB freies VRAM
 
+# M-44 FIX: Vision model trust configuration (moved from method scope for maintainability)
+# Trusted models that require trust_remote_code=True
+VISION_TRUSTED_MODELS = {"vikhyatk/moondream2"}
+# Revision pins for trusted models (prevents arbitrary code execution)
+VISION_TRUSTED_REVISIONS: dict[str, str] = {
+    "vikhyatk/moondream2": "2025.01.11",
+}
+
 
 def _ensure_torch():
-    """Lazy-Import von torch — wird beim ersten Zugriff geladen."""
+    """Lazy-Import von torch — wird beim ersten Zugriff geladen.
+
+    M-42 FIX: Double-checked locking pattern verhindert Race Conditions
+    bei gleichzeitigem Import durch mehrere Threads.
+    """
     global torch
     if torch is None or not hasattr(torch, 'cuda'):
-        import torch as _torch
-        torch = _torch
+        with _TORCH_IMPORT_LOCK:
+            # Double-check inside lock to prevent duplicate imports
+            if torch is None or not hasattr(torch, 'cuda'):
+                import torch as _torch
+                torch = _torch
     return torch
 
 
@@ -130,6 +148,9 @@ class ModelManager:
                 if cls._instance is None:
                     cls._instance = super().__new__(cls)
                     cls._instance._initialized = False
+                    # M-60 FIX: Set _gpu_info default in __new__ to prevent AttributeError
+                    # if __init__ early-returns before _log_gpu_hardware() runs
+                    cls._instance._gpu_info = {"name": "unbekannt", "vram_total_mb": 0}
         return cls._instance
 
     def __init__(self, device: str | None = None):
@@ -434,14 +455,9 @@ class ModelManager:
 
                 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-                _TRUSTED_MODELS = {"vikhyatk/moondream2"}
-                # HIGH-3 FIX: Pin trusted models to known-good revisions to prevent
-                # arbitrary code execution from a compromised HuggingFace repo.
-                _TRUSTED_REVISIONS: dict[str, str] = {
-                    "vikhyatk/moondream2": "2025.01.11",
-                }
-                needs_trust = model_id in _TRUSTED_MODELS
-                pinned_revision = _TRUSTED_REVISIONS.get(model_id)
+                # M-44 FIX: Use module-level constants (defined at top of file)
+                needs_trust = model_id in VISION_TRUSTED_MODELS
+                pinned_revision = VISION_TRUSTED_REVISIONS.get(model_id)
                 if needs_trust and pinned_revision is None:
                     logger.warning(
                         "HIGH-3: trust_remote_code=True fuer '%s' ohne Revision-Pin! "

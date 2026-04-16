@@ -8,6 +8,10 @@ import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 
+# L-38 FIX: Move heavy imports to module level (was inside method)
+import cv2
+from PIL import Image
+
 logger = logging.getLogger(__name__)
 
 
@@ -36,7 +40,7 @@ class VisionAnalysisService:
             max_frames: Maximale Anzahl zu analysierender Frames
             progress_cb: Optional callback(int, str)
         """
-        import cv2
+        # L-38 FIX: cv2 now imported at module level
         from services.model_manager import ModelManager, GPU_LOAD_LOCK
 
         path = Path(video_path)
@@ -118,7 +122,7 @@ class VisionAnalysisService:
         # H-9 FIX: Wrap frame processing in try-finally to ensure VRAM cleanup
         try:
             # Frames mit Moondream2 beschreiben
-            from PIL import Image
+            # L-38 FIX: PIL.Image now imported at module level
             import torch
 
             descriptions = []

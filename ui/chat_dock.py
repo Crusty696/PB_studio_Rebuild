@@ -47,14 +47,20 @@ class _TrackedRegistry:
         self._count = 0
         self._max = max_calls
         self._status = status_signal
+        # L-40 FIX: Add lock for thread-safe counter increment
+        self._count_lock = threading.Lock()
 
     def execute(self, name, params=None):
-        self._count += 1
+        # L-40 FIX: Protect _count increment with lock
+        with self._count_lock:
+            self._count += 1
+            current_count = self._count
+
         self._status.emit(f"Führt [{name}] aus...")
-        if self._count > self._max:
+        if current_count > self._max:
             self._status.emit("Loop erkannt - Abgebrochen")
             raise _LoopBreakError(
-                f"Agent-Loop erkannt: {self._count} Tool-Calls "
+                f"Agent-Loop erkannt: {current_count} Tool-Calls "
                 f"ohne User-Antwort (Max: {self._max})"
             )
         return self._registry.execute(name, params)

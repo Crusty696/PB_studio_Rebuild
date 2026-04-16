@@ -706,8 +706,11 @@ class OllamaClient:
             return {}
 
     def __repr__(self) -> str:
+        # L-39 FIX: Read _paused directly under lock for consistency
+        with self._lock:
+            paused_state = self._paused
         status = "verfügbar" if self.is_available() else "nicht erreichbar"
-        paused = " [PAUSIERT]" if self.is_paused else ""
+        paused = " [PAUSIERT]" if paused_state else ""
         return f"OllamaClient(url={self.base_url!r}, status={status}{paused})"
 
 
