@@ -100,11 +100,12 @@ ENERGY_MIN: float = 0.0      # Normalisierte Energie immer im Bereich [0, 1]
 ENERGY_MAX: float = 1.0
 
 
-def clamp_bpm(value: float) -> float:
+def clamp_bpm(value: float | None) -> float | None:
     """Clamp BPM to the valid DJ/music range [40, 300].
 
     Returns None if value is None; raises ValueError for NaN/inf.
     """
+    # L-7 Fix: Type annotation now matches actual behavior (can return None)
     if value is None:
         return None
     import math

@@ -259,9 +259,10 @@ class AudioAnalysisController(PBComponent):
             if task_id:
                 task_manager.finish_task(task_id, "error", "Leeres Ergebnis")
             return
-        bpm = result["bpm"]
+        # M-58 Fix: Use .get() with safe defaults to prevent KeyError in UI thread
+        bpm = result.get("bpm", 0)
         beats = len(result.get("beat_positions", []))
-        samples = result["num_samples"]
+        samples = result.get("num_samples", 0)
         self.window.console_text.append(
             f"[Waveform] Rekordbox-Analyse fertig: '{title}' | {bpm} BPM | "
             f"{beats} Beats | {samples} Wellenform-Samples (Low/Mid/High)"
@@ -271,7 +272,8 @@ class AudioAnalysisController(PBComponent):
         self.window.progress_bar.setVisible(False)
         self.window.status_bar.showMessage(f"Wellenform fertig: {title} | {bpm} BPM")
         self.window.media_table_controller._refresh_media_table_debounced()
-        self.window.timeline_view.load_from_db()
+        # H-40 Fix: Defer load_from_db to prevent UI freeze on large projects
+        QTimer.singleShot(100, self.window.timeline_view.load_from_db)
 
         if task_id:
             task_manager.finish_task(
@@ -320,6 +322,12 @@ class AudioAnalysisController(PBComponent):
         self._seq_title = title
         self._seq_total = len(steps)
 
+        # L-36 Fix: Disconnect old helper signals before creating new one
+        if hasattr(self, '_seq_helper') and self._seq_helper is not None:
+            try:
+                self._seq_helper.step_done.disconnect()
+            except (TypeError, RuntimeError):
+                pass  # Already disconnected or deleted
         self._seq_helper = _SeqStepSignalHelper(self.window)
         self._seq_helper.step_done.connect(self._on_seq_step_done)
 

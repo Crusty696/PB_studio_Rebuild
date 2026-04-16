@@ -320,16 +320,39 @@ def set_project(project_path: Path):
     - Patches service module-level path constants
 
     Thread-safe: Uses _APP_ROOT_LOCK to prevent race conditions during project switch.
+
+    M-42 MITIGATION: Disposes old engine to close connections. Callers should
+    ensure no workers are actively processing before calling this function.
     """
+    import time
     global APP_ROOT
     project_path = Path(project_path)
     db_file = project_path / "pb_studio.db"
 
+    # M-42 Fix: Log warning about in-flight workers
+    logger.warning(
+        "Project switch to %s — ensure all workers are idle to avoid DB inconsistency",
+        project_path
+    )
+
     # FIX H-7: Create engine inside lock to prevent race window
     with _APP_ROOT_LOCK:
+        # M-42 Fix: Keep reference to old engine for cleanup
+        old_engine = engine._proxied if hasattr(engine, '_proxied') else None
+
         new_engine = _make_engine(db_file)
         engine.swap(new_engine)
         APP_ROOT = project_path
         _patch_service_paths(project_path)
+
+        # M-42 Fix: Dispose old engine to close all connections
+        if old_engine is not None:
+            try:
+                # Brief delay to allow in-flight queries to complete
+                time.sleep(0.1)
+                old_engine.dispose()
+                logger.debug("Old engine disposed after project switch")
+            except Exception as e:
+                logger.warning("Failed to dispose old engine: %s", e)
 
     logger.info("Projekt gewechselt: %s", project_path)

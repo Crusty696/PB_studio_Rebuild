@@ -216,7 +216,8 @@ class AudioClassifyService:
             # ----------------------------------------------------------
             from services.audio_constants import DEFAULT_SR, MAX_DURATION_CLASSIFY
             y, sr = librosa.load(file_path, sr=DEFAULT_SR, mono=True, duration=MAX_DURATION_CLASSIFY)
-            if y is None or len(y) == 0:
+            # L-8 Fix: librosa.load() never returns None (raises exception instead)
+            if len(y) == 0:
                 log.warning("classify(): Leere Audio-Daten fuer %s", file_path)
                 return _fallback_result("Leere Audio-Daten")
 

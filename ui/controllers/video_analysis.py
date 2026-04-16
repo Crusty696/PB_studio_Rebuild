@@ -10,7 +10,16 @@ from workers import (
 from ui.base_component import PBComponent
 
 logger = logging.getLogger(__name__)
-task_manager = TaskManagerProxy()
+
+# L-38 Fix: Lazy initialization instead of module-level instantiation
+_task_manager = None
+
+def _get_task_manager():
+    """Get or create TaskManagerProxy singleton (lazy init)."""
+    global _task_manager
+    if _task_manager is None:
+        _task_manager = TaskManagerProxy()
+    return _task_manager
 
 class VideoAnalysisController(PBComponent):
     """Video analysis methods for PBWindow.
@@ -60,7 +69,7 @@ class VideoAnalysisController(PBComponent):
             f"[Video] Batch-Analyse gestartet: {len(batch)} Videos (sequentiell)"
         )
 
-        task = task_manager.create_task(
+        task = _get_task_manager().create_task(
             f"Video-Batch ({len(batch)})", "Metadaten + Proxy"
         )
 
@@ -115,7 +124,7 @@ class VideoAnalysisController(PBComponent):
         )
         if task_id:
             status = "finished" if errors == 0 else "error"
-            task_manager.finish_task(task_id, status, f"{done} fertig{errors_info}")
+            _get_task_manager().finish_task(task_id, status, f"{done} fertig{errors_info}")
 
     def _start_video_pipeline(self):
         """Startet die 3-Schritt Video-Analyse-Pipeline (Fix F-006: Model/View)."""
@@ -144,7 +153,7 @@ class VideoAnalysisController(PBComponent):
 
         count = len(batch)
         label = batch[0][1] if count == 1 else f"{count} Videos"
-        task = task_manager.create_task(
+        task = _get_task_manager().create_task(
             f"Pipeline: {label}",
             f"Batch-Analyse: {count} Video(s) — Szenen + Motion + SigLIP"
         )
@@ -187,7 +196,7 @@ class VideoAnalysisController(PBComponent):
             self.window.btn_video_pipeline.setText("Video-Pipeline (Szenen + KI)")
             self.window.progress_bar.setVisible(False)
             if task_id:
-                task_manager.finish_task(task_id, "error", "Leeres Ergebnis")
+                _get_task_manager().finish_task(task_id, "error", "Leeres Ergebnis")
             return
         scenes = result.get("scenes", 0)
         embeddings = result.get("embeddings", 0)
@@ -205,7 +214,7 @@ class VideoAnalysisController(PBComponent):
         )
         self.window.media_table_controller._refresh_media_table_debounced()
         if task_id:
-            task_manager.finish_task(
+            _get_task_manager().finish_task(
                 task_id, "finished",
                 f"{videos_done} Video(s), {scenes} Szenen, {embeddings} Embeddings"
             )
@@ -217,10 +226,10 @@ class VideoAnalysisController(PBComponent):
         self.window.progress_bar.setVisible(False)
         self.window.status_bar.showMessage("Pipeline-Fehler | System bereit")
         if task_id:
-            task_manager.finish_task(task_id, "error", error_msg)
+            _get_task_manager().finish_task(task_id, "error", error_msg)
 
     def _start_proxy_creation(self, clip_id: int, video_path: str, title: str):
-        task = task_manager.create_task(
+        task = _get_task_manager().create_task(
             f"Proxy: {title}", "NVENC 540p Edit-Proxy"
         )
         self.window.console_text.append(f"[Proxy] Erstelle Edit-Proxy fuer '{title}'...")
@@ -238,12 +247,12 @@ class VideoAnalysisController(PBComponent):
 
     def _on_proxy_finished(self, clip_id: int, proxy_path: str, title: str, task_id: str):
         if not proxy_path:
-            task_manager.finish_task(task_id, "error", "Leerer Proxy-Pfad")
+            _get_task_manager().finish_task(task_id, "error", "Leerer Proxy-Pfad")
             return
         self.window.console_text.append(f"[Proxy] Fertig: '{title}' → {proxy_path}")
         self.window.media_table_controller._refresh_media_table_debounced()
-        task_manager.finish_task(task_id, "finished", proxy_path)
+        _get_task_manager().finish_task(task_id, "finished", proxy_path)
 
     def _on_proxy_error(self, clip_id: int, error_msg: str, title: str, task_id: str):
         self.window.console_text.append(f"[Proxy-Fehler] '{title}': {error_msg}")
-        task_manager.finish_task(task_id, "error", error_msg)
+        _get_task_manager().finish_task(task_id, "error", error_msg)

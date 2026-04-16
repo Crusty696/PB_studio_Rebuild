@@ -491,6 +491,8 @@ def generate_embeddings(
         try:
             inputs = processor(images=images, return_tensors="pt", padding=True)
             inputs = {k: v.to(mm.device) for k, v in inputs.items()}
+            model_dtype = next(model.parameters()).dtype
+            inputs = {k: (v.to(model_dtype) if v.is_floating_point() else v) for k, v in inputs.items()}
 
             with torch.no_grad():
                 outputs = model.get_image_features(**inputs)
@@ -518,6 +520,8 @@ def generate_embeddings(
                 try:
                     inp = processor(images=[img], return_tensors="pt", padding=True)
                     inp = {k: v.to(mm.device) for k, v in inp.items()}
+                    model_dtype = next(model.parameters()).dtype
+                    inp = {k: (v.to(model_dtype) if v.is_floating_point() else v) for k, v in inp.items()}
                     with torch.no_grad():
                         out = model.get_image_features(**inp)
                         if not isinstance(out, torch.Tensor):
