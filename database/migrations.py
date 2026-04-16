@@ -542,6 +542,13 @@ def init_db():
         _run_alembic_migrations()
     except Exception as e:  # broad catch intentional — Alembic errors must not block app startup
         logger.error("Alembic-Migration fehlgeschlagen (App startet trotzdem): %s", e)
+        # VAD-83 FIX: Dispose engine to release any write-locked connections
+        # left by a failed Alembic migration (e.g., CREATE TABLE on existing table).
+        # Without this, subsequent ORM sessions may hit "database is locked".
+        try:
+            engine.dispose()
+        except Exception:
+            pass
 
     # Seed default data
     _seed_defaults()

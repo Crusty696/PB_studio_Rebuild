@@ -83,6 +83,15 @@ class VisionAnalysisService:
                 "Bitte andere GPU-Modelle zuerst entladen."
             )
             return result
+        except OSError as e:
+            # VAD-83 FIX: Catch OSError from invalid HuggingFace revision or
+            # network/filesystem errors during model download
+            logger.warning("Moondream2 OSError: %s", e)
+            if progress_cb:
+                progress_cb(100, "Moondream2 Ladefehler")
+            result = VisionAnalysisResult()
+            result.summary = f"Moondream2 konnte nicht geladen werden: {e}"
+            return result
 
         if progress_cb:
             progress_cb(10, "Extrahiere Frames...")

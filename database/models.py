@@ -67,7 +67,7 @@ class AudioTrack(Base):
     lufs = Column(Float, nullable=True)                 # EBU R128 Integrated Loudness (dB)
     mood = Column(String, nullable=True)                # "energetic", "melancholic", "dark", ...
     genre = Column(String, nullable=True)               # "Psytrance", "Techno", "House", ...
-    is_dj_mix = Column(Boolean, nullable=True, default=False)  # DJ-Mix erkannt?
+    is_dj_mix = Column(Boolean, nullable=True)  # DJ-Mix erkannt? None=unbekannt
     spectral_bands = Column(JSON, nullable=True)        # P1.7-FIX: 8-Band Frequenz-Energien
     transcription = Column(JSON, nullable=True)         # DEPRECATED: kept for DB compatibility
     deleted_at = Column(DateTime, nullable=True)       # P1-FIX: Soft-Delete Support

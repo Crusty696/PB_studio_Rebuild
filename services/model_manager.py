@@ -57,8 +57,10 @@ OOM_VRAM_THRESHOLD_GB = 1.5  # Min 1.5GB freies VRAM
 # Trusted models that require trust_remote_code=True
 VISION_TRUSTED_MODELS = {"vikhyatk/moondream2"}
 # Revision pins for trusted models (prevents arbitrary code execution)
-VISION_TRUSTED_REVISIONS: dict[str, str] = {
-    "vikhyatk/moondream2": "2025.01.11",
+VISION_TRUSTED_REVISIONS: dict[str, str | None] = {
+    # VAD-83 FIX: "2025.01.11" was not a valid HuggingFace git identifier.
+    # Set to None (use latest) until a verified commit hash can be pinned.
+    "vikhyatk/moondream2": None,
 }
 
 

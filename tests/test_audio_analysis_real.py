@@ -159,6 +159,21 @@ def insert_test_track(engine, project_id: int, file_path: str) -> int:
 
 
 # ==========================================================================
+# Pytest fixture (VAD-83 FIX: enables pytest discovery of these tests)
+# ==========================================================================
+import pytest
+
+
+@pytest.fixture
+def audio_file():
+    """Provide the real audio file path, skip if not available."""
+    path = AUDIO_FILE
+    if not Path(path).exists():
+        pytest.skip(f"Test audio not found: {path}")
+    return path
+
+
+# ==========================================================================
 # Individual tests
 # ==========================================================================
 

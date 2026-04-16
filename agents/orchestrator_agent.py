@@ -219,7 +219,7 @@ class OrchestratorAgent(BaseAgent):
                 "result": vision_result,
                 "error": None,
             })
-        except (ValueError, RuntimeError, OSError) as e:
+        except (KeyError, ValueError, RuntimeError, OSError) as e:
             error_msg = f"Vision-Analyse fehlgeschlagen: {e}"
             logger.error(error_msg)
             errors.append(error_msg)
@@ -289,7 +289,7 @@ class OrchestratorAgent(BaseAgent):
                     "result": res,
                     "error": None,
                 })
-            except (ValueError, RuntimeError, OSError) as e:
+            except (KeyError, ValueError, RuntimeError, OSError) as e:
                 errors.append(f"analyze_audio(track_id={track_id}): {e}")
                 results.append({
                     "action": "analyze_audio",
@@ -307,7 +307,7 @@ class OrchestratorAgent(BaseAgent):
                     "result": res,
                     "error": None,
                 })
-            except (ValueError, RuntimeError, OSError) as e:
+            except (KeyError, ValueError, RuntimeError, OSError) as e:
                 errors.append(f"analyze_video(clip_id={clip_id}): {e}")
                 results.append({
                     "action": "analyze_video",
@@ -363,7 +363,7 @@ class OrchestratorAgent(BaseAgent):
                     "result": action_result,
                     "error": None,
                 })
-            except (ValueError, RuntimeError, OSError) as e:
+            except (KeyError, ValueError, RuntimeError, OSError) as e:
                 error_msg = f"{action_name}: {e}"
                 logger.error("Compound-Action fehlgeschlagen: %s", error_msg)
                 errors.append(error_msg)
@@ -510,7 +510,7 @@ class OrchestratorAgent(BaseAgent):
                     "message": None,
                     "error": None,
                 }
-            except (ValueError, RuntimeError, OSError) as e:
+            except (KeyError, ValueError, RuntimeError, OSError) as e:
                 return {
                     "agent": self.name,
                     "action": name,
@@ -529,7 +529,7 @@ class OrchestratorAgent(BaseAgent):
                 results.append({
                     "action": name, "params": params, "result": res, "error": None,
                 })
-            except (ValueError, RuntimeError, OSError) as e:
+            except (KeyError, ValueError, RuntimeError, OSError) as e:
                 errors.append(f"{name}: {e}")
                 results.append({
                     "action": name, "params": params, "result": None, "error": str(e),
