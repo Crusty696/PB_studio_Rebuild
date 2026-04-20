@@ -8,6 +8,7 @@ import uuid
 
 logger = logging.getLogger(__name__)
 
+import shiboken6
 from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import Qt, QThread, Signal, QObject
 
@@ -314,25 +315,35 @@ class GlobalTaskManager(QObject):
         if hasattr(worker, "error"):
             worker.error.connect(thread.quit)
         def _safe_cleanup(_tid=task_id):
-            """Guard: Sicherer Cleanup von Worker und Thread (Fix A-02)."""
-            app_thread = QApplication.instance().thread()
+            """Guard: Sicherer Cleanup von Worker und Thread (Fix A-02).
+
+            shiboken6.isValid() prueft ob das C++ Qt-Objekt noch existiert,
+            BEVOR wir deleteLater aufrufen. Ohne diesen Check fuehrt Zugriff
+            auf ein bereits geloeschtes C++ Objekt zum Access Violation (0xC0000005).
+
+            KEIN moveToThread() mehr: Der Worker lebt im Worker-Thread. Wenn
+            thread.finished den Cleanup triggert, ist der Thread beendet und der
+            Worker hat keinen aktiven Event-Loop mehr. deleteLater() wird vom
+            Main-Thread Event-Loop verarbeitet, da der Worker-Thread-Event-Loop
+            nicht mehr laeuft. moveToThread() von einem Nicht-Owner-Thread loeste
+            die persistente Qt-Warnung 'Cannot move to target thread' aus.
+            """
             with self._tasks_lock:
                 task = self._tasks.get(_tid)
-            
+
             if task:
                 if task.worker:
                     try:
-                        # KRITISCH: Falls der Thread tot ist, wuerde deleteLater() nie feuern.
-                        # Wir holen den Worker zurueck in den Main-Thread fuer sicheren Cleanup.
-                        task.worker.moveToThread(app_thread)
-                        task.worker.deleteLater()
+                        if shiboken6.isValid(task.worker):
+                            task.worker.deleteLater()
                     except (RuntimeError, AttributeError):
                         pass
                     task.worker = None
-                
+
                 if task.thread:
                     try:
-                        task.thread.deleteLater()
+                        if shiboken6.isValid(task.thread):
+                            task.thread.deleteLater()
                     except (RuntimeError, AttributeError):
                         pass
                     task.thread = None
@@ -431,11 +442,11 @@ class GlobalTaskManager(QObject):
             return
         
         worker = task.worker
-        if worker and hasattr(worker, "cancel"):
+        if worker and shiboken6.isValid(worker) and hasattr(worker, "cancel"):
             worker.cancel()
-            
+
         thread = task.thread
-        if thread and thread.isRunning():
+        if thread and shiboken6.isValid(thread) and thread.isRunning():
             thread.quit()
             # Wir warten NICHT blockierend im Main-Thread, um Freezes zu vermeiden.
             # Der Thread wird via _safe_cleanup bereinigt, sobald er stoppt.
@@ -480,12 +491,14 @@ class GlobalTaskManager(QObject):
                 # ist dann erwartet und kein Bug — nur DEBUG-Log, keine Warning.
                 if task.worker:
                     try:
-                        task.worker.deleteLater()
+                        if shiboken6.isValid(task.worker):
+                            task.worker.deleteLater()
                     except RuntimeError:
                         logger.debug("worker already deleted by _safe_cleanup (%s)", k)
                 if task.thread:
                     try:
-                        task.thread.deleteLater()
+                        if shiboken6.isValid(task.thread):
+                            task.thread.deleteLater()
                     except RuntimeError:
                         logger.debug("thread already deleted by _safe_cleanup (%s)", k)
 

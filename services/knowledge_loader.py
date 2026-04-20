@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -251,13 +252,16 @@ class KnowledgeLoader:
         }
 
 
-# Modul-Singleton (lazy)
+# Modul-Singleton (lazy, thread-safe)
 _loader: KnowledgeLoader | None = None
+_loader_lock = threading.Lock()
 
 
 def get_knowledge_loader() -> KnowledgeLoader:
-    """Gibt den modulweiten Knowledge-Loader zurück (Singleton)."""
+    """Gibt den modulweiten Knowledge-Loader zurück (Singleton, thread-safe)."""
     global _loader
     if _loader is None:
-        _loader = KnowledgeLoader()
+        with _loader_lock:
+            if _loader is None:
+                _loader = KnowledgeLoader()
     return _loader

@@ -1,6 +1,7 @@
 """Base classes for background workers."""
 
 import logging
+import threading
 
 logger = logging.getLogger(__name__)
 
@@ -36,15 +37,22 @@ def format_user_error(exc: Exception) -> str:
 
 
 class CancellableMixin:
-    """Mixin for workers: adds a _cancelled flag checked via should_stop()."""
+    """Mixin for workers: adds a thread-safe _cancelled flag checked via should_stop().
+
+    cancel() wird vom Main-Thread aufgerufen, should_stop() vom Worker-Thread.
+    Ohne Lock koennte der Worker-Thread den Flag-Wechsel nicht sehen (CPU-Cache).
+    """
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._cancelled = False
         self._errored = False
+        self._cancel_lock = threading.Lock()
 
     def cancel(self):
-        self._cancelled = True
+        with self._cancel_lock:
+            self._cancelled = True
 
     def should_stop(self) -> bool:
-        return self._cancelled
+        with self._cancel_lock:
+            return self._cancelled

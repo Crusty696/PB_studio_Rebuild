@@ -995,6 +995,11 @@ def main():
     window.showMaximized()
     splash.finish(window)
 
+    # Performance-Watchdog: Misst jedes Event im Main-Thread.
+    # Loggt alles >50ms in logs/pb_studio.log als [SLOW EVENT].
+    from services.perf_watchdog import install_watchdog
+    install_watchdog(app, threshold_ms=50)
+
     # ── Verzögerte Initialisierung (Fix F-035) ────────────────────────
     def final_init():
         try:

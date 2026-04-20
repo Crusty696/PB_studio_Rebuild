@@ -109,7 +109,8 @@ class StemPlayer(QObject):
 
     @property
     def state(self) -> str:
-        return self._state
+        with self._lock:
+            return self._state
 
     def _set_state_safe(self, new_state: str):
         """M-19 FIX: Thread-safe state setter for use in callbacks."""
@@ -219,14 +220,16 @@ class StemPlayer(QObject):
             self.state_changed.emit("stopped")
             return
 
-        if self._state == "playing":
-            return
+        with self._lock:
+            if self._state == "playing":
+                return
 
-        if self._position >= self._total_frames:
-            self._position = 0
+            if self._position >= self._total_frames:
+                self._position = 0
+            position_snapshot = self._position
 
-        # Handles seekern VOR Lock-Acquisition (kein Disk-I/O unter Lock)
-        self._seek_all_handles(self._position)
+        # Handles seekern AUSSERHALB des Locks (Disk-I/O)
+        self._seek_all_handles(position_snapshot)
 
         # [NEW-02 FIX] Stream erstellen unter Lock, aber start() NACH Lock-Release
         with self._lock:
@@ -255,10 +258,10 @@ class StemPlayer(QObject):
 
     def pause(self):
         """Pausiert die Wiedergabe."""
-        if self._state != "playing":
-            return
-
         with self._lock:
+            if self._state != "playing":
+                return
+
             if self._stream:
                 try:
                     self._stream.stop()
@@ -267,7 +270,8 @@ class StemPlayer(QObject):
                     logger.warning("[StemPlayer] Pause-Cleanup Fehler: %s", e)
                 self._stream = None
 
-        self._state = "paused"
+            self._state = "paused"
+
         self._pos_timer.stop()
         self.state_changed.emit("paused")
 
@@ -282,10 +286,10 @@ class StemPlayer(QObject):
                     logger.warning("[StemPlayer] Stop-Cleanup Fehler: %s", e)
                 self._stream = None
 
-        self._state = "stopped"
-        self._position = 0
-        with self._lock:
+            self._state = "stopped"
+            self._position = 0
             self._pending_seek = None
+
         self._pos_timer.stop()
         self.state_changed.emit("stopped")
         self.position_changed.emit(0.0)
@@ -299,12 +303,15 @@ class StemPlayer(QObject):
         frame = int(seconds * self._sr)
         frame = max(0, min(frame, self._total_frames))
 
-        if self._state == "playing":
-            # [C-02 FIX] Pending Seek unter Lock
-            with self._lock:
+        with self._lock:
+            is_playing = self._state == "playing"
+            if is_playing:
+                # [C-02 FIX] Pending Seek unter Lock
                 self._pending_seek = frame
-        else:
-            self._position = frame
+            else:
+                self._position = frame
+
+        if not is_playing:
             self._seek_all_handles(frame)
             self.position_changed.emit(self.position)
 

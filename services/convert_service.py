@@ -138,6 +138,7 @@ PRESETS = {
 _nvenc_cache: dict | None = None
 _nvenc_cache_time: float = 0.0
 _NVENC_CACHE_TTL: float = 60.0  # Sekunden
+_nvenc_cache_lock = threading.Lock()
 
 
 def detect_nvenc() -> dict:
@@ -157,8 +158,9 @@ def detect_nvenc() -> dict:
     global _nvenc_cache, _nvenc_cache_time
 
     now = time.monotonic()
-    if _nvenc_cache is not None and (now - _nvenc_cache_time) < _NVENC_CACHE_TTL:
-        return _nvenc_cache
+    with _nvenc_cache_lock:
+        if _nvenc_cache is not None and (now - _nvenc_cache_time) < _NVENC_CACHE_TTL:
+            return _nvenc_cache
 
     result = {"h264_nvenc": False, "hevc_nvenc": False,
               "cuda_hwaccel": False, "ffmpeg_version": "unknown"}
@@ -229,8 +231,9 @@ def detect_nvenc() -> dict:
     except (subprocess.TimeoutExpired, FileNotFoundError) as e:
         logger.warning("NVENC-Detection fehlgeschlagen: %s", e)
 
-    _nvenc_cache = result
-    _nvenc_cache_time = now
+    with _nvenc_cache_lock:
+        _nvenc_cache = result
+        _nvenc_cache_time = now
     return result
 
 

@@ -17,6 +17,7 @@ import json
 import socket
 import time
 import logging
+import threading
 from pathlib import Path
 from typing import Callable, Any
 
@@ -53,12 +54,15 @@ class OllamaService:
     """Singleton. Verwaltet Ollama-Prozess und stellt chat/vision bereit."""
     
     _instance: 'OllamaService | None' = None
+    _instance_lock = threading.Lock()
     _process: subprocess.Popen | None = None
 
     @classmethod
     def get(cls) -> 'OllamaService':
         if cls._instance is None:
-            cls._instance = cls()
+            with cls._instance_lock:
+                if cls._instance is None:
+                    cls._instance = cls()
         return cls._instance
 
     def __init__(self):
@@ -222,7 +226,7 @@ class OllamaService:
 
         images_b64 = [encode_image(p) for p in image_paths if os.path.exists(p)]
 
-        with httpx.Client(base_url=OLLAMA_BASE, timeout=120.0) as client:
+        with httpx.Client(base_url=OLLAMA_BASE, timeout=15.0) as client:
             try:
                 response = client.post("/api/chat", json={
                     "model": model,
