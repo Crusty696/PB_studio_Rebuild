@@ -1,0 +1,3 @@
+[submodule "vendor/beat_this"]
+	path = vendor/beat_this
+	url = https://github.com/CPJKU/beat_this.git

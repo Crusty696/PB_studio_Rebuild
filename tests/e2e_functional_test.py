@@ -11,7 +11,7 @@ Nutzt die Service-Schicht direkt (gleiche Logik wie GUI).
 Dokumentiert jedes Ergebnis in einem Markdown-Report.
 
 Ausfuehrung:
-    .venv310\Scripts\python.exe tests/e2e_functional_test.py [--audio PATH] [--video PATH]
+    .venv310/Scripts/python.exe tests/e2e_functional_test.py [--audio PATH] [--video PATH]
 """
 
 import argparse
