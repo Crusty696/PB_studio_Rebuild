@@ -602,13 +602,14 @@ class InteractiveTimeline(QGraphicsView):
                 dur = track.duration if track and track.duration else 30.0
                 y = AUDIO_TRACK_Y
 
-                # Rekordbox Waveform laden (falls vorhanden)
+                # waveform_data + beatgrid sind im AudioTrack-Model lazy='joined'
+                # und werden vom TimelineDBWorker bereits mitgeladen. Kein neuer
+                # DBSession/merge-Dance im Main-Thread noetig (P8-Folge-Fix:
+                # eliminiert 2s MetaCall-Freeze beim ersten Timeline-Render mit
+                # vielen Audio-Clips).
                 if track and track.waveform_data:
                     has_waveform = True
-                    # Wir öffnen eine kurze Read-Only Session für den Waveform-Fetch
-                    with DBSession(engine) as session:
-                        fresh_track = session.merge(track)
-                        self._load_waveform_for_track(session, fresh_track, entry, dur, y)
+                    self._load_waveform_for_track(None, track, entry, dur, y)
 
             elif entry.track == "video":
                 clip = video_map.get(entry.media_id)
