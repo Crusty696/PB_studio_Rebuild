@@ -16,6 +16,7 @@ import threading
 from pathlib import Path
 
 import numpy as np
+import shiboken6
 from PySide6.QtCore import Qt, Signal, QThread
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
@@ -299,25 +300,36 @@ class StemWorkspace(QWidget):
 
         for worker in workers_to_cancel:
             try:
-                worker.cancel()
+                if shiboken6.isValid(worker):
+                    worker.cancel()
+                else:
+                    with self._peak_lock:
+                        try:
+                            self._peak_workers.remove(worker)
+                        except ValueError:
+                            pass
             except RuntimeError:
-                # C++ object already deleted
                 with self._peak_lock:
                     try:
                         self._peak_workers.remove(worker)
-                    except ValueError as exc:
-                        logger.warning("_cleanup_peak_threads: worker not in list: %s", exc)
+                    except ValueError:
+                        pass
         for thread in threads_to_quit:
             try:
-                if thread.isRunning():
+                if shiboken6.isValid(thread) and thread.isRunning():
                     thread.quit()
+                elif not shiboken6.isValid(thread):
+                    with self._peak_lock:
+                        try:
+                            self._peak_threads.remove(thread)
+                        except ValueError:
+                            pass
             except RuntimeError:
-                # C++ object already deleted
                 with self._peak_lock:
                     try:
                         self._peak_threads.remove(thread)
-                    except ValueError as exc:
-                        logger.warning("_cleanup_peak_threads: thread not in list: %s", exc)
+                    except ValueError:
+                        pass
 
     def _on_mute_toggled(self, stem_name: str, muted: bool):
         """Mute-Signal weiterleiten."""
@@ -329,9 +341,11 @@ class StemWorkspace(QWidget):
         Speichert den vorherigen Mute-Zustand beim Aktivieren von Solo und
         stellt ihn beim Deaktivieren wieder her. Die Mute-Buttons werden
         visuell aktualisiert, damit der Zustand sichtbar ist.
+
+        Performance: Sammelt alle Mute-Aenderungen und emittiert sie gebuendelt,
+        statt 4 einzelne Signal-Emits (4x Lock im Audio-Thread).
         """
         if checked:
-            # Mute-Zustand merken bevor Solo greift
             if not self._solo_active:
                 self._pre_solo_mute_state = {
                     name: track.is_muted for name, track in self._tracks.items()
@@ -340,8 +354,10 @@ class StemWorkspace(QWidget):
         else:
             self._solo_active.discard(stem_name)
 
+        # Alle Mute-States sammeln, Buttons batched aktualisieren
+        mute_updates: list[tuple[str, bool]] = []
+
         if self._solo_active:
-            # Mute alle die NICHT solo sind + Buttons visuell aktualisieren
             for name, track in self._tracks.items():
                 should_mute = name not in self._solo_active
                 track._mute_btn.blockSignals(True)
@@ -349,9 +365,8 @@ class StemWorkspace(QWidget):
                     track._mute_btn.setChecked(should_mute)
                 finally:
                     track._mute_btn.blockSignals(False)
-                self.stem_mute_toggled.emit(name, should_mute)
+                mute_updates.append((name, should_mute))
         else:
-            # Kein Solo aktiv → vorherigen Mute-Zustand wiederherstellen
             pre_state = getattr(self, '_pre_solo_mute_state', {})
             for name, track in self._tracks.items():
                 was_muted = pre_state.get(name, False)
@@ -360,7 +375,12 @@ class StemWorkspace(QWidget):
                     track._mute_btn.setChecked(was_muted)
                 finally:
                     track._mute_btn.blockSignals(False)
-                self.stem_mute_toggled.emit(name, was_muted)
+                mute_updates.append((name, was_muted))
+
+        # Gebuendelt emittieren — StemPlayer.set_mute() nimmt den Lock nur 4x
+        # statt interleaved mit UI-Repaints
+        for name, muted in mute_updates:
+            self.stem_mute_toggled.emit(name, muted)
 
     def _on_waveform_seek(self, ratio: float):
         """Klick in eine Waveform → Seek in Sekunden."""
@@ -428,8 +448,9 @@ class StemWorkspace(QWidget):
         try:
             if hasattr(self, '_peak_threads'):
                 for thread in self._peak_threads:
-                    thread.quit()
-                    thread.wait(1000)
+                    if shiboken6.isValid(thread) and thread.isRunning():
+                        thread.quit()
+                        thread.wait(1000)
         except (TypeError, RuntimeError) as exc:
             logger.warning("StemWorkspace.closeEvent: failed to cleanup peak threads: %s", exc)
 

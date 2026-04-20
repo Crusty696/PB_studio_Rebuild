@@ -12,7 +12,8 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import QTimer
 from PySide6.QtGui import QUndoCommand
 
-from database import nullpool_session, TimelineEntry
+from database import nullpool_session, TimelineEntry, engine
+from sqlalchemy.orm import Session as DBSession
 
 if TYPE_CHECKING:
     from ui.timeline import InteractiveTimeline
@@ -47,7 +48,7 @@ class MoveClipCommand(QUndoCommand):
         self._apply(self._old_start, self._old_end)
 
     def _apply(self, start: float, end: float | None):
-        with nullpool_session() as session:
+        with DBSession(engine) as session:
             entry = session.get(TimelineEntry, self._entry_id)
             if entry:
                 entry.start_time = round(start, 3)
@@ -101,7 +102,7 @@ class AddClipCommand(QUndoCommand):
         self._entry_id: int | None = None
 
     def redo(self):
-        with nullpool_session() as session:
+        with DBSession(engine) as session:
             entry = TimelineEntry(
                 project_id=self._project_id,
                 track=self._track_type,
@@ -129,7 +130,7 @@ class AddClipCommand(QUndoCommand):
     def undo(self):
         if self._entry_id is None:
             return
-        with nullpool_session() as session:
+        with DBSession(engine) as session:
             entry = session.get(TimelineEntry, self._entry_id)
             if entry:
                 session.delete(entry)
@@ -158,7 +159,7 @@ class RemoveClipCommand(QUndoCommand):
 
     def redo(self):
         # Snapshot vor dem Loeschen speichern
-        with nullpool_session() as session:
+        with DBSession(engine) as session:
             entry = session.get(TimelineEntry, self._current_entry_id)
             if entry:
                 self._snapshot = {
@@ -189,7 +190,7 @@ class RemoveClipCommand(QUndoCommand):
         title = f"Clip #{self._snapshot['media_id']}"
         duration = 30.0 if self._snapshot["track"] == "audio" else 10.0
 
-        with nullpool_session() as session:
+        with DBSession(engine) as session:
             # M4-FIX: Gleiche ID wiederverwenden statt auto-increment,
             # damit andere Code-Teile die die alte ID gecacht haben weiterhin funktionieren.
             entry = TimelineEntry(id=self._current_entry_id, **self._snapshot)
@@ -258,7 +259,7 @@ class TrimClipCommand(QUndoCommand):
 
     def _apply(self, start: float, end: float | None,
                source_start: float | None, source_end: float | None):
-        with nullpool_session() as session:
+        with DBSession(engine) as session:
             entry = session.get(TimelineEntry, self._entry_id)
             if entry:
                 entry.start_time = round(start, 3)
@@ -290,7 +291,7 @@ class ApplyAutoEditCommand(QUndoCommand):
     def redo(self):
         # Alte Video-Entries sichern
         old_entries_backup = []
-        with nullpool_session() as session:
+        with DBSession(engine) as session:
             old = (
                 session.query(TimelineEntry)
                 .filter_by(project_id=self._project_id, track="video")
@@ -320,7 +321,7 @@ class ApplyAutoEditCommand(QUndoCommand):
     def undo(self):
         if self._old_entries is None:
             return
-        with nullpool_session() as session:
+        with DBSession(engine) as session:
             session.query(TimelineEntry).filter_by(
                 project_id=self._project_id, track="video"
             ).delete()

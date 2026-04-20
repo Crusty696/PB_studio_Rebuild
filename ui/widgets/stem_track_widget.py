@@ -14,9 +14,9 @@ from __future__ import annotations
 import logging
 
 import numpy as np
-from PySide6.QtCore import Qt, Signal, QObject
+from PySide6.QtCore import Qt, Signal, QObject, QRect
 from PySide6.QtCore import QLine
-from PySide6.QtGui import QPainter, QColor, QPen, QMouseEvent
+from PySide6.QtGui import QPainter, QColor, QPen, QMouseEvent, QPixmap
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QSizePolicy,
 )
@@ -147,6 +147,11 @@ class WaveformWidget(QWidget):
 
     Bekommt Peak-Daten (N, 2) mit [min, max] und zeichnet diese
     als vertikale Linien um die Mittellinie. Unterstützt Zoom und Scroll.
+
+    Performance: Die Wellenform wird als QPixmap gecacht und nur bei
+    Daten-/Zoom-/Scroll-/Resize-Aenderung neu gerendert. Der Playhead
+    wird als leichtgewichtiges Overlay gezeichnet, ohne die Wellenform
+    neu zu berechnen (30fps ohne Lag).
     """
 
     clicked_position = Signal(float)  # Relative Position 0.0-1.0
@@ -158,43 +163,84 @@ class WaveformWidget(QWidget):
         self._color_dim = QColor(color)
         self._color_dim.setAlpha(120)
         self._playhead_pos: float = 0.0  # 0.0 - 1.0
+        self._prev_playhead_px: int = -1  # Letzter Playhead-Pixel fuer Partial-Update
         self._zoom: float = 1.0
         self._scroll_offset: float = 0.0  # 0.0 - 1.0 (Scroll-Position)
         self._loading = False
         self._no_data = True
 
+        # Pixmap-Cache: Wellenform wird nur bei Aenderung neu gerendert
+        self._waveform_cache: QPixmap | None = None
+        self._cache_valid = False
+
         self.setMinimumHeight(60)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setMouseTracking(True)
+
+    def _invalidate_cache(self):
+        """Markiert den Waveform-Cache als ungueltig — naechster paintEvent rendert neu."""
+        self._cache_valid = False
 
     def set_peaks(self, peaks: np.ndarray):
         """Setzt die Peak-Daten und triggert Repaint."""
         self._peaks = peaks
         self._no_data = (peaks is None or len(peaks) == 0)
         self._loading = False
+        self._invalidate_cache()
         self.update()
 
     def set_loading(self, loading: bool):
         self._loading = loading
         self._no_data = True
+        self._invalidate_cache()
         self.update()
 
     def set_playhead(self, ratio: float):
-        """Setzt die Playhead-Position (0.0-1.0)."""
+        """Setzt die Playhead-Position (0.0-1.0).
+
+        Invalidiert NUR den alten und neuen Playhead-Bereich (4px breit),
+        nicht die gesamte Wellenform. Das reduziert die Paint-Last von
+        ~8000 Linien/Frame auf 2 schmale Streifen.
+        """
+        old_ratio = self._playhead_pos
         self._playhead_pos = max(0.0, min(1.0, ratio))
-        self.update()
+
+        w = self.width()
+        h = self.height()
+        if w <= 0 or h <= 0:
+            return
+
+        visible_fraction = 1.0 / self._zoom
+        start_ratio = self._scroll_offset
+
+        # Alten Playhead-Bereich invalidieren
+        ph_old = (old_ratio - start_ratio) / visible_fraction
+        if 0.0 <= ph_old <= 1.0:
+            px_old = int(ph_old * w)
+            self.update(QRect(px_old - 2, 0, 5, h))
+
+        # Neuen Playhead-Bereich invalidieren
+        ph_new = (self._playhead_pos - start_ratio) / visible_fraction
+        if 0.0 <= ph_new <= 1.0:
+            px_new = int(ph_new * w)
+            self.update(QRect(px_new - 2, 0, 5, h))
 
     def set_zoom(self, zoom: float):
         self._zoom = max(1.0, min(50.0, zoom))
+        self._invalidate_cache()
         self.update()
 
     def set_scroll(self, offset: float):
         self._scroll_offset = max(0.0, min(1.0, offset))
+        self._invalidate_cache()
         self.update()
+
+    def resizeEvent(self, event):
+        self._invalidate_cache()
+        super().resizeEvent(event)
 
     def mousePressEvent(self, event: QMouseEvent):
         if event.button() == Qt.MouseButton.LeftButton and self._peaks is not None:
-            # Klick → Position berechnen
             w = self.width()
             visible_fraction = 1.0 / self._zoom
             x_ratio = event.position().x() / w
@@ -202,35 +248,38 @@ class WaveformWidget(QWidget):
             global_ratio = max(0.0, min(1.0, global_ratio))
             self.clicked_position.emit(global_ratio)
 
-    def paintEvent(self, event):
-        w = self.width()
-        h = self.height()
-        if w <= 0 or h <= 0:
-            return
+    def _render_waveform_cache(self, w: int, h: int):
+        """Rendert die Wellenform in einen QPixmap-Cache.
 
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
-
-        # Background
-        painter.fillRect(0, 0, w, h, QColor(14, 14, 14))
+        Wird nur aufgerufen wenn sich Peaks, Zoom, Scroll oder Groesse aendern.
+        Waehrend der Wiedergabe (30fps Playhead-Updates) wird dieser Cache
+        NICHT neu gerendert — nur der Playhead wird als Overlay gezeichnet.
+        """
+        pixmap = QPixmap(w, h)
+        pixmap.fill(QColor(14, 14, 14))
 
         if self._loading:
-            painter.setPen(QColor(80, 80, 80))
-            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "Peaks werden berechnet...")
-            painter.end()
+            p = QPainter(pixmap)
+            p.setPen(QColor(80, 80, 80))
+            p.drawText(QRect(0, 0, w, h), Qt.AlignmentFlag.AlignCenter, "Peaks werden berechnet...")
+            p.end()
+            self._waveform_cache = pixmap
+            self._cache_valid = True
             return
 
         if self._no_data or self._peaks is None or len(self._peaks) == 0:
-            painter.setPen(QColor(50, 50, 50))
-            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "Keine Wellenform")
-            painter.end()
+            p = QPainter(pixmap)
+            p.setPen(QColor(50, 50, 50))
+            p.drawText(QRect(0, 0, w, h), Qt.AlignmentFlag.AlignCenter, "Keine Wellenform")
+            p.end()
+            self._waveform_cache = pixmap
+            self._cache_valid = True
             return
 
         peaks = self._peaks
         num_peaks = len(peaks)
         half_h = h / 2.0
 
-        # Zoom & Scroll: welcher Bereich ist sichtbar?
         visible_fraction = 1.0 / self._zoom
         start_ratio = self._scroll_offset
         end_ratio = min(1.0, start_ratio + visible_fraction)
@@ -240,26 +289,22 @@ class WaveformWidget(QWidget):
         visible_peaks = end_idx - start_idx
 
         if visible_peaks <= 0:
-            painter.end()
+            self._waveform_cache = pixmap
+            self._cache_valid = True
             return
 
-        # Zeichne Wellenform: Eine vertikale Linie pro Pixel
-        # Wenn mehr Peaks als Pixel → Downsampling (max/min)
-        # Wenn weniger Peaks als Pixel → Stretching
+        p = QPainter(pixmap)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+        p.setPen(QPen(self._color, 1))
 
-        color = self._color
-        pen = QPen(color, 1)
-        painter.setPen(pen)
-
-        # [I-03 FIX] Batch drawLines() statt einzelner drawLine() Aufrufe
         lines: list[QLine] = []
 
         if visible_peaks <= w:
             for i in range(visible_peaks):
                 x = int(i * w / visible_peaks)
-                p = peaks[start_idx + i]
-                y_min = int(half_h - p[1] * half_h)
-                y_max = int(half_h - p[0] * half_h)
+                pk = peaks[start_idx + i]
+                y_min = int(half_h - pk[1] * half_h)
+                y_max = int(half_h - pk[0] * half_h)
                 lines.append(QLine(x, y_min, x, y_max))
         else:
             for px in range(w):
@@ -276,14 +321,40 @@ class WaveformWidget(QWidget):
                 lines.append(QLine(px, y_min, px, y_max))
 
         if lines:
-            painter.drawLines(lines)
+            p.drawLines(lines)
 
         # Mittellinie (dezent)
-        painter.setPen(QPen(QColor(255, 255, 255, 20), 1))
-        painter.drawLine(0, int(half_h), w, int(half_h))
+        p.setPen(QPen(QColor(255, 255, 255, 20), 1))
+        p.drawLine(0, int(half_h), w, int(half_h))
 
-        # Playhead
-        if 0.0 <= self._playhead_pos <= 1.0:
+        p.end()
+        self._waveform_cache = pixmap
+        self._cache_valid = True
+
+    def paintEvent(self, event):
+        w = self.width()
+        h = self.height()
+        if w <= 0 or h <= 0:
+            return
+
+        # Cache neu rendern falls ungueltig oder Groesse geaendert
+        if (not self._cache_valid
+                or self._waveform_cache is None
+                or self._waveform_cache.width() != w
+                or self._waveform_cache.height() != h):
+            self._render_waveform_cache(w, h)
+
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+
+        # Gecachte Wellenform zeichnen (ein einziger drawPixmap-Call)
+        painter.drawPixmap(0, 0, self._waveform_cache)
+
+        # Playhead als leichtgewichtiges Overlay
+        if (not self._no_data and self._peaks is not None
+                and 0.0 <= self._playhead_pos <= 1.0):
+            visible_fraction = 1.0 / self._zoom
+            start_ratio = self._scroll_offset
             ph_in_visible = (self._playhead_pos - start_ratio) / visible_fraction
             if 0.0 <= ph_in_visible <= 1.0:
                 px = int(ph_in_visible * w)

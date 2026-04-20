@@ -537,6 +537,24 @@ class ChatDock(QDockWidget):
             f"  GPU-Zwang: AKTIV"
         )
 
+    # Pre-built Stylesheets pro Farbe — vermeidet setStyleSheet()-Rebuild bei jedem Status-Update
+    _STATUS_STYLE_CACHE: dict[str, str] = {}
+
+    @classmethod
+    def _get_status_style(cls, color: str) -> str:
+        """Gibt gecachten Stylesheet-String fuer eine Farbe zurueck."""
+        if color not in cls._STATUS_STYLE_CACHE:
+            cls._STATUS_STYLE_CACHE[color] = (
+                f"QLabel {{"
+                f"  color: {color};"
+                f"  background-color: {BG1};"
+                f"  border: 1px solid rgba(212,175,55,0.2);"
+                f"  border-radius: 4px;"
+                f"  padding: 4px 8px;"
+                f"}}"
+            )
+        return cls._STATUS_STYLE_CACHE[color]
+
     def _on_agent_status(self, status: str) -> None:
         """Aktualisiert das Agent-Status-Label live."""
         self.status_label.setText(f"Agent Status: {status}")
@@ -551,15 +569,11 @@ class ChatDock(QDockWidget):
         else:
             color = WARN  # Denkt nach
 
-        self.status_label.setStyleSheet(
-            f"QLabel {{"
-            f"  color: {color};"
-            f"  background-color: {BG1};"
-            f"  border: 1px solid rgba(212,175,55,0.2);"
-            f"  border-radius: 4px;"
-            f"  padding: 4px 8px;"
-            f"}}"
-        )
+        # Gecachten Stylesheet verwenden — Qt ueberspringt den Rebuild
+        # wenn der String identisch zum aktuellen ist
+        style = self._get_status_style(color)
+        if self.status_label.styleSheet() != style:
+            self.status_label.setStyleSheet(style)
 
     def _on_agent_finished(self, result: dict) -> None:
         self._remove_status_line()

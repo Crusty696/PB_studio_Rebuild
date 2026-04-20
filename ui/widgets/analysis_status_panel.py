@@ -20,13 +20,16 @@ from PySide6.QtWidgets import (
     QProgressBar, QTableWidget, QTableWidgetItem, QHeaderView,
     QPushButton, QFrame, QComboBox,
 )
-from PySide6.QtCore import Qt, Signal, QEvent
+from concurrent.futures import ThreadPoolExecutor
+from PySide6.QtCore import Qt, Signal, QEvent, QTimer
 from PySide6.QtGui import QColor, QBrush, QFont, QKeySequence, QShortcut
 
 from services import analysis_status_service
 from database import AnalysisStatus
 
 logger = logging.getLogger(__name__)
+
+_status_db_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="status_db")
 
 # Status icons
 STATUS_ICONS = {
@@ -289,19 +292,37 @@ class AnalysisStatusPanel(QWidget):
         self.refresh()
 
     def refresh(self):
-        """Lädt den aktuellen Status aus der DB und aktualisiert die Anzeige."""
+        """Laedt den aktuellen Status aus der DB und aktualisiert die Anzeige.
+
+        DB-Arbeit (infer_from_db + get_status) laeuft im Hintergrund-Thread.
+        UI-Update erfolgt im Main-Thread via QTimer.singleShot.
+
+        infer_from_db() konnte bis zu 9 Sekunden dauern (nullpool_session +
+        Lazy-Loading von AudioTrack-Relations). Durch Auslagerung in den
+        ThreadPool wird der Main-Thread nicht mehr blockiert.
+        """
         if self._media_type is None or self._media_id is None:
             self._clear_display()
             return
 
-        # Infer status from DB first (for migration/backwards compat)
-        try:
-            analysis_status_service.infer_from_db(self._media_type, self._media_id)
-        except Exception as e:
-            logger.warning("infer_from_db failed: %s", e)
+        media_type = self._media_type
+        media_id = self._media_id
 
-        # Get status
-        status_dict = analysis_status_service.get_status(self._media_type, self._media_id)
+        def _db_work():
+            try:
+                analysis_status_service.infer_from_db(media_type, media_id)
+            except Exception as e:
+                logger.warning("infer_from_db failed: %s", e)
+            status_dict = analysis_status_service.get_status(media_type, media_id)
+            QTimer.singleShot(0, lambda: self._apply_status_data(status_dict))
+
+        _status_db_pool.submit(_db_work)
+
+    def _apply_status_data(self, status_dict: dict):
+        """Aktualisiert die UI mit vorgeladenen Status-Daten (Main-Thread)."""
+        if self._media_type is None or self._media_id is None:
+            self._clear_display()
+            return
 
         # Get steps for this media type
         if self._media_type == "video":

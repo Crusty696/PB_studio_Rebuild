@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 
+import shiboken6
 from PySide6.QtCore import Qt, QThread, Signal, QObject, QTimer
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QTabWidget, QWidget,
@@ -138,16 +139,17 @@ class ModelManagerDialog(QDialog):
         QTimer.singleShot(100, self._start_scan)
 
     def closeEvent(self, event) -> None:
-        if self._scan_thread is not None and self._scan_thread.isRunning():
-            self._scan_thread.quit()
-            self._scan_thread.wait(2000)
-        if self._status_thread is not None and self._status_thread.isRunning():
-            self._status_thread.quit()
-            self._status_thread.wait(2000)
-        for thread in self._download_threads.values():
-            if thread.isRunning():
+        def _cleanup_thread(thread: QThread):
+            if thread is not None and shiboken6.isValid(thread) and thread.isRunning():
                 thread.quit()
-                thread.wait(2000)
+                thread.wait(1000)
+                if shiboken6.isValid(thread):
+                    thread.deleteLater()
+
+        _cleanup_thread(self._scan_thread)
+        _cleanup_thread(self._status_thread)
+        for thread in self._download_threads.values():
+            _cleanup_thread(thread)
         super().closeEvent(event)
 
     def _apply_styles(self):

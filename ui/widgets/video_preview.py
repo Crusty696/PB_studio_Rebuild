@@ -147,5 +147,7 @@ class VideoPreviewWidget(QLabel):
         self._play_timer.stop()
         if self._frame_thread is not None and self._frame_thread.isRunning():
             self._frame_thread.quit()
-            self._frame_thread.wait(500)
+            # Nicht blockierend warten — deleteLater raeumt async auf.
+            # wait(500) blockierte Main-Thread beim Tab-Wechsel.
+            self._frame_thread.finished.connect(self._frame_thread.deleteLater)
         super().hideEvent(event)

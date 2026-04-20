@@ -108,11 +108,38 @@ class AiStatusDot(QLabel):
         else:
             self.setToolTip(self.tr("AI: wird geladen..."))
 
+    def _invoke_worker_stop(self):
+        """Stoppt den Worker-Timer thread-safe via QueuedConnection.
+
+        QTimer darf nur aus dem Owner-Thread gestoppt werden.
+        QMetaObject.invokeMethod mit QueuedConnection stellt sicher,
+        dass stop() im Worker-Thread laeuft.
+        """
+        if self._worker and self._thread and self._thread.isRunning():
+            # invokeMethod queued: laeuft im Worker-Thread Event-Loop
+            from PySide6.QtCore import QMetaObject, Qt as QtConst
+            QMetaObject.invokeMethod(
+                self._worker, "stop", QtConst.ConnectionType.QueuedConnection
+            )
+
+    def hideEvent(self, event):
+        """Polling stoppen wenn Widget versteckt (Tab-Wechsel)."""
+        self._invoke_worker_stop()
+        super().hideEvent(event)
+
+    def showEvent(self, event):
+        """Polling wieder starten wenn Widget sichtbar wird."""
+        if self._worker and self._thread and self._thread.isRunning():
+            from PySide6.QtCore import QMetaObject, Qt as QtConst
+            QMetaObject.invokeMethod(
+                self._worker, "start_polling", QtConst.ConnectionType.QueuedConnection
+            )
+        super().showEvent(event)
+
     def closeEvent(self, event):
         """K-013 / B-036 Fix: Cleanup beim Schliessen des Widgets/Fensters."""
-        if self._worker:
-            self._worker.stop()  # stops the QTimer
+        self._invoke_worker_stop()
         if self._thread and self._thread.isRunning():
-            self._thread.quit()   # exits the thread's event-loop (now works!)
-            self._thread.wait(5000)
+            self._thread.quit()
+            self._thread.wait(500)
         super().closeEvent(event)

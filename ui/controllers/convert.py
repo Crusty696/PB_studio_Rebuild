@@ -1,52 +1,91 @@
 """ConvertController — Refactored from ConvertMixin."""
 
+import logging
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from PySide6.QtCore import QTimer
 from PySide6.QtGui import QImage, QPixmap
-from database import engine, VideoClip, TimelineEntry, get_active_project_id
+from database import engine, VideoClip, TimelineEntry, get_active_project_id, nullpool_session
 from sqlalchemy.orm import Session as DBSession
 from services.task_manager import TaskManagerProxy
 from workers import BatchConvertWorker, FrameExtractWorker
 from ui.base_component import PBComponent
 
+logger = logging.getLogger(__name__)
 task_manager = TaskManagerProxy()
+
+# Dedizierter Thread fuer DB-Queries — kein Main-Thread-Blocking
+_db_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="convert_db")
 
 class ConvertController(PBComponent):
     """Convert workspace methods for PBWindow."""
 
     def _refresh_effects_combos(self):
+        """Laedt Effects-Combo-Daten im Hintergrund-Thread, aktualisiert UI im Main-Thread."""
         self.window.effects_clip_combo.clear()
         self.window.effects_clip_combo.addItem("-- Clip waehlen --", None)
-        with DBSession(engine) as session:
-            entries = (
-                session.query(TimelineEntry)
-                .filter_by(project_id=get_active_project_id(), track="video")
-                .order_by(TimelineEntry.start_time)
-                .all()
-            )
-            _eids = [e.media_id for e in entries]
-            _clips = (
-                {c.id: c for c in session.query(VideoClip).filter(
-                    VideoClip.id.in_(_eids)).all()}
-                if _eids else {}
-            )
-            for entry in entries:
-                clip = _clips.get(entry.media_id)
-                if clip:
-                    name = Path(clip.file_path).stem[:30]
-                    label = f"[{entry.id}] {name} ({entry.start_time:.1f}s-{(entry.end_time or 0):.1f}s)"
-                    self.window.effects_clip_combo.addItem(label, entry.id)
+
+        project_id = get_active_project_id()
+
+        def _fetch():
+            items = []
+            try:
+                with nullpool_session() as session:
+                    entries = (
+                        session.query(TimelineEntry)
+                        .filter_by(project_id=project_id, track="video")
+                        .order_by(TimelineEntry.start_time)
+                        .all()
+                    )
+                    _eids = [e.media_id for e in entries]
+                    _clips = (
+                        {c.id: c for c in session.query(VideoClip).filter(
+                            VideoClip.id.in_(_eids)).all()}
+                        if _eids else {}
+                    )
+                    for entry in entries:
+                        clip = _clips.get(entry.media_id)
+                        if clip:
+                            name = Path(clip.file_path).stem[:30]
+                            label = f"[{entry.id}] {name} ({entry.start_time:.1f}s-{(entry.end_time or 0):.1f}s)"
+                            items.append((label, entry.id))
+            except Exception as e:
+                logger.warning("[ConvertController] _refresh_effects_combos DB-Fehler: %s", e)
+            QTimer.singleShot(0, lambda: self._populate_effects_combo(items))
+
+        _db_pool.submit(_fetch)
+
+    def _populate_effects_combo(self, items: list[tuple[str, int]]):
+        """Befuellt die Combo-Box im Main-Thread mit vorgeladenen Daten."""
+        for label, entry_id in items:
+            self.window.effects_clip_combo.addItem(label, entry_id)
 
     def _on_effects_clip_changed(self, index: int):
         entry_id = self.window.effects_clip_combo.currentData()
         if entry_id is None:
             return
-        with DBSession(engine) as session:
-            entry = session.get(TimelineEntry, entry_id)
-            if entry:
-                self.window.brightness_slider.setValue(int((entry.brightness or 0.0) * 100))
-                self.window.contrast_slider.setValue(int((entry.contrast or 1.0) * 100))
-                self.window.crossfade_slider.setValue(int((entry.crossfade_duration or 0.0) * 10))
+
+        def _fetch():
+            try:
+                with nullpool_session() as session:
+                    entry = session.get(TimelineEntry, entry_id)
+                    if entry:
+                        vals = (
+                            int((entry.brightness or 0.0) * 100),
+                            int((entry.contrast or 1.0) * 100),
+                            int((entry.crossfade_duration or 0.0) * 10),
+                        )
+                        QTimer.singleShot(0, lambda: self._apply_clip_values(*vals))
+            except Exception as e:
+                logger.warning("[ConvertController] _on_effects_clip_changed DB-Fehler: %s", e)
+
+        _db_pool.submit(_fetch)
+
+    def _apply_clip_values(self, brightness: int, contrast: int, crossfade: int):
+        """Setzt Slider-Werte im Main-Thread."""
+        self.window.brightness_slider.setValue(brightness)
+        self.window.contrast_slider.setValue(contrast)
+        self.window.crossfade_slider.setValue(crossfade)
 
     def _apply_effects(self):
         entry_id = self.window.effects_clip_combo.currentData()
@@ -58,13 +97,19 @@ class ConvertController(PBComponent):
         contrast = self.window.contrast_slider.value() / 100.0
         crossfade = self.window.crossfade_slider.value() / 10.0
 
-        with DBSession(engine) as session:
-            entry = session.get(TimelineEntry, entry_id)
-            if entry:
-                entry.brightness = brightness
-                entry.contrast = contrast
-                entry.crossfade_duration = crossfade
-                session.commit()
+        def _save():
+            try:
+                with nullpool_session() as session:
+                    entry = session.get(TimelineEntry, entry_id)
+                    if entry:
+                        entry.brightness = brightness
+                        entry.contrast = contrast
+                        entry.crossfade_duration = crossfade
+                        session.commit()
+            except Exception as e:
+                logger.warning("[ConvertController] _apply_effects DB-Fehler: %s", e)
+
+        _db_pool.submit(_save)
 
         self.window.console_text.append(
             f"[Effects] Clip {entry_id}: Helligkeit={brightness:.2f}, "
@@ -73,18 +118,29 @@ class ConvertController(PBComponent):
         self._show_effect_preview(entry_id, brightness, contrast)
 
     def _show_effect_preview(self, entry_id: int, brightness: float, contrast: float):
-        with DBSession(engine) as session:
-            entry = session.get(TimelineEntry, entry_id)
-            if not entry:
-                return
-            clip = session.get(VideoClip, entry.media_id)
-            if not clip:
-                return
-            file_path = clip.file_path
-
         b = max(-1.0, min(1.0, float(brightness)))
         c = max(0.0, min(3.0, float(contrast)))
-        vf_extra = f"eq=brightness={b}:contrast={c}"
+
+        def _fetch_and_preview():
+            try:
+                with nullpool_session() as session:
+                    entry = session.get(TimelineEntry, entry_id)
+                    if not entry:
+                        return
+                    clip = session.get(VideoClip, entry.media_id)
+                    if not clip:
+                        return
+                    file_path = clip.file_path
+
+                vf_extra = f"eq=brightness={b}:contrast={c}"
+                QTimer.singleShot(0, lambda: self._start_effect_worker(file_path, vf_extra))
+            except Exception as e:
+                logger.warning("[ConvertController] _show_effect_preview DB-Fehler: %s", e)
+
+        _db_pool.submit(_fetch_and_preview)
+
+    def _start_effect_worker(self, file_path: str, vf_extra: str):
+        """Startet FrameExtractWorker im Main-Thread (Worker-Erstellung muss im Main-Thread sein)."""
         worker = FrameExtractWorker(file_path, 1.0, 320, 180, vf_extra)
         worker.frame_ready.connect(self._on_effect_frame_ready)
         worker.error.connect(

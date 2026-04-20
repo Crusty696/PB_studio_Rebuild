@@ -5,6 +5,7 @@ Start, End, Duration, Brightness, Contrast, Crossfade.
 """
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QDoubleSpinBox,
@@ -17,6 +18,8 @@ from database import nullpool_session, TimelineEntry
 from ui.theme import ACCENT, BG1, BG2, BG4, T1, T2, T3, T4
 
 logger = logging.getLogger(__name__)
+
+_db_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="inspector_db")
 
 
 class ClipInspectorPanel(QWidget):
@@ -153,33 +156,50 @@ class ClipInspectorPanel(QWidget):
 
         logger.debug("ClipInspector: loading entry_id=%s (%d clips selected)", entry_id, len(clip_data_list))
 
-        # DB-Daten laden
-        with nullpool_session() as session:
-            entry = session.get(TimelineEntry, entry_id)
-            if not entry:
-                logger.warning("ClipInspector: entry_id=%s not found in DB", entry_id)
-                self._set_fields_visible(False)
-                return
+        # DB-Daten im Hintergrund laden, UI im Main-Thread aktualisieren
+        num_clips = len(clip_data_list)
 
-            self._updating = True
+        def _fetch():
             try:
-                self._type_label.setText(
-                    f"Typ: {'Audio' if entry.track == 'audio' else 'Video'}"
-                    + (f"  |  {len(clip_data_list)} Clips" if len(clip_data_list) > 1 else "")
-                )
-                self._media_label.setText(f"Media ID: {entry.media_id}")
+                with nullpool_session() as session:
+                    entry = session.get(TimelineEntry, entry_id)
+                    if not entry:
+                        logger.warning("ClipInspector: entry_id=%s not found in DB", entry_id)
+                        QTimer.singleShot(0, lambda: self._set_fields_visible(False))
+                        return
+                    vals = {
+                        "track": entry.track,
+                        "media_id": entry.media_id,
+                        "start_time": entry.start_time or 0.0,
+                        "end_time": entry.end_time or 0.0,
+                        "brightness": entry.brightness if entry.brightness is not None else 0.0,
+                        "contrast": entry.contrast if entry.contrast is not None else 1.0,
+                        "crossfade": entry.crossfade_duration if entry.crossfade_duration is not None else 0.0,
+                    }
+                QTimer.singleShot(0, lambda: self._apply_entry_data(vals, num_clips))
+            except Exception as e:
+                logger.warning("ClipInspector: DB-Fehler: %s", e)
 
-                self._start_spin.setValue(entry.start_time or 0.0)
-                self._end_spin.setValue(entry.end_time or 0.0)
+        _db_pool.submit(_fetch)
 
-                duration = (entry.end_time - entry.start_time) if entry.end_time else 0.0
-                self._duration_label.setText(f"Dauer: {duration:.2f}s")
-
-                self._brightness_spin.setValue(entry.brightness if entry.brightness is not None else 0.0)
-                self._contrast_spin.setValue(entry.contrast if entry.contrast is not None else 1.0)
-                self._crossfade_spin.setValue(entry.crossfade_duration if entry.crossfade_duration is not None else 0.0)
-            finally:
-                self._updating = False
+    def _apply_entry_data(self, vals: dict, num_clips: int):
+        """Aktualisiert UI-Felder im Main-Thread mit vorgeladenen DB-Daten."""
+        self._updating = True
+        try:
+            self._type_label.setText(
+                f"Typ: {'Audio' if vals['track'] == 'audio' else 'Video'}"
+                + (f"  |  {num_clips} Clips" if num_clips > 1 else "")
+            )
+            self._media_label.setText(f"Media ID: {vals['media_id']}")
+            self._start_spin.setValue(vals["start_time"])
+            self._end_spin.setValue(vals["end_time"])
+            duration = vals["end_time"] - vals["start_time"]
+            self._duration_label.setText(f"Dauer: {duration:.2f}s")
+            self._brightness_spin.setValue(vals["brightness"])
+            self._contrast_spin.setValue(vals["contrast"])
+            self._crossfade_spin.setValue(vals["crossfade"])
+        finally:
+            self._updating = False
 
     def _on_field_changed(self, field: str, value: float):
         """Spinbox-Aenderung → Debounced DB-Write (M2-FIX).
@@ -202,7 +222,10 @@ class ClipInspectorPanel(QWidget):
             self._duration_label.setText(f"Dauer: {end - start:.2f}s")
 
     def _flush_pending_change(self):
-        """M2-FIX: Debounced DB-Write — wird 300ms nach letzter SpinBox-Aenderung aufgerufen."""
+        """M2-FIX: Debounced DB-Write — wird 300ms nach letzter SpinBox-Aenderung aufgerufen.
+
+        DB-Schreibvorgang im Hintergrund-Thread, Signal-Emission im Main-Thread.
+        """
         field = self._pending_field
         value = self._pending_value
         entry_id = self._current_entry_id
@@ -214,12 +237,17 @@ class ClipInspectorPanel(QWidget):
 
         logger.debug("ClipInspector: entry_id=%s field=%s value=%s (debounced)", entry_id, field, value)
 
-        with nullpool_session() as session:
-            entry = session.get(TimelineEntry, entry_id)
-            if not entry:
-                logger.warning("ClipInspector: entry_id=%s not found when writing field=%s", entry_id, field)
-                return
-            setattr(entry, field, round(value, 3))
-            session.commit()
+        def _write():
+            try:
+                with nullpool_session() as session:
+                    entry = session.get(TimelineEntry, entry_id)
+                    if not entry:
+                        logger.warning("ClipInspector: entry_id=%s not found when writing field=%s", entry_id, field)
+                        return
+                    setattr(entry, field, round(value, 3))
+                    session.commit()
+                QTimer.singleShot(0, lambda: self.clip_property_changed.emit(entry_id, field, value))
+            except Exception as e:
+                logger.warning("ClipInspector: DB-Write Fehler: %s", e)
 
-        self.clip_property_changed.emit(entry_id, field, value)
+        _db_pool.submit(_write)

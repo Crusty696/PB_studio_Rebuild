@@ -1622,18 +1622,24 @@ class InteractiveTimeline(QGraphicsView):
         drop_x = self._snap_x_to_beat(max(0, scene_pos.x()))
         start_time = drop_x / PIXELS_PER_SECOND
 
-        # Fetch duration from DB
-        with DBSession(engine) as session:
-            if track_type == "audio":
-                obj = session.query(AudioTrack).filter(
-                    AudioTrack.id == media_id, AudioTrack.deleted_at.is_(None)
-                ).first()
-                duration = obj.duration if obj and obj.duration else 30.0
-            else:
-                obj = session.query(VideoClip).filter(
-                    VideoClip.id == media_id, VideoClip.deleted_at.is_(None)
-                ).first()
-                duration = obj.duration if obj and obj.duration else 10.0
+        # Duration aus MIME-Payload verwenden (falls vorhanden),
+        # sonst Fallback auf DB-Query. Das MIME-Payload wird beim
+        # Drag-Start befuellt und vermeidet den DB-Hit beim Drop.
+        duration = payload.get("duration")
+        if duration is not None:
+            duration = float(duration)
+        else:
+            with DBSession(engine) as session:
+                if track_type == "audio":
+                    obj = session.query(AudioTrack).filter(
+                        AudioTrack.id == media_id, AudioTrack.deleted_at.is_(None)
+                    ).first()
+                    duration = obj.duration if obj and obj.duration else 30.0
+                else:
+                    obj = session.query(VideoClip).filter(
+                        VideoClip.id == media_id, VideoClip.deleted_at.is_(None)
+                    ).first()
+                    duration = obj.duration if obj and obj.duration else 10.0
 
         # Get active project
         from database import get_active_project_id
