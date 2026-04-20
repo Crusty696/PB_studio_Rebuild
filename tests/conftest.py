@@ -135,3 +135,21 @@ def video_clip(db_session, project):
     db_session.commit()
     db_session.refresh(clip)
     return clip
+
+
+# ---------------------------------------------------------------------------
+# Compatibility aliases for real-data test scripts (test_audio_analysis_real,
+# test_video_analysis_real). Those tests were originally written as standalone
+# scripts with positional args; pytest discovery needs parameter-named fixtures.
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def engine(test_engine):
+    """Alias for `test_engine` — some real-data tests use the shorter name."""
+    return test_engine
+
+
+@pytest.fixture
+def project_id(project):
+    """The INT id of the default project fixture."""
+    return project.id

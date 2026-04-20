@@ -144,6 +144,27 @@ logger.info("DB initialized: project_id=%d, clip_id=%d", TEST_PROJECT_ID, TEST_C
 
 
 # ===================================================================
+# Pytest fixtures
+# ===================================================================
+import pytest
+
+
+@pytest.fixture(scope="module")
+def scenes():
+    """Run detect_scenes() once and share the result with downstream tests.
+
+    Tests using this fixture expect a list[SceneInfo] from the real video.
+    The fixture skips the test if detection returned nothing.
+    """
+    from services.video_analysis_service import detect_scenes
+
+    result = detect_scenes(str(VIDEO_FILE))
+    if not result:
+        pytest.skip("detect_scenes returned 0 scenes — cannot chain keyframes/motion/embeddings tests")
+    return result
+
+
+# ===================================================================
 # TEST 1: VideoAnalyzer.probe()
 # ===================================================================
 def test_probe():

@@ -157,6 +157,58 @@ def stop_recording():
 
 
 # ==========================================================================
+# Pytest fixtures — Visual E2E tests are interactive (move mouse, click).
+# They only run when PB_VISUAL_E2E=1 is set in the environment; otherwise
+# pytest skips the whole module to avoid hijacking the user's desktop.
+# ==========================================================================
+
+import pytest
+
+pytestmark = pytest.mark.skipif(
+    os.environ.get("PB_VISUAL_E2E") != "1",
+    reason="Visual E2E tests are interactive (pyautogui). Set PB_VISUAL_E2E=1 to enable.",
+)
+
+
+@pytest.fixture(scope="module")
+def app_process():
+    """Start main.py as subprocess, yield the Popen handle, kill on teardown."""
+    proc = subprocess.Popen(
+        [sys.executable, str(PROJECT_DIR / "main.py")],
+        cwd=str(PROJECT_DIR),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    try:
+        yield proc
+    finally:
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+
+
+@pytest.fixture(scope="module")
+def window(app_process):
+    """Wait for the PB Studio window, maximize it, and yield the wrapper."""
+    if app_process.poll() is not None:
+        pytest.skip(f"App process exited before window query (code={app_process.returncode})")
+    w = find_app_window()
+    if w is None:
+        pytest.skip(f"Could not find app window with '{APP_TITLE_FRAGMENT}' after {TIMEOUT_APP_START}s")
+    try:
+        w.activate()
+        time.sleep(0.5)
+        w.maximize()
+    except Exception:
+        pass
+    time.sleep(1)
+    return w
+
+
+# ==========================================================================
 # Test Steps
 # ==========================================================================
 
