@@ -1,0 +1,24 @@
+# Studio Brain — Pacing weights: DJ-MIX AUTO routing profile (T6.3)
+# Used when is_dj_mix=true (Design §6.6).
+# The pipeline switches sub-profiles per Structure Segment based on the
+# segment's detected genre; this profile configures the routing map
+# plus a weight-nudge that applies across ALL segments of a DJ-mix.
+#
+# Routing: for each Structure Segment, look up its detected genre in
+# segment_profile_routing; if present, that sub-profile's YAML is merged
+# onto DEFAULT; if absent, DEFAULT is used.
+
+segment_profile_routing:
+  psytrance: psytrance
+  house:     house
+  # dnb, techno, trap, etc. → fall back to default when not listed.
+
+# Global nudge applied to every segment in a DJ-mix (overrides default):
+#   - In DJ mixes, collision tolerance is slightly tighter because the
+#     transitions between DJ-tracks are ALREADY strong breaks — visuals
+#     should not add further discontinuity.
+#   - Memory term slightly trusted more: a 1-3h mix gives a LOT of
+#     feedback signal for learning.
+
+w_collision: 0.15   # default 0.10 → +50%
+w_memory:    0.25   # default 0.20 → +25%

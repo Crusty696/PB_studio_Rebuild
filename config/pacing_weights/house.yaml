@@ -1,0 +1,11 @@
+# Studio Brain — Pacing weights: HOUSE profile (T6.3)
+# Only the keys that differ from default.yaml are listed here.
+# The loader merges these onto DEFAULT_WEIGHTS (Design §6.6).
+#
+# House rationale:
+#   - Energy-match dominates the feel (four-on-the-floor steady groove,
+#     drop is an energy-peak rather than a tension-peak) → w_energy bumped.
+#   - Harmonic tension plays less of a role → w_tension damped.
+
+w_energy:  0.20   # default 0.15 → +33%
+w_tension: 0.05   # default 0.08 → -38%

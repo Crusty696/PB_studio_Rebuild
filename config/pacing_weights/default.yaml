@@ -1,0 +1,18 @@
+# Studio Brain — Pacing weights: DEFAULT profile (T6.3)
+# Canonical 13-term scoring weights per Design §6.5.
+# Used whenever no genre-specific profile applies.
+
+w_role:       0.25
+w_style:      0.15
+w_mood_video: 0.10
+w_mood_audio: 0.10
+w_genre:      0.15
+w_key:        0.10
+w_tension:    0.08
+w_energy:     0.15
+w_spectral:   0.05
+w_groove:     0.07
+w_memory:     0.20    # Confidence-gated via Wilson-Lower-Bound — actual influence
+                      # scales with accumulated feedback, not weight.
+w_collision:  0.10    # Penalty (subtracted).
+w_freshness:  0.05    # Penalty (subtracted).

@@ -1,0 +1,28 @@
+# Studio Brain — Pacing Stage-1 rules (T6.3)
+# Section × Role matrix (Design §6.2) + optional Key/Mood gate.
+# Consumed by PacingPipeline Stage 1 (Hard Rules) — cuts that don't match the
+# allowed roles for the current section are rejected (or softened; see below).
+
+section_role_matrix:
+  intro:      [establishing, ambient, detail]
+  warmup:     [establishing, hero_low_motion, detail]
+  buildup:    [hero, action, transition]
+  drop:       [hero, action]
+  breakdown:  [detail, ambient, establishing]
+  outro:      [establishing, detail, ambient]
+  verse:      [hero, detail]
+  chorus:     [hero, action]
+  bridge:     [transition, detail]
+  transition: [transition, action, hero]
+
+# Optional hard gate: at high harmonic tension, forbid "wrong mood" clips.
+# Disabled by default (prevents empty-candidate traps on small libraries).
+key_mood_gate:
+  enabled: false
+  condition: "at_harmonic_tension > 0.7"
+  forbidden_moods: [calm, ambient, dreamy]
+
+# Fallback behaviour when Stage 1 leaves zero candidates:
+#   - "soften"  → allow filler/unknown roles; log fallback=true in rationale.
+#   - "strict"  → raise; pipeline escalates.
+stage1_fallback: soften

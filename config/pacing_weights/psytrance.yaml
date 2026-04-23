@@ -1,0 +1,14 @@
+# Studio Brain — Pacing weights: PSYTRANCE profile (T6.3)
+# Only the keys that differ from default.yaml are listed here.
+# The loader merges these onto DEFAULT_WEIGHTS (Design §6.6).
+#
+# Psytrance rationale:
+#   - Harmonic key is critical (Goa/dark-psy often ride pentatonic/phrygian
+#     patterns where key-mismatch is jarring) → w_key bumped.
+#   - Groove identity matters (rolling bassline is the genre's signature)
+#     → w_groove bumped.
+#   - Role discipline stricter (drop MUST be hero/action) → w_role bumped.
+
+w_key:     0.15   # default 0.10 → +50%
+w_groove:  0.10   # default 0.07 → +43%
+w_role:    0.30   # default 0.25 → +20%
