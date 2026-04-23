@@ -604,9 +604,10 @@ class ModelManager:
     def load_raft(self) -> tuple:
         """Lädt RAFT Small Optical Flow Modell für Motion-Analyse.
 
-        Registriert RAFT im ModelManager sodass es beim Laden anderer
-        Modelle (SigLIP, beat_this) automatisch entladen wird.
-        SigLIP (~2.5 GB) + RAFT (~0.1 GB) dürfen koexistieren auf 6 GB VRAM.
+        Keine Koexistenz mit anderen Modellen (H17-FIX unten): Caller duerfen
+        NICHT davon ausgehen, dass eine zuvor via load_siglip() gehaltene
+        Tuple-Referenz nach diesem Aufruf noch gueltig ist — der dortige
+        Model-Tensor wird auf CPU verschoben.
 
         Returns:
             (raft_model, device) — direkt verwendbar für torch inference

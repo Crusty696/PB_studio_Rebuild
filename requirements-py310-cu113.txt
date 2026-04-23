@@ -61,8 +61,9 @@ thefuzz>=0.22.1,<0.23.0
 rapidfuzz>=3.5.0,<4.0.0
 
 # === Vektor-DB ===
+# SQLite + numpy Cosine-Similarity (services/vector_db_service.py), siehe D-011.
+# pyarrow wird von demucs/beat_this gezogen, kein direkter Nutzer mehr hier.
 pyarrow>=14.0.0,<18.0.0
-lancedb>=0.4.0,<0.20.0
 
 # === Netzwerk / API ===
 httpx>=0.25.0,<1.0.0
@@ -92,3 +93,7 @@ onnxruntime>=1.16.0,<2.0.0
 
 # === Dev (optional) ===
 pytest>=7.4.0,<10.0.0
+
+umap-learn>=0.5,<0.6
+pyqtgraph>=0.13,<0.14
+networkx>=3.0,<4.0

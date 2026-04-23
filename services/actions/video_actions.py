@@ -9,6 +9,12 @@ from services.action_registry import action_registry
 
 _logger = logging.getLogger(__name__)
 
+_MSG_SCENE_DETECT = "Szenen-Erkennung..."
+_MSG_MOTION = "RAFT Motion berechnen..."
+_MSG_KEYFRAMES = "Keyframes extrahieren..."
+_MSG_EMBEDDINGS = "SigLIP Embeddings..."
+_MSG_VECTOR_STORE = "In Vektor-DB speichern..."
+
 
 def _get_task_manager():
     """Gibt den TaskManager zurueck ohne QApplication-Kopplung."""
@@ -250,7 +256,7 @@ def detect_scenes_action(clip_id: int, use_proxy: bool = True, threshold: float 
             video_path = clip.proxy_path if (use_proxy and clip.proxy_path) else clip.file_path
 
         if task and tm:
-            tm.update_task(task.task_id, 20, message="Szenen-Erkennung...")
+            tm.update_task(task.task_id, 20, message=_MSG_SCENE_DETECT)
         scenes = detect_scenes(video_path, threshold=threshold)
         store_scenes_in_db(clip_id, scenes)
 
@@ -317,7 +323,7 @@ def analyze_motion_action(clip_id: int, use_proxy: bool = True) -> dict:
             ]
 
         if task and tm:
-            tm.update_task(task.task_id, 20, message="RAFT Motion berechnen...")
+            tm.update_task(task.task_id, 20, message=_MSG_MOTION)
         scenes = compute_motion_scores(video_path, scenes)
         store_scenes_in_db(clip_id, scenes)
 
@@ -340,7 +346,7 @@ def analyze_motion_action(clip_id: int, use_proxy: bool = True) -> dict:
 
 @action_registry.register(
     name="generate_embeddings",
-    description="Generiert SigLIP-Embeddings für Keyframes und speichert sie in LanceDB (für semantische Suche).",
+    description="Generiert SigLIP-Embeddings für Keyframes und speichert sie in der Vektor-DB (SQLite + numpy) für semantische Suche.",
     param_schema={
         "type": "object",
         "properties": {
@@ -357,7 +363,7 @@ def analyze_motion_action(clip_id: int, use_proxy: bool = True) -> dict:
     }
 )
 def generate_embeddings_action(clip_id: int, use_proxy: bool = True) -> dict:
-    """Extrahiert Keyframes, generiert SigLIP-Embeddings und speichert in LanceDB."""
+    """Extrahiert Keyframes, generiert SigLIP-Embeddings und speichert sie in der Vektor-DB."""
     from sqlalchemy.orm import Session as SASession
     from database import engine, VideoClip, Scene
     from services.video_analysis_service import (
@@ -365,7 +371,7 @@ def generate_embeddings_action(clip_id: int, use_proxy: bool = True) -> dict:
     )
 
     tm = _get_task_manager()
-    task = tm.create_task(f"Embeddings #{clip_id}", "SigLIP + LanceDB") if tm else None
+    task = tm.create_task(f"Embeddings #{clip_id}", "SigLIP Embeddings") if tm else None
 
     try:
         with SASession(engine) as session:
@@ -388,13 +394,13 @@ def generate_embeddings_action(clip_id: int, use_proxy: bool = True) -> dict:
             ]
 
         if task and tm:
-            tm.update_task(task.task_id, 10, message="Keyframes extrahieren...")
+            tm.update_task(task.task_id, 10, message=_MSG_KEYFRAMES)
         scenes = extract_keyframes(video_path, scenes)
         if task and tm:
-            tm.update_task(task.task_id, 50, message="SigLIP Embeddings...")
+            tm.update_task(task.task_id, 50, message=_MSG_EMBEDDINGS)
         scenes = generate_embeddings(scenes)
         if task and tm:
-            tm.update_task(task.task_id, 80, message="In LanceDB speichern...")
+            tm.update_task(task.task_id, 80, message=_MSG_VECTOR_STORE)
         stored = store_embeddings(video_path, scenes, clip_id)
 
         if task and tm:
@@ -404,7 +410,7 @@ def generate_embeddings_action(clip_id: int, use_proxy: bool = True) -> dict:
             "source": "proxy" if use_proxy else "original",
             "keyframes_extracted": sum(1 for s in scenes if s.keyframe_path),
             "embeddings_stored": stored,
-            "message": f"{stored} SigLIP-Embeddings in LanceDB gespeichert.",
+            "message": f"{stored} SigLIP-Embeddings in Vektor-DB gespeichert.",
         }
     except Exception as e:  # broad catch intentional — re-raised after task error logging
         if task and tm:
@@ -414,7 +420,7 @@ def generate_embeddings_action(clip_id: int, use_proxy: bool = True) -> dict:
 
 @action_registry.register(
     name="search_video",
-    description="Semantische Video-Suche: Findet Szenen die zu einer Text-Beschreibung passen (SigLIP + LanceDB).",
+    description="Semantische Video-Suche: Findet Szenen die zu einer Text-Beschreibung passen (SigLIP + Vektor-DB).",
     param_schema={
         "type": "object",
         "properties": {

@@ -36,6 +36,8 @@ ACTIONS: dict[str, tuple[str, str, str]] = {
     "redo":          ("Redo",               "Redo last action",                 "Ctrl+Y"),
     "copy":          ("Copy",               "Copy selected clips",              "Ctrl+C"),
     "paste":         ("Paste",              "Paste clips",                      "Ctrl+V"),
+    "feedback_accept": ("Thumbs Up (Accept)", "Mark selected clip as good",      "Ctrl+Up"),
+    "feedback_reject": ("Thumbs Down (Reject)", "Mark selected clip as bad",    "Ctrl+Down"),
 }
 # fmt: on
 

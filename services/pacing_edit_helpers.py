@@ -911,11 +911,13 @@ def _match_video_for_segment(
     prev_clip_idx: int | None = None,
     cross_modal_matcher: CrossModalMatcher | None = None,
     section_progress: float = 0.0,
+    pipeline: Any = None,
 ) -> tuple[int, float, int | None]:
     """Waehlt den besten Video-Clip fuer ein Segment.
 
     Phase 3: Multi-dimensionales Fitness-Scoring mit SigLIP Mood-Matching.
     AUD-82: Cross-Modal Matching wenn CrossModalMatcher verfuegbar.
+    T6.4: Integration der PacingPipeline (4-stage selection).
     Fallback: Motion-Score Matching wenn keine Embeddings verfuegbar.
 
     Returns: (video_id, source_start, clip_idx_in_matrix)
@@ -939,12 +941,70 @@ def _match_video_for_segment(
                       "None" if beats is None else f"len={len(beats)}")
 
     # KI-Gedaechtnis einblenden
+    memory_bias_val = 0.0
     if memory_bias is not None:
         pref_motion = memory_bias.get("preferred_motion")
         if pref_motion is not None:
             energy_value = energy_value * 0.6 + pref_motion * 0.4
+            memory_bias_val = 0.5 # Default bias if memory exists
 
-    # Phase 3 + AUD-82: Multi-dimensionales Fitness-Scoring
+    # T6.4: Integration der neuen PacingPipeline
+    if pipeline is not None and clip_metadata:
+        context = {
+            "energy": energy_value,
+            "section_type": section_type,
+            "section_progress": section_progress,
+            "vocal_active": False, # TODO: Vocal activity einbinden
+            "memory_bias": memory_bias_val,
+            "prev_embedding": None # TODO: Prev embedding einbinden
+        }
+        
+        # Mapping: video_path → video_id (benötigt für Pipeline-Resultate)
+        path_to_vid = {info["path"]: vid for vid, info in video_info.items()}
+        
+        # Kandidaten vorbereiten (mit Embeddings falls verfügbar)
+        pipeline_candidates = []
+        for i, meta in enumerate(clip_metadata):
+            vid = path_to_vid.get(meta["video_path"])
+            if vid is None or vid not in available_ids:
+                continue
+            
+            c_data = meta.copy()
+            c_data["video_clip_id"] = vid
+            if clip_embeddings is not None and i < len(clip_embeddings):
+                c_data["embedding"] = clip_embeddings[i]
+            
+            # Cross-modal fitness score falls verfügbar als Basis-Fitness nutzen
+            if cross_modal_matcher:
+                c_data["fitness_score"] = cross_modal_matcher.compute_cross_modal_fitness(
+                    clip_idx=i,
+                    section_type=section_type,
+                    section_progress=section_progress,
+                    energy_value=energy_value,
+                    motion_score=meta.get("motion_score", 0.5),
+                    scene_duration=meta["scene_end"] - meta["scene_start"],
+                    segment_duration=seg_duration,
+                    prev_clip_idx=prev_clip_idx,
+                    clip_embeddings=clip_embeddings,
+                    used_recently=used_recently,
+                    fitness_matrix=fitness_matrix or {},
+                    scene_start=meta["scene_start"],
+                    scene_end=meta["scene_end"],
+                    seg_start=seg_start,
+                )
+            pipeline_candidates.append(c_data)
+            
+        best = pipeline.select_best_scene(pipeline_candidates, context)
+        if best:
+            # clip_idx_in_matrix finden
+            best_idx = None
+            for i, meta in enumerate(clip_metadata):
+                if meta["video_path"] == best["video_path"] and meta["scene_start"] == best["scene_start"]:
+                    best_idx = i
+                    break
+            return best["video_clip_id"], best["scene_start"], best_idx
+
+    # Phase 3 + AUD-82: Multi-dimensionales Fitness-Scoring (Legacy Fallback)
     if fitness_matrix and clip_metadata and clip_embeddings is not None and clip_embeddings.shape[0] > 0:
         # Mapping: video_path → video_id
         path_to_vid: dict[str, int] = {}

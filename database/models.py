@@ -470,3 +470,176 @@ class AnalysisStatus(Base):
 
     def __repr__(self):
         return f"<AnalysisStatus(id={self.id}, media_type='{self.media_type}', media_id={self.media_id}, step='{self.step_key}', status='{self.status}')>"
+
+
+class StructStyleBucket(Base):
+    """Stil-Cluster (Buckets) fuer Video-Szenen — Phase 3.
+    
+    Wird durch StyleClusterer (HDBSCAN) erstellt. Neue Clips werden dem
+    naechsten Centroid zugewiesen.
+    """
+    __tablename__ = "struct_style_bucket"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String, nullable=False, unique=True)
+    description = Column(Text, nullable=True)
+    centroid_embedding = Column(JSON, nullable=False)  # P1.7-FIX: JSON array for embedding
+    member_count = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, nullable=False, default=lambda: _datetime.datetime.utcnow())
+    enricher_version = Column(String, nullable=False, default="1.0.0")
+    active = Column(Boolean, nullable=False, default=True)
+
+    clip_tags = relationship("StructClipTags", back_populates="style_bucket")
+
+    def __repr__(self):
+        return f"<StructStyleBucket(id={self.id}, name='{self.name}', count={self.member_count})>"
+
+
+class StructClipTags(Base):
+    """Anreicherungs-Daten fuer eine Video-Szene (Role, Refined Mood, Style)."""
+    __tablename__ = "struct_clip_tags"
+
+    scene_id = Column(Integer, ForeignKey("scenes.id", ondelete="CASCADE"), primary_key=True)
+    role = Column(String, nullable=False)
+    role_confidence = Column(Float, nullable=False, default=1.0)
+    mood_refined = Column(String, nullable=False)
+    mood_confidence = Column(Float, nullable=False, default=1.0)
+    style_bucket_id = Column(Integer, ForeignKey("struct_style_bucket.id"), nullable=False)
+    style_distance = Column(Float, nullable=False, default=0.0)
+    enriched_at = Column(DateTime, nullable=False, default=lambda: _datetime.datetime.utcnow())
+    enricher_version = Column(String, nullable=False, default="1.0.0")
+
+    scene = relationship("Scene")
+    style_bucket = relationship("StructStyleBucket", back_populates="clip_tags")
+
+    def __repr__(self):
+        return f"<StructClipTags(scene_id={self.scene_id}, role='{self.role}', mood='{self.mood_refined}')>"
+
+
+class StructCompatEdge(Base):
+    """Kompatibilitaets-Graph Kanten zwischen Video-Szenen."""
+    __tablename__ = "struct_compat_edge"
+
+    scene_id_a = Column(Integer, ForeignKey("scenes.id", ondelete="CASCADE"), primary_key=True)
+    scene_id_b = Column(Integer, ForeignKey("scenes.id", ondelete="CASCADE"), primary_key=True)
+    cosine_similarity = Column(Float, nullable=False)
+    rank_in_a = Column(Integer, nullable=False)
+
+    def __repr__(self):
+        return f"<StructCompatEdge(a={self.scene_id_a}, b={self.scene_id_b}, sim={self.cosine_similarity:.3f})>"
+
+
+class MemPacingRun(Base):
+    """Represents a single automated pacing run for a project."""
+    __tablename__ = "mem_pacing_run"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    audio_track_id = Column(Integer, ForeignKey("audio_tracks.id", ondelete="CASCADE"), nullable=False)
+    started_at = Column(DateTime, nullable=False, default=lambda: _datetime.datetime.utcnow())
+    completed_at = Column(DateTime, nullable=True)
+    is_dj_mix = Column(Boolean, nullable=False, default=False)
+    total_duration_sec = Column(Float, nullable=False, default=0.0)
+    total_cuts = Column(Integer, nullable=False, default=0)
+    agent_version = Column(String, nullable=False, default="1.0.0")
+    weights_profile = Column(String, nullable=False, default="default")
+    user_rating = Column(Integer, nullable=True)
+    user_notes = Column(Text, nullable=True)
+    steer_snapshot = Column(JSON, nullable=True)
+
+    audio_track = relationship("AudioTrack")
+    decisions = relationship("MemDecision", back_populates="run", cascade="all, delete-orphan")
+    feedback_events = relationship("MemUserFeedbackEvent", back_populates="run", cascade="all, delete-orphan")
+
+    def __repr__(self):
+        return f"<MemPacingRun(id={self.id}, audio_track_id={self.audio_track_id}, cuts={self.total_cuts})>"
+
+
+class MemDecision(Base):
+    """Persisted snapshot of a pacing decision with full context."""
+    __tablename__ = "mem_decision"
+    __table_args__ = (
+        Index("idx_mem_decision_run", "run_id", "sequence_idx"),
+        Index("idx_mem_decision_scene", "scene_id"),
+        Index("idx_mem_decision_verdict", "user_verdict"),
+        Index("idx_mem_decision_context_hash", "at_genre", "at_section_type", "at_bpm"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    run_id = Column(Integer, ForeignKey("mem_pacing_run.id", ondelete="CASCADE"), nullable=False)
+    sequence_idx = Column(Integer, nullable=False)
+
+    # Audio Context Snapshot
+    at_timestamp_sec = Column(Float, nullable=False)
+    at_beat_idx = Column(Integer, nullable=True)
+    at_structure_segment_id = Column(Integer, nullable=True)
+    at_bpm = Column(Float, nullable=True)
+    at_energy = Column(Float, nullable=True)
+    at_section_type = Column(String, nullable=True)
+    at_key = Column(String, nullable=True)
+    at_key_confidence = Column(Float, nullable=True)
+    at_key_modulation = Column(Boolean, nullable=True)
+    at_harmonic_tension = Column(Float, nullable=True)
+    at_mood_audio = Column(String, nullable=True)
+    at_genre = Column(String, nullable=True)
+    at_sub_genre = Column(String, nullable=True)
+    at_spectral_hash = Column(String, nullable=True)
+    at_groove_template = Column(String, nullable=True)
+    at_lufs = Column(Float, nullable=True)
+    at_enricher_version = Column(String, nullable=True)
+
+    # Video Context Snapshot
+    scene_id = Column(Integer, ForeignKey("scenes.id"), nullable=False)
+    clip_role = Column(String, nullable=False)
+    clip_mood_refined = Column(String, nullable=False)
+    clip_style_bucket_id = Column(Integer, nullable=False)
+    clip_motion_score = Column(Float, nullable=True)
+
+    # Decision details
+    agent_score = Column(Float, nullable=False)
+    agent_rationale = Column(JSON, nullable=False)
+
+    # User Feedback
+    user_verdict = Column(String, nullable=True)  # accept|reject|skip|modify
+    user_verdict_at = Column(DateTime, nullable=True)
+    user_rating = Column(Integer, nullable=True)
+
+    run = relationship("MemPacingRun", back_populates="decisions")
+    scene = relationship("Scene")
+
+    def __repr__(self):
+        return f"<MemDecision(id={self.id}, run_id={self.run_id}, scene_id={self.scene_id}, verdict={self.user_verdict})>"
+
+
+class MemLearnedPattern(Base):
+    """Aggregated patterns learned from user feedback."""
+    __tablename__ = "mem_learned_pattern"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    pattern_type = Column(String, nullable=False)  # context_preference | clip_blacklist | clip_whitelist | style_affinity
+    context_fingerprint = Column(JSON, nullable=True)
+    target_ref = Column(JSON, nullable=True)
+    stat_accept_count = Column(Integer, nullable=False, default=0)
+    stat_reject_count = Column(Integer, nullable=False, default=0)
+    stat_sample_size = Column(Integer, nullable=False, default=0)
+    confidence = Column(Float, nullable=False, default=0.0)
+    last_updated = Column(DateTime, nullable=False, default=lambda: _datetime.datetime.utcnow())
+
+    def __repr__(self):
+        return f"<MemLearnedPattern(id={self.id}, type='{self.pattern_type}', confidence={self.confidence:.3f})>"
+
+
+class MemUserFeedbackEvent(Base):
+    """Individual user feedback events."""
+    __tablename__ = "mem_user_feedback_event"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    decision_id = Column(Integer, ForeignKey("mem_decision.id", ondelete="SET NULL"), nullable=True)
+    run_id = Column(Integer, ForeignKey("mem_pacing_run.id", ondelete="CASCADE"), nullable=False)
+    event_type = Column(String, nullable=False)  # accept|reject|skip|rate|replace
+    payload = Column(JSON, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=lambda: _datetime.datetime.utcnow())
+
+    run = relationship("MemPacingRun", back_populates="feedback_events")
+
+    def __repr__(self):
+        return f"<MemUserFeedbackEvent(id={self.id}, type='{self.event_type}', run_id={self.run_id})>"

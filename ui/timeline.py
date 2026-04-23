@@ -19,6 +19,7 @@ from database import engine, AudioTrack, VideoClip, TimelineEntry, Beatgrid, Cli
 
 logger = logging.getLogger(__name__)
 from services.pacing_service import CutPoint
+from services.feedback_service import FeedbackService
 from ui.shortcut_manager import get_shortcut_manager
 from ui.waveform_item import WaveformGraphicsItem
 
@@ -1363,6 +1364,14 @@ class InteractiveTimeline(QGraphicsView):
             self.undo_stack.redo()
             return
 
+        # Feedback Shortcuts (Phase 8 - T8.1)
+        if sm.matches("feedback_accept", event):
+            self._handle_user_feedback("accept")
+            return
+        if sm.matches("feedback_reject", event):
+            self._handle_user_feedback("reject")
+            return
+
         # Copy / Paste (AUD-71)
         if sm.matches("copy", event):
             self._copy_selected_clips()
@@ -1666,3 +1675,31 @@ class InteractiveTimeline(QGraphicsView):
             )
 
         event.acceptProposedAction()
+
+    def _handle_user_feedback(self, event_type: str):
+        """Processes user feedback (thumbs up/down) for selected clips."""
+        selected = [item for item in self._scene.selectedItems()
+                    if isinstance(item, TimelineClipItem) and item.track_type == "video"]
+        
+        if not selected:
+            if self.console_log:
+                self.console_log("[Feedback] Kein Video-Clip ausgewählt.")
+            return
+
+        for item in selected:
+            FeedbackService.submit_feedback_async(item.entry_id, event_type)
+            
+            # Visual feedback on the clip
+            color = QColor(100, 255, 100, 150) if event_type == "accept" else QColor(255, 100, 100, 150)
+            flash = self._scene.addRect(item.sceneBoundingRect(), QPen(color, 2), QBrush(color))
+            flash.setZValue(100)
+            
+            # Fade out flash
+            timer = QTimer(self)
+            timer.setSingleShot(True)
+            timer.timeout.connect(lambda f=flash: self._scene.removeItem(f))
+            timer.start(300)
+
+        if self.console_log:
+            label = "Thumbs Up" if event_type == "accept" else "Thumbs Down"
+            self.console_log(f"[Feedback] {label} für {len(selected)} Clip(s) gespeichert.")

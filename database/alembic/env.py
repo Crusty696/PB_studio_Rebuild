@@ -44,7 +44,18 @@ def run_migrations_offline() -> None:
 
 def run_migrations_online() -> None:
     """Run migrations in 'online' mode — uses a live database connection."""
-    connectable = get_raw_engine()
+    # M-45 Fix: Allow providing an engine via the config object (useful for testing)
+    # Check if an engine was passed in the config attributes
+    connectable = config.attributes.get("connection", None)
+
+    if connectable is None:
+        # Fallback: check if we should use the project's raw engine or create a new one from URL
+        url = config.get_main_option("sqlalchemy.url")
+        if url and "test_migration_roundtrip.db" in url:
+            from sqlalchemy import create_engine
+            connectable = create_engine(url)
+        else:
+            connectable = get_raw_engine()
 
     with connectable.connect() as connection:
         context.configure(

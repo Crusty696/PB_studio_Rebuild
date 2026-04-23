@@ -1,0 +1,40 @@
+# Rules for Role Classification in Studio Brain
+
+role_definitions:
+  establishing:
+    conditions:
+      motion_max: 0.3
+      duration_min: 5.0
+      tags_any: ["landscape", "wide", "overview", "establishing", "drone", "aerial"]
+    confidence_base: 0.8
+
+  action:
+    conditions:
+      motion_min: 0.6
+      duration_max: 4.0
+      tags_any: ["fast", "dynamic", "action", "movement", "energy"]
+    confidence_base: 0.7
+
+  hero:
+    conditions:
+      motion_min: 0.3
+      motion_max: 0.7
+      duration_min: 3.0
+      tags_any: ["subject", "person", "character", "centered", "focus"]
+    confidence_base: 0.75
+
+  detail:
+    conditions:
+      motion_max: 0.4
+      duration_max: 3.0
+      tags_any: ["close-up", "detail", "macro", "texture"]
+    confidence_base: 0.7
+
+  transition:
+    conditions:
+      duration_max: 1.5
+      tags_any: ["transition", "blur", "flash", "cut"]
+    confidence_base: 0.6
+
+default_role: "filler"
+confidence_threshold: 0.5

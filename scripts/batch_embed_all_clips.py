@@ -120,36 +120,11 @@ def main() -> int:
         return 1
 
     from services.video_analysis_service import run_full_pipeline
-    from services.model_manager import ModelManager, GPU_LOAD_LOCK
+    from services.model_manager import ModelManager
 
-    # SigLIP + RAFT EINMAL laden fuer alle Videos
-    siglip_model_processor = None
-    raft_model_device = None
+    # SigLIP/RAFT-Lifecycle liegt in run_full_pipeline() — kein Pre-Load hier
+    # (wuerde seit H17 eine stale CPU-Referenz hinterlassen).
     mm = ModelManager()
-
-    logger.info("Lade SigLIP + RAFT einmalig fuer %d Videos...", len(valid_clips))
-    with GPU_LOAD_LOCK:
-        try:
-            siglip_model_processor = mm.load_siglip()
-            logger.info("SigLIP vorgeladen auf %s", mm.device)
-        except (RuntimeError, OSError, ValueError) as e:
-            logger.warning("SigLIP Vorladen fehlgeschlagen (%s) — Fallback: pro Video laden", e)
-            siglip_model_processor = None
-
-        try:
-            raft_result = mm.load_raft()
-            if raft_result[0] is not None:
-                raft_model_device = raft_result
-                logger.info("RAFT vorgeladen")
-            else:
-                raft_model_device = None
-        except (RuntimeError, OSError, ValueError) as e:
-            logger.warning("RAFT Vorladen fehlgeschlagen (%s) — CPU-Fallback", e)
-            raft_model_device = None
-            # RAFT-OOM kann SigLIP evictet haben
-            if siglip_model_processor is not None and mm.model_type != "siglip":
-                logger.warning("RAFT-OOM hat SigLIP evictet — SigLIP-Referenz invalidiert")
-                siglip_model_processor = None
 
     total_clips = len(valid_clips)
     done = 0
@@ -177,8 +152,6 @@ def main() -> int:
                     video_path=video_path,
                     video_clip_id=clip_id,
                     progress_cb=lambda pct, msg: logger.debug("  [%d%%] %s", pct, msg),
-                    siglip_model_processor=siglip_model_processor,
-                    raft_model_device=raft_model_device,
                 )
                 done += 1
                 total_scenes += len(result.scenes)
@@ -209,29 +182,11 @@ def main() -> int:
                 )
 
     finally:
-        # RAFT entladen
-        if raft_model_device is not None:
-            try:
-                import torch
-                raft_m, _ = raft_model_device
-                if raft_m is not None:
-                    raft_m.cpu()
-                    del raft_m
-                gc.collect()
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-                logger.info("RAFT entladen")
-            except (RuntimeError, OSError, AttributeError) as e:
-                logger.warning("RAFT Entladen fehlgeschlagen: %s", e)
-            raft_model_device = None
-
-        # SigLIP entladen
-        if siglip_model_processor is not None:
-            try:
-                mm.unload()
-                logger.info("SigLIP entladen")
-            except (RuntimeError, OSError, AttributeError) as e:
-                logger.warning("SigLIP Entladen fehlgeschlagen: %s", e)
+        try:
+            mm.unload()
+            logger.info("ModelManager entladen")
+        except (RuntimeError, AttributeError) as e:
+            logger.warning("ModelManager Entladen fehlgeschlagen: %s", e)
 
     elapsed_total = time.monotonic() - start_time
     logger.info(

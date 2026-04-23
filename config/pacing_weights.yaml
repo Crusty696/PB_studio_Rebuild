@@ -1,0 +1,19 @@
+# T6.2: Pacing Weights for Scorer
+# Define weights for the 13 terms (Total sum = 1.0 recommended)
+
+weights:
+  w_energy_match: 0.20          # Matching visual motion to audio energy
+  w_role_match: 0.10            # Match to section type (DROP, BREAKDOWN, etc)
+  w_novelty: 0.05               # Benefit for new clips
+  w_rhythm_sync: 0.15           # AUD-101: Beat-Sync logic
+  w_memory_boost: 0.10          # Bias from AI memory / learning
+  w_style_continuity: 0.05      # Visual similarity to previous clip
+  w_color_cohesion: 0.05        # (Mock for now) Color palette match
+  w_subject_focus: 0.05         # (Mock for now) Focus on human/object
+  w_clip_stability: 0.05        # (Mock for now) Camera shake penalty
+  w_freshness: 0.05             # Budget/Repeat penalty integration
+  w_vibe_match: 0.05            # SigLIP / Vibe query match
+  w_transition_smoothness: 0.05 # (Mock for now)
+  w_human_presence: 0.05        # Match vocal presence to human clips
+
+# Total = 1.0

@@ -159,21 +159,11 @@ def get_raw_engine():
     return object.__getattribute__(engine, '_engine')
 
 
-def nullpool_session():
-    """Erzeugt eine SQLAlchemy Session mit NullPool-Engine (frische Connection).
+def nullpool_engine():
+    """Erzeugt eine NullPool-Engine mit denselben PRAGMAs wie die Haupt-Engine.
 
-    Verwendung fuer Worker-Threads die in die DB schreiben und dabei
-    "database is locked" Fehler durch den Connection Pool bekommen.
-    Die NullPool-Engine erstellt eine frische Connection pro Session und
-    schliesst sie sofort nach dem Commit — kein Pooling, kein Lock-Halten.
-
-    Muster (identisch mit timeline_service._do_apply_segments):
-        with nullpool_session() as session:
-            track = session.get(AudioTrack, track_id)
-            track.bpm = 120.0
-            session.commit()
-
-    Die Engine wird automatisch disposed wenn der Context-Manager endet.
+    Kein Pooling (frische Connection pro ``connect()``), aber WAL/FK/busy_timeout
+    konsistent. Caller ist verantwortlich fuer ``engine.dispose()``.
     """
     from sqlalchemy import create_engine as _ce, event as _ev
     from sqlalchemy.pool import NullPool
@@ -195,7 +185,26 @@ def nullpool_session():
         c.execute("PRAGMA foreign_keys=ON")
         c.close()
 
-    return _NullPoolSessionContext(_eng)
+    return _eng
+
+
+def nullpool_session():
+    """Erzeugt eine SQLAlchemy Session mit NullPool-Engine (frische Connection).
+
+    Verwendung fuer Worker-Threads die in die DB schreiben und dabei
+    "database is locked" Fehler durch den Connection Pool bekommen.
+    Die NullPool-Engine erstellt eine frische Connection pro Session und
+    schliesst sie sofort nach dem Commit — kein Pooling, kein Lock-Halten.
+
+    Muster (identisch mit timeline_service._do_apply_segments):
+        with nullpool_session() as session:
+            track = session.get(AudioTrack, track_id)
+            track.bpm = 120.0
+            session.commit()
+
+    Die Engine wird automatisch disposed wenn der Context-Manager endet.
+    """
+    return _NullPoolSessionContext(nullpool_engine())
 
 
 class _NullPoolSessionContext:

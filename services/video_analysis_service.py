@@ -3,7 +3,7 @@
 3-Schritt Pipeline:
   1. SceneDetect (ContentDetector) + RAFT Optical Flow Motion Score
   2. Keyframe-Extraktion (Mitte jeder Szene)
-  3. SigLIP Embedding-Generierung → LanceDB
+  3. SigLIP Embedding-Generierung → Vektor-DB (SQLite + numpy)
 
 Nutzt ModelManager Singleton für VRAM-Schutz.
 """
@@ -398,7 +398,7 @@ def extract_keyframes(
 
 
 # ======================================================================
-# Schritt 3: SigLIP Embeddings → LanceDB
+# Schritt 3: SigLIP Embeddings → Vektor-DB
 # ======================================================================
 
 @oom_recovery
@@ -682,7 +682,7 @@ def store_embeddings(
     scenes: list[SceneInfo],
     video_clip_id: int,
 ) -> int:
-    """Speichert Embeddings in LanceDB via VectorDBService.
+    """Speichert Embeddings in der Vektor-DB via VectorDBService.
 
     Returns:
         Anzahl der gespeicherten Embeddings
@@ -869,7 +869,7 @@ def search_videos_by_text(
     top_k: int = 10,
     motion_filter: float | None = None,
 ) -> list[dict]:
-    """Semantische Text-zu-Video Suche über LanceDB.
+    """Semantische Text-zu-Video Suche über die Vektor-DB.
 
     Args:
         query: Natürlichsprachiger Suchtext
@@ -891,7 +891,7 @@ def search_videos_by_text(
         logger.info("Suche '%s': %d Ergebnisse", query, len(results))
         return results
     except (OSError, RuntimeError, ValueError) as e:
-        logger.error("LanceDB Suche fehlgeschlagen: %s", e)
+        logger.error("Vektor-DB Suche fehlgeschlagen: %s", e)
         return []
 
 
@@ -899,30 +899,36 @@ def search_videos_by_text(
 # Vollständige Pipeline (alle 3 Schritte)
 # ======================================================================
 
-def run_full_pipeline(
-    video_path: str,
-    video_clip_id: int,
-    threshold: float = 27.0,
-    progress_cb: Callable[[int, str], None] | None = None,
-    should_stop: Callable[[], bool] | None = None,
-    siglip_model_processor: tuple | None = None,
-    raft_model_device: tuple | None = None,
-) -> PipelineResult:
-    """Führt die komplette 3-Schritt Video-Analyse-Pipeline aus."""
-    if not video_path or not Path(video_path).exists():
-        logger.error("Video-Pipeline abgebrochen: Datei fehlt -> %s", video_path)
-        return PipelineResult(video_path=video_path)
-    # Proxy-First: video_path kann Proxy sein — Original aus DB laden für LanceDB-Storage
+def _resolve_original_path(video_path: str, video_clip_id: int) -> str:
+    """Proxy-First: video_path kann Proxy sein — Original aus DB fuer Vektor-DB-Storage."""
     try:
         from sqlalchemy.orm import Session as _Session
         from database import engine as _engine, VideoClip as _VideoClip
         with _Session(_engine) as _s:
             _clip = _s.get(_VideoClip, video_clip_id)
-            original_video_path = _clip.file_path if _clip else video_path
+            return _clip.file_path if _clip else video_path
     except Exception:  # broad catch intentional — SQLAlchemy query at startup, DB may not be ready
-        original_video_path = video_path
+        return video_path
 
-    result = PipelineResult(video_path=original_video_path)
+
+def run_motion_phase(
+    video_path: str,
+    video_clip_id: int,
+    threshold: float = 27.0,
+    progress_cb: Callable[[int, str], None] | None = None,
+    should_stop: Callable[[], bool] | None = None,
+    raft_model_device: tuple | None = None,
+) -> tuple[list[SceneInfo], str]:
+    """Phase A: Scene Detection + RAFT Motion Scores.
+
+    Returns (scenes, original_video_path). Caller reicht scenes an run_embedding_phase
+    weiter. Erlaubt Batch-Worker einen EINZIGEN RAFT-Load fuer alle Videos.
+    """
+    if not video_path or not Path(video_path).exists():
+        logger.error("Video-Pipeline abgebrochen: Datei fehlt -> %s", video_path)
+        return [], video_path
+
+    original_video_path = _resolve_original_path(video_path, video_clip_id)
 
     # Schritt 1: Scene Detection
     analysis_status_service.mark_started("video", video_clip_id, "scene_detection")
@@ -932,11 +938,9 @@ def run_full_pipeline(
         if progress_cb:
             progress_cb(5, "Szenen erkennen...")
         if should_stop and should_stop():
-            return result
+            return [], original_video_path
 
         scenes = detect_scenes(video_path, threshold=threshold)
-        result.scenes = scenes
-        result.total_duration = scenes[-1].end_time if scenes else 0.0
         logger.info("[PIPELINE] Szenen-Erkennung FERTIG: %d Szenen gefunden", len(scenes))
         analysis_status_service.mark_done("video", video_clip_id, "scene_detection", {
             "scenes": len(scenes),
@@ -952,7 +956,7 @@ def run_full_pipeline(
         if progress_cb:
             progress_cb(20, f"Motion-Analyse ({len(scenes)} Szenen)...")
         if should_stop and should_stop():
-            return result
+            return scenes, original_video_path
 
         scenes = compute_motion_scores(video_path, scenes, raft_model_device=raft_model_device)
         logger.info("[PIPELINE] Motion-Analyse FERTIG")
@@ -963,6 +967,31 @@ def run_full_pipeline(
     except Exception as e:
         analysis_status_service.mark_error("video", video_clip_id, "motion_scores", str(e))
         raise
+
+    return scenes, original_video_path
+
+
+def run_embedding_phase(
+    video_path: str,
+    video_clip_id: int,
+    scenes: list[SceneInfo],
+    original_video_path: str,
+    progress_cb: Callable[[int, str], None] | None = None,
+    should_stop: Callable[[], bool] | None = None,
+    siglip_model_processor: tuple | None = None,
+    is_batch: bool = False,
+) -> PipelineResult:
+    """Phase B: Keyframes + SigLIP Embeddings + Vector-DB + Gemma Captions + SQLite.
+
+    Nutzt ``scenes`` aus run_motion_phase. Erlaubt Batch-Worker einen EINZIGEN
+    SigLIP-Load fuer alle Videos.
+    """
+    result = PipelineResult(video_path=original_video_path)
+    result.scenes = scenes
+    result.total_duration = scenes[-1].end_time if scenes else 0.0
+
+    if not scenes:
+        return result
 
     # Schritt 2: Keyframes
     analysis_status_service.mark_started("video", video_clip_id, "keyframe_extraction")
@@ -1003,18 +1032,17 @@ def run_full_pipeline(
         analysis_status_service.mark_error("video", video_clip_id, "siglip_embeddings", str(e))
         raise
 
-    # Schritt 3b: In LanceDB speichern
+    # Schritt 3b: In Vektor-DB speichern
     analysis_status_service.mark_started("video", video_clip_id, "vector_db_storage")
     try:
-        logger.info("[PIPELINE] Schritt 5/7: In LanceDB speichern...")
+        logger.info("[PIPELINE] Schritt 5/7: In Vektor-DB speichern...")
         if progress_cb:
-            progress_cb(75, "In LanceDB speichern...")
+            progress_cb(75, "In Vektor-DB speichern...")
         if should_stop and should_stop():
             return result
 
-        # Original-Pfad für LanceDB-Storage verwenden (nicht Proxy-Pfad)
         result.embeddings_stored = store_embeddings(original_video_path, scenes, video_clip_id)
-        logger.info("[PIPELINE] LanceDB FERTIG: %d Embeddings", result.embeddings_stored)
+        logger.info("[PIPELINE] Vektor-DB FERTIG: %d Embeddings", result.embeddings_stored)
         analysis_status_service.mark_done("video", video_clip_id, "vector_db_storage", {
             "vectors": result.embeddings_stored,
         })
@@ -1057,11 +1085,8 @@ def run_full_pipeline(
         analysis_status_service.mark_error("video", video_clip_id, "scene_db_storage", str(e))
         raise
 
-    # VRAM-Schutz: GPU-Speicher nach Pipeline freigeben
-    # Im Batch-Modus (siglip_model_processor/raft_model_device uebergeben) KEIN
-    # empty_cache() — das korrumpiert den Heap wenn Modelle noch resident sind
-    # (Windows 0xC0000374). Batch-Cleanup passiert im Worker nach der gesamten Batch.
-    is_batch = siglip_model_processor is not None or raft_model_device is not None
+    # VRAM-Schutz: im Batch-Modus KEIN empty_cache() — kann Heap korrumpieren
+    # solange andere Modelle resident sind (Windows 0xC0000374).
     if not is_batch:
         try:
             import torch
@@ -1077,3 +1102,36 @@ def run_full_pipeline(
         Path(video_path).name, len(scenes), result.embeddings_stored,
     )
     return result
+
+
+def run_full_pipeline(
+    video_path: str,
+    video_clip_id: int,
+    threshold: float = 27.0,
+    progress_cb: Callable[[int, str], None] | None = None,
+    should_stop: Callable[[], bool] | None = None,
+    siglip_model_processor: tuple | None = None,
+    raft_model_device: tuple | None = None,
+) -> PipelineResult:
+    """Führt die komplette 3-Schritt Video-Analyse-Pipeline aus (Single-Video)."""
+    scenes, original_video_path = run_motion_phase(
+        video_path=video_path,
+        video_clip_id=video_clip_id,
+        threshold=threshold,
+        progress_cb=progress_cb,
+        should_stop=should_stop,
+        raft_model_device=raft_model_device,
+    )
+    if not scenes:
+        return PipelineResult(video_path=original_video_path)
+    is_batch = siglip_model_processor is not None or raft_model_device is not None
+    return run_embedding_phase(
+        video_path=video_path,
+        video_clip_id=video_clip_id,
+        scenes=scenes,
+        original_video_path=original_video_path,
+        progress_cb=progress_cb,
+        should_stop=should_stop,
+        siglip_model_processor=siglip_model_processor,
+        is_batch=is_batch,
+    )

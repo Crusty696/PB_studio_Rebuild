@@ -24,8 +24,9 @@ from services.audio_constants import DEFAULT_SR, HOP_LENGTH
 
 logger = logging.getLogger(__name__)
 
-# M-17 Fix: Prevent RAM exhaustion from long files (30 min ≈ 650 MB at 22050 Hz mono)
-MAX_DURATION_SEC = 1800  # 30 minutes
+# CHUNK-Config für lange Mixe (verhindert RAM exhaustion)
+CHUNK_SIZE_SEC = 900      # 15 minutes
+CHUNK_OVERLAP_SEC = 5     # 5 seconds overlap for boundary stability
 
 # ── Mel-Band Grenzen (bei N_MELS=128, sr=22050) ──────────────────────────────
 # Kick:  Mel-Bins  0–20  ≈   0–250 Hz  (Low/Sub, perkussiver Impact)
@@ -475,28 +476,17 @@ class OnsetRhythmService:
         track_id: int,
         progress_cb=None,
     ) -> RhythmAnalysis | None:
-        """Analysiert einen AudioTrack und speichert Ergebnisse im Beatgrid.
+        """Analysiert einen AudioTrack in Chunks und speichert Ergebnisse.
 
-        Lädt Audio (+ optionalen Drums-Stem), analysiert Rhythmus und
-        persistiert Onset-Daten, Syncopation-Score und Groove-Template
-        in der beatgrids-Tabelle.
-
-        Voraussetzung: Beatgrid muss bereits existieren (BeatAnalysisService
-        muss vorher auf diesem Track gelaufen sein).
-
-        Args:
-            track_id: AudioTrack.id aus der DB
-            progress_cb: Optional Callback(percent, message)
-
-        Returns:
-            RhythmAnalysis oder None bei Fehler
+        Unterstützt sehr lange DJ-Mixe durch 15-Minuten Chunking mit Überlappung,
+        um RAM-Erschöpfung zu vermeiden.
         """
         import librosa
         from database import engine, AudioTrack
         from sqlalchemy.orm import Session
 
         if progress_cb:
-            progress_cb(0, "Lade Audio für Rhythmus-Analyse...")
+            progress_cb(0, "Initialisiere Rhythmus-Analyse...")
 
         with Session(engine) as session:
             track = session.query(AudioTrack).filter(
@@ -509,44 +499,153 @@ class OnsetRhythmService:
             drums_path = track.stem_drums_path
 
         try:
-            # M-17 Fix: Load with duration limit to prevent RAM exhaustion
-            y, sr = librosa.load(audio_path, sr=DEFAULT_SR, mono=True, duration=MAX_DURATION_SEC)
-            actual_duration = len(y) / sr
-            if actual_duration >= MAX_DURATION_SEC - 1:
-                logger.warning(
-                    "Audio truncated to %d sec (file may be longer): %s",
-                    MAX_DURATION_SEC, audio_path
-                )
-        except (OSError, IOError, ValueError) as e:
-            logger.error("Audio-Load fehlgeschlagen '%s': %s", audio_path, e)
+            total_duration = float(librosa.get_duration(path=audio_path))
+        except Exception as e:
+            logger.error("Dauer-Ermittlung fehlgeschlagen: %s", e)
             return None
 
-        drums_y: np.ndarray | None = None
-        if drums_path and Path(drums_path).exists():
-            try:
-                drums_y, _ = librosa.load(drums_path, sr=DEFAULT_SR, mono=True)
-                logger.debug("Drums-Stem geladen: %s", drums_path)
-            except (OSError, IOError, ValueError) as e:
-                logger.warning("Drums-Stem load fehlgeschlagen '%s': %s", drums_path, e)
-
-        # Beat-Positionen aus DB
+        # Beat-Positionen aus DB (absolute Zeiten)
         from services.pacing_beat_grid import _get_beat_positions
-        beats = _get_beat_positions(track_id)
+        all_beats = _get_beat_positions(track_id)
+
+        chunk_analyses: list[RhythmAnalysis] = []
+        chunk_offsets: list[float] = []
+
+        # Chunk-Loop
+        start_t = 0.0
+        while start_t < total_duration:
+            # Berechne Lade-Segment (mit Overlap nach vorne, außer bei erstem Chunk)
+            load_start = max(0.0, start_t - CHUNK_OVERLAP_SEC)
+            load_end = min(start_t + CHUNK_SIZE_SEC, total_duration)
+            load_dur = load_end - load_start
+
+            if load_dur <= 0:
+                break
+
+            msg = f"Analysiere Mix: {int(start_t/60)}m - {int(load_end/60)}m..."
+            if progress_cb:
+                progress_cb(int((start_t / total_duration) * 80) + 5, msg)
+            logger.info("OnsetRhythmService: %s", msg)
+
+            try:
+                # Audio laden
+                y, sr = librosa.load(audio_path, sr=DEFAULT_SR, mono=True, offset=load_start, duration=load_dur)
+                
+                drums_y: np.ndarray | None = None
+                if drums_path and Path(drums_path).exists():
+                    drums_y, _ = librosa.load(drums_path, sr=DEFAULT_SR, mono=True, offset=load_start, duration=load_dur)
+
+                # Beats für diesen Chunk (relativ zum load_start)
+                # analyze() erwartet Beats relativ zum Start von y
+                chunk_beats = [b - load_start for b in all_beats if load_start <= b <= load_end]
+
+                analysis = self.analyze(y, sr, chunk_beats, drums_y=drums_y)
+                
+                # Onset-Zeiten in der Analysis sind relativ zum load_start.
+                # Wir speichern den load_start, um sie später zu globalisieren.
+                chunk_analyses.append(analysis)
+                chunk_offsets.append(load_start)
+
+            except Exception as e:
+                logger.error("Fehler in Chunk bei %.1fs: %s", start_t, e)
+                # Wir machen weiter, falls andere Chunks klappen
+            
+            start_t += CHUNK_SIZE_SEC
+
+        if not chunk_analyses:
+            return None
+
+        # Ergebnisse zusammenführen
+        final_analysis = self._aggregate_results(chunk_analyses, chunk_offsets, total_duration)
 
         if progress_cb:
-            progress_cb(20, "Spectral Flux Onset Detection...")
+            progress_cb(90, "Speichere aggregierte Onset-Daten...")
 
-        analysis = self.analyze(y, sr, beats, drums_y=drums_y)
-
-        if progress_cb:
-            progress_cb(85, "Speichere Onset-Daten in DB...")
-
-        self._store(track_id, analysis)
+        self._store(track_id, final_analysis)
 
         if progress_cb:
             progress_cb(100, "Rhythmus-Analyse abgeschlossen")
 
-        return analysis
+        return final_analysis
+
+    def _aggregate_results(
+        self,
+        analyses: list[RhythmAnalysis],
+        offsets: list[float],
+        total_duration: float
+    ) -> RhythmAnalysis:
+        """Führt mehrere Chunk-Analysen zu einer globalen Analyse zusammen.
+
+        Dedupliziert Onsets in Overlap-Zonen und kombiniert Metriken.
+        """
+        all_kick = []
+        all_snare = []
+        all_hihat = []
+        
+        # Wir nutzen ein Set für Zeitstempel (auf 3 Nachkommastellen gerundet) zur Deduplizierung
+        seen_kick = set()
+        seen_snare = set()
+        seen_hihat = set()
+
+        for analysis, offset in zip(analyses, offsets):
+            # Kick
+            for o in analysis.onsets_kick:
+                abs_t = round(o.time + offset, 4)
+                t_key = round(abs_t, 3)
+                if t_key not in seen_kick:
+                    all_kick.append(PercussiveOnset(time=abs_t, strength=o.strength))
+                    seen_kick.add(t_key)
+            # Snare
+            for o in analysis.onsets_snare:
+                abs_t = round(o.time + offset, 4)
+                t_key = round(abs_t, 3)
+                if t_key not in seen_snare:
+                    all_snare.append(PercussiveOnset(time=abs_t, strength=o.strength))
+                    seen_snare.add(t_key)
+            # HiHat
+            for o in analysis.onsets_hihat:
+                abs_t = round(o.time + offset, 4)
+                t_key = round(abs_t, 3)
+                if t_key not in seen_hihat:
+                    all_hihat.append(PercussiveOnset(time=abs_t, strength=o.strength))
+                    seen_hihat.add(t_key)
+
+        # Sortieren
+        all_kick.sort(key=lambda x: x.time)
+        all_snare.sort(key=lambda x: x.time)
+        all_hihat.sort(key=lambda x: x.time)
+
+        # Onset Strength Curve aggregieren
+        # Da Chunks überlappen, nehmen wir einfach die Kurven nacheinander
+        # (Pragmatischer Ansatz für die Visualisierung)
+        full_curve = []
+        for analysis in analyses:
+            full_curve.extend(analysis.onset_strength_curve)
+        
+        # Metriken mitteln
+        sync = float(np.mean([a.syncopation_score for a in analyses]))
+        swing = float(np.mean([a.swing_ratio for a in analyses]))
+        
+        # Groove Template: Meistgewähltes nehmen
+        from collections import Counter
+        templates = [a.groove_template for a in analyses if a.groove_template != "unknown"]
+        if templates:
+            best_template = Counter(templates).most_common(1)[0][0]
+            conf = float(np.mean([a.groove_confidence for a in analyses if a.groove_template == best_template]))
+        else:
+            best_template = "unknown"
+            conf = 0.0
+
+        return RhythmAnalysis(
+            onsets_kick=all_kick,
+            onsets_snare=all_snare,
+            onsets_hihat=all_hihat,
+            onset_strength_curve=full_curve, # Kurve ist hier etwas zu lang durch Overlaps, aber für Visualisierung okay
+            syncopation_score=round(sync, 4),
+            groove_template=best_template,
+            groove_confidence=round(conf, 4),
+            swing_ratio=round(swing, 4)
+        )
 
     def _store(self, track_id: int, analysis: RhythmAnalysis) -> None:
         """Persistiert Onset-Daten im Beatgrid-Eintrag der DB."""

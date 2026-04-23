@@ -84,7 +84,7 @@ DJ-SET MAKRO-STRUKTUR:
 
 VIDEO-AUSWAHL PRIORITÄT:
   1. Anker (manuell gesetzt) → Exakter Clip+Szene
-  2. Vibe-Keyword → SigLIP/LanceDB Semantic Search
+  2. Vibe-Keyword → SigLIP Semantic Search (services.vector_db_service)
   3. Motion-Match → |motion - energy| minimieren
   4. Round-Robin → Vermeidung der letzten 3 Clips
 

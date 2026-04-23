@@ -29,6 +29,7 @@ VIDEO_STEPS = [
     "siglip_embeddings",     # SigLIP Visual Embeddings
     "vector_db_storage",     # Embedding-Speicherung
     "ai_scene_caption",      # Gemma Vision Captioning
+    "structure_enrichment",  # VAD-59: Graph-based Scene Enrichment
     "scene_db_storage",      # Scene-Daten in DB
 ]
 

@@ -1,6 +1,5 @@
 """Video analysis and frame extraction background workers."""
 
-import gc
 import logging
 import re
 import subprocess
@@ -178,160 +177,126 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                 self.progress.emit(pct, msg)
                 _last_progress_time[0] = now
 
-        siglip_model_processor = None  # Vor try-Block definiert für finally-Zugriff
-        raft_model_device = None       # RAFT-Cache fuer Batch-Modus
+        # Phase-basierter Batch: RAFT einmal fuer Phase A, SigLIP einmal fuer Phase B.
+        # Spart (N-1)×4.5s Model-Swap-Overhead gegenueber Per-Video-Load.
         try:
-            from services.video_analysis_service import run_full_pipeline
+            from services.video_analysis_service import run_motion_phase, run_embedding_phase
+            from services.model_manager import ModelManager, GPU_LOAD_LOCK, GPU_EXECUTION_LOCK
 
             total_scenes = 0
             total_embeddings = 0
-            idx = 0
+            processed = 0
+            mm = ModelManager()
+            # Map: clip_id -> (video_path, original_path, scenes) aus Phase A
+            phase_a_results: dict[int, tuple[str, str, list]] = {}
 
-            # ── BATCH-OPTIMIERUNG: SigLIP + RAFT EINMAL laden fuer alle Videos ──
-            # Verhindert VRAM-Fragmentierung durch wiederholtes Laden/Entladen.
-            # GPU_LOAD_LOCK serialisiert mit allen anderen GPU-Operationen (Demucs,
-            # beat_this, text_to_embedding) und verhindert Race Conditions.
-            if total_videos > 1:
-                from services.model_manager import ModelManager, GPU_LOAD_LOCK
-                # AUD-35 Fix: SigLIP + RAFT muessen innerhalb eines einzigen GPU_LOAD_LOCK-Blocks
-                # geladen werden. Ein Gap zwischen den beiden Locks erlaubt anderen Threads
-                # (z.B. BeatAnalysisService), GPU_LOAD_LOCK zu akquirieren und ein anderes Modell
-                # zu laden, was unload() triggert und SigLIP-Tensoren auf CPU verschiebt.
-                # Die siglip_model_processor-Referenz zeigte danach auf CPU-Tensoren waehrend
-                # Inputs auf CUDA lagen → CUDA RuntimeError.
-                # Fix: mm.load_raft() direkt aufrufen (nutzt nur _swap_lock intern),
-                # statt _load_raft_model() (wuerde GPU_LOAD_LOCK nested re-akquirieren → Deadlock).
-                # B-02 Design: SigLIP (~2.5 GB) + RAFT (~0.1 GB) = ~2.6 GB — passt auf GTX 1060.
-                with GPU_LOAD_LOCK:
-                    mm = ModelManager()
-                    try:
-                        logger.info("[BATCH] Lade SigLIP einmalig fuer %d Videos...", total_videos)
-                        siglip_model_processor = mm.load_siglip()
-                        logger.info("[BATCH] SigLIP vorgeladen auf %s", mm.device)
-                    except (RuntimeError, OSError, MemoryError) as e:
-                        logger.warning("[BATCH] SigLIP Vorladen fehlgeschlagen (%s) — Fallback: pro Video laden", e)
-                        siglip_model_processor = None
-                    try:
-                        raft_result = mm.load_raft()
-                        if raft_result[0] is not None:
-                            raft_model_device = raft_result
-                            logger.info("[BATCH] RAFT vorgeladen — wird fuer alle %d Videos wiederverwendet", total_videos)
-                        else:
-                            raft_model_device = None
-                    except (RuntimeError, OSError, MemoryError) as e:
-                        logger.warning("[BATCH] RAFT Vorladen fehlgeschlagen (%s) — Fallback: pro Video laden", e)
-                        raft_model_device = None
-                        # RAFT-OOM-Pfad kann SigLIP evictet haben — Referenz invalidieren
-                        if siglip_model_processor is not None and mm.model_type != "siglip":
-                            logger.warning("[BATCH] RAFT-OOM hat SigLIP evictet — SigLIP-Referenz invalidiert")
-                            siglip_model_processor = None
+            def _resolve_fallback_path(clip_id: int) -> str | None:
+                """TOCTOU-Recovery: Proxy geloescht → Original aus DB."""
+                from database import nullpool_session as _ns
+                with _ns() as _s:
+                    _c = _s.get(VideoClip, clip_id)
+                    return _c.file_path if _c and _c.file_path else None
 
-            # H-25 FIX: Hold GPU_EXECUTION_LOCK for entire batch to prevent model invalidation mid-batch
-            # (prevents other threads from unloading SigLIP/RAFT between video iterations)
-            from services.model_manager import GPU_EXECUTION_LOCK
             with GPU_EXECUTION_LOCK:
+                # ── Phase A: Scene-Detect + Motion (RAFT shared) ──
+                with GPU_LOAD_LOCK:
+                    mm.load_raft()
+
                 for idx, (clip_id, video_path, title) in enumerate(self._batch, start=1):
                     if self.should_stop():
                         break
-
                     label = title or Path(video_path).stem
-                    batch_base_pct = int((idx - 1) / total_videos * 100)
-                    batch_range = int(100 / total_videos)
-                    _throttled_progress(
-                        batch_base_pct,
-                        f"Video {idx}/{total_videos}: '{label}' wird analysiert..."
-                    )
-
+                    # Phase A belegt 0-40% der Batch-Progress
+                    base_pct = int((idx - 1) / total_videos * 40)
+                    _throttled_progress(base_pct,
+                                        f"[A {idx}/{total_videos}] '{label}' Szenen+Motion...")
+                    current_path = video_path
                     try:
-                        result = run_full_pipeline(
-                            video_path=video_path,
-                            video_clip_id=clip_id,
-                            progress_cb=lambda pct, msg, _base=batch_base_pct, _range=batch_range, _i=idx, _tv=total_videos: (
-                                _throttled_progress(
-                                    min(99, _base + int(pct / 100 * _range)),
-                                    f"[{_i}/{_tv}] {msg}"
-                                )
-                            ),
-                            should_stop=self.should_stop,
-                            siglip_model_processor=siglip_model_processor,
-                            raft_model_device=raft_model_device,
-                        )
-                        total_scenes += len(result.scenes)
-                        total_embeddings += result.embeddings_stored
-
-                    except FileNotFoundError as e:
-                        # B-012 Fix: TOCTOU — Proxy existierte bei Check aber wurde geloescht
-                        # Fallback zu Original-Datei
-                        logger.warning("[Proxy-First] Clip %d: Datei geloescht (TOCTOU) — Fallback: %s", clip_id, e)
-                        from database import nullpool_session as fallback_session
                         try:
-                            with fallback_session() as fb_session:
-                                fb_clip = fb_session.get(VideoClip, clip_id)
-                                if fb_clip and fb_clip.file_path:
-                                    result = run_full_pipeline(
-                                        video_path=fb_clip.file_path,
-                                        video_clip_id=clip_id,
-                                        progress_cb=lambda pct, msg, _base=batch_base_pct, _range=batch_range, _i=idx, _tv=total_videos: (
-                                            _throttled_progress(
-                                                min(99, _base + int(pct / 100 * _range)),
-                                                f"[{_i}/{_tv}] {msg}"
-                                            )
-                                        ),
-                                        should_stop=self.should_stop,
-                                        siglip_model_processor=siglip_model_processor,
-                                        raft_model_device=raft_model_device,
-                                    )
-                                    total_scenes += len(result.scenes)
-                                    total_embeddings += result.embeddings_stored
-                                else:
-                                    raise RuntimeError(f"VideoClip {clip_id}: Original-Pfad nicht verfuegbar")
-                        except (RuntimeError, OSError) as fallback_err:
-                            raise RuntimeError(f"Clip {clip_id}: Proxy + Original fehlgeschlagen — {fallback_err}") from fallback_err
+                            scenes, original_path = run_motion_phase(
+                                video_path=current_path,
+                                video_clip_id=clip_id,
+                                should_stop=self.should_stop,
+                            )
+                        except FileNotFoundError as e:
+                            logger.warning("[Proxy-First] Clip %d: Datei geloescht (TOCTOU) — Fallback: %s", clip_id, e)
+                            fallback_path = _resolve_fallback_path(clip_id)
+                            if not fallback_path:
+                                raise RuntimeError(f"VideoClip {clip_id}: Original-Pfad nicht verfuegbar") from e
+                            current_path = fallback_path
+                            scenes, original_path = run_motion_phase(
+                                video_path=current_path,
+                                video_clip_id=clip_id,
+                                should_stop=self.should_stop,
+                            )
+                        phase_a_results[clip_id] = (current_path, original_path, scenes)
+                        total_scenes += len(scenes)
                     except (RuntimeError, OSError, ValueError) as e:
-                        logging.error("VideoAnalysisPipelineWorker[%s] video %d/%d '%s' crashed: %s\n%s",
+                        logging.error("VideoAnalysisPipelineWorker[%s] Phase A %d/%d '%s' crashed: %s\n%s",
                                       clip_id, idx, total_videos, label, e, traceback.format_exc())
-                        # C-04 Fix: Einzelner Fehler bricht nicht mehr die ganze Pipeline ab
-                        self.progress.emit(
-                            min(99, batch_base_pct + batch_range),
-                            f"[{idx}/{total_videos}] FEHLER: {e}"
-                        )
-                        continue  # naechstes Video statt Abbruch
+                        self.progress.emit(base_pct, f"[A {idx}/{total_videos}] FEHLER: {e}")
+                        continue
                     finally:
-                        # F-036 Fix: Cleanup sicher via Main-Thread anfordern
                         if idx % 25 == 0:
                             from services.task_manager import GlobalTaskManager
                             GlobalTaskManager.instance().request_gc_signal.emit()
 
-                # ── BATCH-CLEANUP: SigLIP + RAFT am Ende der gesamten Batch entladen ──
-                if raft_model_device is not None:
-                    try:
-                        import torch
-                        raft_m, _ = raft_model_device
-                        if raft_m is not None:
-                            raft_m.cpu()
-                            del raft_m
-                        gc.collect()
-                        if torch.cuda.is_available():
-                            torch.cuda.empty_cache()
-                        logger.info("[BATCH] RAFT nach Batch-Verarbeitung entladen")
-                    except (RuntimeError, AttributeError) as e:
-                        logger.warning("[BATCH] RAFT Entladen fehlgeschlagen: %s", e)
-                    raft_model_device = None
+                # ── Phase B: Keyframes + SigLIP + Vector-DB + Captions + SQLite (SigLIP shared) ──
+                # H17: load_siglip() unload()t RAFT — OK, wir brauchen RAFT nicht mehr.
+                if phase_a_results and not self.should_stop():
+                    with GPU_LOAD_LOCK:
+                        mm.load_siglip()
 
-                if siglip_model_processor is not None:
-                    try:
-                        from services.model_manager import ModelManager
-                        mm = ModelManager()
-                        mm.unload()
-                        logger.info("[BATCH] SigLIP nach Batch-Verarbeitung entladen")
-                    except (RuntimeError, AttributeError) as e:
-                        logger.warning("[BATCH] SigLIP Entladen fehlgeschlagen: %s", e)
-                    siglip_model_processor = None
+                    for idx, (clip_id, (current_path, original_path, scenes)) in enumerate(
+                        phase_a_results.items(), start=1
+                    ):
+                        if self.should_stop():
+                            break
+                        label = Path(current_path).stem
+                        # Phase B belegt 40-99% der Batch-Progress
+                        base_pct = 40 + int((idx - 1) / total_videos * 59)
+                        range_pct = int(59 / total_videos)
+                        _throttled_progress(base_pct,
+                                            f"[B {idx}/{total_videos}] '{label}' Embeddings+Captions...")
+                        try:
+                            result = run_embedding_phase(
+                                video_path=current_path,
+                                video_clip_id=clip_id,
+                                scenes=scenes,
+                                original_video_path=original_path,
+                                progress_cb=lambda pct, msg, _b=base_pct, _r=range_pct, _i=idx, _tv=total_videos: (
+                                    _throttled_progress(
+                                        min(99, _b + int(pct / 100 * _r)),
+                                        f"[B {_i}/{_tv}] {msg}"
+                                    )
+                                ),
+                                should_stop=self.should_stop,
+                                is_batch=True,
+                            )
+                            total_embeddings += result.embeddings_stored
+                            
+                            # VAD-59: Structure Enrichment (Role, Mood, Style, Graph)
+                            _throttled_progress(base_pct + int(0.9 * range_pct),
+                                                f"[B {idx}/{total_videos}] '{label}' Enrichment...")
+                            from workers.enrichment import StructureEnrichmentWorker
+                            enricher = StructureEnrichmentWorker(clip_id)
+                            enricher.run()
+                            
+                            processed += 1
+                        except (RuntimeError, OSError, ValueError) as e:
+                            logging.error("VideoAnalysisPipelineWorker[%s] Phase B %d/%d '%s' crashed: %s\n%s",
+                                          clip_id, idx, total_videos, label, e, traceback.format_exc())
+                            self.progress.emit(base_pct, f"[B {idx}/{total_videos}] FEHLER: {e}")
+                            continue
+                        finally:
+                            if idx % 25 == 0:
+                                from services.task_manager import GlobalTaskManager
+                                GlobalTaskManager.instance().request_gc_signal.emit()
 
             self.finished.emit(last_clip_id, {
                 "scenes": total_scenes,
                 "embeddings": total_embeddings,
-                "videos_processed": idx if self.should_stop() else total_videos,
+                "videos_processed": processed,
             })
             _ok = True
         except Exception as e:  # broad catch intentional — top-level worker safety net
@@ -340,26 +305,13 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
             self._errored = True
             self.error.emit(last_clip_id, format_user_error(e))
         finally:
-            # RAFT + SigLIP Cleanup auch bei unerwarteten Exceptions
-            if raft_model_device is not None:
-                try:
-                    import torch
-                    raft_m, _ = raft_model_device
-                    if raft_m is not None:
-                        raft_m.cpu()
-                        del raft_m
-                    gc.collect()
-                    if torch.cuda.is_available():
-                        torch.cuda.empty_cache()
-                except (RuntimeError, AttributeError) as e:
-                    logger.warning("RAFT cleanup failed during finally block: %s", e)
-            if siglip_model_processor is not None:
-                try:
-                    from services.model_manager import ModelManager
-                    ModelManager().unload()
-                except (RuntimeError, AttributeError) as e:
-                    logger.warning("SigLIP cleanup failed during finally block: %s", e)
-            # finished MUSS immer emittiert werden damit thread.quit() greift
+            # VRAM muss vor thread.quit() freigegeben sein — sonst kann der
+            # naechste Worker ins OOM laufen.
+            try:
+                from services.model_manager import ModelManager
+                ModelManager().unload()
+            except (RuntimeError, AttributeError) as e:
+                logger.warning("[BATCH] ModelManager unload failed: %s", e)
             if not _ok:
                 self.finished.emit(last_clip_id, {})
 

@@ -113,8 +113,6 @@ jinja2                   3.1.6         BSD-3-Clause      Pallets
 joblib                   1.5.3         BSD-3-Clause      —
 julius                   0.2.7         MIT               —
 lameenc                  1.8.2         LGPL-3.0          ⚠️ LGPL — note for binary distribution
-lance-namespace          0.6.1         Apache-2.0        —
-lancedb                  0.30.0        Apache-2.0        —
 lazy-loader              0.5           BSD-3-Clause      —
 librosa                  0.11.0        ISC               —
 llvmlite                 0.46.0        BSD-2-Clause      —
@@ -175,7 +173,7 @@ Category         Packages                                    Distribution Impact
 MIT              thefuzz, rapidfuzz, SQLAlchemy, rich,       ✅ Permissive — no restrictions
                  onnxruntime, safetensors, demucs, etc.
 Apache-2.0       transformers, accelerate, huggingface-hub,  ✅ Permissive — include NOTICE file
-                 lancedb, pyarrow, scenedetect, etc.
+                 pyarrow, scenedetect, etc.
 BSD variants     torch, numpy, scipy, scikit-learn, etc.     ✅ Permissive — include attribution
 ISC              librosa, shellingham                         ✅ Permissive
 PSF-2.0          typing_extensions, greenlet (partial)       ✅ Permissive

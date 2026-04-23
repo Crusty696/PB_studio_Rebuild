@@ -77,3 +77,11 @@ bin/
 
 # Node modules (if used)
 node_modules/
+
+tests/fixtures/golden_mix/*.wav
+tests/fixtures/clips_20/*.mp4
+
+storage/backups/*
+!storage/backups/.gitkeep
+storage/enricher/*
+!storage/enricher/.gitkeep

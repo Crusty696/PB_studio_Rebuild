@@ -8,6 +8,7 @@ from database.session import (  # noqa: F401
     EngineProxy,
     engine,
     get_raw_engine,
+    nullpool_engine,
     nullpool_session,
     get_active_project_id,
     set_project,
@@ -32,6 +33,13 @@ from database.models import (  # noqa: F401
     StylePreset,
     TimelineEntry,
     AnalysisStatus,
+    StructStyleBucket,
+    StructClipTags,
+    StructCompatEdge,
+    MemPacingRun,
+    MemDecision,
+    MemLearnedPattern,
+    MemUserFeedbackEvent,
 )
 
 from database.migrations import init_db  # noqa: F401

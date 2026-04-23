@@ -6,7 +6,8 @@ REGELN:
 - Energy Reactivity moduliert die Cut-Rate basierend auf RMS-Energie.
 - Breakdown Behavior aendert das Verhalten bei niedrigem RMS.
 - Anker (OTIO Marker) werden respektiert und erzwingen bestimmte Videos.
-- LanceDB Semantic Search fuer Keyword-Matching, sonst Motion/Random.
+- Semantic Clip-Matching via SigLIP-Embeddings (services.vector_db_service),
+  sonst Motion/Random.
 
 Dieses Modul ist die oeffentliche API. Die Implementierung ist aufgeteilt in:
 - pacing_beat_grid.py  — Typen, Datenzugriff, Section-Detection
@@ -263,19 +264,12 @@ def calculate_drum_cuts(audio_id: int, total_duration: float = 60.0,
 def _make_auto_edit_engine():
     """P7-FIX: Lokale NullPool-Engine fuer auto_edit_phase3.
 
-    Der gemeinsame Pool (pool_size=10, overflow=30) wird bei parallelen
-    Workern (StemSeparator, Export, etc.) zusaetzlich belastet. Auto-Edit
-    oeffnet bis zu 4 Sessions auf 101+ Clips. Eigene NullPool-Engine pro
-    Worker-Aufruf entkoppelt den langen DB-intensiven Pfad vom UI-Pool.
+    auto_edit_phase3 oeffnet bis zu 4 Sessions ueber 101+ Clips. Eine eigene
+    NullPool-Engine pro Worker-Aufruf entkoppelt das vom UI-Connection-Pool
+    und vermeidet Pool-Exhaustion bei parallelen Workern.
     """
-    from sqlalchemy import create_engine as _create_engine
-    from sqlalchemy.pool import NullPool
-    import database.session as _session
-    return _create_engine(
-        f"sqlite:///{_session.APP_ROOT / 'pb_studio.db'}",
-        connect_args={"check_same_thread": False, "timeout": 30},
-        poolclass=NullPool,
-    )
+    from database import nullpool_engine
+    return nullpool_engine()
 
 
 def auto_edit_phase3(
@@ -614,15 +608,21 @@ def auto_edit_phase3(
         _ae_eng.dispose()
         return [], []
 
-    # F-001 Fix: Load playback_offset from database for persistence
-    clip_offsets: dict[int, float] = {}
+    # F-001 Fix: Load playback_offset. Bulk-IN-query statt N+1; fehlende
+    # (soft-deleted) Clips bekommen default 0.0.
     with Session(_ae_eng) as session:
         from database import VideoClip
-        for vid in available_ids:
-            video_clip = session.query(VideoClip).filter(
-                VideoClip.id == vid, VideoClip.deleted_at.is_(None)
-            ).first()
-            clip_offsets[vid] = video_clip.playback_offset if video_clip else 0.0
+        from services.pacing.pacing_pipeline import PacingPipeline
+
+        # P6: Initialize the new 4-stage pacing pipeline
+        pacing_pipeline = PacingPipeline()
+
+        rows = session.query(VideoClip.id, VideoClip.playback_offset).filter(
+
+            VideoClip.id.in_(available_ids), VideoClip.deleted_at.is_(None)
+        ).all()
+        offsets_by_id = {row[0]: (row[1] or 0.0) for row in rows}
+    clip_offsets: dict[int, float] = {vid: offsets_by_id.get(vid, 0.0) for vid in available_ids}
     used_recently: list[int] = []
     prev_clip_idx: int | None = None
 
@@ -708,6 +708,7 @@ def auto_edit_phase3(
                 prev_clip_idx=prev_clip_idx,
                 cross_modal_matcher=cross_modal_matcher,
                 section_progress=_seg_section_progress,
+                pipeline=pacing_pipeline,
             )
             prev_clip_idx = _clip_idx
 
@@ -795,16 +796,22 @@ def auto_edit_phase3(
         len(segments), len(cut_points), total_duration,
     )
 
-    # F-001 Fix: Save playback_offset to database for persistence
-    with Session(_ae_eng) as session:
+    # F-001 Fix: Save playback_offset. Executemany Core-UPDATE statt ORM-Fetch
+    # spart das Hydrate aller VideoClip-Spalten fuer 101+ Clips.
+    if clip_offsets:
+        from sqlalchemy import update, bindparam
         from database import VideoClip
-        for vid, offset in clip_offsets.items():
-            video_clip = session.query(VideoClip).filter(
-                VideoClip.id == vid, VideoClip.deleted_at.is_(None)
-            ).first()
-            if video_clip:
-                video_clip.playback_offset = offset
-        session.commit()
+        with _ae_eng.begin() as conn:
+            stmt = (
+                update(VideoClip)
+                .where(VideoClip.id == bindparam("_vid"))
+                .where(VideoClip.deleted_at.is_(None))
+                .values(playback_offset=bindparam("_offset"))
+            )
+            conn.execute(
+                stmt,
+                [{"_vid": vid, "_offset": off} for vid, off in clip_offsets.items()],
+            )
 
     _ae_eng.dispose()
     return segments, cut_points
