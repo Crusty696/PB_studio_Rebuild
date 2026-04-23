@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **⚠ FRÜHERER VERSUCH VERWORFEN.** Ein vorheriger Durchlauf (Commit `a3b04da` auf dem `master`-Branch, vor dem Rebuild) hat den Plan monolithisch in einem Commit implementiert und dabei schwere Fehler gemacht: Release-Gate-Tests fehlten, Wilson-Fallback war falsch (`0/0 → 0.0` statt `0.5`), der `PacingScorer` benutzte völlig andere Term-Namen als die Spec verlangt, Stage 3 (Kollisions-Check) fehlte, und der `DecisionRecorder` wurde nirgends aufgerufen. **Lies das vollständige Audit BEVOR du loslegst:** [`docs/superpowers/plans/2026-04-23-studio-brain-failed-attempt-audit.md`](./2026-04-23-studio-brain-failed-attempt-audit.md). Der alte Stand ist als Git-Tag `studio-brain-failed-attempt` konserviert — nicht mergen, nur für Referenz/Cherry-Pick. Die unten stehenden Task-Namen, Datei-Pfade, Scoring-Terme und Test-Namen sind **verbindlich**, nicht verhandelbar.
+
 **Goal:** Build an in-app "Studio Brain" for PB Studio — a knowledge + memory layer that makes the pacing agent role-, mood-, style-, and experience-aware.
 
 **Architecture:** Three strictly separated SQLite-backed layers (Structure / Memory / Agent) feeding a non-modal PySide6 `QMainWindow` with four tabs (Struktur / Gedächtnis / Audit / Steer) + on-demand Story-Map. Enrichment runs CPU-only via new `structure_enrichment` `AnalysisStatus` step. All scoring terms wired from day one; confidence gating via Wilson-Lower-Bound.
@@ -13,8 +15,9 @@
 - `docs/superpowers/research/2026-04-23-studio-brain-research.md` — research
 - `docs/superpowers/prd/2026-04-23-studio-brain-prd.md` — PRD
 - `docs/superpowers/feasibility/2026-04-23-studio-brain-feasibility.md` — Go-conditions
+- `docs/superpowers/plans/2026-04-23-studio-brain-failed-attempt-audit.md` — **what NOT to repeat**
 
-**Branch strategy:** Continue on `feature/phase6-sprint1` (current branch). No feature flag — all changes are additive (Feasibility §7 condition 10). Release gate at end of plan.
+**Branch strategy:** Work on `feature/studio-brain-rebuild` (this branch, created from the plan commit `0019e1f`). Commit per TDD task (failing test → implementation → passing test → commit). **Never** pack multiple tasks into one commit — the previous attempt's monolithic commit is the reason this rebuild exists. No feature flag — all changes are additive (Feasibility §7 condition 10). Release gate at end of plan.
 
 ---
 
