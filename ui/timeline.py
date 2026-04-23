@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QRectF, QPointF, Signal, QTimer
 from PySide6.QtGui import QPainter, QColor, QFont, QBrush, QPen, QPolygonF, QUndoStack
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session as DBSession
 
 from database import engine, AudioTrack, VideoClip, TimelineEntry, Beatgrid, ClipAnchor, StructureSegment, nullpool_session
@@ -348,6 +349,10 @@ class InteractiveTimeline(QGraphicsView):
     clip_moved = Signal(int, float)
     selection_changed = Signal(list)  # emits list of dicts with clip data
 
+    # T8.1: Feedback shortcut signal — emits event_id after a successful DB write.
+    # Connect this to MemoryUpdaterWorker.notify_feedback() in the main window.
+    feedback_event_emitted = Signal(int)
+
     # AUD-71: Keyboard shortcut signals (wired to video preview / transport in PBWindow)
     play_pause_toggled = Signal()         # Space
     stop_requested = Signal()             # Escape
@@ -435,6 +440,13 @@ class InteractiveTimeline(QGraphicsView):
         self._playhead_time: float = 0.0   # Current playhead position in seconds
         self._shuttle_speed: int = 0        # JKL shuttle: -2,-1,0,1,2
         self._clipboard: list[dict] = []    # Ctrl+C/V internal clip clipboard
+
+        # T8.1: Feedback shortcuts — active pacing run + service
+        self._active_pacing_run_id: int | None = None
+        from services.feedback_service import FeedbackService
+        self._feedback_service: FeedbackService = FeedbackService(
+            session_factory=nullpool_session
+        )
 
         # Selection changed → inspector
         self._scene.selectionChanged.connect(self._on_selection_changed)
@@ -1286,6 +1298,40 @@ class InteractiveTimeline(QGraphicsView):
                 return
             return
 
+        # T8.1: Feedback shortcuts (A/R/S/1-5) — only when a pacing run is active
+        # and exactly one TimelineClipItem is selected.
+        if self._active_pacing_run_id is not None:
+            selected = [
+                item
+                for item in self._scene.selectedItems()
+                if isinstance(item, TimelineClipItem)
+            ]
+            if len(selected) == 1:
+                clip_item = selected[0]
+                scene_id = self._resolve_scene_id(clip_item)
+                if scene_id is not None:
+                    verdict_map = {
+                        Qt.Key.Key_A: "accept",
+                        Qt.Key.Key_R: "reject",
+                        Qt.Key.Key_S: "skip",
+                    }
+                    if key in verdict_map and not shift:
+                        result = self._feedback_service.record_verdict(
+                            self._active_pacing_run_id, scene_id, verdict_map[key]
+                        )
+                        if result.success and result.event_id is not None:
+                            self.feedback_event_emitted.emit(result.event_id)
+                        return
+                    # Ratings 1-5
+                    for i in range(1, 6):
+                        if key == getattr(Qt.Key, f"Key_{i}"):
+                            result = self._feedback_service.record_rating(
+                                self._active_pacing_run_id, scene_id, i
+                            )
+                            if result.success and result.event_id is not None:
+                                self.feedback_event_emitted.emit(result.event_id)
+                            return
+
         # Play / Pause
         if sm.matches("play_pause", event):
             self.play_pause_toggled.emit()
@@ -1382,6 +1428,56 @@ class InteractiveTimeline(QGraphicsView):
     def keyReleaseEvent(self, event):
         """No special release handling needed after Space remap (AUD-71)."""
         super().keyReleaseEvent(event)
+
+    # ── T8.1: Feedback shortcut helpers ─────────────────────────────────────
+
+    def set_active_pacing_run(self, run_id: int | None) -> None:
+        """Set the pacing-run id whose decisions are represented by timeline clips.
+        Must be called after every pacing run for feedback shortcuts to work.
+        None disables the shortcuts."""
+        self._active_pacing_run_id = run_id
+
+    def set_feedback_service(self, service: "FeedbackService") -> None:  # type: ignore[name-defined]
+        """Inject a custom FeedbackService (for tests). Not used in production."""
+        self._feedback_service = service
+
+    def _resolve_scene_id(self, clip_item: "TimelineClipItem") -> int | None:
+        """Best-effort scene-id lookup for feedback routing.
+
+        TimelineClipItem.entry_id → TimelineEntry row.
+        TimelineEntry.media_id is the VideoClip.id for video-track entries.
+        We look up the most-recent mem_decision for (active_run_id, scene of
+        that video_clip_id) using the DB's own indexes.
+
+        Scene.video_clip_id is the FK column on the scenes table linking a
+        scene back to its source VideoClip (confirmed from database/models.py).
+        """
+        entry_id = getattr(clip_item, "entry_id", None)
+        if entry_id is None:
+            return None
+        try:
+            with nullpool_session() as session:
+                entry = session.get(TimelineEntry, entry_id)
+                if entry is None:
+                    return None
+                # Find the most-recent mem_decision for this run whose scene
+                # belongs to the entry's video_clip_id (= entry.media_id for
+                # video-track entries). Uses idx_mem_decision_run + idx_scene_video.
+                row = session.execute(
+                    text("""
+                        SELECT d.scene_id
+                        FROM mem_decision d
+                        JOIN scenes s ON d.scene_id = s.id
+                        WHERE d.run_id = :rid AND s.video_clip_id = :vcid
+                        ORDER BY d.sequence_idx DESC
+                        LIMIT 1
+                    """),
+                    {"rid": self._active_pacing_run_id, "vcid": entry.media_id},
+                ).fetchone()
+                return int(row[0]) if row is not None else None
+        except Exception as e:
+            logger.debug("_resolve_scene_id failed for entry=%s: %s", entry_id, e)
+            return None
 
     def set_playhead_time(self, time_sec: float):
         """Update playhead position (called by video preview position sync)."""
