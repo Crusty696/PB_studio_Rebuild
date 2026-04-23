@@ -28,6 +28,9 @@ tests/*.log
 security_scan_results.json
 security_scan_report.txt
 
+# Brainstorming visual companion session files
+.superpowers/
+
 # Vector databases and data artifacts
 data/vector/
 data/*.sqlite
