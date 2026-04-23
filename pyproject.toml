@@ -39,6 +39,10 @@ beat-this = {path = "vendor/beat_this", develop = false}
 torch = {version = ">=1.10.0", source = "pytorch", markers = "sys_platform == 'win32' or sys_platform == 'linux'"}
 torchvision = {version = ">=0.11.0", source = "pytorch", markers = "sys_platform == 'win32' or sys_platform == 'linux'"}
 torchaudio = {version = ">=0.10.0", source = "pytorch", markers = "sys_platform == 'win32' or sys_platform == 'linux'"}
+# === Studio Brain ===
+umap-learn = ">=0.5,<0.6"
+pyqtgraph = ">=0.13,<0.14"
+networkx = ">=3.0,<4.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=9.0.2,<10.0.0"
