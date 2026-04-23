@@ -1,0 +1,37 @@
+# Studio Brain — Role Classifier rules (T3.1)
+# Rules evaluated top-to-bottom; first match wins.
+
+role_rules:
+  - role: transition
+    confidence: 0.85
+    require:
+      duration_lt: 1.0
+      motion_gte: 0.6
+
+  - role: action
+    confidence: 0.80
+    require:
+      motion_gte: 0.6
+      tags_any: [crowd, stage, dance, performer, explosion, chase, sport]
+
+  - role: establishing
+    confidence: 0.85
+    require:
+      duration_gte: 3.0
+      motion_lt: 0.25
+      tags_any: [landscape, wide, cityscape, skyline, horizon, aerial]
+
+  - role: detail
+    confidence: 0.80
+    require:
+      motion_lt: 0.15
+      tags_any: [macro, texture, closeup, detail, abstract, pattern]
+
+  - role: hero
+    confidence: 0.70
+    require:
+      tags_any: [portrait, face, performer, protagonist, subject, person]
+
+fallback:
+  role: filler
+  confidence: 0.3
