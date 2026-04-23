@@ -17,12 +17,15 @@ T10.1 scope: list_scene_count().
 T10.2a extension: list_active_style_buckets, list_clips_with_tags,
 list_distinct_roles, list_distinct_moods — backing the Structure tab's
 Grid mode + filters.
+T10.2b extension: get_clip_detail — backing the Structure tab's Inspector
+panel on the right side of the grid.
 """
 
 from __future__ import annotations
 
 import functools
 import logging
+import os
 from typing import Any, Callable, Optional
 
 from sqlalchemy import text
@@ -56,6 +59,10 @@ class BrainService:
         self._list_clips_with_tags_cached = functools.lru_cache(maxsize=32)(
             self._list_clips_with_tags_uncached
         )
+        # T10.2b: clip detail (Inspector panel). Keyed by scene_id (int).
+        self.get_clip_detail = functools.lru_cache(maxsize=32)(
+            self._get_clip_detail_uncached
+        )
         # Names of attributes wrapped in lru_cache — invalidate() iterates this
         # list so new cached endpoints only need to be added in one place.
         self._cached_attrs: tuple[str, ...] = (
@@ -64,6 +71,7 @@ class BrainService:
             "list_distinct_roles",
             "list_distinct_moods",
             "_list_clips_with_tags_cached",
+            "get_clip_detail",
         )
 
     def invalidate(self) -> None:
@@ -278,5 +286,142 @@ class BrainService:
                 }
                 for r in rows
             ]
+        finally:
+            self._close_session(session, ownership)
+
+    # ── T10.2b: single-clip detail for the Inspector panel ─────────────────
+    def _get_clip_detail_uncached(self, scene_id: int) -> Optional[dict]:
+        """Return a rich detail dict for the Inspector panel, or None if the
+        scene has no struct_clip_tags row yet (i.e. not enriched).
+
+        Result dict shape:
+            scene_id                (int)
+            video_file_basename     (str | None)
+            start_time              (float)
+            end_time                (float)
+            role                    (str | None)
+            role_confidence         (float)
+            mood_refined            (str | None)
+            mood_confidence         (float)
+            style_bucket_id         (int | None)
+            style_bucket_name       (str | None)
+            style_distance          (float)
+            neighbors               (list[dict]) — up to 5, ordered by
+                                      rank_in_a ASC; each dict has
+                                      scene_id / cosine_similarity / role /
+                                      mood_refined (role/mood may be None if
+                                      the neighbor has no struct_clip_tags).
+            usage_count             (int)
+            last_run_completed_at   (str | None) — ISO timestamp of the most
+                                      recent mem_pacing_run.completed_at that
+                                      referenced this scene_id via mem_decision.
+
+        Single session, single transaction — no N+1 queries for neighbors or
+        usage.
+        """
+        sid = int(scene_id)
+        session, ownership = self._open_session()
+        try:
+            header_sql = """
+                SELECT
+                    t.scene_id            AS scene_id,
+                    t.role                AS role,
+                    t.role_confidence     AS role_confidence,
+                    t.mood_refined        AS mood_refined,
+                    t.mood_confidence     AS mood_confidence,
+                    t.style_bucket_id     AS style_bucket_id,
+                    b.name                AS style_bucket_name,
+                    t.style_distance      AS style_distance,
+                    s.start_time          AS start_time,
+                    s.end_time            AS end_time,
+                    v.file_path           AS video_file_path,
+                    COALESCE(u.usage_count, 0) AS usage_count,
+                    u.last_completed_at   AS last_completed_at
+                FROM struct_clip_tags t
+                INNER JOIN scenes s            ON s.id = t.scene_id
+                LEFT  JOIN struct_style_bucket b ON b.id = t.style_bucket_id
+                LEFT  JOIN video_clips v       ON v.id = s.video_clip_id
+                LEFT  JOIN (
+                    SELECT
+                        d.scene_id            AS scene_id,
+                        COUNT(*)              AS usage_count,
+                        MAX(r.completed_at)   AS last_completed_at
+                    FROM mem_decision d
+                    LEFT JOIN mem_pacing_run r ON r.id = d.run_id
+                    WHERE d.scene_id = :sid
+                    GROUP BY d.scene_id
+                ) u ON u.scene_id = t.scene_id
+                WHERE t.scene_id = :sid
+            """
+            header = (
+                session.execute(text(header_sql), {"sid": sid})
+                .mappings()
+                .first()
+            )
+            if header is None:
+                return None
+
+            neighbors_sql = """
+                SELECT
+                    e.scene_id_b        AS scene_id,
+                    e.cosine_similarity AS cosine_similarity,
+                    t.role              AS role,
+                    t.mood_refined      AS mood_refined
+                FROM struct_compat_edge e
+                LEFT JOIN struct_clip_tags t ON t.scene_id = e.scene_id_b
+                WHERE e.scene_id_a = :sid
+                ORDER BY e.rank_in_a ASC
+                LIMIT 5
+            """
+            neighbor_rows = (
+                session.execute(text(neighbors_sql), {"sid": sid})
+                .mappings()
+                .all()
+            )
+            neighbors = [
+                {
+                    "scene_id": int(n["scene_id"]),
+                    "cosine_similarity": float(n["cosine_similarity"] or 0.0),
+                    "role": n["role"],
+                    "mood_refined": n["mood_refined"],
+                }
+                for n in neighbor_rows
+            ]
+
+            video_path = header["video_file_path"]
+            video_basename = (
+                os.path.basename(str(video_path)) if video_path else None
+            )
+            last_completed = header["last_completed_at"]
+            if last_completed is None:
+                last_completed_str: Optional[str] = None
+            else:
+                # SQLite typically returns str; SQLAlchemy may hand back a
+                # datetime. Normalise to ISO string either way.
+                try:
+                    last_completed_str = last_completed.isoformat()
+                except AttributeError:
+                    last_completed_str = str(last_completed)
+
+            return {
+                "scene_id": int(header["scene_id"]),
+                "video_file_basename": video_basename,
+                "start_time": float(header["start_time"] or 0.0),
+                "end_time": float(header["end_time"] or 0.0),
+                "role": header["role"],
+                "role_confidence": float(header["role_confidence"] or 0.0),
+                "mood_refined": header["mood_refined"],
+                "mood_confidence": float(header["mood_confidence"] or 0.0),
+                "style_bucket_id": (
+                    int(header["style_bucket_id"])
+                    if header["style_bucket_id"] is not None
+                    else None
+                ),
+                "style_bucket_name": header["style_bucket_name"],
+                "style_distance": float(header["style_distance"] or 0.0),
+                "neighbors": neighbors,
+                "usage_count": int(header["usage_count"] or 0),
+                "last_run_completed_at": last_completed_str,
+            }
         finally:
             self._close_session(session, ownership)

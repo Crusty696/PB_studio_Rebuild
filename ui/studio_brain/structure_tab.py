@@ -14,8 +14,12 @@ T10.2a scope (this file):
   - StructureTab   (glue widget; exposes refresh / set_filters / current_cards
                     and a clipSelected(int) signal).
 
+T10.2b addition: an InspectorPanel (ui/studio_brain/inspector_panel.py) is
+placed on the right side of the grid via QHBoxLayout (grid stretch=3,
+inspector stretch=1). `clipSelected(int)` is wired to
+`InspectorPanel.populate`.
+
 Deliberately out of scope (later dispatches):
-  - Inspector panel  → T10.2b.
   - Stats panel      → T10.2c.
   - Graph mode       → T10.2d.
   - Boost/Exclude    → T10.2e.
@@ -47,6 +51,7 @@ from PySide6.QtWidgets import (
 from sqlalchemy.exc import OperationalError
 
 from services.brain_service import BrainService
+from ui.studio_brain.inspector_panel import InspectorPanel
 
 logger = logging.getLogger(__name__)
 
@@ -443,19 +448,19 @@ class _GridView(QScrollArea):
 class StructureTab(QWidget):
     """Top-level widget placed at tab index 0 of StudioBrainWindow.
 
-    Layout (T10.2a):
+    Layout (T10.2a + T10.2b):
 
         +------------------------------------------------------------+
         | [Role v] [Mood v] [Style v] [min conf] [min usage]         |  _FilterBar
-        +------------------------------------------------------------+
-        | ┌ style-bucket-A (n) ┐                                      |  _GridView
-        | │  [card][card][card][card]                                │
-        | └────────────────────┘                                      |
-        | ┌ style-bucket-B (n) ┐                                      |
-        | │  [card][card]                                             |
-        | └────────────────────┘                                      |
-        +------------------------------------------------------------+
-        | Inspector / Stats / Graph — coming in T10.2b/c/d           |  placeholder
+        +---------------------------------------+--------------------+
+        | ┌ style-bucket-A (n) ┐                |  Inspector         |  _GridView
+        | │  [card][card][card][card]           |  (scene detail,    |  + Inspector
+        | └────────────────────┘                |   neighbors,       |
+        | ┌ style-bucket-B (n) ┐                |   usage)           |
+        | │  [card][card]                        |                    |
+        | └────────────────────┘                |                    |
+        +---------------------------------------+--------------------+
+        | Stats / Graph — not implemented yet (T10.2c/d)             |  placeholder
         +------------------------------------------------------------+
     """
 
@@ -477,13 +482,26 @@ class StructureTab(QWidget):
         self._filter_bar.filtersChanged.connect(self._on_filters_changed)
         outer.addWidget(self._filter_bar)
 
+        # Grid (left, stretch=3) + Inspector panel (right, stretch=1).
+        body = QHBoxLayout()
+        body.setContentsMargins(0, 0, 0, 0)
+        body.setSpacing(6)
+
         self._grid = _GridView(self)
         self._grid.cardClicked.connect(self.clipSelected)
-        outer.addWidget(self._grid, stretch=1)
+        body.addWidget(self._grid, stretch=3)
 
-        # Placeholder for inspector/stats/graph (future sub-tasks T10.2b-d).
+        self._inspector = InspectorPanel(brain_service, parent=self)
+        # External emitters of clipSelected (not just card clicks) also
+        # populate the inspector.
+        self.clipSelected.connect(self._inspector.populate)
+        body.addWidget(self._inspector, stretch=1)
+
+        outer.addLayout(body, stretch=1)
+
+        # Placeholder for stats/graph (future sub-tasks T10.2c-d).
         self._placeholder = QLabel(
-            "Inspector / Stats / Graph — not implemented yet (T10.2b/c/d)."
+            "Stats / Graph — not implemented yet (T10.2c/d)."
         )
         self._placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._placeholder.setStyleSheet(
