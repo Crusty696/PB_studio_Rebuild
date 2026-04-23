@@ -43,8 +43,33 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
-    """Run migrations in 'online' mode — uses a live database connection."""
-    connectable = get_raw_engine()
+    """Run migrations in 'online' mode — uses a live database connection.
+
+    If ``sqlalchemy.url`` is explicitly set in the Alembic config (e.g. by a
+    test that passes a tmp-path SQLite URL), that URL is used instead of the
+    project's default engine.  This allows integration tests to run migrations
+    against a throw-away DB without touching ``pb_studio.db``.
+    """
+    url = config.get_main_option("sqlalchemy.url", None)
+    default_url = "sqlite:///pb_studio.db"
+
+    if url and url != default_url:
+        # Test (or CI) override: create a fresh engine for the given URL.
+        from sqlalchemy import create_engine as _create_engine, event as _event
+
+        connectable = _create_engine(
+            url,
+            connect_args={"check_same_thread": False},
+        )
+
+        @_event.listens_for(connectable, "connect")
+        def _set_pragmas(dbapi_conn, _rec):  # type: ignore[misc]
+            cur = dbapi_conn.cursor()
+            cur.execute("PRAGMA foreign_keys=ON")
+            cur.execute("PRAGMA journal_mode=WAL")
+            cur.close()
+    else:
+        connectable = get_raw_engine()
 
     with connectable.connect() as connection:
         context.configure(
