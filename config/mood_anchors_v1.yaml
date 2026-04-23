@@ -1,0 +1,16 @@
+# Studio Brain — Mood anchor prompt catalog v1 (T3.2)
+# Starting point from Research §Q4 (2026-04-23). If test_mood_anchor_orthogonality
+# fails, edit these prompts, re-run scripts/generate_mood_anchors.py, commit both
+# the updated YAML and the regenerated .npz as a single commit.
+
+anchors:
+  euphoric:    "laughing tears of joy, birthday surprise reaction, golden confetti shower, pure happiness overwhelming bliss"
+  melancholic: "person weeping alone at funeral, grey rainy cemetery, loss and grief, hopeless despair and longing"
+  dark:        "gothic cathedral at midnight, occult ritual, candles and skulls, black magic, demonic sinister evil"
+  aggressive:  "MMA fighter knockout blow, extreme wrestling slam, motocross crash, adrenaline sport violence impact"
+  dreamy:      "liquid mercury morphing, slow motion underwater, dreamlike double exposure portrait, hypnotic trance"
+  playful:     "children finger painting rainbows, silly cartoon faces, bouncy castle, easter egg hunt, innocent joy"
+  tense:       "two chess players in deadlock standoff, ticking bomb defuse, locked door escape room, frozen suspense"
+  calm:        "japanese tea ceremony, bonsai garden, monk meditating at dawn, incense smoke, total serenity"
+  uplifting:   "rocket launching into blue sky, national flag raised at summit, soaring bird above clouds, rise"
+  ambient:     "factory conveyor belt, circuit board macro close-up, grid pattern, mechanical repetition, no emotion"
