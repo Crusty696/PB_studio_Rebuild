@@ -77,3 +77,9 @@ bin/
 
 # Node modules (if used)
 node_modules/
+
+# Studio Brain storage dirs — ignore contents but keep placeholder
+storage/backups/*
+!storage/backups/.gitkeep
+storage/enricher/*
+!storage/enricher/.gitkeep
