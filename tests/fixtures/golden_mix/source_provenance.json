@@ -1,0 +1,10 @@
+{
+  "source_audio_path": "C:\\Users\\David Lochmann\\Music\\Crusty_Progressive Psy Set2.mp3",
+  "sha256": "5416b63c11b01ddf41bd54303abc3fe1b60b22c6f3360461749a3ee3e7250568",
+  "chosen_window": {
+    "start_sec": 327.8657596371882,
+    "end_sec": 627.8675736961451,
+    "criterion": "rms_variance"
+  },
+  "seed": 42
+}

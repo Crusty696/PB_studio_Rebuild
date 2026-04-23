@@ -83,3 +83,8 @@ storage/backups/*
 !storage/backups/.gitkeep
 storage/enricher/*
 !storage/enricher/.gitkeep
+
+# Studio Brain test fixtures — media files are regenerable via scripts/build_test_fixture.py;
+# only the selection_report.md + source_provenance.json are committed for reproducibility.
+tests/fixtures/golden_mix/*.wav
+tests/fixtures/clips_20/*.mp4
