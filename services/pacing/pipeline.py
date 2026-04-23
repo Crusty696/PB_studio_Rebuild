@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Mapping, Sequence
 
 import numpy as np
 import yaml
@@ -13,6 +13,9 @@ from services.pacing.scorer import (
     PacingScorer,
 )
 from services.pacing.variations_budget import BudgetRule, VariationsBudget
+
+if TYPE_CHECKING:
+    from services.pacing.decision_recorder import DecisionRecorder
 
 
 @dataclass
@@ -83,12 +86,23 @@ class PacingPipeline:
         dj_mix: bool = False,
         collision_min_similarity: float = 0.55,
         collision_strict: bool = False,
+        decision_recorder: "DecisionRecorder | None" = None,
+        run_id: int | None = None,
     ) -> None:
         self._scorer = scorer or PacingScorer(weights_profile="default")
         self._rules = self._load_rules(rules_path)
         self._budget = VariationsBudget(budgets=budgets, dj_mix=dj_mix)
         self._collision_min_similarity = collision_min_similarity
         self._collision_strict = collision_strict
+        self._recorder: "DecisionRecorder | None" = decision_recorder
+        self._run_id: int | None = run_id
+        self._sequence_idx: int = 0
+
+    def reset_sequence(self, run_id: int | None = None) -> None:
+        """Reset the internal sequence counter. Call between runs when reusing a pipeline."""
+        self._sequence_idx = 0
+        if run_id is not None:
+            self._run_id = run_id
 
     @staticmethod
     def _load_rules(path: str | Path) -> dict[str, Any]:
@@ -272,6 +286,28 @@ class PacingPipeline:
             "stage_results": [vars(r) for r in stage_results],
             "at_section_type": ctx.at_section_type,
         }
+
+        # === DecisionRecorder integration (Bug F fix) ===
+        # The recorder MUST be called here — not in a wrapper, not optionally in the
+        # caller — so that every select_best() call that produces a chosen clip lands
+        # a row in mem_decision.  If no recorder is injected (e.g. in tests that
+        # don't care about persistence), the guard makes this a no-op.
+        if (
+            self._recorder is not None
+            and self._run_id is not None
+            and best_clip is not None
+        ):
+            decision_id = self._recorder.record(
+                run_id=self._run_id,
+                sequence_idx=self._sequence_idx,
+                ctx=ctx,
+                chosen=best_clip,
+                rationale=rationale,
+                agent_score=best_score,
+            )
+            rationale["persisted_decision_id"] = decision_id
+            self._sequence_idx += 1
+
         return PipelineResult(chosen=best_clip, rationale=rationale)
 
     # ── Helpers ────────────────────────────────────────────────────────────
