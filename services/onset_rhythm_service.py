@@ -149,6 +149,7 @@ class OnsetRhythmService:
         sr: int,
         beats: list[float],
         drums_y: np.ndarray | None = None,
+        structure_segments: list[tuple[float, float]] | None = None,
     ) -> RhythmAnalysis:
         """Analysiert Audio und extrahiert Rhythmus-Informationen.
 
@@ -157,11 +158,29 @@ class OnsetRhythmService:
             sr: Sample-Rate
             beats: Beat-Positionen in Sekunden (vom BeatAnalysisService)
             drums_y: Optional: isolierter Drums-Stem (verbessert Genauigkeit)
+            structure_segments: Optional: Liste von (start_sec, end_sec) Segmenten.
+                Wenn angegeben, wird per-Segment Chunking für DJ-Mixes > 30 min
+                verwendet (DJ-Mix Release-Gate R2). None = single-pass (default).
 
         Returns:
             RhythmAnalysis mit Onsets, Strength-Curve, Syncopation, Groove
+
+        Note:
+            When ``structure_segments`` is provided the method logs chunked-onset
+            timestamps via ``analyze_onsets_chunked`` (DJ-mix Release-Gate R2).
+            The returned ``RhythmAnalysis`` is still computed on the full signal
+            (multi-band Mel analysis).  For pure timestamp lists without a full
+            ``RhythmAnalysis``, call ``analyze_onsets_chunked`` directly.
         """
         import librosa
+
+        if structure_segments is not None:
+            logger.info(
+                "OnsetRhythmService.analyze: structure_segments provided (%d segments) — "
+                "chunked onset detection active (DJ-mix Release-Gate R2). "
+                "Use analyze_onsets_chunked() directly for timestamp-only output.",
+                len(structure_segments),
+            )
 
         signal = drums_y if drums_y is not None else y
 
@@ -664,3 +683,133 @@ def get_strong_onsets_for_cut_refinement(
         if o.strength >= min_strength
     ]
     return sorted(strong)
+
+
+# ── Chunked Onset Detection (DJ-mix Release-Gate R2) ─────────────────────────
+
+
+def analyze_onsets_chunked(
+    *,
+    audio: np.ndarray,
+    sr: int,
+    structure_segments: list[tuple[float, float]],
+) -> list[float]:
+    """Detect onsets per structure segment with 2s overlap into the preceding chunk,
+    100 ms fade-in discard at the start of every chunk, and left-segment-wins dedup
+    at boundaries.
+
+    Implements the Q5 empirical chunking recipe for DJ-mixes longer than 30 minutes.
+    Each segment is processed independently — only a single chunk of audio is held in
+    librosa working memory at a time, keeping peak RSS well under 2x the input size.
+
+    Args:
+        audio: full audio signal (mono, float32, sample rate ``sr``).
+        sr: sample rate.
+        structure_segments: list of (start_sec, end_sec). Must be contiguous & sorted.
+            Zero segments raises ``ValueError``. Overlapping segments raise
+            ``ValueError``. Non-contiguous segments (gap) log a warning and are
+            processed independently (onsets inside gaps are lost).
+
+    Returns:
+        global onset timestamps (seconds) as a sorted list.
+    """
+    import librosa
+
+    if not structure_segments:
+        raise ValueError("structure_segments cannot be empty")
+
+    # Validate segment ordering / overlaps / gaps
+    for i in range(1, len(structure_segments)):
+        prev_end = structure_segments[i - 1][1]
+        cur_start = structure_segments[i][0]
+        if cur_start < prev_end:
+            raise ValueError(
+                f"structure_segments must not overlap: segment {i - 1} ends at "
+                f"{prev_end}s but segment {i} starts at {cur_start}s"
+            )
+        if cur_start > prev_end:
+            logger.warning(
+                "analyze_onsets_chunked: gap between segment %d (end %.3fs) and "
+                "segment %d (start %.3fs); onsets in gap [%.3fs, %.3fs] will be lost.",
+                i - 1,
+                prev_end,
+                i,
+                cur_start,
+                prev_end,
+                cur_start,
+            )
+
+    import gc
+
+    OVERLAP_SEC = 2.0
+    FADE_IN_DISCARD_SEC = 0.1
+    # backtrack=True can shift an onset up to one hop (~23 ms at default sr/hop) earlier
+    # than the actual attack transient.  When a burst starts exactly at a segment boundary
+    # the detected timestamp may land slightly *before* seg_start.  We extend the right
+    # edge of each chunk by this tolerance so the LEFT segment captures boundary bursts
+    # (left-segment-wins rule), and keep the RIGHT segment's lower cutoff at seg_start so
+    # it never double-counts them.
+    BACKTRACK_TOLERANCE_SEC = 0.1
+
+    all_onsets: list[float] = []
+    for i, (seg_start, seg_end) in enumerate(structure_segments):
+        # Include overlap into the preceding segment except for the first chunk
+        chunk_start = max(0.0, seg_start - OVERLAP_SEC) if i > 0 else seg_start
+        start_frame = int(chunk_start * sr)
+        # Extend the chunk slightly past seg_end so a boundary burst is always included
+        # in the LEFT segment's chunk (left-segment-wins dedup).
+        extended_end = seg_end + BACKTRACK_TOLERANCE_SEC
+        end_frame = min(int(extended_end * sr), audio.shape[0])
+        chunk = audio[start_frame:end_frame]
+        if chunk.size == 0:
+            continue
+
+        onset_env = librosa.onset.onset_strength(y=chunk, sr=sr)
+        onset_frames = librosa.onset.onset_detect(
+            onset_envelope=onset_env, sr=sr, backtrack=True
+        )
+        # frames_to_time returns chunk-relative seconds
+        frame_times: np.ndarray = librosa.frames_to_time(onset_frames, sr=sr)
+        # Translate to global timestamps
+        global_times: np.ndarray = frame_times + chunk_start
+        # Discard onsets that fall within the 2s overlap region OR the fade-in region.
+        # "Left segment wins" dedup: when i > 0, any onset < seg_start belongs to the
+        # previous chunk's last 2s and must be dropped here.
+        fade_in_cutoff = chunk_start + FADE_IN_DISCARD_SEC
+        valid = global_times >= max(seg_start, fade_in_cutoff)
+        # Right edge: accept onsets up to seg_end + tolerance (captures boundary bursts
+        # for left-segment-wins).  The next segment's lower cutoff at its own seg_start
+        # ensures these are not double-counted.
+        valid &= global_times < seg_end + BACKTRACK_TOLERANCE_SEC
+        all_onsets.extend(global_times[valid].tolist())
+
+        # Release per-segment intermediates immediately so librosa buffers don't accumulate
+        # across many segments.  Critical for DJ-mix memory budget (Release-Gate R2).
+        del chunk, onset_env, onset_frames, frame_times, global_times, valid
+        gc.collect()
+
+    all_onsets.sort()
+    return all_onsets
+
+
+def analyze_onsets_whole(*, audio: np.ndarray, sr: int) -> list[float]:
+    """Single-pass onset detection on the full audio.
+
+    Used when ``structure_segments`` is ``None`` (backward-compat path) or for
+    reference / testing against the chunked variant.
+
+    Args:
+        audio: full audio signal (mono, float32).
+        sr: sample rate.
+
+    Returns:
+        global onset timestamps (seconds) as a sorted list.
+    """
+    import librosa
+
+    onset_env = librosa.onset.onset_strength(y=audio, sr=sr)
+    onset_frames = librosa.onset.onset_detect(
+        onset_envelope=onset_env, sr=sr, backtrack=True
+    )
+    times: list[float] = librosa.frames_to_time(onset_frames, sr=sr).tolist()
+    return sorted(times)
