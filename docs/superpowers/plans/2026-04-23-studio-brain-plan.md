@@ -43,6 +43,7 @@ docs/studio_brain/
   README.md                      # short user-facing guide
 
 scripts/
+  build_test_fixture.py          # auto-select golden-mix segment + diverse 20 clips
   generate_mood_anchors.py
   generate_test_dj_mix.py        # synthetic 3h audio for tests
 
@@ -110,8 +111,10 @@ tests/
     test_studio_brain_window.py
     test_feedback_shortcuts.py
   fixtures/
-    clips_20/                    # anonymized 20-clip fixture set
-    golden_mix/                  # user-provided 5-min mix
+    clips_20/                    # auto-selected via scripts/build_test_fixture.py
+    golden_mix/                  # auto-cut from user's 1h DJ mix via same script
+  tools/
+    test_build_test_fixture.py   # unit tests for the fixture-builder script
 ```
 
 ### Modified files
@@ -138,23 +141,132 @@ tests/
 
 Preparation that must happen before any implementation. Two of these are **user-input dependencies** — do them first or block downstream.
 
-### T0.1 — Confirm & fetch user fixture data (user-input dependency)
+### T0.1 — Fixture-Builder-Script + run on user's real material
+
+Replaces the former "ask user to manually curate 20 clips + 5-min mix". User provides a **1h-DJ-mix WAV path** and a **clips-folder path**; the script picks the segment + the 20 clips automatically with reproducible criteria.
+
+#### T0.1a — Build `scripts/build_test_fixture.py`
 
 **Files:**
-- Create: `tests/fixtures/clips_20/README.md`
-- Create: `tests/fixtures/golden_mix/README.md`
+- Create: `scripts/build_test_fixture.py`
+- Create: `tests/tools/test_build_test_fixture.py`
 
-- [ ] **Step 1:** Ask the user to provide a 20-clip fixture set (anonymized metadata, ideally 4-6 distinct style buckets, mixed motion/mood) and a 5-minute "golden mix" WAV with the clips that produce the golden pacing outcome.
-- [ ] **Step 2:** Place both under `tests/fixtures/` and write a short README documenting provenance, license notes, and reproducibility rules.
-- [ ] **Step 3:** Commit.
+**CLI contract (frozen):**
 
-```bash
-git add tests/fixtures/clips_20/ tests/fixtures/golden_mix/
-git commit -m "test: add user-provided fixtures (20 clips + golden mix)"
+```
+python scripts/build_test_fixture.py \
+  --audio <path-to-1h-mix.wav> \
+  --clips-folder <path-to-clips-dir> \
+  --audio-length 300 \
+  --clip-count 20 \
+  --seed 42 \
+  --output-dir tests/fixtures
+  [--dry-run]
 ```
 
-**Accept:** Both directories populated; READMEs describe each fixture's purpose.
-**Blocks:** P14 Golden-Run-Snapshot, parts of P13.
+**Audio-segment-selection logic (two paths, fallback-guarded):**
+
+- **Path A (preferred) — analyzed in DB:** if the `audio_track` with `file_path = --audio` has `StructureSegment` rows, pick a consecutive sub-sequence covering `intro → drop → breakdown → outro` (or the closest structural arc) that fits within `--audio-length` seconds. Snap cut points to the nearest downbeat from `Beatgrid.downbeat_positions`.
+- **Path B (fallback) — unanalyzed:** load audio via `librosa.load(sr=22050, mono=True)` (stream-safe for 1h, RAM < 500 MB). Compute per-second RMS. Slide a `--audio-length`-wide window, pick the one with max RMS-variance (guaranteed dynamic range). Snap boundaries to `librosa.beat.beat_track`-estimated beats.
+
+**Clip-selection logic (two paths):**
+
+- **Path A (preferred) — analyzed in DB:** match clip files in `--clips-folder` by `file_path` in `video_clip` table. Load SigLIP embeddings from `vector_db_service._cache_matrix`. Run k-means (k=6, `sklearn.cluster.KMeans`, fixed `random_state=seed`). Pick `ceil(clip_count / non_empty_clusters)` clips per cluster, preferring those closest to each centroid. If after per-cluster sampling `< clip_count`, top-up with diverse leftovers by max-min-distance selection.
+- **Path B (fallback) — unanalyzed:** use `ffprobe -show_format -show_streams` to get duration + resolution per file. Compute a motion-proxy via `ffmpeg -vf "select='gt(scene,0.3)'"` decoded-frame-count divided by duration. Bucket files by `(duration_tier, motion_tier)` in a 3×3 grid, sample proportionally.
+
+**Output structure (written by the script):**
+
+```
+tests/fixtures/
+  golden_mix/
+    segment.wav                 # the ~5-min cut
+    selection_report.md         # human-readable: start_sec, end_sec, criterion, snap-beat info
+    source_provenance.json      # {source_audio_path, sha256, chosen_window, seed}
+  clips_20/
+    clip_01_<origname>.mp4      # copied (not moved) from source folder
+    clip_02_...
+    ...
+    selection_report.md         # per clip: why chosen, cluster/centroid or bucket, motion, duration
+    source_provenance.json      # {source_folder, files_chosen, seed}
+```
+
+**Determinism:** given the same `--audio`, `--clips-folder`, and `--seed`, output is byte-identical (except for the copied clip files, which are binary-identical to the sources).
+
+**Unit tests** (`tests/tools/test_build_test_fixture.py`):
+
+- [ ] **Step 1: Write failing tests:**
+
+```python
+def test_rms_variance_window_picks_dynamic_segment(tmp_path):
+    """Synthetic audio: 55 min silence + 5 min loud burst → window locates the burst."""
+    audio = make_synthetic_audio(minutes=60, loud_range=(50*60, 55*60))
+    seg = select_audio_window_by_rms(audio, sr=22050, length_sec=300)
+    assert 50*60 <= seg.start_sec <= 51*60  # landed near the burst
+
+def test_beat_snap_aligns_to_downbeat():
+    """Picked window start/end are within 50 ms of a detected beat."""
+    ...
+
+def test_kmeans_clip_selection_covers_all_clusters():
+    """Given 60 embeddings in 6 Gaussian clusters → 20-clip pick has >=3 per cluster."""
+    ...
+
+def test_fallback_heuristic_uses_duration_motion_grid():
+    """Without DB entries, 3x3 bucket sampling produces varied duration+motion."""
+    ...
+
+def test_deterministic_with_fixed_seed(tmp_path):
+    """Two runs with seed=42 produce identical selection_report.md contents."""
+    ...
+
+def test_dry_run_does_not_write_files(tmp_path):
+    """--dry-run prints the plan but creates no files in --output-dir."""
+    ...
+```
+
+- [ ] **Step 2: Run → FAIL.**
+- [ ] **Step 3: Implement** the script per the contract above. Keep audio-selection and clip-selection as two pure helper modules inside the script file (deep-module-style) so the tests can exercise them without CLI scaffolding.
+- [ ] **Step 4: Run → PASS.**
+- [ ] **Step 5: Commit.**
+
+```bash
+git add scripts/build_test_fixture.py tests/tools/test_build_test_fixture.py
+git commit -m "tools: add build_test_fixture.py for reproducible test fixtures"
+```
+
+**Accept:** all 6 unit tests green; `--dry-run` on a toy audio+folder prints a valid plan; `mypy --strict` clean on the script.
+
+#### T0.1b — Run the script on the user's real material
+
+**Files created by the run:**
+- `tests/fixtures/golden_mix/segment.wav`
+- `tests/fixtures/golden_mix/selection_report.md`
+- `tests/fixtures/golden_mix/source_provenance.json`
+- `tests/fixtures/clips_20/clip_01_*.mp4` … `clip_20_*.mp4`
+- `tests/fixtures/clips_20/selection_report.md`
+- `tests/fixtures/clips_20/source_provenance.json`
+
+- [ ] **Step 1:** Get the paths from the user (his 1h DJ mix + his clips folder).
+- [ ] **Step 2:** Run once with `--dry-run` and inspect the plan (which segment, which 20 clips, criteria). If something looks off, adjust with `--seed` or `--audio-length`.
+- [ ] **Step 3:** Run for real. Script writes into `tests/fixtures/`.
+- [ ] **Step 4:** Eyeball `selection_report.md` files — confirm the cuts make sense (e.g., audio segment actually covers an arc; clip selection is visually varied).
+- [ ] **Step 5:** Commit **only** the two `selection_report.md` + both `source_provenance.json`, NOT the media files (keep repo light). Add `tests/fixtures/golden_mix/*.wav` and `tests/fixtures/clips_20/*.mp4` to `.gitignore`. Ensure the script is re-runnable from scratch; tests that need the media check for presence and `pytest.skip` gracefully when absent (CI re-runs the script as an on-demand setup step, not per-push).
+
+```bash
+# gitignore update
+echo "tests/fixtures/golden_mix/*.wav" >> .gitignore
+echo "tests/fixtures/clips_20/*.mp4"  >> .gitignore
+
+git add tests/fixtures/golden_mix/selection_report.md \
+        tests/fixtures/golden_mix/source_provenance.json \
+        tests/fixtures/clips_20/selection_report.md \
+        tests/fixtures/clips_20/source_provenance.json \
+        .gitignore
+git commit -m "test: generate test fixtures via build_test_fixture (metadata-only)"
+```
+
+**Accept:** both `selection_report.md` exist and describe a sensible selection; running `build_test_fixture.py` with the stored seed + source paths recreates the fixture byte-identically.
+**Blocks:** P14 Golden-Run-Snapshot, `test_full_enrichment.py`.
 
 ### T0.2 — Add new dependencies (small, reversible)
 
