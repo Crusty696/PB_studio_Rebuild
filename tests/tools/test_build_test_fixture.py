@@ -271,7 +271,28 @@ def test_deterministic_with_fixed_seed(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test 6 — Dry-run does not write files
+# Test 6 — K-means determinism across calls
+# ---------------------------------------------------------------------------
+
+
+def test_kmeans_determinism_on_numpy_arrays() -> None:
+    """Two calls to select_clips_by_kmeans with identical inputs + seed return identical index lists."""
+    rng = np.random.default_rng(0)
+    embeddings = rng.standard_normal((60, 1152)).astype(np.float32)
+    result_a = select_clips_by_kmeans(
+        embeddings=embeddings, clip_count=20, seed=42, n_clusters=6
+    )
+    result_b = select_clips_by_kmeans(
+        embeddings=embeddings, clip_count=20, seed=42, n_clusters=6
+    )
+    assert (
+        result_a == result_b
+    ), "k-means selection is not deterministic across calls with same seed"
+    assert len(result_a) == 20, f"Expected 20 clips, got {len(result_a)}"
+
+
+# ---------------------------------------------------------------------------
+# Test 7 — Dry-run does not write files
 # ---------------------------------------------------------------------------
 
 

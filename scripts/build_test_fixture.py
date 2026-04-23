@@ -34,6 +34,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import logging
 import math
 import shutil
 import subprocess
@@ -43,6 +44,8 @@ from pathlib import Path
 from typing import Any, Optional
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Data structures
@@ -109,9 +112,6 @@ def select_audio_window_by_rms(
         With start/end snapped to the nearest detected beat.
     """
     import librosa  # lazy import — not required if DB path is used
-
-    hop = sr  # one sample per second for RMS computation
-    frame_len = sr
 
     # Compute per-second RMS
     n_total_sec = len(audio) // sr
@@ -302,8 +302,14 @@ def select_audio_window_from_structure(
             snap_info=snap_info,
         )
 
-    except Exception:
+    except Exception as e:
         # Any failure (missing tables, import errors, …) → fall back to Path B
+        logger.debug(
+            "Structure-path failed (%s: %s) — falling back to RMS.",
+            type(e).__name__,
+            e,
+            exc_info=True,
+        )
         return None
 
 
@@ -383,13 +389,15 @@ def select_clips_by_kmeans(
             remaining_arr = np.array(remaining, dtype=np.int64)
             rng.shuffle(remaining_arr)
             order: list[int] = [int(remaining_arr[0])]
-            remaining_set = set(remaining_arr[1:].tolist())
+            # Use a set for O(1) membership checks, but iterate a sorted list
+            # to avoid hash-randomized iteration order across interpreter sessions.
+            remaining_set: set[int] = set(remaining_arr[1:].tolist())
 
             while len(selected) + len(order) < clip_count and remaining_set:
                 sel_embs = embeddings[selected + order]
                 best_idx = -1
                 best_min_dist = -1.0
-                for idx in remaining_set:
+                for idx in sorted(remaining_set):
                     dists_to_sel = np.linalg.norm(sel_embs - embeddings[idx], axis=1)
                     min_d = float(np.min(dists_to_sel))
                     if min_d > best_min_dist:
@@ -432,7 +440,13 @@ def _probe_clip(path: Path) -> ClipInfo:
                 width = int(stream.get("width", 0))
                 height = int(stream.get("height", 0))
                 break
-    except Exception:
+    except Exception as e:
+        logger.warning(
+            "ffprobe failed for %s (%s) — using default metadata; "
+            "clip-selection diversity will degrade.",
+            path.name,
+            type(e).__name__,
+        )
         duration = 1.0
         width, height = 1920, 1080
 
@@ -485,6 +499,10 @@ def select_clips_by_heuristic(
     """
     if not clips:
         return []
+
+    # Sort clips by path to ensure bucket construction order is independent of
+    # caller's input order (fixes non-determinism when input is unsorted).
+    clips = sorted(clips, key=lambda c: str(c.path))
 
     rng = np.random.default_rng(seed)
 
@@ -685,6 +703,11 @@ def run_fixture_build(
 
     When *dry_run* is True, selection logic runs but nothing is written to disk.
     """
+    if not audio_path.exists():
+        raise FileNotFoundError(f"--audio path does not exist: {audio_path}")
+    if not clips_folder.is_dir():
+        raise NotADirectoryError(f"--clips-folder is not a directory: {clips_folder}")
+
     import librosa  # lazy import
 
     # ------------------------------------------------------------------
