@@ -21,6 +21,8 @@ T10.2b extension: get_clip_detail — backing the Structure tab's Inspector
 panel on the right side of the grid.
 T10.2c extension: structure_stats — library-level counts + mood coverage
 lacuna, backing the Structure tab's Stats panel.
+T10.2d extension: graph_nodes_and_edges — snapshot of enriched scenes +
+compat-edges for the Structure tab's Graph mode.
 """
 
 from __future__ import annotations
@@ -126,6 +128,10 @@ class BrainService:
         self.structure_stats = functools.lru_cache(maxsize=1)(
             self._structure_stats_uncached
         )
+        # T10.2d: graph snapshot (Graph mode). No arguments.
+        self.graph_nodes_and_edges = functools.lru_cache(maxsize=1)(
+            self._graph_nodes_and_edges_uncached
+        )
         # Names of attributes wrapped in lru_cache — invalidate() iterates this
         # list so new cached endpoints only need to be added in one place.
         self._cached_attrs: tuple[str, ...] = (
@@ -136,6 +142,7 @@ class BrainService:
             "_list_clips_with_tags_cached",
             "get_clip_detail",
             "structure_stats",
+            "graph_nodes_and_edges",
         )
 
     def invalidate(self) -> None:
@@ -573,6 +580,98 @@ class BrainService:
                 "mood_counts": mood_counts,
                 "active_style_buckets": active_style_buckets,
                 "missing_moods": missing_moods,
+            }
+        finally:
+            self._close_session(session, ownership)
+
+    # ── T10.2d: graph snapshot (nodes + edges) ─────────────────────────────
+    def _graph_nodes_and_edges_uncached(self) -> dict:
+        """Return a snapshot for the Graph view.
+
+        Keys:
+          nodes: list[dict]  — each has {scene_id, role, mood_refined,
+                                         style_bucket_id, style_bucket_name}.
+          edges: list[dict]  — each has {a, b, similarity}. `a` / `b` are
+                               scene_ids canonicalised to (a < b) so that
+                               reciprocal edges (a=5,b=7) and (a=7,b=5)
+                               collapse into a single record.
+          scene_count: int   — number of enriched scenes (rows in
+                               struct_clip_tags).
+
+        Only enriched scenes are returned. Edges are included only when BOTH
+        endpoints are enriched (inner join onto struct_clip_tags at the
+        aggregation layer). Sorted: nodes by scene_id ASC; edges by (a,b) ASC.
+
+        Single session, single transaction — no N+1.
+        """
+        session, ownership = self._open_session()
+        try:
+            node_rows = (
+                session.execute(
+                    text(
+                        "SELECT "
+                        "  t.scene_id        AS scene_id, "
+                        "  t.role            AS role, "
+                        "  t.mood_refined    AS mood_refined, "
+                        "  t.style_bucket_id AS style_bucket_id, "
+                        "  b.name            AS style_bucket_name "
+                        "FROM struct_clip_tags t "
+                        "LEFT JOIN struct_style_bucket b "
+                        "  ON b.id = t.style_bucket_id "
+                        "ORDER BY t.scene_id ASC"
+                    )
+                )
+                .mappings()
+                .all()
+            )
+            nodes = [
+                {
+                    "scene_id": int(r["scene_id"]),
+                    "role": r["role"],
+                    "mood_refined": r["mood_refined"],
+                    "style_bucket_id": (
+                        int(r["style_bucket_id"])
+                        if r["style_bucket_id"] is not None
+                        else None
+                    ),
+                    "style_bucket_name": r["style_bucket_name"],
+                }
+                for r in node_rows
+            ]
+            scene_count = len(nodes)
+
+            # Deduplicated edges: canonical orientation (a,b)=(min,max). We
+            # aggregate MAX(cosine_similarity) across reciprocal rows so the
+            # caller gets the best known weight; semantically both directions
+            # carry the same similarity but we don't rely on that equality.
+            # The inner join onto struct_clip_tags (aliased as ta/tb) drops
+            # edges with any non-enriched endpoint.
+            edge_sql = text(
+                "SELECT "
+                "  MIN(e.scene_id_a, e.scene_id_b) AS a, "
+                "  MAX(e.scene_id_a, e.scene_id_b) AS b, "
+                "  MAX(e.cosine_similarity)        AS similarity "
+                "FROM struct_compat_edge e "
+                "INNER JOIN struct_clip_tags ta ON ta.scene_id = e.scene_id_a "
+                "INNER JOIN struct_clip_tags tb ON tb.scene_id = e.scene_id_b "
+                "GROUP BY MIN(e.scene_id_a, e.scene_id_b), "
+                "         MAX(e.scene_id_a, e.scene_id_b) "
+                "ORDER BY a ASC, b ASC"
+            )
+            edge_rows = session.execute(edge_sql).mappings().all()
+            edges = [
+                {
+                    "a": int(r["a"]),
+                    "b": int(r["b"]),
+                    "similarity": float(r["similarity"] or 0.0),
+                }
+                for r in edge_rows
+            ]
+
+            return {
+                "nodes": nodes,
+                "edges": edges,
+                "scene_count": scene_count,
             }
         finally:
             self._close_session(session, ownership)

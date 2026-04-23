@@ -19,13 +19,13 @@ placed on the right side of the grid via QHBoxLayout (grid stretch=3,
 inspector stretch=1). `clipSelected(int)` is wired to
 `InspectorPanel.populate`.
 
-Deliberately out of scope (later dispatches):
-  - Stats panel      → T10.2c.
-  - Graph mode       → T10.2d.
-  - Boost/Exclude    → T10.2e.
+T10.2d addition: a Grid/Graph mode toggle in the filter bar swaps the left
+body between `_GridView` and `GraphView` via a `QStackedWidget`. If the
+Graph view decides to fall back (scene_count > 2000), the tab auto-switches
+back to Grid and shows a 5-second info banner.
 
-Placeholders for those are rendered as plain "Not implemented yet" QLabels to
-keep the layout informative without committing to speculative APIs.
+Deliberately out of scope (later dispatches):
+  - Boost/Exclude    → T10.2e.
 """
 
 from __future__ import annotations
@@ -45,6 +45,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QScrollArea,
     QSpinBox,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -191,9 +192,14 @@ class _FilterBar(QWidget):
 
     Emits `filtersChanged(dict)` whenever any control changes, debounced by
     150 ms so dropdown scrubbing doesn't thrash the DB.
+
+    Also hosts the Grid/Graph mode selector (T10.2d). Mode changes are
+    surfaced as the separate `viewModeChanged(str)` signal — they do not
+    trigger a grid refresh.
     """
 
     filtersChanged = Signal(dict)
+    viewModeChanged = Signal(str)
 
     def __init__(self, brain_service: BrainService, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -211,6 +217,14 @@ class _FilterBar(QWidget):
         hl = QHBoxLayout(self)
         hl.setContentsMargins(4, 4, 4, 4)
         hl.setSpacing(8)
+
+        # view mode (leftmost — T10.2d)
+        hl.addWidget(QLabel("View:"))
+        self._mode_combo = QComboBox()
+        self._mode_combo.addItem("Grid", userData="Grid")
+        self._mode_combo.addItem("Graph", userData="Graph")
+        self._mode_combo.currentIndexChanged.connect(self._on_mode_changed)
+        hl.addWidget(self._mode_combo)
 
         # role
         hl.addWidget(QLabel("Role:"))
@@ -261,6 +275,22 @@ class _FilterBar(QWidget):
         hl.addStretch()
 
     # ── public API ─────────────────────────────────────────────────────────
+    def current_mode(self) -> str:
+        return str(self._mode_combo.currentData() or "Grid")
+
+    def set_mode(self, mode: str) -> None:
+        """Programmatic setter; emits viewModeChanged exactly once."""
+        target = mode if mode in ("Grid", "Graph") else "Grid"
+        for i in range(self._mode_combo.count()):
+            if self._mode_combo.itemData(i) == target:
+                if self._mode_combo.currentIndex() == i:
+                    # No index change → no currentIndexChanged. Fire manually
+                    # so callers observe a consistent signal contract.
+                    self.viewModeChanged.emit(target)
+                else:
+                    self._mode_combo.setCurrentIndex(i)
+                return
+
     def current_filters(self) -> dict:
         return {
             "role": self._role_combo.currentData(),
@@ -305,6 +335,9 @@ class _FilterBar(QWidget):
 
     def _fire(self) -> None:
         self.filtersChanged.emit(self.current_filters())
+
+    def _on_mode_changed(self, *_args) -> None:
+        self.viewModeChanged.emit(self.current_mode())
 
     @staticmethod
     def _safe_call(fn, default):
@@ -449,21 +482,23 @@ class _GridView(QScrollArea):
 class StructureTab(QWidget):
     """Top-level widget placed at tab index 0 of StudioBrainWindow.
 
-    Layout (T10.2a + T10.2b + T10.2c):
+    Layout (T10.2a + T10.2b + T10.2c + T10.2d):
 
         +------------------------------------------------------------+
-        | [Role v] [Mood v] [Style v] [min conf] [min usage]         |  _FilterBar
+        | [View v] [Role v] [Mood v] [Style v] [min conf] [min usage]|  _FilterBar
         +---------------------------------------+--------------------+
-        | ┌ style-bucket-A (n) ┐                |  Inspector         |  _GridView
-        | │  [card][card][card][card]           |  (scene detail,    |  + right
-        | └────────────────────┘                |   neighbors,       |  column:
-        | ┌ style-bucket-B (n) ┐                |   usage)           |  Inspector
-        | │  [card][card]                        +--------------------+  on top,
-        | └────────────────────┘                |  Stats             |  Stats
-        |                                        |  (counts, lacuna)  |  below.
+        | Grid OR Graph (QStackedWidget)        |  Inspector         |  stacked
+        | ┌ style-bucket-A (n) ┐                |  (scene detail,    |  left +
+        | │  [card][card][card][card]           |   neighbors,       |  right
+        | └────────────────────┘                |   usage)           |  column.
+        | ┌ style-bucket-B (n) ┐                +--------------------+
+        | │  [card][card]                        |  Stats             |
+        | └────────────────────┘                |  (counts, lacuna)  |
         +---------------------------------------+--------------------+
-        | Graph — not implemented yet (T10.2d).                       |  placeholder
-        +------------------------------------------------------------+
+
+    When Graph mode is selected but ``GraphView.render_graph()`` returns
+    ``False`` (scene_count > 2000, Feasibility §R5), the tab flips back to
+    Grid and shows a dismissable info banner above the body.
     """
 
     clipSelected = Signal(int)  # scene_id
@@ -473,6 +508,10 @@ class StructureTab(QWidget):
         brain_service: BrainService,
         parent: Optional[QWidget] = None,
     ) -> None:
+        # Lazy import avoids a circular import at module load (GraphView
+        # reuses _bucket_color from this module).
+        from ui.studio_brain.graph_view import GraphView
+
         super().__init__(parent)
         self._svc = brain_service
 
@@ -482,17 +521,44 @@ class StructureTab(QWidget):
 
         self._filter_bar = _FilterBar(brain_service, self)
         self._filter_bar.filtersChanged.connect(self._on_filters_changed)
+        self._filter_bar.viewModeChanged.connect(self._on_view_mode_changed)
         outer.addWidget(self._filter_bar)
 
-        # Grid (left, stretch=3) + right-side column (stretch=1) with
-        # Inspector on top and Stats below (1:1 split inside the column).
+        # Fallback banner — hidden by default; visible for 5s after an
+        # auto-fallback from Graph → Grid.
+        self._fallback_banner = QLabel("")
+        self._fallback_banner.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._fallback_banner.setStyleSheet(
+            "color:#f5c97b;font-size:10px;padding:4px;"
+            "background:#2a1c0e;border:1px solid rgba(212,164,74,0.35);"
+            "border-radius:4px;"
+        )
+        self._fallback_banner.setVisible(False)
+        outer.addWidget(self._fallback_banner)
+
+        self._fallback_timer = QTimer(self)
+        self._fallback_timer.setSingleShot(True)
+        self._fallback_timer.setInterval(5000)
+        self._fallback_timer.timeout.connect(self._fallback_banner.hide)
+
+        # Body: QStackedWidget (Grid @ index 0, Graph @ index 1) on the left
+        # (stretch=3), right-side column (Inspector + Stats) on the right
+        # (stretch=1).
         body = QHBoxLayout()
         body.setContentsMargins(0, 0, 0, 0)
         body.setSpacing(6)
 
         self._grid = _GridView(self)
         self._grid.cardClicked.connect(self.clipSelected)
-        body.addWidget(self._grid, stretch=3)
+
+        self._graph = GraphView(brain_service, parent=self)
+        self._graph.clipSelected.connect(self.clipSelected)
+        self._graph.fellBackToGrid.connect(self._on_graph_fallback)
+
+        self._stack = QStackedWidget(self)
+        self._stack.addWidget(self._grid)   # index 0
+        self._stack.addWidget(self._graph)  # index 1
+        body.addWidget(self._stack, stretch=3)
 
         right_column = QWidget(self)
         right_layout = QVBoxLayout(right_column)
@@ -511,17 +577,6 @@ class StructureTab(QWidget):
         body.addWidget(right_column, stretch=1)
 
         outer.addLayout(body, stretch=1)
-
-        # Placeholder for graph mode (future sub-task T10.2d).
-        self._placeholder = QLabel(
-            "Graph — not implemented yet (T10.2d)."
-        )
-        self._placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._placeholder.setStyleSheet(
-            "color:#6b7280;font-size:10px;padding:4px;"
-            "border-top:1px solid rgba(255,255,255,0.05);"
-        )
-        outer.addWidget(self._placeholder)
 
         # Initial render.
         self.refresh()
@@ -565,6 +620,48 @@ class StructureTab(QWidget):
         """Return the row dicts currently rendered (post-filter)."""
         return self._grid.current_rows()
 
+    def current_view_mode(self) -> str:
+        """Return the currently-selected view mode: ``"Grid"`` or ``"Graph"``."""
+        return self._filter_bar.current_mode()
+
+    def set_view_mode(self, mode: str) -> None:
+        """Programmatic equivalent of flipping the View combo-box."""
+        self._filter_bar.set_mode(mode)
+
     # ── internal ───────────────────────────────────────────────────────────
     def _on_filters_changed(self, _filters: dict) -> None:
         self.refresh()
+
+    def _on_view_mode_changed(self, mode: str) -> None:
+        """Swap the stacked widget; render the graph lazily on first entry."""
+        if mode == "Graph":
+            self._stack.setCurrentIndex(1)
+            try:
+                rendered = self._graph.render_graph()
+            except OperationalError as exc:
+                logger.warning("GraphView.render_graph failed: %s", exc)
+                rendered = False
+            if not rendered:
+                # Auto-switch back; the banner is populated from the
+                # fellBackToGrid signal handler, not here, because the signal
+                # carries the precise threshold info we want to show.
+                self._stack.setCurrentIndex(0)
+                # Revert the combo (block signals to avoid re-entering this
+                # handler and double-refreshing).
+                combo = self._filter_bar._mode_combo
+                combo.blockSignals(True)
+                try:
+                    combo.setCurrentIndex(0)
+                finally:
+                    combo.blockSignals(False)
+        else:
+            self._stack.setCurrentIndex(0)
+            # Leaving Graph mode hides the fallback banner immediately.
+            self._fallback_banner.setVisible(False)
+            self._fallback_timer.stop()
+
+    def _on_graph_fallback(self, reason: str) -> None:
+        """Handler for ``GraphView.fellBackToGrid(reason)``."""
+        self._fallback_banner.setText(reason)
+        self._fallback_banner.setVisible(True)
+        self._fallback_timer.start()
