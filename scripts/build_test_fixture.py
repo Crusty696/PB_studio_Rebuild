@@ -930,6 +930,13 @@ def _build_arg_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    # Force UTF-8 stdout on Windows so report summaries with arrows/en-dashes print cleanly
+    # (cp1252 default on Windows would otherwise crash on characters like "→").
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(encoding="utf-8", errors="replace")
+
     parser = _build_arg_parser()
     args = parser.parse_args()
 
