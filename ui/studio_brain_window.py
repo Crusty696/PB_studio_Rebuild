@@ -8,10 +8,14 @@ read-out of the learning loop. It hosts four tabs:
     Audit     — decision replay, pacing runs (T11.x)
     Steer     — hand-tuning sliders and resets (T11.x)
 
-T10.1 scope: only the window shell + four empty placeholder QWidgets inside a
+T10.1 scope: window shell + four empty placeholder QWidgets inside a
 QTabWidget. The window is a process-wide singleton (`.instance()`), and the
 last size + last selected tab are persisted via QSettings under the
 ("PBStudio", "PBStudioApp") namespace.
+
+T10.2a scope: first tab (index 0, "Struktur") now hosts StructureTab,
+backed by a BrainService. The remaining three tabs stay placeholders until
+their own dispatches land.
 """
 
 from __future__ import annotations
@@ -22,6 +26,9 @@ from typing import Optional
 import shiboken6
 from PySide6.QtCore import QSettings, QSize
 from PySide6.QtWidgets import QMainWindow, QTabWidget, QWidget
+
+from services.brain_service import BrainService
+from ui.studio_brain.structure_tab import StructureTab
 
 logger = logging.getLogger(__name__)
 
@@ -34,17 +41,32 @@ _KEY_LAST_TAB = "studio_brain/last_tab"
 _DEFAULT_SIZE = QSize(1100, 720)
 
 
+def _default_brain_service() -> BrainService:
+    """Lazy wrapper around the app's main DB session — used when no explicit
+    BrainService is injected. Kept inside a function so test environments that
+    never touch the main DB don't pay the `database.session` import cost."""
+    from database import nullpool_session
+
+    return BrainService(session_factory=nullpool_session)
+
+
 class StudioBrainWindow(QMainWindow):
     """Singleton top-level window for the Studio Brain UI."""
 
     _instance: Optional["StudioBrainWindow"] = None
 
-    def __init__(self) -> None:
+    def __init__(self, brain_service: Optional[BrainService] = None) -> None:
         super().__init__()
         self.setWindowTitle("Studio Brain")
 
+        self._brain_service = brain_service if brain_service is not None else _default_brain_service()
+
         self._tabs = QTabWidget(self)
-        for label in _TAB_LABELS:
+        # Index 0 — Struktur (live StructureTab from T10.2a).
+        self._structure_tab = StructureTab(self._brain_service, self._tabs)
+        self._tabs.addTab(self._structure_tab, _TAB_LABELS[0])
+        # Indices 1..3 — still placeholders (filled by T11.x dispatches).
+        for label in _TAB_LABELS[1:]:
             placeholder = QWidget(self._tabs)
             self._tabs.addTab(placeholder, label)
         self.setCentralWidget(self._tabs)
@@ -64,6 +86,24 @@ class StudioBrainWindow(QMainWindow):
         """
         if cls._instance is None or not shiboken6.isValid(cls._instance):
             cls._instance = cls()
+        return cls._instance
+
+    @classmethod
+    def reset_for_test(
+        cls, brain_service: Optional[BrainService] = None
+    ) -> "StudioBrainWindow":
+        """Tear down any existing singleton and re-create it with the supplied
+        BrainService. Intended strictly for tests — production code should use
+        `instance()`.
+        """
+        existing = cls._instance
+        if existing is not None:
+            try:
+                existing.close()
+                existing.deleteLater()
+            except Exception:  # pragma: no cover — best-effort cleanup
+                pass
+        cls._instance = cls(brain_service=brain_service)
         return cls._instance
 
     # ── Public helpers ─────────────────────────────────────────────────────
