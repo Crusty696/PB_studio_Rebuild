@@ -1057,6 +1057,34 @@ def run_full_pipeline(
         analysis_status_service.mark_error("video", video_clip_id, "scene_db_storage", str(e))
         raise
 
+    # Studio Brain: structure enrichment after scene storage (T4.2 hookup).
+    # Enrichment (Role/Mood/StyleBucket/CompatGraph) is CPU-only, idempotent per clip,
+    # and should never block the analysis pipeline — any failure is logged and swallowed
+    # so the scene data remains available for manual re-enrichment later.
+    try:
+        from workers.structure_enrichment import StructureEnrichmentWorker
+
+        enrichment_worker = StructureEnrichmentWorker(clip_id=video_clip_id)
+        enrichment_result = enrichment_worker.run()
+        if "error" in enrichment_result:
+            logger.warning(
+                "[PIPELINE] structure_enrichment failed for clip %d: %s",
+                video_clip_id, enrichment_result["error"],
+            )
+        else:
+            logger.info(
+                "[PIPELINE] structure_enrichment done for clip %d (mode=%s, scenes=%d)",
+                video_clip_id,
+                enrichment_result.get("mode", "?"),
+                enrichment_result.get("scenes_enriched", 0),
+            )
+    except Exception as enrichment_exc:
+        # Enrichment is best-effort — never let it fail the main pipeline.
+        logger.warning(
+            "[PIPELINE] structure_enrichment raised unexpectedly for clip %d: %s",
+            video_clip_id, enrichment_exc,
+        )
+
     # VRAM-Schutz: GPU-Speicher nach Pipeline freigeben
     # Im Batch-Modus (siglip_model_processor/raft_model_device uebergeben) KEIN
     # empty_cache() — das korrumpiert den Heap wenn Modelle noch resident sind
