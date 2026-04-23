@@ -52,6 +52,7 @@ from sqlalchemy.exc import OperationalError
 
 from services.brain_service import BrainService
 from ui.studio_brain.inspector_panel import InspectorPanel
+from ui.studio_brain.stats_panel import StatsPanel
 
 logger = logging.getLogger(__name__)
 
@@ -448,19 +449,20 @@ class _GridView(QScrollArea):
 class StructureTab(QWidget):
     """Top-level widget placed at tab index 0 of StudioBrainWindow.
 
-    Layout (T10.2a + T10.2b):
+    Layout (T10.2a + T10.2b + T10.2c):
 
         +------------------------------------------------------------+
         | [Role v] [Mood v] [Style v] [min conf] [min usage]         |  _FilterBar
         +---------------------------------------+--------------------+
         | ┌ style-bucket-A (n) ┐                |  Inspector         |  _GridView
-        | │  [card][card][card][card]           |  (scene detail,    |  + Inspector
-        | └────────────────────┘                |   neighbors,       |
-        | ┌ style-bucket-B (n) ┐                |   usage)           |
-        | │  [card][card]                        |                    |
-        | └────────────────────┘                |                    |
+        | │  [card][card][card][card]           |  (scene detail,    |  + right
+        | └────────────────────┘                |   neighbors,       |  column:
+        | ┌ style-bucket-B (n) ┐                |   usage)           |  Inspector
+        | │  [card][card]                        +--------------------+  on top,
+        | └────────────────────┘                |  Stats             |  Stats
+        |                                        |  (counts, lacuna)  |  below.
         +---------------------------------------+--------------------+
-        | Stats / Graph — not implemented yet (T10.2c/d)             |  placeholder
+        | Graph — not implemented yet (T10.2d).                       |  placeholder
         +------------------------------------------------------------+
     """
 
@@ -482,7 +484,8 @@ class StructureTab(QWidget):
         self._filter_bar.filtersChanged.connect(self._on_filters_changed)
         outer.addWidget(self._filter_bar)
 
-        # Grid (left, stretch=3) + Inspector panel (right, stretch=1).
+        # Grid (left, stretch=3) + right-side column (stretch=1) with
+        # Inspector on top and Stats below (1:1 split inside the column).
         body = QHBoxLayout()
         body.setContentsMargins(0, 0, 0, 0)
         body.setSpacing(6)
@@ -491,17 +494,27 @@ class StructureTab(QWidget):
         self._grid.cardClicked.connect(self.clipSelected)
         body.addWidget(self._grid, stretch=3)
 
-        self._inspector = InspectorPanel(brain_service, parent=self)
+        right_column = QWidget(self)
+        right_layout = QVBoxLayout(right_column)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(6)
+
+        self._inspector = InspectorPanel(brain_service, parent=right_column)
         # External emitters of clipSelected (not just card clicks) also
         # populate the inspector.
         self.clipSelected.connect(self._inspector.populate)
-        body.addWidget(self._inspector, stretch=1)
+        right_layout.addWidget(self._inspector, stretch=1)
+
+        self._stats = StatsPanel(brain_service, parent=right_column)
+        right_layout.addWidget(self._stats, stretch=1)
+
+        body.addWidget(right_column, stretch=1)
 
         outer.addLayout(body, stretch=1)
 
-        # Placeholder for stats/graph (future sub-tasks T10.2c-d).
+        # Placeholder for graph mode (future sub-task T10.2d).
         self._placeholder = QLabel(
-            "Stats / Graph — not implemented yet (T10.2c/d)."
+            "Graph — not implemented yet (T10.2d)."
         )
         self._placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._placeholder.setStyleSheet(
@@ -519,7 +532,9 @@ class StructureTab(QWidget):
 
         Invalidates the BrainService per-instance lru_cache first so external
         DB mutations (e.g. a completed enrichment run) become visible without
-        requiring a new service instance.
+        requiring a new service instance. The Stats panel is also refreshed
+        so library-level counts stay in sync with background enrichment
+        progress even though the stats themselves don't depend on filters.
         """
         self._svc.invalidate()
         filters = self._filter_bar.current_filters()
@@ -530,6 +545,7 @@ class StructureTab(QWidget):
             logger.warning("StructureTab.refresh: list_clips_with_tags failed: %s", exc)
             rows = []
         self._grid.set_rows(rows)
+        self._stats.refresh()
 
     def set_filters(self, filters: dict) -> None:
         """Programmatic filter setter with PATCH semantics.

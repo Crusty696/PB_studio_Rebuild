@@ -19,6 +19,8 @@ list_distinct_roles, list_distinct_moods — backing the Structure tab's
 Grid mode + filters.
 T10.2b extension: get_clip_detail — backing the Structure tab's Inspector
 panel on the right side of the grid.
+T10.2c extension: structure_stats — library-level counts + mood coverage
+lacuna, backing the Structure tab's Stats panel.
 """
 
 from __future__ import annotations
@@ -26,11 +28,68 @@ from __future__ import annotations
 import functools
 import logging
 import os
+from pathlib import Path
 from typing import Any, Callable, Optional
 
+import yaml
 from sqlalchemy import text
 
 logger = logging.getLogger(__name__)
+
+
+# Path to the canonical mood anchor prompt catalog used by
+# services/enrichment/mood_anchor_matcher.py. The Stats panel reads the
+# label list from here to compute the "mood coverage lacuna" (moods that
+# are expected by the enrichment pipeline but have zero scenes yet).
+_MOOD_ANCHORS_YAML: Path = (
+    Path(__file__).resolve().parent.parent / "config" / "mood_anchors_v1.yaml"
+)
+
+
+@functools.lru_cache(maxsize=1)
+def _load_expected_moods() -> list[str]:
+    """Return the sorted list of expected mood labels from the anchor YAML.
+
+    The catalog at ``config/mood_anchors_v1.yaml`` has a top-level
+    ``anchors:`` mapping whose keys are the canonical mood labels:
+
+        anchors:
+          euphoric:    "..."
+          melancholic: "..."
+          ...
+
+    We extract those keys, return them alphabetically sorted (mirroring
+    MoodAnchorMatcher which sorts names for deterministic ordering), and
+    cache the result module-wide so every BrainService instance pays the
+    YAML parse exactly once.
+
+    Returns ``[]`` with a warning if the file is missing (fresh checkout
+    without the config). Re-raises any parse / structural failure — the
+    rebuild treats config errors as loud fails.
+    """
+    yaml_path = _MOOD_ANCHORS_YAML
+    if not yaml_path.exists():
+        logger.warning(
+            "mood_anchors_v1.yaml not found at %s — returning empty "
+            "expected-moods list",
+            yaml_path,
+        )
+        return []
+
+    with yaml_path.open("r", encoding="utf-8") as fh:
+        payload = yaml.safe_load(fh)
+
+    anchors = payload.get("anchors")
+    if anchors is None:
+        raise ValueError(
+            f"{yaml_path}: missing top-level 'anchors:' key"
+        )
+    if not isinstance(anchors, dict):
+        raise TypeError(
+            f"{yaml_path}: 'anchors' must be a mapping of label -> prompt"
+        )
+    labels = [str(k) for k in anchors.keys()]
+    return sorted(labels)
 
 
 class BrainService:
@@ -63,6 +122,10 @@ class BrainService:
         self.get_clip_detail = functools.lru_cache(maxsize=32)(
             self._get_clip_detail_uncached
         )
+        # T10.2c: library-level stats (Stats panel). No arguments.
+        self.structure_stats = functools.lru_cache(maxsize=1)(
+            self._structure_stats_uncached
+        )
         # Names of attributes wrapped in lru_cache — invalidate() iterates this
         # list so new cached endpoints only need to be added in one place.
         self._cached_attrs: tuple[str, ...] = (
@@ -72,6 +135,7 @@ class BrainService:
             "list_distinct_moods",
             "_list_clips_with_tags_cached",
             "get_clip_detail",
+            "structure_stats",
         )
 
     def invalidate(self) -> None:
@@ -422,6 +486,93 @@ class BrainService:
                 "neighbors": neighbors,
                 "usage_count": int(header["usage_count"] or 0),
                 "last_run_completed_at": last_completed_str,
+            }
+        finally:
+            self._close_session(session, ownership)
+
+    # ── T10.2c: library-level structure stats ──────────────────────────────
+    def _structure_stats_uncached(self) -> dict:
+        """Return a library-wide health snapshot for the Stats panel.
+
+        Keys:
+          total_scenes            int   — rows in `scenes`.
+          enriched_scenes         int   — rows in `struct_clip_tags`.
+          coverage_fraction       float — enriched / total, 0.0 if total==0.
+          role_counts             list[tuple[str, int]] — sorted count DESC,
+                                    then label ASC for determinism.
+          mood_counts             list[tuple[str, int]] — same ordering rule.
+          active_style_buckets    int   — buckets with active=1.
+          missing_moods           list[str] — expected mood labels (from
+                                    ``config/mood_anchors_v1.yaml``) that
+                                    have zero scenes in `struct_clip_tags`.
+                                    Sorted alphabetically.
+
+        All reads share a single session. No N+1.
+        """
+        session, ownership = self._open_session()
+        try:
+            total_scenes = int(
+                session.execute(text("SELECT COUNT(*) FROM scenes")).scalar()
+                or 0
+            )
+            enriched_scenes = int(
+                session.execute(
+                    text("SELECT COUNT(*) FROM struct_clip_tags")
+                ).scalar()
+                or 0
+            )
+            coverage_fraction = (
+                enriched_scenes / total_scenes if total_scenes > 0 else 0.0
+            )
+
+            role_rows = session.execute(
+                text(
+                    "SELECT role, COUNT(*) AS n FROM struct_clip_tags "
+                    "WHERE role IS NOT NULL "
+                    "GROUP BY role "
+                    "ORDER BY n DESC, role ASC"
+                )
+            ).all()
+            role_counts: list[tuple[str, int]] = [
+                (str(r[0]), int(r[1])) for r in role_rows
+            ]
+
+            mood_rows = session.execute(
+                text(
+                    "SELECT mood_refined, COUNT(*) AS n FROM struct_clip_tags "
+                    "WHERE mood_refined IS NOT NULL "
+                    "GROUP BY mood_refined "
+                    "ORDER BY n DESC, mood_refined ASC"
+                )
+            ).all()
+            mood_counts: list[tuple[str, int]] = [
+                (str(r[0]), int(r[1])) for r in mood_rows
+            ]
+
+            active_style_buckets = int(
+                session.execute(
+                    text(
+                        "SELECT COUNT(*) FROM struct_style_bucket "
+                        "WHERE active = 1"
+                    )
+                ).scalar()
+                or 0
+            )
+
+            used_moods = {label for label, _ in mood_counts}
+            expected = _load_expected_moods()
+            missing_moods: list[str] = sorted(
+                label for label in expected if label not in used_moods
+            )
+
+            return {
+                "total_scenes": total_scenes,
+                "enriched_scenes": enriched_scenes,
+                "coverage_fraction": float(coverage_fraction),
+                "role_counts": role_counts,
+                "mood_counts": mood_counts,
+                "active_style_buckets": active_style_buckets,
+                "missing_moods": missing_moods,
             }
         finally:
             self._close_session(session, ownership)
