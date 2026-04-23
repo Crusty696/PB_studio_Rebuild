@@ -30,6 +30,7 @@ VIDEO_STEPS = [
     "vector_db_storage",     # Embedding-Speicherung
     "ai_scene_caption",      # Gemma Vision Captioning
     "scene_db_storage",      # Scene-Daten in DB
+    "structure_enrichment",  # Studio-Brain: Role/Mood/StyleBucket/CompatEdges (T1.3)
 ]
 
 AUDIO_STEPS = [
