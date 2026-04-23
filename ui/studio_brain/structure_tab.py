@@ -24,8 +24,13 @@ body between `_GridView` and `GraphView` via a `QStackedWidget`. If the
 Graph view decides to fall back (scene_count > 2000), the tab auto-switches
 back to Grid and shows a 5-second info banner.
 
-Deliberately out of scope (later dispatches):
-  - Boost/Exclude    → T10.2e.
+T10.2e addition: Boost / Exclude selection actions. The tab holds a
+``SteerOverrideQueue`` (process-wide singleton by default; injectable for
+tests) and offers three affordances to push overrides:
+    - a toolbar row next to the Inspector with two QPushButtons,
+    - a context menu on each grid card,
+    - a context menu on the graph-view (triggered via ``contextRequested``).
+A small "<n> pending overrides" status label updates as the queue changes.
 """
 
 from __future__ import annotations
@@ -33,8 +38,8 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from PySide6.QtCore import QRect, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QFont, QPainter, QPixmap
+from PySide6.QtCore import QPoint, QRect, Qt, QTimer, Signal
+from PySide6.QtGui import QAction, QColor, QFont, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
@@ -43,6 +48,8 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QMenu,
+    QPushButton,
     QScrollArea,
     QSpinBox,
     QStackedWidget,
@@ -52,6 +59,12 @@ from PySide6.QtWidgets import (
 from sqlalchemy.exc import OperationalError
 
 from services.brain_service import BrainService
+from services.steer_override_queue import (
+    SteerOverrideQueue,
+    get_default_queue,
+)
+from ui.studio_brain._palette import bucket_color
+from ui.studio_brain.graph_view import GraphView
 from ui.studio_brain.inspector_panel import InspectorPanel
 from ui.studio_brain.stats_panel import StatsPanel
 
@@ -68,18 +81,6 @@ _GRID_GAP = 6
 # ── Visual helpers ────────────────────────────────────────────────────────────
 
 
-def _bucket_color(bucket_id: Optional[int]) -> QColor:
-    """Deterministic pastel colour per bucket (used for placeholder thumbs)."""
-    palette = [
-        "#3b4252", "#4c566a", "#5e81ac", "#81a1c1",
-        "#88c0d0", "#8fbcbb", "#a3be8c", "#b48ead",
-        "#d08770", "#bf616a", "#ebcb8b",
-    ]
-    if bucket_id is None:
-        return QColor("#2e3440")
-    return QColor(palette[int(bucket_id) % len(palette)])
-
-
 def _placeholder_thumb(scene_id: int, bucket_id: Optional[int]) -> QPixmap:
     """Flat-coloured QPixmap with the scene_id drawn in it — no ffmpeg.
 
@@ -89,7 +90,7 @@ def _placeholder_thumb(scene_id: int, bucket_id: Optional[int]) -> QPixmap:
     w = _CARD_W - 8
     h = _THUMB_H
     pix = QPixmap(w, h)
-    pix.fill(_bucket_color(bucket_id))
+    pix.fill(bucket_color(bucket_id))
     p = QPainter(pix)
     try:
         p.setPen(QColor("#e5e7eb"))
@@ -112,9 +113,14 @@ class _ClipCard(QFrame):
 
     Emits `clicked(scene_id)` on left mouse press. The outer StructureTab
     re-exposes this as its public `clipSelected(int)` signal.
+
+    Right-click on the card emits ``contextRequested(scene_id, QPoint)``
+    where the QPoint is in screen coordinates. StructureTab wires this to
+    ``_show_grid_context_menu`` which pops up a boost/exclude QMenu (T10.2e).
     """
 
     clicked = Signal(int)
+    contextRequested = Signal(int, QPoint)
 
     def __init__(self, row: dict, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -173,7 +179,32 @@ class _ClipCard(QFrame):
     def mousePressEvent(self, event) -> None:  # noqa: N802 — Qt override
         if event.button() == Qt.MouseButton.LeftButton:
             self.clicked.emit(self._scene_id)
+        elif event.button() == Qt.MouseButton.RightButton:
+            # Carry the global (screen) position so the outer tab can pop
+            # the QMenu at the cursor — QWidget.mapToGlobal converts from
+            # widget-local pos to the screen coordinate the menu wants.
+            global_pos = self.mapToGlobal(event.position().toPoint())
+            self.contextRequested.emit(self._scene_id, global_pos)
+            event.accept()
+            return
         super().mousePressEvent(event)
+
+    def _build_context_menu(self, parent: Optional[QWidget] = None) -> QMenu:
+        """Return a fresh QMenu carrying "Boost" / "Exclude" QActions.
+
+        Kept on the card rather than the tab so tests can exercise the
+        menu contract without standing up a full StructureTab. The outer
+        tab calls this and then wires each action's ``triggered`` signal
+        before exec'ing the menu.
+        """
+        menu = QMenu(parent or self)
+        boost = QAction("Boost in next run", menu)
+        boost.setData(("boost", self._scene_id))
+        menu.addAction(boost)
+        exclude = QAction("Exclude in next run", menu)
+        exclude.setData(("exclude", self._scene_id))
+        menu.addAction(exclude)
+        return menu
 
 
 # ── Filter bar ────────────────────────────────────────────────────────────────
@@ -367,6 +398,11 @@ class _GridView(QScrollArea):
     """
 
     cardClicked = Signal(int)  # scene_id
+    cardContextRequested = Signal(int, QPoint)  # scene_id, global pos
+    # Fires after every rebuild (including empty). Consumers that track a
+    # "currently selected" scene_id use this to re-check whether the
+    # selection is still present in the freshly-rendered rows.
+    rowsChanged = Signal()
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -404,12 +440,17 @@ class _GridView(QScrollArea):
         return [dict(r) for r in self._rows]
 
     def set_rows(self, rows: list[dict], cols: int = 4) -> None:
-        """Replace the current grid with a freshly-built one."""
+        """Replace the current grid with a freshly-built one.
+
+        Emits ``rowsChanged`` after the rebuild so consumers tracking a
+        selection can re-validate it against the new row set.
+        """
         self._clear()
         self._rows = [dict(r) for r in rows]
 
         if not rows:
             self._empty_label.setVisible(True)
+            self.rowsChanged.emit()
             return
         self._empty_label.setVisible(False)
 
@@ -437,11 +478,14 @@ class _GridView(QScrollArea):
                 r, c = divmod(i, cols)
                 card = _ClipCard(row, box)
                 card.clicked.connect(self.cardClicked)
+                card.contextRequested.connect(self.cardContextRequested)
                 gl.addWidget(card, r, c)
                 self._cards.append(card)
 
             self._outer.insertWidget(insert_idx, box)
             insert_idx += 1
+
+        self.rowsChanged.emit()
 
     # ── internal ───────────────────────────────────────────────────────────
     @staticmethod
@@ -507,13 +551,17 @@ class StructureTab(QWidget):
         self,
         brain_service: BrainService,
         parent: Optional[QWidget] = None,
+        override_queue: Optional[SteerOverrideQueue] = None,
     ) -> None:
-        # Lazy import avoids a circular import at module load (GraphView
-        # reuses _bucket_color from this module).
-        from ui.studio_brain.graph_view import GraphView
-
         super().__init__(parent)
         self._svc = brain_service
+        # Default → process-wide singleton; tests inject their own.
+        self._override_queue: SteerOverrideQueue = (
+            override_queue if override_queue is not None else get_default_queue()
+        )
+        # Tracks the most recently selected scene so the inspector's toolbar
+        # buttons know which clip to push when the user clicks them.
+        self._last_selected_scene_id: Optional[int] = None
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(6, 6, 6, 6)
@@ -550,10 +598,20 @@ class StructureTab(QWidget):
 
         self._grid = _GridView(self)
         self._grid.cardClicked.connect(self.clipSelected)
+        self._grid.cardContextRequested.connect(
+            lambda sid, pos: self._show_context_menu(sid, pos, source="structure")
+        )
+        # Re-validate the stashed selection whenever the row set changes so
+        # Inspector toolbar buttons don't stay armed for a scene that's no
+        # longer visible (filter change, future graph-mode toggle, etc.).
+        self._grid.rowsChanged.connect(self._revalidate_selection)
 
         self._graph = GraphView(brain_service, parent=self)
         self._graph.clipSelected.connect(self.clipSelected)
         self._graph.fellBackToGrid.connect(self._on_graph_fallback)
+        self._graph.contextRequested.connect(
+            lambda sid, pos: self._show_context_menu(sid, pos, source="graph")
+        )
 
         self._stack = QStackedWidget(self)
         self._stack.addWidget(self._grid)   # index 0
@@ -565,14 +623,51 @@ class StructureTab(QWidget):
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(6)
 
+        # Inspector + boost/exclude toolbar (T10.2e): the toolbar sits above
+        # the inspector so the buttons are always visible next to the
+        # per-scene detail they act on.
+        toolbar_row = QHBoxLayout()
+        toolbar_row.setContentsMargins(0, 0, 0, 0)
+        toolbar_row.setSpacing(4)
+        self._boost_btn = QPushButton("⤴ Boost in next run", right_column)
+        self._boost_btn.setEnabled(False)
+        self._boost_btn.clicked.connect(
+            lambda: self._push_override_from_inspector("boost")
+        )
+        toolbar_row.addWidget(self._boost_btn)
+        self._exclude_btn = QPushButton("⊗ Exclude in next run", right_column)
+        self._exclude_btn.setEnabled(False)
+        self._exclude_btn.clicked.connect(
+            lambda: self._push_override_from_inspector("exclude")
+        )
+        toolbar_row.addWidget(self._exclude_btn)
+        toolbar_row.addStretch()
+        right_layout.addLayout(toolbar_row)
+
         self._inspector = InspectorPanel(brain_service, parent=right_column)
         # External emitters of clipSelected (not just card clicks) also
         # populate the inspector.
         self.clipSelected.connect(self._inspector.populate)
+        self.clipSelected.connect(self._on_clip_selected)
         right_layout.addWidget(self._inspector, stretch=1)
 
         self._stats = StatsPanel(brain_service, parent=right_column)
         right_layout.addWidget(self._stats, stretch=1)
+
+        # Pending overrides status label (T10.2e): tiny affordance telling
+        # the user their action was queued. Steer tab (T11.3) will drain.
+        self._pending_label = QLabel("", right_column)
+        self._pending_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._pending_label.setStyleSheet(
+            "color:#d4a44a;font-size:10px;padding:4px;"
+            "background:#1a2030;border:1px solid rgba(212,164,74,0.25);"
+            "border-radius:4px;"
+        )
+        self._pending_label.setVisible(False)
+        right_layout.addWidget(self._pending_label)
+
+        self._override_queue.pendingChanged.connect(self._refresh_pending_label)
+        self._refresh_pending_label()
 
         body.addWidget(right_column, stretch=1)
 
@@ -628,6 +723,11 @@ class StructureTab(QWidget):
         """Programmatic equivalent of flipping the View combo-box."""
         self._filter_bar.set_mode(mode)
 
+    def override_queue(self) -> SteerOverrideQueue:
+        """Return the override queue this tab writes into (T10.2e). The
+        future Steer tab (T11.3) will read from the same instance."""
+        return self._override_queue
+
     # ── internal ───────────────────────────────────────────────────────────
     def _on_filters_changed(self, _filters: dict) -> None:
         self.refresh()
@@ -665,3 +765,105 @@ class StructureTab(QWidget):
         self._fallback_banner.setText(reason)
         self._fallback_banner.setVisible(True)
         self._fallback_timer.start()
+
+    # ── Override-queue plumbing (T10.2e) ───────────────────────────────────
+    def _on_clip_selected(self, scene_id: int) -> None:
+        """Stash the selected scene_id and enable the toolbar buttons."""
+        try:
+            sid = int(scene_id)
+        except (TypeError, ValueError):
+            return
+        self._last_selected_scene_id = sid
+        self._boost_btn.setEnabled(True)
+        self._exclude_btn.setEnabled(True)
+
+    def _push_override_from_inspector(self, action: str) -> None:
+        """Inspector-toolbar button handler — pushes to queue with
+        source="inspector". No-op if no clip is selected."""
+        sid = self._last_selected_scene_id
+        if sid is None:
+            return
+        self._queue_override(sid, action, source="inspector")
+
+    def _queue_override(self, scene_id: int, action: str, *, source: str) -> None:
+        """Single choke-point for every code path that queues an override.
+
+        All entry points (inspector toolbar, grid-card context menu,
+        graph-view context menu) funnel through here so the
+        ``(scene_id, action, source)`` triple can be asserted identically
+        in tests regardless of whether the path originates from a blocking
+        ``QMenu.exec`` call or a direct button click.
+        """
+        self._override_queue.add(int(scene_id), action, source=source)  # type: ignore[arg-type]
+
+    def _build_override_menu(self, scene_id: int, *, source: str) -> QMenu:
+        """Construct the boost/exclude QMenu for a given ``scene_id``.
+
+        Split out from ``_show_context_menu`` so headless tests can trigger
+        the QActions directly (via ``action.trigger()``) without calling
+        the blocking ``QMenu.exec`` path. Each action routes through
+        ``_queue_override`` so production and tests share one choke-point.
+        """
+        menu = QMenu(self)
+        boost_action = QAction("Boost in next run", menu)
+        boost_action.triggered.connect(
+            lambda _checked=False, sid=scene_id: self._queue_override(
+                sid, "boost", source=source
+            )
+        )
+        menu.addAction(boost_action)
+        exclude_action = QAction("Exclude in next run", menu)
+        exclude_action.triggered.connect(
+            lambda _checked=False, sid=scene_id: self._queue_override(
+                sid, "exclude", source=source
+            )
+        )
+        menu.addAction(exclude_action)
+        return menu
+
+    def _show_context_menu(
+        self, scene_id: int, global_pos: QPoint, *, source: str
+    ) -> None:
+        """Pop up the boost/exclude QMenu for a right-clicked card / node.
+
+        ``source`` is ``"structure"`` for grid cards and ``"graph"`` for
+        graph-view nodes — recorded on the resulting ``PendingOverride`` for
+        audit.
+        """
+        menu = self._build_override_menu(scene_id, source=source)
+        menu.exec(global_pos)
+
+    def _revalidate_selection(self) -> None:
+        """Re-check whether ``_last_selected_scene_id`` is still visible.
+
+        Called whenever the grid rebuilds (``_GridView.rowsChanged``). If
+        the previously-selected scene is no longer in the current rows,
+        the Inspector toolbar buttons re-disable, the Inspector panel is
+        cleared, and ``_last_selected_scene_id`` resets to ``None`` — so
+        the user can never queue an override for a scene the UI isn't
+        actually showing.
+        """
+        sid = self._last_selected_scene_id
+        if sid is None:
+            # Nothing to revalidate; buttons are already disabled.
+            return
+        visible = {int(r["scene_id"]) for r in self._grid.current_rows()}
+        if sid in visible:
+            return
+        # Drop the selection.
+        self._last_selected_scene_id = None
+        self._boost_btn.setEnabled(False)
+        self._exclude_btn.setEnabled(False)
+        self._inspector.clear()
+
+    def _refresh_pending_label(self) -> None:
+        """Update the right-column pending-overrides status label."""
+        count = self._override_queue.count()
+        if count <= 0:
+            self._pending_label.setVisible(False)
+            self._pending_label.setText("")
+            return
+        self._pending_label.setText(
+            f"{count} pending overrides — Steer tab to apply"
+        )
+        self._pending_label.setVisible(True)

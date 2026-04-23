@@ -22,12 +22,11 @@ Design choices
 
 from __future__ import annotations
 
-import copy
 import logging
 from typing import Optional
 
 import networkx as nx
-from PySide6.QtCore import QRectF, Qt, Signal
+from PySide6.QtCore import QPoint, QRectF, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QPainter, QPen
 from PySide6.QtWidgets import (
     QGraphicsEllipseItem,
@@ -38,7 +37,7 @@ from PySide6.QtWidgets import (
 )
 
 from services.brain_service import BrainService
-from ui.studio_brain.structure_tab import _bucket_color
+from ui.studio_brain._palette import bucket_color
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +84,7 @@ class _NodeItem(QGraphicsEllipseItem):
         self._base_pen = QPen(QColor("#1f2530"), 1.0)
         self._highlight_pen = QPen(QColor("#d4a44a"), 2.5)
         self.setPen(self._base_pen)
-        self.setBrush(QBrush(_bucket_color(bucket_id)))
+        self.setBrush(QBrush(bucket_color(bucket_id)))
         self.setAcceptHoverEvents(False)
         self.setFlag(QGraphicsEllipseItem.GraphicsItemFlag.ItemIsSelectable, False)
 
@@ -110,6 +109,9 @@ class GraphView(QGraphicsView):
 
     clipSelected = Signal(int)
     fellBackToGrid = Signal(str)
+    # Right-click on a node → (scene_id, global QPoint for the menu).
+    # StructureTab listens and pops up the boost/exclude QMenu (T10.2e).
+    contextRequested = Signal(int, QPoint)
 
     def __init__(
         self,
@@ -207,6 +209,13 @@ class GraphView(QGraphicsView):
         ``mousePressEvent`` path emits, so tests exercise the same contract.
         """
         self.clipSelected.emit(int(scene_id))
+
+    def _emit_context_for_scene(self, scene_id: int, global_pos: QPoint) -> None:
+        """Test-only hook: synthesise a right-click context request without
+        an actual mouse event. Goes through the same ``contextRequested``
+        signal the real ``mousePressEvent`` path emits (T10.2e).
+        """
+        self.contextRequested.emit(int(scene_id), global_pos)
 
     # ── layout + scene construction ───────────────────────────────────────────
     @staticmethod
@@ -316,6 +325,15 @@ class GraphView(QGraphicsView):
                 self.clipSelected.emit(node.scene_id)
                 event.accept()
                 return
+        elif event.button() == Qt.MouseButton.RightButton:
+            scene_pos = self.mapToScene(event.position().toPoint())
+            item = self._scene.itemAt(scene_pos, self.transform())
+            node = self._resolve_node_item(item)
+            if node is not None:
+                global_pos = self.mapToGlobal(event.position().toPoint())
+                self.contextRequested.emit(node.scene_id, global_pos)
+                event.accept()
+                return
         super().mousePressEvent(event)
 
     def wheelEvent(self, event) -> None:  # noqa: N802 — Qt override
@@ -343,12 +361,3 @@ __all__ = [
     "_GRAPH_FALLBACK_THRESHOLD",
     "_WORLD_SCALE",
 ]
-
-
-def _copy_positions_for_test(
-    positions: dict[int, tuple[float, float]]
-) -> dict[int, tuple[float, float]]:
-    """Deep-copy helper exposed to tests so they can compare snapshots
-    across renders without the live dict being mutated under them.
-    """
-    return copy.deepcopy(positions)

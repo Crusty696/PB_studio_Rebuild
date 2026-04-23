@@ -28,6 +28,10 @@ from PySide6.QtCore import QSettings, QSize
 from PySide6.QtWidgets import QMainWindow, QTabWidget, QWidget
 
 from services.brain_service import BrainService
+from services.steer_override_queue import (
+    SteerOverrideQueue,
+    get_default_queue,
+)
 from ui.studio_brain.structure_tab import StructureTab
 
 logger = logging.getLogger(__name__)
@@ -55,15 +59,29 @@ class StudioBrainWindow(QMainWindow):
 
     _instance: Optional["StudioBrainWindow"] = None
 
-    def __init__(self, brain_service: Optional[BrainService] = None) -> None:
+    def __init__(
+        self,
+        brain_service: Optional[BrainService] = None,
+        override_queue: Optional[SteerOverrideQueue] = None,
+    ) -> None:
         super().__init__()
         self.setWindowTitle("Studio Brain")
 
         self._brain_service = brain_service if brain_service is not None else _default_brain_service()
+        # Process-wide singleton by default; tests may inject a fresh queue.
+        # Both the current Structure tab and the future Steer tab (T11.3)
+        # read/write this shared instance.
+        self._override_queue: SteerOverrideQueue = (
+            override_queue if override_queue is not None else get_default_queue()
+        )
 
         self._tabs = QTabWidget(self)
         # Index 0 — Struktur (live StructureTab from T10.2a).
-        self._structure_tab = StructureTab(self._brain_service, self._tabs)
+        self._structure_tab = StructureTab(
+            self._brain_service,
+            self._tabs,
+            override_queue=self._override_queue,
+        )
         self._tabs.addTab(self._structure_tab, _TAB_LABELS[0])
         # Indices 1..3 — still placeholders (filled by T11.x dispatches).
         for label in _TAB_LABELS[1:]:
@@ -90,11 +108,13 @@ class StudioBrainWindow(QMainWindow):
 
     @classmethod
     def reset_for_test(
-        cls, brain_service: Optional[BrainService] = None
+        cls,
+        brain_service: Optional[BrainService] = None,
+        override_queue: Optional[SteerOverrideQueue] = None,
     ) -> "StudioBrainWindow":
         """Tear down any existing singleton and re-create it with the supplied
-        BrainService. Intended strictly for tests — production code should use
-        `instance()`.
+        BrainService / override-queue. Intended strictly for tests —
+        production code should use `instance()`.
         """
         existing = cls._instance
         if existing is not None:
@@ -103,7 +123,9 @@ class StudioBrainWindow(QMainWindow):
                 existing.deleteLater()
             except Exception:  # pragma: no cover — best-effort cleanup
                 pass
-        cls._instance = cls(brain_service=brain_service)
+        cls._instance = cls(
+            brain_service=brain_service, override_queue=override_queue
+        )
         return cls._instance
 
     # ── Public helpers ─────────────────────────────────────────────────────
