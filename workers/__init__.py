@@ -35,7 +35,7 @@ _WORKER_MODULES = {
 __all__ = list(_WORKER_MODULES.keys())
 
 
-def __getattr__(name):
+def __getattr__(name: str) -> object:
     if name in _WORKER_MODULES:
         import importlib
         module = importlib.import_module(_WORKER_MODULES[name], __package__)
