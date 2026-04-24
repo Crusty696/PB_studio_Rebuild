@@ -23,11 +23,16 @@ T10.2c extension: structure_stats — library-level counts + mood coverage
 lacuna, backing the Structure tab's Stats panel.
 T10.2d extension: graph_nodes_and_edges — snapshot of enriched scenes +
 compat-edges for the Structure tab's Graph mode.
+
+T11.1 extension: list_pacing_runs, list_learned_patterns,
+list_decisions_for_pattern, list_distinct_pattern_types — backing the
+Memory tab's run-timeline + pattern table + drill-down.
 """
 
 from __future__ import annotations
 
 import functools
+import json
 import logging
 import os
 from pathlib import Path
@@ -132,6 +137,21 @@ class BrainService:
         self.graph_nodes_and_edges = functools.lru_cache(maxsize=1)(
             self._graph_nodes_and_edges_uncached
         )
+        # T11.1: Memory tab read-views.
+        self.list_pacing_runs = functools.lru_cache(maxsize=1)(
+            self._list_pacing_runs_uncached
+        )
+        self.list_distinct_pattern_types = functools.lru_cache(maxsize=1)(
+            self._list_distinct_pattern_types_uncached
+        )
+        # list_learned_patterns takes kwargs (type + min_confidence).
+        self._list_learned_patterns_cached = functools.lru_cache(maxsize=32)(
+            self._list_learned_patterns_uncached
+        )
+        # list_decisions_for_pattern is keyed on (pattern_id, limit).
+        self.list_decisions_for_pattern = functools.lru_cache(maxsize=32)(
+            self._list_decisions_for_pattern_uncached
+        )
         # Names of attributes wrapped in lru_cache — invalidate() iterates this
         # list so new cached endpoints only need to be added in one place.
         self._cached_attrs: tuple[str, ...] = (
@@ -143,6 +163,10 @@ class BrainService:
             "get_clip_detail",
             "structure_stats",
             "graph_nodes_and_edges",
+            "list_pacing_runs",
+            "list_distinct_pattern_types",
+            "_list_learned_patterns_cached",
+            "list_decisions_for_pattern",
         )
 
     def invalidate(self) -> None:
@@ -675,3 +699,290 @@ class BrainService:
             }
         finally:
             self._close_session(session, ownership)
+
+    # ── T11.1: Memory tab reads ───────────────────────────────────────────
+    def _list_pacing_runs_uncached(self) -> list[dict]:
+        """Return pacing runs newest-first with a LEFT-JOIN on audio_tracks.
+
+        Each dict has keys: id, started_at, completed_at, is_dj_mix,
+        total_duration_sec, total_cuts, agent_version, weights_profile,
+        user_rating, user_notes, audio_track_id, audio_track_filename.
+        ``audio_track_filename`` is the raw ``audio_tracks.file_path`` (may be
+        ``None`` if the run references a deleted / missing track).
+        """
+        session, ownership = self._open_session()
+        try:
+            rows = (
+                session.execute(
+                    text(
+                        "SELECT "
+                        "  r.id                  AS id, "
+                        "  r.audio_track_id      AS audio_track_id, "
+                        "  r.started_at          AS started_at, "
+                        "  r.completed_at        AS completed_at, "
+                        "  r.is_dj_mix           AS is_dj_mix, "
+                        "  r.total_duration_sec  AS total_duration_sec, "
+                        "  r.total_cuts          AS total_cuts, "
+                        "  r.agent_version       AS agent_version, "
+                        "  r.weights_profile     AS weights_profile, "
+                        "  r.user_rating         AS user_rating, "
+                        "  r.user_notes          AS user_notes, "
+                        "  a.file_path           AS audio_track_filename "
+                        "FROM mem_pacing_run r "
+                        "LEFT JOIN audio_tracks a ON a.id = r.audio_track_id "
+                        "ORDER BY r.started_at DESC, r.id DESC"
+                    )
+                )
+                .mappings()
+                .all()
+            )
+            return [
+                {
+                    "id": int(r["id"]),
+                    "audio_track_id": (
+                        int(r["audio_track_id"])
+                        if r["audio_track_id"] is not None
+                        else None
+                    ),
+                    "started_at": r["started_at"],
+                    "completed_at": r["completed_at"],
+                    "is_dj_mix": bool(r["is_dj_mix"]),
+                    "total_duration_sec": float(r["total_duration_sec"] or 0.0),
+                    "total_cuts": int(r["total_cuts"] or 0),
+                    "agent_version": r["agent_version"],
+                    "weights_profile": r["weights_profile"],
+                    "user_rating": (
+                        int(r["user_rating"])
+                        if r["user_rating"] is not None
+                        else None
+                    ),
+                    "user_notes": r["user_notes"],
+                    "audio_track_filename": r["audio_track_filename"],
+                }
+                for r in rows
+            ]
+        finally:
+            self._close_session(session, ownership)
+
+    def list_learned_patterns(
+        self,
+        pattern_type: Optional[str] = None,
+        min_confidence: float = 0.0,
+    ) -> list[dict]:
+        """Return learned patterns sorted by confidence DESC then last_updated DESC.
+
+        Filters:
+          - ``pattern_type``: exact match (None → all types).
+          - ``min_confidence``: ``confidence >= threshold`` (0.0 → no filter).
+
+        Each dict has keys: id, pattern_type, context_fingerprint (parsed JSON
+        dict), target_ref (parsed JSON dict), stat_accept_count,
+        stat_reject_count, stat_sample_size, confidence, last_updated.
+        """
+        return self._list_learned_patterns_cached(
+            pattern_type, float(min_confidence)
+        )
+
+    def _list_learned_patterns_uncached(
+        self,
+        pattern_type: Optional[str],
+        min_confidence: float,
+    ) -> list[dict]:
+        session, ownership = self._open_session()
+        try:
+            sql = (
+                "SELECT "
+                "  id, pattern_type, context_fingerprint, target_ref, "
+                "  stat_accept_count, stat_reject_count, stat_sample_size, "
+                "  confidence, last_updated "
+                "FROM mem_learned_pattern "
+                "WHERE 1 = 1"
+            )
+            params: dict[str, Any] = {}
+            if pattern_type is not None:
+                sql += " AND pattern_type = :ptype"
+                params["ptype"] = pattern_type
+            if min_confidence > 0.0:
+                sql += " AND confidence >= :min_conf"
+                params["min_conf"] = float(min_confidence)
+            sql += " ORDER BY confidence DESC, last_updated DESC, id DESC"
+
+            rows = session.execute(text(sql), params).mappings().all()
+            return [
+                {
+                    "id": int(r["id"]),
+                    "pattern_type": r["pattern_type"],
+                    "context_fingerprint": _parse_json_field(
+                        r["context_fingerprint"]
+                    ),
+                    "target_ref": _parse_json_field(r["target_ref"]),
+                    "stat_accept_count": int(r["stat_accept_count"] or 0),
+                    "stat_reject_count": int(r["stat_reject_count"] or 0),
+                    "stat_sample_size": int(r["stat_sample_size"] or 0),
+                    "confidence": float(r["confidence"] or 0.0),
+                    "last_updated": r["last_updated"],
+                }
+                for r in rows
+            ]
+        finally:
+            self._close_session(session, ownership)
+
+    def _list_decisions_for_pattern_uncached(
+        self, pattern_id: int, limit: int = 100
+    ) -> list[dict]:
+        """Drill-down: decisions matching a learned pattern's fingerprint.
+
+        Matching rules (see services/pacing/pattern_aggregator.make_context_fingerprint):
+          - ``fingerprint.genre``  ↔ LOWER(mem_decision.at_genre)        (null-safe).
+          - ``fingerprint.section_type`` ↔ LOWER(mem_decision.at_section_type).
+          - ``fingerprint.bpm_bucket`` ↔ ROUND(mem_decision.at_bpm) cast to str.
+
+        No enricher-version filter is applied: ``mem_learned_pattern`` has no
+        ``at_enricher_version`` column, so we cannot correlate. All matching rows
+        are returned regardless of their ``at_enricher_version``.
+
+        Joins ``mem_pacing_run`` so we can sort primarily by run recency, then
+        within a run by timestamp, limit 100.
+        """
+        pid = int(pattern_id)
+        lim = max(1, int(limit))
+        session, ownership = self._open_session()
+        try:
+            fp_row = session.execute(
+                text(
+                    "SELECT context_fingerprint FROM mem_learned_pattern "
+                    "WHERE id = :pid"
+                ),
+                {"pid": pid},
+            ).first()
+            if fp_row is None:
+                return []
+            fingerprint = _parse_json_field(fp_row[0]) or {}
+            genre = fingerprint.get("genre")
+            section_type = fingerprint.get("section_type")
+            bpm_bucket = fingerprint.get("bpm_bucket")
+
+            sql_parts: list[str] = [
+                "SELECT "
+                "  d.id                    AS decision_id, "
+                "  d.run_id                AS run_id, "
+                "  d.sequence_idx          AS sequence_idx, "
+                "  d.at_timestamp_sec      AS at_timestamp_sec, "
+                "  d.at_genre              AS at_genre, "
+                "  d.at_section_type       AS at_section_type, "
+                "  d.at_bpm                AS at_bpm, "
+                "  d.at_enricher_version   AS at_enricher_version, "
+                "  d.scene_id              AS scene_id, "
+                "  d.clip_role             AS clip_role, "
+                "  d.clip_mood_refined     AS clip_mood_refined, "
+                "  d.agent_score           AS agent_score, "
+                "  d.user_verdict          AS user_verdict, "
+                "  d.user_rating           AS user_rating, "
+                "  r.started_at            AS run_started_at "
+                "FROM mem_decision d "
+                "JOIN mem_pacing_run r ON r.id = d.run_id "
+                "WHERE 1 = 1"
+            ]
+            params: dict[str, Any] = {}
+            if genre is None:
+                sql_parts.append(" AND d.at_genre IS NULL")
+            else:
+                sql_parts.append(" AND LOWER(d.at_genre) = :genre")
+                params["genre"] = str(genre).lower()
+            if section_type is None:
+                sql_parts.append(" AND d.at_section_type IS NULL")
+            else:
+                sql_parts.append(" AND LOWER(d.at_section_type) = :section_type")
+                params["section_type"] = str(section_type).lower()
+            if bpm_bucket is None:
+                sql_parts.append(" AND d.at_bpm IS NULL")
+            else:
+                # ROUND() in SQLite returns a float; compare as int via CAST.
+                sql_parts.append(
+                    " AND CAST(ROUND(d.at_bpm) AS INTEGER) = :bpm_bucket"
+                )
+                try:
+                    params["bpm_bucket"] = int(bpm_bucket)
+                except (TypeError, ValueError):
+                    # Fingerprint bucket wasn't a valid integer string — no
+                    # decisions can match.
+                    return []
+            sql_parts.append(
+                " ORDER BY r.started_at DESC, d.at_timestamp_sec ASC, d.id ASC"
+            )
+            sql_parts.append(" LIMIT :lim")
+            params["lim"] = lim
+
+            rows = (
+                session.execute(text("".join(sql_parts)), params)
+                .mappings()
+                .all()
+            )
+            return [
+                {
+                    "decision_id": int(r["decision_id"]),
+                    "run_id": int(r["run_id"]),
+                    "sequence_idx": int(r["sequence_idx"] or 0),
+                    "at_timestamp_sec": float(r["at_timestamp_sec"] or 0.0),
+                    "at_genre": r["at_genre"],
+                    "at_section_type": r["at_section_type"],
+                    "at_bpm": (
+                        float(r["at_bpm"])
+                        if r["at_bpm"] is not None
+                        else None
+                    ),
+                    "at_enricher_version": r["at_enricher_version"],
+                    "scene_id": (
+                        int(r["scene_id"])
+                        if r["scene_id"] is not None
+                        else None
+                    ),
+                    "clip_role": r["clip_role"],
+                    "clip_mood_refined": r["clip_mood_refined"],
+                    "agent_score": float(r["agent_score"] or 0.0),
+                    "user_verdict": r["user_verdict"],
+                    "user_rating": (
+                        int(r["user_rating"])
+                        if r["user_rating"] is not None
+                        else None
+                    ),
+                    "run_started_at": r["run_started_at"],
+                }
+                for r in rows
+            ]
+        finally:
+            self._close_session(session, ownership)
+
+    def _list_distinct_pattern_types_uncached(self) -> list[str]:
+        """Return DISTINCT pattern_type values from mem_learned_pattern, ASC."""
+        session, ownership = self._open_session()
+        try:
+            rows = session.execute(
+                text(
+                    "SELECT DISTINCT pattern_type FROM mem_learned_pattern "
+                    "WHERE pattern_type IS NOT NULL "
+                    "ORDER BY pattern_type ASC"
+                )
+            ).all()
+            return [r[0] for r in rows if r[0] is not None]
+        finally:
+            self._close_session(session, ownership)
+
+
+def _parse_json_field(raw: Any) -> Any:
+    """Coerce a JSON column into a Python value.
+
+    SQLAlchemy's ``JSON`` type returns dicts/lists directly on most drivers,
+    but SQLite-backed setups sometimes hand back the raw text (especially
+    when the ``text()`` query bypasses the type system). Normalise to a
+    parsed dict / list; fall back to ``None`` on garbage input.
+    """
+    if raw is None:
+        return None
+    if isinstance(raw, (dict, list)):
+        return raw
+    try:
+        return json.loads(raw)
+    except (TypeError, ValueError):
+        logger.warning("Could not parse JSON field: %r", raw)
+        return None

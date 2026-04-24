@@ -16,6 +16,10 @@ last size + last selected tab are persisted via QSettings under the
 T10.2a scope: first tab (index 0, "Struktur") now hosts StructureTab,
 backed by a BrainService. The remaining three tabs stay placeholders until
 their own dispatches land.
+
+T11.1 scope: second tab (index 1, "Gedächtnis") now hosts MemoryTab, backed
+by the same BrainService + a BackupService guarding destructive SQL. The
+remaining two tabs (Audit, Steer) stay placeholders until T11.2/T11.3.
 """
 
 from __future__ import annotations
@@ -27,11 +31,13 @@ import shiboken6
 from PySide6.QtCore import QSettings, QSize
 from PySide6.QtWidgets import QMainWindow, QTabWidget, QWidget
 
+from services.backup_service import BackupService
 from services.brain_service import BrainService
 from services.steer_override_queue import (
     SteerOverrideQueue,
     get_default_queue,
 )
+from ui.studio_brain.memory_tab import MemoryTab
 from ui.studio_brain.structure_tab import StructureTab
 
 logger = logging.getLogger(__name__)
@@ -54,6 +60,29 @@ def _default_brain_service() -> BrainService:
     return BrainService(session_factory=nullpool_session)
 
 
+def _default_backup_service() -> Optional[BackupService]:
+    """Return a BackupService wired to the real pb_studio.db + storage/backups.
+
+    Kept optional: headless/test environments that never touch the real DB
+    can inject a mock (or ``None``) without paying the filesystem cost.
+    ``BackupService.__init__`` calls ``backup_dir.mkdir(parents=True,
+    exist_ok=True)`` so the dir is created on-demand.
+    """
+    try:
+        from database.session import APP_ROOT
+
+        from pathlib import Path as _Path
+
+        root = _Path(APP_ROOT)
+        return BackupService(
+            db_path=root / "pb_studio.db",
+            backup_dir=root / "storage" / "backups",
+        )
+    except Exception as exc:  # pragma: no cover — defensive
+        logger.warning("Default BackupService construction failed: %s", exc)
+        return None
+
+
 class StudioBrainWindow(QMainWindow):
     """Singleton top-level window for the Studio Brain UI."""
 
@@ -63,6 +92,7 @@ class StudioBrainWindow(QMainWindow):
         self,
         brain_service: Optional[BrainService] = None,
         override_queue: Optional[SteerOverrideQueue] = None,
+        backup_service: Optional[BackupService] = None,
     ) -> None:
         super().__init__()
         self.setWindowTitle("Studio Brain")
@@ -74,6 +104,11 @@ class StudioBrainWindow(QMainWindow):
         self._override_queue: SteerOverrideQueue = (
             override_queue if override_queue is not None else get_default_queue()
         )
+        # T11.1 — shared BackupService for destructive-action hooks (Memory
+        # tab reset, future Steer reset).  Lazy default; tests inject their own.
+        self._backup_service: Optional[BackupService] = (
+            backup_service if backup_service is not None else _default_backup_service()
+        )
 
         self._tabs = QTabWidget(self)
         # Index 0 — Struktur (live StructureTab from T10.2a).
@@ -83,8 +118,15 @@ class StudioBrainWindow(QMainWindow):
             override_queue=self._override_queue,
         )
         self._tabs.addTab(self._structure_tab, _TAB_LABELS[0])
-        # Indices 1..3 — still placeholders (filled by T11.x dispatches).
-        for label in _TAB_LABELS[1:]:
+        # Index 1 — Gedächtnis (live MemoryTab from T11.1).
+        self._memory_tab = MemoryTab(
+            brain_service=self._brain_service,
+            backup_service=self._backup_service,
+            parent=self._tabs,
+        )
+        self._tabs.addTab(self._memory_tab, _TAB_LABELS[1])
+        # Indices 2..3 — still placeholders (filled by T11.2 / T11.3).
+        for label in _TAB_LABELS[2:]:
             placeholder = QWidget(self._tabs)
             self._tabs.addTab(placeholder, label)
         self.setCentralWidget(self._tabs)
@@ -111,10 +153,11 @@ class StudioBrainWindow(QMainWindow):
         cls,
         brain_service: Optional[BrainService] = None,
         override_queue: Optional[SteerOverrideQueue] = None,
+        backup_service: Optional[BackupService] = None,
     ) -> "StudioBrainWindow":
         """Tear down any existing singleton and re-create it with the supplied
-        BrainService / override-queue. Intended strictly for tests —
-        production code should use `instance()`.
+        BrainService / override-queue / backup-service. Intended strictly for
+        tests — production code should use `instance()`.
         """
         existing = cls._instance
         if existing is not None:
@@ -124,7 +167,9 @@ class StudioBrainWindow(QMainWindow):
             except Exception:  # pragma: no cover — best-effort cleanup
                 pass
         cls._instance = cls(
-            brain_service=brain_service, override_queue=override_queue
+            brain_service=brain_service,
+            override_queue=override_queue,
+            backup_service=backup_service,
         )
         return cls._instance
 
