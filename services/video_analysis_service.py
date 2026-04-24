@@ -92,6 +92,7 @@ def detect_scenes(
 
     try:
         from scenedetect import detect, ContentDetector
+        from scenedetect.video_stream import VideoOpenFailure
         import logging as _logging
         # F-025 Fix: Deaktiviere pyscenedetect Info-Logs um Main-Thread zu entlasten
         _logging.getLogger("pyscenedetect").setLevel(_logging.WARNING)
@@ -104,6 +105,16 @@ def detect_scenes(
             video_path,
             ContentDetector(threshold=threshold, min_scene_len=int(min_scene_len * fps)),
         )
+    except VideoOpenFailure as e:
+        # Bug B Fix: VideoOpenFailure ist KEIN Subclass von RuntimeError/OSError und
+        # wuerde sonst den outer except in workers/video.py triggern (→ Worker-Crash,
+        # QThread-Race, 0xC0000409). In RuntimeError uebersetzen, damit der existierende
+        # C-04 Skip-Block in workers/video.py den Fehler pro Clip auffaengt und die
+        # Pipeline weiterlaeuft.
+        raise RuntimeError(
+            f"Video '{Path(video_path).name}' ist beschädigt oder nicht lesbar "
+            f"(z.B. fehlender moov-atom): {e}"
+        ) from e
     except (OSError, IOError, ValueError, RuntimeError) as e:
         logger.error("SceneDetect Fehler: %s — Fallback", e)
         return _fallback_single_scene(video_path)

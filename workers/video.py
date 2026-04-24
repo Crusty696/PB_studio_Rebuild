@@ -138,6 +138,10 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
 
     def run(self):
         _ok = False
+        # Bug A Fix: Flag um zu verhindern, dass error UND finished beide emittiert
+        # werden (Race: Main-Thread quit() bei finished waehrend error noch laeuft
+        # → "QThread: Destroyed while thread is still running" → 0xC0000409).
+        _emitted_terminal = False
         # file_paths aus DB laden, falls batch nur (clip_id, title) Tupel enthält
         # (läuft im Worker-Thread, nicht im Main-Thread)
         if self._batch and len(self._batch[0]) == 2:
@@ -166,6 +170,7 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
         if not self._batch:
             self.error.emit(0, "Keine gültigen VideoClips zum Verarbeiten gefunden.")
             self.finished.emit(0, {})
+            _emitted_terminal = True
             return
 
         # ── Progress-Throttle: max 1 Signal pro 500ms um Event-Loop-Flooding zu verhindern ──
@@ -333,12 +338,14 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                 "embeddings": total_embeddings,
                 "videos_processed": idx if self.should_stop() else total_videos,
             })
+            _emitted_terminal = True
             _ok = True
         except Exception as e:  # broad catch intentional — top-level worker safety net
             logging.error("VideoAnalysisPipelineWorker crashed (outer): %s\n%s",
                           e, traceback.format_exc())
             self._errored = True
             self.error.emit(last_clip_id, format_user_error(e))
+            _emitted_terminal = True
         finally:
             # RAFT + SigLIP Cleanup auch bei unerwarteten Exceptions
             if raft_model_device is not None:
@@ -359,8 +366,11 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                     ModelManager().unload()
                 except (RuntimeError, AttributeError) as e:
                     logger.warning("SigLIP cleanup failed during finally block: %s", e)
-            # finished MUSS immer emittiert werden damit thread.quit() greift
-            if not _ok:
+            # finished MUSS immer emittiert werden damit thread.quit() greift —
+            # ABER nur wenn weder finished noch error bereits emittiert wurde.
+            # Bug A Fix: Verhindert Race zwischen error.emit + finished.emit, der
+            # zu "QThread: Destroyed while thread is still running" → 0xC0000409 fuehrt.
+            if not _emitted_terminal:
                 self.finished.emit(last_clip_id, {})
 
 
