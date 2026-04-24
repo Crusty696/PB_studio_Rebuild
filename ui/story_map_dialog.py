@@ -156,6 +156,12 @@ class _ClipCard(QFrame):
         )
         scene_label.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         outer.addWidget(scene_label)
+        _role_text = str(decision.get("clip_role") or "—")
+        self.setToolTip(
+            f"Szene #{self._scene_id} — {_role_text} bei "
+            f"{_format_mmss(self._timestamp_sec)}. "
+            "Klick: springt zum Schnitt in der Timeline."
+        )
 
         # Placeholder thumbnail — a flat colored rect. The real preview
         # render is a future polish item; today the card is a click target.
@@ -219,25 +225,38 @@ class _HeaderBar(QWidget):
         outer.setSpacing(8)
 
         title = (
-            f"Story Map — Run #{int(run_id)} — {audio_basename or '(no audio)'}"
+            f"Story Map — Run #{int(run_id)} — {audio_basename or '(kein Audio)'}"
             f" — {_format_mmss(total_duration_sec)}"
         )
         self._label = QLabel(title)
         self._label.setStyleSheet(_HEADER_STYLE)
+        self._label.setToolTip(
+            "Story Map fuer diesen Run. Alle Panels teilen sich die "
+            "Zeitachse: Ctrl+Mausrad zoomt synchron."
+        )
         outer.addWidget(self._label, stretch=1)
 
-        self._export_png_btn = QPushButton("Export PNG")
+        self._export_png_btn = QPushButton("Als PNG exportieren")
         self._export_png_btn.setStyleSheet(_BUTTON_STYLE)
+        self._export_png_btn.setToolTip(
+            "Rendert den gesamten Dialog-Inhalt als PNG-Datei. Praktisch "
+            "fuer Screenshots / Diskussion mit Kollegen."
+        )
         self._export_png_btn.clicked.connect(self.exportPngClicked.emit)
         outer.addWidget(self._export_png_btn)
 
-        self._export_svg_btn = QPushButton("Export SVG")
+        self._export_svg_btn = QPushButton("Als SVG exportieren")
         self._export_svg_btn.setStyleSheet(_BUTTON_STYLE)
+        self._export_svg_btn.setToolTip(
+            "Rendert als vektorielle SVG-Datei (nicht pixelig beim "
+            "Zoomen). Fuer Druck oder Web."
+        )
         self._export_svg_btn.clicked.connect(self.exportSvgClicked.emit)
         outer.addWidget(self._export_svg_btn)
 
-        self._close_btn = QPushButton("Close")
+        self._close_btn = QPushButton("Schließen")
         self._close_btn.setStyleSheet(_BUTTON_STYLE)
+        self._close_btn.setToolTip("Dialog schließen.")
         self._close_btn.clicked.connect(self.closeClicked.emit)
         outer.addWidget(self._close_btn)
 
@@ -471,6 +490,10 @@ class StoryMapDialog(QDialog):
     def _build_waveform_panel(self) -> _TimePlot:
         plot = _TimePlot(self)
         plot.setMinimumHeight(_WAVEFORM_HEIGHT)
+        plot.setToolTip(
+            "Energie-Kurve des Audio-Tracks. Hohe Ausschlaege = laute "
+            "Stellen (Drops)."
+        )
         plot.getPlotItem().setTitle(
             "Waveform", color="#9ca3af", size="9pt"
         )
@@ -489,6 +512,10 @@ class StoryMapDialog(QDialog):
     def _build_section_panel(self) -> _TimePlot:
         plot = _TimePlot(self)
         plot.setMinimumHeight(_SECTION_HEIGHT)
+        plot.setToolTip(
+            "Erkannte Song-Abschnitte als farbige Baender. Nur bei "
+            "DJ-Mix-Runs sichtbar."
+        )
         plot.getPlotItem().getAxis("left").setStyle(showValues=False)
         plot.getPlotItem().getAxis("left").setTextPen("#6b7280")
         plot.getPlotItem().getAxis("bottom").setTextPen("#6b7280")
@@ -532,8 +559,12 @@ class StoryMapDialog(QDialog):
     def _build_tension_panel(self) -> _TimePlot:
         plot = _TimePlot(self)
         plot.setMinimumHeight(_TENSION_HEIGHT)
+        plot.setToolTip(
+            "Harmonic-Tension-Kurve an den Schnittzeitpunkten. Hoehere "
+            "Spannung = harmonisch instabiler (Spannungsaufbau)."
+        )
         plot.getPlotItem().setTitle(
-            "Harmonic tension", color="#9ca3af", size="9pt"
+            "Harmonische Spannung", color="#9ca3af", size="9pt"
         )
         plot.getPlotItem().getAxis("left").setTextPen("#6b7280")
         plot.getPlotItem().getAxis("bottom").setTextPen("#6b7280")
@@ -561,6 +592,10 @@ class StoryMapDialog(QDialog):
     def _build_mood_panel(self) -> _TimePlot:
         plot = _TimePlot(self)
         plot.setMinimumHeight(_MOOD_HEIGHT)
+        plot.setToolTip(
+            "Video-Stimmung der gewaehlten Clips im zeitlichen Verlauf. "
+            "Jede Farbe = eine andere Stimmung."
+        )
         plot.getPlotItem().getAxis("left").setStyle(showValues=False)
         plot.getPlotItem().getAxis("left").setTextPen("#6b7280")
         plot.getPlotItem().getAxis("bottom").setTextPen("#6b7280")
@@ -598,6 +633,11 @@ class StoryMapDialog(QDialog):
     def _build_clip_strip(self) -> QScrollArea:
         scroll = QScrollArea(self)
         scroll.setWidgetResizable(True)
+        scroll.setToolTip(
+            "Die gewaehlten Clips in Schnitt-Reihenfolge. Klick auf eine "
+            "Karte -> Signal 'thumbnailClicked' (wird spaeter mit der "
+            "Timeline verknuepft)."
+        )
         scroll.setStyleSheet(
             "QScrollArea{background:#0a0d12;border:1px solid "
             "rgba(255,255,255,0.06);border-radius:4px;}"
@@ -631,7 +671,7 @@ class StoryMapDialog(QDialog):
         from PySide6.QtWidgets import QFileDialog
 
         target, _ = QFileDialog.getSaveFileName(
-            self, "Export Story Map (PNG)", "", "PNG Image (*.png)"
+            self, "Story Map als PNG exportieren", "", "PNG-Bild (*.png)"
         )
         if target:
             self.export_png(target)
@@ -640,7 +680,7 @@ class StoryMapDialog(QDialog):
         from PySide6.QtWidgets import QFileDialog, QMessageBox
 
         target, _ = QFileDialog.getSaveFileName(
-            self, "Export Story Map (SVG)", "", "SVG Image (*.svg)"
+            self, "Story Map als SVG exportieren", "", "SVG-Bild (*.svg)"
         )
         if not target:
             return
@@ -648,6 +688,6 @@ class StoryMapDialog(QDialog):
         if result is None:
             QMessageBox.information(
                 self,
-                "SVG export unavailable",
-                "QtSvg is not available in this Qt build.",
+                "SVG-Export nicht verfügbar",
+                "QtSvg ist in diesem Qt-Build nicht verfügbar.",
             )

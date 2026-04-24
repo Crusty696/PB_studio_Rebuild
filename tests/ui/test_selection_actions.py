@@ -282,7 +282,7 @@ def test_structure_tab_shows_pending_count_label(tmp_path: Path) -> None:
     queue.add(3, "boost", "graph")
 
     assert "3" in tab._pending_label.text()
-    assert "pending overrides" in tab._pending_label.text()
+    assert "ausstehende Änderungen" in tab._pending_label.text()
 
 
 def test_structure_tab_hides_pending_count_label_when_zero(tmp_path: Path) -> None:

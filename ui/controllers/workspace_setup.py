@@ -75,7 +75,10 @@ class WorkspaceSetupController(PBComponent):
         # P16: Studio Brain entry-point. Opens the 4-tab window
         # (Struktur / Gedächtnis / Audit / Steer). Ctrl+B is the shortcut.
         btn_brain = QPushButton("🧠 Brain")
-        btn_brain.setToolTip("Studio Brain öffnen (Ctrl+B)")
+        btn_brain.setToolTip(
+            "Studio Brain öffnen (Ctrl+B) — Übersicht über Szenen, Lerndaten, "
+            "Pacing-Runs und Steuerung."
+        )
         btn_brain.setMaximumWidth(90)
         btn_brain.setFixedHeight(22)
         btn_brain.clicked.connect(self.window._open_studio_brain)

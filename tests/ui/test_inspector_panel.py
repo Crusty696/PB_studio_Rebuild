@@ -306,7 +306,7 @@ def test_inspector_unenriched_scene_shows_graceful_message(tmp_path: Path) -> No
     assert panel._status_label.isHidden() is False
     assert panel._form_widget.isHidden() is True
     status_text = panel._status_label.text().lower()
-    assert "not enriched" in status_text
+    assert "nicht analysiert" in status_text
     assert "#10" in panel._status_label.text()
 
 
@@ -319,7 +319,7 @@ def test_inspector_clear_resets_to_placeholder(tmp_path: Path) -> None:
     assert panel._scene_id is None
     assert panel._status_label.isHidden() is False
     assert panel._form_widget.isHidden() is True
-    assert panel._status_label.text().lower().startswith("select")
+    assert panel._status_label.text().lower().startswith("wähle")
 
 
 def test_structure_tab_clipSelected_populates_inspector(tmp_path: Path) -> None:

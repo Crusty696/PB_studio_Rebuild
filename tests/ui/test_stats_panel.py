@@ -306,7 +306,7 @@ def test_stats_panel_shows_graceful_message_on_operationalerror(
     panel.refresh()
 
     assert panel._status_label.isHidden() is False
-    assert "unavailable" in panel._status_label.text().lower()
+    assert "nicht verfügbar" in panel._status_label.text().lower()
 
     # The body widgets are hidden on the graceful path.
     assert panel._coverage_label.isHidden() is True

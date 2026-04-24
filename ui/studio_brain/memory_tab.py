@@ -64,7 +64,9 @@ logger = logging.getLogger(__name__)
 _TIMELINE_HEIGHT = 180
 _RUN_FRAME_WIDTH = 160
 _RUN_FRAME_HEIGHT = 140
-_EMPTY_DRILLDOWN_TEXT = "Select a learned pattern to see the decisions behind it."
+_EMPTY_DRILLDOWN_TEXT = (
+    "Wähle ein Muster aus, um die zugehörigen Entscheidungen zu sehen."
+)
 
 _FRAME_STYLE = (
     "QFrame#MemoryRunFrame{background:#131922;"
@@ -198,7 +200,7 @@ class _RunFrame(QFrame):
         fname.setToolTip(str(run.get("audio_track_filename") or ""))
         vl.addWidget(fname)
 
-        cuts = QLabel(f"{int(run.get('total_cuts') or 0)} cuts")
+        cuts = QLabel(f"{int(run.get('total_cuts') or 0)} Schnitte")
         cuts.setProperty("role", "run-sub")
         vl.addWidget(cuts)
 
@@ -241,11 +243,16 @@ class _RunTimeline(QScrollArea):
 
         self._strip = QWidget()
         self._strip.setObjectName("MemoryRunStrip")
+        self.setToolTip(
+            "Deine bisherigen Pacing-Runs in chronologischer Reihenfolge "
+            "(neueste links). Eine Karte pro Run zeigt Datum, "
+            "Audio-Datei, Anzahl Schnitte und ggf. Rating."
+        )
         self._hl = QHBoxLayout(self._strip)
         self._hl.setContentsMargins(6, 6, 6, 6)
         self._hl.setSpacing(6)
 
-        self._empty_label = QLabel("No pacing runs recorded yet.")
+        self._empty_label = QLabel("Noch keine Pacing-Runs vorhanden.")
         self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._empty_label.setStyleSheet("color:#6b7280;font-size:11px;padding:24px;")
         self._empty_label.setVisible(False)
@@ -336,22 +343,32 @@ class _PatternTable(QWidget):
         hl.setContentsMargins(0, 0, 0, 0)
         hl.setSpacing(6)
 
-        hl.addWidget(QLabel("Type:"))
+        hl.addWidget(QLabel("Typ:"))
         self._type_combo = QComboBox()
         self._type_combo.addItem("(any)", userData=None)
         for ptype in self._safe_types():
             self._type_combo.addItem(ptype, userData=ptype)
+        self._type_combo.setToolTip(
+            "Filter: nur Muster eines bestimmten Typs zeigen (harmonic, "
+            "style, rhythmic, etc.)."
+        )
         hl.addWidget(self._type_combo)
 
-        hl.addWidget(QLabel("Min conf:"))
+        hl.addWidget(QLabel("Min. Sicherheit:"))
         self._conf_spin = QDoubleSpinBox()
         self._conf_spin.setRange(0.0, 1.0)
         self._conf_spin.setSingleStep(0.05)
         self._conf_spin.setDecimals(2)
         self._conf_spin.setValue(0.0)
+        self._conf_spin.setToolTip(
+            "Zeigt nur Muster mit mindestens so sicherer "
+            "Wilson-Lower-Bound-Konfidenz. 0.7 = nur Muster die sich klar "
+            "bewaehrt haben."
+        )
         hl.addWidget(self._conf_spin)
 
-        self._apply_btn = QPushButton("Apply")
+        self._apply_btn = QPushButton("Anwenden")
+        self._apply_btn.setToolTip("Filter anwenden und Tabelle neu laden.")
         self._apply_btn.clicked.connect(self._emit_apply)
         hl.addWidget(self._apply_btn)
         hl.addStretch()
@@ -361,6 +378,26 @@ class _PatternTable(QWidget):
         self._table.setHorizontalHeaderLabels([c[0] for c in _PATTERN_COLUMNS])
         for idx, (_label, width) in enumerate(_PATTERN_COLUMNS):
             self._table.setColumnWidth(idx, width)
+        # Spalten-Tooltips (einsteigerfreundlich).
+        _col_tooltips = (
+            "Art des Musters (harmonic = basierend auf Musik-Tonart, style = "
+            "auf Stil-Bucket, etc.).",
+            "Der Kontext unter dem das Muster gilt: Genre/Section/BPM-Bucket.",
+            "Wie oft der Clip in diesem Kontext akzeptiert wurde "
+            "(User-Verdict 'accept').",
+            "Wie oft der Clip in diesem Kontext abgelehnt wurde.",
+            "Wilson-Untergrenze der Akzeptanzrate — konservativer Schaetzer, "
+            "der kleine Stichproben benachteiligt.",
+            "Zeitpunkt der letzten Aggregation.",
+        )
+        for idx, tip in enumerate(_col_tooltips):
+            hdr_item = self._table.horizontalHeaderItem(idx)
+            if hdr_item is not None:
+                hdr_item.setToolTip(tip)
+        self._table.setToolTip(
+            "Automatisch gelernte Muster: Welche Clips bevorzugt der Agent "
+            "in welchem Kontext. Zeile anklicken -> Details unten."
+        )
         self._table.horizontalHeader().setSectionResizeMode(
             1, QHeaderView.ResizeMode.Stretch
         )
@@ -517,6 +554,11 @@ class _DecisionDrillDown(QWidget):
             "QListWidget{background:#0f141d;color:#e5e7eb;font-size:10px;"
             "border:1px solid rgba(255,255,255,0.06);border-radius:4px;}"
         )
+        self._list.setToolTip(
+            "Die einzelnen Entscheidungen hinter dem gewaehlten Muster: "
+            "Wann wurde der Clip geschnitten, mit welchem Score, was war "
+            "der User-Verdict?"
+        )
         outer.addWidget(self._list, stretch=1)
 
     def clear(self) -> None:
@@ -526,7 +568,7 @@ class _DecisionDrillDown(QWidget):
     def populate(self, pattern: dict[str, Any], decisions: list[dict[str, Any]]) -> None:
         ptype = pattern.get("pattern_type") or "—"
         fp = _format_fingerprint(pattern.get("context_fingerprint"))
-        self._header.setText(f"Pattern: {ptype}  |  {fp}")
+        self._header.setText(f"Muster: {ptype}  |  {fp}")
         self._list.clear()
         for d in decisions:
             ts = float(d.get("at_timestamp_sec") or 0.0)
@@ -563,8 +605,14 @@ class _FooterBar(QWidget):
         self._status.setVisible(False)
         outer.addWidget(self._status, stretch=1)
 
-        self._reset_btn = QPushButton("Reset learned patterns…")
+        self._reset_btn = QPushButton("Gelerntes zurücksetzen…")
         self._reset_btn.setStyleSheet(_COMBO_STYLE)
+        self._reset_btn.setToolTip(
+            "ACHTUNG: Loescht alle gelernten Muster. Vorher wird "
+            "automatisch ein Backup der Datenbank erstellt. Die "
+            "mem_decision-Historie bleibt erhalten — nur die aggregierten "
+            "Muster verschwinden."
+        )
         self._reset_btn.clicked.connect(self.resetClicked)
         outer.addWidget(self._reset_btn)
 
@@ -699,11 +747,11 @@ class MemoryTab(QWidget):
     def _on_reset_clicked(self) -> None:
         reply = QMessageBox.question(
             self,
-            "Reset learned patterns",
+            "Gelerntes zurücksetzen",
             (
-                "This permanently deletes all learned patterns.\n"
-                "A backup will be created first.\n"
-                "Continue?"
+                "Das löscht dauerhaft alle gelernten Muster.\n"
+                "Vorher wird automatisch ein Backup erstellt.\n"
+                "Weiter?"
             ),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
@@ -716,15 +764,19 @@ class MemoryTab(QWidget):
         except Exception as exc:  # noqa: BLE001 — surfaced to the user
             logger.exception("MemoryTab: pattern reset failed")
             QMessageBox.critical(
-                self, "Reset failed", f"Failed to reset learned patterns:\n{exc}"
+                self,
+                "Zurücksetzen fehlgeschlagen",
+                f"Konnte gelernte Muster nicht zurücksetzen:\n{exc}",
             )
-            self._footer.set_status_error(f"Reset failed: {exc}")
+            self._footer.set_status_error(
+                f"Zurücksetzen fehlgeschlagen: {exc}"
+            )
             return
 
         self._svc.invalidate()
         self.refresh()
         self._footer.set_status_ok(
-            f"{deleted_count} patterns deleted. Backup at {backup_path}."
+            f"{deleted_count} Muster gelöscht. Backup unter {backup_path}."
         )
         self.patternsReset.emit(int(deleted_count))
 

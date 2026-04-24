@@ -138,6 +138,13 @@ class _ClipCard(QFrame):
             "QFrame#StructureClipCard:hover{"
             "border:1px solid rgba(212,164,74,0.45);background:#161d28;}"
         )
+        # Einsteigerfreundlicher Tooltip pro Karte — dynamische Rolle/Stimmung.
+        _role = row.get("role") or "—"
+        _mood = row.get("mood_refined") or "—"
+        self.setToolTip(
+            f"Szene #{self._scene_id} — {_role} in {_mood}. "
+            "Klick: Details im Inspector. Rechtsklick: Boost/Exclude-Menue."
+        )
         self._build()
 
     def _build(self) -> None:
@@ -200,10 +207,10 @@ class _ClipCard(QFrame):
         before exec'ing the menu.
         """
         menu = QMenu(parent or self)
-        boost = QAction("Boost in next run", menu)
+        boost = QAction("Boost im nächsten Lauf", menu)
         boost.setData(("boost", self._scene_id))
         menu.addAction(boost)
-        exclude = QAction("Exclude in next run", menu)
+        exclude = QAction("Exclude im nächsten Lauf", menu)
         exclude.setData(("exclude", self._scene_id))
         menu.addAction(exclude)
         return menu
@@ -252,35 +259,49 @@ class _FilterBar(QWidget):
         hl.setSpacing(8)
 
         # view mode (leftmost — T10.2d)
-        hl.addWidget(QLabel("View:"))
+        hl.addWidget(QLabel("Ansicht:"))
         self._mode_combo = QComboBox()
         self._mode_combo.addItem("Grid", userData="Grid")
         self._mode_combo.addItem("Graph", userData="Graph")
         self._mode_combo.currentIndexChanged.connect(self._on_mode_changed)
+        self._mode_combo.setToolTip(
+            "Anzeige-Modus. Grid zeigt Clips als Karten, Graph zeigt "
+            "Aehnlichkeiten als Netzwerk (faellt automatisch auf Grid "
+            "zurueck bei > 2000 Szenen)."
+        )
         hl.addWidget(self._mode_combo)
 
         # role
-        hl.addWidget(QLabel("Role:"))
+        hl.addWidget(QLabel("Rolle:"))
         self._role_combo = QComboBox()
         self._role_combo.addItem("(any)", userData=None)
         roles: list[str] = self._safe_call(self._svc.list_distinct_roles, [])
         for role in roles:
             self._role_combo.addItem(role, userData=role)
         self._role_combo.currentIndexChanged.connect(self._schedule)
+        self._role_combo.setToolTip(
+            "Filter nach erkannter Rolle der Szene im Schnitt: Hero, "
+            "Establishing, Detail, Filler, Transition, etc. (any) = alle "
+            "Rollen."
+        )
         hl.addWidget(self._role_combo)
 
         # mood
-        hl.addWidget(QLabel("Mood:"))
+        hl.addWidget(QLabel("Stimmung:"))
         self._mood_combo = QComboBox()
         self._mood_combo.addItem("(any)", userData=None)
         moods: list[str] = self._safe_call(self._svc.list_distinct_moods, [])
         for mood in moods:
             self._mood_combo.addItem(mood, userData=mood)
         self._mood_combo.currentIndexChanged.connect(self._schedule)
+        self._mood_combo.setToolTip(
+            "Filter nach erkannter Stimmung: euphoric, melancholic, calm, "
+            "energetic, … (any) = alle Stimmungen."
+        )
         hl.addWidget(self._mood_combo)
 
         # style bucket
-        hl.addWidget(QLabel("Style:"))
+        hl.addWidget(QLabel("Stil:"))
         self._style_combo = QComboBox()
         self._style_combo.addItem("(any)", userData=None)
         buckets: list[dict[str, Any]] = self._safe_call(
@@ -290,24 +311,37 @@ class _FilterBar(QWidget):
             label = f"{bucket['name']}  ({bucket['member_count']})"
             self._style_combo.addItem(label, userData=int(bucket["id"]))
         self._style_combo.currentIndexChanged.connect(self._schedule)
+        self._style_combo.setToolTip(
+            "Filter nach Stil-Cluster. Clips im selben Bucket haben "
+            "aehnliche Bildsprache (Kamera, Licht, Farbe). (any) = alle "
+            "Stile."
+        )
         hl.addWidget(self._style_combo)
 
         # min role-confidence
-        hl.addWidget(QLabel("Min conf:"))
+        hl.addWidget(QLabel("Min. Sicherheit:"))
         self._conf_spin = QDoubleSpinBox()
         self._conf_spin.setRange(0.0, 1.0)
         self._conf_spin.setSingleStep(0.05)
         self._conf_spin.setDecimals(2)
         self._conf_spin.setValue(0.0)
         self._conf_spin.valueChanged.connect(self._schedule)
+        self._conf_spin.setToolTip(
+            "Zeigt nur Szenen deren Rollen-Erkennung mindestens so sicher "
+            "ist. 0.0 = alles zeigen, 0.9 = nur sehr sichere Treffer."
+        )
         hl.addWidget(self._conf_spin)
 
         # min usage
-        hl.addWidget(QLabel("Min usage:"))
+        hl.addWidget(QLabel("Min. Nutzung:"))
         self._usage_spin = QSpinBox()
         self._usage_spin.setRange(0, 9999)
         self._usage_spin.setValue(0)
         self._usage_spin.valueChanged.connect(self._schedule)
+        self._usage_spin.setToolTip(
+            "Zeigt nur Szenen die im bisherigen Lauf mindestens so oft "
+            "geschnitten wurden. 0 = alle Szenen."
+        )
         hl.addWidget(self._usage_spin)
 
         hl.addStretch()
@@ -430,7 +464,7 @@ class _GridView(QScrollArea):
         self._outer.setContentsMargins(6, 6, 6, 6)
         self._outer.setSpacing(8)
 
-        self._empty_label = QLabel("No clips match the current filters.")
+        self._empty_label = QLabel("Keine Clips passen zu den aktuellen Filtern.")
         self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._empty_label.setStyleSheet("color:#6b7280;font-size:11px;padding:24px;")
         self._empty_label.setVisible(False)
@@ -636,14 +670,22 @@ class StructureTab(QWidget):
         toolbar_row = QHBoxLayout()
         toolbar_row.setContentsMargins(0, 0, 0, 0)
         toolbar_row.setSpacing(4)
-        self._boost_btn = QPushButton("⤴ Boost in next run", right_column)
+        self._boost_btn = QPushButton("⤴ Boost im nächsten Lauf", right_column)
         self._boost_btn.setEnabled(False)
+        self._boost_btn.setToolTip(
+            "Bevorzugt diese Szene im naechsten Pacing-Run. Kein Erzwingen, "
+            "sondern ein Plus fuer den Score."
+        )
         self._boost_btn.clicked.connect(
             lambda: self._push_override_from_inspector("boost")
         )
         toolbar_row.addWidget(self._boost_btn)
-        self._exclude_btn = QPushButton("⊗ Exclude in next run", right_column)
+        self._exclude_btn = QPushButton("⊗ Ausschließen im nächsten Lauf", right_column)
         self._exclude_btn.setEnabled(False)
+        self._exclude_btn.setToolTip(
+            "Blockiert diese Szene im naechsten Pacing-Run komplett. Sie "
+            "erscheint nicht im Ergebnis."
+        )
         self._exclude_btn.clicked.connect(
             lambda: self._push_override_from_inspector("exclude")
         )
@@ -669,6 +711,11 @@ class StructureTab(QWidget):
             "color:#d4a44a;font-size:10px;padding:4px;"
             "background:#1a2030;border:1px solid rgba(212,164,74,0.25);"
             "border-radius:4px;"
+        )
+        self._pending_label.setToolTip(
+            "Anzahl ausstehender Boost/Exclude-Entscheidungen. Werden im "
+            "Steer-Tab angewendet sobald du 'Mit diesen Einstellungen "
+            "starten' drueckst."
         )
         self._pending_label.setVisible(False)
         right_layout.addWidget(self._pending_label)
@@ -812,14 +859,14 @@ class StructureTab(QWidget):
         ``_queue_override`` so production and tests share one choke-point.
         """
         menu = QMenu(self)
-        boost_action = QAction("Boost in next run", menu)
+        boost_action = QAction("Boost im nächsten Lauf", menu)
         boost_action.triggered.connect(
             lambda _checked=False, sid=scene_id: self._queue_override(
                 sid, "boost", source=source
             )
         )
         menu.addAction(boost_action)
-        exclude_action = QAction("Exclude in next run", menu)
+        exclude_action = QAction("Exclude im nächsten Lauf", menu)
         exclude_action.triggered.connect(
             lambda _checked=False, sid=scene_id: self._queue_override(
                 sid, "exclude", source=source
@@ -871,6 +918,6 @@ class StructureTab(QWidget):
             self._pending_label.setText("")
             return
         self._pending_label.setText(
-            f"{count} pending overrides — Steer tab to apply"
+            f"{count} ausstehende Änderungen — im Steer-Tab anwenden"
         )
         self._pending_label.setVisible(True)

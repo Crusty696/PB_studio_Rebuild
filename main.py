@@ -972,6 +972,12 @@ def main():
 
     app = QApplication(sys.argv)
 
+    # Sticky-Tooltips: haelt Tooltips sichtbar, solange der Cursor auf
+    # dem Widget steht (Qt-Default blendet nach 10 s aus). Lokaler Import
+    # um Qt-Init-Reihenfolge nicht zu stoeren.
+    from ui.tooltip_utils import install_sticky_tooltips
+    install_sticky_tooltips(app)
+
     # ── i18n / Translations ───────────────────────────────────────────
     # Load .qm file for the system locale (default: German).
     # Compile .ts → .qm with: pyside6-lrelease translations/pb_studio_de.ts

@@ -115,6 +115,13 @@ class StudioBrainWindow(QMainWindow):
         backup_service: Optional[BackupService] = None,
     ) -> None:
         super().__init__()
+        # Sticky-Tooltips: Tooltips bleiben sichtbar, solange der Cursor auf
+        # dem Widget steht (Qt-Default blendet nach 10 s aus). Idempotent.
+        from PySide6.QtWidgets import QApplication
+        from ui.tooltip_utils import install_sticky_tooltips
+        _app = QApplication.instance()
+        if _app is not None:
+            install_sticky_tooltips(_app)
         self.setWindowTitle("Studio Brain")
 
         self._brain_service = brain_service if brain_service is not None else _default_brain_service()
@@ -172,6 +179,33 @@ class StudioBrainWindow(QMainWindow):
             parent=self._tabs,
         )
         self._tabs.addTab(self._steer_tab, _TAB_LABELS[3])
+
+        # Tab-Tooltips (deutsche, einsteigerfreundliche Erklaerungen).
+        self._tabs.setTabToolTip(
+            0,
+            "Uebersicht aller erkannten Szenen. Hier siehst du welche Clips "
+            "zu welchem Stil gehoeren, filterst nach Rolle/Stimmung/Stil "
+            "und markierst Clips fuer den naechsten Schnitt.",
+        )
+        self._tabs.setTabToolTip(
+            1,
+            "Was hat das Studio aus deinen bisherigen Schnitten gelernt? "
+            "Zeigt Pacing-Runs, automatisch erkannte Muster und die "
+            "dazugehoerigen Entscheidungen. Reset loescht die Lerndaten.",
+        )
+        self._tabs.setTabToolTip(
+            2,
+            "Prueft einen einzelnen Pacing-Run im Detail. Fuer jeden "
+            "Schnitt: Welcher Clip wurde warum gewaehlt, welche waren die "
+            "Alternativen, war es ein Fallback-Schnitt?",
+        )
+        self._tabs.setTabToolTip(
+            3,
+            "Steuert den naechsten Pacing-Run. Hier whlst du Audio-Track "
+            "und Gewichtsprofil, setzt Pins/Boosts/Excludes und startest "
+            "einen neuen Schnitt-Lauf.",
+        )
+
         self.setCentralWidget(self._tabs)
 
         self._restore_state()

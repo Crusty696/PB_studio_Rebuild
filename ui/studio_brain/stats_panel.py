@@ -47,7 +47,7 @@ logger = logging.getLogger(__name__)
 
 _STATS_MIN_WIDTH = 240
 _SECTION_LIST_HEIGHT = 96
-_UNAVAILABLE_TEXT = "Stats unavailable — enrichment has not run."
+_UNAVAILABLE_TEXT = "Statistiken nicht verfügbar — Analyse wurde noch nicht ausgeführt."
 
 _STATS_STYLE = (
     "QFrame#StructureStats{background:#131922;"
@@ -110,8 +110,13 @@ class StatsPanel(QFrame):
         outer.setContentsMargins(8, 8, 8, 8)
         outer.setSpacing(4)
 
-        self._title_label = QLabel("Stats")
+        self._title_label = QLabel("Statistik")
         self._title_label.setProperty("role", "title")
+        self._title_label.setToolTip(
+            "Bibliotheks-Statistik: Wie viele Szenen sind analysiert, "
+            "welche Rollen/Stimmungen dominieren, und welche erwarteten "
+            "Stimmungs-Anker fehlen noch im Material."
+        )
         outer.addWidget(self._title_label)
 
         # Unavailable / error line (hidden in healthy state).
@@ -125,41 +130,76 @@ class StatsPanel(QFrame):
         self._coverage_label = QLabel("—")
         self._coverage_label.setProperty("role", "value")
         self._coverage_label.setWordWrap(True)
+        self._coverage_label.setToolTip(
+            "Wie viel Prozent deiner Clips wurden bereits komplett "
+            "analysiert (Rolle + Stimmung + Stil-Cluster erkannt)."
+        )
         outer.addWidget(self._coverage_label)
 
         self._buckets_label = QLabel("—")
         self._buckets_label.setProperty("role", "value")
+        self._buckets_label.setToolTip(
+            "Aktive Stil-Cluster — Gruppen von Clips mit aehnlicher "
+            "visueller Sprache. Je mehr Cluster, desto abwechslungsreicher "
+            "die Bildsprache."
+        )
         outer.addWidget(self._buckets_label)
 
         # Roles section.
-        self._roles_header = QLabel("<b>Roles</b>")
+        self._roles_header = QLabel("<b>Rollen</b>")
         self._roles_header.setProperty("role", "section")
         self._roles_header.setTextFormat(Qt.TextFormat.RichText)
+        self._roles_header.setToolTip(
+            "Verteilung der erkannten Schnitt-Rollen in deiner Bibliothek. "
+            "Hero = Hauptakteur, Filler = Ueberbrueckung, Transition = "
+            "Bewegung."
+        )
         outer.addWidget(self._roles_header)
 
         self._roles_list = QListWidget(self)
         self._roles_list.setFixedHeight(_SECTION_LIST_HEIGHT)
+        self._roles_list.setToolTip(
+            "Verteilung der erkannten Schnitt-Rollen: wie viele Szenen "
+            "pro Rolle und ihr Anteil."
+        )
         outer.addWidget(self._roles_list)
 
         # Moods section.
-        self._moods_header = QLabel("<b>Moods</b>")
+        self._moods_header = QLabel("<b>Stimmungen</b>")
         self._moods_header.setProperty("role", "section")
         self._moods_header.setTextFormat(Qt.TextFormat.RichText)
+        self._moods_header.setToolTip(
+            "Verteilung der Video-Stimmungen. Wenn eine Stimmung dominiert, "
+            "wird dein Schnitt eintoenig."
+        )
         outer.addWidget(self._moods_header)
 
         self._moods_list = QListWidget(self)
         self._moods_list.setFixedHeight(_SECTION_LIST_HEIGHT)
+        self._moods_list.setToolTip(
+            "Verteilung der erkannten Stimmungen: wie viele Szenen pro "
+            "Stimmung und ihr Anteil."
+        )
         outer.addWidget(self._moods_list)
 
         # Coverage-gaps section.
-        self._gaps_header = QLabel("<b>Coverage gaps</b>")
+        self._gaps_header = QLabel("<b>Fehlende Stimmungen</b>")
         self._gaps_header.setProperty("role", "section")
         self._gaps_header.setTextFormat(Qt.TextFormat.RichText)
+        self._gaps_header.setToolTip(
+            "Erwartete Stimmungen aus der Konfiguration die KEINE Szenen "
+            "haben. Solche Luecken zwingen den Agenten Kompromisse "
+            "einzugehen."
+        )
         outer.addWidget(self._gaps_header)
 
-        self._gaps_label = QLabel("no gaps")
+        self._gaps_label = QLabel("keine Lücken")
         self._gaps_label.setProperty("role", "value")
         self._gaps_label.setWordWrap(True)
+        self._gaps_label.setToolTip(
+            "Fehlende Stimmungs-Anker aus der Konfiguration, fuer die du "
+            "noch kein Material hast."
+        )
         outer.addWidget(self._gaps_label)
 
         outer.addStretch()
@@ -204,18 +244,18 @@ class StatsPanel(QFrame):
         fraction = float(stats.get("coverage_fraction") or 0.0)
         pct_text = "— %" if total == 0 else _format_pct(fraction)
         self._coverage_label.setText(
-            f"Scenes: {enriched} enriched / {total} total  ·  {pct_text}"
+            f"Szenen: {enriched} analysiert / {total} gesamt  ·  {pct_text}"
         )
 
         bucket_count = int(stats.get("active_style_buckets") or 0)
-        self._buckets_label.setText(f"Active style buckets: {bucket_count}")
+        self._buckets_label.setText(f"Aktive Stil-Cluster: {bucket_count}")
 
         # Roles list.
         self._roles_list.clear()
         role_counts = list(stats.get("role_counts") or [])
         role_total = sum(n for _, n in role_counts)
         if not role_counts:
-            self._roles_list.addItem("(no roles)")
+            self._roles_list.addItem("(keine Rollen)")
         else:
             for label, n in role_counts:
                 self._roles_list.addItem(_format_row(str(label), int(n), role_total))
@@ -225,7 +265,7 @@ class StatsPanel(QFrame):
         mood_counts = list(stats.get("mood_counts") or [])
         mood_total = sum(n for _, n in mood_counts)
         if not mood_counts:
-            self._moods_list.addItem("(no moods)")
+            self._moods_list.addItem("(keine Stimmungen)")
         else:
             for label, n in mood_counts:
                 self._moods_list.addItem(_format_row(str(label), int(n), mood_total))
@@ -233,6 +273,6 @@ class StatsPanel(QFrame):
         # Missing moods.
         missing = list(stats.get("missing_moods") or [])
         if not missing:
-            self._gaps_label.setText("no gaps")
+            self._gaps_label.setText("keine Lücken")
         else:
             self._gaps_label.setText(", ".join(str(m) for m in missing))

@@ -116,7 +116,7 @@ _STATUS_ERR_STYLE = (
     "border-radius:4px;"
 )
 
-_RUN_BUTTON_TOAST = "Run queued — awaiting agent."
+_RUN_BUTTON_TOAST = "Run in Warteschlange — wartet auf den Agenten."
 
 
 # ── Formatting helpers ───────────────────────────────────────────────────────
@@ -160,9 +160,13 @@ class _TrackSelector(QWidget):
         hl.setContentsMargins(0, 0, 0, 0)
         hl.setSpacing(6)
 
-        hl.addWidget(QLabel("Audio track:"))
+        hl.addWidget(QLabel("Audio-Track:"))
         self._combo = QComboBox(self)
         self._combo.setMinimumWidth(320)
+        self._combo.setToolTip(
+            "Auf welchem Audio-Track soll der naechste Run laufen? "
+            "Die Liste zeigt die in der Datenbank registrierten Tracks."
+        )
         self._combo.currentIndexChanged.connect(self._emit_current)
         hl.addWidget(self._combo, stretch=1)
         hl.addStretch()
@@ -177,7 +181,7 @@ class _TrackSelector(QWidget):
         try:
             self._combo.clear()
             if not self._tracks:
-                self._combo.addItem("(no audio tracks)", userData=None)
+                self._combo.addItem("(keine Audio-Tracks)", userData=None)
                 self._combo.setEnabled(False)
             else:
                 self._combo.setEnabled(True)
@@ -247,13 +251,23 @@ class _ProfilePicker(QWidget):
         hl.setContentsMargins(0, 0, 0, 0)
         hl.setSpacing(6)
 
-        hl.addWidget(QLabel("Weights profile:"))
+        hl.addWidget(QLabel("Gewichtsprofil:"))
         self._combo = QComboBox(self)
         self._combo.setMinimumWidth(200)
+        self._combo.setToolTip(
+            "Gewichte der 13 Pacing-Terme. default = neutral, "
+            "psytrance/house = Genre-spezifisch, dj_mix_auto = automatisch "
+            "Mid-Run wechseln bei DJ-Mixen."
+        )
         self._combo.currentIndexChanged.connect(self._emit_current)
         hl.addWidget(self._combo, stretch=1)
 
-        self._edit_btn = QPushButton("Edit profile")
+        self._edit_btn = QPushButton("Profil bearbeiten")
+        self._edit_btn.setToolTip(
+            "Oeffnet die YAML-Datei des gewaehlten Profils im "
+            "System-Editor. Aenderungen werden beim naechsten Run gelesen. "
+            "(Kein In-App-Slider per Design — YAML verhindert Versehen.)"
+        )
         self._edit_btn.clicked.connect(self.editRequested)
         self._edit_btn.setEnabled(False)
         hl.addWidget(self._edit_btn)
@@ -269,7 +283,7 @@ class _ProfilePicker(QWidget):
         try:
             self._combo.clear()
             if not self._profiles:
-                self._combo.addItem("(no profiles)", userData=None)
+                self._combo.addItem("(keine Profile)", userData=None)
                 self._combo.setEnabled(False)
                 self._edit_btn.setEnabled(False)
             else:
@@ -355,19 +369,31 @@ class _OverridesLists(QFrame):
         pins_layout.setSpacing(2)
         pins_header = QLabel("Pins")
         pins_header.setStyleSheet(_HEADER_LABEL_STYLE)
+        _pins_tooltip = (
+            "Feste Clip-Anker: diese Szenen MUESSEN im Run vorkommen. "
+            "Der Agent hat keine Wahl."
+        )
+        pins_header.setToolTip(_pins_tooltip)
         pins_layout.addWidget(pins_header)
         self._pins_list = QListWidget(pins_col)
         self._pins_list.setStyleSheet(_LIST_STYLE)
+        self._pins_list.setToolTip(_pins_tooltip)
         pins_layout.addWidget(self._pins_list, stretch=1)
         pins_btn_row = QHBoxLayout()
         pins_btn_row.setContentsMargins(0, 0, 0, 0)
         pins_btn_row.setSpacing(4)
-        self._pin_add_btn = QPushButton("+ add")
+        self._pin_add_btn = QPushButton("+ Pin hinzufügen")
         self._pin_add_btn.setStyleSheet(_SELECTOR_STYLE)
+        self._pin_add_btn.setToolTip(
+            "Szenen-ID eingeben und zur Pins-Liste hinzufuegen."
+        )
         self._pin_add_btn.clicked.connect(self.pinAddRequested)
         pins_btn_row.addWidget(self._pin_add_btn)
-        self._pin_remove_btn = QPushButton("− remove")
+        self._pin_remove_btn = QPushButton("− Entfernen")
         self._pin_remove_btn.setStyleSheet(_SELECTOR_STYLE)
+        self._pin_remove_btn.setToolTip(
+            "Ausgewaehlten Pin aus der Liste nehmen."
+        )
         self._pin_remove_btn.clicked.connect(self._on_pin_remove_clicked)
         pins_btn_row.addWidget(self._pin_remove_btn)
         pins_btn_row.addStretch()
@@ -381,15 +407,24 @@ class _OverridesLists(QFrame):
         boosts_layout.setSpacing(2)
         boosts_header = QLabel("Boosts")
         boosts_header.setStyleSheet(_HEADER_LABEL_STYLE)
+        _boosts_tooltip = (
+            "Empfehlungen: diese Szenen werden BEVORZUGT (nicht erzwungen). "
+            "Quelle steht in Klammern — aus welchem Tab der Boost kam."
+        )
+        boosts_header.setToolTip(_boosts_tooltip)
         boosts_layout.addWidget(boosts_header)
         self._boosts_list = QListWidget(boosts_col)
         self._boosts_list.setStyleSheet(_LIST_STYLE)
+        self._boosts_list.setToolTip(_boosts_tooltip)
         boosts_layout.addWidget(self._boosts_list, stretch=1)
         boosts_btn_row = QHBoxLayout()
         boosts_btn_row.setContentsMargins(0, 0, 0, 0)
         boosts_btn_row.setSpacing(4)
-        self._boost_remove_btn = QPushButton("− remove")
+        self._boost_remove_btn = QPushButton("− Entfernen")
         self._boost_remove_btn.setStyleSheet(_SELECTOR_STYLE)
+        self._boost_remove_btn.setToolTip(
+            "Ausgewaehlten Boost aus der Liste nehmen."
+        )
         self._boost_remove_btn.clicked.connect(self._on_boost_remove_clicked)
         boosts_btn_row.addWidget(self._boost_remove_btn)
         boosts_btn_row.addStretch()
@@ -403,15 +438,24 @@ class _OverridesLists(QFrame):
         excludes_layout.setSpacing(2)
         excludes_header = QLabel("Excludes")
         excludes_header.setStyleSheet(_HEADER_LABEL_STYLE)
+        _excludes_tooltip = (
+            "Blockierungen: diese Szenen werden AUSGESCHLOSSEN. "
+            "Der Agent nimmt sie auf keinen Fall."
+        )
+        excludes_header.setToolTip(_excludes_tooltip)
         excludes_layout.addWidget(excludes_header)
         self._excludes_list = QListWidget(excludes_col)
         self._excludes_list.setStyleSheet(_LIST_STYLE)
+        self._excludes_list.setToolTip(_excludes_tooltip)
         excludes_layout.addWidget(self._excludes_list, stretch=1)
         excludes_btn_row = QHBoxLayout()
         excludes_btn_row.setContentsMargins(0, 0, 0, 0)
         excludes_btn_row.setSpacing(4)
-        self._exclude_remove_btn = QPushButton("− remove")
+        self._exclude_remove_btn = QPushButton("− Entfernen")
         self._exclude_remove_btn.setStyleSheet(_SELECTOR_STYLE)
+        self._exclude_remove_btn.setToolTip(
+            "Ausgewaehlten Exclude aus der Liste nehmen."
+        )
         self._exclude_remove_btn.clicked.connect(self._on_exclude_remove_clicked)
         excludes_btn_row.addWidget(self._exclude_remove_btn)
         excludes_btn_row.addStretch()
@@ -451,7 +495,7 @@ class _OverridesLists(QFrame):
     def _rebuild_pins_list(self) -> None:
         self._pins_list.clear()
         for sid in self._pin_scene_ids:
-            item = QListWidgetItem(f"scene #{sid}", self._pins_list)
+            item = QListWidgetItem(f"Szene #{sid}", self._pins_list)
             item.setData(Qt.ItemDataRole.UserRole, int(sid))
 
     def _selected_scene_id(self, list_widget: QListWidget) -> Optional[int]:
@@ -485,7 +529,7 @@ class _OverridesLists(QFrame):
         self._boosts_list.clear()
         self._excludes_list.clear()
         for entry in items:
-            label = f"scene #{entry.scene_id}  (source={entry.source})"
+            label = f"Szene #{entry.scene_id}  (Quelle={entry.source})"
             item = QListWidgetItem(label)
             item.setData(Qt.ItemDataRole.UserRole, int(entry.scene_id))
             if entry.action == "boost":
@@ -539,7 +583,12 @@ class _RunBar(QWidget):
 
         hl.addStretch()
 
-        self._run_btn = QPushButton("Run with these settings")
+        self._run_btn = QPushButton("Mit diesen Einstellungen starten")
+        self._run_btn.setToolTip(
+            "Sendet das Signal 'runRequested' mit dem aktuellen "
+            "Steer-Snapshot (Track + Profil + Pins + Boosts + Excludes). "
+            "Der Pacing-Agent wird dann mit diesen Run-Overrides starten."
+        )
         self._run_btn.clicked.connect(self.runClicked)
         self._run_btn.setEnabled(False)
         hl.addWidget(self._run_btn)
@@ -701,7 +750,7 @@ class SteerTab(QWidget):
     def _on_edit_profile(self) -> None:
         path = self._profile_picker.current_profile_path()
         if not path:
-            self._run_bar.set_status_error("No profile selected.")
+            self._run_bar.set_status_error("Kein Profil ausgewählt.")
             self._status_timer.start()
             return
         url = QUrl.fromLocalFile(str(path))
@@ -709,7 +758,9 @@ class SteerTab(QWidget):
             QDesktopServices.openUrl(url)
         except Exception as exc:  # noqa: BLE001 — defensive on the OS hand-off
             logger.warning("SteerTab: openUrl failed for %s: %s", path, exc)
-            self._run_bar.set_status_error(f"Could not open editor: {exc}")
+            self._run_bar.set_status_error(
+                f"Editor konnte nicht geöffnet werden: {exc}"
+            )
             self._status_timer.start()
 
     def _on_pin_add(self) -> None:
@@ -721,8 +772,8 @@ class SteerTab(QWidget):
         """
         scene_id, ok = QInputDialog.getInt(
             self,
-            "Add pin",
-            "Scene ID:",
+            "Pin hinzufügen",
+            "Szenen-ID:",
             value=1,
             min=0,  # type: ignore[call-arg]
             max=10_000_000,

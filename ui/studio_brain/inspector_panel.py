@@ -47,7 +47,7 @@ logger = logging.getLogger(__name__)
 
 _INSPECTOR_MIN_WIDTH = 240
 _NEIGHBOR_LIST_HEIGHT = 110
-_PLACEHOLDER_TEXT = "Select a clip to inspect."
+_PLACEHOLDER_TEXT = "Wähle einen Clip aus, um Details zu sehen."
 
 _INSPECTOR_STYLE = (
     "QFrame#StructureInspector{background:#131922;"
@@ -122,6 +122,10 @@ class InspectorPanel(QFrame):
         # Title + status line (doubles as placeholder / error line).
         self._title_label = QLabel("Inspector")
         self._title_label.setProperty("role", "title")
+        self._title_label.setToolTip(
+            "Details zur aktuell ausgewaehlten Szene: Rolle, Stimmung, "
+            "Stil, aehnliche Szenen und wie oft sie bisher verwendet wurde."
+        )
         outer.addWidget(self._title_label)
 
         self._status_label = QLabel(_PLACEHOLDER_TEXT)
@@ -145,23 +149,40 @@ class InspectorPanel(QFrame):
         self._style_label = self._make_value_label()
         self._usage_label = self._make_value_label()
 
-        form.addRow(self._make_key_label("Scene:"), self._scene_id_label)
+        form.addRow(self._make_key_label("Szene:"), self._scene_id_label)
         form.addRow(self._make_key_label("Video:"), self._video_label)
-        form.addRow(self._make_key_label("Time:"), self._time_label)
-        form.addRow(self._make_key_label("Role:"), self._role_label)
-        form.addRow(self._make_key_label("Mood:"), self._mood_label)
-        form.addRow(self._make_key_label("Style:"), self._style_label)
-        form.addRow(self._make_key_label("Usage:"), self._usage_label)
+        form.addRow(self._make_key_label("Zeit:"), self._time_label)
+        form.addRow(self._make_key_label("Rolle:"), self._role_label)
+        form.addRow(self._make_key_label("Stimmung:"), self._mood_label)
+        form.addRow(self._make_key_label("Stil:"), self._style_label)
+        _usage_key = self._make_key_label("Nutzung:")
+        form.addRow(_usage_key, self._usage_label)
+        _usage_tooltip = (
+            "Wie oft diese Szene in frueheren Pacing-Runs geschnitten wurde, "
+            "und wann sie zuletzt in einem abgeschlossenen Run gelandet ist."
+        )
+        _usage_key.setToolTip(_usage_tooltip)
+        self._usage_label.setToolTip(_usage_tooltip)
 
         outer.addWidget(self._form_widget)
 
         # Neighbors list.
-        self._neighbors_title = QLabel("Neighbors (top 5)")
+        self._neighbors_title = QLabel("Ähnliche Szenen (Top 5)")
         self._neighbors_title.setProperty("role", "key")
+        self._neighbors_title.setToolTip(
+            "Die 5 aehnlichsten Szenen (cosine similarity der "
+            "Bildeinbettung). Jede Zeile: Szenen-ID, Aehnlichkeit, "
+            "Rolle/Stimmung."
+        )
         outer.addWidget(self._neighbors_title)
 
         self._neighbors_list = QListWidget(self)
         self._neighbors_list.setFixedHeight(_NEIGHBOR_LIST_HEIGHT)
+        self._neighbors_list.setToolTip(
+            "Die 5 aehnlichsten Szenen (cosine similarity der "
+            "Bildeinbettung). Jede Zeile: Szenen-ID, Aehnlichkeit, "
+            "Rolle/Stimmung."
+        )
         outer.addWidget(self._neighbors_list)
 
         outer.addStretch()
@@ -204,12 +225,15 @@ class InspectorPanel(QFrame):
                 "InspectorPanel.populate: get_clip_detail failed: %s", exc
             )
             self._show_placeholder(
-                f"Scene #{sid}: detail unavailable (schema not ready)."
+                f"Szene #{sid}: Details noch nicht verfügbar "
+                "(Datenbank noch nicht bereit)."
             )
             return
 
         if detail is None:
-            self._show_placeholder(f"Scene #{sid}: not enriched yet.")
+            self._show_placeholder(
+                f"Szene #{sid}: noch nicht analysiert."
+            )
             return
 
         self._render_detail(detail)
@@ -274,7 +298,7 @@ class InspectorPanel(QFrame):
         self._neighbors_list.clear()
         neighbors = detail.get("neighbors") or []
         if not neighbors:
-            empty = QListWidgetItem("(no neighbors)")
+            empty = QListWidgetItem("(keine ähnlichen Szenen)")
             empty.setFlags(Qt.ItemFlag.NoItemFlags)
             self._neighbors_list.addItem(empty)
         else:
@@ -285,11 +309,11 @@ class InspectorPanel(QFrame):
     def _format_usage(detail: dict[str, Any]) -> str:
         count = int(detail.get("usage_count") or 0)
         if count == 0:
-            return "never used"
+            return "noch nie verwendet"
         last = detail.get("last_run_completed_at")
         if last:
-            return f"{count} cuts · last run: {last}"
-        return f"usage count {count}, last run: —"
+            return f"{count} Schnitte · letzter Lauf: {last}"
+        return f"{count} Schnitte, letzter Lauf: —"
 
     @staticmethod
     def _format_neighbor(n: dict[str, Any]) -> str:

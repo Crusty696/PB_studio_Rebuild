@@ -70,8 +70,8 @@ logger = logging.getLogger(__name__)
 
 _SEGMENT_STRIP_HEIGHT = 80
 _TERM_CHART_HEIGHT = 220
-_EMPTY_TERMS_TEXT = "Select a cut to see term contributions."
-_EMPTY_ALTS_TEXT = "Select a cut to see alternatives."
+_EMPTY_TERMS_TEXT = "Wähle einen Schnitt aus, um die Term-Beiträge zu sehen."
+_EMPTY_ALTS_TEXT = "Wähle einen Schnitt aus, um die Alternativen zu sehen."
 _EMPTY_BUDGET_TEXT = "—"
 
 _SELECTOR_STYLE = (
@@ -144,9 +144,13 @@ class _RunSelector(QWidget):
         hl.setContentsMargins(0, 0, 0, 0)
         hl.setSpacing(6)
 
-        hl.addWidget(QLabel("Run:"))
+        hl.addWidget(QLabel("Lauf:"))
         self._combo = QComboBox(self)
         self._combo.setMinimumWidth(320)
+        self._combo.setToolTip(
+            "Welcher vergangene Pacing-Run soll geprueft werden? "
+            "Sortiert: juengster zuerst."
+        )
         self._combo.currentIndexChanged.connect(self._emit_current)
         hl.addWidget(self._combo, stretch=1)
         hl.addStretch()
@@ -163,7 +167,7 @@ class _RunSelector(QWidget):
         try:
             self._combo.clear()
             if not self._runs:
-                self._combo.addItem("(no completed runs)", userData=None)
+                self._combo.addItem("(keine abgeschlossenen Läufe)", userData=None)
                 self._combo.setEnabled(False)
             else:
                 self._combo.setEnabled(True)
@@ -240,6 +244,11 @@ class _SegmentStrip(QFrame):
         self.setFixedHeight(_SEGMENT_STRIP_HEIGHT)
         self.setFrameShape(QFrame.Shape.NoFrame)
         self.setStyleSheet("background:#0f141d;border-radius:4px;")
+        self.setToolTip(
+            "DJ-Mix-Struktur: die erkannten Abschnitte "
+            "(Intro/Buildup/Drop/Breakdown/Outro) als farbige Baender. "
+            "Nur bei DJ-Mix-Runs sichtbar."
+        )
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(2, 2, 2, 2)
@@ -340,11 +349,19 @@ class _CutTable(QWidget):
         hl.setContentsMargins(0, 0, 0, 0)
         hl.setSpacing(8)
 
-        self._rejected_chk = QCheckBox("rejected only")
+        self._rejected_chk = QCheckBox("Nur abgelehnte")
+        self._rejected_chk.setToolTip(
+            "Zeige nur Schnitte bei denen du 'reject' gedrueckt hast "
+            "(User-Verdict = reject)."
+        )
         self._rejected_chk.stateChanged.connect(self._emit_filter)
         hl.addWidget(self._rejected_chk)
 
-        self._fallback_chk = QCheckBox("fallback only")
+        self._fallback_chk = QCheckBox("Nur Fallback")
+        self._fallback_chk.setToolTip(
+            "Zeige nur Schnitte bei denen der Agent eine Notloesung nehmen "
+            "musste (weiche Rules, erzwungener Cut, negative Scores)."
+        )
         self._fallback_chk.stateChanged.connect(self._emit_filter)
         hl.addWidget(self._fallback_chk)
         hl.addStretch()
@@ -354,6 +371,25 @@ class _CutTable(QWidget):
         self._table.setHorizontalHeaderLabels([c[0] for c in _CUT_COLUMNS])
         for idx, (_label, width) in enumerate(_CUT_COLUMNS):
             self._table.setColumnWidth(idx, width)
+        _cut_col_tooltips = (
+            "Laufende Nummer des Schnitts im Run.",
+            "Zeitpunkt im Audio-Track (mm:ss).",
+            "Welcher Song-Abschnitt: intro, buildup, drop, breakdown, outro.",
+            "Szenen-ID oder Clip-ID plus Dateiname.",
+            "Die zugewiesene Rolle der Szene.",
+            "Gewichteter Gesamtscore ueber alle 13 Pacing-Terme. Hoeher = "
+            "besser passend.",
+            "Dein Urteil: accept / reject / (leer = keine Eingabe).",
+        )
+        for idx, tip in enumerate(_cut_col_tooltips):
+            hdr_item = self._table.horizontalHeaderItem(idx)
+            if hdr_item is not None:
+                hdr_item.setToolTip(tip)
+        self._table.setToolTip(
+            "Alle Schnitte dieses Runs in zeitlicher Reihenfolge. Zeile "
+            "anklicken -> Details rechts zeigen warum gerade dieser Clip "
+            "gewaehlt wurde."
+        )
         self._table.horizontalHeader().setSectionResizeMode(
             3, QHeaderView.ResizeMode.Stretch
         )
@@ -472,8 +508,13 @@ class _TermContributions(QFrame):
         outer.setContentsMargins(2, 2, 2, 2)
         outer.setSpacing(2)
 
-        self._header = QLabel("Term contributions")
+        self._header = QLabel("Term-Beiträge")
         self._header.setStyleSheet(_HEADER_LABEL_STYLE)
+        self._header.setToolTip(
+            "Der ausgewaehlte Schnitt aufgeschluesselt: wie stark jeder "
+            "der 13 Pacing-Terme beigetragen hat. Positiv = hat den Clip "
+            "gepusht, negativ = hat ihn benachteiligt."
+        )
         outer.addWidget(self._header)
 
         self._empty_label = QLabel(_EMPTY_TERMS_TEXT)
@@ -488,6 +529,11 @@ class _TermContributions(QFrame):
         self._plot.setMenuEnabled(False)
         self._plot.getPlotItem().getAxis("left").setTextPen("#9ca3af")
         self._plot.getPlotItem().getAxis("bottom").setTextPen("#9ca3af")
+        self._plot.setToolTip(
+            "Der ausgewaehlte Schnitt aufgeschluesselt: wie stark jeder "
+            "der 13 Pacing-Terme beigetragen hat. Positiv = hat den Clip "
+            "gepusht, negativ = hat ihn benachteiligt."
+        )
         self._plot.setVisible(False)
         outer.addWidget(self._plot, stretch=1)
 
@@ -558,8 +604,12 @@ class _Alternatives(QFrame):
         outer.setContentsMargins(2, 2, 2, 2)
         outer.setSpacing(2)
 
-        self._header = QLabel("Alternatives (top 3)")
+        self._header = QLabel("Alternativen (Top 3)")
         self._header.setStyleSheet(_HEADER_LABEL_STYLE)
+        self._header.setToolTip(
+            "Die 3 besten Alternativen die der Agent erwogen aber nicht "
+            "genommen hat, mit ihrem Score."
+        )
         outer.addWidget(self._header)
 
         self._empty_label = QLabel(_EMPTY_ALTS_TEXT)
@@ -569,6 +619,10 @@ class _Alternatives(QFrame):
         self._list = QListWidget(self)
         self._list.setStyleSheet(_LIST_STYLE)
         self._list.setMaximumHeight(96)
+        self._list.setToolTip(
+            "Die 3 besten Alternativen die der Agent erwogen aber nicht "
+            "genommen hat, mit ihrem Score."
+        )
         outer.addWidget(self._list)
 
     def clear(self) -> None:
@@ -618,14 +672,22 @@ class _BudgetState(QFrame):
         outer.setContentsMargins(2, 2, 2, 2)
         outer.setSpacing(2)
 
-        self._header = QLabel("Budget state at cut")
+        self._header = QLabel("Budget-Stand beim Schnitt")
         self._header.setStyleSheet(_HEADER_LABEL_STYLE)
+        self._header.setToolTip(
+            "Stand der Variations-Budgets zum Zeitpunkt des Schnitts: "
+            "wie viele 'Tokens' in welchem Bucket bereits verbraucht waren."
+        )
         outer.addWidget(self._header)
 
         self._form_host = QWidget(self)
         self._form = QFormLayout(self._form_host)
         self._form.setContentsMargins(4, 2, 4, 2)
         self._form.setSpacing(4)
+        self._form_host.setToolTip(
+            "Stand der Variations-Budgets zum Zeitpunkt des Schnitts: "
+            "wie viele 'Tokens' in welchem Bucket bereits verbraucht waren."
+        )
         outer.addWidget(self._form_host)
 
         self._empty_label = QLabel(_EMPTY_BUDGET_TEXT)
@@ -695,12 +757,17 @@ class AuditTab(QWidget):
         top_row.addWidget(self._run_selector, stretch=1)
 
         # P12 trigger: opens StoryMapDialog for the currently-selected run.
-        self._story_map_btn = QPushButton("Story Map…", self)
+        self._story_map_btn = QPushButton("Story Map öffnen…", self)
         self._story_map_btn.setStyleSheet(
             "QPushButton{background:#1a2030;color:#e5e7eb;"
             "border:1px solid rgba(255,255,255,0.1);border-radius:4px;"
             "padding:3px 10px;font-size:10px;}"
             "QPushButton:hover{background:#243042;}"
+        )
+        self._story_map_btn.setToolTip(
+            "Oeffnet einen grafischen Ueberblick des ganzen Runs: "
+            "Waveform, Section-Strip, Tension-Kurve, Stimmungs-Band, "
+            "Clip-Strip in Schnitt-Reihenfolge."
         )
         self._story_map_btn.clicked.connect(self._on_story_map_clicked)
         top_row.addWidget(self._story_map_btn)
@@ -871,7 +938,7 @@ class AuditTab(QWidget):
             QMessageBox.information(
                 self,
                 "Story Map",
-                "Please select a run first.",
+                "Bitte wähle zuerst einen Lauf aus.",
             )
             return
         # Local import keeps the StoryMapDialog (and its pyqtgraph imports)
