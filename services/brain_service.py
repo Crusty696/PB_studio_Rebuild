@@ -27,6 +27,10 @@ compat-edges for the Structure tab's Graph mode.
 T11.1 extension: list_pacing_runs, list_learned_patterns,
 list_decisions_for_pattern, list_distinct_pattern_types — backing the
 Memory tab's run-timeline + pattern table + drill-down.
+
+T11.2 extension: list_runs_for_audit_selector, list_decisions_for_run,
+get_decision_detail, list_structure_segments_for_run — backing the Audit
+tab's run dropdown + cut table + details column + segment-strip.
 """
 
 from __future__ import annotations
@@ -152,6 +156,20 @@ class BrainService:
         self.list_decisions_for_pattern = functools.lru_cache(maxsize=32)(
             self._list_decisions_for_pattern_uncached
         )
+        # T11.2: Audit tab read-views.
+        self.list_runs_for_audit_selector = functools.lru_cache(maxsize=1)(
+            self._list_runs_for_audit_selector_uncached
+        )
+        self.get_decision_detail = functools.lru_cache(maxsize=64)(
+            self._get_decision_detail_uncached
+        )
+        self.list_structure_segments_for_run = functools.lru_cache(maxsize=32)(
+            self._list_structure_segments_for_run_uncached
+        )
+        # list_decisions_for_run takes kwargs → wrap positional helper.
+        self._list_decisions_for_run_cached = functools.lru_cache(maxsize=32)(
+            self._list_decisions_for_run_uncached
+        )
         # Names of attributes wrapped in lru_cache — invalidate() iterates this
         # list so new cached endpoints only need to be added in one place.
         self._cached_attrs: tuple[str, ...] = (
@@ -167,6 +185,10 @@ class BrainService:
             "list_distinct_pattern_types",
             "_list_learned_patterns_cached",
             "list_decisions_for_pattern",
+            "list_runs_for_audit_selector",
+            "get_decision_detail",
+            "list_structure_segments_for_run",
+            "_list_decisions_for_run_cached",
         )
 
     def invalidate(self) -> None:
@@ -965,6 +987,396 @@ class BrainService:
                 )
             ).all()
             return [r[0] for r in rows if r[0] is not None]
+        finally:
+            self._close_session(session, ownership)
+
+    # ── T11.2: Audit tab reads ────────────────────────────────────────────
+    def _list_runs_for_audit_selector_uncached(self) -> list[dict]:
+        """Return COMPLETED pacing runs newest-first for the Audit tab dropdown.
+
+        Same shape as ``list_pacing_runs`` but filtered to
+        ``completed_at IS NOT NULL`` — partial/in-flight runs are not
+        meaningfully auditable (no decisions to step through).
+
+        A dedicated query (rather than Python-side filtering of the broader
+        ``list_pacing_runs`` result) keeps the Audit dropdown cheap when the
+        DB holds a long tail of completed mixes plus the occasional crash
+        recovery row, and lets the two caches evolve independently.
+        """
+        session, ownership = self._open_session()
+        try:
+            rows = (
+                session.execute(
+                    text(
+                        "SELECT "
+                        "  r.id                  AS id, "
+                        "  r.audio_track_id      AS audio_track_id, "
+                        "  r.started_at          AS started_at, "
+                        "  r.completed_at        AS completed_at, "
+                        "  r.is_dj_mix           AS is_dj_mix, "
+                        "  r.total_duration_sec  AS total_duration_sec, "
+                        "  r.total_cuts          AS total_cuts, "
+                        "  r.agent_version       AS agent_version, "
+                        "  r.weights_profile     AS weights_profile, "
+                        "  r.user_rating         AS user_rating, "
+                        "  r.user_notes          AS user_notes, "
+                        "  a.file_path           AS audio_track_filename "
+                        "FROM mem_pacing_run r "
+                        "LEFT JOIN audio_tracks a ON a.id = r.audio_track_id "
+                        "WHERE r.completed_at IS NOT NULL "
+                        "ORDER BY r.started_at DESC, r.id DESC"
+                    )
+                )
+                .mappings()
+                .all()
+            )
+            return [
+                {
+                    "id": int(r["id"]),
+                    "audio_track_id": (
+                        int(r["audio_track_id"])
+                        if r["audio_track_id"] is not None
+                        else None
+                    ),
+                    "started_at": r["started_at"],
+                    "completed_at": r["completed_at"],
+                    "is_dj_mix": bool(r["is_dj_mix"]),
+                    "total_duration_sec": float(r["total_duration_sec"] or 0.0),
+                    "total_cuts": int(r["total_cuts"] or 0),
+                    "agent_version": r["agent_version"],
+                    "weights_profile": r["weights_profile"],
+                    "user_rating": (
+                        int(r["user_rating"])
+                        if r["user_rating"] is not None
+                        else None
+                    ),
+                    "user_notes": r["user_notes"],
+                    "audio_track_filename": r["audio_track_filename"],
+                }
+                for r in rows
+            ]
+        finally:
+            self._close_session(session, ownership)
+
+    def list_decisions_for_run(
+        self,
+        run_id: int,
+        filters: Optional[dict] = None,
+    ) -> list[dict]:
+        """Return the cuts for a run, optionally filtered by verdict / fallback.
+
+        ``filters`` may contain:
+          - ``rejected_only`` (bool): keep rows where ``user_verdict = 'reject'``.
+          - ``fallback_only`` (bool): keep rows whose ``agent_rationale`` JSON
+            indicates a fallback branch. We consider any of
+            ``stage1_softened``, ``stage2_forced``, ``forced_negative`` or
+            an explicit ``fallback`` key being truthy as "fallback" — the
+            real pipeline sets the first three (see services/pacing/pipeline.py),
+            and we keep the literal ``fallback`` key for forward-compat with
+            future rationale shapes.
+
+        Multiple filters are AND-combined. Sorted by ``sequence_idx ASC``.
+
+        Each returned dict has keys:
+          ``id, sequence_idx, at_timestamp_sec, at_section_type,
+           at_structure_segment_id, scene_id, scene_filename,
+           clip_role, clip_mood_refined, clip_style_bucket_id,
+           agent_score, user_verdict``.
+
+        ``scene_filename`` is the basename of the underlying video-clip file,
+        resolved via scenes → video_clips JOIN (``None`` if either row
+        is missing — defensive against deleted clips that still have
+        historical decisions pointing at their scene_id).
+        """
+        rid = int(run_id)
+        flt = dict(filters or {})
+        rejected_only = bool(flt.get("rejected_only", False))
+        fallback_only = bool(flt.get("fallback_only", False))
+        return self._list_decisions_for_run_cached(rid, rejected_only, fallback_only)
+
+    def _list_decisions_for_run_uncached(
+        self,
+        run_id: int,
+        rejected_only: bool,
+        fallback_only: bool,
+    ) -> list[dict]:
+        session, ownership = self._open_session()
+        try:
+            sql = (
+                "SELECT "
+                "  d.id                     AS id, "
+                "  d.sequence_idx           AS sequence_idx, "
+                "  d.at_timestamp_sec       AS at_timestamp_sec, "
+                "  d.at_section_type        AS at_section_type, "
+                "  d.at_structure_segment_id AS at_structure_segment_id, "
+                "  d.scene_id               AS scene_id, "
+                "  d.clip_role              AS clip_role, "
+                "  d.clip_mood_refined      AS clip_mood_refined, "
+                "  d.clip_style_bucket_id   AS clip_style_bucket_id, "
+                "  d.agent_score            AS agent_score, "
+                "  d.user_verdict           AS user_verdict, "
+                "  v.file_path              AS video_file_path "
+                "FROM mem_decision d "
+                "LEFT JOIN scenes s       ON s.id = d.scene_id "
+                "LEFT JOIN video_clips v  ON v.id = s.video_clip_id "
+                "WHERE d.run_id = :rid"
+            )
+            params: dict[str, Any] = {"rid": int(run_id)}
+            if rejected_only:
+                sql += " AND d.user_verdict = 'reject'"
+            if fallback_only:
+                # Any fallback-indicator flag truthy in the rationale counts.
+                # json_extract is part of SQLite's JSON1 extension — available
+                # in all current SQLite builds shipped with Python 3.10+.
+                sql += (
+                    " AND ( "
+                    "   json_extract(d.agent_rationale, '$.fallback') = 1 "
+                    " OR json_extract(d.agent_rationale, '$.stage1_softened') = 1 "
+                    " OR json_extract(d.agent_rationale, '$.stage2_forced') = 1 "
+                    " OR json_extract(d.agent_rationale, '$.forced_negative') = 1 "
+                    " )"
+                )
+            sql += " ORDER BY d.sequence_idx ASC, d.id ASC"
+
+            rows = session.execute(text(sql), params).mappings().all()
+            out: list[dict] = []
+            for r in rows:
+                video_path = r["video_file_path"]
+                scene_filename = (
+                    os.path.basename(str(video_path)) if video_path else None
+                )
+                out.append(
+                    {
+                        "id": int(r["id"]),
+                        "sequence_idx": int(r["sequence_idx"] or 0),
+                        "at_timestamp_sec": float(r["at_timestamp_sec"] or 0.0),
+                        "at_section_type": r["at_section_type"],
+                        "at_structure_segment_id": (
+                            int(r["at_structure_segment_id"])
+                            if r["at_structure_segment_id"] is not None
+                            else None
+                        ),
+                        "scene_id": (
+                            int(r["scene_id"])
+                            if r["scene_id"] is not None
+                            else None
+                        ),
+                        "scene_filename": scene_filename,
+                        "clip_role": r["clip_role"],
+                        "clip_mood_refined": r["clip_mood_refined"],
+                        "clip_style_bucket_id": (
+                            int(r["clip_style_bucket_id"])
+                            if r["clip_style_bucket_id"] is not None
+                            else None
+                        ),
+                        "agent_score": float(r["agent_score"] or 0.0),
+                        "user_verdict": r["user_verdict"],
+                    }
+                )
+            return out
+        finally:
+            self._close_session(session, ownership)
+
+    def _get_decision_detail_uncached(self, decision_id: int) -> Optional[dict]:
+        """Return the parsed rationale + context for one decision, or None.
+
+        Backs the Audit tab's right-hand details column: term-contributions,
+        top-3 alternatives, budget-state.
+
+        The rationale JSON shape matches services/pacing/pipeline.py's
+        ``PacingPipeline.select_best`` return value:
+            {
+              chosen_clip_id, chosen_scene_id, chosen_score,
+              contribs: {term: signed_contribution},
+              stage1_softened, stage2_forced, forced_negative,
+              stage_results: [StageResult, ...],
+              at_section_type,
+              persisted_decision_id (if recorded),
+              ...
+            }
+
+        Fields mapped for the UI:
+          - ``rationale_terms``  — the ``contribs`` dict (signed per-term values).
+                                    Empty dict if missing.
+          - ``alternatives``     — at most 3, derived from the ``stage_results``
+                                    rows that have a ``soft_score`` set,
+                                    excluding the chosen clip itself, sorted by
+                                    ``soft_score`` DESC. The plan-brief's
+                                    ``rationale.alternatives`` field does NOT
+                                    exist in the real rationale — this is an
+                                    adapter. Each entry: ``{scene_id (None for
+                                    now — stage_results only carries clip_id),
+                                    clip_id, score, role}``.
+          - ``budget_state``     — forwarded from ``rationale.budget_state`` if
+                                    the pipeline ever populates it; otherwise
+                                    an empty dict. (Today pipeline.py does not
+                                    emit budget_state — the UI shows "—" when
+                                    absent.)
+          - ``fallback``         — True if any of stage1_softened /
+                                    stage2_forced / forced_negative / a literal
+                                    ``fallback`` flag are truthy.
+          - ``rejected``         — ``user_verdict == 'reject'``.
+        """
+        did = int(decision_id)
+        session, ownership = self._open_session()
+        try:
+            row = (
+                session.execute(
+                    text(
+                        "SELECT id, run_id, sequence_idx, at_timestamp_sec, "
+                        "  scene_id, clip_role, agent_score, agent_rationale, "
+                        "  user_verdict "
+                        "FROM mem_decision WHERE id = :did"
+                    ),
+                    {"did": did},
+                )
+                .mappings()
+                .first()
+            )
+            if row is None:
+                return None
+
+            rationale = _parse_json_field(row["agent_rationale"]) or {}
+            if not isinstance(rationale, dict):
+                rationale = {}
+
+            terms_raw = rationale.get("contribs") or rationale.get("terms") or {}
+            if isinstance(terms_raw, dict):
+                rationale_terms = {str(k): float(v) for k, v in terms_raw.items()}
+            else:
+                rationale_terms = {}
+
+            # Derive alternatives from stage_results when an explicit
+            # ``alternatives`` key isn't already present (future-proof: future
+            # rationale shapes may add one).
+            alternatives: list[dict] = []
+            raw_alts = rationale.get("alternatives")
+            chosen_clip_id = rationale.get("chosen_clip_id")
+            if isinstance(raw_alts, list) and raw_alts:
+                for alt in raw_alts[:3]:
+                    if not isinstance(alt, dict):
+                        continue
+                    alternatives.append(
+                        {
+                            "scene_id": alt.get("scene_id"),
+                            "clip_id": alt.get("clip_id"),
+                            "score": float(alt.get("score") or 0.0),
+                            "role": alt.get("role"),
+                        }
+                    )
+            else:
+                stage_results = rationale.get("stage_results") or []
+                if isinstance(stage_results, list):
+                    scored = [
+                        sr
+                        for sr in stage_results
+                        if isinstance(sr, dict)
+                        and sr.get("soft_score") is not None
+                        and sr.get("clip_id") != chosen_clip_id
+                    ]
+                    scored.sort(
+                        key=lambda sr: float(sr.get("soft_score") or 0.0),
+                        reverse=True,
+                    )
+                    for sr in scored[:3]:
+                        alternatives.append(
+                            {
+                                "scene_id": None,  # not carried in stage_results
+                                "clip_id": sr.get("clip_id"),
+                                "score": float(sr.get("soft_score") or 0.0),
+                                "role": None,
+                            }
+                        )
+
+            budget_raw = rationale.get("budget_state")
+            if isinstance(budget_raw, dict):
+                budget_state = {str(k): v for k, v in budget_raw.items()}
+            else:
+                budget_state = {}
+
+            fallback = bool(
+                rationale.get("fallback")
+                or rationale.get("stage1_softened")
+                or rationale.get("stage2_forced")
+                or rationale.get("forced_negative")
+            )
+
+            return {
+                "id": int(row["id"]),
+                "run_id": int(row["run_id"]),
+                "sequence_idx": int(row["sequence_idx"] or 0),
+                "at_timestamp_sec": float(row["at_timestamp_sec"] or 0.0),
+                "scene_id": (
+                    int(row["scene_id"])
+                    if row["scene_id"] is not None
+                    else None
+                ),
+                "clip_role": row["clip_role"],
+                "agent_score": float(row["agent_score"] or 0.0),
+                "rationale_terms": rationale_terms,
+                "alternatives": alternatives,
+                "budget_state": budget_state,
+                "fallback": fallback,
+                "rejected": row["user_verdict"] == "reject",
+            }
+        finally:
+            self._close_session(session, ownership)
+
+    def _list_structure_segments_for_run_uncached(
+        self, run_id: int
+    ) -> list[dict]:
+        """Return song-structure segments for a DJ-mix run.
+
+        Non-DJ-mix runs return ``[]`` (the segment-strip is hidden for them).
+        The segments live on ``structure_segments`` keyed by
+        ``audio_track_id``; we resolve the FK via ``mem_pacing_run``.
+
+        Result dicts have keys ``id, start_sec, end_sec, label`` (the DB
+        columns are called ``start_time`` / ``end_time`` — we alias here to
+        match the UI-side naming the brief uses). Sorted by ``start_sec ASC``.
+        """
+        rid = int(run_id)
+        session, ownership = self._open_session()
+        try:
+            run_row = (
+                session.execute(
+                    text(
+                        "SELECT is_dj_mix, audio_track_id "
+                        "FROM mem_pacing_run WHERE id = :rid"
+                    ),
+                    {"rid": rid},
+                )
+                .mappings()
+                .first()
+            )
+            if run_row is None or not bool(run_row["is_dj_mix"]):
+                return []
+            audio_track_id = run_row["audio_track_id"]
+            if audio_track_id is None:
+                return []
+
+            rows = (
+                session.execute(
+                    text(
+                        "SELECT id, start_time, end_time, label "
+                        "FROM structure_segments "
+                        "WHERE audio_track_id = :aid "
+                        "ORDER BY start_time ASC, id ASC"
+                    ),
+                    {"aid": int(audio_track_id)},
+                )
+                .mappings()
+                .all()
+            )
+            return [
+                {
+                    "id": int(r["id"]),
+                    "start_sec": float(r["start_time"] or 0.0),
+                    "end_sec": float(r["end_time"] or 0.0),
+                    "label": r["label"],
+                }
+                for r in rows
+            ]
         finally:
             self._close_session(session, ownership)
 

@@ -20,6 +20,12 @@ their own dispatches land.
 T11.1 scope: second tab (index 1, "Gedächtnis") now hosts MemoryTab, backed
 by the same BrainService + a BackupService guarding destructive SQL. The
 remaining two tabs (Audit, Steer) stay placeholders until T11.2/T11.3.
+
+T11.2 scope: third tab (index 2, "Audit") now hosts AuditTab, backed by the
+same BrainService. ``MemoryTab.runSelected`` is wired into
+``AuditTab.select_run`` so picking a run in the Gedächtnis tab aligns the
+Audit tab's selector (the user still has to switch tabs manually — auto-
+switch is a future UX polish). The Steer tab stays a placeholder until T11.3.
 """
 
 from __future__ import annotations
@@ -37,6 +43,7 @@ from services.steer_override_queue import (
     SteerOverrideQueue,
     get_default_queue,
 )
+from ui.studio_brain.audit_tab import AuditTab
 from ui.studio_brain.memory_tab import MemoryTab
 from ui.studio_brain.structure_tab import StructureTab
 
@@ -125,8 +132,19 @@ class StudioBrainWindow(QMainWindow):
             parent=self._tabs,
         )
         self._tabs.addTab(self._memory_tab, _TAB_LABELS[1])
-        # Indices 2..3 — still placeholders (filled by T11.2 / T11.3).
-        for label in _TAB_LABELS[2:]:
+        # Index 2 — Audit (live AuditTab from T11.2).
+        self._audit_tab = AuditTab(
+            brain_service=self._brain_service,
+            parent=self._tabs,
+        )
+        self._tabs.addTab(self._audit_tab, _TAB_LABELS[2])
+        # Wire MemoryTab → AuditTab cross-tab signal (T11.2):
+        # when the user picks a run in Gedächtnis, align the selector in
+        # Audit.  The user still switches tabs manually — auto-switch is a
+        # future UX polish.
+        self._memory_tab.runSelected.connect(self._audit_tab.select_run)
+        # Index 3 — Steer still a placeholder (filled by T11.3).
+        for label in _TAB_LABELS[3:]:
             placeholder = QWidget(self._tabs)
             self._tabs.addTab(placeholder, label)
         self.setCentralWidget(self._tabs)
