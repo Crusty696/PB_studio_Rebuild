@@ -72,6 +72,15 @@ class WorkspaceSetupController(PBComponent):
         self.window._btn_toggle_chat.setFixedHeight(22)
         top_layout.addWidget(self.window._btn_toggle_chat)
 
+        # P16: Studio Brain entry-point. Opens the 4-tab window
+        # (Struktur / Gedächtnis / Audit / Steer). Ctrl+B is the shortcut.
+        btn_brain = QPushButton("🧠 Brain")
+        btn_brain.setToolTip("Studio Brain öffnen (Ctrl+B)")
+        btn_brain.setMaximumWidth(90)
+        btn_brain.setFixedHeight(22)
+        btn_brain.clicked.connect(self.window._open_studio_brain)
+        top_layout.addWidget(btn_brain)
+
         btn_settings = QPushButton("⚙ Einstellungen")
         btn_settings.setMaximumWidth(110)
         btn_settings.setFixedHeight(22)

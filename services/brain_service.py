@@ -1455,15 +1455,25 @@ class BrainService:
             present = {row[1] for row in cols_rows}
             select_duration = "a.duration AS duration_sec" if "duration" in present else "NULL AS duration_sec"
             select_bpm = "a.bpm AS bpm" if "bpm" in present else "NULL AS bpm"
+            # created_at is only on the test-harness schema (added by
+            # `_add_audio_track_bpm_and_duration` helper); production
+            # `audio_tracks` has no such column. Introspect and fall back to
+            # id-ordering (autoincrement → newest-first) so the query works
+            # on both schemas.
+            has_created_at = "created_at" in present
+            select_created = "a.created_at AS created_at" if has_created_at else "NULL AS created_at"
+            order_by = (
+                "a.created_at DESC, a.id DESC" if has_created_at else "a.id DESC"
+            )
             sql = (
                 "SELECT "
                 "  a.id                 AS id, "
                 "  a.file_path          AS file_path, "
                 f" {select_duration}, "
                 f" {select_bpm}, "
-                "  a.created_at         AS created_at "
+                f" {select_created} "
                 "FROM audio_tracks a "
-                "ORDER BY a.created_at DESC, a.id DESC"
+                f"ORDER BY {order_by}"
             )
             rows = session.execute(text(sql)).mappings().all()
             out: list[dict[str, Any]] = []

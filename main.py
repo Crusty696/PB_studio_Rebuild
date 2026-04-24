@@ -338,6 +338,10 @@ class PBWindow(QMainWindow):
         from PySide6.QtGui import QShortcut, QKeySequence as _QKS
         QShortcut(_QKS(Qt.Key.Key_F1), self, self.project_management._show_shortcut_help)
         QShortcut(_QKS("Ctrl+?"), self, self.project_management._show_shortcut_help)
+        # P16: Studio Brain window — Ctrl+B shortcut. Singleton window,
+        # brought to front on every call. Top-bar button is wired
+        # separately in workspace_setup._build_top_bar.
+        QShortcut(_QKS("Ctrl+B"), self, self._open_studio_brain)
 
     # ── AUD-103: Update notification ──────────────────────────────────────
 
@@ -415,6 +419,32 @@ class PBWindow(QMainWindow):
         logger.info("Update banner shown: v%s available", latest_version)
 
     # ── End AUD-103 ───────────────────────────────────────────────────────
+
+    # ── P16: Studio Brain entry-point ─────────────────────────────────────
+
+    def _open_studio_brain(self) -> None:
+        """Open (or bring to front) the Studio Brain window.
+
+        Singleton via ``StudioBrainWindow.instance()`` — repeated calls
+        reuse the same window and simply raise it. Defaults wire BrainService,
+        SteerOverrideQueue, and BackupService against the app's main DB, so
+        no explicit injection is needed at the call site.
+        """
+        try:
+            from ui.studio_brain_window import StudioBrainWindow
+            win = StudioBrainWindow.instance()
+            win.show()
+            win.raise_()
+            win.activateWindow()
+            logger.info("Studio Brain window opened")
+        except Exception as exc:  # noqa: BLE001 — surfaced to the user
+            logger.exception("Studio Brain open failed")
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.critical(
+                self,
+                "Studio Brain",
+                f"Failed to open Studio Brain:\n\n{exc}",
+            )
 
     def _save_window_state(self):
         self.workspace_setup._save_window_state()
