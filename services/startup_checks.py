@@ -8,6 +8,7 @@ Runs three checks in parallel (ThreadPoolExecutor) to stay under 2s:
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import subprocess
@@ -15,6 +16,9 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
+
+GpuPnpState = Literal["ok", "held_for_eject", "absent", "other_error"]
 
 from services.timeout_constants import (
     STARTUP_DISK_CHECK_TIMEOUT_SEC,
@@ -485,3 +489,96 @@ def check_system(app_root: Path | None = None) -> SystemStatus:
         )
 
     return status
+
+
+# ---------------------------------------------------------------------------
+# P16: GPU PnP state pre-check (Surface Book 2 Code-47 detection)
+# ---------------------------------------------------------------------------
+
+_GPU_PNP_QUERY = (
+    "Get-PnpDevice -Class Display "
+    "| Where-Object {$_.FriendlyName -like '*NVIDIA*'} "
+    "| Select-Object Status,ConfigManagerErrorCode "
+    "| ConvertTo-Json"
+)
+
+
+def check_nvidia_gpu_state() -> tuple[GpuPnpState, str | None]:
+    """Query Windows PnP for the NVIDIA dGPU state.
+
+    Returns:
+        ("ok", None)              - GPU present and ready.
+        ("held_for_eject", msg)   - Code 47 (CM_PROB_HELD_FOR_EJECT), needs reboot.
+        ("absent", msg)           - no NVIDIA GPU detected (e.g. Surface Book detached).
+        ("other_error", msg)      - different error code; msg explains.
+
+    Implementation:
+        Calls PowerShell ``Get-PnpDevice -Class Display`` filtered for NVIDIA,
+        parses ``Status`` + ``ConfigManagerErrorCode``. Hard 5 s timeout,
+        never raises upwards (diagnostic, not a critical path).
+    """
+    if sys.platform != "win32":
+        return "absent", "PnP-Check nur unter Windows verfuegbar."
+
+    try:
+        result = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-Command", _GPU_PNP_QUERY],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            **_subprocess_kwargs(),
+        )
+    except subprocess.TimeoutExpired:
+        return "absent", "PnP-Abfrage hat das Zeitlimit (5 s) ueberschritten."
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError) as exc:
+        return "absent", f"PnP-Abfrage fehlgeschlagen: {exc}"
+
+    stdout = (result.stdout or "").strip()
+    if not stdout:
+        return "absent", "Keine NVIDIA-GPU im Geraete-Manager gefunden."
+
+    try:
+        parsed = json.loads(stdout)
+    except (ValueError, TypeError) as exc:
+        return "absent", f"PnP-Antwort nicht lesbar: {exc}"
+
+    if parsed is None:
+        return "absent", "Keine NVIDIA-GPU im Geraete-Manager gefunden."
+
+    # ConvertTo-Json returns a single object for one match, a list for multiple.
+    entries = parsed if isinstance(parsed, list) else [parsed]
+    if not entries:
+        return "absent", "Keine NVIDIA-GPU im Geraete-Manager gefunden."
+
+    # Collect states. If any one is held_for_eject or error, surface that.
+    codes: list[int] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        raw_code = entry.get("ConfigManagerErrorCode")
+        try:
+            codes.append(int(raw_code))
+        except (TypeError, ValueError):
+            continue
+
+    if not codes:
+        return "absent", "PnP-Antwort enthaelt keinen ConfigManagerErrorCode."
+
+    if 47 in codes:
+        return (
+            "held_for_eject",
+            (
+                "Deine NVIDIA-GPU wurde von Windows als 'sicher entfernbar' "
+                "markiert (Code 47, CM_PROB_HELD_FOR_EJECT). Ein Neustart "
+                "(reboot / neu starten) loest diesen Zustand fast immer auf."
+            ),
+        )
+
+    if all(code == 0 for code in codes):
+        return "ok", None
+
+    bad = next(code for code in codes if code != 0)
+    return (
+        "other_error",
+        f"NVIDIA-GPU meldet ConfigManagerErrorCode={bad} (unerwarteter Zustand).",
+    )

@@ -1020,6 +1020,33 @@ def main():
     splash.show_message("Lade Benutzeroberfläche...")
     QApplication.processEvents()
 
+    # P16: Surface Book 2 GPU stuck-state detection. If the dGPU is in
+    # CM_PROB_HELD_FOR_EJECT (Code 47), show a friendly dialog before
+    # constructing PBWindow — otherwise the user faces silent CPU-fallback
+    # with no explanation.
+    try:
+        from services.startup_checks import check_nvidia_gpu_state
+        _gpu_state, _gpu_msg = check_nvidia_gpu_state()
+        if _gpu_state == "held_for_eject":
+            logger.warning("GPU im Code-47-State erkannt: %s", _gpu_msg)
+            from ui.dialogs.gpu_recovery_dialog import GpuRecoveryDialog
+            splash.hide()
+            _dlg = GpuRecoveryDialog()
+            _dlg.exec()
+            _choice = _dlg.choice()
+            if _choice == "cancel":
+                sys.exit(0)
+            if _choice == "restart":
+                # System reboots in 5 s via shutdown /r — exit cleanly.
+                sys.exit(0)
+            # "cpu_fallback": PB_STUDIO_FORCE_CPU is set, continue startup.
+            splash.show()
+            QApplication.processEvents()
+    except SystemExit:
+        raise
+    except Exception as exc:  # pragma: no cover - diagnostic path
+        logger.warning("GPU state check failed: %s", exc)
+
     try:
         window = PBWindow()
     except (ImportError, RuntimeError, OSError) as exc:
