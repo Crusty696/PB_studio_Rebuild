@@ -25,7 +25,7 @@ Deliberately out of scope (later dispatches):
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -198,7 +198,7 @@ class StatsPanel(QFrame):
         for w in body_widgets:
             w.setVisible(not is_unavailable)
 
-    def _render(self, stats: dict) -> None:
+    def _render(self, stats: dict[str, Any]) -> None:
         total = int(stats.get("total_scenes") or 0)
         enriched = int(stats.get("enriched_scenes") or 0)
         fraction = float(stats.get("coverage_fraction") or 0.0)

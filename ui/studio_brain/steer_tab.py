@@ -51,7 +51,9 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Callable, Optional, TypeVar
+
+T = TypeVar("T")
 
 from PySide6.QtCore import Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QDesktopServices
@@ -120,7 +122,7 @@ _RUN_BUTTON_TOAST = "Run queued — awaiting agent."
 # ── Formatting helpers ───────────────────────────────────────────────────────
 
 
-def _format_track_option(track: dict) -> str:
+def _format_track_option(track: dict[str, Any]) -> str:
     """Compact combobox label for an audio-track row."""
     basename = track.get("file_basename") or "—"
     bpm = track.get("bpm")
@@ -165,9 +167,9 @@ class _TrackSelector(QWidget):
         hl.addWidget(self._combo, stretch=1)
         hl.addStretch()
 
-        self._tracks: list[dict] = []
+        self._tracks: list[dict[str, Any]] = []
 
-    def set_tracks(self, tracks: list[dict]) -> None:
+    def set_tracks(self, tracks: list[dict[str, Any]]) -> None:
         self._tracks = [dict(t) for t in tracks]
         previous = self.current_track_id()
 
@@ -215,7 +217,7 @@ class _TrackSelector(QWidget):
         # entry isn't a track, so tests can assert cleanly.
         return len(self._tracks)
 
-    def _emit_current(self, *_args) -> None:
+    def _emit_current(self, *_args: Any) -> None:
         tid = self.current_track_id()
         if tid is not None:
             self.trackChanged.emit(tid)
@@ -257,9 +259,9 @@ class _ProfilePicker(QWidget):
         hl.addWidget(self._edit_btn)
         hl.addStretch()
 
-        self._profiles: list[dict] = []
+        self._profiles: list[dict[str, Any]] = []
 
-    def set_profiles(self, profiles: list[dict]) -> None:
+    def set_profiles(self, profiles: list[dict[str, Any]]) -> None:
         self._profiles = [dict(p) for p in profiles]
         previous_name = self.current_profile_name()
 
@@ -311,7 +313,7 @@ class _ProfilePicker(QWidget):
     def item_count(self) -> int:
         return len(self._profiles)
 
-    def _emit_current(self, *_args) -> None:
+    def _emit_current(self, *_args: Any) -> None:
         name = self.current_profile_name()
         path = self.current_profile_path()
         if name and path:
@@ -646,16 +648,20 @@ class SteerTab(QWidget):
         """
         self._svc.invalidate()
 
-        tracks = self._safe_call(self._svc.list_audio_tracks, default=[])
+        tracks: list[dict[str, Any]] = self._safe_call(
+            self._svc.list_audio_tracks, default=[]
+        )
         self._track_selector.set_tracks(tracks)
 
-        profiles = self._safe_call(self._svc.list_weights_profiles, default=[])
+        profiles: list[dict[str, Any]] = self._safe_call(
+            self._svc.list_weights_profiles, default=[]
+        )
         self._profile_picker.set_profiles(profiles)
 
         self._refresh_queue_projection()
         self._update_run_enabled()
 
-    def current_snapshot(self) -> dict:
+    def current_snapshot(self) -> dict[str, Any]:
         """Assemble the dict that would be emitted on "Run with these
         settings". Shape is intentionally loose — the downstream pacing-agent
         adapter is the only reader today.
@@ -718,7 +724,7 @@ class SteerTab(QWidget):
             "Add pin",
             "Scene ID:",
             value=1,
-            min=0,
+            min=0,  # type: ignore[call-arg]
             max=10_000_000,
         )
         if not ok:
@@ -759,7 +765,7 @@ class SteerTab(QWidget):
         self._run_bar.set_run_enabled(bool(has_track))
 
     @staticmethod
-    def _safe_call(fn, default):
+    def _safe_call(fn: Callable[[], T], default: T) -> T:
         try:
             return fn()
         except OperationalError as exc:

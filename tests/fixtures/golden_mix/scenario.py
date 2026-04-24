@@ -20,7 +20,7 @@ between this synthetic snapshot and the real golden mix is documented.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Sequence
+from typing import Any, Sequence
 
 import numpy as np
 
@@ -141,7 +141,7 @@ def _make_cut(sequence_idx: int) -> AudioContext:
 
     # Section-shaped audio features. Energies and tensions follow the mix
     # shape — drops peak, breakdowns dip, intro/outro are moderate.
-    section_profiles: dict[str, dict[str, object]] = {
+    section_profiles: dict[str, dict[str, Any]] = {
         "intro":      {"energy": 0.35, "tension": 0.25, "mood": "calm",       "bpm": 138.0, "key": "Am"},
         "buildup":    {"energy": 0.65, "tension": 0.60, "mood": "energetic",  "bpm": 140.0, "key": "Am"},
         "drop":       {"energy": 0.90, "tension": 0.80, "mood": "energetic",  "bpm": 140.0, "key": "Am"},

@@ -23,7 +23,7 @@ Deliberately out of scope (later dispatches):
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -228,7 +228,7 @@ class InspectorPanel(QFrame):
         self._neighbors_list.setVisible(False)
         self._neighbors_list.clear()
 
-    def _render_detail(self, detail: dict) -> None:
+    def _render_detail(self, detail: dict[str, Any]) -> None:
         self._status_label.setVisible(False)
         self._form_widget.setVisible(True)
         self._neighbors_title.setVisible(True)
@@ -282,7 +282,7 @@ class InspectorPanel(QFrame):
                 self._neighbors_list.addItem(self._format_neighbor(n))
 
     @staticmethod
-    def _format_usage(detail: dict) -> str:
+    def _format_usage(detail: dict[str, Any]) -> str:
         count = int(detail.get("usage_count") or 0)
         if count == 0:
             return "never used"
@@ -292,7 +292,7 @@ class InspectorPanel(QFrame):
         return f"usage count {count}, last run: —"
 
     @staticmethod
-    def _format_neighbor(n: dict) -> str:
+    def _format_neighbor(n: dict[str, Any]) -> str:
         sid = int(n.get("scene_id") or 0)
         sim = float(n.get("cosine_similarity") or 0.0)
         role = n.get("role") or "—"

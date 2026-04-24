@@ -278,7 +278,7 @@ class BrainService:
             self._close_session(session, ownership)
 
     # ── T10.2a: style buckets ──────────────────────────────────────────────
-    def _list_active_style_buckets_uncached(self) -> list[dict]:
+    def _list_active_style_buckets_uncached(self) -> list[dict[str, Any]]:
         """Return active style buckets (Feasibility-R4: active=1 only).
 
         Each dict has keys: id, name, description, member_count.
@@ -345,7 +345,7 @@ class BrainService:
         style_bucket_id: Optional[int] = None,
         min_role_confidence: float = 0.0,
         min_usage_count: int = 0,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Return rows joined across struct_clip_tags + struct_style_bucket
         + (LEFT JOIN on mem_decision for usage count).
 
@@ -370,7 +370,7 @@ class BrainService:
         style_bucket_id: Optional[int],
         min_role_confidence: float,
         min_usage_count: int,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         session, ownership = self._open_session()
         try:
             sql = """
@@ -446,7 +446,7 @@ class BrainService:
             self._close_session(session, ownership)
 
     # ── T10.2b: single-clip detail for the Inspector panel ─────────────────
-    def _get_clip_detail_uncached(self, scene_id: int) -> Optional[dict]:
+    def _get_clip_detail_uncached(self, scene_id: int) -> Optional[dict[str, Any]]:
         """Return a rich detail dict for the Inspector panel, or None if the
         scene has no struct_clip_tags row yet (i.e. not enriched).
 
@@ -462,7 +462,7 @@ class BrainService:
             style_bucket_id         (int | None)
             style_bucket_name       (str | None)
             style_distance          (float)
-            neighbors               (list[dict]) — up to 5, ordered by
+            neighbors               (list[dict[str, Any]]) — up to 5, ordered by
                                       rank_in_a ASC; each dict has
                                       scene_id / cosine_similarity / role /
                                       mood_refined (role/mood may be None if
@@ -583,7 +583,7 @@ class BrainService:
             self._close_session(session, ownership)
 
     # ── T10.2c: library-level structure stats ──────────────────────────────
-    def _structure_stats_uncached(self) -> dict:
+    def _structure_stats_uncached(self) -> dict[str, Any]:
         """Return a library-wide health snapshot for the Stats panel.
 
         Keys:
@@ -670,13 +670,13 @@ class BrainService:
             self._close_session(session, ownership)
 
     # ── T10.2d: graph snapshot (nodes + edges) ─────────────────────────────
-    def _graph_nodes_and_edges_uncached(self) -> dict:
+    def _graph_nodes_and_edges_uncached(self) -> dict[str, Any]:
         """Return a snapshot for the Graph view.
 
         Keys:
-          nodes: list[dict]  — each has {scene_id, role, mood_refined,
+          nodes: list[dict[str, Any]]  — each has {scene_id, role, mood_refined,
                                          style_bucket_id, style_bucket_name}.
-          edges: list[dict]  — each has {a, b, similarity}. `a` / `b` are
+          edges: list[dict[str, Any]]  — each has {a, b, similarity}. `a` / `b` are
                                scene_ids canonicalised to (a < b) so that
                                reciprocal edges (a=5,b=7) and (a=7,b=5)
                                collapse into a single record.
@@ -762,7 +762,7 @@ class BrainService:
             self._close_session(session, ownership)
 
     # ── T11.1: Memory tab reads ───────────────────────────────────────────
-    def _list_pacing_runs_uncached(self) -> list[dict]:
+    def _list_pacing_runs_uncached(self) -> list[dict[str, Any]]:
         """Return pacing runs newest-first with a LEFT-JOIN on audio_tracks.
 
         Each dict has keys: id, started_at, completed_at, is_dj_mix,
@@ -829,7 +829,7 @@ class BrainService:
         self,
         pattern_type: Optional[str] = None,
         min_confidence: float = 0.0,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Return learned patterns sorted by confidence DESC then last_updated DESC.
 
         Filters:
@@ -848,7 +848,7 @@ class BrainService:
         self,
         pattern_type: Optional[str],
         min_confidence: float,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         session, ownership = self._open_session()
         try:
             sql = (
@@ -890,7 +890,7 @@ class BrainService:
 
     def _list_decisions_for_pattern_uncached(
         self, pattern_id: int, limit: int = 100
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Drill-down: decisions matching a learned pattern's fingerprint.
 
         Matching rules (see services/pacing/pattern_aggregator.make_context_fingerprint):
@@ -1030,7 +1030,7 @@ class BrainService:
             self._close_session(session, ownership)
 
     # ── T11.2: Audit tab reads ────────────────────────────────────────────
-    def _list_runs_for_audit_selector_uncached(self) -> list[dict]:
+    def _list_runs_for_audit_selector_uncached(self) -> list[dict[str, Any]]:
         """Return COMPLETED pacing runs newest-first for the Audit tab dropdown.
 
         Same shape as ``list_pacing_runs`` but filtered to
@@ -1100,8 +1100,8 @@ class BrainService:
     def list_decisions_for_run(
         self,
         run_id: int,
-        filters: Optional[dict] = None,
-    ) -> list[dict]:
+        filters: Optional[dict[str, Any]] = None,
+    ) -> list[dict[str, Any]]:
         """Return the cuts for a run, optionally filtered by verdict / fallback.
 
         ``filters`` may contain:
@@ -1138,7 +1138,7 @@ class BrainService:
         run_id: int,
         rejected_only: bool,
         fallback_only: bool,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         session, ownership = self._open_session()
         try:
             sql = (
@@ -1178,7 +1178,7 @@ class BrainService:
             sql += " ORDER BY d.sequence_idx ASC, d.id ASC"
 
             rows = session.execute(text(sql), params).mappings().all()
-            out: list[dict] = []
+            out: list[dict[str, Any]] = []
             for r in rows:
                 video_path = r["video_file_path"]
                 scene_filename = (
@@ -1216,7 +1216,7 @@ class BrainService:
         finally:
             self._close_session(session, ownership)
 
-    def _get_decision_detail_uncached(self, decision_id: int) -> Optional[dict]:
+    def _get_decision_detail_uncached(self, decision_id: int) -> Optional[dict[str, Any]]:
         """Return the parsed rationale + context for one decision, or None.
 
         Backs the Audit tab's right-hand details column: term-contributions,
@@ -1288,7 +1288,7 @@ class BrainService:
             # Derive alternatives from stage_results when an explicit
             # ``alternatives`` key isn't already present (future-proof: future
             # rationale shapes may add one).
-            alternatives: list[dict] = []
+            alternatives: list[dict[str, Any]] = []
             raw_alts = rationale.get("alternatives")
             chosen_clip_id = rationale.get("chosen_clip_id")
             if isinstance(raw_alts, list) and raw_alts:
@@ -1363,7 +1363,7 @@ class BrainService:
 
     def _list_structure_segments_for_run_uncached(
         self, run_id: int
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Return song-structure segments for a DJ-mix run.
 
         Non-DJ-mix runs return ``[]`` (the segment-strip is hidden for them).
@@ -1421,7 +1421,7 @@ class BrainService:
 
 
     # ── T11.3: Steer tab reads ─────────────────────────────────────────────
-    def _list_audio_tracks_uncached(self) -> list[dict]:
+    def _list_audio_tracks_uncached(self) -> list[dict[str, Any]]:
         """Return every row in ``audio_tracks`` newest-first.
 
         Result dict shape (keys stable across schema drift):
@@ -1466,7 +1466,7 @@ class BrainService:
                 "ORDER BY a.created_at DESC, a.id DESC"
             )
             rows = session.execute(text(sql)).mappings().all()
-            out: list[dict] = []
+            out: list[dict[str, Any]] = []
             for r in rows:
                 file_path = r["file_path"]
                 basename = (
@@ -1490,7 +1490,7 @@ class BrainService:
         finally:
             self._close_session(session, ownership)
 
-    def _list_weights_profiles_uncached(self) -> list[dict]:
+    def _list_weights_profiles_uncached(self) -> list[dict[str, Any]]:
         """Return ``[{"name", "path"}, ...]`` for every ``*.yaml`` under
         ``config/pacing_weights/``, sorted by name ASC.
 
@@ -1510,7 +1510,7 @@ class BrainService:
                     profiles_dir,
                 )
                 return []
-            entries: list[dict] = []
+            entries: list[dict[str, Any]] = []
             for yaml_path in profiles_dir.glob("*.yaml"):
                 if not yaml_path.is_file():
                     continue
@@ -1532,7 +1532,7 @@ class BrainService:
 
 
     # ── P12: Story-Map dialog reads ────────────────────────────────────────
-    def _story_map_data_uncached(self, run_id: int) -> Optional[dict]:
+    def _story_map_data_uncached(self, run_id: int) -> Optional[dict[str, Any]]:
         """Return the full bundle of data the Story-Map dialog renders.
 
         Returns ``None`` if the run does not exist.
@@ -1609,7 +1609,7 @@ class BrainService:
                 "completed_at": run_row["completed_at"],
             }
 
-            audio_track: Optional[dict] = None
+            audio_track: Optional[dict[str, Any]] = None
             audio_track_id = run_row["audio_track_id"]
             energy_curve_raw: Any = None
             if audio_track_id is not None:
@@ -1674,9 +1674,9 @@ class BrainService:
                 .mappings()
                 .all()
             )
-            decisions: list[dict] = []
-            tension_curve: list[dict] = []
-            mood_curve: list[dict] = []
+            decisions: list[dict[str, Any]] = []
+            tension_curve: list[dict[str, Any]] = []
+            mood_curve: list[dict[str, Any]] = []
             for r in decisions_rows:
                 ts = float(r["at_timestamp_sec"] or 0.0)
                 tension_raw = r["at_harmonic_tension"]
@@ -1713,7 +1713,7 @@ class BrainService:
                 if mood_raw is not None:
                     mood_curve.append({"time_sec": ts, "mood": mood_raw})
 
-            structure_segments: list[dict] = []
+            structure_segments: list[dict[str, Any]] = []
             if run_dict["is_dj_mix"] and audio_track_id is not None:
                 # Probe the table; some test-bootstrap envs don't create it.
                 try:
@@ -1747,7 +1747,7 @@ class BrainService:
                         exc,
                     )
 
-            waveform_energy: list[dict] = []
+            waveform_energy: list[dict[str, Any]] = []
             energy_values = _parse_json_field(energy_curve_raw)
             if isinstance(energy_values, list) and energy_values:
                 duration = run_dict["total_duration_sec"]
@@ -1788,7 +1788,7 @@ class BrainService:
         finally:
             self._close_session(session, ownership)
 
-    def _list_runs_with_story_map_data_uncached(self) -> list[dict]:
+    def _list_runs_with_story_map_data_uncached(self) -> list[dict[str, Any]]:
         """Return runs that have at least one decision (newest-first).
 
         Each dict has keys: ``id, started_at, completed_at, is_dj_mix,
@@ -1820,7 +1820,7 @@ class BrainService:
                 .mappings()
                 .all()
             )
-            out: list[dict] = []
+            out: list[dict[str, Any]] = []
             for r in rows:
                 fp = r["audio_track_filepath"]
                 basename = os.path.basename(str(fp)) if fp else None

@@ -34,7 +34,9 @@ Public signals:
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Any, Callable, Optional, TypeVar
+
+T = TypeVar("T")
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
@@ -57,7 +59,7 @@ from PySide6.QtWidgets import (
 )
 from sqlalchemy.exc import OperationalError
 
-import pyqtgraph as pg
+import pyqtgraph as pg  # type: ignore[import-untyped]
 
 from services.brain_service import BrainService
 
@@ -117,7 +119,7 @@ def _format_mmss(timestamp_sec: float) -> str:
     return f"{m:02d}:{s:02d}"
 
 
-def _format_run_option(run: dict) -> str:
+def _format_run_option(run: dict[str, Any]) -> str:
     """Compact label for a run entry in the selector combobox."""
     ts = run.get("started_at") or ""
     # Keep it short for the dropdown: #id + timestamp + cuts
@@ -149,9 +151,9 @@ class _RunSelector(QWidget):
         hl.addWidget(self._combo, stretch=1)
         hl.addStretch()
 
-        self._runs: list[dict] = []
+        self._runs: list[dict[str, Any]] = []
 
-    def set_runs(self, runs: list[dict]) -> None:
+    def set_runs(self, runs: list[dict[str, Any]]) -> None:
         """Populate the combobox with completed runs. Prev selection preserved
         if still present; otherwise the newest run is selected."""
         self._runs = [dict(r) for r in runs]
@@ -193,7 +195,7 @@ class _RunSelector(QWidget):
         except (TypeError, ValueError):
             return None
 
-    def current_run(self) -> Optional[dict]:
+    def current_run(self) -> Optional[dict[str, Any]]:
         rid = self.current_run_id()
         if rid is None:
             return None
@@ -216,7 +218,7 @@ class _RunSelector(QWidget):
     def run_count(self) -> int:
         return len(self._runs)
 
-    def _emit_current(self, *_args) -> None:
+    def _emit_current(self, *_args: Any) -> None:
         rid = self.current_run_id()
         if rid is not None:
             self.runChanged.emit(rid)
@@ -256,7 +258,7 @@ class _SegmentStrip(QFrame):
 
         self._segment_count: int = 0
 
-    def set_segments(self, segments: list[dict], total_duration_sec: float) -> None:
+    def set_segments(self, segments: list[dict[str, Any]], total_duration_sec: float) -> None:
         """Render one region per segment across the horizontal axis."""
         self._plot.clear()
         self._segment_count = len(segments)
@@ -368,7 +370,7 @@ class _CutTable(QWidget):
         outer.addWidget(self._table, stretch=1)
 
     # ── Public API ─────────────────────────────────────────────────────────
-    def set_cuts(self, cuts: list[dict]) -> None:
+    def set_cuts(self, cuts: list[dict[str, Any]]) -> None:
         self._table.setRowCount(0)
         self._table.setRowCount(len(cuts))
         for row, cut in enumerate(cuts):
@@ -397,7 +399,7 @@ class _CutTable(QWidget):
             if id_item is not None:
                 id_item.setData(Qt.ItemDataRole.UserRole, int(cut["id"]))
 
-    def current_filter(self) -> dict:
+    def current_filter(self) -> dict[str, Any]:
         return {
             "rejected_only": bool(self._rejected_chk.isChecked()),
             "fallback_only": bool(self._fallback_chk.isChecked()),
@@ -444,7 +446,7 @@ class _CutTable(QWidget):
         if did is not None:
             self.cutSelected.emit(did)
 
-    def _emit_filter(self, *_args) -> None:
+    def _emit_filter(self, *_args: Any) -> None:
         self.filterChanged.emit(self.current_filter())
 
 
@@ -574,7 +576,7 @@ class _Alternatives(QFrame):
         self._empty_label.setVisible(True)
         self._list.setVisible(False)
 
-    def set_alternatives(self, alternatives: list[dict]) -> None:
+    def set_alternatives(self, alternatives: list[dict[str, Any]]) -> None:
         self._list.clear()
         if not alternatives:
             self.clear()
@@ -634,7 +636,7 @@ class _BudgetState(QFrame):
         self._clear_form()
         self._empty_label.setVisible(True)
 
-    def set_state(self, state: dict) -> None:
+    def set_state(self, state: dict[str, Any]) -> None:
         self._clear_form()
         if not state:
             self._empty_label.setVisible(True)
@@ -677,7 +679,7 @@ class AuditTab(QWidget):
         super().__init__(parent)
         self._svc = brain_service
         self._current_run_id: Optional[int] = None
-        self._story_map_dialogs: list = []
+        self._story_map_dialogs: list[Any] = []
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(6, 6, 6, 6)
@@ -744,7 +746,9 @@ class AuditTab(QWidget):
     def refresh(self) -> None:
         """Invalidate the BrainService cache and reload runs + current cuts."""
         self._svc.invalidate()
-        runs = self._safe_call(self._svc.list_runs_for_audit_selector, default=[])
+        runs: list[dict[str, Any]] = self._safe_call(
+            self._svc.list_runs_for_audit_selector, default=[]
+        )
         self._run_selector.set_runs(runs)
         # set_runs emits runChanged → cascades into reload below. If there
         # are no runs, clear everything explicitly so the tab settles.
@@ -768,10 +772,10 @@ class AuditTab(QWidget):
         # refresh once to pick it up.
         if not self._run_selector.select_run_id(rid):
             self._svc.invalidate()
-            runs = self._safe_call(
+            runs2: list[dict[str, Any]] = self._safe_call(
                 self._svc.list_runs_for_audit_selector, default=[]
             )
-            self._run_selector.set_runs(runs)
+            self._run_selector.set_runs(runs2)
             self._run_selector.select_run_id(rid)
 
     # ── Internal ───────────────────────────────────────────────────────────
@@ -787,7 +791,7 @@ class AuditTab(QWidget):
         total_duration = float((run or {}).get("total_duration_sec") or 0.0)
 
         if is_dj_mix:
-            segments = self._safe_call(
+            segments: list[dict[str, Any]] = self._safe_call(
                 lambda: self._svc.list_structure_segments_for_run(rid),
                 default=[],
             )
@@ -804,7 +808,7 @@ class AuditTab(QWidget):
         self._alternatives.clear()
         self._budget_state.clear()
 
-    def _on_filter_changed(self, _filt: dict) -> None:
+    def _on_filter_changed(self, _filt: dict[str, Any]) -> None:
         # Cache invalidation is cheap — the DB is likely untouched, but the
         # filter combo changed the query key.
         self._reload_cuts()
@@ -848,7 +852,7 @@ class AuditTab(QWidget):
         self._cut_table.set_cuts(cuts)
 
     @staticmethod
-    def _safe_call(fn, default):
+    def _safe_call(fn: Callable[[], T], default: T) -> T:
         try:
             return fn()
         except OperationalError as exc:
@@ -884,7 +888,7 @@ class AuditTab(QWidget):
         )
         dialog.show()
 
-    def _on_story_map_closed(self, dialog) -> None:
+    def _on_story_map_closed(self, dialog: Any) -> None:
         try:
             self._story_map_dialogs.remove(dialog)
         except ValueError:

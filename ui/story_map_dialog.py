@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from PySide6.QtCore import Qt, QPoint, Signal
 from PySide6.QtGui import QColor, QPainter
@@ -47,7 +47,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-import pyqtgraph as pg
+import pyqtgraph as pg  # type: ignore[import-untyped]
 
 from services.brain_service import BrainService
 
@@ -130,7 +130,7 @@ class _ClipCard(QFrame):
 
     def __init__(
         self,
-        decision: dict,
+        decision: dict[str, Any],
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
@@ -185,7 +185,7 @@ class _ClipCard(QFrame):
 
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
-    def mousePressEvent(self, event) -> None:  # type: ignore[override]
+    def mousePressEvent(self, event: Any) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
             scene_id = (
                 int(self._scene_id) if self._scene_id is not None else -1
@@ -248,7 +248,7 @@ class _HeaderBar(QWidget):
 # ── _TimePlot helper (a pyqtgraph PlotWidget that ignores plain wheel) ───────
 
 
-class _TimePlot(pg.PlotWidget):
+class _TimePlot(pg.PlotWidget):  # type: ignore[misc]
     """PlotWidget that disables non-Ctrl wheel scroll.
 
     The dialog hooks Ctrl+Wheel at the dialog level (QDialog.wheelEvent) and
@@ -268,9 +268,9 @@ class _TimePlot(pg.PlotWidget):
             vb.setMouseEnabled(x=True, y=False)
         # We disable wheel here too — the dialog wheelEvent handler is the
         # single authoritative zoom path.
-        self.wheelEvent = self._ignore_wheel  # type: ignore[assignment]
+        self.wheelEvent = self._ignore_wheel
 
-    def _ignore_wheel(self, event) -> None:
+    def _ignore_wheel(self, event: Any) -> None:
         # Plain wheel does nothing; caller will route Ctrl+Wheel via
         # apply_zoom() on the dialog instead.
         event.ignore()
@@ -298,7 +298,7 @@ class StoryMapDialog(QDialog):
 
         self._svc = brain_service
         self._run_id = int(run_id)
-        self._data: Optional[dict] = None
+        self._data: Optional[dict[str, Any]] = None
         self._clip_cards: list[_ClipCard] = []
         self._linked_plots: list[_TimePlot] = []
 
@@ -374,7 +374,7 @@ class StoryMapDialog(QDialog):
             p.setXLink(self._linked_plots[0])
 
     # ── Public API ─────────────────────────────────────────────────────────
-    def data(self) -> Optional[dict]:
+    def data(self) -> Optional[dict[str, Any]]:
         """Return the cached story_map_data dict (or None if missing)."""
         return self._data
 
@@ -428,7 +428,7 @@ class StoryMapDialog(QDialog):
         return out
 
     # ── Wheel handling (Ctrl+Wheel zooms; plain wheel ignored) ────────────
-    def wheelEvent(self, event) -> None:  # type: ignore[override]
+    def wheelEvent(self, event: Any) -> None:
         modifiers = event.modifiers()
         if modifiers & Qt.KeyboardModifier.ControlModifier:
             delta = event.angleDelta().y()

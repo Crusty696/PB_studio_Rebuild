@@ -269,7 +269,10 @@ def _load_existing() -> dict[str, Any] | None:
     if not BASELINE_PATH.exists():
         return None
     try:
-        return json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
+        loaded: dict[str, Any] = json.loads(
+            BASELINE_PATH.read_text(encoding="utf-8")
+        )
+        return loaded
     except json.JSONDecodeError:
         return None
 

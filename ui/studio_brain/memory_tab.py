@@ -26,7 +26,9 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Any, Callable, Optional, TypeVar
+
+T = TypeVar("T")
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
@@ -128,7 +130,7 @@ def _stars(n: Optional[int]) -> str:
     return "★" * clamped + "☆" * (5 - clamped)
 
 
-def _format_timestamp(value) -> str:
+def _format_timestamp(value: Any) -> str:
     """Format a started_at value (datetime or ISO-string) as ``mm-dd HH:MM``.
 
     The underlying ``mem_pacing_run.started_at`` column is a DATETIME, but
@@ -175,7 +177,7 @@ class _RunFrame(QFrame):
 
     clicked = Signal(int)
 
-    def __init__(self, run: dict, parent: Optional[QWidget] = None) -> None:
+    def __init__(self, run: dict[str, Any], parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self._run = dict(run)
         self.setObjectName("MemoryRunFrame")
@@ -215,7 +217,7 @@ class _RunFrame(QFrame):
     def run_id(self) -> int:
         return int(self._run["id"])
 
-    def mousePressEvent(self, event) -> None:  # noqa: N802 — Qt override
+    def mousePressEvent(self, event: Any) -> None:  # noqa: N802 — Qt override
         if event.button() == Qt.MouseButton.LeftButton:
             self.clicked.emit(self.run_id)
         super().mousePressEvent(event)
@@ -253,7 +255,7 @@ class _RunTimeline(QScrollArea):
         self._frames: list[_RunFrame] = []
         self.setWidget(self._strip)
 
-    def set_runs(self, runs: list[dict]) -> None:
+    def set_runs(self, runs: list[dict[str, Any]]) -> None:
         # Clear old frames (keep the empty-label + stretch sentinels).
         for f in self._frames:
             self._hl.removeWidget(f)
@@ -292,7 +294,7 @@ _PATTERN_COLUMNS: tuple[tuple[str, int], ...] = (
 )
 
 
-def _format_fingerprint(fp: Optional[dict]) -> str:
+def _format_fingerprint(fp: Optional[dict[str, Any]]) -> str:
     if not fp or not isinstance(fp, dict):
         return "—"
     bits: list[str] = []
@@ -320,7 +322,7 @@ class _PatternTable(QWidget):
     ) -> None:
         super().__init__(parent)
         self._svc = brain_service
-        self._patterns: list[dict] = []
+        self._patterns: list[dict[str, Any]] = []
         self._build()
 
     def _build(self) -> None:
@@ -378,7 +380,7 @@ class _PatternTable(QWidget):
         outer.addWidget(self._table, stretch=1)
 
     # ── Public API ─────────────────────────────────────────────────────────
-    def set_patterns(self, patterns: list[dict]) -> None:
+    def set_patterns(self, patterns: list[dict[str, Any]]) -> None:
         self._patterns = [dict(p) for p in patterns]
         self._table.setRowCount(0)
         self._table.setRowCount(len(patterns))
@@ -417,7 +419,7 @@ class _PatternTable(QWidget):
             return None
         return int(data)
 
-    def current_filter(self) -> dict:
+    def current_filter(self) -> dict[str, Any]:
         return {
             "pattern_type": self._type_combo.currentData(),
             "min_confidence": float(self._conf_spin.value()),
@@ -521,7 +523,7 @@ class _DecisionDrillDown(QWidget):
         self._list.clear()
         self._header.setText(_EMPTY_DRILLDOWN_TEXT)
 
-    def populate(self, pattern: dict, decisions: list[dict]) -> None:
+    def populate(self, pattern: dict[str, Any], decisions: list[dict[str, Any]]) -> None:
         ptype = pattern.get("pattern_type") or "—"
         fp = _format_fingerprint(pattern.get("context_fingerprint"))
         self._header.setText(f"Pattern: {ptype}  |  {fp}")
@@ -599,7 +601,7 @@ class MemoryTab(QWidget):
         super().__init__(parent)
         self._svc = brain_service
         self._backup_service = backup_service if backup_service is not None else self._build_default_backup_service()
-        self._selected_pattern: Optional[dict] = None
+        self._selected_pattern: Optional[dict[str, Any]] = None
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(6, 6, 6, 6)
@@ -635,10 +637,14 @@ class MemoryTab(QWidget):
     def refresh(self) -> None:
         """Invalidate the BrainService cache and re-render every panel."""
         self._svc.invalidate()
-        runs = self._safe_call(self._svc.list_pacing_runs, default=[])
+        runs: list[dict[str, Any]] = self._safe_call(
+            self._svc.list_pacing_runs, default=[]
+        )
         self._timeline.set_runs(runs)
 
-        types = self._safe_call(self._svc.list_distinct_pattern_types, default=[])
+        types: list[str] = self._safe_call(
+            self._svc.list_distinct_pattern_types, default=[]
+        )
         self._pattern_table.rebuild_type_choices(types)
 
         self._reload_patterns()
@@ -664,7 +670,7 @@ class MemoryTab(QWidget):
                 self._selected_pattern = None
                 self._drill_down.clear()
 
-    def _on_filter_apply(self, _filt: dict) -> None:
+    def _on_filter_apply(self, _filt: dict[str, Any]) -> None:
         self._svc.invalidate()
         self._reload_patterns()
 
@@ -674,7 +680,7 @@ class MemoryTab(QWidget):
         except (TypeError, ValueError):
             return
         # Find the pattern dict we already have cached in the table.
-        patterns = self._pattern_table._patterns  # type: ignore[attr-defined]
+        patterns = self._pattern_table._patterns
         pattern = next(
             (p for p in patterns if int(p["id"]) == pid), None
         )
@@ -755,7 +761,7 @@ class MemoryTab(QWidget):
         return deleted_count, backup_path
 
     # ── Session helpers (mirror BrainService) ──────────────────────────────
-    def _open_session(self) -> tuple[object, bool]:
+    def _open_session(self) -> tuple[Any, bool]:
         factory = getattr(self._svc, "_session_factory", None)
         if factory is None:
             raise RuntimeError(
@@ -769,7 +775,7 @@ class MemoryTab(QWidget):
         return session, ownership
 
     @staticmethod
-    def _close_session(session, ownership: bool) -> None:
+    def _close_session(session: Any, ownership: bool) -> None:
         try:
             if ownership:
                 session.__exit__(None, None, None)
@@ -799,7 +805,7 @@ class MemoryTab(QWidget):
             return None
 
     @staticmethod
-    def _safe_call(fn, default):
+    def _safe_call(fn: Callable[[], T], default: T) -> T:
         try:
             return fn()
         except OperationalError as exc:

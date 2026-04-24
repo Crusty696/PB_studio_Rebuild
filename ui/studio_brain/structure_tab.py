@@ -36,7 +36,9 @@ A small "<n> pending overrides" status label updates as the queue changes.
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Any, Callable, Optional, TypeVar
+
+T = TypeVar("T")
 
 from PySide6.QtCore import QPoint, QRect, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QColor, QFont, QPainter, QPixmap
@@ -122,7 +124,7 @@ class _ClipCard(QFrame):
     clicked = Signal(int)
     contextRequested = Signal(int, QPoint)
 
-    def __init__(self, row: dict, parent: Optional[QWidget] = None) -> None:
+    def __init__(self, row: dict[str, Any], parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self._row = dict(row)
         self._scene_id = int(row["scene_id"])
@@ -173,10 +175,10 @@ class _ClipCard(QFrame):
         return self._scene_id
 
     @property
-    def row(self) -> dict:
+    def row(self) -> dict[str, Any]:
         return dict(self._row)
 
-    def mousePressEvent(self, event) -> None:  # noqa: N802 — Qt override
+    def mousePressEvent(self, event: Any) -> None:  # noqa: N802 — Qt override
         if event.button() == Qt.MouseButton.LeftButton:
             self.clicked.emit(self._scene_id)
         elif event.button() == Qt.MouseButton.RightButton:
@@ -261,7 +263,8 @@ class _FilterBar(QWidget):
         hl.addWidget(QLabel("Role:"))
         self._role_combo = QComboBox()
         self._role_combo.addItem("(any)", userData=None)
-        for role in self._safe_call(self._svc.list_distinct_roles, []):
+        roles: list[str] = self._safe_call(self._svc.list_distinct_roles, [])
+        for role in roles:
             self._role_combo.addItem(role, userData=role)
         self._role_combo.currentIndexChanged.connect(self._schedule)
         hl.addWidget(self._role_combo)
@@ -270,7 +273,8 @@ class _FilterBar(QWidget):
         hl.addWidget(QLabel("Mood:"))
         self._mood_combo = QComboBox()
         self._mood_combo.addItem("(any)", userData=None)
-        for mood in self._safe_call(self._svc.list_distinct_moods, []):
+        moods: list[str] = self._safe_call(self._svc.list_distinct_moods, [])
+        for mood in moods:
             self._mood_combo.addItem(mood, userData=mood)
         self._mood_combo.currentIndexChanged.connect(self._schedule)
         hl.addWidget(self._mood_combo)
@@ -279,7 +283,10 @@ class _FilterBar(QWidget):
         hl.addWidget(QLabel("Style:"))
         self._style_combo = QComboBox()
         self._style_combo.addItem("(any)", userData=None)
-        for bucket in self._safe_call(self._svc.list_active_style_buckets, []):
+        buckets: list[dict[str, Any]] = self._safe_call(
+            self._svc.list_active_style_buckets, []
+        )
+        for bucket in buckets:
             label = f"{bucket['name']}  ({bucket['member_count']})"
             self._style_combo.addItem(label, userData=int(bucket["id"]))
         self._style_combo.currentIndexChanged.connect(self._schedule)
@@ -322,7 +329,7 @@ class _FilterBar(QWidget):
                     self._mode_combo.setCurrentIndex(i)
                 return
 
-    def current_filters(self) -> dict:
+    def current_filters(self) -> dict[str, Any]:
         return {
             "role": self._role_combo.currentData(),
             "mood": self._mood_combo.currentData(),
@@ -331,7 +338,7 @@ class _FilterBar(QWidget):
             "min_usage_count": int(self._usage_spin.value()),
         }
 
-    def set_filters(self, filters: dict) -> None:
+    def set_filters(self, filters: dict[str, Any]) -> None:
         """Apply filters programmatically. Signals are blocked during the
         update so consumers get exactly one `filtersChanged` notification."""
         widgets = (
@@ -353,7 +360,7 @@ class _FilterBar(QWidget):
         self._fire()
 
     @staticmethod
-    def _apply_combo(combo: QComboBox, value) -> None:
+    def _apply_combo(combo: QComboBox, value: Any) -> None:
         for i in range(combo.count()):
             if combo.itemData(i) == value:
                 combo.setCurrentIndex(i)
@@ -361,17 +368,17 @@ class _FilterBar(QWidget):
         combo.setCurrentIndex(0)  # fall back to "(any)"
 
     # ── internal ───────────────────────────────────────────────────────────
-    def _schedule(self, *_args) -> None:
+    def _schedule(self, *_args: Any) -> None:
         self._debounce.start()
 
     def _fire(self) -> None:
         self.filtersChanged.emit(self.current_filters())
 
-    def _on_mode_changed(self, *_args) -> None:
+    def _on_mode_changed(self, *_args: Any) -> None:
         self.viewModeChanged.emit(self.current_mode())
 
     @staticmethod
-    def _safe_call(fn, default):
+    def _safe_call(fn: Callable[[], T], default: T) -> T:
         """Call a BrainService listing method; on missing-schema return `default`.
 
         Narrowed to sqlalchemy.exc.OperationalError so we only swallow the
@@ -433,13 +440,13 @@ class _GridView(QScrollArea):
         self.setWidget(self._container)
 
         self._cards: list[_ClipCard] = []
-        self._rows: list[dict] = []
+        self._rows: list[dict[str, Any]] = []
 
     # ── public API ─────────────────────────────────────────────────────────
-    def current_rows(self) -> list[dict]:
+    def current_rows(self) -> list[dict[str, Any]]:
         return [dict(r) for r in self._rows]
 
-    def set_rows(self, rows: list[dict], cols: int = 4) -> None:
+    def set_rows(self, rows: list[dict[str, Any]], cols: int = 4) -> None:
         """Replace the current grid with a freshly-built one.
 
         Emits ``rowsChanged`` after the rebuild so consumers tracking a
@@ -455,8 +462,8 @@ class _GridView(QScrollArea):
         self._empty_label.setVisible(False)
 
         # Group by (style_bucket_id, style_bucket_name); preserve upstream order.
-        groups: list[tuple[Optional[int], Optional[str], list[dict]]] = []
-        by_bucket: dict[Optional[int], list[dict]] = {}
+        groups: list[tuple[Optional[int], Optional[str], list[dict[str, Any]]]] = []
+        by_bucket: dict[Optional[int], list[dict[str, Any]]] = {}
         for row in rows:
             key = row.get("style_bucket_id")
             if key not in by_bucket:
@@ -697,7 +704,7 @@ class StructureTab(QWidget):
         self._grid.set_rows(rows)
         self._stats.refresh()
 
-    def set_filters(self, filters: dict) -> None:
+    def set_filters(self, filters: dict[str, Any]) -> None:
         """Programmatic filter setter with PATCH semantics.
 
         The provided `filters` dict is overlaid on top of the current filter
@@ -711,7 +718,7 @@ class StructureTab(QWidget):
         # call needed here.
         self._filter_bar.set_filters(merged)
 
-    def current_cards(self) -> list[dict]:
+    def current_cards(self) -> list[dict[str, Any]]:
         """Return the row dicts currently rendered (post-filter)."""
         return self._grid.current_rows()
 
@@ -729,7 +736,7 @@ class StructureTab(QWidget):
         return self._override_queue
 
     # ── internal ───────────────────────────────────────────────────────────
-    def _on_filters_changed(self, _filters: dict) -> None:
+    def _on_filters_changed(self, _filters: dict[str, Any]) -> None:
         self.refresh()
 
     def _on_view_mode_changed(self, mode: str) -> None:

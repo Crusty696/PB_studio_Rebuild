@@ -36,7 +36,7 @@ cross-tab signal receivers are wired in this release.
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 import shiboken6
 from PySide6.QtCore import QSettings, QSize, Signal
@@ -68,7 +68,7 @@ def _default_brain_service() -> BrainService:
     """Lazy wrapper around the app's main DB session — used when no explicit
     BrainService is injected. Kept inside a function so test environments that
     never touch the main DB don't pay the `database.session` import cost."""
-    from database import nullpool_session
+    from database import nullpool_session  # type: ignore[attr-defined]
 
     return BrainService(session_factory=nullpool_session)
 
@@ -267,6 +267,6 @@ class StudioBrainWindow(QMainWindow):
         except Exception as exc:
             logger.debug("studio_brain save last_tab: %s", exc)
 
-    def closeEvent(self, event) -> None:  # type: ignore[override]
+    def closeEvent(self, event: Any) -> None:
         self._save_state()
         super().closeEvent(event)

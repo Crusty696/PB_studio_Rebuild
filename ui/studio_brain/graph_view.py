@@ -23,9 +23,9 @@ Design choices
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Any, Optional
 
-import networkx as nx
+import networkx as nx  # type: ignore[import-untyped]
 from PySide6.QtCore import QPoint, QRectF, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QPainter, QPen
 from PySide6.QtWidgets import (
@@ -220,7 +220,7 @@ class GraphView(QGraphicsView):
     # ── layout + scene construction ───────────────────────────────────────────
     @staticmethod
     def _fingerprint(
-        nodes: list[dict], edges: list[dict]
+        nodes: list[dict[str, Any]], edges: list[dict[str, Any]]
     ) -> tuple[frozenset[int], frozenset[tuple[int, int]]]:
         node_ids = frozenset(int(n["scene_id"]) for n in nodes)
         edge_pairs = frozenset(
@@ -229,7 +229,7 @@ class GraphView(QGraphicsView):
         return (node_ids, edge_pairs)
 
     def _compute_or_reuse_layout(
-        self, nodes: list[dict], edges: list[dict]
+        self, nodes: list[dict[str, Any]], edges: list[dict[str, Any]]
     ) -> dict[int, tuple[float, float]]:
         fp = self._fingerprint(nodes, edges)
         cached = self._layout_cache.get(fp)
@@ -265,8 +265,8 @@ class GraphView(QGraphicsView):
 
     def _rebuild_scene(
         self,
-        nodes: list[dict],
-        edges: list[dict],
+        nodes: list[dict[str, Any]],
+        edges: list[dict[str, Any]],
         positions: dict[int, tuple[float, float]],
     ) -> None:
         self._scene.clear()
@@ -316,7 +316,7 @@ class GraphView(QGraphicsView):
         self._scene.setSceneRect(self._scene.itemsBoundingRect())
 
     # ── interaction ───────────────────────────────────────────────────────────
-    def mousePressEvent(self, event) -> None:  # noqa: N802 — Qt override
+    def mousePressEvent(self, event: Any) -> None:  # noqa: N802 — Qt override
         if event.button() == Qt.MouseButton.LeftButton:
             scene_pos = self.mapToScene(event.position().toPoint())
             item = self._scene.itemAt(scene_pos, self.transform())
@@ -336,7 +336,7 @@ class GraphView(QGraphicsView):
                 return
         super().mousePressEvent(event)
 
-    def wheelEvent(self, event) -> None:  # noqa: N802 — Qt override
+    def wheelEvent(self, event: Any) -> None:  # noqa: N802 — Qt override
         # Simple zoom: scroll up = zoom in (1.15x), scroll down = 1/1.15.
         if event.angleDelta().y() == 0:
             super().wheelEvent(event)
@@ -345,7 +345,7 @@ class GraphView(QGraphicsView):
         self.scale(factor, factor)
 
     @staticmethod
-    def _resolve_node_item(item) -> Optional[_NodeItem]:
+    def _resolve_node_item(item: Any) -> Optional[_NodeItem]:
         """Walk up a QGraphicsItem parent chain to the nearest _NodeItem."""
         cur = item
         while cur is not None:
