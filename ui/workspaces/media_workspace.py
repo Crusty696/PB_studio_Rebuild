@@ -23,7 +23,23 @@ CLIP_MIME_TYPE = "application/x-pb-studio-clip"
 
 
 class DraggablePoolView(QTableView):
-    """QTableView that supports drag-start for Timeline Drag & Drop (Fix F-006)."""
+    """QTableView that supports drag-start for Timeline Drag & Drop (Fix F-006).
+
+    Bug E (Media-Pool-Checkbox-Fix): mit setDragEnabled(True) + SelectRows
+    interpretiert Qt jeden Single-Click als Selection + potentieller
+    Drag-Start, und gibt den Click NICHT an die ItemIsUserCheckable-Logik
+    weiter. Resultat: einzelne Checkboxen liessen sich nicht aktivieren,
+    nur der "Alle"-Button (der toggle_all am Model direkt aufruft).
+
+    Fix: mousePressEvent overriden — Click auf die Checkbox-Spalte (col 0)
+    toggelt explizit die Check-State und verhindert die Drag-Initiierung
+    fuer diesen Click. Andere Spalten verhalten sich unveraendert
+    (Selection + Drag).
+    """
+
+    # Spalte 0 ist in MediaTableModel die "_chk"-Spalte (siehe
+    # ui/models/media_table_model.py:28-32).
+    _CHECKBOX_COLUMN: int = 0
 
     def __init__(self, track_type: str, parent=None):
         super().__init__(parent)
@@ -34,6 +50,28 @@ class DraggablePoolView(QTableView):
         self.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
         self.setSelectionMode(QTableView.SelectionMode.ExtendedSelection)
         self.setAlternatingRowColors(True)
+
+    def mousePressEvent(self, event):  # noqa: N802 — Qt override
+        """Click auf Checkbox-Spalte → toggelt; sonst Default-Verhalten.
+
+        Wir muessen das vor super().mousePressEvent abfangen, weil sonst
+        Qt's Drag-Initiation-Pfad den Click verbraucht.
+        """
+        if event.button() == Qt.MouseButton.LeftButton:
+            index = self.indexAt(event.position().toPoint())
+            if index.isValid() and index.column() == self._CHECKBOX_COLUMN:
+                model = self.model()
+                if model is not None:
+                    current = model.data(index, Qt.ItemDataRole.CheckStateRole)
+                    new_state = (
+                        Qt.CheckState.Unchecked
+                        if current == Qt.CheckState.Checked
+                        else Qt.CheckState.Checked
+                    )
+                    model.setData(index, new_state, Qt.ItemDataRole.CheckStateRole)
+                    event.accept()
+                    return
+        super().mousePressEvent(event)
 
     def startDrag(self, supportedActions):
         indexes = self.selectionModel().selectedRows()
