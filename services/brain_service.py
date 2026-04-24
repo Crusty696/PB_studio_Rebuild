@@ -34,6 +34,10 @@ tab's run dropdown + cut table + details column + segment-strip.
 
 T11.3 extension: list_audio_tracks, list_weights_profiles — backing the
 Steer tab's audio-track selector and weights-profile dropdown.
+
+P12 extension: story_map_data, list_runs_with_story_map_data — backing the
+Story-Map dialog (waveform + section strip + tension curve + mood strip +
+clip-thumb strip + thumbnail-click navigation signal).
 """
 
 from __future__ import annotations
@@ -193,6 +197,14 @@ class BrainService:
         self.list_weights_profiles = functools.lru_cache(maxsize=1)(
             self._list_weights_profiles_uncached
         )
+        # P12: Story-Map dialog reads. story_map_data is keyed on run_id;
+        # list_runs_with_story_map_data is parameter-free.
+        self.story_map_data = functools.lru_cache(maxsize=16)(
+            self._story_map_data_uncached
+        )
+        self.list_runs_with_story_map_data = functools.lru_cache(maxsize=1)(
+            self._list_runs_with_story_map_data_uncached
+        )
         # Names of attributes wrapped in lru_cache — invalidate() iterates this
         # list so new cached endpoints only need to be added in one place.
         self._cached_attrs: tuple[str, ...] = (
@@ -214,6 +226,8 @@ class BrainService:
             "_list_decisions_for_run_cached",
             "list_audio_tracks",
             "list_weights_profiles",
+            "story_map_data",
+            "list_runs_with_story_map_data",
         )
 
     def invalidate(self) -> None:
@@ -1515,6 +1529,314 @@ class BrainService:
                 exc,
             )
             return []
+
+
+    # ── P12: Story-Map dialog reads ────────────────────────────────────────
+    def _story_map_data_uncached(self, run_id: int) -> Optional[dict]:
+        """Return the full bundle of data the Story-Map dialog renders.
+
+        Returns ``None`` if the run does not exist.
+
+        Result dict shape (see plan P12 for the contract):
+            {
+              run: {id, audio_track_id, total_duration_sec, is_dj_mix,
+                    started_at, completed_at},
+              audio_track: {id, file_path, file_basename} | None,
+              decisions: [
+                {decision_id, sequence_idx, at_timestamp_sec, at_section_type,
+                 at_mood_audio, at_harmonic_tension, scene_id, clip_role,
+                 clip_mood_refined, video_file_path}
+                ...  # ordered by sequence_idx ASC
+              ],
+              structure_segments: [
+                {id, start_sec, end_sec, label}
+                ...  # empty if not is_dj_mix
+              ],
+              tension_curve: [
+                {time_sec, value}
+                ...  # one per decision, derived from at_harmonic_tension
+              ],
+              mood_curve: [
+                {time_sec, mood}
+                ...  # one per decision, derived from at_mood_audio
+              ],
+              waveform_energy: [
+                {time_sec, energy}
+                ...  # sampled from audio_tracks.energy_curve, empty if absent
+              ],
+            }
+
+        Sampling semantics:
+          * tension_curve and mood_curve are point-snapshots from
+            mem_decision (one per cut). The dialog renders them as a step or
+            linear interpolation. We do not reconstruct a per-frame curve from
+            raw audio — only per-decision snapshots are persisted.
+          * waveform_energy is lifted from audio_tracks.energy_curve (a JSON
+            list of energies, evenly-spaced across total_duration_sec). If the
+            column is missing, NULL, or unparseable, returns ``[]`` and the
+            dialog hides the waveform panel.
+
+        Single session, single transaction; no N+1.
+        """
+        rid = int(run_id)
+        session, ownership = self._open_session()
+        try:
+            run_row = (
+                session.execute(
+                    text(
+                        "SELECT id, audio_track_id, total_duration_sec, "
+                        "  is_dj_mix, started_at, completed_at "
+                        "FROM mem_pacing_run WHERE id = :rid"
+                    ),
+                    {"rid": rid},
+                )
+                .mappings()
+                .first()
+            )
+            if run_row is None:
+                return None
+
+            run_dict = {
+                "id": int(run_row["id"]),
+                "audio_track_id": (
+                    int(run_row["audio_track_id"])
+                    if run_row["audio_track_id"] is not None
+                    else None
+                ),
+                "total_duration_sec": float(run_row["total_duration_sec"] or 0.0),
+                "is_dj_mix": bool(run_row["is_dj_mix"]),
+                "started_at": run_row["started_at"],
+                "completed_at": run_row["completed_at"],
+            }
+
+            audio_track: Optional[dict] = None
+            audio_track_id = run_row["audio_track_id"]
+            energy_curve_raw: Any = None
+            if audio_track_id is not None:
+                # PRAGMA-introspect for energy_curve so the older test-bootstrap
+                # schemas (which don't carry it) don't blow up the SELECT.
+                cols_rows = session.execute(
+                    text("PRAGMA table_info(audio_tracks)")
+                ).all()
+                present = {row[1] for row in cols_rows}
+                select_energy = (
+                    "a.energy_curve AS energy_curve"
+                    if "energy_curve" in present
+                    else "NULL AS energy_curve"
+                )
+                track_row = (
+                    session.execute(
+                        text(
+                            "SELECT a.id AS id, a.file_path AS file_path, "
+                            f" {select_energy} "
+                            "FROM audio_tracks a WHERE a.id = :aid"
+                        ),
+                        {"aid": int(audio_track_id)},
+                    )
+                    .mappings()
+                    .first()
+                )
+                if track_row is not None:
+                    file_path = track_row["file_path"]
+                    audio_track = {
+                        "id": int(track_row["id"]),
+                        "file_path": file_path,
+                        "file_basename": (
+                            os.path.basename(str(file_path))
+                            if file_path
+                            else ""
+                        ),
+                    }
+                    energy_curve_raw = track_row["energy_curve"]
+
+            decisions_rows = (
+                session.execute(
+                    text(
+                        "SELECT "
+                        "  d.id                  AS decision_id, "
+                        "  d.sequence_idx        AS sequence_idx, "
+                        "  d.at_timestamp_sec    AS at_timestamp_sec, "
+                        "  d.at_section_type     AS at_section_type, "
+                        "  d.at_mood_audio       AS at_mood_audio, "
+                        "  d.at_harmonic_tension AS at_harmonic_tension, "
+                        "  d.scene_id            AS scene_id, "
+                        "  d.clip_role           AS clip_role, "
+                        "  d.clip_mood_refined   AS clip_mood_refined, "
+                        "  v.file_path           AS video_file_path "
+                        "FROM mem_decision d "
+                        "LEFT JOIN scenes s      ON s.id = d.scene_id "
+                        "LEFT JOIN video_clips v ON v.id = s.video_clip_id "
+                        "WHERE d.run_id = :rid "
+                        "ORDER BY d.sequence_idx ASC, d.id ASC"
+                    ),
+                    {"rid": rid},
+                )
+                .mappings()
+                .all()
+            )
+            decisions: list[dict] = []
+            tension_curve: list[dict] = []
+            mood_curve: list[dict] = []
+            for r in decisions_rows:
+                ts = float(r["at_timestamp_sec"] or 0.0)
+                tension_raw = r["at_harmonic_tension"]
+                mood_raw = r["at_mood_audio"]
+                decisions.append(
+                    {
+                        "decision_id": int(r["decision_id"]),
+                        "sequence_idx": int(r["sequence_idx"] or 0),
+                        "at_timestamp_sec": ts,
+                        "at_section_type": r["at_section_type"],
+                        "at_mood_audio": mood_raw,
+                        "at_harmonic_tension": (
+                            float(tension_raw)
+                            if tension_raw is not None
+                            else None
+                        ),
+                        "scene_id": (
+                            int(r["scene_id"])
+                            if r["scene_id"] is not None
+                            else None
+                        ),
+                        "clip_role": r["clip_role"],
+                        "clip_mood_refined": r["clip_mood_refined"],
+                        "video_file_path": r["video_file_path"],
+                    }
+                )
+                if tension_raw is not None:
+                    try:
+                        tension_curve.append(
+                            {"time_sec": ts, "value": float(tension_raw)}
+                        )
+                    except (TypeError, ValueError):
+                        pass
+                if mood_raw is not None:
+                    mood_curve.append({"time_sec": ts, "mood": mood_raw})
+
+            structure_segments: list[dict] = []
+            if run_dict["is_dj_mix"] and audio_track_id is not None:
+                # Probe the table; some test-bootstrap envs don't create it.
+                try:
+                    seg_rows = (
+                        session.execute(
+                            text(
+                                "SELECT id, start_time, end_time, label "
+                                "FROM structure_segments "
+                                "WHERE audio_track_id = :aid "
+                                "ORDER BY start_time ASC, id ASC"
+                            ),
+                            {"aid": int(audio_track_id)},
+                        )
+                        .mappings()
+                        .all()
+                    )
+                    structure_segments = [
+                        {
+                            "id": int(s["id"]),
+                            "start_sec": float(s["start_time"] or 0.0),
+                            "end_sec": float(s["end_time"] or 0.0),
+                            "label": s["label"],
+                        }
+                        for s in seg_rows
+                    ]
+                except Exception as exc:  # pragma: no cover — defensive
+                    logger.warning(
+                        "story_map_data: structure_segments read failed for "
+                        "audio_track_id=%s: %s",
+                        audio_track_id,
+                        exc,
+                    )
+
+            waveform_energy: list[dict] = []
+            energy_values = _parse_json_field(energy_curve_raw)
+            if isinstance(energy_values, list) and energy_values:
+                duration = run_dict["total_duration_sec"]
+                if duration <= 0:
+                    duration = float(len(energy_values))
+                n = len(energy_values)
+                if n == 1:
+                    # Single-point curve: anchor at t=0.
+                    try:
+                        waveform_energy = [
+                            {"time_sec": 0.0, "energy": float(energy_values[0])}
+                        ]
+                    except (TypeError, ValueError):
+                        waveform_energy = []
+                else:
+                    step = duration / (n - 1)
+                    for i, ev in enumerate(energy_values):
+                        try:
+                            waveform_energy.append(
+                                {
+                                    "time_sec": float(i * step),
+                                    "energy": float(ev),
+                                }
+                            )
+                        except (TypeError, ValueError):
+                            # Skip non-numeric entries defensively.
+                            continue
+
+            return {
+                "run": run_dict,
+                "audio_track": audio_track,
+                "decisions": decisions,
+                "structure_segments": structure_segments,
+                "tension_curve": tension_curve,
+                "mood_curve": mood_curve,
+                "waveform_energy": waveform_energy,
+            }
+        finally:
+            self._close_session(session, ownership)
+
+    def _list_runs_with_story_map_data_uncached(self) -> list[dict]:
+        """Return runs that have at least one decision (newest-first).
+
+        Each dict has keys: ``id, started_at, completed_at, is_dj_mix,
+        total_cuts, audio_track_filename`` — exactly the columns the Story-Map
+        trigger menus need to render their items. ``audio_track_filename`` is
+        the basename of the joined ``audio_tracks.file_path`` (None if the
+        run has no track or the file path is empty).
+        """
+        session, ownership = self._open_session()
+        try:
+            rows = (
+                session.execute(
+                    text(
+                        "SELECT "
+                        "  r.id                  AS id, "
+                        "  r.started_at          AS started_at, "
+                        "  r.completed_at        AS completed_at, "
+                        "  r.is_dj_mix           AS is_dj_mix, "
+                        "  r.total_cuts          AS total_cuts, "
+                        "  a.file_path           AS audio_track_filepath "
+                        "FROM mem_pacing_run r "
+                        "LEFT JOIN audio_tracks a ON a.id = r.audio_track_id "
+                        "WHERE EXISTS ("
+                        "  SELECT 1 FROM mem_decision d WHERE d.run_id = r.id"
+                        ") "
+                        "ORDER BY r.started_at DESC, r.id DESC"
+                    )
+                )
+                .mappings()
+                .all()
+            )
+            out: list[dict] = []
+            for r in rows:
+                fp = r["audio_track_filepath"]
+                basename = os.path.basename(str(fp)) if fp else None
+                out.append(
+                    {
+                        "id": int(r["id"]),
+                        "started_at": r["started_at"],
+                        "completed_at": r["completed_at"],
+                        "is_dj_mix": bool(r["is_dj_mix"]),
+                        "total_cuts": int(r["total_cuts"] or 0),
+                        "audio_track_filename": basename,
+                    }
+                )
+            return out
+        finally:
+            self._close_session(session, ownership)
 
 
 def _parse_json_field(raw: Any) -> Any:

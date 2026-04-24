@@ -1441,6 +1441,86 @@ class InteractiveTimeline(QGraphicsView):
         """Inject a custom FeedbackService (for tests). Not used in production."""
         self._feedback_service = service
 
+    # ── P12: Story-Map context-menu trigger ────────────────────────────────
+    def set_brain_service(self, service) -> None:  # type: ignore[name-defined]
+        """Inject a custom ``BrainService`` instance for the Story-Map menu.
+
+        Default is a lazily-constructed module-level singleton (built on
+        first ``contextMenuEvent`` so headless test contexts that never
+        right-click never pay the import cost). Tests should call this with
+        a fresh BrainService bound to their on-disk SQLite DB.
+        """
+        self._brain_service = service
+
+    def _get_brain_service(self):
+        """Return the BrainService for the Story-Map menu, lazily creating
+        a default if none was injected. Headless / test setups that don't
+        touch the real DB should call ``set_brain_service`` first."""
+        existing = getattr(self, "_brain_service", None)
+        if existing is not None:
+            return existing
+        from services.brain_service import BrainService
+        self._brain_service = BrainService(session_factory=nullpool_session)
+        return self._brain_service
+
+    def contextMenuEvent(self, event):  # type: ignore[override]
+        """Right-click context menu — currently a single ``Open Story Map``
+        entry that opens the StoryMapDialog for the most-recent run with
+        decisions, falling back to a QMessageBox if no such run exists.
+
+        We deliberately keep this minimal: the timeline's interactive
+        right-click flows live on the clip items (TimelineClipItem) which
+        receive their own contextMenuEvent first; this handler only fires
+        on right-clicks over empty timeline space.
+        """
+        menu = QMenu(self)
+        menu.setStyleSheet(
+            "QMenu { background: #1A1A1A; color: #E0E0E0; border: 1px solid #333; }"
+            "QMenu::item:selected { background: rgba(212,175,55,0.15); color: #E8CC6A; }"
+        )
+        story_map_action = menu.addAction("Open Story Map for most recent run")
+        story_map_action.triggered.connect(self._open_story_map_for_recent_run)
+        menu.exec(event.globalPos())
+
+    def _open_story_map_for_recent_run(self) -> None:
+        """Resolve the newest run with decisions and open the Story-Map dialog."""
+        from PySide6.QtWidgets import QMessageBox
+
+        svc = self._get_brain_service()
+        try:
+            runs = svc.list_runs_with_story_map_data()
+        except Exception as exc:
+            logger.warning(
+                "InteractiveTimeline: list_runs_with_story_map_data failed: %s",
+                exc,
+            )
+            runs = []
+        if not runs:
+            QMessageBox.information(
+                self,
+                "Story Map",
+                "No runs yet — run the pacing agent first.",
+            )
+            return
+        run_id = int(runs[0]["id"])
+        from ui.story_map_dialog import StoryMapDialog
+
+        dialog = StoryMapDialog(svc, run_id, parent=self)
+        # Hold a reference so the non-modal dialog is not GC'd.
+        if not hasattr(self, "_story_map_dialogs"):
+            self._story_map_dialogs = []
+        self._story_map_dialogs.append(dialog)
+        dialog.finished.connect(
+            lambda _result, d=dialog: self._drop_story_map_dialog(d)
+        )
+        dialog.show()
+
+    def _drop_story_map_dialog(self, dialog) -> None:
+        try:
+            self._story_map_dialogs.remove(dialog)
+        except (AttributeError, ValueError):
+            pass
+
     def _resolve_scene_id(self, clip_item: "TimelineClipItem") -> int | None:
         """Best-effort scene-id lookup for feedback routing.
 

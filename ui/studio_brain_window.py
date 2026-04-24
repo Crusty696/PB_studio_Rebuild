@@ -39,7 +39,7 @@ import logging
 from typing import Optional
 
 import shiboken6
-from PySide6.QtCore import QSettings, QSize
+from PySide6.QtCore import QSettings, QSize, Signal
 from PySide6.QtWidgets import QMainWindow, QTabWidget, QWidget
 
 from services.backup_service import BackupService
@@ -99,6 +99,13 @@ def _default_backup_service() -> Optional[BackupService]:
 class StudioBrainWindow(QMainWindow):
     """Singleton top-level window for the Studio Brain UI."""
 
+    # P12: emitted by the AuditTab's Story-Map dialog when the user clicks
+    # a clip card. The payload is the cut's at_timestamp_sec. No internal
+    # consumer is wired up yet (the real timeline scrub is a future polish
+    # item); the signal exists so downstream code can subscribe without
+    # touching this file.
+    timelineNavigationRequested = Signal(float)
+
     _instance: Optional["StudioBrainWindow"] = None
 
     def __init__(
@@ -144,6 +151,13 @@ class StudioBrainWindow(QMainWindow):
             parent=self._tabs,
         )
         self._tabs.addTab(self._audit_tab, _TAB_LABELS[2])
+        # P12 — fan AuditTab's story-map thumbnail-click signal up to the
+        # window-level ``timelineNavigationRequested`` so external consumers
+        # can listen without poking into the tab. The AuditTab forwards on
+        # behalf of any StoryMapDialog it opens.
+        self._audit_tab.storyMapThumbnailClicked.connect(
+            self._on_story_map_thumbnail_clicked
+        )
         # Wire MemoryTab → AuditTab cross-tab signal (T11.2):
         # when the user picks a run in Gedächtnis, align the selector in
         # Audit.  The user still switches tabs manually — auto-switch is a
@@ -205,6 +219,24 @@ class StudioBrainWindow(QMainWindow):
     # ── Public helpers ─────────────────────────────────────────────────────
     def count_tabs(self) -> int:
         return self._tabs.count()
+
+    # ── P12 internal slots ────────────────────────────────────────────────
+    def _on_story_map_thumbnail_clicked(
+        self, _scene_id: int, timestamp_sec: float
+    ) -> None:
+        """Forward Story-Map thumbnail clicks as ``timelineNavigationRequested``.
+
+        The real timeline scrub is wired in a separate task; here we simply
+        log + emit so external listeners (or future polish) can subscribe.
+        """
+        try:
+            ts = float(timestamp_sec)
+        except (TypeError, ValueError):
+            return
+        logger.debug(
+            "StudioBrainWindow: story-map navigation requested at %.3fs", ts
+        )
+        self.timelineNavigationRequested.emit(ts)
 
     # ── QSettings persistence ──────────────────────────────────────────────
     def _restore_state(self) -> None:

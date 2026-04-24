@@ -48,6 +48,8 @@ from PySide6.QtWidgets import (
     QLabel,
     QListWidget,
     QListWidgetItem,
+    QMessageBox,
+    QPushButton,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -662,6 +664,10 @@ class AuditTab(QWidget):
     """Top-level widget placed at tab index 2 of StudioBrainWindow (T11.2)."""
 
     cutSelected = Signal(int)  # decision_id
+    # P12: forwarded from any StoryMapDialog opened by the "Story Map…"
+    # button; the StudioBrainWindow re-emits this as
+    # ``timelineNavigationRequested`` for external subscribers.
+    storyMapThumbnailClicked = Signal(int, float)  # (scene_id, timestamp_sec)
 
     def __init__(
         self,
@@ -671,15 +677,32 @@ class AuditTab(QWidget):
         super().__init__(parent)
         self._svc = brain_service
         self._current_run_id: Optional[int] = None
+        self._story_map_dialogs: list = []
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(6, 6, 6, 6)
         outer.setSpacing(6)
 
-        # Run selector (top bar).
+        # Run selector (top bar) + Story Map trigger.
+        top_row = QHBoxLayout()
+        top_row.setContentsMargins(0, 0, 0, 0)
+        top_row.setSpacing(8)
+
         self._run_selector = _RunSelector(self)
         self._run_selector.runChanged.connect(self._on_run_changed)
-        outer.addWidget(self._run_selector)
+        top_row.addWidget(self._run_selector, stretch=1)
+
+        # P12 trigger: opens StoryMapDialog for the currently-selected run.
+        self._story_map_btn = QPushButton("Story Map…", self)
+        self._story_map_btn.setStyleSheet(
+            "QPushButton{background:#1a2030;color:#e5e7eb;"
+            "border:1px solid rgba(255,255,255,0.1);border-radius:4px;"
+            "padding:3px 10px;font-size:10px;}"
+            "QPushButton:hover{background:#243042;}"
+        )
+        self._story_map_btn.clicked.connect(self._on_story_map_clicked)
+        top_row.addWidget(self._story_map_btn)
+        outer.addLayout(top_row)
 
         # Segment strip (visible only for DJ-mix runs).
         self._segment_strip = _SegmentStrip(self)
@@ -831,3 +854,38 @@ class AuditTab(QWidget):
         except OperationalError as exc:
             logger.warning("AuditTab: read call failed: %s", exc)
             return default
+
+    # ── P12: Story-Map trigger ────────────────────────────────────────────
+    def _on_story_map_clicked(self) -> None:
+        """Open a StoryMapDialog for the currently-selected run.
+
+        Shows a QMessageBox.information when no run is selected (e.g. fresh
+        DB with no completed runs).
+        """
+        rid = self._run_selector.current_run_id() if self._current_run_id is None else self._current_run_id
+        if rid is None:
+            QMessageBox.information(
+                self,
+                "Story Map",
+                "Please select a run first.",
+            )
+            return
+        # Local import keeps the StoryMapDialog (and its pyqtgraph imports)
+        # off the AuditTab import path until the user actually triggers it.
+        from ui.story_map_dialog import StoryMapDialog
+
+        dialog = StoryMapDialog(self._svc, int(rid), parent=self)
+        dialog.thumbnailClicked.connect(self.storyMapThumbnailClicked)
+        # Keep a strong reference so Python doesn't GC the non-modal dialog.
+        self._story_map_dialogs.append(dialog)
+        # Drop the reference once the user closes it.
+        dialog.finished.connect(
+            lambda _result, d=dialog: self._on_story_map_closed(d)
+        )
+        dialog.show()
+
+    def _on_story_map_closed(self, dialog) -> None:
+        try:
+            self._story_map_dialogs.remove(dialog)
+        except ValueError:
+            pass
