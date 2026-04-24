@@ -387,7 +387,18 @@ class PBWindow(QMainWindow):
         return banner
 
     def _console_append(self, text: str) -> None:
-        """Convenience: Text in die Konsole schreiben."""
+        """Bug-C-Fix: Routet alle Konsolen-Writes durch den gepufferten Flush
+        des PanelSetupControllers (250 ms Sammel-Tick). Vermeidet, dass jeder
+        Worker-Progress-Tick einen synchronen QTextEdit.append() ausloest und
+        damit Resize/MetaCall-SLOW-Events auf dem UI-Thread erzeugt.
+
+        Falls der Puffer noch nicht initialisiert ist (sehr fruehe Phase vor
+        setup_console()), faellt die Methode auf den direkten Append zurueck.
+        """
+        ps = getattr(self, 'panel_setup', None)
+        if ps is not None and hasattr(ps, '_console_buffer'):
+            ps._console_append(text)
+            return
         if hasattr(self, 'console_text') and self.console_text is not None:
             self.console_text.append(text)
 

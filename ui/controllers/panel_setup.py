@@ -133,11 +133,32 @@ class PanelSetupController(PBComponent):
             self._console_buffer.append(text)
 
     def _flush_console_buffer(self):
-        """Schreibt gepufferte Nachrichten gesammelt ins UI-Widget."""
+        """Schreibt gepufferte Nachrichten gesammelt ins UI-Widget.
+
+        Bug-C-Fix: Nur EIN UI-Update-Tick pro Flush, unabhaengig davon wie
+        viele Zeilen gepuffert sind. Cursor-bewegen statt append() pro Zeile,
+        damit jede Zeile auch ein eigener Block (eigene maxBlockCount-Zeile)
+        wird ohne N synchrone Layout-Recompute-Zyklen auszuloesen.
+        """
         with self._console_lock:
             if not self._console_buffer:
                 return
-            full_text = "\n".join(self._console_buffer)
-            self._console_buffer.clear()
-        
-        self.window.console_text.append(full_text)
+            lines = self._console_buffer
+            self._console_buffer = []
+
+        widget = self.window.console_text
+        # Einziger Append: insertPlainText am Ende, mit fuehrendem Newline
+        # falls schon Inhalt existiert. Das laeuft als ein einziger
+        # Layout-/Resize-Pass, nicht als N.
+        from PySide6.QtGui import QTextCursor
+        cursor = widget.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        # Wenn das Dokument nicht leer ist, beginnt der Block mit einem
+        # Newline, damit jede Zeile ein eigener "Block" wird (wichtig fuer
+        # maximumBlockCount-Trimming).
+        if not widget.document().isEmpty():
+            cursor.insertText("\n")
+        cursor.insertText("\n".join(lines))
+        # Auto-scroll ans Ende, wie es .append() auch macht
+        widget.setTextCursor(cursor)
+        widget.ensureCursorVisible()

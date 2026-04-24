@@ -185,9 +185,12 @@ class VideoAnalysisController(PBComponent):
         self.window.worker_dispatcher._start_worker_thread(worker)
 
     def _on_pipeline_progress(self, pct: int, msg: str, task_id: str):
+        # Bug C: 200-Clip-Batches feuern dutzende Progress-Events; Throttle
+        # auf 10 %-Schritte + neue-Video-Marker, und ueber den gepufferten
+        # _console_append (kein synchroner QTextEdit.append pro Tick).
         last_pct = getattr(self, '_pipeline_last_pct', -10)
         if abs(pct - last_pct) >= 10 or "wird analysiert" in msg:
-            self.window.console_text.append(f"[Pipeline] {msg} ({pct}%)")
+            self.window._console_append(f"[Pipeline] {msg} ({pct}%)")
             self._pipeline_last_pct = pct
 
     def _on_pipeline_finished(self, clip_id: int, result: dict, title: str, task_id: str):
