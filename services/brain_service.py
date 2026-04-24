@@ -31,6 +31,9 @@ Memory tab's run-timeline + pattern table + drill-down.
 T11.2 extension: list_runs_for_audit_selector, list_decisions_for_run,
 get_decision_detail, list_structure_segments_for_run — backing the Audit
 tab's run dropdown + cut table + details column + segment-strip.
+
+T11.3 extension: list_audio_tracks, list_weights_profiles — backing the
+Steer tab's audio-track selector and weights-profile dropdown.
 """
 
 from __future__ import annotations
@@ -54,6 +57,15 @@ logger = logging.getLogger(__name__)
 # are expected by the enrichment pipeline but have zero scenes yet).
 _MOOD_ANCHORS_YAML: Path = (
     Path(__file__).resolve().parent.parent / "config" / "mood_anchors_v1.yaml"
+)
+
+# Directory containing the per-genre pacing-weights profile YAMLs. The Steer
+# tab's profile dropdown (T11.3) enumerates ``*.yaml`` files from here and the
+# "Edit profile" button opens the selected file in the OS default editor.
+# Module-level so tests can monkeypatch this path to exercise the missing-dir
+# failure mode without materialising a real directory.
+_PACING_WEIGHTS_DIR: Path = (
+    Path(__file__).resolve().parent.parent / "config" / "pacing_weights"
 )
 
 
@@ -170,6 +182,17 @@ class BrainService:
         self._list_decisions_for_run_cached = functools.lru_cache(maxsize=32)(
             self._list_decisions_for_run_uncached
         )
+        # T11.3: Steer tab read-views. ``list_audio_tracks`` hits the DB;
+        # ``list_weights_profiles`` scans the filesystem. Both cache at
+        # maxsize=1 — the scans are cheap, but registering caches in
+        # ``_cached_attrs`` means ``invalidate()`` can clear them when the
+        # user hits "Refresh" (new track uploaded, profile edited on disk).
+        self.list_audio_tracks = functools.lru_cache(maxsize=1)(
+            self._list_audio_tracks_uncached
+        )
+        self.list_weights_profiles = functools.lru_cache(maxsize=1)(
+            self._list_weights_profiles_uncached
+        )
         # Names of attributes wrapped in lru_cache — invalidate() iterates this
         # list so new cached endpoints only need to be added in one place.
         self._cached_attrs: tuple[str, ...] = (
@@ -189,6 +212,8 @@ class BrainService:
             "get_decision_detail",
             "list_structure_segments_for_run",
             "_list_decisions_for_run_cached",
+            "list_audio_tracks",
+            "list_weights_profiles",
         )
 
     def invalidate(self) -> None:
@@ -1379,6 +1404,117 @@ class BrainService:
             ]
         finally:
             self._close_session(session, ownership)
+
+
+    # ── T11.3: Steer tab reads ─────────────────────────────────────────────
+    def _list_audio_tracks_uncached(self) -> list[dict]:
+        """Return every row in ``audio_tracks`` newest-first.
+
+        Result dict shape (keys stable across schema drift):
+          ``id``             (int)
+          ``file_path``      (str)
+          ``file_basename``  (str) — computed Python-side via ``os.path.basename``
+          ``duration_sec``   (float | None) — from the ``duration`` column
+                              (real schema uses ``duration``; the dict aliases
+                              it to ``duration_sec`` for UI-layer clarity).
+                              ``None`` if the column is missing (bootstrap
+                              schemas in tests), preserving the contract.
+          ``bpm``            (float | None) — ``None`` if the column is missing.
+          ``created_at``     (raw DB value — datetime or ISO string; the
+                              Steer tab renders it via ``str()``).
+
+        Implementation note: the production ``audio_tracks`` schema (see
+        ``database/models.py``) has ``duration`` and ``bpm``; the
+        tests-bootstrap schema in ``tests/ui/test_structure_tab.py`` does not.
+        We introspect ``PRAGMA table_info`` once per call to decide which
+        optional columns to include in the SELECT, so the method works in both
+        environments without forcing every test to materialise the full
+        schema.
+        """
+        session, ownership = self._open_session()
+        try:
+            # Column set is schema-dependent; PRAGMA is cheap and bypasses the
+            # ORM so we don't need to mirror the AudioTrack model here.
+            cols_rows = session.execute(
+                text("PRAGMA table_info(audio_tracks)")
+            ).all()
+            present = {row[1] for row in cols_rows}
+            select_duration = "a.duration AS duration_sec" if "duration" in present else "NULL AS duration_sec"
+            select_bpm = "a.bpm AS bpm" if "bpm" in present else "NULL AS bpm"
+            sql = (
+                "SELECT "
+                "  a.id                 AS id, "
+                "  a.file_path          AS file_path, "
+                f" {select_duration}, "
+                f" {select_bpm}, "
+                "  a.created_at         AS created_at "
+                "FROM audio_tracks a "
+                "ORDER BY a.created_at DESC, a.id DESC"
+            )
+            rows = session.execute(text(sql)).mappings().all()
+            out: list[dict] = []
+            for r in rows:
+                file_path = r["file_path"]
+                basename = (
+                    os.path.basename(str(file_path)) if file_path else ""
+                )
+                duration = r["duration_sec"]
+                bpm_raw = r["bpm"]
+                out.append(
+                    {
+                        "id": int(r["id"]),
+                        "file_path": file_path,
+                        "file_basename": basename,
+                        "duration_sec": (
+                            float(duration) if duration is not None else None
+                        ),
+                        "bpm": float(bpm_raw) if bpm_raw is not None else None,
+                        "created_at": r["created_at"],
+                    }
+                )
+            return out
+        finally:
+            self._close_session(session, ownership)
+
+    def _list_weights_profiles_uncached(self) -> list[dict]:
+        """Return ``[{"name", "path"}, ...]`` for every ``*.yaml`` under
+        ``config/pacing_weights/``, sorted by name ASC.
+
+        The list is read from the module-level ``_PACING_WEIGHTS_DIR`` so
+        tests can monkeypatch the path to a nonexistent location and exercise
+        the missing-dir fallback. A missing directory or filesystem error is
+        logged at WARNING and the method returns ``[]`` — the Steer tab treats
+        an empty list as "no profiles to pick" and keeps the dropdown
+        disabled.
+        """
+        profiles_dir = _PACING_WEIGHTS_DIR
+        try:
+            if not profiles_dir.exists() or not profiles_dir.is_dir():
+                logger.warning(
+                    "pacing_weights dir missing at %s — returning empty "
+                    "profile list",
+                    profiles_dir,
+                )
+                return []
+            entries: list[dict] = []
+            for yaml_path in profiles_dir.glob("*.yaml"):
+                if not yaml_path.is_file():
+                    continue
+                entries.append(
+                    {
+                        "name": yaml_path.stem,
+                        "path": str(yaml_path.resolve()),
+                    }
+                )
+            entries.sort(key=lambda e: e["name"])
+            return entries
+        except OSError as exc:  # pragma: no cover — defensive
+            logger.warning(
+                "Failed to enumerate pacing_weights dir %s: %s",
+                profiles_dir,
+                exc,
+            )
+            return []
 
 
 def _parse_json_field(raw: Any) -> Any:

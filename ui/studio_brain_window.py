@@ -25,7 +25,12 @@ T11.2 scope: third tab (index 2, "Audit") now hosts AuditTab, backed by the
 same BrainService. ``MemoryTab.runSelected`` is wired into
 ``AuditTab.select_run`` so picking a run in the Gedächtnis tab aligns the
 Audit tab's selector (the user still has to switch tabs manually — auto-
-switch is a future UX polish). The Steer tab stays a placeholder until T11.3.
+switch is a future UX polish).
+
+T11.3 scope: fourth tab (index 3, "Steer") now hosts SteerTab, sharing the
+same BrainService + the process-wide ``SteerOverrideQueue``. The Steer tab
+is a *producer* of state (runRequested, trackChanged, profileChanged) — no
+cross-tab signal receivers are wired in this release.
 """
 
 from __future__ import annotations
@@ -45,6 +50,7 @@ from services.steer_override_queue import (
 )
 from ui.studio_brain.audit_tab import AuditTab
 from ui.studio_brain.memory_tab import MemoryTab
+from ui.studio_brain.steer_tab import SteerTab
 from ui.studio_brain.structure_tab import StructureTab
 
 logger = logging.getLogger(__name__)
@@ -143,10 +149,15 @@ class StudioBrainWindow(QMainWindow):
         # Audit.  The user still switches tabs manually — auto-switch is a
         # future UX polish.
         self._memory_tab.runSelected.connect(self._audit_tab.select_run)
-        # Index 3 — Steer still a placeholder (filled by T11.3).
-        for label in _TAB_LABELS[3:]:
-            placeholder = QWidget(self._tabs)
-            self._tabs.addTab(placeholder, label)
+        # Index 3 — Steer (live SteerTab from T11.3).  Shares the same
+        # override_queue as the Structure tab; writes from StructureTab's
+        # right-click menu surface here automatically via pendingChanged.
+        self._steer_tab = SteerTab(
+            brain_service=self._brain_service,
+            override_queue=self._override_queue,
+            parent=self._tabs,
+        )
+        self._tabs.addTab(self._steer_tab, _TAB_LABELS[3])
         self.setCentralWidget(self._tabs)
 
         self._restore_state()
