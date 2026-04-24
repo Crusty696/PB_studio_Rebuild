@@ -310,7 +310,7 @@ def precache_hf(python: str, missing: list[tuple[str, str]]) -> None:
         f"for repo, desc in {missing!r}:\n"
         "    print(f'  -> {desc} ({repo})')\n"
         "    try:\n"
-        "        snapshot_download(repo_id=repo, token=token, resume_download=True)\n"
+        "        snapshot_download(repo_id=repo, token=token)\n"
         "    except Exception as e:\n"
         "        print(f'     WARNUNG: {e}')\n"
     )

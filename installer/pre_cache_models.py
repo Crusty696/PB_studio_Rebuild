@@ -57,11 +57,13 @@ def download_model(repo_id, cache_dir, token, description):
     print(f"{'=' * 60}\n")
 
     try:
+        # huggingface_hub >= 0.23: resume_download ist Default-Verhalten,
+        # der Parameter ist deprecated und wird in 1.0.0 entfernt.
+        # force_download=True wuerde stattdessen einen Fresh-Download erzwingen.
         snapshot_download(
             repo_id=repo_id,
             cache_dir=cache_dir,
             token=token,
-            resume_download=True,
             local_files_only=False,
         )
         print(f"\n✓ {description} downloaded successfully!")
