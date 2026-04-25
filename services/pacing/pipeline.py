@@ -99,10 +99,24 @@ class PacingPipeline:
         self._sequence_idx: int = 0
 
     def reset_sequence(self, run_id: int | None = None) -> None:
-        """Reset the internal sequence counter. Call between runs when reusing a pipeline."""
+        """Reset the internal sequence counter. Call between runs when reusing a pipeline.
+
+        B-165: Auch _budget zuruecksetzen — sonst leckt VariationsBudget-State
+        zwischen Runs (z.B. scene_id_global-Counter haelt eine Scene-Reuse-
+        Statistik aus dem vorherigen Mix).
+        """
         self._sequence_idx = 0
         if run_id is not None:
             self._run_id = run_id
+        # B-165: Fresh VariationsBudget mit denselben Konfig-Werten wie im Init.
+        # Wir koennen leider nicht die original-budgets-mapping rekonstruieren
+        # ohne sie zu speichern; die DEFAULT_BUDGETS sind aber identisch zu was
+        # im Init verwendet wurde wenn der Caller keine custom-budgets uebergab.
+        existing = self._budget
+        self._budget = VariationsBudget(
+            budgets=dict(existing._budgets),
+            dj_mix=existing._dj_mix,
+        )
 
     @staticmethod
     def _load_rules(path: str | Path) -> dict[str, Any]:

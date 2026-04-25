@@ -84,6 +84,7 @@ class PacingStrategist:
         total_duration: float,
         clip_count: int = 0,
         user_preferences: str = "",
+        max_tokens: int | None = None,
     ) -> PacingPlan:
         """Generiert einen Pacing-Plan basierend auf der Mix-Struktur.
 
@@ -112,8 +113,15 @@ class PacingStrategist:
 
         user_prompt += "\nErstelle einen JSON Pacing-Plan."
 
+        # B-163: Token-Budget proportional zu Section-Count berechnen.
+        # Pro Section-Override-Object ~60 Tokens (type/start/end/cut_rate/mood/notes
+        # + JSON-Overhead). Plus 200 Tokens fuer den Hauptobjekt-Boilerplate.
+        if max_tokens is None:
+            estimated = 200 + len(sections) * 60
+            max_tokens = min(4096, max(1024, estimated))
+
         try:
-            raw_response = self._generate(user_prompt)
+            raw_response = self._generate(user_prompt, max_tokens=max_tokens)
             plan = self._parse_response(raw_response)
             logger.info("PacingStrategist: Plan generiert mit %d Section-Overrides",
                         len(plan.section_overrides))
@@ -136,11 +144,15 @@ class PacingStrategist:
             lines.append(f"  ... und {len(sections) - 30} weitere Sektionen")
         return "\n".join(lines)
 
-    def _generate(self, user_text: str) -> str:
+    def _generate(self, user_text: str, max_tokens: int = 1024) -> str:
         """Generiert Text via Ollama (Gemma 4 E4B).
 
         Raises RuntimeError wenn Ollama nicht verfuegbar — Caller
         faengt das ab und nutzt PacingPlan.default().
+
+        B-163: max_tokens ist jetzt parametrisiert. generate_pacing_plan
+        skaliert das Budget proportional zur Section-Count damit lange
+        DJ-Mixes nicht mid-JSON abschneiden.
         """
         from services.ollama_client import get_ollama_client
         from ui.dialogs.settings_dialog import get_ollama_settings
@@ -163,7 +175,7 @@ class PacingStrategist:
             user_message=user_text,
             system_prompt=SYSTEM_PROMPT,
             temperature=0.1,
-            max_tokens=1024,
+            max_tokens=max_tokens,
         )
         logger.info("PacingStrategist: Antwort erhalten (%d chars)", len(result))
         return result

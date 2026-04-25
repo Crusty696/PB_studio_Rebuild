@@ -155,8 +155,12 @@ class PatternAggregator:
                     close = getattr(session, "close", None)
                     if callable(close):
                         close()
-            except Exception:
-                pass
+            except Exception as cleanup_exc:  # broad: cleanup must not crash caller
+                # B-166: Cleanup-Errors loggen statt verschlucken (DB-lock-expired,
+                # I/O-error etc. sind heimtueckisch wenn sie unsichtbar sind).
+                logger.warning(
+                    "PatternAggregator session cleanup error: %s", cleanup_exc,
+                )
 
     @staticmethod
     def _aggregate(decisions: Iterable[Mapping[str, Any]]) -> list[PatternUpdate]:
@@ -320,5 +324,9 @@ class PatternAggregator:
                     close = getattr(session, "close", None)
                     if callable(close):
                         close()
-            except Exception:
-                pass
+            except Exception as cleanup_exc:  # broad: cleanup must not crash caller
+                # B-166: Cleanup-Errors loggen statt verschlucken (DB-lock-expired,
+                # I/O-error etc. sind heimtueckisch wenn sie unsichtbar sind).
+                logger.warning(
+                    "PatternAggregator session cleanup error: %s", cleanup_exc,
+                )

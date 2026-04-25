@@ -95,28 +95,31 @@ class _QueuedDecision:
     reason: str
 
 
-def _warn_if_on_gui_thread() -> None:
+def _warn_if_on_gui_thread() -> bool:
     """B-104 / BUG-3-b: warn if ``record()`` runs on the Qt GUI thread.
 
     The recorder's ``time.sleep`` retry can block the caller for up to
     ~2.1 seconds. On the GUI thread that translates to a UI freeze.
     We can't import PySide6 unconditionally (the recorder is also used
     from CLI scripts and tests without Qt) — only check when Qt is loaded.
+
+    B-162: Returns True iff a warning was actually emitted, so the
+    caller's once-flag is only set when there was something to warn about.
     """
     import sys
 
     qtcore = sys.modules.get("PySide6.QtCore")
     if qtcore is None:
-        return  # No Qt loaded — nothing to compare against.
+        return False  # No Qt loaded — nothing to compare against.
     QApplication = getattr(sys.modules.get("PySide6.QtWidgets"), "QApplication", None)
     if QApplication is None:
-        return
+        return False
     app = QApplication.instance()
     if app is None:
-        return  # Qt loaded but no app — likely a unit test.
+        return False  # Qt loaded but no app — likely a unit test.
     QThread = getattr(qtcore, "QThread", None)
     if QThread is None:
-        return
+        return False
     if QThread.currentThread() is app.thread():
         logger.warning(
             "DecisionRecorder.record() is running on the Qt GUI thread. "
@@ -124,6 +127,8 @@ def _warn_if_on_gui_thread() -> None:
             "60 cuts that is a multi-minute UI freeze. Dispatch the "
             "pacing pipeline to a QThread worker instead."
         )
+        return True
+    return False
 
 
 class DecisionRecorder:
@@ -164,8 +169,9 @@ class DecisionRecorder:
             run_id, sequence_idx, ctx, chosen, rationale, agent_score
         )
         if not self._gui_thread_warning_logged:
-            _warn_if_on_gui_thread()
-            self._gui_thread_warning_logged = True
+            # B-162: Once-Flag nur setzen wenn tatsaechlich gewarnt wurde
+            if _warn_if_on_gui_thread():
+                self._gui_thread_warning_logged = True
         try:
             decision_id = self._insert_with_retry(payload)
             return decision_id
@@ -275,8 +281,12 @@ class DecisionRecorder:
                     close = getattr(session, "close", None)
                     if callable(close):
                         close()
-            except Exception:
-                pass  # best-effort cleanup
+            except Exception as cleanup_exc:  # broad: cleanup must not crash caller
+                # B-166: Loggen statt verschlucken — sonst sind WAL-Flush-/
+                # Connection-Pool-Errors unsichtbar.
+                logger.warning(
+                    "DecisionRecorder session cleanup error: %s", cleanup_exc,
+                )
 
     def flush_queue(self) -> int:
         """Retry every queued decision once. Returns count successfully drained.
