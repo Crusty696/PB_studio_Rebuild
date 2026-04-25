@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
     QDockWidget, QWidget, QVBoxLayout, QHBoxLayout,
     QTextEdit, QLineEdit, QPushButton, QLabel,
 )
-from PySide6.QtCore import Qt, QThread, Signal, QObject
+from PySide6.QtCore import Qt, QThread, QTimer, Signal, QObject
 from PySide6.QtGui import QFont, QColor, QTextCharFormat, QTextCursor
 
 from ui.theme import ACCENT, ACCENT_BRIGHT, BG1, BG2, ERR, INFO, OK, T2, T3, T4, WARN
@@ -170,6 +170,9 @@ class ChatDock(QDockWidget):
         self._main_window: QMainWindow | None = None
         self._thread: QThread | None = None
         self._worker: AIAgentWorker | None = None
+        # B-180: Watchdog gegen forever-frozen UI wenn Worker hängt
+        # (Ollama down, Modell-Lazy-Load blockiert, TaskManager queue dead).
+        self._watchdog_timer: QTimer | None = None
 
         # --- UI aufbauen ---
         container = QWidget()
@@ -316,6 +319,14 @@ class ChatDock(QDockWidget):
         self.btn_send.setEnabled(False)
         self._status_cursor_pos = self.chat_log.textCursor().position()
         self._append_colored("Agent arbeitet...", T4)
+
+        # B-180: Watchdog 60s — wenn der Worker bis dahin nicht fertig ist,
+        # UI wieder freigeben + Fehler zeigen. Schutz gegen Ollama-Hang,
+        # Modell-Lazy-Load und tote TaskManager-Queue.
+        self._watchdog_timer = QTimer(self)
+        self._watchdog_timer.setSingleShot(True)
+        self._watchdog_timer.timeout.connect(self._on_agent_watchdog)
+        self._watchdog_timer.start(60_000)
 
         # Worker ueber zentrale Task-Engine starten
         worker = AIAgentWorker(self._agent, text)
@@ -580,7 +591,39 @@ class ChatDock(QDockWidget):
         if self.status_label.styleSheet() != style:
             self.status_label.setStyleSheet(style)
 
+    def _stop_watchdog(self) -> None:
+        """B-180: Stoppt den Watchdog-Timer wenn Agent rechtzeitig antwortet."""
+        if self._watchdog_timer is not None:
+            try:
+                self._watchdog_timer.stop()
+                self._watchdog_timer.deleteLater()
+            except RuntimeError:
+                pass
+            self._watchdog_timer = None
+
+    def _on_agent_watchdog(self) -> None:
+        """B-180: Greift wenn der Worker nicht innerhalb 60s antwortet.
+
+        Mögliche Ursachen: Ollama nicht erreichbar, Modell-Lazy-Load hängt,
+        TaskManager-Queue ist tot. UI wird hier wieder freigegeben damit
+        der User nicht in eingefrorenem Zustand bleibt.
+        """
+        self._watchdog_timer = None
+        if self._worker is None:
+            # Bereits sauber abgeschlossen — Watchdog feuert evtl. trotzdem
+            # durch Race; ignorieren.
+            return
+        logger.warning("ChatDock: Watchdog-Timeout (60s) — Agent antwortet nicht.")
+        self._on_agent_error(
+            self.tr(
+                "Timeout: Der KI-Agent antwortet nicht (60s). "
+                "Prüfe ob Ollama läuft (localhost:11434) oder schaue im "
+                "Konsolen-Log nach Hängern beim Modell-Laden."
+            )
+        )
+
     def _on_agent_finished(self, result: dict) -> None:
+        self._stop_watchdog()
         self._remove_status_line()
         self.input_field.setEnabled(True)
         self.btn_send.setEnabled(True)
@@ -629,6 +672,7 @@ class ChatDock(QDockWidget):
         self.append_divider()
 
     def _on_agent_error(self, error_msg: str) -> None:
+        self._stop_watchdog()
         self._remove_status_line()
         self._on_agent_status("Fehler")
         self.input_field.setEnabled(True)
@@ -638,6 +682,9 @@ class ChatDock(QDockWidget):
 
     def closeEvent(self, event):
         """Cleanup beim Schließen des Chat-Docks — Signals disconnecten (Bug #25)"""
+        # B-180: Watchdog stoppen
+        self._stop_watchdog()
+
         # Disconnect input signals
         try:
             self.input_field.returnPressed.disconnect()

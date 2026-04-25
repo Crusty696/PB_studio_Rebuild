@@ -136,6 +136,58 @@ class LocalAgentService:
             self._use_ollama = None  # Auto-detect
         self._ollama_client = None  # Lazy init
 
+    def health_check(self) -> dict[str, Any]:
+        """Schneller Boot-Time-Status-Check für die UI.
+
+        B-180: liefert (ohne Modell zu laden) ob Ollama erreichbar ist und
+        welches Modell konfiguriert ist. UI nutzt das Ergebnis um eine
+        klare Banner-Message anzuzeigen statt den User raten zu lassen
+        warum der Chat hängt.
+
+        Returns:
+            dict mit Keys: backend ('ollama'|'fallback'), ollama_reachable
+            (bool), model (str|None), message (str für Anzeige).
+        """
+        result = {
+            "backend": "ollama" if self._use_ollama else "fallback",
+            "ollama_reachable": False,
+            "model": self._ollama_model,
+            "message": "",
+        }
+        if not self._use_ollama:
+            result["message"] = (
+                "Ollama deaktiviert — keine echten LLM-Antworten. "
+                "Quick-Commands ('analysiere', 'schneide', 'gpu status') "
+                "funktionieren weiterhin."
+            )
+            return result
+        try:
+            client = self._get_ollama_client()
+            reachable = client.is_available()
+            result["ollama_reachable"] = reachable
+            if not reachable:
+                result["message"] = (
+                    f"Ollama nicht erreichbar an {self._ollama_url}. "
+                    "Starte Ollama via 'ollama serve' oder Tray-App. "
+                    "Quick-Commands funktionieren weiterhin."
+                )
+                return result
+            if not self._ollama_model:
+                result["model"] = client.get_best_available_model()
+                self._ollama_model = result["model"]
+            if not result["model"]:
+                result["message"] = (
+                    "Ollama läuft, aber kein Modell installiert. "
+                    "Tipp: 'ollama pull gemma4:e4b' (9.6 GB)."
+                )
+                return result
+            result["message"] = (
+                f"Ollama bereit. Modell: {result['model']}."
+            )
+        except (ConnectionError, TimeoutError, OSError, RuntimeError) as e:
+            result["message"] = f"Ollama-Health-Check fehlgeschlagen: {e}"
+        return result
+
     def _get_orchestrator(self):
         """Lazy-Init des Orchestrators.
 
