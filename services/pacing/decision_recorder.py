@@ -156,6 +156,8 @@ class DecisionRecorder:
         chosen: ClipFeatures,
         rationale: dict[str, Any],
         agent_score: float,
+        reward: float | None = None,
+        reward_components: dict[str, float] | None = None,
     ) -> int | None:
         """Persist a decision row. Returns the new mem_decision.id, or None
         if all retries failed (the decision is then in self._queue).
@@ -164,9 +166,14 @@ class DecisionRecorder:
         at_enricher_version is stamped from services.enrichment.ENRICHER_VERSION
         at the moment of the call, not the import time, so re-runs after an
         enricher upgrade snapshot the correct version.
+
+        P1.3 / Cycle 11: optional reward + reward_components für die
+        RL-Multi-Objective-Pipeline. Beide nullable — alte Caller die nichts
+        passen, schreiben NULL. Schema kommt aus Migration `a1b2c3d4e5f6`.
         """
         payload = self._build_payload(
-            run_id, sequence_idx, ctx, chosen, rationale, agent_score
+            run_id, sequence_idx, ctx, chosen, rationale, agent_score,
+            reward=reward, reward_components=reward_components,
         )
         if not self._gui_thread_warning_logged:
             # B-162: Once-Flag nur setzen wenn tatsaechlich gewarnt wurde
@@ -203,10 +210,12 @@ class DecisionRecorder:
         chosen: ClipFeatures,
         rationale: dict[str, Any],
         agent_score: float,
+        reward: float | None = None,
+        reward_components: dict[str, float] | None = None,
     ) -> dict[str, Any]:
         import json
 
-        return {
+        payload = {
             "run_id": run_id,
             "sequence_idx": sequence_idx,
             # Audio snapshot (all at_* fields)
@@ -227,6 +236,16 @@ class DecisionRecorder:
             "user_verdict_at": None,
             "user_rating": None,
         }
+        # P1.3 / Cycle 11: optional reward-Komponenten. Nur einfügen wenn
+        # gesetzt — sonst gehen Caller die das alte Schema nutzen kaputt
+        # falls die Migration noch nicht angewendet ist.
+        if reward is not None:
+            payload["reward"] = float(reward)
+        if reward_components is not None:
+            payload["reward_components"] = json.dumps(
+                {k: float(v) for k, v in reward_components.items()}, default=str,
+            )
+        return payload
 
     def _insert_with_retry(self, payload: dict[str, Any]) -> int:
         backoff = self.INITIAL_BACKOFF_SEC

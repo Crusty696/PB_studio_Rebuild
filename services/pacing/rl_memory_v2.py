@@ -6,17 +6,21 @@ Erweitert das bestehende mem_decision-Schema um:
 - Variety-Memory-Integration (FR-S3-3)
 - RL-Policy-Update-Hook (FR-S4-2)
 
-Diese Klasse ist die in-memory Reference. Die produktive DB-Variante
-nutzt SQLAlchemy auf mem_decision (vorhandenes Schema) + erweitert es
-um Verdict-Spalte (Migration P5.1, separat).
+In-Memory Reference + optionale DB-Persistierung über Session-Factory.
+Wenn `db_session_factory` gesetzt ist, wird zusätzlich in
+`mem_decision` (reward + reward_components) persistiert. Das macht den
+Truth-Set-Export tatsächlich SQL-basiert.
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field, asdict
-from typing import Iterable, Mapping
+from typing import Callable, Iterable, Mapping
 
 from services.pacing.rl_policy import SectionPolicy
 from services.pacing.variety_memory import VarietyMemory
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -32,10 +36,15 @@ class DecisionRecord:
 
 
 class RLPacingMemoryV2:
-    def __init__(self, variety_window_sec: float = 30.0):
+    def __init__(
+        self,
+        variety_window_sec: float = 30.0,
+        db_session_factory: Callable | None = None,
+    ):
         self._records: list[DecisionRecord] = []
         self._policy = SectionPolicy(min_decisions=1, learning_rate=0.2)
         self._variety = VarietyMemory(window_sec=variety_window_sec)
+        self._db_session_factory = db_session_factory
 
     def record(self, rec: DecisionRecord) -> None:
         self._records.append(rec)
@@ -49,6 +58,56 @@ class RLPacingMemoryV2:
             )
         # Variety-Memory pflegen
         self._variety.record(clip_id=rec.scene_id, t_sec=rec.timestamp_ms / 1000.0)
+        # P1.3: optional zusätzlich in mem_decision schreiben.
+        if self._db_session_factory is not None:
+            self._persist_to_db(rec)
+
+    def _persist_to_db(self, rec: DecisionRecord) -> None:
+        """Schreibt nur das User-Verdict + Reward-Felder in eine bestehende
+        mem_decision-Row, identifiziert über (run_id, sequence_idx=cut_id).
+
+        Das ist absichtlich UPDATE-only — INSERT macht nur der
+        DecisionRecorder direkt aus dem Pacing-Hot-Path. Wir füllen
+        nachträglich Verdict + Reward-Daten ein wenn der User
+        Feedback gibt.
+        """
+        from sqlalchemy import text
+
+        try:
+            session = self._db_session_factory()
+            ownership = False
+            try:
+                if hasattr(session, "__enter__") and not hasattr(session, "execute"):
+                    session = session.__enter__()
+                    ownership = True
+                import json
+                payload = {
+                    "run_id": rec.run_id,
+                    "seq": rec.cut_id,
+                    "verdict": rec.verdict,
+                    "reward": float(rec.reward),
+                    "components": json.dumps(dict(rec.components)) if rec.components else None,
+                }
+                session.execute(
+                    text(
+                        "UPDATE mem_decision SET "
+                        "user_verdict = :verdict, "
+                        "reward = :reward, "
+                        "reward_components = :components "
+                        "WHERE run_id = :run_id AND sequence_idx = :seq"
+                    ),
+                    payload,
+                )
+                session.commit()
+            finally:
+                if ownership:
+                    session.__exit__(None, None, None)
+                else:
+                    close = getattr(session, "close", None)
+                    if callable(close):
+                        close()
+        except Exception as exc:  # broad: DB-Fehler darf nicht den RL-Loop crashen
+            logger.warning("RLPacingMemoryV2 DB-persist fehlgeschlagen: %s", exc)
 
     # ── Aggregations ──────────────────────────────────────────────────────
 
