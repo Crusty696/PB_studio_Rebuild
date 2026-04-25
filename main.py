@@ -952,10 +952,13 @@ def main():
     # Falls closeEvent aus irgend einem Grund nicht lief, entladen wir hier
     # noch einmal defensiv. Verhindert Stuck-Driver bei unerwarteten Exits.
     def _cuda_atexit_cleanup():
+        # B-112 / BUG-14-b: dropped torch.cuda.synchronize() — it can
+        # block forever on a stuck kernel during interpreter shutdown
+        # (e.g. after a Code-47 dGPU). closeEvent already does sync;
+        # this atexit safety-net only needs to release VRAM.
         try:
             import torch  # type: ignore
             if torch.cuda.is_available():
-                torch.cuda.synchronize()
                 torch.cuda.empty_cache()
         except Exception:
             pass

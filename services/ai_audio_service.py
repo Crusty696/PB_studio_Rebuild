@@ -133,7 +133,11 @@ class StemSeparator:
             try:
                 demucs_model.to(device)
             except RuntimeError:
-                torch.cuda.empty_cache()
+                # B-112 / BUG-A7: guard empty_cache so a CPU-only torch
+                # build does not raise AssertionError and mask the
+                # original RuntimeError.
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
                 gc.collect()
                 raise CUDAOutOfMemoryError(operation=f"Demucs '{model}' laden")
             demucs_model.eval()
