@@ -48,35 +48,79 @@ class ProjectManager(QObject):
             (project_path / sub).mkdir(parents=True, exist_ok=True)
 
     @staticmethod
-    def _has_running_tasks() -> bool:
-        """Return True if GlobalTaskManager reports running tasks."""
+    def _has_running_tasks(exclude_task_id: str | None = None) -> bool:
+        """Return True if GlobalTaskManager reports running tasks.
+
+        B-047: ``exclude_task_id`` ignoriert den eigenen Worker-Task —
+        sonst sieht der UI-Worker sich selbst als "running" und blockiert
+        den eigenen Service-Call.
+        """
         try:
             from services.task_manager import GlobalTaskManager
             tm = GlobalTaskManager.instance()
-            return any(t.status == "running" for t in tm.get_all_tasks())
+            for t in tm.get_all_tasks():
+                if t.status != "running":
+                    continue
+                if exclude_task_id is not None and getattr(t, "task_id", None) == exclude_task_id:
+                    continue
+                return True
+            return False
         except (ImportError, AttributeError, RuntimeError):
             return False
 
     @staticmethod
-    def _wait_for_tasks_idle(timeout_sec: float = 10.0,
-                              poll_interval_sec: float = 0.2) -> bool:
+    def _wait_for_tasks_idle(
+        timeout_sec: float = 10.0,
+        poll_interval_sec: float = 0.2,
+        exclude_task_id: str | None = None,
+    ) -> bool:
         """B-136: Aktiv warten bis kein Task mehr running ist.
 
-        Anders als der einmalige Snapshot-Check ``_has_running_tasks()``
-        (TOCTOU) blockiert das hier kurz und gibt erst bei wirklichem
-        idle-Zustand frei. Timeout verhindert Endlos-Block.
+        B-047: ``exclude_task_id`` wird an _has_running_tasks weitergereicht.
 
         Returns:
-            True wenn idle innerhalb der Timeout-Zeit erreicht wurde,
-            False wenn Tasks weiterlaufen.
+            True wenn idle innerhalb der Timeout-Zeit erreicht wurde.
         """
         import time as _time
         deadline = _time.monotonic() + timeout_sec
         while _time.monotonic() < deadline:
-            if not ProjectManager._has_running_tasks():
+            if not ProjectManager._has_running_tasks(exclude_task_id=exclude_task_id):
                 return True
             _time.sleep(poll_interval_sec)
         return False
+
+    @staticmethod
+    def _validate_pb_studio_db(db_path: Path) -> None:
+        """B-048: Validiert dass `db_path` eine echte PB-Studio-DB ist.
+
+        Vor `set_project()` aufrufen — sonst überschreibt `init_db()`
+        ggf. eine fremde Datei.
+
+        Raises:
+            FileNotFoundError: wenn die Datei nicht existiert
+            ValueError: wenn das Schema nicht zu PB Studio gehört
+        """
+        if not db_path.exists():
+            raise FileNotFoundError(f"DB-Datei nicht gefunden: {db_path}")
+        if db_path.stat().st_size == 0:
+            raise ValueError(
+                f"Datei {db_path} ist leer — kein gültiges PB-Studio-Projekt."
+            )
+        try:
+            with sqlite3.connect(str(db_path)) as conn:
+                cursor = conn.execute(
+                    "SELECT name FROM sqlite_master "
+                    "WHERE type='table' AND name='projects'"
+                )
+                if cursor.fetchone() is None:
+                    raise ValueError(
+                        f"Datei {db_path} hat keine 'projects'-Tabelle — "
+                        "kein gültiges PB-Studio-Projekt."
+                    )
+        except sqlite3.DatabaseError as exc:
+            raise ValueError(
+                f"Datei {db_path} ist kein gültiges SQLite-File: {exc}"
+            ) from exc
 
     # ------------------------------------------------------------------
     # public API
@@ -184,6 +228,11 @@ class ProjectManager(QObject):
             raise FileNotFoundError(
                 f"Keine Projektdatei gefunden: {db_file}"
             )
+
+        # B-048: Schema-Validierung VOR Engine-Swap.
+        # Ohne diesen Check würde init_db() eine leere oder fremde
+        # Datei überschreiben (Datenverlust).
+        self._validate_pb_studio_db(db_file)
 
         # Read project meta directly via sqlite3 (no ORM dependency)
         # H12-FIX: with-Statement statt manuelles conn.close() — verhindert Connection Leak bei Exception
