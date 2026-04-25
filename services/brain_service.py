@@ -142,11 +142,14 @@ class BrainService:
         )
         # list_clips_with_tags takes kwargs — wrap the underlying positional
         # helper, and expose a kwargs-friendly facade below.
-        self._list_clips_with_tags_cached = functools.lru_cache(maxsize=32)(
+        # B-114 / BUG-9-b: maxsize bumped 32 → 128 so power-user
+        # filter-combo exploration (>32 distinct combinations per session)
+        # doesn't evict and re-hit DB on every refresh.
+        self._list_clips_with_tags_cached = functools.lru_cache(maxsize=128)(
             self._list_clips_with_tags_uncached
         )
         # T10.2b: clip detail (Inspector panel). Keyed by scene_id (int).
-        self.get_clip_detail = functools.lru_cache(maxsize=32)(
+        self.get_clip_detail = functools.lru_cache(maxsize=128)(
             self._get_clip_detail_uncached
         )
         # T10.2c: library-level stats (Stats panel). No arguments.
@@ -165,11 +168,12 @@ class BrainService:
             self._list_distinct_pattern_types_uncached
         )
         # list_learned_patterns takes kwargs (type + min_confidence).
-        self._list_learned_patterns_cached = functools.lru_cache(maxsize=32)(
+        # B-114 / BUG-9-b: maxsize 32 → 128 (siehe oben).
+        self._list_learned_patterns_cached = functools.lru_cache(maxsize=128)(
             self._list_learned_patterns_uncached
         )
         # list_decisions_for_pattern is keyed on (pattern_id, limit).
-        self.list_decisions_for_pattern = functools.lru_cache(maxsize=32)(
+        self.list_decisions_for_pattern = functools.lru_cache(maxsize=128)(
             self._list_decisions_for_pattern_uncached
         )
         # T11.2: Audit tab read-views.
