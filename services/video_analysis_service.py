@@ -919,10 +919,18 @@ def run_full_pipeline(
     siglip_model_processor: tuple | None = None,
     raft_model_device: tuple | None = None,
 ) -> PipelineResult:
-    """Führt die komplette 3-Schritt Video-Analyse-Pipeline aus."""
+    """Führt die komplette 3-Schritt Video-Analyse-Pipeline aus.
+
+    B-150: APP_ROOT-Snapshot am Pipeline-Start. Wenn der User waehrend
+    des Runs Project switched, liefert _keyframe_dir() spaeter andere
+    Pfade. Wir snapshotten einmal und reichen es durch.
+    """
     if not video_path or not Path(video_path).exists():
         logger.error("Video-Pipeline abgebrochen: Datei fehlt -> %s", video_path)
         return PipelineResult(video_path=video_path)
+
+    # B-150: Snapshot der projekt-abhaengigen Pfade am Pipeline-Eintritt.
+    pipeline_keyframe_dir = _keyframe_dir()
     # Proxy-First: video_path kann Proxy sein — Original aus DB laden für LanceDB-Storage
     try:
         from sqlalchemy.orm import Session as _Session
@@ -995,7 +1003,8 @@ def run_full_pipeline(
             )
             return result
 
-        scenes = extract_keyframes(video_path, scenes)
+        # B-150: Snapshot-Pfad nutzen statt _keyframe_dir() neu aufzurufen.
+        scenes = extract_keyframes(video_path, scenes, output_dir=pipeline_keyframe_dir)
         logger.info("[PIPELINE] Keyframes FERTIG")
         keyframe_count = sum(1 for s in scenes if s.keyframe_path)
         analysis_status_service.mark_done("video", video_clip_id, "keyframe_extraction", {
