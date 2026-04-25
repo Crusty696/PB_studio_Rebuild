@@ -206,8 +206,11 @@ def _cleanup_orphan_tempfiles(max_age_hours: float = 1.0) -> int:
 
 def _prepare_normalized_audio(audio_path: str | None, temp_files: list,
                                progress_cb=None, step: int = 0,
-                               total_steps: int = 5) -> tuple[str | None, int]:
-    """LUFS-Normalisierung auf Audio anwenden. Gibt (normalized_path, step) zurueck."""
+                               total_steps: int = 5,
+                               cancel_check=None) -> tuple[str | None, int]:
+    """LUFS-Normalisierung auf Audio anwenden. Gibt (normalized_path, step) zurueck.
+
+    B-125: ``cancel_check`` wird durchgereicht zu _normalize_audio_lufs."""
     if not audio_path:
         return None, step
     if progress_cb:
@@ -218,7 +221,8 @@ def _prepare_normalized_audio(audio_path: str | None, temp_files: list,
     )
     norm_tmp.close()
     temp_files.append(norm_tmp.name)
-    if _normalize_audio_lufs(audio_path, norm_tmp.name):
+    if _normalize_audio_lufs(audio_path, norm_tmp.name,
+                             cancel_check=cancel_check):
         return norm_tmp.name, step
     return audio_path, step
 
@@ -491,7 +495,8 @@ def _export_optimized_concat(video_segments, audio_path, output_path,
 
         # LUFS-Normalisierung auf Audio anwenden (wenn vorhanden)
         normalized_audio, step = _prepare_normalized_audio(
-            audio_path, temp_files, progress_cb, step, total_steps
+            audio_path, temp_files, progress_cb, step, total_steps,
+            cancel_check=cancel_check,
         )
 
         if normalized_audio:
@@ -573,7 +578,8 @@ def _export_with_filtergraph(video_segments, audio_path, output_path,
         cmd += ["-t", f"{source_duration:.3f}", "-i", seg["path"]]
     # LUFS-Normalisierung auf Audio anwenden (wenn vorhanden)
     normalized_audio, step = _prepare_normalized_audio(
-        audio_path, temp_files, progress_cb, step, total_steps
+        audio_path, temp_files, progress_cb, step, total_steps,
+        cancel_check=cancel_check,
     )
 
     if normalized_audio:
@@ -689,29 +695,100 @@ def _export_with_filtergraph(video_segments, audio_path, output_path,
     return str(Path(output_path).resolve())
 
 
+def _run_subprocess_cancellable(
+    cmd: list[str], timeout: int, cancel_check=None,
+):
+    """B-125: ``subprocess.run``-aequivalent mit Cancel-Watchdog.
+
+    Faehrt cmd via Popen, polled cancel_check alle 200ms, terminiert
+    den Process bei True. Wenn cancel_check None ist, faellt es auf
+    blockierendes ``subprocess.run`` zurueck.
+
+    Returns: subprocess.CompletedProcess (returncode/stdout/stderr).
+    Raises: RuntimeError("LUFS-Normalisierung abgebrochen") bei Cancel.
+    """
+    kwargs: dict = {}
+    if sys.platform == "win32":
+        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+
+    if cancel_check is None:
+        return subprocess.run(
+            cmd, capture_output=True, text=True, timeout=timeout,
+            encoding="utf-8", errors="replace", **kwargs,
+        )
+
+    process = subprocess.Popen(
+        cmd, stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        text=True, encoding="utf-8", errors="replace", **kwargs,
+    )
+    cancelled = threading.Event()
+
+    def _cancel_watch():
+        while process.poll() is None:
+            try:
+                if cancel_check():
+                    cancelled.set()
+                    process.terminate()
+                    try:
+                        process.wait(timeout=2.0)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                    return
+            except Exception:
+                return
+            time.sleep(0.2)
+
+    watchdog = threading.Thread(target=_cancel_watch, daemon=True)
+    watchdog.start()
+
+    try:
+        stdout, stderr = process.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        stdout, stderr = process.communicate()
+    finally:
+        watchdog.join(timeout=THREAD_JOIN_TIMEOUT_SEC)
+
+    if cancelled.is_set():
+        raise RuntimeError("LUFS-Normalisierung abgebrochen (User-Cancel)")
+
+    return subprocess.CompletedProcess(
+        args=cmd, returncode=process.returncode,
+        stdout=stdout, stderr=stderr,
+    )
+
+
 def _normalize_audio_lufs(input_path: str, output_path: str,
-                          target_lufs: float = -14.0) -> bool:
+                          target_lufs: float = -14.0,
+                          cancel_check=None) -> bool:
     """LUFS Zwei-Pass Audio-Normalisierung via FFmpeg loudnorm.
 
     Pass 1: Misst die integrierte Lautstaerke (I), Loudness Range (LRA),
             True Peak (TP) und Threshold.
     Pass 2: Wendet die gemessenen Werte an um auf target_lufs zu normalisieren.
 
+    B-125: ``cancel_check`` Callable wird zwischen Pass1 und Pass2 sowie
+    waehrend des Subprocess-Runs alle 200ms abgefragt. Bei Cancel raised
+    es RuntimeError, sodass der Caller (export_timeline) sauber abbrechen
+    kann.
+
     Returns True bei Erfolg, False bei Fehler (Original wird dann verwendet).
     """
     try:
-        # Pass 1: Lautstaerke messen
-        kwargs = {}
-        if sys.platform == "win32":
-            kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+        # B-125: Cancel-Check zwischen den Passes.
+        if cancel_check is not None and cancel_check():
+            return False
+
         measure_cmd = [
             FFMPEG, "-i", input_path,
             "-af", "loudnorm=print_format=json",
             "-f", "null", "-"
         ]
-        result = subprocess.run(
-            measure_cmd, capture_output=True, text=True, timeout=FFMPEG_LUFS_MEASURE_TIMEOUT_SEC,
-            encoding="utf-8", errors="replace", **kwargs
+        result = _run_subprocess_cancellable(
+            measure_cmd,
+            timeout=FFMPEG_LUFS_MEASURE_TIMEOUT_SEC,
+            cancel_check=cancel_check,
         )
         if result.returncode != 0:
             logger.warning("[LUFS] Pass 1 fehlgeschlagen (rc=%d): %s",
@@ -719,7 +796,6 @@ def _normalize_audio_lufs(input_path: str, output_path: str,
             return False
         # loudnorm JSON steht in stderr
         stderr = result.stderr
-        # Finde den JSON-Block in der Ausgabe
         json_start = stderr.rfind("{")
         json_end = stderr.rfind("}") + 1
         if json_start < 0 or json_end <= json_start:
@@ -732,7 +808,10 @@ def _normalize_audio_lufs(input_path: str, output_path: str,
         input_tp = measured.get("input_tp", "-2.0")
         input_thresh = measured.get("input_thresh", "-34.0")
 
-        # Pass 2: Normalisierung anwenden
+        # B-125: Cancel-Check zwischen Pass1 und Pass2.
+        if cancel_check is not None and cancel_check():
+            return False
+
         loudnorm_filter = (
             f"loudnorm=I={target_lufs}:LRA=11:TP=-1"
             f":measured_I={input_i}:measured_LRA={input_lra}"
@@ -746,9 +825,10 @@ def _normalize_audio_lufs(input_path: str, output_path: str,
             "-c:a", "pcm_s24le",
             output_path,
         ]
-        pass2_result = subprocess.run(
-            norm_cmd, capture_output=True, text=True, timeout=FFMPEG_LUFS_NORMALIZE_TIMEOUT_SEC,
-            encoding="utf-8", errors="replace", **kwargs
+        pass2_result = _run_subprocess_cancellable(
+            norm_cmd,
+            timeout=FFMPEG_LUFS_NORMALIZE_TIMEOUT_SEC,
+            cancel_check=cancel_check,
         )
         if pass2_result.returncode != 0:
             logger.warning("[LUFS] Pass 2 fehlgeschlagen (rc=%d): %s",
