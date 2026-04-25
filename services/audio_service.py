@@ -1,5 +1,6 @@
 import logging
 import threading
+from contextlib import contextmanager
 import numpy as np
 import librosa
 
@@ -41,6 +42,36 @@ def _release_track_lock(track_id: int) -> None:
         if _track_lock_refs[track_id] <= 0:
             _track_lock_refs.pop(track_id, None)
             _track_locks.pop(track_id, None)
+
+
+@contextmanager
+def track_lock(track_id: int):
+    """B-143 hardening: ContextManager-Wrapper, der Refcount-Acquire +
+    Release atomar kapselt — auch im Exception-Pfad.
+
+    Anwendung::
+
+        with track_lock(track_id):
+            ... critical section ...
+
+    Garantien:
+      * Beim Eintritt: Refcount fuer ``track_id`` wird inkrementiert
+        und der zugehoerige ``threading.Lock`` wird ``acquire``-d.
+      * Beim Verlassen (auch via Exception): Lock wird released und
+        Refcount wird via ``_release_track_lock`` dekrementiert,
+        wodurch der Eintrag bei ``refcount==0`` aus den Registries
+        entfernt wird.
+
+    Loest das Folge-Risiko des Refcount-Patterns: bare Caller, die
+    ``_release_track_lock`` im finally vergessen, sind nicht mehr
+    moeglich.
+    """
+    lock = _get_track_lock(track_id)
+    try:
+        with lock:
+            yield lock
+    finally:
+        _release_track_lock(track_id)
 
 
 class AudioAnalyzer:
@@ -106,14 +137,12 @@ class AudioAnalyzer:
         # B-143: Refcount-Pattern statt H-10 pop-after-release.
         # H-10 entfernte den Eintrag VOR dem release-Block was eine
         # Race-Window erzeugte (siehe Kommentar oben am _track_locks).
-        # Jetzt: refcount-decrement entfernt den Eintrag nur wenn KEIN
-        # waiter mehr referenziert.
-        lock = _get_track_lock(track_id)
-        try:
-            with lock:
-                return self._analyze_and_store_locked(track_id, progress_cb)
-        finally:
-            _release_track_lock(track_id)
+        # Refactor: ``track_lock`` ContextManager kapselt Acquire +
+        # Release-mit-Refcount-Decrement atomar, auch im
+        # Exception-Pfad. Damit kein Caller mehr vergessen kann den
+        # Refcount manuell zu dekrementieren.
+        with track_lock(track_id):
+            return self._analyze_and_store_locked(track_id, progress_cb)
 
     def _analyze_and_store_locked(self, track_id: int, progress_cb=None) -> dict:
         """Interne Implementierung von analyze_and_store (unter Lock)."""
