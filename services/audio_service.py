@@ -22,6 +22,10 @@ _track_locks_guard = threading.Lock()
 def _get_track_lock(track_id: int) -> threading.Lock:
     """B-143: Lazy lock-creation mit Refcount-Increment.
 
+    .. deprecated:: 2026-04-25
+       Direkt-Aufruf ist fehleranfaellig (Refcount-Leak bei vergessener
+       Release im finally). Kanonische API ist :func:`track_lock` (ContextManager).
+
     Caller MUSS ``_release_track_lock(track_id)`` aufrufen, sonst
     leakt der Eintrag.
     """
@@ -34,7 +38,12 @@ def _get_track_lock(track_id: int) -> threading.Lock:
 
 
 def _release_track_lock(track_id: int) -> None:
-    """B-143: Decrement Refcount; entferne Eintrag wenn niemand mehr referenziert."""
+    """B-143: Decrement Refcount; entferne Eintrag wenn niemand mehr referenziert.
+
+    .. deprecated:: 2026-04-25
+       Direkt-Aufruf ist fehleranfaellig. Kanonische API ist
+       :func:`track_lock` (ContextManager).
+    """
     with _track_locks_guard:
         if track_id not in _track_lock_refs:
             return

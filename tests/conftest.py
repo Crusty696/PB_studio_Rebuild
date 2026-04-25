@@ -19,6 +19,45 @@ import database
 
 
 # ---------------------------------------------------------------------------
+# PySide6 auto-skip — verhindert die Cross-Venv-Verwirrung aus 2026-04-25:
+# Default-`python` (3.14) hat kein PySide6, `.venv`-Python (3.10/3.11) hat es.
+# Tests, die PySide6 / PySide6-abhaengige Module importieren, werden
+# automatisch geskipped wenn das Modul nicht da ist — statt mit einem rohen
+# CollectionError abzubrechen.
+# ---------------------------------------------------------------------------
+try:
+    import PySide6  # noqa: F401
+    _PYSIDE6_AVAILABLE = True
+except ImportError:
+    _PYSIDE6_AVAILABLE = False
+
+
+def pytest_collection_modifyitems(config, items):
+    """Auto-skip Qt-/Pacing-/Worker-Tests bei fehlendem PySide6.
+
+    Heuristik: Test-Modul-Source enthaelt ``PySide6`` oder importiert
+    Module, die PySide6 transitiv ziehen (workers, ui, services.actions).
+    """
+    if _PYSIDE6_AVAILABLE:
+        return
+    skip_marker = pytest.mark.skip(
+        reason="PySide6 not installed — run via .venv python (3.10/3.11)"
+    )
+    qt_dependent_prefixes = ("workers.", "ui.", "services.actions.")
+    for item in items:
+        mod_file = getattr(item.module, "__file__", None) if hasattr(item, "module") else None
+        if not mod_file:
+            continue
+        try:
+            with open(mod_file, "r", encoding="utf-8") as f:
+                src = f.read()
+        except (OSError, UnicodeDecodeError):
+            continue
+        if "PySide6" in src or any(p in src for p in qt_dependent_prefixes):
+            item.add_marker(skip_marker)
+
+
+# ---------------------------------------------------------------------------
 # Haupt-Fixture: Jeder Test bekommt seine eigene leere In-Memory-DB
 # ---------------------------------------------------------------------------
 
