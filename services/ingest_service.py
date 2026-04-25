@@ -414,13 +414,27 @@ def delete_all_media(project_id: int = 1) -> int:
         count_v = session.query(VideoClip).filter_by(project_id=project_id).delete(
             synchronize_session=False
         )
-        session.commit()
 
-        # P2-01: VectorDB Cascade-Delete — alle Embeddings loeschen
+        # B-139 Fix: VectorDB-Cleanup VOR dem SQL-Commit. Wenn die
+        # VectorDB scheitert (locked/corrupt/remote), rollback der
+        # SQL-Deletes — User retried den Reset wenn VectorDB wieder
+        # erreichbar ist. Vorher: SQL committed + Orphan-Embeddings
+        # in VectorDB (Semantic-Search lieferte Hits auf nicht-existente Clips).
         try:
             VectorDBService().delete_all()
         except (RuntimeError, OSError, ImportError) as e:
-            logger.warning("VectorDB delete_all fehlgeschlagen: %s", e)
+            logger.error(
+                "VectorDB delete_all fehlgeschlagen — SQL-Reset rolled back "
+                "um Orphan-Embeddings zu vermeiden. Bitte VectorDB pruefen und "
+                "Reset wiederholen. Fehler: %s", e
+            )
+            session.rollback()
+            raise RuntimeError(
+                f"Reset abgebrochen: VectorDB konnte nicht geleert werden ({e}). "
+                "SQL-Tabellen wurden NICHT geleert um Orphan-Embeddings zu vermeiden."
+            ) from e
+
+        session.commit()
 
         return count_a + count_v
 
@@ -569,6 +583,14 @@ def import_video_folder(
             skipped += 1
         except (IOError, RuntimeError) as e:
             logger.error("Unerwarteter Fehler bei Import von %s: %s", video_file.name, e)
+            skipped += 1
+        # B-140 Fix: Sicherheitsnetz fuer Custom-Exceptions (z.B. FFmpegError,
+        # Subprocess-Errors) die nicht von OSError/IOError/RuntimeError erben.
+        # Vorher: Batch brach bei Datei N ab, N-1 waren commited; UI zeigte
+        # ungeklaerten "Folder import failed". Jetzt: Skip + log + weiter.
+        except Exception as e:  # broad catch intentional — Batch-Recovery
+            logger.error("Custom Import-Fehler bei %s — uebersprungen: %s",
+                         video_file.name, e, exc_info=True)
             skipped += 1
 
     logger.info("Batch-Import fertig: %d importiert, %d uebersprungen",

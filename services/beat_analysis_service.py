@@ -346,12 +346,21 @@ class BeatAnalysisService:
             ) as tmp:
                 tmp_path = tmp.name
 
+            # B-142 Fix: tmp_path im Modul-Set tracken, sodass atexit-Cleanup
+            # auch bei Force-Quit / SIGTERM mid-`sf.write` greift. Lokales
+            # try/finally deckt nur normale Exceptions; ohne Set-Tracking
+            # leakte jeder gewaltsam abgebrochene 60-min-Mix ~180MB Tempfiles.
+            with _temp_files_lock:
+                _temp_files.add(tmp_path)
+
             try:
                 sf.write(tmp_path, chunk_audio, sr)
                 with torch.no_grad():
                     beats, downbeats = self._model(tmp_path)
             finally:
                 Path(tmp_path).unlink(missing_ok=True)
+                with _temp_files_lock:
+                    _temp_files.discard(tmp_path)
 
             # Timestamps zum globalen Offset addieren
             beats = np.array(beats) + chunk_offset_sec
