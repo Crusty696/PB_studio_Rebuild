@@ -52,11 +52,19 @@ from ui.studio_brain.audit_tab import AuditTab
 from ui.studio_brain.memory_tab import MemoryTab
 from ui.studio_brain.steer_tab import SteerTab
 from ui.studio_brain.structure_tab import StructureTab
+# Cycle 11 — Pacing-v2 + D-023 UI-Tabs
+from ui.widgets.pacing_decision_explorer import PacingDecisionExplorer
+from ui.widgets.graph_cockpit_tab import GraphCockpitTab
+from services.graph.cockpit_view_model import CockpitViewModel
 
 logger = logging.getLogger(__name__)
 
 
-_TAB_LABELS: tuple[str, ...] = ("Struktur", "Gedächtnis", "Audit", "Steer")
+_TAB_LABELS: tuple[str, ...] = (
+    "Struktur", "Gedächtnis", "Audit", "Steer",
+    # Cycle 11 — Pacing-v2 + D-023 UI-Layer
+    "Pacing-Explorer", "Graph-Cockpit",
+)
 _QSETTINGS_ORG = "PBStudio"
 _QSETTINGS_APP = "PBStudioApp"
 _KEY_SIZE = "studio_brain/size"
@@ -180,6 +188,36 @@ class StudioBrainWindow(QMainWindow):
         )
         self._tabs.addTab(self._steer_tab, _TAB_LABELS[3])
 
+        # Cycle 11 — Index 4: Pacing-Explorer (Decision-Replay + Verdict-Edit)
+        # Session-Factory aus dem BrainService recyclen — beide reden gegen
+        # dieselbe DB, kein zweites Pool-Setup nötig.
+        try:
+            session_factory = getattr(self._brain_service, "_session_factory", None)
+        except Exception:  # broad: alte BrainService-Varianten
+            session_factory = None
+        self._pacing_explorer_tab = PacingDecisionExplorer(
+            session_factory=session_factory,
+            parent=self._tabs,
+        )
+        self._tabs.addTab(self._pacing_explorer_tab, _TAB_LABELS[4])
+
+        # Cycle 11 — Index 5: Graph-Cockpit (D-023 Sigma.js Visualisierung)
+        self._graph_cockpit_tab = GraphCockpitTab(
+            view_model=CockpitViewModel(),
+            parent=self._tabs,
+        )
+        self._tabs.addTab(self._graph_cockpit_tab, _TAB_LABELS[5])
+
+        # Cross-Tab-Wiring: AuditTab → PacingExplorer (Decision-ID-Forward)
+        # Wenn die Audit-Tab eine Decision auswählt, kann der Explorer den
+        # gleichen Eintrag im Detail-Panel zeigen.
+        try:
+            self._audit_tab.cutSelected.connect(
+                self._pacing_explorer_tab.select_decision
+            )
+        except (AttributeError, RuntimeError) as exc:
+            logger.debug("AuditTab.cutSelected not wired: %s", exc)
+
         # Tab-Tooltips (deutsche, einsteigerfreundliche Erklaerungen).
         self._tabs.setTabToolTip(
             0,
@@ -204,6 +242,18 @@ class StudioBrainWindow(QMainWindow):
             "Steuert den naechsten Pacing-Run. Hier whlst du Audio-Track "
             "und Gewichtsprofil, setzt Pins/Boosts/Excludes und startest "
             "einen neuen Schnitt-Lauf.",
+        )
+        self._tabs.setTabToolTip(
+            4,
+            "Pacing-v2 Decision-Replay: pro Schnitt das Reward-Breakdown "
+            "(7 Komponenten), die Top-3-Beiträge und die Möglichkeit, "
+            "👍/👎 zu vergeben um die Lern-Schleife zu füttern.",
+        )
+        self._tabs.setTabToolTip(
+            5,
+            "Graph-Cockpit (D-023): interaktive Visualisierung aller "
+            "Audio/Video/Sektion-Knoten + Ähnlichkeitskanten. Klick auf "
+            "Knoten zeigt Nachbarn + Edge-Gewichte.",
         )
 
         self.setCentralWidget(self._tabs)

@@ -677,6 +677,36 @@ def _auto_edit_phase3_inner(
                 for scene in session.query(Scene).filter(Scene.id.in_(scene_ids)).all():
                     anchor_scene_map[str(scene.id)] = scene.video_clip_id
 
+    # P0 #1 Cycle 11: Bridge-Pipeline-Setup wenn Studio-Brain-Flag aktiv.
+    # Default-off — Legacy-Pfad bleibt unverändert. Setup ist defensive:
+    # bei Fehler fällt der Loop auf Legacy zurück (Snapshot-Test schützt).
+    _studio_brain_pipeline = None
+    _studio_brain_audio_track = None
+    try:
+        from services.pacing.bridge import use_studio_brain_pipeline
+        if use_studio_brain_pipeline():
+            from services.pacing.pipeline import PacingPipeline
+            from services.pacing.scorer import PacingScorer
+            from database import AudioTrack
+            _studio_brain_pipeline = PacingPipeline(
+                scorer=PacingScorer(weights_profile="default"),
+            )
+            with Session(_ae_eng) as _sb_session:
+                _studio_brain_audio_track = (
+                    _sb_session.query(AudioTrack)
+                    .filter_by(id=audio_id)
+                    .first()
+                )
+            logger.info(
+                "Studio-Brain-Pipeline aktiv (PB_USE_STUDIO_BRAIN_PIPELINE=1) — "
+                "Cuts werden zusätzlich via select_best gerated, Legacy-Fallback bei None."
+            )
+    except (ImportError, RuntimeError, AttributeError) as _sb_exc:
+        logger.warning(
+            "Studio-Brain-Pipeline-Setup fehlgeschlagen, falle auf Legacy: %s", _sb_exc
+        )
+        _studio_brain_pipeline = None
+
     # P-022 Fix: Sortierte Drop-Zeiten fuer O(log N) bisect statt O(N) any()
     sorted_drops = sorted(drop_times)
     # P-023 Fix: Sortierte Transition-Ranges fuer O(log N) bisect statt O(N) any()
@@ -737,20 +767,77 @@ def _auto_edit_phase3_inner(
                 _seg_section_progress = (seg_start - seg_section.start) / _sec_dur
                 _seg_section_progress = max(0.0, min(1.0, _seg_section_progress))
 
-            # Normaler Clip-Match (+ Cross-Modal wenn verfuegbar)
-            vid, source_start, _clip_idx = _match_video_for_segment(
-                seg_start, seg_end, settings.vibe,
-                video_info, available_ids, clip_offsets, used_recently,
-                energy_per_beat=energy_per_beat, beats=beats,
-                memory_bias=memory_bias,
-                section_type=seg_section_type,
-                fitness_matrix=fitness_matrix,
-                clip_embeddings=clip_embeddings_matrix,
-                clip_metadata=clip_metadata_list,
-                prev_clip_idx=prev_clip_idx,
-                cross_modal_matcher=cross_modal_matcher,
-                section_progress=_seg_section_progress,
-            )
+            # P0 #1 Cycle 11: Studio-Brain-Pfad wenn aktiv.
+            _sb_chosen_vid = None
+            if _studio_brain_pipeline is not None and _studio_brain_audio_track is not None:
+                try:
+                    from services.pacing.bridge_mapping import (
+                        build_audio_context, build_clip_features,
+                    )
+                    # Build AudioContext
+                    _sb_ctx = build_audio_context(
+                        seg_start_sec=seg_start,
+                        seg_section_type=seg_section_type,
+                        audio_track=_studio_brain_audio_track,
+                        beats=beats,
+                        energy_per_beat=energy_per_beat,
+                    )
+                    # Build ClipFeatures-Liste — pro available_id eine Anchor-Scene
+                    # nehmen (oder die erste Scene des Clips).
+                    _sb_candidates = []
+                    for _vid in available_ids:
+                        _scenes = video_info[_vid].get("scenes", [])
+                        if not _scenes:
+                            continue
+                        # Nehme die erste Scene als Repräsentant
+                        _sc = _scenes[0]
+                        # Stub-Scene-Objekt mit den nötigen Feldern
+                        _sb_candidates.append(build_clip_features(
+                            video_clip_id=_vid,
+                            scene=type("_SbScene", (), {
+                                "id": _sc.get("id", _vid * 100),
+                                "motion_score": _sc.get("motion_score", _sc.get("energy", 0.5)),
+                                "ai_mood": _sc.get("ai_mood"),
+                                "role": _sc.get("role"),
+                                "style_bucket_id": _sc.get("style_bucket_id"),
+                                "embedding": None,  # Embedding-Lookup ist Cycle 12
+                            })(),
+                        ))
+                    if _sb_candidates:
+                        _sb_result = _studio_brain_pipeline.select_best(
+                            candidates=_sb_candidates,
+                            ctx=_sb_ctx,
+                            recent_clip_ids=used_recently[-3:] if used_recently else None,
+                        )
+                        if _sb_result.chosen is not None:
+                            _sb_chosen_vid = _sb_result.chosen.clip_id
+                except (ImportError, RuntimeError, AttributeError, KeyError) as _sb_loop_exc:
+                    logger.debug(
+                        "Studio-Brain select_best fehlgeschlagen für seg=%.2f, falle "
+                        "auf Legacy zurück: %s", seg_start, _sb_loop_exc,
+                    )
+
+            if _sb_chosen_vid is not None and _sb_chosen_vid in video_info:
+                vid = _sb_chosen_vid
+                source_start = clip_offsets.get(vid, 0.0)
+                _clip_idx = (
+                    available_ids.index(vid) if vid in available_ids else None
+                )
+            else:
+                # Legacy-Pfad (default oder Studio-Brain-Fallback)
+                vid, source_start, _clip_idx = _match_video_for_segment(
+                    seg_start, seg_end, settings.vibe,
+                    video_info, available_ids, clip_offsets, used_recently,
+                    energy_per_beat=energy_per_beat, beats=beats,
+                    memory_bias=memory_bias,
+                    section_type=seg_section_type,
+                    fitness_matrix=fitness_matrix,
+                    clip_embeddings=clip_embeddings_matrix,
+                    clip_metadata=clip_metadata_list,
+                    prev_clip_idx=prev_clip_idx,
+                    cross_modal_matcher=cross_modal_matcher,
+                    section_progress=_seg_section_progress,
+                )
             prev_clip_idx = _clip_idx
 
         if vid == -1:

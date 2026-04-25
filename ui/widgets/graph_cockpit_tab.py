@@ -18,7 +18,7 @@ import json
 import logging
 from typing import Any
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QObject, Qt, Signal, Slot
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -34,6 +34,21 @@ from services.graph.cockpit_view_model import CockpitViewModel
 logger = logging.getLogger(__name__)
 
 
+class _CockpitBridge(QObject):
+    """QWebChannel-Bridge: JS-Sigma-clickNode ruft Slot, Python emittiert
+    Signal weiter.
+
+    P0 #3 Cycle 11: ohne diese Bridge kann der User den Graph zwar
+    visuell sehen, aber nicht interaktiv navigieren. Sigma.js-clickNode
+    feuert ``cockpitBridge.onNodeClicked(nodeId)`` (über QWebChannel).
+    """
+    nodeClickedFromJs = Signal(str)
+
+    @Slot(str)
+    def onNodeClicked(self, node_id: str) -> None:
+        self.nodeClickedFromJs.emit(node_id)
+
+
 def _try_import_qwebengine():
     """Try-Import-Helper — gibt None zurück wenn QtWebEngine fehlt."""
     try:
@@ -41,6 +56,16 @@ def _try_import_qwebengine():
         return QWebEngineView
     except ImportError as e:
         logger.warning("QWebEngineView nicht verfügbar — fallback auf Text-View: %s", e)
+        return None
+
+
+def _try_import_qwebchannel():
+    """Try-Import-Helper für QtWebChannel."""
+    try:
+        from PySide6.QtWebChannel import QWebChannel  # noqa: F401
+        return QWebChannel
+    except ImportError as e:
+        logger.warning("QWebChannel nicht verfügbar — Klicks bleiben stumm: %s", e)
         return None
 
 
@@ -58,7 +83,11 @@ class GraphCockpitTab(QWidget):
         super().__init__(parent)
         self._vm = view_model or CockpitViewModel()
         self._engine_cls = _try_import_qwebengine()
+        self._channel_cls = _try_import_qwebchannel()
+        self._bridge: _CockpitBridge | None = None
+        self._channel = None
         self._build_ui()
+        self._setup_webchannel()
         self._refresh_html()
 
     def _build_ui(self) -> None:
@@ -106,6 +135,26 @@ class GraphCockpitTab(QWidget):
         splitter.setStretchFactor(0, 3)
         splitter.setStretchFactor(1, 1)
         layout.addWidget(splitter)
+
+    def _setup_webchannel(self) -> None:
+        """QWebChannel zwischen JS und Python setupen.
+
+        Dependencies optional: Wenn QtWebEngine oder QtWebChannel fehlen,
+        wird kein Channel registriert — der JS-Code prüft auf
+        `typeof QWebChannel` und bleibt stumm.
+        """
+        if self.web_view is None or self._channel_cls is None:
+            return
+        self._bridge = _CockpitBridge(self)
+        self._bridge.nodeClickedFromJs.connect(self.select_node)
+        try:
+            self._channel = self._channel_cls(self.web_view.page())
+            self._channel.registerObject("cockpitBridge", self._bridge)
+            self.web_view.page().setWebChannel(self._channel)
+        except Exception as exc:  # broad: Setup darf Tab nicht crashen
+            logger.warning("QWebChannel-Setup failed: %s", exc)
+            self._bridge = None
+            self._channel = None
 
     # ── Public API ─────────────────────────────────────────────────────────
 

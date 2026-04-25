@@ -84,6 +84,7 @@ _HTML_TEMPLATE = """<!doctype html>
 <script src="https://cdn.jsdelivr.net/npm/graphology@0.25.4/dist/graphology.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/sigma@3.0.0-beta.18/build/sigma.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/graphology-layout-forceatlas2@0.10.1/build/graphology-layout-forceatlas2.umd.min.js"></script>
+<script src="qrc:///qtwebchannel/qwebchannel.js"></script>
 </head>
 <body>
 <div id="info">PB Studio Graph — {n_nodes} Nodes, {n_edges} Edges</div>
@@ -106,6 +107,22 @@ _HTML_TEMPLATE = """<!doctype html>
     graphologyLayoutForceatlas2.assign(G, {{ iterations: 50, settings: {{ gravity: 1.0 }} }});
   }}
   const renderer = new Sigma(G, document.getElementById('container'));
+
+  // P0 #3: QWebChannel-Bridge — Klick auf Knoten ruft Python-Slot.
+  // Wenn QtWebChannel nicht verfügbar (z.B. im normalen Browser oder
+  // bei deaktiviertem WebChannel), bleibt der Click-Handler stumm.
+  let pythonBridge = null;
+  if (typeof QWebChannel !== "undefined" && typeof qt !== "undefined") {{
+    new QWebChannel(qt.webChannelTransport, function(channel) {{
+      pythonBridge = channel.objects.cockpitBridge;
+    }});
+  }}
+  renderer.on("clickNode", function(event) {{
+    const nodeId = event.node;
+    if (pythonBridge && typeof pythonBridge.onNodeClicked === "function") {{
+      pythonBridge.onNodeClicked(nodeId);
+    }}
+  }});
 </script>
 </body>
 </html>
