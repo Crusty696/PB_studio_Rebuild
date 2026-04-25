@@ -137,12 +137,20 @@ class LocalAgentService:
         self._ollama_client = None  # Lazy init
 
     def _get_orchestrator(self):
-        """Lazy-Init des Orchestrators."""
+        """Lazy-Init des Orchestrators.
+
+        B-129: gelockte Doppel-Check-Init verhindert zwei parallele
+        OrchestratorAgent-Instanzen (eine wuerde verloren — leak + state-
+        divergenz).
+        """
         if self._orchestrator is None:
-            from agents.orchestrator_agent import OrchestratorAgent
-            self._orchestrator = OrchestratorAgent()
-            from services.model_manager import ModelManager
-            self._orchestrator.set_model_manager(ModelManager())
+            with self._lock:
+                if self._orchestrator is None:
+                    from agents.orchestrator_agent import OrchestratorAgent
+                    orch = OrchestratorAgent()
+                    from services.model_manager import ModelManager
+                    orch.set_model_manager(ModelManager())
+                    self._orchestrator = orch
         return self._orchestrator
 
     # ------------------------------------------------------------------
@@ -150,10 +158,16 @@ class LocalAgentService:
     # ------------------------------------------------------------------
 
     def _get_ollama_client(self):
-        """Gibt den Ollama-Client zurück (lazy init)."""
+        """Gibt den Ollama-Client zurück (lazy init).
+
+        B-129: Doppel-Check-Lock — verhindert zwei parallele Client-
+        Instanzen mit obsoleten Connection-Pools.
+        """
         if self._ollama_client is None:
-            from services.ollama_client import get_ollama_client
-            self._ollama_client = get_ollama_client(self._ollama_url)
+            with self._lock:
+                if self._ollama_client is None:
+                    from services.ollama_client import get_ollama_client
+                    self._ollama_client = get_ollama_client(self._ollama_url)
         return self._ollama_client
 
     def _auto_detect_ollama(self) -> bool:
@@ -300,13 +314,20 @@ class LocalAgentService:
     # ------------------------------------------------------------------
 
     def _get_conversation_memory(self):
-        """Lazy-Init der ConversationMemory für die Default-Session."""
+        """Lazy-Init der ConversationMemory für die Default-Session.
+
+        B-129: Doppel-Check-Lock — sonst wuerden zwei parallele Threads
+        zwei separate ConversationMemory-Instanzen anlegen, jede mit
+        eigener History → User sieht abgeschnittenen Dialog-Kontext.
+        """
         if self._conversation_memory is None:
-            from services.conversation_memory import ConversationMemory
-            self._conversation_memory = ConversationMemory(
-                session_id="local_agent_default",
-                max_turns=8,
-            )
+            with self._lock:
+                if self._conversation_memory is None:
+                    from services.conversation_memory import ConversationMemory
+                    self._conversation_memory = ConversationMemory(
+                        session_id="local_agent_default",
+                        max_turns=8,
+                    )
         return self._conversation_memory
 
     def set_conversation_memory(self, memory) -> None:
