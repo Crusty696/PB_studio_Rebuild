@@ -440,6 +440,17 @@ class BeatAnalysisService:
             from database import nullpool_session
             import time as _time
 
+            # B-145 Fix: Modell VOR dem DB-Retry-Loop entladen, sonst blockt
+            # beat_this 2-3 GB VRAM bis 12s waehrend des Retry-Sleeps. Das
+            # OOM-cascadet jeden parallelen Video-Worker (SigLIP/RAFT) auf
+            # einer 6GB GTX 1060. Audio + Beat-Daten (y/sr/result) sind hier
+            # bereits extrahiert; das Modell wird im Retry nicht mehr gebraucht.
+            # finally:self.unload() bleibt als Sicherheitsnetz fuer Exceptions.
+            try:
+                self.unload()
+            except Exception as _unload_err:
+                logger.debug("Pre-retry unload skipped: %s", _unload_err)
+
             max_retries = 3
             for attempt in range(max_retries):
                 try:
