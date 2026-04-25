@@ -27,7 +27,12 @@ def test_b157_autoeditworker_propagates_cancel_to_pipeline():
 
 def test_b157_auto_edit_phase3_accepts_should_stop_cb():
     """B-157: auto_edit_phase3 muss eine should_stop_cb akzeptieren und
-    im Segment-Loop pruefen."""
+    im Segment-Loop pruefen.
+
+    Nach dem B-158-Refactor liegt der Segment-Loop im internen Body
+    (_auto_edit_phase3_inner) — der Check muss also irgendwo im
+    Modul-Source sein, gefolgt vom Segment-Loop.
+    """
     from services import pacing_service
 
     sig = inspect.signature(pacing_service.auto_edit_phase3)
@@ -36,12 +41,12 @@ def test_b157_auto_edit_phase3_accepts_should_stop_cb():
         "kann der Worker den Lauf nicht abbrechen."
     )
 
-    src = inspect.getsource(pacing_service.auto_edit_phase3)
-    assert "should_stop_cb" in src, "Source ohne Verwendung der Cancel-Callback."
-    # Cancel-Check sollte im Segment-Loop sitzen, nicht nur am Anfang.
-    # Heuristik: der Check muss NACH dem 'for i in range(len(cut_beats) - 1)' stehen.
-    seg_loop_idx = src.find("for i in range(len(cut_beats)")
-    cb_idx = src.find("should_stop_cb", seg_loop_idx if seg_loop_idx >= 0 else 0)
+    # Inner body source (B-158 refactor split die Funktion auf)
+    inner = getattr(pacing_service, "_auto_edit_phase3_inner", None)
+    assert inner is not None, "B-158-Refactor hat _auto_edit_phase3_inner erwartet."
+    inner_src = inspect.getsource(inner)
+    seg_loop_idx = inner_src.find("for i in range(len(cut_beats)")
+    cb_idx = inner_src.find("should_stop_cb", seg_loop_idx if seg_loop_idx >= 0 else 0)
     assert seg_loop_idx > 0 and cb_idx > seg_loop_idx, (
         "should_stop_cb-Pruefung fehlt im Segment-Erzeugungs-Loop."
     )

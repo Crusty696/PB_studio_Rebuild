@@ -292,7 +292,31 @@ def auto_edit_phase3(
     Returns:
         (segments, cut_points) — Segmente fuer OTIO + CutPoints fuer UI-Visualisierung
     """
+    # B-158: try/finally garantiert Engine-Dispose auch bei uncaught Exceptions
+    # zwischen Engine-Erzeugung und finalem Return. Bisher fuehrten nur die
+    # explizit abgefangenen Pfade (early return) zum Dispose, nicht aber
+    # raise-Pfade aus _precompute_mood_embeddings/CrossModalMatcher/etc.
     _ae_eng = _make_auto_edit_engine()  # P7-FIX: siehe _make_auto_edit_engine Docstring
+    try:
+        return _auto_edit_phase3_inner(
+            _ae_eng, audio_id, video_clip_ids, settings,
+            progress_cb=progress_cb, should_stop_cb=should_stop_cb,
+        )
+    finally:
+        _ae_eng.dispose()
+
+
+def _auto_edit_phase3_inner(
+    _ae_eng,
+    audio_id: int,
+    video_clip_ids: list[int],
+    settings: AdvancedPacingSettings,
+    *,
+    progress_cb=None,
+    should_stop_cb=None,
+) -> tuple[list[TimelineSegment], list[CutPoint]]:
+    """Innerer Auto-Edit-Body. Engine-Cleanup uebernimmt der aeussere
+    Wrapper via try/finally (B-158)."""
     # 1. Audio-Dauer = Timeline-Laenge
     if progress_cb:
         progress_cb(0, "Lade Audio-Daten...")
@@ -315,7 +339,6 @@ def auto_edit_phase3(
                 t += interval
 
     if not beats or not video_clip_ids:
-        _ae_eng.dispose()
         return [], []
 
     if progress_cb:
@@ -323,7 +346,6 @@ def auto_edit_phase3(
     # 3. Video-Info laden
     video_info = _get_video_info(video_clip_ids)
     if not video_info:
-        _ae_eng.dispose()
         return [], []
 
     # 4. Anker sammeln (erzwungene Video-Zuweisungen)
@@ -612,7 +634,6 @@ def auto_edit_phase3(
     cut_points: list[CutPoint] = []
     available_ids = [vid for vid in video_clip_ids if vid in video_info]
     if not available_ids:
-        _ae_eng.dispose()
         return [], []
 
     # F-001 Fix: Load playback_offset from database for persistence
@@ -657,7 +678,6 @@ def auto_edit_phase3(
         if should_stop_cb is not None and should_stop_cb():
             logger.info("auto_edit_phase3: cancel-request bei Segment %d/%d",
                         i, len(cut_beats) - 1)
-            _ae_eng.dispose()
             return segments, cut_points
         seg_start = cut_beats[i]
         seg_end = cut_beats[i + 1]
@@ -815,5 +835,4 @@ def auto_edit_phase3(
                 video_clip.playback_offset = offset
         session.commit()
 
-    _ae_eng.dispose()
     return segments, cut_points

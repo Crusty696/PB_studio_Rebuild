@@ -48,6 +48,7 @@ THREADING CONTRACT (B-104 / BUG-3-b):
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
@@ -136,6 +137,10 @@ class DecisionRecorder:
         """
         self._session_factory = session_factory
         self._queue: list[_QueuedDecision] = []
+        # B-161: Lock fuer _queue. record() laeuft im Worker-Thread,
+        # flush_queue() im Main-Thread — list.append/iterate gleichzeitig
+        # ist nicht thread-safe (CPython GIL schuetzt nur einzelne Bytecodes).
+        self._queue_lock = threading.Lock()
         self._gui_thread_warning_logged: bool = False
 
     def record(
@@ -172,14 +177,16 @@ class DecisionRecorder:
                 sequence_idx,
                 exc,
             )
-            self._queue.append(
-                _QueuedDecision(
-                    run_id=run_id,
-                    sequence_idx=sequence_idx,
-                    payload=payload,
-                    reason=str(exc),
+            # B-161: queue-mutation unter Lock
+            with self._queue_lock:
+                self._queue.append(
+                    _QueuedDecision(
+                        run_id=run_id,
+                        sequence_idx=sequence_idx,
+                        payload=payload,
+                        reason=str(exc),
+                    )
                 )
-            )
             return None
 
     @staticmethod
@@ -272,16 +279,28 @@ class DecisionRecorder:
                 pass  # best-effort cleanup
 
     def flush_queue(self) -> int:
-        """Retry every queued decision once. Returns count successfully drained."""
+        """Retry every queued decision once. Returns count successfully drained.
+
+        B-161: Snapshot unter _queue_lock, retry ausserhalb des Locks
+        (DB-Calls duerfen nicht den Lock halten), dann remaining wieder
+        unter Lock zurueckschreiben — wobei zwischenzeitliche record()-
+        Appends nicht verloren gehen.
+        """
         drained = 0
+        with self._queue_lock:
+            snapshot = list(self._queue)
+            self._queue.clear()
         remaining: list[_QueuedDecision] = []
-        for q in self._queue:
+        for q in snapshot:
             try:
                 self._insert_with_retry(q.payload)
                 drained += 1
             except OperationalError:
                 remaining.append(q)
-        self._queue = remaining
+        if remaining:
+            with self._queue_lock:
+                # Andere record()-Appends seit dem clear wandern nach hinten
+                self._queue[:0] = remaining
         return drained
 
     @property

@@ -611,10 +611,18 @@ def detect_sections(
 
 
 # P-021: Bisect-Cache fuer get_section_at_time (O(log N) statt O(N), aufgerufen 5451x)
+# B-160: Cache-Key NICHT id(sections) (id-Reuse nach GC liefert Stale-Cache),
+# sondern stabiler Tuple-Hash der Sektions-Inhalte.
 _section_starts_cache: list[float] = []
 _section_list_cache: list[Section] = []
-_section_cache_id: int | None = None
+_section_cache_signature: tuple | None = None
 _section_cache_lock = threading.Lock()
+
+
+def _sections_signature(sections: list[Section]) -> tuple:
+    """B-160: Stable hash for Section-list identity. Tuple of (start, end, type)
+    survives GC + memory-address reuse, which a builtin object-id check does not."""
+    return tuple((s.start, s.end, s.section_type) for s in sections)
 
 
 def get_section_at_time(sections: list[Section], time: float) -> Section | None:
@@ -622,17 +630,20 @@ def get_section_at_time(sections: list[Section], time: float) -> Section | None:
 
     Thread-safe durch _section_cache_lock (verhindert Race Conditions bei
     parallelen Aufrufen mit unterschiedlichen Section-Listen).
+
+    B-160: Cache-Key ist Tuple-Signature der Sektions-Inhalte, nicht eine
+    Adresse. Sonst kollidiert die id() nach GC und der Cache liefert alte Daten.
     """
-    global _section_starts_cache, _section_list_cache, _section_cache_id
+    global _section_starts_cache, _section_list_cache, _section_cache_signature
     if not sections:
         return None
-    sections_id = id(sections)
+    sig = _sections_signature(sections)
     with _section_cache_lock:
-        # Build cache on first call or when sections list identity changes
-        if _section_cache_id != sections_id:
+        # Build cache on first call or when sections content changes
+        if _section_cache_signature != sig:
             _section_starts_cache = [s.start for s in sections]
             _section_list_cache = list(sections)
-            _section_cache_id = sections_id
+            _section_cache_signature = sig
         idx = bisect.bisect_right(_section_starts_cache, time) - 1
         if 0 <= idx < len(_section_list_cache):
             sec = _section_list_cache[idx]
