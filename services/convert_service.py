@@ -247,6 +247,7 @@ def convert(
     preset_name: str = "edit_proxy",
     output_path: str | Path | None = None,
     progress_cb: Callable[[int, str], None] | None = None,
+    cancel_check: Callable[[], bool] | None = None,
 ) -> str:
     """Konvertiert eine Mediendatei mit dem gewaehlten Preset.
 
@@ -356,9 +357,13 @@ def convert(
     if is_nvenc:
         logger.debug("[ConvertService] Warte auf NVENC-Slot...")
         with NVENC_SEMAPHORE:
-            ffmpeg_stderr = _run_ffmpeg_with_progress(cmd, total_duration, progress_cb)
+            ffmpeg_stderr = _run_ffmpeg_with_progress(
+                cmd, total_duration, progress_cb, cancel_check=cancel_check
+            )
     else:
-        ffmpeg_stderr = _run_ffmpeg_with_progress(cmd, total_duration, progress_cb)
+        ffmpeg_stderr = _run_ffmpeg_with_progress(
+            cmd, total_duration, progress_cb, cancel_check=cancel_check
+        )
 
     if not output_path.exists():
         logger.error(f"[ConvertService] FFmpeg lief durch (rc=0), aber Ausgabedatei fehlt!")
@@ -405,12 +410,20 @@ def _run_ffmpeg_with_progress(
     cmd: list[str],
     total_duration: float,
     progress_cb: Callable[[int, str], None] | None,
+    cancel_check: Callable[[], bool] | None = None,
 ) -> str:
     """Fuehrt FFmpeg aus und parst -progress pipe:1 fuer Fortschritt.
 
     PoC-validiert: -progress pipe:1 gibt key=value Paare auf stdout aus.
     Relevante Keys: out_time_ms, frame, speed, progress (= "end" am Schluss).
+
+    B-116 Fix: ``cancel_check`` kann eine ``Callable[[], bool]`` sein.
+    Wird in der Progress-Schleife UND vom Watchdog-Thread regelmaessig
+    abgefragt; bei True wird der ffmpeg-Prozess terminiert und eine
+    ``FFmpegError("Convert abgebrochen")`` geworfen.
     """
+    import time as _time
+
     kwargs = {}
     if sys.platform == "win32":
         kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
@@ -427,14 +440,38 @@ def _run_ffmpeg_with_progress(
     )
 
     stderr_lines = []
+    cancelled = threading.Event()
     def _drain_stderr():
         for line in process.stderr:
             stderr_lines.append(line)
     stderr_thread = threading.Thread(target=_drain_stderr, daemon=True)
     stderr_thread.start()
 
+    cancel_watchdog = None
+    if cancel_check is not None:
+        def _cancel_watch():
+            while process.poll() is None:
+                try:
+                    if cancel_check():
+                        cancelled.set()
+                        process.terminate()
+                        try:
+                            process.wait(timeout=2.0)
+                        except subprocess.TimeoutExpired:
+                            process.kill()
+                        return
+                except Exception:
+                    return
+                _time.sleep(0.2)
+        cancel_watchdog = threading.Thread(target=_cancel_watch, daemon=True)
+        cancel_watchdog.start()
+
     try:
         for line in process.stdout:
+            if cancel_check is not None and cancel_check():
+                cancelled.set()
+                process.terminate()
+                break
             line = line.strip()
             if not line:
                 continue
@@ -471,6 +508,15 @@ def _run_ffmpeg_with_progress(
         if process.poll() is None:
             process.kill()
         stderr_thread.join(timeout=THREAD_JOIN_TIMEOUT_SEC)
+        if cancel_watchdog is not None:
+            cancel_watchdog.join(timeout=THREAD_JOIN_TIMEOUT_SEC)
+
+    if cancelled.is_set():
+        raise FFmpegError(
+            "Convert abgebrochen (User-Cancel)",
+            returncode=-1,
+            stderr=''.join(stderr_lines),
+        )
 
     stderr = ''.join(stderr_lines)
     if process.returncode != 0:

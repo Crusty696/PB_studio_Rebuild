@@ -40,6 +40,9 @@ class ExportWorker(QObject, CancellableMixin):
                 resolution=self.resolution,
                 fps=self.fps,
                 progress_cb=lambda pct, msg: self.progress.emit(pct, msg),
+                # B-116 / B-121: ffmpeg subprocess kann jetzt mid-run via
+                # User-Cancel terminiert werden.
+                cancel_check=self.should_stop,
             )
             self.finished.emit(path)
             _ok = True
@@ -75,6 +78,7 @@ class PreviewExportWorker(QObject, CancellableMixin):
                 fps=self.fps,
                 duration_limit=self.duration_limit,
                 progress_cb=lambda pct, msg: self.progress.emit(pct, msg),
+                cancel_check=self.should_stop,
             )
             self.finished.emit(path)
             _ok = True
@@ -302,6 +306,7 @@ class ProxyCreationWorker(QObject, CancellableMixin):
                 self.video_path,
                 preset_name="edit_proxy",
                 progress_cb=lambda pct, msg: self.progress.emit(pct, msg),
+                cancel_check=self.should_stop,
             )
             # Proxy-Pfad in SQLite speichern (NullPool: verhindert DB-Lock)
             from database import nullpool_session

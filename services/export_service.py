@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 from pathlib import Path
 
 from sqlalchemy.orm import Session
@@ -193,8 +194,12 @@ def _prepare_normalized_audio(audio_path: str | None, temp_files: list,
 
 def export_timeline(project_id: int = 1, output_name: str = "output.mp4",
                     resolution: str = "1920x1080", fps: float = 30.0,
-                    progress_cb=None) -> str:
-    """Exportiert alle Timeline-Eintraege als zusammengeschnittenes Video."""
+                    progress_cb=None, cancel_check=None) -> str:
+    """Exportiert alle Timeline-Eintraege als zusammengeschnittenes Video.
+
+    B-116: ``cancel_check`` ist optional eine Callable[[], bool], die
+    waehrend des laufenden ffmpeg-Calls regelmaessig abgefragt wird.
+    Bei True wird der Subprocess terminiert."""
     # BUG-003: Cache leeren — re-enkodierte Proxies haetten sonst veraltete Metadaten
     # M-7 FIX: Use thread-safe clear function instead of direct dict access
     clear_probe_cache()
@@ -284,17 +289,20 @@ def export_timeline(project_id: int = 1, output_name: str = "output.mp4",
     if has_effects:
         return _export_with_filtergraph(
             video_segments, audio_path, output_path,
-            w, h, fps, progress_cb, total_steps
+            w, h, fps, progress_cb, total_steps,
+            cancel_check=cancel_check,
         )
     else:
         return _export_optimized_concat(
             video_segments, audio_path, output_path,
-            w, h, fps, progress_cb, total_steps
+            w, h, fps, progress_cb, total_steps,
+            cancel_check=cancel_check,
         )
 
 
 def _export_optimized_concat(video_segments, audio_path, output_path,
-                              w, h, fps, progress_cb, total_steps):
+                              w, h, fps, progress_cb, total_steps,
+                              cancel_check=None):
     """Concat-Export mit automatischer Vorverarbeitung nicht-konformer Clips.
 
     PERF-FIX: Clips die nicht target-konform sind (andere Aufloesung/FPS/Codec)
@@ -488,7 +496,8 @@ def _export_optimized_concat(video_segments, audio_path, output_path,
             num_segs, estimated_duration, dynamic_timeout,
         )
         _run_ffmpeg(cmd, timeout=dynamic_timeout, progress_cb=progress_cb,
-                    total_duration=estimated_duration)
+                    total_duration=estimated_duration,
+                    cancel_check=cancel_check)
 
         if progress_cb:
             step += 1
@@ -511,7 +520,8 @@ def _export_optimized_concat(video_segments, audio_path, output_path,
 
 
 def _export_with_filtergraph(video_segments, audio_path, output_path,
-                             w, h, fps, progress_cb, total_steps):
+                             w, h, fps, progress_cb, total_steps,
+                             cancel_check=None):
     """Komplexer Export mit Filtergraph (Crossfades + Farbkorrektur)."""
     step = 0
     temp_files = []
@@ -623,7 +633,8 @@ def _export_with_filtergraph(video_segments, audio_path, output_path,
         )
         dynamic_timeout = max(1800, 600 + n * 60)  # Filtergraph braucht mehr pro Segment
         _run_ffmpeg(cmd, timeout=dynamic_timeout, progress_cb=progress_cb,
-                    total_duration=estimated_duration)
+                    total_duration=estimated_duration,
+                    cancel_check=cancel_check)
     finally:
         for tf in temp_files:
             try:
@@ -720,7 +731,8 @@ def _normalize_audio_lufs(input_path: str, output_path: str,
 
 
 def _run_ffmpeg(cmd: list[str], timeout: int = 600, progress_cb=None,
-                total_duration: float = 0.0):
+                total_duration: float = 0.0,
+                cancel_check=None):
     """Fuehrt FFmpeg aus — mit Popen + Progress-Parsing statt blockierendem subprocess.run.
 
     FIX-1.2: Wechsel von subprocess.run() (blockiert ohne Progress) zu subprocess.Popen
@@ -728,6 +740,11 @@ def _run_ffmpeg(cmd: list[str], timeout: int = 600, progress_cb=None,
     - Echtzeit-Progress-Updates waehrend des Exports
     - Sauberen Abbruch bei Timeout (process.kill() statt TimeoutExpired)
     - Stderr-Sammlung fuer Fehlerdiagnose
+
+    B-116 Fix: ``cancel_check`` kann eine ``Callable[[], bool]`` sein.
+    Wird in der Progress-Schleife UND vom Watchdog-Thread regelmaessig
+    abgefragt; bei True wird der ffmpeg-Prozess terminiert und eine
+    ``RuntimeError("Export abgebrochen")`` geworfen.
     """
     import threading
 
@@ -753,6 +770,7 @@ def _run_ffmpeg(cmd: list[str], timeout: int = 600, progress_cb=None,
     )
 
     stderr_lines = []
+    cancelled = threading.Event()
 
     def _drain_stderr():
         for line in process.stderr:
@@ -761,8 +779,34 @@ def _run_ffmpeg(cmd: list[str], timeout: int = 600, progress_cb=None,
     stderr_thread = threading.Thread(target=_drain_stderr, daemon=True)
     stderr_thread.start()
 
+    # B-116: Watchdog-Thread polled ``cancel_check`` auch wenn ffmpeg
+    # keine stdout-Zeilen schreibt (z.B. bei laengeren Pre/Post-Phasen
+    # oder wenn ``-progress`` nicht aktiv ist).
+    cancel_watchdog = None
+    if cancel_check is not None:
+        def _cancel_watch():
+            while process.poll() is None:
+                try:
+                    if cancel_check():
+                        cancelled.set()
+                        process.terminate()
+                        try:
+                            process.wait(timeout=2.0)
+                        except subprocess.TimeoutExpired:
+                            process.kill()
+                        return
+                except Exception:
+                    return
+                time.sleep(0.2)
+        cancel_watchdog = threading.Thread(target=_cancel_watch, daemon=True)
+        cancel_watchdog.start()
+
     try:
         for line in process.stdout:
+            if cancel_check is not None and cancel_check():
+                cancelled.set()
+                process.terminate()
+                break
             line = line.strip()
             if not line:
                 continue
@@ -798,6 +842,11 @@ def _run_ffmpeg(cmd: list[str], timeout: int = 600, progress_cb=None,
         if process.poll() is None:
             process.kill()
         stderr_thread.join(timeout=THREAD_JOIN_TIMEOUT_SEC)
+        if cancel_watchdog is not None:
+            cancel_watchdog.join(timeout=THREAD_JOIN_TIMEOUT_SEC)
+
+    if cancelled.is_set():
+        raise RuntimeError("Export abgebrochen (User-Cancel)")
 
     stderr = ''.join(stderr_lines)
     if process.returncode != 0:
@@ -806,11 +855,13 @@ def _run_ffmpeg(cmd: list[str], timeout: int = 600, progress_cb=None,
 
 def export_preview(project_id: int = 1, resolution: str = "1920x1080",
                    fps: float = 30.0, duration_limit: float = 10.0,
-                   progress_cb=None) -> str:
+                   progress_cb=None, cancel_check=None) -> str:
     """Rendert eine Vorschau der ersten N Sekunden der Timeline.
 
     Identisch zu export_timeline(), aber begrenzt auf duration_limit Sekunden.
     Gibt den Pfad zur temporaeren Preview-Datei zurueck.
+
+    B-116: ``cancel_check`` siehe ``export_timeline``.
     """
     # M-7 FIX: Use thread-safe clear function instead of direct dict access
     clear_probe_cache()
@@ -901,12 +952,14 @@ def export_preview(project_id: int = 1, resolution: str = "1920x1080",
     if has_effects:
         return _export_with_filtergraph(
             video_segments, audio_path, output_path,
-            w, h, fps, progress_cb, total_steps
+            w, h, fps, progress_cb, total_steps,
+            cancel_check=cancel_check,
         )
     else:
         return _export_optimized_concat(
             video_segments, audio_path, output_path,
-            w, h, fps, progress_cb, total_steps
+            w, h, fps, progress_cb, total_steps,
+            cancel_check=cancel_check,
         )
 
 
