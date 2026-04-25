@@ -1,0 +1,16 @@
+[
+  {
+    "clip_id": 42,
+    "scene_id": 100,
+    "true_class": "vocal_dominant",
+    "comment": "Singer face close-up, full frame",
+    "embedding_path": "embeddings/clip_42_scene_100.npy"
+  },
+  {
+    "clip_id": 43,
+    "scene_id": 101,
+    "true_class": "drum_dominant",
+    "comment": "Abstract neon light trails, no people",
+    "embedding_path": "embeddings/clip_43_scene_101.npy"
+  }
+]

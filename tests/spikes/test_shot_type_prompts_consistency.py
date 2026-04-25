@@ -1,44 +1,20 @@
-"""PRE-3 Spike: 16-Prompt Internal Consistency Check.
+"""PRE-3 Spike + P3 Refinement: 16-Prompt Internal Consistency Check.
 
-Without labeled clips: verify that prompt-design is internally coherent
-(intra-class prompts cluster together; inter-class prompts diverge).
-This is a *prerequisite* for the full Confusion-Matrix-Eval which needs
-labeled clips.
+Lädt die produktiven SHOT_PROMPTS aus services/pacing/shot_type_classifier
+und verifiziert intra-class-cohesion + inter-class-separation gegen den
+SigLIP-Text-Tower.
 
-Pass criteria:
-- Each class's 4 prompts have mean intra-class cosine-sim > 0.5
-- Each class-centroid pair has cosine-sim < 0.6 (some separation)
+PRE-3 (2026-04-25): Erste Iteration hatte vocal/drum-Confusion bei 0.725
+weil beide Klassen menschen-zentriert waren. Slice-2-Refinement hat die
+Drum-Prompts auf non-human Motion umgeschrieben (abstract light trails,
+blurred neon lights, ...).
+
+P3 (2026-04-26): Test gegen die produktiven Prompts mit Threshold 0.78.
 """
 import pytest
 import numpy as np
 
-
-SHOT_PROMPTS = {
-    "vocal_dominant": [
-        "close-up portrait of a person",
-        "person face filling the frame",
-        "human head and shoulders centered",
-        "intimate facial expression close-up",
-    ],
-    "drum_dominant": [
-        "energetic motion blur action shot",
-        "fast moving subject with motion trails",
-        "high-energy dynamic crowd scene",
-        "kinetic blur of dancing figures",
-    ],
-    "melody_dominant": [
-        "wide cinematic landscape",
-        "scenic vista with sky and horizon",
-        "calm establishing shot of nature",
-        "panoramic outdoor scene",
-    ],
-    "bass_dominant": [
-        "abstract dark texture pattern",
-        "low-light moody atmospheric scene",
-        "abstract closeup of textured surface",
-        "deep contrast graphic composition",
-    ],
-}
+from services.pacing.shot_type_classifier import SHOT_PROMPTS
 
 
 @pytest.fixture(scope="module")
@@ -74,21 +50,13 @@ def test_intra_class_cohesion(prompt_embeddings):
         assert mean_intra > 0.5, f"{cls}: intra-cohesion {mean_intra:.3f} < 0.5"
 
 
-@pytest.mark.xfail(
-    reason="PRE-3 known finding 2026-04-25: vocal/drum prompts overlap "
-    "(both human-centric). Slice 2 must replace drum-prompts with "
-    "non-human motion (e.g. 'abstract light trails', 'blurred lights'). "
-    "Tracked as Slice-2 spike refinement.",
-    strict=False,
-)
 def test_inter_class_separation(prompt_embeddings):
-    """Class centroids should be distinguishable.
+    """Class centroids should be distinguishable (cosine < 0.78).
 
-    Empirical finding 2026-04-25: SigLIP-Text places "human face" and
-    "motion-blur action" relatively close (~0.72 cosine), since both are
-    human-subject content. Threshold loosened to 0.78 — at this level
-    classes are still rankable (the within-class sim is consistently
-    higher than the cross-class sim, confirmed by intra-cohesion test).
+    P3 (2026-04-26): xfail entfernt nachdem Drum-Prompts auf non-human
+    Motion umgeschrieben wurden (siehe shot_type_classifier.py).
+    Threshold 0.78 — bei diesem Wert sind Klassen rankbar (within-class-
+    Sim ist konsistent höher als cross-class-Sim).
     """
     centroids = {cls: vecs.mean(axis=0) for cls, vecs in prompt_embeddings.items()}
     centroids = {cls: c / np.linalg.norm(c) for cls, c in centroids.items()}
@@ -99,12 +67,10 @@ def test_inter_class_separation(prompt_embeddings):
     for i, cls_a in enumerate(classes):
         for cls_b in classes[i + 1:]:
             sim = float(centroids[cls_a] @ centroids[cls_b])
-            # Hard ceiling: classes must be at least *slightly* separable
             assert sim < 0.78, (
                 f"{cls_a} vs {cls_b}: inter-sim {sim:.3f} too high (>0.78). "
                 f"Prompts need stronger differentiation."
             )
-            # Soft check: within-class sim > between-class sim
             min_intra_a = float(intras[cls_a].min())
             assert min_intra_a > sim - 0.05, (
                 f"{cls_a}'s weakest prompt ({min_intra_a:.3f}) is too close "
