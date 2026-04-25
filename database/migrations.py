@@ -219,11 +219,19 @@ def _migrate_fk_cascade():
                     except Exception as rename_err:
                         logger.error("FK-Migration Rollback fehlgeschlagen fuer '%s': %s", orphan, rename_err)
                 raise
-
-            # Re-enable foreign keys
-            cursor.execute("PRAGMA foreign_keys=ON")
-            cursor.close()
         finally:
+            # B-174: PRAGMA foreign_keys=ON IMMER wieder einschalten,
+            # auch im Fehler-Pfad. Sonst behaelt die gepoolte Connection
+            # FK=OFF und naechste Service-Anfragen umgehen FK-Constraints
+            # silent — DELETE auf Project loescht keine Child-Tabellen mehr.
+            try:
+                cursor.execute("PRAGMA foreign_keys=ON")
+            except Exception as fk_err:
+                logger.error("PRAGMA foreign_keys=ON failed: %s", fk_err)
+            try:
+                cursor.close()
+            except Exception:
+                pass
             raw_conn.close()
 
         # Create any tables that are in metadata but did not exist yet
