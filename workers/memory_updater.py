@@ -19,6 +19,8 @@ Qt integration:
 from __future__ import annotations
 
 import logging
+import sys
+import threading
 import traceback
 from typing import Any, Callable
 
@@ -27,6 +29,33 @@ from PySide6.QtCore import QObject, Signal
 from services.pacing.pattern_aggregator import PatternAggregator
 
 logger = logging.getLogger(__name__)
+
+
+def _warn_if_on_gui_thread() -> None:
+    """B-105 / BUG-2-b: warn when ``notify_feedback`` triggers a
+    synchronous flush on the Qt GUI thread. The aggregation can take
+    multiple seconds; on the GUI thread that is a freeze."""
+    qtcore = sys.modules.get("PySide6.QtCore")
+    if qtcore is None:
+        return
+    QApplication = getattr(
+        sys.modules.get("PySide6.QtWidgets"), "QApplication", None
+    )
+    if QApplication is None:
+        return
+    app = QApplication.instance()
+    if app is None:
+        return
+    QThread = getattr(qtcore, "QThread", None)
+    if QThread is None:
+        return
+    if QThread.currentThread() is app.thread():
+        logger.warning(
+            "MemoryUpdaterWorker.run() is being triggered on the Qt GUI "
+            "thread. PatternAggregator.run() can take multiple seconds; "
+            "wire MemoryUpdaterWorker into a QThread so the flush does "
+            "not freeze the UI."
+        )
 
 
 class MemoryUpdaterWorker(QObject):
@@ -50,6 +79,11 @@ class MemoryUpdaterWorker(QObject):
             batch_size if batch_size is not None else self.BATCH_SIZE
         )
         self._pending: int = 0
+        # B-105 / BUG-2-b: ``_pending`` is mutated from any thread that
+        # raises a feedback event. ``self._pending += 1`` is not atomic
+        # in CPython, and the threshold check + flush is a TOCTOU race.
+        self._pending_lock: threading.Lock = threading.Lock()
+        self._gui_thread_warning_logged: bool = False
         self._aggregator = PatternAggregator(session_factory=session_factory)
 
     # ── Public API ───────────────────────────────────────────────────────────
@@ -59,9 +93,20 @@ class MemoryUpdaterWorker(QObject):
 
         Increments the internal counter and flushes if the batch size is
         reached.  Returns True if a batch was flushed, False otherwise.
+
+        B-105: increment + threshold check are guarded by
+        ``_pending_lock`` so concurrent calls cannot both cross the
+        threshold. If the threshold is crossed we warn (once per worker)
+        when running on the Qt GUI thread — the flush is a multi-second
+        SQL operation and must not block the UI.
         """
-        self._pending += 1
-        if self._pending >= self._batch_size:
+        with self._pending_lock:
+            self._pending += 1
+            should_flush = self._pending >= self._batch_size
+        if should_flush:
+            if not self._gui_thread_warning_logged:
+                _warn_if_on_gui_thread()
+                self._gui_thread_warning_logged = True
             self.run()
             return True
         return False
@@ -85,7 +130,8 @@ class MemoryUpdaterWorker(QObject):
         n = 0
         try:
             n = self._aggregator.run()
-            self._pending = 0
+            with self._pending_lock:
+                self._pending = 0
             self.finished.emit(n)
         except Exception as exc:  # broad catch — top-level worker safety net
             logger.error(
@@ -93,7 +139,8 @@ class MemoryUpdaterWorker(QObject):
                 exc,
                 traceback.format_exc(),
             )
-            self._pending = 0
+            with self._pending_lock:
+                self._pending = 0
             self.error.emit(str(exc))
         return n
 
