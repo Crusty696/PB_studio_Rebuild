@@ -292,6 +292,17 @@ def auto_edit_phase3(
     Returns:
         (segments, cut_points) — Segmente fuer OTIO + CutPoints fuer UI-Visualisierung
     """
+    # R-S0-2: Studio-Brain-Pipeline-Bridge ist Feature-Flag-gesteuert.
+    # Default = False → unveränderter Legacy-Pfad (siehe services/pacing/bridge.py).
+    from services.pacing.bridge import maybe_use_studio_brain_pipeline
+    if maybe_use_studio_brain_pipeline(
+        audio_id=audio_id, video_clip_ids=video_clip_ids,
+    ):
+        # Slice 1: hier wird die PacingPipeline aufgerufen und das Ergebnis
+        # auf TimelineSegment + CutPoint gemappt. Aktuell unerreichbar, da
+        # die Bridge solange False zurückgibt, bis die Verdrahtung steht.
+        pass
+
     # B-158: try/finally garantiert Engine-Dispose auch bei uncaught Exceptions
     # zwischen Engine-Erzeugung und finalem Return. Bisher fuehrten nur die
     # explizit abgefangenen Pfade (early return) zum Dispose, nicht aber
