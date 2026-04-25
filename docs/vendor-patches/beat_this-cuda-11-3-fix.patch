@@ -1,0 +1,70 @@
+From aef320c8e27834a7e8a0523f32c3fa13882c3750 Mon Sep 17 00:00:00 2001
+From: David Lochmann <david@local>
+Date: Sun, 12 Apr 2026 22:21:16 +0200
+Subject: [PATCH 1/2] fix: scaled_dot_product_attention Fallback fuer torch
+ 1.12
+
+---
+ beat_this/model/roformer.py | 14 ++++++++++++++
+ 1 file changed, 14 insertions(+)
+
+diff --git a/beat_this/model/roformer.py b/beat_this/model/roformer.py
+index d1cdd3c..885a431 100644
+--- a/beat_this/model/roformer.py
++++ b/beat_this/model/roformer.py
+@@ -9,6 +9,20 @@ from einops import rearrange
+ from torch import nn
+ from torch.nn import Module, ModuleList
+ 
++# Compat: F.scaled_dot_product_attention existiert erst ab PyTorch 2.0
++# Fuer torch 1.12: manuelle Implementierung (mathematisch identisch)
++if not hasattr(F, 'scaled_dot_product_attention'):
++    def _scaled_dot_product_attention(query, key, value, attn_mask=None, dropout_p=0.0, is_causal=False):
++        scale = query.shape[-1] ** -0.5
++        attn_weight = torch.matmul(query, key.transpose(-2, -1)) * scale
++        if attn_mask is not None:
++            attn_weight = attn_weight + attn_mask
++        attn_weight = torch.softmax(attn_weight, dim=-1)
++        if dropout_p > 0.0:
++            attn_weight = torch.dropout(attn_weight, dropout_p, train=True)
++        return torch.matmul(attn_weight, value)
++    F.scaled_dot_product_attention = _scaled_dot_product_attention
++
+ # helper functions
+ 
+ 
+-- 
+2.53.0.windows.2
+
+
+From 7ecf41375b9be919099b1ea2ecdd9fe5df937fa3 Mon Sep 17 00:00:00 2001
+From: David Lochmann <davidlochmann2@gmail.com>
+Date: Sat, 25 Apr 2026 21:42:57 +0200
+Subject: [PATCH 2/2] fix: relax torch dependency to >=1.10 for cuda 11.3 stack
+
+Required for GTX 1060 6GB setup (torch 1.12.1+cu113, CUDA 11.3) where
+torch>=2 is incompatible with the available driver (461.40). Pairs with
+aef320c which adds the SDPA fallback for torch <2.0.
+
+Local fork; not pushed to origin/main (which has moved 5 commits ahead
+on torch>=2 line).
+---
+ pyproject.toml | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/pyproject.toml b/pyproject.toml
+index 33faf5e..dc7a883 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -20,7 +20,7 @@ authors = [
+ requires-python = ">=3"
+ dependencies = [
+     "numpy>=1.20",
+-    "torch>=2",
++    "torch>=1.10",  # Relaxed for CUDA 11.3 compat (torch 1.12.1+cu113)
+     "torchaudio",
+     "einops",
+     "rotary-embedding-torch",
+-- 
+2.53.0.windows.2
+
