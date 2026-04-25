@@ -90,6 +90,17 @@ class WorkerDispatcherController(PBComponent):
                 task.thread.finished.connect(
                     lambda _t=task.thread, _w=worker: self._cleanup_worker(_t, _w)
                 )
+                # B-173: tm.start_task hat den Thread bereits gestartet —
+                # wenn er sehr schnell fertig wurde, kann finished schon
+                # emitted sein bevor wir connecten. Race-Guard: manueller
+                # Cleanup wenn Thread nicht mehr laeuft. _cleanup_worker
+                # ist idempotent (worker-in-list Check).
+                try:
+                    if not task.thread.isRunning():
+                        self._cleanup_worker(task.thread, worker)
+                except RuntimeError:
+                    # C++ thread-object schon weg — auch cleanup
+                    self._cleanup_worker(task.thread, worker)
             self.window._active_workers.append(worker)
             return task.thread
 

@@ -119,34 +119,37 @@ class EditWorkspaceController(PBComponent):
         self.window.pacing_curve.set_duration(total_dur)
 
         # P8-FREEZE-FIX: Schwere Berechnung in Worker-Thread.
-        # Vorher: 4s Main-Thread-Block bei jedem Pacing-Kurve-Klick.
-        # Vor neuem Worker: alten cancellen (User klickt schnell hintereinander)
-        existing = getattr(self, "_cuts_thread", None)
-        if existing is not None:
-            try:
-                if existing.isRunning():
-                    existing.requestInterruption()
-                    existing.quit()
-                    existing.wait(500)
-            except RuntimeError:
-                pass
+        # B-172: Sequence-Counter statt requestInterruption (das Worker.run
+        # checkt das Flag nie und der Thread hat keine Event-Loop). Alte
+        # Worker laufen weiter, ihre Ergebnisse werden im Slot anhand der
+        # _gen_seq verworfen.
+        self._gen_seq = getattr(self, "_gen_seq", 0) + 1
+        my_seq = self._gen_seq
+        # Alten Thread NICHT mehr blocking abwarten — Qt's parented-thread-
+        # Cleanup (parent=self.window) macht das beim Window-Close.
 
         class _CutsWorker(QObject):
-            done = Signal(list, float)
-            failed = Signal(str)
+            done = Signal(list, float, int)
+            failed = Signal(str, int)
 
-            def __init__(self, audio_id, video_id, settings, total_dur):
+            def __init__(self, audio_id, video_id, settings, total_dur, seq):
                 super().__init__()
                 self._args = (audio_id, video_id, settings, total_dur)
+                self._seq = seq
 
             def run(self):
                 try:
                     cuts = calculate_cut_points(*self._args)
-                    self.done.emit(cuts, self._args[3])
+                    self.done.emit(cuts, self._args[3], self._seq)
                 except Exception as exc:
-                    self.failed.emit(str(exc))
+                    # B-171: Stacktrace loggen statt nur als Text-Signal.
+                    logger.exception(
+                        "_CutsWorker crashed (audio_id=%s, video_id=%s)",
+                        self._args[0], self._args[1],
+                    )
+                    self.failed.emit(str(exc), self._seq)
 
-        self._cuts_worker = _CutsWorker(audio_id, video_id, settings, total_dur)
+        self._cuts_worker = _CutsWorker(audio_id, video_id, settings, total_dur, my_seq)
         self._cuts_thread = QThread(self.window)
         self._cuts_worker.moveToThread(self._cuts_thread)
         self._cuts_thread.started.connect(self._cuts_worker.run)
@@ -157,7 +160,12 @@ class EditWorkspaceController(PBComponent):
         self._cuts_thread.finished.connect(self._cuts_worker.deleteLater)
         self._cuts_thread.start()
 
-    def _on_cuts_done(self, cuts: list, total_dur: float):
+    def _on_cuts_done(self, cuts: list, total_dur: float, seq: int = 0):
+        # B-172: stale-result Drop wenn neuerer Klick schon in Flight.
+        if seq and seq != getattr(self, "_gen_seq", seq):
+            logger.debug("_on_cuts_done: stale seq %d (current %d), ignored.",
+                         seq, self._gen_seq)
+            return
         beat_times = [cp.time for cp in cuts if cp.source == "beat"]
         self.window.timeline_view.set_beat_markers(beat_times)
         self.window.timeline_view.load_from_db()
@@ -181,7 +189,10 @@ class EditWorkspaceController(PBComponent):
         self.window._mark_dirty()
         self.window.console_text.append(f"[Pacing] {len(cuts)} Cuts generiert (Manual Curve aktiv)")
 
-    def _on_cuts_failed(self, err: str):
+    def _on_cuts_failed(self, err: str, seq: int = 0):
+        # B-172: stale-Fail-Drop
+        if seq and seq != getattr(self, "_gen_seq", seq):
+            return
         logger.warning("calculate_cut_points failed: %s", err)
         self.window.console_text.append(f"[Pacing-Fehler] {err}")
 
