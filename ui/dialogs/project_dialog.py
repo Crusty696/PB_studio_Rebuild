@@ -285,11 +285,24 @@ class OpenProjectDialog(QDialog):
 
     def _check_path(self, folder: str):
         p = Path(folder) / "pb_studio.db"
-        if p.exists():
-            self.status_label.setText(f"pb_studio.db gefunden")
-            self.status_label.setStyleSheet(f"color: {OK}; font-size: 11px; background: transparent;")
-        else:
+        if not p.exists():
             self.status_label.setText("pb_studio.db NICHT gefunden!")
+            self.status_label.setStyleSheet(f"color: {ERR}; font-size: 11px; background: transparent;")
+            return
+        # B-138: SQLite-Magic-Header pruefen — verhindert dass eine
+        # 0-Byte- oder Text-Datei als "gefunden" gemeldet wird, was
+        # spaeter beim open_project() zu "file is not a database" fuehrt.
+        try:
+            with open(p, "rb") as _f:
+                _header = _f.read(16)
+            if _header.startswith(b"SQLite format 3\x00"):
+                self.status_label.setText("pb_studio.db (SQLite) gefunden")
+                self.status_label.setStyleSheet(f"color: {OK}; font-size: 11px; background: transparent;")
+            else:
+                self.status_label.setText("pb_studio.db existiert, ist aber keine SQLite-Datei!")
+                self.status_label.setStyleSheet(f"color: {ERR}; font-size: 11px; background: transparent;")
+        except OSError as _exc:
+            self.status_label.setText(f"pb_studio.db nicht lesbar: {_exc}")
             self.status_label.setStyleSheet(f"color: {ERR}; font-size: 11px; background: transparent;")
 
     def _validate_and_accept(self):
