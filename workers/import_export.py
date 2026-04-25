@@ -262,9 +262,14 @@ class BatchConvertWorker(QObject, CancellableMixin):
                 except subprocess.TimeoutExpired:
                     self.progress.emit(int((i + 1) / total * 100), f"  TIMEOUT: {Path(src).name}")
                 except FileNotFoundError:
+                    # B-103 / BUG-A9 fix: emitting BOTH error AND finished
+                    # in the same branch made UI slots wired directly to
+                    # ``finished`` think the run succeeded. The ``finally``
+                    # block already emits a final ``finished(0, 0)`` if
+                    # ``_ok`` stays False and we set ``_errored`` — let it
+                    # do its job.
                     self._errored = True
                     self.error.emit("ffmpeg nicht gefunden!")
-                    self.finished.emit(converted, total)
                     return
 
             self.finished.emit(converted, total)
