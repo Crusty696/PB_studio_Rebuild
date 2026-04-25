@@ -703,11 +703,14 @@ def store_embeddings(
     vdb = VectorDBService()
     logger.info("[VectorDB] count=%d", vdb.count())
 
-    # Alte Embeddings für dieses Video löschen
+    # B-148 Fix: clip_id-basiertes Loeschen statt Path-basiert. Wenn der
+    # User die Quell-Datei umbenennt/verschiebt, ist der Path-Key obsolet
+    # und alte Embeddings haengen forever in VectorDB. clip_id ist
+    # immutable — Rename-immune.
     try:
-        vdb.delete_by_video(video_path)
+        vdb.delete_by_clip_ids([video_clip_id])
     except (OSError, RuntimeError, ValueError) as e:
-        logger.debug("delete_by_video fehlgeschlagen (ignoriert): %s", e)
+        logger.debug("delete_by_clip_ids fehlgeschlagen (ignoriert): %s", e)
 
     entries = []
     for scene in scenes:
