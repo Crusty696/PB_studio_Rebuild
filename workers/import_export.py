@@ -230,6 +230,12 @@ class BatchConvertWorker(QObject, CancellableMixin):
                 if self.should_stop():
                     break
 
+                # B-117: zweiter Cancel-Check direkt nach dem ffmpeg-Call,
+                # bevor der naechste startet. ffmpeg-Subprocess selber kann
+                # nicht mid-segment cancelled werden weil hier subprocess.run
+                # benutzt wird (vs. Popen+watchdog). Daher zumindest schnell
+                # nach jeder Konvertierung pruefen, sodass folgende Segmente
+                # gar nicht erst starten.
                 src = v["file_path"]
                 stem = Path(src).stem
                 out_dir = Path(src).parent / "converted"
@@ -275,6 +281,12 @@ class BatchConvertWorker(QObject, CancellableMixin):
                     self._errored = True
                     self.error.emit("ffmpeg nicht gefunden!")
                     return
+
+                # B-117: nach jedem fertig konvertierten Segment pruefen,
+                # ob der User cancel angeklickt hat — verhindert dass das
+                # naechste Segment noch startet.
+                if self.should_stop():
+                    break
 
             self.finished.emit(converted, total)
             _ok = True

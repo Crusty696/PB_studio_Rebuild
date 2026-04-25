@@ -433,14 +433,16 @@ class ModelManager:
             self._current_model_id = None
             self._model_type = None
 
-            # Aggressives Aufräumen — doppelter Pass fuer fragmentierten VRAM
+            # B-123: ``torch.cuda.synchronize()`` aus dem unload-Pfad
+            # entfernt. Auf einer stuck GPU (Code-47, siehe D-022)
+            # blockt synchronize() ohne Timeout — und unload() ist der
+            # zentrale Cleanup. Wenn er blockt, blockt alles.
+            # Doppel-empty_cache + GC reicht fuer fragmentierten VRAM.
             gc.collect()
             if torch.cuda.is_available():
-                torch.cuda.synchronize()
                 torch.cuda.empty_cache()
                 gc.collect()
                 torch.cuda.empty_cache()
-                torch.cuda.synchronize()
 
             logger.info(
                 "ModelManager: '%s' entladen. GPU-Cache geleert, GC ausgeführt.", old_id
@@ -687,8 +689,16 @@ class ModelManager:
         ModelManager, ABER: wenn andere GPU-intensive Modelle (Demucs, SigLIP)
         geladen werden, wird Ollama automatisch pausiert.
 
+        **B-124 / Hinweis zur State-Semantik:** ``_current_model_id`` und
+        ``_model_type`` werden hier ABSICHTLICH NICHT gesetzt. Konsequenz:
+        ``is_loaded`` bleibt nach ``load_ollama()`` False, weil der
+        Singleton-State-Tracker nur Modelle mit Lifecycle (load/unload)
+        verfolgt — Ollama ist ein externer Prozess. Caller die wissen
+        wollen ob Ollama aktiv ist, sollen ``OllamaHandle.is_available``
+        nutzen, NICHT ``ModelManager.is_loaded``.
+
         Returns:
-            OllamaHandle — Wrapper der chat() delegiert und VRAM-Events empvängt.
+            OllamaHandle — Wrapper der chat() delegiert und VRAM-Events empfängt.
         """
         from services.ollama_client import get_ollama_client
 

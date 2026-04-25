@@ -173,6 +173,37 @@ def _get_export_dir() -> Path:
     return _session.APP_ROOT / "exports"
 
 
+def _cleanup_orphan_tempfiles(max_age_hours: float = 1.0) -> int:
+    """B-118: entfernt zurueckgelassene ``pb_std_*`` und ``pb_lufs_*``
+    Tempfiles aelter als ``max_age_hours`` aus dem System-Tempdir.
+
+    Wird von ``export_timeline`` und ``export_preview`` am Anfang
+    aufgerufen. Defensive: scheitert nie an PermissionError oder
+    OSError — Cleanup ist best-effort.
+
+    Returns: Anzahl tatsaechlich geloeschter Files.
+    """
+    import time as _time
+    deleted = 0
+    cutoff = _time.time() - (max_age_hours * 3600.0)
+    try:
+        tmpdir = Path(tempfile.gettempdir())
+        for pattern in ("pb_std_*", "pb_lufs_*"):
+            for tf in tmpdir.glob(pattern):
+                try:
+                    if tf.is_file() and tf.stat().st_mtime < cutoff:
+                        tf.unlink()
+                        deleted += 1
+                except (OSError, PermissionError):
+                    # File still locked oder verschwand zwischen glob+stat
+                    pass
+    except Exception as exc:
+        logger.debug("orphan-tempfile cleanup skipped: %s", exc)
+    if deleted:
+        logger.info("B-118: %d orphan pb_std_/pb_lufs_ tempfile(s) entfernt.", deleted)
+    return deleted
+
+
 def _prepare_normalized_audio(audio_path: str | None, temp_files: list,
                                progress_cb=None, step: int = 0,
                                total_steps: int = 5) -> tuple[str | None, int]:
@@ -200,6 +231,9 @@ def export_timeline(project_id: int = 1, output_name: str = "output.mp4",
     B-116: ``cancel_check`` ist optional eine Callable[[], bool], die
     waehrend des laufenden ffmpeg-Calls regelmaessig abgefragt wird.
     Bei True wird der Subprocess terminiert."""
+    # B-118: orphan tempfile cleanup beim Start — fruehere Exports
+    # konnten unter Windows-File-Locks ihre Tempfiles nicht aufraeumen.
+    _cleanup_orphan_tempfiles()
     # BUG-003: Cache leeren — re-enkodierte Proxies haetten sonst veraltete Metadaten
     # M-7 FIX: Use thread-safe clear function instead of direct dict access
     clear_probe_cache()
@@ -863,6 +897,7 @@ def export_preview(project_id: int = 1, resolution: str = "1920x1080",
 
     B-116: ``cancel_check`` siehe ``export_timeline``.
     """
+    _cleanup_orphan_tempfiles()  # B-118
     # M-7 FIX: Use thread-safe clear function instead of direct dict access
     clear_probe_cache()
     try:
