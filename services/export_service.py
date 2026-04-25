@@ -94,6 +94,22 @@ _probe_cache: dict[str, dict] = {}
 _probe_cache_lock = threading.Lock()
 
 
+def _sanitize_concat_path(path: str) -> str:
+    """B-168: Concat-Demuxer-Pfad sanitisieren.
+
+    Single-Quote-Escape (`'` → `'\\''`), Backslash → Slash. Steuerzeichen
+    (Newline, CR, NUL) sind nicht maskierbar — sie wuerden den concat-
+    Demuxer-Parser auseinander reissen oder die concat-Datei truncieren.
+    Daher: Pfad mit Control-Char ablehnen statt silent corruption.
+    """
+    if any(c in path for c in ("\n", "\r", "\x00")):
+        raise ValueError(
+            f"Pfad enthaelt nicht-maskierbare Steuerzeichen "
+            f"(newline/CR/NUL): {path!r}"
+        )
+    return path.replace("\\", "/").replace("'", "'\\''")
+
+
 def clear_probe_cache():
     """H-3 FIX: Clears the probe cache to prevent unbounded memory growth and stale data."""
     with _probe_cache_lock:
@@ -469,11 +485,9 @@ def _export_optimized_concat(video_segments, audio_path, output_path,
         temp_files.append(concat_file.name)
 
         for ps in processed_segments:
-            # FIX H-11: Proper FFmpeg concat demuxer escaping.
-            # The concat demuxer requires single-quoted paths where internal
-            # single quotes are escaped as '\'' (close-quote, escaped-quote, open-quote).
-            # Backslashes must also be normalized to forward slashes for cross-platform compat.
-            safe_path = ps["path"].replace("\\", "/").replace("'", "'\\''")
+            # FIX H-11 + B-168: Proper FFmpeg concat demuxer escaping.
+            # Single-Quote-Escape, Backslash → Slash, Reject Control-Chars.
+            safe_path = _sanitize_concat_path(ps["path"])
             concat_file.write(f"file '{safe_path}'\n")
             if ps["inpoint"] is not None:
                 concat_file.write(f"inpoint {ps['inpoint']:.3f}\n")
@@ -654,7 +668,26 @@ def _export_with_filtergraph(video_segments, audio_path, output_path,
             current_label = f"xf{i-1}"
 
     filter_complex = ";".join(filter_parts)
-    cmd += ["-filter_complex", filter_complex]
+    # B-169: Lange Filtergraphs ueber filter_complex_script ausweichen.
+    # Windows CreateProcess lpCommandLine limit ist 32767 chars; bei 100+
+    # Segmenten sprengt der Inline-Filter dieses Limit (~150 B base + 80 B
+    # xfade pro seg = 23 KB bei n=100). FFmpeg liest filter_complex_script
+    # aus einer Datei und ist damit unbeschraenkt.
+    if len(filter_complex) > 16000 or len(video_segments) > 50:
+        fcs = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".txt", delete=False, prefix="pb_fcs_",
+            encoding="utf-8",
+        )
+        fcs.write(filter_complex)
+        fcs.close()
+        temp_files.append(fcs.name)
+        cmd += ["-filter_complex_script", fcs.name]
+        logger.info(
+            "[Export] filter_complex_script genutzt (%d segments, %d chars)",
+            len(video_segments), len(filter_complex),
+        )
+    else:
+        cmd += ["-filter_complex", filter_complex]
     cmd += ["-map", f"[{current_label}]"]
 
     if normalized_audio and audio_input_idx is not None:
@@ -741,7 +774,13 @@ def _run_subprocess_cancellable(
                     except subprocess.TimeoutExpired:
                         process.kill()
                     return
-            except Exception:
+            except Exception as exc:  # broad: watchdog must keep running
+                # B-167: nicht stumm zurueckkehren — sonst stirbt der Watchdog
+                # bei einem temporaeren cancel_check-Fehler und der ffmpeg-Lauf
+                # ist nicht mehr abbrechbar.
+                logger.warning(
+                    "[Cancel-Watch] cancel_check raised: %s — Watchdog endet.", exc,
+                )
                 return
             time.sleep(0.2)
 
@@ -907,7 +946,9 @@ def _run_ffmpeg(cmd: list[str], timeout: int = 600, progress_cb=None,
         def _cancel_watch():
             while process.poll() is None:
                 try:
-                    if cancel_check():
+                    # B-170: nur einmal terminate() rufen — der Main-Loop
+                    # kann denselben Cancel auch detektieren.
+                    if cancel_check() and not cancelled.is_set():
                         cancelled.set()
                         process.terminate()
                         try:
@@ -915,7 +956,11 @@ def _run_ffmpeg(cmd: list[str], timeout: int = 600, progress_cb=None,
                         except subprocess.TimeoutExpired:
                             process.kill()
                         return
-                except Exception:
+                except Exception as exc:  # broad: watchdog must keep running
+                    # B-167: log statt stumm sterben.
+                    logger.warning(
+                        "[Cancel-Watch] cancel_check raised: %s — Watchdog endet.", exc,
+                    )
                     return
                 time.sleep(0.2)
         cancel_watchdog = threading.Thread(target=_cancel_watch, daemon=True)
@@ -923,7 +968,13 @@ def _run_ffmpeg(cmd: list[str], timeout: int = 600, progress_cb=None,
 
     try:
         for line in process.stdout:
-            if cancel_check is not None and cancel_check():
+            # B-170: cancelled.is_set()-Guard verhindert Doppel-terminate
+            # wenn Watchdog parallel denselben Cancel detected hat.
+            if (
+                cancel_check is not None
+                and cancel_check()
+                and not cancelled.is_set()
+            ):
                 cancelled.set()
                 process.terminate()
                 break
