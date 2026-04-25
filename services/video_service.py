@@ -3,6 +3,7 @@ import logging
 import os
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 from sqlalchemy.orm import Session
@@ -11,6 +12,24 @@ from services.timeout_constants import FFMPEG_PROBE_TIMEOUT_SEC, FFMPEG_RENDER_T
 from services.startup_checks import get_ffmpeg_bin, get_ffprobe_bin
 from services import analysis_status_service
 from services.errors import FFmpegError
+
+# B-156: per-proxy-path Locks gegen TOCTOU zwischen
+# VideoBatchAnalysisWorker (create_proxy/unlink) und
+# VideoAnalysisPipelineWorker (liest clip.proxy_path und oeffnet die
+# Datei). Ohne Lock konnte der Pipeline-Worker den File-Handle
+# zwischen unlink und ffmpeg-Rewrite verlieren — FileNotFoundError-
+# Fallback war zwar self-healing, aber langsam.
+_proxy_locks_guard = threading.Lock()
+_proxy_locks: dict[str, threading.Lock] = {}
+
+
+def _get_proxy_lock(proxy_path: str) -> threading.Lock:
+    with _proxy_locks_guard:
+        lock = _proxy_locks.get(proxy_path)
+        if lock is None:
+            lock = threading.Lock()
+            _proxy_locks[proxy_path] = lock
+        return lock
 
 _FFMPEG = get_ffmpeg_bin()
 _FFPROBE = get_ffprobe_bin()
@@ -101,48 +120,53 @@ class VideoAnalyzer:
         src = Path(file_path)
         proxy_path = pd / f"{src.stem}_proxy.mp4"
 
-        if proxy_path.exists() and proxy_path.stat().st_size > 0:
+        # B-156: Lock haelt unlink + ffmpeg-rewrite atomar — sodass
+        # parallele Pipeline-Worker die Datei nicht waehrend des Rewrites
+        # oeffnen.
+        proxy_lock = _get_proxy_lock(str(proxy_path.resolve()))
+        with proxy_lock:
+            if proxy_path.exists() and proxy_path.stat().st_size > 0:
+                return str(proxy_path.resolve())
+            elif proxy_path.exists():
+                logger.info(f"[VideoAnalyzer] WARNUNG: 0-Byte Proxy gefunden, wird neu erstellt: {proxy_path}")
+                proxy_path.unlink(missing_ok=True)
+
+            cmd = [
+                _FFMPEG, "-y", "-i", file_path,
+                "-vf", f"scale=-2:{target_height}",
+                "-c:v", "libx264", "-preset", "fast", "-crf", "28",
+                "-c:a", "aac", "-b:a", "128k",
+                str(proxy_path),
+            ]
+            kwargs = {}
+            if sys.platform == "win32":
+                kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+            if progress_cb:
+                progress_cb(20, "FFmpeg Proxy-Encoding...")
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=FFMPEG_RENDER_TIMEOUT_SEC,
+                                    stdin=subprocess.DEVNULL, **kwargs)
+            if result.returncode != 0:
+                logger.info(f"[VideoAnalyzer] FFmpeg FEHLER (rc={result.returncode}):")
+                logger.info(f"[VideoAnalyzer] stderr: {_sanitize_ffmpeg_error(result.stderr)}")
+                raise FFmpegError(
+                    f"Proxy-Erstellung fehlgeschlagen: {_sanitize_ffmpeg_error(result.stderr)}",
+                    returncode=result.returncode,
+                    stderr=result.stderr,
+                )
+
+            if not proxy_path.exists() or proxy_path.stat().st_size == 0:
+                logger.info(f"[VideoAnalyzer] FFmpeg lief durch (rc=0), aber Proxy ist 0 Bytes oder fehlt!")
+                logger.info(f"[VideoAnalyzer] stderr: {_sanitize_ffmpeg_error(result.stderr)}")
+                proxy_path.unlink(missing_ok=True)
+                raise FFmpegError(
+                    f"Proxy ist 0 Bytes. FFmpeg stderr: {_sanitize_ffmpeg_error(result.stderr)}",
+                    returncode=0,
+                    stderr=result.stderr,
+                )
+
+            if progress_cb:
+                progress_cb(100, "Proxy fertig")
             return str(proxy_path.resolve())
-        elif proxy_path.exists():
-            logger.info(f"[VideoAnalyzer] WARNUNG: 0-Byte Proxy gefunden, wird neu erstellt: {proxy_path}")
-            proxy_path.unlink(missing_ok=True)
-
-        cmd = [
-            _FFMPEG, "-y", "-i", file_path,
-            "-vf", f"scale=-2:{target_height}",
-            "-c:v", "libx264", "-preset", "fast", "-crf", "28",
-            "-c:a", "aac", "-b:a", "128k",
-            str(proxy_path),
-        ]
-        kwargs = {}
-        if sys.platform == "win32":
-            kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
-        if progress_cb:
-            progress_cb(20, "FFmpeg Proxy-Encoding...")
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=FFMPEG_RENDER_TIMEOUT_SEC,
-                                stdin=subprocess.DEVNULL, **kwargs)
-        if result.returncode != 0:
-            logger.info(f"[VideoAnalyzer] FFmpeg FEHLER (rc={result.returncode}):")
-            logger.info(f"[VideoAnalyzer] stderr: {_sanitize_ffmpeg_error(result.stderr)}")
-            raise FFmpegError(
-                f"Proxy-Erstellung fehlgeschlagen: {_sanitize_ffmpeg_error(result.stderr)}",
-                returncode=result.returncode,
-                stderr=result.stderr,
-            )
-
-        if not proxy_path.exists() or proxy_path.stat().st_size == 0:
-            logger.info(f"[VideoAnalyzer] FFmpeg lief durch (rc=0), aber Proxy ist 0 Bytes oder fehlt!")
-            logger.info(f"[VideoAnalyzer] stderr: {_sanitize_ffmpeg_error(result.stderr)}")
-            proxy_path.unlink(missing_ok=True)
-            raise FFmpegError(
-                f"Proxy ist 0 Bytes. FFmpeg stderr: {_sanitize_ffmpeg_error(result.stderr)}",
-                returncode=0,
-                stderr=result.stderr,
-            )
-
-        if progress_cb:
-            progress_cb(100, "Proxy fertig")
-        return str(proxy_path.resolve())
 
     def analyze_and_store(self, clip_id: int, create_proxy: bool = True, progress_cb=None) -> dict:
         """Analysiert einen VideoClip und schreibt Ergebnisse in die DB.

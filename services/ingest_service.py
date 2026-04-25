@@ -4,6 +4,7 @@ import os
 import shutil
 from pathlib import Path
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from database import engine, AudioTrack, VideoClip, StructureSegment
@@ -54,7 +55,12 @@ def _file_meta(path: Path) -> dict:
     }
 
 
-def ingest_audio(file_path: str, project_id: int = 1) -> AudioTrack | None:
+def ingest_audio(
+    file_path: str, project_id: int = 1, *, invalidate_caches: bool = True
+) -> AudioTrack | None:
+    # B-151: Folder-Import-Loops setzen ``invalidate_caches=False`` und
+    # rufen am Ende des Batches einmalig _invalidate_pacing_caches() auf
+    # — sonst feuert der Cache-Rebuild N+1 mal pro Datei.
     path = Path(file_path)
     if not path.exists():
         raise FileNotFoundError(f"Audio-Datei nicht gefunden: {file_path}")
@@ -78,7 +84,8 @@ def ingest_audio(file_path: str, project_id: int = 1) -> AudioTrack | None:
             session.add(track)
             session.commit()
             session.refresh(track)
-            _invalidate_pacing_caches()
+            if invalidate_caches:
+                _invalidate_pacing_caches()
             return track
     except Exception as e:  # broad catch intentional — re-raised after logging; SQLAlchemy + OS errors
         logger.error("ingest_audio fehlgeschlagen: %s", e)
@@ -123,7 +130,11 @@ def _probe_video_meta(file_path: str) -> dict:
         return {}
 
 
-def ingest_video(file_path: str, project_id: int = 1) -> VideoClip | None:
+def ingest_video(
+    file_path: str, project_id: int = 1, *, invalidate_caches: bool = True
+) -> VideoClip | None:
+    # B-151: Folder-Import-Loops setzen ``invalidate_caches=False`` und
+    # rufen am Ende des Batches einmalig _invalidate_pacing_caches() auf.
     path = Path(file_path)
     if not path.exists():
         raise FileNotFoundError(f"Video-Datei nicht gefunden: {file_path}")
@@ -156,7 +167,8 @@ def ingest_video(file_path: str, project_id: int = 1) -> VideoClip | None:
             session.add(clip)
             session.commit()
             session.refresh(clip)
-            _invalidate_pacing_caches()
+            if invalidate_caches:
+                _invalidate_pacing_caches()
             return clip
     except Exception as e:  # broad catch intentional — re-raised after logging; SQLAlchemy + OS errors
         logger.error("ingest_video fehlgeschlagen: %s", e)
@@ -369,10 +381,18 @@ def delete_all_media(project_id: int = 1) -> int:
                 TimelineEntry.id.in_(timeline_ids)
             ).delete(synchronize_session=False)
 
-        if audio_ids or video_ids:
+        # B-153: konditional bauen statt ``[0]``-Sentinel — IN(0) matched
+        # eine reale Row mit id=0 (kann durch Test-Fixture / Manual-Seed
+        # entstehen, SQLite startet zwar autoincrement bei 1, aber das ist
+        # kein Constraint).
+        anchor_conds = []
+        if audio_ids:
+            anchor_conds.append(AudioVideoAnchor.audio_track_id.in_(audio_ids))
+        if video_ids:
+            anchor_conds.append(AudioVideoAnchor.video_clip_id.in_(video_ids))
+        if anchor_conds:
             session.query(AudioVideoAnchor).filter(
-                (AudioVideoAnchor.audio_track_id.in_(audio_ids if audio_ids else [0]))
-                | (AudioVideoAnchor.video_clip_id.in_(video_ids if video_ids else [0]))
+                or_(*anchor_conds)
             ).delete(synchronize_session=False)
 
         if video_ids:
@@ -485,10 +505,15 @@ def delete_selected_media(video_ids: list[int], audio_ids: list[int]) -> int:
                 TimelineEntry.id.in_(timeline_ids)
             ).delete(synchronize_session=False)
 
-        if audio_ids or video_ids:
+        # B-153: konditional bauen statt ``[0]``-Sentinel.
+        anchor_conds = []
+        if audio_ids:
+            anchor_conds.append(AudioVideoAnchor.audio_track_id.in_(audio_ids))
+        if video_ids:
+            anchor_conds.append(AudioVideoAnchor.video_clip_id.in_(video_ids))
+        if anchor_conds:
             session.query(AudioVideoAnchor).filter(
-                (AudioVideoAnchor.audio_track_id.in_(audio_ids if audio_ids else [0]))
-                | (AudioVideoAnchor.video_clip_id.in_(video_ids if video_ids else [0]))
+                or_(*anchor_conds)
             ).delete(synchronize_session=False)
 
         if video_ids:

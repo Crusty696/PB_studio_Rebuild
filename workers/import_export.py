@@ -11,7 +11,11 @@ from sqlalchemy.orm import Session as DBSession
 
 from database import engine, VideoClip
 from services.export_service import export_timeline, export_preview
-from services.ingest_service import ingest_audio, ingest_video
+from services.ingest_service import (
+    ingest_audio,
+    ingest_video,
+    _invalidate_pacing_caches,
+)
 from services.timeout_constants import FFMPEG_EXPORT_TIMEOUT_SEC
 from .base import CancellableMixin, format_user_error
 
@@ -114,7 +118,9 @@ class FolderImportWorker(QObject, CancellableMixin):
                 if self.should_stop():
                     break
                 try:
-                    result = ingest_audio(p)
+                    # B-155 / B-151: invalidate_caches=False fuer den Loop,
+                    # einmal am Ende manuell — vorher: N+1 Cache-Rebuild-Storm.
+                    result = ingest_audio(p, invalidate_caches=False)
                     name = Path(p).name
                     if result is None:
                         self.file_imported.emit(f"[Warnung] Bereits importiert: {name}")
@@ -137,7 +143,7 @@ class FolderImportWorker(QObject, CancellableMixin):
                 if self.should_stop():
                     break
                 try:
-                    result = ingest_video(p)
+                    result = ingest_video(p, invalidate_caches=False)
                     name = Path(p).name
                     if result is None:
                         self.file_imported.emit(f"[Warnung] Bereits importiert: {name}")
@@ -160,6 +166,15 @@ class FolderImportWorker(QObject, CancellableMixin):
                 pct = int(done / total * 100) if total else 100
                 self.progress.emit(pct, f"Importiere {done}/{total} ...")
 
+            # B-155 / B-151: einmaliger Cache-Invalidate am Ende des Batches.
+            if added > 0:
+                try:
+                    _invalidate_pacing_caches()
+                except Exception as e:  # broad catch — Cache-Rebuild ist best-effort
+                    logger.warning(
+                        "FolderImportWorker: Pacing-Cache-Invalidate "
+                        "fehlgeschlagen: %s", e,
+                    )
             self.finished.emit(added, new_video_clips)
             _ok = True
         except Exception as e:  # broad catch intentional — top-level worker safety net

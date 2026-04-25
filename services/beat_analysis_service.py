@@ -391,6 +391,9 @@ class BeatAnalysisService:
                 last_db = all_downbeats[-1]
                 mask = downbeats > (last_db + 0.05)
                 downbeats = downbeats[mask]
+            # B-152: running-state dedup setzt strikt aufsteigende Beats voraus,
+            # was beat_this an Chunk-Boundaries (±10ms tolerance bei high-BPM)
+            # nicht garantiert. Final-Pass-Dedup unten haengt diese mit ab.
 
             all_beats.extend(beats.tolist())
             all_downbeats.extend(downbeats.tolist())
@@ -401,7 +404,14 @@ class BeatAnalysisService:
             pos = chunk_end - overlap_samples
             chunk_idx += 1
 
-        return np.array(all_beats), np.array(all_downbeats)
+        # B-152: Final-Pass-Dedup mit np.unique(np.round(...)) — robust
+        # gegen leicht out-of-order Beats an Chunk-Boundaries.
+        # 0.01s Granularitaet (~10ms) reicht fuer DJ-Mixes (60-300 BPM
+        # entspricht 0.2-1s Beat-Intervallen) und stabilisiert die
+        # Sortierung deterministisch.
+        beats_arr = np.unique(np.round(np.array(all_beats), 2)) if all_beats else np.array([])
+        downbeats_arr = np.unique(np.round(np.array(all_downbeats), 2)) if all_downbeats else np.array([])
+        return beats_arr, downbeats_arr
 
     def analyze_and_store(self, track_id: int, progress_cb=None) -> dict:
         """Analysiert einen AudioTrack und speichert Beats/Downbeats in der DB.

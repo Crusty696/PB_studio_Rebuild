@@ -529,6 +529,11 @@ def generate_embeddings(
             logger.warning("OOM bei SigLIP Batch (size=%d) — Retry einzeln...", len(images))
             for j, (img, scene) in enumerate(zip(images, valid_scenes)):
                 try:
+                    # B-154: VOR jedem Einzel-Call empty_cache, sonst kaskadiert
+                    # OOM weil per-sample Memory zwischen Iterationen nicht
+                    # freigegeben wurde. Adaptive-Retry war bisher no-op.
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
                     inp = processor(images=[img], return_tensors="pt", padding=True)
                     inp = {k: v.to(mm.device) for k, v in inp.items()}
                     model_dtype = next(model.parameters()).dtype
