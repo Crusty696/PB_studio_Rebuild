@@ -68,9 +68,18 @@ class VideoAnalyzer:
         s = streams[0]
         fmt = data.get("format", {})
 
-        # FPS aus r_frame_rate parsen (z.B. "30/1" oder "24000/1001")
-        fps_parts = s.get("r_frame_rate", "0/1").split("/")
-        fps = round(int(fps_parts[0]) / max(int(fps_parts[1]), 1), 2)
+        # FPS aus r_frame_rate parsen (z.B. "30/1" oder "24000/1001").
+        # B-111 / BUG-A4: tolerate edge cases — value without "/", or
+        # non-numeric ("n/a"). Crash here used to take down the whole
+        # ingest pipeline for one weird file.
+        raw_fps = s.get("r_frame_rate", "0/1") or "0/1"
+        fps_parts = raw_fps.split("/")
+        try:
+            num = int(fps_parts[0])
+            den = int(fps_parts[1]) if len(fps_parts) > 1 else 1
+            fps = round(num / max(den, 1), 2)
+        except (ValueError, IndexError):
+            fps = 0.0
 
         # Duration: stream > format > 0
         duration = float(s.get("duration", 0) or fmt.get("duration", 0) or 0)

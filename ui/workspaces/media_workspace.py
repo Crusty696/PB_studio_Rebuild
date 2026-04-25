@@ -936,7 +936,10 @@ class MediaWorkspace(QWidget):
         if not pb_window:
             return
 
-        dispatched = False
+        # B-111 / BUG-11-b: removed dead `dispatched` flag (was never
+        # consumed) and changed silent-continue on dispatch error to
+        # ``break`` so a failed first step does not compound into a
+        # second registered task with broken state.
         for step_key in steps:
             entry = status_map.get(step_key)
             if entry is None or entry.status in ("pending", "error"):
@@ -946,10 +949,10 @@ class MediaWorkspace(QWidget):
                     else:
                         self._dispatch_video_analysis(pb_window, media_id, title, step_key)
                         break  # Video dispatches full pipeline in one call
-                    dispatched = True
                 except Exception as e:
                     import logging
                     logging.error("Grid run-all dispatch error: %s", e, exc_info=True)
+                    break
 
     def _on_analysis_requested(self, step_key: str):
         """Handle analysis_requested signal from AnalysisStatusPanel.
