@@ -585,6 +585,10 @@ class InteractiveTimeline(QGraphicsView):
         self._db_worker.finished.connect(self._on_db_load_finished)
         self._db_worker.finished.connect(self._db_thread.quit)
         self._db_thread.finished.connect(self._db_thread.deleteLater)
+        # B-107 / BUG-A11: also schedule the worker for deletion so
+        # every project-switch / timeline-reload doesn't leak a
+        # TimelineDBWorker C++ shell.
+        self._db_thread.finished.connect(self._db_worker.deleteLater)
         self._db_thread.started.connect(self._db_worker.run)
         
         self._db_thread.start()

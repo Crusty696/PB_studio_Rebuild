@@ -593,6 +593,10 @@ class MediaPoolGrid(QWidget):
             lambda _path, _pix, t=thread: t.quit()
         )
         thread.finished.connect(thread.deleteLater)
+        # B-107 / BUG-A5: also schedule the worker for deletion. Without
+        # this the _ThumbWorker C++ shell leaks once per thumbnail; on
+        # DJ-set imports with hundreds of clips that adds up.
+        thread.finished.connect(worker.deleteLater)
         thread.finished.connect(
             lambda t=thread: self._thumb_threads.remove(t) if t in self._thumb_threads else None
         )

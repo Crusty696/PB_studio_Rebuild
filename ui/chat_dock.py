@@ -357,17 +357,22 @@ class ChatDock(QDockWidget):
             thread.start()
 
     def _cleanup_thread(self) -> None:
-        """Nullt Thread/Worker-Referenzen nach Fertigstellung."""
+        """Nullt Thread/Worker-Referenzen nach Fertigstellung.
+
+        B-107 / BUG-A6: deleteLater wird bereits vom signal-Connect-
+        Pfad oben (``thread.finished.connect(worker.deleteLater)`` +
+        ``thread.finished.connect(thread.deleteLater)``) gescheduled.
+        Hier KEIN zusaetzliches deleteLater mehr — sonst wird der Call
+        zweimal gequeued. Qt macht das idempotent, aber die doppelte
+        Wiring ist brittle und wurde vom bug-hunter trial flagged.
+        """
         # Globalen GC-Schutz aufheben
         if self._thread is not None and self._worker is not None:
             pair = (self._thread, self._worker)
             if pair in _GLOBAL_ACTIVE_THREADS:
                 _GLOBAL_ACTIVE_THREADS.remove(pair)
-        # H-22 Fix: deleteLater() fuer Worker und Thread um Memory Leak zu vermeiden
-        if self._worker is not None:
-            self._worker.deleteLater()
-        if self._thread is not None:
-            self._thread.deleteLater()
+        # deleteLater wird vom finished-Signal gefeuert; hier nur
+        # Python-Refs nullen damit GC kein Lifecycle-Problem hat.
         self._thread = None
         self._worker = None
 
