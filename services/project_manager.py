@@ -57,6 +57,27 @@ class ProjectManager(QObject):
         except (ImportError, AttributeError, RuntimeError):
             return False
 
+    @staticmethod
+    def _wait_for_tasks_idle(timeout_sec: float = 10.0,
+                              poll_interval_sec: float = 0.2) -> bool:
+        """B-136: Aktiv warten bis kein Task mehr running ist.
+
+        Anders als der einmalige Snapshot-Check ``_has_running_tasks()``
+        (TOCTOU) blockiert das hier kurz und gibt erst bei wirklichem
+        idle-Zustand frei. Timeout verhindert Endlos-Block.
+
+        Returns:
+            True wenn idle innerhalb der Timeout-Zeit erreicht wurde,
+            False wenn Tasks weiterlaufen.
+        """
+        import time as _time
+        deadline = _time.monotonic() + timeout_sec
+        while _time.monotonic() < deadline:
+            if not ProjectManager._has_running_tasks():
+                return True
+            _time.sleep(poll_interval_sec)
+        return False
+
     # ------------------------------------------------------------------
     # public API
     # ------------------------------------------------------------------
@@ -79,7 +100,10 @@ class ProjectManager(QObject):
         FileExistsError
             If the target folder already contains a ``pb_studio.db``.
         """
-        if self._has_running_tasks():
+        # B-136: Aktive Wartezeit statt single-shot TOCTOU-Check.
+        # Wartet bis 10s lang dass alle Tasks idle sind; raised wenn
+        # Timeout erreicht ist.
+        if not self._wait_for_tasks_idle(timeout_sec=10.0):
             raise RuntimeError(
                 "Es laufen noch Hintergrund-Tasks. "
                 "Bitte warte bis alle Tasks beendet sind."
@@ -145,7 +169,10 @@ class ProjectManager(QObject):
         FileNotFoundError
             If ``pb_studio.db`` is missing in *path*.
         """
-        if self._has_running_tasks():
+        # B-136: Aktive Wartezeit statt single-shot TOCTOU-Check.
+        # Wartet bis 10s lang dass alle Tasks idle sind; raised wenn
+        # Timeout erreicht ist.
+        if not self._wait_for_tasks_idle(timeout_sec=10.0):
             raise RuntimeError(
                 "Es laufen noch Hintergrund-Tasks. "
                 "Bitte warte bis alle Tasks beendet sind."
@@ -205,7 +232,10 @@ class ProjectManager(QObject):
         RuntimeError
             If background tasks are still running.
         """
-        if self._has_running_tasks():
+        # B-136: Aktive Wartezeit statt single-shot TOCTOU-Check.
+        # Wartet bis 10s lang dass alle Tasks idle sind; raised wenn
+        # Timeout erreicht ist.
+        if not self._wait_for_tasks_idle(timeout_sec=10.0):
             raise RuntimeError(
                 "Es laufen noch Hintergrund-Tasks. "
                 "Bitte warte bis alle Tasks beendet sind."
