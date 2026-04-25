@@ -33,8 +33,13 @@ class _StickyTooltipFilter(QObject):
         tip = obj.toolTip()
         if not tip:
             return False
-        # event has globalPos(); PySide6 provides globalPosition().toPoint()
-        pos = event.globalPos() if hasattr(event, "globalPos") else event.globalPosition().toPoint()  # type: ignore[attr-defined]
+        # B-109 / BUG-12-b: try modern PySide6 globalPosition().toPoint()
+        # first; fall back to legacy globalPos() only if not present
+        # (Qt 5 path that PySide6 will never actually take).
+        if hasattr(event, "globalPosition"):
+            pos = event.globalPosition().toPoint()  # type: ignore[attr-defined]
+        else:
+            pos = event.globalPos()  # type: ignore[attr-defined]
         QToolTip.showText(pos, tip, obj, QRect(), _STICKY_DURATION_MS)
         return True
 
