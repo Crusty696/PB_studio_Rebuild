@@ -58,27 +58,29 @@ def test_two_concurrent_workers_serialize_under_fit_lock() -> None:
         return None
 
     def run_worker():
-        # Patch _do_enrich on the class so the real DB code never runs.
-        with patch.object(
-            StructureEnrichmentWorker, "_do_enrich", slow_do_enrich
-        ):
-            w = StructureEnrichmentWorker(
-                clip_id=None,
-                session_factory=fake_session_factory,
-            )
-            # Patch session.close() problem — fake session is None
-            try:
-                w._run_impl()
-            except AttributeError:
-                # `session.close()` on None — irrelevant for this test
-                pass
+        # patch.object is NOT thread-safe — must be done OUTSIDE thread
+        # bodies, once at test level. Otherwise concurrent enter/exit of
+        # the patch context corrupts the class attribute restore.
+        w = StructureEnrichmentWorker(
+            clip_id=None,
+            session_factory=fake_session_factory,
+        )
+        try:
+            w._run_impl()
+        except AttributeError:
+            # `session.close()` on None — irrelevant for this test
+            pass
 
-    t1 = threading.Thread(target=run_worker)
-    t2 = threading.Thread(target=run_worker)
-    t1.start()
-    t2.start()
-    t1.join(timeout=5.0)
-    t2.join(timeout=5.0)
+    # Single class-level patch outside both threads.
+    with patch.object(
+        StructureEnrichmentWorker, "_do_enrich", slow_do_enrich
+    ):
+        t1 = threading.Thread(target=run_worker)
+        t2 = threading.Thread(target=run_worker)
+        t1.start()
+        t2.start()
+        t1.join(timeout=5.0)
+        t2.join(timeout=5.0)
 
     # Build [(enter1, exit1), (enter2, exit2)] from the log
     assert len(enter_log) == 4, (

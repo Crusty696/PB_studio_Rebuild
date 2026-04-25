@@ -37,7 +37,19 @@ def test_record_on_main_thread_without_qapp_does_not_warn(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     """Tests/CLI run on the main thread without a QApplication. The
-    recorder must not warn in that case."""
+    recorder must not warn in that case.
+
+    Note: when run in a full pytest suite, an earlier test may have
+    created a QApplication that persists. Skip if so — this assertion
+    can only meaningfully run with no QApplication alive."""
+    from PySide6.QtWidgets import QApplication
+
+    if QApplication.instance() is not None:
+        pytest.skip(
+            "QApplication leaked from a prior test; this assertion "
+            "only meaningful in a clean process."
+        )
+
     engine, Session = _build_sqlite(tmp_path)
     run_id = _seed_run(engine)
     recorder = DecisionRecorder(session_factory=Session)
