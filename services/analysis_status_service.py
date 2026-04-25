@@ -10,7 +10,7 @@ Siehe Plan: VAD-36 (Daten-Analyse Status Dashboard)
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import select
@@ -65,12 +65,12 @@ def mark_started(media_type: str, media_id: int, step_key: str) -> None:
                 media_id=media_id,
                 step_key=step_key,
                 status="running",
-                started_at=datetime.utcnow(),
+                started_at=datetime.now(timezone.utc),
             )
             session.add(entry)
         else:
             entry.status = "running"
-            entry.started_at = datetime.utcnow()
+            entry.started_at = datetime.now(timezone.utc)
             entry.error_message = None  # Clear previous error
 
         session.commit()
@@ -97,14 +97,14 @@ def mark_done(media_type: str, media_id: int, step_key: str, value_summary: dict
                 media_id=media_id,
                 step_key=step_key,
                 status="done",
-                started_at=datetime.utcnow(),
-                completed_at=datetime.utcnow(),
+                started_at=datetime.now(timezone.utc),
+                completed_at=datetime.now(timezone.utc),
                 value_summary=value_summary,
             )
             session.add(entry)
         else:
             entry.status = "done"
-            entry.completed_at = datetime.utcnow()
+            entry.completed_at = datetime.now(timezone.utc)
             entry.value_summary = value_summary
             entry.error_message = None
 
@@ -132,7 +132,7 @@ def mark_error(media_type: str, media_id: int, step_key: str, error_msg: str) ->
                 media_id=media_id,
                 step_key=step_key,
                 status="error",
-                started_at=datetime.utcnow(),
+                started_at=datetime.now(timezone.utc),
                 error_message=error_msg,
             )
             session.add(entry)
@@ -321,8 +321,8 @@ def _ensure_status_done(session: Session, media_type: str, media_id: int, step_k
             media_id=media_id,
             step_key=step_key,
             status="done",
-            started_at=datetime.utcnow(),
-            completed_at=datetime.utcnow(),
+            started_at=datetime.now(timezone.utc),
+            completed_at=datetime.now(timezone.utc),
             value_summary=value_summary,
         )
         session.add(entry)
