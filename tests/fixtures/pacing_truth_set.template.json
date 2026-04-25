@@ -1,0 +1,49 @@
+{
+  "schema_version": "1.0",
+  "description": "PRE-2 Truth-Set for Slice 4 RL-Reward weight tuning. 30 user-labeled cuts.",
+  "instructions": [
+    "1. Run scripts/build_pacing_truth_set.py on 3 reference tracks",
+    "2. For each cut, watch and label as 'good' (👍) / 'bad' (👎) / 'neutral'",
+    "3. Capture audio_features (rms, vocal_energy, drum_energy, etc.) and video_features (motion_score, mood_cluster, shot_type) at cut-time",
+    "4. Save 30 labeled cuts (10 per track) to tests/fixtures/pacing_truth_set.json"
+  ],
+  "schema": {
+    "run_id": "string — uuid of the auto-edit run",
+    "cut_id": "int — sequential cut index in the run",
+    "timestamp_ms": "int — cut position in audio in ms",
+    "track_id": "string — reference track filename",
+    "verdict": "enum — 'good' | 'bad' | 'neutral'",
+    "audio_features": {
+      "rms": "float [0,1]",
+      "vocal_energy": "float [0,1]",
+      "drum_energy": "float [0,1]",
+      "bass_energy": "float [0,1]",
+      "melody_energy": "float [0,1]",
+      "section_type": "string — verse | chorus | drop | bridge | outro"
+    },
+    "video_features": {
+      "motion_score": "float [0,1]",
+      "mood_cluster": "int — cluster id from VectorDB",
+      "shot_type": "enum — 'close_up' | 'wide' | 'motion' | 'abstract' | null",
+      "cosine_sim_to_audio_mood": "float [-1, 1] — only after Slice 3"
+    }
+  },
+  "examples": [
+    {
+      "run_id": "00000000-0000-0000-0000-000000000001",
+      "cut_id": 12,
+      "timestamp_ms": 30500,
+      "track_id": "ref_track_dj_set_1.wav",
+      "verdict": "good",
+      "audio_features": {
+        "rms": 0.72, "vocal_energy": 0.81, "drum_energy": 0.45,
+        "bass_energy": 0.55, "melody_energy": 0.30, "section_type": "verse"
+      },
+      "video_features": {
+        "motion_score": 0.32, "mood_cluster": 7,
+        "shot_type": "close_up", "cosine_sim_to_audio_mood": null
+      }
+    }
+  ],
+  "data": []
+}
