@@ -1,0 +1,14 @@
+{
+  "weights": {
+    "r_energy": 0.14285714285714285,
+    "r_mood": 0.14285714285714285,
+    "r_stem_class": 0.14285714285714285,
+    "r_section": 0.14285714285714285,
+    "r_freshness": 0.14285714285714285,
+    "r_collision": 0.14285714285714285,
+    "r_user": 0.14285714285714285
+  },
+  "pearson": 0.0,
+  "n_rows": 0,
+  "note": "Default-Gewichte (uniform). Wird durch scripts/tune_pacing_reward.py ersetzt sobald PRE-2 Truth-Set 30 Cuts enthält."
+}
