@@ -2,19 +2,20 @@
 
 P16: Surface Book 2 Code-47 (CM_PROB_HELD_FOR_EJECT) recovery flow.
 Presents a friendly German dialog that explains the situation and offers
-three options: reboot (recommended), continue on CPU, or cancel.
+three options: close PB Studio (so the user can reboot manually), continue
+on CPU, or cancel.
 
-This is the SAFE alternative to the existing Disable/Enable-PnpDevice
-recovery in ``services/startup_checks._recover_gpu_error47`` - that path
-still exists for admin sessions but can BSOD in rare cases.
+NOTE: This dialog never triggers an automatic system reboot. Earlier
+versions used ``shutdown /r /t 5`` from the "Restart" button — that
+destroyed unsaved work in OTHER programs the user had open (Word docs,
+browser tabs, etc). PB Studio cannot know what else is running, so the
+user reboots manually via the Start menu after saving their work.
 """
 
 from __future__ import annotations
 
 import logging
 import os
-import subprocess
-import sys
 from typing import Literal
 
 from PySide6.QtCore import Qt
@@ -54,6 +55,11 @@ _BODY_TEXT = (
     "\n"
     "Empfohlen: Computer einmal neu starten.\n"
     "Reboot loest diesen Zustand fast immer auf.\n"
+    "\n"
+    "WICHTIG: Speichere zuerst alle offenen Programme\n"
+    "(Word, Browser, …) — PB Studio startet den\n"
+    "Computer NICHT automatisch. Du machst den Reboot\n"
+    "selbst ueber Start → Power → Neu starten.\n"
     "\n"
     "⛔ Bitte NICHT: GPU im Geraete-Manager\n"
     "   deaktivieren/aktivieren — kann zu einem\n"
@@ -111,8 +117,9 @@ class GpuRecoveryDialog(QDialog):
         body_layout.addWidget(body)
 
         hint = QLabel(
-            "Tipp: Nach dem Neustart startest du PB Studio einfach neu — "
-            "die GPU ist dann wieder verfuegbar."
+            "Tipp: 1) Andere Programme speichern  2) PB Studio beenden  "
+            "3) Computer ueber Start-Menue neu starten  "
+            "4) PB Studio neu oeffnen — GPU ist dann wieder da."
         )
         hint.setWordWrap(True)
         hint.setStyleSheet(
@@ -130,7 +137,7 @@ class GpuRecoveryDialog(QDialog):
         ft.setContentsMargins(20, 10, 16, 10)
         ft.setSpacing(10)
 
-        self._btn_restart = QPushButton("\U0001F504 Jetzt neu starten (5s)")
+        self._btn_restart = QPushButton("\U0001F504 PB Studio beenden")
         self._btn_restart.setObjectName("btn_primary")
         self._btn_restart.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_restart.setMinimumHeight(32)
@@ -177,27 +184,14 @@ class GpuRecoveryDialog(QDialog):
     # -- Handlers --------------------------------------------------------
 
     def _on_restart(self) -> None:
-        """Trigger ``shutdown /r /t 5`` then accept the dialog."""
+        """Close PB Studio so the user can reboot manually.
+
+        Earlier versions called ``shutdown /r /t 5`` here — that destroyed
+        unsaved work in OTHER programs (Word, browser). PB Studio cannot
+        know what else is running, so the user reboots themselves.
+        """
         self._choice = "restart"
-        if sys.platform == "win32":
-            try:
-                # Use CREATE_NO_WINDOW so no console pops up briefly.
-                creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-                subprocess.Popen(
-                    [
-                        "shutdown",
-                        "/r",
-                        "/t",
-                        "5",
-                        "/c",
-                        "PB Studio: GPU-Reset (Code 47)",
-                    ],
-                    creationflags=creationflags,
-                )
-            except (OSError, ValueError) as exc:
-                logger.warning("shutdown /r konnte nicht gestartet werden: %s", exc)
-        else:
-            logger.info("Restart-Request auf Nicht-Windows-Plattform ignoriert.")
+        logger.info("User waehlte Reboot — PB Studio wird beendet, Reboot durch User.")
         self.accept()
 
     def _on_cpu_fallback(self) -> None:

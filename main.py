@@ -1048,7 +1048,10 @@ def main():
             if _choice == "cancel":
                 sys.exit(0)
             if _choice == "restart":
-                # System reboots in 5 s via shutdown /r — exit cleanly.
+                # PB Studio beendet sich. User startet den Computer manuell neu
+                # (Start → Power → Neu starten). Wir triggern KEINEN automatischen
+                # Reboot, weil das ungesicherte Arbeit in anderen Programmen
+                # zerstoeren wuerde.
                 sys.exit(0)
             # "cpu_fallback": PB_STUDIO_FORCE_CPU is set, continue startup.
             splash.show()

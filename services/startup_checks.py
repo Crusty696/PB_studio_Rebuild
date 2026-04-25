@@ -215,73 +215,20 @@ _MIN_DRIVER_FOR_CUDA = {
 
 
 def _recover_gpu_error47() -> bool:
-    """Surface Book 2 Fix: GPU aus Error-State (Code 47) reaktivieren.
+    """No-op stub — auto-Recovery via Disable/Enable-PnpDevice ist deaktiviert.
 
-    Das Surface Book 2 hat die GTX 1060 im abnehmbaren Dock.
-    Windows setzt die GPU nach Treiber-Crashes in den "safe removal"
-    Zustand (Error 47). Disable+Enable reaktiviert sie ohne Neustart.
+    Per D-022: Disable-PnpDevice + Enable-PnpDevice triggert auf Surface Book 2
+    in einigen Faellen einen automatischen Windows-Reboot, der ungesicherte
+    Arbeit in anderen Programmen zerstoert. Die Code-47-Erkennung erfolgt
+    jetzt im Startup-Pfad (``check_nvidia_gpu_state``) und zeigt dem User
+    den ``GpuRecoveryDialog`` mit klarer Anweisung — die App startet keinen
+    Reboot mehr selbst und faesst die GPU im Geraete-Manager nicht an.
 
-    Returns:
-        True wenn Recovery erfolgreich oder nicht noetig.
+    Die alte PowerShell-Logik (Disable/Enable + Status-Polling) wurde
+    entfernt. Wenn ein Admin-User sie braucht, ist sie via
+    ``GPU_FIX_PERMISSIONS.bat`` und ``scripts/cuda_recovery.ps1`` weiterhin
+    isoliert vorhanden — aber nicht im Auto-Flow.
     """
-    if sys.platform != "win32":
-        return True
-
-    # MEDIUM-12 FIX: Check admin privileges before attempting GPU recovery.
-    # Disable-PnpDevice / Enable-PnpDevice require elevated privileges.
-    import ctypes
-    if not ctypes.windll.shell32.IsUserAnAdmin():
-        logger.info("GPU Error-47 Recovery uebersprungen (keine Admin-Rechte)")
-        return True
-
-    try:
-        result = subprocess.run(
-            ["powershell.exe", "-NoProfile", "-Command",
-             "Get-CimInstance Win32_VideoController "
-             "| Where-Object { $_.Name -match 'NVIDIA' } "
-             "| Select-Object -First 1 ConfigManagerErrorCode "
-             "| Format-List"],
-            capture_output=True, text=True, timeout=8,
-            **_subprocess_kwargs(),
-        )
-        for line in result.stdout.splitlines():
-            if "ConfigManagerErrorCode" in line:
-                code = line.split(":", 1)[-1].strip()
-                if code == "47":
-                    logger.warning(
-                        "GPU im Error-State (Code 47, Surface Book Dock). "
-                        "Versuche automatische Reaktivierung..."
-                    )
-                    # Disable + Enable via PowerShell
-                    recovery = subprocess.run(
-                        ["powershell.exe", "-NoProfile", "-Command",
-                         "$gpu = Get-PnpDevice | Where-Object "
-                         "{ $_.FriendlyName -match 'NVIDIA' -and $_.Class -eq 'Display' }; "
-                         "if ($gpu) { "
-                         "Disable-PnpDevice -InstanceId $gpu.InstanceId -Confirm:$false; "
-                         "Start-Sleep -Seconds 3; "
-                         "Enable-PnpDevice -InstanceId $gpu.InstanceId -Confirm:$false; "
-                         "Start-Sleep -Seconds 2; "
-                         "$g2 = Get-CimInstance Win32_VideoController | Where-Object { $_.Name -match 'NVIDIA' }; "
-                         "Write-Host $g2.ConfigManagerErrorCode "
-                         "}"],
-                        capture_output=True, text=True, timeout=20,
-                        **_subprocess_kwargs(),
-                    )
-                    new_code = recovery.stdout.strip()
-                    if new_code == "0":
-                        logger.info("GPU erfolgreich reaktiviert (Error 47 -> OK)")
-                        return True
-                    else:
-                        logger.error(
-                            "GPU-Recovery fehlgeschlagen (Code %s). "
-                            "PC-Neustart erforderlich.", new_code or "unbekannt"
-                        )
-                        return False
-                elif code == "0":
-                    return True  # GPU ist OK
-    except (subprocess.TimeoutExpired, OSError, FileNotFoundError) as exc:
-        logger.debug("GPU Error-47 Check fehlgeschlagen: %s", exc)
     return True
 
 
