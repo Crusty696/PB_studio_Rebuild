@@ -943,6 +943,11 @@ def run_full_pipeline(
         if progress_cb:
             progress_cb(5, "Szenen erkennen...")
         if should_stop and should_stop():
+            # B-147: cancel-branch markiert Status als error("cancelled")
+            # damit der Clip nicht forever auf "running" steht.
+            analysis_status_service.mark_error(
+                "video", video_clip_id, "scene_detection", "cancelled"
+            )
             return result
 
         scenes = detect_scenes(video_path, threshold=threshold)
@@ -963,6 +968,9 @@ def run_full_pipeline(
         if progress_cb:
             progress_cb(20, f"Motion-Analyse ({len(scenes)} Szenen)...")
         if should_stop and should_stop():
+            analysis_status_service.mark_error(  # B-147
+                "video", video_clip_id, "motion_scores", "cancelled"
+            )
             return result
 
         scenes = compute_motion_scores(video_path, scenes, raft_model_device=raft_model_device)
@@ -982,6 +990,9 @@ def run_full_pipeline(
         if progress_cb:
             progress_cb(40, "Keyframes extrahieren...")
         if should_stop and should_stop():
+            analysis_status_service.mark_error(  # B-147
+                "video", video_clip_id, "keyframe_extraction", "cancelled"
+            )
             return result
 
         scenes = extract_keyframes(video_path, scenes)
@@ -1001,6 +1012,9 @@ def run_full_pipeline(
         if progress_cb:
             progress_cb(55, "SigLIP Embeddings generieren...")
         if should_stop and should_stop():
+            analysis_status_service.mark_error(  # B-147
+                "video", video_clip_id, "siglip_embeddings", "cancelled"
+            )
             return result
 
         scenes = generate_embeddings(scenes, siglip_model_processor=siglip_model_processor)
@@ -1021,6 +1035,9 @@ def run_full_pipeline(
         if progress_cb:
             progress_cb(75, "In LanceDB speichern...")
         if should_stop and should_stop():
+            analysis_status_service.mark_error(  # B-147
+                "video", video_clip_id, "vector_db_storage", "cancelled"
+            )
             return result
 
         # Original-Pfad für LanceDB-Storage verwenden (nicht Proxy-Pfad)
@@ -1040,6 +1057,9 @@ def run_full_pipeline(
         if progress_cb:
             progress_cb(85, "Gemma Vision Captioning...")
         if should_stop and should_stop():
+            analysis_status_service.mark_error(  # B-147
+                "video", video_clip_id, "ai_scene_caption", "cancelled"
+            )
             return result
 
         scenes = analyze_scene_with_caption(scenes)
