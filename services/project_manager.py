@@ -97,10 +97,14 @@ class ProjectManager(QObject):
         # Create directory structure
         self._ensure_dirs(path)
 
-        # Swap the database engine to point at the new location
+        # B-135 Fix: set_project erstellt jetzt selbst die Tabellen
+        # unter _APP_ROOT_LOCK — der separate init_db() Call ist nicht
+        # mehr noetig (er war ohnehin nicht atomar mit dem swap, was
+        # ein Race-Window erzeugte). init_db() wird defensive trotzdem
+        # gerufen falls der create_all in set_project gescheitert ist.
         import database
         database.set_project(path)
-        database.init_db()
+        database.init_db()  # idempotent — re-erstellt fehlende Tabellen
 
         # Write project metadata (via ORM — engine already points to new DB)
         from database import Project, engine

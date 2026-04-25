@@ -324,7 +324,6 @@ def set_project(project_path: Path):
     M-42 MITIGATION: Disposes old engine to close connections. Callers should
     ensure no workers are actively processing before calling this function.
     """
-    import time
     global APP_ROOT
     project_path = Path(project_path)
     db_file = project_path / "pb_studio.db"
@@ -337,22 +336,31 @@ def set_project(project_path: Path):
 
     # FIX H-7: Create engine inside lock to prevent race window
     with _APP_ROOT_LOCK:
-        # M-42 Fix: Keep reference to old engine for cleanup
-        old_engine = engine._proxied if hasattr(engine, '_proxied') else None
-
         new_engine = _make_engine(db_file)
+
+        # B-135 Fix: Tabellen BEVOR dem swap erstellen, sodass kein
+        # Caller jemals eine Engine ohne Tabellen sieht. Vorher
+        # passierte init_db() als separater Call NACH set_project —
+        # Race-Window in dem ein Auto-Refresh-Reader auf eine leere
+        # DB stoßen konnte ("no such table").
+        try:
+            from database.models import Base
+            Base.metadata.create_all(new_engine)
+        except Exception as create_err:
+            logger.warning(
+                "set_project: create_all auf neuer Engine fehlgeschlagen "
+                "(Caller muss init_db() ggf. selbst erneut versuchen): %s",
+                create_err,
+            )
+
         engine.swap(new_engine)
         APP_ROOT = project_path
         _patch_service_paths(project_path)
 
-        # M-42 Fix: Dispose old engine to close all connections
-        if old_engine is not None:
-            try:
-                # Brief delay to allow in-flight queries to complete
-                time.sleep(0.1)
-                old_engine.dispose()
-                logger.debug("Old engine disposed after project switch")
-            except Exception as e:
-                logger.warning("Failed to dispose old engine: %s", e)
+        # B-133 + B-134: alter dead-code Block entfernt — engine._proxied
+        # existierte nie (EngineProxy nutzt _engine), und der
+        # time.sleep(0.1) war ein Race-Hack der den Lock 100 ms hielt.
+        # EngineProxy.swap() macht bereits den disposal — keine zweite
+        # Phase noetig.
 
     logger.info("Projekt gewechselt: %s", project_path)
