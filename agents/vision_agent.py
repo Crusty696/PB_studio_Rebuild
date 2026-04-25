@@ -17,7 +17,7 @@ import logging
 import re
 from typing import Any
 
-from agents.base_agent import BaseAgent
+from agents.base_agent import BaseAgent, extract_id_from_text
 
 logger = logging.getLogger(__name__)
 
@@ -94,9 +94,8 @@ class VisionAgent(BaseAgent):
             file_path = context.get("file_path")
 
         if clip_id is None:
-            numbers = re.findall(r'\d+', user_text)
-            if numbers:
-                clip_id = int(numbers[0])
+            # B-131: anchored extraction.
+            clip_id = extract_id_from_text(user_text)
 
         if wants_content:
             # KI-basierte Inhaltsanalyse mit Moondream2

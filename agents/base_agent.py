@@ -5,10 +5,31 @@ Basisklasse für alle spezialisierten Agenten im Multi-Agenten-System.
 from __future__ import annotations
 
 import logging
+import re
 from abc import ABC, abstractmethod
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+
+# B-131: Shared anchored ID-Regex fuer alle Spezial-Agenten.
+_ID_KEYWORD_RE = re.compile(
+    r'\b(?:track|audio|video|clip|set|projekt|project)\s*(\d+)',
+    re.IGNORECASE,
+)
+
+
+def extract_id_from_text(user_text: str) -> int | None:
+    """B-131: anchored ID-Extraktion mit Keyword-Praefix-Pflicht.
+
+    Verhindert silent misroute durch nackte Zahlen wie "140 BPM" oder
+    "4 Beats". Caller (Spezial-Agenten) sollen das nutzen statt
+    ``re.findall(r'\\d+', user_text)[0]``.
+    """
+    match = _ID_KEYWORD_RE.search(user_text)
+    if match:
+        return int(match.group(1))
+    return None
 
 
 class BaseAgent(ABC):

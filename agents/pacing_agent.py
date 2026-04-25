@@ -21,7 +21,7 @@ import logging
 import re
 from typing import Any
 
-from agents.base_agent import BaseAgent
+from agents.base_agent import BaseAgent, extract_id_from_text
 
 logger = logging.getLogger(__name__)
 
@@ -232,9 +232,8 @@ class PacingAgent(BaseAgent):
         # Audio-Track-ID extrahieren
         audio_id = ctx.get("audio_track_id") or ctx.get("track_id") or ctx.get("extracted_id")
         if audio_id is None:
-            numbers = re.findall(r'\d+', user_text)
-            if numbers:
-                audio_id = int(numbers[0])
+            # B-131: anchored extraction.
+            audio_id = extract_id_from_text(user_text)
 
         if audio_id is None:
             result["message"] = (
@@ -276,9 +275,8 @@ class PacingAgent(BaseAgent):
 
         audio_id = ctx.get("audio_track_id") or ctx.get("track_id") or ctx.get("extracted_id")
         if audio_id is None:
-            numbers = re.findall(r'\d+', user_text)
-            if numbers:
-                audio_id = int(numbers[0])
+            # B-131: anchored extraction.
+            audio_id = extract_id_from_text(user_text)
 
         if audio_id is None:
             result["message"] = "Drum-Cuts benötigen eine audio_track_id."
@@ -316,9 +314,8 @@ class PacingAgent(BaseAgent):
 
         audio_id = ctx.get("audio_track_id") or ctx.get("track_id") or ctx.get("extracted_id")
         if audio_id is None:
-            numbers = re.findall(r'\d+', user_text)
-            if numbers:
-                audio_id = int(numbers[0])
+            # B-131: anchored extraction.
+            audio_id = extract_id_from_text(user_text)
 
         if audio_id is None:
             result["message"] = "Drop-Analyse benötigt eine audio_track_id."

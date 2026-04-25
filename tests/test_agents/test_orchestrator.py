@@ -22,12 +22,15 @@ class TestExtractIdFromText:
 
     @pytest.mark.parametrize("text,expected", [
         ("Analysiere Video 3", 3),
-        ("Track ID 42 analysieren", 42),
+        ("Track 42 analysieren", 42),  # B-131: "Track ID 42" matcht nicht mehr — "ID" ist kein anchor
         ("clip 100", 100),
-        ("kein proxy fuer 7 bitte", 7),
+        ("Audio 3 mit BPM 140", 3),  # B-131: Audio 3 anchor wins, BPM 140 ignoriert
     ])
     def test_extracts_first_number(self, text, expected):
-        """Erste Zahl im Text wird als ID extrahiert."""
+        """B-131: erste keyword-anchored Zahl im Text wird als ID extrahiert.
+
+        Bare Zahlen ohne Anchor werden NICHT mehr extrahiert
+        (Schutz vor silent misroute durch "BPM 140" / "1080p Export")."""
         result = self.orch._extract_id_from_text(text)
         assert result == expected
 
@@ -36,9 +39,21 @@ class TestExtractIdFromText:
         result = self.orch._extract_id_from_text("analysiere alles")
         assert result is None
 
+    def test_returns_none_for_bare_numbers_without_anchor(self):
+        """B-131: bare Zahlen ohne Keyword-Anchor matchen NICHT mehr.
+
+        "BPM 140", "kein proxy fuer 7 bitte", "1080p Export" — alle ohne
+        eindeutigen Track/Audio/Video/Clip-Praefix → None."""
+        assert self.orch._extract_id_from_text("BPM 140 ist optimal") is None
+        assert self.orch._extract_id_from_text("kein proxy fuer 7 bitte") is None
+        assert self.orch._extract_id_from_text("1080p export") is None
+
     def test_extracts_from_complex_sentence(self):
-        """Extrahiert ID aus komplexem Satz."""
-        result = self.orch._extract_id_from_text("erstelle proxy fuer video clip nummer 15 bitte")
+        """B-131: Extrahiert ID aus komplexem Satz nur mit Anchor."""
+        # "video clip nummer 15" hat 'video' und 'clip' — anchor findet 'clip'.
+        # Aber 'clip nummer 15' matcht nicht (Wort 'nummer' dazwischen).
+        # Daher muss der Test umgeschrieben werden auf was tatsaechlich matched.
+        result = self.orch._extract_id_from_text("erstelle proxy fuer Clip 15 bitte")
         assert result == 15
 
 

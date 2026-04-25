@@ -10,7 +10,7 @@ import logging
 import re
 from typing import Any
 
-from agents.base_agent import BaseAgent
+from agents.base_agent import BaseAgent, extract_id_from_text
 
 logger = logging.getLogger(__name__)
 
@@ -63,9 +63,8 @@ class EditorAgent(BaseAgent):
             if context:
                 project_id = context.get("project_id")
             if project_id is None:
-                numbers = re.findall(r'\d+', user_text)
-                if numbers:
-                    project_id = int(numbers[0])
+                # B-131: anchored extraction.
+                project_id = extract_id_from_text(user_text)
             if project_id is not None:
                 try:
                     result["action"] = "export_timeline"
@@ -81,9 +80,8 @@ class EditorAgent(BaseAgent):
             if context:
                 track_id = context.get("audio_track_id") or context.get("track_id") or context.get("extracted_id")
             if track_id is None:
-                numbers = re.findall(r'\d+', user_text)
-                if numbers:
-                    track_id = int(numbers[0])
+                # B-131: anchored extraction.
+                track_id = extract_id_from_text(user_text)
             if track_id is not None:
                 try:
                     result["action"] = "auto_edit"

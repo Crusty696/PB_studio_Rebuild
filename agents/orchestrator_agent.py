@@ -173,11 +173,26 @@ class OrchestratorAgent(BaseAgent):
 
         return False
 
+    # B-131: Anchored ID-Regex. Verlangt expliziten Keyword-Praefix
+    # ("Track 5", "Audio 3", "Clip 12") — verhindert dass nackte Zahlen
+    # wie "140 BPM" oder "4 Beats" als track_id missinterpretiert werden.
+    _ID_KEYWORD_RE = re.compile(
+        r'\b(?:track|audio|video|clip|set|projekt|project)\s*(\d+)',
+        re.IGNORECASE,
+    )
+
     def _extract_id_from_text(self, user_text: str) -> int | None:
-        """Extrahiert eine ID (Zahl) aus dem Text."""
-        numbers = re.findall(r'\d+', user_text)
-        if numbers:
-            return int(numbers[0])
+        """Extrahiert eine ID (Zahl) aus dem Text — nur mit Keyword-Anker.
+
+        B-131 Fix: ``\\d+``-greedy-Match wuerde "BPM 140" als track_id=140
+        interpretieren (silent misroute). Anchored-Regex verlangt einen
+        expliziten Praefix ("Track 5", "Audio 3", ...). Bare Zahlen werden
+        ignoriert — User muss dann explizit kontextualisieren oder den
+        Track UI-seitig auswaehlen.
+        """
+        match = self._ID_KEYWORD_RE.search(user_text)
+        if match:
+            return int(match.group(1))
         return None
 
     def _handle_multi_step(self, user_text: str) -> dict[str, Any]:

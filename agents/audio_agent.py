@@ -11,7 +11,7 @@ import logging
 import re
 from typing import Any
 
-from agents.base_agent import BaseAgent
+from agents.base_agent import BaseAgent, extract_id_from_text
 
 logger = logging.getLogger(__name__)
 
@@ -76,9 +76,9 @@ class AudioAgent(BaseAgent):
         if context:
             track_id = context.get("track_id") or context.get("extracted_id")
         if track_id is None:
-            numbers = re.findall(r'\d+', user_text)
-            if numbers:
-                track_id = int(numbers[0])
+            # B-131: anchored extraction — "BPM 140" wird nicht mehr als
+            # track_id=140 missinterpretiert.
+            track_id = extract_id_from_text(user_text)
 
         if is_stem:
             # Stem-Separation: track_id=None → Batch-Modus (alle Audios)
