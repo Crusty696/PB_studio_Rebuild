@@ -8,16 +8,39 @@ from database import engine, AudioTrack
 from services.audio_constants import DEFAULT_SR, clamp_bpm
 
 # Per-Track Lock um Race Conditions bei parallelen Analysen desselben Tracks zu verhindern
+# B-143: Refcount-Pattern. Frueheres H-10 popte den Eintrag direkt nach Lock-
+# Release — Race weil ein dritter Thread, der GENAU dazwischen
+# ``_get_track_lock(id)`` aufrief, einen NEUEN Lock erzeugte; der wartende
+# zweite Thread bekam den ALTEN Lock — beide hielten verschiedene Locks und
+# liefen ``_analyze_and_store_locked`` concurrent. Refcount loest das.
 _track_locks: dict[int, threading.Lock] = {}
+_track_lock_refs: dict[int, int] = {}
 _track_locks_guard = threading.Lock()
 
 
 def _get_track_lock(track_id: int) -> threading.Lock:
-    """Gibt einen Lock fuer den gegebenen Track zurueck (lazy erstellt)."""
+    """B-143: Lazy lock-creation mit Refcount-Increment.
+
+    Caller MUSS ``_release_track_lock(track_id)`` aufrufen, sonst
+    leakt der Eintrag.
+    """
     with _track_locks_guard:
         if track_id not in _track_locks:
             _track_locks[track_id] = threading.Lock()
+            _track_lock_refs[track_id] = 0
+        _track_lock_refs[track_id] += 1
         return _track_locks[track_id]
+
+
+def _release_track_lock(track_id: int) -> None:
+    """B-143: Decrement Refcount; entferne Eintrag wenn niemand mehr referenziert."""
+    with _track_locks_guard:
+        if track_id not in _track_lock_refs:
+            return
+        _track_lock_refs[track_id] -= 1
+        if _track_lock_refs[track_id] <= 0:
+            _track_lock_refs.pop(track_id, None)
+            _track_locks.pop(track_id, None)
 
 
 class AudioAnalyzer:
@@ -80,15 +103,17 @@ class AudioAnalyzer:
         Session-Split: DB wird NICHT während der librosa-Analyse blockiert.
         Per-Track Lock verhindert Race Conditions bei parallelen Aufrufen.
         """
+        # B-143: Refcount-Pattern statt H-10 pop-after-release.
+        # H-10 entfernte den Eintrag VOR dem release-Block was eine
+        # Race-Window erzeugte (siehe Kommentar oben am _track_locks).
+        # Jetzt: refcount-decrement entfernt den Eintrag nur wenn KEIN
+        # waiter mehr referenziert.
         lock = _get_track_lock(track_id)
-        with lock:
-            try:
+        try:
+            with lock:
                 return self._analyze_and_store_locked(track_id, progress_cb)
-            finally:
-                # FIX H-10: Remove lock after analysis to prevent memory leak.
-                # The lock is no longer needed once the analysis is complete.
-                with _track_locks_guard:
-                    _track_locks.pop(track_id, None)
+        finally:
+            _release_track_lock(track_id)
 
     def _analyze_and_store_locked(self, track_id: int, progress_cb=None) -> dict:
         """Interne Implementierung von analyze_and_store (unter Lock)."""
