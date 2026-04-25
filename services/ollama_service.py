@@ -99,6 +99,25 @@ class OllamaService:
                 stderr=subprocess.DEVNULL
             )
             logger.info("Ollama-Prozess gestartet (PID: %d)", self._process.pid)
+
+            # B-113 / BUG-A10: poll for port-open so callers that do
+            # ``service.start(); service.ensure_model(...)`` don't race
+            # the server-startup window. Bounded at ~3s; if the server
+            # isn't listening by then ``is_ready`` stays False and the
+            # caller can decide what to do.
+            import time as _time
+            deadline = _time.monotonic() + 3.0
+            while _time.monotonic() < deadline:
+                if self._is_port_open():
+                    self._is_ready = True
+                    logger.info("Ollama: ready nach %.2fs", 3.0 - (deadline - _time.monotonic()))
+                    break
+                _time.sleep(0.1)
+            else:
+                logger.warning(
+                    "Ollama: Port noch nicht offen nach 3s — "
+                    "is_ready bleibt False, Caller kann re-poll'en."
+                )
         except Exception as e:
             logger.error("Fehler beim Starten von Ollama: %s", e)
 
