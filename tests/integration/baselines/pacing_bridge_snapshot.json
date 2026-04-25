@@ -1,0 +1,57 @@
+{
+  "cuts": [
+    {
+      "section": "intro",
+      "ts": 0.5,
+      "beat_idx": 1,
+      "energy": 0.2,
+      "tension": 0.75,
+      "bpm": 128.0,
+      "key": "Am",
+      "mood_audio": "energetic",
+      "groove": "fotf"
+    },
+    {
+      "section": "drop",
+      "ts": 2.0,
+      "beat_idx": 4,
+      "energy": 0.85,
+      "tension": 0.75,
+      "bpm": 128.0,
+      "key": "Am",
+      "mood_audio": "energetic",
+      "groove": "fotf"
+    },
+    {
+      "section": "outro",
+      "ts": 2.5,
+      "beat_idx": 5,
+      "energy": 0.9,
+      "tension": 0.75,
+      "bpm": 128.0,
+      "key": "Am",
+      "mood_audio": "energetic",
+      "groove": "fotf"
+    }
+  ],
+  "clips": [
+    {
+      "clip_id": 1,
+      "scene_id": 100,
+      "role": "hero",
+      "mood": "energetic",
+      "bucket": 3,
+      "motion": 0.7,
+      "has_emb": false
+    },
+    {
+      "clip_id": 2,
+      "scene_id": 200,
+      "role": "ambient",
+      "mood": "calm",
+      "bucket": 1,
+      "motion": 0.4,
+      "has_emb": false
+    }
+  ]
+}
