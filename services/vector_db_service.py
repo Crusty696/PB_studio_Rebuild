@@ -68,6 +68,27 @@ class VectorDBService:
                     obj._init_db()
                     obj._initialized = True
                     _instance = obj
+                    return _instance
+
+        # B-102 / BUG-A3 fix: instance already exists. If the caller passed
+        # an explicit ``db_path`` that differs from the singleton's path, this
+        # used to be silently ignored — leading to data-integrity bugs where
+        # the caller thought they were writing to DB B but actually wrote to
+        # DB A. Now we raise so the misuse is loud.
+        # ``_patch_service_paths`` in database/session.py resets ``_instance``
+        # to None on project switch, so the legitimate cross-project use case
+        # is unaffected.
+        if db_path is not None:
+            requested = Path(db_path).resolve()
+            current = Path(_instance.db_path).resolve()
+            if requested != current:
+                raise ValueError(
+                    f"VectorDBService singleton already initialised with "
+                    f"db_path={current}. Refusing to silently ignore the new "
+                    f"db_path={requested}. To switch projects, reset "
+                    f"services.vector_db_service._instance to None first "
+                    f"(see database.session._patch_service_paths)."
+                )
         return _instance
 
     def __init__(self, db_path: str | Path | None = None):
