@@ -88,3 +88,7 @@ storage/enricher/*
 # only the selection_report.md + source_provenance.json are committed for reproducibility.
 tests/fixtures/golden_mix/*.wav
 tests/fixtures/clips_20/*.mp4
+
+# bug-hunter scan artifacts (transient)
+.bug-hunter/
+.bug-hunter-branch/
