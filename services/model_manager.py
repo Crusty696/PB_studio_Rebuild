@@ -148,17 +148,30 @@ class ModelManager:
         if cls._instance is None:
             with cls._lock:
                 if cls._instance is None:
-                    cls._instance = super().__new__(cls)
-                    cls._instance._initialized = False
+                    inst = super().__new__(cls)
+                    # B-122 Fix: ALLE State-Felder werden in __new__ unter
+                    # cls._lock gesetzt, BEVOR cls._instance veroeffentlicht
+                    # wird. Sonst koennte ein zweiter Thread cls._instance
+                    # in Halb-State sehen — speziell __init__ early-return
+                    # vor self._swap_lock = RLock() fuehrte zu AttributeError.
+                    inst._initialized = False
                     # M-60 FIX: Set _gpu_info default in __new__ to prevent AttributeError
                     # if __init__ early-returns before _log_gpu_hardware() runs
-                    cls._instance._gpu_info = {"name": "unbekannt", "vram_total_mb": 0}
+                    inst._gpu_info = {"name": "unbekannt", "vram_total_mb": 0}
+                    inst._current_model_id = None
+                    inst._model = None
+                    inst._tokenizer = None
+                    inst._pipe = None
+                    inst._model_type = None
+                    inst._extras = {}
+                    inst._swap_lock = threading.RLock()
+                    inst.device = "cpu"  # provisorisch, wird in __init__ ueberschrieben
+                    cls._instance = inst
         return cls._instance
 
     def __init__(self, device: str | None = None):
         if self._initialized:
             return
-        self._initialized = True
 
         # torch lazy laden (spart ~11s wenn ModelManager erst spät gebraucht wird)
         _ensure_torch()
@@ -179,17 +192,17 @@ class ModelManager:
                     "B-015: Device 'cuda' angefordert, aber CUDA nicht verfügbar — Fallback auf 'cpu'.",
                 )
 
-        self._current_model_id: str | None = None
-        self._model: Any = None
-        self._tokenizer: Any = None
-        self._pipe: Any = None
-        self._model_type: str | None = None  # "transformers", "vision", "siglip", "raft"
-        self._extras: dict[str, Any] = {}  # Zusätzliche Objekte (Processor etc.)
-        self._swap_lock = threading.RLock()  # Reentrant — erlaubt nested acquire
-
         # Prominenten GPU-Status loggen (einmalig)
         self._log_gpu_hardware()
         logger.info("ModelManager initialisiert auf Device: %s", self.device)
+
+        # B-122: ``_initialized=True`` ZULETZT setzen. Wenn ein zweiter
+        # Thread genau jetzt ``ModelManager()`` aufruft, hat er bereits
+        # alle State-Felder aus __new__ und sieht entweder _initialized=False
+        # (laeuft __init__ ebenfalls durch — idempotent, da torch.is_available
+        # und die Logger-Aufrufe alle deterministisch sind) oder True
+        # (early-return mit allen Feldern bereit).
+        self._initialized = True
 
     def _log_gpu_hardware(self) -> None:
         """Loggt den GPU-Hardware-Status prominent ins Terminal und speichert ihn."""
