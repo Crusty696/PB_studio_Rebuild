@@ -222,9 +222,50 @@ class ProjectManager(QObject):
             )
 
         logger.info("Kopiere Projekt: %s -> %s", source, target_path)
-        shutil.copytree(source, target_path)
+
+        # B-137 Fix: SQLite-safe hot-copy via Connection.backup() API.
+        # shutil.copytree auf aktiver SQLite-DB riskiert WAL/SHM-mid-write
+        # Inkonsistenz im Ziel. Connection.backup() ist transaktionssicher
+        # auch waehrend andere Connections in die Source schreiben.
+        target_path.mkdir(parents=True, exist_ok=False)
+        try:
+            self._copy_sqlite_db(source / "pb_studio.db",
+                                  target_path / "pb_studio.db")
+            for item in source.iterdir():
+                if item.name == "pb_studio.db":
+                    continue  # bereits per backup() kopiert
+                if item.name.startswith("pb_studio.db-"):
+                    # WAL/SHM/journal — regenerieren sich, nicht kopieren.
+                    continue
+                if item.is_dir():
+                    shutil.copytree(item, target_path / item.name)
+                else:
+                    shutil.copy2(item, target_path / item.name)
+        except Exception:
+            # Bei Fehler angefangene Kopie aufraeumen, damit naechster
+            # Save-As nicht auf "existiert bereits" stoesst.
+            if target_path.exists():
+                shutil.rmtree(target_path, ignore_errors=True)
+            raise
 
         # Open the copy as the new active project
         self.open_project(target_path)
         logger.info("Projekt gespeichert unter: %s", target_path)
         return target_path
+
+    @staticmethod
+    def _copy_sqlite_db(src_db: Path, dst_db: Path) -> None:
+        """B-137: SQLite hot-copy via Connection.backup() API.
+
+        Transaktionssicher auch waehrend andere Connections (WAL-Writer)
+        in die Source-DB schreiben.
+        """
+        src_conn = sqlite3.connect(str(src_db))
+        try:
+            dst_conn = sqlite3.connect(str(dst_db))
+            try:
+                src_conn.backup(dst_conn)
+            finally:
+                dst_conn.close()
+        finally:
+            src_conn.close()
