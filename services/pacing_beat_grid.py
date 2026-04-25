@@ -32,8 +32,12 @@ _STEP_NO_CUT = 9999
 # Thread-Lock fuer alle globalen Caches (Race-Condition-Schutz)
 _cache_lock = threading.Lock()
 
-# Stem-Audio Cache — LRU-Limit auf 5 audio_ids (~600MB max statt unbegrenzt)
-_STEM_CACHE_MAX = 5
+# Stem-Audio Cache — LRU-Limit auf 2 audio_ids.
+# B-164: Bei 60-min DJ-Mix bei 22050 Hz mono float32 sind 4 Stems ~1.27 GB
+# pro audio_id. 5 cached audio_ids = ~6.35 GB RAM (OOM-Risiko bei
+# parallelem Demucs/SigLIP). 2 reicht fuer den typischen Workflow
+# "auto-edit fuer EINEN Mix mit gelegentlichem Re-Run".
+_STEM_CACHE_MAX = 2
 _stem_audio_cache: collections.OrderedDict[int, dict[str, tuple]] = collections.OrderedDict()
 
 

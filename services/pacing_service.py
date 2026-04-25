@@ -283,6 +283,7 @@ def auto_edit_phase3(
     video_clip_ids: list[int],
     settings: AdvancedPacingSettings,
     progress_cb=None,
+    should_stop_cb=None,
 ) -> tuple[list[TimelineSegment], list[CutPoint]]:
     """Phase 3: DJ-Pacing Engine — OTIO-konforme Timeline-Generierung.
 
@@ -650,6 +651,14 @@ def auto_edit_phase3(
     sorted_trans_ends = [t[1] for t in _sorted_transitions]
 
     for i in range(len(cut_beats) - 1):
+        # B-157: Cancel-Check im Hot-Loop. Bei 60+ Cuts × Cross-Modal-Match
+        # darf der User den Lauf abbrechen koennen ohne auf alle Segmente
+        # zu warten. Engine-Cleanup uebernimmt der finally-Block (B-158).
+        if should_stop_cb is not None and should_stop_cb():
+            logger.info("auto_edit_phase3: cancel-request bei Segment %d/%d",
+                        i, len(cut_beats) - 1)
+            _ae_eng.dispose()
+            return segments, cut_points
         seg_start = cut_beats[i]
         seg_end = cut_beats[i + 1]
         seg_duration = seg_end - seg_start

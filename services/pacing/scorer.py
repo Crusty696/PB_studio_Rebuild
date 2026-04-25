@@ -204,10 +204,16 @@ def historical_accept_rate(
     ) = None,
 ) -> float:
     """Wilson-lower-bound confidence that this clip is accepted in this context.
-    0/0 → 0.5 (neutral, per release-gate rule)."""
+    0/0 → 0.5 (neutral, per release-gate rule).
+
+    B-159: Memory-Lookups sind auf scene_id keyed (mem_decision.scene_id ist
+    Truth, PatternAggregator schreibt target_ref={"scene_id": ...}). Wenn wir
+    hier die VideoClip-id durchreichen, matcht der Lookup nie und das gesamte
+    Lern-Loop ist tot.
+    """
     if pattern_lookup is None:
         return 0.5
-    accepts, total = pattern_lookup(context_fingerprint, clip.clip_id)
+    accepts, total = pattern_lookup(context_fingerprint, clip.scene_id)
     return wilson_lower_bound(accepts, total)
 
 

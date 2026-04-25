@@ -26,8 +26,12 @@ class AutoEditWorker(QObject, CancellableMixin):
     def run(self):
         _ok = False
         try:
+            # B-157: Cancel-Propagation an die Pipeline. Der CancellableMixin-
+            # Flag wird vom Main-Thread per cancel() gesetzt; auto_edit_phase3
+            # checkt should_stop_cb im Segment-Loop und bricht dann ab.
             segments, cut_points = auto_edit_phase3(
                 self.audio_id, self.video_ids, self.settings,
+                should_stop_cb=self.should_stop,
             )
             # Serialize for signal transport
             seg_dicts = [
