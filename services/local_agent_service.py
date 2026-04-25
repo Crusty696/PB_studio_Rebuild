@@ -362,11 +362,11 @@ class LocalAgentService:
             user_comment: Optionaler Freitext-Kommentar
         """
         try:
-            import datetime
+            from datetime import datetime, timezone  # B-130: timezone-aware
             from database import nullpool_session, AgentFeedback
             with nullpool_session() as session:
                 feedback = AgentFeedback(
-                    created_at=datetime.datetime.utcnow(),
+                    created_at=datetime.now(timezone.utc),
                     session_id="local_agent_default",
                     model_id=self._ollama_model or self.model_id,
                     backend="ollama" if self._use_ollama else "huggingface",

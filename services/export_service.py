@@ -126,10 +126,13 @@ def _needs_preprocessing(file_path: str, target_w: int, target_h: int,
 
 
 def _preprocess_segment(seg: dict, index: int, w: str, h: str, fps: float,
-                         temp_files: list) -> dict:
+                         temp_files: list, cancel_check=None) -> dict:
     """Standardisiert ein einzelnes Segment auf target-Aufloesung/FPS/H.264.
 
     Gibt ein processed_segment dict zurueck mit dem Pfad zur standardisierten Datei.
+
+    B-126: ``cancel_check`` wird durchgereicht zu ``_run_ffmpeg`` damit
+    der Pre-Encode mid-segment cancellable ist.
     """
     source_start = seg.get("source_start", 0.0)
     source_duration = seg.get("source_duration", seg["end"] - seg["start"])
@@ -154,7 +157,8 @@ def _preprocess_segment(seg: dict, index: int, w: str, h: str, fps: float,
         "-c:v", "libx264", "-preset", "fast", "-crf", "23",
         "-an", tmp.name,
     ]
-    _run_ffmpeg(std_cmd, timeout=FFMPEG_RENDER_TIMEOUT_SEC)
+    _run_ffmpeg(std_cmd, timeout=FFMPEG_RENDER_TIMEOUT_SEC,
+                cancel_check=cancel_check)
     return {
         "path": tmp.name,
         "duration": source_duration,
@@ -424,7 +428,9 @@ def _export_optimized_concat(video_segments, audio_path, output_path,
                         "-c:v", "libx264", "-preset", "fast", "-crf", "23",
                         "-an", tmp.name,
                     ]
-                    _run_ffmpeg(std_cmd, timeout=FFMPEG_RENDER_TIMEOUT_SEC)
+                    # B-126: per-segment cancel propagation.
+                    _run_ffmpeg(std_cmd, timeout=FFMPEG_RENDER_TIMEOUT_SEC,
+                                cancel_check=cancel_check)
                     _std_cache[cache_key] = tmp.name
                     processed_segments.append({
                         "path": tmp.name,

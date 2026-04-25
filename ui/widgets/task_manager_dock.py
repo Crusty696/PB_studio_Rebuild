@@ -191,6 +191,23 @@ class TaskManagerDock(QDockWidget):
         time_label.setStyleSheet(f"color: {T3}; font-size: 10px; border: none;")
         row_layout.addWidget(time_label)
 
+        # B-127: per-row Cancel-Button. Header-Button cancelt den
+        # laengsten Task (verwirrende UX bei mehreren parallelen Tasks);
+        # jetzt klickt der User explizit die Zeile die ihn nervt.
+        row_cancel_btn = QPushButton("✕")
+        row_cancel_btn.setFixedSize(20, 20)
+        row_cancel_btn.setToolTip("Diesen Task abbrechen")
+        row_cancel_btn.setStyleSheet(
+            f"QPushButton {{ background: transparent; color: {ERR}; "
+            f"border: 1px solid {BG3}; border-radius: 3px; "
+            f"font-size: 10px; font-weight: bold; }}"
+            f"QPushButton:hover {{ background: {ERR}; color: {T1}; }}"
+        )
+        row_cancel_btn.clicked.connect(
+            lambda _checked=False, _tid=task_id: self._cancel_specific_task(_tid)
+        )
+        row_layout.addWidget(row_cancel_btn)
+
         self._task_container.addWidget(row_widget)
 
         self._task_rows[task_id] = {
@@ -200,7 +217,14 @@ class TaskManagerDock(QDockWidget):
             "progress_bar": progress_bar,
             "msg_label": msg_label,
             "time_label": time_label,
+            "row_cancel_btn": row_cancel_btn,
         }
+
+    def _cancel_specific_task(self, task_id: str):
+        """B-127: Cancel den explizit angeklickten Task (nicht den
+        laengsten). Wird vom per-row Cancel-Button getriggert."""
+        self._tm.cancel_task(task_id)
+        self.cancel_requested.emit(task_id)
 
     def _on_task_updated(self, task_id: str):
         task = self._tm.get_task(task_id)
@@ -211,10 +235,22 @@ class TaskManagerDock(QDockWidget):
         progress_bar = row_data["progress_bar"]
         msg_label = row_data["msg_label"]
 
+        # B-128: Auch task.total == 0 sinnvoll behandeln. Worker die
+        # progress ohne konsistentes total melden, sollen nicht bei
+        # 0 % haengen.
         if task.total > 0:
             progress_bar.setRange(0, task.total)
             progress_bar.setValue(task.progress)
             progress_bar.setFormat(f"{task.progress}%")
+        elif task.progress > 0:
+            # Worker meldet nur progress (in 0..100) ohne total →
+            # behandeln als Prozent.
+            progress_bar.setRange(0, 100)
+            progress_bar.setValue(min(100, task.progress))
+            progress_bar.setFormat(f"{min(100, task.progress)}%")
+        else:
+            # Komplett unbekannt → indeterminate (Qt-marquee).
+            progress_bar.setRange(0, 0)
         msg_label.setText(task.message[:60] if task.message else "")
         msg_label.setToolTip(task.message or "")
 
