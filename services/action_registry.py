@@ -10,6 +10,7 @@ statt 'analyze_audio'), findet das Registry per thefuzz die beste Übereinstimmu
 
 import json
 import logging
+import threading
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -56,6 +57,9 @@ class ActionRegistry:
 
     def __init__(self):
         self._actions: dict[str, ActionDef] = {}
+        # B-132: RLock erlaubt rekursive Aufrufe im selben Thread (z.B.
+        # ``execute`` ruft ``resolve`` ruft ``fuzzy_match``).
+        self._lock = threading.RLock()
 
     def register(
         self,
@@ -74,12 +78,13 @@ class ActionRegistry:
             param_schema = {"type": "object", "properties": {}}
 
         def decorator(func: Callable) -> Callable:
-            self._actions[name] = ActionDef(
-                name=name,
-                description=description,
-                param_schema=param_schema,
-                handler=func,
-            )
+            with self._lock:  # B-132
+                self._actions[name] = ActionDef(
+                    name=name,
+                    description=description,
+                    param_schema=param_schema,
+                    handler=func,
+                )
             return func
 
         return decorator
@@ -94,20 +99,23 @@ class ActionRegistry:
         """Registriert eine Funktion direkt (ohne Decorator)."""
         if param_schema is None:
             param_schema = {"type": "object", "properties": {}}
-        self._actions[name] = ActionDef(
-            name=name,
-            description=description,
-            param_schema=param_schema,
-            handler=handler,
-        )
+        with self._lock:  # B-132
+            self._actions[name] = ActionDef(
+                name=name,
+                description=description,
+                param_schema=param_schema,
+                handler=handler,
+            )
 
     def unregister(self, name: str) -> bool:
         """Entfernt eine Aktion. Gibt True zurück wenn sie existierte."""
-        return self._actions.pop(name, None) is not None
+        with self._lock:  # B-132
+            return self._actions.pop(name, None) is not None
 
     def get(self, name: str) -> ActionDef | None:
         """Gibt die ActionDef zurück oder None."""
-        return self._actions.get(name)
+        with self._lock:  # B-132
+            return self._actions.get(name)
 
     def fuzzy_match(self, name: str) -> tuple[str | None, int]:
         """Findet die ähnlichste registrierte Aktion per Fuzzy-Matching.
@@ -115,10 +123,10 @@ class ActionRegistry:
         Returns:
             (best_match_name, score) oder (None, 0) wenn kein Match über Threshold.
         """
-        if not self._actions:
-            return None, 0
-
-        choices = list(self._actions.keys())
+        with self._lock:  # B-132
+            if not self._actions:
+                return None, 0
+            choices = list(self._actions.keys())
 
         # Exakter Treffer → sofort zurück
         if name in choices:
@@ -140,31 +148,37 @@ class ActionRegistry:
 
         Gibt die ActionDef zurück oder None.
         Loggt Fuzzy-Korrekturen als Warnung.
-        """
-        # 1. Exakter Treffer
-        action = self._actions.get(name)
-        if action is not None:
-            return action
 
-        # 2. Fuzzy-Matching
-        matched_name, score = self.fuzzy_match(name)
-        if matched_name is not None:
-            logger.warning(
-                "Fuzzy-Match: '%s' → '%s' (Score: %d%%)",
-                name, matched_name, score,
-            )
-            return self._actions[matched_name]
+        B-132: Reads happen under self._lock (RLock — fuzzy_match nested
+        re-acquire is allowed).
+        """
+        with self._lock:
+            # 1. Exakter Treffer
+            action = self._actions.get(name)
+            if action is not None:
+                return action
+
+            # 2. Fuzzy-Matching (RLock erlaubt reentry)
+            matched_name, score = self.fuzzy_match(name)
+            if matched_name is not None:
+                logger.warning(
+                    "Fuzzy-Match: '%s' → '%s' (Score: %d%%)",
+                    name, matched_name, score,
+                )
+                return self._actions[matched_name]
 
         logger.warning("Keine Aktion gefunden für '%s' (bester Score: %d%%)", name, score)
         return None
 
     def list_actions(self) -> list[str]:
         """Gibt alle registrierten Aktionsnamen zurück."""
-        return list(self._actions.keys())
+        with self._lock:  # B-132
+            return list(self._actions.keys())
 
     def list_all(self) -> list[ActionDef]:
         """Gibt alle registrierten ActionDef-Objekte zurück (B3-Fix)."""
-        return list(self._actions.values())
+        with self._lock:  # B-132
+            return list(self._actions.values())
 
     def execute(self, name: str, params: dict | None = None) -> Any:
         """Führt eine registrierte Aktion aus.
@@ -230,13 +244,15 @@ class ActionRegistry:
           }
         ]
         """
-        actions_list = []
-        for action in self._actions.values():
-            actions_list.append({
-                "name": action.name,
-                "description": action.description,
-                "parameters": action.param_schema,
-            })
+        with self._lock:  # B-132
+            actions_list = [
+                {
+                    "name": action.name,
+                    "description": action.description,
+                    "parameters": action.param_schema,
+                }
+                for action in self._actions.values()
+            ]
         return json.dumps(actions_list, ensure_ascii=False, indent=2)
 
 
