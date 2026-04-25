@@ -677,9 +677,21 @@ def analyze_scene_with_caption(
                     scene.index, scene.ai_mood,
                 )
 
+        except OllamaPausedError:
+            # B-146 Fix: explizite Pause-Exception statt fragiler
+            # String-Match auf "pausiert"/"paused". Ollama wird per
+            # ModelManager pausiert wenn GPU-intensive Operationen
+            # starten — kein Caption-Crash, sauberer Abbruch.
+            logger.debug(
+                "[CAPTION] Szene %d: Ollama pausiert — Caption-Loop abgebrochen",
+                scene.index,
+            )
+            break
         except Exception as e:
+            # Fallback fuer alte Ollama-Server die OllamaPausedError noch
+            # nicht raisen (string-basierte Heuristik bleibt als Safety-Net).
             if "pausiert" in str(e).lower() or "paused" in str(e).lower():
-                logger.debug("[CAPTION] Szene %d: Ollama pausiert (GPU-intensive Operation) — Abbruch", scene.index)
+                logger.debug("[CAPTION] Szene %d: Ollama pausiert (legacy string-match) — Abbruch", scene.index)
                 break
             logger.warning("[CAPTION] Szene %d: Fehler: %s — übersprungen", scene.index, e)
 

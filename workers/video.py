@@ -191,6 +191,11 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
             total_scenes = 0
             total_embeddings = 0
             idx = 0
+            # B-149: dedizierter Counter — vorher emittierte ``videos_processed``
+            # ``idx if should_stop() else total_videos``, was bei Cancel VOR
+            # erster Iteration ``idx=0`` ergab obwohl die Loop nie startete.
+            # Downstream-Math ``progress / videos_processed`` div-zero crashte.
+            videos_processed = 0
 
             # ── BATCH-OPTIMIERUNG: SigLIP + RAFT EINMAL laden fuer alle Videos ──
             # Verhindert VRAM-Fragmentierung durch wiederholtes Laden/Entladen.
@@ -263,6 +268,7 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                         )
                         total_scenes += len(result.scenes)
                         total_embeddings += result.embeddings_stored
+                        videos_processed += 1  # B-149: nach erfolgreichem Pipeline-Call
 
                     except FileNotFoundError as e:
                         # B-012 Fix: TOCTOU — Proxy existierte bei Check aber wurde geloescht
@@ -288,6 +294,7 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                                     )
                                     total_scenes += len(result.scenes)
                                     total_embeddings += result.embeddings_stored
+                                    videos_processed += 1  # B-149
                                 else:
                                     raise RuntimeError(f"VideoClip {clip_id}: Original-Pfad nicht verfuegbar")
                         except (RuntimeError, OSError) as fallback_err:
@@ -336,7 +343,7 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
             self.finished.emit(last_clip_id, {
                 "scenes": total_scenes,
                 "embeddings": total_embeddings,
-                "videos_processed": idx if self.should_stop() else total_videos,
+                "videos_processed": videos_processed,
             })
             _emitted_terminal = True
             _ok = True

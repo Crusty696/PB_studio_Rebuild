@@ -65,6 +65,16 @@ class BeatAnalysisService:
 
     def __init__(self, device: str | None = None):
         if self._initialized:
+            # B-141: device-Arg nach erster Init ist semantisch
+            # ignoriert — Caller mit erwartung "force CPU after first
+            # GPU init" bekommt ohne Warnung den GPU-Singleton zurueck.
+            if device is not None and device != self._device:
+                logger.warning(
+                    "BeatAnalysisService(device=%r) ignoriert — Singleton "
+                    "bereits mit device=%r initialisiert. Fuer Re-Init "
+                    "explizit Singleton resetten.",
+                    device, self._device,
+                )
             return
         self._initialized = True
         self._model = None

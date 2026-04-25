@@ -63,6 +63,14 @@ class AnalysisWorker(QObject, CancellableMixin):
                     logging.warning("BeatAnalysis optional fehlgeschlagen: %s", e)
                     self.progress.emit(90, f"Beat-Analyse übersprungen: {e}")
                     mark_error("audio", self.track_id, "bpm_detection", str(e))
+                except Exception as e:  # B-144: SQLAlchemyError und alle anderen
+                    # SQLAlchemy retry-exhausted Errors (OperationalError etc.)
+                    # erben nicht von ValueError/RuntimeError/OSError. Ohne diesen
+                    # Catch blieb bpm_detection forever auf "running" — User sah
+                    # nie einen Status, konnte den Track nie re-analyzen.
+                    logging.warning("BeatAnalysis crashed (broad): %s", e)
+                    self.progress.emit(90, f"Beat-Analyse abgebrochen: {e}")
+                    mark_error("audio", self.track_id, "bpm_detection", str(e))
 
             self.progress.emit(100, "Analyse komplett")
             self.finished.emit(self.track_id, result)
