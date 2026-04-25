@@ -14,6 +14,7 @@ On success (and when clip_id is given) marks analysis_status.structure_enrichmen
 from __future__ import annotations
 
 import logging
+import threading
 import traceback
 from datetime import datetime, timezone
 from pathlib import Path
@@ -31,6 +32,17 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 ENRICHER_VERSION: str = "v1"
 REFIT_THRESHOLD: int = 50  # if fewer active struct_clip_tags rows → fit mode
+
+# Process-wide mutex around the destructive fit-mode block (B-100 / BUG-6-b).
+# Without it: a user-triggered library re-enrich (clip_id=None) and a
+# pipeline-triggered per-clip enrich (clip_id=X) can BOTH enter fit-mode
+# concurrently — both UPDATE struct_style_bucket SET active=0, both INSERT
+# their own buckets, and the second writer's deactivation flips the first
+# writer's freshly-inserted buckets to active=0. Result: struct_clip_tags
+# rows from the first run reference inactive buckets; Stats panel hides them.
+# The lock keeps fit-mode strictly serial across threads. Assign-mode is
+# read-mostly and unaffected.
+_FIT_MODE_LOCK: threading.Lock = threading.Lock()
 
 _REDUCER_PATH = (
     Path(__file__).resolve().parent.parent / "storage" / "enricher" / "umap_v1.pkl"
@@ -130,15 +142,26 @@ class StructureEnrichmentWorker(QObject):
         # ── Step 1: Load scenes to enrich ────────────────────────────────────
         self.progress.emit(5, "Lade Szenen …")
         session = self._session_factory()
+        # B-100 / BUG-6-b: serialize the entire enrichment write phase across
+        # threads. A user-triggered library re-enrich (clip_id=None) and a
+        # pipeline-triggered per-clip enrich (clip_id=X) used to be able to
+        # run concurrently, both UPDATE struct_style_bucket SET active=0 and
+        # both INSERT new buckets — the second writer's deactivation would
+        # flip the first writer's freshly-inserted buckets to active=0,
+        # leaving struct_clip_tags rows pointing at inactive buckets.
+        # Holding the lock for the full _do_enrich body (which ends with
+        # session.commit()) is heavier-handed than necessary but keeps the
+        # invariant trivially obvious: only one enrichment writes at a time.
         try:
-            return self._do_enrich(
-                session=session,
-                classify_role=classify_role,
-                MoodAnchorMatcher=MoodAnchorMatcher,
-                StyleBucketClusterer=StyleBucketClusterer,
-                CompatGraphBuilder=CompatGraphBuilder,
-                VectorDBService=VectorDBService,
-            )
+            with _FIT_MODE_LOCK:
+                return self._do_enrich(
+                    session=session,
+                    classify_role=classify_role,
+                    MoodAnchorMatcher=MoodAnchorMatcher,
+                    StyleBucketClusterer=StyleBucketClusterer,
+                    CompatGraphBuilder=CompatGraphBuilder,
+                    VectorDBService=VectorDBService,
+                )
         finally:
             try:
                 session.close()
