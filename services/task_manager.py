@@ -431,27 +431,32 @@ class GlobalTaskManager(QObject):
 
     def cancel_task(self, task_id: str):
         """Bricht einen laufenden Task kooperativ ab (Fix F-002).
-        
+
         Vermeidet terminate() um Access Violations zu verhindern.
         Der Thread wird via worker.cancel() benachrichtigt und laeuft
         im Hintergrund aus (Orphaned-Status).
+
+        B-119: liest task.worker / task.thread komplett unter
+        ``_tasks_lock``, sodass `_safe_cleanup` nicht race-mutieren kann.
+        B-120: ruft KEIN ``thread.wait(2000)`` mehr — `_safe_cleanup`
+        bereinigt asynchron via thread.finished signal.
         """
+        # B-119: Alle Felder die wir spaeter brauchen unter dem Lock lesen.
         with self._tasks_lock:
             task = self._tasks.get(task_id)
-        if not task or task.status != "running":
-            return
-        
-        worker = task.worker
+            if not task or task.status != "running":
+                return
+            worker = task.worker
+            thread = task.thread
+
         if worker and shiboken6.isValid(worker) and hasattr(worker, "cancel"):
             worker.cancel()
 
-        thread = task.thread
         if thread and shiboken6.isValid(thread) and thread.isRunning():
             thread.quit()
-            # Wir warten NICHT blockierend im Main-Thread, um Freezes zu vermeiden.
-            # Der Thread wird via _safe_cleanup bereinigt, sobald er stoppt.
-            if not thread.wait(2000):
-                logging.warning("[TaskEngine] Thread '%s' reagiert nicht sofort auf quit() — orphaned.", task_id)
+            # B-120: kein thread.wait() — blockiert sonst Main/UI bis 2s.
+            # _safe_cleanup wird durch thread.finished signal getriggert
+            # und raeumt dort auf, sobald der Thread tatsaechlich endet.
 
         # FIX H-15: Don't try to release locks from the Main Thread.
         # _is_owned() checks the CALLING thread, but GPU locks are held by the
@@ -460,7 +465,7 @@ class GlobalTaskManager(QObject):
         # own locks during its cleanup/finally block.
         if worker and not hasattr(worker, '_gpu_cancel_requested'):
             worker._gpu_cancel_requested = True
-        
+
         self.finish_task(task_id, "cancelled", "Abbruch angefordert")
         logging.info("[TaskEngine] Kooperativer Abbruch: %s", task_id)
 
