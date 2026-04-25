@@ -636,15 +636,17 @@ def _auto_edit_phase3_inner(
     if not available_ids:
         return [], []
 
-    # F-001 Fix: Load playback_offset from database for persistence
-    clip_offsets: dict[int, float] = {}
+    # F-001 Fix: Load playback_offset from database for persistence.
+    # B-055/N+1 Fix: Single bulk-query statt einer Query pro Clip.
+    clip_offsets: dict[int, float] = {vid: 0.0 for vid in available_ids}
     with Session(_ae_eng) as session:
         from database import VideoClip
-        for vid in available_ids:
-            video_clip = session.query(VideoClip).filter(
-                VideoClip.id == vid, VideoClip.deleted_at.is_(None)
-            ).first()
-            clip_offsets[vid] = video_clip.playback_offset if video_clip else 0.0
+        rows = session.query(VideoClip.id, VideoClip.playback_offset).filter(
+            VideoClip.id.in_(available_ids),
+            VideoClip.deleted_at.is_(None),
+        ).all()
+        for vid, offset in rows:
+            clip_offsets[vid] = offset or 0.0
     used_recently: list[int] = []
     prev_clip_idx: int | None = None
 

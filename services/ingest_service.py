@@ -232,17 +232,32 @@ def get_audio_detail_data(audio_id: int) -> dict | None:
         return None
 
 
-def get_all_audio(project_id: int = 1, limit: int = 5000) -> list[dict]:
+def get_all_audio(project_id: int = 1, limit: int | None = None) -> list[dict]:
+    """Liefert ALLE Audio-Tracks des Projekts.
+
+    B-055: kein stiller 5000-Cap mehr — Default `limit=None` liefert die
+    komplette Sammlung. Caller (Media-Pool, Pacing-Engine) sehen ihre
+    Daten vollständig. Wer paginieren will, übergibt explizit `limit`.
+    """
     from services import analysis_status_service
     # Collect ORM data first, then close session before calling analysis_status_service
     # to avoid connection pool exhaustion (selectin loaders hold pool connections).
     with Session(engine) as session:
         # H-4 FIX: Filter out soft-deleted tracks (deleted_at is None)
-        tracks = session.query(AudioTrack).filter_by(
+        q = session.query(AudioTrack).filter_by(
             project_id=project_id
         ).filter(
             AudioTrack.deleted_at.is_(None)
-        ).limit(limit).all()
+        )
+        if limit is not None:
+            q = q.limit(limit)
+        tracks = q.all()
+        if len(tracks) > 5000:
+            logger.info(
+                "get_all_audio: %d Tracks geladen (große Sammlung). "
+                "Erwäge explizite Pagination falls die UI-Latenz zu hoch ist.",
+                len(tracks),
+            )
         raw_data = []
         for t in tracks:
             stem_count = sum(1 for p in [
@@ -270,15 +285,24 @@ def get_all_audio(project_id: int = 1, limit: int = 5000) -> list[dict]:
     return raw_data
 
 
-def get_all_video(project_id: int = 1, limit: int = 5000) -> list[dict]:
+def get_all_video(project_id: int = 1, limit: int | None = None) -> list[dict]:
+    """Liefert ALLE Video-Clips des Projekts. B-055: kein stiller 5000-Cap mehr."""
     from services import analysis_status_service
     # Collect ORM data first, then close session before calling analysis_status_service
     # to avoid connection pool exhaustion (selectin loaders hold pool connections).
     with Session(engine) as session:
-        clips = session.query(VideoClip).filter(
+        q = session.query(VideoClip).filter(
             VideoClip.project_id == project_id,
             VideoClip.deleted_at.is_(None)
-        ).limit(limit).all()
+        )
+        if limit is not None:
+            q = q.limit(limit)
+        clips = q.all()
+        if len(clips) > 5000:
+            logger.info(
+                "get_all_video: %d Clips geladen (große Sammlung).",
+                len(clips),
+            )
         raw_data = []
         for c in clips:
             raw_data.append({

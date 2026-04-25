@@ -439,7 +439,9 @@ def generate_embeddings(
     from services.model_manager import ModelManager
     mm = ModelManager()
 
-    # Batch-Modus: SigLIP wurde vom Caller vorgeladen → wiederverwenden
+    # Batch-Modus: SigLIP wurde vom Caller vorgeladen → wiederverwenden.
+    # In dem Fall hält der Caller bereits GPU_EXECUTION_LOCK
+    # (workers/video.py:VideoAnalysisPipelineWorker.run).
     owns_model = siglip_model_processor is None
     if siglip_model_processor is not None:
         model, processor = siglip_model_processor
@@ -447,17 +449,17 @@ def generate_embeddings(
     else:
         logger.info("[SIGLIP] Lade SigLIP Modell...")
         from services.model_manager import GPU_LOAD_LOCK
-        
+
         # Robust: Torch explizit laden bevor mm.load_siglip gerufen wird (HF Fix)
         import torch
-        
+
         try:
             with GPU_LOAD_LOCK:
                 model, processor = mm.load_siglip()
-            
+
             if model is None or processor is None:
                 raise RuntimeError("Modell oder Processor konnte nicht geladen werden")
-                
+
             logger.info("[SIGLIP] SigLIP geladen auf %s", mm.device)
         except Exception as e:  # broad catch intentional — MLModelNotFoundError, OOM, ImportError, RuntimeError
             from services.errors import MLModelNotFoundError
@@ -473,6 +475,7 @@ def generate_embeddings(
     import torch
     from PIL import Image
     from concurrent.futures import ThreadPoolExecutor
+    from services.model_manager import GPU_EXECUTION_LOCK
 
     def _load_image(scene):
         """Lädt ein Keyframe-Bild (I/O-bound, parallelisierbar)."""
@@ -482,86 +485,91 @@ def generate_embeddings(
             logger.warning("Bild konnte nicht geladen werden: %s — %s", scene.keyframe_path, e)
             return scene, None
 
+    # B-068: Inferenz unter GPU_EXECUTION_LOCK schützt gegen Modell-Eviction
+    # während laufender Inferenz (z.B. wenn parallel beat_this/RAFT geladen
+    # werden und H17-Fix SigLIP auf CPU schiebt). RLock erlaubt re-entry,
+    # damit der Batch-Worker (workers/video.py) den Lock bereits halten darf.
     # Batch-Verarbeitung in Gruppen von 8 (VRAM-schonend für GTX 1060)
     batch_size = 8
-    for batch_start in range(0, len(keyframe_scenes), batch_size):
-        batch = keyframe_scenes[batch_start:batch_start + batch_size]
+    with GPU_EXECUTION_LOCK:
+        for batch_start in range(0, len(keyframe_scenes), batch_size):
+            batch = keyframe_scenes[batch_start:batch_start + batch_size]
 
-        # Paralleles Laden der Bilder (I/O-bound → ThreadPool)
-        images = []
-        valid_scenes = []
-        with ThreadPoolExecutor(max_workers=4) as pool:
-            for scene, img in pool.map(_load_image, batch):
-                if img is not None:
-                    images.append(img)
-                    valid_scenes.append(scene)
+            # Paralleles Laden der Bilder (I/O-bound → ThreadPool)
+            images = []
+            valid_scenes = []
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                for scene, img in pool.map(_load_image, batch):
+                    if img is not None:
+                        images.append(img)
+                        valid_scenes.append(scene)
 
-        if not images:
-            continue
+            if not images:
+                continue
 
-        try:
-            inputs = processor(images=images, return_tensors="pt", padding=True)
-            inputs = {k: v.to(mm.device) for k, v in inputs.items()}
-            model_dtype = next(model.parameters()).dtype
-            inputs = {k: (v.to(model_dtype) if v.is_floating_point() else v) for k, v in inputs.items()}
+            try:
+                inputs = processor(images=images, return_tensors="pt", padding=True)
+                inputs = {k: v.to(mm.device) for k, v in inputs.items()}
+                model_dtype = next(model.parameters()).dtype
+                inputs = {k: (v.to(model_dtype) if v.is_floating_point() else v) for k, v in inputs.items()}
 
-            with torch.no_grad():
-                outputs = model.get_image_features(**inputs)
-                # Robust: handle both raw tensor and BaseModelOutputWithPooling
-                if not isinstance(outputs, torch.Tensor):
-                    outputs = outputs.pooler_output if hasattr(outputs, 'pooler_output') else outputs[0]
-                # L2-Normalisierung
-                embeddings = outputs / outputs.norm(p=2, dim=-1, keepdim=True)
-                embeddings = embeddings.cpu().numpy().astype(np.float32)
+                with torch.no_grad():
+                    outputs = model.get_image_features(**inputs)
+                    # Robust: handle both raw tensor and BaseModelOutputWithPooling
+                    if not isinstance(outputs, torch.Tensor):
+                        outputs = outputs.pooler_output if hasattr(outputs, 'pooler_output') else outputs[0]
+                    # L2-Normalisierung
+                    embeddings = outputs / outputs.norm(p=2, dim=-1, keepdim=True)
+                    embeddings = embeddings.cpu().numpy().astype(np.float32)
 
-            for i, scene in enumerate(valid_scenes):
-                scene.embedding = embeddings[i]
+                for i, scene in enumerate(valid_scenes):
+                    scene.embedding = embeddings[i]
 
-            # F-019 Fix: Explicit cleanup to prevent unbounded memory growth
-            del inputs, outputs, embeddings
-            images.clear()
-            valid_scenes.clear()
+                # F-019 Fix: Explicit cleanup to prevent unbounded memory growth
+                del inputs, outputs, embeddings
+                images.clear()
+                valid_scenes.clear()
 
-        except RuntimeError:
-            torch.cuda.empty_cache()
-            gc.collect()
-            # Adaptive Retry: Batch halbieren und einzeln verarbeiten
-            logger.warning("OOM bei SigLIP Batch (size=%d) — Retry einzeln...", len(images))
-            for j, (img, scene) in enumerate(zip(images, valid_scenes)):
-                try:
-                    # B-154: VOR jedem Einzel-Call empty_cache, sonst kaskadiert
-                    # OOM weil per-sample Memory zwischen Iterationen nicht
-                    # freigegeben wurde. Adaptive-Retry war bisher no-op.
-                    if torch.cuda.is_available():
+            except RuntimeError:
+                torch.cuda.empty_cache()
+                gc.collect()
+                # Adaptive Retry: Batch halbieren und einzeln verarbeiten
+                logger.warning("OOM bei SigLIP Batch (size=%d) — Retry einzeln...", len(images))
+                for j, (img, scene) in enumerate(zip(images, valid_scenes)):
+                    try:
+                        # B-154: VOR jedem Einzel-Call empty_cache, sonst kaskadiert
+                        # OOM weil per-sample Memory zwischen Iterationen nicht
+                        # freigegeben wurde. Adaptive-Retry war bisher no-op.
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                        inp = processor(images=[img], return_tensors="pt", padding=True)
+                        inp = {k: v.to(mm.device) for k, v in inp.items()}
+                        model_dtype = next(model.parameters()).dtype
+                        inp = {k: (v.to(model_dtype) if v.is_floating_point() else v) for k, v in inp.items()}
+                        with torch.no_grad():
+                            out = model.get_image_features(**inp)
+                            if not isinstance(out, torch.Tensor):
+                                out = out.pooler_output if hasattr(out, 'pooler_output') else out[0]
+                            emb = out / out.norm(p=2, dim=-1, keepdim=True)
+                            scene.embedding = emb.cpu().numpy().astype(np.float32)[0]
+                        del inp, out, emb
+                    except RuntimeError:
                         torch.cuda.empty_cache()
-                    inp = processor(images=[img], return_tensors="pt", padding=True)
-                    inp = {k: v.to(mm.device) for k, v in inp.items()}
-                    model_dtype = next(model.parameters()).dtype
-                    inp = {k: (v.to(model_dtype) if v.is_floating_point() else v) for k, v in inp.items()}
-                    with torch.no_grad():
-                        out = model.get_image_features(**inp)
-                        if not isinstance(out, torch.Tensor):
-                            out = out.pooler_output if hasattr(out, 'pooler_output') else out[0]
-                        emb = out / out.norm(p=2, dim=-1, keepdim=True)
-                        scene.embedding = emb.cpu().numpy().astype(np.float32)[0]
-                    del inp, out, emb
-                except RuntimeError:
-                    torch.cuda.empty_cache()
-                    logger.error("OOM auch bei Einzel-Inference — ueberspringe Bild %d", j)
-            # F-019 Fix: Clear buffers after OOM recovery
-            images.clear()
-            valid_scenes.clear()
-        except (RuntimeError, ValueError, AttributeError) as e:
-            logger.error("SigLIP Embedding-Fehler: %s", e)
-            # F-019 Fix: Clear buffers on exception
-            images.clear()
-            valid_scenes.clear()
+                        logger.error("OOM auch bei Einzel-Inference — ueberspringe Bild %d", j)
+                # F-019 Fix: Clear buffers after OOM recovery
+                images.clear()
+                valid_scenes.clear()
+            except (RuntimeError, ValueError, AttributeError) as e:
+                logger.error("SigLIP Embedding-Fehler: %s", e)
+                # F-019 Fix: Clear buffers on exception
+                images.clear()
+                valid_scenes.clear()
 
-        # Inter-batch GPU-Cleanup NUR wenn wir SigLIP selbst geladen haben.
-        # Im Batch-Modus (siglip_model_processor uebergeben) KEIN empty_cache() —
-        # das korrumpiert den Heap wenn Modelle noch resident sind (0xC0000374).
-        if owns_model and torch.cuda.is_available():
-            torch.cuda.empty_cache()
+            # Inter-batch GPU-Cleanup NUR wenn wir SigLIP selbst geladen haben.
+            # Im Batch-Modus (siglip_model_processor uebergeben) KEIN empty_cache() —
+            # das korrumpiert den Heap wenn Modelle noch resident sind (0xC0000374).
+            if owns_model and torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
     # SigLIP nur entladen wenn WIR es geladen haben (nicht im Batch-Modus)
     if owns_model:
@@ -802,19 +810,22 @@ def text_to_embedding(query: str) -> np.ndarray | None:
     from services.model_manager import ModelManager
     mm = ModelManager()
 
-    # F-012 + C-03 Fix: GPU_LOAD_LOCK statt _swap_lock — serialisiert
-    # mit allen anderen GPU-Model-Loads (Demucs, beat_this, Moondream etc.)
-    from services.model_manager import GPU_LOAD_LOCK
-    with GPU_LOAD_LOCK:
-        try:
-            model, processor = mm.load_siglip()
-        except Exception as e:  # broad catch intentional — MLModelNotFoundError, OOM, ImportError, RuntimeError
-            from services.errors import MLModelNotFoundError
-            if isinstance(e, MLModelNotFoundError):
-                logger.warning("SigLIP nicht heruntergeladen — Text-Suche nicht verfuegbar: %s", e)
-            else:
-                logger.error("SigLIP fuer Text-Suche nicht verfuegbar: %s", e)
-            return None
+    # B-069: GPU_EXECUTION_LOCK serialisiert Inferenz; GPU_LOAD_LOCK
+    # serialisiert NUR das Laden. Vorher hielt diese Funktion den
+    # LOAD_LOCK über die gesamte Inferenz und blockierte dadurch parallele
+    # Loads (RAFT, Demucs etc.) mehrere Sekunden.
+    from services.model_manager import GPU_LOAD_LOCK, GPU_EXECUTION_LOCK
+    with GPU_EXECUTION_LOCK:
+        with GPU_LOAD_LOCK:
+            try:
+                model, processor = mm.load_siglip()
+            except Exception as e:  # broad catch intentional — MLModelNotFoundError, OOM, ImportError, RuntimeError
+                from services.errors import MLModelNotFoundError
+                if isinstance(e, MLModelNotFoundError):
+                    logger.warning("SigLIP nicht heruntergeladen — Text-Suche nicht verfuegbar: %s", e)
+                else:
+                    logger.error("SigLIP fuer Text-Suche nicht verfuegbar: %s", e)
+                return None
 
         import torch
 
@@ -852,21 +863,23 @@ def texts_to_embeddings_batch(queries: list[str]) -> dict[str, np.ndarray]:
     if not queries:
         return {}
 
-    from services.model_manager import ModelManager, GPU_LOAD_LOCK
+    from services.model_manager import ModelManager, GPU_LOAD_LOCK, GPU_EXECUTION_LOCK
     mm = ModelManager()
 
-    with GPU_LOAD_LOCK:
-        try:
-            model, processor = mm.load_siglip()
-        except Exception as e:  # broad catch intentional — MLModelNotFoundError, OOM, ImportError, RuntimeError
-            from services.errors import MLModelNotFoundError
-            if isinstance(e, MLModelNotFoundError):
-                logger.warning(
-                    "SigLIP nicht heruntergeladen — Batch-Embedding nicht verfuegbar: %s", e
-                )
-            else:
-                logger.error("SigLIP fuer Batch-Text-Embedding nicht verfuegbar: %s", e)
-            return {}
+    # B-069: EXECUTION_LOCK über Inferenz, LOAD_LOCK nur über load_siglip().
+    with GPU_EXECUTION_LOCK:
+        with GPU_LOAD_LOCK:
+            try:
+                model, processor = mm.load_siglip()
+            except Exception as e:  # broad catch intentional — MLModelNotFoundError, OOM, ImportError, RuntimeError
+                from services.errors import MLModelNotFoundError
+                if isinstance(e, MLModelNotFoundError):
+                    logger.warning(
+                        "SigLIP nicht heruntergeladen — Batch-Embedding nicht verfuegbar: %s", e
+                    )
+                else:
+                    logger.error("SigLIP fuer Batch-Text-Embedding nicht verfuegbar: %s", e)
+                return {}
 
         import torch
         results: dict[str, np.ndarray] = {}

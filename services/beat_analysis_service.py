@@ -306,13 +306,17 @@ class BeatAnalysisService:
         logger.info("Librosa Beat-Fallback: Analysiere %d samples @ %d Hz...", len(y), sr)
         tempo, beat_frames = librosa.beat.beat_track(y=y, sr=sr)
         beat_times = librosa.frames_to_time(beat_frames, sr=sr)
-        # Librosa liefert keine Downbeats — jeden 4. Beat als Downbeat schaetzen
-        downbeat_times = beat_times[::4] if len(beat_times) >= 4 else beat_times[:1]
-        logger.info(
-            "Librosa Beat-Fallback: %.1f BPM, %d Beats, %d Downbeats (geschaetzt)",
-            float(tempo), len(beat_times), len(downbeat_times),
+        # B-064: Librosa kennt keine Downbeats. Die alte Heuristik beats[::4]
+        # markiert bei Pickup-/Offbeat-Starts systematisch falsche Downbeats.
+        # Stattdessen liefern wir LEER und kommunizieren das ehrlich an
+        # Downstream (pacing_edit_helpers verträgt leere Downbeat-Liste).
+        tempo_val = float(np.asarray(tempo).reshape(-1)[0]) if np.asarray(tempo).size else 0.0
+        logger.warning(
+            "Librosa Beat-Fallback aktiv — keine Downbeats verfügbar "
+            "(%.1f BPM, %d Beats). Cuts fallen auf Beats statt Downbeats.",
+            tempo_val, len(beat_times),
         )
-        return np.array(beat_times), np.array(downbeat_times)
+        return np.array(beat_times), np.array([], dtype=np.float64)
 
     def _analyze_chunked(
         self, audio_path: str, total_duration: float,
