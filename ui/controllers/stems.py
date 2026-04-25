@@ -9,7 +9,30 @@ from workers import StemSeparationWorker, AutoDuckingWorker
 from ui.base_component import PBComponent
 
 logger = logging.getLogger(__name__)
-task_manager = TaskManagerProxy()
+
+# B-110 / BUG-13-b: mirror the L-38 fix in video_analysis.py — lazy
+# initialisation. A module-level ``task_manager = TaskManagerProxy()``
+# breaks any importer that runs before QApplication exists (unit tests,
+# CLI tools, alembic env). The proxy is created on first access.
+_task_manager = None
+
+
+def _get_task_manager() -> TaskManagerProxy:
+    """Lazy TaskManagerProxy singleton."""
+    global _task_manager
+    if _task_manager is None:
+        _task_manager = TaskManagerProxy()
+    return _task_manager
+
+
+# Backwards-compatible alias used throughout this controller. Resolves
+# the lazy proxy on every attribute access via __getattr__-style facade.
+class _TaskManagerFacade:
+    def __getattr__(self, name):  # type: ignore[no-untyped-def]
+        return getattr(_get_task_manager(), name)
+
+
+task_manager = _TaskManagerFacade()
 
 class StemsController(PBComponent):
     """Stem separation and auto-ducking methods for PBWindow."""
