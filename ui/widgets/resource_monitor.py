@@ -172,9 +172,20 @@ class ResourceMonitorWidget(QWidget):
             self._gpu_label.setText(f"GPU {stats.get('gpu_used', 0.0):.1f}/{stats.get('gpu_total', 0.0):.1f}")
 
     def stop(self):
-        """K-012 / B-036 Fix: Graceful shutdown — stop timer, then quit event-loop."""
-        if self._worker:
-            self._worker.stop()  # stops the QTimer
+        """K-012 / B-036 Fix: Graceful shutdown — stop timer, then quit event-loop.
+
+        B-101 Fix: ``_worker.stop()`` was called as a plain method from the
+        main thread, which then ran ``QTimer.stop()`` cross-thread. QTimer
+        is not thread-safe — it must be stopped from the thread that owns
+        it. We invoke the ``@Slot`` via ``QMetaObject.invokeMethod`` with
+        ``QueuedConnection`` so the body runs in the worker's event-loop.
+        Pattern taken from the sibling ``ai_status_dot._invoke_worker_stop``.
+        """
+        if self._worker and self._thread and self._thread.isRunning():
+            from PySide6.QtCore import QMetaObject, Qt as QtConst
+            QMetaObject.invokeMethod(
+                self._worker, "stop", QtConst.ConnectionType.QueuedConnection
+            )
         if self._thread and self._thread.isRunning():
             self._thread.quit()   # exits the thread's event-loop (now works!)
             self._thread.wait(5000)
