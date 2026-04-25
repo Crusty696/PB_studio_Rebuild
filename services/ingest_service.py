@@ -13,6 +13,29 @@ from services.vector_db_service import VectorDBService
 
 logger = logging.getLogger(__name__)
 
+
+def _resolve_project_id(project_id: int | None) -> int:
+    """B-053 Cycle 12: ersetzt hardcoded project_id=1.
+
+    Wenn der Caller None passt, wird das aktive Projekt aus der DB
+    aufgelöst. Fallback auf 1 nur wenn kein aktives Projekt existiert
+    (z.B. brand-fresh Setup vor erstem create_project).
+    """
+    if project_id is not None:
+        return int(project_id)
+    try:
+        from database.session import get_active_project_id
+        active = get_active_project_id()
+        if active is not None:
+            return int(active)
+    except (ImportError, AttributeError, RuntimeError) as exc:
+        logger.warning("_resolve_project_id: get_active_project_id failed: %s", exc)
+    logger.warning(
+        "ingest_service: kein aktives Projekt — falle auf project_id=1 zurück. "
+        "Das kann nach Projekt-Switch zu falschen Zuordnungen führen (B-053)."
+    )
+    return 1
+
 # FFmpeg/FFprobe Pfade werden zentral in main.py via PATH injiziert.
 # Hier erlauben wir Overrides via Umgebungsvariablen.
 _FFPROBE = os.environ.get("FFPROBE_PATH", "ffprobe")
@@ -56,11 +79,12 @@ def _file_meta(path: Path) -> dict:
 
 
 def ingest_audio(
-    file_path: str, project_id: int = 1, *, invalidate_caches: bool = True
+    file_path: str, project_id: int | None = None, *, invalidate_caches: bool = True
 ) -> AudioTrack | None:
     # B-151: Folder-Import-Loops setzen ``invalidate_caches=False`` und
     # rufen am Ende des Batches einmalig _invalidate_pacing_caches() auf
     # — sonst feuert der Cache-Rebuild N+1 mal pro Datei.
+    project_id = _resolve_project_id(project_id)
     path = Path(file_path)
     if not path.exists():
         raise FileNotFoundError(f"Audio-Datei nicht gefunden: {file_path}")
@@ -131,10 +155,11 @@ def _probe_video_meta(file_path: str) -> dict:
 
 
 def ingest_video(
-    file_path: str, project_id: int = 1, *, invalidate_caches: bool = True
+    file_path: str, project_id: int | None = None, *, invalidate_caches: bool = True
 ) -> VideoClip | None:
     # B-151: Folder-Import-Loops setzen ``invalidate_caches=False`` und
     # rufen am Ende des Batches einmalig _invalidate_pacing_caches() auf.
+    project_id = _resolve_project_id(project_id)
     path = Path(file_path)
     if not path.exists():
         raise FileNotFoundError(f"Video-Datei nicht gefunden: {file_path}")
@@ -232,13 +257,14 @@ def get_audio_detail_data(audio_id: int) -> dict | None:
         return None
 
 
-def get_all_audio(project_id: int = 1, limit: int | None = None) -> list[dict]:
+def get_all_audio(project_id: int | None = None, limit: int | None = None) -> list[dict]:
     """Liefert ALLE Audio-Tracks des Projekts.
 
     B-055: kein stiller 5000-Cap mehr — Default `limit=None` liefert die
-    komplette Sammlung. Caller (Media-Pool, Pacing-Engine) sehen ihre
-    Daten vollständig. Wer paginieren will, übergibt explizit `limit`.
+    komplette Sammlung. B-053 Cycle 12: project_id=None löst auf das
+    aktive Projekt auf, kein hardcoded =1 mehr.
     """
+    project_id = _resolve_project_id(project_id)
     from services import analysis_status_service
     # Collect ORM data first, then close session before calling analysis_status_service
     # to avoid connection pool exhaustion (selectin loaders hold pool connections).
@@ -285,8 +311,9 @@ def get_all_audio(project_id: int = 1, limit: int | None = None) -> list[dict]:
     return raw_data
 
 
-def get_all_video(project_id: int = 1, limit: int | None = None) -> list[dict]:
-    """Liefert ALLE Video-Clips des Projekts. B-055: kein stiller 5000-Cap mehr."""
+def get_all_video(project_id: int | None = None, limit: int | None = None) -> list[dict]:
+    """Liefert ALLE Video-Clips des Projekts. B-055/B-053 Cycle 12."""
+    project_id = _resolve_project_id(project_id)
     from services import analysis_status_service
     # Collect ORM data first, then close session before calling analysis_status_service
     # to avoid connection pool exhaustion (selectin loaders hold pool connections).
@@ -326,11 +353,12 @@ def get_all_video(project_id: int = 1, limit: int | None = None) -> list[dict]:
     return raw_data
 
 
-def get_all_media(project_id: int = 1) -> list[dict]:
+def get_all_media(project_id: int | None = None) -> list[dict]:
+    project_id = _resolve_project_id(project_id)
     return get_all_audio(project_id) + get_all_video(project_id)
 
 
-def get_combo_items(project_id: int = 1) -> list[dict]:
+def get_combo_items(project_id: int | None = None) -> list[dict]:
     """Lightweight Variante von get_all_media() — **NUR** fuer Director-Combos.
 
     P8-FREEZE-FIX: Vorher nutzten die Audio-/Video-Combos `get_all_media()`,
@@ -342,6 +370,7 @@ def get_combo_items(project_id: int = 1) -> list[dict]:
     Diese Funktion liefert nur id/title/type/bpm — ausreichend fuer den
     Combo-Label `[id] Title (bpm BPM)`.
     """
+    project_id = _resolve_project_id(project_id)
     items: list[dict] = []
     with Session(engine) as session:
         audios = session.query(
@@ -363,13 +392,15 @@ def get_combo_items(project_id: int = 1) -> list[dict]:
     return items
 
 
-def delete_all_media(project_id: int = 1) -> int:
+def delete_all_media(project_id: int | None = None) -> int:
     """Loescht alle Audio- und Video-Eintraege aus der Datenbank.
 
     Löscht zuerst alle abhängigen Child-Rows (ClipAnchors, TimelineEntries,
     AudioVideoAnchors, Scenes, Beatgrids, WaveformData), dann die Parents.
     HINWEIS: AIPacingMemory wird NIEMALS geloescht – das KI-Gedaechtnis ist permanent.
+    B-053 Cycle 12: project_id=None löst auf das aktive Projekt auf.
     """
+    project_id = _resolve_project_id(project_id)
     from database import (
         AudioVideoAnchor, ClipAnchor, TimelineEntry,
         Scene, Beatgrid, WaveformData, PacingBlueprint,
@@ -585,17 +616,17 @@ def delete_selected_media(video_ids: list[int], audio_ids: list[int]) -> int:
 
 def import_video_folder(
     folder_path: str,
-    project_id: int = 1,
+    project_id: int | None = None,
     recursive: bool = True,
 ) -> list[VideoClip]:
     """Importiert alle Videos aus einem Ordner (rekursiv).
 
-    Phase 6: Batch Video Import.
-    Scannt den Ordner nach allen unterstuetzten Video-Dateien und
-    importiert jede einzeln via ingest_video().
+    Phase 6: Batch Video Import. B-053 Cycle 12: project_id=None löst
+    auf das aktive Projekt auf.
 
     Returns: Liste der erfolgreich importierten VideoClip-Objekte.
     """
+    project_id = _resolve_project_id(project_id)
     folder = Path(folder_path)
     if not folder.is_dir():
         raise ValueError(f"Ordner existiert nicht: {folder_path}")
