@@ -3,6 +3,13 @@
 Revision ID: a3df65cc10b1
 Revises: da8d942ad38a
 Create Date: 2026-04-10 14:00:00.000000
+
+B-181 Fix (Cycle 1): Idempotency-Schutz hinzugefügt. Vorher führte die
+Migration das DROP-/RENAME-Muster blind aus, auch wenn die Zielspalte
+bereits DateTime-Typ hatte (Fall: Initial-Migration erstellt Schema neu
+nach B-181-Fix). Jetzt überspringt jede Spalte ihre Konversion sobald der
+deklarierte Typ ``DATETIME`` ist — kein unnötiger Datenverlust durch
+strftime-Round-Trip.
 """
 from typing import Sequence, Union
 from alembic import op
@@ -15,6 +22,25 @@ revision: str = 'a3df65cc10b1'
 down_revision: Union[str, None] = 'da8d942ad38a'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
+
+
+def _column_is_datetime(inspector: sa.engine.reflection.Inspector,
+                         table: str, column: str) -> bool:
+    """True wenn Spalte existiert und der deklarierte Typ DateTime ist.
+
+    SQLite ist typeless, aber speichert den deklarierten Typ-Affinity-String.
+    SQLAlchemy reflektiert ``DATETIME``/``TIMESTAMP`` als ``sa.DateTime``.
+    Eine als String/TEXT deklarierte Spalte wird hingegen als ``sa.Text``
+    oder ``sa.String`` zurückgegeben — der Konversionspfad bleibt dafür
+    aktiv.
+    """
+    try:
+        cols = {c["name"]: c["type"] for c in inspector.get_columns(table)}
+    except Exception:
+        return False
+    if column not in cols:
+        return False
+    return isinstance(cols[column], sa.DateTime)
 
 
 def upgrade() -> None:
@@ -31,6 +57,9 @@ def upgrade() -> None:
     2. Copy and convert data from String to DateTime
     3. Drop old String columns
     4. Rename new columns to original names
+
+    B-181: Idempotent — überspringt Spalten die bereits als DateTime
+    deklariert sind (Fall: frische DB nach Initial-Migration).
     """
     conn = op.get_bind()
 
@@ -39,7 +68,9 @@ def upgrade() -> None:
     existing_tables = set(inspector.get_table_names())
 
     # Migrate ai_pacing_memory.created_at
-    if 'ai_pacing_memory' in existing_tables:
+    if 'ai_pacing_memory' in existing_tables and not _column_is_datetime(
+        inspector, 'ai_pacing_memory', 'created_at'
+    ):
         columns = {c['name'] for c in inspector.get_columns('ai_pacing_memory')}
 
         # Step 1: Add new DateTime column if it doesn't exist
@@ -65,7 +96,9 @@ def upgrade() -> None:
             conn.execute(text('ALTER TABLE ai_pacing_memory RENAME COLUMN created_at_new TO created_at'))
 
     # Migrate agent_feedback.created_at
-    if 'agent_feedback' in existing_tables:
+    if 'agent_feedback' in existing_tables and not _column_is_datetime(
+        inspector, 'agent_feedback', 'created_at'
+    ):
         columns = {c['name'] for c in inspector.get_columns('agent_feedback')}
 
         # Step 1: Add new DateTime column if it doesn't exist
@@ -85,52 +118,55 @@ def upgrade() -> None:
             conn.execute(text('ALTER TABLE agent_feedback DROP COLUMN created_at'))
             conn.execute(text('ALTER TABLE agent_feedback RENAME COLUMN created_at_new TO created_at'))
 
-    # Migrate model_registry.installed_at
+    # Migrate model_registry.installed_at + last_used_at
     if 'model_registry' in existing_tables:
-        columns = {c['name'] for c in inspector.get_columns('model_registry')}
-
-        # Step 1: Add new DateTime column if it doesn't exist
-        if 'installed_at_new' not in columns:
-            op.add_column('model_registry', sa.Column('installed_at_new', sa.DateTime(), nullable=True))
-
-        # Step 2: If old column still exists, copy data and complete migration
-        if 'installed_at' in columns:
+        # installed_at: nur konvertieren wenn noch String
+        if not _column_is_datetime(inspector, 'model_registry', 'installed_at'):
             columns = {c['name'] for c in inspector.get_columns('model_registry')}
 
-            conn.execute(text("""
-                UPDATE model_registry
-                SET installed_at_new = datetime(installed_at)
-                WHERE installed_at IS NOT NULL AND installed_at != ''
-            """))
+            # Step 1: Add new DateTime column if it doesn't exist
+            if 'installed_at_new' not in columns:
+                op.add_column('model_registry', sa.Column('installed_at_new', sa.DateTime(), nullable=True))
 
-            conn.execute(text('ALTER TABLE model_registry DROP COLUMN installed_at'))
-            conn.execute(text('ALTER TABLE model_registry RENAME COLUMN installed_at_new TO installed_at'))
+            # Step 2: If old column still exists, copy data and complete migration
+            if 'installed_at' in columns:
+                columns = {c['name'] for c in inspector.get_columns('model_registry')}
 
-        # Migrate model_registry.last_used_at
-        columns = {c['name'] for c in inspector.get_columns('model_registry')}
+                conn.execute(text("""
+                    UPDATE model_registry
+                    SET installed_at_new = datetime(installed_at)
+                    WHERE installed_at IS NOT NULL AND installed_at != ''
+                """))
 
-        # Step 1: Add new DateTime column if it doesn't exist
-        if 'last_used_at_new' not in columns:
-            op.add_column('model_registry', sa.Column('last_used_at_new', sa.DateTime(), nullable=True))
+                conn.execute(text('ALTER TABLE model_registry DROP COLUMN installed_at'))
+                conn.execute(text('ALTER TABLE model_registry RENAME COLUMN installed_at_new TO installed_at'))
 
-        # Step 2: If old column still exists, copy data and complete migration
-        if 'last_used_at' in columns:
+        # last_used_at: nur konvertieren wenn noch String
+        if not _column_is_datetime(inspector, 'model_registry', 'last_used_at'):
             columns = {c['name'] for c in inspector.get_columns('model_registry')}
 
-            conn.execute(text("""
-                UPDATE model_registry
-                SET last_used_at_new = datetime(last_used_at)
-                WHERE last_used_at IS NOT NULL AND last_used_at != ''
-            """))
+            # Step 1: Add new DateTime column if it doesn't exist
+            if 'last_used_at_new' not in columns:
+                op.add_column('model_registry', sa.Column('last_used_at_new', sa.DateTime(), nullable=True))
 
-            # Drop index on last_used_at before dropping the column
-            conn.execute(text('DROP INDEX IF EXISTS ix_model_registry_last_used'))
+            # Step 2: If old column still exists, copy data and complete migration
+            if 'last_used_at' in columns:
+                columns = {c['name'] for c in inspector.get_columns('model_registry')}
 
-            conn.execute(text('ALTER TABLE model_registry DROP COLUMN last_used_at'))
-            conn.execute(text('ALTER TABLE model_registry RENAME COLUMN last_used_at_new TO last_used_at'))
+                conn.execute(text("""
+                    UPDATE model_registry
+                    SET last_used_at_new = datetime(last_used_at)
+                    WHERE last_used_at IS NOT NULL AND last_used_at != ''
+                """))
 
-            # Recreate the index on the renamed column
-            conn.execute(text('CREATE INDEX IF NOT EXISTS ix_model_registry_last_used ON model_registry(last_used_at)'))
+                # Drop index on last_used_at before dropping the column
+                conn.execute(text('DROP INDEX IF EXISTS ix_model_registry_last_used'))
+
+                conn.execute(text('ALTER TABLE model_registry DROP COLUMN last_used_at'))
+                conn.execute(text('ALTER TABLE model_registry RENAME COLUMN last_used_at_new TO last_used_at'))
+
+                # Recreate the index on the renamed column
+                conn.execute(text('CREATE INDEX IF NOT EXISTS ix_model_registry_last_used ON model_registry(last_used_at)'))
 
 
 def downgrade() -> None:
