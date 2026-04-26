@@ -128,7 +128,8 @@ class ProjectManager(QObject):
 
     def create_project(self, path: Path, name: str,
                        resolution: str = "1920x1080",
-                       fps: float = 30.0) -> Path:
+                       fps: float = 30.0,
+                       task_id: str | None = None) -> Path:
         """Create a new, empty project at *path*.
 
         *path* is the project folder (will be created).  A fresh
@@ -136,6 +137,12 @@ class ProjectManager(QObject):
         sub-directory tree.
 
         Returns the project folder path.
+
+        Args:
+            task_id: B-047 Cycle 13 — der aufrufende Worker reicht hier
+                seine eigene task_id durch, damit ``_wait_for_tasks_idle``
+                den eigenen Task aus dem running-Count exkludiert. Ohne
+                das blockiert der eigene Worker sich selbst.
 
         Raises
         ------
@@ -145,9 +152,10 @@ class ProjectManager(QObject):
             If the target folder already contains a ``pb_studio.db``.
         """
         # B-136: Aktive Wartezeit statt single-shot TOCTOU-Check.
-        # Wartet bis 10s lang dass alle Tasks idle sind; raised wenn
-        # Timeout erreicht ist.
-        if not self._wait_for_tasks_idle(timeout_sec=10.0):
+        # B-047 Cycle 13: exclude_task_id=task_id durchreichen.
+        if not self._wait_for_tasks_idle(
+            timeout_sec=10.0, exclude_task_id=task_id,
+        ):
             raise RuntimeError(
                 "Es laufen noch Hintergrund-Tasks. "
                 "Bitte warte bis alle Tasks beendet sind."
@@ -197,7 +205,7 @@ class ProjectManager(QObject):
         self.project_changed.emit(path)
         return path
 
-    def open_project(self, path: Path) -> dict:
+    def open_project(self, path: Path, task_id: str | None = None) -> dict:
         """Open an existing project at *path*.
 
         Validates that ``pb_studio.db`` exists, reads project meta via raw
@@ -205,6 +213,9 @@ class ProjectManager(QObject):
         and emits ``project_changed``.
 
         Returns a dict with keys ``name``, ``resolution``, ``fps``.
+
+        Args:
+            task_id: B-047 Cycle 13 — siehe create_project.
 
         Raises
         ------
@@ -214,9 +225,10 @@ class ProjectManager(QObject):
             If ``pb_studio.db`` is missing in *path*.
         """
         # B-136: Aktive Wartezeit statt single-shot TOCTOU-Check.
-        # Wartet bis 10s lang dass alle Tasks idle sind; raised wenn
-        # Timeout erreicht ist.
-        if not self._wait_for_tasks_idle(timeout_sec=10.0):
+        # B-047 Cycle 13: exclude_task_id=task_id durchreichen.
+        if not self._wait_for_tasks_idle(
+            timeout_sec=10.0, exclude_task_id=task_id,
+        ):
             raise RuntimeError(
                 "Es laufen noch Hintergrund-Tasks. "
                 "Bitte warte bis alle Tasks beendet sind."
@@ -268,11 +280,14 @@ class ProjectManager(QObject):
         self.project_changed.emit(path)
         return meta
 
-    def save_project_as(self, target_path: Path) -> Path:
+    def save_project_as(self, target_path: Path, task_id: str | None = None) -> Path:
         """Copy the current project to *target_path*.
 
         Copies everything (DB + storage) to the new location, then opens
         the copy as the active project.
+
+        Args:
+            task_id: B-047 Cycle 13 — siehe create_project.
 
         Returns the new project folder path.
 
@@ -282,9 +297,10 @@ class ProjectManager(QObject):
             If background tasks are still running.
         """
         # B-136: Aktive Wartezeit statt single-shot TOCTOU-Check.
-        # Wartet bis 10s lang dass alle Tasks idle sind; raised wenn
-        # Timeout erreicht ist.
-        if not self._wait_for_tasks_idle(timeout_sec=10.0):
+        # B-047 Cycle 13: exclude_task_id=task_id durchreichen.
+        if not self._wait_for_tasks_idle(
+            timeout_sec=10.0, exclude_task_id=task_id,
+        ):
             raise RuntimeError(
                 "Es laufen noch Hintergrund-Tasks. "
                 "Bitte warte bis alle Tasks beendet sind."

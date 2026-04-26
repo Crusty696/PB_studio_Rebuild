@@ -18,7 +18,7 @@ import json
 import logging
 from typing import Any
 
-from PySide6.QtCore import QObject, Qt, Signal, Slot
+from PySide6.QtCore import QObject, Qt, QTimer, Signal, Slot
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -86,6 +86,13 @@ class GraphCockpitTab(QWidget):
         self._channel_cls = _try_import_qwebchannel()
         self._bridge: _CockpitBridge | None = None
         self._channel = None
+        # Cycle 13 BUG-6: Debounce-Timer für _refresh_html — verhindert
+        # rasche setHtml-Aufrufe die die JS-Bridge-Registrierung racy
+        # machen.
+        self._refresh_debounce = QTimer(self)
+        self._refresh_debounce.setSingleShot(True)
+        self._refresh_debounce.setInterval(150)  # 150ms debounce
+        self._refresh_debounce.timeout.connect(self._do_refresh_html)
         self._build_ui()
         self._setup_webchannel()
         self._refresh_html()
@@ -174,6 +181,11 @@ class GraphCockpitTab(QWidget):
     # ── Internals ──────────────────────────────────────────────────────────
 
     def _refresh_html(self) -> None:
+        """Cycle 13 BUG-6: leitet auf debounced refresh um. Mehrfache
+        Klicks auf 'Aktualisieren' in 150ms triggern nur einen setHtml-
+        Aufruf — verhindert race in der JS-QWebChannel-Reinitialisierung.
+        """
+        # Stats sofort aktualisieren (billig)
         stats = self._vm.stats()
         self.stats_label.setText(
             self.tr("Knoten: {n} | Kanten: {e}").format(
@@ -181,6 +193,11 @@ class GraphCockpitTab(QWidget):
             )
         )
         self.statsRefreshed.emit(stats)
+        # setHtml debounced
+        self._refresh_debounce.start()
+
+    def _do_refresh_html(self) -> None:
+        """Macht den eigentlichen setHtml-Aufruf nach dem Debounce."""
         html = self._vm.render_html()
         if self.web_view is not None:
             try:
@@ -208,3 +225,24 @@ class GraphCockpitTab(QWidget):
                 f"({n.get('edge_type', '-')}, w={n.get('weight', 0.0):.3f})"
             )
         self.detail_text.setPlainText("\n".join(lines))
+
+    def closeEvent(self, event):
+        """Cycle 13 BUG-8: Bridge + Channel sauber freigeben um
+        Memory-Leaks bei Tab-Recreate zu vermeiden."""
+        try:
+            if self._channel is not None and self._bridge is not None:
+                try:
+                    self._channel.deregisterObject(self._bridge)
+                except (RuntimeError, TypeError):
+                    pass
+            if self._bridge is not None:
+                try:
+                    self._bridge.deleteLater()
+                except RuntimeError:
+                    pass
+        except Exception as exc:  # broad: cleanup darf nicht crashen
+            logger.debug("GraphCockpitTab cleanup warning: %s", exc)
+        finally:
+            self._bridge = None
+            self._channel = None
+        super().closeEvent(event)
