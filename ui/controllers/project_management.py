@@ -1,9 +1,17 @@
-"""ProjectManagementController — Refactored from ProjectManagementMixin."""
+"""ProjectManagementController — Refactored from ProjectManagementMixin.
+
+Cycle 14 / Option B: Inline-Workers migriert auf workers.base.BaseWorker.
+Vorher 3 ad-hoc QObject-Subklassen mit eigener finished/error-Signal-
+Definition + try/except-Pattern. Jetzt: BaseWorker-Subklassen die nur
+``_do_work()`` überschreiben — error-Handling + format_user_error() im
+BaseWorker zentral.
+"""
 
 import logging
 from pathlib import Path
 from PySide6.QtWidgets import QDialog, QFileDialog, QInputDialog, QMessageBox
 from ui.base_component import PBComponent
+from workers.base import BaseWorker
 
 logger = logging.getLogger(__name__)
 
@@ -20,31 +28,29 @@ class ProjectManagementController(PBComponent):
             return
         vals = dlg.get_values()
         
-        from PySide6.QtCore import QObject, Signal
-        class CreateWorker(QObject):
-            finished = Signal(object)
-            error = Signal(str)
-            def run(self):
-                try:
-                    from services.task_manager import GlobalTaskManager
-                    # Safety check
-                    tm = GlobalTaskManager.instance()
-                    if any(t.status == "running" for t in tm.get_all_tasks() if "Datenbank" not in t.name):
-                        raise RuntimeError("Hintergrund-Tasks laufen noch.")
-                    
-                    path = self.manager.create_project(
-                        path=vals["path"], name=vals["name"],
-                        resolution=vals["resolution"], fps=vals["fps"],
-                        # B-047 Cycle 13: durchreichen damit der eigene
-                        # Worker sich nicht selbst als running zaehlt.
-                        task_id=getattr(self, "task_id", None),
-                    )
-                    self.finished.emit(path)
-                except Exception as e:
-                    self.error.emit(str(e))
+        class CreateWorker(BaseWorker):
+            def __init__(self, manager, vals):
+                super().__init__()
+                self.manager = manager
+                self.vals = vals
 
-        worker = CreateWorker()
-        worker.manager = self.window._project_manager
+            def _do_work(self):
+                from services.task_manager import GlobalTaskManager
+                tm = GlobalTaskManager.instance()
+                # Safety check (zusätzlich zum project_manager-internen Check)
+                if any(
+                    t.status == "running"
+                    for t in tm.get_all_tasks()
+                    if "Datenbank" not in t.name and t.task_id != self.task_id
+                ):
+                    raise RuntimeError("Hintergrund-Tasks laufen noch.")
+                return self.manager.create_project(
+                    path=self.vals["path"], name=self.vals["name"],
+                    resolution=self.vals["resolution"], fps=self.vals["fps"],
+                    task_id=self.task_id,  # B-047 Cycle 13
+                )
+
+        worker = CreateWorker(self.window._project_manager, vals)
         
         def _on_done(path):
             # H-41 fix: Check window still exists before accessing
@@ -71,22 +77,19 @@ class ProjectManagementController(PBComponent):
             return
         path = dlg.get_path()
 
-        from PySide6.QtCore import QObject, Signal
-        class OpenWorker(QObject):
-            finished = Signal(dict)
-            error = Signal(str)
-            def run(self):
-                try:
-                    meta = self.manager.open_project(
-                        path,
-                        task_id=getattr(self, "task_id", None),
-                    )
-                    self.finished.emit(meta)
-                except Exception as e:
-                    self.error.emit(str(e))
+        class OpenWorker(BaseWorker):
+            def __init__(self, manager, target_path):
+                super().__init__()
+                self.manager = manager
+                self.target_path = target_path
 
-        worker = OpenWorker()
-        worker.manager = self.window._project_manager
+            def _do_work(self):
+                return self.manager.open_project(
+                    self.target_path,
+                    task_id=self.task_id,
+                )
+
+        worker = OpenWorker(self.window._project_manager, path)
 
         def _on_done(meta):
             # H-41 fix: Check window still exists before accessing
@@ -115,22 +118,19 @@ class ProjectManagementController(PBComponent):
             return
         target = Path(folder) / name.strip()
 
-        from PySide6.QtCore import QObject, Signal
-        class SaveAsWorker(QObject):
-            finished = Signal(object)
-            error = Signal(str)
-            def run(self):
-                try:
-                    path = self.manager.save_project_as(
-                        target,
-                        task_id=getattr(self, "task_id", None),
-                    )
-                    self.finished.emit(path)
-                except Exception as e:
-                    self.error.emit(str(e))
+        class SaveAsWorker(BaseWorker):
+            def __init__(self, manager, target_path):
+                super().__init__()
+                self.manager = manager
+                self.target_path = target_path
 
-        worker = SaveAsWorker()
-        worker.manager = self.window._project_manager
+            def _do_work(self):
+                return self.manager.save_project_as(
+                    self.target_path,
+                    task_id=self.task_id,
+                )
+
+        worker = SaveAsWorker(self.window._project_manager, target)
 
         def _on_done(path):
             # H-41 fix: Check window still exists before accessing
