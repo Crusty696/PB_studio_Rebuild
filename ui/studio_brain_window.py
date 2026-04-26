@@ -191,8 +191,13 @@ class StudioBrainWindow(QMainWindow):
         # Cycle 11 — Index 4: Pacing-Explorer (Decision-Replay + Verdict-Edit)
         # Session-Factory aus dem BrainService recyclen — beide reden gegen
         # dieselbe DB, kein zweites Pool-Setup nötig.
+        # Cycle 13 BUG-7: nutze public-property statt _session_factory.
         try:
-            session_factory = getattr(self._brain_service, "_session_factory", None)
+            session_factory = getattr(self._brain_service, "session_factory", None)
+            # Backward-Compat: wenn die public-property noch nicht da ist,
+            # lese das (nun als legacy markiert) private Attribut.
+            if session_factory is None:
+                session_factory = getattr(self._brain_service, "_session_factory", None)
         except Exception:  # broad: alte BrainService-Varianten
             session_factory = None
         self._pacing_explorer_tab = PacingDecisionExplorer(

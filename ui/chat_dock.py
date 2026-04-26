@@ -323,6 +323,10 @@ class ChatDock(QDockWidget):
         # B-180: Watchdog 60s — wenn der Worker bis dahin nicht fertig ist,
         # UI wieder freigeben + Fehler zeigen. Schutz gegen Ollama-Hang,
         # Modell-Lazy-Load und tote TaskManager-Queue.
+        # Cycle 13 BUG-5: vorhandenen Watchdog stoppen bevor neuer startet
+        # — sonst kann verspaetetes finished von Worker-1 den Watchdog
+        # von Worker-2 cancellen.
+        self._stop_watchdog()
         self._watchdog_timer = QTimer(self)
         self._watchdog_timer.setSingleShot(True)
         self._watchdog_timer.timeout.connect(self._on_agent_watchdog)

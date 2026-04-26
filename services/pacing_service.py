@@ -820,6 +820,14 @@ def _auto_edit_phase3_inner(
             if _sb_chosen_vid is not None and _sb_chosen_vid in video_info:
                 vid = _sb_chosen_vid
                 source_start = clip_offsets.get(vid, 0.0)
+                # Cycle 13 BUG-4: Intelligent-Looping-Reset nachholen, wenn
+                # Restlaufzeit < seg_duration ist — sonst kommt der globale
+                # Reset (Zeile 851) erst NACH der Wahl und korrigiert
+                # source_start ohne dass die Pipeline-Entscheidung
+                # reflektiert.
+                _vid_dur = video_info[vid].get("duration", 0.0)
+                if _vid_dur - source_start < seg_duration:
+                    source_start = 0.0
                 _clip_idx = (
                     available_ids.index(vid) if vid in available_ids else None
                 )

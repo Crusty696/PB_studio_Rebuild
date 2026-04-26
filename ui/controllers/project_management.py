@@ -34,7 +34,10 @@ class ProjectManagementController(PBComponent):
                     
                     path = self.manager.create_project(
                         path=vals["path"], name=vals["name"],
-                        resolution=vals["resolution"], fps=vals["fps"]
+                        resolution=vals["resolution"], fps=vals["fps"],
+                        # B-047 Cycle 13: durchreichen damit der eigene
+                        # Worker sich nicht selbst als running zaehlt.
+                        task_id=getattr(self, "task_id", None),
                     )
                     self.finished.emit(path)
                 except Exception as e:
@@ -74,7 +77,10 @@ class ProjectManagementController(PBComponent):
             error = Signal(str)
             def run(self):
                 try:
-                    meta = self.manager.open_project(path)
+                    meta = self.manager.open_project(
+                        path,
+                        task_id=getattr(self, "task_id", None),
+                    )
                     self.finished.emit(meta)
                 except Exception as e:
                     self.error.emit(str(e))
@@ -115,7 +121,10 @@ class ProjectManagementController(PBComponent):
             error = Signal(str)
             def run(self):
                 try:
-                    path = self.manager.save_project_as(target)
+                    path = self.manager.save_project_as(
+                        target,
+                        task_id=getattr(self, "task_id", None),
+                    )
                     self.finished.emit(path)
                 except Exception as e:
                     self.error.emit(str(e))

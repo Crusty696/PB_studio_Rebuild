@@ -234,6 +234,15 @@ class BrainService:
             "list_runs_with_story_map_data",
         )
 
+    @property
+    def session_factory(self) -> Callable[[], Any]:
+        """Cycle 13 BUG-7: Public-API für UI-Tabs die ihre eigene Session
+        brauchen (z.B. PacingDecisionExplorer). Vorher griff der Caller
+        auf das private `_session_factory`-Attribut zu — fragil bei
+        Refactor.
+        """
+        return self._session_factory
+
     def invalidate(self) -> None:
         """Clear every per-instance lru_cache on this service.
 
