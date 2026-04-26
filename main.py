@@ -1029,6 +1029,25 @@ def main():
     from database import Base, engine
     Base.metadata.create_all(engine)
 
+    # Cycle 14 Hotfix: Alembic-Migrations SYNCHRON vor PBWindow ausführen.
+    # Vorher lief das nur im StartupCheckWorker async — wenn PBWindow
+    # einen Worker startete der ORM-Queries macht (z.B. media_table
+    # "Medien-DB laden"), konnte dieser schneller sein als die Migration
+    # und mit "no such column" crashen, sobald ein Schema-Change frisch
+    # geadded wurde (z.B. b2c3d4e5f6a7 sub_genre/spectral_hash/
+    # harmonic_tension).
+    try:
+        splash.show_message("Datenbank-Migrationen prüfen...")
+        QApplication.processEvents()
+        from database import init_db as _init_db_sync
+        _init_db_sync()
+    except Exception as _mig_exc:  # broad: Migration darf App-Start nicht killen
+        logger.error(
+            "Alembic-Migrationen beim Start fehlgeschlagen: %s. "
+            "App startet trotzdem; ORM-Queries können crashen.",
+            _mig_exc,
+        )
+
     # P1-FIX: Fenster sofort zeigen, damit der User Feedback hat.
     # Schwere Operationen werden verzögert ausgeführt.
     splash.show_message("Lade Benutzeroberfläche...")
