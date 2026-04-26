@@ -108,9 +108,28 @@ class ActionRegistry:
             )
 
     def unregister(self, name: str) -> bool:
-        """Entfernt eine Aktion. Gibt True zurück wenn sie existierte."""
+        """Entfernt eine Aktion. Gibt True zurück wenn sie existierte.
+
+        Cycle 13 BUG-A2: zugehoerigen _signature_cache-Eintrag mit-droppen,
+        sonst akkumulieren stale handler-Refs ueber unregister/register-Cycles.
+        """
         with self._lock:  # B-132
-            return self._actions.pop(name, None) is not None
+            removed = self._actions.pop(name, None)
+            if removed is not None:
+                _signature_cache.pop(removed.handler, None)
+                return True
+            return False
+
+    @staticmethod
+    def clear_signature_cache() -> None:
+        """Cycle 13 BUG-A1: Test-Helper / periodischer Memory-Cleanup.
+
+        Das module-level _signature_cache wuechst sonst ueber den ganzen
+        App-Lebenszyklus. In Production unkritisch (Anzahl handler ist
+        beschraenkt), aber in Tests die viele ActionRegistry-Instanzen
+        erzeugen kann es lecken.
+        """
+        _signature_cache.clear()
 
     def get(self, name: str) -> ActionDef | None:
         """Gibt die ActionDef zurück oder None."""

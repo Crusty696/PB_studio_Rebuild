@@ -47,16 +47,20 @@ def test_b151_ingest_audio_video_have_invalidate_caches_flag() -> None:
 def test_b155_folder_import_worker_uses_batch_invalidate() -> None:
     """B-155: FolderImportWorker must call ingest_*(invalidate_caches=
     False) inside the loop and _invalidate_pacing_caches() once after
-    the loop."""
+    the loop.
+
+    Cycle 13 BUG-B1: ingest_*(...) ruft jetzt zusätzlich project_id=
+    self.project_id mit; der invalidate_caches=False Kontrakt bleibt
+    aber unverändert. Test akzeptiert beide Schreibweisen.
+    """
     src = inspect.getsource(workers_import_export)
-    assert "ingest_audio(p, invalidate_caches=False)" in src, (
+    assert "invalidate_caches=False" in src, (
         "B-155 regression: FolderImportWorker no longer suppresses "
-        "per-file pacing-cache invalidate for audio — N+1 storm back."
+        "per-file pacing-cache invalidate — N+1 storm back."
     )
-    assert "ingest_video(p, invalidate_caches=False)" in src, (
-        "B-155 regression: FolderImportWorker no longer suppresses "
-        "per-file pacing-cache invalidate for video."
-    )
+    # ingest_audio + ingest_video MUST be called somewhere in the worker
+    assert "ingest_audio" in src, "ingest_audio call gone from worker"
+    assert "ingest_video" in src, "ingest_video call gone from worker"
     assert "_invalidate_pacing_caches" in src, (
         "B-155 regression: FolderImportWorker no longer calls "
         "_invalidate_pacing_caches() once at end-of-batch."

@@ -102,10 +102,27 @@ class FolderImportWorker(QObject, CancellableMixin):
     progress = Signal(int, str)    # (percent, message)
     file_imported = Signal(str)    # Console-Nachricht pro Datei
 
-    def __init__(self, paths_audio: list, paths_video: list):
+    def __init__(
+        self,
+        paths_audio: list,
+        paths_video: list,
+        project_id: int | None = None,
+    ):
+        """Cycle 13 BUG-B1: project_id beim Worker-Start einfangen statt
+        erst pro-File aufloesen. Schutz gegen Projekt-Switch waehrend
+        des Imports — sonst landen die spaeter importierten Files im
+        falschen Projekt.
+        """
         super().__init__()
         self.paths_audio = paths_audio
         self.paths_video = paths_video
+        if project_id is None:
+            try:
+                from database.session import get_active_project_id
+                project_id = get_active_project_id()
+            except (ImportError, AttributeError, RuntimeError):
+                project_id = None
+        self.project_id = project_id
 
     def run(self):
         _ok = False
@@ -120,7 +137,11 @@ class FolderImportWorker(QObject, CancellableMixin):
                 try:
                     # B-155 / B-151: invalidate_caches=False fuer den Loop,
                     # einmal am Ende manuell — vorher: N+1 Cache-Rebuild-Storm.
-                    result = ingest_audio(p, invalidate_caches=False)
+                    result = ingest_audio(
+                        p,
+                        project_id=self.project_id,
+                        invalidate_caches=False,
+                    )
                     name = Path(p).name
                     if result is None:
                         self.file_imported.emit(f"[Warnung] Bereits importiert: {name}")
@@ -143,7 +164,11 @@ class FolderImportWorker(QObject, CancellableMixin):
                 if self.should_stop():
                     break
                 try:
-                    result = ingest_video(p, invalidate_caches=False)
+                    result = ingest_video(
+                        p,
+                        project_id=self.project_id,
+                        invalidate_caches=False,
+                    )
                     name = Path(p).name
                     if result is None:
                         self.file_imported.emit(f"[Warnung] Bereits importiert: {name}")
