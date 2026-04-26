@@ -76,6 +76,13 @@ class AudioTrack(Base):
     key_modulation_data = Column(JSON, nullable=True)   # P1.7-FIX: [{time, key, camelot, confidence}, ...]
     harmonic_tension_curve = Column(JSON, nullable=True)  # P1.7-FIX: [float, ...] Dissonanz pro Zeitschritt
 
+    # Cycle 14 / Option A: Studio-Brain Bridge — Skalar-Spalten für AudioContext.
+    # bridge_mapping.build_audio_context() liest diese Felder direkt; vorher
+    # waren sie alle None weil sie im Schema fehlten (Bug-Hunter BUG-2).
+    sub_genre = Column(String, nullable=True)            # "progressive_psy", "deep_house", ...
+    spectral_hash = Column(String, nullable=True)        # 8-Band-Signatur-Hash für context-fingerprint
+    harmonic_tension = Column(Float, nullable=True)      # Skalar = mean(harmonic_tension_curve), 0..1
+
     # P1-FIX: Lazy loading optimiert für N+1 Query Prevention
     project = relationship("Project", back_populates="audio_tracks", lazy='joined')
     beatgrid = relationship("Beatgrid", back_populates="audio_track", uselist=False, cascade="all, delete-orphan", passive_deletes=True, lazy='joined')

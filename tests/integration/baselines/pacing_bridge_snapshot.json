@@ -9,7 +9,7 @@
       "bpm": 128.0,
       "key": "Am",
       "mood_audio": "energetic",
-      "groove": "fotf"
+      "groove": null
     },
     {
       "section": "drop",
@@ -20,7 +20,7 @@
       "bpm": 128.0,
       "key": "Am",
       "mood_audio": "energetic",
-      "groove": "fotf"
+      "groove": null
     },
     {
       "section": "outro",
@@ -31,7 +31,7 @@
       "bpm": 128.0,
       "key": "Am",
       "mood_audio": "energetic",
-      "groove": "fotf"
+      "groove": null
     }
   ],
   "clips": [

@@ -260,6 +260,35 @@ def calculate_drum_cuts(audio_id: int, total_duration: float = 60.0,
 # Phase 3: AdvancedPacingEngine — Haupt-API
 # ======================================================================
 
+def _select_scene_for_offset(scenes: list, offset_sec: float) -> dict:
+    """Cycle 14 Option A: Wählt die Scene aus die zum aktuellen
+    clip_offset gehört.
+
+    Statt unkonditional ``scenes[0]`` zu nehmen, findet diese Funktion die
+    Scene die ``offset_sec`` enthält. Dadurch reflektieren die Scoring-
+    Features in ``build_clip_features`` (motion_score, role, mood) die
+    tatsächliche Stelle im Clip.
+
+    Args:
+        scenes: Liste von Scene-Dicts mit ``start``/``end``-Keys.
+        offset_sec: Aktueller Playback-Offset im Clip.
+
+    Returns:
+        Erstes passendes Scene-Dict, oder ``scenes[0]`` als Fallback.
+    """
+    if not scenes:
+        return {}
+    for scene in scenes:
+        start = float(scene.get("start", scene.get("start_time", 0.0)))
+        end = float(scene.get("end", scene.get("end_time", 0.0)))
+        if start <= offset_sec < end:
+            return scene
+    # Offset >= ende der letzten Scene → nach Reset (offset=0) wäre die
+    # erste Scene die richtige; vor Reset oft die letzte. Nimm die letzte
+    # weil der globale Reset (Zeile 851) eh auf 0.0 zurücksetzt.
+    return scenes[-1] if offset_sec >= float(scenes[-1].get("end", scenes[-1].get("end_time", 0.0))) else scenes[0]
+
+
 def _make_auto_edit_engine():
     """P7-FIX: Lokale NullPool-Engine fuer auto_edit_phase3.
 
@@ -782,15 +811,19 @@ def _auto_edit_phase3_inner(
                         beats=beats,
                         energy_per_beat=energy_per_beat,
                     )
-                    # Build ClipFeatures-Liste — pro available_id eine Anchor-Scene
-                    # nehmen (oder die erste Scene des Clips).
+                    # Cycle 14 Option A: Build ClipFeatures pro Clip mit der
+                    # Scene die zum aktuellen clip_offsets[vid] passt — nicht
+                    # mehr unkonditional _scenes[0]. Damit reflektieren die
+                    # Scoring-Features (motion_score, role, mood) die tatsächliche
+                    # Stelle im Clip die als Nächstes abgespielt würde.
                     _sb_candidates = []
                     for _vid in available_ids:
                         _scenes = video_info[_vid].get("scenes", [])
                         if not _scenes:
                             continue
-                        # Nehme die erste Scene als Repräsentant
-                        _sc = _scenes[0]
+                        _sc = _select_scene_for_offset(
+                            _scenes, clip_offsets.get(_vid, 0.0),
+                        )
                         # Stub-Scene-Objekt mit den nötigen Feldern
                         _sb_candidates.append(build_clip_features(
                             video_clip_id=_vid,

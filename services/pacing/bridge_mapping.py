@@ -61,8 +61,19 @@ def build_audio_context(
     else:
         energy_val = None
 
-    # Harmonic-Tension aus Energy ableiten (wenn track.harmonic_tension nicht da)
+    # Harmonic-Tension: Cycle 14 Option A — Reihenfolge der Quellen:
+    # 1. Skalar-Spalte audio_track.harmonic_tension (neue Migration b2c3d4e5f6a7)
+    # 2. Curve[beat_idx] aus harmonic_tension_curve
+    # 3. Energy-basierte Heuristik
     track_tension = _safe_attr(audio_track, "harmonic_tension", None)
+    if track_tension is None:
+        tension_curve = _safe_attr(audio_track, "harmonic_tension_curve", None)
+        if tension_curve and energy_list:
+            try:
+                idx_in_curve = min(beat_idx, len(tension_curve) - 1)
+                track_tension = float(tension_curve[idx_in_curve])
+            except (TypeError, IndexError, ValueError):
+                track_tension = None
     if track_tension is not None:
         tension = _clamp01(float(track_tension))
     elif energy_val is not None:
@@ -72,6 +83,14 @@ def build_audio_context(
         tension = None
 
     section_lower = seg_section_type.strip().lower() if seg_section_type else None
+
+    # Cycle 14 Option A: groove_template lebt auf Beatgrid (FK von AudioTrack),
+    # nicht direkt auf AudioTrack. Beatgrid wird via lazy='joined' eager
+    # geladen, also ist .beatgrid.groove_template ohne extra-Query verfügbar.
+    groove_template = None
+    beatgrid = _safe_attr(audio_track, "beatgrid", None)
+    if beatgrid is not None:
+        groove_template = _safe_attr(beatgrid, "groove_template", None)
 
     return AudioContext(
         at_timestamp_sec=float(seg_start_sec),
@@ -87,7 +106,7 @@ def build_audio_context(
         at_genre=_safe_attr(audio_track, "genre", None),
         at_sub_genre=_safe_attr(audio_track, "sub_genre", None),
         at_spectral_hash=_safe_attr(audio_track, "spectral_hash", None),
-        at_groove_template=_safe_attr(audio_track, "groove_template", None),
+        at_groove_template=groove_template,
         at_lufs=_safe_attr(audio_track, "lufs", None),
     )
 

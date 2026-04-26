@@ -26,7 +26,11 @@ class _StubAudioTrack:
         self.genre = kwargs.get("genre", "psytrance")
         self.sub_genre = kwargs.get("sub_genre", "progressive_psy")
         self.lufs = kwargs.get("lufs", -8.5)
-        self.groove_template = kwargs.get("groove_template", "fotf")
+        # Cycle 14 Option A: groove_template lebt jetzt auf beatgrid, nicht
+        # direkt auf audio_track. Dual-Set für Backward-Compat.
+        self.beatgrid = type("_Bg", (), {
+            "groove_template": kwargs.get("groove_template", "fotf"),
+        })()
         self.spectral_hash = kwargs.get("spectral_hash", "hash_drop")
 
 
