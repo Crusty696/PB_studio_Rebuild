@@ -71,6 +71,11 @@ ignore = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# B-183: Stand-alone-Runner-Skripte (test_* Funktionsname, aber per python direkt
+# auszuführen) aus pytest-Collect ausschließen. Header dieser Files dokumentiert
+# expliziten manuellen Aufruf. addopts setzt --ignore-Flags pro Datei, weil
+# collect_ignore nur in conftest.py funktioniert (nicht in pyproject.toml).
+addopts = "--ignore=tests/e2e_functional_test.py --ignore=tests/functional_steer_tab_memory_loop.py --ignore=tests/gui_db_inspector.py --ignore=tests/live_ollama_integration_test.py"
 markers = [
     "gui: marks tests that require a display (deselect with -m 'not gui')",
     "e2e: marks end-to-end tests (deselect with -m 'not e2e')",
