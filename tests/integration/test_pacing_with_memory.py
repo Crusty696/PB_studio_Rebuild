@@ -227,15 +227,16 @@ def _make_pattern_lookup(Session: Any) -> Callable[..., Any]:
     def lookup(*args: Any) -> Any:
         first = args[0]
         if isinstance(first, tuple):
-            # Memory lookup: (fingerprint_tuple, clip_id)
+            # Memory lookup: (fingerprint_tuple, scene_id)
+            # B-182 Fix: scorer übergibt clip.scene_id direkt (B-159);
+            # vorher hat dieser Helper das Argument als clip_id behandelt
+            # und nochmals *10 multipliziert → Lookup ging an scene_id*10
+            # ins Leere und die Lern-Loop war tot.
             fp_tuple: tuple[str | None, ...] = first
-            clip_id: int = int(args[1])
+            scene_id: int = int(args[1])
             genre = fp_tuple[0]
             section_type = fp_tuple[1]
             bpm_str = fp_tuple[2]
-            # PatternAggregator stores target_ref as {"scene_id": scene_id}
-            # ClipFeatures.scene_id == clip_id * 10
-            scene_id = clip_id * 10
             session = Session()
             try:
                 row = (
