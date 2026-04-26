@@ -447,10 +447,18 @@ def test_studio_brain_window_index_0_is_structure_tab(tmp_path: Path) -> None:
     svc = BrainService(session_factory=Session)
     win = StudioBrainWindow.reset_for_test(brain_service=svc)
     try:
-        assert win.count_tabs() == 4
+        # B-184: 6 Tabs seit Cycle 11 / D-023 (Pacing-Explorer + Graph-Cockpit).
+        assert win.count_tabs() == 6
         assert type(win._tabs.widget(0)).__name__ == "StructureTab"
         labels = [win._tabs.tabText(i) for i in range(win.count_tabs())]
-        assert labels == ["Struktur", "Gedächtnis", "Audit", "Steer"]
+        assert labels == [
+            "Struktur",
+            "Gedächtnis",
+            "Audit",
+            "Steer",
+            "Pacing-Explorer",
+            "Graph-Cockpit",
+        ]
     finally:
         win.close()
 

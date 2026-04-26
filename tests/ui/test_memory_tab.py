@@ -544,7 +544,8 @@ def test_studio_brain_window_index_1_is_memory_tab(tmp_path: Path) -> None:
         brain_service=svc, backup_service=backup_svc
     )
     try:
-        assert win.count_tabs() == 4
+        # B-184: 6 Tabs seit Cycle 11 / D-023 (Pacing-Explorer + Graph-Cockpit).
+        assert win.count_tabs() == 6
         assert type(win._tabs.widget(1)).__name__ == "MemoryTab"
         assert win._tabs.tabText(1) == "Gedächtnis"
     finally:

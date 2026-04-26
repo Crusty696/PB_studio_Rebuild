@@ -71,7 +71,8 @@ def test_window_opens_offscreen() -> None:
     _ensure_qapp()
     w = StudioBrainWindow.instance()
     w.show()
-    assert w.count_tabs() == 4
+    # B-184: 6 Tabs seit Cycle 11 / Pacing-v2 / D-023 (Pacing-Explorer + Graph-Cockpit).
+    assert w.count_tabs() == 6
     assert w.windowTitle() == "Studio Brain"
 
 
@@ -82,11 +83,19 @@ def test_singleton_second_open_raises_existing() -> None:
     assert w1 is w2
 
 
-def test_tab_labels_are_four_german_sections() -> None:
+def test_tab_labels_are_six_german_sections() -> None:
+    # B-184: Tabs seit Cycle 11 / D-023 (Pacing-Explorer + Graph-Cockpit ergänzt).
     _ensure_qapp()
     w = StudioBrainWindow.instance()
     labels = [w._tabs.tabText(i) for i in range(w.count_tabs())]
-    assert labels == ["Struktur", "Gedächtnis", "Audit", "Steer"]
+    assert labels == [
+        "Struktur",
+        "Gedächtnis",
+        "Audit",
+        "Steer",
+        "Pacing-Explorer",
+        "Graph-Cockpit",
+    ]
 
 
 def test_brain_service_list_scene_count_returns_int(tmp_path: Path) -> None:
@@ -145,4 +154,5 @@ def test_singleton_resurrects_after_cpp_deletion() -> None:
     w2 = StudioBrainWindow.instance()
     assert shiboken6.isValid(w2)
     assert w2 is not w1
-    assert w2.count_tabs() == 4
+    # B-184: 6 Tabs seit Cycle 11 / Pacing-v2 / D-023.
+    assert w2.count_tabs() == 6
