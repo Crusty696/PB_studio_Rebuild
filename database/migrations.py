@@ -273,6 +273,42 @@ def _migrate_fk_cascade():
                                 restore_error, backup_path)
         raise
     logger.info("FK-CASCADE Migration abgeschlossen — alle Daten erhalten.")
+    # B-191: Backup nach erfolgreicher Migration aufraeumen, sonst Disk-Leak.
+    # Bei mehrmaligem Aufruf ueberschriebe ``shutil.copy2`` zwar denselben
+    # Pfad — aber die Datei blieb im Erfolgsfall fuer immer liegen.
+    _cleanup_fk_migration_backup(backup_path)
+
+
+def _cleanup_fk_migration_backup(backup_path):
+    """B-191: Loescht das FK-Migrations-Backup nach erfolgreicher Migration.
+
+    Wird ausschliesslich am Ende des Erfolgspfads von
+    ``_migrate_fk_cascade()`` aufgerufen. Auf None oder fehlende Datei
+    no-op (idempotent). Im Fehlerfall der Migration bleibt der Backup
+    bewusst stehen, weil der Exception-Pfad ihn fuer Auto-Restore nutzt.
+
+    Wer ein laengeres Recovery-Fenster will, kann vor Migration einen
+    eigenen Cloud-/Git-Backup ziehen — die FK-Migration ist seit B-174
+    gut getestet, sodass ein lokales Sicherheitsnetz nach Erfolg nur
+    Disk verbraucht.
+    """
+    if backup_path is None:
+        return
+    try:
+        if backup_path.exists():
+            size = backup_path.stat().st_size
+            backup_path.unlink()
+            logger.info(
+                "FK-Migration: Backup nach Erfolg geloescht (%d Bytes): %s",
+                size, backup_path,
+            )
+    except OSError as exc:
+        # Disk-Cleanup darf den App-Start nicht killen.
+        logger.warning(
+            "FK-Migration: Backup-Cleanup fehlgeschlagen (%s) — Datei %s "
+            "bleibt liegen, manuelles Aufraeumen empfohlen.",
+            exc, backup_path,
+        )
 
 
 def _run_alembic_migrations():

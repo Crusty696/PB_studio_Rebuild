@@ -999,3 +999,57 @@ class TestSeedDefaultsNoAutoProject:
         assert "StylePreset(" in src, (
             "B-190: Style-Presets muessen weiterhin geseedet werden."
         )
+
+
+# ---------------------------------------------------------------------------
+# B-191: FK-Migration-Backup wird nach Erfolg aufgeraeumt
+# ---------------------------------------------------------------------------
+
+class TestFkMigrationBackupCleanup:
+    """B-191: Frueher blieb das ``*.backup_before_fk_migration``-File
+    nach erfolgreicher FK-Migration permanent im Filesystem liegen
+    (Disk-Leak). Diese Tests fixieren das neue Cleanup-Verhalten.
+    """
+
+    def test_cleanup_helper_removes_existing_backup(self, tmp_path):
+        from database.migrations import _cleanup_fk_migration_backup
+
+        backup = tmp_path / "pb_studio.db.backup_before_fk_migration"
+        backup.write_bytes(b"\x53\x51\x4c\x69\x74\x65")  # "SQLite"-magic stub
+        assert backup.exists()
+
+        _cleanup_fk_migration_backup(backup)
+
+        assert not backup.exists(), (
+            "B-191: _cleanup_fk_migration_backup muss die Backup-Datei "
+            "loeschen."
+        )
+
+    def test_cleanup_helper_idempotent_on_missing_file(self, tmp_path):
+        from database.migrations import _cleanup_fk_migration_backup
+
+        ghost = tmp_path / "does_not_exist.backup_before_fk_migration"
+        # Kein Crash erwartet — fehlende Datei darf den App-Start nicht killen.
+        _cleanup_fk_migration_backup(ghost)
+        _cleanup_fk_migration_backup(None)
+
+    def test_cleanup_helper_called_on_success_path(self):
+        """Source-Inspection: Der Erfolgs-Logger
+        ``"FK-CASCADE Migration abgeschlossen"`` muss vom
+        ``_cleanup_fk_migration_backup``-Aufruf gefolgt werden, sonst
+        leakt das Backup wieder.
+        """
+        import inspect as _inspect
+
+        from database import migrations as _mig
+
+        src = _inspect.getsource(_mig._migrate_fk_cascade)
+        success_marker = 'FK-CASCADE Migration abgeschlossen'
+        cleanup_marker = '_cleanup_fk_migration_backup(backup_path)'
+        success_idx = src.find(success_marker)
+        cleanup_idx = src.find(cleanup_marker)
+        assert success_idx > 0, "Erfolgs-Logger nicht gefunden"
+        assert cleanup_idx > success_idx, (
+            "B-191: _cleanup_fk_migration_backup muss nach dem Erfolgs-"
+            "Logger im Erfolgs-Pfad aufgerufen werden."
+        )
