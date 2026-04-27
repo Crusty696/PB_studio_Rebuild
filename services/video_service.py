@@ -43,6 +43,59 @@ def _proxy_dir() -> Path:
     return _session.APP_ROOT / "storage" / "proxies"
 
 
+# B-219: WinError 32 ("Datei wird von anderem Prozess verwendet") tritt auf,
+# wenn Pipeline-Worker gerade eine cv2.VideoCapture released hat oder ein
+# FFmpeg-Subprocess gerade beendet wurde — der Windows-Kernel braucht
+# einige ms, bis der File-Handle wirklich frei ist. Auch Antivirus/
+# Search-Indexer halten Files kurz nach Schreiben offen. Retry-mit-Backoff
+# ist die Standard-Loesung. Auf Linux/macOS no-op (keine Share-Locks).
+import time as _time_for_retry
+
+
+def _is_windows_file_lock_error(exc: BaseException) -> bool:
+    """Detect WinError 32 (sharing-violation) — Windows-only file lock."""
+    if not isinstance(exc, OSError):
+        return False
+    # Windows: PermissionError mit winerror==32 (ERROR_SHARING_VIOLATION).
+    winerr = getattr(exc, "winerror", None)
+    return winerr == 32 or getattr(exc, "errno", None) == 13  # EACCES als Fallback
+
+
+def _retry_on_file_lock(
+    operation: str,
+    func,
+    *args,
+    attempts: int = 5,
+    base_delay_s: float = 0.1,
+    **kwargs,
+):
+    """Ruft `func(*args, **kwargs)` mit Retry auf WinError 32.
+
+    Backoff: 100ms, 200ms, 400ms, 800ms, 1600ms (sum ~3.1s). Wenn nach
+    `attempts` Versuchen weiterhin Lock: re-raise. Bei nicht-lock-OSError
+    sofort durchlassen (kein Retry, kein Verstecken).
+    """
+    last_exc: BaseException | None = None
+    for i in range(attempts):
+        try:
+            return func(*args, **kwargs)
+        except OSError as exc:
+            if not _is_windows_file_lock_error(exc):
+                raise
+            last_exc = exc
+            if i == attempts - 1:
+                break
+            delay = base_delay_s * (2 ** i)
+            logger.warning(
+                "B-219 Retry %d/%d nach WinError 32 fuer %s (warte %.0fms): %s",
+                i + 1, attempts, operation, delay * 1000, exc,
+            )
+            _time_for_retry.sleep(delay)
+    # Alle Retries erschoepft.
+    assert last_exc is not None
+    raise last_exc
+
+
 def _sanitize_ffmpeg_error(stderr: str, max_lines: int = 3) -> str:
     """Sanitize FFmpeg stderr for safe error messages."""
     if not stderr:
@@ -133,11 +186,48 @@ class VideoAnalyzer:
         # oeffnen.
         proxy_lock = _get_proxy_lock(str(proxy_path.resolve()))
         with proxy_lock:
-            if proxy_path.exists() and proxy_path.stat().st_size > 0:
-                return str(proxy_path.resolve())
-            elif proxy_path.exists():
-                logger.info(f"[VideoAnalyzer] WARNUNG: 0-Byte Proxy gefunden, wird neu erstellt: {proxy_path}")
-                proxy_path.unlink(missing_ok=True)
+            # B-219: stat() + unlink() koennen mit WinError 32 fehlschlagen,
+            # wenn Pipeline-Worker den Handle gerade noch hält (cv2.release
+            # ist auf Windows nicht-instantan, FFmpeg-Subprocess flush, AV-
+            # Scanner). Retry-mit-Backoff loest das transient.
+            def _stat_safe():
+                return proxy_path.stat()
+            try:
+                if proxy_path.exists():
+                    info = _retry_on_file_lock("proxy stat", _stat_safe)
+                    if info.st_size > 0:
+                        return str(proxy_path.resolve())
+                    # 0-byte proxy: muss unlink'd werden um neu zu erstellen.
+                    logger.info(
+                        "[VideoAnalyzer] WARNUNG: 0-Byte Proxy gefunden, wird neu erstellt: %s",
+                        proxy_path,
+                    )
+                    _retry_on_file_lock(
+                        "proxy unlink (0-byte)",
+                        proxy_path.unlink, missing_ok=True,
+                    )
+            except OSError as exc:
+                if _is_windows_file_lock_error(exc):
+                    # Endgueltig blockiert: Datei ist auch nach Retries gelockt.
+                    # Best effort: gib den vorhandenen Pfad zurueck wenn er
+                    # nicht-leer ist; sonst raise als FFmpegError.
+                    if proxy_path.exists():
+                        try:
+                            if proxy_path.stat().st_size > 0:
+                                logger.warning(
+                                    "B-219: Proxy %s persistent gelockt, aber size>0 — "
+                                    "verwende vorhandenen Proxy.", proxy_path,
+                                )
+                                return str(proxy_path.resolve())
+                        except OSError:
+                            pass
+                    raise FFmpegError(
+                        f"Proxy-Datei dauerhaft gelockt von anderem Prozess "
+                        f"(Antivirus/Indexer?): {proxy_path}",
+                        returncode=-1,
+                        stderr=str(exc),
+                    ) from exc
+                raise
 
             cmd = [
                 _FFMPEG, "-y", "-i", file_path,
@@ -180,14 +270,29 @@ class VideoAnalyzer:
                         pass
                 if _time.monotonic() - start > FFMPEG_RENDER_TIMEOUT_SEC:
                     proc.kill()
-                    proxy_path.unlink(missing_ok=True)
+                    # B-219: unlink kann mit WinError 32 failen wenn FFmpeg
+                    # den Handle noch nicht freigegeben hat. Retry.
+                    try:
+                        _retry_on_file_lock(
+                            "proxy unlink (timeout)",
+                            proxy_path.unlink, missing_ok=True,
+                        )
+                    except OSError:
+                        pass  # Best effort — Timeout ist eh schon der Fehler.
                     raise subprocess.TimeoutExpired(cmd, FFMPEG_RENDER_TIMEOUT_SEC)
                 _time.sleep(0.5)
 
             stdout, stderr = proc.communicate()
 
             if cancelled:
-                proxy_path.unlink(missing_ok=True)
+                # B-219: gleiches Pattern, retry-with-backoff
+                try:
+                    _retry_on_file_lock(
+                        "proxy unlink (cancel)",
+                        proxy_path.unlink, missing_ok=True,
+                    )
+                except OSError:
+                    pass
                 raise RuntimeError("Proxy-Erstellung abgebrochen (User-Cancel)")
 
             if proc.returncode != 0:
@@ -202,7 +307,14 @@ class VideoAnalyzer:
             if not proxy_path.exists() or proxy_path.stat().st_size == 0:
                 logger.info(f"[VideoAnalyzer] FFmpeg lief durch (rc=0), aber Proxy ist 0 Bytes oder fehlt!")
                 logger.info(f"[VideoAnalyzer] stderr: {_sanitize_ffmpeg_error(stderr)}")
-                proxy_path.unlink(missing_ok=True)
+                # B-219: retry-on-lock — gleiches Problem.
+                try:
+                    _retry_on_file_lock(
+                        "proxy unlink (0-byte after ffmpeg)",
+                        proxy_path.unlink, missing_ok=True,
+                    )
+                except OSError:
+                    pass
                 raise FFmpegError(
                     f"Proxy ist 0 Bytes. FFmpeg stderr: {_sanitize_ffmpeg_error(stderr)}",
                     returncode=0,
