@@ -437,10 +437,18 @@ class TimelineEntry(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    # B-187 / D-028: ``track`` ist ein App-Layer-Discriminator-Whitelist
+    # ("audio" | "video"). DB validiert die Whitelist NICHT — Konsumenten
+    # muessen das tun. Test-Riegel:
+    # tests/test_database.py::TestPolymorphicMediaIdAppLayerInvariants
     track = Column(String, nullable=False)          # "audio" oder "video"
-    # M-39 LIMITATION: media_id has no FK constraint because it's polymorphic (AudioTrack OR VideoClip)
-    # LOW-17 AUDIT: No FK on media_id — referential integrity is enforced at the application layer.
-    # TODO: Redesign with audio_track_id + video_clip_id nullable FKs + CHECK constraint
+    # B-187 / D-028: ``media_id`` zeigt polymorph auf ``audio_tracks.id``
+    # (wenn track == "audio") ODER ``video_clips.id`` (wenn track == "video").
+    # Bewusst KEIN ForeignKey, weil SQL keine Disjunktiv-FKs kennt.
+    # Referential Integrity wird im App-Layer durchgesetzt (siehe D-028).
+    # Bei Hard-Delete des Ziel-Tracks bleibt diese Zeile als Orphan zurueck;
+    # Konsumenten muessen via Lookup (z. B. ``ui/timeline.py``) Tot-Eintraege
+    # filtern.
     media_id = Column(Integer, nullable=False)       # AudioTrack.id oder VideoClip.id
     start_time = Column(Float, nullable=False, default=0.0)
     end_time = Column(Float, nullable=True)
@@ -478,7 +486,15 @@ class AnalysisStatus(Base):
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
+    # B-188 / D-028: Polymorpher Discriminator analog zu ``TimelineEntry.track``.
+    # Whitelist {"audio", "video"} wird im App-Layer durchgesetzt, nicht in der
+    # DB. Test-Riegel: tests/test_database.py::TestPolymorphicMediaIdAppLayerInvariants.
     media_type = Column(String, nullable=False)              # "video" | "audio"
+    # B-188 / D-028: Polymorpher Pointer ohne SQL-FK. Zeigt auf
+    # ``audio_tracks.id`` (media_type == "audio") oder ``video_clips.id``
+    # (media_type == "video"). Bei Hard-Delete des Ziel-Tracks bleibt der
+    # ``analysis_status``-Eintrag als Orphan zurueck — Konsumenten (UI-
+    # Dashboard, Worker-Dispatch) muessen tot-gestempelte Ziele auffangen.
     media_id = Column(Integer, nullable=False)               # FK to video_clips.id or audio_tracks.id
     step_key = Column(String, nullable=False)                # "scene_detection", "bpm_detection", etc.
     status = Column(String, nullable=False, default="pending")  # "pending" | "running" | "done" | "error"

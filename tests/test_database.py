@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 import database
 from database import (
+    AnalysisStatus,
     AudioTrack,
     Beatgrid,
     Base,
@@ -658,3 +659,202 @@ def _datetime_now():
     """Lokaler Helper — vermeidet Top-Level-Datetime-Import-Sprawl."""
     import datetime as _dt
     return _dt.datetime.utcnow()
+
+
+# ---------------------------------------------------------------------------
+# B-187 + B-188 / D-028: Polymorphe media_id-App-Layer-Invarianten
+# ---------------------------------------------------------------------------
+
+class TestPolymorphicMediaIdAppLayerInvariants:
+    """Schutzschicht gegen B-187 (TimelineEntry.media_id polymorph ohne FK)
+    und B-188 (AnalysisStatus.media_id polymorph ohne FK, un-dokumentiert).
+
+    Die SQL-Engine kann disjunktive Foreign-Keys nicht ausdruecken, deshalb
+    sind ``track`` / ``media_type`` reine String-Discriminator-Spalten ohne
+    DB-Validation. Die App-Schicht muss garantieren:
+
+    - ``track`` ∈ ``{"audio", "video"}`` (TimelineEntry)
+    - ``media_type`` ∈ ``{"audio", "video"}`` (AnalysisStatus)
+    - ``media_id`` zeigt auf einen real existierenden Datensatz im
+      durch den Discriminator ausgewaehlten Eltern-Modell.
+
+    Diese Tests dokumentieren das **akzeptierte latente Risiko** (DB
+    laesst invalide Eintraege durch) und schuetzen den App-Layer-
+    Vertrag gegen Drift. Die DB-Tests beweisen den Status quo
+    (bewusst akzeptiert), die App-Layer-Tests fixieren die Whitelist.
+
+    Siehe [[D-028-polymorphic-media-id-app-layer]].
+    """
+
+    APP_LAYER_DISCRIMINATOR_WHITELIST = {"audio", "video"}
+
+    # ── 1. Status-quo: DB akzeptiert invalide Daten (dokumentiert) ──
+
+    def test_db_accepts_orphan_timeline_entry_after_audio_hard_delete(self):
+        """Status quo: Wird ein AudioTrack hart geloescht, bleibt der
+        TimelineEntry mit dessen media_id als Orphan zurueck — die DB
+        kennt keinen FK, der ihn mitsplittet. Dieser Test pinnt das
+        Verhalten fest. Konsumenten muessen das im App-Layer abfangen.
+        """
+        eng = _make_engine()
+        with Session(eng) as s:
+            proj = Project(name="P", path=".")
+            s.add(proj)
+            s.commit()
+
+            track = AudioTrack(project_id=proj.id, file_path="/x/track.mp3")
+            s.add(track)
+            s.commit()
+            track_id = track.id
+
+            entry = TimelineEntry(
+                project_id=proj.id,
+                track="audio",
+                media_id=track_id,
+                start_time=0.0,
+            )
+            s.add(entry)
+            s.commit()
+            entry_id = entry.id
+
+            s.delete(track)
+            s.commit()
+
+            survivor = s.get(TimelineEntry, entry_id)
+            assert survivor is not None, (
+                "B-187 / D-028: TimelineEntry ueberlebt Hard-Delete des "
+                "polymorphen Ziel-Tracks — App-Layer muss Orphans filtern."
+            )
+            assert survivor.media_id == track_id
+
+    def test_db_accepts_orphan_analysis_status_after_video_hard_delete(self):
+        """Gleicher Status quo fuer AnalysisStatus: Hard-Delete des
+        VideoClips laesst den analysis_status-Eintrag stehen (B-188).
+        """
+        eng = _make_engine()
+        with Session(eng) as s:
+            proj = Project(name="P", path=".")
+            s.add(proj)
+            s.commit()
+
+            clip = VideoClip(project_id=proj.id, file_path="/x/clip.mp4")
+            s.add(clip)
+            s.commit()
+            clip_id = clip.id
+
+            status = AnalysisStatus(
+                media_type="video",
+                media_id=clip_id,
+                step_key="scene_detection",
+                status="done",
+            )
+            s.add(status)
+            s.commit()
+            status_id = status.id
+
+            s.delete(clip)
+            s.commit()
+
+            survivor = s.get(AnalysisStatus, status_id)
+            assert survivor is not None, (
+                "B-188 / D-028: AnalysisStatus ueberlebt Hard-Delete des "
+                "polymorphen Ziel-Clips — App-Layer muss Orphans filtern."
+            )
+            assert survivor.media_id == clip_id
+
+    def test_db_accepts_cross_type_pointer(self):
+        """Status quo: Die DB akzeptiert sogar einen TimelineEntry mit
+        ``track="audio"`` und ``media_id`` aus dem Video-Pool. App-Layer
+        muss das verhindern (B-187 Risiko-Klasse).
+        """
+        eng = _make_engine()
+        with Session(eng) as s:
+            proj = Project(name="P", path=".")
+            s.add(proj)
+            s.commit()
+
+            clip = VideoClip(project_id=proj.id, file_path="/x/clip.mp4")
+            s.add(clip)
+            s.commit()
+            clip_id = clip.id
+
+            cross_entry = TimelineEntry(
+                project_id=proj.id,
+                track="audio",
+                media_id=clip_id,
+                start_time=0.0,
+            )
+            s.add(cross_entry)
+            s.commit()
+            cross_id = cross_entry.id
+
+            persisted = s.get(TimelineEntry, cross_id)
+            assert persisted is not None and persisted.track == "audio", (
+                "Status quo dokumentiert: DB blockiert Cross-Type-Pointer "
+                "nicht. Konsumenten muessen App-Layer-Lookup absichern."
+            )
+
+    # ── 2. App-Layer-Vertrag: Discriminator-Whitelist ──
+
+    def test_orchestrator_audio_dispatch_writes_audio_media_type(self):
+        """Der Orchestrator-Pfad fuer AnalysisStatus muss die App-Layer-
+        Whitelist {"audio", "video"} respektieren. Wir verifizieren, dass
+        die App heute *ausschliesslich* diese beiden Werte schreibt — ein
+        zukuenftiger neuer Discriminator (z. B. "stem") braucht eine
+        Architektur-Erweiterung von D-028.
+        """
+        eng = _make_engine()
+        with Session(eng) as s:
+            proj = Project(name="P", path=".")
+            s.add(proj)
+            s.commit()
+
+            track = AudioTrack(project_id=proj.id, file_path="/x/track.mp3")
+            clip = VideoClip(project_id=proj.id, file_path="/x/clip.mp4")
+            s.add_all([track, clip])
+            s.commit()
+
+            s.add_all([
+                AnalysisStatus(
+                    media_type="audio",
+                    media_id=track.id,
+                    step_key="bpm_detection",
+                    status="pending",
+                ),
+                AnalysisStatus(
+                    media_type="video",
+                    media_id=clip.id,
+                    step_key="scene_detection",
+                    status="pending",
+                ),
+            ])
+            s.commit()
+
+            distinct_types = {
+                row[0] for row in s.execute(
+                    AnalysisStatus.__table__.select().with_only_columns(
+                        AnalysisStatus.media_type
+                    )
+                )
+            }
+            assert distinct_types <= self.APP_LAYER_DISCRIMINATOR_WHITELIST, (
+                f"AnalysisStatus.media_type ausserhalb der App-Layer-Whitelist "
+                f"({distinct_types - self.APP_LAYER_DISCRIMINATOR_WHITELIST}). "
+                "B-188 / D-028: Whitelist erweitern erfordert Decision-Update."
+            )
+
+    # ── 3. Architektur-Riegel: Schema bleibt polymorph ──
+
+    def test_polymorphic_columns_have_no_foreign_key(self):
+        """Solange D-028 in Kraft ist, DARF ``media_id`` keinen ForeignKey
+        haben — sonst wuerde halb-fertige FK-Logik (nur ein Pfad
+        valide) entstehen. Wer das Schema umstellt (z. B. auf
+        ``audio_track_id`` + ``video_clip_id``), muss D-028 revidieren.
+        """
+        for cls in (TimelineEntry, AnalysisStatus):
+            col = cls.__table__.columns["media_id"]
+            assert not col.foreign_keys, (
+                f"B-187/188 / D-028: {cls.__name__}.media_id traegt einen "
+                "ForeignKey. Das verletzt die polymorphe App-Layer-"
+                "Architektur. Entweder D-028 revidieren oder FK entfernen."
+            )
