@@ -15,6 +15,18 @@ import os
 import sys
 from pathlib import Path
 
+# B-215: OpenMP/MKL Doppel-Init-Schutz. Conda's intel-openmp (libiomp5md.dll)
+# kollidiert mit Windows' vcomp140.dll wenn beide initialisiert werden →
+# /GS-Stack-Guard schlaegt zu (STATUS_STACK_BUFFER_OVERRUN, exit -1073740791).
+# KMP_DUPLICATE_LIB_OK=TRUE ist der offizielle Intel-OpenMP-Workaround;
+# OMP_NUM_THREADS limitiert die Thread-Spawns auf einen sinnvollen Wert,
+# damit nicht 16+ OpenMP-Threads + Qt-Eventloop-Threads gleichzeitig
+# Native-Locks anfechten. MUSS vor dem ersten torch/numpy-Import gesetzt
+# werden — daher hier ganz oben.
+os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
+os.environ.setdefault("OMP_NUM_THREADS", "4")
+os.environ.setdefault("MKL_NUM_THREADS", "4")
+
 # Diagnostik: faulthandler aktivieren — bei nativen Crashes (SIGSEGV) und
 # bei kontrolliertem Stack-Dump auf SIGBREAK (Ctrl+Pause auf Windows)
 # wird ein Python-Stacktrace nach stderr geschrieben. Hilft bei der
@@ -57,12 +69,35 @@ def _find_nv_driver_dir() -> str | None:
     return str(candidates[0]) if candidates else None
 
 _NV_DRIVER = _find_nv_driver_dir()
-# .venv310 bevorzugen (Python 3.10 + CUDA 11.3), Fallback .venv
-_VENV310_TORCH = _APP_ROOT / ".venv310" / "Lib" / "site-packages" / "torch" / "lib"
-_VENV_TORCH = _APP_ROOT / ".venv" / "Lib" / "site-packages" / "torch" / "lib"
-_VENV_DLLS = str(_VENV310_TORCH if _VENV310_TORCH.exists() else _VENV_TORCH)
 
-_DLL_DIRS = [_VENV_DLLS]
+# B-215: Torch-DLL-Pfad MUSS aus dem aktuell laufenden Python-Interpreter
+# kommen — NICHT hardcoded auf .venv310. Wenn der User via Conda-Env startet
+# (Migration 2026-04-27, siehe wiki/synthesis/cycle-21-conda-migration), aber
+# main.py legacy `.venv310/Lib/site-packages/torch/lib` an PATH klebt,
+# laden Windows' DLL-Loader unterschiedliche torch-DLLs als die, die der
+# Python-Interpreter aus seinem site-packages importiert — Resultat:
+# Heap-Korruption beim ersten echten Workload (RAFT/SigLIP), STATUS_STACK_
+# BUFFER_OVERRUN (exit -1073740791).
+def _detect_torch_dll_dir() -> str | None:
+    """Findet das torch/lib-Verzeichnis des AKTUELLEN Interpreters."""
+    try:
+        # sys.prefix ist die env-Root (conda env oder venv).
+        cand = Path(sys.prefix) / "Lib" / "site-packages" / "torch" / "lib"
+        if cand.exists():
+            return str(cand)
+        # POSIX-Fallback (sollte unter Windows nicht greifen)
+        cand_unix = Path(sys.prefix) / "lib" / "python3.10" / "site-packages" / "torch" / "lib"
+        if cand_unix.exists():
+            return str(cand_unix)
+    except Exception:
+        pass
+    return None
+
+_VENV_DLLS = _detect_torch_dll_dir()
+
+_DLL_DIRS: list[str] = []
+if _VENV_DLLS:
+    _DLL_DIRS.append(_VENV_DLLS)
 if _NV_DRIVER:
     _DLL_DIRS.insert(0, _NV_DRIVER)
 

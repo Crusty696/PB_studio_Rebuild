@@ -11,6 +11,14 @@ cd /d "%~dp0"
 :: NVIDIA GTX 1060 Fix: Lazy Loading fuer CUDA Module
 set CUDA_MODULE_LOADING=LAZY
 
+:: B-215 Fix: OpenMP/MKL Doppel-Init verhindern.
+:: Conda's intel-openmp (libiomp5md.dll) + Windows' vcomp140.dll = /GS-Stack-
+:: Guard schlaegt zu (STATUS_STACK_BUFFER_OVERRUN, exit -1073740791) beim
+:: zweiten Modell-Load (typisch: SigLIP geladen, dann RAFT crasht).
+set KMP_DUPLICATE_LIB_OK=TRUE
+set OMP_NUM_THREADS=4
+set MKL_NUM_THREADS=4
+
 :: Python-Auswahl: conda-env "pb-studio" bevorzugt (Migrations-Ziel
 :: ab 2026-04-27, siehe wiki/synthesis/cycle-21-conda-migration-*.md).
 :: Fallbacks: .venv310 (alt, Python 3.10 + CUDA 11.3) und .venv
