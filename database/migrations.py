@@ -9,7 +9,7 @@ from sqlalchemy.schema import CreateTable
 from database import session as _session  # B-189: lazy APP_ROOT-Lookup nach set_project()
 from database.session import engine, get_raw_engine, nullpool_session
 from database.models import (
-    Base, Project, StylePreset,
+    Base, StylePreset,
 )
 
 
@@ -527,7 +527,25 @@ def _run_legacy_migrations():
 
 
 def _seed_defaults():
-    """Insert default style presets and project if missing."""
+    """Seed *immutable* defaults that the App relies on for first-run UX.
+
+    B-190: Frueher legte diese Funktion zusaetzlich ein
+    ``Project(name="Default", path=".")``-Stub-Projekt an, das
+    ``services/project_manager.py`` beim naechsten ``create_project()``
+    wieder hart loeschte. Diese versteckte Kopplung produzierte:
+    - relative ``path="."``-Mued-Datensaetze in frischen DBs
+    - Tests, die dem Auto-Seed nicht trauten und ihr eigenes Default-
+      Projekt anlegten (siehe
+      ``tests/test_services/test_ingest_service.py``)
+    - Code-Smell in ``project_manager.create_project()`` (musste alle
+      Projekte loeschen, bevor er das User-Projekt anlegte).
+
+    Style-Presets bleiben als Bootstrap-Daten erhalten, weil sie
+    immutable sind und vom Pacing-Workflow bei jedem Start erwartet
+    werden. Konsumenten muessen ``database.session.get_active_project_id()``
+    weiter None-tolerant lesen — das war bereits durch H9-FIX
+    dokumentiert.
+    """
     insp = inspect(get_raw_engine())
 
     with nullpool_session() as session:
@@ -546,10 +564,10 @@ def _seed_defaults():
             session.add_all(defaults)
             # M7-FIX: Kein expliziter commit() — __exit__ macht auto-commit
 
-    with nullpool_session() as session:
-        if not session.query(Project).first():
-            session.add(Project(name="Default", path=".", resolution="1920x1080", fps=30.0))
-            # M7-FIX: Kein expliziter commit() — __exit__ macht auto-commit
+    # B-190: Kein Auto-Default-Project mehr. Erste Projekt-Anlage erfolgt
+    # ueber ``services/project_manager.create_project()``; bis dahin liefert
+    # ``get_active_project_id()`` korrekt ``None`` (H9-FIX) und Caller
+    # fallen auf den Empty-State zurueck.
 
 
 def init_db():

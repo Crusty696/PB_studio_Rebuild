@@ -929,3 +929,73 @@ class TestSetProjectAppRootRebinding:
             )
         finally:
             _ses.APP_ROOT = original
+
+
+# ---------------------------------------------------------------------------
+# B-190: Kein Auto-Default-Project mehr in _seed_defaults
+# ---------------------------------------------------------------------------
+
+class TestSeedDefaultsNoAutoProject:
+    """Schutzschicht gegen B-190: Frueher legte ``_seed_defaults`` ein
+    ``Project(name="Default", path=".")``-Stub an, das
+    ``services/project_manager.create_project()`` direkt wieder loeschte.
+    Diese Tests fixieren den neuen Status quo:
+
+    - ``_seed_defaults`` legt **kein** Default-Project mehr an.
+    - Style-Presets werden weiter geseedet (immutable Bootstrap-Daten).
+    - ``project_manager.create_project()`` enthaelt keinen
+      Cleanup-Loop mehr, der bestehende Projekte hart loescht.
+    """
+
+    def test_seed_defaults_source_does_not_insert_default_project(self):
+        """B-190: ``_seed_defaults`` darf keinen ``Project(...)``-Konstruktor
+        mehr aufrufen. Der historische Pfad ``Project(name="Default",
+        path=".", ...)`` ist verboten.
+        """
+        import inspect as _inspect
+
+        from database import migrations as _mig
+
+        src = _inspect.getsource(_mig._seed_defaults)
+        # Nur Code-Pfad pruefen, keine Docstring-Begruendung. Code-Zeilen
+        # erkennt man an fuehrendem Whitespace + ``session.add(Project(``.
+        code_lines = [
+            ln for ln in src.splitlines()
+            if "session.add(Project(" in ln
+        ]
+        assert code_lines == [], (
+            "B-190: _seed_defaults() darf keine Project-Inserts mehr "
+            f"ausfuehren — gefundene Zeilen: {code_lines}"
+        )
+
+    def test_project_manager_does_not_hard_delete_projects_on_create(self):
+        """B-190: ``project_manager.create_project()`` darf keinen
+        Cleanup-Loop mehr fahren, der alle bestehenden Projekte
+        hart-loescht. Frueher war das noetig, um das Auto-Default-
+        Project zu entfernen — jetzt wuerde es echte User-Projekte
+        killen.
+        """
+        import inspect as _inspect
+
+        from services import project_manager as _pm
+
+        src = _inspect.getsource(_pm)
+        forbidden = "session.delete(p)"
+        assert forbidden not in src, (
+            "B-190: project_manager.py enthaelt noch einen Project-"
+            "Hard-Delete-Loop. Das ist seit Entfernung des Auto-Default-"
+            "Projects unnoetig und zerstoert User-Daten."
+        )
+
+    def test_style_presets_still_seeded(self):
+        """B-190: Style-Presets bleiben Bootstrap-Daten — Pacing-Workflow
+        verlaesst sich darauf.
+        """
+        import inspect as _inspect
+
+        from database import migrations as _mig
+
+        src = _inspect.getsource(_mig._seed_defaults)
+        assert "StylePreset(" in src, (
+            "B-190: Style-Presets muessen weiterhin geseedet werden."
+        )

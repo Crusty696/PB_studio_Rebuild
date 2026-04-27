@@ -182,13 +182,15 @@ class ProjectManager(QObject):
         database.set_project(path)
         database.init_db()  # idempotent — re-erstellt fehlende Tabellen
 
-        # Write project metadata (via ORM — engine already points to new DB)
+        # B-190: Auto-Seed-Default-Project entfaellt; wir fuegen einfach
+        # das User-Projekt ein. Frueher loeschte diese Stelle alle
+        # bestehenden Projekte (genau das ``Default``-Stub-Project, das
+        # ``database.migrations._seed_defaults`` erzeugt hatte). Da der
+        # Seed weg ist, ist der Cleanup-Loop unnoetig — und wuerde sogar
+        # echte User-Projekte killen, falls jemand doppelt aufruft.
         from database import Project, engine
         from sqlalchemy.orm import Session as _Ses
         with _Ses(engine) as session:
-            # Remove the auto-created "Default" project and insert ours
-            for p in session.query(Project).filter(Project.deleted_at.is_(None)).all():
-                session.delete(p)
             session.add(Project(
                 name=name,
                 path=str(path),
