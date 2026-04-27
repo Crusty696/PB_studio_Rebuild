@@ -51,19 +51,28 @@ _BODY_TEXT = (
     "⚠ GPU im Standby-Modus\n"
     "\n"
     "Deine NVIDIA GTX 1060 ist gerade nicht verfuegbar.\n"
-    "Windows hat sie als „sicher entfernbar“ markiert.\n"
+    "Windows hat sie als „sicher entfernbar“ markiert\n"
+    "(Code 47 — typisch nach Sleep/Andocken auf SB2).\n"
     "\n"
-    "Empfohlen: Computer einmal neu starten.\n"
-    "Reboot loest diesen Zustand fast immer auf.\n"
+    "Zwei sichere Wege:\n"
     "\n"
-    "WICHTIG: Speichere zuerst alle offenen Programme\n"
-    "(Word, Browser, …) — PB Studio startet den\n"
-    "Computer NICHT automatisch. Du machst den Reboot\n"
-    "selbst ueber Start → Power → Neu starten.\n"
+    "  A)  Computer neu starten (zuverlaessig)\n"
+    "      Speichere zuerst alle offenen Programme\n"
+    "      (Word, Browser, …) — PB Studio startet den\n"
+    "      Computer NICHT automatisch.\n"
+    "\n"
+    "  B)  Tablet vom Keyboard abnehmen + wieder\n"
+    "      ansetzen + im Geraete-Manager F5 druecken\n"
+    "      (Surface Book 2 spezifisch — oft erfolgreich,\n"
+    "       kein Reboot).\n"
+    "\n"
+    "Vorbeugend (einmalig, danach seltener):\n"
+    "  scripts\\sb2_gpu_setup.ps1  — setzt PCIe-Power-\n"
+    "  Settings + zeigt Optimus-Anleitung.\n"
     "\n"
     "⛔ Bitte NICHT: GPU im Geraete-Manager\n"
     "   deaktivieren/aktivieren — kann zu einem\n"
-    "   Bluescreen fuehren."
+    "   Bluescreen fuehren (siehe B-098)."
 )
 
 
@@ -117,9 +126,10 @@ class GpuRecoveryDialog(QDialog):
         body_layout.addWidget(body)
 
         hint = QLabel(
-            "Tipp: 1) Andere Programme speichern  2) PB Studio beenden  "
-            "3) Computer ueber Start-Menue neu starten  "
-            "4) PB Studio neu oeffnen — GPU ist dann wieder da."
+            "Tipp Reboot: 1) Programme speichern  2) PB Studio beenden  "
+            "3) Start → Power → Neu starten  4) PB Studio wieder oeffnen.   "
+            "Tipp Detach: Tablet vom Keyboard loesen, ~3s halten, wieder "
+            "ansetzen, Geraete-Manager (Win+X → M) → F5."
         )
         hint.setWordWrap(True)
         hint.setStyleSheet(
