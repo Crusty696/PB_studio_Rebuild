@@ -1307,11 +1307,16 @@ def main():
     try:
         from services.startup_checks import check_nvidia_gpu_state
         _gpu_state, _gpu_msg = check_nvidia_gpu_state()
-        if _gpu_state == "held_for_eject":
-            logger.warning("GPU im Code-47-State erkannt: %s", _gpu_msg)
+        # B-220: Recovery-Dialog jetzt auch bei "failed_post_start" (Code 10),
+        # nicht nur bei "held_for_eject" (Code 47). Beide entstehen auf SB2
+        # nach Andocken/Sleep — beide brauchen Reboot oder Tablet-Detach.
+        if _gpu_state in ("held_for_eject", "failed_post_start"):
+            logger.warning(
+                "GPU-Stuck-State erkannt (%s): %s", _gpu_state, _gpu_msg,
+            )
             from ui.dialogs.gpu_recovery_dialog import GpuRecoveryDialog
             splash.hide()
-            _dlg = GpuRecoveryDialog()
+            _dlg = GpuRecoveryDialog(problem_kind=_gpu_state)
             _dlg.exec()
             _choice = _dlg.choice()
             if _choice == "cancel":
@@ -1325,6 +1330,12 @@ def main():
             # "cpu_fallback": PB_STUDIO_FORCE_CPU is set, continue startup.
             splash.show()
             QApplication.processEvents()
+        elif _gpu_state == "other_error":
+            # Unbekannter Fehler-Code — log, aber nicht blockieren.
+            logger.warning(
+                "Unbekannter GPU-Error-Code: %s — App startet im CPU-Fallback.",
+                _gpu_msg,
+            )
     except SystemExit:
         raise
     except Exception as exc:  # pragma: no cover - diagnostic path

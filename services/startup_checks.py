@@ -18,7 +18,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
-GpuPnpState = Literal["ok", "held_for_eject", "absent", "other_error"]
+GpuPnpState = Literal[
+    "ok",
+    "held_for_eject",   # Code 47 — CM_PROB_HELD_FOR_EJECT
+    "failed_post_start",  # Code 10 — CM_PROB_FAILED_POST_START (B-220)
+    "absent",
+    "other_error",
+]
 
 from services.timeout_constants import (
     STARTUP_DISK_CHECK_TIMEOUT_SEC,
@@ -518,6 +524,21 @@ def check_nvidia_gpu_state() -> tuple[GpuPnpState, str | None]:
                 "Deine NVIDIA-GPU wurde von Windows als 'sicher entfernbar' "
                 "markiert (Code 47, CM_PROB_HELD_FOR_EJECT). Ein Neustart "
                 "(reboot / neu starten) loest diesen Zustand fast immer auf."
+            ),
+        )
+
+    # B-220: Code 10 (CM_PROB_FAILED_POST_START) — Treiber konnte das Geraet
+    # nach Andocken/Resume nicht initialisieren. Auf Surface Book 2 nach
+    # Andocken/Abdocken haeufig. Recovery analog Code 47:
+    # Reboot ODER Tablet-Detach+Reattach.
+    if 10 in codes:
+        return (
+            "failed_post_start",
+            (
+                "Deine NVIDIA-GPU konnte nicht starten (Code 10, "
+                "CM_PROB_FAILED_POST_START). Auf Surface Book 2 typischerweise "
+                "nach Andocken/Abdocken — der Treiber hat die Re-Init nicht "
+                "geschafft. Tablet-Detach+Reattach oder Reboot loest das."
             ),
         )
 

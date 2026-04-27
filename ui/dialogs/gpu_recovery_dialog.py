@@ -47,12 +47,25 @@ logger = logging.getLogger(__name__)
 
 UserChoice = Literal["restart", "cpu_fallback", "cancel"]
 
-_BODY_TEXT = (
+_BODY_HELD_FOR_EJECT = (
     "⚠ GPU im Standby-Modus\n"
     "\n"
     "Deine NVIDIA GTX 1060 ist gerade nicht verfuegbar.\n"
     "Windows hat sie als „sicher entfernbar“ markiert\n"
-    "(Code 47 — typisch nach Sleep/Andocken auf SB2).\n"
+    "(Code 47 — typisch nach Sleep/Andocken auf SB2)."
+)
+
+_BODY_FAILED_POST_START = (
+    "⚠ GPU konnte nicht starten\n"
+    "\n"
+    "Deine NVIDIA GTX 1060 hat die Treiber-Initialisierung\n"
+    "nicht geschafft (Code 10, CM_PROB_FAILED_POST_START).\n"
+    "Auf Surface Book 2 typisch nach Andocken/Abdocken —\n"
+    "der Treiber 461.40 (Microsoft-locked) verkraftet den\n"
+    "PCIe-Re-Init nicht zuverlaessig (B-220)."
+)
+
+_BODY_FOOTER = (
     "\n"
     "Zwei sichere Wege:\n"
     "\n"
@@ -75,13 +88,29 @@ _BODY_TEXT = (
     "   Bluescreen fuehren (siehe B-098)."
 )
 
+# Backwards-compat: bisheriger Default ist Code 47.
+_BODY_TEXT = _BODY_HELD_FOR_EJECT + _BODY_FOOTER
+
 
 class GpuRecoveryDialog(QDialog):
-    """Friendly dialog explaining Code-47 (held_for_eject) and offering recovery."""
+    """Friendly dialog explaining GPU stuck-states (Code 47/10) and offering recovery.
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    B-220: Wenn ``problem_kind="failed_post_start"`` (Code 10), wird ein
+    angepasster Body angezeigt. Default bleibt Code 47 (held_for_eject).
+    """
+
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        problem_kind: str = "held_for_eject",
+    ) -> None:
         super().__init__(parent)
-        self.setWindowTitle("GPU im Standby-Modus")
+        if problem_kind == "failed_post_start":
+            self.setWindowTitle("GPU-Treiber konnte nicht starten")
+            self._body_main = _BODY_FAILED_POST_START
+        else:
+            self.setWindowTitle("GPU im Standby-Modus")
+            self._body_main = _BODY_HELD_FOR_EJECT
         self.setModal(True)
         self.setMinimumWidth(520)
         self.setStyleSheet(f"background-color: {BG1};")
@@ -101,7 +130,7 @@ class GpuRecoveryDialog(QDialog):
         header.setStyleSheet(f"background: {BG0}; border-bottom: 1px solid {BG3};")
         hdr = QHBoxLayout(header)
         hdr.setContentsMargins(20, 0, 16, 0)
-        title = QLabel("GPU im Standby-Modus")
+        title = QLabel(self.windowTitle())
         title.setStyleSheet(
             f"font-size: 16px; font-weight: 700; color: {WARN}; background: transparent;"
         )
@@ -116,7 +145,7 @@ class GpuRecoveryDialog(QDialog):
         body_layout.setContentsMargins(24, 20, 24, 18)
         body_layout.setSpacing(12)
 
-        body = QLabel(_BODY_TEXT)
+        body = QLabel(self._body_main + _BODY_FOOTER)
         body.setWordWrap(True)
         body.setTextFormat(Qt.TextFormat.PlainText)
         body.setStyleSheet(
