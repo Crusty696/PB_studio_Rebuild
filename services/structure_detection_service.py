@@ -1009,15 +1009,22 @@ class StructureDetectionService:
 
     def save_to_db(self, audio_track_id: int, result: StructureResult,
                    max_retries: int = 5):
-        """Speichert erkannte Segmente in die DB mit Retry bei DB-Lock."""
+        """Speichert erkannte Segmente in die DB mit Retry bei DB-Lock.
+
+        B-065: ``engine.dispose()`` aus Retry-Loop entfernt — schloss
+        zuvor ALLE Pool-Connections (auch parallele Worker), nicht nur
+        die eigene. NullPool-Sessions brauchen den globalen Pool-Reset
+        ohnehin nicht. Reproduziert K11-Fix in audio_analysis.py.
+        """
         import time as _time
-        from database import engine, StructureSegment, nullpool_session
+        from database import StructureSegment, nullpool_session
         from sqlalchemy.exc import OperationalError
 
         for attempt in range(max_retries):
             try:
                 if attempt > 0:
-                    engine.dispose()
+                    # B-065: kein engine.dispose() — wuerde Cross-Worker
+                    # Connection-Kaskade ausloesen.
                     _time.sleep(1)
 
                 with nullpool_session() as session:

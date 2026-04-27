@@ -273,14 +273,25 @@ class OrchestratorAgent(BaseAgent):
         }
 
     def _get_imported_ids(self) -> dict[str, list[int]]:
-        """Holt alle importierten Audio-Track- und Video-Clip-IDs aus der Datenbank."""
-        try:
-            from sqlalchemy.orm import Session
-            from database import engine, AudioTrack, VideoClip
+        """Holt alle importierten Audio-Track- und Video-Clip-IDs aus der Datenbank.
 
-            with Session(engine) as session:
-                audio_ids = [t.id for t in session.query(AudioTrack).filter(AudioTrack.deleted_at.is_(None)).all()]
-                video_ids = [c.id for c in session.query(VideoClip).filter(VideoClip.deleted_at.is_(None)).all()]
+        B-083 Fix: Tuple-Query statt ORM-Hydration. Frueher hydrierten zwei
+        Full-Table-Scans bis zu 5000+5000 ORM-Objekte mit allen
+        ``lazy='joined'``-Relationships (B-090) — fuer eine reine
+        ID-Liste. Jetzt nur SELECT id, kein Hydrate.
+        """
+        try:
+            from database import nullpool_session, AudioTrack, VideoClip
+
+            with nullpool_session() as session:
+                audio_ids = [
+                    row[0] for row in session.query(AudioTrack.id)
+                    .filter(AudioTrack.deleted_at.is_(None)).all()
+                ]
+                video_ids = [
+                    row[0] for row in session.query(VideoClip.id)
+                    .filter(VideoClip.deleted_at.is_(None)).all()
+                ]
 
             return {"audio_track_ids": audio_ids, "video_clip_ids": video_ids}
         except Exception as e:  # broad catch intentional — SQLAlchemy query can raise many error types

@@ -497,11 +497,16 @@ class SpectralAnalysisService:
             dynamic_range = self._compute_crest_factor(y)
 
             # 5. Band-spezifische Event-Erkennung (Sub-Bass + Brilliance)
+            # B-067 Fix: Events MERGEN statt ueberschreiben — frueher gingen
+            # generelle Drops/Buildups aus analyze() verloren, sobald
+            # _detect_events_band_specific irgendetwas zurueckgab.
             band_events = self._detect_events_band_specific(
                 power_spec, sr, HOP_LENGTH, N_FFT, bpm, len(y) / sr
             )
             if band_events:
-                spectral.events = band_events
+                combined = list(spectral.events) + list(band_events)
+                combined.sort(key=lambda e: e.time)
+                spectral.events = self._deduplicate_events(combined, min_distance=2.0)
 
             # 6. Genre-Referenz-Matching (Kosinus-Aehnlichkeit)
             genre_matches = self._match_genre_references(spectral.bands)

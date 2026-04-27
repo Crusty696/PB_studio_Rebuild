@@ -19,7 +19,24 @@ from thefuzz import fuzz, process
 logger = logging.getLogger(__name__)
 
 # Minimaler Score (0-100) für Fuzzy-Matching. Darunter wird keine Aktion akzeptiert.
-FUZZY_THRESHOLD = 55
+# B-081: Threshold von 55 auf 85 angehoben — 55% liess "delete_videos"
+# auf "delete_all_media" durchrutschen (Datenverlust-Risiko bei
+# LLM-Halluzinationen). 85% bedeutet quasi-exact Match.
+FUZZY_THRESHOLD = 85
+
+# B-081: Destruktive Aktionen duerfen NIEMALS per Fuzzy-Match getroffen
+# werden, ausser bei Score >= 95% (quasi-Tippfehler-Toleranz). Whitelist
+# ist explizit, damit neu hinzugefuegte gefaehrliche Actions hier
+# eingetragen werden muessen.
+DESTRUCTIVE_ACTIONS: frozenset[str] = frozenset({
+    "delete_all_media",
+    "delete_selected_media",
+    "clear_all_media",
+    "delete_project",
+    "delete_video_clip",
+    "delete_audio_track",
+})
+DESTRUCTIVE_FUZZY_THRESHOLD = 95
 
 # L-17 FIX: Cache for inspect.signature results to avoid repeated calls
 _signature_cache: dict[Callable, Any] = {}
@@ -180,6 +197,15 @@ class ActionRegistry:
             # 2. Fuzzy-Matching (RLock erlaubt reentry)
             matched_name, score = self.fuzzy_match(name)
             if matched_name is not None:
+                # B-081: Destruktive Actions brauchen 95%+ Score, sonst
+                # ist das Risiko eines Mis-Routes (Datenverlust) zu hoch.
+                if matched_name in DESTRUCTIVE_ACTIONS and score < DESTRUCTIVE_FUZZY_THRESHOLD:
+                    logger.warning(
+                        "B-081: REFUSED fuzzy-match '%s' -> destruktive Aktion '%s' "
+                        "(Score %d%% < %d%%). User muss exakten Namen liefern.",
+                        name, matched_name, score, DESTRUCTIVE_FUZZY_THRESHOLD,
+                    )
+                    return None
                 logger.warning(
                     "Fuzzy-Match: '%s' → '%s' (Score: %d%%)",
                     name, matched_name, score,

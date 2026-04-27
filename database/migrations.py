@@ -609,30 +609,76 @@ def _seed_defaults():
 def init_db():
     """Initialise the database schema and seed defaults.
 
-    Migration strategy:
-    1. Ensure tables exist via create_all() (backward compat safety net)
-    2. Run legacy hand-written migrations (idempotent ALTER/INDEX for old DBs)
-    3. Run Alembic migrations (stamps baseline on legacy DBs, applies deltas)
-    4. Seed default data (style presets, default project)
+    B-091 Fix: Klare Migrations-Strategie ohne Alembic/create_all-Kollision.
+
+    - Fresh-DB (keine Tabellen): create_all() + Alembic stamp head.
+      Alembic-Migrations laufen NICHT, weil das Schema bereits aktuell ist.
+    - Existing-DB ohne alembic_version: legacy als Bring-up auf Baseline,
+      dann stamp baseline, dann Alembic upgrade head.
+    - Existing-DB mit alembic_version: nur Alembic upgrade head.
     """
-    # Safety net: create_all() ensures tables exist even if Alembic has issues
-    Base.metadata.create_all(engine)
+    from sqlalchemy import inspect
+    from alembic import command
 
-    # Legacy migrations bring old schemas up to baseline
-    _run_legacy_migrations()
+    raw_engine = engine
+    insp = inspect(raw_engine)
+    existing_tables = set(insp.get_table_names())
+    is_fresh = len(existing_tables) == 0
+    has_alembic_table = "alembic_version" in existing_tables
 
-    # Alembic takes over for versioned migrations going forward
-    try:
-        _run_alembic_migrations()
-    except Exception as e:  # broad catch intentional — Alembic errors must not block app startup
-        logger.error("Alembic-Migration fehlgeschlagen (App startet trotzdem): %s", e)
-        # VAD-83 FIX: Dispose engine to release any write-locked connections
-        # left by a failed Alembic migration (e.g., CREATE TABLE on existing table).
-        # Without this, subsequent ORM sessions may hit "database is locked".
+    alembic_cfg = _alembic_config()
+
+    if is_fresh:
+        # Fresh-DB: alle Tabellen aus den Models, dann Alembic-Head stempeln.
+        # Kein _run_alembic_migrations() noetig — create_all hat bereits den
+        # Head-State produziert.
+        Base.metadata.create_all(engine)
         try:
-            engine.dispose()
-        except Exception:
-            pass
+            command.stamp(alembic_cfg, "head")
+            logger.info("init_db(): Fresh-DB initialisiert + Alembic-Head gestempelt.")
+        except Exception as e:  # broad catch intentional — stamp ist optional
+            logger.warning("Alembic-Stamp auf Fresh-DB fehlgeschlagen: %s", e)
+    else:
+        # Existing-DB: Legacy-Migrations bringen aelteres Schema auf Baseline-Stand.
+        # Danach Alembic-Migrations fuer alle nachfolgenden Schema-Aenderungen.
+        Base.metadata.create_all(engine)  # Safety-Net fuer fehlende Tabellen
+        _run_legacy_migrations()
+        try:
+            if not has_alembic_table:
+                # Erste Alembic-Begegnung — als Baseline stempeln,
+                # dann auf Head upgraden.
+                command.stamp(alembic_cfg, "beb242bcd1fb")
+                logger.info("init_db(): alembic_version-Tabelle als Baseline gestempelt.")
+            _run_alembic_migrations()
+        except Exception as e:  # broad catch intentional — Alembic errors must not block app startup
+            logger.critical(
+                "Alembic-Migration fehlgeschlagen (App startet trotzdem mit alter Schema-Version): %s",
+                e,
+            )
+            # VAD-83 FIX: Dispose engine to release any write-locked connections
+            # left by a failed Alembic migration (e.g., CREATE TABLE on existing table).
+            try:
+                engine.dispose()
+            except Exception:
+                pass
 
     # Seed default data
     _seed_defaults()
+
+
+def _alembic_config():
+    """Build Alembic Config object zentral fuer init_db + _run_alembic_migrations."""
+    from alembic.config import Config
+
+    alembic_ini = _REPO_ROOT / "alembic.ini"
+    if alembic_ini.exists():
+        cfg = Config(str(alembic_ini))
+    else:
+        cfg = Config()
+    cfg.set_main_option(
+        "script_location", str(_REPO_ROOT / "database" / "alembic")
+    )
+    cfg.set_main_option(
+        "sqlalchemy.url", str(engine.url)
+    )
+    return cfg

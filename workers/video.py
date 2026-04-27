@@ -40,6 +40,7 @@ class VideoAnalysisWorker(QObject, CancellableMixin):
             result = self.analyzer.analyze_and_store(
                 self.clip_id,
                 progress_cb=lambda pct, msg: self.progress.emit(pct, f"{self.title}: {msg}"),
+                should_stop=self.should_stop,  # B-070: Cancel-Propagation
             )
             self.progress.emit(100, f"Analyse fertig: {self.title}")
             self.finished.emit(self.clip_id, result)
@@ -87,7 +88,10 @@ class VideoBatchAnalysisWorker(QObject, CancellableMixin):
                     f"[{idx}/{total}] {title}..."
                 )
                 try:
-                    result = analyzer.analyze_and_store(clip_id)
+                    result = analyzer.analyze_and_store(
+                        clip_id,
+                        should_stop=self.should_stop,  # B-070: Cancel-Propagation
+                    )
                     done += 1
                     if result:
                         info = (f"{result.get('width', '?')}x{result.get('height', '?')} "

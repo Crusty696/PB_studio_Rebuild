@@ -136,6 +136,18 @@ class LocalAgentService:
             self._use_ollama = None  # Auto-detect
         self._ollama_client = None  # Lazy init
 
+        # B-082: Caches fuer System-Prompt-Bestandteile, damit nicht jeder
+        # User-Turn 2 DB-Queries + 5000-Row-Hydrate triggert. TTLs:
+        #  - base (Registry-Schema): bis Process-Ende, Registry-Aenderung
+        #    aendert ihn nur durch Reboot.
+        #  - media_context: 30s — kurz nach Ingest neu zu laden ist gewuenscht.
+        #  - few_shots: 300s — Feedback-Listen aendern sich selten.
+        self._sysprompt_base_cache: str | None = None
+        self._sysprompt_media_cache: str | None = None
+        self._sysprompt_media_ts: float = 0.0
+        self._sysprompt_few_shots_cache: str | None = None
+        self._sysprompt_few_shots_ts: float = 0.0
+
     def health_check(self) -> dict[str, Any]:
         """Schneller Boot-Time-Status-Check für die UI.
 
@@ -472,32 +484,68 @@ class LocalAgentService:
         return self._use_ollama is True and self._ollama_model is not None
 
     def _build_system_prompt(self, user_query: str = "") -> str:
-        """Baut den System-Prompt mit Aktionen + Medien-Kontext + Knowledge-Base + Few-Shots."""
-        base = SYSTEM_PROMPT_TEMPLATE.format(
-            actions_json=self.registry.get_schema_for_prompt()
-        )
+        """Baut den System-Prompt mit Aktionen + Medien-Kontext + Knowledge-Base + Few-Shots.
 
-        # --- Context Injection: Dem LLM die importierten Medien mitteilen ---
-        media_context = self._build_media_context()
-        if media_context:
-            base += "\n\n" + media_context
+        B-082 Fix: Schritte mit DB-/IO-Last sind jetzt gecached:
+        - base (Registry-Schema): persistent bis Process-Ende
+        - media_context: TTL 30s (oder per invalidate_media_context)
+        - few_shots (Feedback-DB-Query): TTL 300s
+        Knowledge-Context bleibt query-spezifisch und wird bei jedem Call
+        neu gebaut.
+        """
+        import time as _time
 
-        # --- Knowledge-Base Injection: Domain-Wissen kontextbasiert laden ---
+        with self._lock:
+            if self._sysprompt_base_cache is None:
+                self._sysprompt_base_cache = SYSTEM_PROMPT_TEMPLATE.format(
+                    actions_json=self.registry.get_schema_for_prompt()
+                )
+            now = _time.monotonic()
+            if (self._sysprompt_media_cache is None
+                    or (now - self._sysprompt_media_ts) > 30.0):
+                self._sysprompt_media_cache = self._build_media_context()
+                self._sysprompt_media_ts = now
+            if (self._sysprompt_few_shots_cache is None
+                    or (now - self._sysprompt_few_shots_ts) > 300.0):
+                self._sysprompt_few_shots_cache = self._get_positive_few_shots(limit=3)
+                self._sysprompt_few_shots_ts = now
+
+            parts: list[str] = [self._sysprompt_base_cache]
+            if self._sysprompt_media_cache:
+                parts.append(self._sysprompt_media_cache)
+
+        # Knowledge-Context ausserhalb des Locks (File-IO, query-spezifisch)
         try:
             from services.knowledge_loader import get_knowledge_loader
             loader = get_knowledge_loader()
             knowledge_context = loader.build_context(query=user_query)
             if knowledge_context:
-                base += "\n\n" + knowledge_context
+                parts.append(knowledge_context)
         except (ImportError, ValueError, RuntimeError, OSError) as e:
             logger.debug("Knowledge-Base konnte nicht geladen werden: %s", e)
 
-        # --- AP-5: Auto-Prompt-Optimization — Few-Shot aus positivem Feedback ---
-        few_shots = self._get_positive_few_shots(limit=3)
-        if few_shots:
-            base += "\n\n" + few_shots
+        with self._lock:
+            if self._sysprompt_few_shots_cache:
+                parts.append(self._sysprompt_few_shots_cache)
 
-        return base
+        return "\n\n".join(parts)
+
+    def invalidate_system_prompt_cache(self, kind: str = "all") -> None:
+        """B-082: Cache-Invalidation Hook.
+
+        ``kind`` ist eines von ``"all"``, ``"media"``, ``"few_shots"``,
+        ``"base"``. Wird z.B. von Ingest-/Feedback-Workflows aufgerufen,
+        damit der naechste LLM-Call den frischen Stand sieht.
+        """
+        with self._lock:
+            if kind in ("all", "media"):
+                self._sysprompt_media_cache = None
+                self._sysprompt_media_ts = 0.0
+            if kind in ("all", "few_shots"):
+                self._sysprompt_few_shots_cache = None
+                self._sysprompt_few_shots_ts = 0.0
+            if kind in ("all", "base"):
+                self._sysprompt_base_cache = None
 
     @staticmethod
     def _build_media_context() -> str:

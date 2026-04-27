@@ -23,8 +23,14 @@ def test_b117_batch_convert_uses_popen_or_cancel_aware_run() -> None:
     a short enough timeout that mid-segment cancel is bounded.
     Heuristic: subprocess.run with original FFMPEG_EXPORT_TIMEOUT_SEC
     is too long; we expect either Popen + cancel-watchdog OR a
-    short_per_segment timeout."""
+    short_per_segment timeout.
+
+    B-057-Update: run() ist jetzt GPU_EXECUTION_LOCK-Wrapper +
+    delegiert an _run_locked. Daher gemeinsamen Source pruefen.
+    """
     src = inspect.getsource(BatchConvertWorker.run)
+    if hasattr(BatchConvertWorker, "_run_locked"):
+        src += "\n" + inspect.getsource(BatchConvertWorker._run_locked)
 
     # Acceptable: Popen path
     if "Popen(" in src and "cancel" in src.lower():

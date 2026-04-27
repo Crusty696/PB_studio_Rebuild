@@ -111,8 +111,16 @@ class VideoAnalyzer:
             "duration": round(duration, 2),
         }
 
-    def create_proxy(self, file_path: str, target_height: int = 480, progress_cb=None) -> str:
-        """Erstellt ein Proxy-Video mit reduzierter Auflösung."""
+    def create_proxy(self, file_path: str, target_height: int = 480, progress_cb=None,
+                     should_stop=None) -> str:
+        """Erstellt ein Proxy-Video mit reduzierter Auflösung.
+
+        B-070 Fix: ``should_stop`` Callback wird in einer Poll-Loop ueber
+        ``Popen.poll`` regelmaessig abgefragt; bei True wird ffmpeg
+        terminiert/killed und ``RuntimeError("Proxy-Erstellung abgebrochen")``
+        geworfen. Frueher blockierte ``subprocess.run`` bis zu 5 min trotz
+        User-Cancel.
+        """
         if progress_cb:
             progress_cb(0, "Proxy-Erstellung vorbereiten...")
         pd = _proxy_dir()
@@ -143,32 +151,70 @@ class VideoAnalyzer:
                 kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
             if progress_cb:
                 progress_cb(20, "FFmpeg Proxy-Encoding...")
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=FFMPEG_RENDER_TIMEOUT_SEC,
-                                    stdin=subprocess.DEVNULL, **kwargs)
-            if result.returncode != 0:
-                logger.info(f"[VideoAnalyzer] FFmpeg FEHLER (rc={result.returncode}):")
-                logger.info(f"[VideoAnalyzer] stderr: {_sanitize_ffmpeg_error(result.stderr)}")
+
+            import time as _time
+            proc = subprocess.Popen(
+                cmd,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                **kwargs,
+            )
+            start = _time.monotonic()
+            cancelled = False
+            while proc.poll() is None:
+                if should_stop is not None:
+                    try:
+                        if should_stop():
+                            cancelled = True
+                            proc.terminate()
+                            try:
+                                proc.wait(timeout=2.0)
+                            except subprocess.TimeoutExpired:
+                                proc.kill()
+                            break
+                    except Exception:
+                        pass
+                if _time.monotonic() - start > FFMPEG_RENDER_TIMEOUT_SEC:
+                    proc.kill()
+                    proxy_path.unlink(missing_ok=True)
+                    raise subprocess.TimeoutExpired(cmd, FFMPEG_RENDER_TIMEOUT_SEC)
+                _time.sleep(0.5)
+
+            stdout, stderr = proc.communicate()
+
+            if cancelled:
+                proxy_path.unlink(missing_ok=True)
+                raise RuntimeError("Proxy-Erstellung abgebrochen (User-Cancel)")
+
+            if proc.returncode != 0:
+                logger.info(f"[VideoAnalyzer] FFmpeg FEHLER (rc={proc.returncode}):")
+                logger.info(f"[VideoAnalyzer] stderr: {_sanitize_ffmpeg_error(stderr)}")
                 raise FFmpegError(
-                    f"Proxy-Erstellung fehlgeschlagen: {_sanitize_ffmpeg_error(result.stderr)}",
-                    returncode=result.returncode,
-                    stderr=result.stderr,
+                    f"Proxy-Erstellung fehlgeschlagen: {_sanitize_ffmpeg_error(stderr)}",
+                    returncode=proc.returncode,
+                    stderr=stderr,
                 )
 
             if not proxy_path.exists() or proxy_path.stat().st_size == 0:
                 logger.info(f"[VideoAnalyzer] FFmpeg lief durch (rc=0), aber Proxy ist 0 Bytes oder fehlt!")
-                logger.info(f"[VideoAnalyzer] stderr: {_sanitize_ffmpeg_error(result.stderr)}")
+                logger.info(f"[VideoAnalyzer] stderr: {_sanitize_ffmpeg_error(stderr)}")
                 proxy_path.unlink(missing_ok=True)
                 raise FFmpegError(
-                    f"Proxy ist 0 Bytes. FFmpeg stderr: {_sanitize_ffmpeg_error(result.stderr)}",
+                    f"Proxy ist 0 Bytes. FFmpeg stderr: {_sanitize_ffmpeg_error(stderr)}",
                     returncode=0,
-                    stderr=result.stderr,
+                    stderr=stderr,
                 )
 
             if progress_cb:
                 progress_cb(100, "Proxy fertig")
             return str(proxy_path.resolve())
 
-    def analyze_and_store(self, clip_id: int, create_proxy: bool = True, progress_cb=None) -> dict:
+    def analyze_and_store(self, clip_id: int, create_proxy: bool = True, progress_cb=None,
+                          should_stop=None) -> dict:
         """Analysiert einen VideoClip und schreibt Ergebnisse in die DB.
 
         [Session-Split] ffprobe-Metadaten werden sofort committed, BEVOR
@@ -227,7 +273,8 @@ class VideoAnalyzer:
             if progress_cb:
                 progress_cb(40, "Erstelle Proxy-Video...")
             logger.info("--> [VideoAnalyzer] Proxy-Erstellung START...")
-            proxy = self.create_proxy(file_path, progress_cb=progress_cb)
+            proxy = self.create_proxy(file_path, progress_cb=progress_cb,
+                                      should_stop=should_stop)
             logger.info("--> [VideoAnalyzer] Proxy-Erstellung FERTIG: %s", proxy)
             info["proxy_path"] = proxy
 
