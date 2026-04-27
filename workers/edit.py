@@ -15,6 +15,10 @@ class AutoEditWorker(QObject, CancellableMixin):
     """Phase 3: Auto-Edit Worker mit AdvancedPacingSettings + OTIO."""
     finished = Signal(list, list)   # (segments_as_dicts, cut_points_as_dicts)
     error = Signal(str)
+    # B-076: Progress-Signal jetzt durchgeschleift. ``auto_edit_phase3``
+    # ruft ``progress_cb(0..100, msg)`` an ~10 Stellen — vorher landete
+    # das im Nichts, der Task-Dock zeigte nur "running" ueber 30-60 s.
+    progress = Signal(int, str)     # percent, message
 
     def __init__(self, audio_id: int, video_ids: list[int],
                  settings: AdvancedPacingSettings):
@@ -29,8 +33,10 @@ class AutoEditWorker(QObject, CancellableMixin):
             # B-157: Cancel-Propagation an die Pipeline. Der CancellableMixin-
             # Flag wird vom Main-Thread per cancel() gesetzt; auto_edit_phase3
             # checkt should_stop_cb im Segment-Loop und bricht dann ab.
+            # B-076: progress_cb durchreichen (Service ruft 0..100 mit msg).
             segments, cut_points = auto_edit_phase3(
                 self.audio_id, self.video_ids, self.settings,
+                progress_cb=lambda pct, msg: self.progress.emit(pct, msg),
                 should_stop_cb=self.should_stop,
             )
             # Serialize for signal transport

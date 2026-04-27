@@ -390,6 +390,48 @@ def _export_optimized_concat(video_segments, audio_path, output_path,
             std_count, len(unique_paths), w, h, fps,
         )
 
+        # B-085: Disk-Space-Pre-Check vor dem Preprocessing.
+        # Bei vielen kleinen Cuts auf 1080p CRF23 fast: ~0.25 MB/s Material →
+        # bei 900 Segmenten × 4s = 3600 s × 0.25 MB/s ≈ 900 MB pre-encoded
+        # Temp. Mit 50% Sicherheits-Marge muessen wir mindestens das
+        # Doppelte freihaben, sonst scheitert der Render mid-way mit
+        # ``No space left on device`` und 30+ Min Arbeit ist verloren.
+        #
+        # Heuristik: target_w * target_h * 0.2 bytes/frame ist ein konser-
+        # vativer CRF23-fast-Richtwert (echte Werte 0.10-0.35, abhängig
+        # vom Material). Wir nehmen 0.2 als Mittel + 50% Marge.
+        _segments_to_preprocess = [
+            seg for seg in video_segments
+            if needs_std.get(seg["path"], True)
+            or seg.get("brightness", 0.0) != 0.0
+            or seg.get("contrast", 1.0) != 1.0
+        ]
+        if _segments_to_preprocess:
+            import shutil as _shutil
+            import tempfile as _tf
+            _bytes_per_sec = float(target_w) * float(target_h) * 0.2 * float(fps)
+            _total_sec = sum(
+                float(seg.get("source_duration", seg["end"] - seg["start"]))
+                for seg in _segments_to_preprocess
+            )
+            _est_bytes = int(_total_sec * _bytes_per_sec)
+            _free_bytes = _shutil.disk_usage(_tf.gettempdir()).free
+            _required = int(_est_bytes * 1.5)  # 50% Marge
+            logger.info(
+                "[Export] Disk-Pre-Check: ~%.1f GB Temp benoetigt (×1.5 Marge: "
+                "%.1f GB), %.1f GB frei in %s",
+                _est_bytes / 1e9, _required / 1e9, _free_bytes / 1e9,
+                _tf.gettempdir(),
+            )
+            if _free_bytes < _required:
+                raise RuntimeError(
+                    f"Nicht genug Speicher in {_tf.gettempdir()} fuer Export-"
+                    f"Preprocessing: ~{_est_bytes/1e9:.1f} GB benoetigt "
+                    f"(×1.5 Marge: {_required/1e9:.1f} GB), nur "
+                    f"{_free_bytes/1e9:.1f} GB frei. "
+                    f"Bitte mehr Platz schaffen oder kuerzeres Projekt rendern."
+                )
+
         # Phase 2: Segmente vorverarbeiten oder direkt uebernehmen
         processed_segments = []
         # Cache: bereits standardisierte Dateien pro (pfad, source_start, source_duration)

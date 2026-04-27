@@ -546,6 +546,20 @@ class MediaPoolGrid(QWidget):
                     resolution=data.get("resolution", ""),
                     fps=data.get("fps"),
                 )
+                # B-087: Thumbnail-Worker auch wirklich starten — vorher
+                # war ``_start_thumb_loader`` Dead-Code und alle VideoCards
+                # blieben auf dem grauen ``▶``-Placeholder.
+                _fp = data.get("file_path")
+                if _fp:
+                    try:
+                        self._start_thumb_loader(card, _fp)
+                    except Exception as _thumb_exc:
+                        # Thumb-Spawn darf das Card-Rendering nicht killen.
+                        import logging as _log
+                        _log.getLogger(__name__).warning(
+                            "B-087: Thumb-Loader spawn failed for %s: %s",
+                            _fp, _thumb_exc,
+                        )
             else:
                 energy = []
                 ec = data.get("energy_curve")
