@@ -188,12 +188,14 @@ def test_studio_brain_window_calls_populate_on_open() -> None:
 
     from ui import studio_brain_window as sbw
 
-    # Wir scannen den ``__init__``-Source der StudioBrainWindow nach den
-    # F-5-Markern; der Konstruktor selbst ist gross und enthaelt noch
-    # 5 weitere Tabs. Per Source-Inspection bleibt der Test GPU/Qt-frei.
-    src = _inspect.getsource(sbw.StudioBrainWindow.__init__)
+    # B-222 F4: Cockpit-VM-Setup ist jetzt LAZY — populate +
+    # set_data_source passieren in `_on_tab_changed_lazy_load` beim ersten
+    # User-Klick auf Tab 5, NICHT mehr im `__init__`. Wir scannen daher
+    # die ganze Klasse statt nur `__init__`.
+    src = _inspect.getsource(sbw.StudioBrainWindow)
     assert "populate_from_brain_service" in src, (
-        "B-199 F-5: StudioBrainWindow muss den Cockpit-VM befuellen."
+        "B-199 F-5: StudioBrainWindow muss den Cockpit-VM befuellen "
+        "(in __init__ ODER im Lazy-Loader, B-222 F4)."
     )
     assert "set_data_source" in src, (
         "B-199 F-5: StudioBrainWindow muss die BrainService-Daten-Quelle "

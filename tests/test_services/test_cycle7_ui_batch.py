@@ -47,9 +47,13 @@ def test_b173_worker_dispatcher_handles_already_finished_thread():
     src = inspect.getsource(worker_dispatcher.WorkerDispatcherController._start_worker_thread)
     # Heuristik: irgendwo nach `task.thread.finished.connect` muss ein
     # isRunning()-Check oder ein direkter _cleanup_worker-Aufruf folgen.
+    # B-222 F2: Window vergroessert von 600 -> 1200, weil das connect()
+    # jetzt mehrzeilig formatiert ist (mit Qt.ConnectionType.QueuedConnection
+    # als 3. Argument) — der Race-Guard-Block steht weiterhin direkt darunter,
+    # nur einige Zeilen weiter weg.
     connect_idx = src.find("task.thread.finished.connect")
     assert connect_idx > 0, "task.thread.finished.connect fehlt"
-    after = src[connect_idx:connect_idx + 600]
+    after = src[connect_idx:connect_idx + 1200]
     assert "isRunning" in after or "_cleanup_worker(task.thread" in after, (
         "WorkerDispatcher muss nach finished.connect pruefen ob Thread "
         "schon fertig ist (B-173 race)."

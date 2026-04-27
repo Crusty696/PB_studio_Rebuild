@@ -219,9 +219,17 @@ class StudioBrainWindow(QMainWindow):
         # B-196 Notausgang: ``PB_DISABLE_GRAPH_COCKPIT=1`` haengt einen Stub
         # statt der echten WebEngine-View ein. Hilft, wenn der Tab haengt
         # und der User den Rest des Brain trotzdem nutzen will.
+        # B-222 F4: Standard-Lazy-Loading. GraphCockpitTab laedt
+        # QWebEngineView (Chromium-Init ~1-2s). Synchroner Konstruktor-
+        # Aufruf hier hat den Main-Thread blockiert und im Crash-Pfad zum
+        # Use-After-Free gefuehrt (Worker-Thread emittete waehrend der
+        # Blockade Signale auf einen Receiver, der gerade neu gebaut/
+        # geloescht wurde). Loesung: Lightweight Placeholder-Widget initial,
+        # echtes GraphCockpit beim ersten User-Klick auf diesen Tab —
+        # in ``_on_tab_changed``.
         import os as _os
+        from PySide6.QtWidgets import QLabel
         if _os.environ.get("PB_DISABLE_GRAPH_COCKPIT") == "1":
-            from PySide6.QtWidgets import QLabel
             logger.warning(
                 "StudioBrainWindow: [5/6] GraphCockpit DEAKTIVIERT via "
                 "PB_DISABLE_GRAPH_COCKPIT=1 — Stub-Tab eingehaengt."
@@ -230,27 +238,20 @@ class StudioBrainWindow(QMainWindow):
                 "Graph-Cockpit ist via PB_DISABLE_GRAPH_COCKPIT=1 abgeschaltet.\n"
                 "Entferne die Env-Var um den Tab wieder zu aktivieren."
             )
+            self._graph_cockpit_lazy = False  # disabled, niemals laden
         else:
-            logger.info("StudioBrainWindow: [5/6] GraphCockpitTab + CockpitViewModel ...")
-            # B-199 F-5: View-Model aus dem BrainService befuellen, sodass
-            # der Cockpit-Tab nicht mehr leer rendert. Vorher: ``CockpitViewModel()``
-            # ohne Argumente → leerer GraphService → leerer Sigma-Render.
-            _cockpit_vm = CockpitViewModel()
-            # B-199 F-5: Daten-Quelle merken, damit der Refresh-Button im
-            # Cockpit-Tab den Graph nachladen kann.
-            _cockpit_vm.set_data_source(self._brain_service)
-            try:
-                _cockpit_vm.populate_from_brain_service(self._brain_service)
-            except Exception as _vm_exc:  # broad: Tab darf nicht haengen
-                logger.warning(
-                    "B-199 F-5: Cockpit-VM populate fehlgeschlagen "
-                    "(Tab oeffnet leer): %s", _vm_exc,
-                )
-            self._graph_cockpit_tab = GraphCockpitTab(
-                view_model=_cockpit_vm,
-                parent=self._tabs,
+            logger.info(
+                "StudioBrainWindow: [5/6] GraphCockpit Lazy-Stub — echtes Widget "
+                "wird beim ersten Tab-Click konstruiert (B-222 F4)."
             )
+            self._graph_cockpit_tab = QLabel(
+                "Graph-Cockpit wird geladen beim ersten Klick auf diesen Tab.\n"
+                "(Vermeidet 1-2s UI-Block beim Brain-Window-Open — B-222 F4.)"
+            )
+            self._graph_cockpit_lazy = True  # noch nicht geladen
         self._tabs.addTab(self._graph_cockpit_tab, _TAB_LABELS[5])
+        # currentChanged feuert beim ersten Wechsel auf Tab 5 → real laden.
+        self._tabs.currentChanged.connect(self._on_tab_changed_lazy_load)
         logger.info("StudioBrainWindow: alle 6 Tabs konstruiert.")
 
         # Cross-Tab-Wiring: AuditTab → PacingExplorer (Decision-ID-Forward)
@@ -348,6 +349,64 @@ class StudioBrainWindow(QMainWindow):
     # ── Public helpers ─────────────────────────────────────────────────────
     def count_tabs(self) -> int:
         return self._tabs.count()
+
+    # ── B-222 F4: Lazy-Loading des GraphCockpit-Tabs ─────────────────────
+    def _on_tab_changed_lazy_load(self, index: int) -> None:
+        """Erstellt das echte GraphCockpitTab beim ersten Wechsel auf Tab 5.
+
+        Vorher: Konstruktor baute alle 6 Tabs synchron, GraphCockpitTab
+        startete QWebEngineView (Chromium ~1-2s) → Main-Thread blockiert
+        → Worker-Thread-Signale liefen ins UAF (B-222).
+
+        Jetzt: Tab 5 ist initial ein leichter QLabel-Stub. Erst wenn der
+        User den Tab anklickt, wird das echte Widget konstruiert und der
+        Stub ersetzt. Brain-Window-Open ist damit ~1-2s schneller und
+        der Crash-Pfad ist eliminiert.
+        """
+        # Index 5 = GraphCockpit (siehe Konstruktor-Reihenfolge)
+        if index != 5:
+            return
+        if not getattr(self, "_graph_cockpit_lazy", False):
+            return  # entweder schon geladen ODER via PB_DISABLE_GRAPH_COCKPIT aus
+
+        self._graph_cockpit_lazy = False  # idempotent — nur einmal versuchen
+        logger.info("B-222 F4: GraphCockpitTab Lazy-Load — User klickt Tab 5.")
+
+        try:
+            _cockpit_vm = CockpitViewModel()
+            _cockpit_vm.set_data_source(self._brain_service)
+            try:
+                _cockpit_vm.populate_from_brain_service(self._brain_service)
+            except Exception as _vm_exc:
+                logger.warning(
+                    "B-222 F4: Cockpit-VM populate fehlgeschlagen "
+                    "(Tab oeffnet leer): %s", _vm_exc,
+                )
+
+            real_tab = GraphCockpitTab(
+                view_model=_cockpit_vm,
+                parent=self._tabs,
+            )
+
+            # Placeholder durch echtes Widget ersetzen — Tab-Position bleibt.
+            old_widget = self._tabs.widget(5)
+            self._tabs.removeTab(5)
+            self._graph_cockpit_tab = real_tab
+            self._tabs.insertTab(5, real_tab, _TAB_LABELS[5])
+            self._tabs.setCurrentIndex(5)
+            try:
+                old_widget.deleteLater()
+            except (RuntimeError, AttributeError):
+                pass  # Widget evtl. schon weg.
+
+            logger.info("B-222 F4: GraphCockpitTab live.")
+        except Exception as exc:
+            logger.error(
+                "B-222 F4: GraphCockpitTab Lazy-Load FAILED — Tab bleibt Stub: %s",
+                exc,
+            )
+            # Bei Fehler: lazy-Flag zurueck auf True, naechster Klick versucht erneut.
+            self._graph_cockpit_lazy = True
 
     # ── P12 internal slots ────────────────────────────────────────────────
     def _on_story_map_thumbnail_clicked(

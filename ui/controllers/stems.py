@@ -2,6 +2,7 @@
 
 import logging
 from pathlib import Path
+from PySide6.QtCore import Qt
 from database import engine, AudioTrack
 from sqlalchemy.orm import Session as DBSession
 from services.task_manager import TaskManagerProxy
@@ -89,9 +90,18 @@ class StemsController(PBComponent):
         worker = StemSeparationWorker(track_id)
         worker.task_id = task.task_id
         # Bug C: Buffered append statt synchronem QTextEdit.append() pro Tick.
-        worker.progress.connect(lambda pct, msg: self.window._console_append(f"[Stems] {msg} ({pct}%)"))
-        worker.finished.connect(lambda tid, r: self._on_stem_finished(tid, r, task.task_id))
-        worker.error.connect(lambda tid, err: self._on_stem_error(tid, err, task.task_id))
+        worker.progress.connect(
+            lambda pct, msg: self.window._console_append(f"[Stems] {msg} ({pct}%)"),
+            Qt.ConnectionType.QueuedConnection,
+        )
+        worker.finished.connect(
+            lambda tid, r: self._on_stem_finished(tid, r, task.task_id),
+            Qt.ConnectionType.QueuedConnection,
+        )
+        worker.error.connect(
+            lambda tid, err: self._on_stem_error(tid, err, task.task_id),
+            Qt.ConnectionType.QueuedConnection,
+        )
         self.window.worker_dispatcher._start_worker_thread(worker)
 
     def _on_stem_finished(self, track_id: int, stems: dict, task_id: str):
@@ -140,8 +150,14 @@ class StemsController(PBComponent):
 
         worker = AutoDuckingWorker(other_path, vocals_path, output_path)
         worker.task_id = task.task_id
-        worker.finished.connect(lambda p: self._on_ducking_finished(p, task.task_id))
-        worker.error.connect(lambda err: self._on_ducking_error(err, task.task_id))
+        worker.finished.connect(
+            lambda p: self._on_ducking_finished(p, task.task_id),
+            Qt.ConnectionType.QueuedConnection,
+        )
+        worker.error.connect(
+            lambda err: self._on_ducking_error(err, task.task_id),
+            Qt.ConnectionType.QueuedConnection,
+        )
         self.window.worker_dispatcher._start_worker_thread(worker)
 
     def _on_ducking_finished(self, output_path: str, task_id: str):

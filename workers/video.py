@@ -201,6 +201,34 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
             # Downstream-Math ``progress / videos_processed`` div-zero crashte.
             videos_processed = 0
 
+            # B-222: Pre-Flight — wenn SigLIP-Weights nicht im HF-Cache
+            # liegen, laden wir sie HIER (vor GPU_LOAD_LOCK). Sonst startet
+            # der ~2.5 GB Download INNERHALB des Locks, blockiert UI-Thread,
+            # und triggert Use-After-Free wenn der User parallel Tabs/
+            # Windows oeffnet (siehe B-222 Crash-Log). Pre-Flight haelt den
+            # Download-Stress vom Lock fern.
+            if total_videos > 0:
+                try:
+                    from services.model_warmup import is_siglip_cached, warmup_siglip
+                    cached, missing = is_siglip_cached()
+                    if not cached:
+                        logger.warning(
+                            "B-222: SigLIP-Cache unvollstaendig (%s) — pre-warmup VOR GPU_LOAD_LOCK.",
+                            ", ".join(missing),
+                        )
+                        self.progress.emit(
+                            0,
+                            f"Lade SigLIP-Modell (~2.5 GB, {', '.join(missing)})...",
+                        )
+                        warmup_siglip(
+                            progress_cb=lambda m: self.progress.emit(0, m),
+                        )
+                except Exception as warmup_exc:  # broad: warmup darf Pipeline nicht killen
+                    logger.warning(
+                        "B-222: Pre-warmup fehlgeschlagen (%s) — Pipeline laedt im Worker.",
+                        warmup_exc,
+                    )
+
             # ── BATCH-OPTIMIERUNG: SigLIP + RAFT EINMAL laden fuer alle Videos ──
             # Verhindert VRAM-Fragmentierung durch wiederholtes Laden/Entladen.
             # GPU_LOAD_LOCK serialisiert mit allen anderen GPU-Operationen (Demucs,

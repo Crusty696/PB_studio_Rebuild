@@ -1,6 +1,7 @@
 """ExportController — Refactored from ExportMixin."""
 
 import logging
+from PySide6.QtCore import Qt
 from database import get_active_project_id
 from services.task_manager import TaskManagerProxy
 from services.export_service import get_timeline_summary, estimate_render_time
@@ -65,9 +66,15 @@ class ExportController(PBComponent):
         worker = ExportWorker(project_id=get_active_project_id(), output_name=output_name,
                               resolution=resolution, fps=fps)
         worker.task_id = task.task_id
-        worker.progress.connect(self._on_export_progress)
-        worker.finished.connect(lambda p: self._on_export_finished(p, task.task_id))
-        worker.error.connect(lambda err: self._on_export_error(err, task.task_id))
+        worker.progress.connect(self._on_export_progress, Qt.ConnectionType.QueuedConnection)
+        worker.finished.connect(
+            lambda p: self._on_export_finished(p, task.task_id),
+            Qt.ConnectionType.QueuedConnection,
+        )
+        worker.error.connect(
+            lambda err: self._on_export_error(err, task.task_id),
+            Qt.ConnectionType.QueuedConnection,
+        )
         self.window.worker_dispatcher._start_worker_thread(worker)
 
     def _on_export_progress(self, pct: int, message: str):
@@ -122,9 +129,9 @@ class ExportController(PBComponent):
             fps=fps,
             duration_limit=10.0,
         )
-        worker.progress.connect(self._on_preview_progress)
-        worker.finished.connect(self._on_preview_finished)
-        worker.error.connect(self._on_preview_error)
+        worker.progress.connect(self._on_preview_progress, Qt.ConnectionType.QueuedConnection)
+        worker.finished.connect(self._on_preview_finished, Qt.ConnectionType.QueuedConnection)
+        worker.error.connect(self._on_preview_error, Qt.ConnectionType.QueuedConnection)
         self.window.worker_dispatcher._start_worker_thread(worker)
 
     def _on_preview_progress(self, pct: int, message: str):

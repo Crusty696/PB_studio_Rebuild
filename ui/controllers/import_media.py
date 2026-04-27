@@ -37,9 +37,10 @@ class ImportMediaController(PBComponent):
         self.window.status_bar.showMessage(f"Importiere {len(paths)} Datei(en) ...")
 
         worker = FolderImportWorker(paths_audio, paths_video)
-        worker.file_imported.connect(self.window.console_text.append)
+        worker.file_imported.connect(self.window.console_text.append, Qt.ConnectionType.QueuedConnection)
         worker.progress.connect(
-            lambda pct, msg: self.window.status_bar.showMessage(f"[Import] {pct}% — {msg}")
+            lambda pct, msg: self.window.status_bar.showMessage(f"[Import] {pct}% — {msg}"),
+            Qt.ConnectionType.QueuedConnection,
         )
 
         def _on_finish(added: int, new_video_clips: list):
@@ -73,9 +74,10 @@ class ImportMediaController(PBComponent):
         # B-058: walk_root setzen — Worker macht den os.walk-Scan im
         # eigenen Thread und ergaenzt paths_audio/paths_video selbst.
         worker = FolderImportWorker([], [], walk_root=folder)
-        worker.file_imported.connect(self.window.console_text.append)
+        worker.file_imported.connect(self.window.console_text.append, Qt.ConnectionType.QueuedConnection)
         worker.progress.connect(
-            lambda pct, msg: self.window.status_bar.showMessage(f"[Import] {pct}% — {msg}")
+            lambda pct, msg: self.window.status_bar.showMessage(f"[Import] {pct}% — {msg}"),
+            Qt.ConnectionType.QueuedConnection,
         )
 
         def _on_finish(added: int, new_video_clips: list):
@@ -121,7 +123,7 @@ class ImportMediaController(PBComponent):
                 self.window.status_bar.showMessage(f"Sammlung bereinigt ({count} Eintraege)")
 
             # H-36 FIX: Connect the on_finish callback to worker.finished signal
-            worker.finished.connect(_on_done)
+            worker.finished.connect(_on_done, Qt.ConnectionType.QueuedConnection)
 
             # B-060: on_error-Handler — vorher landete Fehler nur im Task-Dock
             # ohne sichtbare User-Meldung.

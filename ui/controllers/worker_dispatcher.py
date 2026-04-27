@@ -36,14 +36,23 @@ class WorkerDispatcherController(PBComponent):
             worker.moveToThread(thread)
             thread.started.connect(worker.run)
 
+            # B-222 (F2): ALLE worker.<signal>-Connections von einem Lambda
+            # oder einer freien Funktion gehen MIT explizitem
+            # Qt.QueuedConnection. Sonst hat der Slot kein Receiver-QObject
+            # und Qt's AutoConnection faellt auf DirectConnection zurueck —
+            # der Slot laeuft im Worker-Thread und greift Cross-Thread auf
+            # UI-Widgets zu (Use-after-free auf <deleted> Receiver, siehe
+            # B-222 Crash-Stack).
+            qc = Qt.ConnectionType.QueuedConnection
+
             if on_finish:
                 def _guarded_finish(*args, _w=worker, _cb=on_finish):
                     if not getattr(_w, '_errored', False):
                         _cb(*args)
-                worker.finished.connect(_guarded_finish)
+                worker.finished.connect(_guarded_finish, qc)
 
             if on_error:
-                worker.error.connect(on_error)
+                worker.error.connect(on_error, qc)
             else:
                 def _default_error_handler(*args, _tid=existing_task_id, _name=worker_name, _tm=tm):
                     err_msg = str(args[-1]) if args else "Unbekannter Fehler"
@@ -52,18 +61,25 @@ class WorkerDispatcherController(PBComponent):
                         _name, _tid, err_msg,
                     )
                     _tm.finish_task(_tid, status="error", message=err_msg)
-                worker.error.connect(_default_error_handler)
+                worker.error.connect(_default_error_handler, qc)
 
             if hasattr(worker, "progress"):
                 worker.progress.connect(
-                    lambda pct, msg, _tid=existing_task_id: tm.update_task(_tid, pct, message=msg)
+                    lambda pct, msg, _tid=existing_task_id: tm.update_task(_tid, pct, message=msg),
+                    qc,
                 )
 
+            # thread-interne Signals (started/quit/finished) sind safe — Sender
+            # und Slot leben jeweils im selben Thread bzw. die Slots sind Qt-
+            # internal cleanup-Hooks. Qt.AutoConnection reicht.
             worker.finished.connect(thread.quit)
             thread.finished.connect(worker.deleteLater)
             thread.finished.connect(thread.deleteLater)
+            # Diese Lambda greift auf tm (QObject) zu — QueuedConnection schickt
+            # den Aufruf in den Main-Thread wo tm lebt.
             thread.finished.connect(
-                lambda _tid=existing_task_id: tm._on_thread_done(_tid)
+                lambda _tid=existing_task_id: tm._on_thread_done(_tid),
+                qc,
             )
 
             task.thread = thread
@@ -71,7 +87,8 @@ class WorkerDispatcherController(PBComponent):
             self.window._active_threads.append(thread)
             self.window._active_workers.append(worker)
             thread.finished.connect(
-                lambda _t=thread, _w=worker: self._cleanup_worker(_t, _w)
+                lambda _t=thread, _w=worker: self._cleanup_worker(_t, _w),
+                qc,
             )
             thread.start()
             return thread
@@ -88,7 +105,8 @@ class WorkerDispatcherController(PBComponent):
             if task.thread:
                 self.window._active_threads.append(task.thread)
                 task.thread.finished.connect(
-                    lambda _t=task.thread, _w=worker: self._cleanup_worker(_t, _w)
+                    lambda _t=task.thread, _w=worker: self._cleanup_worker(_t, _w),
+                    Qt.ConnectionType.QueuedConnection,
                 )
                 # B-173: tm.start_task hat den Thread bereits gestartet —
                 # wenn er sehr schnell fertig wurde, kann finished schon

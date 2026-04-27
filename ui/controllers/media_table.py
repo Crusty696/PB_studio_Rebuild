@@ -55,7 +55,10 @@ class MediaTableController(PBComponent):
                     self.error.emit(str(e))
 
         worker = DBFetchWorker()
-        worker.finished.connect(lambda v, a: self._apply_refreshed_data(v, a, _also_combos))
+        worker.finished.connect(
+            lambda v, a: self._apply_refreshed_data(v, a, _also_combos),
+            Qt.ConnectionType.QueuedConnection,
+        )
         
         # Starte via TaskEngine (Hintergrund)
         from services.task_manager import GlobalTaskManager

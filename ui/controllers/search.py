@@ -21,8 +21,8 @@ class SearchController(PBComponent):
         self.window.console_text.append(f"[Suche] SigLIP-Suche: '{query}'...")
 
         worker = SemanticSearchWorker(query, top_k=20)
-        worker.finished.connect(self._on_search_finished)
-        worker.error.connect(self._on_search_error)
+        worker.finished.connect(self._on_search_finished, Qt.ConnectionType.QueuedConnection)
+        worker.error.connect(self._on_search_error, Qt.ConnectionType.QueuedConnection)
         self.window.worker_dispatcher._start_worker_thread(worker)
 
     def _on_search_finished(self, results: list):

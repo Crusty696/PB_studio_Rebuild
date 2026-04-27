@@ -1031,102 +1031,153 @@ class MediaWorkspace(QWidget):
             task = task_manager.create_task(task_name, "BPM + Beat-Analyse")
             worker = workers.AnalysisWorker(audio_id, title)
             worker.task_id = task.task_id
-            worker.progress.connect(lambda pct, msg: pb_window._console_append(f"[BPM] {msg}"))
-            worker.finished.connect(lambda tid, res: (
-                pb_window._console_append(f"[BPM] Done: {res.get('bpm', '?')} BPM, {len(res.get('beat_positions', []))} beats"),
-                pb_window.media_table_controller._refresh_media_table_debounced(),
-                self.audio_analysis_panel.refresh(),
-            ))
+            worker.progress.connect(
+                lambda pct, msg: pb_window._console_append(f"[BPM] {msg}"),
+                Qt.ConnectionType.QueuedConnection,
+            )
+            worker.finished.connect(
+                lambda tid, res: (
+                    pb_window._console_append(f"[BPM] Done: {res.get('bpm', '?')} BPM, {len(res.get('beat_positions', []))} beats"),
+                    pb_window.media_table_controller._refresh_media_table_debounced(),
+                    self.audio_analysis_panel.refresh(),
+                ),
+                Qt.ConnectionType.QueuedConnection,
+            )
 
         elif step_key == "waveform_analysis":
             task_name = f"Waveform: {title}"
             task = task_manager.create_task(task_name, "3-Band Waveform")
             worker = workers.WaveformAnalysisWorker(audio_id)
             worker.task_id = task.task_id
-            worker.progress.connect(lambda pct, msg: pb_window._console_append(f"[Waveform] {msg}"))
-            worker.finished.connect(lambda tid, res: (
-                pb_window._console_append(f"[Waveform] Done: {res.get('num_samples', 0)} samples"),
-                pb_window.media_table_controller._refresh_media_table_debounced(),
-                self.audio_analysis_panel.refresh(),
-            ))
+            worker.progress.connect(
+                lambda pct, msg: pb_window._console_append(f"[Waveform] {msg}"),
+                Qt.ConnectionType.QueuedConnection,
+            )
+            worker.finished.connect(
+                lambda tid, res: (
+                    pb_window._console_append(f"[Waveform] Done: {res.get('num_samples', 0)} samples"),
+                    pb_window.media_table_controller._refresh_media_table_debounced(),
+                    self.audio_analysis_panel.refresh(),
+                ),
+                Qt.ConnectionType.QueuedConnection,
+            )
 
         elif step_key == "key_detection":
             task_name = f"Key: {title}"
             task = task_manager.create_task(task_name, "Key-Erkennung")
             worker = workers.KeyDetectionWorker(audio_id, file_path)
             worker.task_id = task.task_id
-            worker.progress.connect(lambda pct, msg: pb_window._console_append(f"[Key] {msg}"))
-            worker.finished.connect(lambda tid, res: (
-                pb_window._console_append(f"[Key] {res.get('key', '?')} ({res.get('camelot', '?')})"),
-                pb_window.media_table_controller._refresh_media_table_debounced(),
-                self.audio_analysis_panel.refresh(),
-            ))
+            worker.progress.connect(
+                lambda pct, msg: pb_window._console_append(f"[Key] {msg}"),
+                Qt.ConnectionType.QueuedConnection,
+            )
+            worker.finished.connect(
+                lambda tid, res: (
+                    pb_window._console_append(f"[Key] {res.get('key', '?')} ({res.get('camelot', '?')})"),
+                    pb_window.media_table_controller._refresh_media_table_debounced(),
+                    self.audio_analysis_panel.refresh(),
+                ),
+                Qt.ConnectionType.QueuedConnection,
+            )
 
         elif step_key == "lufs_analysis":
             task_name = f"LUFS: {title}"
             task = task_manager.create_task(task_name, "LUFS-Analyse")
             worker = workers.LUFSAnalysisWorker(audio_id, file_path)
             worker.task_id = task.task_id
-            worker.progress.connect(lambda pct, msg: pb_window._console_append(f"[LUFS] {msg}"))
-            worker.finished.connect(lambda tid, res: (
-                pb_window._console_append(f"[LUFS] {res.get('integrated', 0):.1f} dB"),
-                pb_window.media_table_controller._refresh_media_table_debounced(),
-                self.audio_analysis_panel.refresh(),
-            ))
+            worker.progress.connect(
+                lambda pct, msg: pb_window._console_append(f"[LUFS] {msg}"),
+                Qt.ConnectionType.QueuedConnection,
+            )
+            worker.finished.connect(
+                lambda tid, res: (
+                    pb_window._console_append(f"[LUFS] {res.get('integrated', 0):.1f} dB"),
+                    pb_window.media_table_controller._refresh_media_table_debounced(),
+                    self.audio_analysis_panel.refresh(),
+                ),
+                Qt.ConnectionType.QueuedConnection,
+            )
 
         elif step_key == "mood_genre_classify":
             task_name = f"Classify: {title}"
             task = task_manager.create_task(task_name, "Mood/Genre AI")
             worker = workers.AudioClassifyWorker(audio_id, file_path)
             worker.task_id = task.task_id
-            worker.progress.connect(lambda pct, msg: pb_window._console_append(f"[Classify] {msg}"))
-            worker.finished.connect(lambda tid, res: (
-                pb_window._console_append(f"[Classify] {res.get('mood', '?')} / {res.get('genre', '?')}"),
-                pb_window.media_table_controller._refresh_media_table_debounced(),
-                self.audio_analysis_panel.refresh(),
-            ))
+            worker.progress.connect(
+                lambda pct, msg: pb_window._console_append(f"[Classify] {msg}"),
+                Qt.ConnectionType.QueuedConnection,
+            )
+            worker.finished.connect(
+                lambda tid, res: (
+                    pb_window._console_append(f"[Classify] {res.get('mood', '?')} / {res.get('genre', '?')}"),
+                    pb_window.media_table_controller._refresh_media_table_debounced(),
+                    self.audio_analysis_panel.refresh(),
+                ),
+                Qt.ConnectionType.QueuedConnection,
+            )
 
         elif step_key == "spectral_analysis":
             task_name = f"Spectral: {title}"
             task = task_manager.create_task(task_name, "8-Band Spektral")
             worker = workers.SpectralAnalysisWorker(audio_id, file_path)
             worker.task_id = task.task_id
-            worker.progress.connect(lambda pct, msg: pb_window._console_append(f"[Spectral] {msg}"))
-            worker.finished.connect(lambda tid, res: (
-                pb_window._console_append(f"[Spectral] Done"),
-                pb_window.media_table_controller._refresh_media_table_debounced(),
-                self.audio_analysis_panel.refresh(),
-            ))
+            worker.progress.connect(
+                lambda pct, msg: pb_window._console_append(f"[Spectral] {msg}"),
+                Qt.ConnectionType.QueuedConnection,
+            )
+            worker.finished.connect(
+                lambda tid, res: (
+                    pb_window._console_append(f"[Spectral] Done"),
+                    pb_window.media_table_controller._refresh_media_table_debounced(),
+                    self.audio_analysis_panel.refresh(),
+                ),
+                Qt.ConnectionType.QueuedConnection,
+            )
 
         elif step_key == "structure_detection":
             task_name = f"Structure: {title}"
             task = task_manager.create_task(task_name, "Song-Struktur")
             worker = workers.StructureDetectionWorker(audio_id, file_path, bpm=bpm)
             worker.task_id = task.task_id
-            worker.progress.connect(lambda pct, msg: pb_window._console_append(f"[Structure] {msg}"))
-            worker.finished.connect(lambda tid, res: (
-                pb_window._console_append(f"[Structure] {len(res.get('segments', []))} segments"),
-                pb_window.media_table_controller._refresh_media_table_debounced(),
-                self.audio_analysis_panel.refresh(),
-            ))
+            worker.progress.connect(
+                lambda pct, msg: pb_window._console_append(f"[Structure] {msg}"),
+                Qt.ConnectionType.QueuedConnection,
+            )
+            worker.finished.connect(
+                lambda tid, res: (
+                    pb_window._console_append(f"[Structure] {len(res.get('segments', []))} segments"),
+                    pb_window.media_table_controller._refresh_media_table_debounced(),
+                    self.audio_analysis_panel.refresh(),
+                ),
+                Qt.ConnectionType.QueuedConnection,
+            )
 
         elif step_key == "stem_separation":
             task_name = f"Stems: {title}"
             task = task_manager.create_task(task_name, "Demucs Stem Separation")
             worker = workers.StemSeparationWorker(audio_id, file_path)
             worker.task_id = task.task_id
-            worker.progress.connect(lambda pct, msg: pb_window._console_append(f"[Stems] {msg}"))
-            worker.finished.connect(lambda tid, res: (
-                pb_window._console_append(f"[Stems] {len(res.get('stems', []))} stems created"),
-                pb_window.media_table_controller._refresh_media_table_debounced(),
-                self.audio_analysis_panel.refresh(),
-            ))
+            worker.progress.connect(
+                lambda pct, msg: pb_window._console_append(f"[Stems] {msg}"),
+                Qt.ConnectionType.QueuedConnection,
+            )
+            worker.finished.connect(
+                lambda tid, res: (
+                    pb_window._console_append(f"[Stems] {len(res.get('stems', []))} stems created"),
+                    pb_window.media_table_controller._refresh_media_table_debounced(),
+                    self.audio_analysis_panel.refresh(),
+                ),
+                Qt.ConnectionType.QueuedConnection,
+            )
 
         if worker:
-            worker.error.connect(lambda tid, err: (
-                pb_window._console_append(f"[{step_key}] Error: {err}"),
-                self.audio_analysis_panel.refresh(),
-            ))
+            worker.error.connect(
+                lambda tid, err: (
+                    pb_window._console_append(f"[{step_key}] Error: {err}"),
+                    self.audio_analysis_panel.refresh(),
+                ),
+                Qt.ConnectionType.QueuedConnection,
+            )
             pb_window.worker_dispatcher._start_worker_thread(worker)
             pb_window.console_text.append(f"[{step_key}] Starting analysis for '{title}'...")
 
@@ -1148,16 +1199,25 @@ class MediaWorkspace(QWidget):
 
         worker = workers.VideoAnalysisPipelineWorker(video_id)
         worker.task_id = task.task_id
-        worker.progress.connect(lambda pct, msg: pb_window._console_append(f"[Video] {msg}"))
-        worker.finished.connect(lambda vid, res: (
-            pb_window._console_append(f"[Video] Pipeline complete for {title}"),
-            pb_window.media_table_controller._refresh_media_table_debounced(),
-            self.video_analysis_panel.refresh(),
-        ))
-        worker.error.connect(lambda vid, err: (
-            pb_window._console_append(f"[Video] Error: {err}"),
-            self.video_analysis_panel.refresh(),
-        ))
+        worker.progress.connect(
+            lambda pct, msg: pb_window._console_append(f"[Video] {msg}"),
+            Qt.ConnectionType.QueuedConnection,
+        )
+        worker.finished.connect(
+            lambda vid, res: (
+                pb_window._console_append(f"[Video] Pipeline complete for {title}"),
+                pb_window.media_table_controller._refresh_media_table_debounced(),
+                self.video_analysis_panel.refresh(),
+            ),
+            Qt.ConnectionType.QueuedConnection,
+        )
+        worker.error.connect(
+            lambda vid, err: (
+                pb_window._console_append(f"[Video] Error: {err}"),
+                self.video_analysis_panel.refresh(),
+            ),
+            Qt.ConnectionType.QueuedConnection,
+        )
 
         pb_window.worker_dispatcher._start_worker_thread(worker)
         pb_window.console_text.append(f"[Video] Starting full pipeline for '{title}'...")

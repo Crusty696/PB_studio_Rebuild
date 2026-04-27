@@ -712,8 +712,14 @@ class ModelManagerDialog(QDialog):
         worker.moveToThread(thread)
 
         # Progress-Updates verarbeiten
-        worker.progress.connect(lambda p: self._on_progress_update(p, row_widget))
-        worker.finished.connect(lambda ok: self._on_download_finished(model_id, ok))
+        worker.progress.connect(
+            lambda p: self._on_progress_update(p, row_widget),
+            Qt.ConnectionType.QueuedConnection,
+        )
+        worker.finished.connect(
+            lambda ok: self._on_download_finished(model_id, ok),
+            Qt.ConnectionType.QueuedConnection,
+        )
         thread.started.connect(worker.run)
         thread.finished.connect(thread.deleteLater)
 

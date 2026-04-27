@@ -3,7 +3,7 @@
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QImage, QPixmap
 from database import engine, VideoClip, TimelineEntry, get_active_project_id, nullpool_session
 from sqlalchemy.orm import Session as DBSession
@@ -142,9 +142,10 @@ class ConvertController(PBComponent):
     def _start_effect_worker(self, file_path: str, vf_extra: str):
         """Startet FrameExtractWorker im Main-Thread (Worker-Erstellung muss im Main-Thread sein)."""
         worker = FrameExtractWorker(file_path, 1.0, 320, 180, vf_extra)
-        worker.frame_ready.connect(self._on_effect_frame_ready)
+        worker.frame_ready.connect(self._on_effect_frame_ready, Qt.ConnectionType.QueuedConnection)
         worker.error.connect(
-            lambda msg: QTimer.singleShot(0, lambda: self.window.effects_preview.setText(msg))
+            lambda msg: QTimer.singleShot(0, lambda: self.window.effects_preview.setText(msg)),
+            Qt.ConnectionType.QueuedConnection,
         )
         self.window.worker_dispatcher._start_worker_thread(worker)
 
@@ -181,14 +182,23 @@ class ConvertController(PBComponent):
         task = task_manager.create_task("Video Convert", f"{len(videos)} Videos -> {resolution} {fps}fps")
         worker = BatchConvertWorker(videos, resolution, fps, vcodec, ext)
         worker.task_id = task.task_id
-        worker.progress.connect(lambda pct, msg: QTimer.singleShot(0, lambda: (
-            self.window.convert_log.append(msg),
-            self.window.convert_progress.setValue(pct),
-        )))
-        worker.finished.connect(lambda converted, total: self._on_batch_convert_finished(
-            converted, total, task.task_id
-        ))
-        worker.error.connect(lambda err: self._on_batch_convert_error(err, task.task_id))
+        worker.progress.connect(
+            lambda pct, msg: QTimer.singleShot(0, lambda: (
+                self.window.convert_log.append(msg),
+                self.window.convert_progress.setValue(pct),
+            )),
+            Qt.ConnectionType.QueuedConnection,
+        )
+        worker.finished.connect(
+            lambda converted, total: self._on_batch_convert_finished(
+                converted, total, task.task_id
+            ),
+            Qt.ConnectionType.QueuedConnection,
+        )
+        worker.error.connect(
+            lambda err: self._on_batch_convert_error(err, task.task_id),
+            Qt.ConnectionType.QueuedConnection,
+        )
         self.window.worker_dispatcher._start_worker_thread(worker)
 
     def _on_batch_convert_finished(self, converted: int, total: int, task_id: str):
