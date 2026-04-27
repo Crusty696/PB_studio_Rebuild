@@ -146,7 +146,12 @@ class StudioBrainWindow(QMainWindow):
         )
 
         self._tabs = QTabWidget(self)
+        # Diagnostik: Per-Tab-Konstruktor-Trace. Hilft beim Lokalisieren
+        # von Brain-Open-Hangs (siehe pb_studio.log nach naechstem
+        # Restart). Idempotent + billig.
+        logger.info("StudioBrainWindow: konstruiere Tabs ...")
         # Index 0 — Struktur (live StructureTab from T10.2a).
+        logger.info("StudioBrainWindow: [0/6] StructureTab ...")
         self._structure_tab = StructureTab(
             self._brain_service,
             self._tabs,
@@ -154,6 +159,7 @@ class StudioBrainWindow(QMainWindow):
         )
         self._tabs.addTab(self._structure_tab, _TAB_LABELS[0])
         # Index 1 — Gedächtnis (live MemoryTab from T11.1).
+        logger.info("StudioBrainWindow: [1/6] MemoryTab ...")
         self._memory_tab = MemoryTab(
             brain_service=self._brain_service,
             backup_service=self._backup_service,
@@ -161,6 +167,7 @@ class StudioBrainWindow(QMainWindow):
         )
         self._tabs.addTab(self._memory_tab, _TAB_LABELS[1])
         # Index 2 — Audit (live AuditTab from T11.2).
+        logger.info("StudioBrainWindow: [2/6] AuditTab ...")
         self._audit_tab = AuditTab(
             brain_service=self._brain_service,
             parent=self._tabs,
@@ -181,6 +188,7 @@ class StudioBrainWindow(QMainWindow):
         # Index 3 — Steer (live SteerTab from T11.3).  Shares the same
         # override_queue as the Structure tab; writes from StructureTab's
         # right-click menu surface here automatically via pendingChanged.
+        logger.info("StudioBrainWindow: [3/6] SteerTab ...")
         self._steer_tab = SteerTab(
             brain_service=self._brain_service,
             override_queue=self._override_queue,
@@ -200,6 +208,7 @@ class StudioBrainWindow(QMainWindow):
                 session_factory = getattr(self._brain_service, "_session_factory", None)
         except Exception:  # broad: alte BrainService-Varianten
             session_factory = None
+        logger.info("StudioBrainWindow: [4/6] PacingDecisionExplorer ...")
         self._pacing_explorer_tab = PacingDecisionExplorer(
             session_factory=session_factory,
             parent=self._tabs,
@@ -207,11 +216,28 @@ class StudioBrainWindow(QMainWindow):
         self._tabs.addTab(self._pacing_explorer_tab, _TAB_LABELS[4])
 
         # Cycle 11 — Index 5: Graph-Cockpit (D-023 Sigma.js Visualisierung)
-        self._graph_cockpit_tab = GraphCockpitTab(
-            view_model=CockpitViewModel(),
-            parent=self._tabs,
-        )
+        # B-196 Notausgang: ``PB_DISABLE_GRAPH_COCKPIT=1`` haengt einen Stub
+        # statt der echten WebEngine-View ein. Hilft, wenn der Tab haengt
+        # und der User den Rest des Brain trotzdem nutzen will.
+        import os as _os
+        if _os.environ.get("PB_DISABLE_GRAPH_COCKPIT") == "1":
+            from PySide6.QtWidgets import QLabel
+            logger.warning(
+                "StudioBrainWindow: [5/6] GraphCockpit DEAKTIVIERT via "
+                "PB_DISABLE_GRAPH_COCKPIT=1 — Stub-Tab eingehaengt."
+            )
+            self._graph_cockpit_tab = QLabel(
+                "Graph-Cockpit ist via PB_DISABLE_GRAPH_COCKPIT=1 abgeschaltet.\n"
+                "Entferne die Env-Var um den Tab wieder zu aktivieren."
+            )
+        else:
+            logger.info("StudioBrainWindow: [5/6] GraphCockpitTab + CockpitViewModel ...")
+            self._graph_cockpit_tab = GraphCockpitTab(
+                view_model=CockpitViewModel(),
+                parent=self._tabs,
+            )
         self._tabs.addTab(self._graph_cockpit_tab, _TAB_LABELS[5])
+        logger.info("StudioBrainWindow: alle 6 Tabs konstruiert.")
 
         # Cross-Tab-Wiring: AuditTab → PacingExplorer (Decision-ID-Forward)
         # Wenn die Audit-Tab eine Decision auswählt, kann der Explorer den

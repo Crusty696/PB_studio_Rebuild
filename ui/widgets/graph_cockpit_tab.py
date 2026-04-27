@@ -80,10 +80,16 @@ class GraphCockpitTab(QWidget):
         view_model: CockpitViewModel | None = None,
         parent: QWidget | None = None,
     ):
+        # B-196 Diagnostik: Inner-Logging zwischen jedem Schritt um den
+        # Brain-Open-Hang zu lokalisieren (Cycle 21 Regression).
+        logger.info("GraphCockpitTab.__init__: start")
         super().__init__(parent)
+        logger.info("GraphCockpitTab.__init__: super().__init__ done")
         self._vm = view_model or CockpitViewModel()
+        logger.info("GraphCockpitTab.__init__: view_model ready")
         self._engine_cls = _try_import_qwebengine()
         self._channel_cls = _try_import_qwebchannel()
+        logger.info("GraphCockpitTab.__init__: import-checks done")
         self._bridge: _CockpitBridge | None = None
         self._channel = None
         # Cycle 13 BUG-6: Debounce-Timer für _refresh_html — verhindert
@@ -93,9 +99,13 @@ class GraphCockpitTab(QWidget):
         self._refresh_debounce.setSingleShot(True)
         self._refresh_debounce.setInterval(150)  # 150ms debounce
         self._refresh_debounce.timeout.connect(self._do_refresh_html)
+        logger.info("GraphCockpitTab.__init__: debounce-timer wired, build_ui...")
         self._build_ui()
+        logger.info("GraphCockpitTab.__init__: build_ui done, setup_webchannel...")
         self._setup_webchannel()
+        logger.info("GraphCockpitTab.__init__: webchannel done, refresh_html...")
         self._refresh_html()
+        logger.info("GraphCockpitTab.__init__: complete")
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)

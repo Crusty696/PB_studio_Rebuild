@@ -150,3 +150,40 @@ class MemoryUpdaterWorker(QObject):
     def pending_events(self) -> int:
         """Internal counter — for diagnostics and tests."""
         return self._pending
+
+
+# ---------------------------------------------------------------------------
+# B-197 F-3: lazy module-level singleton
+# ---------------------------------------------------------------------------
+
+_default_memory_updater: MemoryUpdaterWorker | None = None
+_singleton_lock = threading.Lock()
+
+
+def get_memory_updater() -> MemoryUpdaterWorker:
+    """B-197 F-3: Modulweiter Singleton-MemoryUpdaterWorker, an die echte
+    DB gebunden via ``database.nullpool_session``.
+
+    Erst-Aufruf erzeugt die Instanz. Folge-Aufrufe geben dieselbe.
+    Tests duerfen ``MemoryUpdaterWorker(...)`` weiter direkt nutzen
+    und diesen Singleton ignorieren.
+
+    Wird vom ``ui/timeline.py``-Pfad gerufen, sobald
+    ``FeedbackService.record_*`` erfolgreich war — damit die
+    Pattern-Aggregation in ``mem_learned_pattern`` automatisch
+    nachgezogen wird.
+    """
+    global _default_memory_updater
+    if _default_memory_updater is None:
+        with _singleton_lock:
+            if _default_memory_updater is None:
+                from database import nullpool_session  # type: ignore[attr-defined]
+
+                _default_memory_updater = MemoryUpdaterWorker(
+                    session_factory=nullpool_session,
+                )
+                logger.info(
+                    "MemoryUpdaterWorker: Singleton erstellt "
+                    "(batch_size=%d).", _default_memory_updater._batch_size,
+                )
+    return _default_memory_updater

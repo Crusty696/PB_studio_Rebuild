@@ -716,9 +716,17 @@ def _auto_edit_phase3_inner(
         if use_studio_brain_pipeline():
             from services.pacing.pipeline import PacingPipeline
             from services.pacing.scorer import PacingScorer
-            from database import AudioTrack
+            from services.pacing.decision_recorder import DecisionRecorder
+            from database import AudioTrack, nullpool_session
+            # B-197 F-4: ohne ``decision_recorder=`` blieben mem_decision +
+            # mem_pacing_run leer. Damit waren AuditTab/MemoryTab/
+            # PacingDecisionExplorer ohne Daten — siehe
+            # ``wiki/synthesis/brain-audit-2026-04-27.md``.
             _studio_brain_pipeline = PacingPipeline(
                 scorer=PacingScorer(weights_profile="default"),
+                decision_recorder=DecisionRecorder(
+                    session_factory=nullpool_session,
+                ),
             )
             with Session(_ae_eng) as _sb_session:
                 _studio_brain_audio_track = (

@@ -15,6 +15,20 @@ import os
 import sys
 from pathlib import Path
 
+# Diagnostik: faulthandler aktivieren — bei nativen Crashes (SIGSEGV) und
+# bei kontrolliertem Stack-Dump auf SIGBREAK (Ctrl+Pause auf Windows)
+# wird ein Python-Stacktrace nach stderr geschrieben. Hilft bei der
+# Diagnose von UI-Hangs (Brain-Open et al.) — User triggert per
+# Ctrl+Pause einen Stack-Dump aller Threads.
+import faulthandler as _faulthandler
+_faulthandler.enable()
+try:
+    import signal as _signal
+    if hasattr(_signal, "SIGBREAK"):
+        _faulthandler.register(_signal.SIGBREAK, all_threads=True)
+except Exception:  # broad: best-effort, kein App-Killer
+    pass
+
 # P1-FIX: Lokales bin-Verzeichnis zum PATH hinzufügen (ffmpeg/ffprobe Support)
 _APP_ROOT = Path(__file__).parent.absolute()
 _BIN_DIR = str(_APP_ROOT / "bin")
@@ -440,10 +454,23 @@ class PBWindow(QMainWindow):
         reuse the same window and simply raise it. Defaults wire BrainService,
         SteerOverrideQueue, and BackupService against the app's main DB, so
         no explicit injection is needed at the call site.
+
+        B-197 F-2: Wir verbinden ``timelineNavigationRequested(float)``
+        einmalig mit Timeline + Video-Preview, damit Story-Map-Thumbnail-
+        Clicks im Audit-Tab den Playhead in der Edit-Workspace springen
+        lassen. Vorher war das Signal ein Dead-End.
         """
         try:
             from ui.studio_brain_window import StudioBrainWindow
             win = StudioBrainWindow.instance()
+            # B-197 F-2: idempotent connect (Qt dedupliziert nicht von selbst,
+            # daher disconnect-then-connect im Try um Doppel-Verbindungen bei
+            # mehrfachen Brain-Opens zu verhindern).
+            try:
+                win.timelineNavigationRequested.disconnect(self._on_brain_timeline_nav)
+            except (RuntimeError, TypeError):
+                pass  # noch nie verbunden — first call
+            win.timelineNavigationRequested.connect(self._on_brain_timeline_nav)
             win.show()
             win.raise_()
             win.activateWindow()
@@ -456,6 +483,28 @@ class PBWindow(QMainWindow):
                 "Studio Brain",
                 f"Failed to open Studio Brain:\n\n{exc}",
             )
+
+    def _on_brain_timeline_nav(self, time_sec: float) -> None:
+        """B-197 F-2: Slot fuer ``StudioBrainWindow.timelineNavigationRequested``.
+
+        Setzt den Playhead in der InteractiveTimeline und lasst die
+        Video-Preview an die gleiche Stelle springen. Beide APIs sind
+        bestehend (`set_playhead_time` / `seek_to`); der Slot verkabelt
+        sie nur defensiv (jeder Aufruf in eigenem try, damit ein
+        fehlendes Sub-Widget nicht den anderen blockiert).
+        """
+        try:
+            timeline = getattr(self, "timeline_view", None)
+            if timeline is not None and hasattr(timeline, "set_playhead_time"):
+                timeline.set_playhead_time(float(time_sec))
+        except Exception as exc:  # broad: UI-Slot darf nicht crashen
+            logger.warning("B-197 F-2: timeline.set_playhead_time failed: %s", exc)
+        try:
+            preview = getattr(self, "video_preview", None)
+            if preview is not None and hasattr(preview, "seek_to"):
+                preview.seek_to(float(time_sec))
+        except Exception as exc:
+            logger.warning("B-197 F-2: video_preview.seek_to failed: %s", exc)
 
     def _save_window_state(self):
         self.workspace_setup._save_window_state()
@@ -983,6 +1032,26 @@ def main():
         if _orig_excepthook:
             _orig_excepthook(args)
     threading.excepthook = _thread_exception_hook
+
+    # B-196: ``Qt.AA_ShareOpenGLContexts`` MUSS vor ``QApplication(...)`` gesetzt
+    # werden — Voraussetzung fuer QtWebEngine. Ohne dieses Attribut kann der
+    # spaetere Lazy-Import von ``PySide6.QtWebEngineWidgets`` (wenn der User
+    # das Studio Brain oeffnet) im laufenden UI-Thread deadlocken. Im
+    # isolierten Test passiert das nicht, weil dort QApplication frisch ist —
+    # genau dieser Unterschied versteckt den Bug bis zum echten Brain-Open.
+    from PySide6.QtCore import Qt as _Qt
+    QApplication.setAttribute(_Qt.ApplicationAttribute.AA_ShareOpenGLContexts)
+    # B-196: WebEngineWidgets EARLY pre-importieren — registriert Chromium
+    # waehrend des App-Starts statt mitten in einem UI-Klick. Idempotent;
+    # bei fehlender Library bleibt es bei einem Logger-Eintrag und der
+    # GraphCockpit-Tab faellt automatisch in seinen TextEdit-Fallback.
+    try:
+        from PySide6.QtWebEngineWidgets import QWebEngineView as _QWebEngineView  # noqa: F401
+    except Exception as _qweb_exc:  # broad: WebEngine darf App-Start nicht killen
+        logging.getLogger(__name__).warning(
+            "B-196: QtWebEngineWidgets early-import fehlgeschlagen: %s. "
+            "Studio Brain wird ohne Graph-Cockpit starten.", _qweb_exc,
+        )
 
     app = QApplication(sys.argv)
 

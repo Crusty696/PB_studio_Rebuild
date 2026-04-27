@@ -350,7 +350,10 @@ class InteractiveTimeline(QGraphicsView):
     selection_changed = Signal(list)  # emits list of dicts with clip data
 
     # T8.1: Feedback shortcut signal — emits event_id after a successful DB write.
-    # Connect this to MemoryUpdaterWorker.notify_feedback() in the main window.
+    # B-197 F-3: ``_notify_memory_updater`` ruft jetzt direkt
+    # ``MemoryUpdaterWorker.notify_feedback()`` auf dem modulweiten Singleton.
+    # Das Signal bleibt fuer externe Listener bestehen (z.B. Tests, andere
+    # UI-Komponenten die auf Feedback reagieren).
     feedback_event_emitted = Signal(int)
 
     # AUD-71: Keyboard shortcut signals (wired to video preview / transport in PBWindow)
@@ -1325,6 +1328,7 @@ class InteractiveTimeline(QGraphicsView):
                         )
                         if result.success and result.event_id is not None:
                             self.feedback_event_emitted.emit(result.event_id)
+                            self._notify_memory_updater()
                         return
                     # Ratings 1-5
                     for i in range(1, 6):
@@ -1334,6 +1338,7 @@ class InteractiveTimeline(QGraphicsView):
                             )
                             if result.success and result.event_id is not None:
                                 self.feedback_event_emitted.emit(result.event_id)
+                                self._notify_memory_updater()
                             return
 
         # Play / Pause
@@ -1444,6 +1449,26 @@ class InteractiveTimeline(QGraphicsView):
     def set_feedback_service(self, service: "FeedbackService") -> None:  # type: ignore[name-defined]
         """Inject a custom FeedbackService (for tests). Not used in production."""
         self._feedback_service = service
+
+    def _notify_memory_updater(self) -> None:
+        """B-197 F-3: Triggert die Pattern-Aggregation nach einem
+        erfolgreichen Feedback-Write.
+
+        ``MemoryUpdaterWorker.notify_feedback`` ist im Default-Pfad O(1)
+        (nur ein Counter-Increment unter Lock). Erst wenn der Counter den
+        ``BATCH_SIZE``-Schwellwert erreicht, ruft der Worker intern
+        ``run()`` auf — der ist dann teurer (Pattern-SQL-JOIN), warnt
+        aber selber sobald er auf dem GUI-Thread laeuft.
+
+        Defensive: best-effort. Wenn das Singleton nicht bereitsteht (z.B.
+        DB nicht initialisiert), wird der Aufruf still uebersprungen.
+        """
+        try:
+            from workers.memory_updater import get_memory_updater
+
+            get_memory_updater().notify_feedback()
+        except Exception as exc:  # broad: feedback-loop darf UI nicht killen
+            logger.debug("B-197 F-3: notify_feedback skipped: %s", exc)
 
     # ── P12: Story-Map context-menu trigger ────────────────────────────────
     def set_brain_service(self, service) -> None:  # type: ignore[name-defined]
