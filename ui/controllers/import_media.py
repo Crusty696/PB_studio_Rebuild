@@ -57,28 +57,22 @@ class ImportMediaController(PBComponent):
         self.window.worker_dispatcher._start_worker_thread(worker, on_finish=_on_finish, on_error=_on_error)
 
     def _import_folder(self):
-        """Importiert alle unterstuetzten Medien aus einem Ordner."""
+        """Importiert alle unterstuetzten Medien aus einem Ordner.
+
+        B-058: Der ``os.walk``-Scan laeuft jetzt im FolderImportWorker-
+        Background-Thread (``walk_root``-Parameter). Vorher fror der
+        Main-Thread bei grossen Ordnerbaeumen (NAS / 1000+ Files)
+        mehrere Sekunden ein.
+        """
         folder = QFileDialog.getExistingDirectory(self.window, "Ordner importieren")
         if not folder:
             return
-        paths_audio: list[str] = []
-        paths_video: list[str] = []
-        for root, _dirs, files in os.walk(folder):
-            for f in files:
-                ext = Path(f).suffix.lower()
-                full = os.path.join(root, f)
-                if ext in AUDIO_EXTENSIONS:
-                    paths_audio.append(full)
-                elif ext in VIDEO_EXTENSIONS:
-                    paths_video.append(full)
-        total = len(paths_audio) + len(paths_video)
-        if total == 0:
-            self.window.console_text.append(f"[Warnung] Keine unterstuetzten Medien in: {folder}")
-            return
-        self.window.console_text.append(f"[Ordner] {total} Dateien gefunden in: {folder}")
-        self.window.status_bar.showMessage(f"Importiere {total} Dateien aus Ordner ...")
+        self.window.console_text.append(f"[Ordner] Scanne {folder} ...")
+        self.window.status_bar.showMessage(f"Scanne Ordner {folder} ...")
 
-        worker = FolderImportWorker(paths_audio, paths_video)
+        # B-058: walk_root setzen — Worker macht den os.walk-Scan im
+        # eigenen Thread und ergaenzt paths_audio/paths_video selbst.
+        worker = FolderImportWorker([], [], walk_root=folder)
         worker.file_imported.connect(self.window.console_text.append)
         worker.progress.connect(
             lambda pct, msg: self.window.status_bar.showMessage(f"[Import] {pct}% — {msg}")
@@ -129,10 +123,21 @@ class ImportMediaController(PBComponent):
             # H-36 FIX: Connect the on_finish callback to worker.finished signal
             worker.finished.connect(_on_done)
 
+            # B-060: on_error-Handler — vorher landete Fehler nur im Task-Dock
+            # ohne sichtbare User-Meldung.
+            def _on_error(err_msg: str) -> None:
+                if not self.window:
+                    return
+                from PySide6.QtWidgets import QMessageBox
+                self.window.console_text.append(f"[Fehler] Sammlung bereinigen: {err_msg}")
+                self.window.status_bar.showMessage(f"Sammlung-Bereinigen fehlgeschlagen: {err_msg}", 10_000)
+                QMessageBox.critical(self.window, "Sammlung bereinigen fehlgeschlagen", err_msg)
+
             from services.task_manager import GlobalTaskManager
             GlobalTaskManager.instance().start_task(
                 name="Datenbank bereinigen",
                 worker=worker,
+                on_error=_on_error,
                 description="Entfernt alle Medien-Eintraege"
             )
 
@@ -182,9 +187,19 @@ class ImportMediaController(PBComponent):
                 self.window.console_text.append(f"[System] {count} Medien-Eintraege geloescht.")
                 self.window.status_bar.showMessage(f"{count} Medien geloescht")
 
+            # B-060: on_error-Handler analog zu _clear_all_media.
+            def _on_error(err_msg: str) -> None:
+                if not self.window:
+                    return
+                from PySide6.QtWidgets import QMessageBox
+                self.window.console_text.append(f"[Fehler] Medien loeschen: {err_msg}")
+                self.window.status_bar.showMessage(f"Medien-Loeschen fehlgeschlagen: {err_msg}", 10_000)
+                QMessageBox.critical(self.window, "Medien loeschen fehlgeschlagen", err_msg)
+
             from services.task_manager import GlobalTaskManager
             GlobalTaskManager.instance().start_task(
                 name="Medien loeschen",
                 worker=worker,
+                on_error=_on_error,
                 description=f"Entfernt {total} ausgewaehlte Medien"
             )

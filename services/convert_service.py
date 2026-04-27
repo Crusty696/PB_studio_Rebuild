@@ -248,6 +248,7 @@ def convert(
     output_path: str | Path | None = None,
     progress_cb: Callable[[int, str], None] | None = None,
     cancel_check: Callable[[], bool] | None = None,
+    timeout: float | None = None,
 ) -> str:
     """Konvertiert eine Mediendatei mit dem gewaehlten Preset.
 
@@ -358,11 +359,13 @@ def convert(
         logger.debug("[ConvertService] Warte auf NVENC-Slot...")
         with NVENC_SEMAPHORE:
             ffmpeg_stderr = _run_ffmpeg_with_progress(
-                cmd, total_duration, progress_cb, cancel_check=cancel_check
+                cmd, total_duration, progress_cb, cancel_check=cancel_check,
+                timeout=timeout,
             )
     else:
         ffmpeg_stderr = _run_ffmpeg_with_progress(
-            cmd, total_duration, progress_cb, cancel_check=cancel_check
+            cmd, total_duration, progress_cb, cancel_check=cancel_check,
+            timeout=timeout,
         )
 
     if not output_path.exists():
@@ -411,6 +414,7 @@ def _run_ffmpeg_with_progress(
     total_duration: float,
     progress_cb: Callable[[int, str], None] | None,
     cancel_check: Callable[[], bool] | None = None,
+    timeout: float | None = None,
 ) -> str:
     """Fuehrt FFmpeg aus und parst -progress pipe:1 fuer Fortschritt.
 
@@ -421,8 +425,17 @@ def _run_ffmpeg_with_progress(
     Wird in der Progress-Schleife UND vom Watchdog-Thread regelmaessig
     abgefragt; bei True wird der ffmpeg-Prozess terminiert und eine
     ``FFmpegError("Convert abgebrochen")`` geworfen.
+
+    B-059 Fix: ``timeout`` (Wall-Clock-Sekunden). Ein zusaetzlicher
+    Watchdog-Thread killt den ffmpeg-Prozess wenn die Wall-Clock-Zeit
+    ueberschritten wird — auch wenn FFmpeg keine Progress-Output mehr
+    schreibt (Hang im I/O-Retry, korrupter Codec, NVENC-Treiber-Bug).
+    Default = ``FFMPEG_EXPORT_TIMEOUT_SEC`` (600s).
     """
     import time as _time
+
+    if timeout is None:
+        timeout = float(FFMPEG_EXPORT_TIMEOUT_SEC)
 
     kwargs = {}
     if sys.platform == "win32":
@@ -441,6 +454,7 @@ def _run_ffmpeg_with_progress(
 
     stderr_lines = []
     cancelled = threading.Event()
+    timed_out = threading.Event()
     def _drain_stderr():
         for line in process.stderr:
             stderr_lines.append(line)
@@ -465,6 +479,28 @@ def _run_ffmpeg_with_progress(
                 _time.sleep(0.2)
         cancel_watchdog = threading.Thread(target=_cancel_watch, daemon=True)
         cancel_watchdog.start()
+
+    # B-059 Fix: Wall-Clock-Watchdog — killt den Prozess wenn FFmpeg
+    # ueber `timeout` Sekunden laeuft (z.B. Hang ohne stdout-Output).
+    timeout_watchdog = None
+    _start_ts = _time.monotonic()
+    if timeout is not None and timeout > 0:
+        def _timeout_watch():
+            while process.poll() is None:
+                if _time.monotonic() - _start_ts >= timeout:
+                    timed_out.set()
+                    try:
+                        process.terminate()
+                        try:
+                            process.wait(timeout=2.0)
+                        except subprocess.TimeoutExpired:
+                            process.kill()
+                    except Exception:
+                        pass
+                    return
+                _time.sleep(0.5)
+        timeout_watchdog = threading.Thread(target=_timeout_watch, daemon=True)
+        timeout_watchdog.start()
 
     try:
         for line in process.stdout:
@@ -499,10 +535,10 @@ def _run_ffmpeg_with_progress(
                 if progress_cb:
                     progress_cb(100, "Fertig")
 
-        process.wait(timeout=FFMPEG_EXPORT_TIMEOUT_SEC)
+        process.wait(timeout=timeout if timeout is not None else FFMPEG_EXPORT_TIMEOUT_SEC)
     except subprocess.TimeoutExpired:
         process.kill()
-        raise FFmpegTimeoutError(FFMPEG_EXPORT_TIMEOUT_SEC)
+        timed_out.set()
     finally:
         # Bug-32 Fix: Stelle sicher dass Process terminiert wird, auch wenn Exception auftritt
         if process.poll() is None:
@@ -510,6 +546,11 @@ def _run_ffmpeg_with_progress(
         stderr_thread.join(timeout=THREAD_JOIN_TIMEOUT_SEC)
         if cancel_watchdog is not None:
             cancel_watchdog.join(timeout=THREAD_JOIN_TIMEOUT_SEC)
+        if timeout_watchdog is not None:
+            timeout_watchdog.join(timeout=THREAD_JOIN_TIMEOUT_SEC)
+
+    if timed_out.is_set():
+        raise FFmpegTimeoutError(int(timeout if timeout is not None else FFMPEG_EXPORT_TIMEOUT_SEC))
 
     if cancelled.is_set():
         raise FFmpegError(

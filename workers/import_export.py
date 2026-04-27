@@ -107,15 +107,24 @@ class FolderImportWorker(QObject, CancellableMixin):
         paths_audio: list,
         paths_video: list,
         project_id: int | None = None,
+        walk_root: str | None = None,
     ):
         """Cycle 13 BUG-B1: project_id beim Worker-Start einfangen statt
         erst pro-File aufloesen. Schutz gegen Projekt-Switch waehrend
         des Imports — sonst landen die spaeter importierten Files im
         falschen Projekt.
+
+        B-058: ``walk_root`` ist optional. Wenn gesetzt, scannt der
+        Worker den Ordnerbaum SELBST per ``os.walk`` (im Background-
+        Thread) und ergaenzt die ``paths_audio``/``paths_video``-
+        Listen. Vorher musste der UI-Caller ``os.walk`` im Main-Thread
+        machen — bei NAS / Cloud-Sync / 1000+-File-Folders fror das UI
+        mehrere Sekunden ein.
         """
         super().__init__()
-        self.paths_audio = paths_audio
-        self.paths_video = paths_video
+        self.paths_audio = list(paths_audio)
+        self.paths_video = list(paths_video)
+        self.walk_root = walk_root
         if project_id is None:
             try:
                 from database.session import get_active_project_id
@@ -128,6 +137,27 @@ class FolderImportWorker(QObject, CancellableMixin):
         _ok = False
         added = 0
         new_video_clips: list = []
+        # B-058: Walk im Background-Thread wenn der Caller einen
+        # ``walk_root`` gesetzt hat (UI-Pfad ``_import_folder``).
+        if self.walk_root:
+            import os
+            from pathlib import Path
+            from services.ingest_service import AUDIO_EXTENSIONS, VIDEO_EXTENSIONS
+            try:
+                self.progress.emit(0, "Scanne Ordner...")
+                for root, _dirs, files in os.walk(self.walk_root):
+                    if self.should_stop():
+                        break
+                    for f in files:
+                        ext = Path(f).suffix.lower()
+                        full = os.path.join(root, f)
+                        if ext in AUDIO_EXTENSIONS:
+                            self.paths_audio.append(full)
+                        elif ext in VIDEO_EXTENSIONS:
+                            self.paths_video.append(full)
+            except OSError as walk_err:
+                self.error.emit(f"Ordner-Scan fehlgeschlagen: {walk_err}")
+                return
         total = len(self.paths_audio) + len(self.paths_video)
         done = 0
         try:
@@ -228,6 +258,16 @@ class BatchConvertWorker(QObject, CancellableMixin):
         self.ext = ext
 
     def run(self):
+        # B-057: GPU_EXECUTION_LOCK serialisiert NVENC mit anderen GPU-
+        # Workloads (BeatThis, Demucs, SigLIP, RAFT). Vorher konnten
+        # h264_nvenc / hevc_nvenc parallel zu Audio-Analyse laufen und
+        # auf 6 GB GTX 1060 Mobile NVENC-Session-Limit (max 2) sprengen
+        # → "Cannot load NVENC session"-Fehler oder VRAM-OOM.
+        from services.model_manager import GPU_EXECUTION_LOCK
+        with GPU_EXECUTION_LOCK:
+            return self._run_locked()
+
+    def _run_locked(self):
         _ok = False
         total = len(self.videos)
         converted = 0
@@ -339,6 +379,15 @@ class BatchConvertWorker(QObject, CancellableMixin):
                 self.finished.emit(0, 0)
 
 
+# B-056: Semaphor begrenzt parallele Proxy-Worker. Bei Batch-Import
+# von 50 Videos liefen vorher 50 ffmpeg-Subprozesse parallel — alle
+# konkurrierten um Disk-IO + Encoder-Sessions, im Worst Case:
+# NVENC-Session-Erschoepfung (GTX 1060 Mobile = 2) + I/O-Trashing.
+# 2 ist der konservative Default; entspricht der NVENC-Session-Grenze.
+import threading as _threading_b056
+_PROXY_CREATION_SEMAPHORE = _threading_b056.BoundedSemaphore(value=2)
+
+
 class ProxyCreationWorker(QObject, CancellableMixin):
     """Erstellt NVENC 540p Edit-Proxy für ein Video."""
     finished = Signal(int, str)    # clip_id, proxy_path
@@ -351,14 +400,22 @@ class ProxyCreationWorker(QObject, CancellableMixin):
         self.video_path = video_path
 
     def run(self):
+        # B-056: Semaphor blockt bis ein Slot frei wird.
+        with _PROXY_CREATION_SEMAPHORE:
+            return self._run_with_slot()
+
+    def _run_with_slot(self):
         _ok = False
         try:
             from services.convert_service import convert
+            # B-059: Wall-Clock-Timeout (10 min) — verhindert Orphan-Worker bei
+            # haengender FFmpeg/NVENC-Encoding (korrupter Codec, Treiber-Hang).
             proxy_path = convert(
                 self.video_path,
                 preset_name="edit_proxy",
                 progress_cb=lambda pct, msg: self.progress.emit(pct, msg),
                 cancel_check=self.should_stop,
+                timeout=600.0,
             )
             # Proxy-Pfad in SQLite speichern (NullPool: verhindert DB-Lock)
             from database import nullpool_session
