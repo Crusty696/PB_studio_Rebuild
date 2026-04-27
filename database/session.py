@@ -238,7 +238,15 @@ class _NullPoolSessionContext:
                         except Exception as rb_err:  # rollback after failed commit
                             logger.warning("session.rollback() nach fehlgeschlagenem commit: %s", rb_err)
                         raise  # Re-raise commit error so caller knows operation failed
-                self._session.close()
+                # B-192: session.close() in try-catch wrappen — sonst kann
+                # ein Close-Error im Cleanup-Pfad die Original-Exception
+                # ueberschreiben (Python __exit__-Semantik: ein selbst-
+                # geworfener Exit-Error verschluckt das exc_val des
+                # ``with``-Blocks).
+                try:
+                    self._session.close()
+                except Exception as close_err:  # broad catch intentional — close() can fail on broken connection
+                    logger.warning("session.close() fehlgeschlagen: %s", close_err)
         finally:
             # B-008 Fix: dispose() Fehler abfangen statt still zu schlucken
             try:

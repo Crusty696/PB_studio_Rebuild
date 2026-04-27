@@ -1053,3 +1053,95 @@ class TestFkMigrationBackupCleanup:
             "B-191: _cleanup_fk_migration_backup muss nach dem Erfolgs-"
             "Logger im Erfolgs-Pfad aufgerufen werden."
         )
+
+
+# ---------------------------------------------------------------------------
+# B-192: NullPoolSessionContext.__exit__ darf Original-Exception nicht schlucken
+# ---------------------------------------------------------------------------
+
+class TestNullPoolSessionContextExitPreservesException:
+    """B-192: ``_NullPoolSessionContext.__exit__`` rief ``self._session.close()``
+    ungeschuetzt auf. Wenn ``close()`` ihrerseits eine Exception warf,
+    ueberschrieb diese die ``with``-Block-Exception (Python-Semantik:
+    ein selbst-geworfener __exit__-Error verschluckt ``exc_val``).
+
+    Diese Tests beweisen, dass die Original-Exception nun korrekt
+    weitergereicht wird, auch wenn ``close()`` failt.
+    """
+
+    def _build_ctx_with_close_failure(self):
+        """Hilfs-Setup: NullPool-Context mit einer Mock-Session, deren
+        ``close()`` raised. Engine-Dispose ist no-op."""
+        from database.session import _NullPoolSessionContext
+
+        class _BoomSession:
+            def __init__(self):
+                self.closed = False
+                self.committed = False
+                self.rolled_back = False
+
+            def commit(self):
+                self.committed = True
+
+            def rollback(self):
+                self.rolled_back = True
+
+            def close(self):
+                self.closed = True
+                raise RuntimeError("close-failed")
+
+        class _NoOpEngine:
+            def dispose(self):
+                pass
+
+        ctx = _NullPoolSessionContext(_NoOpEngine())
+        ctx._session = _BoomSession()
+        return ctx
+
+    def test_close_failure_does_not_swallow_original_exception(self):
+        """Original-Exception aus dem ``with``-Block muss propagiert
+        werden, auch wenn ``session.close()`` zusaetzlich raised.
+        """
+        ctx = self._build_ctx_with_close_failure()
+
+        try:
+            with ctx as session:
+                _ = session  # close() wirft erst beim __exit__
+                raise ValueError("original-error")
+        except ValueError as exc:
+            assert str(exc) == "original-error", (
+                "B-192: Original-Exception verloren — close() hat sie ueberschrieben."
+            )
+        else:
+            raise AssertionError("Original-Exception wurde verschluckt")
+
+    def test_close_failure_alone_does_not_propagate(self):
+        """Wenn der ``with``-Block sauber durchlaeuft, darf ein close-
+        Error die App nicht killen — er wird nur geloggt.
+        """
+        ctx = self._build_ctx_with_close_failure()
+
+        # Sollte kein Raise: close-Fehler ist Cleanup-Noise.
+        with ctx as session:
+            _ = session
+
+    def test_session_close_is_wrapped_in_try_catch(self):
+        """Architektur-Riegel: Der ``self._session.close()``-Aufruf in
+        ``__exit__`` muss in einem ``try``/``except``-Block stehen.
+        Wer die Wrapping-Schicht entfernt, riskiert, dass close-Errors
+        die Original-Exception verschlucken.
+        """
+        import inspect as _inspect
+        import re as _re
+
+        from database.session import _NullPoolSessionContext
+
+        src = _inspect.getsource(_NullPoolSessionContext.__exit__)
+        # Suche das Pattern: try:\n   self._session.close()
+        pattern = _re.compile(
+            r"try\s*:\s*\n\s*self\._session\.close\(\)",
+        )
+        assert pattern.search(src), (
+            "B-192: self._session.close() muss in einem try-Block stehen, "
+            "sonst kann ein close-Error die Original-Exception verschlucken."
+        )
