@@ -339,6 +339,10 @@ class VectorDBService:
                     f"DELETE FROM clip_embeddings WHERE CAST(id / 1000000 AS INTEGER) IN ({placeholders})",
                     clip_ids,
                 )
+        # B-080: Cache invalidieren — sonst liefert der naechste search()
+        # noch geloeschte Clips aus dem in-Memory-Cache. Inkonsistent mit
+        # delete_by_video (das invalidiert korrekt seit F-005).
+        self._invalidate_cache()
         logger.info("VectorDB: Embeddings fuer %d Clip-IDs geloescht", len(clip_ids))
 
     def delete_all(self) -> None:
@@ -346,6 +350,8 @@ class VectorDBService:
         with self._write_lock:
             with self._connect() as conn:
                 conn.execute("DELETE FROM clip_embeddings")
+        # B-080: Cache invalidieren — siehe delete_by_clip_ids.
+        self._invalidate_cache()
         logger.info("VectorDB: Alle Embeddings geloescht")
 
     def close(self) -> None:

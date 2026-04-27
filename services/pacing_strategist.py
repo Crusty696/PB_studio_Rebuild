@@ -53,10 +53,80 @@ class PacingPlan:
 
     @classmethod
     def from_json(cls, data: dict) -> PacingPlan:
+        """B-075: defensive Validation gegen halluzinierten LLM-Output.
+
+        Vorher wurde JEDES syntaktisch gueltige JSON akzeptiert. Negative
+        ``cut_rate_beats``, Strings wo Floats erwartet werden,
+        unbekannte ``type``-Werte → silent Timeline-Korruption oder
+        Crash im Auto-Edit-Inneren.
+
+        Wir validieren auf der Eingangsseite und droppen kaputte
+        Section-Eintraege statt sie durchzureichen. Konservative Werte:
+        - ``cut_rate_beats`` ∈ [1, 32] (sonst entfernen)
+        - ``global_min_duration`` ∈ [0.5, 30.0]
+        - ``variety_priority`` ∈ [0.0, 1.0]
+        - ``type`` muss in der Pacing-Map-Whitelist sein
+        - ``start`` / ``end`` muessen Floats sein
+        """
+        _ALLOWED_TYPES = {
+            "INTRO", "WARMUP", "BUILDUP", "DROP",
+            "BREAKDOWN", "TRANSITION", "COOLDOWN", "OUTRO",
+        }
+        # Section-Overrides validieren — kaputte Eintraege verwerfen.
+        clean_sections: list[dict] = []
+        raw_sections = data.get("sections")
+        if isinstance(raw_sections, list):
+            for sec in raw_sections:
+                if not isinstance(sec, dict):
+                    continue
+                stype = sec.get("type")
+                if not isinstance(stype, str) or stype not in _ALLOWED_TYPES:
+                    continue
+                # cut_rate_beats: muss positive int in [1, 32] sein
+                cr = sec.get("cut_rate_beats")
+                try:
+                    cr_int = int(cr) if cr is not None else None
+                except (TypeError, ValueError):
+                    cr_int = None
+                if cr_int is not None and not (1 <= cr_int <= 32):
+                    cr_int = None  # kaputter Wert → droppe das Feld
+                # start / end optional — wenn da, muessen es Floats sein
+                cleaned: dict = {"type": stype}
+                if cr_int is not None:
+                    cleaned["cut_rate_beats"] = cr_int
+                for f in ("start", "end"):
+                    v = sec.get(f)
+                    try:
+                        if v is not None:
+                            cleaned[f] = max(0.0, float(v))
+                    except (TypeError, ValueError):
+                        pass
+                if "mood" in sec and isinstance(sec["mood"], str):
+                    cleaned["mood"] = sec["mood"]
+                if "notes" in sec and isinstance(sec["notes"], str):
+                    cleaned["notes"] = sec["notes"]
+                clean_sections.append(cleaned)
+
+        # global_min_duration: clamp [0.5, 30.0]
+        gmd = data.get("global_min_duration", 3.0)
+        try:
+            gmd_f = float(gmd)
+        except (TypeError, ValueError):
+            gmd_f = 3.0
+        gmd_f = max(0.5, min(30.0, gmd_f))
+
+        # variety_priority: clamp [0.0, 1.0]
+        vp = data.get("variety_priority", 0.7)
+        try:
+            vp_f = float(vp)
+        except (TypeError, ValueError):
+            vp_f = 0.7
+        vp_f = max(0.0, min(1.0, vp_f))
+
         return cls(
-            section_overrides=data.get("sections", []),
-            global_min_duration=data.get("global_min_duration", 3.0),
-            variety_priority=data.get("variety_priority", 0.7),
+            section_overrides=clean_sections,
+            global_min_duration=gmd_f,
+            variety_priority=vp_f,
         )
 
     @classmethod
