@@ -201,6 +201,15 @@ class ModelManager:
                     "B-015: Device 'cuda' angefordert, aber CUDA nicht verfügbar — Fallback auf 'cpu'.",
                 )
 
+        # B-218: Flag-Bit fuer "CUDA-Context koennte stale sein" — wird vom
+        # Power-Event-Listener (WM_POWERBROADCAST/PBT_APMRESUMESUSPEND) und
+        # bei expliziter notify_power_resume() gesetzt. Vor dem naechsten
+        # GPU-Op wird via cuda_health_check() probed; bei Fail wird auf
+        # CPU zurueckgeschaltet UND alle Slots invalidiert (geladene Tensoren
+        # zeigen auf toten Context). Verhindert STATUS_STACK_BUFFER_OVERRUN
+        # nach Laptop-Andocken/Sleep-Wakeup.
+        self._cuda_suspect_stale = False
+
         # Prominenten GPU-Status loggen (einmalig)
         self._log_gpu_hardware()
         logger.info("ModelManager initialisiert auf Device: %s", self.device)
@@ -212,6 +221,133 @@ class ModelManager:
         # und die Logger-Aufrufe alle deterministisch sind) oder True
         # (early-return mit allen Feldern bereit).
         self._initialized = True
+
+    # ── B-218: CUDA-Context-Health (Laptop-Dock/Sleep-Resume) ─────────────
+
+    def cuda_health_check(self) -> bool:
+        """B-218: Probe ob der CUDA-Context noch lebt.
+
+        Wird gerufen vor jedem GPU-Allokat-Pfad. Bei Laptop mit Mobile-GPU
+        verliert die GPU nach Andocken/Sleep den Power-State; ein vorher
+        initialisierter CUDA-Context wird intern invalid, aber
+        ``torch.cuda.is_available()`` luegt weiter "True". Der naechste
+        echte cuda-Call (z.B. ``tensor.to('cuda')``) crasht dann nativ
+        mit STATUS_STACK_BUFFER_OVERRUN.
+
+        Diese Probe versucht eine MINI-Allocation (1-Element-Tensor +
+        synchronize). Wenn das werfend / blockend ist, ist der Context
+        tot. Kosten: ~0.2-1ms wenn Context lebt; bei totem Context faengt
+        try/except entweder den RuntimeError oder die Probe selbst
+        crasht mit demselben Bug — letzterer Fall ist hier nicht
+        rettbar (siehe notify_power_resume + auto_fallback).
+
+        Returns:
+            True wenn CUDA usable, False wenn dead/unavailable.
+        """
+        _ensure_torch()
+        if not torch.cuda.is_available():
+            return False
+        try:
+            # Tiny-Probe: ein-Element-Tensor + synchronize. Zwingt den
+            # cuda-Runtime, mindestens einen Op auszufuehren — bei stale
+            # Context wirft das RuntimeError ("CUDA error: ...").
+            probe = torch.zeros(1, device="cuda")
+            probe = probe + 1.0  # erzwingt Kernel-Launch
+            torch.cuda.synchronize()
+            del probe
+            return True
+        except (RuntimeError, AssertionError) as exc:
+            logger.warning(
+                "B-218: CUDA health-check FAILED — Context vermutlich stale "
+                "(Laptop-Dock/Sleep-Resume?): %s", exc,
+            )
+            return False
+
+    def notify_power_resume(self) -> None:
+        """B-218: vom Power-Event-Listener nach Resume aufgerufen.
+
+        Markiert den Cache als verdaechtig — beim naechsten load_*-Call
+        wird zwangsweise health-check + ggf. CPU-Fallback ausgeloest.
+        Idempotent: wiederholtes Aufrufen ist sicher.
+        """
+        with self._swap_lock:
+            self._cuda_suspect_stale = True
+            logger.info(
+                "B-218: Power-Resume signalisiert — CUDA-Context wird beim "
+                "naechsten Modell-Load probed."
+            )
+
+    def _ensure_cuda_or_fallback(self, operation: str) -> None:
+        """B-218: Vor jedem GPU-allocating Load aufrufen.
+
+        Wenn ``device == "cuda"`` und (a) der Suspect-Flag gesetzt ist
+        ODER (b) cuda_health_check() False zurueckgibt, schalten wir
+        den Manager auf ``device = "cpu"`` und entladen alle Slots.
+        Damit laufen nachfolgende Loads sauber auf CPU statt nativ zu
+        crashen.
+
+        Wenn CUDA wieder zurueckkommt (z.B. nach Re-Dock), wird beim
+        naechsten erfolgreichen health-check wieder auf "cuda" gehoben.
+        """
+        with self._swap_lock:
+            if self.device != "cuda":
+                # Schon auf CPU — pruefe ob CUDA wieder da ist (Re-Dock).
+                if self._cuda_suspect_stale or torch.cuda.is_available():
+                    self._cuda_suspect_stale = False
+                    if self.cuda_health_check():
+                        logger.info(
+                            "B-218: CUDA wieder verfuegbar (vermutlich Re-Dock) — "
+                            "device wechselt zurueck cpu -> cuda fuer %s",
+                            operation,
+                        )
+                        self.device = "cuda"
+                return
+
+            # device == "cuda": pruefen ob Context noch lebt.
+            if not self._cuda_suspect_stale:
+                return  # No reason to probe — schneller Pfad.
+
+            self._cuda_suspect_stale = False
+            if self.cuda_health_check():
+                # Context lebt; alles OK.
+                return
+
+            # Context ist tot — Fallback auf CPU.
+            logger.warning(
+                "B-218: CUDA-Context verloren vor %s — Fallback auf CPU. "
+                "Geladene GPU-Modelle werden invalidiert.",
+                operation,
+            )
+            self._unload_aux_no_lock()
+            self._unload_main_no_lock()
+            self.device = "cpu"
+
+    def _unload_aux_no_lock(self) -> None:
+        """B-218 helper: aux-Slot ohne erneuten Lock-Acquire (Caller haelt)."""
+        if self._aux_model is not None:
+            try:
+                del self._aux_model
+            except Exception:
+                pass
+            self._aux_model = None
+        self._aux_model_id = None
+        self._aux_model_type = None
+        self._aux_extras = {}
+
+    def _unload_main_no_lock(self) -> None:
+        """B-218 helper: main-Slot ohne erneuten Lock-Acquire (Caller haelt)."""
+        if self._model is not None:
+            try:
+                del self._model
+            except Exception:
+                pass
+            self._model = None
+        self._tokenizer = None
+        self._pipe = None
+        self._current_model_id = None
+        self._model_type = None
+        self._extras = {}
+        gc.collect()
 
     def _log_gpu_hardware(self) -> None:
         """Loggt den GPU-Hardware-Status prominent ins Terminal und speichert ihn."""
@@ -519,6 +655,9 @@ class ModelManager:
             (model, tokenizer) — Moondream2-spezifisch
         """
         with self._swap_lock:
+            # B-218: Health-Check + ggf. CPU-Fallback vor cuda-Allokat.
+            self._ensure_cuda_or_fallback(f"vision '{model_id}' laden")
+
             if self._current_model_id == model_id and self._model_type == "vision":
                 return self._model, self._tokenizer
 
@@ -598,6 +737,9 @@ class ModelManager:
         import time as _time
 
         with self._swap_lock:
+            # B-218: Health-Check + ggf. CPU-Fallback vor cuda-Allokat.
+            self._ensure_cuda_or_fallback(f"SigLIP '{model_id}' laden")
+
             if self._current_model_id == model_id and self._model_type == "siglip":
                 return self._model, self._extras.get("processor")
 
@@ -696,6 +838,11 @@ class ModelManager:
         model_id = "raft_small"
 
         with self._swap_lock:
+            # B-218: vor JEDEM cuda-Allocate pruefen, ob Context noch lebt
+            # (Laptop-Dock/Sleep-Resume kann ihn killen, ohne dass
+            # is_available() das merkt).
+            self._ensure_cuda_or_fallback("RAFT Small laden")
+
             # Cache-Hit im aux-Slot
             if self._aux_model_type == "raft" and self._aux_model is not None:
                 return self._aux_model, torch.device(self.device)

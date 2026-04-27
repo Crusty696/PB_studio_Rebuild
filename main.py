@@ -1160,6 +1160,79 @@ def main():
 
     app = QApplication(sys.argv)
 
+    # B-218: Native Power-Event-Listener fuer Windows. Bei Laptop-Andocken/
+    # -Sleep verliert die GTX 1060 Mobile den CUDA-Power-State -> der
+    # gehaltene CUDA-Context wird stale. Beim naechsten cuda-Call (Modell-
+    # Load oder Inferenz) crasht torch nativ mit STATUS_STACK_BUFFER_OVERRUN
+    # (exit -1073740791). Wir signalisieren ModelManager bei Resume, dass
+    # der Context probed werden soll — bei Fail wird auf CPU zurueckgefallen.
+    if sys.platform == "win32":
+        try:
+            from PySide6.QtCore import QAbstractNativeEventFilter
+
+            class _PowerEventFilter(QAbstractNativeEventFilter):
+                """Hoert auf WM_POWERBROADCAST.
+
+                Wichtige WMs (winuser.h):
+                  WM_POWERBROADCAST = 0x0218
+                  PBT_APMSUSPEND          = 0x0004
+                  PBT_APMRESUMESUSPEND    = 0x0007
+                  PBT_APMRESUMEAUTOMATIC  = 0x0012
+                  PBT_POWERSETTINGCHANGE  = 0x8013  (kann Display-Power-State liefern)
+                """
+
+                def nativeEventFilter(self, event_type, message):
+                    if event_type != b"windows_generic_MSG" and event_type != "windows_generic_MSG":
+                        return False, 0
+                    try:
+                        import ctypes
+                        from ctypes import wintypes
+
+                        class _MSG(ctypes.Structure):
+                            _fields_ = [
+                                ("hWnd", wintypes.HWND),
+                                ("message", wintypes.UINT),
+                                ("wParam", wintypes.WPARAM),
+                                ("lParam", wintypes.LPARAM),
+                                ("time", wintypes.DWORD),
+                                ("pt_x", wintypes.LONG),
+                                ("pt_y", wintypes.LONG),
+                            ]
+
+                        addr = int(message)
+                        msg = _MSG.from_address(addr)
+                        if msg.message == 0x0218:  # WM_POWERBROADCAST
+                            wparam = int(msg.wParam) & 0xFFFFFFFF
+                            if wparam in (0x0007, 0x0012):  # RESUMESUSPEND / RESUMEAUTOMATIC
+                                from services.model_manager import ModelManager
+                                logging.getLogger(__name__).info(
+                                    "B-218: Power-Resume detected (wParam=0x%04x) — "
+                                    "informiere ModelManager.", wparam,
+                                )
+                                ModelManager().notify_power_resume()
+                            elif wparam == 0x0004:  # APMSUSPEND
+                                logging.getLogger(__name__).info(
+                                    "B-218: System geht in Suspend — CUDA-Context "
+                                    "wird voraussichtlich invalidiert."
+                                )
+                                from services.model_manager import ModelManager
+                                ModelManager().notify_power_resume()
+                    except Exception:
+                        # Filter darf NIE den Eventloop killen.
+                        pass
+                    return False, 0
+
+            _power_filter = _PowerEventFilter()
+            app.installNativeEventFilter(_power_filter)
+            # Reference halten, sonst GC sweeped den Filter.
+            app._power_filter_ref = _power_filter  # type: ignore[attr-defined]
+        except Exception as _pwr_exc:
+            logging.getLogger(__name__).warning(
+                "B-218: Power-Event-Listener konnte nicht installiert werden — "
+                "CUDA-Health-Check greift nur lazy beim naechsten Modell-Load: %s",
+                _pwr_exc,
+            )
+
     # Sticky-Tooltips: haelt Tooltips sichtbar, solange der Cursor auf
     # dem Widget steht (Qt-Default blendet nach 10 s aus). Lokaler Import
     # um Qt-Init-Reihenfolge nicht zu stoeren.
