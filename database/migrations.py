@@ -620,7 +620,11 @@ def init_db():
     from sqlalchemy import inspect
     from alembic import command
 
-    raw_engine = engine
+    # B-215 fix: get_raw_engine() umgeht den EngineProxy — ``inspect()`` von
+    # SQLAlchemy braucht den echten Engine (NoInspectionAvailable sonst).
+    # Alle anderen inspect()-Calls in dieser Datei verwenden bereits
+    # get_raw_engine() — diese Stelle war der einzige verbliebene Drift.
+    raw_engine = get_raw_engine()
     insp = inspect(raw_engine)
     existing_tables = set(insp.get_table_names())
     is_fresh = len(existing_tables) == 0

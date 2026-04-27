@@ -368,3 +368,87 @@ def test_b209_panel_setup_setup_chat_dock_calls_invalidate_on_signal() -> None:
     assert 'invalidate_system_prompt_cache("media")' in src, (
         "B-209: invalidate-Aufruf muss Kind 'media' verwenden, nicht 'all'."
     )
+
+
+def test_b209_e2e_project_changed_invalidates_real_agent_cache() -> None:
+    """B-209 ECHTER E2E-Test: setze einen LocalAgentService auf,
+    pre-populiere seinen sysprompt_media_cache, verdrahte project_changed
+    auf invalidate_system_prompt_cache (wie panel_setup.py es tut), emittet
+    das Signal und verifiziert dass der Cache wirklich geleert wurde.
+
+    Das ist KEIN Source-Inspect — das ist Signal-Flow + Cache-State.
+    Schlaegt fehl wenn:
+    - Signal-Slot-Connection nicht haelt (z.B. weak-ref-issue)
+    - invalidate_system_prompt_cache('media') nicht greift
+    - Lambda-Closure die agent_ref nicht haelt
+    """
+    import pytest
+
+    try:
+        from PySide6.QtCore import QObject, Signal
+        from PySide6.QtWidgets import QApplication
+        import sys
+        app = QApplication.instance() or QApplication(sys.argv[:1])
+    except Exception as exc:
+        pytest.skip(f"PySide6 nicht verfuegbar: {exc}")
+        return
+
+    try:
+        from services.local_agent_service import LocalAgentService
+    except ImportError as exc:
+        pytest.skip(f"LocalAgentService nicht importierbar: {exc}")
+        return
+
+    # Fake-ProjectManager — minimal QObject, das das gleiche Signal feuert,
+    # das der echte ProjectManager.set_project()/open_project() emittet.
+    class _FakeProjectManager(QObject):
+        project_changed = Signal(str)
+
+    pm = _FakeProjectManager()
+
+    # Realer LocalAgentService — use_ollama=False vermeidet Netzwerk-/Modell-
+    # Setup, lebende Instanz mit echten Cache-Variablen.
+    agent = LocalAgentService(use_ollama=False)
+
+    # Pre-populiere den Cache, als haette der Agent gerade einen Prompt gebaut.
+    import time as _time
+    agent._sysprompt_media_cache = "OLD_PROJECT_MEDIA — Track A, Track B, Clip X"
+    agent._sysprompt_media_ts = _time.monotonic()
+    assert agent._sysprompt_media_cache is not None
+    assert agent._sysprompt_media_ts > 0
+
+    # Replikat der Verdrahtung aus panel_setup.py:setup_chat_dock —
+    # exakt der gleiche Lambda-Pattern, exakt die gleichen Parameter.
+    agent_ref = agent
+    pm.project_changed.connect(
+        lambda *_a, **_kw: agent_ref.invalidate_system_prompt_cache("media")
+    )
+
+    # Emit das Signal — wie ProjectManager.open_project() es tut.
+    pm.project_changed.emit("/some/new/project.pbproj")
+
+    # Direct-Connection feuert sofort (kein QThread), aber zur Sicherheit
+    # processEvents fuer asynchrone Slots.
+    app.processEvents()
+
+    # Cache MUSS jetzt geleert sein — sonst war die Verdrahtung kaputt.
+    assert agent._sysprompt_media_cache is None, (
+        "B-209: project_changed-Signal hat den Media-Cache nicht invalidiert. "
+        "Der Lambda-Slot wurde NICHT aufgerufen oder die Cache-Logik ist broken."
+    )
+    assert agent._sysprompt_media_ts == 0.0, (
+        "B-209: media_ts wurde nicht zurueckgesetzt — invalidate_system_prompt_cache "
+        "hat den Cache nur teilweise geleert."
+    )
+
+    # Few-Shots-Cache sollte UNANGETASTET bleiben (kind='media' invalidiert
+    # nur media, nicht few_shots oder base).
+    agent._sysprompt_few_shots_cache = "FEW_SHOTS_KEEP"
+    agent._sysprompt_few_shots_ts = _time.monotonic()
+    pm.project_changed.emit("/another/project.pbproj")
+    app.processEvents()
+    assert agent._sysprompt_few_shots_cache == "FEW_SHOTS_KEEP", (
+        "B-209: few_shots-Cache sollte NICHT durch project_changed invalidiert "
+        "werden (kind='media' ist gezielt schmal). Falls invalidate_system_prompt_cache "
+        "mit 'all' aufgerufen wurde, ist die Verdrahtung zu breit."
+    )

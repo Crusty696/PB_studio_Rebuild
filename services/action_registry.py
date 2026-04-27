@@ -24,6 +24,12 @@ logger = logging.getLogger(__name__)
 # LLM-Halluzinationen). 85% bedeutet quasi-exact Match.
 FUZZY_THRESHOLD = 85
 
+# B-216: Lockerer Threshold fuer NICHT-destruktive Actions im resolve()-
+# Fallback-Pfad. Erlaubt Variations wie "analyse" -> "analyze_audio" (Score 69)
+# OHNE die strenge 85%-Hauptregel zu schwaechen. Destructive Actions
+# werden in diesem Pfad ausdruecklich ausgeschlossen (siehe resolve()).
+LOOSE_FUZZY_THRESHOLD = 55
+
 # B-081: Destruktive Aktionen duerfen NIEMALS per Fuzzy-Match getroffen
 # werden, ausser bei Score >= 95% (quasi-Tippfehler-Toleranz). Whitelist
 # ist explizit, damit neu hinzugefuegte gefaehrliche Actions hier
@@ -153,12 +159,24 @@ class ActionRegistry:
         with self._lock:  # B-132
             return self._actions.get(name)
 
-    def fuzzy_match(self, name: str) -> tuple[str | None, int]:
+    def fuzzy_match(self, name: str, threshold: int | None = None) -> tuple[str | None, int]:
         """Findet die ähnlichste registrierte Aktion per Fuzzy-Matching.
 
+        Args:
+            name: Aktionsname (evtl. mit Tippfehler).
+            threshold: optionaler eigener Score-Threshold (0-100).
+                None = ``LOOSE_FUZZY_THRESHOLD`` (Default 55). Liefert das
+                beste Match, wenn der Score den Threshold erreicht.
+                resolve() ueberschreibt das mit der strict-policy
+                (FUZZY_THRESHOLD / DESTRUCTIVE_FUZZY_THRESHOLD).
+
         Returns:
-            (best_match_name, score) oder (None, 0) wenn kein Match über Threshold.
+            (best_match_name, score) oder (None, score) wenn kein Match
+            über Threshold. Bei kompletter Mismatch: (None, 0).
         """
+        if threshold is None:
+            threshold = LOOSE_FUZZY_THRESHOLD
+
         with self._lock:  # B-132
             if not self._actions:
                 return None, 0
@@ -175,7 +193,7 @@ class ActionRegistry:
             return None, 0
 
         best_name, score, *_ = result
-        if score >= FUZZY_THRESHOLD:
+        if score >= threshold:
             return best_name, score
         return None, score
 
@@ -194,12 +212,19 @@ class ActionRegistry:
             if action is not None:
                 return action
 
-            # 2. Fuzzy-Matching (RLock erlaubt reentry)
+            # 2. Fuzzy-Match (loose default — siehe fuzzy_match docstring).
             matched_name, score = self.fuzzy_match(name)
-            if matched_name is not None:
-                # B-081: Destruktive Actions brauchen 95%+ Score, sonst
-                # ist das Risiko eines Mis-Routes (Datenverlust) zu hoch.
-                if matched_name in DESTRUCTIVE_ACTIONS and score < DESTRUCTIVE_FUZZY_THRESHOLD:
+            if matched_name is None:
+                logger.warning(
+                    "Keine Aktion gefunden für '%s' (bester Score: %d%%)", name, score,
+                )
+                return None
+
+            is_destructive = matched_name in DESTRUCTIVE_ACTIONS
+
+            # 3a. Destruktive Actions: brauchen 95%+ (B-081 Datenverlust-Schutz).
+            if is_destructive:
+                if score < DESTRUCTIVE_FUZZY_THRESHOLD:
                     logger.warning(
                         "B-081: REFUSED fuzzy-match '%s' -> destruktive Aktion '%s' "
                         "(Score %d%% < %d%%). User muss exakten Namen liefern.",
@@ -207,13 +232,29 @@ class ActionRegistry:
                     )
                     return None
                 logger.warning(
-                    "Fuzzy-Match: '%s' → '%s' (Score: %d%%)",
+                    "Fuzzy-Match (destruktiv): '%s' → '%s' (Score: %d%%)",
                     name, matched_name, score,
                 )
                 return self._actions[matched_name]
 
-        logger.warning("Keine Aktion gefunden für '%s' (bester Score: %d%%)", name, score)
-        return None
+            # 3b. Nicht-destruktive Actions:
+            #     - Score >= FUZZY_THRESHOLD (85): direkt durchwinken.
+            #     - LOOSE_FUZZY_THRESHOLD (55) <= Score < 85: loose-Pfad
+            #       (B-216) — erlaubt mit lautem Warning. Sicher, weil
+            #       destruktive Actions weiter oben separat gehandhabt werden.
+            if score >= FUZZY_THRESHOLD:
+                logger.warning(
+                    "Fuzzy-Match: '%s' → '%s' (Score: %d%%)",
+                    name, matched_name, score,
+                )
+            else:
+                logger.warning(
+                    "B-216: Loose-Fuzzy-Match: '%s' → '%s' (Score: %d%%, "
+                    "unter strict-threshold %d%%). Erlaubt fuer nicht-"
+                    "destruktive Actions.",
+                    name, matched_name, score, FUZZY_THRESHOLD,
+                )
+            return self._actions[matched_name]
 
     def list_actions(self) -> list[str]:
         """Gibt alle registrierten Aktionsnamen zurück."""

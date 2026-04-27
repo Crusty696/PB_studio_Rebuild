@@ -16,8 +16,20 @@ import signal
 from pathlib import Path
 from datetime import datetime
 
-import pyautogui
-import pygetwindow as gw
+import pytest
+
+# pyautogui/pygetwindow sind optionale GUI-Automatisierungs-Deps und werden
+# nicht in jedem CI/Dev-Env installiert. Wenn sie fehlen, skippen wir das
+# komplette Modul statt einen Collection-Error zu werfen — sonst crasht
+# pytest beim discover-pass.
+try:
+    import pyautogui
+    import pygetwindow as gw
+except ImportError as _imp_exc:
+    pytest.skip(
+        f"visual_e2e_test braucht pyautogui+pygetwindow — nicht installiert: {_imp_exc}",
+        allow_module_level=True,
+    )
 
 # --- Konfiguration ---
 PROJECT_DIR = Path(__file__).resolve().parent.parent

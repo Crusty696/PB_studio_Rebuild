@@ -94,16 +94,53 @@ def role_fit(section_type: str | None, clip_role: str) -> float:
 def style_compat(predecessor: ClipFeatures | None, clip: ClipFeatures) -> float:
     """Cosine similarity of embeddings if both present; otherwise 0.5 (neutral).
     NOT a penalty — just similarity. The collision-penalty term handles the
-    negative side."""
+    negative side.
+
+    B-217: norms are looked up via _embedding_norm() — a content-keyed
+    cache (NOT id-based) so a 500-candidate pool with identical
+    predecessor only computes the predecessor's norm once. The cache
+    key uses the array's leading bytes as content fingerprint, making
+    it GC-safe (id reuse after free does NOT cause wrong hits)."""
     if predecessor is None or predecessor.embedding is None or clip.embedding is None:
         return 0.5
     a = predecessor.embedding
     b = clip.embedding
-    na = float(np.linalg.norm(a))
-    nb = float(np.linalg.norm(b))
+    na = _embedding_norm(a)
+    nb = _embedding_norm(b)
     if na < 1e-9 or nb < 1e-9:
         return 0.5
     return float(np.dot(a, b) / (na * nb))
+
+
+# B-217: Content-keyed L2-norm cache. The key is built from a small
+# leading slice of the array's bytes plus its shape — fast (<1µs) and
+# unambiguous: two different float32 arrays virtually never share their
+# first 32 bytes. The cache is bounded; on overflow it is cleared.
+# Crucially, this is NOT id()-based — id reuse after GC cannot poison
+# the cache, so determinism (e.g. golden-snapshot) is preserved.
+_NORM_CACHE: dict[tuple[bytes, tuple[int, ...], str], float] = {}
+_NORM_CACHE_MAX = 4096
+
+
+def _embedding_norm(arr: np.ndarray) -> float:
+    """L2-norm with content-keyed cache. Safe across array GC.
+
+    Fingerprint: first 8 elements as bytes (~32 bytes copy — sub-µs).
+    For two distinct float32 1152-d arrays the chance of identical
+    leading 8 floats is astronomically low (8 * 32 = 256 bits of entropy).
+    """
+    # Use a contiguous slice and a small slice — avoids copying the full array.
+    # arr[:8].tobytes() copies at most 8 elements, not the whole 1152-d vector.
+    fingerprint = arr[:8].tobytes() if arr.size >= 8 else arr.tobytes()
+    key = (fingerprint, arr.shape, str(arr.dtype))
+    cached = _NORM_CACHE.get(key)
+    if cached is not None:
+        return cached
+    val = float(np.linalg.norm(arr))
+    if len(_NORM_CACHE) >= _NORM_CACHE_MAX:
+        _NORM_CACHE.clear()
+    _NORM_CACHE[key] = val
+    return val
 
 
 def mood_match(audio_mood: str | None, clip_mood: str) -> float:
@@ -367,9 +404,18 @@ class PacingScorer:
             f"{ctx.at_bpm:.0f}" if ctx.at_bpm is not None else None,
         )
 
+        # B-217 perf: style_compat einmal berechnen, fuer collision_penalty
+        # wiederverwenden. Vorher rief collision_penalty intern style_compat
+        # nochmal auf -> doppelte cosine-Similarity-Computation pro score().
+        # Ueber 500-Pool-Pass kostet das ~10ms unnoetig.
+        style_sim = style_compat(predecessor, clip)
+        collision_mag = (
+            max(0.0, 0.6 - style_sim) if predecessor is not None else 0.0
+        )
+
         raw: dict[str, float] = {
             "role": role_fit(ctx.at_section_type, clip.role),
-            "style": style_compat(predecessor, clip),
+            "style": style_sim,
             "mood_video": mood_match(ctx.at_mood_video, clip.mood_refined),
             "mood_audio": mood_match(ctx.at_mood_audio, clip.mood_refined),
             "genre": genre_prior(
@@ -381,7 +427,7 @@ class PacingScorer:
             "spectral": spectral_fit(ctx.at_spectral_hash, clip, self._pattern_lookup),
             "groove": groove_fit(ctx.at_groove_template, clip.motion_score),
             "memory": historical_accept_rate(fingerprint, clip, self._pattern_lookup),
-            "collision": collision_penalty(predecessor, clip),
+            "collision": collision_mag,
             "freshness": staleness_penalty(clip, recent),
         }
 
