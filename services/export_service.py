@@ -230,7 +230,12 @@ def _prepare_normalized_audio(audio_path: str | None, temp_files: list,
                                cancel_check=None) -> tuple[str | None, int]:
     """LUFS-Normalisierung auf Audio anwenden. Gibt (normalized_path, step) zurueck.
 
-    B-125: ``cancel_check`` wird durchgereicht zu _normalize_audio_lufs."""
+    B-125: ``cancel_check`` wird durchgereicht zu _normalize_audio_lufs.
+    B-086: zusaetzlich ``progress_cb`` durchreichen damit der UI-Balken
+    waehrend der 2-4 Min LUFS-Phase nicht eingefroren bleibt. Audio-
+    Dauer wird via ffprobe ermittelt, sonst kann Pass1/Pass2-Progress
+    nicht in Prozent ausgedrueckt werden.
+    """
     if not audio_path:
         return None, step
     if progress_cb:
@@ -241,10 +246,61 @@ def _prepare_normalized_audio(audio_path: str | None, temp_files: list,
     )
     norm_tmp.close()
     temp_files.append(norm_tmp.name)
-    if _normalize_audio_lufs(audio_path, norm_tmp.name,
-                             cancel_check=cancel_check):
+
+    # B-086: Audio-Dauer ermitteln fuer Progress-Mapping. ffprobe ist
+    # schnell (<100ms) — Fehler degraded auf 0 → kein Progress, aber
+    # kein Crash. Der step-base/range im step-progress wird wieder
+    # korrekt berechnet.
+    audio_duration = _probe_audio_duration(audio_path)
+
+    step_pct_base = int(step / total_steps * 100)
+    step_pct_range = int(100 / total_steps)
+
+    def _lufs_progress(inner_pct: int, _msg: str) -> None:
+        if progress_cb is None:
+            return
+        global_pct = step_pct_base + int(inner_pct / 100.0 * step_pct_range)
+        progress_cb(min(99, global_pct), "Audio-Normalisierung (LUFS)...")
+
+    if _normalize_audio_lufs(
+        audio_path,
+        norm_tmp.name,
+        cancel_check=cancel_check,
+        progress_cb=_lufs_progress if progress_cb is not None else None,
+        total_duration=audio_duration,
+    ):
         return norm_tmp.name, step
     return audio_path, step
+
+
+def _probe_audio_duration(audio_path: str) -> float:
+    """B-086: ffprobe-Helper fuer LUFS-Progress-Mapping. Returnt 0.0
+    bei Fehlern (= kein Progress, aber kein Crash).
+    """
+    try:
+        from services.startup_checks import get_ffprobe_bin
+        ffprobe_bin = get_ffprobe_bin()
+    except (ImportError, AttributeError, RuntimeError):
+        return 0.0
+    cmd = [
+        ffprobe_bin, "-v", "error",
+        "-show_entries", "format=duration",
+        "-of", "default=noprint_wrappers=1:nokey=1",
+        audio_path,
+    ]
+    kwargs: dict = {}
+    if sys.platform == "win32":
+        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+    try:
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=10,
+            encoding="utf-8", errors="replace", **kwargs,
+        )
+        if result.returncode == 0:
+            return float(result.stdout.strip())
+    except (subprocess.SubprocessError, OSError, ValueError) as exc:
+        logger.debug("ffprobe duration failed for %s: %s", audio_path, exc)
+    return 0.0
 
 
 def export_timeline(project_id: int = 1, output_name: str = "output.mp4",
@@ -778,12 +834,23 @@ def _export_with_filtergraph(video_segments, audio_path, output_path,
 
 def _run_subprocess_cancellable(
     cmd: list[str], timeout: int, cancel_check=None,
+    progress_cb=None, total_duration: float = 0.0,
+    progress_base_pct: int = 0, progress_range_pct: int = 100,
 ):
     """B-125: ``subprocess.run``-aequivalent mit Cancel-Watchdog.
 
     Faehrt cmd via Popen, polled cancel_check alle 200ms, terminiert
     den Process bei True. Wenn cancel_check None ist, faellt es auf
     blockierendes ``subprocess.run`` zurueck.
+
+    B-086: optional ``progress_cb(pct, msg)`` parsed
+    ``out_time_ms=...``-Lines aus stdout (FFmpeg ``-progress pipe:1``)
+    und ruft den Callback waehrend des Laufs. ``total_duration`` ist
+    die Audio-/Video-Dauer in Sekunden — sonst kann der Prozentwert
+    nicht berechnet werden. ``progress_base_pct`` + ``progress_range_pct``
+    erlauben einem Caller mit mehrphasigem Lauf (Pass1+Pass2) die
+    inneren Prozente auf einen Bereich zu mappen (z.B. 50-100 fuer
+    Pass2).
 
     Returns: subprocess.CompletedProcess (returncode/stdout/stderr).
     Raises: RuntimeError("LUFS-Normalisierung abgebrochen") bei Cancel.
@@ -792,7 +859,7 @@ def _run_subprocess_cancellable(
     if sys.platform == "win32":
         kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
 
-    if cancel_check is None:
+    if cancel_check is None and progress_cb is None:
         return subprocess.run(
             cmd, capture_output=True, text=True, timeout=timeout,
             encoding="utf-8", errors="replace", **kwargs,
@@ -808,7 +875,7 @@ def _run_subprocess_cancellable(
     def _cancel_watch():
         while process.poll() is None:
             try:
-                if cancel_check():
+                if cancel_check is not None and cancel_check():
                     cancelled.set()
                     process.terminate()
                     try:
@@ -829,11 +896,60 @@ def _run_subprocess_cancellable(
     watchdog = threading.Thread(target=_cancel_watch, daemon=True)
     watchdog.start()
 
+    # B-086: Progress-Stream-Reader liest stdout zeilenweise und parsed
+    # ``out_time_ms`` aus dem ffmpeg ``-progress pipe:1`` Output. Laeuft
+    # in einem eigenen Thread damit ``communicate`` nicht blockiert.
+    stdout_lines: list[str] = []
+    progress_active = (
+        progress_cb is not None and total_duration > 0.0 and process.stdout is not None
+    )
+
+    def _progress_reader():
+        try:
+            for line in process.stdout:  # type: ignore[union-attr]
+                stdout_lines.append(line)
+                if not progress_active:
+                    continue
+                line = line.strip()
+                if line.startswith("out_time_ms=") and progress_cb is not None:
+                    try:
+                        time_us = int(line.split("=", 1)[1])
+                    except (ValueError, IndexError):
+                        continue
+                    current_sec = time_us / 1_000_000
+                    if total_duration > 0:
+                        inner_pct = max(0.0, min(1.0, current_sec / total_duration))
+                        global_pct = int(
+                            progress_base_pct + inner_pct * progress_range_pct
+                        )
+                        try:
+                            progress_cb(min(99, global_pct), "")
+                        except Exception as cb_exc:  # broad: ein Callback-Fehler darf den Run nicht killen
+                            logger.debug("progress_cb raised: %s", cb_exc)
+        except Exception as reader_exc:  # broad: Reader darf nicht crashen
+            logger.debug("progress reader exited: %s", reader_exc)
+
+    reader = None
+    if progress_active or progress_cb is not None:
+        reader = threading.Thread(target=_progress_reader, daemon=True)
+        reader.start()
+
     try:
-        stdout, stderr = process.communicate(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        process.kill()
-        stdout, stderr = process.communicate()
+        if reader is not None:
+            # stdout wird im Reader-Thread gelesen — wir warten nur auf stderr.
+            try:
+                _, stderr = process.communicate(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                _, stderr = process.communicate()
+            reader.join(timeout=THREAD_JOIN_TIMEOUT_SEC)
+            stdout = "".join(stdout_lines)
+        else:
+            try:
+                stdout, stderr = process.communicate(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                stdout, stderr = process.communicate()
     finally:
         watchdog.join(timeout=THREAD_JOIN_TIMEOUT_SEC)
 
@@ -848,7 +964,9 @@ def _run_subprocess_cancellable(
 
 def _normalize_audio_lufs(input_path: str, output_path: str,
                           target_lufs: float = -14.0,
-                          cancel_check=None) -> bool:
+                          cancel_check=None,
+                          progress_cb=None,
+                          total_duration: float = 0.0) -> bool:
     """LUFS Zwei-Pass Audio-Normalisierung via FFmpeg loudnorm.
 
     Pass 1: Misst die integrierte Lautstaerke (I), Loudness Range (LRA),
@@ -860,6 +978,11 @@ def _normalize_audio_lufs(input_path: str, output_path: str,
     es RuntimeError, sodass der Caller (export_timeline) sauber abbrechen
     kann.
 
+    B-086: optional ``progress_cb(pct, msg)`` + ``total_duration`` (Sek).
+    Pass1 mappt 0-50%, Pass2 mappt 50-100% des inneren LUFS-Schritts.
+    Vorher war LUFS ein UI-Freeze von 2-4 Min bei langem Audio — jetzt
+    laeuft die Progress-Bar kontinuierlich durch.
+
     Returns True bei Erfolg, False bei Fehler (Original wird dann verwendet).
     """
     try:
@@ -867,15 +990,22 @@ def _normalize_audio_lufs(input_path: str, output_path: str,
         if cancel_check is not None and cancel_check():
             return False
 
+        # B-086: ``-progress pipe:1`` aktiviert ``out_time_ms=...``-Output
+        # in stdout, der vom Subprocess-Helper geparsed wird.
         measure_cmd = [
             FFMPEG, "-i", input_path,
             "-af", "loudnorm=print_format=json",
+            "-progress", "pipe:1",
             "-f", "null", "-"
         ]
         result = _run_subprocess_cancellable(
             measure_cmd,
             timeout=FFMPEG_LUFS_MEASURE_TIMEOUT_SEC,
             cancel_check=cancel_check,
+            progress_cb=progress_cb,
+            total_duration=total_duration,
+            progress_base_pct=0,
+            progress_range_pct=50,
         )
         if result.returncode != 0:
             logger.warning("[LUFS] Pass 1 fehlgeschlagen (rc=%d): %s",
@@ -910,12 +1040,17 @@ def _normalize_audio_lufs(input_path: str, output_path: str,
             "-af", loudnorm_filter,
             "-ar", "48000",
             "-c:a", "pcm_s24le",
+            "-progress", "pipe:1",
             output_path,
         ]
         pass2_result = _run_subprocess_cancellable(
             norm_cmd,
             timeout=FFMPEG_LUFS_NORMALIZE_TIMEOUT_SEC,
             cancel_check=cancel_check,
+            progress_cb=progress_cb,
+            total_duration=total_duration,
+            progress_base_pct=50,
+            progress_range_pct=50,
         )
         if pass2_result.returncode != 0:
             logger.warning("[LUFS] Pass 2 fehlgeschlagen (rc=%d): %s",

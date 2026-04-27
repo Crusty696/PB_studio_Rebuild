@@ -79,10 +79,10 @@ class BeatAnalysisService:
         self._initialized = True
         self._model = None
         self._device = device
-        # Private cache for audio array; populated by analyze(), consumed by analyze_and_store()
-        self._last_y = None
-        self._last_sr = None
-        # E-02 Fix: Lock um analyze() + _last_y Zugriff in analyze_and_store() atomar zu halten
+        # B-062: ``_last_y``/``_last_sr`` entfernt — y/sr fliessen jetzt
+        # via Tupel-Return aus ``_analyze_with_audio()``, kein Singleton-
+        # Race mehr moeglich. ``_analysis_lock`` bleibt fuer Modell-Lade-
+        # Atomicity in ``_ensure_model()``.
         self._analysis_lock = threading.Lock()
         # Graceful degradation: set to True when beat_this unavailable
         self._beat_this_unavailable = False
@@ -197,12 +197,32 @@ class BeatAnalysisService:
                 "num_beats": int,
                 "num_downbeats": int,
             }
-        """
-        # H-12 FIX: Clear previous arrays before loading new audio to prevent memory leak
-        # when analyze() is called standalone without analyze_and_store()
-        self._last_y = None
-        self._last_sr = None
 
+        B-062: ``analyze()`` ist seit 2026-04-28 ein duenner Wrapper um
+        ``_analyze_with_audio()``. Vorher schrieb es ``self._last_y`` /
+        ``self._last_sr`` in den Singleton — bei direktem Aufruf von
+        einem zweiten Caller (z.B. Tests, OnsetRhythmService) konnte
+        ein Race entstehen. Jetzt traegt ``_analyze_with_audio()`` y/sr
+        als Tupel-Return — kein Shared State mehr, kein Race.
+        """
+        result, _y, _sr = self._analyze_with_audio(audio_path, progress_cb=progress_cb)
+        # B-062: numpy-Array sofort freigeben (war frueher als _last_y in
+        # der Instanz gehalten, was den Singleton-Race verursacht hat).
+        del _y
+        return result
+
+    def _analyze_with_audio(
+        self,
+        audio_path: str | Path,
+        progress_cb=None,
+    ) -> tuple[dict, np.ndarray | None, int | None]:
+        """B-062: Race-freier interner Worker.
+
+        Liefert ``(result_dict, y, sr)`` als Tupel statt y/sr in den
+        Singleton zu schreiben. ``analyze_and_store()`` ruft das hier
+        direkt auf und bekommt y/sr garantiert nur fuer den eigenen
+        Aufruf — keine Concurrency-Verschmutzung mehr.
+        """
         import librosa
         audio_path = str(audio_path)
 
@@ -267,12 +287,6 @@ class BeatAnalysisService:
         if progress_cb:
             progress_cb(100, "Fertig")
 
-        # Store audio array as private instance attribute so analyze_and_store()
-        # can reuse it for energy computation without embedding a 1GB+ numpy
-        # array in the public return dict (Bug-B1 fix: memory leak in public API).
-        self._last_y = y
-        self._last_sr = sr
-
         result: dict = {
             "beats": [round(float(b), 4) for b in beats],
             "downbeats": [round(float(b), 4) for b in downbeats],
@@ -284,7 +298,10 @@ class BeatAnalysisService:
         if self._beat_this_unavailable:
             result["fallback"] = True
             result["fallback_reason"] = self._beat_this_unavailable_reason
-        return result
+        # B-062: y/sr explizit als Tupel returnen — KEIN ``self._last_y``
+        # mehr (Race war moeglich wenn zwei Threads parallel ``analyze()``
+        # riefen).
+        return result, y, sr
 
     def _analyze_full(self, audio_path: str) -> tuple[np.ndarray, np.ndarray]:
         """Analysiert die komplette Datei in einem Durchgang."""
@@ -434,18 +451,12 @@ class BeatAnalysisService:
             file_path = track.file_path
 
         try:
-            # E-02 Fix: Lock um analyze() + _last_y Zugriff atomar zu halten,
-            # damit kein paralleler Thread zwischen analyze() und dem Lesen
-            # von _last_y/_last_sr eine Race Condition verursacht.
-            with self._analysis_lock:
-                result = self.analyze(file_path, progress_cb=progress_cb)
-
-                # Phase 3: Per-Beat RMS-Energie berechnen (Audio aus analyze() wiederverwenden).
-                # A-06 Fix: Thread-safe — lokale Kopie sofort entnehmen und Instanz-Ref loeschen.
-                y = self._last_y
-                sr = self._last_sr
-                self._last_y = None
-                self._last_sr = None
+            # B-062: ``_analyze_with_audio()`` ersetzt das frueher
+            # locking-abhaengige ``analyze() + _last_y/_last_sr``-Pattern.
+            # y/sr kommen jetzt als Tuple-Return zurueck und sind exklusiv
+            # fuer diesen Aufruf — keine Race-Condition mehr moeglich.
+            # ``_analysis_lock`` bleibt nicht mehr noetig fuer diese Stelle.
+            result, y, sr = self._analyze_with_audio(file_path, progress_cb=progress_cb)
 
             # Phase 3: Per-Beat RMS-Energie berechnen (nach erfolgreichem analyze())
             if y is not None and sr is not None:
@@ -533,11 +544,19 @@ class BeatAnalysisService:
                     break  # Erfolg
                 except Exception as e:  # broad catch intentional — catches both SQLAlchemy and DB-lock errors for retry logic
                     if "database is locked" in str(e) and attempt < max_retries - 1:
+                        # B-073: exponential backoff + random jitter (0.5-1.5x base)
+                        # statt linearer 2/4/6s — verhindert Thundering-Herd wenn
+                        # FrequencyAnalyzer + BeatAnalysis parallel auf denselben
+                        # Lock retrien (z.B. Komplett-Analyse mit 3 Tracks).
+                        import random as _random
+                        base_wait = 2 ** attempt
+                        jitter = _random.uniform(0.5, 1.5)
+                        wait = base_wait * jitter
                         logger.warning(
-                            "[BeatAnalysis] DB locked bei Beatgrid-Write, Retry %d/%d...",
-                            attempt + 1, max_retries,
+                            "[BeatAnalysis] DB locked bei Beatgrid-Write, Retry %d/%d (warte %.2fs)...",
+                            attempt + 1, max_retries, wait,
                         )
-                        _time.sleep(2 * (attempt + 1))
+                        _time.sleep(wait)
                     else:
                         raise
 
@@ -557,11 +576,9 @@ class BeatAnalysisService:
             except (ImportError, ValueError, RuntimeError, OSError) as e:
                 logger.warning("OnsetRhythmService.analyze_and_store() fehlgeschlagen: %s", e)
 
-        except Exception:  # broad catch intentional — re-raised after memory cleanup (B-004 fix)
-            # B-004 Fix: Falls analyze() crasht, _last_y freigeben um Memory Leak zu vermeiden
-            self._last_y = None
-            self._last_sr = None
-            raise
+        # B-062: kein cleanup von ``_last_y`` mehr noetig — y ist
+        # lokale Variable in dieser Methode, GC kuemmert sich nach
+        # ``del y`` (Z. 478) bzw. nach Frame-Exit.
         finally:
             # VRAM freigeben — auch bei Exception (verhindert VRAM-Leak)
             self.unload()

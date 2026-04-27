@@ -14,8 +14,6 @@ from typing import Any
 
 import opentimelineio as otio
 
-from services.timeout_constants import DB_BUSY_TIMEOUT_MS
-
 logger = logging.getLogger(__name__)
 from opentimelineio.opentime import RationalTime, TimeRange
 
@@ -75,53 +73,35 @@ def apply_auto_edit_segments(segments: list[dict], project_id: int | None = None
 
 
 def _do_apply_segments(segments: list[dict], project_id: int) -> int:
-    import database.session as _session
-    from sqlalchemy import create_engine as _create_engine, event as _event
-    from sqlalchemy.pool import NullPool
+    """B-079: nutzt jetzt den kanonischen ``nullpool_session()`` Helper
+    statt einer eigenen Engine-Konstruktion. Vorher fehlte hier
+    ``PRAGMA foreign_keys=ON`` und der ``busy_timeout`` war auf 10s
+    statt 120s. ``nullpool_session()`` liefert den korrekten Setup
+    + auto-commit + auto-dispose und ist die Single-Source-of-Truth
+    fuer NullPool-Writes (siehe D-020).
+    """
+    from database import nullpool_session
 
-    db_path = _session.APP_ROOT / 'pb_studio.db'
-    _eng = _create_engine(
-        f"sqlite:///{db_path}",
-        echo=False,
-        connect_args={"check_same_thread": False, "timeout": 30},
-        poolclass=NullPool,
-        # M-12 Fix: Use SERIALIZABLE isolation to prevent phantom reads during concurrent access
-        isolation_level="SERIALIZABLE",
-    )
+    with nullpool_session() as session:
+        session.query(TimelineEntry).filter_by(
+            project_id=project_id, track="video"
+        ).delete()
 
-    @_event.listens_for(_eng, "connect")
-    def _set_pragma(dbapi_conn, _rec):
-        c = dbapi_conn.cursor()
-        c.execute("PRAGMA journal_mode=WAL")
-        c.execute("PRAGMA synchronous=NORMAL")
-        c.execute(f"PRAGMA busy_timeout={DB_BUSY_TIMEOUT_MS}")
-        c.close()
-
-    try:
-        with Session(_eng) as session:
-            session.query(TimelineEntry).filter_by(
-                project_id=project_id, track="video"
-            ).delete()
-
-            for seg in segments:
-                entry = TimelineEntry(
-                    project_id=project_id,
-                    track="video",
-                    media_id=seg["video_id"],
-                    start_time=seg["start"],
-                    end_time=seg["end"],
-                    source_start=seg.get("source_start", 0.0),
-                    source_end=seg.get("source_end"),
-                    lane=0,
-                )
-                session.add(entry)
-            try:
-                session.commit()
-            except Exception:  # broad catch intentional — SQLAlchemy commit can raise many error types
-                session.rollback()
-                raise
-    finally:
-        _eng.dispose()
+        for seg in segments:
+            entry = TimelineEntry(
+                project_id=project_id,
+                track="video",
+                media_id=seg["video_id"],
+                start_time=seg["start"],
+                end_time=seg["end"],
+                source_start=seg.get("source_start", 0.0),
+                source_end=seg.get("source_end"),
+                lane=0,
+            )
+            session.add(entry)
+        # M7-FIX: kein expliziter commit() — __exit__ macht auto-commit
+        # mit korrektem error-handling (B-008). session.rollback() bei
+        # Exception passiert ebenfalls in __exit__.
 
     logger.info("Timeline: %d Video-Segmente geschrieben (project=%d)", len(segments), project_id)
     return len(segments)
@@ -168,11 +148,18 @@ class TimelineService:
     def __init__(self, fps: float = 30.0):
         self.fps = fps
         self._timeline: otio.schema.Timeline | None = None
+        # B-078: Lock fuer den Lazy-Init. Ohne den Lock konnten zwei
+        # Threads gleichzeitig ``self._timeline = self.create_timeline(...)``
+        # ausfuehren und sich gegenseitig ueberschreiben — Clip-Verlust war
+        # die Folge. Double-checked locking im Getter unten.
+        self._timeline_lock = threading.Lock()
 
     @property
     def timeline(self) -> otio.schema.Timeline:
         if self._timeline is None:
-            self._timeline = self.create_timeline("Untitled")
+            with self._timeline_lock:
+                if self._timeline is None:  # B-078: double-check inside lock
+                    self._timeline = self.create_timeline("Untitled")
         return self._timeline
 
     @timeline.setter

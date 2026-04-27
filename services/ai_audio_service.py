@@ -405,6 +405,86 @@ class StemSeparator:
         return stems
 
 
+def _run_ffmpeg_cancellable(
+    cmd: list[str],
+    timeout: int,
+    should_stop=None,
+) -> tuple[int, str]:
+    """B-074: subprocess.run-Aequivalent mit Cancel-Watchdog fuer den
+    AutoDucker-Konvertierungspfad.
+
+    Faehrt ``cmd`` via Popen, polled ``should_stop`` alle 200ms,
+    terminiert den Prozess bei True. Wenn ``should_stop`` None ist,
+    faellt es auf blockierendes ``subprocess.run`` zurueck (alter Pfad).
+
+    Returns: ``(returncode, stderr_decoded)``.
+    Raises: ``RuntimeError("Auto-Ducking abgebrochen (User-Cancel)")``
+    wenn der Cancel-Pfad gegriffen hat.
+    """
+    import threading
+    import time as _time
+
+    kwargs: dict = {}
+    if sys.platform == "win32":
+        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+
+    if should_stop is None:
+        result = subprocess.run(
+            cmd, capture_output=True, timeout=timeout, **kwargs,
+        )
+        stderr_text = (
+            result.stderr.decode("utf-8", errors="replace")
+            if isinstance(result.stderr, bytes)
+            else (result.stderr or "")
+        )
+        return result.returncode, stderr_text
+
+    process = subprocess.Popen(
+        cmd, stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        **kwargs,
+    )
+    cancelled = threading.Event()
+
+    def _watch() -> None:
+        while process.poll() is None:
+            try:
+                if should_stop():
+                    cancelled.set()
+                    process.terminate()
+                    try:
+                        process.wait(timeout=2.0)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                    return
+            except Exception as exc:  # broad: watchdog must keep running
+                logger.warning(
+                    "[AutoDucker-Cancel] should_stop raised: %s — Watchdog endet.", exc,
+                )
+                return
+            _time.sleep(0.2)
+
+    watchdog = threading.Thread(target=_watch, daemon=True)
+    watchdog.start()
+    try:
+        _stdout, stderr_bytes = process.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        _stdout, stderr_bytes = process.communicate()
+    finally:
+        watchdog.join(timeout=2.0)
+
+    if cancelled.is_set():
+        raise RuntimeError("Auto-Ducking abgebrochen (User-Cancel)")
+
+    stderr_text = (
+        stderr_bytes.decode("utf-8", errors="replace")
+        if isinstance(stderr_bytes, bytes)
+        else (stderr_bytes or "")
+    )
+    return process.returncode, stderr_text
+
+
 class AutoDucker:
     """Senkt Musik automatisch ab wenn Sprache erkannt wird."""
 
@@ -416,10 +496,18 @@ class AutoDucker:
         self.threshold_rms = threshold_rms
 
     def create_ducked_audio(self, music_path: str, voice_path: str,
-                            output_path: str, progress_cb=None) -> str:
+                            output_path: str, progress_cb=None,
+                            should_stop=None) -> str:
         """Erstellt eine geduckte Version: Musik wird leiser wenn Voice aktiv.
 
         Versucht FFmpeg, faellt auf Scipy zurueck bei Fehler.
+
+        B-074: ``should_stop`` ist optional eine Callable[[], bool]. Wenn
+        gesetzt, werden die zwei FFmpeg-Konvertierungs-Subprocesses ueber
+        Popen + Watchdog gestartet (terminierbar bis 5s nach Cancel-
+        Signal), und die scipy-Ducking-Phase prueft den Flag vor dem Lauf.
+        Damit reagiert "Cancel" innerhalb von <5s statt bis zu 300s
+        (FFMPEG_RENDER_TIMEOUT_SEC).
         """
         out = Path(output_path)
         out.parent.mkdir(parents=True, exist_ok=True)
@@ -432,25 +520,31 @@ class AutoDucker:
         tmp_voice = out.parent / "_tmp_voice.wav"
         try:
             for src, dst in [(music_path, str(tmp_music)), (voice_path, str(tmp_voice))]:
+                if should_stop is not None and should_stop():
+                    raise RuntimeError("Auto-Ducking abgebrochen (User-Cancel)")
                 # H-11 FIX: Use managed ffmpeg binary instead of bare "ffmpeg"
                 cmd = [get_ffmpeg_bin(), "-y", "-i", src, "-ar", "44100", "-ac", "1",
                        "-c:a", "pcm_s16le", str(dst)]
-                kwargs = {}
-                if sys.platform == "win32":
-                    kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
-                result = subprocess.run(
-                    cmd, capture_output=True, timeout=FFMPEG_RENDER_TIMEOUT_SEC,
-                    **kwargs,
+                returncode, stderr_text = _run_ffmpeg_cancellable(
+                    cmd,
+                    timeout=FFMPEG_RENDER_TIMEOUT_SEC,
+                    should_stop=should_stop,
                 )
-                if result.returncode != 0:
-                    stderr_msg = result.stderr.decode("utf-8", errors="replace") if isinstance(result.stderr, bytes) else (result.stderr or "")
-                    raise RuntimeError(f"FFmpeg Konvertierung fehlgeschlagen: {_sanitize_ffmpeg_error(stderr_msg)}")
+                if returncode != 0:
+                    raise RuntimeError(
+                        f"FFmpeg Konvertierung fehlgeschlagen: "
+                        f"{_sanitize_ffmpeg_error(stderr_text)}"
+                    )
+
+            if should_stop is not None and should_stop():
+                raise RuntimeError("Auto-Ducking abgebrochen (User-Cancel)")
 
             if progress_cb:
                 progress_cb(50, "Scipy Ducking laeuft...")
 
             result = self.create_ducked_audio_scipy(
-                str(tmp_music), str(tmp_voice), output_path, progress_cb=None
+                str(tmp_music), str(tmp_voice), output_path,
+                progress_cb=None, should_stop=should_stop,
             )
 
             if progress_cb:
@@ -462,8 +556,17 @@ class AutoDucker:
             tmp_voice.unlink(missing_ok=True)
 
     def create_ducked_audio_scipy(self, music_path: str, voice_path: str,
-                                   output_path: str, progress_cb=None) -> str:
-        """Fallback: Scipy-basiertes Ducking wenn FFmpeg sidechaincompress fehlt."""
+                                   output_path: str, progress_cb=None,
+                                   should_stop=None) -> str:
+        """Fallback: Scipy-basiertes Ducking wenn FFmpeg sidechaincompress fehlt.
+
+        B-074: ``should_stop`` wird vor dem CPU-bound numpy-Loop geprueft.
+        Granularitaet ist Pre-Loop — Cancel mitten im Compute-Loop
+        wuerde tieferes Refactoring verlangen, aber Pre-Loop deckt
+        den haeufigen Fall (Cancel waehrend FFmpeg-Konvertierung) ab.
+        """
+        if should_stop is not None and should_stop():
+            raise RuntimeError("Auto-Ducking abgebrochen (User-Cancel)")
         if progress_cb:
             progress_cb(10, "Lade Audio-Dateien...")
 
@@ -706,11 +809,18 @@ class FrequencyAnalyzer:
                 break  # Erfolg
             except Exception as e:
                 if "database is locked" in str(e) and attempt < max_retries - 1:
+                    # B-073: exponential backoff + random jitter (0.5-1.5x base)
+                    # statt linearer 2/4/6s — verhindert Thundering-Herd wenn
+                    # mehrere Analysen parallel auf denselben Lock retrien.
+                    import random as _random
+                    base_wait = 2 ** attempt
+                    jitter = _random.uniform(0.5, 1.5)
+                    wait = base_wait * jitter
                     logger.warning(
-                        "[FrequencyAnalyzer] DB locked bei Waveform-Write, Retry %d/%d...",
-                        attempt + 1, max_retries,
+                        "[FrequencyAnalyzer] DB locked bei Waveform-Write, Retry %d/%d (warte %.2fs)...",
+                        attempt + 1, max_retries, wait,
                     )
-                    _time.sleep(2 * (attempt + 1))
+                    _time.sleep(wait)
                 else:
                     raise
 

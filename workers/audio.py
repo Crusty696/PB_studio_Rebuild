@@ -76,9 +76,13 @@ class AutoDuckingWorker(QObject, CancellableMixin):
         try:
             from services.ai_audio_service import AutoDucker
             ducker = AutoDucker()
+            # B-074: should_stop durchreichen — Worker ist CancellableMixin,
+            # daher ist self.should_stop verfuegbar. Damit reagiert Cancel
+            # innerhalb von <5s auch waehrend der FFmpeg-Konvertierung.
             result = ducker.create_ducked_audio(
                 self.music_path, self.voice_path, self.output_path,
                 progress_cb=lambda pct, msg: self.progress.emit(pct, msg),
+                should_stop=self.should_stop,
             )
             self.finished.emit(result)
             _ok = True

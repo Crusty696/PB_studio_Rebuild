@@ -277,8 +277,14 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                         break
 
                     label = title or Path(video_path).stem
+                    # B-071: bei >100 Videos lieferte ``int(100/total_videos)``
+                    # exakt 0 — der Sub-Progress eines Videos wurde komplett
+                    # auf eine einzige Prozent-Zahl kollabiert. Fix: rechne
+                    # in float ueber das Tupel ``((idx-1) + pct/100) / total_videos``,
+                    # erst beim final-Output auf int casten. Damit bleibt
+                    # der Gesamtfortschritt monoton und sub-resolution
+                    # waechst trotzdem je nach idx + pct.
                     batch_base_pct = int((idx - 1) / total_videos * 100)
-                    batch_range = int(100 / total_videos)
                     _throttled_progress(
                         batch_base_pct,
                         f"Video {idx}/{total_videos}: '{label}' wird analysiert..."
@@ -288,9 +294,9 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                         result = run_full_pipeline(
                             video_path=video_path,
                             video_clip_id=clip_id,
-                            progress_cb=lambda pct, msg, _base=batch_base_pct, _range=batch_range, _i=idx, _tv=total_videos: (
+                            progress_cb=lambda pct, msg, _i=idx, _tv=total_videos: (
                                 _throttled_progress(
-                                    min(99, _base + int(pct / 100 * _range)),
+                                    min(99, int(((_i - 1) + pct / 100.0) / _tv * 100)),
                                     f"[{_i}/{_tv}] {msg}"
                                 )
                             ),
@@ -314,9 +320,9 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                                     result = run_full_pipeline(
                                         video_path=fb_clip.file_path,
                                         video_clip_id=clip_id,
-                                        progress_cb=lambda pct, msg, _base=batch_base_pct, _range=batch_range, _i=idx, _tv=total_videos: (
+                                        progress_cb=lambda pct, msg, _i=idx, _tv=total_videos: (
                                             _throttled_progress(
-                                                min(99, _base + int(pct / 100 * _range)),
+                                                min(99, int(((_i - 1) + pct / 100.0) / _tv * 100)),
                                                 f"[{_i}/{_tv}] {msg}"
                                             )
                                         ),
@@ -335,8 +341,11 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                         logging.error("VideoAnalysisPipelineWorker[%s] video %d/%d '%s' crashed: %s\n%s",
                                       clip_id, idx, total_videos, label, e, traceback.format_exc())
                         # C-04 Fix: Einzelner Fehler bricht nicht mehr die ganze Pipeline ab
+                        # B-071: nutze die gleiche Float-Akkumulator-Logik wie der
+                        # erfolgreiche Pfad — Fehler-Eintrag soll Progress nicht
+                        # rueckwaerts laufen lassen.
                         self.progress.emit(
-                            min(99, batch_base_pct + batch_range),
+                            min(99, int(idx / total_videos * 100)),
                             f"[{idx}/{total_videos}] FEHLER: {e}"
                         )
                         continue  # naechstes Video statt Abbruch
