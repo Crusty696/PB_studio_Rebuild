@@ -73,6 +73,57 @@ _PACING_WEIGHTS_DIR: Path = (
 )
 
 
+# B-200 F-6: Helper to reconstruct the on-disk keyframe path for a given
+# Scene row. The keyframe file name is created in
+# ``services/video_analysis_service.extract_keyframes`` with the schema
+# ``{video_stem}_scene{scene.index:04d}.jpg``. We re-derive that here from
+# the JOIN-result columns ``video_clip.file_path`` + ``scene.label``
+# (label is set as ``f"Scene {scene.index}"`` in ``store_scenes_in_db``).
+# Returning None signals the UI to fall back on the deterministic
+# bucket-color placeholder.
+def _resolve_keyframe_path(
+    video_file_path: Optional[str],
+    scene_label: Optional[str],
+) -> Optional[str]:
+    """Return absolute keyframe path if the file exists on disk, else None.
+
+    The lookup is a string-derive + a single ``Path.exists()`` syscall —
+    cheap enough to run for every grid card. We do not cache the result
+    because keyframes can be (re)generated at any time by the video-
+    analysis pipeline; the next ``list_clips_with_tags`` call will pick
+    them up via the lru_cache invalidation.
+    """
+    if not video_file_path or not scene_label:
+        return None
+    # Parse "Scene N" → N. Robust against extra suffixes and case.
+    parts = str(scene_label).strip().split()
+    scene_index: Optional[int] = None
+    for tok in parts:
+        try:
+            scene_index = int(tok)
+            break
+        except ValueError:
+            continue
+    if scene_index is None:
+        return None
+    try:
+        # Lazy import to avoid circulars (video_analysis_service imports
+        # services.* during pipeline). ``database.session.APP_ROOT`` is
+        # the canonical project-root the pipeline writes to.
+        import database.session as _session
+
+        video_stem = Path(video_file_path).stem
+        candidate = (
+            _session.APP_ROOT
+            / "storage"
+            / "keyframes"
+            / f"{video_stem}_scene{scene_index:04d}.jpg"
+        )
+    except Exception:  # broad: cards must not crash the grid
+        return None
+    return str(candidate) if candidate.exists() else None
+
+
 @functools.lru_cache(maxsize=1)
 def _load_expected_moods() -> list[str]:
     """Return the sorted list of expected mood labels from the anchor YAML.
@@ -399,9 +450,12 @@ class BrainService:
                     s.video_clip_id       AS video_clip_id,
                     s.start_time          AS start_time,
                     s.end_time            AS end_time,
+                    s.label               AS scene_label,
+                    vc.file_path          AS video_file_path,
                     COALESCE(u.usage_count, 0) AS usage_count
                 FROM struct_clip_tags t
                 INNER JOIN scenes s ON s.id = t.scene_id
+                LEFT JOIN video_clips vc ON vc.id = s.video_clip_id
                 LEFT JOIN struct_style_bucket b ON b.id = t.style_bucket_id
                 LEFT JOIN (
                     SELECT scene_id, COUNT(*) AS usage_count
@@ -452,6 +506,16 @@ class BrainService:
                     "start_time": float(r["start_time"] or 0.0),
                     "end_time": float(r["end_time"] or 0.0),
                     "usage_count": int(r["usage_count"] or 0),
+                    # B-200 F-6: rekonstruiere Keyframe-Pfad aus
+                    # video_clip.file_path + scene.label. Liefere None wenn
+                    # die Datei (noch) nicht existiert — UI faellt dann
+                    # auf den deterministischen Bucket-Color-Placeholder
+                    # zurueck. Pfad-Schema ist Single-Source-of-Truth in
+                    # ``services/video_analysis_service.extract_keyframes``
+                    # (Z. 369-374): ``{video_stem}_scene{idx:04d}.jpg``.
+                    "keyframe_path": _resolve_keyframe_path(
+                        r["video_file_path"], r["scene_label"]
+                    ),
                 }
                 for r in rows
             ]

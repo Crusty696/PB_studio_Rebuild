@@ -107,6 +107,31 @@ def _placeholder_thumb(scene_id: int, bucket_id: Optional[int]) -> QPixmap:
     return pix
 
 
+def _load_card_thumb(
+    keyframe_path: Optional[str],
+    scene_id: int,
+    bucket_id: Optional[int],
+) -> QPixmap:
+    """B-200 F-6: prefer real keyframe pixmap, fall back to placeholder.
+
+    ``BrainService.list_clips_with_tags`` emits ``keyframe_path`` only
+    when the file exists on disk (see ``_resolve_keyframe_path``). We
+    still re-validate the QPixmap because a corrupt JPEG (truncated
+    write, ffmpeg killed mid-extract) yields ``isNull()`` even when the
+    file exists.
+    """
+    if keyframe_path:
+        pix = QPixmap(keyframe_path)
+        if not pix.isNull():
+            return pix.scaled(
+                _CARD_W - 8,
+                _THUMB_H,
+                Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+    return _placeholder_thumb(scene_id, bucket_id)
+
+
 # ── Clip card ─────────────────────────────────────────────────────────────────
 
 
@@ -155,8 +180,14 @@ class _ClipCard(QFrame):
         thumb = QLabel()
         thumb.setFixedSize(_CARD_W - 8, _THUMB_H)
         thumb.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # B-200 F-6: echte Keyframe-Pixmap wenn ``keyframe_path`` aus dem
+        # BrainService-Row kommt und die Datei existiert; sonst Placeholder.
         thumb.setPixmap(
-            _placeholder_thumb(self._scene_id, self._row.get("style_bucket_id"))
+            _load_card_thumb(
+                self._row.get("keyframe_path"),
+                self._scene_id,
+                self._row.get("style_bucket_id"),
+            )
         )
         vl.addWidget(thumb)
 
