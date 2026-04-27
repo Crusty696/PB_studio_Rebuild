@@ -45,7 +45,7 @@ from ui.theme import (
 
 logger = logging.getLogger(__name__)
 
-UserChoice = Literal["restart", "cpu_fallback", "cancel"]
+UserChoice = Literal["restart", "cpu_fallback", "cancel", "recheck"]
 
 _BODY_HELD_FOR_EJECT = (
     "⚠ GPU im Standby-Modus\n"
@@ -67,17 +67,20 @@ _BODY_FAILED_POST_START = (
 
 _BODY_FOOTER = (
     "\n"
-    "Zwei sichere Wege:\n"
+    "Empfohlener Weg (kein Reboot, empirisch bestaetigt 2026-04-27):\n"
     "\n"
-    "  A)  Computer neu starten (zuverlaessig)\n"
+    "  A)  Tablet vom Keyboard abnehmen + ~3s warten\n"
+    "      + wieder ansetzen + im Geraete-Manager F5\n"
+    "      (Win+X → M, dann F5).\n"
+    "      Danach unten „GPU erneut pruefen“ klicken —\n"
+    "      kein Neustart noetig.\n"
+    "\n"
+    "Fallback (falls Detach nicht greift):\n"
+    "\n"
+    "  B)  Computer neu starten\n"
     "      Speichere zuerst alle offenen Programme\n"
     "      (Word, Browser, …) — PB Studio startet den\n"
     "      Computer NICHT automatisch.\n"
-    "\n"
-    "  B)  Tablet vom Keyboard abnehmen + wieder\n"
-    "      ansetzen + im Geraete-Manager F5 druecken\n"
-    "      (Surface Book 2 spezifisch — oft erfolgreich,\n"
-    "       kein Reboot).\n"
     "\n"
     "Vorbeugend (einmalig, danach seltener):\n"
     "  scripts\\sb2_gpu_setup.ps1  — setzt PCIe-Power-\n"
@@ -176,11 +179,18 @@ class GpuRecoveryDialog(QDialog):
         ft.setContentsMargins(20, 10, 16, 10)
         ft.setSpacing(10)
 
-        self._btn_restart = QPushButton("\U0001F504 PB Studio beenden")
-        self._btn_restart.setObjectName("btn_primary")
-        self._btn_restart.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._btn_restart.setMinimumHeight(32)
-        self._btn_restart.setStyleSheet(
+        # B-220 / 2026-04-27: Detach+Reattach ist jetzt empirisch bestaetigter
+        # Primary-Pfad. "GPU erneut pruefen" ist der neue Hauptbutton — User
+        # macht Detach, klickt, App re-checkt. Reboot-Button bleibt als
+        # sichtbare Fallback-Option.
+        self._btn_recheck = QPushButton("\U0001F504 GPU erneut pruefen")
+        self._btn_recheck.setObjectName("btn_primary")
+        self._btn_recheck.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_recheck.setMinimumHeight(32)
+        self._btn_recheck.setToolTip(
+            "Tablet abnehmen + ansetzen, dann hier klicken — kein Reboot."
+        )
+        self._btn_recheck.setStyleSheet(
             f"QPushButton#btn_primary {{"
             f"background: qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:1,"
             f" stop:0 {ACCENT}, stop:1 {ACCENT_DIM});"
@@ -188,6 +198,18 @@ class GpuRecoveryDialog(QDialog):
             f" font-weight: 700; font-size: 12px; padding: 4px 14px; }}"
             f"QPushButton#btn_primary:hover {{"
             f" background: {ACCENT_BRIGHT}; }}"
+        )
+        self._btn_recheck.clicked.connect(self._on_recheck)
+        ft.addWidget(self._btn_recheck)
+
+        self._btn_restart = QPushButton("PB Studio beenden (Reboot)")
+        self._btn_restart.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_restart.setMinimumHeight(32)
+        self._btn_restart.setStyleSheet(
+            f"QPushButton {{ background: {BG3}; color: {T1};"
+            f" border: 1px solid rgba(255,255,255,30); border-radius: 6px;"
+            f" font-weight: 600; font-size: 12px; padding: 4px 14px; }}"
+            f"QPushButton:hover {{ background: {BG4}; }}"
         )
         self._btn_restart.clicked.connect(self._on_restart)
         ft.addWidget(self._btn_restart)
@@ -237,6 +259,19 @@ class GpuRecoveryDialog(QDialog):
         """Force CPU mode for the rest of this process and accept."""
         self._choice = "cpu_fallback"
         os.environ["PB_STUDIO_FORCE_CPU"] = "1"
+        self.accept()
+
+    def _on_recheck(self) -> None:
+        """B-220: User hat Tablet detach+reattach gemacht — re-check GPU.
+
+        Dialog akzeptiert mit choice=='recheck'. main.py-Loop ruft
+        check_nvidia_gpu_state erneut auf:
+        - Wenn ok: App startet normal mit GPU.
+        - Wenn weiter stuck: Dialog wird neu gezeigt (User kann erneut
+          versuchen oder Reboot/CPU waehlen).
+        """
+        self._choice = "recheck"
+        logger.info("User triggered GPU re-check (detach+reattach Workflow).")
         self.accept()
 
     def _on_cancel(self) -> None:

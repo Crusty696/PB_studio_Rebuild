@@ -1306,36 +1306,62 @@ def main():
     # with no explanation.
     try:
         from services.startup_checks import check_nvidia_gpu_state
-        _gpu_state, _gpu_msg = check_nvidia_gpu_state()
-        # B-220: Recovery-Dialog jetzt auch bei "failed_post_start" (Code 10),
-        # nicht nur bei "held_for_eject" (Code 47). Beide entstehen auf SB2
-        # nach Andocken/Sleep — beide brauchen Reboot oder Tablet-Detach.
-        if _gpu_state in ("held_for_eject", "failed_post_start"):
+        from ui.dialogs.gpu_recovery_dialog import GpuRecoveryDialog
+        # B-220: Recovery-Dialog mit Re-Check-Loop. User kann
+        # Detach+Reattach machen und "GPU erneut pruefen" klicken — Dialog
+        # schliesst, App re-queryt PnP-Status. Wenn ok: App startet
+        # normal. Wenn weiter stuck: Dialog wird neu gezeigt, User kann
+        # erneut versuchen, Reboot oder CPU waehlen.
+        # Maximum 5 Re-Checks um Endlos-Schleife zu verhindern (User-
+        # Bedienfehler). Danach wird der Recheck-Pfad nicht mehr
+        # angeboten — Dialog zeigt nur noch Reboot/CPU/Cancel.
+        _max_rechecks = 5
+        _recheck_count = 0
+        while True:
+            _gpu_state, _gpu_msg = check_nvidia_gpu_state()
+            if _gpu_state == "ok":
+                # GPU jetzt verfuegbar — kein Dialog noetig.
+                if _recheck_count > 0:
+                    logger.info(
+                        "B-220: GPU nach %d Re-Check(s) wieder verfuegbar — App startet normal.",
+                        _recheck_count,
+                    )
+                break
+            if _gpu_state in ("held_for_eject", "failed_post_start"):
+                logger.warning(
+                    "GPU-Stuck-State erkannt (%s): %s", _gpu_state, _gpu_msg,
+                )
+                splash.hide()
+                _dlg = GpuRecoveryDialog(problem_kind=_gpu_state)
+                _dlg.exec()
+                _choice = _dlg.choice()
+                if _choice == "cancel":
+                    sys.exit(0)
+                if _choice == "restart":
+                    # PB Studio beendet sich. User startet den Computer manuell
+                    # neu (Start → Power → Neu starten). Wir triggern KEINEN
+                    # automatischen Reboot, weil das ungesicherte Arbeit in
+                    # anderen Programmen zerstoeren wuerde.
+                    sys.exit(0)
+                if _choice == "recheck" and _recheck_count < _max_rechecks:
+                    _recheck_count += 1
+                    logger.info(
+                        "B-220: User triggered GPU re-check (%d/%d).",
+                        _recheck_count, _max_rechecks,
+                    )
+                    splash.show()
+                    QApplication.processEvents()
+                    continue  # zurueck zur check_nvidia_gpu_state-Schleife
+                # "cpu_fallback" oder recheck-Limit erreicht: weiter mit CPU.
+                splash.show()
+                QApplication.processEvents()
+                break
+            # other_error oder absent: log, kein Dialog.
             logger.warning(
-                "GPU-Stuck-State erkannt (%s): %s", _gpu_state, _gpu_msg,
+                "GPU-Status %s: %s — App startet im CPU-Fallback.",
+                _gpu_state, _gpu_msg,
             )
-            from ui.dialogs.gpu_recovery_dialog import GpuRecoveryDialog
-            splash.hide()
-            _dlg = GpuRecoveryDialog(problem_kind=_gpu_state)
-            _dlg.exec()
-            _choice = _dlg.choice()
-            if _choice == "cancel":
-                sys.exit(0)
-            if _choice == "restart":
-                # PB Studio beendet sich. User startet den Computer manuell neu
-                # (Start → Power → Neu starten). Wir triggern KEINEN automatischen
-                # Reboot, weil das ungesicherte Arbeit in anderen Programmen
-                # zerstoeren wuerde.
-                sys.exit(0)
-            # "cpu_fallback": PB_STUDIO_FORCE_CPU is set, continue startup.
-            splash.show()
-            QApplication.processEvents()
-        elif _gpu_state == "other_error":
-            # Unbekannter Fehler-Code — log, aber nicht blockieren.
-            logger.warning(
-                "Unbekannter GPU-Error-Code: %s — App startet im CPU-Fallback.",
-                _gpu_msg,
-            )
+            break
     except SystemExit:
         raise
     except Exception as exc:  # pragma: no cover - diagnostic path
