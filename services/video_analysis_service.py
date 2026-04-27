@@ -682,6 +682,13 @@ def analyze_scene_with_caption(
     import json
     import re as _re
 
+    # B-195: Circuit-Breaker — wenn das Ollama-Modell konstant fehlschlaegt
+    # (typisch: 404 weil nicht installiert), stoppe nach N consecutive Errors
+    # statt fuer jede Szene 15s in den httpx-Timeout zu rennen. Bei 218
+    # Videos a 15s wuerden sonst stundenlange Hintergrund-Hangs entstehen.
+    _consecutive_failures = 0
+    _CAPTION_FAIL_THRESHOLD = 3
+
     for scene in keyframe_scenes:
         # B-034 Fix: Check pause state in loop to handle GPU operations starting mid-captioning
         if client.is_paused:
@@ -694,6 +701,13 @@ def analyze_scene_with_caption(
                 prompt=_CAPTION_USER_PROMPT,
                 model=vision_model
             )
+
+            # B-195: ``OllamaService.vision()`` returnt bei HTTP-Error
+            # einen ``"Fehler: <code>"``-String statt zu raisen. Wir
+            # erkennen das hier und behandeln es wie eine Exception
+            # (Circuit-Breaker greift).
+            if raw.startswith("Fehler:") or raw.startswith("Fehler "):
+                raise RuntimeError(f"Ollama Vision: {raw}")
 
             cleaned = raw.strip()
             if "```" in cleaned:
@@ -712,6 +726,7 @@ def analyze_scene_with_caption(
                     "[CAPTION] Szene %d: mood=%s",
                     scene.index, scene.ai_mood,
                 )
+                _consecutive_failures = 0
 
         except OllamaPausedError:
             # B-146 Fix: explizite Pause-Exception statt fragiler
@@ -730,6 +745,17 @@ def analyze_scene_with_caption(
                 logger.debug("[CAPTION] Szene %d: Ollama pausiert (legacy string-match) — Abbruch", scene.index)
                 break
             logger.warning("[CAPTION] Szene %d: Fehler: %s — übersprungen", scene.index, e)
+            _consecutive_failures += 1
+            # B-195: Circuit-Breaker fuer dauerhaft scheiternde Modelle
+            # (z.B. nicht installiertes Ollama-Modell → 404 in Schleife).
+            if _consecutive_failures >= _CAPTION_FAIL_THRESHOLD:
+                logger.error(
+                    "[CAPTION] %d aufeinanderfolgende Fehler — Caption-Loop "
+                    "abgebrochen (Modell '%s' wahrscheinlich nicht installiert "
+                    "oder Ollama-Service down). Pipeline laeuft ohne Captions weiter.",
+                    _consecutive_failures, vision_model,
+                )
+                break
 
     captioned = sum(1 for s in scenes if s.ai_caption is not None)
     logger.info("[CAPTION] Vision-Captioning abgeschlossen: %d/%d Szenen", captioned, len(scenes))

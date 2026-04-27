@@ -500,10 +500,78 @@ class SettingsDialog(QDialog):
         dlg = ModelManagerDialog(parent=self, ollama_url=url)
         dlg.exec()
 
+    def _validate_ollama_model(self, url: str, model: str) -> bool:
+        """B-195: Prueft ob ``model`` auf ``url`` installiert ist.
+
+        Returns:
+            True   = Modell installiert ODER Ollama unerreichbar (lassen
+                     wir durch, damit Offline-Setups arbeitsfaehig bleiben)
+                     ODER User wollte explizit trotzdem speichern.
+            False  = Modell fehlt UND User hat den Save-Versuch abgebrochen.
+        """
+        try:
+            from services.ollama_client import OllamaClient
+
+            client = OllamaClient(base_url=url)
+            installed = client.list_models()
+        except Exception as exc:  # broad: jede Verbindungs-/Import-Pleite
+            logger.warning(
+                "B-195: Modell-Validierung fehlgeschlagen (%s) — "
+                "lasse Speichern zu (Offline-Modus).", exc,
+            )
+            return True
+
+        if not installed:
+            # ollama lieferte leere Liste → wahrscheinlich nicht erreichbar
+            # oder gerade frisch ohne Modelle. Nicht hart blockieren.
+            logger.info(
+                "B-195: Ollama-Modellliste leer fuer %s — Speichern zugelassen.",
+                url,
+            )
+            return True
+
+        if model in installed:
+            return True
+
+        # Modell fehlt — User-Bestaetigung einholen
+        from PySide6.QtWidgets import QMessageBox
+
+        preview = ", ".join(installed[:5])
+        if len(installed) > 5:
+            preview += f", … (+{len(installed) - 5})"
+
+        msg = QMessageBox(self)
+        msg.setIcon(QMessageBox.Icon.Warning)
+        msg.setWindowTitle("Ollama-Modell nicht installiert")
+        msg.setText(
+            f"Das Modell '{model}' ist auf {url} NICHT installiert."
+        )
+        msg.setInformativeText(
+            "Pipeline-Aufrufe wuerden mit HTTP 404 scheitern und "
+            "Hintergrund-Worker koennen mehrere Minuten in Timeouts "
+            "haengen.\n\n"
+            f"Installierte Modelle: {preview}\n\n"
+            "Trotzdem speichern oder abbrechen?"
+        )
+        msg.setStandardButtons(
+            QMessageBox.StandardButton.Cancel | QMessageBox.StandardButton.Save
+        )
+        msg.setDefaultButton(QMessageBox.StandardButton.Cancel)
+        choice = msg.exec()
+        return choice == QMessageBox.StandardButton.Save
+
     def _on_accept(self) -> None:
         enabled = self._chk_enabled.isChecked()
         url = self._txt_url.text().strip() or "http://localhost:11434"
         model = self._cmb_model.currentText().strip()
+
+        # B-195: Pre-Check vor Save — ist das Modell auf diesem Ollama-Server
+        # installiert? Verhindert dass die nachfolgende Pipeline auf jeden
+        # Caption-Call ein 404 bekommt, in 15s-Timeouts haengt und im
+        # schlimmsten Fall einen nativen Crash triggert (gemeldet 2026-04-27
+        # nach Conda-Migration: 12420ms MouseRelease + SIGSEGV).
+        if enabled and model and not self._validate_ollama_model(url, model):
+            return  # User hat im Validierungs-Dialog abgebrochen
 
         save_ollama_settings(enabled=enabled, url=url, model=model)
         self.ollama_settings_changed.emit(enabled, url, model)
