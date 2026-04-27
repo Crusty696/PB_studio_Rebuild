@@ -18,8 +18,12 @@ if %ERRORLEVEL% NEQ 0 (
 )
 
 echo Starte PB Studio...
-:: .venv310 bevorzugen (Python 3.10 + CUDA 11.3)
-if exist ".venv310\Scripts\python.exe" (
+:: Conda-env pb-studio bevorzugen (Migrations-Ziel ab 2026-04-27),
+:: dann .venv310 (Python 3.10 + CUDA 11.3 Legacy), dann .venv (CPU).
+set "PB_CONDA_PY=C:\Users\David Lochmann\miniconda3\envs\pb-studio\python.exe"
+if exist "%PB_CONDA_PY%" (
+    "%PB_CONDA_PY%" main.py
+) else if exist ".venv310\Scripts\python.exe" (
     .\.venv310\Scripts\python.exe main.py
 ) else (
     .\.venv\Scripts\python.exe main.py

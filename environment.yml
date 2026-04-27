@@ -1,0 +1,31 @@
+# PB Studio Rebuild — Conda Environment (Python 3.10 + CUDA 11.3)
+#
+# Zielhardware: GTX 1060 / Surface Book 2, NVIDIA-Treiber 461.40
+# (CUDA 11.3 ist die letzte mit diesem Treiber kompatible Toolchain).
+#
+# Erstellen:
+#   conda env create -f environment.yml
+# Aktivieren:
+#   conda activate pb-studio
+# Updaten:
+#   conda env update -f environment.yml --prune
+#
+# Hintergrund: Pip-Deps liegen in `requirements-py310-cu113.txt`, das
+# auch den extra-index-url fuer die cu113-Wheels enthaelt. environment.yml
+# referenziert die Datei direkt, damit beide Workflows (pip-only + conda)
+# dieselben Versionen ziehen.
+
+name: pb-studio
+channels:
+  - conda-forge
+# `defaults` (Anaconda repo) wird nicht gebraucht — Python kommt von
+# conda-forge, alle anderen Deps via pip. Spart die ToS-Akzeptanz, die
+# conda >= 26 fuer repo.anaconda.com/pkgs erzwingt.
+
+dependencies:
+  - python=3.10
+  - pip
+  # Pip-Deps werden ueber requirements-py310-cu113.txt gezogen.
+  # Die Datei enthaelt --extra-index-url fuer die cu113-Wheels.
+  - pip:
+      - -r requirements-py310-cu113.txt
