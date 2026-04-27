@@ -93,24 +93,64 @@ Write-Info "Energiesparplan" $schemeRaw
 # === 2. PCIe Link State Power Management ==================================
 Write-Hdr "2. PCIe Link State Power Management"
 
-# GUID: ee12f906-d277-404b-b6da-e5fa1a576df5  -> "PCI Express"
-# Sub:  501a4d13-42af-4429-9fd1-a8218c268e20  -> "Verbindungszustand-Energieverwaltung"
-# 0 = Aus, 1 = Moderate, 2 = Maximum
+# powercfg /setacvalueindex SCHEME SUBGROUP SETTING VALUE
+# Subgroup "PCI Express":            501a4d13-42af-4429-9fd1-a8218c268e20  (SUB_PCIEXPRESS)
+# Setting  "Verbindungszustand-Energieverwaltung": ee12f906-d277-404b-b6da-e5fa1a576df5  (ASPM)
+# Werte: 0 = Aus, 1 = Mittlere Energieeinsparungen, 2 = Maximale Energieeinsparungen
+# B-221 Fix: GUIDs waren in einer frueheren Version vertauscht -- powercfg
+# verschluckte den Fehler still und das Setting war nicht aktiv. Jetzt mit
+# Subgroup ZUERST und expliziter Verifikation nach dem Set.
 
-$pcieGuid = 'ee12f906-d277-404b-b6da-e5fa1a576df5'
-$linkStateGuid = '501a4d13-42af-4429-9fd1-a8218c268e20'
+$pcieSubgroup = '501a4d13-42af-4429-9fd1-a8218c268e20'  # SUB_PCIEXPRESS
+$aspmSetting  = 'ee12f906-d277-404b-b6da-e5fa1a576df5'  # ASPM
+
+function Get-PcieAspmIndex {
+    param([string]$Mode = 'AC')  # 'AC' oder 'DC'
+    $output = powercfg /query SCHEME_CURRENT $pcieSubgroup $aspmSetting 2>&1 | Out-String
+    if ($Mode -eq 'AC') {
+        $line = $output -split "`n" | Where-Object { $_ -match 'Wechselstrom' }
+    } else {
+        $line = $output -split "`n" | Where-Object { $_ -match 'Gleichstrom' }
+    }
+    if ($line -match '0x([0-9a-fA-F]+)') {
+        return [int]$Matches[1]
+    }
+    return -1
+}
+
+$beforeAc = Get-PcieAspmIndex -Mode 'AC'
+$beforeDc = Get-PcieAspmIndex -Mode 'DC'
+Write-Info "Aktueller Wert (vorher) AC" $beforeAc
+Write-Info "Aktueller Wert (vorher) DC" $beforeDc
 
 if ($DryRun) {
     Write-Host "[DryRun] Wuerde setzen: PCIe LinkState = OFF (AC + DC)" -ForegroundColor Yellow
 } else {
     Write-Host "Setze PCIe Link State Power Management auf 'Aus' (AC + DC)..." -ForegroundColor Cyan
-    powercfg /setacvalueindex SCHEME_CURRENT $pcieGuid $linkStateGuid 0 | Out-Null
-    powercfg /setdcvalueindex SCHEME_CURRENT $pcieGuid $linkStateGuid 0 | Out-Null
-    powercfg /S SCHEME_CURRENT | Out-Null
-    Write-OK "PCIe LinkState" "OFF (AC + DC) -- verhindert dGPU-D3-Cold im Idle"
-    Write-Info "Effekt" "marginal hoehere Idle-Leistung, dafuer keine Code-47-Trigger durch PCIe-Sleep"
-    $rollback = "powercfg /setacvalueindex SCHEME_CURRENT $pcieGuid $linkStateGuid 2"
-    Write-Info "Rueckgaengig" $rollback
+    # NICHT mit Out-Null pipen -- Fehler sollen sichtbar bleiben.
+    $null = powercfg /setacvalueindex SCHEME_CURRENT $pcieSubgroup $aspmSetting 0
+    $acRc = $LASTEXITCODE
+    $null = powercfg /setdcvalueindex SCHEME_CURRENT $pcieSubgroup $aspmSetting 0
+    $dcRc = $LASTEXITCODE
+    $null = powercfg /S SCHEME_CURRENT
+    $sRc = $LASTEXITCODE
+
+    if ($acRc -ne 0 -or $dcRc -ne 0 -or $sRc -ne 0) {
+        Write-Warn2 "powercfg" "Exit-Codes AC=$acRc DC=$dcRc /S=$sRc -- pruefe Output oben."
+    }
+
+    $afterAc = Get-PcieAspmIndex -Mode 'AC'
+    $afterDc = Get-PcieAspmIndex -Mode 'DC'
+
+    if ($afterAc -eq 0 -and $afterDc -eq 0) {
+        Write-OK "PCIe LinkState" "OFF (AC + DC) -- verhindert dGPU-D3-Cold im Idle"
+        Write-Info "Effekt" "marginal hoehere Idle-Leistung, dafuer keine Code-47-Trigger durch PCIe-Sleep"
+        $rollback = "powercfg /setacvalueindex SCHEME_CURRENT $pcieSubgroup $aspmSetting 2"
+        Write-Info "Rueckgaengig" $rollback
+    } else {
+        Write-Warn2 "PCIe LinkState" "set fehlgeschlagen -- AC=$afterAc DC=$afterDc (erwartet beide 0)"
+        Write-Host "  Mache nichts kaputt -- die App-seitige B-218/B-220 Resilience faengt das ohnehin ab." -ForegroundColor Yellow
+    }
 }
 
 # === 3. NVIDIA Optimus Settings -- Diagnose only ==========================
