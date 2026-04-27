@@ -30,6 +30,12 @@ class LUFSResult:
     true_peak: float        # True Peak in dBTP (z.B. -0.3)
     broadcast_compliant: bool = False  # EBU R128 Broadcast-Standard (-23 LUFS ±1 LU)
     streaming_compliant: bool = False  # Streaming-konform (-16 bis -9 LUFS, TP ≤ -1 dBTP)
+    # B-066: explizites Fallback-Flag, damit BaseAnalysisWorker den
+    # Default-Result (-14.0 LUFS, 8.0 LRA, etc.) sicher erkennt und
+    # NICHT als echte Messung in die DB schreibt. Default False, wird
+    # vom Service nur im Catch-Block auf True gesetzt.
+    is_fallback: bool = False
+    fallback_reason: str = ""
 
 
 def _parse_loudnorm_json(stderr: str) -> dict | None:
@@ -98,17 +104,23 @@ class LUFSService:
         Returns:
             LUFSResult mit Integrated/Short-Term/Range/TruePeak
         """
-        fallback = LUFSResult(
-            integrated=-14.0,
-            short_term_max=-10.0,
-            loudness_range=8.0,
-            true_peak=-1.0,
-        )
+        # B-066: Fallback-Result wird explizit als is_fallback=True markiert.
+        # Vorher war ``-14.0 LUFS`` ein realistisch wirkender Wert, der vom
+        # BaseAnalysisWorker als gueltige Messung in die DB geschrieben wurde.
+        def _make_fallback(reason: str) -> LUFSResult:
+            return LUFSResult(
+                integrated=-14.0,
+                short_term_max=-10.0,
+                loudness_range=8.0,
+                true_peak=-1.0,
+                is_fallback=True,
+                fallback_reason=reason,
+            )
 
         try:
             stderr = self._run_ffmpeg(file_path)
             if stderr is None:
-                return fallback
+                return _make_fallback("FFmpeg lieferte keinen Output")
 
             data = _parse_loudnorm_json(stderr)
             if data is None:
@@ -117,7 +129,7 @@ class LUFSService:
                     "stderr (letzte 500 Zeichen): %s",
                     stderr[-500:],
                 )
-                return fallback
+                return _make_fallback("loudnorm-JSON nicht parsebar")
 
             return self._extract_values(data, file_path)
 
@@ -127,16 +139,16 @@ class LUFSService:
                 "FFMPEG_PATH Umgebungsvariable setzen.",
                 _FFMPEG,
             )
-            return fallback
+            return _make_fallback("FFmpeg-Binary nicht gefunden")
 
         except subprocess.TimeoutExpired:
             log.error("FFmpeg LUFS-Analyse Timeout fuer: %s", file_path)
-            return fallback
+            return _make_fallback("FFmpeg-Timeout")
 
         except (ValueError, RuntimeError, json.JSONDecodeError) as e:
             log.exception("Unerwarteter Fehler bei LUFS-Analyse fuer: %s", file_path)
             log.warning("analyze(): fallback result returned due to: %s", e)
-            return fallback
+            return _make_fallback(f"{type(e).__name__}: {e}")
 
     def _run_ffmpeg(self, file_path: str) -> str | None:
         """Fuehrt FFmpeg loudnorm Analyse-Pass aus und gibt stderr zurueck.

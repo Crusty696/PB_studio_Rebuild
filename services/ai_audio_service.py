@@ -358,32 +358,49 @@ class StemSeparator:
         return stems
 
     def separate_and_store(self, track_id: int, progress_cb=None) -> dict:
-        """Separiert Stems und speichert Pfade in der DB."""
-        with nullpool_session() as session:
-            track = session.get(AudioTrack, track_id)
-            if track is None:
-                raise ValueError(f"AudioTrack {track_id} nicht gefunden")
-            file_path = track.file_path
+        """Separiert Stems und speichert Pfade in der DB.
 
-        try:
-            stems = self.separate(file_path, progress_cb=progress_cb)
-        except (OSError, IOError, ValueError, RuntimeError) as e:
-            raise RuntimeError(f"Stem-Separation fehlgeschlagen fuer Track {track_id}: {e}") from e
+        B-072: Per-Track-Lock via ``audio_service.track_lock`` (B-143-Refcount-
+        Pattern). Vorher liefen zwei parallele ``separate_and_store``-Calls
+        auf demselben Track ueber den ``GPU_EXECUTION_LOCK`` zwar
+        sequentiell, schrieben aber beide auf denselben
+        ``vocals.wav``-Pfad → race wer am Ende die DB committet, plus
+        wasted Demucs-Run (~60 s GTX 1060). Lock serialisiert *gleichen*
+        Track, *unterschiedliche* Tracks bleiben parallel.
+        """
+        from services.audio_service import track_lock
 
-        # M-14 Fix: Use nullpool_session() to avoid "database is locked" under concurrent writes
-        with nullpool_session() as session:
-            track = session.get(AudioTrack, track_id)
-            if track is None:
-                raise ValueError(f"AudioTrack {track_id} nach Separation nicht mehr gefunden")
-            track.stem_vocals_path = stems.get("vocals")
-            track.stem_drums_path = stems.get("drums")
-            track.stem_bass_path = stems.get("bass")
-            track.stem_other_path = stems.get("other")
+        with track_lock(track_id):
+            with nullpool_session() as session:
+                track = session.get(AudioTrack, track_id)
+                if track is None:
+                    raise ValueError(f"AudioTrack {track_id} nicht gefunden")
+                file_path = track.file_path
+
             try:
-                session.commit()
-            except Exception:  # broad catch intentional — SQLAlchemy commit can raise many error types
-                session.rollback()
-                raise
+                stems = self.separate(file_path, progress_cb=progress_cb)
+            except (OSError, IOError, ValueError, RuntimeError) as e:
+                raise RuntimeError(
+                    f"Stem-Separation fehlgeschlagen fuer Track {track_id}: {e}"
+                ) from e
+
+            # M-14 Fix: Use nullpool_session() to avoid "database is locked"
+            # under concurrent writes
+            with nullpool_session() as session:
+                track = session.get(AudioTrack, track_id)
+                if track is None:
+                    raise ValueError(
+                        f"AudioTrack {track_id} nach Separation nicht mehr gefunden"
+                    )
+                track.stem_vocals_path = stems.get("vocals")
+                track.stem_drums_path = stems.get("drums")
+                track.stem_bass_path = stems.get("bass")
+                track.stem_other_path = stems.get("other")
+                try:
+                    session.commit()
+                except Exception:  # broad catch intentional — SQLAlchemy commit can raise many error types
+                    session.rollback()
+                    raise
 
         return stems
 

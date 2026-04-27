@@ -52,6 +52,22 @@ class BaseAnalysisWorker(QObject, CancellableMixin):
             mark_started("audio", self.audio_track_id, self._step_key())
             self.progress.emit(10, self._start_message())
             result = self._analyze()
+            # B-066: Silent-Fallback-Detection. LUFS/Classify/Key-Services
+            # liefern bei interner Exception ein Fallback-Result mit Default-
+            # Werten (LUFS=-14.0, Genre="Unknown", Key="Am") — diese sehen
+            # plausibel aus und wurden vorher als gueltige Daten in die DB
+            # geschrieben. User merkte nicht, dass die Analyse fehlschlug,
+            # und konnte sie nicht einmal re-trigger'n. Wir erkennen das
+            # ueber ``is_fallback=True`` (oder ``method == "fallback"`` /
+            # ``confidence == 0.0`` als Heuristik) und behandeln es als
+            # echten Fehler — schreibt ``mark_error`` statt ``mark_done``,
+            # die DB-Spalten bleiben ``None``.
+            if self._is_fallback_result(result):
+                reason = self._fallback_reason(result)
+                raise RuntimeError(
+                    f"Analyse-Fallback erkannt — "
+                    f"Result wurde NICHT als gueltig persistiert: {reason}"
+                )
             self.progress.emit(80, self._done_message(result))
             self._save_to_db(result)
             mark_done("audio", self.audio_track_id, self._step_key(), self._value_summary(result))
@@ -69,6 +85,47 @@ class BaseAnalysisWorker(QObject, CancellableMixin):
         finally:
             if not _ok and not self._errored:
                 self.finished.emit(self.audio_track_id, {})
+
+    # ── B-066: Fallback-Detection (zentral fuer alle Sub-Worker) ──────────
+
+    @staticmethod
+    def _is_fallback_result(result: object) -> bool:
+        """B-066: Erkennt ob ein Service-Result ein Silent-Fallback ist.
+
+        Heuristik (in Reihenfolge):
+        1. ``getattr(result, 'is_fallback', False) is True`` — explizites Flag.
+        2. ``getattr(result, 'method', '') == 'fallback'`` — KeyResult-Pattern.
+        3. ``getattr(result, 'confidence', 1.0) == 0.0 and
+            getattr(result, 'description', '') begins with
+            'Klassifikation nicht moeglich'`` — ClassifyResult-Pattern.
+
+        LUFS hat aktuell keinen Marker — dort wuerde ein dedizierter
+        ``is_fallback``-Flag in der Dataclass folgen (siehe B-066-Cross-
+        Refs). Solange das Flag nicht gesetzt ist, durchgelassen.
+        """
+        if getattr(result, "is_fallback", False) is True:
+            return True
+        method = getattr(result, "method", None)
+        if isinstance(method, str) and method.lower() == "fallback":
+            return True
+        confidence = getattr(result, "confidence", None)
+        description = getattr(result, "description", "")
+        if (
+            confidence == 0.0
+            and isinstance(description, str)
+            and description.lower().startswith("klassifikation nicht moeglich")
+        ):
+            return True
+        return False
+
+    @staticmethod
+    def _fallback_reason(result: object) -> str:
+        """B-066: liefert einen Lesbar-Grund fuer das Logging."""
+        for attr in ("fallback_reason", "description", "method"):
+            v = getattr(result, attr, None)
+            if isinstance(v, str) and v.strip():
+                return v
+        return "kein Grund verfuegbar"
 
     @abstractmethod
     def _step_key(self) -> str: ...
