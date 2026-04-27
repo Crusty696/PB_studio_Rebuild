@@ -40,16 +40,31 @@ def _load_truth_set(path: Path) -> list[dict]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _g(d: dict, key: str, default: float = 0.5) -> float:
+    """B-238: ``dict.get(key, default)`` returnt den Default NUR wenn der
+    Key fehlt. Wenn der Key existiert mit Wert ``None`` (z.B. weil das
+    Truth-Set diesen Eintrag noch nicht hatte), kommt ``None`` zurueck —
+    ``float(None)`` crasht. Helper deckt beide Faelle ab.
+    """
+    val = d.get(key)
+    if val is None:
+        return float(default)
+    try:
+        return float(val)
+    except (TypeError, ValueError):
+        return float(default)
+
+
 def _row_to_components(row: dict) -> RewardComponents:
     af = row.get("audio_features", {}) or {}
     vf = row.get("video_features", {}) or {}
     return RewardComponents(
-        r_energy=float(af.get("rms", 0.5)),
-        r_mood=float(vf.get("cosine_sim_to_audio_mood", 0.5)),
-        r_stem_class=float(af.get("stem_class_match", 0.5)),
-        r_section=float(af.get("section_coherence", 0.5)),
-        r_freshness=float(vf.get("freshness", 0.5)),
-        r_collision=float(vf.get("collision_inv", 0.5)),
+        r_energy=_g(af, "rms"),
+        r_mood=_g(vf, "cosine_sim_to_audio_mood"),
+        r_stem_class=_g(af, "stem_class_match"),
+        r_section=_g(af, "section_coherence"),
+        r_freshness=_g(vf, "freshness"),
+        r_collision=_g(vf, "collision_inv"),
         r_user=float(1.0 if row.get("verdict") == "good" else 0.0 if row.get("verdict") == "bad" else 0.5),
     )
 

@@ -187,6 +187,29 @@ The SQLite database is stored at `pb_studio.db` in the project root. It is auto-
 
 To reset the database, delete `pb_studio.db` and restart the application.
 
+### Studio Brain Pipeline (D-023)
+
+The Studio Brain RL-Pacing-Pipeline is implemented but **off by default** — Reward-Weights need to be tuned against your aesthetic preference first. Workflow:
+
+1. Activate the pipeline before launching:
+   ```powershell
+   $env:PB_USE_STUDIO_BRAIN_PIPELINE = "1"
+   python start_pb_studio.py
+   ```
+2. Import an audio track + video clips, run analysis, run Auto-Edit. The pipeline writes one row per cut to `mem_decision`.
+3. Open Studio Brain → tab **Pacing-Explorer**, label cuts with 👍 / 👎 (target: 30+ cuts).
+4. Export the labeled cuts to JSON:
+   ```bash
+   python scripts/build_pacing_truth_set.py
+   ```
+5. Tune the reward weights:
+   ```bash
+   python scripts/tune_pacing_reward.py
+   ```
+6. Verify with A/B-Run (`services/pacing/ab_runner.py`) before flipping the default flag.
+
+See `wiki/synthesis/truth-set-workflow-2026-04-28.md` in the Brain-Bug vault for the full guide.
+
 ---
 
 ## License
