@@ -549,15 +549,18 @@ def _run_ffmpeg_with_progress(
         if timeout_watchdog is not None:
             timeout_watchdog.join(timeout=THREAD_JOIN_TIMEOUT_SEC)
 
-    if timed_out.is_set():
-        raise FFmpegTimeoutError(int(timeout if timeout is not None else FFMPEG_EXPORT_TIMEOUT_SEC))
-
+    # B-210: User-Intent (Cancel) hat Vorrang vor System-Intent (Timeout).
+    # Wenn beide Watchdogs gleichzeitig feuern, soll der User die korrekte
+    # "Abgebrochen"-Meldung sehen statt eines verwirrenden "Timeout".
     if cancelled.is_set():
         raise FFmpegError(
             "Convert abgebrochen (User-Cancel)",
             returncode=-1,
             stderr=''.join(stderr_lines),
         )
+
+    if timed_out.is_set():
+        raise FFmpegTimeoutError(int(timeout if timeout is not None else FFMPEG_EXPORT_TIMEOUT_SEC))
 
     stderr = ''.join(stderr_lines)
     if process.returncode != 0:

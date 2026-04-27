@@ -219,6 +219,32 @@ class LUFSService:
             EBU_R128_STREAMING_MIN, EBU_R128_STREAMING_MAX, EBU_TRUE_PEAK_MAX,
         )
 
+        # B-208: Wenn der geparste loudnorm-JSON-Block einen oder mehrere
+        # Pflicht-Keys nicht enthaelt (truncated stderr, Plugin-Drift), darf
+        # _extract_values NICHT die Default-Werte als echte Messung
+        # zurueckgeben — sonst landet -14.0/8.0/-1.0 in der DB. Wir liefern
+        # stattdessen einen fallback-flagged LUFSResult, den
+        # BaseAnalysisWorker._is_fallback_result als Fallback erkennt und
+        # NICHT persistiert.
+        required_keys = ("input_i", "input_lra", "input_tp")
+        missing_keys = [k for k in required_keys if k not in data]
+        if missing_keys:
+            log.warning(
+                "LUFS partial-parse: fehlende keys %s in loudnorm-JSON fuer %s — "
+                "Fallback-Result statt Default-Werten",
+                missing_keys, file_path,
+            )
+            return LUFSResult(
+                integrated=-14.0,
+                short_term_max=-14.0 + (8.0 * 0.8),
+                loudness_range=8.0,
+                true_peak=-1.0,
+                broadcast_compliant=False,
+                streaming_compliant=False,
+                is_fallback=True,
+                fallback_reason=f"loudnorm partial-parse: missing keys {missing_keys}",
+            )
+
         integrated = _safe_float(data.get("input_i"), -14.0)
         loudness_range = _safe_float(data.get("input_lra"), 8.0)
         true_peak = _safe_float(data.get("input_tp"), -1.0)

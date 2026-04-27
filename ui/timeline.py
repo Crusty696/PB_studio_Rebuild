@@ -147,6 +147,12 @@ class TimelineClipItem(QGraphicsRectItem):
 
         self._track_y = y
         self._anchor_markers: list[AnchorMarkerItem] = []
+        # B-211: ALLE Anker-time_offsets (auch unsichtbare durch Trim) hier
+        # halten. _anchor_markers enthaelt nur sichtbare; get_first_anchor_time
+        # darf aber nicht von Trim-Sichtbarkeit abhaengen, sonst ergibt es
+        # andere Werte als die DB-Query und ist semantisch broken
+        # (besonders fuer eine kuenftige Auto-Edit-Pipeline).
+        self._all_anchor_offsets: list[float] = []
         if anchors is not None:
             self._apply_anchors(anchors)
         else:
@@ -155,6 +161,10 @@ class TimelineClipItem(QGraphicsRectItem):
     def _apply_anchors(self, anchors):
         """Zeichnet vorab geladene Anker (vermeidet N+1 DB-Queries)."""
         for anchor in anchors:
+            # B-211: time_offset IMMER tracken — auch fuer Anker ausserhalb
+            # des sichtbaren Trim-Bereichs. Der visible-Filter unten betrifft
+            # nur das Zeichnen.
+            self._all_anchor_offsets.append(float(anchor.time_offset))
             x_px = anchor.time_offset * PIXELS_PER_SECOND
             if 0 <= x_px <= self._clip_width:
                 marker = AnchorMarkerItem(x_px, self._clip_height, anchor.id, parent=self)
@@ -188,6 +198,8 @@ class TimelineClipItem(QGraphicsRectItem):
 
         marker = AnchorMarkerItem(local_x, self._clip_height, anchor_id, parent=self)
         self._anchor_markers.append(marker)
+        # B-211: _all_anchor_offsets parallel pflegen.
+        self._all_anchor_offsets.append(float(time_offset))
         return anchor_id
 
     def remove_all_anchors(self):
@@ -201,20 +213,24 @@ class TimelineClipItem(QGraphicsRectItem):
         for m in self._anchor_markers:
             m.remove_from_scene()
         self._anchor_markers.clear()
+        # B-211: _all_anchor_offsets parallel leeren.
+        self._all_anchor_offsets.clear()
 
     def get_first_anchor_time(self) -> float | None:
         """Gibt den Zeitstempel des ersten Ankers zurueck (relativ zum Clip-Start).
 
-        B-077: Vorher ein synchroner DB-Read im Main-Thread bei jedem
-        Aufruf — bei 100+ Clips × HDD/NAS hatte das spuerbare Freezes
-        zur Folge. Jetzt aus ``_anchor_markers`` lokal abgeleitet
-        (jeder Marker traegt ``time_offset`` seit B-077). Konsistent
-        mit dem Zeichen-Pfad: was sichtbar ist, ist auch was hier
-        zurueckgegeben wird.
+        B-077: Vorher synchroner DB-Read im Main-Thread → spuerbare Freezes
+        bei 100+ Clips × HDD/NAS. Jetzt lokal aus ``_all_anchor_offsets``.
+
+        B-211: liest aus ``_all_anchor_offsets`` (alle DB-Anker), NICHT aus
+        ``_anchor_markers`` (nur sichtbare). Sonst werden Anker ausserhalb
+        des Trim-Bereichs ignoriert → semantisch falsch fuer Auto-Edit-
+        Pipelines, die den ersten Anker des Clips brauchen, unabhaengig
+        von der UI-Trim-Sichtbarkeit.
         """
-        if not self._anchor_markers:
+        if not self._all_anchor_offsets:
             return None
-        return min(m.time_offset for m in self._anchor_markers)
+        return min(self._all_anchor_offsets)
 
     def contextMenuEvent(self, event):
         """Rechtsklick-Kontextmenue mit Anker-Optionen."""

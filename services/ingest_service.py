@@ -70,7 +70,23 @@ def _ensure_project_exists(project_id: int) -> None:
                 )
     except ValueError:
         raise
-    except Exception as exc:  # broad: DB-Fehler darf hier kein zweiter Crash sein
+    except Exception as exc:
+        # B-212: OperationalError (DB-Lock) ist KEIN Pre-Check-Fail im
+        # gleichen Sinne wie ein fehlendes Projekt — wir muessen den User
+        # konkret informieren statt das generische FK-Error vom INSERT
+        # spaeter zu kassieren. SQLAlchemy / sqlite3 OperationalError fangen
+        # wir ueber den Klassennamen ab (Import zur Vermeidung von
+        # zirkulaerem Import bei Service-Bootstrap).
+        is_db_lock = exc.__class__.__name__ in ("OperationalError", "DatabaseError")
+        if is_db_lock:
+            raise ValueError(
+                f"DB temporaer nicht verfuegbar (Lock/Busy) — Pre-Check fuer "
+                f"project_id={project_id} fehlgeschlagen: {exc}. "
+                f"Bitte Vorgang erneut versuchen."
+            ) from exc
+        # B-054 Original: andere unerwartete Fehler (Schema-Drift, etc.)
+        # nicht doppelt crashen lassen — der spaetere INSERT zeigt den
+        # konkreten Fehler.
         logger.warning("B-054: _ensure_project_exists query failed: %s", exc)
 
 # FFmpeg/FFprobe Pfade werden zentral in main.py via PATH injiziert.

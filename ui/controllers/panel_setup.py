@@ -102,6 +102,29 @@ class PanelSetupController(PBComponent):
             )
             self.window.chat_dock.set_agent(self.window._ai_agent)
 
+            # B-209: Bei Project-Switch System-Prompt-Cache invalidieren —
+            # sonst zeigt der Agent bis zu 30s lang Medien aus dem ALTEN
+            # Projekt im Prompt und gibt damit fachlich falsche Antworten.
+            # Hook (invalidate_system_prompt_cache) existiert seit Batch-7
+            # (B-082), war aber bisher nirgends verdrahtet.
+            try:
+                pm = getattr(self.window, "_project_manager", None)
+                if pm is not None and hasattr(pm, "project_changed"):
+                    agent_ref = self.window._ai_agent
+                    pm.project_changed.connect(
+                        lambda *_a, **_kw: agent_ref.invalidate_system_prompt_cache("media")
+                    )
+                else:
+                    logger.warning(
+                        "B-209: project_manager.project_changed nicht verfuegbar — "
+                        "sysprompt-media-cache wird nicht bei Project-Switch invalidiert."
+                    )
+            except (AttributeError, RuntimeError) as _wire_exc:
+                logger.warning(
+                    "B-209: project_changed -> invalidate_system_prompt_cache wiring failed: %s",
+                    _wire_exc,
+                )
+
             # GPU-Status LAZY anzeigen via ModelManager direkt (nicht ueber Agent)
             def _show_gpu_info_deferred():
                 try:

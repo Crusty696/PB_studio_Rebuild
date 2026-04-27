@@ -158,6 +158,14 @@ class FolderImportWorker(QObject, CancellableMixin):
             except OSError as walk_err:
                 self.error.emit(f"Ordner-Scan fehlgeschlagen: {walk_err}")
                 return
+            # B-213: User-Hinweis wenn der Walk keine unterstuetzten Medien
+            # gefunden hat (Tippfehler im Pfad / leerer Ordner). Vorher
+            # (Pre-B-058) machte der UI-Caller diesen Check; mit dem
+            # Worker-Walk ging die Meldung verloren.
+            if not self.paths_audio and not self.paths_video:
+                self.file_imported.emit(
+                    f"[Warnung] Keine unterstuetzten Medien in: {self.walk_root}"
+                )
         total = len(self.paths_audio) + len(self.paths_video)
         done = 0
         try:
@@ -400,8 +408,17 @@ class ProxyCreationWorker(QObject, CancellableMixin):
         self.video_path = video_path
 
     def run(self):
+        # B-214: Cancel respektieren BEVOR wir auf einen Slot warten.
+        # Sonst blockiert ein 50-File-Batch den Cancel um (queue/2)*encoding_time,
+        # weil Workers should_stop() erst nach Slot-Acquire pruefen.
+        if self.should_stop():
+            return
         # B-056: Semaphor blockt bis ein Slot frei wird.
         with _PROXY_CREATION_SEMAPHORE:
+            # Nochmal pruefen: zwischen Acquire und Run kann der User
+            # gecancelt haben.
+            if self.should_stop():
+                return
             return self._run_with_slot()
 
     def _run_with_slot(self):
