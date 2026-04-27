@@ -279,13 +279,13 @@ def compute_motion_scores(
             from services.model_manager import ModelManager
             try:
                 mgr = ModelManager()
-                if mgr.current_model_id == "raft_small":
-                    mgr.unload()
-                    logger.info("RAFT entladen via ModelManager")
-                else:
-                    logger.debug("RAFT already swapped out — skip unload")
+                # B-194: RAFT lebt jetzt im aux-Slot (siehe model_manager.py).
+                # ``unload_raft()`` ist idempotent und faesst main (z.B. SigLIP)
+                # bewusst nicht an.
+                mgr.unload_raft()
+                logger.info("RAFT entladen via ModelManager.unload_raft()")
             except (RuntimeError, AttributeError) as exc:
-                logger.warning("ModelManager.unload() failed after RAFT cleanup: %s", exc)
+                logger.warning("ModelManager.unload_raft() failed after RAFT cleanup: %s", exc)
             raft_model = None  # Lokale Referenz freigeben
 
     logger.info("Motion-Scores berechnet für %d Szenen (%s)", len(scenes),
@@ -530,11 +530,25 @@ def generate_embeddings(
                 images.clear()
                 valid_scenes.clear()
 
-            except RuntimeError:
+            except RuntimeError as batch_err:
                 torch.cuda.empty_cache()
                 gc.collect()
-                # Adaptive Retry: Batch halbieren und einzeln verarbeiten
-                logger.warning("OOM bei SigLIP Batch (size=%d) — Retry einzeln...", len(images))
+                # B-194: ``RuntimeError`` ist NICHT immer OOM — z.B. ein
+                # Mixed-Device-Error (Modell auf CPU, Inputs auf CUDA) wird
+                # ebenfalls hier gefangen. Vorher pauschal als "OOM" geloggt
+                # → grosse Mis-Diagnose. Wir unterscheiden jetzt anhand der
+                # Fehlermeldung.
+                _err_lower = str(batch_err).lower()
+                _is_oom = "out of memory" in _err_lower or "cuda" in _err_lower and "memory" in _err_lower
+                if _is_oom:
+                    logger.warning(
+                        "OOM bei SigLIP Batch (size=%d) — Retry einzeln...", len(images)
+                    )
+                else:
+                    logger.warning(
+                        "RuntimeError bei SigLIP Batch (size=%d) — Retry einzeln (%s)...",
+                        len(images), batch_err,
+                    )
                 for j, (img, scene) in enumerate(zip(images, valid_scenes)):
                     try:
                         # B-154: VOR jedem Einzel-Call empty_cache, sonst kaskadiert
@@ -553,9 +567,18 @@ def generate_embeddings(
                             emb = out / out.norm(p=2, dim=-1, keepdim=True)
                             scene.embedding = emb.cpu().numpy().astype(np.float32)[0]
                         del inp, out, emb
-                    except RuntimeError:
+                    except RuntimeError as single_err:
                         torch.cuda.empty_cache()
-                        logger.error("OOM auch bei Einzel-Inference — ueberspringe Bild %d", j)
+                        # B-194: Auch hier: nicht jeden RuntimeError als OOM loggen.
+                        _se_lower = str(single_err).lower()
+                        _se_oom = "out of memory" in _se_lower or ("cuda" in _se_lower and "memory" in _se_lower)
+                        if _se_oom:
+                            logger.error("OOM auch bei Einzel-Inference — ueberspringe Bild %d", j)
+                        else:
+                            logger.error(
+                                "RuntimeError bei Einzel-Inference Bild %d — ueberspringe (%s)",
+                                j, single_err,
+                            )
                 # F-019 Fix: Clear buffers after OOM recovery
                 images.clear()
                 valid_scenes.clear()

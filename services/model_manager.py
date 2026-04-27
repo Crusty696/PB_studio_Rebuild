@@ -164,6 +164,15 @@ class ModelManager:
                     inst._pipe = None
                     inst._model_type = None
                     inst._extras = {}
+                    # B-194: Auxiliary-Slot fuer ko-residente Modelle (z.B. RAFT
+                    # neben SigLIP). Vorher rief load_raft() self.unload() auf,
+                    # was die SigLIP-Tensoren auf CPU schob — die in workers/
+                    # video.py gehaltene Reference wurde damit unbrauchbar
+                    # (Mixed-Device-RuntimeError, faelschlich als OOM geloggt).
+                    inst._aux_model = None
+                    inst._aux_model_id = None
+                    inst._aux_model_type = None
+                    inst._aux_extras = {}
                     inst._swap_lock = threading.RLock()
                     inst.device = "cpu"  # provisorisch, wird in __init__ ueberschrieben
                     cls._instance = inst
@@ -397,11 +406,63 @@ class ModelManager:
                 "Bitte andere Programme schließen oder System-RAM erhöhen."
             )
 
+    def unload_raft(self) -> None:
+        """B-194: Public-Alias zum gezielten RAFT-Cleanup ohne main-Modell
+        anzufassen. Idempotent (no-op falls kein aux-Modell geladen oder
+        falls aktuelles aux nicht RAFT ist).
+        """
+        with self._swap_lock:
+            if self._aux_model_type == "raft":
+                self._unload_aux()
+
+    def _unload_aux(self) -> None:
+        """B-194: Entlaedt nur das auxiliary-Modell (RAFT), ohne das main-
+        Modell anzufassen. Wird von ``load_raft()`` aufgerufen statt der
+        bisherigen ``self.unload()``-Falle, die SigLIP zerstoerte.
+        """
+        _ensure_torch()
+        # Hinweis: Caller muss bereits den ``_swap_lock`` halten.
+        if self._aux_model is None:
+            return
+        old_id = self._aux_model_id
+        old_type = self._aux_model_type
+        logger.info("ModelManager: Entlade aux-Modell '%s' (Typ: %s)...", old_id, old_type)
+
+        try:
+            if hasattr(self._aux_model, "cpu"):
+                self._aux_model.cpu()
+        except (RuntimeError, AttributeError) as e:
+            logger.warning("aux-Modell auf CPU schieben fehlgeschlagen: %s", e)
+
+        for key, obj in list(self._aux_extras.items()):
+            if obj is not None and hasattr(obj, "cpu"):
+                try:
+                    obj.cpu()
+                except (RuntimeError, AttributeError) as e:
+                    logger.warning("aux-Extra '%s' auf CPU schieben fehlgeschlagen: %s", key, e)
+
+        self._aux_model = None
+        self._aux_model_id = None
+        self._aux_model_type = None
+        self._aux_extras.clear()
+
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            gc.collect()
+            torch.cuda.empty_cache()
+        logger.info("ModelManager: aux-Modell '%s' entladen.", old_id)
+
     def unload(self) -> None:
         """Entlädt das aktuelle Modell komplett und gibt GPU/RAM frei."""
         # BUG-016 Fix: torch ist auf Modul-Ebene None bis _ensure_torch() laeuft
         _ensure_torch()
         with self._swap_lock:
+            # B-194: Aux (RAFT) erst — sonst kann main-Tensor-Cleanup von
+            # einem noch resident gehaltenen aux-Modell partiell blockiert
+            # bleiben.
+            self._unload_aux()
+
             if self._current_model_id is None:
                 return
 
@@ -619,9 +680,15 @@ class ModelManager:
     def load_raft(self) -> tuple:
         """Lädt RAFT Small Optical Flow Modell für Motion-Analyse.
 
-        Registriert RAFT im ModelManager sodass es beim Laden anderer
-        Modelle (SigLIP, beat_this) automatisch entladen wird.
-        SigLIP (~2.5 GB) + RAFT (~0.1 GB) dürfen koexistieren auf 6 GB VRAM.
+        B-194: RAFT lebt jetzt im aux-Slot, damit ein parallel resident
+        gehaltenes main-Modell (z.B. SigLIP fuer Batch-Captioning) nicht
+        durch das Laden von RAFT auf CPU geschoben wird. Vorher rief
+        ``load_raft()`` ``self.unload()`` (H17-Pfad) — das machte den
+        Koexistenz-Vertrag (~2.5 GB SigLIP + ~0.1 GB RAFT auf 6 GB VRAM)
+        kaputt: in workers/video.py gehaltene SigLIP-References zeigten
+        nach RAFT-Load auf CPU-Tensoren waehrend Inputs auf CUDA lagen
+        → Mixed-Device-RuntimeError, der von der OOM-Recovery faelschlich
+        als "OOM bei SigLIP Batch" geloggt wurde.
 
         Returns:
             (raft_model, device) — direkt verwendbar für torch inference
@@ -629,17 +696,16 @@ class ModelManager:
         model_id = "raft_small"
 
         with self._swap_lock:
-            if self._current_model_id == model_id and self._model_type == "raft":
-                return self._model, torch.device(self.device)
+            # Cache-Hit im aux-Slot
+            if self._aux_model_type == "raft" and self._aux_model is not None:
+                return self._aux_model, torch.device(self.device)
 
             self._pause_ollama_if_active()
 
             try:
-                # H17 FIX: IMMER entladen bevor RAFT geladen wird.
-                # Vorher wurde SigLIP nicht entladen (Koexistenz-Versuch),
-                # aber der ModelManager tracked nur EIN Modell (_current_model_id).
-                # Nach RAFT-Load ging die SigLIP-Referenz verloren (2.5GB VRAM-Leak).
-                self.unload()
+                # B-194: nur ein vorhandenes aux-Modell entladen — main
+                # (z.B. SigLIP) bleibt unangetastet.
+                self._unload_aux()
 
                 # F-011: Proaktiver OOM-Check vor Laden (RAFT ist klein, aber Sicherheit)
                 self._handle_oom_prevention("RAFT Small laden")
@@ -663,21 +729,24 @@ class ModelManager:
                 try:
                     raft = raft.to(device)
                 except RuntimeError:
-                    logger.warning("[RAFT] OOM — entlade und versuche erneut...")
-                    self.unload()
+                    # B-194: OOM beim aux-Load darf NICHT main entladen.
+                    # Nur aux-Slot raeumen + Retry.
+                    logger.warning("[RAFT] OOM — aux-Slot raeume und versuche erneut...")
+                    self._unload_aux()
                     torch.cuda.empty_cache()
                     gc.collect()
                     raft = raft.to(device)
 
                 raft = raft.eval()
-                self._model = raft
-                self._current_model_id = model_id
-                self._model_type = "raft"
-                logger.info("ModelManager: RAFT Small geladen auf %s", device)
-                return self._model, device
+                self._aux_model = raft
+                self._aux_model_id = model_id
+                self._aux_model_type = "raft"
+                logger.info("ModelManager: RAFT Small geladen auf %s (aux-Slot)", device)
+                return self._aux_model, device
 
             except Exception:
-                self.unload()
+                # B-194: Bei Hard-Failure nur aux raeumen, main nicht antasten.
+                self._unload_aux()
                 raise
             finally:
                 self._resume_ollama_if_paused()
