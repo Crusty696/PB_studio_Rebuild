@@ -444,6 +444,17 @@ class InteractiveTimeline(QGraphicsView):
         self._shuttle_speed: int = 0        # JKL shuttle: -2,-1,0,1,2
         self._clipboard: list[dict] = []    # Ctrl+C/V internal clip clipboard
 
+        # B-200: In/Out-Point-State. Vorher war das Wiring kaputt — die
+        # ``set_in_point`` / ``set_out_point``-Signals feuerten bei den
+        # Tasten I / O, aber NIEMAND subscribte. Damit waren die Tasten
+        # funktionslos. Bis ein echter Trim-Worker existiert, halten wir
+        # die Werte mindestens lokal vor und loggen sie via console_log,
+        # damit der User Feedback bekommt.
+        self._in_point: float | None = None
+        self._out_point: float | None = None
+        self.set_in_point.connect(self._on_set_in_point_local)
+        self.set_out_point.connect(self._on_set_out_point_local)
+
         # T8.1: Feedback shortcuts — active pacing run + service
         self._active_pacing_run_id: int | None = None
         from services.feedback_service import FeedbackService
@@ -1449,6 +1460,54 @@ class InteractiveTimeline(QGraphicsView):
     def set_feedback_service(self, service: "FeedbackService") -> None:  # type: ignore[name-defined]
         """Inject a custom FeedbackService (for tests). Not used in production."""
         self._feedback_service = service
+
+    # ── B-200: In/Out-Point-Tracking ───────────────────────────────────────
+
+    def _format_seconds(self, sec: float) -> str:
+        """Helper für I/O-Point-Logging — mm:ss.fff."""
+        try:
+            t = float(sec)
+        except (TypeError, ValueError):
+            return f"{sec}"
+        m = int(t) // 60
+        s = t - 60 * m
+        return f"{m:02d}:{s:06.3f}"
+
+    def _on_set_in_point_local(self, time_sec: float) -> None:
+        """B-200: lokaler Slot für In-Point-Taste (I).
+
+        Speichert die Position als ``_in_point`` und gibt User-Feedback
+        via ``console_log`` (falls verfügbar). Solange kein echter Trim-
+        Worker existiert, ist das die minimal sichtbare Reaktion auf
+        einen Tastendruck — vorher war die Taste komplett funktionslos.
+        """
+        try:
+            self._in_point = float(time_sec)
+        except (TypeError, ValueError):
+            return
+        cb = getattr(self, "console_log", None)
+        if callable(cb):
+            cb(f"[Timeline] In-Point gesetzt @ {self._format_seconds(self._in_point)}")
+
+    def _on_set_out_point_local(self, time_sec: float) -> None:
+        """B-200: lokaler Slot für Out-Point-Taste (O)."""
+        try:
+            self._out_point = float(time_sec)
+        except (TypeError, ValueError):
+            return
+        cb = getattr(self, "console_log", None)
+        if callable(cb):
+            cb(f"[Timeline] Out-Point gesetzt @ {self._format_seconds(self._out_point)}")
+
+    @property
+    def in_point(self) -> float | None:
+        """B-200: aktuell gesetzter In-Point (oder None)."""
+        return self._in_point
+
+    @property
+    def out_point(self) -> float | None:
+        """B-200: aktuell gesetzter Out-Point (oder None)."""
+        return self._out_point
 
     def _notify_memory_updater(self) -> None:
         """B-197 F-3: Triggert die Pattern-Aggregation nach einem
