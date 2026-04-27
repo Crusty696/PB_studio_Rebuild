@@ -100,3 +100,7 @@ networkx>=3.0,<4.0
 
 # === Dev (optional) ===
 pytest>=7.4.0,<10.0.0
+# B-037: Security-Scanner. Wird in .github/workflows/ci.yml im lint-job
+# ausgefuehrt; lokal `python -m bandit -r . -c .bandit -ll` als Smoke-Check
+# fuer Pre-Commit/Pre-Push.
+bandit>=1.8.0,<2.0.0

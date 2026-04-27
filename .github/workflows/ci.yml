@@ -2,9 +2,11 @@ name: CI
 
 on:
   push:
-    branches: ["main", "feature/**", "fix/**"]
+    # B-037: master ergaenzt — Repo nutzt master als Default-Branch,
+    # ohne diesen Eintrag lief CI bei keinem Master-Push.
+    branches: ["main", "master", "feature/**", "fix/**"]
   pull_request:
-    branches: ["main"]
+    branches: ["main", "master"]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -35,9 +37,13 @@ jobs:
         run: ruff format --check .
 
       - name: Run bandit security scan
+        # B-037: ``-c bandit.yaml`` laed die Repo-Config (exclude_dirs +
+        # B101-skip). ``-lll`` zeigt nur high severity — Medium-Findings
+        # werden in einem separaten Sweep abgearbeitet (B-037-Folgesprint),
+        # damit die Pipeline nicht sofort an Info-Findings scheitert.
         run: |
           pip install bandit
-          bandit -r . -x ./tests,./installer,./scripts -ll
+          bandit -r . -c bandit.yaml -lll
 
   # ──────────────────────────────────────────────
   # 2. Unit tests  (Windows, CPU-only deps)

@@ -1,0 +1,23 @@
+# B-037: Bandit-Konfiguration fuer PB Studio.
+# Wird automatisch von ``bandit -c bandit.yaml ...`` gelesen.
+# Format: YAML (siehe https://bandit.readthedocs.io/en/latest/config.html).
+
+exclude_dirs:
+  - .venv
+  - venv
+  - .venv310
+  - tests          # Test-Code darf assert_used / hardcoded Pfade
+  - installer      # NSIS-Hooks, externer Build-Code
+  - scripts        # One-Off Maintenance-Skripte (Diagnose, Reward-Tuning)
+  - vendor         # CPJKU/beat_this Vendoring (LOW-18) — nicht unser Code
+  - .git
+  - __pycache__
+  - build
+  - dist
+
+skips:
+  # B101 — assert_used: Wir nutzen ``assert`` als precondition-check
+  # in services/ (z.B. shape-Asserts vor Tensor-Ops). In Production-
+  # Code mit ``python -O`` wuerden die zwar entfernt, aber kein
+  # Sicherheits-Problem.
+  - B101

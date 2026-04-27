@@ -34,8 +34,15 @@ def _color_for_type(node_type: str) -> str:
 def _stable_position(node_id: str) -> tuple[float, float]:
     """Deterministische Pseudo-Position auf Einheits-Quadrat ums Zentrum.
     Wird vom JS-ForceAtlas2 ohnehin überschrieben — dient nur als Init.
+
+    B-037: SHA1 ist hier KEIN Sicherheits-Hash — nur deterministisches
+    Layout-Mapping ``node_id -> (x, y)``. ``usedforsecurity=False``
+    macht das fuer Bandit/CWE-327 explizit.
     """
-    h = int(hashlib.sha1(node_id.encode("utf-8")).hexdigest(), 16)
+    h = int(
+        hashlib.sha1(node_id.encode("utf-8"), usedforsecurity=False).hexdigest(),
+        16,
+    )
     angle = (h % 360) * math.pi / 180.0
     radius = ((h // 360) % 100) / 100.0
     return float(math.cos(angle) * radius), float(math.sin(angle) * radius)
