@@ -226,8 +226,11 @@ class LUFSService:
         # stattdessen einen fallback-flagged LUFSResult, den
         # BaseAnalysisWorker._is_fallback_result als Fallback erkennt und
         # NICHT persistiert.
+        # B-208-restfall: auch None-Werte (Key vorhanden, aber explizit
+        # null/None) zaehlen als fehlend — sonst greift _safe_float und
+        # liefert die Default-Werte still.
         required_keys = ("input_i", "input_lra", "input_tp")
-        missing_keys = [k for k in required_keys if k not in data]
+        missing_keys = [k for k in required_keys if data.get(k) is None]
         if missing_keys:
             log.warning(
                 "LUFS partial-parse: fehlende keys %s in loudnorm-JSON fuer %s — "
