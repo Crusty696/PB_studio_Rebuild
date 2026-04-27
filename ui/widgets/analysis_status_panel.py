@@ -280,6 +280,12 @@ class AnalysisStatusPanel(QWidget):
         """
         self._media_type = media_type
         self._media_id = media_id
+        # B-089: Generation-Counter erhoehen — alle noch offenen Background-
+        # Submits werden damit als "stale" markiert. Wenn der User schnell
+        # zwischen Tracks klickt (Pool max_workers=1, Job-A finished, dann
+        # _apply_status_data im Main-Thread mit Job-B als _media_id), wird
+        # der Apply-Call jetzt verworfen statt falsche Werte zu zeigen.
+        self._refresh_generation = getattr(self, "_refresh_generation", 0) + 1
 
         # Update file info
         media_type_label = "Video" if media_type == "video" else "Audio"
@@ -300,6 +306,9 @@ class AnalysisStatusPanel(QWidget):
         infer_from_db() konnte bis zu 9 Sekunden dauern (nullpool_session +
         Lazy-Loading von AudioTrack-Relations). Durch Auslagerung in den
         ThreadPool wird der Main-Thread nicht mehr blockiert.
+
+        B-089: Generation-Counter wird beim Submit eingefroren und beim
+        Apply geprueft — Stale-Results aus vorigem Media werden verworfen.
         """
         if self._media_type is None or self._media_id is None:
             self._clear_display()
@@ -307,6 +316,9 @@ class AnalysisStatusPanel(QWidget):
 
         media_type = self._media_type
         media_id = self._media_id
+        # B-089: Capture die Generation zum Submit-Zeitpunkt. ``set_media``
+        # incrementiert sie bei jedem Wechsel.
+        my_gen = getattr(self, "_refresh_generation", 0)
 
         def _db_work():
             try:
@@ -314,12 +326,35 @@ class AnalysisStatusPanel(QWidget):
             except Exception as e:
                 logger.warning("infer_from_db failed: %s", e)
             status_dict = analysis_status_service.get_status(media_type, media_id)
-            QTimer.singleShot(0, lambda: self._apply_status_data(status_dict))
+            QTimer.singleShot(
+                0,
+                lambda: self._apply_status_data(status_dict, my_gen, media_type, media_id),
+            )
 
         _status_db_pool.submit(_db_work)
 
-    def _apply_status_data(self, status_dict: dict):
-        """Aktualisiert die UI mit vorgeladenen Status-Daten (Main-Thread)."""
+    def _apply_status_data(self, status_dict: dict,
+                           expected_gen: int | None = None,
+                           expected_type: str | None = None,
+                           expected_id: int | None = None):
+        """Aktualisiert die UI mit vorgeladenen Status-Daten (Main-Thread).
+
+        B-089: ``expected_gen`` / ``expected_type`` / ``expected_id`` sind
+        die zur Submit-Zeit gemerkten Werte. Wenn ``set_media`` zwischen
+        Submit und Apply lief, ist die aktuelle Generation hoeher → wir
+        verwerfen den Stale-Apply.
+        """
+        # B-089: Stale-Check. Defaults None damit Legacy-Caller weiter
+        # funktionieren (interne Refresh-Pfade ohne Generation).
+        if expected_gen is not None:
+            current_gen = getattr(self, "_refresh_generation", 0)
+            if (
+                expected_gen != current_gen
+                or expected_type != self._media_type
+                or expected_id != self._media_id
+            ):
+                return  # superseded — anderes Media inzwischen aktiv
+
         if self._media_type is None or self._media_id is None:
             self._clear_display()
             return

@@ -997,20 +997,30 @@ class MediaWorkspace(QWidget):
 
     def _dispatch_audio_analysis(self, pb_window, audio_id: int, title: str, step_key: str):
         """Dispatch audio analysis worker based on step_key."""
-        from database import engine, AudioTrack
-        from sqlalchemy.orm import Session as DBSession
         from services.task_manager import TaskManagerProxy
         import workers
 
         task_manager = TaskManagerProxy()
 
-        # Get file_path and bpm from DB
-        with DBSession(engine) as session:
-            track = session.get(AudioTrack, audio_id)
-            if not track:
+        # B-088: NullPool + Raw-SQL statt ORM-Session(engine).get(...) im
+        # Main-Thread. Vorher: ``DBSession(engine).get(AudioTrack, ...)``
+        # hydrierte das volle Objekt inkl. Lazy-Load-Relationships und
+        # konnte bei SQLite-WAL-busy-Lock 1-5 s blocken — UI-Freeze.
+        # Wir brauchen aber nur ``file_path`` + ``bpm``: zwei Spalten,
+        # ein einziger Read, NullPool damit es keinen Pool-Lock zieht.
+        from database import nullpool_session
+        from sqlalchemy import text as _sql_text
+        with nullpool_session() as session:
+            row = session.execute(
+                _sql_text(
+                    "SELECT file_path, bpm FROM audio_tracks "
+                    "WHERE id = :id AND deleted_at IS NULL"
+                ),
+                {"id": audio_id},
+            ).first()
+            if row is None:
                 return
-            file_path = track.file_path
-            bpm = track.bpm
+            file_path, bpm = row[0], row[1]
 
         # Map step_key to worker
         worker = None

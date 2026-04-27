@@ -56,6 +56,10 @@ class AnchorMarkerItem(QGraphicsPolygonItem):
         ])
         super().__init__(triangle, parent)
         self.anchor_id = anchor_id
+        # B-077: time_offset lokal speichern, damit ``get_first_anchor_time``
+        # aus der Marker-Liste lesen kann statt jedes Mal eine sync DB-Query
+        # im UI-Thread auszufuehren.
+        self.time_offset: float = x_offset / PIXELS_PER_SECOND if PIXELS_PER_SECOND else 0.0
         self.setBrush(QBrush(QColor(255, 50, 50, 230)))
         self.setPen(QPen(QColor(255, 100, 100), 1))
         self.setZValue(10)
@@ -199,14 +203,18 @@ class TimelineClipItem(QGraphicsRectItem):
         self._anchor_markers.clear()
 
     def get_first_anchor_time(self) -> float | None:
-        """Gibt den Zeitstempel des ersten Ankers zurueck (relativ zum Clip-Start)."""
-        with nullpool_session() as session:
-            anchor = session.query(ClipAnchor).filter_by(
-                timeline_entry_id=self.entry_id
-            ).order_by(ClipAnchor.time_offset).first()
-            if anchor:
-                return anchor.time_offset
-        return None
+        """Gibt den Zeitstempel des ersten Ankers zurueck (relativ zum Clip-Start).
+
+        B-077: Vorher ein synchroner DB-Read im Main-Thread bei jedem
+        Aufruf — bei 100+ Clips × HDD/NAS hatte das spuerbare Freezes
+        zur Folge. Jetzt aus ``_anchor_markers`` lokal abgeleitet
+        (jeder Marker traegt ``time_offset`` seit B-077). Konsistent
+        mit dem Zeichen-Pfad: was sichtbar ist, ist auch was hier
+        zurueckgegeben wird.
+        """
+        if not self._anchor_markers:
+            return None
+        return min(m.time_offset for m in self._anchor_markers)
 
     def contextMenuEvent(self, event):
         """Rechtsklick-Kontextmenue mit Anker-Optionen."""
