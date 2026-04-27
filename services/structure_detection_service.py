@@ -221,7 +221,7 @@ class StructureDetectionService:
                 dj_transitions=[round(t, 3) for t in dj_transitions],
             )
 
-        except (OSError, IOError, ValueError, RuntimeError) as e:
+        except Exception as e:  # B-230: librosa kann audioread.NoBackendError + soundfile.LibsndfileError werfen — broad catch + log
             log.exception("Fehler bei Struktur-Erkennung von %s", file_path)
             log.warning("detect(): fallback result returned due to: %s", e)
             return StructureResult(segments=[], is_dj_mix=False, transition_count=0)
@@ -307,7 +307,7 @@ class StructureDetectionService:
 
             return energy_per_beat, beats, bpm, centroid_per_beat, bass_per_beat
 
-        except (OSError, IOError, ValueError, RuntimeError):
+        except Exception:  # B-230: audioread/soundfile-Errors mit aufnehmen
             log.exception("Fehler beim Multi-Feature-Laden von %s", file_path)
             return None
 
@@ -351,7 +351,7 @@ class StructureDetectionService:
 
             return centroid_per_beat, bass_per_beat
 
-        except (OSError, IOError, ValueError, RuntimeError):
+        except Exception:  # B-230: audioread/soundfile-Errors mit aufnehmen
             log.debug("Extra-Feature-Berechnung fehlgeschlagen fuer %s", file_path)
             return None
 

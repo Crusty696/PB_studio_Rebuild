@@ -345,6 +345,13 @@ class OnsetRhythmService:
         n_slots = 8
         intervals = np.diff(beats)
         beat_dur = float(np.median(intervals))
+        # B-232: ZeroDivisionError-Schutz. Bei degenerierten Beat-Arrays
+        # (alle gleichen Timestamps, sehr kurze Audio-Snippets) ist
+        # ``np.median`` 0 → bar_dur = 0 → eighth_dur = 0 → Crash in der
+        # ``int(x / eighth_dur)``-Schleife. Sauberer Early-Out statt
+        # Crash; Caller bekommt "unknown" wie bei zu wenigen Beats.
+        if beat_dur <= 0.0:
+            return "unknown", 0.0
         bar_dur = beat_dur * 4
         eighth_dur = bar_dur / n_slots
 
@@ -536,7 +543,7 @@ class OnsetRhythmService:
                     "Audio truncated to %d sec (file may be longer): %s",
                     MAX_DURATION_SEC, audio_path
                 )
-        except (OSError, IOError, ValueError) as e:
+        except Exception as e:  # B-230: audioread/soundfile-Errors auch abfangen
             logger.error("Audio-Load fehlgeschlagen '%s': %s", audio_path, e)
             return None
 
@@ -545,7 +552,7 @@ class OnsetRhythmService:
             try:
                 drums_y, _ = librosa.load(drums_path, sr=DEFAULT_SR, mono=True)
                 logger.debug("Drums-Stem geladen: %s", drums_path)
-            except (OSError, IOError, ValueError) as e:
+            except Exception as e:  # B-230: audioread/soundfile-Errors auch abfangen
                 logger.warning("Drums-Stem load fehlgeschlagen '%s': %s", drums_path, e)
 
         # Beat-Positionen aus DB
@@ -568,8 +575,17 @@ class OnsetRhythmService:
         return analysis
 
     def _store(self, track_id: int, analysis: RhythmAnalysis) -> None:
-        """Persistiert Onset-Daten im Beatgrid-Eintrag der DB."""
+        """Persistiert Onset-Daten im Beatgrid-Eintrag der DB.
+
+        B-236: Retry-Loop bei ``database is locked`` mit exponential
+        backoff + jitter (B-073-Pattern). Vorher konnten parallele
+        Analyzer-Worker hier mit OperationalError-Lost-Writes scheitern.
+        Konsistent mit ``structure_detection_service.save_to_db`` und
+        ``beat_analysis_service.analyze_and_store``.
+        """
         from database import Beatgrid, nullpool_session
+        import random as _random
+        import time as _time
 
         # H7-FIX: Kein json.dumps() — Spalten sind Column(JSON),
         # SQLAlchemy serialisiert automatisch.
@@ -577,22 +593,39 @@ class OnsetRhythmService:
         snare_data = [[o.time, o.strength] for o in analysis.onsets_snare]
         hihat_data = [[o.time, o.strength] for o in analysis.onsets_hihat]
 
-        with nullpool_session() as session:
-            bg = session.query(Beatgrid).filter_by(audio_track_id=track_id).first()
-            if bg is None:
-                logger.warning(
-                    "OnsetRhythmService: Kein Beatgrid für track_id=%d — "
-                    "bitte BeatAnalysisService zuerst ausführen",
-                    track_id,
-                )
-                return
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                with nullpool_session() as session:
+                    bg = session.query(Beatgrid).filter_by(audio_track_id=track_id).first()
+                    if bg is None:
+                        logger.warning(
+                            "OnsetRhythmService: Kein Beatgrid für track_id=%d — "
+                            "bitte BeatAnalysisService zuerst ausführen",
+                            track_id,
+                        )
+                        return
 
-            bg.onset_kick_data = kick_data
-            bg.onset_snare_data = snare_data
-            bg.onset_hihat_data = hihat_data
-            bg.syncopation_score = analysis.syncopation_score
-            bg.groove_template = analysis.groove_template
-            session.commit()
+                    bg.onset_kick_data = kick_data
+                    bg.onset_snare_data = snare_data
+                    bg.onset_hihat_data = hihat_data
+                    bg.syncopation_score = analysis.syncopation_score
+                    bg.groove_template = analysis.groove_template
+                    session.commit()
+                break  # Erfolg
+            except Exception as e:
+                if "database is locked" in str(e) and attempt < max_retries - 1:
+                    base_wait = 2 ** attempt
+                    jitter = _random.uniform(0.5, 1.5)
+                    wait = base_wait * jitter
+                    logger.warning(
+                        "[OnsetRhythm] DB locked bei Onset-Write track_id=%d, "
+                        "Retry %d/%d (warte %.2fs)...",
+                        track_id, attempt + 1, max_retries, wait,
+                    )
+                    _time.sleep(wait)
+                else:
+                    raise
 
         logger.info(
             "OnsetRhythmService gespeichert: track_id=%d kick=%d snare=%d hihat=%d "

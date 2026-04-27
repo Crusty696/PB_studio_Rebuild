@@ -244,7 +244,7 @@ class SpectralAnalysisService:
                 spectral_centroid_mean=round(spectral_centroid_mean, 2),
             )
 
-        except (OSError, IOError, ValueError, RuntimeError) as e:
+        except Exception as e:  # B-230: librosa kann audioread.NoBackendError + soundfile.LibsndfileError werfen — broad catch + log
             log.exception("Fehler bei Spektral-Analyse von %s", file_path)
             log.warning("analyze(): fallback result returned due to: %s", e)
             return SpectralResult(
@@ -328,7 +328,13 @@ class SpectralAnalysisService:
             prev_e = energies_norm[t - 1]
             curr_e = energies_norm[t]
 
-            if prev_e > 0.01 and curr_e / prev_e > DROP_ENERGY_RATIO:
+            # B-228: Threshold von 0.01 auf 0.05 erhoeht. Bei 0.01 wurden
+            # Intros mit Fade-In-aus-Stille (-60dB → -50dB) als false-
+            # positive Drop erkannt, weil der Ratio-Verstaerker fuer
+            # Werte nahe Noise-Floor extreme Spruenge produziert. 0.05
+            # entspricht ~-26dB normalisierter Energie und liegt sicher
+            # ueber typischem Aufnahme-Noise-Floor.
+            if prev_e > 0.05 and curr_e / prev_e > DROP_ENERGY_RATIO:
                 time_sec = t * window_duration
                 delta = float(curr_e - prev_e)
                 confidence = min(1.0, (curr_e / prev_e - 1.0) / 3.0)  # 3x = 0.67 conf, 4x = 1.0
@@ -552,7 +558,7 @@ class SpectralAnalysisService:
                 recommendations=recommendations,
             )
 
-        except (OSError, IOError, ValueError, RuntimeError) as e:
+        except Exception as e:  # B-230: librosa kann audioread.NoBackendError + soundfile.LibsndfileError werfen — broad catch + log
             log.exception("Fehler bei erweiterter Mastering-Analyse von %s", file_path)
             log.warning("analyze_extended(): fallback MasteringReport wegen: %s", e)
             return MasteringReport(
