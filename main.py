@@ -471,6 +471,17 @@ class PBWindow(QMainWindow):
             except (RuntimeError, TypeError):
                 pass  # noch nie verbunden — first call
             win.timelineNavigationRequested.connect(self._on_brain_timeline_nav)
+            # B-198 F-1: SteerTab Run-Button ist jetzt verkabelt. Vorher feuerte
+            # ``runRequested(snapshot)`` ins Leere — der User sah nur Toast,
+            # nichts passierte. Jetzt loest das Signal einen echten
+            # ``auto_edit``-Task ueber den TaskManager aus.
+            steer = getattr(win, "_steer_tab", None)
+            if steer is not None and hasattr(steer, "runRequested"):
+                try:
+                    steer.runRequested.disconnect(self._on_brain_run_requested)
+                except (RuntimeError, TypeError):
+                    pass
+                steer.runRequested.connect(self._on_brain_run_requested)
             win.show()
             win.raise_()
             win.activateWindow()
@@ -483,6 +494,65 @@ class PBWindow(QMainWindow):
                 "Studio Brain",
                 f"Failed to open Studio Brain:\n\n{exc}",
             )
+
+    def _on_brain_run_requested(self, snapshot: dict) -> None:
+        """B-198 F-1: Slot fuer ``SteerTab.runRequested(dict)``.
+
+        Brueckt den im Brain abgesetzten Pacing-Run-Wunsch auf den
+        ``auto_edit``-Task im ``GlobalTaskManager``-Worker-Registry
+        (siehe ``workers/registry.py``). Damit landet der Run im
+        gleichen Worker-Pfad wie der EditWorkspace-Auto-Edit-Knopf.
+
+        Snapshot-Felder die heute schon greifen:
+        - ``audio_track_id`` → verpflichtend
+        - ``video_ids`` werden hier aus der DB nachgezogen (alle
+          non-deleted VideoClips im aktiven Project)
+
+        Snapshot-Felder die heute IGNORIERT werden (Folge-Story):
+        - ``weights_profile``, ``pins``, ``boosts``, ``excludes``.
+          Der OverrideQueue-Inhalt fliesst aktuell nicht in die
+          ``auto_edit_phase3``-Pipeline. ``SteerTab`` zeigt sie an,
+          aber das Pacing kennt sie nicht. Vor F-1-v2 muss
+          ``services/pacing_service.py`` so erweitert werden, dass
+          die Queue-Items als Vorzugsfilter / Boost-Multiplikator
+          eingehen.
+        """
+        try:
+            audio_id = snapshot.get("audio_track_id")
+            if audio_id is None:
+                logger.warning(
+                    "B-198 F-1: Brain-Run ignoriert — kein audio_track_id im Snapshot."
+                )
+                return
+            from services.ingest_service import get_all_video
+
+            video_ids = [v["id"] for v in get_all_video()]
+            if not video_ids:
+                logger.warning(
+                    "B-198 F-1: Brain-Run ignoriert — keine Video-Clips im aktiven Project."
+                )
+                return
+            from services.task_manager import GlobalTaskManager
+
+            tm = GlobalTaskManager.instance()
+            tm.agent_command_signal.emit(
+                "auto_edit",
+                {
+                    "audio_track_id": int(audio_id),
+                    "video_ids": video_ids,
+                },
+            )
+            logger.info(
+                "B-198 F-1: Brain-Run dispatched → audio=%s, %d clips, "
+                "weights_profile=%s, queue_items=%d/%d/%d (pins/boosts/excludes)",
+                audio_id, len(video_ids),
+                snapshot.get("weights_profile") or "<default>",
+                len(snapshot.get("pins") or []),
+                len(snapshot.get("boosts") or []),
+                len(snapshot.get("excludes") or []),
+            )
+        except Exception as exc:  # broad: UI-Slot darf nicht crashen
+            logger.exception("B-198 F-1: Brain-Run-Dispatch failed: %s", exc)
 
     def _on_brain_timeline_nav(self, time_sec: float) -> None:
         """B-197 F-2: Slot fuer ``StudioBrainWindow.timelineNavigationRequested``.

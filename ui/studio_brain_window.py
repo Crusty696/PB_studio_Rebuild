@@ -232,8 +232,22 @@ class StudioBrainWindow(QMainWindow):
             )
         else:
             logger.info("StudioBrainWindow: [5/6] GraphCockpitTab + CockpitViewModel ...")
+            # B-199 F-5: View-Model aus dem BrainService befuellen, sodass
+            # der Cockpit-Tab nicht mehr leer rendert. Vorher: ``CockpitViewModel()``
+            # ohne Argumente → leerer GraphService → leerer Sigma-Render.
+            _cockpit_vm = CockpitViewModel()
+            # B-199 F-5: Daten-Quelle merken, damit der Refresh-Button im
+            # Cockpit-Tab den Graph nachladen kann.
+            _cockpit_vm.set_data_source(self._brain_service)
+            try:
+                _cockpit_vm.populate_from_brain_service(self._brain_service)
+            except Exception as _vm_exc:  # broad: Tab darf nicht haengen
+                logger.warning(
+                    "B-199 F-5: Cockpit-VM populate fehlgeschlagen "
+                    "(Tab oeffnet leer): %s", _vm_exc,
+                )
             self._graph_cockpit_tab = GraphCockpitTab(
-                view_model=CockpitViewModel(),
+                view_model=_cockpit_vm,
                 parent=self._tabs,
             )
         self._tabs.addTab(self._graph_cockpit_tab, _TAB_LABELS[5])

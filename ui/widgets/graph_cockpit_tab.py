@@ -194,7 +194,18 @@ class GraphCockpitTab(QWidget):
         """Cycle 13 BUG-6: leitet auf debounced refresh um. Mehrfache
         Klicks auf 'Aktualisieren' in 150ms triggern nur einen setHtml-
         Aufruf — verhindert race in der JS-QWebChannel-Reinitialisierung.
+
+        B-199 F-5: Wenn das ViewModel eine Daten-Quelle gesetzt hat,
+        zieht der Refresh-Button auch frische Knoten/Kanten aus dem
+        BrainService nach (sonst wuerde die Sigma-HTML auf einem
+        veralteten in-memory Graph rendern).
         """
+        # B-199 F-5: best-effort Daten-Refresh. ``refresh_data`` ist
+        # no-op wenn keine Source gesetzt war (z.B. headless Tests).
+        try:
+            self._vm.refresh_data()
+        except Exception as exc:  # broad: Refresh darf UI nicht killen
+            logger.debug("B-199 F-5: refresh_data skipped: %s", exc)
         # Stats sofort aktualisieren (billig)
         stats = self._vm.stats()
         self.stats_label.setText(
