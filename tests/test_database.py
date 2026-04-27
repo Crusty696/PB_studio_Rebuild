@@ -457,3 +457,204 @@ class TestPacingBlueprintModel:
     def test_pacing_blueprint_repr(self):
         bp = PacingBlueprint(id=1, name="Chill")
         assert "Chill" in repr(bp)
+
+
+# ---------------------------------------------------------------------------
+# B-185: Soft-Delete Architektur-Compliance
+# ---------------------------------------------------------------------------
+
+class TestSoftDeleteArchitectureCompliance:
+    """Schutzschicht gegen B-185: models.py-Docstring widersprach der
+    Soft-Delete-Realitaet (Project/AudioTrack/VideoClip haben deleted_at,
+    50+ Filter-Sites in services/ und ui/, App-Doku bestaetigt Soft-Delete-
+    Norm). Diese Tests stellen sicher, dass der Docstring zur Realitaet
+    passt und die Spalten erhalten bleiben.
+    """
+
+    def test_root_models_have_deleted_at_column(self):
+        """Project, AudioTrack, VideoClip MUESSEN deleted_at haben — sonst
+        brechen Filter wie ``Project.deleted_at.is_(None)`` an 50+ Stellen."""
+        for cls in (Project, AudioTrack, VideoClip):
+            assert "deleted_at" in cls.__table__.columns, (
+                f"{cls.__name__} muss deleted_at haben (Soft-Delete-Architektur)"
+            )
+
+    def test_models_module_docstring_does_not_deny_soft_deletes(self):
+        """Der Docstring darf nicht behaupten ``No Soft Deletes`` solange
+        deleted_at-Spalten existieren. (B-185)
+        """
+        import database.models as models_mod
+
+        doc = (models_mod.__doc__ or "").lower()
+        assert "no soft deletes" not in doc, (
+            "models.py-Docstring leugnet Soft-Deletes, aber deleted_at-Spalten "
+            "existieren. B-185: Docstring an Realitaet anpassen."
+        )
+        assert "hard cascade deletes for simplicity" not in doc, (
+            "models.py-Docstring behauptet Hard-Cascade-only, aber Soft-Delete "
+            "ist die Norm. B-185: Docstring an Realitaet anpassen."
+        )
+
+
+# ---------------------------------------------------------------------------
+# B-186 / D-027: Eltern-only-Soft-Delete-Architektur
+# ---------------------------------------------------------------------------
+
+class TestSoftDeleteParentOnlyArchitecture:
+    """Schutzschicht gegen B-186 (D-027 — Eltern-only-Soft-Delete).
+
+    Status quo (siehe ``database/models.py`` Docstring): nur die
+    Top-Level-Modelle Project / AudioTrack / VideoClip tragen ``deleted_at``.
+    Kind-Tabellen besitzen *bewusst* keine eigene ``deleted_at``-Spalte —
+    Konsumenten muessen Kinder ueber den jeweiligen Eltern joinen, um die
+    Soft-Delete-Sicht zu erhalten.
+
+    Diese Tests verhindern zwei Regressionen:
+    1. Jemand stempelt Eltern, vergisst aber den Eltern-JOIN beim Lesen
+       der Kinder → Orphans sichtbar trotz Eltern-Tombstone.
+    2. Jemand fuegt ``deleted_at`` einer Kind-Tabelle hinzu, ohne einen
+       Cascade-Mechanismus zu implementieren → halb-fertige Soft-Delete-
+       Erweiterung schleicht sich rein. Sobald V2 vollendet wird (Story A
+       in B-186), muss dieser Test bewusst geloest und ersetzt werden.
+    """
+
+    # ── 1. Lebenszeit-Konvention: Eltern-Soft-Delete + JOIN ──
+
+    def test_audio_track_soft_delete_hides_children_via_parent_join(self):
+        """Soft-Delete eines AudioTrack laesst Kinder physisch stehen,
+        aber Konsumenten, die ueber den Eltern-Filter joinen, sehen sie
+        nicht mehr — das ist die zugesicherte Lebenszeit-Konvention.
+        """
+        eng = _make_engine()
+        with Session(eng) as s:
+            proj = Project(name="P", path=".")
+            s.add(proj)
+            s.commit()
+
+            track = AudioTrack(project_id=proj.id, file_path="/x/track.mp3")
+            s.add(track)
+            s.commit()
+
+            beatgrid = Beatgrid(audio_track_id=track.id, bpm=128.0)
+            s.add(beatgrid)
+            s.commit()
+
+            track.deleted_at = _datetime_now()
+            s.commit()
+
+            # Eltern verschwindet aus dem Soft-Delete-Filter ...
+            visible_tracks = s.query(AudioTrack).filter(
+                AudioTrack.deleted_at.is_(None)
+            ).all()
+            assert visible_tracks == []
+
+            # ... Kind ist physisch noch da (Status quo, dokumentiert):
+            assert s.get(Beatgrid, beatgrid.id) is not None
+
+            # ... aber via Eltern-JOIN (zugesicherte Lese-Konvention)
+            #     wird das Kind nicht mehr ausgeliefert:
+            visible_via_join = (
+                s.query(Beatgrid)
+                .join(AudioTrack, Beatgrid.audio_track_id == AudioTrack.id)
+                .filter(AudioTrack.deleted_at.is_(None))
+                .all()
+            )
+            assert visible_via_join == [], (
+                "B-186: Kinder muessen via Eltern-JOIN unsichtbar werden, "
+                "wenn der Eltern-Track soft-geloescht ist."
+            )
+
+    def test_video_clip_soft_delete_hides_scenes_via_parent_join(self):
+        """Gleiche Konvention fuer VideoClip → Scene."""
+        eng = _make_engine()
+        with Session(eng) as s:
+            proj = Project(name="P", path=".")
+            s.add(proj)
+            s.commit()
+
+            clip = VideoClip(project_id=proj.id, file_path="/x/clip.mp4")
+            s.add(clip)
+            s.commit()
+
+            scene = Scene(video_clip_id=clip.id, start_time=0.0, end_time=1.5)
+            s.add(scene)
+            s.commit()
+
+            clip.deleted_at = _datetime_now()
+            s.commit()
+
+            visible_via_join = (
+                s.query(Scene)
+                .join(VideoClip, Scene.video_clip_id == VideoClip.id)
+                .filter(VideoClip.deleted_at.is_(None))
+                .all()
+            )
+            assert visible_via_join == []
+
+    def test_project_soft_delete_hides_timeline_entries_via_parent_join(self):
+        """Project → TimelineEntry: gleiche Konvention auf Top-Level."""
+        eng = _make_engine()
+        with Session(eng) as s:
+            proj = Project(name="P", path=".")
+            s.add(proj)
+            s.commit()
+
+            clip = VideoClip(project_id=proj.id, file_path="/x/clip.mp4")
+            s.add(clip)
+            s.commit()
+
+            entry = TimelineEntry(
+                project_id=proj.id,
+                track="video",
+                media_id=clip.id,
+                start_time=0.0,
+            )
+            s.add(entry)
+            s.commit()
+
+            proj.deleted_at = _datetime_now()
+            s.commit()
+
+            visible_via_join = (
+                s.query(TimelineEntry)
+                .join(Project, TimelineEntry.project_id == Project.id)
+                .filter(Project.deleted_at.is_(None))
+                .all()
+            )
+            assert visible_via_join == []
+
+    # ── 2. Architektur-Riegel: Kinder DUERFEN heute kein deleted_at haben ──
+
+    def test_child_tables_have_no_deleted_at_column(self):
+        """B-186 / D-027: Solange Soft-Delete-Cascade nicht implementiert
+        ist, darf keine Kind-Tabelle eine eigene ``deleted_at``-Spalte
+        bekommen — sonst entsteht halb-fertige Soft-Delete-Logik ohne
+        Cascade-Mechanismus. Wer dieses Verhalten aendert, muss die
+        Architektur-Entscheidung D-027 (Eltern-only-Soft-Delete) explizit
+        revidieren und einen Cascade-Pfad mitliefern.
+        """
+        children = (
+            Scene,
+            Beatgrid,
+            WaveformData,
+            PacingBlueprint,
+            TimelineEntry,
+            ClipAnchor,
+        )
+        offenders = [
+            cls.__name__
+            for cls in children
+            if "deleted_at" in cls.__table__.columns
+        ]
+        assert offenders == [], (
+            f"B-186 / D-027 verletzt: Kind-Tabelle(n) {offenders} haben "
+            "deleted_at, obwohl Eltern-only-Soft-Delete die zugesicherte "
+            "Architektur ist. Entweder D-027 revidieren (Cascade-Mechanismus "
+            "implementieren) oder die Spalte entfernen."
+        )
+
+
+def _datetime_now():
+    """Lokaler Helper — vermeidet Top-Level-Datetime-Import-Sprawl."""
+    import datetime as _dt
+    return _dt.datetime.utcnow()

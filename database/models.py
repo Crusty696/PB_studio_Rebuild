@@ -1,10 +1,22 @@
 """
 Database models for PB Studio.
 
-P3-NOTE: No Soft Deletes - All deletes are hard CASCADE deletes for simplicity.
-For production applications with user-generated content, consider implementing
-a soft-delete pattern (deleted_at timestamp column) to allow recovery.
-Current design prioritizes performance and simplicity for video editing workflow.
+Soft-Delete-Architektur (PB-Studio-Norm, siehe docs/PB_Studio_App_Beschreibung.md):
+Die Top-Level-Modelle ``Project``, ``AudioTrack`` und ``VideoClip`` tragen eine
+nullable ``deleted_at``-Spalte. Soft-Deletes setzen den Timestamp; aktive Reads
+filtern projektweit ueber ``<Model>.deleted_at.is_(None)`` (~50 Filter-Sites in
+``services/``, ``ui/`` und ``agents/``). Hartes ``DELETE FROM`` wird im normalen
+App-Fluss vermieden, weil orphane Timeline-Referenzen die KI-Pipelines zum
+Crashen bringen.
+
+Bekannte Einschraenkung (siehe Bug B-186):
+Kind-Tabellen (``Scene``, ``Beatgrid``, ``WaveformData``, ``StructureSegment``,
+``HotCue``, ``AudioVideoAnchor``, ``PacingBlueprint``, ``TimelineEntry``,
+``ClipAnchor``) haben *keine* eigene ``deleted_at``-Spalte. Die in den
+Relationships konfigurierten ``ondelete="CASCADE"`` / ``cascade="all, delete-
+orphan"``-Regeln greifen nur bei harten DELETEs — bei einem Eltern-Soft-Delete
+bleiben Kinder physisch sichtbar. Konsumenten muessen entweder ueber den Eltern
+joinen oder eigene Filter setzen.
 """
 import datetime as _datetime
 
