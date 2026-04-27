@@ -858,3 +858,74 @@ class TestPolymorphicMediaIdAppLayerInvariants:
                 "ForeignKey. Das verletzt die polymorphe App-Layer-"
                 "Architektur. Entweder D-028 revidieren oder FK entfernen."
             )
+
+
+# ---------------------------------------------------------------------------
+# B-189: APP_ROOT-Mutation und lazy Lookup in database.migrations
+# ---------------------------------------------------------------------------
+
+class TestSetProjectAppRootRebinding:
+    """Schutzschicht gegen B-189: ``set_project()`` mutiert die globale
+    ``database.session.APP_ROOT``. Module die den Wert per
+    ``from database.session import APP_ROOT`` cachen, sehen den alten
+    Wert und brechen nach Project-Switch (siehe
+    ``docs/REAL_DATA_TESTBERICHT_2026-04-13.md`` Eintrag MEDIUM-10).
+
+    `database/migrations.py` ist die kritische Stelle (Top-Level-Import
+    + Alembic-Asset-Pfade). Diese Tests garantieren:
+    1. Alembic-Assets liegen am statischen ``_REPO_ROOT`` und wandern
+       nicht mit ``set_project()``.
+    2. Der laufzeit-Lookup von ``APP_ROOT`` (``_app_root()``) folgt
+       der Mutation korrekt.
+    """
+
+    def test_repo_root_is_static_and_points_to_alembic_assets(self):
+        """B-189: ``_REPO_ROOT`` muss auf das Repo zeigen, in dem
+        ``alembic.ini`` und ``database/alembic`` liegen — egal welcher
+        APP_ROOT gerade aktiv ist.
+        """
+        from database import migrations as _mig
+
+        repo_root = _mig._REPO_ROOT
+        assert (repo_root / "alembic.ini").exists(), (
+            f"B-189: _REPO_ROOT={repo_root} muss alembic.ini enthalten."
+        )
+        assert (repo_root / "database" / "alembic" / "env.py").exists(), (
+            f"B-189: _REPO_ROOT={repo_root} muss database/alembic/env.py enthalten."
+        )
+
+    def test_app_root_lookup_follows_set_project_mutation(self, tmp_path):
+        """B-189: ``_app_root()`` liest ``APP_ROOT`` zur Laufzeit, nicht
+        zum Modul-Load-Zeitpunkt. Nach simulierter ``APP_ROOT``-Mutation
+        muss der Helper den neuen Wert liefern.
+        """
+        from database import migrations as _mig
+        from database import session as _ses
+
+        original = _ses.APP_ROOT
+        try:
+            new_root = tmp_path / "test_project"
+            new_root.mkdir()
+            _ses.APP_ROOT = new_root
+            assert _mig._app_root() == new_root, (
+                "B-189: _app_root() folgt der Mutation nicht."
+            )
+        finally:
+            _ses.APP_ROOT = original
+
+    def test_repo_root_independent_of_app_root_mutation(self, tmp_path):
+        """Architektur-Riegel: Alembic-Assets-Pfad bleibt stabil,
+        auch wenn jemand ``APP_ROOT`` umbiegt.
+        """
+        from database import migrations as _mig
+        from database import session as _ses
+
+        original = _ses.APP_ROOT
+        original_repo_root = _mig._REPO_ROOT
+        try:
+            _ses.APP_ROOT = tmp_path / "elsewhere"
+            assert _mig._REPO_ROOT == original_repo_root, (
+                "B-189: _REPO_ROOT darf nicht durch APP_ROOT-Mutation veraendert werden."
+            )
+        finally:
+            _ses.APP_ROOT = original

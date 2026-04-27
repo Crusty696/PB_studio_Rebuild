@@ -6,10 +6,28 @@ from pathlib import Path
 from sqlalchemy import text, inspect
 from sqlalchemy.schema import CreateTable
 
-from database.session import engine, get_raw_engine, nullpool_session, APP_ROOT
+from database import session as _session  # B-189: lazy APP_ROOT-Lookup nach set_project()
+from database.session import engine, get_raw_engine, nullpool_session
 from database.models import (
     Base, Project, StylePreset,
 )
+
+
+def _app_root() -> Path:
+    """B-189: Liest ``database.session.APP_ROOT`` zur Laufzeit, sodass
+    Aufrufer nach ``set_project()`` den aktuellen Projekt-Pfad sehen.
+    Ein direktes ``from database.session import APP_ROOT`` faengt
+    nur den Wert zum Modul-Load-Zeitpunkt ein.
+    """
+    return _session.APP_ROOT
+
+
+# B-189: ``alembic.ini`` und das ``database/alembic/``-Verzeichnis
+# sind Repo-Assets, NICHT Projekt-Assets — sie wandern nicht mit
+# ``set_project()``. Daher hier ein statischer Pfad relativ zur
+# ``migrations.py`` (Repo-Wurzel = parent-of-database/), unabhaengig
+# vom Lauzeit-APP_ROOT.
+_REPO_ROOT = Path(__file__).resolve().parent.parent
 from services.errors import MigrationError
 
 logger = logging.getLogger(__name__)
@@ -70,7 +88,7 @@ def _migrate_fk_cascade():
         raw = get_raw_engine()
         db_path = Path(str(raw.url).replace("sqlite:///", ""))
     except (AttributeError, ValueError):
-        db_path = APP_ROOT / "pb_studio.db"
+        db_path = _app_root() / "pb_studio.db"
     backup_path = None
     if db_path.exists():
         backup_path = db_path.with_suffix(".db.backup_before_fk_migration")
@@ -272,8 +290,12 @@ def _run_alembic_migrations():
     insp = inspect(_raw)
     existing_tables = set(insp.get_table_names())
 
-    alembic_cfg = Config(str(APP_ROOT / "alembic.ini"))
-    alembic_cfg.set_main_option("script_location", str(APP_ROOT / "database" / "alembic"))
+    # B-189: Alembic-Assets liegen im Repo, nicht im wechselbaren
+    # Projekt-APP_ROOT. ``_REPO_ROOT`` ist statisch.
+    alembic_cfg = Config(str(_REPO_ROOT / "alembic.ini"))
+    alembic_cfg.set_main_option(
+        "script_location", str(_REPO_ROOT / "database" / "alembic")
+    )
     alembic_cfg.set_main_option("sqlalchemy.url", str(engine.url))
 
     if "alembic_version" not in existing_tables and "projects" in existing_tables:
