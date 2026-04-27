@@ -5,6 +5,11 @@ Vorher 3 ad-hoc QObject-Subklassen mit eigener finished/error-Signal-
 Definition + try/except-Pattern. Jetzt: BaseWorker-Subklassen die nur
 ``_do_work()`` überschreiben — error-Handling + format_user_error() im
 BaseWorker zentral.
+
+B-050: Alle drei Project-Worker bekommen jetzt einen ``on_error``-
+Handler der dem User einen Status-Bar-Toast + QMessageBox zeigt.
+Vorher: Worker raised → Task=error im Dock, aber NULL UI-Feedback —
+User dachte "nichts passiert ist".
 """
 
 import logging
@@ -19,6 +24,28 @@ APP_VERSION_PLACEHOLDER = "0.5.0"
 
 class ProjectManagementController(PBComponent):
     """Controller for Project Management and Dialogs in PBWindow."""
+
+    def _make_project_error_handler(self, prefix: str):
+        """B-050: Wiederverwendbarer ``on_error``-Handler fuer alle drei
+        Project-Worker (CreateWorker, OpenWorker, SaveAsWorker). Zeigt
+        Status-Bar + Critical-MessageBox damit der User nicht im Dunkeln
+        steht.
+        """
+        def _on_error(err_msg: str) -> None:
+            if not self.window:
+                return
+            full_msg = f"{prefix}: {err_msg}"
+            try:
+                if hasattr(self.window, "status_bar"):
+                    self.window.status_bar.showMessage(full_msg, 10_000)
+            except Exception:  # broad: status-bar darf den Dialog nicht blocken
+                pass
+            try:
+                QMessageBox.critical(self.window, prefix, err_msg)
+            except Exception as exc:  # broad: best-effort
+                logger.warning("B-050: error-dialog failed: %s", exc)
+            logger.error("B-050 %s: %s", prefix, err_msg)
+        return _on_error
 
     def _new_project(self):
         """Show NewProjectDialog and create a new project (Fix F-045: Async)."""
@@ -66,6 +93,7 @@ class ProjectManagementController(PBComponent):
             name="Projekt erstellen",
             worker=worker,
             on_finish=_on_done,
+            on_error=self._make_project_error_handler("Projekt-Erstellung fehlgeschlagen"),
             description=f"Initialisiere '{vals['name']}'"
         )
 
@@ -105,6 +133,7 @@ class ProjectManagementController(PBComponent):
             name="Projekt laden",
             worker=worker,
             on_finish=_on_done,
+            on_error=self._make_project_error_handler("Projekt-Laden fehlgeschlagen"),
             description=f"Lade '{path.name}'"
         )
 
@@ -146,6 +175,7 @@ class ProjectManagementController(PBComponent):
             name="Projekt kopieren",
             worker=worker,
             on_finish=_on_done,
+            on_error=self._make_project_error_handler("Projekt-Kopie fehlgeschlagen"),
             description=f"Speichere Kopie in {target.name}"
         )
 

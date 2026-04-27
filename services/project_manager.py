@@ -178,9 +178,33 @@ class ProjectManager(QObject):
         # mehr noetig (er war ohnehin nicht atomar mit dem swap, was
         # ein Race-Window erzeugte). init_db() wird defensive trotzdem
         # gerufen falls der create_all in set_project gescheitert ist.
+        # B-051: Rollback wenn init_db scheitert. Vorher blieb die
+        # Engine auf der halb-initialisierten neuen DB → alle naechsten
+        # ORM-Reads crashed mit OperationalError. Wir merken uns den
+        # vorigen Pfad (kann None sein) und switchen zurueck.
         import database
+        import database.session as _ses
+        _previous_root = _ses.APP_ROOT
         database.set_project(path)
-        database.init_db()  # idempotent — re-erstellt fehlende Tabellen
+        try:
+            database.init_db()  # idempotent — re-erstellt fehlende Tabellen
+        except Exception as init_err:
+            logger.error(
+                "B-051: init_db() fuer neues Projekt %s gescheitert: %s. "
+                "Rollback auf vorige Engine.",
+                path, init_err,
+            )
+            try:
+                if _previous_root is not None:
+                    database.set_project(Path(_previous_root))
+                    database.init_db()
+            except Exception as rollback_err:
+                logger.critical(
+                    "B-051: Rollback-set_project nach init_db-Fehler "
+                    "ebenfalls gescheitert (%s). App-State INKONSISTENT — "
+                    "Projekt-Switch via UI noetig.", rollback_err,
+                )
+            raise
 
         # B-190: Auto-Seed-Default-Project entfaellt; wir fuegen einfach
         # das User-Projekt ein. Frueher loeschte diese Stelle alle
@@ -274,9 +298,30 @@ class ProjectManager(QObject):
             logger.warning("Failed to invalidate pacing caches in open_project: %s", exc)
 
         # Swap database engine
+        # B-051: Rollback bei init_db-Fehler (siehe create_project).
         import database
+        import database.session as _ses
+        _previous_root = _ses.APP_ROOT
         database.set_project(path)
-        database.init_db()
+        try:
+            database.init_db()
+        except Exception as init_err:
+            logger.error(
+                "B-051: init_db() fuer geoeffnetes Projekt %s gescheitert: %s. "
+                "Rollback auf vorige Engine.",
+                path, init_err,
+            )
+            try:
+                if _previous_root is not None:
+                    database.set_project(Path(_previous_root))
+                    database.init_db()
+            except Exception as rollback_err:
+                logger.critical(
+                    "B-051: Rollback-set_project nach init_db-Fehler "
+                    "ebenfalls gescheitert (%s). App-State INKONSISTENT.",
+                    rollback_err,
+                )
+            raise
 
         logger.info("Projekt geoeffnet: %s (%s)", meta["name"], path)
         self.project_changed.emit(path)

@@ -36,6 +36,43 @@ def _resolve_project_id(project_id: int | None) -> int:
     )
     return 1
 
+
+def _ensure_project_exists(project_id: int) -> None:
+    """B-054: Project-FK-Pre-Check vor INSERT.
+
+    SQLite mit WAL kann FK-Violations erst beim Commit melden →
+    User sieht generisches "Import fehlgeschlagen" statt klares
+    "Projekt {id} existiert nicht". Wir pruefen vorher mit einem
+    schnellen SELECT.
+
+    Raises:
+        ValueError: Wenn das Projekt nicht (mehr) existiert oder
+                    soft-geloescht ist.
+    """
+    try:
+        from database import nullpool_session
+        from database.models import Project
+    except ImportError as exc:
+        # Falls Module nicht ladbar: lass den FK-Check beim Commit feuern.
+        logger.warning("B-054: _ensure_project_exists import failed: %s", exc)
+        return
+    try:
+        with nullpool_session() as session:
+            proj = (
+                session.query(Project)
+                .filter(Project.id == project_id, Project.deleted_at.is_(None))
+                .first()
+            )
+            if proj is None:
+                raise ValueError(
+                    f"Projekt mit id={project_id} existiert nicht "
+                    f"(oder ist soft-geloescht). Import abgebrochen."
+                )
+    except ValueError:
+        raise
+    except Exception as exc:  # broad: DB-Fehler darf hier kein zweiter Crash sein
+        logger.warning("B-054: _ensure_project_exists query failed: %s", exc)
+
 # FFmpeg/FFprobe Pfade werden zentral in main.py via PATH injiziert.
 # Hier erlauben wir Overrides via Umgebungsvariablen.
 _FFPROBE = os.environ.get("FFPROBE_PATH", "ffprobe")
@@ -85,6 +122,9 @@ def ingest_audio(
     # rufen am Ende des Batches einmalig _invalidate_pacing_caches() auf
     # — sonst feuert der Cache-Rebuild N+1 mal pro Datei.
     project_id = _resolve_project_id(project_id)
+    # B-054: Pre-Check Project-FK damit der User klare Fehlermeldung
+    # sieht statt generischer "Import fehlgeschlagen" beim Commit.
+    _ensure_project_exists(project_id)
     path = Path(file_path)
     if not path.exists():
         raise FileNotFoundError(f"Audio-Datei nicht gefunden: {file_path}")
@@ -160,6 +200,8 @@ def ingest_video(
     # B-151: Folder-Import-Loops setzen ``invalidate_caches=False`` und
     # rufen am Ende des Batches einmalig _invalidate_pacing_caches() auf.
     project_id = _resolve_project_id(project_id)
+    # B-054: Pre-Check Project-FK (siehe ingest_audio).
+    _ensure_project_exists(project_id)
     path = Path(file_path)
     if not path.exists():
         raise FileNotFoundError(f"Video-Datei nicht gefunden: {file_path}")
