@@ -14,6 +14,9 @@ exclude_dirs:
   - __pycache__
   - build
   - dist
+  - test_db_deep.py     # standalone runner im Root, kein pytest-Test
+  - e2e_direct_export.py
+  - e2e_render_test.py
 
 skips:
   # B101 — assert_used: Wir nutzen ``assert`` als precondition-check
@@ -21,3 +24,11 @@ skips:
   # Code mit ``python -O`` wuerden die zwar entfernt, aber kein
   # Sicherheits-Problem.
   - B101
+  # B310 — urllib URL audit: 18 Aufrufe von urllib.request.urlopen
+  # mit hardcoded HTTPS-URLs (HuggingFace, Ollama, GitHub-Releases).
+  # Kein User-Input fliesst in die URLs. Bandit warnt allgemein vor
+  # nicht-validierten Schemes (file:// etc.) — alle unsere Aufrufe
+  # nutzen explicit https://. Per-line nosec waere 18 identische
+  # Kommentare ohne Mehrwert; project-wide skip ist die ehrlichere
+  # Dokumentation.
+  - B310

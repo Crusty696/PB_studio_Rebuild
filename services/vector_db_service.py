@@ -335,8 +335,11 @@ class VectorDBService:
         with self._write_lock:
             with self._connect() as conn:
                 placeholders = ",".join("?" for _ in clip_ids)
+                # B-037 / B608: ``placeholders`` ist nur die Zaehl-Reihe
+                # ``?,?,?...`` aus ``len(clip_ids)``. Werte selbst fliessen
+                # ueber DB-API parameter substitution (zweites Arg).
                 conn.execute(
-                    f"DELETE FROM clip_embeddings WHERE CAST(id / 1000000 AS INTEGER) IN ({placeholders})",
+                    f"DELETE FROM clip_embeddings WHERE CAST(id / 1000000 AS INTEGER) IN ({placeholders})",  # nosec B608
                     clip_ids,
                 )
         # B-080: Cache invalidieren — sonst liefert der naechste search()

@@ -208,8 +208,11 @@ def _migrate_fk_cascade():
 
                     if common_columns:
                         cols_str = ", ".join(f'"{c}"' for c in common_columns)
+                        # B-037 / B608: tname + cols_str stammen aus
+                        # PRAGMA-table_info-Inspektion (DB-Schema) — kein
+                        # User-Input. SQL-Injection-Vektor existiert nicht.
                         cursor.execute(
-                            f'INSERT INTO "{tname}" ({cols_str}) SELECT {cols_str} FROM "{backup_tname}"'
+                            f'INSERT INTO "{tname}" ({cols_str}) SELECT {cols_str} FROM "{backup_tname}"'  # nosec B608
                         )
                         copied_rows = cursor.rowcount
                         logger.info("FK-Migration: %s — %d Zeilen kopiert (%d Spalten)",

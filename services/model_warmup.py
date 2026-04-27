@@ -96,7 +96,10 @@ def warmup_siglip(
 
     try:
         from huggingface_hub import snapshot_download
-        snapshot_download(
+        # B-037 / B615: model_id stammt aus LOCKED-ADR-Liste (D-008),
+        # kein User-Input. Latest-Pull ist gewollt; safetensors-Load
+        # blockiert Code-Execution-Vektoren.
+        snapshot_download(  # nosec B615
             repo_id=model_id,
             allow_patterns=[
                 "config.json",

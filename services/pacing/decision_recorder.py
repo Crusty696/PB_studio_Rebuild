@@ -279,8 +279,12 @@ class DecisionRecorder:
 
             columns = ", ".join(payload.keys())
             placeholders = ", ".join(f":{k}" for k in payload.keys())
+            # B-037 / B608: ``payload.keys()`` sind hardcoded Spaltennamen
+            # aus dem decision_recorder-Code (kein User-Input). Werte
+            # fliessen ueber named parameters (:placeholder), nicht
+            # in die SQL-String-Konstruktion.
             sql = text(
-                f"INSERT INTO mem_decision ({columns}) VALUES ({placeholders}) RETURNING id"
+                f"INSERT INTO mem_decision ({columns}) VALUES ({placeholders}) RETURNING id"  # nosec B608
             )
             result = session.execute(sql, payload)
             row = result.fetchone()

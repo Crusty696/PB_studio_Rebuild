@@ -157,7 +157,11 @@ class OllamaService:
         if not self.is_ready:
             return False
 
-        with httpx.Client(base_url=OLLAMA_BASE, timeout=None) as client:
+        # B-037 / B113: connect-Timeout setzen (10s) damit ein toter
+        # Ollama-Server schnell erkannt wird; read/write offen lassen
+        # weil Modell-Pull bei grossen Modellen Stunden dauern kann.
+        _pull_timeout = httpx.Timeout(connect=10.0, read=None, write=None, pool=10.0)
+        with httpx.Client(base_url=OLLAMA_BASE, timeout=_pull_timeout) as client:
             # Pruefen ob Modell bereits da ist
             try:
                 tags = client.get("/api/tags")

@@ -1542,6 +1542,10 @@ class BrainService:
             order_by = (
                 "a.created_at DESC, a.id DESC" if has_created_at else "a.id DESC"
             )
+            # B-037 / B608: select_duration, select_bpm, select_created und
+            # order_by werden aus dem DB-Schema-Inspektor zusammengesetzt
+            # (column-existence-check). Kein User-Input. SQL-Injection-
+            # Vektor existiert nicht.
             sql = (
                 "SELECT "
                 "  a.id                 AS id, "
@@ -1550,7 +1554,7 @@ class BrainService:
                 f" {select_bpm}, "
                 f" {select_created} "
                 "FROM audio_tracks a "
-                f"ORDER BY {order_by}"
+                f"ORDER BY {order_by}"  # nosec B608
             )
             rows = session.execute(text(sql)).mappings().all()
             out: list[dict[str, Any]] = []
@@ -1711,11 +1715,14 @@ class BrainService:
                     if "energy_curve" in present
                     else "NULL AS energy_curve"
                 )
+                # B-037 / B608: select_energy ist column-existence-Snippet
+                # aus DB-Inspektion, kein User-Input. ``audio_track_id``
+                # ist via int()-Cast + named-parameter ``:aid`` geschuetzt.
                 track_row = (
                     session.execute(
                         text(
                             "SELECT a.id AS id, a.file_path AS file_path, "
-                            f" {select_energy} "
+                            f" {select_energy} "  # nosec B608
                             "FROM audio_tracks a WHERE a.id = :aid"
                         ),
                         {"aid": int(audio_track_id)},

@@ -134,5 +134,8 @@ class StyleBucketClusterer:
                 f"UMAP reducer not found at '{p}'. "
                 "Run StyleBucketClusterer.fit() and save_reducer() first."
             )
+        # B-037 / B301: ``p`` zeigt auf den eigenen UMAP-Reducer-Cache
+        # unter ``storage/`` — ausschliesslich von uns geschrieben in
+        # ``save_reducer()``. Kein attacker-controlled Pickle-Source.
         with open(p, "rb") as f:
-            return pickle.load(f)  # noqa: S301
+            return pickle.load(f)  # nosec B301  # noqa: S301

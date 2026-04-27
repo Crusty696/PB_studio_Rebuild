@@ -764,11 +764,16 @@ class ModelManager:
                 from transformers import AutoModel, AutoProcessor
 
                 # use_fast=False: Rust Fast-Processor kollidiert mit Qt Threads
-                self._extras["processor"] = AutoProcessor.from_pretrained(
+                # B-037 / B615: model_id wird aus der LOCKED-Liste gewaehlt
+                # (D-008 SigLIP-so400m), kein User-Input. Revision nicht
+                # gepinnt weil ModelManager bewusst Latest-on-HF-Mirror
+                # zieht — Modell wird via safetensors weights_only=True
+                # geladen, kein Code-Execution-Vektor.
+                self._extras["processor"] = AutoProcessor.from_pretrained(  # nosec B615
                     model_id, use_fast=False
                 )
                 dtype = torch.float32 if self.device == "cpu" else torch.float16
-                self._model = AutoModel.from_pretrained(
+                self._model = AutoModel.from_pretrained(  # nosec B615
                     model_id,
                     torch_dtype=dtype,
                 )

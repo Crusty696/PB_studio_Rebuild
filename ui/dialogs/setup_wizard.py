@@ -198,7 +198,10 @@ class _DownloadWorker(QObject):
         try:
             from huggingface_hub import snapshot_download
             self.step_progress.emit(repo_id, 0.1, "Verbinde zu HuggingFace…")
-            snapshot_download(repo_id=repo_id, local_files_only=False)
+            # B-037 / B615: repo_id wird vom Setup-Wizard-Caller aus der
+            # LOCKED-Modell-Liste (D-007/D-008) durchgereicht, kein freier
+            # User-Input. Safetensors-Load blockiert Code-Exec.
+            snapshot_download(repo_id=repo_id, local_files_only=False)  # nosec B615
             self.step_progress.emit(repo_id, 1.0, "Fertig")
             return True, "OK"
         except (ImportError, OSError, RuntimeError) as e:
