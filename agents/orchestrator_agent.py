@@ -428,7 +428,6 @@ class OrchestratorAgent(BaseAgent):
                     {"role": "system", "content": _CLASSIFY_SYSTEM_PROMPT},
                     {"role": "user", "content": user_text}
                 ],
-                model="gemma4:e4b"
             )
             
             category = result.strip().lower().split()[0] if result.strip() else ""
@@ -651,7 +650,6 @@ class OrchestratorAgent(BaseAgent):
                         {"role": "system", "content": _GENERAL_SYSTEM_PROMPT},
                         {"role": "user", "content": user_text}
                     ],
-                    model="gemma4:e4b"
                 )
                 return {
                     "agent": self.name,

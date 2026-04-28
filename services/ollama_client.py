@@ -37,14 +37,20 @@ from services.errors import (
 
 logger = logging.getLogger(__name__)
 
-# Default-Modelle für NVIDIA CUDA GPU
+# Default-Modelle für NVIDIA CUDA GPU.
+# B-239: ``gemma4:e4b`` entfernt — existierte nirgends als Ollama-Tag.
+# Live-Default wird in ``OllamaService._resolve_default_model`` per
+# ``/api/tags``-Family-Match (gemma4) aufgeloest. Diese Liste ist
+# der harte Fallback wenn keine Gemma-4-Variante installiert ist.
 RECOMMENDED_MODELS = [
-    "gemma4:e4b",                    # ~9.6 GB Q4_K_M — Hauptmodell
-    "phi3:mini",                      # ~2.3 GB — schnell, kompakt
-    "llama3.1:8b-instruct-q4_K_M",   # ~4.7 GB — Allrounder
-    "llama3.1:8b",                   # ~4.7 GB — Allrounder (Standard-Tag)
-    "llama3:8b",                     # ~4.3 GB — Bewährt, wird aktiv eingesetzt
-    "gemma2:2b-instruct-q4_K_M",     # ~1.5 GB — sehr klein, schnell
+    "phi3:mini",                                                      # ~2.3 GB — schnell, Tool-Use, GTX 1060-tauglich
+    "tripolskypetr/qwen3.5-uncensored-aggressive:4b",                 # ~2.7 GB — Qwen 3.5, Tool-Use
+    "qwen2.5:7b-instruct-q4_K_M",                                     # ~4.4 GB — Qwen 2.5, Tool-Use
+    "llama3.1:8b-instruct-q4_K_M",                                    # ~4.7 GB — Allrounder
+    "llama3.1:8b",                                                    # ~4.7 GB — Allrounder (Standard-Tag)
+    "llama3:8b",                                                      # ~4.3 GB — Bewaehrt
+    "gemma3:4b",                                                      # ~3.3 GB — wenn vorhanden
+    "gemma2:2b-instruct-q4_K_M",                                      # ~1.5 GB — Notfall-klein
 ]
 
 DEFAULT_OLLAMA_URL = "http://localhost:11434"
@@ -60,7 +66,7 @@ class OllamaClient:
         client = OllamaClient()
         if client.is_available():
             models = client.list_models()
-            reply = client.chat("gemma4:e4b", "Hallo!")
+            reply = client.chat("gemma3:4b", "Hallo!")
     """
 
     def __init__(
@@ -550,19 +556,28 @@ class OllamaClient:
     def supports_tools(self, model: str) -> bool:
         """Prüft ob ein Modell Tool-Use / Function-Calling unterstützt.
 
-        Qwen2.5, Llama 3+, Mistral 0.3+ und Phi3 unterstützen Tool-Use.
-        Kleine Modelle (<1B) unterstützen es oft NICHT zuverlässig.
+        Qwen2.5+, Qwen3+, Llama 3+, Mistral 0.3+, Phi3 und Gemma 2/3/4
+        unterstützen Tool-Use. Kleine Modelle (<1B) unterstützen es
+        oft NICHT zuverlässig.
+
+        B-239: Erkennung erfolgt jetzt SUBSTRING-basiert (vorher Prefix),
+        damit Community-Tags wie ``fredrezones55/Gemma-4-...:e2b`` oder
+        ``tripolskypetr/qwen3.5-uncensored-aggressive:4b`` ebenfalls
+        erkannt werden — sonst wuerde der Tool-Use-Pfad uebersprungen
+        und auf brittle JSON-Freitext-Parsing zurueckgefallen.
         """
-        supported_prefixes = [
-            "qwen2.5:", "qwen2:", "llama3.1:", "llama3.2:",
-            "llama3.3:", "mistral:", "phi3:", "gemma2:",
-            "gemma3:", "gemma4:",
+        supported_substrings = [
+            "qwen2.5", "qwen2:", "qwen3", "qwen3.5",
+            "llama3.1", "llama3.2", "llama3.3",
+            "mistral",
+            "phi3",
+            "gemma2", "gemma-2", "gemma3", "gemma-3", "gemma4", "gemma-4",
         ]
         model_lower = model.lower()
-        for prefix in supported_prefixes:
-            if model_lower.startswith(prefix):
+        for needle in supported_substrings:
+            if needle in model_lower:
                 # Kleine Modelle ausschliessen (<1B Parameter)
-                if any(tiny in model_lower for tiny in [":0.5b", ":0.5b-", "0.5b-"]):
+                if any(tiny in model_lower for tiny in [":0.5b", "0.5b-", "-0.5b"]):
                     return False
                 return True
         return False

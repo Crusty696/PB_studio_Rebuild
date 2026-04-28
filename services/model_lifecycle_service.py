@@ -38,10 +38,11 @@ logger = logging.getLogger(__name__)
 
 RECOMMENDED_OLLAMA_MODELS = [
     {
-        "id": "gemma4:e4b",
-        "display": "Gemma 4 E4B (Q4_K_M)",
-        "size_gb": 9.6,
-        "description": "Hauptmodell — Empfohlen (NVIDIA CUDA)",
+        # B-241: ``gemma4:e4b`` war Phantom-Tag, durch echten ``gemma3:4b`` ersetzt.
+        "id": "gemma3:4b",
+        "display": "Gemma 3 4B (Q4_K_M)",
+        "size_gb": 3.3,
+        "description": "Hauptmodell — Empfohlen (NVIDIA CUDA, GTX-1060-tauglich)",
         "tags": ["empfohlen", "de"],
     },
     {
@@ -357,7 +358,7 @@ class ModelLifecycleService:
         ``progress_cb`` gemeldet (läuft in einem Thread).
 
         Args:
-            model_name: Ollama-Modellname (z.B. "gemma4:e4b")
+            model_name: Ollama-Modellname (z.B. "gemma3:4b")
             progress_cb: Callable mit (DownloadProgress) — wird aus Thread aufgerufen
 
         Returns:

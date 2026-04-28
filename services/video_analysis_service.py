@@ -608,7 +608,11 @@ def generate_embeddings(
 # ======================================================================
 
 # Ollama-Modell für Vision-Captioning (muss Vision-fähig sein)
-_VISION_MODEL = "gemma4:e4b"
+# B-241: ``gemma4:e4b`` war ein Phantom-Tag. ``moondream:latest`` ist ein
+# kleines (~1.6 GB), echtes Vision-LLM — ideal fuer GTX-1060-Klasse.
+# Caller koennen ``vision_model`` Parameter explizit ueberschreiben
+# (z.B. ueber Settings oder PB_VISION_MODEL env-var).
+_VISION_MODEL = "moondream:latest"
 
 _CAPTION_SYSTEM_PROMPT = """\
 You are a video scene analyzer for a DJ/music video editor.

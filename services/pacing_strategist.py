@@ -12,7 +12,34 @@ from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
 
-STRATEGIST_MODEL_ID = "gemma4:e4b"
+# B-241: ``gemma4:e4b`` war ein Phantom-Tag (existiert nicht in Ollama).
+# Module-Konstante bleibt als Fallback (``gemma3:4b`` ist ein echter Tag),
+# Aufrufer sollten ``get_strategist_model()`` nutzen — das resolved live
+# gegen die installierten Modelle.
+STRATEGIST_MODEL_ID = "gemma3:4b"
+
+
+def get_strategist_model() -> str:
+    """Liefert das aktive Strategist-Modell, live aufgeloest.
+
+    Reihenfolge:
+    1. ``PB_STRATEGIST_MODEL`` env-var (User-Override)
+    2. ``OllamaService.get_default_model()`` (Family-Match auf gemma4
+       oder erstes installiertes Modell)
+    3. ``STRATEGIST_MODEL_ID`` als Fallback
+    """
+    import os
+    env_override = os.environ.get("PB_STRATEGIST_MODEL")
+    if env_override:
+        return env_override
+    try:
+        from services.ollama_service import OllamaService
+        model = OllamaService.get().get_default_model()
+        if model:
+            return model
+    except Exception as e:
+        logger.debug("Strategist-Default-Lookup fehlgeschlagen: %s", e)
+    return STRATEGIST_MODEL_ID
 
 SYSTEM_PROMPT = """\
 Du bist ein DJ-Video-Pacing-Experte. Du bekommst die Struktur eines DJ-Mixes \

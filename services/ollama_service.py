@@ -24,7 +24,59 @@ from typing import Callable, Any
 logger = logging.getLogger(__name__)
 
 OLLAMA_BASE = "http://localhost:11434"
-OLLAMA_MODEL = "gemma4:e4b"
+
+# B-239: Default-Modell wird live ueber /api/tags resolved.
+# Reihenfolge: PB_OLLAMA_MODEL env-var > Gemma-4-Family-Match >
+# RECOMMENDED_MODELS aus ollama_client > erstes verfuegbares.
+# Hartcoded-Tag "gemma4:e4b" existierte nirgends als Ollama-Tag und
+# war ueberall hinterlegt -> jeder LLM-Call gab 404. Siehe B-239.
+_GEMMA4_FAMILY_RE = "gemma4"  # family-Feld in /api/tags
+OLLAMA_MODEL: str | None = None  # Lazy resolved, siehe _resolve_default_model()
+
+
+def _resolve_default_model(base_url: str = OLLAMA_BASE) -> str | None:
+    """Findet das aktuell beste verfuegbare Default-Modell.
+
+    Reihenfolge:
+    1. ``PB_OLLAMA_MODEL`` env-var (User-Override)
+    2. Erstes installiertes Modell der Family ``gemma4`` (User-Wunsch
+       laut Vault: Gemma 4 als Hauptmodell)
+    3. ``RECOMMENDED_MODELS`` aus ollama_client (phi3, qwen, etc.)
+    4. Erstes ueberhaupt installiertes Modell
+
+    Returns ``None`` wenn Ollama nicht erreichbar oder leer.
+    """
+    user_override = os.environ.get("PB_OLLAMA_MODEL")
+    if user_override:
+        return user_override
+
+    try:
+        with httpx.Client(base_url=base_url, timeout=5.0) as client:
+            resp = client.get("/api/tags")
+            if resp.status_code != 200:
+                return None
+            models = resp.json().get("models", [])
+    except (httpx.RequestError, ValueError):
+        return None
+
+    if not models:
+        return None
+
+    for m in models:
+        family = (m.get("details") or {}).get("family", "").lower()
+        if family == _GEMMA4_FAMILY_RE:
+            return m["name"]
+
+    try:
+        from services.ollama_client import RECOMMENDED_MODELS
+        installed = {m["name"] for m in models}
+        for rec in RECOMMENDED_MODELS:
+            if rec in installed:
+                return rec
+    except ImportError:
+        pass
+
+    return models[0]["name"]
 
 
 def _find_ollama_bin() -> Path:
@@ -68,6 +120,21 @@ class OllamaService:
     def __init__(self):
         self._is_ready = False
         self._model_cached = False
+        # B-239: Aufgeloester Default-Modellname (Cache nach erstem Lookup).
+        self._default_model: str | None = None
+        self._default_model_lock = threading.Lock()
+
+    def get_default_model(self, force_refresh: bool = False) -> str | None:
+        """Liefert den aktuell besten Default-Modellnamen (cached).
+
+        Wird bei jedem Inference-Call benutzt, der kein explizites
+        ``model``-Argument bekommt. Cache wird per ``force_refresh=True``
+        oder nach erfolgreichem ``ensure_model()`` invalidiert.
+        """
+        with self._default_model_lock:
+            if self._default_model is None or force_refresh:
+                self._default_model = _resolve_default_model()
+            return self._default_model
 
     # ── Lifecycle ─────────────────────────────────────────────
 
@@ -100,22 +167,24 @@ class OllamaService:
             )
             logger.info("Ollama-Prozess gestartet (PID: %d)", self._process.pid)
 
-            # B-113 / BUG-A10: poll for port-open so callers that do
-            # ``service.start(); service.ensure_model(...)`` don't race
-            # the server-startup window. Bounded at ~3s; if the server
-            # isn't listening by then ``is_ready`` stays False and the
-            # caller can decide what to do.
+            # B-113 / BUG-A10 / B-240: poll for HTTP-API-readiness so
+            # callers that do ``service.start(); service.ensure_model(...)``
+            # don't race the server-startup window. Bounded at ~60 s — der
+            # cuda_v12-Cold-Load (HDD) braucht ~26 s ehe der Server
+            # tatsaechlich Requests bedient. Frueher pollte das nur
+            # ``_is_port_open()`` (3 s) — false-positive wenn Subprocess
+            # Port oeffnet bevor er HTTP-Requests akzeptiert.
             import time as _time
-            deadline = _time.monotonic() + 3.0
+            deadline = _time.monotonic() + 60.0
             while _time.monotonic() < deadline:
-                if self._is_port_open():
+                if self._is_api_ready():
                     self._is_ready = True
-                    logger.info("Ollama: ready nach %.2fs", 3.0 - (deadline - _time.monotonic()))
+                    logger.info("Ollama: API ready nach %.2fs", 60.0 - (deadline - _time.monotonic()))
                     break
-                _time.sleep(0.1)
+                _time.sleep(0.5)
             else:
                 logger.warning(
-                    "Ollama: Port noch nicht offen nach 3s — "
+                    "Ollama: API nach 60s noch nicht ready — "
                     "is_ready bleibt False, Caller kann re-poll'en."
                 )
         except Exception as e:
@@ -139,23 +208,65 @@ class OllamaService:
             s.settimeout(0.5)
             return s.connect_ex(('localhost', port)) == 0
 
+    def _is_api_ready(self) -> bool:
+        """B-240: Vollstaendiger API-Ready-Check (TCP-Port + HTTP /api/version).
+
+        Vermeidet false-positive wenn Subprocess Port oeffnet, bevor er
+        HTTP-Requests bedient (typisch waehrend cuda_v12-Cold-Load).
+        """
+        if not self._is_port_open():
+            return False
+        try:
+            with httpx.Client(base_url=OLLAMA_BASE, timeout=2.0) as client:
+                return client.get("/api/version").status_code == 200
+        except (httpx.RequestError, httpx.TimeoutException):
+            return False
+
+    def _is_model_warm(self, model: str) -> bool:
+        """B-242: Pruefe ob ``model`` aktuell in VRAM geladen ist (``/api/ps``).
+
+        Wenn nicht warm, sollte Caller ``ensure_model()`` vorab rufen —
+        ``ensure_model()`` hat offenes Read-Timeout und kann den
+        Cold-Load (bis ~120 s fuer 4-GB-Modelle aus HDD-Cache)
+        durchlaufen lassen, ohne dass der httpx-Client von ``chat()``
+        die Connection abbricht.
+        """
+        try:
+            with httpx.Client(base_url=OLLAMA_BASE, timeout=3.0) as client:
+                resp = client.get("/api/ps")
+                if resp.status_code != 200:
+                    return False
+                running = {m.get("name") for m in resp.json().get("models", [])}
+                return model in running
+        except (httpx.RequestError, httpx.TimeoutException):
+            return False
+
     @property
     def is_ready(self) -> bool:
         """Prüft (schnell), ob die API antwortet."""
         if self._is_ready:
             return True
-        self._is_ready = self._is_port_open()
+        # B-240: vollstaendiger API-Check statt nur Port-Open
+        self._is_ready = self._is_api_ready()
         return self._is_ready
 
     # ── Modell-Management ──────────────────────────────────────
 
-    def ensure_model(self, model_name: str = OLLAMA_MODEL, progress_cb: Callable[[str, float], None] | None = None) -> bool:
+    def ensure_model(self, model_name: str | None = None, progress_cb: Callable[[str, float], None] | None = None) -> bool:
         """Stellt sicher dass das Modell geladen ist (laedt falls noetig).
 
         Synchron — blockiert den aufrufenden Thread bis der Download abgeschlossen ist.
+        Wenn ``model_name`` None ist, wird das Default-Modell verwendet
+        (B-239: Auto-Detect statt Hardcoded ``gemma4:e4b``).
         """
         if not self.is_ready:
             return False
+
+        if model_name is None:
+            model_name = self.get_default_model()
+            if model_name is None:
+                logger.warning("ensure_model: Kein Default-Modell ermittelbar (keine Modelle installiert?)")
+                return False
 
         # B-037 / B113: connect-Timeout setzen (10s) damit ein toter
         # Ollama-Server schnell erkannt wird; read/write offen lassen
@@ -197,11 +308,21 @@ class OllamaService:
 
     # ── Inference ─────────────────────────────────────────────
 
-    def chat(self, messages: list[dict], model: str = OLLAMA_MODEL) -> str:
+    def chat(
+        self,
+        messages: list[dict],
+        model: str | None = None,
+        num_predict: int = 1024,
+    ) -> str:
         """Synchroner Wrapper fuer Chat-Inference (K7-Fix: kein async mehr).
 
         Prueft vor dem Request den Pause-Status des OllamaClient (K8-Fix),
         damit VRAM-Schutz nicht umgangen wird.
+
+        B-239: ``model=None`` -> Auto-Detect Default-Modell (kein Hardcode mehr).
+        B-239: ``num_predict=1024`` Default — Reasoning-Modelle (Gemma 4)
+        brauchen ~700 Tokens fuers Thinking + die eigentliche Antwort. Der
+        Ollama-Default 128 schneidet die echte Antwort weg.
         """
         # K8-Fix: Pause-Check — VRAM-Schutz respektieren
         from services.ollama_client import get_ollama_client
@@ -210,12 +331,27 @@ class OllamaService:
             logger.warning("OllamaService.chat(): OllamaClient ist pausiert — Request abgelehnt.")
             return "Fehler: OllamaClient ist pausiert (GPU-intensive Operation laeuft)"
 
-        with httpx.Client(base_url=OLLAMA_BASE, timeout=60.0) as client:
+        if model is None:
+            model = self.get_default_model()
+            if model is None:
+                return "Fehler: Kein Ollama-Modell verfuegbar (Tipp: 'ollama pull gemma3:4b')"
+
+        # B-242: Cold-Load-Schutz. Wenn das Modell nicht in VRAM geladen ist,
+        # ruft chat() ensure_model() vorab — dort ist Read-Timeout offen,
+        # der HDD-Cold-Load (bis ~120 s) kann durchlaufen ohne dass
+        # der httpx-Client unten die Connection abbricht.
+        if not self._is_model_warm(model):
+            logger.info("OllamaService.chat(): Modell '%s' nicht warm — ensure_model() vorab.", model)
+            if not self.ensure_model(model):
+                return f"Fehler: Modell '{model}' konnte nicht geladen werden"
+
+        with httpx.Client(base_url=OLLAMA_BASE, timeout=120.0) as client:
             try:
                 response = client.post("/api/chat", json={
                     "model": model,
                     "messages": messages,
-                    "stream": False
+                    "stream": False,
+                    "options": {"num_predict": num_predict},
                 })
                 if response.status_code == 200:
                     # B1-Fix: Thinking models return response in "thinking" field instead of "content"
@@ -228,11 +364,19 @@ class OllamaService:
                 logger.error("Ollama Chat Fehler: %s", e)
                 return f"Fehler: {e}"
 
-    def vision(self, image_paths: list[str], prompt: str, model: str = OLLAMA_MODEL) -> str:
+    def vision(
+        self,
+        image_paths: list[str],
+        prompt: str,
+        model: str | None = None,
+        num_predict: int = 1024,
+    ) -> str:
         """Synchroner Wrapper fuer Vision-Inference (K7-Fix: kein async mehr).
 
         Prueft vor dem Request den Pause-Status des OllamaClient (K8-Fix),
         damit VRAM-Schutz nicht umgangen wird.
+        B-239: ``model=None`` -> Auto-Detect; Timeout 60s statt 15s
+        (Vision-Modelle brauchen Cold-Load).
         """
         # K8-Fix: Pause-Check — VRAM-Schutz respektieren
         from services.ollama_client import get_ollama_client
@@ -240,6 +384,19 @@ class OllamaService:
         if oc.is_paused:
             logger.warning("OllamaService.vision(): OllamaClient ist pausiert — Request abgelehnt.")
             return "Fehler: OllamaClient ist pausiert (GPU-intensive Operation laeuft)"
+
+        if model is None:
+            model = self.get_default_model()
+            if model is None:
+                return "Fehler: Kein Ollama-Modell verfuegbar"
+
+        # B-242: Cold-Load-Schutz analog zu chat(). Vision-Modelle (Moondream
+        # etc.) sind oft kleiner, aber Cold-Load aus HDD-Cache kann ebenfalls
+        # > 60 s dauern. Vorab ensure_model() laeuft mit offenem Read-Timeout.
+        if not self._is_model_warm(model):
+            logger.info("OllamaService.vision(): Modell '%s' nicht warm — ensure_model() vorab.", model)
+            if not self.ensure_model(model):
+                return f"Fehler: Modell '{model}' konnte nicht geladen werden"
 
         import base64
 
@@ -249,7 +406,7 @@ class OllamaService:
 
         images_b64 = [encode_image(p) for p in image_paths if os.path.exists(p)]
 
-        with httpx.Client(base_url=OLLAMA_BASE, timeout=15.0) as client:
+        with httpx.Client(base_url=OLLAMA_BASE, timeout=60.0) as client:
             try:
                 response = client.post("/api/chat", json={
                     "model": model,
@@ -258,7 +415,8 @@ class OllamaService:
                         "content": prompt,
                         "images": images_b64
                     }],
-                    "stream": False
+                    "stream": False,
+                    "options": {"num_predict": num_predict},
                 })
                 if response.status_code == 200:
                     return response.json().get("message", {}).get("content", "")
