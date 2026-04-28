@@ -685,7 +685,7 @@ def test_modelregistry_crud():
     s = fresh_session()
     try:
         mr = ModelRegistry(
-            model_id="gemma4:e4b", source="ollama",
+            model_id="gemma3:4b", source="ollama",
             display_name="Gemma 4 E4B", size_mb=4500.0,
             installed_at=datetime.datetime(2024, 1, 15, 10, 30),
             last_used_at=datetime.datetime(2024, 1, 16, 14, 0),
@@ -697,7 +697,7 @@ def test_modelregistry_crud():
         mr_id = mr.id
 
         mr2 = s.get(ModelRegistry, mr_id)
-        assert mr2.model_id == "gemma4:e4b"
+        assert mr2.model_id == "gemma3:4b"
         assert mr2.metadata_json["params"] == "4B"
 
         mr2.status = "error"
@@ -718,7 +718,7 @@ def test_agentfeedback_crud():
     s = fresh_session()
     try:
         af = AgentFeedback(
-            session_id="sess-001", model_id="gemma4:e4b",
+            session_id="sess-001", model_id="gemma3:4b",
             backend="ollama", user_query="Analyze this track",
             ai_response='{"action": "analyze_audio"}',
             action_name="analyze_audio", rating=1,

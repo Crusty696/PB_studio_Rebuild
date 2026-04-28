@@ -735,7 +735,7 @@ def test_ollama_client():
     # supports_tools
     try:
         client = OllamaClient()
-        assert client.supports_tools("gemma4:e4b") is True
+        assert client.supports_tools("gemma3:4b") is True
         assert client.supports_tools("gemma3:4b") is True
         assert client.supports_tools("qwen2.5:7b-instruct") is True
         assert client.supports_tools("llama3.1:8b") is True
@@ -750,7 +750,7 @@ def test_ollama_client():
     # _find_fallback_model
     try:
         client = OllamaClient(base_url="http://127.0.0.1:19999")
-        result = client._find_fallback_model("gemma4:e4b")
+        result = client._find_fallback_model("gemma3:4b")
         # Should return None since no models available
         assert result is None, f"Expected None, got {result}"
         record("OllamaClient", "_find_fallback_model(no_server)", "PASS")
@@ -760,7 +760,7 @@ def test_ollama_client():
     # get_model_info with unreachable server
     try:
         client = OllamaClient(base_url="http://127.0.0.1:19999")
-        result = client.get_model_info("gemma4:e4b")
+        result = client.get_model_info("gemma3:4b")
         assert result == {}, "Should return empty dict for unreachable server"
         record("OllamaClient", "get_model_info(unreachable)", "PASS")
     except Exception:
@@ -784,7 +784,7 @@ def test_ollama_client():
             record("OllamaClient", "is_available(real)", "PASS")
             # Test chat
             try:
-                result = real_client.chat("gemma4:e4b", "Say hello in one word")
+                result = real_client.chat("gemma3:4b", "Say hello in one word")
                 assert isinstance(result, str) and len(result) > 0
                 record("OllamaClient", "chat(real)", "PASS")
             except Exception:

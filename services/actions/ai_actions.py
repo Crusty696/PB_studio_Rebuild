@@ -853,3 +853,230 @@ def describe_set_overview(track_id: int | None = None) -> dict:
             "action": "describe_set_overview",
             "message": f"Fehler: {exc}",
         }
+
+
+# ---------------------------------------------------------------------------
+# B-246 Phase 2: match_clips_to_segment — Cross-Modal SigLIP-Suche
+# ---------------------------------------------------------------------------
+
+# Heuristische Mood-Query-Templates pro StructureSegment-Label.
+# Die Begriffe werden mit Genre/Mood des Tracks kombiniert um eine
+# SigLIP-Text-Query zu bauen, die gegen die Visual-Embeddings sucht.
+_SEGMENT_MOOD_QUERIES: dict[str, str] = {
+    "DROP":      "energetic crowd lights pulsing intense action high-energy peak",
+    "BREAKDOWN": "calm ambient atmospheric quiet dreamy breakdown empty space",
+    "BUILDUP":   "rising tension anticipation building energy increasing motion",
+    "INTRO":     "opening soft warmup atmospheric beginning gentle establishing",
+    "OUTRO":     "closing fade end conclusion winding down quiet",
+    "WARMUP":    "gentle smooth introduction atmospheric soft establishing",
+    "COOLDOWN":  "calm fade relaxed slow ending peaceful",
+    "TRANSITION":"smooth blend mix flow continuous motion movement",
+}
+
+
+@action_registry.register(
+    name="match_clips_to_segment",
+    description=(
+        "Cross-Modal-Suche: findet Video-Szenen die visuell zu einem "
+        "Audio-Strukturpunkt (Drop/Breakdown/Buildup/...) passen. "
+        "Nutzt SigLIP-Text-Embeddings (mood-spezifische Query aus dem "
+        "Segment-Label + Track-Genre) gegen die Visual-Embeddings der "
+        "indizierten Video-Szenen. "
+        "Voraussetzung: Video-Pipeline ist durchgelaufen ("
+        "`generate_embeddings` hat SigLIP-Vektoren in die VectorDB geschrieben). "
+        "Nutze diese Aktion bei 'Welche Clips passen zum Drop?', "
+        "'Match Videos zu Strukturpunkten', 'Cross-Modal-Vorschlaege'."
+    ),
+    param_schema={
+        "type": "object",
+        "properties": {
+            "track_id": {
+                "type": "integer",
+                "description": "ID des AudioTracks (DJ-Mix). OPTIONAL: erster Track wenn leer."
+            },
+            "segment_label": {
+                "type": "string",
+                "description": "Label-Filter, z.B. 'DROP', 'BREAKDOWN', 'BUILDUP'. Default: 'DROP'."
+            },
+            "top_n": {
+                "type": "integer",
+                "description": "Anzahl Match-Kandidaten pro Segment (default: 5)."
+            },
+            "max_segments": {
+                "type": "integer",
+                "description": "Max. Anzahl Segmente die ausgewertet werden (default: 10)."
+            }
+        },
+        "required": []
+    }
+)
+def match_clips_to_segment(
+    track_id: int | None = None,
+    segment_label: str = "DROP",
+    top_n: int = 5,
+    max_segments: int = 10,
+) -> dict:
+    """Findet Video-Szenen, die visuell zu Audio-Strukturpunkten passen.
+
+    Heuristik:
+    1. Audio-Strukturpunkte (gefiltert nach Label) aus DB laden
+    2. Pro Segment: Mood-Query aus _SEGMENT_MOOD_QUERIES + Track-Genre/Mood bauen
+    3. ``search_videos_by_text(query, top_k=top_n)`` (SigLIP + VectorDBService)
+    4. Aggregierte Ergebnis-Liste zurueckgeben (LLM-konsumierbar als Text-Block)
+    """
+    try:
+        from sqlalchemy.orm import Session as SASession
+        from database import engine, AudioTrack, StructureSegment
+
+        with SASession(engine) as session:
+            if track_id:
+                track = session.get(AudioTrack, track_id)
+            else:
+                track = session.query(AudioTrack).first()
+
+            if not track:
+                return {
+                    "status": "error",
+                    "action": "match_clips_to_segment",
+                    "message": "Kein AudioTrack gefunden.",
+                }
+
+            t_id = track.id
+            t_title = track.title or "(unbenannt)"
+            t_genre = track.genre or ""
+            t_mood = track.mood or ""
+
+            label_norm = (segment_label or "DROP").upper()
+            segments = (
+                session.query(StructureSegment)
+                .filter_by(audio_track_id=t_id)
+                .order_by(StructureSegment.start_time)
+                .all()
+            )
+            matching_segments = [
+                {"start": s.start_time, "end": s.end_time, "label": s.label or "?"}
+                for s in segments
+                if s.label and label_norm in s.label.upper()
+            ]
+
+        if not matching_segments:
+            return {
+                "status": "ok",
+                "action": "match_clips_to_segment",
+                "track_id": t_id,
+                "segment_label": label_norm,
+                "match_groups": [],
+                "message": (
+                    f"Keine Segmente mit Label '{label_norm}' im Track #{t_id}. "
+                    f"`detect_structure` ausfuehren falls noch nicht passiert."
+                ),
+            }
+
+        # Mood-Query-Template + Track-Genre kombinieren
+        mood_template = _SEGMENT_MOOD_QUERIES.get(label_norm, label_norm.lower())
+        genre_part = (" " + t_genre.lower()) if t_genre else ""
+        mood_part = (" " + t_mood.lower()) if t_mood else ""
+        base_query = (mood_template + genre_part + mood_part).strip()
+
+        # Search via SigLIP + VectorDBService
+        from services.video_analysis_service import search_videos_by_text
+
+        def _fmt_time(secs: float | None) -> str:
+            if secs is None:
+                return "?"
+            mins = int(secs // 60)
+            sec = int(secs % 60)
+            hours = mins // 60
+            mins = mins % 60
+            return f"{hours:d}h{mins:02d}m{sec:02d}s" if hours else f"{mins:02d}:{sec:02d}"
+
+        match_groups: list[dict] = []
+        lines: list[str] = []
+        title_line = (
+            f"Match-Vorschlaege fuer Track #{t_id} '{t_title}' — Segment '{label_norm}'"
+        )
+        lines.append(title_line)
+        lines.append("=" * min(len(title_line), 70))
+        lines.append(f"Suchquery (Heuristik): \"{base_query}\"")
+        lines.append("")
+
+        try:
+            for seg in matching_segments[:max_segments]:
+                results = search_videos_by_text(base_query, top_k=top_n)
+
+                lines.append(
+                    f"{label_norm} bei [{_fmt_time(seg['start'])}-{_fmt_time(seg['end'])}]"
+                )
+                if not results:
+                    lines.append("  (keine Treffer — Vector-DB leer? `generate_embeddings` triggern)")
+                    match_groups.append({
+                        "segment": seg,
+                        "matches": [],
+                    })
+                    continue
+
+                seg_matches: list[dict] = []
+                for i, r in enumerate(results, 1):
+                    vp = r.get("video_path", "?")
+                    short = vp.rsplit("\\", 1)[-1].rsplit("/", 1)[-1]
+                    s_start = r.get("scene_start")
+                    s_end = r.get("scene_end")
+                    motion = r.get("motion_score")
+                    dist = r.get("_distance")
+
+                    meta_bits: list[str] = []
+                    if motion is not None:
+                        meta_bits.append(f"motion={motion:.2f}")
+                    if dist is not None:
+                        meta_bits.append(f"dist={dist:.3f}")
+                    meta_str = (" (" + ", ".join(meta_bits) + ")") if meta_bits else ""
+
+                    lines.append(
+                        f"  {i}. {short} [{_fmt_time(s_start)}-{_fmt_time(s_end)}]{meta_str}"
+                    )
+                    seg_matches.append({
+                        "video_path": vp,
+                        "scene_start": s_start,
+                        "scene_end": s_end,
+                        "motion_score": motion,
+                        "distance": dist,
+                    })
+                lines.append("")
+                match_groups.append({
+                    "segment": seg,
+                    "matches": seg_matches,
+                })
+        except Exception as inner:
+            _logger.warning(
+                "match_clips_to_segment: Search-Loop teilweise fehlgeschlagen: %s", inner
+            )
+            lines.append(f"(Such-Loop abgebrochen: {inner})")
+
+        if len(matching_segments) > max_segments:
+            lines.append(
+                f"(... + {len(matching_segments) - max_segments} weitere {label_norm}-Segmente "
+                f"nicht ausgewertet — max_segments-Cap)"
+            )
+
+        message = "\n".join(lines)
+
+        return {
+            "status": "ok",
+            "action": "match_clips_to_segment",
+            "track_id": t_id,
+            "title": t_title,
+            "segment_label": label_norm,
+            "segment_count": len(matching_segments),
+            "evaluated_count": min(len(matching_segments), max_segments),
+            "top_n": top_n,
+            "search_query": base_query,
+            "match_groups": match_groups,
+            "message": message,
+        }
+    except Exception as exc:  # broad catch intentional — DB + SigLIP + VectorDB errors
+        _logger.error("match_clips_to_segment fehlgeschlagen: %s", exc, exc_info=True)
+        return {
+            "status": "error",
+            "action": "match_clips_to_segment",
+            "message": f"Fehler: {exc}",
+        }

@@ -4,7 +4,7 @@ LIVE Ollama/LLM Integration Test fuer PB Studio.
 Testet JEDE Funktion einzeln gegen einen laufenden Ollama-Server.
 Wenn eine Funktion crasht, wird sie gefangen und der naechste Test laeuft weiter.
 
-Voraussetzung: Ollama laeuft auf localhost:11434 mit gemma4:e4b und/oder phi3:mini.
+Voraussetzung: Ollama laeuft auf localhost:11434 mit gemma3:4b und/oder phi3:mini.
 """
 
 import os
@@ -126,13 +126,13 @@ def test_ollama_client_list_models():
 
 
 def test_ollama_client_model_exists():
-    """Prueft ob gemma4:e4b oder phi3:mini verfuegbar ist."""
+    """Prueft ob gemma3:4b oder phi3:mini verfuegbar ist."""
     from services.ollama_client import OllamaClient
 
     client = OllamaClient()
     models = client.list_models()
 
-    target_models = ["gemma4:e4b", "phi3:mini"]
+    target_models = ["gemma3:4b", "phi3:mini"]
     found = [m for m in target_models if m in models]
     not_found = [m for m in target_models if m not in models]
 
@@ -191,26 +191,26 @@ def test_ollama_client_model_info():
 # ============================================================================
 
 def test_ollama_client_chat_gemma():
-    """Testet OllamaClient.chat() mit gemma4:e4b."""
+    """Testet OllamaClient.chat() mit gemma3:4b."""
     from services.ollama_client import OllamaClient
 
     client = OllamaClient()
     models = client.list_models()
 
-    if "gemma4:e4b" not in models:
-        return {"status": "FAIL", "response": "gemma4:e4b nicht installiert", "model": "gemma4:e4b", "error": "Modell nicht vorhanden"}
+    if "gemma3:4b" not in models:
+        return {"status": "FAIL", "response": "gemma3:4b nicht installiert", "model": "gemma3:4b", "error": "Modell nicht vorhanden"}
 
     reply = client.chat(
-        model="gemma4:e4b",
+        model="gemma3:4b",
         user_message="Hallo, was bist du? Antworte in einem Satz.",
         temperature=0.1,
         max_tokens=100,
     )
 
     if not reply or not reply.strip():
-        return {"status": "FAIL", "response": "Leere Antwort", "model": "gemma4:e4b", "error": "chat() returned empty string"}
+        return {"status": "FAIL", "response": "Leere Antwort", "model": "gemma3:4b", "error": "chat() returned empty string"}
 
-    return {"status": "PASS", "response": reply, "model": "gemma4:e4b"}
+    return {"status": "PASS", "response": reply, "model": "gemma3:4b"}
 
 
 def test_ollama_client_chat_phi3():
@@ -351,7 +351,7 @@ def test_ollama_client_supports_tools():
 
     # Bekannte Tool-faehige Modelle
     tool_capable = {
-        "gemma4:e4b": True,
+        "gemma3:4b": True,
         "phi3:mini": True,
         "llama3.1:8b": True,
         "qwen2.5:7b-instruct": True,
@@ -453,16 +453,16 @@ def test_ollama_service_chat():
             {"role": "system", "content": "Antworte in einem Satz."},
             {"role": "user", "content": "Was ist PB Studio?"},
         ],
-        model="gemma4:e4b",
+        model="gemma3:4b",
     )
 
     if not reply or not reply.strip():
-        return {"status": "FAIL", "response": "Leere Antwort", "model": "gemma4:e4b", "error": "chat() returned empty string"}
+        return {"status": "FAIL", "response": "Leere Antwort", "model": "gemma3:4b", "error": "chat() returned empty string"}
 
     if reply.startswith("Fehler:"):
-        return {"status": "FAIL", "response": reply, "model": "gemma4:e4b", "error": reply}
+        return {"status": "FAIL", "response": reply, "model": "gemma3:4b", "error": reply}
 
-    return {"status": "PASS", "response": reply, "model": "gemma4:e4b"}
+    return {"status": "PASS", "response": reply, "model": "gemma3:4b"}
 
 
 # ============================================================================
@@ -910,13 +910,13 @@ def test_ollama_service_ensure_model():
     if not svc.is_ready:
         return {"status": "FAIL", "response": "OllamaService nicht bereit", "model": "", "error": "Not ready"}
 
-    # Fuer gemma4:e4b (sollte schon installiert sein)
-    result = svc.ensure_model("gemma4:e4b")
+    # Fuer gemma3:4b (sollte schon installiert sein)
+    result = svc.ensure_model("gemma3:4b")
 
     return {
         "status": "PASS" if result else "FAIL",
-        "response": f"ensure_model('gemma4:e4b') = {result}",
-        "model": "gemma4:e4b",
+        "response": f"ensure_model('gemma3:4b') = {result}",
+        "model": "gemma3:4b",
         "error": "" if result else "ensure_model returned False",
     }
 
@@ -1002,7 +1002,7 @@ def main():
     run_test("1.7 OllamaClient Singleton", test_ollama_client_singleton)
 
     # --- Gruppe 2: Chat-Funktionen ---
-    run_test("2.1 OllamaClient.chat() — gemma4:e4b", test_ollama_client_chat_gemma)
+    run_test("2.1 OllamaClient.chat() — gemma3:4b", test_ollama_client_chat_gemma)
     run_test("2.2 OllamaClient.chat() — phi3:mini", test_ollama_client_chat_phi3)
     run_test("2.3 OllamaClient.chat() — System Prompt", test_ollama_client_chat_with_system_prompt)
     run_test("2.4 OllamaClient.chat_with_history()", test_ollama_client_chat_with_history)

@@ -45,8 +45,9 @@ logger = logging.getLogger(__name__)
 _BRAIN_SAFE_TOOLS: tuple[str, ...] = (
     "summarize_project",
     "describe_audio_track",
-    "describe_video_clip",     # B-245
-    "describe_set_overview",   # B-246
+    "describe_video_clip",       # B-245
+    "describe_set_overview",     # B-246 Phase 1
+    "match_clips_to_segment",    # B-246 Phase 2 — Cross-Modal SigLIP
     "explain_clip",
     "suggest_pacing",
     "search_video",
