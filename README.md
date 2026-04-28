@@ -1,3 +1,6 @@
+---
+related_bugs:
+---
 # PB Studio
 
 **v0.5.0** — Beat-synchronized video editing powered by AI
