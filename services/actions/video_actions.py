@@ -469,3 +469,194 @@ def generate_keyframe_strings_action(video_id: int | None = None) -> str:
     if video_id is not None:
         return generate_keyframe_string(video_id)
     return generate_keyframe_strings_for_project()
+
+
+# ---------------------------------------------------------------------------
+# B-245: describe_video_clip — DB-Read, Reihrer Caption/Mood/Tags-Block
+# ---------------------------------------------------------------------------
+
+@action_registry.register(
+    name="describe_video_clip",
+    description=(
+        "Beschreibt einen Video-Clip als lesbaren Text — Resolution, FPS, Dauer, "
+        "alle erkannten Szenen mit AI-Caption (Moondream/Gemma Vision), Mood, "
+        "Motion, Tags. Liest BEREITS analysierte Daten aus der DB (kein neuer "
+        "Pipeline-Lauf). Ideal fuer LLM-Kontext bei stummen Videos. "
+        "Nutze diese Aktion wenn der User nach 'Beschreibe Video', 'Was ist auf "
+        "Clip X', 'Clip-Inhalt', 'Welche Szenen sind im Video?' fragt."
+    ),
+    param_schema={
+        "type": "object",
+        "properties": {
+            "clip_id": {
+                "type": "integer",
+                "description": "ID des VideoClips in der Datenbank. OPTIONAL: wenn leer, erster Clip."
+            }
+        },
+        "required": []
+    }
+)
+def describe_video_clip(clip_id: int | None = None) -> dict:
+    """Liest einen analysierten VideoClip + Scenes aus der DB als Text-Block.
+
+    Schreibt nichts, triggert keine Worker. Wenn Caption-Daten fehlen
+    (Vision-Pipeline noch nicht durch), wird das im Output explizit
+    markiert — der LLM kann dann selbst entscheiden ob er
+    ``analyze_video_content`` triggert.
+    """
+    try:
+        from sqlalchemy.orm import Session as SASession
+        from database import engine, VideoClip, Scene
+
+        with SASession(engine) as session:
+            if clip_id:
+                clip = session.get(VideoClip, clip_id)
+            else:
+                clip = session.query(VideoClip).first()
+
+            if not clip:
+                return {
+                    "status": "error",
+                    "action": "describe_video_clip",
+                    "message": (
+                        "Kein VideoClip gefunden. Bitte zuerst Video importieren."
+                        if clip_id is None
+                        else f"VideoClip {clip_id} nicht in DB."
+                    ),
+                }
+
+            scenes = (
+                session.query(Scene)
+                .filter_by(video_clip_id=clip.id)
+                .order_by(Scene.start_time)
+                .all()
+            )
+
+            c_id = clip.id
+            c_title = getattr(clip, "title", None) or clip.file_path.rsplit("\\", 1)[-1].rsplit("/", 1)[-1]
+            c_dur = clip.duration
+            c_w = clip.width
+            c_h = clip.height
+            c_fps = clip.fps
+            c_codec = clip.codec
+            c_proxy = bool(clip.proxy_path)
+
+            scene_data = []
+            for s in scenes:
+                scene_data.append({
+                    "start": s.start_time,
+                    "end": s.end_time,
+                    "label": s.label,
+                    "energy": s.energy,
+                    "ai_caption": s.ai_caption,  # JSON: {description, mood, motion, tags}
+                    "ai_mood": s.ai_mood,
+                    "ai_tags": s.ai_tags,
+                })
+
+        # Format
+        def _fmt_time(secs: float | None) -> str:
+            if secs is None:
+                return "?"
+            mins = int(secs // 60)
+            sec = int(secs % 60)
+            hours = mins // 60
+            mins = mins % 60
+            return f"{hours:d}h{mins:02d}m{sec:02d}s" if hours else f"{mins:02d}:{sec:02d}"
+
+        lines: list[str] = []
+        title_line = f"Video #{c_id}: {c_title}"
+        if c_dur:
+            title_line += f" ({_fmt_time(c_dur)}"
+            if c_w and c_h:
+                title_line += f", {c_w}x{c_h}"
+            if c_fps:
+                title_line += f"@{c_fps:.0f}fps"
+            title_line += ")"
+        lines.append(title_line)
+        lines.append("=" * min(len(title_line), 70))
+
+        if c_codec:
+            lines.append(f"Codec: {c_codec}")
+        lines.append(f"Proxy: {'erstellt' if c_proxy else 'nicht erstellt'}")
+
+        if not scene_data:
+            lines.append("")
+            lines.append("Szenen: noch nicht erkannt (`detect_scenes` ausfuehren)")
+        else:
+            captioned = sum(1 for s in scene_data if s["ai_caption"] or s["label"])
+            lines.append("")
+            lines.append(f"Szenen: {len(scene_data)} erkannt, {captioned} mit AI-Caption")
+            if captioned < len(scene_data):
+                lines.append(
+                    f"Hinweis: {len(scene_data) - captioned} Szenen ohne AI-Caption — "
+                    f"`analyze_video_content` triggern fuer Vollstaendigkeit."
+                )
+
+            lines.append("")
+            lines.append("Szenen-Timeline:")
+            max_show = 25
+            for s in scene_data[:max_show]:
+                tr = f"[{_fmt_time(s['start'])}-{_fmt_time(s['end'])}]"
+                meta_bits: list[str] = []
+                if s["energy"] is not None:
+                    meta_bits.append(f"energy: {s['energy']:.2f}")
+                if s["ai_mood"]:
+                    meta_bits.append(f"mood: {s['ai_mood']}")
+
+                # ai_caption ist JSON dict {description, mood, motion, tags}
+                cap = s["ai_caption"]
+                description = ""
+                motion = None
+                tags_list: list[str] = []
+                if isinstance(cap, dict):
+                    description = cap.get("description", "") or ""
+                    motion = cap.get("motion")
+                    tags_list = cap.get("tags") or []
+                elif isinstance(cap, str) and cap:
+                    description = cap
+                if motion:
+                    meta_bits.append(f"motion: {motion}")
+
+                # Fallback: ai_tags-Feld wenn keine im caption-dict
+                if not tags_list and s["ai_tags"]:
+                    if isinstance(s["ai_tags"], list):
+                        tags_list = s["ai_tags"]
+
+                meta_str = f" ({', '.join(meta_bits)})" if meta_bits else ""
+                label_or_desc = description or s["label"] or "(keine Beschreibung)"
+                lines.append(f"  {tr}{meta_str}")
+                lines.append(f"     {label_or_desc}")
+                if tags_list:
+                    lines.append(f"     Tags: {', '.join(tags_list[:8])}")
+
+            if len(scene_data) > max_show:
+                lines.append(f"  ... + {len(scene_data) - max_show} weitere Szenen")
+
+        message = "\n".join(lines)
+
+        # Stats fuer LLM-Konsumenten
+        captioned_count = sum(1 for s in scene_data if s["ai_caption"] or s["label"])
+        moods_seen = sorted({s["ai_mood"] for s in scene_data if s["ai_mood"]})
+
+        return {
+            "status": "ok",
+            "action": "describe_video_clip",
+            "clip_id": c_id,
+            "title": c_title,
+            "duration": c_dur,
+            "resolution": f"{c_w}x{c_h}" if c_w and c_h else None,
+            "fps": c_fps,
+            "scene_count": len(scene_data),
+            "captioned_count": captioned_count,
+            "captions_complete": (captioned_count == len(scene_data) and len(scene_data) > 0),
+            "moods_seen": moods_seen,
+            "proxy_ready": c_proxy,
+            "message": message,
+        }
+    except Exception as exc:  # broad catch intentional — SQLAlchemy + format errors
+        _logger.error("describe_video_clip fehlgeschlagen: %s", exc, exc_info=True)
+        return {
+            "status": "error",
+            "action": "describe_video_clip",
+            "message": f"Fehler: {exc}",
+        }

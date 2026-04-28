@@ -41,9 +41,12 @@ logger = logging.getLogger(__name__)
 # Trigger-Tools (Worker-Spawns), destruktive Aktionen und auto_edit/export
 # sind ausgeschlossen — Brain darf Daten lesen, aber keine Pipelines
 # eigenmaechtig starten.
+# B-245 + B-246: describe_video_clip + describe_set_overview ergaenzt.
 _BRAIN_SAFE_TOOLS: tuple[str, ...] = (
     "summarize_project",
     "describe_audio_track",
+    "describe_video_clip",     # B-245
+    "describe_set_overview",   # B-246
     "explain_clip",
     "suggest_pacing",
     "search_video",

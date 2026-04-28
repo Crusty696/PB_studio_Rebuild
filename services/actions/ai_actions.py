@@ -636,3 +636,220 @@ def explain_clip(clip_id: int) -> dict:
     except Exception as exc:  # broad catch intentional — DB + vision service + file errors
         _logger.error("explain_clip fehlgeschlagen: %s", exc, exc_info=True)
         return {"status": "error", "action": "explain_clip", "message": str(exc)}
+
+
+# ---------------------------------------------------------------------------
+# B-246 Phase 1: describe_set_overview — Audio-Strukturpunkte + Video-Pool
+# ---------------------------------------------------------------------------
+
+@action_registry.register(
+    name="describe_set_overview",
+    description=(
+        "Kombinierte Sicht eines DJ-Sets: Audio-Strukturpunkte (Drops, "
+        "Breakdowns, Buildups mit Zeitstempeln) plus Video-Pool-Status "
+        "(verfuegbare Clips, Scene-Caption-Coverage, dominante Visual-Moods). "
+        "Liefert dem Brain die Daten, um auf Fragen wie 'Welche Drops gibt es "
+        "und welche Clips passen visuell?' antworten zu koennen. "
+        "Nutze diese Aktion bei 'Set-Uebersicht', 'Mix beschreiben', "
+        "'Drops mit Videos', 'Was passt zu welchem Drop?'."
+    ),
+    param_schema={
+        "type": "object",
+        "properties": {
+            "track_id": {
+                "type": "integer",
+                "description": "ID des AudioTracks (DJ-Mix). OPTIONAL: wenn leer, erster Track des Projekts."
+            }
+        },
+        "required": []
+    }
+)
+def describe_set_overview(track_id: int | None = None) -> dict:
+    """Erzeugt einen kombinierten Audio+Video-Ueberblick fuer das Brain.
+
+    Cross-Modal-Sicht ohne Embeddings-Magic — reine DB-Aggregate. Phase 2
+    (echte Cross-Modal-Suche via SigLIP) waere ein eigenes Tool.
+
+    Phase 1: Audio-Strukturpunkte mit Zeitstempel + Video-Pool-Statistik
+    + Visual-Mood-Histogramm. Damit kann der LLM bei "Drop bei 32:15" zumindest
+    sagen welche Clips/Moods im Pool verfuegbar sind.
+    """
+    try:
+        from sqlalchemy.orm import Session as SASession
+        from collections import Counter
+        from database import engine, AudioTrack, VideoClip, Scene, StructureSegment
+
+        with SASession(engine) as session:
+            # 1. Audio-Track + Struktur
+            if track_id:
+                track = session.get(AudioTrack, track_id)
+            else:
+                track = session.query(AudioTrack).first()
+
+            if not track:
+                return {
+                    "status": "error",
+                    "action": "describe_set_overview",
+                    "message": "Kein AudioTrack gefunden. Bitte zuerst Audio importieren.",
+                }
+
+            t_id = track.id
+            t_title = track.title or "(unbenannt)"
+            t_dur = track.duration
+            t_bpm = track.bpm
+            t_genre = track.genre
+            t_is_dj = track.is_dj_mix
+            t_project_id = track.project_id
+
+            segments = (
+                session.query(StructureSegment)
+                .filter_by(audio_track_id=t_id)
+                .order_by(StructureSegment.start_time)
+                .all()
+            )
+            seg_data = [
+                {"start": s.start_time, "end": s.end_time, "label": s.label or "?"}
+                for s in segments
+            ]
+
+            # 2. Video-Pool im selben Projekt
+            video_clips = (
+                session.query(VideoClip)
+                .filter_by(project_id=t_project_id)
+                .all()
+            )
+            clip_count = len(video_clips)
+            total_video_dur = sum((c.duration or 0.0) for c in video_clips)
+            clip_ids = [c.id for c in video_clips]
+
+            # 3. Scenes-Aggregat
+            scenes_q = session.query(Scene).filter(Scene.video_clip_id.in_(clip_ids)) if clip_ids else None
+            if scenes_q:
+                scenes = scenes_q.all()
+            else:
+                scenes = []
+            scene_count = len(scenes)
+            captioned_scenes = [s for s in scenes if s.ai_caption or s.label]
+            mood_hist = Counter(s.ai_mood for s in scenes if s.ai_mood)
+            high_energy_scenes = [s for s in scenes if (s.energy or 0.0) > 0.7]
+
+        # Format
+        def _fmt_time(secs: float | None) -> str:
+            if secs is None:
+                return "?"
+            mins = int(secs // 60)
+            sec = int(secs % 60)
+            hours = mins // 60
+            mins = mins % 60
+            return f"{hours:d}h{mins:02d}m{sec:02d}s" if hours else f"{mins:02d}:{sec:02d}"
+
+        lines: list[str] = []
+        title_line = f"Set-Ueberblick — Track #{t_id}: {t_title}"
+        lines.append(title_line)
+        lines.append("=" * min(len(title_line), 70))
+
+        # Audio-Header
+        audio_meta: list[str] = []
+        if t_dur:
+            audio_meta.append(f"Dauer: {_fmt_time(t_dur)}")
+        if t_bpm:
+            audio_meta.append(f"BPM: {t_bpm:.1f}")
+        if t_genre:
+            audio_meta.append(f"Genre: {t_genre}")
+        if t_is_dj is not None:
+            audio_meta.append(f"DJ-Mix: {'ja' if t_is_dj else 'nein'}")
+        if audio_meta:
+            lines.append(" | ".join(audio_meta))
+
+        # Audio-Strukturpunkte
+        drops = [s for s in seg_data if "drop" in s["label"].lower()]
+        breakdowns = [s for s in seg_data if "breakdown" in s["label"].lower()]
+        buildups = [s for s in seg_data if "buildup" in s["label"].lower()]
+
+        lines.append("")
+        if not seg_data:
+            lines.append("Audio-Struktur: noch nicht analysiert (`detect_structure` ausfuehren).")
+        else:
+            stats: list[str] = []
+            if drops:
+                stats.append(f"{len(drops)} Drops")
+            if breakdowns:
+                stats.append(f"{len(breakdowns)} Breakdowns")
+            if buildups:
+                stats.append(f"{len(buildups)} Buildups")
+            stats_str = ", ".join(stats) if stats else f"{len(seg_data)} Segmente"
+            lines.append(f"Audio-Struktur: {stats_str}")
+
+            if drops:
+                lines.append("Drops-Timeline:")
+                for d in drops[:15]:
+                    lines.append(f"  [{_fmt_time(d['start'])}-{_fmt_time(d['end'])}] {d['label']}")
+                if len(drops) > 15:
+                    lines.append(f"  ... + {len(drops) - 15} weitere Drops")
+
+        # Video-Pool
+        lines.append("")
+        if clip_count == 0:
+            lines.append("Video-Pool: keine Clips importiert.")
+        else:
+            lines.append(
+                f"Video-Pool: {clip_count} Clips ({_fmt_time(total_video_dur)} Material gesamt), "
+                f"{scene_count} Szenen erkannt, {len(captioned_scenes)} mit AI-Caption"
+            )
+            if scene_count and len(captioned_scenes) < scene_count:
+                lines.append(
+                    f"Hinweis: {scene_count - len(captioned_scenes)} Szenen ohne Caption "
+                    f"(`analyze_video_content` triggern fuer Vollstaendigkeit)."
+                )
+
+            # Mood-Histogramm
+            if mood_hist:
+                top_moods = mood_hist.most_common(6)
+                mood_str = ", ".join(f"{m}:{c}" for m, c in top_moods)
+                lines.append(f"Visual-Moods im Pool: {mood_str}")
+
+            if high_energy_scenes:
+                lines.append(
+                    f"High-Energy-Szenen (energy > 0.7): {len(high_energy_scenes)} — "
+                    f"Match-Kandidaten fuer Drops."
+                )
+
+        # Cross-Modal-Hint (Phase 1: nur Aggregat-Hinweis)
+        if drops and high_energy_scenes:
+            lines.append("")
+            lines.append(
+                f"Vorlauefiger Match-Hinweis: {len(drops)} Drops im Audio-Track, "
+                f"{len(high_energy_scenes)} energetische Video-Szenen verfuegbar. "
+                f"Eine echte Cross-Modal-Zuweisung ueber SigLIP-Embeddings ist als "
+                f"separates Tool geplant (B-246 Phase 2)."
+            )
+
+        message = "\n".join(lines)
+
+        return {
+            "status": "ok",
+            "action": "describe_set_overview",
+            "track_id": t_id,
+            "title": t_title,
+            "duration": t_dur,
+            "bpm": t_bpm,
+            "genre": t_genre,
+            "is_dj_mix": t_is_dj,
+            "drop_count": len(drops),
+            "breakdown_count": len(breakdowns),
+            "buildup_count": len(buildups),
+            "video_clip_count": clip_count,
+            "total_video_duration": total_video_dur,
+            "scene_count": scene_count,
+            "captioned_scene_count": len(captioned_scenes),
+            "high_energy_scene_count": len(high_energy_scenes),
+            "mood_histogram": dict(mood_hist),
+            "message": message,
+        }
+    except Exception as exc:  # broad catch intentional — DB-Reads + aggregate errors
+        _logger.error("describe_set_overview fehlgeschlagen: %s", exc, exc_info=True)
+        return {
+            "status": "error",
+            "action": "describe_set_overview",
+            "message": f"Fehler: {exc}",
+        }
