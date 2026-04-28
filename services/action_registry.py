@@ -318,6 +318,53 @@ class ActionRegistry:
             )
             raise
 
+    def build_tool_definitions(
+        self,
+        names: list[str] | None = None,
+    ) -> list[dict]:
+        """B-243: Erzeugt OpenAI-/Ollama-kompatible Tool-Definitionen fuer Function-Calling.
+
+        Args:
+            names: Wenn gesetzt, werden nur diese Aktionen exportiert
+                   (Whitelist-Pattern). None = alle registrierten Aktionen.
+
+        Returns:
+            Liste von Tool-Definitionen im Format::
+
+                [
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "<action-name>",
+                            "description": "<action-description>",
+                            "parameters": <param_schema-json-schema>,
+                        },
+                    },
+                    ...
+                ]
+
+            Direkt verwendbar als ``tools=...``-Argument in
+            ``OllamaClient.chat_with_tools(...)``.
+        """
+        with self._lock:  # B-132
+            if names is None:
+                actions = list(self._actions.values())
+            else:
+                wanted = set(names)
+                actions = [a for a in self._actions.values() if a.name in wanted]
+
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": a.name,
+                    "description": a.description,
+                    "parameters": a.param_schema,
+                },
+            }
+            for a in actions
+        ]
+
     def get_schema_for_prompt(self) -> str:
         """Erzeugt eine kompakte Beschreibung aller Aktionen für den KI-System-Prompt.
 
