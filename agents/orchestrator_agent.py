@@ -494,13 +494,16 @@ class OrchestratorAgent(BaseAgent):
             return None
 
         # System-Prompt + DB-Kontext (summarize_project)
+        logger.info("Tool-Use-Loop: starte mit model=%s, %d tools", model, len(tool_defs))
         system_content = _TOOL_USE_SYSTEM_PROMPT
         try:
+            logger.info("Tool-Use-Loop: rufe summarize_project fuer DB-Kontext")
             proj = action_registry.execute("summarize_project", {})
             if isinstance(proj, dict) and proj.get("status") == "ok":
                 system_content += "\n\nAktueller Projekt-Stand:\n" + proj.get("message", "")
+                logger.info("Tool-Use-Loop: DB-Kontext injiziert (%d chars)", len(system_content))
         except Exception as e:  # broad catch — context-injection darf nicht den ganzen Pfad kippen
-            logger.debug("summarize_project im Tool-Use-Setup fehlgeschlagen: %s", e)
+            logger.warning("Tool-Use-Loop: summarize_project im Setup fehlgeschlagen: %s", e)
 
         messages: list[dict] = [
             {"role": "system", "content": system_content},
@@ -508,6 +511,7 @@ class OrchestratorAgent(BaseAgent):
         ]
 
         for iter_idx in range(max_iters):
+            logger.info("Tool-Use-Loop Iter %d/%d: chat_with_tools call beginnt", iter_idx + 1, max_iters)
             try:
                 result = oc.chat_with_tools(
                     model=model,
@@ -517,8 +521,12 @@ class OrchestratorAgent(BaseAgent):
                     temperature=0.1,
                     max_tokens=1024,
                 )
+                logger.info(
+                    "Tool-Use-Loop Iter %d: chat_with_tools zurueck, type=%s, tool_calls=%d",
+                    iter_idx + 1, result.get("type"), len(result.get("tool_calls") or []),
+                )
             except OllamaError as e:
-                logger.warning("Tool-Use-Loop Iter %d Fehler: %s", iter_idx, e)
+                logger.warning("Tool-Use-Loop Iter %d OllamaError: %s", iter_idx, e)
                 return None
             except Exception as e:  # broad catch — Tool-Use ist Best-Effort
                 logger.warning("Tool-Use-Loop Iter %d unerwarteter Fehler: %s", iter_idx, e)
@@ -560,10 +568,12 @@ class OrchestratorAgent(BaseAgent):
                     )
                 else:
                     try:
+                        logger.info("Tool-Use-Loop: execute tool=%s, args=%s", tool_name, tool_args)
                         tool_result = action_registry.execute(tool_name, tool_args)
                         tool_content = json.dumps(
                             tool_result, default=str, ensure_ascii=False
                         )
+                        logger.info("Tool-Use-Loop: tool=%s OK, result-len=%d", tool_name, len(tool_content))
                     except Exception as e:  # broad catch — Tool-Fehler durchreichen, nicht crashen
                         tool_content = f"Fehler beim Aufruf von {tool_name}: {e}"
                         logger.warning(

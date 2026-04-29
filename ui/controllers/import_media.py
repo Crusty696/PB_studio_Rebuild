@@ -44,13 +44,17 @@ class ImportMediaController(PBComponent):
     """Media import methods for PBWindow."""
 
     def _import_video(self):
+        logger.info("ImportMedia._import_video: Klick angekommen, oeffne FileDialog")
         ext_filter = "Video-Dateien (" + " ".join(f"*{e}" for e in VIDEO_EXTENSIONS) + ")"
         paths, _ = QFileDialog.getOpenFileNames(self.window, "Videos importieren", "", ext_filter)
+        logger.info("ImportMedia._import_video: FileDialog geschlossen, %d Dateien gewaehlt", len(paths))
         self._process_imports(paths, "video")
 
     def _import_audio(self):
+        logger.info("ImportMedia._import_audio: Klick angekommen, oeffne FileDialog")
         ext_filter = "Audio-Dateien (" + " ".join(f"*{e}" for e in AUDIO_EXTENSIONS) + ")"
         paths, _ = QFileDialog.getOpenFileNames(self.window, "Audio importieren", "", ext_filter)
+        logger.info("ImportMedia._import_audio: FileDialog geschlossen, %d Dateien gewaehlt", len(paths))
         self._process_imports(paths, "audio")
 
     def _process_imports(self, paths: list[str], media_type: str):
@@ -92,9 +96,12 @@ class ImportMediaController(PBComponent):
         Main-Thread bei grossen Ordnerbaeumen (NAS / 1000+ Files)
         mehrere Sekunden ein.
         """
+        logger.info("ImportMedia._import_folder: Klick angekommen, oeffne Folder-Dialog")
         folder = QFileDialog.getExistingDirectory(self.window, "Ordner importieren")
         if not folder:
+            logger.info("ImportMedia._import_folder: User hat Folder-Dialog abgebrochen")
             return
+        logger.info("ImportMedia._import_folder: Ordner gewaehlt: %s", folder)
         self.window.console_text.append(f"[Ordner] Scanne {folder} ...")
         self.window.status_bar.showMessage(f"Scanne Ordner {folder} ...")
 
@@ -178,6 +185,12 @@ class ImportMediaController(PBComponent):
         explizit verbunden — vorher wurde _on_done nie gerufen
         (MediaTable bleibt stale + Re-Lock-Pfad fehlte).
         """
+        logger.info(
+            "ImportMedia._delete_selected_media: Klick angekommen, pool=%s, "
+            "delete_in_progress=%s",
+            pool,
+            getattr(self, "_delete_in_progress", False),
+        )
         from PySide6.QtWidgets import QMessageBox
 
         # B-248: Re-Entrancy-Guard — zweiten Klick waehrend laufendem Loeschen

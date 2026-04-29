@@ -20,6 +20,10 @@ class PanelSetupController(PBComponent):
         Inner-Container via .widget() und packen den ins QTabWidget. Das
         QDockWidget-Object selbst wird nicht in's MainWindow added — bleibt
         als Logik-Container fuer Signals (cancel_requested, _add_task, etc.).
+
+        B-252: Das DockWidget-Object selbst wird hide()'d, sonst rendert Qt
+        es als minimiertes leeres Fenster im MainWindow-Eck (User-Report:
+        "zwei minimierte fenster auf hoehe der video/audio-reiter").
         """
         self.window._task_mgr_dock = TaskManagerDock(self.window)
         self.window._task_mgr_dock.cancel_requested.connect(self.window.worker_dispatcher._cancel_worker_for_task)
@@ -29,6 +33,8 @@ class PanelSetupController(PBComponent):
         self.window.right_panel.addTab(task_w, "TASKS")
         self.window._task_panel_widget = task_w
         self.window.task_dock = task_w
+        # B-252: leeres DockWidget-Geistershell ausblenden
+        self.window._task_mgr_dock.hide()
         # show_dock_requested → bringt TASKS-Tab nach vorn
         def _focus_tasks():
             for i in range(self.window.right_panel.count()):
@@ -68,13 +74,20 @@ class PanelSetupController(PBComponent):
         self._console_timer.start()
 
     def setup_chat_dock(self):
-        """P9-Step2: ChatDock-Inhalt als CHAT-Tab im Right-Panel."""
+        """P9-Step2: ChatDock-Inhalt als CHAT-Tab im Right-Panel.
+
+        B-252: Wie bei setup_task_dock — das ChatDock-QDockWidget-Object
+        selbst wird hide()'d, sonst rendert Qt es als zweites leeres
+        minimiertes Fenster im MainWindow-Eck.
+        """
         self.window.chat_dock = ChatDock(self.window)
         chat_w = self.window.chat_dock.widget()
         chat_w.setParent(self.window.right_panel)
         # CHAT zuerst → erster Tab (Chat = primaerer Sidebar-Use-Case)
         self.window.right_panel.insertTab(0, chat_w, "CHAT")
         self.window.right_panel.setCurrentIndex(0)
+        # B-252: leeres DockWidget-Geistershell ausblenden
+        self.window.chat_dock.hide()
 
         # MainWindow-Referenz fuer direkte Kommandos (analysiere, schneide, etc.)
         self.window.chat_dock.set_main_window(self.window)
