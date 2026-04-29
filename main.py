@@ -360,6 +360,11 @@ class PBWindow(QMainWindow):
         self.panel_setup.setup_task_dock()
         self.panel_setup.setup_console()
         self.panel_setup.setup_chat_dock()
+        # B-253: globaler Listener auf analysis_status_service.mark_completed,
+        # triggert UI-Refresh nach Pipeline-Done (egal ob UI-Button oder
+        # ActionRegistry-Pfad). Loest insbesondere das stem_separation-
+        # Refresh-Loch.
+        self.panel_setup.setup_analysis_completion_bridge()
 
         # P9-Step2: Toggle-Buttons in Top-Bar wechseln den aktiven Tab im
         # Right-Panel statt Sichtbarkeit zu togglen. Right-Panel selbst

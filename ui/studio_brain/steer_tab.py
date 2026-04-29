@@ -770,13 +770,17 @@ class SteerTab(QWidget):
         expose the simplest path that still lets the user curate pins by
         hand.
         """
+        # B-254: PySide6 QInputDialog.getInt akzeptiert KEINE keyword-args
+        # 'min'/'max' (war PyQt5-Pattern). Korrekte PySide6-Signatur:
+        #   getInt(parent, title, label, value=0, minValue=..., maxValue=..., step=1, flags=...)
+        # Positional uebergeben ist robust gegen Versionsunterschiede.
         scene_id, ok = QInputDialog.getInt(
             self,
             "Pin hinzufügen",
             "Szenen-ID:",
-            value=1,
-            min=0,  # type: ignore[call-arg]
-            max=10_000_000,
+            1,           # value
+            0,           # minValue
+            10_000_000,  # maxValue
         )
         if not ok:
             return
