@@ -616,11 +616,24 @@ _VISION_MODEL = "moondream:latest"
 
 _CAPTION_SYSTEM_PROMPT = """\
 You are a video scene analyzer for a DJ/music video editor.
-Analyze the provided keyframe(s) and return ONLY valid JSON (no markdown, no extra text):
-{"description": "<1-2 sentence scene description>", "mood": "<energetic|calm|dramatic|ambient>", "motion": "<static|slow|medium|fast>", "tags": ["<tag1>", "<tag2>", "<tag3>"]}
+Analyze the provided keyframe(s) and respond with EXACTLY ONE JSON object.
+Do not write any text before or after the JSON. Do not use markdown fences.
+Do not explain. Output ONLY the JSON object.
+
+Schema (all four fields required):
+{"description": "...", "mood": "...", "motion": "...", "tags": [...]}
+
+Field rules:
+- description: 1-2 short English sentences describing what is visible
+- mood: one of energetic, calm, dramatic, ambient
+- motion: one of static, slow, medium, fast
+- tags: 3 to 6 short lowercase strings
+
+Example:
+{"description": "A lone dancer silhouetted against pulsing red strobe lights.", "mood": "energetic", "motion": "fast", "tags": ["dancer", "strobe", "club", "silhouette"]}
 """
 
-_CAPTION_USER_PROMPT = "Analyze this DJ/music video scene. Return JSON only."
+_CAPTION_USER_PROMPT = "Describe this scene as JSON. Reply with the JSON object only."
 
 
 def _encode_keyframe_base64(image_path: str) -> str | None:
@@ -721,11 +734,35 @@ def analyze_scene_with_caption(
             elif "{" in cleaned:
                 cleaned = cleaned[cleaned.find("{"):cleaned.rfind("}")+1]
 
-            parsed = json.loads(cleaned)
+            # B-249: Tolerant-Parsing. Wenn das Vision-Modell freien Text
+            # liefert statt JSON (typisch fuer Moondream / kleinere Vision-LLMs
+            # die das Schema ignorieren), dann den Plain-Text als
+            # ``description`` uebernehmen statt die Szene zu skippen.
+            # Damit erreichen wir 100 % Pipeline-Coverage auch ohne
+            # mood/motion/tags — User sieht zumindest die Beschreibung.
+            try:
+                parsed = json.loads(cleaned)
+            except json.JSONDecodeError:
+                fallback_text = raw.strip()
+                if fallback_text:
+                    parsed = {
+                        "description": fallback_text[:500],
+                        "mood": None,
+                        "motion": None,
+                        "tags": [],
+                    }
+                    logger.info(
+                        "[CAPTION] Szene %d: Plain-Text-Fallback (Modell '%s' lieferte "
+                        "kein JSON), %d Zeichen description.",
+                        scene.index, vision_model, len(parsed["description"]),
+                    )
+                else:
+                    raise  # leerer Response -> echter Fehler, Circuit-Breaker greift
+
             if isinstance(parsed, dict):
                 scene.ai_caption = parsed
                 scene.ai_mood = parsed.get("mood")
-                scene.ai_tags = parsed.get("tags", [])
+                scene.ai_tags = parsed.get("tags", []) or []
                 logger.debug(
                     "[CAPTION] Szene %d: mood=%s",
                     scene.index, scene.ai_mood,

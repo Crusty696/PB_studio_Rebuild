@@ -553,31 +553,72 @@ class OllamaClient:
     # Tool-Use / Function-Calling (AP-5)
     # ------------------------------------------------------------------
 
+    # B-247: In-Memory-Cache fuer Modelle die Ollama als "no tools" abgelehnt
+    # hat (HTTP 400 "does not support tools" beim chat_with_tools-Call).
+    # supports_tools() konsultiert diesen Cache und liefert sofort False.
+    _NO_TOOLS_CACHE: set[str] = set()
+
+    @classmethod
+    def mark_model_no_tools(cls, model: str) -> None:
+        """B-247: Modell als 'kein Tool-Support' markieren (Caller bei HTTP 400)."""
+        if model:
+            cls._NO_TOOLS_CACHE.add(model.lower())
+
     def supports_tools(self, model: str) -> bool:
         """Prüft ob ein Modell Tool-Use / Function-Calling unterstützt.
 
-        Qwen2.5+, Qwen3+, Llama 3+, Mistral 0.3+, Phi3 und Gemma 2/3/4
-        unterstützen Tool-Use. Kleine Modelle (<1B) unterstützen es
-        oft NICHT zuverlässig.
+        Reihenfolge:
+        1. Hard Negativ-Liste fuer offizielle Modelle ohne Tool-Capability
+           (phi3, gemma2, gemma3) — diese melden bei Ollama explizit
+           HTTP 400 "does not support tools".
+        2. Cache aus chat_with_tools-Failures (B-247).
+        3. Substring-Match auf bekannte Tool-Use-Familien.
+        4. Default: False.
 
-        B-239: Erkennung erfolgt jetzt SUBSTRING-basiert (vorher Prefix),
-        damit Community-Tags wie ``fredrezones55/Gemma-4-...:e2b`` oder
-        ``tripolskypetr/qwen3.5-uncensored-aggressive:4b`` ebenfalls
-        erkannt werden — sonst wuerde der Tool-Use-Pfad uebersprungen
-        und auf brittle JSON-Freitext-Parsing zurueckgefallen.
+        B-247 (CRITICAL): Hard Negativ-Liste verhindert HTTP-400-Loop in
+        ``LocalAgentService.process()`` -> ChatDock-Send-Button macht nichts.
+        Vorher hat die reine Substring-Heuristik ``phi3:mini`` und
+        ``gemma3:4b`` als True gemeldet, Ollama lehnt aber ab.
+
+        B-239: Substring-basiert (vorher Prefix), damit Community-Tags mit
+        eingebautem Tool-Support erkannt werden (z.B.
+        ``fredrezones55/Gemma-4-Uncensored-...:e2b`` oder
+        ``tripolskypetr/qwen3.5-uncensored-aggressive:4b``).
         """
+        model_lower = model.lower()
+
+        # B-247 Hard-Negativ: offizielle Modelle ohne Tool-Capability.
+        # Pattern matcht nur "phi3:mini", "gemma3:4b" — NICHT
+        # "fredrezones55/phi3-with-tools:custom" (Slash davor).
+        OFFICIAL_NO_TOOLS_PREFIXES = (
+            "phi3:", "phi-3:", "phi3.5:", "phi-3.5:",
+            "gemma2:", "gemma-2:",
+            "gemma3:", "gemma-3:",
+        )
+        for prefix in OFFICIAL_NO_TOOLS_PREFIXES:
+            if model_lower.startswith(prefix):
+                return False
+
+        # B-247: Cache aus chat_with_tools-Failures (HTTP 400 "does not support tools")
+        if model_lower in self._NO_TOOLS_CACHE:
+            return False
+
+        # Substring-Match (Community-Tags mit eingebautem Tool-Support
+        # + offizielle Tool-faehige Modelle wie Qwen 2.5+, Llama 3.1+, Mistral).
+        # phi3 / gemma2 / gemma3 sind oben in der Hard-Negativ-Liste — Custom-Tags
+        # mit eingebautem Tool-Support muessen via Path-Pattern (Slash) erkannt
+        # werden ODER per User-Setting opt-in aktiviert werden.
         supported_substrings = [
             "qwen2.5", "qwen2:", "qwen3", "qwen3.5",
             "llama3.1", "llama3.2", "llama3.3",
             "mistral",
-            "phi3",
-            "gemma2", "gemma-2", "gemma3", "gemma-3", "gemma4", "gemma-4",
+            # Gemma-4-Community-Tags wie fredrezones55/Gemma-4-Uncensored-...
+            "gemma4", "gemma-4",
         ]
-        model_lower = model.lower()
         for needle in supported_substrings:
             if needle in model_lower:
                 # Kleine Modelle ausschliessen (<1B Parameter)
-                if any(tiny in model_lower for tiny in [":0.5b", "0.5b-", "-0.5b"]):
+                if any(tiny in model_lower for tiny in [":0.5b", ":0.6b"]):
                     return False
                 return True
         return False
@@ -696,6 +737,25 @@ class OllamaClient:
                     "raw": data,
                 }
 
+        except urllib.error.HTTPError as e:
+            # B-247: Bei HTTP 400 "does not support tools" das Modell in den
+            # No-Tools-Cache schreiben, damit naechste supports_tools()-Calls
+            # direkt False liefern und der Caller (LocalAgentService) auf
+            # plain chat() ohne Tools faellt — statt erneut HTTP 400 zu rufen.
+            try:
+                body = e.read().decode("utf-8", errors="replace")
+            except Exception:
+                body = ""
+            if "does not support tools" in body.lower():
+                type(self).mark_model_no_tools(model)
+                logger.warning(
+                    "OllamaClient.chat_with_tools: Modell '%s' unterstuetzt "
+                    "keine Tools (HTTP 400) — in _NO_TOOLS_CACHE aufgenommen. "
+                    "Naechste supports_tools()-Calls liefern False.", model
+                )
+            raise OllamaNotAvailableError(
+                f"Ollama HTTP {e.code} {e.reason} (model='{model}'): {body[:200]}"
+            ) from e
         except urllib.error.URLError as e:
             raise OllamaNotAvailableError(f"Ollama nicht erreichbar: {e}") from e
         except json.JSONDecodeError as e:
