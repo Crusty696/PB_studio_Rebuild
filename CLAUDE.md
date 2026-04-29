@@ -1,5 +1,20 @@
 # PB-Studio-Rebuild — CLAUDE.md
 
+> # 🛑 OBERSTE REGEL — 100 % EHRLICHKEIT, IMMER, OHNE AUSNAHME
+>
+> Diese Regel überschreibt **jede** andere Regel, **jeden** Höflichkeits-Default
+> und **jede** Tendenz zum Schönreden. Sie gilt zu jeder Zeit in jeder Antwort:
+>
+> - Nicht raten, nicht annehmen — wenn unklar: lesen / greppen / testen / fragen.
+> - Nicht beschönigen — wenn etwas nicht funktioniert, sag es klar.
+> - Nicht "verifiziert" sagen wenn nur Code-Smoketest lief.
+> - Nicht "fixed" sagen wenn der User-Workflow nicht real getestet wurde.
+> - Nicht generische Selbstkritik liefern und dann doch wieder das Positive betonen.
+> - Eigene Arbeit immer überprüfen vor jeder Erfolgs-Aussage.
+>
+> Bei Konflikt zwischen "kurz schmerzhaft ehrlich" und "länger nett aber unklar":
+> immer ehrlich. Schönreden kostet den User Stunden.
+
 Diese Datei delegiert vollständig an die `AGENTS.md` und das zentrale Brain-Bug Wiki.
 
 ## 🧠 Zentrales Wiki (Single Source of Truth)
@@ -129,3 +144,41 @@ Wenn der User-Klick nicht möglich ist (z.B. weil ich autonom arbeite ohne
 User-Interaktion): Bug-File explizit als `status: code-fix-pending-live-verification`
 und im Commit-Body `(unverified — pending User-Test)` markieren. Niemals
 implizit als "fixed" verkaufen.
+
+## 🔒 Arbeitsweise (verbindlich, keine Ausnahmen)
+
+Diese Regeln gelten für jede Tätigkeit in diesem Projekt:
+
+1. **Nicht raten, nicht annehmen.** Wenn etwas unklar ist: lesen, greppen,
+   testen — oder den User fragen. Niemals "wahrscheinlich", "sollte",
+   "müsste" als Begründung für eine Aktion verwenden.
+
+2. **Eigene Arbeit immer überprüfen.** Nach jeder Code-Änderung:
+   - Import-Test (`python -c "import ..."`) dass das Modul ladbar ist
+   - Wenn UI-Code geändert: App neustarten + Logs auswerten
+   - Wenn Backend-Code: Standalone-Smoke + falls möglich End-to-End in der App
+   - "Smoketest grün" ist NICHT "funktioniert" — der echte User-Workflow
+     muss durchlaufen sein.
+
+3. **Status-Markierungen ehrlich vergeben.** `status: fixed` nur wenn
+   der user-sichtbare Effekt tatsächlich verifiziert wurde. Bis dahin:
+   `status: in_progress` oder `status: partial-fix`. Niemals
+   "fixed" weil der Code-Edit schön aussieht.
+
+4. **100% ehrlich, auch unbequem.** Wenn ein Fix das Symptom nicht
+   gelöst hat: das sofort sagen, nicht weiter Code stapeln. Wenn etwas
+   nur theoretisch funktioniert: das so nennen ("unverifiziert"). Wenn
+   ich falsch lag: das klar sagen, nicht durch neuen Output verschleiern.
+
+5. **Root-Cause vor Quick-Fix.** Bei einem User-Bug erst die ganze
+   Klick-Kette bis zum Backend nachvollziehen — dann fixen. Symptome
+   verstecken (z.B. supports_tools härten ohne den eigentlichen
+   Default-Modell-Pfad zu reparieren) zählt als nicht gefixt.
+
+6. **Bug-Files-Schreiben ≠ Bugs-Fixen.** Vault-Pflege ist Pflicht,
+   ersetzt aber niemals die Verifikation. Reichhaltige Doku zu einem
+   nicht funktionierenden Fix ist schlimmer als gar keine Doku.
+
+7. **Kein Commit-Spam.** Mehrere kleine Bug-Files in einer Welle nur
+   wenn sie wirklich unabhängig + verifiziert sind. Lieber ein sauberer
+   Commit nach Live-Test als drei voreilige "fixed"-Commits.
