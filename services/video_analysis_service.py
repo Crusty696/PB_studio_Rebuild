@@ -163,6 +163,11 @@ def _raft_motion_score(
     """
     import torch
 
+    try:
+        model_dtype = next(raft_model.parameters()).dtype
+    except (StopIteration, AttributeError):
+        model_dtype = torch.float32
+
     def prep(bgr: np.ndarray) -> torch.Tensor:
         rgb = bgr[..., ::-1].copy()  # BGR → RGB
         t = torch.from_numpy(rgb).permute(2, 0, 1).float()  # HWC → CHW
@@ -170,14 +175,29 @@ def _raft_motion_score(
         t = torch.nn.functional.interpolate(
             t.unsqueeze(0), size=(320, 520), mode="bilinear", align_corners=False
         )
-        return t.to(device)
+        return t.to(device=device, dtype=model_dtype)
 
     img1 = prep(frame1_bgr)
     img2 = prep(frame2_bgr)
 
     with torch.no_grad():
-        flows = raft_model(img1, img2)
-        flow = flows[-1]  # Letzte Iteration = bester Flow
+        try:
+            flows = raft_model(img1, img2)
+        except RuntimeError as exc:
+            if "not implemented for 'Half'" in str(exc):
+                cpu = torch.device("cpu")
+                raft_model = raft_model.float().to(cpu)
+                img1 = img1.float().to(cpu)
+                img2 = img2.float().to(cpu)
+                try:
+                    flows = raft_model(img1, img2)
+                except RuntimeError as retry_exc:
+                    if "not implemented for 'Half'" in str(retry_exc):
+                        return _cpu_motion_score(frame1_bgr, frame2_bgr)
+                    raise
+            else:
+                raise
+        flow = flows[-1].float()  # Letzte Iteration = bester Flow
         magnitude = torch.sqrt(flow[:, 0] ** 2 + flow[:, 1] ** 2)
         raw = float(magnitude.mean().cpu())
 

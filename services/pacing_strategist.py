@@ -77,6 +77,8 @@ class PacingPlan:
     section_overrides: list[dict] = field(default_factory=list)
     global_min_duration: float = 3.0
     variety_priority: float = 0.7
+    degraded: bool = False
+    degraded_reason: str = ""
 
     @classmethod
     def from_json(cls, data: dict) -> PacingPlan:
@@ -225,7 +227,10 @@ class PacingStrategist:
             return plan
         except (ValueError, RuntimeError, OSError) as e:
             logger.warning("PacingStrategist Fehler, nutze Default-Plan: %s", e)
-            return PacingPlan.default()
+            plan = PacingPlan.default()
+            plan.degraded = True
+            plan.degraded_reason = f"ollama_unavailable:{e}"
+            return plan
 
     def _format_sections(self, sections: list[dict], total_duration: float) -> str:
         """Formatiert Sektionen als lesbaren Text fuer den Prompt."""

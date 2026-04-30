@@ -810,7 +810,7 @@ class LocalAgentService:
                                 single = self._execute_single_action(parsed_list[0])
                                 response.update(single)
                                 return response
-                    except (ConnectionError, TimeoutError, ValueError, RuntimeError) as e:
+                    except Exception as e:
                         logger.warning(
                             "LocalAgentService: Tool-Use fehlgeschlagen → JSON-Fallback. Fehler: %s", e
                         )
@@ -820,7 +820,7 @@ class LocalAgentService:
             if self._use_ollama and self._ollama_model and use_history:
                 try:
                     raw_output = self._generate_ollama_with_history(user_text)
-                except (ConnectionError, TimeoutError, ValueError, RuntimeError) as e:
+                except Exception as e:
                     logger.warning(
                         "LocalAgentService: History-Chat fehlgeschlagen → einfacher Ollama-Chat. Fehler: %s", e
                     )

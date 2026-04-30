@@ -321,16 +321,12 @@ def auto_edit_phase3(
     Returns:
         (segments, cut_points) — Segmente fuer OTIO + CutPoints fuer UI-Visualisierung
     """
-    # R-S0-2: Studio-Brain-Pipeline-Bridge ist Feature-Flag-gesteuert.
-    # Default = False → unveränderter Legacy-Pfad (siehe services/pacing/bridge.py).
+    # Studio-Brain-Pipeline-Bridge ist der eine offizielle Feature-Flag-
+    # Entscheidungspunkt. Default = False → unveränderter Legacy-Pfad.
     from services.pacing.bridge import maybe_use_studio_brain_pipeline
-    if maybe_use_studio_brain_pipeline(
+    _studio_brain_requested = maybe_use_studio_brain_pipeline(
         audio_id=audio_id, video_clip_ids=video_clip_ids,
-    ):
-        # Slice 1: hier wird die PacingPipeline aufgerufen und das Ergebnis
-        # auf TimelineSegment + CutPoint gemappt. Aktuell unerreichbar, da
-        # die Bridge solange False zurückgibt, bis die Verdrahtung steht.
-        pass
+    )
 
     # B-158: try/finally garantiert Engine-Dispose auch bei uncaught Exceptions
     # zwischen Engine-Erzeugung und finalem Return. Bisher fuehrten nur die
@@ -340,6 +336,7 @@ def auto_edit_phase3(
     try:
         return _auto_edit_phase3_inner(
             _ae_eng, audio_id, video_clip_ids, settings,
+            studio_brain_requested=_studio_brain_requested,
             progress_cb=progress_cb, should_stop_cb=should_stop_cb,
         )
     finally:
@@ -352,6 +349,7 @@ def _auto_edit_phase3_inner(
     video_clip_ids: list[int],
     settings: AdvancedPacingSettings,
     *,
+    studio_brain_requested: bool = False,
     progress_cb=None,
     should_stop_cb=None,
 ) -> tuple[list[TimelineSegment], list[CutPoint]]:
@@ -712,8 +710,7 @@ def _auto_edit_phase3_inner(
     _studio_brain_pipeline = None
     _studio_brain_audio_track = None
     try:
-        from services.pacing.bridge import use_studio_brain_pipeline
-        if use_studio_brain_pipeline():
+        if studio_brain_requested:
             from services.pacing.pipeline import PacingPipeline
             from services.pacing.scorer import PacingScorer
             from services.pacing.decision_recorder import DecisionRecorder

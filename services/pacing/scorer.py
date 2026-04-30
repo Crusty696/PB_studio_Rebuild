@@ -105,11 +105,19 @@ def style_compat(predecessor: ClipFeatures | None, clip: ClipFeatures) -> float:
         return 0.5
     a = predecessor.embedding
     b = clip.embedding
+    pair_key = (_embedding_fingerprint(a), _embedding_fingerprint(b))
+    cached_sim = _STYLE_COMPAT_CACHE.get(pair_key)
+    if cached_sim is not None:
+        return cached_sim
     na = _embedding_norm(a)
     nb = _embedding_norm(b)
     if na < 1e-9 or nb < 1e-9:
         return 0.5
-    return float(np.dot(a, b) / (na * nb))
+    sim = float(np.dot(a, b) / (na * nb))
+    if len(_STYLE_COMPAT_CACHE) >= _STYLE_COMPAT_CACHE_MAX:
+        _STYLE_COMPAT_CACHE.clear()
+    _STYLE_COMPAT_CACHE[pair_key] = sim
+    return sim
 
 
 # B-217: Content-keyed L2-norm cache. The key is built from a small
@@ -120,6 +128,17 @@ def style_compat(predecessor: ClipFeatures | None, clip: ClipFeatures) -> float:
 # the cache, so determinism (e.g. golden-snapshot) is preserved.
 _NORM_CACHE: dict[tuple[bytes, tuple[int, ...], str], float] = {}
 _NORM_CACHE_MAX = 4096
+_STYLE_COMPAT_CACHE: dict[
+    tuple[tuple[bytes, tuple[int, ...], str], tuple[bytes, tuple[int, ...], str]],
+    float,
+] = {}
+_STYLE_COMPAT_CACHE_MAX = 16384
+
+
+def _embedding_fingerprint(arr: np.ndarray) -> tuple[bytes, tuple[int, ...], str]:
+    """Small content fingerprint for bounded scorer caches."""
+    fingerprint = arr[:8].tobytes() if arr.size >= 8 else arr.tobytes()
+    return fingerprint, arr.shape, arr.dtype.str
 
 
 def _embedding_norm(arr: np.ndarray) -> float:
@@ -129,10 +148,7 @@ def _embedding_norm(arr: np.ndarray) -> float:
     For two distinct float32 1152-d arrays the chance of identical
     leading 8 floats is astronomically low (8 * 32 = 256 bits of entropy).
     """
-    # Use a contiguous slice and a small slice — avoids copying the full array.
-    # arr[:8].tobytes() copies at most 8 elements, not the whole 1152-d vector.
-    fingerprint = arr[:8].tobytes() if arr.size >= 8 else arr.tobytes()
-    key = (fingerprint, arr.shape, str(arr.dtype))
+    key = _embedding_fingerprint(arr)
     cached = _NORM_CACHE.get(key)
     if cached is not None:
         return cached
@@ -397,12 +413,23 @@ class PacingScorer:
             -(weight × magnitude) for penalties). `sum(contribs.values()) == total`
             within FP tolerance.
         """
-        recent = list(recent_clip_ids) if recent_clip_ids is not None else []
-        fingerprint: tuple[str | None, ...] = (
-            ctx.at_genre,
-            ctx.at_section_type,
-            f"{ctx.at_bpm:.0f}" if ctx.at_bpm is not None else None,
-        )
+        recent = recent_clip_ids if recent_clip_ids is not None else ()
+        lookup = self._pattern_lookup
+        if lookup is None:
+            genre_score = 0.5
+            key_score = 0.5
+            spectral_score = 0.5
+            memory_score = 0.5
+        else:
+            fingerprint: tuple[str | None, ...] = (
+                ctx.at_genre,
+                ctx.at_section_type,
+                f"{ctx.at_bpm:.0f}" if ctx.at_bpm is not None else None,
+            )
+            genre_score = genre_prior(ctx.at_genre, clip.style_bucket_id, lookup)
+            key_score = key_prior(ctx.at_key, clip.mood_refined, lookup)
+            spectral_score = spectral_fit(ctx.at_spectral_hash, clip, lookup)
+            memory_score = historical_accept_rate(fingerprint, clip, lookup)
 
         # B-217 perf: style_compat einmal berechnen, fuer collision_penalty
         # wiederverwenden. Vorher rief collision_penalty intern style_compat
@@ -413,48 +440,21 @@ class PacingScorer:
             max(0.0, 0.6 - style_sim) if predecessor is not None else 0.0
         )
 
-        raw: dict[str, float] = {
-            "role": role_fit(ctx.at_section_type, clip.role),
-            "style": style_sim,
-            "mood_video": mood_match(ctx.at_mood_video, clip.mood_refined),
-            "mood_audio": mood_match(ctx.at_mood_audio, clip.mood_refined),
-            "genre": genre_prior(
-                ctx.at_genre, clip.style_bucket_id, self._pattern_lookup
-            ),
-            "key": key_prior(ctx.at_key, clip.mood_refined, self._pattern_lookup),
-            "tension": tension_fit(ctx.at_harmonic_tension, clip.role),
-            "energy": energy_match(ctx.at_energy, clip.motion_score),
-            "spectral": spectral_fit(ctx.at_spectral_hash, clip, self._pattern_lookup),
-            "groove": groove_fit(ctx.at_groove_template, clip.motion_score),
-            "memory": historical_accept_rate(fingerprint, clip, self._pattern_lookup),
-            "collision": collision_mag,
-            "freshness": staleness_penalty(clip, recent),
-        }
-
-        # Penalty terms are subtracted — we negate the weighted contribution
-        # so contribs.values().sum() equals total.
-        POSITIVE = {
-            "role",
-            "style",
-            "mood_video",
-            "mood_audio",
-            "genre",
-            "key",
-            "tension",
-            "energy",
-            "spectral",
-            "groove",
-            "memory",
-        }
-        PENALTY = {"collision", "freshness"}
-
+        w = self._weights
         contribs: dict[str, float] = {}
-        for key in POSITIVE:
-            w = self._weights[f"w_{key}"]
-            contribs[key] = w * raw[key]
-        for key in PENALTY:
-            w = self._weights[f"w_{key}"]
-            contribs[key] = -(w * raw[key])
+        contribs["role"] = w["w_role"] * role_fit(ctx.at_section_type, clip.role)
+        contribs["style"] = w["w_style"] * style_sim
+        contribs["mood_video"] = w["w_mood_video"] * mood_match(ctx.at_mood_video, clip.mood_refined)
+        contribs["mood_audio"] = w["w_mood_audio"] * mood_match(ctx.at_mood_audio, clip.mood_refined)
+        contribs["genre"] = w["w_genre"] * genre_score
+        contribs["key"] = w["w_key"] * key_score
+        contribs["tension"] = w["w_tension"] * tension_fit(ctx.at_harmonic_tension, clip.role)
+        contribs["energy"] = w["w_energy"] * energy_match(ctx.at_energy, clip.motion_score)
+        contribs["spectral"] = w["w_spectral"] * spectral_score
+        contribs["groove"] = w["w_groove"] * groove_fit(ctx.at_groove_template, clip.motion_score)
+        contribs["memory"] = w["w_memory"] * memory_score
+        contribs["collision"] = -(w["w_collision"] * collision_mag)
+        contribs["freshness"] = -(w["w_freshness"] * staleness_penalty(clip, recent))
 
         total = sum(contribs.values())
         # Scorer does NOT clip to [0, 1] — test_negative_score_allowed verifies this.

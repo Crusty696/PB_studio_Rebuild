@@ -15,7 +15,7 @@ def test_studio_brain_setup_block_present():
     from services import pacing_service
     src = inspect.getsource(pacing_service._auto_edit_phase3_inner)
     assert "_studio_brain_pipeline" in src
-    assert "use_studio_brain_pipeline" in src
+    assert "studio_brain_requested" in src
     assert "PacingPipeline" in src
 
 

@@ -114,8 +114,8 @@ class PanelSetupController(PBComponent):
             # Auto-Start: Ollama-Prozess im Hintergrund starten (wenn aktiviert)
             self.window._ollama_svc = OllamaService.get()
             if _ollama_cfg["enabled"]:
-                self.window._ollama_svc.start()
-                if self.window._ollama_svc.is_ready:
+                self.window._ollama_svc.start_background()
+                if self.window._ollama_svc.ready_cached():
                     self.window.console_text.append("[LLM] Ollama-Engine aktiv.")
                 else:
                     self.window.console_text.append("[LLM] Ollama wird im Hintergrund gestartet...")

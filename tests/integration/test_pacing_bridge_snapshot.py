@@ -3,9 +3,8 @@
 Statischer Snapshot der garantiert:
 1. `_auto_edit_phase3_inner` enthält den Bridge-Hook (wer ihn entfernt
    merkt es im Test).
-2. `_auto_edit_phase3_inner` ruft NICHT `PacingPipeline.select_best`
-   direkt auf — der Legacy-Cut-Loop bleibt unangetastet, solange die
-   Verdrahtung nicht durchgezogen wurde.
+2. `_auto_edit_phase3_inner` nutzt die Entscheidung aus dem Outer-Wrapper,
+   statt das Environment ein zweites Mal zu lesen.
 3. `bridge.maybe_use_studio_brain_pipeline` Default-Off = False bleibt.
 
 Plus: Determinismus-Snapshot der Bridge-Mapping-Outputs auf einer
@@ -45,18 +44,15 @@ def test_auto_edit_phase3_inner_has_bridge_hook():
 
 def test_auto_edit_phase3_inner_select_best_is_flag_guarded():
     """P0 #1 Cycle 11: select_best darf JETZT aufgerufen werden, aber NUR
-    hinter dem Bridge-Flag-Guard `use_studio_brain_pipeline()`. Der
+    hinter der Bridge-Entscheidung `studio_brain_requested`. Der
     Default-Pfad (Flag=False) bleibt 100% Legacy.
     """
     from services import pacing_service
     src = inspect.getsource(pacing_service._auto_edit_phase3_inner)
     if "select_best" in src:
-        # Wenn select_best aufgerufen wird, muss der Setup hinter dem
-        # Flag-Guard liegen
-        assert "use_studio_brain_pipeline" in src, (
-            "P0 #1: select_best wird aufgerufen, aber kein "
-            "use_studio_brain_pipeline-Guard im Inner-Body. "
-            "Snapshot-Sicherheit verletzt."
+        assert "studio_brain_requested" in src, (
+            "P0 #1: select_best wird aufgerufen, aber nicht hinter der "
+            "Bridge-Entscheidung studio_brain_requested. Snapshot-Sicherheit verletzt."
         )
         assert "_studio_brain_pipeline" in src, (
             "P0 #1: select_best ohne Pipeline-Variable — "

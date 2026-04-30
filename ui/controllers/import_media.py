@@ -203,6 +203,9 @@ class ImportMediaController(PBComponent):
             )
             return
 
+        # SOFORT sperren, bevor _irgendeine_ QMessageBox das Event-Loop oeffnet!
+        self._delete_in_progress = True
+
         video_ids: list[int] = []
         audio_ids: list[int] = []
 
@@ -218,6 +221,7 @@ class ImportMediaController(PBComponent):
 
         total = len(video_ids) + len(audio_ids)
         if total == 0:
+            self._delete_in_progress = False
             QMessageBox.information(self.window, "Nichts ausgewaehlt", "Bitte setze zuerst die Checkboxen im Media Pool.")
             return
 
@@ -228,10 +232,10 @@ class ImportMediaController(PBComponent):
             QMessageBox.StandardButton.No,
         )
         if reply != QMessageBox.StandardButton.Yes:
+            self._delete_in_progress = False
             return
 
-        # B-248: Lock setzen + Buttons deaktivieren
-        self._delete_in_progress = True
+        # B-248: Buttons deaktivieren
         disabled_buttons: list = []
         for btn_attr in ("btn_delete_selected_video", "btn_delete_selected_audio"):
             btn = getattr(self.window, btn_attr, None)

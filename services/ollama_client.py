@@ -559,6 +559,7 @@ class OllamaClient:
     _NO_TOOLS_CACHE: set[str] = set()
 
     @classmethod
+    @classmethod
     def mark_model_no_tools(cls, model: str) -> None:
         """B-247: Modell als 'kein Tool-Support' markieren (Caller bei HTTP 400)."""
         if model:

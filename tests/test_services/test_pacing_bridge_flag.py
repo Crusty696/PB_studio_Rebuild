@@ -39,17 +39,27 @@ def test_maybe_use_returns_false_when_flag_off(monkeypatch):
     assert maybe_use_studio_brain_pipeline(audio_id=1, video_clip_ids=[1, 2]) is False
 
 
-def test_maybe_use_returns_false_with_warning_when_flag_on(monkeypatch, caplog):
-    """Slice-1-TODO: Flag=True loggt nur, fällt auf Legacy-Pfad zurück."""
+def test_maybe_use_returns_true_with_info_when_flag_on(monkeypatch, caplog):
+    """Flag=True aktiviert den Studio-Brain-Pacing-Pfad."""
     monkeypatch.setenv(ENV_VAR, "1")
-    with caplog.at_level(logging.WARNING):
+    with caplog.at_level(logging.INFO, logger="services.pacing.bridge"):
         result = maybe_use_studio_brain_pipeline(audio_id=42, video_clip_ids=[7, 8, 9])
-    assert result is False
+    assert result is True
     assert any(
         "PB_USE_STUDIO_BRAIN_PIPELINE" in rec.message
-        and "Legacy-Pfad" in rec.message
+        and "Studio-Brain-Pacing aktiv" in rec.message
         for rec in caplog.records
     )
+
+
+def test_bridge_flag_does_not_claim_unimplemented_when_pipeline_is_enabled(monkeypatch, caplog):
+    from services.pacing import bridge
+
+    monkeypatch.setenv(bridge.ENV_VAR, "1")
+
+    assert bridge.use_studio_brain_pipeline() is True
+    assert bridge.maybe_use_studio_brain_pipeline(audio_id=1, video_clip_ids=[1, 2]) is True
+    assert "Bridge noch nicht implementiert" not in caplog.text
 
 
 def test_auto_edit_phase3_legacy_path_unchanged_when_flag_off(monkeypatch):

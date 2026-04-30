@@ -120,6 +120,8 @@ class OllamaService:
     def __init__(self):
         self._is_ready = False
         self._model_cached = False
+        self._start_lock = threading.Lock()
+        self._start_thread: threading.Thread | None = None
         # B-239: Aufgeloester Default-Modellname (Cache nach erstem Lookup).
         self._default_model: str | None = None
         self._default_model_lock = threading.Lock()
@@ -137,6 +139,30 @@ class OllamaService:
             return self._default_model
 
     # ── Lifecycle ─────────────────────────────────────────────
+
+    def start_background(self) -> threading.Thread:
+        """Startet Ollama headless in einem Daemon-Thread.
+
+        App-Start und UI-Setup duerfen nicht bis zu 60s auf den
+        HTTP-Ready-Check von ``start()`` warten. Diese Methode startet genau
+        einen Hintergrund-Thread; weitere Aufrufe geben denselben Thread
+        zurueck, solange er laeuft.
+        """
+        with self._start_lock:
+            if self._start_thread is not None and self._start_thread.is_alive():
+                return self._start_thread
+
+            self._start_thread = threading.Thread(
+                target=self.start,
+                name="PB-Ollama-HeadlessStart",
+                daemon=True,
+            )
+            self._start_thread.start()
+            return self._start_thread
+
+    def ready_cached(self) -> bool:
+        """Liefert den bekannten Ready-Status ohne Netzwerkprobe."""
+        return self._is_ready
 
     def start(self) -> None:
         """Ollama als versteckter Subprocess starten (no-op falls schon läuft)."""
@@ -192,6 +218,9 @@ class OllamaService:
 
     def stop(self) -> None:
         """Beendet den Ollama-Prozess sauber."""
+        start_thread = self._start_thread
+        if start_thread is not None and start_thread.is_alive():
+            start_thread.join(timeout=1.0)
         if self._process:
             logger.info("Stoppe Ollama-Prozess...")
             self._process.terminate()
