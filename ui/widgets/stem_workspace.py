@@ -110,6 +110,9 @@ class StemWorkspace(QWidget):
             "QPushButton:hover { color: #B0B0B0; border-color: #484848; }"
         )
         btn_reset.setAccessibleName("Alle Stems zuruecksetzen")
+        btn_reset.setToolTip(
+            "Alle Stem-Lautstaerken, Mute- und Solo-Schalter auf Standard zuruecksetzen."
+        )
         btn_reset.setStatusTip("Alle Stem-Lautstaerke, Mute und Solo auf Standard zuruecksetzen")
         btn_reset.clicked.connect(self._reset_all)
         header_layout.addWidget(btn_reset)

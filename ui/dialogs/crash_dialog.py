@@ -87,6 +87,9 @@ class CrashDialog(QDialog):
         )
         self._trace_edit.setPlainText(tb_text)
         self._trace_edit.setMinimumHeight(180)
+        self._trace_edit.setToolTip(
+            "Gekuerzter Stacktrace des Absturzes. Die vollstaendige Version steht in der Log-Datei."
+        )
         layout.addWidget(self._trace_edit)
 
         # ── Hint ──────────────────────────────────────────────────────
@@ -110,6 +113,9 @@ class CrashDialog(QDialog):
             "border-radius: 6px; padding: 8px 16px; font-weight: 600; font-size: 12px; }"
             f"QPushButton:hover {{ background: {BG4}; }}"
         )
+        btn_log.setToolTip(
+            "PB-Studio-Logdatei im Standardprogramm oeffnen, um vollstaendige Fehlerdetails zu sehen."
+        )
         btn_log.clicked.connect(self._open_log)
         btn_row.addWidget(btn_log)
 
@@ -120,6 +126,9 @@ class CrashDialog(QDialog):
             f"QPushButton {{ background: {ACCENT}; color: {BG0}; border: none;"
             "border-radius: 6px; padding: 8px 20px; font-weight: 700; font-size: 13px; }"
             f"QPushButton:hover {{ background: {ACCENT_BRIGHT}; }}"
+        )
+        btn_close.setToolTip(
+            "Fehlerdialog schliessen und zur App zurueckkehren."
         )
         btn_close.clicked.connect(self.accept)
         btn_row.addWidget(btn_close)

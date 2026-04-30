@@ -256,7 +256,9 @@ class _HeaderBar(QWidget):
 
         self._close_btn = QPushButton("Schließen")
         self._close_btn.setStyleSheet(_BUTTON_STYLE)
-        self._close_btn.setToolTip("Dialog schließen.")
+        self._close_btn.setToolTip(
+            "Story-Map-Dialog schliessen und zur Studio-Brain-Ansicht zurueckkehren."
+        )
         self._close_btn.clicked.connect(self.closeClicked.emit)
         outer.addWidget(self._close_btn)
 

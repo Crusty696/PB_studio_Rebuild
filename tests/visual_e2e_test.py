@@ -1,7 +1,7 @@
 """
 Visual E2E Test — PB Studio Rebuild
 ====================================
-Startet die App, navigiert durch alle Workspaces, testet UI-Elemente
+Startet die App, navigiert durch alle Workflow-Stages, testet UI-Elemente
 und nimmt den gesamten Vorgang per Screen-Recording auf.
 
 WARNUNG: Haende weg von Maus und Tastatur waehrend der Ausfuehrung!
@@ -87,24 +87,27 @@ def find_app_window(timeout: int = TIMEOUT_APP_START):
 def click_button_by_text(text: str, window, timeout: float = 5.0) -> bool:
     """Versucht einen Button ueber pyautogui.locateOnScreen oder Koordinaten zu finden.
     Fallback: Sucht nach dem Text im Fensterbereich."""
-    # Strategie: Wir nutzen die bekannte NavBar-Position (bottom of window)
-    # Die NavBar hat 5 Buttons: MEDIA | EDIT | STEMS | CONVERT | DELIVER
+    # Strategie: Wir nutzen die bekannte Workflow-Rail-Position unter der Top-Bar.
     nav_buttons = {
-        "MEDIA": 0, "EDIT": 1, "STEMS": 2, "CONVERT": 3, "DELIVER": 4
+        "PROJEKT": 0,
+        "QUELLEN": 1,
+        "ANALYSE": 2,
+        "AUTO-SCHNITT": 3,
+        "REVIEW": 4,
+        "EXPORT": 5,
     }
 
     if text.upper() in nav_buttons:
         idx = nav_buttons[text.upper()]
-        # NavBar ist am unteren Rand, Buttons gleichmaessig verteilt
-        bar_y = window.top + window.height - 30  # NavBar ca. 44px hoch, Mitte bei -30
-        btn_width = window.width / 5
-        btn_x = window.left + int(btn_width * idx + btn_width / 2)
-        pyautogui.click(btn_x, bar_y)
+        btn_width = 122
+        btn_x = window.left + 18 + int(btn_width * idx + btn_width / 2)
+        btn_y = window.top + 86
+        pyautogui.click(btn_x, btn_y)
         time.sleep(0.3)
         return True
 
-    # Fallback: Top-Bar Buttons (Tasks, Konsole, KI Chat, About)
-    top_buttons = {"TASKS": 0.70, "KONSOLE": 0.78, "KI CHAT": 0.86, "ABOUT": 0.94}
+    # Fallback: Top-Bar Buttons / Menus
+    top_buttons = {"KONTEXT": 0.74, "TOOLS": 0.82, "EINSTELLUNGEN": 0.92}
     for btn_text, x_ratio in top_buttons.items():
         if text.upper() == btn_text:
             btn_x = window.left + int(window.width * x_ratio)
@@ -252,24 +255,25 @@ def test_app_startup(app_process) -> object | None:
 
 
 def test_workspace_navigation(window):
-    """Test 2: Navigiere durch alle 5 Workspaces."""
-    workspaces = ["MEDIA", "EDIT", "STEMS", "CONVERT", "DELIVER"]
-    for ws in workspaces:
+    """Test 2: Navigiere durch alle 6 Workflow-Stages."""
+    stages = ["PROJEKT", "QUELLEN", "ANALYSE", "AUTO-SCHNITT", "REVIEW", "EXPORT"]
+    for ws in stages:
         time.sleep(PAUSE_BETWEEN_ACTIONS)
         clicked = click_button_by_text(ws, window)
         time.sleep(0.8)
-        take_screenshot(f"workspace_{ws.lower()}")
-        log_step(f"Workspace: {ws}", "pass" if clicked else "fail",
-                 f"NavBar-Button '{ws}' geklickt" if clicked else "Button nicht gefunden")
+        label = ws.lower().replace("-", "_")
+        take_screenshot(f"workflow_{label}")
+        log_step(f"Workflow: {ws}", "pass" if clicked else "fail",
+                 f"Workflow-Button '{ws}' geklickt" if clicked else "Button nicht gefunden")
 
-    # Zurueck zu MEDIA
-    click_button_by_text("MEDIA", window)
+    # Zurueck zu QUELLEN
+    click_button_by_text("QUELLEN", window)
     time.sleep(0.5)
 
 
 def test_top_bar_toggles(window):
-    """Test 3: Top-Bar Toggle-Buttons (Tasks, Konsole, KI Chat)."""
-    for btn in ["TASKS", "KONSOLE", "KI CHAT"]:
+    """Test 3: Top-Bar Kontext/Tools pruefen."""
+    for btn in ["KONTEXT", "TOOLS"]:
         time.sleep(PAUSE_BETWEEN_ACTIONS)
         clicked = click_button_by_text(btn, window)
         time.sleep(0.5)
@@ -277,38 +281,23 @@ def test_top_bar_toggles(window):
         log_step(f"Toggle: {btn}", "pass" if clicked else "fail",
                  f"'{btn}' Button geklickt")
 
-    # Toggle nochmal zurueck
-    for btn in ["TASKS", "KONSOLE", "KI CHAT"]:
-        click_button_by_text(btn, window)
-        time.sleep(0.3)
-
-
-def test_about_dialog(window):
-    """Test 4: About-Dialog oeffnen und schliessen."""
-    time.sleep(PAUSE_BETWEEN_ACTIONS)
-    clicked = click_button_by_text("ABOUT", window)
-    time.sleep(1.5)
-    take_screenshot("about_dialog")
-
-    # Dialog schliessen mit Escape
+    # Menue/Dialog-Zustand schliessen
     pyautogui.press("escape")
     time.sleep(0.5)
-    log_step("About Dialog", "pass" if clicked else "fail",
-             "Geoeffnet und geschlossen via ESC")
 
 
 def test_media_import_dialog(window):
     """Test 5: Import-Dialog oeffnen (wir brechen ihn ab — kein echter Import)."""
-    # Zurueck zu MEDIA workspace
-    click_button_by_text("MEDIA", window)
+    # Zurueck zu QUELLEN workflow
+    click_button_by_text("QUELLEN", window)
     time.sleep(1)
 
     # Keyboard shortcut oder Button-Klick fuer Import
-    # Der Import-Button ist im Media Workspace links oben
+    # Der Import-Button ist im Quellen-Workflow links oben
     # Wir simulieren Ctrl+I falls vorhanden, sonst klicken wir den Bereich
     time.sleep(PAUSE_BETWEEN_ACTIONS)
 
-    # Import-Audio Button ist im linken Panel des Media Workspace
+    # Import-Audio Button ist im linken Panel des Quellen-Workflows
     # Approximierte Position: links oben im Workspace-Bereich
     btn_x = window.left + 120
     btn_y = window.top + 130
@@ -323,12 +312,16 @@ def test_media_import_dialog(window):
 
 
 def test_edit_workspace_controls(window):
-    """Test 6: Edit Workspace Kontrollen pruefen."""
-    click_button_by_text("EDIT", window)
+    """Test 6: Auto-Schnitt und Review Kontrollen pruefen."""
+    click_button_by_text("AUTO-SCHNITT", window)
     time.sleep(PAUSE_BETWEEN_ACTIONS)
+    take_screenshot("auto_schnitt_workspace_full")
+    log_step("Auto-Schnitt Workflow", "pass", "Pacing-Controls sichtbar")
 
-    take_screenshot("edit_workspace_full")
-    log_step("Edit Workspace", "pass", "Edit-Workspace geladen, Controls sichtbar")
+    click_button_by_text("REVIEW", window)
+    time.sleep(PAUSE_BETWEEN_ACTIONS)
+    take_screenshot("review_workspace_full")
+    log_step("Review Workflow", "pass", "Review/Timeline geladen")
 
 
 def test_keyboard_shortcuts(window):
@@ -464,7 +457,6 @@ def main():
         if window:
             test_workspace_navigation(window)
             test_top_bar_toggles(window)
-            test_about_dialog(window)
             test_media_import_dialog(window)
             test_edit_workspace_controls(window)
             test_keyboard_shortcuts(window)

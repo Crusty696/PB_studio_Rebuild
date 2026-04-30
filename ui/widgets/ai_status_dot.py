@@ -1,7 +1,7 @@
 """AI Status Dot — kleiner Statusindikator für den ChatDock-Header.
 
-Grün (#2ECC71) = AI bereit, Gelb (#F39C12) = wird geladen.
-Kein Ollama/Gemma in Tooltips — nur "AI: bereit" / "AI: wird geladen...".
+Grün (#2ECC71) = AI bereit, Gelb (#F39C12) = Verbindung wird geprüft.
+Kein Backend-Name im Tooltip; nur allgemeiner AI-Verfuegbarkeitsstatus.
 """
 
 import logging
@@ -104,9 +104,9 @@ class AiStatusDot(QLabel):
         color = _COLOR_READY if self._ready else _COLOR_LOADING
         self.setStyleSheet(_DOT_STYLE.format(color=color))
         if self._ready:
-            self.setToolTip(self.tr("AI: bereit"))
+            self.setToolTip(self.tr("AI-Verfuegbarkeit: bereit fuer Chat- und Assistenzfunktionen."))
         else:
-            self.setToolTip(self.tr("AI: wird geladen..."))
+            self.setToolTip(self.tr("AI-Verfuegbarkeit: wird im Hintergrund geprueft."))
 
     def _invoke_worker_stop(self):
         """Stoppt den Worker-Timer thread-safe via QueuedConnection.

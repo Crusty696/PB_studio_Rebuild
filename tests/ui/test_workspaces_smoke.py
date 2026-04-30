@@ -43,8 +43,9 @@ def test_convert_workspace_constructs_and_exposes_batch_widgets(qapp):
     w = ConvertWorkspace()
     try:
         assert isinstance(w, QWidget)
-        # Sub-Tabs (BATCH | EFFEKTE) als Index-Indikator
-        assert w._tabs.count() == 2, "ConvertWorkspace muss 2 Sub-Tabs haben"
+        # Convert ist nur Preflight/Standardisierung im Hauptflow.
+        assert w._tabs.count() == 1, "ConvertWorkspace darf im Hauptflow nur Preflight zeigen"
+        assert w._tabs.tabText(0) == "PREFLIGHT"
         # Batch-Tab Widgets, die controllers/convert.py per Name anspricht
         for attr in (
             "convert_resolution",
@@ -63,6 +64,8 @@ def test_convert_workspace_constructs_and_exposes_batch_widgets(qapp):
             "btn_apply_effects",
         ):
             assert hasattr(w, attr), f"ConvertWorkspace.{attr} fehlt"
+        assert hasattr(w, "expert_tools")
+        assert not w.expert_tools.isVisible(), "Clip-Effekte muessen standardmaessig versteckt sein"
     finally:
         w.deleteLater()
 
@@ -77,7 +80,8 @@ def test_deliver_workspace_constructs_and_exposes_export_widgets(qapp):
     w = DeliverWorkspace()
     try:
         assert isinstance(w, QWidget)
-        assert w._tabs.count() == 3, "DeliverWorkspace muss 3 Sub-Tabs haben"
+        assert w._tabs.count() == 1, "DeliverWorkspace darf im Hauptflow nur Export zeigen"
+        assert w._tabs.tabText(0) == "EXPORT"
         for attr in (
             "export_name_input",
             "resolution_combo",
@@ -90,6 +94,8 @@ def test_deliver_workspace_constructs_and_exposes_export_widgets(qapp):
             "production_info",
         ):
             assert hasattr(w, attr), f"DeliverWorkspace.{attr} fehlt"
+        assert hasattr(w, "export_log")
+        assert not w.export_log.isVisible(), "Rohes Export-Protokoll gehoert ins Kontextpanel/Expert-UI"
     finally:
         w.deleteLater()
 
@@ -125,8 +131,17 @@ def test_edit_workspace_constructs_and_exposes_timeline_widgets(qapp):
     w = EditWorkspace()
     try:
         assert isinstance(w, QWidget)
-        # 4 Sub-Tabs (TIMELINE | PACING | INSPECTOR | ANKER)
-        assert w._tabs.count() == 4, "EditWorkspace muss 4 Sub-Tabs haben"
+        assert hasattr(w, "set_workflow_stage")
+        w.set_workflow_stage("auto")
+        assert w._tabs.count() == 1
+        assert w._tabs.tabText(0) == "AUTO-SCHNITT"
+        assert not w.btn_thumbs_up.isVisible()
+        assert not w.btn_thumbs_down.isVisible()
+        w.set_workflow_stage("review")
+        assert w._tabs.count() == 1
+        assert w._tabs.tabText(0) == "REVIEW"
+        assert not w.btn_keyframe_string.isHidden()
+        assert not w.keyframe_text.isHidden()
         # Cross-Tab-Wiring-Endpunkte (TimelineView + Inspector)
         for attr in (
             "timeline_view",
@@ -145,6 +160,8 @@ def test_edit_workspace_constructs_and_exposes_timeline_widgets(qapp):
             assert hasattr(w, attr), f"EditWorkspace.{attr} fehlt"
         # inspector_panel ist Alias auf clip_inspector (P9-Step4)
         assert w.inspector_panel is w.clip_inspector
+        assert hasattr(w, "expert_tools")
+        assert not w.expert_tools.isVisible(), "KI/Debug-Werkzeuge muessen aus Hauptflow raus"
     finally:
         w.deleteLater()
 
@@ -168,10 +185,50 @@ def test_media_workspace_constructs_with_video_audio_modes(qapp):
         assert w.mode_stack.count() == 2
         # Shared Bottom-Bar Button
         assert hasattr(w, "btn_add_to_timeline")
+        # Quellen zeigt nur Pool/Import. Analyse-Pipelines leben im Analyse-Workspace.
+        assert w._video_sub_tabs.isHidden()
+        assert not w.btn_video_pipeline.isVisible()
+        assert not w.btn_analyze_video.isVisible()
+        assert not w.btn_motion_analysis.isVisible()
+        assert not w.btn_siglip_embeddings.isVisible()
         # Mode-Switch ist no-crash
         w.switch_to_audio()
         assert w.btn_mode_audio.isChecked()
+        assert w._audio_sub_tabs.isHidden()
+        assert not w.btn_analyze_all.isVisible()
+        assert not w.btn_auto_duck.isVisible()
+        assert not w.btn_lufs_analyze.isVisible()
         w.switch_to_video()
         assert w.btn_mode_video.isChecked()
+    finally:
+        w.deleteLater()
+
+
+def test_analysis_workspace_owns_audio_video_steps(qapp):
+    from ui.workspaces import AnalysisWorkspace, MediaWorkspace, StemsWorkspace
+
+    media = MediaWorkspace()
+    stems = StemsWorkspace()
+    w = AnalysisWorkspace(stems, media)
+    try:
+        assert w.tabs.count() == 3
+        assert w.tabs.tabText(0) == "Audio"
+        assert w.tabs.tabText(1) == "Video"
+        assert w.tabs.tabText(2) == "Stems / Status"
+        for button in (
+            media.btn_analyze,
+            media.btn_waveform,
+            media.btn_key_detect,
+            media.btn_lufs_analyze,
+            media.btn_structure_detect,
+            media.btn_stem_separate,
+            media.btn_analyze_all,
+            media.btn_analyze_video,
+            media.btn_motion_analysis,
+            media.btn_siglip_embeddings,
+            media.btn_video_pipeline,
+        ):
+            assert not button.isHidden()
+            assert len(button.toolTip()) > 80
     finally:
         w.deleteLater()

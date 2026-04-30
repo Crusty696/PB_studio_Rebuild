@@ -1,4 +1,4 @@
-"""DaVinci-Style Workspace Navigation Bar."""
+"""Workflow navigation for the PB Studio Director's Cockpit."""
 
 from PySide6.QtWidgets import QWidget, QHBoxLayout, QPushButton
 from PySide6.QtCore import Signal
@@ -15,10 +15,10 @@ _NAV_STYLE = """
         border-bottom: 2px solid transparent;
         border-radius: 0px;
         font-weight: 700;
-        font-size: 10px;
-        letter-spacing: 1.0px;
-        padding: 1px 14px;
-        min-height: 16px;
+        font-size: 11px;
+        letter-spacing: 0px;
+        padding: 3px 16px;
+        min-height: 24px;
         text-transform: uppercase;
     }
     QPushButton#workspace_btn:hover {
@@ -34,16 +34,22 @@ _NAV_STYLE = """
 
 
 class WorkspaceNavBar(QWidget):
-    """Bottom navigation bar — DaVinci Resolve Style."""
+    """Workflow rail: shows the order PB Studio work actually follows."""
     workspace_changed = Signal(int)
 
-    WORKSPACE_NAMES = ["MEDIA", "EDIT", "STEMS", "CONVERT", "DELIVER"]
+    WORKSPACE_NAMES = [
+        "PROJEKT",
+        "QUELLEN",
+        "ANALYSE",
+        "AUTO-SCHNITT",
+        "REVIEW",
+        "EXPORT",
+    ]
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("workspace_nav")
-        # P9-LAYOUT: kompakte Tab-Bar (vorher 42 px riesig), siehe LAYOUT_PLAN.md
-        self.setFixedHeight(20)
+        self.setFixedHeight(34)
         self.setStyleSheet(_NAV_STYLE)
 
         layout = QHBoxLayout(self)
@@ -56,35 +62,37 @@ class WorkspaceNavBar(QWidget):
         self._current_index = 0
 
         tooltips = [
-            "MEDIA: Dateien importieren, verwalten und analysieren",
-            "EDIT: Timeline bearbeiten, Clips schneiden, KI-Pacing",
-            "STEMS: DAW-Ansicht mit 4 Stem-Wellenformen (Vocals, Drums, Bass, Other)",
-            "CONVERT: Videos standardisieren (Aufloesung, FPS, Format)",
-            "DELIVER: Finales Video exportieren und rendern",
+            "Projekt: Projektstatus, letzte Projekte und naechster Schritt",
+            "Quellen vorbereiten: Medien importieren, pruefen und standardisieren",
+            "Analyse: Audio, Stems, Struktur, Video-Pipeline und Status",
+            "Auto-Schnitt: Pacing einstellen und beat-synchronen Schnitt erzeugen",
+            "Review: Timeline, Vorschau, Inspector und Anker pruefen",
+            "Export: Preview und finales Video rendern",
         ]
 
         accessible_names = [
-            "MEDIA Workspace",
-            "EDIT Workspace",
-            "STEMS Workspace",
-            "CONVERT Workspace",
-            "DELIVER Workspace",
+            "Projekt Workflow",
+            "Quellen vorbereiten Workflow",
+            "Analyse Workflow",
+            "Auto-Schnitt Workflow",
+            "Review Workflow",
+            "Export Workflow",
         ]
         status_tips = [
-            "MEDIA: Dateien importieren, verwalten und analysieren",
-            "EDIT: Timeline bearbeiten, Clips schneiden, KI-Pacing",
-            "STEMS: DAW-Ansicht mit 4 Stem-Wellenformen",
-            "CONVERT: Videos standardisieren (Aufloesung, FPS, Format)",
-            "DELIVER: Finales Video exportieren und rendern",
+            "Projektstatus und Startpunkt",
+            "Medien importieren und vorbereiten",
+            "Analyse- und Stem-Pipeline",
+            "Pacing und Auto-Edit",
+            "Timeline pruefen und korrigieren",
+            "Finales Video exportieren",
         ]
 
         for i, name in enumerate(self.WORKSPACE_NAMES):
             btn = QPushButton(name)
             btn.setObjectName("workspace_btn")
             btn.setCheckable(True)
-            # P9-LAYOUT: kompakte Tab-Buttons (vorher 36 px hoch)
-            btn.setFixedHeight(18)
-            btn.setMinimumWidth(80)
+            btn.setFixedHeight(28)
+            btn.setMinimumWidth(110)
             btn.setToolTip(tooltips[i])
             btn.setAccessibleName(accessible_names[i])
             btn.setStatusTip(status_tips[i])

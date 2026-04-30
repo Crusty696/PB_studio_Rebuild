@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any, Optional
+import os
 
 import shiboken6
 from PySide6.QtCore import QSettings, QSize, Signal
@@ -52,6 +53,7 @@ from ui.studio_brain.audit_tab import AuditTab
 from ui.studio_brain.memory_tab import MemoryTab
 from ui.studio_brain.steer_tab import SteerTab
 from ui.studio_brain.structure_tab import StructureTab
+from ui.studio_brain.brain_v2_tab import BrainV2Tab
 # Cycle 11 — Pacing-v2 + D-023 UI-Tabs
 from ui.widgets.pacing_decision_explorer import PacingDecisionExplorer
 from ui.widgets.graph_cockpit_tab import GraphCockpitTab
@@ -64,6 +66,7 @@ _TAB_LABELS: tuple[str, ...] = (
     "Struktur", "Gedächtnis", "Audit", "Steer",
     # Cycle 11 — Pacing-v2 + D-023 UI-Layer
     "Pacing-Explorer", "Graph-Cockpit",
+    "Brain v2",
 )
 _QSETTINGS_ORG = "PBStudio"
 _QSETTINGS_APP = "PBStudioApp"
@@ -146,6 +149,9 @@ class StudioBrainWindow(QMainWindow):
         )
 
         self._tabs = QTabWidget(self)
+        self._tabs.setToolTip(
+            "Studio Brain: Struktur, Gedächtnis, Audit, Steuerung, Decision-Replay und Graph-Cockpit."
+        )
         # Diagnostik: Per-Tab-Konstruktor-Trace. Hilft beim Lokalisieren
         # von Brain-Open-Hangs (siehe pb_studio.log nach naechstem
         # Restart). Idempotent + billig.
@@ -250,6 +256,15 @@ class StudioBrainWindow(QMainWindow):
             )
             self._graph_cockpit_lazy = True  # noch nicht geladen
         self._tabs.addTab(self._graph_cockpit_tab, _TAB_LABELS[5])
+        if os.environ.get("PB_STUDIO_BRAIN_V2") == "1":
+            try:
+                session_factory = getattr(self._brain_service, "session_factory", None)
+                if session_factory is None:
+                    session_factory = getattr(self._brain_service, "_session_factory", None)
+                self._brain_v2_tab = BrainV2Tab(session_factory=session_factory, parent=self._tabs)
+                self._tabs.addTab(self._brain_v2_tab, _TAB_LABELS[6])
+            except Exception as exc:
+                logger.warning("BrainV2Tab disabled after construction failure: %s", exc)
         # currentChanged feuert beim ersten Wechsel auf Tab 5 → real laden.
         self._tabs.currentChanged.connect(self._on_tab_changed_lazy_load)
         logger.info("StudioBrainWindow: alle 6 Tabs konstruiert.")

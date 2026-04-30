@@ -115,9 +115,15 @@ class GraphCockpitTab(QWidget):
         # Header: Stats + Refresh
         header_row = QHBoxLayout()
         self.stats_label = QLabel(self.tr("Knoten: 0 | Kanten: 0"))
+        self.stats_label.setToolTip(
+            "Aktuelle Groesse des Brain-Graphen: Knoten sind Entitaeten, Kanten ihre Beziehungen."
+        )
         header_row.addWidget(self.stats_label)
         header_row.addStretch()
         self.btn_refresh = QPushButton(self.tr("Aktualisieren"))
+        self.btn_refresh.setToolTip(
+            "Graph-Daten neu laden und Sigma-Ansicht aktualisieren."
+        )
         self.btn_refresh.clicked.connect(self._refresh_html)
         header_row.addWidget(self.btn_refresh)
         layout.addLayout(header_row)
@@ -127,11 +133,17 @@ class GraphCockpitTab(QWidget):
 
         if self._engine_cls is not None:
             self.web_view = self._engine_cls()
+            self.web_view.setToolTip(
+                "Interaktiver Brain-Graph. Knoten anklicken, um Details und Nachbarn zu sehen."
+            )
             splitter.addWidget(self.web_view)
         else:
             # Fallback: zeige Sigma-HTML als Text
             self.fallback_text = QTextEdit()
             self.fallback_text.setReadOnly(True)
+            self.fallback_text.setToolTip(
+                "Text-Fallback fuer den Graphen, wenn QtWebEngine nicht verfuegbar ist."
+            )
             self.fallback_text.setPlaceholderText(
                 "QtWebEngine nicht installiert — installiere PySide6-Addons "
                 "oder nutze python -m pip install PySide6-Addons."
@@ -146,6 +158,9 @@ class GraphCockpitTab(QWidget):
         detail_layout.addWidget(QLabel(self.tr("Knoten-Details")))
         self.detail_text = QTextEdit()
         self.detail_text.setReadOnly(True)
+        self.detail_text.setToolTip(
+            "Details zum ausgewaehlten Knoten inklusive Typ und Nachbarschaft."
+        )
         detail_layout.addWidget(self.detail_text)
         splitter.addWidget(detail_widget)
 

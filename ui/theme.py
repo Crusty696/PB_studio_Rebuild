@@ -27,6 +27,33 @@ T2 = "#9ca3af"  # Secondary Text
 T3 = "#6b7280"  # Muted/Label Text
 T4 = "#4b5563"  # Deep Muted Text
 
+SECTION_TAB_STYLE = f"""
+QTabBar::tab {{
+    background: transparent;
+    color: {T3};
+    border: none;
+    border-bottom: 2px solid transparent;
+    padding: 2px 14px;
+    min-height: 18px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0px;
+}}
+QTabBar::tab:hover {{
+    color: {T2};
+    background: rgba(255,255,255,0.03);
+}}
+QTabBar::tab:selected {{
+    color: {ACCENT_BRIGHT};
+    border-bottom: 2px solid {ACCENT};
+    background: rgba(212,164,74,0.08);
+}}
+QTabWidget::pane {{
+    border: none;
+}}
+"""
+
+
 def get_stylesheet() -> str:
     return f"""
     /* === GLOBAL ===   P9-Step6: kompaktere Defaults */

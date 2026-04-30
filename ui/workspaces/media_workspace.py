@@ -17,6 +17,7 @@ from services.stem_player import StemPlayer
 from ui.widgets.media_grid import MediaPoolGrid
 from ui.widgets.analysis_status_panel import AnalysisStatusPanel
 from ui.models.media_table_model import MediaTableModel, PagedProxyModel
+from ui.widgets.workflow_components import SectionTabs
 
 # MIME type for internal clip drag & drop
 CLIP_MIME_TYPE = "application/x-pb-studio-clip"
@@ -170,21 +171,6 @@ _CARD_TAG_BASE = (
 )
 
 
-_SUB_TAB_STYLE = """
-QTabBar::tab {
-    background: transparent; color: #6b7280; border: none;
-    border-bottom: 2px solid transparent; padding: 2px 14px;
-    min-height: 18px; font-size: 10px; font-weight: 700; letter-spacing: 1px;
-}
-QTabBar::tab:hover { color: #9ca3af; background: rgba(255,255,255,0.03); }
-QTabBar::tab:selected {
-    color: #f0c866; border-bottom: 2px solid #d4a44a;
-    background: rgba(212,164,74,0.08);
-}
-QTabWidget::pane { border: none; }
-"""
-
-
 def _toolbar_btn(text: str, tip: str, *, danger: bool = False, width: int | None = None) -> QPushButton:
     """Kompakter 24-px Toolbar-Button (P9-C)."""
     b = QPushButton(text)
@@ -300,6 +286,9 @@ class MediaWorkspace(QWidget):
         self.btn_mode_video.setMinimumWidth(80)
         self.btn_mode_video.setStyleSheet(_TAB_STYLE)
         self.btn_mode_video.setAccessibleName("Video Modus")
+        self.btn_mode_video.setToolTip(
+            "Video-Modus: Videos importieren, Szenen erkennen, Motion/SigLIP analysieren und Clips auswaehlen."
+        )
         self.btn_mode_video.setStatusTip("Wechselt in den Video-Modus: Video-Pool und Analyse-Pipeline")
 
         self.btn_mode_audio = QPushButton("AUDIO")
@@ -309,6 +298,9 @@ class MediaWorkspace(QWidget):
         self.btn_mode_audio.setMinimumWidth(80)
         self.btn_mode_audio.setStyleSheet(_TAB_STYLE)
         self.btn_mode_audio.setAccessibleName("Audio Modus")
+        self.btn_mode_audio.setToolTip(
+            "Audio-Modus: Tracks importieren, BPM/Beats, LUFS, Tonart, Struktur und Stems analysieren."
+        )
         self.btn_mode_audio.setStatusTip("Wechselt in den Audio-Modus: Audio-Pool und Stem-Analyse")
 
         mode_bar.addWidget(self.btn_mode_video)
@@ -357,6 +349,9 @@ class MediaWorkspace(QWidget):
         self.media_table.setColumnCount(8)
         self.media_table.setHorizontalHeaderLabels(
             ["ID", "Typ", "Titel", "BPM", "Aufloesung", "FPS", "Stems", "Dateipfad"]
+        )
+        self.media_table.setToolTip(
+            "Legacy-Medientabelle fuer interne Auswahlkompatibilitaet; sichtbar ist der Video-/Audio-Pool."
         )
         self.media_table.setVisible(False)
 
@@ -427,6 +422,9 @@ class MediaWorkspace(QWidget):
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("Semantische Suche: 'person dancing on stage'…")
         self.search_input.setFixedHeight(24)
+        self.search_input.setToolTip(
+            "Semantische Videosuche mit SigLIP-Embeddings. Beschreibe Motiv, Stimmung oder Szene in Englisch."
+        )
         tb.addWidget(self.search_input, stretch=1)
 
         self.btn_search = _toolbar_btn("Suchen", "Semantische Suche starten")
@@ -466,15 +464,21 @@ class MediaWorkspace(QWidget):
         page_layout.addWidget(self._video_pool_stack)
 
         # -------- Sub-Tabs (ANALYSE / STATUS / FILTER) --------
-        self._video_sub_tabs = QTabWidget()
-        self._video_sub_tabs.setStyleSheet(_SUB_TAB_STYLE)
-        self._video_sub_tabs.setDocumentMode(True)
+        self._video_sub_tabs = SectionTabs()
+        self._video_sub_tabs.setToolTip(
+            "Video-Unterbereiche: Analyse starten, Status pruefen und Pool verwalten."
+        )
 
         # ANALYSE
         analyse = QWidget()
         alay = QHBoxLayout(analyse)
         alay.setContentsMargins(8, 6, 8, 6)
         alay.setSpacing(6)
+        video_expert_actions = QWidget(analyse)
+        video_expert_actions.setVisible(False)
+        video_expert_layout = QHBoxLayout(video_expert_actions)
+        video_expert_layout.setContentsMargins(0, 0, 0, 0)
+        video_expert_layout.setSpacing(4)
         self.btn_analyze_video = _toolbar_btn(
             "Szenen-Erkennung", "Szenen-Schnitte und Shot-Boundaries erkennen",
         )
@@ -489,17 +493,23 @@ class MediaWorkspace(QWidget):
             "3-Schritt Pipeline: Szenen + Keyframes + SigLIP",
         )
         self.btn_video_pipeline.setObjectName("btn_accent")
+        self.btn_video_pipeline.setText("Videoanalyse starten")
         for b in (
             self.btn_analyze_video, self.btn_motion_analysis,
-            self.btn_siglip_embeddings, self.btn_video_pipeline,
+            self.btn_siglip_embeddings,
         ):
-            alay.addWidget(b)
+            b.setVisible(False)
+            video_expert_layout.addWidget(b)
+        alay.addWidget(self.btn_video_pipeline)
+        alay.addWidget(video_expert_actions)
         alay.addStretch()
         self._video_sub_tabs.addTab(analyse, "ANALYSE")
+        self._video_sub_tabs.setTabToolTip(0, "Video-Analysen fuer markierte Clips oder komplette Pipeline starten.")
 
         # STATUS
         self.video_analysis_panel = AnalysisStatusPanel()
         self._video_sub_tabs.addTab(self.video_analysis_panel, "STATUS")
+        self._video_sub_tabs.setTabToolTip(1, "Analysefortschritt und Fehler pro Video anzeigen.")
 
         # FILTER (Sammlungsverwaltung + Platzhalter fuer Filter)
         filt = QWidget()
@@ -513,8 +523,9 @@ class MediaWorkspace(QWidget):
         flay.addWidget(self.btn_clear_all)
         flay.addStretch()
         self._video_sub_tabs.addTab(filt, "FILTER")
+        self._video_sub_tabs.setTabToolTip(2, "Video-Pool verwalten, Auswahl loeschen und Pool-Filter nutzen.")
 
-        page_layout.addWidget(self._video_sub_tabs, stretch=1)
+        self._video_sub_tabs.setVisible(False)
 
         # -------- Wiring --------
         self.btn_video_list_view.clicked.connect(lambda: self._toggle_video_view(0))
@@ -626,9 +637,10 @@ class MediaWorkspace(QWidget):
         page_layout.addWidget(self._audio_pool_stack)
 
         # -------- Sub-Tabs (ANALYSE / STATUS / FILTER) --------
-        self._audio_sub_tabs = QTabWidget()
-        self._audio_sub_tabs.setStyleSheet(_SUB_TAB_STYLE)
-        self._audio_sub_tabs.setDocumentMode(True)
+        self._audio_sub_tabs = SectionTabs()
+        self._audio_sub_tabs.setToolTip(
+            "Audio-Unterbereiche: Analyse starten, Status pruefen und Filter nutzen."
+        )
 
         # ANALYSE
         analyse = QWidget()
@@ -637,6 +649,11 @@ class MediaWorkspace(QWidget):
         alay.setSpacing(4)
         row1 = QHBoxLayout()
         row1.setSpacing(4)
+        audio_expert_actions = QWidget(analyse)
+        audio_expert_actions.setVisible(False)
+        audio_expert_layout = QHBoxLayout(audio_expert_actions)
+        audio_expert_layout.setContentsMargins(0, 0, 0, 0)
+        audio_expert_layout.setSpacing(4)
         self.btn_analyze = _toolbar_btn("BPM/Beats", "BPM, Beats, Energie")
         self.btn_waveform = _toolbar_btn("Wellenform", "3-Band Wellenform + Beatgrid")
         self.btn_key_detect = _toolbar_btn("Key", "Tonart + Camelot")
@@ -647,27 +664,27 @@ class MediaWorkspace(QWidget):
             self.btn_analyze, self.btn_waveform, self.btn_key_detect,
             self.btn_lufs_analyze, self.btn_structure_detect, self.btn_stem_separate,
         ):
-            row1.addWidget(b)
-        row1.addStretch()
-        alay.addLayout(row1)
-
-        row2 = QHBoxLayout()
-        row2.setSpacing(4)
+            b.setVisible(False)
+            audio_expert_layout.addWidget(b)
         self.btn_auto_duck = _toolbar_btn("Auto-Ducking", "Musik bei Sprache absenken")
+        self.btn_auto_duck.setVisible(False)
+        audio_expert_layout.addWidget(self.btn_auto_duck)
         self.btn_analyze_all = _toolbar_btn(
-            "KOMPLETT-ANALYSE", "Alle Analysen nacheinander",
+            "Audioanalyse starten", "Alle noetigen Audio-Analysen nacheinander",
         )
         self.btn_analyze_all.setObjectName("btn_accent")
-        row2.addWidget(self.btn_auto_duck)
-        row2.addWidget(self.btn_analyze_all)
-        row2.addStretch()
-        alay.addLayout(row2)
+        row1.addWidget(self.btn_analyze_all)
+        row1.addWidget(audio_expert_actions)
+        row1.addStretch()
+        alay.addLayout(row1)
         alay.addStretch()
         self._audio_sub_tabs.addTab(analyse, "ANALYSE")
+        self._audio_sub_tabs.setTabToolTip(0, "Audio-Analysen fuer markierte Tracks starten: BPM, Stems, Struktur und Loudness.")
 
         # STATUS
         self.audio_analysis_panel = AnalysisStatusPanel()
         self._audio_sub_tabs.addTab(self.audio_analysis_panel, "STATUS")
+        self._audio_sub_tabs.setTabToolTip(1, "Analysefortschritt und Fehler pro Audio-Track anzeigen.")
 
         # FILTER
         filt = QWidget()
@@ -680,8 +697,9 @@ class MediaWorkspace(QWidget):
         flay.addWidget(hint)
         flay.addStretch()
         self._audio_sub_tabs.addTab(filt, "FILTER")
+        self._audio_sub_tabs.setTabToolTip(2, "Audio-Pool nach BPM, Key, Genre und weiteren Metadaten filtern.")
 
-        page_layout.addWidget(self._audio_sub_tabs, stretch=1)
+        self._audio_sub_tabs.setVisible(False)
 
         # -------- Wiring --------
         self.btn_audio_list_view.clicked.connect(lambda: self._toggle_audio_view(0))

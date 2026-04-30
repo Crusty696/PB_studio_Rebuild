@@ -205,6 +205,9 @@ class GpuRecoveryDialog(QDialog):
         self._btn_restart = QPushButton("PB Studio beenden (Reboot)")
         self._btn_restart.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_restart.setMinimumHeight(32)
+        self._btn_restart.setToolTip(
+            "PB Studio schliessen, damit du Windows nach dem Speichern anderer Programme manuell neu starten kannst."
+        )
         self._btn_restart.setStyleSheet(
             f"QPushButton {{ background: {BG3}; color: {T1};"
             f" border: 1px solid rgba(255,255,255,30); border-radius: 6px;"
@@ -217,6 +220,9 @@ class GpuRecoveryDialog(QDialog):
         self._btn_cpu = QPushButton("⏵ Mit CPU starten — langsamer")
         self._btn_cpu.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_cpu.setMinimumHeight(32)
+        self._btn_cpu.setToolTip(
+            "PB Studio ohne GPU starten. Analyse und KI-Funktionen laufen deutlich langsamer."
+        )
         self._btn_cpu.setStyleSheet(
             f"QPushButton {{ background: {BG3}; color: {T1};"
             f" border: 1px solid rgba(255,255,255,30); border-radius: 6px;"
@@ -231,6 +237,9 @@ class GpuRecoveryDialog(QDialog):
         self._btn_cancel = QPushButton("Abbrechen")
         self._btn_cancel.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_cancel.setMinimumHeight(32)
+        self._btn_cancel.setToolTip(
+            "Start abbrechen und Dialog schliessen, ohne CPU-Fallback zu aktivieren."
+        )
         self._btn_cancel.setStyleSheet(
             f"QPushButton {{ background: transparent; color: {T2};"
             f" border: 1px solid rgba(255,255,255,20); border-radius: 6px;"

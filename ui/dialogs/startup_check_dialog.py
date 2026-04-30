@@ -32,6 +32,9 @@ def _check_row(label: str, ok: bool, detail: str = "") -> QWidget:
     indicator = QLabel("OK" if ok else "FAIL")
     indicator.setFixedWidth(44)
     indicator.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    indicator.setToolTip(
+        f"Systempruefung fuer {label}: {'bestanden' if ok else 'fehlgeschlagen'}."
+    )
     indicator.setStyleSheet(
         f"background: {'rgba(74,222,128,31)' if ok else 'rgba(248,113,113,31)'}; "
         f"color: {OK if ok else ERR}; border-radius: 6px; "
@@ -43,6 +46,7 @@ def _check_row(label: str, ok: bool, detail: str = "") -> QWidget:
     lbl = QLabel(txt)
     lbl.setTextFormat(Qt.TextFormat.RichText)
     lbl.setStyleSheet(f"color: {T1}; font-size: 11px; font-weight: 500; background: transparent;")
+    lbl.setToolTip(detail or label)
     layout.addWidget(lbl)
     layout.addStretch()
     return row
@@ -70,6 +74,7 @@ def _message_row(text: str, color: str, icon: str) -> QWidget:
     text_lbl.setWordWrap(True)
     text_lbl.setStyleSheet(f"color: {T2}; font-size: 11px; line-height: 1.4; background: transparent;")
     text_lbl.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+    text_lbl.setToolTip(text)
     layout.addWidget(text_lbl)
     return row
 
@@ -181,6 +186,9 @@ class StartupCheckDialog(QDialog):
 
         if status.errors:
             btn_quit = QPushButton("Beenden")
+            btn_quit.setToolTip(
+                "PB Studio nicht starten, weil kritische Systempruefungen fehlgeschlagen sind."
+            )
             btn_quit.setStyleSheet(
                 f"QPushButton {{ background: rgba(248,113,113,38); color: {ERR}; "
                 f"border: 1px solid {ERR}; border-radius: 6px; padding: 6px 18px; font-weight: 700; }}"
@@ -192,6 +200,9 @@ class StartupCheckDialog(QDialog):
             f_layout.addSpacing(8)
 
             btn_start = QPushButton("Trotzdem starten (degradierter Modus)")
+            btn_start.setToolTip(
+                "App trotz Fehlern starten. Einige GPU-, KI- oder Medienfunktionen koennen ausfallen."
+            )
             btn_start.setStyleSheet(
                 f"QPushButton {{ background: rgba(251,191,36,38); color: {WARN}; "
                 f"border: 1px solid {WARN}; border-radius: 6px; padding: 6px 18px; font-weight: 700; }}"
@@ -201,6 +212,9 @@ class StartupCheckDialog(QDialog):
             f_layout.addWidget(btn_start)
         else:
             btn_ok = QPushButton("Weiter")
+            btn_ok.setToolTip(
+                "System Check schliessen und PB Studio starten."
+            )
             btn_ok.setStyleSheet(
                 f"QPushButton {{ background: {ACCENT}; color: {BG0}; border: none; "
                 "border-radius: 6px; padding: 6px 20px; font-weight: 700; }}"

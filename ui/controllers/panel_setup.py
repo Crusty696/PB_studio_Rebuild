@@ -49,6 +49,8 @@ class PanelSetupController(PBComponent):
         self.window._task_mgr_dock.hide()
         # show_dock_requested → bringt TASKS-Tab nach vorn
         def _focus_tasks():
+            if hasattr(self.window, "_set_context_panel_visible"):
+                self.window._set_context_panel_visible(True)
             for i in range(self.window.right_panel.count()):
                 if self.window.right_panel.tabText(i) == "TASKS":
                     self.window.right_panel.setCurrentIndex(i)

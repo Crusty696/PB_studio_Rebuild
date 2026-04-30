@@ -11,95 +11,89 @@ class WorkspaceSetupController(PBComponent):
     """Controller fuer MainWindow: Workspace-Erstellung und Top-Bar-Aufbau."""
 
     def _build_top_bar(self, main_layout, app_version: str):
-        """Erstellt die kompakte Top-Bar (P9-LAYOUT: 28 px statt 36)."""
+        """Builds the compact workflow top bar."""
         top_bar = QWidget()
         top_bar.setObjectName("top_bar")
-        top_bar.setFixedHeight(28)  # P9: -8 px
+        top_bar.setFixedHeight(34)
         top_layout = QHBoxLayout(top_bar)
-        top_layout.setContentsMargins(8, 0, 8, 0)
-        top_layout.setSpacing(4)
+        top_layout.setContentsMargins(10, 0, 10, 0)
+        top_layout.setSpacing(6)
 
-        app_title = QLabel(f"PB_studio v{app_version}")
-        app_title.setStyleSheet("color: #e8e6e3; font-weight: 700; font-size: 11px; background: transparent;")
+        app_title = QLabel(f"PB Studio v{app_version}")
+        app_title.setStyleSheet("color: #e8e6e3; font-weight: 700; font-size: 12px; background: transparent;")
         top_layout.addWidget(app_title)
 
-        btn_new_project = QPushButton("+ Neu")
-        btn_new_project.setObjectName("btn_secondary")
-        btn_new_project.setFixedHeight(22)
-        btn_new_project.clicked.connect(self.window.project_management._new_project)
-        top_layout.addWidget(btn_new_project)
-
-        btn_open_project = QPushButton("Oeffnen")
-        btn_open_project.setObjectName("btn_secondary")
-        btn_open_project.setFixedHeight(22)
-        btn_open_project.clicked.connect(self.window.project_management._open_project)
-        top_layout.addWidget(btn_open_project)
-
-        self.window._btn_recent = QPushButton("Zuletzt \u25be")
-        self.window._btn_recent.setObjectName("btn_secondary")
-        self.window._btn_recent.setFixedHeight(22)
-        self.window._btn_recent.clicked.connect(self._show_recent_projects_menu)
-        top_layout.addWidget(self.window._btn_recent)
-
-        btn_save_as = QPushButton("Speichern unter")
-        btn_save_as.setObjectName("btn_secondary")
-        btn_save_as.setFixedHeight(22)
-        btn_save_as.clicked.connect(self.window.project_management._save_project_as)
-        top_layout.addWidget(btn_save_as)
-
-        self.window._project_name_label = QLabel("")
+        self.window._project_name_label = QLabel("Kein Projekt")
         self.window._project_name_label.setObjectName("title")
         self.window._project_name_label.setStyleSheet("color: #d4a44a; padding: 0 8px; font-size: 11px;")
         top_layout.addWidget(self.window._project_name_label)
 
+        self.window._save_state_label = QLabel("gespeichert")
+        self.window._save_state_label.setStyleSheet("color: #6b7280; font-size: 10px; background: transparent;")
+        top_layout.addWidget(self.window._save_state_label)
+
         top_layout.addStretch()
 
-        self.window._btn_toggle_tasks = QPushButton("Tasks")
-        self.window._btn_toggle_tasks.setCheckable(True)
-        self.window._btn_toggle_tasks.setChecked(True)
-        self.window._btn_toggle_tasks.setFixedHeight(22)
-        top_layout.addWidget(self.window._btn_toggle_tasks)
-
-        self.window._btn_toggle_console = QPushButton("Konsole")
-        self.window._btn_toggle_console.setCheckable(True)
-        self.window._btn_toggle_console.setChecked(True)
-        self.window._btn_toggle_console.setFixedHeight(22)
-        top_layout.addWidget(self.window._btn_toggle_console)
-
-        self.window._btn_toggle_chat = QPushButton("KI Chat")
-        self.window._btn_toggle_chat.setCheckable(True)
-        self.window._btn_toggle_chat.setChecked(False)
-        self.window._btn_toggle_chat.setFixedHeight(22)
-        top_layout.addWidget(self.window._btn_toggle_chat)
-
-        # P16: Studio Brain entry-point. Opens the 4-tab window
-        # (Struktur / Gedächtnis / Audit / Steer). Ctrl+B is the shortcut.
-        btn_brain = QPushButton("🧠 Brain")
-        btn_brain.setToolTip(
-            "Studio Brain öffnen (Ctrl+B) — Übersicht über Szenen, Lerndaten, "
-            "Pacing-Runs und Steuerung."
+        self.window._btn_context_panel = QPushButton("Kontext")
+        self.window._btn_context_panel.setCheckable(True)
+        self.window._btn_context_panel.setChecked(False)
+        self.window._btn_context_panel.setFixedHeight(24)
+        self.window._btn_context_panel.setToolTip(
+            "Kontextpanel mit Tasks, Log und KI-Assistent ein- oder ausklappen."
         )
-        btn_brain.setMaximumWidth(90)
-        btn_brain.setFixedHeight(22)
-        btn_brain.clicked.connect(self.window._open_studio_brain)
-        top_layout.addWidget(btn_brain)
+        top_layout.addWidget(self.window._btn_context_panel)
 
-        btn_settings = QPushButton("⚙ Einstellungen")
-        btn_settings.setMaximumWidth(110)
+        self.window._btn_open_brain = QPushButton("Brain")
+        self.window._btn_open_brain.setFixedHeight(24)
+        self.window._btn_open_brain.setToolTip(
+            "Studio Brain direkt oeffnen (Ctrl+B). Zeigt Projektwissen, interne App-Erinnerungen, "
+            "Analyse-/Audit-Ansichten und Steuerung. Dieser Bereich ist wichtig genug fuer einen "
+            "sichtbaren Top-Bar-Zugriff und liegt deshalb nicht mehr versteckt im Tools-Menue."
+        )
+        self.window._btn_open_brain.clicked.connect(self.window._open_studio_brain)
+        top_layout.addWidget(self.window._btn_open_brain)
+
+        btn_settings = QPushButton("Einstellungen")
+        btn_settings.setMaximumWidth(120)
         btn_settings.setFixedHeight(22)
+        btn_settings.setToolTip(
+            "Einstellungen oeffnen: LLM/Ollama-Backend, Modellwahl und Tastaturkuerzel."
+        )
         btn_settings.clicked.connect(self.window.project_management._show_settings)
         top_layout.addWidget(btn_settings)
 
-        btn_about = QPushButton("About")
-        btn_about.setMaximumWidth(64)
-        btn_about.setFixedHeight(22)
-        btn_about.clicked.connect(self.window.project_management._show_about)
-        top_layout.addWidget(btn_about)
+        self.window._btn_toggle_tasks = QPushButton("Tasks", top_bar)
+        self.window._btn_toggle_console = QPushButton("Konsole", top_bar)
+        self.window._btn_toggle_chat = QPushButton("KI Chat", top_bar)
+        self.window._btn_toggle_tasks.setToolTip("Tasks im Kontextpanel anzeigen.")
+        self.window._btn_toggle_console.setToolTip("Log im Kontextpanel anzeigen.")
+        self.window._btn_toggle_chat.setToolTip("KI Chat im Kontextpanel anzeigen.")
+        for hidden_btn in (
+            self.window._btn_toggle_tasks,
+            self.window._btn_toggle_console,
+            self.window._btn_toggle_chat,
+        ):
+            hidden_btn.hide()
 
-        btn_help = QPushButton("?")
-        btn_help.setFixedSize(22, 22)
-        btn_help.clicked.connect(self.window.project_management._show_shortcut_help)
-        top_layout.addWidget(btn_help)
+        tools = QMenu(self.window)
+        tools.addAction("Tasks anzeigen", self.window._btn_toggle_tasks.click)
+        tools.addAction("Log anzeigen", self.window._btn_toggle_console.click)
+        tools.addAction("KI Chat anzeigen", self.window._btn_toggle_chat.click)
+        tools.addSeparator()
+        tools.addAction("Neues Projekt", self.window.project_management._new_project)
+        tools.addAction("Projekt oeffnen", self.window.project_management._open_project)
+        tools.addAction("Speichern unter", self.window.project_management._save_project_as)
+        tools.addAction("Zuletzt geoeffnete Projekte", self._show_recent_projects_menu)
+        tools.addSeparator()
+        tools.addAction("Studio Brain (Ctrl+B)", self.window._open_studio_brain)
+        tools.addAction("Tastaturkuerzel", self.window.project_management._show_shortcut_help)
+        tools.addAction("About", self.window.project_management._show_about)
+        btn_tools = QPushButton("Tools")
+        btn_tools.setFixedHeight(22)
+        btn_tools.setMenu(tools)
+        btn_tools.setToolTip("Expertenwerkzeuge und Hilfe.")
+        top_layout.addWidget(btn_tools)
+        self.window._btn_recent = btn_tools
 
         main_layout.addWidget(top_bar)
 
@@ -162,10 +156,10 @@ class WorkspaceSetupController(PBComponent):
         from ui.workspaces import (
             MediaWorkspace, EditWorkspace, StemsWorkspace,
             ConvertWorkspace, DeliverWorkspace,
+            AnalysisWorkspace, PrepareWorkspace, ProjectDashboard,
         )
 
         self.window._media_ws = MediaWorkspace()
-        self.window.workspace_stack.addWidget(self.window._media_ws)
 
         # Promote widgets
         self.window.btn_analyze = self.window._media_ws.btn_analyze
@@ -241,7 +235,6 @@ class WorkspaceSetupController(PBComponent):
 
         # --- EDIT workspace ---
         self.window._edit_ws = EditWorkspace()
-        self.window.workspace_stack.addWidget(self.window._edit_ws)
 
         # Promote widgets
         self.window.video_preview = self.window._edit_ws.video_preview
@@ -321,7 +314,6 @@ class WorkspaceSetupController(PBComponent):
 
         # --- STEMS workspace ---
         self.window._stems_ws = StemsWorkspace()
-        self.window.workspace_stack.addWidget(self.window._stems_ws)
         self.window.stem_workspace = self.window._stems_ws.stem_widget
         self.window.stem_workspace.stem_volume_changed.connect(self.window.stem_player.set_volume)
         self.window.stem_workspace.stem_mute_toggled.connect(self.window.stem_player.set_mute)
@@ -334,7 +326,6 @@ class WorkspaceSetupController(PBComponent):
 
         # --- CONVERT workspace ---
         self.window._convert_ws = ConvertWorkspace()
-        self.window.workspace_stack.addWidget(self.window._convert_ws)
 
         # Promote widgets
         self.window.convert_resolution = self.window._convert_ws.convert_resolution
@@ -359,7 +350,6 @@ class WorkspaceSetupController(PBComponent):
 
         # --- DELIVER workspace ---
         self.window._deliver_ws = DeliverWorkspace()
-        self.window.workspace_stack.addWidget(self.window._deliver_ws)
 
         # Promote widgets
         self.window.production_info = self.window._deliver_ws.production_info
@@ -383,34 +373,172 @@ class WorkspaceSetupController(PBComponent):
         self.window._deliver_ws.btn_preview_play.clicked.connect(self.window.export._play_preview)
         self.window._deliver_ws.btn_preview_stop.clicked.connect(self.window.export._stop_preview)
 
+        # --- Workflow shell pages ---
+        self.window._project_dashboard = ProjectDashboard()
+        self.window._prepare_ws = PrepareWorkspace(self.window._media_ws, self.window._convert_ws)
+        self.window._analysis_ws = AnalysisWorkspace(self.window._stems_ws, self.window._media_ws)
+
+        self.window._project_dashboard.btn_new_project.clicked.connect(
+            self.window.project_management._new_project
+        )
+        self.window._project_dashboard.btn_open_project.clicked.connect(
+            self.window.project_management._open_project
+        )
+        self.window._project_dashboard.btn_next_step.clicked.connect(
+            lambda: self.window.nav_bar.set_workspace(1)
+        )
+
+        self.window._analysis_ws.btn_open_sources.clicked.connect(
+            lambda: self.window.nav_bar.set_workspace(1)
+        )
+
+        self.window.workspace_stack.addWidget(self.window._project_dashboard)
+        self.window.workspace_stack.addWidget(self.window._prepare_ws)
+        self.window.workspace_stack.addWidget(self.window._analysis_ws)
+        self.window.workspace_stack.addWidget(self.window._edit_ws)
+        self.window.workspace_stack.addWidget(self.window._deliver_ws)
+
     def _on_workspace_changed(self, index: int):
-        self.window.workspace_stack.setCurrentIndex(index)
-        if index == 3:
+        from ui.workspaces.workflow_pages import set_tab_if_available
+
+        self._update_workflow_gates()
+        if index == 0:
+            self.window.workspace_stack.setCurrentIndex(0)
+            self._refresh_project_dashboard()
+            return
+        if index == 1:
+            self.window.workspace_stack.setCurrentIndex(1)
             if hasattr(self.window, 'convert'):
-                 self.window.convert._refresh_effects_combos()
-        elif index == 4:
+                self.window.convert._refresh_effects_combos()
+            return
+        if index == 2:
+            self.window.workspace_stack.setCurrentIndex(2)
+            return
+        if index == 3:
+            self.window.workspace_stack.setCurrentIndex(3)
+            if hasattr(self.window._edit_ws, "set_workflow_stage"):
+                self.window._edit_ws.set_workflow_stage("auto")
+            else:
+                set_tab_if_available(self.window._edit_ws, 1)
+            self.window.media_table_controller._refresh_director_combos()
+            return
+        if index == 4:
+            self.window.workspace_stack.setCurrentIndex(3)
+            if hasattr(self.window._edit_ws, "set_workflow_stage"):
+                self.window._edit_ws.set_workflow_stage("review")
+            else:
+                set_tab_if_available(self.window._edit_ws, 0)
+            return
+        if index == 5:
+            self.window.workspace_stack.setCurrentIndex(4)
             if hasattr(self.window, 'export'):
                 self.window.export._refresh_production_info()
+            return
+
+    def _update_workflow_gates(self):
+        """Keep primary actions honest about their prerequisites."""
+        audio_ready = False
+        video_ready = False
+        try:
+            audio_ready = self.window.audio_combo.count() > 0
+            video_ready = self.window.video_combo.count() > 0
+        except Exception:
+            pass
+
+        can_auto_edit = audio_ready and video_ready
+        for attr in ("btn_generate", "btn_auto_edit"):
+            btn = getattr(self.window, attr, None)
+            if btn is not None:
+                btn.setEnabled(can_auto_edit)
+                if can_auto_edit:
+                    btn.setToolTip("Pacing berechnen und Timeline erzeugen.")
+                else:
+                    btn.setToolTip(
+                        "Erst Audio und Video importieren/analysieren. "
+                        "Danach ist Auto-Schnitt bedienbar."
+                    )
+
+        for attr in ("btn_stem_separate",):
+            btn = getattr(self.window, attr, None)
+            if btn is not None:
+                btn.setEnabled(audio_ready)
+                btn.setToolTip(
+                    "Stems fuer ausgewaehlte Audiospur erzeugen."
+                    if audio_ready
+                    else "Erst eine Audiospur importieren oder auswaehlen."
+                )
+        analysis_ws = getattr(self.window, "_analysis_ws", None)
+        if analysis_ws is not None:
+            analysis_ws.btn_stems.setEnabled(audio_ready)
+            analysis_ws.btn_stems.setToolTip(
+                "Stems fuer die aktive Audiospur erzeugen."
+                if audio_ready
+                else "Stems sind erst mit importierter Audiospur verfuegbar."
+            )
+            analysis_ws.btn_video_pipeline.setEnabled(video_ready)
+            analysis_ws.btn_video_pipeline.setToolTip(
+                "Videoanalyse fuer importierte Clips starten."
+                if video_ready
+                else "Video-Pipeline braucht mindestens einen importierten Clip."
+            )
+
+        for attr in ("btn_standardize_all", "btn_apply_effects"):
+            btn = getattr(self.window, attr, None)
+            if btn is not None:
+                btn.setEnabled(video_ready)
+                btn.setToolTip(
+                    "Videoquellen standardisieren oder Clip-Effekte anwenden."
+                    if video_ready
+                    else "Convert ist erst mit importiertem Video sinnvoll."
+                )
+
+        export_btn = getattr(self.window, "btn_export", None)
+        preview_btn = getattr(self.window, "btn_preview", None)
+        timeline_ready = False
+        try:
+            timeline_ready = bool(getattr(self.window.timeline_view, "clip_items", None))
+        except Exception:
+            timeline_ready = True
+        for btn in (export_btn, preview_btn):
+            if btn is not None:
+                btn.setEnabled(timeline_ready)
+                if not timeline_ready:
+                    btn.setToolTip("Erst Timeline erzeugen oder Clips hinzufuegen.")
+
+    def _refresh_project_dashboard(self):
+        dashboard = getattr(self.window, "_project_dashboard", None)
+        if dashboard is None:
+            return
+        label = getattr(self.window, "_project_name_label", None)
+        name = label.text() if label is not None and label.text() else None
+        path = None
+        manager = getattr(self.window, "_project_manager", None)
+        try:
+            current = getattr(manager, "current_project_path", None)
+            if current is not None:
+                path = str(current)
+        except Exception as exc:
+            self.logger.debug("dashboard project path unavailable: %s", exc)
+        dashboard.update_project(name, path)
 
     def _save_window_state(self) -> None:
-        """P9-Step2: Splitter und Docks gibt's nicht mehr — nur den aktiven
-        Workspace-Index speichern. Geometrie ist via setFixedSize fest."""
+        """Persist workflow stage and context-panel tab."""
         from PySide6.QtCore import QSettings
         settings = QSettings("PBStudio", "PBStudioApp")
         try:
-            settings.setValue("window/workspaceIndex", self.window.workspace_stack.currentIndex())
+            settings.setValue("window/workflowStageIndex", self.window.nav_bar._current_index)
         except Exception as exc:
-            self.logger.debug("save workspaceIndex: %s", exc)
+            self.logger.debug("save workflowStageIndex: %s", exc)
         try:
             settings.setValue("window/rightTabIndex", self.window.right_panel.currentIndex())
         except Exception as exc:
             self.logger.debug("save rightTabIndex: %s", exc)
 
     def _restore_window_state(self) -> None:
-        """P9-Step2: Nur Workspace + Right-Panel-Tab wiederherstellen."""
+        """Restore workflow stage and context-panel tab."""
         from PySide6.QtCore import QSettings
         settings = QSettings("PBStudio", "PBStudioApp")
-        workspace_idx = settings.value("window/workspaceIndex")
+        workspace_idx = settings.value("window/workflowStageIndex")
         if workspace_idx is not None:
             try:
                 self.window.nav_bar.set_workspace(int(workspace_idx))
@@ -443,6 +571,9 @@ class WorkspaceSetupController(PBComponent):
         slider.setRange(min_val, max_val)
         slider.setValue(default)
         slider.setFixedHeight(16)
+        slider.setToolTip(
+            f"{label}: Wert zwischen {min_val} und {max_val} einstellen."
+        )
         row.addWidget(slider, stretch=1)
         val_lbl = QLabel(str(default))
         val_lbl.setFixedWidth(26)

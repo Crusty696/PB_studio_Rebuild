@@ -190,6 +190,15 @@ class ProjectManagementController(PBComponent):
             logger.warning("Could not update recent projects: %s", exc)
         project_name = path.name
         self.window._project_name_label.setText(project_name)
+        if hasattr(self.window, "_save_state_label"):
+            self.window._save_state_label.setText("gespeichert")
+            self.window._save_state_label.setStyleSheet("color: #6b7280; font-size: 10px; background: transparent;")
+        try:
+            dashboard = getattr(self.window, "_project_dashboard", None)
+            if dashboard is not None:
+                dashboard.update_project(project_name, str(path))
+        except Exception as exc:
+            logger.debug("Project dashboard update failed: %s", exc)
         self._update_window_title()  # AUD-108: respects dirty flag
         self.window.media_table_controller._refresh_media_table()
         self.window.media_table_controller._refresh_director_combos()
@@ -237,12 +246,22 @@ class ProjectManagementController(PBComponent):
         """Mark the session as having unsaved changes."""
         if not self.window._dirty:
             self.window._dirty = True
+            if hasattr(self.window, "_save_state_label"):
+                self.window._save_state_label.setText("ungespeichert")
+                self.window._save_state_label.setStyleSheet(
+                    "color: #fbbf24; font-size: 10px; background: transparent;"
+                )
             self._update_window_title()
 
     def _mark_clean(self):
         """Mark the session as saved (no pending changes)."""
         if self.window._dirty:
             self.window._dirty = False
+            if hasattr(self.window, "_save_state_label"):
+                self.window._save_state_label.setText("gespeichert")
+                self.window._save_state_label.setStyleSheet(
+                    "color: #6b7280; font-size: 10px; background: transparent;"
+                )
             self._update_window_title()
 
     def _update_window_title(self):

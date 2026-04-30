@@ -52,7 +52,9 @@ class TaskManagerDock(QDockWidget):
             f"font-size: 9px; border-radius: 3px; padding: 0 6px; }}"
             f"QPushButton:hover {{ color: {T1}; background: {BG4}; }}"
         )
-        self.btn_clear.setToolTip("Abgeschlossene Tasks aus der Liste entfernen")
+        self.btn_clear.setToolTip(
+            "Abgeschlossene, abgebrochene und fehlgeschlagene Tasks aus der Anzeige entfernen."
+        )
         self.btn_clear.clicked.connect(self._clear_finished)
         header_row.addWidget(self.btn_clear)
 
@@ -64,7 +66,9 @@ class TaskManagerDock(QDockWidget):
             f"font-size: 10px; font-weight: bold; border-radius: 3px; padding: 0 6px; }}"
             f"QPushButton:hover {{ background: {ERR}; color: {T1}; }}"
         )
-        self.btn_cancel.setToolTip("Laufenden Task abbrechen")
+        self.btn_cancel.setToolTip(
+            "Laengsten aktuell laufenden Task abbrechen. Fuer gezielten Abbruch das X in der Task-Zeile nutzen."
+        )
         self.btn_cancel.clicked.connect(self._on_cancel_clicked)
         header_row.addWidget(self.btn_cancel)
 
@@ -196,7 +200,9 @@ class TaskManagerDock(QDockWidget):
         # jetzt klickt der User explizit die Zeile die ihn nervt.
         row_cancel_btn = QPushButton("✕")
         row_cancel_btn.setFixedSize(20, 20)
-        row_cancel_btn.setToolTip("Diesen Task abbrechen")
+        row_cancel_btn.setToolTip(
+            f"Nur diesen Task abbrechen: {task.name}."
+        )
         row_cancel_btn.setStyleSheet(
             f"QPushButton {{ background: transparent; color: {ERR}; "
             f"border: 1px solid {BG3}; border-radius: 3px; "

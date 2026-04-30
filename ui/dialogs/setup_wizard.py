@@ -256,6 +256,11 @@ def _status_chip(text: str, ok: bool) -> QLabel:
 
 def _btn(text: str, primary: bool = False) -> QPushButton:
     b = QPushButton(text)
+    b.setToolTip(
+        f"Setup-Schritt ausfuehren: {text}."
+        if primary
+        else f"Setup-Navigation oder Option: {text}."
+    )
     if primary:
         b.setStyleSheet(
             f"QPushButton {{ background: {ACCENT}; color: {BG0}; border-radius: 8px; "
@@ -413,6 +418,10 @@ class _PageModels(QWidget):
         cb = QCheckBox()
         cb.setChecked(m["default"] and not already)
         cb.setEnabled(not already)
+        model_label = m.get("display") or m.get("id", "Modell")
+        cb.setToolTip(
+            f"Modell '{model_label}' {'ist bereits installiert' if already else 'fuer Download auswaehlen'}."
+        )
         cb.stateChanged.connect(self._update_size)
         hl.addWidget(cb)
 

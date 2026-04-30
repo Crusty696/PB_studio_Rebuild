@@ -103,6 +103,10 @@ class NewProjectDialog(QDialog):
         layout.addWidget(QLabel("Projektname:"))
         self.name_input = QLineEdit()
         self.name_input.setPlaceholderText("Mein Projekt")
+        self.name_input.setToolTip(
+            "Projektname. PB Studio legt unter dem gewaehlten Speicherort "
+            "einen Projektordner mit diesem Namen an."
+        )
         layout.addWidget(self.name_input)
 
         # -- Path --
@@ -110,9 +114,14 @@ class NewProjectDialog(QDialog):
         path_row = QHBoxLayout()
         self.path_input = QLineEdit()
         self.path_input.setPlaceholderText("Ordner waehlen...")
+        self.path_input.setToolTip(
+            "Basisordner fuer das neue Projekt. Der Projektordner wird als "
+            "Unterordner mit dem Projektnamen erstellt."
+        )
         path_row.addWidget(self.path_input, stretch=1)
         btn_browse = QPushButton("...")
         btn_browse.setFixedWidth(36)
+        btn_browse.setToolTip("Speicherort ueber Ordnerauswahl waehlen.")
         btn_browse.clicked.connect(self._browse_path)
         path_row.addWidget(btn_browse)
         layout.addLayout(path_row)
@@ -124,6 +133,9 @@ class NewProjectDialog(QDialog):
             "1920x1080", "3840x2160", "1280x720", "2560x1440",
             "1080x1920", "1080x1080",
         ])
+        self.resolution_combo.setToolTip(
+            "Ziel-Aufloesung fuer Timeline, Vorschau und Export-Voreinstellungen."
+        )
         layout.addWidget(self.resolution_combo)
 
         # -- FPS --
@@ -133,6 +145,10 @@ class NewProjectDialog(QDialog):
         self.fps_spin.setValue(30.0)
         self.fps_spin.setDecimals(2)
         self.fps_spin.setSingleStep(0.01)
+        self.fps_spin.setToolTip(
+            "Projekt-Bildrate in Frames pro Sekunde. Muss zum geplanten Export "
+            "oder Quellmaterial passen."
+        )
         layout.addWidget(self.fps_spin)
 
         # -- Buttons --
@@ -140,10 +156,16 @@ class NewProjectDialog(QDialog):
         btn_row = QHBoxLayout()
         btn_row.addStretch()
         btn_cancel = QPushButton("Abbrechen")
+        btn_cancel.setToolTip(
+            "Dialog schliessen, ohne ein neues Projekt anzulegen."
+        )
         btn_cancel.clicked.connect(self.reject)
         btn_row.addWidget(btn_cancel)
         btn_ok = QPushButton("Erstellen")
         btn_ok.setObjectName("btn_ok")
+        btn_ok.setToolTip(
+            "Projekt mit den eingetragenen Einstellungen erstellen."
+        )
         btn_ok.clicked.connect(self._validate_and_accept)
         btn_row.addWidget(btn_ok)
         layout.addLayout(btn_row)
@@ -252,9 +274,14 @@ class OpenProjectDialog(QDialog):
         path_row = QHBoxLayout()
         self.path_input = QLineEdit()
         self.path_input.setPlaceholderText("Projektordner waehlen...")
+        self.path_input.setToolTip(
+            "Ordner eines bestehenden PB-Studio-Projekts. Er muss eine "
+            "lesbare SQLite-Datei pb_studio.db enthalten."
+        )
         path_row.addWidget(self.path_input, stretch=1)
         btn_browse = QPushButton("...")
         btn_browse.setFixedWidth(36)
+        btn_browse.setToolTip("Projektordner ueber Ordnerauswahl waehlen.")
         btn_browse.clicked.connect(self._browse_path)
         path_row.addWidget(btn_browse)
         layout.addLayout(path_row)
@@ -267,10 +294,16 @@ class OpenProjectDialog(QDialog):
         btn_row = QHBoxLayout()
         btn_row.addStretch()
         btn_cancel = QPushButton("Abbrechen")
+        btn_cancel.setToolTip(
+            "Dialog schliessen, ohne ein Projekt zu oeffnen."
+        )
         btn_cancel.clicked.connect(self.reject)
         btn_row.addWidget(btn_cancel)
         btn_ok = QPushButton("Oeffnen")
         btn_ok.setObjectName("btn_ok")
+        btn_ok.setToolTip(
+            "Ausgewaehltes Projekt oeffnen, wenn die pb_studio.db gueltig ist."
+        )
         btn_ok.clicked.connect(self._validate_and_accept)
         btn_row.addWidget(btn_ok)
         layout.addLayout(btn_row)

@@ -68,9 +68,15 @@ class PacingDecisionExplorer(QWidget):
         header_row.addWidget(QLabel(self.tr("Run:")))
         self.run_combo = QComboBox()
         self.run_combo.setMinimumWidth(180)
+        self.run_combo.setToolTip(
+            "Pacing-Run aus dem Lernspeicher waehlen, dessen Entscheidungen untersucht werden sollen."
+        )
         self.run_combo.currentIndexChanged.connect(self._on_run_changed)
         header_row.addWidget(self.run_combo)
         self.btn_refresh = QPushButton(self.tr("Aktualisieren"))
+        self.btn_refresh.setToolTip(
+            "Pacing-Runs und Decision-Tabelle aus der Datenbank neu laden."
+        )
         self.btn_refresh.clicked.connect(self.refresh_runs)
         header_row.addWidget(self.btn_refresh)
         header_row.addStretch()
@@ -87,6 +93,9 @@ class PacingDecisionExplorer(QWidget):
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.table.setToolTip(
+            "Entscheidungen eines Runs: Szene, Section, Reward, User-Verdict und wichtigster Reward-Faktor."
+        )
         self.table.itemSelectionChanged.connect(self._on_row_selected)
         splitter.addWidget(self.table)
 
@@ -97,15 +106,24 @@ class PacingDecisionExplorer(QWidget):
 
         self.detail_text = QTextEdit()
         self.detail_text.setReadOnly(True)
+        self.detail_text.setToolTip(
+            "Detailanalyse der ausgewaehlten Entscheidung mit Top-Reward-Komponenten und Roh-Rationale."
+        )
         detail_layout.addWidget(self.detail_text)
 
         # Verdict-Buttons
         verdict_row = QHBoxLayout()
         verdict_row.addWidget(QLabel(self.tr("Verdict:")))
         self.btn_good = QPushButton("👍 Gut")
+        self.btn_good.setToolTip(
+            "Ausgewaehlte Pacing-Entscheidung als gut bewerten und im Lernspeicher speichern."
+        )
         self.btn_good.clicked.connect(lambda: self._set_verdict("good"))
         verdict_row.addWidget(self.btn_good)
         self.btn_bad = QPushButton("👎 Schlecht")
+        self.btn_bad.setToolTip(
+            "Ausgewaehlte Pacing-Entscheidung als schlecht bewerten und im Lernspeicher speichern."
+        )
         self.btn_bad.clicked.connect(lambda: self._set_verdict("bad"))
         verdict_row.addWidget(self.btn_bad)
         verdict_row.addStretch()

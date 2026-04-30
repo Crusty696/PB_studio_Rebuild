@@ -21,21 +21,7 @@ from PySide6.QtWidgets import (
 )
 
 from ui.widgets.stem_workspace import StemWorkspace as StemWorkspaceWidget
-
-
-_SUB_TAB_STYLE = """
-QTabBar::tab {
-    background: transparent; color: #6b7280; border: none;
-    border-bottom: 2px solid transparent; padding: 2px 14px;
-    min-height: 18px; font-size: 10px; font-weight: 700; letter-spacing: 1px;
-}
-QTabBar::tab:hover { color: #9ca3af; background: rgba(255,255,255,0.03); }
-QTabBar::tab:selected {
-    color: #f0c866; border-bottom: 2px solid #d4a44a;
-    background: rgba(212,164,74,0.08);
-}
-QTabWidget::pane { border: none; }
-"""
+from ui.widgets.workflow_components import SectionTabs
 
 
 # --------------------------------------------------------------------------
@@ -169,10 +155,11 @@ class StemsWorkspace(QWidget):
         layout.addWidget(self.stem_widget, stretch=1)
 
         # Sub-Tabs (ENERGIE / ONSETS / SNR) — feste Gesamthoehe
-        self.sub_tabs = QTabWidget()
-        self.sub_tabs.setStyleSheet(_SUB_TAB_STYLE)
-        self.sub_tabs.setDocumentMode(True)
+        self.sub_tabs = SectionTabs()
         self.sub_tabs.setFixedHeight(150)
+        self.sub_tabs.setToolTip(
+            "Analyse-Ansichten fuer den geladenen Audio-Track: Energie, Onsets und Stem-SNR."
+        )
 
         # ENERGIE
         self._energy_page = QWidget()
@@ -185,6 +172,7 @@ class StemsWorkspace(QWidget):
         self._energy_plot = _Sparkline("#f0c866")
         e_lay.addWidget(self._energy_plot, stretch=1)
         self.sub_tabs.addTab(self._energy_page, "ENERGIE")
+        self.sub_tabs.setTabToolTip(0, "Energieverlauf des Tracks, hilfreich fuer Drops und Pacing.")
 
         # ONSETS
         self._onsets_page = QWidget()
@@ -197,6 +185,7 @@ class StemsWorkspace(QWidget):
         self._onsets_plot = _OnsetTrack()
         o_lay.addWidget(self._onsets_plot, stretch=1)
         self.sub_tabs.addTab(self._onsets_page, "ONSETS")
+        self.sub_tabs.setTabToolTip(1, "Kick/Snare/Hihat-Onsets als rhythmische Marker.")
 
         # SNR
         self._snr_page = QWidget()
@@ -227,6 +216,7 @@ class StemsWorkspace(QWidget):
         s_lay.addLayout(snr_row)
         s_lay.addStretch(1)
         self.sub_tabs.addTab(self._snr_page, "SNR")
+        self.sub_tabs.setTabToolTip(2, "Signal-Rausch-Abstand pro getrenntem Stem.")
 
         layout.addWidget(self.sub_tabs)
 

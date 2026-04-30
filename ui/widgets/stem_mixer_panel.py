@@ -57,7 +57,9 @@ class StemMixerPanel(QWidget):
         self._mute_btn = QPushButton("M")
         self._mute_btn.setFixedSize(28, 22)
         self._mute_btn.setCheckable(True)
-        self._mute_btn.setToolTip(f"{label} stumm schalten")
+        self._mute_btn.setToolTip(
+            f"{label} stumm schalten oder wieder aktivieren."
+        )
         self._mute_btn.setObjectName("stem_mute_btn")
         self._mute_btn.setStyleSheet(
             f"""
@@ -88,7 +90,9 @@ class StemMixerPanel(QWidget):
         self._solo_btn = QPushButton("S")
         self._solo_btn.setFixedSize(28, 22)
         self._solo_btn.setCheckable(True)
-        self._solo_btn.setToolTip(f"{label} solo")
+        self._solo_btn.setToolTip(
+            f"{label} solo abhoeren und andere Stems voruebergehend ausblenden."
+        )
         self._solo_btn.setStyleSheet(
             f"""
             QPushButton {{
@@ -120,7 +124,9 @@ class StemMixerPanel(QWidget):
         self._vol_slider.setRange(0, 100)
         self._vol_slider.setValue(100)
         self._vol_slider.setFixedHeight(16)
-        self._vol_slider.setToolTip(f"{label} Lautstärke")
+        self._vol_slider.setToolTip(
+            f"Lautstaerke fuer {label} anpassen. 100 entspricht 0 dB, 0 ist stumm."
+        )
         self._vol_slider.setStyleSheet(
             f"""
             QSlider::groove:horizontal {{

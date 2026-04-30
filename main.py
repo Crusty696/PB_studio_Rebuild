@@ -205,6 +205,7 @@ from ui.widgets.pacing_curve import PacingCurveWidget
 from ui.widgets.video_preview import VideoPreviewWidget
 from ui.widgets.task_manager_dock import TaskManagerDock
 from ui.widgets.nav_bar import WorkspaceNavBar
+from ui.widgets.workflow_components import ContextPanel
 from ui.dialogs.about import AboutDialog
 from ui.dialogs.shortcut_help_dialog import ShortcutHelpDialog
 from ui.dialogs.project_dialog import NewProjectDialog, OpenProjectDialog
@@ -230,13 +231,10 @@ class PBWindow(QMainWindow):
         self.logger = logger
         self._app_version = APP_VERSION
         self.setWindowTitle(f"PB_studio v{APP_VERSION} — Director's Cockpit")
-        # P9-LAYOUT: Festes Fenster 1513×936. Kein Resize, keine Splitter.
-        # Begruendung: Vorgabe aus docs/ui_audit/LAYOUT_PLAN.md — Inhalt soll
-        # IMMER vollstaendig sichtbar sein, ohne Scrollen oder Verschieben.
-        # Maximize-Button via WindowFlags abschalten.
-        self.setFixedSize(1513, 936)
-        from PySide6.QtCore import Qt as _Qt
-        self.setWindowFlag(_Qt.WindowType.WindowMaximizeButtonHint, False)
+        # Workflow shell: resizable again. The old fixed 1513x936 layout made
+        # empty areas and hidden affordances worse on real monitors.
+        self.resize(1513, 936)
+        self.setMinimumSize(1280, 800)
         self._active_threads: list[QThread] = []
         self._active_workers: list[QObject] = []
         self._otio_timeline_service: TimelineService | None = None
@@ -308,20 +306,19 @@ class PBWindow(QMainWindow):
         sep.setStyleSheet("background-color: rgba(255,255,255,6);")
         main_layout.addWidget(sep)
 
-        # ── Workspace Stack ── (P9-Step2: feste Breite, kein Splitter mehr)
+        # ── Workflow Navigation ──
+        self.nav_bar = WorkspaceNavBar()
+        self.nav_bar.workspace_changed.connect(self.workspace_setup._on_workspace_changed)
+        main_layout.addWidget(self.nav_bar)
+
+        # ── Workspace Stack ──
         self.workspace_stack = QStackedWidget()
-        self.workspace_stack.setFixedWidth(1213)
+        self.workspace_stack.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.workspace_setup._create_workspaces()
 
-        # ── P9-Step2: Right-Panel als QTabWidget (300×836). Ersetzt den
-        # Vertikal/Horizontal-Splitter + 3 QDockWidgets. Tabs werden in
-        # panel_setup.setup_*() befuellt.
-        from PySide6.QtWidgets import QTabWidget as _QTab
-        self.right_panel = _QTab()
-        self.right_panel.setFixedWidth(300)
-        self.right_panel.setObjectName("right_panel")
-        self.right_panel.setDocumentMode(True)
-        self.right_panel.setTabPosition(_QTab.TabPosition.North)
+        # Context panel starts collapsed. Tasks, log and chat stay alive and
+        # can expand it when the user or a task needs context.
+        self.right_panel = ContextPanel()
 
         # Hauptbereich: Workspace links + Right-Panel rechts (HBox)
         _content = QWidget()
@@ -339,11 +336,6 @@ class PBWindow(QMainWindow):
         self._inner_splitter = None
         self._bottom_panel = None
 
-        # ── Bottom Navigation Bar (DaVinci Style) ──
-        self.nav_bar = WorkspaceNavBar()
-        self.nav_bar.workspace_changed.connect(self.workspace_setup._on_workspace_changed)
-        main_layout.addWidget(self.nav_bar)
-
         # ── Status Bar ── (P9-LAYOUT: kompakt, kein Size-Grip, fixed 18 px)
         self.status_bar = QStatusBar()
         self.status_bar.setSizeGripEnabled(False)
@@ -360,6 +352,10 @@ class PBWindow(QMainWindow):
         self.panel_setup.setup_task_dock()
         self.panel_setup.setup_console()
         self.panel_setup.setup_chat_dock()
+        for i in range(self.right_panel.count()):
+            if self.right_panel.tabText(i).lower() == "tasks":
+                self.right_panel.setCurrentIndex(i)
+                break
         # B-253: globaler Listener auf analysis_status_service.mark_completed,
         # triggert UI-Refresh nach Pipeline-Done (egal ob UI-Button oder
         # ActionRegistry-Pfad). Loest insbesondere das stem_separation-
@@ -370,6 +366,7 @@ class PBWindow(QMainWindow):
         # Right-Panel statt Sichtbarkeit zu togglen. Right-Panel selbst
         # bleibt immer sichtbar (300 px Sidebar).
         def _to_tab(label_substring):
+            self._set_context_panel_visible(True)
             for i in range(self.right_panel.count()):
                 if label_substring.lower() in self.right_panel.tabText(i).lower():
                     self.right_panel.setCurrentIndex(i)
@@ -377,6 +374,7 @@ class PBWindow(QMainWindow):
         self._btn_toggle_tasks.clicked.connect(lambda: _to_tab("tasks"))
         self._btn_toggle_console.clicked.connect(lambda: _to_tab("log"))
         self._btn_toggle_chat.clicked.connect(lambda: _to_tab("chat"))
+        self._btn_context_panel.clicked.connect(self._set_context_panel_visible)
 
         # AUD-107: Restore window state after event loop starts (docks need a shown window)
         QTimer.singleShot(0, self.workspace_setup._restore_window_state)
@@ -396,6 +394,16 @@ class PBWindow(QMainWindow):
         # brought to front on every call. Top-bar button is wired
         # separately in workspace_setup._build_top_bar.
         QShortcut(_QKS("Ctrl+B"), self, self._open_studio_brain)
+
+    def _set_context_panel_visible(self, visible: bool) -> None:
+        """Collapse/expand the contextual side panel without destroying widgets."""
+        if hasattr(self.right_panel, "set_context_visible"):
+            self.right_panel.set_context_visible(visible)
+        else:
+            self.right_panel.setFixedWidth(280 if visible else 0)
+            self.right_panel.setVisible(visible)
+        if hasattr(self, "_btn_context_panel"):
+            self._btn_context_panel.setChecked(visible)
 
     # ── AUD-103: Update notification ──────────────────────────────────────
 

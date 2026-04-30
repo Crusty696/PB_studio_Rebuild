@@ -225,6 +225,9 @@ class ShortcutEditorTab(QWidget):
 
         lbl = QLabel("Doppelklick auf eine Zeile oder 'Bearbeiten' um den Shortcut zu ändern.")
         lbl.setStyleSheet(f"color: {T2}; font-size: 11px;")
+        lbl.setToolTip(
+            "Shortcut-Tabelle: Aktion auswaehlen und per Doppelklick oder Bearbeiten neu belegen."
+        )
         layout.addWidget(lbl)
 
         self._table = QTableWidget(0, 3)
@@ -235,6 +238,9 @@ class ShortcutEditorTab(QWidget):
         self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self._table.setAlternatingRowColors(True)
+        self._table.setToolTip(
+            "Konfigurierbare Tastaturkuerzel. Doppelklick auf eine Zeile startet die Aufnahme."
+        )
         self._table.setStyleSheet(
             f"QTableWidget {{ background: {BG2}; color: {T1}; gridline-color: {BG3};"
             f" alternate-background-color: {BG1}; border: 1px solid {BG3}; }}"
@@ -247,8 +253,14 @@ class ShortcutEditorTab(QWidget):
 
         btn_row = QHBoxLayout()
         self._btn_edit = QPushButton("Bearbeiten")
+        self._btn_edit.setToolTip(
+            "Ausgewaehltes Tastaturkuerzel neu aufnehmen."
+        )
         self._btn_edit.clicked.connect(self._edit_selected)
         self._btn_reset = QPushButton("Alle zurücksetzen")
+        self._btn_reset.setToolTip(
+            "Alle Tastaturkuerzel auf PB-Studio-Standardwerte zuruecksetzen."
+        )
         self._btn_reset.clicked.connect(self._reset_all)
         btn_row.addWidget(self._btn_edit)
         btn_row.addStretch()
@@ -334,6 +346,9 @@ class SettingsDialog(QDialog):
 
         # --- Tab-Widget ---
         self._tabs = QTabWidget()
+        self._tabs.setToolTip(
+            "Einstellungsbereiche fuer lokales LLM-Backend und Tastaturkuerzel."
+        )
         self._tabs.setStyleSheet(
             f"QTabWidget::pane {{ border: 1px solid {BG3}; background: {BG1}; }}"
             f"QTabBar::tab {{ background: {BG2}; color: {T2}; padding: 6px 16px;"
@@ -355,6 +370,9 @@ class SettingsDialog(QDialog):
 
         self._chk_enabled = QCheckBox("Ollama als LLM-Backend nutzen")
         self._chk_enabled.setChecked(True)
+        self._chk_enabled.setToolTip(
+            "Aktiviert Ollama als lokales LLM-Backend fuer Agenten- und Caption-Aufgaben."
+        )
         self._chk_enabled.toggled.connect(self._on_enabled_toggled)
         form_layout.addRow("", self._chk_enabled)
 
@@ -364,9 +382,15 @@ class SettingsDialog(QDialog):
         url_layout.setSpacing(6)
         self._txt_url = QLineEdit("http://localhost:11434")
         self._txt_url.setPlaceholderText("http://localhost:11434")
+        self._txt_url.setToolTip(
+            "Basis-URL des lokalen Ollama-Servers. Standard ist http://localhost:11434."
+        )
         url_layout.addWidget(self._txt_url)
         self._btn_test = QPushButton("Verbindung testen")
         self._btn_test.setFixedWidth(150)
+        self._btn_test.setToolTip(
+            "Ollama-Verbindung pruefen und installierte Modelle laden."
+        )
         self._btn_test.clicked.connect(self._on_test_clicked)
         url_layout.addWidget(self._btn_test)
         form_layout.addRow("Ollama-URL:", url_row)
@@ -383,10 +407,15 @@ class SettingsDialog(QDialog):
         self._cmb_model = QComboBox()
         self._cmb_model.setEditable(True)
         self._cmb_model.setPlaceholderText("Modell wählen oder eingeben...")
+        self._cmb_model.setToolTip(
+            "Ollama-Modell fuer lokale LLM-Aufgaben waehlen oder Modellnamen manuell eingeben."
+        )
         model_layout.addWidget(self._cmb_model, 1)
         self._btn_refresh = QPushButton("↻")
         self._btn_refresh.setFixedWidth(36)
-        self._btn_refresh.setToolTip("Modell-Liste neu laden")
+        self._btn_refresh.setToolTip(
+            "Modell-Liste vom Ollama-Server neu laden."
+        )
         self._btn_refresh.clicked.connect(self._on_refresh_clicked)
         model_layout.addWidget(self._btn_refresh)
         form_layout.addRow("Modell:", model_row)
@@ -406,7 +435,9 @@ class SettingsDialog(QDialog):
         lbl_mgr.setStyleSheet(f"color: {T2}; font-size: 11px;")
         mgr_layout.addWidget(lbl_mgr, 1)
         self._btn_model_manager = QPushButton("⊞ Modell-Manager öffnen")
-        self._btn_model_manager.setToolTip("Installierte Modelle anzeigen, neue herunterladen, aufräumen")
+        self._btn_model_manager.setToolTip(
+            "Modell-Manager oeffnen: installierte Modelle anzeigen, neue Modelle herunterladen und ungenutzte aufraeumen."
+        )
         self._btn_model_manager.clicked.connect(self._on_open_model_manager)
         mgr_layout.addWidget(self._btn_model_manager)
         llm_layout.addWidget(mgr_group)
@@ -421,10 +452,12 @@ class SettingsDialog(QDialog):
         llm_layout.addStretch()
 
         self._tabs.addTab(llm_tab, "LLM Backend")
+        self._tabs.setTabToolTip(0, "Ollama-Backend, Server-URL und Modell fuer KI-Funktionen konfigurieren.")
 
         # ---- Tab 2: Shortcuts (AUD-71) ----
         self._shortcut_tab = ShortcutEditorTab()
         self._tabs.addTab(self._shortcut_tab, "Tastaturkürzel")
+        self._tabs.setTabToolTip(1, "Tastaturkuerzel ansehen, bearbeiten oder auf Standard zuruecksetzen.")
 
         # --- Buttons ---
         btn_box = QDialogButtonBox(

@@ -208,9 +208,15 @@ class ModelManagerDialog(QDialog):
 
         self._ollama_status_lbl = QLabel("Ollama: prüfe...")
         self._ollama_status_lbl.setStyleSheet(f"color: {WARN}; font-size: 11px;")
+        self._ollama_status_lbl.setToolTip(
+            "Zeigt, ob der konfigurierte Ollama-Server erreichbar ist."
+        )
         header.addWidget(self._ollama_status_lbl)
 
         self._refresh_btn = QPushButton("⟳ Aktualisieren")
+        self._refresh_btn.setToolTip(
+            "Installierte Modelle, Downloadlisten und Ollama-Status neu scannen."
+        )
         self._refresh_btn.clicked.connect(self._start_scan)
         header.addWidget(self._refresh_btn)
 
@@ -225,6 +231,12 @@ class ModelManagerDialog(QDialog):
         self._tabs.addTab(self._installed_tab, "Installiert")
         self._tabs.addTab(self._download_tab, "Download")
         self._tabs.addTab(self._cleanup_tab, "Cleanup")
+        self._tabs.setToolTip(
+            "Modellverwaltung: installierte Modelle pruefen, neue laden und Cache bereinigen."
+        )
+        self._tabs.setTabToolTip(0, "Installierte Ollama- und HuggingFace-Modelle mit Groesse und Nutzung.")
+        self._tabs.setTabToolTip(1, "Empfohlene oder eigene Modelle herunterladen.")
+        self._tabs.setTabToolTip(2, "Ungenutzte Modelle finden und Speicherplatz freigeben.")
         layout.addWidget(self._tabs)
 
         # Status-Zeile
@@ -256,6 +268,9 @@ class ModelManagerDialog(QDialog):
         self._installed_table.setAlternatingRowColors(True)
         self._installed_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self._installed_table.verticalHeader().setVisible(False)
+        self._installed_table.setToolTip(
+            "Installierte Modelle: Quelle, Speicherbedarf, Status und letzte Nutzung."
+        )
 
         layout.addWidget(self._installed_table)
 
@@ -327,6 +342,9 @@ class ModelManagerDialog(QDialog):
             del_btn.setStyleSheet(f"background: #5a2020; color: {T1}; padding: 3px 8px;")
             del_btn.setProperty("model_id", entry.model_id)
             del_btn.setProperty("source", entry.source)
+            del_btn.setToolTip(
+                f"Modell '{entry.display_name}' aus {entry.source.upper()} nach Bestaetigung loeschen."
+            )
             del_btn.clicked.connect(lambda checked, m=entry.model_id, s=entry.source:
                                     self._on_delete_model(m, s))
             action_layout.addWidget(del_btn)
@@ -374,6 +392,9 @@ class ModelManagerDialog(QDialog):
         self._ollama_dl_table.verticalHeader().setVisible(False)
         self._ollama_dl_table.setAlternatingRowColors(True)
         self._ollama_dl_table.setMaximumHeight(250)
+        self._ollama_dl_table.setToolTip(
+            "Empfohlene Ollama-Modelle mit Groesse, Beschreibung und Download-Aktion."
+        )
         ollama_layout.addWidget(self._ollama_dl_table)
 
         # Custom Ollama model
@@ -381,8 +402,14 @@ class ModelManagerDialog(QDialog):
         custom_ollama_layout.addWidget(QLabel("Eigenes Modell:"))
         self._custom_ollama_input = QLineEdit()
         self._custom_ollama_input.setPlaceholderText("z.B. llama3:latest")
+        self._custom_ollama_input.setToolTip(
+            "Ollama-Modellname eingeben, z.B. gemma3:4b oder llama3:latest."
+        )
         custom_ollama_layout.addWidget(self._custom_ollama_input)
         custom_pull_btn = QPushButton("Herunterladen")
+        custom_pull_btn.setToolTip(
+            "Eingegebenes Ollama-Modell per ollama pull herunterladen."
+        )
         custom_pull_btn.clicked.connect(self._on_custom_ollama_pull)
         custom_ollama_layout.addWidget(custom_pull_btn)
         ollama_layout.addLayout(custom_ollama_layout)
@@ -412,6 +439,9 @@ class ModelManagerDialog(QDialog):
         self._hf_dl_table.verticalHeader().setVisible(False)
         self._hf_dl_table.setAlternatingRowColors(True)
         self._hf_dl_table.setMaximumHeight(200)
+        self._hf_dl_table.setToolTip(
+            "Empfohlene HuggingFace-Modelle fuer Vision- und Embedding-Funktionen."
+        )
         hf_layout.addWidget(self._hf_dl_table)
 
         # Custom HF model
@@ -419,8 +449,14 @@ class ModelManagerDialog(QDialog):
         custom_hf_layout.addWidget(QLabel("Repo-ID:"))
         self._custom_hf_input = QLineEdit()
         self._custom_hf_input.setPlaceholderText("z.B. microsoft/phi-2")
+        self._custom_hf_input.setToolTip(
+            "HuggingFace-Repo-ID eingeben, z.B. google/siglip-so400m-patch14-384."
+        )
         custom_hf_layout.addWidget(self._custom_hf_input)
         custom_hf_btn = QPushButton("Herunterladen")
+        custom_hf_btn.setToolTip(
+            "Eingegebenes HuggingFace-Modell in den lokalen Cache herunterladen."
+        )
         custom_hf_btn.clicked.connect(self._on_custom_hf_download)
         custom_hf_layout.addWidget(custom_hf_btn)
         hf_layout.addLayout(custom_hf_layout)
@@ -475,6 +511,9 @@ class ModelManagerDialog(QDialog):
                 else:
                     dl_btn = QPushButton("⬇ Herunterladen")
                     dl_btn.setStyleSheet(f"background: #1a3a5a; color: {T1}; padding: 3px 8px;")
+                    dl_btn.setToolTip(
+                        f"Empfohlenes Modell '{m['id']}' herunterladen."
+                    )
                     if source == "ollama":
                         dl_btn.clicked.connect(
                             lambda checked, mid=m["id"]: self._on_pull_ollama(mid)
@@ -507,9 +546,15 @@ class ModelManagerDialog(QDialog):
         self._days_spin.setValue(30)
         self._days_spin.setSuffix(" Tagen")
         self._days_spin.setStyleSheet(f"background: {BG2}; color: {T1}; border: 1px solid {BG3}; padding: 3px;")
+        self._days_spin.setToolTip(
+            "Modelle gelten als ungenutzt, wenn sie laenger als diese Anzahl Tage nicht verwendet wurden."
+        )
         settings_layout.addWidget(self._days_spin)
 
         scan_btn = QPushButton("Analyse starten")
+        scan_btn.setToolTip(
+            "Cleanup-Kandidaten anhand letzter Nutzung und Cache-Daten berechnen."
+        )
         scan_btn.clicked.connect(self._on_cleanup_scan)
         settings_layout.addWidget(scan_btn)
         settings_layout.addStretch()
@@ -529,6 +574,9 @@ class ModelManagerDialog(QDialog):
         self._cleanup_table.verticalHeader().setVisible(False)
         self._cleanup_table.setAlternatingRowColors(True)
         self._cleanup_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self._cleanup_table.setToolTip(
+            "Vorgeschlagene Cleanup-Kandidaten. Pruefe Quelle, Groesse und letzte Nutzung vor dem Loeschen."
+        )
         layout.addWidget(self._cleanup_table)
 
         # Info + Bulk-Aktion
@@ -541,6 +589,9 @@ class ModelManagerDialog(QDialog):
         self._delete_all_btn = QPushButton("Alle ausgewählten löschen")
         self._delete_all_btn.setStyleSheet(f"background: #5a2020; color: {T1};")
         self._delete_all_btn.setEnabled(False)
+        self._delete_all_btn.setToolTip(
+            "Alle angezeigten Cleanup-Kandidaten nach Bestaetigung loeschen."
+        )
         self._delete_all_btn.clicked.connect(self._on_delete_all_selected)
         bottom_layout.addWidget(self._delete_all_btn)
         layout.addLayout(bottom_layout)
@@ -578,6 +629,9 @@ class ModelManagerDialog(QDialog):
 
             del_btn = QPushButton("Löschen")
             del_btn.setStyleSheet(f"background: #5a2020; color: {T1}; padding: 3px 8px;")
+            del_btn.setToolTip(
+                f"Cleanup-Kandidat '{entry.display_name}' nach Bestaetigung loeschen."
+            )
             del_btn.clicked.connect(lambda checked, m=entry.model_id, s=entry.source:
                                     self._on_delete_model(m, s))
             w = QWidget()
@@ -758,7 +812,9 @@ class ModelManagerDialog(QDialog):
         cancel_btn = QPushButton("✗")
         cancel_btn.setFixedSize(20, 20)
         cancel_btn.setStyleSheet(f"background: {BG3}; color: {T2}; border: none;")
-        cancel_btn.setToolTip("Download abbrechen")
+        cancel_btn.setToolTip(
+            f"Laufenden Download fuer '{model_id}' abbrechen."
+        )
         cancel_btn.clicked.connect(lambda: self._on_cancel_download(model_id))
         header_l.addWidget(cancel_btn)
         layout.addLayout(header_l)

@@ -124,6 +124,10 @@ class ClipInspectorPanel(QWidget):
         spin.setDecimals(decimals)
         spin.setSingleStep(step)
         spin.setFixedHeight(22)
+        spin.setToolTip(
+            f"{label_text} fuer den ausgewaehlten Timeline-Clip bearbeiten. "
+            "Aenderungen werden nach kurzer Pause gespeichert."
+        )
         row.addWidget(spin)
         layout.addWidget(container)
         spin._row_container = container  # store ref for visibility toggle

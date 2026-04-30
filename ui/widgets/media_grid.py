@@ -422,6 +422,9 @@ class MediaPoolGrid(QWidget):
         self._filter_edit.setPlaceholderText("Filter…")
         self._filter_edit.setFixedHeight(24)
         self._filter_edit.setMaximumWidth(150)
+        self._filter_edit.setToolTip(
+            "Titel-Filter fuer sichtbare Karten im Medienraster."
+        )
         self._filter_edit.textChanged.connect(self._apply_filter)
         fbar.addWidget(self._filter_edit)
 
@@ -436,12 +439,18 @@ class MediaPoolGrid(QWidget):
             self._key_edit = QLineEdit()
             self._key_edit.setPlaceholderText("Key")
             self._key_edit.setFixedSize(46, 24)
+            self._key_edit.setToolTip(
+                "Tonart-Filter, z.B. Am, C#m oder Camelot-Notation falls vorhanden."
+            )
             self._key_edit.textChanged.connect(self._apply_filter)
             fbar.addWidget(self._key_edit)
 
             self._genre_edit = QLineEdit()
             self._genre_edit.setPlaceholderText("Genre")
             self._genre_edit.setFixedSize(68, 24)
+            self._genre_edit.setToolTip(
+                "Genre-Filter fuer Audio-Karten, z.B. techno, house oder ambient."
+            )
             self._genre_edit.textChanged.connect(self._apply_filter)
             fbar.addWidget(self._genre_edit)
         else:
@@ -455,6 +464,9 @@ class MediaPoolGrid(QWidget):
         self._sort_combo.setFixedHeight(24)
         self._sort_combo.addItems(
             _AUDIO_SORT if self._type == "audio" else _VIDEO_SORT
+        )
+        self._sort_combo.setToolTip(
+            "Sortierung der sichtbaren Karten nach Name oder verfuegbaren Metadaten."
         )
         self._sort_combo.currentIndexChanged.connect(self._apply_filter)
         fbar.addWidget(self._sort_combo)

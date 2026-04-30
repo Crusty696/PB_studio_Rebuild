@@ -201,6 +201,9 @@ class ShortcutHelpDialog(QDialog):
         btn_close = QPushButton("Schließen")
         btn_close.setFixedSize(100, 32)
         btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_close.setToolTip(
+            "Tastaturkuerzel-Hilfe schliessen. Alternativ Escape, F1 oder Ctrl+? druecken."
+        )
         btn_close.setStyleSheet(
             f"QPushButton {{ background: {ACCENT}; color: {BG0}; border: none;"
             "border-radius: 6px; font-weight: 700; font-size: 12px; }"

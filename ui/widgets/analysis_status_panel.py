@@ -144,6 +144,9 @@ class AnalysisStatusPanel(QWidget):
         self.filter_combo.addItems(["Alle", "Nur Ausstehend", "Nur Fehler"])
         self.filter_combo.setFixedHeight(24)
         self.filter_combo.setFixedWidth(140)
+        self.filter_combo.setToolTip(
+            "Analyse-Schritte filtern: alle anzeigen, nur offene Schritte oder nur Fehler."
+        )
         self.filter_combo.setStyleSheet("""
             QComboBox {
                 background: #1a2030;
@@ -187,6 +190,9 @@ class AnalysisStatusPanel(QWidget):
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         self.table.setAlternatingRowColors(True)
+        self.table.setToolTip(
+            "Status jedes Analyse-Schritts. Offene oder fehlerhafte Schritte koennen direkt gestartet werden."
+        )
         self.table.setStyleSheet("""
             QTableWidget {
                 background: #161c26;
@@ -221,6 +227,9 @@ class AnalysisStatusPanel(QWidget):
 
         self.btn_refresh = QPushButton("Aktualisieren")
         self.btn_refresh.setFixedHeight(32)
+        self.btn_refresh.setToolTip(
+            "Analyse-Status aus Datenbank und vorhandenen Ergebnisdaten neu laden."
+        )
         self.btn_refresh.clicked.connect(self.refresh)
         self.btn_refresh.setStyleSheet("""
             QPushButton {
@@ -242,6 +251,9 @@ class AnalysisStatusPanel(QWidget):
 
         self.btn_retry_errors = QPushButton("Alle Fehler wiederholen")
         self.btn_retry_errors.setFixedHeight(32)
+        self.btn_retry_errors.setToolTip(
+            "Alle fehlgeschlagenen Analyse-Schritte fuer diese Datei erneut starten."
+        )
         self.btn_retry_errors.clicked.connect(self._on_retry_all_errors)
         self.btn_retry_errors.setStyleSheet("""
             QPushButton {
@@ -459,6 +471,9 @@ class AnalysisStatusPanel(QWidget):
                 """)
                 # Store step_key in button property
                 btn.setProperty("step_key", step_key)
+                btn.setToolTip(
+                    f"Analyse-Schritt '{step_name}' {'starten' if status == 'pending' else 'erneut starten'}."
+                )
                 btn.clicked.connect(self._on_action_clicked)
                 self.table.setCellWidget(row_idx, 3, btn)
             else:

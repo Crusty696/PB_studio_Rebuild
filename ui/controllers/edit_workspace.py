@@ -407,6 +407,9 @@ class EditWorkspaceController(PBComponent):
         time_spin.setSingleStep(0.1)
         time_spin.setValue(0.0)
         time_spin.setSuffix("s")
+        time_spin.setToolTip(
+            "Zeitpunkt des neuen Sync-Ankers in Sekunden auf der Audio-Timeline."
+        )
         time_row.addWidget(time_spin)
         layout.addLayout(time_row)
 
@@ -414,6 +417,9 @@ class EditWorkspaceController(PBComponent):
         scene_row.addWidget(QLabel("Video/Szene:"))
         scene_combo = QComboBox()
         scene_combo.addItem("-- Szene waehlen --", "")
+        scene_combo.setToolTip(
+            "Video oder erkannte Szene auswaehlen, die am Ankerzeitpunkt synchronisiert werden soll."
+        )
         from sqlalchemy.orm import joinedload
         try:
             with DBSession(engine) as session:
@@ -438,9 +444,15 @@ class EditWorkspaceController(PBComponent):
         btn_row = QHBoxLayout()
         btn_ok = QPushButton("Hinzufuegen")
         btn_ok.setObjectName("btn_accent")
+        btn_ok.setToolTip(
+            "Anker mit gewaehlter Zeit und Szene zur Liste hinzufuegen."
+        )
         btn_ok.clicked.connect(dialog.accept)
         btn_row.addWidget(btn_ok)
         btn_cancel = QPushButton("Abbrechen")
+        btn_cancel.setToolTip(
+            "Anker-Dialog schliessen, ohne einen neuen Anker zu speichern."
+        )
         btn_cancel.clicked.connect(dialog.reject)
         btn_row.addWidget(btn_cancel)
         layout.addLayout(btn_row)
