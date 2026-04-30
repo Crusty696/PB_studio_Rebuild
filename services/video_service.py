@@ -7,11 +7,12 @@ import threading
 from pathlib import Path
 
 from sqlalchemy.orm import Session
-from database import engine, VideoClip
-from services.timeout_constants import FFMPEG_PROBE_TIMEOUT_SEC, FFMPEG_RENDER_TIMEOUT_SEC
-from services.startup_checks import get_ffmpeg_bin, get_ffprobe_bin
+
+from database import VideoClip, engine
 from services import analysis_status_service
 from services.errors import FFmpegError
+from services.startup_checks import get_ffmpeg_bin, get_ffprobe_bin
+from services.timeout_constants import FFMPEG_PROBE_TIMEOUT_SEC, FFMPEG_RENDER_TIMEOUT_SEC
 
 # B-156: per-proxy-path Locks gegen TOCTOU zwischen
 # VideoBatchAnalysisWorker (create_proxy/unlink) und
@@ -242,12 +243,18 @@ class VideoAnalyzer:
             if progress_cb:
                 progress_cb(20, "FFmpeg Proxy-Encoding...")
 
+            import tempfile as _tempfile
             import time as _time
+            stderr_file = _tempfile.TemporaryFile(
+                mode="w+",
+                encoding="utf-8",
+                errors="replace",
+            )
             proc = subprocess.Popen(
                 cmd,
                 stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=stderr_file,
                 text=True,
                 encoding="utf-8",
                 errors="replace",
@@ -270,6 +277,10 @@ class VideoAnalyzer:
                         pass
                 if _time.monotonic() - start > FFMPEG_RENDER_TIMEOUT_SEC:
                     proc.kill()
+                    try:
+                        proc.wait(timeout=2.0)
+                    except (subprocess.TimeoutExpired, AttributeError):
+                        pass
                     # B-219: unlink kann mit WinError 32 failen wenn FFmpeg
                     # den Handle noch nicht freigegeben hat. Retry.
                     try:
@@ -279,10 +290,14 @@ class VideoAnalyzer:
                         )
                     except OSError:
                         pass  # Best effort — Timeout ist eh schon der Fehler.
+                    stderr_file.close()
                     raise subprocess.TimeoutExpired(cmd, FFMPEG_RENDER_TIMEOUT_SEC)
                 _time.sleep(0.5)
 
-            stdout, stderr = proc.communicate()
+            proc.communicate()
+            stderr_file.seek(0)
+            stderr = stderr_file.read()
+            stderr_file.close()
 
             if cancelled:
                 # B-219: gleiches Pattern, retry-with-backoff
@@ -305,7 +320,7 @@ class VideoAnalyzer:
                 )
 
             if not proxy_path.exists() or proxy_path.stat().st_size == 0:
-                logger.info(f"[VideoAnalyzer] FFmpeg lief durch (rc=0), aber Proxy ist 0 Bytes oder fehlt!")
+                logger.info("[VideoAnalyzer] FFmpeg lief durch (rc=0), aber Proxy ist 0 Bytes oder fehlt!")
                 logger.info(f"[VideoAnalyzer] stderr: {_sanitize_ffmpeg_error(stderr)}")
                 # B-219: retry-on-lock — gleiches Problem.
                 try:

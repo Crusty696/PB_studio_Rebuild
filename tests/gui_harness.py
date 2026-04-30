@@ -41,13 +41,31 @@ for _stream in (sys.stdout, sys.stderr):
         pass
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-VENV_PYTHON = PROJECT_ROOT / ".venv310" / "Scripts" / "python.exe"
+# Allow override via PB_PYTHON env-var (e.g. conda env) when .venv310 is absent
+VENV_PYTHON = Path(os.environ["PB_PYTHON"]) if "PB_PYTHON" in os.environ else PROJECT_ROOT / ".venv310" / "Scripts" / "python.exe"
 MAIN_PY = PROJECT_ROOT / "main.py"
 LOG_FILE = PROJECT_ROOT / "logs" / "pb_studio.log"
 ARTIFACT_DIR = PROJECT_ROOT / "tests" / "qa_artifacts"
 PID_FILE = ARTIFACT_DIR / ".app_pid"
 
 ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _rerun_with_pb_python_if_available() -> int | None:
+    """Rerun this harness command in PB_PYTHON when the shell Python lacks GUI deps."""
+    try:
+        current = Path(sys.executable).resolve()
+        target = VENV_PYTHON.resolve()
+    except OSError:
+        return None
+    if current == target or not target.exists():
+        return None
+    completed = subprocess.run(
+        [str(target), str(Path(__file__).resolve()), *sys.argv[1:]],
+        cwd=str(PROJECT_ROOT),
+        check=False,
+    )
+    return completed.returncode
 
 
 def _emit(obj: dict) -> None:
@@ -253,7 +271,13 @@ def _is_real_app_window(w, title_fragment: str) -> bool:
 
 
 def cmd_wait_window(args) -> int:
-    import pygetwindow as gw
+    try:
+        import pygetwindow as gw
+    except ModuleNotFoundError:
+        rerun_code = _rerun_with_pb_python_if_available()
+        if rerun_code is not None:
+            return rerun_code
+        raise
     start = time.time()
     last_candidates: list[dict] = []
     while time.time() - start < args.timeout:
@@ -283,7 +307,13 @@ def cmd_wait_window(args) -> int:
 
 
 def cmd_list_windows(args) -> int:
-    import pygetwindow as gw
+    try:
+        import pygetwindow as gw
+    except ModuleNotFoundError:
+        rerun_code = _rerun_with_pb_python_if_available()
+        if rerun_code is not None:
+            return rerun_code
+        raise
     titles = []
     for w in gw.getAllWindows():
         if w.title and w.title.strip():
@@ -297,7 +327,13 @@ def cmd_list_windows(args) -> int:
 
 
 def cmd_focus(args) -> int:
-    import pygetwindow as gw
+    try:
+        import pygetwindow as gw
+    except ModuleNotFoundError:
+        rerun_code = _rerun_with_pb_python_if_available()
+        if rerun_code is not None:
+            return rerun_code
+        raise
     for w in gw.getAllWindows():
         if args.title in w.title:
             try:

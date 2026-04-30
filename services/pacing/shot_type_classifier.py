@@ -34,10 +34,10 @@ STEM_TO_CLASS: dict[str, str] = {
 
 SHOT_PROMPTS: dict[str, list[str]] = {
     "vocal_dominant": [
-        "close-up portrait of a singer",
-        "lit face filling the frame",
-        "intimate vocal performance shot",
-        "expressive face in soft light",
+        "human singer face close-up with microphone",
+        "expressive vocalist mouth and eyes portrait",
+        "front-lit performer singing into microphone",
+        "intimate concert singer portrait shot",
     ],
     "drum_dominant": [
         # PRE-3 Refinement: keine Menschen, nur abstrakte Bewegung.
@@ -53,10 +53,10 @@ SHOT_PROMPTS: dict[str, list[str]] = {
         "drone shot of expansive vista",
     ],
     "bass_dominant": [
-        "low angle architectural shot",
-        "heavy industrial machinery close-up",
-        "dark sub-woofer monolith silhouette",
-        "tight low-key textured surface",
+        "dark heavy subwoofer speaker cone close-up",
+        "massive low-frequency sound system wall",
+        "deep bass vibration on speaker membrane",
+        "black industrial sub bass cabinet texture",
     ],
 }
 

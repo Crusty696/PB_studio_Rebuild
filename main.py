@@ -1394,8 +1394,8 @@ def main():
             # FIX H-21: Removed duplicate init_db() call - StartupCheckWorker handles it
             # 1. KI-Engine (Gemma 4 Arbeitsplan)
             try:
-                OllamaService.get().start()
-                if OllamaService.get().is_ready:
+                OllamaService.get().start_background()
+                if OllamaService.get().ready_cached():
                     window.console_text.append("[KI] AI-Engine aktiv. Modell: Gemma 4 E4B (lokal).")
                 else:
                     window.console_text.append("[KI] AI-Engine wird im Hintergrund gestartet...")
@@ -1411,7 +1411,7 @@ def main():
 
             def on_done(status):
                 app.system_status = status
-                _ai_status = '● AI ready' if OllamaService.get().is_ready else '● AI loading...'
+                _ai_status = '● AI ready' if OllamaService.get().ready_cached() else '● AI loading...'
                 window.status_bar.showMessage(f"System bereit | {status.status_bar_text()} | {_ai_status}")
                 window.console_text.append(f"[System] {status.status_bar_text()}")
                 # FIX H-4: Show startup check dialog if there are errors or warnings

@@ -101,8 +101,8 @@ def _check_ollama() -> bool:
         return True
 
     try:
-        logger.info("Starte Ollama automatisch via OllamaService...")
-        svc.start()
+        logger.info("Starte Ollama automatisch via OllamaService im Hintergrund...")
+        svc.start_background()
         # FIX H-17: Wait for Ollama to actually be ready before returning True
         # Poll is_ready with timeout to ensure server is actually running
         # FIX H-1: Internal timeout must match STARTUP_OLLAMA_CHECK_TIMEOUT_SEC

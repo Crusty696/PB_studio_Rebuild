@@ -101,44 +101,72 @@ _original_app_root = _db_session.APP_ROOT
 _db_session.APP_ROOT = TMP_DIR
 _db_pkg.APP_ROOT = TMP_DIR  # Also patch the re-exported name in database/__init__
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import Session
 
-_tmp_engine = create_engine(
-    f"sqlite:///{TMP_DB}",
-    echo=False,
-    connect_args={"check_same_thread": False, "timeout": 30},
-)
 
-@event.listens_for(_tmp_engine, "connect")
-def _set_pragma(dbapi_conn, _rec):
-    c = dbapi_conn.cursor()
-    c.execute("PRAGMA foreign_keys=ON")
-    c.execute("PRAGMA journal_mode=WAL")
-    c.execute("PRAGMA synchronous=NORMAL")
-    c.execute("PRAGMA busy_timeout=60000")
-    c.close()
+def _make_tmp_engine():
+    eng = create_engine(
+        f"sqlite:///{TMP_DB}",
+        echo=False,
+        connect_args={"check_same_thread": False, "timeout": 30},
+    )
+
+    @event.listens_for(eng, "connect")
+    def _set_pragma(dbapi_conn, _rec):
+        c = dbapi_conn.cursor()
+        c.execute("PRAGMA foreign_keys=ON")
+        c.execute("PRAGMA journal_mode=WAL")
+        c.execute("PRAGMA synchronous=NORMAL")
+        c.execute("PRAGMA busy_timeout=60000")
+        c.close()
+
+    return eng
+
+
+def _init_tmp_db():
+    global TEST_PROJECT_ID, TEST_CLIP_ID
+    Base.metadata.create_all(_tmp_engine)
+    with Session(_tmp_engine) as session:
+        project = Project(name="Test Project", path=str(TMP_DIR))
+        session.add(project)
+        session.flush()
+        clip = VideoClip(
+            project_id=project.id,
+            file_path=str(VIDEO_FILE),
+        )
+        session.add(clip)
+        session.commit()
+        TEST_PROJECT_ID = project.id
+        TEST_CLIP_ID = clip.id
+
+
+def _reset_tmp_db():
+    global _tmp_engine
+    _tmp_engine.dispose()
+    for path in (TMP_DB, TMP_DB.with_name(TMP_DB.name + "-wal"), TMP_DB.with_name(TMP_DB.name + "-shm")):
+        path.unlink(missing_ok=True)
+    _tmp_engine = _make_tmp_engine()
+    _db_session.engine.swap(_tmp_engine)
+    _init_tmp_db()
+
+
+def _ensure_tmp_engine_active():
+    _db_session.APP_ROOT = TMP_DIR
+    _db_pkg.APP_ROOT = TMP_DIR
+    current = object.__getattribute__(_db_session.engine, "_engine")
+    if current is not _tmp_engine:
+        _db_session.engine.swap(_tmp_engine)
+
+
+_tmp_engine = _make_tmp_engine()
 
 # Swap the engine proxy to point at our temp DB
 _db_session.engine.swap(_tmp_engine)
 
 # Create all tables
 from database.models import Base, Project, VideoClip, Scene
-Base.metadata.create_all(_tmp_engine)
-
-# Create a test project + video clip
-with Session(_tmp_engine) as session:
-    project = Project(name="Test Project", path=str(TMP_DIR))
-    session.add(project)
-    session.flush()
-    clip = VideoClip(
-        project_id=project.id,
-        file_path=str(VIDEO_FILE),
-    )
-    session.add(clip)
-    session.commit()
-    TEST_PROJECT_ID = project.id
-    TEST_CLIP_ID = clip.id
+_init_tmp_db()
 
 logger.info("DB initialized: project_id=%d, clip_id=%d", TEST_PROJECT_ID, TEST_CLIP_ID)
 
@@ -478,6 +506,17 @@ def test_run_full_pipeline():
         return
 
     from services.video_analysis_service import run_full_pipeline, PipelineResult
+
+    _ensure_tmp_engine_active()
+    try:
+        with _tmp_engine.connect() as conn:
+            ok = conn.execute(text("PRAGMA integrity_check")).scalar()
+        if ok != "ok":
+            logger.warning("Temp DB integrity_check=%s — recreating isolated video test DB", ok)
+            _reset_tmp_db()
+    except Exception as exc:
+        logger.warning("Temp DB integrity check failed (%s) — recreating isolated video test DB", exc)
+        _reset_tmp_db()
 
     # Use existing clip (clip_id=1) — avoid UNIQUE constraint violation on (project_id, file_path)
     clip2_id = TEST_CLIP_ID

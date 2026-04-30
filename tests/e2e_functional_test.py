@@ -29,11 +29,25 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+# E2E laeuft gegen ein isoliertes Projekt, damit kaputte oder private App-DBs
+# den Funktionstest nicht beeinflussen und echte Nutzerdaten unberuehrt bleiben.
+E2E_PROJECT_ROOT = Path(
+    os.environ.get("PB_E2E_PROJECT_ROOT", PROJECT_ROOT / "test-report" / "e2e-runtime-project")
+).resolve()
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)-5s] %(name)s: %(message)s",
 )
 logger = logging.getLogger("e2e_test")
+
+
+def activate_e2e_project():
+    """Schaltet die globale PB-Studio DB/Storage-Root auf ein Test-Projekt."""
+    E2E_PROJECT_ROOT.mkdir(parents=True, exist_ok=True)
+    from database.session import set_project
+    set_project(E2E_PROJECT_ROOT)
+    logger.info("E2E Projekt-Root: %s", E2E_PROJECT_ROOT)
 
 
 # ── Ergebnis-Tracking ──────────────────────────────────────────────────
@@ -149,8 +163,20 @@ class TestRunner:
 
 def test_database_init():
     """Testet DB-Initialisierung und Schema."""
-    from database import init_db, engine, Base
+    activate_e2e_project()
+    from database import init_db, engine, Base, Project
+    from sqlalchemy.orm import Session
     init_db()
+    with Session(engine) as s:
+        project = s.query(Project).filter(Project.deleted_at.is_(None)).first()
+        if project is None:
+            s.add(Project(
+                name="E2E Runtime Project",
+                path=str(E2E_PROJECT_ROOT),
+                resolution="1920x1080",
+                fps=30.0,
+            ))
+            s.commit()
     tables = list(Base.metadata.tables.keys())
     assert len(tables) >= 15, f"Nur {len(tables)} Tabellen (min 15 erwartet)"
     return {"tables": len(tables)}
@@ -358,6 +384,9 @@ def test_pacing_strategist():
         total_duration=180,
         clip_count=10,
     )
+    if getattr(plan, "degraded", False):
+        reason = getattr(plan, "degraded_reason", "unknown")
+        raise RuntimeError(f"PacingStrategist degraded fallback: {reason}")
     return {"sections": len(plan.section_overrides),
             "min_duration": plan.global_min_duration,
             "variety": plan.variety_priority}

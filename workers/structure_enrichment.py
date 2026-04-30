@@ -63,6 +63,7 @@ def _default_session_factory() -> Session:
     # underlying engine URL and build a plain Session here.
     from sqlalchemy import create_engine as _ce
     from sqlalchemy.pool import NullPool
+
     from database.session import engine as _proxy_engine
 
     _eng = _ce(
@@ -133,10 +134,10 @@ class StructureEnrichmentWorker(QObject):
     # Implementation
     # ------------------------------------------------------------------
     def _run_impl(self) -> dict[str, Any]:
-        from services.enrichment.role_classifier import classify_role
-        from services.enrichment.mood_anchor_matcher import MoodAnchorMatcher
-        from services.enrichment.style_bucket_clusterer import StyleBucketClusterer
         from services.enrichment.compat_graph_builder import CompatGraphBuilder
+        from services.enrichment.mood_anchor_matcher import MoodAnchorMatcher
+        from services.enrichment.role_classifier import classify_role
+        from services.enrichment.style_bucket_clusterer import StyleBucketClusterer
         from services.vector_db_service import VectorDBService
 
         # ── Step 1: Load scenes to enrich ────────────────────────────────────
@@ -231,8 +232,6 @@ class StructureEnrichmentWorker(QObject):
                     "ai_mood": ai_mood,
                 }
             )
-
-        target_scene_ids: set[int] = {s["id"] for s in scenes}
 
         # ── 2. Load embeddings ────────────────────────────────────────────────
         self.progress.emit(15, "Lade Embeddings …")
@@ -354,6 +353,7 @@ class StructureEnrichmentWorker(QObject):
         # scene_id → (bucket_db_id, style_distance)
         bucket_assignment: dict[int, tuple[int, float]] = {}
         buckets_fitted: int | None = None
+        cluster_degraded = False
 
         if do_fit:
             # Use all library embeddings for fitting (not just target scenes)
@@ -362,7 +362,16 @@ class StructureEnrichmentWorker(QObject):
                 # Fall back to enrichable_matrix if all_embeddings is too small
                 fit_matrix = enrichable_matrix
 
-            labels, centroids, reducer = clusterer.fit(fit_matrix)
+            cluster_result = clusterer.fit(fit_matrix)
+            labels = cluster_result.labels
+            centroids = cluster_result.centroids
+            reducer = cluster_result.reducer
+            cluster_degraded = bool(getattr(cluster_result, "degraded", False))
+            if cluster_degraded:
+                logger.info(
+                    "StructureEnrichment: kleine Library (%s Embeddings), nutze Single-Bucket-Degraded-Modus",
+                    len(fit_matrix),
+                )
 
             # ── Mark existing buckets inactive ────────────────────────────────
             session.execute(text("UPDATE struct_style_bucket SET active = 0"))
@@ -409,8 +418,9 @@ class StructureEnrichmentWorker(QObject):
             buckets_fitted = len(unique_labels)
 
             # ── Persist reducer ───────────────────────────────────────────────
-            _REDUCER_PATH.parent.mkdir(parents=True, exist_ok=True)
-            StyleBucketClusterer.save_reducer(reducer, _REDUCER_PATH)
+            if reducer is not None:
+                _REDUCER_PATH.parent.mkdir(parents=True, exist_ok=True)
+                StyleBucketClusterer.save_reducer(reducer, _REDUCER_PATH)
 
             # ── Assign scenes using fit_matrix labels ─────────────────────────
             # Map each enrichable scene → its label from fit_matrix.
@@ -465,7 +475,9 @@ class StructureEnrichmentWorker(QObject):
                     label, next(iter(label_to_db_id.values())) if label_to_db_id else 1
                 )
                 # Style distance: Euclidean from reduced embedding to centroid
-                if centroids.shape[0] > 0 and label in unique_labels:
+                if cluster_degraded:
+                    style_dist = 0.0
+                elif centroids.shape[0] > 0 and label in unique_labels and reducer is not None:
                     centroid = centroids[unique_labels.index(label)]
                     reduced_pt = reducer.transform(
                         [enrichable_matrix[i].astype(np.float64)]
@@ -511,15 +523,9 @@ class StructureEnrichmentWorker(QObject):
         self.progress.emit(80, "Compat-Graph aufbauen …")
         builder = CompatGraphBuilder(top_k=20)
 
-        # Always build over ALL library embeddings for accuracy
-        all_scene_ids_ordered: list[int] = []
-        all_lib_matrix_for_compat = all_embeddings_matrix
-
         # Build ordered scene id list matching all_embeddings_matrix rows
         # VDB ids: composite_id = clip_id * 1_000_000 + scene_index
         # We need actual DB scene ids.  Use id_to_emb_idx inverse.
-        emb_idx_to_scene_id: dict[int, int] = {v: k for k, v in id_to_emb_idx.items()}
-
         # For all library embeddings, we only know scene ids for enrichable_scenes.
         # For compat graph, use only the scenes we can resolve.
         # If clip_id=None (full library), all scenes are enrichable_scenes.
@@ -663,7 +669,11 @@ class StructureEnrichmentWorker(QObject):
                 media_type="video",
                 media_id=self.clip_id,
                 step_key="structure_enrichment",
-                value_summary={"scenes": len(enrichable_scenes), "mode": mode},
+                value_summary={
+                    "scenes": len(enrichable_scenes),
+                    "mode": mode,
+                    "degraded": cluster_degraded,
+                },
             )
 
         # Count edges written
@@ -680,4 +690,5 @@ class StructureEnrichmentWorker(QObject):
             "buckets_fitted": buckets_fitted,
             "edges_written": edges_written,
             "mode": mode,
+            "degraded": cluster_degraded,
         }

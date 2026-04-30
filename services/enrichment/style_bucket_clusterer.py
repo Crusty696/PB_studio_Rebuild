@@ -7,6 +7,7 @@ Reducer is persisted via pickle so new clips can be assigned without refitting.
 from __future__ import annotations
 
 import pickle
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +15,23 @@ import numpy as np
 
 # umap.UMAP has no type stubs; we use Any for the public API surface.
 _UMAPReducer = Any
+
+
+@dataclass(frozen=True)
+class ClusterResult:
+    """Result wrapper that remains compatible with old tuple unpacking."""
+
+    labels: np.ndarray
+    centroids: np.ndarray
+    reducer: _UMAPReducer | None
+    probabilities: np.ndarray
+    degraded: bool = False
+    reason: str | None = None
+
+    def __iter__(self):
+        yield self.labels
+        yield self.centroids
+        yield self.reducer
 
 
 class StyleBucketClusterer:
@@ -51,7 +69,7 @@ class StyleBucketClusterer:
     def fit(
         self,
         embeddings: np.ndarray,
-    ) -> tuple[np.ndarray, np.ndarray, _UMAPReducer]:
+    ) -> ClusterResult:
         """Fit UMAP+HDBSCAN on embeddings; return (labels, centroids, reducer).
 
         labels:     shape (N,) int; -1 = noise (HDBSCAN convention).
@@ -60,15 +78,21 @@ class StyleBucketClusterer:
                     Excludes noise.
         reducer:    the fitted umap.UMAP instance. Pickleable.
         """
-        import umap  # type: ignore[import-untyped]  # lazy -- keeps module import cheap
-        from sklearn.cluster import HDBSCAN  # type: ignore[import-untyped]  # lazy
-
         n_samples = embeddings.shape[0]
         if n_samples < self.min_cluster_size:
-            raise ValueError(
-                f"Need at least {self.min_cluster_size} embeddings for clustering, "
-                f"got {n_samples}"
+            labels = np.zeros(n_samples, dtype=np.int32)
+            centroids = np.zeros((1, self.n_components), dtype=np.float32)
+            return ClusterResult(
+                labels=labels,
+                centroids=centroids,
+                reducer=None,
+                probabilities=np.ones(n_samples, dtype=np.float32),
+                degraded=True,
+                reason=f"small_library:{n_samples}",
             )
+
+        import umap  # type: ignore[import-untyped]  # lazy -- keeps module import cheap
+        from sklearn.cluster import HDBSCAN  # type: ignore[import-untyped]  # lazy
 
         reducer: _UMAPReducer = umap.UMAP(
             n_neighbors=self.n_neighbors,
@@ -85,6 +109,10 @@ class StyleBucketClusterer:
             cluster_selection_method="eom",
         )
         labels: np.ndarray = hdbscan.fit_predict(reduced)
+        probabilities = np.asarray(
+            getattr(hdbscan, "probabilities_", np.ones(len(labels))),
+            dtype=np.float32,
+        )
 
         # Compute centroids in reduced space for each non-noise cluster.
         non_noise_labels = sorted(set(labels.tolist()) - {-1})
@@ -96,7 +124,16 @@ class StyleBucketClusterer:
                 axis=0,
             )
 
-        return labels, centroids, reducer
+        return ClusterResult(
+            labels=labels,
+            centroids=centroids,
+            reducer=reducer,
+            probabilities=probabilities,
+        )
+
+    def fit_predict(self, embeddings: np.ndarray) -> ClusterResult:
+        """Fit and return a structured clustering result."""
+        return self.fit(embeddings)
 
     def assign(
         self,

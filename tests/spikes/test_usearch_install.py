@@ -1,14 +1,22 @@
 """PRE-5 Spike: USearch wheel availability + smoke test on Win/Py3.10/3.11."""
+
 import numpy as np
+import pytest
+
+pytestmark = pytest.mark.spike
+
+
+def _usearch_index():
+    return pytest.importorskip("usearch.index", reason="USearch spike dependency is optional")
 
 
 def test_usearch_imports():
-    import usearch
+    usearch = pytest.importorskip("usearch", reason="USearch spike dependency is optional")
     assert hasattr(usearch, "__version__")
 
 
 def test_usearch_index_basic():
-    from usearch.index import Index
+    Index = _usearch_index().Index
 
     idx = Index(ndim=128, metric="cos")
     vec = np.random.rand(128).astype("float32")
@@ -21,7 +29,7 @@ def test_usearch_index_basic():
 
 def test_usearch_siglip_dim():
     """Smoke-test with PB Studio's actual embedding dimension (1152)."""
-    from usearch.index import Index
+    Index = _usearch_index().Index
 
     idx = Index(ndim=1152, metric="cos")
     n = 100
@@ -32,4 +40,4 @@ def test_usearch_siglip_dim():
 
     assert len(idx) == n
     matches = idx.search(vecs[0], count=5)
-    assert matches.keys[0] == 0  # closest is itself
+    assert matches.keys[0] == 0
