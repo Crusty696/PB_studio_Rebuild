@@ -45,12 +45,15 @@ _SETTINGS_APP = "PBStudio"
 _SETUP_KEY    = "setup/setup_complete"
 
 # Models offered in wizard
+# B-241: ``gemma4:e4b`` war ein Phantom-Tag (existiert nicht im Ollama-Registry).
+# Wizard installiert jetzt ``gemma3:4b`` als Standard — kleiner, GPU-tauglich,
+# echter Tag.
 _OLLAMA_MODELS = [
     {
-        "id": "gemma4:e4b",
-        "display": "AI-Modell 9B (Standard)",
-        "size_gb": 9.6,
-        "description": "Empfohlen — beste Qualität für Action-Parsing und KI-Chat",
+        "id": "gemma3:4b",
+        "display": "AI-Modell 4B (Standard)",
+        "size_gb": 3.3,
+        "description": "Empfohlen — gute Qualität für Action-Parsing und KI-Chat",
         "required": True,
         "default": True,
         "tags": ["ollama", "llm"],

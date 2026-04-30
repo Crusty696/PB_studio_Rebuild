@@ -141,7 +141,11 @@ class FolderImportWorker(QObject, CancellableMixin):
         # ``walk_root`` gesetzt hat (UI-Pfad ``_import_folder``).
         if self.walk_root:
             import os
-            from pathlib import Path
+            # B-251: Path NICHT mehr inline importieren — bereits am Modul-Top
+            # (Z. 7). Der inline-Import hat ``Path`` zur lokalen Variable
+            # gemacht und die Einzeldatei-Pfade (``_import_video`` /
+            # ``_import_audio`` ohne ``walk_root``) gecrasht mit
+            # ``UnboundLocalError`` bei Z. 210 ``name = Path(p).name``.
             from services.ingest_service import AUDIO_EXTENSIONS, VIDEO_EXTENSIONS
             try:
                 self.progress.emit(0, "Scanne Ordner...")

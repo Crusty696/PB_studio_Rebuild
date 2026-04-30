@@ -2,13 +2,25 @@
 
 import logging
 from PySide6.QtWidgets import QVBoxLayout, QLabel, QTextEdit, QWidget
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, QObject, Signal
 from services.task_manager import GlobalTaskManager
 from ui.widgets.task_manager_dock import TaskManagerDock
 from ui.chat_dock import ChatDock
 from ui.base_component import PBComponent
 
 logger = logging.getLogger(__name__)
+
+
+class _AnalysisCompletionBridge(QObject):
+    """B-253: Thread-safe Qt-Bridge fuer Analysis-Completion-Events.
+
+    ``analysis_status_service.mark_completed`` ruft seine Listener im
+    Caller-Thread (oft Worker-BG-Thread). UI-Code darf aber nur im
+    Main-Thread laufen. Diese Bridge wandelt den Listener-Call in ein
+    Qt-Signal mit ``Qt.QueuedConnection`` um — der Slot laeuft garantiert
+    im Main-Thread.
+    """
+    completed = Signal(str, int, str, dict)
 
 class PanelSetupController(PBComponent):
     """Controller for TaskDock, Console, and ChatDock in PBWindow."""
@@ -20,6 +32,10 @@ class PanelSetupController(PBComponent):
         Inner-Container via .widget() und packen den ins QTabWidget. Das
         QDockWidget-Object selbst wird nicht in's MainWindow added — bleibt
         als Logik-Container fuer Signals (cancel_requested, _add_task, etc.).
+
+        B-252: Das DockWidget-Object selbst wird hide()'d, sonst rendert Qt
+        es als minimiertes leeres Fenster im MainWindow-Eck (User-Report:
+        "zwei minimierte fenster auf hoehe der video/audio-reiter").
         """
         self.window._task_mgr_dock = TaskManagerDock(self.window)
         self.window._task_mgr_dock.cancel_requested.connect(self.window.worker_dispatcher._cancel_worker_for_task)
@@ -29,6 +45,8 @@ class PanelSetupController(PBComponent):
         self.window.right_panel.addTab(task_w, "TASKS")
         self.window._task_panel_widget = task_w
         self.window.task_dock = task_w
+        # B-252: leeres DockWidget-Geistershell ausblenden
+        self.window._task_mgr_dock.hide()
         # show_dock_requested → bringt TASKS-Tab nach vorn
         def _focus_tasks():
             for i in range(self.window.right_panel.count()):
@@ -68,13 +86,20 @@ class PanelSetupController(PBComponent):
         self._console_timer.start()
 
     def setup_chat_dock(self):
-        """P9-Step2: ChatDock-Inhalt als CHAT-Tab im Right-Panel."""
+        """P9-Step2: ChatDock-Inhalt als CHAT-Tab im Right-Panel.
+
+        B-252: Wie bei setup_task_dock — das ChatDock-QDockWidget-Object
+        selbst wird hide()'d, sonst rendert Qt es als zweites leeres
+        minimiertes Fenster im MainWindow-Eck.
+        """
         self.window.chat_dock = ChatDock(self.window)
         chat_w = self.window.chat_dock.widget()
         chat_w.setParent(self.window.right_panel)
         # CHAT zuerst → erster Tab (Chat = primaerer Sidebar-Use-Case)
         self.window.right_panel.insertTab(0, chat_w, "CHAT")
         self.window.right_panel.setCurrentIndex(0)
+        # B-252: leeres DockWidget-Geistershell ausblenden
+        self.window.chat_dock.hide()
 
         # MainWindow-Referenz fuer direkte Kommandos (analysiere, schneide, etc.)
         self.window.chat_dock.set_main_window(self.window)
@@ -164,6 +189,67 @@ class PanelSetupController(PBComponent):
             logger.error("[B-014] register_actions / Agent-Init fehlgeschlagen: %s", e, exc_info=True)
             self.window.chat_dock.append_error(f"Agent konnte nicht initialisiert werden: {e}")
             self.window.console_text.append(f"[KI-Fehler] {e}")
+
+    def setup_analysis_completion_bridge(self):
+        """B-253: Verdrahtet einen globalen Listener auf
+        ``analysis_status_service.mark_completed`` und triggert UI-Refreshs.
+
+        Loest das Refresh-Loch wenn die Pipeline ueber das ActionRegistry
+        / agent_command_signal / auto_workflow laeuft (statt ueber den
+        UI-Button-Pfad). Konkretes Beispiel: nach stem_separation hat
+        die DB die stem_*_path-Felder gesetzt + die WAV-Files liegen auf
+        Disk, aber der Stem-Workspace + die Audio-Pool-Tabelle wussten
+        nichts davon weil ``StemsController._on_stem_finished`` nur am
+        UI-Button-Pfad haengt.
+        """
+        from services import analysis_status_service
+
+        self.window._completion_bridge = _AnalysisCompletionBridge(self.window)
+
+        def _on_completed_main_thread(media_type: str, media_id: int, step_key: str, summary: dict):
+            """Slot im Main-Thread (Qt.QueuedConnection garantiert das).
+
+            Triggert je Step-Type den passenden UI-Refresh.
+            """
+            try:
+                logger.info(
+                    "B-253 completion-bridge: %s/%d/%s -> UI-Refresh",
+                    media_type, media_id, step_key,
+                )
+
+                # Audio-Pool-Tabelle nach jedem Audio-Step refreshen
+                # (BPM/LUFS/Stems/etc. sind als Spalten oder Tooltip sichtbar)
+                if media_type in ("audio", "video"):
+                    try:
+                        self.window.media_table_controller._refresh_media_table()
+                    except Exception as e:
+                        logger.warning("B-253: media_table-Refresh fehlgeschlagen: %s", e)
+
+                # Stem-Workspace nur bei stem_separation
+                if media_type == "audio" and step_key == "stem_separation":
+                    try:
+                        self.window.stems._update_stem_workspace(media_id)
+                    except Exception as e:
+                        logger.warning("B-253: stem_workspace-Refresh fehlgeschlagen: %s", e)
+            except Exception as e:
+                logger.warning("B-253: completion-bridge slot fehlgeschlagen: %s", e)
+
+        self.window._completion_bridge.completed.connect(
+            _on_completed_main_thread, Qt.ConnectionType.QueuedConnection
+        )
+
+        def _bg_listener(media_type: str, media_id: int, step_key: str, summary: dict):
+            """Listener-Funktion die im BG-Thread laeuft. Emit ist thread-safe,
+            Qt.QueuedConnection serialisiert den Slot-Call auf den Main-Thread."""
+            try:
+                self.window._completion_bridge.completed.emit(
+                    media_type, media_id, step_key, summary or {}
+                )
+            except Exception as e:
+                logger.warning("B-253: bg-listener emit fehlgeschlagen: %s", e)
+
+        analysis_status_service.register_completion_listener(_bg_listener)
+        logger.info("B-253: Analysis-Completion-Bridge installiert.")
 
     def _console_append(self, text: str) -> None:
         """Puffert Konsolen-Nachrichten thread-sicher (Fix F-034)."""

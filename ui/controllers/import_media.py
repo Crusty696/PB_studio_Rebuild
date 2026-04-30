@@ -3,7 +3,7 @@
 import logging
 import os
 from pathlib import Path
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QObject, Signal
 from PySide6.QtWidgets import QFileDialog
 from services.ingest_service import (
     delete_all_media, delete_selected_media, AUDIO_EXTENSIONS, VIDEO_EXTENSIONS,
@@ -13,17 +13,48 @@ from ui.base_component import PBComponent
 
 logger = logging.getLogger(__name__)
 
+
+# B-248: Aus dem Inline-Pattern extrahiert — Module-Level-Klasse hat
+# klareren Lifecycle, kein Closure-Capture-Risiko, einfacher zu debuggen.
+class _PartialDeleteWorker(QObject):
+    """Worker fuer asynchrones Loeschen ausgewaehlter Medien.
+
+    Wird von ``ImportMediaController._delete_selected_media`` instanziiert
+    und an den ``GlobalTaskManager`` uebergeben. Strong-Ref via
+    ``task.worker`` im TaskManager-Dict (siehe ``task_manager.py:362``).
+    """
+    finished = Signal(int)
+    error = Signal(str)
+
+    def __init__(self, video_ids: list[int], audio_ids: list[int], parent=None):
+        super().__init__(parent)
+        self._video_ids = list(video_ids)
+        self._audio_ids = list(audio_ids)
+
+    def run(self):
+        try:
+            count = delete_selected_media(self._video_ids, self._audio_ids)
+            self.finished.emit(count)
+        except Exception as e:  # broad catch intentional — Error via Signal ans UI propagiert
+            logger.exception("PartialDeleteWorker.run failed")
+            self.error.emit(str(e))
+
+
 class ImportMediaController(PBComponent):
     """Media import methods for PBWindow."""
 
     def _import_video(self):
+        logger.info("ImportMedia._import_video: Klick angekommen, oeffne FileDialog")
         ext_filter = "Video-Dateien (" + " ".join(f"*{e}" for e in VIDEO_EXTENSIONS) + ")"
         paths, _ = QFileDialog.getOpenFileNames(self.window, "Videos importieren", "", ext_filter)
+        logger.info("ImportMedia._import_video: FileDialog geschlossen, %d Dateien gewaehlt", len(paths))
         self._process_imports(paths, "video")
 
     def _import_audio(self):
+        logger.info("ImportMedia._import_audio: Klick angekommen, oeffne FileDialog")
         ext_filter = "Audio-Dateien (" + " ".join(f"*{e}" for e in AUDIO_EXTENSIONS) + ")"
         paths, _ = QFileDialog.getOpenFileNames(self.window, "Audio importieren", "", ext_filter)
+        logger.info("ImportMedia._import_audio: FileDialog geschlossen, %d Dateien gewaehlt", len(paths))
         self._process_imports(paths, "audio")
 
     def _process_imports(self, paths: list[str], media_type: str):
@@ -65,9 +96,12 @@ class ImportMediaController(PBComponent):
         Main-Thread bei grossen Ordnerbaeumen (NAS / 1000+ Files)
         mehrere Sekunden ein.
         """
+        logger.info("ImportMedia._import_folder: Klick angekommen, oeffne Folder-Dialog")
         folder = QFileDialog.getExistingDirectory(self.window, "Ordner importieren")
         if not folder:
+            logger.info("ImportMedia._import_folder: User hat Folder-Dialog abgebrochen")
             return
+        logger.info("ImportMedia._import_folder: Ordner gewaehlt: %s", folder)
         self.window.console_text.append(f"[Ordner] Scanne {folder} ...")
         self.window.status_bar.showMessage(f"Scanne Ordner {folder} ...")
 
@@ -144,16 +178,39 @@ class ImportMediaController(PBComponent):
             )
 
     def _delete_selected_media(self, pool: str):
-        """Loescht alle angehakten Medien asynchron (Fix F-045)."""
+        """Loescht alle angehakten Medien asynchron (Fix F-045).
+
+        B-248: Re-Entrancy-Guard + Button-Disable verhindern den nativen
+        Access-Violation-Crash bei Doppelklick. on_finish wird jetzt
+        explizit verbunden — vorher wurde _on_done nie gerufen
+        (MediaTable bleibt stale + Re-Lock-Pfad fehlte).
+        """
+        logger.info(
+            "ImportMedia._delete_selected_media: Klick angekommen, pool=%s, "
+            "delete_in_progress=%s",
+            pool,
+            getattr(self, "_delete_in_progress", False),
+        )
         from PySide6.QtWidgets import QMessageBox
-        video_ids = []
-        audio_ids = []
-        
+
+        # B-248: Re-Entrancy-Guard — zweiten Klick waehrend laufendem Loeschen
+        # ignorieren, sonst spawnen 2 parallele Worker und race im SQLite/
+        # VectorDB/TableModel-Cleanup -> native access violation.
+        if getattr(self, "_delete_in_progress", False):
+            QMessageBox.information(
+                self.window, "Loeschvorgang laeuft",
+                "Es wird gerade geloescht. Bitte warte bis der aktuelle Vorgang fertig ist.",
+            )
+            return
+
+        video_ids: list[int] = []
+        audio_ids: list[int] = []
+
         if pool in ("video", "both"):
             v_model = self.window.video_pool_table.model()
             if v_model:
                 video_ids = v_model.get_checked_ids()
-                
+
         if pool in ("audio", "both"):
             a_model = self.window.audio_pool_table.model()
             if a_model:
@@ -170,38 +227,55 @@ class ImportMediaController(PBComponent):
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
-        if reply == QMessageBox.StandardButton.Yes:
-            from PySide6.QtCore import QObject, Signal
-            class PartialDeleteWorker(QObject):
-                finished = Signal(int)
-                error = Signal(str)
-                def run(self):
-                    try:
-                        count = delete_selected_media(video_ids, audio_ids)
-                        self.finished.emit(count)
-                    except Exception as e:
-                        self.error.emit(str(e))
+        if reply != QMessageBox.StandardButton.Yes:
+            return
 
-            worker = PartialDeleteWorker()
-            def _on_done(count):
+        # B-248: Lock setzen + Buttons deaktivieren
+        self._delete_in_progress = True
+        disabled_buttons: list = []
+        for btn_attr in ("btn_delete_selected_video", "btn_delete_selected_audio"):
+            btn = getattr(self.window, btn_attr, None)
+            if btn is not None:
+                try:
+                    btn.setEnabled(False)
+                    disabled_buttons.append(btn)
+                except RuntimeError:
+                    pass  # Widget bereits geloescht
+
+        def _release_lock():
+            self._delete_in_progress = False
+            for btn in disabled_buttons:
+                try:
+                    btn.setEnabled(True)
+                except RuntimeError:
+                    pass  # Widget inzwischen geloescht
+
+        worker = _PartialDeleteWorker(video_ids, audio_ids)
+
+        def _on_done(count: int):
+            try:
                 self.window.media_table_controller._refresh_media_table_debounced()
                 self.window._mark_dirty()
                 self.window.console_text.append(f"[System] {count} Medien-Eintraege geloescht.")
                 self.window.status_bar.showMessage(f"{count} Medien geloescht")
+            finally:
+                _release_lock()
 
-            # B-060: on_error-Handler analog zu _clear_all_media.
-            def _on_error(err_msg: str) -> None:
-                if not self.window:
-                    return
-                from PySide6.QtWidgets import QMessageBox
-                self.window.console_text.append(f"[Fehler] Medien loeschen: {err_msg}")
-                self.window.status_bar.showMessage(f"Medien-Loeschen fehlgeschlagen: {err_msg}", 10_000)
-                QMessageBox.critical(self.window, "Medien loeschen fehlgeschlagen", err_msg)
+        # B-060: on_error-Handler analog zu _clear_all_media.
+        def _on_error(err_msg: str) -> None:
+            try:
+                if self.window:
+                    self.window.console_text.append(f"[Fehler] Medien loeschen: {err_msg}")
+                    self.window.status_bar.showMessage(f"Medien-Loeschen fehlgeschlagen: {err_msg}", 10_000)
+                    QMessageBox.critical(self.window, "Medien loeschen fehlgeschlagen", err_msg)
+            finally:
+                _release_lock()
 
-            from services.task_manager import GlobalTaskManager
-            GlobalTaskManager.instance().start_task(
-                name="Medien loeschen",
-                worker=worker,
-                on_error=_on_error,
-                description=f"Entfernt {total} ausgewaehlte Medien"
-            )
+        from services.task_manager import GlobalTaskManager
+        GlobalTaskManager.instance().start_task(
+            name="Medien loeschen",
+            worker=worker,
+            on_finish=_on_done,           # B-248: war vorher nicht verbunden — _on_done wurde nie gerufen
+            on_error=_on_error,
+            description=f"Entfernt {total} ausgewaehlte Medien"
+        )

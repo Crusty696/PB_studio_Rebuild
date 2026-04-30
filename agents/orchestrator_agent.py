@@ -37,6 +37,47 @@ from services.ollama_service import OllamaService
 
 logger = logging.getLogger(__name__)
 
+# B-243: Whitelist nur lese-/abfragender Tools fuer den LLM-Fallback.
+# Trigger-Tools (Worker-Spawns), destruktive Aktionen und auto_edit/export
+# sind ausgeschlossen — Brain darf Daten lesen, aber keine Pipelines
+# eigenmaechtig starten.
+# B-245 + B-246: describe_video_clip + describe_set_overview ergaenzt.
+_BRAIN_SAFE_TOOLS: tuple[str, ...] = (
+    "summarize_project",
+    "describe_audio_track",
+    "describe_video_clip",       # B-245
+    "describe_set_overview",     # B-246 Phase 1
+    "match_clips_to_segment",    # B-246 Phase 2 — Cross-Modal SigLIP
+    "explain_clip",
+    "suggest_pacing",
+    "search_video",
+    "search_knowledge",
+    "model_status",
+    "list_actions",
+)
+
+# B-243: Tool-Use-aware System-Prompt. Im Tool-Loop ersetzt dieser
+# den generischen _GENERAL_SYSTEM_PROMPT — der LLM weiss damit
+# welche Tools er rufen soll und dass er KEINE Zahlen halluzinieren darf.
+_TOOL_USE_SYSTEM_PROMPT = """\
+Du bist der KI-Assistent von PB Studio, einem professionellen Tool fuer
+DJ-Video-Produktion. Antworte praezise, hilfreich und auf Deutsch.
+
+Du hast Zugriff auf die Projekt-Datenbank ueber Tool-Calls. Nutze die
+Tools wenn die Anfrage konkrete Daten braucht — halluziniere keine
+Zahlen, BPM-Werte, Drop-Zeitstempel oder Track-Namen.
+
+Tool-Wahl-Hinweise:
+- "Was ist importiert?" / "Projekt-Stand"   -> summarize_project
+- "Beschreibe Track X" / "Wann sind Drops"  -> describe_audio_track
+- "Was ist auf Video X" / "Clip-Inhalt"     -> explain_clip
+- "Wie schneiden?" / "Pacing fuer Track X"  -> suggest_pacing
+- "Finde Clips wie ..." / Semantische Suche -> search_video / search_knowledge
+
+Bei offenen, mehrteiligen Fragen: rufe mehrere Tools nacheinander.
+Wenn keine Tool-Daten noetig sind: antworte direkt mit Text.
+"""
+
 # System-Prompt für die LLM-basierte Intent-Klassifizierung (AP-5)
 _CLASSIFY_SYSTEM_PROMPT = """\
 Du bist ein Router in PB Studio, einem DJ-Video-Editor.
@@ -412,6 +453,145 @@ class OrchestratorAgent(BaseAgent):
             "actions": results,
         }
 
+    def _chat_with_tools_loop(self, user_text: str, max_iters: int = 3) -> str | None:
+        """B-243: LLM-Fallback mit Tool-Use-Loop und DB-Kontext-Injection.
+
+        Statt einfach ``OllamaService.chat()`` mit nacktem User-Text aufzurufen,
+        passiert hier:
+
+        1. ``summarize_project`` wird vorab als Context in den System-Prompt geschrieben
+        2. ``OllamaClient.chat_with_tools`` mit Whitelist sicherer Read-Tools
+        3. Tool-Use-Loop bis max_iters: bei tool_calls -> execute -> tool-result
+           als role="tool"-message ans LLM zurueck -> naechste Iteration
+        4. Endet entweder mit Text-Antwort oder ``None`` (Caller fallback'd)
+
+        Returns:
+            Final-Text-Antwort des LLM oder ``None`` wenn Tool-Use nicht moeglich
+            (Modell ohne Tool-Support, Ollama down, Max-Iters ohne Final-Text).
+        """
+        import json
+        from services.ollama_client import get_ollama_client, OllamaError
+        from services.action_registry import action_registry
+
+        svc = OllamaService.get()
+        if not svc.is_ready:
+            return None
+
+        model = svc.get_default_model()
+        if not model:
+            return None
+
+        oc = get_ollama_client()
+        if not oc.supports_tools(model):
+            logger.info(
+                "Tool-Use-Loop: Modell '%s' unterstuetzt keine Tools — Fallback auf chat()",
+                model,
+            )
+            return None
+
+        tool_defs = action_registry.build_tool_definitions(names=list(_BRAIN_SAFE_TOOLS))
+        if not tool_defs:
+            return None
+
+        # System-Prompt + DB-Kontext (summarize_project)
+        logger.info("Tool-Use-Loop: starte mit model=%s, %d tools", model, len(tool_defs))
+        system_content = _TOOL_USE_SYSTEM_PROMPT
+        try:
+            logger.info("Tool-Use-Loop: rufe summarize_project fuer DB-Kontext")
+            proj = action_registry.execute("summarize_project", {})
+            if isinstance(proj, dict) and proj.get("status") == "ok":
+                system_content += "\n\nAktueller Projekt-Stand:\n" + proj.get("message", "")
+                logger.info("Tool-Use-Loop: DB-Kontext injiziert (%d chars)", len(system_content))
+        except Exception as e:  # broad catch — context-injection darf nicht den ganzen Pfad kippen
+            logger.warning("Tool-Use-Loop: summarize_project im Setup fehlgeschlagen: %s", e)
+
+        messages: list[dict] = [
+            {"role": "system", "content": system_content},
+            {"role": "user", "content": user_text},
+        ]
+
+        for iter_idx in range(max_iters):
+            logger.info("Tool-Use-Loop Iter %d/%d: chat_with_tools call beginnt", iter_idx + 1, max_iters)
+            try:
+                result = oc.chat_with_tools(
+                    model=model,
+                    user_message=user_text,  # ignoriert wenn messages gesetzt
+                    tools=tool_defs,
+                    messages=messages,
+                    temperature=0.1,
+                    max_tokens=1024,
+                )
+                logger.info(
+                    "Tool-Use-Loop Iter %d: chat_with_tools zurueck, type=%s, tool_calls=%d",
+                    iter_idx + 1, result.get("type"), len(result.get("tool_calls") or []),
+                )
+            except OllamaError as e:
+                logger.warning("Tool-Use-Loop Iter %d OllamaError: %s", iter_idx, e)
+                return None
+            except Exception as e:  # broad catch — Tool-Use ist Best-Effort
+                logger.warning("Tool-Use-Loop Iter %d unerwarteter Fehler: %s", iter_idx, e)
+                return None
+
+            if result.get("type") == "text":
+                content = (result.get("content") or "").strip()
+                if content:
+                    logger.info(
+                        "Tool-Use-Loop: Final-Antwort nach %d Iteration(en).", iter_idx + 1
+                    )
+                    return content
+                return None
+
+            tool_calls = result.get("tool_calls") or []
+            if not tool_calls:
+                return (result.get("content") or "").strip() or None
+
+            # Assistant-Message mit tool_calls + Tool-Results anhaengen
+            messages.append({
+                "role": "assistant",
+                "content": "",
+                "tool_calls": tool_calls,
+            })
+            for tc in tool_calls:
+                fn = tc.get("function", {})
+                tool_name = fn.get("name", "")
+                tool_args = fn.get("arguments", {}) or {}
+
+                # Sicherheit: nur Whitelist-Tools, auch wenn das LLM was anderes vorschlaegt
+                if tool_name not in _BRAIN_SAFE_TOOLS:
+                    tool_content = (
+                        f"Tool '{tool_name}' nicht erlaubt. Verfuegbar: "
+                        f"{', '.join(_BRAIN_SAFE_TOOLS)}"
+                    )
+                    logger.warning(
+                        "Tool-Use-Loop: LLM hat '%s' angefragt (nicht in Whitelist).",
+                        tool_name,
+                    )
+                else:
+                    try:
+                        logger.info("Tool-Use-Loop: execute tool=%s, args=%s", tool_name, tool_args)
+                        tool_result = action_registry.execute(tool_name, tool_args)
+                        tool_content = json.dumps(
+                            tool_result, default=str, ensure_ascii=False
+                        )
+                        logger.info("Tool-Use-Loop: tool=%s OK, result-len=%d", tool_name, len(tool_content))
+                    except Exception as e:  # broad catch — Tool-Fehler durchreichen, nicht crashen
+                        tool_content = f"Fehler beim Aufruf von {tool_name}: {e}"
+                        logger.warning(
+                            "Tool-Use-Loop: '%s' fehlgeschlagen: %s", tool_name, e
+                        )
+
+                # Tool-Result truncaten damit der Context nicht explodiert
+                if len(tool_content) > 4000:
+                    tool_content = tool_content[:4000] + "...[truncated]"
+
+                messages.append({
+                    "role": "tool",
+                    "content": tool_content,
+                })
+
+        logger.warning("Tool-Use-Loop: Max-Iterationen (%d) erreicht ohne Final-Text.", max_iters)
+        return None
+
     def _llm_classify_intent(self, user_text: str) -> str | None:
         """Nutzt Ollama zur Intent-Klassifizierung wenn Keyword-Routing unentschieden ist (AP-5).
 
@@ -428,7 +608,6 @@ class OrchestratorAgent(BaseAgent):
                     {"role": "system", "content": _CLASSIFY_SYSTEM_PROMPT},
                     {"role": "user", "content": user_text}
                 ],
-                model="gemma4:e4b"
             )
             
             category = result.strip().lower().split()[0] if result.strip() else ""
@@ -643,7 +822,22 @@ class OrchestratorAgent(BaseAgent):
             if registry_result is not None:
                 return registry_result
 
-            # 5. Fallback: Keine passender Agent/Action gefunden → Ollama-Chat (Gemma 4)
+            # 5. Fallback: Keine passender Agent/Action gefunden -> Ollama-Chat
+            # B-243: Erst Tool-Use-Loop (mit DB-Kontext + Whitelist sicherer
+            # Read-Tools); wenn der scheitert (Modell unterstuetzt keine Tools,
+            # Ollama down, Max-Iters ohne Final-Text), Fallback auf einfachen
+            # chat() ohne Tools.
+            tool_response = self._chat_with_tools_loop(user_text)
+            if tool_response:
+                return {
+                    "agent": self.name,
+                    "action": "chat_with_tools",
+                    "params": {"user_text": user_text},
+                    "result": tool_response,
+                    "message": tool_response,
+                    "error": None,
+                }
+
             svc = OllamaService.get()
             if svc.is_ready:
                 llm_response = svc.chat(
@@ -651,7 +845,6 @@ class OrchestratorAgent(BaseAgent):
                         {"role": "system", "content": _GENERAL_SYSTEM_PROMPT},
                         {"role": "user", "content": user_text}
                     ],
-                    model="gemma4:e4b"
                 )
                 return {
                     "agent": self.name,

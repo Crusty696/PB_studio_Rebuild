@@ -12,7 +12,7 @@ from services.local_agent_service import LocalAgentService
 def _agent_with_ollama_off() -> LocalAgentService:
     return LocalAgentService(
         ollama_url="http://localhost:11434",
-        ollama_model="gemma4:e4b",
+        ollama_model="gemma3:4b",
         use_ollama=False,
     )
 
@@ -29,7 +29,7 @@ def test_health_check_reports_unreachable_when_server_down(monkeypatch):
     """Ollama enabled aber Server unerreichbar → klare Fehler-Message."""
     agent = LocalAgentService(
         ollama_url="http://localhost:11434",
-        ollama_model="gemma4:e4b",
+        ollama_model="gemma3:4b",
         use_ollama=True,
     )
 
@@ -73,7 +73,7 @@ def test_health_check_reports_no_model_installed(monkeypatch):
 def test_health_check_reports_ready(monkeypatch):
     agent = LocalAgentService(
         ollama_url="http://localhost:11434",
-        ollama_model="gemma4:e4b",
+        ollama_model="gemma3:4b",
         use_ollama=True,
     )
 
@@ -81,14 +81,14 @@ def test_health_check_reports_ready(monkeypatch):
         def is_available(self):
             return True
         def get_best_available_model(self):
-            return "gemma4:e4b"
+            return "gemma3:4b"
         def get_version(self):
             return "0.5.1"
 
     monkeypatch.setattr(agent, "_get_ollama_client", lambda: _StubClient())
     hc = agent.health_check()
     assert hc["ollama_reachable"] is True
-    assert hc["model"] == "gemma4:e4b"
+    assert hc["model"] == "gemma3:4b"
     assert "bereit" in hc["message"].lower()
 
 
@@ -97,7 +97,7 @@ def test_health_check_handles_client_exception(monkeypatch):
     fangen und in eine Banner-Message ummünzen — nicht crashen."""
     agent = LocalAgentService(
         ollama_url="http://localhost:11434",
-        ollama_model="gemma4:e4b",
+        ollama_model="gemma3:4b",
         use_ollama=True,
     )
 

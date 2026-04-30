@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Callable
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -19,6 +19,43 @@ from sqlalchemy.orm import Session
 from database import nullpool_session, AnalysisStatus, VideoClip, AudioTrack, Scene, Beatgrid, WaveformData
 
 logger = logging.getLogger(__name__)
+
+# B-253: Pub/Sub fuer Analysis-Completion-Events. Loest das UI-Refresh-Loch
+# wenn eine Pipeline ueber das ActionRegistry / agent_command_signal /
+# auto_workflow laeuft (statt ueber den UI-Button-Pfad). Ohne diesen Hook
+# wird die UI nach z.B. stem_separation nicht aktualisiert obwohl DB +
+# Disk schon korrekt sind. Subscriber registrieren sich via
+# register_completion_listener() und kriegen pro mark_completed-Aufruf
+# (media_type, media_id, step_key, value_summary)-Notification.
+#
+# Listener laufen im Thread des mark_completed-Callers (oft Worker-BG-Thread).
+# UI-Code MUSS die Notification an den Main-Thread queuen (z.B. via
+# QObject.signal mit Qt.QueuedConnection oder QTimer.singleShot).
+_completion_listeners: list[Callable[[str, int, str, dict], None]] = []
+
+
+def register_completion_listener(callback: Callable[[str, int, str, dict], None]) -> None:
+    """B-253: Registriert eine Funktion die bei jedem mark_completed gerufen wird.
+
+    Signatur: ``callback(media_type, media_id, step_key, value_summary)``.
+
+    Achtung: Listener laufen im Caller-Thread (oft Background-Worker). Wenn
+    der Listener UI-Code anfasst, muss er explizit den Main-Thread bemuehen
+    (Qt-Signal mit QueuedConnection / QTimer.singleShot).
+
+    Listener-Exceptions werden geloggt aber NICHT propagiert — sonst koennte
+    ein UI-Bug die DB-Pipeline kippen.
+    """
+    if callback not in _completion_listeners:
+        _completion_listeners.append(callback)
+
+
+def unregister_completion_listener(callback: Callable[[str, int, str, dict], None]) -> None:
+    """B-253: Entfernt einen registrierten Listener (z.B. fuer Tests oder Reload)."""
+    try:
+        _completion_listeners.remove(callback)
+    except ValueError:
+        pass
 
 # Definierte Analyse-Schritte pro Media-Type (aus VAD-36 Plan)
 VIDEO_STEPS = [
@@ -111,6 +148,19 @@ def mark_done(media_type: str, media_id: int, step_key: str, value_summary: dict
         session.commit()
         logger.info("Analysis completed: %s/%d/%s (summary: %s)",
                    media_type, media_id, step_key, value_summary)
+
+    # B-253: Listener AUSSERHALB der Session benachrichtigen (verhindert
+    # dass UI-Refreshs in der DB-Transaktion haengen). Snapshot der
+    # Liste damit Listener die sich selbst entfernen kein RuntimeError
+    # ausloesen.
+    for cb in list(_completion_listeners):
+        try:
+            cb(media_type, media_id, step_key, value_summary or {})
+        except Exception as e:
+            logger.warning(
+                "B-253: Completion-Listener %s fuer %s/%d/%s fehlgeschlagen: %s",
+                getattr(cb, "__name__", repr(cb)), media_type, media_id, step_key, e,
+            )
 
 
 def mark_error(media_type: str, media_id: int, step_key: str, error_msg: str) -> None:

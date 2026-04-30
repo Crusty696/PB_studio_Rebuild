@@ -37,14 +37,20 @@ from services.errors import (
 
 logger = logging.getLogger(__name__)
 
-# Default-Modelle für NVIDIA CUDA GPU
+# Default-Modelle für NVIDIA CUDA GPU.
+# B-239: ``gemma4:e4b`` entfernt — existierte nirgends als Ollama-Tag.
+# Live-Default wird in ``OllamaService._resolve_default_model`` per
+# ``/api/tags``-Family-Match (gemma4) aufgeloest. Diese Liste ist
+# der harte Fallback wenn keine Gemma-4-Variante installiert ist.
 RECOMMENDED_MODELS = [
-    "gemma4:e4b",                    # ~9.6 GB Q4_K_M — Hauptmodell
-    "phi3:mini",                      # ~2.3 GB — schnell, kompakt
-    "llama3.1:8b-instruct-q4_K_M",   # ~4.7 GB — Allrounder
-    "llama3.1:8b",                   # ~4.7 GB — Allrounder (Standard-Tag)
-    "llama3:8b",                     # ~4.3 GB — Bewährt, wird aktiv eingesetzt
-    "gemma2:2b-instruct-q4_K_M",     # ~1.5 GB — sehr klein, schnell
+    "phi3:mini",                                                      # ~2.3 GB — schnell, Tool-Use, GTX 1060-tauglich
+    "tripolskypetr/qwen3.5-uncensored-aggressive:4b",                 # ~2.7 GB — Qwen 3.5, Tool-Use
+    "qwen2.5:7b-instruct-q4_K_M",                                     # ~4.4 GB — Qwen 2.5, Tool-Use
+    "llama3.1:8b-instruct-q4_K_M",                                    # ~4.7 GB — Allrounder
+    "llama3.1:8b",                                                    # ~4.7 GB — Allrounder (Standard-Tag)
+    "llama3:8b",                                                      # ~4.3 GB — Bewaehrt
+    "gemma3:4b",                                                      # ~3.3 GB — wenn vorhanden
+    "gemma2:2b-instruct-q4_K_M",                                      # ~1.5 GB — Notfall-klein
 ]
 
 DEFAULT_OLLAMA_URL = "http://localhost:11434"
@@ -60,7 +66,7 @@ class OllamaClient:
         client = OllamaClient()
         if client.is_available():
             models = client.list_models()
-            reply = client.chat("gemma4:e4b", "Hallo!")
+            reply = client.chat("gemma3:4b", "Hallo!")
     """
 
     def __init__(
@@ -547,22 +553,72 @@ class OllamaClient:
     # Tool-Use / Function-Calling (AP-5)
     # ------------------------------------------------------------------
 
+    # B-247: In-Memory-Cache fuer Modelle die Ollama als "no tools" abgelehnt
+    # hat (HTTP 400 "does not support tools" beim chat_with_tools-Call).
+    # supports_tools() konsultiert diesen Cache und liefert sofort False.
+    _NO_TOOLS_CACHE: set[str] = set()
+
+    @classmethod
+    def mark_model_no_tools(cls, model: str) -> None:
+        """B-247: Modell als 'kein Tool-Support' markieren (Caller bei HTTP 400)."""
+        if model:
+            cls._NO_TOOLS_CACHE.add(model.lower())
+
     def supports_tools(self, model: str) -> bool:
         """Prüft ob ein Modell Tool-Use / Function-Calling unterstützt.
 
-        Qwen2.5, Llama 3+, Mistral 0.3+ und Phi3 unterstützen Tool-Use.
-        Kleine Modelle (<1B) unterstützen es oft NICHT zuverlässig.
+        Reihenfolge:
+        1. Hard Negativ-Liste fuer offizielle Modelle ohne Tool-Capability
+           (phi3, gemma2, gemma3) — diese melden bei Ollama explizit
+           HTTP 400 "does not support tools".
+        2. Cache aus chat_with_tools-Failures (B-247).
+        3. Substring-Match auf bekannte Tool-Use-Familien.
+        4. Default: False.
+
+        B-247 (CRITICAL): Hard Negativ-Liste verhindert HTTP-400-Loop in
+        ``LocalAgentService.process()`` -> ChatDock-Send-Button macht nichts.
+        Vorher hat die reine Substring-Heuristik ``phi3:mini`` und
+        ``gemma3:4b`` als True gemeldet, Ollama lehnt aber ab.
+
+        B-239: Substring-basiert (vorher Prefix), damit Community-Tags mit
+        eingebautem Tool-Support erkannt werden (z.B.
+        ``fredrezones55/Gemma-4-Uncensored-...:e2b`` oder
+        ``tripolskypetr/qwen3.5-uncensored-aggressive:4b``).
         """
-        supported_prefixes = [
-            "qwen2.5:", "qwen2:", "llama3.1:", "llama3.2:",
-            "llama3.3:", "mistral:", "phi3:", "gemma2:",
-            "gemma3:", "gemma4:",
-        ]
         model_lower = model.lower()
-        for prefix in supported_prefixes:
+
+        # B-247 Hard-Negativ: offizielle Modelle ohne Tool-Capability.
+        # Pattern matcht nur "phi3:mini", "gemma3:4b" — NICHT
+        # "fredrezones55/phi3-with-tools:custom" (Slash davor).
+        OFFICIAL_NO_TOOLS_PREFIXES = (
+            "phi3:", "phi-3:", "phi3.5:", "phi-3.5:",
+            "gemma2:", "gemma-2:",
+            "gemma3:", "gemma-3:",
+        )
+        for prefix in OFFICIAL_NO_TOOLS_PREFIXES:
             if model_lower.startswith(prefix):
+                return False
+
+        # B-247: Cache aus chat_with_tools-Failures (HTTP 400 "does not support tools")
+        if model_lower in self._NO_TOOLS_CACHE:
+            return False
+
+        # Substring-Match (Community-Tags mit eingebautem Tool-Support
+        # + offizielle Tool-faehige Modelle wie Qwen 2.5+, Llama 3.1+, Mistral).
+        # phi3 / gemma2 / gemma3 sind oben in der Hard-Negativ-Liste — Custom-Tags
+        # mit eingebautem Tool-Support muessen via Path-Pattern (Slash) erkannt
+        # werden ODER per User-Setting opt-in aktiviert werden.
+        supported_substrings = [
+            "qwen2.5", "qwen2:", "qwen3", "qwen3.5",
+            "llama3.1", "llama3.2", "llama3.3",
+            "mistral",
+            # Gemma-4-Community-Tags wie fredrezones55/Gemma-4-Uncensored-...
+            "gemma4", "gemma-4",
+        ]
+        for needle in supported_substrings:
+            if needle in model_lower:
                 # Kleine Modelle ausschliessen (<1B Parameter)
-                if any(tiny in model_lower for tiny in [":0.5b", ":0.5b-", "0.5b-"]):
+                if any(tiny in model_lower for tiny in [":0.5b", ":0.6b"]):
                     return False
                 return True
         return False
@@ -681,6 +737,25 @@ class OllamaClient:
                     "raw": data,
                 }
 
+        except urllib.error.HTTPError as e:
+            # B-247: Bei HTTP 400 "does not support tools" das Modell in den
+            # No-Tools-Cache schreiben, damit naechste supports_tools()-Calls
+            # direkt False liefern und der Caller (LocalAgentService) auf
+            # plain chat() ohne Tools faellt — statt erneut HTTP 400 zu rufen.
+            try:
+                body = e.read().decode("utf-8", errors="replace")
+            except Exception:
+                body = ""
+            if "does not support tools" in body.lower():
+                type(self).mark_model_no_tools(model)
+                logger.warning(
+                    "OllamaClient.chat_with_tools: Modell '%s' unterstuetzt "
+                    "keine Tools (HTTP 400) — in _NO_TOOLS_CACHE aufgenommen. "
+                    "Naechste supports_tools()-Calls liefern False.", model
+                )
+            raise OllamaNotAvailableError(
+                f"Ollama HTTP {e.code} {e.reason} (model='{model}'): {body[:200]}"
+            ) from e
         except urllib.error.URLError as e:
             raise OllamaNotAvailableError(f"Ollama nicht erreichbar: {e}") from e
         except json.JSONDecodeError as e:

@@ -299,8 +299,20 @@ class ChatDock(QDockWidget):
         self.chat_log.ensureCursorVisible()
 
     def _on_send(self) -> None:
+        # B-247/B-243-Diagnose: ChatDock-Klick im Log nachvollziehbar machen.
+        # Vorher gab es keinen einzigen Log-Eintrag wenn User auf "Senden"
+        # klickte — User-Bug "Button macht nichts" war komplett unsichtbar.
+        logger.info(
+            "ChatDock._on_send: text-len=%d, agent=%s, btn_enabled=%s, input_enabled=%s",
+            len(self.input_field.text()),
+            type(self._agent).__name__ if self._agent else "None",
+            self.btn_send.isEnabled(),
+            self.input_field.isEnabled(),
+        )
+
         text = self.input_field.text().strip()
         if not text:
+            logger.info("ChatDock._on_send: leerer Text -> early return")
             return
 
         self.append_user(text)
@@ -308,9 +320,11 @@ class ChatDock(QDockWidget):
 
         # Quick-Command-Detection: Bekannte Befehle direkt ausführen (ohne LLM)
         if self._try_quick_command(text):
+            logger.info("ChatDock._on_send: Quick-Command matched, kein Agent-Call.")
             return
 
         if self._agent is None:
+            logger.warning("ChatDock._on_send: self._agent ist None — Agent-Call nicht moeglich.")
             self.append_error("Kein Agent konfiguriert.")
             return
 

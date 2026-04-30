@@ -10,7 +10,7 @@ Geprueft / installiert:
   - torch 1.12.1+cu113 (kompat. NVIDIA Treiber 461.40)
   - Alle Pakete aus requirements-py310-cu113.txt
   - beat_this (vendor/beat_this)
-  - Ollama + gemma4:e4b
+  - Ollama + gemma3:4b (B-241: gemma4:e4b war Phantom-Tag)
   - FFmpeg in bin/
   - HuggingFace-Modelle: htdemucs, siglip, moondream2
 
@@ -41,7 +41,7 @@ BEAT_THIS_DIR = PROJECT_ROOT / "vendor" / "beat_this"
 FFMPEG_BIN = PROJECT_ROOT / "bin" / "ffmpeg.exe"
 FFPROBE_BIN = PROJECT_ROOT / "bin" / "ffprobe.exe"
 
-OLLAMA_MODEL = "gemma4:e4b"
+OLLAMA_MODEL = "gemma3:4b"  # B-241: war "gemma4:e4b" — Phantom-Tag
 
 HF_MODELS = [
     ("google/siglip-so400m-patch14-384", "SigLIP (Visual Embeddings)"),

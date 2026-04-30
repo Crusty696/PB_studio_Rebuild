@@ -19,8 +19,12 @@ from services.timeout_constants import AGENT_TASK_TIMEOUT_SEC, AGENT_TASK_LONG_T
 
 logger = logging.getLogger(__name__)
 
-# Standard-Modell: Gemma 4 E4B via Ollama (Hauptmodell)
-DEFAULT_MODEL_ID = "gemma4:e4b"
+# B-239: Default-Modell wird jetzt live ueber OllamaService.get_default_model()
+# resolved (Family-Match auf 'gemma4' in /api/tags). Hartcoded "gemma4:e4b"
+# existierte nirgends als Tag und blockierte alle LLM-Calls.
+# DEFAULT_MODEL_ID bleibt als Sentinel fuer Aufrufer die den ModelManager-
+# Lookup verlangen (nur HuggingFace-Fallback-Pfad nutzt das noch).
+DEFAULT_MODEL_ID = "gemma3:4b"
 
 # Ollama-Einstellungen (werden von Settings-Dialog gesetzt)
 OLLAMA_DEFAULT_URL = "http://localhost:11434"
@@ -190,7 +194,7 @@ class LocalAgentService:
             if not result["model"]:
                 result["message"] = (
                     "Ollama läuft, aber kein Modell installiert. "
-                    "Tipp: 'ollama pull gemma4:e4b' (9.6 GB)."
+                    "Tipp: 'ollama pull gemma3:4b' (3.3 GB)."
                 )
                 return result
             result["message"] = (
@@ -247,13 +251,21 @@ class LocalAgentService:
                 return False
 
             # Modell wählen falls noch nicht gesetzt
+            # B-239: Erst OllamaService-Auto-Detect (matcht Gemma-4-Family
+            # auch bei Community-Tags), dann Fallback auf RECOMMENDED_MODELS.
             if not self._ollama_model:
-                self._ollama_model = client.get_best_available_model()
+                try:
+                    from services.ollama_service import OllamaService
+                    self._ollama_model = OllamaService.get().get_default_model()
+                except Exception as e:
+                    logger.debug("OllamaService-Default-Lookup fehlgeschlagen: %s", e)
+                if not self._ollama_model:
+                    self._ollama_model = client.get_best_available_model()
 
             if not self._ollama_model:
                 logger.warning(
                     "LocalAgentService: Ollama läuft, aber keine Modelle installiert. "
-                    "Tipp: 'ollama pull gemma4:e4b' (9.6 GB)"
+                    "Tipp: 'ollama pull gemma3:4b' (3.3 GB)"
                 )
                 return False
 
