@@ -614,8 +614,9 @@ def init_db():
 
     B-091 Fix: Klare Migrations-Strategie ohne Alembic/create_all-Kollision.
 
-    - Fresh-DB (keine Tabellen): create_all() + Alembic stamp head.
-      Alembic-Migrations laufen NICHT, weil das Schema bereits aktuell ist.
+    - Fresh-DB (keine Tabellen): create_all() fuer Modell-Tabellen,
+      Alembic stamp baseline, dann upgrade head. Nicht alle Head-Tabellen
+      leben in database.models (z. B. struct_* / mem_*).
     - Existing-DB ohne alembic_version: legacy als Bring-up auf Baseline,
       dann stamp baseline, dann Alembic upgrade head.
     - Existing-DB mit alembic_version: nur Alembic upgrade head.
@@ -636,15 +637,16 @@ def init_db():
     alembic_cfg = _alembic_config()
 
     if is_fresh:
-        # Fresh-DB: alle Tabellen aus den Models, dann Alembic-Head stempeln.
-        # Kein _run_alembic_migrations() noetig — create_all hat bereits den
-        # Head-State produziert.
+        # Fresh-DB: alle Tabellen aus den Models, dann auf die erste Alembic-
+        # Revision stempeln und danach die Migrationen laufen lassen. Einige
+        # spaetere Tabellen werden nur durch Alembic-Versionen erzeugt.
         Base.metadata.create_all(engine)
         try:
-            command.stamp(alembic_cfg, "head")
-            logger.info("init_db(): Fresh-DB initialisiert + Alembic-Head gestempelt.")
+            command.stamp(alembic_cfg, "beb242bcd1fb")
+            logger.info("init_db(): Fresh-DB initialisiert + Alembic-Baseline gestempelt.")
+            _run_alembic_migrations()
         except Exception as e:  # broad catch intentional — stamp ist optional
-            logger.warning("Alembic-Stamp auf Fresh-DB fehlgeschlagen: %s", e)
+            logger.warning("Alembic-Upgrade auf Fresh-DB fehlgeschlagen: %s", e)
     else:
         # Existing-DB: Legacy-Migrations bringen aelteres Schema auf Baseline-Stand.
         # Danach Alembic-Migrations fuer alle nachfolgenden Schema-Aenderungen.
