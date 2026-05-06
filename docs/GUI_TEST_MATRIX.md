@@ -137,7 +137,7 @@ Regressionstest für B2 aus dem alten Bericht.
 | # | Aktion | Erwartung |
 |---|--------|-----------|
 | 1 | Chat/Agent-UI öffnen | Chat-Input sichtbar |
-| 2 | Nachricht an gemma4:e4b senden | **Content nicht leer** (B1-Fix: thinking-Feld Fallback) |
+| 2 | Nachricht an gemma3:4b senden | **Content nicht leer** (B1-Fix: thinking-Feld Fallback) |
 | 3 | Antwort wird gerendert | Keine leeren Chat-Bubbles |
 
 ---

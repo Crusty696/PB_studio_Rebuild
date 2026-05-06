@@ -365,7 +365,7 @@ class ModelRegistry(Base):
     __tablename__ = "model_registry"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    model_id = Column(String, nullable=False, unique=True)   # "gemma4:e4b" | "google/siglip-so400m-patch14-384"
+    model_id = Column(String, nullable=False, unique=True)   # "gemma3:4b" | "google/siglip-so400m-patch14-384"
     source = Column(String, nullable=False)                   # "ollama" | "huggingface"
     display_name = Column(String, nullable=True)
     size_mb = Column(Float, nullable=True)
@@ -394,7 +394,7 @@ class AgentFeedback(Base):
 
     # ── Kontext ──
     session_id = Column(String, nullable=True)           # Chat-Session-ID
-    model_id = Column(String, nullable=True)             # "gemma4:e4b" oder "google/gemma-4-e4b"
+    model_id = Column(String, nullable=True)             # "gemma3:4b" oder "google/siglip-so400m-patch14-384"
     backend = Column(String, nullable=True, default="ollama")  # "ollama" | "huggingface"
 
     # ── Query + Antwort ──
