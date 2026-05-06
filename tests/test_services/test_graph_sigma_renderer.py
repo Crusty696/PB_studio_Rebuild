@@ -78,3 +78,15 @@ def test_render_handles_empty_graph():
     g = GraphService()
     html = render_sigma_html(g)
     assert "<html" in html.lower()
+
+
+def test_render_does_not_depend_on_missing_forceatlas2_bundle():
+    g = _small_graph()
+    html = render_sigma_html(g)
+    assert "graphology-layout-forceatlas2@0.10.1/build/" not in html
+    assert "sigma@3.0.0-beta.18/build/sigma.min.js" not in html
+    assert "sigma@3.0.0-beta.18/dist/sigma.min.js" in html
+    assert "const SigmaRenderer = window.Sigma || window.sigma;" in html
+    assert "const forceAtlas2 =" in html
+    assert "typeof forceAtlas2.assign === \"function\"" in html
+    assert "Keep deterministic fallback positions" in html

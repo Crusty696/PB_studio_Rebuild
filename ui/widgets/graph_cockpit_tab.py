@@ -130,6 +130,7 @@ class GraphCockpitTab(QWidget):
 
         # Splitter: Graph-View links, Detail-Panel rechts
         splitter = QSplitter(Qt.Orientation.Horizontal)
+        self._splitter = splitter
 
         if self._engine_cls is not None:
             self.web_view = self._engine_cls()
@@ -166,6 +167,9 @@ class GraphCockpitTab(QWidget):
 
         splitter.setStretchFactor(0, 3)
         splitter.setStretchFactor(1, 1)
+        splitter.setCollapsible(0, False)
+        splitter.setCollapsible(1, False)
+        splitter.setSizes([900, 300])
         layout.addWidget(splitter)
 
     def _setup_webchannel(self) -> None:

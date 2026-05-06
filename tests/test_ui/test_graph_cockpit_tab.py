@@ -1,6 +1,8 @@
 """P1.5: Graph-Cockpit-Tab headless tests."""
 from __future__ import annotations
 
+import inspect
+
 import pytest
 
 PySide6 = pytest.importorskip("PySide6")
@@ -73,3 +75,10 @@ def test_set_view_model_refreshes(qapp):
     tab.set_view_model(new_vm)
     new_stats = tab.stats_label.text()
     assert new_stats != initial_stats
+
+
+def test_graph_view_splitter_does_not_collapse():
+    src = inspect.getsource(GraphCockpitTab._build_ui)
+    assert "self._splitter = splitter" in src
+    assert "splitter.setCollapsible(0, False)" in src
+    assert "splitter.setSizes([900, 300])" in src

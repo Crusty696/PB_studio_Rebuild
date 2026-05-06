@@ -89,8 +89,7 @@ _HTML_TEMPLATE = """<!doctype html>
            background: rgba(0,0,0,.6); padding: 6px 10px; border-radius: 4px; }}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/graphology@0.25.4/dist/graphology.umd.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/sigma@3.0.0-beta.18/build/sigma.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/graphology-layout-forceatlas2@0.10.1/build/graphology-layout-forceatlas2.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/sigma@3.0.0-beta.18/dist/sigma.min.js"></script>
 <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
 </head>
 <body>
@@ -109,11 +108,20 @@ _HTML_TEMPLATE = """<!doctype html>
       G.addEdge(e.source, e.target, {{ size: e.size }});
     }}
   }});
-  // ForceAtlas2 Layout
+  // Optional ForceAtlas2 Layout. The pinned npm package has no browser UMD
+  // bundle at the old /build path, so the graph must render without it.
   if (PAYLOAD.nodes.length > 0) {{
-    graphologyLayoutForceatlas2.assign(G, {{ iterations: 50, settings: {{ gravity: 1.0 }} }});
+    const forceAtlas2 =
+      window.graphologyLayoutForceatlas2 ||
+      window.graphologyLayoutForceAtlas2;
+    if (forceAtlas2 && typeof forceAtlas2.assign === "function") {{
+      forceAtlas2.assign(G, {{ iterations: 50, settings: {{ gravity: 1.0 }} }});
+    }} else {{
+      // Keep deterministic fallback positions without Qt data-url log spam.
+    }}
   }}
-  const renderer = new Sigma(G, document.getElementById('container'));
+  const SigmaRenderer = window.Sigma || window.sigma;
+  const renderer = new SigmaRenderer(G, document.getElementById('container'));
 
   // P0 #3: QWebChannel-Bridge — Klick auf Knoten ruft Python-Slot.
   // Wenn QtWebChannel nicht verfügbar (z.B. im normalen Browser oder
