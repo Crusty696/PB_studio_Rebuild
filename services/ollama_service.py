@@ -265,6 +265,10 @@ class OllamaService:
         self._is_ready = False
         return False
 
+    def _inference_timeout(self) -> httpx.Timeout:
+        """B-242: Inference darf Cold-Load nicht per Read-Timeout abbrechen."""
+        return httpx.Timeout(connect=10.0, read=None, write=None, pool=10.0)
+
     def _is_model_warm(self, model: str) -> bool:
         """B-242: Pruefe ob ``model`` aktuell in VRAM geladen ist (``/api/ps``).
 
@@ -379,16 +383,16 @@ class OllamaService:
             if model is None:
                 return "Fehler: Kein Ollama-Modell verfuegbar (Tipp: 'ollama pull gemma3:4b')"
 
-        # B-242: Cold-Load-Schutz. Wenn das Modell nicht in VRAM geladen ist,
-        # ruft chat() ensure_model() vorab — dort ist Read-Timeout offen,
-        # der HDD-Cold-Load (bis ~120 s) kann durchlaufen ohne dass
-        # der httpx-Client unten die Connection abbricht.
+        # B-242: Cold-Load-Schutz. ensure_model() prueft/pullt das Modell
+        # vorab. Der eigentliche Chat-Request nutzt danach offenen
+        # Read-Timeout, damit Ollama einen HDD-Cold-Load nicht als
+        # Client-Abbruch sieht.
         if not self._is_model_warm(model):
             logger.info("OllamaService.chat(): Modell '%s' nicht warm — ensure_model() vorab.", model)
             if not self.ensure_model(model):
                 return f"Fehler: Modell '{model}' konnte nicht geladen werden"
 
-        with httpx.Client(base_url=OLLAMA_BASE, timeout=120.0) as client:
+        with httpx.Client(base_url=OLLAMA_BASE, timeout=self._inference_timeout()) as client:
             try:
                 response = client.post("/api/chat", json={
                     "model": model,
@@ -418,8 +422,8 @@ class OllamaService:
 
         Prueft vor dem Request den Pause-Status des OllamaClient (K8-Fix),
         damit VRAM-Schutz nicht umgangen wird.
-        B-239: ``model=None`` -> Auto-Detect; Timeout 60s statt 15s
-        (Vision-Modelle brauchen Cold-Load).
+        B-239: ``model=None`` -> Auto-Detect.
+        B-242: offener Read-Timeout, weil Vision-Modelle Cold-Load brauchen.
         """
         # K8-Fix: Pause-Check — VRAM-Schutz respektieren
         from services.ollama_client import get_ollama_client
@@ -435,7 +439,7 @@ class OllamaService:
 
         # B-242: Cold-Load-Schutz analog zu chat(). Vision-Modelle (Moondream
         # etc.) sind oft kleiner, aber Cold-Load aus HDD-Cache kann ebenfalls
-        # > 60 s dauern. Vorab ensure_model() laeuft mit offenem Read-Timeout.
+        # > 60 s dauern. Der finale Request nutzt offenen Read-Timeout.
         if not self._is_model_warm(model):
             logger.info("OllamaService.vision(): Modell '%s' nicht warm — ensure_model() vorab.", model)
             if not self.ensure_model(model):
@@ -449,7 +453,7 @@ class OllamaService:
 
         images_b64 = [encode_image(p) for p in image_paths if os.path.exists(p)]
 
-        with httpx.Client(base_url=OLLAMA_BASE, timeout=60.0) as client:
+        with httpx.Client(base_url=OLLAMA_BASE, timeout=self._inference_timeout()) as client:
             try:
                 response = client.post("/api/chat", json={
                     "model": model,
