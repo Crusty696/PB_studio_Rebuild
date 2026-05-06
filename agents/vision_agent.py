@@ -60,12 +60,22 @@ class VisionAgent(BaseAgent):
     def _wants_content_analysis(self, text_lower: str) -> bool:
         """Erkennt ob KI-Inhaltsanalyse gewünscht ist (statt nur Metadaten)."""
         content_keywords = [
+            "was ist auf", "was ist in",
             "was passiert", "was ist zu sehen", "beschreibe", "describe",
             "inhalt", "content", "zeigt", "shows", "szene",
             "visuell", "visual", "ki analyse", "ai analy",
-            "was sieht man", "was zeigt",
+            "was sieht man", "was zeigt", "analysiere video", "analyze video",
+            "neu analys",
         ]
         return any(kw in text_lower for kw in content_keywords)
+
+    def _wants_new_content_analysis(self, text_lower: str) -> bool:
+        """True wenn der User explizit einen neuen Vision-Worker starten will."""
+        trigger_keywords = [
+            "analysiere", "analyze", "neu analys", "starte analyse",
+            "ki analyse", "ai analy", "vision-analyse", "moondream",
+        ]
+        return any(kw in text_lower for kw in trigger_keywords)
 
     def process(self, user_text: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
         from services.action_registry import action_registry
@@ -98,7 +108,9 @@ class VisionAgent(BaseAgent):
             clip_id = extract_id_from_text(user_text)
 
         if wants_content:
-            # KI-basierte Inhaltsanalyse mit Moondream2
+            # B-245: Natuerliche Lesefragen ("Was ist auf Video 1?")
+            # duerfen nicht blind einen asynchronen Worker starten. Erst
+            # bestehende DB-Szenen lesen; nur explizite Analyse startet Worker.
             if clip_id is not None or file_path is not None:
                 params = {}
                 if file_path:
@@ -106,9 +118,12 @@ class VisionAgent(BaseAgent):
                 elif clip_id is not None:
                     params["clip_id"] = clip_id
                 try:
-                    result["action"] = "analyze_video_content"
+                    if clip_id is not None and not self._wants_new_content_analysis(text_lower):
+                        result["action"] = "describe_video_clip"
+                    else:
+                        result["action"] = "analyze_video_content"
                     result["params"] = params
-                    result["result"] = action_registry.execute("analyze_video_content", params)
+                    result["result"] = action_registry.execute(result["action"], params)
                 except (KeyError, ValueError, RuntimeError, OSError) as e:
                     result["error"] = str(e)
             else:

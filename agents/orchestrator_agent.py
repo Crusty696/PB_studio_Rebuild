@@ -827,6 +827,13 @@ class OrchestratorAgent(BaseAgent):
                 logger.info("Erkannt: Einzel-Action via Compound-Map: %s", action_name)
                 return self._handle_compound_actions(compound_actions)
 
+            # B-246: Cross-Modal-Fragen ("Welche Clips passen zum Drop von Track 1?")
+            # muessen vor AudioAgent/PacingAgent abgefangen werden. Sonst gewinnt
+            # oft AudioAgent wegen "Track" + "Drop" und startet analyze_audio.
+            cross_modal = self._handle_cross_modal_clip_match(user_text)
+            if cross_modal is not None:
+                return cross_modal
+
             # 3. Spezialisierter Agent
             agent = self._route_to_agent(user_text)
             if agent is not None:
@@ -898,4 +905,42 @@ class OrchestratorAgent(BaseAgent):
                 "result": None,
                 "message": f"Ein Fehler ist im Orchestrator aufgetreten: {str(e)[:200]}",
                 "error": error_msg,
+        }
+
+    def _handle_cross_modal_clip_match(self, user_text: str) -> dict[str, Any] | None:
+        """B-246: Route Audio-Segment+Video-Match-Fragen direkt zum Read/Search-Tool."""
+        from agents.pacing_agent import PacingAgent
+        from services.action_registry import action_registry
+
+        text_lower = user_text.lower()
+        if not PacingAgent._wants_cross_modal_clip_match(text_lower):
+            return None
+
+        params: dict[str, Any] = {
+            "segment_label": PacingAgent._segment_label_from_text(text_lower),
+            "top_n": 5,
+            "max_segments": 10,
+        }
+        track_id = self._extract_id_from_text(user_text)
+        if track_id is not None:
+            params["track_id"] = track_id
+
+        try:
+            result = action_registry.execute("match_clips_to_segment", params)
+            return {
+                "agent": self.name,
+                "action": "match_clips_to_segment",
+                "params": params,
+                "result": result,
+                "message": result.get("message") if isinstance(result, dict) else None,
+                "error": None,
+            }
+        except (KeyError, ValueError, RuntimeError, OSError) as e:
+            return {
+                "agent": self.name,
+                "action": "match_clips_to_segment",
+                "params": params,
+                "result": None,
+                "message": None,
+                "error": str(e),
             }

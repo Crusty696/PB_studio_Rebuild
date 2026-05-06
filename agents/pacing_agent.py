@@ -197,21 +197,92 @@ class PacingAgent(BaseAgent):
         ]):
             return self._handle_drum_cuts(user_text, ctx)
 
-        # --- 3. Drop-Analyse ---
+        # --- 3. Cross-Modal-Matching: Audio-Strukturpunkt -> passende Clips ---
+        if self._wants_cross_modal_clip_match(text_lower):
+            return self._handle_cross_modal_clip_match(user_text, ctx)
+
+        # --- 4. Drop-Analyse ---
         if any(kw in text_lower for kw in [
             "drop", "bass drop", "bass-drop", "drops finden",
             "drop erkennung", "drop detection",
         ]):
             return self._handle_drop_analysis(user_text, ctx)
 
-        # --- 4. Informationsanfragen ---
+        # --- 5. Informationsanfragen ---
         if any(kw in text_lower for kw in [
             "keyframe", "szenen", "motion", "video info",
         ]):
             return self._handle_info_query(user_text, ctx)
 
-        # --- 5. Pacing-Einstellungen erklären ---
+        # --- 6. Pacing-Einstellungen erklären ---
         result["message"] = self._explain_pacing(text_lower)
+        return result
+
+    @staticmethod
+    def _wants_cross_modal_clip_match(text_lower: str) -> bool:
+        has_visual_target = any(
+            kw in text_lower
+            for kw in ["clip", "clips", "video", "videos", "visuell", "visual"]
+        )
+        has_audio_segment = any(
+            kw in text_lower
+            for kw in ["drop", "breakdown", "buildup", "build-up", "intro", "outro"]
+        )
+        has_match_intent = any(
+            kw in text_lower
+            for kw in ["passt", "passen", "match", "vorschlag", "vorschlaege", "finde"]
+        )
+        return has_visual_target and has_audio_segment and has_match_intent
+
+    @staticmethod
+    def _segment_label_from_text(text_lower: str) -> str:
+        if "breakdown" in text_lower:
+            return "BREAKDOWN"
+        if "buildup" in text_lower or "build-up" in text_lower:
+            return "BUILDUP"
+        if "intro" in text_lower:
+            return "INTRO"
+        if "outro" in text_lower:
+            return "OUTRO"
+        return "DROP"
+
+    def _handle_cross_modal_clip_match(
+        self, user_text: str, ctx: dict[str, Any],
+    ) -> dict[str, Any]:
+        """B-246: Route Clip/Video+Segment-Fragen zum Cross-Modal-Tool."""
+        from services.action_registry import action_registry
+
+        result = {
+            "agent": self.name,
+            "action": "match_clips_to_segment",
+            "params": {},
+            "result": None,
+            "message": None,
+            "error": None,
+        }
+
+        text_lower = user_text.lower()
+        track_id = ctx.get("audio_track_id") or ctx.get("track_id") or ctx.get("extracted_id")
+        if track_id is None:
+            track_id = extract_id_from_text(user_text)
+
+        params = {
+            "track_id": track_id,
+            "segment_label": self._segment_label_from_text(text_lower),
+            "top_n": 5,
+            "max_segments": 10,
+        }
+        if params["track_id"] is None:
+            params.pop("track_id")
+
+        try:
+            result["params"] = params
+            result["result"] = action_registry.execute("match_clips_to_segment", params)
+            if isinstance(result["result"], dict):
+                result["message"] = result["result"].get("message")
+        except (KeyError, ImportError, ValueError, RuntimeError, OSError) as e:
+            result["error"] = f"Cross-Modal-Matching fehlgeschlagen: {e}"
+
         return result
 
     def _handle_auto_edit(

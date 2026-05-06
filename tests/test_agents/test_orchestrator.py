@@ -292,6 +292,29 @@ class TestOrchestratorProcess:
         orch = self._make_orchestrator()
         assert orch.can_handle("irgendwas") == 1.0
 
+    def test_cross_modal_drop_clip_query_routes_before_audio_agent(self):
+        """B-246: Track+Drop+Clip-Frage darf nicht als analyze_audio enden."""
+        orch = OrchestratorAgent()
+
+        fake_registry = MagicMock()
+        fake_registry.execute.return_value = {"status": "ok", "message": "matches"}
+
+        with patch("services.action_registry.action_registry", fake_registry):
+            result = orch.process("Welche Clips passen zum Drop von Track 1?")
+
+        assert result["agent"] == "orchestrator"
+        assert result["action"] == "match_clips_to_segment"
+        assert result["params"] == {
+            "segment_label": "DROP",
+            "top_n": 5,
+            "max_segments": 10,
+            "track_id": 1,
+        }
+        fake_registry.execute.assert_called_once_with(
+            "match_clips_to_segment",
+            result["params"],
+        )
+
 
 class TestToolUseLoop:
     def test_single_read_tool_returns_tool_message_without_llm_rewrite(self):
