@@ -36,3 +36,25 @@ def test_start_polls_for_readiness_after_spawn() -> None:
         "_is_port_open() poll loop so callers can rely on is_ready "
         "being True after start() returns successfully."
     )
+
+
+def test_start_does_not_mark_ready_when_only_port_is_open(monkeypatch) -> None:
+    """B-240 regression: TCP-listening is not API-ready."""
+    svc = ollama_service.OllamaService()
+    waited = False
+
+    monkeypatch.setattr(svc, "_is_api_ready", lambda: False)
+    monkeypatch.setattr(svc, "_is_port_open", lambda port=11434: True)
+
+    def fake_wait_for_api_ready(timeout_s: float, interval_s: float) -> bool:
+        nonlocal waited
+        waited = True
+        svc._is_ready = False
+        return False
+
+    monkeypatch.setattr(svc, "_wait_for_api_ready", fake_wait_for_api_ready)
+
+    svc.start()
+
+    assert waited
+    assert svc.ready_cached() is False

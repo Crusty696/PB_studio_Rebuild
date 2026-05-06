@@ -166,9 +166,13 @@ class OllamaService:
 
     def start(self) -> None:
         """Ollama als versteckter Subprocess starten (no-op falls schon läuft)."""
-        if self._is_port_open():
-            logger.info('Ollama: bereits aktiv auf Port 11434')
+        if self._is_api_ready():
+            logger.info("Ollama: API bereits aktiv auf Port 11434")
             self._is_ready = True
+            return
+        if self._is_port_open(port=11434):
+            logger.info("Ollama: Port 11434 offen, warte auf HTTP-API...")
+            self._wait_for_api_ready(timeout_s=60.0, interval_s=0.5)
             return
 
         ollama_bin = _find_ollama_bin()
@@ -200,19 +204,7 @@ class OllamaService:
             # tatsaechlich Requests bedient. Frueher pollte das nur
             # ``_is_port_open()`` (3 s) — false-positive wenn Subprocess
             # Port oeffnet bevor er HTTP-Requests akzeptiert.
-            import time as _time
-            deadline = _time.monotonic() + 60.0
-            while _time.monotonic() < deadline:
-                if self._is_api_ready():
-                    self._is_ready = True
-                    logger.info("Ollama: API ready nach %.2fs", 60.0 - (deadline - _time.monotonic()))
-                    break
-                _time.sleep(0.5)
-            else:
-                logger.warning(
-                    "Ollama: API nach 60s noch nicht ready — "
-                    "is_ready bleibt False, Caller kann re-poll'en."
-                )
+            self._wait_for_api_ready(timeout_s=60.0, interval_s=0.5)
         except Exception as e:
             logger.error("Fehler beim Starten von Ollama: %s", e)
 
@@ -250,6 +242,28 @@ class OllamaService:
                 return client.get("/api/version").status_code == 200
         except (httpx.RequestError, httpx.TimeoutException):
             return False
+
+    def _wait_for_api_ready(self, timeout_s: float, interval_s: float) -> bool:
+        """Warte begrenzt auf echte Ollama-HTTP-Readiness."""
+        import time as _time
+
+        deadline = _time.monotonic() + timeout_s
+        while _time.monotonic() < deadline:
+            if self._is_api_ready():
+                self._is_ready = True
+                logger.info(
+                    "Ollama: API ready nach %.2fs",
+                    timeout_s - (deadline - _time.monotonic()),
+                )
+                return True
+            _time.sleep(interval_s)
+        logger.warning(
+            "Ollama: API nach %.0fs noch nicht ready - "
+            "is_ready bleibt False, Caller kann re-poll'en.",
+            timeout_s,
+        )
+        self._is_ready = False
+        return False
 
     def _is_model_warm(self, model: str) -> bool:
         """B-242: Pruefe ob ``model`` aktuell in VRAM geladen ist (``/api/ps``).
