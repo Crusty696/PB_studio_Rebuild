@@ -56,6 +56,13 @@ _BRAIN_SAFE_TOOLS: tuple[str, ...] = (
     "list_actions",
 )
 
+_DIRECT_READ_TOOL_MESSAGES: frozenset[str] = frozenset({
+    "summarize_project",
+    "describe_audio_track",
+    "describe_video_clip",
+    "describe_set_overview",
+})
+
 # B-243: Tool-Use-aware System-Prompt. Im Tool-Loop ersetzt dieser
 # den generischen _GENERAL_SYSTEM_PROMPT — der LLM weiss damit
 # welche Tools er rufen soll und dass er KEINE Zahlen halluzinieren darf.
@@ -551,6 +558,7 @@ class OrchestratorAgent(BaseAgent):
                 "content": "",
                 "tool_calls": tool_calls,
             })
+            direct_message: str | None = None
             for tc in tool_calls:
                 fn = tc.get("function", {})
                 tool_name = fn.get("name", "")
@@ -570,6 +578,14 @@ class OrchestratorAgent(BaseAgent):
                     try:
                         logger.info("Tool-Use-Loop: execute tool=%s, args=%s", tool_name, tool_args)
                         tool_result = action_registry.execute(tool_name, tool_args)
+                        if (
+                            len(tool_calls) == 1
+                            and tool_name in _DIRECT_READ_TOOL_MESSAGES
+                            and isinstance(tool_result, dict)
+                            and tool_result.get("status") == "ok"
+                            and tool_result.get("message")
+                        ):
+                            direct_message = str(tool_result["message"])
                         tool_content = json.dumps(
                             tool_result, default=str, ensure_ascii=False
                         )
@@ -588,6 +604,13 @@ class OrchestratorAgent(BaseAgent):
                     "role": "tool",
                     "content": tool_content,
                 })
+
+            if direct_message:
+                logger.info(
+                    "Tool-Use-Loop: direkte Tool-Antwort ohne LLM-Rewrite (%d chars).",
+                    len(direct_message),
+                )
+                return direct_message
 
         logger.warning("Tool-Use-Loop: Max-Iterationen (%d) erreicht ohne Final-Text.", max_iters)
         return None

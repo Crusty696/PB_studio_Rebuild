@@ -291,3 +291,58 @@ class TestOrchestratorProcess:
         """can_handle() gibt immer 1.0 zurueck (Orchestrator ist fuer alles zustaendig)."""
         orch = self._make_orchestrator()
         assert orch.can_handle("irgendwas") == 1.0
+
+
+class TestToolUseLoop:
+    def test_single_read_tool_returns_tool_message_without_llm_rewrite(self):
+        """B-243: Read-Tool-Fakten duerfen nicht durch LLM-Rewrite halluziniert werden."""
+        orch = OrchestratorAgent.__new__(OrchestratorAgent)
+        orch.name = "orchestrator"
+
+        fake_svc = MagicMock()
+        fake_svc.is_ready = True
+        fake_svc.get_default_model.return_value = "qwen2.5:7b"
+
+        fake_oc = MagicMock()
+        fake_oc.supports_tools.return_value = True
+        fake_oc.chat_with_tools.side_effect = [
+            {
+                "type": "tool_calls",
+                "tool_calls": [
+                    {"function": {"name": "summarize_project", "arguments": {}}}
+                ],
+                "content": "",
+            },
+            {
+                "type": "text",
+                "tool_calls": [],
+                "content": "Halluzinierte zweite Zusammenfassung",
+            },
+        ]
+
+        tool_message = "Projekt: 8 Audio-Tracks, 34 Video-Clips, 34 Szenen."
+        fake_registry = MagicMock()
+        fake_registry.build_tool_definitions.return_value = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "summarize_project",
+                    "description": "Projektstatus",
+                    "parameters": {"type": "object", "properties": {}},
+                },
+            }
+        ]
+        fake_registry.execute.side_effect = [
+            {"status": "ok", "action": "summarize_project", "message": "Kontext"},
+            {"status": "ok", "action": "summarize_project", "message": tool_message},
+        ]
+
+        with patch("agents.orchestrator_agent.OllamaService.get", return_value=fake_svc), \
+             patch("services.ollama_client.get_ollama_client", return_value=fake_oc), \
+             patch("services.action_registry.action_registry", fake_registry):
+            result = orch._chat_with_tools_loop(
+                "Erstelle mir eine faktenbasierte Bestandsliste aus der Datenbank.",
+            )
+
+        assert result == tool_message
+        assert fake_oc.chat_with_tools.call_count == 1
