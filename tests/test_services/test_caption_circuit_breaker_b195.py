@@ -83,6 +83,14 @@ def test_caption_loop_treats_fehler_string_as_failure() -> None:
     )
 
 
+def test_caption_loop_retries_moondream_empty_json_response() -> None:
+    """B-249: Moondream may return an empty string when forced to emit JSON."""
+    src = inspect.getsource(vas.analyze_scene_with_caption)
+    assert "_CAPTION_PLAIN_TEXT_FALLBACK_PROMPT" in src
+    assert 'startswith("moondream")' in src
+    assert "not raw.strip()" in src
+
+
 # ---------------------------------------------------------------------------
 # SettingsDialog: Modell-Validierung vor Save
 # ---------------------------------------------------------------------------

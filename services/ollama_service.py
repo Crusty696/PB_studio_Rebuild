@@ -466,7 +466,24 @@ class OllamaService:
                     "options": {"num_predict": num_predict},
                 })
                 if response.status_code == 200:
-                    return response.json().get("message", {}).get("content", "")
+                    content = response.json().get("message", {}).get("content", "")
+                    if content:
+                        return content
+                    logger.info(
+                        "OllamaService.vision(): /api/chat returned empty content "
+                        "for '%s' — retrying via /api/generate.",
+                        model,
+                    )
+                    generate_response = client.post("/api/generate", json={
+                        "model": model,
+                        "prompt": prompt,
+                        "images": images_b64,
+                        "stream": False,
+                        "options": {"num_predict": num_predict},
+                    })
+                    if generate_response.status_code == 200:
+                        return generate_response.json().get("response", "")
+                    return f"Fehler: {generate_response.status_code}"
                 return f"Fehler: {response.status_code}"
             except Exception as e:
                 logger.error("Ollama Vision Fehler: %s", e)

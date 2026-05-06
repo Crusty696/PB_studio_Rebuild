@@ -654,6 +654,7 @@ Example:
 """
 
 _CAPTION_USER_PROMPT = "Describe this scene as JSON. Reply with the JSON object only."
+_CAPTION_PLAIN_TEXT_FALLBACK_PROMPT = "Describe this scene in one short sentence."
 
 
 def _encode_keyframe_base64(image_path: str) -> str | None:
@@ -738,6 +739,17 @@ def analyze_scene_with_caption(
                 prompt=_CAPTION_USER_PROMPT,
                 model=vision_model
             )
+            if not raw.strip() and vision_model.lower().startswith("moondream"):
+                logger.info(
+                    "[CAPTION] Szene %d: Moondream lieferte leere JSON-Antwort — "
+                    "retry mit Plain-Text-Prompt.",
+                    scene.index,
+                )
+                raw = svc.vision(
+                    image_paths=[scene.keyframe_path],
+                    prompt=_CAPTION_PLAIN_TEXT_FALLBACK_PROMPT,
+                    model=vision_model,
+                )
 
             # B-195: ``OllamaService.vision()`` returnt bei HTTP-Error
             # einen ``"Fehler: <code>"``-String statt zu raisen. Wir
@@ -1053,6 +1065,74 @@ def search_videos_by_text(
 # Vollständige Pipeline (alle 3 Schritte)
 # ======================================================================
 
+def _run_structure_enrichment(video_clip_id: int) -> None:
+    """Best-effort Studio-Brain enrichment after scene storage."""
+    try:
+        from workers.structure_enrichment import StructureEnrichmentWorker
+
+        enrichment_worker = StructureEnrichmentWorker(clip_id=video_clip_id)
+        enrichment_result = enrichment_worker.run()
+        if "error" in enrichment_result:
+            logger.warning(
+                "[PIPELINE] structure_enrichment failed for clip %d: %s",
+                video_clip_id, enrichment_result["error"],
+            )
+        else:
+            logger.info(
+                "[PIPELINE] structure_enrichment done for clip %d (mode=%s, scenes=%d)",
+                video_clip_id,
+                enrichment_result.get("mode", "?"),
+                enrichment_result.get("scenes_enriched", 0),
+            )
+    except Exception as enrichment_exc:
+        logger.warning(
+            "[PIPELINE] structure_enrichment raised unexpectedly for clip %d: %s",
+            video_clip_id, enrichment_exc,
+        )
+
+
+def run_deferred_captioning(
+    video_clip_id: int,
+    scenes: list[SceneInfo],
+    progress_cb: Callable[[int, str], None] | None = None,
+    should_stop: Callable[[], bool] | None = None,
+) -> list[SceneInfo]:
+    """Run Ollama/Gemma captioning after batch GPU models were unloaded."""
+    analysis_status_service.mark_started("video", video_clip_id, "ai_scene_caption")
+    try:
+        logger.info("[PIPELINE] Deferred Gemma Vision Captioning fuer Clip %d...", video_clip_id)
+        if progress_cb:
+            progress_cb(85, "Gemma Vision Captioning...")
+        if should_stop and should_stop():
+            analysis_status_service.mark_error("video", video_clip_id, "ai_scene_caption", "cancelled")
+            return scenes
+
+        scenes = analyze_scene_with_caption(scenes)
+        captioned_count = sum(1 for s in scenes if hasattr(s, 'ai_caption') and s.ai_caption)
+        analysis_status_service.mark_done("video", video_clip_id, "ai_scene_caption", {
+            "captioned_scenes": captioned_count,
+        })
+    except Exception as e:
+        analysis_status_service.mark_error("video", video_clip_id, "ai_scene_caption", str(e))
+        raise
+
+    analysis_status_service.mark_started("video", video_clip_id, "scene_db_storage")
+    try:
+        if progress_cb:
+            progress_cb(93, "Szenen-Captions in DB speichern...")
+        store_scenes_in_db(video_clip_id, scenes)
+        analysis_status_service.mark_done("video", video_clip_id, "scene_db_storage", {
+            "scenes": len(scenes),
+            "captions_updated": True,
+        })
+    except Exception as e:
+        analysis_status_service.mark_error("video", video_clip_id, "scene_db_storage", str(e))
+        raise
+
+    _run_structure_enrichment(video_clip_id)
+    return scenes
+
+
 def run_full_pipeline(
     video_path: str,
     video_clip_id: int,
@@ -1061,6 +1141,7 @@ def run_full_pipeline(
     should_stop: Callable[[], bool] | None = None,
     siglip_model_processor: tuple | None = None,
     raft_model_device: tuple | None = None,
+    defer_captioning: bool = False,
 ) -> PipelineResult:
     """Führt die komplette 3-Schritt Video-Analyse-Pipeline aus.
 
@@ -1203,26 +1284,31 @@ def run_full_pipeline(
         raise
 
     # Schritt 4: Gemma Vision Captioning
-    analysis_status_service.mark_started("video", video_clip_id, "ai_scene_caption")
-    try:
-        logger.info("[PIPELINE] Schritt 6/7: Gemma Vision Captioning...")
-        if progress_cb:
-            progress_cb(85, "Gemma Vision Captioning...")
-        if should_stop and should_stop():
-            analysis_status_service.mark_error(  # B-147
-                "video", video_clip_id, "ai_scene_caption", "cancelled"
-            )
-            return result
+    if defer_captioning:
+        logger.info(
+            "[PIPELINE] Schritt 6/7: Gemma Vision Captioning deferred bis nach GPU-Batch-Cleanup"
+        )
+    else:
+        analysis_status_service.mark_started("video", video_clip_id, "ai_scene_caption")
+        try:
+            logger.info("[PIPELINE] Schritt 6/7: Gemma Vision Captioning...")
+            if progress_cb:
+                progress_cb(85, "Gemma Vision Captioning...")
+            if should_stop and should_stop():
+                analysis_status_service.mark_error(  # B-147
+                    "video", video_clip_id, "ai_scene_caption", "cancelled"
+                )
+                return result
 
-        scenes = analyze_scene_with_caption(scenes)
-        logger.info("[PIPELINE] Vision-Captioning FERTIG")
-        captioned_count = sum(1 for s in scenes if hasattr(s, 'ai_caption') and s.ai_caption)
-        analysis_status_service.mark_done("video", video_clip_id, "ai_scene_caption", {
-            "captioned_scenes": captioned_count,
-        })
-    except Exception as e:
-        analysis_status_service.mark_error("video", video_clip_id, "ai_scene_caption", str(e))
-        raise
+            scenes = analyze_scene_with_caption(scenes)
+            logger.info("[PIPELINE] Vision-Captioning FERTIG")
+            captioned_count = sum(1 for s in scenes if hasattr(s, 'ai_caption') and s.ai_caption)
+            analysis_status_service.mark_done("video", video_clip_id, "ai_scene_caption", {
+                "captioned_scenes": captioned_count,
+            })
+        except Exception as e:
+            analysis_status_service.mark_error("video", video_clip_id, "ai_scene_caption", str(e))
+            raise
 
     # Szenen in SQLite speichern
     analysis_status_service.mark_started("video", video_clip_id, "scene_db_storage")
@@ -1240,33 +1326,8 @@ def run_full_pipeline(
         analysis_status_service.mark_error("video", video_clip_id, "scene_db_storage", str(e))
         raise
 
-    # Studio Brain: structure enrichment after scene storage (T4.2 hookup).
-    # Enrichment (Role/Mood/StyleBucket/CompatGraph) is CPU-only, idempotent per clip,
-    # and should never block the analysis pipeline — any failure is logged and swallowed
-    # so the scene data remains available for manual re-enrichment later.
-    try:
-        from workers.structure_enrichment import StructureEnrichmentWorker
-
-        enrichment_worker = StructureEnrichmentWorker(clip_id=video_clip_id)
-        enrichment_result = enrichment_worker.run()
-        if "error" in enrichment_result:
-            logger.warning(
-                "[PIPELINE] structure_enrichment failed for clip %d: %s",
-                video_clip_id, enrichment_result["error"],
-            )
-        else:
-            logger.info(
-                "[PIPELINE] structure_enrichment done for clip %d (mode=%s, scenes=%d)",
-                video_clip_id,
-                enrichment_result.get("mode", "?"),
-                enrichment_result.get("scenes_enriched", 0),
-            )
-    except Exception as enrichment_exc:
-        # Enrichment is best-effort — never let it fail the main pipeline.
-        logger.warning(
-            "[PIPELINE] structure_enrichment raised unexpectedly for clip %d: %s",
-            video_clip_id, enrichment_exc,
-        )
+    if not defer_captioning:
+        _run_structure_enrichment(video_clip_id)
 
     # VRAM-Schutz: GPU-Speicher nach Pipeline freigeben
     # Im Batch-Modus (siglip_model_processor/raft_model_device uebergeben) KEIN
