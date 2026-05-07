@@ -154,9 +154,13 @@ def _reset_tmp_db():
 def _ensure_tmp_engine_active():
     _db_session.APP_ROOT = TMP_DIR
     _db_pkg.APP_ROOT = TMP_DIR
+    _db_pkg.engine = _db_session.engine
     current = object.__getattribute__(_db_session.engine, "_engine")
     if current is not _tmp_engine:
         _db_session.engine.swap(_tmp_engine)
+    video_service_mod = sys.modules.get("services.video_service")
+    if video_service_mod is not None:
+        video_service_mod.engine = _db_session.engine
 
 
 _tmp_engine = _make_tmp_engine()
@@ -269,6 +273,7 @@ def test_create_proxy():
 # TEST 3: VideoAnalyzer.analyze_and_store()
 # ===================================================================
 def test_analyze_and_store():
+    _ensure_tmp_engine_active()
     from services.video_service import VideoAnalyzer
 
     va = VideoAnalyzer()
