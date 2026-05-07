@@ -147,6 +147,19 @@ class TimelineClipItem(QGraphicsRectItem):
 
         self._track_y = y
         self._anchor_markers: list[AnchorMarkerItem] = []
+        self._brain_v3_feedback_service = None
+        self._brain_v3_feedback_context = None
+        self._brain_v3_timeline_meta = {}
+        self._brain_v3_feedback_enabled = True
+        self._brain_v3_cut_id: int | None = None
+        self._brain_v3_confidence: float | None = None
+        self._brain_v3_confidence_bar = QGraphicsRectItem(
+            QRectF(0, 0, width, 3), self
+        )
+        self._brain_v3_confidence_bar.setPen(QPen(Qt.PenStyle.NoPen))
+        self._brain_v3_confidence_bar.setBrush(QBrush(QColor(255, 0, 48, 220)))
+        self._brain_v3_confidence_bar.setZValue(12)
+        self._brain_v3_confidence_bar.setVisible(False)
         # B-211: ALLE Anker-time_offsets (auch unsichtbare durch Trim) hier
         # halten. _anchor_markers enthaelt nur sichtbare; get_first_anchor_time
         # darf aber nicht von Trim-Sichtbarkeit abhaengen, sonst ergibt es
@@ -255,7 +268,68 @@ class TimelineClipItem(QGraphicsRectItem):
         info_action = menu.addAction(f"Clip: {self.track_type} | ID: {self.media_id}")
         info_action.setEnabled(False)
 
+        if self._brain_v3_feedback_enabled:
+            menu.addSeparator()
+            brain_action = menu.addAction("Brain V3: Cut bewerten")
+            brain_action.triggered.connect(self._open_brain_v3_feedback_popup)
+
         menu.exec(event.screenPos())
+
+    def set_brain_v3_feedback(self, service=None, context=None, enabled: bool = True) -> None:
+        """Verdrahtet Brain-V3-Feedback fuer diesen Timeline-Clip."""
+        self._brain_v3_feedback_service = service
+        self._brain_v3_feedback_context = context
+        self._brain_v3_feedback_enabled = bool(enabled)
+
+    def set_brain_v3_cut_id(self, cut_id: int | None) -> None:
+        self._brain_v3_cut_id = int(cut_id) if cut_id is not None else None
+
+    def _brain_v3_feedback_cut_id(self) -> int:
+        return int(self._brain_v3_cut_id if self._brain_v3_cut_id is not None else self.entry_id)
+
+    def _get_brain_v3_feedback_service(self):
+        if self._brain_v3_feedback_service is None:
+            from services.brain_v3.brain_v3_service import BrainV3Service
+
+            self._brain_v3_feedback_service = BrainV3Service()
+        return self._brain_v3_feedback_service
+
+    def _submit_brain_v3_feedback(self, rating: str) -> int:
+        from services.brain_v3.schemas.brain_v3_schemas import FeedbackRequest
+
+        svc = self._get_brain_v3_feedback_service()
+        resp = svc.feedback(
+            FeedbackRequest(cut_id=self._brain_v3_feedback_cut_id(), rating=rating),
+            context=self._brain_v3_feedback_context,
+        )
+        return int(getattr(resp, "n_buckets_updated", 0))
+
+    def _open_brain_v3_feedback_popup(self) -> None:
+        from ui.widgets.brain_v3_feedback_popup import BrainV3FeedbackPopup
+
+        popup = BrainV3FeedbackPopup(
+            cut_id=self._brain_v3_feedback_cut_id(),
+            service=self._get_brain_v3_feedback_service(),
+            context=self._brain_v3_feedback_context,
+            cut_label=f"{self.title} | Timeline #{self.entry_id}",
+        )
+        popup.exec()
+
+    def set_brain_v3_confidence(self, confidence: float | None) -> None:
+        if confidence is None:
+            self._brain_v3_confidence = None
+            self._brain_v3_confidence_bar.setVisible(False)
+            return
+        c = max(0.0, min(1.0, float(confidence)))
+        self._brain_v3_confidence = c
+        from ui.widgets.brain_v3_feedback_popup import confidence_color_hex
+
+        self._brain_v3_confidence_bar.setBrush(QBrush(QColor(confidence_color_hex(c))))
+        self._resize_brain_v3_confidence_bar()
+        self._brain_v3_confidence_bar.setVisible(True)
+
+    def _resize_brain_v3_confidence_bar(self) -> None:
+        self._brain_v3_confidence_bar.setRect(QRectF(0, 0, self._clip_width, 3))
 
     def _detect_trim_edge(self, local_x: float) -> str | None:
         """Erkennt ob die Maus ueber einem Trim-Handle ist."""
@@ -310,6 +384,7 @@ class TimelineClipItem(QGraphicsRectItem):
                 self.setRect(QRectF(0, 0, new_width, self._clip_height))
                 self._clip_width = new_width
                 self._right_handle.setRect(QRectF(new_width - 3, 0, 3, self._clip_height))
+                self._resize_brain_v3_confidence_bar()
             elif self._trim_mode == "left":
                 max_delta = self._trim_start_width - min_width
                 clamped = max(-self._trim_start_pos_x, min(delta_x, max_delta))
@@ -318,6 +393,7 @@ class TimelineClipItem(QGraphicsRectItem):
                 self.setRect(QRectF(0, 0, new_width, self._clip_height))
                 self._clip_width = new_width
                 self.setPos(new_x, self._track_y)
+                self._resize_brain_v3_confidence_bar()
             event.accept()
             return
         super().mouseMoveEvent(event)
@@ -372,6 +448,7 @@ class TimelineClipItem(QGraphicsRectItem):
 class InteractiveTimeline(QGraphicsView):
     clip_moved = Signal(int, float)
     selection_changed = Signal(list)  # emits list of dicts with clip data
+    _BUILD_BATCH_SIZE = 25
 
     # T8.1: Feedback shortcut signal — emits event_id after a successful DB write.
     # B-197 F-3: ``_notify_memory_updater`` ruft jetzt direkt
@@ -452,6 +529,7 @@ class InteractiveTimeline(QGraphicsView):
         self._total_duration: float = 0.0
         self._anchor_map: dict[int, list] = {}  # entry_id -> list[ClipAnchor]
         self._track_bg_items: list[QGraphicsRectItem] = []
+        self._pending_entry_build: dict | None = None
 
         # Beat Grid Overlay + Section Colors (AUD-70)
         self._section_items: list = []        # Section color backgrounds
@@ -485,6 +563,8 @@ class InteractiveTimeline(QGraphicsView):
         self._feedback_service: FeedbackService = FeedbackService(
             session_factory=nullpool_session
         )
+        self._brain_v3_feedback_service = None
+        self._brain_v3_feedback_context = None
 
         # Selection changed → inspector
         self._scene.selectionChanged.connect(self._on_selection_changed)
@@ -526,6 +606,7 @@ class InteractiveTimeline(QGraphicsView):
 
     def _cancel_pending_db_load(self):
         """M3-FIX: Laufenden DB-Worker canceln/disconnecten bevor ein neuer gestartet wird."""
+        self._cancel_pending_entry_build()
         if hasattr(self, '_db_worker') and self._db_worker is not None:
             try:
                 self._db_worker.finished.disconnect(self._on_db_load_finished)
@@ -573,7 +654,7 @@ class InteractiveTimeline(QGraphicsView):
         from PySide6.QtCore import QObject, Signal, QThread
         
         class TimelineDBWorker(QObject):
-            finished = Signal(list, dict, dict, dict)  # entries, audio_map, video_map, anchor_map
+            finished = Signal(list, dict, dict, dict, dict)  # entries, audio_map, video_map, anchor_map, brain_meta
             
             def __init__(self, pid):
                 super().__init__(None) # Parent explizit None für moveToThread
@@ -611,10 +692,21 @@ class InteractiveTimeline(QGraphicsView):
                             
                         # Objekte vom Session-State lösen für sichere Übergabe an Main-Thread
                         session.expunge_all()
-                        self.finished.emit(entries, _audio_map, _video_map, _anchor_map)
+                        try:
+                            from services.brain_v3.timeline_state import (
+                                load_current_timeline_metadata,
+                                sync_current_timeline_from_entries,
+                            )
+                            sync_current_timeline_from_entries(None, entries)
+                            _brain_meta = load_current_timeline_metadata()
+                        except Exception as brain_exc:
+                            logger.debug("Brain V3 Timeline-Metadata nicht geladen: %s", brain_exc)
+                            _brain_meta = {}
+
+                        self.finished.emit(entries, _audio_map, _video_map, _anchor_map, _brain_meta)
                 except Exception as e:
                     logger.error("TimelineDBWorker Fehler: %s", e)
-                    self.finished.emit([], {}, {}, {})
+                    self.finished.emit([], {}, {}, {}, {})
 
         self._db_worker = TimelineDBWorker(project_id)
         self._db_thread = QThread(self)
@@ -631,7 +723,7 @@ class InteractiveTimeline(QGraphicsView):
         
         self._db_thread.start()
 
-    def _on_db_load_finished(self, entries, audio_map, video_map, anchor_map):
+    def _on_db_load_finished(self, entries, audio_map, video_map, anchor_map, brain_meta=None):
         """Wird aufgerufen, sobald die Daten vom Hintergrund-Thread geladen wurden.
 
         P8-E-FIX: Viewport-Updates waehrend des Aufbaus von 101+ Items
@@ -639,67 +731,132 @@ class InteractiveTimeline(QGraphicsView):
         paint, die Summe blockiert den Main-Thread spuerbar.
         """
         self._anchor_map = anchor_map
+        self._brain_v3_timeline_meta = brain_meta or {}
+        self._start_batched_entry_build(entries, audio_map, video_map, anchor_map)
+
+    def _cancel_pending_entry_build(self) -> None:
+        """Stoppt einen laufenden inkrementellen Scene-Aufbau."""
+        if self._pending_entry_build is not None:
+            self._pending_entry_build = None
+            try:
+                self.viewport().setUpdatesEnabled(True)
+            except RuntimeError:
+                pass
+
+    def _start_batched_entry_build(self, entries, audio_map, video_map, anchor_map) -> None:
+        """B-275: baut Timeline-Items in kleinen GUI-Thread-Chunks."""
+        self._cancel_pending_entry_build()
         vp = self.viewport()
         vp.setUpdatesEnabled(False)
-        try:
-            self._build_entries(entries, audio_map, video_map, anchor_map)
-        finally:
-            vp.setUpdatesEnabled(True)
-            vp.update()
+        self._pending_entry_build = {
+            "entries": list(entries),
+            "audio_map": audio_map,
+            "video_map": video_map,
+            "anchor_map": anchor_map,
+            "index": 0,
+            "max_end": 0.0,
+        }
+        QTimer.singleShot(0, self._build_entry_batch)
+
+    def _build_entry_batch(self) -> None:
+        state = self._pending_entry_build
+        if state is None:
+            return
+
+        entries = state["entries"]
+        start = state["index"]
+        end = min(start + self._BUILD_BATCH_SIZE, len(entries))
+        for entry in entries[start:end]:
+            clip_end = self._build_entry_item(
+                entry,
+                state["audio_map"],
+                state["video_map"],
+                state["anchor_map"],
+            )
+            if clip_end is not None and clip_end > state["max_end"]:
+                state["max_end"] = clip_end
+        state["index"] = end
+
+        if end < len(entries):
+            QTimer.singleShot(0, self._build_entry_batch)
+            return
+
+        self._pending_entry_build = None
+        self._total_duration = state["max_end"]
+        self._draw_track_backgrounds()
+        self._update_scene_rect()
+        vp = self.viewport()
+        vp.setUpdatesEnabled(True)
+        vp.update()
 
     def _build_entries(self, entries, audio_map, video_map, anchor_map):
-        for entry in entries:
-            has_waveform = False
-            if entry.track == "audio":
-                track = audio_map.get(entry.media_id)
-                title = track.title if track else "?"
-                dur = track.duration if track and track.duration else 30.0
-                y = AUDIO_TRACK_Y
-
-                # waveform_data + beatgrid sind im AudioTrack-Model lazy='joined'
-                # und werden vom TimelineDBWorker bereits mitgeladen. Kein neuer
-                # DBSession/merge-Dance im Main-Thread noetig (P8-Folge-Fix:
-                # eliminiert 2s MetaCall-Freeze beim ersten Timeline-Render mit
-                # vielen Audio-Clips).
-                if track and track.waveform_data:
-                    has_waveform = True
-                    self._load_waveform_for_track(None, track, entry, dur, y)
-
-            elif entry.track == "video":
-                clip = video_map.get(entry.media_id)
-                title = Path(clip.file_path).stem if clip else "?"
-                dur = clip.duration if clip and clip.duration else 10.0
-                y = VIDEO_TRACK_Y
-            else:
-                continue
-
-            width = dur * PIXELS_PER_SECOND
-            x = entry.start_time * PIXELS_PER_SECOND
-
-            item = TimelineClipItem(
-                entry_id=entry.id,
-                media_id=entry.media_id,
-                track_type=entry.track,
-                title=title,
-                x=x, y=y,
-                width=width, height=TRACK_HEIGHT,
-                on_moved=self._on_clip_moved,
-                on_trimmed=self._on_clip_trimmed,
-                has_waveform=has_waveform,
-                anchors=anchor_map.get(entry.id, []),
-            )
-            self._scene.addItem(item)
-            self.clip_items.append(item)
-
-        # Compute total duration from loaded clips for dynamic background width
         max_end = 0.0
-        for ci in self.clip_items:
-            clip_end = ci.pos().x() / PIXELS_PER_SECOND + ci._clip_width / PIXELS_PER_SECOND
-            if clip_end > max_end:
+        for entry in entries:
+            clip_end = self._build_entry_item(entry, audio_map, video_map, anchor_map)
+            if clip_end is not None and clip_end > max_end:
                 max_end = clip_end
         self._total_duration = max_end
         self._draw_track_backgrounds()
         self._update_scene_rect()
+
+    def _build_entry_item(self, entry, audio_map, video_map, anchor_map) -> float | None:
+        has_waveform = False
+        if entry.track == "audio":
+            track = audio_map.get(entry.media_id)
+            title = track.title if track else "?"
+            dur = track.duration if track and track.duration else 30.0
+            y = AUDIO_TRACK_Y
+
+            # waveform_data + beatgrid sind im AudioTrack-Model lazy='joined'
+            # und werden vom TimelineDBWorker bereits mitgeladen. Kein neuer
+            # DBSession/merge-Dance im Main-Thread noetig (P8-Folge-Fix:
+            # eliminiert 2s MetaCall-Freeze beim ersten Timeline-Render mit
+            # vielen Audio-Clips).
+            if track and track.waveform_data:
+                has_waveform = True
+                self._load_waveform_for_track(None, track, entry, dur, y)
+
+        elif entry.track == "video":
+            clip = video_map.get(entry.media_id)
+            title = Path(clip.file_path).stem if clip else "?"
+            dur = clip.duration if clip and clip.duration else 10.0
+            y = VIDEO_TRACK_Y
+        else:
+            return None
+
+        width = dur * PIXELS_PER_SECOND
+        x = entry.start_time * PIXELS_PER_SECOND
+
+        item = TimelineClipItem(
+            entry_id=entry.id,
+            media_id=entry.media_id,
+            track_type=entry.track,
+            title=title,
+            x=x, y=y,
+            width=width, height=TRACK_HEIGHT,
+            on_moved=self._on_clip_moved,
+            on_trimmed=self._on_clip_trimmed,
+            has_waveform=has_waveform,
+            anchors=anchor_map.get(entry.id, []),
+        )
+        item.set_brain_v3_feedback(
+            service=self._brain_v3_feedback_service,
+            context=self._brain_v3_feedback_context,
+        )
+        self._apply_brain_v3_timeline_metadata(item, entry)
+        self._scene.addItem(item)
+        self.clip_items.append(item)
+        return entry.start_time + dur
+
+    def _apply_brain_v3_timeline_metadata(self, item: TimelineClipItem, entry) -> None:
+        if item.track_type != "video":
+            return
+        key = (int(entry.media_id), int(round(float(entry.start_time or 0.0) * 1000.0)))
+        meta = self._brain_v3_timeline_meta.get(key)
+        if meta is None:
+            return
+        item.set_brain_v3_cut_id(getattr(meta, "cut_id", None))
+        item.set_brain_v3_confidence(getattr(meta, "confidence", None))
 
     def _load_waveform_for_track(self, session, track, entry, dur, y):
         """Lädt Rekordbox-Wellenform aus DB und fügt sie zur Scene hinzu."""
@@ -747,6 +904,10 @@ class InteractiveTimeline(QGraphicsView):
             on_moved=self._on_clip_moved, on_trimmed=self._on_clip_trimmed,
             has_waveform=has_waveform,
             anchors=[],  # P8-A2-FIX: neue Clips haben keine Anker → keine DB-Query
+        )
+        item.set_brain_v3_feedback(
+            service=self._brain_v3_feedback_service,
+            context=self._brain_v3_feedback_context,
         )
         self._scene.addItem(item)
         self.clip_items.append(item)
@@ -1342,12 +1503,27 @@ class InteractiveTimeline(QGraphicsView):
 
         # T8.1: Feedback shortcuts (A/R/S/1-5) — only when a pacing run is active
         # and exactly one TimelineClipItem is selected.
+        selected = [
+            item
+            for item in self._scene.selectedItems()
+            if isinstance(item, TimelineClipItem)
+        ]
+        if len(selected) == 1 and not shift:
+            brain_rating_map = {
+                Qt.Key.Key_1: "perfect",
+                Qt.Key.Key_2: "fits",
+                Qt.Key.Key_3: "not_quite",
+                Qt.Key.Key_4: "no_match",
+            }
+            if key in brain_rating_map and selected[0]._brain_v3_feedback_enabled:
+                try:
+                    selected[0]._submit_brain_v3_feedback(brain_rating_map[key])
+                    event.accept()
+                except Exception as exc:
+                    logger.warning("Brain-V3 timeline feedback failed: %s", exc)
+                return
+
         if self._active_pacing_run_id is not None:
-            selected = [
-                item
-                for item in self._scene.selectedItems()
-                if isinstance(item, TimelineClipItem)
-            ]
             if len(selected) == 1:
                 clip_item = selected[0]
                 scene_id = self._resolve_scene_id(clip_item)
@@ -1484,6 +1660,13 @@ class InteractiveTimeline(QGraphicsView):
     def set_feedback_service(self, service: "FeedbackService") -> None:  # type: ignore[name-defined]
         """Inject a custom FeedbackService (for tests). Not used in production."""
         self._feedback_service = service
+
+    def set_brain_v3_feedback_service(self, service, context=None) -> None:
+        """Inject Brain-V3 feedback service and propagate to loaded clips."""
+        self._brain_v3_feedback_service = service
+        self._brain_v3_feedback_context = context
+        for item in self.clip_items:
+            item.set_brain_v3_feedback(service=service, context=context)
 
     # ── B-200: In/Out-Point-Tracking ───────────────────────────────────────
 

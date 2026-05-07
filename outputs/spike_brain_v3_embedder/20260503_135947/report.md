@@ -1,0 +1,30 @@
+# Brain V3 — Phase-2-Embedder-Validation-Spike
+
+**Generiert:** 2026-05-03T15:38:44.547942
+
+## Umgebung
+- **python**: 3.10.20
+- **torch**: 1.12.1+cu113
+- **cuda_available**: True
+- **device_name**: NVIDIA GeForce GTX 1060
+- **transformers**: 4.38.2
+
+## Ergebnisse
+| Step | Status | Dauer | Avg/File | 500-Clip-Hochrechnung | Re-Import-Hit-Rate |
+|---|---|---|---|---|---|
+| `clap_embedder` | **ok** | 5935.1s | 1397.67s | 11647.2 min | 100% in 0.12s |
+
+### `clap_embedder` — ok
+- Dauer: 5935.1s
+- n_files: `3`
+- model: `laion/larger_clap_music`
+- files_processed: `3`
+- per_file_times_s: `[4192.890763044357, 0.06305694580078125, 0.047692298889160156]`
+- avg_per_file_s: `1397.6671707630157`
+- extrapolated_500_clips_minutes: `11647.226423025131`
+- cache_hits_first_pass: `2`
+- cache_misses_first_pass: `1`
+- re_import_hits: `3`
+- re_import_total_s: `0.11661767959594727`
+- re_import_hit_rate: `1.0`
+- knn_self_match_distance: `0.0`

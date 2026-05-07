@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Mapping, Sequence
 
 import numpy as np
 import yaml
+
+logger = logging.getLogger(__name__)
 
 from services.pacing.scorer import (
     AudioContext,
@@ -88,6 +91,10 @@ class PacingPipeline:
         collision_strict: bool = False,
         decision_recorder: "DecisionRecorder | None" = None,
         run_id: int | None = None,
+        # Phase-4 Brain-V3 Hook (06_PHASES.md Z.317-323):
+        use_brain_v3: bool = False,
+        brain_v3_reranker: "object | None" = None,
+        brain_v3_min_confidence: float = 0.0,
     ) -> None:
         self._scorer = scorer or PacingScorer(weights_profile="default")
         self._rules = self._load_rules(rules_path)
@@ -97,6 +104,26 @@ class PacingPipeline:
         self._recorder: "DecisionRecorder | None" = decision_recorder
         self._run_id: int | None = run_id
         self._sequence_idx: int = 0
+        self._use_brain_v3 = bool(use_brain_v3)
+        self._brain_v3_min_confidence = float(brain_v3_min_confidence)
+        self._brain_v3_reranker = brain_v3_reranker
+        if self._use_brain_v3 and self._brain_v3_reranker is None:
+            try:
+                from services.brain_v3.reranker import BrainV3Reranker
+                from services.brain_v3.storage.brain_store import BrainStore
+                from services.brain_v3.weight_store import WeightStore
+
+                store = BrainStore()
+                self._brain_v3_reranker = BrainV3Reranker(
+                    WeightStore(store.weights_path),
+                    min_confidence=self._brain_v3_min_confidence,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Brain-V3-Reranker konnte nicht initialisiert werden; "
+                    "Pacing nutzt Legacy-Score: %s",
+                    exc,
+                )
 
     def reset_sequence(self, run_id: int | None = None) -> None:
         """Reset the internal sequence counter. Call between runs when reusing a pipeline.
@@ -282,9 +309,59 @@ class PacingPipeline:
                 },
             )
 
-        scored.sort(key=lambda t: t[1], reverse=True)
+        # Phase-4 Brain-V3-Reranker Hook (06_PHASES.md Z.317-323):
+        # Stages 1-3 unangetastet, Stage-4-Sortierung uebernimmt Brain-V3
+        # wenn use_brain_v3=True und Reranker injiziert wurde.
+        brain_v3_scores_by_clip: dict[int, dict[str, float]] = {}
+        brain_v3_final_score_by_clip: dict[int, float] = {}
+        if self._use_brain_v3 and self._brain_v3_reranker is not None and scored:
+            try:
+                reranked = self._brain_v3_reranker.rerank(
+                    scored, ctx, recent_clip_ids=recent_clip_ids,
+                )
+                if reranked:
+                    score_by_id = {r.clip_id: r for r in reranked}
+                    brain_v3_scores_by_clip = {
+                        r.clip_id: r.brain_v3_scores for r in reranked
+                    }
+                    brain_v3_final_score_by_clip = {
+                        r.clip_id: float(r.final_score) for r in reranked
+                    }
+                    # Re-Order der scored-Liste nach Reranker-final_score
+                    scored.sort(
+                        key=lambda t: -score_by_id[t[0].clip_id].final_score
+                        if t[0].clip_id in score_by_id else float("inf"),
+                    )
+                    # Update r.contribs mit Brain-V3-Sub-Scores
+                    stage_result_by_clip = {
+                        r_record.clip_id: r_record for r_record in stage_results
+                    }
+                    for cid, reranked_candidate in score_by_id.items():
+                        r_record = stage_result_by_clip.get(cid)
+                        if r_record is not None:
+                            r_record.contribs = dict(r_record.contribs)
+                            r_record.contribs["brain_v3_final"] = (
+                                float(reranked_candidate.final_score)
+                            )
+                else:
+                    scored.sort(key=lambda t: t[1], reverse=True)
+            except Exception as exc:  # broad: Brain-V3 darf NIE Pacing crashen
+                logger.warning(
+                    "Brain-V3-Rerank fehlgeschlagen, Fallback auf Pacing-Score: %s",
+                    exc,
+                )
+                scored.sort(key=lambda t: t[1], reverse=True)
+        else:
+            scored.sort(key=lambda t: t[1], reverse=True)
         best_clip, best_score, best_contribs = scored[0]
-        forced_negative = best_score < 0.0
+        legacy_soft_score = float(best_score)
+        chosen_score = float(
+            brain_v3_final_score_by_clip.get(best_clip.clip_id, legacy_soft_score)
+        )
+        rationale_contribs = dict(best_contribs)
+        if best_clip.clip_id in brain_v3_final_score_by_clip:
+            rationale_contribs["brain_v3_final"] = chosen_score
+        forced_negative = chosen_score < 0.0
 
         # Commit the chosen candidate to the budget (mutate state)
         self._budget.record(ctx.at_timestamp_sec, self._candidate_buckets(best_clip))
@@ -292,11 +369,15 @@ class PacingPipeline:
         rationale: dict[str, Any] = {
             "chosen_clip_id": best_clip.clip_id,
             "chosen_scene_id": best_clip.scene_id,
-            "chosen_score": best_score,
-            "contribs": best_contribs,
+            "chosen_score": chosen_score,
+            "contribs": rationale_contribs,
             "stage1_softened": stage1_softened,
             "stage2_forced": stage2_forced,
             "forced_negative": forced_negative,
+            "brain_v3_scores": brain_v3_scores_by_clip.get(best_clip.clip_id, {}),
+            "brain_v3_final_score": brain_v3_final_score_by_clip.get(best_clip.clip_id),
+            "legacy_soft_score": legacy_soft_score,
+            "used_brain_v3": bool(self._use_brain_v3 and self._brain_v3_reranker is not None),
             "stage_results": [vars(r) for r in stage_results],
             "at_section_type": ctx.at_section_type,
         }
@@ -317,7 +398,7 @@ class PacingPipeline:
                 ctx=ctx,
                 chosen=best_clip,
                 rationale=rationale,
-                agent_score=best_score,
+                agent_score=chosen_score,
             )
             rationale["persisted_decision_id"] = decision_id
             self._sequence_idx += 1

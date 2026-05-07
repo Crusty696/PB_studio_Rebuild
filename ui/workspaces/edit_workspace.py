@@ -388,9 +388,9 @@ class EditWorkspace(QWidget):
         self.clip_inspector = ClipInspectorPanel()
         v.addWidget(self.clip_inspector, stretch=1)
 
-        # Keyframe / Szenen-Analyse
+        # Keyframe / Szenen-Kontext
         v.addWidget(self._separator())
-        kf_lbl = QLabel("SZENEN-ANALYSE")
+        kf_lbl = QLabel("KEYFRAME-KONTEXT")
         kf_lbl.setObjectName("subtitle")
         kf_lbl.setStyleSheet("color: #6b7280; font-size: 9px; font-weight: 700; letter-spacing: 1px;")
         v.addWidget(kf_lbl)
@@ -401,16 +401,19 @@ class EditWorkspace(QWidget):
         self.btn_keyframe_string.setMaximumWidth(240)
         self.btn_keyframe_string.setAccessibleName("Keyframe-String generieren")
         self.btn_keyframe_string.setToolTip(
-            "Keyframe-/Szenenbeschreibung fuer den aktuellen Clip erzeugen und unten anzeigen."
+            "Kompatibilitaets-Alias. Die aktive Generierung liegt jetzt in Material & Analyse > Video, "
+            "weil Keyframe-Strings aus Video-Szenen- und Motion-Analyse entstehen."
         )
-        v.addWidget(self.btn_keyframe_string)
+        self.btn_keyframe_string.setVisible(False)
 
         self.keyframe_text = QTextEdit()
         self.keyframe_text.setReadOnly(True)
         self.keyframe_text.setMaximumHeight(180)
-        self.keyframe_text.setPlaceholderText("Keyframe-Strings werden hier angezeigt...")
+        self.keyframe_text.setPlaceholderText(
+            "Keyframe-Kontext aus Material & Analyse > Video wird hier fuer Review sichtbar."
+        )
         self.keyframe_text.setToolTip(
-            "Ausgabe der generierten Keyframe-Strings fuer Analyse, Debugging oder Prompt-Nutzung."
+            "Readonly Review-Kontext. Generierung und Pflege liegen in Material & Analyse > Video."
         )
         v.addWidget(self.keyframe_text)
         return page

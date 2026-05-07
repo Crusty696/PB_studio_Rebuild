@@ -360,7 +360,7 @@ class TimelineService:
         except (ImportError, ValueError, RuntimeError, OSError, otio.exceptions.NotSupportedError):
             raise RuntimeError(
                 "EDL-Export fehlgeschlagen — cmx_3600 Adapter nicht verfuegbar. "
-                "Installiere: pip install opentimelineio-contrib"
+                "Installiere: pip install otio-cmx3600-adapter"
             )
         return str(path)
 

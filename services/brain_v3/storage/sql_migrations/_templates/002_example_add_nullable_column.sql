@@ -1,0 +1,28 @@
+-- Brain V3 migration template.
+--
+-- Copy this file into one runtime scope directory, then rename it:
+--   services/brain_v3/storage/sql_migrations/<scope>/002_<slug>.sql
+--
+-- Runtime scopes are for example:
+--   embedding_cache/
+--   embeddings_project/
+--   patterns/
+--   state/
+--   weights/
+--
+-- Do not copy BEGIN/COMMIT into migration files. migration_runner.py wraps
+-- each script in one transaction and updates user_version after success.
+--
+-- Keep migrations forward-only. Add nullable columns first, backfill in a
+-- follow-up statement, then tighten constraints only in a later migration if
+-- old databases have been verified.
+
+-- Example: add optional metadata column.
+-- ALTER TABLE example_table ADD COLUMN example_note TEXT;
+
+-- Example: idempotent companion table.
+-- CREATE TABLE IF NOT EXISTS example_feature_flags (
+--     key TEXT PRIMARY KEY,
+--     value TEXT NOT NULL,
+--     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+-- );

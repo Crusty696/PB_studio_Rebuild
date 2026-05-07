@@ -180,6 +180,8 @@ def cmd_kill(args) -> int:
         return 2
 
     method_used = None
+    requested_grace_sec = float(args.grace_sec)
+    effective_grace_sec = max(requested_grace_sec, 15.0) if not args.force else requested_grace_sec
     try:
         if not args.force:
             # 1) Graceful: WM_CLOSE an alle PB_studio-Fenster + taskkill ohne /F
@@ -203,7 +205,7 @@ def cmd_kill(args) -> int:
                 os.kill(pid, signal.SIGTERM)
 
             # Auf saubere Beendigung warten
-            deadline = time.monotonic() + args.grace_sec
+            deadline = time.monotonic() + effective_grace_sec
             while time.monotonic() < deadline:
                 if sys.platform == "win32":
                     out = subprocess.run(
@@ -235,7 +237,13 @@ def cmd_kill(args) -> int:
 
         if PID_FILE.exists():
             PID_FILE.unlink()
-        _ok(pid=pid, killed=True, method=method_used, grace_sec=args.grace_sec)
+        _ok(
+            pid=pid,
+            killed=True,
+            method=method_used,
+            grace_sec=effective_grace_sec,
+            requested_grace_sec=requested_grace_sec,
+        )
         return 0
     except Exception as exc:
         _fail(f"kill failed: {exc}")

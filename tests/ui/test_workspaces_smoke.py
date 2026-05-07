@@ -140,7 +140,7 @@ def test_edit_workspace_constructs_and_exposes_timeline_widgets(qapp):
         w.set_workflow_stage("review")
         assert w._tabs.count() == 1
         assert w._tabs.tabText(0) == "REVIEW"
-        assert not w.btn_keyframe_string.isHidden()
+        assert w.btn_keyframe_string.isHidden()
         assert not w.keyframe_text.isHidden()
         # Cross-Tab-Wiring-Endpunkte (TimelineView + Inspector)
         for attr in (
@@ -185,36 +185,43 @@ def test_media_workspace_constructs_with_video_audio_modes(qapp):
         assert w.mode_stack.count() == 2
         # Shared Bottom-Bar Button
         assert hasattr(w, "btn_add_to_timeline")
-        # Quellen zeigt nur Pool/Import. Analyse-Pipelines leben im Analyse-Workspace.
+        # Material & Analyse zeigt Pool/Import und passende Analyse direkt daneben.
         assert w._video_sub_tabs.isHidden()
-        assert not w.btn_video_pipeline.isVisible()
-        assert not w.btn_analyze_video.isVisible()
-        assert not w.btn_motion_analysis.isVisible()
-        assert not w.btn_siglip_embeddings.isVisible()
+        assert not w.btn_video_pipeline.isHidden()
+        assert not w.btn_analyze_video.isHidden()
+        assert not w.btn_motion_analysis.isHidden()
+        assert not w.btn_siglip_embeddings.isHidden()
+        assert not w.btn_keyframe_string.isHidden()
+        assert not w.keyframe_text.isHidden()
         # Mode-Switch ist no-crash
         w.switch_to_audio()
         assert w.btn_mode_audio.isChecked()
         assert w._audio_sub_tabs.isHidden()
-        assert not w.btn_analyze_all.isVisible()
+        assert not w.btn_analyze_all.isHidden()
         assert not w.btn_auto_duck.isVisible()
-        assert not w.btn_lufs_analyze.isVisible()
+        assert not w.btn_lufs_analyze.isHidden()
         w.switch_to_video()
         assert w.btn_mode_video.isChecked()
     finally:
         w.deleteLater()
 
 
-def test_analysis_workspace_owns_audio_video_steps(qapp):
-    from ui.workspaces import AnalysisWorkspace, MediaWorkspace, StemsWorkspace
+def test_material_analysis_workspace_keeps_selection_and_actions_together(qapp):
+    from ui.workspaces import ConvertWorkspace, MaterialAnalysisWorkspace, MediaWorkspace
 
     media = MediaWorkspace()
-    stems = StemsWorkspace()
-    w = AnalysisWorkspace(stems, media)
+    convert = ConvertWorkspace()
+    w = MaterialAnalysisWorkspace(media, convert)
     try:
-        assert w.tabs.count() == 3
-        assert w.tabs.tabText(0) == "Audio"
-        assert w.tabs.tabText(1) == "Video"
-        assert w.tabs.tabText(2) == "Stems / Status"
+        assert w.media_widget is media
+        assert w.btn_video_pipeline is media.btn_video_pipeline
+        assert w.btn_stems is media.btn_stem_separate
+        assert w.btn_keyframe_string is media.btn_keyframe_string
+        assert media.video_pool_table.parent() is not None
+        assert media.video_analysis_panel.parent() is not None
+        assert media.audio_pool_table.parent() is not None
+        assert media.audio_analysis_panel.parent() is not None
+        assert not convert.btn_standardize_all.isHidden()
         for button in (
             media.btn_analyze,
             media.btn_waveform,
@@ -227,6 +234,7 @@ def test_analysis_workspace_owns_audio_video_steps(qapp):
             media.btn_motion_analysis,
             media.btn_siglip_embeddings,
             media.btn_video_pipeline,
+            media.btn_keyframe_string,
         ):
             assert not button.isHidden()
             assert len(button.toolTip()) > 80

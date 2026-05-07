@@ -1,0 +1,88 @@
+{
+  "created_at": "2026-05-07T03:26:21",
+  "out_dir": "outputs\\spike_brain_v3_performance_profile\\20260507_032621",
+  "pacing": {
+    "iterations": 5,
+    "samples": [
+      {
+        "pacing_baseline_ms": 10.489000000234228,
+        "pacing_brain_v3_ms": 22.542800000337593,
+        "pacing_overhead_ms": 12.053800000103365,
+        "learning_session_ms": 2.847499999916181,
+        "ok": true
+      },
+      {
+        "pacing_baseline_ms": 11.24959999924613,
+        "pacing_brain_v3_ms": 23.44360000006418,
+        "pacing_overhead_ms": 12.19400000081805,
+        "learning_session_ms": 3.1195999999908963,
+        "ok": true
+      },
+      {
+        "pacing_baseline_ms": 8.216999999604013,
+        "pacing_brain_v3_ms": 15.718900000138092,
+        "pacing_overhead_ms": 7.501900000534079,
+        "learning_session_ms": 2.50659999983327,
+        "ok": true
+      },
+      {
+        "pacing_baseline_ms": 8.261099999799626,
+        "pacing_brain_v3_ms": 15.578599999571452,
+        "pacing_overhead_ms": 7.317499999771826,
+        "learning_session_ms": 2.488900000571448,
+        "ok": true
+      },
+      {
+        "pacing_baseline_ms": 7.740400000329828,
+        "pacing_brain_v3_ms": 15.431099999659637,
+        "pacing_overhead_ms": 7.690699999329809,
+        "learning_session_ms": 2.519699999538716,
+        "ok": true
+      }
+    ],
+    "pacing_baseline_ms": {
+      "min": 7.740400000329828,
+      "median": 8.261099999799626,
+      "p95": 11.097479999443749,
+      "max": 11.24959999924613
+    },
+    "pacing_brain_v3_ms": {
+      "min": 15.431099999659637,
+      "median": 15.718900000138092,
+      "p95": 23.263440000118862,
+      "max": 23.44360000006418
+    },
+    "pacing_overhead_ms": {
+      "min": 7.317499999771826,
+      "median": 7.690699999329809,
+      "p95": 12.165960000675113,
+      "max": 12.19400000081805
+    },
+    "learning_session_ms": {
+      "min": 2.488900000571448,
+      "median": 2.519699999538716,
+      "p95": 3.0651799999759533,
+      "max": 3.1195999999908963
+    },
+    "checks": {
+      "all_samples_ok": true,
+      "pacing_overhead_p95_under_800ms": true,
+      "learning_session_p95_under_2s": true
+    }
+  },
+  "embedding_queue": {
+    "tmp_root": "C:\\Users\\DAVIDL~1\\AppData\\Local\\Temp\\pb-brain-v3-perf-9fiaidek",
+    "submitted": 20,
+    "completed": 20,
+    "elapsed_s": 1.0969228999992993,
+    "throughput_jobs_per_s": 18.232822015123194,
+    "median_latency_ms": 653.3802999997533,
+    "p95_latency_ms": 964.6509850006623,
+    "max_latency_ms": 1013.750500000242,
+    "checks": {
+      "all_jobs_completed": true,
+      "throughput_positive": true
+    }
+  },
+  "status": "ok"
+}

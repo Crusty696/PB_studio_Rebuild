@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PB Studio Material & Analyse Flow</title>
+  <style>
+    :root {
+      --bg: #0a0d12;
+      --panel: #111821;
+      --panel-2: #161c26;
+      --line: rgba(255,255,255,.10);
+      --text: #f3f4f6;
+      --muted: #9ca3af;
+      --dim: #6b7280;
+      --gold: #d4a44a;
+      --green: #4ade80;
+      --blue: #60a5fa;
+      --red: #ef4444;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Segoe UI", "Noto Sans", sans-serif;
+      letter-spacing: 0;
+    }
+    .app {
+      min-height: 100vh;
+      display: grid;
+      grid-template-rows: 34px 34px 1fr;
+    }
+    .topbar, .nav {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 12px;
+      border-bottom: 1px solid var(--line);
+      background: #0d1118;
+      white-space: nowrap;
+    }
+    .project { font-weight: 700; color: var(--text); margin-right: auto; }
+    .status { color: var(--muted); font-size: 12px; }
+    .btn {
+      border: 1px solid var(--line);
+      background: #18202b;
+      color: var(--text);
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-weight: 700;
+      font-size: 12px;
+    }
+    .btn.primary { background: var(--gold); color: #0a0d12; border-color: var(--gold); }
+    .btn.disabled { color: var(--dim); background: #111821; }
+    .nav {
+      justify-content: center;
+      gap: 0;
+      padding: 0;
+      background: #0a0d12;
+    }
+    .step {
+      height: 34px;
+      min-width: 112px;
+      padding: 9px 16px 0;
+      color: var(--dim);
+      border-bottom: 2px solid transparent;
+      text-align: center;
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+    .step.active {
+      min-width: 170px;
+      color: #f0c866;
+      border-bottom-color: var(--gold);
+      background: rgba(212,164,74,.08);
+    }
+    .main {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 320px;
+      min-height: 0;
+    }
+    .workspace {
+      padding: 10px;
+      min-width: 0;
+      display: grid;
+      grid-template-rows: auto 1fr;
+      gap: 8px;
+    }
+    .header {
+      display: flex;
+      align-items: end;
+      gap: 12px;
+      min-width: 0;
+    }
+    h1 { margin: 0; font-size: 18px; }
+    .hint { margin: 0; color: var(--muted); font-size: 12px; }
+    .mode {
+      margin-left: auto;
+      display: flex;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      overflow: hidden;
+    }
+    .mode span { padding: 7px 14px; color: var(--muted); font-size: 11px; font-weight: 800; }
+    .mode .on { background: rgba(212,164,74,.12); color: #f0c866; }
+    .lanes {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: minmax(520px, 1.45fr) minmax(360px, .9fr);
+      gap: 8px;
+    }
+    .card {
+      min-width: 0;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .card-head {
+      height: 42px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 10px;
+      border-bottom: 1px solid var(--line);
+      background: #0f1318;
+    }
+    .card-title { font-weight: 800; }
+    .search {
+      margin-left: auto;
+      min-width: 250px;
+      color: var(--dim);
+      background: #0a0d12;
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      padding: 6px 8px;
+      font-size: 12px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    th, td {
+      padding: 8px 10px;
+      border-bottom: 1px solid rgba(255,255,255,.06);
+      text-align: left;
+    }
+    th { color: var(--muted); background: #151b25; font-size: 11px; }
+    tr.selected { background: rgba(96,165,250,.12); outline: 1px solid rgba(96,165,250,.35); }
+    .tag {
+      display: inline-block;
+      min-width: 58px;
+      padding: 3px 6px;
+      border-radius: 5px;
+      font-size: 11px;
+      font-weight: 800;
+      text-align: center;
+      background: #0f1318;
+      color: var(--muted);
+      border: 1px solid var(--line);
+    }
+    .tag.done { color: var(--green); }
+    .tag.run { color: var(--gold); }
+    .tag.info { color: var(--blue); }
+    .analysis {
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      min-height: 0;
+    }
+    .selected-file {
+      padding: 8px;
+      background: #0f1318;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px;
+    }
+    .checklist {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      overflow: hidden;
+      min-height: 0;
+    }
+    .row {
+      display: grid;
+      grid-template-columns: 26px 1fr auto;
+      gap: 8px;
+      align-items: center;
+      padding: 8px;
+      border-bottom: 1px solid rgba(255,255,255,.06);
+      font-size: 12px;
+    }
+    .row:last-child { border-bottom: 0; }
+    .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--dim); }
+    .dot.done { background: var(--green); }
+    .dot.run { background: var(--gold); }
+    .dot.info { background: var(--blue); }
+    .keyframe {
+      min-height: 72px;
+      padding: 8px;
+      color: var(--muted);
+      background: #0a0d12;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      font-family: Consolas, monospace;
+      font-size: 11px;
+      overflow: hidden;
+    }
+    .context {
+      border-left: 1px solid var(--line);
+      background: #0d1118;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      min-width: 0;
+    }
+    .context h2 { margin: 0; font-size: 14px; }
+    .job {
+      padding: 8px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    @media (max-width: 1320px) {
+      .main { grid-template-columns: minmax(0,1fr) 280px; }
+      .lanes { grid-template-columns: minmax(450px, 1fr) 360px; }
+      .search { min-width: 180px; }
+      .step { min-width: 100px; padding-left: 10px; padding-right: 10px; }
+      .step.active { min-width: 150px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="topbar">
+      <div class="project">PB Studio - Club Edit 04</div>
+      <div class="status">Gespeichert</div>
+      <div class="status">GPU bereit</div>
+      <button class="btn">Brain</button>
+      <button class="btn">Kontext</button>
+      <button class="btn">Tools</button>
+    </div>
+    <nav class="nav">
+      <div class="step">Projekt</div>
+      <div class="step active">Material & Analyse</div>
+      <div class="step">Auto-Schnitt</div>
+      <div class="step">Review</div>
+      <div class="step">Export</div>
+    </nav>
+    <main class="main">
+      <section class="workspace">
+        <div class="header">
+          <div>
+            <h1>Material & Analyse</h1>
+            <p class="hint">Links Datei waehlen, rechts sofort Analyse starten. Kein Reiterwechsel noetig.</p>
+          </div>
+          <div class="mode"><span class="on">Video-Clips</span><span>Audio-Track</span></div>
+        </div>
+        <div class="lanes">
+          <div class="card">
+            <div class="card-head">
+              <div class="card-title">Video-Pool</div>
+              <button class="btn">+ Video</button>
+              <button class="btn">+ Ordner</button>
+              <div class="search">Suche: stage lights, crowd, dancer</div>
+            </div>
+            <table>
+              <thead><tr><th></th><th>Titel</th><th>FPS</th><th>Szenen</th><th>Status</th></tr></thead>
+              <tbody>
+                <tr class="selected"><td><input type="checkbox" checked></td><td>club_stage_closeups.mp4</td><td>25</td><td>18</td><td><span class="tag run">laeuft</span></td></tr>
+                <tr><td><input type="checkbox"></td><td>crowd_wide_blue_lights.mov</td><td>30</td><td>42</td><td><span class="tag done">fertig</span></td></tr>
+                <tr><td><input type="checkbox"></td><td>dj_hands_macro.mp4</td><td>25</td><td>9</td><td><span class="tag info">offen</span></td></tr>
+                <tr><td><input type="checkbox"></td><td>strobes_fast_motion.mp4</td><td>60</td><td>31</td><td><span class="tag">proxy</span></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <aside class="card analysis">
+            <div class="card-title">Video-Clips analysieren</div>
+            <div class="selected-file">Auswahl: club_stage_closeups.mp4 - 18 Szenen - Motion teilweise offen</div>
+            <button class="btn primary">Video komplett analysieren</button>
+            <div class="grid">
+              <button class="btn">Metadaten / Proxy</button>
+              <button class="btn">Szenen</button>
+              <button class="btn">Motion</button>
+              <button class="btn">Keyframe-String</button>
+              <button class="btn">SigLIP</button>
+              <button class="btn">Captions / Vector DB</button>
+            </div>
+            <div class="checklist">
+              <div class="row"><span class="dot done"></span><span>Metadaten</span><span class="tag done">fertig</span></div>
+              <div class="row"><span class="dot done"></span><span>Szenen-Erkennung</span><span class="tag done">18</span></div>
+              <div class="row"><span class="dot run"></span><span>Motion-Analyse</span><span class="tag run">62%</span></div>
+              <div class="row"><span class="dot info"></span><span>SigLIP Embeddings</span><span class="tag info">offen</span></div>
+            </div>
+            <div class="keyframe">Video: club_stage_closeups (18 Szenen)<br>[Szene 1: Ruhig motion=0.18] -> [Szene 2: Action motion=0.82]</div>
+          </aside>
+        </div>
+      </section>
+      <aside class="context">
+        <h2>Kontext</h2>
+        <div class="job">Job: Motion-Analyse<br>Status: laeuft<br>Naechster Schritt: SigLIP starten</div>
+        <div class="job">Brain-Hinweis<br>Diese Clips passen zu Drop/Buildup. Review nach Auto-Schnitt pruefen.</div>
+      </aside>
+    </main>
+  </div>
+</body>
+</html>

@@ -1,0 +1,65 @@
+{
+  "capabilities": {
+    "ann_module_available": false,
+    "ann_modules": [],
+    "modules": [
+      "dbstat",
+      "fts3",
+      "fts3tokenize",
+      "fts4",
+      "fts4aux",
+      "fts5",
+      "fts5vocab",
+      "geopoly",
+      "rtree",
+      "rtree_i32",
+      "sqlite_stmt",
+      "vec0",
+      "vec_each"
+    ],
+    "status": "blocked-no-ann-module",
+    "vec_version": "v0.1.9"
+  },
+  "created_at": "2026-05-07T06:55:58",
+  "decision": "External vectorlite HNSW is available; keep separate until a plan decision approves production integration.",
+  "out_dir": "C:\\Users\\David Lochmann\\Documents\\PB_studio_Rebuild\\PB_studio_Rebuild\\outputs\\spike_brain_v3_knn_ann_eval\\20260507_065558",
+  "out_dir_name": "20260507_065558",
+  "status": "ready-external-vectorlite",
+  "vec0_smoke": {
+    "dim": 64,
+    "insert_ms": 7.447399999364279,
+    "inserted": 512,
+    "queries": 5,
+    "query_ms": {
+      "max": 0.30730000071343966,
+      "median": 0.10859999747481197,
+      "min": 0.10509999992791563,
+      "p95": 0.26950000101351174
+    }
+  },
+  "vectorlite_smoke": {
+    "dim": 64,
+    "info": [
+      [
+        "vectorlite extension version 0.2.0, built with SSE"
+      ]
+    ],
+    "insert_ms": 42.11529999884078,
+    "inserted": 512,
+    "queries": 5,
+    "query_ms": {
+      "max": 0.08379999781027436,
+      "median": 0.021699997887481004,
+      "min": 0.019800001609837636,
+      "p95": 0.07177999796112998
+    },
+    "status": "ok",
+    "support": {
+      "available": true,
+      "packages": {
+        "apsw": true,
+        "vectorlite_py": true
+      }
+    }
+  }
+}

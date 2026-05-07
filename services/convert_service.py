@@ -358,10 +358,12 @@ def convert(
     if is_nvenc:
         logger.debug("[ConvertService] Warte auf NVENC-Slot...")
         with NVENC_SEMAPHORE:
-            ffmpeg_stderr = _run_ffmpeg_with_progress(
-                cmd, total_duration, progress_cb, cancel_check=cancel_check,
-                timeout=timeout,
-            )
+            from services.brain_v3.gpu_serializer import get_default_serializer
+            with get_default_serializer().acquire("render"):
+                ffmpeg_stderr = _run_ffmpeg_with_progress(
+                    cmd, total_duration, progress_cb, cancel_check=cancel_check,
+                    timeout=timeout,
+                )
     else:
         ffmpeg_stderr = _run_ffmpeg_with_progress(
             cmd, total_duration, progress_cb, cancel_check=cancel_check,

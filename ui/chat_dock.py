@@ -700,8 +700,19 @@ class ChatDock(QDockWidget):
 
     def closeEvent(self, event):
         """Cleanup beim Schließen des Chat-Docks — Signals disconnecten (Bug #25)"""
+        self.shutdown()
+        super().closeEvent(event)
+
+    def shutdown(self) -> None:
+        """Stop timers and worker threads owned by the chat dock."""
         # B-180: Watchdog stoppen
         self._stop_watchdog()
+
+        try:
+            if hasattr(self, "ai_status_dot") and hasattr(self.ai_status_dot, "stop"):
+                self.ai_status_dot.stop()
+        except RuntimeError:
+            pass
 
         # Disconnect input signals
         try:
@@ -740,5 +751,4 @@ class ChatDock(QDockWidget):
 
         self._thread = None
         self._worker = None
-        super().closeEvent(event)
 

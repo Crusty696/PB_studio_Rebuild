@@ -39,8 +39,7 @@ class WorkspaceNavBar(QWidget):
 
     WORKSPACE_NAMES = [
         "PROJEKT",
-        "QUELLEN",
-        "ANALYSE",
+        "MATERIAL & ANALYSE",
         "AUTO-SCHNITT",
         "REVIEW",
         "EXPORT",
@@ -63,8 +62,7 @@ class WorkspaceNavBar(QWidget):
 
         tooltips = [
             "Projekt: Projektstatus, letzte Projekte und naechster Schritt",
-            "Quellen vorbereiten: Medien importieren, pruefen und standardisieren",
-            "Analyse: Audio, Stems, Struktur, Video-Pipeline und Status",
+            "Material & Analyse: Medien auswaehlen und direkt daneben analysieren",
             "Auto-Schnitt: Pacing einstellen und beat-synchronen Schnitt erzeugen",
             "Review: Timeline, Vorschau, Inspector und Anker pruefen",
             "Export: Preview und finales Video rendern",
@@ -72,16 +70,14 @@ class WorkspaceNavBar(QWidget):
 
         accessible_names = [
             "Projekt Workflow",
-            "Quellen vorbereiten Workflow",
-            "Analyse Workflow",
+            "Material und Analyse Workflow",
             "Auto-Schnitt Workflow",
             "Review Workflow",
             "Export Workflow",
         ]
         status_tips = [
             "Projektstatus und Startpunkt",
-            "Medien importieren und vorbereiten",
-            "Analyse- und Stem-Pipeline",
+            "Medienpool und Analyse in einem Arbeitsbereich",
             "Pacing und Auto-Edit",
             "Timeline pruefen und korrigieren",
             "Finales Video exportieren",
@@ -92,7 +88,7 @@ class WorkspaceNavBar(QWidget):
             btn.setObjectName("workspace_btn")
             btn.setCheckable(True)
             btn.setFixedHeight(28)
-            btn.setMinimumWidth(110)
+            btn.setMinimumWidth(154 if name == "MATERIAL & ANALYSE" else 110)
             btn.setToolTip(tooltips[i])
             btn.setAccessibleName(accessible_names[i])
             btn.setStatusTip(status_tips[i])

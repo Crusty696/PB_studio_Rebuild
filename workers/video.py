@@ -190,11 +190,12 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
         siglip_model_processor = None  # Vor try-Block definiert für finally-Zugriff
         raft_model_device = None       # RAFT-Cache fuer Batch-Modus
         try:
-            from services.video_analysis_service import run_full_pipeline
+            from services.video_analysis_service import run_deferred_captioning, run_full_pipeline
 
             total_scenes = 0
             total_embeddings = 0
             idx = 0
+            deferred_caption_jobs = []
             # B-149: dedizierter Counter — vorher emittierte ``videos_processed``
             # ``idx if should_stop() else total_videos``, was bei Cancel VOR
             # erster Iteration ``idx=0`` ergab obwohl die Loop nie startete.
@@ -234,7 +235,7 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
             # GPU_LOAD_LOCK serialisiert mit allen anderen GPU-Operationen (Demucs,
             # beat_this, text_to_embedding) und verhindert Race Conditions.
             if total_videos > 1:
-                from services.model_manager import ModelManager, GPU_LOAD_LOCK
+                from services.model_manager import ModelManager, gpu_resource_lease
                 # AUD-35 Fix: SigLIP + RAFT muessen innerhalb eines einzigen GPU_LOAD_LOCK-Blocks
                 # geladen werden. Ein Gap zwischen den beiden Locks erlaubt anderen Threads
                 # (z.B. BeatAnalysisService), GPU_LOAD_LOCK zu akquirieren und ein anderes Modell
@@ -244,7 +245,7 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                 # Fix: mm.load_raft() direkt aufrufen (nutzt nur _swap_lock intern),
                 # statt _load_raft_model() (wuerde GPU_LOAD_LOCK nested re-akquirieren → Deadlock).
                 # B-02 Design: SigLIP (~2.5 GB) + RAFT (~0.1 GB) = ~2.6 GB — passt auf GTX 1060.
-                with GPU_LOAD_LOCK:
+                with gpu_resource_lease("video batch preload"):
                     mm = ModelManager()
                     try:
                         logger.info("[BATCH] Lade SigLIP einmalig fuer %d Videos...", total_videos)
@@ -291,6 +292,10 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                     )
 
                     try:
+                        defer_captioning = (
+                            total_videos > 1
+                            and (siglip_model_processor is not None or raft_model_device is not None)
+                        )
                         result = run_full_pipeline(
                             video_path=video_path,
                             video_clip_id=clip_id,
@@ -303,10 +308,13 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                             should_stop=self.should_stop,
                             siglip_model_processor=siglip_model_processor,
                             raft_model_device=raft_model_device,
+                            defer_captioning=defer_captioning,
                         )
                         total_scenes += len(result.scenes)
                         total_embeddings += result.embeddings_stored
                         videos_processed += 1  # B-149: nach erfolgreichem Pipeline-Call
+                        if defer_captioning:
+                            deferred_caption_jobs.append((clip_id, result.scenes, idx, total_videos))
 
                     except FileNotFoundError as e:
                         # B-012 Fix: TOCTOU — Proxy existierte bei Check aber wurde geloescht
@@ -317,6 +325,10 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                             with fallback_session() as fb_session:
                                 fb_clip = fb_session.get(VideoClip, clip_id)
                                 if fb_clip and fb_clip.file_path:
+                                    defer_captioning = (
+                                        total_videos > 1
+                                        and (siglip_model_processor is not None or raft_model_device is not None)
+                                    )
                                     result = run_full_pipeline(
                                         video_path=fb_clip.file_path,
                                         video_clip_id=clip_id,
@@ -329,10 +341,13 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                                         should_stop=self.should_stop,
                                         siglip_model_processor=siglip_model_processor,
                                         raft_model_device=raft_model_device,
+                                        defer_captioning=defer_captioning,
                                     )
                                     total_scenes += len(result.scenes)
                                     total_embeddings += result.embeddings_stored
                                     videos_processed += 1  # B-149
+                                    if defer_captioning:
+                                        deferred_caption_jobs.append((clip_id, result.scenes, idx, total_videos))
                                 else:
                                     raise RuntimeError(f"VideoClip {clip_id}: Original-Pfad nicht verfuegbar")
                         except (RuntimeError, OSError) as fallback_err:
@@ -380,6 +395,21 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                     except (RuntimeError, AttributeError) as e:
                         logger.warning("[BATCH] SigLIP Entladen fehlgeschlagen: %s", e)
                     siglip_model_processor = None
+
+            for clip_id, scenes, caption_idx, caption_total in deferred_caption_jobs:
+                if self.should_stop():
+                    break
+                run_deferred_captioning(
+                    video_clip_id=clip_id,
+                    scenes=scenes,
+                    progress_cb=lambda pct, msg, _i=caption_idx, _tv=caption_total: (
+                        _throttled_progress(
+                            min(99, int(((_i - 1) + pct / 100.0) / _tv * 100)),
+                            f"[{_i}/{_tv}] {msg}"
+                        )
+                    ),
+                    should_stop=self.should_stop,
+                )
 
             self.finished.emit(last_clip_id, {
                 "scenes": total_scenes,

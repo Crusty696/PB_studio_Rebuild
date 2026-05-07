@@ -1,0 +1,54 @@
+{
+  "generated_at": "2026-05-06T15:27:15.365054",
+  "environment": {
+    "python": "3.10.20",
+    "torch": "1.12.1+cu113",
+    "cuda_available": "True",
+    "device_name": "NVIDIA GeForce GTX 1060",
+    "transformers": "4.38.2"
+  },
+  "results": [
+    {
+      "name": "clap_embedder",
+      "status": "ok",
+      "duration_s": 0.26265525817871094,
+      "detail": {
+        "n_files": 1,
+        "model": "laion/larger_clap_music",
+        "files_processed": 1,
+        "per_file_times_s": [
+          0.04031848907470703
+        ],
+        "avg_per_file_s": 0.04031848907470703,
+        "extrapolated_500_clips_minutes": 0.3359874089558919,
+        "cache_hits_first_pass": 1,
+        "cache_misses_first_pass": 0,
+        "re_import_hits": 1,
+        "re_import_total_s": 0.012651205062866211,
+        "re_import_hit_rate": 1.0,
+        "knn_self_match_distance": null
+      },
+      "error": ""
+    },
+    {
+      "name": "siglip_embedder",
+      "status": "ok",
+      "duration_s": 0.22842836380004883,
+      "detail": {
+        "n_files": 1,
+        "model": "google/siglip2-base-patch16-384",
+        "files_processed": 1,
+        "per_file_times_s": [
+          0.034990549087524414
+        ],
+        "avg_per_file_s": 0.034990549087524414,
+        "extrapolated_500_clips_minutes": 0.29158790906270343,
+        "re_import_hits": 1,
+        "re_import_total_s": 0.006594181060791016,
+        "re_import_hit_rate": 1.0,
+        "knn_self_match_distance": null
+      },
+      "error": ""
+    }
+  ]
+}

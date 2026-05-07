@@ -1,0 +1,38 @@
+{
+  "blockers": [
+    "onnx package missing",
+    "onnxruntime CUDAExecutionProvider missing"
+  ],
+  "created_at": "2026-05-07T03:37:49",
+  "cuda_execution_provider": false,
+  "hardware_note": "GTX 1060/Pascal has no Tensor Cores; FP16 ONNX speedup is not expected. Eval must compare FP32 native CUDA vs ONNX CUDA.",
+  "next_step": "Skip ONNX export implementation for now or install a CUDA-capable ONNX stack intentionally, then rerun this eval.",
+  "onnxruntime_providers": [
+    "AzureExecutionProvider",
+    "CPUExecutionProvider"
+  ],
+  "out_dir": "C:\\Users\\David Lochmann\\Documents\\PB_studio_Rebuild\\PB_studio_Rebuild\\outputs\\spike_brain_v3_onnx_eval\\20260507_033749",
+  "out_dir_name": "20260507_033749",
+  "packages": {
+    "onnx": false,
+    "onnxruntime": true,
+    "torch": true,
+    "transformers": true
+  },
+  "python": "3.10.20",
+  "status": "blocked",
+  "targets": [
+    {
+      "expected_dim": "512",
+      "model_id": "laion/larger_clap_music",
+      "name": "clap_audio",
+      "purpose": "audio embedding"
+    },
+    {
+      "expected_dim": "768",
+      "model_id": "google/siglip2-base-patch16-384",
+      "name": "siglip2_vision",
+      "purpose": "video embedding"
+    }
+  ]
+}

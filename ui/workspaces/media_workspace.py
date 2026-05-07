@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QLineEdit, QPushButton, QProgressBar, QTableView, QHeaderView,
     QStackedWidget, QFrame, QSizePolicy, QTableWidget, QTabWidget,
+    QGridLayout, QTextEdit,
 )
 from PySide6.QtCore import Qt, QRect, QMimeData
 from PySide6.QtGui import QPainter, QColor, QDrag
@@ -359,6 +360,66 @@ class MediaWorkspace(QWidget):
         self.btn_mode_video.toggled.connect(self._on_mode_toggled)
         self.btn_mode_audio.toggled.connect(lambda checked: self.mode_stack.setCurrentIndex(1 if checked else 0))
 
+    def _analysis_side_panel(self, title: str, summary: str) -> QFrame:
+        panel = QFrame()
+        panel.setObjectName("workflow_card")
+        panel.setMinimumWidth(360)
+        panel.setMaximumWidth(460)
+        panel.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
+        panel.setStyleSheet(
+            "QFrame#workflow_card { background:#111821; border:1px solid rgba(255,255,255,18); "
+            "border-radius:8px; }"
+        )
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setSpacing(8)
+
+        heading = QLabel(title)
+        heading.setStyleSheet("color:#f9fafb; font-size:14px; font-weight:800;")
+        layout.addWidget(heading)
+
+        text = QLabel(summary)
+        text.setWordWrap(True)
+        text.setStyleSheet("color:#9ca3af; font-size:11px;")
+        layout.addWidget(text)
+        return panel
+
+    def _configure_analysis_button(
+        self,
+        button: QPushButton,
+        text: str,
+        tooltip: str,
+        *,
+        primary: bool = False,
+    ) -> QPushButton:
+        button.setText(text)
+        button.setVisible(True)
+        button.setHidden(False)
+        button.setFixedHeight(30)
+        button.setToolTip(tooltip)
+        button.setAccessibleName(text)
+        button.setStatusTip(tooltip)
+        if primary:
+            button.setObjectName("btn_accent")
+        elif button.objectName() == "btn_accent":
+            button.setObjectName("btn_secondary")
+        return button
+
+    def attach_preflight_button(self, button: QPushButton) -> None:
+        """Place Convert/Preflight entry inside the video analysis context."""
+        if not hasattr(self, "_video_preflight_layout"):
+            return
+        button.setParent(self._video_preflight_panel)
+        button.setText("Preflight standardisieren")
+        button.setFixedHeight(30)
+        button.setVisible(True)
+        button.setToolTip(
+            "Was macht es? Standardisiert Videoquellen fuer Proxy, Format, FPS und Codec. "
+            "Wann nutzen? Vor Analyse, wenn Clips unterschiedliche Formate haben. "
+            "Voraussetzung? Mindestens ein importiertes Video. Ergebnis? Stabilere Analyse und Export-Pipeline."
+        )
+        self._video_preflight_layout.insertWidget(0, button)
+
     # ── VIDEO PAGE ────────────────────────────────────────────
     def _build_video_page(self):
         """P9-C: Sidebar entfernt — Toolbar oben, Pool im Zentrum,
@@ -460,8 +521,18 @@ class MediaWorkspace(QWidget):
 
         page_layout.addLayout(tb)
 
-        # -------- Pool --------
-        page_layout.addWidget(self._video_pool_stack)
+        # -------- Pool + context actions --------
+        self._video_content_row = QHBoxLayout()
+        self._video_content_row.setContentsMargins(0, 0, 0, 0)
+        self._video_content_row.setSpacing(8)
+
+        video_pool_column = QWidget()
+        video_pool_layout = QVBoxLayout(video_pool_column)
+        video_pool_layout.setContentsMargins(0, 0, 0, 0)
+        video_pool_layout.setSpacing(4)
+        video_pool_layout.addWidget(self._video_pool_stack)
+        self._video_content_row.addWidget(video_pool_column, stretch=3)
+        page_layout.addLayout(self._video_content_row, stretch=1)
 
         # -------- Sub-Tabs (ANALYSE / STATUS / FILTER) --------
         self._video_sub_tabs = SectionTabs()
@@ -508,8 +579,6 @@ class MediaWorkspace(QWidget):
 
         # STATUS
         self.video_analysis_panel = AnalysisStatusPanel()
-        self._video_sub_tabs.addTab(self.video_analysis_panel, "STATUS")
-        self._video_sub_tabs.setTabToolTip(1, "Analysefortschritt und Fehler pro Video anzeigen.")
 
         # FILTER (Sammlungsverwaltung + Platzhalter fuer Filter)
         filt = QWidget()
@@ -523,9 +592,10 @@ class MediaWorkspace(QWidget):
         flay.addWidget(self.btn_clear_all)
         flay.addStretch()
         self._video_sub_tabs.addTab(filt, "FILTER")
-        self._video_sub_tabs.setTabToolTip(2, "Video-Pool verwalten, Auswahl loeschen und Pool-Filter nutzen.")
+        self._video_sub_tabs.setTabToolTip(1, "Video-Pool verwalten, Auswahl loeschen und Pool-Filter nutzen.")
 
         self._video_sub_tabs.setVisible(False)
+        self._build_video_analysis_side_panel()
 
         # -------- Wiring --------
         self.btn_video_list_view.clicked.connect(lambda: self._toggle_video_view(0))
@@ -549,6 +619,93 @@ class MediaWorkspace(QWidget):
         self._video_pool_proxy.pagesChanged.connect(self._refresh_video_pager)
         self._refresh_video_pager()
         return page
+
+    def _build_video_analysis_side_panel(self) -> None:
+        side = self._analysis_side_panel(
+            "Video-Clips analysieren",
+            "Waehle links ein Video oder mehrere Clips. Starte danach direkt hier die komplette Pipeline "
+            "oder einzelne Schritte fuer Nacharbeit.",
+        )
+        layout = side.layout()
+
+        self.btn_video_pipeline = self._configure_analysis_button(
+            self.btn_video_pipeline,
+            "Video komplett analysieren",
+            "Was macht es? Fuehrt Metadaten, Szenen, Motion, Keyframes und SigLIP nacheinander aus. "
+            "Wann nutzen? Standardweg fuer neue Video-Clips. Voraussetzung? Mindestens ein Video ist importiert "
+            "oder links gewaehlt. Ergebnis? Clips sind fuer Suche, Matching und Auto-Schnitt vorbereitet.",
+            primary=True,
+        )
+        layout.addWidget(self.btn_video_pipeline)
+
+        steps = QGridLayout()
+        steps.setHorizontalSpacing(6)
+        steps.setVerticalSpacing(6)
+        video_steps = (
+            (
+                self.btn_motion_analysis,
+                "Metadaten / Proxy",
+                "Was macht es? Prueft Video-Basisdaten und startet die technische Videoanalyse. "
+                "Wann nutzen? Wenn Dauer, FPS oder Codec unklar sind. Voraussetzung? Video ausgewaehlt. "
+                "Ergebnis? Grundlage fuer stabile Szenen- und Exportarbeit.",
+            ),
+            (
+                self.btn_analyze_video,
+                "Szenen",
+                "Was macht es? Erkennt Shot-Grenzen und Szenenwechsel. Wann nutzen? Vor Auto-Schnitt "
+                "oder wenn Keyframes fehlen. Voraussetzung? Video ausgewaehlt. Ergebnis? Clips werden in "
+                "sinnvolle Szenenbereiche geteilt.",
+            ),
+            (
+                self.btn_siglip_embeddings,
+                "SigLIP",
+                "Was macht es? Erzeugt semantische Embeddings fuer Suche und Mood-Matching. Wann nutzen? "
+                "Nach Szenen/Keyframes. Voraussetzung? Videoanalyse vorhanden. Ergebnis? Visuelle Suche "
+                "und Auto-Auswahl werden besser.",
+            ),
+        )
+        for idx, (button, text, tip) in enumerate(video_steps):
+            self._configure_analysis_button(button, text, tip)
+            steps.addWidget(button, idx // 2, idx % 2)
+
+        self.btn_keyframe_string = _toolbar_btn(
+            "Keyframe-String",
+            "Was macht es? Erzeugt lesbare Szenen-/Motion-Strings aus analysierten Video-Clips. "
+            "Wann nutzen? Nach Szenen- und Motion-Analyse. Voraussetzung? Video-Clips im Projekt. "
+            "Ergebnis? Text-Kontext fuer Prompting, Debugging und Review.",
+        )
+        self.btn_keyframe_string.setObjectName("btn_ai")
+        self.btn_keyframe_string.setFixedHeight(30)
+        steps.addWidget(self.btn_keyframe_string, 1, 1)
+        layout.addLayout(steps)
+
+        self._video_preflight_panel = QFrame()
+        self._video_preflight_panel.setStyleSheet(
+            "background:#0f1318; border:1px solid rgba(255,255,255,14); border-radius:6px;"
+        )
+        self._video_preflight_layout = QVBoxLayout(self._video_preflight_panel)
+        self._video_preflight_layout.setContentsMargins(8, 8, 8, 8)
+        self._video_preflight_layout.setSpacing(6)
+        preflight_hint = QLabel(
+            "Preflight gehoert zu Video: Format, FPS, Codec und Proxy werden vor Analyse/Export geprueft."
+        )
+        preflight_hint.setWordWrap(True)
+        preflight_hint.setStyleSheet("color:#9ca3af; font-size:10px;")
+        self._video_preflight_layout.addWidget(preflight_hint)
+        layout.addWidget(self._video_preflight_panel)
+
+        self.keyframe_text = QTextEdit()
+        self.keyframe_text.setReadOnly(True)
+        self.keyframe_text.setMaximumHeight(118)
+        self.keyframe_text.setPlaceholderText("Keyframe-Strings werden hier nach der Videoanalyse angezeigt...")
+        self.keyframe_text.setToolTip(
+            "Was zeigt es? Ausgabe der generierten Szenen-/Motion-Strings. Wann nutzen? Nach Keyframe-String. "
+            "Voraussetzung? Analysierte Video-Clips. Ergebnis? Kopierbarer Kontext fuer Review und KI-Prompts."
+        )
+        layout.addWidget(self.keyframe_text)
+
+        layout.addWidget(self.video_analysis_panel, stretch=1)
+        self._video_content_row.addWidget(side, stretch=2)
 
     # ── AUDIO PAGE ────────────────────────────────────────────
     def _build_audio_page(self):
@@ -634,7 +791,17 @@ class MediaWorkspace(QWidget):
         tb.addWidget(self.btn_audio_page_next)
 
         page_layout.addLayout(tb)
-        page_layout.addWidget(self._audio_pool_stack)
+        self._audio_content_row = QHBoxLayout()
+        self._audio_content_row.setContentsMargins(0, 0, 0, 0)
+        self._audio_content_row.setSpacing(8)
+
+        self._audio_pool_column = QWidget()
+        self._audio_pool_layout = QVBoxLayout(self._audio_pool_column)
+        self._audio_pool_layout.setContentsMargins(0, 0, 0, 0)
+        self._audio_pool_layout.setSpacing(4)
+        self._audio_pool_layout.addWidget(self._audio_pool_stack)
+        self._audio_content_row.addWidget(self._audio_pool_column, stretch=3)
+        page_layout.addLayout(self._audio_content_row, stretch=1)
 
         # -------- Sub-Tabs (ANALYSE / STATUS / FILTER) --------
         self._audio_sub_tabs = SectionTabs()
@@ -683,8 +850,6 @@ class MediaWorkspace(QWidget):
 
         # STATUS
         self.audio_analysis_panel = AnalysisStatusPanel()
-        self._audio_sub_tabs.addTab(self.audio_analysis_panel, "STATUS")
-        self._audio_sub_tabs.setTabToolTip(1, "Analysefortschritt und Fehler pro Audio-Track anzeigen.")
 
         # FILTER
         filt = QWidget()
@@ -697,7 +862,7 @@ class MediaWorkspace(QWidget):
         flay.addWidget(hint)
         flay.addStretch()
         self._audio_sub_tabs.addTab(filt, "FILTER")
-        self._audio_sub_tabs.setTabToolTip(2, "Audio-Pool nach BPM, Key, Genre und weiteren Metadaten filtern.")
+        self._audio_sub_tabs.setTabToolTip(1, "Audio-Pool nach BPM, Key, Genre und weiteren Metadaten filtern.")
 
         self._audio_sub_tabs.setVisible(False)
 
@@ -835,8 +1000,9 @@ class MediaWorkspace(QWidget):
         self.structure_bar = StructureBarWidget()
         detail_layout.addWidget(self.structure_bar)
 
-        # P9-C: Detail-Container wird zwischen Pool und Sub-Tabs eingefuegt.
-        page_layout.insertWidget(2, self.audio_detail_container)
+        # P9-C: Detail-Container bleibt im Pool-Kontext unter der Auswahl.
+        self._audio_pool_layout.addWidget(self.audio_detail_container)
+        self._build_audio_analysis_side_panel()
 
         # Pool-Selektion -> Analysis Panel
         self.audio_pool_table.selectionModel().selectionChanged.connect(
@@ -855,6 +1021,76 @@ class MediaWorkspace(QWidget):
             lambda mid: self._on_grid_run_all("audio", mid)
         )
         return page
+
+    def _build_audio_analysis_side_panel(self) -> None:
+        side = self._analysis_side_panel(
+            "Audio-Track analysieren",
+            "Waehle links den Track. Starte dann hier den kompletten Analyse-Lauf oder einzelne Schritte, "
+            "wenn nur ein Ergebnis fehlt.",
+        )
+        layout = side.layout()
+
+        self.btn_analyze_all = self._configure_analysis_button(
+            self.btn_analyze_all,
+            "Audio komplett analysieren",
+            "Was macht es? Fuehrt BPM/Beatgrid, Wellenform, Tonart, LUFS, Songstruktur und Stems "
+            "in sinnvoller Reihenfolge aus. Wann nutzen? Standardweg fuer neue Tracks. Voraussetzung? "
+            "Ein Audio-Track ist importiert oder links gewaehlt. Ergebnis? Audio-Daten sind fuer "
+            "Pacing und Auto-Schnitt bereit.",
+            primary=True,
+        )
+        layout.addWidget(self.btn_analyze_all)
+
+        steps = QGridLayout()
+        steps.setHorizontalSpacing(6)
+        steps.setVerticalSpacing(6)
+        audio_steps = (
+            (
+                self.btn_analyze,
+                "BPM / Beatgrid",
+                "Was macht es? Erkennt Tempo, Beats und Grundenergie. Wann nutzen? Immer vor Auto-Schnitt. "
+                "Voraussetzung? Audio-Track gewaehlt. Ergebnis? Beat-synchroner Schnitt wird moeglich.",
+            ),
+            (
+                self.btn_waveform,
+                "Wellenform",
+                "Was macht es? Erzeugt sichtbare Wellenform und Beatgrid-Anzeige. Wann nutzen? Wenn Review "
+                "oder Timeline keine Audioform zeigt. Voraussetzung? Audio-Track gewaehlt. Ergebnis? Bessere "
+                "visuelle Kontrolle.",
+            ),
+            (
+                self.btn_key_detect,
+                "Tonart",
+                "Was macht es? Erkennt Key und Camelot-Wert. Wann nutzen? Fuer musikalische Stimmung und "
+                "spaetere Matching-Regeln. Voraussetzung? Audio-Track gewaehlt. Ergebnis? Harmonische Metadaten.",
+            ),
+            (
+                self.btn_lufs_analyze,
+                "LUFS",
+                "Was macht es? Misst Loudness und Peak. Wann nutzen? Vor Export oder Lautheitskontrolle. "
+                "Voraussetzung? Audio-Track gewaehlt. Ergebnis? Lautheitswerte fuer Qualitaetssicherung.",
+            ),
+            (
+                self.btn_structure_detect,
+                "Songstruktur",
+                "Was macht es? Findet Intro, Buildup, Drop, Breakdown und Outro. Wann nutzen? Vor Auto-Schnitt. "
+                "Voraussetzung? BPM/Beats vorhanden. Ergebnis? Pacing kennt Musikabschnitte.",
+            ),
+            (
+                self.btn_stem_separate,
+                "Stems",
+                "Was macht es? Trennt Vocals, Drums, Bass und Other via Demucs. Wann nutzen? Fuer bessere "
+                "Drop-, Vocal- und Energie-Entscheidungen. Voraussetzung? GPU/VRAM bereit. Ergebnis? Stem-Daten "
+                "fuer Analyse und Mix.",
+            ),
+        )
+        for idx, (button, text, tip) in enumerate(audio_steps):
+            self._configure_analysis_button(button, text, tip)
+            steps.addWidget(button, idx // 2, idx % 2)
+        layout.addLayout(steps)
+
+        layout.addWidget(self.audio_analysis_panel, stretch=1)
+        self._audio_content_row.addWidget(side, stretch=2)
 
     # ── Slots ─────────────────────────────────────────────────
     def _on_mode_toggled(self, checked: bool):

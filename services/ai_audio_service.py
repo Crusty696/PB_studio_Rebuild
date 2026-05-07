@@ -5,6 +5,7 @@ import json
 import logging
 import subprocess
 import sys
+from functools import wraps
 from pathlib import Path
 
 from services.errors import CUDAOutOfMemoryError
@@ -30,6 +31,16 @@ from database import engine, AudioTrack, WaveformData, nullpool_session
 from services.model_manager import ModelManager, oom_recovery
 
 logger = logging.getLogger(__name__)
+
+
+def _gpu_execution_locked(func):
+    """Serialisiert direkte Demucs-Service-Aufrufe gegen andere GPU-Jobs."""
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        from services.model_manager import GPU_EXECUTION_LOCK
+        with GPU_EXECUTION_LOCK:
+            return func(*args, **kwargs)
+    return wrapper
 
 def _get_stems_dir() -> Path:
     """Return stems directory for the current project (lazy APP_ROOT read).
@@ -62,7 +73,14 @@ class StemSeparator:
     (z.B. GTX 1060 6GB) einzuhalten und CPU-Fallback zu vermeiden.
     """
 
+    @staticmethod
+    def _apply_demucs_model_locked(apply_model_fn, model_obj, chunk, **kwargs):
+        from services.model_manager import GPU_EXECUTION_LOCK
+        with GPU_EXECUTION_LOCK:
+            return apply_model_fn(model_obj, chunk, **kwargs)
+
     @oom_recovery
+    @_gpu_execution_locked
     def separate(self, file_path: str, model: str = "htdemucs_ft",
                  progress_cb=None, should_stop=None) -> dict[str, str]:
         """Fuehrt Demucs Stem Separation mit Chunking + CUDA-Zwang aus.
@@ -117,7 +135,7 @@ class StemSeparator:
                 feature="Stem-Separation",
                 reason="demucs nicht installiert. Bitte installieren: pip install demucs",
             ) from e
-        from services.model_manager import GPU_LOAD_LOCK
+        from services.model_manager import GPU_LOAD_LOCK, get_cuda_memory_info_bytes
         with GPU_LOAD_LOCK:
             try:
                 demucs_model = get_model(model)
@@ -174,8 +192,8 @@ class StemSeparator:
 
         # D-01 Fix: VRAM-Budget pruefen — bei wenig VRAM Chunk-Groesse halbieren
         if torch.cuda.is_available():
-            vram_free_gb = (torch.cuda.get_device_properties(0).total_memory
-                            - torch.cuda.memory_allocated(0)) / (1024**3)
+            vram_free, _vram_total = get_cuda_memory_info_bytes(0)
+            vram_free_gb = vram_free / (1024**3)
             if vram_free_gb < 2.0:
                 chunk_seconds = max(10, chunk_seconds // 2)
                 logger.warning(
@@ -247,7 +265,8 @@ class StemSeparator:
                         # DOPPELTER OVERLAP: internes Demucs-Overlap (25% der Chunk-Laenge)
                         # PLUS externes 2s Crossfade-Overlap zwischen Chunks (OVERLAP_SECONDS).
                         # Erhoehte Qualitaet an Chunk-Grenzen, aber ~30% langsamer.
-                        estimates = apply_model(
+                        estimates = self._apply_demucs_model_locked(
+                            apply_model,
                             demucs_model, chunk_gpu,
                             overlap=0.25,
                             progress=False,
@@ -265,12 +284,24 @@ class StemSeparator:
                         half = chunk.shape[1] // 2
                         chunk_gpu_a = chunk[:, :half].unsqueeze(0).to(device)
                         try:
-                            est_a = apply_model(demucs_model, chunk_gpu_a, overlap=0.25, progress=False)
+                            est_a = self._apply_demucs_model_locked(
+                                apply_model,
+                                demucs_model,
+                                chunk_gpu_a,
+                                overlap=0.25,
+                                progress=False,
+                            )
                             del chunk_gpu_a
                             torch.cuda.empty_cache()
                             # Only allocate second chunk after first is freed
                             chunk_gpu_b = chunk[:, half:].unsqueeze(0).to(device)
-                            est_b = apply_model(demucs_model, chunk_gpu_b, overlap=0.25, progress=False)
+                            est_b = self._apply_demucs_model_locked(
+                                apply_model,
+                                demucs_model,
+                                chunk_gpu_b,
+                                overlap=0.25,
+                                progress=False,
+                            )
                             del chunk_gpu_b
                             torch.cuda.empty_cache()
                             estimates = torch.cat([est_a, est_b], dim=-1)

@@ -115,8 +115,8 @@ class BeatAnalysisService:
             return
         if self._beat_this_unavailable:
             return  # Bereits als unavailable markiert — nicht erneut versuchen
-        from services.model_manager import ModelManager, GPU_LOAD_LOCK
-        with GPU_LOAD_LOCK:
+        from services.model_manager import ModelManager, gpu_resource_lease
+        with gpu_resource_lease("beat_this load"):
             if self._model is not None:  # Double-check nach Lock
                 return
             # ModelManager entladen bevor beat_this GPU-Speicher beansprucht
@@ -306,9 +306,11 @@ class BeatAnalysisService:
     def _analyze_full(self, audio_path: str) -> tuple[np.ndarray, np.ndarray]:
         """Analysiert die komplette Datei in einem Durchgang."""
         import torch
+        from services.model_manager import GPU_EXECUTION_LOCK
         self._ensure_model()
-        with torch.no_grad():
-            beats, downbeats = self._model(audio_path)
+        with GPU_EXECUTION_LOCK:
+            with torch.no_grad():
+                beats, downbeats = self._model(audio_path)
         return np.array(beats), np.array(downbeats)
 
     def _analyze_librosa_fallback(
@@ -386,8 +388,10 @@ class BeatAnalysisService:
 
             try:
                 sf.write(tmp_path, chunk_audio, sr)
-                with torch.no_grad():
-                    beats, downbeats = self._model(tmp_path)
+                from services.model_manager import GPU_EXECUTION_LOCK
+                with GPU_EXECUTION_LOCK:
+                    with torch.no_grad():
+                        beats, downbeats = self._model(tmp_path)
             finally:
                 Path(tmp_path).unlink(missing_ok=True)
                 with _temp_files_lock:

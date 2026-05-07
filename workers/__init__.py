@@ -30,6 +30,7 @@ _WORKER_MODULES = {
     "AudioClassifyWorker": ".audio_analysis",
     "SpectralAnalysisWorker": ".audio_analysis",
     "StructureDetectionWorker": ".audio_analysis",
+    "BrainV3HashingWorker": ".brain_v3_hashing",
 }
 
 __all__ = list(_WORKER_MODULES.keys())

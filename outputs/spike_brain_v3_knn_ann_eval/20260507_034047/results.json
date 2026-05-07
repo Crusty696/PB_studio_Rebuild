@@ -1,0 +1,40 @@
+{
+  "capabilities": {
+    "ann_module_available": false,
+    "ann_modules": [],
+    "modules": [
+      "dbstat",
+      "fts3",
+      "fts3tokenize",
+      "fts4",
+      "fts4aux",
+      "fts5",
+      "fts5vocab",
+      "geopoly",
+      "rtree",
+      "rtree_i32",
+      "sqlite_stmt",
+      "vec0",
+      "vec_each"
+    ],
+    "status": "blocked-no-ann-module",
+    "vec_version": "v0.1.9"
+  },
+  "created_at": "2026-05-07T03:40:47",
+  "decision": "Do not add ANN/HNSW migration; installed sqlite-vec exposes no ANN module.",
+  "out_dir": "C:\\Users\\David Lochmann\\Documents\\PB_studio_Rebuild\\PB_studio_Rebuild\\outputs\\spike_brain_v3_knn_ann_eval\\20260507_034047",
+  "out_dir_name": "20260507_034047",
+  "status": "blocked-no-ann-module",
+  "vec0_smoke": {
+    "dim": 64,
+    "insert_ms": 7.066899999699672,
+    "inserted": 512,
+    "queries": 5,
+    "query_ms": {
+      "max": 0.3164999998261919,
+      "median": 0.12229999992996454,
+      "min": 0.10340000062569743,
+      "p95": 0.2783599999020225
+    }
+  }
+}

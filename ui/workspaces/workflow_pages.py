@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
@@ -15,6 +15,16 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 from ui.widgets.workflow_components import SectionTabs, WorkflowHeader
+
+_COCKPIT_ACTION_LABELS = (
+    "Projekt starten",
+    "Material importieren",
+    "Audio analysieren",
+    "Video analysieren",
+    "Auto-Schnitt starten",
+    "Timeline pruefen",
+    "Export vorbereiten",
+)
 
 
 def _title(text: str) -> QLabel:
@@ -33,9 +43,18 @@ def _subtitle(text: str) -> QLabel:
 class ProjectDashboard(QWidget):
     """Start screen focused on project state and the next usable step."""
 
+    action_requested = Signal(str)
+    refresh_requested = Signal()
+
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
+        self._project_id: int | None = None
+        self._current_action_key = "open_project"
         self._build_ui()
+        self.refresh_requested.connect(
+            self._refresh_current_project,
+            Qt.ConnectionType.QueuedConnection,
+        )
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -45,10 +64,10 @@ class ProjectDashboard(QWidget):
         header = QHBoxLayout()
         title_block = QVBoxLayout()
         title_block.setSpacing(3)
-        title_block.addWidget(_title("PB Studio Workflow"))
+        title_block.addWidget(_title("PB Studio Cockpit"))
         title_block.addWidget(_subtitle(
-            "Gefuehrter Ablauf fuer beat-synchronen Video-Schnitt: Projekt, "
-            "Quellen, Analyse, Auto-Schnitt, Review, Export."
+            "Gefuehrter Ablauf: Das Cockpit zeigt, was bereit ist, was fehlt "
+            "und welche Aktion als Naechstes sinnvoll ist."
         ))
         header.addLayout(title_block, stretch=1)
 
@@ -64,7 +83,26 @@ class ProjectDashboard(QWidget):
         body = QHBoxLayout()
         body.setSpacing(12)
 
-        self.status_card = self._card("Projektstatus")
+        self.next_card = self._card("Naechste Aktion")
+        next_layout = QVBoxLayout(self.next_card)
+        next_layout.setContentsMargins(16, 14, 16, 14)
+        next_layout.setSpacing(8)
+        self.next_step = QLabel("Projekt starten")
+        self.next_step.setStyleSheet("font-size: 22px; font-weight: 800; color: #f0c866;")
+        self.next_reason = QLabel("Lege ein Projekt an oder oeffne ein bestehendes Projekt.")
+        self.next_reason.setWordWrap(True)
+        self.next_reason.setStyleSheet("color:#d1d5db; font-size:12px;")
+        self.btn_next_step = QPushButton("Projekt starten")
+        self.btn_next_step.setObjectName("btn_accent")
+        self.btn_next_step.setFixedHeight(38)
+        self.btn_next_step.clicked.connect(self._emit_next_action)
+        next_layout.addWidget(self.next_step)
+        next_layout.addWidget(self.next_reason)
+        next_layout.addStretch(1)
+        next_layout.addWidget(self.btn_next_step)
+        body.addWidget(self.next_card, stretch=3)
+
+        self.status_card = self._card("Projekt")
         status_layout = QVBoxLayout(self.status_card)
         status_layout.setContentsMargins(14, 12, 14, 12)
         status_layout.setSpacing(8)
@@ -78,23 +116,6 @@ class ProjectDashboard(QWidget):
         status_layout.addStretch(1)
         body.addWidget(self.status_card, stretch=2)
 
-        self.next_card = self._card("Naechster sinnvoller Schritt")
-        next_layout = QVBoxLayout(self.next_card)
-        next_layout.setContentsMargins(14, 12, 14, 12)
-        next_layout.setSpacing(8)
-        self.next_step = QLabel("Quellen vorbereiten")
-        self.next_step.setStyleSheet("font-size: 18px; font-weight: 700; color: #f0c866;")
-        self.next_reason = QLabel("Importiere zuerst Audio und Video, danach werden Analyse und Auto-Schnitt freigeschaltet.")
-        self.next_reason.setWordWrap(True)
-        self.btn_next_step = QPushButton("Zu Quellen vorbereiten")
-        self.btn_next_step.setObjectName("btn_accent")
-        self.btn_next_step.setFixedHeight(34)
-        next_layout.addWidget(self.next_step)
-        next_layout.addWidget(self.next_reason)
-        next_layout.addStretch(1)
-        next_layout.addWidget(self.btn_next_step)
-        body.addWidget(self.next_card, stretch=2)
-
         self.system_card = self._card("Systemstatus")
         system_layout = QVBoxLayout(self.system_card)
         system_layout.setContentsMargins(14, 12, 14, 12)
@@ -102,42 +123,51 @@ class ProjectDashboard(QWidget):
         system_title = QLabel("Systemstatus")
         system_title.setStyleSheet("font-size: 16px; font-weight: 700; color: #f9fafb;")
         system_layout.addWidget(system_title)
+        self.system_labels: list[QLabel] = []
         for text in (
             "GPU: beim Pipeline-Start pruefen",
             "Ollama: ueber KI-Status sichtbar",
             "FFmpeg: fuer Convert/Export erforderlich",
+            "Tasks: keine laufenden Cockpit-Aktionen",
         ):
             label = QLabel(text)
             label.setStyleSheet("color:#9ca3af;")
             label.setWordWrap(True)
             system_layout.addWidget(label)
+            self.system_labels.append(label)
         system_layout.addStretch(1)
         body.addWidget(self.system_card, stretch=1)
         layout.addLayout(body, stretch=1)
 
-        checklist = self._card("Workflow-Checkliste")
-        checklist_layout = QHBoxLayout(checklist)
-        checklist_layout.setContentsMargins(14, 12, 14, 12)
-        checklist_layout.setSpacing(10)
-        self.step_labels: list[QLabel] = []
-        for text in (
-            "1 Projekt",
-            "2 Quellen",
-            "3 Analyse",
-            "4 Auto-Schnitt",
-            "5 Review",
-            "6 Export",
-        ):
-            label = QLabel(text)
-            label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            label.setMinimumHeight(42)
-            label.setStyleSheet(
-                "background:#0f1318; border:1px solid rgba(255,255,255,18); "
-                "border-radius:6px; color:#9ca3af; font-weight:700;"
-            )
-            checklist_layout.addWidget(label)
-            self.step_labels.append(label)
-        layout.addWidget(checklist)
+        readiness = self._card("Readiness")
+        readiness_layout = QGridLayout(readiness)
+        readiness_layout.setContentsMargins(14, 12, 14, 12)
+        readiness_layout.setHorizontalSpacing(10)
+        readiness_layout.setVerticalSpacing(10)
+        self.readiness_cards: dict[str, tuple[QFrame, QLabel, QLabel]] = {}
+        for idx, (key, title, detail) in enumerate((
+            ("audio", "Audio", "Beats, Waveform, Struktur"),
+            ("video", "Video", "Szenen, Bewegung, Suchdaten"),
+            ("auto_edit", "Auto-Schnitt", "bereit fuer Timeline"),
+            ("export", "Export", "Timeline vorhanden"),
+        )):
+            card, state_label, detail_label = self._readiness_card(title, detail)
+            readiness_layout.addWidget(card, idx // 2, idx % 2)
+            self.readiness_cards[key] = (card, state_label, detail_label)
+        layout.addWidget(readiness)
+
+        warnings = self._card("Qualitaetswarnungen")
+        warnings_layout = QVBoxLayout(warnings)
+        warnings_layout.setContentsMargins(14, 12, 14, 12)
+        warnings_layout.setSpacing(6)
+        self.warning_labels: list[QLabel] = []
+        for _ in range(3):
+            label = QLabel("Keine Warnung")
+            label.setWordWrap(True)
+            label.setStyleSheet("color:#9ca3af;")
+            warnings_layout.addWidget(label)
+            self.warning_labels.append(label)
+        layout.addWidget(warnings)
 
     def _card(self, title: str) -> QFrame:
         frame = QFrame()
@@ -150,7 +180,77 @@ class ProjectDashboard(QWidget):
         frame.setProperty("card_title", title)
         return frame
 
-    def update_project(self, name: str | None, path: str | None) -> None:
+    def _readiness_card(self, title: str, detail: str) -> tuple[QFrame, QLabel, QLabel]:
+        frame = QFrame()
+        frame.setObjectName("readiness_card")
+        frame.setMinimumHeight(76)
+        frame.setStyleSheet(
+            "QFrame#readiness_card { background:#0f1318; border:1px solid rgba(255,255,255,18); "
+            "border-radius:6px; }"
+        )
+        layout = QVBoxLayout(frame)
+        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setSpacing(3)
+        title_label = QLabel(title)
+        title_label.setStyleSheet("color:#f9fafb; font-weight:800; font-size:13px;")
+        state_label = QLabel("Fehlt")
+        state_label.setStyleSheet("color:#ef4444; font-weight:700;")
+        detail_label = QLabel(detail)
+        detail_label.setWordWrap(True)
+        detail_label.setStyleSheet("color:#9ca3af; font-size:11px;")
+        layout.addWidget(title_label)
+        layout.addWidget(state_label)
+        layout.addWidget(detail_label)
+        return frame, state_label, detail_label
+
+    def refresh(self, project_id: int | None) -> None:
+        from services.cockpit_orchestrator import get_cockpit_readiness
+
+        self._project_id = project_id
+        self.set_readiness(get_cockpit_readiness(project_id))
+
+    def _refresh_current_project(self) -> None:
+        self.refresh(self._project_id)
+
+    def set_readiness(self, readiness) -> None:
+        self._project_id = readiness.project_id
+        self.update_project(readiness.project_name, readiness.project_path)
+        self._current_action_key = readiness.next_action.key
+        self.next_step.setText(readiness.next_action.label)
+        self.next_reason.setText(readiness.next_action.description)
+        self.btn_next_step.setText(readiness.next_action.label)
+        self.btn_next_step.setEnabled(readiness.next_action.enabled)
+        self.btn_next_step.setToolTip(readiness.next_action.description)
+
+        for key, state in readiness.cards.items():
+            if key not in self.readiness_cards:
+                continue
+            card, state_label, _detail = self.readiness_cards[key]
+            ready = state == "ready"
+            state_label.setText("Bereit" if ready else "Fehlt")
+            state_label.setStyleSheet(
+                "color:#4ade80; font-weight:700;" if ready else "color:#ef4444; font-weight:700;"
+            )
+            card.setStyleSheet(
+                "QFrame#readiness_card { background:#0f1812; border:1px solid rgba(74,222,128,70); border-radius:6px; }"
+                if ready
+                else "QFrame#readiness_card { background:#181214; border:1px solid rgba(239,68,68,70); border-radius:6px; }"
+            )
+
+        messages = list(readiness.blockers) + list(readiness.warnings)
+        if not messages:
+            messages = ["Keine Warnung"]
+        for idx, label in enumerate(self.warning_labels):
+            text = messages[idx] if idx < len(messages) else ""
+            label.setText(text)
+            label.setVisible(bool(text))
+
+    def _emit_next_action(self) -> None:
+        self.action_requested.emit(self._current_action_key)
+
+    def update_project(self, name: str | None, path: str | None, project_id: int | None = None) -> None:
+        if project_id is not None:
+            self._project_id = project_id
         if name:
             self.project_name.setText(name)
             self.project_path.setText(path or "")
@@ -181,7 +281,45 @@ class PrepareWorkspace(QWidget):
         layout.addWidget(self.tabs, stretch=1)
 
 
-class AnalysisWorkspace(QWidget):
+class MaterialAnalysisWorkspace(QWidget):
+    """Single working surface: select media and run analysis beside it."""
+
+    def __init__(
+        self,
+        media_widget: QWidget,
+        convert_widget: QWidget | None = None,
+        parent: QWidget | None = None,
+    ):
+        super().__init__(parent)
+        self.media_widget = media_widget
+        self.convert_widget = convert_widget
+        self._build_ui()
+
+    def _build_ui(self) -> None:
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(4)
+
+        layout.addWidget(WorkflowHeader(
+            "Material & Analyse",
+            "Datei auswaehlen und passende Analyse direkt daneben starten. "
+            "Audio und Video bleiben im selben Arbeitskontext.",
+        ))
+        layout.addWidget(self.media_widget, stretch=1)
+
+        if self.convert_widget is not None and hasattr(self.media_widget, "attach_preflight_button"):
+            self.media_widget.attach_preflight_button(self.convert_widget.btn_standardize_all)
+
+        self.btn_stems = self.media_widget.btn_stem_separate
+        self.btn_video_pipeline = self.media_widget.btn_video_pipeline
+        self.btn_audio_complete = self.media_widget.btn_analyze_all
+        self.btn_keyframe_string = self.media_widget.btn_keyframe_string
+        self.keyframe_text = self.media_widget.keyframe_text
+        self.audio_analysis_panel = self.media_widget.audio_analysis_panel
+        self.video_analysis_panel = self.media_widget.video_analysis_panel
+
+
+class LegacyAnalysisWorkspace(QWidget):
     """Analysis stage: individual audio/video steps plus complete runs."""
 
     def __init__(
@@ -383,6 +521,9 @@ class AnalysisWorkspace(QWidget):
         status_tabs.setTabToolTip(2, "Status aller Video-Schritte inklusive Szenen, Motion und Embeddings.")
         layout.addWidget(status_tabs, stretch=1)
         return page
+
+
+AnalysisWorkspace = MaterialAnalysisWorkspace
 
 
 def set_tab_if_available(widget: QWidget, index: int) -> None:

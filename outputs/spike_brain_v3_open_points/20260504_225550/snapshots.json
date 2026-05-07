@@ -1,0 +1,184 @@
+{
+  "generated_at": "2026-05-04T22:57:51.730555",
+  "environment": {
+    "python": "3.10.20",
+    "torch": "1.12.1+cu113",
+    "cuda_available": "True",
+    "device_name": "NVIDIA GeForce GTX 1060",
+    "total_vram_mb": 6143.9
+  },
+  "results": [
+    {
+      "name": "fmeasure",
+      "status": "ok",
+      "duration_s": 69.21755385398865,
+      "detail": {
+        "ground_truth_boundaries_s": [
+          100.0,
+          200.0,
+          300.0,
+          400.0
+        ],
+        "detected_boundaries_s": [
+          48.0,
+          211.0,
+          301.0,
+          396.0
+        ],
+        "tolerance_s": 15.0,
+        "true_pos": 3,
+        "false_pos": 1,
+        "false_neg": 1,
+        "precision": 0.75,
+        "recall": 0.75,
+        "f1": 0.75,
+        "fallback_used": false,
+        "duration_seconds": 500.0
+      },
+      "error": "",
+      "plan_dod_met": true
+    },
+    {
+      "name": "extrapolation_500",
+      "status": "ok",
+      "duration_s": 40.91005325317383,
+      "detail": {
+        "n_audio_processed": 50,
+        "n_video_processed": 50,
+        "clap_total_s": 23.906039237976074,
+        "clap_avg_per_file_s": 0.4780266332626343,
+        "clap_first_file_s": 12.408744812011719,
+        "siglip_total_s": 14.51754641532898,
+        "siglip_avg_per_file_s": 0.2902504539489746,
+        "siglip_first_file_s": 5.191967010498047,
+        "extrapolated_500_clap_minutes": 3.983555277188619,
+        "extrapolated_500_siglip_minutes": 2.4187537829081216,
+        "extrapolated_500_total_minutes": 6.402309060096741
+      },
+      "error": "",
+      "plan_dod_met": true
+    },
+    {
+      "name": "hnsw",
+      "status": "partial",
+      "duration_s": 0.12076115608215332,
+      "detail": {
+        "sqlite_vec_version": "0.1.9",
+        "vec_functions": [
+          "vec_add",
+          "vec_bit",
+          "vec_debug",
+          "vec_distance_cosine",
+          "vec_distance_hamming",
+          "vec_distance_l1",
+          "vec_distance_l2",
+          "vec_f32",
+          "vec_int8",
+          "vec_length",
+          "vec_normalize",
+          "vec_quantize_binary",
+          "vec_quantize_int8",
+          "vec_slice",
+          "vec_sub",
+          "vec_to_json",
+          "vec_type",
+          "vec_version"
+        ],
+        "vec_modules": [
+          "vec_each",
+          "vec0"
+        ],
+        "hnsw_supported": false,
+        "brute_force_n1000_median_ms": 2.186050001910189,
+        "note": "sqlite-vec 0.1.x ist prim\u00e4r Brute-Force. HNSW/ANN ist im Roadmap aber Stand 2026 nicht offiziell verf\u00fcgbar in vec0. Workaround f\u00fcr <50 ms KNN bei 16k: Pre-Filter via SQL (z.B. WHERE u.level='window') halbiert effektive Vektor-Anzahl."
+      },
+      "error": "",
+      "plan_dod_met": false
+    },
+    {
+      "name": "demucs_coexistence",
+      "status": "ok",
+      "duration_s": 6.860375881195068,
+      "detail": {
+        "snapshots": [
+          {
+            "label": "baseline",
+            "alloc": 0.0,
+            "reserved": 0.0
+          },
+          {
+            "label": "after_demucs_load",
+            "alloc": 161.8125,
+            "reserved": 184.0
+          },
+          {
+            "label": "after_clap_loaded_with_demucs",
+            "alloc": 904.6005859375,
+            "reserved": 956.0
+          },
+          {
+            "label": "after_demucs_inference",
+            "alloc": 921.96533203125,
+            "reserved": 1712.0
+          },
+          {
+            "label": "after_cleanup",
+            "alloc": 14.0,
+            "reserved": 14.0
+          }
+        ],
+        "coexistence_possible": true,
+        "demucs_inference_ok": true
+      },
+      "error": "",
+      "plan_dod_met": true
+    },
+    {
+      "name": "nvenc_coexistence",
+      "status": "fail",
+      "duration_s": 1.5168344974517822,
+      "detail": {
+        "has_h264_nvenc": true,
+        "has_hevc_nvenc": true,
+        "nvenc_encode_5s_720p_duration_s": 0.20630908012390137,
+        "nvenc_encode_ok": false,
+        "stderr_tail": "@ 00000248ee0fea00] Task finished with error code: -22 (Invalid argument)\n[vost#0:0/h264_nvenc @ 00000248ee0fea00] Terminating thread with return code -22 (Invalid argument)\n[out#0/mp4 @ 00000248ee072380] Nothing was written into output file, because at least one of its streams received no packets.\n"
+      },
+      "error": "",
+      "plan_dod_met": false
+    },
+    {
+      "name": "pyside6_baseline",
+      "status": "ok",
+      "duration_s": 0.6068816184997559,
+      "detail": {
+        "snapshots": [
+          {
+            "label": "before_qt",
+            "alloc": 0.00048828125,
+            "reserved": 16.0
+          },
+          {
+            "label": "after_qt_window_shown",
+            "alloc": 0.00048828125,
+            "reserved": 16.0
+          },
+          {
+            "label": "after_qt_idle",
+            "alloc": 0.0,
+            "reserved": 16.0
+          },
+          {
+            "label": "after_qt_close_and_empty_cache",
+            "alloc": 0.0,
+            "reserved": 0.0
+          }
+        ],
+        "qt_platform": "offscreen",
+        "note": "offscreen-Platform \u2014 echte App mit Display kann etwas mehr brauchen"
+      },
+      "error": "",
+      "plan_dod_met": true
+    }
+  ]
+}

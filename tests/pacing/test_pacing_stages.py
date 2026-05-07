@@ -175,3 +175,68 @@ def test_all_four_stages_are_present_in_rationale() -> None:
     chosen_sr = next(sr for sr in r["stage_results"] if sr["clip_id"] == hero.clip_id)
     assert chosen_sr["soft_score"] is not None
     assert "contribs" in chosen_sr
+
+
+def test_brain_v3_flag_builds_default_reranker(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("APPDATA", str(tmp_path / "Roaming"))
+    pipe = PacingPipeline(use_brain_v3=True, brain_v3_min_confidence=0.0)
+    ctx = _drop_context()
+    hero = _make_clip(1, role="hero")
+
+    res = pipe.select_best([hero], ctx)
+
+    assert res.chosen is hero
+    assert res.rationale["used_brain_v3"] is True
+    assert len(res.rationale["brain_v3_scores"]) == 17
+
+
+def test_brain_v3_min_confidence_filters_pipeline_rerank(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("APPDATA", str(tmp_path / "Roaming"))
+    pipe = PacingPipeline(use_brain_v3=True, brain_v3_min_confidence=1.1)
+    ctx = _drop_context()
+    hero = _make_clip(1, role="hero")
+
+    res = pipe.select_best([hero], ctx)
+
+    assert res.chosen is hero
+    assert res.rationale["used_brain_v3"] is True
+    assert res.rationale["brain_v3_scores"] == {}
+
+
+class _FakeBrainV3Candidate:
+    def __init__(self, clip_id: int, original_soft_score: float, final_score: float) -> None:
+        self.clip_id = clip_id
+        self.original_soft_score = original_soft_score
+        self.brain_score = final_score
+        self.final_score = final_score
+        self.brain_v3_scores = {f"axis_{idx:02d}": final_score for idx in range(17)}
+
+
+class _FakeBrainV3Reranker:
+    def rerank(self, scored, ctx, recent_clip_ids=None):
+        return [
+            _FakeBrainV3Candidate(
+                clip_id=int(clip.clip_id),
+                original_soft_score=float(soft_score),
+                final_score=0.25 if int(clip.clip_id) == 1 else 0.75,
+            )
+            for clip, soft_score, _contribs in scored
+        ]
+
+
+def test_brain_v3_rationale_uses_final_score_after_rerank() -> None:
+    pipe = PacingPipeline(use_brain_v3=True, brain_v3_reranker=_FakeBrainV3Reranker())
+    ctx = _drop_context()
+    clips = [_make_clip(1, role="hero"), _make_clip(2, role="hero")]
+
+    res = pipe.select_best(clips, ctx)
+
+    assert res.chosen is clips[1]
+    assert res.rationale["used_brain_v3"] is True
+    assert res.rationale["chosen_score"] == 0.75
+    assert res.rationale["brain_v3_final_score"] == 0.75
+    assert res.rationale["legacy_soft_score"] != res.rationale["chosen_score"]
+    chosen_sr = next(
+        sr for sr in res.rationale["stage_results"] if sr["clip_id"] == res.chosen.clip_id
+    )
+    assert chosen_sr["contribs"]["brain_v3_final"] == 0.75

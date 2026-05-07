@@ -14,6 +14,7 @@ import gc
 import logging
 import threading
 import psutil
+from contextlib import contextmanager
 from functools import wraps
 from typing import Any
 
@@ -44,6 +45,18 @@ GPU_LOAD_LOCK = threading.RLock()
 # (z.B. Vision-Analyse + Audio-Separation), was auf 6GB-Karten zu OOM führt.
 # FIX: RLock für maximale Stabilität bei komplexen Pipelines.
 GPU_EXECUTION_LOCK = threading.RLock()
+
+
+@contextmanager
+def gpu_resource_lease(reason: str = "gpu operation"):
+    """Single lease fuer GPU Load/Inference/Unload Koordination.
+
+    Reihenfolge ist absichtlich stabil: erst Execution, dann Load.
+    Damit kann kein Inferenzpfad waehrend eines Loads/Unloads dazwischenfunken.
+    """
+    with GPU_EXECUTION_LOCK:
+        with GPU_LOAD_LOCK:
+            yield
 
 # M-42 FIX: Lock für thread-sicheren torch-Import
 _TORCH_IMPORT_LOCK = threading.Lock()
@@ -78,6 +91,26 @@ def _ensure_torch():
                 import torch as _torch
                 torch = _torch
     return torch
+
+
+def get_cuda_memory_info_bytes(device: int = 0) -> tuple[int, int]:
+    """Return (free_bytes, total_bytes) for CUDA with external VRAM included."""
+    _ensure_torch()
+    if not torch.cuda.is_available():
+        return 0, 0
+
+    mem_get_info = getattr(torch.cuda, "mem_get_info", None)
+    if mem_get_info is not None:
+        try:
+            free_bytes, total_bytes = mem_get_info(device)
+            return int(free_bytes), int(total_bytes)
+        except (RuntimeError, TypeError, AttributeError) as exc:
+            logger.warning("torch.cuda.mem_get_info() fehlgeschlagen, fallback: %s", exc)
+
+    props = torch.cuda.get_device_properties(device)
+    total_bytes = int(props.total_memory)
+    used_bytes = int(torch.cuda.memory_allocated(device))
+    return max(total_bytes - used_bytes, 0), total_bytes
 
 
 def oom_recovery(func):
@@ -448,11 +481,11 @@ class ModelManager:
         # VRAM-Check (nur bei CUDA)
         vram_available_gb = 0.0
         vram_sufficient = True
+        vram_total_gb = 0.0
         if torch.cuda.is_available():
-            props = torch.cuda.get_device_properties(0)
-            vram_total = props.total_memory
-            vram_used = torch.cuda.memory_allocated(0)
-            vram_available_gb = (vram_total - vram_used) / (1024**3)
+            vram_free, vram_total = get_cuda_memory_info_bytes(0)
+            vram_available_gb = vram_free / (1024**3)
+            vram_total_gb = vram_total / (1024**3)
             vram_sufficient = vram_available_gb >= OOM_VRAM_THRESHOLD_GB
 
         needs_unload = not ram_sufficient or not vram_sufficient
@@ -460,6 +493,7 @@ class ModelManager:
         return {
             "ram_available_gb": round(ram_available_gb, 2),
             "vram_available_gb": round(vram_available_gb, 2),
+            "vram_total_gb": round(vram_total_gb, 2),
             "ram_sufficient": ram_sufficient,
             "vram_sufficient": vram_sufficient,
             "needs_unload": needs_unload,
@@ -804,8 +838,8 @@ class ModelManager:
             model_id: Modell-ID
             model_type: "transformers", "vision", "siglip", "raft"
         """
-        # FIX B-006: Globaler GPU_LOAD_LOCK verhindert Race-Condition bei concurrent loads
-        with GPU_LOAD_LOCK:
+        # GPU-Lease deckt Load + moegliches Unload gegen laufende Inferenz ab.
+        with gpu_resource_lease(f"ensure_loaded:{model_type}"):
             if model_type == "vision":
                 result = self.load_vision(model_id)
             elif model_type == "siglip":
@@ -967,8 +1001,9 @@ class ModelManager:
         if not torch.cuda.is_available():
             return {"device": "cpu", "vram_used_mb": 0, "vram_total_mb": 0}
 
-        used = torch.cuda.memory_allocated() / 1024 / 1024
-        total = torch.cuda.get_device_properties(0).total_memory / 1024 / 1024
+        free_bytes, total_bytes = get_cuda_memory_info_bytes(0)
+        used = (total_bytes - free_bytes) / 1024 / 1024
+        total = total_bytes / 1024 / 1024
         return {
             "device": torch.cuda.get_device_name(0),
             "vram_used_mb": round(used, 1),

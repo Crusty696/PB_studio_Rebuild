@@ -156,7 +156,7 @@ class WorkspaceSetupController(PBComponent):
         from ui.workspaces import (
             MediaWorkspace, EditWorkspace, StemsWorkspace,
             ConvertWorkspace, DeliverWorkspace,
-            AnalysisWorkspace, PrepareWorkspace, ProjectDashboard,
+            MaterialAnalysisWorkspace, ProjectDashboard,
         )
 
         self.window._media_ws = MediaWorkspace()
@@ -167,6 +167,8 @@ class WorkspaceSetupController(PBComponent):
         self.window.btn_video_pipeline = self.window._media_ws.btn_video_pipeline
         self.window.btn_waveform = self.window._media_ws.btn_waveform
         self.window.btn_stem_separate = self.window._media_ws.btn_stem_separate
+        self.window.btn_keyframe_string = self.window._media_ws.btn_keyframe_string
+        self.window.keyframe_text = self.window._media_ws.keyframe_text
         self.window.btn_auto_duck = self.window._media_ws.btn_auto_duck
         self.window.btn_add_to_timeline = self.window._media_ws.btn_add_to_timeline
         self.window.progress_bar = self.window._media_ws.progress_bar
@@ -257,8 +259,8 @@ class WorkspaceSetupController(PBComponent):
         self.window.btn_remove_anchor = self.window._edit_ws.btn_remove_anchor
         self.window.btn_sync_anchors = self.window._edit_ws.btn_sync_anchors
         self.window.btn_learn_ai = self.window._edit_ws.btn_learn_ai
-        self.window.btn_keyframe_string = self.window._edit_ws.btn_keyframe_string
-        self.window.keyframe_text = self.window._edit_ws.keyframe_text
+        self.window.review_keyframe_text = self.window._edit_ws.keyframe_text
+        self.window.review_btn_keyframe_string = self.window._edit_ws.btn_keyframe_string
         self.window.pacing_curve = self.window._edit_ws.pacing_curve
         self.window.timeline_view = self.window._edit_ws.timeline_view
         self.window.cut_info_label = self.window._edit_ws.cut_info_label
@@ -375,8 +377,11 @@ class WorkspaceSetupController(PBComponent):
 
         # --- Workflow shell pages ---
         self.window._project_dashboard = ProjectDashboard()
-        self.window._prepare_ws = PrepareWorkspace(self.window._media_ws, self.window._convert_ws)
-        self.window._analysis_ws = AnalysisWorkspace(self.window._stems_ws, self.window._media_ws)
+        self.window._material_analysis_ws = MaterialAnalysisWorkspace(
+            self.window._media_ws,
+            self.window._convert_ws,
+        )
+        self.window._analysis_ws = self.window._material_analysis_ws
 
         self.window._project_dashboard.btn_new_project.clicked.connect(
             self.window.project_management._new_project
@@ -384,19 +389,68 @@ class WorkspaceSetupController(PBComponent):
         self.window._project_dashboard.btn_open_project.clicked.connect(
             self.window.project_management._open_project
         )
-        self.window._project_dashboard.btn_next_step.clicked.connect(
-            lambda: self.window.nav_bar.set_workspace(1)
-        )
+        self.window._project_dashboard.action_requested.connect(self._handle_cockpit_action)
 
-        self.window._analysis_ws.btn_open_sources.clicked.connect(
-            lambda: self.window.nav_bar.set_workspace(1)
+        from services import analysis_status_service
+
+        self.window._cockpit_completion_listener = (
+            lambda _media_type, _media_id, _step_key, _summary: (
+                self.window._project_dashboard.refresh_requested.emit()
+            )
+        )
+        analysis_status_service.register_completion_listener(
+            self.window._cockpit_completion_listener
+        )
+        self.window.destroyed.connect(
+            lambda *_args: self._unregister_cockpit_listener()
         )
 
         self.window.workspace_stack.addWidget(self.window._project_dashboard)
-        self.window.workspace_stack.addWidget(self.window._prepare_ws)
-        self.window.workspace_stack.addWidget(self.window._analysis_ws)
+        self.window.workspace_stack.addWidget(self.window._material_analysis_ws)
         self.window.workspace_stack.addWidget(self.window._edit_ws)
         self.window.workspace_stack.addWidget(self.window._deliver_ws)
+
+    def _handle_cockpit_action(self, action_key: str):
+        """Fuehrt genau die vom Guided Cockpit empfohlene Aktion aus."""
+        if action_key == "open_project":
+            self.window.project_management._open_project()
+            return
+        if action_key == "open_material_analysis":
+            self.window.nav_bar.set_workspace(1)
+            return
+        if action_key == "run_audio_complete":
+            self.window.nav_bar.set_workspace(1)
+            if hasattr(self.window._media_ws, "switch_to_audio"):
+                self.window._media_ws.switch_to_audio()
+            self.window.audio_analysis._analyze_all_sequential()
+            return
+        if action_key == "run_video_pipeline":
+            self.window.nav_bar.set_workspace(1)
+            if hasattr(self.window._media_ws, "switch_to_video"):
+                self.window._media_ws.switch_to_video()
+            self.window.video_analysis._start_video_pipeline()
+            return
+        if action_key == "open_auto_edit":
+            self.window.nav_bar.set_workspace(2)
+            return
+        if action_key == "open_review":
+            self.window.nav_bar.set_workspace(3)
+            return
+        if action_key == "open_export":
+            self.window.nav_bar.set_workspace(4)
+            return
+        self.logger.warning("Unbekannte Cockpit-Aktion: %s", action_key)
+
+    def _unregister_cockpit_listener(self):
+        listener = getattr(self.window, "_cockpit_completion_listener", None)
+        if listener is None:
+            return
+        try:
+            from services import analysis_status_service
+            analysis_status_service.unregister_completion_listener(listener)
+        except Exception as exc:
+            self.logger.debug("cockpit listener unregister failed: %s", exc)
+        self.window._cockpit_completion_listener = None
 
     def _on_workspace_changed(self, index: int):
         from ui.workspaces.workflow_pages import set_tab_if_available
@@ -413,24 +467,21 @@ class WorkspaceSetupController(PBComponent):
             return
         if index == 2:
             self.window.workspace_stack.setCurrentIndex(2)
-            return
-        if index == 3:
-            self.window.workspace_stack.setCurrentIndex(3)
             if hasattr(self.window._edit_ws, "set_workflow_stage"):
                 self.window._edit_ws.set_workflow_stage("auto")
             else:
                 set_tab_if_available(self.window._edit_ws, 1)
             self.window.media_table_controller._refresh_director_combos()
             return
-        if index == 4:
-            self.window.workspace_stack.setCurrentIndex(3)
+        if index == 3:
+            self.window.workspace_stack.setCurrentIndex(2)
             if hasattr(self.window._edit_ws, "set_workflow_stage"):
                 self.window._edit_ws.set_workflow_stage("review")
             else:
                 set_tab_if_available(self.window._edit_ws, 0)
             return
-        if index == 5:
-            self.window.workspace_stack.setCurrentIndex(4)
+        if index == 4:
+            self.window.workspace_stack.setCurrentIndex(3)
             if hasattr(self.window, 'export'):
                 self.window.export._refresh_production_info()
             return
@@ -444,6 +495,14 @@ class WorkspaceSetupController(PBComponent):
             video_ready = self.window.video_combo.count() > 0
         except Exception:
             pass
+        media_ws = getattr(self.window, "_media_ws", None)
+        try:
+            if not audio_ready and media_ws is not None:
+                audio_ready = media_ws.audio_pool_model.rowCount() > 0
+            if not video_ready and media_ws is not None:
+                video_ready = media_ws.video_pool_model.rowCount() > 0
+        except Exception as exc:
+            self.logger.debug("media pool readiness unavailable: %s", exc)
 
         can_auto_edit = audio_ready and video_ready
         for attr in ("btn_generate", "btn_auto_edit"):
@@ -513,13 +572,20 @@ class WorkspaceSetupController(PBComponent):
         name = label.text() if label is not None and label.text() else None
         path = None
         manager = getattr(self.window, "_project_manager", None)
+        project_id = None
         try:
             current = getattr(manager, "current_project_path", None)
             if current is not None:
                 path = str(current)
         except Exception as exc:
             self.logger.debug("dashboard project path unavailable: %s", exc)
-        dashboard.update_project(name, path)
+        try:
+            from database import get_active_project_id
+            project_id = get_active_project_id()
+        except Exception as exc:
+            self.logger.debug("dashboard project id unavailable: %s", exc)
+        dashboard.update_project(name, path, project_id=project_id)
+        dashboard.refresh(project_id)
 
     def _save_window_state(self) -> None:
         """Persist workflow stage and context-panel tab."""

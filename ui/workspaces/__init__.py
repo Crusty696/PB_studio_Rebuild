@@ -5,10 +5,10 @@ from .edit_workspace import EditWorkspace
 from .stems_workspace import StemsWorkspace
 from .convert_workspace import ConvertWorkspace
 from .deliver_workspace import DeliverWorkspace
-from .workflow_pages import AnalysisWorkspace, PrepareWorkspace, ProjectDashboard
+from .workflow_pages import AnalysisWorkspace, MaterialAnalysisWorkspace, PrepareWorkspace, ProjectDashboard
 
 __all__ = [
     "MediaWorkspace", "EditWorkspace", "StemsWorkspace",
     "ConvertWorkspace", "DeliverWorkspace",
-    "AnalysisWorkspace", "PrepareWorkspace", "ProjectDashboard",
+    "AnalysisWorkspace", "MaterialAnalysisWorkspace", "PrepareWorkspace", "ProjectDashboard",
 ]

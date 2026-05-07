@@ -3,6 +3,7 @@
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+import threading
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QImage, QPixmap
 from database import engine, VideoClip, TimelineEntry, get_active_project_id, nullpool_session
@@ -15,7 +16,32 @@ logger = logging.getLogger(__name__)
 task_manager = TaskManagerProxy()
 
 # Dedizierter Thread fuer DB-Queries — kein Main-Thread-Blocking
-_db_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="convert_db")
+_db_pool: ThreadPoolExecutor | None = None
+_db_pool_lock = threading.Lock()
+
+
+def submit_convert_db_job(fn):
+    """Submit a convert DB job via a lazily-created single-worker pool."""
+    global _db_pool
+    with _db_pool_lock:
+        if _db_pool is None:
+            _db_pool = ThreadPoolExecutor(
+                max_workers=1,
+                thread_name_prefix="convert_db",
+            )
+        return _db_pool.submit(fn)
+
+
+def shutdown_convert_db_pool(timeout: float = 2.0) -> bool:
+    """Stop the convert DB executor so app shutdown does not leak convert_db_0."""
+    global _db_pool
+    with _db_pool_lock:
+        pool = _db_pool
+        _db_pool = None
+    if pool is None:
+        return True
+    pool.shutdown(wait=True, cancel_futures=True)
+    return not any(t.name.startswith("convert_db") for t in threading.enumerate())
 
 class ConvertController(PBComponent):
     """Convert workspace methods for PBWindow."""
@@ -53,7 +79,7 @@ class ConvertController(PBComponent):
                 logger.warning("[ConvertController] _refresh_effects_combos DB-Fehler: %s", e)
             QTimer.singleShot(0, lambda: self._populate_effects_combo(items))
 
-        _db_pool.submit(_fetch)
+        submit_convert_db_job(_fetch)
 
     def _populate_effects_combo(self, items: list[tuple[str, int]]):
         """Befuellt die Combo-Box im Main-Thread mit vorgeladenen Daten."""
@@ -79,7 +105,7 @@ class ConvertController(PBComponent):
             except Exception as e:
                 logger.warning("[ConvertController] _on_effects_clip_changed DB-Fehler: %s", e)
 
-        _db_pool.submit(_fetch)
+        submit_convert_db_job(_fetch)
 
     def _apply_clip_values(self, brightness: int, contrast: int, crossfade: int):
         """Setzt Slider-Werte im Main-Thread."""
@@ -109,7 +135,7 @@ class ConvertController(PBComponent):
             except Exception as e:
                 logger.warning("[ConvertController] _apply_effects DB-Fehler: %s", e)
 
-        _db_pool.submit(_save)
+        submit_convert_db_job(_save)
 
         self.window.console_text.append(
             f"[Effects] Clip {entry_id}: Helligkeit={brightness:.2f}, "
@@ -137,7 +163,7 @@ class ConvertController(PBComponent):
             except Exception as e:
                 logger.warning("[ConvertController] _show_effect_preview DB-Fehler: %s", e)
 
-        _db_pool.submit(_fetch_and_preview)
+        submit_convert_db_job(_fetch_and_preview)
 
     def _start_effect_worker(self, file_path: str, vf_extra: str):
         """Startet FrameExtractWorker im Main-Thread (Worker-Erstellung muss im Main-Thread sein)."""

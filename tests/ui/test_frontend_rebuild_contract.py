@@ -27,8 +27,7 @@ def test_workflow_navigation_names_are_final():
 
     assert WorkspaceNavBar.WORKSPACE_NAMES == [
         "PROJEKT",
-        "QUELLEN",
-        "ANALYSE",
+        "MATERIAL & ANALYSE",
         "AUTO-SCHNITT",
         "REVIEW",
         "EXPORT",
@@ -69,7 +68,7 @@ def test_workflow_components_are_available():
         WorkflowHeader,
     )
 
-    assert WorkflowHeader("Quellen", "Import und Preflight").title.text() == "Quellen"
+    assert WorkflowHeader("Material & Analyse", "Auswahl und Analyse").title.text() == "Material & Analyse"
     assert PrimaryActionBar("Importieren").primary_button.text() == "Importieren"
     assert StatusStrip().layout() is not None
     assert SectionTabs().documentMode()

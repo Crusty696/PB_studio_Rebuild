@@ -53,6 +53,7 @@ alembic>=1.13.0,<2.0.0
 
 # === Timeline ===
 opentimelineio>=0.17.0,<0.19.0
+otio-cmx3600-adapter==1.0.0
 
 # === Numerik ===
 numpy>=1.24.0,<2.0.0
@@ -93,12 +94,18 @@ pydantic>=2.5.0,<3.0.0
 
 # === Protobuf (fuer ONNX etc.) ===
 protobuf>=4.25.0,<6.0.0
-onnxruntime>=1.16.0,<2.0.0
+# Phase 6 ONNX CUDA eval: ORT 1.18.1 CUDA 11.x + Torch cu113 DLL preload.
+onnx==1.16.2
+onnxruntime-gpu==1.18.1
 
 # === Studio Brain ===
 umap-learn>=0.5,<0.6
 pyqtgraph>=0.13,<0.14
 networkx>=3.0,<4.0
+
+# === Brain V3 optional ANN eval (Phase 6 R18) ===
+vectorlite-py==0.2.0
+apsw>=3.53.1.0,<3.54.0.0
 
 # === Dev (optional) ===
 pytest>=7.4.0,<10.0.0

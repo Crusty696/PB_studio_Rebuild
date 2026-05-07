@@ -138,8 +138,12 @@ class AiStatusDot(QLabel):
 
     def closeEvent(self, event):
         """K-013 / B-036 Fix: Cleanup beim Schliessen des Widgets/Fensters."""
+        self.stop()
+        super().closeEvent(event)
+
+    def stop(self) -> None:
+        """Stop the polling thread before the owning window is destroyed."""
         self._invoke_worker_stop()
         if self._thread and self._thread.isRunning():
             self._thread.quit()
             self._thread.wait(500)
-        super().closeEvent(event)

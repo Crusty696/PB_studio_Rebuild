@@ -285,6 +285,13 @@ class PBWindow(QMainWindow):
         self._project_manager = ProjectManager(self)
         self._project_manager.project_changed.connect(self.project_management._on_project_changed)
 
+        # Phase-2 + Phase-3 App-Sync (Plan 06_PHASES.md):
+        # EmbeddingScheduler wird async gestartet (QTimer 0 → nach Show
+        # damit Boot nicht blockiert). Brain-Store-Health-Check ebenso.
+        self._brain_v3_scheduler = None
+        from PySide6.QtCore import QTimer as _QTBV3
+        _QTBV3.singleShot(0, self._boot_brain_v3_services)
+
         # Zentrales Widget
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -345,8 +352,8 @@ class PBWindow(QMainWindow):
         self.status_bar.showMessage(f"PB_studio v{APP_VERSION} | System bereit")
 
         # ── Resource Monitor (CPU / RAM / GPU) ──
-        resource_monitor = ResourceMonitorWidget()
-        self.statusBar().addPermanentWidget(resource_monitor)
+        self._resource_monitor = ResourceMonitorWidget()
+        self.statusBar().addPermanentWidget(self._resource_monitor)
 
         # ── Panel Widgets — alle in das Right-Panel-TabWidget ──
         self.panel_setup.setup_task_dock()
@@ -361,6 +368,16 @@ class PBWindow(QMainWindow):
         # ActionRegistry-Pfad). Loest insbesondere das stem_separation-
         # Refresh-Loch.
         self.panel_setup.setup_analysis_completion_bridge()
+
+        # Phase-5 (Plan-Doc 06 Z.421-427): Brain-V3-Stats-Panel als neuer Tab
+        # im Right-Panel. NICHT in studio_brain_window.py umgebaut (LOCKED).
+        try:
+            from ui.widgets.brain_v3_stats_panel import BrainV3StatsPanel
+            self._brain_v3_stats_panel = BrainV3StatsPanel(parent=self.right_panel)
+            self.right_panel.addTab(self._brain_v3_stats_panel, "Brain V3")
+            logger.info("PBWindow: BrainV3StatsPanel als Right-Panel-Tab eingehängt")
+        except Exception as exc:
+            logger.warning("Brain-V3-Stats-Panel konnte nicht eingehängt werden: %s", exc)
 
         # P9-Step2: Toggle-Buttons in Top-Bar wechseln den aktiven Tab im
         # Right-Panel statt Sichtbarkeit zu togglen. Right-Panel selbst
@@ -678,6 +695,89 @@ class PBWindow(QMainWindow):
         except Exception as exc:
             logger.warning("_offer_cuda_recovery failed: %s", exc)
 
+    def _boot_brain_v3_services(self) -> None:
+        """Phase-2 + Phase-3 App-Sync (Plan 06_PHASES.md):
+        - Brain-Store-Health-Check (3 V3-DBs lesbar, Disk-Space)
+        - GpuSerializer Init (Singleton)
+        - EmbeddingScheduler start (QThread + asyncio-Loop)
+        Alle Aktionen sind best-effort; Fehler werden geloggt, App laeuft weiter.
+        """
+        # Health-Check
+        try:
+            from services.brain_v3.storage.brain_store import BrainStore
+            store = BrainStore()
+            health = store.health_check()
+            health_msg = (
+                f"[Brain V3] Hirn-Store-Health: "
+                f"weights.db {'ok' if health.weights_ok else 'fail'}, "
+                f"patterns.db {'ok' if health.patterns_ok else 'fail'}, "
+                f"embedding_cache.db {'ok' if health.embedding_cache_ok else 'fail'}, "
+                f"migrations v{health.migrations_version}, free {health.disk_space_mb} MB"
+            )
+            logger.info(health_msg)
+            self.console_text.append(health_msg)
+            for err in health.errors:
+                err_msg = f"[Brain V3] Health-Warnung: {err}"
+                logger.warning(err_msg)
+                self.console_text.append(err_msg)
+        except Exception as exc:
+            logger.warning("_boot_brain_v3_services: health-check fehlgeschlagen: %s", exc)
+            self.console_text.append(f"[Brain V3] Health-Check Fehler: {exc}")
+
+        # GpuSerializer-Init (Lazy-Singleton)
+        try:
+            from services.brain_v3.gpu_serializer import get_default_serializer
+            get_default_serializer()
+            logger.info("_boot_brain_v3_services: GpuSerializer initialisiert")
+        except Exception as exc:
+            logger.warning("_boot_brain_v3_services: GpuSerializer-Init fehlgeschlagen: %s", exc)
+
+        # EmbeddingScheduler start
+        try:
+            from services.brain_v3.embedding_scheduler import get_default_scheduler
+            scheduler = get_default_scheduler()
+            scheduler.start()
+            self._brain_v3_scheduler = scheduler
+            logger.info("[Brain V3] EmbeddingScheduler gestartet")
+            self.console_text.append("[Brain V3] EmbeddingScheduler gestartet")
+        except Exception as exc:
+            logger.warning("_boot_brain_v3_services: EmbeddingScheduler-Start fehlgeschlagen: %s", exc)
+            self.console_text.append(f"[Brain V3] EmbeddingScheduler Fehler: {exc}")
+
+        self._start_brain_v3_backup_check()
+
+    def _start_brain_v3_backup_check(self) -> None:
+        """Phase 6: weekly Brain-V3 DB backup check, never on GUI thread."""
+        try:
+            import threading
+
+            thread = threading.Thread(
+                target=self._run_brain_v3_backup_check,
+                name="brain-v3-weekly-backup",
+                daemon=True,
+            )
+            thread.start()
+        except Exception as exc:
+            logger.warning("Brain-V3 weekly backup thread start failed: %s", exc)
+
+    def _run_brain_v3_backup_check(self) -> None:
+        try:
+            from services.brain_v3.storage.backup import run_weekly_backup_if_due
+
+            result = run_weekly_backup_if_due()
+        except Exception as exc:
+            logger.warning("Brain-V3 weekly backup check failed: %s", exc)
+            return
+        if result.ran and result.backup is not None:
+            logger.info(
+                "[Brain V3] Weekly backup created: %s (%d files, %d pruned)",
+                result.backup.backup_dir,
+                len(result.backup.files_written),
+                len(result.deleted),
+            )
+        elif result.reason != "not_due":
+            logger.warning("[Brain V3] Weekly backup skipped: %s", result.reason)
+
     def closeEvent(self, event):
         """Behandelt das Schliessen der Anwendung (Fix F-003: Asynchroner Shutdown).
 
@@ -794,6 +894,15 @@ class PBWindow(QMainWindow):
                 if not self._version_checker.wait(2000):  # 2 second timeout
                     logger.warning("Version check thread did not stop gracefully")
 
+        # ResourceMonitorWidget besitzt einen QThread. Ohne stop() beendet
+        # Windows den Prozess nach QApplication-Exit mit STATUS_STACK_BUFFER_OVERRUN.
+        try:
+            resource_monitor = getattr(self, "_resource_monitor", None)
+            if resource_monitor is not None and hasattr(resource_monitor, "stop"):
+                resource_monitor.stop()
+        except Exception as exc:
+            logger.warning("closeEvent: ResourceMonitor-Stop fehlgeschlagen: %s", exc)
+
         # 7. Video & Audio Cleanup
         if hasattr(self, "video_preview"):
             try:
@@ -804,12 +913,37 @@ class PBWindow(QMainWindow):
         if hasattr(self, "stem_player"):
             self.stem_player.cleanup()
 
+        try:
+            chat_dock = getattr(self, "chat_dock", None)
+            if chat_dock is not None and hasattr(chat_dock, "shutdown"):
+                chat_dock.shutdown()
+        except Exception as exc:
+            logger.warning("closeEvent: ChatDock-Shutdown fehlgeschlagen: %s", exc)
+
         # 8. Ollama stoppen (Gemma 4 Arbeitsplan)
         try:
             OllamaService.get().stop()
             logger.info("closeEvent: Ollama gestoppt.")
         except Exception as exc:
             logger.warning("closeEvent: Ollama-Stop fehlgeschlagen: %s", exc)
+
+        # 8a. Convert-Controller DB-Pool stoppen. Der globale Executor haelt
+        # sonst den nicht-daemon Thread `convert_db_0` nach App-Close am Leben.
+        try:
+            from ui.controllers.convert import shutdown_convert_db_pool
+            if not shutdown_convert_db_pool(timeout=2.0):
+                logger.warning("closeEvent: convert DB pool stop timed out")
+        except Exception as exc:
+            logger.warning("closeEvent: convert DB pool stop fehlgeschlagen: %s", exc)
+
+        # 8b. Brain V3 EmbeddingScheduler graceful drain (Phase-3 App-Sync).
+        try:
+            scheduler = getattr(self, "_brain_v3_scheduler", None)
+            if scheduler is not None and scheduler.is_running():
+                scheduler.request_stop(timeout_ms=5000)
+                logger.info("closeEvent: EmbeddingScheduler gestoppt")
+        except Exception as exc:
+            logger.warning("closeEvent: EmbeddingScheduler-Stop fehlgeschlagen: %s", exc)
 
         # 9. VRAM final freigeben — **SYNCHRON**. P8-CUDA-FIX: Vorher
         # `unload_in_background()` → startet Worker-Thread, dann sofort

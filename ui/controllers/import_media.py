@@ -8,7 +8,7 @@ from PySide6.QtWidgets import QFileDialog
 from services.ingest_service import (
     delete_all_media, delete_selected_media, AUDIO_EXTENSIONS, VIDEO_EXTENSIONS,
 )
-from workers import FolderImportWorker
+from workers import FolderImportWorker, BrainV3HashingWorker
 from ui.base_component import PBComponent
 
 logger = logging.getLogger(__name__)
@@ -81,12 +81,81 @@ class ImportMediaController(PBComponent):
                     self.window.video_analysis._start_proxy_creation(clip_id, video_path, title)
                 self.window._mark_dirty()
             self.window.status_bar.showMessage(f"{added} Datei(en) importiert | System bereit")
+            # Phase-1 App-Sync: Hash-Hook nach erfolgreichem Import.
+            # Idempotent — Re-Import liefert is_new=False / Cache-Hit-Log.
+            self._spawn_brain_v3_hash_worker(paths_audio, paths_video)
 
         def _on_error(msg: str):
             self.window.console_text.append(f"[Fehler] Import abgebrochen: {msg}")
             self.window.status_bar.showMessage("Import fehlgeschlagen | System bereit")
 
         self.window.worker_dispatcher._start_worker_thread(worker, on_finish=_on_finish, on_error=_on_error)
+
+    def _spawn_brain_v3_hash_worker(self, paths_audio: list[str], paths_video: list[str]):
+        """Phase-1+2-App-Sync (06_PHASES.md Z.82-191): Hash registrieren +
+        Embedding-Job-Push.
+
+        Hash-Worker laeuft in eigenem QThread. Pro neu registriertem Hash
+        (is_new=True) wird via Signal `hash_registered` der EmbeddingScheduler
+        getriggert (Cache-Hit-Skip findet im Scheduler statt). Fehler im
+        Hash- oder Embedding-Pfad killen NIE den Import.
+        """
+        if not paths_audio and not paths_video:
+            return
+        hash_worker = BrainV3HashingWorker(paths_audio, paths_video)
+        hash_worker.file_imported = hash_worker.file_hashed  # alias fuer console
+        hash_worker.file_hashed.connect(
+            self.window.console_text.append,
+            Qt.ConnectionType.QueuedConnection,
+        )
+        hash_worker.hash_registered.connect(
+            self._on_hash_registered_for_embedding,
+            Qt.ConnectionType.QueuedConnection,
+        )
+
+        def _hash_done(n_new: int, n_known: int):
+            self.window.console_text.append(
+                f"[Brain V3] Hash-Lauf fertig: {n_new} neu, {n_known} bekannt"
+            )
+
+        def _hash_err(msg: str):
+            self.window.console_text.append(f"[Brain V3] Hash-Worker-Fehler: {msg}")
+
+        self.window.worker_dispatcher._start_worker_thread(
+            hash_worker, on_finish=_hash_done, on_error=_hash_err,
+        )
+
+    def _on_hash_registered_for_embedding(
+        self, media_hash: str, source_path: str, media_type: str,
+    ) -> None:
+        """Phase-2-App-Sync: pusht Embedding-Job an den EmbeddingScheduler.
+
+        Laeuft im UI-Thread (QueuedConnection). Scheduler ist im PBWindow
+        gestartet (siehe main.py PBWindow.__init__). Bei nicht-laufendem
+        Scheduler (z.B. erst-Import vor Boot-Hook) wird leise geskippt
+        und in Konsole gemeldet.
+        """
+        scheduler = getattr(self.window, "_brain_v3_scheduler", None)
+        if scheduler is None or not scheduler.is_running():
+            self.window.console_text.append(
+                f"[Brain V3] Scheduler nicht aktiv — Embedding skip ({media_hash[:8]}...)"
+            )
+            return
+        try:
+            job_id = scheduler.submit_path(media_hash, source_path, media_type)
+        except Exception as exc:
+            self.window.console_text.append(
+                f"[Brain V3] Embedding-Submit fehlgeschlagen ({media_hash[:8]}...): {exc}"
+            )
+            return
+        if job_id is None:
+            self.window.console_text.append(
+                f"[Brain V3] Embedding-Cache-Hit ({media_hash[:8]}...)"
+            )
+        else:
+            self.window.console_text.append(
+                f"[Brain V3] Embedding-Job submitted ({media_hash[:8]}..., id={job_id})"
+            )
 
     def _import_folder(self):
         """Importiert alle unterstuetzten Medien aus einem Ordner.
@@ -121,6 +190,11 @@ class ImportMediaController(PBComponent):
                     self.window.video_analysis._start_proxy_creation(clip_id, video_path, title)
                 self.window._mark_dirty()
             self.window.status_bar.showMessage(f"{added} Datei(en) aus Ordner importiert | System bereit")
+            # Phase-1 App-Sync: paths_audio/paths_video wurden vom Worker
+            # waehrend des Walks befuellt — jetzt verfuegbar.
+            self._spawn_brain_v3_hash_worker(
+                list(worker.paths_audio), list(worker.paths_video),
+            )
 
         def _on_error(msg: str):
             self.window.console_text.append(f"[Fehler] Ordner-Import abgebrochen: {msg}")

@@ -14,6 +14,7 @@ um Test-Mocking via patch.object(svc, ...) zu unterstuetzen.
 
 from __future__ import annotations
 
+import bisect
 import logging
 from dataclasses import dataclass
 from pathlib import Path
@@ -32,6 +33,24 @@ from services.pacing_beat_grid import (
 )
 
 logger = logging.getLogger(__name__)
+
+DOWNBEAT_MATCH_TOLERANCE_SEC = 0.03
+
+
+def _is_downbeat_near(
+    beat_time: float,
+    downbeats_sorted: list[float],
+    tolerance: float = DOWNBEAT_MATCH_TOLERANCE_SEC,
+) -> bool:
+    """True wenn ein Downbeat innerhalb der Rundungs-/Analyse-Toleranz liegt."""
+    if not downbeats_sorted:
+        return False
+    pos = bisect.bisect_left(downbeats_sorted, beat_time)
+    for idx in (pos - 1, pos):
+        if 0 <= idx < len(downbeats_sorted):
+            if abs(downbeats_sorted[idx] - beat_time) <= tolerance:
+                return True
+    return False
 
 
 def _density_to_beat_step(density: float) -> int:
@@ -208,7 +227,7 @@ def _select_cut_beats_advanced(
     if not beats:
         return []
 
-    downbeat_set: set[float] = set(downbeats) if downbeats else set()
+    downbeat_times = sorted(float(db) for db in downbeats) if downbeats else []
     selected: list[float] = []
     beats_since_last_cut = 0
 
@@ -249,21 +268,21 @@ def _select_cut_beats_advanced(
         beats_since_last_cut += 1
         if beats_since_last_cut >= step:
             # Beat-Hierarchie: Grosse Steps bevorzugen Downbeats
-            if step >= 8 and downbeat_set:
+            if step >= 8 and downbeat_times:
                 # Nur auf Downbeats schneiden
-                if beat_time in downbeat_set:
+                if _is_downbeat_near(beat_time, downbeat_times):
                     selected.append(beat_time)
                     beats_since_last_cut = 0
                 # else: warten bis naechster Downbeat
-            elif step >= 4 and downbeat_set:
+            elif step >= 4 and downbeat_times:
                 # Downbeat bevorzugen: falls vorhanden nehmen, sonst normal
-                if beat_time in downbeat_set:
+                if _is_downbeat_near(beat_time, downbeat_times):
                     selected.append(beat_time)
                     beats_since_last_cut = 0
                 else:
                     # Schauen ob naechster Beat ein Downbeat ist (1 Beat Toleranz)
                     next_beat = beats[i + 1] if i + 1 < len(beats) else None
-                    if next_beat is None or next_beat not in downbeat_set:
+                    if next_beat is None or not _is_downbeat_near(next_beat, downbeat_times):
                         selected.append(beat_time)
                         beats_since_last_cut = 0
             else:
