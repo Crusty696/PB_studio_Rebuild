@@ -329,3 +329,35 @@ class ApplyAutoEditCommand(QUndoCommand):
                 session.add(TimelineEntry(**snap))
             session.commit()
         self._timeline.load_from_db(self._project_id)
+
+
+class ToggleClipLockCommand(QUndoCommand):
+    """Togglet das locked-Flag eines TimelineEntry.
+
+    SCHNITT-Redesign 2026-05-09 Phase 03 Task 3.3.
+    """
+
+    def __init__(self, entry_id: int, new_locked: bool):
+        super().__init__("Clip sperren" if new_locked else "Clip entsperren")
+        self._entry_id = entry_id
+        self._new = new_locked
+        self._old: bool | None = None
+
+    def redo(self):
+        with DBSession(engine) as s:
+            e = s.get(TimelineEntry, self._entry_id)
+            if e is None:
+                return
+            self._old = bool(e.locked)
+            e.locked = self._new
+            s.commit()
+
+    def undo(self):
+        if self._old is None:
+            return
+        with DBSession(engine) as s:
+            e = s.get(TimelineEntry, self._entry_id)
+            if e is None:
+                return
+            e.locked = self._old
+            s.commit()
