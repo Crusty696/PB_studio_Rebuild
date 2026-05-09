@@ -155,3 +155,102 @@ def test_d10_slider_spin_range_mismatch_raises():
             reactivity_slider=slider, reactivity_spin=spin,
             breakdown_combo=brk, vibe_input=vibe,
         )
+
+
+# ---------------------------------------------------------------------------
+# T5.2 Coverage-Sweep (E2)
+# ---------------------------------------------------------------------------
+
+
+def test_apply_profile_sets_style_combo_text():
+    binder, profile, cut, style, slider, spin, brk, vibe = _bind()
+    new = PacingProfile.from_preset("Cinematic")
+    binder.apply_profile(new)
+    assert style.currentText() == "Cinematic"
+
+
+def test_apply_profile_sets_vibe_text():
+    binder, profile, cut, style, slider, spin, brk, vibe = _bind()
+    new = PacingProfile(vibe="aggressiv-laut")
+    binder.apply_profile(new)
+    assert vibe.text() == "aggressiv-laut"
+    assert profile.vibe == "aggressiv-laut"
+
+
+def test_apply_profile_sets_react_slider_via_spin():
+    binder, profile, cut, style, slider, spin, brk, vibe = _bind()
+    new = PacingProfile(energy_reactivity=77)
+    binder.apply_profile(new)
+    assert slider.value() == 77
+    assert spin.value() == 77
+    assert profile.energy_reactivity == 77
+
+
+def test_apply_profile_idempotent():
+    """Zweimal hintereinander → identischer Endzustand, kein RecursionError."""
+    binder, profile, cut, style, slider, spin, brk, vibe = _bind()
+    new = PacingProfile.from_preset("Cinematic")
+    binder.apply_profile(new)
+    state_after_1 = (
+        cut.currentIndex(), style.currentText(), slider.value(),
+        spin.value(), brk.currentText(), vibe.text(),
+    )
+    binder.apply_profile(new)
+    state_after_2 = (
+        cut.currentIndex(), style.currentText(), slider.value(),
+        spin.value(), brk.currentText(), vibe.text(),
+    )
+    assert state_after_1 == state_after_2
+
+
+def test_apply_profile_unknown_style_no_drift():
+    """D6 Verifikation: bei findText=-1 keine Profil-Schreibung des Style-Felds."""
+    binder, profile, cut, style, slider, spin, brk, vibe = _bind()
+    profile.style_preset = "House"
+    new = PacingProfile(style_preset="Voellig-Unbekannt", energy_reactivity=42)
+    binder.apply_profile(new)
+    # Style bleibt unveraendert, andere Felder werden trotzdem geschrieben.
+    assert profile.style_preset == "House"
+    assert profile.energy_reactivity == 42
+
+
+def test_initial_state_pushed_to_widgets():
+    """D3 Verifikation: nach Konstruktor mit non-default Profil sind Widget-Werte=Profil."""
+    _qapp()
+    profile = PacingProfile(
+        cut_rate_index=4, style_preset="House",
+        energy_reactivity=33, breakdown="force16", vibe="custom",
+    )
+    cut, style, slider, spin, brk, vibe = _make_widgets()
+    PacingProfileBinder(
+        profile, cut_rate_combo=cut, style_combo=style,
+        reactivity_slider=slider, reactivity_spin=spin,
+        breakdown_combo=brk, vibe_input=vibe,
+    )
+    assert cut.currentIndex() == 4
+    assert style.currentText() == "House"
+    assert slider.value() == 33
+    assert spin.value() == 33
+    assert brk.currentText() == "force16"
+    assert vibe.text() == "custom"
+
+
+def test_dispose_disconnects():
+    """Nach dispose() triggern Widget-Changes keine Profil-Schreibungen mehr."""
+    binder, profile, cut, style, slider, spin, brk, vibe = _bind()
+    binder.dispose()
+    # Snapshot vor Aenderung
+    snap = (
+        profile.cut_rate_index, profile.style_preset,
+        profile.energy_reactivity, profile.breakdown, profile.vibe,
+    )
+    cut.setCurrentIndex(4)
+    style.setCurrentIndex(2)
+    spin.setValue(11)
+    brk.setCurrentIndex(1)
+    vibe.setText("nope")
+    snap_after = (
+        profile.cut_rate_index, profile.style_preset,
+        profile.energy_reactivity, profile.breakdown, profile.vibe,
+    )
+    assert snap == snap_after
