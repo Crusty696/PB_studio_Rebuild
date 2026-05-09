@@ -312,8 +312,8 @@ class WorkspaceSetupController(PBComponent):
         self.window.energy_reactivity_spin = _schnitt_tab_pacing.reactivity_spin
         self.window.btn_generate = self.window._schnitt_ws.editor_view.btn_generate
         self.window.btn_auto_edit = self.window._schnitt_ws.editor_view.btn_auto_edit
-        self.window.review_keyframe_text = self.window._edit_ws.keyframe_text
-        self.window.review_btn_keyframe_string = self.window._edit_ws.btn_keyframe_string
+        # Tier-3-Sunset T3.7: review_keyframe_text / review_btn_keyframe_string
+        # waren tote Aliase; aktive Pflege liegt in MEDIA > Video. Aliase weg.
 
         # Wire EDIT signals
         self.window.btn_preview_play.clicked.connect(self.window.edit_workspace._toggle_preview_play)
@@ -329,12 +329,10 @@ class WorkspaceSetupController(PBComponent):
         self.window.btn_keyframe_string.clicked.connect(self.window.edit_workspace._show_keyframe_strings)
         if hasattr(self.window.pacing_curve, 'curve_changed'):
             self.window.pacing_curve.curve_changed.connect(self.window.edit_workspace._generate_timeline)
-        if hasattr(self.window._edit_ws, 'btn_thumbs_up'):
-            self.window._edit_ws.btn_thumbs_up.clicked.connect(self.window.edit_workspace._rl_feedback_positive)
-        if hasattr(self.window._edit_ws, 'btn_thumbs_down'):
-            self.window._edit_ws.btn_thumbs_down.clicked.connect(self.window.edit_workspace._rl_feedback_negative)
-        if hasattr(self.window._edit_ws, 'style_preset_combo'):
-            self.window._edit_ws.style_preset_combo.currentIndexChanged.connect(self.window.edit_workspace._apply_style_preset)
+        # Tier-3-Sunset T3.6: thumbs-Wiring lebt jetzt auf
+        # _schnitt_tab_rl.feedback_positive/negative (siehe weiter unten).
+        # T3.7/T3.8: style_preset_combo wird auf den Pacing-Sub-Tab umgeleitet.
+        _schnitt_tab_pacing.style_combo.currentIndexChanged.connect(self.window.edit_workspace._apply_style_preset)
         self.window.timeline_view.clip_moved.connect(self.window.edit_workspace._on_timeline_clip_moved)
 
         # Tier-3-Sunset T3.5: btn_preview_play/stop sind jetzt der Schnitt-Tab.
