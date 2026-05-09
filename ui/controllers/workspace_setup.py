@@ -275,7 +275,7 @@ class WorkspaceSetupController(PBComponent):
         # / Audio / RL & Notes). The legacy EditWorkspace is kept as a hidden
         # widget host until Phase 12 cleanup, because some controls
         # (audio_combo, video_combo, btn_generate, btn_auto_edit, btn_keyframe_string,
-        # energy_reactivity_*, btn_toggle_inspector, preview_time_label) do not yet
+        # energy_reactivity_*, preview_time_label) do not yet
         # exist in the new sub-tabs. EditWorkspaceController consumes them via
         # ``self.window.<attr>`` -- we keep the promotions stable.
         self.window._schnitt_ws = SchnittWorkspace()
@@ -304,7 +304,6 @@ class WorkspaceSetupController(PBComponent):
         self.window.btn_preview_play = self.window._edit_ws.btn_preview_play
         self.window.btn_preview_stop = self.window._edit_ws.btn_preview_stop
         self.window.preview_time_label = self.window._edit_ws.preview_time_label
-        self.window.btn_toggle_inspector = self.window._edit_ws.btn_toggle_inspector
         self.window.audio_combo = self.window._edit_ws.audio_combo
         self.window.video_combo = self.window._edit_ws.video_combo
         self.window.energy_reactivity_slider = self.window._edit_ws.energy_reactivity_slider
@@ -317,7 +316,6 @@ class WorkspaceSetupController(PBComponent):
         # Wire EDIT signals
         self.window.btn_preview_play.clicked.connect(self.window.edit_workspace._toggle_preview_play)
         self.window.btn_preview_stop.clicked.connect(self.window.video_preview.stop)
-        self.window.btn_toggle_inspector.clicked.connect(self._toggle_inspector)
         self.window.video_combo.currentIndexChanged.connect(self.window.edit_workspace._on_video_combo_changed)
         self.window.audio_combo.currentIndexChanged.connect(self.window.edit_workspace._on_audio_combo_changed)
         self.window.btn_generate.clicked.connect(self.window.edit_workspace._generate_timeline)
@@ -663,14 +661,6 @@ class WorkspaceSetupController(PBComponent):
                 self.window.right_panel.setCurrentIndex(int(right_idx))
             except (ValueError, TypeError):
                 pass
-
-    def _toggle_inspector(self):
-        if self.window.inspector_panel.isVisible():
-            self.window.inspector_panel.hide()
-            self.window.btn_toggle_inspector.setText("\u25C0")
-        else:
-            self.window.inspector_panel.show()
-            self.window.btn_toggle_inspector.setText("\u25B6")
 
     def _create_compact_slider(self, label: str, min_val: int, max_val: int, default: int):
         from PySide6.QtWidgets import QHBoxLayout, QLabel, QSlider

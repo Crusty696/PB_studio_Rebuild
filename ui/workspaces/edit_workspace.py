@@ -162,17 +162,6 @@ class EditWorkspace(QWidget):
         transport_row.addWidget(self.preview_time_label)
         transport_row.addStretch()
 
-        # Inspector-Toggle bleibt erhalten, ist aber im neuen Layout obsolet
-        # (Inspector ist eigenes Tab) — wir lassen den Button als hidden Widget
-        # damit alte Wirings nicht crashen.
-        self.btn_toggle_inspector = QPushButton("\u25B6")
-        self.btn_toggle_inspector.setFixedSize(28, 24)
-        self.btn_toggle_inspector.setVisible(False)
-        self.btn_toggle_inspector.setAccessibleName("Inspector Panel ein-/ausklappen")
-        self.btn_toggle_inspector.setToolTip(
-            "Legacy-Schalter fuer das alte Inspector-Panel. Der Inspector liegt jetzt im eigenen Tab."
-        )
-
         v.addLayout(transport_row)
 
         # Timeline-View — nimmt Restraum (380px in 836px Tab-Hoehe)

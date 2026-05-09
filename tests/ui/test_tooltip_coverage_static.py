@@ -47,7 +47,6 @@ REQUIRED_TOOLTIPS: dict[str, tuple[str, ...]] = {
         "btn_preview_stop",
     ),
     "ui/workspaces/edit_workspace.py": (
-        "btn_toggle_inspector",
         "vibe_input",
         "cut_rate_combo",
         "style_preset_combo",
