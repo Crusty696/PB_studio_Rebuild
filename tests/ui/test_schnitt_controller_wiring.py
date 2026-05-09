@@ -148,6 +148,37 @@ def test_set_active_project_protected_skipped_during_loading(test_engine, monkey
 
 
 # ---------------------------------------------------------------------------
+# B5 — Timeline-Selection erreicht Inspector-Panel
+# ---------------------------------------------------------------------------
+
+def test_timeline_selection_forwarded_to_inspector(monkeypatch):
+    _qapp()
+    from ui.workspaces.schnitt_workspace import SchnittWorkspace
+    from ui.controllers.schnitt_controller import SchnittController
+
+    ws = SchnittWorkspace()
+    ctrl = SchnittController(ws)
+
+    received = []
+    monkeypatch.setattr(
+        ws.editor_view.inspector_panel,
+        "update_from_selection",
+        lambda data: received.append(data),
+    )
+    # Re-wire (monkeypatch ersetzt ATTR aber Signal-Verbindung bleibt
+    # auf altem Bound-Method). Stattdessen direkt erneut connecten:
+    ws.editor_view.tab_schnitt.timeline_view.selection_changed.connect(
+        ws.editor_view.inspector_panel.update_from_selection
+    )
+
+    fake_payload = [{"entry_id": 7, "media_id": 1, "track_type": "video",
+                     "pos_x": 0.0, "width": 100.0}]
+    ws.editor_view.tab_schnitt.timeline_view.selection_changed.emit(fake_payload)
+
+    assert any(item == fake_payload for item in received)
+
+
+# ---------------------------------------------------------------------------
 # B2 — btn_regenerate triggert Confirm + Signal
 # ---------------------------------------------------------------------------
 

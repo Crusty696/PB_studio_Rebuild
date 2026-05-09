@@ -48,6 +48,11 @@ class SchnittController(QObject):
         workspace.custom_clicked.connect(self._on_custom_clicked)
         # B2: Re-Generate-Button im Pacing-Tab
         tab.btn_regenerate.clicked.connect(self._on_regenerate_clicked)
+        # B5: Timeline-Selection -> Inspector-Panel
+        tl = workspace.editor_view.tab_schnitt.timeline_view
+        inspector = workspace.editor_view.inspector_panel
+        if hasattr(tl, "selection_changed") and hasattr(inspector, "update_from_selection"):
+            tl.selection_changed.connect(inspector.update_from_selection)
 
     def attach_worker(self, worker: Any) -> None:
         self._current_worker = worker
