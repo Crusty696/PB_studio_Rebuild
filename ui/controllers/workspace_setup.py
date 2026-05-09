@@ -479,6 +479,32 @@ class WorkspaceSetupController(PBComponent):
         self.window.workspace_stack.addWidget(self.window._schnitt_ws)               # 2
         self.window.workspace_stack.addWidget(self.window._deliver_ws)               # 3
 
+    def _push_active_project_to_schnitt(self) -> None:
+        """B-285 Phase B — Triple-Hook (Tab-Wechsel, Cockpit-Action,
+        ProjectManager.project_changed) ruft hier durch, damit
+        SchnittWorkspace und tab_rl_notes das aktive Projekt kennen.
+        Vorher: set_active_project wurde nirgendwo gerufen, _project_id
+        blieb None, refresh_state_from_db schaltete immer auf STATE_EMPTY.
+        """
+        try:
+            from database import get_active_project_id
+            pid = get_active_project_id()
+        except Exception as exc:
+            self.logger.debug("active project id unavailable: %s", exc)
+            pid = None
+        ws = getattr(self.window, "_schnitt_ws", None)
+        if ws is None:
+            return
+        ctrl = getattr(self.window, "_schnitt_ctrl", None)
+        if ctrl is not None:
+            ctrl.set_active_project_protected(pid)
+        else:
+            ws.set_active_project(pid)
+        try:
+            ws.editor_view.tab_rl_notes.set_active_project(pid)
+        except Exception as exc:
+            self.logger.debug("tab_rl_notes set_active_project failed: %s", exc)
+
     def _handle_cockpit_action(self, action_key: str):
         """Fuehrt genau die vom Guided Cockpit empfohlene Aktion aus."""
         if action_key == "open_project":
@@ -502,6 +528,8 @@ class WorkspaceSetupController(PBComponent):
         if action_key in ("open_schnitt", "open_auto_edit", "open_review"):
             # Phase 10: Auto-Edit and Review collapsed into SCHNITT.
             self.window.nav_bar.set_workspace(2)
+            # B-285 Phase B Hook-2: Cockpit-Sprung zu SCHNITT.
+            self._push_active_project_to_schnitt()
             return
         if action_key == "open_export":
             self.window.nav_bar.set_workspace(3)
@@ -532,6 +560,8 @@ class WorkspaceSetupController(PBComponent):
             return
         if index == 2:
             self.window.workspace_stack.setCurrentIndex(2)
+            # B-285 Phase B Hook-1: Tab-Wechsel zu SCHNITT.
+            self._push_active_project_to_schnitt()
             if hasattr(self.window._schnitt_ws, "refresh_state_from_db"):
                 try:
                     self.window._schnitt_ws.refresh_state_from_db()

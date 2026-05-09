@@ -207,6 +207,11 @@ class ProjectManagementController(PBComponent):
         except (OSError, RuntimeError, ValueError) as e:
             logging.warning("Timeline-Reload nach Projektwechsel fehlgeschlagen: %s", e)
             self.window.console_text.append(f"[Warnung] Timeline konnte nicht geladen werden: {e}")
+        # B-285 Phase B Hook-3: ProjectManager.project_changed -> SCHNITT informieren.
+        try:
+            self.window.workspace_setup._push_active_project_to_schnitt()
+        except Exception as e:
+            logging.debug("schnitt push_active_project failed: %s", e)
         self.window.status_bar.showMessage(f"Projekt: {project_name}  |  {path}")
 
     def _show_about(self):
