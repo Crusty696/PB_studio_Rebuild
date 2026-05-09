@@ -247,3 +247,59 @@ def test_set_active_project_protected_runs_when_not_loading(test_engine, monkeyp
     ctrl.set_active_project_protected(pid)
     # Kein Crash, project_id wurde uebernommen
     assert ws._project_id == pid
+
+
+# ---------------------------------------------------------------------------
+# T5.11 Coverage-Sweep (E11)
+# ---------------------------------------------------------------------------
+
+
+def test_attach_worker_without_progress_signal_no_crash():
+    """attach_worker akzeptiert Objekte ohne progress/done/failed-Signal — keine Krasche."""
+    _qapp()
+    from ui.workspaces.schnitt_workspace import SchnittWorkspace
+    from ui.controllers.schnitt_controller import SchnittController
+
+    ws = SchnittWorkspace()
+    ctrl = SchnittController(ws)
+
+    class BareWorker:
+        pass
+
+    bw = BareWorker()
+    ctrl.attach_worker(bw)
+    assert ctrl._current_worker is bw
+
+
+def test_cancel_without_active_worker_no_crash():
+    """Cancel-Signal ohne aktiven Worker → kein AttributeError."""
+    _qapp()
+    from ui.workspaces.schnitt_workspace import SchnittWorkspace
+    from ui.controllers.schnitt_controller import SchnittController
+
+    ws = SchnittWorkspace()
+    ctrl = SchnittController(ws)
+    assert ctrl._current_worker is None
+    # Direkt Cancel triggern — _on_cancel guard
+    ws.cancel_requested.emit()
+    assert ctrl._current_worker is None
+
+
+def test_attach_worker_replaces_old_worker():
+    """Zweiter attach_worker-Call ersetzt den alten Worker-Referenz."""
+    _qapp()
+    from ui.workspaces.schnitt_workspace import SchnittWorkspace
+    from ui.controllers.schnitt_controller import SchnittController
+
+    ws = SchnittWorkspace()
+    ctrl = SchnittController(ws)
+
+    class W:
+        pass
+
+    a = W()
+    b = W()
+    ctrl.attach_worker(a)
+    assert ctrl._current_worker is a
+    ctrl.attach_worker(b)
+    assert ctrl._current_worker is b
