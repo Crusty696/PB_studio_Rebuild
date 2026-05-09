@@ -7,6 +7,8 @@ related: ["D-018", "D-021", "D-033"]
 vault_anchor: projects/pb-studio/wiki/synthesis/schnitt-workspace-redesign-2026-05-09.md
 ---
 
+> **Implementation-Status (2026-05-09):** Plan-Code-Implementierung Tier 1–6 abgeschlossen (DB-Migrations, Data-Services, Building-Blocks, Skeleton, Sub-Tabs, Worker-Refactor, Nav/Integration, Tests, Cleanup, Test-Infrastruktur). Plan-Abweichungen-Register: siehe `docs/superpowers/plans/2026-05-09-schnitt-workspace-redesign/README.md` (Bottom). `status: fixed` setzt der User erst nach Live-Verifikation gemäß `12_LIVE_VERIFY_USER_GUIDE.md` — Frontmatter-Status oben bleibt bis dahin `draft-approved-for-planning`.
+
 # SCHNITT Workspace Redesign Design
 
 ## Ziel
