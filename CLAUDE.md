@@ -57,3 +57,33 @@ prüfe verifiziere und mach noch eine gegenprüfung deiner arbeit mit unterschie
 4. Only then: act.
 
 If `AGENTS.md` is missing, stop and tell the user. Do not proceed.
+
+---
+
+## Vault-Update-Pflicht — JEDER Fortschritt sofort spiegeln
+
+**Harte Regel (User-Anweisung 2026-05-09):** Nach **jedem** Sub-Schritt — User-Entscheidung, neue Risiko-Erkenntnis, Code-Änderung, Testlauf, Bugfix, Plan-Update, Commit — muss der Vault unter `C:\Brain-Bug\projects\pb-studio\` **am richtigen Ort** aktualisiert werden.
+
+- Aktive Living-Plans (`wiki/synthesis/<plan>.md`): Status-Tabelle, Klärungs-Log, Risiko-Liste, Nächste Schritte fortschreiben — nicht am Ende sammeln.
+- Neue Bugs → eigenes File in `wiki/bugs/B-XXX-*.md` mit YAML-Frontmatter.
+- Neue Decisions → `wiki/decisions/D-XXX-*.md`.
+- Synthesen / Test-Reports / Handoffs → `wiki/synthesis/`.
+- `log.md` bekommt für jeden namhaften Fortschritt einen datierten Eintrag.
+- `index.md > Aktiver Handoff` bleibt aktuell — neuer Plan ganz oben.
+- **Repo-Synthese ≠ Vault-Synthese.** Beides muss pro Sub-Schritt mitgezogen werden.
+- **`status: fixed` setzt nur der User**, nicht der Agent.
+
+Folge-Agenten müssen den jeweils aktiven Living-Plan im Vault zuerst lesen, bevor sie loslegen.
+
+---
+
+## Skills / Plugins / MCP — Lade-Policy (Projekt)
+
+Spiegelt die globale Regel aus `~/.claude/CLAUDE.md`.
+
+- **Default-Stack: nur `caveman` (Auto-Start) + `obsidian` (MCP lokal).** Alles andere bleibt aus.
+- **Skills nicht automatisch triggern**, auch wenn Description passt (`pb-rebuild-*`, `bug-hunter`, `brainstorming`, `systematic-debugging`, etc.). Nur auf explizite User-Anweisung.
+- **On-demand laden, nach Aufgabe wieder fallenlassen.** Kein Skill-Verhalten in Folgeantworten weiterführen, sobald die Skill-Aufgabe abgeschlossen ist.
+- **`enabledPlugins`** in `~/.claude/settings.json`: nur `caveman@caveman`. Änderung nur per User-Auftrag.
+- **MCP lokal:** nur `obsidian`. Cloud-MCPs deaktiviert User über claude.ai-Konto.
+- **Caveman bleibt immer aktiv** (siehe globale CLAUDE.md, Level ultra ab Session-Start).
