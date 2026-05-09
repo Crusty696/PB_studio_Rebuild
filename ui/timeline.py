@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 from services.pacing_service import CutPoint
 from ui.shortcut_manager import get_shortcut_manager
 from ui.waveform_item import WaveformGraphicsItem
+from ui.widgets.lock_icon_item import LockIconItem
 
 # MIME type for internal clip drag & drop (must match media_workspace.py)
 CLIP_MIME_TYPE = "application/x-pb-studio-clip"
@@ -166,6 +167,11 @@ class TimelineClipItem(QGraphicsRectItem):
         # andere Werte als die DB-Query und ist semantisch broken
         # (besonders fuer eine kuenftige Auto-Edit-Pipeline).
         self._all_anchor_offsets: list[float] = []
+
+        # Lock-Icon — rechts oben (SCHNITT-Redesign Phase 05 Task 5.2)
+        self.lock_icon = LockIconItem(parent_width=width, parent_height=height, parent=self)
+        self._locked: bool = False
+
         if anchors is not None:
             self._apply_anchors(anchors)
         else:
@@ -439,6 +445,21 @@ class TimelineClipItem(QGraphicsRectItem):
         super().mouseReleaseEvent(event)
         self._drag_start_x = None
         self._drag_duration = None  # H-34 fix: clear cached duration
+
+    # ------------------------------------------------------------------
+    # Lock-State (SCHNITT-Redesign Phase 05 Task 5.2)
+    # ------------------------------------------------------------------
+    def is_locked(self) -> bool:
+        return self._locked
+
+    def set_locked(self, locked: bool) -> None:
+        self._locked = bool(locked)
+        self.lock_icon.set_locked(self._locked)
+        # Goldrand bei Lock
+        if self._locked:
+            self.setPen(QPen(QColor(212, 164, 74, 255), 2))
+        else:
+            self.setPen(QPen(self._base_color.darker(120), 1))
 
 
 # ======================================================================
