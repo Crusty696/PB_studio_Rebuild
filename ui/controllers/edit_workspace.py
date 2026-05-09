@@ -86,6 +86,18 @@ class EditWorkspaceController(PBComponent):
     def _generate_timeline_impl(self):
         from PySide6.QtCore import QObject, Signal, QThread
 
+        # B-284 Phase C / Variante 1 — Editor-Header btn_generate triggert
+        # Loading-Overlay (User-Entscheidung 2026-05-09). Worker-progress
+        # bridge wird unten durch ctrl.attach_worker(self._cuts_worker)
+        # hergestellt; nach worker.done schaltet ctrl._on_done auf
+        # refresh_state_from_db zurueck.
+        ws = getattr(self.window, "_schnitt_ws", None)
+        if ws is not None:
+            try:
+                ws.enter_loading()
+            except Exception as exc:
+                logger.debug("schnitt enter_loading failed: %s", exc)
+
         audio_id = self.window.audio_combo.currentData()
         video_id = self.window.video_combo.currentData()
         densities = self.window.pacing_curve.get_all_densities()
@@ -168,6 +180,12 @@ class EditWorkspaceController(PBComponent):
         self._cuts_worker.done.connect(self._cuts_thread.quit)
         self._cuts_worker.failed.connect(self._cuts_thread.quit)
         self._cuts_thread.finished.connect(self._cuts_worker.deleteLater)
+        # B-284 Phase C — SchnittController-Worker-Bridge.
+        # _CutsWorker hat progress/done/failed exakt im erwarteten Schema —
+        # attach_worker bindet alle drei direkt.
+        ctrl = getattr(self.window, "_schnitt_ctrl", None)
+        if ctrl is not None:
+            ctrl.attach_worker(self._cuts_worker)
         self._cuts_thread.start()
 
     def _on_cuts_done(self, cuts: list, total_dur: float, seq: int = 0):
@@ -208,6 +226,17 @@ class EditWorkspaceController(PBComponent):
 
     def _auto_edit_to_beat(self):
         """Phase 3: DJ-Pacing Auto-Edit mit OTIO Timeline."""
+        # B-284 Phase C / Variante 1 — Editor-Header btn_auto_edit triggert
+        # Loading-Overlay (User-Entscheidung 2026-05-09). Worker-progress
+        # bridge unten ueber ctrl.attach_worker; State-Refresh nach
+        # worker.finished via ctrl._on_done.
+        ws = getattr(self.window, "_schnitt_ws", None)
+        if ws is not None:
+            try:
+                ws.enter_loading()
+            except Exception as exc:
+                logger.debug("schnitt enter_loading failed: %s", exc)
+
         audio_id = self.window.audio_combo.currentData()
         if audio_id is None:
             self.window.console_text.append("[Auto-Edit] Kein Audio-Track ausgewaehlt.")
@@ -267,6 +296,17 @@ class EditWorkspaceController(PBComponent):
         )
         worker = AutoEditWorker(audio_id, video_ids, settings)
         worker.task_id = task.task_id
+        # B-284 Phase C — SchnittController-Worker-Bridge.
+        # AutoEditWorker hat kein `done`/`failed`, nur `finished(list,list)`.
+        # attach_worker bindet `progress` an `workspace.show_progress`;
+        # State-Refresh nach Ende erfolgt zusaetzlich ueber `finished`.
+        ctrl = getattr(self.window, "_schnitt_ctrl", None)
+        if ctrl is not None:
+            ctrl.attach_worker(worker)
+            try:
+                worker.finished.connect(lambda *_a: ctrl._on_done())
+            except Exception as exc:
+                logger.debug("attach_worker finished bridge failed: %s", exc)
         self.window.worker_dispatcher._start_worker_thread(
             worker,
             on_finish=lambda segs, cps: self._on_auto_edit_finished(segs, cps, task.task_id),
