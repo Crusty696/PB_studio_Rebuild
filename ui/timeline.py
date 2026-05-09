@@ -366,8 +366,13 @@ class TimelineClipItem(QGraphicsRectItem):
         super().hoverLeaveEvent(event)
 
     def mousePressEvent(self, event):
-        """Trim-Modus starten wenn auf Handle geklickt."""
+        """Trim-Modus starten wenn auf Handle geklickt; Lock-Icon-Klick togglet."""
         if event.button() == Qt.MouseButton.LeftButton:
+            # Lock-Icon zuerst pruefen — hat Vorrang vor Trim-Handle (Phase 05 Task 5.3)
+            if self._hit_lock_icon(event.pos()):
+                self._handle_lock_icon_click()
+                event.accept()
+                return
             edge = self._detect_trim_edge(event.pos().x())
             if edge:
                 self._trim_mode = edge
@@ -460,6 +465,25 @@ class TimelineClipItem(QGraphicsRectItem):
             self.setPen(QPen(QColor(212, 164, 74, 255), 2))
         else:
             self.setPen(QPen(self._base_color.darker(120), 1))
+
+    def _hit_lock_icon(self, local_pos) -> bool:
+        rect = self.lock_icon.boundingRect().translated(self.lock_icon.pos())
+        return rect.contains(local_pos)
+
+    def _handle_lock_icon_click(self, *, force: bool = False) -> None:
+        new = not self._locked
+        self.set_locked(new)
+        from ui.undo_commands import ToggleClipLockCommand
+        cmd = ToggleClipLockCommand(self.entry_id, new)
+        if force:
+            # In Tests ohne aktive Scene/UndoStack direkt persistieren
+            cmd.redo()
+            return
+        scene = self.scene()
+        if scene and scene.views() and hasattr(scene.views()[0], "undo_stack"):
+            scene.views()[0].undo_stack.push(cmd)
+        else:
+            cmd.redo()
 
 
 # ======================================================================
@@ -885,6 +909,8 @@ class InteractiveTimeline(QGraphicsView):
             service=self._brain_v3_feedback_service,
             context=self._brain_v3_feedback_context,
         )
+        # SCHNITT-Redesign Phase 05 Task 5.3: locked-Flag aus DB uebernehmen
+        item.set_locked(bool(getattr(entry, "locked", False)))
         self._apply_brain_v3_timeline_metadata(item, entry)
         self._scene.addItem(item)
         self.clip_items.append(item)
@@ -1709,6 +1735,12 @@ class InteractiveTimeline(QGraphicsView):
         self._brain_v3_feedback_context = context
         for item in self.clip_items:
             item.set_brain_v3_feedback(service=service, context=context)
+
+    # SCHNITT-Redesign Phase 05 Task 5.3
+    def get_video_clip_items(self) -> list["TimelineClipItem"]:
+        """Liefert alle Video-TimelineClipItems der aktuellen Szene."""
+        return [it for it in self._scene.items()
+                if isinstance(it, TimelineClipItem) and it.track_type == "video"]
 
     # ── B-200: In/Out-Point-Tracking ───────────────────────────────────────
 
