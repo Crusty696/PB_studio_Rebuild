@@ -136,9 +136,9 @@ def _run_export_automation_inner():
 
     logger.info("[E2E] ========== STARTING E2E RENDER TEST ==========")
 
-    # Step 1: Navigate to DELIVER workspace (index 4: MEDIA=0, EDIT=1, STEMS=2, CONVERT=3, DELIVER=4)
-    logger.info("[E2E] Step 1: Navigating to DELIVER workspace (index 4)...")
-    window.workspace_stack.setCurrentIndex(4)
+    # Step 1: Navigate to EXPORT workspace (Phase 10: 4-Tab layout, EXPORT at index 3)
+    logger.info("[E2E] Step 1: Navigating to EXPORT workspace (index 3)...")
+    window.workspace_stack.setCurrentIndex(3)  # EXPORT (4 Tabs gesamt)
     window.export._refresh_production_info()
     QApplication.processEvents()
 
