@@ -79,32 +79,97 @@ def _do_apply_segments(segments: list[dict], project_id: int) -> int:
     statt 120s. ``nullpool_session()`` liefert den korrekten Setup
     + auto-commit + auto-dispose und ist die Single-Source-of-Truth
     fuer NullPool-Writes (siehe D-020).
+
+    SCHNITT-Redesign 2026-05-09 (Phase 06 / Task 6.2 — Risiko #3):
+    Lock-aware. Gelockte Video-Eintraege werden NICHT geloescht;
+    neue Segmente, die in eine Locked-Range hineinragen, werden auf
+    deren Boundaries geklemmt oder verworfen, falls sie vollstaendig
+    innerhalb liegen. Akzeptiert sowohl ``seg["media_id"]`` (neuer
+    Plan-Style) als auch das Legacy-Feld ``seg["video_id"]``.
     """
     from database import nullpool_session
 
+    inserted = 0
     with nullpool_session() as session:
+        # 1) Locked-Ranges einsammeln (Boundaries der gesperrten Clips)
+        locked_rows = (
+            session.query(TimelineEntry)
+            .filter_by(project_id=project_id, track="video", locked=True)
+            .all()
+        )
+        locked_ranges: list[tuple[float, float]] = [
+            (r.start_time, r.end_time)
+            for r in locked_rows
+            if r.start_time is not None and r.end_time is not None
+        ]
+
+        # 2) Nur ungelockte Video-Eintraege loeschen — Locked bleibt unangetastet
         session.query(TimelineEntry).filter_by(
-            project_id=project_id, track="video"
+            project_id=project_id, track="video", locked=False
         ).delete()
 
+        # 3) Neue Segmente einfuegen, an Locked-Ranges geklemmt
         for seg in segments:
+            seg_start = float(seg["start"])
+            seg_end = float(seg["end"])
+            skip = False
+            for lr_start, lr_end in locked_ranges:
+                # Komplett ausserhalb -> kein Konflikt
+                if seg_end <= lr_start or seg_start >= lr_end:
+                    continue
+                # Komplett innerhalb der Locked-Range -> verwerfen
+                if seg_start >= lr_start and seg_end <= lr_end:
+                    skip = True
+                    break
+                # Linke Kante ragt in die Locked-Range -> rechts klemmen
+                if seg_start < lr_start and seg_end > lr_start and seg_end <= lr_end:
+                    seg_end = lr_start
+                # Rechte Kante ragt aus der Locked-Range -> links klemmen
+                elif seg_start >= lr_start and seg_start < lr_end and seg_end > lr_end:
+                    seg_start = lr_end
+                # Locked-Range ist komplett im Segment -> auf erste Haelfte
+                # klemmen, hintere Haelfte geht verloren (selten; Plan-Verhalten)
+                elif seg_start < lr_start and seg_end > lr_end:
+                    seg_end = lr_start
+            if skip or (seg_end - seg_start) <= 1e-3:
+                continue
+
+            # Polymorphes Feld ``media_id``: Plan-Style ``seg["media_id"]``
+            # ODER Legacy ``seg["video_id"]`` (Auto-Edit-Worker, undo_commands).
+            mid = seg.get("media_id", seg.get("video_id"))
+            if mid is None:
+                raise KeyError(
+                    "apply_auto_edit_segments: segment requires "
+                    "'media_id' or 'video_id'"
+                )
+
             entry = TimelineEntry(
                 project_id=project_id,
                 track="video",
-                media_id=seg["video_id"],
-                start_time=seg["start"],
-                end_time=seg["end"],
+                media_id=mid,
+                start_time=seg_start,
+                end_time=seg_end,
                 source_start=seg.get("source_start", 0.0),
                 source_end=seg.get("source_end"),
-                lane=0,
+                lane=seg.get("lane", 0),
+                crossfade_duration=seg.get("crossfade_duration", 0.0),
+                brightness=seg.get("brightness", 0.0),
+                contrast=seg.get("contrast", 1.0),
+                locked=False,
             )
             session.add(entry)
-        # M7-FIX: kein expliziter commit() — __exit__ macht auto-commit
-        # mit korrektem error-handling (B-008). session.rollback() bei
-        # Exception passiert ebenfalls in __exit__.
+            inserted += 1
+        # SCHNITT-Redesign 2026-05-09 (Phase 06 / Task 6.2): expliziter
+        # commit damit der Lock-aware-Path auch in Test-Sessions
+        # (in-memory + plain Session) persistiert. ``nullpool_session``
+        # skipt den auto-commit dann (M5-FIX in database/session.py).
+        session.commit()
 
-    logger.info("Timeline: %d Video-Segmente geschrieben (project=%d)", len(segments), project_id)
-    return len(segments)
+    logger.info(
+        "Timeline: %d Video-Segmente geschrieben (project=%d, locked-aware)",
+        inserted, project_id,
+    )
+    return inserted
 
 
 def _safe_metadata_value(val: Any) -> Any:
