@@ -1,4 +1,6 @@
 """Loading-State der SCHNITT-Workspace mit rotierendem Status-Text + Progress."""
+import math
+
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QProgressBar, QPushButton, QHBoxLayout,
@@ -60,6 +62,9 @@ class SchnittLoadingView(QWidget):
 
     def set_stage(self, stage_key: str, fraction: float) -> None:
         self.status_label.setText(_STAGE_TEXT.get(stage_key, "Vorbereiten…"))
+        # T4.6: NaN-Defense — int(NaN) wuerde ValueError werfen.
+        if fraction is None or math.isnan(fraction):
+            fraction = 0.0
         self.progress_bar.setValue(int(max(0.0, min(1.0, fraction)) * 100))
 
     def reset(self) -> None:

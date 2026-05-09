@@ -35,3 +35,21 @@ def test_loading_view_initial_text_and_setter():
     v.set_stage("cut_calc", 0.42)
     assert "Schnitte" in v.status_label.text()
     assert v.progress_bar.value() == 42
+
+
+def test_loading_view_set_stage_nan_clamped_to_zero():
+    """T4.6: NaN als fraction wuerde int(NaN) -> ValueError ausloesen."""
+    _qapp()
+    v = SchnittLoadingView()
+    v.set_stage("cut_calc", float("nan"))  # darf nicht crashen
+    assert v.progress_bar.value() == 0
+
+
+def test_loading_view_set_stage_clamps_overflow():
+    """T4.6: fraction > 1.0 wird auf 100 geklemmt."""
+    _qapp()
+    v = SchnittLoadingView()
+    v.set_stage("cut_calc", 5.0)
+    assert v.progress_bar.value() == 100
+    v.set_stage("cut_calc", -1.0)
+    assert v.progress_bar.value() == 0
