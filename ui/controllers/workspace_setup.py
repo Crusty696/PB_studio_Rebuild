@@ -303,9 +303,9 @@ class WorkspaceSetupController(PBComponent):
         # Promote widgets that still live on the hidden EditWorkspace host
         # Tier-3-Sunset T3.2: audio_combo + video_combo wandern in den
         # SchnittEditorView-Header.
-        self.window.btn_preview_play = self.window._edit_ws.btn_preview_play
-        self.window.btn_preview_stop = self.window._edit_ws.btn_preview_stop
-        self.window.preview_time_label = self.window._edit_ws.preview_time_label
+        self.window.btn_preview_play = _schnitt_tab_schnitt.btn_play
+        self.window.btn_preview_stop = _schnitt_tab_schnitt.btn_stop
+        self.window.preview_time_label = _schnitt_tab_schnitt.time_label
         self.window.audio_combo = self.window._schnitt_ws.editor_view.audio_combo
         self.window.video_combo = self.window._schnitt_ws.editor_view.video_combo
         self.window.energy_reactivity_slider = _schnitt_tab_pacing.reactivity_slider
@@ -337,9 +337,9 @@ class WorkspaceSetupController(PBComponent):
             self.window._edit_ws.style_preset_combo.currentIndexChanged.connect(self.window.edit_workspace._apply_style_preset)
         self.window.timeline_view.clip_moved.connect(self.window.edit_workspace._on_timeline_clip_moved)
 
-        # Phase 10: also wire the visible Schnitt-tab transport buttons.
-        _schnitt_tab_schnitt.btn_play.clicked.connect(self.window.edit_workspace._toggle_preview_play)
-        _schnitt_tab_schnitt.btn_stop.clicked.connect(self.window.video_preview.stop)
+        # Tier-3-Sunset T3.5: btn_preview_play/stop sind jetzt der Schnitt-Tab.
+        # Doppelte Verdrahtung wäre Doppel-Click, also nur noch die spezifischen
+        # Sub-Tab-Signale wiren, die nicht über die Promotion abgedeckt sind.
         _schnitt_tab_pacing.btn_regenerate.clicked.connect(self.window.edit_workspace._generate_timeline)
         _schnitt_tab_rl.feedback_positive.connect(self.window.edit_workspace._rl_feedback_positive)
         _schnitt_tab_rl.feedback_negative.connect(self.window.edit_workspace._rl_feedback_negative)
