@@ -274,6 +274,27 @@ class WorkspaceSetupController(PBComponent):
         # Pacing & Anker / Audio / RL & Notes). Header-Row der EditorView
         # liefert audio_combo, video_combo, btn_generate, btn_auto_edit.
         self.window._schnitt_ws = SchnittWorkspace()
+
+        # B-284 Phase A — SchnittController instanziieren und an
+        # edit_workspace-Adapter binden. Vorher: Controller existierte nur in
+        # Tests, Empty-State-Klicks/Cancel/Worker-Progress/Re-Generate-Confirm
+        # gingen ins Leere. Plan:
+        # docs/superpowers/plans/2026-05-09-schnitt-integration-wiring-fix/README.md
+        from ui.controllers.schnitt_controller import SchnittController
+        self.window._schnitt_ctrl = SchnittController(
+            self.window._schnitt_ws,
+            parent=self.window,
+        )
+        self.window._schnitt_ctrl.request_auto_edit_with_profile.connect(
+            self.window.edit_workspace._on_schnitt_auto_edit_request
+        )
+        self.window._schnitt_ctrl.request_regenerate.connect(
+            self.window.edit_workspace._on_schnitt_regenerate_request
+        )
+        self.window._schnitt_ctrl.request_open_settings.connect(
+            self.window.project_management._show_settings
+        )
+
         _schnitt_tab_schnitt = self.window._schnitt_ws.editor_view.tab_schnitt
         _schnitt_tab_pacing = self.window._schnitt_ws.editor_view.tab_pacing_anker
         _schnitt_tab_rl = self.window._schnitt_ws.editor_view.tab_rl_notes
@@ -330,7 +351,9 @@ class WorkspaceSetupController(PBComponent):
         # Tier-3-Sunset T3.5: btn_preview_play/stop sind jetzt der Schnitt-Tab.
         # Doppelte Verdrahtung wäre Doppel-Click, also nur noch die spezifischen
         # Sub-Tab-Signale wiren, die nicht über die Promotion abgedeckt sind.
-        _schnitt_tab_pacing.btn_regenerate.clicked.connect(self.window.edit_workspace._generate_timeline)
+        # B-286 Phase A — btn_regenerate gehoert jetzt SchnittController
+        # (Plan A13: Confirm-Dialog mit Lock-Count + Diff-Preview vor
+        # destruktivem Re-Generate). Direkter Connect waere Bypass des Dialogs.
         _schnitt_tab_rl.feedback_positive.connect(self.window.edit_workspace._rl_feedback_positive)
         _schnitt_tab_rl.feedback_negative.connect(self.window.edit_workspace._rl_feedback_negative)
 

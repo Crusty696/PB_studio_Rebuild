@@ -593,6 +593,19 @@ class EditWorkspaceController(PBComponent):
         self.window._mark_dirty()
         self.window.console_text.append(f"[Timeline] Clip {entry_id} verschoben -> Start: {new_start:.2f}s")
 
+    # ------------------------------------------------------------------
+    # SchnittController-Bridge (B-284 Phase A — 2026-05-09)
+    # PacingProfileBinder im SchnittController spiegelt cut_rate / style /
+    # reactivity / breakdown / vibe bereits in die UI. Adapter-Slots rufen
+    # daher die bestehenden Worker-Pfade direkt; das Profile-Argument bleibt
+    # vorerst Marker fuer Folge-Refactor (Profile direkt statt Widget-Lookup).
+    # ------------------------------------------------------------------
+    def _on_schnitt_auto_edit_request(self, profile) -> None:
+        self._auto_edit_to_beat()
+
+    def _on_schnitt_regenerate_request(self, profile) -> None:
+        self._generate_timeline_impl()
+
     def _add_selected_to_timeline(self):
         """Fügt selektiertes Medium asynchron zur Timeline hinzu (Fix F-045)."""
         media_type = None
