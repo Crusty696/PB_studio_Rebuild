@@ -28,8 +28,7 @@ def test_workflow_navigation_names_are_final():
     assert WorkspaceNavBar.WORKSPACE_NAMES == [
         "PROJEKT",
         "MATERIAL & ANALYSE",
-        "AUTO-SCHNITT",
-        "REVIEW",
+        "SCHNITT",
         "EXPORT",
     ]
 
