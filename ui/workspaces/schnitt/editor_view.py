@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (
 from ui.clip_inspector import ClipInspectorPanel
 from ui.workspaces.schnitt.tab_schnitt import SchnittTabSchnitt
 from ui.workspaces.schnitt.tab_pacing_anker import SchnittTabPacingAnker
+from ui.workspaces.schnitt.tab_audio import SchnittTabAudio
 
 
 class SchnittEditorView(QWidget):
@@ -26,7 +27,8 @@ class SchnittEditorView(QWidget):
         self.sub_tabs.addTab(self.tab_schnitt, "Schnitt")
         self.tab_pacing_anker = SchnittTabPacingAnker(self)
         self.sub_tabs.addTab(self.tab_pacing_anker, "Pacing & Anker")
-        self.sub_tabs.addTab(self._stub("Sub-Tab Audio — Phase 07"), "Audio")
+        self.tab_audio = SchnittTabAudio(self)
+        self.sub_tabs.addTab(self.tab_audio, "Audio")
         self.sub_tabs.addTab(self._stub("Sub-Tab RL & Notes — Phase 08"), "RL & Notes")
         layout.addWidget(self.sub_tabs, stretch=3)
 
