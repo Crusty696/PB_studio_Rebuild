@@ -122,48 +122,32 @@ def test_stems_workspace_constructs_and_exposes_subtabs(qapp):
 
 
 # --------------------------------------------------------------------------
-# EditWorkspace
+# SchnittWorkspace (Redesign 2026-05-09 — replaces EditWorkspace AUTO/REVIEW)
 # --------------------------------------------------------------------------
 
-def test_edit_workspace_constructs_and_exposes_timeline_widgets(qapp):
-    from ui.workspaces import EditWorkspace
+def test_schnitt_initial_state_when_empty(qapp):
+    from ui.workspaces.schnitt_workspace import SchnittWorkspace, STATE_EMPTY
 
-    w = EditWorkspace()
+    ws = SchnittWorkspace()
     try:
-        assert isinstance(w, QWidget)
-        assert hasattr(w, "set_workflow_stage")
-        w.set_workflow_stage("auto")
-        assert w._tabs.count() == 1
-        assert w._tabs.tabText(0) == "AUTO-SCHNITT"
-        assert not w.btn_thumbs_up.isVisible()
-        assert not w.btn_thumbs_down.isVisible()
-        w.set_workflow_stage("review")
-        assert w._tabs.count() == 1
-        assert w._tabs.tabText(0) == "REVIEW"
-        assert w.btn_keyframe_string.isHidden()
-        assert not w.keyframe_text.isHidden()
-        # Cross-Tab-Wiring-Endpunkte (TimelineView + Inspector)
-        for attr in (
-            "timeline_view",
-            "clip_inspector",
-            "inspector_panel",  # Alias auf clip_inspector
-            "video_preview",
-            "btn_preview_play",
-            "btn_preview_stop",
-            "btn_generate",
-            "btn_auto_edit",
-            "audio_combo",
-            "video_combo",
-            "vibe_input",
-            "cut_rate_combo",
-        ):
-            assert hasattr(w, attr), f"EditWorkspace.{attr} fehlt"
-        # inspector_panel ist Alias auf clip_inspector (P9-Step4)
-        assert w.inspector_panel is w.clip_inspector
-        assert hasattr(w, "expert_tools")
-        assert not w.expert_tools.isVisible(), "KI/Debug-Werkzeuge muessen aus Hauptflow raus"
+        ws.set_active_project(None)
+        assert ws.current_state() == STATE_EMPTY
     finally:
-        w.deleteLater()
+        ws.deleteLater()
+
+
+def test_schnitt_editor_subtabs_have_correct_titles(qapp):
+    from ui.workspaces.schnitt_workspace import SchnittWorkspace
+
+    ws = SchnittWorkspace()
+    try:
+        titles = [
+            ws.editor_view.sub_tabs.tabText(i)
+            for i in range(ws.editor_view.sub_tabs.count())
+        ]
+        assert titles == ["Schnitt", "Pacing & Anker", "Audio", "RL & Notes"]
+    finally:
+        ws.deleteLater()
 
 
 # --------------------------------------------------------------------------
