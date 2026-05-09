@@ -1,5 +1,4 @@
 """Sub-Tab 'RL & Notes' im SCHNITT-Editor."""
-from datetime import datetime
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton, QListWidget,
@@ -96,7 +95,9 @@ class SchnittTabRlNotes(QWidget):
     def _save_notes(self) -> None:
         if self._project_id is None:
             return
-        update_notes(self._project_id, self.notes_edit.toPlainText())
+        # T4.2: Service liefert updated_at zurück → konsistente Zeit aus DB statt
+        # neuem datetime.now() in der UI.
+        ts = update_notes(self._project_id, self.notes_edit.toPlainText())
         self.saved_label.setText(
-            f"Zuletzt gespeichert: {datetime.now().strftime('%H:%M:%S')}"
+            f"Zuletzt gespeichert: {ts.strftime('%H:%M:%S')}"
         )
