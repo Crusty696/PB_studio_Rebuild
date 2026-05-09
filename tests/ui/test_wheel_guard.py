@@ -3,7 +3,7 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import Qt, QPoint, QPointF, QEvent
 from PySide6.QtGui import QWheelEvent
-from PySide6.QtWidgets import QApplication, QComboBox, QSlider, QSpinBox
+from PySide6.QtWidgets import QApplication, QComboBox, QDoubleSpinBox, QPushButton, QSlider, QSpinBox
 
 from ui.widgets.wheel_guard import WheelGuard
 
@@ -64,3 +64,39 @@ def test_spinbox_unfocused_blocks_wheel():
     sb.clearFocus()
     QApplication.sendEvent(sb, _wheel(sb, delta=-120))
     assert sb.value() == 50
+
+
+# ---------------------------------------------------------------------------
+# T5.3 Coverage-Sweep (E3)
+# ---------------------------------------------------------------------------
+
+
+def test_doublespinbox_unfocused_blocks_wheel():
+    app = _qapp()
+    guard = WheelGuard(app)
+    app.installEventFilter(guard)
+
+    sb = QDoubleSpinBox()
+    sb.setRange(0.0, 100.0)
+    sb.setSingleStep(1.0)
+    sb.setValue(50.0)
+    sb.show()
+    sb.clearFocus()
+    QApplication.sendEvent(sb, _wheel(sb, delta=-120))
+    assert sb.value() == 50.0
+
+
+def test_pushbutton_passes_through():
+    """Negativtest: QPushButton ist nicht in _GUARDED_TYPES → Event ungehindert."""
+    app = _qapp()
+    guard = WheelGuard(app)
+    app.installEventFilter(guard)
+
+    btn = QPushButton("x")
+    btn.show()
+    btn.clearFocus()
+    # Event darf den Filter passieren — kein RaiseError, returnvalue von filter ist False.
+    # Wir verifizieren: WheelGuard.eventFilter() liefert False (super delegiert) für Buttons.
+    fake_evt = _wheel(btn)
+    result = guard.eventFilter(btn, fake_evt)
+    assert result is False
