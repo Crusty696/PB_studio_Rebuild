@@ -40,8 +40,7 @@ class WorkspaceNavBar(QWidget):
     WORKSPACE_NAMES = [
         "PROJEKT",
         "MATERIAL & ANALYSE",
-        "AUTO-SCHNITT",
-        "REVIEW",
+        "SCHNITT",
         "EXPORT",
     ]
 
@@ -61,25 +60,21 @@ class WorkspaceNavBar(QWidget):
         self._current_index = 0
 
         tooltips = [
-            "Projekt: Projektstatus, letzte Projekte und naechster Schritt",
-            "Material & Analyse: Medien auswaehlen und direkt daneben analysieren",
-            "Auto-Schnitt: Pacing einstellen und beat-synchronen Schnitt erzeugen",
-            "Review: Timeline, Vorschau, Inspector und Anker pruefen",
+            "Projekt: Status, letzte Projekte und nächster Schritt",
+            "Material & Analyse: Medien auswählen und analysieren",
+            "Schnitt: Auto-Edit, Pacing, Anker, Audio-Mixer und Notes — alles in einem Workspace",
             "Export: Preview und finales Video rendern",
         ]
-
         accessible_names = [
             "Projekt Workflow",
             "Material und Analyse Workflow",
-            "Auto-Schnitt Workflow",
-            "Review Workflow",
+            "Schnitt Workflow",
             "Export Workflow",
         ]
         status_tips = [
             "Projektstatus und Startpunkt",
-            "Medienpool und Analyse in einem Arbeitsbereich",
-            "Pacing und Auto-Edit",
-            "Timeline pruefen und korrigieren",
+            "Medienpool und Analyse",
+            "Schnitt: Auto-Edit + Review in einem Tab",
             "Finales Video exportieren",
         ]
 
