@@ -556,9 +556,12 @@ class EditWorkspaceController(PBComponent):
             self.window.console_text.append(f"[RL-Feedback] Fehler beim Speichern")
 
     def _apply_style_preset(self, index: int):
+        """Tier-3-Sunset T3.8: Liest jetzt vom Pacing-&-Anker-Sub-Tab statt vom
+        hidden EditWorkspace-Host."""
         from database import engine, StylePreset
         from sqlalchemy.orm import Session as DBSession
-        preset_name = self.window._edit_ws.style_preset_combo.currentText()
+        pacing_tab = self.window._schnitt_ws.editor_view.tab_pacing_anker
+        preset_name = pacing_tab.style_combo.currentText()
         if not preset_name:
             return
         try:
@@ -568,10 +571,10 @@ class EditWorkspaceController(PBComponent):
                     return
                 cut_rate_map = {1: 0, 2: 1, 4: 2, 8: 3, 16: 4}
                 closest_beat = min(cut_rate_map.keys(), key=lambda x: abs(x - preset.cut_rate))
-                self.window._edit_ws.cut_rate_combo.setCurrentIndex(cut_rate_map.get(closest_beat, 2))
-                self.window._edit_ws.energy_reactivity_slider.setValue(int(preset.energy_reactivity * 100))
+                pacing_tab.cut_rate_combo.setCurrentIndex(cut_rate_map.get(closest_beat, 2))
+                pacing_tab.reactivity_slider.setValue(int(preset.energy_reactivity * 100))
                 breakdown_map = {"halve": 0, "16beat": 1, "none": 2}
-                self.window._edit_ws.breakdown_combo.setCurrentIndex(breakdown_map.get(preset.breakdown_behavior, 0))
+                pacing_tab.breakdown_combo.setCurrentIndex(breakdown_map.get(preset.breakdown_behavior, 0))
                 self.window.console_text.append(f"[Style-Preset] '{preset_name}' angewendet.")
                 self.window.statusBar().showMessage(f"Style-Preset '{preset_name}' angewendet", 3000)
         except Exception as e:
