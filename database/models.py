@@ -542,3 +542,32 @@ class TimelineSnapshot(Base):
 
     def __repr__(self):
         return f"<TimelineSnapshot(id={self.id}, project_id={self.project_id}, v={self.version})>"
+
+
+class ProjectNote(Base):
+    """SCHNITT-Redesign 2026-05-09: Markdown-Notes pro Projekt (Sub-Tab "RL & Notes").
+
+    1:1-Beziehung zum Projekt — UNIQUE-Constraint auf ``project_id``
+    erzwingt genau einen Note-Eintrag pro Projekt. Genutzt vom
+    ``services/project_notes_service.py`` (Task 2.4) mit Auto-Save
+    (1 Sekunde Debounce). ``content_md`` ist Markdown-Text, default leer.
+    """
+    __tablename__ = "project_notes"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    project_id = Column(
+        Integer,
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
+    content_md = Column(Text, nullable=False, default="")
+    updated_at = Column(
+        DateTime,
+        nullable=False,
+        default=lambda: _datetime.datetime.utcnow(),
+        onupdate=lambda: _datetime.datetime.utcnow(),
+    )
+
+    def __repr__(self):
+        return f"<ProjectNote(project_id={self.project_id}, len={len(self.content_md)})>"

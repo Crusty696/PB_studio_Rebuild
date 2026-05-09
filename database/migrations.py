@@ -440,6 +440,20 @@ def _run_legacy_migrations():
             "ON timeline_snapshots(project_id, version)"
         ))
 
+    # SCHNITT-Redesign 2026-05-09 Task 1.3: project_notes (1:1 pro Projekt)
+    insp = inspect(get_raw_engine())
+    if "project_notes" not in insp.get_table_names():
+        with engine.begin() as conn:
+            conn.execute(text(
+                "CREATE TABLE project_notes ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "project_id INTEGER NOT NULL UNIQUE "
+                "REFERENCES projects(id) ON DELETE CASCADE, "
+                "content_md TEXT NOT NULL DEFAULT '', "
+                "updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP"
+                ")"
+            ))
+
     # Migration: ai_pacing_memory Tabelle nachrüsten (neue Spalten falls Tabelle alt)
     insp = inspect(get_raw_engine())
     if "ai_pacing_memory" in insp.get_table_names():
