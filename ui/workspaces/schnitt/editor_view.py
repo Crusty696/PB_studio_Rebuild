@@ -1,8 +1,14 @@
 """SchnittEditorView — finale Editor-Stage mit 4 Sub-Tabs + persistentem Inspector.
-Sub-Tab-Inhalte werden in Phasen 05–08 ausimplementiert."""
+Sub-Tab-Inhalte werden in Phasen 05–08 ausimplementiert.
+
+Tier-3-Sunset: Header-Row mit Audio-/Video-Combo wandert vom hidden
+``_edit_ws`` hierher. Action-Buttons (Generate / Auto-Edit) liegen im
+gleichen Header rechts, damit der Controller weiterhin per Name zieht.
+"""
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QTabWidget, QVBoxLayout, QLabel,
+    QComboBox, QPushButton,
 )
 from ui.clip_inspector import ClipInspectorPanel
 from ui.workspaces.schnitt.tab_schnitt import SchnittTabSchnitt
@@ -18,9 +24,15 @@ class SchnittEditorView(QWidget):
         self._build_ui()
 
     def _build_ui(self):
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(4, 4, 4, 4)
-        layout.setSpacing(6)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(4, 4, 4, 4)
+        outer.setSpacing(4)
+
+        outer.addLayout(self._build_header_row())
+
+        body = QHBoxLayout()
+        body.setContentsMargins(0, 0, 0, 0)
+        body.setSpacing(6)
 
         self.sub_tabs = QTabWidget()
         self.sub_tabs.setDocumentMode(True)
@@ -32,10 +44,62 @@ class SchnittEditorView(QWidget):
         self.sub_tabs.addTab(self.tab_audio, "Audio")
         self.tab_rl_notes = SchnittTabRlNotes(self)
         self.sub_tabs.addTab(self.tab_rl_notes, "RL & Notes")
-        layout.addWidget(self.sub_tabs, stretch=3)
+        body.addWidget(self.sub_tabs, stretch=3)
 
         self.inspector_panel = ClipInspectorPanel(self)
-        layout.addWidget(self.inspector_panel, stretch=1)
+        body.addWidget(self.inspector_panel, stretch=1)
+
+        outer.addLayout(body)
+
+    def _build_header_row(self) -> QHBoxLayout:
+        """Header-Row mit Audio/Video-Combo + Generate/Auto-Edit (Tier-3-Sunset)."""
+        row = QHBoxLayout()
+        row.setSpacing(8)
+
+        a_lbl = QLabel("Audio")
+        a_lbl.setStyleSheet("color:#6b7280; font-size:10px;")
+        row.addWidget(a_lbl)
+        self.audio_combo = QComboBox()
+        self.audio_combo.setToolTip("Audio-Track für BPM-Pacing")
+        self.audio_combo.setAccessibleName("Audio-Track Auswahl")
+        self.audio_combo.setFixedHeight(22)
+        self.audio_combo.setMinimumWidth(180)
+        row.addWidget(self.audio_combo, stretch=2)
+
+        v_lbl = QLabel("Video")
+        v_lbl.setStyleSheet("color:#6b7280; font-size:10px;")
+        row.addWidget(v_lbl)
+        self.video_combo = QComboBox()
+        self.video_combo.setToolTip(
+            "Video-Clip für Vorschau und manuelle Pacing-Kontrolle wählen."
+        )
+        self.video_combo.setAccessibleName("Video-Clip Auswahl")
+        self.video_combo.setFixedHeight(22)
+        self.video_combo.setMinimumWidth(180)
+        row.addWidget(self.video_combo, stretch=2)
+
+        row.addStretch(1)
+
+        self.btn_generate = QPushButton("Timeline generieren")
+        self.btn_generate.setObjectName("btn_accent")
+        self.btn_generate.setFixedHeight(24)
+        self.btn_generate.setMaximumWidth(200)
+        self.btn_generate.setAccessibleName("Timeline generieren")
+        self.btn_generate.setToolTip(
+            "Timeline aus Audio, Videoauswahl und Pacing-Einstellungen neu generieren."
+        )
+        row.addWidget(self.btn_generate)
+
+        self.btn_auto_edit = QPushButton("Auto-Edit")
+        self.btn_auto_edit.setObjectName("btn_accent")
+        self.btn_auto_edit.setFixedHeight(24)
+        self.btn_auto_edit.setMaximumWidth(140)
+        self.btn_auto_edit.setAccessibleName("Auto-Edit starten")
+        self.btn_auto_edit.setToolTip(
+            "Automatischen Beat-Schnitt starten: Pacing berechnet Cuts und wählt passende Clips."
+        )
+        row.addWidget(self.btn_auto_edit)
+        return row
 
     @staticmethod
     def _stub(text: str) -> QWidget:

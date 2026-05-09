@@ -301,15 +301,17 @@ class WorkspaceSetupController(PBComponent):
         self.window.btn_learn_ai = _schnitt_tab_pacing.btn_learn_ai
 
         # Promote widgets that still live on the hidden EditWorkspace host
+        # Tier-3-Sunset T3.2: audio_combo + video_combo wandern in den
+        # SchnittEditorView-Header.
         self.window.btn_preview_play = self.window._edit_ws.btn_preview_play
         self.window.btn_preview_stop = self.window._edit_ws.btn_preview_stop
         self.window.preview_time_label = self.window._edit_ws.preview_time_label
-        self.window.audio_combo = self.window._edit_ws.audio_combo
-        self.window.video_combo = self.window._edit_ws.video_combo
+        self.window.audio_combo = self.window._schnitt_ws.editor_view.audio_combo
+        self.window.video_combo = self.window._schnitt_ws.editor_view.video_combo
         self.window.energy_reactivity_slider = self.window._edit_ws.energy_reactivity_slider
         self.window.energy_reactivity_spin = self.window._edit_ws.energy_reactivity_spin
-        self.window.btn_generate = self.window._edit_ws.btn_generate
-        self.window.btn_auto_edit = self.window._edit_ws.btn_auto_edit
+        self.window.btn_generate = self.window._schnitt_ws.editor_view.btn_generate
+        self.window.btn_auto_edit = self.window._schnitt_ws.editor_view.btn_auto_edit
         self.window.review_keyframe_text = self.window._edit_ws.keyframe_text
         self.window.review_btn_keyframe_string = self.window._edit_ws.btn_keyframe_string
 
