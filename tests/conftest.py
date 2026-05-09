@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
+from sqlalchemy.pool import StaticPool
 
 # Projektroot zum Suchpfad hinzufuegen
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -72,6 +73,7 @@ def test_engine(monkeypatch):
         "sqlite:///:memory:",
         echo=False,
         connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
     )
     # FK-Enforcement in SQLite aktivieren
     from sqlalchemy import event, text
