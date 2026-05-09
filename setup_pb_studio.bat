@@ -1,12 +1,19 @@
 @echo off
-title PB Studio Rebuild - Setup (Conda)
+title PB Studio Rebuild v0.5.0 - Setup (Conda)
 echo ============================================
-echo   PB Studio Rebuild - Setup (Conda Workflow)
+echo   PB Studio Rebuild v0.5.0 - Setup (Conda Workflow)
+echo   UI: SCHNITT-Workspace-Redesign (4-Tab-Layout)
+echo   Plan: docs\superpowers\plans\2026-05-09-schnitt-workspace-redesign\
 echo ============================================
 echo.
 
 :: Migration ab 2026-04-27: Conda-zentriert. Standalone Python entfernt.
 :: Legacy-Bootstrap (py -3.10) liegt als setup_pb_studio.legacy.bat.
+::
+:: SCHNITT-Workspace-Redesign 2026-05-09: UI auf 4 Top-Tabs reduziert
+:: (PROJEKT / MATERIAL & ANALYSE / SCHNITT / EXPORT). Setup-Schritte
+:: selbst sind UI-agnostisch (Conda-Env + ML-Stack), bleiben unveraendert.
+:: Live-Verify-Guide: docs\superpowers\plans\2026-05-09-schnitt-workspace-redesign\12_LIVE_VERIFY_USER_GUIDE.md
 ::
 :: Phasen:
 ::   A) conda env "pb-studio" sicherstellen (env create / update)
@@ -76,7 +83,11 @@ set "SETUP_EXIT=%ERRORLEVEL%"
 
 echo.
 if %SETUP_EXIT% EQU 0 (
-    echo   Setup fertig. Start mit: start_pb_studio.bat
+    echo   Setup fertig.
+    echo   App-Start:           start_pb_studio.bat
+    echo   SCHNITT-Tests:       run_pytest_schnitt.bat   ^(26 Test-Files^)
+    echo   Brain-V3-Tests:      run_pytest_brain_v3.bat
+    echo   SCHNITT-Live-Verify: docs\superpowers\plans\2026-05-09-schnitt-workspace-redesign\12_LIVE_VERIFY_USER_GUIDE.md
 ) else (
     echo   Setup mit Fehlercode %SETUP_EXIT% beendet.
 )

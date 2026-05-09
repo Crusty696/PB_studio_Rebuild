@@ -1,7 +1,10 @@
 @echo off
-title PB Studio Rebuild
+title PB Studio Rebuild v0.5.0 (SCHNITT-Redesign)
 echo ============================================
-echo   PB Studio Rebuild - App starten
+echo   PB Studio Rebuild v0.5.0 - App starten
+echo   UI: 4-Tab-Layout (PROJEKT / MATERIAL ^& ANALYSE / SCHNITT / EXPORT)
+echo   SCHNITT-Tab: Empty/Loading/Editor + 4 Sub-Tabs
+echo   Branch-State: code-fix-pending-live-verification
 echo ============================================
 echo.
 
@@ -64,6 +67,8 @@ exit /b 1
 :run_app
 echo   Python: %PB_LABEL%
 echo   Starte PB Studio...
+echo.
+echo   Live-Verify-Guide: docs\superpowers\plans\2026-05-09-schnitt-workspace-redesign\12_LIVE_VERIFY_USER_GUIDE.md
 echo.
 "%PB_PYTHON%" main.py
 
