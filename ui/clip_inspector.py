@@ -29,8 +29,11 @@ class ClipInspectorPanel(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedWidth(220)
-        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
+        # T4.8: setMinimumWidth statt setFixedWidth — Panel darf in breiteren
+        # Layouts wachsen, behaelt aber 220px Mindestbreite fuer Lesbarkeit.
+        # SizePolicy bleibt MinimumExpanding-faehig.
+        self.setMinimumWidth(220)
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         self.setStyleSheet(
             f"QWidget {{ background-color: {BG1}; color: {T2}; }}"
             f"QLabel {{ font-size: 10px; color: {T3}; }}"
