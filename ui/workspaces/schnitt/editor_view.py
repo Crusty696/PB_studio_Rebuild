@@ -8,6 +8,7 @@ from ui.clip_inspector import ClipInspectorPanel
 from ui.workspaces.schnitt.tab_schnitt import SchnittTabSchnitt
 from ui.workspaces.schnitt.tab_pacing_anker import SchnittTabPacingAnker
 from ui.workspaces.schnitt.tab_audio import SchnittTabAudio
+from ui.workspaces.schnitt.tab_rl_notes import SchnittTabRlNotes
 
 
 class SchnittEditorView(QWidget):
@@ -29,7 +30,8 @@ class SchnittEditorView(QWidget):
         self.sub_tabs.addTab(self.tab_pacing_anker, "Pacing & Anker")
         self.tab_audio = SchnittTabAudio(self)
         self.sub_tabs.addTab(self.tab_audio, "Audio")
-        self.sub_tabs.addTab(self._stub("Sub-Tab RL & Notes — Phase 08"), "RL & Notes")
+        self.tab_rl_notes = SchnittTabRlNotes(self)
+        self.sub_tabs.addTab(self.tab_rl_notes, "RL & Notes")
         layout.addWidget(self.sub_tabs, stretch=3)
 
         self.inspector_panel = ClipInspectorPanel(self)
