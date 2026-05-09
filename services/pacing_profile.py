@@ -7,6 +7,10 @@ from services.pacing_service import AdvancedPacingSettings
 
 _CUT_RATE_INDEX_TO_BEATS = {0: 1, 1: 2, 2: 4, 3: 8, 4: 16}
 
+# T4.3 D8: Single Source of Truth fuer breakdown-Werte. ui_binder.PacingProfileBinder
+# importiert von hier statt eigene Listen zu pflegen.
+BREAKDOWN_CHOICES: tuple[str, ...] = ("halve", "force16", "none")
+
 _PRESETS = {
     "Techno":     {"cut_rate_index": 2, "energy_reactivity": 70, "breakdown": "halve"},
     "Cinematic":  {"cut_rate_index": 4, "energy_reactivity": 30, "breakdown": "none"},
