@@ -23,12 +23,18 @@ prüfe verifiziere und mach noch eine gegenprüfung deiner arbeit mit unterschie
 ## Hard requirements
 
 - **Language of responses to the user: German only.**
-- **Plan root:**
-  `docs/superpowers/plans/2026-05-04-brain-v3-nvidia-plan/`
-  Files `01_ARCHITECTURE.md` … `07_RISKS.md`. Execute strictly. No
-  invention. Phase blueprints (e.g. `phase_3_brain_core.md`) under the
-  same root are subordinate — if a blueprint contradicts `06_PHASES.md`,
-  stop and ask.
+- **Authorized plan roots (both active as of 2026-05-09):**
+  - `docs/superpowers/plans/2026-05-04-brain-v3-nvidia-plan/` — Brain V3
+    NVIDIA backend (Files `01_ARCHITECTURE.md` … `07_RISKS.md`).
+    Phase blueprints (e.g. `phase_3_brain_core.md`) under the same
+    root are subordinate — if a blueprint contradicts `06_PHASES.md`,
+    stop and ask.
+  - `docs/superpowers/plans/2026-05-09-schnitt-workspace-redesign/` —
+    UI SCHNITT Workspace Redesign (Files `README.md` +
+    `01_DB_MIGRATIONS.md` … `12_CLEANUP_AND_VERIFY.md`). Spec authority:
+    `docs/superpowers/specs/2026-05-09-schnitt-workspace-redesign.md`.
+  Execute strictly, one task at a time, from one plan at a time.
+  No invention.
 - **Hardware: GTX 1060 6 GB, CUDA only.** No ROCm / DirectML / AMD paths.
 - **Vault path: `C:\Brain-Bug\projects\pb-studio\`.** Every non-trivial
   action requires a vault entry — **per sub-task**, not bundled at
@@ -46,10 +52,15 @@ prüfe verifiziere und mach noch eine gegenprüfung deiner arbeit mit unterschie
 ## Before doing anything
 
 1. Open `AGENTS.md` and read it fully.
-2. Open
-   `docs/superpowers/plans/2026-05-04-brain-v3-nvidia-plan/06_PHASES.md`
-   and identify the current task. Cross-check against the phase
-   blueprint (`phase_X_*.md`) under the same plan root if it exists.
+2. Identify which authorized plan the user is currently driving:
+   - Brain V3: open
+     `docs/superpowers/plans/2026-05-04-brain-v3-nvidia-plan/06_PHASES.md`
+     and the relevant phase blueprint (`phase_X_*.md`) under the same
+     plan root if it exists.
+   - SCHNITT Redesign: open
+     `docs/superpowers/plans/2026-05-09-schnitt-workspace-redesign/README.md`
+     and the current phase file (`01_DB_MIGRATIONS.md` … `12_CLEANUP_AND_VERIFY.md`).
+   Cross-check the current task against its plan + spec.
 3. Verify the predecessor task has `status: fixed` in the vault
    (`C:\Brain-Bug\projects\pb-studio\wiki\`). If only present in
    `docs/superpowers/synthesis/` of the repo, **stop and ask the user**

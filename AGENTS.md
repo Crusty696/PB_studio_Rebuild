@@ -46,16 +46,21 @@ instructions, or own "creative" interpretation.
 
 ## Scope — what is to be done
 
-- **Execute the existing plan.** Nothing more, nothing less.
-- **Plan root:** `docs/superpowers/plans/2026-05-04-brain-v3-nvidia-plan/`
-- Plan = `01_ARCHITECTURE.md` … `07_RISKS.md` inside that folder.
-- Phases 0 → 6 strictly sequential. No phase skipped.
-- Within a phase: tasks from
-  `docs/superpowers/plans/2026-05-04-brain-v3-nvidia-plan/06_PHASES.md`
-  in the order given there.
-- More detailed phase blueprints (e.g. `phase_3_brain_core.md`) may exist
-  under the same plan root. If a blueprint contradicts `06_PHASES.md`:
-  **stop, ask user, do not decide alone.**
+- **Execute one of the authorized plans.** Nothing more, nothing less.
+- **Authorized plan roots (as of 2026-05-09, both active):**
+  - `docs/superpowers/plans/2026-05-04-brain-v3-nvidia-plan/` — Brain V3
+    NVIDIA backend. Plan = `01_ARCHITECTURE.md` … `07_RISKS.md`. Phases
+    0 → 6 strictly sequential, task list in `06_PHASES.md`. Phase
+    blueprints (e.g. `phase_3_brain_core.md`) may add detail; on
+    contradiction with `06_PHASES.md`: stop + ask.
+  - `docs/superpowers/plans/2026-05-09-schnitt-workspace-redesign/` —
+    UI SCHNITT Workspace Redesign. Plan = `README.md` (index) +
+    `01_DB_MIGRATIONS.md` … `12_CLEANUP_AND_VERIFY.md`. Phases 01 → 12
+    strictly sequential, tasks within each phase in the order given.
+    Spec authority:
+    `docs/superpowers/specs/2026-05-09-schnitt-workspace-redesign.md`.
+- **One task at a time, from one plan at a time.** No parallel
+  half-finished work across plans.
 - **No unauthorized invention** of features, modules, refactorings,
   optimizations not in the plan.
 
@@ -227,13 +232,14 @@ status marker before the next phase may begin.
 
 ## What is done
 
-- Implement tasks from
-  `docs/superpowers/plans/2026-05-04-brain-v3-nvidia-plan/06_PHASES.md`
-  in the order given.
-- Write code (in the paths foreseen by the plan, with the modules
-  foreseen there).
-- Write tests as specified in
-  `docs/superpowers/plans/2026-05-04-brain-v3-nvidia-plan/07_RISKS.md`.
+- Implement tasks from the active plan's task list, in the order given:
+  - Brain V3: `06_PHASES.md`.
+  - SCHNITT Redesign: `README.md` phase index + per-phase task lists
+    inside the same folder.
+- Write code in the paths foreseen by the active plan, with the modules
+  foreseen there.
+- Write tests as specified by the active plan
+  (Brain V3: `07_RISKS.md`; SCHNITT Redesign: per-phase TDD steps).
 - Run verification scripts (`verify_*.py`) where foreseen.
 - Conduct live tests or explicitly ask the user for live test.
 - Write vault entries.
@@ -320,8 +326,9 @@ status marker before the next phase may begin.
 ## Sequential standard loop per sub-task
 
 ```
- 1. Quote the sub-task from the plan
-    (06_PHASES.md and the relevant phase blueprint, if any)
+ 1. Quote the sub-task from the active plan
+    (Brain V3: 06_PHASES.md + phase blueprint;
+     SCHNITT Redesign: phase file, e.g. 01_DB_MIGRATIONS.md)
  2. Dependencies verified in vault? (status: fixed for predecessor)
  3. Unclear or contradiction between plan documents?
     → ask user, STOP until answer
