@@ -182,13 +182,12 @@ class WorkspaceSetupController(PBComponent):
 
         Phase 10 (2026-05-09): Stack reduced to 4 tabs.
         Stack-Order: 0=PROJEKT, 1=MATERIAL & ANALYSE, 2=SCHNITT, 3=EXPORT.
-        ``_edit_ws`` is kept as a *hidden* widget host: it owns the controls
-        (audio_combo, video_combo, btn_generate, ...) that the new
-        ``SchnittWorkspace`` sub-tabs do not yet provide. Phase 12 will
-        clean it up.
+        Tier-3-Sunset (2026-05-09): hidden ``_edit_ws`` entfernt — sämtliche
+        Promotions ziehen jetzt direkt von ``SchnittWorkspace.editor_view``
+        und seinen Sub-Tabs.
         """
         from ui.workspaces import (
-            MediaWorkspace, EditWorkspace, StemsWorkspace,
+            MediaWorkspace, StemsWorkspace,
             ConvertWorkspace, DeliverWorkspace,
             MaterialAnalysisWorkspace, ProjectDashboard,
         )
@@ -270,17 +269,11 @@ class WorkspaceSetupController(PBComponent):
         if hasattr(self.window._media_ws, 'btn_siglip_embeddings'):
             self.window._media_ws.btn_siglip_embeddings.clicked.connect(self.window.video_analysis._start_video_pipeline)
 
-        # --- SCHNITT workspace (Phase 10 Redesign) ---
-        # Visible workspace: SchnittWorkspace with sub-tabs (Schnitt / Pacing & Anker
-        # / Audio / RL & Notes). The legacy EditWorkspace is kept as a hidden
-        # widget host until Phase 12 cleanup, because some controls
-        # (audio_combo, video_combo, btn_generate, btn_auto_edit, btn_keyframe_string,
-        # energy_reactivity_*, preview_time_label) do not yet
-        # exist in the new sub-tabs. EditWorkspaceController consumes them via
-        # ``self.window.<attr>`` -- we keep the promotions stable.
+        # --- SCHNITT workspace (Phase 10 Redesign + Tier-3-Sunset) ---
+        # Visible workspace: SchnittWorkspace with sub-tabs (Schnitt /
+        # Pacing & Anker / Audio / RL & Notes). Header-Row der EditorView
+        # liefert audio_combo, video_combo, btn_generate, btn_auto_edit.
         self.window._schnitt_ws = SchnittWorkspace()
-        self.window._edit_ws = EditWorkspace()
-        self.window._edit_ws.hide()  # legacy host, never shown
         _schnitt_tab_schnitt = self.window._schnitt_ws.editor_view.tab_schnitt
         _schnitt_tab_pacing = self.window._schnitt_ws.editor_view.tab_pacing_anker
         _schnitt_tab_rl = self.window._schnitt_ws.editor_view.tab_rl_notes
@@ -300,9 +293,8 @@ class WorkspaceSetupController(PBComponent):
         self.window.btn_sync_anchors = _schnitt_tab_pacing.btn_sync_anchors
         self.window.btn_learn_ai = _schnitt_tab_pacing.btn_learn_ai
 
-        # Promote widgets that still live on the hidden EditWorkspace host
-        # Tier-3-Sunset T3.2: audio_combo + video_combo wandern in den
-        # SchnittEditorView-Header.
+        # Tier-3-Sunset: alle Promotions ziehen vom SchnittEditorView und
+        # seinen Sub-Tabs. Kein hidden _edit_ws mehr.
         self.window.btn_preview_play = _schnitt_tab_schnitt.btn_play
         self.window.btn_preview_stop = _schnitt_tab_schnitt.btn_stop
         self.window.preview_time_label = _schnitt_tab_schnitt.time_label
