@@ -147,6 +147,53 @@ def test_set_active_project_protected_skipped_during_loading(test_engine, monkey
     assert ws.current_state() == STATE_LOADING
 
 
+# ---------------------------------------------------------------------------
+# B2 — btn_regenerate triggert Confirm + Signal
+# ---------------------------------------------------------------------------
+
+def test_regenerate_confirmed_emits_signal_and_loads():
+    _qapp()
+    from ui.workspaces.schnitt_workspace import SchnittWorkspace, STATE_LOADING
+    from ui.controllers.schnitt_controller import SchnittController
+    import ui.controllers.schnitt_controller as ctrl_mod
+
+    ws = SchnittWorkspace()
+    ctrl = SchnittController(ws)
+
+    # Confirm-Dialog mocken (Yes)
+    import ui.workspaces.schnitt.regenerate_dialog as rd_mod
+    rd_mod.confirm_regenerate = lambda parent: True
+
+    captured = []
+    ctrl.request_regenerate.connect(lambda p: captured.append(p))
+
+    ws.editor_view.tab_pacing_anker.btn_regenerate.click()
+
+    assert len(captured) == 1
+    assert captured[0] is ctrl.profile
+    assert ws.current_state() == STATE_LOADING
+
+
+def test_regenerate_cancelled_does_nothing():
+    _qapp()
+    from ui.workspaces.schnitt_workspace import SchnittWorkspace, STATE_EMPTY
+    from ui.controllers.schnitt_controller import SchnittController
+
+    ws = SchnittWorkspace()
+    ctrl = SchnittController(ws)
+
+    import ui.workspaces.schnitt.regenerate_dialog as rd_mod
+    rd_mod.confirm_regenerate = lambda parent: False
+
+    captured = []
+    ctrl.request_regenerate.connect(lambda p: captured.append(p))
+
+    ws.editor_view.tab_pacing_anker.btn_regenerate.click()
+
+    assert captured == []
+    assert ws.current_state() == STATE_EMPTY
+
+
 def test_set_active_project_protected_runs_when_not_loading(test_engine, monkeypatch):
     _qapp()
     import ui.workspaces.schnitt_workspace as ws_mod
