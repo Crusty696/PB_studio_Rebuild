@@ -1309,11 +1309,14 @@ def main():
 
     # SCHNITT-Redesign 2026-05-09 Phase 03 Task 3.1: WheelGuard verhindert
     # versehentliches Verstellen von Combos/Slidern/SpinBoxen beim
-    # Maus-Drueberscrollen, solange das Widget keinen Fokus hat. Referenz
-    # bleibt im Modul-Scope, damit der Filter nicht GC'd wird.
+    # Maus-Drueberscrollen, solange das Widget keinen Fokus hat.
+    # T4.4 (Tier 4 Hardening): Referenz wird ans QApplication-Objekt
+    # gehaengt (statt nur Funktions-Local), damit der Filter garantiert
+    # ueber die App-Lifetime gehalten wird und nicht durch Refactor des
+    # main()-Scopes versehentlich GC'd werden kann.
     from ui.widgets.wheel_guard import WheelGuard
-    _wheel_guard = WheelGuard(app)
-    app.installEventFilter(_wheel_guard)
+    app._wheel_guard = WheelGuard(app)
+    app.installEventFilter(app._wheel_guard)
 
     # B-218: Native Power-Event-Listener fuer Windows. Bei Laptop-Andocken/
     # -Sleep verliert die GTX 1060 Mobile den CUDA-Power-State -> der
