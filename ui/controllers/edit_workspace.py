@@ -131,15 +131,25 @@ class EditWorkspaceController(PBComponent):
         class _CutsWorker(QObject):
             done = Signal(list, float, int)
             failed = Signal(str, int)
+            # Phase 09: Stage-Progress fuer SchnittLoadingView.
+            progress = Signal(str, float)
 
             def __init__(self, audio_id, video_id, settings, total_dur, seq):
                 super().__init__()
                 self._args = (audio_id, video_id, settings, total_dur)
                 self._seq = seq
 
+            def _emit_stage(self, stage_key: str, fraction: float) -> None:
+                try:
+                    self.progress.emit(stage_key, float(fraction))
+                except Exception:
+                    pass
+
             def run(self):
                 try:
+                    self._emit_stage("cut_calc", 0.1)
                     cuts = calculate_cut_points(*self._args)
+                    self._emit_stage("cut_calc", 1.0)
                     self.done.emit(cuts, self._args[3], self._seq)
                 except Exception as exc:
                     # B-171: Stacktrace loggen statt nur als Text-Signal.
