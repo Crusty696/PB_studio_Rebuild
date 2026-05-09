@@ -218,3 +218,31 @@ def qapp():
     from PySide6.QtWidgets import QApplication  # local import — see skip
     app = QApplication.instance() or QApplication([])
     yield app
+
+
+# ---------------------------------------------------------------------------
+# SCHNITT — patched engine helper (T6.3)
+# ---------------------------------------------------------------------------
+# Patcht die `engine`-Referenz in allen relevanten SCHNITT-Service-Modulen
+# auf die test_engine. Konsumenten muessen damit nicht mehr selbst
+# `monkeypatch.setattr(...)` pro Modul aufrufen.
+
+@pytest.fixture
+def patched_schnitt_engine(test_engine, monkeypatch):
+    """Patcht engine in allen SCHNITT-Service-Modulen.
+
+    Lazy-Imports: Module die noch nicht geladen sind werden ueberspringen.
+    """
+    import importlib
+    for mod_name in [
+        "services.project_notes_service",
+        "services.timeline_state",
+        "services.timeline_snapshot_service",
+    ]:
+        try:
+            mod = importlib.import_module(mod_name)
+        except ImportError:
+            continue
+        if hasattr(mod, "engine"):
+            monkeypatch.setattr(mod, "engine", test_engine)
+    yield test_engine
