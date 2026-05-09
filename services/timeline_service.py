@@ -114,7 +114,18 @@ def _do_apply_segments(segments: list[dict], project_id: int) -> int:
             project_id=project_id, track="video", locked=False
         ).delete()
 
-        # 3) Neue Segmente einfuegen, an Locked-Ranges geklemmt
+        # 3) Neue Segmente einfuegen, an Locked-Ranges geklemmt.
+        #
+        # TODO (T4.10 / D16, deferred): Bei einem Segment, das MEHRERE Locks
+        # ueberspannt (z.B. seg=[0,30], locks=[(10,15),(20,25)]), klemmt die
+        # aktuelle Schleife auf das Stueck VOR dem ersten ueberspannenden
+        # Lock — Stuecke zwischen Locks und nach dem letzten Lock gehen
+        # verloren. Korrektes Verhalten: in mehrere Segmente splitten.
+        # Das aendert den Loop von "in-place clamp" zu "produziere Liste
+        # von Output-Segmenten" und beruehrt Tests in
+        # tests/test_services/test_apply_auto_edit*.py — daher als
+        # Folge-Plan vertagt. Aktueller Workaround: T4.9-Sortierung macht
+        # das Verhalten zumindest deterministisch.
         for seg in segments:
             seg_start = float(seg["start"])
             seg_end = float(seg["end"])
