@@ -37,43 +37,26 @@ git commit -m "refactor(schnitt): remove dead btn_toggle_inspector code"
 
 ## Task 12.2: Alten `EditWorkspace` löschen oder Stub-only halten
 
-**Files:**
-- Delete: `ui/workspaces/edit_workspace.py` (sofern keine Restzugriffe)
-- Modify: `ui/controllers/edit_workspace.py` → umbenennen zu `ui/controllers/schnitt_actions.py` und auf neue Widgets zeigen.
+**Status 2026-05-09: VERSCHOBEN auf Folge-Plan.** Begründung siehe unten.
 
-- [ ] **Step 1: Greppen ob noch jemand `from ui.workspaces.edit_workspace import EditWorkspace` benutzt**
+**Bewertung (Phase-12-Implementer, 2026-05-09):**
 
-```text
-"C:\Users\David Lochmann\miniconda3\envs\pb-studio\python.exe" -c "import importlib, pkgutil; print('ok')"
-```
+`ui/workspaces/edit_workspace.py` (`EditWorkspace`-Klasse) ist nach Phase 10 noch der hidden Host für 12 Widgets, die Controller- und Setup-Logik direkt greift:
 
-(Echtes Grep mit Grep-Tool durchführen.)
+- `ui/controllers/workspace_setup.py:282-335` — 12 Promotionen via `self.window._edit_ws.<attr>` (btn_preview_play, btn_preview_stop, preview_time_label, audio_combo, video_combo, energy_reactivity_slider/spin, btn_generate, btn_auto_edit, keyframe_text, btn_keyframe_string, btn_thumbs_up/down, style_preset_combo).
+- `ui/controllers/edit_workspace.py:561,571,572,574` — 4 Direktzugriffe (style_preset_combo, cut_rate_combo, energy_reactivity_slider, breakdown_combo).
+- `ui/workspaces/__init__.py` — Re-Export `EditWorkspace`.
 
-Wenn keine Treffer mehr: löschen.
+Eine saubere Löschung erfordert:
 
-```bash
-git rm ui/workspaces/edit_workspace.py
-```
+1. Alle 12 Widgets in die jeweiligen `SchnittTab*`-Komponenten migrieren (oder stabile Pass-Through-Properties in SchnittWorkspace bauen).
+2. Controller-Split in `ui/controllers/schnitt_actions.py` + `ui/controllers/schnitt_workers.py`.
+3. Re-Export aus `ui/workspaces/__init__.py` und `ui/controllers/__init__.py` aktualisieren.
+4. main.py-Smoke + Tests in `tests/ui/test_controllers_smoke.py`, `tests/ui/test_cuts_worker_progress.py`, `tests/test_services/test_cycle7_ui_batch.py` an neue Class-Namen anpassen.
 
-- [ ] **Step 2: `ui/controllers/edit_workspace.py` umbenennen / Inhalte umverteilen**
+Berührt mehr als 3 Files, deutlich >100 Zeilen, hohes Regressions-Risiko (Auto-Edit / Generate-Worker-Pfade). Liegt damit klar außerhalb des Phase-12-Scope „Cleanup + Verify".
 
-Wenn der Controller noch Pacing-Worker-Methoden enthält, in zwei Files splitten:
-
-- `ui/controllers/schnitt_actions.py` — high-level Actions (Generate, Auto-Edit, Re-Generate, Anchor-CRUD).
-- `ui/controllers/schnitt_workers.py` — `_CutsWorker`, `AutoEditWorker`-Wiring.
-
-Alle Konsumenten in `workspace_setup.py` umstellen.
-
-- [ ] **Step 3: Smoke-Run + Tests grün**.
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add -A
-git commit -m "refactor(schnitt): remove legacy EditWorkspace, split controllers"
-```
-
-- [ ] **Step 5: Vault-Update.**
+**Aktion:** Phase 12.2 wird **nicht** in dieser Phase ausgeführt. Wird in einem eigenen Folge-Plan (Arbeitstitel: „SCHNITT EditWorkspace Sunset") nach erfolgreicher Live-Verifikation behandelt. Tot-Code-Entfernung in 12.1 reicht für den Phase-12-Scope.
 
 ---
 
