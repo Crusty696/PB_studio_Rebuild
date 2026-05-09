@@ -5,6 +5,7 @@ Alle Tests nutzen eine In-Memory SQLite DB – kein Datenverlust, kein
 Zugriff auf die echte pb_studio.db.
 """
 
+import os
 import sys
 from pathlib import Path
 
@@ -194,3 +195,26 @@ def engine(test_engine):
 def project_id(project):
     """The INT id of the default project fixture."""
     return project.id
+
+
+# ---------------------------------------------------------------------------
+# Qt — session-scoped QApplication (T6.2)
+# ---------------------------------------------------------------------------
+# Bisher hatten viele Tests einen lokalen `_qapp()`-Helper. Diese Fixture
+# stellt eine einzige QApplication-Instanz pro Session bereit und vermeidet
+# Multiple-QApplication-Warnungen. Tests duerfen `_qapp()` weiter nutzen
+# (idempotent), neue Tests sollten die `qapp`-Fixture verwenden.
+
+@pytest.fixture(scope="session")
+def qapp():
+    """Session-scoped QApplication, offscreen.
+
+    Bei fehlendem PySide6 wird der Test ohnehin durch
+    `pytest_collection_modifyitems` geskipped.
+    """
+    if not _PYSIDE6_AVAILABLE:
+        pytest.skip("PySide6 not installed")
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication  # local import — see skip
+    app = QApplication.instance() or QApplication([])
+    yield app
