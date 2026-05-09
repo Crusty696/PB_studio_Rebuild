@@ -474,13 +474,13 @@ class TimelineClipItem(QGraphicsRectItem):
         new = not self._locked
         self.set_locked(new)
         from ui.undo_commands import ToggleClipLockCommand
-        cmd = ToggleClipLockCommand(self.entry_id, new)
+        scene = self.scene()
+        view = scene.views()[0] if (scene and scene.views()) else None
+        cmd = ToggleClipLockCommand(self.entry_id, new, timeline=view)
         if force:
             # In Tests ohne aktive Scene/UndoStack direkt persistieren
             cmd.redo()
             return
-        scene = self.scene()
-        view = scene.views()[0] if (scene and scene.views()) else None
         stack = getattr(view, "undo_stack", None) if view is not None else None
         if stack is not None:
             stack.push(cmd)
@@ -1383,6 +1383,17 @@ class InteractiveTimeline(QGraphicsView):
         if item:
             self._scene.removeItem(item)
             self.clip_items.remove(item)
+
+    def _sync_clip_lock_visual(self, entry_id: int, locked: bool) -> None:
+        """Synchronisiert die visuelle Lock-Anzeige nach DB-Toggle.
+
+        SCHNITT-Redesign 2026-05-09 Tier-1 Hardening (D11):
+        ToggleClipLockCommand.redo/undo ruft das nach dem DB-Write,
+        damit Goldrand + Lock-Icon ohne Full-Reload mitziehen.
+        """
+        item = self._find_clip_item(entry_id)
+        if item is not None:
+            item.set_locked(bool(locked))
 
     def _on_clip_trimmed(self, entry_id: int, edge: str,
                          old_pos_x: float, old_width: float,

@@ -335,13 +335,28 @@ class ToggleClipLockCommand(QUndoCommand):
     """Togglet das locked-Flag eines TimelineEntry.
 
     SCHNITT-Redesign 2026-05-09 Phase 03 Task 3.3.
+    Tier-1 Hardening (D11): Optionaler ``timeline``-Parameter — wenn
+    gesetzt, ruft redo()/undo() nach dem DB-Write
+    ``timeline._sync_clip_lock_visual(entry_id, locked)`` auf, damit
+    Goldrand + Lock-Icon ohne Full-Reload mitziehen.
     """
 
-    def __init__(self, entry_id: int, new_locked: bool):
+    def __init__(self, entry_id: int, new_locked: bool, timeline=None):
         super().__init__("Clip sperren" if new_locked else "Clip entsperren")
         self._entry_id = entry_id
         self._new = new_locked
         self._old: bool | None = None
+        self._timeline = timeline
+
+    def _sync_visual(self, locked: bool) -> None:
+        if self._timeline is None:
+            return
+        sync = getattr(self._timeline, "_sync_clip_lock_visual", None)
+        if callable(sync):
+            try:
+                sync(self._entry_id, locked)
+            except Exception:
+                logger.debug("ToggleClipLockCommand: visual sync skipped", exc_info=True)
 
     def redo(self):
         with DBSession(engine) as s:
@@ -351,6 +366,7 @@ class ToggleClipLockCommand(QUndoCommand):
             self._old = bool(e.locked)
             e.locked = self._new
             s.commit()
+        self._sync_visual(self._new)
 
     def undo(self):
         if self._old is None:
@@ -361,3 +377,4 @@ class ToggleClipLockCommand(QUndoCommand):
                 return
             e.locked = self._old
             s.commit()
+        self._sync_visual(self._old)
