@@ -152,12 +152,21 @@ class WorkspaceSetupController(PBComponent):
             self.window.status_bar.showMessage("Letzte Projekte geleert.", 3000)
 
     def _create_workspaces(self):
-        """Creates all 5 workspaces, promotes widgets, wires signals."""
+        """Creates all 4 workspaces, promotes widgets, wires signals.
+
+        Phase 10 (2026-05-09): Stack reduced to 4 tabs.
+        Stack-Order: 0=PROJEKT, 1=MATERIAL & ANALYSE, 2=SCHNITT, 3=EXPORT.
+        ``_edit_ws`` is kept as a *hidden* widget host: it owns the controls
+        (audio_combo, video_combo, btn_generate, ...) that the new
+        ``SchnittWorkspace`` sub-tabs do not yet provide. Phase 12 will
+        clean it up.
+        """
         from ui.workspaces import (
             MediaWorkspace, EditWorkspace, StemsWorkspace,
             ConvertWorkspace, DeliverWorkspace,
             MaterialAnalysisWorkspace, ProjectDashboard,
         )
+        from ui.workspaces.schnitt_workspace import SchnittWorkspace
 
         self.window._media_ws = MediaWorkspace()
 
@@ -235,35 +244,49 @@ class WorkspaceSetupController(PBComponent):
         if hasattr(self.window._media_ws, 'btn_siglip_embeddings'):
             self.window._media_ws.btn_siglip_embeddings.clicked.connect(self.window.video_analysis._start_video_pipeline)
 
-        # --- EDIT workspace ---
+        # --- SCHNITT workspace (Phase 10 Redesign) ---
+        # Visible workspace: SchnittWorkspace with sub-tabs (Schnitt / Pacing & Anker
+        # / Audio / RL & Notes). The legacy EditWorkspace is kept as a hidden
+        # widget host until Phase 12 cleanup, because some controls
+        # (audio_combo, video_combo, btn_generate, btn_auto_edit, btn_keyframe_string,
+        # energy_reactivity_*, btn_toggle_inspector, preview_time_label) do not yet
+        # exist in the new sub-tabs. EditWorkspaceController consumes them via
+        # ``self.window.<attr>`` -- we keep the promotions stable.
+        self.window._schnitt_ws = SchnittWorkspace()
         self.window._edit_ws = EditWorkspace()
+        self.window._edit_ws.hide()  # legacy host, never shown
+        _schnitt_tab_schnitt = self.window._schnitt_ws.editor_view.tab_schnitt
+        _schnitt_tab_pacing = self.window._schnitt_ws.editor_view.tab_pacing_anker
+        _schnitt_tab_rl = self.window._schnitt_ws.editor_view.tab_rl_notes
 
-        # Promote widgets
-        self.window.video_preview = self.window._edit_ws.video_preview
+        # Promote widgets owned by the visible Schnitt sub-tabs
+        self.window.video_preview = _schnitt_tab_schnitt.video_preview
+        self.window.timeline_view = _schnitt_tab_schnitt.timeline_view
+        self.window.cut_info_label = _schnitt_tab_schnitt.cut_info_label
+        self.window.inspector_panel = self.window._schnitt_ws.editor_view.inspector_panel
+        self.window.pacing_curve = _schnitt_tab_pacing.pacing_curve
+        self.window.cut_rate_combo = _schnitt_tab_pacing.cut_rate_combo
+        self.window.vibe_input = _schnitt_tab_pacing.vibe_input
+        self.window.breakdown_combo = _schnitt_tab_pacing.breakdown_combo
+        self.window.anchor_list = _schnitt_tab_pacing.anchor_list
+        self.window.btn_add_anchor = _schnitt_tab_pacing.btn_add_anchor
+        self.window.btn_remove_anchor = _schnitt_tab_pacing.btn_remove_anchor
+        self.window.btn_sync_anchors = _schnitt_tab_pacing.btn_sync_anchors
+        self.window.btn_learn_ai = _schnitt_tab_pacing.btn_learn_ai
+
+        # Promote widgets that still live on the hidden EditWorkspace host
         self.window.btn_preview_play = self.window._edit_ws.btn_preview_play
         self.window.btn_preview_stop = self.window._edit_ws.btn_preview_stop
         self.window.preview_time_label = self.window._edit_ws.preview_time_label
         self.window.btn_toggle_inspector = self.window._edit_ws.btn_toggle_inspector
-        self.window.inspector_panel = self.window._edit_ws.inspector_panel
         self.window.audio_combo = self.window._edit_ws.audio_combo
         self.window.video_combo = self.window._edit_ws.video_combo
-        self.window.vibe_input = self.window._edit_ws.vibe_input
-        self.window.cut_rate_combo = self.window._edit_ws.cut_rate_combo
         self.window.energy_reactivity_slider = self.window._edit_ws.energy_reactivity_slider
         self.window.energy_reactivity_spin = self.window._edit_ws.energy_reactivity_spin
-        self.window.breakdown_combo = self.window._edit_ws.breakdown_combo
         self.window.btn_generate = self.window._edit_ws.btn_generate
         self.window.btn_auto_edit = self.window._edit_ws.btn_auto_edit
-        self.window.anchor_list = self.window._edit_ws.anchor_list
-        self.window.btn_add_anchor = self.window._edit_ws.btn_add_anchor
-        self.window.btn_remove_anchor = self.window._edit_ws.btn_remove_anchor
-        self.window.btn_sync_anchors = self.window._edit_ws.btn_sync_anchors
-        self.window.btn_learn_ai = self.window._edit_ws.btn_learn_ai
         self.window.review_keyframe_text = self.window._edit_ws.keyframe_text
         self.window.review_btn_keyframe_string = self.window._edit_ws.btn_keyframe_string
-        self.window.pacing_curve = self.window._edit_ws.pacing_curve
-        self.window.timeline_view = self.window._edit_ws.timeline_view
-        self.window.cut_info_label = self.window._edit_ws.cut_info_label
 
         # Wire EDIT signals
         self.window.btn_preview_play.clicked.connect(self.window.edit_workspace._toggle_preview_play)
@@ -287,6 +310,13 @@ class WorkspaceSetupController(PBComponent):
         if hasattr(self.window._edit_ws, 'style_preset_combo'):
             self.window._edit_ws.style_preset_combo.currentIndexChanged.connect(self.window.edit_workspace._apply_style_preset)
         self.window.timeline_view.clip_moved.connect(self.window.edit_workspace._on_timeline_clip_moved)
+
+        # Phase 10: also wire the visible Schnitt-tab transport buttons.
+        _schnitt_tab_schnitt.btn_play.clicked.connect(self.window.edit_workspace._toggle_preview_play)
+        _schnitt_tab_schnitt.btn_stop.clicked.connect(self.window.video_preview.stop)
+        _schnitt_tab_pacing.btn_regenerate.clicked.connect(self.window.edit_workspace._generate_timeline)
+        _schnitt_tab_rl.feedback_positive.connect(self.window.edit_workspace._rl_feedback_positive)
+        _schnitt_tab_rl.feedback_negative.connect(self.window.edit_workspace._rl_feedback_negative)
 
         # Undo/Redo
         from PySide6.QtGui import QAction, QKeySequence
@@ -405,10 +435,10 @@ class WorkspaceSetupController(PBComponent):
             lambda *_args: self._unregister_cockpit_listener()
         )
 
-        self.window.workspace_stack.addWidget(self.window._project_dashboard)
-        self.window.workspace_stack.addWidget(self.window._material_analysis_ws)
-        self.window.workspace_stack.addWidget(self.window._edit_ws)
-        self.window.workspace_stack.addWidget(self.window._deliver_ws)
+        self.window.workspace_stack.addWidget(self.window._project_dashboard)        # 0
+        self.window.workspace_stack.addWidget(self.window._material_analysis_ws)     # 1
+        self.window.workspace_stack.addWidget(self.window._schnitt_ws)               # 2
+        self.window.workspace_stack.addWidget(self.window._deliver_ws)               # 3
 
     def _handle_cockpit_action(self, action_key: str):
         """Fuehrt genau die vom Guided Cockpit empfohlene Aktion aus."""
@@ -430,14 +460,12 @@ class WorkspaceSetupController(PBComponent):
                 self.window._media_ws.switch_to_video()
             self.window.video_analysis._start_video_pipeline()
             return
-        if action_key == "open_auto_edit":
+        if action_key in ("open_schnitt", "open_auto_edit", "open_review"):
+            # Phase 10: Auto-Edit and Review collapsed into SCHNITT.
             self.window.nav_bar.set_workspace(2)
             return
-        if action_key == "open_review":
-            self.window.nav_bar.set_workspace(3)
-            return
         if action_key == "open_export":
-            self.window.nav_bar.set_workspace(4)
+            self.window.nav_bar.set_workspace(3)
             return
         self.logger.warning("Unbekannte Cockpit-Aktion: %s", action_key)
 
@@ -453,8 +481,6 @@ class WorkspaceSetupController(PBComponent):
         self.window._cockpit_completion_listener = None
 
     def _on_workspace_changed(self, index: int):
-        from ui.workspaces.workflow_pages import set_tab_if_available
-
         self._update_workflow_gates()
         if index == 0:
             self.window.workspace_stack.setCurrentIndex(0)
@@ -467,20 +493,14 @@ class WorkspaceSetupController(PBComponent):
             return
         if index == 2:
             self.window.workspace_stack.setCurrentIndex(2)
-            if hasattr(self.window._edit_ws, "set_workflow_stage"):
-                self.window._edit_ws.set_workflow_stage("auto")
-            else:
-                set_tab_if_available(self.window._edit_ws, 1)
+            if hasattr(self.window._schnitt_ws, "refresh_state_from_db"):
+                try:
+                    self.window._schnitt_ws.refresh_state_from_db()
+                except Exception as exc:
+                    self.logger.debug("schnitt refresh failed: %s", exc)
             self.window.media_table_controller._refresh_director_combos()
             return
         if index == 3:
-            self.window.workspace_stack.setCurrentIndex(2)
-            if hasattr(self.window._edit_ws, "set_workflow_stage"):
-                self.window._edit_ws.set_workflow_stage("review")
-            else:
-                set_tab_if_available(self.window._edit_ws, 0)
-            return
-        if index == 4:
             self.window.workspace_stack.setCurrentIndex(3)
             if hasattr(self.window, 'export'):
                 self.window.export._refresh_production_info()
