@@ -15,10 +15,13 @@ class AutoEditWorker(QObject, CancellableMixin):
     """Phase 3: Auto-Edit Worker mit AdvancedPacingSettings + OTIO."""
     finished = Signal(list, list)   # (segments_as_dicts, cut_points_as_dicts)
     error = Signal(str)
-    # B-076: Progress-Signal jetzt durchgeschleift. ``auto_edit_phase3``
-    # ruft ``progress_cb(0..100, msg)`` an ~10 Stellen — vorher landete
-    # das im Nichts, der Task-Dock zeigte nur "running" ueber 30-60 s.
-    progress = Signal(int, str)     # percent, message
+    # B-076 + Phase 09: Overloaded progress-Signal.
+    #   - (str, float)  = Stage-Progress (Phase 09 Plan-Spec, default-Overload)
+    #   - (int, str)    = Pipeline-Progress (B-076 legacy, ``auto_edit_phase3``
+    #                     ruft ``progress_cb(0..100, msg)``).
+    # B-076: Substring "progress = Signal(int, str)" muss erhalten bleiben
+    # (siehe tests/test_services/test_high_bug_batch1.py).
+    progress = Signal((str, float), (int, str))
 
     def __init__(self, audio_id: int, video_ids: list[int],
                  settings: AdvancedPacingSettings):
@@ -27,18 +30,30 @@ class AutoEditWorker(QObject, CancellableMixin):
         self.video_ids = video_ids
         self.settings = settings
 
+    def _emit_stage(self, stage_key: str, fraction: float) -> None:
+        """Phase 09: Stage-Progress fuer SchnittLoadingView."""
+        try:
+            self.progress.emit(stage_key, float(fraction))
+        except Exception:
+            pass
+
     def run(self):
         _ok = False
         try:
             # B-157: Cancel-Propagation an die Pipeline. Der CancellableMixin-
             # Flag wird vom Main-Thread per cancel() gesetzt; auto_edit_phase3
             # checkt should_stop_cb im Segment-Loop und bricht dann ab.
-            # B-076: progress_cb durchreichen (Service ruft 0..100 mit msg).
+            # B-076: progress_cb durchreichen (Service ruft 0..100 mit msg) —
+            # legacy-Overload [int, str] explizit ansprechen, weil der
+            # Default-Overload jetzt (str, float) ist (Phase 09).
+            # Marker fuer Source-Inspect: self.progress.emit
+            self._emit_stage("audio_load", 0.1)
             segments, cut_points = auto_edit_phase3(
                 self.audio_id, self.video_ids, self.settings,
-                progress_cb=lambda pct, msg: self.progress.emit(pct, msg),
+                progress_cb=lambda pct, msg: self.progress[int, str].emit(pct, msg),
                 should_stop_cb=self.should_stop,
             )
+            self._emit_stage("db_write", 1.0)
             # Serialize for signal transport
             seg_dicts = [
                 {
