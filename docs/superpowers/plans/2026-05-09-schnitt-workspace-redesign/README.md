@@ -60,3 +60,32 @@ Nach Phase 12: User startet PB Studio, importiert Solo_Natur (103 Files) + Crust
   ```
 - Vault: `C:\Brain-Bug\projects\pb-studio\wiki\synthesis\schnitt-workspace-redesign-2026-05-09.md`
 - Test-Datensatz: Solo_Natur (103 Videos) + Crusty Progressive Psy Set2.mp3 (149 MB DJ-Mix)
+
+---
+
+## Plan-Abweichungen-Register
+
+> Stand 2026-05-09 nach Tier 1–6 Implementierung. Plan-Files (`01` … `12`) bleiben als historisches Artefakt unverändert. Hier dokumentiert: gezielte Abweichungen während der Umsetzung, jeweils mit Begründung. Keine dieser Abweichungen verletzt Spec-Authority — Spec wurde nicht angefasst.
+
+| # | Bereich | Plan-Soll | Ist | Begründung |
+|---|---|---|---|---|
+| A1 | DB-Migration `add_locked_to_timeline_entries` | Standalone-Skript ohne Idempotenz | Idempotent (`PRAGMA table_info` Vor-Check) | Re-Run-Sicherheit auf existierenden DBs (T1.x). |
+| A2 | DB-Migration `create_timeline_snapshots` | Standalone-Skript ohne Idempotenz | Idempotent (`sqlite_master` Vor-Check) | Konsistenz mit A1. |
+| A3 | DB-Migration `create_project_notes` | Standalone-Skript ohne Idempotenz | Idempotent (`sqlite_master` Vor-Check) | Konsistenz mit A1/A2. |
+| A4 | `PacingProfile`-Dataclass | Plain dataclass | `@dataclass(frozen=True)` mit `as_dict()` + `from_preset()` | Immutability + Roundtrip-Helpers für Snapshot-Serialisierung. |
+| A5 | `TimelineState`-Dataclass | dict-basierte Repräsentation | Echte Dataclass mit `load(project_id, engine)` / `save_snapshot(...)` | Type-Safety + DI-Tauglichkeit für Tests. |
+| A6 | `TimelineSnapshotService.restore` | Generischer Restore | Restore wirft `ValueError` bei Mismatch project_id ↔ Snapshot | Defensive gegen versehentlichen Cross-Project-Restore. |
+| A7 | `ProjectNotesService` | Synchroner Save | Auto-Save-Debounce auf UI-Layer (RL-Notes-Subtab) | Performance bei Tipp-heavy Workflows. |
+| A8 | `WheelGuard` | Generischer EventFilter | Whitelist-basiert (Slider, ScrollArea), Mouse-Wheel auf Timeline blockiert | Verhindert versehentliches Zoom/Scroll während Edit. |
+| A9 | `LockIconItem` | QGraphicsPixmapItem | QGraphicsItemGroup mit Hover-State + Click-Signal | Bessere UX (Hover-Highlight). |
+| A10 | `SchnittWorkspace` Empty-State | QLabel-only | Drei Buttons (Techno/Ambient/Custom) + Hint-Text | Direkte Preset-Auswahl ohne extra Dialog. |
+| A11 | `SchnittWorkspace` Loading-State | Statisch „Loading..." | Rotierender Text + ProgressBar + Worker-Stage-Signal | UX-Feedback während mehrstufiger Pipeline. |
+| A12 | Sub-Tab `Schnitt` Inspector | Toggle-fähig | Permanent rechts (kein Toggle-Button mehr) | Spec: persistenter Inspector. Alter `btn_toggle_inspector` in Phase 12 entfernt. |
+| A13 | Sub-Tab `Pacing & Anker` Re-Generate | QMessageBox simple | Custom `ConfirmDialog` mit Lock-Count + Schnitt-Diff-Preview | Kontext für User vor destruktiver Aktion. |
+| A14 | Sub-Tab `Audio` Stems-Mixer | Linear-Slider | LUFS-Anzeige live + Tonart-Detection async | Audio-Engineering-Genauigkeit. |
+| A15 | `nav_bar` Reduktion | Tabs `AUTO-SCHNITT` + `REVIEW` löschen | Beide gelöscht + neuer Tab `SCHNITT` mit `cockpit_orchestrator.open_schnitt` | Plan-konform, dokumentiert wegen QSettings-Migration. |
+| A16 | QSettings-Migration | Manueller Hinweis im Code | `migrate_qsettings_v2()` wird beim App-Start einmalig ausgeführt + setzt Versions-Key | Reibungsloser Upgrade von Bestands-Installationen. |
+| A17 | Tests-Phase | „bestehende Tests anpassen, neue ergänzen" | Coverage-Tests pro Service + Workspace + Subtab + Controller (Tier 4–5, jeweils ≥85%) | Höherer Abdeckungsgrad als Plan-Mindest. |
+| A18 | Test-Infra (Tier 6) | Plan implizit | `StaticPool`-In-Memory-Engine + session-scoped `qapp` + `patched_schnitt_engine`-Fixture in `tests/conftest.py` | Cross-Thread-Tests stabilisieren, Multi-QApplication-Warnungen vermeiden. |
+
+Spec-Status: weiterhin `draft-approved-for-planning` — `status: fixed` vergibt User nach Live-Verify gemäß Phase 12.
