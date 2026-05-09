@@ -465,6 +465,10 @@ class TimelineEntry(Base):
     brightness = Column(Float, nullable=True, default=0.0)   # -1.0 bis 1.0
     contrast = Column(Float, nullable=True, default=1.0)     # 0.0 bis 3.0
 
+    # SCHNITT-Redesign 2026-05-09: Clip-Locking. Gelockte Clips bleiben bei
+    # Auto-Edit-Reruns unveraendert.
+    locked = Column(Boolean, nullable=False, default=False, server_default="0")
+
     # Bug-20 Fix: Rückbeziehungen zu Project und ClipAnchor ergänzt
     project = relationship("Project", back_populates="timeline_entries", lazy='joined')
     anchors = relationship("ClipAnchor", back_populates="timeline_entry", cascade="all, delete-orphan", passive_deletes=True, lazy='selectin')

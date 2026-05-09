@@ -412,6 +412,14 @@ def _run_legacy_migrations():
             if "contrast" not in te_columns:
                 conn.execute(text("ALTER TABLE timeline_entries ADD COLUMN contrast FLOAT DEFAULT 1.0"))
 
+    # SCHNITT-Redesign 2026-05-09: locked-Flag fuer Clip-Locking
+    insp = inspect(get_raw_engine())
+    if "timeline_entries" in insp.get_table_names():
+        te_columns = {c["name"] for c in insp.get_columns("timeline_entries")}
+        with engine.begin() as conn:
+            if "locked" not in te_columns:
+                conn.execute(text("ALTER TABLE timeline_entries ADD COLUMN locked BOOLEAN NOT NULL DEFAULT 0"))
+
     # Migration: ai_pacing_memory Tabelle nachrüsten (neue Spalten falls Tabelle alt)
     insp = inspect(get_raw_engine())
     if "ai_pacing_memory" in insp.get_table_names():
