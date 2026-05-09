@@ -64,3 +64,19 @@ class SchnittTabAudio(QWidget):
             self.key_label.setText(f"Tonart: {key_text} ({camelot})")
         else:
             self.key_label.setText(f"Tonart: {key_text}")
+
+    def render_grid_lines(self, beat_times: list[float], pixels_per_second: float = 50.0) -> None:
+        scene = self.waveform_view.scene()
+        scene.clear()
+        pen_beat = QPen(QColor(180, 200, 230, 90), 1)
+        height = self.waveform_view.height() or 120
+        for t in beat_times:
+            x = t * pixels_per_second
+            scene.addLine(QLineF(x, 0, x, height), pen_beat)
+
+    def set_audio_id(self, audio_id: int | None) -> None:
+        self._audio_id = audio_id
+        self.waveform_view.scene().clear()
+        if audio_id is None:
+            return
+        # Beatgrid-Rendering aus DB folgt im Controller (Phase 09 Worker).
