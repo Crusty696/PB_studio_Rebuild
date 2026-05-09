@@ -509,3 +509,36 @@ class AnalysisStatus(Base):
 
     def __repr__(self):
         return f"<AnalysisStatus(id={self.id}, media_type='{self.media_type}', media_id={self.media_id}, step='{self.step_key}', status='{self.status}')>"
+
+
+class TimelineSnapshot(Base):
+    """SCHNITT-Redesign 2026-05-09: Snapshot des Timeline-State fuer Hybrid-Undo.
+
+    Bei jedem Auto-Edit-Run und jedem Re-Generate persistiert
+    ``services/timeline_snapshot_service.py`` den serialisierten Clip-State
+    (``payload_json``) zusammen mit einer monotonen ``version`` und einem
+    optionalen ``label``. Konsumenten: Timeline-State-Manager (Task 2.2)
+    + Snapshot-Service (Task 2.3).
+    """
+    __tablename__ = "timeline_snapshots"
+    __table_args__ = (
+        Index("idx_snapshot_project_version", "project_id", "version"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    project_id = Column(
+        Integer,
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    version = Column(Integer, nullable=False)
+    label = Column(String, nullable=True)
+    payload_json = Column(Text, nullable=False)
+    created_at = Column(
+        DateTime,
+        nullable=False,
+        default=lambda: _datetime.datetime.utcnow(),
+    )
+
+    def __repr__(self):
+        return f"<TimelineSnapshot(id={self.id}, project_id={self.project_id}, v={self.version})>"

@@ -420,6 +420,26 @@ def _run_legacy_migrations():
             if "locked" not in te_columns:
                 conn.execute(text("ALTER TABLE timeline_entries ADD COLUMN locked BOOLEAN NOT NULL DEFAULT 0"))
 
+    # SCHNITT-Redesign 2026-05-09: Tabelle fuer persistente Timeline-Snapshots
+    insp = inspect(get_raw_engine())
+    if "timeline_snapshots" not in insp.get_table_names():
+        with engine.begin() as conn:
+            conn.execute(text(
+                "CREATE TABLE timeline_snapshots ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE, "
+                "version INTEGER NOT NULL, "
+                "label TEXT, "
+                "payload_json TEXT NOT NULL, "
+                "created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP"
+                ")"
+            ))
+    with engine.begin() as conn:
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_snapshot_project_version "
+            "ON timeline_snapshots(project_id, version)"
+        ))
+
     # Migration: ai_pacing_memory Tabelle nachrüsten (neue Spalten falls Tabelle alt)
     insp = inspect(get_raw_engine())
     if "ai_pacing_memory" in insp.get_table_names():
