@@ -480,8 +480,10 @@ class TimelineClipItem(QGraphicsRectItem):
             cmd.redo()
             return
         scene = self.scene()
-        if scene and scene.views() and hasattr(scene.views()[0], "undo_stack"):
-            scene.views()[0].undo_stack.push(cmd)
+        view = scene.views()[0] if (scene and scene.views()) else None
+        stack = getattr(view, "undo_stack", None) if view is not None else None
+        if stack is not None:
+            stack.push(cmd)
         else:
             cmd.redo()
 
