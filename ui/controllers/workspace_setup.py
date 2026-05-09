@@ -7,6 +7,32 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
 from ui.base_component import PBComponent
 
+
+def _migrate_workflow_stage_index(settings) -> None:
+    """SCHNITT-Redesign 2026-05-09: alte 5-Tab-Indizes auf 4-Tab-Layout mappen.
+
+    Mapping (5 -> 4):
+        0 PROJEKT             -> 0 PROJEKT
+        1 MATERIAL & ANALYSE  -> 1 MATERIAL & ANALYSE
+        2 AUTO-SCHNITT        -> 2 SCHNITT
+        3 REVIEW              -> 2 SCHNITT (collapsed into SCHNITT)
+        4 EXPORT              -> 3 EXPORT
+    Idempotent via ``window/workflowStageMigratedV2`` flag.
+    """
+    if settings.value("window/workflowStageMigratedV2", False, type=bool):
+        return
+    raw = settings.value("window/workflowStageIndex")
+    if raw is None:
+        settings.setValue("window/workflowStageMigratedV2", True)
+        return
+    try:
+        old = int(raw)
+    except (TypeError, ValueError):
+        old = 0
+    mapping = {0: 0, 1: 1, 2: 2, 3: 2, 4: 3}
+    settings.setValue("window/workflowStageIndex", mapping.get(old, 0))
+    settings.setValue("window/workflowStageMigratedV2", True)
+
 class WorkspaceSetupController(PBComponent):
     """Controller fuer MainWindow: Workspace-Erstellung und Top-Bar-Aufbau."""
 
@@ -624,6 +650,7 @@ class WorkspaceSetupController(PBComponent):
         """Restore workflow stage and context-panel tab."""
         from PySide6.QtCore import QSettings
         settings = QSettings("PBStudio", "PBStudioApp")
+        _migrate_workflow_stage_index(settings)
         workspace_idx = settings.value("window/workflowStageIndex")
         if workspace_idx is not None:
             try:
