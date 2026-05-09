@@ -100,7 +100,7 @@ def test_cockpit_audio_and_video_ready_opens_auto_edit(db_session, project, audi
     assert readiness.audio_ready is True
     assert readiness.video_ready is True
     assert readiness.can_auto_edit is True
-    assert readiness.next_action.key == "open_auto_edit"
+    assert readiness.next_action.key == "open_schnitt"
     assert any("Captioning" in warning for warning in readiness.warnings)
 
 
@@ -113,7 +113,7 @@ def test_cockpit_timeline_ready_opens_review_or_export(db_session, project, audi
     readiness = get_cockpit_readiness(project.id)
 
     assert readiness.can_export is True
-    assert readiness.next_action.key == "open_review"
+    assert readiness.next_action.key == "open_schnitt"
 
 
 def test_cockpit_step_specs_keep_captioning_non_blocking():
