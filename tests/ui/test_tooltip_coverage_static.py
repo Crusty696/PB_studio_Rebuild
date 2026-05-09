@@ -46,20 +46,24 @@ REQUIRED_TOOLTIPS: dict[str, tuple[str, ...]] = {
         "btn_preview_play",
         "btn_preview_stop",
     ),
-    "ui/workspaces/edit_workspace.py": (
+    # Tier-3-Sunset (2026-05-09): EditWorkspace ist weg.
+    # Pacing-/Anker-Controls leben jetzt im Schnitt-Sub-Tab,
+    # Generate/Auto-Edit im EditorView-Header.
+    "ui/workspaces/schnitt/tab_pacing_anker.py": (
         "vibe_input",
         "cut_rate_combo",
-        "style_preset_combo",
+        "style_combo",
         "breakdown_combo",
-        "energy_reactivity_slider",
-        "energy_reactivity_spin",
-        "btn_generate",
-        "btn_auto_edit",
-        "btn_keyframe_string",
+        "reactivity_slider",
+        "reactivity_spin",
         "btn_add_anchor",
         "btn_remove_anchor",
         "btn_sync_anchors",
         "btn_learn_ai",
+    ),
+    "ui/workspaces/schnitt/editor_view.py": (
+        "btn_generate",
+        "btn_auto_edit",
     ),
     "ui/workspaces/media_workspace.py": (
         "btn_mode_video",

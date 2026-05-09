@@ -41,6 +41,9 @@ class SchnittTabPacingAnker(QWidget):
         self.cut_rate_combo = QComboBox()
         self.cut_rate_combo.addItems(["1 Beat", "2 Beat", "4 Beat", "8 Beat", "16 Beat"])
         self.cut_rate_combo.setCurrentIndex(2)
+        self.cut_rate_combo.setToolTip(
+            "Grundraster für Schnitte: kleinere Beat-Werte schneiden schneller."
+        )
         row1.addWidget(self.cut_rate_combo, stretch=1)
         row1.addWidget(self._small_label("Style"))
         self.style_combo = QComboBox()
@@ -48,10 +51,17 @@ class SchnittTabPacingAnker(QWidget):
             "Standard", "Techno", "House", "Drum & Bass",
             "Hip-Hop", "Ambient", "Minimal", "Cinematic", "Festival",
         ])
+        self.style_combo.setToolTip(
+            "Genre-/Stil-Preset für Pacing-Gewichte und Energieverhalten."
+        )
         row1.addWidget(self.style_combo, stretch=1)
         row1.addWidget(self._small_label("Breakdown"))
         self.breakdown_combo = QComboBox()
         self.breakdown_combo.addItems(["halve", "force16", "none"])
+        self.breakdown_combo.setToolTip(
+            "Verhalten in ruhigen Breakdown-Parts: halve = halbieren, "
+            "force16 = 16-Beat erzwingen, none = keine Cuts."
+        )
         row1.addWidget(self.breakdown_combo, stretch=1)
         v.addLayout(row1)
 
@@ -61,11 +71,18 @@ class SchnittTabPacingAnker(QWidget):
         self.reactivity_slider = QSlider(Qt.Orientation.Horizontal)
         self.reactivity_slider.setRange(0, 100)
         self.reactivity_slider.setValue(50)
+        self.reactivity_slider.setToolTip(
+            "Wie stark Audio-Energie die Schnittdichte beeinflusst. "
+            "0 ist stabil, 100 sehr reaktiv."
+        )
         row2.addWidget(self.reactivity_slider, stretch=1)
         self.reactivity_spin = QSpinBox()
         self.reactivity_spin.setRange(0, 100)
         self.reactivity_spin.setSuffix("%")
         self.reactivity_spin.setValue(50)
+        self.reactivity_spin.setToolTip(
+            "Exakter Prozentwert für Energie-Reaktivität der Pacing-Engine."
+        )
         row2.addWidget(self.reactivity_spin)
         v.addLayout(row2)
 
@@ -73,6 +90,10 @@ class SchnittTabPacingAnker(QWidget):
         row3.addWidget(self._small_label("Vibe"))
         self.vibe_input = QLineEdit()
         self.vibe_input.setPlaceholderText("z.B. 'dunkel, strobo, club'")
+        self.vibe_input.setToolTip(
+            "Freitext für Stimmung oder visuelle Richtung, "
+            "z.B. 'dunkel, strobo, club'."
+        )
         row3.addWidget(self.vibe_input, stretch=1)
         v.addLayout(row3)
 
@@ -107,8 +128,17 @@ class SchnittTabPacingAnker(QWidget):
 
         toolbar = QHBoxLayout()
         self.btn_add_anchor = QPushButton("+ Anker")
+        self.btn_add_anchor.setToolTip(
+            "Neuen Sync-Anker an aktueller Zeit oder per Dialog hinzufügen."
+        )
         self.btn_remove_anchor = QPushButton("− Anker")
+        self.btn_remove_anchor.setToolTip(
+            "Ausgewählten Sync-Anker aus der Liste entfernen."
+        )
         self.btn_sync_anchors = QPushButton("Sync")
+        self.btn_sync_anchors.setToolTip(
+            "Ankerpunkte auf Timeline und aktuelle Medienauswahl synchronisieren."
+        )
         for b in (self.btn_add_anchor, self.btn_remove_anchor, self.btn_sync_anchors):
             b.setFixedHeight(24)
             toolbar.addWidget(b)
@@ -116,6 +146,10 @@ class SchnittTabPacingAnker(QWidget):
         v.addLayout(toolbar)
 
         self.btn_learn_ai = QPushButton("Als KI-Lernregel speichern")
+        self.btn_learn_ai.setToolTip(
+            "Ausgewählten Anker als Lernregel speichern, damit künftige Auto-Edits "
+            "diese Wahl berücksichtigen."
+        )
         self.btn_learn_ai.setFixedHeight(24)
         v.addWidget(self.btn_learn_ai)
 
