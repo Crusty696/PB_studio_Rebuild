@@ -111,12 +111,16 @@ poetry run python main.py
 
 ## First Steps
 
-1. **MEDIA tab** — Import your audio file (MP3, WAV, FLAC) and video clips (MP4, MOV)
-2. Click **Analyze** on the audio track — this runs beat detection and generates the beatgrid
-3. Click **Separate Stems** — this runs Demucs to extract Vocals/Drums/Bass/Other (takes 1–3 minutes)
-4. Click **Analyze** on your video clips — this runs scene detection, RAFT motion scoring, and SigLIP embeddings
-5. **EDIT tab** — Click **Auto-Edit (Phase 3)** to generate a beat-synchronized timeline
-6. **DELIVER tab** — Click **Export** to render the final video
+The app uses 4 top tabs: **PROJEKT · MATERIAL & ANALYSE · SCHNITT · EXPORT** (SCHNITT replaces the legacy AUTO-SCHNITT + REVIEW tabs since 2026-05-09).
+
+1. **PROJEKT** — Create a new project or open an existing one.
+2. **MATERIAL & ANALYSE** — Import audio (MP3/WAV/FLAC) and video clips (MP4/MOV). Run beat detection, stem separation (Demucs Vocals/Drums/Bass/Other), and per-clip video analysis (scene detection + RAFT motion + SigLIP embeddings).
+3. **SCHNITT** — Empty state shows preset buttons (Techno/Cinematic/House/Festival). Pick one to trigger Auto-Edit. Editor state has 4 sub-tabs:
+   - *Schnitt* — Preview + Transport + InteractiveTimeline with per-clip Lock-icons (locked clips survive Re-Generate).
+   - *Pacing & Anker* — PacingCurve, Cut-Rate, Style, Reactivity, Vibe, Anchor list, Re-Generate button (with confirm dialog).
+   - *Audio* — Waveform with beatgrid + structure markers (Intro/Drop/Outro/Buildup/Breakdown), Stems mixer, LUFS + Tonart.
+   - *RL & Notes* — RL feedback (👍/👎) + Markdown notes editor with auto-save (1 s debounce).
+4. **EXPORT** — Render the final video (LUFS-normalized, NVENC).
 
 ---
 

@@ -566,7 +566,7 @@ class PBWindow(QMainWindow):
         Brueckt den im Brain abgesetzten Pacing-Run-Wunsch auf den
         ``auto_edit``-Task im ``GlobalTaskManager``-Worker-Registry
         (siehe ``workers/registry.py``). Damit landet der Run im
-        gleichen Worker-Pfad wie der EditWorkspace-Auto-Edit-Knopf.
+        gleichen Worker-Pfad wie der SCHNITT-Workspace-Auto-Edit-Knopf.
 
         Snapshot-Felder die heute schon greifen:
         - ``audio_track_id`` → verpflichtend
