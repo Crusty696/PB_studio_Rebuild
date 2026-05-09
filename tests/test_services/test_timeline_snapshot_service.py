@@ -62,3 +62,29 @@ def test_restore_replaces_clips(test_engine, monkeypatch):
     with Session(test_engine) as s:
         n = s.query(TimelineEntry).filter_by(project_id=pid).count()
         assert n == 1
+
+
+def test_restore_unknown_id_raises(test_engine, monkeypatch):
+    _patch_engine(monkeypatch, test_engine)
+    with pytest.raises(ValueError):
+        restore_snapshot(99999)
+
+
+def test_restore_preserves_clip_values(test_engine, monkeypatch):
+    """Restore stellt media_id, start_time, end_time, locked korrekt wieder her."""
+    _patch_engine(monkeypatch, test_engine)
+    pid = _project_with_clips(test_engine, name="restore-values")
+    snap_id = create_snapshot(pid, "before-mutation")
+    # mutiere
+    with Session(test_engine) as s:
+        s.query(TimelineEntry).filter_by(project_id=pid).delete()
+        s.commit()
+    # restore
+    restore_snapshot(snap_id)
+    # verify
+    with Session(test_engine) as s:
+        clip = s.query(TimelineEntry).filter_by(project_id=pid).one()
+        assert clip.media_id == 1
+        assert clip.start_time == 0.0
+        assert clip.end_time == 2.0
+        assert clip.locked is False

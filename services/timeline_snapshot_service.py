@@ -9,7 +9,12 @@ from services.timeline_state import TimelineState
 
 
 def create_snapshot(project_id: int, label: str) -> int:
-    """Lädt aktuellen TimelineState und persistiert als Snapshot. Gibt snap.id zurück."""
+    """Lädt aktuellen TimelineState und persistiert als Snapshot. Gibt snap.id zurück.
+
+    Hinweis: Snapshots erfassen nur den Cut-State (Clip-Auswahl, Positionen, Locking),
+    nicht den Look-State (Crossfade/Brightness/Contrast). Diese Felder werden bei
+    restore_snapshot auf Column-Defaults zurückgesetzt.
+    """
     state = TimelineState.load(project_id)
     return state.save_snapshot(label)
 
@@ -26,8 +31,14 @@ def list_snapshots(project_id: int) -> list[TimelineSnapshot]:
 
 
 def restore_snapshot(snapshot_id: int) -> None:
-    """Stellt Timeline-State aus Snapshot wieder her — löscht alle aktuellen
-    TimelineEntries des Projekts und schreibt die im Payload referenzierten."""
+    """Stellt Cut-State aus Snapshot wieder her — löscht alle aktuellen
+    TimelineEntries des Projekts (auch gelockte) und schreibt die im Payload
+    referenzierten Clips neu.
+
+    Hinweis: nur Cut-State (siehe ClipEntry-Felder in services.timeline_state).
+    Crossfade/Brightness/Contrast werden auf Column-Defaults zurückgesetzt.
+    raises ValueError bei unbekannter snapshot_id.
+    """
     with Session(engine) as s:
         snap = s.get(TimelineSnapshot, snapshot_id)
         if snap is None:
