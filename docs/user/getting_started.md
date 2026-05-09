@@ -58,7 +58,7 @@ On first launch a **Setup Wizard** will verify FFmpeg, GPU, and model availabili
 
 Go to **File → New Project** or use the project dialog on startup. Give your project a name and choose a folder to store outputs.
 
-### Step 2 — Import media (MEDIA tab)
+### Step 2 — Import media (MATERIAL & ANALYSE tab)
 
 1. Click **Import Audio** and select your DJ track (MP3, WAV, FLAC, or AIFF).
 2. Click **Import Video** and add your footage clips (MP4, MOV, AVI, MKV).
@@ -96,22 +96,30 @@ Click **Analyze** on each video clip (or select all and batch-analyze). PB Studi
 
 *Typical time: 30–90 seconds per clip depending on length and GPU.*
 
-### Step 6 — Auto-Edit (EDIT tab)
+### Step 6 — Auto-Edit (SCHNITT tab)
 
-Switch to the **EDIT** tab and click **Auto-Edit (Phase 3)**. The Smart Director:
+Switch to the **SCHNITT** tab. The tab opens in an Empty-State with Preset-Buttons (Smooth, Energetic, Cinematic, Custom) — pick a preset or click **Auto-Edit (Phase 3)** in sub-tab **Schnitt**. The Smart Director:
 1. Maps each beat to a cut-rate score based on section type
 2. Selects video clips by matching motion energy and visual content to audio moments
 3. Assembles the timeline with beat-accurate cut points
+
+The **SCHNITT** tab has 4 sub-tabs:
+- **Schnitt** — Timeline editor with cuts, clips, anchors
+- **Pacing & Anker** — Section-based cut-rate tuning, anchor management
+- **Audio** — Stem mixing, vocal-aware tweaks, ducking
+- **RL & Notes** — Reinforcement-learning rules, manual notes
 
 Review the result in the timeline viewer. You can:
 - Drag clips to reorder
 - Trim in/out points with the waveform editor
 - Pin any clip to a specific beat using the **Anchor** tool (`M`)
+- Lock a clip via Lock-Click on the clip badge to protect it from re-runs
+- Filter clips with the mouse-wheel filter on the media bin
 - Undo/redo changes with `Ctrl+Z` / `Ctrl+Y`
 
-### Step 7 — Export (DELIVER tab)
+### Step 7 — Export (EXPORT tab)
 
-Switch to the **DELIVER** tab and click **Export**. Options include:
+Switch to the **EXPORT** tab and click **Export**. Options include:
 - Output resolution and codec (NVENC hardware encoding available)
 - LUFS normalization target for the audio
 - Crossfade transition style per section type

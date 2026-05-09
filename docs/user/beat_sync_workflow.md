@@ -27,40 +27,37 @@ Beat-synchronized editing means every cut in your video happens exactly on a mus
 
 ## Workflow Overview
 
+> **Updated 2026-05-09:** UI uses 4-Tab layout — PROJEKT · MATERIAL & ANALYSE · SCHNITT · EXPORT. The former AUTO-SCHNITT and REVIEW tabs are merged into a single **SCHNITT** tab with sub-tabs (Schnitt / Pacing & Anker / Audio / RL & Notes).
+
 ```
-┌─────────────┐
-│ MEDIA tab   │  Import audio + video clips
-└──────┬──────┘
-       │
-       ▼
-┌─────────────┐
-│ Analyze     │  Audio: Detect beats, stems, structure
-│ Audio       │  Time: 2–4 minutes
-└──────┬──────┘
-       │
-       ▼
-┌─────────────┐
-│ Analyze     │  Video: Scene detection, motion, embeddings
-│ Videos      │  Time: 1–3 minutes per clip
-└──────┬──────┘
-       │
-       ▼
-┌─────────────┐
-│ EDIT tab    │  Smart Director: Auto-generate timeline
-│ Auto-Edit   │  Time: 5–10 seconds
-└──────┬──────┘
-       │
-       ▼
-┌─────────────┐
-│ Review &    │  Manual tweaks + AI anchors
-│ Refine      │  Time: Variable
-└──────┬──────┘
-       │
-       ▼
-┌─────────────┐
-│ DELIVER tab │  Export final video
-│ Export      │  Time: 1–5× real-time
-└─────────────┘
+┌──────────────────────────┐
+│ MATERIAL & ANALYSE tab   │  Import audio + video clips
+└──────────┬───────────────┘
+           │
+           ▼
+┌──────────────────────────┐
+│ Analyze Audio            │  Detect beats, stems, structure
+│                          │  Time: 2–4 minutes
+└──────────┬───────────────┘
+           │
+           ▼
+┌──────────────────────────┐
+│ Analyze Videos           │  Scene detection, motion, embeddings
+│                          │  Time: 1–3 minutes per clip
+└──────────┬───────────────┘
+           │
+           ▼
+┌──────────────────────────┐
+│ SCHNITT tab              │  Sub-tabs: Schnitt / Pacing & Anker /
+│  → Auto-Edit             │           Audio / RL & Notes
+│  → Review & Refine       │  Time: 5–10 s auto-edit + variable review
+└──────────┬───────────────┘
+           │
+           ▼
+┌──────────────────────────┐
+│ EXPORT tab               │  Export final video
+│                          │  Time: 1–5× real-time
+└──────────────────────────┘
 ```
 
 ---
@@ -84,7 +81,7 @@ Beat-synchronized editing means every cut in your video happens exactly on a mus
 ### Step 2: Import Media
 
 1. Open PB Studio and create a new project: **File → New Project**
-2. Switch to **MEDIA** tab
+2. Switch to **MATERIAL & ANALYSE** tab
 3. Import audio:
    - Click **Import Audio**
    - Select your DJ track
@@ -95,7 +92,7 @@ Beat-synchronized editing means every cut in your video happens exactly on a mus
 
 ### Step 3: Analyze Audio
 
-1. In the **MEDIA** tab, find your audio track
+1. In the **MATERIAL & ANALYSE** tab, find your audio track
 2. Click **Analyze** button
 3. Wait 10–30 seconds
 
@@ -136,7 +133,7 @@ Beat-synchronized editing means every cut in your video happens exactly on a mus
 
 ### Step 6: Auto-Edit
 
-1. Switch to **EDIT** tab
+1. Switch to **SCHNITT** tab (sub-tab **Schnitt**)
 2. Click **Auto-Edit (Phase 3)** button
 3. Wait 5–10 seconds
 
@@ -182,7 +179,7 @@ Beat-synchronized editing means every cut in your video happens exactly on a mus
 
 ### Step 8: Export
 
-1. Switch to **DELIVER** tab
+1. Switch to **EXPORT** tab
 2. Configure export settings:
    - **Resolution:** 1080p (or match source)
    - **Codec:** H.265 NVENC (fast, high quality)
@@ -207,7 +204,7 @@ Beat-synchronized editing means every cut in your video happens exactly on a mus
 1. **Import & Analyze** as usual (Tutorial 1, Steps 1–5)
 
 2. **Verify Vocal Detection:**
-   - In **MEDIA** tab, find your audio track
+   - In **MATERIAL & ANALYSE** tab, find your audio track
    - Check that "Vocals" stem is present
    - Play the Vocals stem to verify quality
 

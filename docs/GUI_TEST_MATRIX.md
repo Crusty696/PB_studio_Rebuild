@@ -1,5 +1,9 @@
 # PB Studio — GUI Test Matrix
 
+> **Aktualisiert 2026-05-09** für 4-Tab-SCHNITT-Layout (Commit-Range `3476b33..bf7bb11`).
+> Neue Workflow-Rail: PROJEKT · MATERIAL & ANALYSE · SCHNITT · EXPORT.
+> SCHNITT vereint AUTO-SCHNITT + REVIEW und enthält Sub-Tabs: Schnitt / Pacing & Anker / Audio / RL & Notes.
+
 Diese Matrix beschreibt die User-Flows, die der `pb-gui-tester` Subagent durch die **echte GUI** klickt. Im Gegensatz zum alten Service-Layer-Test (der nur Python-Funktionen aufrief) wird hier die ganze App gestartet, Fenster per pywinauto/pyautogui bedient, nach jedem Schritt ein Screenshot gemacht, das Log gelesen und die DB inspiziert.
 
 ## Start-Zustand pro Lauf
@@ -34,16 +38,17 @@ Diese Matrix beschreibt die User-Flows, die der `pb-gui-tester` Subagent durch d
 
 ## Flow 2 — Workflow-Navigation
 
-Die Workflow-Rail hat 6 Buttons: PROJEKT, QUELLEN, ANALYSE, AUTO-SCHNITT, REVIEW, EXPORT (accessible_names vorhanden — pywinauto kann sie per Name finden).
+Die Workflow-Rail hat 4 Buttons: PROJEKT, MATERIAL & ANALYSE, SCHNITT, EXPORT (accessible_names vorhanden — pywinauto kann sie per Name finden). Der SCHNITT-Tab enthält zusätzlich die Sub-Tabs: Schnitt / Pacing & Anker / Audio / RL & Notes.
 
 | # | Aktion | Erwartung |
 |---|--------|-----------|
 | 1 | Klick auf "PROJEKT Workflow" | Projekt-Dashboard mit Status, Next-Step und Systemstatus sichtbar |
-| 2 | Klick auf "QUELLEN Workflow" | Quellen vorbereiten sichtbar: Import/Medienpool plus Proxy/Convert |
-| 3 | Klick auf "ANALYSE Workflow" | Analyse-Stage sichtbar: Audio-Komplettanalyse, Stems, Video-Pipeline |
-| 4 | Klick auf "AUTO-SCHNITT Workflow" | Pacing/Auto-Schnitt-Controls sichtbar; CTA ohne Analyse gesperrt |
-| 5 | Klick auf "REVIEW Workflow" | Timeline/Preview-Review sichtbar |
-| 6 | Klick auf "EXPORT Workflow" | Export-Checkliste/Export-UI sichtbar; ohne Timeline gesperrt |
+| 2 | Klick auf "MATERIAL & ANALYSE Workflow" | Material-Stage sichtbar: Import/Medienpool, Proxy/Convert, Audio-Komplettanalyse, Stems, Video-Pipeline |
+| 3 | Klick auf "SCHNITT Workflow" | SCHNITT-Editor mit Sub-Tabs (Schnitt / Pacing & Anker / Audio / RL & Notes); Empty-State mit Preset-Buttons (Smooth/Energetic/Cinematic/Custom) wenn Timeline noch nicht erzeugt; CTA ohne Analyse gesperrt |
+| 4 | Sub-Tab "Pacing & Anker" prüfen | Pacing-Controls + Anchor-Liste sichtbar |
+| 5 | Sub-Tab "Audio" prüfen | Audio/Stem-Controls sichtbar |
+| 6 | Sub-Tab "RL & Notes" prüfen | RL-Rules + Notizen sichtbar |
+| 7 | Klick auf "EXPORT Workflow" | Export-Checkliste/Export-UI sichtbar; ohne Timeline gesperrt |
 
 **Log-Check nach jedem Schritt:** keine neuen ERROR/CRITICAL Zeilen.
 
@@ -55,7 +60,7 @@ Die Workflow-Rail hat 6 Buttons: PROJEKT, QUELLEN, ANALYSE, AUTO-SCHNITT, REVIEW
 
 | # | Aktion | Erwartung |
 |---|--------|-----------|
-| 1 | Go to QUELLEN Workflow | Import-Button sichtbar |
+| 1 | Go to MATERIAL & ANALYSE Workflow | Import-Button sichtbar |
 | 2 | Klick "Audio importieren" / Drag-Drop | Dialog oder Datei-Picker |
 | 3 | Datei wählen | `audio_tracks`-Count +1 in DB |
 | 4 | Klick "Analysieren" | Task erscheint in TaskManager, Log zeigt BeatAnalysis-Start |
@@ -72,7 +77,7 @@ Die Workflow-Rail hat 6 Buttons: PROJEKT, QUELLEN, ANALYSE, AUTO-SCHNITT, REVIEW
 
 | # | Aktion | Erwartung |
 |---|--------|-----------|
-| 1 | QUELLEN Workflow → "Video importieren" | File-Picker |
+| 1 | MATERIAL & ANALYSE Workflow → "Video importieren" | File-Picker |
 | 2 | MP4 auswählen | `video_clips`-Count +1 |
 | 3 | "Proxy erstellen" | `storage\proxies\` enthält neue Datei, DB.proxy_path gesetzt |
 | 4 | "Szenen erkennen" | `scenes`-Count ≥ 1 für diesen Clip |
@@ -86,7 +91,7 @@ Dieser Flow reproduziert den Crash aus der heutigen Session (`_mark_dirty` → `
 
 | # | Aktion | Erwartung |
 |---|--------|-----------|
-| 1 | AUTO-SCHNITT Workflow | Timeline-View leer oder mit aktueller Projekt-Timeline |
+| 1 | SCHNITT Workflow (Sub-Tab "Schnitt") | Timeline-View leer (Empty-State mit Preset-Buttons) oder mit aktueller Projekt-Timeline |
 | 2 | "Timeline generieren" | Task läuft, `timeline_entries`-Delta ≥ 1 |
 | 3 | **Nach Task-Ende:** kein Crash | `_mark_dirty` muss durchlaufen — Titel enthält `*` |
 | 4 | `find-crash` nach Schritt 3 | crash_count = 0 |
@@ -102,7 +107,7 @@ Optional, skippen wenn GPU nicht verfügbar oder Audio > 5 Min.
 
 | # | Aktion | Erwartung |
 |---|--------|-----------|
-| 1 | ANALYSE Workflow | Stems-UI |
+| 1 | MATERIAL & ANALYSE Workflow | Stems-UI |
 | 2 | "Stems erzeugen" für einen Track | Demucs-Task startet, Log zeigt GPU-Init |
 | 3 | Warten (max 10 Min für 3-Min Track) | 4 Stems in `storage\stems\<track>\` |
 | 4 | Wellenformen sichtbar | 4 Tracks im UI |
@@ -115,7 +120,7 @@ Regressionstest für B2 aus dem alten Bericht.
 
 | # | Aktion | Erwartung |
 |---|--------|-----------|
-| 1 | QUELLEN Workflow → Proxy / Convert | Preset-Dropdown |
+| 1 | MATERIAL & ANALYSE Workflow → Proxy / Convert | Preset-Dropdown |
 | 2 | Preset "Edit-Proxy 540p" + Video auswählen | Kein NVENC-Crash, bei Treiber 461.40 → libx264 Fallback |
 | 3 | Log-Check | `Falling back to libx264` statt `nvenc API version` |
 | 4 | Output-Datei existiert | `exports\` enthält MP4 |

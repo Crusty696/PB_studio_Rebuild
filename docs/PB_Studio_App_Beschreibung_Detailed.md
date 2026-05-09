@@ -58,20 +58,23 @@ Um die App exakt nachzubauen, muss dieser Tech-Stack eingehalten werden, da er a
 
 ## 3. Funktionsumfang (Was die App alles kann)
 
-Die Anwendung ist in klar definierte Arbeitsbereiche (Workspaces) unterteilt.
+Die Anwendung ist seit dem SCHNITT-Redesign (2026-05-09) in **vier** klar definierte Tabs unterteilt: PROJEKT · MATERIAL & ANALYSE · SCHNITT · EXPORT.
 
-1.  **MEDIA Workspace (Ingest):**
+1.  **PROJEKT Tab:**
+    *   Projekt-Dashboard mit Status, Next-Step-Hinweisen, Systemstatus (CUDA, VRAM, FFmpeg).
+2.  **MATERIAL & ANALYSE Tab (Ingest + KI-Pipelines):**
     *   Import von Audio- und Videodateien.
     *   Automatische Hardware-Prüfung (CUDA-Status, VRAM-Verfügbarkeit).
     *   Erstellung von Proxy-Videos (z.B. 540p Auflösung), damit die GUI beim Scrubben auf der Timeline nicht ruckelt.
-2.  **ANALYZE Workspace (Die KI-Pipelines):**
     *   Startet die asynchronen Worker-Threads für Audio- und Videoanalyse.
     *   Zeigt detaillierten Status (AnalysisStatus) für jede Datei an.
-3.  **EDIT Workspace (Die Timeline & Pacing):**
+3.  **SCHNITT Tab (Timeline & Pacing & Review):**
+    *   Vier Sub-Tabs: **Schnitt** (Timeline), **Pacing & Anker**, **Audio**, **RL & Notes**.
+    *   Empty-State mit Preset-Buttons (Smooth / Energetic / Cinematic / Custom) bevor eine Timeline existiert.
     *   Eine interaktive, DaVinci-Resolve-artige Timeline (mit Waveform-Rendering, Drag & Drop, Zoom).
     *   **Auto-Edit-Button:** Generiert die gesamte Timeline in Sekunden basierend auf den DJ-Reglern (Energy Reactivity, Vibe).
     *   **Manuelle Anker:** Der Nutzer kann ein bestimmtes Video an einen bestimmten Beat "pinnen" (z.B. "Zeige das Feuerwerk genau beim Drop"). Die KI plant den restlichen Schnitt um diese Anker herum.
-4.  **EXPORT Workspace (Delivery):**
+4.  **EXPORT Tab (Delivery):**
     *   Audio-Normalisierung auf EBU R128 Standard (-14 LUFS).
     *   Zusammenfügen der Clips via FFmpeg (Stream-Copy oder Filtergraph mit Crossfades).
 
