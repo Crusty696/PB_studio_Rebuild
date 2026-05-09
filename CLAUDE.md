@@ -24,6 +24,7 @@ prüfe verifiziere und mach noch eine gegenprüfung deiner arbeit mit unterschie
 
 - **Language of responses to the user: German only.**
 - **Authorized plan roots (both active as of 2026-05-09):**
+  - **Status SCHNITT-Plan (Stand 2026-05-09 Nachmittag):** Phasen 01-12 + Tier-Hardening 1-6 vollständig implementiert auf Branch `feat/schnitt-redesign-2026-05-09` (88+ Commits, letzter `8782b74`). 131/131 SCHNITT-Tests grün. Status: `code-fix-pending-live-verification`. BLOCKER `status: fixed` = nur User-Live-Verify (`12_LIVE_VERIFY_USER_GUIDE.md`).
   - `docs/superpowers/plans/2026-05-04-brain-v3-nvidia-plan/` — Brain V3
     NVIDIA backend (Files `01_ARCHITECTURE.md` … `07_RISKS.md`).
     Phase blueprints (e.g. `phase_3_brain_core.md`) under the same
