@@ -308,8 +308,8 @@ class WorkspaceSetupController(PBComponent):
         self.window.preview_time_label = self.window._edit_ws.preview_time_label
         self.window.audio_combo = self.window._schnitt_ws.editor_view.audio_combo
         self.window.video_combo = self.window._schnitt_ws.editor_view.video_combo
-        self.window.energy_reactivity_slider = self.window._edit_ws.energy_reactivity_slider
-        self.window.energy_reactivity_spin = self.window._edit_ws.energy_reactivity_spin
+        self.window.energy_reactivity_slider = _schnitt_tab_pacing.reactivity_slider
+        self.window.energy_reactivity_spin = _schnitt_tab_pacing.reactivity_spin
         self.window.btn_generate = self.window._schnitt_ws.editor_view.btn_generate
         self.window.btn_auto_edit = self.window._schnitt_ws.editor_view.btn_auto_edit
         self.window.review_keyframe_text = self.window._edit_ws.keyframe_text
