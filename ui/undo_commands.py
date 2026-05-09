@@ -7,6 +7,7 @@ undo() und redo() fuer bidirektionale Zustandsaenderungen in DB + UI.
 from __future__ import annotations
 
 import logging
+import time
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QTimer
@@ -341,12 +342,42 @@ class ToggleClipLockCommand(QUndoCommand):
     Goldrand + Lock-Icon ohne Full-Reload mitziehen.
     """
 
+    # T4.7 (D13): mergeWith-Fenster fuer aufeinanderfolgende Toggles desselben
+    # Clips. 500ms ist tolerant fuer Doppel-Klicks/Tastatur-Spam ohne mit
+    # bewussten getrennten Aktionen zu verschmelzen.
+    _MERGE_WINDOW_S: float = 0.5
+
     def __init__(self, entry_id: int, new_locked: bool, timeline=None):
         super().__init__("Clip sperren" if new_locked else "Clip entsperren")
         self._entry_id = entry_id
         self._new = new_locked
         self._old: bool | None = None
         self._timeline = timeline
+        self._created_at = time.monotonic()  # T4.7
+
+    # T4.7: stabile Merge-ID — alle Toggles desselben Clips sind merge-faehig.
+    def id(self) -> int:
+        return self._entry_id ^ 0xC10C  # disjunkter Namespace zu MoveClipCommand
+
+    def mergeWith(self, other: QUndoCommand) -> bool:
+        """T4.7 (D13): Mergt zwei Toggles desselben Clips, wenn der spaetere
+        innerhalb von _MERGE_WINDOW_S nach diesem erstellt wurde.
+
+        Effekt:
+        - Toggle A->B->A in <500ms ergibt eine Sequenz mit gleichem _old wie
+          self._old (A) und _new = other._new (A) → No-op-Konsolidierung.
+        - Visual-Sync wird durch other.redo() bereits gemacht; Merge selbst
+          aendert nichts am DB-Zustand.
+        """
+        if not isinstance(other, ToggleClipLockCommand):
+            return False
+        if other._entry_id != self._entry_id:
+            return False
+        if (other._created_at - self._created_at) > self._MERGE_WINDOW_S:
+            return False
+        # other._new ueberschreibt; self._old bleibt (Original-Zustand).
+        self._new = other._new
+        return True
 
     def _sync_visual(self, locked: bool) -> None:
         if self._timeline is None:

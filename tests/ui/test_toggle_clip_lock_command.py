@@ -54,3 +54,43 @@ def test_undo_reverts(test_engine, monkeypatch):
     cmd.undo()
     with Session(test_engine) as s:
         assert s.get(TimelineEntry, eid).locked is False
+
+
+def test_t47_mergewith_same_clip_within_window():
+    """T4.7: zwei Toggles desselben Clips innerhalb 500ms → mergen."""
+    _qapp()
+    a = ToggleClipLockCommand(entry_id=42, new_locked=True)
+    b = ToggleClipLockCommand(entry_id=42, new_locked=False)
+    assert a.id() == b.id()  # gleiche merge-ID
+    assert a.mergeWith(b) is True
+    # _new wurde uebernommen.
+    assert a._new is False
+
+
+def test_t47_mergewith_different_clip_rejected():
+    _qapp()
+    a = ToggleClipLockCommand(entry_id=42, new_locked=True)
+    b = ToggleClipLockCommand(entry_id=43, new_locked=True)
+    assert a.id() != b.id()
+    assert a.mergeWith(b) is False
+
+
+def test_t47_mergewith_outside_window_rejected():
+    """Toggle nach >500ms wird nicht gemergt."""
+    _qapp()
+    a = ToggleClipLockCommand(entry_id=42, new_locked=True)
+    a._created_at -= 1.0  # simuliere 1s vorher
+    b = ToggleClipLockCommand(entry_id=42, new_locked=False)
+    assert a.mergeWith(b) is False
+
+
+def test_t47_mergewith_only_with_same_command_class():
+    _qapp()
+    from ui.undo_commands import MoveClipCommand
+    a = ToggleClipLockCommand(entry_id=42, new_locked=True)
+    # MoveClipCommand braucht timeline; reicht aus, dass isinstance-Check fehlschlaegt.
+    class _Stub:
+        pass
+    other = MoveClipCommand.__new__(MoveClipCommand)
+    other._entry_id = 42  # type: ignore[attr-defined]
+    assert a.mergeWith(other) is False  # type: ignore[arg-type]
