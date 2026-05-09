@@ -605,25 +605,46 @@ class InteractiveTimeline(QGraphicsView):
             txt.setZValue(10)
 
     def _cancel_pending_db_load(self):
-        """M3-FIX: Laufenden DB-Worker canceln/disconnecten bevor ein neuer gestartet wird."""
+        """M3-FIX: Laufenden DB-Worker canceln/disconnecten bevor ein neuer gestartet wird.
+        B-283-FIX: shiboken-Guards und robustere Sequenz.
+        """
+        logger.debug("[B-283] _cancel_pending_db_load started")
         self._cancel_pending_entry_build()
+        
+        import shiboken6
+        
         if hasattr(self, '_db_worker') and self._db_worker is not None:
             try:
-                self._db_worker.finished.disconnect(self._on_db_load_finished)
-            except (TypeError, RuntimeError):
-                pass  # Bereits disconnected
+                if shiboken6.isValid(self._db_worker):
+                    logger.debug("[B-283] Disconnecting old worker signals")
+                    self._db_worker.finished.disconnect(self._on_db_load_finished)
+                else:
+                    logger.debug("[B-283] Old worker is invalid (already deleted)")
+            except (TypeError, RuntimeError) as e:
+                logger.debug("[B-283] Disconnect failed (expected): %s", e)
+        
         if hasattr(self, '_db_thread') and self._db_thread is not None:
             try:
-                if self._db_thread.isRunning():
-                    self._db_thread.quit()
-                    self._db_thread.wait(2000)
-            except RuntimeError:
-                pass  # Underlying C++ QThread already deleted (auto-deleted after finished)
+                if shiboken6.isValid(self._db_thread):
+                    if self._db_thread.isRunning():
+                        logger.debug("[B-283] Stopping old db_thread")
+                        self._db_thread.quit()
+                        if not self._db_thread.wait(1500):
+                            logger.warning("[B-283] db_thread didn't stop, continuing anyway")
+                    else:
+                        logger.debug("[B-283] db_thread not running")
+                else:
+                    logger.debug("[B-283] Old thread is invalid")
+            except RuntimeError as e:
+                logger.debug("[B-283] Thread wait/check failed: %s", e)
+            
             self._db_worker = None
             self._db_thread = None
+        logger.debug("[B-283] _cancel_pending_db_load finished")
 
     def load_from_db(self, project_id: int | None = None):
         """Asynchrones Laden der Timeline-Daten (Fix für Main-Thread Blocking)."""
+        logger.debug("[B-283] load_from_db called for project_id=%s", project_id)
         # M3-FIX: Alten Worker canceln bevor ein neuer gestartet wird
         self._cancel_pending_db_load()
 

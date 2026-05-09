@@ -48,9 +48,16 @@ def _find_nv_driver_dir():
     return str(candidates[0]) if candidates else None
 
 _NV_DRIVER = _find_nv_driver_dir()
+# B-215: torch-DLLs aus AKTUELLEM Interpreter (sys.prefix). Conda + venv kompatibel.
+_INTERP_TORCH = Path(sys.prefix) / "Lib" / "site-packages" / "torch" / "lib"
 _VENV310_TORCH = APP_ROOT / ".venv310" / "Lib" / "site-packages" / "torch" / "lib"
 _VENV_TORCH = APP_ROOT / ".venv" / "Lib" / "site-packages" / "torch" / "lib"
-_VENV_DLLS = str(_VENV310_TORCH if _VENV310_TORCH.exists() else _VENV_TORCH)
+if _INTERP_TORCH.exists():
+    _VENV_DLLS = str(_INTERP_TORCH)
+elif _VENV310_TORCH.exists():
+    _VENV_DLLS = str(_VENV310_TORCH)
+else:
+    _VENV_DLLS = str(_VENV_TORCH)
 
 _DLL_DIRS = [_VENV_DLLS]
 if _NV_DRIVER:

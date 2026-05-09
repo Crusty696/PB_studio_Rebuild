@@ -102,6 +102,7 @@ class NewProjectDialog(QDialog):
         # -- Name --
         layout.addWidget(QLabel("Projektname:"))
         self.name_input = QLineEdit()
+        self.name_input.setObjectName("name_input")
         self.name_input.setPlaceholderText("Mein Projekt")
         self.name_input.setToolTip(
             "Projektname. PB Studio legt unter dem gewaehlten Speicherort "
@@ -113,6 +114,7 @@ class NewProjectDialog(QDialog):
         layout.addWidget(QLabel("Speicherort:"))
         path_row = QHBoxLayout()
         self.path_input = QLineEdit()
+        self.path_input.setObjectName("path_input")
         self.path_input.setPlaceholderText("Ordner waehlen...")
         self.path_input.setToolTip(
             "Basisordner fuer das neue Projekt. Der Projektordner wird als "

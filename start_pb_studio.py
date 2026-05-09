@@ -12,11 +12,19 @@ import subprocess
 from pathlib import Path
 
 PROJECT_DIR = Path(__file__).parent.resolve()
-# .venv310 (Python 3.10 + CUDA 11.3) hat Prioritaet, Fallback auf .venv
-VENV_DIR = PROJECT_DIR / ".venv310"
-if not (VENV_DIR / "Scripts" / "python.exe").exists():
-    VENV_DIR = PROJECT_DIR / ".venv"
-VENV_PYTHON = VENV_DIR / "Scripts" / "python.exe"
+# Migration 2026-04-27: conda-env "pb-studio" hat Prioritaet (Python 3.10 + CUDA 11.3),
+# Fallbacks: .venv310 (alt) und .venv (CPU).
+_CONDA_PB = Path.home() / "miniconda3" / "envs" / "pb-studio"
+if not (_CONDA_PB / "python.exe").exists():
+    _CONDA_PB = Path.home() / "anaconda3" / "envs" / "pb-studio"
+if (_CONDA_PB / "python.exe").exists():
+    VENV_DIR = _CONDA_PB
+    VENV_PYTHON = VENV_DIR / "python.exe"
+else:
+    VENV_DIR = PROJECT_DIR / ".venv310"
+    if not (VENV_DIR / "Scripts" / "python.exe").exists():
+        VENV_DIR = PROJECT_DIR / ".venv"
+    VENV_PYTHON = VENV_DIR / "Scripts" / "python.exe"
 MAIN_PY = PROJECT_DIR / "main.py"
 CRASH_LOG = PROJECT_DIR / "logs" / "crash.log"
 

@@ -212,10 +212,48 @@ def check_hf_models(inv: Inventory) -> None:
             inv.hf_models_missing.append((repo, desc))
 
 
-def run_inventory() -> Inventory:
+def check_current_python_packages(inv: Inventory) -> None:
+    """Variante fuer --skip-venv: pruefe sys.executable statt VENV_DIR."""
+    python = sys.executable
+    inv.venv_python = python
+    inv.venv_pip = python  # _pip_cmd erkennt python.exe und prependet -m pip
+
+    r = _run([python, "-c",
+              "import torch; print('V='+torch.__version__); "
+              "print('C='+str(torch.cuda.is_available())); "
+              "print('G='+(torch.cuda.get_device_name(0) if torch.cuda.is_available() else ''))"],
+             check=False, capture=True, timeout=60)
+    if r.returncode == 0:
+        inv.torch_ok = "1.12.1+cu113" in r.stdout
+        inv.cuda_ok = "C=True" in r.stdout
+        for line in r.stdout.splitlines():
+            if line.startswith("G="):
+                inv.gpu_name = line[2:].strip()
+
+    r = _run([python, "-m", "pip", "list", "--format=freeze"], check=False, capture=True, timeout=60)
+    installed = {}
+    if r.returncode == 0:
+        for line in r.stdout.splitlines():
+            if "==" in line:
+                n, v = line.split("==", 1)
+                installed[n.lower().replace("_", "-")] = v.strip()
+
+    reqs = parse_requirements()
+    inv.req_total = len(reqs)
+    for pkg, ver in reqs:
+        if pkg not in installed:
+            inv.missing_requirements.append(pkg if ver is None else f"{pkg}=={ver}")
+
+    inv.beat_this_ok = "beat-this" in installed or "beat_this" in installed
+
+
+def run_inventory(skip_venv: bool = False) -> Inventory:
     inv = Inventory()
     inv.py310_path = find_python310()
-    check_venv_and_packages(inv)
+    if skip_venv:
+        check_current_python_packages(inv)
+    else:
+        check_venv_and_packages(inv)
     check_ollama(inv)
     check_ffmpeg(inv)
     check_hf_models(inv)
@@ -255,6 +293,13 @@ def print_inventory(inv: Inventory) -> None:
 
 # ---------- Phase B: Install (nur fehlendes) ----------
 
+def _pip_cmd(pip: str) -> list[str]:
+    p = pip.lower()
+    if p.endswith("pip.exe") or p.endswith("\\pip") or p.endswith("/pip"):
+        return [pip]
+    return [pip, "-m", "pip"]
+
+
 def ensure_venv(py310: str, force: bool) -> tuple[str, str]:
     if VENV_DIR.exists() and not force:
         print("  venv vorhanden - reuse.")
@@ -273,7 +318,7 @@ def ensure_venv(py310: str, force: bool) -> tuple[str, str]:
 
 def install_torch(pip: str) -> None:
     print("  installiere torch 1.12.1+cu113 / torchaudio / torchvision...")
-    _run([pip, "install",
+    _run(_pip_cmd(pip) + ["install",
           "--extra-index-url", "https://download.pytorch.org/whl/cu113",
           "torch==1.12.1+cu113",
           "torchaudio==0.12.1+cu113",
@@ -282,7 +327,7 @@ def install_torch(pip: str) -> None:
 
 def install_requirements(pip: str) -> None:
     print("  installiere App-Abhaengigkeiten...")
-    _run([pip, "install", "-r", str(REQUIREMENTS),
+    _run(_pip_cmd(pip) + ["install", "-r", str(REQUIREMENTS),
           "--extra-index-url", "https://download.pytorch.org/whl/cu113"], timeout=1800)
 
 
@@ -291,7 +336,7 @@ def install_beat_this(pip: str) -> None:
         print(f"  WARNUNG: {BEAT_THIS_DIR} fehlt - uebersprungen.")
         return
     print("  installiere beat_this aus vendor/...")
-    _run([pip, "install", str(BEAT_THIS_DIR), "--no-deps"], timeout=300)
+    _run(_pip_cmd(pip) + ["install", str(BEAT_THIS_DIR), "--no-deps"], timeout=300)
 
 
 def pull_ollama_model(ollama: str) -> None:
@@ -344,6 +389,8 @@ def main():
     parser.add_argument("--skip-models", action="store_true", help="HF-Modelle ueberspringen")
     parser.add_argument("--skip-ollama", action="store_true", help="Ollama-Check ueberspringen")
     parser.add_argument("--force-recreate", action="store_true", help="venv neu bauen")
+    parser.add_argument("--skip-venv", action="store_true",
+                        help="venv-Bau ueberspringen, aktuellen Python (z.B. conda env) nutzen")
     args = parser.parse_args()
 
     print("=" * 64)
@@ -352,12 +399,13 @@ def main():
 
     # Phase A
     print("\n--- PHASE A: System-Inventur ---")
-    inv = run_inventory()
+    inv = run_inventory(skip_venv=args.skip_venv)
     print_inventory(inv)
 
-    if not inv.py310_path:
+    if not inv.py310_path and not args.skip_venv:
         print("\nFEHLER: Python 3.10 muss zuerst installiert werden.")
         print("Download: https://www.python.org/ftp/python/3.10.11/python-3.10.11-amd64.exe")
+        print("Oder via conda: conda env create -f environment.yml und mit --skip-venv aufrufen.")
         sys.exit(1)
 
     if inv.everything_ok(args.skip_models, args.skip_ollama) and not args.force_recreate:
@@ -376,7 +424,11 @@ def main():
     print("\n--- PHASE B: fehlende Komponenten installieren ---")
 
     need_full_install = False
-    if not inv.venv_python or args.force_recreate:
+    if args.skip_venv:
+        python = sys.executable
+        pip = sys.executable  # _pip_cmd erkennt python.exe und prependet -m pip
+        print(f"\n[venv] uebersprungen (--skip-venv) - nutze {python}")
+    elif not inv.venv_python or args.force_recreate:
         print("\n[venv]")
         python, pip = ensure_venv(inv.py310_path, args.force_recreate)
         need_full_install = True  # neues venv -> alles installieren

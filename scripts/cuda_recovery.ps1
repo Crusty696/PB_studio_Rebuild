@@ -70,7 +70,13 @@ try {
 Write-Step "Schritt 3: CUDA-Verifikation"
 $projectDir = Split-Path -Parent $PSCommandPath | Split-Path -Parent
 if (-not $VenvPython) {
-    $VenvPython = Join-Path $projectDir ".venv310\Scripts\python.exe"
+    # Migration 2026-04-27: conda-env "pb-studio" Top-Prio, Fallback .venv310.
+    $condaPy = Join-Path $env:USERPROFILE "miniconda3\envs\pb-studio\python.exe"
+    if (Test-Path $condaPy) {
+        $VenvPython = $condaPy
+    } else {
+        $VenvPython = Join-Path $projectDir ".venv310\Scripts\python.exe"
+    }
 }
 if (Test-Path $VenvPython) {
     $output = & $VenvPython -c "import torch; print('TORCH', torch.__version__); print('CUDA_AVAIL', torch.cuda.is_available()); print('DEVICE', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'n/a')" 2>&1

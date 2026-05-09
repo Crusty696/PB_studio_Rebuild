@@ -45,10 +45,13 @@ powershell -NoProfile -Command ^
 
 echo.
 echo [4/4] Verifiziere CUDA...
-if exist "%~dp0.venv310\Scripts\python.exe" (
+set "PB_CONDA_PY=%USERPROFILE%\miniconda3\envs\pb-studio\python.exe"
+if exist "%PB_CONDA_PY%" (
+    "%PB_CONDA_PY%" -c "import torch; print(f'CUDA: {torch.cuda.is_available()}'); print(f'GPU: {torch.cuda.get_device_name(0)}' if torch.cuda.is_available() else 'CPU-Modus')"
+) else if exist "%~dp0.venv310\Scripts\python.exe" (
     "%~dp0.venv310\Scripts\python.exe" -c "import torch; print(f'CUDA: {torch.cuda.is_available()}'); print(f'GPU: {torch.cuda.get_device_name(0)}' if torch.cuda.is_available() else 'CPU-Modus')"
 ) else (
-    echo .venv310 nicht gefunden — CUDA-Test uebersprungen.
+    echo Weder conda-env pb-studio noch .venv310 gefunden — CUDA-Test uebersprungen.
 )
 
 echo.
