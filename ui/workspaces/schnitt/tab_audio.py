@@ -107,6 +107,22 @@ class SchnittTabAudio(QWidget):
             scene.addLine(QLineF(x, 0, x, height), pen_beat)
 
     def set_audio_id(self, audio_id: int | None) -> None:
+        """Setzt das aktive Audio und LEERT die Waveform-Scene.
+
+        Reihenfolge-Vertrag (T4.11): ``set_audio_id`` ist eine Reset-Operation.
+        Sie cleared die Scene komplett. Aufrufer, die danach Beats und
+        Strukturmarker zeigen wollen, MUESSEN ``render_grid_lines(...)``
+        und ``set_structure_markers(...)`` NACH ``set_audio_id(...)``
+        aufrufen — sonst werden die Marker durch das Scene-Clear wieder
+        verworfen.
+
+        Korrekte Reihenfolge::
+
+            tab_audio.set_audio_id(audio_id)
+            tab_audio.set_waveform_data(waveform_row, beat_positions)
+            tab_audio.render_grid_lines(beat_times)
+            tab_audio.set_structure_markers(markers)
+        """
         self._audio_id = audio_id
         self.waveform_view.scene().clear()
         if audio_id is None:

@@ -41,6 +41,7 @@ class SchnittTabPacingAnker(QWidget):
         self.cut_rate_combo = QComboBox()
         self.cut_rate_combo.addItems(["1 Beat", "2 Beat", "4 Beat", "8 Beat", "16 Beat"])
         self.cut_rate_combo.setCurrentIndex(2)
+        self.cut_rate_combo.setFocusPolicy(Qt.FocusPolicy.StrongFocus)  # T4.5
         self.cut_rate_combo.setToolTip(
             "Grundraster für Schnitte: kleinere Beat-Werte schneiden schneller."
         )
@@ -51,6 +52,7 @@ class SchnittTabPacingAnker(QWidget):
             "Standard", "Techno", "House", "Drum & Bass",
             "Hip-Hop", "Ambient", "Minimal", "Cinematic", "Festival",
         ])
+        self.style_combo.setFocusPolicy(Qt.FocusPolicy.StrongFocus)  # T4.5
         self.style_combo.setToolTip(
             "Genre-/Stil-Preset für Pacing-Gewichte und Energieverhalten."
         )
@@ -58,6 +60,7 @@ class SchnittTabPacingAnker(QWidget):
         row1.addWidget(self._small_label("Breakdown"))
         self.breakdown_combo = QComboBox()
         self.breakdown_combo.addItems(["halve", "force16", "none"])
+        self.breakdown_combo.setFocusPolicy(Qt.FocusPolicy.StrongFocus)  # T4.5
         self.breakdown_combo.setToolTip(
             "Verhalten in ruhigen Breakdown-Parts: halve = halbieren, "
             "force16 = 16-Beat erzwingen, none = keine Cuts."
@@ -71,6 +74,7 @@ class SchnittTabPacingAnker(QWidget):
         self.reactivity_slider = QSlider(Qt.Orientation.Horizontal)
         self.reactivity_slider.setRange(0, 100)
         self.reactivity_slider.setValue(50)
+        self.reactivity_slider.setFocusPolicy(Qt.FocusPolicy.StrongFocus)  # T4.5
         self.reactivity_slider.setToolTip(
             "Wie stark Audio-Energie die Schnittdichte beeinflusst. "
             "0 ist stabil, 100 sehr reaktiv."
@@ -80,6 +84,7 @@ class SchnittTabPacingAnker(QWidget):
         self.reactivity_spin.setRange(0, 100)
         self.reactivity_spin.setSuffix("%")
         self.reactivity_spin.setValue(50)
+        self.reactivity_spin.setFocusPolicy(Qt.FocusPolicy.StrongFocus)  # T4.5
         self.reactivity_spin.setToolTip(
             "Exakter Prozentwert für Energie-Reaktivität der Pacing-Engine."
         )
