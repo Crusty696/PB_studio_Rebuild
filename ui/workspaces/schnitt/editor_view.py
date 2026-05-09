@@ -5,6 +5,7 @@ from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QTabWidget, QVBoxLayout, QLabel,
 )
 from ui.clip_inspector import ClipInspectorPanel
+from ui.workspaces.schnitt.tab_schnitt import SchnittTabSchnitt
 
 
 class SchnittEditorView(QWidget):
@@ -20,7 +21,8 @@ class SchnittEditorView(QWidget):
 
         self.sub_tabs = QTabWidget()
         self.sub_tabs.setDocumentMode(True)
-        self.sub_tabs.addTab(self._stub("Sub-Tab Schnitt — Phase 05"), "Schnitt")
+        self.tab_schnitt = SchnittTabSchnitt(self)
+        self.sub_tabs.addTab(self.tab_schnitt, "Schnitt")
         self.sub_tabs.addTab(self._stub("Sub-Tab Pacing & Anker — Phase 06"), "Pacing & Anker")
         self.sub_tabs.addTab(self._stub("Sub-Tab Audio — Phase 07"), "Audio")
         self.sub_tabs.addTab(self._stub("Sub-Tab RL & Notes — Phase 08"), "RL & Notes")
