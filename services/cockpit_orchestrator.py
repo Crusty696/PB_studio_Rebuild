@@ -94,23 +94,31 @@ ACTIONS = {
         target_workspace=1,
         command="run_video_pipeline",
     ),
+    "open_schnitt": CockpitAction(
+        key="open_schnitt",
+        label="Schnitt oeffnen",
+        description="Auto-Edit starten oder Timeline pruefen.",
+        target_workspace=2,
+    ),
+    # Legacy aliases (Phase 10): both fold into open_schnitt but keep
+    # distinct labels/descriptions so existing call sites stay readable.
     "open_auto_edit": CockpitAction(
-        key="open_auto_edit",
-        label="Auto-Schnitt starten",
-        description="Audio und Video sind bereit. Erzeuge die beat-synchrone Timeline.",
+        key="open_schnitt",
+        label="Schnitt oeffnen (Auto-Edit)",
+        description="Audio und Video sind bereit. Erzeuge die beat-synchrone Timeline im SCHNITT-Workspace.",
         target_workspace=2,
     ),
     "open_review": CockpitAction(
-        key="open_review",
-        label="Timeline pruefen",
-        description="Timeline ist vorhanden. Pruefe Schnitt, Vorschau und Inspector.",
-        target_workspace=3,
+        key="open_schnitt",
+        label="Schnitt oeffnen (Review)",
+        description="Timeline ist vorhanden. Pruefe Schnitt, Vorschau und Inspector im SCHNITT-Workspace.",
+        target_workspace=2,
     ),
     "open_export": CockpitAction(
         key="open_export",
         label="Export vorbereiten",
         description="Timeline ist vorhanden. Rendere Preview oder finales Video.",
-        target_workspace=4,
+        target_workspace=3,
     ),
 }
 
