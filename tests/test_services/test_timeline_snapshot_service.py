@@ -1,0 +1,64 @@
+"""Tests für services.timeline_snapshot_service.
+
+Pattern: test_engine-Fixture + monkeypatch auf engine in beiden konsumierten Modulen.
+"""
+import pytest
+from sqlalchemy.orm import Session
+from database.models import Project, TimelineEntry
+from services.timeline_snapshot_service import (
+    create_snapshot, list_snapshots, restore_snapshot,
+)
+
+
+def _project_with_clips(test_engine, name="snap-svc"):
+    with Session(test_engine) as s:
+        p = Project(name=name, path=f"/tmp/{name}")
+        s.add(p); s.flush()
+        s.add(TimelineEntry(project_id=p.id, track="video", media_id=1,
+                             start_time=0.0, end_time=2.0, lane=0))
+        s.commit()
+        return p.id
+
+
+def _patch_engine(monkeypatch, test_engine):
+    """Patche `engine` in beiden konsumierten Modulen."""
+    import services.timeline_state as ts_mod
+    import services.timeline_snapshot_service as svc_mod
+    monkeypatch.setattr(ts_mod, "engine", test_engine)
+    monkeypatch.setattr(svc_mod, "engine", test_engine)
+
+
+def test_create_and_list(test_engine, monkeypatch):
+    _patch_engine(monkeypatch, test_engine)
+    pid = _project_with_clips(test_engine)
+    snap_id = create_snapshot(pid, "first")
+    assert snap_id > 0
+    snaps = list_snapshots(pid)
+    assert len(snaps) == 1
+    assert snaps[0].label == "first"
+    assert snaps[0].version == 1
+
+
+def test_create_increments_version(test_engine, monkeypatch):
+    _patch_engine(monkeypatch, test_engine)
+    pid = _project_with_clips(test_engine, name="snap-svc-2")
+    create_snapshot(pid, "v1")
+    create_snapshot(pid, "v2")
+    snaps = list_snapshots(pid)
+    versions = sorted(s.version for s in snaps)
+    assert versions == [1, 2]
+
+
+def test_restore_replaces_clips(test_engine, monkeypatch):
+    _patch_engine(monkeypatch, test_engine)
+    pid = _project_with_clips(test_engine, name="snap-svc-3")
+    snap_id = create_snapshot(pid, "before-mutation")
+    # Mutiere DB
+    with Session(test_engine) as s:
+        s.query(TimelineEntry).filter_by(project_id=pid).delete()
+        s.commit()
+    # Restore
+    restore_snapshot(snap_id)
+    with Session(test_engine) as s:
+        n = s.query(TimelineEntry).filter_by(project_id=pid).count()
+        assert n == 1
