@@ -102,6 +102,12 @@ def _do_apply_segments(segments: list[dict], project_id: int) -> int:
             for r in locked_rows
             if r.start_time is not None and r.end_time is not None
         ]
+        # T4.9: Locked-Ranges nach start_time sortieren. Bei mehreren Locks
+        # iteriert die Klemm-Schleife sonst in DB-Insert-Reihenfolge — das
+        # ist nicht deterministisch und macht das Klemmen unvorhersehbar,
+        # wenn eine spaetere (zeitlich frueher liegende) Range das Segment
+        # bereits beschnitten hat.
+        locked_ranges.sort()
 
         # 2) Nur ungelockte Video-Eintraege loeschen — Locked bleibt unangetastet
         session.query(TimelineEntry).filter_by(
