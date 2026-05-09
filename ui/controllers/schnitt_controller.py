@@ -2,20 +2,52 @@
 
 Plan: docs/superpowers/plans/2026-05-09-schnitt-workspace-redesign/
        09_WORKER_REFACTOR.md  (Task 9.3)
+       Tier-1 Hardening 2026-05-09 — Wiring + State-Konflikt-Schutz.
 """
 from __future__ import annotations
 
 from typing import Any
 
-from PySide6.QtCore import QObject
+from PySide6.QtCore import QObject, Signal
+
+from services.pacing_profile import PacingProfile
+from services.ui_binder import PacingProfileBinder
 
 
 class SchnittController(QObject):
+    # Tier-1 B7/B8 Signale: weiterleitung an PBWindow-Logik (Folge-Plan)
+    request_auto_edit_with_profile = Signal(object)   # PacingProfile
+    request_regenerate = Signal(object)               # PacingProfile
+    request_open_settings = Signal()
+
     def __init__(self, workspace, parent=None):
         super().__init__(parent)
         self.workspace = workspace
         self._current_worker: Any | None = None
+
+        # B1: PacingProfile als Single Source of Truth
+        self.profile = PacingProfile()
+        tab = workspace.editor_view.tab_pacing_anker
+        self.binder = PacingProfileBinder(
+            self.profile,
+            cut_rate_combo=tab.cut_rate_combo,
+            style_combo=tab.style_combo,
+            reactivity_slider=tab.reactivity_slider,
+            reactivity_spin=tab.reactivity_spin,
+            breakdown_combo=tab.breakdown_combo,
+            vibe_input=tab.vibe_input,
+        )
+        # Initial-Sync: Widgets reflektieren Profile-Defaults (D3)
+        self.binder.apply_profile(self.profile)
+
+        # B6: Cancel-Pfad (Phase 09)
         workspace.cancel_requested.connect(self._on_cancel)
+        # B7: Empty-State Preset-Klick
+        workspace.preset_selected.connect(self._on_preset_selected)
+        # B8: Empty-State Custom-Klick
+        workspace.custom_clicked.connect(self._on_custom_clicked)
+        # B2: Re-Generate-Button im Pacing-Tab
+        tab.btn_regenerate.clicked.connect(self._on_regenerate_clicked)
 
     def attach_worker(self, worker: Any) -> None:
         self._current_worker = worker
@@ -26,6 +58,22 @@ class SchnittController(QObject):
         if hasattr(worker, "failed"):
             worker.failed.connect(self._on_failed)
 
+    # ------------------------------------------------------------------
+    # D25 — State-Konflikt-Schutz
+    # ------------------------------------------------------------------
+    def set_active_project_protected(self, project_id: int | None) -> None:
+        """Setzt das aktive Projekt nur, wenn der Workspace nicht gerade
+        im STATE_LOADING ist. Ein laufender Worker darf nicht durch einen
+        Tab-Wechsel implizit ueberschrieben werden.
+        """
+        from ui.workspaces.schnitt_workspace import STATE_LOADING
+        if self.workspace.current_state() == STATE_LOADING:
+            return
+        self.workspace.set_active_project(project_id)
+
+    # ------------------------------------------------------------------
+    # Worker-Lifecycle
+    # ------------------------------------------------------------------
     def _on_done(self, *args, **kwargs):
         self.workspace.refresh_state_from_db()
         self._current_worker = None
@@ -42,3 +90,25 @@ class SchnittController(QObject):
                 pass
         self.workspace.refresh_state_from_db()
         self._current_worker = None
+
+    # ------------------------------------------------------------------
+    # B7 / B8 / B2 Slots
+    # ------------------------------------------------------------------
+    def _on_preset_selected(self, key: str) -> None:
+        try:
+            new_profile = PacingProfile.from_preset(key)
+        except ValueError:
+            return
+        self.binder.apply_profile(new_profile)
+        self.workspace.enter_loading()
+        self.request_auto_edit_with_profile.emit(self.profile)
+
+    def _on_custom_clicked(self) -> None:
+        self.request_open_settings.emit()
+
+    def _on_regenerate_clicked(self) -> None:
+        from ui.workspaces.schnitt.regenerate_dialog import confirm_regenerate
+        if not confirm_regenerate(self.workspace):
+            return
+        self.workspace.enter_loading()
+        self.request_regenerate.emit(self.profile)
