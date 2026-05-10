@@ -640,10 +640,81 @@ class EditWorkspaceController(PBComponent):
     # daher die bestehenden Worker-Pfade direkt; das Profile-Argument bleibt
     # vorerst Marker fuer Folge-Refactor (Profile direkt statt Widget-Lookup).
     # ------------------------------------------------------------------
+    def _ensure_combos_filled_from_project(self) -> bool:
+        """B-294: Wenn audio_combo/video_combo leer, erstes Audio + erstes Video
+        aus Project-DB ziehen. Returnt True wenn beide befuellt sind.
+
+        Notwendig weil im SCHNITT-Empty-State die Combos unsichtbar sind —
+        Preset-Klick wuerde sonst in _auto_edit_to_beat silent returnen.
+        """
+        from database import engine, AudioTrack, VideoClip, get_active_project_id
+        from sqlalchemy.orm import Session as DBSession
+
+        pid = get_active_project_id()
+        if pid is None:
+            return False
+        try:
+            with DBSession(engine) as s:
+                if self.window.audio_combo.currentData() is None:
+                    first_audio = (
+                        s.query(AudioTrack)
+                        .filter_by(project_id=pid)
+                        .filter(AudioTrack.deleted_at.is_(None))
+                        .order_by(AudioTrack.id)
+                        .first()
+                    )
+                    if first_audio is not None:
+                        idx = self.window.audio_combo.findData(first_audio.id)
+                        if idx >= 0:
+                            self.window.audio_combo.setCurrentIndex(idx)
+                if self.window.video_combo.currentData() is None:
+                    first_video = (
+                        s.query(VideoClip)
+                        .filter_by(project_id=pid)
+                        .filter(VideoClip.deleted_at.is_(None))
+                        .order_by(VideoClip.id)
+                        .first()
+                    )
+                    if first_video is not None:
+                        idx = self.window.video_combo.findData(first_video.id)
+                        if idx >= 0:
+                            self.window.video_combo.setCurrentIndex(idx)
+        except Exception as exc:
+            logger.warning("B-294 _ensure_combos_filled_from_project failed: %s", exc)
+            return False
+        return (
+            self.window.audio_combo.currentData() is not None
+            and self.window.video_combo.currentData() is not None
+        )
+
     def _on_schnitt_auto_edit_request(self, profile) -> None:
+        # B-294/R-14: kein silent return — wenn Combos leer, Auto-Fill aus DB.
+        if not self._ensure_combos_filled_from_project():
+            self.window.console_text.append(
+                "[SCHNITT] Auto-Edit braucht mind. 1 Audio + 1 Video im Projekt. "
+                "Importiere Material in MATERIAL & ANALYSE."
+            )
+            try:
+                ws = getattr(self.window, "_schnitt_ws", None)
+                if ws is not None:
+                    ws.refresh_state_from_db()
+            except Exception:
+                pass
+            return
         self._auto_edit_to_beat()
 
     def _on_schnitt_regenerate_request(self, profile) -> None:
+        if not self._ensure_combos_filled_from_project():
+            self.window.console_text.append(
+                "[SCHNITT] Re-Generate braucht mind. 1 Audio + 1 Video."
+            )
+            try:
+                ws = getattr(self.window, "_schnitt_ws", None)
+                if ws is not None:
+                    ws.refresh_state_from_db()
+            except Exception:
+                pass
+            return
         self._generate_timeline_impl()
 
     def _add_selected_to_timeline(self):
