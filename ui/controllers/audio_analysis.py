@@ -346,16 +346,19 @@ class AudioAnalysisController(PBComponent):
             task_manager.finish_task(task_id, "error", error_msg)
 
     def _analyze_all_sequential(self):
-        """Startet alle Audio-Analysen nacheinander fuer den ausgewaehlten Track."""
+        """Startet alle Audio-Analysen nacheinander fuer alle gewaehlten Tracks.
+
+        B-293 Phase B + R-23 C-1/C-2 Fix: TRUE multi-track sequential.
+        Checkbox-first via Plural-Helper, Fallback "alle Tracks im Pool"
+        wenn Checkbox leer. ALLE track_ids werden seriell durchlaufen
+        (Batch-Queue _batch_queue + _process_next_batch_track), pro Track
+        die 6 Steps (BPM/Waveform/Key/LUFS/Structure/Stems).
+        """
         # H-37 FIX: Guard against double-click race condition
         if getattr(self, '_seq_running', False):
             logger.warning("[Komplett] Analyse laeuft bereits, Doppel-Klick ignoriert.")
             return
 
-        # B-293 Phase B: Checkbox-first batch via Plural-Helper, fallback
-        # "alle Tracks im Pool" wenn Checkbox leer. Multi-Track-Batch ist
-        # deferred (analog Stems: 6 Steps x N Tracks waere zu lang) — bei
-        # mehreren gechecketen Tracks wird der erste analysiert, Rest geloggt.
         track_ids = self._get_selected_audio_tracks()
         if not track_ids:
             # Fallback: ALL tracks in pool
@@ -372,45 +375,17 @@ class AudioAnalysisController(PBComponent):
             self.window.console_text.append("[Komplett-Analyse] Keine Audio-Tracks im Pool.")
             return
 
-        if len(track_ids) > 1:
-            self.window.console_text.append(
-                f"[Komplett-Analyse] {len(track_ids)} Tracks gewaehlt — "
-                f"Batch-Multi-Track deferred. Starte mit Track-ID {track_ids[0]}."
-            )
+        # Multi-Track-Queue: ein Track nach dem anderen.
+        self._batch_queue = list(track_ids)
+        self._batch_total = len(track_ids)
+        self._batch_index = 0
+        self._batch_track_done = 0
+        self._batch_track_errors = 0
+        self.window.console_text.append(
+            f"[Komplett-Analyse] Starte Batch mit {self._batch_total} Track(s)."
+        )
 
-        # Resolve DB info fuer ersten Track in der Auswahl.
-        from database import engine, AudioTrack
-        from sqlalchemy.orm import Session as DBSession
-        with DBSession(engine) as session:
-            track = session.get(AudioTrack, track_ids[0])
-            if not track:
-                self.window.console_text.append(
-                    f"[Komplett-Analyse] Track {track_ids[0]} nicht in DB gefunden."
-                )
-                return
-            track_id = track.id
-            file_path = track.file_path
-            title = track.title or "Unbekannt"
-            bpm = track.bpm
-
-        steps = [
-            ("BPM/Beats", lambda: self._create_analysis_worker(track_id, title)),
-            ("Wellenform", lambda: self._create_waveform_worker(track_id)),
-            ("Key", lambda: self._create_key_worker(track_id, file_path)),
-            ("LUFS", lambda: self._create_lufs_worker(track_id, file_path)),
-            ("Struktur", lambda: self._create_structure_worker(track_id, file_path, bpm)),
-            ("Stems", lambda: self._create_stem_worker(track_id)),
-        ]
-
-        # H-37 FIX: Set running flag to prevent race condition
-        self._seq_running = True
-        self._seq_steps = steps
-        self._seq_index = 0
-        self._seq_done = 0
-        self._seq_errors = 0
-        self._seq_title = title
-        self._seq_total = len(steps)
-
+        # Helper EINMAL pro Batch initialisieren (vermeidet Reconnect-Kosten).
         # L-36 Fix: Disconnect old helper signals before creating new one
         if hasattr(self, '_seq_helper') and self._seq_helper is not None:
             try:
@@ -420,7 +395,89 @@ class AudioAnalysisController(PBComponent):
         self._seq_helper = _SeqStepSignalHelper(self.window)
         self._seq_helper.step_done.connect(self._on_seq_step_done)
 
+        # H-37 FIX: Set running flag once for whole batch
+        self._seq_running = True
         self.window._media_ws.btn_analyze_all.setEnabled(False)
+
+        self._process_next_batch_track()
+
+    def _process_next_batch_track(self):
+        """B-293 R-23 C-1 Fix: Startet den naechsten Track der Batch-Queue.
+
+        Wird zu Beginn jedes Track-Durchlaufs gerufen sowie nach Step 6 des
+        vorherigen Tracks. Leere Queue -> Batch-Finish (UI-Reset).
+        """
+        # Guard gegen UI-Shutdown waehrend Batch
+        if not self.window or not self.window.isVisible():
+            self._seq_running = False
+            return
+
+        # Batch fertig?
+        if not getattr(self, "_batch_queue", None):
+            self._seq_running = False
+            try:
+                self.window._media_ws.btn_analyze_all.setEnabled(True)
+                self.window._media_ws.btn_analyze_all.setText("KOMPLETT-ANALYSE")
+                self.window.progress_bar.setVisible(False)
+                self.window.media_table_controller._refresh_media_table_debounced()
+            except Exception:  # noqa: BLE001
+                pass
+            self.window.console_text.append(
+                f"[Komplett-Analyse] Batch fertig — {self._batch_total} Track(s) durchlaufen "
+                f"({self._batch_track_done} OK, {self._batch_track_errors} mit Fehlern)."
+            )
+            self.window.status_bar.showMessage(
+                f"Komplett-Analyse fertig: {self._batch_total} Track(s) | System bereit"
+            )
+            return
+
+        # Nimm den naechsten Track
+        track_id_raw = self._batch_queue.pop(0)
+        self._batch_index += 1
+
+        from database import engine, AudioTrack
+        from sqlalchemy.orm import Session as DBSession
+        with DBSession(engine) as session:
+            track = session.get(AudioTrack, track_id_raw)
+            if not track:
+                self.window.console_text.append(
+                    f"[Komplett-Analyse] Track {track_id_raw} nicht in DB gefunden — uebersprungen."
+                )
+                self._batch_track_errors += 1
+                # Weiter mit naechstem (defer via Timer, damit UI atmen kann)
+                QTimer.singleShot(50, self._process_next_batch_track)
+                return
+            track_id = track.id
+            file_path = track.file_path
+            title = track.title or "Unbekannt"
+            bpm = track.bpm
+
+        self.window.console_text.append(
+            f"[Komplett-Analyse] Track {self._batch_index}/{self._batch_total}: {title}"
+        )
+        self._run_audio_steps_for_track(track_id, file_path, title, bpm)
+
+    def _run_audio_steps_for_track(self, track_id: int, file_path: str, title: str, bpm):
+        """B-293 R-23 C-1 Fix: Setzt _seq_*-State fuer EINEN Track auf und
+        kickt die 6-Step-Chain. Nach Step 6 chained _on_seq_step_done bzw.
+        _run_next_sequential_step_inner zu _process_next_batch_track().
+        """
+        steps = [
+            ("BPM/Beats", lambda: self._create_analysis_worker(track_id, title)),
+            ("Wellenform", lambda: self._create_waveform_worker(track_id)),
+            ("Key", lambda: self._create_key_worker(track_id, file_path)),
+            ("LUFS", lambda: self._create_lufs_worker(track_id, file_path)),
+            ("Struktur", lambda: self._create_structure_worker(track_id, file_path, bpm)),
+            ("Stems", lambda: self._create_stem_worker(track_id)),
+        ]
+
+        self._seq_steps = steps
+        self._seq_index = 0
+        self._seq_done = 0
+        self._seq_errors = 0
+        self._seq_title = title
+        self._seq_total = len(steps)
+
         self.window._media_ws.btn_analyze_all.setText(f"0/{self._seq_total}...")
         self.window.progress_bar.setVisible(True)
         self.window.progress_bar.setRange(0, self._seq_total)
@@ -458,19 +515,19 @@ class AudioAnalysisController(PBComponent):
             return
 
         if self._seq_index >= self._seq_total:
-            # H-37 FIX: Reset running flag on completion
-            self._seq_running = False
-            self.window._media_ws.btn_analyze_all.setEnabled(True)
-            self.window._media_ws.btn_analyze_all.setText("KOMPLETT-ANALYSE")
-            self.window.progress_bar.setVisible(False)
-            self.window.media_table_controller._refresh_media_table_debounced()
+            # B-293 R-23 C-1 Fix: Track fertig — Batch-Bilanz updaten und
+            # zum naechsten Track der Queue weiterchainen.
             errors_info = f" ({self._seq_errors} Fehler)" if self._seq_errors else ""
             self.window.console_text.append(
-                f"[Komplett] Analyse abgeschlossen: {self._seq_done}/{self._seq_total} OK{errors_info}"
+                f"[Komplett] Track '{self._seq_title}' abgeschlossen: "
+                f"{self._seq_done}/{self._seq_total} OK{errors_info}"
             )
-            self.window.status_bar.showMessage(
-                f"Komplett-Analyse fertig: {self._seq_done}/{self._seq_total} | System bereit"
-            )
+            if self._seq_errors:
+                self._batch_track_errors += 1
+            else:
+                self._batch_track_done += 1
+            # Chain to next batch track (handles "queue empty -> reset UI" itself)
+            QTimer.singleShot(100, self._process_next_batch_track)
             return
 
         step_name, worker_factory = self._seq_steps[self._seq_index]

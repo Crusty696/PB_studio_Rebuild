@@ -161,3 +161,100 @@ def test_b293_sequential_analyse_uses_plural_helper():
     assert "_get_selected_audio_tracks" in body, (
         "B-293: _analyze_all_sequential ignoriert Plural-Checkbox-Helper."
     )
+
+
+# ---------------------------------------------------------------------------
+# R-23 C-1/C-2 + I-3: TRUE multi-track sequential.
+# ---------------------------------------------------------------------------
+
+
+def test_b293_sequential_iterates_all_tracks_or_chains():
+    """C-1 Fix: _analyze_all_sequential muss alle Tracks abarbeiten — entweder
+    explizite Loop oder Batch-Queue + Process-Next-Helper."""
+    body = _slot_body("ui/controllers/audio_analysis.py", "_analyze_all_sequential")
+    has_loop = "for track_id in" in body or "for tid in" in body
+    has_queue = "_batch_queue" in body or "_process_next_batch_track" in body
+    assert has_loop or has_queue, (
+        "C-1: _analyze_all_sequential muss alle Tracks abarbeiten, nicht nur ersten."
+    )
+
+
+def test_b293_no_multi_track_deferred_comment():
+    """C-1/C-2 Fix: Der irrefuehrende 'Batch-Multi-Track deferred'-Hinweis
+    darf nicht mehr im Code stehen."""
+    src = (REPO / "ui/controllers/audio_analysis.py").read_text(encoding="utf-8")
+    assert "Batch-Multi-Track deferred" not in src, (
+        "C-1: Multi-Track-deferred-Kommentar muss entfernt sein (Logik faehrt jetzt alle Tracks)."
+    )
+
+
+def test_b293_process_next_batch_track_exists():
+    """C-1 Fix: Per-Track-Helper muss existieren."""
+    src = (REPO / "ui/controllers/audio_analysis.py").read_text(encoding="utf-8")
+    assert "def _process_next_batch_track(" in src, (
+        "C-1: _process_next_batch_track-Helper fehlt — Batch-Chain broken."
+    )
+
+
+def test_b293_run_audio_steps_for_track_exists():
+    """C-1 Fix: Step-Chain pro Track muss extrahiert sein."""
+    src = (REPO / "ui/controllers/audio_analysis.py").read_text(encoding="utf-8")
+    assert "def _run_audio_steps_for_track(" in src, (
+        "C-1: _run_audio_steps_for_track-Helper fehlt — Per-Track-Steps nicht extrahiert."
+    )
+
+
+def test_b293_sequential_step_chain_calls_next_batch_track():
+    """C-1 Fix: Nach Step 6 muss zum naechsten Batch-Track weitergeschaltet werden."""
+    body = _slot_body(
+        "ui/controllers/audio_analysis.py", "_run_next_sequential_step_inner"
+    )
+    assert "_process_next_batch_track" in body, (
+        "C-1: _run_next_sequential_step_inner muss nach Step 6 "
+        "_process_next_batch_track triggern (Track-Chain)."
+    )
+
+
+def test_b293_batch_queue_contains_all_checked_ids(qapp, monkeypatch):
+    """I-3 Behavioral: 3 checked tracks => _batch_queue startet mit allen 3,
+    _batch_total = 3. (Process-Next gemockt, kein echter DB-Hit.)"""
+    import ui.controllers.audio_analysis as mod
+    from ui.controllers.audio_analysis import AudioAnalysisController
+    from unittest.mock import MagicMock
+
+    # _SeqStepSignalHelper is a real QObject -> needs real parent or None.
+    # Replace with a lightweight stub for behavioral testing.
+    class _HelperStub:
+        def __init__(self, *_a, **_kw):
+            self.step_done = MagicMock()
+            self.step_done.connect = MagicMock()
+            self.step_done.disconnect = MagicMock()
+
+    monkeypatch.setattr(mod, "_SeqStepSignalHelper", _HelperStub)
+
+    ctrl = AudioAnalysisController.__new__(AudioAnalysisController)
+    ctrl.window = MagicMock()
+    # Window visible -> guards pass
+    ctrl.window.isVisible.return_value = True
+    model = MagicMock()
+    model.get_checked_ids.return_value = [10, 11, 12]
+    ctrl.window.audio_pool_table.model.return_value = model
+
+    # Block _process_next_batch_track so we can inspect state right after
+    # _analyze_all_sequential setup.
+    calls = []
+
+    def fake_process_next():
+        calls.append(1)
+
+    ctrl._process_next_batch_track = fake_process_next  # type: ignore[method-assign]
+
+    ctrl._analyze_all_sequential()
+
+    assert ctrl._batch_total == 3, (
+        f"C-1: Batch muss alle 3 gechecketen Tracks aufnehmen, got {ctrl._batch_total}."
+    )
+    assert list(ctrl._batch_queue) == [10, 11, 12], (
+        f"C-1: Batch-Queue muss [10,11,12] sein, got {list(ctrl._batch_queue)}."
+    )
+    assert calls, "C-1: _process_next_batch_track muss am Ende von _analyze_all_sequential gerufen werden."
