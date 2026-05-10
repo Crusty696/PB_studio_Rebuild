@@ -76,6 +76,9 @@ class StemsController(PBComponent):
             self.window.console_text.append(f"[Stem-Widget] Fehler: {e}")
 
     def _start_stem_separation(self):
+        # B-293 Phase B: Stems bleibt Single-Track. Demucs braucht 5+ min/Track,
+        # Batch-Decision deferred (User-Frage steht aus). Single-Helper ist
+        # bereits checkbox-aware (Phase A): erstes gechecktes ODER Maus-Selection.
         info = self.window.audio_analysis._get_selected_audio_track()
         if not info:
             return

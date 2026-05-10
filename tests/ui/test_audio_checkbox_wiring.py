@@ -153,3 +153,11 @@ def test_b293_single_returns_first_checked_id(qapp, monkeypatch):
     assert result[1] == "/x.mp3"
     assert result[2] == "X"
     assert result[3] == 120.0
+
+
+def test_b293_sequential_analyse_uses_plural_helper():
+    """B-293: _analyze_all_sequential ruft _get_selected_audio_tracks (Plural-Helper)."""
+    body = _slot_body("ui/controllers/audio_analysis.py", "_analyze_all_sequential")
+    assert "_get_selected_audio_tracks" in body, (
+        "B-293: _analyze_all_sequential ignoriert Plural-Checkbox-Helper."
+    )

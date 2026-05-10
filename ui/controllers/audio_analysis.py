@@ -352,10 +352,46 @@ class AudioAnalysisController(PBComponent):
             logger.warning("[Komplett] Analyse laeuft bereits, Doppel-Klick ignoriert.")
             return
 
-        info = self._get_selected_audio_track()
-        if not info:
+        # B-293 Phase B: Checkbox-first batch via Plural-Helper, fallback
+        # "alle Tracks im Pool" wenn Checkbox leer. Multi-Track-Batch ist
+        # deferred (analog Stems: 6 Steps x N Tracks waere zu lang) — bei
+        # mehreren gechecketen Tracks wird der erste analysiert, Rest geloggt.
+        track_ids = self._get_selected_audio_tracks()
+        if not track_ids:
+            # Fallback: ALL tracks in pool
+            model = self.window.audio_pool_table.model()
+            for row in range(model.rowCount()):
+                val = model.index(row, 1).data()
+                if val and str(val).isdigit():
+                    track_ids.append(int(val))
+            if track_ids:
+                self.window.console_text.append(
+                    f"[Komplett-Analyse] Keine Checkbox aktiv — verwende alle {len(track_ids)} Tracks im Pool."
+                )
+        if not track_ids:
+            self.window.console_text.append("[Komplett-Analyse] Keine Audio-Tracks im Pool.")
             return
-        track_id, file_path, title, bpm = info
+
+        if len(track_ids) > 1:
+            self.window.console_text.append(
+                f"[Komplett-Analyse] {len(track_ids)} Tracks gewaehlt — "
+                f"Batch-Multi-Track deferred. Starte mit Track-ID {track_ids[0]}."
+            )
+
+        # Resolve DB info fuer ersten Track in der Auswahl.
+        from database import engine, AudioTrack
+        from sqlalchemy.orm import Session as DBSession
+        with DBSession(engine) as session:
+            track = session.get(AudioTrack, track_ids[0])
+            if not track:
+                self.window.console_text.append(
+                    f"[Komplett-Analyse] Track {track_ids[0]} nicht in DB gefunden."
+                )
+                return
+            track_id = track.id
+            file_path = track.file_path
+            title = track.title or "Unbekannt"
+            bpm = track.bpm
 
         steps = [
             ("BPM/Beats", lambda: self._create_analysis_worker(track_id, title)),
