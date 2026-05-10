@@ -1,9 +1,15 @@
 """Live-Boot-Smoke fuer Pipeline-Progress-Wiring (Plan
 docs/superpowers/plans/2026-05-10-pipeline-progress-wiring-fix/).
 
-Faehrt PBWindow im offscreen-Modus hoch, simuliert worker.progress
-und prueft dass progress_bar reagiert. Schreibt Resultat nach
-stdout, exit 0 bei Erfolg, exit != 0 bei Fehler.
+Faehrt PBWindow im offscreen-Modus hoch, ruft die Progress-Slots
+direkt auf (Slot-*Body* wird verifiziert) und prueft dass
+progress_bar reagiert. Die Signal-Slot-*Connection* selbst wird
+separat von tests/ui/test_pipeline_progress_wiring.py abgedeckt
+(insbesondere ::test_stems_uses_named_slot_not_lambda und die
+Source-Inspection-Tests).
+
+Schreibt Resultat nach stdout, exit 0 bei Erfolg, exit != 0 bei
+Fehler.
 """
 from __future__ import annotations
 
@@ -52,17 +58,18 @@ def main() -> int:
         failures.append(f"waveform progress did not propagate: {bar.value()}")
     _log("Waveform-Slot setzt progress_bar=40", bar.value() == 40, str(bar.value()))
 
-    # 4) AnalysisStatusPanel Sichtbarkeit
+    # 4) AnalysisStatusPanel default-visibility (B-292) — kein setVisible-Trick.
     panel = window._media_ws.video_analysis_panel
-    panel.setVisible(True)
     visible = panel.isVisibleTo(window._media_ws) or not panel.isHidden()
     if not visible:
-        failures.append("video_analysis_panel not visible")
-    _log("video_analysis_panel sichtbar", visible)
+        failures.append("video_analysis_panel not visible by default")
+    _log("video_analysis_panel sichtbar (default)", visible)
 
     try:
         window.close()
         window.deleteLater()
+        app.processEvents()
+        app.quit()
     except Exception:
         pass
 
@@ -76,8 +83,18 @@ def main() -> int:
 
 if __name__ == "__main__":
     rc = main()
-    # Force-Exit umgeht Qt/CUDA-Thread-Race im Interpreter-Shutdown.
-    # Alle Assertions sind zu diesem Zeitpunkt bereits ausgewertet.
     sys.stdout.flush()
     sys.stderr.flush()
+    # Smoke-spezifischer Force-Exit: PBWindow-Boot initialisiert
+    # CUDA-Kontexte + Qt-Worker-Threads, deren Destruktoren waehrend
+    # des Python-Interpreter-Teardowns mit Qt's eigener Thread-
+    # Cleanup-Reihenfolge kollidieren (STATUS_STACK_BUFFER_OVERRUN
+    # = 0xC0000409). Der saubere Qt-Quit-Pfad
+    # (window.close + deleteLater + processEvents + app.quit) wurde
+    # vorgeschaltet und reicht NICHT — Crash trat im Smoke trotzdem
+    # auf (Exit -1073740791). In der Produktions-App ist das egal,
+    # weil die Main-Loop ueber das normale Window-Close-Event endet
+    # und der Interpreter-Shutdown nicht in dieselbe Race rennt.
+    # Hier sind alle Assertions vor diesem Punkt bereits ausgewertet,
+    # also umgehen wir den crashy Teardown bewusst.
     os._exit(rc)
