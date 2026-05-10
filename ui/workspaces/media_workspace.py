@@ -545,28 +545,23 @@ class MediaWorkspace(QWidget):
         alay = QHBoxLayout(analyse)
         alay.setContentsMargins(8, 6, 8, 6)
         alay.setSpacing(6)
-        video_expert_actions = QWidget(analyse)
-        video_expert_actions.setVisible(False)
-        video_expert_layout = QHBoxLayout(video_expert_actions)
-        video_expert_layout.setContentsMargins(0, 0, 0, 0)
-        video_expert_layout.setSpacing(4)
         self.btn_analyze_video = _toolbar_btn(
             "Szenen-Erkennung", "Szenen-Schnitte und Shot-Boundaries erkennen",
         )
         # B-296/R-15: btn_motion_analysis + btn_siglip_embeddings entfernt
         # (waren Aliase auf denselben Handler _start_video_pipeline wie
         # btn_video_pipeline). btn_video_pipeline ist Primary.
+        # B-296/phase-E-fix I-2: orphan video_expert_actions Wrapper entfernt;
+        # btn_analyze_video direkt im Parent-Layout (war 1-element-Loop).
         self.btn_video_pipeline = _toolbar_btn(
             "Voll-Pipeline (Szenen + KI)",
             "3-Schritt Pipeline: Szenen + Keyframes + SigLIP",
         )
         self.btn_video_pipeline.setObjectName("btn_accent")
         self.btn_video_pipeline.setText("Videoanalyse starten")
-        for b in (self.btn_analyze_video,):
-            b.setVisible(False)
-            video_expert_layout.addWidget(b)
+        self.btn_analyze_video.setVisible(False)
         alay.addWidget(self.btn_video_pipeline)
-        alay.addWidget(video_expert_actions)
+        alay.addWidget(self.btn_analyze_video)
         alay.addStretch()
         self._video_sub_tabs.addTab(analyse, "ANALYSE")
         self._video_sub_tabs.setTabToolTip(0, "Video-Analysen fuer markierte Clips oder komplette Pipeline starten.")
@@ -660,7 +655,9 @@ class MediaWorkspace(QWidget):
         )
         self.btn_keyframe_string.setObjectName("btn_ai")
         self.btn_keyframe_string.setFixedHeight(30)
-        steps.addWidget(self.btn_keyframe_string, 1, 1)
+        # B-296/phase-E-fix I-3: vorher (1,1) -> Diagonal-Loch. Jetzt (0,1)
+        # -> kompakte 1x2-Reihe nach Alias-Removal.
+        steps.addWidget(self.btn_keyframe_string, 0, 1)
         layout.addLayout(steps)
 
         self._video_preflight_panel = QFrame()

@@ -48,3 +48,16 @@ def test_b296_video_import_button_remains(qapp):
         )
     finally:
         ws.deleteLater()
+
+
+def test_b296_video_pipeline_button_connected(qapp):
+    """B-296/phase-E-fix M-1: btn_video_pipeline.clicked feuert auf click()."""
+    ws = MediaWorkspace()
+    try:
+        assert ws.btn_video_pipeline is not None
+        captured = []
+        ws.btn_video_pipeline.clicked.connect(lambda: captured.append(1))
+        ws.btn_video_pipeline.click()
+        assert len(captured) == 1, "btn_video_pipeline.clicked signal must fire on click"
+    finally:
+        ws.deleteLater()
