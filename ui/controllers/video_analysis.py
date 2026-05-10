@@ -192,9 +192,13 @@ class VideoAnalysisController(PBComponent):
         self.window.worker_dispatcher._start_worker_thread(worker)
 
     def _on_pipeline_progress(self, pct: int, msg: str, task_id: str):
-        # Bug C: 200-Clip-Batches feuern dutzende Progress-Events; Throttle
-        # auf 10 %-Schritte + neue-Video-Marker, und ueber den gepufferten
-        # _console_append (kein synchroner QTextEdit.append pro Tick).
+        # B-288: progress_bar live binden — vorher schrieb der Slot nur in
+        # die Konsole, Bar blieb auf 0%.
+        self.window.progress_bar.setRange(0, 100)
+        self.window.progress_bar.setValue(int(pct))
+        # Format zeigt %p%% sowie kurze Stage-Beschreibung.
+        self.window.progress_bar.setFormat(f"%p%% — {msg[:60]}")
+        # Bug C-Throttle bleibt erhalten (Console-Spam).
         last_pct = getattr(self, '_pipeline_last_pct', -10)
         if abs(pct - last_pct) >= 10 or "wird analysiert" in msg:
             self.window._console_append(f"[Pipeline] {msg} ({pct}%)")

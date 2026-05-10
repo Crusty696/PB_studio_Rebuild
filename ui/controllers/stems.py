@@ -83,15 +83,17 @@ class StemsController(PBComponent):
         task = task_manager.create_task(f"Stems: {title}", "KI Stem Separation (Demucs)")
         self.window.btn_stem_separate.setEnabled(False)
         self.window.btn_stem_separate.setText("Separation laeuft...")
+        self.window.progress_bar.setRange(0, 100)
+        self.window.progress_bar.setValue(0)
         self.window.progress_bar.setVisible(True)
-        self.window.progress_bar.setFormat("KI-Separation laeuft... (kann mehrere Minuten dauern)")
+        self.window.progress_bar.setFormat("KI-Stems: %p%% — Initialisierung...")
         self.window.console_text.append(f"[Stems] Starte KI-Stem-Separation fuer '{title}'...")
 
         worker = StemSeparationWorker(track_id)
         worker.task_id = task.task_id
         # Bug C: Buffered append statt synchronem QTextEdit.append() pro Tick.
         worker.progress.connect(
-            lambda pct, msg: self.window._console_append(f"[Stems] {msg} ({pct}%)"),
+            self._on_stem_progress,
             Qt.ConnectionType.QueuedConnection,
         )
         worker.finished.connect(
@@ -103,6 +105,13 @@ class StemsController(PBComponent):
             Qt.ConnectionType.QueuedConnection,
         )
         self.window.worker_dispatcher._start_worker_thread(worker)
+
+    def _on_stem_progress(self, pct: int, msg: str):
+        """B-290: Demucs-Progress an progress_bar binden."""
+        self.window.progress_bar.setRange(0, 100)
+        self.window.progress_bar.setValue(int(pct))
+        self.window.progress_bar.setFormat(f"KI-Stems: %p%% — {msg[:50]}")
+        self.window._console_append(f"[Stems] {msg} ({pct}%)")
 
     def _on_stem_finished(self, track_id: int, stems: dict, task_id: str):
         self.window.btn_stem_separate.setEnabled(True)

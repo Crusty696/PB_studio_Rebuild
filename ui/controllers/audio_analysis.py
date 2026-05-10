@@ -270,7 +270,10 @@ class AudioAnalysisController(PBComponent):
         self.window.worker_dispatcher._start_worker_thread(worker)
 
     def _on_waveform_progress(self, pct: int, msg: str, task_id: str):
-        self.window.console_text.append(f"[Waveform] {msg} ({pct}%)")
+        # B-291: progress_bar live binden — vorher leerer Slot.
+        self.window.progress_bar.setRange(0, 100)
+        self.window.progress_bar.setValue(int(pct))
+        self.window.progress_bar.setFormat(f"Waveform: %p%% — {msg[:50]}")
 
     def _on_waveform_finished(self, track_id: int, result: dict, title: str, task_id: str):
         if not result:
