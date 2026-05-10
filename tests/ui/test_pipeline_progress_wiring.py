@@ -1,18 +1,23 @@
 """B-288 / B-290 / B-291: progress-Slots muessen progress_bar.setValue rufen."""
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 
 
 def _slot_body(file_rel: str, slot_name: str) -> str:
+    """Strikt an Funktions-Grenze endend — verhindert Over-Capture
+    durch lockere Regex (Pre-Review Phase B 2026-05-10)."""
+    import ast
     src = (REPO / file_rel).read_text(encoding="utf-8")
-    pat = rf"def {re.escape(slot_name)}\([^)]*\):\n(?P<body>(?:    .+\n|\n)+)"
-    m = re.search(pat, src)
-    assert m, f"Slot {slot_name} nicht gefunden in {file_rel}"
-    return m.group("body")
+    tree = ast.parse(src)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == slot_name:
+            seg = ast.get_source_segment(src, node)
+            assert seg is not None, f"Source-Segment fuer {slot_name} leer."
+            return seg
+    raise AssertionError(f"Slot {slot_name} nicht gefunden in {file_rel}")
 
 
 def test_b288_video_pipeline_slot_writes_progress_bar():
