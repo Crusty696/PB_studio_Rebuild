@@ -34,3 +34,21 @@ def test_dashboard_tooltip_lists_missing_steps(qapp, test_engine, project, video
     assert "scene_detection" in tip or "Szenen" in tip, (
         f"Dashboard video_card.toolTip enthaelt fehlende Steps nicht: {tip!r}"
     )
+
+
+def test_missing_required_steps_empty_status_returns_all_required():
+    """Phase-D-fix: leeres status_by_media -> alle required Steps fehlen.
+    Vorher: leeres dict -> [] (Tooltip log "Bereit." trotz audio_ready=False)."""
+    from services.cockpit_orchestrator import (
+        _missing_required_steps, AUDIO_STEP_SPECS, VIDEO_STEP_SPECS,
+    )
+
+    audio_missing = _missing_required_steps({}, AUDIO_STEP_SPECS)
+    assert audio_missing  # nicht leer
+    audio_required = sorted(s.key for s in AUDIO_STEP_SPECS if s.required_for_auto_edit)
+    assert audio_missing == audio_required
+
+    video_missing = _missing_required_steps({}, VIDEO_STEP_SPECS)
+    assert video_missing
+    video_required = sorted(s.key for s in VIDEO_STEP_SPECS if s.required_for_auto_edit)
+    assert video_missing == video_required

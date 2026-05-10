@@ -298,6 +298,9 @@ def _missing_required_steps(
 ) -> list[str]:
     """B-292/D: required Step-Keys die fuer mindestens ein Medium offen sind."""
     required = [spec.key for spec in specs if spec.required_for_auto_edit]
+    if not status_by_media:
+        # Konsistent mit _all_required_done: kein Status-Eintrag = nichts ist done.
+        return sorted(required)
     missing: set[str] = set()
     for status in status_by_media.values():
         for key in required:
