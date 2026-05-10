@@ -255,6 +255,23 @@ class WorkspaceSetupController(PBComponent):
         self.window.audio_pool_table.selectionModel().currentChanged.connect(
             lambda curr, prev: self.window.audio_analysis._on_audio_pool_selected(curr.row(), curr.column(), prev.row(), prev.column())
         )
+        # B-292: pool-table selection -> AnalysisStatusPanel.set_media
+        self.window.video_pool_table.selectionModel().currentChanged.connect(
+            lambda curr, prev: (
+                self.window._media_ws.video_analysis_panel.set_media(
+                    "video",
+                    int(self.window.video_pool_model.index(curr.row(), 1).data())
+                ) if curr.isValid() and self.window.video_pool_model.index(curr.row(), 1).data() else None
+            )
+        )
+        self.window.audio_pool_table.selectionModel().currentChanged.connect(
+            lambda curr, prev: (
+                self.window._media_ws.audio_analysis_panel.set_media(
+                    "audio",
+                    int(self.window.audio_pool_model.index(curr.row(), 1).data())
+                ) if curr.isValid() and self.window.audio_pool_model.index(curr.row(), 1).data() else None
+            )
+        )
         self.window.stem_player.playback_finished.connect(self.window.stems._on_stem_playback_finished)
 
         # Phase 4: Media-Buttons

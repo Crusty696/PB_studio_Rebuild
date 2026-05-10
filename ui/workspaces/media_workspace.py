@@ -579,6 +579,7 @@ class MediaWorkspace(QWidget):
 
         # STATUS
         self.video_analysis_panel = AnalysisStatusPanel()
+        self.video_analysis_panel.setVisible(True)  # B-292
 
         # FILTER (Sammlungsverwaltung + Platzhalter fuer Filter)
         filt = QWidget()
@@ -850,6 +851,7 @@ class MediaWorkspace(QWidget):
 
         # STATUS
         self.audio_analysis_panel = AnalysisStatusPanel()
+        self.audio_analysis_panel.setVisible(True)  # B-292
 
         # FILTER
         filt = QWidget()

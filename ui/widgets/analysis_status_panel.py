@@ -432,6 +432,7 @@ class AnalysisStatusPanel(QWidget):
             # Column 1: Step name
             step_name = STEP_NAMES.get(step_key, step_key)
             name_item = QTableWidgetItem(step_name)
+            name_item.setData(Qt.ItemDataRole.UserRole, step_key)
             name_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
             self.table.setItem(row_idx, 1, name_item)
 
@@ -586,6 +587,22 @@ class AnalysisStatusPanel(QWidget):
         self.progress_bar.setValue(0)
         self.progress_bar.setMaximum(100)
         self.table.setRowCount(0)
+
+    def rendered_step_keys(self) -> list[str]:
+        """B-292: Liste der aktuell gerenderten Step-Keys (fuer Tests + Tooltips).
+
+        Liest die Step-Spalte (Column 1 — Col 0 ist Status-Icon) und liefert
+        die step_key-Strings, die ueber Qt.UserRole an den Items haengen.
+        """
+        keys: list[str] = []
+        for row in range(self.table.rowCount()):
+            item = self.table.item(row, 1)
+            if item is None:
+                continue
+            key = item.data(Qt.ItemDataRole.UserRole)
+            if isinstance(key, str):
+                keys.append(key)
+        return keys
 
 
 class AnalysisStatusMiniWidget(QWidget):
