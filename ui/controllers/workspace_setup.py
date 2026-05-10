@@ -255,22 +255,15 @@ class WorkspaceSetupController(PBComponent):
         self.window.audio_pool_table.selectionModel().currentChanged.connect(
             lambda curr, prev: self.window.audio_analysis._on_audio_pool_selected(curr.row(), curr.column(), prev.row(), prev.column())
         )
-        # B-292: pool-table selection -> AnalysisStatusPanel.set_media
+        # B-292/Phase-C-fix: pool selection -> AnalysisStatusPanel via named methods.
+        # curr.sibling() liest am Proxy-Modell — paging-safe (anders als
+        # video_pool_model.index(curr.row(),1) das an Source ginge und auf
+        # Page > 0 die falsche Source-Row gegriffen haette).
         self.window.video_pool_table.selectionModel().currentChanged.connect(
-            lambda curr, prev: (
-                self.window._media_ws.video_analysis_panel.set_media(
-                    "video",
-                    int(self.window.video_pool_model.index(curr.row(), 1).data())
-                ) if curr.isValid() and self.window.video_pool_model.index(curr.row(), 1).data() else None
-            )
+            self._on_video_pool_selection_for_panel
         )
         self.window.audio_pool_table.selectionModel().currentChanged.connect(
-            lambda curr, prev: (
-                self.window._media_ws.audio_analysis_panel.set_media(
-                    "audio",
-                    int(self.window.audio_pool_model.index(curr.row(), 1).data())
-                ) if curr.isValid() and self.window.audio_pool_model.index(curr.row(), 1).data() else None
-            )
+            self._on_audio_pool_selection_for_panel
         )
         self.window.stem_player.playback_finished.connect(self.window.stems._on_stem_playback_finished)
 
@@ -495,6 +488,38 @@ class WorkspaceSetupController(PBComponent):
         self.window.workspace_stack.addWidget(self.window._material_analysis_ws)     # 1
         self.window.workspace_stack.addWidget(self.window._schnitt_ws)               # 2
         self.window.workspace_stack.addWidget(self.window._deliver_ws)               # 3
+
+    def _on_video_pool_selection_for_panel(self, curr, prev):
+        """B-292/Phase-C-fix: route selection to AnalysisStatusPanel.
+
+        Reads via curr.sibling() so paging-proxy mapping is correct.
+        Vorher (Phase C): video_pool_model.index(curr.row(), 1) griff direkt
+        am Source-Modell — auf Page > 0 lieferte das die falsche Row und
+        Panel zeigte fremden Clip-Status.
+        """
+        if not curr.isValid():
+            return
+        try:
+            data = curr.sibling(curr.row(), 1).data()
+            if data is None or data == "-":
+                return
+            clip_id = int(data)
+        except (ValueError, TypeError):
+            return
+        self.window._media_ws.video_analysis_panel.set_media("video", clip_id)
+
+    def _on_audio_pool_selection_for_panel(self, curr, prev):
+        """B-292/Phase-C-fix: route audio-pool selection to AnalysisStatusPanel."""
+        if not curr.isValid():
+            return
+        try:
+            data = curr.sibling(curr.row(), 1).data()
+            if data is None or data == "-":
+                return
+            track_id = int(data)
+        except (ValueError, TypeError):
+            return
+        self.window._media_ws.audio_analysis_panel.set_media("audio", track_id)
 
     def _push_active_project_to_schnitt(self) -> None:
         """B-285 Phase B — Triple-Hook (Tab-Wechsel, Cockpit-Action,

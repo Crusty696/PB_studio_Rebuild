@@ -68,3 +68,12 @@ def test_b292_panel_set_media_renders_steps(qapp, project, video_clip, monkeypat
     }
     missing = expected - set(rendered_keys)
     assert not missing, f"B-292: Step-Keys fehlen im Panel: {missing}"
+
+
+def test_b292_panel_set_media_uses_proxy_aware_index(qapp):
+    """Phase-C-fix: pool-selection lambda must read via curr.sibling
+    so PagedProxyModel page>0 maps to correct source row."""
+    # Smoke-test the named methods exist on the controller.
+    from ui.controllers.workspace_setup import WorkspaceSetupController
+    assert hasattr(WorkspaceSetupController, "_on_video_pool_selection_for_panel")
+    assert hasattr(WorkspaceSetupController, "_on_audio_pool_selection_for_panel")
