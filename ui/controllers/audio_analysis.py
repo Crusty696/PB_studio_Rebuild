@@ -17,25 +17,33 @@ class AudioAnalysisController(PBComponent):
     """Audio analysis methods for PBWindow."""
 
     def _get_selected_audio_track(self):
-        """Hilfsmethode: Gibt (track_id, file_path, title, bpm) des ausgewaehlten Audio-Tracks zurueck."""
+        """B-293: Checkbox-first, Maus-Selection-Fallback. Symmetrisch zu Video-Helper."""
         from database import engine, AudioTrack
         from sqlalchemy.orm import Session as DBSession
 
-        audio_id = None
-
-        # 1. Versuche Auswahl aus der Audio-Pool Tabelle (QTableView)
         view = self.window.audio_pool_table
         model = view.model()
-        indexes = view.selectionModel().selectedRows()
 
-        if indexes:
-            row = indexes[0].row()
-            val = model.index(row, 1).data()
-            if val and str(val).isdigit():
-                audio_id = int(val)
+        audio_id = None
+        if hasattr(model, "get_checked_ids"):
+            checked = list(model.get_checked_ids() or [])
+            if checked:
+                try:
+                    audio_id = int(checked[0])
+                except (ValueError, TypeError):
+                    audio_id = None
 
         if audio_id is None:
-            self.window.console_text.append("[Warnung] Kein Audio-Track ausgewaehlt.")
+            indexes = view.selectionModel().selectedRows()
+            if indexes:
+                val = model.index(indexes[0].row(), 1).data()
+                if val and str(val).isdigit():
+                    audio_id = int(val)
+
+        if audio_id is None:
+            self.window.console_text.append(
+                "[Warnung] Kein Audio-Track ausgewaehlt (weder Checkbox noch Maus-Selection)."
+            )
             return None
 
         with DBSession(engine) as session:
@@ -44,6 +52,25 @@ class AudioAnalysisController(PBComponent):
                 self.window.console_text.append("[Warnung] Audio-Track nicht in DB gefunden.")
                 return None
             return (track.id, track.file_path, track.title or "Unbekannt", track.bpm)
+
+    def _get_selected_audio_tracks(self) -> list[int]:
+        """B-293 Batch-Variante. Liefert Track-IDs aller selektierten Audios.
+        Checkbox first, Maus-Selection fallback."""
+        view = self.window.audio_pool_table
+        model = view.model()
+
+        if hasattr(model, "get_checked_ids"):
+            checked = list(model.get_checked_ids() or [])
+            if checked:
+                return [int(x) for x in checked if str(x).isdigit()]
+
+        indexes = view.selectionModel().selectedRows()
+        ids: list[int] = []
+        for idx in indexes:
+            val = model.index(idx.row(), 1).data()
+            if val and str(val).isdigit():
+                ids.append(int(val))
+        return ids
 
     def _detect_key(self):
         """Erkennt die musikalische Tonart des ausgewaehlten Audio-Tracks."""
