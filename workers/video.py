@@ -278,6 +278,36 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                         break
 
                     label = title or Path(video_path).stem
+                    # B-287: metadata_extract markieren BEVOR run_full_pipeline.
+                    # Sonst bleibt Status bei 8/9 = 88%. Wenn ffprobe-Felder
+                    # in DB vorhanden sind (duration/width/height/fps), wird
+                    # mark_done idempotent gesetzt; sonst ffprobe nachholen.
+                    try:
+                        from services import analysis_status_service
+                        from database import VideoClip as _VC, nullpool_session as _ns
+                        with _ns() as _s:
+                            _clip_row = _s.get(_VC, clip_id)
+                        if (_clip_row and _clip_row.duration and _clip_row.width
+                                and _clip_row.height and _clip_row.fps):
+                            analysis_status_service.mark_done(
+                                "video", clip_id, "metadata_extract", {
+                                    "duration": _clip_row.duration,
+                                    "resolution": f"{_clip_row.width}x{_clip_row.height}",
+                                    "fps": _clip_row.fps,
+                                    "codec": _clip_row.codec,
+                                },
+                            )
+                        else:
+                            analysis_status_service.mark_started(
+                                "video", clip_id, "metadata_extract"
+                            )
+                            from services.video_service import VideoService
+                            VideoService().analyze_and_store(clip_id, create_proxy=False)
+                    except Exception as _meta_exc:  # broad: Pipeline darf nicht durch Meta-Fehler kippen
+                        logger.warning(
+                            "B-287: metadata_extract for clip %s failed: %s",
+                            clip_id, _meta_exc,
+                        )
                     # B-071: bei >100 Videos lieferte ``int(100/total_videos)``
                     # exakt 0 — der Sub-Progress eines Videos wurde komplett
                     # auf eine einzige Prozent-Zahl kollabiert. Fix: rechne
@@ -411,6 +441,11 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                     should_stop=self.should_stop,
                 )
 
+            # B-289: 100%-Tick vor finished, sonst bleibt UI bei 99%.
+            try:
+                self.progress.emit(100, "Pipeline abgeschlossen")
+            except Exception:
+                pass
             self.finished.emit(last_clip_id, {
                 "scenes": total_scenes,
                 "embeddings": total_embeddings,
@@ -449,6 +484,10 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
             # Bug A Fix: Verhindert Race zwischen error.emit + finished.emit, der
             # zu "QThread: Destroyed while thread is still running" → 0xC0000409 fuehrt.
             if not _emitted_terminal:
+                try:
+                    self.progress.emit(100, "Pipeline abgeschlossen (fallback)")
+                except Exception:
+                    pass
                 self.finished.emit(last_clip_id, {})
 
 
