@@ -274,10 +274,8 @@ class WorkspaceSetupController(PBComponent):
             self.window._media_ws.btn_lufs_analyze.clicked.connect(self.window.audio_analysis._analyze_lufs)
         if hasattr(self.window._media_ws, 'btn_structure_detect'):
             self.window._media_ws.btn_structure_detect.clicked.connect(self.window.audio_analysis._detect_structure)
-        if hasattr(self.window._media_ws, 'btn_motion_analysis'):
-            self.window._media_ws.btn_motion_analysis.clicked.connect(self.window.video_analysis._start_video_pipeline)
-        if hasattr(self.window._media_ws, 'btn_siglip_embeddings'):
-            self.window._media_ws.btn_siglip_embeddings.clicked.connect(self.window.video_analysis._start_video_pipeline)
+        # B-296/R-15: btn_motion_analysis + btn_siglip_embeddings entfernt
+        # (Aliase auf _start_video_pipeline). btn_video_pipeline ist Primary.
 
         # --- SCHNITT workspace (Phase 10 Redesign + Tier-3-Sunset) ---
         # Visible workspace: SchnittWorkspace with sub-tabs (Schnitt /

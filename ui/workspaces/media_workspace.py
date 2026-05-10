@@ -553,22 +553,16 @@ class MediaWorkspace(QWidget):
         self.btn_analyze_video = _toolbar_btn(
             "Szenen-Erkennung", "Szenen-Schnitte und Shot-Boundaries erkennen",
         )
-        self.btn_motion_analysis = _toolbar_btn(
-            "Video analysieren", "Startet Video-Analyse (Metadaten + Proxy)",
-        )
-        self.btn_siglip_embeddings = _toolbar_btn(
-            "Voll-Pipeline", "Komplette Pipeline (Szenen + Motion + Embeddings)",
-        )
+        # B-296/R-15: btn_motion_analysis + btn_siglip_embeddings entfernt
+        # (waren Aliase auf denselben Handler _start_video_pipeline wie
+        # btn_video_pipeline). btn_video_pipeline ist Primary.
         self.btn_video_pipeline = _toolbar_btn(
             "Voll-Pipeline (Szenen + KI)",
             "3-Schritt Pipeline: Szenen + Keyframes + SigLIP",
         )
         self.btn_video_pipeline.setObjectName("btn_accent")
         self.btn_video_pipeline.setText("Videoanalyse starten")
-        for b in (
-            self.btn_analyze_video, self.btn_motion_analysis,
-            self.btn_siglip_embeddings,
-        ):
+        for b in (self.btn_analyze_video,):
             b.setVisible(False)
             video_expert_layout.addWidget(b)
         alay.addWidget(self.btn_video_pipeline)
@@ -642,27 +636,16 @@ class MediaWorkspace(QWidget):
         steps = QGridLayout()
         steps.setHorizontalSpacing(6)
         steps.setVerticalSpacing(6)
+        # B-296/R-15: btn_motion_analysis + btn_siglip_embeddings entfernt
+        # (Aliase auf _start_video_pipeline). btn_video_pipeline (Primary) +
+        # btn_analyze_video (Szenen) + btn_keyframe_string bilden Grid.
         video_steps = (
-            (
-                self.btn_motion_analysis,
-                "Metadaten / Proxy",
-                "Was macht es? Prueft Video-Basisdaten und startet die technische Videoanalyse. "
-                "Wann nutzen? Wenn Dauer, FPS oder Codec unklar sind. Voraussetzung? Video ausgewaehlt. "
-                "Ergebnis? Grundlage fuer stabile Szenen- und Exportarbeit.",
-            ),
             (
                 self.btn_analyze_video,
                 "Szenen",
                 "Was macht es? Erkennt Shot-Grenzen und Szenenwechsel. Wann nutzen? Vor Auto-Schnitt "
                 "oder wenn Keyframes fehlen. Voraussetzung? Video ausgewaehlt. Ergebnis? Clips werden in "
                 "sinnvolle Szenenbereiche geteilt.",
-            ),
-            (
-                self.btn_siglip_embeddings,
-                "SigLIP",
-                "Was macht es? Erzeugt semantische Embeddings fuer Suche und Mood-Matching. Wann nutzen? "
-                "Nach Szenen/Keyframes. Voraussetzung? Videoanalyse vorhanden. Ergebnis? Visuelle Suche "
-                "und Auto-Auswahl werden besser.",
             ),
         )
         for idx, (button, text, tip) in enumerate(video_steps):

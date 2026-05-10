@@ -173,8 +173,9 @@ def test_media_workspace_constructs_with_video_audio_modes(qapp):
         assert w._video_sub_tabs.isHidden()
         assert not w.btn_video_pipeline.isHidden()
         assert not w.btn_analyze_video.isHidden()
-        assert not w.btn_motion_analysis.isHidden()
-        assert not w.btn_siglip_embeddings.isHidden()
+        # B-296/R-15: Aliase entfernt, btn_video_pipeline ist Primary.
+        assert not hasattr(w, "btn_motion_analysis")
+        assert not hasattr(w, "btn_siglip_embeddings")
         assert not w.btn_keyframe_string.isHidden()
         assert not w.keyframe_text.isHidden()
         # Mode-Switch ist no-crash
@@ -206,6 +207,8 @@ def test_material_analysis_workspace_keeps_selection_and_actions_together(qapp):
         assert media.audio_pool_table.parent() is not None
         assert media.audio_analysis_panel.parent() is not None
         assert not convert.btn_standardize_all.isHidden()
+        # B-296/R-15: btn_motion_analysis + btn_siglip_embeddings entfernt
+        # (Aliase auf _start_video_pipeline). btn_video_pipeline ist Primary.
         for button in (
             media.btn_analyze,
             media.btn_waveform,
@@ -215,12 +218,12 @@ def test_material_analysis_workspace_keeps_selection_and_actions_together(qapp):
             media.btn_stem_separate,
             media.btn_analyze_all,
             media.btn_analyze_video,
-            media.btn_motion_analysis,
-            media.btn_siglip_embeddings,
             media.btn_video_pipeline,
             media.btn_keyframe_string,
         ):
             assert not button.isHidden()
             assert len(button.toolTip()) > 80
+        assert not hasattr(media, "btn_motion_analysis")
+        assert not hasattr(media, "btn_siglip_embeddings")
     finally:
         w.deleteLater()

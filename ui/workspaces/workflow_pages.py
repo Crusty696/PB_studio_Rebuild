@@ -529,24 +529,15 @@ class LegacyAnalysisWorkspace(QWidget):
         grid = QGridLayout()
         grid.setHorizontalSpacing(8)
         grid.setVerticalSpacing(8)
+        # B-296/R-15: btn_motion_analysis + btn_siglip_embeddings entfernt
+        # (Aliase auf _start_video_pipeline). btn_video_pipeline ist Primary
+        # (oben). Szenen-Erkennung bleibt als optionaler Einzelschritt.
         video_steps = [
             (
                 media_widget.btn_analyze_video,
                 "Szenen erkennen",
                 "Findet Shot-Grenzen und Szenenwechsel. Notwendig, damit PB Studio Clips in sinnvolle "
                 "Einheiten schneiden und spaeter passend auswaehlen kann.",
-            ),
-            (
-                media_widget.btn_motion_analysis,
-                "Motion bewerten",
-                "Analysiert Bewegung und visuelle Energie. Hilft, ruhige Parts mit ruhigem Material und "
-                "Drops mit dynamischeren Clips zu verbinden.",
-            ),
-            (
-                media_widget.btn_siglip_embeddings,
-                "SigLIP Embeddings",
-                "Erzeugt semantische Bild-Embeddings fuer Suche und Mood-Matching. Danach funktionieren "
-                "Suchbegriffe wie 'stage lights' oder 'dancing crowd' deutlich besser.",
             ),
         ]
         for idx, (button, text, tip) in enumerate(video_steps):
