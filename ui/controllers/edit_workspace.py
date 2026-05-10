@@ -679,41 +679,62 @@ class EditWorkspaceController(PBComponent):
                         idx = self.window.video_combo.findData(first_video.id)
                         if idx >= 0:
                             self.window.video_combo.setCurrentIndex(idx)
+        except (RuntimeError, AttributeError) as exc:
+            # I-3: AttributeError signalisiert Programmierfehler (Combo-Widget
+            # fehlt) — nicht schlucken, eskalieren statt False zu maskieren.
+            if isinstance(exc, AttributeError):
+                raise
+            logger.warning(
+                "B-294 _ensure_combos_filled_from_project (runtime): %s", exc
+            )
+            return False
         except Exception as exc:
-            logger.warning("B-294 _ensure_combos_filled_from_project failed: %s", exc)
+            # I-3: SQLAlchemyError + sonstige DB-Probleme: geloggt, False
+            # zurueck — UI bleibt funktionsfaehig, Adapter zeigt Console-Hint.
+            logger.warning(
+                "B-294 _ensure_combos_filled_from_project (db): %s", exc
+            )
             return False
         return (
             self.window.audio_combo.currentData() is not None
             and self.window.video_combo.currentData() is not None
         )
 
+    def _guard_combos_or_notify(self, feature: str) -> bool:
+        """B-294/M-1: gemeinsame Pre-Flight-Guard fuer SCHNITT-Adapter-Slots.
+
+        Wenn _ensure_combos_filled_from_project False zurueckgibt, schreibt
+        ein einheitlich formatiertes Console-Hint und triggert defensiven
+        Re-Sync des Schnitt-Workspaces. Returnt False -> Adapter MUSS
+        sofort returnen, ohne den Worker-Pfad zu starten.
+        """
+        if self._ensure_combos_filled_from_project():
+            return True
+        self.window.console_text.append(
+            f"[SCHNITT] {feature} braucht mind. 1 Audio + 1 Video. "
+            "Importiere Material in MATERIAL & ANALYSE."
+        )
+        ws = getattr(self.window, "_schnitt_ws", None)
+        if ws is not None:
+            try:
+                # I-1: refresh als defensiver Re-Sync — bei Empty-State ist es No-Op,
+                # bei Loading->Empty wuerde es State zuruecksetzen falls Race.
+                ws.refresh_state_from_db()
+            except Exception as exc:
+                logger.debug(
+                    "B-294 ws.refresh_state_from_db (no-op-on-empty) failed: %s",
+                    exc,
+                )
+        return False
+
     def _on_schnitt_auto_edit_request(self, profile) -> None:
         # B-294/R-14: kein silent return — wenn Combos leer, Auto-Fill aus DB.
-        if not self._ensure_combos_filled_from_project():
-            self.window.console_text.append(
-                "[SCHNITT] Auto-Edit braucht mind. 1 Audio + 1 Video im Projekt. "
-                "Importiere Material in MATERIAL & ANALYSE."
-            )
-            try:
-                ws = getattr(self.window, "_schnitt_ws", None)
-                if ws is not None:
-                    ws.refresh_state_from_db()
-            except Exception:
-                pass
+        if not self._guard_combos_or_notify("Auto-Edit"):
             return
         self._auto_edit_to_beat()
 
     def _on_schnitt_regenerate_request(self, profile) -> None:
-        if not self._ensure_combos_filled_from_project():
-            self.window.console_text.append(
-                "[SCHNITT] Re-Generate braucht mind. 1 Audio + 1 Video."
-            )
-            try:
-                ws = getattr(self.window, "_schnitt_ws", None)
-                if ws is not None:
-                    ws.refresh_state_from_db()
-            except Exception:
-                pass
+        if not self._guard_combos_or_notify("Re-Generate"):
             return
         self._generate_timeline_impl()
 
