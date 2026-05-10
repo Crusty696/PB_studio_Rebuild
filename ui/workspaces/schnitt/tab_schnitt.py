@@ -3,6 +3,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
 )
 from ui.timeline import InteractiveTimeline
+from ui.widgets.cut_list_panel import CutListPanel
 from ui.widgets.video_preview import VideoPreviewWidget
 
 
@@ -50,3 +51,9 @@ class SchnittTabSchnitt(QWidget):
         self.cut_info_label = QLabel("")
         self.cut_info_label.setStyleSheet("color: #6b7280; font-size: 10px; padding: 1px 4px;")
         v.addWidget(self.cut_info_label)
+
+        # B-295: CutListPanel — textuelle Cutliste unter der Timeline.
+        self.cut_list_panel = CutListPanel(self)
+        v.addWidget(self.cut_list_panel)
+        if hasattr(self.timeline_view, "set_playhead_time"):
+            self.cut_list_panel.cut_selected.connect(self.timeline_view.set_playhead_time)

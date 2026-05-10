@@ -467,3 +467,53 @@ class TimelineService:
         """Leert die Timeline (entfernt alle Tracks und Marker)."""
         name = self.timeline.name if self._timeline else "Untitled"
         self.create_timeline(name)
+
+
+def get_cut_list(project_id: int) -> list[dict]:
+    """B-295: Liefert Cutliste eines Projekts als sortierte Liste von dicts.
+
+    Format pro Eintrag:
+        {"index": int, "time": float, "duration": float, "source": str,
+         "strength": float, "locked": bool, "clip_id": int, "title": str}
+
+    ``source`` und ``strength`` sind leer/0.0, weil das aktuelle
+    ``TimelineEntry``-Schema diese Felder nicht persistiert (Pipeline-Worker
+    schreibt sie nicht). ``getattr``-Fallback haelt die Funktion zukunfts-
+    sicher, falls das Schema spaeter erweitert wird.
+
+    Die Spalte ``track`` wird auf ``"video"`` gefiltert; sortiert wird nach
+    ``start_time``.
+    """
+    from database import nullpool_session, TimelineEntry, VideoClip
+
+    rows: list[dict] = []
+    with nullpool_session() as s:
+        entries = (
+            s.query(TimelineEntry)
+            .filter_by(project_id=project_id, track="video")
+            .order_by(TimelineEntry.start_time)
+            .all()
+        )
+        for idx, e in enumerate(entries):
+            clip = s.get(VideoClip, e.media_id) if e.media_id else None
+            start_t = float(e.start_time or 0.0)
+            end_t = float(e.end_time or 0.0)
+            if clip is not None:
+                try:
+                    from pathlib import Path as _P
+                    title = _P(clip.file_path).stem if clip.file_path else f"Clip {e.media_id}"
+                except Exception:
+                    title = f"Clip {e.media_id}"
+            else:
+                title = f"Clip {e.media_id}"
+            rows.append({
+                "index": idx,
+                "time": start_t,
+                "duration": max(0.0, end_t - start_t),
+                "source": str(getattr(e, "cut_source", "") or ""),
+                "strength": float(getattr(e, "cut_strength", 0.0) or 0.0),
+                "locked": bool(getattr(e, "locked", False)),
+                "clip_id": e.media_id,
+                "title": title or f"Clip {e.media_id}",
+            })
+    return rows

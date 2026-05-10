@@ -217,6 +217,14 @@ class EditWorkspaceController(PBComponent):
         self.window._mark_dirty()
         self.window.console_text.append(f"[Pacing] {len(cuts)} Cuts generiert (Manual Curve aktiv)")
 
+        # B-295: CutListPanel nach Cut-Generation refresh
+        try:
+            tab_schnitt = self.window._schnitt_ws.editor_view.tab_schnitt
+            if hasattr(tab_schnitt, "cut_list_panel"):
+                tab_schnitt.cut_list_panel.set_project(get_active_project_id())
+        except Exception as exc:
+            logger.debug("cut_list_panel refresh failed: %s", exc)
+
     def _on_cuts_failed(self, err: str, seq: int = 0):
         # B-172: stale-Fail-Drop
         if seq and seq != getattr(self, "_gen_seq", seq):
@@ -364,6 +372,14 @@ class EditWorkspaceController(PBComponent):
             f"[Auto-Edit] Phase 3 fertig: {len(segments)} Segmente, OTIO Timeline generiert."
         )
         task_manager.finish_task(task_id, "finished", f"{len(segments)} Segmente")
+
+        # B-295: CutListPanel nach Auto-Edit refresh
+        try:
+            tab_schnitt = self.window._schnitt_ws.editor_view.tab_schnitt
+            if hasattr(tab_schnitt, "cut_list_panel"):
+                tab_schnitt.cut_list_panel.set_project(get_active_project_id())
+        except Exception as exc:
+            logger.debug("cut_list_panel refresh failed: %s", exc)
 
     def _build_otio_timeline(self, segments: list):
         audio_id = self.window.audio_combo.currentData()
