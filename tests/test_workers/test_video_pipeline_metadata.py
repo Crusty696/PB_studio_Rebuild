@@ -14,11 +14,12 @@ def test_b287_pipeline_worker_marks_metadata_extract():
     bleibt Status bei 8/9 = 88%).
     """
     src = inspect.getsource(VideoAnalysisPipelineWorker.run)
-    assert "metadata_extract" in src, (
+    assert '"metadata_extract"' in src, (
         "B-287: VideoAnalysisPipelineWorker.run referenziert "
-        "metadata_extract nicht — Step bleibt unmarkiert."
+        '"metadata_extract" als Call-Argument nicht — Step bleibt unmarkiert.'
     )
-    pos_metadata = src.find("metadata_extract")
+    # Find the actual call-site (quoted), not the comment.
+    pos_metadata = src.find('"metadata_extract"')
     pos_run_pipeline = src.find("run_full_pipeline(")
     assert pos_metadata < pos_run_pipeline, (
         "B-287: metadata_extract muss VOR run_full_pipeline gemarkt werden "

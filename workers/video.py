@@ -444,8 +444,8 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
             # B-289: 100%-Tick vor finished, sonst bleibt UI bei 99%.
             try:
                 self.progress.emit(100, "Pipeline abgeschlossen")
-            except Exception:
-                pass
+            except Exception as _emit_exc:
+                logger.debug("progress.emit(100) suppressed: %s", _emit_exc)
             self.finished.emit(last_clip_id, {
                 "scenes": total_scenes,
                 "embeddings": total_embeddings,
@@ -486,8 +486,8 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
             if not _emitted_terminal:
                 try:
                     self.progress.emit(100, "Pipeline abgeschlossen (fallback)")
-                except Exception:
-                    pass
+                except Exception as _emit_exc:
+                    logger.debug("progress.emit(100) fallback suppressed: %s", _emit_exc)
                 self.finished.emit(last_clip_id, {})
 
 
