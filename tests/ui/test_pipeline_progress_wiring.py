@@ -47,3 +47,34 @@ def test_stems_uses_named_slot_not_lambda():
     assert "self._on_stem_progress" in src, (
         "B-290: Stems verbinden den neuen Slot nicht — alte Lambda-Verdrahtung aktiv."
     )
+
+
+def test_audit_reproduction_grep_pipeline_wiring():
+    """R-12 — Audit-Greps muessen Soll-Werte erreichen.
+
+    Diese Greps belegen direkt dass keiner der urspruenglichen Symptom-
+    Patterns zurueckgekehrt ist (B-287, B-288, B-289, B-290, B-291).
+    """
+    repo = REPO
+
+    # B-287: metadata_extract muss in workers/video.py referenziert sein
+    src_worker = (repo / "workers/video.py").read_text(encoding="utf-8")
+    assert src_worker.count("metadata_extract") >= 1, (
+        "B-287: workers/video.py referenziert metadata_extract nicht."
+    )
+
+    # B-289: progress.emit(100 muss in workers/video.py existieren
+    assert "progress.emit(100" in src_worker, (
+        "B-289: workers/video.py emittiert nie 100% — UI bleibt bei 99%."
+    )
+
+    # B-288/B-290/B-291: alle drei Slots haben setValue im Body (AST-strikt)
+    for f, slot in [
+        ("ui/controllers/video_analysis.py", "_on_pipeline_progress"),
+        ("ui/controllers/stems.py", "_on_stem_progress"),
+        ("ui/controllers/audio_analysis.py", "_on_waveform_progress"),
+    ]:
+        body = _slot_body(f, slot)
+        assert "progress_bar.setValue" in body, (
+            f"{f}::{slot} ruft progress_bar.setValue nicht — Slot ist tot."
+        )
