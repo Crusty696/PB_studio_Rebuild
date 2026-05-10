@@ -54,8 +54,10 @@ class AudioAnalysisController(PBComponent):
             return (track.id, track.file_path, track.title or "Unbekannt", track.bpm)
 
     def _get_selected_audio_tracks(self) -> list[int]:
-        """B-293 Batch-Variante. Liefert Track-IDs aller selektierten Audios.
-        Checkbox first, Maus-Selection fallback."""
+        """B-293 Batch-Variante. Liefert Track-IDs (NICHT DB-aufgeloest — Caller
+        muss IDs selbst dereferenzieren). Checkbox-first, Maus-Selection
+        fallback. Caller MUSS leere Liste selbst behandeln (kein Warning).
+        """
         view = self.window.audio_pool_table
         model = view.model()
 
