@@ -46,6 +46,101 @@
 
 ---
 
+## ⛔ Zwangs-Regeln R-16..R-25 (User-Forderung 2026-05-11)
+
+Gelten **pro Task**, nicht nur pro Phase. Implementer-Subagenten **müssen** sich an folgenden Workflow halten — kein Skip, kein DONE_WITH_CONCERNS, kein "fix später":
+
+### Task-Lifecycle (Pflicht-Reihenfolge)
+
+```
+1. Soll-Snapshot         [R-16]  — schreibe was geplant ist
+2. Pre-Git-Status        [R-21]  — git status --porcelain Vor-Snapshot
+3. Pre-Flight-Reads      [R-9]   — Pflicht-Lektüre der zu ändernden Files
+4. Failing Test          [TDD]   — Test schreiben + RED beobachten
+5. Implementation        [Plan]  — exakt was Soll-Snapshot sagt
+6. Test GREEN beobachten [TDD]
+7. Selbst-Validation     [R-17]  — Soll-Punkt vs Ist-Code, Tabelle ✓/✗
+8. Drei-Pass-Verify      [R-18]  — Source / Behavior / Live-Boot
+9. Pre-Commit Greps      [R-22]  — Audit-Greps müssen Soll-Werte erreichen
+10. Post-Git-Status      [R-21]  — nur erwartete Files in git status
+11. Anti-Skip-Checkliste [R-20]  — alle 10 Punkte abgehakt
+12. Vault-Update         [R-7]
+13. Commit               [R-8]   — mit Audit-Tabellen im Body
+14. Report DONE          [R-19]  — nur DONE oder BLOCKED, nichts dazwischen
+```
+
+### Bei Abweichung (Schritt 7 hat `✗`)
+
+**Auto-Correct-Schleife** (R-17):
+
+```
+Iteration 1: ✗ erkannt → fix → re-validate
+Iteration 2: noch ✗ → fix → re-validate
+Iteration 3: noch ✗ → BLOCKED, eskaliere an Controller
+```
+
+**Niemals DONE bei `✗`.** Niemals "wird in Phase X gefixt". Niemals "Reviewer entscheidet".
+
+### Bei Reviewer-Findings (R-23)
+
+- **Critical/Important/Minor**: alle MUST-FIX vor DONE des Tasks. Implementer (gleicher Subagent) fixt, Reviewer re-reviewt, Loop bis ✓.
+- Nur **Info**-Findings dürfen unbehandelt durchgehen.
+
+### Status-Werte (R-19)
+
+- **DONE** — alle 14 Lifecycle-Punkte abgehakt, alle ✓.
+- **BLOCKED** — 3-Iterations-Limit erreicht oder externe Sache.
+- **NEEDS_CONTEXT** — Plan-Text unklar, frag Controller.
+
+`DONE_WITH_CONCERNS` ist verboten. Wird vom Controller mit Re-Dispatch beantwortet.
+
+### Pflicht-Block in jedem DONE-Report
+
+```markdown
+## R-16 Soll-Snapshot
+<text>
+
+## R-17 Spec-Compliance-Check
+| Plan-Punkt | Soll | Ist | OK? |
+|---|---|---|---|
+... 100% ✓ erforderlich.
+
+## R-18 Drei-Pass
+- Pass 1 Source: <Grep-Output>
+- Pass 2 Behavior: <pytest-Output>
+- Pass 3 Live-Boot: <Smoke-Output oder N/A wenn nicht UI/Worker>
+
+## R-20 Checkliste
+- [x] Test geschrieben
+- [x] Test RED beobachtet
+- [x] Implementation
+- [x] Test GREEN beobachtet
+- [x] Regression-Sweep gruen
+- [x] Vault-Update
+- [x] log.md
+- [x] Commit
+- [x] R-18 alle drei Pass gruen
+- [x] R-17 100% ✓
+
+## R-21 Git-Status-Audit
+| File | Soll | Ist |
+|---|---|---|
+...
+
+## R-22 Audit-Greps
+- <grep1>: PASS
+- <grep2>: PASS
+
+## R-23 Reviewer-Findings
+- 0 offen (alle gefixt vor DONE).
+```
+
+**Implementer-Report ohne diese Sektionen wird sofort re-dispatched mit Hinweis "R-19 incomplete".**
+
+---
+
+---
+
 ## Phase A — Audio-Checkbox-Helper (B-293)
 
 **Files:** `tests/ui/test_audio_checkbox_wiring.py` (new), `ui/controllers/audio_analysis.py`.

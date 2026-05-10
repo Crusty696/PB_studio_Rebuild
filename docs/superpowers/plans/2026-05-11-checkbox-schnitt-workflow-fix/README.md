@@ -86,6 +86,172 @@ Wenn > 1 Treffer in `workspace_setup.py`: dokumentieren warum (Plan-Abweichungs-
 
 ---
 
+## ⛔⛔ ZWANGS-REGELN gegen Abweichung / Skip / Eigenmächtigkeit
+
+User-Forderung 2026-05-11: Plan muss so streng sein dass Agent **keine** Möglichkeit hat, vom Plan abzuweichen, etwas auszulassen, zu überspringen oder anderes zu tun als geplant. Agent muss seine eigene Arbeit gegenprüfen, validieren, bei Abweichung **automatisch und bevor er zur nächsten Aufgabe geht** korrigieren, nochmals prüfen + validieren + verifizieren bis es stimmt und funktioniert.
+
+### R-16 — Plan-Treue-Pflicht: Pre-Task Soll-Snapshot
+
+**Vor jedem Code-Touch** muss der Agent (oder dispatchender Subagent) explizit als ersten Schritt einen **Soll-Snapshot** in den Task-Report schreiben:
+
+```markdown
+## Soll-Stand fuer Task X
+1. Datei `<pfad>` — Zeile <X> bis <Y> — Methode `<name>` — exakt diese Aenderung: <kurz>.
+2. Datei `<pfad>` — neue Methode `<name>` — Signatur `<sig>`.
+3. Test-Datei `<pfad>` — neu mit <N> Tests.
+
+## Pre-Task Git-Status-Snapshot
+- HEAD: <SHA>
+- Erwartete neue Files: [...]
+- Erwartete geaenderte Files: [...]
+- KEINE anderen Files duerfen geaendert werden.
+```
+
+Nach Implementation: **Ist-Snapshot** anhand `git status` + `git diff --stat`. Diff Soll/Ist explizit ausweisen. Bei Abweichung → R-17 greift.
+
+### R-17 — Selbst-Validierungs-Schleife (Auto-Correct vor DONE)
+
+Nach Implementation MUSS der Agent eine **Selbst-Validierung** gegen den Soll-Stand machen:
+
+```markdown
+## Spec-Compliance-Check (selbst)
+| Plan-Punkt | Soll | Ist | OK? |
+|---|---|---|---|
+| Task A.1 failing test | 3 Tests in <datei> | 3 Tests in <datei> | ✓ |
+| Task A.2 Helper Body | <code-snippet> | <ist-code> | ✓ oder ✗ |
+| ... | | | |
+```
+
+Bei JEDEM `✗` MUSS der Agent **bevor er DONE meldet**:
+
+1. Den Fehler benennen (was weicht ab).
+2. Korrigieren — sofort, gleicher Subagent, kein neuer Task.
+3. Selbst-Validierung erneut laufen.
+4. Erst wenn alle Punkte `✓`: DONE-Report.
+
+Maximum **3 Iterationen** Selbst-Korrektur. Danach BLOCKED — keine versteckte Aufgabe.
+
+### R-18 — Drei-Pass-Verifikation pro Task
+
+Vor DONE-Report MÜSSEN ALLE DREI Verifikationspässe grün sein:
+
+**Pass 1 — Source-Inspection**: AST/Grep dass Implementation den Plan-Code enthält.
+
+**Pass 2 — Behavior-Test**: pytest grün; bei UI-Wirkung zusätzlich qapp-Fixture-Test.
+
+**Pass 3 — Live-Boot-Smoke** (wenn Task UI/Worker berührt): Mini-Skript fährt echtes PBWindow hoch und prüft die konkrete Wirkung.
+
+Wenn EIN Pass rot: zurück zu Implementation (R-17-Schleife). Kein DONE.
+
+Pre-Commit-Pflicht: alle drei Pass-Ergebnisse im Commit-Body protokollieren als Tabelle.
+
+### R-19 — Kein DONE_WITH_CONCERNS
+
+Status-Werte für Subagent-Reports sind ausschließlich:
+
+- **DONE** — alle drei Pässe grün, Spec-Compliance-Check 100% `✓`.
+- **BLOCKED** — drei Iterationen R-17 erschöpft oder externe Sache (DB-Schema, Hardware, fehlende Dependency).
+- **NEEDS_CONTEXT** — Plan-Text unklar, Subagent fragt Controller.
+
+**DONE_WITH_CONCERNS ist verboten.** "Concerns" sind Bugs. Vor DONE müssen sie gefixt sein. Subagent darf keine Compromise-Status melden.
+
+### R-20 — Anti-Skip-Checkliste
+
+Jeder Task im Plan hat eine nummerierte Checkliste mit `- [ ]`. Vor DONE muss der Subagent jeden Punkt mit Beleg abhaken:
+
+```markdown
+## Task A.X Checkliste
+- [x] Test geschrieben (`tests/...`) — siehe Commit `<SHA>`
+- [x] Test gelaufen RED — Output: `FAILED ...`
+- [x] Implementation in `<file>` Z.<a>-<b> — Diff: `git show`
+- [x] Test gelaufen GREEN — Output: `PASSED ...`
+- [x] Regression-Sweep gruen — Output: `<N> passed`
+- [x] Vault-Update — `wiki/bugs/<B>.md` updated
+- [x] log.md-Eintrag — append confirmed
+- [x] Commit erstellt — SHA `<...>`
+- [x] R-18 Drei-Pass-Verifikation — alle drei gruen
+- [x] R-17 Spec-Compliance 100% — keine `✗`
+```
+
+Kein Punkt darf ungehakt sein. Skip = BLOCKED + Re-Dispatch.
+
+### R-21 — Pre/Post-Git-Status-Audit
+
+Vor Task: `git status --porcelain` Snapshot. Erwartete neue/geänderte Files in Soll-Liste.
+
+Nach Task: `git status --porcelain` erneut. Diff:
+
+- Erwartete Files vorhanden? ✓
+- Unerwartete Files dabei? **Auto-Revert** oder explizite Erlaubnis vom Controller. Niemals stillschweigend mitcommitten.
+- Erwartete Files fehlen? BLOCKED.
+
+Im Commit-Body Tabelle:
+
+```markdown
+## Git-Status-Audit
+| File | Soll | Ist |
+|---|---|---|
+| `tests/ui/test_x.py` | NEW | NEW ✓ |
+| `ui/controllers/x.py` | MODIFIED | MODIFIED ✓ |
+| `<unerwartete>` | — | DROPPED ✓ |
+```
+
+### R-22 — Pre-Commit Audit-Greps blocken Commit
+
+Vor jedem `git commit` MUSS der Subagent die Plan-spezifischen Audit-Greps (R-13/R-14/R-15 plus task-spezifische) laufen lassen. **Wenn ein Soll-Wert nicht erreicht ist: kein Commit.** Output ins Commit-Body als Beleg.
+
+Beispiel für Phase A:
+
+```bash
+# R-13 Audio-Helper-Symmetrie
+grep -nA 25 "def _get_selected_audio_track" ui/controllers/audio_analysis.py | grep "get_checked_ids" || exit 1
+grep -nA 25 "def _get_selected_audio_tracks" ui/controllers/audio_analysis.py | grep "get_checked_ids" || exit 1
+```
+
+Bei `exit 1`: Subagent dokumentiert das im Report als BLOCKED und stoppt. Kein Commit-Workaround.
+
+### R-23 — Reviewer-Findings sind MUST-FIX, kein "follow-up later"
+
+Code-Quality-Reviewer-Subagenten dürfen Issues in 4 Kategorien melden:
+
+- **Critical** — Production-Bug oder Datenverlust-Risiko. **MUST-FIX vor DONE des Tasks.**
+- **Important** — Bug oder UX-Loch. **MUST-FIX vor DONE des Tasks.**
+- **Minor** — Stil/Naming/Magic-Number. **MUST-FIX vor DONE des Tasks** falls < 5 min, sonst in Follow-up-Bug.
+- **Info** — Beobachtung ohne Action.
+
+**Kein "wird in nächstem Plan gefixt" mehr.** Wenn Reviewer Important findet → Implementer fixt → Reviewer re-reviewt → erst dann DONE.
+
+### R-24 — Final-Phase-Validation: Plan-vs-Realität-Diff
+
+Am Ende jeder Phase (bevor Status auf complete) muss ein **Phase-Audit-Subagent** dispatched werden, der das gesamte Phase-Soll gegen den Commit-Stream prüft:
+
+- Wurden ALLE Tasks der Phase committet?
+- Stimmen Commit-Hashes mit Bug-File-Frontmatter überein?
+- Liefert `git log <BASE>..<HEAD>` exakt die geplanten Commits?
+- Source-Inspection: enthält der Code wirklich was der Plan vorgibt?
+
+Audit-Output als Vault-Synthesis `wiki/synthesis/phase-<X>-audit-YYYY-MM-DD.md`. Bei Abweichung: Phase NICHT abschließbar, zurück zu fehlendem Task.
+
+### R-25 — User-Approval-Gate vor Phase-Wechsel (optional)
+
+Falls Plan-Phase besonders riskant (Layout-Refactor, DB-Schema, LOCKED-Berührung): Controller schaltet auf "Pause-vor-naechster-Phase" und meldet User Status mit der Frage "Phase X done — Phase Y starten?". Erst nach explicit "go" weiter.
+
+Im Default-Modus: nahtloser Übergang ohne Pause (Subagent-Driven-Skill ohnehin schon Standard).
+
+---
+
+## Konsequenzen der Zwangs-Regeln
+
+- Jeder Subagent-Implementer-Prompt MUSS auf R-16..R-24 verweisen.
+- Jeder Spec-Reviewer-Prompt MUSS R-17/R-18-Schleife prüfen ob durchlaufen.
+- Jeder Code-Quality-Reviewer-Prompt MUSS R-23 zitieren (alle Issues MUST-FIX).
+- Implementer der `DONE_WITH_CONCERNS` zurückmeldet wird sofort mit BLOCKED-Note re-dispatched: "R-19 — DONE_WITH_CONCERNS verboten. Fix die Concerns, dann DONE."
+- Implementer der R-20-Checkliste nicht abhakt wird ebenfalls re-dispatched.
+
+Diese Verschärfung erhöht den Aufwand pro Task um ~20% (zusätzliche Self-Validation-Pässe + Auto-Correct-Schleifen), reduziert aber die Zahl der Reviewer-Findings drastisch und verhindert die "halbverdrahtet"-Klasse Bugs, die in den vorigen Phasen wiederholt aufgetreten ist.
+
+---
+
 ## Phasen-Übersicht
 
 | # | Phase | Zweck | Aufwand | Bugs |
