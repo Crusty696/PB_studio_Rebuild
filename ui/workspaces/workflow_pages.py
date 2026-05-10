@@ -203,6 +203,29 @@ class ProjectDashboard(QWidget):
         layout.addWidget(detail_label)
         return frame, state_label, detail_label
 
+    # B-292/D: Convenience properties — Tests / Externe greifen auf
+    # benannte Card-Attribute zu (audio_card, video_card, ...). Die Frames
+    # liegen intern in self.readiness_cards[key][0].
+    @property
+    def audio_card(self) -> QFrame | None:
+        entry = self.readiness_cards.get("audio")
+        return entry[0] if entry else None
+
+    @property
+    def video_card(self) -> QFrame | None:
+        entry = self.readiness_cards.get("video")
+        return entry[0] if entry else None
+
+    @property
+    def auto_edit_card(self) -> QFrame | None:
+        entry = self.readiness_cards.get("auto_edit")
+        return entry[0] if entry else None
+
+    @property
+    def export_card(self) -> QFrame | None:
+        entry = self.readiness_cards.get("export")
+        return entry[0] if entry else None
+
     def refresh(self, project_id: int | None) -> None:
         from services.cockpit_orchestrator import get_cockpit_readiness
 
@@ -244,6 +267,34 @@ class ProjectDashboard(QWidget):
             text = messages[idx] if idx < len(messages) else ""
             label.setText(text)
             label.setVisible(bool(text))
+
+        # B-292/D: Tooltip mit fehlenden Steps fuer blocked Cards.
+        msf = getattr(readiness, "missing_steps_per_card", {}) or {}
+        try:
+            from ui.widgets.analysis_status_panel import STEP_NAMES
+        except Exception:
+            STEP_NAMES = {}
+        synthetic_labels = {
+            "kein_audio": "Kein Audio importiert",
+            "kein_video": "Kein Video importiert",
+            "kein_projekt": "Kein Projekt geladen",
+            "audio_video_unvollstaendig": "Audio/Video-Analyse unvollstaendig",
+            "timeline_leer": "Timeline leer — Auto-Edit fehlt",
+        }
+        for card_key, card_widget in (
+            ("audio", self.audio_card),
+            ("video", self.video_card),
+            ("auto_edit", self.auto_edit_card),
+            ("export", self.export_card),
+        ):
+            if card_widget is None:
+                continue
+            steps = msf.get(card_key) or []
+            if not steps:
+                card_widget.setToolTip("Bereit.")
+                continue
+            pretty = ", ".join(synthetic_labels.get(s, STEP_NAMES.get(s, s)) for s in steps)
+            card_widget.setToolTip(f"Fehlt: {pretty}")
 
     def _emit_next_action(self) -> None:
         self.action_requested.emit(self._current_action_key)

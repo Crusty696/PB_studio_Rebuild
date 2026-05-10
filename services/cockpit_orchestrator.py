@@ -48,6 +48,7 @@ class CockpitReadiness:
     next_action: CockpitAction = field(default_factory=lambda: ACTIONS["open_project"])
     counts: dict[str, int] = field(default_factory=dict)
     cards: dict[str, str] = field(default_factory=dict)
+    missing_steps_per_card: dict[str, list[str]] = field(default_factory=dict)
 
 
 AUDIO_STEP_SPECS = [
@@ -130,6 +131,12 @@ def get_cockpit_readiness(project_id: int | None) -> CockpitReadiness:
             blockers=["Kein Projekt geladen"],
             next_action=ACTIONS["open_project"],
             cards=_cards(False, False, False, False),
+            missing_steps_per_card={
+                "audio": ["kein_projekt"],
+                "video": ["kein_projekt"],
+                "auto_edit": ["kein_projekt"],
+                "export": ["kein_projekt"],
+            },
         )
 
     with database.nullpool_session() as session:
@@ -140,6 +147,12 @@ def get_cockpit_readiness(project_id: int | None) -> CockpitReadiness:
                 blockers=["Projekt nicht gefunden"],
                 next_action=ACTIONS["open_project"],
                 cards=_cards(False, False, False, False),
+                missing_steps_per_card={
+                    "audio": ["kein_projekt"],
+                    "video": ["kein_projekt"],
+                    "auto_edit": ["kein_projekt"],
+                    "export": ["kein_projekt"],
+                },
             )
 
         audio_ids = session.execute(
@@ -194,6 +207,13 @@ def get_cockpit_readiness(project_id: int | None) -> CockpitReadiness:
             can_export=can_export,
         )
 
+        missing_steps = {
+            "audio": _missing_required_steps(audio_status, AUDIO_STEP_SPECS) if audio_ids else ["kein_audio"],
+            "video": _missing_required_steps(video_status, VIDEO_STEP_SPECS) if video_ids else ["kein_video"],
+            "auto_edit": [] if can_auto_edit else ["audio_video_unvollstaendig"],
+            "export": [] if can_export else ["timeline_leer"],
+        }
+
         return CockpitReadiness(
             project_id=project_id,
             project_name=project.name,
@@ -211,6 +231,7 @@ def get_cockpit_readiness(project_id: int | None) -> CockpitReadiness:
                 "timeline": int(timeline_count),
             },
             cards=_cards(audio_ready, video_ready, can_auto_edit, can_export),
+            missing_steps_per_card=missing_steps,
         )
 
 
@@ -269,6 +290,20 @@ def _missing_optional(status_by_media: dict[int, dict[str, str]], specs: list[Pi
 
 def _missing_step(status_by_media: dict[int, dict[str, str]], step_key: str) -> bool:
     return any(status.get(step_key) != "done" for status in status_by_media.values())
+
+
+def _missing_required_steps(
+    status_by_media: dict[int, dict[str, str]],
+    specs: list["PipelineStepSpec"],
+) -> list[str]:
+    """B-292/D: required Step-Keys die fuer mindestens ein Medium offen sind."""
+    required = [spec.key for spec in specs if spec.required_for_auto_edit]
+    missing: set[str] = set()
+    for status in status_by_media.values():
+        for key in required:
+            if status.get(key) != "done":
+                missing.add(key)
+    return sorted(missing)
 
 
 def _next_action(
