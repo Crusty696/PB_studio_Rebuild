@@ -476,10 +476,13 @@ def get_cut_list(project_id: int) -> list[dict]:
         {"index": int, "time": float, "duration": float, "source": str,
          "strength": float, "locked": bool, "clip_id": int, "title": str}
 
-    ``source`` und ``strength`` sind leer/0.0, weil das aktuelle
-    ``TimelineEntry``-Schema diese Felder nicht persistiert (Pipeline-Worker
-    schreibt sie nicht). ``getattr``-Fallback haelt die Funktion zukunfts-
-    sicher, falls das Schema spaeter erweitert wird.
+    HINWEIS (I-1, 2026-05-11): TimelineEntry-Schema hat aktuell keine
+    ``cut_source``/``cut_strength``-Felder — diese werden via getattr-Default
+    auf ``""`` / ``0.0`` gesetzt. UI rendert die beiden Spalten aktuell NICHT
+    (Source/Strength-Spalten entfernt aus CutListPanel bis Schema-Migration
+    ``cut_source``/``cut_strength`` persistent macht). Forward-Compat
+    bleibt im dict-Format erhalten, damit kuenftige Konsumenten die Keys
+    weiterhin lesen koennen, sobald das Schema erweitert ist.
 
     Die Spalte ``track`` wird auf ``"video"`` gefiltert; sortiert wird nach
     ``start_time``.

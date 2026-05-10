@@ -1,4 +1,10 @@
-"""CutListPanel — textuelle Cutliste fuer das SCHNITT-Sub-Tab (B-295)."""
+"""CutListPanel — textuelle Cutliste fuer das SCHNITT-Sub-Tab (B-295).
+
+I-1 follow-up (post 13208ac): Source/Strength-Spalten entfernt bis Schema-
+Migration cut_source/cut_strength persistent macht. Aktuelles Schema
+hat diese Felder nicht — get_cut_list liefert sie zwar weiter (Forward-
+Compat), aber UI rendert sie aktuell nicht (kein leeres-Spalten-Lying).
+"""
 from __future__ import annotations
 
 import logging
@@ -9,26 +15,18 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTableWidget,
     QTableWidgetItem, QHeaderView, QPushButton,
 )
-from PySide6.QtGui import QBrush, QColor
+
+# M-5: Module-top import statt lokalem Import in refresh().
+from services.timeline_service import get_cut_list
 
 logger = logging.getLogger(__name__)
-
-_SOURCE_COLORS = {
-    "beat": QColor(74, 222, 128),
-    "scene": QColor(96, 165, 250),
-    "energy": QColor(251, 191, 36),
-    "drum": QColor(248, 113, 113),
-    "transition": QColor(167, 139, 250),
-    "drop": QColor(244, 114, 182),
-    "anchor": QColor(212, 164, 74),
-}
 
 
 class CutListPanel(QWidget):
     """B-295: Cutliste eines Projekts als sortierte Tabelle.
 
-    Spalten: # / Zeit / Dauer / Quelle / Staerke / Lock / Clip.
-    Klick auf Zeile → ``cut_selected(time)`` emittiert.
+    Spalten (5, post I-1): # / Zeit / Dauer / Lock / Clip.
+    Klick auf Zeile -> cut_selected(time) emittiert.
     """
 
     cut_selected = Signal(float)
@@ -57,9 +55,10 @@ class CutListPanel(QWidget):
         header.addWidget(self.btn_refresh)
         layout.addLayout(header)
 
-        self.table = QTableWidget(0, 7, self)
+        # I-1: 5 Spalten statt 7 — Source/Strength entfernt bis Schema-Migration.
+        self.table = QTableWidget(0, 5, self)
         self.table.setHorizontalHeaderLabels(
-            ["#", "Zeit", "Dauer", "Quelle", "Staerke", "Lock", "Clip"]
+            ["#", "Zeit", "Dauer", "Lock", "Clip"]
         )
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         self.table.horizontalHeader().setStretchLastSection(True)
@@ -68,7 +67,8 @@ class CutListPanel(QWidget):
         self.table.cellClicked.connect(self._on_cell_clicked)
         layout.addWidget(self.table)
 
-        self.info_label = QLabel("Noch keine Timeline.")
+        # M-2: konsistenter initial-Empty-State-Text (vorher "Noch keine Timeline.").
+        self.info_label = QLabel("Kein Projekt aktiv. — set_project() rufen.")
         self.info_label.setStyleSheet("color: #6b7280; font-size: 10px;")
         layout.addWidget(self.info_label)
 
@@ -82,8 +82,10 @@ class CutListPanel(QWidget):
             self._render_empty("Kein Projekt aktiv.")
             return
         try:
-            from services.timeline_service import get_cut_list
             cuts = get_cut_list(self._project_id)
+        # M-3: broad fuer UI-Safety. Erwartete Exceptions: SQLAlchemyError
+        # (DB-Drift / lock), ImportError (Service-Modul-Drift), AttributeError
+        # (Schema-Drift TimelineEntry/VideoClip), KeyError (dict-Schema-Drift).
         except Exception as exc:
             logger.warning("CutListPanel.refresh failed: %s", exc)
             self._render_empty(f"Fehler: {exc}")
@@ -98,27 +100,24 @@ class CutListPanel(QWidget):
         self.table.setRowCount(len(cuts))
         for row, cut in enumerate(cuts):
             self.table.setItem(row, 0, QTableWidgetItem(str(cut["index"])))
-            self.table.setItem(row, 1, QTableWidgetItem(f"{cut['time']:.2f}s"))
+            # I-2: Time als UserRole-Daten attachieren — Klick liest Wert
+            # statt Display-String zu parsen (Locale-safe gegen Dezimaltrenner).
+            time_item = QTableWidgetItem(f"{cut['time']:.2f}s")
+            time_item.setData(Qt.ItemDataRole.UserRole, float(cut["time"]))
+            self.table.setItem(row, 1, time_item)
             self.table.setItem(row, 2, QTableWidgetItem(f"{cut['duration']:.2f}s"))
-            src_item = QTableWidgetItem(cut.get("source", ""))
-            color = _SOURCE_COLORS.get(cut.get("source", ""), None)
-            if color is not None:
-                src_item.setForeground(QBrush(color))
-            self.table.setItem(row, 3, src_item)
-            self.table.setItem(row, 4, QTableWidgetItem(f"{cut.get('strength', 0.0):.2f}"))
-            self.table.setItem(row, 5, QTableWidgetItem("LOCK" if cut.get("locked") else ""))
-            self.table.setItem(row, 6, QTableWidgetItem(cut.get("title", "")))
+            self.table.setItem(row, 3, QTableWidgetItem("LOCK" if cut.get("locked") else ""))
+            self.table.setItem(row, 4, QTableWidgetItem(cut.get("title", "")))
         self.info_label.setText(f"{len(cuts)} Cuts.")
 
     def _on_cell_clicked(self, row: int, column: int) -> None:
         time_item = self.table.item(row, 1)
         if time_item is None:
             return
-        try:
-            t = float(time_item.text().rstrip("s"))
-            self.cut_selected.emit(t)
-        except ValueError:
-            pass
+        # I-2: UserRole-Wert statt Display-String parsen (Locale-safe).
+        t = time_item.data(Qt.ItemDataRole.UserRole)
+        if isinstance(t, (int, float)):
+            self.cut_selected.emit(float(t))
 
     def rendered_row_count(self) -> int:
         """B-295 Test-Affordance."""
