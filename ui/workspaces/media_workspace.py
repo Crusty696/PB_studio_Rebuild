@@ -265,6 +265,19 @@ class MediaWorkspace(QWidget):
         layout.setContentsMargins(4, 4, 4, 2)
         layout.setSpacing(2)
 
+        # B-296 Phase F: Onboarding-Banner mit Workflow-Hinweis.
+        from ui.widgets.onboarding_banner import OnboardingBanner
+        self.onboarding_banner = OnboardingBanner(
+            banner_id="media_workspace_workflow",
+            message=(
+                "Schritt 2: Material analysieren. Importiere Audio + Video, "
+                "wähle Tracks per Checkbox oder 'Alle', klicke 'Komplett-Analyse' "
+                "oder 'Video-Pipeline'. Status pro Schritt rechts im Panel."
+            ),
+            parent=self,
+        )
+        layout.insertWidget(0, self.onboarding_banner)
+
         # P9-Step3a: Mode-Toggle als schmale Tab-Bar (vorher 2 Buttons à 42 px,
         # nahmen 1200×92 px Platz weg). Jetzt kompakte Tab-Bar 24 px.
         _TAB_STYLE = (
