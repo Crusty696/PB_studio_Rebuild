@@ -192,6 +192,7 @@ class WorkspaceSetupController(PBComponent):
             MaterialAnalysisWorkspace, ProjectDashboard,
         )
         from ui.workspaces.schnitt_workspace import SchnittWorkspace
+        from database import engine
 
         self.window._media_ws = MediaWorkspace()
 
@@ -290,6 +291,7 @@ class WorkspaceSetupController(PBComponent):
         # docs/superpowers/plans/2026-05-09-schnitt-integration-wiring-fix/README.md
         from ui.controllers.schnitt_controller import SchnittController
         from ui.controllers.schnitt_audio_binder import SchnittAudioBinder
+        from ui.controllers.schnitt_coordinator import SchnittCoordinator
         self.window._schnitt_ctrl = SchnittController(
             self.window._schnitt_ws,
             parent=self.window,
@@ -297,6 +299,10 @@ class WorkspaceSetupController(PBComponent):
         self.window._schnitt_audio_binder = SchnittAudioBinder(
             tab_audio=self.window._schnitt_ws.editor_view.tab_audio,
             stem_player=self.window.stem_player,
+        )
+        self.window._schnitt_coordinator = SchnittCoordinator(
+            audio_binder=self.window._schnitt_audio_binder,
+            db_engine=engine,
         )
         self.window._schnitt_ctrl.request_auto_edit_with_profile.connect(
             self.window.edit_workspace._on_schnitt_auto_edit_request

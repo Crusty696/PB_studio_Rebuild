@@ -197,7 +197,7 @@ In `StemsController._update_stem_workspace`, call both old workspace and
 & "<PY>" -m pytest tests/ui/test_schnitt_audio_binder.py tests/ui/test_subtab_audio_layout.py -q --tb=short --color=no
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```powershell
 git add ui/controllers/schnitt_audio_binder.py ui/controllers/workspace_setup.py ui/controllers/stems.py tests/ui/test_schnitt_audio_binder.py
@@ -210,18 +210,18 @@ git commit -m "fix(B-310): wire stems into schnitt audio"
 - Modify: `ui/controllers/edit_workspace.py` or new `ui/controllers/schnitt_coordinator.py`
 - Test: `tests/ui/test_schnitt_audio_metadata_feed.py`
 
-- [ ] **Step 1: Write test**
+- [x] **Step 1: Write test**
 
 Test active audio change calls `set_audio_id`, `set_waveform_data`,
 `set_structure_markers`, `set_lufs`, `set_key` on SCHNITT audio tab.
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 Preferred: create `SchnittCoordinator.refresh_audio(audio_id)` and call from
 audio combo change. If existing controller is too coupled, keep only one
 adapter call in `EditWorkspaceController._on_audio_combo_changed`.
 
-- [ ] **Step 3: Verify**
+- [x] **Step 3: Verify**
 
 Run targeted tests plus `test_subtab_audio_waveform.py`,
 `test_subtab_audio_structure.py`, `test_subtab_audio_key_format.py`.

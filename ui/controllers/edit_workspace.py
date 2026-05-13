@@ -53,6 +53,8 @@ class EditWorkspaceController(PBComponent):
     def _on_audio_combo_changed(self, index: int):
         """Audio-Track gewechselt: Pacing-Kurven-Dauer aktualisieren."""
         audio_id = self.window.audio_combo.currentData()
+        if hasattr(self.window, "_schnitt_coordinator"):
+            self.window._schnitt_coordinator.refresh_audio(audio_id)
         if audio_id is None:
             return
         with DBSession(engine) as session:
