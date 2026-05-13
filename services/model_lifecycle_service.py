@@ -198,10 +198,44 @@ class ModelLifecycleService:
     def _now_iso(self) -> str:
         return datetime.datetime.utcnow().isoformat()
 
+    @staticmethod
+    def _coerce_dt(value) -> "datetime.datetime | None":
+        """ISO-String oder datetime -> datetime; leer/None -> None.
+
+        ModelRegistry.installed_at/last_used_at sind SQLAlchemy DateTime-Spalten
+        (M-38 Fix). Leere Strings wuerfen TypeError beim Commit. Hier sauber
+        konvertieren statt im ORM scheitern.
+        """
+        if value in (None, ""):
+            return None
+        if isinstance(value, datetime.datetime):
+            return value
+        if isinstance(value, datetime.date):
+            return datetime.datetime(value.year, value.month, value.day)
+        try:
+            return datetime.datetime.fromisoformat(str(value))
+        except (TypeError, ValueError):
+            logger.warning("ModelRegistry: konnte Datumsfeld nicht parsen: %r", value)
+            return None
+
+    @staticmethod
+    def _dt_to_iso(value) -> str:
+        """DB-DateTime/String/None -> ModelEntry-kompatibler ISO-String."""
+        if value in (None, ""):
+            return ""
+        if isinstance(value, datetime.datetime):
+            return value.isoformat()
+        if isinstance(value, datetime.date):
+            return datetime.datetime(value.year, value.month, value.day).isoformat()
+        return str(value)
+
     def _upsert_model(self, entry: ModelEntry) -> None:
         """Erstellt oder aktualisiert einen Registry-Eintrag in der DB."""
         from database import nullpool_session
         from database import ModelRegistry
+
+        installed_dt = self._coerce_dt(entry.installed_at) or datetime.datetime.utcnow()
+        last_used_dt = self._coerce_dt(entry.last_used_at)
 
         with nullpool_session() as session:
             existing = session.query(ModelRegistry).filter_by(model_id=entry.model_id).first()
@@ -209,13 +243,13 @@ class ModelLifecycleService:
                 existing = ModelRegistry(
                     model_id=entry.model_id,
                     source=entry.source,
-                    installed_at=entry.installed_at or self._now_iso(),
+                    installed_at=installed_dt,
                 )
                 session.add(existing)
 
             existing.display_name = entry.display_name
             existing.size_mb = entry.size_mb
-            existing.last_used_at = entry.last_used_at
+            existing.last_used_at = last_used_dt
             existing.status = entry.status
             existing.local_path = entry.local_path
             if entry.metadata:
@@ -249,7 +283,7 @@ class ModelLifecycleService:
         with nullpool_session() as session:
             entry = session.query(ModelRegistry).filter_by(model_id=model_id).first()
             if entry:
-                entry.last_used_at = self._now_iso()
+                entry.last_used_at = datetime.datetime.utcnow()
                 try:
                     session.commit()
                 except Exception as e:  # broad catch intentional — SQLAlchemy commit can raise many error types
@@ -279,8 +313,8 @@ class ModelLifecycleService:
                         source=row.source,
                         display_name=row.display_name or row.model_id,
                         size_mb=row.size_mb or 0.0,
-                        installed_at=row.installed_at or "",
-                        last_used_at=row.last_used_at or "",
+                        installed_at=self._dt_to_iso(row.installed_at),
+                        last_used_at=self._dt_to_iso(row.last_used_at),
                         status=row.status or "installed",
                         local_path=row.local_path or "",
                         metadata=meta,

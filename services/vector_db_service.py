@@ -23,6 +23,12 @@ DB_DIR = _APP_ROOT / "data" / "vector"
 DB_FILE = DB_DIR / "embeddings.db"
 EMBEDDING_DIM = 1152
 
+
+def _default_db_file() -> Path:
+    """Return the current project's vector DB path at instantiation time."""
+    import database.session as _session
+    return _session.APP_ROOT / "data" / "vector" / "embeddings.db"
+
 _CREATE_SQL = """
 CREATE TABLE IF NOT EXISTS clip_embeddings (
     id INTEGER PRIMARY KEY,
@@ -56,7 +62,7 @@ class VectorDBService:
                 if _instance is None:
                     obj = super().__new__(cls)
                     obj._initialized = False
-                    obj.db_path = Path(db_path) if db_path else DB_FILE
+                    obj.db_path = Path(db_path) if db_path else _default_db_file()
                     obj.db_path.parent.mkdir(parents=True, exist_ok=True)
                     obj._write_lock = threading.Lock()
 

@@ -191,7 +191,7 @@ class BrainV3Recovery:
 | UVR-MDX-NET-Inst_HQ_3.onnx | MIT | uneingeschränkt |
 | NVIDIA Driver / CUDA Toolkit | proprietär | EULA |
 
-**WICHTIG:** Original-AMD-Plan behauptete CLAP unter CC-BY-4.0 mit
+**WICHTIG:** Frueherer Plan behauptete CLAP unter CC-BY-4.0 mit
 Attribution-Pflicht. HF Hub Verify bestätigt **Apache-2.0** — Splash-Screen-
 Attribution NICHT nötig. Diese LICENSES.md genügt für Compliance.
 ```

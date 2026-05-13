@@ -27,7 +27,6 @@ sqlite-vec>=0.1.6
 ```
 
 **Bewusst NICHT genutzt:**
-- `torch-directml` — AMD-only, irrelevant für NVIDIA-Pfad
 - `chromadb` — Win-Stabilitätsprobleme (ChromaDB Issues #5392, #5868, #5909, #2446)
 - `madmom` — librosa.beat ist auf Python 3.10/3.11 stabiler
 - `LanceDB` — bereits im Workspace, V3 nutzt aber sqlite-vec für Engine-Konsistenz
@@ -71,7 +70,7 @@ das auf allgemeinem Audio trainiert ist).
 - Inferenz-Zeit pro Window (warm): 1.7–5.6 s je nach Cache-Status
 - feature_shape: `[1, 512]`, feature_dim: 512 ✓
 
-**WICHTIG:** Original-AMD-Plan behauptete CC-BY-4.0 mit Attribution-Pflicht.
+**WICHTIG:** Frueherer Plan behauptete CC-BY-4.0 mit Attribution-Pflicht.
 HF Hub bestätigt **Apache-2.0**. R13 (Attribution-Risiko) entfällt.
 
 ### Video: [`google/siglip2-base-patch16-384`](https://hf.co/google/siglip2-base-patch16-384)
@@ -290,6 +289,6 @@ mit Brain V3 Reranker (Phase 4):         +<800 ms (kalibriert mit KNN-Realität)
 | `ffmpeg` | LGPL/GPL | dynamisch linken (bestehender Stack) |
 
 **Konkrete Aktion Phase 6:** `LICENSES.md` mit Auflistung aller Komponenten +
-ihrer Lizenzen. Da CLAP **Apache-2.0** ist (nicht CC-BY-4.0 wie AMD-Plan
-fälschlich behauptete), entfällt die Attribution-Pflicht im Splash-Screen.
+ihrer Lizenzen. Da CLAP **Apache-2.0** ist (nicht CC-BY-4.0 wie frueher
+faelschlich angenommen), entfällt die Attribution-Pflicht im Splash-Screen.
 LICENSES.md genügt für Apache-2.0-Compliance.

@@ -62,11 +62,42 @@ class _OllamaStatusWorker(QObject):
         self.ollama_url = ollama_url
 
     def run(self) -> None:
-        import urllib.request
         import json
+        import socket
+        import urllib.parse
+        import urllib.request
+        from services.timeout_constants import HTTP_HEALTH_CHECK_TIMEOUT_SEC
+
+        # DNS-Lookup von "localhost" kann unter Windows mit
+        # "getaddrinfo failed [Errno 11001]" scheitern, wenn der lokale
+        # Resolver kaputt ist. Daemon laeuft aber auf 127.0.0.1:11434.
+        # Strategie: ersetze "localhost" durch "127.0.0.1" und mache vorab
+        # einen Socket-Probe, der DNS komplett umgeht.
+        parsed = urllib.parse.urlsplit(self.ollama_url)
+        host = parsed.hostname or "127.0.0.1"
+        port = parsed.port or 11434
+        if host in ("localhost", "::1"):
+            host = "127.0.0.1"
+
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(HTTP_HEALTH_CHECK_TIMEOUT_SEC)
         try:
-            req = urllib.request.Request(f"{self.ollama_url}/api/version")
-            from services.timeout_constants import HTTP_HEALTH_CHECK_TIMEOUT_SEC
+            s.connect((host, port))
+        except OSError as exc:
+            self.error.emit(f"Daemon nicht erreichbar: {exc}")
+            return
+        finally:
+            s.close()
+
+        url = urllib.parse.urlunsplit((
+            parsed.scheme or "http",
+            f"{host}:{port}",
+            parsed.path or "",
+            parsed.query,
+            parsed.fragment,
+        ))
+        try:
+            req = urllib.request.Request(f"{url}/api/version")
             with urllib.request.urlopen(req, timeout=HTTP_HEALTH_CHECK_TIMEOUT_SEC) as resp:
                 if resp.status == 200:
                     data = json.loads(resp.read())
@@ -91,17 +122,28 @@ class _DownloadWorker(QObject):
 
     def run(self) -> None:
         from services.model_lifecycle_service import get_model_lifecycle_service
-        svc = get_model_lifecycle_service(self.ollama_url)
+        import logging
+
+        log = logging.getLogger(__name__)
 
         def _cb(prog):
             self.progress.emit(prog)
 
-        if self.source == "ollama":
-            ok = svc.pull_ollama_model(self.model_id, progress_cb=_cb)
-        else:
-            ok = svc.download_hf_model(self.model_id, progress_cb=_cb)
-
-        self.finished.emit(ok)
+        ok = False
+        try:
+            svc = get_model_lifecycle_service(self.ollama_url)
+            if self.source == "ollama":
+                ok = svc.pull_ollama_model(self.model_id, progress_cb=_cb)
+            else:
+                ok = svc.download_hf_model(self.model_id, progress_cb=_cb)
+        except BaseException as exc:  # broad: Worker-Thread darf Main-Thread nicht killen
+            log.exception("DownloadWorker crashed for %s/%s: %s", self.source, self.model_id, exc)
+            ok = False
+        finally:
+            try:
+                self.finished.emit(ok)
+            except Exception:
+                log.exception("DownloadWorker.finished emit failed")
 
 
 class _ProgressRelay(QObject):

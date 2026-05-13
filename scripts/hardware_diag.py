@@ -22,7 +22,7 @@ except ImportError:
     print("PyTorch not installed!")
 
 print("\n--- Environment Variables ---")
-for key in ["CUDA_VISIBLE_DEVICES", "HSA_OVERRIDE_GFX_VERSION", "OLLAMA_KEEP_ALIVE"]:
+for key in ["CUDA_VISIBLE_DEVICES", "OLLAMA_KEEP_ALIVE"]:
     print(f"{key}: {os.environ.get(key)}")
 
 print("\n--- Windows GPU Info (WMIC) ---")

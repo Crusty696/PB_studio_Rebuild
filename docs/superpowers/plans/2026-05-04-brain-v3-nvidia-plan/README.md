@@ -1,11 +1,11 @@
 # PB Studio — Brain V3 (NVIDIA-Plan, finale Fassung)
 
 **Datum:** 2026-05-04
-**Ersetzt:** den AMD/DirectML-Plan im Project-Cache
+**Ersetzt:** den frueheren Plan im Project-Cache
 (`019dec39-5473-77a5-aad3-cad252d86d0c/docs/`)
 **Hardware-Ziel:** **NVIDIA GTX 1060 6 GB Pascal (Compute 6.1)**
 **Stack:** Python 3.10.20 / torch 1.12.1+cu113 / transformers 4.38.2 / sqlite-vec
-**Frontend:** PySide6 6.11 (NICHT C# WPF wie im AMD-Plan)
+**Frontend:** PySide6 6.11 (NICHT C# WPF wie urspruenglich geplant)
 **Architektur-Standard (User-Direktive 2026-05-05, F1):** reine PySide6-
 Desktop-Anwendung mit **in-process** Service-Aufrufen. Kein FastAPI-
 Server, kein REST-Layer. Brain V3 wird ueber einen `BrainV3Service`-
@@ -56,7 +56,7 @@ unveraendert) erforderlich.
 | 05 | `05_BRIDGE_AXES.md` | 17 Achsen + 6 Slots + 5 Backoff-Levels + Beta-Bernoulli |
 | 06 | `06_PHASES.md` | 7 Phasen mit DoD pro Phase, kalibriert mit Spike-Daten |
 | 07 | `07_RISKS.md` | Risiko-Matrix, R10 widerlegt, R16 entspannt, +R15/R16/R17 |
-| 08 | `08_VERIFICATION.md` | Mapping AMD-verify-Skripte → NVIDIA-Spikes/Tests |
+| 08 | `08_VERIFICATION.md` | Mapping frueherer verify-Skripte → NVIDIA-Spikes/Tests |
 | 09 | `09_REVERIFICATION_2026-05-04.md` | 2. Verify-Welle — alle Behauptungen mit anderen Quellen re-bestätigt, 1 Präzisierung (R15 cu126→cu128) |
 | 10 | `10_OPEN_POINTS_VALIDATION.md` | Open-Points-Spike — F-Measure 0.75, 500-Clip-Hochrechnung, HNSW-Eval, Demucs-Coexistenz, NVENC, PySide6-Boot |
 | — | `phase_blueprints/` | 4 detaillierte Build-Anweisungen für Phase 3-6 (jeweils mit State-Banner 🟢/🔴) |
@@ -65,9 +65,9 @@ unveraendert) erforderlich.
 
 ## Wichtige Real-Daten aus Phase-0-Spike (`outputs/spike_brain_v3_gpu/20260503_115926/`)
 
-| Workload | Plan-Annahme (AMD) | NVIDIA-Realität (gemessen) |
+| Workload | Frueher angenommen | NVIDIA-Realität (gemessen) |
 |---|---|---|
-| Total VRAM | RX 7800 XT 16 GB | GTX 1060 **6143.9 MB** |
+| Total VRAM | 16 GB (frueheres Setup) | GTX 1060 **6143.9 MB** |
 | System-Reserve (Display + andere) | nicht beziffert | **~927 MB** |
 | CUDA-Kontext-Init | nicht beziffert | **~310 MB** |
 | Brain-nutzbarer VRAM | "wahrscheinlich 12 GB" | **~4.9 GB** |
@@ -97,7 +97,7 @@ unveraendert) erforderlich.
 
 ## Verbindlich aus User-Klärungen
 
-- **AMD-Plan im Project-Cache wird durch dieses Dokumentenset ERSETZT.**
+- **Frueherer Plan im Project-Cache wird durch dieses Dokumentenset ERSETZT.**
 - **Brain V1 + V2 (services/brain_service.py + services/brain_v2/) duerfen
   umgebaut werden** (User-Direktive 2026-05-05, F2). Pro Refactor ist
   eine Live-Verifikation der V1/V2-Funktion erforderlich. V3 bleibt

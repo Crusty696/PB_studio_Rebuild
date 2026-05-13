@@ -36,7 +36,29 @@ prüfe verifiziere und mach noch eine gegenprüfung deiner arbeit mit unterschie
     `docs/superpowers/specs/2026-05-09-schnitt-workspace-redesign.md`.
   Execute strictly, one task at a time, from one plan at a time.
   No invention.
-- **Hardware: GTX 1060 6 GB, CUDA only.** No ROCm / DirectML / AMD paths.
+- **HARTREGEL — Vault-Update PRO Sub-Schritt mit Zeitstempel (User-Anweisung 2026-05-11):**
+  Nach JEDEM Sub-Schritt (Code-Edit, Setting, destruktive Aktion, App-Start/-Crash,
+  neuer Bug, Decision, Live-Verify) sofort log.md im Vault aktualisieren. Format:
+  `## YYYY-MM-DD HH:MM <kategorie> | <kurz>` + 1-3 Zeilen Detail + Pfade. Max. 1
+  Konversations-Turn ungeloggt. Vault = single source of truth — wenn dort etwas
+  fehlt, kann Agent nicht zurueck-recherchieren und User muss sich wiederholen.
+- **HARTREGEL — nur explizit angewiesene Aenderungen (User-Anweisung 2026-05-11):**
+  Der Agent darf ausschliesslich das machen, was der User explizit verlangt hat.
+  Keine eigenmaechtigen Code-Aenderungen, keine "Verbesserungen", keine
+  "While-I'm-here"-Fixes, keine Bulk-Replaces ohne pro-Datei-User-OK. Bei
+  Unklarheit STOP + ASK. Bestehende funktionierende Funktionen niemals ohne
+  explizite User-Anweisung modifizieren. Git + Log konsultieren statt raten.
+- **HARTREGEL GPU (User-Anweisung 2026-05-11):** Einzige zulaessige GPU
+  ist die **NVIDIA GeForce GTX 1060 (6 GB VRAM, CUDA 11.3 /
+  Treiber 546.33)**.
+  - PyTorch: ausschliesslich `torch.device("cuda:0")`.
+  - FFmpeg: ausschliesslich `-hwaccel cuda`, `h264_nvenc`, `hevc_nvenc`.
+  - OpenCV: falls cuda-Build, `cv2.cuda.setDevice(0)`.
+  - Wenn eine Library kein CUDA-Backend bietet → **CPU**. Niemals einen
+    anderen GPU-Backend installieren oder importieren.
+  - Die interne Intel-iGPU wird nicht angesprochen — weder Inferenz,
+    noch Encode/Decode, noch Filter-Beschleunigung.
+  - Bei Verstoss/Unsicherheit: stoppen + User fragen.
 - **Vault path: `C:\Brain-Bug\projects\pb-studio\`.** Every non-trivial
   action requires a vault entry — **per sub-task**, not bundled at
   phase end.

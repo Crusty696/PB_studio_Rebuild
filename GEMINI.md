@@ -27,7 +27,7 @@
   invention. Phase blueprints (e.g. `phase_3_brain_core.md`) under the
   same root are subordinate — if a blueprint contradicts `06_PHASES.md`,
   stop and ask.
-- **Hardware: GTX 1060 6 GB, CUDA only.** No ROCm / DirectML / AMD paths.
+- **Hardware: GTX 1060 6 GB, CUDA only (cuda:0).** Library without CUDA backend → CPU. Never install a different GPU backend.
 - **Vault path: `C:\Brain-Bug\projects\pb-studio\`.** Every non-trivial
   action requires a vault entry — **per sub-task**, not bundled at
   phase end.

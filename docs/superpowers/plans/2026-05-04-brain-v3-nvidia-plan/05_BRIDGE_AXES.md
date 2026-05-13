@@ -1,6 +1,6 @@
 # 05 — Bridge-Achsen, Kontext, Lern-Algorithmus (Brain V3, NVIDIA)
 
-Inhalte sind **GPU-agnostisch** und gegenüber dem Original-AMD-Plan
+Inhalte sind **GPU-agnostisch** und gegenüber dem frueheren Plan
 unverändert — werden hier vollständig übernommen + mit Code-Pfaden
 für die V3-Implementation versehen.
 

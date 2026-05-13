@@ -29,8 +29,10 @@ import argparse
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -339,7 +341,56 @@ def install_beat_this(pip: str) -> None:
     _run(_pip_cmd(pip) + ["install", str(BEAT_THIS_DIR), "--no-deps"], timeout=300)
 
 
+def _ollama_daemon_alive(timeout: float = 1.5) -> bool:
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.settimeout(timeout)
+    try:
+        s.connect(("127.0.0.1", 11434))
+        return True
+    except OSError:
+        return False
+    finally:
+        s.close()
+
+
+def ensure_ollama_running(ollama: str, wait_seconds: int = 30) -> bool:
+    """Startet ollama serve im Hintergrund, falls Daemon nicht laeuft.
+
+    Loest "dial tcp 127.0.0.1:11434: Verbindung verweigert" bei `ollama pull`.
+    Idempotent — wenn Daemon bereits laeuft, no-op.
+    """
+    if _ollama_daemon_alive():
+        return True
+    print("  [ollama] Daemon nicht erreichbar -> starte 'ollama serve' im Hintergrund...")
+    flags = 0
+    if sys.platform == "win32":
+        flags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+    try:
+        subprocess.Popen(
+            [ollama, "serve"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
+            creationflags=flags,
+            close_fds=True,
+        )
+    except OSError as exc:
+        print(f"  [ollama] FEHLER beim Start: {exc}")
+        return False
+    deadline = time.monotonic() + wait_seconds
+    while time.monotonic() < deadline:
+        if _ollama_daemon_alive():
+            print("  [ollama] Daemon laeuft.")
+            return True
+        time.sleep(0.5)
+    print(f"  [ollama] WARNUNG: Daemon nach {wait_seconds}s nicht erreichbar.")
+    return False
+
+
 def pull_ollama_model(ollama: str) -> None:
+    if not ensure_ollama_running(ollama):
+        print("  WARNUNG: Ollama-Daemon nicht startbar - Pull uebersprungen.")
+        return
     print(f"  pulle {OLLAMA_MODEL} (~10 GB - kann dauern)...")
     try:
         _run([ollama, "pull", OLLAMA_MODEL], timeout=3600)

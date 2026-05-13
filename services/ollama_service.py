@@ -179,8 +179,6 @@ class OllamaService:
         logger.info("Starte Ollama von: %s", ollama_bin)
 
         env = os.environ.copy()
-        # AMD RX 7800 XT (gfx1101) Support (Fix für ROCm auf Windows)
-        env['HSA_OVERRIDE_GFX_VERSION'] = '11.0.0'
         # VRAM sofort freigeben nach Inference (Fix F-001)
         env['OLLAMA_KEEP_ALIVE'] = '0'
 
@@ -265,9 +263,9 @@ class OllamaService:
         self._is_ready = False
         return False
 
-    def _inference_timeout(self) -> httpx.Timeout:
+    def _inference_timeout(self, read_timeout_s: float | None = None) -> httpx.Timeout:
         """B-242: Inference darf Cold-Load nicht per Read-Timeout abbrechen."""
-        return httpx.Timeout(connect=10.0, read=None, write=None, pool=10.0)
+        return httpx.Timeout(connect=10.0, read=read_timeout_s, write=None, pool=10.0)
 
     def _is_model_warm(self, model: str) -> bool:
         """B-242: Pruefe ob ``model`` aktuell in VRAM geladen ist (``/api/ps``).
@@ -417,6 +415,7 @@ class OllamaService:
         prompt: str,
         model: str | None = None,
         num_predict: int = 1024,
+        read_timeout_s: float | None = None,
     ) -> str:
         """Synchroner Wrapper fuer Vision-Inference (K7-Fix: kein async mehr).
 
@@ -453,7 +452,7 @@ class OllamaService:
 
         images_b64 = [encode_image(p) for p in image_paths if os.path.exists(p)]
 
-        with httpx.Client(base_url=OLLAMA_BASE, timeout=self._inference_timeout()) as client:
+        with httpx.Client(base_url=OLLAMA_BASE, timeout=self._inference_timeout(read_timeout_s=read_timeout_s)) as client:
             try:
                 response = client.post("/api/chat", json={
                     "model": model,

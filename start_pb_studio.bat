@@ -70,10 +70,23 @@ echo   Starte PB Studio...
 echo.
 echo   Live-Verify-Guide: docs\superpowers\plans\2026-05-09-schnitt-workspace-redesign\12_LIVE_VERIFY_USER_GUIDE.md
 echo.
-"%PB_PYTHON%" main.py
+
+:: --- Log-Capture: outputs\app_run_<timestamp>.log + outputs\app_run_<timestamp>_err.log ---
+if not exist "outputs" mkdir outputs
+set "PB_TS="
+for /f %%I in ('powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-Date -Format yyyy-MM-dd_HHmmss" 2^>nul') do set "PB_TS=%%I"
+if not defined PB_TS set "PB_TS=no_timestamp"
+set "PB_LOG=outputs\app_run_%PB_TS%.log"
+set "PB_LOG_ERR=outputs\app_run_%PB_TS%_err.log"
+echo   Log:    %PB_LOG%
+echo   Err:    %PB_LOG_ERR%
+echo.
+
+"%PB_PYTHON%" main.py 1>"%PB_LOG%" 2>"%PB_LOG_ERR%"
 
 if %ERRORLEVEL% NEQ 0 (
     echo.
     echo   App beendet mit Fehlercode: %ERRORLEVEL%
+    echo   Logs: %PB_LOG% / %PB_LOG_ERR%
     pause
 )

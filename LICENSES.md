@@ -17,7 +17,7 @@ noch einmal gegen die jeweiligen Lizenzdateien geprueft werden.
 - **Lizenz:** Apache-2.0
 - **Quelle:** https://huggingface.co/laion/larger_clap_music
 - **Verwendung:** Audio-Embedding, 10s-Window/5s-Hop
-- **Plan-Hinweis:** Die alte AMD-Plan-Behauptung `CC-BY-4.0` ist fuer
+- **Plan-Hinweis:** Frueher angenommene `CC-BY-4.0`-Behauptung ist fuer
   dieses Brain-V3-Modell widerlegt; Plan verlangt keine Splash-Screen-
   Attribution. Diese `LICENSES.md` bleibt Pflicht.
 

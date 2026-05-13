@@ -505,7 +505,7 @@ TODO:     Recovery-Test-Script, NVENC+Brain Konflikt-Spike, Performance-Profil,
 > - `services/brain_v3/storage/backup.py` (`backup_brain_v3_store()` +
 >   `prune_old_backups(keep=4)`). VACUUM INTO atomar + transaktional.
 > - `LICENSES.md` mit allen Komponenten:
->   - CLAP Apache-2.0 (NICHT CC-BY-4.0 wie AMD-Plan behauptete) → keine
+>   - CLAP Apache-2.0 (NICHT CC-BY-4.0 wie frueher angenommen) → keine
 >     Splash-Screen-Pflicht, Plan-Doc-06 z.473-475 bestaetigt.
 >   - SigLIP-2 Apache-2.0, Demucs MIT, beat_this MIT, sqlite-vec
 >     Apache/MIT Dual, librosa ISC, transformers Apache-2.0,
@@ -534,7 +534,7 @@ TODO:     Recovery-Test-Script, NVENC+Brain Konflikt-Spike, Performance-Profil,
   - Was bedeuten die Confidence-Balken
 - [ ] **Lizenz-Attribution**
   - `LICENSES.md` mit allen Komponenten
-  - **CLAP Apache-2.0 (NICHT CC-BY-4.0 wie AMD-Plan behauptete)** → keine
+  - **CLAP Apache-2.0 (NICHT CC-BY-4.0 wie frueher angenommen)** → keine
     Splash-Screen-Pflicht, LICENSES.md genügt
 - [ ] **Optional: ONNX-Export evaluieren**
   - CLAP und SigLIP-2 nach ONNX exportieren

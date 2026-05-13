@@ -3,6 +3,7 @@ title SCHNITT Workspace Redesign - pytest
 echo ============================================
 echo   SCHNITT Workspace Redesign - Tests (pytest)
 echo   Branch: feat/schnitt-redesign-2026-05-09
+echo   Phasen 01-12 + Tier-Hardening 1-6 + B-293/295/296 follow-ups
 echo   Plan: docs\superpowers\plans\2026-05-09-schnitt-workspace-redesign\
 echo ============================================
 echo.
@@ -35,7 +36,7 @@ set "RESULT_FILE=outputs\pytest_schnitt_results.txt"
 echo Python: %PB_PYTHON%
 echo Output: %RESULT_FILE%
 echo.
-echo Test-Lauf gestartet (26 SCHNITT-Test-Files, Output zugleich in %RESULT_FILE%):
+echo Test-Lauf gestartet (39 SCHNITT-Test-Files, Output zugleich in %RESULT_FILE%):
 echo.
 
 "%PB_PYTHON%" -m pytest ^
@@ -51,20 +52,32 @@ echo.
     tests\ui\test_subtab_pacing_anker_layout.py ^
     tests\ui\test_subtab_audio_layout.py ^
     tests\ui\test_subtab_audio_render.py ^
+    tests\ui\test_subtab_audio_waveform.py ^
+    tests\ui\test_subtab_audio_structure.py ^
+    tests\ui\test_subtab_audio_key_format.py ^
+    tests\ui\test_subtab_audio_pps_constant.py ^
     tests\ui\test_subtab_rl_notes.py ^
     tests\ui\test_schnitt_workspace_states.py ^
     tests\ui\test_schnitt_views_skeleton.py ^
     tests\ui\test_schnitt_editor_view_skeleton.py ^
     tests\ui\test_schnitt_controller_loading_hook.py ^
     tests\ui\test_schnitt_controller_wiring.py ^
+    tests\ui\test_schnitt_integration_boot.py ^
+    tests\ui\test_schnitt_audio_video_combo.py ^
+    tests\ui\test_schnitt_empty_state_preset_runs_pipeline.py ^
     tests\ui\test_wheel_guard.py ^
     tests\ui\test_lock_icon_item.py ^
     tests\ui\test_toggle_clip_lock_command.py ^
+    tests\ui\test_toggle_clip_lock_view_sync.py ^
     tests\ui\test_timeline_clip_lock.py ^
+    tests\ui\test_timeline_undo_stack_isolation.py ^
     tests\ui\test_clip_lock_click.py ^
     tests\ui\test_regenerate_dialog.py ^
     tests\ui\test_qsettings_migration.py ^
     tests\ui\test_cuts_worker_progress.py ^
+    tests\ui\test_cut_list_panel.py ^
+    tests\ui\test_onboarding_banner.py ^
+    tests\ui\test_feedback_shortcuts.py ^
     -v --tb=short --color=no > "%RESULT_FILE%" 2>&1
 
 set PYTEST_RC=%ERRORLEVEL%

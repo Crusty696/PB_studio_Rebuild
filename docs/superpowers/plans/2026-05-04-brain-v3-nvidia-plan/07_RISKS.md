@@ -16,7 +16,7 @@
 | **R10** | **SigLIP-2 batch=8 sprengt 6 GB GTX 1060** | ~~hoch~~ | ~~hoch~~ | **WIDERLEGT** | ~~Auto-Tuning Pflicht~~ — Spike: 758 MB reserved, läuft locker. Auto-Tuning bleibt als Defensive |
 | R11 | CLAP-Inferenz auf 2h-Mix dauert >5 min trotz Batching | niedrig | mittel | aktiv | Window-Sampling adaptiv; pro Sub-Track ein Embedding |
 | R12 | Hirn-Store-Korruption nach App-Crash | niedrig | hoch | aktiv | WAL-Mode, atomare Updates, automatischer Recovery aus Backup (Phase 6) |
-| ~~R13~~ | ~~CC-BY-4.0 für CLAP nicht korrekt attribuiert~~ | ~~niedrig~~ | ~~mittel~~ | **ENTFÄLLT** | HF-Verify zeigt CLAP ist Apache-2.0, **keine Attribution-Pflicht**. AMD-Plan war falsch. |
+| ~~R13~~ | ~~CC-BY-4.0 für CLAP nicht korrekt attribuiert~~ | ~~niedrig~~ | ~~mittel~~ | **ENTFÄLLT** | HF-Verify zeigt CLAP ist Apache-2.0, **keine Attribution-Pflicht**. Frueherer Plan war falsch. |
 | R14 | sqlite-vec auf Windows weniger getestet als Linux | mittel | mittel | aktiv | Verifikations-Spike Phase 2 erfolgreich, aber 16k-Insert dauerte ~13 min (R18) |
 | **R15** | **Pascal-CUDA-Support droppt in zukünftiger PyTorch-Major** | mittel | mittel | aktiv | Pin `torch==1.12.1+cu113`. Re-Verify 2026-05-04: cu126 unterstützt SM_61 noch, **cu128+ droppt es** (PyTorch GitHub Issue #160575). Wir bleiben auf 1.12.1+cu113. Jährlicher Re-Check empfohlen. |
 | **R16** | **Gleichzeitige VRAM-Belegung (Brain+Demucs+RAFT+NVENC+Display) sprengt 6 GB** | ~~hoch~~ | hoch | **TENDENZIELL ENTSPANNT** | Spike: Brain alleine (CLAP+SigLIP koexistent) = 1178 MB. Bleiben ~3.5 GB free für Demucs/RAFT/NVENC. **Demucs-Coexistenz-Spike steht aus** |
@@ -313,7 +313,7 @@ print("✓ Alle Service-Tests (in-process) erfolgreich")
 ☐ Pacing-Run mit Brain V3: <800 ms Overhead (kalibriert mit KNN-Realitaet)
 ☐ Embedding-Cache-Hit-Rate ≥ 95% bei Re-Imports — DoD erfuellt 100% in Spike
 ☐ App-Start auch bei zerstoertem Hirn-Store
-~ KNN-Latenz median <150 ms p95 (R18-relaxed, war <50 ms im AMD-Plan)
+~ KNN-Latenz median <150 ms p95 (R18-relaxed, frueher mit <50 ms beziffert)
 ```
 
 ### Code-Qualitaet

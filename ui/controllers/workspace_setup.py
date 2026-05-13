@@ -532,13 +532,17 @@ class WorkspaceSetupController(PBComponent):
         except Exception as exc:
             self.logger.debug("active project id unavailable: %s", exc)
             pid = None
+        self.logger.debug("[B-285] _push_active_project_to_schnitt: pid=%s", pid)
         ws = getattr(self.window, "_schnitt_ws", None)
         if ws is None:
+            self.logger.warning("[B-285] _push_active_project_to_schnitt: _schnitt_ws missing!")
             return
         ctrl = getattr(self.window, "_schnitt_ctrl", None)
         if ctrl is not None:
+            self.logger.debug("[B-285] -> SchnittController.set_active_project_protected(%s)", pid)
             ctrl.set_active_project_protected(pid)
         else:
+            self.logger.debug("[B-285] -> SchnittWorkspace.set_active_project(%s) (no controller)", pid)
             ws.set_active_project(pid)
         try:
             ws.editor_view.tab_rl_notes.set_active_project(pid)

@@ -6,15 +6,15 @@ kritischen Behauptungen ≥ 2 unabhängige Quellen.
 
 ---
 
-## Mapping AMD-Plan-Skripte → NVIDIA-Plan-Spikes
+## Mapping frueherer verify-Skripte → NVIDIA-Plan-Spikes
 
-Das Original-AMD-Plan-Verzeichnis enthielt 4 verify-Skripte mit `directml`-
-Suffix. Diese sind durch V3-Spikes/Tests ersetzt:
+Das fruehere Plan-Verzeichnis enthielt 4 verify-Skripte. Diese sind durch
+V3-Spikes/Tests ersetzt:
 
-| AMD-Original | NVIDIA-Ersatz | Status | Output-Pfad |
+| Frueheres Skript | NVIDIA-Ersatz | Status | Output-Pfad |
 |---|---|---|---|
-| `verify_clap_directml.py` | `scripts/spike_brain_v3_gpu_coexistence.py` (Sektion `clap`) | ✓ verifiziert | `outputs/spike_brain_v3_gpu/20260503_115926/` |
-| `verify_siglip_directml.py` | `scripts/spike_brain_v3_gpu_coexistence.py` (Sektion `siglip2`) + `scripts/spike_brain_v3_embedder_smoke.py` | ✓ verifiziert | `outputs/spike_brain_v3_gpu/20260503_115926/` + `outputs/spike_brain_v3_embedder/20260504_145214/` |
+| `verify_clap_*.py` | `scripts/spike_brain_v3_gpu_coexistence.py` (Sektion `clap`) | ✓ verifiziert | `outputs/spike_brain_v3_gpu/20260503_115926/` |
+| `verify_siglip_*.py` | `scripts/spike_brain_v3_gpu_coexistence.py` (Sektion `siglip2`) + `scripts/spike_brain_v3_embedder_smoke.py` | ✓ verifiziert | `outputs/spike_brain_v3_gpu/20260503_115926/` + `outputs/spike_brain_v3_embedder/20260504_145214/` |
 | `verify_sqlite_vec.py` | `tests/test_services/test_brain_v3_storage_repo.py` (6 Tests) + `scripts/spike_brain_v3_knn_scaling.py` | ✓ verifiziert | pytest output + `outputs/spike_brain_v3_knn/20260504_145231/` |
 | `verify_subtrack_detection.py` | `tests/test_services/test_brain_v3_subtrack_detector.py` (5 Tests) | ~ Smoke-verifiziert | pytest output (annotierte Test-Mixes für F-Measure fehlen) |
 
@@ -36,7 +36,7 @@ Zusätzlich V3-eigene Verifikationen:
 | Behauptung | Quelle | Stand |
 |---|---|---|
 | `laion/larger_clap_music` existiert, Library `transformers`, Architecture `clap` | [HF Hub](https://hf.co/laion/larger_clap_music) — `hub_repo_details` API | 2026-05-04 |
-| CLAP **Apache-2.0** (NICHT CC-BY-4.0 wie AMD-Plan) | HF Hub Tag `license:apache-2.0` | 2026-05-04 |
+| CLAP **Apache-2.0** (NICHT CC-BY-4.0 wie frueher angenommen) | HF Hub Tag `license:apache-2.0` | 2026-05-04 |
 | CLAP 512-dim Embedding | Spike-Verifikation: `feature_shape: [1, 512]`, `feature_dim: 512` | 2026-05-03 |
 | CLAP Window 10 s @ 48 kHz, Hop 5 s | CLAP-Paper [arxiv:2211.06687](https://arxiv.org/abs/2211.06687), HF Model-Card | 2026-05-04 |
 | `google/siglip2-base-patch16-384` existiert, Library `transformers` | [HF Hub](https://hf.co/google/siglip2-base-patch16-384) — `hub_repo_details` | 2026-05-04 |

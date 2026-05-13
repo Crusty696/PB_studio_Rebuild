@@ -29,7 +29,7 @@ Das Obsidian-Konzept ist technisch umsetzbar innerhalb der bestehenden PB Studio
 | **UI-Framework** | PySide6 (Qt 6) — NICHT PyQt6 | ⚠️ KRITISCH — Konzept nennt PyQt6 |
 | **Embedding-Modell** | SigLIP (1152-dim) | ⚠️ Konzept rechnet mit 512-dim CLIP |
 | **Vektor-DB** | SQLite-basiert (VectorDBService) | ⚠️ Konzept nennt ChromaDB 1.5.6 |
-| **GPU** | GTX 1060 6GB (CUDA) | ⚠️ Konzept plant AMD RX 7800 XT + DirectML |
+| **GPU** | GTX 1060 6GB (CUDA) | ⚠️ Konzept ging urspruenglich von anderer GPU-Architektur aus |
 | **Beat-Analyse** | beat_this + Chunked Processing | ✅ Kompatibel |
 | **Struktur-Erkennung** | Multi-Feature (RMS, Spectral, Bass) | ✅ Kompatibel |
 | **Stem-Separation** | Demucs v4 | ✅ Kompatibel |
@@ -50,7 +50,7 @@ Das Obsidian-Konzept ist technisch umsetzbar innerhalb der bestehenden PB Studio
 | D-1 | UI-Framework | PyQt6 + QWebEngineView + QWebChannel | PySide6 (Qt 6) | HOCH |
 | D-2 | Embedding-Dimension | 512-dim (CLIP) | 1152-dim (SigLIP) | MITTEL |
 | D-3 | Vektor-Datenbank | ChromaDB 1.5.6 | SQLite-basiert (VectorDBService) | MITTEL |
-| D-4 | GPU-Architektur | AMD RX 7800 XT + DirectML | NVIDIA GTX 1060 + CUDA | HOCH |
+| D-4 | GPU-Architektur | (urspruenglicher Konzept-Stack, abgeloest) | NVIDIA GTX 1060 + CUDA | HOCH |
 | D-5 | Performance-Zahlen | 5.000 Clips in <200ms (CPU) | 1152-dim statt 512 → ~4.5× mehr Daten | NIEDRIG |
 | D-6 | HNSW-Extraktion | ChromaDB HNSW-Index | Kein HNSW vorhanden | NIEDRIG |
 | D-7 | Installer-Größe | +200 MB via QtWebEngine | PyInstaller-Bundle | MITTEL |
@@ -148,9 +148,9 @@ ChromaDB 1.5.6 bringt ~30 Dependencies mit (inkl. eigenes hnswlib, protobuf, pyd
 
 ---
 
-### B.4 Diskrepanz D-4: NVIDIA GTX 1060 (CUDA) statt AMD RX 7800 XT (DirectML)
+### B.4 Diskrepanz D-4: NVIDIA GTX 1060 (CUDA)
 
-**Problem:** Das Konzept plant für AMD + DirectML. PB Studio läuft auf NVIDIA GTX 1060 mit CUDA.
+**Problem:** Das Konzept ging urspruenglich von einer anderen GPU-Architektur aus. PB Studio laeuft auf NVIDIA GTX 1060 mit CUDA.
 
 **Lösung:** Die GPU-Diskrepanz betrifft NUR die CLIP/SigLIP-Inferenz. Der gesamte Graph-Code läuft auf CPU. Das ist sogar ein Vorteil — denn PB Studio nutzt bereits ModelManager mit GPU_LOAD_LOCK und GPU_EXECUTION_LOCK für VRAM-Management auf der 6 GB GTX 1060.
 
@@ -591,9 +591,9 @@ class GraphPanel(QWidget):
 
 ---
 
-#### Schritt 2.3: AMD GPU Fallback für QWebEngineView
+#### Schritt 2.3: dGPU-Fallback für QWebEngineView
 
-Da die GTX 1060 eine NVIDIA-Karte ist, entfallen die AMD-spezifischen D3D11-Probleme. Aber als defensiver Fallback:
+Auf der GTX 1060 (NVIDIA) entfallen die frueher antizipierten D3D11-Probleme. Aber als defensiver Fallback:
 
 ```python
 import os
@@ -906,7 +906,7 @@ Die folgenden Konzept-Elemente werden im MVP bewusst ausgelassen:
 | Trainierte Projektionsnetzwerke (Audio↔Video) | Training-Daten und GPU-Zeit nötig | Phase 2+ |
 | DR-DSN RL-Agent (Zhou et al.) | PyTorch RL-Training auf 6GB GTX 1060 nicht praktikabel | Phase 2+ |
 | Write-A-Video Dynamic Programming | Eigenes Forschungsprojekt, >30 Tage Aufwand | Phase 3+ |
-| DirectML ONNX-MatMul-Graph | Nicht relevant (NVIDIA statt AMD) | N/A |
+| ONNX-MatMul-Graph (alternativer GPU-Backend) | Nicht relevant | N/A |
 | Sigma.js Migration | Nur wenn vis.js bei >5K Knoten versagt | Bei Bedarf |
 | igraph Betweenness Centrality | NetworkX reicht für ≤5K Knoten | Bei Bedarf |
 

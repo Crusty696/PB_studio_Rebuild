@@ -28,7 +28,7 @@ Vault-Mirror: `C:\Brain-Bug\projects\pb-studio\wiki\synthesis\status-report-2026
 
 **Brain-V3 Test-Suite gesamt:** 184/184 pytest gruen (Stand 2026-05-05).
 
-**Lizenzen (LICENSES.md, 2026-05-05):** CLAP Apache-2.0 (NICHT CC-BY-4.0 wie AMD-Plan behauptete), SigLIP-2 Apache-2.0, Demucs MIT, beat_this MIT, sqlite-vec Apache/MIT Dual, librosa ISC, transformers Apache-2.0, PyTorch BSD-3, PySide6 LGPL-v3. Keine Splash-Screen-Pflicht.
+**Lizenzen (LICENSES.md, 2026-05-05):** CLAP Apache-2.0, SigLIP-2 Apache-2.0, Demucs MIT, beat_this MIT, sqlite-vec Apache/MIT Dual, librosa ISC, transformers Apache-2.0, PyTorch BSD-3, PySide6 LGPL-v3. Keine Splash-Screen-Pflicht.
 
 ---
 

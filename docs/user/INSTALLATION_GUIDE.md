@@ -17,20 +17,20 @@ Before installing, make sure your computer meets these requirements:
 
 ### Minimum Requirements
 - **Operating System:** Windows 11 (64-bit)
-- **Processor:** Intel Core i5 or AMD Ryzen 5 (quad-core)
+- **Processor:** x86_64 quad-core (Intel Core i5 or equivalent)
 - **RAM:** 16 GB
 - **Graphics Card:** NVIDIA GTX 1060 with 6 GB VRAM or better
 - **Storage:** 25 GB free space (20 GB for app + 5 GB for AI models)
 - **Internet:** Required for initial setup and model downloads
 
 ### Recommended Requirements
-- **Processor:** Intel Core i7/i9 or AMD Ryzen 7/9 (8+ cores)
+- **Processor:** x86_64 8+ cores (Intel Core i7/i9 or equivalent)
 - **RAM:** 32 GB or more
 - **Graphics Card:** NVIDIA RTX 3060 with 12 GB VRAM or better
 - **Storage:** SSD with 50 GB+ free space
 
 ### Important Notes
-- ⚠️ **NVIDIA GPU Required:** PB Studio requires an NVIDIA graphics card with CUDA support. AMD or Intel GPUs are not currently supported.
+- ⚠️ **NVIDIA GPU Required:** PB Studio requires an NVIDIA graphics card with CUDA support. Other GPUs are not supported.
 - ⚠️ **Windows 11 Only:** Windows 10 may work but is not officially supported.
 
 ---

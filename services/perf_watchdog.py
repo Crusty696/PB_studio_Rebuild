@@ -107,6 +107,13 @@ class SlowEventHook:
                 break
 
     def _profiled_notify(self, receiver: QObject, event: QEvent) -> bool:
+        if not isinstance(receiver, QObject):
+            # PySide can route internal objects (e.g. QWidgetItem) through the
+            # monkey-patched notify hook. QApplication.notify only accepts
+            # QObject receivers; delegating those would raise TypeError and
+            # turn a watchdog into an app-level exception.
+            return False
+
         self._count += 1
         t0 = time.perf_counter()
 

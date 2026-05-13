@@ -37,7 +37,7 @@ mach eine neue gegenprüfung". Vollständige zweite Verifikations-Welle mit
 | Downloads | 625.4 K | 625.4 K | ✓ |
 | Paper | arxiv:2211.06687 | arxiv:2211.06687 | ✓ |
 
-**Status:** GRÜN. Apache-2.0-Korrektur (vs. AMD-Plan-CC-BY-4.0) bleibt bestätigt.
+**Status:** GRÜN. Apache-2.0-Korrektur (vs. frueher angenommenes CC-BY-4.0) bleibt bestätigt.
 
 ### B.2 SigLIP-2 `google/siglip2-base-patch16-384`
 

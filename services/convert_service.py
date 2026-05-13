@@ -515,13 +515,17 @@ def _run_ffmpeg_with_progress(
                 continue
 
             if line.startswith("out_time_ms=") and total_duration > 0 and progress_cb:
-                try:
-                    time_us = int(line.split("=")[1])
-                    current_sec = time_us / 1_000_000
-                    pct = min(99, int(current_sec / total_duration * 100))
-                    progress_cb(pct, f"{pct}%")
-                except (ValueError, IndexError) as e:
-                    logger.warning("Parsing FFmpeg out_time_ms progress: %s", e)
+                # FFmpeg liefert "out_time_ms=N/A" beim ersten Tick bevor Pipe-Stream
+                # initialisiert ist — silent ignorieren, kein Warning.
+                raw = line.split("=", 1)[1] if "=" in line else ""
+                if raw and raw != "N/A":
+                    try:
+                        time_us = int(raw)
+                        current_sec = time_us / 1_000_000
+                        pct = min(99, int(current_sec / total_duration * 100))
+                        progress_cb(pct, f"{pct}%")
+                    except (ValueError, IndexError) as e:
+                        logger.warning("Parsing FFmpeg out_time_ms progress: %s", e)
             elif line.startswith("out_time=") and total_duration > 0 and progress_cb:
                 try:
                     time_str = line.split("=")[1]

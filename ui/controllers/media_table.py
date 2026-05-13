@@ -18,7 +18,16 @@ class MediaTableController(PBComponent):
         # Vorher blockierte get_all_media() den Main-Thread beim Boot
         # mehrere Sekunden (grosse JSON-Blobs + N+1 Status-Queries).
         from services.ingest_service import get_combo_items
+        from database import get_active_project_id
+        _pid_now = get_active_project_id()
         media = get_combo_items()
+        # B-285 diagnostic, kept at debug level to avoid normal log noise.
+        _audio_n = sum(1 for m in media if m.get("type") == "Audio")
+        _video_n = sum(1 for m in media if m.get("type") == "Video")
+        logger.debug(
+            "[B-285] _refresh_director_combos: active_pid=%s -> %d audio + %d video items",
+            _pid_now, _audio_n, _video_n,
+        )
         self.window.audio_combo.clear()
         self.window.video_combo.clear()
         self.window.audio_combo.addItem("-- kein Audio --", None)
@@ -85,11 +94,18 @@ class MediaTableController(PBComponent):
 
         # Director-Combos
         if also_combos:
+            # B-285 diagnostic, kept at debug level to avoid normal log noise.
+            from database import get_active_project_id
+            _pid_now = get_active_project_id()
+            logger.debug(
+                "[B-285] _apply_refreshed_data combos: active_pid=%s -> %d audio + %d video (async overwrite)",
+                _pid_now, len(audios), len(videos),
+            )
             self.window.audio_combo.clear()
             self.window.video_combo.clear()
             self.window.audio_combo.addItem("-- kein Audio --", None)
             self.window.video_combo.addItem("-- kein Video --", None)
-            
+
             for item in audios:
                 bpm = item.get("bpm")
                 label = f"[{item['id']}] {item['title']}" + (f" ({bpm} BPM)" if bpm else "")

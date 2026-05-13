@@ -14,7 +14,7 @@ This guide walks you through installing PB Studio from scratch with detailed tro
 |---|---|
 | **Operating System** | Windows 10 (64-bit) or Windows 11 |
 | **GPU** | NVIDIA GTX 1060 (6 GB VRAM minimum) |
-| **CPU** | Intel Core i5 or AMD Ryzen 5 (4+ cores recommended) |
+| **CPU** | x86_64 4+ cores (Intel Core i5 or equivalent) |
 | **RAM** | 16 GB |
 | **Storage** | 10 GB free space (50 GB+ recommended for projects) |
 | **CUDA** | 12.x (auto-installed with PyTorch) |
@@ -27,10 +27,10 @@ This guide walks you through installing PB Studio from scratch with detailed tro
 |---|---|
 | **GPU** | NVIDIA RTX 3060 or better (12+ GB VRAM) |
 | **RAM** | 32 GB |
-| **CPU** | Intel Core i7/i9 or AMD Ryzen 7/9 |
+| **CPU** | x86_64 8+ cores (Intel Core i7/i9 or equivalent) |
 | **Storage** | SSD with 100+ GB free space |
 
-> **Important:** PB Studio requires an NVIDIA GPU with CUDA support. AMD GPUs and integrated graphics are not supported. CPU-only mode is not available.
+> **Important:** PB Studio requires an NVIDIA GPU with CUDA support. Other GPUs are not supported. CPU-only mode is not available.
 
 ---
 

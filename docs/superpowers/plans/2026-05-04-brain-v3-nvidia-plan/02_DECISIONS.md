@@ -1,6 +1,6 @@
 # 02 — Designentscheidungen (Brain V3, NVIDIA)
 
-24 finale Entscheidungen — Original 20 (aus AMD-Plan) plus 4 NVIDIA-spezifisch
+24 finale Entscheidungen — Original 20 (aus frueherem Plan) plus 4 NVIDIA-spezifisch
 (#21–#24). Alle mit externer Quellen-Verifikation oder Spike-Daten belegt.
 
 | # | Punkt | Beschluss | Quelle/Verifikation |
@@ -21,7 +21,7 @@
 | 14 | Embedding-Cache | sha256 Hash, projektübergreifend | F18 |
 | 15 | Audio-Modell | [`laion/larger_clap_music`](https://hf.co/laion/larger_clap_music) (512-dim, 10 s Window, 5 s Hop, **Apache-2.0**) | HF Hub Verify 2026-05-04 |
 | 16 | Video-Modell | [`google/siglip2-base-patch16-384`](https://hf.co/google/siglip2-base-patch16-384) (Vision-Tower only, 768-dim, **Apache-2.0**, 375.5 M Params) | HF Hub Verify 2026-05-04 |
-| 17 | **Inferenz-Pfad** | **PyTorch 1.12.1+cu113 (NICHT torch-directml/AMD)**, kein ONNX in Phase 1 | Workspace `requirements-py310-cu113.txt` + Phase-0-Spike |
+| 17 | **Inferenz-Pfad** | **PyTorch 1.12.1+cu113**, kein ONNX in Phase 1 | Workspace `requirements-py310-cu113.txt` + Phase-0-Spike |
 | 18 | Storage-Concurrency | WAL + busy_timeout=5000 | F28 + sqlite-vec docs |
 | 19 | Schema-Migrations | PRAGMA `user_version` + nummerierte SQL-Skripte | F28 |
 | 20 | Backup | `VACUUM INTO` atomar, wöchentlich | F28 + SQLite-Doc |
@@ -90,7 +90,7 @@ HuggingFace-Verifikation 2026-05-04:
 | Updated | 30 Okt 2023 |
 | Paper | [arxiv:2211.06687](https://arxiv.org/abs/2211.06687) |
 
-**WICHTIG — Korrektur gegenüber AMD-Plan:** Der Original-AMD-Plan
+**WICHTIG — Korrektur gegenüber frueherem Plan:** Der ursprueng­liche Plan
 behauptete CC-BY-4.0 mit Attribution-Pflicht. **Das ist falsch.** HF Hub
 zeigt Apache-2.0 → kommerziell uneingeschränkt, **keine Attribution-Pflicht**.
 Plan-Doc 07 R13 entfällt entsprechend.
@@ -156,7 +156,7 @@ V3 nutzt das **kleinere** SigLIP-2-base-patch16-384 statt das große SigLIP-1
 SoViT-400M. Spike-Coexistenz-Test bestätigt: V3-CLAP+SigLIP-2 zusammen 1178 MB
 reserved (passt locker neben V1/V2 falls die separat geladen wären).
 
-### #17: PyTorch 1.12.1+cu113 (kein torch-directml)
+### #17: PyTorch 1.12.1+cu113
 
 PyTorch+CUDA ist nativ unterstützter Pfad. Workspace nutzt cu113 wegen
 Surface-Book-2-Treiber-Reihenfolge (siehe `requirements-py310-cu113.txt`):

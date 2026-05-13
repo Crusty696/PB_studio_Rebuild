@@ -285,16 +285,28 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                     try:
                         from services import analysis_status_service
                         from database import VideoClip as _VC, nullpool_session as _ns
+                        # B-287 Fix: Felder INNERHALB der Session lesen + in dict
+                        # snapshotten. Vorher wurden Attribute nach Session-Close
+                        # gelesen -> DetachedInstanceError "not bound to a Session".
                         with _ns() as _s:
                             _clip_row = _s.get(_VC, clip_id)
-                        if (_clip_row and _clip_row.duration and _clip_row.width
-                                and _clip_row.height and _clip_row.fps):
-                            analysis_status_service.mark_done(
-                                "video", clip_id, "metadata_extract", {
+                            if _clip_row is not None:
+                                _meta = {
                                     "duration": _clip_row.duration,
-                                    "resolution": f"{_clip_row.width}x{_clip_row.height}",
+                                    "width": _clip_row.width,
+                                    "height": _clip_row.height,
                                     "fps": _clip_row.fps,
                                     "codec": _clip_row.codec,
+                                }
+                            else:
+                                _meta = None
+                        if _meta and _meta["duration"] and _meta["width"] and _meta["height"] and _meta["fps"]:
+                            analysis_status_service.mark_done(
+                                "video", clip_id, "metadata_extract", {
+                                    "duration": _meta["duration"],
+                                    "resolution": f"{_meta['width']}x{_meta['height']}",
+                                    "fps": _meta["fps"],
+                                    "codec": _meta["codec"],
                                 },
                             )
                         else:

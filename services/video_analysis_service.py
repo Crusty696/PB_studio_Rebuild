@@ -21,7 +21,11 @@ from typing import Callable
 
 import numpy as np
 
-from services.timeout_constants import FFMPEG_PROBE_TIMEOUT_SEC, FFMPEG_THUMBNAIL_TIMEOUT_SEC
+from services.timeout_constants import (
+    FFMPEG_PROBE_TIMEOUT_SEC,
+    FFMPEG_THUMBNAIL_TIMEOUT_SEC,
+    HTTP_OLLAMA_VISION_CAPTION_TIMEOUT_SEC,
+)
 
 from services.model_manager import ModelManager, oom_recovery
 from services import analysis_status_service
@@ -737,7 +741,8 @@ def analyze_scene_with_caption(
             raw = svc.vision(
                 image_paths=[scene.keyframe_path],
                 prompt=_CAPTION_USER_PROMPT,
-                model=vision_model
+                model=vision_model,
+                read_timeout_s=HTTP_OLLAMA_VISION_CAPTION_TIMEOUT_SEC,
             )
             if not raw.strip() and vision_model.lower().startswith("moondream"):
                 logger.info(
@@ -749,6 +754,7 @@ def analyze_scene_with_caption(
                     image_paths=[scene.keyframe_path],
                     prompt=_CAPTION_PLAIN_TEXT_FALLBACK_PROMPT,
                     model=vision_model,
+                    read_timeout_s=HTTP_OLLAMA_VISION_CAPTION_TIMEOUT_SEC,
                 )
 
             # B-195: ``OllamaService.vision()`` returnt bei HTTP-Error

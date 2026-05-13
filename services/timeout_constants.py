@@ -49,6 +49,9 @@ HTTP_HEALTH_CHECK_TIMEOUT_SEC: int = 2
 # Normale API-Aufrufe (Ollama /api/tags, /api/generate mit kleinen Prompts)
 HTTP_API_TIMEOUT_SEC: int = 5
 
+# Video-Pipeline Caption darf Worker nicht unbegrenzt blockieren.
+HTTP_OLLAMA_VISION_CAPTION_TIMEOUT_SEC: int = 180
+
 # Model-Info Abfrage (Ollama /api/show — Cold-Start kann 10-15s brauchen)
 HTTP_MODEL_INFO_TIMEOUT_SEC: int = 15
 

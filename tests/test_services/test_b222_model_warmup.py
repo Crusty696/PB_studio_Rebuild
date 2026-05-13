@@ -137,9 +137,12 @@ def test_b222a_pipeline_worker_has_preflight() -> None:
     preflight_idx = src.find("is_siglip_cached")
     if preflight_idx == -1:
         preflight_idx = src.find("model_warmup")
-    # Wir suchen den echten Lock-Acquire (`with GPU_LOAD_LOCK`), nicht
-    # bloße Comment-Erwaehnung des Symbols.
+    # Wir suchen den echten Lock-Acquire, nicht bloße Comment-Erwaehnung des
+    # Symbols. Neuere Pipeline nutzt ``gpu_resource_lease(...)``; dieser
+    # Contextmanager kapselt ``with GPU_LOAD_LOCK`` in services.model_manager.
     lock_idx = src.find("with GPU_LOAD_LOCK")
+    if lock_idx == -1:
+        lock_idx = src.find("with gpu_resource_lease")
     assert preflight_idx > 0
     assert lock_idx > 0
     assert preflight_idx < lock_idx, (

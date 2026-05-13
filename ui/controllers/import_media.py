@@ -3,7 +3,7 @@
 import logging
 import os
 from pathlib import Path
-from PySide6.QtCore import Qt, QObject, Signal
+from PySide6.QtCore import Qt, QObject, QSettings, Signal
 from PySide6.QtWidgets import QFileDialog
 from services.ingest_service import (
     delete_all_media, delete_selected_media, AUDIO_EXTENSIONS, VIDEO_EXTENSIONS,
@@ -12,6 +12,33 @@ from workers import FolderImportWorker, BrainV3HashingWorker
 from ui.base_component import PBComponent
 
 logger = logging.getLogger(__name__)
+
+
+def _last_import_dir(kind: str) -> str:
+    """Liefert letztes Import-Verzeichnis pro Medien-Typ.
+
+    Default-Dir setzen reduziert FileDialog-Oeffnungszeit drastisch — Native
+    QFileDialog scannt sonst alle Drives + Shell-Extensions (OneDrive, Cloud)
+    beim ersten Oeffnen. 35-Sek-Freezes wurden beobachtet (B-Crash 2026-05-11).
+    """
+    s = QSettings("PB Studio", "Rebuild")
+    val = s.value(f"import/last_dir_{kind}", "", type=str)
+    if val and os.path.isdir(val):
+        return val
+    fallback = {
+        "video": str(Path.home() / "Videos"),
+        "audio": str(Path.home() / "Music"),
+        "folder": str(Path.home()),
+    }.get(kind, str(Path.home()))
+    return fallback if os.path.isdir(fallback) else str(Path.home())
+
+
+def _save_import_dir(kind: str, file_path: str) -> None:
+    if not file_path:
+        return
+    d = os.path.dirname(file_path)
+    if d and os.path.isdir(d):
+        QSettings("PB Studio", "Rebuild").setValue(f"import/last_dir_{kind}", d)
 
 
 # B-248: Aus dem Inline-Pattern extrahiert — Module-Level-Klasse hat
@@ -46,15 +73,21 @@ class ImportMediaController(PBComponent):
     def _import_video(self):
         logger.info("ImportMedia._import_video: Klick angekommen, oeffne FileDialog")
         ext_filter = "Video-Dateien (" + " ".join(f"*{e}" for e in VIDEO_EXTENSIONS) + ")"
-        paths, _ = QFileDialog.getOpenFileNames(self.window, "Videos importieren", "", ext_filter)
+        start_dir = _last_import_dir("video")
+        paths, _ = QFileDialog.getOpenFileNames(self.window, "Videos importieren", start_dir, ext_filter)
         logger.info("ImportMedia._import_video: FileDialog geschlossen, %d Dateien gewaehlt", len(paths))
+        if paths:
+            _save_import_dir("video", paths[0])
         self._process_imports(paths, "video")
 
     def _import_audio(self):
         logger.info("ImportMedia._import_audio: Klick angekommen, oeffne FileDialog")
         ext_filter = "Audio-Dateien (" + " ".join(f"*{e}" for e in AUDIO_EXTENSIONS) + ")"
-        paths, _ = QFileDialog.getOpenFileNames(self.window, "Audio importieren", "", ext_filter)
+        start_dir = _last_import_dir("audio")
+        paths, _ = QFileDialog.getOpenFileNames(self.window, "Audio importieren", start_dir, ext_filter)
         logger.info("ImportMedia._import_audio: FileDialog geschlossen, %d Dateien gewaehlt", len(paths))
+        if paths:
+            _save_import_dir("audio", paths[0])
         self._process_imports(paths, "audio")
 
     def _process_imports(self, paths: list[str], media_type: str):
@@ -166,10 +199,12 @@ class ImportMediaController(PBComponent):
         mehrere Sekunden ein.
         """
         logger.info("ImportMedia._import_folder: Klick angekommen, oeffne Folder-Dialog")
-        folder = QFileDialog.getExistingDirectory(self.window, "Ordner importieren")
+        start_dir = _last_import_dir("folder")
+        folder = QFileDialog.getExistingDirectory(self.window, "Ordner importieren", start_dir)
         if not folder:
             logger.info("ImportMedia._import_folder: User hat Folder-Dialog abgebrochen")
             return
+        QSettings("PB Studio", "Rebuild").setValue("import/last_dir_folder", folder)
         logger.info("ImportMedia._import_folder: Ordner gewaehlt: %s", folder)
         self.window.console_text.append(f"[Ordner] Scanne {folder} ...")
         self.window.status_bar.showMessage(f"Scanne Ordner {folder} ...")

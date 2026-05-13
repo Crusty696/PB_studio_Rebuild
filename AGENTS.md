@@ -89,14 +89,9 @@ NVIDIA GeForce GTX 1060 6 GB, Pascal, Compute Capability 6.1, CUDA stack.
 - NVENC / NVDEC available (H.264 + HEVC 8-bit, no AV1).
 - Compute 6.1 still supported by current CUDA 12.x → version pinning
   required.
-- CUDA only. No ROCm, HIP, AMD, or DirectML paths.
-
-**Note on the plan:**
-`docs/superpowers/plans/2026-05-04-brain-v3-nvidia-plan/03_TECH_STACK.md`
-mentions `torch-directml` and RX 7800 XT. That is the original plan
-state. **Current hardware is GTX 1060 / CUDA.** Before phase 2 (embedding
-pipeline), it must be clarified with the user whether the plan switches
-to CUDA or DirectML remains. **Do not decide alone.**
+- **CUDA only on GTX 1060 (cuda:0).** No other GPU backend may be
+  installed, imported, or used. If a library has no CUDA backend, use
+  **CPU**. Never install a different GPU backend.
 
 ---
 

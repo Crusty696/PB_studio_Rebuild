@@ -113,19 +113,38 @@ class PanelSetupController(PBComponent):
             from ui.dialogs.settings_dialog import get_ollama_settings
             _ollama_cfg = get_ollama_settings()
 
-            # Auto-Start: Ollama-Prozess im Hintergrund starten (wenn aktiviert)
             self.window._ollama_svc = OllamaService.get()
-            if _ollama_cfg["enabled"]:
-                self.window._ollama_svc.start_background()
-                if self.window._ollama_svc.ready_cached():
-                    self.window.console_text.append("[LLM] Ollama-Engine aktiv.")
-                else:
-                    self.window.console_text.append("[LLM] Ollama wird im Hintergrund gestartet...")
+            _ollama_enabled = bool(_ollama_cfg["enabled"])
+            _daemon_alive = False
+            if _ollama_enabled:
+                try:
+                    self.window._ollama_svc.start_background()
+                except Exception as _start_exc:
+                    logger.warning("OllamaService.start_background failed: %s", _start_exc)
+                _daemon_alive = bool(self.window._ollama_svc.ready_cached())
+                if not _daemon_alive:
+                    # zweite Chance: schneller Socket-Probe (DNS umgehen)
+                    try:
+                        import socket as _sock
+                        _s = _sock.socket(_sock.AF_INET, _sock.SOCK_STREAM)
+                        _s.settimeout(1.5)
+                        _s.connect(("127.0.0.1", 11434))
+                        _s.close()
+                        _daemon_alive = True
+                    except OSError:
+                        _daemon_alive = False
+            _ollama_use = _ollama_enabled and _daemon_alive
+            if _ollama_use:
+                self.window.console_text.append("[LLM] Ollama-Engine aktiv.")
+            elif _ollama_enabled:
+                self.window.console_text.append("[LLM] Ollama wird im Hintergrund gestartet...")
+            else:
+                self.window.console_text.append("[LLM] Ollama deaktiviert — Fallback aktiv.")
 
             self.window._ai_agent = LocalAgentService(
                 ollama_url=_ollama_cfg["url"],
                 ollama_model=_ollama_cfg["model"] or None,
-                use_ollama=_ollama_cfg["enabled"],
+                use_ollama=_ollama_use,
             )
             self.window.chat_dock.set_agent(self.window._ai_agent)
 
