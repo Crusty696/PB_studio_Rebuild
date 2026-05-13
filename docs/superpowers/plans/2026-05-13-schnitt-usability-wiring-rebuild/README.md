@@ -33,7 +33,7 @@ Plan-Regel: Wenn alter SCHNITT-Code nur Skeleton oder halb verdrahteter Adapter 
 - Create: `services/schnitt_context.py`
 - Test: `tests/test_services/test_schnitt_context.py`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```python
 from pathlib import Path
@@ -85,7 +85,7 @@ def test_context_with_audio_video_and_beatgrid(test_engine):
     assert ctx.can_auto_edit is True
 ```
 
-- [ ] **Step 2: Run fail**
+- [x] **Step 2: Run fail**
 
 Run:
 
@@ -95,7 +95,7 @@ Run:
 
 Expected: import fail for `services.schnitt_context`.
 
-- [ ] **Step 3: Implement context**
+- [x] **Step 3: Implement context**
 
 Create frozen dataclass with fields:
 
@@ -122,7 +122,7 @@ class SchnittDataContext:
 all non-deleted videos, waveform/beatgrid existence, timeline video count and
 stem path columns.
 
-- [ ] **Step 4: Run pass**
+- [x] **Step 4: Run pass**
 
 Same pytest command. Expected: pass.
 
