@@ -1959,6 +1959,26 @@ class InteractiveTimeline(QGraphicsView):
         if old_lod != new_lod:
             self._update_beat_grid_lod()
 
+    def reset_zoom(self):
+        """Reset timeline zoom to 100 percent."""
+        old_zoom = self._current_zoom
+        self.resetTransform()
+        self._current_zoom = 1.0
+        old_lod = 4 if old_zoom < 0.5 else (2 if old_zoom < 1.5 else 1)
+        if old_lod != 2:
+            self._update_beat_grid_lod()
+
+    def fit_to_content(self):
+        """Fit the current timeline scene into the visible viewport."""
+        rect = self._scene.sceneRect()
+        if rect.isNull() or rect.width() <= 0 or rect.height() <= 0:
+            rect = self._scene.itemsBoundingRect()
+        if rect.isNull() or rect.width() <= 0 or rect.height() <= 0:
+            return
+        self.fitInView(rect, Qt.AspectRatioMode.KeepAspectRatio)
+        self._current_zoom = self.transform().m11()
+        self._update_beat_grid_lod()
+
     def _set_anchor_on_selected(self):
         """Setzt einen Anker in der Mitte des aktuell selektierten Clips (Taste M)."""
         selected = [item for item in self._scene.selectedItems()

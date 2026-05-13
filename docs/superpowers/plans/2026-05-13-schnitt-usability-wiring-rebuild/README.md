@@ -226,7 +226,7 @@ adapter call in `EditWorkspaceController._on_audio_combo_changed`.
 Run targeted tests plus `test_subtab_audio_waveform.py`,
 `test_subtab_audio_structure.py`, `test_subtab_audio_key_format.py`.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```powershell
 git commit -m "fix(B-310): feed audio data into schnitt tab"
@@ -239,7 +239,7 @@ git commit -m "fix(B-310): feed audio data into schnitt tab"
 - Modify: `ui/workspaces/schnitt/tab_schnitt.py`
 - Test: `tests/ui/test_schnitt_timeline_shell.py`
 
-- [ ] **Step 1: Write test**
+- [x] **Step 1: Write test**
 
 Assert shell exposes:
 
@@ -253,7 +253,7 @@ Assert shell exposes:
 
 All buttons have non-empty tooltip and accessible name.
 
-- [ ] **Step 2: Implement shell**
+- [x] **Step 2: Implement shell**
 
 Wrap existing `InteractiveTimeline` and wire buttons:
 
@@ -262,11 +262,11 @@ Wrap existing `InteractiveTimeline` and wire buttons:
 - reset: `timeline.reset_zoom()` added if missing
 - fit: `timeline.fit_to_content()` added if missing
 
-- [ ] **Step 3: Add `reset_zoom` and `fit_to_content`**
+- [x] **Step 3: Add `reset_zoom` and `fit_to_content`**
 
 Modify `ui/timeline.py` with programmatic helpers. No behavior change to DB.
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 Run shell tests + timeline smoke tests.
 

@@ -2,9 +2,9 @@
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
 )
-from ui.timeline import InteractiveTimeline
 from ui.widgets.cut_list_panel import CutListPanel
 from ui.widgets.video_preview import VideoPreviewWidget
+from ui.workspaces.schnitt.timeline_shell import TimelineShell
 
 
 class SchnittTabSchnitt(QWidget):
@@ -42,11 +42,12 @@ class SchnittTabSchnitt(QWidget):
         transport.addStretch(1)
         v.addLayout(transport)
 
-        self.timeline_view = InteractiveTimeline()
+        self.timeline_shell = TimelineShell()
+        self.timeline_view = self.timeline_shell.timeline
         self.timeline_view.setToolTip(
             "Timeline: Drag&Drop, Mausrad zum Zoomen, Lock-Icon pro Clip."
         )
-        v.addWidget(self.timeline_view, stretch=1)
+        v.addWidget(self.timeline_shell, stretch=1)
 
         self.cut_info_label = QLabel("")
         self.cut_info_label.setStyleSheet("color: #6b7280; font-size: 10px; padding: 1px 4px;")
