@@ -43,6 +43,14 @@ class SchnittTabRlNotes(QWidget):
         btn_row = QHBoxLayout()
         self.btn_thumbs_up = QPushButton("\U0001F44D Gut")
         self.btn_thumbs_down = QPushButton("\U0001F44E Schlecht")
+        self.btn_thumbs_up.setToolTip(
+            "Letzten Auto-Edit als gut bewerten und als positives RL-Feedback speichern."
+        )
+        self.btn_thumbs_up.setAccessibleName("Auto-Edit positiv bewerten")
+        self.btn_thumbs_down.setToolTip(
+            "Letzten Auto-Edit als schlecht bewerten und als negatives RL-Feedback speichern."
+        )
+        self.btn_thumbs_down.setAccessibleName("Auto-Edit negativ bewerten")
         for b in (self.btn_thumbs_up, self.btn_thumbs_down):
             b.setFixedHeight(36)
             btn_row.addWidget(b)
@@ -63,6 +71,10 @@ class SchnittTabRlNotes(QWidget):
         v.setSpacing(4)
         v.addWidget(QLabel("Notes (Markdown, Auto-Save)"))
         self.notes_edit = QTextEdit()
+        self.notes_edit.setToolTip(
+            "Projekt-Notizen fuer SCHNITT schreiben. Speichert automatisch nach kurzer Pause."
+        )
+        self.notes_edit.setAccessibleName("SCHNITT Projekt-Notizen")
         self.notes_edit.setAcceptRichText(False)
         self.notes_edit.setPlaceholderText("# Hier Notizen, Anmerkungen, To-dos…")
         self.notes_edit.textChanged.connect(self._on_text_changed)

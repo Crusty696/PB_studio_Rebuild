@@ -107,6 +107,10 @@ class SchnittTabPacingAnker(QWidget):
         self.btn_regenerate = QPushButton("Mit neuen Pacing-Einstellungen generieren")
         self.btn_regenerate.setObjectName("btn_accent")
         self.btn_regenerate.setFixedHeight(30)
+        self.btn_regenerate.setToolTip(
+            "Timeline mit den aktuellen Pacing-, Stil- und Anker-Einstellungen neu berechnen."
+        )
+        self.btn_regenerate.setAccessibleName("Timeline mit neuen Pacing-Einstellungen generieren")
         self.btn_regenerate.setStyleSheet(
             "QPushButton#btn_accent {"
             " background:#d4a44a; color:#0a0d12; font-weight:700;"
@@ -129,6 +133,10 @@ class SchnittTabPacingAnker(QWidget):
         self.anchor_list = QTreeWidget()
         self.anchor_list.setHeaderLabels(["Zeit", "Video", "Label", "Gewicht"])
         self.anchor_list.setSortingEnabled(True)
+        self.anchor_list.setToolTip(
+            "Liste fester Audio-Video-Anker. Diese Punkte bleiben beim Auto-Edit synchron."
+        )
+        self.anchor_list.setAccessibleName("Audio-Video-Ankerliste")
         v.addWidget(self.anchor_list, stretch=1)
 
         toolbar = QHBoxLayout()
@@ -136,14 +144,17 @@ class SchnittTabPacingAnker(QWidget):
         self.btn_add_anchor.setToolTip(
             "Neuen Sync-Anker an aktueller Zeit oder per Dialog hinzufügen."
         )
+        self.btn_add_anchor.setAccessibleName("Sync-Anker hinzufuegen")
         self.btn_remove_anchor = QPushButton("− Anker")
         self.btn_remove_anchor.setToolTip(
             "Ausgewählten Sync-Anker aus der Liste entfernen."
         )
+        self.btn_remove_anchor.setAccessibleName("Sync-Anker entfernen")
         self.btn_sync_anchors = QPushButton("Sync")
         self.btn_sync_anchors.setToolTip(
             "Ankerpunkte auf Timeline und aktuelle Medienauswahl synchronisieren."
         )
+        self.btn_sync_anchors.setAccessibleName("Sync-Anker synchronisieren")
         for b in (self.btn_add_anchor, self.btn_remove_anchor, self.btn_sync_anchors):
             b.setFixedHeight(24)
             toolbar.addWidget(b)
@@ -155,6 +166,7 @@ class SchnittTabPacingAnker(QWidget):
             "Ausgewählten Anker als Lernregel speichern, damit künftige Auto-Edits "
             "diese Wahl berücksichtigen."
         )
+        self.btn_learn_ai.setAccessibleName("Anker als KI-Lernregel speichern")
         self.btn_learn_ai.setFixedHeight(24)
         v.addWidget(self.btn_learn_ai)
 

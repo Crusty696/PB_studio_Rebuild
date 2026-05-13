@@ -310,17 +310,17 @@ git commit -m "fix(B-310): gate schnitt actions by context"
 - Create: `tests/ui/test_schnitt_tooltip_audit.py`
 - Modify: SCHNITT widgets found by audit
 
-- [ ] **Step 1: Write audit**
+- [x] **Step 1: Write audit**
 
 Instantiate `SchnittWorkspace`; collect all enabled `QPushButton`,
 `QComboBox`, `QSlider`, `QSpinBox`, `QTreeWidget`, `QTextEdit`.
 Fail if tooltip missing. Fail buttons if accessibleName missing.
 
-- [ ] **Step 2: Fix missing metadata**
+- [x] **Step 2: Fix missing metadata**
 
 Add concrete German tooltips. Disabled controls must explain missing data.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```powershell
 git commit -m "fix(B-310): complete schnitt tooltips"

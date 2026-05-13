@@ -53,6 +53,8 @@ class SchnittLoadingView(QWidget):
         cancel_row.addStretch(1)
         self.btn_cancel = QPushButton("Abbrechen")
         self.btn_cancel.setFixedHeight(26)
+        self.btn_cancel.setToolTip("Laufenden Auto-Edit abbrechen und zur SCHNITT-Ansicht zurueckkehren.")
+        self.btn_cancel.setAccessibleName("Auto-Edit abbrechen")
         self.btn_cancel.clicked.connect(self.cancel_requested)
         cancel_row.addWidget(self.btn_cancel)
         cancel_row.addStretch(1)

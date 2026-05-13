@@ -51,6 +51,10 @@ class SchnittEmptyView(QWidget):
 
         self.btn_custom = QPushButton("Eigene Einstellungen…")
         self.btn_custom.setFixedHeight(28)
+        self.btn_custom.setToolTip(
+            "SCHNITT mit eigenen Pacing- und Auto-Edit-Einstellungen starten."
+        )
+        self.btn_custom.setAccessibleName("Eigene SCHNITT-Einstellungen oeffnen")
         self.btn_custom.clicked.connect(self.custom_clicked)
         custom_row = QHBoxLayout()
         custom_row.addStretch(1)
@@ -63,6 +67,8 @@ class SchnittEmptyView(QWidget):
     def _make_preset_button(self, key: str, hint: str) -> QPushButton:
         btn = QPushButton(f"{key}\n\n{hint}")
         btn.setObjectName("preset_button")
+        btn.setToolTip(f"Auto-Edit-Preset {key} starten: {hint}")
+        btn.setAccessibleName(f"Auto-Edit Preset {key}")
         btn.setMinimumSize(180, 110)
         btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         btn.setStyleSheet(

@@ -51,6 +51,8 @@ class CutListPanel(QWidget):
         header.addStretch()
         self.btn_refresh = QPushButton("Aktualisieren")
         self.btn_refresh.setFixedHeight(22)
+        self.btn_refresh.setToolTip("Cutliste aus der aktuellen Timeline neu laden.")
+        self.btn_refresh.setAccessibleName("Cutliste aktualisieren")
         self.btn_refresh.clicked.connect(self.refresh)
         header.addWidget(self.btn_refresh)
         layout.addLayout(header)

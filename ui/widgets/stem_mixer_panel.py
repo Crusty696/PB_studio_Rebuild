@@ -60,6 +60,7 @@ class StemMixerPanel(QWidget):
         self._mute_btn.setToolTip(
             f"{label} stumm schalten oder wieder aktivieren."
         )
+        self._mute_btn.setAccessibleName(f"{label} stumm schalten")
         self._mute_btn.setObjectName("stem_mute_btn")
         self._mute_btn.setStyleSheet(
             f"""
@@ -93,6 +94,7 @@ class StemMixerPanel(QWidget):
         self._solo_btn.setToolTip(
             f"{label} solo abhoeren und andere Stems voruebergehend ausblenden."
         )
+        self._solo_btn.setAccessibleName(f"{label} solo abhoeren")
         self._solo_btn.setStyleSheet(
             f"""
             QPushButton {{
