@@ -332,11 +332,11 @@ git commit -m "fix(B-310): complete schnitt tooltips"
 - Create: `docs/superpowers/synthesis/2026-05-13-schnitt-hidden-host-audit.md`
 - Test: source grep test if needed
 
-- [ ] **Step 1: Map remaining `EditWorkspaceController` usages**
+- [x] **Step 1: Map remaining `EditWorkspaceController` usages**
 
 Use `rg` to list every SCHNITT call still routed through `edit_workspace`.
 
-- [ ] **Step 2: Decide per usage**
+- [x] **Step 2: Decide per usage**
 
 Move to:
 
@@ -347,7 +347,7 @@ Move to:
 
 or document why it remains temporarily.
 
-- [ ] **Step 3: Commit audit**
+- [x] **Step 3: Commit audit**
 
 ```powershell
 git commit -m "docs(B-310): audit schnitt hidden host"
