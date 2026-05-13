@@ -289,9 +289,14 @@ class WorkspaceSetupController(PBComponent):
         # gingen ins Leere. Plan:
         # docs/superpowers/plans/2026-05-09-schnitt-integration-wiring-fix/README.md
         from ui.controllers.schnitt_controller import SchnittController
+        from ui.controllers.schnitt_audio_binder import SchnittAudioBinder
         self.window._schnitt_ctrl = SchnittController(
             self.window._schnitt_ws,
             parent=self.window,
+        )
+        self.window._schnitt_audio_binder = SchnittAudioBinder(
+            tab_audio=self.window._schnitt_ws.editor_view.tab_audio,
+            stem_player=self.window.stem_player,
         )
         self.window._schnitt_ctrl.request_auto_edit_with_profile.connect(
             self.window.edit_workspace._on_schnitt_auto_edit_request

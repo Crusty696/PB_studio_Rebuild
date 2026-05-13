@@ -41,6 +41,8 @@ class StemsController(PBComponent):
     def _on_stem_playback_finished(self):
         if hasattr(self.window, "stem_workspace"):
             self.window.stem_workspace.update_position(0.0)
+        if hasattr(self.window, "_schnitt_audio_binder"):
+            self.window._schnitt_audio_binder.update_position(0.0)
 
     def _update_stem_workspace(self, track_id: int):
         """Lädt Stem-Pfade aus der DB, aktualisiert StemWorkspace und Player."""
@@ -50,6 +52,9 @@ class StemsController(PBComponent):
                 if not track:
                     if hasattr(self.window, "stem_workspace"):
                         self.window.stem_workspace.update_for_track(None, None)
+                    if hasattr(self.window, "_schnitt_audio_binder"):
+                        self.window._schnitt_audio_binder.update_stems(None, None)
+                        self.window._schnitt_audio_binder.set_duration(0.0)
                     if hasattr(self.window, "_stems_ws"):
                         self.window._stems_ws.update_analysis(None)
                     self.window.stem_player.stop()
@@ -67,6 +72,12 @@ class StemsController(PBComponent):
                         self.window.stem_workspace.set_duration(self.window.stem_player.duration)
                     else:
                         self.window.stem_workspace.set_duration(0.0)
+                if hasattr(self.window, "_schnitt_audio_binder"):
+                    self.window._schnitt_audio_binder.update_stems(track_id, stem_paths)
+                    if loaded:
+                        self.window._schnitt_audio_binder.set_duration(self.window.stem_player.duration)
+                    else:
+                        self.window._schnitt_audio_binder.set_duration(0.0)
                 if hasattr(self.window, "_stems_ws"):
                     self.window._stems_ws.update_analysis(track)
                 if loaded:

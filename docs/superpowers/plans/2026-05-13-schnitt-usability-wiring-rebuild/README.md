@@ -126,7 +126,7 @@ stem path columns.
 
 Same pytest command. Expected: pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add services/schnitt_context.py tests/test_services/test_schnitt_context.py
@@ -141,7 +141,7 @@ git commit -m "feat(B-310): add schnitt data context"
 - Modify: `ui/controllers/stems.py`
 - Test: `tests/ui/test_schnitt_audio_binder.py`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Test asserts binder updates `tab_audio.stem_workspace`, not only `_stems_ws.stem_widget`.
 
@@ -160,11 +160,11 @@ def test_audio_binder_targets_schnitt_stem_workspace(qapp, monkeypatch):
     assert calls == [(7, {"vocals": "v.wav"})]
 ```
 
-- [ ] **Step 2: Run fail**
+- [x] **Step 2: Run fail**
 
 Expected: missing module.
 
-- [ ] **Step 3: Implement binder**
+- [x] **Step 3: Implement binder**
 
 Binder responsibilities:
 
@@ -176,7 +176,7 @@ Binder responsibilities:
 `connect_stem_player` wires SCHNITT tab signals to the same player slots as
 old Stems page.
 
-- [ ] **Step 4: Integrate**
+- [x] **Step 4: Integrate**
 
 In `workspace_setup.py`, after `_schnitt_ws` creation:
 
@@ -191,7 +191,7 @@ self.window._schnitt_audio_binder = SchnittAudioBinder(
 In `StemsController._update_stem_workspace`, call both old workspace and
 `_schnitt_audio_binder.update_stems(...)`.
 
-- [ ] **Step 5: Run tests**
+- [x] **Step 5: Run tests**
 
 ```powershell
 & "<PY>" -m pytest tests/ui/test_schnitt_audio_binder.py tests/ui/test_subtab_audio_layout.py -q --tb=short --color=no
