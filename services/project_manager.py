@@ -36,6 +36,7 @@ class ProjectManager(QObject):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.current_project_path: Path | None = None
 
     # ------------------------------------------------------------------
     # helpers
@@ -227,6 +228,7 @@ class ProjectManager(QObject):
                 session.rollback()
                 raise
 
+        self.current_project_path = path
         logger.info("Neues Projekt erstellt: %s (%s, %s fps)", name, resolution, fps)
         self.project_changed.emit(path)
         return path
@@ -323,6 +325,7 @@ class ProjectManager(QObject):
                 )
             raise
 
+        self.current_project_path = path
         logger.info("Projekt geoeffnet: %s (%s)", meta["name"], path)
         self.project_changed.emit(path)
         return meta

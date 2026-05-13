@@ -526,12 +526,17 @@ class WorkspaceSetupController(PBComponent):
         Vorher: set_active_project wurde nirgendwo gerufen, _project_id
         blieb None, refresh_state_from_db schaltete immer auf STATE_EMPTY.
         """
-        try:
-            from database import get_active_project_id
-            pid = get_active_project_id()
-        except Exception as exc:
-            self.logger.debug("active project id unavailable: %s", exc)
+        manager = getattr(self.window, "_project_manager", None)
+        current_project_path = getattr(manager, "current_project_path", None)
+        if current_project_path is None:
             pid = None
+        else:
+            try:
+                from database import get_active_project_id
+                pid = get_active_project_id()
+            except Exception as exc:
+                self.logger.debug("active project id unavailable: %s", exc)
+                pid = None
         self.logger.debug("[B-285] _push_active_project_to_schnitt: pid=%s", pid)
         ws = getattr(self.window, "_schnitt_ws", None)
         if ws is None:
