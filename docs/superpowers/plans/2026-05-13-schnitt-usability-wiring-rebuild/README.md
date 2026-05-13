@@ -270,7 +270,7 @@ Modify `ui/timeline.py` with programmatic helpers. No behavior change to DB.
 
 Run shell tests + timeline smoke tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git commit -m "feat(B-310): add timeline zoom shell"
@@ -284,21 +284,21 @@ git commit -m "feat(B-310): add timeline zoom shell"
 - Modify: `ui/controllers/edit_workspace.py`
 - Test: `tests/ui/test_schnitt_action_gating.py`
 
-- [ ] **Step 1: Write tests**
+- [x] **Step 1: Write tests**
 
 Given context missing audio, buttons disabled and tooltip contains `Audio fehlt`.
 Given context ready, buttons enabled.
 
-- [ ] **Step 2: Implement binder**
+- [x] **Step 2: Implement binder**
 
 Binder receives `SchnittDataContext`, updates buttons and tab hints.
 
-- [ ] **Step 3: Replace silent returns**
+- [x] **Step 3: Replace silent returns**
 
 `_auto_edit_to_beat` and `_generate_timeline_impl` must show visible message and
 restore Loading->Empty/Editor if preconditions fail.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```powershell
 git commit -m "fix(B-310): gate schnitt actions by context"

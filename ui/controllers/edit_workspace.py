@@ -88,6 +88,9 @@ class EditWorkspaceController(PBComponent):
     def _generate_timeline_impl(self):
         from PySide6.QtCore import QObject, Signal, QThread
 
+        if not self._require_schnitt_action("Timeline generieren"):
+            return
+
         # B-284 Phase C / Variante 1 — Editor-Header btn_generate triggert
         # Loading-Overlay (User-Entscheidung 2026-05-09). Worker-progress
         # bridge wird unten durch ctrl.attach_worker(self._cuts_worker)
@@ -236,6 +239,9 @@ class EditWorkspaceController(PBComponent):
 
     def _auto_edit_to_beat(self):
         """Phase 3: DJ-Pacing Auto-Edit mit OTIO Timeline."""
+        if not self._require_schnitt_action("Auto-Edit"):
+            return
+
         # B-284 Phase C / Variante 1 — Editor-Header btn_auto_edit triggert
         # Loading-Overlay (User-Entscheidung 2026-05-09). Worker-progress
         # bridge unten ueber ctrl.attach_worker; State-Refresh nach
@@ -743,6 +749,22 @@ class EditWorkspaceController(PBComponent):
                     "B-294 ws.refresh_state_from_db (no-op-on-empty) failed: %s",
                     exc,
                 )
+        return False
+
+    def _require_schnitt_action(self, feature: str) -> bool:
+        binder = getattr(self.window, "_schnitt_action_binder", None)
+        if binder is None:
+            return self._guard_combos_or_notify(feature)
+        if binder.refresh_current_project():
+            return True
+        reason = binder.block_reason()
+        self.window.console_text.append(f"[SCHNITT] {feature} blockiert: {reason}")
+        ws = getattr(self.window, "_schnitt_ws", None)
+        if ws is not None:
+            try:
+                ws.refresh_state_from_db()
+            except Exception as exc:
+                logger.debug("schnitt refresh after blocked action failed: %s", exc)
         return False
 
     def _on_schnitt_auto_edit_request(self, profile) -> None:

@@ -291,6 +291,7 @@ class WorkspaceSetupController(PBComponent):
         # docs/superpowers/plans/2026-05-09-schnitt-integration-wiring-fix/README.md
         from ui.controllers.schnitt_controller import SchnittController
         from ui.controllers.schnitt_audio_binder import SchnittAudioBinder
+        from ui.controllers.schnitt_action_binder import SchnittActionBinder
         from ui.controllers.schnitt_coordinator import SchnittCoordinator
         self.window._schnitt_ctrl = SchnittController(
             self.window._schnitt_ws,
@@ -303,6 +304,12 @@ class WorkspaceSetupController(PBComponent):
         self.window._schnitt_coordinator = SchnittCoordinator(
             audio_binder=self.window._schnitt_audio_binder,
             db_engine=engine,
+        )
+        self.window._schnitt_action_binder = SchnittActionBinder(
+            btn_generate=self.window._schnitt_ws.editor_view.btn_generate,
+            btn_auto_edit=self.window._schnitt_ws.editor_view.btn_auto_edit,
+            db_engine=engine,
+            status_label=self.window._schnitt_ws.editor_view.tab_schnitt.timeline_shell.status_label,
         )
         self.window._schnitt_ctrl.request_auto_edit_with_profile.connect(
             self.window.edit_workspace._on_schnitt_auto_edit_request
@@ -564,6 +571,9 @@ class WorkspaceSetupController(PBComponent):
             ws.editor_view.tab_rl_notes.set_active_project(pid)
         except Exception as exc:
             self.logger.debug("tab_rl_notes set_active_project failed: %s", exc)
+        binder = getattr(self.window, "_schnitt_action_binder", None)
+        if binder is not None:
+            binder.refresh(pid)
 
     def _handle_cockpit_action(self, action_key: str):
         """Fuehrt genau die vom Guided Cockpit empfohlene Aktion aus."""
@@ -712,6 +722,9 @@ class WorkspaceSetupController(PBComponent):
                 btn.setEnabled(timeline_ready)
                 if not timeline_ready:
                     btn.setToolTip("Erst Timeline erzeugen oder Clips hinzufuegen.")
+        binder = getattr(self.window, "_schnitt_action_binder", None)
+        if binder is not None:
+            binder.refresh_current_project()
 
     def _refresh_project_dashboard(self):
         dashboard = getattr(self.window, "_project_dashboard", None)
