@@ -571,6 +571,11 @@ class WorkspaceSetupController(PBComponent):
             ws.editor_view.tab_rl_notes.set_active_project(pid)
         except Exception as exc:
             self.logger.debug("tab_rl_notes set_active_project failed: %s", exc)
+        try:
+            cut_list = ws.editor_view.tab_schnitt.cut_list_panel
+            cut_list.set_project(pid)
+        except Exception as exc:
+            self.logger.debug("cut_list_panel set_project failed: %s", exc)
         binder = getattr(self.window, "_schnitt_action_binder", None)
         if binder is not None:
             binder.refresh(pid)

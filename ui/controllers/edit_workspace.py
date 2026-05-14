@@ -56,7 +56,12 @@ class EditWorkspaceController(PBComponent):
         if hasattr(self.window, "_schnitt_coordinator"):
             self.window._schnitt_coordinator.refresh_audio(audio_id)
         if audio_id is None:
+            if hasattr(self.window, "_schnitt_audio_binder"):
+                self.window._schnitt_audio_binder.update_stems(None, None)
+                self.window._schnitt_audio_binder.set_duration(0.0)
             return
+        if hasattr(self.window, "stems"):
+            self.window.stems._update_stem_workspace(audio_id)
         with DBSession(engine) as session:
             track = session.get(AudioTrack, audio_id)
             if track and track.duration:

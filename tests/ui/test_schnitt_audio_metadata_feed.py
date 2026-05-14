@@ -84,11 +84,13 @@ def test_audio_combo_change_refreshes_schnitt_coordinator(test_engine, monkeypat
     monkeypatch.setattr(edit_mod, "engine", test_engine)
     durations = []
     refreshes = []
+    stem_updates = []
     window = SimpleNamespace(
         logger=None,
         audio_combo=SimpleNamespace(currentData=lambda: audio_id),
         pacing_curve=SimpleNamespace(set_duration=lambda duration: durations.append(duration)),
         _schnitt_coordinator=SimpleNamespace(refresh_audio=lambda value: refreshes.append(value)),
+        stems=SimpleNamespace(_update_stem_workspace=lambda value: stem_updates.append(value)),
         console_text=SimpleNamespace(append=lambda text: None),
     )
 
@@ -97,3 +99,28 @@ def test_audio_combo_change_refreshes_schnitt_coordinator(test_engine, monkeypat
 
     assert durations == [60.0]
     assert refreshes == [audio_id]
+    assert stem_updates == [audio_id]
+
+
+def test_audio_combo_none_clears_schnitt_stems(monkeypatch):
+    from ui.controllers import edit_workspace as edit_mod
+
+    calls = []
+    window = SimpleNamespace(
+        logger=None,
+        audio_combo=SimpleNamespace(currentData=lambda: None),
+        _schnitt_coordinator=SimpleNamespace(refresh_audio=lambda value: calls.append(("refresh", value))),
+        _schnitt_audio_binder=SimpleNamespace(
+            update_stems=lambda track_id, stems: calls.append(("stems", track_id, stems)),
+            set_duration=lambda duration: calls.append(("duration", duration)),
+        ),
+    )
+
+    controller = edit_mod.EditWorkspaceController(window)
+    controller._on_audio_combo_changed(0)
+
+    assert calls == [
+        ("refresh", None),
+        ("stems", None, None),
+        ("duration", 0.0),
+    ]

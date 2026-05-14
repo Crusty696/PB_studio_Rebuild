@@ -29,6 +29,14 @@ class _Notes:
         self.pid = pid
 
 
+class _CutList:
+    def __init__(self):
+        self.pid = "unset"
+
+    def set_project(self, pid):
+        self.pid = pid
+
+
 def test_b309_schnitt_push_uses_no_project_state_before_db_fallback(monkeypatch):
     import database
     from ui.controllers.workspace_setup import WorkspaceSetupController
@@ -40,7 +48,11 @@ def test_b309_schnitt_push_uses_no_project_state_before_db_fallback(monkeypatch)
 
     ctrl = _Ctrl()
     notes = _Notes()
-    ws = SimpleNamespace(editor_view=SimpleNamespace(tab_rl_notes=notes))
+    cut_list = _CutList()
+    tab_schnitt = SimpleNamespace(cut_list_panel=cut_list)
+    ws = SimpleNamespace(
+        editor_view=SimpleNamespace(tab_rl_notes=notes, tab_schnitt=tab_schnitt)
+    )
     window = SimpleNamespace(
         logger=_Logger(),
         _project_manager=SimpleNamespace(current_project_path=None),
@@ -52,3 +64,31 @@ def test_b309_schnitt_push_uses_no_project_state_before_db_fallback(monkeypatch)
 
     assert ctrl.pid is None
     assert notes.pid is None
+    assert cut_list.pid is None
+
+
+def test_b310_schnitt_push_updates_cut_list_panel(monkeypatch):
+    import database
+    from ui.controllers.workspace_setup import WorkspaceSetupController
+
+    monkeypatch.setattr(database, "get_active_project_id", lambda: 23)
+
+    ctrl = _Ctrl()
+    notes = _Notes()
+    cut_list = _CutList()
+    tab_schnitt = SimpleNamespace(cut_list_panel=cut_list)
+    ws = SimpleNamespace(
+        editor_view=SimpleNamespace(tab_rl_notes=notes, tab_schnitt=tab_schnitt)
+    )
+    window = SimpleNamespace(
+        logger=_Logger(),
+        _project_manager=SimpleNamespace(current_project_path=object()),
+        _schnitt_ws=ws,
+        _schnitt_ctrl=ctrl,
+    )
+
+    WorkspaceSetupController(window)._push_active_project_to_schnitt()
+
+    assert ctrl.pid == 23
+    assert notes.pid == 23
+    assert cut_list.pid == 23
