@@ -320,6 +320,9 @@ class WorkspaceSetupController(PBComponent):
         self.window._schnitt_ctrl.request_open_settings.connect(
             self.window.project_management._show_settings
         )
+        self.window._schnitt_ctrl.clip_property_changed.connect(
+            self._on_schnitt_clip_property_changed
+        )
 
         _schnitt_tab_schnitt = self.window._schnitt_ws.editor_view.tab_schnitt
         _schnitt_tab_pacing = self.window._schnitt_ws.editor_view.tab_pacing_anker
@@ -576,9 +579,31 @@ class WorkspaceSetupController(PBComponent):
             cut_list.set_project(pid)
         except Exception as exc:
             self.logger.debug("cut_list_panel set_project failed: %s", exc)
+        media_ctrl = getattr(self.window, "media_table_controller", None)
+        if media_ctrl is not None:
+            try:
+                media_ctrl._refresh_director_combos(
+                    pid,
+                    allow_active_fallback=False,
+                )
+            except Exception as exc:
+                self.logger.debug("schnitt media combo refresh failed: %s", exc)
         binder = getattr(self.window, "_schnitt_action_binder", None)
         if binder is not None:
             binder.refresh(pid)
+
+    def _on_schnitt_clip_property_changed(self, entry_id: int, field: str, value: float) -> None:
+        """Host-Rueckmeldung fuer Inspector-Aenderungen."""
+        try:
+            self.window._mark_dirty()
+        except Exception as exc:
+            self.logger.debug("schnitt inspector dirty mark failed: %s", exc)
+        console = getattr(self.window, "console_text", None)
+        if console is not None:
+            try:
+                console.append(f"[Inspector] Clip {entry_id}: {field} = {value:g}")
+            except Exception as exc:
+                self.logger.debug("schnitt inspector console update failed: %s", exc)
 
     def _handle_cockpit_action(self, action_key: str):
         """Fuehrt genau die vom Guided Cockpit empfohlene Aktion aus."""
@@ -637,12 +662,6 @@ class WorkspaceSetupController(PBComponent):
             self.window.workspace_stack.setCurrentIndex(2)
             # B-285 Phase B Hook-1: Tab-Wechsel zu SCHNITT.
             self._push_active_project_to_schnitt()
-            if hasattr(self.window._schnitt_ws, "refresh_state_from_db"):
-                try:
-                    self.window._schnitt_ws.refresh_state_from_db()
-                except Exception as exc:
-                    self.logger.debug("schnitt refresh failed: %s", exc)
-            self.window.media_table_controller._refresh_director_combos()
             return
         if index == 3:
             self.window.workspace_stack.setCurrentIndex(3)
@@ -655,8 +674,8 @@ class WorkspaceSetupController(PBComponent):
         audio_ready = False
         video_ready = False
         try:
-            audio_ready = self.window.audio_combo.count() > 0
-            video_ready = self.window.video_combo.count() > 0
+            audio_ready = self.window.audio_combo.currentData() is not None
+            video_ready = self.window.video_combo.currentData() is not None
         except Exception:
             pass
         media_ws = getattr(self.window, "_media_ws", None)
@@ -729,7 +748,12 @@ class WorkspaceSetupController(PBComponent):
                     btn.setToolTip("Erst Timeline erzeugen oder Clips hinzufuegen.")
         binder = getattr(self.window, "_schnitt_action_binder", None)
         if binder is not None:
-            binder.refresh_current_project()
+            manager = getattr(self.window, "_project_manager", None)
+            has_project = getattr(manager, "current_project_path", None) is not None
+            if has_project:
+                binder.refresh_current_project()
+            else:
+                binder.refresh(None)
 
     def _refresh_project_dashboard(self):
         dashboard = getattr(self.window, "_project_dashboard", None)
@@ -740,17 +764,20 @@ class WorkspaceSetupController(PBComponent):
         path = None
         manager = getattr(self.window, "_project_manager", None)
         project_id = None
+        has_project_path = False
         try:
             current = getattr(manager, "current_project_path", None)
             if current is not None:
                 path = str(current)
+                has_project_path = True
         except Exception as exc:
             self.logger.debug("dashboard project path unavailable: %s", exc)
-        try:
-            from database import get_active_project_id
-            project_id = get_active_project_id()
-        except Exception as exc:
-            self.logger.debug("dashboard project id unavailable: %s", exc)
+        if has_project_path:
+            try:
+                from database import get_active_project_id
+                project_id = get_active_project_id()
+            except Exception as exc:
+                self.logger.debug("dashboard project id unavailable: %s", exc)
         dashboard.update_project(name, path, project_id=project_id)
         dashboard.refresh(project_id)
 

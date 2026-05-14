@@ -11,6 +11,8 @@ from __future__ import annotations
 import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+import time
+
 import pytest
 from sqlalchemy.orm import Session
 from PySide6.QtWidgets import QApplication
@@ -32,6 +34,7 @@ def test_controller_creates_binder_with_pacing_widgets():
     from services.pacing_profile import PacingProfile
 
     ws = SchnittWorkspace()
+    ws._project_id = 1
     ctrl = SchnittController(ws)
     assert isinstance(ctrl.profile, PacingProfile)
     assert isinstance(ctrl.binder, PacingProfileBinder)
@@ -51,6 +54,7 @@ def test_preset_selected_applies_profile_and_emits_request():
     from ui.controllers.schnitt_controller import SchnittController
 
     ws = SchnittWorkspace()
+    ws._project_id = 1
     ctrl = SchnittController(ws)
 
     captured = []
@@ -69,6 +73,23 @@ def test_preset_selected_applies_profile_and_emits_request():
     assert ctrl.profile.energy_reactivity == 70
     # Loading-State aktiv
     assert ws.current_state() == STATE_LOADING
+
+
+def test_preset_selected_without_project_is_blocked():
+    _qapp()
+    from ui.workspaces.schnitt_workspace import SchnittWorkspace, STATE_EMPTY
+    from ui.controllers.schnitt_controller import SchnittController
+
+    ws = SchnittWorkspace()
+    ctrl = SchnittController(ws)
+
+    captured = []
+    ctrl.request_auto_edit_with_profile.connect(lambda p: captured.append(p))
+
+    ws.empty_view.preset_selected.emit("Techno")
+
+    assert captured == []
+    assert ws.current_state() == STATE_EMPTY
 
 
 # ---------------------------------------------------------------------------
@@ -176,6 +197,79 @@ def test_timeline_selection_forwarded_to_inspector(monkeypatch):
     ws.editor_view.tab_schnitt.timeline_view.selection_changed.emit(fake_payload)
 
     assert any(item == fake_payload for item in received)
+
+
+def test_inspector_property_change_refreshes_timeline_and_reemits(monkeypatch):
+    _qapp()
+    from ui.workspaces.schnitt_workspace import SchnittWorkspace
+    from ui.controllers.schnitt_controller import SchnittController
+
+    ws = SchnittWorkspace()
+    ws._project_id = 1
+    ctrl = SchnittController(ws)
+
+    refreshed = []
+    timeline = ws.editor_view.tab_schnitt.timeline_view
+    monkeypatch.setattr(timeline, "load_from_db", lambda: refreshed.append(True))
+
+    emitted = []
+    ctrl.clip_property_changed.connect(
+        lambda entry_id, field, value: emitted.append((entry_id, field, value))
+    )
+
+    ws.editor_view.inspector_panel.clip_property_changed.emit(7, "brightness", 0.5)
+
+    assert refreshed == [True]
+    assert emitted == [(7, "brightness", 0.5)]
+
+
+def test_inspector_async_db_load_updates_fields(
+    test_engine, db_session, project, video_clip, monkeypatch
+):
+    _qapp()
+    import database
+    import ui.clip_inspector as inspector_mod
+    from database import TimelineEntry
+    from ui.clip_inspector import ClipInspectorPanel
+
+    monkeypatch.setattr(inspector_mod, "nullpool_session", database.nullpool_session)
+
+    entry = TimelineEntry(
+        project_id=project.id,
+        track="video",
+        media_id=video_clip.id,
+        start_time=12.25,
+        end_time=22.75,
+        brightness=0.15,
+        contrast=1.25,
+        crossfade_duration=0.5,
+    )
+    db_session.add(entry)
+    db_session.commit()
+    db_session.refresh(entry)
+
+    panel = ClipInspectorPanel()
+    try:
+        panel.update_from_selection(
+            [{"entry_id": entry.id, "media_id": video_clip.id, "track_type": "video"}]
+        )
+
+        deadline = time.time() + 3.0
+        while time.time() < deadline and (
+            panel._type_label.text() != "Typ: Video"
+            or panel._media_label.text() != f"Media ID: {video_clip.id}"
+            or panel._start_spin.value() != 12.25
+        ):
+            _qapp().processEvents()
+            time.sleep(0.01)
+
+        assert panel._type_label.text() == "Typ: Video"
+        assert panel._media_label.text() == f"Media ID: {video_clip.id}"
+        assert panel._start_spin.value() == 12.25
+        assert panel._end_spin.value() == 22.75
+        assert panel._duration_label.text() == "Dauer: 10.50s"
+    finally:
+        panel.deleteLater()
 
 
 # ---------------------------------------------------------------------------

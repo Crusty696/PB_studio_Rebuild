@@ -47,7 +47,7 @@ instructions, or own "creative" interpretation.
 ## Scope — what is to be done
 
 - **Execute one of the authorized plans.** Nothing more, nothing less.
-- **Authorized plan roots (as of 2026-05-09, both active):**
+- **Authorized plan roots (as of 2026-05-14, active):**
   - `docs/superpowers/plans/2026-05-04-brain-v3-nvidia-plan/` — Brain V3
     NVIDIA backend. Plan = `01_ARCHITECTURE.md` … `07_RISKS.md`. Phases
     0 → 6 strictly sequential, task list in `06_PHASES.md`. Phase
@@ -59,6 +59,23 @@ instructions, or own "creative" interpretation.
     strictly sequential, tasks within each phase in the order given.
     Spec authority:
     `docs/superpowers/specs/2026-05-09-schnitt-workspace-redesign.md`.
+  - `docs/superpowers/plans/2026-05-13-schnitt-usability-wiring-rebuild/` —
+    B-310 follow-up plan for SCHNITT usability, wiring, tooltips,
+    inspector, and live verification. Task 8 live verification remains
+    open unless the user confirms a complete live workflow.
+- **User-authorized maintenance scope (2026-05-14):**
+  update important app-use docs, launch scripts, test wrappers, and
+  Obsidian/vault handoff notes so the next agent sees the same status.
+  This maintenance scope does not authorize app-code refactors.
+- **User-authorized autonomous QA/fix scope (2026-05-14):**
+  execute `PB Studio Offene Bugs/Tasks Masterplan` autonomously in a
+  test-fix-verify loop. Start with SCHNITT/B-310 live verification and
+  its directly discovered bugs (B-316/B-317, timeline overlap/chaos,
+  missing waveform, missing thumbnails), then run GPU/Brain/Pipeline
+  gates, then process Critical/High bugs in the masterplan order. This
+  authorizes app-code fixes needed for those bugs, but does not suspend
+  honesty, one-task-at-a-time, TDD, Vault, commit, or live-verification
+  rules.
 - **One task at a time, from one plan at a time.** No parallel
   half-finished work across plans.
 - **No unauthorized invention** of features, modules, refactorings,
@@ -185,6 +202,19 @@ not write it without explicit user confirmation.
 ## Vault duties — mandatory, not optional
 
 Path: `C:\Brain-Bug\projects\pb-studio\`
+
+Preferred Obsidian/Vault tooling when available:
+
+```powershell
+python "C:\Users\David Lochmann\plugins\obsidian-vault-brain\scripts\vault_brain.py" refresh
+python "C:\Users\David Lochmann\plugins\obsidian-vault-brain\scripts\vault_brain.py" search "<query>" --limit 8
+python "C:\Users\David Lochmann\plugins\obsidian-vault-brain\scripts\vault_brain.py" get "<path>" --max-chars 6000
+python "C:\Users\David Lochmann\plugins\obsidian-vault-brain\scripts\vault_brain.py" append "log.md" "<entry>"
+```
+
+Skill file:
+`C:\Users\David Lochmann\plugins\obsidian-vault-brain\skills\obsidian-vault-brain\SKILL.md`.
+Refresh index before vault-state answers. Read only relevant notes.
 
 | Action | Vault entry |
 |---|---|

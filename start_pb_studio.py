@@ -2,7 +2,7 @@
 """
 PB Studio Rebuild - Start Script
 ==================================
-Startet die App im lokalen .venv. Erstellt das venv automatisch falls noetig.
+Startet die App mit conda-env pb-studio. Fallback: .venv310, dann .venv.
 """
 
 import os
@@ -48,9 +48,9 @@ def main():
         input("\nDruecke Enter zum Beenden...")
         sys.exit(1)
 
-    # 2. Pruefen ob .venv existiert
+    # 2. Pruefen ob bevorzugte Python-Umgebung existiert
     if not VENV_PYTHON.exists():
-        print(f"\n  .venv nicht gefunden in: {VENV_DIR}")
+        print(f"\n  Python-Umgebung nicht gefunden in: {VENV_DIR}")
         print("  Starte automatisches Setup...\n")
 
         setup_script = PROJECT_DIR / "setup_pb_studio.py"
@@ -66,9 +66,8 @@ def main():
                 sys.exit(1)
         else:
             print(f"  FEHLER: {setup_script.name} nicht gefunden!")
-            print("  Bitte erstelle zuerst das venv:")
-            print(f'    py -3.11 -m venv "{VENV_DIR}"')
-            print(f'    "{VENV_DIR}\\Scripts\\pip.exe" install -r requirements.txt')
+            print("  Bitte erstelle zuerst die conda-Umgebung:")
+            print("    conda env create -f environment.yml")
             input("\nDruecke Enter zum Beenden...")
             sys.exit(1)
 

@@ -60,6 +60,10 @@ class SchnittTabRlNotes(QWidget):
 
         v.addWidget(QLabel("Letzte RL-Events"))
         self.rl_event_list = QListWidget()
+        self.rl_event_list.setToolTip(
+            "Letzte Reinforcement-Learning-Feedback-Ereignisse fuer dieses Projekt."
+        )
+        self.rl_event_list.setAccessibleName("Letzte RL-Feedback-Ereignisse")
         v.addWidget(self.rl_event_list, stretch=1)
 
         return col

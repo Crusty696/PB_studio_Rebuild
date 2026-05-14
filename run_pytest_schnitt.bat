@@ -2,9 +2,8 @@
 title SCHNITT Workspace Redesign - pytest
 echo ============================================
 echo   SCHNITT Workspace Redesign - Tests (pytest)
-echo   Branch: feat/schnitt-redesign-2026-05-09
-echo   Phasen 01-12 + Tier-Hardening 1-6 + B-293/295/296 follow-ups
-echo   Plan: docs\superpowers\plans\2026-05-09-schnitt-workspace-redesign\
+echo   Stand: SCHNITT B-310/B-312/B-313 focused regression
+echo   Plan: docs\superpowers\plans\2026-05-13-schnitt-usability-wiring-rebuild\
 echo ============================================
 echo.
 
@@ -16,10 +15,13 @@ set OMP_NUM_THREADS=4
 set MKL_NUM_THREADS=4
 
 set "PB_PYTHON="
-set "PB_CONDA_PY=C:\Users\David Lochmann\miniconda3\envs\pb-studio\python.exe"
+set "PB_CONDA_PY=%USERPROFILE%\miniconda3\envs\pb-studio\python.exe"
+set "PB_CONDA_PY_ALT=%USERPROFILE%\anaconda3\envs\pb-studio\python.exe"
 
 if exist "%PB_CONDA_PY%" (
     set "PB_PYTHON=%PB_CONDA_PY%"
+) else if exist "%PB_CONDA_PY_ALT%" (
+    set "PB_PYTHON=%PB_CONDA_PY_ALT%"
 ) else if exist ".venv310\Scripts\python.exe" (
     set "PB_PYTHON=.venv310\Scripts\python.exe"
 ) else if exist ".venv\Scripts\python.exe" (
@@ -36,7 +38,7 @@ set "RESULT_FILE=outputs\pytest_schnitt_results.txt"
 echo Python: %PB_PYTHON%
 echo Output: %RESULT_FILE%
 echo.
-echo Test-Lauf gestartet (39 SCHNITT-Test-Files, Output zugleich in %RESULT_FILE%):
+echo Test-Lauf gestartet (46 SCHNITT-Test-Files, Output zugleich in %RESULT_FILE%):
 echo.
 
 "%PB_PYTHON%" -m pytest ^
@@ -48,6 +50,7 @@ echo.
     tests\test_services\test_apply_auto_edit_locked.py ^
     tests\test_services\test_cockpit_open_schnitt.py ^
     tests\test_services\test_auto_edit_progress.py ^
+    tests\test_services\test_schnitt_context.py ^
     tests\ui\test_subtab_schnitt_layout.py ^
     tests\ui\test_subtab_pacing_anker_layout.py ^
     tests\ui\test_subtab_audio_layout.py ^
@@ -63,8 +66,15 @@ echo.
     tests\ui\test_schnitt_controller_loading_hook.py ^
     tests\ui\test_schnitt_controller_wiring.py ^
     tests\ui\test_schnitt_integration_boot.py ^
+    tests\ui\test_b309_schnitt_no_project_empty.py ^
+    tests\ui\test_schnitt_action_gating.py ^
+    tests\ui\test_schnitt_audio_binder.py ^
+    tests\ui\test_schnitt_audio_metadata_feed.py ^
     tests\ui\test_schnitt_audio_video_combo.py ^
     tests\ui\test_schnitt_empty_state_preset_runs_pipeline.py ^
+    tests\ui\test_schnitt_timeline_shell.py ^
+    tests\ui\test_schnitt_tooltip_audit.py ^
+    tests\ui\test_checkbox_workflow_smoke.py ^
     tests\ui\test_wheel_guard.py ^
     tests\ui\test_lock_icon_item.py ^
     tests\ui\test_toggle_clip_lock_command.py ^

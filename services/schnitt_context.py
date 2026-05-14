@@ -8,9 +8,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from database.models import AudioTrack, Beatgrid, Project, TimelineEntry, VideoClip, WaveformData
+from database.models import (
+    AudioTrack,
+    Beatgrid,
+    Project,
+    Scene,
+    TimelineEntry,
+    VideoClip,
+    WaveformData,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,11 +71,20 @@ def build_schnitt_context(db_engine, project_id: int | None) -> SchnittDataConte
         )
 
     with Session(db_engine) as session:
-        project = session.get(Project, project_id)
-        project_path = project.path if project is not None else None
+        project_path = (
+            session.query(Project.path)
+            .filter(Project.id == project_id)
+            .scalar()
+        )
 
         audio = (
-            session.query(AudioTrack)
+            session.query(
+                AudioTrack.id,
+                AudioTrack.stem_vocals_path,
+                AudioTrack.stem_drums_path,
+                AudioTrack.stem_bass_path,
+                AudioTrack.stem_other_path,
+            )
             .filter(
                 AudioTrack.project_id == project_id,
                 AudioTrack.deleted_at.is_(None),
@@ -76,8 +94,9 @@ def build_schnitt_context(db_engine, project_id: int | None) -> SchnittDataConte
         )
         audio_id = audio.id if audio is not None else None
 
-        videos = (
-            session.query(VideoClip)
+        video_ids = tuple(
+            row.id
+            for row in session.query(VideoClip.id)
             .filter(
                 VideoClip.project_id == project_id,
                 VideoClip.deleted_at.is_(None),
@@ -85,15 +104,15 @@ def build_schnitt_context(db_engine, project_id: int | None) -> SchnittDataConte
             .order_by(VideoClip.id)
             .all()
         )
-        video_ids = tuple(v.id for v in videos)
 
         timeline_entry_count = (
-            session.query(TimelineEntry)
+            session.query(func.count(TimelineEntry.id))
             .filter(
                 TimelineEntry.project_id == project_id,
                 TimelineEntry.track == "video",
             )
-            .count()
+            .scalar()
+            or 0
         )
 
         has_stems = False
@@ -124,7 +143,12 @@ def build_schnitt_context(db_engine, project_id: int | None) -> SchnittDataConte
 
         has_video_analysis = False
         if video_ids:
-            analyzed = sum(1 for v in videos if v.scenes)
+            analyzed = (
+                session.query(func.count(func.distinct(Scene.video_clip_id)))
+                .filter(Scene.video_clip_id.in_(video_ids))
+                .scalar()
+                or 0
+            )
             has_video_analysis = analyzed == len(video_ids)
 
     missing: list[str] = []

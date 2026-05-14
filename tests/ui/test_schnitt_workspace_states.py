@@ -40,6 +40,8 @@ def test_initial_no_project_shows_empty(test_engine, monkeypatch):
     ws = SchnittWorkspace()
     ws.set_active_project(None)
     assert ws.current_state() == STATE_EMPTY
+    assert all(not btn.isEnabled() for btn in ws.empty_view._buttons.values())
+    assert ws.empty_view.btn_custom.isEnabled() is False
 
 
 def test_project_with_no_clips_shows_empty(test_engine, monkeypatch):
@@ -50,6 +52,8 @@ def test_project_with_no_clips_shows_empty(test_engine, monkeypatch):
     pid = _project(test_engine, with_clip=False)
     ws.set_active_project(pid)
     assert ws.current_state() == STATE_EMPTY
+    assert all(btn.isEnabled() for btn in ws.empty_view._buttons.values())
+    assert ws.empty_view.btn_custom.isEnabled() is True
 
 
 def test_project_with_clips_shows_editor(test_engine, monkeypatch):
@@ -142,6 +146,7 @@ def test_empty_view_btn_custom_emits_signal(test_engine, monkeypatch):
     _patch_workspace_engine(monkeypatch, test_engine)
     from ui.workspaces.schnitt_workspace import SchnittWorkspace
     ws = SchnittWorkspace()
+    ws.set_active_project(_project(test_engine, with_clip=False))
     received = []
     ws.custom_clicked.connect(lambda: received.append(1))
     ws.empty_view.btn_custom.click()

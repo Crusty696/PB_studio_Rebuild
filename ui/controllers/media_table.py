@@ -13,14 +13,22 @@ class MediaTableController(PBComponent):
     Uses MediaTableModel for efficient rendering.
     """
 
-    def _refresh_director_combos(self):
+    def _refresh_director_combos(
+        self,
+        project_id: int | None = None,
+        *,
+        allow_active_fallback: bool = True,
+    ):
         # P8-FREEZE-FIX: Lightweight-Query ohne energy_curve/analysis_percent.
         # Vorher blockierte get_all_media() den Main-Thread beim Boot
         # mehrere Sekunden (grosse JSON-Blobs + N+1 Status-Queries).
         from services.ingest_service import get_combo_items
         from database import get_active_project_id
-        _pid_now = get_active_project_id()
-        media = get_combo_items()
+        if project_id is None and allow_active_fallback:
+            _pid_now = get_active_project_id()
+        else:
+            _pid_now = project_id
+        media = get_combo_items(_pid_now) if _pid_now is not None else []
         # B-285 diagnostic, kept at debug level to avoid normal log noise.
         _audio_n = sum(1 for m in media if m.get("type") == "Audio")
         _video_n = sum(1 for m in media if m.get("type") == "Video")
@@ -28,19 +36,39 @@ class MediaTableController(PBComponent):
             "[B-285] _refresh_director_combos: active_pid=%s -> %d audio + %d video items",
             _pid_now, _audio_n, _video_n,
         )
-        self.window.audio_combo.clear()
-        self.window.video_combo.clear()
-        self.window.audio_combo.addItem("-- kein Audio --", None)
-        self.window.video_combo.addItem("-- kein Video --", None)
-        for item in media:
-            label = f"[{item['id']}] {item['title']}"
-            if item["type"] == "Audio":
-                bpm = item.get("bpm")
-                if bpm:
-                    label += f" ({bpm} BPM)"
-                self.window.audio_combo.addItem(label, item["id"])
-            elif item["type"] == "Video":
-                self.window.video_combo.addItem(label, item["id"])
+        audio_blocked = self.window.audio_combo.blockSignals(True)
+        video_blocked = self.window.video_combo.blockSignals(True)
+        try:
+            self.window.audio_combo.clear()
+            self.window.video_combo.clear()
+            self.window.audio_combo.addItem("-- kein Audio --", None)
+            self.window.video_combo.addItem("-- kein Video --", None)
+            first_audio_index = None
+            preferred_audio_index = None
+            for item in media:
+                label = f"[{item['id']}] {item['title']}"
+                if item["type"] == "Audio":
+                    bpm = item.get("bpm")
+                    if bpm:
+                        label += f" ({bpm} BPM)"
+                    combo_index = self.window.audio_combo.count()
+                    self.window.audio_combo.addItem(label, item["id"])
+                    if first_audio_index is None:
+                        first_audio_index = combo_index
+                    if preferred_audio_index is None and self._audio_item_has_analysis(item):
+                        preferred_audio_index = combo_index
+                elif item["type"] == "Video":
+                    self.window.video_combo.addItem(label, item["id"])
+            if preferred_audio_index is not None:
+                self.window.audio_combo.setCurrentIndex(preferred_audio_index)
+            elif first_audio_index is not None:
+                self.window.audio_combo.setCurrentIndex(first_audio_index)
+            if self.window.video_combo.count() > 1:
+                self.window.video_combo.setCurrentIndex(1)
+        finally:
+            self.window.audio_combo.blockSignals(audio_blocked)
+            self.window.video_combo.blockSignals(video_blocked)
+        self._sync_schnitt_audio_selection()
 
     def _toggle_all_checkboxes(self, table_view):
         """Alle Checkboxen im Model toggeln."""
@@ -101,19 +129,53 @@ class MediaTableController(PBComponent):
                 "[B-285] _apply_refreshed_data combos: active_pid=%s -> %d audio + %d video (async overwrite)",
                 _pid_now, len(audios), len(videos),
             )
-            self.window.audio_combo.clear()
-            self.window.video_combo.clear()
-            self.window.audio_combo.addItem("-- kein Audio --", None)
-            self.window.video_combo.addItem("-- kein Video --", None)
+            audio_blocked = self.window.audio_combo.blockSignals(True)
+            video_blocked = self.window.video_combo.blockSignals(True)
+            try:
+                self.window.audio_combo.clear()
+                self.window.video_combo.clear()
+                self.window.audio_combo.addItem("-- kein Audio --", None)
+                self.window.video_combo.addItem("-- kein Video --", None)
 
-            for item in audios:
-                bpm = item.get("bpm")
-                label = f"[{item['id']}] {item['title']}" + (f" ({bpm} BPM)" if bpm else "")
-                self.window.audio_combo.addItem(label, item["id"])
-            
-            for item in videos:
-                label = f"[{item['id']}] {item['title']}"
-                self.window.video_combo.addItem(label, item["id"])
+                first_audio_index = None
+                preferred_audio_index = None
+                for item in audios:
+                    bpm = item.get("bpm")
+                    label = f"[{item['id']}] {item['title']}" + (f" ({bpm} BPM)" if bpm else "")
+                    combo_index = self.window.audio_combo.count()
+                    self.window.audio_combo.addItem(label, item["id"])
+                    if first_audio_index is None:
+                        first_audio_index = combo_index
+                    if preferred_audio_index is None and self._audio_item_has_analysis(item):
+                        preferred_audio_index = combo_index
+
+                for item in videos:
+                    label = f"[{item['id']}] {item['title']}"
+                    self.window.video_combo.addItem(label, item["id"])
+                if preferred_audio_index is not None:
+                    self.window.audio_combo.setCurrentIndex(preferred_audio_index)
+                elif first_audio_index is not None:
+                    self.window.audio_combo.setCurrentIndex(first_audio_index)
+                if self.window.video_combo.count() > 1:
+                    self.window.video_combo.setCurrentIndex(1)
+            finally:
+                self.window.audio_combo.blockSignals(audio_blocked)
+                self.window.video_combo.blockSignals(video_blocked)
+            self._sync_schnitt_audio_selection()
+
+    def _sync_schnitt_audio_selection(self) -> None:
+        """Propagate blocked combo selection to SCHNITT audio binders."""
+        audio_id = self.window.audio_combo.currentData()
+        coordinator = getattr(self.window, "_schnitt_coordinator", None)
+        if coordinator is not None:
+            coordinator.refresh_audio(audio_id)
+        stems = getattr(self.window, "stems", None)
+        if stems is not None and audio_id is not None:
+            stems._update_stem_workspace(audio_id)
+
+    @staticmethod
+    def _audio_item_has_analysis(item: dict) -> bool:
+        return bool(item.get("bpm") or item.get("key") or item.get("lufs"))
 
     def _refresh_media_table_debounced(self) -> None:
         """Debounced media table refresh — coalesces rapid calls."""

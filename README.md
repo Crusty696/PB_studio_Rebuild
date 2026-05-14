@@ -28,7 +28,7 @@ PB Studio is a desktop video production tool designed for DJs and music video cr
 ### Video Analysis
 - Scene detection (PySceneDetect content detector)
 - Per-scene motion scoring with RAFT optical flow (GPU-cached per batch)
-- Per-scene visual embeddings (SigLIP-so400m, 1152-dim) stored in SQLite VectorDB
+- Per-scene visual embeddings: legacy SigLIP-1 1152-dim in the current video pipeline; Brain V3 uses SigLIP-2 768-dim in project-local sqlite-vec storage
 - Numpy-vectorized semantic clip search
 - Keyframe extraction for preview
 
@@ -40,7 +40,7 @@ PB Studio is a desktop video production tool designed for DJs and music video cr
 ### Multi-Agent Chat
 - Built-in AI chat dock connected to the entire action system
 - Routes requests to specialized agents: Pacing, Vision, Audio, Editor
-- Powered by a local small LLM (Qwen 0.5B) for fully offline operation
+- Powered by local Ollama models when available, with `gemma3:4b` as default fallback and Qwen tool-use models preferred when installed
 - Human-in-the-Loop learning: manual cut corrections are stored and reused in future sessions
 
 ### Export
@@ -55,10 +55,11 @@ PB Studio is a desktop video production tool designed for DJs and music video cr
 
 | Requirement | Version |
 |---|---|
-| Python | 3.11 or 3.12 |
-| CUDA GPU | Required (GTX 1060 6GB minimum recommended) |
+| Python | 3.10 via conda env `pb-studio` |
+| CUDA GPU | Required: NVIDIA GTX 1060 6GB / CUDA `cuda:0` target |
+| CUDA stack | PyTorch `1.12.1+cu113`, CUDA 11.3 wheels |
 | FFmpeg | Must be on PATH |
-| Poetry | Latest |
+| Conda | Miniconda/Anaconda, `environment.yml` |
 
 > **Note:** CPU-only mode is not supported. The pipeline is designed for GPU acceleration.
 
@@ -73,25 +74,25 @@ git clone <repo-url>
 cd pb-studio-rebuild
 ```
 
-### 2. Install Poetry
+### 2. Create/update the conda environment
 
-```bash
-pip install poetry
+Recommended on Windows:
+
+```bat
+setup_pb_studio.bat
 ```
 
-### 3. Add the PyTorch CUDA source
+Manual equivalent:
 
-The project uses a custom PyTorch index for CUDA 12.8. This is already configured in `pyproject.toml`.
-
-### 4. Install dependencies
-
-```bash
-poetry install
+```powershell
+conda env create -f environment.yml
+conda activate pb-studio
+python scripts/setup_py310_gpu.py --skip-venv
 ```
 
-This installs all dependencies including PyTorch with CUDA support, Demucs, beat_this (from GitHub), and the full ML stack.
+`environment.yml` installs Python 3.10 and pip dependencies from `requirements-py310-cu113.txt`. The setup helper also installs `vendor/beat_this` and checks FFmpeg/Ollama/model prerequisites.
 
-### 5. Configure environment variables
+### 3. Configure environment variables
 
 Create a `.env` file in the project root:
 
@@ -101,10 +102,16 @@ HF_TOKEN=your_huggingface_token_here
 
 A Hugging Face token is required to download gated models (e.g., Demucs, SigLIP).
 
-### 6. Run the application
+### 4. Run the application
 
-```bash
-poetry run python main.py
+```bat
+start_pb_studio.bat
+```
+
+Alternative:
+
+```powershell
+python start_pb_studio.py
 ```
 
 ---
@@ -129,7 +136,7 @@ The app uses 4 top tabs: **PROJEKT · MATERIAL & ANALYSE · SCHNITT · EXPORT** 
 ```
 pb-studio-rebuild/
 ├── main.py                  # Application entry point, Qt app, background workers
-├── database.py              # SQLAlchemy ORM schema (all models)
+├── database/                # SQLAlchemy ORM schema, sessions, migrations
 ├── agents/                  # Multi-agent AI system
 │   ├── orchestrator_agent.py
 │   ├── pacing_agent.py      # PhD-level DJ pacing logic
@@ -150,14 +157,14 @@ pb-studio-rebuild/
 │   └── widgets/
 │       └── stem_workspace.py
 ├── docs/                    # Technical documentation
-│   ├── ARCHITECTURE.md      # System architecture overview
-│   └── pacing_logic_phd.md  # Full pacing algorithm specification
+│   ├── superpowers/         # Active implementation plans, specs, synthesis
+│   └── user/                # User-facing guides
 ├── storage/                 # Runtime output (auto-created)
 │   ├── stems/               # Demucs stem files
 │   ├── proxies/             # NVENC proxy videos
 │   └── keyframes/           # Extracted video frames
 ├── exports/                 # Final rendered videos
-└── data/vector/             # SQLite vector database (SigLIP embeddings)
+└── data/vector/             # Legacy vector data (runtime/project data is DB-backed)
 ```
 
 ---
@@ -173,8 +180,8 @@ pb-studio-rebuild/
 | Beat Detection | beat_this (CPJKU, GPU) |
 | Stem Separation | Demucs `htdemucs_ft` |
 | Optical Flow | RAFT (torchvision) |
-| Visual Embeddings | SigLIP-so400m-patch14-384 |
-| Local LLM | Gemma 4 (Ollama) |
+| Visual Embeddings | Legacy SigLIP-1 1152-dim + Brain V3 SigLIP-2 768-dim |
+| Local LLM | Ollama auto-detect, default fallback `gemma3:4b`, Qwen tool-use models preferred |
 | Video Processing | FFmpeg + OpenCV + PySceneDetect |
 | Audio Analysis | librosa |
 
@@ -184,8 +191,15 @@ pb-studio-rebuild/
 
 ### Run tests
 
-```bash
-poetry run pytest tests/
+```bat
+run_pytest_schnitt.bat
+run_pytest_brain_v3.bat
+```
+
+Manual:
+
+```powershell
+& "$env:USERPROFILE\miniconda3\envs\pb-studio\python.exe" -m pytest tests -q
 ```
 
 ### Database

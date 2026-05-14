@@ -88,6 +88,7 @@ class SchnittTabPacingAnker(QWidget):
         self.reactivity_spin.setToolTip(
             "Exakter Prozentwert für Energie-Reaktivität der Pacing-Engine."
         )
+        self.reactivity_spin.lineEdit().setToolTip(self.reactivity_spin.toolTip())
         row2.addWidget(self.reactivity_spin)
         v.addLayout(row2)
 

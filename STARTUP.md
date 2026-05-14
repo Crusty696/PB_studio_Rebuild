@@ -13,7 +13,7 @@ PB Studio has **one primary entry point**: `main.py`
 - Creates QApplication instance
 - Loads theme and UI
 - Shows splash screen during startup
-- Performs system checks (CUDA, FFmpeg, dependencies)
+- Performs system checks (CUDA, FFmpeg, dependencies, Ollama when enabled)
 - Creates and displays PBWindow (main application window)
 - Starts event loop
 
@@ -37,28 +37,29 @@ main.py
 These are **infrastructure** scripts, not application entry points:
 
 - **`start_pb_studio.bat`** / **`start_pb_studio.py`** - Windows launcher
-  - Checks/creates Python venv
-  - Runs `main.py` in the venv
-  - Handles errors and crash logs
+  - Prefers conda env `pb-studio` (`%USERPROFILE%\miniconda3\envs\pb-studio\python.exe`)
+  - Falls back to `.venv310`, then `.venv`
+  - Runs `main.py`
+  - Captures stdout/stderr logs in `outputs\app_run_<timestamp>.log`
   
-- **`setup_pb_studio.py`** - Installation script
-  - Creates Python 3.11 venv
-  - Installs PyTorch with CUDA
-  - Installs all dependencies
-  - Verifies installation
+- **`setup_pb_studio.bat`** / **`setup_pb_studio.py`** - Installation scripts
+  - Create/update conda env `pb-studio` from `environment.yml`
+  - Install PyTorch `1.12.1+cu113` and the CUDA 11.3 dependency set
+  - Install `vendor/beat_this`
+  - Verify installation
 
-- **`configure_ollama.py`** - Ollama configuration utility
-  - Sets default Ollama model and URL in JSON settings
+- **`run_pytest_schnitt.bat`** / **`run_pytest_brain_v3.bat`** - focused regression wrappers
+  - Use the same Python selection order as the launcher
+  - Write full pytest output to `outputs\`
 
 ### Diagnostic Tools
 
 Located in `scripts/` directory (NOT entry points):
 
-- **`scripts/main_diag.py`** - Diagnostic startup script
-  - Minimal diagnostic version of main.py
-  - Prints step-by-step initialization messages
-  - Useful for troubleshooting startup failures
-  - Imports from main.py for shared setup functions
+- **`scripts/diagnose_cuda.py`** - CUDA/PyTorch GPU diagnostic
+- **`scripts/hardware_diag.py`** - hardware and dependency diagnostic
+- **`scripts/phase_e_smoke_boot.py`** - PBWindow boot smoke helper
+- **`scripts/phase_e_pipeline_smoke.py`** / **`scripts/phase_h_workflow_smoke.py`** - focused UI/pipeline smoke helpers
 
 ### Running PB Studio
 
@@ -67,15 +68,14 @@ Located in `scripts/` directory (NOT entry points):
 # Recommended: Use the launcher
 start_pb_studio.bat
 
-# Or directly with venv Python
-.venv\Scripts\python.exe main.py
+# Or directly with conda Python
+%USERPROFILE%\miniconda3\envs\pb-studio\python.exe main.py
 ```
 
-**Manual (after venv setup):**
+**Manual (after conda setup):**
 ```bash
-poetry run python main.py
-# or
-python main.py  # if activated in venv
+conda activate pb-studio
+python main.py
 ```
 
 ## Initialization Order
@@ -108,9 +108,10 @@ PB_STUDIO_JSON_LOGS=0             # Use JSON log format
 
 If main.py fails to start:
 
-1. Run the diagnostic script:
+1. Run diagnostics:
    ```bash
-   .venv\Scripts\python.exe scripts\main_diag.py
+   %USERPROFILE%\miniconda3\envs\pb-studio\python.exe scripts\diagnose_cuda.py
+   %USERPROFILE%\miniconda3\envs\pb-studio\python.exe scripts\hardware_diag.py
    ```
 
 2. Check the logs:
@@ -121,12 +122,12 @@ If main.py fails to start:
 
 3. Verify dependencies:
    ```bash
-   setup_pb_studio.py --repair
+   setup_pb_studio.bat
    ```
 
 4. Test critical imports:
    ```bash
-   scripts\debug_imports.py
+   %USERPROFILE%\miniconda3\envs\pb-studio\python.exe -m pytest tests\test_scripts -q
    ```
 
 ## Architecture Notes

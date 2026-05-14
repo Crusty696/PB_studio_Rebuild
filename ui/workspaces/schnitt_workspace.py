@@ -49,9 +49,11 @@ class SchnittWorkspace(QWidget):
         self.empty_view.preset_selected.connect(self.preset_selected)
         self.empty_view.custom_clicked.connect(self.custom_clicked)
         self.loading_view.cancel_requested.connect(self.cancel_requested)
+        self.empty_view.set_project_available(False)
 
     def set_active_project(self, project_id: int | None) -> None:
         self._project_id = project_id
+        self.empty_view.set_project_available(project_id is not None)
         self.refresh_state_from_db()
 
     def refresh_state_from_db(self) -> None:

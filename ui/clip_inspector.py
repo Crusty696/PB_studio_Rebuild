@@ -26,6 +26,9 @@ class ClipInspectorPanel(QWidget):
     """Inspector-Panel fuer Clip-Eigenschaften, rechts neben der Timeline."""
 
     clip_property_changed = Signal(int, str, float)  # entry_id, field, value
+    _entry_data_loaded = Signal(dict, int)
+    _entry_load_failed = Signal()
+    _property_write_done = Signal(int, str, float)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -87,9 +90,13 @@ class ClipInspectorPanel(QWidget):
         layout.addStretch()
 
         # No-selection placeholder
-        self._no_selection_label = QLabel("Kein Clip\nausgewaehlt")
+        self._no_selection_label = QLabel("Kein Clip\nausgewaehlt\nTimeline-Clip anklicken")
         self._no_selection_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._no_selection_label.setStyleSheet(f"color: {T4}; font-size: 11px; margin-top: 20px;")
+        self._no_selection_label.setToolTip(
+            "Der Inspector zeigt Eigenschaften des aktuell ausgewaehlten Timeline-Clips."
+        )
+        self._no_selection_label.setAccessibleName("Kein Timeline-Clip ausgewaehlt")
         layout.addWidget(self._no_selection_label)
 
         self._current_entry_id: int | None = None
@@ -102,6 +109,9 @@ class ClipInspectorPanel(QWidget):
         self._debounce_timer.timeout.connect(self._flush_pending_change)
         self._pending_field: str | None = None
         self._pending_value: float = 0.0
+        self._entry_data_loaded.connect(self._apply_entry_data)
+        self._entry_load_failed.connect(lambda: self._set_fields_visible(False))
+        self._property_write_done.connect(self.clip_property_changed.emit)
 
         # Connect spinbox changes
         self._start_spin.valueChanged.connect(lambda v: self._on_field_changed("start_time", v))
@@ -172,7 +182,7 @@ class ClipInspectorPanel(QWidget):
                     entry = session.get(TimelineEntry, entry_id)
                     if not entry:
                         logger.warning("ClipInspector: entry_id=%s not found in DB", entry_id)
-                        QTimer.singleShot(0, lambda: self._set_fields_visible(False))
+                        self._entry_load_failed.emit()
                         return
                     vals = {
                         "track": entry.track,
@@ -183,7 +193,7 @@ class ClipInspectorPanel(QWidget):
                         "contrast": entry.contrast if entry.contrast is not None else 1.0,
                         "crossfade": entry.crossfade_duration if entry.crossfade_duration is not None else 0.0,
                     }
-                QTimer.singleShot(0, lambda: self._apply_entry_data(vals, num_clips))
+                self._entry_data_loaded.emit(vals, num_clips)
             except Exception as e:
                 logger.warning("ClipInspector: DB-Fehler: %s", e)
 
@@ -253,7 +263,7 @@ class ClipInspectorPanel(QWidget):
                         return
                     setattr(entry, field, round(value, 3))
                     session.commit()
-                QTimer.singleShot(0, lambda: self.clip_property_changed.emit(entry_id, field, value))
+                self._property_write_done.emit(entry_id, field, value)
             except Exception as e:
                 logger.warning("ClipInspector: DB-Write Fehler: %s", e)
 

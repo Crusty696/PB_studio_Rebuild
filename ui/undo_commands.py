@@ -101,9 +101,34 @@ class AddClipCommand(QUndoCommand):
         self._source_start = source_start
         self._source_end = source_end
         self._entry_id: int | None = None
+        self._replaced_entries: list[dict] = []
 
     def redo(self):
         with DBSession(engine) as session:
+            self._replaced_entries = []
+            if self._track_type == "audio":
+                existing_audio = (
+                    session.query(TimelineEntry)
+                    .filter_by(project_id=self._project_id, track="audio")
+                    .all()
+                )
+                for old in existing_audio:
+                    self._replaced_entries.append({
+                        "project_id": old.project_id,
+                        "track": old.track,
+                        "media_id": old.media_id,
+                        "start_time": old.start_time,
+                        "end_time": old.end_time,
+                        "lane": old.lane,
+                        "source_start": old.source_start,
+                        "source_end": old.source_end,
+                        "crossfade_duration": old.crossfade_duration,
+                        "brightness": old.brightness,
+                        "contrast": old.contrast,
+                        "locked": old.locked,
+                    })
+                    session.delete(old)
+
             entry = TimelineEntry(
                 project_id=self._project_id,
                 track=self._track_type,
@@ -135,8 +160,13 @@ class AddClipCommand(QUndoCommand):
             entry = session.get(TimelineEntry, self._entry_id)
             if entry:
                 session.delete(entry)
-                session.commit()
-        self._timeline._remove_clip_item(self._entry_id)
+            for snap in self._replaced_entries:
+                session.add(TimelineEntry(**snap))
+            session.commit()
+        if self._track_type == "audio" and hasattr(self._timeline, "load_from_db"):
+            self._timeline.load_from_db(self._project_id)
+        else:
+            self._timeline._remove_clip_item(self._entry_id)
 
     @property
     def entry_id(self) -> int | None:

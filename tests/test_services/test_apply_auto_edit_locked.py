@@ -13,7 +13,7 @@ Plan-Abweichungen (Standard für SCHNITT-Redesign 2026-05-09):
 import pytest
 from sqlalchemy.orm import Session as DBSession
 
-from database.models import Project, TimelineEntry
+from database.models import AudioTrack, Project, TimelineEntry
 
 
 def test_locked_clip_preserved_unchanged(test_engine, monkeypatch):
@@ -243,3 +243,149 @@ def test_backward_compat_video_id_field(test_engine, monkeypatch):
         rows = s.query(TimelineEntry).filter_by(project_id=pid).all()
     assert len(rows) == 1
     assert rows[0].media_id == 77
+
+
+def test_b319_segment_duration_is_clamped_to_source_span(test_engine, monkeypatch):
+    """B-319: Timeline-Entry-Laenge darf nicht groesser als Source-Spanne sein."""
+    import services.timeline_service as ts_mod
+    monkeypatch.setattr(ts_mod, "engine", test_engine)
+    with DBSession(test_engine) as s:
+        p = Project(name="b319-source-span", path="/tmp/b319-source-span")
+        s.add(p)
+        s.commit()
+        pid = p.id
+
+    ts_mod.apply_auto_edit_segments([
+        {
+            "media_id": 20,
+            "start": 0.0,
+            "end": 55.16,
+            "lane": 0,
+            "source_start": 0.0,
+            "source_end": 10.0,
+            "crossfade_duration": 0.0,
+            "brightness": 0.0,
+            "contrast": 1.0,
+        },
+        {
+            "media_id": 72,
+            "start": 10.322,
+            "end": 20.322,
+            "lane": 0,
+            "source_start": 0.0,
+            "source_end": 5.2,
+            "crossfade_duration": 0.0,
+            "brightness": 0.0,
+            "contrast": 1.0,
+        },
+    ], pid)
+
+    with DBSession(test_engine) as s:
+        rows = (
+            s.query(TimelineEntry)
+            .filter_by(project_id=pid, track="video", locked=False)
+            .order_by(TimelineEntry.start_time)
+            .all()
+        )
+
+    assert len(rows) == 2
+    assert rows[0].start_time == 0.0
+    assert rows[0].end_time == 10.0
+    assert rows[1].start_time == 10.322
+    assert rows[1].end_time == 15.522
+    assert rows[0].end_time <= rows[1].start_time
+
+
+def test_b319_repair_timeline_integrity_fixes_existing_bad_rows(test_engine, monkeypatch):
+    """B-319: bestehende kaputte Timeline-Zeilen werden repariert."""
+    import services.timeline_service as ts_mod
+    monkeypatch.setattr(ts_mod, "engine", test_engine)
+    with DBSession(test_engine) as s:
+        p = Project(name="b319-repair", path="/tmp/b319-repair")
+        s.add(p)
+        s.flush()
+        s.add(AudioTrack(
+            id=2,
+            project_id=p.id,
+            file_path="/tmp/b319-audio.wav",
+            title="B319 Audio",
+            duration=5531.005,
+        ))
+        s.add(TimelineEntry(
+            project_id=p.id,
+            track="video",
+            media_id=20,
+            start_time=0.0,
+            end_time=55.16,
+            source_start=0.0,
+            source_end=10.0,
+            lane=0,
+            locked=False,
+        ))
+        s.add(TimelineEntry(
+            project_id=p.id,
+            track="video",
+            media_id=72,
+            start_time=10.322,
+            end_time=20.322,
+            source_start=0.0,
+            source_end=5.2,
+            lane=0,
+            locked=False,
+        ))
+        s.add(TimelineEntry(
+            project_id=p.id,
+            track="video",
+            media_id=73,
+            start_time=20.5,
+            end_time=30.5,
+            source_start=0.0,
+            source_end=4.0,
+            lane=0,
+            locked=True,
+        ))
+        s.add(TimelineEntry(
+            project_id=p.id,
+            track="audio",
+            media_id=2,
+            start_time=0.0,
+            end_time=3505.649,
+            lane=0,
+        ))
+        s.add(TimelineEntry(
+            project_id=p.id,
+            track="audio",
+            media_id=2,
+            start_time=5531.005,
+            end_time=11062.01,
+            lane=0,
+        ))
+        s.commit()
+        pid = p.id
+
+    result = ts_mod.repair_timeline_integrity(pid)
+
+    assert result["video_duration_clamped"] == 3
+    assert result["audio_duplicates_removed"] == 1
+    assert result["audio_duration_synced"] == 1
+    with DBSession(test_engine) as s:
+        video_rows = (
+            s.query(TimelineEntry)
+            .filter_by(project_id=pid, track="video")
+            .order_by(TimelineEntry.start_time)
+            .all()
+        )
+        audio_rows = (
+            s.query(TimelineEntry)
+            .filter_by(project_id=pid, track="audio")
+            .all()
+        )
+
+    assert len(audio_rows) == 1
+    assert audio_rows[0].start_time == 0.0
+    assert audio_rows[0].end_time == 5531.005
+    assert video_rows[0].end_time == 10.0
+    assert video_rows[1].end_time == 15.522
+    assert video_rows[2].locked is True
+    assert video_rows[2].end_time == 24.5
+    assert video_rows[0].end_time <= video_rows[1].start_time

@@ -66,6 +66,11 @@ class CutListPanel(QWidget):
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.setToolTip(
+            "Cutliste der aktuellen Timeline. Zeile anklicken setzt den Playhead "
+            "auf den Cut-Zeitpunkt."
+        )
+        self.table.setAccessibleName("Cutliste der aktuellen Timeline")
         self.table.cellClicked.connect(self._on_cell_clicked)
         layout.addWidget(self.table)
 

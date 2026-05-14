@@ -435,7 +435,7 @@ def get_combo_items(project_id: int | None = None) -> list[dict]:
             AudioTrack.id, AudioTrack.title, AudioTrack.bpm,
         ).filter_by(project_id=project_id).filter(
             AudioTrack.deleted_at.is_(None)
-        ).all()
+        ).order_by(AudioTrack.id).all()
         for aid, title, bpm in audios:
             items.append({"id": aid, "title": title, "bpm": bpm, "type": "Audio"})
 
@@ -444,7 +444,7 @@ def get_combo_items(project_id: int | None = None) -> list[dict]:
         ).filter(
             VideoClip.project_id == project_id,
             VideoClip.deleted_at.is_(None),
-        ).all()
+        ).order_by(VideoClip.id).all()
         for vid, path in videos:
             items.append({"id": vid, "title": Path(path).stem, "type": "Video"})
     return items

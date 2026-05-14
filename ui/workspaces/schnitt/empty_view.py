@@ -29,15 +29,15 @@ class SchnittEmptyView(QWidget):
         layout.setSpacing(16)
         layout.addStretch(1)
 
-        title = QLabel("Noch keine Timeline vorhanden.")
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title.setStyleSheet("font-size: 22px; font-weight: 800; color: #f9fafb;")
-        layout.addWidget(title)
+        self.title = QLabel("Noch keine Timeline vorhanden.")
+        self.title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.title.setStyleSheet("font-size: 22px; font-weight: 800; color: #f9fafb;")
+        layout.addWidget(self.title)
 
-        subtitle = QLabel("Wähle einen Auto-Edit Stil, um zu starten.")
-        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        subtitle.setStyleSheet("color: #9ca3af; font-size: 13px;")
-        layout.addWidget(subtitle)
+        self.subtitle = QLabel("Wähle einen Auto-Edit Stil, um zu starten.")
+        self.subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.subtitle.setStyleSheet("color: #9ca3af; font-size: 13px;")
+        layout.addWidget(self.subtitle)
 
         layout.addSpacing(20)
 
@@ -85,3 +85,23 @@ class SchnittEmptyView(QWidget):
 
     def preset_keys(self) -> list[str]:
         return [k for k, _ in _PRESETS]
+
+    def set_project_available(self, available: bool) -> None:
+        if available:
+            self.title.setText("Noch keine Timeline vorhanden.")
+            self.subtitle.setText("Wähle einen Auto-Edit Stil, um zu starten.")
+            custom_tip = "SCHNITT mit eigenen Pacing- und Auto-Edit-Einstellungen starten."
+        else:
+            self.title.setText("Kein Projekt aktiv.")
+            self.subtitle.setText("Öffne zuerst ein Projekt, bevor Auto-Edit gestartet werden kann.")
+            custom_tip = "Erst ein Projekt oeffnen, dann eigene SCHNITT-Einstellungen starten."
+
+        for key, btn in self._buttons.items():
+            btn.setEnabled(available)
+            if available:
+                hint = dict(_PRESETS).get(key, "")
+                btn.setToolTip(f"Auto-Edit-Preset {key} starten: {hint}")
+            else:
+                btn.setToolTip(f"Auto-Edit-Preset {key} ist erst mit aktivem Projekt verfuegbar.")
+        self.btn_custom.setEnabled(available)
+        self.btn_custom.setToolTip(custom_tip)

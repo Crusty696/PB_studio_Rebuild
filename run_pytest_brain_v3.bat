@@ -1,7 +1,7 @@
 @echo off
-title Brain V3 - pytest (Phase 0-5)
+title Brain V3 - pytest (Phase 0-6 focused)
 echo ============================================
-echo   Brain V3 — Tests (Phase 0-5, 24 Test-Files)
+echo   Brain V3 — Tests (Phase 0-6 focused, 25 Test-Files)
 echo   Plan: docs\superpowers\plans\2026-05-04-brain-v3-nvidia-plan\
 echo ============================================
 echo.
@@ -14,10 +14,13 @@ set OMP_NUM_THREADS=4
 set MKL_NUM_THREADS=4
 
 set "PB_PYTHON="
-set "PB_CONDA_PY=C:\Users\David Lochmann\miniconda3\envs\pb-studio\python.exe"
+set "PB_CONDA_PY=%USERPROFILE%\miniconda3\envs\pb-studio\python.exe"
+set "PB_CONDA_PY_ALT=%USERPROFILE%\anaconda3\envs\pb-studio\python.exe"
 
 if exist "%PB_CONDA_PY%" (
     set "PB_PYTHON=%PB_CONDA_PY%"
+) else if exist "%PB_CONDA_PY_ALT%" (
+    set "PB_PYTHON=%PB_CONDA_PY_ALT%"
 ) else if exist ".venv310\Scripts\python.exe" (
     set "PB_PYTHON=.venv310\Scripts\python.exe"
 ) else if exist ".venv\Scripts\python.exe" (

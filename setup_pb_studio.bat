@@ -85,7 +85,7 @@ echo.
 if %SETUP_EXIT% EQU 0 (
     echo   Setup fertig.
     echo   App-Start:           start_pb_studio.bat
-    echo   SCHNITT-Tests:       run_pytest_schnitt.bat   ^(26 Test-Files^)
+    echo   SCHNITT-Tests:       run_pytest_schnitt.bat   ^(46 Test-Files^)
     echo   Brain-V3-Tests:      run_pytest_brain_v3.bat
     echo   SCHNITT-Live-Verify: docs\superpowers\plans\2026-05-09-schnitt-workspace-redesign\12_LIVE_VERIFY_USER_GUIDE.md
 ) else (

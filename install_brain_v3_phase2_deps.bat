@@ -9,10 +9,13 @@ echo.
 cd /d "%~dp0"
 
 set "PB_PYTHON="
-set "PB_CONDA_PY=C:\Users\David Lochmann\miniconda3\envs\pb-studio\python.exe"
+set "PB_CONDA_PY=%USERPROFILE%\miniconda3\envs\pb-studio\python.exe"
+set "PB_CONDA_PY_ALT=%USERPROFILE%\anaconda3\envs\pb-studio\python.exe"
 
 if exist "%PB_CONDA_PY%" (
     set "PB_PYTHON=%PB_CONDA_PY%"
+) else if exist "%PB_CONDA_PY_ALT%" (
+    set "PB_PYTHON=%PB_CONDA_PY_ALT%"
 ) else if exist ".venv310\Scripts\python.exe" (
     set "PB_PYTHON=.venv310\Scripts\python.exe"
 ) else if exist ".venv\Scripts\python.exe" (

@@ -129,6 +129,24 @@ def _do_apply_segments(segments: list[dict], project_id: int) -> int:
         for seg in segments:
             seg_start = float(seg["start"])
             seg_end = float(seg["end"])
+            source_start = float(seg.get("source_start", 0.0) or 0.0)
+            raw_source_end = seg.get("source_end")
+            source_end = float(raw_source_end) if raw_source_end is not None else None
+
+            def _trim_start(new_start: float) -> None:
+                nonlocal seg_start, source_start
+                delta = max(0.0, new_start - seg_start)
+                seg_start = new_start
+                if delta > 0.0:
+                    source_start = round(source_start + delta, 4)
+
+            def _trim_end(new_end: float) -> None:
+                nonlocal seg_end, source_end
+                delta = max(0.0, seg_end - new_end)
+                seg_end = new_end
+                if source_end is not None and delta > 0.0:
+                    source_end = round(max(source_start, source_end - delta), 4)
+
             skip = False
             for lr_start, lr_end in locked_ranges:
                 # Komplett ausserhalb -> kein Konflikt
@@ -140,14 +158,20 @@ def _do_apply_segments(segments: list[dict], project_id: int) -> int:
                     break
                 # Linke Kante ragt in die Locked-Range -> rechts klemmen
                 if seg_start < lr_start and seg_end > lr_start and seg_end <= lr_end:
-                    seg_end = lr_start
+                    _trim_end(lr_start)
                 # Rechte Kante ragt aus der Locked-Range -> links klemmen
                 elif seg_start >= lr_start and seg_start < lr_end and seg_end > lr_end:
-                    seg_start = lr_end
+                    _trim_start(lr_end)
                 # Locked-Range ist komplett im Segment -> auf erste Haelfte
                 # klemmen, hintere Haelfte geht verloren (selten; Plan-Verhalten)
                 elif seg_start < lr_start and seg_end > lr_end:
-                    seg_end = lr_start
+                    _trim_end(lr_start)
+            if source_end is not None:
+                source_span = source_end - source_start
+                if source_span <= 1e-3:
+                    skip = True
+                elif (seg_end - seg_start) > source_span:
+                    _trim_end(round(seg_start + source_span, 4))
             if skip or (seg_end - seg_start) <= 1e-3:
                 continue
 
@@ -166,8 +190,8 @@ def _do_apply_segments(segments: list[dict], project_id: int) -> int:
                 media_id=mid,
                 start_time=seg_start,
                 end_time=seg_end,
-                source_start=seg.get("source_start", 0.0),
-                source_end=seg.get("source_end"),
+                source_start=source_start,
+                source_end=source_end,
                 lane=seg.get("lane", 0),
                 crossfade_duration=seg.get("crossfade_duration", 0.0),
                 brightness=seg.get("brightness", 0.0),
@@ -187,6 +211,83 @@ def _do_apply_segments(segments: list[dict], project_id: int) -> int:
         inserted, project_id,
     )
     return inserted
+
+
+def repair_timeline_integrity(project_id: int) -> dict[str, int]:
+    """Repariert bestehende SCHNITT-Timeline-Zeilen ohne Medien zu loeschen.
+
+    B-319: Alte Auto-Edit-Laeufe konnten Timeline-Dauern schreiben, die laenger
+    als ``source_end - source_start`` waren. Ausserdem konnte das manuelle
+    Audio-Hinzufuegen denselben A1-Master mehrfach hintereinander eintragen.
+    """
+    from database import AudioTrack, nullpool_session
+
+    result = {
+        "video_duration_clamped": 0,
+        "video_overlaps_shifted": 0,
+        "audio_duplicates_removed": 0,
+        "audio_duration_synced": 0,
+    }
+    with nullpool_session() as session:
+        video_rows = (
+            session.query(TimelineEntry)
+            .filter_by(project_id=project_id, track="video")
+            .order_by(TimelineEntry.start_time, TimelineEntry.id)
+            .all()
+        )
+        cursor = 0.0
+        for row in video_rows:
+            start = float(row.start_time or 0.0)
+            end = float(row.end_time or start)
+            if row.source_start is not None and row.source_end is not None:
+                source_span = float(row.source_end) - float(row.source_start)
+                if source_span > 1e-3 and (end - start) > source_span + 1e-3:
+                    end = round(start + source_span, 4)
+                    row.end_time = end
+                    result["video_duration_clamped"] += 1
+            if start < cursor and not bool(row.locked):
+                duration = max(0.0, end - start)
+                start = round(cursor, 4)
+                end = round(start + duration, 4)
+                row.start_time = start
+                row.end_time = end
+                result["video_overlaps_shifted"] += 1
+            cursor = max(cursor, float(row.end_time or end))
+
+        audio_rows = (
+            session.query(TimelineEntry)
+            .filter_by(project_id=project_id, track="audio")
+            .order_by(TimelineEntry.start_time, TimelineEntry.id)
+            .all()
+        )
+        seen_audio: set[tuple[int | None, int]] = set()
+        for row in audio_rows:
+            key = (row.media_id, int(row.lane or 0))
+            if key in seen_audio:
+                session.delete(row)
+                result["audio_duplicates_removed"] += 1
+            else:
+                seen_audio.add(key)
+                track = session.get(AudioTrack, row.media_id) if row.media_id is not None else None
+                if track and track.duration:
+                    expected_start = 0.0
+                    expected_end = round(float(track.duration), 4)
+                    current_start = float(row.start_time or 0.0)
+                    current_end = float(row.end_time or current_start)
+                    if (
+                        abs(current_start - expected_start) > 1e-3
+                        or abs(current_end - expected_end) > 1e-3
+                    ):
+                        row.start_time = expected_start
+                        row.end_time = expected_end
+                        row.source_start = 0.0
+                        row.source_end = expected_end
+                        result["audio_duration_synced"] += 1
+
+        session.commit()
+
+    logger.info("Timeline-Integritaet repariert (project=%d): %s", project_id, result)
+    return result
 
 
 def _safe_metadata_value(val: Any) -> Any:
@@ -492,19 +593,34 @@ def get_cut_list(project_id: int) -> list[dict]:
     rows: list[dict] = []
     with nullpool_session() as s:
         entries = (
-            s.query(TimelineEntry)
+            s.query(
+                TimelineEntry.media_id,
+                TimelineEntry.start_time,
+                TimelineEntry.end_time,
+                TimelineEntry.locked,
+            )
             .filter_by(project_id=project_id, track="video")
             .order_by(TimelineEntry.start_time)
             .all()
         )
+        media_ids = sorted({int(e.media_id) for e in entries if e.media_id})
+        clips_by_id = {}
+        if media_ids:
+            clips = (
+                s.query(VideoClip.id, VideoClip.file_path)
+                .filter(VideoClip.id.in_(media_ids))
+                .all()
+            )
+            clips_by_id = {clip.id: clip.file_path for clip in clips}
+
         for idx, e in enumerate(entries):
-            clip = s.get(VideoClip, e.media_id) if e.media_id else None
+            clip_path = clips_by_id.get(e.media_id)
             start_t = float(e.start_time or 0.0)
             end_t = float(e.end_time or 0.0)
-            if clip is not None:
+            if clip_path:
                 try:
                     from pathlib import Path as _P
-                    title = _P(clip.file_path).stem if clip.file_path else f"Clip {e.media_id}"
+                    title = _P(clip_path).stem if clip_path else f"Clip {e.media_id}"
                 except Exception:
                     title = f"Clip {e.media_id}"
             else:

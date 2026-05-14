@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtWidgets import QApplication, QPushButton
+from PySide6.QtWidgets import QApplication, QComboBox, QPushButton
 
 from services.schnitt_context import SchnittDataContext
 
@@ -89,3 +89,29 @@ def test_generate_timeline_guard_stops_before_loading_when_context_blocked():
 
     assert messages == ["[SCHNITT] Timeline generieren blockiert: Audio fehlt; Video fehlt"]
     assert refreshes == [True]
+
+
+def test_workflow_gates_do_not_count_combo_placeholders_as_ready(qapp):
+    from ui.controllers.workspace_setup import WorkspaceSetupController
+
+    audio_combo = QComboBox()
+    video_combo = QComboBox()
+    audio_combo.addItem("-- kein Audio --", None)
+    video_combo.addItem("-- kein Video --", None)
+    btn_generate = QPushButton("Timeline generieren")
+    btn_auto_edit = QPushButton("Auto-Edit")
+
+    window = SimpleNamespace(
+        logger=SimpleNamespace(debug=lambda *args, **kwargs: None),
+        audio_combo=audio_combo,
+        video_combo=video_combo,
+        btn_generate=btn_generate,
+        btn_auto_edit=btn_auto_edit,
+        _schnitt_action_binder=None,
+    )
+
+    WorkspaceSetupController(window)._update_workflow_gates()
+
+    assert btn_generate.isEnabled() is False
+    assert btn_auto_edit.isEnabled() is False
+    assert "Audio und Video" in btn_auto_edit.toolTip()

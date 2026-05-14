@@ -6,6 +6,7 @@ Plan: docs/superpowers/plans/2026-05-09-schnitt-workspace-redesign/
 """
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from PySide6.QtCore import QObject, Signal
@@ -13,12 +14,15 @@ from PySide6.QtCore import QObject, Signal
 from services.pacing_profile import PacingProfile
 from services.ui_binder import PacingProfileBinder
 
+logger = logging.getLogger(__name__)
+
 
 class SchnittController(QObject):
     # Tier-1 B7/B8 Signale: weiterleitung an PBWindow-Logik (Folge-Plan)
     request_auto_edit_with_profile = Signal(object)   # PacingProfile
     request_regenerate = Signal(object)               # PacingProfile
     request_open_settings = Signal()
+    clip_property_changed = Signal(int, str, float)
 
     def __init__(self, workspace, parent=None):
         super().__init__(parent)
@@ -53,6 +57,8 @@ class SchnittController(QObject):
         inspector = workspace.editor_view.inspector_panel
         if hasattr(tl, "selection_changed") and hasattr(inspector, "update_from_selection"):
             tl.selection_changed.connect(inspector.update_from_selection)
+        if hasattr(inspector, "clip_property_changed"):
+            inspector.clip_property_changed.connect(self._on_clip_property_changed)
 
     def attach_worker(self, worker: Any) -> None:
         self._current_worker = worker
@@ -75,6 +81,16 @@ class SchnittController(QObject):
         if self.workspace.current_state() == STATE_LOADING:
             return
         self.workspace.set_active_project(project_id)
+
+    def _on_clip_property_changed(self, entry_id: int, field: str, value: float) -> None:
+        """Inspector-DB-Write zur sichtbaren Timeline und Host-Logik weitergeben."""
+        tl = self.workspace.editor_view.tab_schnitt.timeline_view
+        if hasattr(tl, "load_from_db"):
+            try:
+                tl.load_from_db()
+            except Exception as exc:
+                logger.warning("SchnittController: timeline refresh after inspector edit failed: %s", exc)
+        self.clip_property_changed.emit(entry_id, field, value)
 
     # ------------------------------------------------------------------
     # Worker-Lifecycle
@@ -100,6 +116,9 @@ class SchnittController(QObject):
     # B7 / B8 / B2 Slots
     # ------------------------------------------------------------------
     def _on_preset_selected(self, key: str) -> None:
+        if getattr(self.workspace, "_project_id", None) is None:
+            self.workspace.set_active_project(None)
+            return
         try:
             new_profile = PacingProfile.from_preset(key)
         except ValueError:

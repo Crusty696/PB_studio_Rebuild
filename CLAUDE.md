@@ -23,7 +23,7 @@ prüfe verifiziere und mach noch eine gegenprüfung deiner arbeit mit unterschie
 ## Hard requirements
 
 - **Language of responses to the user: German only.**
-- **Authorized plan roots (both active as of 2026-05-09):**
+- **Authorized plan roots (active as of 2026-05-14):**
   - **Status SCHNITT-Plan (Stand 2026-05-09 Nachmittag):** Phasen 01-12 + Tier-Hardening 1-6 vollständig implementiert auf Branch `feat/schnitt-redesign-2026-05-09` (88+ Commits, letzter `8782b74`). 131/131 SCHNITT-Tests grün. Status: `code-fix-pending-live-verification`. BLOCKER `status: fixed` = nur User-Live-Verify (`12_LIVE_VERIFY_USER_GUIDE.md`).
   - `docs/superpowers/plans/2026-05-04-brain-v3-nvidia-plan/` — Brain V3
     NVIDIA backend (Files `01_ARCHITECTURE.md` … `07_RISKS.md`).
@@ -34,6 +34,13 @@ prüfe verifiziere und mach noch eine gegenprüfung deiner arbeit mit unterschie
     UI SCHNITT Workspace Redesign (Files `README.md` +
     `01_DB_MIGRATIONS.md` … `12_CLEANUP_AND_VERIFY.md`). Spec authority:
     `docs/superpowers/specs/2026-05-09-schnitt-workspace-redesign.md`.
+  - `docs/superpowers/plans/2026-05-13-schnitt-usability-wiring-rebuild/` —
+    B-310 follow-up for SCHNITT usability/wiring/tooltip/inspector/live
+    verification. Task 8 live verification remains open until full user
+    workflow confirmation.
+  - 2026-05-14 maintenance authorization: update app-use docs, launcher
+    scripts, test wrappers, and Obsidian/vault handoff notes only. No
+    app-code refactor is authorized by that maintenance scope.
   Execute strictly, one task at a time, from one plan at a time.
   No invention.
 - **HARTREGEL — Vault-Update PRO Sub-Schritt mit Zeitstempel (User-Anweisung 2026-05-11):**
@@ -62,6 +69,11 @@ prüfe verifiziere und mach noch eine gegenprüfung deiner arbeit mit unterschie
 - **Vault path: `C:\Brain-Bug\projects\pb-studio\`.** Every non-trivial
   action requires a vault entry — **per sub-task**, not bundled at
   phase end.
+- **Obsidian Vault Brain tooling:** use
+  `C:\Users\David Lochmann\plugins\obsidian-vault-brain\skills\obsidian-vault-brain\SKILL.md`
+  and `C:\Users\David Lochmann\plugins\obsidian-vault-brain\scripts\vault_brain.py`
+  for vault refresh/search/get/append. Refresh index before vault-state
+  answers; read only directly relevant notes.
 - **Predecessor phase / task `status: fixed`** is set by the **user**,
   not the agent. The agent may propose; the user confirms.
 - **Repo synthesis ≠ vault synthesis.** Files under
