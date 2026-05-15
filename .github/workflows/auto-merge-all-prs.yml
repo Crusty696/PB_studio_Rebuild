@@ -1,0 +1,227 @@
+name: "🤖 Auto-Merge All PRs & Cleanup"
+
+on:
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - closed
+  schedule:
+    # Cleanup alte PRs täglich um 02:00 UTC
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+
+env:
+  MERGE_METHOD: squash
+  MERGE_DELETE_BRANCH: true
+  PR_CLEANUP_DAYS: 7
+
+jobs:
+  # ============================================================================
+  # JOB 1: Auto-Merge PRs
+  # ============================================================================
+  auto_merge_pr:
+    name: "Auto-Merge PR"
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' && github.event.action != 'closed'
+    permissions:
+      pull-requests: write
+      contents: write
+
+    steps:
+      - name: "📋 Checkout Repository"
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: "🔍 Get PR Details"
+        id: pr_info
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_NUMBER=${{ github.event.pull_request.number }}
+          PR_TITLE=${{ github.event.pull_request.title }}
+          PR_AUTHOR=${{ github.event.pull_request.user.login }}
+          HEAD_REF=${{ github.event.pull_request.head.ref }}
+          
+          echo "pr_number=${PR_NUMBER}" >> $GITHUB_OUTPUT
+          echo "pr_title=${PR_TITLE}" >> $GITHUB_OUTPUT
+          echo "pr_author=${PR_AUTHOR}" >> $GITHUB_OUTPUT
+          echo "head_ref=${HEAD_REF}" >> $GITHUB_OUTPUT
+          
+          echo "✅ PR Details:"
+          echo "  📌 PR #${PR_NUMBER}"
+          echo "  📝 Titel: ${PR_TITLE}"
+          echo "  👤 Autor: ${PR_AUTHOR}"
+          echo "  🌿 Branch: ${HEAD_REF}"
+
+      - name: "⚡ Merge PR (Squash)"
+        id: merge_result
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ steps.pr_info.outputs.pr_number }}
+          MERGE_METHOD: ${{ env.MERGE_METHOD }}
+        run: |
+          echo "🔄 Starte Merge-Prozess für PR #${PR_NUMBER}..."
+          
+          # Merge ausführen
+          gh pr merge ${PR_NUMBER} \
+            --${MERGE_METHOD} \
+            --auto \
+            --delete-branch || {
+              echo "⚠️ Auto-Merge fehlgeschlagen, versuche manuellen Merge..."
+              gh pr merge ${PR_NUMBER} \
+                --${MERGE_METHOD} \
+                --delete-branch
+            }
+          
+          echo "merge_status=success" >> $GITHUB_OUTPUT
+          echo "✅ PR #${PR_NUMBER} erfolgreich gemergt!"
+
+      - name: "📝 Add Merge Comment"
+        if: steps.merge_result.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ steps.pr_info.outputs.pr_number }}
+        run: |
+          gh pr comment ${PR_NUMBER} \
+            --body "✅ **Automatisch gemergt!**
+          
+          - 🔄 Merge-Methode: Squash
+          - 🌿 Branch: Gelöscht
+          - ⏰ Zeitstempel: $(date -u +'%Y-%m-%d %H:%M:%S UTC')
+          - 🤖 Workflow: Auto-Merge All PRs & Cleanup" || true
+
+  # ============================================================================
+  # JOB 2: Cleanup Feature Branches
+  # ============================================================================
+  cleanup_branches:
+    name: "🧹 Cleanup Merged Branches"
+    runs-on: ubuntu-latest
+    needs: auto_merge_pr
+    if: always()
+    permissions:
+      contents: write
+
+    steps:
+      - name: "📋 Checkout Repository"
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: "🔍 Find & Delete Merged Branches"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "🔍 Suche nach gemergten Branches..."
+          
+          PROTECTED_BRANCHES="main|master|develop|backup/.*|hotfix/.*"
+          DELETED_COUNT=0
+          
+          # Hole alle Branches die in main gemergt wurden
+          git fetch --prune origin
+          
+          for branch in $(git branch -r --merged origin/main | grep -v HEAD); do
+            BRANCH_NAME=${branch#origin/}
+            
+            # Schütze wichtige Branches
+            if echo "$BRANCH_NAME" | grep -qE "^(${PROTECTED_BRANCHES})$"; then
+              echo "🛡️ Schütze Branch: $BRANCH_NAME"
+              continue
+            fi
+            
+            # Lösche nur Feature/Bugfix-Branches
+            if echo "$BRANCH_NAME" | grep -qE "^(feature|bugfix|fix|hotfix|refactor|docs|test|chore)/"; then
+              echo "🗑️ Lösche Branch: $BRANCH_NAME"
+              git push origin --delete "$BRANCH_NAME" 2>/dev/null || true
+              ((DELETED_COUNT++))
+            fi
+          done
+          
+          echo "✅ Cleanup abgeschlossen. ${DELETED_COUNT} Branches gelöscht."
+
+  # ============================================================================
+  # JOB 3: Cleanup PR References
+  # ============================================================================
+  cleanup_pr_refs:
+    name: "🗑️ Cleanup PR References"
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    permissions:
+      pull-requests: write
+
+    steps:
+      - name: "📋 Checkout Repository"
+        uses: actions/checkout@v4
+
+      - name: "🔍 Find Old Closed PRs"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CLEANUP_DAYS: ${{ env.PR_CLEANUP_DAYS }}
+        run: |
+          echo "🔍 Suche nach geschlossenen PRs älter als ${CLEANUP_DAYS} Tage..."
+          
+          CUTOFF_DATE=$(date -u -d "${CLEANUP_DAYS} days ago" +'%Y-%m-%dT%H:%M:%SZ')
+          CLOSED_COUNT=0
+          
+          # Finde alle geschlossenen/abgelehnten PRs älter als CLEANUP_DAYS
+          for pr_id in $(gh pr list --state closed --limit 100 --json number --jq '.[] | .number'); do
+            CLOSED_DATE=$(gh pr view $pr_id --json closedAt --jq '.closedAt')
+            
+            if [[ "$CLOSED_DATE" < "$CUTOFF_DATE" ]]; then
+              echo "📌 Markiere PR #$pr_id als alt (geschlossen: $CLOSED_DATE)"
+              
+              gh pr comment $pr_id --body "🗑️ **Automatische Bereinigung**
+
+Diese PR wurde vor mehr als ${CLEANUP_DAYS} Tagen geschlossen und wird aus Archivierungsgründen gekennzeichnet.
+
+- ⏰ Geschlossen: $CLOSED_DATE
+- 📋 Status: Archiviert
+- 🤖 Workflow: Auto-Merge All PRs & Cleanup" 2>/dev/null || true
+              
+              ((CLOSED_COUNT++))
+            fi
+          done
+          
+          echo "✅ ${CLOSED_COUNT} alte PRs verarbeitet."
+
+  # ============================================================================
+  # JOB 4: Workflow Summary
+  # ============================================================================
+  summary:
+    name: "📊 Workflow Summary"
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [auto_merge_pr, cleanup_branches, cleanup_pr_refs]
+    permissions:
+      pull-requests: write
+
+    steps:
+      - name: "📋 Checkout Repository"
+        uses: actions/checkout@v4
+
+      - name: "📊 Generate Summary"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          echo "📊 Workflow Summary"
+          echo "=================="
+          echo ""
+          echo "🎯 Workflow Details:"
+          echo "  - Event: ${{ github.event_name }}"
+          echo "  - Ref: ${{ github.ref }}"
+          echo "  - SHA: ${{ github.sha }}"
+          echo "  - Actor: ${{ github.actor }}"
+          echo ""
+          echo "✅ Job Status:"
+          echo "  - Auto-Merge: ${{ needs.auto_merge_pr.result }}"
+          echo "  - Cleanup Branches: ${{ needs.cleanup_branches.result }}"
+          echo "  - Cleanup PR Refs: ${{ needs.cleanup_pr_refs.result }}"
+          echo ""
+          echo "⏰ Zeitstempel: $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
+          echo ""
+          echo "🚀 Workflow beendet!"
