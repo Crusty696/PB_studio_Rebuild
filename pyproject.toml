@@ -92,6 +92,8 @@ markers = [
     "e2e: marks end-to-end tests (deselect with -m 'not e2e')",
     "slow: marks slow tests (deselect with -m 'not slow')",
     "spike: marks exploratory dependency or model experiments outside the default green suite",
+    "live_gpu: marks tests that load real GPU models (skip with -m 'not live_gpu')",
+    "long_form: marks long-form video/audio tests (e.g. 4h files, skip with -m 'not long_form')",
 ]
 
 [[tool.poetry.source]]
