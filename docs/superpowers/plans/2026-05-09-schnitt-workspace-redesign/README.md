@@ -1,5 +1,14 @@
 # SCHNITT Workspace Redesign — Implementation Plan
 
+> **Cross-Plan-Awareness — 3 neue Plaene 2026-05-19 (aktualisiert 2026-05-19):**
+>
+> Drei neue Plaene laufen parallel:
+> 1. `VIDEO-PIPELINE-ENGINE-2026-05-19` (Plan A) — Video-Analyse + Proxy-Generation + Cross-Modal-Cut-Plaene. **SCHNITT-Timeline kann spaeter Proxy + Cut-Plan-Vorschlaege anzeigen** (optional, in Plan-A Phase 42 als Caller-Migration vorgesehen). Mirror `wiki/synthesis/plan-video-pipeline-engine-2026-05-19.md` · Decision `D-045`.
+> 2. `LLM-BACKEND-PLATFORM-2026-05-19` (Plan B) — Embedded Ollama. **Keine neuen Direkt-Calls** auf `services/ollama_service.py` / `ollama_client.py` einfuegen — werden in Plan-B Phase 41/42 durch `services/llm/` ersetzt. SCHNITT-Controller / Pacing-Strategist / chat_dock werden in Plan B Phase 42 migriert. Mirror `wiki/synthesis/plan-llm-backend-platform-2026-05-19.md` · Decision `D-044`.
+> 3. `GLOBAL-STORAGE-PROVENANCE-2026-05-19` (Plan C) — Content-Address-Storage + Provenance. **SCHNITT-Audio-Subtab bleibt unangetastet** dank Backward-compat-Adapter-Layer (Junction `storage/stems/<track_id>/` → `by_sha/<sha>/audio/`). Mirror `wiki/synthesis/plan-global-storage-provenance-2026-05-19.md` · Decision `D-046`.
+>
+> **Konkret fuer SCHNITT-Workspace-Redesign:** Stems-Pfade nicht aendern. LLM-Aufrufe ueber Plan B. Cut-Plan-Konsumenten optional in Plan A integriert.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Verschmelze die Top-Tabs `AUTO-SCHNITT` und `REVIEW` zu einem einzigen `SCHNITT`-Workspace mit Drei-Zustands-Architektur (Empty/Loading/Editor), vier Sub-Tabs, persistentem Inspector, Clip-Locking und persistenter Versionierung.

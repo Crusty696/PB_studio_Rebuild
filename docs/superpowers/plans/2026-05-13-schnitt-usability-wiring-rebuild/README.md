@@ -1,5 +1,14 @@
 # SCHNITT Usability + Wiring Rebuild Implementation Plan
 
+> **Cross-Plan-Awareness — 3 neue Plaene 2026-05-19 (aktualisiert 2026-05-19):**
+>
+> Drei neue Plaene laufen parallel:
+> 1. `VIDEO-PIPELINE-ENGINE-2026-05-19` (Plan A) — Video-Analyse + Proxy + Cross-Modal. **SCHNITT-Timeline kann spaeter Proxy + Cut-Plan anzeigen** (optional, Plan-A Phase 42). Mirror `wiki/synthesis/plan-video-pipeline-engine-2026-05-19.md` · Decision `D-045`.
+> 2. `LLM-BACKEND-PLATFORM-2026-05-19` (Plan B) — Embedded Ollama. **Keine neuen Direkt-Calls** auf `services/ollama_service.py` / `ollama_client.py` einfuegen — werden in Plan-B Phase 41/42 durch `services/llm/` ersetzt. SCHNITT-Wiring-Calls werden mitmigriert. Mirror `wiki/synthesis/plan-llm-backend-platform-2026-05-19.md` · Decision `D-044`.
+> 3. `GLOBAL-STORAGE-PROVENANCE-2026-05-19` (Plan C) — Content-Address-Storage + Provenance + Adapter. **SCHNITT-Audio-Subtab Backward-compat via Junction**, kein Code-Touch. Mirror `wiki/synthesis/plan-global-storage-provenance-2026-05-19.md` · Decision `D-046`.
+>
+> **Konkret fuer SCHNITT-Usability-Wiring:** Stems-Pfade nicht aendern. Neue LLM-Aufrufe ueber Plan B. Cut-Plan-Anzeige optional.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** SCHNITT wird wiring-first nutzbar: Audio/Stems/Waveform/Timeline/Actions laufen ueber klare Binder statt halb verdrahtete globale Promotions.

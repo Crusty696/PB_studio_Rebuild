@@ -1,5 +1,14 @@
 # PB Studio — Brain V3 (NVIDIA-Plan, finale Fassung)
 
+> **Cross-Plan-Awareness — 3 neue Plaene 2026-05-19 (aktualisiert 2026-05-19):**
+>
+> Drei neue Plaene laufen parallel:
+> 1. `VIDEO-PIPELINE-ENGINE-2026-05-19` (Plan A) — Video-Analyse mit eigener SigLIP-Instanz. **D-032 getrennte dev-brain vs app-brain bleibt eingehalten**; Brain V3 SigLIP unangetastet, VRAM-Coexistenz via read-only pynvml-Probe. Mirror `wiki/synthesis/plan-video-pipeline-engine-2026-05-19.md` · Decision `D-045`.
+> 2. `LLM-BACKEND-PLATFORM-2026-05-19` (Plan B) — Embedded Ollama + HF + Auto-Selector. **Keine neuen Direkt-Calls** auf `services/ollama_service.py` / `ollama_client.py` einfuegen — werden in Plan-B Phase 41/42 durch `services/llm/` ersetzt. Falls Brain V3 neue LLM-Reasoner-Calls braucht: das geplante `services/llm/`-Interface nutzen sobald Tier 2 Phase 11 ready. Mirror `wiki/synthesis/plan-llm-backend-platform-2026-05-19.md` · Decision `D-044`.
+> 3. `GLOBAL-STORAGE-PROVENANCE-2026-05-19` (Plan C) — Content-Address-Storage + Provenance. **Brain V3 bleibt isoliert**, kein Provenance-Crosswalk noetig. Mirror `wiki/synthesis/plan-global-storage-provenance-2026-05-19.md` · Decision `D-046`.
+>
+> **Konkret fuer Brain V3:** GPU-Pfad unangetastet. LLM-Pfad (falls noetig) ueber Plan B `services/llm/`.
+
 **Datum:** 2026-05-04
 **Ersetzt:** den frueheren Plan im Project-Cache
 (`019dec39-5473-77a5-aad3-cad252d86d0c/docs/`)
