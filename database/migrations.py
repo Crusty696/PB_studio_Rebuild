@@ -606,6 +606,57 @@ def _run_legacy_migrations():
                 if col_name not in scene_cols:
                     conn.execute(text(f"ALTER TABLE scenes ADD COLUMN {col_name} {col_type}"))
 
+    # VIDEO-PIPELINE-ENGINE-2026-05-19 Phase 01: Pipeline-State + Cross-Modal-Felder
+    # auf video_clips + scenes nachruesten (idempotent).
+    insp = inspect(get_raw_engine())
+    if "video_clips" in insp.get_table_names():
+        vc_cols = {c["name"] for c in insp.get_columns("video_clips")}
+        with engine.begin() as conn:
+            for col_name, col_type in [
+                ("video_pipeline_status", "TEXT"),
+                ("video_pipeline_checkpoint_path", "TEXT"),
+                ("stream_sha256", "TEXT"),
+                ("embeddings_path", "TEXT"),
+                ("motion_path", "TEXT"),
+                ("proxy_status", "TEXT"),
+            ]:
+                if col_name not in vc_cols:
+                    conn.execute(text(
+                        f"ALTER TABLE video_clips ADD COLUMN {col_name} {col_type}"
+                    ))
+
+    if "scenes" in insp.get_table_names():
+        scene_cols = {c["name"] for c in insp.get_columns("scenes")}
+        with engine.begin() as conn:
+            for col_name, col_type in [
+                ("scene_index", "INTEGER"),
+                ("keyframe_paths", "TEXT"),
+                ("embedding_indices", "TEXT"),
+            ]:
+                if col_name not in scene_cols:
+                    conn.execute(text(
+                        f"ALTER TABLE scenes ADD COLUMN {col_name} {col_type}"
+                    ))
+
+    # VIDEO-PIPELINE-ENGINE-2026-05-19 Phase 01: Indizes auf neue Felder.
+    insp = inspect(get_raw_engine())
+    existing_tables = set(insp.get_table_names())
+    with engine.begin() as conn:
+        if "video_clips" in existing_tables:
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_video_clips_stream_sha256 "
+                "ON video_clips(stream_sha256)"
+            ))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_video_clips_pipeline_status "
+                "ON video_clips(video_pipeline_status)"
+            ))
+        if "scenes" in existing_tables:
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_scenes_scene_index "
+                "ON scenes(video_clip_id, scene_index)"
+            ))
+
 
 def _seed_defaults():
     """Seed *immutable* defaults that the App relies on for first-run UX.

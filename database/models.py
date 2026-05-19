@@ -126,6 +126,14 @@ class VideoClip(Base):
     playback_offset = Column(Float, nullable=False, default=0.0)  # F-001: Persistence für Auto-Edit Offset
     deleted_at = Column(DateTime, nullable=True)                 # P1-FIX: Soft-Delete Support
 
+    # VIDEO-PIPELINE-ENGINE-2026-05-19 Phase 01: Pipeline-State
+    video_pipeline_status = Column(String, nullable=True)         # pending/running/done/failed/partial
+    video_pipeline_checkpoint_path = Column(String, nullable=True)
+    stream_sha256 = Column(String, nullable=True)                 # content-hash, Container-uebergreifend
+    embeddings_path = Column(String, nullable=True)               # SigLIP-npy-Pfad
+    motion_path = Column(String, nullable=True)                   # RAFT-JSON-Pfad
+    proxy_status = Column(String, nullable=True)                  # pending/done/failed/skipped
+
     # P1-FIX: Lazy loading optimiert
     project = relationship("Project", back_populates="video_clips", lazy='joined')
     scenes = relationship("Scene", back_populates="video_clip", cascade="all, delete-orphan", passive_deletes=True, lazy='selectin')
@@ -152,6 +160,11 @@ class Scene(Base):
     ai_caption = Column(JSON, nullable=True)    # P1.7-FIX: {description, mood, motion, tags}
     ai_mood = Column(String, nullable=True)     # energetic|calm|dramatic|ambient
     ai_tags = Column(JSON, nullable=True)       # P1.7-FIX: ['tag1', 'tag2', ...]
+
+    # VIDEO-PIPELINE-ENGINE-2026-05-19 Phase 01: Pipeline-Anker
+    scene_index = Column(Integer, nullable=True)             # Reihenfolge im VideoClip
+    keyframe_paths = Column(JSON, nullable=True)             # ["keyframes/0_start.jpg", ...]
+    embedding_indices = Column(JSON, nullable=True)          # [42, 43, 44] -> embeddings.npy
 
     video_clip = relationship("VideoClip", back_populates="scenes", lazy='joined')
 
