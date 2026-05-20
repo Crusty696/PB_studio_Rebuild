@@ -78,6 +78,7 @@ def main() -> int:
     edit_ws = getattr(window, "edit_workspace", None)
     if schnitt_ctrl is not None and schnitt_ws is not None:
         captured: list = []
+        schnitt_ws._project_id = 1
         # Direkt am Controller-Signal lauschen — Qt-connect mit zusaetzlichem
         # Slot, original edit_workspace-Slot bleibt verbunden.
         schnitt_ctrl.request_auto_edit_with_profile.connect(
