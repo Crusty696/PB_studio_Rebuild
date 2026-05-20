@@ -17,6 +17,12 @@ storage/keyframes/
 storage/audio_cache/
 storage/stems/
 storage/test/
+**/storage/proxies/
+**/storage/keyframes/
+**/storage/audio_cache/
+**/storage/stems/
+_sandbox_meta/app_data/
+pb_project_meta.json
 
 # Exports and logs (generated at runtime)
 exports/
