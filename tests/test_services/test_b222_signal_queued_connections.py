@@ -40,6 +40,25 @@ def test_b222_worker_dispatcher_uses_queued_connection() -> None:
     )
 
 
+def test_b222_task_manager_callbacks_use_queued_connection() -> None:
+    """TaskManager ist der Default-Pfad fuer Import-/Projekt-Worker.
+
+    Plain Python callbacks muessen explizit queued sein, sonst laufen
+    UI-Refresh-Callbacks im Worker-Thread.
+    """
+    from services.task_manager import GlobalTaskManager
+
+    src = inspect.getsource(GlobalTaskManager._start_in_main_thread)
+    for marker in (
+        "worker.progress.connect(",
+        "worker.finished.connect(\n                _guarded_finish",
+        "worker.error.connect(\n                _task_error_handler",
+        "worker.error.connect(\n                    on_error",
+    ):
+        assert marker in src
+    assert src.count("Qt.ConnectionType.QueuedConnection") >= 4
+
+
 def test_b222_audio_analysis_controller_uses_queued() -> None:
     from ui.controllers import audio_analysis as ac
 

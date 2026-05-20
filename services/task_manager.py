@@ -283,16 +283,19 @@ class GlobalTaskManager(QObject):
         # Progress-Signal → update_task (falls Worker eins hat)
         if hasattr(worker, "progress"):
             worker.progress.connect(
-                lambda pct, msg, _tid=task_id: self.update_task(_tid, pct, message=msg)
+                lambda pct, msg, _tid=task_id: self.update_task(_tid, pct, message=msg),
+                Qt.ConnectionType.QueuedConnection,
             )
 
         # Finish-Guard: skip on_finish wenn Worker im Error-Pfad ist
-        # Qt erkennt QueuedConnection automatisch bei Cross-Thread-Signals.
         if on_finish:
             def _guarded_finish(*args, _w=worker, _cb=on_finish):
                 if not getattr(_w, '_errored', False):
                     _cb(*args)
-            worker.finished.connect(_guarded_finish)
+            worker.finished.connect(
+                _guarded_finish,
+                Qt.ConnectionType.QueuedConnection,
+            )
 
         # Error-Signal: IMMER Task als Error markieren + optional custom callback.
         if hasattr(worker, "error"):
@@ -303,10 +306,16 @@ class GlobalTaskManager(QObject):
                     _name, _tid, err_msg,
                 )
                 _tm.finish_task(_tid, status="error", message=err_msg)
-            worker.error.connect(_task_error_handler)
+            worker.error.connect(
+                _task_error_handler,
+                Qt.ConnectionType.QueuedConnection,
+            )
 
             if on_error:
-                worker.error.connect(on_error)
+                worker.error.connect(
+                    on_error,
+                    Qt.ConnectionType.QueuedConnection,
+                )
 
         # Thread-Lifecycle: finished → quit → cleanup (deleteLater nur einmal!)
         worker.finished.connect(thread.quit)
