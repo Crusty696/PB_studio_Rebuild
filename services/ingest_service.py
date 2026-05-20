@@ -425,19 +425,26 @@ def get_combo_items(project_id: int | None = None) -> list[dict]:
     `analysis_status_service.get_completion_percent()`-Call macht (N+1).
     Beim App-Boot blockierte das den Main-Thread mehrere Sekunden.
 
-    Diese Funktion liefert nur id/title/type/bpm — ausreichend fuer den
-    Combo-Label `[id] Title (bpm BPM)`.
+    Diese Funktion liefert nur leichte Spalten fuer Labels und Default-
+    Auswahl. Keine grossen JSON-Blobs, kein N+1 Status-Call.
     """
     project_id = _resolve_project_id(project_id)
     items: list[dict] = []
     with Session(engine) as session:
         audios = session.query(
-            AudioTrack.id, AudioTrack.title, AudioTrack.bpm,
+            AudioTrack.id, AudioTrack.title, AudioTrack.bpm, AudioTrack.key, AudioTrack.lufs,
         ).filter_by(project_id=project_id).filter(
             AudioTrack.deleted_at.is_(None)
         ).order_by(AudioTrack.id).all()
-        for aid, title, bpm in audios:
-            items.append({"id": aid, "title": title, "bpm": bpm, "type": "Audio"})
+        for aid, title, bpm, key, lufs in audios:
+            items.append({
+                "id": aid,
+                "title": title,
+                "bpm": bpm,
+                "key": key,
+                "lufs": lufs,
+                "type": "Audio",
+            })
 
         videos = session.query(
             VideoClip.id, VideoClip.file_path,

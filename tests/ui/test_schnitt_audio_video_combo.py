@@ -204,3 +204,49 @@ def test_b317_async_combo_refresh_prefers_analyzed_audio(qapp):
 
     assert audio_combo.currentData() == 2
     assert refresh_audio_calls == [2]
+
+
+def test_b317_director_combo_refresh_prefers_analyzed_audio_from_db(
+    qapp, test_engine, db_session, project, video_clip, monkeypatch
+):
+    from types import SimpleNamespace
+
+    import database
+    from services import ingest_service
+    from ui.controllers import media_table as media_mod
+    from ui.controllers.media_table import MediaTableController
+
+    unanalysed = database.AudioTrack(
+        id=2,
+        project_id=project.id,
+        file_path="/tmp/tmpwn3ztkf7.wav",
+        title="tmpwn3ztkf7",
+    )
+    analysed = database.AudioTrack(
+        id=3,
+        project_id=project.id,
+        file_path="/tmp/02-mai-podcast.wav",
+        title="02 Mai Podcast 19 - Kopie",
+        key="F",
+        lufs=-14.83,
+    )
+    db_session.add_all([unanalysed, analysed])
+    db_session.commit()
+
+    monkeypatch.setattr(ingest_service, "engine", test_engine)
+    monkeypatch.setattr(media_mod, "get_combo_items", ingest_service.get_combo_items, raising=False)
+
+    audio_combo = QComboBox()
+    video_combo = QComboBox()
+    refresh_audio_calls = []
+    window = SimpleNamespace(
+        logger=SimpleNamespace(debug=lambda *args, **kwargs: None),
+        audio_combo=audio_combo,
+        video_combo=video_combo,
+        _schnitt_coordinator=SimpleNamespace(refresh_audio=refresh_audio_calls.append),
+    )
+
+    MediaTableController(window)._refresh_director_combos(project.id)
+
+    assert audio_combo.currentData() == 3
+    assert refresh_audio_calls == [3]
