@@ -66,7 +66,8 @@ Audio-V2-Reconcile ist pausiert, nicht geloescht. Keine Audio-V2-Portierung in d
 - `B-316` bleibt `open`; Code-Fix und Teil-Live-Test existieren, aber User-Bestaetigung fehlt und B-317 blockiert Default-Verhalten.
 - `B-317` ist `fixed` per Commit `90e4e1b` und Live-Test vom 2026-05-20.
 - `B-318` ist `fixed`; aktueller HEAD rendert Entry-Dauer, Test + Live-Screenshot/DB-Abgleich vom 2026-05-20 bestaetigen den realen SCHNITT-Pfad.
-- `B-319`, `B-320` bleiben `open`.
+- `B-319` ist `code-fix-pending-live-verification`; Tests und DB-Integritaetscheck sind gruen, aber ein neuer Auto-Edit-Live-Run wurde nicht ausgefuehrt.
+- `B-320` bleibt `open`.
 - `B-321` bleibt `code-fix-pending-live-verification`; Video-Pipeline Completion-/Freeze-Fixes haben Tests und Agent-Live-Anteile, aber kein finaler kompletter Pipeline-Live-Nachtest.
 - `B-322` bleibt `code-fix-pending-live-verification`; Agent-Live-Test existiert, User-Bestaetigung fehlt.
 - `B-300`, `B-303`, `B-304`, `B-305` bleiben pending-live laut Vault-Status und duerfen nicht als `fixed` behandelt werden.
@@ -192,7 +193,7 @@ B-310 = code-fix-pending-live-verification
 B-316 = open
 B-317 = fixed
 B-318 = fixed
-B-319 = open
+B-319 = code-fix-pending-live-verification
 B-320 = open
 ```
 
