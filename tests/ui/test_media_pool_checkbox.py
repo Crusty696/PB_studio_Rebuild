@@ -178,6 +178,29 @@ def test_checkbox_state_persists_after_data_refresh() -> None:
     assert 1 in src.get_checked_ids(), \
         "set_items mit gleichen IDs darf bestehende Selektion nicht löschen"
 
+
+def test_checked_ids_follow_table_order_not_set_order() -> None:
+    """Timeline-Batch-Add braucht die sichtbare Tabellenreihenfolge.
+
+    Intern nutzt das Model ein Set fuer schnelle Check-State-Lookups. Die
+    oeffentliche API darf diese Set-Reihenfolge nicht nach aussen leaken.
+    """
+    _ensure_qapp()
+    src = MediaTableModel(media_type="Video")
+    src.set_items([
+        {"id": 30, "title": "C", "resolution": "1920x1080", "fps": 30,
+         "codec": "h264", "analysis_percent": 0, "file_path": "/c.mp4"},
+        {"id": 10, "title": "A", "resolution": "1920x1080", "fps": 30,
+         "codec": "h264", "analysis_percent": 0, "file_path": "/a.mp4"},
+        {"id": 20, "title": "B", "resolution": "1920x1080", "fps": 30,
+         "codec": "h264", "analysis_percent": 0, "file_path": "/b.mp4"},
+    ])
+
+    for row in (2, 0, 1):
+        assert src.setData(src.index(row, 0), Qt.CheckState.Checked, Qt.ItemDataRole.CheckStateRole)
+
+    assert src.get_checked_ids() == [30, 10, 20]
+
     # Refresh mit ANDEREN Items — Item 1 nicht mehr drin → wird entfernt
     src.set_items([{"id": 99, "title": "Z", "resolution": "1920x1080", "fps": 30,
                     "codec": "h264", "analysis_percent": 0, "file_path": "/z.mp4"}])

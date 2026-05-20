@@ -201,7 +201,6 @@ class ProjectManagementController(PBComponent):
             logger.debug("Project dashboard update failed: %s", exc)
         self._update_window_title()  # AUD-108: respects dirty flag
         self.window.media_table_controller._refresh_media_table()
-        self.window.media_table_controller._refresh_director_combos()
         try:
             self.window.timeline_view.load_from_db()
         except (OSError, RuntimeError, ValueError) as e:

@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 
 # Peak-Auflösung: max Peaks pro Waveform-Cache
 PEAKS_TARGET = 8000  # Genug für Full-HD Breite, wenig genug für Speed
+PEAK_SAMPLE_FRAMES = 512  # B-321: Preview-Peaks lesen nicht die komplette Langdatei
 
 
 # =====================================================================
@@ -70,67 +71,31 @@ class PeakWorker(QObject):
 
                 peaks = np.zeros((actual_peaks, 2), dtype=np.float32)
 
-                chunk_size = frames_per_peak * 4
-                peak_idx = 0
-                frames_in_segment = 0
-                seg_min = 0.0
-                seg_max = 0.0
-
-                f.seek(0)
-                remaining = total_frames
-
-                while remaining > 0 and peak_idx < actual_peaks:
+                for peak_idx in range(actual_peaks):
                     # [I-04 FIX] Check cancellation between chunks
                     if self._cancelled:
                         return
 
-                    read_n = min(chunk_size, remaining)
+                    segment_start = peak_idx * frames_per_peak
+                    read_n = min(PEAK_SAMPLE_FRAMES, total_frames - segment_start)
+                    if read_n <= 0:
+                        break
+                    f.seek(segment_start)
                     chunk = f.read(read_n, dtype="float32", always_2d=True)
                     if chunk.shape[0] == 0:
                         break
-                    remaining -= chunk.shape[0]
 
                     if channels > 1:
                         mono = chunk.mean(axis=1)
                     else:
                         mono = chunk[:, 0]
 
-                    offset = 0
-                    while offset < len(mono) and peak_idx < actual_peaks:
-                        need = frames_per_peak - frames_in_segment
-                        end = min(offset + need, len(mono))
-                        segment = mono[offset:end]
-
-                        if len(segment) == 0:
-                            break
-
-                        if frames_in_segment == 0:
-                            seg_min = segment.min()
-                            seg_max = segment.max()
-                        else:
-                            seg_min = min(seg_min, segment.min())
-                            seg_max = max(seg_max, segment.max())
-
-                        frames_in_segment += len(segment)
-                        offset = end
-
-                        if frames_in_segment >= frames_per_peak:
-                            peaks[peak_idx, 0] = seg_min
-                            peaks[peak_idx, 1] = seg_max
-                            peak_idx += 1
-                            frames_in_segment = 0
-                            seg_min = 0.0
-                            seg_max = 0.0
+                    peaks[peak_idx, 0] = mono.min()
+                    peaks[peak_idx, 1] = mono.max()
 
                 if self._cancelled:
                     return
 
-                if frames_in_segment > 0 and peak_idx < actual_peaks:
-                    peaks[peak_idx, 0] = seg_min
-                    peaks[peak_idx, 1] = seg_max
-                    peak_idx += 1
-
-                peaks = peaks[:peak_idx]
                 self.finished.emit(self._stem_name, peaks)
 
         except (OSError, RuntimeError, ValueError) as e:

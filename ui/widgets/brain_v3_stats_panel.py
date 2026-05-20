@@ -53,10 +53,10 @@ class BrainV3StatsPanel(QWidget):
         self._build_ui()
         self._refresh_timer = QTimer(self)
         self._refresh_timer.setInterval(auto_refresh_ms)
-        self._refresh_timer.timeout.connect(self.refresh)
+        self._refresh_timer.timeout.connect(self._refresh_if_visible)
         self._refresh_timer.start()
-        # Erstmal sofort laden
-        QTimer.singleShot(0, self.refresh)
+        # Erstmal sofort laden, aber nur wenn der Tab wirklich sichtbar ist.
+        QTimer.singleShot(0, self._refresh_if_visible)
 
     # --- UI -------------------------------------------------------------
     def _build_ui(self) -> None:
@@ -130,6 +130,11 @@ class BrainV3StatsPanel(QWidget):
         return t
 
     # --- Logic ----------------------------------------------------------
+    def _refresh_if_visible(self) -> None:
+        if not self.isVisible():
+            return
+        self.refresh()
+
     def refresh(self) -> None:
         try:
             stats = self._service.stats()

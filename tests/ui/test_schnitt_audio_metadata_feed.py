@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 
+from sqlalchemy import event
 from sqlalchemy.orm import Session
 
 from database.models import AudioTrack, Beatgrid, Project, StructureSegment, WaveformData
@@ -67,6 +68,70 @@ def test_schnitt_coordinator_feeds_audio_metadata(test_engine):
         ),
         ("update_audio_meta", -9.5, "Fm", "4A"),
     ]
+
+
+def test_b321_schnitt_coordinator_uses_column_queries_not_full_json_entities(test_engine):
+    from ui.controllers.schnitt_coordinator import SchnittCoordinator
+
+    with Session(test_engine) as s:
+        p = Project(name="schnitt-fast", path="C:/tmp/schnitt-fast")
+        s.add(p)
+        s.flush()
+        a = AudioTrack(
+            project_id=p.id,
+            file_path="song.mp3",
+            title="song",
+            duration=60.0,
+            key="Fm",
+            lufs=-9.5,
+            key_modulation_data=[{"time": 0.0, "key": "Fm", "camelot": "4A"}],
+        )
+        s.add(a)
+        s.flush()
+        s.add(
+            WaveformData(
+                audio_track_id=a.id,
+                num_samples=2,
+                duration=60.0,
+                band_low=[0.1, 0.2],
+                band_mid=[0.2, 0.3],
+                band_high=[0.3, 0.4],
+            )
+        )
+        s.add(
+            Beatgrid(
+                audio_track_id=a.id,
+                bpm=142.0,
+                beat_positions=[0.0, 0.5],
+                downbeat_positions=[0.0],
+                energy_per_beat=[0.1, 0.2],
+                stem_weighted_energy=[0.2, 0.3],
+            )
+        )
+        s.commit()
+        audio_id = a.id
+
+    statements = []
+
+    def capture_sql(conn, cursor, statement, parameters, context, executemany):
+        statements.append(statement.lower())
+
+    event.listen(test_engine, "before_cursor_execute", capture_sql)
+    try:
+        binder = SimpleNamespace(
+            set_audio_id=lambda value: None,
+            update_waveform=lambda waveform_row, beat_positions, structure_markers: None,
+            update_audio_meta=lambda lufs, key, camelot: None,
+        )
+        SchnittCoordinator(audio_binder=binder, db_engine=test_engine).refresh_audio(audio_id)
+    finally:
+        event.remove(test_engine, "before_cursor_execute", capture_sql)
+
+    joined_sql = "\n".join(statements)
+    assert "downbeat_positions" not in joined_sql
+    assert "energy_per_beat" not in joined_sql
+    assert "stem_weighted_energy" not in joined_sql
+    assert "audio_tracks.file_path" not in joined_sql
 
 
 def test_audio_combo_change_refreshes_schnitt_coordinator(test_engine, monkeypatch):

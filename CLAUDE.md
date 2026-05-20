@@ -23,25 +23,10 @@ prüfe verifiziere und mach noch eine gegenprüfung deiner arbeit mit unterschie
 ## Hard requirements
 
 - **Language of responses to the user: German only.**
-- **Authorized plan roots (active as of 2026-05-14):**
-  - **Status SCHNITT-Plan (Stand 2026-05-09 Nachmittag):** Phasen 01-12 + Tier-Hardening 1-6 vollständig implementiert auf Branch `feat/schnitt-redesign-2026-05-09` (88+ Commits, letzter `8782b74`). 131/131 SCHNITT-Tests grün. Status: `code-fix-pending-live-verification`. BLOCKER `status: fixed` = nur User-Live-Verify (`12_LIVE_VERIFY_USER_GUIDE.md`).
-  - `docs/superpowers/plans/2026-05-04-brain-v3-nvidia-plan/` — Brain V3
-    NVIDIA backend (Files `01_ARCHITECTURE.md` … `07_RISKS.md`).
-    Phase blueprints (e.g. `phase_3_brain_core.md`) under the same
-    root are subordinate — if a blueprint contradicts `06_PHASES.md`,
-    stop and ask.
-  - `docs/superpowers/plans/2026-05-09-schnitt-workspace-redesign/` —
-    UI SCHNITT Workspace Redesign (Files `README.md` +
-    `01_DB_MIGRATIONS.md` … `12_CLEANUP_AND_VERIFY.md`). Spec authority:
-    `docs/superpowers/specs/2026-05-09-schnitt-workspace-redesign.md`.
-  - `docs/superpowers/plans/2026-05-13-schnitt-usability-wiring-rebuild/` —
-    B-310 follow-up for SCHNITT usability/wiring/tooltip/inspector/live
-    verification. Task 8 live verification remains open until full user
-    workflow confirmation.
-  - 2026-05-14 maintenance authorization: update app-use docs, launcher
-    scripts, test wrappers, and Obsidian/vault handoff notes only. No
-    app-code refactor is authorized by that maintenance scope.
-  Execute strictly, one task at a time, from one plan at a time.
+- **Plan-Governance:** `AGENTS.md` is source of truth. Current plan
+  authority comes from `docs/superpowers/PLAN_REGISTRY.md` plus
+  `docs/superpowers/ACTIVE_PLAN.md`, not from a hardcoded plan list.
+  Execute strictly, one task at a time, from one selected plan at a time.
   No invention.
 - **HARTREGEL — Vault-Update PRO Sub-Schritt mit Zeitstempel (User-Anweisung 2026-05-11):**
   Nach JEDEM Sub-Schritt (Code-Edit, Setting, destruktive Aktion, App-Start/-Crash,
@@ -87,22 +72,28 @@ prüfe verifiziere und mach noch eine gegenprüfung deiner arbeit mit unterschie
 ## Before doing anything
 
 1. Open `AGENTS.md` and read it fully.
-2. Identify which authorized plan the user is currently driving:
-   - Brain V3: open
-     `docs/superpowers/plans/2026-05-04-brain-v3-nvidia-plan/06_PHASES.md`
-     and the relevant phase blueprint (`phase_X_*.md`) under the same
-     plan root if it exists.
-   - SCHNITT Redesign: open
-     `docs/superpowers/plans/2026-05-09-schnitt-workspace-redesign/README.md`
-     and the current phase file (`01_DB_MIGRATIONS.md` … `12_CLEANUP_AND_VERIFY.md`).
-   Cross-check the current task against its plan + spec.
-3. Verify the predecessor task has `status: fixed` in the vault
+2. Open `docs/superpowers/PLAN_REGISTRY.md` and
+   `docs/superpowers/ACTIVE_PLAN.md`.
+3. Identify the one selected active plan. If `ACTIVE_PLAN.md` says
+   `blocked-needs-user-selection`, do not start app-code work; ask the
+   user to choose one plan unless the current request is explicitly
+   governance/plan-selection work.
+4. Cross-check the current task against the selected plan, its Registry
+   row, its Decision file, and its Vault living-plan mirror.
+5. Verify the predecessor task has `status: fixed` in the vault
    (`C:\Brain-Bug\projects\pb-studio\wiki\`). If only present in
    `docs/superpowers/synthesis/` of the repo, **stop and ask the user**
    to confirm verification status before mirroring to vault.
-4. Only then: act.
+6. Only then: act.
 
 If `AGENTS.md` is missing, stop and tell the user. Do not proceed.
+
+## How to choose current task
+
+Use the same sequence as `AGENTS.md`: Registry -> Active Plan -> selected
+repo plan -> Vault mirror -> Decision file -> next unambiguous task. If
+`ACTIVE_PLAN.md` is `blocked-needs-user-selection`, ask for one plan before
+product/app-code work.
 
 ---
 

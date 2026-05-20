@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QTimer
 from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
@@ -50,9 +50,13 @@ class ProjectDashboard(QWidget):
         super().__init__(parent)
         self._project_id: int | None = None
         self._current_action_key = "open_project"
+        self._refresh_debounce_timer = QTimer(self)
+        self._refresh_debounce_timer.setSingleShot(True)
+        self._refresh_debounce_timer.setInterval(750)
+        self._refresh_debounce_timer.timeout.connect(self._refresh_current_project)
         self._build_ui()
         self.refresh_requested.connect(
-            self._refresh_current_project,
+            self.request_refresh_debounced,
             Qt.ConnectionType.QueuedConnection,
         )
 
@@ -231,6 +235,9 @@ class ProjectDashboard(QWidget):
 
         self._project_id = project_id
         self.set_readiness(get_cockpit_readiness(project_id))
+
+    def request_refresh_debounced(self) -> None:
+        self._refresh_debounce_timer.start()
 
     def _refresh_current_project(self) -> None:
         self.refresh(self._project_id)

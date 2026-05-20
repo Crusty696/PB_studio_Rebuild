@@ -579,15 +579,6 @@ class WorkspaceSetupController(PBComponent):
             cut_list.set_project(pid)
         except Exception as exc:
             self.logger.debug("cut_list_panel set_project failed: %s", exc)
-        media_ctrl = getattr(self.window, "media_table_controller", None)
-        if media_ctrl is not None:
-            try:
-                media_ctrl._refresh_director_combos(
-                    pid,
-                    allow_active_fallback=False,
-                )
-            except Exception as exc:
-                self.logger.debug("schnitt media combo refresh failed: %s", exc)
         binder = getattr(self.window, "_schnitt_action_binder", None)
         if binder is not None:
             binder.refresh(pid)

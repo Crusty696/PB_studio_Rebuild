@@ -369,15 +369,18 @@ class PBWindow(QMainWindow):
         # Refresh-Loch.
         self.panel_setup.setup_analysis_completion_bridge()
 
-        # Phase-5 (Plan-Doc 06 Z.421-427): Brain-V3-Stats-Panel als neuer Tab
-        # im Right-Panel. NICHT in studio_brain_window.py umgebaut (LOCKED).
-        try:
-            from ui.widgets.brain_v3_stats_panel import BrainV3StatsPanel
-            self._brain_v3_stats_panel = BrainV3StatsPanel(parent=self.right_panel)
-            self.right_panel.addTab(self._brain_v3_stats_panel, "Brain V3")
-            logger.info("PBWindow: BrainV3StatsPanel als Right-Panel-Tab eingehängt")
-        except Exception as exc:
-            logger.warning("Brain-V3-Stats-Panel konnte nicht eingehängt werden: %s", exc)
+        # B-321: Brain-V3-Stats importiert Pydantic/Brain-Service schwer.
+        # Tab erst beim Oeffnen laden, nicht im PBWindow-Konstruktor.
+        self._brain_v3_stats_panel = None
+        self._brain_v3_stats_placeholder = QWidget(parent=self.right_panel)
+        _brain_lazy_layout = QVBoxLayout(self._brain_v3_stats_placeholder)
+        _brain_lazy_layout.addWidget(QLabel("Brain V3 wird beim Öffnen geladen."))
+        self._brain_v3_stats_tab_index = self.right_panel.addTab(
+            self._brain_v3_stats_placeholder,
+            "Brain V3",
+        )
+        self.right_panel.currentChanged.connect(self._on_context_panel_tab_changed)
+        logger.info("PBWindow: BrainV3StatsPanel als Lazy-Tab eingehängt")
 
         # P9-Step2: Toggle-Buttons in Top-Bar wechseln den aktiven Tab im
         # Right-Panel statt Sichtbarkeit zu togglen. Right-Panel selbst
@@ -411,6 +414,28 @@ class PBWindow(QMainWindow):
         # brought to front on every call. Top-bar button is wired
         # separately in workspace_setup._build_top_bar.
         QShortcut(_QKS("Ctrl+B"), self, self._open_studio_brain)
+
+    def _on_context_panel_tab_changed(self, index: int) -> None:
+        if index == getattr(self, "_brain_v3_stats_tab_index", -1):
+            self._load_brain_v3_stats_panel()
+
+    def _load_brain_v3_stats_panel(self) -> None:
+        if self._brain_v3_stats_panel is not None:
+            return
+        try:
+            from ui.widgets.brain_v3_stats_panel import BrainV3StatsPanel
+            panel = BrainV3StatsPanel(parent=self.right_panel)
+            self._brain_v3_stats_panel = panel
+            self.right_panel.removeTab(self._brain_v3_stats_tab_index)
+            self._brain_v3_stats_tab_index = self.right_panel.insertTab(
+                self._brain_v3_stats_tab_index,
+                panel,
+                "Brain V3",
+            )
+            self.right_panel.setCurrentIndex(self._brain_v3_stats_tab_index)
+            logger.info("PBWindow: BrainV3StatsPanel lazy geladen")
+        except Exception as exc:
+            logger.warning("Brain-V3-Stats-Panel konnte nicht geladen werden: %s", exc)
 
     def _set_context_panel_visible(self, visible: bool) -> None:
         """Collapse/expand the contextual side panel without destroying widgets."""

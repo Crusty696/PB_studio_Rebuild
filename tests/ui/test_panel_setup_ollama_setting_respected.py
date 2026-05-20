@@ -104,3 +104,40 @@ def test_setup_chat_dock_respects_explicit_ollama_disabled(monkeypatch) -> None:
 
     assert fake_svc.start_calls == 0
     assert _FakeAgent.created[-1]["use_ollama"] is False
+
+
+def test_setup_chat_dock_does_not_call_agent_health_check_synchronously(monkeypatch) -> None:
+    from ui.controllers import panel_setup
+    from ui.controllers.panel_setup import PanelSetupController
+    import services.local_agent_service as local_agent_service
+    import services.ollama_service as ollama_service
+    import ui.dialogs.settings_dialog as settings_dialog
+
+    class BlockingHealthAgent(_FakeAgent):
+        health_calls = 0
+
+        def health_check(self) -> dict:
+            BlockingHealthAgent.health_calls += 1
+            raise AssertionError("health_check must not run during setup_chat_dock")
+
+    fake_svc = _FakeOllamaService()
+    BlockingHealthAgent.health_calls = 0
+
+    monkeypatch.setattr(panel_setup, "ChatDock", _FakeChatDock)
+    monkeypatch.setattr(settings_dialog, "get_ollama_settings", lambda: {
+        "enabled": True,
+        "url": "http://localhost:11434",
+        "model": "gemma3:4b",
+    })
+    monkeypatch.setattr(ollama_service.OllamaService, "get", staticmethod(lambda: fake_svc))
+    monkeypatch.setattr(local_agent_service, "LocalAgentService", BlockingHealthAgent)
+
+    window = SimpleNamespace(
+        right_panel=_FakeRightPanel(),
+        console_text=_FakeConsole(),
+        _project_manager=None,
+    )
+
+    PanelSetupController(window).setup_chat_dock()
+
+    assert BlockingHealthAgent.health_calls == 0

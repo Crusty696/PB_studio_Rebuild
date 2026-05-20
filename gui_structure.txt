@@ -1,0 +1,473 @@
+Control Identifiers:
+
+Dialog - 'PB_studio v0.5.0 — test'    (L0, T46, R3240, B2066)
+['Dialog', 'PB_studio v0.5.0 — testDialog', 'PB_studio v0.5.0 — test']
+child_window(title="PB_studio v0.5.0 — test", control_type="Window")
+   | 
+   | TitleBar - ''    (L32, T-10, R3240, B45)
+   | ['TitleBar']
+   |    | 
+   |    | Menu - 'Systemmenü'    (L0, T0, R44, B44)
+   |    | ['Menu', 'SystemmenüMenu', 'Systemmenü', 'Systemmenü0', 'Systemmenü1']
+   |    | child_window(title="Systemmenü", auto_id="MenuBar", control_type="MenuBar")
+   |    |    | 
+   |    |    | MenuItem - 'Systemmenü'    (L0, T0, R44, B44)
+   |    |    | ['MenuItem', 'SystemmenüMenuItem', 'Systemmenü2']
+   |    |    | child_window(title="Systemmenü", control_type="MenuItem")
+   |    | 
+   |    | Button - 'Minimieren'    (L2959, T0, R3053, B44)
+   |    | ['MinimierenButton', 'Minimieren', 'Button', 'Button0', 'Button1']
+   |    | child_window(title="Minimieren", control_type="Button")
+   |    | 
+   |    | Button - 'Wiederherstellen'    (L3053, T0, R3145, B44)
+   |    | ['WiederherstellenButton', 'Button2', 'Wiederherstellen']
+   |    | child_window(title="Wiederherstellen", control_type="Button")
+   |    | 
+   |    | Button - 'Schließen'    (L3145, T0, R3240, B44)
+   |    | ['Button3', 'Schließen', 'SchließenButton']
+   |    | child_window(title="Schließen", control_type="Button")
+   | 
+   | GroupBox - ''    (L0, T46, R3240, B2036)
+   | ['GroupBox', 'PB Studio v0.5.0GroupBox', 'GroupBox0', 'GroupBox1', 'PB Studio v0.5.0GroupBox0', 'PB Studio v0.5.0GroupBox1']
+   |    | 
+   |    | GroupBox - ''    (L0, T46, R3240, B114)
+   |    | ['GroupBox2', 'PB Studio v0.5.0GroupBox2']
+   |    | child_window(auto_id="top_bar", control_type="Group")
+   |    |    | 
+   |    |    | Static - 'PB Studio v0.5.0'    (L20, T46, R204, B114)
+   |    |    | ['PB Studio v0.5.0Static', 'Static', 'PB Studio v0.5.0', 'Static0', 'Static1']
+   |    |    | child_window(title="PB Studio v0.5.0", control_type="Text")
+   |    |    | 
+   |    |    | Static - 'test'    (L216, T46, R300, B114)
+   |    |    | ['test', 'Static2', 'testStatic']
+   |    |    | child_window(title="test", auto_id="top_bar.title", control_type="Text")
+   |    |    | 
+   |    |    | Static - 'gespeichert'    (L312, T46, R416, B114)
+   |    |    | ['gespeichert', 'Static3', 'gespeichertStatic']
+   |    |    | child_window(title="gespeichert", control_type="Text")
+   |    |    | 
+   |    |    | CheckBox - 'Kontext'    (L2692, T56, R2808, B116)
+   |    |    | ['Kontext', 'CheckBox', 'KontextCheckBox', 'CheckBox0', 'CheckBox1']
+   |    |    | child_window(title="Kontext", control_type="CheckBox")
+   |    |    | 
+   |    |    | Button - 'Brain'    (L2820, T56, R2912, B116)
+   |    |    | ['Brain', 'BrainButton', 'Button4']
+   |    |    | child_window(title="Brain", control_type="Button")
+   |    |    | 
+   |    |    | Button - 'Einstellungen'    (L2924, T58, R3092, B118)
+   |    |    | ['Button5', 'EinstellungenButton', 'Einstellungen']
+   |    |    | child_window(title="Einstellungen", control_type="Button")
+   |    |    | 
+   |    |    | Button - 'Tools'    (L3104, T58, R3220, B118)
+   |    |    | ['Tools', 'Button6', 'ToolsButton']
+   |    |    | child_window(title="Tools", control_type="Button")
+   |    | 
+   |    | Custom - ''    (L0, T114, R3240, B116)
+   |    | ['Custom', 'PB Studio v0.5.0Custom', 'Custom0', 'Custom1']
+   |    | 
+   |    | GroupBox - ''    (L0, T116, R3240, B184)
+   |    | ['GroupBox3', 'PB Studio v0.5.0GroupBox3']
+   |    | child_window(auto_id="workspace_nav", control_type="Group")
+   |    |    | 
+   |    |    | CheckBox - 'Projekt Workflow'    (L1136, T122, R1356, B186)
+   |    |    | ['Projekt Workflow', 'Projekt WorkflowCheckBox', 'CheckBox2']
+   |    |    | child_window(title="Projekt Workflow", auto_id="workspace_nav.workspace_btn", control_type="CheckBox")
+   |    |    | 
+   |    |    | CheckBox - 'Material und Analyse Workflow'    (L1356, T122, R1664, B186)
+   |    |    | ['Material und Analyse WorkflowCheckBox', 'CheckBox3', 'Material und Analyse Workflow']
+   |    |    | child_window(title="Material und Analyse Workflow", auto_id="workspace_nav.workspace_btn", control_type="CheckBox")
+   |    |    | 
+   |    |    | CheckBox - 'Schnitt Workflow'    (L1664, T122, R1884, B186)
+   |    |    | ['Schnitt WorkflowCheckBox', 'CheckBox4', 'Schnitt Workflow']
+   |    |    | child_window(title="Schnitt Workflow", auto_id="workspace_nav.workspace_btn", control_type="CheckBox")
+   |    |    | 
+   |    |    | CheckBox - 'Export Workflow'    (L1884, T122, R2104, B186)
+   |    |    | ['Export Workflow', 'CheckBox5', 'Export WorkflowCheckBox']
+   |    |    | child_window(title="Export Workflow", auto_id="workspace_nav.workspace_btn", control_type="CheckBox")
+   |    | 
+   |    | GroupBox - ''    (L0, T184, R3240, B2036)
+   |    | ['Material & AnalyseGroupBox', 'GroupBox4', 'Material & AnalyseGroupBox0', 'Material & AnalyseGroupBox1']
+   |    |    | 
+   |    |    | Custom - ''    (L0, T184, R2680, B2036)
+   |    |    | ['Material & AnalyseCustom', 'Custom2']
+   |    |    |    | 
+   |    |    |    | GroupBox - ''    (L0, T184, R2680, B2036)
+   |    |    |    | ['Material & AnalyseGroupBox2', 'GroupBox5']
+   |    |    |    |    | 
+   |    |    |    |    | GroupBox - ''    (L8, T192, R2672, B276)
+   |    |    |    |    | ['Material & AnalyseGroupBox3', 'GroupBox6']
+   |    |    |    |    |    | 
+   |    |    |    |    |    | Static - 'Material & Analyse'    (L24, T204, R2656, B236)
+   |    |    |    |    |    | ['Static4', 'Material & AnalyseStatic', 'Material & Analyse']
+   |    |    |    |    |    | child_window(title="Material & Analyse", auto_id="title", control_type="Text")
+   |    |    |    |    |    | 
+   |    |    |    |    |    | Static - 'Datei auswaehlen und passende Analyse direkt daneben starten. Audio und Video bleiben im selben Arbeitskontext.'    (L24, T240, R2656, B268)
+   |    |    |    |    |    | ['Datei auswaehlen und passende Analyse direkt daneben starten. Audio und Video bleiben im selben Arbeitskontext.', 'Datei auswaehlen und passende Analyse direkt daneben starten. Audio und Video bleiben im selben Arbeitskontext.Static', 'Static5']
+   |    |    |    |    |    | child_window(title="Datei auswaehlen und passende Analyse direkt daneben starten. Audio und Video bleiben im selben Arbeitskontext.", auto_id="subtitle", control_type="Text")
+   |    |    |    |    | 
+   |    |    |    |    | GroupBox - ''    (L8, T284, R2672, B2028)
+   |    |    |    |    | ['GroupBox7', 'Datei auswaehlen und passende Analyse direkt daneben starten. Audio und Video bleiben im selben Arbeitskontext.GroupBox', 'Datei auswaehlen und passende Analyse direkt daneben starten. Audio und Video bleiben im selben Arbeitskontext.GroupBox0', 'Datei auswaehlen und passende Analyse direkt daneben starten. Audio und Video bleiben im selben Arbeitskontext.GroupBox1']
+   |    |    |    |    |    | 
+   |    |    |    |    |    | RadioButton - 'Video Modus'    (L16, T294, R176, B342)
+   |    |    |    |    |    | ['Video Modus', 'Video ModusRadioButton', 'RadioButton', 'RadioButton0', 'RadioButton1']
+   |    |    |    |    |    | child_window(title="Video Modus", control_type="RadioButton")
+   |    |    |    |    |    | 
+   |    |    |    |    |    | RadioButton - 'Audio Modus'    (L176, T294, R336, B342)
+   |    |    |    |    |    | ['RadioButton2', 'Audio ModusRadioButton', 'Audio Modus']
+   |    |    |    |    |    | child_window(title="Audio Modus", control_type="RadioButton")
+   |    |    |    |    |    | 
+   |    |    |    |    |    | Custom - ''    (L16, T344, R2664, B1960)
+   |    |    |    |    |    | ['Custom3', 'Datei auswaehlen und passende Analyse direkt daneben starten. Audio und Video bleiben im selben Arbeitskontext.Custom', 'Datei auswaehlen und passende Analyse direkt daneben starten. Audio und Video bleiben im selben Arbeitskontext.Custom0', 'Datei auswaehlen und passende Analyse direkt daneben starten. Audio und Video bleiben im selben Arbeitskontext.Custom1']
+   |    |    |    |    |    |    | 
+   |    |    |    |    |    |    | GroupBox - ''    (L16, T344, R2664, B1960)
+   |    |    |    |    |    |    | ['GroupBox8', 'Datei auswaehlen und passende Analyse direkt daneben starten. Audio und Video bleiben im selben Arbeitskontext.GroupBox2']
+   |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    | Button - 'Video importieren'    (L24, T354, R142, B414)
+   |    |    |    |    |    |    |    | ['Video importieren', 'Video importierenButton', 'Button7']
+   |    |    |    |    |    |    |    | child_window(title="Video importieren", auto_id="btn_secondary", control_type="Button")
+   |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    | Button - 'Ordner importieren'    (L150, T354, R280, B414)
+   |    |    |    |    |    |    |    | ['Ordner importierenButton', 'Ordner importieren', 'Button8']
+   |    |    |    |    |    |    |    | child_window(title="Ordner importieren", auto_id="btn_secondary", control_type="Button")
+   |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    | Button - 'Ausgewaehlte Videos loeschen'    (L288, T354, R418, B414)
+   |    |    |    |    |    |    |    | ['Ausgewaehlte Videos loeschen', 'Button9', 'Ausgewaehlte Videos loeschenButton']
+   |    |    |    |    |    |    |    | child_window(title="Ausgewaehlte Videos loeschen", auto_id="btn_danger", control_type="Button")
+   |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    | Static - 'SigLIP'    (L446, T354, R538, B402)
+   |    |    |    |    |    |    |    | ['Static6', 'SigLIPStatic', 'SigLIP']
+   |    |    |    |    |    |    |    | child_window(title="SigLIP", control_type="Text")
+   |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    | Edit - ''    (L546, T354, R1978, B410)
+   |    |    |    |    |    |    |    | ['SigLIPEdit', 'Edit', 'Edit0', 'Edit1']
+   |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    | Button - 'Semantische Suche starten'    (L1986, T354, R2098, B414)
+   |    |    |    |    |    |    |    | ['Semantische Suche startenButton', 'Button10', 'Semantische Suche starten']
+   |    |    |    |    |    |    |    | child_window(title="Semantische Suche starten", auto_id="btn_secondary", control_type="Button")
+   |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    | Button - 'Suche zuruecksetzen'    (L2106, T354, R2162, B414)
+   |    |    |    |    |    |    |    | ['Button11', 'Suche zuruecksetzenButton', 'Suche zuruecksetzen']
+   |    |    |    |    |    |    |    | child_window(title="Suche zuruecksetzen", auto_id="btn_danger", control_type="Button")
+   |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    | Button - 'Alle Videos an-/abwaehlen'    (L2190, T354, R2286, B414)
+   |    |    |    |    |    |    |    | ['Button12', 'Alle Videos an-/abwaehlenButton', 'Alle Videos an-/abwaehlen']
+   |    |    |    |    |    |    |    | child_window(title="Alle Videos an-/abwaehlen", auto_id="btn_select_toggle", control_type="Button")
+   |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    | CheckBox - 'Listen-Ansicht'    (L2294, T354, R2350, B414)
+   |    |    |    |    |    |    |    | ['Listen-Ansicht', 'CheckBox6', 'Listen-AnsichtCheckBox']
+   |    |    |    |    |    |    |    | child_window(title="Listen-Ansicht", auto_id="btn_secondary", control_type="CheckBox")
+   |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    | CheckBox - 'Kachel-Ansicht'    (L2358, T354, R2414, B414)
+   |    |    |    |    |    |    |    | ['Kachel-AnsichtCheckBox', 'CheckBox7', 'Kachel-Ansicht']
+   |    |    |    |    |    |    |    | child_window(title="Kachel-Ansicht", auto_id="btn_secondary", control_type="CheckBox")
+   |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    | Button - 'Vorherige Seite'    (L2442, T354, R2498, B414)
+   |    |    |    |    |    |    |    | ['Vorherige Seite', 'Vorherige SeiteButton', 'Button13']
+   |    |    |    |    |    |    |    | child_window(title="Vorherige Seite", auto_id="btn_secondary", control_type="Button")
+   |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    | Static - 'Seite 1 / 1'    (L2506, T354, R2592, B402)
+   |    |    |    |    |    |    |    | ['Static7', 'Seite 1 / 1Static', 'Seite 1 / 1']
+   |    |    |    |    |    |    |    | child_window(title="Seite 1 / 1", control_type="Text")
+   |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    | Button - 'Naechste Seite'    (L2600, T354, R2656, B414)
+   |    |    |    |    |    |    |    | ['Naechste SeiteButton', 'Button14', 'Naechste Seite']
+   |    |    |    |    |    |    |    | child_window(title="Naechste Seite", auto_id="btn_secondary", control_type="Button")
+   |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    | GroupBox - ''    (L24, T416, R1720, B1956)
+   |    |    |    |    |    |    |    | ['GroupBox9', 'Datei auswaehlen und passende Analyse direkt daneben starten. Audio und Video bleiben im selben Arbeitskontext.GroupBox3']
+   |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    | Custom - ''    (L24, T738, R1720, B1634)
+   |    |    |    |    |    |    |    |    | ['Custom4', 'Datei auswaehlen und passende Analyse direkt daneben starten. Audio und Video bleiben im selben Arbeitskontext.Custom2']
+   |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    | Table - ''    (L24, T738, R1720, B1634)
+   |    |    |    |    |    |    |    |    |    | ['Table', 'Datei auswaehlen und passende Analyse direkt daneben starten. Audio und Video bleiben im selben Arbeitskontext.Table', 'Table0', 'Table1']
+   |    |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    |    | Pane - ''    (L0, T0, R0, B0)
+   |    |    |    |    |    |    |    |    |    |    | ['Pane', 'Pane0', 'Pane1']
+   |    |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    |    | Header - '✓'    (L26, T740, R98, B800)
+   |    |    |    |    |    |    |    |    |    |    | ['✓Header', '✓', 'Header', 'Header0', 'Header1']
+   |    |    |    |    |    |    |    |    |    |    | child_window(title="✓", control_type="Header")
+   |    |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    |    | Header - 'ID'    (L98, T740, R178, B800)
+   |    |    |    |    |    |    |    |    |    |    | ['ID', 'IDHeader', 'Header2']
+   |    |    |    |    |    |    |    |    |    |    | child_window(title="ID", control_type="Header")
+   |    |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    |    | Header - 'Titel'    (L178, T740, R698, B800)
+   |    |    |    |    |    |    |    |    |    |    | ['Titel', 'TitelHeader', 'Header3']
+   |    |    |    |    |    |    |    |    |    |    | child_window(title="Titel", control_type="Header")
+   |    |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    |    | Header - 'Auflösung'    (L698, T740, R878, B800)
+   |    |    |    |    |    |    |    |    |    |    | ['AuflösungHeader', 'Auflösung', 'Header4']
+   |    |    |    |    |    |    |    |    |    |    | child_window(title="Auflösung", control_type="Header")
+   |    |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    |    | Header - 'FPS'    (L878, T740, R978, B800)
+   |    |    |    |    |    |    |    |    |    |    | ['FPSHeader', 'FPS', 'Header5']
+   |    |    |    |    |    |    |    |    |    |    | child_window(title="FPS", control_type="Header")
+   |    |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    |    | Header - 'Codec'    (L978, T740, R1118, B800)
+   |    |    |    |    |    |    |    |    |    |    | ['CodecHeader', 'Codec', 'Header6']
+   |    |    |    |    |    |    |    |    |    |    | child_window(title="Codec", control_type="Header")
+   |    |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    |    | Header - 'Analyse %'    (L1118, T740, R1278, B800)
+   |    |    |    |    |    |    |    |    |    |    | ['Analyse %Header', 'Header7', 'Analyse %']
+   |    |    |    |    |    |    |    |    |    |    | child_window(title="Analyse %", control_type="Header")
+   |    |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    |    | Header - 'Pfad'    (L1278, T740, R1718, B800)
+   |    |    |    |    |    |    |    |    |    |    | ['PfadHeader', 'Header8', 'Pfad']
+   |    |    |    |    |    |    |    |    |    |    | child_window(title="Pfad", control_type="Header")
+   |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    | Custom - ''    (L1736, T416, R2656, B1956)
+   |    |    |    |    |    |    |    | ['Custom5', 'Video-Clips analysierenCustom']
+   |    |    |    |    |    |    |    | child_window(auto_id="workflow_card", control_type="Custom")
+   |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    | Static - 'Video-Clips analysieren'    (L1762, T438, R2630, B476)
+   |    |    |    |    |    |    |    |    | ['Video-Clips analysieren', 'Static8', 'Video-Clips analysierenStatic']
+   |    |    |    |    |    |    |    |    | child_window(title="Video-Clips analysieren", control_type="Text")
+   |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    | Static - 'Waehle links ein Video oder mehrere Clips. Starte danach direkt hier die komplette Pipeline oder einzelne Schritte fuer Nacharbeit.'    (L1762, T492, R2630, B552)
+   |    |    |    |    |    |    |    |    | ['Waehle links ein Video oder mehrere Clips. Starte danach direkt hier die komplette Pipeline oder einzelne Schritte fuer Nacharbeit.Static', 'Static9', 'Waehle links ein Video oder mehrere Clips. Starte danach direkt hier die komplette Pipeline oder einzelne Schritte fuer Nacharbeit.']
+   |    |    |    |    |    |    |    |    | child_window(title="Waehle links ein Video oder mehrere Clips. Starte danach direkt hier die komplette Pipeline oder einzelne Schritte fuer Nacharbeit.", control_type="Text")
+   |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    | Button - 'Video komplett analysieren'    (L1762, T568, R2630, B624)
+   |    |    |    |    |    |    |    |    | ['Video komplett analysieren', 'Button15', 'Video komplett analysierenButton']
+   |    |    |    |    |    |    |    |    | child_window(title="Video komplett analysieren", auto_id="workflow_card.btn_accent", control_type="Button")
+   |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    | Button - 'Szenen'    (L1762, T640, R2190, B700)
+   |    |    |    |    |    |    |    |    | ['Button16', 'Szenen', 'SzenenButton']
+   |    |    |    |    |    |    |    |    | child_window(title="Szenen", auto_id="workflow_card.btn_secondary", control_type="Button")
+   |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    | Button - 'Was macht es? Erzeugt lesbare Szenen-/Motion-Strings aus analysierten Video-Clips. Wann nutzen? Nach Szenen- und Motion-Analyse. Voraussetzung? Video-Clips im Projekt. Ergebnis? Text-Kontext fuer Prompting, Debugging und Review.'    (L2202, T640, R2630, B700)
+   |    |    |    |    |    |    |    |    | ['Was macht es? Erzeugt lesbare Szenen-/Motion-Strings aus analysierten Video-Clips. Wann nutzen? Nach Szenen- und Motion-Analyse. Voraussetzung? Video-Clips im Projekt. Ergebnis? Text-Kontext fuer Prompting, Debugging und Review.Button', 'Button17', 'Was macht es? Erzeugt lesbare Szenen-/Motion-Strings aus analysierten Video-Clips. Wann nutzen? Nach Szenen- und Motion-Analyse. Voraussetzung? Video-Clips im Projekt. Ergebnis? Text-Kontext fuer Prompting, Debugging und Review.']
+   |    |    |    |    |    |    |    |    | child_window(title="Was macht es? Erzeugt lesbare Szenen-/Motion-Strings aus analysierten Video-Clips. Wann nutzen? Nach Szenen- und Motion-Analyse. Voraussetzung? Video-Clips im Projekt. Ergebnis? Text-Kontext fuer Prompting, Debugging und Review.", auto_id="workflow_card.btn_ai", control_type="Button")
+   |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    | Custom - ''    (L1762, T716, R2630, B884)
+   |    |    |    |    |    |    |    |    | ['Custom6', 'Waehle links ein Video oder mehrere Clips. Starte danach direkt hier die komplette Pipeline oder einzelne Schritte fuer Nacharbeit.Custom']
+   |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    | Static - 'Preflight gehoert zu Video: Format, FPS, Codec und Proxy werden vor Analyse/Export geprueft.'    (L1780, T806, R2612, B866)
+   |    |    |    |    |    |    |    |    |    | ['Static10', 'Preflight gehoert zu Video: Format, FPS, Codec und Proxy werden vor Analyse/Export geprueft.Static', 'Preflight gehoert zu Video: Format, FPS, Codec und Proxy werden vor Analyse/Export geprueft.']
+   |    |    |    |    |    |    |    |    |    | child_window(title="Preflight gehoert zu Video: Format, FPS, Codec und Proxy werden vor Analyse/Export geprueft.", control_type="Text")
+   |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    | Button - 'Alle Videos standardisieren'    (L1780, T734, R2300, B794)
+   |    |    |    |    |    |    |    |    |    | ['Button18', 'Alle Videos standardisieren', 'Alle Videos standardisierenButton']
+   |    |    |    |    |    |    |    |    |    | child_window(title="Alle Videos standardisieren", auto_id="btn_accent", control_type="Button")
+   |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    | Edit - ''    (L1762, T900, R2630, B1136)
+   |    |    |    |    |    |    |    |    | ['Preflight gehoert zu Video: Format, FPS, Codec und Proxy werden vor Analyse/Export geprueft.Edit', 'Edit2']
+   |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    | GroupBox - ''    (L1772, T910, R2620, B1126)
+   |    |    |    |    |    |    |    |    |    | ['Preflight gehoert zu Video: Format, FPS, Codec und Proxy werden vor Analyse/Export geprueft.GroupBox', 'GroupBox10']
+   |    |    |    |    |    |    |    |    |    | child_window(auto_id="qt_scrollarea_viewport", control_type="Group")
+   |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    | GroupBox - ''    (L1762, T1152, R2630, B1934)
+   |    |    |    |    |    |    |    |    | ['GroupBox11', 'Analyse-StatusGroupBox']
+   |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    | Static - 'Analyse-Status'    (L1786, T1176, R2606, B1208)
+   |    |    |    |    |    |    |    |    |    | ['Static11', 'Analyse-StatusStatic', 'Analyse-Status']
+   |    |    |    |    |    |    |    |    |    | child_window(title="Analyse-Status", control_type="Text")
+   |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    | Static - 'Keine Datei ausgewählt'    (L1786, T1224, R2606, B1270)
+   |    |    |    |    |    |    |    |    |    | ['Static12', 'Keine Datei ausgewähltStatic', 'Keine Datei ausgewählt']
+   |    |    |    |    |    |    |    |    |    | child_window(title="Keine Datei ausgewählt", control_type="Text")
+   |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    | Progress - ''    (L1786, T1286, R2606, B1334)
+   |    |    |    |    |    |    |    |    |    | ['Progress', 'Keine Datei ausgewähltProgress', 'Progress0', 'Progress1']
+   |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    | Static - 'Filter:'    (L1786, T1358, R1838, B1410)
+   |    |    |    |    |    |    |    |    |    | ['Filter:', 'Static13', 'Filter:Static']
+   |    |    |    |    |    |    |    |    |    | child_window(title="Filter:", control_type="Text")
+   |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    | ComboBox - ''    (L1854, T1360, R2134, B1412)
+   |    |    |    |    |    |    |    |    |    | ['ComboBox', 'Filter:ComboBox']
+   |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    | Table - ''    (L1786, T1426, R2606, B1822)
+   |    |    |    |    |    |    |    |    |    | ['Table2', 'Filter:Table']
+   |    |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    |    | Pane - ''    (L0, T0, R0, B0)
+   |    |    |    |    |    |    |    |    |    |    | ['Pane2']
+   |    |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    |    | Header - 'Status'    (L1788, T1428, R1888, B1500)
+   |    |    |    |    |    |    |    |    |    |    | ['Status', 'StatusHeader', 'Header9']
+   |    |    |    |    |    |    |    |    |    |    | child_window(title="Status", control_type="Header")
+   |    |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    |    | Header - 'Schritt'    (L1888, T1428, R2166, B1500)
+   |    |    |    |    |    |    |    |    |    |    | ['Schritt', 'SchrittHeader', 'Header10']
+   |    |    |    |    |    |    |    |    |    |    | child_window(title="Schritt", control_type="Header")
+   |    |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    |    | Header - 'Wert'    (L2166, T1428, R2444, B1500)
+   |    |    |    |    |    |    |    |    |    |    | ['Header11', 'WertHeader', 'Wert']
+   |    |    |    |    |    |    |    |    |    |    | child_window(title="Wert", control_type="Header")
+   |    |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    |    | Header - ''    (L2444, T1428, R2604, B1500)
+   |    |    |    |    |    |    |    |    |    |    | ['Keine Datei ausgewähltHeader', 'Header12']
+   |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    | Button - 'Aktualisieren'    (L1786, T1846, R1970, B1910)
+   |    |    |    |    |    |    |    |    |    | ['AktualisierenButton', 'Button19', 'Aktualisieren']
+   |    |    |    |    |    |    |    |    |    | child_window(title="Aktualisieren", control_type="Button")
+   |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    | Button - 'Alle Fehler wiederholen'    (L1986, T1846, R2274, B1910)
+   |    |    |    |    |    |    |    |    |    | ['Alle Fehler wiederholen', 'Button20', 'Alle Fehler wiederholenButton']
+   |    |    |    |    |    |    |    |    |    | child_window(title="Alle Fehler wiederholen", control_type="Button")
+   |    |    |    |    |    | 
+   |    |    |    |    |    | Button - 'Zur Timeline hinzufuegen'    (L1120, T1972, R1560, B2028)
+   |    |    |    |    |    | ['Zur Timeline hinzufuegenButton', 'Button21', 'Zur Timeline hinzufuegen']
+   |    |    |    |    |    | child_window(title="Zur Timeline hinzufuegen", auto_id="btn_accent", control_type="Button")
+   |    |    | 
+   |    |    | GroupBox - ''    (L2680, T184, R3240, B2036)
+   |    |    | ['Material & AnalyseGroupBox4', 'GroupBox12']
+   |    |    | child_window(auto_id="right_panel", control_type="Group")
+   |    |    |    | 
+   |    |    |    | Custom - ''    (L2680, T230, R3240, B2036)
+   |    |    |    | ['Custom7', 'Datei auswaehlen und passende Analyse direkt daneben starten. Audio und Video bleiben im selben Arbeitskontext.Custom3']
+   |    |    |    | child_window(auto_id="right_panel.qt_tabwidget_stackedwidget", control_type="Custom")
+   |    |    |    |    | 
+   |    |    |    |    | GroupBox - ''    (L2680, T230, R3240, B2036)
+   |    |    |    |    | ['GroupBox13', 'Datei auswaehlen und passende Analyse direkt daneben starten. Audio und Video bleiben im selben Arbeitskontext.GroupBox4']
+   |    |    |    |    |    | 
+   |    |    |    |    |    | Static - 'HINTERGRUND-PROZESSE'    (L2688, T234, R2868, B282)
+   |    |    |    |    |    | ['HINTERGRUND-PROZESSE', 'HINTERGRUND-PROZESSEStatic', 'Static14']
+   |    |    |    |    |    | child_window(title="HINTERGRUND-PROZESSE", control_type="Text")
+   |    |    |    |    |    | 
+   |    |    |    |    |    | Button - 'Fertige loeschen'    (L2872, T238, R3092, B286)
+   |    |    |    |    |    | ['Fertige loeschen', 'Fertige loeschenButton', 'Button22']
+   |    |    |    |    |    | child_window(title="Fertige loeschen", control_type="Button")
+   |    |    |    |    |    | 
+   |    |    |    |    |    | Button - 'Abbrechen'    (L3054, T238, R3234, B286)
+   |    |    |    |    |    | ['Abbrechen', 'Button23', 'AbbrechenButton']
+   |    |    |    |    |    | child_window(title="Abbrechen", control_type="Button")
+   |    |    |    |    |    | 
+   |    |    |    |    |    | GroupBox - ''    (L2688, T286, R3232, B2032)
+   |    |    |    |    |    | ['HINTERGRUND-PROZESSEGroupBox', 'GroupBox14', 'HINTERGRUND-PROZESSEGroupBox0', 'HINTERGRUND-PROZESSEGroupBox1']
+   |    |    |    |    |    |    | 
+   |    |    |    |    |    |    | GroupBox - ''    (L2688, T286, R3232, B2032)
+   |    |    |    |    |    |    | ['HINTERGRUND-PROZESSEGroupBox2', 'GroupBox15']
+   |    |    |    |    |    |    | child_window(auto_id="qt_scrollarea_viewport", control_type="Group")
+   |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    | GroupBox - ''    (L2688, T286, R3950, B2032)
+   |    |    |    |    |    |    |    | ['HINTERGRUND-PROZESSEGroupBox3', 'GroupBox16']
+   |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    | GroupBox - ''    (L2688, T286, R3950, B866)
+   |    |    |    |    |    |    |    |    | ['HINTERGRUND-PROZESSEGroupBox4', 'GroupBox17']
+   |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    | Static - 'Medien-DB laden'    (L2700, T292, R3100, B860)
+   |    |    |    |    |    |    |    |    |    | ['Medien-DB ladenStatic', 'Static15', 'Medien-DB laden', 'Medien-DB ladenStatic0', 'Medien-DB ladenStatic1', 'Medien-DB laden0', 'Medien-DB laden1']
+   |    |    |    |    |    |    |    |    |    | child_window(title="Medien-DB laden", control_type="Text")
+   |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    | Static - 'Fertig'    (L3116, T292, R3256, B860)
+   |    |    |    |    |    |    |    |    |    | ['Static16', 'FertigStatic', 'Fertig', 'FertigStatic0', 'FertigStatic1', 'Fertig0', 'Fertig1']
+   |    |    |    |    |    |    |    |    |    | child_window(title="Fertig", control_type="Text")
+   |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    | Progress - ''    (L3272, T560, R3450, B600)
+   |    |    |    |    |    |    |    |    |    | ['FertigProgress', 'Progress2', 'FertigProgress0', 'FertigProgress1']
+   |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    | Static - 'Fertig'    (L3466, T292, R3766, B860)
+   |    |    |    |    |    |    |    |    |    | ['Static17', 'FertigStatic2', 'Fertig2']
+   |    |    |    |    |    |    |    |    |    | child_window(title="Fertig", control_type="Text")
+   |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    | Static - '3.7s'    (L3782, T292, R3882, B860)
+   |    |    |    |    |    |    |    |    |    | ['3.7sStatic', '3.7s', 'Static18']
+   |    |    |    |    |    |    |    |    |    | child_window(title="3.7s", control_type="Text")
+   |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    | Button - '✕'    (L3898, T556, R3938, B616)
+   |    |    |    |    |    |    |    |    |    | ['✕Button', 'Button24', '✕', '✕Button0', '✕Button1', '✕0', '✕1']
+   |    |    |    |    |    |    |    |    |    | child_window(title="✕", control_type="Button")
+   |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    | GroupBox - ''    (L2688, T870, R3950, B1448)
+   |    |    |    |    |    |    |    |    | ['GroupBox18', 'Medien-DB ladenGroupBox']
+   |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    | Static - 'Projekt erstellen'    (L2700, T876, R3100, B1442)
+   |    |    |    |    |    |    |    |    |    | ['Projekt erstellenStatic', 'Static19', 'Projekt erstellen']
+   |    |    |    |    |    |    |    |    |    | child_window(title="Projekt erstellen", control_type="Text")
+   |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    | Static - 'Fertig'    (L3116, T876, R3256, B1442)
+   |    |    |    |    |    |    |    |    |    | ['Static20', 'FertigStatic3', 'Fertig3']
+   |    |    |    |    |    |    |    |    |    | child_window(title="Fertig", control_type="Text")
+   |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    | Progress - ''    (L3272, T1142, R3450, B1182)
+   |    |    |    |    |    |    |    |    |    | ['FertigProgress2', 'Progress3']
+   |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    | Static - 'Fertig'    (L3466, T876, R3766, B1442)
+   |    |    |    |    |    |    |    |    |    | ['Static21', 'FertigStatic4', 'Fertig4']
+   |    |    |    |    |    |    |    |    |    | child_window(title="Fertig", control_type="Text")
+   |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    | Static - '0.9s'    (L3782, T876, R3882, B1442)
+   |    |    |    |    |    |    |    |    |    | ['0.9s', 'Static22', '0.9sStatic']
+   |    |    |    |    |    |    |    |    |    | child_window(title="0.9s", control_type="Text")
+   |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    | Button - '✕'    (L3898, T1138, R3938, B1198)
+   |    |    |    |    |    |    |    |    |    | ['✕Button2', 'Button25', '✕2']
+   |    |    |    |    |    |    |    |    |    | child_window(title="✕", control_type="Button")
+   |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    | GroupBox - ''    (L2688, T1452, R3950, B2032)
+   |    |    |    |    |    |    |    |    | ['GroupBox19', 'Projekt erstellenGroupBox']
+   |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    | Static - 'Medien-DB laden'    (L2700, T1458, R3100, B2026)
+   |    |    |    |    |    |    |    |    |    | ['Medien-DB ladenStatic2', 'Static23', 'Medien-DB laden2']
+   |    |    |    |    |    |    |    |    |    | child_window(title="Medien-DB laden", control_type="Text")
+   |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    | Static - 'Fertig'    (L3116, T1458, R3256, B2026)
+   |    |    |    |    |    |    |    |    |    | ['Static24', 'FertigStatic5', 'Fertig5']
+   |    |    |    |    |    |    |    |    |    | child_window(title="Fertig", control_type="Text")
+   |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    | Progress - ''    (L3272, T1726, R3450, B1766)
+   |    |    |    |    |    |    |    |    |    | ['FertigProgress3', 'Progress4']
+   |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    | Static - 'Fertig'    (L3466, T1458, R3766, B2026)
+   |    |    |    |    |    |    |    |    |    | ['Static25', 'FertigStatic6', 'Fertig6']
+   |    |    |    |    |    |    |    |    |    | child_window(title="Fertig", control_type="Text")
+   |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    | Static - '0.3s'    (L3782, T1458, R3882, B2026)
+   |    |    |    |    |    |    |    |    |    | ['0.3s', '0.3sStatic', 'Static26']
+   |    |    |    |    |    |    |    |    |    | child_window(title="0.3s", control_type="Text")
+   |    |    |    |    |    |    |    |    |    | 
+   |    |    |    |    |    |    |    |    |    | Button - '✕'    (L3898, T1722, R3938, B1782)
+   |    |    |    |    |    |    |    |    |    | ['✕Button3', 'Button26', '✕3']
+   |    |    |    |    |    |    |    |    |    | child_window(title="✕", control_type="Button")
+   |    |    |    | 
+   |    |    |    | TabControl - 'TASKS'    (L2680, T184, R3240, B232)
+   |    |    |    | ['TASKSTabControl', 'TabControl', 'TASKS', 'TASKS0', 'TASKS1']
+   |    |    |    | child_window(title="TASKS", auto_id="right_panel.qt_tabwidget_tabbar", control_type="Tab")
+   |    |    |    |    | 
+   |    |    |    |    | TabItem - 'CHAT'    (L2680, T184, R2798, B232)
+   |    |    |    |    | ['CHAT', 'CHATTabItem', 'TabItem', 'TabItem0', 'TabItem1']
+   |    |    |    |    | child_window(title="CHAT", control_type="TabItem")
+   |    |    |    |    | 
+   |    |    |    |    | TabItem - 'TASKS'    (L2798, T184, R2922, B232)
+   |    |    |    |    | ['TASKSTabItem', 'TASKS2', 'TabItem2']
+   |    |    |    |    | child_window(title="TASKS", control_type="TabItem")
+   |    |    |    |    | 
+   |    |    |    |    | TabItem - 'LOG'    (L2922, T184, R3026, B232)
+   |    |    |    |    | ['LOGTabItem', 'TabItem3', 'LOG']
+   |    |    |    |    | child_window(title="LOG", control_type="TabItem")
+   |    |    |    |    | 
+   |    |    |    |    | TabItem - 'Brain V3'    (L3026, T184, R3170, B232)
+   |    |    |    |    | ['Brain V3', 'TabItem4', 'Brain V3TabItem']
+   |    |    |    |    | child_window(title="Brain V3", control_type="TabItem")
+   | 
+   | StatusBar - 'Medienpool und Analyse'    (L0, T2036, R3240, B2066)
+   | ['Medienpool und Analyse', 'Medienpool und AnalyseStatusBar', 'StatusBar']
+   | child_window(title="Medienpool und Analyse", control_type="StatusBar")
+   |    | 
+   |    | GroupBox - ''    (L1622, T2042, R3240, B2062)
+   |    | ['GroupBox20', 'CPU 27%GroupBox']
+   |    |    | 
+   |    |    | Static - 'CPU 27%'    (L1630, T2042, R2050, B2062)
+   |    |    | ['CPU 27%', 'Static27', 'CPU 27%Static']
+   |    |    | child_window(title="CPU 27%", control_type="Text")
+   |    |    | 
+   |    |    | Progress - ''    (L2058, T2044, R2158, B2072)
+   |    |    | ['CPU 27%Progress', 'Progress5']
+   |    |    | 
+   |    |    | Static - 'RAM 6.2/15.9'    (L2166, T2042, R2588, B2062)
+   |    |    | ['RAM 6.2/15.9', 'Static28', 'RAM 6.2/15.9Static']
+   |    |    | child_window(title="RAM 6.2/15.9", control_type="Text")
+   |    |    | 
+   |    |    | Progress - ''    (L2596, T2044, R2696, B2072)
+   |    |    | ['Progress6', 'RAM 6.2/15.9Progress']
+   |    |    | 
+   |    |    | Static - 'GPU 0.0/6.0'    (L2704, T2042, R3124, B2062)
+   |    |    | ['GPU 0.0/6.0', 'Static29', 'GPU 0.0/6.0Static']
+   |    |    | child_window(title="GPU 0.0/6.0", control_type="Text")
+   |    |    | 
+   |    |    | Progress - ''    (L3132, T2044, R3232, B2072)
+   |    |    | ['GPU 0.0/6.0Progress', 'Progress7']

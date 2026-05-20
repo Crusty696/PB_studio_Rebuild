@@ -61,6 +61,7 @@ class StemPlayer(QObject):
 
         # Offene SoundFile-Handles (streaming)
         self._handles: dict[str, sf.SoundFile] = {}
+        self._loaded_stem_paths_signature: tuple[tuple[str, str], ...] | None = None
         self._sr: int = 44100
         self._total_frames: int = 0
         self._channels_per_stem: dict[str, int] = {}
@@ -121,6 +122,18 @@ class StemPlayer(QObject):
     def is_loaded(self) -> bool:
         return self._total_frames > 0
 
+    def _stem_paths_signature(self, stem_paths: dict[str, str | None]) -> tuple[tuple[str, str], ...]:
+        """Normalisierte Signatur existierender Stem-Pfade."""
+        signature: list[tuple[str, str]] = []
+        for name in self.STEM_NAMES:
+            raw_path = stem_paths.get(name)
+            if not raw_path:
+                continue
+            path = Path(raw_path)
+            if path.exists():
+                signature.append((name, str(path.resolve())))
+        return tuple(signature)
+
     def load_stems(self, stem_paths: dict[str, str | None]) -> bool:
         """Öffnet Stem-WAV-Dateien zum Streaming (lädt NICHTS in den RAM).
 
@@ -130,6 +143,11 @@ class StemPlayer(QObject):
         Returns:
             True wenn mindestens ein Stem geöffnet wurde.
         """
+        requested_signature = self._stem_paths_signature(stem_paths)
+        if self._handles and requested_signature == self._loaded_stem_paths_signature:
+            logger.debug("[StemPlayer] Gleiche Stem-Pfade bereits geöffnet — Reload übersprungen.")
+            return True
+
         self.stop()
         self._close_handles()
         self._total_frames = 0
@@ -140,6 +158,7 @@ class StemPlayer(QObject):
             self._needs_resync.clear()
 
         loaded_sr = None
+        loaded_signature: list[tuple[str, str]] = []
 
         for name in self.STEM_NAMES:
             path = stem_paths.get(name)
@@ -168,6 +187,7 @@ class StemPlayer(QObject):
 
                 self._handles[name] = handle
                 self._channels_per_stem[name] = channels
+                loaded_signature.append((name, str(Path(path).resolve())))
                 self._total_frames = max(self._total_frames, frames)
             except (OSError, IOError, ValueError, RuntimeError) as e:
                 logger.warning("[StemPlayer] Fehler beim Öffnen von %s: %s", name, e)
@@ -179,6 +199,8 @@ class StemPlayer(QObject):
         with self._lock:
             for n in self.STEM_NAMES:
                 self._was_muted[n] = self._muted.get(n, False)
+
+        self._loaded_stem_paths_signature = tuple(loaded_signature)
 
         logger.info("[StemPlayer] %d Stems geöffnet (Streaming), %d Frames, SR=%s, Dauer=%.1fs (%.1fh)",
                     len(self._handles), self._total_frames, self._sr,
@@ -495,6 +517,7 @@ class StemPlayer(QObject):
                 logger.warning("SoundFile-Handle für '%s' konnte nicht geschlossen werden: %s", name, e)
         self._handles.clear()
         self._channels_per_stem.clear()
+        self._loaded_stem_paths_signature = None
 
     def cleanup(self):
         """Gibt alle Ressourcen frei."""

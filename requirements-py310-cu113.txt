@@ -1,4 +1,5 @@
-# PB Studio Rebuild — Python 3.10 + CUDA 11.3 (Treiber 461.40)
+# PB Studio Rebuild — AKTIVE Ziel-Runtime: Python 3.10 + CUDA 11.3 / cu113
+# Hardware-Regel D-040: NVIDIA GTX 1060 6 GB, cuda:0 only.
 # Installieren mit:
 #   pip install -r requirements-py310-cu113.txt --extra-index-url https://download.pytorch.org/whl/cu113
 --extra-index-url https://download.pytorch.org/whl/cu113

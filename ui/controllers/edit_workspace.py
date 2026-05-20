@@ -783,72 +783,179 @@ class EditWorkspaceController(PBComponent):
             return
         self._generate_timeline_impl()
 
+    @staticmethod
+    def _coerce_media_id(value) -> int | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        if not text.isdigit():
+            return None
+        return int(text)
+
+    def _checked_ids_for_table(self, table) -> list[int]:
+        model = table.model()
+        getter = getattr(model, "get_checked_ids", None)
+        if not callable(getter):
+            return []
+        ids: list[int] = []
+        for value in getter() or []:
+            media_id = self._coerce_media_id(value)
+            if media_id is not None:
+                ids.append(media_id)
+        return ids
+
+    def _selected_row_request(self, table, media_type: str) -> dict | None:
+        model = table.model()
+        indexes = table.selectionModel().selectedRows()
+        if not indexes:
+            return None
+        row = indexes[0].row()
+        media_id = self._coerce_media_id(model.index(row, 1).data())
+        if media_id is None:
+            return None
+        title = model.index(row, 2).data() or f"{media_type} #{media_id}"
+        return {"media_type": media_type, "media_id": media_id, "title": title}
+
+    def _collect_timeline_add_requests(self) -> list[dict]:
+        """Checkbox-Auswahl ist primaer; Row-Selection bleibt Fallback."""
+        requests: list[dict] = []
+
+        audio_ids = self._checked_ids_for_table(self.window.audio_pool_table)
+        video_ids = self._checked_ids_for_table(self.window.video_pool_table)
+
+        if audio_ids:
+            if len(audio_ids) > 1:
+                logger.info(
+                    "Timeline-Add: %d Audio-Checkboxen gesetzt; nutze ersten Track als A1-Master.",
+                    len(audio_ids),
+                )
+            requests.append({"media_type": "Audio", "media_id": audio_ids[0], "title": None})
+
+        requests.extend(
+            {"media_type": "Video", "media_id": media_id, "title": None}
+            for media_id in video_ids
+        )
+
+        if requests:
+            return requests
+
+        audio_request = self._selected_row_request(self.window.audio_pool_table, "Audio")
+        if audio_request is not None:
+            return [audio_request]
+
+        video_request = self._selected_row_request(self.window.video_pool_table, "Video")
+        if video_request is not None:
+            return [video_request]
+
+        return []
+
     def _add_selected_to_timeline(self):
-        """Fügt selektiertes Medium asynchron zur Timeline hinzu (Fix F-045)."""
-        media_type = None
-        media_id = None
-        title = None
-        
-        # 1. Auswahl-Ermittlung (bleibt im UI-Thread)
-        a_view = self.window.audio_pool_table
-        a_model = a_view.model()
-        a_indexes = a_view.selectionModel().selectedRows()
-        if a_indexes:
-            row = a_indexes[0].row()
-            mid = a_model.index(row, 1).data()
-            if mid and str(mid).isdigit():
-                media_type = "Audio"; media_id = int(mid)
-                title = a_model.index(row, 2).data() or f"Audio #{media_id}"
-
-        if media_id is None:
-            v_view = self.window.video_pool_table
-            v_model = v_view.model()
-            v_indexes = v_view.selectionModel().selectedRows()
-            if v_indexes:
-                row = v_indexes[0].row()
-                mid = v_model.index(row, 1).data()
-                if mid and str(mid).isdigit():
-                    media_type = "Video"; media_id = int(mid)
-                    title = v_model.index(row, 2).data() or f"Video #{media_id}"
-
-        if media_id is None:
+        """Fügt markierte Medien asynchron zur Timeline hinzu (Fix F-045/B-321)."""
+        requests = self._collect_timeline_add_requests()
+        if not requests:
             self.window.console_text.append("[Warnung] Keine Datei ausgewaehlt.")
             return
 
-        track_type = "audio" if media_type == "Audio" else "video"
+        project_id = get_active_project_id()
+        if project_id is None:
+            self.window.console_text.append("[Warnung] Kein aktives Projekt.")
+            return
         
         # 2. DB-Abfrage in Hintergrund-Thread auslagern
         from PySide6.QtCore import QObject, Signal
-        class AddClipWorker(QObject):
-            finished = Signal(float, float) # start_time, duration
+
+        class AddClipsWorker(QObject):
+            finished = Signal(list)  # prepared clip dicts
             error = Signal(str)
+
+            def __init__(self, project_id: int, requests: list[dict]):
+                super().__init__()
+                self._project_id = project_id
+                self._requests = requests
+
             def run(self):
                 try:
-                    from database import nullpool_session, TimelineEntry, AudioTrack, VideoClip, get_active_project_id
+                    from database import nullpool_session, TimelineEntry, AudioTrack, VideoClip
                     with nullpool_session() as session:
-                        existing = session.query(TimelineEntry).filter_by(
-                            project_id=get_active_project_id(), track=track_type
-                        ).order_by(TimelineEntry.start_time.desc()).first()
-                        st = existing.end_time if existing and existing.end_time else 0.0
-                        if track_type == "audio":
-                            obj = session.get(AudioTrack, media_id)
-                            dur = obj.duration if obj and obj.duration else 30.0
-                        else:
-                            obj = session.get(VideoClip, media_id)
-                            dur = obj.duration if obj and obj.duration else 10.0
-                        self.finished.emit(st, dur)
+                        video_end_row = session.query(TimelineEntry).filter_by(
+                            project_id=self._project_id, track="video"
+                        ).order_by(TimelineEntry.end_time.desc()).first()
+                        video_start = (
+                            float(video_end_row.end_time)
+                            if video_end_row and video_end_row.end_time is not None
+                            else 0.0
+                        )
+
+                        prepared: list[dict] = []
+                        for req in self._requests:
+                            media_type = req["media_type"]
+                            media_id = int(req["media_id"])
+                            if media_type == "Audio":
+                                obj = session.get(AudioTrack, media_id)
+                                if obj is None:
+                                    raise ValueError(f"Audio #{media_id} nicht gefunden.")
+                                duration = float(obj.duration or 30.0)
+                                title = req.get("title") or obj.title or f"Audio #{media_id}"
+                                prepared.append({
+                                    "media_type": "Audio",
+                                    "track_type": "audio",
+                                    "media_id": media_id,
+                                    "title": title,
+                                    "start_time": 0.0,
+                                    "duration": duration,
+                                })
+                            else:
+                                obj = session.get(VideoClip, media_id)
+                                if obj is None:
+                                    raise ValueError(f"Video #{media_id} nicht gefunden.")
+                                duration = float(obj.duration or 10.0)
+                                title = (
+                                    req.get("title")
+                                    or (Path(obj.file_path).stem if obj.file_path else None)
+                                    or f"Video #{media_id}"
+                                )
+                                prepared.append({
+                                    "media_type": "Video",
+                                    "track_type": "video",
+                                    "media_id": media_id,
+                                    "title": title,
+                                    "start_time": video_start,
+                                    "duration": duration,
+                                })
+                                video_start += duration
+                        self.finished.emit(prepared)
                 except Exception as e: self.error.emit(str(e))
 
-        worker = AddClipWorker()
-        def _on_done(start_time, duration):
+        worker = AddClipsWorker(project_id, requests)
+
+        def _on_done(clips):
+            if not clips:
+                self.window.console_text.append("[Warnung] Keine Timeline-Clips vorbereitet.")
+                return
             from ui.undo_commands import AddClipCommand
-            cmd = AddClipCommand(self.window.timeline_view, get_active_project_id(), 
-                               track_type, media_id, title, start_time, duration)
-            self.window.timeline_view.undo_stack.push(cmd)
+            for clip in clips:
+                cmd = AddClipCommand(
+                    self.window.timeline_view,
+                    project_id,
+                    clip["track_type"],
+                    clip["media_id"],
+                    clip["title"],
+                    clip["start_time"],
+                    clip["duration"],
+                )
+                self.window.timeline_view.undo_stack.push(cmd)
             self.window._mark_dirty()
-            self.window.console_text.append(f"[Timeline] {media_type} '{title}' hinzugefuegt.")
+            if len(clips) == 1:
+                clip = clips[0]
+                self.window.console_text.append(
+                    f"[Timeline] {clip['media_type']} '{clip['title']}' hinzugefuegt."
+                )
+            else:
+                self.window.console_text.append(
+                    f"[Timeline] {len(clips)} markierte Medien hinzugefuegt."
+                )
             self.window.nav_bar.set_workspace(1)
 
         GlobalTaskManager.instance().start_task(
-            name="Clip zur Timeline", worker=worker, on_finish=_on_done
+            name="Clips zur Timeline", worker=worker, on_finish=_on_done
         )

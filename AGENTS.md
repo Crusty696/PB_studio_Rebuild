@@ -46,23 +46,24 @@ instructions, or own "creative" interpretation.
 
 ## Scope — what is to be done
 
-- **Execute one of the authorized plans.** Nothing more, nothing less.
-- **Authorized plan roots (as of 2026-05-14, active):**
-  - `docs/superpowers/plans/2026-05-04-brain-v3-nvidia-plan/` — Brain V3
-    NVIDIA backend. Plan = `01_ARCHITECTURE.md` … `07_RISKS.md`. Phases
-    0 → 6 strictly sequential, task list in `06_PHASES.md`. Phase
-    blueprints (e.g. `phase_3_brain_core.md`) may add detail; on
-    contradiction with `06_PHASES.md`: stop + ask.
-  - `docs/superpowers/plans/2026-05-09-schnitt-workspace-redesign/` —
-    UI SCHNITT Workspace Redesign. Plan = `README.md` (index) +
-    `01_DB_MIGRATIONS.md` … `12_CLEANUP_AND_VERIFY.md`. Phases 01 → 12
-    strictly sequential, tasks within each phase in the order given.
-    Spec authority:
-    `docs/superpowers/specs/2026-05-09-schnitt-workspace-redesign.md`.
-  - `docs/superpowers/plans/2026-05-13-schnitt-usability-wiring-rebuild/` —
-    B-310 follow-up plan for SCHNITT usability, wiring, tooltips,
-    inspector, and live verification. Task 8 live verification remains
-    open unless the user confirms a complete live workflow.
+- **Execute exactly one authorized plan.** Nothing more, nothing less.
+- **Plan authority is generic, not hardcoded.** A plan is authorized only
+  when all of the following are true:
+  - It is listed in `docs/superpowers/PLAN_REGISTRY.md`.
+  - `docs/superpowers/ACTIVE_PLAN.md` selects exactly that one plan, or
+    explicitly says `blocked-needs-user-selection` and the user is asking
+    for plan/governance selection work.
+  - Its Registry status allows the requested activity:
+    `approved-for-planning` for planning/review only;
+    `approved-for-implementation` or `in_progress` for implementation;
+    `code-complete-live-pending` for verification or directly related
+    fix-follow-up.
+  - Its Vault mirror and Decision file exist, except for `draft` plans.
+  - Its next task is unambiguous from the plan file and/or Vault living
+    plan.
+- **If any of those checks fail:** stop, report the exact missing fact,
+  and wait for user decision. Never choose between multiple active plans
+  alone.
 - **User-authorized maintenance scope (2026-05-14):**
   update important app-use docs, launch scripts, test wrappers, and
   Obsidian/vault handoff notes so the next agent sees the same status.
@@ -85,14 +86,16 @@ instructions, or own "creative" interpretation.
 
 ## Plan fidelity — no unilateral action
 
+- Before implementation, read `docs/superpowers/PLAN_REGISTRY.md` and
+  `docs/superpowers/ACTIVE_PLAN.md`.
 - Plan deviation needed (technical blocker, contradiction, new
   insight): **stop, report to user, wait for decision**.
 - Never silently change architecture.
 - Never swap a library without explicit approval.
 - Never add "bonus features".
 - Never refactor outside the scope of the current task.
-- Plan contradicts itself (e.g. `06_PHASES.md` vs. a phase blueprint),
-  or is unclear: ask explicitly, do not decide alone.
+- Plan contradicts itself, the Registry, Active Plan, Decision file, or
+  Vault mirror: ask explicitly, do not decide alone.
 
 ---
 
@@ -113,6 +116,17 @@ NVIDIA GeForce GTX 1060 6 GB, Pascal, Compute Capability 6.1, CUDA stack.
 ---
 
 ## Working method — strict, sequential, documented
+
+### How to choose current task
+
+1. Read `docs/superpowers/PLAN_REGISTRY.md`.
+2. Read `docs/superpowers/ACTIVE_PLAN.md`.
+3. If `ACTIVE_PLAN.md` is `blocked-needs-user-selection`, do not start
+   product/app-code work. Ask the user to select exactly one plan unless
+   the current request is explicitly governance or plan-selection work.
+4. If exactly one plan is active, read its repo plan, Vault mirror, and
+   Decision file.
+5. Quote and execute only the next unambiguous task from that plan.
 
 1. **Before every task:**
    - Quote the task verbatim from the plan.
@@ -245,7 +259,10 @@ status marker before the next phase may begin.
 ## Commit discipline
 
 - One commit = one logically complete, **verified** change.
-- Commit message: `<type>(B-XXX): <short>` + body with verification status.
+- Commit message:
+  - Bugfix: `fix(B-XXX): <short>` + body with verification status.
+  - Plan work without bug ID: `<type>(<PLAN-ID>): <short>` + body with
+    verification status.
 - Body if not live-verified: `(unverified — pending user test)`.
 - **No commit spam.** Multiple small "fixed" commits from smoke tests
   are forbidden.
@@ -257,14 +274,11 @@ status marker before the next phase may begin.
 
 ## What is done
 
-- Implement tasks from the active plan's task list, in the order given:
-  - Brain V3: `06_PHASES.md`.
-  - SCHNITT Redesign: `README.md` phase index + per-phase task lists
-    inside the same folder.
+- Implement tasks from the current plan's own task list, in the order
+  specified by that plan and its Vault living-plan mirror.
 - Write code in the paths foreseen by the active plan, with the modules
   foreseen there.
-- Write tests as specified by the active plan
-  (Brain V3: `07_RISKS.md`; SCHNITT Redesign: per-phase TDD steps).
+- Write tests as specified by the active plan.
 - Run verification scripts (`verify_*.py`) where foreseen.
 - Conduct live tests or explicitly ask the user for live test.
 - Write vault entries.
@@ -352,10 +366,10 @@ status marker before the next phase may begin.
 
 ```
  1. Quote the sub-task from the active plan
-    (Brain V3: 06_PHASES.md + phase blueprint;
-     SCHNITT Redesign: phase file, e.g. 01_DB_MIGRATIONS.md)
+    (using the plan's own task order and Vault living-plan mirror)
  2. Dependencies verified in vault? (status: fixed for predecessor)
- 3. Unclear or contradiction between plan documents?
+ 3. Unclear or contradiction between plan, Registry, Active Plan,
+    Decision, or Vault mirror?
     → ask user, STOP until answer
  4. Code edit
  5. Import / syntax check

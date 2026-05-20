@@ -35,7 +35,10 @@ def test_stems_controller_also_updates_schnitt_binder(monkeypatch):
         def __exit__(self, exc_type, exc, tb):
             return False
 
-        def query(self, model):
+        def query(self, *models):
+            return self
+
+        def filter(self, *args, **kwargs):
             return self
 
         def filter_by(self, **kwargs):

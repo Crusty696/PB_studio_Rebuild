@@ -185,26 +185,13 @@ class PanelSetupController(PBComponent):
                     logger.warning("_show_gpu_info_deferred: failed to get GPU info: %s", exc)
             QTimer.singleShot(2000, _show_gpu_info_deferred)
 
-            # B-180: Health-Check VOR dem User-Prompt — zeigt klar ob
-            # Ollama läuft, statt den User raten zu lassen.
-            try:
-                _hc = self.window._ai_agent.health_check()
-                _backend = _hc.get("backend", "fallback").capitalize()
-                self.window.chat_dock.append_system(
-                    f"Agent bereit. Backend: {_backend}\n"
-                    f"{_hc.get('message', '')}\n"
-                    "Befehle: 'analysiere', 'schneide', 'gpu status'"
-                )
-                if _hc.get("backend") == "ollama" and not _hc.get("ollama_reachable"):
-                    self.window.console_text.append(f"[KI-Warnung] {_hc['message']}")
-            except (AttributeError, RuntimeError) as _hc_exc:
-                # Health-Check optional — falls fehlt nur Default-Banner.
-                _backend = "Ollama" if _ollama_cfg["enabled"] else "HuggingFace (lokal)"
-                self.window.chat_dock.append_system(
-                    f"Agent bereit. Backend: {_backend}\n"
-                    "Befehle: 'analysiere', 'schneide', 'gpu status'"
-                )
-                logger.debug("Agent.health_check unavailable: %s", _hc_exc)
+            # B-321: Kein synchroner Ollama-Health-Check im UI-Bootpfad.
+            # Der Status-Dot prueft Verfuegbarkeit im Worker-Thread.
+            _backend = "Ollama" if _ollama_cfg["enabled"] else "HuggingFace (lokal)"
+            self.window.chat_dock.append_system(
+                f"Agent bereit. Backend: {_backend}\n"
+                "Befehle: 'analysiere', 'schneide', 'gpu status'"
+            )
             self.window.console_text.append("[KI] Chat-Assistent initialisiert (Modell wird bei erster Anfrage geladen).")
         except (ImportError, AttributeError, RuntimeError) as e:
             logger.error("[B-014] register_actions / Agent-Init fehlgeschlagen: %s", e, exc_info=True)
@@ -242,7 +229,7 @@ class PanelSetupController(PBComponent):
                 # (BPM/LUFS/Stems/etc. sind als Spalten oder Tooltip sichtbar)
                 if media_type in ("audio", "video"):
                     try:
-                        self.window.media_table_controller._refresh_media_table()
+                        self.window.media_table_controller._refresh_media_table_debounced()
                     except Exception as e:
                         logger.warning("B-253: media_table-Refresh fehlgeschlagen: %s", e)
 

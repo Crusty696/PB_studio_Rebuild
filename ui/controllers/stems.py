@@ -1,6 +1,7 @@
 """StemsController — Refactored from StemsMixin."""
 
 import logging
+from types import SimpleNamespace
 from pathlib import Path
 from PySide6.QtCore import Qt
 from database import engine, AudioTrack
@@ -48,8 +49,21 @@ class StemsController(PBComponent):
         """Lädt Stem-Pfade aus der DB, aktualisiert StemWorkspace und Player."""
         try:
             with DBSession(engine) as session:
-                track = session.query(AudioTrack).filter_by(id=track_id).first()
-                if not track:
+                track_row = (
+                    session.query(
+                        AudioTrack.id,
+                        AudioTrack.title,
+                        AudioTrack.duration,
+                        AudioTrack.energy_curve,
+                        AudioTrack.stem_vocals_path,
+                        AudioTrack.stem_drums_path,
+                        AudioTrack.stem_bass_path,
+                        AudioTrack.stem_other_path,
+                    )
+                    .filter(AudioTrack.id == track_id)
+                    .first()
+                )
+                if not track_row:
                     if hasattr(self.window, "stem_workspace"):
                         self.window.stem_workspace.update_for_track(None, None)
                     if hasattr(self.window, "_schnitt_audio_binder"):
@@ -60,10 +74,10 @@ class StemsController(PBComponent):
                     self.window.stem_player.stop()
                     return
                 stem_paths = {
-                    "vocals": track.stem_vocals_path,
-                    "drums": track.stem_drums_path,
-                    "bass": track.stem_bass_path,
-                    "other": track.stem_other_path,
+                    "vocals": track_row.stem_vocals_path,
+                    "drums": track_row.stem_drums_path,
+                    "bass": track_row.stem_bass_path,
+                    "other": track_row.stem_other_path,
                 }
                 loaded = self.window.stem_player.load_stems(stem_paths)
                 if hasattr(self.window, "stem_workspace"):
@@ -79,7 +93,14 @@ class StemsController(PBComponent):
                     else:
                         self.window._schnitt_audio_binder.set_duration(0.0)
                 if hasattr(self.window, "_stems_ws"):
-                    self.window._stems_ws.update_analysis(track)
+                    self.window._stems_ws.update_analysis(
+                        SimpleNamespace(
+                            id=track_row.id,
+                            title=track_row.title,
+                            duration=track_row.duration,
+                            energy_curve=track_row.energy_curve,
+                        )
+                    )
                 if loaded:
                     self.window.console_text.append(f"[StemPlayer] Track #{track_id} geladen: {self.window.stem_player.duration:.1f}s")
         except Exception as e:

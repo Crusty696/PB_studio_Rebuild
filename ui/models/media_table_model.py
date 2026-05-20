@@ -106,7 +106,7 @@ class MediaTableModel(QAbstractTableModel):
         self.endResetModel()
 
     def get_checked_ids(self) -> list[int]:
-        return list(self._checked_ids)
+        return [i["id"] for i in self._items if i["id"] in self._checked_ids]
 
     def toggle_all(self):
         """Alle sichtbaren Zeilen toggeln."""

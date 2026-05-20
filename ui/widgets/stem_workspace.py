@@ -173,6 +173,7 @@ class StemWorkspace(QWidget):
         # ── State ──
         self._duration: float = 0.0
         self._current_track_id: int | None = None
+        self._stem_signature: tuple[int, tuple[tuple[str, str], ...]] | None = None
         self._peak_threads: list[QThread] = []
         self._peak_workers: list[PeakWorker] = []
         # B-602 Fix: Lock für Thread-Safe Access auf Peak-Thread-Listen
@@ -185,10 +186,10 @@ class StemWorkspace(QWidget):
     def update_for_track(self, track_id: int | None,
                          stem_paths: dict[str, str | None] | None = None):
         """Aktualisiert alle 4 Tracks für einen neuen AudioTrack."""
-        self._current_track_id = track_id
-        self._cleanup_peak_threads()
-
         if track_id is None or stem_paths is None:
+            self._current_track_id = track_id
+            self._stem_signature = None
+            self._cleanup_peak_threads()
             self._info_label.setText("Kein Track geladen")
             for track in self._tracks.values():
                 track.set_enabled_state(False)
@@ -196,10 +197,28 @@ class StemWorkspace(QWidget):
 
         available = {k: v for k, v in stem_paths.items() if v and Path(v).exists()}
         if not available:
+            self._current_track_id = track_id
+            self._stem_signature = None
+            self._cleanup_peak_threads()
             self._info_label.setText("Keine Stems vorhanden")
             for track in self._tracks.values():
                 track.set_enabled_state(False)
             return
+
+        signature = (
+            track_id,
+            tuple(
+                (name, str(Path(available[name])))
+                for name in STEM_ORDER
+                if name in available
+            ),
+        )
+        if signature == self._stem_signature:
+            return
+
+        self._current_track_id = track_id
+        self._stem_signature = signature
+        self._cleanup_peak_threads()
 
         self._info_label.setText(f"Track #{track_id} — {len(available)}/4 Stems")
 

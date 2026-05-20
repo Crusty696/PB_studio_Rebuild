@@ -58,6 +58,34 @@ def test_stats_panel_after_feedback_shows_learning(qt_app, isolated_appdata):
     panel.deleteLater()
 
 
+def test_stats_panel_auto_refresh_skips_hidden_panel(qt_app):
+    from ui.widgets.brain_v3_stats_panel import BrainV3StatsPanel
+
+    class SlowStatsService:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def stats(self):
+            self.calls += 1
+            return SimpleNamespace(
+                total_clicks=0,
+                learned_axes=0,
+                cold_start_axes=17,
+                last_feedback_at=None,
+                top_positive_buckets=[],
+                top_negative_buckets=[],
+            )
+
+    svc = SlowStatsService()
+    panel = BrainV3StatsPanel(service=svc, auto_refresh_ms=10_000)
+    try:
+        panel._refresh_if_visible()
+    finally:
+        panel.deleteLater()
+
+    assert svc.calls == 0
+
+
 # ---- Feedback-Popup ----------------------------------------------------
 def test_feedback_popup_submits(qt_app, isolated_appdata):
     from ui.widgets.brain_v3_feedback_popup import BrainV3FeedbackPopup

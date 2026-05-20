@@ -92,6 +92,8 @@ python scripts/setup_py310_gpu.py --skip-venv
 
 `environment.yml` installs Python 3.10 and pip dependencies from `requirements-py310-cu113.txt`. The setup helper also installs `vendor/beat_this` and checks FFmpeg/Ollama/model prerequisites.
 
+`requirements-py310-cu113.txt` is the active GTX-1060 setup path. `requirements.txt` is retained only as a legacy/future Python 3.11+cu124 reference and must not be used for the current CUDA 11.3 target machine.
+
 ### 3. Configure environment variables
 
 Create a `.env` file in the project root:

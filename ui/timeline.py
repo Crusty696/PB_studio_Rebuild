@@ -1,22 +1,18 @@
 """Interactive Timeline with draggable clips, anchors, beat markers and zoom."""
 
 import bisect
-import hashlib
 import json
 import logging
-import os
-import subprocess
 from collections import namedtuple
 from pathlib import Path
 
 from PySide6.QtWidgets import (
     QGraphicsView, QGraphicsScene, QGraphicsRectItem,
     QGraphicsTextItem, QGraphicsLineItem, QGraphicsPolygonItem, QMenu,
-    QGraphicsPixmapItem,
 )
 from PySide6.QtCore import Qt, QRectF, QPointF, Signal, QTimer
 from PySide6.QtGui import (
-    QPainter, QColor, QFont, QBrush, QPen, QPolygonF, QUndoStack, QPixmap,
+    QPainter, QColor, QFont, QBrush, QPen, QPolygonF, QUndoStack,
 )
 
 from sqlalchemy import text
@@ -45,41 +41,6 @@ AUDIO_TRACK_Y = 10
 VIDEO_TRACK_Y = AUDIO_TRACK_Y + TRACK_HEIGHT + 10
 CUT_MARKERS_Y = VIDEO_TRACK_Y + TRACK_HEIGHT + 10
 RULER_Y = CUT_MARKERS_Y + 30
-TIMELINE_THUMB_W = 96
-TIMELINE_THUMB_H = TRACK_HEIGHT - 4
-_TIMELINE_THUMB_CACHE = (
-    Path(os.environ.get("LOCALAPPDATA", "C:/tmp")) / "PBStudio" / "timeline_thumbnails"
-)
-
-
-def _timeline_thumb_path(file_path: str) -> Path:
-    h = hashlib.md5(file_path.encode(), usedforsecurity=False).hexdigest()[:14]
-    return _TIMELINE_THUMB_CACHE / f"{h}.jpg"
-
-
-def _ensure_timeline_thumbnail(file_path: str) -> str | None:
-    if not file_path or not Path(file_path).exists():
-        return None
-    _TIMELINE_THUMB_CACHE.mkdir(parents=True, exist_ok=True)
-    dest = _timeline_thumb_path(file_path)
-    if dest.exists():
-        return str(dest)
-    try:
-        subprocess.run(
-            [
-                "ffmpeg", "-y", "-ss", "0", "-i", file_path,
-                "-vframes", "1",
-                "-vf",
-                f"scale={TIMELINE_THUMB_W}:{TIMELINE_THUMB_H}:force_original_aspect_ratio=decrease,"
-                f"pad={TIMELINE_THUMB_W}:{TIMELINE_THUMB_H}:(ow-iw)/2:(oh-ih)/2:black",
-                str(dest),
-            ],
-            capture_output=True,
-            timeout=8,
-        )
-    except (subprocess.SubprocessError, OSError, FileNotFoundError):
-        return None
-    return str(dest) if dest.exists() else None
 
 
 # ======================================================================
@@ -135,7 +96,7 @@ class TimelineClipItem(QGraphicsRectItem):
     def __init__(self, entry_id: int, media_id: int, track_type: str,
                  title: str, x: float, y: float, width: float, height: float,
                  on_moved=None, on_trimmed=None, has_waveform: bool = False,
-                 anchors: list | None = None, thumbnail_path: str | None = None):
+                 anchors: list | None = None):
         super().__init__(QRectF(0, 0, width, height))
         self.entry_id = entry_id
         self.media_id = media_id
@@ -174,9 +135,6 @@ class TimelineClipItem(QGraphicsRectItem):
         label.setFont(QFont("Segoe UI Variable Text", 8, QFont.Weight.Bold))
         label.setPos(4, 2)
         label.setZValue(6)
-        self._thumbnail_item: QGraphicsPixmapItem | None = None
-        if track_type == "video" and thumbnail_path:
-            self._add_thumbnail(thumbnail_path, width, height)
 
         # Trim handle visuals (thin colored bars at edges)
         trim_color = QColor(255, 255, 255, 100)
@@ -532,25 +490,6 @@ class TimelineClipItem(QGraphicsRectItem):
         else:
             cmd.redo()
 
-    def _add_thumbnail(self, thumbnail_path: str, width: float, height: float) -> None:
-        pix = QPixmap(thumbnail_path)
-        if pix.isNull():
-            return
-        thumb_w = max(1, min(int(width) - 4, TIMELINE_THUMB_W))
-        thumb_h = max(1, int(height) - 4)
-        pix = pix.scaled(
-            thumb_w,
-            thumb_h,
-            Qt.AspectRatioMode.KeepAspectRatioByExpanding,
-            Qt.TransformationMode.SmoothTransformation,
-        )
-        self.setBrush(QBrush(pix))
-        item = QGraphicsPixmapItem(pix, self)
-        item.setPos(2, 2)
-        item.setOpacity(1.0)
-        item.setZValue(20)
-        self._thumbnail_item = item
-
 
 # ======================================================================
 # Interactive Timeline (QGraphicsView) — Performance Optimized
@@ -786,7 +725,7 @@ class InteractiveTimeline(QGraphicsView):
         from PySide6.QtCore import QObject, Signal, QThread
         
         class TimelineDBWorker(QObject):
-            finished = Signal(list, dict, dict, dict, dict, dict)  # entries, audio_map, video_map, anchor_map, brain_meta, thumb_map
+            finished = Signal(list, dict, dict, dict, dict)  # entries, audio_map, video_map, anchor_map, brain_meta
             
             def __init__(self, pid):
                 super().__init__(None) # Parent explizit None für moveToThread
@@ -810,10 +749,6 @@ class InteractiveTimeline(QGraphicsView):
                                 VideoClip.id.in_(_video_ids), VideoClip.deleted_at.is_(None)).all()}
                             if _video_ids else {}
                         )
-                        _thumb_map = {
-                            vid: _ensure_timeline_thumbnail(getattr(clip, "file_path", "") or "")
-                            for vid, clip in _video_map.items()
-                        }
 
                         _entry_ids = [e.id for e in entries]
                         _all_anchors = (
@@ -839,10 +774,10 @@ class InteractiveTimeline(QGraphicsView):
                             logger.debug("Brain V3 Timeline-Metadata nicht geladen: %s", brain_exc)
                             _brain_meta = {}
 
-                        self.finished.emit(entries, _audio_map, _video_map, _anchor_map, _brain_meta, _thumb_map)
+                        self.finished.emit(entries, _audio_map, _video_map, _anchor_map, _brain_meta)
                 except Exception as e:
                     logger.error("TimelineDBWorker Fehler: %s", e)
-                    self.finished.emit([], {}, {}, {}, {}, {})
+                    self.finished.emit([], {}, {}, {}, {})
 
         self._db_worker = TimelineDBWorker(project_id)
         self._db_thread = QThread(self)
@@ -859,7 +794,7 @@ class InteractiveTimeline(QGraphicsView):
         
         self._db_thread.start()
 
-    def _on_db_load_finished(self, entries, audio_map, video_map, anchor_map, brain_meta=None, thumb_map=None):
+    def _on_db_load_finished(self, entries, audio_map, video_map, anchor_map, brain_meta=None):
         """Wird aufgerufen, sobald die Daten vom Hintergrund-Thread geladen wurden.
 
         P8-E-FIX: Viewport-Updates waehrend des Aufbaus von 101+ Items
@@ -868,7 +803,7 @@ class InteractiveTimeline(QGraphicsView):
         """
         self._anchor_map = anchor_map
         self._brain_v3_timeline_meta = brain_meta or {}
-        self._start_batched_entry_build(entries, audio_map, video_map, anchor_map, thumb_map or {})
+        self._start_batched_entry_build(entries, audio_map, video_map, anchor_map)
 
     def _cancel_pending_entry_build(self) -> None:
         """Stoppt einen laufenden inkrementellen Scene-Aufbau."""
@@ -879,7 +814,7 @@ class InteractiveTimeline(QGraphicsView):
             except RuntimeError:
                 pass
 
-    def _start_batched_entry_build(self, entries, audio_map, video_map, anchor_map, thumb_map=None) -> None:
+    def _start_batched_entry_build(self, entries, audio_map, video_map, anchor_map) -> None:
         """B-275: baut Timeline-Items in kleinen GUI-Thread-Chunks."""
         self._cancel_pending_entry_build()
         vp = self.viewport()
@@ -889,7 +824,6 @@ class InteractiveTimeline(QGraphicsView):
             "audio_map": audio_map,
             "video_map": video_map,
             "anchor_map": anchor_map,
-            "thumb_map": thumb_map or {},
             "index": 0,
             "max_end": 0.0,
         }
@@ -909,7 +843,6 @@ class InteractiveTimeline(QGraphicsView):
                 state["audio_map"],
                 state["video_map"],
                 state["anchor_map"],
-                state["thumb_map"],
             )
             if clip_end is not None and clip_end > state["max_end"]:
                 state["max_end"] = clip_end
@@ -927,17 +860,17 @@ class InteractiveTimeline(QGraphicsView):
         vp.setUpdatesEnabled(True)
         vp.update()
 
-    def _build_entries(self, entries, audio_map, video_map, anchor_map, thumb_map=None):
+    def _build_entries(self, entries, audio_map, video_map, anchor_map):
         max_end = 0.0
         for entry in entries:
-            clip_end = self._build_entry_item(entry, audio_map, video_map, anchor_map, thumb_map or {})
+            clip_end = self._build_entry_item(entry, audio_map, video_map, anchor_map)
             if clip_end is not None and clip_end > max_end:
                 max_end = clip_end
         self._total_duration = max_end
         self._draw_track_backgrounds()
         self._update_scene_rect()
 
-    def _build_entry_item(self, entry, audio_map, video_map, anchor_map, thumb_map=None) -> float | None:
+    def _build_entry_item(self, entry, audio_map, video_map, anchor_map) -> float | None:
         def _entry_duration(fallback: float) -> float:
             start = float(entry.start_time or 0.0)
             end_time = getattr(entry, "end_time", None)
@@ -968,7 +901,6 @@ class InteractiveTimeline(QGraphicsView):
             title = Path(clip.file_path).stem if clip else "?"
             dur = _entry_duration(clip.duration if clip and clip.duration else 10.0)
             y = VIDEO_TRACK_Y
-            thumbnail_path = (thumb_map or {}).get(entry.media_id)
         else:
             return None
 
@@ -986,7 +918,6 @@ class InteractiveTimeline(QGraphicsView):
             on_trimmed=self._on_clip_trimmed,
             has_waveform=has_waveform,
             anchors=anchor_map.get(entry.id, []),
-            thumbnail_path=thumbnail_path if entry.track == "video" else None,
         )
         item.set_brain_v3_feedback(
             service=self._brain_v3_feedback_service,
