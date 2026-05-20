@@ -10,6 +10,25 @@
 
 ---
 
+## 2026-05-20 Governance Update
+
+Plan-ID: `PB-STUDIO-OFFENE-BUGS-TASKS-MASTERPLAN-2026-05-20`
+
+Registry:
+
+- `docs/superpowers/PLAN_REGISTRY.md` fuehrt diesen Plan mit Status `approved-for-implementation`.
+- `docs/superpowers/ACTIVE_PLAN.md` setzt diesen Plan als aktiven Fokus.
+- Vault-Mirror: `C:\Brain-Bug\projects\pb-studio\wiki\synthesis\bug-und-task-liste-2026-05-20.md`.
+- Decision: `C:\Brain-Bug\projects\pb-studio\wiki\decisions\D-049-offene-bugs-tasks-masterplan.md`.
+
+Aktueller naechster Task:
+
+```text
+Governance Gate + SCHNITT B-310/B-316..B-320 Reihenfolge pruefen.
+```
+
+Audio-V2-Reconcile ist pausiert, nicht geloescht. Keine Audio-V2-Portierung in diesem Masterplan.
+
 ## Source Of Truth
 
 **Plan-Aufgabe aus Vault, verbatim:**
@@ -41,11 +60,21 @@
 - `B-196`, `B-197`, `B-198`, `B-199`
 - `B-272`, `B-273`, `B-274`, `B-275`, `B-276`
 
+**2026-05-20 SCHNITT / Pipeline Aktualisierung:**
+
+- `B-310` bleibt `code-fix-pending-live-verification`; voller offizieller SCHNITT-Live-Workflow ist nicht final bestaetigt.
+- `B-316` bleibt `open`; Code-Fix und Teil-Live-Test existieren, aber User-Bestaetigung fehlt und B-317 blockiert Default-Verhalten.
+- `B-317`, `B-318`, `B-319`, `B-320` bleiben `open`.
+- `B-321` bleibt `code-fix-pending-live-verification`; Video-Pipeline Completion-/Freeze-Fixes haben Tests und Agent-Live-Anteile, aber kein finaler kompletter Pipeline-Live-Nachtest.
+- `B-322` bleibt `code-fix-pending-live-verification`; Agent-Live-Test existiert, User-Bestaetigung fehlt.
+- `B-300`, `B-303`, `B-304`, `B-305` bleiben pending-live laut Vault-Status und duerfen nicht als `fixed` behandelt werden.
+
 ## Hard Gates
 
 - Phase-Reihenfolge bleibt `0 -> 1 -> 2 -> 3 -> 4 -> 5 -> 6`.
 - Keine Phase bekommt `fixed` oder `DONE` durch Agent allein.
 - Live-Verifikation vor Vault-Status `fixed`.
+- `B-310` / SCHNITT-Folgearbeit hat Vorrang vor GPU/Brain/Pipeline-Gates: erst B-310 Live-Gate, dann B-316..B-320 in Bug-Reihenfolge.
 - B-229, B-231 und B-175 brauchen Design- bzw. Migrationsentscheidung vor Code.
 - B-265 ist Hardware/Windows-State. Kein App-Codefix ohne reproduzierbaren Codefehler.
 - CUDA muss vor Phase-2-/Phase-6-GPU-Livepfad aktuell verfuegbar sein.
@@ -84,6 +113,8 @@
 **Files:**
 
 - Read: `AGENTS.md`
+- Read: `docs/superpowers/PLAN_REGISTRY.md`
+- Read: `docs/superpowers/ACTIVE_PLAN.md`
 - Read: source Vault synthesis and bug files listed above.
 - No code change.
 
@@ -128,6 +159,57 @@ Phase 0 is confirmed done. Phase 1+ markers are not changed by agent.
 - [ ] **Step 4: Stop condition**
 
 If `06_PHASES.md` and a phase blueprint contradict each other, stop and ask user. Do not choose.
+
+---
+
+## Task 0.5: SCHNITT Governance Gate B-310/B-316..B-320
+
+**Files:**
+
+- Read: `C:\Brain-Bug\projects\pb-studio\wiki\synthesis\functional-test-schnitt-b310-2026-05-13.md`
+- Read: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-310-schnitt-workspace-unusable-half-wired-ux.md`
+- Read: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-316-schnitt-audio-subtab-missing-metadata-waveform.md`
+- Read: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-317-schnitt-default-audio-selects-unanalyzed-track.md`
+- Read: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-318-schnitt-timeline-renders-media-duration-instead-entry-duration.md`
+- Read: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-319-schnitt-timeline-data-overlap-audio-duplicates-source-mismatch.md`
+- Read: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-320-schnitt-timeline-video-clips-missing-thumbnails.md`
+- No app-code change in this gate.
+
+- [ ] **Step 1: Quote task**
+
+```text
+Governance Gate + SCHNITT B-310/B-316..B-320 Reihenfolge pruefen.
+```
+
+- [ ] **Step 2: Check current statuses**
+
+Expected status before code work:
+
+```text
+B-310 = code-fix-pending-live-verification
+B-316 = open
+B-317 = open
+B-318 = open
+B-319 = open
+B-320 = open
+```
+
+- [ ] **Step 3: Execution order**
+
+Use this exact order:
+
+```text
+1. B-310 live verification gate.
+2. B-316 if B-310 still blocked by audio metadata/waveform evidence.
+3. B-317 default audio selection.
+4. B-318 timeline entry duration rendering.
+5. B-319 timeline data overlap/source-duration mismatch.
+6. B-320 timeline thumbnails.
+```
+
+- [ ] **Step 4: Stop condition**
+
+If B-310 can be live-confirmed by the user before code work, do not invent extra B-310 code. If B-316 evidence is already solved but B-317 blocks the visible default, start with B-317.
 
 ---
 
@@ -890,19 +972,21 @@ Commit body contains: (unverified - pending user test)
 ## Execution Order Summary
 
 1. Task 0: Gate and working tree.
-2. Task 1: B-265 CUDA preflight.
-3. Task 2: Phase 1 live import/re-import.
-4. Task 3: Phase 2 embedding/re-import.
-5. Task 4: Phase 3/4 service/live path.
-6. Task 5: Phase 5 UI, B-272 to B-275.
-7. Task 6: Phase 6 B-276 and B-277.
-8. Task 7: Older Studio-Brain GUI verifications B-196 to B-199.
-9. Task 8: Active non-Brain code-scope bugs B-175, B-219, B-270.
-10. Task 9: Design-decision bugs B-229, B-231.
-11. Task 10: Phase-level synthesis and user marker.
+2. Task 0.5: SCHNITT Governance Gate B-310/B-316..B-320.
+3. Task 1: B-265 CUDA preflight.
+4. Task 2: Phase 1 live import/re-import.
+5. Task 3: Phase 2 embedding/re-import.
+6. Task 4: Phase 3/4 service/live path.
+7. Task 5: Phase 5 UI, B-272 to B-275.
+8. Task 6: Phase 6 B-276 and B-277.
+9. Task 7: Older Studio-Brain GUI verifications B-196 to B-199.
+10. Task 8: Active non-Brain code-scope bugs B-175, B-219, B-270.
+11. Task 9: Design-decision bugs B-229, B-231.
+12. Task 10: Phase-level synthesis and user marker.
 
 ## Open Decisions Before Execution
 
+- B-310/B-316: User-Bestaetigung entscheidet, ob Teil-Live-Befund fuer Audio-Metadaten genuegt oder B-317 zuerst gefixt werden muss.
 - B-175: undelete-on-import quick fix or schema partial unique index migration?
 - B-229: temporal band normalization option?
 - B-231: approve helper/refactor for shared audio/STFT buffers?
