@@ -68,9 +68,9 @@ Audio-V2-Reconcile ist pausiert, nicht geloescht. Keine Audio-V2-Portierung in d
 - `B-318` ist `fixed`; aktueller HEAD rendert Entry-Dauer, Test + Live-Screenshot/DB-Abgleich vom 2026-05-20 bestaetigen den realen SCHNITT-Pfad.
 - `B-319` ist `code-fix-pending-live-verification`; Tests und DB-Integritaetscheck sind gruen, aber ein neuer Auto-Edit-Live-Run wurde nicht ausgefuehrt.
 - `B-320` ist `code-fix-pending-live-verification`; Timeline-Video-Clips bekommen gecachtes Thumbnail oder Placeholder, Tests sind gruen, aber realer SCHNITT-Live-Nachtest war durch laufende Hintergrundtasks beim Projektwechsel blockiert.
-- `B-321` bleibt `code-fix-pending-live-verification`; Video-Pipeline Completion-/Freeze-Fixes haben Tests und Agent-Live-Anteile. Versuch 2 am 2026-05-21 blieb responsive und ohne B-323-Crash, war aber fachlich ungueltig: drei selektierte Videos hatten fehlende Temp-Quelldateien, Ergebnis 0 Szenen/0 Embeddings.
+- `B-321` ist `partial-fix`; Versuch 3 am 2026-05-21 lief mit vorhandenen Videos fachlich durch: 3 Videos, 3 Szenen, 3 Embeddings; UI blieb responsive. Nicht fixed: 30 Completion-Bridge-Events, 21 Medien-DB-Reloads, 8 Watchdog-Dumps, 19 Slow-Events >1.5s im Umfeld des Medien-Refresh-Pfads.
 - `B-323` ist `code-fix-pending-live-verification`; TaskManagerDock normalisiert Progress/Total vor QProgressBar-Settern, Tests und App-Start-Smoke sind gruen, voller B-321 Video-Pipeline-Live-Test fehlt weiter.
-- `B-324` ist `open`; Video-Pipeline meldete `Fertig` trotz drei fehlender Quelldateien und 0 Szenen/0 Embeddings. Das blockiert einen gueltigen B-321-Live-Nachweis.
+- `B-324` ist `fixed`; stale Proxy-Pfade fallen auf vorhandene Originaldateien zurueck, fehlende Pipeline-Eingabe wirft Fehler statt leeres Erfolgsergebnis, Live-Lauf mit IDs 1-3 erzeugte 3 Szenen/3 Embeddings.
 - `B-322` bleibt `code-fix-pending-live-verification`; Agent-Live-Test existiert, User-Bestaetigung fehlt.
 - `B-300`, `B-303`, `B-304`, `B-305` bleiben pending-live laut Vault-Status und duerfen nicht als `fixed` behandelt werden.
 

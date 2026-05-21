@@ -1157,7 +1157,7 @@ def run_full_pipeline(
     """
     if not video_path or not Path(video_path).exists():
         logger.error("Video-Pipeline abgebrochen: Datei fehlt -> %s", video_path)
-        return PipelineResult(video_path=video_path)
+        raise FileNotFoundError(f"Video-Datei fehlt: {video_path}")
 
     # B-150: Snapshot der projekt-abhaengigen Pfade am Pipeline-Eintritt.
     pipeline_keyframe_dir = _keyframe_dir()

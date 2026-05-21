@@ -20,6 +20,39 @@ from .base import CancellableMixin, format_user_error
 logger = logging.getLogger(__name__)
 
 
+def _existing_path(value: str | None) -> bool:
+    if not value:
+        return False
+    try:
+        return Path(value).exists()
+    except OSError:
+        return False
+
+
+def _resolve_pipeline_analysis_path(clip: VideoClip, clip_id: int) -> str:
+    """Prefer proxy only while it still exists; stale proxies fall back to source."""
+    proxy_path = clip.proxy_path
+    file_path = clip.file_path
+
+    if _existing_path(proxy_path):
+        logger.info("[Proxy-First] Clip %d: Nutze Proxy -> %s", clip_id, proxy_path)
+        return proxy_path
+
+    if proxy_path and _existing_path(file_path):
+        logger.warning(
+            "[Proxy-First] Clip %d: Proxy fehlt -> nutze Original: %s",
+            clip_id,
+            file_path,
+        )
+        return file_path
+
+    if file_path:
+        logger.info("[Proxy-First] Clip %d: Kein nutzbarer Proxy -> nutze Original", clip_id)
+        return file_path
+
+    raise FileNotFoundError(f"VideoClip {clip_id}: kein Video-Pfad verfuegbar")
+
+
 class VideoAnalysisWorker(QObject, CancellableMixin):
     finished = Signal(int, dict)
     error = Signal(int, str)
@@ -156,14 +189,8 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                 for clip_id, title in self._batch:
                     clip = session.get(VideoClip, clip_id)
                     if clip:
-                        # Proxy-First: KI-Analyse nutzt Proxy wenn verfügbar, sonst Original
-                        # B-012 Fix: TOCTOU — Proxy-Existenz wird spater geprueft bevor verwendet
-                        if clip.proxy_path:
-                            analysis_path = clip.proxy_path
-                            logger.info("[Proxy-First] Clip %d: Nutze Proxy → %s", clip_id, analysis_path)
-                        else:
-                            analysis_path = clip.file_path
-                            logger.info("[Proxy-First] Clip %d: Kein Proxy → nutze Original", clip_id)
+                        # Proxy-First: KI-Analyse nutzt Proxy nur wenn Datei existiert.
+                        analysis_path = _resolve_pipeline_analysis_path(clip, clip_id)
                         resolved_batch.append((clip_id, analysis_path, title))
                     else:
                         logger.warning("VideoClip %d nicht gefunden, überspringe.", clip_id)
