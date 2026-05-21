@@ -108,6 +108,37 @@ class TestStemSeparatorAndStore:
             assert track.stem_bass_path   == "/stems/bass.wav"
             assert track.stem_other_path  == "/stems/other.wav"
 
+    def test_separate_and_store_passes_should_stop_to_separator(self, test_engine):
+        """B-327: UI-Cancel muss bis in den Demucs-Chunk-Loop gelangen."""
+        import services.ai_audio_service as svc
+        svc.engine = test_engine
+        from contextlib import contextmanager as _cm
+
+        @_cm
+        def _test_nullpool():
+            with Session(test_engine) as s:
+                yield s
+
+        svc.nullpool_session = _test_nullpool
+        track_id = self._setup_track(test_engine)
+        cancel_cb = lambda: False
+        seen = {}
+
+        def fake_separate(self, file_path, progress_cb=None, should_stop=None):
+            seen["file_path"] = file_path
+            seen["should_stop"] = should_stop
+            return {
+                "vocals": "/stems/vocals.wav",
+                "drums": "/stems/drums.wav",
+                "bass": "/stems/bass.wav",
+                "other": "/stems/other.wav",
+            }
+
+        with patch.object(svc.StemSeparator, "separate", fake_separate):
+            svc.StemSeparator().separate_and_store(track_id, should_stop=cancel_cb)
+
+        assert seen["should_stop"] is cancel_cb
+
     def test_separate_and_store_raises_if_track_gone_after_separation(self, test_engine):
         """separate_and_store() loest ValueError wenn Track nach Separation fehlt."""
         import services.ai_audio_service as svc

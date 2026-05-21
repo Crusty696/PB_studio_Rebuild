@@ -142,6 +142,96 @@ CHUNK_SECONDS = 30
 OVERLAP_SECONDS = 2
 
 
+class _StreamingStemWriter:
+    """Write overlapped Demucs chunks without holding full mix-length stems in RAM."""
+
+    def __init__(
+        self,
+        stem_dir: Path,
+        source_names: list[str],
+        channels: int,
+        sample_rate: int,
+    ) -> None:
+        self._files = {}
+        self.paths = {}
+        self._pending = None
+        self._pending_weight = None
+        stem_dir.mkdir(parents=True, exist_ok=True)
+        for stem_name in source_names:
+            stem_path = stem_dir / f"{stem_name}.wav"
+            self.paths[stem_name] = str(stem_path.resolve())
+            self._files[stem_name] = sf.SoundFile(
+                str(stem_path),
+                mode="w",
+                samplerate=sample_rate,
+                channels=channels,
+                subtype="FLOAT",
+            )
+
+    def write_chunk(
+        self,
+        weighted_estimates,
+        fade,
+        source_names: list[str],
+        overlap_samples: int,
+        is_last: bool,
+    ) -> None:
+        chunk_len = int(weighted_estimates.shape[-1])
+        cursor = 0
+
+        if self._pending is not None:
+            overlap_len = min(
+                int(self._pending.shape[-1]),
+                chunk_len,
+                max(0, int(overlap_samples)),
+            )
+            if overlap_len > 0:
+                weight = (self._pending_weight[:overlap_len] + fade[:overlap_len]).clamp(min=1e-8)
+                merged = (
+                    self._pending[:, :, :overlap_len] + weighted_estimates[:, :, :overlap_len]
+                ) / weight.unsqueeze(0).unsqueeze(0)
+                self._write_samples(merged, source_names)
+                cursor = overlap_len
+            self._pending = None
+            self._pending_weight = None
+
+        keep_tail = 0 if is_last else min(max(0, int(overlap_samples)), max(0, chunk_len - cursor))
+        write_end = chunk_len - keep_tail
+        if write_end > cursor:
+            weight = fade[cursor:write_end].clamp(min=1e-8)
+            normalized = weighted_estimates[:, :, cursor:write_end] / weight.unsqueeze(0).unsqueeze(0)
+            self._write_samples(normalized, source_names)
+
+        if keep_tail:
+            self._pending = weighted_estimates[:, :, write_end:].clone()
+            self._pending_weight = fade[write_end:].clone()
+
+    def close(self, source_names: list[str]) -> None:
+        try:
+            if self._pending is not None:
+                weight = self._pending_weight.clamp(min=1e-8)
+                normalized = self._pending / weight.unsqueeze(0).unsqueeze(0)
+                self._write_samples(normalized, source_names)
+        finally:
+            self._pending = None
+            self._pending_weight = None
+            for file_obj in self._files.values():
+                file_obj.close()
+
+    def abort(self) -> None:
+        self._pending = None
+        self._pending_weight = None
+        for file_obj in self._files.values():
+            file_obj.close()
+        for path in self.paths.values():
+            Path(path).unlink(missing_ok=True)
+
+    def _write_samples(self, samples, source_names: list[str]) -> None:
+        for idx, stem_name in enumerate(source_names):
+            data = samples[idx].detach().cpu().numpy().T
+            self._files[stem_name].write(data)
+
+
 class StemSeparator:
     """Trennt Audio via Demucs Python API in Vocals, Drums, Bass, Other.
 
@@ -297,23 +387,37 @@ class StemSeparator:
         # langen Mixes >5GB RAM belegen. Immer float32 fuer Qualitaet,
         # aber Warnung bei hohem geschaetztem RAM-Verbrauch.
         estimated_ram_gb = (num_sources * waveform.shape[0] * total_samples * 4) / (1024**3)
+        stream_stems = estimated_ram_gb > 3.0
+        stem_dir = _get_stems_dir() / model / src.stem
+        streaming_writer = None
+        streaming_paths = None
         if estimated_ram_gb > 8.0:
             logger.warning(
-                "[StemSeparator] WARNUNG: Grosser Akkumulator — %.1f GB RAM geschaetzt fuer "
-                "%.0f min Audio. Behalte float32 fuer maximale Qualitaet.",
+                "[StemSeparator] Grosser Output — %.1f GB RAM fuer Akkumulator vermieden; "
+                "schreibe %.0f min Audio streaming auf Disk.",
                 estimated_ram_gb, total_samples / sr / 60,
             )
             if progress_cb:
-                progress_cb(15, f"Hinweis: ~{estimated_ram_gb:.0f} GB RAM fuer Akkumulator benoetigt")
+                progress_cb(15, f"Streaming-Output aktiv (~{estimated_ram_gb:.0f} GB RAM vermieden)")
         elif estimated_ram_gb > 3.0:
             logger.info(
-                "[StemSeparator] Akkumulator: %.1f GB RAM geschaetzt fuer %.0f min Audio (float32).",
+                "[StemSeparator] Output: %.1f GB RAM fuer Akkumulator vermieden; Streaming aktiv.",
                 estimated_ram_gb, total_samples / sr / 60,
             )
 
-        # Ergebnis-Tensor fuer alle Stems (Crossfade-Akkumulator) — immer float32
-        result_stems = torch.zeros(num_sources, waveform.shape[0], total_samples, dtype=torch.float32)
-        weight_sum = torch.zeros(1, total_samples, dtype=torch.float32)
+        if stream_stems:
+            streaming_writer = _StreamingStemWriter(
+                stem_dir,
+                list(source_names),
+                int(waveform.shape[0]),
+                int(sr),
+            )
+            result_stems = None
+            weight_sum = None
+        else:
+            # Ergebnis-Tensor fuer kurze Audio-Dateien (Crossfade-Akkumulator) — immer float32
+            result_stems = torch.zeros(num_sources, waveform.shape[0], total_samples, dtype=torch.float32)
+            weight_sum = torch.zeros(1, total_samples, dtype=torch.float32)
 
         # B-601 Fix: GPU-Code in try/finally um ANY Exception zu handhaben
         try:
@@ -321,7 +425,7 @@ class StemSeparator:
                 # F-008 Fix: Abbruch-Check
                 if should_stop and should_stop():
                     logger.info("[StemSeparator] Abbruch durch Benutzer.")
-                    break
+                    raise RuntimeError("Stem-Separation abgebrochen (User-Cancel)")
 
                 start = i * step_samples
                 end = min(start + chunk_samples, total_samples)
@@ -405,16 +509,26 @@ class StemSeparator:
                     fade[-fade_len:] = torch.linspace(1, 0, fade_len)
 
                 # Gewichtete Addition
-                for s in range(num_sources):
-                    weighted = estimates_cpu[s, :, :chunk_len] * fade.unsqueeze(0)
-                    result_stems[s, :, start:end] += weighted
-                weight_sum[0, start:end] += fade
+                weighted_estimates = estimates_cpu[:, :, :chunk_len] * fade.unsqueeze(0).unsqueeze(0)
+                if streaming_writer is not None:
+                    streaming_writer.write_chunk(
+                        weighted_estimates,
+                        fade,
+                        list(source_names),
+                        overlap_samples,
+                        i == num_chunks - 1,
+                    )
+                else:
+                    for s in range(num_sources):
+                        result_stems[s, :, start:end] += weighted_estimates[s]
+                    weight_sum[0, start:end] += fade
 
                 # ── VRAM sofort freigeben ──
                 # Sicheres Loeschen: chunk_gpu kann bei OOM-Retry bereits geloescht sein
                 chunk_gpu = None
                 estimates = None
                 estimates_cpu = None
+                weighted_estimates = None
                 gc.collect()
                 torch.cuda.empty_cache()
 
@@ -424,10 +538,20 @@ class StemSeparator:
                     progress_cb(pct, f"Chunk {i + 1}/{num_chunks} fertig")
 
             # Normalisierung durch Gewichtssumme (Crossfade — AUSSERHALB der for-Schleife)
-            weight_sum = weight_sum.clamp(min=1e-8)
-            for s in range(num_sources):
-                result_stems[s] /= weight_sum
+            if streaming_writer is not None:
+                streaming_writer.close(list(source_names))
+                streaming_paths = dict(streaming_writer.paths)
+                streaming_writer = None
+            else:
+                weight_sum = weight_sum.clamp(min=1e-8)
+                for s in range(num_sources):
+                    result_stems[s] /= weight_sum
         finally:
+            if streaming_writer is not None:
+                try:
+                    streaming_writer.abort()
+                except Exception as cleanup_error:
+                    logger.warning("[StemSeparator] Streaming-Cleanup fehlgeschlagen: %s", cleanup_error)
             # B-601 Fix: Cleanup falls Exception in Chunk-Processing
             gc.collect()
             if torch.cuda.is_available():
@@ -443,20 +567,24 @@ class StemSeparator:
             progress_cb(90, "Speichere Stems als WAV...")
 
         # ── 7. Stems als WAV speichern ──
-        stem_dir = _get_stems_dir() / model / src.stem
-        stem_dir.mkdir(parents=True, exist_ok=True)
-
-        # A-02: result_stems ist bereits float32 (kein float16-Pfad mehr)
-
-        stems = {}
-        for idx, stem_name in enumerate(source_names):
-            stem_path = stem_dir / f"{stem_name}.wav"
-            torchaudio.save(str(stem_path), result_stems[idx], sr)
-            stems[stem_name] = str(stem_path.resolve())
-            logger.info(f"[StemSeparator] Gespeichert: {stem_name} -> {stem_path}")
+        if streaming_paths is not None:
+            stems = dict(streaming_paths)
+            for stem_name, stem_path in stems.items():
+                logger.info(f"[StemSeparator] Gespeichert: {stem_name} -> {stem_path}")
+        else:
+            stem_dir.mkdir(parents=True, exist_ok=True)
+            stems = {}
+            for idx, stem_name in enumerate(source_names):
+                stem_path = stem_dir / f"{stem_name}.wav"
+                torchaudio.save(str(stem_path), result_stems[idx], sr)
+                stems[stem_name] = str(stem_path.resolve())
+                logger.info(f"[StemSeparator] Gespeichert: {stem_name} -> {stem_path}")
 
         # CPU-RAM freigeben: result_stems + weight_sum können >5GB sein bei langen Mixes
-        del result_stems, weight_sum
+        if result_stems is not None:
+            del result_stems
+        if weight_sum is not None:
+            del weight_sum
         gc.collect()
 
         if progress_cb:
@@ -464,7 +592,7 @@ class StemSeparator:
 
         return stems
 
-    def separate_and_store(self, track_id: int, progress_cb=None) -> dict:
+    def separate_and_store(self, track_id: int, progress_cb=None, should_stop=None) -> dict:
         """Separiert Stems und speichert Pfade in der DB.
 
         B-072: Per-Track-Lock via ``audio_service.track_lock`` (B-143-Refcount-
@@ -485,7 +613,11 @@ class StemSeparator:
                 file_path = track.file_path
 
             try:
-                stems = self.separate(file_path, progress_cb=progress_cb)
+                stems = self.separate(
+                    file_path,
+                    progress_cb=progress_cb,
+                    should_stop=should_stop,
+                )
             except (OSError, IOError, ValueError, RuntimeError) as e:
                 raise RuntimeError(
                     f"Stem-Separation fehlgeschlagen fuer Track {track_id}: {e}"

@@ -194,6 +194,34 @@ def mark_error(media_type: str, media_id: int, step_key: str, error_msg: str) ->
         logger.error("Analysis error: %s/%d/%s — %s", media_type, media_id, step_key, error_msg)
 
 
+def mark_cancelled(media_type: str, media_id: int, step_key: str) -> None:
+    """Markiert einen Analyse-Schritt als abgebrochen, retry-faehig aber ohne Error-Log."""
+    with nullpool_session() as session:
+        stmt = select(AnalysisStatus).where(
+            AnalysisStatus.media_type == media_type,
+            AnalysisStatus.media_id == media_id,
+            AnalysisStatus.step_key == step_key,
+        )
+        entry = session.execute(stmt).scalar_one_or_none()
+
+        if entry is None:
+            entry = AnalysisStatus(
+                media_type=media_type,
+                media_id=media_id,
+                step_key=step_key,
+                status="error",
+                started_at=datetime.now(timezone.utc),
+                error_message="cancelled",
+            )
+            session.add(entry)
+        else:
+            entry.status = "error"
+            entry.error_message = "cancelled"
+
+        session.commit()
+        logger.info("Analysis cancelled: %s/%d/%s", media_type, media_id, step_key)
+
+
 def get_status(media_type: str, media_id: int) -> dict[str, AnalysisStatus]:
     """Liefert den Status aller Analyse-Schritte für eine Medien-Datei.
 

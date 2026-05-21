@@ -7,7 +7,7 @@ import traceback
 from PySide6.QtCore import QObject, Signal
 
 from .base import CancellableMixin, format_user_error
-from services.analysis_status_service import mark_started, mark_done, mark_error
+from services.analysis_status_service import mark_started, mark_done, mark_error, mark_cancelled
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +34,7 @@ class StemSeparationWorker(QObject, CancellableMixin):
                 result = separator.separate_and_store(
                     self.track_id,
                     progress_cb=lambda pct, msg: self.progress.emit(pct, msg),
+                    should_stop=self.should_stop,
                 )
 
             mark_done("audio", self.track_id, "stem_separation", {
@@ -42,6 +43,12 @@ class StemSeparationWorker(QObject, CancellableMixin):
             self.finished.emit(self.track_id, result)
             _ok = True
         except Exception as e:  # broad catch intentional — top-level worker safety net
+            if "abgebrochen (User-Cancel)" in str(e):
+                logger.info("StemSeparationWorker[%s] cancelled: %s", self.track_id, e)
+                self._errored = True
+                mark_cancelled("audio", self.track_id, "stem_separation")
+                self.error.emit(self.track_id, "Stem-Separation abgebrochen (User-Cancel)")
+                return
             logging.error("StemSeparationWorker[%s] crashed: %s\n%s",
                           self.track_id, e, traceback.format_exc())
             self._errored = True

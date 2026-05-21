@@ -139,7 +139,7 @@ class StemsController(PBComponent):
             lambda tid, err: self._on_stem_error(tid, err, task.task_id),
             Qt.ConnectionType.QueuedConnection,
         )
-        self.window.worker_dispatcher._start_worker_thread(worker)
+        self.window.worker_dispatcher._start_worker_thread(worker, on_error=lambda *_args: None)
 
     def _on_stem_progress(self, pct: int, msg: str):
         """B-290: Demucs-Progress an progress_bar binden."""
@@ -165,6 +165,10 @@ class StemsController(PBComponent):
         self.window.btn_stem_separate.setEnabled(True)
         self.window.btn_stem_separate.setText("KI Stem Separation")
         self.window.progress_bar.setVisible(False)
+        if "abgebrochen" in error_msg.lower() or "cancel" in error_msg.lower():
+            self.window.console_text.append(f"[Stems] {error_msg}")
+            task_manager.finish_task(task_id, "cancelled", error_msg)
+            return
         self.window.console_text.append(f"[Stem-Fehler] {error_msg}")
         task_manager.finish_task(task_id, "error", error_msg)
 
