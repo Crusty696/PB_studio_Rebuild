@@ -22,6 +22,22 @@ class _AnalysisCompletionBridge(QObject):
     """
     completed = Signal(str, int, str, dict)
 
+
+_VIDEO_MEDIA_TABLE_REFRESH_STEPS = {
+    "metadata_extract",
+    "scene_db_storage",
+}
+
+
+def _completion_should_refresh_media_table(media_type: str, step_key: str) -> bool:
+    """Return whether a completion event changes media-table visible state."""
+    if media_type == "audio":
+        return True
+    if media_type == "video":
+        return step_key in _VIDEO_MEDIA_TABLE_REFRESH_STEPS
+    return False
+
+
 class PanelSetupController(PBComponent):
     """Controller for TaskDock, Console, and ChatDock in PBWindow."""
 
@@ -220,14 +236,19 @@ class PanelSetupController(PBComponent):
             Triggert je Step-Type den passenden UI-Refresh.
             """
             try:
+                # B-321: Video-Pipeline hat viele Zwischenschritte. Nicht
+                # jeder Step aendert die sichtbaren Tabellenfelder; sonst
+                # stapeln sich Medien-DB-Reloads waehrend GPU/DB Last.
+                should_refresh_media_table = _completion_should_refresh_media_table(media_type, step_key)
                 logger.info(
-                    "B-253 completion-bridge: %s/%d/%s -> UI-Refresh",
-                    media_type, media_id, step_key,
+                    "B-253 completion-bridge: %s/%d/%s -> %s",
+                    media_type,
+                    media_id,
+                    step_key,
+                    "UI-Refresh" if should_refresh_media_table else "no table refresh",
                 )
 
-                # Audio-Pool-Tabelle nach jedem Audio-Step refreshen
-                # (BPM/LUFS/Stems/etc. sind als Spalten oder Tooltip sichtbar)
-                if media_type in ("audio", "video"):
+                if should_refresh_media_table:
                     try:
                         self.window.media_table_controller._refresh_media_table_debounced()
                     except Exception as e:

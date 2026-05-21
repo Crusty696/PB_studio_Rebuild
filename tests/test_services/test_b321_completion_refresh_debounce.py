@@ -17,6 +17,27 @@ def test_b321_completion_bridge_uses_debounced_media_refresh():
 
     assert "_refresh_media_table_debounced()" in bridge_body
     assert "media_table_controller._refresh_media_table()" not in bridge_body
+    assert '"no table refresh"' in bridge_body
+
+
+def test_b321_completion_bridge_skips_video_intermediate_steps():
+    from ui.controllers.panel_setup import _completion_should_refresh_media_table
+
+    assert _completion_should_refresh_media_table("video", "metadata_extract") is True
+    assert _completion_should_refresh_media_table("video", "scene_db_storage") is True
+
+    for step in [
+        "scene_detection",
+        "motion_scores",
+        "keyframe_extraction",
+        "siglip_embeddings",
+        "vector_db_storage",
+        "ai_scene_caption",
+    ]:
+        assert _completion_should_refresh_media_table("video", step) is False
+
+    assert _completion_should_refresh_media_table("audio", "bpm") is True
+    assert _completion_should_refresh_media_table("unknown", "scene_db_storage") is False
 
 
 def test_b321_project_dashboard_completion_refresh_is_debounced():
