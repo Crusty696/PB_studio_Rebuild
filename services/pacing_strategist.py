@@ -19,6 +19,18 @@ logger = logging.getLogger(__name__)
 STRATEGIST_MODEL_ID = "gemma3:4b"
 
 
+def get_ollama_client(base_url: str | None = None):
+    from services.ollama_client import get_ollama_client as _get_ollama_client
+    return _get_ollama_client(base_url)
+
+
+def _client_model_exists(client, model: str) -> bool:
+    try:
+        return bool(client.model_exists(model))
+    except AttributeError:
+        return model in set(client.list_models())
+
+
 def get_strategist_model() -> str:
     """Liefert das aktive Strategist-Modell, live aufgeloest.
 
@@ -256,7 +268,6 @@ class PacingStrategist:
         skaliert das Budget proportional zur Section-Count damit lange
         DJ-Mixes nicht mid-JSON abschneiden.
         """
-        from services.ollama_client import get_ollama_client
         from ui.dialogs.settings_dialog import get_ollama_settings
 
         cfg = get_ollama_settings()
@@ -267,7 +278,25 @@ class PacingStrategist:
         if not client.is_available():
             raise RuntimeError("Ollama-Server nicht erreichbar")
 
-        model = cfg.get("model") or client.get_best_available_model()
+        configured_model = cfg.get("model")
+        model = None
+        if configured_model:
+            if _client_model_exists(client, configured_model):
+                model = configured_model
+            else:
+                logger.warning(
+                    "PacingStrategist: Settings-Modell '%s' ist nicht installiert; "
+                    "waehle automatisch bestes verfuegbares Modell.",
+                    configured_model,
+                )
+        model = model or get_strategist_model()
+        if model and not _client_model_exists(client, model):
+            logger.warning(
+                "PacingStrategist: Auto-Modell '%s' ist nicht installiert; nutze Client-Bestmodell.",
+                model,
+            )
+            model = None
+        model = model or client.get_best_available_model()
         if not model:
             raise RuntimeError("Kein Ollama-Modell verfuegbar")
 

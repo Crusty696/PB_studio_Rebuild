@@ -67,9 +67,18 @@ def ask_ai(question: str, max_tokens: int = 512) -> dict:
                 "message": "Ollama ist nicht erreichbar. Bitte starte Ollama mit 'ollama serve'.",
             }
 
-        # Pick best available model
         import os
-        model = os.environ.get("PB_OLLAMA_MODEL") or client.get_best_available_model()
+        env_model = os.environ.get("PB_OLLAMA_MODEL")
+        if env_model and client.model_exists(env_model):
+            model = env_model
+        else:
+            if env_model:
+                _logger.warning(
+                    "ask_ai: PB_OLLAMA_MODEL='%s' ist nicht installiert; "
+                    "waehle automatisch bestes verfuegbares Modell.",
+                    env_model,
+                )
+            model = client.get_best_available_model()
         if not model:
             return {
                 "status": "error",

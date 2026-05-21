@@ -637,6 +637,11 @@ def generate_embeddings(
 # Caller koennen ``vision_model`` Parameter explizit ueberschreiben
 # (z.B. ueber Settings oder PB_VISION_MODEL env-var).
 _VISION_MODEL = "moondream:latest"
+_VISION_MODEL_CANDIDATES = [
+    "moondream:latest",
+    "moondream:1.8b",
+    "openbmb/minicpm-o2.6:latest",
+]
 
 _CAPTION_SYSTEM_PROMPT = """\
 You are a video scene analyzer for a DJ/music video editor.
@@ -659,6 +664,41 @@ Example:
 
 _CAPTION_USER_PROMPT = "Describe this scene as JSON. Reply with the JSON object only."
 _CAPTION_PLAIN_TEXT_FALLBACK_PROMPT = "Describe this scene in one short sentence."
+
+
+def get_ollama_client():
+    from services.ollama_client import get_ollama_client as _get_ollama_client
+    return _get_ollama_client()
+
+
+def _ollama_model_exists(client, model: str) -> bool:
+    try:
+        return bool(client.model_exists(model))
+    except AttributeError:
+        return model in set(client.list_models())
+
+
+def _resolve_vision_caption_model(client, requested_model: str) -> str:
+    """Choose an installed vision-capable Ollama model for captioning."""
+    import os
+
+    candidates: list[str] = []
+    env_model = os.environ.get("PB_VISION_MODEL")
+    for model in (requested_model, env_model, *_VISION_MODEL_CANDIDATES):
+        if model and model not in candidates:
+            candidates.append(model)
+
+    for model in candidates:
+        if _ollama_model_exists(client, model):
+            if model != requested_model:
+                logger.warning(
+                    "[CAPTION] Vision-Modell '%s' nicht installiert; nutze '%s'.",
+                    requested_model,
+                    model,
+                )
+            return model
+
+    return requested_model
 
 
 def _encode_keyframe_base64(image_path: str) -> str | None:
@@ -711,12 +751,13 @@ def analyze_scene_with_caption(
         )
         return scenes
 
-    from services.ollama_client import get_ollama_client
     client = get_ollama_client()
 
     if client.is_paused:
         logger.info("[CAPTION] Ollama ist pausiert (GPU-Task aktiv) — überspringe Captions.")
         return scenes
+
+    vision_model = _resolve_vision_caption_model(client, vision_model)
 
     logger.info("[CAPTION] Starte Vision-Captioning für %d Szenen mit '%s' via OllamaService...",
                 len(keyframe_scenes), vision_model)
