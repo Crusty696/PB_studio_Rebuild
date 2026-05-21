@@ -151,3 +151,40 @@ def test_pacing_pipeline_construction_includes_decision_recorder() -> None:
         "B-197 F-4: PacingPipeline muss explizit "
         "``decision_recorder=DecisionRecorder(...)`` bekommen."
     )
+
+
+def test_pacing_pipeline_construction_includes_run_id() -> None:
+    """B-326: ``DecisionRecorder`` schreibt nur wenn ``PacingPipeline``
+    einen ``run_id`` hat. Der Auto-Edit-Feature-Flag-Pfad muss deshalb
+    vor ``select_best()`` eine ``mem_pacing_run``-Zeile anlegen und deren
+    ID an die Pipeline weitergeben.
+    """
+    import services.pacing_service as ps
+
+    src = inspect.getsource(ps)
+    assert "INSERT INTO mem_pacing_run" in src, (
+        "B-326: auto_edit_phase3 muss fuer Studio-Brain einen "
+        "mem_pacing_run anlegen."
+    )
+    assert "run_id=" in src, (
+        "B-326: PacingPipeline muss die mem_pacing_run-ID als run_id "
+        "bekommen, sonst bleibt mem_decision leer."
+    )
+
+
+def test_auto_edit_finish_sets_active_pacing_run_for_feedback() -> None:
+    """B-326: Nach Auto-Edit muss die Timeline den neuesten
+    ``mem_pacing_run`` kennen, sonst erreichen A/R/S/1-5-Feedback-Hotkeys
+    keine ``mem_decision``.
+    """
+    from ui.controllers.edit_workspace import EditWorkspaceController
+
+    src = inspect.getsource(EditWorkspaceController._on_auto_edit_finished)
+    assert "set_active_pacing_run" in src, (
+        "B-326: _on_auto_edit_finished muss timeline_view.set_active_pacing_run(...) "
+        "aufrufen."
+    )
+    assert "mem_pacing_run" in src, (
+        "B-326: _on_auto_edit_finished muss den neuesten mem_pacing_run fuer "
+        "den Audio-Track aufloesen."
+    )

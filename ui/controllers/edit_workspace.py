@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QTimer
 from database import engine, AudioTrack, VideoClip, TimelineEntry, get_active_project_id
+from sqlalchemy import text
 from sqlalchemy.orm import Session as DBSession
 from services.task_manager import GlobalTaskManager, TaskManagerProxy
 from services.pacing_service import (
@@ -386,6 +387,21 @@ class EditWorkspaceController(PBComponent):
         )
         task_manager.finish_task(task_id, "finished", f"{len(segments)} Segmente")
 
+        try:
+            from services.pacing.bridge import use_studio_brain_pipeline
+
+            if use_studio_brain_pipeline():
+                audio_id = self.window.audio_combo.currentData()
+                run_id = self._latest_mem_pacing_run_id(audio_id)
+                if hasattr(self.window.timeline_view, "set_active_pacing_run"):
+                    self.window.timeline_view.set_active_pacing_run(run_id)
+                if run_id is not None and hasattr(self.window, "console_text"):
+                    self.window.console_text.append(
+                        f"[Brain] Feedback aktiv fuer mem_pacing_run #{run_id}."
+                    )
+        except Exception as exc:
+            logger.debug("active pacing run setup failed: %s", exc)
+
         # B-295: CutListPanel nach Auto-Edit refresh
         try:
             tab_schnitt = self.window._schnitt_ws.editor_view.tab_schnitt
@@ -393,6 +409,20 @@ class EditWorkspaceController(PBComponent):
                 tab_schnitt.cut_list_panel.set_project(get_active_project_id())
         except Exception as exc:
             logger.debug("cut_list_panel refresh failed: %s", exc)
+
+    def _latest_mem_pacing_run_id(self, audio_id: int | None) -> int | None:
+        if audio_id is None:
+            return None
+        with DBSession(engine) as session:
+            row = session.execute(
+                text(
+                    "SELECT id FROM mem_pacing_run "
+                    "WHERE audio_track_id = :audio_id "
+                    "ORDER BY id DESC LIMIT 1"
+                ),
+                {"audio_id": int(audio_id)},
+            ).fetchone()
+            return int(row[0]) if row is not None else None
 
     def _build_otio_timeline(self, segments: list):
         audio_id = self.window.audio_combo.currentData()

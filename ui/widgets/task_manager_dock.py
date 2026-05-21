@@ -20,6 +20,12 @@ def _as_int(value) -> int | None:
     return None
 
 
+def _as_display_text(value) -> str:
+    if value is None:
+        return ""
+    return str(value)
+
+
 class TaskManagerDock(QDockWidget):
     """Verankerte Taskliste als QDockWidget am unteren Bildschirmrand.
 
@@ -271,8 +277,9 @@ class TaskManagerDock(QDockWidget):
         else:
             # Komplett unbekannt → indeterminate (Qt-marquee).
             progress_bar.setRange(0, 0)
-        msg_label.setText(task.message[:60] if task.message else "")
-        msg_label.setToolTip(task.message or "")
+        message = _as_display_text(task.message)
+        msg_label.setText(message[:60])
+        msg_label.setToolTip(message)
 
     def _on_task_finished(self, task_id: str):
         task = self._tm.get_task(task_id)
@@ -309,8 +316,9 @@ class TaskManagerDock(QDockWidget):
                 f"QProgressBar::chunk {{ background: {ERR}; border-radius: 2px; }}"
             )
 
-        msg_label.setText(task.message[:60] if task.message else "")
-        msg_label.setToolTip(task.message or "")
+        message = _as_display_text(task.message)
+        msg_label.setText(message[:60])
+        msg_label.setToolTip(message)
         time_label.setText(f"{task.elapsed}s")
 
     def _update_elapsed(self):

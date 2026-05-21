@@ -17,8 +17,10 @@ Dieses Modul ist die oeffentliche API. Die Implementierung ist aufgeteilt in:
 import bisect
 import copy
 import logging
+from datetime import datetime, timezone
 
 import numpy as np
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from database import engine, Scene
@@ -97,6 +99,60 @@ from services.pacing_memory import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _create_mem_pacing_run(
+    *,
+    audio_id: int,
+    total_duration: float,
+    is_dj_mix: bool,
+    weights_profile: str = "default",
+) -> int:
+    """Create the run row required before DecisionRecorder can persist cuts."""
+    from database import nullpool_session
+
+    with nullpool_session() as session:
+        row = session.execute(
+            text(
+                "INSERT INTO mem_pacing_run "
+                "(audio_track_id, started_at, is_dj_mix, total_duration_sec, "
+                "total_cuts, agent_version, weights_profile) "
+                "VALUES (:audio_id, :started_at, :is_dj_mix, :duration, 0, "
+                ":agent_version, :weights_profile) "
+                "RETURNING id"
+            ),
+            {
+                "audio_id": audio_id,
+                "started_at": datetime.now(timezone.utc),
+                "is_dj_mix": bool(is_dj_mix),
+                "duration": float(total_duration),
+                "agent_version": "pacing_service.auto_edit_phase3",
+                "weights_profile": weights_profile,
+            },
+        ).fetchone()
+        session.commit()
+        if row is None:
+            row = session.execute(text("SELECT last_insert_rowid()")).fetchone()
+        return int(row[0])
+
+
+def _complete_mem_pacing_run(run_id: int, total_cuts: int) -> None:
+    from database import nullpool_session
+
+    with nullpool_session() as session:
+        session.execute(
+            text(
+                "UPDATE mem_pacing_run "
+                "SET completed_at = :completed_at, total_cuts = :total_cuts "
+                "WHERE id = :run_id"
+            ),
+            {
+                "completed_at": datetime.now(timezone.utc),
+                "total_cuts": int(total_cuts),
+                "run_id": int(run_id),
+            },
+        )
+        session.commit()
 
 
 # ── Legacy Phase 2 functions — in pacing_service.py behalten fuer Test-Compat ──
@@ -709,6 +765,7 @@ def _auto_edit_phase3_inner(
     # bei Fehler fällt der Loop auf Legacy zurück (Snapshot-Test schützt).
     _studio_brain_pipeline = None
     _studio_brain_audio_track = None
+    _studio_brain_run_id = None
     try:
         if studio_brain_requested:
             from services.pacing.pipeline import PacingPipeline
@@ -719,11 +776,21 @@ def _auto_edit_phase3_inner(
             # mem_pacing_run leer. Damit waren AuditTab/MemoryTab/
             # PacingDecisionExplorer ohne Daten — siehe
             # ``wiki/synthesis/brain-audit-2026-04-27.md``.
+            # B-326: DecisionRecorder persistiert nur, wenn die Pipeline eine
+            # run_id hat. Der Auto-Edit-Livepfad muss deshalb vor select_best()
+            # eine mem_pacing_run-Zeile erzeugen.
+            _studio_brain_run_id = _create_mem_pacing_run(
+                audio_id=audio_id,
+                total_duration=total_duration,
+                is_dj_mix=track_is_dj_mix,
+                weights_profile="default",
+            )
             _studio_brain_pipeline = PacingPipeline(
                 scorer=PacingScorer(weights_profile="default"),
                 decision_recorder=DecisionRecorder(
                     session_factory=nullpool_session,
                 ),
+                run_id=_studio_brain_run_id,
             )
             with Session(_ae_eng) as _sb_session:
                 _studio_brain_audio_track = (
@@ -733,7 +800,9 @@ def _auto_edit_phase3_inner(
                 )
             logger.info(
                 "Studio-Brain-Pipeline aktiv (PB_USE_STUDIO_BRAIN_PIPELINE=1) — "
-                "Cuts werden zusätzlich via select_best gerated, Legacy-Fallback bei None."
+                "Cuts werden zusätzlich via select_best gerated, Legacy-Fallback bei None. "
+                "mem_pacing_run=%s",
+                _studio_brain_run_id,
             )
     except (ImportError, RuntimeError, AttributeError) as _sb_exc:
         logger.warning(
@@ -969,6 +1038,15 @@ def _auto_edit_phase3_inner(
         "Phase 3: %d Segmente, %d CutPoints, %.1fs Gesamtdauer",
         len(segments), len(cut_points), total_duration,
     )
+    if _studio_brain_run_id is not None:
+        try:
+            _complete_mem_pacing_run(_studio_brain_run_id, len(cut_points))
+        except Exception as exc:  # broad: timeline output must not be lost
+            logger.warning(
+                "mem_pacing_run completion failed for run_id=%s: %s",
+                _studio_brain_run_id,
+                exc,
+            )
 
     # F-001 Fix: Save playback_offset to database for persistence
     with Session(_ae_eng) as session:
