@@ -69,7 +69,7 @@ Audio-V2-Reconcile ist pausiert, nicht geloescht. Keine Audio-V2-Portierung in d
 - `B-319` ist `code-fix-pending-live-verification`; Tests und DB-Integritaetscheck sind gruen, aber ein neuer Auto-Edit-Live-Run wurde nicht ausgefuehrt.
 - `B-320` ist `code-fix-pending-live-verification`; Timeline-Video-Clips bekommen gecachtes Thumbnail oder Placeholder, Tests sind gruen, aber realer SCHNITT-Live-Nachtest war durch laufende Hintergrundtasks beim Projektwechsel blockiert.
 - `B-321` bleibt `code-fix-pending-live-verification`; Video-Pipeline Completion-/Freeze-Fixes haben Tests und Agent-Live-Anteile, aber kein finaler kompletter Pipeline-Live-Nachtest. Versuch 2026-05-21 startete die Video-Pipeline nicht, weil laufender Audio-Task/App-Crash vorher blockierte; siehe `B-323`.
-- `B-323` ist `open`; TaskManagerDock kann bei String-Progress `QProgressBar.setValue(str)` crashen, entdeckt als B-321-Liveversuch-Blocker.
+- `B-323` ist `code-fix-pending-live-verification`; TaskManagerDock normalisiert Progress/Total vor QProgressBar-Settern, Tests und App-Start-Smoke sind gruen, voller B-321 Video-Pipeline-Live-Test fehlt weiter.
 - `B-322` bleibt `code-fix-pending-live-verification`; Agent-Live-Test existiert, User-Bestaetigung fehlt.
 - `B-300`, `B-303`, `B-304`, `B-305` bleiben pending-live laut Vault-Status und duerfen nicht als `fixed` behandelt werden.
 

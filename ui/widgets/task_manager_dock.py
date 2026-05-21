@@ -10,6 +10,16 @@ from services.task_manager import GlobalTaskManager
 from ui.theme import BG0, BG1, BG2, BG3, BG4, ACCENT, ACCENT_DIM, DANGER_BG, ERR, OK, WARN, T1, T2, T3, T4
 
 
+def _as_int(value) -> int | None:
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    return None
+
+
 class TaskManagerDock(QDockWidget):
     """Verankerte Taskliste als QDockWidget am unteren Bildschirmrand.
 
@@ -244,16 +254,20 @@ class TaskManagerDock(QDockWidget):
         # B-128: Auch task.total == 0 sinnvoll behandeln. Worker die
         # progress ohne konsistentes total melden, sollen nicht bei
         # 0 % haengen.
-        if task.total > 0:
-            progress_bar.setRange(0, task.total)
-            progress_bar.setValue(task.progress)
-            progress_bar.setFormat(f"{task.progress}%")
-        elif task.progress > 0:
+        progress = _as_int(task.progress)
+        total = _as_int(task.total)
+        if progress is None or total is None:
+            progress_bar.setRange(0, 0)
+        elif total > 0:
+            progress_bar.setRange(0, total)
+            progress_bar.setValue(max(0, min(total, progress)))
+            progress_bar.setFormat(f"{max(0, min(total, progress))}%")
+        elif progress > 0:
             # Worker meldet nur progress (in 0..100) ohne total →
             # behandeln als Prozent.
             progress_bar.setRange(0, 100)
-            progress_bar.setValue(min(100, task.progress))
-            progress_bar.setFormat(f"{min(100, task.progress)}%")
+            progress_bar.setValue(min(100, progress))
+            progress_bar.setFormat(f"{min(100, progress)}%")
         else:
             # Komplett unbekannt → indeterminate (Qt-marquee).
             progress_bar.setRange(0, 0)
