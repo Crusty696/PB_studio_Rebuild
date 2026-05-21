@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 OLLAMA_BASE = "http://localhost:11434"
 
 # B-239: Default-Modell wird live ueber /api/tags resolved.
-# Reihenfolge: PB_OLLAMA_MODEL env-var > Gemma-4-Family-Match >
+# Reihenfolge: installiertes PB_OLLAMA_MODEL env-var > Gemma-4-Family-Match >
 # RECOMMENDED_MODELS aus ollama_client > erstes verfuegbares.
 # Hartcoded-Tag "gemma4:e4b" existierte nirgends als Ollama-Tag und
 # war ueberall hinterlegt -> jeder LLM-Call gab 404. Siehe B-239.
@@ -38,7 +38,7 @@ def _resolve_default_model(base_url: str = OLLAMA_BASE) -> str | None:
     """Findet das aktuell beste verfuegbare Default-Modell.
 
     Reihenfolge:
-    1. ``PB_OLLAMA_MODEL`` env-var (User-Override)
+    1. ``PB_OLLAMA_MODEL`` env-var, wenn dieses Modell installiert ist
     2. Erstes installiertes Modell der Family ``gemma4`` (User-Wunsch
        laut Vault: Gemma 4 als Hauptmodell)
     3. ``RECOMMENDED_MODELS`` aus ollama_client (phi3, qwen, etc.)
@@ -46,10 +46,6 @@ def _resolve_default_model(base_url: str = OLLAMA_BASE) -> str | None:
 
     Returns ``None`` wenn Ollama nicht erreichbar oder leer.
     """
-    user_override = os.environ.get("PB_OLLAMA_MODEL")
-    if user_override:
-        return user_override
-
     try:
         with httpx.Client(base_url=base_url, timeout=5.0) as client:
             resp = client.get("/api/tags")
@@ -62,6 +58,16 @@ def _resolve_default_model(base_url: str = OLLAMA_BASE) -> str | None:
     if not models:
         return None
 
+    installed = {m["name"] for m in models if m.get("name")}
+    user_override = os.environ.get("PB_OLLAMA_MODEL")
+    if user_override:
+        if user_override in installed:
+            return user_override
+        logger.warning(
+            "PB_OLLAMA_MODEL='%s' ist nicht installiert; waehle bestes verfuegbares Modell.",
+            user_override,
+        )
+
     for m in models:
         family = (m.get("details") or {}).get("family", "").lower()
         if family == _GEMMA4_FAMILY_RE:
@@ -69,7 +75,6 @@ def _resolve_default_model(base_url: str = OLLAMA_BASE) -> str | None:
 
     try:
         from services.ollama_client import RECOMMENDED_MODELS
-        installed = {m["name"] for m in models}
         for rec in RECOMMENDED_MODELS:
             if rec in installed:
                 return rec

@@ -67,3 +67,42 @@ def test_get_registry_entries_returns_iso_strings_for_datetime_columns(test_engi
     assert entry.last_used_at == "2026-05-13T09:30:00"
     assert isinstance(entry.last_used_display, str)
     assert isinstance(entry.days_since_used, int)
+
+
+def test_prune_stale_registry_entries_removes_missing_installed_models(test_engine) -> None:
+    with Session(test_engine) as session:
+        session.add_all(
+            [
+                ModelRegistry(
+                    model_id="present-model",
+                    source="ollama",
+                    installed_at=datetime.datetime(2026, 5, 13, 8, 0, 0),
+                    status="installed",
+                ),
+                ModelRegistry(
+                    model_id="stale-model",
+                    source="ollama",
+                    installed_at=datetime.datetime(2026, 5, 13, 8, 0, 0),
+                    status="installed",
+                ),
+                ModelRegistry(
+                    model_id="download-error",
+                    source="ollama",
+                    installed_at=datetime.datetime(2026, 5, 13, 8, 0, 0),
+                    status="error",
+                ),
+            ]
+        )
+        session.commit()
+
+    ModelLifecycleService()._prune_stale_registry_entries(
+        source="ollama",
+        active_model_ids={"present-model"},
+    )
+
+    with Session(test_engine) as session:
+        ids = {row.model_id for row in session.query(ModelRegistry).all()}
+
+    assert "present-model" in ids
+    assert "download-error" in ids
+    assert "stale-model" not in ids

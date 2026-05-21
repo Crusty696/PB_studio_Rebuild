@@ -275,6 +275,34 @@ class ModelLifecycleService:
                     session.rollback()
                     logger.error("ModelRegistry delete fehlgeschlagen: %s", e)
 
+    def _prune_stale_registry_entries(self, source: str, active_model_ids: set[str]) -> None:
+        """Remove installed registry rows for models no longer present in the source scan."""
+        from database import nullpool_session
+        from database import ModelRegistry
+
+        with nullpool_session() as session:
+            stale = (
+                session.query(ModelRegistry)
+                .filter(ModelRegistry.source == source)
+                .filter(ModelRegistry.status == "installed")
+                .filter(~ModelRegistry.model_id.in_(active_model_ids))
+                .all()
+            )
+            if not stale:
+                return
+            for row in stale:
+                logger.info(
+                    "ModelRegistry: entferne stale %s-Modell '%s' aus Registry.",
+                    source,
+                    row.model_id,
+                )
+                session.delete(row)
+            try:
+                session.commit()
+            except Exception as e:  # broad catch intentional — SQLAlchemy commit can raise many error types
+                session.rollback()
+                logger.error("ModelRegistry stale cleanup fehlgeschlagen: %s", e)
+
     def touch_last_used(self, model_id: str) -> None:
         """Aktualisiert last_used_at auf jetzt (bei Modell-Load)."""
         from database import nullpool_session
@@ -373,6 +401,10 @@ class ModelLifecycleService:
                 entries.append(entry)
                 self._upsert_model(entry)
 
+            self._prune_stale_registry_entries(
+                source="ollama",
+                active_model_ids={entry.model_id for entry in entries},
+            )
             logger.info("Ollama-Scan: %d Modelle gefunden.", len(entries))
         except urllib.error.URLError:
             logger.debug("Ollama nicht erreichbar bei Scan.")
@@ -593,6 +625,10 @@ class ModelLifecycleService:
                 entries.append(entry)
                 self._upsert_model(entry)
 
+            self._prune_stale_registry_entries(
+                source="huggingface",
+                active_model_ids={entry.model_id for entry in entries},
+            )
             logger.info("HF Cache-Scan: %d Modelle gefunden.", len(entries))
         except OSError as e:
             logger.error("HF Cache-Scan fehlgeschlagen: %s", e)

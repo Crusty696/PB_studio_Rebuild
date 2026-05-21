@@ -5,6 +5,7 @@ import json
 import logging
 import subprocess
 import sys
+import tempfile
 from functools import wraps
 from pathlib import Path
 
@@ -59,6 +60,81 @@ def _sanitize_ffmpeg_error(stderr: str, max_lines: int = 3) -> str:
     lines = stderr.strip().splitlines()
     tail = lines[-max_lines:] if len(lines) > max_lines else lines
     return "\n".join(tail)
+
+
+def _load_audio_for_stem_separation(
+    src: Path,
+    torchaudio_module,
+    target_sr: int,
+):
+    """Load audio for Demucs, falling back to FFmpeg for containers unsupported by libsndfile."""
+    try:
+        return torchaudio_module.load(str(src))
+    except Exception as first_error:
+        ffmpeg_bin = str(get_ffmpeg_bin())
+        tmp_wav = tempfile.NamedTemporaryFile(prefix="pb_stem_decode_", suffix=".wav", delete=False)
+        tmp_wav_path = Path(tmp_wav.name)
+        tmp_wav.close()
+        cmd = [
+            ffmpeg_bin,
+            "-hide_banner",
+            "-y",
+            "-loglevel",
+            "error",
+            "-i",
+            str(src),
+            "-f",
+            "wav",
+            "-acodec",
+            "pcm_f32le",
+            "-ac",
+            "2",
+            "-ar",
+            str(target_sr),
+            str(tmp_wav_path),
+        ]
+        kwargs = {}
+        if sys.platform == "win32":
+            kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                timeout=FFMPEG_RENDER_TIMEOUT_SEC,
+                check=False,
+                **kwargs,
+            )
+        except Exception as ffmpeg_error:
+            tmp_wav_path.unlink(missing_ok=True)
+            raise RuntimeError(
+                f"Audio-Datei konnte weder via torchaudio noch FFmpeg geladen werden: {first_error}"
+            ) from ffmpeg_error
+
+        if result.returncode != 0 or not tmp_wav_path.exists() or tmp_wav_path.stat().st_size == 0:
+            tmp_wav_path.unlink(missing_ok=True)
+            stderr_text = result.stderr.decode("utf-8", errors="replace")
+            raise RuntimeError(
+                "Audio-Datei konnte weder via torchaudio noch FFmpeg geladen werden: "
+                f"{first_error}; FFmpeg: {_sanitize_ffmpeg_error(stderr_text)}"
+            ) from first_error
+
+        try:
+            waveform, sr = torchaudio_module.load(str(tmp_wav_path))
+        except Exception as wav_error:
+            raise RuntimeError(
+                "Audio-Datei wurde via FFmpeg dekodiert, aber temp WAV konnte nicht geladen werden: "
+                f"{wav_error}"
+            ) from wav_error
+        finally:
+            tmp_wav_path.unlink(missing_ok=True)
+
+        logger.info(
+            "[StemSeparator] Audio via FFmpeg geladen: %s, SR=%s, Samples=%s",
+            src.name,
+            sr,
+            waveform.shape[1],
+        )
+        return waveform, sr
 
 # Chunk-Dauer in Sekunden fuer VRAM-schonendes Processing
 CHUNK_SECONDS = 30
@@ -165,11 +241,11 @@ class StemSeparator:
             progress_cb(10, "Lade Audio-Datei...")
 
         # ── 4. Audio laden ──
-        waveform, sr = torchaudio.load(str(src))
         # Demucs erwartet die Samplerate des Modells (typisch 44100 Hz).
         # Stems werden in model_sr gespeichert. Die Pacing-Pipeline (pacing_service.py)
         # laedt Stems spaeter mit librosa (Default 22050 Hz) — das Downsampling ist beabsichtigt.
         model_sr = demucs_model.samplerate
+        waveform, sr = _load_audio_for_stem_separation(src, torchaudio, model_sr)
         if sr != model_sr:
             waveform = torchaudio.functional.resample(waveform, sr, model_sr)
             sr = model_sr

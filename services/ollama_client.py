@@ -43,6 +43,8 @@ logger = logging.getLogger(__name__)
 # ``/api/tags``-Family-Match (gemma4) aufgeloest. Diese Liste ist
 # der harte Fallback wenn keine Gemma-4-Variante installiert ist.
 RECOMMENDED_MODELS = [
+    "gemma4:e4b",                                                     # ~GTX 1060 Zielmodell, wenn lokal installiert
+    "gemma4:latest",                                                  # Gemma-4-Family-Fallback
     "phi3:mini",                                                      # ~2.3 GB — schnell, Tool-Use, GTX 1060-tauglich
     "tripolskypetr/qwen3.5-uncensored-aggressive:4b",                 # ~2.7 GB — Qwen 3.5, Tool-Use
     "qwen2.5:7b-instruct-q4_K_M",                                     # ~4.4 GB — Qwen 2.5, Tool-Use
@@ -220,7 +222,7 @@ class OllamaClient:
                 return model
         # Fallback: erstes verfügbares Modell
         if available:
-            candidate = next(iter(available))
+            candidate = sorted(available)[0]
             if probe and not self.probe_model(candidate):
                 return None
             return candidate
@@ -241,7 +243,7 @@ class OllamaClient:
             if model in available:
                 return model
         if available:
-            return next(iter(available))
+            return sorted(available)[0]
         return None
 
     # ------------------------------------------------------------------
