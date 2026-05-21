@@ -12,11 +12,9 @@ from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
 
-# B-241: ``gemma4:e4b`` war ein Phantom-Tag (existiert nicht in Ollama).
-# Module-Konstante bleibt als Fallback (``gemma3:4b`` ist ein echter Tag),
-# Aufrufer sollten ``get_strategist_model()`` nutzen — das resolved live
-# gegen die installierten Modelle.
-STRATEGIST_MODEL_ID = "gemma3:4b"
+# Fallback nur fuer alte Aufrufer. ``get_strategist_model()`` resolved live
+# gegen Ollama und danach gegen die lokale ModelRegistry.
+STRATEGIST_MODEL_ID = "gemma4:e4b"
 
 
 def get_ollama_client(base_url: str | None = None):
@@ -31,14 +29,35 @@ def _client_model_exists(client, model: str) -> bool:
         return model in set(client.list_models())
 
 
-def get_strategist_model() -> str:
+def _registry_best_ollama_model() -> str | None:
+    try:
+        from services.ollama_client import RECOMMENDED_MODELS
+        from services.model_lifecycle_service import ModelLifecycleService
+
+        entries = [
+            entry.model_id
+            for entry in ModelLifecycleService().get_registry_entries()
+            if entry.source == "ollama" and entry.status in {"installed", "offline"}
+        ]
+        installed = set(entries)
+        for model in RECOMMENDED_MODELS:
+            if model in installed:
+                return model
+        return sorted(installed)[0] if installed else None
+    except Exception as e:
+        logger.debug("Strategist-Registry-Lookup fehlgeschlagen: %s", e)
+        return None
+
+
+def get_strategist_model() -> str | None:
     """Liefert das aktive Strategist-Modell, live aufgeloest.
 
     Reihenfolge:
     1. ``PB_STRATEGIST_MODEL`` env-var (User-Override)
     2. ``OllamaService.get_default_model()`` (Family-Match auf gemma4
        oder erstes installiertes Modell)
-    3. ``STRATEGIST_MODEL_ID`` als Fallback
+    3. lokale ModelRegistry, wenn Ollama gerade offline ist
+    4. ``STRATEGIST_MODEL_ID`` nur wenn Registry nichts hergibt
     """
     import os
     env_override = os.environ.get("PB_STRATEGIST_MODEL")
@@ -51,6 +70,9 @@ def get_strategist_model() -> str:
             return model
     except Exception as e:
         logger.debug("Strategist-Default-Lookup fehlgeschlagen: %s", e)
+    registry_model = _registry_best_ollama_model()
+    if registry_model:
+        return registry_model
     return STRATEGIST_MODEL_ID
 
 SYSTEM_PROMPT = """\

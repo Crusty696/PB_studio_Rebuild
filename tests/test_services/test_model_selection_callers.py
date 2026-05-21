@@ -37,6 +37,38 @@ def test_pacing_strategist_ignores_stale_settings_model(monkeypatch):
     assert used["model"] == "gemma4:e4b"
 
 
+def test_pacing_strategist_offline_fallback_uses_registry_not_stale_constant(monkeypatch):
+    from services import pacing_strategist
+
+    class _Service:
+        def get_default_model(self):
+            return None
+
+    class _OllamaService:
+        @staticmethod
+        def get():
+            return _Service()
+
+    class _Entry:
+        def __init__(self, model_id, source="ollama", status="offline"):
+            self.model_id = model_id
+            self.source = source
+            self.status = status
+
+    class _Lifecycle:
+        def get_registry_entries(self):
+            return [
+                _Entry("moondream:latest"),
+                _Entry("gemma4:e4b"),
+                _Entry("google/siglip-so400m-patch14-384", "huggingface", "installed"),
+            ]
+
+    monkeypatch.setattr("services.ollama_service.OllamaService", _OllamaService)
+    monkeypatch.setattr("services.model_lifecycle_service.ModelLifecycleService", _Lifecycle)
+
+    assert pacing_strategist.get_strategist_model() == "gemma4:e4b"
+
+
 def test_ask_ai_ignores_missing_env_model(monkeypatch):
     from services.actions import ai_actions
 

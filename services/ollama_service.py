@@ -68,20 +68,25 @@ def _resolve_default_model(base_url: str = OLLAMA_BASE) -> str | None:
             user_override,
         )
 
-    for m in models:
-        family = (m.get("details") or {}).get("family", "").lower()
-        if family == _GEMMA4_FAMILY_RE:
-            return m["name"]
-
     try:
-        from services.ollama_client import RECOMMENDED_MODELS
+        from services.ollama_client import OllamaClient, RECOMMENDED_MODELS
+        client = OllamaClient(base_url=base_url)
         for rec in RECOMMENDED_MODELS:
-            if rec in installed:
+            if rec in installed and client.model_supports_completion(rec):
                 return rec
     except ImportError:
         pass
 
-    return models[0]["name"]
+    try:
+        from services.ollama_client import OllamaClient
+        client = OllamaClient(base_url=base_url)
+        for model in sorted(installed):
+            if client.model_supports_completion(model):
+                return model
+    except ImportError:
+        pass
+
+    return None
 
 
 def _find_ollama_bin() -> Path:

@@ -45,6 +45,7 @@ logger = logging.getLogger(__name__)
 RECOMMENDED_MODELS = [
     "gemma4:e4b",                                                     # ~GTX 1060 Zielmodell, wenn lokal installiert
     "gemma4:latest",                                                  # Gemma-4-Family-Fallback
+    "ALIENTELLIGENCE/filmandvideoproduction:latest",                  # installiertes Text-/Tool-Modell auf PB-Studio-System
     "phi3:mini",                                                      # ~2.3 GB — schnell, Tool-Use, GTX 1060-tauglich
     "tripolskypetr/qwen3.5-uncensored-aggressive:4b",                 # ~2.7 GB — Qwen 3.5, Tool-Use
     "qwen2.5:7b-instruct-q4_K_M",                                     # ~4.4 GB — Qwen 2.5, Tool-Use
@@ -165,6 +166,30 @@ class OllamaClient:
         """Prüft ob ein bestimmtes Modell lokal verfügbar ist."""
         return model_name in self.list_models()
 
+    def model_supports_completion(self, model_name: str) -> bool:
+        """Prueft, ob ein installiertes Modell fuer Text-Completion nutzbar ist."""
+        payload = json.dumps({"model": model_name}).encode("utf-8")
+        req = urllib.request.Request(
+            f"{self.base_url}/api/show",
+            data=payload,
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=HTTP_MODEL_INFO_TIMEOUT_SEC) as resp:
+                data = json.loads(resp.read())
+            capabilities = data.get("capabilities")
+            if isinstance(capabilities, list):
+                return "completion" in capabilities
+            return True
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                logger.warning("OllamaClient: Modell '%s' ist gelistet, aber /api/show liefert 404.", model_name)
+                return False
+            return True
+        except (ConnectionError, TimeoutError, OSError, ValueError, json.JSONDecodeError):
+            return True
+
     def probe_model(self, model_name: str) -> bool:
         """Prüft ob ein Modell tatsächlich geladen werden kann (nicht nur heruntergeladen).
 
@@ -212,6 +237,9 @@ class OllamaClient:
         available = set(self.list_models())
         for model in RECOMMENDED_MODELS:
             if model in available:
+                if not self.model_supports_completion(model):
+                    logger.info("OllamaClient: '%s' ohne Completion-Support, ueberspringe.", model)
+                    continue
                 if probe:
                     if self.probe_model(model):
                         logger.info("OllamaClient: Bestes ladbares Modell: '%s'", model)
@@ -222,7 +250,10 @@ class OllamaClient:
                 return model
         # Fallback: erstes verfügbares Modell
         if available:
-            candidate = sorted(available)[0]
+            candidates = [model for model in sorted(available) if self.model_supports_completion(model)]
+            if not candidates:
+                return None
+            candidate = candidates[0]
             if probe and not self.probe_model(candidate):
                 return None
             return candidate
@@ -350,6 +381,12 @@ class OllamaClient:
                     model=model,
                     reason="Passt nicht in RAM/VRAM und kein Fallback verfuegbar"
                 ) from e
+            if "does not support chat" in body:
+                logger.warning(
+                    "OllamaClient: Modell '%s' unterstuetzt /api/chat nicht; nutze /api/generate.",
+                    model,
+                )
+                return self._generate_text(model, user_message, system_prompt, temperature, max_tokens)
             logger.error("OllamaClient: HTTP-Fehler %d: %s", e.code, body.strip())
             raise OllamaError(f"HTTP-Fehler {e.code}: {body.strip()}", model=model, http_code=e.code) from e
         except urllib.error.URLError as e:
@@ -434,6 +471,52 @@ class OllamaClient:
                     model=model,
                     reason="Passt nicht in RAM/VRAM und kein Fallback verfuegbar"
                 ) from e
+            if "does not support chat" in err_body:
+                prompt_parts = []
+                for message in messages:
+                    role = message.get("role", "user")
+                    content = message.get("content", "")
+                    if content:
+                        prompt_parts.append(f"{role}: {content}")
+                return self._generate_text(model, "\n".join(prompt_parts), None, temperature, max_tokens)
+            raise OllamaError(f"HTTP-Fehler {e.code}: {err_body.strip()}", model=model, http_code=e.code) from e
+        except urllib.error.URLError as e:
+            raise OllamaNotAvailableError(f"Ollama nicht erreichbar: {e}") from e
+
+    def _generate_text(
+        self,
+        model: str,
+        user_message: str,
+        system_prompt: str | None = None,
+        temperature: float = 0.1,
+        max_tokens: int = 512,
+    ) -> str:
+        prompt = user_message if not system_prompt else f"{system_prompt}\n\n{user_message}"
+        payload = {
+            "model": model,
+            "prompt": prompt,
+            "stream": False,
+            "options": {
+                "temperature": temperature,
+                "num_predict": max_tokens,
+            },
+        }
+        body = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(
+            f"{self.base_url}/api/generate",
+            data=body,
+            headers={
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                data = json.loads(resp.read())
+                return (data.get("response") or "").strip()
+        except urllib.error.HTTPError as e:
+            err_body = e.read().decode("utf-8", errors="replace")
             raise OllamaError(f"HTTP-Fehler {e.code}: {err_body.strip()}", model=model, http_code=e.code) from e
         except urllib.error.URLError as e:
             raise OllamaNotAvailableError(f"Ollama nicht erreichbar: {e}") from e
