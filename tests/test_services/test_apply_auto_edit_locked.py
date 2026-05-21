@@ -13,7 +13,7 @@ Plan-Abweichungen (Standard für SCHNITT-Redesign 2026-05-09):
 import pytest
 from sqlalchemy.orm import Session as DBSession
 
-from database.models import AudioTrack, Project, TimelineEntry
+from database.models import AudioTrack, Project, TimelineEntry, VideoClip
 
 
 def test_locked_clip_preserved_unchanged(test_engine, monkeypatch):
@@ -389,3 +389,69 @@ def test_b319_repair_timeline_integrity_fixes_existing_bad_rows(test_engine, mon
     assert video_rows[2].locked is True
     assert video_rows[2].end_time == 24.5
     assert video_rows[0].end_time <= video_rows[1].start_time
+
+
+def test_b319_auto_edit_repairs_preexisting_locked_zero_source_span(test_engine, monkeypatch):
+    """B-319: Auto-Edit muss alte gelockte Null-Span-Zeilen mit reparieren."""
+    import services.timeline_service as ts_mod
+    monkeypatch.setattr(ts_mod, "engine", test_engine)
+    with DBSession(test_engine) as s:
+        p = Project(name="b319-auto-repair-zero-span", path="/tmp/b319-auto-repair-zero-span")
+        s.add(p)
+        s.flush()
+        clip = VideoClip(
+            project_id=p.id,
+            file_path="/tmp/b319-zero-span.mp4",
+            duration=30.0,
+        )
+        s.add(clip)
+        s.flush()
+        s.add(TimelineEntry(
+            project_id=p.id,
+            track="video",
+            media_id=clip.id,
+            start_time=1606.88,
+            end_time=1616.88,
+            source_start=0.0,
+            source_end=0.0,
+            lane=0,
+            locked=True,
+        ))
+        s.commit()
+        pid = p.id
+        clip_id = clip.id
+
+    ts_mod.apply_auto_edit_segments([
+        {
+            "media_id": clip_id,
+            "start": 0.0,
+            "end": 5.0,
+            "lane": 0,
+            "source_start": 0.0,
+            "source_end": 5.0,
+            "crossfade_duration": 0.0,
+            "brightness": 0.0,
+            "contrast": 1.0,
+        },
+    ], pid)
+
+    with DBSession(test_engine) as s:
+        bad_rows = (
+            s.query(TimelineEntry)
+            .filter(
+                TimelineEntry.project_id == pid,
+                TimelineEntry.track == "video",
+                TimelineEntry.source_end.is_not(None),
+                (TimelineEntry.end_time - TimelineEntry.start_time)
+                > (TimelineEntry.source_end - TimelineEntry.source_start) + 0.001,
+            )
+            .count()
+        )
+        locked = (
+            s.query(TimelineEntry)
+            .filter_by(project_id=pid, track="video", locked=True)
+            .one()
+        )
+
+    assert bad_rows == 0
+    assert locked.source_end == 10.0

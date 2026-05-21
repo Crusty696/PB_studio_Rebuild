@@ -61,7 +61,9 @@ def apply_auto_edit_segments(segments: list[dict], project_id: int | None = None
                 if attempt > 0:
                     # H-15 FIX: Don't dispose shared engine in retry loop — just wait
                     _time.sleep(1)
-                return _do_apply_segments(segments, project_id)
+                inserted = _do_apply_segments(segments, project_id)
+                repair_timeline_integrity(project_id)
+                return inserted
             except OperationalError as e:
                 if "database is locked" in str(e) and attempt < max_retries - 1:
                     wait = 5 * (attempt + 1)
@@ -171,7 +173,7 @@ def _do_apply_segments(segments: list[dict], project_id: int) -> int:
                 if source_span <= 1e-3:
                     skip = True
                 elif (seg_end - seg_start) > source_span:
-                    _trim_end(round(seg_start + source_span, 4))
+                    seg_end = round(seg_start + source_span, 4)
             if skip or (seg_end - seg_start) <= 1e-3:
                 continue
 
@@ -220,11 +222,12 @@ def repair_timeline_integrity(project_id: int) -> dict[str, int]:
     als ``source_end - source_start`` waren. Ausserdem konnte das manuelle
     Audio-Hinzufuegen denselben A1-Master mehrfach hintereinander eintragen.
     """
-    from database import AudioTrack, nullpool_session
+    from database import AudioTrack, VideoClip, nullpool_session
 
     result = {
         "video_duration_clamped": 0,
         "video_overlaps_shifted": 0,
+        "video_source_span_rebuilt": 0,
         "audio_duplicates_removed": 0,
         "audio_duration_synced": 0,
     }
@@ -241,6 +244,16 @@ def repair_timeline_integrity(project_id: int) -> dict[str, int]:
             end = float(row.end_time or start)
             if row.source_start is not None and row.source_end is not None:
                 source_span = float(row.source_end) - float(row.source_start)
+                duration = end - start
+                if source_span <= 1e-3 and duration > 1e-3:
+                    clip = session.get(VideoClip, row.media_id) if row.media_id is not None else None
+                    clip_duration = float(clip.duration or 0.0) if clip is not None else 0.0
+                    source_start = float(row.source_start or 0.0)
+                    available = clip_duration - source_start if clip_duration > source_start else duration
+                    if available > 1e-3:
+                        row.source_end = round(source_start + min(duration, available), 4)
+                        source_span = float(row.source_end) - source_start
+                        result["video_source_span_rebuilt"] += 1
                 if source_span > 1e-3 and (end - start) > source_span + 1e-3:
                     end = round(start + source_span, 4)
                     row.end_time = end
