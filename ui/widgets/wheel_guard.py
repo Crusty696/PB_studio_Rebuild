@@ -14,4 +14,6 @@ class WheelGuard(QObject):
             if not obj.hasFocus():
                 event.ignore()
                 return True
+        if not isinstance(obj, QObject):
+            return False
         return super().eventFilter(obj, event)

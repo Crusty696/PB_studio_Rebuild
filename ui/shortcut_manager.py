@@ -42,7 +42,9 @@ ACTIONS: dict[str, tuple[str, str, str]] = {
 
 def _event_int(event) -> int:
     """Return an int combining key + modifiers from a QKeyEvent."""
-    return event.key() | int(event.modifiers())
+    modifiers = event.modifiers()
+    modifier_value = getattr(modifiers, "value", modifiers)
+    return int(event.key()) | int(modifier_value)
 
 
 class ShortcutManager:

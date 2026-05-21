@@ -4,6 +4,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import Qt, QPoint, QPointF, QEvent
 from PySide6.QtGui import QWheelEvent
 from PySide6.QtWidgets import QApplication, QComboBox, QDoubleSpinBox, QPushButton, QSlider, QSpinBox
+from PySide6.QtWidgets import QWidgetItem
 
 from ui.widgets.wheel_guard import WheelGuard
 
@@ -100,3 +101,12 @@ def test_pushbutton_passes_through():
     fake_evt = _wheel(btn)
     result = guard.eventFilter(btn, fake_evt)
     assert result is False
+
+
+def test_b330_non_qobject_layout_item_passes_through_without_crash():
+    app = _qapp()
+    guard = WheelGuard(app)
+    item = QWidgetItem(QPushButton("x"))
+    event = QEvent(QEvent.Type.Polish)
+
+    assert guard.eventFilter(item, event) is False
