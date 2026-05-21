@@ -8,11 +8,11 @@ from pathlib import Path
 
 from PySide6.QtWidgets import (
     QGraphicsView, QGraphicsScene, QGraphicsRectItem,
-    QGraphicsTextItem, QGraphicsLineItem, QGraphicsPolygonItem, QMenu,
+    QGraphicsTextItem, QGraphicsLineItem, QGraphicsPolygonItem, QGraphicsPixmapItem, QMenu,
 )
 from PySide6.QtCore import Qt, QRectF, QPointF, Signal, QTimer
 from PySide6.QtGui import (
-    QPainter, QColor, QFont, QBrush, QPen, QPolygonF, QUndoStack,
+    QPainter, QColor, QFont, QBrush, QPen, QPolygonF, QUndoStack, QPixmap,
 )
 
 from sqlalchemy import text
@@ -84,6 +84,36 @@ class AnchorMarkerItem(QGraphicsPolygonItem):
 # Draggable Timeline Clip
 # ======================================================================
 
+def _timeline_video_placeholder(width: int, height: int, label: str) -> QPixmap:
+    pix = QPixmap(max(1, width), max(1, height))
+    pix.fill(QColor("#18120a"))
+    painter = QPainter(pix)
+    painter.setPen(QColor("#d4a44a"))
+    painter.setFont(QFont("Segoe UI Variable Text", 8, QFont.Weight.Bold))
+    painter.drawText(QRectF(0, 0, width, height), Qt.AlignmentFlag.AlignCenter, label[:18])
+    painter.end()
+    return pix
+
+
+def _timeline_video_thumbnail(file_path: str | None, width: int, height: int, label: str) -> QPixmap:
+    if file_path:
+        try:
+            from ui.widgets.media_grid import _thumb_path
+            thumb = _thumb_path(file_path)
+            if thumb.exists():
+                pix = QPixmap(str(thumb))
+                if not pix.isNull():
+                    return pix.scaled(
+                        max(1, width),
+                        max(1, height),
+                        Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                        Qt.TransformationMode.FastTransformation,
+                    )
+        except (ImportError, OSError, RuntimeError):
+            pass
+    return _timeline_video_placeholder(width, height, label)
+
+
 class TimelineClipItem(QGraphicsRectItem):
     # Audio-Clips: refined slate blue
     AUDIO_COLOR = QColor(45, 85, 150, 80)
@@ -96,7 +126,7 @@ class TimelineClipItem(QGraphicsRectItem):
     def __init__(self, entry_id: int, media_id: int, track_type: str,
                  title: str, x: float, y: float, width: float, height: float,
                  on_moved=None, on_trimmed=None, has_waveform: bool = False,
-                 anchors: list | None = None):
+                 anchors: list | None = None, thumbnail_file_path: str | None = None):
         super().__init__(QRectF(0, 0, width, height))
         self.entry_id = entry_id
         self.media_id = media_id
@@ -129,6 +159,21 @@ class TimelineClipItem(QGraphicsRectItem):
         self.setBrush(QBrush(color))
         self.setPen(QPen(color.darker(120), 1))
         self.setZValue(2)  # Über der Wellenform
+
+        self._thumbnail_item: QGraphicsPixmapItem | None = None
+        if track_type == "video":
+            thumb_h = max(16, int(height) - 6)
+            thumb_w = max(24, min(int(width), 220))
+            pix = _timeline_video_thumbnail(
+                thumbnail_file_path,
+                thumb_w,
+                thumb_h,
+                f"#{media_id}",
+            )
+            self._thumbnail_item = QGraphicsPixmapItem(pix, self)
+            self._thumbnail_item.setPos(0, 3)
+            self._thumbnail_item.setOpacity(0.58)
+            self._thumbnail_item.setZValue(3)
 
         label = QGraphicsTextItem(title[:30], self)
         label.setDefaultTextColor(QColor(255, 255, 255))
@@ -918,6 +963,7 @@ class InteractiveTimeline(QGraphicsView):
             on_trimmed=self._on_clip_trimmed,
             has_waveform=has_waveform,
             anchors=anchor_map.get(entry.id, []),
+            thumbnail_file_path=str(clip.file_path) if entry.track == "video" and clip else None,
         )
         item.set_brain_v3_feedback(
             service=self._brain_v3_feedback_service,
@@ -970,6 +1016,7 @@ class InteractiveTimeline(QGraphicsView):
 
         # Rekordbox Waveform für Audio-Clips laden
         has_waveform = False
+        thumbnail_file_path = None
         if track_type == "audio":
             with DBSession(engine) as session:
                 track = session.query(AudioTrack).filter(
@@ -979,6 +1026,12 @@ class InteractiveTimeline(QGraphicsView):
                     has_waveform = True
                     entry_stub = _EntryStub(start_time=start_time)
                     self._load_waveform_for_track(session, track, entry_stub, duration, y)
+        elif track_type == "video":
+            with DBSession(engine) as session:
+                clip = session.query(VideoClip).filter(
+                    VideoClip.id == media_id, VideoClip.deleted_at.is_(None)
+                ).first()
+                thumbnail_file_path = str(clip.file_path) if clip else None
 
         item = TimelineClipItem(
             entry_id=entry_id, media_id=media_id, track_type=track_type,
@@ -986,6 +1039,7 @@ class InteractiveTimeline(QGraphicsView):
             on_moved=self._on_clip_moved, on_trimmed=self._on_clip_trimmed,
             has_waveform=has_waveform,
             anchors=[],  # P8-A2-FIX: neue Clips haben keine Anker → keine DB-Query
+            thumbnail_file_path=thumbnail_file_path,
         )
         item.set_brain_v3_feedback(
             service=self._brain_v3_feedback_service,

@@ -66,3 +66,25 @@ def test_hit_lock_icon_outside_returns_false():
     )
     # Lock-Icon liegt rechtsbuendig oben — links unten ist garantiert ausserhalb
     assert clip._hit_lock_icon(QPointF(2.0, 35.0)) is False
+
+
+def test_b320_video_clip_has_thumbnail_placeholder():
+    _qapp()
+    clip = TimelineClipItem(
+        entry_id=1, media_id=42, track_type="video", title="clip42",
+        x=0, y=0, width=200, height=40,
+        anchors=[],
+    )
+    assert clip._thumbnail_item is not None
+    assert not clip._thumbnail_item.pixmap().isNull()
+    assert clip._thumbnail_item.zValue() < clip.lock_icon.zValue()
+
+
+def test_b320_audio_clip_has_no_thumbnail_item():
+    _qapp()
+    clip = TimelineClipItem(
+        entry_id=1, media_id=2, track_type="audio", title="audio",
+        x=0, y=0, width=200, height=40,
+        anchors=[],
+    )
+    assert clip._thumbnail_item is None
