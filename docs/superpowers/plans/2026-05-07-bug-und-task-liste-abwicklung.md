@@ -71,7 +71,7 @@ Audio-V2-Reconcile ist pausiert, nicht geloescht. Keine Audio-V2-Portierung in d
 - `B-321` ist `fixed`; finaler Live-Nachtest 2026-05-21 lief mit vorhandenen Videos fachlich durch: 3 Videos, 3 Szenen, 3 Embeddings; UI blieb 6 Minuten `Responding=True`; 30 Completion-Events wurden auf 9 echte UI-Refreshes + 21 `no table refresh` reduziert; keine Completion-Refresh-Watchdogs, kein Pipeline-Traceback/CRITICAL/QThread-Crash.
 - `B-323` ist `code-fix-pending-live-verification`; TaskManagerDock normalisiert Progress/Total vor QProgressBar-Settern, Tests und App-Start-Smoke sind gruen, voller B-321 Video-Pipeline-Live-Test fehlt weiter.
 - `B-324` ist `fixed`; stale Proxy-Pfade fallen auf vorhandene Originaldateien zurueck, fehlende Pipeline-Eingabe wirft Fehler statt leeres Erfolgsergebnis, Live-Lauf mit IDs 1-3 erzeugte 3 Szenen/3 Embeddings.
-- `B-322` bleibt `code-fix-pending-live-verification`; Agent-Live-Test existiert, User-Bestaetigung fehlt.
+- `B-322` ist `fixed`; erneuter Agent-Live-Test 2026-05-21: Video-Checkboxen ID 1 und 3 per UI gesetzt, `Zur Timeline hinzufuegen`, DB `timeline_entries` 1063 -> 1065 mit sequenziellen Video-Eintraegen ID 1 dann ID 3. Kein David-Handklick; autonomer User-Auftrag.
 - `B-300`, `B-303`, `B-304`, `B-305` bleiben pending-live laut Vault-Status und duerfen nicht als `fixed` behandelt werden.
 
 ## Hard Gates
