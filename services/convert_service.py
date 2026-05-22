@@ -359,11 +359,16 @@ def convert(
         logger.debug("[ConvertService] Warte auf NVENC-Slot...")
         with NVENC_SEMAPHORE:
             from services.brain_v3.gpu_serializer import get_default_serializer
+            logger.info("[ConvertService] GpuSerializer.acquire('render') wartet")
             with get_default_serializer().acquire("render"):
-                ffmpeg_stderr = _run_ffmpeg_with_progress(
-                    cmd, total_duration, progress_cb, cancel_check=cancel_check,
-                    timeout=timeout,
-                )
+                logger.info("[ConvertService] GpuSerializer holder='render' aktiv")
+                try:
+                    ffmpeg_stderr = _run_ffmpeg_with_progress(
+                        cmd, total_duration, progress_cb, cancel_check=cancel_check,
+                        timeout=timeout,
+                    )
+                finally:
+                    logger.info("[ConvertService] GpuSerializer holder='render' wird freigegeben")
     else:
         ffmpeg_stderr = _run_ffmpeg_with_progress(
             cmd, total_duration, progress_cb, cancel_check=cancel_check,
