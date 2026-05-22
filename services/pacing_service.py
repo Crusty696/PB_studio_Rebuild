@@ -432,7 +432,14 @@ def _auto_edit_phase3_inner(
                 beats.append(round(t, 4))
                 t += interval
 
-    if not beats or not video_clip_ids:
+    if not beats:
+        logger.warning(
+            "auto_edit_phase3: keine Beat-Daten und kein BPM-Fallback fuer audio_id=%s",
+            audio_id,
+        )
+        return [], []
+    if not video_clip_ids:
+        logger.warning("auto_edit_phase3: keine Video-Clips fuer audio_id=%s", audio_id)
         return [], []
 
     if progress_cb:
@@ -440,6 +447,10 @@ def _auto_edit_phase3_inner(
     # 3. Video-Info laden
     video_info = _get_video_info(video_clip_ids)
     if not video_info:
+        logger.warning(
+            "auto_edit_phase3: keine Video-Metadaten fuer %d Clip-IDs",
+            len(video_clip_ids),
+        )
         return [], []
 
     # 4. Anker sammeln (erzwungene Video-Zuweisungen)

@@ -1,8 +1,7 @@
 """B-198 + B-199 regression tests — Brain-Wiring (F-1 + F-5).
 
-- **F-1** (B-198): ``SteerTab.runRequested`` triggert via
-  ``GlobalTaskManager.agent_command_signal`` einen ``auto_edit``-
-  Task.
+- **F-1** (B-198): ``SteerTab.runRequested`` triggert den echten
+  ``EditWorkspaceController``-Auto-Edit-Pfad mit Finish-Bridge.
 - **F-5** (B-199): ``CockpitViewModel.populate_from_brain_service``
   laedt ``BrainService.graph_nodes_and_edges()`` in den in-memory
   GraphService. Refresh-Button repopulatet via ``refresh_data``.
@@ -25,8 +24,7 @@ import pytest
 
 def test_main_pbwindow_has_brain_run_slot() -> None:
     """B-198 F-1: ``PBWindow._on_brain_run_requested`` muss als Slot
-    existieren und das ``agent_command_signal`` mit Action ``auto_edit``
-    triggern."""
+    existieren und den ``EditWorkspaceController``-Auto-Edit-Pfad triggern."""
     import importlib
 
     main_mod = importlib.import_module("main")
@@ -37,18 +35,18 @@ def test_main_pbwindow_has_brain_run_slot() -> None:
         "SteerTab.runRequested haette keinen Receiver."
     )
     src = inspect.getsource(PBWindow._on_brain_run_requested)
-    assert "agent_command_signal" in src, (
+    assert "start_auto_edit_worker" in src, (
         "B-198 F-1: _on_brain_run_requested muss "
-        "tm.agent_command_signal.emit aufrufen."
+        "EditWorkspaceController.start_auto_edit_worker aufrufen."
     )
-    assert '"auto_edit"' in src or "'auto_edit'" in src, (
-        "B-198 F-1: _on_brain_run_requested muss mit der Worker-Action "
-        "``auto_edit`` emittieren."
+    assert "Auto-Edit (Studio Brain)" in src, (
+        "B-198 F-1: Studio-Brain-Run braucht eigenen Task-Namen."
     )
     assert "audio_track_id" in src, (
         "B-198 F-1: _on_brain_run_requested muss ``audio_track_id`` aus dem "
         "Snapshot extrahieren."
     )
+    assert "video_ids" in src
 
 
 def test_main_open_studio_brain_connects_run_signal() -> None:

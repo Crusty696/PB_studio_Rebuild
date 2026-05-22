@@ -622,18 +622,23 @@ class PBWindow(QMainWindow):
                     "B-198 F-1: Brain-Run ignoriert — keine Video-Clips im aktiven Project."
                 )
                 return
-            from services.task_manager import GlobalTaskManager
+            from services.pacing_service import AdvancedPacingSettings
 
-            tm = GlobalTaskManager.instance()
-            tm.agent_command_signal.emit(
-                "auto_edit",
-                {
-                    "audio_track_id": int(audio_id),
-                    "video_ids": video_ids,
-                },
+            edit_workspace = getattr(self, "edit_workspace", None)
+            if edit_workspace is None or not hasattr(edit_workspace, "start_auto_edit_worker"):
+                logger.warning(
+                    "B-198 F-1: Brain-Run ignoriert — EditWorkspaceController fehlt."
+                )
+                return
+            edit_workspace.start_auto_edit_worker(
+                audio_id=int(audio_id),
+                video_ids=video_ids,
+                settings=AdvancedPacingSettings(),
+                task_name="Auto-Edit (Studio Brain)",
+                task_description="Studio-Brain SteerTab Run",
             )
             logger.info(
-                "B-198 F-1: Brain-Run dispatched → audio=%s, %d clips, "
+                "B-198 F-1: Brain-Run dispatched via EditWorkspaceController → audio=%s, %d clips, "
                 "weights_profile=%s, queue_items=%d/%d/%d (pins/boosts/excludes)",
                 audio_id, len(video_ids),
                 snapshot.get("weights_profile") or "<default>",

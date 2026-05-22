@@ -310,12 +310,29 @@ class EditWorkspaceController(PBComponent):
         # QueuePool-Exhaustion wird durch korrekte Session-Nutzung (with-Blocks)
         # und nullpool_session() fuer Worker-Threads verhindert.
 
-        tm = GlobalTaskManager.instance()
-        task = tm.create_task(
-            "Auto-Edit (Phase 3)",
-            f"DJ-Pacing: {base_cut_rate}-Beat, Reaktivitaet={settings.energy_reactivity}%, "
-            f"Breakdown={breakdown}"
+        self.start_auto_edit_worker(
+            audio_id=int(audio_id),
+            video_ids=video_ids,
+            settings=settings,
+            task_name="Auto-Edit (Phase 3)",
+            task_description=(
+                f"DJ-Pacing: {base_cut_rate}-Beat, "
+                f"Reaktivitaet={settings.energy_reactivity}%, Breakdown={breakdown}"
+            ),
         )
+
+    def start_auto_edit_worker(
+        self,
+        *,
+        audio_id: int,
+        video_ids: list[int],
+        settings: AdvancedPacingSettings,
+        task_name: str = "Auto-Edit (Phase 3)",
+        task_description: str = "DJ-Pacing",
+    ):
+        """Start Auto-Edit and route results through the real timeline finish path."""
+        tm = GlobalTaskManager.instance()
+        task = tm.create_task(task_name, task_description)
         worker = AutoEditWorker(audio_id, video_ids, settings)
         worker.task_id = task.task_id
         # B-284 Phase C — SchnittController-Worker-Bridge.
@@ -331,16 +348,27 @@ class EditWorkspaceController(PBComponent):
                 logger.debug("attach_worker finished bridge failed: %s", exc)
         self.window.worker_dispatcher._start_worker_thread(
             worker,
-            on_finish=lambda segs, cps: self._on_auto_edit_finished(segs, cps, task.task_id),
+            on_finish=lambda segs, cps: self._on_auto_edit_finished(
+                segs, cps, task.task_id, audio_id_override=audio_id
+            ),
             on_error=lambda err: self._on_auto_edit_error(err, task.task_id),
         )
+        return task
 
-    def _on_auto_edit_finished(self, segments: list, cut_points: list, task_id: str):
+    def _on_auto_edit_finished(
+        self,
+        segments: list,
+        cut_points: list,
+        task_id: str,
+        audio_id_override: int | None = None,
+    ):
         self.window.btn_auto_edit.setEnabled(True)
         self.window.btn_auto_edit.setText("Auto-Edit")
 
         if not segments:
             if not cut_points:
+                self.window.console_text.append("[Auto-Edit] Keine Segmente erzeugt.")
+                task_manager.finish_task(task_id, "error", "Keine Segmente")
                 return
             self.window.console_text.append("[Auto-Edit] Keine Segmente erzeugt (kein Audio/Beats?).")
             task_manager.finish_task(task_id, "error", "Keine Segmente")
@@ -355,7 +383,7 @@ class EditWorkspaceController(PBComponent):
         self.window.timeline_view.undo_stack.push(cmd)
 
         try:
-            self._build_otio_timeline(segments)
+            self._build_otio_timeline(segments, audio_id=audio_id_override)
         except Exception as exc:
             logger.warning("OTIO export failed: %s", exc)
             if hasattr(self.window, "console_text"):
@@ -391,7 +419,9 @@ class EditWorkspaceController(PBComponent):
             from services.pacing.bridge import use_studio_brain_pipeline
 
             if use_studio_brain_pipeline():
-                audio_id = self.window.audio_combo.currentData()
+                audio_id = audio_id_override
+                if audio_id is None:
+                    audio_id = self.window.audio_combo.currentData()
                 run_id = self._latest_mem_pacing_run_id(audio_id)
                 if hasattr(self.window.timeline_view, "set_active_pacing_run"):
                     self.window.timeline_view.set_active_pacing_run(run_id)
@@ -424,8 +454,9 @@ class EditWorkspaceController(PBComponent):
             ).fetchone()
             return int(row[0]) if row is not None else None
 
-    def _build_otio_timeline(self, segments: list):
-        audio_id = self.window.audio_combo.currentData()
+    def _build_otio_timeline(self, segments: list, audio_id: int | None = None):
+        if audio_id is None:
+            audio_id = self.window.audio_combo.currentData()
         tls = TimelineService(fps=30.0)
         tls.create_timeline("PB Studio Auto-Edit")
 
