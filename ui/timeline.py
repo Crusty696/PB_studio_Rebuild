@@ -200,6 +200,8 @@ class TimelineClipItem(QGraphicsRectItem):
         self._brain_v3_feedback_context = None
         self._brain_v3_timeline_meta = {}
         self._brain_v3_feedback_enabled = True
+        self._brain_v3_feedback_popup = None
+        self._context_menu = None
         self._brain_v3_cut_id: int | None = None
         self._brain_v3_confidence: float | None = None
         self._brain_v3_confidence_bar = QGraphicsRectItem(
@@ -301,6 +303,13 @@ class TimelineClipItem(QGraphicsRectItem):
 
     def contextMenuEvent(self, event):
         """Rechtsklick-Kontextmenue mit Anker-Optionen."""
+        self.show_context_menu_at(
+            screen_pos=event.screenPos(),
+            local_x=event.pos().x(),
+        )
+
+    def show_context_menu_at(self, screen_pos, local_x: float) -> None:
+        """Zeigt das Clip-Kontextmenue auch fuer View-Fallbacks."""
         menu = QMenu()
         menu.setStyleSheet(
             "QMenu { background: #1A1A1A; color: #E0E0E0; border: 1px solid #333; }"
@@ -308,7 +317,6 @@ class TimelineClipItem(QGraphicsRectItem):
         )
 
         # Anker setzen an Mausposition
-        local_x = event.pos().x()
         time_offset = local_x / PIXELS_PER_SECOND
         set_anchor_action = menu.addAction(f"Anker setzen ({time_offset:.2f}s)")
         set_anchor_action.triggered.connect(lambda: self.add_anchor_at(local_x))
@@ -327,7 +335,9 @@ class TimelineClipItem(QGraphicsRectItem):
             brain_action = menu.addAction("Brain V3: Cut bewerten")
             brain_action.triggered.connect(self._open_brain_v3_feedback_popup)
 
-        menu.exec(event.screenPos())
+        self._context_menu = menu
+        menu.aboutToHide.connect(lambda: setattr(self, "_context_menu", None))
+        menu.popup(screen_pos)
 
     def set_brain_v3_feedback(self, service=None, context=None, enabled: bool = True) -> None:
         """Verdrahtet Brain-V3-Feedback fuer diesen Timeline-Clip."""
@@ -361,13 +371,19 @@ class TimelineClipItem(QGraphicsRectItem):
     def _open_brain_v3_feedback_popup(self) -> None:
         from ui.widgets.brain_v3_feedback_popup import BrainV3FeedbackPopup
 
+        if self._brain_v3_feedback_popup is not None and self._brain_v3_feedback_popup.isVisible():
+            self._brain_v3_feedback_popup.raise_()
+            self._brain_v3_feedback_popup.activateWindow()
+            return
         popup = BrainV3FeedbackPopup(
             cut_id=self._brain_v3_feedback_cut_id(),
-            service=self._get_brain_v3_feedback_service(),
+            service=self._brain_v3_feedback_service,
             context=self._brain_v3_feedback_context,
             cut_label=f"{self.title} | Timeline #{self.entry_id}",
         )
-        popup.exec()
+        self._brain_v3_feedback_popup = popup
+        popup.finished.connect(lambda _code: setattr(self, "_brain_v3_feedback_popup", None))
+        popup.open()
 
     def set_brain_v3_confidence(self, confidence: float | None) -> None:
         if confidence is None:
@@ -660,6 +676,8 @@ class InteractiveTimeline(QGraphicsView):
         )
         self._brain_v3_feedback_service = None
         self._brain_v3_feedback_context = None
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.viewport().setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
         # Selection changed → inspector
         self._scene.selectionChanged.connect(self._on_selection_changed)
@@ -1610,6 +1628,12 @@ class InteractiveTimeline(QGraphicsView):
             return
         super().mouseReleaseEvent(event)
 
+    def mousePressEvent(self, event):
+        """Fokus fuer Timeline-Hotkeys setzen."""
+        self.setFocus(Qt.FocusReason.MouseFocusReason)
+        self.viewport().setFocus(Qt.FocusReason.MouseFocusReason)
+        super().mousePressEvent(event)
+
     # ── AUD-71: Keyboard Shortcuts (configurable via ShortcutManager) ───
 
     def keyPressEvent(self, event):
@@ -1921,6 +1945,12 @@ class InteractiveTimeline(QGraphicsView):
         receive their own contextMenuEvent first; this handler only fires
         on right-clicks over empty timeline space.
         """
+        item = self._timeline_clip_item_at(event.pos())
+        if item is not None:
+            scene_pos = self.mapToScene(event.pos())
+            local_x = float(item.mapFromScene(scene_pos).x())
+            item.show_context_menu_at(event.globalPos(), local_x)
+            return
         menu = QMenu(self)
         menu.setStyleSheet(
             "QMenu { background: #1A1A1A; color: #E0E0E0; border: 1px solid #333; }"
@@ -1929,6 +1959,17 @@ class InteractiveTimeline(QGraphicsView):
         story_map_action = menu.addAction("Open Story Map for most recent run")
         story_map_action.triggered.connect(self._open_story_map_for_recent_run)
         menu.exec(event.globalPos())
+
+    def _timeline_clip_item_at(self, view_pos) -> TimelineClipItem | None:
+        item = self.itemAt(view_pos)
+        while item is not None:
+            if isinstance(item, TimelineClipItem):
+                return item
+            parent = item.parentItem()
+            if parent is item:
+                break
+            item = parent
+        return None
 
     def _open_story_map_for_recent_run(self) -> None:
         """Resolve the newest run with decisions and open the Story-Map dialog."""

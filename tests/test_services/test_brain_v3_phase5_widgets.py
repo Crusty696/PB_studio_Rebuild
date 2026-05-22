@@ -139,6 +139,36 @@ def test_feedback_popup_submits(qt_app, isolated_appdata):
     popup.deleteLater()
 
 
+def test_feedback_popup_defers_default_service_until_submit(qt_app, monkeypatch):
+    import ui.widgets.brain_v3_feedback_popup as feedback_popup
+
+    constructed = []
+
+    class FakeService:
+        def __init__(self):
+            constructed.append("init")
+
+        def feedback(self, request, context=None):
+            class Resp:
+                n_buckets_updated = 7
+
+            return Resp()
+
+    monkeypatch.setattr(feedback_popup, "BrainV3Service", FakeService)
+    popup = feedback_popup.BrainV3FeedbackPopup(cut_id=42, context=CutContext())
+    received: list[tuple[int, str, int]] = []
+    popup.feedback_submitted.connect(
+        lambda cid, rating, nb: received.append((cid, rating, nb))
+    )
+
+    assert constructed == []
+    popup._submit("perfect")
+
+    assert constructed == ["init"]
+    assert received == [(42, "perfect", 7)]
+    popup.deleteLater()
+
+
 def test_feedback_popup_all_4_ratings(qt_app, isolated_appdata):
     from ui.widgets.brain_v3_feedback_popup import (
         BrainV3FeedbackPopup,
@@ -354,6 +384,37 @@ def test_interactive_timeline_brain_v3_hotkey_submits_selected_clip(qt_app):
 
     assert svc.calls == [(79, "fits", ctx)]
     assert event.isAccepted()
+    timeline.deleteLater()
+
+
+def test_interactive_timeline_accepts_focus_for_brain_v3_hotkeys(qt_app):
+    from ui.timeline import InteractiveTimeline
+
+    timeline = InteractiveTimeline()
+    assert timeline.focusPolicy() == Qt.FocusPolicy.StrongFocus
+    assert timeline.viewport().focusPolicy() == Qt.FocusPolicy.StrongFocus
+    timeline.deleteLater()
+
+
+def test_interactive_timeline_resolves_child_item_context_target(qt_app, monkeypatch):
+    from ui.timeline import InteractiveTimeline, TimelineClipItem
+
+    timeline = InteractiveTimeline()
+    item = TimelineClipItem(
+        entry_id=80,
+        media_id=15,
+        track_type="video",
+        title="clip",
+        x=0,
+        y=0,
+        width=120,
+        height=50,
+        anchors=[],
+    )
+    timeline._scene.addItem(item)
+    monkeypatch.setattr(timeline, "itemAt", lambda _pos: item._right_handle)
+
+    assert timeline._timeline_clip_item_at(object()) is item
     timeline.deleteLater()
 
 

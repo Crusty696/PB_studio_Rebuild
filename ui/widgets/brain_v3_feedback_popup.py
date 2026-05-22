@@ -58,7 +58,7 @@ class BrainV3FeedbackPopup(QDialog):
     ):
         super().__init__(parent)
         self._cut_id = int(cut_id)
-        self._service = service or BrainV3Service()
+        self._service = service
         self._context = context
         self.setWindowTitle("Brain V3 — Cut bewerten")
         self.setModal(True)
@@ -105,6 +105,8 @@ class BrainV3FeedbackPopup(QDialog):
 
     def _submit(self, rating: str) -> None:
         try:
+            if self._service is None:
+                self._service = BrainV3Service()
             resp = self._service.feedback(
                 FeedbackRequest(cut_id=self._cut_id, rating=rating),
                 context=self._context,
