@@ -85,10 +85,11 @@ def sync_current_timeline_from_entries(
     project_root: Path | None,
     entries: list[object],
 ) -> bool:
-    """Create a Brain-V3 current timeline from main TimelineEntry rows if absent.
+    """Create/update Brain-V3 current timeline from main TimelineEntry rows.
 
-    Existing current Brain-V3 timelines are preserved. This avoids deleting
-    feedback-linked state produced by the real pacing path.
+    Matching current Brain-V3 timelines are preserved. Stale current timelines
+    are kept in the DB but lose ``is_current`` so the UI can map the live
+    main timeline to confidence metadata.
     """
     db_path = ensure_state_db(project_root)
     entries = list(entries or [])
@@ -97,16 +98,31 @@ def sync_current_timeline_from_entries(
     if not audio_entries or not video_entries:
         return False
 
+    expected_video_keys = [
+        (
+            int(getattr(entry, "media_id")),
+            _round_ms(float(getattr(entry, "start_time", 0.0) or 0.0)),
+        )
+        for entry in sorted(video_entries, key=lambda e: float(e.start_time or 0.0))
+    ]
+
     with sqlite3.connect(db_path) as conn:
-        existing = conn.execute(
+        existing_rows = conn.execute(
             """
-            SELECT COUNT(*)
+            SELECT c.clip_id, c.start_time
             FROM timeline_cuts c
             JOIN timelines t ON t.id = c.timeline_id
             WHERE t.is_current = 1
+            ORDER BY c.position_idx ASC, c.id ASC
             """
-        ).fetchone()[0]
-        if int(existing or 0) > 0:
+        ).fetchall()
+        existing_video_keys = []
+        for clip_id, start_time in existing_rows:
+            try:
+                existing_video_keys.append((int(clip_id), _round_ms(float(start_time or 0.0))))
+            except (TypeError, ValueError):
+                continue
+        if existing_video_keys == expected_video_keys:
             return False
 
         audio_clip_id = int(audio_entries[0].media_id)

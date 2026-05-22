@@ -259,6 +259,66 @@ def test_sync_current_timeline_from_entries_creates_learning_preview_state(
     assert sample.video_position_s == 2.0
 
 
+def test_sync_current_timeline_from_entries_replaces_stale_current_state(
+    isolated_appdata,
+    tmp_path,
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    state_db = project_state_db_path(project_root)
+    migrate(state_db, Path("services/brain_v3/storage/sql_migrations/state"))
+    with sqlite3.connect(state_db) as conn:
+        conn.execute(
+            "INSERT INTO timelines(id, name, audio_clip_id, created_at, is_current) "
+            "VALUES (1, 'stale', 5, '2026-05-22T00:00:00', 1)"
+        )
+        conn.execute(
+            "INSERT INTO timeline_cuts(id, timeline_id, position_idx, clip_id, start_time, end_time) "
+            "VALUES (11, 1, 0, '9', 0.0, 5.0)"
+        )
+        conn.commit()
+
+    entries = [
+        type("Entry", (), {
+            "track": "audio",
+            "media_id": 2,
+            "start_time": 0.0,
+            "end_time": 120.0,
+            "source_start": 0.0,
+            "source_end": 120.0,
+        })(),
+        type("Entry", (), {
+            "track": "video",
+            "media_id": 72,
+            "start_time": 10.322,
+            "end_time": 15.522,
+            "source_start": 0.0,
+            "source_end": 5.2,
+        })(),
+    ]
+
+    assert sync_current_timeline_from_entries(project_root, entries) is True
+
+    with sqlite3.connect(state_db) as conn:
+        stale_current = conn.execute(
+            "SELECT is_current FROM timelines WHERE id=1"
+        ).fetchone()[0]
+        current = conn.execute(
+            """
+            SELECT t.audio_clip_id, c.clip_id, c.start_time, c.metadata_json
+            FROM timelines t
+            JOIN timeline_cuts c ON c.timeline_id=t.id
+            WHERE t.is_current=1
+            """
+        ).fetchone()
+
+    assert stale_current == 0
+    assert current[0] == 2
+    assert current[1] == "72"
+    assert current[2] == 10.322
+    assert '"brain_v3_confidence": 0.5' in current[3]
+
+
 def test_learning_session_recovers_from_stale_state_audio_id(
     isolated_appdata,
     db_session,
