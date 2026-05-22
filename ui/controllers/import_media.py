@@ -41,6 +41,11 @@ def _save_import_dir(kind: str, file_path: str) -> None:
         QSettings("PB Studio", "Rebuild").setValue(f"import/last_dir_{kind}", d)
 
 
+def _fast_dialog_options():
+    """Use Qt dialog to avoid Windows shell-extension stalls on first open."""
+    return QFileDialog.Option.DontUseNativeDialog
+
+
 # B-248: Aus dem Inline-Pattern extrahiert — Module-Level-Klasse hat
 # klareren Lifecycle, kein Closure-Capture-Risiko, einfacher zu debuggen.
 class _PartialDeleteWorker(QObject):
@@ -73,22 +78,34 @@ class ImportMediaController(PBComponent):
     def _import_video(self):
         logger.info("ImportMedia._import_video: Klick angekommen, oeffne FileDialog")
         ext_filter = "Video-Dateien (" + " ".join(f"*{e}" for e in VIDEO_EXTENSIONS) + ")"
-        start_dir = _last_import_dir("video")
-        paths, _ = QFileDialog.getOpenFileNames(self.window, "Videos importieren", start_dir, ext_filter)
-        logger.info("ImportMedia._import_video: FileDialog geschlossen, %d Dateien gewaehlt", len(paths))
-        if paths:
-            _save_import_dir("video", paths[0])
-        self._process_imports(paths, "video")
+        self._open_media_file_dialog("video", "Videos importieren", ext_filter, "video")
 
     def _import_audio(self):
         logger.info("ImportMedia._import_audio: Klick angekommen, oeffne FileDialog")
         ext_filter = "Audio-Dateien (" + " ".join(f"*{e}" for e in AUDIO_EXTENSIONS) + ")"
-        start_dir = _last_import_dir("audio")
-        paths, _ = QFileDialog.getOpenFileNames(self.window, "Audio importieren", start_dir, ext_filter)
-        logger.info("ImportMedia._import_audio: FileDialog geschlossen, %d Dateien gewaehlt", len(paths))
-        if paths:
-            _save_import_dir("audio", paths[0])
-        self._process_imports(paths, "audio")
+        self._open_media_file_dialog("audio", "Audio importieren", ext_filter, "audio")
+
+    def _open_media_file_dialog(self, kind: str, title: str, ext_filter: str, media_type: str) -> None:
+        dialog = QFileDialog(self.window, title, _last_import_dir(kind), ext_filter)
+        dialog.setFileMode(QFileDialog.FileMode.ExistingFiles)
+        dialog.setOption(_fast_dialog_options(), True)
+        dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+        self._active_import_dialog = dialog
+
+        def _finish(result: int) -> None:
+            paths = dialog.selectedFiles() if result == QFileDialog.DialogCode.Accepted else []
+            logger.info(
+                "ImportMedia._import_%s: FileDialog geschlossen, %d Dateien gewaehlt",
+                media_type,
+                len(paths),
+            )
+            if paths:
+                _save_import_dir(kind, paths[0])
+            self._process_imports(paths, media_type)
+            self._active_import_dialog = None
+
+        dialog.finished.connect(_finish)
+        dialog.open()
 
     def _process_imports(self, paths: list[str], media_type: str):
         """Imports laufen im Hintergrund-Thread."""
@@ -199,43 +216,56 @@ class ImportMediaController(PBComponent):
         mehrere Sekunden ein.
         """
         logger.info("ImportMedia._import_folder: Klick angekommen, oeffne Folder-Dialog")
-        start_dir = _last_import_dir("folder")
-        folder = QFileDialog.getExistingDirectory(self.window, "Ordner importieren", start_dir)
-        if not folder:
-            logger.info("ImportMedia._import_folder: User hat Folder-Dialog abgebrochen")
-            return
-        QSettings("PB Studio", "Rebuild").setValue("import/last_dir_folder", folder)
-        logger.info("ImportMedia._import_folder: Ordner gewaehlt: %s", folder)
-        self.window.console_text.append(f"[Ordner] Scanne {folder} ...")
-        self.window.status_bar.showMessage(f"Scanne Ordner {folder} ...")
+        dialog = QFileDialog(self.window, "Ordner importieren", _last_import_dir("folder"))
+        dialog.setFileMode(QFileDialog.FileMode.Directory)
+        dialog.setOption(_fast_dialog_options(), True)
+        dialog.setOption(QFileDialog.Option.ShowDirsOnly, True)
+        dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+        self._active_import_dialog = dialog
 
-        # B-058: walk_root setzen — Worker macht den os.walk-Scan im
-        # eigenen Thread und ergaenzt paths_audio/paths_video selbst.
-        worker = FolderImportWorker([], [], walk_root=folder)
-        worker.file_imported.connect(self.window.console_text.append, Qt.ConnectionType.QueuedConnection)
-        worker.progress.connect(
-            lambda pct, msg: self.window.status_bar.showMessage(f"[Import] {pct}% — {msg}"),
-            Qt.ConnectionType.QueuedConnection,
-        )
+        def _finish(result: int) -> None:
+            folders = dialog.selectedFiles() if result == QFileDialog.DialogCode.Accepted else []
+            folder = folders[0] if folders else ""
+            if not folder:
+                logger.info("ImportMedia._import_folder: User hat Folder-Dialog abgebrochen")
+                self._active_import_dialog = None
+                return
+            QSettings("PB Studio", "Rebuild").setValue("import/last_dir_folder", folder)
+            logger.info("ImportMedia._import_folder: Ordner gewaehlt: %s", folder)
+            self.window.console_text.append(f"[Ordner] Scanne {folder} ...")
+            self.window.status_bar.showMessage(f"Scanne Ordner {folder} ...")
 
-        def _on_finish(added: int, new_video_clips: list):
-            if added:
-                self.window.media_table_controller._refresh_media_table_debounced()
-                for clip_id, video_path, title in new_video_clips:
-                    self.window.video_analysis._start_proxy_creation(clip_id, video_path, title)
-                self.window._mark_dirty()
-            self.window.status_bar.showMessage(f"{added} Datei(en) aus Ordner importiert | System bereit")
-            # Phase-1 App-Sync: paths_audio/paths_video wurden vom Worker
-            # waehrend des Walks befuellt — jetzt verfuegbar.
-            self._spawn_brain_v3_hash_worker(
-                list(worker.paths_audio), list(worker.paths_video),
+            # B-058: walk_root setzen — Worker macht den os.walk-Scan im
+            # eigenen Thread und ergaenzt paths_audio/paths_video selbst.
+            worker = FolderImportWorker([], [], walk_root=folder)
+            worker.file_imported.connect(self.window.console_text.append, Qt.ConnectionType.QueuedConnection)
+            worker.progress.connect(
+                lambda pct, msg: self.window.status_bar.showMessage(f"[Import] {pct}% — {msg}"),
+                Qt.ConnectionType.QueuedConnection,
             )
 
-        def _on_error(msg: str):
-            self.window.console_text.append(f"[Fehler] Ordner-Import abgebrochen: {msg}")
-            self.window.status_bar.showMessage("Import fehlgeschlagen | System bereit")
+            def _on_finish(added: int, new_video_clips: list):
+                if added:
+                    self.window.media_table_controller._refresh_media_table_debounced()
+                    for clip_id, video_path, title in new_video_clips:
+                        self.window.video_analysis._start_proxy_creation(clip_id, video_path, title)
+                    self.window._mark_dirty()
+                self.window.status_bar.showMessage(f"{added} Datei(en) aus Ordner importiert | System bereit")
+                # Phase-1 App-Sync: paths_audio/paths_video wurden vom Worker
+                # waehrend des Walks befuellt — jetzt verfuegbar.
+                self._spawn_brain_v3_hash_worker(
+                    list(worker.paths_audio), list(worker.paths_video),
+                )
 
-        self.window.worker_dispatcher._start_worker_thread(worker, on_finish=_on_finish, on_error=_on_error)
+            def _on_error(msg: str):
+                self.window.console_text.append(f"[Fehler] Ordner-Import abgebrochen: {msg}")
+                self.window.status_bar.showMessage("Import fehlgeschlagen | System bereit")
+
+            self.window.worker_dispatcher._start_worker_thread(worker, on_finish=_on_finish, on_error=_on_error)
+            self._active_import_dialog = None
+
+        dialog.finished.connect(_finish)
+        dialog.open()
 
     def _clear_all_media(self):
         """Loescht alle Medien asynchron aus Datenbank und UI (Fix F-045)."""
