@@ -37,6 +37,7 @@ class VideoPreviewWidget(QLabel):
         self._duration: float = 0.0
         self._frame_thread: QThread | None = None
         self._frame_worker: FrameExtractWorker | None = None
+        self._pending_frame_request: tuple[float, str] | None = None
 
     def load_video(self, file_path: str, duration: float = 0.0):
         self._current_path = file_path
@@ -96,25 +97,11 @@ class VideoPreviewWidget(QLabel):
             self.setText("Datei nicht gefunden")
             return
         if self._frame_thread is not None and self._frame_thread.isRunning():
-            # Alte Referenzen sichern bevor sie ueberschrieben werden
-            old_thread = self._frame_thread
-            old_worker = self._frame_worker
-            try:
-                old_worker.frame_ready.disconnect(self._on_frame_ready)
-                old_worker.error.disconnect(self._on_frame_error)
-                old_thread.finished.disconnect(self._on_frame_thread_finished)
-            except (RuntimeError, TypeError) as exc:
-                logger.warning("VideoPreviewWidget.load: failed to disconnect old worker signals: %s", exc)
-            # H-24 Fix: Asynchrones Cleanup statt blockierendem wait(500)
-            if old_worker is not None:
-                old_thread.finished.connect(old_worker.deleteLater)
-            old_thread.finished.connect(old_thread.deleteLater)
-            old_thread.quit()
-            self._frame_thread = None
-            self._frame_worker = None
+            self._pending_frame_request = (float(time_sec), vf_extra)
+            return
 
         worker = FrameExtractWorker(self._current_path, time_sec, 320, 180, vf_extra)
-        thread = QThread()
+        thread = QThread(self)
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
         worker.frame_ready.connect(self._on_frame_ready)
@@ -135,9 +122,13 @@ class VideoPreviewWidget(QLabel):
         if self._frame_thread is not None:
             self._frame_thread.deleteLater()
             self._frame_thread = None
+        pending = self._pending_frame_request
+        self._pending_frame_request = None
+        if pending is not None and self._current_path:
+            QTimer.singleShot(0, lambda: self._extract_and_show_frame(*pending))
 
     def _on_frame_ready(self, raw_data: bytes, width: int, height: int):
-        img = QImage(raw_data, width, height, width * 3, QImage.Format.Format_RGB888)
+        img = QImage(raw_data, width, height, width * 3, QImage.Format.Format_RGB888).copy()
         self.setPixmap(QPixmap.fromImage(img))
 
     def _on_frame_error(self, msg: str):

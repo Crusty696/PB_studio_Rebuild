@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from database import AudioTrack, Project, VideoClip
+from database import AudioTrack, Project, TimelineEntry, VideoClip
 from sqlalchemy.orm import Session
 from services.brain_v3.brain_v3_service import BrainV3Service
 from services.brain_v3.context_resolver import CutContext
@@ -257,6 +257,114 @@ def test_sync_current_timeline_from_entries_creates_learning_preview_state(
     assert sample.video_preview_path == str(video_file)
     assert sample.audio_position_s == 16.0
     assert sample.video_position_s == 2.0
+
+
+def test_learning_session_recovers_from_stale_state_audio_id(
+    isolated_appdata,
+    db_session,
+    tmp_path,
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    audio_file = tmp_path / "current_mix.mp3"
+    video_file = tmp_path / "clip.mp4"
+    audio_file.write_bytes(b"id3")
+    video_file.write_bytes(b"mp4")
+
+    project = Project(name="StaleAudio", path=str(project_root), resolution="1920x1080", fps=30)
+    db_session.add(project)
+    db_session.commit()
+    audio = AudioTrack(project_id=project.id, file_path=str(audio_file), duration=120)
+    video = VideoClip(project_id=project.id, file_path=str(video_file), duration=10)
+    db_session.add_all([audio, video])
+    db_session.commit()
+    db_session.add(
+        TimelineEntry(
+            project_id=project.id,
+            track="audio",
+            media_id=audio.id,
+            start_time=0.0,
+            end_time=120.0,
+        )
+    )
+    db_session.commit()
+
+    state_db = project_state_db_path(project_root)
+    migrate(state_db, Path("services/brain_v3/storage/sql_migrations/state"))
+    with sqlite3.connect(state_db) as conn:
+        conn.execute(
+            "INSERT INTO timelines(id, name, audio_clip_id, created_at, is_current) "
+            "VALUES (1, 'stale', 999999, '2026-05-22T00:00:00', 1)"
+        )
+        conn.execute(
+            "INSERT INTO timeline_cuts(id, timeline_id, position_idx, clip_id, start_time, end_time) "
+            "VALUES (33, 1, 0, ?, 4.0, 8.0)",
+            (str(video.id),),
+        )
+        conn.commit()
+
+    @contextmanager
+    def _session_factory():
+        yield db_session
+
+    sample = BrainV3Service(
+        project_root=project_root,
+        session_factory=_session_factory,
+    ).learning_session(n=1).samples[0]
+    assert sample.audio_preview_path == str(audio_file)
+    assert sample.video_preview_path == str(video_file)
+
+
+def test_learning_session_uses_original_video_when_proxy_missing(
+    isolated_appdata,
+    db_session,
+    tmp_path,
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    audio_file = tmp_path / "mix.mp3"
+    video_file = tmp_path / "clip.mp4"
+    missing_proxy = tmp_path / "missing_proxy.mp4"
+    audio_file.write_bytes(b"id3")
+    video_file.write_bytes(b"mp4")
+
+    project = Project(name="MissingProxy", path=str(project_root), resolution="1920x1080", fps=30)
+    db_session.add(project)
+    db_session.commit()
+    audio = AudioTrack(project_id=project.id, file_path=str(audio_file), duration=120)
+    video = VideoClip(
+        project_id=project.id,
+        file_path=str(video_file),
+        proxy_path=str(missing_proxy),
+        duration=10,
+    )
+    db_session.add_all([audio, video])
+    db_session.commit()
+
+    state_db = project_state_db_path(project_root)
+    migrate(state_db, Path("services/brain_v3/storage/sql_migrations/state"))
+    with sqlite3.connect(state_db) as conn:
+        conn.execute(
+            "INSERT INTO timelines(id, name, audio_clip_id, created_at, is_current) "
+            "VALUES (1, 'current', ?, '2026-05-22T00:00:00', 1)",
+            (audio.id,),
+        )
+        conn.execute(
+            "INSERT INTO timeline_cuts(id, timeline_id, position_idx, clip_id, start_time, end_time) "
+            "VALUES (44, 1, 0, ?, 4.0, 8.0)",
+            (str(video.id),),
+        )
+        conn.commit()
+
+    @contextmanager
+    def _session_factory():
+        yield db_session
+
+    sample = BrainV3Service(
+        project_root=project_root,
+        session_factory=_session_factory,
+    ).learning_session(n=1).samples[0]
+    assert sample.video_preview_path == str(video_file)
 
 
 def test_stats_after_init_shows_cold_start(isolated_appdata):

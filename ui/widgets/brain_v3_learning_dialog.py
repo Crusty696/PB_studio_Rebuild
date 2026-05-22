@@ -7,11 +7,13 @@ sind, zeigt der Dialog Audio-/Video-Preview und kann sie starten/stoppen.
 from __future__ import annotations
 
 import logging
+import os
+import shutil
+import subprocess
 from pathlib import Path
 from typing import Optional
 
-from PySide6.QtCore import Qt, Signal, QUrl
-from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QDialog,
     QHBoxLayout,
@@ -56,9 +58,10 @@ class BrainV3LearningSessionDialog(QDialog):
         self._samples: list[LearningSampleCut] = []
         self._processed = 0
         self._current_preview: LearningSampleCut | None = None
-        self._audio_output = QAudioOutput(self)
-        self._audio_player = QMediaPlayer(self)
-        self._audio_player.setAudioOutput(self._audio_output)
+        self._audio_preview_source: Path | None = None
+        self._audio_preview_start_s = 0.0
+        self._audio_preview_duration_s = 4.0
+        self._audio_preview_process: subprocess.Popen | None = None
         self.setWindowTitle("Brain V3 — Lern-Session")
         self.setModal(True)
         self.resize(760, 560)
@@ -187,7 +190,7 @@ class BrainV3LearningSessionDialog(QDialog):
         self._current_preview = sample
         self._lbl_preview.setText(f"Preview: Cut #{sample.cut_id}")
 
-        audio_ok = self._load_audio_preview(sample.audio_preview_path)
+        audio_ok = self._load_audio_preview(sample)
         video_ok = self._load_video_preview(sample.video_preview_path)
         can_preview = audio_ok or video_ok
         self._btn_preview_play.setEnabled(can_preview)
@@ -195,15 +198,17 @@ class BrainV3LearningSessionDialog(QDialog):
         if not can_preview:
             self._lbl_preview.setText(f"Preview: Cut #{sample.cut_id} (keine Medienpfade)")
 
-    def _load_audio_preview(self, path: str | None) -> bool:
-        if not path:
-            self._audio_player.setSource(QUrl())
+    def _load_audio_preview(self, sample: LearningSampleCut) -> bool:
+        if not sample.audio_preview_path:
+            self._audio_preview_source = None
             return False
-        p = Path(path)
+        p = Path(sample.audio_preview_path)
         if not p.exists():
-            self._audio_player.setSource(QUrl())
+            self._audio_preview_source = None
             return False
-        self._audio_player.setSource(QUrl.fromLocalFile(str(p)))
+        self._audio_preview_source = p
+        self._audio_preview_start_s = max(0.0, float(sample.audio_position_s or 0.0))
+        self._audio_preview_duration_s = max(0.5, min(float(sample.preview_duration_s or 4.0), 6.0))
         return True
 
     def _load_video_preview(self, path: str | None) -> bool:
@@ -222,24 +227,66 @@ class BrainV3LearningSessionDialog(QDialog):
         self._current_preview = None
         self._lbl_preview.setText("Preview: keine Stichprobe")
         self._video_preview.setText("Keine Video-Preview")
-        self._audio_player.setSource(QUrl())
+        self._audio_preview_source = None
+        self._audio_preview_start_s = 0.0
+        self._audio_preview_duration_s = 4.0
         self._btn_preview_play.setEnabled(False)
         self._btn_preview_stop.setEnabled(False)
 
     def _toggle_preview(self) -> None:
-        if self._audio_player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
+        if self._audio_preview_process is not None and self._audio_preview_process.poll() is None:
             self._stop_preview()
             return
-        if self._current_preview is not None:
-            self._video_preview.play_from(float(self._current_preview.video_position_s))
-        if not self._audio_player.source().isEmpty():
-            self._audio_player.play()
+        if self._audio_preview_source is not None:
+            self._start_audio_preview(
+                self._audio_preview_source,
+                self._audio_preview_start_s,
+                self._audio_preview_duration_s,
+            )
         self._btn_preview_play.setText("Pause")
 
     def _stop_preview(self) -> None:
         self._video_preview.stop()
-        self._audio_player.stop()
+        proc = self._audio_preview_process
+        self._audio_preview_process = None
+        if proc is not None and proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                proc.kill()
         self._btn_preview_play.setText("Preview starten")
+
+    def _start_audio_preview(self, source: Path, start_s: float, duration_s: float) -> bool:
+        ffplay = _find_ffplay()
+        if not ffplay:
+            logger.warning("BrainV3LearningSessionDialog: ffplay nicht gefunden")
+            return False
+        cmd = [
+            ffplay,
+            "-ss",
+            f"{max(0.0, start_s):.3f}",
+            "-t",
+            f"{max(0.5, min(duration_s, 6.0)):.3f}",
+            "-nodisp",
+            "-autoexit",
+            "-loglevel",
+            "error",
+            str(source),
+        ]
+        try:
+            creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+            self._audio_preview_process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=creationflags,
+            )
+        except Exception as exc:
+            logger.warning("BrainV3LearningSessionDialog: ffplay start failed: %s", exc)
+            self._audio_preview_process = None
+            return False
+        return True
 
     def _shutdown_preview(self) -> None:
         self._stop_preview()
@@ -284,3 +331,10 @@ class BrainV3LearningSessionDialog(QDialog):
     def closeEvent(self, event) -> None:
         self._shutdown_preview()
         super().closeEvent(event)
+
+
+def _find_ffplay() -> str | None:
+    root_bin = Path(__file__).resolve().parents[2] / "bin" / "ffplay.exe"
+    if root_bin.exists():
+        return str(root_bin)
+    return shutil.which("ffplay")

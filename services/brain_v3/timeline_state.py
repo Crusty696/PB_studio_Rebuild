@@ -195,9 +195,13 @@ def load_learning_preview_samples(
             if audio_ids
             else {}
         )
+        fallback_audio_path = _resolve_timeline_audio_path(
+            session=session,
+            project_root=project_root,
+        )
         videos = (
             {
-                v.id: str(v.proxy_path or v.file_path) if (v.proxy_path or v.file_path) else None
+                v.id: _existing_media_path(v.proxy_path, v.file_path)
                 for v in session.query(database.VideoClip).filter(
                     database.VideoClip.id.in_(video_ids),
                     database.VideoClip.deleted_at.is_(None),
@@ -213,7 +217,7 @@ def load_learning_preview_samples(
             clip_id = int(r[1])
         except (TypeError, ValueError):
             continue
-        audio = audios.get(int(r[7]))
+        audio = audios.get(int(r[7])) or fallback_audio_path
         video = videos.get(clip_id)
         if audio is None or video is None:
             continue
@@ -235,6 +239,50 @@ def load_learning_preview_samples(
             )
         )
     return samples
+
+
+def _resolve_timeline_audio_path(
+    session: object,
+    project_root: Path | None,
+) -> str | None:
+    query = (
+        session.query(database.AudioTrack.file_path)
+        .join(
+            database.TimelineEntry,
+            database.TimelineEntry.media_id == database.AudioTrack.id,
+        )
+        .join(
+            database.Project,
+            database.Project.id == database.TimelineEntry.project_id,
+        )
+        .filter(
+            database.TimelineEntry.track == "audio",
+            database.AudioTrack.deleted_at.is_(None),
+        )
+        .order_by(database.TimelineEntry.id.desc())
+    )
+    if project_root is not None:
+        query = query.filter(database.Project.path == str(project_root))
+    row = query.first()
+    if row is None or not row[0]:
+        return None
+    return str(row[0])
+
+
+def _existing_media_path(*candidates: object) -> str | None:
+    fallback: str | None = None
+    for raw in candidates:
+        if not raw:
+            continue
+        value = str(raw)
+        if fallback is None:
+            fallback = value
+        try:
+            if Path(value).exists():
+                return value
+        except OSError:
+            continue
+    return fallback
 
 
 def _extract_confidence(

@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
 
 from services.brain_v3.brain_v3_service import BrainV3Service
 from services.brain_v3.schemas.brain_v3_schemas import ResetRequest
+from ui.widgets.brain_v3_learning_dialog import BrainV3LearningSessionDialog
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +51,7 @@ class BrainV3StatsPanel(QWidget):
     ):
         super().__init__(parent)
         self._service = service or BrainV3Service()
+        self._learning_dialog: BrainV3LearningSessionDialog | None = None
         self._build_ui()
         self._refresh_timer = QTimer(self)
         self._refresh_timer.setInterval(auto_refresh_ms)
@@ -110,6 +112,11 @@ class BrainV3StatsPanel(QWidget):
         self._btn_refresh = QPushButton("Refresh")
         self._btn_refresh.clicked.connect(self.refresh)
         actions.addWidget(self._btn_refresh)
+        self._btn_learning = QPushButton("Lern-Session")
+        self._btn_learning.setToolTip("Brain-V3-Lern-Session mit echten Preview-Pfaden oeffnen.")
+        self._btn_learning.setAccessibleName("Brain V3 Lern-Session oeffnen")
+        self._btn_learning.clicked.connect(self._on_learning_clicked)
+        actions.addWidget(self._btn_learning)
         self._btn_reset = QPushButton("Reset Hirn-Store")
         self._btn_reset.setStyleSheet(
             "QPushButton { background: #6e1f1f; color: white; padding: 4px 10px; }"
@@ -205,3 +212,21 @@ class BrainV3StatsPanel(QWidget):
             self.reset_done.emit()
         else:
             QMessageBox.warning(self, "Reset", f"Status: {r2.status}")
+
+    def _on_learning_clicked(self) -> None:
+        if self._learning_dialog is not None and self._learning_dialog.isVisible():
+            self._learning_dialog.raise_()
+            self._learning_dialog.activateWindow()
+            return
+        dlg = BrainV3LearningSessionDialog(
+            service=self._service,
+            n_samples=15,
+            parent=self,
+        )
+        self._learning_dialog = dlg
+        dlg.finished.connect(self._on_learning_finished)
+        dlg.open()
+
+    def _on_learning_finished(self) -> None:
+        self._learning_dialog = None
+        self.refresh()

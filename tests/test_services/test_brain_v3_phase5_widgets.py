@@ -58,6 +58,43 @@ def test_stats_panel_after_feedback_shows_learning(qt_app, isolated_appdata):
     panel.deleteLater()
 
 
+def test_stats_panel_opens_learning_session_dialog(qt_app, isolated_appdata, monkeypatch):
+    from ui.widgets import brain_v3_stats_panel
+    from ui.widgets.brain_v3_stats_panel import BrainV3StatsPanel
+
+    opened: list[object] = []
+
+    class _FakeSignal:
+        def connect(self, _callback):
+            pass
+
+    class _FakeLearningDialog:
+        finished = _FakeSignal()
+
+        def __init__(self, service=None, n_samples=15, parent=None):
+            opened.append((service, n_samples, parent))
+
+        def isVisible(self):
+            return False
+
+        def open(self):
+            return 0
+
+    monkeypatch.setattr(
+        brain_v3_stats_panel,
+        "BrainV3LearningSessionDialog",
+        _FakeLearningDialog,
+    )
+
+    svc = BrainV3Service()
+    panel = BrainV3StatsPanel(service=svc, auto_refresh_ms=10_000)
+    panel._btn_learning.click()
+
+    assert opened == [(svc, 15, panel)]
+    assert isinstance(panel._learning_dialog, _FakeLearningDialog)
+    panel.deleteLater()
+
+
 def test_stats_panel_auto_refresh_skips_hidden_panel(qt_app):
     from ui.widgets.brain_v3_stats_panel import BrainV3StatsPanel
 
@@ -168,6 +205,14 @@ def test_learning_dialog_loads_audio_video_preview(qt_app, tmp_path, monkeypatch
     video = tmp_path / "sample.mp4"
     audio.write_bytes(b"id3")
     video.write_bytes(b"fake")
+    started_audio: list[tuple[Path, float, float]] = []
+    monkeypatch.setattr(
+        BrainV3LearningSessionDialog,
+        "_start_audio_preview",
+        lambda self, source, start_s, duration_s: started_audio.append(
+            (Path(source), float(start_s), float(duration_s))
+        ) or True,
+    )
 
     class _PreviewService:
         def learning_session(self, n=15):
@@ -191,12 +236,35 @@ def test_learning_dialog_loads_audio_video_preview(qt_app, tmp_path, monkeypatch
     dlg = BrainV3LearningSessionDialog(service=_PreviewService(), n_samples=1)
     assert dlg._list.count() == 1
     assert dlg._video_preview._current_path == str(video)
-    assert Path(dlg._audio_player.source().toLocalFile()) == audio
+    assert dlg._audio_preview_source == audio
+    assert dlg._audio_preview_start_s == 12.5
+    assert dlg._audio_preview_duration_s == 4.0
     assert dlg._lbl_preview.text().startswith("Preview: Cut #7")
     assert dlg._btn_preview_play.isEnabled()
     dlg._toggle_preview()
-    assert played_from == [8.5]
+    assert played_from == []
+    assert started_audio == [(audio, 12.5, 4.0)]
     dlg.deleteLater()
+
+
+def test_video_preview_coalesces_frames_while_worker_running(qt_app, tmp_path):
+    from ui.widgets.video_preview import VideoPreviewWidget
+
+    video = tmp_path / "sample.mp4"
+    video.write_bytes(b"fake")
+
+    class _RunningThread:
+        def isRunning(self):
+            return True
+
+    widget = VideoPreviewWidget()
+    widget._current_path = str(video)
+    widget._frame_thread = _RunningThread()
+
+    widget._extract_and_show_frame(4.25)
+
+    assert widget._pending_frame_request == (4.25, "")
+    widget.deleteLater()
 
 
 # ---- Timeline-Integration ----------------------------------------------
