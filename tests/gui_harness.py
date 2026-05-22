@@ -186,6 +186,7 @@ def cmd_kill(args) -> int:
         if not args.force:
             # 1) Graceful: WM_CLOSE an alle PB_studio-Fenster + taskkill ohne /F
             if sys.platform == "win32":
+                _post_wm_close_for_pid(pid)
                 try:
                     import pygetwindow as gw
                     for w in gw.getAllWindows():
@@ -248,6 +249,43 @@ def cmd_kill(args) -> int:
     except Exception as exc:
         _fail(f"kill failed: {exc}")
         return 3
+
+
+def _post_wm_close_for_pid(pid: int) -> int:
+    """Send WM_CLOSE directly to visible top-level windows of ``pid``."""
+    if sys.platform != "win32":
+        return 0
+    import ctypes
+    from ctypes import wintypes
+
+    user32 = ctypes.windll.user32
+    WM_CLOSE = 0x0010
+    count = 0
+
+    EnumWindowsProc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+
+    def _callback(hwnd, _lparam):
+        nonlocal count
+        if not user32.IsWindowVisible(hwnd):
+            return True
+        found_pid = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(found_pid))
+        if int(found_pid.value) != int(pid):
+            return True
+        length = user32.GetWindowTextLengthW(hwnd)
+        if length <= 0:
+            return True
+        buf = ctypes.create_unicode_buffer(length + 1)
+        user32.GetWindowTextW(hwnd, buf, length + 1)
+        title = buf.value or ""
+        if "PB_studio" not in title:
+            return True
+        if user32.PostMessageW(hwnd, WM_CLOSE, 0, 0):
+            count += 1
+        return True
+
+    user32.EnumWindows(EnumWindowsProc(_callback), 0)
+    return count
 
 
 _EXCLUDE_TITLE_SUBSTRINGS = (
