@@ -1112,149 +1112,115 @@ def _run_ffmpeg(cmd: list[str], timeout: int = 600, progress_cb=None,
         idx = 1 if len(cmd) > 1 else 0
         cmd = cmd[:idx] + ["-progress", "pipe:1"] + cmd[idx:]
 
-    # B-339 / Befund 1: GPU-Serializer und NVENC_SEMAPHORE-Koordination
-    # Falls h264_nvenc oder hevc_nvenc in den Argumenten genutzt wird,
-    # muessen wir den Slot reservieren, um Pascal-Session-Limits abzusichern.
-    is_nvenc_active = False
-    if "-c:v" in cmd:
-        try:
-            codec_idx = cmd.index("-c:v")
-            if codec_idx + 1 < len(cmd) and "nvenc" in cmd[codec_idx + 1]:
-                is_nvenc_active = True
-        except ValueError:
-            pass
+    kwargs = {}
+    if sys.platform == "win32":
+        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
 
-    class _DummyContext:
-        def __enter__(self): return self
-        def __exit__(self, exc_type, exc_val, exc_tb): pass
+    process = subprocess.Popen(
+        cmd,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        **kwargs,
+    )
 
-    sem_ctx = _DummyContext()
-    gpu_ctx = _DummyContext()
+    stderr_lines = []
+    cancelled = threading.Event()
 
-    if is_nvenc_active:
-        try:
-            from services.convert_service import NVENC_SEMAPHORE
-            from services.brain_v3.gpu_serializer import get_default_serializer
-            sem_ctx = NVENC_SEMAPHORE
-            gpu_ctx = get_default_serializer().acquire("render")
-            logger.info("[ExportService] NVENC aktiv: Warte auf Slot und GPU-Serializer-Freigabe...")
-        except Exception as e:
-            logger.warning("[ExportService] Fehler beim Laden der GPU-Sperren: %s", e)
+    def _drain_stderr():
+        for line in process.stderr:
+            stderr_lines.append(line)
 
-    with sem_ctx:
-        with gpu_ctx:
-            if is_nvenc_active:
-                logger.info("[ExportService] GPU-Sperre erworben; starte NVENC-Export.")
+    stderr_thread = threading.Thread(target=_drain_stderr, daemon=True)
+    stderr_thread.start()
 
-            kwargs = {}
-            if sys.platform == "win32":
-                kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
-
-            process = subprocess.Popen(
-                cmd,
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                **kwargs,
-            )
-
-            stderr_lines = []
-            cancelled = threading.Event()
-
-            def _drain_stderr():
-                for line in process.stderr:
-                    stderr_lines.append(line)
-
-            stderr_thread = threading.Thread(target=_drain_stderr, daemon=True)
-            stderr_thread.start()
-
-            # B-116: Watchdog-Thread polled ``cancel_check`` auch wenn ffmpeg
-            # keine stdout-Zeilen schreibt (z.B. bei laengeren Pre/Post-Phasen
-            # oder wenn ``-progress`` nicht aktiv ist).
-            cancel_watchdog = None
-            if cancel_check is not None:
-                def _cancel_watch():
-                    while process.poll() is None:
-                        try:
-                            # B-170: nur einmal terminate() rufen — der Main-Loop
-                            # kann denselben Cancel auch detektieren.
-                            if cancel_check() and not cancelled.is_set():
-                                cancelled.set()
-                                process.terminate()
-                                try:
-                                    process.wait(timeout=2.0)
-                                except subprocess.TimeoutExpired:
-                                    process.kill()
-                                return
-                        except Exception as exc:  # broad: watchdog must keep running
-                            # B-167: log statt stumm sterben.
-                            logger.warning(
-                                "[Cancel-Watch] cancel_check raised: %s — Watchdog endet.", exc,
-                            )
-                            return
-                        time.sleep(0.2)
-                cancel_watchdog = threading.Thread(target=_cancel_watch, daemon=True)
-                cancel_watchdog.start()
-
-            try:
-                for line in process.stdout:
-                    # B-170: cancelled.is_set()-Guard verhindert Doppel-terminate
-                    # wenn Watchdog parallel denselben Cancel detected hat.
-                    if (
-                        cancel_check is not None
-                        and cancel_check()
-                        and not cancelled.is_set()
-                    ):
+    # B-116: Watchdog-Thread polled ``cancel_check`` auch wenn ffmpeg
+    # keine stdout-Zeilen schreibt (z.B. bei laengeren Pre/Post-Phasen
+    # oder wenn ``-progress`` nicht aktiv ist).
+    cancel_watchdog = None
+    if cancel_check is not None:
+        def _cancel_watch():
+            while process.poll() is None:
+                try:
+                    # B-170: nur einmal terminate() rufen — der Main-Loop
+                    # kann denselben Cancel auch detektieren.
+                    if cancel_check() and not cancelled.is_set():
                         cancelled.set()
                         process.terminate()
-                        break
-                    line = line.strip()
-                    if not line:
-                        continue
-                    # Progress-Parsing: out_time_ms oder out_time
-                    if line.startswith("out_time_ms=") and total_duration > 0 and progress_cb:
                         try:
-                            time_us = int(line.split("=")[1])
-                            current_sec = time_us / 1_000_000
-                            pct = min(99, int(current_sec / total_duration * 100))
-                            progress_cb(pct, f"Rendering {pct}%...")
-                        except (ValueError, IndexError) as e:
-                            logger.warning("Parsing FFmpeg export out_time_ms progress: %s", e)
-                    elif line.startswith("out_time=") and total_duration > 0 and progress_cb:
-                        try:
-                            time_str = line.split("=")[1]
-                            parts = time_str.split(":")
-                            if len(parts) == 3:
-                                h, m, s = float(parts[0]), float(parts[1]), float(parts[2])
-                                current_sec = h * 3600 + m * 60 + s
-                                pct = min(99, int(current_sec / total_duration * 100))
-                                progress_cb(pct, f"Rendering {pct}%...")
-                        except (ValueError, IndexError) as e:
-                            logger.warning("Parsing FFmpeg export out_time progress: %s", e)
+                            process.wait(timeout=2.0)
+                        except subprocess.TimeoutExpired:
+                            process.kill()
+                        return
+                except Exception as exc:  # broad: watchdog must keep running
+                    # B-167: log statt stumm sterben.
+                    logger.warning(
+                        "[Cancel-Watch] cancel_check raised: %s — Watchdog endet.", exc,
+                    )
+                    return
+                time.sleep(0.2)
+        cancel_watchdog = threading.Thread(target=_cancel_watch, daemon=True)
+        cancel_watchdog.start()
 
-                process.wait(timeout=timeout)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                stderr = ''.join(stderr_lines)
-                raise RuntimeError(
-                    f"FFmpeg Timeout ({timeout}s). Stderr:\n{_sanitize_ffmpeg_error(stderr)}"
-                )
-            finally:
-                if process.poll() is None:
-                    process.kill()
-                stderr_thread.join(timeout=THREAD_JOIN_TIMEOUT_SEC)
-                if cancel_watchdog is not None:
-                    cancel_watchdog.join(timeout=THREAD_JOIN_TIMEOUT_SEC)
+    try:
+        for line in process.stdout:
+            # B-170: cancelled.is_set()-Guard verhindert Doppel-terminate
+            # wenn Watchdog parallel denselben Cancel detected hat.
+            if (
+                cancel_check is not None
+                and cancel_check()
+                and not cancelled.is_set()
+            ):
+                cancelled.set()
+                process.terminate()
+                break
+            line = line.strip()
+            if not line:
+                continue
+            # Progress-Parsing: out_time_ms oder out_time
+            if line.startswith("out_time_ms=") and total_duration > 0 and progress_cb:
+                try:
+                    time_us = int(line.split("=")[1])
+                    current_sec = time_us / 1_000_000
+                    pct = min(99, int(current_sec / total_duration * 100))
+                    progress_cb(pct, f"Rendering {pct}%...")
+                except (ValueError, IndexError) as e:
+                    logger.warning("Parsing FFmpeg export out_time_ms progress: %s", e)
+            elif line.startswith("out_time=") and total_duration > 0 and progress_cb:
+                try:
+                    time_str = line.split("=")[1]
+                    parts = time_str.split(":")
+                    if len(parts) == 3:
+                        h, m, s = float(parts[0]), float(parts[1]), float(parts[2])
+                        current_sec = h * 3600 + m * 60 + s
+                        pct = min(99, int(current_sec / total_duration * 100))
+                        progress_cb(pct, f"Rendering {pct}%...")
+                except (ValueError, IndexError) as e:
+                    logger.warning("Parsing FFmpeg export out_time progress: %s", e)
 
-            if cancelled.is_set():
-                raise RuntimeError("Export abgebrochen (User-Cancel)")
+        process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        stderr = ''.join(stderr_lines)
+        raise RuntimeError(
+            f"FFmpeg Timeout ({timeout}s). Stderr:\n{_sanitize_ffmpeg_error(stderr)}"
+        )
+    finally:
+        if process.poll() is None:
+            process.kill()
+        stderr_thread.join(timeout=THREAD_JOIN_TIMEOUT_SEC)
+        if cancel_watchdog is not None:
+            cancel_watchdog.join(timeout=THREAD_JOIN_TIMEOUT_SEC)
 
-            stderr = ''.join(stderr_lines)
-            if process.returncode != 0:
-                raise RuntimeError(f"FFmpeg fehlgeschlagen:\n{_sanitize_ffmpeg_error(stderr)}")
+    if cancelled.is_set():
+        raise RuntimeError("Export abgebrochen (User-Cancel)")
+
+    stderr = ''.join(stderr_lines)
+    if process.returncode != 0:
+        raise RuntimeError(f"FFmpeg fehlgeschlagen:\n{_sanitize_ffmpeg_error(stderr)}")
 
 
 def export_preview(project_id: int = 1, resolution: str = "1920x1080",
