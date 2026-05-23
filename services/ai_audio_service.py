@@ -3,9 +3,11 @@
 import gc
 import json
 import logging
+import os
 import subprocess
 import sys
 import tempfile
+import time
 from functools import wraps
 from pathlib import Path
 
@@ -140,6 +142,45 @@ def _load_audio_for_stem_separation(
 CHUNK_SECONDS = 30
 # Overlap in Sekunden um Artefakte an Chunk-Grenzen zu vermeiden
 OVERLAP_SECONDS = 2
+STEM_MAX_CHUNKS_ENV = "PB_STEM_MAX_CHUNKS"
+
+
+def _read_positive_int_env(name: str) -> int | None:
+    value = os.environ.get(name)
+    if not value:
+        return None
+    try:
+        parsed = int(value)
+    except ValueError:
+        logger.warning("[StemSeparator] Ignoriere ungueltiges %s=%r", name, value)
+        return None
+    if parsed <= 0:
+        logger.warning("[StemSeparator] Ignoriere nicht-positives %s=%r", name, value)
+        return None
+    return parsed
+
+
+def _raise_if_stem_diagnostic_chunk_limit_reached(chunk_index: int, num_chunks: int) -> None:
+    max_chunks = _read_positive_int_env(STEM_MAX_CHUNKS_ENV)
+    if max_chunks is None or max_chunks >= num_chunks:
+        return
+    if chunk_index >= max_chunks:
+        raise RuntimeError(
+            "Stem-Separation Diagnose-Limit erreicht: "
+            f"{max_chunks}/{num_chunks} Chunks verarbeitet; keine Teil-Stems gespeichert. "
+            f"{STEM_MAX_CHUNKS_ENV} entfernen fuer Voll-Lauf."
+        )
+
+
+def _cuda_free_gb(get_cuda_memory_info_bytes) -> float | None:
+    try:
+        free_bytes, _total_bytes = get_cuda_memory_info_bytes(0)
+    except Exception as exc:
+        logger.warning("[StemSeparator] CUDA-Memory-Diagnose fehlgeschlagen: %s", exc)
+        return None
+    if free_bytes <= 0:
+        return None
+    return free_bytes / (1024**3)
 
 
 class _StreamingStemWriter:
@@ -426,10 +467,12 @@ class StemSeparator:
                 if should_stop and should_stop():
                     logger.info("[StemSeparator] Abbruch durch Benutzer.")
                     raise RuntimeError("Stem-Separation abgebrochen (User-Cancel)")
+                _raise_if_stem_diagnostic_chunk_limit_reached(i, num_chunks)
 
                 start = i * step_samples
                 end = min(start + chunk_samples, total_samples)
                 chunk = waveform[:, start:end]
+                chunk_started = time.perf_counter()
 
                 logger.info(f"[StemSeparator] Verarbeite Chunk {i + 1}/{num_chunks} "
                       f"auf {device.type.upper()} "
@@ -441,6 +484,8 @@ class StemSeparator:
                 # D-04 Fix: try/except um apply_model() — bei OOM Chunk halbieren und einmal retrien
                 with torch.no_grad():
                     try:
+                        vram_before_gb = _cuda_free_gb(get_cuda_memory_info_bytes) if torch.cuda.is_available() else None
+                        apply_started = time.perf_counter()
                         # apply_model gibt (1, sources, channels, samples) zurueck
                         # DOPPELTER OVERLAP: internes Demucs-Overlap (25% der Chunk-Laenge)
                         # PLUS externes 2s Crossfade-Overlap zwischen Chunks (OVERLAP_SECONDS).
@@ -450,6 +495,16 @@ class StemSeparator:
                             demucs_model, chunk_gpu,
                             overlap=0.25,
                             progress=False,
+                        )
+                        apply_elapsed = time.perf_counter() - apply_started
+                        vram_after_gb = _cuda_free_gb(get_cuda_memory_info_bytes) if torch.cuda.is_available() else None
+                        logger.info(
+                            "[StemSeparator] Chunk %d/%d apply_model fertig: %.2fs, VRAM frei vor/nach: %s/%s GB",
+                            i + 1,
+                            num_chunks,
+                            apply_elapsed,
+                            f"{vram_before_gb:.2f}" if vram_before_gb is not None else "n/a",
+                            f"{vram_after_gb:.2f}" if vram_after_gb is not None else "n/a",
                         )
                     except RuntimeError:
                         logger.warning(
@@ -510,6 +565,7 @@ class StemSeparator:
 
                 # Gewichtete Addition
                 weighted_estimates = estimates_cpu[:, :, :chunk_len] * fade.unsqueeze(0).unsqueeze(0)
+                write_started = time.perf_counter()
                 if streaming_writer is not None:
                     streaming_writer.write_chunk(
                         weighted_estimates,
@@ -522,6 +578,13 @@ class StemSeparator:
                     for s in range(num_sources):
                         result_stems[s, :, start:end] += weighted_estimates[s]
                     weight_sum[0, start:end] += fade
+                logger.info(
+                    "[StemSeparator] Chunk %d/%d CPU/Write fertig: %.2fs, Gesamt-Chunk: %.2fs",
+                    i + 1,
+                    num_chunks,
+                    time.perf_counter() - write_started,
+                    time.perf_counter() - chunk_started,
+                )
 
                 # ── VRAM sofort freigeben ──
                 # Sicheres Loeschen: chunk_gpu kann bei OOM-Retry bereits geloescht sein

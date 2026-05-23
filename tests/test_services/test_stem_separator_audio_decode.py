@@ -3,6 +3,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
+import pytest
 
 
 class _BrokenTorchaudio:
@@ -81,3 +82,26 @@ def test_streaming_stem_writer_crossfades_without_full_accumulator(tmp_path: Pat
 
     assert sr == 44100
     assert np.allclose(data, np.array([1.0, 2.0, 3.0, 4.0, 20.0, 30.0, 40.0, 50.0], dtype=np.float32))
+
+
+def test_stem_diagnostic_chunk_limit_raises_before_partial_success(monkeypatch):
+    from services import ai_audio_service
+
+    monkeypatch.setenv("PB_STEM_MAX_CHUNKS", "2")
+
+    with pytest.raises(RuntimeError, match="Diagnose-Limit erreicht"):
+        ai_audio_service._raise_if_stem_diagnostic_chunk_limit_reached(
+            chunk_index=2,
+            num_chunks=403,
+        )
+
+
+def test_stem_diagnostic_chunk_limit_ignores_invalid_values(monkeypatch):
+    from services import ai_audio_service
+
+    monkeypatch.setenv("PB_STEM_MAX_CHUNKS", "abc")
+
+    ai_audio_service._raise_if_stem_diagnostic_chunk_limit_reached(
+        chunk_index=402,
+        num_chunks=403,
+    )
