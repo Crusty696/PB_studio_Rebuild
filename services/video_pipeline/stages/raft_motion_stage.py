@@ -66,23 +66,30 @@ class RaftMotionStage:
                 )
 
             motion_data: list[dict[str, Any]] = []
-            # F-16 (B-348): pairs are consecutive sample times, so each interior
-            # timestamp is the second frame of one pair and the first of the next.
-            # Reuse the previous frame instead of decoding every timestamp twice.
-            prev_frame = self.decoder.extract_frame(source_path, pairs[0][0])
-            for t_a, t_b in pairs:
-                if cancel_token is not None and getattr(cancel_token, "cancelled", False):
-                    break
-                fb = self.decoder.extract_frame(source_path, t_b)
-                flow = self.service.compute_flow(prev_frame, fb)
-                prev_frame = fb
-                stats = RaftMotionService.aggregate(flow)
-                motion_data.append({
-                    "time_a_s": t_a, "time_b_s": t_b,
-                    "mean_magnitude": stats.mean_magnitude,
-                    "std_magnitude": stats.std_magnitude,
-                    "direction_rad": stats.dominant_direction_rad,
-                })
+            # Befund 2: GPU-Abschnitt unter den zentralen gpu_serializer stellen
+            # (serialisiert RAFT-Inferenz mit allen anderen GPU-Consumern, haelt
+            # legacy GPU_EXECUTION_LOCK). Frame-Decode (CPU) liegt mit im Lock —
+            # akzeptabel, da der Lock Mid-Stage-Konkurrenz auf der 6-GB-GPU
+            # verhindert.
+            from services.brain_v3.gpu_serializer import get_default_serializer
+            with get_default_serializer().acquire("video_pipeline_raft"):
+                # F-16 (B-348): pairs are consecutive sample times, so each interior
+                # timestamp is the second frame of one pair and the first of the next.
+                # Reuse the previous frame instead of decoding every timestamp twice.
+                prev_frame = self.decoder.extract_frame(source_path, pairs[0][0])
+                for t_a, t_b in pairs:
+                    if cancel_token is not None and getattr(cancel_token, "cancelled", False):
+                        break
+                    fb = self.decoder.extract_frame(source_path, t_b)
+                    flow = self.service.compute_flow(prev_frame, fb)
+                    prev_frame = fb
+                    stats = RaftMotionService.aggregate(flow)
+                    motion_data.append({
+                        "time_a_s": t_a, "time_b_s": t_b,
+                        "mean_magnitude": stats.mean_magnitude,
+                        "std_magnitude": stats.std_magnitude,
+                        "direction_rad": stats.dominant_direction_rad,
+                    })
         except Exception as ex:
             return StageResult(
                 stage_id=self.stage_id, status="failed",

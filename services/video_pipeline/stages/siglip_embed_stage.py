@@ -61,17 +61,23 @@ class SigLipEmbedStage:
 
         t0 = time.monotonic()
         try:
+            # Befund 2: gesamten GPU-Abschnitt unter den zentralen gpu_serializer
+            # stellen (haelt zusaetzlich den legacy GPU_EXECUTION_LOCK). Damit kann
+            # waehrend dieser Stage kein anderer GPU-Consumer (Demucs, convert-NVENC,
+            # brain_v3) laufen ODER das ModelManager-Modell wegswappen.
+            from services.brain_v3.gpu_serializer import get_default_serializer
             all_embeds: list[np.ndarray] = []
-            for i in range(0, len(keyframes), self.batch_size):
-                if cancel_token is not None and getattr(cancel_token, "cancelled", False):
-                    break
-                batch = keyframes[i: i + self.batch_size]
-                imgs = []
-                for kf in batch:
-                    img_path = storage_dir / kf["path"]
-                    imgs.append(np.array(Image.open(img_path).convert("RGB")))
-                arr = self.service.embed_batch(imgs)
-                all_embeds.append(arr)
+            with get_default_serializer().acquire("video_pipeline_siglip"):
+                for i in range(0, len(keyframes), self.batch_size):
+                    if cancel_token is not None and getattr(cancel_token, "cancelled", False):
+                        break
+                    batch = keyframes[i: i + self.batch_size]
+                    imgs = []
+                    for kf in batch:
+                        img_path = storage_dir / kf["path"]
+                        imgs.append(np.array(Image.open(img_path).convert("RGB")))
+                    arr = self.service.embed_batch(imgs)
+                    all_embeds.append(arr)
         except Exception as ex:
             return StageResult(
                 stage_id=self.stage_id, status="failed",
