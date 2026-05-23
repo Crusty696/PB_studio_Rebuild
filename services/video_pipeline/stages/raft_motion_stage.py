@@ -66,12 +66,16 @@ class RaftMotionStage:
                 )
 
             motion_data: list[dict[str, Any]] = []
+            # F-16 (B-348): pairs are consecutive sample times, so each interior
+            # timestamp is the second frame of one pair and the first of the next.
+            # Reuse the previous frame instead of decoding every timestamp twice.
+            prev_frame = self.decoder.extract_frame(source_path, pairs[0][0])
             for t_a, t_b in pairs:
                 if cancel_token is not None and getattr(cancel_token, "cancelled", False):
                     break
-                fa = self.decoder.extract_frame(source_path, t_a)
                 fb = self.decoder.extract_frame(source_path, t_b)
-                flow = self.service.compute_flow(fa, fb)
+                flow = self.service.compute_flow(prev_frame, fb)
+                prev_frame = fb
                 stats = RaftMotionService.aggregate(flow)
                 motion_data.append({
                     "time_a_s": t_a, "time_b_s": t_b,

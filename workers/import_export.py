@@ -331,7 +331,17 @@ class BatchConvertWorker(QObject, CancellableMixin):
                 src = v["file_path"]
                 stem = Path(src).stem
                 out_dir = Path(src).parent / "converted"
-                out_dir.mkdir(exist_ok=True)
+                # F-27 (B-359): a read-only / UNC source dir makes mkdir raise.
+                # Previously this escaped to the outer except and aborted the
+                # WHOLE batch; skip just this file instead.
+                try:
+                    out_dir.mkdir(exist_ok=True)
+                except OSError as e:
+                    self.progress.emit(
+                        int((i + 1) / total * 100),
+                        f"  SKIP (kein Schreibzugriff): {Path(src).name}: {e}",
+                    )
+                    continue
                 dst = str(out_dir / f"{stem}_std{self.ext}")
 
                 self.progress.emit(

@@ -94,6 +94,13 @@ class AutoDuckingWorker(QObject, CancellableMixin):
             self.finished.emit(result)
             _ok = True
         except Exception as e:  # broad catch intentional — top-level worker safety net
+            # F-29 (B-361): distinguish a user cancel from a real failure so it
+            # is not reported as a scary error (mirrors StemSeparationWorker).
+            if self.should_stop():
+                logger.info("AutoDuckingWorker cancelled: %s", e)
+                self._errored = True
+                self.error.emit("Auto-Ducking abgebrochen (User-Cancel)")
+                return
             logging.error("AutoDuckingWorker crashed: %s\n%s", e, traceback.format_exc())
             self._errored = True
             self.error.emit(format_user_error(e))
