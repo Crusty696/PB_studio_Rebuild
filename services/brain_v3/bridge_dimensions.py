@@ -59,9 +59,12 @@ class BridgeDimensions:
             return 0.5
         try:
             return _clip01(method(candidate, cut_context))
-        except Exception as exc:
-            logger.warning("BridgeDimensions.compute(%s) failed: %s — fallback 0.5",
-                           axis, exc)
+        except Exception:
+            # F-21 (B-353): keep the 0.5 neutral fallback so one broken axis does
+            # not crash the whole scoring pass, but log with traceback at error
+            # level so a systematically failing axis is visible instead of silent.
+            logger.exception(
+                "BridgeDimensions.compute(%s) failed — neutral 0.5 fallback", axis)
             return 0.5
 
     def compute_all(

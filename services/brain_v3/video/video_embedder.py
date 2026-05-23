@@ -154,13 +154,18 @@ class Siglip2VideoEmbedder:
                 duration = float(n_frames / fps)
 
                 effective_scenes = scenes or [SceneSpec(start_time=0.0, end_time=duration)]
-                frames = self._sample_frames(cap, effective_scenes, fps, n_frames, cv2)
+                # F-8 (B-340): keep scene<->frame alignment. Unreadable frames are
+                # skipped inside _sample_frames; it returns only the scenes whose
+                # frame was actually read, so zip() below cannot shift embeddings
+                # onto the wrong scenes.
+                sampled_scenes, frames = self._sample_frames(
+                    cap, effective_scenes, fps, n_frames, cv2)
 
                 # Batch-Inferenz mit Auto-Tuning bei OOM
                 embeddings = self._embed_in_batches(frames)
 
                 scene_embs: list[SceneEmbedding] = []
-                for spec, emb in zip(effective_scenes, embeddings):
+                for spec, emb in zip(sampled_scenes, embeddings):
                     scene_embs.append(SceneEmbedding(
                         start_time=spec.start_time,
                         end_time=spec.end_time,
@@ -183,8 +188,15 @@ class Siglip2VideoEmbedder:
     # Internals
     # ------------------------------------------------------------------
     def _sample_frames(self, cap, scenes: list[SceneSpec], fps: float,
-                       n_frames: int, cv2_mod) -> list[np.ndarray]:
-        """Liest pro Scene den repraesentativen Frame (default: Mitte)."""
+                       n_frames: int, cv2_mod) -> tuple[list[SceneSpec], list[np.ndarray]]:
+        """Liest pro Scene den repraesentativen Frame (default: Mitte).
+
+        Returns ``(kept_scenes, frames)`` — beide gleich lang und positionell
+        ausgerichtet. Scenes mit nicht lesbarem Frame werden in BEIDEN Listen
+        ausgelassen, damit der Aufrufer Scene und Embedding korrekt paaren kann
+        (F-8).
+        """
+        kept_scenes: list[SceneSpec] = []
         frames: list[np.ndarray] = []
         for spec in scenes:
             mid_t = spec.representative_frame_time
@@ -199,8 +211,9 @@ class Siglip2VideoEmbedder:
                 continue
             # BGR → RGB fuer transformers
             frame_rgb = cv2_mod.cvtColor(frame_bgr, cv2_mod.COLOR_BGR2RGB)
+            kept_scenes.append(spec)
             frames.append(frame_rgb)
-        return frames
+        return kept_scenes, frames
 
     def _embed_in_batches(self, frames: list[np.ndarray]) -> list[np.ndarray]:
         if not frames:

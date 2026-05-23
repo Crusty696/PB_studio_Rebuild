@@ -118,6 +118,17 @@ class MoodAnchorMatcher:
             raise ValueError("embedding has zero L2 norm — cannot normalize")
         e_hat: np.ndarray = emb / norm  # (D,)
 
+        # F-12 (B-344): explicit dim guard. Anchors and the visual embedding
+        # must share the same dimensionality (e.g. 1152-d SigLIP-so400m vs
+        # 768-d SigLIP2-base). Without this, a mismatch surfaces as a cryptic
+        # numpy matmul broadcast error instead of a clear contract violation.
+        anchor_dim = int(self._anchors_normalized.shape[1])
+        if e_hat.shape[-1] != anchor_dim:
+            raise ValueError(
+                f"embedding dim {e_hat.shape[-1]} != mood-anchor dim {anchor_dim}; "
+                "anchors and visual embedder must use the same SigLIP model"
+            )
+
         # Cosine similarity: (10,)
         scores: np.ndarray = self._anchors_normalized @ e_hat
 
