@@ -32,6 +32,11 @@ class SigLipEmbedStage:
         self.service = service or SigLipEmbedService()
         self.batch_size = batch_size
 
+    def unload(self) -> None:
+        """Free the SigLIP model from VRAM (F-1). Called by the orchestrator
+        after the stage completes so the next GPU stage has headroom."""
+        self.service.unload()
+
     def run(
         self,
         source_path: Path,

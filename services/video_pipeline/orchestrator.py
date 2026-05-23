@@ -5,6 +5,7 @@ Phase: 30 (Tier 3 Workspace+Services)
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol, Sequence
@@ -12,6 +13,8 @@ from typing import Protocol, Sequence
 from services.video_pipeline.primitives.resume_checkpoint import ResumeCheckpoint
 from services.video_pipeline.stages.base import StageResult
 
+
+logger = logging.getLogger(__name__)
 
 __all__ = ["VideoAnalysisPipeline", "PipelineListener", "CancelToken", "PipelineResult"]
 
@@ -132,6 +135,16 @@ class VideoAnalysisPipeline:
                     error=sr.error,
                 )
                 self.checkpoint.save()
+
+            # F-1: release any GPU model the stage holds before the next stage
+            # loads its own, so siglip + raft do not stay resident together on
+            # the 6 GB GTX 1060.
+            _unload = getattr(stage, "unload", None)
+            if callable(_unload):
+                try:
+                    _unload()
+                except Exception:
+                    logger.exception("stage %s unload failed", sid)
 
         self.listener.on_pipeline_done(self.track_id)
         return result

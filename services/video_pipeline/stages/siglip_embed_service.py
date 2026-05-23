@@ -20,10 +20,12 @@ class SigLipEmbedService:
         model_id: str = "google/siglip-so400m-patch14-384",
         device: str = "cuda:0",
         dtype: str = "float16",  # storage dtype
+        vram_required_gb: float = 3.5,  # so400m fp32 footprint estimate
     ):
         self.model_id = model_id
         self.device = device
         self.dtype = dtype
+        self.vram_required_gb = vram_required_gb
         self._model = None
         self._processor = None
 
@@ -39,6 +41,11 @@ class SigLipEmbedService:
         self._processor = AutoProcessor.from_pretrained(self.model_id)
         model = AutoModel.from_pretrained(self.model_id)
         if self.device.startswith("cuda") and torch.cuda.is_available():
+            # F-2: respect Audio-V2 GPU_EXECUTION_LOCK indirectly via free-VRAM
+            # probe so we do not allocate on top of a busy GTX 1060 (6 GB).
+            from services.video_pipeline.primitives.gpu_lock_aware import wait_for_vram
+            dev_idx = int(self.device.split(":")[-1]) if ":" in self.device else 0
+            wait_for_vram(self.vram_required_gb, device=dev_idx)
             model = model.to(self.device)
         self._model = model.eval()
 

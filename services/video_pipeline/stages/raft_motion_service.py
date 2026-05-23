@@ -28,6 +28,7 @@ class RaftMotionService:
         device: str = "cuda:0",
         iter_count: int = 12,
         resolution_scale: float = 1.0,
+        vram_required_gb: float = 1.0,  # raft_large footprint estimate
     ):
         if variant not in {"raft_large", "raft_small"}:
             raise ValueError(f"unknown variant: {variant!r}")
@@ -35,6 +36,7 @@ class RaftMotionService:
         self.device = device
         self.iter_count = iter_count
         self.resolution_scale = resolution_scale
+        self.vram_required_gb = vram_required_gb
         self._model = None
 
     @property
@@ -54,6 +56,10 @@ class RaftMotionService:
         else:
             model = raft_small(weights=Raft_Small_Weights.C_T_V2)
         if self.device.startswith("cuda") and torch.cuda.is_available():
+            # F-2: free-VRAM probe before allocating (shared 6 GB GTX 1060).
+            from services.video_pipeline.primitives.gpu_lock_aware import wait_for_vram
+            dev_idx = int(self.device.split(":")[-1]) if ":" in self.device else 0
+            wait_for_vram(self.vram_required_gb, device=dev_idx)
             model = model.to(self.device)
         self._model = model.eval()
 

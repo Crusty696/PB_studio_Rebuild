@@ -35,6 +35,10 @@ class RaftMotionStage:
         self.decoder = decoder or VideoDecoder()
         self.sample_rate_s = sample_rate_s
 
+    def unload(self) -> None:
+        """Free the RAFT model from VRAM (F-1)."""
+        self.service.unload()
+
     def run(
         self,
         source_path: Path,
