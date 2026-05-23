@@ -1091,6 +1091,25 @@ def _normalize_audio_lufs(input_path: str, output_path: str,
 def _run_ffmpeg(cmd: list[str], timeout: int = 600, progress_cb=None,
                 total_duration: float = 0.0,
                 cancel_check=None):
+    """Dispatcher: serialisiert NVENC-Encodes app-weit (Befund 1 / Review 2026-05-23).
+
+    Root-Cause-Fix statt Pflaster: Ein NVENC-Export-Encode darf auf der GTX 1060
+    (Pascal, ~2-3 NVENC-Sessions) nicht gleichzeitig mit Proxy-/Convert-NVENC
+    laufen, sonst ``OpenEncodeSessionEx failed``. Wir halten denselben
+    ``gpu_serializer`` (der zusaetzlich den legacy ``GPU_EXECUTION_LOCK`` greift),
+    den ``convert_service`` schon nutzt — damit ist app-weit nur EIN GPU-Consumer
+    aktiv. libx264 (CPU) braucht keinen Lock.
+    """
+    if any("nvenc" in str(a) for a in cmd):
+        from services.brain_v3.gpu_serializer import get_default_serializer
+        with get_default_serializer().acquire("export_render"):
+            return _run_ffmpeg_impl(cmd, timeout, progress_cb, total_duration, cancel_check)
+    return _run_ffmpeg_impl(cmd, timeout, progress_cb, total_duration, cancel_check)
+
+
+def _run_ffmpeg_impl(cmd: list[str], timeout: int = 600, progress_cb=None,
+                     total_duration: float = 0.0,
+                     cancel_check=None):
     """Fuehrt FFmpeg aus — mit Popen + Progress-Parsing statt blockierendem subprocess.run.
 
     FIX-1.2: Wechsel von subprocess.run() (blockiert ohne Progress) zu subprocess.Popen

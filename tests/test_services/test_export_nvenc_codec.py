@@ -41,3 +41,33 @@ def test_video_encode_args_falls_back_on_detect_error(monkeypatch):
     args = es._video_encode_args()
     assert args[1] == "libx264"
     _reset_cache()
+
+
+def test_run_ffmpeg_serializes_only_nvenc(monkeypatch):
+    """Befund 1: NVENC-Encodes laufen unter dem gpu_serializer (Pascal-Session-
+    Limit), libx264 (CPU) NICHT."""
+    from contextlib import contextmanager
+
+    calls = {"acquired": 0, "impl": 0}
+
+    class _FakeSerializer:
+        @contextmanager
+        def acquire(self, holder):
+            calls["acquired"] += 1
+            yield
+
+    monkeypatch.setattr(
+        "services.brain_v3.gpu_serializer.get_default_serializer",
+        lambda: _FakeSerializer(),
+    )
+    monkeypatch.setattr(
+        es, "_run_ffmpeg_impl",
+        lambda *a, **k: calls.__setitem__("impl", calls["impl"] + 1),
+    )
+
+    es._run_ffmpeg(["ffmpeg", "-c:v", "h264_nvenc", "out.mp4"])
+    assert calls["acquired"] == 1 and calls["impl"] == 1
+
+    es._run_ffmpeg(["ffmpeg", "-c:v", "libx264", "out.mp4"])
+    assert calls["acquired"] == 1  # libx264 holt KEINEN GPU-Lock
+    assert calls["impl"] == 2

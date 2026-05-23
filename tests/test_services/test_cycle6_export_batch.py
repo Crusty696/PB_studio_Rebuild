@@ -13,10 +13,12 @@ def test_b167_cancel_watch_logs_exceptions():
     from services import export_service
 
     src1 = inspect.getsource(export_service._run_subprocess_cancellable)
-    src2 = inspect.getsource(export_service._run_ffmpeg)
+    # _run_ffmpeg ist seit Review 2026-05-23 ein NVENC-Serialisierungs-Dispatcher;
+    # die eigentliche Popen/Watchdog-Logik lebt in _run_ffmpeg_impl.
+    src2 = inspect.getsource(export_service._run_ffmpeg_impl)
 
     # Beide Funktionen muessen logger.{warning|error|info} im except-Pfad rufen
-    for name, src in (("_run_subprocess_cancellable", src1), ("_run_ffmpeg", src2)):
+    for name, src in (("_run_subprocess_cancellable", src1), ("_run_ffmpeg_impl", src2)):
         # Fragmente "except Exception:" oder "except BaseException:" gefolgt
         # von "return" ohne Logging waeren Bug. Wir suchen ein logger-Call
         # innerhalb des cancel-watch-Blocks.
@@ -68,7 +70,9 @@ def test_b170_run_ffmpeg_terminate_guarded_by_cancelled():
     via cancelled.is_set() guarden, sonst ChildProcessError-Race."""
     from services import export_service
 
-    src = inspect.getsource(export_service._run_ffmpeg)
+    # _run_ffmpeg ist seit Review 2026-05-23 nur noch der NVENC-Serialisierungs-
+    # Dispatcher; die terminate()/Watchdog-Logik liegt in _run_ffmpeg_impl.
+    src = inspect.getsource(export_service._run_ffmpeg_impl)
     # Heuristik: vor jedem process.terminate()-Aufruf muss ein
     # is_set()-Guard im Source nahe stehen.
     term_positions = [i for i in range(len(src)) if src.startswith("process.terminate()", i)]
