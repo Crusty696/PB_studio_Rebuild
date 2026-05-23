@@ -151,7 +151,12 @@ def ingest_audio(
     try:
         from database import nullpool_session
         with nullpool_session() as session:
-            existing = session.query(AudioTrack).filter_by(file_path=resolved).first()
+            # F-13 (B-345): scope duplicate check to the project (see ingest_video).
+            existing = (
+                session.query(AudioTrack)
+                .filter_by(project_id=project_id, file_path=resolved)
+                .first()
+            )
             if existing:
                 return None
 
@@ -233,7 +238,15 @@ def ingest_video(
     try:
         from database import nullpool_session
         with nullpool_session() as session:
-            existing = session.query(VideoClip).filter_by(file_path=resolved).first()
+            # F-13 (B-345): scope the duplicate check to the project. The unique
+            # constraint is (project_id, file_path), so the same file may live in
+            # two projects; a project-agnostic check wrongly refused to import it
+            # into a second project.
+            existing = (
+                session.query(VideoClip)
+                .filter_by(project_id=project_id, file_path=resolved)
+                .first()
+            )
             if existing:
                 return None
 

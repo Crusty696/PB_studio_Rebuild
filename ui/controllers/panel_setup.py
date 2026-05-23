@@ -278,6 +278,18 @@ class PanelSetupController(PBComponent):
                 logger.warning("B-253: bg-listener emit fehlgeschlagen: %s", e)
 
         analysis_status_service.register_completion_listener(_bg_listener)
+        # F-11 (B-343): unregister on window teardown. Without this, a late
+        # mark_completed from a still-running BG worker would fire the listener
+        # into destroyed widgets. Keep a ref so it can be removed.
+        self.window._completion_bridge_listener = _bg_listener
+
+        def _unregister_bridge_listener(*_args):
+            try:
+                analysis_status_service.unregister_completion_listener(_bg_listener)
+            except Exception as e:
+                logger.warning("F-11: bridge-listener unregister fehlgeschlagen: %s", e)
+
+        self.window.destroyed.connect(_unregister_bridge_listener)
         logger.info("B-253: Analysis-Completion-Bridge installiert.")
 
     def _console_append(self, text: str) -> None:

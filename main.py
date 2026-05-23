@@ -1601,6 +1601,9 @@ def main():
                 from ui.dialogs.startup_check_dialog import maybe_show_startup_dialog
                 if not maybe_show_startup_dialog(status, window):
                     # User chose "Beenden" — exit the application
+                    # F-10 (B-342): quit the worker thread on the exit path too,
+                    # not only on success, so it does not leak.
+                    window._startup_check_thread.quit()
                     app.quit()
                     return
                 # 3. Timeline laden wenn alles bereit ist
@@ -1610,6 +1613,16 @@ def main():
             window._startup_check_worker.finished.connect(on_done)
             window._startup_check_worker.progress.connect(lambda msg: window.status_bar.showMessage(msg))
             window._startup_check_thread.started.connect(window._startup_check_worker.run)
+            # F-10 (B-342): delete worker + thread once the thread loop ends,
+            # mirroring the deleteLater discipline used elsewhere (TaskManager,
+            # worker_dispatcher). Without this the QThread object lived for the
+            # whole app lifetime.
+            window._startup_check_thread.finished.connect(
+                window._startup_check_worker.deleteLater
+            )
+            window._startup_check_thread.finished.connect(
+                window._startup_check_thread.deleteLater
+            )
             window._startup_check_thread.start()
             
         except Exception as e:

@@ -619,7 +619,11 @@ class FrameExtractWorker(QObject, CancellableMixin):
             else:
                 stderr_hint = result.stderr[:200].decode(errors="replace") if result.stderr else ""
                 self.error.emit(f"Frame @ {self.time_sec:.1f}s nicht verfuegbar: {stderr_hint}")
-        except (subprocess.SubprocessError, OSError, ValueError) as e:
+        except Exception as e:
+            # F-14 (B-346): catch every exception, not only
+            # (SubprocessError, OSError, ValueError). A MemoryError/RuntimeError
+            # used to escape run() while finally still emitted finished(), so the
+            # UI saw a silently missing frame instead of an error.
             logging.error("FrameExtractWorker crashed: %s\n%s", e, traceback.format_exc())
             self._errored = True
             self.error.emit(format_user_error(e))

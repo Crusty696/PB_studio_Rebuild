@@ -236,9 +236,20 @@ class SubtrackDetector:
         step_samples = int(sr * self.hop_seconds)
         n_steps = max(1, (len(y) - win_samples) // step_samples + 1)
 
-        tempos = np.zeros(n_steps)
-        for i in range(n_steps):
-            start = i * step_samples
+        # F-25 (B-357): the strided windows can leave up to one hop unanalyzed at
+        # the end, so a DJ outro tempo change is missed. Add a final full-length
+        # window anchored at the signal end when such a remainder exists.
+        # _resize_to() below renormalizes the length, so the extra sample is safe.
+        _last_start = (n_steps - 1) * step_samples
+        _add_tail = len(y) >= win_samples and (len(y) - (_last_start + win_samples)) > 0
+        total_steps = n_steps + (1 if _add_tail else 0)
+
+        tempos = np.zeros(total_steps)
+        for i in range(total_steps):
+            if _add_tail and i == total_steps - 1:
+                start = len(y) - win_samples
+            else:
+                start = i * step_samples
             window = y[start:start + win_samples]
             if len(window) < sr * 5:  # zu kurz fuer Beat-Tracking
                 tempos[i] = tempos[i - 1] if i > 0 else 0.0

@@ -111,6 +111,10 @@ class VideoAnalysisPipeline:
                     cancel_token=self.cancel_token,
                 )
             except Exception as ex:
+                # F-19 (B-351): keep the short error string for the StageResult,
+                # but log the full traceback so a stage crash (e.g. CUDA OOM) is
+                # not reduced to a one-line message with no stack.
+                logger.exception("stage %s crashed", sid)
                 sr = StageResult(
                     stage_id=sid, status="failed",
                     duration_s=0.0, error=f"{type(ex).__name__}: {ex}",
