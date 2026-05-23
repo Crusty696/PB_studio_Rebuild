@@ -29,6 +29,29 @@ from services.startup_checks import get_ffmpeg_bin, get_ffprobe_bin
 FFMPEG = get_ffmpeg_bin()
 FFPROBE = get_ffprobe_bin()
 
+_export_nvenc_available: bool | None = None
+
+
+def _video_encode_args() -> list[str]:
+    """Video-Codec-Args fuer Export-Re-Encodes (F-7 / B-339).
+
+    Bevorzugt ``h264_nvenc`` gemaess GPU-Hartregel (GTX 1060), faellt auf
+    ``libx264`` (CPU) zurueck wenn NVENC nicht verfuegbar ist — so bleibt der
+    Export ueberall lauffaehig. NVENC-Parameter spiegeln das erprobte
+    ``master``-Preset aus ``convert_service``.
+    """
+    global _export_nvenc_available
+    if _export_nvenc_available is None:
+        try:
+            from services.convert_service import detect_nvenc
+            _export_nvenc_available = bool(detect_nvenc().get("h264_nvenc"))
+        except Exception:
+            _export_nvenc_available = False
+    if _export_nvenc_available:
+        return ["-c:v", "h264_nvenc", "-preset", "p4", "-rc", "vbr",
+                "-cq", "18", "-b:v", "15M"]
+    return ["-c:v", "libx264", "-preset", "fast", "-crf", "23"]
+
 
 def _sanitize_ffmpeg_error(stderr: str, max_lines: int = 3) -> str:
     """Sanitize FFmpeg stderr for safe error messages."""
@@ -170,7 +193,7 @@ def _preprocess_segment(seg: dict, index: int, w: str, h: str, fps: float,
         "-i", seg["path"],
         "-t", f"{source_duration:.3f}",
         "-vf", vf,
-        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+        *_video_encode_args(),
         "-an", tmp.name,
     ]
     _run_ffmpeg(std_cmd, timeout=FFMPEG_RENDER_TIMEOUT_SEC,
@@ -539,7 +562,7 @@ def _export_optimized_concat(video_segments, audio_path, output_path,
                         "-i", seg["path"],
                         "-t", f"{source_duration:.3f}",
                         "-vf", vf,
-                        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                        *_video_encode_args(),
                         "-an", tmp.name,
                     ]
                     # B-126: per-segment cancel propagation.
@@ -630,8 +653,7 @@ def _export_optimized_concat(video_segments, audio_path, output_path,
                 f"scale={w}:{h}:force_original_aspect_ratio=decrease,"
                 f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps={fps}"
             )
-            cmd += ["-vf", filter_str,
-                    "-c:v", "libx264", "-preset", "fast", "-crf", "23"]
+            cmd += ["-vf", filter_str, *_video_encode_args()]
 
         if normalized_audio:
             cmd += ["-c:a", "aac", "-b:a", "192k",
@@ -794,7 +816,7 @@ def _export_with_filtergraph(video_segments, audio_path, output_path,
     else:
         cmd += ["-an"]
 
-    cmd += ["-c:v", "libx264", "-preset", "fast", "-crf", "23"]
+    cmd += _video_encode_args()
     cmd.append(str(output_path))
 
     if progress_cb:

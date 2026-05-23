@@ -278,7 +278,10 @@ def convert(
     
     if is_nvenc:
         nvenc_info = detect_nvenc()
-        if not nvenc_info.get("h264_nvenc"):
+        # F-22 (B-354): prueffe den tatsaechlichen Preset-Codec (h264_nvenc ODER
+        # hevc_nvenc), nicht nur h264 — sonst faellt ein HEVC-Preset selbst dann
+        # auf libx264 zurueck, wenn hevc_nvenc funktioniert.
+        if not nvenc_info.get(preset.video_codec):
             logger.warning(
                 "NVENC nicht verfuegbar (kein %s) — Fallback auf libx264 (CPU). "
                 "Konvertierung wird langsamer sein.",

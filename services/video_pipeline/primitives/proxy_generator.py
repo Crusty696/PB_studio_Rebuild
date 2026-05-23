@@ -12,10 +12,13 @@ Codec-Strategie:
 """
 from __future__ import annotations
 
+import logging
 import shutil
 import subprocess
 from pathlib import Path
 
+
+logger = logging.getLogger(__name__)
 
 __all__ = ["generate_proxy"]
 
@@ -43,7 +46,10 @@ def _try_encode(src: Path, dst: Path, max_width: int, bitrate: str, codec: str) 
         "-vf", f"scale={max_width}:-2",
         "-c:v", codec,
         "-b:v", bitrate,
-        "-c:a", "copy",
+        # F-17: re-encode audio to AAC instead of -c:a copy. Copying the source
+        # audio codec into the proxy MP4 fails for MP4-incompatible codecs
+        # (e.g. PCM), which would abort the whole proxy stage.
+        "-c:a", "aac", "-b:a", "128k",
         str(dst),
     ]
     res = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
@@ -81,6 +87,12 @@ def generate_proxy(
     if codec == "auto":
         if _has_nvenc() and _try_encode(src, dst, max_width, bitrate, "h264_nvenc"):
             return dst
+        # F-17: NVENC unavailable or failed -> CPU fallback is allowed per GPU
+        # rule, but make it visible instead of silent.
+        logger.warning(
+            "proxy: h264_nvenc unavailable/failed for %s -> libx264 (CPU) fallback",
+            src.name,
+        )
         if _try_encode(src, dst, max_width, bitrate, "libx264"):
             return dst
         raise RuntimeError("proxy encode failed (both nvenc + libx264)")
