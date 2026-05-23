@@ -32,13 +32,14 @@ class ConvertWorkspace(QWidget):
         )
         self._tabs.addTab(self._build_batch_tab(), "PREFLIGHT")
         self._tabs.setTabToolTip(0, "Videos im Pool auf ein gemeinsames Ziel-Format konvertieren.")
+        self._tabs.addTab(self._build_effects_tab(), "EFFEKTE")
+        self._tabs.setTabToolTip(1, "Per-Clip Helligkeit, Kontrast und Crossfade anwenden.")
         layout.addWidget(self._tabs, stretch=1)
 
         self.preflight_status = StatusStrip("Preflight bereit. Originaldateien bleiben unveraendert.")
         layout.addWidget(self.preflight_status)
 
         self.expert_tools = make_expert_container(self)
-        self.expert_tools.layout().addWidget(self._build_effects_tab())
 
         # Hidden compatibility log. Raw output belongs to context/expert surfaces,
         # but controllers still append here.
@@ -71,8 +72,8 @@ class ConvertWorkspace(QWidget):
         v.setContentsMargins(8, 6, 8, 6)
         v.setSpacing(8)
 
-        format_group = QGroupBox("Ziel-Format")
-        format_layout = QHBoxLayout(format_group)
+        self.format_group = QGroupBox("Ziel-Format")
+        format_layout = QHBoxLayout(self.format_group)
         format_layout.setSpacing(8)
 
         format_layout.addWidget(QLabel("Aufloesung:"))
@@ -111,7 +112,7 @@ class ConvertWorkspace(QWidget):
         )
         format_layout.addWidget(self.convert_format, stretch=1)
 
-        v.addWidget(format_group)
+        v.addWidget(self.format_group)
 
         # Action-Row
         action_row = QHBoxLayout()

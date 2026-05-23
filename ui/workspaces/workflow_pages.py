@@ -367,6 +367,10 @@ class MaterialAnalysisWorkspace(QWidget):
 
         if self.convert_widget is not None and hasattr(self.media_widget, "attach_preflight_button"):
             self.media_widget.attach_preflight_button(self.convert_widget.btn_standardize_all)
+            if hasattr(self.media_widget, "attach_preflight_format") and hasattr(
+                self.convert_widget, "format_group"
+            ):
+                self.media_widget.attach_preflight_format(self.convert_widget.format_group)
 
         self.btn_stems = self.media_widget.btn_stem_separate
         self.btn_video_pipeline = self.media_widget.btn_video_pipeline
