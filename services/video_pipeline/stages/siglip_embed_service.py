@@ -8,7 +8,9 @@ Lazy-loaded SigLIP-Modell. Default ``google/siglip-so400m-patch14-384`` (1152-di
 from __future__ import annotations
 
 import numpy as np
+import logging
 
+logger = logging.getLogger(__name__)
 
 __all__ = ["SigLipEmbedService"]
 
@@ -36,6 +38,18 @@ class SigLipEmbedService:
     def load(self) -> None:
         if self.is_loaded:
             return
+        
+        # Befund 2: SigLIP ueber ModelManager laden, um VRAM-Races und doppelte Instanzen zu verhindern
+        try:
+            from services.model_manager import ModelManager
+            logger.info("[SigLipEmbedService] Lade SigLIP über ModelManager...")
+            model, processor = ModelManager.instance().load_siglip(self.model_id)
+            self._model = model
+            self._processor = processor
+            return
+        except Exception as e:
+            logger.warning("[SigLipEmbedService] Konnte SigLIP nicht über ModelManager laden (%s). Nutze direkten Fallback...", e)
+
         from transformers import AutoModel, AutoProcessor
         import torch
         self._processor = AutoProcessor.from_pretrained(self.model_id)
@@ -45,7 +59,13 @@ class SigLipEmbedService:
             # probe so we do not allocate on top of a busy GTX 1060 (6 GB).
             from services.video_pipeline.primitives.gpu_lock_aware import wait_for_vram
             dev_idx = int(self.device.split(":")[-1]) if ":" in self.device else 0
-            wait_for_vram(self.vram_required_gb, device=dev_idx)
+            # Befund 4: wait_for_vram Rueckgabe auswerten
+            success = wait_for_vram(self.vram_required_gb, device=dev_idx)
+            if not success:
+                logger.warning(
+                    "[SigLipEmbedService] wait_for_vram() timed out after 60s. "
+                    "Inferenz wird fortgesetzt, OOM ist jedoch sehr wahrscheinlich."
+                )
             model = model.to(self.device)
         self._model = model.eval()
 
@@ -55,19 +75,22 @@ class SigLipEmbedService:
         Args:
             frames: Liste von RGB-uint8-Arrays ``(H, W, 3)``.
         """
-        self.load()
-        from PIL import Image
-        import torch
-        imgs = [Image.fromarray(f) for f in frames]
-        inputs = self._processor(images=imgs, return_tensors="pt")
-        if self.device.startswith("cuda") and torch.cuda.is_available():
-            inputs = {k: v.to(self.device) for k, v in inputs.items()}
-        with torch.no_grad():
-            features = self._model.get_image_features(**inputs)
-        arr = features.detach().cpu().float().numpy()
-        if self.dtype == "float16":
-            arr = arr.astype(np.float16)
-        return arr
+        # Befund 2: video_pipeline-Inferenz mit dem zentralen gpu_serializer synchronisieren
+        from services.brain_v3.gpu_serializer import get_default_serializer
+        with get_default_serializer().acquire("video_pipeline"):
+            self.load()
+            from PIL import Image
+            import torch
+            imgs = [Image.fromarray(f) for f in frames]
+            inputs = self._processor(images=imgs, return_tensors="pt")
+            if self.device.startswith("cuda") and torch.cuda.is_available():
+                inputs = {k: v.to(self.device) for k, v in inputs.items()}
+            with torch.no_grad():
+                features = self._model.get_image_features(**inputs)
+            arr = features.detach().cpu().float().numpy()
+            if self.dtype == "float16":
+                arr = arr.astype(np.float16)
+            return arr
 
     def unload(self) -> None:
         self._model = None

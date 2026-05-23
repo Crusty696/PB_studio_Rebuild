@@ -8,7 +8,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
+import logging
 
+logger = logging.getLogger(__name__)
 
 __all__ = ["RaftMotionService", "MotionStats"]
 
@@ -46,6 +48,15 @@ class RaftMotionService:
     def load(self) -> None:
         if self.is_loaded:
             return
+
+        # Befund 2: ModelManager entladen, um VRAM-Overlaps mit SigLIP zu verhindern
+        try:
+            from services.model_manager import ModelManager
+            logger.info("[RaftMotionService] Unloade ModelManager Modelle vor RAFT-Laden...")
+            ModelManager.instance().unload()
+        except Exception as e:
+            logger.warning("[RaftMotionService] Fehler beim Entladen des ModelManagers: %s", e)
+
         import torch
         from torchvision.models.optical_flow import raft_large, raft_small
         from torchvision.models.optical_flow import (
@@ -59,7 +70,13 @@ class RaftMotionService:
             # F-2: free-VRAM probe before allocating (shared 6 GB GTX 1060).
             from services.video_pipeline.primitives.gpu_lock_aware import wait_for_vram
             dev_idx = int(self.device.split(":")[-1]) if ":" in self.device else 0
-            wait_for_vram(self.vram_required_gb, device=dev_idx)
+            # Befund 4: wait_for_vram Rueckgabe auswerten
+            success = wait_for_vram(self.vram_required_gb, device=dev_idx)
+            if not success:
+                logger.warning(
+                    "[RaftMotionService] wait_for_vram() timed out nach 60s. "
+                    "Inferenz wird fortgesetzt, OOM ist jedoch wahrscheinlich."
+                )
             model = model.to(self.device)
         self._model = model.eval()
 
@@ -72,28 +89,31 @@ class RaftMotionService:
         Returns:
             ``np.ndarray`` shape ``(H, W, 2)`` (dx, dy) als float32.
         """
-        self.load()
-        import torch
-        # CHW float [-1,1] (RAFT-Convention)
-        def _to_tensor(arr: np.ndarray) -> "torch.Tensor":
-            t = torch.from_numpy(arr).permute(2, 0, 1).float() / 127.5 - 1.0
-            return t.unsqueeze(0)
+        # Befund 2: video_pipeline-Inferenz mit dem zentralen gpu_serializer synchronisieren
+        from services.brain_v3.gpu_serializer import get_default_serializer
+        with get_default_serializer().acquire("video_pipeline"):
+            self.load()
+            import torch
+            # CHW float [-1,1] (RAFT-Convention)
+            def _to_tensor(arr: np.ndarray) -> "torch.Tensor":
+                t = torch.from_numpy(arr).permute(2, 0, 1).float() / 127.5 - 1.0
+                return t.unsqueeze(0)
 
-        a = _to_tensor(frame_a)
-        b = _to_tensor(frame_b)
-        if self.device.startswith("cuda") and torch.cuda.is_available():
-            a = a.to(self.device)
-            b = b.to(self.device)
-        if self.resolution_scale != 1.0:
-            import torch.nn.functional as F
-            scale = self.resolution_scale
-            a = F.interpolate(a, scale_factor=scale, mode="bilinear", align_corners=False)
-            b = F.interpolate(b, scale_factor=scale, mode="bilinear", align_corners=False)
+            a = _to_tensor(frame_a)
+            b = _to_tensor(frame_b)
+            if self.device.startswith("cuda") and torch.cuda.is_available():
+                a = a.to(self.device)
+                b = b.to(self.device)
+            if self.resolution_scale != 1.0:
+                import torch.nn.functional as F
+                scale = self.resolution_scale
+                a = F.interpolate(a, scale_factor=scale, mode="bilinear", align_corners=False)
+                b = F.interpolate(b, scale_factor=scale, mode="bilinear", align_corners=False)
 
-        with torch.no_grad():
-            flows = self._model(a, b, num_flow_updates=self.iter_count)
-        flow = flows[-1][0]  # [2, H, W]
-        return flow.detach().cpu().permute(1, 2, 0).float().numpy()
+            with torch.no_grad():
+                flows = self._model(a, b, num_flow_updates=self.iter_count)
+            flow = flows[-1][0]  # [2, H, W]
+            return flow.detach().cpu().permute(1, 2, 0).float().numpy()
 
     @staticmethod
     def aggregate(flow: np.ndarray) -> MotionStats:
