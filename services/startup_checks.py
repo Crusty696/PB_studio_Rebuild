@@ -63,15 +63,22 @@ _MIN_DISK_BYTES = 1 * 1024 ** 3  # 1 GiB
 class SystemStatus:
     ffmpeg_ok: bool = False
     ffmpeg_version: str = ""
+    ffmpeg_path: str = ""
     ffprobe_ok: bool = False
+    ffprobe_path: str = ""
     cuda_ok: bool = False
     gpu_name: str = ""
     gpu_vram_mb: int = 0
     disk_free_gb: float = 0.0
     disk_ok: bool = False
+    hf_cache_ok: bool = False
+    hf_cache_path: str = ""
+    hf_cache_source: str = ""
+    hf_cache_detail: str = ""
     ollama_ok: bool = False
     beat_this_ok: bool = False
     demucs_ok: bool = False
+    model_cache_warnings: list[str] = field(default_factory=list)
     ml_warnings: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
@@ -338,6 +345,47 @@ def _check_ml_packages() -> tuple[bool, bool]:
     return beat_this_ok, demucs_ok
 
 
+def _is_readable_dir(path: Path) -> bool:
+    try:
+        return path.exists() and path.is_dir() and os.access(path, os.R_OK)
+    except OSError:
+        return False
+
+
+def _check_hf_cache() -> tuple[bool, str, str, str, list[str]]:
+    """Check whether the Hugging Face cache is explicitly portable.
+
+    Reference: ComfyUI-Studio Migration_Setup.md recommends HF_HOME so
+    model caches survive machine moves. PB uses Hugging Face models too, so
+    this is a non-blocking portability check, not a runtime requirement.
+    """
+    hub_cache = os.environ.get("HUGGINGFACE_HUB_CACHE") or os.environ.get("HF_HUB_CACHE")
+    hf_home = os.environ.get("HF_HOME")
+    warnings: list[str] = []
+
+    if hub_cache:
+        source = "HUGGINGFACE_HUB_CACHE" if os.environ.get("HUGGINGFACE_HUB_CACHE") else "HF_HUB_CACHE"
+        path = Path(hub_cache).expanduser()
+        if _is_readable_dir(path):
+            return True, str(path), source, "portabler Hub-Cache gesetzt", warnings
+        warnings.append(f"{source} ist gesetzt, aber nicht lesbar: {path}")
+        return False, str(path), source, "gesetzt, aber nicht lesbar", warnings
+
+    if hf_home:
+        path = Path(hf_home).expanduser()
+        if _is_readable_dir(path):
+            return True, str(path), "HF_HOME", "portabler Hugging-Face-Cache gesetzt", warnings
+        warnings.append(f"HF_HOME ist gesetzt, aber nicht lesbar: {path}")
+        return False, str(path), "HF_HOME", "gesetzt, aber nicht lesbar", warnings
+
+    default_path = Path.home() / ".cache" / "huggingface"
+    warnings.append(
+        "HF_HOME/HUGGINGFACE_HUB_CACHE nicht gesetzt. Modelle nutzen den Standard-Cache "
+        f"({default_path}) und sind weniger portabel."
+    )
+    return False, str(default_path), "default", "kein portabler Cache gesetzt", warnings
+
+
 def _check_disk(path: Path) -> float:
     import shutil
     try:
@@ -353,15 +401,18 @@ def check_system(app_root: Path | None = None) -> SystemStatus:
         app_root = Path(__file__).parent.parent
 
     status = SystemStatus()
+    status.ffmpeg_path = str(_FFMPEG_BIN)
+    status.ffprobe_path = str(_FFPROBE_BIN)
     
     # CUDA-Check zuerst und im Haupt-Thread erzwingen, da Background-Threads oft Probleme mit GPU-Context haben
     logger.info("Starte CUDA-Check...")
     status.cuda_ok, status.gpu_name, status.gpu_vram_mb = _check_cuda()
 
     futures: dict = {}
-    with ThreadPoolExecutor(max_workers=4, thread_name_prefix="startup_check") as pool:
+    with ThreadPoolExecutor(max_workers=5, thread_name_prefix="startup_check") as pool:
         futures["ffmpeg"] = pool.submit(_check_ffmpeg)
         futures["disk"] = pool.submit(_check_disk, app_root)
+        futures["hf_cache"] = pool.submit(_check_hf_cache)
         futures["ollama"] = pool.submit(_check_ollama)
         futures["ml"] = pool.submit(_check_ml_packages)
 
@@ -380,6 +431,13 @@ def check_system(app_root: Path | None = None) -> SystemStatus:
                 elif key == "disk":
                     status.disk_free_gb = future.result(timeout=STARTUP_DISK_CHECK_TIMEOUT_SEC)
                     status.disk_ok = status.disk_free_gb >= 1.0
+                elif key == "hf_cache":
+                    ok, path, source, detail, cache_warnings = future.result(timeout=STARTUP_DISK_CHECK_TIMEOUT_SEC)
+                    status.hf_cache_ok = ok
+                    status.hf_cache_path = path
+                    status.hf_cache_source = source
+                    status.hf_cache_detail = detail
+                    status.model_cache_warnings.extend(cache_warnings)
                 elif key == "ollama":
                     status.ollama_ok = future.result(timeout=STARTUP_OLLAMA_CHECK_TIMEOUT_SEC)
                 elif key == "ml":
@@ -442,6 +500,11 @@ def check_system(app_root: Path | None = None) -> SystemStatus:
         )
 
     return status
+
+
+def run_startup_checks(app_root: Path | None = None) -> SystemStatus:
+    """Backward-compatible UI entrypoint for the first-run setup wizard."""
+    return check_system(app_root)
 
 
 # ---------------------------------------------------------------------------

@@ -325,9 +325,13 @@ class _PageHardware(QWidget):
             ("GPU / CUDA", status.cuda_ok,
              f"{status.gpu_name}  {status.gpu_vram_mb // 1024} GB" if status.cuda_ok else "Nicht gefunden — CPU-Modus"),
             ("FFmpeg", status.ffmpeg_ok,
-             status.ffmpeg_version if status.ffmpeg_ok else "Nicht gefunden"),
+             f"{status.ffmpeg_version} · {status.ffmpeg_path}" if status.ffmpeg_ok else f"Nicht gefunden · {status.ffmpeg_path}"),
+            ("ffprobe", status.ffprobe_ok,
+             status.ffprobe_path if status.ffprobe_path else "Nicht gefunden"),
             ("KI-Dienst", status.ollama_ok,
              "Läuft" if status.ollama_ok else "Nicht gestartet — wird im Hintergrund gestartet"),
+            ("Hugging-Face Cache", status.hf_cache_ok,
+             f"{status.hf_cache_source}: {status.hf_cache_path}" if status.hf_cache_path else status.hf_cache_detail),
             ("Festplatte", status.disk_ok,
              f"{status.disk_free_gb:.1f} GB frei"),
         ]
@@ -350,6 +354,15 @@ class _PageHardware(QWidget):
                 f"⚠  Weniger als 15 GB frei ({status.disk_free_gb:.1f} GB). "
                 "KI-Modelle benötigen ca. 12 GB."
             )
+            warn.setWordWrap(True)
+            warn.setStyleSheet(
+                f"color: {WARN}; font-size: 11px; background: rgba(251,191,36,20); "
+                "border-radius: 6px; padding: 8px 10px;"
+            )
+            self._check_layout.addWidget(warn)
+
+        for msg in status.model_cache_warnings:
+            warn = QLabel(msg)
             warn.setWordWrap(True)
             warn.setStyleSheet(
                 f"color: {WARN}; font-size: 11px; background: rgba(251,191,36,20); "

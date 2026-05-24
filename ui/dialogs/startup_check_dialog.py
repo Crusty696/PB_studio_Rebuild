@@ -125,13 +125,21 @@ class StartupCheckDialog(QDialog):
 
         cl.addWidget(_section_label("Abhaengigkeiten"))
         cl.addSpacing(4)
-        ffmpeg_detail = f"v{status.ffmpeg_version}" if status.ffmpeg_version else ""
+        ffmpeg_detail = f"v{status.ffmpeg_version} · {status.ffmpeg_path}" if status.ffmpeg_version else status.ffmpeg_path
         cl.addWidget(_check_row("FFmpeg", status.ffmpeg_ok, ffmpeg_detail))
-        cl.addWidget(_check_row("ffprobe", status.ffprobe_ok))
+        cl.addWidget(_check_row("ffprobe", status.ffprobe_ok, status.ffprobe_path))
         gpu_detail = f"{status.gpu_name}  {round(status.gpu_vram_mb / 1024)} GB" if status.cuda_ok else ""
         cl.addWidget(_check_row("CUDA GPU", status.cuda_ok, gpu_detail))
         cl.addWidget(_check_row("Speicherplatz (>1 GB)", status.disk_ok, f"{status.disk_free_gb:.1f} GB frei"))
         cl.addWidget(_check_row("Ollama (KI-Dienst)", status.ollama_ok))
+        cl.addSpacing(8)
+
+        cl.addWidget(_section_label("Portabilitaet"))
+        cl.addSpacing(4)
+        hf_detail = status.hf_cache_detail
+        if status.hf_cache_path:
+            hf_detail = f"{status.hf_cache_source}: {status.hf_cache_path}"
+        cl.addWidget(_check_row("Hugging-Face Cache", status.hf_cache_ok, hf_detail))
         cl.addSpacing(8)
 
         cl.addWidget(_section_label("KI-Modelle"))
@@ -157,6 +165,12 @@ class StartupCheckDialog(QDialog):
             cl.addSpacing(6)
             cl.addWidget(_section_label("KI-Modell Hinweise"))
             for msg in status.ml_warnings:
+                cl.addWidget(_message_row(msg, ACCENT, "i"))
+
+        if status.model_cache_warnings:
+            cl.addSpacing(6)
+            cl.addWidget(_section_label("Modell-Cache Hinweise"))
+            for msg in status.model_cache_warnings:
                 cl.addWidget(_message_row(msg, ACCENT, "i"))
 
         cl.addSpacing(12)
