@@ -687,6 +687,40 @@ class ChatDock(QDockWidget):
         else:
             self.append_ai("(Keine Antwort)")
 
+        # ── UI-Refresh-Trigger für neue administrative Chat-Aktionen ──────
+        executed_actions = []
+        if action == "multi" and actions:
+            for act in actions:
+                act_name = act.get("action", "none")
+                if act_name != "none" and not act.get("error"):
+                    executed_actions.append(act_name)
+        elif action != "none" and not error:
+            executed_actions.append(action)
+
+        for act_name in executed_actions:
+            if act_name == "delete_media":
+                if self._main_window and hasattr(self._main_window, "media_table_controller"):
+                    logger.info("ChatDock Trigger: Aktualisiere Medien-Tabelle nach delete_media")
+                    self._main_window.media_table_controller._refresh_media_table()
+            elif act_name == "clear_timeline":
+                if self._main_window and hasattr(self._main_window, "timeline_view"):
+                    logger.info("ChatDock Trigger: Lade Timeline neu nach clear_timeline")
+                    self._main_window.timeline_view.load_from_db()
+            elif act_name == "save_project":
+                if self._main_window and hasattr(self._main_window, "project_management"):
+                    logger.info("ChatDock Trigger: Markiere Projekt als gespeichert nach save_project")
+                    self._main_window.project_management._mark_clean()
+            elif act_name in ("add_to_timeline", "move_clip", "remove_clip", "set_clip_effects", "undo_timeline", "redo_timeline", "sync_anchors"):
+                if self._main_window and hasattr(self._main_window, "timeline_view"):
+                    logger.info("ChatDock Trigger: Lade Timeline neu nach %s", act_name)
+                    self._main_window.timeline_view.load_from_db()
+                if act_name == "add_to_timeline" and self._main_window and hasattr(self._main_window, "media_table_controller"):
+                    self._main_window.media_table_controller._refresh_media_table()
+            elif act_name in ("convert_videos", "clear_search", "refresh_media"):
+                if self._main_window and hasattr(self._main_window, "media_table_controller"):
+                    logger.info("ChatDock Trigger: Aktualisiere Medien-Tabelle nach %s", act_name)
+                    self._main_window.media_table_controller._refresh_media_table()
+
         self.append_divider()
 
     def _on_agent_error(self, error_msg: str) -> None:
