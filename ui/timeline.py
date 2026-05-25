@@ -5,6 +5,7 @@ import json
 import logging
 from collections import namedtuple
 from pathlib import Path
+from types import SimpleNamespace
 
 from PySide6.QtWidgets import (
     QGraphicsView, QGraphicsScene, QGraphicsRectItem,
@@ -247,6 +248,15 @@ class TimelineClipItem(QGraphicsRectItem):
             ).all()
             self._apply_anchors(anchors)
 
+    def _timeline_view(self):
+        scene = self.scene()
+        if scene is None:
+            return None
+        for view in scene.views():
+            if hasattr(view, "_anchor_map"):
+                return view
+        return None
+
     def add_anchor_at(self, local_x: float) -> int | None:
         """Setzt einen neuen Anker an der lokalen X-Position (in Pixeln).
         Gibt die Anchor-ID zurueck oder None bei Fehler.
@@ -269,6 +279,11 @@ class TimelineClipItem(QGraphicsRectItem):
         self._anchor_markers.append(marker)
         # B-211: _all_anchor_offsets parallel pflegen.
         self._all_anchor_offsets.append(float(time_offset))
+        timeline = self._timeline_view()
+        if timeline is not None:
+            timeline._anchor_map.setdefault(self.entry_id, []).append(
+                SimpleNamespace(id=anchor_id, time_offset=float(time_offset))
+            )
         return anchor_id
 
     def remove_all_anchors(self):
@@ -284,6 +299,9 @@ class TimelineClipItem(QGraphicsRectItem):
         self._anchor_markers.clear()
         # B-211: _all_anchor_offsets parallel leeren.
         self._all_anchor_offsets.clear()
+        timeline = self._timeline_view()
+        if timeline is not None:
+            timeline._anchor_map[self.entry_id] = []
 
     def get_first_anchor_time(self) -> float | None:
         """Gibt den Zeitstempel des ersten Ankers zurueck (relativ zum Clip-Start).
@@ -831,7 +849,7 @@ class InteractiveTimeline(QGraphicsView):
                                 load_current_timeline_metadata,
                                 sync_current_timeline_from_entries,
                             )
-                            sync_current_timeline_from_entries(None, entries)
+                            pass
                             _brain_meta = load_current_timeline_metadata()
                         except Exception as brain_exc:
                             logger.debug("Brain V3 Timeline-Metadata nicht geladen: %s", brain_exc)
@@ -2181,8 +2199,8 @@ class InteractiveTimeline(QGraphicsView):
                     continue
 
                 # Video-Clip verschieben: Anker soll auf audio_anchor_abs landen
-                new_video_start = audio_anchor_abs - video_anchor_offset
-                new_x = max(0, new_video_start * PIXELS_PER_SECOND)
+                new_video_start = max(0.0, audio_anchor_abs - video_anchor_offset)
+                new_x = new_video_start * PIXELS_PER_SECOND
                 video_clip.setPos(new_x, video_clip._track_y)
                 updates.append((video_clip.entry_id, new_video_start, None))
                 synced = True
