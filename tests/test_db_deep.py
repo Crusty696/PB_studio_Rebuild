@@ -1,6 +1,6 @@
 """
 Deep Functional Test Suite for PB Studio Database Layer.
-Tests all 17 SQLAlchemy models (CRUD), relationships, cascades, edge cases,
+Tests all SQLAlchemy models (CRUD), relationships, cascades, edge cases,
 nullpool_session, and migration system using in-memory SQLite.
 
 Run with: .venv310/Scripts/python.exe test_db_deep.py
@@ -17,7 +17,7 @@ import time
 # touch the real pb_studio.db.
 
 # Ensure project root is on sys.path
-PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
 
 from sqlalchemy import create_engine, event, inspect, text
@@ -69,7 +69,7 @@ from database.models import (
     Base, Project, AudioTrack, VideoClip, Scene, Beatgrid, WaveformData,
     PacingBlueprint, AudioVideoAnchor, ClipAnchor, AIPacingMemory,
     StructureSegment, HotCue, ModelRegistry, AgentFeedback, StylePreset,
-    TimelineEntry, AnalysisStatus,
+    TimelineEntry, AnalysisStatus, TimelineSnapshot, ProjectNote,
 )
 
 # Create all tables in the in-memory DB
@@ -96,14 +96,15 @@ def test_tables_created():
         "waveform_data", "pacing_blueprints", "audio_video_anchors",
         "clip_anchors", "ai_pacing_memory", "structure_segments", "hotcues",
         "model_registry", "agent_feedback", "style_presets",
-        "timeline_entries", "analysis_status",
+        "timeline_entries", "analysis_status", "timeline_snapshots",
+        "project_notes",
     }
     actual = set(insp.get_table_names())
     missing = expected_tables - actual
     if missing:
         raise AssertionError(f"Missing tables: {missing}")
 
-run_test("1.1 All 17 tables created via create_all", test_tables_created)
+run_test("1.1 All model tables created via create_all", test_tables_created)
 
 
 def test_foreign_keys_enabled():
@@ -2406,7 +2407,7 @@ print("=" * 70)
 
 
 def test_model_count():
-    """Verify we have exactly 17 model classes (as listed in __init__.py exports)."""
+    """Verify model classes match the expected database.models exports."""
     from database import models
     model_classes = [
         cls for name in dir(models)
@@ -2421,10 +2422,11 @@ def test_model_count():
         "WaveformData", "PacingBlueprint", "AudioVideoAnchor", "ClipAnchor",
         "AIPacingMemory", "StructureSegment", "HotCue", "ModelRegistry",
         "AgentFeedback", "StylePreset", "TimelineEntry", "AnalysisStatus",
+        "TimelineSnapshot", "ProjectNote",
     ])
     assert names == expected, f"Model mismatch.\nExpected: {expected}\nActual:   {names}"
 
-run_test("8.1 Exactly 17 model classes defined", test_model_count)
+run_test("8.1 Model classes match expected exports", test_model_count)
 
 
 def test_all_models_exported():
@@ -2435,11 +2437,12 @@ def test_all_models_exported():
         "WaveformData", "PacingBlueprint", "AudioVideoAnchor", "ClipAnchor",
         "AIPacingMemory", "StructureSegment", "HotCue", "ModelRegistry",
         "AgentFeedback", "StylePreset", "TimelineEntry", "AnalysisStatus",
+        "TimelineSnapshot", "ProjectNote",
     ]
     missing = [n for n in expected_names if not hasattr(db_mod, n)]
     assert not missing, f"Models not exported from database/__init__.py: {missing}"
 
-run_test("8.2 All 17 models exported from database/__init__.py", test_all_models_exported)
+run_test("8.2 All models exported from database/__init__.py", test_all_models_exported)
 
 
 # ═══════════════════════════════════════════════════════════════════════

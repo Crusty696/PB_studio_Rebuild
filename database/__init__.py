@@ -32,6 +32,8 @@ from database.models import (  # noqa: F401
     StylePreset,
     TimelineEntry,
     AnalysisStatus,
+    TimelineSnapshot,
+    ProjectNote,
 )
 
 from database.migrations import init_db  # noqa: F401

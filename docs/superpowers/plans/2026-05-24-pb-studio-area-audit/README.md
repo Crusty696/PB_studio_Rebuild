@@ -61,75 +61,84 @@ For every area:
 
 ### Area 2: Database, Migrations, Storage, Soft-Delete
 
-- [ ] Read `database/`, migrations, session setup, storage path services, DB tests.
-- [ ] Check schema drift, destructive defaults, migration order, backup/recovery assumptions.
-- [ ] Run targeted DB tests.
-- [ ] Create Vault synthesis `wiki/synthesis/area-audit-02-database-storage-2026-05-24.md`.
+- [x] Read `database/`, migrations, session setup, storage path services, DB tests.
+- [x] Check schema drift, destructive defaults, migration order, backup/recovery assumptions.
+- [x] Run targeted DB tests.
+- [x] Create Vault synthesis `wiki/synthesis/area-audit-02-database-storage-2026-05-25.md`.
 
 ### Area 3: Project, Import, Media Ingest
 
-- [ ] Read project management, ingest service, media table model, import controllers, GUI import tools.
-- [ ] Check duplicate handling, file type validation, project path safety, worker dispatch.
-- [ ] Run targeted ingest/project tests and safe GUI navigation if possible.
-- [ ] Create Vault synthesis `wiki/synthesis/area-audit-03-project-ingest-2026-05-24.md`.
+- [x] Read project management, ingest service, media table model, import controllers, GUI import tools.
+- [x] Check duplicate handling, file type validation, project path safety, worker dispatch.
+- [x] Run targeted ingest/project tests and safe GUI navigation if possible.
+- [x] Create Vault synthesis `wiki/synthesis/area-audit-03-project-ingest-2026-05-25.md`.
 
 ### Area 4: Audio Pipeline
 
-- [ ] Read audio services, Demucs/stems, Beatgrid, key/structure/onset/LUFS services, audio controllers.
-- [ ] Check GPU/CPU boundaries, long-track chunking, cache paths, failure recovery.
-- [ ] Run non-live-GPU tests first; live GPU tests only if explicitly safe on GTX 1060.
-- [ ] Create Vault synthesis `wiki/synthesis/area-audit-04-audio-pipeline-2026-05-24.md`.
+- [x] Read audio services, Demucs/stems, Beatgrid, key/structure/onset/LUFS services, audio controllers.
+- [x] Check GPU/CPU boundaries, long-track chunking, cache paths, failure recovery.
+- [x] Run non-live-GPU tests first; live GPU tests only if explicitly safe on GTX 1060.
+- [x] Create Vault synthesis `wiki/synthesis/area-audit-04-audio-pipeline-2026-05-25.md`.
 
 ### Area 5: Video Pipeline
 
-- [ ] Read proxy, scene detect, RAFT/SigLIP, vector DB, video pipeline stages, video controllers.
-- [ ] Check VRAM locking, batch size, proxy lifecycle, embedding dimensions, failure cleanup.
-- [ ] Run safe video pipeline tests; no unsupported GPU backend.
-- [ ] Create Vault synthesis `wiki/synthesis/area-audit-05-video-pipeline-2026-05-24.md`.
+- [x] Read proxy, scene detect, RAFT/SigLIP, vector DB, video pipeline stages, video controllers.
+- [x] Check VRAM locking, batch size, proxy lifecycle, embedding dimensions, failure cleanup.
+- [x] Run safe video pipeline tests; no unsupported GPU backend.
+- [x] Create Vault synthesis `wiki/synthesis/area-audit-05-video-pipeline-2026-05-25.md`.
 
 ### Area 6: Brain, Pacing, Auto-Edit, Memory/RL
 
-- [ ] Read Brain V2/V3, pacing services, auto-edit worker, memory/RL modules, structure services.
-- [ ] Check data contracts between audio/video analysis and timeline generation.
-- [ ] Run pacing/brain tests and safe smoke scripts.
-- [ ] Create Vault synthesis `wiki/synthesis/area-audit-06-brain-pacing-memory-2026-05-24.md`.
+- [x] Read Brain V2/V3, pacing services, auto-edit worker, memory/RL modules, structure services.
+- [x] Check data contracts between audio/video analysis and timeline generation.
+- [x] Run pacing/brain tests and safe smoke scripts.
+- [x] Create Vault synthesis `wiki/synthesis/area-audit-06-brain-pacing-memory-2026-05-25.md`.
 
 ### Area 7: Schnitt UI, Timeline, Waveform, Thumbnails, Anchors
 
-- [ ] Read Schnitt workspace, timeline widgets, waveform item, thumbnails, anchors, related controllers.
-- [ ] Check signal/slot wiring, QThread lifecycle, layout/visibility states, missing media fallback.
-- [ ] Run UI tests, Qt offscreen smoke, and available GUI tools if app starts.
-- [ ] Create Vault synthesis `wiki/synthesis/area-audit-07-schnitt-ui-2026-05-24.md`.
+- [x] Read Schnitt workspace, timeline widgets, waveform item, thumbnails, anchors, related controllers.
+- [x] Check signal/slot wiring, QThread lifecycle, layout/visibility states, missing media fallback.
+- [x] Run UI tests, Qt offscreen smoke, and available GUI tools if app starts.
+- [x] Create Vault synthesis `wiki/synthesis/area-audit-07-schnitt-ui-2026-05-25.md`.
 
 ### Area 8: Export/Delivery
 
-- [ ] Read export service, convert service, delivery workspace, FFmpeg/NVENC handling, LUFS paths.
-- [ ] Check encoder selection, fallback, timeout/cancel, temp files, output path safety.
-- [ ] Run export/convert tests and safe dry-run/smoke only.
-- [ ] Create Vault synthesis `wiki/synthesis/area-audit-08-export-delivery-2026-05-24.md`.
+- [x] Read export service, convert service, delivery workspace, FFmpeg/NVENC handling, LUFS paths.
+- [x] Check encoder selection, fallback, timeout/cancel, temp files, output path safety.
+- [x] Run export/convert tests and safe dry-run/smoke only.
+- [x] Create Vault synthesis `wiki/synthesis/area-audit-08-export-delivery-2026-05-25.md`.
 
 ### Area 9: Chat, Actions, Agents, Ollama
 
-- [ ] Read chat dock, action registry, action modules, local agent service, Ollama service/client, agents.
-- [ ] Check command routing, side effects, error reporting, forbidden direct callers from other plans.
-- [ ] Run targeted action/chat/agent tests.
-- [ ] Create Vault synthesis `wiki/synthesis/area-audit-09-chat-actions-agents-2026-05-24.md`.
+- [x] Read chat dock, action registry, action modules, local agent service, Ollama service/client, agents.
+- [x] Check command routing, side effects, error reporting, forbidden direct callers from other plans.
+- [x] Run targeted action/chat/agent tests.
+- [x] Create Vault synthesis `wiki/synthesis/area-audit-09-chat-actions-agents-2026-05-25.md`.
 
 ### Area 10: Packaging, Installer, Docs, Launch Scripts
 
-- [ ] Read PyInstaller spec, installer scripts/hooks, setup docs, launch scripts, user docs.
-- [ ] Check runtime dependency packaging, CUDA/FFmpeg/model cache assumptions, stale docs.
-- [ ] Run packaging smoke where safe; no release build unless explicitly approved.
-- [ ] Create Vault synthesis `wiki/synthesis/area-audit-10-packaging-docs-2026-05-24.md`.
+- [x] Read PyInstaller spec, installer scripts/hooks, setup docs, launch scripts, user docs.
+- [x] Check runtime dependency packaging, CUDA/FFmpeg/model cache assumptions, stale docs.
+- [x] Run packaging smoke where safe; no release build unless explicitly approved.
+- [x] Create Vault synthesis `wiki/synthesis/area-audit-10-packaging-docs-2026-05-25.md`.
 
 ## Final Deliverables
 
-- [ ] Vault synthesis `wiki/synthesis/pb-studio-area-audit-final-2026-05-24.md`.
-- [ ] Prioritized fix plan grouped by Critical, High, Medium, Low.
-- [ ] Repo summary in `docs/superpowers/synthesis/pb-studio-area-audit-final-2026-05-24.md`.
-- [ ] No app-code changes unless user explicitly approves a later fix plan.
+- [x] Vault synthesis `wiki/synthesis/pb-studio-area-audit-final-2026-05-25.md`.
+- [x] Prioritized fix plan grouped by Critical, High, Medium, Low.
+- [x] Repo summary in `docs/superpowers/synthesis/pb-studio-area-audit-final-2026-05-25.md`.
+- [x] No app-code changes unless user explicitly approves a later fix plan.
 
 ## Audit Log
 
 - 2026-05-24: Plan created from user-approved implementation plan.
 - 2026-05-24: Area 1 audited. Startup/setup targeted tests passed, py_compile passed, default pytest collect blocked by B-348, live UI path open. Next allowed task: Area 2 Database, Migrations, Storage, Soft-Delete.
+- 2026-05-25: Area 2 audited. DB/migration/storage targeted tests passed (94), py_compile passed, no new Area-2-specific bug file. Next allowed task: Area 3 Project, Import, Media Ingest.
+- 2026-05-25: Area 3 audited. Project/import/media-ingest targeted tests passed (35 + 26), py_compile passed after correcting the worker file path, bugs B-349 through B-352 documented, live GUI path open. Next allowed task: Area 4 Audio Pipeline.
+- 2026-05-25: Area 4 audited. Audio pipeline safe tests passed (253 + 30, 1 skipped), py_compile passed, bugs B-353 through B-359 documented, live GPU/GUI path open. Next allowed task: Area 5 Video Pipeline.
+- 2026-05-25: Area 5 audited. Corrected safe video gate produced 90 passed, 2 failed, 2 deselected; py_compile passed; bugs B-360 through B-369 documented; live GPU/GUI path open. Next allowed task: Area 6 Brain, Pacing, Auto-Edit, Memory/RL.
+- 2026-05-25: Area 6 audited. Split gates passed (96 + 130 + 183), py_compile passed, bugs B-370 through B-378 documented, live GUI/Auto-Edit path open. Next allowed task: Area 7 Schnitt UI, Timeline, Waveform, Thumbnails, Anchors.
+- 2026-05-25: Area 7 audited. UI/Timeline/Waveform targeted offscreen/service gates passed (34 + 18 + 14 + 20), py_compile passed, bugs B-379 through B-391 documented, live GUI path open. Next allowed task: Area 8 Export/Delivery.
+- 2026-05-25: Area 8 audited. Export/convert/proxy safe gates produced 14 passed, 40 passed/1 failed, 24 passed; py_compile passed; global collect remains blocked by B-348; new bugs B-392 through B-408 documented; live Export/NVENC/LUFS GUI path open. Next allowed task: Area 9 Chat, Actions, Agents, Ollama.
+- 2026-05-25: Area 9 audited. Agent/action/chat gates produced 106 passed, 23 passed, 25 passed/1 skipped; py_compile passed after split; global collect remains blocked by B-348; new bugs B-409 through B-417 documented; live Chat/Ollama/tool-calling GUI path open. Next allowed task: Area 10 Packaging, Installer, Docs, Launch Scripts.
+- 2026-05-25: Area 10 audited. Packaging/startup safe gates produced 23 passed; corrected py_compile passed; global collect remains blocked by B-348; new bugs B-418 through B-430 documented; no release build run. Final synthesis and fixplan created. No app-code fixes authorized.
