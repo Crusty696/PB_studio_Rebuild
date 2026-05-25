@@ -47,17 +47,20 @@ class PollWorker(QObject):
         den UI-Event-Loop. Fix: ersten Poll per QTimer.singleShot(0, ...)
         absetzen — das garantiert Ausfuehrung im *worker* Event-Loop.
         """
-        self._timer = QTimer()
-        self._timer.setInterval(_POLL_INTERVAL_MS)
-        self._timer.timeout.connect(self._poll)
-        self._timer.start()
-        # Erster Poll deferred — MUSS im Worker-Event-Loop laufen
-        QTimer.singleShot(0, self._poll)
+        if self._timer is None:
+            self._timer = QTimer(self)
+            self._timer.setInterval(_POLL_INTERVAL_MS)
+            self._timer.timeout.connect(self._poll)
+        
+        if not self._timer.isActive():
+            self._timer.start()
+            # Erster Poll deferred — MUSS im Worker-Event-Loop laufen
+            QTimer.singleShot(0, self._poll)
 
     @Slot()
     def stop(self):
         """Stop the timer (safe to call from any thread via QMetaObject)."""
-        if self._timer is not None:
+        if self._timer is not None and self._timer.isActive():
             self._timer.stop()
 
     def _poll(self):

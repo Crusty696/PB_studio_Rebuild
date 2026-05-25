@@ -5,11 +5,11 @@ import json
 import logging
 from collections import namedtuple
 from pathlib import Path
-from types import SimpleNamespace
 
 from PySide6.QtWidgets import (
     QGraphicsView, QGraphicsScene, QGraphicsRectItem,
     QGraphicsTextItem, QGraphicsLineItem, QGraphicsPolygonItem, QGraphicsPixmapItem, QMenu,
+    QGraphicsItem,
 )
 from PySide6.QtCore import Qt, QRectF, QPointF, Signal, QTimer
 from PySide6.QtGui import (
@@ -31,6 +31,39 @@ from ui.widgets.lock_icon_item import LockIconItem
 CLIP_MIME_TYPE = "application/x-pb-studio-clip"
 
 _EntryStub = namedtuple("_EntryStub", ["start_time"])
+
+from PySide6.QtCore import QThread, QObject
+
+class WaveformLoadWorker(QObject):
+    finished = Signal(object, list, list, list, list)  # (track, band_low, band_mid, band_high, beat_positions)
+
+    def __init__(self, media_id: int):
+        super().__init__()
+        self.media_id = media_id
+
+    def run(self):
+        try:
+            from database import nullpool_session, AudioTrack
+            import json
+            with nullpool_session() as session:
+                track = session.query(AudioTrack).filter(
+                    AudioTrack.id == self.media_id, AudioTrack.deleted_at.is_(None)
+                ).first()
+                if track and track.waveform_data:
+                    wd = track.waveform_data
+                    band_low = json.loads(wd.band_low) if isinstance(wd.band_low, str) else (wd.band_low or [])
+                    band_mid = json.loads(wd.band_mid) if isinstance(wd.band_mid, str) else (wd.band_mid or [])
+                    band_high = json.loads(wd.band_high) if isinstance(wd.band_high, str) else (wd.band_high or [])
+                    
+                    beat_positions = []
+                    if track.beatgrid and track.beatgrid.beat_positions:
+                        beat_positions = json.loads(track.beatgrid.beat_positions) if isinstance(track.beatgrid.beat_positions, str) else (track.beatgrid.beat_positions or [])
+                    
+                    self.finished.emit(track, band_low, band_mid, band_high, beat_positions)
+                    return
+        except Exception as e:
+            logger.error("Async Waveform Load Error: %s", e)
+        self.finished.emit(None, [], [], [], [])
 
 # ======================================================================
 # Constants
@@ -248,15 +281,6 @@ class TimelineClipItem(QGraphicsRectItem):
             ).all()
             self._apply_anchors(anchors)
 
-    def _timeline_view(self):
-        scene = self.scene()
-        if scene is None:
-            return None
-        for view in scene.views():
-            if hasattr(view, "_anchor_map"):
-                return view
-        return None
-
     def add_anchor_at(self, local_x: float) -> int | None:
         """Setzt einen neuen Anker an der lokalen X-Position (in Pixeln).
         Gibt die Anchor-ID zurueck oder None bei Fehler.
@@ -279,11 +303,6 @@ class TimelineClipItem(QGraphicsRectItem):
         self._anchor_markers.append(marker)
         # B-211: _all_anchor_offsets parallel pflegen.
         self._all_anchor_offsets.append(float(time_offset))
-        timeline = self._timeline_view()
-        if timeline is not None:
-            timeline._anchor_map.setdefault(self.entry_id, []).append(
-                SimpleNamespace(id=anchor_id, time_offset=float(time_offset))
-            )
         return anchor_id
 
     def remove_all_anchors(self):
@@ -299,9 +318,6 @@ class TimelineClipItem(QGraphicsRectItem):
         self._anchor_markers.clear()
         # B-211: _all_anchor_offsets parallel leeren.
         self._all_anchor_offsets.clear()
-        timeline = self._timeline_view()
-        if timeline is not None:
-            timeline._anchor_map[self.entry_id] = []
 
     def get_first_anchor_time(self) -> float | None:
         """Gibt den Zeitstempel des ersten Ankers zurueck (relativ zum Clip-Start).
@@ -849,6 +865,7 @@ class InteractiveTimeline(QGraphicsView):
                                 load_current_timeline_metadata,
                                 sync_current_timeline_from_entries,
                             )
+                            # B-383: sync_current_timeline_from_entries removed to prevent mutations to state.db on read path
                             pass
                             _brain_meta = load_current_timeline_metadata()
                         except Exception as brain_exc:
@@ -975,7 +992,6 @@ class InteractiveTimeline(QGraphicsView):
             # vielen Audio-Clips).
             if track and track.waveform_data:
                 has_waveform = True
-                self._load_waveform_for_track(None, track, entry, dur, y)
 
         elif entry.track == "video":
             clip = video_map.get(entry.media_id)
@@ -1010,6 +1026,10 @@ class InteractiveTimeline(QGraphicsView):
         self._apply_brain_v3_timeline_metadata(item, entry)
         self._scene.addItem(item)
         self.clip_items.append(item)
+
+        if entry.track == "audio" and has_waveform:
+            # B-383/B-432: Asynchrones Laden der Wellenform im Hintergrund
+            self._load_waveform_async(entry.media_id, entry.start_time, dur, y, item)
         return entry.start_time + dur
 
     def _apply_brain_v3_timeline_metadata(self, item: TimelineClipItem, entry) -> None:
@@ -1021,6 +1041,46 @@ class InteractiveTimeline(QGraphicsView):
             return
         item.set_brain_v3_cut_id(getattr(meta, "cut_id", None))
         item.set_brain_v3_confidence(getattr(meta, "confidence", None))
+
+    def _load_waveform_async(self, media_id: int, start_time: float, duration: float, y: float, clip_item: TimelineClipItem):
+        """Startet das asynchrone Laden der Wellenform im Hintergrund."""
+        import shiboken6
+        worker = WaveformLoadWorker(media_id)
+        thread = QThread(self)
+        worker.moveToThread(thread)
+
+        if not hasattr(self, "_waveform_workers"):
+            self._waveform_workers = []
+        self._waveform_workers.append((worker, thread))
+
+        def on_done(track, band_low, band_mid, band_high, beat_positions):
+            try:
+                if track and shiboken6.isValid(clip_item):
+                    # Erstelle das WaveformGraphicsItem im Main-Thread als Child des Clip-Items
+                    wf_item = WaveformGraphicsItem(
+                        band_low=band_low,
+                        band_mid=band_mid,
+                        band_high=band_high,
+                        duration=duration,
+                        beat_positions=beat_positions,
+                        pixels_per_second=self._pps if hasattr(self, "_pps") else PIXELS_PER_SECOND,
+                        height=TRACK_HEIGHT,
+                        parent=clip_item,
+                    )
+                    wf_item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemStacksBehindParent, True)
+                    wf_item.setPos(0, 0)  # Position relativ zum Parent
+                    wf_item.setZValue(1)
+                    self.waveform_items.append(wf_item)
+            finally:
+                if (worker, thread) in self._waveform_workers:
+                    self._waveform_workers.remove((worker, thread))
+                thread.quit()
+
+        worker.finished.connect(on_done)
+        thread.started.connect(worker.run)
+        thread.finished.connect(thread.deleteLater)
+        thread.finished.connect(worker.deleteLater)
+        thread.start()
 
     def _load_waveform_for_track(self, session, track, entry, dur, y):
         """Lädt Rekordbox-Wellenform aus DB und fügt sie zur Scene hinzu."""
@@ -1060,8 +1120,6 @@ class InteractiveTimeline(QGraphicsView):
                 ).first()
                 if track and track.waveform_data:
                     has_waveform = True
-                    entry_stub = _EntryStub(start_time=start_time)
-                    self._load_waveform_for_track(session, track, entry_stub, duration, y)
         elif track_type == "video":
             with DBSession(engine) as session:
                 clip = session.query(VideoClip).filter(
@@ -1083,6 +1141,10 @@ class InteractiveTimeline(QGraphicsView):
         )
         self._scene.addItem(item)
         self.clip_items.append(item)
+
+        if track_type == "audio" and has_waveform:
+            # Asynchrones Laden im Hintergrund, kein UI-Blocking beim Drop
+            self._load_waveform_async(media_id, start_time, duration, y, item)
         self._update_scene_rect()
 
     def set_cut_points(self, cuts: list[CutPoint], total_duration: float):
@@ -2199,8 +2261,8 @@ class InteractiveTimeline(QGraphicsView):
                     continue
 
                 # Video-Clip verschieben: Anker soll auf audio_anchor_abs landen
-                new_video_start = max(0.0, audio_anchor_abs - video_anchor_offset)
-                new_x = new_video_start * PIXELS_PER_SECOND
+                new_video_start = audio_anchor_abs - video_anchor_offset
+                new_x = max(0, new_video_start * PIXELS_PER_SECOND)
                 video_clip.setPos(new_x, video_clip._track_y)
                 updates.append((video_clip.entry_id, new_video_start, None))
                 synced = True
