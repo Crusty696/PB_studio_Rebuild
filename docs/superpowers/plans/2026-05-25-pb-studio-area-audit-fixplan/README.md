@@ -25,17 +25,26 @@ No unrelated refactors, feature work, library swaps, model changes, Audio-V2 por
 
 ## Current Task
 
-### Task 37: B-399 Export audio entry timing and trim ignored
+### Task 38: B-400 Export orphan temp cleanup misses concat and fcs files
 
-**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-399-export-audio-entry-timing-and-trim-ignored.md`
+**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-400-export-orphan-temp-cleanup-misses-concat-and-fcs.md`
 
-- [ ] **Step 1: Read B-399 and export audio timing/trim handling**
+- [ ] **Step 1: Read B-400 and export tempfile cleanup handling**
 - [ ] **Step 2: Reproduce/prove the documented defect with a failing test**
 - [ ] **Step 3: Minimal fix**
 - [ ] **Step 4: Run targeted tests + global collect-only**
 - [ ] **Step 5: Update Vault and status with exact evidence**
 
 ## Completed Tasks
+
+### Task 37: B-399 Export audio entry timing and trim ignored
+
+Result 2026-05-26: `services/export_service.py` prepares the first export
+AudioEntry by cutting `source_start/source_end` into a Temp-WAV and applying
+`adelay` for `start_time` before normal export audio handling. Pre-fix RED
+passed raw `track.wav`; post-fix direct `1 passed`; Export-near `13 passed`;
+collect-only `2255 tests collected`. Vault `code-fix-pending-live-verification`;
+no live export.
 
 ### Task 36: B-398 Export summary counts soft-deleted or orphan entries
 

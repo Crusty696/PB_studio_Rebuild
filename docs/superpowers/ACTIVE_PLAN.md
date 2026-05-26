@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-AREA-AUDIT-FIXPLAN-2026-05-25
-next_allowed_task: B-399 (Area 8 Export; B-398 code-fix pending live verify)
+next_allowed_task: B-400 (Area 8 Export; B-399 code-fix pending live verify)
 updated: 2026-05-25
 
 ## Meaning
@@ -85,4 +85,5 @@ Der Audit-Plan `PB-STUDIO-AREA-AUDIT-2026-05-24` ist abgeschlossen und bleibt al
 - B-396 ist code-fix-pending-live-verification im Vault am 2026-05-26: Source-Range wird gegen `clip.duration` begrenzt; direct `2 passed`, Export-near `7 passed`, Core ExportService `1 passed`, collect `2252`; Live-Export offen.
 - B-397 ist code-fix-pending-live-verification im Vault am 2026-05-26: Video-Timeline-Gaps werden vor Renderer abgelehnt statt still verkuerzt; direct `1 passed`, Export-near `8 passed`, Core ExportService `1 passed`, collect `2253`; Live-Export offen.
 - B-398 ist code-fix-pending-live-verification im Vault am 2026-05-26: Summary zaehlt nur exportierbare aktive Medien; direct `1 passed`, Summary-near `3 passed`, Export-near `12 passed`, collect `2254`; Live-GUI offen.
-- Naechster erlaubter Task: B-399 (Area 8 Export, numerische Reihenfolge).
+- B-399 ist code-fix-pending-live-verification im Vault am 2026-05-26: AudioEntry `start_time`/`source_start`/`source_end` wird vor Export als Temp-WAV geschnitten und per `adelay` auf Timeline-Start versetzt; direct `1 passed`, Export-near `13 passed`, collect `2255`; Live-Export offen.
+- Naechster erlaubter Task: B-400 (Area 8 Export, numerische Reihenfolge).

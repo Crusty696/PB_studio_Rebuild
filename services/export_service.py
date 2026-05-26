@@ -273,6 +273,61 @@ def _source_duration_from_entry(
     return source_duration
 
 
+def _prepare_audio_entry_for_timeline(
+    audio_path: str,
+    entry,
+    track_duration: float | None,
+    temp_files: list,
+    cancel_check=None,
+) -> str:
+    timeline_start = float(entry.start_time or 0.0)
+    if timeline_start < 0:
+        raise ValueError(
+            f"Ungueltiger Audio-Timeline-Start fuer TimelineEntry "
+            f"{getattr(entry, 'id', '?')}: {timeline_start:.3f}s"
+        )
+
+    fallback_duration = (
+        float(entry.end_time) - timeline_start
+        if getattr(entry, "end_time", None) is not None
+        else float(track_duration or 0.0)
+    )
+    source_duration = _source_duration_from_entry(
+        entry, fallback_duration, track_duration
+    )
+    source_start = float(entry.source_start or 0.0)
+    source_end = getattr(entry, "source_end", None)
+    needs_prepare = (
+        timeline_start > 0.001
+        or source_start > 0.001
+        or source_end is not None
+    )
+    if not needs_prepare:
+        return audio_path
+
+    tmp = tempfile.NamedTemporaryFile(
+        suffix=".wav", delete=False, prefix="pb_audio_entry_"
+    )
+    tmp.close()
+    temp_files.append(tmp.name)
+
+    cmd = [
+        FFMPEG, "-y",
+        "-ss", f"{source_start:.3f}",
+        "-i", audio_path,
+        "-t", f"{source_duration:.3f}",
+        "-vn",
+    ]
+    delay_ms = int(round(timeline_start * 1000.0))
+    if delay_ms > 0:
+        cmd += ["-af", f"adelay={delay_ms}:all=1"]
+    cmd += ["-ar", "48000", "-c:a", "pcm_s24le", tmp.name]
+    _run_ffmpeg(
+        cmd, timeout=FFMPEG_RENDER_TIMEOUT_SEC, cancel_check=cancel_check
+    )
+    return tmp.name
+
+
 def _validate_video_timeline_gaps(video_segments: list[dict], epsilon: float = 0.01) -> None:
     previous_end = 0.0
     for index, segment in enumerate(video_segments):
@@ -301,7 +356,7 @@ def _cleanup_orphan_tempfiles(max_age_hours: float = 1.0) -> int:
     cutoff = _time.time() - (max_age_hours * 3600.0)
     try:
         tmpdir = Path(tempfile.gettempdir())
-        for pattern in ("pb_std_*", "pb_lufs_*"):
+        for pattern in ("pb_std_*", "pb_lufs_*", "pb_audio_entry_*"):
             for tf in tmpdir.glob(pattern):
                 try:
                     if tf.is_file() and tf.stat().st_mtime < cutoff:
@@ -471,17 +526,29 @@ def export_timeline(project_id: int = 1, output_name: str = "output.mp4",
                     "contrast": ve.contrast or 1.0,
                 })
 
-        audio_path = None
+        audio_source = None
         if audio_entries:
+            audio_entry = audio_entries[0]
             track = session.query(AudioTrack).filter(
-                AudioTrack.id == audio_entries[0].media_id, AudioTrack.deleted_at.is_(None)
+                AudioTrack.id == audio_entry.media_id, AudioTrack.deleted_at.is_(None)
             ).first()
             if track:
-                audio_path = track.file_path
+                audio_source = (track.file_path, audio_entry, track.duration)
 
     if not video_segments:
         raise ValueError("Keine Video-Clips auf der Timeline")
     _validate_video_timeline_gaps(video_segments)
+
+    audio_temp_files = []
+    audio_path = None
+    if audio_source:
+        audio_path = _prepare_audio_entry_for_timeline(
+            audio_source[0],
+            audio_source[1],
+            audio_source[2],
+            audio_temp_files,
+            cancel_check=cancel_check,
+        )
 
     # Berechne total_steps basierend auf Audio-Normalisierung
     total_steps = 5 if audio_path else 4
@@ -498,18 +565,20 @@ def export_timeline(project_id: int = 1, output_name: str = "output.mp4",
             video_segments, audio_path, output_path,
             w, h, fps, progress_cb, total_steps,
             cancel_check=cancel_check,
+            extra_temp_files=audio_temp_files,
         )
     else:
         return _export_optimized_concat(
             video_segments, audio_path, output_path,
             w, h, fps, progress_cb, total_steps,
             cancel_check=cancel_check,
+            extra_temp_files=audio_temp_files,
         )
 
 
 def _export_optimized_concat(video_segments, audio_path, output_path,
                               w, h, fps, progress_cb, total_steps,
-                              cancel_check=None):
+                              cancel_check=None, extra_temp_files=None):
     """Concat-Export mit automatischer Vorverarbeitung nicht-konformer Clips.
 
     PERF-FIX: Clips die nicht target-konform sind (andere Aufloesung/FPS/Codec)
@@ -518,7 +587,7 @@ def _export_optimized_concat(video_segments, audio_path, output_path,
     Clips die bereits konform sind werden direkt concat-kopiert.
     """
     step = 0
-    temp_files = []
+    temp_files = list(extra_temp_files or [])
     target_w, target_h = int(w), int(h)
 
     if progress_cb:
@@ -770,10 +839,10 @@ def _export_optimized_concat(video_segments, audio_path, output_path,
 
 def _export_with_filtergraph(video_segments, audio_path, output_path,
                              w, h, fps, progress_cb, total_steps,
-                             cancel_check=None):
+                             cancel_check=None, extra_temp_files=None):
     """Komplexer Export mit Filtergraph (Crossfades + Farbkorrektur)."""
     step = 0
-    temp_files = []
+    temp_files = list(extra_temp_files or [])
 
     if progress_cb:
         step += 1
@@ -1391,16 +1460,28 @@ def export_preview(project_id: int = 1, resolution: str = "1920x1080",
                 "contrast": ve.contrast or 1.0,
             })
 
-        audio_path = None
+        audio_source = None
         if audio_entries:
+            audio_entry = audio_entries[0]
             track = session.query(AudioTrack).filter(
-                AudioTrack.id == audio_entries[0].media_id, AudioTrack.deleted_at.is_(None)
+                AudioTrack.id == audio_entry.media_id, AudioTrack.deleted_at.is_(None)
             ).first()
             if track:
-                audio_path = track.file_path
+                audio_source = (track.file_path, audio_entry, track.duration)
 
     if not video_segments:
         raise ValueError("Keine Video-Clips auf der Timeline")
+
+    audio_temp_files = []
+    audio_path = None
+    if audio_source:
+        audio_path = _prepare_audio_entry_for_timeline(
+            audio_source[0],
+            audio_source[1],
+            audio_source[2],
+            audio_temp_files,
+            cancel_check=cancel_check,
+        )
 
     total_steps = 5 if audio_path else 4
     has_effects = any(
@@ -1413,12 +1494,14 @@ def export_preview(project_id: int = 1, resolution: str = "1920x1080",
             video_segments, audio_path, output_path,
             w, h, fps, progress_cb, total_steps,
             cancel_check=cancel_check,
+            extra_temp_files=audio_temp_files,
         )
     else:
         return _export_optimized_concat(
             video_segments, audio_path, output_path,
             w, h, fps, progress_cb, total_steps,
             cancel_check=cancel_check,
+            extra_temp_files=audio_temp_files,
         )
 
 
