@@ -1101,27 +1101,37 @@ def _run_subprocess_cancellable(
         reader = threading.Thread(target=_progress_reader, daemon=True)
         reader.start()
 
+    timeout_error: subprocess.TimeoutExpired | None = None
     try:
         if reader is not None:
             # stdout wird im Reader-Thread gelesen — wir warten nur auf stderr.
             try:
                 _, stderr = process.communicate(timeout=timeout)
-            except subprocess.TimeoutExpired:
+            except subprocess.TimeoutExpired as exc:
                 process.kill()
                 _, stderr = process.communicate()
+                timeout_error = exc
             reader.join(timeout=THREAD_JOIN_TIMEOUT_SEC)
             stdout = "".join(stdout_lines)
         else:
             try:
                 stdout, stderr = process.communicate(timeout=timeout)
-            except subprocess.TimeoutExpired:
+            except subprocess.TimeoutExpired as exc:
                 process.kill()
                 stdout, stderr = process.communicate()
+                timeout_error = exc
     finally:
         watchdog.join(timeout=THREAD_JOIN_TIMEOUT_SEC)
 
     if cancelled.is_set():
         raise RuntimeError("LUFS-Normalisierung abgebrochen (User-Cancel)")
+    if timeout_error is not None:
+        raise subprocess.TimeoutExpired(
+            cmd=cmd,
+            timeout=timeout,
+            output=stdout,
+            stderr=stderr,
+        )
 
     return subprocess.CompletedProcess(
         args=cmd, returncode=process.returncode,
@@ -1228,6 +1238,8 @@ def _normalize_audio_lufs(input_path: str, output_path: str,
                         input_path, target_lufs)
             return True
         return False
+    except subprocess.TimeoutExpired as e:
+        raise RuntimeError(f"LUFS-Normalisierung Timeout nach {e.timeout}s") from e
     except (subprocess.SubprocessError, OSError, ValueError) as e:
         logger.warning("[LUFS] Normalisierung fehlgeschlagen: %s", e)
         return False

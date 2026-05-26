@@ -25,17 +25,31 @@ No unrelated refactors, feature work, library swaps, model changes, Audio-V2 por
 
 ## Current Task
 
-### Task 45: B-407 Export LUFS timeout is treated as soft fallback
+### Task 46: B-408 LUFS worker can write soft-deleted audio track
 
-**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-407-export-lufs-timeout-is-treated-as-soft-fallback.md`
+**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-408-lufs-worker-can-write-soft-deleted-audio-track.md`
 
-- [ ] **Step 1: Read B-407 and export LUFS timeout handling**
+- [ ] **Step 1: Read B-408 and LUFS worker storage path**
 - [ ] **Step 2: Reproduce/prove the documented defect with a failing test**
 - [ ] **Step 3: Minimal fix**
 - [ ] **Step 4: Run targeted tests + global collect-only**
 - [ ] **Step 5: Update Vault and status with exact evidence**
 
 ## Completed Tasks
+
+### Task 45: B-407 Export LUFS timeout is treated as soft fallback
+
+Result 2026-05-26: `_run_subprocess_cancellable()` re-raises timeout after
+killing the LUFS FFmpeg process, and `_normalize_audio_lufs()` converts that
+timeout into a hard `RuntimeError` instead of returning `False`.
+
+Evidence: pre-fix RED showed no `TimeoutExpired` from the helper and no hard
+LUFS error from `_normalize_audio_lufs()`; post-fix direct
+`tests/test_services/test_b407_export_lufs_timeout.py` `2 passed`; py_compile
+Exit 0; Export/LUFS-near suite `18 passed`; global collect-only
+`2264 tests collected`.
+
+Status: `code-fix-pending-live-verification`, not `fixed`; live export pending.
 
 ### Task 44: B-406 Proxy task label says NVENC but command uses libx264
 
