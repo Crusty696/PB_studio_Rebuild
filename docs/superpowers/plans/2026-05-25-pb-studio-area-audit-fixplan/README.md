@@ -25,17 +25,31 @@ No unrelated refactors, feature work, library swaps, model changes, Audio-V2 por
 
 ## Current Task
 
-### Task 54: B-416 Chat quick commands trigger on normal sentences
+### Task 55: B-417 Stale chat worker result can refresh wrong UI context
 
-**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-416-chat-quick-commands-trigger-on-normal-sentences.md`
+**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-417-stale-chat-worker-result-can-refresh-wrong-ui-context.md`
 
-- [ ] **Step 1: Read B-416 and chat quick-command matching**
-- [ ] **Step 2: Reproduce/prove normal sentence triggers quick command**
+- [ ] **Step 1: Read B-417 and chat worker result refresh path**
+- [ ] **Step 2: Reproduce/prove stale result can refresh wrong context**
 - [ ] **Step 3: Minimal fix**
 - [ ] **Step 4: Run targeted tests + global collect-only**
 - [ ] **Step 5: Update Vault and status with exact evidence**
 
 ## Completed Tasks
+
+### Task 54: B-416 Chat quick commands trigger on normal sentences
+
+Result 2026-05-26: Risky quick-command matchers now use exact commands and
+restricted command prefixes instead of broad substring matching.
+
+Evidence: pre-fix RED matched `erklaere pacing` and
+`analysiere bitte den begriff`. Post-fix direct
+`tests/ui/test_b416_chat_quick_command_matching.py` `3 passed`; py_compile
+Exit 0; Chat/Agent-near suite `7 passed`; global collect-only
+`2280 tests collected`.
+
+Status: `code-fix-pending-live-verification`, not `fixed`; live chat workflow
+pending.
 
 ### Task 53: B-415 Add-to-timeline action allows cross-project or soft-deleted media
 

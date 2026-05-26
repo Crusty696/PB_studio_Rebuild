@@ -486,22 +486,48 @@ class ChatDock(QDockWidget):
 
     @staticmethod
     def _match_analyze_command(text: str) -> bool:
-        patterns = [
-            "analysiere", "analyse starten", "analyze",
-            "videos analysieren", "alle analysieren",
-            "pipeline starten", "starte analyse",
+        exact_commands = {
+            "analysiere",
+            "analyse starten",
+            "analyze",
+            "videos analysieren",
+            "alle analysieren",
+            "pipeline starten",
+            "starte analyse",
             "starte die analyse",
-        ]
-        return any(p in text for p in patterns)
+        }
+        command_prefixes = (
+            "analysiere alle",
+            "analyze all",
+            "starte analyse",
+            "starte die analyse",
+            "pipeline starten",
+        )
+        return text in exact_commands or any(text.startswith(p) for p in command_prefixes)
 
     @staticmethod
     def _match_auto_edit_command(text: str) -> bool:
-        patterns = [
-            "schneide", "auto-edit", "autoedit", "auto edit",
-            "schnitt starten", "automatisch schneiden",
-            "beat edit", "pacing",
-        ]
-        return any(p in text for p in patterns)
+        exact_commands = {
+            "schneide",
+            "auto-edit",
+            "autoedit",
+            "auto edit",
+            "schnitt starten",
+            "automatisch schneiden",
+            "beat edit",
+            "pacing",
+        }
+        command_prefixes = (
+            "schneide ",
+            "starte auto-edit",
+            "starte autoedit",
+            "starte auto edit",
+            "starte pacing",
+            "pacing starten",
+            "schnitt starten",
+            "automatisch schneiden",
+        )
+        return text in exact_commands or any(text.startswith(p) for p in command_prefixes)
 
     @staticmethod
     def _match_gpu_status_command(text: str) -> bool:
