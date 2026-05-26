@@ -25,17 +25,25 @@ No unrelated refactors, feature work, library swaps, model changes, Audio-V2 por
 
 ## Current Task
 
-### Task 55: B-417 Stale chat worker result can refresh wrong UI context
+### Task 56: B-418 Installation docs target wrong runtime
 
-**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-417-stale-chat-worker-result-can-refresh-wrong-ui-context.md`
+**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-418-installation-docs-target-wrong-runtime.md`
 
-- [ ] **Step 1: Read B-417 and chat worker result refresh path**
-- [ ] **Step 2: Reproduce/prove stale result can refresh wrong context**
-- [ ] **Step 3: Minimal fix**
-- [ ] **Step 4: Run targeted tests + global collect-only**
-- [ ] **Step 5: Update Vault and status with exact evidence**
+- [ ] **Step 1: Read B-418 and installation.md**
+- [ ] **Step 2: Propose installation guide fixes to match Python 3.10 and conda env**
+- [ ] **Step 3: Update docs/user/installation.md**
+- [ ] **Step 4: Verify formatting and correctness of commands**
+- [ ] **Step 5: Update Vault and status**
 
 ## Completed Tasks
+
+### Task 55: B-417 Stale chat worker result can refresh wrong UI context
+
+Result 2026-05-26: Request-ID tracking and project-path context matching in ChatDock safely ignore stale AIAgentWorker results when the active project has changed or the watchdog has timed out.
+
+Evidence: tests/ui/test_b417_chat_stale_result.py 2 passed; global collect-only 2282 tests collected.
+
+Status: code-fix-pending-live-verification, not fixed; live chat workflow pending.
 
 ### Task 54: B-416 Chat quick commands trigger on normal sentences
 

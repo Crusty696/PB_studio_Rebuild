@@ -189,6 +189,8 @@ class ChatDock(QDockWidget):
         # B-180: Watchdog gegen forever-frozen UI wenn Worker hängt
         # (Ollama down, Modell-Lazy-Load blockiert, TaskManager queue dead).
         self._watchdog_timer: QTimer | None = None
+        self._current_request_id = 0
+        self._active_request_id = None
 
         # --- UI aufbauen ---
         container = QWidget()
@@ -363,7 +365,11 @@ class ChatDock(QDockWidget):
         self._watchdog_timer.start(60_000)
 
         # Worker ueber zentrale Task-Engine starten
+        self._current_request_id += 1
+        self._active_request_id = self._current_request_id
         worker = AIAgentWorker(self._agent, text)
+        worker.request_id = self._current_request_id
+        worker.project_path = self._get_current_project_path()
         worker.finished.connect(self._on_agent_finished)
         worker.error.connect(self._on_agent_error)
         worker.status_changed.connect(self._on_agent_status)
@@ -651,6 +657,13 @@ class ChatDock(QDockWidget):
         if self.status_label.styleSheet() != style:
             self.status_label.setStyleSheet(style)
 
+    def _get_current_project_path(self) -> Path | None:
+        """B-417: Liefert den Pfad des aktuell aktiven Projekts."""
+        from pathlib import Path
+        if self._main_window and hasattr(self._main_window, "_project_manager"):
+            return getattr(self._main_window._project_manager, "current_project_path", None)
+        return None
+
     def _stop_watchdog(self) -> None:
         """B-180: Stoppt den Watchdog-Timer wenn Agent rechtzeitig antwortet."""
         if self._watchdog_timer is not None:
@@ -685,6 +698,7 @@ class ChatDock(QDockWidget):
 
     def _cancel_agent_worker_for_timeout(self) -> None:
         """Stoppt UI-Wirkung eines zu alten Agent-Workers nach Watchdog-Timeout."""
+        self._active_request_id = None  # B-417: Aktiven Request entwerten
         worker = self._worker
         if worker is not None:
             try:
@@ -711,6 +725,17 @@ class ChatDock(QDockWidget):
                 pass
 
     def _on_agent_finished(self, result: dict) -> None:
+        sender_worker = self.sender()
+        if isinstance(sender_worker, AIAgentWorker):
+            # B-417: Request-ID- und Projektkontext-Validierung
+            if getattr(sender_worker, "request_id", None) != self._active_request_id:
+                logger.warning("ChatDock: Ignoriere Ergebnis von veraltetem/abgebrochenem Worker (Request-ID Mismatch).")
+                return
+            current_project = self._get_current_project_path()
+            if getattr(sender_worker, "project_path", None) != current_project:
+                logger.warning("ChatDock: Ignoriere Ergebnis von veraltetem Worker (Projekt gewechselt).")
+                return
+
         self._stop_watchdog()
         self._remove_status_line()
         self.input_field.setEnabled(True)

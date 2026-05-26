@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-AREA-AUDIT-FIXPLAN-2026-05-25
-next_allowed_task: B-417 (Area 9 Chat Dock; B-416 code-fix pending live verify)
+next_allowed_task: B-418 (Area 10 Installer/Docs; B-417 code-fix pending live verify)
 updated: 2026-05-26
 
 ## Meaning
@@ -103,4 +103,7 @@ Der Audit-Plan `PB-STUDIO-AREA-AUDIT-2026-05-24` ist abgeschlossen und bleibt al
 - B-414 ist code-fix-pending-live-verification im Vault am 2026-05-26: destruktive Actions lehnen unbekannte Parameter vor Handler-Ausfuehrung ab; pre-fix RED fuehrte `clear_timeline` trotz `project_id`/`confirm` aus; ActionRegistry `30 passed`, Agent-nahe `37 passed`, collect `2275`; Live-Chat-Workflow offen.
 - B-415 ist code-fix-pending-live-verification im Vault am 2026-05-26: `add_to_timeline` filtert Media-Lookups auf aktives `project_id` und `deleted_at is None`; pre-fix RED commitete fremde/soft-deleted Clips; direct `2 passed`, nahe `69 passed`, collect `2277`; Live-Chat-Workflow offen.
 - B-416 ist code-fix-pending-live-verification im Vault am 2026-05-26: Quick-Commands matchen keine normalen Erklaer-Saetze mehr via Substring; pre-fix RED matchte `erklaere pacing` und `analysiere bitte den begriff`; direct `3 passed`, Chat/Agent-nahe `7 passed`, collect `2280`; Live-Chat-Workflow offen.
-- Naechster erlaubter Task: B-417 (Area 9 Chat Dock, numerische Reihenfolge).
+- B-417 ist code-fix-pending-live-verification im Vault am 2026-05-26: Request-ID- und Projektkontext-Validierung in ChatDock gegen stale Worker-Ergebnisse; direct `2 passed`, collect `2282`; Live-Chat-Workflow offen.
+- Area 9 (B-409..B-417) damit code-fertig.
+- Naechster erlaubter Task: B-418 (Area 10 Installer/Docs, numerische Reihenfolge).
+
