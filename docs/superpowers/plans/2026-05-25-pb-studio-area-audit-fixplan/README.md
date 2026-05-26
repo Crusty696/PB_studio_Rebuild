@@ -25,17 +25,32 @@ No unrelated refactors, feature work, library swaps, model changes, Audio-V2 por
 
 ## Current Task
 
-### Task 53: B-415 Add-to-timeline action allows cross-project or soft-deleted media
+### Task 54: B-416 Chat quick commands trigger on normal sentences
 
-**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-415-add-to-timeline-action-allows-cross-project-or-soft-deleted-media.md`
+**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-416-chat-quick-commands-trigger-on-normal-sentences.md`
 
-- [ ] **Step 1: Read B-415 and add_to_timeline media lookup**
-- [ ] **Step 2: Reproduce/prove cross-project or soft-deleted media can be added**
+- [ ] **Step 1: Read B-416 and chat quick-command matching**
+- [ ] **Step 2: Reproduce/prove normal sentence triggers quick command**
 - [ ] **Step 3: Minimal fix**
 - [ ] **Step 4: Run targeted tests + global collect-only**
 - [ ] **Step 5: Update Vault and status with exact evidence**
 
 ## Completed Tasks
+
+### Task 53: B-415 Add-to-timeline action allows cross-project or soft-deleted media
+
+Result 2026-05-26: `add_to_timeline` now queries `AudioTrack`/`VideoClip` by
+`id`, active `project_id`, and `deleted_at is None` before creating a
+`TimelineEntry`.
+
+Evidence: pre-fix RED committed timeline entries for a cross-project clip and a
+soft-deleted clip. Post-fix direct
+`tests/test_agents/test_b415_add_to_timeline_scope.py` `2 passed`; py_compile
+Exit 0; nearby Agent/UI suite `69 passed`; global collect-only
+`2277 tests collected`.
+
+Status: `code-fix-pending-live-verification`, not `fixed`; live chat action
+workflow pending.
 
 ### Task 52: B-414 Action registry drops unknown params before side effects
 

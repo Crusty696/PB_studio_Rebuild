@@ -617,17 +617,33 @@ def add_to_timeline(media_id: int, media_type: str) -> dict:
             track_type = media_type  # "audio" or "video"
 
             if media_type == "audio":
-                obj = session.get(AudioTrack, media_id)
+                obj = (
+                    session.query(AudioTrack)
+                    .filter(
+                        AudioTrack.id == media_id,
+                        AudioTrack.project_id == project_id,
+                        AudioTrack.deleted_at.is_(None),
+                    )
+                    .one_or_none()
+                )
                 if not obj:
-                    return {"error": f"Audio-Track #{media_id} nicht gefunden."}
+                    return {"error": f"Audio-Track #{media_id} im aktiven Projekt nicht gefunden."}
                 duration = float(obj.duration or 30.0)
                 title = obj.title or f"Audio #{media_id}"
                 # Audio immer ab 0.0
                 start_time = 0.0
             else:
-                obj = session.get(VideoClip, media_id)
+                obj = (
+                    session.query(VideoClip)
+                    .filter(
+                        VideoClip.id == media_id,
+                        VideoClip.project_id == project_id,
+                        VideoClip.deleted_at.is_(None),
+                    )
+                    .one_or_none()
+                )
                 if not obj:
-                    return {"error": f"Video-Clip #{media_id} nicht gefunden."}
+                    return {"error": f"Video-Clip #{media_id} im aktiven Projekt nicht gefunden."}
                 duration = float(obj.duration or 10.0)
                 from pathlib import Path
                 title = Path(obj.file_path).stem if obj.file_path else f"Video #{media_id}"

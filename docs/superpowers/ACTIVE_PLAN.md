@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-AREA-AUDIT-FIXPLAN-2026-05-25
-next_allowed_task: B-415 (Area 9 Actions / Timeline; B-414 code-fix pending live verify)
+next_allowed_task: B-416 (Area 9 Chat Dock; B-415 code-fix pending live verify)
 updated: 2026-05-26
 
 ## Meaning
@@ -101,4 +101,5 @@ Der Audit-Plan `PB-STUDIO-AREA-AUDIT-2026-05-24` ist abgeschlossen und bleibt al
 - B-412 ist code-fix-pending-live-verification im Vault am 2026-05-26: GUI-affine Chat-Actions `create_project`, `open_project`, `undo_timeline`, `redo_timeline`, `sync_anchors` laufen via BlockingQueuedConnection im Qt-Main-Thread; pre-fix RED zeigte `undo()` im Worker-Thread; direct/near `66 passed`, collect `2270`; Live-Chat-Workflow offen.
 - B-413 ist code-fix-pending-live-verification im Vault am 2026-05-26: `DESTRUCTIVE_ACTIONS` deckt jetzt `delete_media`, `clear_timeline`, `remove_clip`, `remove_anchor`; pre-fix RED erlaubte `clear time line` -> `clear_timeline`; ActionRegistry `29 passed`, Agent/UI-nahe `39 passed`, collect `2274`; Live-Chat-Workflow offen.
 - B-414 ist code-fix-pending-live-verification im Vault am 2026-05-26: destruktive Actions lehnen unbekannte Parameter vor Handler-Ausfuehrung ab; pre-fix RED fuehrte `clear_timeline` trotz `project_id`/`confirm` aus; ActionRegistry `30 passed`, Agent-nahe `37 passed`, collect `2275`; Live-Chat-Workflow offen.
-- Naechster erlaubter Task: B-415 (Area 9 Actions / Timeline, numerische Reihenfolge).
+- B-415 ist code-fix-pending-live-verification im Vault am 2026-05-26: `add_to_timeline` filtert Media-Lookups auf aktives `project_id` und `deleted_at is None`; pre-fix RED commitete fremde/soft-deleted Clips; direct `2 passed`, nahe `69 passed`, collect `2277`; Live-Chat-Workflow offen.
+- Naechster erlaubter Task: B-416 (Area 9 Chat Dock, numerische Reihenfolge).
