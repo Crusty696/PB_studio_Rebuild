@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-AREA-AUDIT-FIXPLAN-2026-05-25
-next_allowed_task: B-411 (Area 9 Chat Actions; B-410 code-fix pending live verify)
+next_allowed_task: B-412 (Area 9 Chat Actions / Qt Threading; B-411 code-fix pending live verify)
 updated: 2026-05-26
 
 ## Meaning
@@ -97,4 +97,5 @@ Der Audit-Plan `PB-STUDIO-AREA-AUDIT-2026-05-24` ist abgeschlossen und bleibt al
 - B-408 ist code-fix-pending-live-verification im Vault am 2026-05-26: LUFSAnalysisWorker schreibt nicht mehr auf soft-deleted AudioTracks; pre-fix RED schrieb `lufs=-9.25`; direct `1 passed`, Audio-Worker-nahe `14 passed`, collect `2265`; Live-GUI-LUFS offen.
 - B-409 ist code-fix-pending-live-verification im Vault am 2026-05-26: Chat-Watchdog setzt Agent-Worker-Cancel-Flag, trennt UI-Slots und fordert Thread-Abbruch an; direct `1 passed`, Chat/Agent-nahe `63 passed`, collect `2266`; Live-Chat-Workflow offen.
 - B-410 ist code-fix-pending-live-verification im Vault am 2026-05-26: `AIAgentWorker` haelt den gemeinsamen Registry-Lock jetzt ueber Registry-Swap, `agent.process()` und Restore; pre-fix RED belegte Registry-Wechsel zwischen parallelen Workern; direct `1 passed`, Chat/Agent-nahe `64 passed`, collect `2267`; Live-Chat-Workflow offen.
-- Naechster erlaubter Task: B-411 (Area 9 Chat Actions, numerische Reihenfolge).
+- B-411 ist code-fix-pending-live-verification im Vault am 2026-05-26: `LocalAgentService._execute_single_action()` hebt Handler-Rueckgaben `{"error": ...}` auf Top-Level `error` und laesst `result` leer; pre-fix RED zeigte Fehler-Dict als Action-Erfolg; direct `1 passed`, Agent/Chat-nahe `32 passed`, collect `2268`; Live-Chat-Workflow offen.
+- Naechster erlaubter Task: B-412 (Area 9 Chat Actions / Qt Threading, numerische Reihenfolge).

@@ -25,17 +25,33 @@ No unrelated refactors, feature work, library swaps, model changes, Audio-V2 por
 
 ## Current Task
 
-### Task 49: B-411 Chat action error dicts can display as success
+### Task 50: B-412 Chat actions call GUI objects from agent thread
 
-**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-411-chat-action-error-dicts-can-display-as-success.md`
+**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-412-chat-actions-call-gui-objects-from-agent-thread.md`
 
-- [ ] **Step 1: Read B-411 and chat action result handling**
-- [ ] **Step 2: Reproduce/prove error dict can be displayed as success**
+- [ ] **Step 1: Read B-412 and GUI-affine chat action paths**
+- [ ] **Step 2: Reproduce/prove GUI action runs outside main thread**
 - [ ] **Step 3: Minimal fix**
 - [ ] **Step 4: Run targeted tests + global collect-only**
 - [ ] **Step 5: Update Vault and status with exact evidence**
 
 ## Completed Tasks
+
+### Task 49: B-411 Chat action error dicts can display as success
+
+Result 2026-05-26: `LocalAgentService._execute_single_action()` now promotes
+handler return dicts with a truthy `error` key to top-level `error` and leaves
+`result` empty, so `ChatDock._on_agent_finished()` takes the existing error path
+instead of rendering a successful action.
+
+Evidence: pre-fix RED kept `{"error": "App nicht initialisiert"}` in
+`result["result"]`; post-fix direct
+`tests/test_agents/test_b411_local_agent_error_dicts.py` `1 passed`;
+py_compile Exit 0; Agent/Chat-near suite `32 passed`; global collect-only
+`2268 tests collected`.
+
+Status: `code-fix-pending-live-verification`, not `fixed`; live chat workflow
+pending.
 
 ### Task 48: B-410 Chat agent worker races on shared registry
 

@@ -679,7 +679,11 @@ class LocalAgentService:
                 # Aktualisiere den Aktionsnamen auf den aufgelösten
                 result["action"] = action_def.name
                 try:
-                    result["result"] = self.registry.execute(action_def.name, params)
+                    action_result = self.registry.execute(action_def.name, params)
+                    if isinstance(action_result, dict) and action_result.get("error"):
+                        result["error"] = f"Fehler bei '{action_def.name}': {action_result['error']}"
+                    else:
+                        result["result"] = action_result
                 except (ValueError, RuntimeError, TypeError, OSError) as e:
                     result["error"] = f"Fehler bei '{action_def.name}': {e}"
 
