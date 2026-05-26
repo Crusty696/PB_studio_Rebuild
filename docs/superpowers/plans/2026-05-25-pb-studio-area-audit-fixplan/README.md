@@ -25,17 +25,32 @@ No unrelated refactors, feature work, library swaps, model changes, Audio-V2 por
 
 ## Current Task
 
-### Task 47: B-409 Chat watchdog does not stop agent worker
+### Task 48: B-410 Chat agent worker races on shared registry
 
-**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-409-chat-watchdog-does-not-stop-agent-worker.md`
+**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-410-chat-agent-worker-races-on-shared-registry.md`
 
-- [ ] **Step 1: Read B-409 and chat watchdog worker lifecycle**
+- [ ] **Step 1: Read B-410 and chat agent registry lifecycle**
 - [ ] **Step 2: Reproduce/prove the documented defect with a failing test**
 - [ ] **Step 3: Minimal fix**
 - [ ] **Step 4: Run targeted tests + global collect-only**
 - [ ] **Step 5: Update Vault and status with exact evidence**
 
 ## Completed Tasks
+
+### Task 47: B-409 Chat watchdog does not stop agent worker
+
+Result 2026-05-26: Chat watchdog now marks the active `AIAgentWorker`
+cancelled, disconnects UI result/error/status slots, and requests thread
+interruption/quit. `AIAgentWorker` suppresses late finished/error emissions
+after cancellation.
+
+Evidence: post-fix direct `tests/ui/test_b409_chat_watchdog_cancel.py`
+`1 passed` with `LASTEXITCODE=0`; py_compile Exit 0; Chat/Agent-near suite
+`63 passed`; global collect-only `2266 tests collected`.
+
+Status: `code-fix-pending-live-verification`, not `fixed`; live chat watchdog
+workflow pending. Hard-killing a Python function already blocked inside
+`agent.process()` is not guaranteed; fix prevents late UI-signal effects.
 
 ### Task 46: B-408 LUFS worker can write soft-deleted audio track
 

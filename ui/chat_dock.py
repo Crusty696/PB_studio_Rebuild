@@ -91,6 +91,13 @@ class AIAgentWorker(QObject):
         super().__init__()
         self.agent = agent
         self.user_text = user_text
+        self._cancel_requested = threading.Event()
+
+    def request_cancel(self) -> None:
+        self._cancel_requested.set()
+
+    def _is_cancelled(self) -> bool:
+        return self._cancel_requested.is_set()
 
     def run(self):
         _ok = False
@@ -115,12 +122,16 @@ class AIAgentWorker(QObject):
                     with self._registry_lock:
                         self.agent.registry = tracked_registry
                 try:
+                    if self._is_cancelled():
+                        return
                     result = self.agent.process(self.user_text)
                 finally:
                     # Sofort zuruecksetzen — minimiert das Zeitfenster
                     if tracked_registry is not None:
                         with self._registry_lock:
                             self.agent.registry = original_registry
+                if self._is_cancelled():
+                    return
                 self.status_changed.emit(self.tr("Bereit"))
                 self.finished.emit(result)
                 _ok = True
@@ -137,10 +148,11 @@ class AIAgentWorker(QObject):
 
         except Exception as e:  # broad catch intentional — top-level worker thread safety net
             logger.error("AIAgentWorker crashed: %s", e, exc_info=True)
-            self.status_changed.emit("Fehler")
-            self.error.emit(str(e))
+            if not self._is_cancelled():
+                self.status_changed.emit("Fehler")
+                self.error.emit(str(e))
         finally:
-            if not _ok:
+            if not _ok and not self._errored and not self._is_cancelled():
                 self.finished.emit({})
 
 
@@ -632,6 +644,7 @@ class ChatDock(QDockWidget):
             # durch Race; ignorieren.
             return
         logger.warning("ChatDock: Watchdog-Timeout (60s) — Agent antwortet nicht.")
+        self._cancel_agent_worker_for_timeout()
         self._on_agent_error(
             self.tr(
                 "Timeout: Der KI-Agent antwortet nicht (60s). "
@@ -639,6 +652,33 @@ class ChatDock(QDockWidget):
                 "Konsolen-Log nach Hängern beim Modell-Laden."
             )
         )
+
+    def _cancel_agent_worker_for_timeout(self) -> None:
+        """Stoppt UI-Wirkung eines zu alten Agent-Workers nach Watchdog-Timeout."""
+        worker = self._worker
+        if worker is not None:
+            try:
+                worker.request_cancel()
+            except (AttributeError, RuntimeError):
+                pass
+            for signal_name, slot in (
+                ("finished", self._on_agent_finished),
+                ("error", self._on_agent_error),
+                ("status_changed", self._on_agent_status),
+            ):
+                try:
+                    getattr(worker, signal_name).disconnect(slot)
+                except (AttributeError, RuntimeError, TypeError):
+                    pass
+
+        thread = self._thread
+        if thread is not None:
+            try:
+                if thread.isRunning():
+                    thread.requestInterruption()
+                    thread.quit()
+            except (RuntimeError, TypeError):
+                pass
 
     def _on_agent_finished(self, result: dict) -> None:
         self._stop_watchdog()
@@ -785,4 +825,3 @@ class ChatDock(QDockWidget):
 
         self._thread = None
         self._worker = None
-
