@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-AREA-AUDIT-FIXPLAN-2026-05-25
-next_allowed_task: Task 1: B-348 pytest collect compatibility
+next_allowed_task: B-393 (Area 8 Export; B-392 fixed)
 updated: 2026-05-25
 
 ## Meaning
@@ -48,4 +48,35 @@ Der Audit-Plan `PB-STUDIO-AREA-AUDIT-2026-05-24` ist abgeschlossen und bleibt al
 - Area 10 ist audit-complete-live-open.
 - Belegte neue Bugs aus Area 10: `B-418`, `B-419`, `B-420`, `B-421`, `B-422`, `B-423`, `B-424`, `B-425`, `B-426`, `B-427`, `B-428`, `B-429`, `B-430`.
 - Final-Synthesis erstellt.
-- Naechster erlaubter Task: Task 1: B-348 pytest collect compatibility.
+- B-348 ist fixed im Vault am 2026-05-25: collect Exit 0, Standalone-Runner Exit 0, nahe DB-Tests Exit 0.
+- B-349 ist fixed im Vault am 2026-05-25: Service-Workflow mit eigenem laufendem Task Exit 0, Projektmanager-nahe Tests Exit 0.
+- B-350 ist fixed im Vault am 2026-05-25: VectorDB-Fehlerpfad rollback+raise, Erfolgspfad commit nach VectorDB-Delete.
+- B-351 ist code-fix-pending-live-verification im Vault am 2026-05-25; statisch gruen, live pywinauto-Smoke offen. Wurde vor restlichen High-Bugs begonnen; Reihenfolge jetzt korrigiert.
+- B-353 ist fixed im Vault am 2026-05-25: Qt-Offscreen error-ohne-finished QThread-Lifecycle Exit 0.
+- B-354 ist fixed im Vault am 2026-05-25: MediaWorkspace stem dispatch Constructor-Mismatch Exit 0.
+- B-357 ist fixed im Vault am 2026-05-25: BaseAnalysisWorker-Cancel nach `_analyze()` persistiert nicht, Audio-nahe Tests Exit 0, collect Exit 0.
+- B-362 ist fixed im Vault am 2026-05-25: ProxyCreationWorker-Cancel emittiert Terminal-Signal; Controller ueberschreibt cancelled nicht auf error.
+- B-363 ist fixed im Vault am 2026-05-25: Video-Pipeline-Cancel wird nicht mehr als done checkpointed.
+- B-364 ist fixed im Vault am 2026-05-25: Orchestrator ruft Stage-unload auch bei Listener-/Checkpoint-Exception.
+- B-368 ist fixed im Vault am 2026-05-25: VectorDB-Delete-Fehler bricht Writes ab; VectorDB-Write laeuft erst nach SQLite-Szenencommit.
+- B-369 ist fixed im Vault am 2026-05-25: Soft-deleted VideoClips werden in Pipeline, Actions, Worker-Lookups und Search gefiltert.
+- B-372 ist fixed im Vault am 2026-05-25: Embedding-Cache speichert Modellvarianten mit Composite-Key; Scheduler skippt nicht mehr hash-only.
+- B-375 ist fixed im Vault am 2026-05-25: Legacy pacing memory ignoriert soft-deleted AudioTracks und Szenen aus soft-deleted VideoClips.
+- B-376 ist fixed im Vault am 2026-05-25: PatternAggregator normiert `good/bad` auf `accept/reject`.
+- B-378 ist fixed im Vault am 2026-05-25: Feedback-Batch-Flush laeuft im Hintergrund und startet nicht doppelt parallel.
+- B-379 ist fixed im Vault am 2026-05-25: Debounced ClipInspector writes behalten die Entry-ID des geaenderten Clips.
+- B-380 ist fixed im Vault am 2026-05-25: ClipInspector ignoriert stale async load results fuer alte Entry-IDs.
+- B-381 ist fixed im Vault am 2026-05-25: Timeline `_anchor_map` wird bei Anchor add/remove ohne Reload aktualisiert.
+- B-382 ist fixed im Vault am 2026-05-25: Anchor-Sync clamp't DB `start_time` konsistent zur UI auf 0.
+- B-383 ist user-gated: Code-Fix committed (925a5fc), wartet auf User-Live-Verify. Vom User uebersprungen am 2026-05-25.
+- B-384 ist code-fix-pending-live-verification im Vault am 2026-05-25: Kontextmenue "Alle Anker entfernen" auch fuer unsichtbare Anker (`_all_anchor_offsets`); Repro pre-fix FAIL, post-fix direkt 1 passed, collect-only 2232.
+- B-385 ist code-fix-pending-live-verification im Vault am 2026-05-25: `render_grid_lines` leert die Scene nicht mehr; Waveform bleibt erhalten; Grid-Lines getrackt. Repro pre-fix FAIL, post-fix 2 passed, collect-only 2234.
+- B-386 ist code-fix-pending-live-verification im Vault am 2026-05-25: Waveform-Baender werden auf gleiche Laenge normalisiert (kein IndexError beim Paint). Repro pre-fix FFF, post-fix 3 passed, collect-only 2237.
+- B-387 ist code-fix-pending-live-verification im Vault am 2026-05-25: VideoPreview verwirft spaete Frames fremder Pfade (`_active_request_path`). Repro pre-fix FAIL, post-fix 2 passed, collect-only 2239.
+- B-388 ist code-fix-pending-live-verification im Vault am 2026-05-26: Thumbnail-Worker liefert QImage statt QPixmap; GUI-Slot wandelt um. Repro pre-fix FAIL, post-fix 2 passed, collect-only 2241.
+- B-389 ist code-fix-pending-live-verification im Vault am 2026-05-26: Thumbnail-done-Slot via `_apply_thumbnail` gegen geloeschte Cards geschuetzt. Repro pre-fix FAIL, post-fix 2 passed, collect-only 2243.
+- B-390 ist code-fix-pending-live-verification im Vault am 2026-05-26: Convert-Effekt-Preview verwirft veraltete Worker via Request-Sequenz. Repro pre-fix FAIL, post-fix 2 passed, collect-only 2245.
+- B-391 ist code-fix-pending-live-verification im Vault am 2026-05-26: FrameExtract `-v error` + Exitcode-Fallback statt `-v quiet`. Repro pre-fix FAIL, post-fix 2 passed, collect-only 2247.
+- Area 7 (B-379..B-391) damit code-fertig ausser B-383 (user-gated).
+- B-392 ist fixed im Vault am 2026-05-26: ConvertWorkspace-Smoke-Testvertrag auf zwei dokumentierte Tabs aktualisiert; direct `1 passed`, Workspace-Smoke `7 passed`, nahe Tests `3 passed`, collect `2247`.
+- Naechster erlaubter Task: B-393 (Area 8 Export, numerische Reihenfolge).

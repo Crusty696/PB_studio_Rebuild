@@ -43,9 +43,10 @@ def test_convert_workspace_constructs_and_exposes_batch_widgets(qapp):
     w = ConvertWorkspace()
     try:
         assert isinstance(w, QWidget)
-        # Convert ist nur Preflight/Standardisierung im Hauptflow.
-        assert w._tabs.count() == 1, "ConvertWorkspace darf im Hauptflow nur Preflight zeigen"
+        # Convert zeigt Preflight und Clip-Effekte als dokumentierte Hauptflow-Tabs.
+        assert w._tabs.count() == 2, "ConvertWorkspace muss Preflight und Effekte zeigen"
         assert w._tabs.tabText(0) == "PREFLIGHT"
+        assert w._tabs.tabText(1) == "EFFEKTE"
         # Batch-Tab Widgets, die controllers/convert.py per Name anspricht
         for attr in (
             "convert_resolution",
