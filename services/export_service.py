@@ -244,7 +244,9 @@ def _resolve_export_output_path(export_dir: Path, output_name: str) -> Path:
     return output_path
 
 
-def _source_duration_from_entry(entry, fallback_duration: float) -> float:
+def _source_duration_from_entry(
+    entry, fallback_duration: float, clip_duration: float | None = None
+) -> float:
     source_start = entry.source_start or 0.0
     source_end = entry.source_end
     if source_end is not None and source_start is not None:
@@ -256,6 +258,18 @@ def _source_duration_from_entry(entry, fallback_duration: float) -> float:
             f"Ungueltige source_duration fuer TimelineEntry {getattr(entry, 'id', '?')}: "
             f"{source_duration:.3f}s"
         )
+    if source_start < 0:
+        raise ValueError(
+            f"Ungueltiger source_start fuer TimelineEntry {getattr(entry, 'id', '?')}: "
+            f"{source_start:.3f}s"
+        )
+    if clip_duration is not None and clip_duration > 0:
+        source_end_abs = source_start + source_duration
+        if source_end_abs > clip_duration + 1e-6:
+            raise ValueError(
+                f"Source-Bereich fuer TimelineEntry {getattr(entry, 'id', '?')} "
+                f"ueberschreitet clip duration {clip_duration:.3f}s"
+            )
     return source_duration
 
 
@@ -429,7 +443,9 @@ def export_timeline(project_id: int = 1, output_name: str = "output.mp4",
                 source_end = ve.source_end
                 seg_duration = ve.end_time - ve.start_time if ve.end_time else (clip.duration or 10.0)
                 # Source-Duration aus Source-Offsets, Fallback auf Timeline-Duration
-                source_duration = _source_duration_from_entry(ve, seg_duration)
+                source_duration = _source_duration_from_entry(
+                    ve, seg_duration, clip.duration
+                )
                 video_segments.append({
                     "path": clip.file_path,
                     "start": ve.start_time,
@@ -1338,7 +1354,9 @@ def export_preview(project_id: int = 1, resolution: str = "1920x1080",
             source_start = ve.source_start or 0.0
             source_end = ve.source_end
             seg_duration = ve.end_time - ve.start_time if ve.end_time else (clip.duration or 10.0)
-            source_duration = _source_duration_from_entry(ve, seg_duration)
+            source_duration = _source_duration_from_entry(
+                ve, seg_duration, clip.duration
+            )
 
             # Clip ggf. am Preview-Limit abschneiden
             end_time = ve.end_time or (ve.start_time + seg_duration)

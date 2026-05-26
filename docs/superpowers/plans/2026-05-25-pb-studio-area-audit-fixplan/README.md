@@ -25,17 +25,24 @@ No unrelated refactors, feature work, library swaps, model changes, Audio-V2 por
 
 ## Current Task
 
-### Task 34: B-396 Export source range not bounded by clip duration
+### Task 35: B-397 Export ignores timeline gaps
 
-**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-396-export-source-range-not-bounded-by-clip-duration.md`
+**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-397-export-ignores-timeline-gaps.md`
 
-- [ ] **Step 1: Read B-396 and source range duration bounds**
+- [ ] **Step 1: Read B-397 and timeline gap handling**
 - [ ] **Step 2: Reproduce/prove the documented defect with a failing test**
 - [ ] **Step 3: Minimal fix**
 - [ ] **Step 4: Run targeted tests + global collect-only**
 - [ ] **Step 5: Update Vault and status with exact evidence**
 
 ## Completed Tasks
+
+### Task 34: B-396 Export source range not bounded by clip duration
+
+Result 2026-05-26: `services/export_service.py` bounds source ranges against
+`clip.duration` before Export/FFmpeg. Pre-fix RED reached export path; post-fix
+direct `2 passed`; Export-near `7 passed`; Core ExportService `1 passed`;
+collect-only `2252 tests collected`. Vault `code-fix-pending-live-verification`; no live export.
 
 ### Task 33: B-395 Export source range can be zero or negative
 
