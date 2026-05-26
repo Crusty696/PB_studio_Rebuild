@@ -25,17 +25,30 @@ No unrelated refactors, feature work, library swaps, model changes, Audio-V2 por
 
 ## Current Task
 
-### Task 42: B-404 Convert HEVC UI selects CPU libx265
+### Task 43: B-405 Batch convert allows AV1 on GTX1060 target
 
-**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-404-convert-hevc-ui-selects-cpu-libx265.md`
+**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-405-batch-convert-allows-av1-on-gtx1060-target.md`
 
-- [ ] **Step 1: Read B-404 and Convert HEVC codec selection policy**
+- [ ] **Step 1: Read B-405 and batch convert AV1 codec policy**
 - [ ] **Step 2: Reproduce/prove the documented defect with a failing test**
 - [ ] **Step 3: Minimal fix**
 - [ ] **Step 4: Run targeted tests + global collect-only**
 - [ ] **Step 5: Update Vault and status with exact evidence**
 
 ## Completed Tasks
+
+### Task 42: B-404 Convert HEVC UI selects CPU libx265
+
+Result 2026-05-26: Convert UI selection `H.265 / HEVC mp4` now passes
+`hevc_nvenc` to `BatchConvertWorker` instead of `libx265`.
+
+Evidence: pre-fix RED captured `vcodec == "libx265"`; post-fix direct
+`tests/ui/test_b404_convert_hevc_codec_policy.py` `1 passed`; py_compile
+Exit 0; UI/Convert-near suite `16 passed`; global collect-only
+`2260 tests collected`.
+
+Status: `code-fix-pending-live-verification`, not `fixed`; live HEVC batch
+convert pending.
 
 ### Task 41: B-403 Batch convert uses PATH ffmpeg instead of configured binary
 

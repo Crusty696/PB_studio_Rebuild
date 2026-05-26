@@ -203,7 +203,7 @@ class ConvertController(PBComponent):
         fps = fps_text.split(" ")[0]
         fmt_text = self.window.convert_format.currentText()
         if "H.265" in fmt_text or "HEVC" in fmt_text:
-            vcodec, ext = "libx265", ".mp4"
+            vcodec, ext = "hevc_nvenc", ".mp4"
         elif "ProRes" in fmt_text:
             vcodec, ext = "prores_ks", ".mov"
         elif "mkv" in fmt_text:
