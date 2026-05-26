@@ -13,7 +13,7 @@ from PySide6.QtCore import QObject, Signal
 
 from .base import CancellableMixin, format_user_error
 from services.audio_constants import clamp_confidence
-from services.analysis_status_service import mark_started, mark_done, mark_error
+from services.analysis_status_service import mark_started, mark_done, mark_error, mark_cancelled
 
 logger = logging.getLogger(__name__)
 
@@ -50,8 +50,14 @@ class BaseAnalysisWorker(QObject, CancellableMixin):
         _ok = False
         try:
             mark_started("audio", self.audio_track_id, self._step_key())
+            if self._cancel_if_requested():
+                return
             self.progress.emit(10, self._start_message())
+            if self._cancel_if_requested():
+                return
             result = self._analyze()
+            if self._cancel_if_requested():
+                return
             # B-066: Silent-Fallback-Detection. LUFS/Classify/Key-Services
             # liefern bei interner Exception ein Fallback-Result mit Default-
             # Werten (LUFS=-14.0, Genre="Unknown", Key="Am") — diese sehen
@@ -69,7 +75,11 @@ class BaseAnalysisWorker(QObject, CancellableMixin):
                     f"Result wurde NICHT als gueltig persistiert: {reason}"
                 )
             self.progress.emit(80, self._done_message(result))
+            if self._cancel_if_requested():
+                return
             self._save_to_db(result)
+            if self._cancel_if_requested():
+                return
             mark_done("audio", self.audio_track_id, self._step_key(), self._value_summary(result))
             self.progress.emit(100, "Fertig")
             self.finished.emit(self.audio_track_id, self._result_to_dict(result))
@@ -85,6 +95,12 @@ class BaseAnalysisWorker(QObject, CancellableMixin):
         finally:
             if not _ok and not self._errored:
                 self.finished.emit(self.audio_track_id, {})
+
+    def _cancel_if_requested(self) -> bool:
+        if not self.should_stop():
+            return False
+        mark_cancelled("audio", self.audio_track_id, self._step_key())
+        return True
 
     # ── B-066: Fallback-Detection (zentral fuer alle Sub-Worker) ──────────
 

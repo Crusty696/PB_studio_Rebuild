@@ -148,7 +148,7 @@ def test_submit_path_emits_job_progress_signal(qt_app, isolated_appdata):
         scheduler.request_stop(timeout_ms=3000)
 
 
-def test_submit_path_skips_on_pre_submit_cache_hit(qt_app, isolated_appdata):
+def test_submit_path_does_not_skip_other_model_variant(qt_app, isolated_appdata):
     cache = EmbeddingCache()
     media_hash = "a" * 64
     cache.store(
@@ -169,9 +169,18 @@ def test_submit_path_skips_on_pre_submit_cache_hit(qt_app, isolated_appdata):
             source_path=isolated_appdata / "any.wav",
             media_type="audio",
         )
-        _spin_qt(qt_app, 100)
-        assert job_id is None  # Cache-Hit-Skip
-        assert any(h == media_hash for h, _ in skipped_signals)
+        assert job_id is not None
+
+        deadline = time.time() + 5.0
+        while time.time() < deadline:
+            entry = cache.lookup(media_hash, "fake/model", "0.0")
+            if entry is not None:
+                break
+            _spin_qt(qt_app, 50)
+        else:
+            pytest.fail("Andere Modellvariante wurde nicht verarbeitet")
+
+        assert skipped_signals == []
     finally:
         scheduler.request_stop(timeout_ms=3000)
 

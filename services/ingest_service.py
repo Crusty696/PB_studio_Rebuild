@@ -680,14 +680,25 @@ def delete_selected_media(video_ids: list[int], audio_ids: list[int]) -> int:
                 VideoClip.id.in_(video_ids)
             ).delete(synchronize_session=False)
 
-        session.commit()
-
-        # P2-01: VectorDB Cascade-Delete — Embeddings fuer geloeschte VideoClips entfernen
+        # P2-01 / B-350: VectorDB-Cleanup VOR SQL-Commit. Wenn die
+        # VectorDB scheitert, rollback der SQL-Deletes, damit keine
+        # Embeddings fuer geloeschte Clips uebrig bleiben.
         if video_ids:
             try:
                 VectorDBService().delete_by_clip_ids(video_ids)
             except (RuntimeError, OSError, ImportError) as e:
-                logger.warning("VectorDB delete_by_clip_ids fehlgeschlagen: %s", e)
+                logger.error(
+                    "VectorDB delete_by_clip_ids fehlgeschlagen — SQL-Deletes "
+                    "rolled back um Orphan-Embeddings zu vermeiden. Fehler: %s",
+                    e,
+                )
+                session.rollback()
+                raise RuntimeError(
+                    "Loeschen abgebrochen: VectorDB konnte Embeddings nicht "
+                    f"loeschen ({e}). SQL-Zeilen wurden NICHT geloescht."
+                ) from e
+
+        session.commit()
 
         return count_a + count_v
 

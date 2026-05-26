@@ -63,9 +63,14 @@ class WaveformGraphicsItem(QGraphicsItem):
                  parent: Optional[QGraphicsItem] = None):
         super().__init__(parent)
 
-        self._band_low = band_low
-        self._band_mid = band_mid
-        self._band_high = band_high
+        # B-386: num_samples wird aus len(band_low) abgeleitet, band_mid/high
+        # werden mit demselben Index gelesen. Korrupte/teilgeschriebene Daten
+        # mit ungleichen Bandlaengen → IndexError beim Paint. Daher band_mid/high
+        # auf die Laenge von band_low normalisieren (kuerzen oder mit 0.0 padden).
+        self._band_low = list(band_low or [])
+        _n = len(self._band_low)
+        self._band_mid = self._fit_band_length(band_mid, _n)
+        self._band_high = self._fit_band_length(band_high, _n)
         self._duration = max(0.01, duration or 0.0)
         self._beat_positions = beat_positions or []
         self._pps = pixels_per_second
@@ -78,6 +83,16 @@ class WaveformGraphicsItem(QGraphicsItem):
         self.setAcceptHoverEvents(False)
         # ItemUsesExtendedStyleOption sorgt dafür, dass exposedRect korrekt befüllt wird
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemUsesExtendedStyleOption, True)
+
+    @staticmethod
+    def _fit_band_length(band, target_len: int) -> list[float]:
+        """B-386: bringt ein Frequenzband auf ``target_len`` (kuerzen/0.0-padden)."""
+        band = list(band or [])
+        if len(band) < target_len:
+            band = band + [0.0] * (target_len - len(band))
+        elif len(band) > target_len:
+            band = band[:target_len]
+        return band
 
     def boundingRect(self) -> QRectF:
         return QRectF(0, 0, self._width, self._height)

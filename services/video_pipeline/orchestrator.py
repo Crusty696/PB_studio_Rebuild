@@ -122,33 +122,42 @@ class VideoAnalysisPipeline:
 
             result.stage_results.append(sr)
 
-            if sr.status == "done":
-                result.completed_count += 1
-                self.listener.on_stage_done(self.track_id, sr)
-            elif sr.status == "failed":
-                result.failed_count += 1
-                self.listener.on_stage_failed(self.track_id, sr)
-            else:
-                # partial / skipped
-                self.listener.on_stage_done(self.track_id, sr)
+            stop_after_stage = self.cancel_token.cancelled
+            if stop_after_stage and sr.status == "done":
+                sr.status = "partial"
+                sr.error = sr.error or "cancelled"
 
-            if self.checkpoint is not None:
-                self.checkpoint.update_stage(
-                    sid, status=sr.status,
-                    duration_s=sr.duration_s,
-                    error=sr.error,
-                )
-                self.checkpoint.save()
+            try:
+                if sr.status == "done":
+                    result.completed_count += 1
+                    self.listener.on_stage_done(self.track_id, sr)
+                elif sr.status == "failed":
+                    result.failed_count += 1
+                    self.listener.on_stage_failed(self.track_id, sr)
+                else:
+                    # partial / skipped
+                    self.listener.on_stage_done(self.track_id, sr)
 
-            # F-1: release any GPU model the stage holds before the next stage
-            # loads its own, so siglip + raft do not stay resident together on
-            # the 6 GB GTX 1060.
-            _unload = getattr(stage, "unload", None)
-            if callable(_unload):
-                try:
-                    _unload()
-                except Exception:
-                    logger.exception("stage %s unload failed", sid)
+                if self.checkpoint is not None:
+                    self.checkpoint.update_stage(
+                        sid, status=sr.status,
+                        duration_s=sr.duration_s,
+                        error=sr.error,
+                    )
+                    self.checkpoint.save()
+            finally:
+                # F-1/B-364: release any GPU model the stage holds even if
+                # listener callbacks or checkpoint persistence fail.
+                _unload = getattr(stage, "unload", None)
+                if callable(_unload):
+                    try:
+                        _unload()
+                    except Exception:
+                        logger.exception("stage %s unload failed", sid)
+
+            if stop_after_stage:
+                result.cancelled = True
+                break
 
         self.listener.on_pipeline_done(self.track_id)
         return result

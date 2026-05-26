@@ -281,9 +281,18 @@ class TimelineClipItem(QGraphicsRectItem):
             ).all()
             self._apply_anchors(anchors)
 
+    def _timeline_view(self):
+        scene = self.scene()
+        if scene is None:
+            return None
+        for view in scene.views():
+            if hasattr(view, "_anchor_map"):
+                return view
+        return None
+
     def add_anchor_at(self, local_x: float) -> int | None:
         """Setzt einen neuen Anker an der lokalen X-Position (in Pixeln).
-        Gibt die Anchor-ID zurueck oder None bei Fehler.
+         Gibt die Anchor-ID zurueck oder None bei Fehler.
         """
         time_offset = local_x / PIXELS_PER_SECOND
         if time_offset < 0:
@@ -303,6 +312,12 @@ class TimelineClipItem(QGraphicsRectItem):
         self._anchor_markers.append(marker)
         # B-211: _all_anchor_offsets parallel pflegen.
         self._all_anchor_offsets.append(float(time_offset))
+        timeline = self._timeline_view()
+        if timeline is not None:
+            from types import SimpleNamespace
+            timeline._anchor_map.setdefault(self.entry_id, []).append(
+                SimpleNamespace(id=anchor_id, time_offset=float(time_offset))
+            )
         return anchor_id
 
     def remove_all_anchors(self):
@@ -318,6 +333,9 @@ class TimelineClipItem(QGraphicsRectItem):
         self._anchor_markers.clear()
         # B-211: _all_anchor_offsets parallel leeren.
         self._all_anchor_offsets.clear()
+        timeline = self._timeline_view()
+        if timeline is not None:
+            timeline._anchor_map[self.entry_id] = []
 
     def get_first_anchor_time(self) -> float | None:
         """Gibt den Zeitstempel des ersten Ankers zurueck (relativ zum Clip-Start).
@@ -356,7 +374,9 @@ class TimelineClipItem(QGraphicsRectItem):
         set_anchor_action.triggered.connect(lambda: self.add_anchor_at(local_x))
 
         # Alle Anker entfernen
-        if self._anchor_markers:
+        # B-384: auch Anker ausserhalb der sichtbaren Clip-Breite (nur in
+        # _all_anchor_offsets, ohne Marker) muessen entfernbar bleiben.
+        if self._anchor_markers or self._all_anchor_offsets:
             remove_action = menu.addAction("Alle Anker entfernen")
             remove_action.triggered.connect(self.remove_all_anchors)
 
@@ -2261,8 +2281,8 @@ class InteractiveTimeline(QGraphicsView):
                     continue
 
                 # Video-Clip verschieben: Anker soll auf audio_anchor_abs landen
-                new_video_start = audio_anchor_abs - video_anchor_offset
-                new_x = max(0, new_video_start * PIXELS_PER_SECOND)
+                new_video_start = max(0.0, audio_anchor_abs - video_anchor_offset)
+                new_x = new_video_start * PIXELS_PER_SECOND
                 video_clip.setPos(new_x, video_clip._track_y)
                 updates.append((video_clip.entry_id, new_video_start, None))
                 synced = True

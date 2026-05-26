@@ -16,6 +16,14 @@ def _get_task_manager():
     return GlobalTaskManager.instance()
 
 
+def _get_active_video_clip(session, VideoClip, clip_id: int):
+    return (
+        session.query(VideoClip)
+        .filter(VideoClip.id == clip_id, VideoClip.deleted_at.is_(None))
+        .first()
+    )
+
+
 @action_registry.register(
     name="analyze_video",
     description="Analysiert einen Videoclip: Szenen, Dauer, Auflösung.",
@@ -32,6 +40,13 @@ def _get_task_manager():
 )
 def analyze_video(clip_id: int) -> dict:
     """Command Pattern: Emittiert Signal → Main-Thread baut VideoAnalysisWorker."""
+    from sqlalchemy.orm import Session as SASession
+    from database import engine, VideoClip
+
+    with SASession(engine) as session:
+        if _get_active_video_clip(session, VideoClip, clip_id) is None:
+            return {"error": f"VideoClip {clip_id} nicht gefunden."}
+
     tm = _get_task_manager()
     if tm is None:
         _logger.warning("TaskManager nicht verfügbar - App nicht bereit")
@@ -89,7 +104,7 @@ def analyze_video_content(
         from database import engine, VideoClip
         from sqlalchemy.orm import Session
         with Session(engine) as session:
-            clip = session.get(VideoClip, clip_id)
+            clip = _get_active_video_clip(session, VideoClip, clip_id)
             if clip:
                 video_path = clip.file_path
             else:
@@ -171,7 +186,10 @@ def create_proxy_action(clip_id: int | None = None, target_height: int = 480) ->
         with SASession(engine) as session:
             clip_paths = {
                 c.id: c.file_path
-                for c in session.query(VideoClip).filter(VideoClip.id.in_(video_ids)).all()
+                for c in session.query(VideoClip).filter(
+                    VideoClip.id.in_(video_ids),
+                    VideoClip.deleted_at.is_(None),
+                ).all()
                 if c.file_path
             }
         queued = 0
@@ -193,7 +211,7 @@ def create_proxy_action(clip_id: int | None = None, target_height: int = 480) ->
 
     # Einzel-Modus: DB-Lookup fuer video_path
     with SASession(engine) as session:
-        clip = session.get(VideoClip, clip_id)
+        clip = _get_active_video_clip(session, VideoClip, clip_id)
         if clip is None:
             return {"error": f"VideoClip {clip_id} nicht gefunden."}
         video_path = clip.file_path
@@ -242,7 +260,7 @@ def detect_scenes_action(clip_id: int, use_proxy: bool = True, threshold: float 
 
     try:
         with SASession(engine) as session:
-            clip = session.get(VideoClip, clip_id)
+            clip = _get_active_video_clip(session, VideoClip, clip_id)
             if clip is None:
                 if task and tm:
                     tm.finish_task(task.task_id, "error", "Clip nicht gefunden")
@@ -298,7 +316,7 @@ def analyze_motion_action(clip_id: int, use_proxy: bool = True) -> dict:
 
     try:
         with SASession(engine) as session:
-            clip = session.get(VideoClip, clip_id)
+            clip = _get_active_video_clip(session, VideoClip, clip_id)
             if clip is None:
                 if task and tm:
                     tm.finish_task(task.task_id, "error", "Clip nicht gefunden")
@@ -369,7 +387,7 @@ def generate_embeddings_action(clip_id: int, use_proxy: bool = True) -> dict:
 
     try:
         with SASession(engine) as session:
-            clip = session.get(VideoClip, clip_id)
+            clip = _get_active_video_clip(session, VideoClip, clip_id)
             if clip is None:
                 if task and tm:
                     tm.finish_task(task.task_id, "error", "Clip nicht gefunden")
@@ -510,9 +528,9 @@ def describe_video_clip(clip_id: int | None = None) -> dict:
 
         with SASession(engine) as session:
             if clip_id:
-                clip = session.get(VideoClip, clip_id)
+                clip = _get_active_video_clip(session, VideoClip, clip_id)
             else:
-                clip = session.query(VideoClip).first()
+                clip = session.query(VideoClip).filter(VideoClip.deleted_at.is_(None)).first()
 
             if not clip:
                 return {

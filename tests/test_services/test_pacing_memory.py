@@ -3,6 +3,7 @@ Tests fuer services/pacing_memory.py
 
 Getestet: learn_from_anchor(), record_rl_feedback(), _get_ai_memory_bias()
 """
+import datetime
 
 import pytest
 from sqlalchemy.orm import Session
@@ -128,6 +129,21 @@ class TestLearnFromAnchor:
         result = learn_from_anchor(audio_track_id=99999, anchor_time=5.0)
         assert result is False
 
+    def test_learn_soft_deleted_audio_track_does_not_write_memory(
+        self, test_engine, audio_track, db_session
+    ):
+        """Soft-geloeschter AudioTrack zaehlt nicht als aktiver Kontext."""
+        from services.pacing_memory import learn_from_anchor
+
+        audio_track.deleted_at = datetime.datetime.now()
+        db_session.commit()
+
+        result = learn_from_anchor(audio_track_id=audio_track.id, anchor_time=5.0)
+
+        assert result is False
+        with Session(test_engine) as s:
+            assert s.query(AIPacingMemory).count() == 0
+
     def test_learn_nonexistent_scene(self, test_engine, audio_track):
         """Fehlende Scene → return False."""
         from services.pacing_memory import learn_from_anchor
@@ -138,6 +154,33 @@ class TestLearnFromAnchor:
             scene_id=99999,
         )
         assert result is False
+
+    def test_learn_scene_from_soft_deleted_video_clip_does_not_write_memory(
+        self, test_engine, audio_track, video_clip, db_session
+    ):
+        """Scene aus soft-geloeschtem VideoClip zaehlt nicht als aktiver Kontext."""
+        from services.pacing_memory import learn_from_anchor
+
+        video_clip.deleted_at = datetime.datetime.now()
+        scene = Scene(
+            video_clip_id=video_clip.id,
+            start_time=0.0,
+            end_time=5.0,
+            energy=0.9,
+        )
+        db_session.add(scene)
+        db_session.commit()
+        db_session.refresh(scene)
+
+        result = learn_from_anchor(
+            audio_track_id=audio_track.id,
+            anchor_time=2.5,
+            scene_id=scene.id,
+        )
+
+        assert result is False
+        with Session(test_engine) as s:
+            assert s.query(AIPacingMemory).count() == 0
 
     def test_learn_default_label(self, test_engine, audio_track):
         """Ohne Label wird ein Default-Label generiert."""
@@ -257,6 +300,25 @@ class TestRecordRlFeedback:
             mem = s.query(AIPacingMemory).first()
             assert "feedback_" in mem.cut_type
             assert "_clips" in mem.cut_type
+
+    def test_soft_deleted_audio_track_feedback_does_not_write_memory(
+        self, test_engine, audio_track, project, db_session
+    ):
+        """RL-Feedback fuer soft-geloeschten AudioTrack wird nicht persistiert."""
+        from services.pacing_memory import record_rl_feedback
+
+        audio_track.deleted_at = datetime.datetime.now()
+        db_session.commit()
+
+        result = record_rl_feedback(
+            audio_track_id=audio_track.id,
+            sentiment="positive",
+            project_id=project.id,
+        )
+
+        assert result is False
+        with Session(test_engine) as s:
+            assert s.query(AIPacingMemory).count() == 0
 
 
 # ---------------------------------------------------------------------------

@@ -67,9 +67,11 @@ class SigLipEmbedStage:
             # brain_v3) laufen ODER das ModelManager-Modell wegswappen.
             from services.brain_v3.gpu_serializer import get_default_serializer
             all_embeds: list[np.ndarray] = []
+            cancelled = False
             with get_default_serializer().acquire("video_pipeline_siglip"):
                 for i in range(0, len(keyframes), self.batch_size):
                     if cancel_token is not None and getattr(cancel_token, "cancelled", False):
+                        cancelled = True
                         break
                     batch = keyframes[i: i + self.batch_size]
                     imgs = []
@@ -88,7 +90,7 @@ class SigLipEmbedStage:
             return StageResult(
                 stage_id=self.stage_id, status="partial",
                 duration_s=time.monotonic() - t0,
-                error="cancelled before any batch",
+                error="cancelled" if cancelled else "cancelled before any batch",
             )
 
         stacked = np.concatenate(all_embeds, axis=0)
@@ -96,7 +98,7 @@ class SigLipEmbedStage:
         np.save(out_npy, stacked)
 
         return StageResult(
-            stage_id=self.stage_id, status="done",
+            stage_id=self.stage_id, status="partial" if cancelled else "done",
             duration_s=time.monotonic() - t0,
             artifacts={"embeddings_npy": out_npy},
             metrics={
@@ -105,4 +107,5 @@ class SigLipEmbedStage:
                 "dtype": str(stacked.dtype),
                 "model_id": self.service.model_id,
             },
+            error="cancelled" if cancelled else None,
         )

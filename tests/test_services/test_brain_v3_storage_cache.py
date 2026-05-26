@@ -172,6 +172,25 @@ def test_cache_lookup_different_model_version_misses(isolated_appdata):
     assert cache.lookup(HASH_AUDIO, "model_x", "1.0") is not None
 
 
+def test_cache_stores_multiple_model_variants_for_same_media_hash(isolated_appdata):
+    cache = EmbeddingCache()
+    emb_v1 = np.zeros(512, dtype="float32")
+    emb_v2 = np.ones(512, dtype="float32")
+
+    entry_v1 = cache.store(HASH_AUDIO, "audio", emb_v1, "model_x", "1.0")
+    entry_v2 = cache.store(HASH_AUDIO, "audio", emb_v2, "model_x", "2.0")
+
+    found_v1 = cache.lookup(HASH_AUDIO, "model_x", "1.0")
+    found_v2 = cache.lookup(HASH_AUDIO, "model_x", "2.0")
+
+    assert found_v1 is not None
+    assert found_v2 is not None
+    assert np.all(found_v1.load_embedding() == 0.0)
+    assert np.all(found_v2.load_embedding() == 1.0)
+    assert entry_v1.embedding_path != entry_v2.embedding_path
+    assert cache.stats()["total"] == 2
+
+
 def test_cache_delete_removes_index_and_file(isolated_appdata):
     cache = EmbeddingCache()
     emb = np.zeros(512, dtype="float32")

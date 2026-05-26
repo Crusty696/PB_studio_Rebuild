@@ -54,6 +54,37 @@ def test_set_waveform_data_adds_waveform_item():
     assert has_wave, "Scene muss WaveformGraphicsItem enthalten"
 
 
+def test_render_grid_lines_preserves_waveform():
+    """B-385: render_grid_lines darf die zuvor gesetzte Waveform nicht loeschen."""
+    _qapp()
+    t = SchnittTabAudio()
+    wave = _fake_waveform_row(duration=4.0)
+    t.set_waveform_data(wave, [0.5, 1.0, 1.5])
+
+    t.render_grid_lines([1.0, 2.0])
+
+    items = t.waveform_view.scene().items()
+    has_wave = any(isinstance(it, WaveformGraphicsItem) for it in items)
+    assert has_wave, "Waveform muss nach render_grid_lines erhalten bleiben"
+
+
+def test_render_grid_lines_idempotent_no_line_stacking():
+    """B-385: wiederholtes render_grid_lines darf Grid-Lines nicht stapeln."""
+    _qapp()
+    from PySide6.QtWidgets import QGraphicsLineItem
+
+    t = SchnittTabAudio()
+    wave = _fake_waveform_row(duration=4.0)
+    t.set_waveform_data(wave, [])
+
+    t.render_grid_lines([1.0, 2.0])
+    t.render_grid_lines([1.0, 2.0])
+
+    lines = [it for it in t.waveform_view.scene().items()
+             if isinstance(it, QGraphicsLineItem)]
+    assert len(lines) == 2, "Grid-Lines duerfen sich bei Re-Render nicht stapeln"
+
+
 def test_set_audio_id_with_data_replaces_old_items():
     _qapp()
     t = SchnittTabAudio()

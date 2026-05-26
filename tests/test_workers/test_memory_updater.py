@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from typing import Any
 
@@ -9,6 +10,20 @@ from sqlalchemy.orm import sessionmaker
 
 from services.enrichment import ENRICHER_VERSION
 from workers.memory_updater import MemoryUpdaterWorker
+
+
+def _wait_for_pattern_count(engine: Any, expected: int, timeout: float = 2.0) -> None:
+    deadline = time.time() + timeout
+    last_count = None
+    while time.time() < deadline:
+        with engine.begin() as conn:
+            last_count = conn.execute(
+                text("SELECT COUNT(*) FROM mem_learned_pattern")
+            ).scalar()
+        if last_count == expected:
+            return
+        time.sleep(0.02)
+    assert last_count == expected
 
 
 def _build_sqlite_with_migrations(tmp_path: Path) -> tuple[Any, Any]:
@@ -101,10 +116,8 @@ def test_worker_flushes_after_batch_size(tmp_path: Path) -> None:
     # 3rd feedback triggers flush
     assert worker.notify_feedback() is True
     assert worker.pending_events == 0
-    # And the pattern is in the DB
-    with engine.begin() as conn:
-        count = conn.execute(text("SELECT COUNT(*) FROM mem_learned_pattern")).scalar()
-    assert count == 1
+    # And the pattern is in the DB after the background flush finishes.
+    _wait_for_pattern_count(engine, expected=1)
 
 
 def test_worker_flushes_on_run_end(tmp_path: Path) -> None:

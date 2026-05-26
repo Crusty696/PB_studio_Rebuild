@@ -398,7 +398,7 @@ class ProjectManager(QObject):
             raise
 
         # Open the copy as the new active project
-        self.open_project(target_path)
+        self.open_project(target_path, task_id=task_id)
         logger.info("Projekt gespeichert unter: %s", target_path)
         return target_path
 

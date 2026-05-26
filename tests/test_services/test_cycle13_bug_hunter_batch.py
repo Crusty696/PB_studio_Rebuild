@@ -10,6 +10,7 @@ BUG-8: GraphCockpitTab closeEvent cleanup.
 from __future__ import annotations
 
 import inspect
+from pathlib import Path
 
 import pytest
 
@@ -36,6 +37,78 @@ def test_bug1_save_project_as_accepts_task_id():
     sig = inspect.signature(ProjectManager.save_project_as)
     assert "task_id" in sig.parameters
     assert sig.parameters["task_id"].default is None
+
+
+def test_bug1_save_project_as_passes_task_id_to_internal_open(monkeypatch, tmp_path):
+    from services.project_manager import ProjectManager
+    import database.session as db_session
+
+    source = tmp_path / "source_project"
+    source.mkdir()
+    (source / "pb_studio.db").write_bytes(b"sqlite-placeholder")
+    target = tmp_path / "target_project"
+
+    captured = {}
+    pm = ProjectManager()
+
+    monkeypatch.setattr(db_session, "APP_ROOT", source)
+    monkeypatch.setattr(
+        ProjectManager,
+        "_wait_for_tasks_idle",
+        staticmethod(lambda timeout_sec=10.0, poll_interval_sec=0.2, exclude_task_id=None: True),
+    )
+    monkeypatch.setattr(
+        ProjectManager,
+        "_copy_sqlite_db",
+        staticmethod(lambda src_db, dst_db: dst_db.write_bytes(b"copied-db")),
+    )
+
+    def _open_project(path, task_id=None):
+        captured["path"] = path
+        captured["task_id"] = task_id
+        return {"name": path.name, "resolution": "1920x1080", "fps": 30.0}
+
+    monkeypatch.setattr(pm, "open_project", _open_project)
+
+    assert pm.save_project_as(target, task_id="save-as-task-42") == target
+    assert captured == {"path": target, "task_id": "save-as-task-42"}
+
+
+def test_bug1_save_project_as_does_not_block_on_own_running_task(tmp_path):
+    import os
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+    from services.project_manager import ProjectManager
+    from services.task_manager import GlobalTaskManager
+    import database
+
+    app = QApplication.instance() or QApplication([])
+    tm = GlobalTaskManager.instance()
+    for existing in tm.get_all_tasks():
+        if existing.status == "running":
+            tm.finish_task(existing.task_id, "finished", "test cleanup")
+    tm.clear_finished()
+
+    pm = ProjectManager()
+    source = tmp_path / "source_project"
+    target = tmp_path / "target_project"
+    own_task = None
+
+    try:
+        pm.create_project(source, name="SelfTaskSource")
+        own_task = tm.create_task("Projekt kopieren", "self-block regression")
+
+        assert pm.save_project_as(target, task_id=own_task.task_id) == target
+        assert (target / "pb_studio.db").exists()
+    finally:
+        if own_task is not None:
+            tm.finish_task(own_task.task_id, "finished", "test cleanup")
+        tm.clear_finished()
+        database.set_project(Path.cwd())
+        try:
+            database.init_db()
+        except Exception:
+            pass
 
 
 def test_bug1_create_project_passes_task_id_through(monkeypatch):

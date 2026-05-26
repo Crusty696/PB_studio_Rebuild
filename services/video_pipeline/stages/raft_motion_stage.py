@@ -66,6 +66,7 @@ class RaftMotionStage:
                 )
 
             motion_data: list[dict[str, Any]] = []
+            cancelled = False
             # Befund 2: GPU-Abschnitt unter den zentralen gpu_serializer stellen
             # (serialisiert RAFT-Inferenz mit allen anderen GPU-Consumern, haelt
             # legacy GPU_EXECUTION_LOCK). Frame-Decode (CPU) liegt mit im Lock —
@@ -79,6 +80,7 @@ class RaftMotionStage:
                 prev_frame = self.decoder.extract_frame(source_path, pairs[0][0])
                 for t_a, t_b in pairs:
                     if cancel_token is not None and getattr(cancel_token, "cancelled", False):
+                        cancelled = True
                         break
                     fb = self.decoder.extract_frame(source_path, t_b)
                     flow = self.service.compute_flow(prev_frame, fb)
@@ -100,8 +102,9 @@ class RaftMotionStage:
         out_json.write_text(json.dumps(motion_data, indent=2))
 
         return StageResult(
-            stage_id=self.stage_id, status="done",
+            stage_id=self.stage_id, status="partial" if cancelled else "done",
             duration_s=time.monotonic() - t0,
             artifacts={"motion_json": out_json},
             metrics={"pairs": len(motion_data), "variant": self.service.variant},
+            error="cancelled" if cancelled else None,
         )

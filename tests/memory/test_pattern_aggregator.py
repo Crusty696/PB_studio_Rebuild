@@ -202,6 +202,50 @@ def test_wilson_lower_bound_used_for_confidence(tmp_path: Path) -> None:
     )
 
 
+def test_good_bad_verdicts_count_as_accept_reject(tmp_path: Path) -> None:
+    """RLPacingMemoryV2 schreibt good/bad; Aggregator muss diese Verdicts zaehlen."""
+    engine, Session = _build_sqlite(tmp_path)
+    run_id = _seed_run(engine)
+    for _ in range(2):
+        _seed_decision(
+            engine,
+            run_id,
+            scene_id=42,
+            at_genre="psytrance",
+            at_section_type="drop",
+            at_bpm=140.0,
+            user_verdict="good",
+        )
+    _seed_decision(
+        engine,
+        run_id,
+        scene_id=42,
+        at_genre="psytrance",
+        at_section_type="drop",
+        at_bpm=140.0,
+        user_verdict="bad",
+    )
+
+    agg = PatternAggregator(session_factory=Session)
+    agg.run()
+
+    with engine.begin() as conn:
+        row = (
+            conn.execute(
+                text(
+                    "SELECT stat_accept_count, stat_reject_count, stat_sample_size "
+                    "FROM mem_learned_pattern"
+                )
+            )
+            .mappings()
+            .one()
+        )
+
+    assert row["stat_accept_count"] == 2
+    assert row["stat_reject_count"] == 1
+    assert row["stat_sample_size"] == 3
+
+
 def test_aggregator_skips_stale_enricher_version(tmp_path: Path) -> None:
     """Decisions with at_enricher_version != current are ignored (bug G)."""
     engine, Session = _build_sqlite(tmp_path)

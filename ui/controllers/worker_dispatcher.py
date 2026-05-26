@@ -73,6 +73,9 @@ class WorkerDispatcherController(PBComponent):
             # und Slot leben jeweils im selben Thread bzw. die Slots sind Qt-
             # internal cleanup-Hooks. Qt.AutoConnection reicht.
             worker.finished.connect(thread.quit)
+            # B-353: Audio-Worker emittieren im Fehlerpfad error ohne finished.
+            # Ohne quit bleibt der QThread-Eventloop offen und Cleanup laeuft nie.
+            worker.error.connect(thread.quit)
             thread.finished.connect(worker.deleteLater)
             thread.finished.connect(thread.deleteLater)
             # Diese Lambda greift auf tm (QObject) zu — QueuedConnection schickt

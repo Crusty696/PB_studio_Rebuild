@@ -263,7 +263,11 @@ class VideoAnalysisController(PBComponent):
 
     def _on_proxy_finished(self, clip_id: int, proxy_path: str, title: str, task_id: str):
         if not proxy_path:
-            _get_task_manager().finish_task(task_id, "error", "Leerer Proxy-Pfad")
+            task_manager = _get_task_manager()
+            task = task_manager.get_task(task_id) if task_id else None
+            if getattr(task, "status", None) == "cancelled":
+                return
+            task_manager.finish_task(task_id, "error", "Leerer Proxy-Pfad")
             return
         self.window.console_text.append(f"[Proxy] Fertig: '{title}' → {proxy_path}")
         self.window.media_table_controller._refresh_media_table_debounced()

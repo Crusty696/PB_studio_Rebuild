@@ -15,7 +15,7 @@ import logging
 import numpy as np
 from sqlalchemy.orm import Session
 
-from database import engine, AudioTrack, AIPacingMemory, Beatgrid, Scene, TimelineEntry
+from database import engine, AudioTrack, AIPacingMemory, Beatgrid, Scene, TimelineEntry, VideoClip
 from services.pacing_beat_grid import AdvancedPacingSettings
 
 logger = logging.getLogger(__name__)
@@ -48,19 +48,28 @@ def learn_from_anchor(
         from database import nullpool_session
         with nullpool_session() as session:
             # DB-10 Fix: Prüfe ob referenzierte Objekte noch existieren
-            audio = session.get(AudioTrack, audio_track_id)
+            audio = session.query(AudioTrack).filter(
+                AudioTrack.id == audio_track_id,
+                AudioTrack.deleted_at.is_(None),
+            ).one_or_none()
             if audio is None:
                 logger.warning(
-                    "learn_from_anchor: AudioTrack %d existiert nicht mehr, überspringe.",
+                    "learn_from_anchor: AudioTrack %d existiert nicht mehr oder ist geloescht, ueberspringe.",
                     audio_track_id,
                 )
                 return False
-            if scene_id is not None and session.get(Scene, scene_id) is None:
-                logger.warning(
-                    "learn_from_anchor: Scene %d existiert nicht mehr, überspringe.",
-                    scene_id,
-                )
-                return False
+            scene = None
+            if scene_id is not None:
+                scene = session.query(Scene).join(VideoClip).filter(
+                    Scene.id == scene_id,
+                    VideoClip.deleted_at.is_(None),
+                ).one_or_none()
+                if scene is None:
+                    logger.warning(
+                        "learn_from_anchor: Scene %d existiert nicht mehr oder VideoClip ist geloescht, ueberspringe.",
+                        scene_id,
+                    )
+                    return False
 
             # ── Audio-Kontext laden ──
             bpm = audio.bpm if audio else None
@@ -97,10 +106,8 @@ def learn_from_anchor(
 
             # ── Video/Szenen-Kontext laden ──
             raft_motion = None
-            if scene_id:
-                scene = session.get(Scene, scene_id)
-                if scene:
-                    raft_motion = scene.energy  # Scene.energy = RAFT motion score
+            if scene:
+                raft_motion = scene.energy  # Scene.energy = RAFT motion score
 
             # Cut-Typ aus Kontext ableiten
             is_energetic = (overall_energy or 0.5) > 0.65 or (raft_motion or 0.5) > 0.65
@@ -142,7 +149,16 @@ def record_rl_feedback(audio_track_id: int, sentiment: str, project_id: int = 1)
     try:
         from database import nullpool_session
         with nullpool_session() as session:
-            track = session.get(AudioTrack, audio_track_id)
+            track = session.query(AudioTrack).filter(
+                AudioTrack.id == audio_track_id,
+                AudioTrack.deleted_at.is_(None),
+            ).one_or_none()
+            if track is None:
+                logger.warning(
+                    "record_rl_feedback: AudioTrack %d existiert nicht mehr oder ist geloescht, ueberspringe.",
+                    audio_track_id,
+                )
+                return False
             entry_count = session.query(TimelineEntry).filter_by(
                 project_id=project_id, track="video"
             ).count()

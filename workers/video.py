@@ -187,7 +187,11 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
             from database import nullpool_session
             with nullpool_session() as session:
                 for clip_id, title in self._batch:
-                    clip = session.get(VideoClip, clip_id)
+                    clip = (
+                        session.query(VideoClip)
+                        .filter(VideoClip.id == clip_id, VideoClip.deleted_at.is_(None))
+                        .first()
+                    )
                     if clip:
                         # Proxy-First: KI-Analyse nutzt Proxy nur wenn Datei existiert.
                         analysis_path = _resolve_pipeline_analysis_path(clip, clip_id)
@@ -316,7 +320,11 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                         # snapshotten. Vorher wurden Attribute nach Session-Close
                         # gelesen -> DetachedInstanceError "not bound to a Session".
                         with _ns() as _s:
-                            _clip_row = _s.get(_VC, clip_id)
+                            _clip_row = (
+                                _s.query(_VC)
+                                .filter(_VC.id == clip_id, _VC.deleted_at.is_(None))
+                                .first()
+                            )
                             if _clip_row is not None:
                                 _meta = {
                                     "duration": _clip_row.duration,
@@ -392,7 +400,11 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                         from database import nullpool_session as fallback_session
                         try:
                             with fallback_session() as fb_session:
-                                fb_clip = fb_session.get(VideoClip, clip_id)
+                                fb_clip = (
+                                    fb_session.query(VideoClip)
+                                    .filter(VideoClip.id == clip_id, VideoClip.deleted_at.is_(None))
+                                    .first()
+                                )
                                 if fb_clip and fb_clip.file_path:
                                     defer_captioning = (
                                         total_videos > 1
@@ -607,7 +619,9 @@ class FrameExtractWorker(QObject, CancellableMixin):
                 "ffmpeg", "-ss", str(self.time_sec), "-i", self.file_path,
                 "-frames:v", "1", "-vf", vf,
                 "-f", "rawvideo", "-pix_fmt", "rgb24",
-                "-v", "quiet", "-y", "pipe:1"
+                # B-391: "-v error" statt "quiet" — Fehlerursache landet auf stderr
+                # und kann im UI-Fehlertext angezeigt werden.
+                "-v", "error", "-y", "pipe:1"
             ]
             result = subprocess.run(
                 cmd, capture_output=True, timeout=FFMPEG_THUMBNAIL_TIMEOUT_SEC,
@@ -617,7 +631,10 @@ class FrameExtractWorker(QObject, CancellableMixin):
             if result.returncode == 0 and len(result.stdout) == expected:
                 self.frame_ready.emit(result.stdout, self.width, self.height)
             else:
-                stderr_hint = result.stderr[:200].decode(errors="replace") if result.stderr else ""
+                stderr_hint = result.stderr[:200].decode(errors="replace").strip() if result.stderr else ""
+                if not stderr_hint:
+                    # B-391: Fallback, falls ffmpeg keinen stderr-Text liefert.
+                    stderr_hint = f"ffmpeg-Exitcode {result.returncode}"
                 self.error.emit(f"Frame @ {self.time_sec:.1f}s nicht verfuegbar: {stderr_hint}")
         except Exception as e:
             # F-14 (B-346): catch every exception, not only

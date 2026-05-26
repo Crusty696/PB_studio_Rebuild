@@ -107,6 +107,7 @@ class ClipInspectorPanel(QWidget):
         self._debounce_timer.setSingleShot(True)
         self._debounce_timer.setInterval(300)
         self._debounce_timer.timeout.connect(self._flush_pending_change)
+        self._pending_entry_id: int | None = None
         self._pending_field: str | None = None
         self._pending_value: float = 0.0
         self._entry_data_loaded.connect(self._apply_entry_data)
@@ -185,6 +186,7 @@ class ClipInspectorPanel(QWidget):
                         self._entry_load_failed.emit()
                         return
                     vals = {
+                        "entry_id": entry_id,
                         "track": entry.track,
                         "media_id": entry.media_id,
                         "start_time": entry.start_time or 0.0,
@@ -201,6 +203,14 @@ class ClipInspectorPanel(QWidget):
 
     def _apply_entry_data(self, vals: dict, num_clips: int):
         """Aktualisiert UI-Felder im Main-Thread mit vorgeladenen DB-Daten."""
+        entry_id = vals.get("entry_id")
+        if entry_id is not None and entry_id != self._current_entry_id:
+            logger.debug(
+                "ClipInspector: stale load ignored entry_id=%s current=%s",
+                entry_id,
+                self._current_entry_id,
+            )
+            return
         self._updating = True
         try:
             self._type_label.setText(
@@ -228,6 +238,7 @@ class ClipInspectorPanel(QWidget):
         if self._updating or self._current_entry_id is None:
             return
 
+        self._pending_entry_id = self._current_entry_id
         self._pending_field = field
         self._pending_value = value
         self._debounce_timer.start()  # (Re-)Start: setzt Timer auf 300ms zurueck
@@ -245,11 +256,12 @@ class ClipInspectorPanel(QWidget):
         """
         field = self._pending_field
         value = self._pending_value
-        entry_id = self._current_entry_id
+        entry_id = self._pending_entry_id
 
         if field is None or entry_id is None:
             return
 
+        self._pending_entry_id = None
         self._pending_field = None
 
         logger.debug("ClipInspector: entry_id=%s field=%s value=%s (debounced)", entry_id, field, value)

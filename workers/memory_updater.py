@@ -2,7 +2,7 @@
 
 Triggers:
   - notify_feedback() is called on each user-feedback event; the worker
-    increments an internal counter and runs aggregation once the counter
+    increments an internal counter and schedules aggregation once the counter
     hits N=20.
   - notify_run_end() runs aggregation once unconditionally.
 
@@ -13,7 +13,8 @@ Qt integration:
   - Inherits from QObject with `started`, `finished`, `error` signals — mirrors
     workers/video.py conventions.
   - Synchronous `run()` entry point is provided for tests and for the
-    enrichment worker's post-run hook.
+    enrichment worker's post-run hook. Feedback-triggered flushes run on a
+    background thread.
 """
 
 from __future__ import annotations
@@ -83,6 +84,7 @@ class MemoryUpdaterWorker(QObject):
         # raises a feedback event. ``self._pending += 1`` is not atomic
         # in CPython, and the threshold check + flush is a TOCTOU race.
         self._pending_lock: threading.Lock = threading.Lock()
+        self._flush_in_progress: bool = False
         self._gui_thread_warning_logged: bool = False
         self._aggregator = PatternAggregator(session_factory=session_factory)
 
@@ -91,25 +93,35 @@ class MemoryUpdaterWorker(QObject):
     def notify_feedback(self) -> bool:
         """Called on each feedback event.
 
-        Increments the internal counter and flushes if the batch size is
-        reached.  Returns True if a batch was flushed, False otherwise.
+        Increments the internal counter and schedules a background flush if
+        the batch size is reached. Returns True if a batch was scheduled,
+        False otherwise.
 
         B-105: increment + threshold check are guarded by
         ``_pending_lock`` so concurrent calls cannot both cross the
-        threshold. If the threshold is crossed we warn (once per worker)
-        when running on the Qt GUI thread — the flush is a multi-second
-        SQL operation and must not block the UI.
+        threshold. If another flush is already in progress, the new event
+        remains counted for the next batch and no second concurrent flush is
+        started.
         """
         with self._pending_lock:
             self._pending += 1
-            should_flush = self._pending >= self._batch_size
-        if should_flush:
-            if not self._gui_thread_warning_logged:
-                _warn_if_on_gui_thread()
-                self._gui_thread_warning_logged = True
-            self.run()
-            return True
-        return False
+            if self._pending < self._batch_size or self._flush_in_progress:
+                return False
+            self._pending = 0
+            self._flush_in_progress = True
+        self._start_background_flush()
+        return True
+
+    def _start_background_flush(self) -> None:
+        thread = threading.Thread(
+            target=self._run_scheduled_flush,
+            name="MemoryUpdaterWorkerFlush",
+            daemon=True,
+        )
+        thread.start()
+
+    def _run_scheduled_flush(self) -> None:
+        self._run_aggregation(clear_pending_after=False)
 
     def notify_run_end(self) -> int:
         """Called when a pacing run ends.
@@ -126,12 +138,22 @@ class MemoryUpdaterWorker(QObject):
         signals so the caller can wire this into a QThread if desired.
         Returns the number of patterns upserted.
         """
+        with self._pending_lock:
+            if self._flush_in_progress:
+                logger.info("MemoryUpdaterWorker: flush already in progress; skip sync run.")
+                return 0
+            self._flush_in_progress = True
+        return self._run_aggregation(clear_pending_after=True)
+
+    def _run_aggregation(self, *, clear_pending_after: bool) -> int:
         self.started.emit()
         n = 0
         try:
             n = self._aggregator.run()
             with self._pending_lock:
-                self._pending = 0
+                if clear_pending_after:
+                    self._pending = 0
+                self._flush_in_progress = False
             self.finished.emit(n)
         except Exception as exc:  # broad catch — top-level worker safety net
             logger.error(
@@ -140,7 +162,9 @@ class MemoryUpdaterWorker(QObject):
                 traceback.format_exc(),
             )
             with self._pending_lock:
-                self._pending = 0
+                if clear_pending_after:
+                    self._pending = 0
+                self._flush_in_progress = False
             self.error.emit(str(exc))
         return n
 

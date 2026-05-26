@@ -69,8 +69,10 @@ class KeyframeExtractStage:
         t0 = time.monotonic()
         extracted: list[dict[str, Any]] = []
         skipped: list[dict[str, Any]] = []
+        cancelled = False
         for kf in keyframes:
             if cancel_token is not None and getattr(cancel_token, "cancelled", False):
+                cancelled = True
                 break
             try:
                 arr = self.decoder.extract_frame(source_path, time_s=kf.time_s)
@@ -95,7 +97,9 @@ class KeyframeExtractStage:
         # Wenn weniger als 50% extrahiert: partial. Sonst done.
         wanted = len(keyframes)
         got = len(extracted)
-        if wanted == 0:
+        if cancelled:
+            status = "partial"
+        elif wanted == 0:
             status = "done"
         elif got == 0:
             status = "failed"
@@ -116,4 +120,5 @@ class KeyframeExtractStage:
                 "skipped_count": len(skipped),
                 "wanted_count": wanted,
             },
+            error="cancelled" if cancelled else None,
         )

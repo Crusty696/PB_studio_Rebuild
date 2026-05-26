@@ -113,7 +113,7 @@ class EmbeddingCache:
                 "(media_hash, media_type, embedding_path, model_name, model_version, "
                 " computed_at, file_size_bytes) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?) "
-                "ON CONFLICT(media_hash) DO UPDATE SET "
+                "ON CONFLICT(media_hash, model_name, model_version) DO UPDATE SET "
                 "  media_type=excluded.media_type, "
                 "  embedding_path=excluded.embedding_path, "
                 "  model_name=excluded.model_name, "
@@ -135,24 +135,25 @@ class EmbeddingCache:
 
     def delete(self, media_hash: str) -> bool:
         """Entfernt Entry + .npy-File. Returns True wenn etwas geloescht wurde."""
-        entry = None
+        entries = []
         with self._conn() as conn:
-            row = conn.execute(
+            rows = conn.execute(
                 "SELECT media_hash, media_type, embedding_path, model_name, "
                 "model_version, computed_at, file_size_bytes "
                 "FROM media_embedding_index WHERE media_hash = ?",
                 (media_hash,),
-            ).fetchone()
-            if row is None:
+            ).fetchall()
+            if not rows:
                 return False
-            entry = self._row_to_entry(row)
+            entries = [self._row_to_entry(row) for row in rows]
             conn.execute("DELETE FROM media_embedding_index WHERE media_hash = ?",
                          (media_hash,))
             conn.commit()
-        try:
-            entry.embedding_path.unlink(missing_ok=True)
-        except Exception as exc:
-            logger.warning("EmbeddingCache.delete: file unlink failed: %s", exc)
+        for entry in entries:
+            try:
+                entry.embedding_path.unlink(missing_ok=True)
+            except Exception as exc:
+                logger.warning("EmbeddingCache.delete: file unlink failed: %s", exc)
         return True
 
     def stats(self) -> dict[str, int]:

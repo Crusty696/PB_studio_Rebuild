@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout, QLabel, QLineEdit, QComboBox, QMenu,
 )
 from PySide6.QtCore import Qt, Signal, QRect, QThread, QObject, QTimer
-from PySide6.QtGui import QPixmap, QPainter, QColor, QPen, QFont, QFontMetrics
+from PySide6.QtGui import QPixmap, QImage, QPainter, QColor, QPen, QFont, QFontMetrics
 
 from services.timeout_constants import FFMPEG_THUMBNAIL_TIMEOUT_SEC
 
@@ -57,6 +57,24 @@ def _placeholder_pixmap(w: int, h: int, icon: str = "") -> QPixmap:
         p.drawText(QRect(0, 0, w, h), Qt.AlignmentFlag.AlignCenter, icon)
         p.end()
     return pix
+
+
+def _placeholder_image(w: int, h: int, icon: str = "") -> QImage:
+    """B-388: thread-sichere Placeholder-Variante fuer Worker-Threads.
+
+    QImage darf — anders als QPixmap — ausserhalb des GUI-Threads erstellt und
+    bemalt werden. Der GUI-Thread-Slot wandelt das Ergebnis via
+    ``QPixmap.fromImage`` um.
+    """
+    img = QImage(w, h, QImage.Format.Format_ARGB32_Premultiplied)
+    img.fill(QColor("#0d1117"))
+    if icon:
+        p = QPainter(img)
+        p.setPen(QColor("#374151"))
+        p.setFont(QFont("Segoe UI", 18))
+        p.drawText(QRect(0, 0, w, h), Qt.AlignmentFlag.AlignCenter, icon)
+        p.end()
+    return img
 
 
 # F-029: Performance & Stabilitäts-Optimierung
@@ -111,7 +129,9 @@ def _paint_waveform(w: int, h: int, energy: list[float]) -> QPixmap:
 # ── Background thumbnail loader ───────────────────────────────────────────────
 
 class _ThumbWorker(QObject):
-    done = Signal(str, object)  # (file_path, QPixmap)
+    # B-388: emittiert ein QImage (thread-sicher). Der GUI-Thread-Slot wandelt
+    # es via QPixmap.fromImage um — QPixmap darf nicht im Worker-Thread entstehen.
+    done = Signal(str, object)  # (file_path, QImage)
 
     def __init__(self, file_path: str, w: int, h: int) -> None:
         super().__init__()
@@ -122,11 +142,11 @@ class _ThumbWorker(QObject):
     def run(self) -> None:
         self.done.emit(self._path, self._extract())
 
-    def _extract(self) -> QPixmap:
+    def _extract(self) -> QImage:
         _ensure_thumb_dir()
         dest = _thumb_path(self._path)
         if not self._path or not Path(self._path).exists():
-            return _placeholder_pixmap(self._w, self._h, "✖")
+            return _placeholder_image(self._w, self._h, "✖")
 
         if not dest.exists():
             try:
@@ -143,9 +163,9 @@ class _ThumbWorker(QObject):
                     timeout=FFMPEG_THUMBNAIL_TIMEOUT_SEC,
                 )
             except (subprocess.SubprocessError, OSError, FileNotFoundError):
-                return _placeholder_pixmap(self._w, self._h, "▶")
-        pix = QPixmap(str(dest))
-        return pix if not pix.isNull() else _placeholder_pixmap(self._w, self._h, "▶")
+                return _placeholder_image(self._w, self._h, "▶")
+        img = QImage(str(dest))
+        return img if not img.isNull() else _placeholder_image(self._w, self._h, "▶")
 
 
 # ── Card constants ────────────────────────────────────────────────────────────
@@ -605,6 +625,19 @@ class MediaPoolGrid(QWidget):
             self._apply_filter()
         # KEIN processEvents() hier — der Timer gibt Qt bereits genug Zeit zum Zeichnen
 
+    @staticmethod
+    def _apply_thumbnail(card, img) -> None:
+        """B-389: setzt das Thumbnail, ignoriert aber beim Rebuild geloeschte Cards.
+
+        Ein spaet feuerndes ``done``-Signal kann eine bereits via ``deleteLater()``
+        entfernte Card treffen — der Zugriff auf das geloeschte Qt-Objekt wirft
+        ``RuntimeError``, der hier abgefangen wird.
+        """
+        try:
+            card.set_thumbnail(QPixmap.fromImage(img))
+        except RuntimeError:
+            pass
+
     def _start_thumb_loader(self, card: VideoCard, file_path: str) -> None:
         thread = QThread(self)
         worker = _ThumbWorker(file_path, _CW - 8, _TH)
@@ -612,8 +645,10 @@ class MediaPoolGrid(QWidget):
 
         thread.started.connect(worker.run)
         # Use default args to capture per-iteration values
+        # B-388: QImage→QPixmap im GUI-Thread-Slot umwandeln.
+        # B-389: ueber _apply_thumbnail gegen beim Rebuild geloeschte Cards geschuetzt.
         worker.done.connect(
-            lambda _path, pix, c=card: c.set_thumbnail(pix)
+            lambda _path, img, c=card: self._apply_thumbnail(c, img)
         )
         worker.done.connect(
             lambda _path, _pix, t=thread: t.quit()

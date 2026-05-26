@@ -20,6 +20,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+import time
 from pathlib import Path
 from unittest.mock import patch
 
@@ -69,35 +70,70 @@ def test_notify_feedback_uses_lock_for_pending_counter() -> None:
     )
 
 
-def test_notify_feedback_warns_when_run_triggers_on_gui_thread(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """When ``notify_feedback()`` triggers a flush AND the calling thread
-    is the Qt GUI thread, the worker must emit a warning so the wiring
-    bug surfaces in dev/test. We use batch_size=1 so the very first
-    feedback flushes."""
-    from PySide6.QtWidgets import QApplication
-    QApplication.instance() or QApplication([])
-
+def test_notify_feedback_batch_trigger_does_not_block_caller_thread() -> None:
+    """Batch-trigger darf nicht synchron im Timeline/UI-Caller laufen."""
     def fake_session() -> object:
-        class _S:
-            def execute(self, *a, **kw):  # noqa: ANN001
-                class _R:
-                    def mappings(self):
-                        return self
-                    def all(self):
-                        return []
-                return _R()
-            def close(self):
-                pass
+        class _S: pass
         return _S()
 
     worker = MemoryUpdaterWorker(session_factory=fake_session, batch_size=1)
+    started = threading.Event()
+    release = threading.Event()
+    calls = []
 
-    with caplog.at_level(logging.WARNING, logger="workers.memory_updater"):
-        worker.notify_feedback()  # flush triggers on main thread
+    def slow_run() -> int:
+        calls.append(threading.current_thread().name)
+        started.set()
+        release.wait(timeout=2.0)
+        return 0
 
-    assert "GUI thread" in caplog.text, (
-        f"BUG-2-b: expected GUI-thread warning when notify_feedback() "
-        f"flushes on the main thread. caplog: {caplog.text}"
-    )
+    worker._aggregator.run = slow_run  # type: ignore[method-assign]
+
+    t0 = time.perf_counter()
+    assert worker.notify_feedback() is True
+    elapsed = time.perf_counter() - t0
+
+    assert elapsed < 0.1
+    assert started.wait(timeout=1.0)
+    assert calls and calls[0] != threading.current_thread().name
+    release.set()
+
+
+def test_concurrent_batch_trigger_starts_exactly_one_flush() -> None:
+    """Zwei parallele Feedback-Events am Schwellwert duerfen nicht doppelt flushen."""
+    def fake_session() -> object:
+        class _S: pass
+        return _S()
+
+    worker = MemoryUpdaterWorker(session_factory=fake_session, batch_size=2)
+    worker._pending = 1
+    entered = threading.Event()
+    release = threading.Event()
+    calls = []
+
+    def slow_run() -> int:
+        calls.append(threading.current_thread().name)
+        entered.set()
+        release.wait(timeout=2.0)
+        return 0
+
+    worker._aggregator.run = slow_run  # type: ignore[method-assign]
+
+    barrier = threading.Barrier(3)
+    results = []
+
+    def notify() -> None:
+        barrier.wait(timeout=1.0)
+        results.append(worker.notify_feedback())
+
+    threads = [threading.Thread(target=notify) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    barrier.wait(timeout=1.0)
+    assert entered.wait(timeout=1.0)
+    for thread in threads:
+        thread.join(timeout=1.0)
+    release.set()
+
+    assert calls == [calls[0]]
+    assert results.count(True) == 1

@@ -38,6 +38,9 @@ class VideoPreviewWidget(QLabel):
         self._frame_thread: QThread | None = None
         self._frame_worker: FrameExtractWorker | None = None
         self._pending_frame_request: tuple[float, str] | None = None
+        # B-387: Pfad, fuer den der aktuell laufende Worker erzeugt wurde.
+        # Spaet eintreffende Frames eines frueheren Videos werden verworfen.
+        self._active_request_path: str | None = None
 
     def load_video(self, file_path: str, duration: float = 0.0):
         self._current_path = file_path
@@ -100,6 +103,7 @@ class VideoPreviewWidget(QLabel):
             self._pending_frame_request = (float(time_sec), vf_extra)
             return
 
+        self._active_request_path = self._current_path
         worker = FrameExtractWorker(self._current_path, time_sec, 320, 180, vf_extra)
         thread = QThread(self)
         worker.moveToThread(thread)
@@ -128,6 +132,10 @@ class VideoPreviewWidget(QLabel):
             QTimer.singleShot(0, lambda: self._extract_and_show_frame(*pending))
 
     def _on_frame_ready(self, raw_data: bytes, width: int, height: int):
+        # B-387: Frame nur anzeigen, wenn es zum aktuell geladenen Video gehoert.
+        # Ein spaet eintreffendes Frame eines frueheren load_video()-Pfads wird verworfen.
+        if self._active_request_path != self._current_path:
+            return
         img = QImage(raw_data, width, height, width * 3, QImage.Format.Format_RGB888).copy()
         self.setPixmap(QPixmap.fromImage(img))
 

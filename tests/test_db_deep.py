@@ -11,6 +11,7 @@ import traceback
 import datetime
 import threading
 import time
+import tempfile
 
 # ── Patch: redirect the global engine to in-memory SQLite BEFORE importing database ──
 # We monkey-patch _make_engine and the module-level engine creation so we never
@@ -2021,21 +2022,37 @@ run_test("7.10 DateTime default: AIPacingMemory.created_at auto-set", test_datet
 
 # ── 7.11 Concurrent access (multiple threads) ──
 def test_concurrent_access():
-    """Test that multiple threads can read/write without errors using StaticPool.
+    """Test that multiple threads can read/write without corrupting the suite DB.
 
-    Warm up the SQLAlchemy dialect cache before spawning threads — the first
-    call per engine triggers non-thread-safe dialect init which races if
-    4 threads hit it simultaneously (seen as KeyError in dialect cache).
+    The main suite uses one in-memory SQLite connection via StaticPool. That is
+    correct for deterministic single-threaded table state, but SQLite cannot run
+    simultaneous transactions safely on that one shared connection.
     """
-    with fresh_session() as _warmup:
-        _warmup.query(Project).first()
+    fd, db_path = tempfile.mkstemp(prefix="pb_studio_db_deep_", suffix=".sqlite")
+    os.close(fd)
+    concurrent_engine = create_engine(
+        f"sqlite:///{db_path}",
+        echo=False,
+        connect_args={"check_same_thread": False},
+    )
+
+    @event.listens_for(concurrent_engine, "connect")
+    def _set_concurrent_pragma(dbapi_conn, _rec):
+        c = dbapi_conn.cursor()
+        c.execute("PRAGMA foreign_keys=ON")
+        c.close()
+
+    Base.metadata.create_all(concurrent_engine)
+
+    def concurrent_session():
+        return Session(concurrent_engine)
 
     errors = []
     barrier = threading.Barrier(4, timeout=10)
 
     def worker(thread_id):
         try:
-            s = fresh_session()
+            s = concurrent_session()
             try:
                 barrier.wait()  # synchronize start
                 proj = Project(name=f"Thread-{thread_id}", path=f"/tmp/t{thread_id}", fps=30.0)
@@ -2058,24 +2075,22 @@ def test_concurrent_access():
         except Exception as e:
             errors.append((thread_id, traceback.format_exc()))
 
-    threads = [threading.Thread(target=worker, args=(i,)) for i in range(4)]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join(timeout=15)
-
-    if errors:
-        detail = "\n".join(f"Thread {tid}: {tb}" for tid, tb in errors)
-        raise AssertionError(f"Concurrent access errors:\n{detail}")
-
-    # Cleanup
-    s = fresh_session()
     try:
-        for p in s.query(Project).filter(Project.name.like("Updated-%")).all():
-            s.delete(p)
-        s.commit()
+        threads = [threading.Thread(target=worker, args=(i,)) for i in range(4)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=15)
+
+        if errors:
+            detail = "\n".join(f"Thread {tid}: {tb}" for tid, tb in errors)
+            raise AssertionError(f"Concurrent access errors:\n{detail}")
     finally:
-        s.close()
+        concurrent_engine.dispose()
+        try:
+            os.remove(db_path)
+        except OSError:
+            pass
 
 run_test("7.11 Concurrent access: 4 threads CRUD simultaneously", test_concurrent_access)
 

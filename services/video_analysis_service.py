@@ -904,7 +904,14 @@ def store_embeddings(
     try:
         vdb.delete_by_clip_ids([video_clip_id])
     except (OSError, RuntimeError, ValueError) as e:
-        logger.debug("delete_by_clip_ids fehlgeschlagen (ignoriert): %s", e)
+        logger.exception(
+            "VectorDB delete_by_clip_ids fehlgeschlagen fuer Clip %d; "
+            "Embedding-Write abgebrochen, um stale Rows zu vermeiden.",
+            video_clip_id,
+        )
+        raise RuntimeError(
+            f"VectorDB cleanup failed for clip {video_clip_id}; embeddings not stored."
+        ) from e
 
     entries = []
     for scene in scenes:
@@ -1101,11 +1108,38 @@ def search_videos_by_text(
 
     try:
         results = vdb.search(embedding, top_k=top_k, motion_filter=motion_filter)
-        logger.info("Suche '%s': %d Ergebnisse", query, len(results))
+        results = _filter_active_video_search_results(results)
+        logger.info("Suche '%s': %d aktive Ergebnisse", query, len(results))
         return results
     except (OSError, RuntimeError, ValueError) as e:
         logger.error("LanceDB Suche fehlgeschlagen: %s", e)
         return []
+
+
+def _filter_active_video_search_results(results: list[dict]) -> list[dict]:
+    clip_ids = {
+        int(row["id"]) // 1_000_000
+        for row in results
+        if row.get("id") is not None
+    }
+    if not clip_ids:
+        return []
+
+    from sqlalchemy.orm import Session as _Session
+    from database import engine as _engine, VideoClip as _VideoClip
+
+    with _Session(_engine) as session:
+        active_ids = {
+            row[0]
+            for row in session.query(_VideoClip.id)
+            .filter(_VideoClip.id.in_(clip_ids), _VideoClip.deleted_at.is_(None))
+            .all()
+        }
+
+    return [
+        row for row in results
+        if row.get("id") is not None and int(row["id"]) // 1_000_000 in active_ids
+    ]
 
 
 # ======================================================================
@@ -1207,8 +1241,16 @@ def run_full_pipeline(
         from sqlalchemy.orm import Session as _Session
         from database import engine as _engine, VideoClip as _VideoClip
         with _Session(_engine) as _s:
-            _clip = _s.get(_VideoClip, video_clip_id)
-            original_video_path = _clip.file_path if _clip else video_path
+            _clip = (
+                _s.query(_VideoClip)
+                .filter(_VideoClip.id == video_clip_id, _VideoClip.deleted_at.is_(None))
+                .first()
+            )
+            if _clip is None:
+                raise ValueError(f"VideoClip {video_clip_id} nicht gefunden oder geloescht.")
+            original_video_path = _clip.file_path
+    except ValueError:
+        raise
     except Exception:  # broad catch intentional — SQLAlchemy query at startup, DB may not be ready
         original_video_path = video_path
 
@@ -1308,28 +1350,6 @@ def run_full_pipeline(
         analysis_status_service.mark_error("video", video_clip_id, "siglip_embeddings", str(e))
         raise
 
-    # Schritt 3b: In LanceDB speichern
-    analysis_status_service.mark_started("video", video_clip_id, "vector_db_storage")
-    try:
-        logger.info("[PIPELINE] Schritt 5/7: In LanceDB speichern...")
-        if progress_cb:
-            progress_cb(75, "In LanceDB speichern...")
-        if should_stop and should_stop():
-            analysis_status_service.mark_error(  # B-147
-                "video", video_clip_id, "vector_db_storage", "cancelled"
-            )
-            return result
-
-        # Original-Pfad für LanceDB-Storage verwenden (nicht Proxy-Pfad)
-        result.embeddings_stored = store_embeddings(original_video_path, scenes, video_clip_id)
-        logger.info("[PIPELINE] LanceDB FERTIG: %d Embeddings", result.embeddings_stored)
-        analysis_status_service.mark_done("video", video_clip_id, "vector_db_storage", {
-            "vectors": result.embeddings_stored,
-        })
-    except Exception as e:
-        analysis_status_service.mark_error("video", video_clip_id, "vector_db_storage", str(e))
-        raise
-
     # Schritt 4: Gemma Vision Captioning
     if defer_captioning:
         logger.info(
@@ -1371,6 +1391,30 @@ def run_full_pipeline(
         })
     except Exception as e:
         analysis_status_service.mark_error("video", video_clip_id, "scene_db_storage", str(e))
+        raise
+
+    # Schritt 7b: In LanceDB speichern, nachdem SQLite-Szenen committed sind.
+    analysis_status_service.mark_started("video", video_clip_id, "vector_db_storage")
+    try:
+        logger.info("[PIPELINE] Schritt 7b/7: In LanceDB speichern...")
+        if progress_cb:
+            progress_cb(96, "In LanceDB speichern...")
+        if should_stop and should_stop():
+            analysis_status_service.mark_error(  # B-147
+                "video", video_clip_id, "vector_db_storage", "cancelled"
+            )
+            return result
+
+        # Original-Pfad fuer LanceDB-Storage verwenden (nicht Proxy-Pfad).
+        # B-368: erst nach erfolgreichem SQLite-Commit schreiben, damit bei
+        # DB-Fehlern keine VectorDB-Orphans entstehen.
+        result.embeddings_stored = store_embeddings(original_video_path, scenes, video_clip_id)
+        logger.info("[PIPELINE] LanceDB FERTIG: %d Embeddings", result.embeddings_stored)
+        analysis_status_service.mark_done("video", video_clip_id, "vector_db_storage", {
+            "vectors": result.embeddings_stored,
+        })
+    except Exception as e:
+        analysis_status_service.mark_error("video", video_clip_id, "vector_db_storage", str(e))
         raise
 
     if not defer_captioning:

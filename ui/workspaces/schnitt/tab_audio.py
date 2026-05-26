@@ -45,6 +45,9 @@ class SchnittTabAudio(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._audio_id: int | None = None
+        # B-385: Grid-Lines separat tracken, damit render_grid_lines nicht
+        # die ganze Scene (inkl. Waveform) leeren muss.
+        self._grid_line_items: list = []
         self._build_ui()
 
     def _build_ui(self):
@@ -99,12 +102,19 @@ class SchnittTabAudio(QWidget):
         pixels_per_second: float = _PIXELS_PER_SECOND,
     ) -> None:
         scene = self.waveform_view.scene()
-        scene.clear()
+        # B-385: NICHT die ganze Scene leeren — das wuerde die zuvor via
+        # set_waveform_data() gesetzte Waveform loeschen. Nur die eigenen,
+        # zuvor gezeichneten Grid-Lines entfernen und neu setzen.
+        for item in self._grid_line_items:
+            if item.scene() is scene:
+                scene.removeItem(item)
+        self._grid_line_items.clear()
         pen_beat = QPen(QColor(180, 200, 230, 90), 1)
         height = self.waveform_view.height() or 120
         for t in beat_times:
             x = t * pixels_per_second
-            scene.addLine(QLineF(x, 0, x, height), pen_beat)
+            line = scene.addLine(QLineF(x, 0, x, height), pen_beat)
+            self._grid_line_items.append(line)
 
     def set_audio_id(self, audio_id: int | None) -> None:
         """Setzt das aktive Audio und LEERT die Waveform-Scene.
@@ -125,6 +135,7 @@ class SchnittTabAudio(QWidget):
         """
         self._audio_id = audio_id
         self.waveform_view.scene().clear()
+        self._grid_line_items.clear()  # B-385: getrackte Grid-Lines mit-invalidieren
         if audio_id is None:
             return
         # DB-Lookup macht der Controller; er ruft danach
@@ -146,6 +157,7 @@ class SchnittTabAudio(QWidget):
         """
         scene = self.waveform_view.scene()
         scene.clear()
+        self._grid_line_items.clear()  # B-385: getrackte Grid-Lines mit-invalidieren
         if waveform_row is None:
             return
 

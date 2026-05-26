@@ -195,21 +195,6 @@ class _SchedulerThread(QThread):
             self._loop.call_soon_threadsafe(self._loop.stop)
 
     def submit_task(self, task: EmbeddingTask) -> Optional[str]:
-        # Cache-Check zuerst — passiert im Caller-Thread (UI), aber sqlite ist
-        # cheap. So sparen wir uns die Round-Trip-Submit-Kosten bei Cache-Hits.
-        # ABER: EmbeddingCache nutzt model_name als Filter. Wir kennen Modell
-        # erst zur Embed-Zeit. Daher hier nur prueft "irgendein Embedding fuer
-        # diesen Hash" — der eigentliche Cache-Hit-Pfad passiert im Worker.
-        # Optimierung: Vorab-Check via media_hash_only-Lookup.
-        cached_any = self._lookup_any(task.media_hash)
-        if cached_any:
-            self.skipped_bridge.emit(task.media_hash, "cache_hit_pre_submit")
-            logger.info(
-                "EmbeddingScheduler: skip submit, cache pre-hit hash=%s",
-                task.media_hash[:8],
-            )
-            return None
-
         if self._loop is None or not self._loop.is_running():
             raise RuntimeError("Scheduler-Loop ist nicht aktiv.")
         future = asyncio.run_coroutine_threadsafe(
@@ -217,22 +202,6 @@ class _SchedulerThread(QThread):
             self._loop,
         )
         return future.result(timeout=5.0)
-
-    def _lookup_any(self, media_hash: str) -> bool:
-        import sqlite3
-        try:
-            conn = sqlite3.connect(str(self._cache.db_path))
-            try:
-                row = conn.execute(
-                    "SELECT 1 FROM media_embedding_index WHERE media_hash = ? LIMIT 1",
-                    (media_hash,),
-                ).fetchone()
-                return row is not None
-            finally:
-                conn.close()
-        except sqlite3.Error as exc:
-            logger.warning("Pre-Submit-Cache-Lookup fehlgeschlagen: %s", exc)
-            return False
 
     async def _build_and_submit_job(self, task: EmbeddingTask) -> str:
         async def _run(progress_cb):

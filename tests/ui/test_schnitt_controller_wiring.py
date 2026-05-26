@@ -12,6 +12,7 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import time
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy.orm import Session
@@ -270,6 +271,263 @@ def test_inspector_async_db_load_updates_fields(
         assert panel._duration_label.text() == "Dauer: 10.50s"
     finally:
         panel.deleteLater()
+
+
+def test_inspector_debounced_change_keeps_original_entry_id(
+    test_engine, db_session, project, video_clip, monkeypatch
+):
+    _qapp()
+    import database
+    import ui.clip_inspector as inspector_mod
+    from database import TimelineEntry
+    from ui.clip_inspector import ClipInspectorPanel
+
+    monkeypatch.setattr(inspector_mod, "nullpool_session", database.nullpool_session)
+
+    entry_a = TimelineEntry(
+        project_id=project.id,
+        track="video",
+        media_id=video_clip.id,
+        start_time=0.0,
+        end_time=10.0,
+    )
+    entry_b = TimelineEntry(
+        project_id=project.id,
+        track="video",
+        media_id=video_clip.id,
+        start_time=20.0,
+        end_time=30.0,
+    )
+    db_session.add_all([entry_a, entry_b])
+    db_session.commit()
+    db_session.refresh(entry_a)
+    db_session.refresh(entry_b)
+
+    panel = ClipInspectorPanel()
+    writes = []
+    panel.clip_property_changed.connect(
+        lambda entry_id, field, value: writes.append((entry_id, field, value))
+    )
+    try:
+        panel._current_entry_id = entry_a.id
+        panel._on_field_changed("start_time", 4.25)
+        panel._current_entry_id = entry_b.id
+        panel._flush_pending_change()
+
+        deadline = time.time() + 3.0
+        while time.time() < deadline and not writes:
+            _qapp().processEvents()
+            time.sleep(0.01)
+
+        with database.nullpool_session() as s:
+            a = s.get(TimelineEntry, entry_a.id)
+            b = s.get(TimelineEntry, entry_b.id)
+            assert a.start_time == 4.25
+            assert b.start_time == 20.0
+        assert writes == [(entry_a.id, "start_time", 4.25)]
+    finally:
+        panel.deleteLater()
+
+
+def test_inspector_ignores_stale_async_load_for_previous_entry():
+    _qapp()
+    from ui.clip_inspector import ClipInspectorPanel
+
+    panel = ClipInspectorPanel()
+    try:
+        panel._current_entry_id = 2
+        panel._apply_entry_data(
+            {
+                "entry_id": 2,
+                "track": "video",
+                "media_id": 22,
+                "start_time": 20.0,
+                "end_time": 30.0,
+                "brightness": 0.2,
+                "contrast": 1.2,
+                "crossfade": 0.0,
+            },
+            1,
+        )
+
+        panel._apply_entry_data(
+            {
+                "entry_id": 1,
+                "track": "video",
+                "media_id": 11,
+                "start_time": 1.0,
+                "end_time": 9.0,
+                "brightness": 0.1,
+                "contrast": 1.1,
+                "crossfade": 0.0,
+            },
+            1,
+        )
+
+        assert panel._media_label.text() == "Media ID: 22"
+        assert panel._start_spin.value() == 20.0
+        assert panel._end_spin.value() == 30.0
+    finally:
+        panel.deleteLater()
+
+
+def test_timeline_anchor_add_remove_updates_anchor_map(
+    test_engine, db_session, project, video_clip, monkeypatch
+):
+    _qapp()
+    import database
+    import ui.timeline as timeline_mod
+    from database import TimelineEntry
+    from ui.timeline import InteractiveTimeline, TimelineClipItem, PIXELS_PER_SECOND
+
+    monkeypatch.setattr(timeline_mod, "nullpool_session", database.nullpool_session)
+
+    entry = TimelineEntry(
+        project_id=project.id,
+        track="video",
+        media_id=video_clip.id,
+        start_time=0.0,
+        end_time=10.0,
+    )
+    db_session.add(entry)
+    db_session.commit()
+    db_session.refresh(entry)
+
+    timeline = InteractiveTimeline()
+    clip = TimelineClipItem(
+        entry_id=entry.id,
+        media_id=video_clip.id,
+        track_type="video",
+        title="Clip",
+        x=0.0,
+        y=0.0,
+        width=100.0,
+        height=40.0,
+        anchors=[],
+    )
+    timeline._scene.addItem(clip)
+    timeline.clip_items.append(clip)
+    try:
+        anchor_id = clip.add_anchor_at(2.0 * PIXELS_PER_SECOND)
+
+        assert anchor_id is not None
+        assert entry.id in timeline._anchor_map
+        assert [a.time_offset for a in timeline._anchor_map[entry.id]] == [2.0]
+
+        clip.remove_all_anchors()
+
+        assert timeline._anchor_map.get(entry.id) == []
+    finally:
+        timeline.deleteLater()
+
+
+def test_timeline_context_menu_offers_remove_for_invisible_anchors(monkeypatch):
+    """B-384: Remove-Action muss auch erscheinen, wenn alle Anker ausserhalb
+    der sichtbaren Clip-Breite liegen (kein Marker, nur ``_all_anchor_offsets``)."""
+    _qapp()
+    from PySide6.QtWidgets import QMenu
+    from ui.timeline import InteractiveTimeline, TimelineClipItem
+
+    monkeypatch.setattr(QMenu, "popup", lambda self, *a, **k: None)
+
+    timeline = InteractiveTimeline()
+    invisible = SimpleNamespace(id=1, time_offset=50.0)
+    clip = TimelineClipItem(
+        entry_id=1,
+        media_id=11,
+        track_type="video",
+        title="Clip",
+        x=0.0,
+        y=0.0,
+        width=100.0,
+        height=40.0,
+        anchors=[invisible],
+    )
+    timeline._scene.addItem(clip)
+    timeline.clip_items.append(clip)
+    try:
+        assert clip._anchor_markers == []
+        assert clip._all_anchor_offsets == [50.0]
+
+        clip.show_context_menu_at(
+            screen_pos=clip.scenePos().toPoint(),
+            local_x=10.0,
+        )
+        labels = [a.text() for a in clip._context_menu.actions()]
+        assert "Alle Anker entfernen" in labels
+    finally:
+        timeline.deleteLater()
+
+
+def test_timeline_anchor_sync_clamps_db_start_time_to_zero(
+    test_engine, db_session, project, audio_track, video_clip, monkeypatch
+):
+    _qapp()
+    import database
+    import ui.timeline as timeline_mod
+    from database import TimelineEntry
+    from ui.timeline import InteractiveTimeline, TimelineClipItem, PIXELS_PER_SECOND
+
+    monkeypatch.setattr(timeline_mod, "nullpool_session", database.nullpool_session)
+
+    audio_entry = TimelineEntry(
+        project_id=project.id,
+        track="audio",
+        media_id=audio_track.id,
+        start_time=0.0,
+        end_time=10.0,
+    )
+    video_entry = TimelineEntry(
+        project_id=project.id,
+        track="video",
+        media_id=video_clip.id,
+        start_time=10.0,
+        end_time=20.0,
+    )
+    db_session.add_all([audio_entry, video_entry])
+    db_session.commit()
+    db_session.refresh(audio_entry)
+    db_session.refresh(video_entry)
+
+    timeline = InteractiveTimeline()
+    audio_item = TimelineClipItem(
+        entry_id=audio_entry.id,
+        media_id=audio_track.id,
+        track_type="audio",
+        title="Audio",
+        x=0.0,
+        y=0.0,
+        width=100.0,
+        height=40.0,
+        anchors=[],
+    )
+    video_item = TimelineClipItem(
+        entry_id=video_entry.id,
+        media_id=video_clip.id,
+        track_type="video",
+        title="Video",
+        x=10.0 * PIXELS_PER_SECOND,
+        y=50.0,
+        width=100.0,
+        height=40.0,
+        anchors=[],
+    )
+    timeline._scene.addItem(audio_item)
+    timeline._scene.addItem(video_item)
+    timeline.clip_items.extend([audio_item, video_item])
+    timeline._anchor_map = {
+        audio_entry.id: [SimpleNamespace(time_offset=1.0)],
+        video_entry.id: [SimpleNamespace(time_offset=5.0)],
+    }
+    try:
+        assert timeline.sync_anchors() is True
+
+        with database.nullpool_session() as s:
+            refreshed = s.get(TimelineEntry, video_entry.id)
+            assert refreshed.start_time == 0.0
+        assert video_item.pos().x() == 0.0
+    finally:
+        timeline.deleteLater()
 
 
 # ---------------------------------------------------------------------------

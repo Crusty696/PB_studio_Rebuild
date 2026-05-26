@@ -61,6 +61,15 @@ def make_context_fingerprint(
     }
 
 
+def normalize_user_verdict(verdict: str | None) -> str | None:
+    """Map UI/RL verdict aliases to the aggregator vocabulary."""
+    if verdict in {"accept", "good"}:
+        return "accept"
+    if verdict in {"reject", "bad"}:
+        return "reject"
+    return None
+
+
 @dataclass(frozen=True)
 class PatternUpdate:
     """One upsert target: combination of fingerprint + clip_id + counts."""
@@ -168,9 +177,9 @@ class PatternAggregator:
         accept/reject counts.
 
         Weighting rules (design §4.3):
-          - user_verdict == "accept"  → weight 1.0, accept++
-          - user_verdict == "reject"  → weight 1.0, reject++
-          - user_verdict in None/other → fall back to run_rating dampening:
+          - user_verdict in {"accept", "good"}  → weight 1.0, accept++
+          - user_verdict in {"reject", "bad"}   → weight 1.0, reject++
+          - user_verdict in None/other          → fall back to run_rating dampening:
               run_rating >= 4 → weight 0.3, accept
               run_rating <= 2 → weight 0.3, reject
               otherwise → skip (no signal)
@@ -196,7 +205,7 @@ class PatternAggregator:
                     "sample": 0.0,
                 }
 
-            verdict = d.get("user_verdict")
+            verdict = normalize_user_verdict(d.get("user_verdict"))
             if verdict == "accept":
                 groups[key]["accept"] += 1.0
                 groups[key]["sample"] += 1.0

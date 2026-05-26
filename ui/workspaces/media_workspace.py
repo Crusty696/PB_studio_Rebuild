@@ -1416,7 +1416,7 @@ class MediaWorkspace(QWidget):
         elif step_key == "stem_separation":
             task_name = f"Stems: {title}"
             task = task_manager.create_task(task_name, "Demucs Stem Separation")
-            worker = workers.StemSeparationWorker(audio_id, file_path)
+            worker = workers.StemSeparationWorker(audio_id)
             worker.task_id = task.task_id
             worker.progress.connect(
                 lambda pct, msg: pb_window._console_append(f"[Stems] {msg}"),
