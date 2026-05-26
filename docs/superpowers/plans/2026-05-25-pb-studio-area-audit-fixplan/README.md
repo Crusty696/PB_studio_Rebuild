@@ -25,17 +25,33 @@ No unrelated refactors, feature work, library swaps, model changes, Audio-V2 por
 
 ## Current Task
 
-### Task 48: B-410 Chat agent worker races on shared registry
+### Task 49: B-411 Chat action error dicts can display as success
 
-**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-410-chat-agent-worker-races-on-shared-registry.md`
+**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-411-chat-action-error-dicts-can-display-as-success.md`
 
-- [ ] **Step 1: Read B-410 and chat agent registry lifecycle**
-- [ ] **Step 2: Reproduce/prove the documented defect with a failing test**
+- [ ] **Step 1: Read B-411 and chat action result handling**
+- [ ] **Step 2: Reproduce/prove error dict can be displayed as success**
 - [ ] **Step 3: Minimal fix**
 - [ ] **Step 4: Run targeted tests + global collect-only**
 - [ ] **Step 5: Update Vault and status with exact evidence**
 
 ## Completed Tasks
+
+### Task 48: B-410 Chat agent worker races on shared registry
+
+Result 2026-05-26: `AIAgentWorker` now keeps the shared registry lock
+around registry swap, `agent.process()`, and registry restore, so another
+worker cannot replace `agent.registry` during the active process call.
+
+Evidence: pre-fix RED observed the first worker's registry replaced by the
+second worker's tracked registry. Post-fix direct
+`tests/ui/test_b410_chat_registry_race.py` `1 passed`; py_compile Exit 0;
+Chat/Agent-near suite `64 passed`; global collect-only
+`2267 tests collected`.
+
+Status: `code-fix-pending-live-verification`, not `fixed`; live chat workflow
+pending. If `agent.process()` hard-hangs, another worker using the same shared
+agent waits on the registry lock; B-409 only prevents late UI-signal effects.
 
 ### Task 47: B-409 Chat watchdog does not stop agent worker
 

@@ -100,6 +100,7 @@ class AIAgentWorker(QObject):
         return self._cancel_requested.is_set()
 
     def run(self):
+        self._errored = False
         _ok = False
         try:
             self.status_changed.emit(self.tr("Denkt nach..."))
@@ -116,20 +117,22 @@ class AIAgentWorker(QObject):
                 )
 
             try:
-                # Registry temporaer ersetzen fuer diesen Aufruf,
-                # aber mit Lock-Schutz gegen parallelen Zugriff
+                # Registry temporaer ersetzen fuer diesen Aufruf. Der Lock
+                # umfasst process()+Restore, sonst kann ein zweiter Worker
+                # waehrend process() die shared agent.registry tauschen.
                 if tracked_registry is not None:
                     with self._registry_lock:
                         self.agent.registry = tracked_registry
-                try:
+                        try:
+                            if self._is_cancelled():
+                                return
+                            result = self.agent.process(self.user_text)
+                        finally:
+                            self.agent.registry = original_registry
+                else:
                     if self._is_cancelled():
                         return
                     result = self.agent.process(self.user_text)
-                finally:
-                    # Sofort zuruecksetzen — minimiert das Zeitfenster
-                    if tracked_registry is not None:
-                        with self._registry_lock:
-                            self.agent.registry = original_registry
                 if self._is_cancelled():
                     return
                 self.status_changed.emit(self.tr("Bereit"))
@@ -148,6 +151,7 @@ class AIAgentWorker(QObject):
 
         except Exception as e:  # broad catch intentional — top-level worker thread safety net
             logger.error("AIAgentWorker crashed: %s", e, exc_info=True)
+            self._errored = True
             if not self._is_cancelled():
                 self.status_changed.emit("Fehler")
                 self.error.emit(str(e))
