@@ -3,11 +3,14 @@ action listing, and test utilities.
 """
 
 import logging
+import threading
 from pathlib import PurePosixPath, PureWindowsPath
 
 from services.action_registry import action_registry
 
 _logger = logging.getLogger(__name__)
+_main_thread_invoker = None
+_main_thread_invoker_lock = threading.Lock()
 
 
 def _get_task_manager():
@@ -208,6 +211,50 @@ def _get_project_manager():
     return None
 
 
+def _get_main_thread_invoker(app):
+    global _main_thread_invoker
+    with _main_thread_invoker_lock:
+        if _main_thread_invoker is None:
+            from PySide6.QtCore import QObject, Qt, Signal, Slot
+
+            class _MainThreadInvoker(QObject):
+                call = Signal(object)
+
+                def __init__(self):
+                    super().__init__()
+                    self.call.connect(
+                        self._invoke,
+                        Qt.ConnectionType.BlockingQueuedConnection,
+                    )
+
+                @Slot(object)
+                def _invoke(self, payload):
+                    callback, box = payload
+                    try:
+                        box["result"] = callback()
+                    except Exception as exc:  # broad catch intentional: re-raised in caller thread
+                        box["error"] = exc
+
+            _main_thread_invoker = _MainThreadInvoker()
+            _main_thread_invoker.moveToThread(app.thread())
+        return _main_thread_invoker
+
+
+def _run_on_main_thread(callback):
+    from PySide6.QtCore import QThread
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance()
+    if app is None or QThread.currentThread() == app.thread():
+        return callback()
+
+    box = {}
+    _get_main_thread_invoker(app).call.emit((callback, box))
+    if "error" in box:
+        raise box["error"]
+    return box.get("result")
+
+
 # ── Neue Chat-Aktionen für lückenlose UI-Steuerung ──────────────────────
 
 @action_registry.register(
@@ -243,9 +290,6 @@ def create_project(
     fps: float = 30.0,
 ) -> dict:
     from pathlib import Path
-    pm = _get_project_manager()
-    if pm is None:
-        return {"error": "ProjectManager nicht verfügbar"}
 
     if path:
         proj_path = Path(path)
@@ -254,19 +298,22 @@ def create_project(
         documents = Path(os.path.expanduser("~/Documents"))
         proj_path = documents / "PB_studio_Rebuild" / "Projects" / name
 
-    try:
-        # Führt die eigentliche Erstellung im Hintergrund-Thread des Agents aus.
-        # Da pm.create_project das Signal `project_changed` emittiert und Qt-Signale
-        # thread-sicher sind, aktualisiert sich die UI vollkommen automatisch.
-        pm.create_project(proj_path, name, resolution, fps)
-        return {
-            "status": "ok",
-            "message": f"Projekt '{name}' wurde erfolgreich unter {proj_path} erstellt.",
-            "path": str(proj_path),
-        }
-    except Exception as e:
-        _logger.exception("Fehler in create_project-Aktion")
-        return {"error": f"Projekt konnte nicht erstellt werden: {e}"}
+    def _create():
+        pm = _get_project_manager()
+        if pm is None:
+            return {"error": "ProjectManager nicht verfügbar"}
+        try:
+            pm.create_project(proj_path, name, resolution, fps)
+            return {
+                "status": "ok",
+                "message": f"Projekt '{name}' wurde erfolgreich unter {proj_path} erstellt.",
+                "path": str(proj_path),
+            }
+        except Exception as e:
+            _logger.exception("Fehler in create_project-Aktion")
+            return {"error": f"Projekt konnte nicht erstellt werden: {e}"}
+
+    return _run_on_main_thread(_create)
 
 
 @action_registry.register(
@@ -285,21 +332,24 @@ def create_project(
 )
 def open_project(path: str) -> dict:
     from pathlib import Path
-    pm = _get_project_manager()
-    if pm is None:
-        return {"error": "ProjectManager nicht verfügbar"}
-
     proj_path = Path(path)
-    try:
-        meta = pm.open_project(proj_path)
-        return {
-            "status": "ok",
-            "message": f"Projekt '{meta.get('name')}' wurde erfolgreich aus {proj_path} geladen.",
-            "meta": meta,
-        }
-    except Exception as e:
-        _logger.exception("Fehler in open_project-Aktion")
-        return {"error": f"Projekt konnte nicht geöffnet werden: {e}"}
+
+    def _open():
+        pm = _get_project_manager()
+        if pm is None:
+            return {"error": "ProjectManager nicht verfügbar"}
+        try:
+            meta = pm.open_project(proj_path)
+            return {
+                "status": "ok",
+                "message": f"Projekt '{meta.get('name')}' wurde erfolgreich aus {proj_path} geladen.",
+                "meta": meta,
+            }
+        except Exception as e:
+            _logger.exception("Fehler in open_project-Aktion")
+            return {"error": f"Projekt konnte nicht geöffnet werden: {e}"}
+
+    return _run_on_main_thread(_open)
 
 
 @action_registry.register(
@@ -1098,24 +1148,27 @@ def save_project_as(target_path: str, name: str | None = None) -> dict:
     param_schema={"type": "object", "properties": {}}
 )
 def undo_timeline() -> dict:
-    mw = _get_main_window()
-    if not mw or not hasattr(mw, "timeline_view"):
-        return {"error": "Timeline-View nicht verfügbar."}
+    def _undo():
+        mw = _get_main_window()
+        if not mw or not hasattr(mw, "timeline_view"):
+            return {"error": "Timeline-View nicht verfügbar."}
 
-    undo_stack = getattr(mw.timeline_view, "undo_stack", None)
-    if undo_stack is None:
-        return {"error": "Undo-Stack nicht verfügbar."}
+        undo_stack = getattr(mw.timeline_view, "undo_stack", None)
+        if undo_stack is None:
+            return {"error": "Undo-Stack nicht verfügbar."}
 
-    if not undo_stack.canUndo():
-        return {"error": "Nichts zum Rückgängigmachen vorhanden."}
+        if not undo_stack.canUndo():
+            return {"error": "Nichts zum Rückgängigmachen vorhanden."}
 
-    text = undo_stack.undoText() or "Letzte Aktion"
-    undo_stack.undo()
-    return {
-        "status": "ok",
-        "action": "undo_timeline",
-        "message": f"Rückgängig: '{text}'.",
-    }
+        text = undo_stack.undoText() or "Letzte Aktion"
+        undo_stack.undo()
+        return {
+            "status": "ok",
+            "action": "undo_timeline",
+            "message": f"Rückgängig: '{text}'.",
+        }
+
+    return _run_on_main_thread(_undo)
 
 
 @action_registry.register(
@@ -1124,24 +1177,27 @@ def undo_timeline() -> dict:
     param_schema={"type": "object", "properties": {}}
 )
 def redo_timeline() -> dict:
-    mw = _get_main_window()
-    if not mw or not hasattr(mw, "timeline_view"):
-        return {"error": "Timeline-View nicht verfügbar."}
+    def _redo():
+        mw = _get_main_window()
+        if not mw or not hasattr(mw, "timeline_view"):
+            return {"error": "Timeline-View nicht verfügbar."}
 
-    undo_stack = getattr(mw.timeline_view, "undo_stack", None)
-    if undo_stack is None:
-        return {"error": "Undo-Stack nicht verfügbar."}
+        undo_stack = getattr(mw.timeline_view, "undo_stack", None)
+        if undo_stack is None:
+            return {"error": "Undo-Stack nicht verfügbar."}
 
-    if not undo_stack.canRedo():
-        return {"error": "Nichts zum Wiederherstellen vorhanden."}
+        if not undo_stack.canRedo():
+            return {"error": "Nichts zum Wiederherstellen vorhanden."}
 
-    text = undo_stack.redoText() or "Letzte Aktion"
-    undo_stack.redo()
-    return {
-        "status": "ok",
-        "action": "redo_timeline",
-        "message": f"Wiederhergestellt: '{text}'.",
-    }
+        text = undo_stack.redoText() or "Letzte Aktion"
+        undo_stack.redo()
+        return {
+            "status": "ok",
+            "action": "redo_timeline",
+            "message": f"Wiederhergestellt: '{text}'.",
+        }
+
+    return _run_on_main_thread(_redo)
 
 
 @action_registry.register(
@@ -1150,25 +1206,28 @@ def redo_timeline() -> dict:
     param_schema={"type": "object", "properties": {}}
 )
 def sync_anchors() -> dict:
-    mw = _get_main_window()
-    if not mw or not hasattr(mw, "timeline_view"):
-        return {"error": "Timeline-View nicht verfügbar."}
+    def _sync():
+        mw = _get_main_window()
+        if not mw or not hasattr(mw, "timeline_view"):
+            return {"error": "Timeline-View nicht verfügbar."}
 
-    try:
-        synced = mw.timeline_view.sync_anchors()
-        if synced:
-            mw.timeline_view.load_from_db()
+        try:
+            synced = mw.timeline_view.sync_anchors()
+            if synced:
+                mw.timeline_view.load_from_db()
+                return {
+                    "status": "ok",
+                    "action": "sync_anchors",
+                    "message": "Anker synchronisiert — Video-Clips an Audio-Ankern ausgerichtet.",
+                }
             return {
-                "status": "ok",
-                "action": "sync_anchors",
-                "message": "Anker synchronisiert — Video-Clips an Audio-Ankern ausgerichtet.",
+                "error": "Keine Anker gefunden. Bitte setze zuerst Anker mit 'add_anchor'."
             }
-        return {
-            "error": "Keine Anker gefunden. Bitte setze zuerst Anker mit 'add_anchor'."
-        }
-    except Exception as e:
-        _logger.exception("Fehler in sync_anchors-Aktion")
-        return {"error": f"Fehler beim Synchronisieren: {e}"}
+        except Exception as e:
+            _logger.exception("Fehler in sync_anchors-Aktion")
+            return {"error": f"Fehler beim Synchronisieren: {e}"}
+
+    return _run_on_main_thread(_sync)
 
 
 @action_registry.register(

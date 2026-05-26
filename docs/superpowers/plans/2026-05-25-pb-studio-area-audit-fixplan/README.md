@@ -25,17 +25,32 @@ No unrelated refactors, feature work, library swaps, model changes, Audio-V2 por
 
 ## Current Task
 
-### Task 50: B-412 Chat actions call GUI objects from agent thread
+### Task 51: B-413 Destructive action fuzzy protection list incomplete
 
-**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-412-chat-actions-call-gui-objects-from-agent-thread.md`
+**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-413-destructive-action-fuzzy-protection-list-incomplete.md`
 
-- [ ] **Step 1: Read B-412 and GUI-affine chat action paths**
-- [ ] **Step 2: Reproduce/prove GUI action runs outside main thread**
+- [ ] **Step 1: Read B-413 and destructive fuzzy protection logic**
+- [ ] **Step 2: Reproduce/prove loose fuzzy can reach missing destructive action**
 - [ ] **Step 3: Minimal fix**
 - [ ] **Step 4: Run targeted tests + global collect-only**
 - [ ] **Step 5: Update Vault and status with exact evidence**
 
 ## Completed Tasks
+
+### Task 50: B-412 Chat actions call GUI objects from agent thread
+
+Result 2026-05-26: GUI-affine edit actions now route through a small
+BlockingQueuedConnection invoker when called outside the Qt main thread.
+Covered actions: `create_project`, `open_project`, `undo_timeline`,
+`redo_timeline`, and `sync_anchors`.
+
+Evidence: pre-fix RED showed `undo_stack.undo()` ran in the background caller
+thread. Post-fix direct `tests/ui/test_b412_chat_action_main_thread.py`
+`2 passed`; py_compile Exit 0; Agent/Chat-near suite `66 passed`; global
+collect-only `2270 tests collected`.
+
+Status: `code-fix-pending-live-verification`, not `fixed`; live chat action
+workflow pending.
 
 ### Task 49: B-411 Chat action error dicts can display as success
 
