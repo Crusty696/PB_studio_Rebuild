@@ -25,17 +25,24 @@ No unrelated refactors, feature work, library swaps, model changes, Audio-V2 por
 
 ## Current Task
 
-### Task 35: B-397 Export ignores timeline gaps
+### Task 36: B-398 Export summary counts soft-deleted or orphan entries
 
-**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-397-export-ignores-timeline-gaps.md`
+**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-398-export-summary-counts-soft-deleted-or-orphan-entries.md`
 
-- [ ] **Step 1: Read B-397 and timeline gap handling**
+- [ ] **Step 1: Read B-398 and export summary query paths**
 - [ ] **Step 2: Reproduce/prove the documented defect with a failing test**
 - [ ] **Step 3: Minimal fix**
 - [ ] **Step 4: Run targeted tests + global collect-only**
 - [ ] **Step 5: Update Vault and status with exact evidence**
 
 ## Completed Tasks
+
+### Task 35: B-397 Export ignores timeline gaps
+
+Result 2026-05-26: `services/export_service.py` rejects video timeline gaps before
+rendering instead of silently shortening output. Pre-fix RED reached export path;
+post-fix direct `1 passed`; Export-near `8 passed`; Core ExportService `1 passed`;
+collect-only `2253 tests collected`. Vault `code-fix-pending-live-verification`; no live export.
 
 ### Task 34: B-396 Export source range not bounded by clip duration
 

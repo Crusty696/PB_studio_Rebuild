@@ -273,6 +273,19 @@ def _source_duration_from_entry(
     return source_duration
 
 
+def _validate_video_timeline_gaps(video_segments: list[dict], epsilon: float = 0.01) -> None:
+    previous_end = 0.0
+    for index, segment in enumerate(video_segments):
+        start = float(segment["start"])
+        end = float(segment["end"])
+        if start > previous_end + epsilon:
+            raise ValueError(
+                f"Timeline gap vor Video-Segment {index + 1}: "
+                f"{previous_end:.3f}s bis {start:.3f}s"
+            )
+        previous_end = max(previous_end, end)
+
+
 def _cleanup_orphan_tempfiles(max_age_hours: float = 1.0) -> int:
     """B-118: entfernt zurueckgelassene ``pb_std_*`` und ``pb_lufs_*``
     Tempfiles aelter als ``max_age_hours`` aus dem System-Tempdir.
@@ -468,6 +481,7 @@ def export_timeline(project_id: int = 1, output_name: str = "output.mp4",
 
     if not video_segments:
         raise ValueError("Keine Video-Clips auf der Timeline")
+    _validate_video_timeline_gaps(video_segments)
 
     # Berechne total_steps basierend auf Audio-Normalisierung
     total_steps = 5 if audio_path else 4
