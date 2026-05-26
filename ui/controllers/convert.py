@@ -167,15 +167,25 @@ class ConvertController(PBComponent):
 
     def _start_effect_worker(self, file_path: str, vf_extra: str):
         """Startet FrameExtractWorker im Main-Thread (Worker-Erstellung muss im Main-Thread sein)."""
+        # B-390: monotone Request-Sequenz. Ein spaeter fertig werdender aelterer
+        # Worker darf die Vorschau des juengsten Requests nicht ueberschreiben.
+        req_id = getattr(self, "_effect_request_seq", 0) + 1
+        self._effect_request_seq = req_id
         worker = FrameExtractWorker(file_path, 1.0, 320, 180, vf_extra)
-        worker.frame_ready.connect(self._on_effect_frame_ready, Qt.ConnectionType.QueuedConnection)
+        worker.frame_ready.connect(
+            lambda raw, w, h, rid=req_id: self._on_effect_frame_ready(raw, w, h, rid),
+            Qt.ConnectionType.QueuedConnection,
+        )
         worker.error.connect(
             lambda msg: QTimer.singleShot(0, lambda: self.window.effects_preview.setText(msg)),
             Qt.ConnectionType.QueuedConnection,
         )
         self.window.worker_dispatcher._start_worker_thread(worker)
 
-    def _on_effect_frame_ready(self, raw_data: bytes, width: int, height: int):
+    def _on_effect_frame_ready(self, raw_data: bytes, width: int, height: int, req_id: int | None = None):
+        # B-390: nur das Frame des juengsten Requests setzt die UI.
+        if req_id is not None and req_id != getattr(self, "_effect_request_seq", req_id):
+            return
         img = QImage(raw_data, width, height, width * 3, QImage.Format.Format_RGB888)
         self.window.effects_preview.setPixmap(QPixmap.fromImage(img))
 
@@ -202,7 +212,7 @@ class ConvertController(PBComponent):
             vcodec, ext = "libx264", ".mp4"
 
         self.window.convert_progress.setVisible(True)
-        self.window.convert_progress.setRange(0, len(videos))
+        self.window.convert_progress.setRange(0, 100)
         self.window.convert_progress.setValue(0)
 
         task = task_manager.create_task("Video Convert", f"{len(videos)} Videos -> {resolution} {fps}fps")

@@ -25,17 +25,24 @@ No unrelated refactors, feature work, library swaps, model changes, Audio-V2 por
 
 ## Current Task
 
-### Task 40: B-402 Convert progress percent sent to item-count progressbar
+### Task 41: B-403 Batch convert uses PATH ffmpeg instead of configured binary
 
-**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-402-convert-progress-percent-sent-to-item-count-progressbar.md`
+**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-403-batch-convert-uses-path-ffmpeg-instead-of-configured-binary.md`
 
-- [ ] **Step 1: Read B-402 and Convert progress range/value handling**
+- [ ] **Step 1: Read B-403 and BatchConvertWorker FFmpeg binary resolution**
 - [ ] **Step 2: Reproduce/prove the documented defect with a failing test**
 - [ ] **Step 3: Minimal fix**
 - [ ] **Step 4: Run targeted tests + global collect-only**
 - [ ] **Step 5: Update Vault and status with exact evidence**
 
 ## Completed Tasks
+
+### Task 40: B-402 Convert progress percent sent to item-count progressbar
+
+Result 2026-05-26: Convert UI progressbar range is now `0..100`, matching
+the worker percent values. Pre-fix RED saw range `(0, 3)` for three videos;
+post-fix direct `1 passed`; UI/Convert-near `7 passed`; collect-only
+`2258 tests collected`. Vault `code-fix-pending-live-verification`; no live GUI.
 
 ### Task 39: B-401 Batch convert cannot cancel running FFmpeg
 

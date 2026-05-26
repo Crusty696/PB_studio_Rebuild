@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-AREA-AUDIT-FIXPLAN-2026-05-25
-next_allowed_task: B-402 (Area 8 Batch Convert UI; B-401 code-fix pending live verify)
+next_allowed_task: B-403 (Area 8 Batch Convert FFmpeg; B-402 code-fix pending live verify)
 updated: 2026-05-25
 
 ## Meaning
@@ -88,4 +88,5 @@ Der Audit-Plan `PB-STUDIO-AREA-AUDIT-2026-05-24` ist abgeschlossen und bleibt al
 - B-399 ist code-fix-pending-live-verification im Vault am 2026-05-26: AudioEntry `start_time`/`source_start`/`source_end` wird vor Export als Temp-WAV geschnitten und per `adelay` auf Timeline-Start versetzt; direct `1 passed`, Export-near `13 passed`, collect `2255`; Live-Export offen.
 - B-400 ist code-fix-pending-live-verification im Vault am 2026-05-26: Orphan-Cleanup entfernt jetzt auch `pb_concat_*` und `pb_fcs_*`; direct `1 passed`, Export-near `14 passed`, collect `2256`; Live-Export-Start offen.
 - B-401 ist code-fix-pending-live-verification im Vault am 2026-05-26: BatchConvertWorker nutzt Popen+Cancel-Watchdog statt blockierendem `subprocess.run`; direct `1 passed`, Convert-nahe `17 passed`, collect `2257`; Live-Batch-Convert offen.
-- Naechster erlaubter Task: B-402 (Area 8 Batch Convert UI, numerische Reihenfolge).
+- B-402 ist code-fix-pending-live-verification im Vault am 2026-05-26: Convert-Progressbar nutzt Range `0..100`, passend zu Worker-Prozentwerten; direct `1 passed`, UI/Convert-nahe `7 passed`, collect `2258`; Live-GUI offen.
+- Naechster erlaubter Task: B-403 (Area 8 Batch Convert FFmpeg, numerische Reihenfolge).
