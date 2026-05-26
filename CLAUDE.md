@@ -66,6 +66,11 @@ prüfe verifiziere und mach noch eine gegenprüfung deiner arbeit mit unterschie
   the next phase may begin.
 - **One task at a time.** No parallel half-finished work, no commit spam.
 - **Plan contradiction or unclarity: stop + ask.** Never decide alone.
+- **Worktree hygiene:** before any action run `git status --short --branch`.
+  Dirty state is not allowed as normal handoff. Unknown dirty changes mean
+  stop, report paths, ask user. Multi-agent work requires separate Git
+  worktree + separate branch per agent/task. End every handoff clean, stashed
+  with name, or explicitly user-approved dirty and documented.
 
 ---
 
@@ -85,6 +90,8 @@ prüfe verifiziere und mach noch eine gegenprüfung deiner arbeit mit unterschie
    `docs/superpowers/synthesis/` of the repo, **stop and ask the user**
    to confirm verification status before mirroring to vault.
 6. Only then: act.
+7. If worktree is dirty before task start, resolve tracking/handoff first:
+   commit, named stash, or user decision. Do not build on unknown changes.
 
 If `AGENTS.md` is missing, stop and tell the user. Do not proceed.
 

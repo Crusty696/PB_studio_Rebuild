@@ -272,6 +272,39 @@ status marker before the next phase may begin.
 
 ---
 
+## Worktree hygiene and multi-agent isolation
+
+Dirty worktrees are forbidden as a normal handoff state.
+
+- **Before any action that reads, edits, tests, commits, or reports status:**
+  run `git status --short --branch`.
+- If the worktree is dirty and those changes are not clearly from the
+  current agent/current task: **stop**. Report exact changed/untracked
+  paths and ask for user decision. Do not overwrite, revert, or build on
+  unknown changes.
+- If dirty changes are from the current task: either finish the task and
+  commit, or create an explicit handoff note/status. Never leave "mystery"
+  dirty files.
+- **Handoff rule:** no agent may hand off with an untracked/unstaged
+  worktree. End state must be one of:
+  - clean commit with honest verification status;
+  - named stash with exact reason and listed paths;
+  - explicit user-approved dirty state documented in vault and chat.
+- **Multiple agents:** never work in the same repository directory at the
+  same time. Each agent must use its own Git worktree and branch.
+- Branch naming for agent work: `codex/<task>`, `claude/<task>`,
+  `gemini/<task>`, `cursor/<task>`, or another tool prefix plus the bug/task
+  id, e.g. `codex/B-410-chat-registry`.
+- Before starting a new agent/worktree from another agent's work, fetch or
+  merge the committed branch first. Do not copy dirty files between agents.
+- If a commit is only a checkpoint/tracking commit, the message and report
+  must say so. Do not imply live verification.
+- Global prevention rule: any agent that sees a dirty tree at start must
+  treat cleanup/tracking as the first task unless the user explicitly says
+  to ignore it.
+
+---
+
 ## What is done
 
 - Implement tasks from the current plan's own task list, in the order
