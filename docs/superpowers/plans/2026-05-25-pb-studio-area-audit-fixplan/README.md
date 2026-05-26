@@ -25,17 +25,25 @@ No unrelated refactors, feature work, library swaps, model changes, Audio-V2 por
 
 ## Current Task
 
-### Task 38: B-400 Export orphan temp cleanup misses concat and fcs files
+### Task 39: B-401 Batch convert cannot cancel running FFmpeg
 
-**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-400-export-orphan-temp-cleanup-misses-concat-and-fcs.md`
+**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-401-batch-convert-cannot-cancel-running-ffmpeg.md`
 
-- [ ] **Step 1: Read B-400 and export tempfile cleanup handling**
+- [ ] **Step 1: Read B-401 and batch convert FFmpeg cancel handling**
 - [ ] **Step 2: Reproduce/prove the documented defect with a failing test**
 - [ ] **Step 3: Minimal fix**
 - [ ] **Step 4: Run targeted tests + global collect-only**
 - [ ] **Step 5: Update Vault and status with exact evidence**
 
 ## Completed Tasks
+
+### Task 38: B-400 Export orphan temp cleanup misses concat and fcs files
+
+Result 2026-05-26: `_cleanup_orphan_tempfiles()` also removes old
+`pb_concat_*` and `pb_fcs_*` files. Pre-fix RED deleted 0 instead of 2;
+post-fix direct `1 passed`; Export-near `14 passed`; collect-only
+`2256 tests collected`. Vault `code-fix-pending-live-verification`; no live
+export start.
 
 ### Task 37: B-399 Export audio entry timing and trim ignored
 

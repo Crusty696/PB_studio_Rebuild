@@ -342,7 +342,7 @@ def _validate_video_timeline_gaps(video_segments: list[dict], epsilon: float = 0
 
 
 def _cleanup_orphan_tempfiles(max_age_hours: float = 1.0) -> int:
-    """B-118: entfernt zurueckgelassene ``pb_std_*`` und ``pb_lufs_*``
+    """B-118/B-400: entfernt zurueckgelassene Export-Tempfiles
     Tempfiles aelter als ``max_age_hours`` aus dem System-Tempdir.
 
     Wird von ``export_timeline`` und ``export_preview`` am Anfang
@@ -356,7 +356,13 @@ def _cleanup_orphan_tempfiles(max_age_hours: float = 1.0) -> int:
     cutoff = _time.time() - (max_age_hours * 3600.0)
     try:
         tmpdir = Path(tempfile.gettempdir())
-        for pattern in ("pb_std_*", "pb_lufs_*", "pb_audio_entry_*"):
+        for pattern in (
+            "pb_std_*",
+            "pb_lufs_*",
+            "pb_audio_entry_*",
+            "pb_concat_*",
+            "pb_fcs_*",
+        ):
             for tf in tmpdir.glob(pattern):
                 try:
                     if tf.is_file() and tf.stat().st_mtime < cutoff:
@@ -368,7 +374,7 @@ def _cleanup_orphan_tempfiles(max_age_hours: float = 1.0) -> int:
     except Exception as exc:
         logger.debug("orphan-tempfile cleanup skipped: %s", exc)
     if deleted:
-        logger.info("B-118: %d orphan pb_std_/pb_lufs_ tempfile(s) entfernt.", deleted)
+        logger.info("B-118/B-400: %d orphan export tempfile(s) entfernt.", deleted)
     return deleted
 
 
