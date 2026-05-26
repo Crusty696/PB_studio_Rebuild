@@ -299,6 +299,11 @@ class ActionRegistry:
         dropped_params: set[str] = set()
         if filtered != params:
             dropped_params = set(params.keys()) - valid_params
+            if action.name in DESTRUCTIVE_ACTIONS:
+                raise ValueError(
+                    f"Unbekannte Parameter fuer destruktive Aktion '{action.name}': "
+                    f"{sorted(dropped_params)}"
+                )
             logger.warning(
                 "Parameter bereinigt für '%s': entfernt %s, behalten %s",
                 action.name, dropped_params, set(filtered.keys()),

@@ -362,3 +362,18 @@ class TestParameterFiltering:
         registry.execute("fn2", {"known": "value", "unknown1": 1, "unknown2": 2})
 
         assert received.get("known") == "value"
+
+    def test_b414_destructive_action_rejects_unknown_params_before_side_effect(self):
+        registry = ActionRegistry()
+        called = False
+
+        @registry.register(name="clear_timeline", description="")
+        def clear_timeline():
+            nonlocal called
+            called = True
+            return {"status": "ok"}
+
+        with pytest.raises(ValueError, match="Unbekannte Parameter.*clear_timeline"):
+            registry.execute("clear_timeline", {"project_id": 999, "confirm": False})
+
+        assert called is False

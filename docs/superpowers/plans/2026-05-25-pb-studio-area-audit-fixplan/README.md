@@ -25,17 +25,30 @@ No unrelated refactors, feature work, library swaps, model changes, Audio-V2 por
 
 ## Current Task
 
-### Task 52: B-414 Action registry drops unknown params before side effects
+### Task 53: B-415 Add-to-timeline action allows cross-project or soft-deleted media
 
-**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-414-action-registry-drops-unknown-params-before-side-effects.md`
+**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-415-add-to-timeline-action-allows-cross-project-or-soft-deleted-media.md`
 
-- [ ] **Step 1: Read B-414 and ActionRegistry parameter filtering**
-- [ ] **Step 2: Reproduce/prove unknown params are dropped before side effects**
+- [ ] **Step 1: Read B-415 and add_to_timeline media lookup**
+- [ ] **Step 2: Reproduce/prove cross-project or soft-deleted media can be added**
 - [ ] **Step 3: Minimal fix**
 - [ ] **Step 4: Run targeted tests + global collect-only**
 - [ ] **Step 5: Update Vault and status with exact evidence**
 
 ## Completed Tasks
+
+### Task 52: B-414 Action registry drops unknown params before side effects
+
+Result 2026-05-26: `ActionRegistry.execute()` now rejects unknown parameters
+before handler execution when the target action is in `DESTRUCTIVE_ACTIONS`.
+
+Evidence: pre-fix RED executed `clear_timeline` despite unknown
+`project_id`/`confirm` parameters. Post-fix direct
+`tests/test_agents/test_action_registry.py` `30 passed`; py_compile Exit 0;
+Agent-near suite `37 passed`; global collect-only `2275 tests collected`.
+
+Status: `code-fix-pending-live-verification`, not `fixed`; live chat action
+workflow pending.
 
 ### Task 51: B-413 Destructive action fuzzy protection list incomplete
 

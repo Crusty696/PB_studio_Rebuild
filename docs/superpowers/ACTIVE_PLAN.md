@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-AREA-AUDIT-FIXPLAN-2026-05-25
-next_allowed_task: B-414 (Area 9 Action Registry; B-413 code-fix pending live verify)
+next_allowed_task: B-415 (Area 9 Actions / Timeline; B-414 code-fix pending live verify)
 updated: 2026-05-26
 
 ## Meaning
@@ -100,4 +100,5 @@ Der Audit-Plan `PB-STUDIO-AREA-AUDIT-2026-05-24` ist abgeschlossen und bleibt al
 - B-411 ist code-fix-pending-live-verification im Vault am 2026-05-26: `LocalAgentService._execute_single_action()` hebt Handler-Rueckgaben `{"error": ...}` auf Top-Level `error` und laesst `result` leer; pre-fix RED zeigte Fehler-Dict als Action-Erfolg; direct `1 passed`, Agent/Chat-nahe `32 passed`, collect `2268`; Live-Chat-Workflow offen.
 - B-412 ist code-fix-pending-live-verification im Vault am 2026-05-26: GUI-affine Chat-Actions `create_project`, `open_project`, `undo_timeline`, `redo_timeline`, `sync_anchors` laufen via BlockingQueuedConnection im Qt-Main-Thread; pre-fix RED zeigte `undo()` im Worker-Thread; direct/near `66 passed`, collect `2270`; Live-Chat-Workflow offen.
 - B-413 ist code-fix-pending-live-verification im Vault am 2026-05-26: `DESTRUCTIVE_ACTIONS` deckt jetzt `delete_media`, `clear_timeline`, `remove_clip`, `remove_anchor`; pre-fix RED erlaubte `clear time line` -> `clear_timeline`; ActionRegistry `29 passed`, Agent/UI-nahe `39 passed`, collect `2274`; Live-Chat-Workflow offen.
-- Naechster erlaubter Task: B-414 (Area 9 Action Registry, numerische Reihenfolge).
+- B-414 ist code-fix-pending-live-verification im Vault am 2026-05-26: destruktive Actions lehnen unbekannte Parameter vor Handler-Ausfuehrung ab; pre-fix RED fuehrte `clear_timeline` trotz `project_id`/`confirm` aus; ActionRegistry `30 passed`, Agent-nahe `37 passed`, collect `2275`; Live-Chat-Workflow offen.
+- Naechster erlaubter Task: B-415 (Area 9 Actions / Timeline, numerische Reihenfolge).
