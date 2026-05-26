@@ -56,12 +56,12 @@ def test_batch_convert_ffmpeg_missing_emits_error_only_no_finished(
     worker.finished.connect(lambda c, t: finished_calls.append((c, t)))
     worker.error.connect(lambda msg: error_calls.append(msg))
 
-    # Mock subprocess.run so the inner ffmpeg invocation raises
+    # Mock subprocess.Popen so the inner ffmpeg invocation raises
     # FileNotFoundError, which is the BUG-A9 trigger branch.
     def raise_fnf(*args, **kwargs):  # type: ignore[no-untyped-def]
         raise FileNotFoundError("ffmpeg")
 
-    with patch("workers.import_export.subprocess.run", side_effect=raise_fnf):
+    with patch("workers.import_export.subprocess.Popen", side_effect=raise_fnf):
         worker.run()
 
     assert len(error_calls) == 1, (

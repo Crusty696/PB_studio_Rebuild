@@ -25,17 +25,25 @@ No unrelated refactors, feature work, library swaps, model changes, Audio-V2 por
 
 ## Current Task
 
-### Task 39: B-401 Batch convert cannot cancel running FFmpeg
+### Task 40: B-402 Convert progress percent sent to item-count progressbar
 
-**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-401-batch-convert-cannot-cancel-running-ffmpeg.md`
+**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-402-convert-progress-percent-sent-to-item-count-progressbar.md`
 
-- [ ] **Step 1: Read B-401 and batch convert FFmpeg cancel handling**
+- [ ] **Step 1: Read B-402 and Convert progress range/value handling**
 - [ ] **Step 2: Reproduce/prove the documented defect with a failing test**
 - [ ] **Step 3: Minimal fix**
 - [ ] **Step 4: Run targeted tests + global collect-only**
 - [ ] **Step 5: Update Vault and status with exact evidence**
 
 ## Completed Tasks
+
+### Task 39: B-401 Batch convert cannot cancel running FFmpeg
+
+Result 2026-05-26: `BatchConvertWorker` runs FFmpeg via `Popen` with a
+cancel watchdog instead of blocking `subprocess.run`. Pre-fix RED kept the
+worker thread alive after `cancel()`; post-fix direct `1 passed`; Convert-near
+`17 passed`; collect-only `2257 tests collected`. Vault
+`code-fix-pending-live-verification`; no live batch convert.
 
 ### Task 38: B-400 Export orphan temp cleanup misses concat and fcs files
 

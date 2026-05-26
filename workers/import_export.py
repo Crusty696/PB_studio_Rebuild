@@ -3,6 +3,7 @@
 import logging
 import subprocess
 import sys
+import time
 import traceback
 from pathlib import Path
 
@@ -20,6 +21,38 @@ from services.timeout_constants import FFMPEG_EXPORT_TIMEOUT_SEC
 from .base import CancellableMixin, format_user_error
 
 logger = logging.getLogger(__name__)
+
+
+def _run_batch_ffmpeg_cancellable(cmd: list[str], cancel_check, timeout: float):
+    kwargs = {}
+    if sys.platform == "win32":
+        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+    process = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        **kwargs,
+    )
+    deadline = time.monotonic() + timeout
+    while process.poll() is None:
+        if cancel_check is not None and cancel_check():
+            process.terminate()
+            try:
+                process.wait(timeout=2.0)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=2.0)
+            break
+        if time.monotonic() >= deadline:
+            process.kill()
+            process.wait(timeout=2.0)
+            raise subprocess.TimeoutExpired(cmd, timeout)
+        time.sleep(0.1)
+
+    stdout, stderr = process.communicate(timeout=2.0)
+    return subprocess.CompletedProcess(
+        cmd, process.returncode, stdout=stdout, stderr=stderr
+    )
 
 
 class ExportWorker(QObject, CancellableMixin):
@@ -322,12 +355,8 @@ class BatchConvertWorker(QObject, CancellableMixin):
                 if self.should_stop():
                     break
 
-                # B-117: zweiter Cancel-Check direkt nach dem ffmpeg-Call,
-                # bevor der naechste startet. ffmpeg-Subprocess selber kann
-                # nicht mid-segment cancelled werden weil hier subprocess.run
-                # benutzt wird (vs. Popen+watchdog). Daher zumindest schnell
-                # nach jeder Konvertierung pruefen, sodass folgende Segmente
-                # gar nicht erst starten.
+                # B-401: FFmpeg laeuft ueber Popen+Watchdog, damit Cancel auch
+                # waehrend des laufenden Segments terminiert.
                 src = v["file_path"]
                 stem = Path(src).stem
                 out_dir = Path(src).parent / "converted"
@@ -361,10 +390,13 @@ class BatchConvertWorker(QObject, CancellableMixin):
                     dst,
                 ]
                 try:
-                    result = subprocess.run(
-                        cmd, capture_output=True, timeout=FFMPEG_EXPORT_TIMEOUT_SEC,
-                        creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+                    result = _run_batch_ffmpeg_cancellable(
+                        cmd,
+                        cancel_check=self.should_stop,
+                        timeout=FFMPEG_EXPORT_TIMEOUT_SEC,
                     )
+                    if self.should_stop():
+                        break
                     if result.returncode == 0:
                         converted += 1
                         self.progress.emit(int((i + 1) / total * 100), f"  OK: {dst}")
@@ -426,12 +458,14 @@ class ProxyCreationWorker(QObject, CancellableMixin):
         # Sonst blockiert ein 50-File-Batch den Cancel um (queue/2)*encoding_time,
         # weil Workers should_stop() erst nach Slot-Acquire pruefen.
         if self.should_stop():
+            self.finished.emit(self.clip_id, "")
             return
         # B-056: Semaphor blockt bis ein Slot frei wird.
         with _PROXY_CREATION_SEMAPHORE:
             # Nochmal pruefen: zwischen Acquire und Run kann der User
             # gecancelt haben.
             if self.should_stop():
+                self.finished.emit(self.clip_id, "")
                 return
             return self._run_with_slot()
 
