@@ -244,6 +244,21 @@ def _resolve_export_output_path(export_dir: Path, output_name: str) -> Path:
     return output_path
 
 
+def _source_duration_from_entry(entry, fallback_duration: float) -> float:
+    source_start = entry.source_start or 0.0
+    source_end = entry.source_end
+    if source_end is not None and source_start is not None:
+        source_duration = source_end - source_start
+    else:
+        source_duration = fallback_duration
+    if source_duration <= 0:
+        raise ValueError(
+            f"Ungueltige source_duration fuer TimelineEntry {getattr(entry, 'id', '?')}: "
+            f"{source_duration:.3f}s"
+        )
+    return source_duration
+
+
 def _cleanup_orphan_tempfiles(max_age_hours: float = 1.0) -> int:
     """B-118: entfernt zurueckgelassene ``pb_std_*`` und ``pb_lufs_*``
     Tempfiles aelter als ``max_age_hours`` aus dem System-Tempdir.
@@ -414,10 +429,7 @@ def export_timeline(project_id: int = 1, output_name: str = "output.mp4",
                 source_end = ve.source_end
                 seg_duration = ve.end_time - ve.start_time if ve.end_time else (clip.duration or 10.0)
                 # Source-Duration aus Source-Offsets, Fallback auf Timeline-Duration
-                if source_end is not None and source_start is not None:
-                    source_duration = source_end - source_start
-                else:
-                    source_duration = seg_duration
+                source_duration = _source_duration_from_entry(ve, seg_duration)
                 video_segments.append({
                     "path": clip.file_path,
                     "start": ve.start_time,
@@ -1326,10 +1338,7 @@ def export_preview(project_id: int = 1, resolution: str = "1920x1080",
             source_start = ve.source_start or 0.0
             source_end = ve.source_end
             seg_duration = ve.end_time - ve.start_time if ve.end_time else (clip.duration or 10.0)
-            if source_end is not None and source_start is not None:
-                source_duration = source_end - source_start
-            else:
-                source_duration = seg_duration
+            source_duration = _source_duration_from_entry(ve, seg_duration)
 
             # Clip ggf. am Preview-Limit abschneiden
             end_time = ve.end_time or (ve.start_time + seg_duration)

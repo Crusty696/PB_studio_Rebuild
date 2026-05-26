@@ -25,17 +25,24 @@ No unrelated refactors, feature work, library swaps, model changes, Audio-V2 por
 
 ## Current Task
 
-### Task 33: B-395 Export source range can be zero or negative
+### Task 34: B-396 Export source range not bounded by clip duration
 
-**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-395-export-source-range-can-be-zero-or-negative.md`
+**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-396-export-source-range-not-bounded-by-clip-duration.md`
 
-- [ ] **Step 1: Read B-395 and export source range handling**
+- [ ] **Step 1: Read B-396 and source range duration bounds**
 - [ ] **Step 2: Reproduce/prove the documented defect with a failing test**
 - [ ] **Step 3: Minimal fix**
 - [ ] **Step 4: Run targeted tests + global collect-only**
 - [ ] **Step 5: Update Vault and status with exact evidence**
 
 ## Completed Tasks
+
+### Task 33: B-395 Export source range can be zero or negative
+
+Result 2026-05-26: `services/export_service.py` validates `source_duration <= 0`
+before Export/FFmpeg for timeline export and preview. Pre-fix RED reached export path;
+post-fix direct `1 passed`; Export-near `6 passed`; Core ExportService `1 passed`;
+collect-only `2251 tests collected`. Vault `code-fix-pending-live-verification`; no live export.
 
 ### Task 32: B-394 Agent export action passes output_path as output_name
 

@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-AREA-AUDIT-FIXPLAN-2026-05-25
-next_allowed_task: B-395 (Area 8 Export; B-394 code-fix pending live verify)
+next_allowed_task: B-396 (Area 8 Export; B-395 code-fix pending live verify)
 updated: 2026-05-25
 
 ## Meaning
@@ -81,4 +81,5 @@ Der Audit-Plan `PB-STUDIO-AREA-AUDIT-2026-05-24` ist abgeschlossen und bleibt al
 - B-392 ist fixed im Vault am 2026-05-26: ConvertWorkspace-Smoke-Testvertrag auf zwei dokumentierte Tabs aktualisiert; direct `1 passed`, Workspace-Smoke `7 passed`, nahe Tests `3 passed`, collect `2247`.
 - B-393 ist code-fix-pending-live-verification im Vault am 2026-05-26: Export `output_name` wird filename-only validiert; path traversal RED, post-fix direct `1 passed`, Export-near `5 passed`, Core ExportService `1 passed`, collect `2248`; Live-Export offen.
 - B-394 ist code-fix-pending-live-verification im Vault am 2026-05-26: Agent export action lehnt absolute `output_path` ab und emittiert keinen Task; direct `2 passed`, Agent/Wiring-nahe `53 passed`, collect `2250`; Live-Action offen.
-- Naechster erlaubter Task: B-395 (Area 8 Export, numerische Reihenfolge).
+- B-395 ist code-fix-pending-live-verification im Vault am 2026-05-26: `source_duration <= 0` wird vor FFmpeg abgelehnt; direct `1 passed`, Export-near `6 passed`, Core ExportService `1 passed`, collect `2251`; Live-Export offen.
+- Naechster erlaubter Task: B-396 (Area 8 Export, numerische Reihenfolge).
