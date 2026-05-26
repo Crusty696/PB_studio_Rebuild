@@ -41,6 +41,10 @@ DESTRUCTIVE_ACTIONS: frozenset[str] = frozenset({
     "delete_project",
     "delete_video_clip",
     "delete_audio_track",
+    "delete_media",
+    "clear_timeline",
+    "remove_clip",
+    "remove_anchor",
 })
 DESTRUCTIVE_FUZZY_THRESHOLD = 95
 

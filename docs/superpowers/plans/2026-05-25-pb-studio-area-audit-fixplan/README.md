@@ -25,17 +25,31 @@ No unrelated refactors, feature work, library swaps, model changes, Audio-V2 por
 
 ## Current Task
 
-### Task 51: B-413 Destructive action fuzzy protection list incomplete
+### Task 52: B-414 Action registry drops unknown params before side effects
 
-**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-413-destructive-action-fuzzy-protection-list-incomplete.md`
+**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-414-action-registry-drops-unknown-params-before-side-effects.md`
 
-- [ ] **Step 1: Read B-413 and destructive fuzzy protection logic**
-- [ ] **Step 2: Reproduce/prove loose fuzzy can reach missing destructive action**
+- [ ] **Step 1: Read B-414 and ActionRegistry parameter filtering**
+- [ ] **Step 2: Reproduce/prove unknown params are dropped before side effects**
 - [ ] **Step 3: Minimal fix**
 - [ ] **Step 4: Run targeted tests + global collect-only**
 - [ ] **Step 5: Update Vault and status with exact evidence**
 
 ## Completed Tasks
+
+### Task 51: B-413 Destructive action fuzzy protection list incomplete
+
+Result 2026-05-26: `DESTRUCTIVE_ACTIONS` now includes real registered
+destructive edit actions: `delete_media`, `clear_timeline`, `remove_clip`, and
+`remove_anchor`.
+
+Evidence: pre-fix RED allowed loose fuzzy `clear time line` to resolve to
+`clear_timeline`. Post-fix direct `tests/test_agents/test_action_registry.py`
+`29 passed`; py_compile Exit 0; Agent/UI-near suite `39 passed`; global
+collect-only `2274 tests collected`.
+
+Status: `code-fix-pending-live-verification`, not `fixed`; live chat action
+workflow pending.
 
 ### Task 50: B-412 Chat actions call GUI objects from agent thread
 

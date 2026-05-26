@@ -275,6 +275,25 @@ class TestActionRegistryResolve:
         registry = ActionRegistry()
         assert registry.resolve("totally_unknown_xyzzz") is None
 
+    @pytest.mark.parametrize(
+        ("registered_action", "fuzzy_name"),
+        [
+            ("delete_media", "delete_medium"),
+            ("clear_timeline", "clear time line"),
+            ("remove_clip", "remove anchr"),
+            ("remove_anchor", "rm_anchor"),
+        ],
+    )
+    def test_b413_missing_destructive_action_rejects_loose_fuzzy(self, registered_action, fuzzy_name):
+        """Destruktive Actions duerfen nicht ueber loose fuzzy erreichbar sein."""
+        registry = ActionRegistry()
+
+        @registry.register(name=registered_action, description="")
+        def destructive_action():
+            pass
+
+        assert registry.resolve(fuzzy_name) is None
+
 
 # ---------------------------------------------------------------------------
 # get_schema_for_prompt() Tests
