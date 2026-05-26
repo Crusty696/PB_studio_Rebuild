@@ -12,7 +12,7 @@ import sys
 import tempfile
 import threading
 import time
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 from sqlalchemy.orm import Session
 from database import engine, TimelineEntry, AudioTrack, VideoClip
@@ -216,6 +216,34 @@ def _get_export_dir() -> Path:
     return _session.APP_ROOT / "exports"
 
 
+def _resolve_export_output_path(export_dir: Path, output_name: str) -> Path:
+    """Build an export path from a filename-only output name."""
+    raw_name = str(output_name).strip()
+    if not raw_name:
+        raw_name = "output.mp4"
+
+    win_path = PureWindowsPath(raw_name)
+    posix_path = PurePosixPath(raw_name)
+    parts = set(win_path.parts) | set(posix_path.parts)
+    if (
+        win_path.is_absolute()
+        or posix_path.is_absolute()
+        or bool(win_path.drive)
+        or ".." in parts
+        or "\\" in raw_name
+        or "/" in raw_name
+        or win_path.name != raw_name
+        or posix_path.name != raw_name
+    ):
+        raise ValueError("Ungueltiger output_name: nur ein Dateiname im Export-Ordner ist erlaubt")
+
+    output_path = (export_dir / raw_name).resolve()
+    export_root = export_dir.resolve()
+    if output_path.parent != export_root:
+        raise ValueError("Ungueltiger output_name: Export-Pfad verlaesst den Export-Ordner")
+    return output_path
+
+
 def _cleanup_orphan_tempfiles(max_age_hours: float = 1.0) -> int:
     """B-118: entfernt zurueckgelassene ``pb_std_*`` und ``pb_lufs_*``
     Tempfiles aelter als ``max_age_hours`` aus dem System-Tempdir.
@@ -353,7 +381,7 @@ def export_timeline(project_id: int = 1, output_name: str = "output.mp4",
 
     export_dir = _get_export_dir()
     export_dir.mkdir(parents=True, exist_ok=True)
-    output_path = export_dir / output_name
+    output_path = _resolve_export_output_path(export_dir, output_name)
 
     with Session(engine) as session:
         entries = (

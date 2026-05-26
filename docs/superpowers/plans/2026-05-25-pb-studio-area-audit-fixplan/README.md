@@ -25,17 +25,25 @@ No unrelated refactors, feature work, library swaps, model changes, Audio-V2 por
 
 ## Current Task
 
-### Task 31: B-393 Export output_name can escape export dir
+### Task 32: B-394 Agent export action passes output_path as output_name
 
-**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-393-export-output-name-can-escape-export-dir.md`
+**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-394-agent-export-action-passes-output-path-as-output-name.md`
 
-- [ ] **Step 1: Read B-393 and export output path construction**
+- [ ] **Step 1: Read B-394 and agent export action path**
 - [ ] **Step 2: Reproduce/prove the documented defect with a failing test**
 - [ ] **Step 3: Minimal fix**
 - [ ] **Step 4: Run targeted tests + global collect-only**
 - [ ] **Step 5: Update Vault and status with exact evidence**
 
 ## Completed Tasks
+
+### Task 31: B-393 Export output_name can escape export dir
+
+Result 2026-05-26: `services/export_service.py` validates `output_name` before DB/FFmpeg
+as filename-only; absolute paths, drive names, separators and `..` are rejected.
+Pre-fix RED opened DB before validation; post-fix direct `1 passed`; Export-near
+`5 passed`; Core ExportService `1 passed`; collect-only `2248 tests collected`.
+Vault `code-fix-pending-live-verification` because no live export was run.
 
 ### Task 30: B-392 ConvertWorkspace smoke test contract drift
 
