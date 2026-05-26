@@ -1510,15 +1510,42 @@ def get_timeline_summary(project_id: int = 1) -> dict:
             .filter_by(project_id=project_id)
             .all()
         )
-        video_count = sum(1 for e in entries if e.track == "video")
-        audio_count = sum(1 for e in entries if e.track == "audio")
+        video_ids = [e.media_id for e in entries if e.track == "video"]
+        audio_ids = [e.media_id for e in entries if e.track == "audio"]
+        active_video_ids = (
+            {
+                c.id for c in session.query(VideoClip).filter(
+                    VideoClip.id.in_(video_ids), VideoClip.deleted_at.is_(None)
+                ).all()
+                if getattr(c, "deleted_at", None) is None
+            }
+            if video_ids else set()
+        )
+        active_audio_ids = (
+            {
+                a.id for a in session.query(AudioTrack).filter(
+                    AudioTrack.id.in_(audio_ids), AudioTrack.deleted_at.is_(None)
+                ).all()
+                if getattr(a, "deleted_at", None) is None
+            }
+            if audio_ids else set()
+        )
+        exportable_entries = [
+            e for e in entries
+            if (
+                (e.track == "video" and e.media_id in active_video_ids)
+                or (e.track == "audio" and e.media_id in active_audio_ids)
+            )
+        ]
+        video_count = sum(1 for e in exportable_entries if e.track == "video")
+        audio_count = sum(1 for e in exportable_entries if e.track == "audio")
         total_duration = 0.0
-        for e in entries:
+        for e in exportable_entries:
             if e.track == "video" and e.end_time:
                 total_duration = max(total_duration, e.end_time)
         return {
             "video_clips": video_count,
             "audio_tracks": audio_count,
-            "total_entries": len(entries),
+            "total_entries": len(exportable_entries),
             "estimated_duration": total_duration,
         }

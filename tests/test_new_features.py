@@ -183,6 +183,8 @@ class TestExportService:
 
     def test_get_timeline_summary_with_entries(self, db_session):
         session, engine = db_session
+        session.add(VideoClip(id=1, project_id=1, file_path="clip.mp4", duration=10.0))
+        session.add(AudioTrack(id=1, project_id=1, file_path="track.wav", duration=30.0))
         session.add(TimelineEntry(project_id=1, track="video", media_id=1,
                                   start_time=0.0, end_time=10.0, lane=0))
         session.add(TimelineEntry(project_id=1, track="audio", media_id=1,

@@ -25,17 +25,24 @@ No unrelated refactors, feature work, library swaps, model changes, Audio-V2 por
 
 ## Current Task
 
-### Task 36: B-398 Export summary counts soft-deleted or orphan entries
+### Task 37: B-399 Export audio entry timing and trim ignored
 
-**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-398-export-summary-counts-soft-deleted-or-orphan-entries.md`
+**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-399-export-audio-entry-timing-and-trim-ignored.md`
 
-- [ ] **Step 1: Read B-398 and export summary query paths**
+- [ ] **Step 1: Read B-399 and export audio timing/trim handling**
 - [ ] **Step 2: Reproduce/prove the documented defect with a failing test**
 - [ ] **Step 3: Minimal fix**
 - [ ] **Step 4: Run targeted tests + global collect-only**
 - [ ] **Step 5: Update Vault and status with exact evidence**
 
 ## Completed Tasks
+
+### Task 36: B-398 Export summary counts soft-deleted or orphan entries
+
+Result 2026-05-26: `get_timeline_summary()` counts only exportable active media
+for video/audio/total/duration. Pre-fix RED counted 3 instead of 1; post-fix
+direct `1 passed`; Summary-near `3 passed`; Export-near `12 passed`; collect-only
+`2254 tests collected`. Vault `code-fix-pending-live-verification`; no live GUI.
 
 ### Task 35: B-397 Export ignores timeline gaps
 
