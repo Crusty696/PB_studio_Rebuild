@@ -25,17 +25,25 @@ No unrelated refactors, feature work, library swaps, model changes, Audio-V2 por
 
 ## Current Task
 
-### Task 41: B-403 Batch convert uses PATH ffmpeg instead of configured binary
+### Task 42: B-404 Convert HEVC UI selects CPU libx265
 
-**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-403-batch-convert-uses-path-ffmpeg-instead-of-configured-binary.md`
+**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-404-convert-hevc-ui-selects-cpu-libx265.md`
 
-- [ ] **Step 1: Read B-403 and BatchConvertWorker FFmpeg binary resolution**
+- [ ] **Step 1: Read B-404 and Convert HEVC codec selection policy**
 - [ ] **Step 2: Reproduce/prove the documented defect with a failing test**
 - [ ] **Step 3: Minimal fix**
 - [ ] **Step 4: Run targeted tests + global collect-only**
 - [ ] **Step 5: Update Vault and status with exact evidence**
 
 ## Completed Tasks
+
+### Task 41: B-403 Batch convert uses PATH ffmpeg instead of configured binary
+
+Result 2026-05-26: `BatchConvertWorker` uses `get_ffmpeg_bin()` for the
+FFmpeg command instead of literal `ffmpeg`. Pre-fix RED saw command[0] as
+`ffmpeg`; post-fix direct `1 passed`; Batch/Convert-near `16 passed`;
+collect-only `2259 tests collected`. Vault `code-fix-pending-live-verification`;
+no live batch convert.
 
 ### Task 40: B-402 Convert progress percent sent to item-count progressbar
 

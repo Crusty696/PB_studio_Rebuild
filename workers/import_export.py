@@ -18,6 +18,7 @@ from services.ingest_service import (
     _invalidate_pacing_caches,
 )
 from services.timeout_constants import FFMPEG_EXPORT_TIMEOUT_SEC
+from services.startup_checks import get_ffmpeg_bin
 from .base import CancellableMixin, format_user_error
 
 logger = logging.getLogger(__name__)
@@ -379,7 +380,7 @@ class BatchConvertWorker(QObject, CancellableMixin):
                 )
 
                 cmd = [
-                    "ffmpeg", "-y", "-i", src,
+                    get_ffmpeg_bin(), "-y", "-i", src,
                     "-vf", f"scale={w_res}:{h_res}:force_original_aspect_ratio=decrease,"
                            f"pad={w_res}:{h_res}:(ow-iw)/2:(oh-ih)/2",
                     "-r", self.fps,
