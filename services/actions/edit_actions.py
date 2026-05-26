@@ -3,6 +3,7 @@ action listing, and test utilities.
 """
 
 import logging
+from pathlib import PurePosixPath, PureWindowsPath
 
 from services.action_registry import action_registry
 
@@ -13,6 +14,25 @@ def _get_task_manager():
     """Gibt den TaskManager zurueck ohne QApplication-Kopplung."""
     from services.task_manager import GlobalTaskManager
     return GlobalTaskManager.instance()
+
+
+def _validate_export_output_name(output_path: str | None) -> str:
+    raw_name = (output_path or "output.mp4").strip() or "output.mp4"
+    win_path = PureWindowsPath(raw_name)
+    posix_path = PurePosixPath(raw_name)
+    parts = set(win_path.parts) | set(posix_path.parts)
+    if (
+        win_path.is_absolute()
+        or posix_path.is_absolute()
+        or bool(win_path.drive)
+        or ".." in parts
+        or "\\" in raw_name
+        or "/" in raw_name
+        or win_path.name != raw_name
+        or posix_path.name != raw_name
+    ):
+        raise ValueError("output_path darf nur ein Dateiname im Export-Ordner sein")
+    return raw_name
 
 
 @action_registry.register(
@@ -130,7 +150,7 @@ def auto_edit(
             },
             "output_path": {
                 "type": "string",
-                "description": "Pfad für die Ausgabedatei (optional)."
+                "description": "Dateiname fuer die Ausgabedatei im Export-Ordner (optional)."
             }
         },
         "required": ["project_id"]
@@ -138,7 +158,10 @@ def auto_edit(
 )
 def export_timeline_action(project_id: int, output_path: str | None = None) -> dict:
     """Command Pattern: Emittiert Signal → Main-Thread baut ExportWorker."""
-    output_name = output_path or "output.mp4"
+    try:
+        output_name = _validate_export_output_name(output_path)
+    except ValueError as exc:
+        return {"error": str(exc)}
     tm = _get_task_manager()
     if tm is None:
         _logger.warning("TaskManager nicht verfügbar - App nicht bereit")

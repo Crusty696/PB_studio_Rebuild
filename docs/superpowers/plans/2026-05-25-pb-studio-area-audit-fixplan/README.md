@@ -25,17 +25,24 @@ No unrelated refactors, feature work, library swaps, model changes, Audio-V2 por
 
 ## Current Task
 
-### Task 32: B-394 Agent export action passes output_path as output_name
+### Task 33: B-395 Export source range can be zero or negative
 
-**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-394-agent-export-action-passes-output-path-as-output-name.md`
+**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-395-export-source-range-can-be-zero-or-negative.md`
 
-- [ ] **Step 1: Read B-394 and agent export action path**
+- [ ] **Step 1: Read B-395 and export source range handling**
 - [ ] **Step 2: Reproduce/prove the documented defect with a failing test**
 - [ ] **Step 3: Minimal fix**
 - [ ] **Step 4: Run targeted tests + global collect-only**
 - [ ] **Step 5: Update Vault and status with exact evidence**
 
 ## Completed Tasks
+
+### Task 32: B-394 Agent export action passes output_path as output_name
+
+Result 2026-05-26: `services/actions/edit_actions.py` validates agent `output_path`
+as filename-only and updates schema wording. Pre-fix RED emitted absolute path as
+`output_name`; post-fix direct `2 passed`; Agent/Wiring-near `53 passed`; collect-only
+`2250 tests collected`. Vault `code-fix-pending-live-verification`; no live action workflow run.
 
 ### Task 31: B-393 Export output_name can escape export dir
 
