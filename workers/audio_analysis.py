@@ -242,7 +242,11 @@ class LUFSAnalysisWorker(BaseAnalysisWorker):
     def _save_to_db(self, result) -> None:
         from database import AudioTrack
         with self._get_session_context() as session:
-            track = session.get(AudioTrack, self.audio_track_id)
+            track = (
+                session.query(AudioTrack)
+                .filter(AudioTrack.id == self.audio_track_id, AudioTrack.deleted_at.is_(None))
+                .one_or_none()
+            )
             if track:
                 track.lufs = result.integrated
                 session.commit()

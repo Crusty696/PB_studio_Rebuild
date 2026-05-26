@@ -25,17 +25,30 @@ No unrelated refactors, feature work, library swaps, model changes, Audio-V2 por
 
 ## Current Task
 
-### Task 46: B-408 LUFS worker can write soft-deleted audio track
+### Task 47: B-409 Chat watchdog does not stop agent worker
 
-**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-408-lufs-worker-can-write-soft-deleted-audio-track.md`
+**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-409-chat-watchdog-does-not-stop-agent-worker.md`
 
-- [ ] **Step 1: Read B-408 and LUFS worker storage path**
+- [ ] **Step 1: Read B-409 and chat watchdog worker lifecycle**
 - [ ] **Step 2: Reproduce/prove the documented defect with a failing test**
 - [ ] **Step 3: Minimal fix**
 - [ ] **Step 4: Run targeted tests + global collect-only**
 - [ ] **Step 5: Update Vault and status with exact evidence**
 
 ## Completed Tasks
+
+### Task 46: B-408 LUFS worker can write soft-deleted audio track
+
+Result 2026-05-26: `LUFSAnalysisWorker._save_to_db()` now filters
+`AudioTrack.deleted_at.is_(None)` before writing `lufs`.
+
+Evidence: pre-fix RED wrote `lufs=-9.25` to a soft-deleted track; post-fix
+direct `tests/test_workers/test_b408_lufs_soft_deleted_track.py` `1 passed`;
+py_compile Exit 0; Audio-worker-near suite `14 passed`; global collect-only
+`2265 tests collected`.
+
+Status: `code-fix-pending-live-verification`, not `fixed`; live LUFS GUI
+workflow pending.
 
 ### Task 45: B-407 Export LUFS timeout is treated as soft fallback
 

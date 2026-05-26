@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-AREA-AUDIT-FIXPLAN-2026-05-25
-next_allowed_task: B-408 (Area 8 LUFS Worker Storage; B-407 code-fix pending live verify)
+next_allowed_task: B-409 (Area 9 Chat Watchdog; B-408 code-fix pending live verify)
 updated: 2026-05-26
 
 ## Meaning
@@ -94,4 +94,5 @@ Der Audit-Plan `PB-STUDIO-AREA-AUDIT-2026-05-24` ist abgeschlossen und bleibt al
 - B-405 ist code-fix-pending-live-verification im Vault am 2026-05-26: BatchConvertWorker lehnt `libaom-av1` fuer GTX-1060-Ziel ab und startet kein FFmpeg; pre-fix RED startete FFmpeg mit `libaom-av1`; direct `1 passed`, Batch/Convert-nahe `19 passed`, collect `2261`; Live-Batch-Convert offen.
 - B-406 ist code-fix-pending-live-verification im Vault am 2026-05-26: `VideoAnalyzer.create_proxy()` nutzt `h264_nvenc`-Edit-Proxy-Parameter statt `libx264`; pre-fix RED sah `libx264`; direct `1 passed`, Video/Proxy-nahe `32 passed`, collect `2262`; Live-Proxy-Workflow offen.
 - B-407 ist code-fix-pending-live-verification im Vault am 2026-05-26: LUFS-Subprocess-Timeout wird nach Kill wieder als Timeout raised; `_normalize_audio_lufs()` macht daraus harten RuntimeError statt `False`; pre-fix RED zeigte Soft-Fallback; direct `2 passed`, Export/LUFS-nahe `18 passed`, collect `2264`; Live-Export offen.
-- Naechster erlaubter Task: B-408 (Area 8 LUFS Worker Storage, numerische Reihenfolge).
+- B-408 ist code-fix-pending-live-verification im Vault am 2026-05-26: LUFSAnalysisWorker schreibt nicht mehr auf soft-deleted AudioTracks; pre-fix RED schrieb `lufs=-9.25`; direct `1 passed`, Audio-Worker-nahe `14 passed`, collect `2265`; Live-GUI-LUFS offen.
+- Naechster erlaubter Task: B-409 (Area 9 Chat Watchdog, numerische Reihenfolge).
