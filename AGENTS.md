@@ -276,6 +276,12 @@ status marker before the next phase may begin.
 
 Dirty worktrees are forbidden as a normal handoff state.
 
+- **Automatic agent start:** before project work, run
+  `powershell -ExecutionPolicy Bypass -File tools\agent_start.ps1`.
+  If it reports `BLOCKED`, stop and follow its instruction.
+- **Automatic agent handoff:** before ending or switching agents, run
+  `powershell -ExecutionPolicy Bypass -File tools\agent_handoff.ps1`.
+  If it reports dirty/unpushed state, resolve that first.
 - **Before any action that reads, edits, tests, commits, or reports status:**
   run `git status --short --branch`.
 - If the worktree is dirty and those changes are not clearly from the
@@ -302,6 +308,12 @@ Dirty worktrees are forbidden as a normal handoff state.
 - Global prevention rule: any agent that sees a dirty tree at start must
   treat cleanup/tracking as the first task unless the user explicitly says
   to ignore it.
+- Cross-agent continuity source of truth:
+  1. Git commits on the current branch.
+  2. `docs/superpowers/ACTIVE_PLAN.md`.
+  3. Vault living plan and `C:\Brain-Bug\projects\pb-studio\log.md`.
+  4. `docs/superpowers/AGENT_HANDOFF.md`.
+  Chat memory from a previous agent is not source of truth.
 
 ---
 

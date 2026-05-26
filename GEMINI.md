@@ -53,21 +53,27 @@
 ## Before doing anything
 
 1. Open `AGENTS.md` and read it fully.
-2. Open `docs/superpowers/PLAN_REGISTRY.md` and
+2. Run `powershell -ExecutionPolicy Bypass -File tools\agent_start.ps1`.
+   If it reports `BLOCKED`, stop and follow its instruction.
+3. Open `docs/superpowers/PLAN_REGISTRY.md` and
    `docs/superpowers/ACTIVE_PLAN.md`.
-3. Identify the one selected active plan. If `ACTIVE_PLAN.md` says
+4. Identify the one selected active plan. If `ACTIVE_PLAN.md` says
    `blocked-needs-user-selection`, do not start app-code work; ask the
    user to choose one plan unless the current request is explicitly
    governance/plan-selection work.
-4. Cross-check the current task against the selected plan, its Registry
+5. Cross-check the current task against the selected plan, its Registry
    row, its Decision file, and its Vault living-plan mirror.
-5. Verify the predecessor task has `status: fixed` in the vault
+6. Verify the predecessor task has `status: fixed` in the vault
    (`C:\Brain-Bug\projects\pb-studio\wiki\`). If only present in
    `docs/superpowers/synthesis/` of the repo, **stop and ask the user**
    to confirm verification status before mirroring to vault.
-6. Only then: act.
-7. If worktree is dirty before task start, resolve tracking/handoff first:
+7. Only then: act.
+8. If worktree is dirty before task start, resolve tracking/handoff first:
    commit, named stash, or user decision. Do not build on unknown changes.
+
+Before ending or switching agents, run
+`powershell -ExecutionPolicy Bypass -File tools\agent_handoff.ps1` and resolve
+dirty/unpushed state before handoff.
 
 If `AGENTS.md` is missing, stop and tell the user. Do not proceed.
 

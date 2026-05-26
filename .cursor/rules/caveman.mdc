@@ -21,6 +21,8 @@ Boundaries: code/commits/PRs written normal.
 
 PB Studio repository rule:
 - Read `AGENTS.md` before action; it is source of truth.
+- Run `powershell -ExecutionPolicy Bypass -File tools\agent_start.ps1` before project work.
+- Run `powershell -ExecutionPolicy Bypass -File tools\agent_handoff.ps1` before ending/switching agents.
 - Before any read/edit/test/report, run `git status --short --branch`.
 - Dirty worktree is not normal handoff. Unknown dirty changes: stop, list paths, ask user.
 - Multiple agents must use separate Git worktree + separate branch per task.
