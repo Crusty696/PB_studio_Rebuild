@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-AREA-AUDIT-FIXPLAN-2026-05-25
-next_allowed_task: B-405 (Area 8 Convert Codec Selection; B-404 code-fix pending live verify)
+next_allowed_task: B-406 (Area 8 Proxy Codec Policy; B-405 code-fix pending live verify)
 updated: 2026-05-26
 
 ## Meaning
@@ -91,4 +91,5 @@ Der Audit-Plan `PB-STUDIO-AREA-AUDIT-2026-05-24` ist abgeschlossen und bleibt al
 - B-402 ist code-fix-pending-live-verification im Vault am 2026-05-26: Convert-Progressbar nutzt Range `0..100`, passend zu Worker-Prozentwerten; direct `1 passed`, UI/Convert-nahe `7 passed`, collect `2258`; Live-GUI offen.
 - B-403 ist code-fix-pending-live-verification im Vault am 2026-05-26: BatchConvertWorker nutzt `get_ffmpeg_bin()` statt PATH-Literal `ffmpeg`; direct `1 passed`, Batch/Convert-nahe `16 passed`, collect `2259`; Live-Batch-Convert offen.
 - B-404 ist code-fix-pending-live-verification im Vault am 2026-05-26: HEVC-UI-Auswahl mappt auf `hevc_nvenc` statt `libx265`; pre-fix RED sah `libx265`; direct `1 passed`, UI/Convert-nahe `16 passed`, collect `2260`; Live-HEVC-Batch-Convert offen.
-- Naechster erlaubter Task: B-405 (Area 8 Convert Codec Selection, numerische Reihenfolge).
+- B-405 ist code-fix-pending-live-verification im Vault am 2026-05-26: BatchConvertWorker lehnt `libaom-av1` fuer GTX-1060-Ziel ab und startet kein FFmpeg; pre-fix RED startete FFmpeg mit `libaom-av1`; direct `1 passed`, Batch/Convert-nahe `19 passed`, collect `2261`; Live-Batch-Convert offen.
+- Naechster erlaubter Task: B-406 (Area 8 Proxy Codec Policy, numerische Reihenfolge).

@@ -25,17 +25,30 @@ No unrelated refactors, feature work, library swaps, model changes, Audio-V2 por
 
 ## Current Task
 
-### Task 43: B-405 Batch convert allows AV1 on GTX1060 target
+### Task 44: B-406 Proxy task label says NVENC but command uses libx264
 
-**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-405-batch-convert-allows-av1-on-gtx1060-target.md`
+**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-406-proxy-task-label-says-nvenc-but-command-uses-libx264.md`
 
-- [ ] **Step 1: Read B-405 and batch convert AV1 codec policy**
+- [ ] **Step 1: Read B-406 and proxy codec policy**
 - [ ] **Step 2: Reproduce/prove the documented defect with a failing test**
 - [ ] **Step 3: Minimal fix**
 - [ ] **Step 4: Run targeted tests + global collect-only**
 - [ ] **Step 5: Update Vault and status with exact evidence**
 
 ## Completed Tasks
+
+### Task 43: B-405 Batch convert allows AV1 on GTX1060 target
+
+Result 2026-05-26: `BatchConvertWorker` rejects `libaom-av1` for the
+GTX-1060 target and does not start FFmpeg for AV1 requests.
+
+Evidence: pre-fix RED started FFmpeg with `libaom-av1`; post-fix direct
+`tests/test_workers/test_b405_batch_convert_av1_policy.py` `1 passed`;
+py_compile Exit 0; Batch/Convert-near suite `19 passed`; global
+collect-only `2261 tests collected`.
+
+Status: `code-fix-pending-live-verification`, not `fixed`; live batch
+convert pending.
 
 ### Task 42: B-404 Convert HEVC UI selects CPU libx265
 
