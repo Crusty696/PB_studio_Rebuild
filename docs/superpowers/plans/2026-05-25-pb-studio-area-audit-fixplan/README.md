@@ -25,17 +25,30 @@ No unrelated refactors, feature work, library swaps, model changes, Audio-V2 por
 
 ## Current Task
 
-### Task 44: B-406 Proxy task label says NVENC but command uses libx264
+### Task 45: B-407 Export LUFS timeout is treated as soft fallback
 
-**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-406-proxy-task-label-says-nvenc-but-command-uses-libx264.md`
+**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-407-export-lufs-timeout-is-treated-as-soft-fallback.md`
 
-- [ ] **Step 1: Read B-406 and proxy codec policy**
+- [ ] **Step 1: Read B-407 and export LUFS timeout handling**
 - [ ] **Step 2: Reproduce/prove the documented defect with a failing test**
 - [ ] **Step 3: Minimal fix**
 - [ ] **Step 4: Run targeted tests + global collect-only**
 - [ ] **Step 5: Update Vault and status with exact evidence**
 
 ## Completed Tasks
+
+### Task 44: B-406 Proxy task label says NVENC but command uses libx264
+
+Result 2026-05-26: `VideoAnalyzer.create_proxy()` now uses `h264_nvenc`
+with the existing edit-proxy NVENC parameters instead of `libx264`.
+
+Evidence: pre-fix RED captured `libx264`; post-fix direct
+`tests/test_services/test_b406_video_proxy_nvenc_policy.py` `1 passed`;
+py_compile Exit 0; Video/Proxy-near suite `32 passed`; global collect-only
+`2262 tests collected`.
+
+Status: `code-fix-pending-live-verification`, not `fixed`; live proxy
+workflow pending.
 
 ### Task 43: B-405 Batch convert allows AV1 on GTX1060 target
 

@@ -233,7 +233,8 @@ class VideoAnalyzer:
             cmd = [
                 _FFMPEG, "-y", "-i", file_path,
                 "-vf", f"scale=-2:{target_height}",
-                "-c:v", "libx264", "-preset", "fast", "-crf", "28",
+                "-c:v", "h264_nvenc", "-preset", "p1",
+                "-rc", "vbr", "-cq", "28", "-b:v", "0",
                 "-c:a", "aac", "-b:a", "128k",
                 str(proxy_path),
             ]
