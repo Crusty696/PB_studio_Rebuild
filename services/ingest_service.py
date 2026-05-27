@@ -37,6 +37,38 @@ def _resolve_project_id(project_id: int | None) -> int:
     return 1
 
 
+def _resolve_project_id_for_ingest(project_id: int | None) -> int:
+    """B-280: Project-ID-Aufloesung speziell fuer den Import-Pfad.
+
+    Im Gegensatz zu ``_resolve_project_id`` (genutzt von Read-Pfaden, die auf
+    einer leeren DB still eine leere Liste liefern duerfen) faellt der Import
+    NICHT auf ``project_id=1`` zurueck, wenn kein aktives Projekt existiert.
+
+    Vorher: Bei leerer DB loeste die ``=1``-Fallback-Kette eine irrefuehrende
+    FK-Fehlermeldung ("Projekt mit id=1 existiert nicht") pro Datei aus. Jetzt
+    bekommt der User eine klare, einmalige "erst Projekt anlegen/oeffnen"-
+    Meldung.
+
+    Raises:
+        ValueError: Wenn ``project_id is None`` UND kein aktives Projekt in der
+            DB existiert.
+    """
+    if project_id is not None:
+        return int(project_id)
+    try:
+        from database.session import get_active_project_id
+        active = get_active_project_id()
+    except (ImportError, AttributeError, RuntimeError) as exc:
+        logger.warning("_resolve_project_id_for_ingest: get_active_project_id failed: %s", exc)
+        active = None
+    if active is not None:
+        return int(active)
+    raise ValueError(
+        "Kein aktives Projekt vorhanden. Bitte zuerst ein Projekt anlegen "
+        "oder oeffnen, bevor Medien importiert werden."
+    )
+
+
 def _ensure_project_exists(project_id: int) -> None:
     """B-054: Project-FK-Pre-Check vor INSERT.
 
@@ -137,7 +169,9 @@ def ingest_audio(
     # B-151: Folder-Import-Loops setzen ``invalidate_caches=False`` und
     # rufen am Ende des Batches einmalig _invalidate_pacing_caches() auf
     # — sonst feuert der Cache-Rebuild N+1 mal pro Datei.
-    project_id = _resolve_project_id(project_id)
+    # B-280: kein =1-Fallback bei leerer DB — klare "erst Projekt anlegen"-
+    # Fehlermeldung statt irrefuehrendem FK-Error.
+    project_id = _resolve_project_id_for_ingest(project_id)
     # B-054: Pre-Check Project-FK damit der User klare Fehlermeldung
     # sieht statt generischer "Import fehlgeschlagen" beim Commit.
     _ensure_project_exists(project_id)
@@ -233,7 +267,8 @@ def ingest_video(
 ) -> VideoClip | None:
     # B-151: Folder-Import-Loops setzen ``invalidate_caches=False`` und
     # rufen am Ende des Batches einmalig _invalidate_pacing_caches() auf.
-    project_id = _resolve_project_id(project_id)
+    # B-280: kein =1-Fallback bei leerer DB (siehe ingest_audio).
+    project_id = _resolve_project_id_for_ingest(project_id)
     # B-054: Pre-Check Project-FK (siehe ingest_audio).
     _ensure_project_exists(project_id)
     path = Path(file_path)
@@ -736,9 +771,13 @@ def import_video_folder(
     Phase 6: Batch Video Import. B-053 Cycle 12: project_id=None löst
     auf das aktive Projekt auf.
 
+    B-280: kein =1-Fallback bei leerer DB — ohne aktives Projekt schlaegt
+    der Import mit klarer "erst Projekt anlegen/oeffnen"-Meldung fehl statt
+    mit einem irrefuehrenden FK-Fehler pro Datei.
+
     Returns: Liste der erfolgreich importierten VideoClip-Objekte.
     """
-    project_id = _resolve_project_id(project_id)
+    project_id = _resolve_project_id_for_ingest(project_id)
     folder = Path(folder_path)
     if not folder.is_dir():
         raise ValueError(f"Ordner existiert nicht: {folder_path}")

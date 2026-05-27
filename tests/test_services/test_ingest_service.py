@@ -338,3 +338,42 @@ class TestGetAllMedia:
 
         result = svc.get_all_audio(project_id=proj_id)
         assert result == []
+
+
+# ---------------------------------------------------------------------------
+# B-280: Import auf leerer DB / ohne aktives Projekt
+# ---------------------------------------------------------------------------
+
+class TestResolveProjectIdForIngest:
+    def test_explicit_project_id_passthrough(self):
+        """Expliziter project_id wird unveraendert durchgereicht."""
+        from services.ingest_service import _resolve_project_id_for_ingest
+        assert _resolve_project_id_for_ingest(7) == 7
+
+    def test_no_active_project_raises_clear_error(self):
+        """B-280: Kein aktives Projekt -> klare ValueError, KEIN =1-Fallback."""
+        import services.ingest_service as svc
+
+        with patch("database.session.get_active_project_id", return_value=None):
+            with pytest.raises(ValueError, match="Kein aktives Projekt"):
+                svc._resolve_project_id_for_ingest(None)
+
+    def test_active_project_resolved(self):
+        """Aktives Projekt vorhanden -> dessen ID wird zurueckgegeben."""
+        import services.ingest_service as svc
+
+        with patch("database.session.get_active_project_id", return_value=42):
+            assert svc._resolve_project_id_for_ingest(None) == 42
+
+    def test_ingest_audio_no_active_project_blocks_import(self, test_engine, tmp_path):
+        """B-280: ingest_audio(project_id=None) auf leerer DB faellt NICHT auf
+        project_id=1 zurueck, sondern blockt mit klarer Meldung."""
+        import services.ingest_service as svc
+        svc.engine = test_engine
+
+        audio_file = tmp_path / "mix.mp3"
+        audio_file.write_bytes(b"fake mp3")
+
+        with patch("database.session.get_active_project_id", return_value=None):
+            with pytest.raises(ValueError, match="Kein aktives Projekt"):
+                svc.ingest_audio(str(audio_file), project_id=None)
