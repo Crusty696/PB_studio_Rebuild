@@ -88,7 +88,9 @@ class FeedbackService:
             event_id = int(event_row[0]) if event_row is not None else None
 
             # Update decision's verdict (only if currently NULL — don't clobber older explicit feedback)
-            if verdict in ("accept", "reject", "skip", "modify"):
+            # B-377: "replace" gehoert zur dokumentierten verdict-Menge und
+            # muss ebenfalls nach mem_decision.user_verdict gespiegelt werden.
+            if verdict in ("accept", "reject", "skip", "modify", "replace"):
                 session.execute(
                     text(
                         "UPDATE mem_decision SET user_verdict = :v, user_verdict_at = :ts "

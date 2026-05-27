@@ -231,6 +231,38 @@ def test_feedback_service_does_not_clobber_existing_verdict(tmp_path: Path) -> N
         assert [e["event_type"] for e in events] == ["accept", "reject"]
 
 
+def test_feedback_service_replace_is_mirrored(tmp_path: Path) -> None:
+    """B-377: verdict 'replace' is part of the documented allowed set and
+    MUST be mirrored into mem_decision.user_verdict (not only the event)."""
+    engine, Session = _build_sqlite(tmp_path)
+    run_id, scene_id, decision_id = _seed_decision(engine)
+
+    svc = FeedbackService(session_factory=Session)
+    result = svc.record_verdict(run_id, scene_id, "replace")
+    assert result.success
+    assert result.event_id is not None
+
+    with engine.begin() as conn:
+        ev = (
+            conn.execute(
+                text("SELECT event_type FROM mem_user_feedback_event WHERE id = :id"),
+                {"id": result.event_id},
+            )
+            .mappings()
+            .one()
+        )
+        assert ev["event_type"] == "replace"
+        dec = (
+            conn.execute(
+                text("SELECT user_verdict FROM mem_decision WHERE id = :id"),
+                {"id": decision_id},
+            )
+            .mappings()
+            .one()
+        )
+        assert dec["user_verdict"] == "replace"
+
+
 def test_verdict_from_key_mapping() -> None:
     assert VERDICT_FROM_KEY == {"A": "accept", "R": "reject", "S": "skip"}
 
