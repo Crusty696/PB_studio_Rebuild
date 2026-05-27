@@ -632,32 +632,42 @@ class SpectralAnalysisService:
         n_frames = power_spec.shape[1]
         n_seconds = n_frames // frames_per_sec
         nyquist = sr / 2.0
-        result: list[TemporalBandEnergy] = []
 
+        # B-229: track-globale Normalisierung statt per-Window. Erst alle
+        # Roh-Band-Energien sammeln + den track-globalen Max bestimmen, dann
+        # jedes Fenster durch diesen einen Max teilen. So bleibt temporal_bands
+        # ueber die Zeit vergleichbar (leiser Breakdown vs lauter Drop bleiben
+        # unterscheidbar) — vorher machte per-Window-Normalisierung jeden
+        # Moment gleich laut. Option 1 aus B-229.
+        raw_windows: list[tuple[int, dict[str, float]]] = []
+        global_max = 0.0
         for s in range(n_seconds):
             start = s * frames_per_sec
             end = min(start + frames_per_sec, n_frames)
             window = power_spec[:, start:end]
 
-            raw: list[float] = []
             band_energies: dict[str, float] = {}
             for name, freq_low, freq_high in FREQUENCY_BANDS:
                 fh = min(freq_high, nyquist)
                 if fh <= freq_low:
-                    raw.append(0.0)
                     band_energies[name] = 0.0
                     continue
                 bl = max(0, int(freq_low * n_fft / sr))
                 bh = min(window.shape[0], max(bl + 1, int(fh * n_fft / sr)))
                 e = float(np.mean(window[bl:bh, :]))
-                raw.append(e)
                 band_energies[name] = e
+                if e > global_max:
+                    global_max = e
+            raw_windows.append((s, band_energies))
 
-            max_e = max(raw) if raw else 1.0
-            if max_e > 0:
-                band_energies = {k: round(v / max_e, 4) for k, v in band_energies.items()}
-
-            result.append(TemporalBandEnergy(time_sec=float(s), band_energies=band_energies))
+        norm = global_max if global_max > 0 else 1.0
+        result: list[TemporalBandEnergy] = [
+            TemporalBandEnergy(
+                time_sec=float(s),
+                band_energies={k: round(v / norm, 4) for k, v in be.items()},
+            )
+            for s, be in raw_windows
+        ]
 
         return result
 
