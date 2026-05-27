@@ -675,7 +675,14 @@ def _ollama_model_exists(client, model: str) -> bool:
     try:
         return bool(client.model_exists(model))
     except AttributeError:
+        pass
+    try:
         return model in set(client.list_models())
+    except AttributeError:
+        # B-360: client exposes neither model_exists nor list_models — model
+        # presence cannot be verified. Treat as not-confirmed so the caller
+        # falls back to the requested model instead of raising AttributeError.
+        return False
 
 
 def _resolve_vision_caption_model(client, requested_model: str) -> str:
