@@ -25,17 +25,25 @@ No unrelated refactors, feature work, library swaps, model changes, Audio-V2 por
 
 ## Current Task
 
-### Task 56: B-418 Installation docs target wrong runtime
+### Task 57: B-419 Deployment docs build wrong stack
 
-**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-418-installation-docs-target-wrong-runtime.md`
+**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-419-deployment-docs-build-wrong-stack.md`
 
-- [ ] **Step 1: Read B-418 and installation.md**
-- [ ] **Step 2: Propose installation guide fixes to match Python 3.10 and conda env**
-- [ ] **Step 3: Update docs/user/installation.md**
+- [ ] **Step 1: Read B-419 and deployment.md**
+- [ ] **Step 2: Propose deployment guide fixes to match active Python 3.10 and conda env**
+- [ ] **Step 3: Update docs/DEPLOYMENT.md**
 - [ ] **Step 4: Verify formatting and correctness of commands**
 - [ ] **Step 5: Update Vault and status**
 
 ## Completed Tasks
+
+### Task 56: B-418 Installation docs target wrong runtime
+
+Result 2026-05-27: Overhauled `docs/user/installation.md` to target Python 3.10 and the active `pb-studio` conda environment using `requirements-py310-cu113.txt` instead of outdated Poetry/Python 3.11/3.12 references.
+
+Evidence: Manual verification of Markdown formatting and command correctness; global collect-only 2282 tests collected.
+
+Status: fixed.
 
 ### Task 55: B-417 Stale chat worker result can refresh wrong UI context
 

@@ -17,9 +17,9 @@ This guide walks you through installing PB Studio from scratch with detailed tro
 | **CPU** | x86_64 4+ cores (Intel Core i5 or equivalent) |
 | **RAM** | 16 GB |
 | **Storage** | 10 GB free space (50 GB+ recommended for projects) |
-| **CUDA** | 12.x (auto-installed with PyTorch) |
+| **CUDA** | 11.3 (auto-installed with PyTorch) |
 | **FFmpeg** | Latest stable release |
-| **Python** | 3.11 or 3.12 |
+| **Python** | 3.10 |
 
 ### Recommended Requirements
 
@@ -58,7 +58,7 @@ Your NVIDIA driver includes CUDA support. Check your CUDA version:
 nvcc --version
 ```
 
-If `nvcc` is not found, this is normal — PyTorch will install CUDA libraries during Poetry installation.
+If `nvcc` is not found, this is normal — PyTorch will install CUDA libraries during installation of requirements.
 
 ### 3. Install FFmpeg
 
@@ -84,39 +84,29 @@ You should see FFmpeg version information.
 
 ## Installation Steps
 
-### Step 1: Install Python
+### Step 1: Install Python 3.10 and Conda
 
-Download Python 3.11 or 3.12 from [python.org](https://www.python.org/downloads/).
+We highly recommend using **Miniconda** or **Anaconda** to manage the Python environment.
 
-**During installation:**
-- ✓ Check "Add Python to PATH"
-- ✓ Check "Install for all users"
-- Choose "Customize installation"
-- ✓ Enable "pip"
-- ✓ Enable "Add Python to environment variables"
+1. Download and install Miniconda for Windows from [docs.conda.io](https://docs.conda.io/en/latest/miniconda.html).
+2. Open **Anaconda Prompt** or **Miniconda Prompt** (or PowerShell if Conda is initialized).
+3. Create and activate a dedicated environment for PB Studio:
 
-Verify installation:
+```bash
+conda create -n pb-studio python=3.10 -y
+conda activate pb-studio
+```
+
+Alternatively, download Python 3.10 from [python.org](https://www.python.org/downloads/) and ensure you add it to your PATH during installation.
+
+Verify Python version:
 
 ```bash
 python --version
 pip --version
 ```
 
-### Step 2: Install Poetry
-
-Open Command Prompt as Administrator and run:
-
-```bash
-pip install poetry
-```
-
-Verify installation:
-
-```bash
-poetry --version
-```
-
-### Step 3: Clone the Repository
+### Step 2: Clone the Repository
 
 ```bash
 git clone <repo-url>
@@ -125,7 +115,7 @@ cd pb-studio-rebuild
 
 If you don't have Git installed, download it from [git-scm.com](https://git-scm.com).
 
-### Step 4: Configure Hugging Face Token
+### Step 3: Configure Hugging Face Token
 
 Create a `.env` file in the project root directory:
 
@@ -142,28 +132,28 @@ HF_TOKEN=your_token_here
 
 > The token is only required for the first run to download AI models. After models are cached locally, the app works fully offline.
 
-### Step 5: Install Dependencies
+### Step 4: Install Dependencies
 
-In the project directory, run:
+Ensure your conda environment `pb-studio` is activated, then run:
 
 ```bash
-poetry install
+pip install --upgrade pip
+pip install -r requirements-py310-cu113.txt --extra-index-url https://download.pytorch.org/whl/cu113
 ```
 
 This will:
-- Create a virtual environment
-- Install PyTorch with CUDA 12.8 support
-- Install all ML models (Demucs, beat_this, RAFT, SigLIP)
+- Install PyTorch `1.12.1` with CUDA `11.3` support
+- Install ML models dependencies (Demucs, beat_this, RAFT, SigLIP)
 - Install PySide6 and all other dependencies
 
 **Installation time:** 5–15 minutes depending on your internet connection.
 
-### Step 6: Verify Installation
+### Step 5: Verify Installation
 
 Run the Setup Wizard:
 
 ```bash
-poetry run python main.py
+python main.py
 ```
 
 On first launch, the **Setup Wizard** will verify:
@@ -190,7 +180,7 @@ If all checks pass, the main application window will open.
 
 2. If FFmpeg is not found:
    - Check that you added `C:\ffmpeg\bin` to your system PATH (not user PATH)
-   - Restart Command Prompt after changing PATH
+   - Restart Command Prompt / Anaconda Prompt after changing PATH
    - Restart your computer if the issue persists
 
 3. Alternative: Place `ffmpeg.exe`, `ffprobe.exe`, and `ffplay.exe` directly in the `pb-studio-rebuild/` project directory.
@@ -213,12 +203,13 @@ If all checks pass, the main application window will open.
 
 3. Verify PyTorch sees your GPU:
    ```bash
-   poetry run python -c "import torch; print(torch.cuda.is_available())"
+   python -c "import torch; print(torch.cuda.is_available())"
    ```
    This should print `True`. If it prints `False`:
-   - Reinstall PyTorch with CUDA support:
+   - Reinstall PyTorch with CUDA 11.3 support:
      ```bash
-     poetry install --sync
+     pip uninstall torch torchaudio torchvision -y
+     pip install -r requirements-py310-cu113.txt --extra-index-url https://download.pytorch.org/whl/cu113
      ```
 
 ### Model download fails
@@ -230,27 +221,27 @@ If all checks pass, the main application window will open.
 2. Check your internet connection
 3. Try downloading models manually:
    ```bash
-   poetry run python -c "from transformers import AutoModel; AutoModel.from_pretrained('google/siglip-so400m-patch14-384')"
+   python -c "from transformers import AutoModel; AutoModel.from_pretrained('google/siglip-so400m-patch14-384')"
    ```
 4. If the issue persists, check Hugging Face status at [status.huggingface.co](https://status.huggingface.co)
 
-### Poetry install fails
+### Pip install fails / PyTorch conflicts
 
-**Symptom:** `poetry install` fails with dependency conflicts.
+**Symptom:** `pip install` fails with PyTorch or CUDA version mismatch.
 
 **Solutions:**
-1. Update Poetry to the latest version:
+1. Verify you are using Python 3.10 in your active conda environment:
    ```bash
-   pip install --upgrade poetry
+   python --version
    ```
-2. Clear Poetry cache:
+2. Install using the explicit CUDA 11.3 index URL:
    ```bash
-   poetry cache clear --all pypi
+   pip install -r requirements-py310-cu113.txt --extra-index-url https://download.pytorch.org/whl/cu113
    ```
-3. Remove the virtual environment and reinstall:
+3. Clear pip cache and retry:
    ```bash
-   poetry env remove python
-   poetry install
+   pip cache purge
+   pip install -r requirements-py310-cu113.txt --extra-index-url https://download.pytorch.org/whl/cu113
    ```
 
 ### Out of memory during model loading
@@ -276,7 +267,7 @@ If all checks pass, the main application window will open.
    - Missing models: Delete `~/.cache/huggingface` and let the app re-download
    - Qt/PySide6 issue: Reinstall PySide6:
      ```bash
-     poetry run pip install --force-reinstall PySide6
+     pip install --force-reinstall PySide6
      ```
 
 ---
@@ -311,7 +302,7 @@ To update to a new version:
 
 ```bash
 git pull origin main
-poetry install --sync
+pip install -r requirements-py310-cu113.txt --extra-index-url https://download.pytorch.org/whl/cu113
 ```
 
 Models and database schema are automatically migrated on launch.
@@ -332,9 +323,9 @@ To completely remove PB Studio:
    rmdir /s %USERPROFILE%\.cache\huggingface
    ```
 
-3. (Optional) Remove Poetry:
+3. (Optional) Remove the conda environment:
    ```bash
-   pip uninstall poetry
+   conda env remove -n pb-studio
    ```
 
 ---

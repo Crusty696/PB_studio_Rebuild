@@ -2,8 +2,8 @@
 
 status: active
 active_plan_id: PB-STUDIO-AREA-AUDIT-FIXPLAN-2026-05-25
-next_allowed_task: B-418 (Area 10 Installer/Docs; B-417 code-fix pending live verify)
-updated: 2026-05-26
+next_allowed_task: B-419 (Area 10 Installer/Docs; B-418 fixed)
+updated: 2026-05-27
 
 ## Meaning
 
@@ -106,4 +106,6 @@ Der Audit-Plan `PB-STUDIO-AREA-AUDIT-2026-05-24` ist abgeschlossen und bleibt al
 - B-417 ist code-fix-pending-live-verification im Vault am 2026-05-26: Request-ID- und Projektkontext-Validierung in ChatDock gegen stale Worker-Ergebnisse; direct `2 passed`, collect `2282`; Live-Chat-Workflow offen.
 - Area 9 (B-409..B-417) damit code-fertig.
 - Naechster erlaubter Task: B-418 (Area 10 Installer/Docs, numerische Reihenfolge).
+- B-418 ist fixed im Vault am 2026-05-27: Ueberarbeitung der Installationsdokumentation auf Conda/Python 3.10/CUDA 11.3 (requirements-py310-cu113.txt).
+- Naechster erlaubter Task: B-419 (Area 10 Installer/Docs, numerische Reihenfolge).
 
