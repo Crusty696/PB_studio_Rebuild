@@ -682,6 +682,44 @@ class ModelManager:
             # Ollama fortsetzen — GPU ist jetzt frei
             self._resume_ollama_if_paused()
 
+    @staticmethod
+    def _all_finite(tensor) -> bool:
+        """True wenn der Tensor keine NaN/Inf enthaelt."""
+        import torch
+        return bool(torch.isfinite(tensor).all().item())
+
+    def _load_with_fp16_nan_guard(self, load_fn, smoke_fn, label: str):
+        """B-336: Auf GPU zuerst in fp16 laden (VRAM-schonend), dann per
+        Smoke-Inferenz auf NaN/Inf pruefen. Pascal (GTX 1060) hat keinen echten
+        fp16-Durchsatz und kann NaN liefern — in dem Fall in fp32 neu laden.
+
+        Auf CPU immer fp32. Wirft die Smoke-Inferenz selbst (z.B. weil das Modell
+        anderen Input braucht), wird fp16 behalten (keine erzwungene VRAM-
+        Verdopplung ohne belegtes Problem).
+
+        ``load_fn(dtype) -> model`` baut+platziert das Modell.
+        ``smoke_fn(model) -> bool`` liefert True wenn die Ausgabe endlich ist.
+        """
+        import torch
+        if self.device == "cpu":
+            return load_fn(torch.float32)
+        model = load_fn(torch.float16)
+        try:
+            ok = smoke_fn(model)
+        except Exception as exc:  # noqa: BLE001 — Smoke darf Load nie kippen
+            logger.debug("B-336: fp16-Smoke fuer %s nicht ausfuehrbar (%s) — behalte fp16",
+                         label, exc)
+            return model
+        if ok:
+            return model
+        logger.warning("B-336: %s lieferte in fp16 NaN/Inf auf %s — lade in fp32 neu.",
+                       label, self.device)
+        del model
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        return load_fn(torch.float32)
+
     def load_vision(self, model_id: str = "vikhyatk/moondream2") -> tuple:
         """Lädt ein Vision-Modell (Moondream2) für Bildanalyse.
 
@@ -726,31 +764,41 @@ class ModelManager:
                     model_id, trust_remote_code=needs_trust,
                     revision=pinned_revision,
                 )
-                dtype = torch.float32 if self.device == "cpu" else torch.float16
-
                 # Moondream2 Compat: all_tied_weights_keys Patch
                 from transformers.modeling_utils import PreTrainedModel
-                _had_attr = hasattr(PreTrainedModel, "all_tied_weights_keys")
-                if not _had_attr:
-                    PreTrainedModel.all_tied_weights_keys = {}
-                try:
-                    self._model = AutoModelForCausalLM.from_pretrained(
-                        model_id, torch_dtype=dtype,
-                        device_map={"": self.device},
-                        trust_remote_code=needs_trust,
-                        revision=pinned_revision,
-                    )
-                finally:
+
+                def _build_vision(dt):
+                    _had_attr = hasattr(PreTrainedModel, "all_tied_weights_keys")
                     if not _had_attr:
-                        try:
-                            del PreTrainedModel.all_tied_weights_keys
-                        except AttributeError:
-                            pass
+                        PreTrainedModel.all_tied_weights_keys = {}
+                    try:
+                        m = AutoModelForCausalLM.from_pretrained(
+                            model_id, torch_dtype=dt,
+                            device_map={"": self.device},
+                            trust_remote_code=needs_trust,
+                            revision=pinned_revision,
+                        )
+                    finally:
+                        if not _had_attr:
+                            try:
+                                del PreTrainedModel.all_tied_weights_keys
+                            except AttributeError:
+                                pass
+                    if not hasattr(m, "all_tied_weights_keys"):
+                        m.all_tied_weights_keys = {}
+                    m.eval()
+                    return m
 
-                if not hasattr(self._model, "all_tied_weights_keys"):
-                    self._model.all_tied_weights_keys = {}
+                def _smoke_vision(m):
+                    ids = torch.tensor([[0, 1, 2, 3]], device=self.device)
+                    with torch.no_grad():
+                        out = m(input_ids=ids)
+                    logits = getattr(out, "logits", out)
+                    return self._all_finite(logits)
 
-                self._model.eval()
+                # B-336: fp16 mit NaN-Guard + fp32-Fallback (Pascal/GTX 1060).
+                self._model = self._load_with_fp16_nan_guard(
+                    _build_vision, _smoke_vision, f"Vision '{model_id}'")
                 self._current_model_id = model_id
                 self._model_type = "vision"
                 logger.info("ModelManager: Vision '%s' geladen.", model_id)
@@ -806,13 +854,27 @@ class ModelManager:
                 self._extras["processor"] = AutoProcessor.from_pretrained(  # nosec B615
                     model_id, use_fast=False
                 )
-                dtype = torch.float32 if self.device == "cpu" else torch.float16
-                self._model = AutoModel.from_pretrained(  # nosec B615
-                    model_id,
-                    torch_dtype=dtype,
-                )
-                self._model.to(self.device)
-                self._model.eval()
+
+                def _build_siglip(dt):
+                    m = AutoModel.from_pretrained(  # nosec B615
+                        model_id, torch_dtype=dt,
+                    )
+                    m.to(self.device)
+                    m.eval()
+                    return m
+
+                def _smoke_siglip(m):
+                    px = torch.randn(
+                        1, 3, 384, 384,
+                        dtype=next(m.parameters()).dtype, device=self.device,
+                    )
+                    with torch.no_grad():
+                        feats = m.get_image_features(pixel_values=px)
+                    return self._all_finite(feats)
+
+                # B-336: fp16 mit NaN-Guard + fp32-Fallback (Pascal/GTX 1060).
+                self._model = self._load_with_fp16_nan_guard(
+                    _build_siglip, _smoke_siglip, f"SigLIP '{model_id}'")
 
                 self._current_model_id = model_id
                 self._model_type = "siglip"
