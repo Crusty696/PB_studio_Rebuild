@@ -66,3 +66,39 @@ def test_stream_sha_mismatch_raises(tmp_path: Path):
     cp.save()
     with pytest.raises(CheckpointMismatch):
         ResumeCheckpoint.load(tmp_path / "cp.json", track_id=1, stream_sha256="bbb")
+
+
+def test_b365_completed_excludes_done_stage_with_missing_artifact(tmp_path: Path):
+    """B-365: a done stage whose recorded artifact no longer exists must NOT be
+    reported as completed, so the orchestrator re-runs it instead of skipping."""
+    from services.video_pipeline.primitives.resume_checkpoint import ResumeCheckpoint
+    scenes = tmp_path / "scenes.json"
+    scenes.write_text("[]", encoding="utf-8")
+    cp = ResumeCheckpoint(tmp_path / "cp.json", track_id=1, stream_sha256="x")
+    cp.update_stage("scene_detect", status="done", artifacts=[str(scenes)])
+    assert cp.completed_stages() == ["scene_detect"]
+
+    # Artefakt verschwindet -> Stage darf nicht mehr blind geskipped werden.
+    scenes.unlink()
+    assert cp.completed_stages() == []
+
+
+def test_b365_done_stage_with_present_artifacts_is_completed(tmp_path: Path):
+    """B-365: done stage with all artifacts present stays completed."""
+    from services.video_pipeline.primitives.resume_checkpoint import ResumeCheckpoint
+    a = tmp_path / "keyframes.json"
+    b = tmp_path / "embeddings.npy"
+    a.write_text("{}", encoding="utf-8")
+    b.write_bytes(b"\x00")
+    cp = ResumeCheckpoint(tmp_path / "cp.json", track_id=1, stream_sha256="x")
+    cp.update_stage("keyframe_extract", status="done", artifacts=[str(a), str(b)])
+    assert cp.completed_stages() == ["keyframe_extract"]
+
+
+def test_b365_legacy_checkpoint_without_artifacts_keeps_status_only(tmp_path: Path):
+    """B-365: checkpoints written before the fix have no 'artifacts' key.
+    Such done stages keep the old status-only completed behaviour (no regression)."""
+    from services.video_pipeline.primitives.resume_checkpoint import ResumeCheckpoint
+    cp = ResumeCheckpoint(tmp_path / "cp.json", track_id=1, stream_sha256="x")
+    cp.update_stage("scene_detect", status="done")  # no artifacts arg
+    assert cp.completed_stages() == ["scene_detect"]

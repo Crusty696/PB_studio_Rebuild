@@ -73,7 +73,25 @@ class ResumeCheckpoint:
         self.last_update = datetime.utcnow().isoformat()
 
     def completed_stages(self) -> list[str]:
-        return [sid for sid, s in self.stages.items() if s.get("status") == "done"]
+        """Stages safe to skip on resume.
+
+        B-365: a stage counts as completed only if it is ``done`` AND every
+        artifact it recorded still exists on disk. If a recorded artifact is
+        missing (deleted/moved/unreadable), the stage is NOT reported as done,
+        so the orchestrator re-runs it instead of blindly skipping to a
+        follow-up stage that expects e.g. ``scenes.json`` / ``keyframes.json``
+        / ``embeddings.npy``. Stages with no recorded artifacts (legacy
+        checkpoints written before B-365) keep the old status-only behaviour.
+        """
+        completed: list[str] = []
+        for sid, s in self.stages.items():
+            if s.get("status") != "done":
+                continue
+            artifacts = s.get("artifacts")
+            if artifacts and not all(os.path.exists(p) for p in artifacts):
+                continue
+            completed.append(sid)
+        return completed
 
     def save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)

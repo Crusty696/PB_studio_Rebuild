@@ -139,10 +139,13 @@ class VideoAnalysisPipeline:
                     self.listener.on_stage_done(self.track_id, sr)
 
                 if self.checkpoint is not None:
+                    # B-365: persist artifact paths so a later resume can verify
+                    # they still exist before blindly skipping the done stage.
                     self.checkpoint.update_stage(
                         sid, status=sr.status,
                         duration_s=sr.duration_s,
                         error=sr.error,
+                        artifacts=[str(p) for p in sr.artifacts.values()],
                     )
                     self.checkpoint.save()
             finally:
