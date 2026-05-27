@@ -88,7 +88,7 @@ class RLPacingMemoryV2:
                     "reward": float(rec.reward),
                     "components": json.dumps(dict(rec.components)) if rec.components else None,
                 }
-                session.execute(
+                result = session.execute(
                     text(
                         "UPDATE mem_decision SET "
                         "user_verdict = :verdict, "
@@ -98,6 +98,19 @@ class RLPacingMemoryV2:
                     ),
                     payload,
                 )
+                # B-374: UPDATE-only persist darf nicht still erfolgreich
+                # sein wenn keine mem_decision-Row matched. Sonst existiert
+                # In-Memory-Feedback ohne DB-Spiegelung. rowcount==0 sichtbar
+                # warnen statt blind committen.
+                rowcount = getattr(result, "rowcount", -1)
+                if rowcount == 0:
+                    logger.warning(
+                        "RLPacingMemoryV2 DB-persist: keine mem_decision-Row fuer "
+                        "(run_id=%s, sequence_idx=%s) — Verdict/Reward NICHT "
+                        "gespiegelt (In-Memory-Only).",
+                        rec.run_id,
+                        rec.cut_id,
+                    )
                 session.commit()
             finally:
                 if ownership:

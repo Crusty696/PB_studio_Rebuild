@@ -120,3 +120,26 @@ def test_rl_memory_v2_skips_update_when_no_matching_row(tmp_path: Path):
     )
     mem.record(rec)
     assert mem.count() == 1  # in-memory hat den record
+
+
+def test_rl_memory_v2_warns_when_no_matching_row(tmp_path: Path, caplog):
+    """B-374: UPDATE-only persist gegen fehlende mem_decision-Row darf
+    nicht still erfolgreich sein — es muss eine sichtbare Warnung geben."""
+    import logging
+
+    engine, Session = _build_sqlite_with_mem_decision(tmp_path)
+    run_id = _seed_run(engine)
+    # KEINE initial-decision -> rowcount==0
+
+    mem = RLPacingMemoryV2(db_session_factory=Session)
+    rec = DecisionRecord(
+        run_id=run_id, cut_id=77, timestamp_ms=500,
+        section_type="drop", scene_id=1, verdict="bad",
+        reward=0.1, components={},
+    )
+    with caplog.at_level(logging.WARNING, logger="services.pacing.rl_memory_v2"):
+        mem.record(rec)
+
+    msgs = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+    assert any("keine mem_decision-Row" in m for m in msgs), msgs
+    assert any("77" in m for m in msgs)  # sequence_idx im Warntext
