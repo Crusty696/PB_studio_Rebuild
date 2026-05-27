@@ -200,7 +200,11 @@ def check_ollama(inv: Inventory) -> None:
 
 
 def check_ffmpeg(inv: Inventory) -> None:
-    inv.ffmpeg_ok = FFMPEG_BIN.exists() and FFPROBE_BIN.exists()
+    # Lokales bin/ hat Vorrang (main.py prepended es zum PATH).
+    # Aber auch System-PATH-FFmpeg ist akzeptabel (B-427).
+    local_ok = FFMPEG_BIN.exists() and FFPROBE_BIN.exists()
+    system_ok = bool(shutil.which("ffmpeg")) and bool(shutil.which("ffprobe"))
+    inv.ffmpeg_ok = local_ok or system_ok
 
 
 def check_hf_models(inv: Inventory) -> None:

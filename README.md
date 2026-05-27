@@ -58,7 +58,7 @@ PB Studio is a desktop video production tool designed for DJs and music video cr
 | Python | 3.10 via conda env `pb-studio` |
 | CUDA GPU | Required: NVIDIA GTX 1060 6GB / CUDA `cuda:0` target |
 | CUDA stack | PyTorch `1.12.1+cu113`, CUDA 11.3 wheels |
-| FFmpeg | Must be on PATH |
+| FFmpeg | In `bin/` (preferred) or on system PATH |
 | Conda | Miniconda/Anaconda, `environment.yml` |
 
 > **Note:** CPU-only mode is not supported. The pipeline is designed for GPU acceleration.
@@ -175,7 +175,7 @@ pb-studio-rebuild/
 
 | Layer | Technology |
 |---|---|
-| GUI | PySide6 (Qt 6.8+) |
+| GUI | PySide6 (Qt 6.6–6.7, pinned `<6.8` for CUDA 11.3 compat) |
 | Database | SQLAlchemy + SQLite |
 | Vector Search | SQLite + numpy (cosine similarity) |
 | Timeline | OpenTimelineIO (OTIO) |

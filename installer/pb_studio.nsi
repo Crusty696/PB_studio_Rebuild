@@ -132,9 +132,9 @@ Section "PB Studio (required)" SecMain
   !insertmacro DetectNvidiaGPU
 
   ${If} $GPU_PRESENT == "0"
-    MessageBox MB_ICONINFORMATION|MB_OK \
-      "No NVIDIA GPU detected. $\n$\nPB Studio will run in CPU mode (slower AI processing). \
-$\nFor best performance, an NVIDIA GPU with CUDA 12.x is recommended."
+    MessageBox MB_ICONEXCLAMATION|MB_OK \
+      "No NVIDIA GPU detected. $\n$\nPB Studio requires an NVIDIA GPU with CUDA support (target: GTX 1060 / CUDA 11.3). \
+$\nCPU-only mode is not supported. $\nPlease install NVIDIA drivers from: https://www.nvidia.com/drivers"
   ${EndIf}
 
 SectionEnd

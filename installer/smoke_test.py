@@ -43,7 +43,7 @@ def main():
     size_mb = exe.stat().st_size / 1024 / 1024
     check(f"EXE size >= 50 MB (actual: {size_mb:.0f} MB)", size_mb >= 50, fatal=False)
 
-    # 4. Critical DLLs present (CUDA, Qt)
+    # 4. Critical DLLs present (CUDA, Qt, Torch)
     critical_dlls = [
         'Qt6Core.dll',
         'Qt6Widgets.dll',
@@ -53,9 +53,29 @@ def main():
         found = any(dist.rglob(dll))
         check(f"{dll} present", found, fatal=False)
 
+    # 4b. CUDA / Torch runtime DLLs (B-430)
+    cuda_torch_dlls = [
+        'torch_cuda*.dll',
+        'cudart*.dll',
+        'cublas*.dll',
+        'cudnn*.dll',
+    ]
+    for pattern in cuda_torch_dlls:
+        found = any(dist.rglob(pattern))
+        check(f"CUDA/Torch DLL pattern '{pattern}' present", found, fatal=False)
+
     # 5. Asset directories present
     for asset_dir in ['resources', 'styles', 'knowledge']:
         check(f"Asset dir: {asset_dir}/", (dist / asset_dir).is_dir(), fatal=False)
+
+    # 5b. Additional runtime directories (B-430)
+    for extra_dir in ['config', 'translations']:
+        check(f"Runtime dir: {extra_dir}/", (dist / extra_dir).is_dir(), fatal=False)
+
+    # 5c. FFmpeg / ffprobe binaries (B-430)
+    for ffbin in ['ffmpeg.exe', 'ffprobe.exe']:
+        found = (dist / 'bin' / ffbin).exists() or any(dist.rglob(ffbin))
+        check(f"FFmpeg binary: {ffbin}", found, fatal=False)
 
     # 6. Try launching the EXE and immediately closing it (5s timeout)
     #    Only works in interactive session on Windows
