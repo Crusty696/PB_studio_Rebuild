@@ -220,6 +220,7 @@ class _SchedulerThread(QThread):
         progress_cb: Callable[[float, str], None],
     ):
         import numpy as np
+        from services.brain_v3.video.video_embedder import InvalidVideoError
         progress_cb(0.05, "starting")
         loop = asyncio.get_running_loop()
 
@@ -246,7 +247,18 @@ class _SchedulerThread(QThread):
                 "model_version": model_version,
             }
 
-        result = await loop.run_in_executor(None, _blocking_embed_and_store)
+        try:
+            result = await loop.run_in_executor(None, _blocking_embed_and_store)
+        except InvalidVideoError as exc:
+            # B-279: ungueltige/nonstandard Video-Metadaten (z.B. .stem.mp4 mit
+            # frames=-1) -> sauberer Skip-mit-Grund statt fehlgeschlagenem Job.
+            logger.info(
+                "Embedding-Skip (ungueltiges Video) hash=%s: %s",
+                task.media_hash, exc,
+            )
+            self.skipped_bridge.emit(task.media_hash, str(exc))
+            progress_cb(1.0, "skipped")
+            return None
         progress_cb(1.0, "stored")
         return result
 

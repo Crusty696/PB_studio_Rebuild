@@ -185,6 +185,53 @@ def test_submit_path_does_not_skip_other_model_variant(qt_app, isolated_appdata)
         scheduler.request_stop(timeout_ms=3000)
 
 
+def test_invalid_video_metadata_skips_instead_of_failing(qt_app, isolated_appdata):
+    """B-279: ein Video mit ungueltigen Metadaten (.stem.mp4, frames=-1) wird
+    als sauberer Skip-mit-Grund behandelt, nicht als fehlgeschlagener Job."""
+    from services.brain_v3.video.video_embedder import InvalidVideoError
+
+    def _bad_video_embedder(task, progress_cb, serializer):
+        raise InvalidVideoError("Ungueltige Video-Metadaten: fps=1.0 frames=-1")
+
+    cache = EmbeddingCache()
+    scheduler = EmbeddingScheduler(
+        n_workers=1, cache=cache, embedder_factory=_bad_video_embedder,
+        serializer=GpuSerializer(empty_cache_on_release=False),
+    )
+    skipped: list[tuple[str, str]] = []
+    statuses: list[str] = []
+    scheduler.job_skipped.connect(lambda h, r: skipped.append((h, r)))
+    scheduler.job_progress.connect(
+        lambda jid, status, p, m: statuses.append(status)
+    )
+    scheduler.start()
+    try:
+        media_hash = "d" * 64
+        job_id = scheduler.submit_path(
+            media_hash=media_hash,
+            source_path=isolated_appdata / "test.stem.mp4",
+            media_type="video",
+        )
+        assert job_id is not None
+
+        deadline = time.time() + 5.0
+        while time.time() < deadline:
+            if skipped:
+                break
+            _spin_qt(qt_app, 50)
+        else:
+            pytest.fail("job_skipped wurde nicht emittiert")
+
+        assert skipped[0][0] == media_hash
+        assert "frames=-1" in skipped[0][1]
+        # B-279: der Job darf NICHT als failed enden.
+        _spin_qt(qt_app, 150)
+        assert "failed" not in statuses
+        assert "done" in statuses
+    finally:
+        scheduler.request_stop(timeout_ms=3000)
+
+
 def test_submit_raises_when_not_started(qt_app, isolated_appdata):
     scheduler = EmbeddingScheduler(
         n_workers=1, embedder_factory=_fake_embedder,

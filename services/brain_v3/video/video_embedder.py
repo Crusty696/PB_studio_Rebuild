@@ -26,6 +26,14 @@ from services.brain_v3.gpu_serializer import GpuSerializer, get_default_serializ
 
 logger = logging.getLogger(__name__)
 
+
+class InvalidVideoError(ValueError):
+    """B-279: Video hat ungueltige/nonstandard Metadaten (z.B. .stem.mp4 mit
+    fps<=0 oder frames=-1). Subklasse von ValueError fuer Rueckwaerts-
+    kompatibilitaet; der Embedding-Scheduler faengt diesen Typ gezielt ab und
+    behandelt ihn als sauberen Skip-mit-Grund statt als fehlgeschlagenen Job."""
+
+
 SIGLIP2_MODEL_ID = "google/siglip2-base-patch16-384"
 SIGLIP2_MODEL_VERSION = "1.0"
 SIGLIP2_DIM = 768
@@ -150,7 +158,7 @@ class Siglip2VideoEmbedder:
                 fps = cap.get(cv2.CAP_PROP_FPS) or 0.0
                 n_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
                 if fps <= 0 or n_frames <= 0:
-                    raise ValueError(f"Ungueltige Video-Metadaten: fps={fps} frames={n_frames}")
+                    raise InvalidVideoError(f"Ungueltige Video-Metadaten: fps={fps} frames={n_frames}")
                 duration = float(n_frames / fps)
 
                 effective_scenes = scenes or [SceneSpec(start_time=0.0, end_time=duration)]
