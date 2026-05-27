@@ -241,20 +241,24 @@ class BeatAnalysisService:
         logger.info("Audio-Dauer: %.1fs (%s)", duration, Path(audio_path).name)
 
         if progress_cb:
-            progress_cb(10, "Lade Audio...")
-
-        # Audio einmalig laden (wird fuer Chunking UND Energie-Analyse wiederverwendet)
-        try:
-            y, sr = librosa.load(audio_path, sr=DEFAULT_SR, mono=True)
-        except (OSError, IOError, ValueError, RuntimeError) as e:
-            raise RuntimeError(f"Audio konnte nicht geladen werden: {e}") from e
-
-        if progress_cb:
             progress_cb(15, "Lade beat_this Modell...")
 
         # Graceful degradation: fallback auf librosa wenn beat_this nicht verfuegbar
         self._ensure_model()
+
+        # B-358: Audio nur dort komplett in RAM laden, wo zwingend noetig.
+        # Lange Dateien (>CHUNK_DURATION_SEC) werden in _analyze_chunked und in
+        # der Per-Beat-Energie-Analyse streamend von Disk gelesen — kein
+        # ~1 GB Full-Load mehr fuer 2-3h DJ-Mixe. ``y`` bleibt in dem Fall None
+        # und signalisiert analyze_and_store, die Energie streamend zu rechnen.
+        y: np.ndarray | None = None
+        sr = DEFAULT_SR
         if self._beat_this_unavailable:
+            # Librosa-Fallback braucht das volle Signal (beat_track).
+            try:
+                y, sr = librosa.load(audio_path, sr=DEFAULT_SR, mono=True)
+            except (OSError, IOError, ValueError, RuntimeError) as e:
+                raise RuntimeError(f"Audio konnte nicht geladen werden: {e}") from e
             logger.warning(
                 "beat_this nicht verfuegbar — nutze librosa BPM-Fallback: %s",
                 self._beat_this_unavailable_reason,
@@ -263,15 +267,20 @@ class BeatAnalysisService:
                 progress_cb(20, "Librosa BPM-Analyse (Fallback)...")
             beats, downbeats = self._analyze_librosa_fallback(y, sr)
         elif duration <= CHUNK_DURATION_SEC:
+            # Kurze Datei (<=10min): Full-Load ist guenstig und wird fuer die
+            # Energie-Analyse wiederverwendet.
+            try:
+                y, sr = librosa.load(audio_path, sr=DEFAULT_SR, mono=True)
+            except (OSError, IOError, ValueError, RuntimeError) as e:
+                raise RuntimeError(f"Audio konnte nicht geladen werden: {e}") from e
             if progress_cb:
                 progress_cb(20, "Analysiere Beats...")
-            # Kurze Datei: direkt analysieren
             beats, downbeats = self._analyze_full(audio_path)
         else:
             if progress_cb:
                 progress_cb(20, "Chunked Beat-Analyse...")
-            # Lange Datei: Chunked Processing (nutzt bereits geladenes Audio)
-            beats, downbeats = self._analyze_chunked(audio_path, duration, y, sr)
+            # Lange Datei: Chunked Processing streamt Chunks von Disk (B-358).
+            beats, downbeats = self._analyze_chunked(audio_path, duration, sr)
 
         if progress_cb:
             progress_cb(80, "Berechne BPM...")
@@ -339,23 +348,29 @@ class BeatAnalysisService:
 
     def _analyze_chunked(
         self, audio_path: str, total_duration: float,
-        y: np.ndarray, sr: int,
+        sr: int,
     ) -> tuple[np.ndarray, np.ndarray]:
         """Chunked Processing: Teilt Audio in 10-Min-Segmente.
 
-        1. Teile bereits geladenes Audio in Chunks (mit Overlap)
+        B-358: Chunks werden einzeln streamend von Disk geladen
+        (``librosa.load`` mit offset/duration) statt aus einem komplett in
+        RAM gehaltenen Signal geslict. Damit entsteht keine ~1 GB-RAM-Spitze
+        mehr fuer lange DJ-Mixe.
+
+        1. Lade jeden Chunk (mit Overlap) einzeln von Disk
         2. Analysiere jeden Chunk separat
         3. Setze Beat-Timestamps wieder zusammen (dedupliziere Overlap-Bereich)
         """
         import torch
         import tempfile
         import soundfile as sf
+        import librosa
 
         self._ensure_model()
 
         chunk_samples = int(CHUNK_DURATION_SEC * sr)
         overlap_samples = int(CHUNK_OVERLAP_SEC * sr)
-        total_samples = len(y)
+        total_samples = int(round(total_duration * sr))
 
         all_beats = []
         all_downbeats = []
@@ -364,8 +379,12 @@ class BeatAnalysisService:
 
         while pos < total_samples:
             chunk_end = min(pos + chunk_samples, total_samples)
-            chunk_audio = y[pos:chunk_end]
             chunk_offset_sec = pos / sr
+            # B-358: nur diesen Chunk von Disk laden (kein Full-Load).
+            chunk_audio, _ = librosa.load(
+                audio_path, sr=sr, mono=True,
+                offset=chunk_offset_sec, duration=(chunk_end - pos) / sr,
+            )
 
             logger.info(
                 "Chunk %d: %.1fs - %.1fs (von %.1fs)",
@@ -466,6 +485,12 @@ class BeatAnalysisService:
             if y is not None and sr is not None:
                 energy_per_beat = self._compute_energy_per_beat(
                     y, sr, result["beats"], result["duration"]
+                )
+            elif sr is not None:
+                # B-358: lange Datei wurde streamend analysiert (y is None) —
+                # Energie ebenfalls streamend von Disk rechnen statt Full-Load.
+                energy_per_beat = self._compute_energy_per_beat_streaming(
+                    file_path, sr, result["beats"], result["duration"]
                 )
             else:
                 energy_per_beat = []
@@ -617,6 +642,64 @@ class BeatAnalysisService:
 
         # Normalisiere auf 0.0-1.0
         max_e = energies.max() if len(energies) else 1.0
+        if max_e > 0:
+            energies = energies / max_e
+        return [round(float(e), 4) for e in energies]
+
+    @staticmethod
+    def _compute_energy_per_beat_streaming(
+        audio_path: str, sr: int, beats: list[float], duration: float
+    ) -> list[float]:
+        """B-358: Streaming-Variante von ``_compute_energy_per_beat`` fuer lange
+        Dateien. Liest das Audio block-weise (CHUNK_DURATION_SEC) von Disk und
+        akkumuliert pro Beat-Intervall Summe-der-Quadrate + Sample-Count, statt
+        das komplette Signal in RAM zu halten.
+
+        Liefert dieselbe global-normalisierte, auf 4 Nachkommastellen gerundete
+        Per-Beat-RMS-Liste wie die Full-Array-Methode (bit-identisch fuer
+        Dateien die bereits in ``sr`` vorliegen; bei Resampling koennen einzelne
+        Beats an Block-Grenzen nur in der 4. Nachkommastelle abweichen).
+        """
+        import librosa
+        if not beats or len(beats) < 2:
+            return []
+
+        beat_ends = list(beats[1:]) + [duration]
+        total_samples = int(round(duration * sr))
+        starts = np.clip((np.array(beats) * sr).astype(int), 0, total_samples)
+        ends = np.clip((np.array(beat_ends) * sr).astype(int), 0, total_samples)
+
+        n = len(beats)
+        sumsq = np.zeros(n, dtype=np.float64)
+        cnt = np.zeros(n, dtype=np.int64)
+
+        block_samples = int(CHUNK_DURATION_SEC * sr)
+        pos = 0
+        while pos < total_samples:
+            block_len = min(block_samples, total_samples - pos)
+            block, _ = librosa.load(
+                audio_path, sr=sr, mono=True,
+                offset=pos / sr, duration=block_len / sr,
+            )
+            if len(block) == 0:
+                break
+            block_start = pos
+            block_end = pos + len(block)
+            # Beats, deren Intervall sich mit diesem Block ueberschneidet.
+            for i in range(n):
+                s = max(int(starts[i]), block_start)
+                e = min(int(ends[i]), block_end)
+                if e > s:
+                    seg = block[s - block_start:e - block_start].astype(np.float64)
+                    sumsq[i] += float(np.sum(seg ** 2))
+                    cnt[i] += (e - s)
+            pos = block_end
+
+        energies = np.zeros(n, dtype=np.float64)
+        nz = cnt > 0
+        energies[nz] = np.sqrt(sumsq[nz] / cnt[nz])
+
+        max_e = energies.max() if n else 1.0
         if max_e > 0:
             energies = energies / max_e
         return [round(float(e), 4) for e in energies]
