@@ -32,16 +32,30 @@ if not exist "%SPEC_FILE%" (
 )
 
 REM -----------------------------------------------------------------------
-REM  2. Check virtual environment
+REM  2. Check Python environment
 REM -----------------------------------------------------------------------
-if not exist "%VENV%\Scripts\activate.bat" (
-    echo [ERROR] Virtual environment not found at %VENV%\
-    echo         Run: poetry install
-    exit /b 1
+if not "%CONDA_DEFAULT_ENV%" == "" (
+    echo [OK] Active Conda environment detected: %CONDA_DEFAULT_ENV%
+    goto :env_ok
 )
 
-call %VENV%\Scripts\activate.bat
-echo [OK] Virtual environment activated.
+if exist "%VENV%\Scripts\activate.bat" (
+    call %VENV%\Scripts\activate.bat
+    echo [OK] Virtual environment %VENV% activated.
+    goto :env_ok
+)
+
+python --version >nul 2>&1
+if not errorlevel 1 (
+    echo [WARN] No active Conda env or %VENV% folder found. Using active system Python.
+    goto :env_ok
+)
+
+echo [ERROR] No active Conda environment, %VENV% folder, or system Python found.
+echo         Please activate conda environment (conda activate pb-studio) or create .venv.
+exit /b 1
+
+:env_ok
 
 REM -----------------------------------------------------------------------
 REM  3. Ensure PyInstaller is installed

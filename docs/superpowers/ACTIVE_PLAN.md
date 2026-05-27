@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-AREA-AUDIT-FIXPLAN-2026-05-25
-next_allowed_task: B-420 (Area 10 Installer/Docs; B-419 fixed)
+next_allowed_task: B-421 (Area 10 Installer/Docs; B-420 fixed)
 updated: 2026-05-27
 
 ## Meaning
@@ -105,8 +105,7 @@ Der Audit-Plan `PB-STUDIO-AREA-AUDIT-2026-05-24` ist abgeschlossen und bleibt al
 - B-416 ist code-fix-pending-live-verification im Vault am 2026-05-26: Quick-Commands matchen keine normalen Erklaer-Saetze mehr via Substring; pre-fix RED matchte `erklaere pacing` und `analysiere bitte den begriff`; direct `3 passed`, Chat/Agent-nahe `7 passed`, collect `2280`; Live-Chat-Workflow offen.
 - B-417 ist code-fix-pending-live-verification im Vault am 2026-05-26: Request-ID- und Projektkontext-Validierung in ChatDock gegen stale Worker-Ergebnisse; direct `2 passed`, collect `2282`; Live-Chat-Workflow offen.
 - Area 9 (B-409..B-417) damit code-fertig.
-- Naechster erlaubter Task: B-418 (Area 10 Installer/Docs, numerische Reihenfolge).
 - B-418 ist fixed im Vault am 2026-05-27: Ueberarbeitung der Installationsdokumentation auf Conda/Python 3.10/CUDA 11.3 (requirements-py310-cu113.txt).
 - B-419 ist fixed im Vault am 2026-05-27: Ueberarbeitung der Deploymentdokumentation auf Conda/Python 3.10/CUDA 11.3 (requirements-py310-cu113.txt) und Richtigstellung der requirements.txt.
-- Naechster erlaubter Task: B-420 (Area 10 Installer/Docs, numerische Reihenfolge).
-
+- B-420 ist fixed im Vault am 2026-05-27: build_installer.bat dynamisiert, erkennt Conda-Umgebung.
+- Naechster erlaubter Task: B-421 (Area 10 Installer/Docs, numerische Reihenfolge).

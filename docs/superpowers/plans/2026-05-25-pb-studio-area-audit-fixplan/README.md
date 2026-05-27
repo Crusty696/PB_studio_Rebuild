@@ -25,17 +25,25 @@ No unrelated refactors, feature work, library swaps, model changes, Audio-V2 por
 
 ## Current Task
 
-### Task 58: B-420 Installer build uses .venv instead of active conda runtime
+### Task 59: B-421 PyInstaller spec misses required app data
 
-**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-420-installer-build-uses-venv-instead-of-active-conda-runtime.md`
+**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-421-pyinstaller-spec-misses-required-app-data.md`
 
-- [ ] **Step 1: Read B-420 and build_installer.bat**
-- [ ] **Step 2: Identify outdated .venv python path references**
-- [ ] **Step 3: Update build_installer.bat to use active conda env python path**
-- [ ] **Step 4: Verify syntax and dry-run of modified script**
+- [ ] **Step 1: Read B-421 and pb_studio.spec**
+- [ ] **Step 2: Identify missing data directories in datas**
+- [ ] **Step 3: Add translations, config, migrations, and brain migrations to datas in pb_studio.spec**
+- [ ] **Step 4: Verify syntax and spec file parsing**
 - [ ] **Step 5: Update Vault and status**
 
 ## Completed Tasks
+
+### Task 58: B-420 Installer build uses .venv instead of active conda runtime
+
+Result 2026-05-27: Overhauled `installer/build_installer.bat` to detect and use the active conda environment (%CONDA_DEFAULT_ENV%) or active system Python instead of falling back hard onto .venv.
+
+Evidence: Dry-run check on active environment succeeded, correctly detecting Conda env and Python runtime.
+
+Status: fixed.
 
 ### Task 57: B-419 Deployment docs build wrong stack
 
