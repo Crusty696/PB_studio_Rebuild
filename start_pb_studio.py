@@ -12,22 +12,27 @@ import subprocess
 from pathlib import Path
 
 PROJECT_DIR = Path(__file__).parent.resolve()
-# Migration 2026-04-27: conda-env "pb-studio" hat Prioritaet (Python 3.10 + CUDA 11.3),
-# Fallbacks: .venv310 (alt) und .venv (CPU).
-_CONDA_PB = Path.home() / "miniconda3" / "envs" / "pb-studio"
-if not (_CONDA_PB / "python.exe").exists():
-    _CONDA_PB = Path.home() / "anaconda3" / "envs" / "pb-studio"
-if (_CONDA_PB / "python.exe").exists():
-    VENV_DIR = _CONDA_PB
-    VENV_PYTHON = VENV_DIR / "python.exe"
-else:
-    VENV_DIR = PROJECT_DIR / ".venv310"
-    if not (VENV_DIR / "Scripts" / "python.exe").exists():
-        VENV_DIR = PROJECT_DIR / ".venv"
-    VENV_PYTHON = VENV_DIR / "Scripts" / "python.exe"
+
+def resolve_venv_paths() -> tuple[Path, Path]:
+    """Ermittelt dynamisch die bevorzugte Python-Umgebung."""
+    conda_pb = Path.home() / "miniconda3" / "envs" / "pb-studio"
+    if not (conda_pb / "python.exe").exists():
+        conda_pb = Path.home() / "anaconda3" / "envs" / "pb-studio"
+    
+    if (conda_pb / "python.exe").exists():
+        venv_dir = conda_pb
+        venv_python = venv_dir / "python.exe"
+    else:
+        venv_dir = PROJECT_DIR / ".venv310"
+        if not (venv_dir / "Scripts" / "python.exe").exists():
+            venv_dir = PROJECT_DIR / ".venv"
+        venv_python = venv_dir / "Scripts" / "python.exe"
+        
+    return venv_dir, venv_python
+
+VENV_DIR, VENV_PYTHON = resolve_venv_paths()
 MAIN_PY = PROJECT_DIR / "main.py"
 CRASH_LOG = PROJECT_DIR / "logs" / "crash.log"
-
 
 def _cleanup_pycache():
     """Loescht alle __pycache__ Verzeichnisse (verhindert Probleme nach Updates)."""
@@ -35,8 +40,8 @@ def _cleanup_pycache():
         if ".venv" not in str(cache_dir):
             shutil.rmtree(cache_dir, ignore_errors=True)
 
-
 def main():
+    global VENV_DIR, VENV_PYTHON
     print("=" * 50)
     print("  PB Studio Rebuild - Starter")
     print("=" * 50)
@@ -59,6 +64,10 @@ def main():
                 [sys.executable, str(setup_script)],
                 cwd=str(PROJECT_DIR),
             )
+            
+            # Pfade nach dem Setup neu ermitteln
+            VENV_DIR, VENV_PYTHON = resolve_venv_paths()
+            
             if result.returncode != 0 or not VENV_PYTHON.exists():
                 print("\n  FEHLER: Setup fehlgeschlagen!")
                 print(f"  Bitte fuehre manuell aus: python {setup_script}")

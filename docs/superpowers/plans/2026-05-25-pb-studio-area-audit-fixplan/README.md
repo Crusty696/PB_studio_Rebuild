@@ -25,17 +25,33 @@ No unrelated refactors, feature work, library swaps, model changes, Audio-V2 por
 
 ## Current Task
 
-### Task 63: B-425 NSIS references missing installer bitmaps
+### Task 65: B-427 FFmpeg docs and setup disagree on source
 
-**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-425-nsis-references-missing-installer-bitmaps.md`
+**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-427-ffmpeg-docs-and-setup-disagree-on-source.md`
 
-- [ ] **Step 1: Read B-425 and installer/pb_studio.nsi**
-- [ ] **Step 2: Check resources folder for installer_header.bmp and installer_welcome.bmp**
-- [ ] **Step 3: Add/generate placeholders or restore the missing bitmaps**
-- [ ] **Step 4: Verify syntax and NSIS script parsing**
+- [ ] **Step 1: Read B-427 and setup scripts**
+- [ ] **Step 2: Align README and setup requirements for FFmpeg**
+- [ ] **Step 3: Update documentation/setup checks**
+- [ ] **Step 4: Verify build/setup workflow**
 - [ ] **Step 5: Update Vault and status**
 
 ## Completed Tasks
+
+### Task 64: B-426 Start script can keep stale Python path after auto setup
+
+Result 2026-05-27: Outsourced Python venv resolution in `start_pb_studio.py` into a dynamic helper `resolve_venv_paths()` and re-called it immediately after a successful automatic setup run to correctly update launch environment paths.
+
+Evidence: Dedicated unit test `tests/test_start_pb_studio.py` verified the dynamic path re-resolution and successful app launch execution (`1 passed in 0.31s`).
+
+Status: fixed.
+
+### Task 63: B-425 NSIS references missing installer bitmaps
+
+Result 2026-05-27: AI-generated vertical and horizontal banner bitmaps using `generate_image` and scaled/converted them with Pillow to the exact NSIS required formats (`installer_header.bmp` 150x57 and `installer_welcome.bmp` 164x314) in the `resources` directory.
+
+Evidence: Verified both BMP files exist in the `resources` folder; global collect-only successfully registered 2284 tests.
+
+Status: fixed.
 
 ### Task 62: B-424 NSIS model section does not run model cache script
 

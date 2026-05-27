@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-AREA-AUDIT-FIXPLAN-2026-05-25
-next_allowed_task: B-425 (Area 10 Installer/Docs; B-424 fixed)
+next_allowed_task: B-427 (Area 10 Installer/Docs; B-426 fixed)
 updated: 2026-05-27
 
 ## Meaning
@@ -112,4 +112,6 @@ Der Audit-Plan `PB-STUDIO-AREA-AUDIT-2026-05-24` ist abgeschlossen und bleibt al
 - B-422 ist code-fix-pending-live-verification im Vault am 2026-05-27: pb_studio.spec um ffmpeg und ffprobe im bin-Ordner erweitert.
 - B-423 ist code-fix-pending-live-verification im Vault am 2026-05-27: pb_studio.spec um packaging hiddenimports und datas erweitert.
 - B-424 ist fixed im Vault am 2026-05-27: Race-Condition im --pre-cache CLI-Handler behoben und blockierende Wartezeit durch done_event garantiert.
-- Naechster erlaubter Task: B-425 (Area 10 Installer/Docs, numerische Reihenfolge).
+- B-425 ist fixed im Vault am 2026-05-27: NSIS Installer-Bitmaps AI-generiert und in resources abgelegt.
+- B-426 ist fixed im Vault am 2026-05-27: start_pb_studio.py wählt Python-Pfade nach Auto-Setup dynamisch neu aus.
+- Naechster erlaubter Task: B-427 (Area 10 Installer/Docs, numerische Reihenfolge).
