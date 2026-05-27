@@ -550,7 +550,14 @@ class OnsetRhythmService:
         drums_y: np.ndarray | None = None
         if drums_path and Path(drums_path).exists():
             try:
-                drums_y, _ = librosa.load(drums_path, sr=DEFAULT_SR, mono=True)
+                # B-359 Fix: Drums-Stem mit derselben duration=MAX_DURATION_SEC
+                # Grenze laden wie das Raw-Audio oben. Ohne Cap konnte ein langer
+                # Drums-Stem die 30-Minuten-RAM-Schutzgrenze umgehen, weil
+                # analyze() bei gesetztem drums_y das Mel-Spektrogramm auf dem
+                # vollen Stem berechnet (signal = drums_y).
+                drums_y, _ = librosa.load(
+                    drums_path, sr=DEFAULT_SR, mono=True, duration=MAX_DURATION_SEC
+                )
                 logger.debug("Drums-Stem geladen: %s", drums_path)
             except Exception as e:  # B-230: audioread/soundfile-Errors auch abfangen
                 logger.warning("Drums-Stem load fehlgeschlagen '%s': %s", drums_path, e)
