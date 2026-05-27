@@ -754,6 +754,11 @@ def _auto_edit_phase3_inner(
             clip_offsets[vid] = offset or 0.0
     used_recently: list[int] = []
     prev_clip_idx: int | None = None
+    # B-371: ClipFeatures der zuletzt vom Studio-Brain gewaehlten Scene.
+    # Wird als predecessor an select_best uebergeben, damit PacingScorer
+    # Style-Kompatibilitaet/Collision-Penalty gegen die Vorgaenger-Wahl
+    # bewerten kann statt neutral (predecessor=None) zu bleiben.
+    _sb_predecessor = None
 
     # Pre-resolve anchor scenes to avoid DB session per segment
     anchor_scene_map: dict[str, int] = {}  # scene_id_str -> video_clip_id
@@ -923,17 +928,25 @@ def _auto_edit_phase3_inner(
                                 "ai_mood": _sc.get("ai_mood"),
                                 "role": _sc.get("role"),
                                 "style_bucket_id": _sc.get("style_bucket_id"),
-                                "embedding": None,  # Embedding-Lookup ist Cycle 12
+                                # B-371: predecessor wird jetzt an select_best
+                                # uebergeben; Embedding-Lookup (Style/Collision-
+                                # Signal) bleibt deferred (Cycle 12 — VectorDB-
+                                # Join video_path/scene_index noch nicht verdrahtet).
+                                "embedding": None,
                             })(),
                         ))
                     if _sb_candidates:
                         _sb_result = _studio_brain_pipeline.select_best(
                             candidates=_sb_candidates,
                             ctx=_sb_ctx,
+                            predecessor=_sb_predecessor,
                             recent_clip_ids=used_recently[-3:] if used_recently else None,
                         )
                         if _sb_result.chosen is not None:
                             _sb_chosen_vid = _sb_result.chosen.clip_id
+                            # B-371: gewaehlte Scene als predecessor fuer das
+                            # naechste Segment merken (Style/Collision-Signal).
+                            _sb_predecessor = _sb_result.chosen
                 except (ImportError, RuntimeError, AttributeError, KeyError) as _sb_loop_exc:
                     logger.debug(
                         "Studio-Brain select_best fehlgeschlagen für seg=%.2f, falle "
