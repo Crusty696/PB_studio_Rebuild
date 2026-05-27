@@ -25,17 +25,25 @@ No unrelated refactors, feature work, library swaps, model changes, Audio-V2 por
 
 ## Current Task
 
-### Task 62: B-424 NSIS model section does not run model cache script
+### Task 63: B-425 NSIS references missing installer bitmaps
 
-**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-424-nsis-model-section-does-not-run-model-cache-script.md`
+**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-425-nsis-references-missing-installer-bitmaps.md`
 
-- [ ] **Step 1: Read B-424 and installer/pb_studio.nsi**
-- [ ] **Step 2: Identify where the model caching script is executed or missing**
-- [ ] **Step 3: Update NSIS installer to correctly execute the model caching script**
-- [ ] **Step 4: Verify installer script generation/compilation**
+- [ ] **Step 1: Read B-425 and installer/pb_studio.nsi**
+- [ ] **Step 2: Check resources folder for installer_header.bmp and installer_welcome.bmp**
+- [ ] **Step 3: Add/generate placeholders or restore the missing bitmaps**
+- [ ] **Step 4: Verify syntax and NSIS script parsing**
 - [ ] **Step 5: Update Vault and status**
 
 ## Completed Tasks
+
+### Task 62: B-424 NSIS model section does not run model cache script
+
+Result 2026-05-27: Fixed the race condition in the `--pre-cache` CLI handler in `main.py` by always blocking on the asynchronous model download completion using `done_event` instead of prematurely skipping it.
+
+Evidence: Dedicated unit test `tests/test_pre_cache_headless.py` successfully verified sequential and blocking downloading behavior, exiting cleanly with `sys.exit(0)` (`1 passed in 3.75s`).
+
+Status: fixed.
 
 ### Task 61: B-423 PyInstaller bundle hooks are not used
 

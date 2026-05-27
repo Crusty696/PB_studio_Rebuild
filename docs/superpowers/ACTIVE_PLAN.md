@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-AREA-AUDIT-FIXPLAN-2026-05-25
-next_allowed_task: B-424 (Area 10 Installer/Docs; B-423 code-fix-pending)
+next_allowed_task: B-425 (Area 10 Installer/Docs; B-424 fixed)
 updated: 2026-05-27
 
 ## Meaning
@@ -111,4 +111,5 @@ Der Audit-Plan `PB-STUDIO-AREA-AUDIT-2026-05-24` ist abgeschlossen und bleibt al
 - B-421 ist code-fix-pending-live-verification im Vault am 2026-05-27: pb_studio.spec um config, translations und migrations erweitert.
 - B-422 ist code-fix-pending-live-verification im Vault am 2026-05-27: pb_studio.spec um ffmpeg und ffprobe im bin-Ordner erweitert.
 - B-423 ist code-fix-pending-live-verification im Vault am 2026-05-27: pb_studio.spec um packaging hiddenimports und datas erweitert.
-- Naechster erlaubter Task: B-424 (Area 10 Installer/Docs, numerische Reihenfolge).
+- B-424 ist fixed im Vault am 2026-05-27: Race-Condition im --pre-cache CLI-Handler behoben und blockierende Wartezeit durch done_event garantiert.
+- Naechster erlaubter Task: B-425 (Area 10 Installer/Docs, numerische Reihenfolge).

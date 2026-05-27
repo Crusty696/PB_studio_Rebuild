@@ -1203,15 +1203,14 @@ def main():
 
             success = service.download_hf_model(m_id, progress_cb=_prog)
             if success:
-                # FIX H-19: Only wait if download actually started; reduce timeout to 5 min
-                if download_started:
-                    if not done_event.wait(timeout=300):
-                        print(f"\n[ERROR] Timeout beim Download von {m_id}")
-                    else:
-                        print(f"\n[OK] {m_id} erfolgreich verarbeitet.")
+                # Warte bis der asynchrone Download beendet ist
+                if not done_event.wait(timeout=600):
+                    print(f"\n[ERROR] Timeout beim Download von {m_id}")
                 else:
-                    # Model already cached, no download needed
-                    print(f"\n[OK] {m_id} bereits vorhanden.")
+                    if download_started:
+                        print(f"\n[OK] {m_id} erfolgreich verarbeitet.")
+                    else:
+                        print(f"\n[OK] {m_id} bereits vorhanden.")
             else:
                 print(f"[SKIP/ERROR] Download konnte nicht gestartet werden für {m_id}")
         
