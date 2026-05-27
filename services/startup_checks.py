@@ -14,6 +14,7 @@ import os
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
@@ -444,7 +445,16 @@ def check_system(app_root: Path | None = None) -> SystemStatus:
                     bt_ok, dmc_ok = future.result(timeout=STARTUP_MODEL_CHECK_TIMEOUT_SEC)
                     status.beat_this_ok = bt_ok
                     status.demucs_ok = dmc_ok
-            except (TimeoutError, RuntimeError, OSError) as exc:
+            except (FuturesTimeoutError, TimeoutError, RuntimeError, OSError) as exc:
+                # B-278: concurrent.futures.TimeoutError ist in Python 3.10
+                # KEINE Subklasse des builtin TimeoutError. Ohne diesen
+                # expliziten Eintrag entkam ein langsamer Ollama-Auto-Start
+                # (future.result() Timeout) als kritische Exception aus
+                # check_system() und der StartupCheckWorker loggte einen
+                # "Kritischer Fehler bei Systempruefung"-Traceback — obwohl
+                # Ollama kurz darauf bereit war. Jetzt wird der Timeout pro
+                # Check als Warnung degradiert; die betroffene Status-Flag
+                # (z.B. ollama_ok) bleibt auf ihrem Default False.
                 logger.warning("Startup check '%s' raised: %s", key, exc)
 
     if not status.ffmpeg_ok:
