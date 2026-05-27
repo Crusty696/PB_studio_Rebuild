@@ -93,6 +93,51 @@ class TestSpectralAnalysis:
             assert all(b.energy == 0.0 for b in result.bands)
 
 
+class TestAnalyzeExtendedBufferReuse:
+    """B-231: ``analyze_extended`` darf Audio + STFT nicht doppelt berechnen."""
+
+    def test_analyze_extended_loads_audio_once(self):
+        """``analyze_extended`` ruft ``librosa.load`` + ``librosa.stft`` genau
+        einmal auf (via ``_analyze_with_buffers``), nicht ein zweites Mal."""
+        try:
+            import librosa  # noqa: F401
+        except ImportError:
+            pytest.skip("librosa nicht installiert")
+
+        sr = 22050
+        y = np.random.randn(sr * 2).astype(np.float32)
+
+        with patch("librosa.load", return_value=(y, sr)) as mock_load, \
+             patch("librosa.stft", wraps=librosa.stft) as mock_stft:
+            svc = SpectralAnalysisService()
+            report = svc.analyze_extended("/test/track.wav")
+
+        assert mock_load.call_count == 1, (
+            f"B-231: librosa.load {mock_load.call_count}x aufgerufen, erwartet 1x"
+        )
+        assert mock_stft.call_count == 1, (
+            f"B-231: librosa.stft {mock_stft.call_count}x aufgerufen, erwartet 1x"
+        )
+        # Erweiterte Analyse hat trotzdem Ergebnisse produziert
+        assert len(report.temporal_bands) > 0
+        assert len(report.spectral.bands) == 8
+
+    def test_analyze_extended_empty_audio_uses_buffer_path(self):
+        """Leeres Audio aus dem Helper → Fallback-Report ohne zweiten Load."""
+        try:
+            import librosa  # noqa: F401
+        except ImportError:
+            pytest.skip("librosa nicht installiert")
+
+        with patch("librosa.load", return_value=(np.array([], dtype=np.float32), 22050)) as mock_load:
+            svc = SpectralAnalysisService()
+            report = svc.analyze_extended("/test/empty.wav")
+
+        assert mock_load.call_count == 1, "B-231: kein zweiter Load bei leerem Audio"
+        assert report.temporal_bands == []
+        assert report.best_genre_match == "unknown"
+
+
 class TestGetBandsJson:
     """Tests für JSON-Serialisierung."""
 

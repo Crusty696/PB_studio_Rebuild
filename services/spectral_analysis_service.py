@@ -142,17 +142,42 @@ class SpectralAnalysisService:
         Returns:
             SpectralResult mit 8 Frequenzbändern und erkannten Events
         """
+        # B-231: ``analyze`` delegiert an ``_analyze_with_buffers``, das das
+        # geladene ``y`` und das Power-Spektrogramm mitliefert. ``analyze``
+        # verwirft die Buffer und behaelt seinen oeffentlichen Vertrag (gibt
+        # nur ``SpectralResult`` zurueck). ``analyze_extended`` nutzt denselben
+        # Helper, um Audio-Load + STFT nicht ein zweites Mal zu berechnen.
+        result, _y, _power_spec = self._analyze_with_buffers(file_path, bpm)
+        return result
+
+    def _analyze_with_buffers(
+        self, file_path: str, bpm: float | None = None
+    ) -> tuple[SpectralResult, object, object]:
+        """B-231: Interner Analyse-Helper im B-062-Tuple-Return-Pattern.
+
+        Laedt das Audio + STFT genau einmal und liefert ``(SpectralResult,
+        y, power_spec)`` zurueck, damit ``analyze_extended`` die teuren Buffer
+        wiederverwenden kann statt ``librosa.load`` und ``librosa.stft`` ein
+        zweites Mal aufzurufen (Peak-RAM-Halbierung bei langen Tracks).
+
+        ``y``/``power_spec`` sind ``None`` im librosa/numpy-Fehlerpfad bzw.
+        bei leerem Audio.
+        """
         if not _HAS_LIBROSA or not _HAS_NUMPY:
             log.error(
                 "librosa/numpy nicht verfuegbar — Spektral-Analyse uebersprungen. "
                 "Installiere mit: pip install librosa numpy"
             )
-            return SpectralResult(
-                bands=[SpectralBand(name=n, freq_low=lo, freq_high=hi, energy=0.0)
-                       for n, lo, hi in FREQUENCY_BANDS],
-                events=[],
-                dominant_band="",
-                spectral_centroid_mean=0.0,
+            return (
+                SpectralResult(
+                    bands=[SpectralBand(name=n, freq_low=lo, freq_high=hi, energy=0.0)
+                           for n, lo, hi in FREQUENCY_BANDS],
+                    events=[],
+                    dominant_band="",
+                    spectral_centroid_mean=0.0,
+                ),
+                None,
+                None,
             )
 
         try:
@@ -167,12 +192,16 @@ class SpectralAnalysisService:
 
             if len(y) == 0:
                 log.warning("Audio-Datei ist leer: %s", file_path)
-                return SpectralResult(
-                    bands=[SpectralBand(name=n, freq_low=lo, freq_high=hi, energy=0.0)
-                           for n, lo, hi in FREQUENCY_BANDS],
-                    events=[],
-                    dominant_band="",
-                    spectral_centroid_mean=0.0,
+                return (
+                    SpectralResult(
+                        bands=[SpectralBand(name=n, freq_low=lo, freq_high=hi, energy=0.0)
+                               for n, lo, hi in FREQUENCY_BANDS],
+                        events=[],
+                        dominant_band="",
+                        spectral_centroid_mean=0.0,
+                    ),
+                    None,
+                    None,
                 )
 
             duration_sec = len(y) / sr
@@ -237,22 +266,30 @@ class SpectralAnalysisService:
                 dominant_band, spectral_centroid_mean, len(events),
             )
 
-            return SpectralResult(
-                bands=bands,
-                events=events,
-                dominant_band=dominant_band,
-                spectral_centroid_mean=round(spectral_centroid_mean, 2),
+            return (
+                SpectralResult(
+                    bands=bands,
+                    events=events,
+                    dominant_band=dominant_band,
+                    spectral_centroid_mean=round(spectral_centroid_mean, 2),
+                ),
+                y,
+                power_spec,
             )
 
         except Exception as e:  # B-230: librosa kann audioread.NoBackendError + soundfile.LibsndfileError werfen — broad catch + log
             log.exception("Fehler bei Spektral-Analyse von %s", file_path)
             log.warning("analyze(): fallback result returned due to: %s", e)
-            return SpectralResult(
-                bands=[SpectralBand(name=n, freq_low=lo, freq_high=hi, energy=0.0)
-                       for n, lo, hi in FREQUENCY_BANDS],
-                events=[],
-                dominant_band="",
-                spectral_centroid_mean=0.0,
+            return (
+                SpectralResult(
+                    bands=[SpectralBand(name=n, freq_low=lo, freq_high=hi, energy=0.0)
+                           for n, lo, hi in FREQUENCY_BANDS],
+                    events=[],
+                    dominant_band="",
+                    spectral_centroid_mean=0.0,
+                ),
+                None,
+                None,
             )
 
     def _detect_events(
@@ -460,14 +497,21 @@ class SpectralAnalysisService:
         Returns:
             MasteringReport mit allen Mastering-Kennzahlen
         """
+        # B-231: ``MAX_DURATION_SPECTRAL`` wird hier nicht mehr gebraucht —
+        # das Audio wird einmal in ``_analyze_with_buffers`` mit diesem Limit
+        # geladen und ueber den Tuple-Return wiederverwendet.
         from services.audio_constants import (
-            DEFAULT_SR, N_FFT, HOP_LENGTH, MAX_DURATION_SPECTRAL,
+            DEFAULT_SR, N_FFT, HOP_LENGTH,
             EBU_R128_BROADCAST_TARGET, EBU_R128_BROADCAST_TOLERANCE,
             EBU_R128_STREAMING_MIN, EBU_R128_STREAMING_MAX, EBU_TRUE_PEAK_MAX,
         )
 
         # 1. Standard-Analyse (Bänder, Events, Centroid)
-        spectral = self.analyze(file_path, bpm)
+        # B-231: Audio + Power-Spektrogramm aus ``_analyze_with_buffers``
+        # wiederverwenden statt ``librosa.load`` + ``librosa.stft`` doppelt
+        # aufzurufen (halbiert Peak-RAM bei langen Tracks).
+        spectral, y, power_spec = self._analyze_with_buffers(file_path, bpm)
+        sr = DEFAULT_SR
 
         if not _HAS_LIBROSA or not _HAS_NUMPY:
             return MasteringReport(
@@ -486,12 +530,12 @@ class SpectralAnalysisService:
             )
 
         try:
-            y, sr = librosa.load(file_path, sr=DEFAULT_SR, mono=True, duration=MAX_DURATION_SPECTRAL)
-            if len(y) == 0:
+            # B-231: ``y``/``power_spec`` stammen aus ``_analyze_with_buffers``.
+            # ``None`` heisst leeres Audio oder librosa/soundfile-Fehler im
+            # Standard-Analyse-Lauf — gleiche Semantik wie der frueher hier
+            # geworfene ValueError("Audio-Datei ist leer").
+            if y is None or power_spec is None or len(y) == 0:
                 raise ValueError("Audio-Datei ist leer")
-
-            stft_matrix = librosa.stft(y, n_fft=N_FFT, hop_length=HOP_LENGTH)
-            power_spec = np.abs(stft_matrix) ** 2
 
             # 2. Temporale Band-Energien (1s Hops)
             temporal_bands = self._compute_temporal_bands(power_spec, sr, HOP_LENGTH, N_FFT)
