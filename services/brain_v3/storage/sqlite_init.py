@@ -63,8 +63,8 @@ def load_vec_extension(conn: sqlite3.Connection) -> None:
         raise ImportError(
             "sqlite-vec ist nicht installiert. "
             "Im Workspace ausfuehren: "
-            "`%PB_PYTHON% -m pip install sqlite-vec` "
-            "(oder run_install_brain_v3_phase2_deps.bat doppelklicken)."
+            "`%PB_PYTHON% -m pip install -r requirements-py310-cu113.txt` "
+            "(sqlite-vec>=0.1.6 ist dort feste Dependency)."
         ) from exc
 
     try:

@@ -193,7 +193,7 @@ def main() -> int:
         import sqlite_vec  # type: ignore
         env["sqlite_vec"] = "installed"
     except ImportError:
-        env["sqlite_vec"] = "MISSING — install via install_brain_v3_phase2_deps.bat"
+        env["sqlite_vec"] = "MISSING — pip install -r requirements-py310-cu113.txt"
         logger.error("sqlite-vec nicht installiert — Spike kann nicht laufen.")
         return 3
 

@@ -1,4 +1,11 @@
 @echo off
+:: ============================================================================
+:: ARCHIVIERT 2026-05-27 — NICHT MEHR NOETIG.
+:: sqlite-vec>=0.1.6 ist jetzt feste Dependency in requirements-py310-cu113.txt
+:: und requirements.txt. Standard-Setup (setup_pb_studio.bat -> environment.yml
+:: -> requirements-py310-cu113.txt) installiert es automatisch.
+:: Dieses Skript nur noch als Referenz / Notfall-Reinstall behalten.
+:: ============================================================================
 title Brain V3 - Phase 2 Dependencies installieren
 echo ============================================
 echo   Brain V3 — Phase 2 Dependencies

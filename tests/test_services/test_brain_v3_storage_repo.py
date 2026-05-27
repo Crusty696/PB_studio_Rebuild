@@ -1,8 +1,8 @@
 """Tests fuer services.brain_v3.storage.embedding_repository (sqlite-vec).
 
 Wenn sqlite-vec NICHT installiert: alle Tests werden SKIPPED, nicht failed.
-Der User kann nach Installation `run_install_brain_v3_phase2_deps.bat`
-diese Tests laufen lassen.
+sqlite-vec>=0.1.6 ist feste Dependency in requirements-py310-cu113.txt; nach
+`pip install -r requirements-py310-cu113.txt` laufen diese Tests.
 """
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ _HAS_SQLITE_VEC = importlib.util.find_spec("sqlite_vec") is not None
 pytestmark = pytest.mark.skipif(
     not _HAS_SQLITE_VEC,
     reason="sqlite-vec nicht installiert. "
-           "Lauf install_brain_v3_phase2_deps.bat oder pip install sqlite-vec",
+           "pip install -r requirements-py310-cu113.txt",
 )
 
 
