@@ -319,6 +319,39 @@ def test_sync_current_timeline_from_entries_replaces_stale_current_state(
     assert '"brain_v3_confidence": 0.5' in current[3]
 
 
+def test_sync_current_timeline_detects_source_offset_and_end_change(
+    isolated_appdata,
+    tmp_path,
+):
+    # B-373: change to source offset or end_time on the same clip + same
+    # timeline start must be recognised as a sync change.
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+
+    def _entries(src_start, end):
+        return [
+            type("Entry", (), {
+                "track": "audio", "media_id": 2, "start_time": 0.0,
+                "end_time": 120.0, "source_start": 0.0, "source_end": 120.0,
+            })(),
+            type("Entry", (), {
+                "track": "video", "media_id": 72, "start_time": 10.0,
+                "end_time": end, "source_start": src_start,
+                "source_end": src_start + 5.0,
+            })(),
+        ]
+
+    # initial create
+    assert sync_current_timeline_from_entries(project_root, _entries(0.0, 15.0)) is True
+    # identical -> no change (idempotent)
+    assert sync_current_timeline_from_entries(project_root, _entries(0.0, 15.0)) is False
+    # same clip + same start, changed source offset -> must re-sync
+    assert sync_current_timeline_from_entries(project_root, _entries(3.0, 15.0)) is True
+    assert sync_current_timeline_from_entries(project_root, _entries(3.0, 15.0)) is False
+    # changed end_time (duration) -> must re-sync
+    assert sync_current_timeline_from_entries(project_root, _entries(3.0, 18.0)) is True
+
+
 def test_learning_session_recovers_from_stale_state_audio_id(
     isolated_appdata,
     db_session,

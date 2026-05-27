@@ -98,18 +98,27 @@ def sync_current_timeline_from_entries(
     if not audio_entries or not video_entries:
         return False
 
-    expected_video_keys = [
-        (
+    # B-373: change-detection signature must include end_time and clip_start
+    # (source offset), not only (media_id, start_time). A change to source
+    # offset or duration on the same clip + same timeline start would
+    # otherwise be missed and the current timeline never re-synced.
+    expected_video_keys = []
+    for entry in sorted(video_entries, key=lambda e: float(e.start_time or 0.0)):
+        start = float(getattr(entry, "start_time", 0.0) or 0.0)
+        end_raw = getattr(entry, "end_time", None)
+        end = float(end_raw) if end_raw is not None else start + 1.0
+        clip_start = float(getattr(entry, "source_start", 0.0) or 0.0)
+        expected_video_keys.append((
             int(getattr(entry, "media_id")),
-            _round_ms(float(getattr(entry, "start_time", 0.0) or 0.0)),
-        )
-        for entry in sorted(video_entries, key=lambda e: float(e.start_time or 0.0))
-    ]
+            _round_ms(start),
+            _round_ms(max(end, start)),
+            _round_ms(clip_start),
+        ))
 
     with sqlite3.connect(db_path) as conn:
         existing_rows = conn.execute(
             """
-            SELECT c.clip_id, c.start_time
+            SELECT c.clip_id, c.start_time, c.end_time, c.clip_start
             FROM timeline_cuts c
             JOIN timelines t ON t.id = c.timeline_id
             WHERE t.is_current = 1
@@ -117,9 +126,14 @@ def sync_current_timeline_from_entries(
             """
         ).fetchall()
         existing_video_keys = []
-        for clip_id, start_time in existing_rows:
+        for clip_id, start_time, end_time, clip_start in existing_rows:
             try:
-                existing_video_keys.append((int(clip_id), _round_ms(float(start_time or 0.0))))
+                existing_video_keys.append((
+                    int(clip_id),
+                    _round_ms(float(start_time or 0.0)),
+                    _round_ms(float(end_time or 0.0)),
+                    _round_ms(float(clip_start or 0.0)),
+                ))
             except (TypeError, ValueError):
                 continue
         if existing_video_keys == expected_video_keys:
