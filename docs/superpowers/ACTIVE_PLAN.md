@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-AREA-AUDIT-FIXPLAN-2026-05-25
-next_allowed_task: B-421 (Area 10 Installer/Docs; B-420 fixed)
+next_allowed_task: B-424 (Area 10 Installer/Docs; B-423 code-fix-pending)
 updated: 2026-05-27
 
 ## Meaning
@@ -108,4 +108,7 @@ Der Audit-Plan `PB-STUDIO-AREA-AUDIT-2026-05-24` ist abgeschlossen und bleibt al
 - B-418 ist fixed im Vault am 2026-05-27: Ueberarbeitung der Installationsdokumentation auf Conda/Python 3.10/CUDA 11.3 (requirements-py310-cu113.txt).
 - B-419 ist fixed im Vault am 2026-05-27: Ueberarbeitung der Deploymentdokumentation auf Conda/Python 3.10/CUDA 11.3 (requirements-py310-cu113.txt) und Richtigstellung der requirements.txt.
 - B-420 ist fixed im Vault am 2026-05-27: build_installer.bat dynamisiert, erkennt Conda-Umgebung.
-- Naechster erlaubter Task: B-421 (Area 10 Installer/Docs, numerische Reihenfolge).
+- B-421 ist code-fix-pending-live-verification im Vault am 2026-05-27: pb_studio.spec um config, translations und migrations erweitert.
+- B-422 ist code-fix-pending-live-verification im Vault am 2026-05-27: pb_studio.spec um ffmpeg und ffprobe im bin-Ordner erweitert.
+- B-423 ist code-fix-pending-live-verification im Vault am 2026-05-27: pb_studio.spec um packaging hiddenimports und datas erweitert.
+- Naechster erlaubter Task: B-424 (Area 10 Installer/Docs, numerische Reihenfolge).

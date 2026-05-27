@@ -25,17 +25,41 @@ No unrelated refactors, feature work, library swaps, model changes, Audio-V2 por
 
 ## Current Task
 
-### Task 59: B-421 PyInstaller spec misses required app data
+### Task 62: B-424 NSIS model section does not run model cache script
 
-**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-421-pyinstaller-spec-misses-required-app-data.md`
+**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-424-nsis-model-section-does-not-run-model-cache-script.md`
 
-- [ ] **Step 1: Read B-421 and pb_studio.spec**
-- [ ] **Step 2: Identify missing data directories in datas**
-- [ ] **Step 3: Add translations, config, migrations, and brain migrations to datas in pb_studio.spec**
-- [ ] **Step 4: Verify syntax and spec file parsing**
+- [ ] **Step 1: Read B-424 and installer/pb_studio.nsi**
+- [ ] **Step 2: Identify where the model caching script is executed or missing**
+- [ ] **Step 3: Update NSIS installer to correctly execute the model caching script**
+- [ ] **Step 4: Verify installer script generation/compilation**
 - [ ] **Step 5: Update Vault and status**
 
 ## Completed Tasks
+
+### Task 61: B-423 PyInstaller bundle hooks are not used
+
+Result 2026-05-27: Imported `pb_packaging.bundle_hooks` directly into `pb_studio.spec` and merged its hidden imports and data directories, ensuring robust dynamic package inclusion.
+
+Evidence: Syntax compile check succeeded and pytest collection returned 2282 tests collected.
+
+Status: code-fix-pending-live-verification.
+
+### Task 60: B-422 PyInstaller spec does not bundle local FFmpeg
+
+Result 2026-05-27: Explicitly bundled local `bin/ffmpeg.exe` and `bin/ffprobe.exe` within `pb_studio.spec` so they land in the bundle's `bin` directory for the runtime path.
+
+Evidence: Syntax compile check succeeded and pytest collection returned 2282 tests collected.
+
+Status: code-fix-pending-live-verification.
+
+### Task 59: B-421 PyInstaller spec misses required app data
+
+Result 2026-05-27: Added `translations`, `config`, `database/alembic`, and `services/brain_v3/storage/sql_migrations` directories to `project_datas` in `pb_studio.spec` to bundle all runtime assets and migrations.
+
+Evidence: Syntax compile check succeeded and pytest collection returned 2282 tests collected.
+
+Status: code-fix-pending-live-verification.
 
 ### Task 58: B-420 Installer build uses .venv instead of active conda runtime
 

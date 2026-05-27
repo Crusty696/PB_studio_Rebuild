@@ -22,6 +22,16 @@ block_cipher = None
 ROOT = Path(SPEC).parent  # project root
 
 # ---------------------------------------------------------------------------
+# Import packaging hooks directly from pb_packaging
+# ---------------------------------------------------------------------------
+try:
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    from pb_packaging.bundle_hooks import hiddenimports as pkg_hidden, datas as pkg_datas
+except Exception as e:
+    pkg_hidden, pkg_datas = [], []
+
+# ---------------------------------------------------------------------------
 # Heavy packages — collect all binaries + data (CUDA DLLs live here)
 # ---------------------------------------------------------------------------
 torch_datas,       torch_bins,       torch_hidden       = collect_all('torch')
@@ -36,9 +46,15 @@ project_datas = [
     (str(ROOT / 'resources'),  'resources'),
     (str(ROOT / 'styles'),     'styles'),
     (str(ROOT / 'knowledge'),  'knowledge'),
+    (str(ROOT / 'translations'), 'translations'),
+    (str(ROOT / 'config'),     'config'),
+    (str(ROOT / 'database' / 'alembic'), 'database/alembic'),
+    (str(ROOT / 'services' / 'brain_v3' / 'storage' / 'sql_migrations'), 'services/brain_v3/storage/sql_migrations'),
+    (str(ROOT / 'bin' / 'ffmpeg.exe'), 'bin'),
+    (str(ROOT / 'bin' / 'ffprobe.exe'), 'bin'),
 ]
 
-all_datas    = project_datas + torch_datas + torchaudio_datas + torchvision_datas + pyside6_datas
+all_datas    = project_datas + torch_datas + torchaudio_datas + torchvision_datas + pyside6_datas + [(str(ROOT / src), dest) for src, dest in pkg_datas]
 all_binaries = torch_bins + torchaudio_bins + torchvision_bins + pyside6_bins
 
 # ---------------------------------------------------------------------------
@@ -122,6 +138,7 @@ all_hidden = list(set([
     *pyside6_hidden,
     *collect_submodules('librosa'),
     *collect_submodules('demucs'),
+    *pkg_hidden,
 ]))
 
 # ---------------------------------------------------------------------------
