@@ -122,6 +122,36 @@ def test_stems_workspace_constructs_and_exposes_subtabs(qapp):
         w.deleteLater()
 
 
+def test_stems_workspace_reads_onsets_from_beatgrid(qapp):
+    """B-355: onset_*_data liegen am Beatgrid, nicht direkt am AudioTrack.
+
+    update_analysis() muss bei einem AudioTrack (Controller-Pfad) auf die
+    beatgrid-Relation zurueckfallen, sonst bleiben die Onset-Tabs leer.
+    """
+    from types import SimpleNamespace
+    from ui.workspaces import StemsWorkspace
+
+    w = StemsWorkspace()
+    try:
+        beatgrid = SimpleNamespace(
+            onset_kick_data=[[0.0, 0.9], [0.5, 0.8]],
+            onset_snare_data=[[0.25, 0.7]],
+            onset_hihat_data=[[0.1, 0.6], [0.2, 0.6], [0.3, 0.6]],
+        )
+        # AudioTrack hat KEINE onset_*_data-Spalten — nur die beatgrid-Relation.
+        track = SimpleNamespace(
+            id=1, title="T", duration=10.0, energy_curve=None,
+            beatgrid=beatgrid,
+        )
+        w.update_analysis(track)
+
+        assert w._onsets_plot._kick == [0.0, 0.5]
+        assert w._onsets_plot._snare == [0.25]
+        assert w._onsets_plot._hihat == [0.1, 0.2, 0.3]
+    finally:
+        w.deleteLater()
+
+
 # --------------------------------------------------------------------------
 # SchnittWorkspace (Redesign 2026-05-09 — replaces EditWorkspace AUTO/REVIEW)
 # --------------------------------------------------------------------------

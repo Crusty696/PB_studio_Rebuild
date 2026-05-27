@@ -250,9 +250,19 @@ class StemsWorkspace(QWidget):
         self._energy_plot.set_values(_first_col(energy))
 
         # ONSETS — onset_*_data hat Form [[time, strength], ...]
-        kick = _onset_times(getattr(audio_track, "onset_kick_data", None))
-        snare = _onset_times(getattr(audio_track, "onset_snare_data", None))
-        hihat = _onset_times(getattr(audio_track, "onset_hihat_data", None))
+        # B-355 Fix: Die onset_*_data-Spalten liegen am Beatgrid, NICHT direkt
+        # am AudioTrack (OnsetRhythmService persistiert sie in der beatgrids-
+        # Tabelle, siehe services/onset_rhythm_service.py). Wenn ein AudioTrack
+        # uebergeben wird (Controller-Pfad), zuerst auf dem Track selbst
+        # nachsehen, sonst auf dessen beatgrid-Relation zurueckfallen.
+        _onset_src = audio_track
+        if getattr(audio_track, "onset_kick_data", None) is None:
+            _beatgrid = getattr(audio_track, "beatgrid", None)
+            if _beatgrid is not None:
+                _onset_src = _beatgrid
+        kick = _onset_times(getattr(_onset_src, "onset_kick_data", None))
+        snare = _onset_times(getattr(_onset_src, "onset_snare_data", None))
+        hihat = _onset_times(getattr(_onset_src, "onset_hihat_data", None))
         total = sum(len(x) for x in (kick, snare, hihat))
         if total > 0:
             self._onsets_header.setText(
