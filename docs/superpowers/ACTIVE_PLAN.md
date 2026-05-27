@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-AREA-AUDIT-FIXPLAN-2026-05-25
-next_allowed_task: B-419 (Area 10 Installer/Docs; B-418 fixed)
+next_allowed_task: B-420 (Area 10 Installer/Docs; B-419 fixed)
 updated: 2026-05-27
 
 ## Meaning
@@ -107,5 +107,6 @@ Der Audit-Plan `PB-STUDIO-AREA-AUDIT-2026-05-24` ist abgeschlossen und bleibt al
 - Area 9 (B-409..B-417) damit code-fertig.
 - Naechster erlaubter Task: B-418 (Area 10 Installer/Docs, numerische Reihenfolge).
 - B-418 ist fixed im Vault am 2026-05-27: Ueberarbeitung der Installationsdokumentation auf Conda/Python 3.10/CUDA 11.3 (requirements-py310-cu113.txt).
-- Naechster erlaubter Task: B-419 (Area 10 Installer/Docs, numerische Reihenfolge).
+- B-419 ist fixed im Vault am 2026-05-27: Ueberarbeitung der Deploymentdokumentation auf Conda/Python 3.10/CUDA 11.3 (requirements-py310-cu113.txt) und Richtigstellung der requirements.txt.
+- Naechster erlaubter Task: B-420 (Area 10 Installer/Docs, numerische Reihenfolge).
 

@@ -25,17 +25,25 @@ No unrelated refactors, feature work, library swaps, model changes, Audio-V2 por
 
 ## Current Task
 
-### Task 57: B-419 Deployment docs build wrong stack
+### Task 58: B-420 Installer build uses .venv instead of active conda runtime
 
-**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-419-deployment-docs-build-wrong-stack.md`
+**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-420-installer-build-uses-venv-instead-of-active-conda-runtime.md`
 
-- [ ] **Step 1: Read B-419 and deployment.md**
-- [ ] **Step 2: Propose deployment guide fixes to match active Python 3.10 and conda env**
-- [ ] **Step 3: Update docs/DEPLOYMENT.md**
-- [ ] **Step 4: Verify formatting and correctness of commands**
+- [ ] **Step 1: Read B-420 and build_installer.bat**
+- [ ] **Step 2: Identify outdated .venv python path references**
+- [ ] **Step 3: Update build_installer.bat to use active conda env python path**
+- [ ] **Step 4: Verify syntax and dry-run of modified script**
 - [ ] **Step 5: Update Vault and status**
 
 ## Completed Tasks
+
+### Task 57: B-419 Deployment docs build wrong stack
+
+Result 2026-05-27: Overhauled `docs/DEPLOYMENT.md` to target active Python 3.10 and conda environment using `requirements-py310-cu113.txt` instead of Poetry/Python 3.11/3.12, and clarified the legacy role of the root `requirements.txt`.
+
+Evidence: Manual verification of Markdown formatting and command correctness; global collect-only 2282 tests collected.
+
+Status: fixed.
 
 ### Task 56: B-418 Installation docs target wrong runtime
 

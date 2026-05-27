@@ -3,6 +3,7 @@
 **Version:** 0.5.0  
 **Target Platform:** Windows 11 (64-bit)  
 **Build System:** PyInstaller + NSIS
+**Target Runtime:** Python 3.10 + CUDA 11.3 / cu113 (NVIDIA GTX 1060 compatible)
 
 ---
 
@@ -21,16 +22,19 @@ This guide covers building and deploying PB Studio for production distribution. 
 
 ### Development Environment
 - Windows 11 (64-bit)
-- Python 3.11 or 3.12
-- Poetry package manager
+- Python 3.10 (managed via Miniconda/Anaconda recommended)
 - Git
 - NSIS 3.x (for installer creation)
 - CUDA-compatible GPU (GTX 1060 6GB minimum)
 
 ### Required Tools
 ```bash
-# Install Poetry
-pip install poetry
+# Setup Conda Environment (Recommended)
+conda create -n pb-studio python=3.10 -y
+conda activate pb-studio
+
+# Upgrade pip
+pip install --upgrade pip
 
 # Install NSIS
 # Download from: https://nsis.sourceforge.io/
@@ -43,15 +47,14 @@ pip install poetry
 
 ### 1. Prepare Build Environment
 
+Ensure your conda environment `pb-studio` is activated, then:
+
 ```bash
 # Navigate to project root
 cd C:\Users\[your-username]\Documents\PB_studio_Rebuild
 
-# Activate virtual environment
-poetry shell
-
-# Install dependencies
-poetry install
+# Install dependencies using the active cu113 requirements file
+pip install -r requirements-py310-cu113.txt --extra-index-url https://download.pytorch.org/whl/cu113
 
 # Verify FFmpeg is on PATH
 ffmpeg -version
@@ -59,7 +62,7 @@ ffmpeg -version
 
 ### 2. Run Build Script
 
-The build process is automated via `build_installer.bat`:
+The build process is automated via `installer\build_installer.bat`:
 
 ```bash
 # From project root
@@ -264,16 +267,14 @@ signtool sign /f your_certificate.pfx /p password /t http://timestamp.digicert.c
 
 ### Dependency Updates
 
+To update dependencies:
+
 ```bash
-# Update Poetry dependencies
-poetry update
-
-# Export to requirements.txt
-poetry export -f requirements.txt --output requirements.txt --without-hashes
-
-# Test build
-installer\build_installer.bat
+# Update dependencies inside requirements-py310-cu113.txt and verify
+pip install -r requirements-py310-cu113.txt --extra-index-url https://download.pytorch.org/whl/cu113
 ```
+
+> **Note on requirements.txt:** The root `requirements.txt` is maintained as a **legacy / future Python 3.11 + cu124** stack (requiring driver >= 550) and is **not** the active runtime for the GTX 1060 targeting production deployment. Always use `requirements-py310-cu113.txt` for active GTX 1060 targeting.
 
 ---
 
@@ -286,5 +287,5 @@ For deployment issues:
 
 ---
 
-**Last Updated:** 2026-04-07  
+**Last Updated:** 2026-05-27  
 **Build System Version:** PyInstaller 6.x + NSIS 3.x
