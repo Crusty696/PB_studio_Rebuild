@@ -506,7 +506,17 @@ class StemSeparator:
                             f"{vram_before_gb:.2f}" if vram_before_gb is not None else "n/a",
                             f"{vram_after_gb:.2f}" if vram_after_gb is not None else "n/a",
                         )
-                    except RuntimeError:
+                    except RuntimeError as _oom_exc:
+                        # B-356 Fix: Nur echte CUDA-OOM-Fehler triggern die
+                        # Chunk-Halbierung. Shape-/Model-/I/O-RuntimeErrors
+                        # werden unveraendert weitergereicht statt als VRAM-
+                        # Fehler maskiert zu werden.
+                        _cuda_oom = (
+                            hasattr(torch.cuda, "OutOfMemoryError")
+                            and isinstance(_oom_exc, torch.cuda.OutOfMemoryError)
+                        ) or "out of memory" in str(_oom_exc).lower()
+                        if not _cuda_oom:
+                            raise
                         logger.warning(
                             "[StemSeparator] OOM bei Chunk %d/%d — halbiere Chunk und retrie...",
                             i + 1, num_chunks,
@@ -541,9 +551,18 @@ class StemSeparator:
                             torch.cuda.empty_cache()
                             estimates = torch.cat([est_a, est_b], dim=-1)
                             del est_a, est_b
-                        except RuntimeError:
+                        except RuntimeError as _retry_exc:
                             torch.cuda.empty_cache()
                             gc.collect()
+                            # B-356 Fix: Auch im Retry-Pfad nur echte CUDA-OOM
+                            # als CUDAOutOfMemoryError melden; andere
+                            # RuntimeErrors original durchreichen.
+                            _retry_oom = (
+                                hasattr(torch.cuda, "OutOfMemoryError")
+                                and isinstance(_retry_exc, torch.cuda.OutOfMemoryError)
+                            ) or "out of memory" in str(_retry_exc).lower()
+                            if not _retry_oom:
+                                raise
                             raise CUDAOutOfMemoryError(
                                 operation=f"apply_model Chunk {i + 1}/{num_chunks} (nach Retry)"
                             )

@@ -178,6 +178,87 @@ class TestStemSeparatorAndStore:
 
 
 # ---------------------------------------------------------------------------
+# B-356: StemSeparator.separate() darf nicht-OOM RuntimeErrors nicht als
+# CUDAOutOfMemoryError maskieren.
+# ---------------------------------------------------------------------------
+
+# Echtes torch wird benoetigt damit isinstance() / hasattr() korrekt
+# auswerten. torch 1.12 hat KEIN torch.cuda.OutOfMemoryError -> Erkennung
+# faellt auf den String-Match "out of memory" zurueck.
+_real_torch = pytest.importorskip("torch")
+
+
+class TestSeparateRuntimeErrorNotMaskedAsOOM:
+    """B-356 Regressionstest: Shape-/Model-RuntimeErrors bleiben erhalten."""
+
+    def _run_separate_with_apply_error(self, exc, monkeypatch, tmp_path):
+        import services.ai_audio_service as svc
+
+        sep = svc.StemSeparator()
+
+        # CPU-Pfad erzwingen (kein GPU-Lauf, kein VRAM-Verbrauch).
+        monkeypatch.setattr(_real_torch.cuda, "is_available", lambda: False)
+
+        # Demucs-Modell + apply_model stubben.
+        fake_model = MagicMock()
+        fake_model.samplerate = 44100
+        fake_model.sources = ["drums", "bass", "other", "vocals"]
+        fake_model.to.return_value = fake_model
+        fake_model.eval.return_value = None
+
+        import sys as _sys
+        demucs_pretrained = MagicMock()
+        demucs_pretrained.get_model.return_value = fake_model
+        demucs_apply = MagicMock()
+        demucs_apply.apply_model = MagicMock()
+        monkeypatch.setitem(_sys.modules, "demucs.pretrained", demucs_pretrained)
+        monkeypatch.setitem(_sys.modules, "demucs.apply", demucs_apply)
+
+        # ModelManager.unload() darf no-op sein.
+        import services.model_manager as mm
+        monkeypatch.setattr(mm.ModelManager, "unload", lambda self: None)
+
+        # torchaudio.load liefert ein kleines Stereo-Signal.
+        import torchaudio as _ta
+        waveform = _real_torch.zeros(2, 44100)
+        monkeypatch.setattr(_ta, "load", lambda *_a, **_k: (waveform, 44100))
+
+        # Der eigentliche Knackpunkt: apply_model (ueber den Locked-Wrapper)
+        # wirft die uebergebene Exception.
+        def _raise(*_a, **_k):
+            raise exc
+
+        monkeypatch.setattr(
+            svc.StemSeparator, "_apply_demucs_model_locked",
+            staticmethod(lambda *_a, **_k: _raise()),
+        )
+
+        return sep.separate(str(tmp_path / "fake.wav"))
+
+    def test_non_oom_runtimeerror_propagates(self, monkeypatch, tmp_path):
+        """Ein Shape-RuntimeError wird NICHT als CUDAOutOfMemoryError gemeldet."""
+        from services.errors import CUDAOutOfMemoryError
+
+        original = RuntimeError("shape mismatch: expected 2 channels, got 1")
+        with pytest.raises(RuntimeError) as ei:
+            self._run_separate_with_apply_error(original, monkeypatch, tmp_path)
+
+        assert not isinstance(ei.value, CUDAOutOfMemoryError), (
+            "Nicht-OOM RuntimeError wurde faelschlich als OOM maskiert"
+        )
+        assert "shape mismatch" in str(ei.value)
+
+    def test_oom_runtimeerror_triggers_oom_path(self, monkeypatch, tmp_path):
+        """Echte 'out of memory'-RuntimeError landen im OOM-Pfad (Halbierung
+        scheitert hier ebenfalls -> CUDAOutOfMemoryError)."""
+        from services.errors import CUDAOutOfMemoryError
+
+        oom = RuntimeError("CUDA out of memory. Tried to allocate 2.00 GiB")
+        with pytest.raises(CUDAOutOfMemoryError):
+            self._run_separate_with_apply_error(oom, monkeypatch, tmp_path)
+
+
+# ---------------------------------------------------------------------------
 # FrequencyAnalyzer.analyze_and_store() Tests
 # ---------------------------------------------------------------------------
 
