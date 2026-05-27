@@ -113,6 +113,47 @@ class TestIngestAudio:
         with pytest.raises(FileNotFoundError):
             svc.ingest_audio("/nonexistent/path/file.mp3", project_id=1)
 
+    def test_ingest_audio_reimport_after_soft_delete_undeletes(self, test_engine, tmp_path):
+        """B-175: Re-Import einer soft-geloeschten Datei reaktiviert die Zeile
+        (kein IntegrityError, kein stilles Skip)."""
+        import datetime
+        import services.ingest_service as svc
+        svc.engine = test_engine
+
+        with Session(test_engine) as s:
+            s.add(Project(name="Default", path="."))
+            s.commit()
+
+        audio_file = tmp_path / "mix.mp3"
+        audio_file.write_bytes(b"fake mp3")
+
+        first = svc.ingest_audio(str(audio_file), project_id=1)
+        assert first is not None
+        first_id = first.id
+
+        # Soft-Delete simulieren
+        with Session(test_engine) as s:
+            track = s.get(AudioTrack, first_id)
+            track.deleted_at = datetime.datetime.now()
+            s.commit()
+
+        # Re-Import: darf NICHT am UNIQUE-Constraint scheitern und soll die
+        # gleiche Zeile reaktiviert zurueckliefern.
+        reimported = svc.ingest_audio(str(audio_file), project_id=1)
+        assert reimported is not None
+        assert reimported.id == first_id
+
+        with Session(test_engine) as s:
+            track = s.get(AudioTrack, first_id)
+            assert track.deleted_at is None
+            # Es darf nur EINE Zeile fuer (project_id, file_path) existieren.
+            count = (
+                s.query(AudioTrack)
+                .filter_by(project_id=1, file_path=str(audio_file.resolve()))
+                .count()
+            )
+            assert count == 1
+
 
 # ---------------------------------------------------------------------------
 # ingest_video() Tests (mit Mock-ffprobe)
@@ -197,6 +238,43 @@ class TestIngestVideo:
 
         with pytest.raises(FileNotFoundError):
             svc.ingest_video("/nonexistent/video.mp4", project_id=1)
+
+    def test_ingest_video_reimport_after_soft_delete_undeletes(self, test_engine, tmp_path):
+        """B-175: Re-Import eines soft-geloeschten Videos reaktiviert die Zeile."""
+        import datetime
+        import services.ingest_service as svc
+        svc.engine = test_engine
+
+        with Session(test_engine) as s:
+            s.add(Project(name="Default", path="."))
+            s.commit()
+
+        video_file = tmp_path / "clip.mp4"
+        video_file.write_bytes(b"fake mp4")
+
+        with patch.object(svc, "_probe_video_meta", return_value=self._fake_probe()):
+            first = svc.ingest_video(str(video_file), project_id=1)
+            assert first is not None
+            first_id = first.id
+
+            with Session(test_engine) as s:
+                clip = s.get(VideoClip, first_id)
+                clip.deleted_at = datetime.datetime.now()
+                s.commit()
+
+            reimported = svc.ingest_video(str(video_file), project_id=1)
+            assert reimported is not None
+            assert reimported.id == first_id
+
+        with Session(test_engine) as s:
+            clip = s.get(VideoClip, first_id)
+            assert clip.deleted_at is None
+            count = (
+                s.query(VideoClip)
+                .filter_by(project_id=1, file_path=str(video_file.resolve()))
+                .count()
+            )
+            assert count == 1
 
 
 # ---------------------------------------------------------------------------

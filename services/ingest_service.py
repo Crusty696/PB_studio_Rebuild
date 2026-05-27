@@ -157,7 +157,20 @@ def ingest_audio(
                 .filter_by(project_id=project_id, file_path=resolved)
                 .first()
             )
-            if existing:
+            if existing is not None:
+                # B-175: Re-Import nach Soft-Delete. Die UNIQUE-Constraint
+                # (project_id, file_path) ist nicht soft-delete-aware — ein
+                # erneuter INSERT wuerde am IntegrityError scheitern und ein
+                # aktiver Duplikat-Treffer soll weiterhin still uebersprungen
+                # werden. Wenn die existierende Zeile soft-geloescht ist,
+                # "undeleten" wir sie (deleted_at=None) statt zu skippen.
+                if existing.deleted_at is not None:
+                    existing.deleted_at = None
+                    session.commit()
+                    session.refresh(existing)
+                    if invalidate_caches:
+                        _invalidate_pacing_caches()
+                    return existing
                 return None
 
             meta = _file_meta(path)
@@ -247,7 +260,17 @@ def ingest_video(
                 .filter_by(project_id=project_id, file_path=resolved)
                 .first()
             )
-            if existing:
+            if existing is not None:
+                # B-175: Re-Import nach Soft-Delete (siehe ingest_audio).
+                # Soft-geloeschte Zeile undeleten statt am IntegrityError der
+                # nicht-soft-delete-awaren UNIQUE-Constraint zu scheitern.
+                if existing.deleted_at is not None:
+                    existing.deleted_at = None
+                    session.commit()
+                    session.refresh(existing)
+                    if invalidate_caches:
+                        _invalidate_pacing_caches()
+                    return existing
                 return None
 
             meta = _file_meta(path)
