@@ -1444,10 +1444,19 @@ def export_preview(project_id: int = 1, resolution: str = "1920x1080",
             if _vid_ids else {}
         )
 
-        # Nur Segmente bis duration_limit aufnehmen
+        # B-332: Das Preview-Fenster war fix [0, duration_limit] in Timeline-
+        # Koordinaten. Wenn der erste Video-Clip aber erst nach duration_limit
+        # beginnt (z.B. 10.322s bei 10s-Limit), blieb video_segments leer und
+        # der Export crashte mit "Keine Video-Clips auf der Timeline", obwohl
+        # die Timeline Video-Clips hat. Fix: das Fenster am ersten Video-Clip
+        # verankern -> [window_start, window_start + duration_limit].
+        window_start = video_entries[0].start_time if video_entries else 0.0
+        window_end = window_start + duration_limit
+
+        # Nur Segmente bis window_end aufnehmen
         video_segments = []
         for ve in video_entries:
-            if ve.start_time >= duration_limit:
+            if ve.start_time >= window_end:
                 break
             clip = _clips_by_id.get(ve.media_id)
             if not clip:
@@ -1459,12 +1468,12 @@ def export_preview(project_id: int = 1, resolution: str = "1920x1080",
                 ve, seg_duration, clip.duration
             )
 
-            # Clip ggf. am Preview-Limit abschneiden
+            # Clip ggf. am Preview-Fensterende abschneiden
             end_time = ve.end_time or (ve.start_time + seg_duration)
-            if end_time > duration_limit:
-                trim = end_time - duration_limit
+            if end_time > window_end:
+                trim = end_time - window_end
                 source_duration = max(0.1, source_duration - trim)
-                end_time = duration_limit
+                end_time = window_end
 
             video_segments.append({
                 "path": clip.file_path,
