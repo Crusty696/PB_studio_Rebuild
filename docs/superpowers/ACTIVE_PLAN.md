@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-AREA-AUDIT-FIXPLAN-2026-05-25
-next_allowed_task: B-427 (Area 10 Installer/Docs; B-426 fixed)
+next_allowed_task: none (all B-348..B-430 code-complete)
 updated: 2026-05-27
 
 ## Meaning
@@ -114,4 +114,10 @@ Der Audit-Plan `PB-STUDIO-AREA-AUDIT-2026-05-24` ist abgeschlossen und bleibt al
 - B-424 ist fixed im Vault am 2026-05-27: Race-Condition im --pre-cache CLI-Handler behoben und blockierende Wartezeit durch done_event garantiert.
 - B-425 ist fixed im Vault am 2026-05-27: NSIS Installer-Bitmaps AI-generiert und in resources abgelegt.
 - B-426 ist fixed im Vault am 2026-05-27: start_pb_studio.py wählt Python-Pfade nach Auto-Setup dynamisch neu aus.
-- Naechster erlaubter Task: B-427 (Area 10 Installer/Docs, numerische Reihenfolge).
+- B-427 ist code-fix-pending-live-verification im Vault am 2026-05-27: check_ffmpeg akzeptiert System-PATH; README FFmpeg korrigiert; 3/3 Unit-Tests.
+- B-428 ist code-fix-pending-live-verification im Vault am 2026-05-27: NSIS GPU-Meldung korrigiert (CUDA 11.3, kein CPU-Mode).
+- B-429 ist code-fix-pending-live-verification im Vault am 2026-05-27: README PySide6 Qt 6.6-6.7 statt Qt 6.8+.
+- B-430 ist code-fix-pending-live-verification im Vault am 2026-05-27: Smoke-Test um CUDA/Torch-DLLs, FFmpeg, config, translations erweitert.
+- Area 10 (B-418..B-430) damit code-fertig.
+- **Gesamter Fixplan PB-STUDIO-AREA-AUDIT-FIXPLAN-2026-05-25 (B-348..B-430) code-complete.**
+- Naechster Schritt: User-Live-Verification der offenen code-fix-pending-live-verification Bugs.
