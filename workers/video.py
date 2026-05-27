@@ -480,17 +480,33 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
             for clip_id, scenes, caption_idx, caption_total in deferred_caption_jobs:
                 if self.should_stop():
                     break
-                run_deferred_captioning(
-                    video_clip_id=clip_id,
-                    scenes=scenes,
-                    progress_cb=lambda pct, msg, _i=caption_idx, _tv=caption_total: (
-                        _throttled_progress(
-                            min(99, int(((_i - 1) + pct / 100.0) / _tv * 100)),
-                            f"[{_i}/{_tv}] {msg}"
-                        )
-                    ),
-                    should_stop=self.should_stop,
-                )
+                # B-361 Fix: Ein fehlgeschlagener Deferred-Caption-Job (z.B.
+                # Clip-Row fehlt in DB -> IntegrityError/OperationalError beim
+                # Status-/Szenen-Write) darf NICHT die ganze Batch via outer
+                # except auf _errored=True kippen. Gleiches Skip-and-continue
+                # Verhalten wie der per-clip C-04 Pfad oben im Loop.
+                try:
+                    run_deferred_captioning(
+                        video_clip_id=clip_id,
+                        scenes=scenes,
+                        progress_cb=lambda pct, msg, _i=caption_idx, _tv=caption_total: (
+                            _throttled_progress(
+                                min(99, int(((_i - 1) + pct / 100.0) / _tv * 100)),
+                                f"[{_i}/{_tv}] {msg}"
+                            )
+                        ),
+                        should_stop=self.should_stop,
+                    )
+                except Exception as caption_exc:  # broad catch intentional — one job must not abort the batch (B-361)
+                    logging.error(
+                        "VideoAnalysisPipelineWorker deferred-caption clip %d/%d crashed: %s\n%s",
+                        caption_idx, caption_total, caption_exc, traceback.format_exc(),
+                    )
+                    self.progress.emit(
+                        min(99, int(caption_idx / caption_total * 100)),
+                        f"[{caption_idx}/{caption_total}] FEHLER (Caption): {caption_exc}"
+                    )
+                    continue
 
             # B-289: 100%-Tick vor finished, sonst bleibt UI bei 99%.
             try:
