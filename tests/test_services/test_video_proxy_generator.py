@@ -93,3 +93,23 @@ def test_b366_reuse_rejects_nonzero_junk_file(synth_video: Path, tmp_path: Path)
     # After re-encode the file must be a real, probeable video stream.
     from services.video_pipeline.primitives.proxy_generator import _is_valid_video
     assert _is_valid_video(dst)
+
+
+@pytest.mark.skipif(shutil.which("ffprobe") is None, reason="ffprobe missing")
+def test_b367_no_upscale_below_max_width(tmp_path: Path):
+    """B-367: a source narrower than max_width must NOT be upscaled."""
+    from services.video_pipeline.primitives.proxy_generator import generate_proxy
+    from services.video_pipeline.primitives.decoder import VideoDecoder
+    src = tmp_path / "small.mp4"
+    subprocess.run(
+        [
+            shutil.which("ffmpeg"), "-y", "-f", "lavfi",
+            "-i", "testsrc=duration=1:size=320x240:rate=10",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p", str(src),
+        ],
+        check=True, capture_output=True, timeout=30,
+    )
+    dst = tmp_path / "proxy.mp4"
+    generate_proxy(src, dst, max_width=960, bitrate="500k", codec="libx264")
+    meta = VideoDecoder().probe(dst)
+    assert meta.width <= 320  # never larger than the 320px source

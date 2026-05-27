@@ -71,7 +71,10 @@ def _try_encode(src: Path, dst: Path, max_width: int, bitrate: str, codec: str) 
     cmd = [
         _ffmpeg(), "-y", "-hide_banner", "-loglevel", "error",
         "-i", str(src),
-        "-vf", f"scale={max_width}:-2",
+        # B-367: never upscale. ``scale={max_width}:-2`` enlarges sources
+        # narrower than ``max_width``. ``min(iw,{max_width})`` caps the output
+        # width at the source width; height stays aspect-preserving and even.
+        "-vf", f"scale='min(iw,{max_width})':-2",
         "-c:v", codec,
         "-b:v", bitrate,
         # F-17: re-encode audio to AAC instead of -c:a copy. Copying the source
