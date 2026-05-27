@@ -77,3 +77,19 @@ def test_proxy_missing_source_raises(tmp_path: Path):
     from services.video_pipeline.primitives.proxy_generator import generate_proxy
     with pytest.raises(FileNotFoundError):
         generate_proxy(tmp_path / "nope.mp4", tmp_path / "out.mp4")
+
+
+@pytest.mark.skipif(shutil.which("ffprobe") is None, reason="ffprobe missing")
+def test_b366_reuse_rejects_nonzero_junk_file(synth_video: Path, tmp_path: Path):
+    """B-366: reuse must not accept a non-zero junk file. A bogus proxy.mp4
+    (bytes > 0 but not a decodable video) must be re-encoded into a valid one."""
+    from services.video_pipeline.primitives.proxy_generator import generate_proxy
+    dst = tmp_path / "proxy.mp4"
+    dst.write_bytes(b"this is not a video file" * 50)  # st_size > 0, junk
+    assert dst.stat().st_size > 0
+
+    result = generate_proxy(synth_video, dst, max_width=480, bitrate="500k", reuse=True)
+    assert result == dst
+    # After re-encode the file must be a real, probeable video stream.
+    from services.video_pipeline.primitives.proxy_generator import _is_valid_video
+    assert _is_valid_video(dst)
