@@ -352,6 +352,25 @@ class OpenProjectDialog(QDialog):
                 f"Im gewaehlten Ordner existiert keine pb_studio.db.\n{path}",
             )
             return
+        # B-352: Auch der manuell eingetippte Accept-Pfad muss den
+        # SQLite-Magic-Header pruefen — wie _check_path() beim Browse-Pfad.
+        # Sonst kann eine 0-Byte- oder Text-Datei akzeptiert werden und der
+        # Fehler taucht erst im Worker als "file is not a database" auf.
+        try:
+            with open(db_file, "rb") as _f:
+                _header = _f.read(16)
+        except OSError as _exc:
+            QMessageBox.warning(
+                self, "Fehler",
+                f"pb_studio.db nicht lesbar:\n{db_file}\n{_exc}",
+            )
+            return
+        if not _header.startswith(b"SQLite format 3\x00"):
+            QMessageBox.warning(
+                self, "Fehler",
+                f"Die Datei ist keine gueltige SQLite-Datenbank:\n{db_file}",
+            )
+            return
         self.accept()
 
     def get_path(self) -> Path:
