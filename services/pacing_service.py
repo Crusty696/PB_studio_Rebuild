@@ -802,6 +802,11 @@ def _auto_edit_phase3_inner(
                     session_factory=nullpool_session,
                 ),
                 run_id=_studio_brain_run_id,
+                # B-370: DJ-Mix-Budget muss in die Pipeline durchgereicht
+                # werden, sonst greift die globale Scene-Wiederholungsgrenze
+                # (VariationsBudget.DJ_MIX_SCENE_ID_GLOBAL_MAX) nie, obwohl der
+                # Run als DJ-Mix erkannt und in mem_pacing_run markiert wird.
+                dj_mix=track_is_dj_mix,
             )
             with Session(_ae_eng) as _sb_session:
                 _studio_brain_audio_track = (
