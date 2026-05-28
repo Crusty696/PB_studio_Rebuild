@@ -110,6 +110,31 @@ for _p in _DLL_DIRS:
         except Exception:
             pass
 
+# B-336: dGPU (GTX 1060 / Surface-Book-2-Base) muss VOR dem ersten torch.cuda-
+# Call verbunden/wach sein. torch cached den CUDA-Init prozessweit: ist die GPU
+# im Import-Moment kurz abwesend (ConfigManagerErrorCode=45 / PnP-Wake-Delay),
+# bleibt torch.cuda.is_available() den ganzen Prozess False -> komplette Session
+# auf CPU (alle Modelle + libx264). Die spaetere PnP-Recovery-Schleife in main()
+# kann torch dann nicht mehr umstimmen. Darum hier ein OS-Level-PnP-Check (ohne
+# torch) mit kurzem Retry, damit torchs erste Probe die wache GPU sieht.
+if os.name == "nt":
+    try:
+        import time as _gpu_wait_time
+        from services.startup_checks import check_nvidia_gpu_state
+        for _gpu_attempt in range(4):
+            _gpu_state, _gpu_detail = check_nvidia_gpu_state()
+            if _gpu_state == "ok":
+                break
+            if _gpu_attempt == 0:
+                print(
+                    f"[GPU] dGPU noch nicht bereit ({_gpu_state}: {_gpu_detail}) "
+                    f"- warte aufs Aufwachen vor CUDA-Init ...",
+                    flush=True,
+                )
+            _gpu_wait_time.sleep(1.5)
+    except Exception:
+        pass
+
 # FORCE CUDA INIT BEFORE QT LOADS
 try:
     import torch
