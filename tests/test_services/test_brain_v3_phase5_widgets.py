@@ -28,6 +28,25 @@ def qt_app():
     yield app
 
 
+def _process_until(predicate, timeout_ms: int = 8000) -> bool:
+    """Pumpt die Qt-Event-Loop bis predicate True ist oder Timeout.
+
+    Die Widgets laden/schreiben seit B-336 off-thread (run_worker). Tests
+    muessen daher auf das finished-Signal des Workers warten statt synchron
+    zu asserten.
+    """
+    import time
+    deadline = time.monotonic() + timeout_ms / 1000.0
+    while time.monotonic() < deadline:
+        QCoreApplication.processEvents()
+        if predicate():
+            QCoreApplication.processEvents()
+            return True
+        time.sleep(0.01)
+    QCoreApplication.processEvents()
+    return bool(predicate())
+
+
 @pytest.fixture
 def isolated_appdata(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("APPDATA", str(tmp_path / "Roaming"))
@@ -135,6 +154,7 @@ def test_feedback_popup_submits(qt_app, isolated_appdata):
         lambda cid, rating, nb: received.append((cid, rating, nb))
     )
     popup._submit("perfect")
+    assert _process_until(lambda: bool(received)), "Feedback nicht empfangen"
     assert received == [(42, "perfect", 102)]
     popup.deleteLater()
 
@@ -164,6 +184,7 @@ def test_feedback_popup_defers_default_service_until_submit(qt_app, monkeypatch)
     assert constructed == []
     popup._submit("perfect")
 
+    assert _process_until(lambda: bool(received)), "Feedback nicht empfangen"
     assert constructed == ["init"]
     assert received == [(42, "perfect", 7)]
     popup.deleteLater()
@@ -177,7 +198,10 @@ def test_feedback_popup_all_4_ratings(qt_app, isolated_appdata):
     svc = BrainV3Service()
     for rating, _, _ in FEEDBACK_BUTTONS:
         popup = BrainV3FeedbackPopup(cut_id=1, service=svc, context=CutContext())
+        done: list = []
+        popup.feedback_submitted.connect(lambda *a: done.append(a))
         popup._submit(rating)
+        assert _process_until(lambda: bool(done)), f"Feedback {rating} nicht fertig"
         popup.deleteLater()
     # alle 4 Klicks angekommen — stats sollten total_clicks zeigen
     assert svc.stats().total_clicks > 0
@@ -203,7 +227,7 @@ def test_learning_dialog_loads_samples(qt_app, isolated_appdata):
     for _ in range(2):
         svc.feedback(FeedbackRequest(cut_id=2, rating="no_match"))
     dlg = BrainV3LearningSessionDialog(service=svc, n_samples=10)
-    assert dlg._list.count() > 0
+    assert _process_until(lambda: dlg._list.count() > 0), "Samples nicht geladen"
     dlg.deleteLater()
 
 
@@ -211,8 +235,9 @@ def test_learning_dialog_empty_store_handled(qt_app, isolated_appdata):
     from ui.widgets.brain_v3_learning_dialog import BrainV3LearningSessionDialog
     svc = BrainV3Service(project_root=isolated_appdata / "empty_project")
     dlg = BrainV3LearningSessionDialog(service=svc, n_samples=15)
+    assert _process_until(lambda: "0 Stichproben" in dlg._lbl_status.text()), \
+        f"Status nicht aktualisiert: {dlg._lbl_status.text()!r}"
     assert dlg._list.count() == 0
-    assert "0 Stichproben" in dlg._lbl_status.text()
     dlg.deleteLater()
 
 
@@ -264,7 +289,7 @@ def test_learning_dialog_loads_audio_video_preview(qt_app, tmp_path, monkeypatch
             )
 
     dlg = BrainV3LearningSessionDialog(service=_PreviewService(), n_samples=1)
-    assert dlg._list.count() == 1
+    assert _process_until(lambda: dlg._list.count() == 1), "Preview-Sample nicht geladen"
     assert dlg._video_preview._current_path == str(video)
     assert dlg._audio_preview_source == audio
     assert dlg._audio_preview_start_s == 12.5

@@ -166,3 +166,52 @@ else:
             raise ImportError(
                 "BaseWorker benötigt PySide6 — Qt-Application-Kontext fehlt."
             )
+
+
+def run_worker(owner, worker, on_finish=None, on_error=None):
+    """Führt einen BaseWorker auf einem eigenen QThread aus und liefert die
+    Signale per QueuedConnection im owner-Thread (i. d. R. GUI-Thread) zurück.
+
+    Für leichte UI-Komponenten (Dialoge), die NICHT am MainWindow-TaskManager
+    haengen. Thread + Worker werden in ``owner._async_jobs`` referenziert, damit
+    sie waehrend der Laufzeit nicht GC'd werden; nach finished/error wird beides
+    via deleteLater abgeraeumt.
+
+    ``on_finish`` feuert nur im Erfolgsfall (BaseWorker.finished emittiert auch
+    bei Fehler, deshalb der _errored-Guard). ``on_error`` bekommt die Meldung.
+    """
+    from PySide6.QtCore import QThread, Qt
+
+    jobs = getattr(owner, "_async_jobs", None)
+    if jobs is None:
+        jobs = []
+        owner._async_jobs = jobs
+
+    thread = QThread()
+    worker.moveToThread(thread)
+    qc = Qt.ConnectionType.QueuedConnection
+    thread.started.connect(worker.run)
+
+    if on_finish is not None:
+        def _guarded_finish(payload, _w=worker, _cb=on_finish):
+            if not getattr(_w, "_errored", False):
+                _cb(payload)
+        worker.finished.connect(_guarded_finish, qc)
+    if on_error is not None:
+        worker.error.connect(on_error, qc)
+
+    worker.finished.connect(thread.quit)
+    worker.error.connect(thread.quit)
+    thread.finished.connect(worker.deleteLater)
+    thread.finished.connect(thread.deleteLater)
+
+    job = (thread, worker)
+    jobs.append(job)
+
+    def _drop(_job=job, _jobs=jobs):
+        if _job in _jobs:
+            _jobs.remove(_job)
+    thread.finished.connect(_drop, qc)
+
+    thread.start()
+    return thread

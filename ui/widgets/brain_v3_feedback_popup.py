@@ -29,8 +29,63 @@ from PySide6.QtWidgets import (
 from services.brain_v3.brain_v3_service import BrainV3Service
 from services.brain_v3.context_resolver import CutContext
 from services.brain_v3.schemas.brain_v3_schemas import FeedbackRequest
+from services.brain_v3.weight_store import WeightStore
+from workers.base import BaseWorker, run_worker
 
 logger = logging.getLogger(__name__)
+
+
+def build_thread_local_brain_service(src):
+    """Frische, thread-lokale BrainV3Service-Instanz fuer Worker-Threads.
+
+    WeightStore haelt eine gecachte sqlite3-Connection, die thread-local ist.
+    Eine im GUI-Thread konstruierte Service-Instanz darf deshalb NICHT aus
+    einem Worker-Thread benutzt werden — sonst sqlite3.ProgrammingError. Pro
+    Worker daher eine eigene Instanz auf denselben DB-Pfaden bauen.
+    """
+    if src is None:
+        return BrainV3Service()
+    brain = getattr(src, "_brain_store", None)
+    if brain is None:
+        return BrainV3Service()
+    # BrainStore wiederverwenden: oeffnet Connections per-Call (thread-safe) und
+    # haelt keine gecachte Connection -> kein Re-Migrate pro Feedback-Klick. Nur
+    # WeightStore muss frisch sein (cached sqlite3-Connection ist thread-local).
+    return BrainV3Service(
+        brain_store=brain,
+        weight_store=WeightStore(brain.weights_path),
+        project_root=getattr(src, "_project_root", None),
+        session_factory=getattr(src, "_session_factory", None),
+    )
+
+
+class _FeedbackSubmitWorker(BaseWorker):
+    """Schreibt einen Feedback-Klick (102 Bucket-UPSERTs) off-thread."""
+
+    def __init__(self, service, cut_id: int, rating: str, context):
+        super().__init__()
+        self._src = service
+        self._cut_id = int(cut_id)
+        self._rating = rating
+        self._context = context
+
+    def _do_work(self):
+        svc = build_thread_local_brain_service(self._src)
+        try:
+            resp = svc.feedback(
+                FeedbackRequest(cut_id=self._cut_id, rating=self._rating),
+                context=self._context,
+            )
+            return {
+                "cut_id": self._cut_id,
+                "rating": self._rating,
+                "n_buckets": resp.n_buckets_updated,
+            }
+        finally:
+            try:
+                svc._weight_store.close()
+            except Exception:
+                pass
 
 
 # Plan-Doc 06 Z.414-417: 4-Klick-Mapping
@@ -81,6 +136,7 @@ class BrainV3FeedbackPopup(QDialog):
         sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
         root.addWidget(sub)
 
+        self._rating_buttons: list[QPushButton] = []
         for rating, label, style in FEEDBACK_BUTTONS:
             btn = QPushButton(label)
             btn.setStyleSheet(
@@ -89,6 +145,7 @@ class BrainV3FeedbackPopup(QDialog):
             )
             btn.clicked.connect(lambda _checked=False, r=rating: self._submit(r))
             root.addWidget(btn)
+            self._rating_buttons.append(btn)
 
         cancel_row = QHBoxLayout()
         cancel_row.addStretch(1)
@@ -104,19 +161,26 @@ class BrainV3FeedbackPopup(QDialog):
             sc.activated.connect(lambda r=rating: self._submit(r))
 
     def _submit(self, rating: str) -> None:
-        try:
-            if self._service is None:
-                self._service = BrainV3Service()
-            resp = self._service.feedback(
-                FeedbackRequest(cut_id=self._cut_id, rating=rating),
-                context=self._context,
-            )
-        except Exception as exc:
-            logger.warning("Brain-V3-Feedback fehlgeschlagen: %s", exc)
-            self.reject()
-            return
-        self.feedback_submitted.emit(self._cut_id, rating, resp.n_buckets_updated)
+        # B-336-Freeze: DB-Write (102 Bucket-UPSERTs, ~3s unter Lock) lief
+        # synchron auf dem GUI-Thread -> weisser Bildschirm. Jetzt off-thread.
+        self._set_buttons_enabled(False)
+        worker = _FeedbackSubmitWorker(self._service, self._cut_id, rating, self._context)
+        run_worker(self, worker, on_finish=self._on_submit_done, on_error=self._on_submit_error)
+
+    def _set_buttons_enabled(self, enabled: bool) -> None:
+        for btn in getattr(self, "_rating_buttons", []):
+            btn.setEnabled(enabled)
+
+    def _on_submit_done(self, payload: dict) -> None:
+        self.feedback_submitted.emit(
+            int(payload["cut_id"]), str(payload["rating"]), int(payload["n_buckets"])
+        )
         self.accept()
+
+    def _on_submit_error(self, msg: str) -> None:
+        logger.warning("Brain-V3-Feedback fehlgeschlagen: %s", msg)
+        self._set_buttons_enabled(True)
+        self.reject()
 
 
 def confidence_color_hex(confidence: float) -> str:

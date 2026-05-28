@@ -37,8 +37,39 @@ from ui.widgets.brain_v3_feedback_popup import (
     confidence_color_hex,
 )
 from ui.widgets.video_preview import VideoPreviewWidget
+from workers.base import BaseWorker, run_worker
 
 logger = logging.getLogger(__name__)
+
+
+class _LearningLoadWorker(BaseWorker):
+    """Laedt die Stichproben-Cuts (DB + SQLAlchemy + Medien-Stat) off-thread."""
+
+    def __init__(self, service, n: int):
+        super().__init__()
+        self._service = service
+        self._n = int(n)
+
+    def _do_work(self):
+        resp = self._service.learning_session(n=self._n)
+        return list(resp.samples)
+
+
+class _AudioPreviewSpawnWorker(BaseWorker):
+    """Spawnt ffplay off-thread (CreateProcess blockiert sonst ~1s GUI)."""
+
+    def __init__(self, cmd: list[str]):
+        super().__init__()
+        self._cmd = cmd
+
+    def _do_work(self):
+        creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+        return subprocess.Popen(
+            self._cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=creationflags,
+        )
 
 
 class BrainV3LearningSessionDialog(QDialog):
@@ -62,6 +93,7 @@ class BrainV3LearningSessionDialog(QDialog):
         self._audio_preview_start_s = 0.0
         self._audio_preview_duration_s = 4.0
         self._audio_preview_process: subprocess.Popen | None = None
+        self._preview_stop_requested = False
         self.setWindowTitle("Brain V3 — Lern-Session")
         self.setModal(True)
         self.resize(760, 560)
@@ -126,18 +158,33 @@ class BrainV3LearningSessionDialog(QDialog):
         root.addLayout(actions)
 
     def _load(self) -> None:
-        try:
-            resp = self._service.learning_session(n=self._n_requested)
-        except Exception as exc:
-            logger.warning("BrainV3LearningSessionDialog: load failed: %s", exc)
-            self._lbl_status.setText(f"Fehler: {exc}")
-            return
-        self._samples = list(resp.samples)
-        self._lbl_status.setText(
-            f"{len(self._samples)} Stichproben geladen "
-            f"(angefragt: {self._n_requested})"
+        # B-336-Freeze: learning_session macht state.db-Query + SQLAlchemy +
+        # Path.exists()-Stat pro Medienpfad + json.loads (~3s) — lief synchron
+        # im __init__ vor exec() -> weisser Bildschirm beim Dialog-Open.
+        worker = _LearningLoadWorker(self._service, self._n_requested)
+        run_worker(
+            self, worker,
+            on_finish=self._on_samples_loaded,
+            on_error=self._on_load_error,
         )
-        self._populate()
+
+    def _on_samples_loaded(self, samples) -> None:
+        try:
+            self._samples = list(samples)
+            self._lbl_status.setText(
+                f"{len(self._samples)} Stichproben geladen "
+                f"(angefragt: {self._n_requested})"
+            )
+            self._populate()
+        except RuntimeError:
+            pass  # Dialog waehrend Load geschlossen — C++ Objekt bereits weg
+
+    def _on_load_error(self, msg: str) -> None:
+        logger.warning("BrainV3LearningSessionDialog: load failed: %s", msg)
+        try:
+            self._lbl_status.setText(f"Fehler: {msg}")
+        except RuntimeError:
+            pass
 
     def _populate(self) -> None:
         self._list.clear()
@@ -246,6 +293,9 @@ class BrainV3LearningSessionDialog(QDialog):
         self._btn_preview_play.setText("Pause")
 
     def _stop_preview(self) -> None:
+        # Falls ein Spawn-Worker noch laeuft: dessen Ergebnis soll terminiert
+        # werden (siehe _on_audio_spawned).
+        self._preview_stop_requested = True
         self._video_preview.stop()
         proc = self._audio_preview_process
         self._audio_preview_process = None
@@ -274,19 +324,27 @@ class BrainV3LearningSessionDialog(QDialog):
             "error",
             str(source),
         ]
-        try:
-            creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
-            self._audio_preview_process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                creationflags=creationflags,
-            )
-        except Exception as exc:
-            logger.warning("BrainV3LearningSessionDialog: ffplay start failed: %s", exc)
-            self._audio_preview_process = None
-            return False
+        # B-336-Freeze: subprocess.Popen/CreateProcess blockiert ~1s GUI-Thread.
+        self._preview_stop_requested = False
+        worker = _AudioPreviewSpawnWorker(cmd)
+        run_worker(
+            self, worker,
+            on_finish=self._on_audio_spawned,
+            on_error=lambda msg: logger.warning(
+                "BrainV3LearningSessionDialog: ffplay start failed: %s", msg
+            ),
+        )
         return True
+
+    def _on_audio_spawned(self, proc) -> None:
+        if self._preview_stop_requested:
+            try:
+                if proc is not None and proc.poll() is None:
+                    proc.terminate()
+            except Exception:
+                pass
+            return
+        self._audio_preview_process = proc
 
     def _shutdown_preview(self) -> None:
         self._stop_preview()
