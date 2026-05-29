@@ -1390,6 +1390,7 @@ def main():
                   PBT_APMSUSPEND          = 0x0004
                   PBT_APMRESUMESUSPEND    = 0x0007
                   PBT_APMRESUMEAUTOMATIC  = 0x0012
+                  PBT_APMPOWERSTATUSCHANGE = 0x000A  (B-433: AC<->Akku-Wechsel -> SB2 dGPU-Flap)
                   PBT_POWERSETTINGCHANGE  = 0x8013  (kann Display-Power-State liefern)
                 """
 
@@ -1420,6 +1421,22 @@ def main():
                                 logging.getLogger(__name__).info(
                                     "B-218: Power-Resume detected (wParam=0x%04x) — "
                                     "informiere ModelManager.", wparam,
+                                )
+                                ModelManager().notify_power_resume()
+                            elif wparam == 0x000A:  # PBT_APMPOWERSTATUSCHANGE
+                                # B-433: Auf dem Surface Book 2 wirft die Firmware
+                                # die dGPU (GTX 1060 in der Base) bei einem
+                                # Stromquellen-Wechsel ab (AC<->Akku unter Volllast,
+                                # Netzteil-Overload). Der CUDA-Context kann dabei
+                                # sterben OHNE Sleep/Resume — die bisherigen
+                                # PBT_APMRESUME*-Pfade greifen also nicht. Wir
+                                # erzwingen beim naechsten GPU-Op einen Health-Check:
+                                # bei totem Context CPU-Fallback, bei lebendem/
+                                # zurueckgekehrtem Context bleibt/zurueck zu cuda.
+                                from services.model_manager import ModelManager
+                                logging.getLogger(__name__).info(
+                                    "B-433: Power-Source-Change (wParam=0x000A) — "
+                                    "CUDA-Context wird beim naechsten Modell-Load geprobed."
                                 )
                                 ModelManager().notify_power_resume()
                             elif wparam == 0x0004:  # APMSUSPEND
