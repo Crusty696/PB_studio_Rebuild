@@ -120,4 +120,10 @@ Der Audit-Plan `PB-STUDIO-AREA-AUDIT-2026-05-24` ist abgeschlossen und bleibt al
 - B-430 ist code-fix-pending-live-verification im Vault am 2026-05-27: Smoke-Test um CUDA/Torch-DLLs, FFmpeg, config, translations erweitert.
 - Area 10 (B-418..B-430) damit code-fertig.
 - **Gesamter Fixplan PB-STUDIO-AREA-AUDIT-FIXPLAN-2026-05-25 (B-348..B-430) code-complete.**
+- Live-Verify Runde 1 (2026-05-29, pb-gui-tester, outputs/GUI_Verify_2026_05_29): Packaging 7/7 PASS, GUI Media PASS/partial, Export 10/10 PASS, Convert 7/7 PASS.
+- GUI Schnitt Lauf 1 (2026-05-29): B-385 PASS live, B-386 PASS live, B-387 INCONCLUSIVE, B-384 nicht verifiziert (Tester-Limit Lauf 1), B-390 nicht erreicht. Beat→Timeline (56 Cuts) live OK.
+- GUI Schnitt Lauf 2 (2026-05-29, bestehendes Projekt): B-384 PASS live (DB-belegt, Screenshot), B-387 INCONCLUSIVE (Race nicht erzwingbar, Code-Guard ok), B-390 INCONCLUSIVE-GUI + Service-Test 2 passed (EFFEKTE-Tab nicht erreichbar = separate UX-Luecke). Report: outputs/GUI_Verify_2026_05_29/verify_report_b384_387_390.md.
+- GUI-Schnitt Gesamtstand: B-384/385/386 PASS (Agent-Verify), B-387 INCONCLUSIVE, B-390 INCONCLUSIVE-GUI+Service-PASS. Alle = Agent-Verify, `status:fixed` weiterhin nur User.
+- Offen: B-387/B-390 echte Race- bzw. EFFEKTE-Tab-GUI-Verifikation (separate UI-Erreichbarkeit). Chat-Bereich B-409..B-417 noch ungetestet.
+- Offen Chat-Bereich: B-409..B-417 Live-Chat-Workflow noch ungetestet.
 - Naechster Schritt: User-Live-Verification der offenen code-fix-pending-live-verification Bugs.
