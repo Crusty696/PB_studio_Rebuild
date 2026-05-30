@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (
     QComboBox, QPushButton, QDialog, QTreeWidgetItem,
 )
 from PySide6.QtCore import Qt, QTimer
-from database import engine, AudioTrack, VideoClip, TimelineEntry, get_active_project_id
+from database import engine, AudioTrack, VideoClip, get_active_project_id
 from sqlalchemy import text
 from sqlalchemy.orm import Session as DBSession
 from services.task_manager import GlobalTaskManager, TaskManagerProxy

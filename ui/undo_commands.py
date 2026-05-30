@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import QTimer
 from PySide6.QtGui import QUndoCommand
 
-from database import nullpool_session, TimelineEntry, engine
+from database import TimelineEntry, engine
 from sqlalchemy.orm import Session as DBSession
 
 if TYPE_CHECKING:

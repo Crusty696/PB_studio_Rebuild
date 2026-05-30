@@ -10,7 +10,6 @@ from PySide6.QtWidgets import (
     QLabel,
     QPushButton,
     QSizePolicy,
-    QTabWidget,
     QVBoxLayout,
     QWidget,
 )

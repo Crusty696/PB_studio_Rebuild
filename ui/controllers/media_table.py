@@ -2,7 +2,6 @@
 
 import logging
 from PySide6.QtCore import Qt, QTimer, QObject, Signal
-from services.ingest_service import get_all_audio, get_all_video
 from ui.base_component import PBComponent
 
 logger = logging.getLogger(__name__)

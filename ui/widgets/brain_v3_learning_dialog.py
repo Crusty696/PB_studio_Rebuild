@@ -29,7 +29,6 @@ from PySide6.QtWidgets import (
 from services.brain_v3.brain_v3_service import BrainV3Service
 from services.brain_v3.context_resolver import CutContext
 from services.brain_v3.schemas.brain_v3_schemas import (
-    FeedbackRequest,
     LearningSampleCut,
 )
 from ui.widgets.brain_v3_feedback_popup import (

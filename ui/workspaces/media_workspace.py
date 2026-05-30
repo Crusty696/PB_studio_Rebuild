@@ -8,8 +8,7 @@ import json
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QLineEdit, QPushButton, QProgressBar, QTableView, QHeaderView,
-    QStackedWidget, QFrame, QSizePolicy, QTableWidget, QTabWidget,
-    QGridLayout, QTextEdit,
+    QStackedWidget, QFrame, QSizePolicy, QTableWidget, QGridLayout, QTextEdit,
 )
 from PySide6.QtCore import Qt, QRect, QMimeData
 from PySide6.QtGui import QPainter, QColor, QDrag

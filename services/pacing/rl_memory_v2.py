@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field, asdict
-from typing import Callable, Iterable, Mapping
+from typing import Callable, Mapping
 
 from services.pacing.rl_policy import SectionPolicy
 from services.pacing.variety_memory import VarietyMemory

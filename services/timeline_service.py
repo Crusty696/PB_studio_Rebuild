@@ -17,9 +17,8 @@ import opentimelineio as otio
 logger = logging.getLogger(__name__)
 from opentimelineio.opentime import RationalTime, TimeRange
 
-from database import engine, get_active_project_id
+from database import get_active_project_id
 from database import TimelineEntry
-from sqlalchemy.orm import Session
 
 # M-12 Fix: Thread-safe lock for timeline writes to prevent data races
 _timeline_write_lock = threading.Lock()

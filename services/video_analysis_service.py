@@ -11,7 +11,6 @@ Nutzt ModelManager Singleton für VRAM-Schutz.
 from __future__ import annotations
 
 import gc
-import json
 import logging
 import subprocess
 import sys
@@ -27,7 +26,7 @@ from services.timeout_constants import (
     HTTP_OLLAMA_VISION_CAPTION_TIMEOUT_SEC,
 )
 
-from services.model_manager import ModelManager, oom_recovery
+from services.model_manager import oom_recovery
 from services import analysis_status_service
 from services.errors import OllamaPausedError
 

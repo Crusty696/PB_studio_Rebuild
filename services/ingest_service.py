@@ -1,7 +1,6 @@
 import json
 import logging
 import os
-import shutil
 from pathlib import Path
 
 from sqlalchemy import or_
@@ -331,7 +330,6 @@ def ingest_video(
 
 def get_audio_detail_data(audio_id: int) -> dict | None:
     """Laedt Audio-Metadaten fuer die Detail-Cards im MEDIA-Workspace."""
-    import json as _json
     from services.key_detection_service import CAMELOT_WHEEL
     try:
         with Session(engine) as session:

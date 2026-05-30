@@ -6,7 +6,6 @@ Optimiert fuer viele kleine Segmente (Auto-Edit to Beat).
 
 import json as _json
 import logging
-import os
 import subprocess
 import sys
 import tempfile

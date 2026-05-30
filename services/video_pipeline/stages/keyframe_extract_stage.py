@@ -10,11 +10,10 @@ import time
 from pathlib import Path
 from typing import Any
 
-import numpy as np
 from PIL import Image
 
 from services.video_pipeline.primitives.decoder import VideoDecoder
-from services.video_pipeline.primitives.keyframe_selector import select_keyframes, Keyframe
+from services.video_pipeline.primitives.keyframe_selector import select_keyframes
 from services.video_pipeline.primitives.scene_detect import Scene
 from services.video_pipeline.stages.base import StageResult
 

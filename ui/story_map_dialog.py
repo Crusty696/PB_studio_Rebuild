@@ -33,9 +33,8 @@ from pathlib import Path
 from typing import Any, Optional
 
 from PySide6.QtCore import Qt, QPoint, Signal
-from PySide6.QtGui import QColor, QPainter
+from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import (
-    QApplication,
     QDialog,
     QFrame,
     QHBoxLayout,

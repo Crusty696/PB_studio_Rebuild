@@ -7,7 +7,6 @@ Kombiniert Bridge-Werte (BridgeDimensions) mit gelernten Gewichten
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional
 
 from services.brain_v3.bridge_dimensions import BridgeDimensions, ClipCandidate
 from services.brain_v3.cold_start import BRIDGE_AXES

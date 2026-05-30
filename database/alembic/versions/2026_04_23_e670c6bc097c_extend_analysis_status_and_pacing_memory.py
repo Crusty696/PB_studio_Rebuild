@@ -21,7 +21,6 @@ import datetime
 from typing import Sequence, Union
 
 from alembic import op
-import sqlalchemy as sa
 from sqlalchemy import text
 
 logger = logging.getLogger("alembic.migrate.extend_analysis_status_and_pacing_memory")

@@ -10,7 +10,6 @@ import time
 from pathlib import Path
 from typing import Any
 
-import numpy as np
 
 from services.video_pipeline.primitives.decoder import VideoDecoder
 from services.video_pipeline.primitives.frame_sampler import sample_frame_times

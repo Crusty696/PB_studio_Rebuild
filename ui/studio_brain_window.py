@@ -41,7 +41,7 @@ import os
 
 import shiboken6
 from PySide6.QtCore import QSettings, QSize, Signal
-from PySide6.QtWidgets import QMainWindow, QTabWidget, QWidget
+from PySide6.QtWidgets import QMainWindow, QTabWidget
 
 from services.backup_service import BackupService
 from services.brain_service import BrainService

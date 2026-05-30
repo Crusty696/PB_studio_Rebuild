@@ -16,7 +16,7 @@ from typing import Any, Callable
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from database import nullpool_session, AnalysisStatus, VideoClip, AudioTrack, Scene, Beatgrid, WaveformData
+from database import nullpool_session, AnalysisStatus, VideoClip, AudioTrack, Scene
 
 logger = logging.getLogger(__name__)
 

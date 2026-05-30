@@ -23,9 +23,9 @@ from pathlib import Path
 from typing import Optional
 
 from services.brain_v3 import paths
-from services.brain_v3.cold_start import BRIDGE_AXES, COLD_START_DEFAULTS
+from services.brain_v3.cold_start import BRIDGE_AXES
 from services.brain_v3.context_resolver import CutContext, context_keys
-from services.brain_v3.feedback_logger import FeedbackLogger, RATING_MAP
+from services.brain_v3.feedback_logger import FeedbackLogger
 from services.brain_v3.schemas.brain_v3_schemas import (
     BrainV3HealthResponse,
     CutSuggestion,

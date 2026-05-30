@@ -1,7 +1,6 @@
 """AI Audio Service: Demucs Stem Separation + Auto-Ducking + Rekordbox Frequency Analysis."""
 
 import gc
-import json
 import logging
 import os
 import subprocess
@@ -29,9 +28,9 @@ try:
     _TORCH_AVAILABLE = True
 except ImportError:
     _TORCH_AVAILABLE = False
-from database import engine, AudioTrack, WaveformData, nullpool_session
+from database import AudioTrack, WaveformData, nullpool_session
 
-from services.model_manager import ModelManager, oom_recovery
+from services.model_manager import oom_recovery
 
 logger = logging.getLogger(__name__)
 

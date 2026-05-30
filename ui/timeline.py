@@ -883,7 +883,6 @@ class InteractiveTimeline(QGraphicsView):
                         try:
                             from services.brain_v3.timeline_state import (
                                 load_current_timeline_metadata,
-                                sync_current_timeline_from_entries,
                             )
                             # B-383: sync_current_timeline_from_entries removed to prevent mutations to state.db on read path
                             pass

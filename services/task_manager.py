@@ -1,6 +1,5 @@
 """Zentrale Task-Engine: Erstellt, verwaltet und besitzt alle Hintergrund-Threads."""
 
-import gc
 import logging
 import threading
 import time

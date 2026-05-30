@@ -22,7 +22,6 @@ from services.brain_v3.context_resolver import (
     CutContext,
     VALID_SECTIONS,
     VALID_MOOD,
-    VALID_PACE,
 )
 
 

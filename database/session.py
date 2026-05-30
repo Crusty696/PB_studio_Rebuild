@@ -8,7 +8,6 @@ from sqlalchemy.orm import Session
 
 from services.timeout_constants import (
     DB_BUSY_TIMEOUT_ANALYSIS_MS,
-    DB_BUSY_TIMEOUT_MS,
     DB_POOL_TIMEOUT_SEC,
     DB_SQLITE_CONNECT_TIMEOUT_SEC,
 )

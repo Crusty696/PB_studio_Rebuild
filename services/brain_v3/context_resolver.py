@@ -22,7 +22,6 @@ Backoff-Keys (von allgemein zu spezifisch):
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional
 
 
 VALID_SECTIONS = ("intro", "verse", "build", "drop", "break", "outro", "transition")

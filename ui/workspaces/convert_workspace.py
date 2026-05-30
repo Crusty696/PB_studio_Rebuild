@@ -6,7 +6,6 @@ P9-Step5: Tab-Layout (BATCH | EFFEKTE) + kompakter LOG-Fuss.
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel,
     QComboBox, QPushButton, QProgressBar, QTextEdit, QSlider,
-    QTabWidget,
 )
 from PySide6.QtCore import Qt
 

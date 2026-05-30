@@ -23,7 +23,6 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
 )
 
-from services.timeout_constants import HTTP_HEALTH_CHECK_TIMEOUT_SEC
 from ui.theme import ACCENT, BG1, BG2, BG3, T1, T2, T3, OK, ERR, WARN
 
 logger = logging.getLogger(__name__)

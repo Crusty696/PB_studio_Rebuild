@@ -18,7 +18,6 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QShortcut, QKeySequence
 from PySide6.QtWidgets import (
     QDialog,
-    QDialogButtonBox,
     QHBoxLayout,
     QLabel,
     QPushButton,

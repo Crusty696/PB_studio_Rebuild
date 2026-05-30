@@ -18,14 +18,13 @@ from typing import Optional
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QProgressBar, QTableWidget, QTableWidgetItem, QHeaderView,
-    QPushButton, QFrame, QComboBox,
+    QPushButton, QComboBox,
 )
 from concurrent.futures import ThreadPoolExecutor
-from PySide6.QtCore import Qt, Signal, QEvent, QTimer
+from PySide6.QtCore import Qt, Signal, QTimer
 from PySide6.QtGui import QColor, QBrush, QFont, QKeySequence, QShortcut
 
 from services import analysis_status_service
-from database import AnalysisStatus
 
 logger = logging.getLogger(__name__)
 

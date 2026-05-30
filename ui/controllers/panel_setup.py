@@ -1,7 +1,7 @@
 """PanelSetupController — Refactored from PanelSetupMixin."""
 
 import logging
-from PySide6.QtWidgets import QVBoxLayout, QLabel, QTextEdit, QWidget
+from PySide6.QtWidgets import QVBoxLayout, QTextEdit, QWidget
 from PySide6.QtCore import Qt, QTimer, QObject, Signal
 from services.task_manager import GlobalTaskManager
 from ui.widgets.task_manager_dock import TaskManagerDock

@@ -15,15 +15,13 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
-import struct
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Optional
 
 import numpy as np
 
 from services.brain_v3 import paths
-from services.brain_v3.storage.migration_runner import migrate
 from services.brain_v3.storage.sqlite_init import open_connection
 
 logger = logging.getLogger(__name__)

@@ -10,12 +10,11 @@ from PySide6.QtWidgets import (
     QScrollArea, QWidget, QFrame, QGridLayout,
 )
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QKeySequence
 
 from ui.theme import (
     BG0, BG1, BG2, BG3, BG4,
     ACCENT, ACCENT_BRIGHT, ACCENT_MUTED,
-    T1, T2, T3, T4,
+    T1, T2, T4,
 )
 
 

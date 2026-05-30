@@ -6,8 +6,7 @@ from pathlib import Path
 import threading
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QImage, QPixmap
-from database import engine, VideoClip, TimelineEntry, get_active_project_id, nullpool_session
-from sqlalchemy.orm import Session as DBSession
+from database import VideoClip, TimelineEntry, get_active_project_id, nullpool_session
 from services.task_manager import TaskManagerProxy
 from workers import BatchConvertWorker, FrameExtractWorker
 from ui.base_component import PBComponent

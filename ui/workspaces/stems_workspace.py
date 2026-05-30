@@ -17,7 +17,7 @@ from typing import Iterable
 from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTabWidget, QGridLayout,
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGridLayout,
 )
 
 from ui.widgets.stem_workspace import StemWorkspace as StemWorkspaceWidget

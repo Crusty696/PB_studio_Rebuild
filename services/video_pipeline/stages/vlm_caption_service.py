@@ -8,7 +8,6 @@ gesetzt, nutze Plan-B-Interface.
 """
 from __future__ import annotations
 
-import base64
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol

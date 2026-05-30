@@ -6,7 +6,6 @@ P9-Step5: 3 Sub-Tabs (EXPORT | VORSCHAU | PROTOKOLL).
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel,
     QLineEdit, QComboBox, QPushButton, QProgressBar, QTextEdit,
-    QTabWidget,
 )
 from PySide6.QtCore import Qt
 

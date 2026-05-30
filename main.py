@@ -147,17 +147,12 @@ except Exception:
 
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout,
-    QHBoxLayout, QStatusBar, QDockWidget, QTextEdit, QPushButton,
-    QTableWidget, QTableWidgetItem, QSplitter, QFileDialog, QHeaderView,
-    QProgressBar, QLabel, QLineEdit, QSlider, QGroupBox,
-    QComboBox, QGraphicsView, QGraphicsScene, QGraphicsRectItem,
-    QGraphicsTextItem, QGraphicsLineItem, QDialog, QFrame,
-    QTreeWidget, QTreeWidgetItem, QCheckBox, QStackedWidget,
-    QSizePolicy, QSpacerItem, QMenu, QGraphicsPolygonItem, QSpinBox, QDoubleSpinBox,
-    QScrollArea,
+    QHBoxLayout, QStatusBar, QPushButton,
+    QLabel, QFrame,
+    QStackedWidget,
+    QSizePolicy,
 )
-from PySide6.QtCore import Qt, QThread, Signal, QObject, QRectF, QPointF, QTimer, QTranslator, QLocale, QSettings
-from PySide6.QtGui import QPainter, QPainterPath, QColor, QFont, QBrush, QPen, QPixmap, QImage, QPolygonF, QAction
+from PySide6.QtCore import Qt, QThread, QObject, QTimer, QTranslator, QLocale
 
 # NEU: PB Studio Gold-Accent Theme (ersetzt qt_material)
 from ui.theme import get_stylesheet
@@ -174,29 +169,15 @@ from ui.controllers.worker_dispatcher import _GLOBAL_ACTIVE_THREADS
 STYLE_DIR = Path(__file__).parent / "styles"
 RESOURCE_DIR = Path(__file__).parent / "resources"
 
-from database import init_db, engine, AudioTrack, VideoClip, TimelineEntry, Beatgrid, WaveformData, ClipAnchor
-from sqlalchemy.orm import Session as DBSession
-import json as _json
-from services.ingest_service import (
-    get_all_media, get_all_audio, get_all_video,
-    delete_all_media, delete_selected_media, AUDIO_EXTENSIONS, VIDEO_EXTENSIONS,
-)
 import os
-from services.pacing_service import (
-    PacingSettings, calculate_cut_points, CutPoint, auto_edit_to_beats,
-    AdvancedPacingSettings, generate_keyframe_strings_for_project,
-)
-from services.export_service import get_timeline_summary
-from services.timeline_service import TimelineService, PB_NS
-from ui.chat_dock import ChatDock
-from ui.waveform_item import WaveformGraphicsItem
+from services.timeline_service import TimelineService
 
 
 # ======================================================================
 # Task-Engine (extracted to services/task_manager.py)
 # ======================================================================
 import services.task_manager as _task_manager_module
-from services.task_manager import TaskInfo, GlobalTaskManager
+from services.task_manager import GlobalTaskManager
 
 # P3-FIX: TaskManagerProxy entfernt da überall GlobalTaskManager.instance() direkt
 # verwendet wird. Der Proxy wurde nie wirklich genutzt.
@@ -205,14 +186,6 @@ from services.task_manager import TaskInfo, GlobalTaskManager
 # ======================================================================
 # Background Workers (extracted to workers/ package)
 # ======================================================================
-from workers import (
-    CancellableMixin,
-    AnalysisWorker, WaveformAnalysisWorker,
-    VideoAnalysisWorker, VideoBatchAnalysisWorker, VideoAnalysisPipelineWorker, FrameExtractWorker,
-    StemSeparationWorker, AutoDuckingWorker,
-    ExportWorker, FolderImportWorker, BatchConvertWorker, ProxyCreationWorker,
-    AutoEditWorker, SemanticSearchWorker,
-)
 
 # Command Pattern: Worker-Registry (side-effect import registriert alle Worker)
 import workers.registry  # noqa: F401
@@ -221,19 +194,8 @@ import workers.registry  # noqa: F401
 # ======================================================================
 # UI Widgets (extracted to ui/ submodules)
 # ======================================================================
-from ui.timeline import (
-    AnchorMarkerItem, TimelineClipItem, InteractiveTimeline,
-    PIXELS_PER_SECOND, TRACK_HEIGHT, AUDIO_TRACK_Y, VIDEO_TRACK_Y,
-    CUT_MARKERS_Y, RULER_Y,
-)
-from ui.widgets.pacing_curve import PacingCurveWidget
-from ui.widgets.video_preview import VideoPreviewWidget
-from ui.widgets.task_manager_dock import TaskManagerDock
 from ui.widgets.nav_bar import WorkspaceNavBar
 from ui.widgets.workflow_components import ContextPanel
-from ui.dialogs.about import AboutDialog
-from ui.dialogs.shortcut_help_dialog import ShortcutHelpDialog
-from ui.dialogs.project_dialog import NewProjectDialog, OpenProjectDialog
 from services.project_manager import ProjectManager
 from ui.widgets.resource_monitor import ResourceMonitorWidget
 from ui.controllers import (
@@ -1198,7 +1160,6 @@ def main():
         print("=" * 60)
         
         from services.model_lifecycle_service import get_model_lifecycle_service, RECOMMENDED_HF_MODELS
-        import time
         
         service = get_model_lifecycle_service()
         models_to_download = [m["id"] for m in RECOMMENDED_HF_MODELS]
@@ -1285,7 +1246,7 @@ def main():
     # Aufrufe im Main-Thread (z.B. About-Dialog, Chat-Status), die bei
     # stuck CUDA-Treiber minutenlang blockieren koennen.
     try:
-        from services.gpu_info import initialize_gpu_info_cache, detect_stuck_driver, run_recovery_script
+        from services.gpu_info import initialize_gpu_info_cache, detect_stuck_driver
         _gpu = initialize_gpu_info_cache()
         logging.info("GPU-Info Cache: %s", _gpu.summary())
 

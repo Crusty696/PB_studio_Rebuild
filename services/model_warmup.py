@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Callable, Iterable
+from typing import Callable
 
 logger = logging.getLogger(__name__)
 

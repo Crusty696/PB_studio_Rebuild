@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPainterPath, QPixmap, QPen, QBrush
+from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPixmap, QPen, QBrush
 from PySide6.QtCore import Qt
 
 logger = logging.getLogger(__name__)

@@ -27,7 +27,6 @@ from services.brain_v3.background_queue import (
     EmbeddingJob,
     EmbeddingJobQueue,
     JobProgress,
-    JobStatus,
 )
 from services.brain_v3.gpu_serializer import GpuSerializer, get_default_serializer
 from services.brain_v3.storage.embedding_cache import EmbeddingCache

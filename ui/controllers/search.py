@@ -2,7 +2,6 @@
 
 from pathlib import Path
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QTableWidgetItem
 from workers import SemanticSearchWorker
 from ui.base_component import PBComponent
 

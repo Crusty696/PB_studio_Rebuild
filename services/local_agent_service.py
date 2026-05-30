@@ -8,14 +8,12 @@ Unterstuetzt Multi-Action: Die KI kann mehrere Aktionen als
 JSON-Array zurueckgeben, wenn der User mehrere Dinge verlangt.
 """
 
-import concurrent.futures as _cf
 import json
 import logging
 import threading
 from typing import Any
 
 from services.action_registry import ActionRegistry, action_registry
-from services.timeout_constants import AGENT_TASK_TIMEOUT_SEC, AGENT_TASK_LONG_TIMEOUT_SEC
 
 logger = logging.getLogger(__name__)
 

@@ -167,7 +167,6 @@ class PacingAgent(BaseAgent):
         2. "drum cuts" → calculate_drum_cuts
         3. Informationsanfragen → Keyframe-String + Pacing-Info
         """
-        from services.action_registry import action_registry
 
         logger.info("PacingAgent verarbeitet: %s", user_text[:80])
 

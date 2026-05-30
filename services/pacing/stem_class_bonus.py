@@ -8,7 +8,6 @@ from __future__ import annotations
 from typing import Mapping
 
 from services.pacing.shot_type_classifier import (
-    SHOT_CLASSES,
     STEM_TO_CLASS,
 )
 

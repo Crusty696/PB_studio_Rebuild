@@ -816,7 +816,6 @@ class ModelManager:
         Returns:
             (model, processor) — SigLIP-spezifisch
         """
-        import time as _time
 
         with self._swap_lock:
             # B-218: Health-Check + ggf. CPU-Fallback vor cuda-Allokat.

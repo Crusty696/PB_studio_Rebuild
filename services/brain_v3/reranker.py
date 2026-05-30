@@ -25,7 +25,6 @@ from services.brain_v3.bridge_dimensions import BridgeDimensions, ClipCandidate
 from services.brain_v3.context_mapping import ContextMappingConfig, build_cut_context
 from services.brain_v3.context_resolver import (
     CutContext,
-    quantize_quartile,
     quantize_tertile,
 )
 from services.brain_v3.scorer import Scorer

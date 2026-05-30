@@ -659,7 +659,6 @@ class ChatDock(QDockWidget):
 
     def _get_current_project_path(self) -> Path | None:
         """B-417: Liefert den Pfad des aktuell aktiven Projekts."""
-        from pathlib import Path
         if self._main_window and hasattr(self._main_window, "_project_manager"):
             return getattr(self._main_window._project_manager, "current_project_path", None)
         return None

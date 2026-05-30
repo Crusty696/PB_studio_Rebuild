@@ -12,7 +12,7 @@ existieren ``WaveformData.band_low/band_mid/band_high`` +
 ``Beatgrid.beat_positions`` + ``StructureSegment``-Rows. Die Methoden
 hier verwenden die realen Felder.
 """
-from PySide6.QtCore import Qt, QLineF, QRectF
+from PySide6.QtCore import QLineF, QRectF
 from PySide6.QtGui import QColor, QPen, QBrush, QFont
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGraphicsView, QGraphicsScene,

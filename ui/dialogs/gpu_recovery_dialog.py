@@ -34,7 +34,6 @@ from ui.theme import (
     ACCENT_DIM,
     BG0,
     BG1,
-    BG2,
     BG3,
     BG4,
     T1,
