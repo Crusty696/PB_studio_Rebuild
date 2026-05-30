@@ -14,6 +14,9 @@ from PIL import Image
 
 from services.video_pipeline.primitives.decoder import VideoDecoder
 from services.video_pipeline.primitives.keyframe_selector import select_keyframes
+# Keyframe: im Stage-Code nicht direkt verwendet, aber Teil der Modul-Oberflaeche
+# (Tests nutzen keyframe_extract_stage.Keyframe). Nicht per ruff F401 entfernen.
+from services.video_pipeline.primitives.keyframe_selector import Keyframe  # noqa: F401
 from services.video_pipeline.primitives.scene_detect import Scene
 from services.video_pipeline.stages.base import StageResult
 

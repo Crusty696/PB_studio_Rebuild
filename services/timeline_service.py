@@ -18,6 +18,10 @@ logger = logging.getLogger(__name__)
 from opentimelineio.opentime import RationalTime, TimeRange
 
 from database import get_active_project_id
+# engine: im Modul-Code nicht direkt aufgerufen, aber Teil der patchbaren
+# Oberflaeche — Tests monkeypatchen services.timeline_service.engine.
+# Nicht per ruff F401 entfernen.
+from database import engine  # noqa: F401
 from database import TimelineEntry
 
 # M-12 Fix: Thread-safe lock for timeline writes to prevent data races
