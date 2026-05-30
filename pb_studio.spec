@@ -44,7 +44,10 @@ pyside6_datas,     pyside6_bins,     pyside6_hidden     = collect_all('PySide6')
 # ---------------------------------------------------------------------------
 project_datas = [
     (str(ROOT / 'resources'),  'resources'),
-    (str(ROOT / 'styles'),     'styles'),
+    # B-SPEC-styles: 'styles'-Ordner wurde bei Repo-Bereinigung (146d0f4) entfernt;
+    # Theme kommt jetzt aus ui/theme.py (get_stylesheet). Stale Referenz brach den
+    # PyInstaller-Build ("Unable to find ...\\styles"). STYLE_DIR in main.py:174 ist tot.
+    # (str(ROOT / 'styles'),     'styles'),
     (str(ROOT / 'knowledge'),  'knowledge'),
     (str(ROOT / 'translations'), 'translations'),
     (str(ROOT / 'config'),     'config'),
