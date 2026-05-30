@@ -1394,6 +1394,16 @@ def main():
                   PBT_POWERSETTINGCHANGE  = 0x8013  (kann Display-Power-State liefern)
                 """
 
+                def __init__(self):
+                    super().__init__()
+                    # B-435: Die SB2-Firmware feuert bei instabiler Stromquelle
+                    # rapide wiederholte 0x000A-Events (hunderte/min) -> Log-Flut
+                    # + CUDA-Reprobe-Thrash. Debounce: max. 1 Reprobe+Log pro Fenster,
+                    # unterdrueckte Events werden aggregiert gezaehlt.
+                    self._last_status_change_ts = 0.0
+                    self._status_change_suppressed = 0
+                    self._STATUS_CHANGE_DEBOUNCE_SEC = 3.0
+
                 def nativeEventFilter(self, event_type, message):
                     if event_type != b"windows_generic_MSG" and event_type != "windows_generic_MSG":
                         return False, 0
@@ -1430,15 +1440,32 @@ def main():
                                 # Netzteil-Overload). Der CUDA-Context kann dabei
                                 # sterben OHNE Sleep/Resume — die bisherigen
                                 # PBT_APMRESUME*-Pfade greifen also nicht. Wir
-                                # erzwingen beim naechsten GPU-Op einen Health-Check:
-                                # bei totem Context CPU-Fallback, bei lebendem/
-                                # zurueckgekehrtem Context bleibt/zurueck zu cuda.
-                                from services.model_manager import ModelManager
-                                logging.getLogger(__name__).info(
-                                    "B-433: Power-Source-Change (wParam=0x000A) — "
-                                    "CUDA-Context wird beim naechsten Modell-Load geprobed."
-                                )
-                                ModelManager().notify_power_resume()
+                                # erzwingen beim naechsten GPU-Op einen Health-Check.
+                                # B-435: Die Firmware feuert dabei oft eine FLUT von
+                                # 0x000A (hunderte/min). Debounce -> nur 1 Reprobe+Log
+                                # pro Fenster; der Health-Check beim naechsten Modell-
+                                # Load deckt den dGPU-Zustand ohnehin ab.
+                                import time as _t
+                                _now = _t.monotonic()
+                                if _now - self._last_status_change_ts < self._STATUS_CHANGE_DEBOUNCE_SEC:
+                                    self._status_change_suppressed += 1
+                                else:
+                                    _log = logging.getLogger(__name__)
+                                    if self._status_change_suppressed:
+                                        _log.info(
+                                            "B-435: %d weitere 0x000A-Power-Events im "
+                                            "Debounce-Fenster (%.0fs) unterdrueckt.",
+                                            self._status_change_suppressed,
+                                            self._STATUS_CHANGE_DEBOUNCE_SEC,
+                                        )
+                                        self._status_change_suppressed = 0
+                                    self._last_status_change_ts = _now
+                                    _log.info(
+                                        "B-433: Power-Source-Change (wParam=0x000A) — "
+                                        "CUDA-Context wird beim naechsten Modell-Load geprobed."
+                                    )
+                                    from services.model_manager import ModelManager
+                                    ModelManager().notify_power_resume()
                             elif wparam == 0x0004:  # APMSUSPEND
                                 logging.getLogger(__name__).info(
                                     "B-218: System geht in Suspend — CUDA-Context "
