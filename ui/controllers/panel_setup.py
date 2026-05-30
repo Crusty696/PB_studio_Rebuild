@@ -160,7 +160,13 @@ class PanelSetupController(PBComponent):
             self.window._ai_agent = LocalAgentService(
                 ollama_url=_ollama_cfg["url"],
                 ollama_model=_ollama_cfg["model"] or None,
-                use_ollama=_ollama_use,
+                # B-434: Boot-Race-Fix. _daemon_alive ist beim Boot oft noch
+                # False (app-gestartetes Ollama braucht ~5s bis API-ready).
+                # use_ollama=False wuerde den Agent fuer die GANZE Session
+                # tot-cachen (kein Re-Probe). Bei aktiviertem Ollama -> None
+                # uebergeben => Lazy-Auto-Detect beim ersten Chat-Call (Ollama
+                # dann ready). Bei echtem User-Disable -> False (respektiert).
+                use_ollama=(None if _ollama_enabled else False),
             )
             self.window.chat_dock.set_agent(self.window._ai_agent)
 
