@@ -1693,7 +1693,16 @@ class InteractiveTimeline(QGraphicsView):
             self._update_beat_grid_lod()
 
     def mousePressEvent(self, event):
-        """Mittlere Maustaste → Panning starten (AUD-71: Space is now Play/Pause)."""
+        """Fokus für Timeline-Hotkeys setzen + mittlere Maustaste startet Panning.
+
+        B-438: Zuvor existierten ZWEI mousePressEvent-Definitionen in dieser
+        Klasse — die spätere (nur Fokus) überschrieb die frühere (Panning),
+        wodurch Mittlere-Maustaste-Panning tot war. Beide hier zusammengeführt.
+        (AUD-71: Space ist Play/Pause.)
+        """
+        # Fokus immer setzen, damit Timeline-Hotkeys nach einem Klick greifen
+        self.setFocus(Qt.FocusReason.MouseFocusReason)
+        self.viewport().setFocus(Qt.FocusReason.MouseFocusReason)
         if event.button() == Qt.MouseButton.MiddleButton:
             self._panning = True
             self._pan_start = event.position()
@@ -1726,12 +1735,6 @@ class InteractiveTimeline(QGraphicsView):
             event.accept()
             return
         super().mouseReleaseEvent(event)
-
-    def mousePressEvent(self, event):
-        """Fokus fuer Timeline-Hotkeys setzen."""
-        self.setFocus(Qt.FocusReason.MouseFocusReason)
-        self.viewport().setFocus(Qt.FocusReason.MouseFocusReason)
-        super().mousePressEvent(event)
 
     # ── AUD-71: Keyboard Shortcuts (configurable via ShortcutManager) ───
 
