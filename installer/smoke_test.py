@@ -64,13 +64,18 @@ def main():
         found = any(dist.rglob(pattern))
         check(f"CUDA/Torch DLL pattern '{pattern}' present", found, fatal=False)
 
-    # 5. Asset directories present
-    for asset_dir in ['resources', 'styles', 'knowledge']:
-        check(f"Asset dir: {asset_dir}/", (dist / asset_dir).is_dir(), fatal=False)
+    # 5. Asset directories present.
+    # B-437: PyInstaller 6 (onedir) legt Daten unter dist/pb_studio/_internal/ ab,
+    # nicht mehr im Top-Level. 'styles' wurde bei Repo-Bereinigung entfernt (Theme
+    # kommt aus ui/theme.py) -> nicht mehr pruefen.
+    def _dir_present(name):
+        return (dist / name).is_dir() or (dist / '_internal' / name).is_dir()
+    for asset_dir in ['resources', 'knowledge']:
+        check(f"Asset dir: {asset_dir}/", _dir_present(asset_dir), fatal=False)
 
     # 5b. Additional runtime directories (B-430)
     for extra_dir in ['config', 'translations']:
-        check(f"Runtime dir: {extra_dir}/", (dist / extra_dir).is_dir(), fatal=False)
+        check(f"Runtime dir: {extra_dir}/", _dir_present(extra_dir), fatal=False)
 
     # 5c. FFmpeg / ffprobe binaries (B-430)
     for ffbin in ['ffmpeg.exe', 'ffprobe.exe']:

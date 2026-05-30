@@ -441,9 +441,10 @@ class StemSeparator:
             if progress_cb:
                 progress_cb(15, f"Streaming-Output aktiv (~{estimated_ram_gb:.0f} GB RAM vermieden)")
         elif estimated_ram_gb > 3.0:
+            # B-LOG: nur ein %-Format -> nur ein Argument (frueher 2 Args -> TypeError im Logger).
             logger.info(
                 "[StemSeparator] Output: %.1f GB RAM fuer Akkumulator vermieden; Streaming aktiv.",
-                estimated_ram_gb, total_samples / sr / 60,
+                estimated_ram_gb,
             )
 
         if stream_stems:
