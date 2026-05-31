@@ -11,7 +11,7 @@
 ---
 
 plan_id: PB-STUDIO-FULL-AUDIT-FIXPLAN-2026-05-31
-status: blocked
+status: in_progress
 created: 2026-05-31
 source_audit: PB-STUDIO-FULL-PROJECT-FILE-AUDIT-2026-05-31
 source_report: C:\Brain-Bug\projects\pb-studio\wiki\synthesis\full-project-file-audit-final-2026-05-31.md
@@ -209,6 +209,92 @@ Write synthesis with command output summary. Commit:
 ```powershell
 git add .github/workflows/ci.yml pyproject.toml docs/superpowers/synthesis/test-gate-policy-2026-05-31.md
 git commit -m "test(FPA-001): add honest default test gate" -m "Verification: default pytest gate run; status documented in synthesis."
+```
+
+## Task 1a: B-441 Structure Enrichment Default-Gate Follow-Up
+
+**Findings:** FPA-001
+
+**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-441-default-gate-structure-enrichment-zero-scenes.md`
+
+**Files:**
+- Test: `tests/integration/test_full_enrichment.py`
+- Modify only if root cause proves it: `workers/structure_enrichment.py`
+- Modify only if root cause proves it: enrichment/vector DB fixture setup used by `tests/integration/test_full_enrichment.py`
+- Modify: `docs/superpowers/synthesis/test-gate-policy-2026-05-31.md`
+
+- [ ] **Step 1: Reproduce exact failure**
+
+Run:
+
+```powershell
+& "C:\Users\David Lochmann\miniconda3\envs\pb-studio\python.exe" -m pytest tests/integration/test_full_enrichment.py::test_full_enrichment_on_tiny_synthetic_library -v -s
+```
+
+Expected:
+
+```text
+Failure reproduces with Expected 54 enriched scenes, got 0, or current behavior is documented exactly.
+```
+
+- [ ] **Step 2: Trace data source**
+
+Read `tests/integration/test_full_enrichment.py` and `workers/structure_enrichment.py`. Identify where synthetic scene embeddings are inserted and where `StructureEnrichmentWorker` queries them.
+
+Expected:
+
+```text
+Root cause documented: mismatch between fixture population and worker query, missing vector DB population, or changed schema/query contract.
+```
+
+- [ ] **Step 3: Add minimal failing regression assertion**
+
+If the existing integration failure is broad, add a smaller assertion in `tests/integration/test_full_enrichment.py` that proves the populated fixture is visible to the worker's query path before enrichment.
+
+Expected:
+
+```text
+Test fails before implementation for the same root cause.
+```
+
+- [ ] **Step 4: Implement one root-cause fix**
+
+Allowed fixes:
+
+```text
+Fixture writes embeddings into the storage path/session the worker actually reads.
+```
+
+or
+
+```text
+Worker reads the existing fixture-populated embedding source through the intended contract.
+```
+
+Do not skip the integration test. Do not relax the expected scene count unless root-cause evidence proves expected data changed intentionally.
+
+- [ ] **Step 5: Verify targeted and default gate**
+
+Run:
+
+```powershell
+& "C:\Users\David Lochmann\miniconda3\envs\pb-studio\python.exe" -m pytest tests/integration/test_full_enrichment.py::test_full_enrichment_on_tiny_synthetic_library -v
+& "C:\Users\David Lochmann\miniconda3\envs\pb-studio\python.exe" -m pytest -m "not live_gpu and not e2e and not slow" --maxfail=1 --disable-warnings
+```
+
+Expected:
+
+```text
+Targeted test passes. Default gate passes or next first failure is documented as a new blocker/bug.
+```
+
+- [ ] **Step 6: Vault + commit**
+
+Update B-441 and synthesis. Commit:
+
+```powershell
+git add tests/integration/test_full_enrichment.py workers/structure_enrichment.py docs/superpowers/synthesis/test-gate-policy-2026-05-31.md docs/superpowers/ACTIVE_PLAN.md docs/superpowers/PLAN_REGISTRY.md docs/superpowers/plans/2026-05-31-full-project-audit-fixplan.md
+git commit -m "fix(B-441): restore structure enrichment default gate" -m "Verification: targeted enrichment test run; default gate status documented."
 ```
 
 ## Task 2: Runtime Manifest Drift Audit/Fix
@@ -730,14 +816,4 @@ Stop and ask user if:
 
 ## Current Next Task
 
-Task 1 - Honest Test Gate Policy is blocked.
-
-Blocker:
-
-```text
-Default pytest gate failed at tests/integration/test_full_enrichment.py::test_full_enrichment_on_tiny_synthetic_library.
-Expected 54 enriched scenes, got 0.
-Bugfile: C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-441-default-gate-structure-enrichment-zero-scenes.md.
-```
-
-Task 1 policy-test edit is complete, but default gate is not green.
+Task 1a - B-441 Structure Enrichment Default-Gate Follow-Up.
