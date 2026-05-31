@@ -1,0 +1,113 @@
+"""App-Integration der Video-Pipeline-Engine — schmaler, reversibler Erststep.
+
+Plan: VIDEO-PIPELINE-ENGINE-2026-05-19 (Phase 38/41 Vorstufe).
+
+Stellt eine app-aufrufbare Entry-Funktion bereit, die den NEUEN Orchestrator
+(``services/video_pipeline/orchestrator.VideoAnalysisPipeline``) auf EINEM Clip
+laeuft. Damit ist u.a. der B-440-/8-RAFT-Fix im echten App-Entry-Point belegbar.
+
+WICHTIG (Governance / reversibel):
+- Ersetzt NICHT den bestehenden Pfad ``services/video_analysis_service`` /
+  ``VideoAnalysisPipelineWorker``. Rein additiv.
+- Nur aktiv wenn Feature-Flag ``PB_ENABLE_VIDEO_PIPELINE_ENGINE=1`` gesetzt ist.
+- Default-Verhalten der App bleibt unveraendert (Flag aus -> diese Funktion wird
+  vom Controller nicht aufgerufen).
+"""
+from __future__ import annotations
+
+import os
+from pathlib import Path
+
+FEATURE_FLAG = "PB_ENABLE_VIDEO_PIPELINE_ENGINE"
+
+
+def engine_enabled() -> bool:
+    """True nur wenn das Feature-Flag explizit auf '1' steht."""
+    return os.getenv(FEATURE_FLAG, "") == "1"
+
+
+def build_pipeline(
+    track_id: int,
+    source_path,
+    storage_dir,
+    *,
+    raft_variant: str = "raft_small",
+    listener=None,
+):
+    """Baut die Produktions-Stage-Kette + Orchestrator fuer einen Clip.
+
+    Gibt ``(pipeline, (siglip_service, raft_service))`` zurueck. Die Services
+    werden mit zurueckgegeben, damit der Aufrufer sie nach dem Lauf entladen kann.
+    """
+    from services.video_pipeline.orchestrator import VideoAnalysisPipeline
+    from services.video_pipeline.primitives.resume_checkpoint import ResumeCheckpoint
+    from services.video_pipeline.primitives.stream_hasher import stream_sha256
+    from services.video_pipeline.stages.proxy_gen_stage import ProxyGenStage
+    from services.video_pipeline.stages.scene_detect_stage import SceneDetectStage
+    from services.video_pipeline.stages.keyframe_extract_stage import KeyframeExtractStage
+    from services.video_pipeline.stages.siglip_embed_stage import SigLipEmbedStage
+    from services.video_pipeline.stages.siglip_embed_service import SigLipEmbedService
+    from services.video_pipeline.stages.raft_motion_stage import RaftMotionStage
+    from services.video_pipeline.stages.raft_motion_service import RaftMotionService
+    from services.video_pipeline.stages.vlm_caption_stage import VlmCaptionStage
+    from services.video_pipeline.stages.cross_modal_stage import CrossModalStage
+
+    source_path = Path(source_path)
+    storage_dir = Path(storage_dir)
+    storage_dir.mkdir(parents=True, exist_ok=True)
+    audio_dir = storage_dir / "audio"
+    audio_dir.mkdir(parents=True, exist_ok=True)
+
+    checkpoint = ResumeCheckpoint(
+        storage_dir / "checkpoint.json",
+        track_id=track_id,
+        stream_sha256=stream_sha256(source_path),
+    )
+    siglip = SigLipEmbedService(model_id="google/siglip-so400m-patch14-384")
+    raft = RaftMotionService(variant=raft_variant)
+
+    stages = [
+        ProxyGenStage(),
+        SceneDetectStage(),
+        KeyframeExtractStage(mode="mid"),
+        SigLipEmbedStage(service=siglip, batch_size=2),
+        RaftMotionStage(service=raft, sample_rate_s=1.0),
+        VlmCaptionStage(),
+        CrossModalStage(audio_outputs_dir=audio_dir),
+    ]
+    pipe = VideoAnalysisPipeline(
+        track_id=track_id,
+        source_path=source_path,
+        storage_dir=storage_dir,
+        stages=stages,
+        checkpoint=checkpoint,
+        listener=listener,
+    )
+    return pipe, (siglip, raft)
+
+
+def run_video_pipeline_on_clip(
+    track_id: int,
+    source_path,
+    storage_dir,
+    *,
+    raft_variant: str = "raft_small",
+    listener=None,
+):
+    """Laeuft die neue Engine auf einem Clip und entlaedt GPU-Services danach.
+
+    Returns:
+        PipelineResult des Orchestrators.
+    """
+    pipe, (siglip, raft) = build_pipeline(
+        track_id, source_path, storage_dir,
+        raft_variant=raft_variant, listener=listener,
+    )
+    try:
+        return pipe.run()
+    finally:
+        for svc in (siglip, raft):
+            try:
+                svc.unload()
+            except Exception:  # noqa: BLE001 — Unload best effort
+                pass

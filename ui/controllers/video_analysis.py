@@ -131,7 +131,15 @@ class VideoAnalysisController(PBComponent):
             _get_task_manager().finish_task(task_id, status, f"{done} fertig{errors_info}")
 
     def _start_video_pipeline(self):
-        """Startet die 3-Schritt Video-Analyse-Pipeline (Fix F-006: Model/View)."""
+        """Startet die 3-Schritt Video-Analyse-Pipeline (Fix F-006: Model/View).
+
+        VIDEO-PIPELINE-ENGINE (reversibler Erststep): wenn Feature-Flag
+        PB_ENABLE_VIDEO_PIPELINE_ENGINE=1 gesetzt ist, wird stattdessen die neue
+        DAG-Engine genutzt. Flag aus -> unveraendertes Verhalten.
+        """
+        from services.video_pipeline.app_integration import engine_enabled
+        if engine_enabled():
+            return self._start_video_pipeline_engine()
         view = self.window.video_pool_table
         model = view.model()
         if not model: return
@@ -189,6 +197,55 @@ class VideoAnalysisController(PBComponent):
             Qt.ConnectionType.QueuedConnection,
         )
 
+        self.window.worker_dispatcher._start_worker_thread(worker)
+
+    def _start_video_pipeline_engine(self):
+        """Feature-flagged: neue video_pipeline-Engine auf der Auswahl.
+
+        Plan: VIDEO-PIPELINE-ENGINE-2026-05-19. Nur erreichbar via
+        PB_ENABLE_VIDEO_PIPELINE_ENGINE=1 (siehe _start_video_pipeline). Additiv,
+        nutzt VideoPipelineEngineWorker; ersetzt den bestehenden Pfad nicht.
+        """
+        from workers.video import VideoPipelineEngineWorker
+        view = self.window.video_pool_table
+        model = view.model()
+        if not model: return
+
+        checked_ids = model.get_checked_ids()
+        batch = []
+        if checked_ids:
+            batch = [(cid, f"Clip {cid}") for cid in checked_ids]
+        else:
+            for idx in view.selectionModel().selectedRows():
+                cid = model.index(idx.row(), 1).data()
+                title = model.index(idx.row(), 2).data()
+                if cid:
+                    batch.append((int(cid), str(title)))
+        if not batch:
+            self.window.console_text.append("[Warnung] Keine gültigen Videos in der Auswahl.")
+            return
+
+        self.window.console_text.append(
+            f"[Pipeline-Engine] (Feature-Flag aktiv) Starte neue DAG-Engine fuer "
+            f"{len(batch)} Video(s): Proxy → Scene → Keyframe → SigLIP → RAFT → "
+            f"Caption → CrossModal..."
+        )
+        task = _get_task_manager().create_task(
+            f"Engine: {len(batch)} Video(s)", "video_pipeline-Engine (Flag)"
+        )
+        self.window.progress_bar.setVisible(True)
+
+        worker = VideoPipelineEngineWorker(batch)
+        worker.task_id = task.task_id
+        worker.item_done.connect(self._on_video_batch_item_done, Qt.ConnectionType.QueuedConnection)
+        worker.item_error.connect(self._on_video_batch_item_error, Qt.ConnectionType.QueuedConnection)
+        worker.finished.connect(
+            lambda done, errors: self._on_video_batch_finished(done, errors, task.task_id),
+            Qt.ConnectionType.QueuedConnection,
+        )
+        self._video_batch_total = len(batch)
+        self._video_batch_done = 0
+        self._video_batch_errors = 0
         self.window.worker_dispatcher._start_worker_thread(worker)
 
     def _on_pipeline_progress(self, pct: int, msg: str, task_id: str):
