@@ -513,7 +513,6 @@ def export_timeline(project_id: int = 1, output_name: str = "output.mp4",
             clip = _clips_by_id.get(ve.media_id)
             if clip:
                 source_start = ve.source_start or 0.0
-                source_end = ve.source_end
                 seg_duration = ve.end_time - ve.start_time if ve.end_time else (clip.duration or 10.0)
                 # Source-Duration aus Source-Offsets, Fallback auf Timeline-Duration
                 source_duration = _source_duration_from_entry(
@@ -1461,7 +1460,6 @@ def export_preview(project_id: int = 1, resolution: str = "1920x1080",
             if not clip:
                 continue
             source_start = ve.source_start or 0.0
-            source_end = ve.source_end
             seg_duration = ve.end_time - ve.start_time if ve.end_time else (clip.duration or 10.0)
             source_duration = _source_duration_from_entry(
                 ve, seg_duration, clip.duration

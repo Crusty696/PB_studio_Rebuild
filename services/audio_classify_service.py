@@ -297,7 +297,7 @@ class AudioClassifyService:
                 sub_genre=sub_genre if sub_genre != genre else "",
             )
 
-        except (OSError, IOError, ValueError, RuntimeError) as e:
+        except (OSError, IOError, ValueError, RuntimeError):
             # M-16 Fix: Remove redundant warning (exception already logs stack trace + message)
             log.exception("classify() fehlgeschlagen fuer %s", file_path)
             return _fallback_result("Analyse-Fehler")
