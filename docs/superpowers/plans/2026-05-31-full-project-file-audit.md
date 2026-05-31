@@ -150,10 +150,12 @@ Task 2 Top-Down Audit is static-complete in the Vault mirror.
 
 Task 3 Bottom-Up Audit is static-complete in the Vault mirror.
 
+Task 4 Reviewer Challenge is static-complete in the Vault mirror.
+
 User authorized all following audit tasks on 2026-05-31.
 
 Next task:
 
 ```text
-Task 4 - Reviewer Challenge
+Task 5 - Final Audit Report
 ```

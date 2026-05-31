@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-FULL-PROJECT-FILE-AUDIT-2026-05-31
-next_allowed_task: Task 4 - Reviewer Challenge
+next_allowed_task: Task 5 - Final Audit Report
 updated: 2026-05-31
 
 ## Meaning
@@ -38,4 +38,6 @@ Der vorher aktive Fixplan `PB-STUDIO-AREA-AUDIT-FIXPLAN-2026-05-25` bleibt als Q
 - User hat am 2026-05-31 alle folgenden Audit-Tasks freigegeben.
 - Task 3 Bottom-Up Audit statisch abgeschlossen: Test-/Fixture-Coverage, Call-Sites, Failure-/Cancel-/Cleanup-/Rollback-Pfade dokumentiert.
 - Bottom-Up-Artefakt: `C:\Brain-Bug\projects\pb-studio\wiki\synthesis\full-project-file-audit-bottom-up-2026-05-31.md`.
-- Naechster Schritt: Task 4 - Reviewer Challenge.
+- Task 4 Reviewer Challenge statisch abgeschlossen: Befunde gegen Gegenbelege, Scope-Creep und Overclaims geprueft.
+- Reviewer-Challenge-Artefakt: `C:\Brain-Bug\projects\pb-studio\wiki\synthesis\full-project-file-audit-reviewer-challenge-2026-05-31.md`.
+- Naechster Schritt: Task 5 - Final Audit Report.
