@@ -28,7 +28,7 @@ This file is a repository-local continuity checkpoint for all agents.
 
 ## Current Branch
 
-`feat/video-pipeline-engine-2026-05-19`
+`main`
 
 ## Current Active Plan
 
@@ -43,4 +43,3 @@ Handoff must be one of:
 - explicit user-approved dirty state documented in Vault and chat.
 
 Unknown dirty changes block work.
-
