@@ -148,8 +148,12 @@ Task 1 Inventory And Exclusion Map is static-complete in the Vault mirror.
 
 Task 2 Top-Down Audit is static-complete in the Vault mirror.
 
-Next task waits for user confirmation:
+Task 3 Bottom-Up Audit is static-complete in the Vault mirror.
+
+User authorized all following audit tasks on 2026-05-31.
+
+Next task:
 
 ```text
-Task 3 - Bottom-Up Audit
+Task 4 - Reviewer Challenge
 ```

@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-FULL-PROJECT-FILE-AUDIT-2026-05-31
-next_allowed_task: pending user confirmation for Task 3 - Bottom-Up Audit
+next_allowed_task: Task 4 - Reviewer Challenge
 updated: 2026-05-31
 
 ## Meaning
@@ -35,4 +35,7 @@ Der vorher aktive Fixplan `PB-STUDIO-AREA-AUDIT-FIXPLAN-2026-05-25` bleibt als Q
 - Inventory-Artefakte: `C:\Brain-Bug\projects\pb-studio\wiki\synthesis\full-project-file-audit-inventory-2026-05-31.md` und `.csv`.
 - Task 2 Top-Down Audit statisch abgeschlossen: Architekturkarte, Risiko-Module, Dependency-/Runtime-Risiken und nicht-gepruefte Punkte dokumentiert.
 - Top-Down-Artefakt: `C:\Brain-Bug\projects\pb-studio\wiki\synthesis\full-project-file-audit-top-down-2026-05-31.md`.
-- Naechster Schritt nach User-Bestaetigung: Task 3 - Bottom-Up Audit.
+- User hat am 2026-05-31 alle folgenden Audit-Tasks freigegeben.
+- Task 3 Bottom-Up Audit statisch abgeschlossen: Test-/Fixture-Coverage, Call-Sites, Failure-/Cancel-/Cleanup-/Rollback-Pfade dokumentiert.
+- Bottom-Up-Artefakt: `C:\Brain-Bug\projects\pb-studio\wiki\synthesis\full-project-file-audit-bottom-up-2026-05-31.md`.
+- Naechster Schritt: Task 4 - Reviewer Challenge.
