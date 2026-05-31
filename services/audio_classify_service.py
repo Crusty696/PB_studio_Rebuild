@@ -228,7 +228,6 @@ class AudioClassifyService:
             spectral_rolloff = float(np.mean(librosa.feature.spectral_rolloff(y=y, sr=sr)))
             rms_energy = float(np.mean(librosa.feature.rms(y=y)))
             zero_crossing = float(np.mean(librosa.feature.zero_crossing_rate(y=y)))
-            mfccs = np.mean(librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13), axis=1)
 
             # BPM — re-use caller value or detect
             if bpm is not None and bpm > 0:

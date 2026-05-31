@@ -58,9 +58,7 @@ class EventProfiler(QObject):
         self._report_timer.start()
 
     def eventFilter(self, obj: QObject, event: QEvent) -> bool:
-        t0 = time.perf_counter()
         result = super().eventFilter(obj, event)
-        elapsed = time.perf_counter() - t0
 
         # Das eigentliche Event wird von Qt NACH diesem Filter verarbeitet.
         # Wir messen hier nur den Filter-Overhead, nicht das Event selbst.
