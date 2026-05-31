@@ -247,6 +247,7 @@ def enrichment_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(_vdb_mod, "_instance", None)
     monkeypatch.setattr(_vdb_mod, "DB_FILE", vdb_db_path)
     monkeypatch.setattr(_vdb_mod, "DB_DIR", vdb_dir)
+    _vdb_mod.VectorDBService(db_path=vdb_db_path)
 
     # Storage dir for reducer pickle
     storage_dir = tmp_path / "storage" / "enricher"
@@ -274,6 +275,20 @@ def enrichment_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
+
+def test_enrichment_fixture_vector_db_visible_to_worker(enrichment_env: dict) -> None:
+    """Regression guard: worker's no-arg VectorDBService sees fixture DB."""
+    from services.vector_db_service import VectorDBService
+
+    expected_path = Path(enrichment_env["vdb_db_path"]).resolve()
+
+    vdb = VectorDBService()
+    assert Path(vdb.db_path).resolve() == expected_path
+
+    matrix, metadata = vdb.get_all_embeddings()
+    assert matrix.shape[0] == _N_CLUSTERS * _N_PER_CLUSTER
+    assert len(metadata) == _N_CLUSTERS * _N_PER_CLUSTER
 
 
 def test_full_enrichment_on_tiny_synthetic_library(

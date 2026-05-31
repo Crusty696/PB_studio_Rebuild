@@ -297,6 +297,43 @@ git add tests/integration/test_full_enrichment.py workers/structure_enrichment.p
 git commit -m "fix(B-441): restore structure enrichment default gate" -m "Verification: targeted enrichment test run; default gate status documented."
 ```
 
+## Task 1b: B-443 Pacing Cut Point Default-Gate Follow-Up
+
+**Findings:** FPA-001
+
+**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-443-default-gate-pacing-cut-points-source-not-beat.md`
+
+**Files:**
+- Test: `tests/test_new_features.py`
+- Modify only if root cause proves it: `services/pacing_service.py`
+- Modify only if root cause proves it: `services/pacing_beat_grid.py`
+- Modify: `docs/superpowers/synthesis/test-gate-policy-2026-05-31.md`
+
+- [ ] **Step 1: Reproduce exact failure**
+
+Run:
+
+```powershell
+& "C:\Users\David Lochmann\miniconda3\envs\pb-studio\python.exe" -m pytest tests/test_new_features.py::TestPacingService::test_calculate_cut_points_with_bpm -v
+```
+
+- [ ] **Step 2: Trace source selection**
+
+Read `tests/test_new_features.py`, `services/pacing_service.py`, and `services/pacing_beat_grid.py`. Identify why cuts from a BPM-backed track are not all `source == "beat"`.
+
+- [ ] **Step 3: Implement root-cause fix only**
+
+Do not change the assertion unless evidence proves the test contract is obsolete.
+
+- [ ] **Step 4: Verify targeted and default gate**
+
+Run:
+
+```powershell
+& "C:\Users\David Lochmann\miniconda3\envs\pb-studio\python.exe" -m pytest tests/test_new_features.py::TestPacingService::test_calculate_cut_points_with_bpm -v
+& "C:\Users\David Lochmann\miniconda3\envs\pb-studio\python.exe" -m pytest -m "not live_gpu and not e2e and not slow" --maxfail=1 --disable-warnings --cache-clear -q
+```
+
 ## Task 2: Runtime Manifest Drift Audit/Fix
 
 **Findings:** FPA-002

@@ -60,3 +60,89 @@ Captured log: StructureEnrichmentWorker: no scenes with embeddings found; check 
 Task 1 is blocked by a real default-gate failure outside the narrow CI-policy edit.
 
 No app behavior is fixed. No `fixed` marker written. No live app verification run.
+
+## B-441 Follow-Up Result
+
+Targeted B-441 regression:
+
+```text
+tests/integration/test_full_enrichment.py::test_enrichment_fixture_vector_db_visible_to_worker
+1 passed
+```
+
+Targeted original failure:
+
+```text
+tests/integration/test_full_enrichment.py::test_full_enrichment_on_tiny_synthetic_library
+1 passed
+```
+
+Root cause:
+
+```text
+Test fixture patched VectorDB DB_FILE/DB_DIR, but VectorDBService() uses database.session.APP_ROOT via _default_db_file().
+Worker therefore read repo VectorDB, not fixture VectorDB.
+```
+
+## Next Default Gate Failure
+
+After B-441 targeted fix, default gate progressed to:
+
+```text
+1 failed, 308 passed, 10 skipped, 6 deselected, 36 warnings in 829.95s
+```
+
+New failure:
+
+```text
+tests/test_docs/test_plan_governance.py::test_registry_paths_exist_for_non_draft_plans
+_repo_path_exists('docs/superpowers/synthesis/bug-hunt-2026-05-23.md') == False
+```
+
+Bugfile:
+
+```text
+C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-442-plan-registry-missing-bug-hunt-repo-path.md
+```
+
+## B-442 Follow-Up Result
+
+Targeted governance test:
+
+```text
+tests/test_docs/test_plan_governance.py::test_registry_paths_exist_for_non_draft_plans
+1 passed
+```
+
+Registry missing-path scan:
+
+```text
+MISSING_COUNT=0
+```
+
+## Next Default Gate Failure After B-442
+
+Command:
+
+```powershell
+& "C:\Users\David Lochmann\miniconda3\envs\pb-studio\python.exe" -m pytest -m "not live_gpu and not e2e and not slow" --maxfail=1 --disable-warnings --cache-clear -q
+```
+
+Result:
+
+```text
+1 failed, 339 passed, 10 skipped, 6 deselected, 36 warnings in 664.44s
+```
+
+Failure:
+
+```text
+tests/test_new_features.py::TestPacingService::test_calculate_cut_points_with_bpm
+assert all(c.source == "beat" for c in cuts)
+```
+
+Bugfile:
+
+```text
+C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-443-default-gate-pacing-cut-points-source-not-beat.md
+```

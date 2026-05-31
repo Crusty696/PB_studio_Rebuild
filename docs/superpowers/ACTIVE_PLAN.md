@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-FULL-AUDIT-FIXPLAN-2026-05-31
-next_allowed_task: Task 1a - B-441 Structure Enrichment Default-Gate Follow-Up
+next_allowed_task: Task 1b - B-443 Pacing Cut Point Default-Gate Follow-Up
 updated: 2026-05-31
 
 ## Meaning
@@ -39,6 +39,10 @@ PB-STUDIO-FULL-PROJECT-FILE-AUDIT-2026-05-31
 - Task 1 Honest Test Gate Policy hat CI-/Policy-Gate hinzugefuegt und Policy-Test gruen gemacht.
 - User hat am 2026-06-01 entschieden: B-441 aufnehmen und weitermachen.
 - B-441 ist als Task 1a in den Fixplan aufgenommen.
-- Vorheriger Blocker: Default pytest gate scheitert bei `tests/integration/test_full_enrichment.py::test_full_enrichment_on_tiny_synthetic_library` mit `Expected 54 enriched scenes, got 0`.
+- B-441 targeted Tests gruen; Default Gate kam weiter.
+- B-442 Governance-Pfad-Fix targeted Test gruen; Default Gate kam weiter.
+- Neuer Blocker: Default pytest gate scheitert bei `tests/test_new_features.py::TestPacingService::test_calculate_cut_points_with_bpm`, weil nicht alle Cuts `source == "beat"` haben.
 - Bugfile: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-441-default-gate-structure-enrichment-zero-scenes.md`.
-- Naechster Schritt: Task 1a - B-441 Structure Enrichment Default-Gate Follow-Up.
+- Bugfile: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-442-plan-registry-missing-bug-hunt-repo-path.md`.
+- Bugfile: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-443-default-gate-pacing-cut-points-source-not-beat.md`.
+- Naechster Schritt: Task 1b - B-443 Pacing Cut Point Default-Gate Follow-Up.
