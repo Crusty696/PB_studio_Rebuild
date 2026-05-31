@@ -160,3 +160,26 @@ def test_e2e_full_pipeline_real_models(synth_2scene_video: Path, tmp_path: Path)
     # Cleanup
     siglip.unload()
     raft.unload()
+
+
+def test_raft_real_model_non_divisible_by_8():
+    """B-440: RAFT mit echtem Modell auf nicht-/8 Frame -> kein ValueError.
+
+    Schliesst den Blindspot des e2e-Tests, der nur /8-teilbare 320x240-Frames
+    nutzte. Vor dem Fix: ValueError "feature encoder should downsample H and W by 8".
+    """
+    import torch
+    if not torch.cuda.is_available():
+        pytest.skip("no CUDA")
+    import numpy as np
+    from services.video_pipeline.stages.raft_motion_service import RaftMotionService
+
+    svc = RaftMotionService(variant="raft_small", iter_count=4)
+    h, w = 158, 238  # nicht durch 8 teilbar (reale Aufloesung)
+    f1 = np.zeros((h, w, 3), dtype=np.uint8)
+    f2 = (np.ones((h, w, 3)) * 30).astype(np.uint8)
+
+    flow = svc.compute_flow(f1, f2)
+
+    assert flow.shape == (h, w, 2)
+    svc.unload()

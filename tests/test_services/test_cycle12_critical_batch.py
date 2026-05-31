@@ -87,6 +87,19 @@ def test_b053_resolve_project_id_fallback_when_no_active(monkeypatch):
     assert ingest_service._resolve_project_id(None) == 1
 
 
+def test_b439_delete_all_media_no_active_project_raises(monkeypatch):
+    """B-439: delete_all_media(None) ohne aktives Projekt wirft ValueError statt
+    versehentlich Medien von project_id=1 zu loeschen (=1-Fallback entfernt)."""
+    import pytest
+    from services import ingest_service
+    monkeypatch.setattr(
+        "database.session.get_active_project_id",
+        lambda: None,
+    )
+    with pytest.raises(ValueError, match="Kein aktives Projekt"):
+        ingest_service.delete_all_media(None)
+
+
 # ── B-034: OllamaClient TOCTOU race ───────────────────────────────────────
 
 

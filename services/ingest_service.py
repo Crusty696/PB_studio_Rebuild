@@ -533,8 +533,11 @@ def delete_all_media(project_id: int | None = None) -> int:
     AudioVideoAnchors, Scenes, Beatgrids, WaveformData), dann die Parents.
     HINWEIS: AIPacingMemory wird NIEMALS geloescht – das KI-Gedaechtnis ist permanent.
     B-053 Cycle 12: project_id=None löst auf das aktive Projekt auf.
+    B-439: Destruktiver Pfad nutzt den raise-Resolver (wie der Import) statt des
+    =1-Fallbacks. Bei project_id=None ohne aktives Projekt wird ValueError
+    geworfen statt versehentlich Medien von project_id=1 zu loeschen.
     """
-    project_id = _resolve_project_id(project_id)
+    project_id = _resolve_project_id_for_ingest(project_id)
     from database import (
         AudioVideoAnchor, ClipAnchor, TimelineEntry,
         Scene, Beatgrid, WaveformData, PacingBlueprint,

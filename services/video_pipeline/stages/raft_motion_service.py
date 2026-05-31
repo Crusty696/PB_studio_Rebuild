@@ -88,9 +88,24 @@ class RaftMotionService:
             a = F.interpolate(a, scale_factor=scale, mode="bilinear", align_corners=False)
             b = F.interpolate(b, scale_factor=scale, mode="bilinear", align_corners=False)
 
+        # B-440: torchvision-RAFT verlangt H,W teilbar durch 8. Keyframe- bzw.
+        # interpolierte Dims sind das nicht garantiert -> auf Vielfaches von 8
+        # padden (replicate) und den Flow danach auf Originalgroesse zurueck-
+        # schneiden. Ohne Guard: ValueError "feature encoder should downsample
+        # H and W by 8".
+        import torch.nn.functional as F
+        _, _, h, w = a.shape
+        pad_h = (8 - h % 8) % 8
+        pad_w = (8 - w % 8) % 8
+        if pad_h or pad_w:
+            a = F.pad(a, (0, pad_w, 0, pad_h), mode="replicate")
+            b = F.pad(b, (0, pad_w, 0, pad_h), mode="replicate")
+
         with torch.no_grad():
             flows = self._model(a, b, num_flow_updates=self.iter_count)
         flow = flows[-1][0]  # [2, H, W]
+        if pad_h or pad_w:
+            flow = flow[:, :h, :w]
         return flow.detach().cpu().permute(1, 2, 0).float().numpy()
 
     @staticmethod
