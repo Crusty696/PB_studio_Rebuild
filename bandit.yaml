@@ -9,6 +9,7 @@ exclude_dirs:
   - tests          # Test-Code darf assert_used / hardcoded Pfade
   - installer      # NSIS-Hooks, externer Build-Code
   - scripts        # One-Off Maintenance-Skripte (Diagnose, Reward-Tuning)
+  - outputs        # generierte/gitignored Verify-Artefakte; auf CI nicht vorhanden
   - vendor         # CPJKU/beat_this Vendoring (LOW-18) — nicht unser Code
   - .git
   - __pycache__
@@ -32,3 +33,9 @@ skips:
   # Kommentare ohne Mehrwert; project-wide skip ist die ehrlichere
   # Dokumentation.
   - B310
+  # B615 — huggingface_unsafe_download: from_pretrained() ohne revision-
+  # Pin. Alle Aufrufe nutzen hardcoded, vertrauenswuerdige Model-IDs
+  # (CLAP_MODEL_ID, SIGLIP2_MODEL_ID, siglip-so400m, ...). Kein User-Input
+  # fliesst in den Repo-/Model-Namen. Analog zu B310 (HF-URLs) ist der
+  # project-wide skip die ehrlichere Dokumentation als 4x identische nosec.
+  - B615

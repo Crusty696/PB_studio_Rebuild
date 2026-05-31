@@ -364,7 +364,7 @@ class BrainStore:
             out: dict[str, int] = {}
             for table in ("brain_entity", "brain_fact", "brain_decision", "brain_memory", "brain_note"):
                 try:
-                    out[table] = int(session.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar() or 0)
+                    out[table] = int(session.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar() or 0)  # nosec B608 - interner Identifier (Tabellen-/Spaltenname aus Code-Konstante), kein User-Input; Query-Werte sind parametrisiert
                 except Exception:
                     out[table] = 0
             return out
