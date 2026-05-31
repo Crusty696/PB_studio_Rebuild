@@ -30,6 +30,9 @@ logs/
 tests/*.log
 *.log
 
+# Verify-/QA-Lauf-Artefakte (logs, proxies, stems, state.db, reports) — regenerierbar
+outputs/
+
 # Security scan results (generated files)
 security_scan_results.json
 security_scan_report.txt
