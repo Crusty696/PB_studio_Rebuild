@@ -1,0 +1,199 @@
+name: 🤖 Auto-Merge All PRs & Cleanup
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  pull_request_review:
+    types: [submitted]
+  status: {}
+  check_suite:
+    types: [completed]
+
+permissions:
+  pull-requests: write
+  contents: write
+
+jobs:
+  auto-merge:
+    runs-on: ubuntu-latest
+    name: Auto-Merge PR
+    steps:
+      - name: 📋 Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 🔍 Check PR Status
+        id: check-pr
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            
+            if (!pr) {
+              console.log('No PR found in payload');
+              return;
+            }
+
+            console.log(`PR #${pr.number}: ${pr.title}`);
+            console.log(`State: ${pr.state}`);
+            console.log(`Draft: ${pr.draft}`);
+            console.log(`Mergeable: ${pr.mergeable}`);
+            
+            // Get PR details
+            const prDetails = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pr.number,
+            });
+
+            console.log(`Mergeable State: ${prDetails.data.mergeable_state}`);
+            console.log(`Review Decision: ${prDetails.data.review_decision}`);
+
+      - name: ⏳ Wait for Status Checks
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            
+            if (!pr) return;
+
+            let retries = 0;
+            const maxRetries = 60; // 10 minutes max
+            let allChecksPassed = false;
+
+            while (retries < maxRetries && !allChecksPassed) {
+              const prDetails = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pr.number,
+              });
+
+              console.log(`Attempt ${retries + 1}/${maxRetries}`);
+              console.log(`Mergeable State: ${prDetails.data.mergeable_state}`);
+
+              if (prDetails.data.mergeable_state === 'clean' || prDetails.data.mergeable_state === 'has_hooks') {
+                allChecksPassed = true;
+                console.log('✅ All checks passed!');
+              } else if (prDetails.data.mergeable_state === 'blocked' || prDetails.data.mergeable_state === 'behind') {
+                console.log('⚠️ PR is blocked or behind. Skipping auto-merge.');
+                process.exit(0);
+              } else {
+                console.log('⏳ Waiting for checks...');
+                await new Promise(resolve => setTimeout(resolve, 10000)); // Wait 10 seconds
+                retries++;
+              }
+            }
+
+            if (!allChecksPassed) {
+              console.log('⏱️ Timeout waiting for checks');
+              process.exit(0);
+            }
+
+      - name: 🔗 Enable Auto-Merge
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            
+            if (!pr) {
+              console.log('No PR found');
+              return;
+            }
+
+            try {
+              const prDetails = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pr.number,
+              });
+
+              // Check if already merged
+              if (prDetails.data.merged) {
+                console.log(`✅ PR #${pr.number} already merged`);
+                return;
+              }
+
+              // Check if PR is in mergeable state
+              if (prDetails.data.mergeable === false) {
+                console.log(`❌ PR #${pr.number} has conflicts, cannot merge`);
+                return;
+              }
+
+              // Enable auto-merge
+              await github.rest.pulls.enableAutoMerge({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pr.number,
+                merge_method: 'squash',
+              });
+
+              console.log(`✅ Auto-merge enabled for PR #${pr.number}`);
+            } catch (error) {
+              console.log(`ℹ️ Auto-merge not available or already enabled: ${error.message}`);
+            }
+
+  cleanup-branches:
+    runs-on: ubuntu-latest
+    name: Cleanup Merged Branches
+    needs: auto-merge
+    if: always()
+    steps:
+      - name: 📋 Checkout
+        uses: actions/checkout@v4
+
+      - name: 🧹 Delete Merged Branches
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const branches = await github.rest.repos.listBranches({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              per_page: 100,
+            });
+
+            for (const branch of branches.data) {
+              // Skip protected branches
+              if (branch.protected) {
+                console.log(`⛔ Skipping protected branch: ${branch.name}`);
+                continue;
+              }
+
+              // Skip main and develop branches
+              if (['main', 'master', 'develop', 'development'].includes(branch.name)) {
+                console.log(`⛔ Skipping main branch: ${branch.name}`);
+                continue;
+              }
+
+              try {
+                const commit = await github.rest.repos.getCommit({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  ref: branch.name,
+                });
+
+                const branchInfo = await github.rest.repos.getBranch({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  branch: branch.name,
+                });
+
+                // Check if branch is merged into main
+                const compareResult = await github.rest.repos.compareCommitsWithBasehead({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  basehead: `main...${branch.name}`,
+                });
+
+                if (compareResult.data.status === 'identical' || compareResult.data.total_commits === 0) {
+                  await github.rest.git.deleteRef({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    ref: `heads/${branch.name}`,
+                  });
+                  console.log(`🗑️ Deleted merged branch: ${branch.name}`);
+                }
+              } catch (error) {
+                console.log(`ℹ️ Could not process branch ${branch.name}: ${error.message}`);
+              }
+            }
