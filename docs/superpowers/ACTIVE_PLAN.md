@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-FULL-PROJECT-FILE-AUDIT-2026-05-31
-next_allowed_task: Task 5 - Final Audit Report
+next_allowed_task: no implementation task; user decision required for any fix or verification plan
 updated: 2026-05-31
 
 ## Meaning
@@ -40,4 +40,6 @@ Der vorher aktive Fixplan `PB-STUDIO-AREA-AUDIT-FIXPLAN-2026-05-25` bleibt als Q
 - Bottom-Up-Artefakt: `C:\Brain-Bug\projects\pb-studio\wiki\synthesis\full-project-file-audit-bottom-up-2026-05-31.md`.
 - Task 4 Reviewer Challenge statisch abgeschlossen: Befunde gegen Gegenbelege, Scope-Creep und Overclaims geprueft.
 - Reviewer-Challenge-Artefakt: `C:\Brain-Bug\projects\pb-studio\wiki\synthesis\full-project-file-audit-reviewer-challenge-2026-05-31.md`.
-- Naechster Schritt: Task 5 - Final Audit Report.
+- Task 5 Final Audit Report statisch abgeschlossen.
+- Final-Audit-Artefakt: `C:\Brain-Bug\projects\pb-studio\wiki\synthesis\full-project-file-audit-final-2026-05-31.md`.
+- Naechster Schritt: kein Implementation-Task. User-Entscheidung fuer Fix- oder Verifikationsplan erforderlich.
