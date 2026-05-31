@@ -226,7 +226,7 @@ class EmbeddingRepository:
         blob = _vec_blob(query)
         # sqlite-vec MATCH-Pattern + LIMIT
         sql = (
-            f"SELECT u.id, u.media_id, e.distance "
+            f"SELECT u.id, u.media_id, e.distance "  # nosec B608 - interner Identifier (Tabellen-/Spaltenname aus Code-Konstante), kein User-Input; Query-Werte sind parametrisiert
             f"FROM {table} e "
             f"JOIN {unit_table} u ON u.id = e.rowid "
             f"WHERE e.embedding MATCH ? AND k = ? "

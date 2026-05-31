@@ -177,7 +177,7 @@ class WeightStore:
             raise ValueError("by muss 'positive' oder 'negative' sein")
         order_col = "positive_count" if by == "positive" else "negative_count"
         rows = self._get_conn().execute(
-            f"SELECT axis, context_level, context_key, "
+            f"SELECT axis, context_level, context_key, "  # nosec B608 - interner Identifier (Tabellen-/Spaltenname aus Code-Konstante), kein User-Input; Query-Werte sind parametrisiert
             f"  positive_count, negative_count, last_updated "
             f"FROM axis_weights ORDER BY {order_col} DESC LIMIT ?",
             (n,),

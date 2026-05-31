@@ -383,7 +383,7 @@ class BrainV3Service:
         order_col = "positive_count" if positive else "negative_count"
         with self._brain_store.open_weights() as conn:
             rows = conn.execute(
-                f"SELECT axis, context_level, context_key, "
+                f"SELECT axis, context_level, context_key, "  # nosec B608 - interner Identifier (Tabellen-/Spaltenname aus Code-Konstante), kein User-Input; Query-Werte sind parametrisiert
                 f"positive_count, negative_count "
                 f"FROM axis_weights "
                 f"ORDER BY {order_col} DESC LIMIT ?",

@@ -210,7 +210,7 @@ class BrainStore:
         try:
             conn = sqlite3.connect(str(db_path))
             try:
-                conn.execute(f"SELECT 1 FROM {table_name} LIMIT 1").fetchone()
+                conn.execute(f"SELECT 1 FROM {table_name} LIMIT 1").fetchone()  # nosec B608 - interner Identifier (Tabellen-/Spaltenname aus Code-Konstante), kein User-Input; Query-Werte sind parametrisiert
                 return True
             finally:
                 conn.close()
