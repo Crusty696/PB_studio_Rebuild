@@ -37,3 +37,16 @@ def test_build_pipeline_assembles_seven_stages(monkeypatch, tmp_path):
     assert len(pipe.stages) == 7
     # Modelle noch nicht geladen (lazy)
     assert raft.is_loaded is False
+
+
+def test_engine_worker_has_dispatcher_contract_signals():
+    """worker_dispatcher._start_worker_thread verbindet worker.error / finished /
+    progress. Fehlt eines -> AttributeError beim Dispatch (Worker startet nie).
+
+    Regression fuer den live (pb-gui-tester 2026-05-31) gefundenen Crash:
+    VideoPipelineEngineWorker hatte kein error-Signal.
+    """
+    from workers.video import VideoPipelineEngineWorker
+    w = VideoPipelineEngineWorker([])
+    for sig in ("error", "finished", "progress", "item_done", "item_error"):
+        assert hasattr(w, sig), f"VideoPipelineEngineWorker fehlt Signal '{sig}'"
