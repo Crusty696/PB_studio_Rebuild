@@ -160,3 +160,68 @@ def test_e2e_full_pipeline_real_models(synth_2scene_video: Path, tmp_path: Path)
     # Cleanup
     siglip.unload()
     raft.unload()
+
+
+def test_raft_real_model_non_divisible_by_8():
+    """B-440: RAFT mit echtem Modell auf nicht-/8 Frame -> kein ValueError.
+
+    Schliesst den Blindspot des e2e-Tests, der nur /8-teilbare 320x240-Frames
+    nutzte. Vor dem Fix: ValueError "feature encoder should downsample H and W by 8".
+    """
+    import torch
+    if not torch.cuda.is_available():
+        pytest.skip("no CUDA")
+    import numpy as np
+    from services.video_pipeline.stages.raft_motion_service import RaftMotionService
+
+    svc = RaftMotionService(variant="raft_small", iter_count=4)
+    h, w = 158, 238  # nicht durch 8 teilbar (reale Aufloesung)
+    f1 = np.zeros((h, w, 3), dtype=np.uint8)
+    f2 = (np.ones((h, w, 3)) * 30).astype(np.uint8)
+
+    flow = svc.compute_flow(f1, f2)
+
+    assert flow.shape == (h, w, 2)
+    svc.unload()
+
+
+@pytest.fixture
+def synth_non8_video(tmp_path: Path) -> Path:
+    """4s Video mit Dimensionen NICHT durch 8 teilbar (322x242)."""
+    out = tmp_path / "non8_src.mp4"
+    ff = shutil.which("ffmpeg")
+    subprocess.run(
+        [ff, "-y", "-f", "lavfi",
+         "-i", "testsrc=duration=4:size=322x242:rate=10",
+         "-c:v", "libx264", "-pix_fmt", "yuv420p", str(out)],
+        check=True, capture_output=True, timeout=30,
+    )
+    return out
+
+
+def test_app_integration_runs_engine_on_non_divisible_clip(synth_non8_video: Path, tmp_path: Path):
+    """B-440 im App-Entry-Point: run_video_pipeline_on_clip auf einem Clip mit
+    nicht-/8-Dimensionen -> RAFT-Stage crasht NICHT (kein 'downsample by 8').
+
+    Belegt den B-440-Fix durch die app-aufrufbare Engine-Verdrahtung
+    (services/video_pipeline/app_integration), nicht nur isoliert.
+    """
+    import torch
+    if not torch.cuda.is_available():
+        pytest.skip("no CUDA")
+    from services.video_pipeline.app_integration import run_video_pipeline_on_clip
+
+    storage = tmp_path / "engine_storage"
+    result = run_video_pipeline_on_clip(
+        track_id=1, source_path=synth_non8_video,
+        storage_dir=storage, raft_variant="raft_small",
+    )
+
+    failed_errors = [
+        (r.error or "") for r in result.stage_results if r.status == "failed"
+    ]
+    assert not any("downsample" in e for e in failed_errors), (
+        f"B-440 Regression im App-Entry: {failed_errors}"
+    )
+    # RAFT-Stage hat Motion-Output geschrieben -> Stage lief durch
+    assert (storage / "motion.json").exists()

@@ -21,7 +21,7 @@ def find_audio_tab_and_buttons():
     for b in buttons:
         try:
             print(f" - Title: '{b.window_text()}'")
-        except:
+        except Exception:
             pass
 
 if __name__ == "__main__":

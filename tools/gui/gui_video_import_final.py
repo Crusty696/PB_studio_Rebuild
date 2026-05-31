@@ -6,7 +6,7 @@ def complete_video_import():
     try:
         app = Application(backend="win32").connect(title_re=".*Ordner.*", found_index=0, timeout=5)
         dlg = app.window(title_re=".*Ordner.*", found_index=0)
-    except:
+    except Exception:
         app = Application(backend="win32").connect(title_re=".*Ordner.*", found_index=1, timeout=5)
         dlg = app.window(title_re=".*Ordner.*", found_index=1)
         
@@ -19,7 +19,7 @@ def complete_video_import():
     try:
         edit = dlg.child_window(title="Ordner:", control_type="Edit")
         edit.type_keys("C:\\Users\\David Lochmann\\Documents\\Solo_Natur-20260406T220640Z-3-001\\Solo_Natur", with_spaces=True)
-    except:
+    except Exception:
         # Fallback: Direktes Tippen
         dlg.type_keys("C:\\Users\\David Lochmann\\Documents\\Solo_Natur-20260406T220640Z-3-001\\Solo_Natur", with_spaces=True)
         

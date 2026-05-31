@@ -663,3 +663,68 @@ class FrameExtractWorker(QObject, CancellableMixin):
         finally:
             # Always emit finished so TaskEngine can quit the thread cleanly.
             self.finished.emit()
+
+
+class VideoPipelineEngineWorker(QObject, CancellableMixin):
+    """Feature-flagged Worker fuer die NEUE video_pipeline-Engine.
+
+    Plan: VIDEO-PIPELINE-ENGINE-2026-05-19. Additiv — ersetzt
+    ``VideoAnalysisPipelineWorker`` NICHT. Nur via Controller erreichbar wenn
+    ``PB_ENABLE_VIDEO_PIPELINE_ENGINE=1``. Laeuft den Orchestrator pro Clip ueber
+    ``services.video_pipeline.app_integration.run_video_pipeline_on_clip``.
+    """
+
+    progress = Signal(int, str)        # pct, msg
+    item_done = Signal(int, str)       # clip_id, info
+    item_error = Signal(int, str)      # clip_id, error
+    finished = Signal(int, int)        # done, errors
+    error = Signal(str)                # fataler Worker-Fehler — GlobalTaskManager-/
+                                       # worker_dispatcher-Vertrag (error -> thread.quit)
+
+    def __init__(self, batch):
+        super().__init__()
+        self.batch = list(batch)
+        self.task_id = None
+        self._errored = False
+
+    def run(self):
+        try:
+            from pathlib import Path
+            from database import nullpool_session, VideoClip
+            import database.session as _session
+            from services.video_pipeline.app_integration import run_video_pipeline_on_clip
+
+            total = max(1, len(self.batch))
+            done = 0
+            errors = 0
+            storage_root = Path(_session.APP_ROOT) / "storage" / "video_pipeline"
+            for i, (clip_id, title) in enumerate(self.batch, 1):
+                if self.should_stop():
+                    break
+                try:
+                    with nullpool_session() as session:
+                        vc = session.get(VideoClip, int(clip_id))
+                        src = vc.file_path if vc else None
+                    if not src:
+                        raise ValueError(f"VideoClip {clip_id} ohne file_path")
+                    self.progress.emit(int((i - 1) / total * 100), f"Engine: {title}")
+                    result = run_video_pipeline_on_clip(
+                        track_id=int(clip_id),
+                        source_path=src,
+                        storage_dir=storage_root / str(clip_id),
+                    )
+                    sr = result.stage_results
+                    failed = result.failed_count
+                    done += 1
+                    self.item_done.emit(
+                        int(clip_id),
+                        f"{title}: {len(sr) - failed}/{len(sr)} Stages ok, {failed} failed",
+                    )
+                except Exception as exc:  # noqa: BLE001 — pro-Clip isolieren
+                    errors += 1
+                    self.item_error.emit(int(clip_id), str(exc))
+            self.progress.emit(100, "Engine fertig")
+            self.finished.emit(done, errors)
+        except Exception as fatal:  # noqa: BLE001 — fataler Worker-Fehler
+            self._errored = True
+            self.error.emit(str(fatal))

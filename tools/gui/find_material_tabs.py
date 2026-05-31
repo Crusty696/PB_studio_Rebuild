@@ -11,7 +11,7 @@ def find_all_tabs():
         try:
             parent = t.parent()
             print(f" - Tab: '{t.window_text()}', Parent: '{parent.window_text() if parent else 'None'}'")
-        except:
+        except Exception:
             print(f" - Tab: '{t.window_text()}' (Parent error)")
 
 if __name__ == "__main__":

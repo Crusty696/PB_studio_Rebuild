@@ -6,7 +6,7 @@ def complete_audio_import():
     try:
         app = Application(backend="win32").connect(title="Audio importieren", found_index=0, timeout=5)
         dlg = app.window(title="Audio importieren", found_index=0)
-    except:
+    except Exception:
         app = Application(backend="win32").connect(title="Audio importieren", found_index=1, timeout=5)
         dlg = app.window(title="Audio importieren", found_index=1)
         

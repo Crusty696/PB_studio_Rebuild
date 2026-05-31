@@ -13,7 +13,7 @@ def execute_gui_project_setup():
         if not dialog.exists():
              dialog = main_win.child_window(title="Neues Projekt erstellen", control_type="Dialog")
         dialog.set_focus()
-    except:
+    except Exception:
         print("Dialog nicht in main_win gefunden. Suche auf Desktop...")
         dialog = Desktop(backend="uia").window(title="Neues Projekt erstellen")
         dialog.set_focus()
