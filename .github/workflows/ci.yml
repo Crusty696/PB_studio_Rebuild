@@ -50,53 +50,17 @@ jobs:
           bandit -r . -c bandit.yaml -ll
 
   # ──────────────────────────────────────────────
-  # 2. Unit tests  (Windows, CPU-only deps)
+  # 2. Unit tests — ENTFERNT (2026-05-31)
   # ──────────────────────────────────────────────
-  test:
-    name: Unit Tests
-    runs-on: windows-latest
-    needs: lint
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: "pip"
-
-      - name: Install CPU-only PyTorch first
-        # Avoid pulling the 5 GB CUDA wheel from the private source.
-        # CPU wheel is sufficient for unit tests that mock model inference.
-        run: |
-          pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
-
-      - name: Install project dependencies (no torch from poetry source)
-        run: |
-          pip install poetry
-          poetry config virtualenvs.create false
-          poetry install --no-interaction --without-extras 2>&1 | grep -v "^torch"
-        env:
-          POETRY_PYPI_SOURCES_PYTORCH_URL: "https://download.pytorch.org/whl/cpu"
-
-      - name: Run unit tests (non-GUI, non-model)
-        # shell: bash -> `\`-Zeilenfortsetzung funktioniert (windows-latest
-        # Default-Shell ist pwsh, dort bricht `\`). `python -m pytest` statt
-        # bare `pytest` -> unabhaengig davon ob das pytest-Executable im PATH
-        # liegt (poetry installiert das Modul, aber das Scripts-Dir ist auf dem
-        # Windows-Runner nicht zwingend im PATH).
-        shell: bash
-        run: |
-          python -m pytest tests/test_services/ tests/test_agents/ -v --tb=short -x \
-            -m "not gui and not e2e and not slow"
-        env:
-          QT_QPA_PLATFORM: offscreen
-          PB_STUDIO_CI: "1"
-
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-results
-          path: test-report/
-          retention-days: 7
+  # Der Unit-Tests-Job lief nie erfolgreich (war hinter dem dauerhaft roten
+  # Lint-Gate via `needs: lint` versteckt). Beim Freilegen zeigten sich mehrere
+  # fundamentale Infra-Defekte: bash-`\`-Continuation unter pwsh, bare `pytest`
+  # nicht im PATH, ungueltiges `poetry install --without-extras` + Fehler-Masking
+  # via Pipe, und ein stale `poetry.lock` (pyproject != lock). Dahinter steht der
+  # py3.11/cu113-Torch-Source-Konflikt der privaten Poetry-Source.
+  #
+  # Entscheidung (User, 2026-05-31): den nie-funktionierenden Job entfernen statt
+  # die gesamte Dependency-/Lock-/Torch-Infra zu reparieren. Tests laufen weiter
+  # lokal in der conda-Env (pb-studio, py3.10 + cu113). Lint (ruff check) + bandit
+  # bleiben als CI-Gate. Re-Einfuehrung erst, wenn die CI-Dep-Installation real
+  # gruen reproduzierbar ist (Lock-Refresh + CPU-Torch-Source-Reconcile).
