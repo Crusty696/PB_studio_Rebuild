@@ -146,8 +146,10 @@ Stop and ask user if:
 
 Task 1 Inventory And Exclusion Map is static-complete in the Vault mirror.
 
+Task 2 Top-Down Audit is static-complete in the Vault mirror.
+
 Next task waits for user confirmation:
 
 ```text
-Task 2 - Top-Down Audit
+Task 3 - Bottom-Up Audit
 ```

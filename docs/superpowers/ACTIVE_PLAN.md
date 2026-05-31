@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-FULL-PROJECT-FILE-AUDIT-2026-05-31
-next_allowed_task: pending user confirmation for Task 2 - Top-Down Audit
+next_allowed_task: pending user confirmation for Task 3 - Bottom-Up Audit
 updated: 2026-05-31
 
 ## Meaning
@@ -33,4 +33,6 @@ Der vorher aktive Fixplan `PB-STUDIO-AREA-AUDIT-FIXPLAN-2026-05-25` bleibt als Q
 - Registry-Eintrag, Repo-Plan, Vault-Mirror und Decision: angelegt.
 - Task 1 Inventory And Exclusion Map statisch abgeschlossen: 1151 Eintraege, 1142 included, 9 targeted-only, 0 tracked excluded.
 - Inventory-Artefakte: `C:\Brain-Bug\projects\pb-studio\wiki\synthesis\full-project-file-audit-inventory-2026-05-31.md` und `.csv`.
-- Naechster Schritt nach User-Bestaetigung: Task 2 - Top-Down Audit.
+- Task 2 Top-Down Audit statisch abgeschlossen: Architekturkarte, Risiko-Module, Dependency-/Runtime-Risiken und nicht-gepruefte Punkte dokumentiert.
+- Top-Down-Artefakt: `C:\Brain-Bug\projects\pb-studio\wiki\synthesis\full-project-file-audit-top-down-2026-05-31.md`.
+- Naechster Schritt nach User-Bestaetigung: Task 3 - Bottom-Up Audit.
