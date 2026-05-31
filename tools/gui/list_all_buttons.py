@@ -10,7 +10,7 @@ def list_buttons():
     for b in buttons:
         try:
             print(f" - Title: '{b.window_text()}'")
-        except:
+        except Exception:
             print(" - (Kein Titel)")
 
     checkboxes = main_win.descendants(control_type="CheckBox")
@@ -18,7 +18,7 @@ def list_buttons():
     for c in checkboxes:
         try:
             print(f" - Title: '{c.window_text()}'")
-        except:
+        except Exception:
             print(" - (Kein Titel)")
 
 if __name__ == "__main__":

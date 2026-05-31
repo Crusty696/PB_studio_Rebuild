@@ -16,7 +16,7 @@ def switch_workspace_and_list():
     for b in buttons:
         try:
             print(f" - Title: '{b.window_text()}'")
-        except:
+        except Exception:
             pass
 
 if __name__ == "__main__":

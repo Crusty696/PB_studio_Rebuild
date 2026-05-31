@@ -18,7 +18,7 @@ def execute_gui_analysis():
         btn_audio_ana = main_win.child_window(title="Audio analysieren", control_type="Button")
         btn_audio_ana.click_input()
         print("Audio-Analyse gestartet.")
-    except:
+    except Exception:
         print("Audio-Analyse Button nicht gefunden. Suche nach 'analysieren'...")
         btns = main_win.descendants(control_type="Button")
         for b in btns:
@@ -43,7 +43,7 @@ def execute_gui_analysis():
         btn_video_ana = main_win.child_window(title="Video komplett analysieren", control_type="Button")
         btn_video_ana.click_input()
         print("Video-Analyse gestartet.")
-    except:
+    except Exception:
         print("Video-Analyse Button nicht gefunden.")
 
     print("Analyse-Phase physisch getriggert.")
