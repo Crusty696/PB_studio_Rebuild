@@ -80,8 +80,14 @@ jobs:
           POETRY_PYPI_SOURCES_PYTORCH_URL: "https://download.pytorch.org/whl/cpu"
 
       - name: Run unit tests (non-GUI, non-model)
+        # shell: bash -> `\`-Zeilenfortsetzung funktioniert (windows-latest
+        # Default-Shell ist pwsh, dort bricht `\`). `python -m pytest` statt
+        # bare `pytest` -> unabhaengig davon ob das pytest-Executable im PATH
+        # liegt (poetry installiert das Modul, aber das Scripts-Dir ist auf dem
+        # Windows-Runner nicht zwingend im PATH).
+        shell: bash
         run: |
-          pytest tests/test_services/ tests/test_agents/ -v --tb=short -x \
+          python -m pytest tests/test_services/ tests/test_agents/ -v --tb=short -x \
             -m "not gui and not e2e and not slow"
         env:
           QT_QPA_PLATFORM: offscreen
