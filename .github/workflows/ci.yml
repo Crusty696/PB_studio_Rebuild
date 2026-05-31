@@ -50,17 +50,28 @@ jobs:
           bandit -r . -c bandit.yaml -ll
 
   # ──────────────────────────────────────────────
-  # 2. Unit tests — ENTFERNT (2026-05-31)
+  # 2. Default unit tests (target runtime)
   # ──────────────────────────────────────────────
-  # Der Unit-Tests-Job lief nie erfolgreich (war hinter dem dauerhaft roten
-  # Lint-Gate via `needs: lint` versteckt). Beim Freilegen zeigten sich mehrere
-  # fundamentale Infra-Defekte: bash-`\`-Continuation unter pwsh, bare `pytest`
-  # nicht im PATH, ungueltiges `poetry install --without-extras` + Fehler-Masking
-  # via Pipe, und ein stale `poetry.lock` (pyproject != lock). Dahinter steht der
-  # py3.11/cu113-Torch-Source-Konflikt der privaten Poetry-Source.
-  #
-  # Entscheidung (User, 2026-05-31): den nie-funktionierenden Job entfernen statt
-  # die gesamte Dependency-/Lock-/Torch-Infra zu reparieren. Tests laufen weiter
-  # lokal in der conda-Env (pb-studio, py3.10 + cu113). Lint (ruff check) + bandit
-  # bleiben als CI-Gate. Re-Einfuehrung erst, wenn die CI-Dep-Installation real
-  # gruen reproduzierbar ist (Lock-Refresh + CPU-Torch-Source-Reconcile).
+  unit-tests:
+    name: Unit tests (Python 3.10 default suite)
+    runs-on: windows-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: "pip"
+
+      - name: Install target runtime dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-py310-cu113.txt
+          python -m pip install ./vendor/beat_this --no-deps
+
+      - name: Run unit tests
+        run: pytest -m "not live_gpu and not e2e and not slow" --maxfail=1 --disable-warnings

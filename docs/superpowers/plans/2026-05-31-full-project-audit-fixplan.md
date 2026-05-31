@@ -11,7 +11,7 @@
 ---
 
 plan_id: PB-STUDIO-FULL-AUDIT-FIXPLAN-2026-05-31
-status: approved-for-implementation
+status: blocked
 created: 2026-05-31
 source_audit: PB-STUDIO-FULL-PROJECT-FILE-AUDIT-2026-05-31
 source_report: C:\Brain-Bug\projects\pb-studio\wiki\synthesis\full-project-file-audit-final-2026-05-31.md
@@ -730,6 +730,14 @@ Stop and ask user if:
 
 ## Current Next Task
 
-Task 1 - Honest Test Gate Policy.
+Task 1 - Honest Test Gate Policy is blocked.
 
-Task 0 Governance And Baseline is complete after commit.
+Blocker:
+
+```text
+Default pytest gate failed at tests/integration/test_full_enrichment.py::test_full_enrichment_on_tiny_synthetic_library.
+Expected 54 enriched scenes, got 0.
+Bugfile: C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-441-default-gate-structure-enrichment-zero-scenes.md.
+```
+
+Task 1 policy-test edit is complete, but default gate is not green.
