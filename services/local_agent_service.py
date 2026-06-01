@@ -648,7 +648,12 @@ class LocalAgentService:
                     continue
 
         # Fallback: keine gültige Aktion erkannt
-        return [{"action": "none", "params": {}, "message": raw}]
+        return [{
+            "action": "none",
+            "params": {},
+            "message": raw,
+            "error": "Malformed action JSON",
+        }]
 
     def _execute_single_action(self, parsed: dict) -> dict[str, Any]:
         """Führt eine einzelne geparste Aktion aus und gibt das Ergebnis zurück.
@@ -664,7 +669,7 @@ class LocalAgentService:
             "params": params,
             "result": None,
             "message": parsed.get("message"),
-            "error": None,
+            "error": parsed.get("error"),
         }
 
         if action_name != "none":

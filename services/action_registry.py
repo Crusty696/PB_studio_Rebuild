@@ -286,6 +286,15 @@ class ActionRegistry:
                            f"Verfügbar: {self.list_actions()}")
         if params is None:
             params = {}
+        else:
+            params = dict(params)
+
+        if action.name in DESTRUCTIVE_ACTIONS:
+            confirmed = params.pop("confirm", False)
+            if confirmed is not True:
+                raise ValueError(
+                    f"Confirmation required for destructive action '{action.name}'"
+                )
 
         # Tolerante Parameter: Unbekannte Keys werden entfernt (mit Hinweis)
         import inspect

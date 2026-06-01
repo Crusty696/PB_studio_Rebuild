@@ -374,6 +374,6 @@ class TestParameterFiltering:
             return {"status": "ok"}
 
         with pytest.raises(ValueError, match="Unbekannte Parameter.*clear_timeline"):
-            registry.execute("clear_timeline", {"project_id": 999, "confirm": False})
+            registry.execute("clear_timeline", {"project_id": 999, "confirm": True})
 
         assert called is False

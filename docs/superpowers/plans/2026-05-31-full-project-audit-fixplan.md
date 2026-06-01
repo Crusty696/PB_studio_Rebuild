@@ -1253,4 +1253,4 @@ Stop and ask user if:
 
 ## Current Next Task
 
-Task 6 - Deterministic LLM/Action Boundary Gate.
+Task 7 - Mutating Surface Guard Tests.
