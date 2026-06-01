@@ -1484,33 +1484,12 @@ def main():
     from ui.splash import PBSplashScreen
     splash = PBSplashScreen(APP_VERSION)
     splash.show()
-    QApplication.processEvents()
-    splash.show_message("Initialisiere Datenbank...")
-    QApplication.processEvents()
 
     # ── Startup ───────────────────────────────────────────────────────
-    # FIX H-22: Create DB tables before PBWindow to prevent access errors
-    from database import Base, engine
-    Base.metadata.create_all(engine)
-
-    # Cycle 14 Hotfix: Alembic-Migrations SYNCHRON vor PBWindow ausführen.
-    # Vorher lief das nur im StartupCheckWorker async — wenn PBWindow
-    # einen Worker startete der ORM-Queries macht (z.B. media_table
-    # "Medien-DB laden"), konnte dieser schneller sein als die Migration
-    # und mit "no such column" crashen, sobald ein Schema-Change frisch
-    # geadded wurde (z.B. b2c3d4e5f6a7 sub_genre/spectral_hash/
-    # harmonic_tension).
-    try:
-        splash.show_message("Datenbank-Migrationen prüfen...")
-        QApplication.processEvents()
-        from database import init_db as _init_db_sync
-        _init_db_sync()
-    except Exception as _mig_exc:  # broad: Migration darf App-Start nicht killen
-        logger.error(
-            "Alembic-Migrationen beim Start fehlgeschlagen: %s. "
-            "App startet trotzdem; ORM-Queries können crashen.",
-            _mig_exc,
-        )
+    # FIX H-22: Create DB tables before PBWindow to prevent access errors.
+    # Cycle 14: Alembic migrations must also run synchronously before PBWindow.
+    from services.startup_checks import run_database_bootstrap
+    run_database_bootstrap(splash=splash, process_events=QApplication.processEvents)
 
     # P1-FIX: Fenster sofort zeigen, damit der User Feedback hat.
     # Schwere Operationen werden verzögert ausgeführt.
@@ -1626,6 +1605,7 @@ def main():
                 _ai_status = '● AI ready' if OllamaService.get().ready_cached() else '● AI loading...'
                 window.status_bar.showMessage(f"System bereit | {status.status_bar_text()} | {_ai_status}")
                 window.console_text.append(f"[System] {status.status_bar_text()}")
+                logger.info("Startup checks completed: %s", status.status_bar_text())
                 # FIX H-4: Show startup check dialog if there are errors or warnings
                 from ui.dialogs.startup_check_dialog import maybe_show_startup_dialog
                 if not maybe_show_startup_dialog(status, window):

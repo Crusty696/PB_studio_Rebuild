@@ -1141,7 +1141,7 @@ git commit -m "test(FPA-009): verify gpu serialization contract" -m "Verificatio
 - Modify only if failing tests require: `services/startup_checks.py`
 - Create: `docs/superpowers/synthesis/boot-live-2026-05-31.md`
 
-- [ ] **Step 1: Write boot contract tests**
+- [x] **Step 1: Write boot contract tests**
 
 Tests assert:
 
@@ -1151,7 +1151,7 @@ DB init failure logs clear error and exits cleanly.
 CUDA unavailable path logs degraded mode, not crash.
 ```
 
-- [ ] **Step 2: Run boot contract tests**
+- [x] **Step 2: Run boot contract tests**
 
 Run:
 
@@ -1165,7 +1165,7 @@ Expected:
 PASS, or exact boot contract failure documented.
 ```
 
-- [ ] **Step 3: Run app live boot**
+- [x] **Step 3: Run app live boot**
 
 Run:
 
@@ -1181,7 +1181,7 @@ App window opens. Startup checks complete. Log contains no uncaught traceback.
 
 If autonomous click path is impossible, status remains `code-fix-pending-live-verification`.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```powershell
 git add main.py services/startup_checks.py tests/test_services/test_boot_startup_contract.py docs/superpowers/synthesis/boot-live-2026-05-31.md
@@ -1253,4 +1253,4 @@ Stop and ask user if:
 
 ## Current Next Task
 
-Task 9 - Boot Path Guardrails.
+Task 10 - Final Verification Matrix And Handoff.

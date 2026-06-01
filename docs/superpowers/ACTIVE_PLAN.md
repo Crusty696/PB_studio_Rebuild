@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-FULL-AUDIT-FIXPLAN-2026-05-31
-next_allowed_task: Task 9 - Boot Path Guardrails
+next_allowed_task: Task 10 - Final Verification Matrix And Handoff
 updated: 2026-06-01
 
 ## Meaning
@@ -80,4 +80,5 @@ PB-STUDIO-FULL-PROJECT-FILE-AUDIT-2026-05-31
 - Task 6 Deterministic LLM/Action Boundary Gate abgeschlossen: destruktive Registry-Actions brauchen `confirm=True`; malformed JSON liefert strukturierten Error ohne Side Effect; targeted action tests gruen.
 - Task 7 Mutating Surface Guard Tests abgeschlossen: pycache cleanup prueft repo scope; failed Save-As cleanup verweigert source/parent/root; VectorDB delete und Snapshot-Restore scoped; targeted tests gruen.
 - Task 8 GPU Serialization Verification Gate abgeschlossen: Lock-Contract-Test hinzugefuegt; targeted GPU contract/model tests gruen; live_gpu Pipeline-E2E gruen; kein manueller App-Workflow.
-- Naechster Schritt: Task 9 - Boot Path Guardrails.
+- Task 9 Boot Path Guardrails abgeschlossen: DB-Bootstrap loggt Critical und beendet sauber bei DB-Fehler; startup checks laufen ohne QApplication; CUDA-unavailable bleibt degradierter Status; Boot-Live-Fenster und Startup-completed-Log belegt.
+- Naechster Schritt: Task 10 - Final Verification Matrix And Handoff.

@@ -517,6 +517,45 @@ def run_startup_checks(app_root: Path | None = None) -> SystemStatus:
     return check_system(app_root)
 
 
+def run_database_bootstrap(*, splash=None, process_events=None) -> None:
+    """Run mandatory DB startup work before UI construction.
+
+    A DB bootstrap failure leaves the app in an unsafe state because most
+    controllers assume current tables and migrations. Exit cleanly instead of
+    constructing a half-working window.
+    """
+    def _show(message: str) -> None:
+        if splash is not None and hasattr(splash, "show_message"):
+            splash.show_message(message)
+
+    def _process_events() -> None:
+        if process_events is not None:
+            process_events()
+
+    try:
+        _show("Initialisiere Datenbank...")
+        _process_events()
+        from database import Base, engine
+        Base.metadata.create_all(engine)
+
+        _show("Datenbank-Migrationen pruefen...")
+        _process_events()
+        from database import init_db as _init_db_sync
+        _init_db_sync()
+    except Exception as exc:
+        logger.critical(
+            "Datenbank-Initialisierung beim Start fehlgeschlagen: %s",
+            exc,
+            exc_info=True,
+        )
+        if splash is not None and hasattr(splash, "close"):
+            try:
+                splash.close()
+            except Exception as close_exc:  # pragma: no cover - diagnostic only
+                logger.debug("Splash close after DB bootstrap failure failed: %s", close_exc)
+        raise SystemExit(1) from exc
+
+
 # ---------------------------------------------------------------------------
 # P16: GPU PnP state pre-check (Surface Book 2 Code-47 detection)
 # ---------------------------------------------------------------------------
