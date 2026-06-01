@@ -1253,4 +1253,4 @@ Stop and ask user if:
 
 ## Current Next Task
 
-Task 5 - QThread Lifecycle Contract.
+Task 6 - Deterministic LLM/Action Boundary Gate.

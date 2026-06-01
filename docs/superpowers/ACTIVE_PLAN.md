@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-FULL-AUDIT-FIXPLAN-2026-05-31
-next_allowed_task: Task 5 - QThread Lifecycle Contract
+next_allowed_task: Task 6 - Deterministic LLM/Action Boundary Gate
 updated: 2026-06-01
 
 ## Meaning
@@ -76,4 +76,5 @@ PB-STUDIO-FULL-PROJECT-FILE-AUDIT-2026-05-31
 - Task-2-Synthese: `docs/superpowers/synthesis/runtime-manifest-drift-2026-05-31.md`.
 - Task 3 FFmpeg Resolver Unification abgeschlossen: decoder/proxy_generator/stream_hasher nutzen `services.startup_checks` Resolver statt PATH-only `shutil.which`; targeted primitive tests gruen.
 - Task 4 DB Project Switch And Soft-Delete Safety abgeschlossen als Coverage/Verification: neue Guard-/Visibility-Tests gruen; kein App-Code-Fix erforderlich. `pytest tests/test_db_deep.py -v` bleibt wegen `sys.exit` im Standalone-Script ein pytest-Runner-Problem; direkte Script-Ausfuehrung ergibt 78 PASS / 0 FAIL.
-- Naechster Schritt: Task 5 - QThread Lifecycle Contract.
+- Task 5 QThread Lifecycle Contract abgeschlossen als Coverage/Verification: neue finished/error/cancel Lifecycle-Tests und bestehende Dispatcher/TaskManager-Tests gruen; kein App-Code-Fix erforderlich.
+- Naechster Schritt: Task 6 - Deterministic LLM/Action Boundary Gate.
