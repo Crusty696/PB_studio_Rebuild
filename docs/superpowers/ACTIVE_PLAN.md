@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-FULL-AUDIT-FIXPLAN-2026-05-31
-next_allowed_task: Task 1k - B-452 Corrupt Video Pipeline Default-Gate Failure Follow-Up
+next_allowed_task: Task 1l - B-453 Grid Stability Native Crash After B-452 Follow-Up
 updated: 2026-06-01
 
 ## Meaning
@@ -50,7 +50,8 @@ PB-STUDIO-FULL-PROJECT-FILE-AUDIT-2026-05-31
 - B-449 targeted Tests gruen; Default Gate crasht nicht mehr bei Grid und kam weiter.
 - B-450 targeted Test gruen; Default Gate kam weiter.
 - B-451 targeted Test gruen; Default Gate kam weiter.
-- Neuer Blocker: Default pytest gate stoppt bei `tests/test_workers/test_video_corrupt_clip.py::test_corrupt_mp4_through_pipeline_does_not_crash`.
+- B-452 targeted Test und Modul gruen; Default Gate erreicht B-452 nicht, weil es vorher nativ crasht.
+- Neuer Blocker: Default pytest gate crasht wieder um `tests/test_grid_stability.py::test_grid_delete_later_stops_thumbnail_threads` mit Exitcode `-1073740791`; targeted Grid-Test gruen.
 - Bugfile: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-441-default-gate-structure-enrichment-zero-scenes.md`.
 - Bugfile: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-442-plan-registry-missing-bug-hunt-repo-path.md`.
 - Bugfile: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-443-default-gate-pacing-cut-points-source-not-beat.md`.
@@ -63,4 +64,5 @@ PB-STUDIO-FULL-PROJECT-FILE-AUDIT-2026-05-31
 - Bugfile: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-450-default-gate-brain-wiring-b197-pbwindow-mock.md`.
 - Bugfile: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-451-default-gate-stem-separator-fp16-cpu-clamp.md`.
 - Bugfile: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-452-default-gate-corrupt-video-pipeline-missing-clip-message.md`.
-- Naechster Schritt: Task 1k - B-452 Corrupt Video Pipeline Default-Gate Failure Follow-Up.
+- Bugfile: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-453-default-gate-grid-stability-native-crash-after-b452.md`.
+- Naechster Schritt: Task 1l - B-453 Grid Stability Native Crash After B-452 Follow-Up.

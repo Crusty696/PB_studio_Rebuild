@@ -209,7 +209,11 @@ def test_pipeline_worker_does_not_emit_both_error_and_finished(
 
 
 def test_corrupt_mp4_through_pipeline_does_not_crash(
-    qapp: QApplication, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    qapp: QApplication,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    db_session,
+    project,
 ) -> None:
     """End-to-end-ish: 1-clip batch, clip is corrupt MP4. The wrap → C-04 skip
     → final finished.emit fires normally. No exception escapes worker.run()."""
@@ -219,6 +223,11 @@ def test_corrupt_mp4_through_pipeline_does_not_crash(
 
     corrupt = tmp_path / "broken.mp4"
     _write_corrupt_mp4(corrupt)
+
+    from database import VideoClip
+
+    db_session.add(VideoClip(id=99, project_id=project.id, file_path=str(corrupt)))
+    db_session.commit()
 
     # Use the REAL run_full_pipeline so detect_scenes' VideoOpenFailure-wrap is exercised.
     # This validates the full Bug-B chain: VideoOpenFailure → RuntimeError → C-04 skip.

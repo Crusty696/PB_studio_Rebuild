@@ -476,3 +476,41 @@ Bugfile:
 ```text
 C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-452-default-gate-corrupt-video-pipeline-missing-clip-message.md
 ```
+
+## B-452 Follow-Up Result
+
+Root cause:
+
+```text
+The corrupt-video worker test passed a real run_full_pipeline() call with clip_id=99 but did not create VideoClip(id=99) in the active test DB. Under the default gate, a queryable DB schema existed, so run_full_pipeline() stopped with "VideoClip 99 nicht gefunden oder geloescht" before detect_scenes() could reach broken.mp4.
+```
+
+Fix:
+
+```text
+tests/test_workers/test_video_corrupt_clip.py now uses db_session/project fixtures and inserts VideoClip(id=99, file_path=broken.mp4). The corrupt/unreadable message assertion was not loosened.
+```
+
+Targeted tests after fix:
+
+```text
+tests/test_workers/test_video_corrupt_clip.py::test_corrupt_mp4_through_pipeline_does_not_crash
+1 passed
+
+tests/test_workers/test_video_corrupt_clip.py
+5 passed
+```
+
+Default gate after B-452:
+
+```text
+Exitcode -1073740791
+Last visible verbose area: tests/test_grid_stability.py::test_grid_delete_later_stops_thumbnail_threads
+Compact rerun ended around 12% before B-452 test was reached.
+```
+
+Next bugfile:
+
+```text
+C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-453-default-gate-grid-stability-native-crash-after-b452.md
+```

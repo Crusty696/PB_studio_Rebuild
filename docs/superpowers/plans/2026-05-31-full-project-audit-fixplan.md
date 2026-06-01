@@ -626,6 +626,33 @@ Do not loosen the assertion unless evidence proves the worker cannot distinguish
 
 Run targeted corrupt-video test and default gate. Document next first failure if default gate still fails.
 
+## Task 1l: B-453 Grid Stability Native Crash After B-452 Follow-Up
+
+**Findings:** FPA-001, FPA-008
+
+**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-453-default-gate-grid-stability-native-crash-after-b452.md`
+
+**Files:**
+- Test: `tests/test_grid_stability.py`
+- Modify only if root cause proves it: `ui/media_pool.py`, thumbnail worker cleanup, Qt signal/lifecycle code.
+- Modify: `docs/superpowers/synthesis/test-gate-policy-2026-05-31.md`
+
+- [ ] **Step 1: Reproduce exact crash**
+
+Run the targeted grid stability test and a default-gate command with compact logging. If targeted stays green, identify the shortest order-dependent reproduction before editing.
+
+- [ ] **Step 2: Trace Qt lifetime path**
+
+Read `tests/test_grid_stability.py` and thumbnail worker cleanup paths. Identify why default order can still native-crash while targeted test passes.
+
+- [ ] **Step 3: Implement root-cause fix only**
+
+Do not mask the crash by skipping the test or weakening lifecycle assertions.
+
+- [ ] **Step 4: Verify targeted and default gate**
+
+Run targeted grid test(s) and default gate. Document next first failure if default gate still fails.
+
 ## Task 2: Runtime Manifest Drift Audit/Fix
 
 **Findings:** FPA-002
@@ -1145,4 +1172,4 @@ Stop and ask user if:
 
 ## Current Next Task
 
-Task 1k - B-452 Corrupt Video Pipeline Default-Gate Failure Follow-Up.
+Task 1l - B-453 Grid Stability Native Crash After B-452 Follow-Up.
