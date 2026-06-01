@@ -300,3 +300,37 @@ Bugfile:
 ```text
 C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-447-default-gate-b433-power-status-regression.md
 ```
+
+## B-447 Follow-Up Result
+
+Root cause:
+
+```text
+tests/test_services/test_b433_power_status_change_cuda_reprobe.py used a fixed 1400-character source slice for the 0x000A branch. B-435 debounce logic made the branch longer, so the slice ended before the existing ModelManager().notify_power_resume() call. App code still had the required call in the 0x000A branch.
+```
+
+Targeted test after fix:
+
+```text
+tests/test_services/test_b433_power_status_change_cuda_reprobe.py
+2 passed
+```
+
+Default gate after B-447:
+
+```text
+1 failed, 879 passed, 28 skipped, 6 deselected, 39 warnings in 738.90s
+```
+
+Next failure:
+
+```text
+tests/test_services/test_brain_v3_performance_profile_script.py::test_performance_profile_collects_pacing_samples
+RuntimeError: isolated pacing smoke returned ok=false; checks.learning_session_under_2s=false
+```
+
+Bugfile:
+
+```text
+C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-448-default-gate-brain-v3-performance-profile-learning-timeout.md
+```

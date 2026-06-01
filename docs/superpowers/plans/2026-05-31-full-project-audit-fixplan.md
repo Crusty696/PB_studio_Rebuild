@@ -471,6 +471,37 @@ Do not loosen the test unless evidence proves the app code still handles the bra
 
 Run the targeted B-433 test and default gate. Document next first failure if default gate still fails.
 
+## Task 1g: B-448 Brain V3 Performance Profile Default-Gate Failure Follow-Up
+
+**Findings:** FPA-001
+
+**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-448-default-gate-brain-v3-performance-profile-learning-timeout.md`
+
+**Files:**
+- Test: `tests/test_services/test_brain_v3_performance_profile_script.py`
+- Modify only if root cause proves it: `scripts/spike_brain_v3_performance_profile.py` and modules used by the isolated pacing smoke script.
+- Modify: `docs/superpowers/synthesis/test-gate-policy-2026-05-31.md`
+
+- [ ] **Step 1: Reproduce exact failure**
+
+Run:
+
+```powershell
+& "C:\Users\David Lochmann\miniconda3\envs\pb-studio\python.exe" -m pytest tests/test_services/test_brain_v3_performance_profile_script.py::test_performance_profile_collects_pacing_samples -vv --tb=short
+```
+
+- [ ] **Step 2: Trace performance profile script**
+
+Read the test, `scripts/spike_brain_v3_performance_profile.py`, and the isolated script it runs. Identify why `learning_session_under_2s` is false.
+
+- [ ] **Step 3: Implement root-cause fix only**
+
+Do not loosen the 2s threshold unless evidence proves the budget is obsolete or the test measures unrelated process/setup overhead.
+
+- [ ] **Step 4: Verify targeted and default gate**
+
+Run the targeted performance-profile test and default gate. Document next first failure if default gate still fails.
+
 ## Task 2: Runtime Manifest Drift Audit/Fix
 
 **Findings:** FPA-002
@@ -990,4 +1021,4 @@ Stop and ask user if:
 
 ## Current Next Task
 
-Task 1f - B-447 Power Status Change Regression Test Follow-Up.
+Task 1g - B-448 Brain V3 Performance Profile Default-Gate Failure Follow-Up.

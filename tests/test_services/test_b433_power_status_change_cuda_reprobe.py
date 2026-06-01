@@ -24,11 +24,15 @@ def test_b433_main_handles_power_status_change() -> None:
     assert "0x000A" in src, (
         "B-433: Power-Filter muss PBT_APMPOWERSTATUSCHANGE (0x000A) behandeln."
     )
-    # Der 0x000A-Zweig muss vor dem naechsten elif notify_power_resume rufen.
+    # Der 0x000A-Zweig muss vor dem naechsten Power-Branch notify_power_resume rufen.
     # Auf den CODE-Zweig (wparam == 0x000A) zielen, nicht den Doku-Kommentar.
     idx = src.find("wparam == 0x000A")
     assert idx != -1, "B-433: elif-Zweig 'wparam == 0x000A' fehlt im Power-Filter."
-    branch = src[idx:idx + 1400]
+    next_branch_idx = src.find("elif wparam ==", idx + len("wparam == 0x000A"))
+    assert next_branch_idx != -1, (
+        "B-433: Der 0x000A-Zweig muss vor einem weiteren Power-Branch enden."
+    )
+    branch = src[idx:next_branch_idx]
     assert "notify_power_resume" in branch, (
         "B-433: Der 0x000A-Zweig muss ModelManager.notify_power_resume aufrufen."
     )

@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-FULL-AUDIT-FIXPLAN-2026-05-31
-next_allowed_task: Task 1f - B-447 Power Status Change Regression Test Follow-Up
+next_allowed_task: Task 1g - B-448 Brain V3 Performance Profile Default-Gate Failure Follow-Up
 updated: 2026-06-01
 
 ## Meaning
@@ -45,7 +45,8 @@ PB-STUDIO-FULL-PROJECT-FILE-AUDIT-2026-05-31
 - B-444 targeted Tests gruen; Default Gate kam weiter.
 - B-445 targeted Tests gruen; Default Gate kam weiter.
 - B-446 targeted Test gruen; Default Gate crasht nicht mehr bei Pre-Cache.
-- Neuer Blocker: Default pytest gate stoppt bei `tests/test_services/test_b433_power_status_change_cuda_reprobe.py::test_b433_main_handles_power_status_change`.
+- B-447 targeted Test gruen; Default Gate kam weiter.
+- Neuer Blocker: Default pytest gate stoppt bei `tests/test_services/test_brain_v3_performance_profile_script.py::test_performance_profile_collects_pacing_samples` (`learning_session_under_2s=false`).
 - Bugfile: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-441-default-gate-structure-enrichment-zero-scenes.md`.
 - Bugfile: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-442-plan-registry-missing-bug-hunt-repo-path.md`.
 - Bugfile: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-443-default-gate-pacing-cut-points-source-not-beat.md`.
@@ -53,4 +54,5 @@ PB-STUDIO-FULL-PROJECT-FILE-AUDIT-2026-05-31
 - Bugfile: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-445-default-gate-pacing-scoring-latency-regression.md`.
 - Bugfile: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-446-default-gate-pre-cache-headless-crash.md`.
 - Bugfile: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-447-default-gate-b433-power-status-regression.md`.
-- Naechster Schritt: Task 1f - B-447 Power Status Change Regression Test Follow-Up.
+- Bugfile: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-448-default-gate-brain-v3-performance-profile-learning-timeout.md`.
+- Naechster Schritt: Task 1g - B-448 Brain V3 Performance Profile Default-Gate Failure Follow-Up.
