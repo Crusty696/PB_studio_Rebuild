@@ -1,8 +1,8 @@
 # PB Studio Active Plan
 
-status: active
+status: code-complete-live-pending
 active_plan_id: PB-STUDIO-FULL-AUDIT-FIXPLAN-2026-05-31
-next_allowed_task: Task 10 - Final Verification Matrix And Handoff
+next_allowed_task: none - verification matrix recorded; user live confirmation/final decision only
 updated: 2026-06-01
 
 ## Meaning
@@ -24,7 +24,7 @@ PB-STUDIO-FULL-PROJECT-FILE-AUDIT-2026-05-31
 ## Agent Behavior
 
 - Nur `PB-STUDIO-FULL-AUDIT-FIXPLAN-2026-05-31` bearbeiten.
-- Status aktuell: in_progress.
+- Status aktuell: code-complete-live-pending.
 - User hat Implementierung am 2026-05-31 im Chat freigegeben.
 - Task-Reihenfolge aus dem Fixplan strikt einhalten.
 - `verified` / `fixed` nur nach realem App-Workflow plus Log-/UI-Beleg.
@@ -81,4 +81,5 @@ PB-STUDIO-FULL-PROJECT-FILE-AUDIT-2026-05-31
 - Task 7 Mutating Surface Guard Tests abgeschlossen: pycache cleanup prueft repo scope; failed Save-As cleanup verweigert source/parent/root; VectorDB delete und Snapshot-Restore scoped; targeted tests gruen.
 - Task 8 GPU Serialization Verification Gate abgeschlossen: Lock-Contract-Test hinzugefuegt; targeted GPU contract/model tests gruen; live_gpu Pipeline-E2E gruen; kein manueller App-Workflow.
 - Task 9 Boot Path Guardrails abgeschlossen: DB-Bootstrap loggt Critical und beendet sauber bei DB-Fehler; startup checks laufen ohne QApplication; CUDA-unavailable bleibt degradierter Status; Boot-Live-Fenster und Startup-completed-Log belegt.
-- Naechster Schritt: Task 10 - Final Verification Matrix And Handoff.
+- Task 10 Final Verification Matrix erstellt: `docs/superpowers/synthesis/full-audit-fixplan-verification-2026-05-31.md`.
+- Naechster Schritt: Handoff nach Matrix-Commit; danach User-Live-Entscheidung. Kein `fixed`-Status geschrieben.
