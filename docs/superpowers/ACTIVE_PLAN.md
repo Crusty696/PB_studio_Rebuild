@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-FULL-AUDIT-FIXPLAN-2026-05-31
-next_allowed_task: Task 1h - B-449 Grid Stability Default-Gate Crash Recurrence Follow-Up
+next_allowed_task: Task 1i - B-450 Brain Wiring B197 Default-Gate Failure Follow-Up
 updated: 2026-06-01
 
 ## Meaning
@@ -47,7 +47,8 @@ PB-STUDIO-FULL-PROJECT-FILE-AUDIT-2026-05-31
 - B-446 targeted Test gruen; Default Gate crasht nicht mehr bei Pre-Cache.
 - B-447 targeted Test gruen; Default Gate kam weiter.
 - B-448 targeted Tests gruen; direkter Smoke zeigt `learning_session_under_2s=true`.
-- Neuer Blocker: Default pytest gate crasht mit Exitcode `-1073741819` waehrend `tests/test_grid_stability.py::test_grid_delete_later_stops_thumbnail_threads`, bevor es B-448 erreicht.
+- B-449 targeted Tests gruen; Default Gate crasht nicht mehr bei Grid und kam weiter.
+- Neuer Blocker: Default pytest gate stoppt bei `tests/test_services/test_brain_wiring_b197.py::test_main_pbwindow_has_brain_timeline_nav_slot`.
 - Bugfile: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-441-default-gate-structure-enrichment-zero-scenes.md`.
 - Bugfile: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-442-plan-registry-missing-bug-hunt-repo-path.md`.
 - Bugfile: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-443-default-gate-pacing-cut-points-source-not-beat.md`.
@@ -57,4 +58,5 @@ PB-STUDIO-FULL-PROJECT-FILE-AUDIT-2026-05-31
 - Bugfile: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-447-default-gate-b433-power-status-regression.md`.
 - Bugfile: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-448-default-gate-brain-v3-performance-profile-learning-timeout.md`.
 - Bugfile: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-449-default-gate-grid-stability-crash-recurrence.md`.
-- Naechster Schritt: Task 1h - B-449 Grid Stability Default-Gate Crash Recurrence Follow-Up.
+- Bugfile: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-450-default-gate-brain-wiring-b197-pbwindow-mock.md`.
+- Naechster Schritt: Task 1i - B-450 Brain Wiring B197 Default-Gate Failure Follow-Up.

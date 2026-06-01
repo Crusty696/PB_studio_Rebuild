@@ -533,6 +533,37 @@ Do not skip or mark the test as live-only unless evidence proves a Qt/native dep
 
 Run targeted grid tests and default gate. Document next first failure if default gate still fails.
 
+## Task 1i: B-450 Brain Wiring B197 Default-Gate Failure Follow-Up
+
+**Findings:** FPA-001
+
+**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-450-default-gate-brain-wiring-b197-pbwindow-mock.md`
+
+**Files:**
+- Test: `tests/test_services/test_brain_wiring_b197.py`
+- Modify only if root cause proves it: `main.py` Brain/PBWindow wiring code or the test harness imports/mocks.
+- Modify: `docs/superpowers/synthesis/test-gate-policy-2026-05-31.md`
+
+- [ ] **Step 1: Reproduce exact failure**
+
+Run:
+
+```powershell
+& "C:\Users\David Lochmann\miniconda3\envs\pb-studio\python.exe" -m pytest tests/test_services/test_brain_wiring_b197.py::test_main_pbwindow_has_brain_timeline_nav_slot -vv --tb=short
+```
+
+- [ ] **Step 2: Trace PBWindow import and mocks**
+
+Read the test and the `main.py` PBWindow definition/import path. Identify why the test sees `PBWindow` as `MagicMock spec='str'`.
+
+- [ ] **Step 3: Implement root-cause fix only**
+
+Do not assert against mocks unless evidence proves the app wiring is already covered by a real import or source-level invariant.
+
+- [ ] **Step 4: Verify targeted and default gate**
+
+Run targeted B-197 wiring test and default gate. Document next first failure if default gate still fails.
+
 ## Task 2: Runtime Manifest Drift Audit/Fix
 
 **Findings:** FPA-002
@@ -1052,4 +1083,4 @@ Stop and ask user if:
 
 ## Current Next Task
 
-Task 1h - B-449 Grid Stability Default-Gate Crash Recurrence Follow-Up.
+Task 1i - B-450 Brain Wiring B197 Default-Gate Failure Follow-Up.

@@ -373,3 +373,37 @@ Bugfile:
 ```text
 C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-449-default-gate-grid-stability-crash-recurrence.md
 ```
+
+## B-449 Follow-Up Result
+
+Root cause:
+
+```text
+MediaPoolGrid thumbnail signal lambdas captured self. If queued worker.done or thread.finished signals were processed after grid.deleteLater(), the lambdas could touch a deleted Grid C++ wrapper. B-449 replaced those callbacks with a static thumbnail apply call and a captured Python list reference.
+```
+
+Targeted tests after fix:
+
+```text
+tests/test_grid_stability.py
+4 passed
+```
+
+Default gate after B-449:
+
+```text
+1 failed, 986 passed, 28 skipped, 6 deselected, 39 warnings in 720.67s
+```
+
+Next failure:
+
+```text
+tests/test_services/test_brain_wiring_b197.py::test_main_pbwindow_has_brain_timeline_nav_slot
+AssertionError: B-197 F-2: PBWindow._on_brain_timeline_nav fehlt; PBWindow was MagicMock spec='str'.
+```
+
+Bugfile:
+
+```text
+C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-450-default-gate-brain-wiring-b197-pbwindow-mock.md
+```

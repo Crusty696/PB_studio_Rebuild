@@ -677,7 +677,7 @@ class MediaPoolGrid(QWidget):
         # B-388: QImage→QPixmap im GUI-Thread-Slot umwandeln.
         # B-389: ueber _apply_thumbnail gegen beim Rebuild geloeschte Cards geschuetzt.
         worker.done.connect(
-            lambda _path, img, c=card: self._apply_thumbnail(c, img)
+            lambda _path, img, c=card: MediaPoolGrid._apply_thumbnail(c, img)
         )
         worker.done.connect(
             lambda _path, _pix, t=thread: t.quit()
@@ -687,8 +687,9 @@ class MediaPoolGrid(QWidget):
         # this the _ThumbWorker C++ shell leaks once per thumbnail; on
         # DJ-set imports with hundreds of clips that adds up.
         thread.finished.connect(worker.deleteLater)
+        thumb_threads = self._thumb_threads
         thread.finished.connect(
-            lambda t=thread: self._thumb_threads.remove(t) if t in self._thumb_threads else None
+            lambda t=thread, threads=thumb_threads: threads.remove(t) if t in threads else None
         )
 
         self._thumb_threads.append(thread)

@@ -2,6 +2,7 @@ import sys
 import os
 import logging
 import time
+import inspect
 from pathlib import Path
 from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import QTimer
@@ -148,6 +149,12 @@ def test_grid_invalid_paths_do_not_start_thumbnail_threads(monkeypatch):
     finally:
         grid.deleteLater()
         app.processEvents()
+
+
+def test_thumb_loader_callbacks_do_not_capture_grid_self():
+    src = inspect.getsource(MediaPoolGrid._start_thumb_loader)
+    assert "self._apply_thumbnail" not in src
+    assert "self._thumb_threads.remove" not in src
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
