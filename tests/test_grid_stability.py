@@ -155,6 +155,7 @@ def test_thumb_loader_callbacks_do_not_capture_grid_self():
     src = inspect.getsource(MediaPoolGrid._start_thumb_loader)
     assert "self._apply_thumbnail" not in src
     assert "self._thumb_threads.remove" not in src
+    assert "QThread(self)" not in src
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)

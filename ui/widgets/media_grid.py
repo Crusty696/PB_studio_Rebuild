@@ -413,6 +413,7 @@ class MediaPoolGrid(QWidget):
         self._filtered: list[MediaCard] = []
         self._selected_id: int | None = None
         self._thumb_threads: list[QThread] = []
+        self._thumb_workers: dict[QThread, _ThumbWorker] = {}
         self._in_relayout = False  # Rekursions-Guard (Fix: Freeze)
         
         # Debounce timer fuer Relayout (Fix F-029)
@@ -537,6 +538,12 @@ class MediaPoolGrid(QWidget):
         self._thumb_threads.clear()
 
         for thread in threads:
+            worker = self._thumb_workers.get(thread)
+            if worker is not None:
+                try:
+                    worker.done.disconnect()
+                except (RuntimeError, TypeError):
+                    pass
             try:
                 if thread.isRunning():
                     thread.quit()
@@ -550,6 +557,8 @@ class MediaPoolGrid(QWidget):
                         logger.warning("Thumbnail thread did not stop before grid deletion")
                 except RuntimeError:
                     continue
+                finally:
+                    self._thumb_workers.pop(thread, None)
 
     def deleteLater(self) -> None:  # noqa: N802
         self._stop_thumb_threads(wait=True)
@@ -668,7 +677,7 @@ class MediaPoolGrid(QWidget):
             pass
 
     def _start_thumb_loader(self, card: VideoCard, file_path: str) -> None:
-        thread = QThread(self)
+        thread = QThread()
         worker = _ThumbWorker(file_path, _CW - 8, _TH)
         worker.moveToThread(thread)
 
@@ -688,8 +697,13 @@ class MediaPoolGrid(QWidget):
         # DJ-set imports with hundreds of clips that adds up.
         thread.finished.connect(worker.deleteLater)
         thumb_threads = self._thumb_threads
+        thumb_workers = self._thumb_workers
+        thumb_workers[thread] = worker
         thread.finished.connect(
             lambda t=thread, threads=thumb_threads: threads.remove(t) if t in threads else None
+        )
+        thread.finished.connect(
+            lambda t=thread, workers=thumb_workers: workers.pop(t, None)
         )
 
         self._thumb_threads.append(thread)
