@@ -62,15 +62,20 @@ def test_pre_cache_headless_mode(monkeypatch):
     
     # Patch main.py Importe und Methoden
     with patch("services.model_lifecycle_service.get_model_lifecycle_service", return_value=mock_service), \
-         patch("services.model_lifecycle_service.RECOMMENDED_HF_MODELS", mock_RECOMMENDED_HF_MODELS), \
-         patch("sys.exit") as mock_exit:
+         patch("services.model_lifecycle_service.RECOMMENDED_HF_MODELS", mock_RECOMMENDED_HF_MODELS):
         
         # Sicherstellen, dass main.py neu importiert wird, falls es bereits gecached war
         if "main" in sys.modules:
             del sys.modules["main"]
             
         import main
-        main.main()
-        
-        # Sicherstellen, dass sys.exit(0) aufgerufen wurde
-        mock_exit.assert_any_call(0)
+        with patch.object(
+            main,
+            "setup_logging",
+            side_effect=AssertionError("--pre-cache darf nicht in GUI-Startup weiterlaufen"),
+        ) as mock_setup_logging:
+            with pytest.raises(SystemExit) as exit_info:
+                main.main()
+
+        assert exit_info.value.code == 0
+        mock_setup_logging.assert_not_called()

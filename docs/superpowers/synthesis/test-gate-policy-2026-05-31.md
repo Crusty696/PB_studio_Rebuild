@@ -266,3 +266,37 @@ Bugfile:
 ```text
 C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-446-default-gate-pre-cache-headless-crash.md
 ```
+
+## B-446 Follow-Up Result
+
+Root cause:
+
+```text
+tests/test_pre_cache_headless.py patched sys.exit as a no-op. After the --pre-cache branch called sys.exit(0), main.main() continued into GUI startup with mocked PySide6 modules. Real CLI exits at that point; the test harness changed control flow and made the default gate crash-prone under accumulated Qt/native state.
+```
+
+Targeted test after fix:
+
+```text
+tests/test_pre_cache_headless.py::test_pre_cache_headless_mode
+1 passed
+```
+
+Default gate after B-446:
+
+```text
+1 failed, 722 passed, 28 skipped, 6 deselected, 39 warnings in 639.44s
+```
+
+Next failure:
+
+```text
+tests/test_services/test_b433_power_status_change_cuda_reprobe.py::test_b433_main_handles_power_status_change
+AssertionError: B-433: Der 0x000A-Zweig muss ModelManager.notify_power_resume aufrufen.
+```
+
+Bugfile:
+
+```text
+C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-447-default-gate-b433-power-status-regression.md
+```

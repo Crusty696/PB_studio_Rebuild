@@ -440,6 +440,37 @@ Do not skip the test unless evidence proves it is inherently live/GPU-only and m
 
 Run targeted pre-cache test and default gate. Document next first failure if default gate still fails.
 
+## Task 1f: B-447 Power Status Change Regression Test Follow-Up
+
+**Findings:** FPA-001
+
+**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-447-default-gate-b433-power-status-regression.md`
+
+**Files:**
+- Test: `tests/test_services/test_b433_power_status_change_cuda_reprobe.py`
+- Modify only if root cause proves it: `main.py` power-event filter code.
+- Modify: `docs/superpowers/synthesis/test-gate-policy-2026-05-31.md`
+
+- [ ] **Step 1: Reproduce exact failure**
+
+Run:
+
+```powershell
+& "C:\Users\David Lochmann\miniconda3\envs\pb-studio\python.exe" -m pytest tests/test_services/test_b433_power_status_change_cuda_reprobe.py -vv --tb=short
+```
+
+- [ ] **Step 2: Trace B-433 power-status branch**
+
+Read the test and the `main.py` power-event filter. Identify whether the source-inspection test is stale or the `0x000A` branch lost the `ModelManager.notify_power_resume()` call.
+
+- [ ] **Step 3: Implement root-cause fix only**
+
+Do not loosen the test unless evidence proves the app code still handles the branch correctly through another explicit path.
+
+- [ ] **Step 4: Verify targeted and default gate**
+
+Run the targeted B-433 test and default gate. Document next first failure if default gate still fails.
+
 ## Task 2: Runtime Manifest Drift Audit/Fix
 
 **Findings:** FPA-002
@@ -959,4 +990,4 @@ Stop and ask user if:
 
 ## Current Next Task
 
-Task 1e - B-446 Pre-Cache Headless Default-Gate Crash Follow-Up.
+Task 1f - B-447 Power Status Change Regression Test Follow-Up.
