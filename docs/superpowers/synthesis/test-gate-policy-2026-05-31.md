@@ -442,3 +442,37 @@ Bugfile:
 ```text
 C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-451-default-gate-stem-separator-fp16-cpu-clamp.md
 ```
+
+## B-451 Follow-Up Result
+
+Root cause:
+
+```text
+_StreamingStemWriter assumed fade.clamp(min=...) works for all tensor dtypes. Under suite order the fade tensor can be CPU float16, and PyTorch CPU does not implement clamp_min for Half.
+```
+
+Targeted test after fix:
+
+```text
+tests/test_services/test_stem_separator_audio_decode.py::test_streaming_stem_writer_crossfades_without_full_accumulator
+1 passed
+```
+
+Default gate after B-451:
+
+```text
+1 failed, 1848 passed, 29 skipped, 6 deselected, 61 warnings in 777.70s
+```
+
+Next failure:
+
+```text
+tests/test_workers/test_video_corrupt_clip.py::test_corrupt_mp4_through_pipeline_does_not_crash
+Expected corrupt/unreadable file message, got VideoClip 99 nicht gefunden oder geloescht.
+```
+
+Bugfile:
+
+```text
+C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-452-default-gate-corrupt-video-pipeline-missing-clip-message.md
+```

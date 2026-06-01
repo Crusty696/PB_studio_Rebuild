@@ -595,6 +595,37 @@ Do not force CUDA or install another GPU backend. GTX 1060 rule applies: CUDA on
 
 Run targeted stem separator test and default gate. Document next first failure if default gate still fails.
 
+## Task 1k: B-452 Corrupt Video Pipeline Default-Gate Failure Follow-Up
+
+**Findings:** FPA-001
+
+**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-452-default-gate-corrupt-video-pipeline-missing-clip-message.md`
+
+**Files:**
+- Test: `tests/test_workers/test_video_corrupt_clip.py`
+- Modify only if root cause proves it: `workers/video.py`, `services/video_analysis_service.py`, video pipeline error mapping.
+- Modify: `docs/superpowers/synthesis/test-gate-policy-2026-05-31.md`
+
+- [ ] **Step 1: Reproduce exact failure**
+
+Run:
+
+```powershell
+& "C:\Users\David Lochmann\miniconda3\envs\pb-studio\python.exe" -m pytest tests/test_workers/test_video_corrupt_clip.py::test_corrupt_mp4_through_pipeline_does_not_crash -vv --tb=short
+```
+
+- [ ] **Step 2: Trace worker error path**
+
+Read the test, captured logs, and worker/pipeline code. Identify why the test sees `VideoClip 99 nicht gefunden oder geloescht` instead of a corrupt/unreadable file message.
+
+- [ ] **Step 3: Implement root-cause fix only**
+
+Do not loosen the assertion unless evidence proves the worker cannot distinguish missing DB row from corrupt source in this path.
+
+- [ ] **Step 4: Verify targeted and default gate**
+
+Run targeted corrupt-video test and default gate. Document next first failure if default gate still fails.
+
 ## Task 2: Runtime Manifest Drift Audit/Fix
 
 **Findings:** FPA-002
@@ -1114,4 +1145,4 @@ Stop and ask user if:
 
 ## Current Next Task
 
-Task 1j - B-451 Stem Separator CPU FP16 Clamp Follow-Up.
+Task 1k - B-452 Corrupt Video Pipeline Default-Gate Failure Follow-Up.

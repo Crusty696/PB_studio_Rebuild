@@ -226,7 +226,9 @@ class _StreamingStemWriter:
                 max(0, int(overlap_samples)),
             )
             if overlap_len > 0:
-                weight = (self._pending_weight[:overlap_len] + fade[:overlap_len]).clamp(min=1e-8)
+                weight = self._clamped_weight(
+                    self._pending_weight[:overlap_len] + fade[:overlap_len]
+                )
                 merged = (
                     self._pending[:, :, :overlap_len] + weighted_estimates[:, :, :overlap_len]
                 ) / weight.unsqueeze(0).unsqueeze(0)
@@ -238,7 +240,7 @@ class _StreamingStemWriter:
         keep_tail = 0 if is_last else min(max(0, int(overlap_samples)), max(0, chunk_len - cursor))
         write_end = chunk_len - keep_tail
         if write_end > cursor:
-            weight = fade[cursor:write_end].clamp(min=1e-8)
+            weight = self._clamped_weight(fade[cursor:write_end])
             normalized = weighted_estimates[:, :, cursor:write_end] / weight.unsqueeze(0).unsqueeze(0)
             self._write_samples(normalized, source_names)
 
@@ -249,7 +251,7 @@ class _StreamingStemWriter:
     def close(self, source_names: list[str]) -> None:
         try:
             if self._pending is not None:
-                weight = self._pending_weight.clamp(min=1e-8)
+                weight = self._clamped_weight(self._pending_weight)
                 normalized = self._pending / weight.unsqueeze(0).unsqueeze(0)
                 self._write_samples(normalized, source_names)
         finally:
@@ -270,6 +272,17 @@ class _StreamingStemWriter:
         for idx, stem_name in enumerate(source_names):
             data = samples[idx].detach().cpu().numpy().T
             self._files[stem_name].write(data)
+
+    @staticmethod
+    def _clamped_weight(weight):
+        if (
+            _TORCH_AVAILABLE
+            and getattr(weight, "device", None) is not None
+            and weight.device.type == "cpu"
+            and weight.dtype == _torch_module.float16
+        ):
+            weight = weight.float()
+        return weight.clamp(min=1e-8)
 
 
 class StemSeparator:

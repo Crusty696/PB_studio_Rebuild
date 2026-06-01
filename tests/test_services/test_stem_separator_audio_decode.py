@@ -69,10 +69,10 @@ def test_streaming_stem_writer_crossfades_without_full_accumulator(tmp_path: Pat
         channels=1,
         sample_rate=44100,
     )
-    chunk_1 = torch.tensor([[[1.0, 2.0, 3.0, 4.0, 5.0]]])
-    fade_1 = torch.tensor([1.0, 1.0, 1.0, 1.0, 0.0])
-    chunk_2 = torch.tensor([[[10.0, 20.0, 30.0, 40.0, 50.0]]])
-    fade_2 = torch.tensor([0.0, 1.0, 1.0, 1.0, 1.0])
+    chunk_1 = torch.tensor([[[1.0, 2.0, 3.0, 4.0, 5.0]]], dtype=torch.float16)
+    fade_1 = torch.tensor([1.0, 1.0, 1.0, 1.0, 0.0], dtype=torch.float16)
+    chunk_2 = torch.tensor([[[10.0, 20.0, 30.0, 40.0, 50.0]]], dtype=torch.float16)
+    fade_2 = torch.tensor([0.0, 1.0, 1.0, 1.0, 1.0], dtype=torch.float16)
 
     writer.write_chunk(chunk_1 * fade_1.unsqueeze(0).unsqueeze(0), fade_1, ["vocals"], 2, False)
     writer.write_chunk(chunk_2 * fade_2.unsqueeze(0).unsqueeze(0), fade_2, ["vocals"], 2, True)
