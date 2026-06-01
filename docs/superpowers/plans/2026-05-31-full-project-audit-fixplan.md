@@ -564,6 +564,37 @@ Do not assert against mocks unless evidence proves the app wiring is already cov
 
 Run targeted B-197 wiring test and default gate. Document next first failure if default gate still fails.
 
+## Task 1j: B-451 Stem Separator CPU FP16 Clamp Follow-Up
+
+**Findings:** FPA-001
+
+**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-451-default-gate-stem-separator-fp16-cpu-clamp.md`
+
+**Files:**
+- Test: `tests/test_services/test_stem_separator_audio_decode.py`
+- Modify only if root cause proves it: `services/ai_audio_service.py` streaming stem writer dtype handling.
+- Modify: `docs/superpowers/synthesis/test-gate-policy-2026-05-31.md`
+
+- [ ] **Step 1: Reproduce exact failure**
+
+Run:
+
+```powershell
+& "C:\Users\David Lochmann\miniconda3\envs\pb-studio\python.exe" -m pytest tests/test_services/test_stem_separator_audio_decode.py::test_streaming_stem_writer_crossfades_without_full_accumulator -vv --tb=short
+```
+
+- [ ] **Step 2: Trace dtype path**
+
+Read the test and `services/ai_audio_service.py` streaming stem writer. Identify why CPU half tensors reach `Tensor.clamp(min=...)`.
+
+- [ ] **Step 3: Implement root-cause fix only**
+
+Do not force CUDA or install another GPU backend. GTX 1060 rule applies: CUDA only if available, otherwise CPU-safe dtype.
+
+- [ ] **Step 4: Verify targeted and default gate**
+
+Run targeted stem separator test and default gate. Document next first failure if default gate still fails.
+
 ## Task 2: Runtime Manifest Drift Audit/Fix
 
 **Findings:** FPA-002
@@ -1083,4 +1114,4 @@ Stop and ask user if:
 
 ## Current Next Task
 
-Task 1i - B-450 Brain Wiring B197 Default-Gate Failure Follow-Up.
+Task 1j - B-451 Stem Separator CPU FP16 Clamp Follow-Up.

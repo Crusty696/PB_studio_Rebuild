@@ -407,3 +407,38 @@ Bugfile:
 ```text
 C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-450-default-gate-brain-wiring-b197-pbwindow-mock.md
 ```
+
+## B-450 Follow-Up Result
+
+Root cause:
+
+```text
+tests/test_pre_cache_headless.py imported main with mocked PySide6 modules and left that mocked main module in sys.modules. Later B-197 wiring tests imported cached main, where PBWindow was MagicMock instead of the real class.
+```
+
+Targeted tests after fix:
+
+```text
+tests/test_pre_cache_headless.py::test_pre_cache_headless_mode
+tests/test_services/test_brain_wiring_b197.py::test_main_pbwindow_has_brain_timeline_nav_slot
+2 passed
+```
+
+Default gate after B-450:
+
+```text
+1 failed, 1562 passed, 28 skipped, 6 deselected, 39 warnings in 719.59s
+```
+
+Next failure:
+
+```text
+tests/test_services/test_stem_separator_audio_decode.py::test_streaming_stem_writer_crossfades_without_full_accumulator
+RuntimeError: "clamp_min_cpu" not implemented for 'Half'
+```
+
+Bugfile:
+
+```text
+C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-451-default-gate-stem-separator-fp16-cpu-clamp.md
+```

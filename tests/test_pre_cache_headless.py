@@ -68,14 +68,17 @@ def test_pre_cache_headless_mode(monkeypatch):
         if "main" in sys.modules:
             del sys.modules["main"]
             
-        import main
-        with patch.object(
-            main,
-            "setup_logging",
-            side_effect=AssertionError("--pre-cache darf nicht in GUI-Startup weiterlaufen"),
-        ) as mock_setup_logging:
-            with pytest.raises(SystemExit) as exit_info:
-                main.main()
+        try:
+            import main
+            with patch.object(
+                main,
+                "setup_logging",
+                side_effect=AssertionError("--pre-cache darf nicht in GUI-Startup weiterlaufen"),
+            ) as mock_setup_logging:
+                with pytest.raises(SystemExit) as exit_info:
+                    main.main()
+        finally:
+            sys.modules.pop("main", None)
 
         assert exit_info.value.code == 0
         mock_setup_logging.assert_not_called()
