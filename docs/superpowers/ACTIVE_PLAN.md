@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-FULL-AUDIT-FIXPLAN-2026-05-31
-next_allowed_task: Task 4 - DB Project Switch And Soft-Delete Safety
+next_allowed_task: Task 5 - QThread Lifecycle Contract
 updated: 2026-06-01
 
 ## Meaning
@@ -75,4 +75,5 @@ PB-STUDIO-FULL-PROJECT-FILE-AUDIT-2026-05-31
 - Task 2 Runtime Manifest Drift Audit/Fix abgeschlossen: active env Python 3.10.20 + torch 1.12.1+cu113 passt zu `requirements-py310-cu113.txt`; bare `python` ist Conda base Python 3.13.12 + torch 2.6.0+cu124 und darf nicht als App-Runtime verwendet werden.
 - Task-2-Synthese: `docs/superpowers/synthesis/runtime-manifest-drift-2026-05-31.md`.
 - Task 3 FFmpeg Resolver Unification abgeschlossen: decoder/proxy_generator/stream_hasher nutzen `services.startup_checks` Resolver statt PATH-only `shutil.which`; targeted primitive tests gruen.
-- Naechster Schritt: Task 4 - DB Project Switch And Soft-Delete Safety.
+- Task 4 DB Project Switch And Soft-Delete Safety abgeschlossen als Coverage/Verification: neue Guard-/Visibility-Tests gruen; kein App-Code-Fix erforderlich. `pytest tests/test_db_deep.py -v` bleibt wegen `sys.exit` im Standalone-Script ein pytest-Runner-Problem; direkte Script-Ausfuehrung ergibt 78 PASS / 0 FAIL.
+- Naechster Schritt: Task 5 - QThread Lifecycle Contract.
