@@ -63,6 +63,47 @@ class TestDatabaseSchema:
 class TestPacingService:
     """Phase 2: Cut-Point Berechnungen."""
 
+    def test_calculate_cut_points_bpm_cache_isolated_by_engine(self):
+        """B-443: BPM cache must not leak values between patched DB engines."""
+        from services.pacing_service import PacingSettings, calculate_cut_points
+        import services.pacing_service as ps
+        import services.pacing_beat_grid as pbg
+
+        pbg.invalidate_pacing_caches()
+        original_ps_engine = ps.engine
+        original_pbg_engine = pbg.engine
+
+        engine_without_bpm = create_engine("sqlite:///:memory:", echo=False)
+        Base.metadata.create_all(engine_without_bpm)
+        with Session(engine_without_bpm) as session:
+            session.add(Project(name="No BPM", path=".", resolution="1920x1080", fps=30.0))
+            session.add(AudioTrack(id=1, project_id=1, file_path="/no-bpm.mp3", title="no-bpm"))
+            session.commit()
+
+        ps.engine = engine_without_bpm
+        pbg.engine = engine_without_bpm
+        assert pbg._get_bpm(1) is None
+
+        engine_with_bpm = create_engine("sqlite:///:memory:", echo=False)
+        Base.metadata.create_all(engine_with_bpm)
+        with Session(engine_with_bpm) as session:
+            session.add(Project(name="With BPM", path=".", resolution="1920x1080", fps=30.0))
+            session.add(AudioTrack(id=1, project_id=1, file_path="/bpm.mp3", title="bpm", bpm=120.0))
+            session.commit()
+
+        ps.engine = engine_with_bpm
+        pbg.engine = engine_with_bpm
+        try:
+            settings = PacingSettings(tempo=50, energy=50, cut_density=50)
+            cuts = calculate_cut_points(1, None, settings, 10.0)
+            assert cuts
+            assert pbg._get_bpm(1) == 120.0
+            assert all(c.source == "beat" for c in cuts)
+        finally:
+            ps.engine = original_ps_engine
+            pbg.engine = original_pbg_engine
+            pbg.invalidate_pacing_caches()
+
     def test_calculate_cut_points_with_bpm(self, db_session):
         session, engine = db_session
         track = AudioTrack(project_id=1, file_path="/test.mp3", title="test", bpm=120.0)

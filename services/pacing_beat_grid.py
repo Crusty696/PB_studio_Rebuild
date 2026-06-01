@@ -294,8 +294,13 @@ def _get_audio_path(audio_id: int) -> str:
         return track.file_path if track else ""
 
 
+def _engine_cache_identity() -> tuple[int, str]:
+    return id(engine), str(getattr(engine, "url", ""))
+
+
 @lru_cache(maxsize=64)
-def _get_bpm(audio_id: int | None) -> float | None:
+def _get_bpm_cached(engine_identity: tuple[int, str], audio_id: int) -> float | None:
+    # engine_identity is part of the cache key; Session still uses current module engine.
     if audio_id is None:
         return None
     with Session(engine) as session:
@@ -303,6 +308,16 @@ def _get_bpm(audio_id: int | None) -> float | None:
             AudioTrack.id == audio_id, AudioTrack.deleted_at.is_(None)
         ).first()
         return track.bpm if track else None
+
+
+def _get_bpm(audio_id: int | None) -> float | None:
+    if audio_id is None:
+        return None
+    return _get_bpm_cached(_engine_cache_identity(), int(audio_id))
+
+
+_get_bpm.cache_clear = _get_bpm_cached.cache_clear
+_get_bpm.cache_info = _get_bpm_cached.cache_info
 
 
 def _get_video_info(video_ids: list[int]) -> dict[int, dict]:

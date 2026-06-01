@@ -2,8 +2,8 @@
 
 status: active
 active_plan_id: PB-STUDIO-FULL-AUDIT-FIXPLAN-2026-05-31
-next_allowed_task: Task 1b - B-443 Pacing Cut Point Default-Gate Follow-Up
-updated: 2026-05-31
+next_allowed_task: Task 1c - B-444 Grid Stability Default-Gate Crash Follow-Up
+updated: 2026-06-01
 
 ## Meaning
 
@@ -41,8 +41,10 @@ PB-STUDIO-FULL-PROJECT-FILE-AUDIT-2026-05-31
 - B-441 ist als Task 1a in den Fixplan aufgenommen.
 - B-441 targeted Tests gruen; Default Gate kam weiter.
 - B-442 Governance-Pfad-Fix targeted Test gruen; Default Gate kam weiter.
-- Neuer Blocker: Default pytest gate scheitert bei `tests/test_new_features.py::TestPacingService::test_calculate_cut_points_with_bpm`, weil nicht alle Cuts `source == "beat"` haben.
+- B-443 targeted Tests gruen; Default Gate kam weiter.
+- Neuer Blocker: Default pytest gate crasht mit Windows Access Violation `-1073741819` waehrend `tests/test_grid_stability.py::test_grid_with_invalid_paths`.
 - Bugfile: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-441-default-gate-structure-enrichment-zero-scenes.md`.
 - Bugfile: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-442-plan-registry-missing-bug-hunt-repo-path.md`.
 - Bugfile: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-443-default-gate-pacing-cut-points-source-not-beat.md`.
-- Naechster Schritt: Task 1b - B-443 Pacing Cut Point Default-Gate Follow-Up.
+- Bugfile: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-444-default-gate-grid-stability-access-violation.md`.
+- Naechster Schritt: Task 1c - B-444 Grid Stability Default-Gate Crash Follow-Up.

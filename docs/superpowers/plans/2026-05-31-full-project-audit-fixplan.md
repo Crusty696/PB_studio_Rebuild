@@ -334,6 +334,50 @@ Run:
 & "C:\Users\David Lochmann\miniconda3\envs\pb-studio\python.exe" -m pytest -m "not live_gpu and not e2e and not slow" --maxfail=1 --disable-warnings --cache-clear -q
 ```
 
+## Task 1c: B-444 Grid Stability Default-Gate Crash Follow-Up
+
+**Findings:** FPA-001
+
+**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-444-default-gate-grid-stability-access-violation.md`
+
+**Files:**
+- Test: `tests/test_grid_stability.py`
+- Modify only if root cause proves it: `ui/widgets/media_grid.py`
+- Modify: `docs/superpowers/synthesis/test-gate-policy-2026-05-31.md`
+
+- [ ] **Step 1: Reproduce exact crash**
+
+Run:
+
+```powershell
+& "C:\Users\David Lochmann\miniconda3\envs\pb-studio\python.exe" -m pytest tests/test_grid_stability.py::test_grid_with_invalid_paths -vv --tb=short
+```
+
+If targeted test passes, reproduce the order-dependent crash from the default gate and capture the last completed test plus exit code.
+
+- [ ] **Step 2: Trace Qt/media-grid teardown**
+
+Read `tests/test_grid_stability.py` and `ui/widgets/media_grid.py`. Identify whether crash is caused by QApplication reuse, pending thumbnail work, widget deletion, invalid image/path handling, or previous-suite state.
+
+- [ ] **Step 3: Implement root-cause fix only**
+
+Do not skip the test unless evidence proves it is inherently live/GUI-only and must be moved behind a marker.
+
+- [ ] **Step 4: Verify targeted and default gate**
+
+Run:
+
+```powershell
+& "C:\Users\David Lochmann\miniconda3\envs\pb-studio\python.exe" -m pytest tests/test_grid_stability.py::test_grid_with_invalid_paths -vv --tb=short
+& "C:\Users\David Lochmann\miniconda3\envs\pb-studio\python.exe" -m pytest -m "not live_gpu and not e2e and not slow" --maxfail=1 --disable-warnings --cache-clear -q
+```
+
+Expected:
+
+```text
+Targeted test passes. Default gate passes or next first failure/crash is documented as a new blocker/bug.
+```
+
 ## Task 2: Runtime Manifest Drift Audit/Fix
 
 **Findings:** FPA-002
@@ -853,4 +897,4 @@ Stop and ask user if:
 
 ## Current Next Task
 
-Task 1a - B-441 Structure Enrichment Default-Gate Follow-Up.
+Task 1c - B-444 Grid Stability Default-Gate Crash Follow-Up.

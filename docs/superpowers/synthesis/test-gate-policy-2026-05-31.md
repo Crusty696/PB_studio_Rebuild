@@ -146,3 +146,51 @@ Bugfile:
 ```text
 C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-443-default-gate-pacing-cut-points-source-not-beat.md
 ```
+
+## B-443 Follow-Up Result
+
+Root cause:
+
+```text
+services.pacing_beat_grid._get_bpm(audio_id) used lru_cache with audio_id as the only key.
+Earlier tests could cache None for audio_id=1 against one patched SQLAlchemy engine.
+Later tests patched a different engine with audio_id=1 and bpm=120.0, but received the stale None.
+calculate_cut_points then used the energy fallback instead of BPM beat cuts.
+```
+
+Regression before fix:
+
+```text
+tests/test_new_features.py::TestPacingService::test_calculate_cut_points_bpm_cache_isolated_by_engine
+FAILED: pbg._get_bpm(1) returned None after switching to engine with bpm=120.0
+```
+
+Targeted tests after fix:
+
+```text
+tests/test_new_features.py::TestPacingService::test_calculate_cut_points_bpm_cache_isolated_by_engine
+1 passed
+
+tests/test_new_features.py::TestPacingService::test_calculate_cut_points_with_bpm
+1 passed
+```
+
+Default gate after B-443:
+
+```text
+Exitcode -1073741819
+Last visible running test: tests/test_grid_stability.py::test_grid_with_invalid_paths
+```
+
+Targeted grid test alone:
+
+```text
+tests/test_grid_stability.py::test_grid_with_invalid_paths
+1 passed
+```
+
+Bugfile:
+
+```text
+C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-444-default-gate-grid-stability-access-violation.md
+```
