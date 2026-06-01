@@ -1253,4 +1253,4 @@ Stop and ask user if:
 
 ## Current Next Task
 
-Task 2 - Runtime Manifest Drift Audit/Fix.
+Task 3 - FFmpeg Resolver Unification.

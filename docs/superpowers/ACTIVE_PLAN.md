@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-FULL-AUDIT-FIXPLAN-2026-05-31
-next_allowed_task: Task 2 - Runtime Manifest Drift Audit/Fix
+next_allowed_task: Task 3 - FFmpeg Resolver Unification
 updated: 2026-06-01
 
 ## Meaning
@@ -72,4 +72,6 @@ PB-STUDIO-FULL-PROJECT-FILE-AUDIT-2026-05-31
 - Bugfile: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-454-default-gate-video-pipeline-metadata-snapshot-fake-session.md`.
 - Bugfile: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-455-default-gate-schnitt-workspace-switch-refresh-missing.md`.
 - Bugfile: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-456-default-gate-thumb-apply-helper-removed.md`.
-- Naechster Schritt: Task 2 - Runtime Manifest Drift Audit/Fix.
+- Task 2 Runtime Manifest Drift Audit/Fix abgeschlossen: active env Python 3.10.20 + torch 1.12.1+cu113 passt zu `requirements-py310-cu113.txt`; bare `python` ist Conda base Python 3.13.12 + torch 2.6.0+cu124 und darf nicht als App-Runtime verwendet werden.
+- Task-2-Synthese: `docs/superpowers/synthesis/runtime-manifest-drift-2026-05-31.md`.
+- Naechster Schritt: Task 3 - FFmpeg Resolver Unification.
