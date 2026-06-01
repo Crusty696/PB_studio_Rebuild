@@ -124,3 +124,18 @@ def test_probe_raises_on_invalid_path(tmp_path: Path):
     bogus = tmp_path / "doesnt_exist.mp4"
     with pytest.raises(FileNotFoundError):
         dec.probe(bogus)
+
+
+def test_decoder_uses_configured_ffmpeg_resolvers(monkeypatch):
+    import services.startup_checks as startup_checks
+    import services.video_pipeline.primitives.decoder as decoder
+
+    configured_ffmpeg = r"C:\PB-Studio-Bin\ffmpeg.exe"
+    configured_ffprobe = r"C:\PB-Studio-Bin\ffprobe.exe"
+    monkeypatch.setattr(startup_checks, "get_ffmpeg_bin", lambda: configured_ffmpeg)
+    monkeypatch.setattr(startup_checks, "get_ffprobe_bin", lambda: configured_ffprobe)
+
+    dec = decoder.VideoDecoder()
+
+    assert dec._ffmpeg == configured_ffmpeg
+    assert dec._ffprobe == configured_ffprobe

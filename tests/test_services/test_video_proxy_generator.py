@@ -113,3 +113,16 @@ def test_b367_no_upscale_below_max_width(tmp_path: Path):
     generate_proxy(src, dst, max_width=960, bitrate="500k", codec="libx264")
     meta = VideoDecoder().probe(dst)
     assert meta.width <= 320  # never larger than the 320px source
+
+
+def test_proxy_generator_uses_configured_ffmpeg_resolvers(monkeypatch):
+    import services.startup_checks as startup_checks
+    import services.video_pipeline.primitives.proxy_generator as proxy_generator
+
+    configured_ffmpeg = r"C:\PB-Studio-Bin\ffmpeg.exe"
+    configured_ffprobe = r"C:\PB-Studio-Bin\ffprobe.exe"
+    monkeypatch.setattr(startup_checks, "get_ffmpeg_bin", lambda: configured_ffmpeg)
+    monkeypatch.setattr(startup_checks, "get_ffprobe_bin", lambda: configured_ffprobe)
+
+    assert proxy_generator._ffmpeg() == configured_ffmpeg
+    assert proxy_generator._ffprobe() == configured_ffprobe

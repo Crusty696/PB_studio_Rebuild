@@ -1253,4 +1253,4 @@ Stop and ask user if:
 
 ## Current Next Task
 
-Task 3 - FFmpeg Resolver Unification.
+Task 4 - DB Project Switch And Soft-Delete Safety.

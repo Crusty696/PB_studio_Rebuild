@@ -15,7 +15,6 @@ phase 10+ falls Performance-Bottleneck.
 from __future__ import annotations
 
 import json
-import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -23,6 +22,7 @@ from typing import Iterator, Optional
 
 import numpy as np
 
+from services import startup_checks
 
 __all__ = ["VideoDecoder", "VideoMeta"]
 
@@ -39,15 +39,15 @@ class VideoMeta:
 
 
 def _resolve_ffmpeg() -> str:
-    ff = shutil.which("ffmpeg")
-    if ff is None:
+    ff = str(startup_checks.get_ffmpeg_bin())
+    if not ff:
         raise RuntimeError("ffmpeg not found in PATH")
     return ff
 
 
 def _resolve_ffprobe() -> str:
-    fp = shutil.which("ffprobe")
-    if fp is None:
+    fp = str(startup_checks.get_ffprobe_bin())
+    if not fp:
         raise RuntimeError("ffprobe not found in PATH")
     return fp
 

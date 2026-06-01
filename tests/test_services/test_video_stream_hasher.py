@@ -98,3 +98,40 @@ def test_stream_sha_strict_invalid_kind_raises(synth_video: Path):
     from services.video_pipeline.primitives.stream_hasher import stream_sha256
     with pytest.raises(ValueError):
         stream_sha256(synth_video, kind="bogus", strict=True)
+
+
+def test_stream_sha_strict_uses_configured_ffmpeg_resolver(monkeypatch, tmp_path: Path):
+    import services.startup_checks as startup_checks
+    import services.video_pipeline.primitives.stream_hasher as stream_hasher
+
+    configured_ffmpeg = r"C:\PB-Studio-Bin\ffmpeg.exe"
+    captured_cmds: list[list[str]] = []
+
+    class _FakePipe:
+        def read(self, _size: int = -1) -> bytes:
+            return b""
+
+        def close(self) -> None:
+            return None
+
+    class _FakeProc:
+        def __init__(self, args, stdout=None, stderr=None):
+            captured_cmds.append(list(args))
+            self.stdout = _FakePipe()
+            self.stderr = _FakePipe()
+            self.returncode = 0
+
+        def wait(self, timeout=None):
+            return 0
+
+    monkeypatch.setattr(startup_checks, "get_ffmpeg_bin", lambda: configured_ffmpeg)
+    monkeypatch.setattr(stream_hasher.subprocess, "Popen", _FakeProc)
+
+    media = tmp_path / "media.mp4"
+    media.write_bytes(b"not decoded by fake popen")
+
+    digest = stream_hasher.stream_sha256(media, kind="video", strict=True)
+
+    assert len(digest) == 64
+    assert captured_cmds
+    assert captured_cmds[0][0] == configured_ffmpeg

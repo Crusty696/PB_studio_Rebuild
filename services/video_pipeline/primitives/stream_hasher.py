@@ -14,10 +14,10 @@ from __future__ import annotations
 
 import hashlib
 import os
-import shutil
 import subprocess
 from pathlib import Path
 
+from services import startup_checks
 
 __all__ = ["stream_sha256"]
 
@@ -42,8 +42,8 @@ def _hash_fast(path: Path) -> str:
 
 
 def _hash_strict(path: Path, kind: str) -> str:
-    ffmpeg = shutil.which("ffmpeg")
-    if ffmpeg is None:
+    ffmpeg = str(startup_checks.get_ffmpeg_bin())
+    if not ffmpeg:
         raise RuntimeError("ffmpeg not in PATH (strict mode requires ffmpeg)")
 
     if kind == "video":

@@ -13,10 +13,10 @@ Codec-Strategie:
 from __future__ import annotations
 
 import logging
-import shutil
 import subprocess
 from pathlib import Path
 
+from services import startup_checks
 
 logger = logging.getLogger(__name__)
 
@@ -24,14 +24,15 @@ __all__ = ["generate_proxy"]
 
 
 def _ffmpeg() -> str:
-    ff = shutil.which("ffmpeg")
-    if ff is None:
+    ff = str(startup_checks.get_ffmpeg_bin())
+    if not ff:
         raise RuntimeError("ffmpeg not in PATH")
     return ff
 
 
 def _ffprobe() -> str | None:
-    return shutil.which("ffprobe")
+    probe = str(startup_checks.get_ffprobe_bin())
+    return probe or None
 
 
 def _is_valid_video(path: Path) -> bool:
