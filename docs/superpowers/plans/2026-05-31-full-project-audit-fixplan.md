@@ -1253,4 +1253,4 @@ Stop and ask user if:
 
 ## Current Next Task
 
-Task 1o - B-456 Thumbnail Apply Helper Follow-Up.
+Task 2 - Runtime Manifest Drift Audit/Fix.

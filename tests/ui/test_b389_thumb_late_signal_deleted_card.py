@@ -24,22 +24,22 @@ def _img(w: int = 10, h: int = 10) -> QImage:
 
 def test_apply_thumbnail_ignores_deleted_card():
     app = _qapp()
-    from ui.widgets.media_grid import MediaPoolGrid, VideoCard
+    from ui.widgets.media_grid import VideoCard
 
     card = VideoCard(1, "t", "p.mp4")
     card.deleteLater()
     app.sendPostedEvents(card, QEvent.Type.DeferredDelete)
 
     # darf nicht crashen, obwohl card-C++-Objekt geloescht ist
-    MediaPoolGrid._apply_thumbnail(card, _img())
+    card.apply_thumbnail_image("p.mp4", _img())
 
 
 def test_apply_thumbnail_sets_on_live_card():
     _qapp()
-    from ui.widgets.media_grid import MediaPoolGrid, VideoCard
+    from ui.widgets.media_grid import VideoCard
 
     card = VideoCard(2, "t", "p.mp4")
-    MediaPoolGrid._apply_thumbnail(card, _img())
+    card.apply_thumbnail_image("p.mp4", _img())
 
     pm = card._thumb.pixmap()
     assert pm is not None and not pm.isNull()

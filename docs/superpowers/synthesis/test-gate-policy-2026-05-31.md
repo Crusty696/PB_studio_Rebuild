@@ -644,3 +644,41 @@ Bugfile:
 ```text
 C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-456-default-gate-thumb-apply-helper-removed.md
 ```
+
+## B-456 Follow-Up Result
+
+Root cause:
+
+```text
+B-453 moved thumbnail QImage-to-QPixmap conversion to VideoCard.apply_thumbnail_image() so worker.done has a QObject receiver on the GUI thread. B-389 tests still called the removed private MediaPoolGrid._apply_thumbnail helper.
+```
+
+Fix:
+
+```text
+B-389 tests now call VideoCard.apply_thumbnail_image(). The helper was not restored because a free helper path would weaken the B-453 guard against worker-thread QPixmap creation.
+```
+
+Targeted tests after fix:
+
+```text
+tests/ui/test_b389_thumb_late_signal_deleted_card.py
+2 passed
+
+tests/test_grid_stability.py::test_thumb_loader_callbacks_do_not_capture_grid_self tests/ui/test_b389_thumb_late_signal_deleted_card.py
+3 passed
+```
+
+Default gate after B-456:
+
+```text
+2315 passed, 37 skipped, 6 deselected, 62 warnings in 810.22s
+```
+
+## Task 1 Default Gate Result
+
+```text
+Default pytest gate passed.
+App live verification not run.
+No `fixed` status written.
+```
