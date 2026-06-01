@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-FULL-AUDIT-FIXPLAN-2026-05-31
-next_allowed_task: Task 1c - B-444 Grid Stability Default-Gate Crash Follow-Up
+next_allowed_task: Task 1d - B-445 Pacing Scoring Performance Default-Gate Follow-Up
 updated: 2026-06-01
 
 ## Meaning
@@ -42,9 +42,11 @@ PB-STUDIO-FULL-PROJECT-FILE-AUDIT-2026-05-31
 - B-441 targeted Tests gruen; Default Gate kam weiter.
 - B-442 Governance-Pfad-Fix targeted Test gruen; Default Gate kam weiter.
 - B-443 targeted Tests gruen; Default Gate kam weiter.
-- Neuer Blocker: Default pytest gate crasht mit Windows Access Violation `-1073741819` waehrend `tests/test_grid_stability.py::test_grid_with_invalid_paths`.
+- B-444 targeted Tests gruen; Default Gate kam weiter.
+- Neuer Blocker: Default pytest gate scheitert bei `tests/integration/test_pacing_performance.py::test_scoring_latency_per_cut_under_budget`, median 33.63 ms >= 30.0 ms.
 - Bugfile: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-441-default-gate-structure-enrichment-zero-scenes.md`.
 - Bugfile: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-442-plan-registry-missing-bug-hunt-repo-path.md`.
 - Bugfile: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-443-default-gate-pacing-cut-points-source-not-beat.md`.
 - Bugfile: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-444-default-gate-grid-stability-access-violation.md`.
-- Naechster Schritt: Task 1c - B-444 Grid Stability Default-Gate Crash Follow-Up.
+- Bugfile: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-445-default-gate-pacing-scoring-latency-regression.md`.
+- Naechster Schritt: Task 1d - B-445 Pacing Scoring Performance Default-Gate Follow-Up.

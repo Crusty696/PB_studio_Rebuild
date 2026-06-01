@@ -1,9 +1,11 @@
 import sys
 import os
 import logging
+import time
 from pathlib import Path
 from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import QTimer
+from PySide6.QtGui import QImage
 
 # Add project root to path
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
@@ -49,6 +51,103 @@ def test_grid_with_invalid_paths():
     # Cleanup: Grid und seine Threads ordentlich abbauen.
     grid.deleteLater()
     app.processEvents()
+
+
+def test_grid_delete_later_stops_thumbnail_threads(monkeypatch, tmp_path):
+    app = QApplication.instance() or QApplication(sys.argv)
+
+    import ui.widgets.media_grid as media_grid
+
+    def slow_extract(self):
+        time.sleep(0.5)
+        img = QImage(self._w, self._h, QImage.Format.Format_ARGB32_Premultiplied)
+        img.fill(0)
+        return img
+
+    monkeypatch.setattr(media_grid._ThumbWorker, "_extract", slow_extract)
+
+    grid = MediaPoolGrid(media_type="video")
+    fake_items = []
+    for i in range(20):
+        media_path = tmp_path / f"slow_video_{i}.mp4"
+        media_path.write_bytes(b"placeholder")
+        fake_items.append({
+            "id": i,
+            "title": f"Slow Clip {i}",
+            "file_path": str(media_path),
+            "resolution": "1920x1080",
+            "fps": 30.0,
+        })
+
+    threads = []
+    try:
+        grid.set_items(fake_items)
+        deadline = time.time() + 2.0
+        while time.time() < deadline:
+            app.processEvents()
+            threads = list(grid._thumb_threads)
+            if threads and any(t.isRunning() for t in threads):
+                break
+            time.sleep(0.02)
+
+        assert threads
+        assert any(t.isRunning() for t in threads)
+
+        grid.deleteLater()
+        app.processEvents()
+
+        still_running = []
+        for thread in threads:
+            try:
+                still_running.append(thread.isRunning())
+            except RuntimeError:
+                still_running.append(False)
+        assert not any(still_running)
+    finally:
+        for thread in threads:
+            try:
+                if thread.isRunning():
+                    thread.quit()
+                    thread.wait(1000)
+            except RuntimeError:
+                pass
+        app.processEvents()
+
+
+def test_grid_invalid_paths_do_not_start_thumbnail_threads(monkeypatch):
+    app = QApplication.instance() or QApplication(sys.argv)
+    grid = MediaPoolGrid(media_type="video")
+    started_paths = []
+
+    original_start = grid._start_thumb_loader
+
+    def record_start(card, file_path):
+        started_paths.append(file_path)
+        return original_start(card, file_path)
+
+    monkeypatch.setattr(grid, "_start_thumb_loader", record_start)
+
+    try:
+        grid.set_items([
+            {
+                "id": 1,
+                "title": "Missing Clip",
+                "file_path": "C:/nonexistent/missing_clip.mp4",
+                "resolution": "1920x1080",
+                "fps": 30.0,
+            }
+        ])
+        deadline = time.time() + 1.0
+        while time.time() < deadline and not grid._cards:
+            app.processEvents()
+            time.sleep(0.02)
+
+        assert grid._cards
+        assert started_paths == []
+        assert grid._thumb_threads == []
+    finally:
+        grid.deleteLater()
+        app.processEvents()
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)

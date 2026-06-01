@@ -194,3 +194,40 @@ Bugfile:
 ```text
 C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-444-default-gate-grid-stability-access-violation.md
 ```
+
+## B-444 Follow-Up Result
+
+Root cause:
+
+```text
+MediaPoolGrid started thumbnail worker threads even for missing file paths.
+Those workers only produced placeholders, but still created QThreads during invalid-path grid tests.
+MediaPoolGrid.deleteLater() also did not synchronously stop running thumbnail threads.
+Under the default-gate order this correlated with Windows access-violation crashes at the grid stability test.
+```
+
+Targeted tests after fix:
+
+```text
+tests/test_grid_stability.py
+3 passed
+```
+
+Default gate after B-444:
+
+```text
+1 failed, 48 passed, 6 skipped, 6 deselected, 8 warnings in 211.30s
+```
+
+Next failure:
+
+```text
+tests/integration/test_pacing_performance.py::test_scoring_latency_per_cut_under_budget
+AssertionError: Scoring latency regression: median=33.63 ms >= 30.0 ms regression limit (budget 20.0 ms).
+```
+
+Bugfile:
+
+```text
+C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-445-default-gate-pacing-scoring-latency-regression.md
+```

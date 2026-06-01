@@ -380,6 +380,37 @@ Targeted test passes. Default gate passes or next first failure/crash is documen
 
 ## Task 2: Runtime Manifest Drift Audit/Fix
 
+## Task 1d: B-445 Pacing Scoring Performance Default-Gate Follow-Up
+
+**Findings:** FPA-001
+
+**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-445-default-gate-pacing-scoring-latency-regression.md`
+
+**Files:**
+- Test: `tests/integration/test_pacing_performance.py`
+- Modify only if root cause proves it: pacing scorer / weights-loader hot path modules.
+- Modify: `docs/superpowers/synthesis/test-gate-policy-2026-05-31.md`
+
+- [ ] **Step 1: Reproduce exact performance failure**
+
+Run:
+
+```powershell
+& "C:\Users\David Lochmann\miniconda3\envs\pb-studio\python.exe" -m pytest tests/integration/test_pacing_performance.py::test_scoring_latency_per_cut_under_budget -vv --tb=short
+```
+
+- [ ] **Step 2: Trace scorer hot path**
+
+Read `tests/integration/test_pacing_performance.py` and the scorer modules used by the test. Identify whether overhead comes from formula evaluation, weights loading, object allocation, or test environment variance.
+
+- [ ] **Step 3: Implement root-cause fix only**
+
+Do not loosen the threshold unless evidence proves the budget is obsolete.
+
+- [ ] **Step 4: Verify targeted and default gate**
+
+Run targeted performance test and default gate. Document next first failure if default gate still fails.
+
 **Findings:** FPA-002
 
 **Files:**
@@ -897,4 +928,4 @@ Stop and ask user if:
 
 ## Current Next Task
 
-Task 1c - B-444 Grid Stability Default-Gate Crash Follow-Up.
+Task 1d - B-445 Pacing Scoring Performance Default-Gate Follow-Up.

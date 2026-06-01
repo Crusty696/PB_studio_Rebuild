@@ -526,6 +526,35 @@ class MediaPoolGrid(QWidget):
 
     # ── Internal ─────────────────────────────────────────────────────
 
+    def _stop_thumb_threads(self, wait: bool = False) -> None:
+        """Stop background thumbnail threads before rebuild or widget deletion."""
+        if hasattr(self, "_load_timer"):
+            self._load_timer.stop()
+        if hasattr(self, "_relayout_timer"):
+            self._relayout_timer.stop()
+
+        threads = list(self._thumb_threads)
+        self._thumb_threads.clear()
+
+        for thread in threads:
+            try:
+                if thread.isRunning():
+                    thread.quit()
+            except RuntimeError:
+                continue
+
+        if wait:
+            for thread in threads:
+                try:
+                    if thread.isRunning() and not thread.wait(2000):
+                        logger.warning("Thumbnail thread did not stop before grid deletion")
+                except RuntimeError:
+                    continue
+
+    def deleteLater(self) -> None:  # noqa: N802
+        self._stop_thumb_threads(wait=True)
+        super().deleteLater()
+
     def _rebuild_cards(self) -> None:
         if self._in_relayout:
             return
@@ -538,10 +567,7 @@ class MediaPoolGrid(QWidget):
             _parent.setUpdatesEnabled(False)
         try:
             # H-27 Fix: Threads sauber beenden mit deleteLater nach finished
-            for t in self._thumb_threads:
-                t.finished.connect(t.deleteLater)
-                t.quit()
-            self._thumb_threads.clear()
+            self._stop_thumb_threads(wait=False)
 
             # Remove all cards from layout and delete
             while self._grid.count():
@@ -583,15 +609,18 @@ class MediaPoolGrid(QWidget):
                 # blieben auf dem grauen ``▶``-Placeholder.
                 _fp = data.get("file_path")
                 if _fp:
-                    try:
-                        self._start_thumb_loader(card, _fp)
-                    except Exception as _thumb_exc:
-                        # Thumb-Spawn darf das Card-Rendering nicht killen.
-                        import logging as _log
-                        _log.getLogger(__name__).warning(
-                            "B-087: Thumb-Loader spawn failed for %s: %s",
-                            _fp, _thumb_exc,
-                        )
+                    if Path(_fp).exists():
+                        try:
+                            self._start_thumb_loader(card, _fp)
+                        except Exception as _thumb_exc:
+                            # Thumb-Spawn darf das Card-Rendering nicht killen.
+                            import logging as _log
+                            _log.getLogger(__name__).warning(
+                                "B-087: Thumb-Loader spawn failed for %s: %s",
+                                _fp, _thumb_exc,
+                            )
+                    else:
+                        card.set_thumbnail(_placeholder_pixmap(_CW - 8, _TH, "✖"))
             else:
                 energy = []
                 ec = data.get("energy_curve")
