@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-FULL-AUDIT-FIXPLAN-2026-05-31
-next_allowed_task: Task 1n - B-455 Schnitt Workspace Switch Refresh Follow-Up
+next_allowed_task: Task 1o - B-456 Thumbnail Apply Helper Follow-Up
 updated: 2026-06-01
 
 ## Meaning
@@ -53,7 +53,8 @@ PB-STUDIO-FULL-PROJECT-FILE-AUDIT-2026-05-31
 - B-452 targeted Test und Modul gruen; Default Gate erreicht B-452 nicht, weil es vorher nativ crasht.
 - B-453 targeted Tests gruen; Default Gate crasht nicht mehr bei Grid und kam weiter.
 - B-454 targeted Tests gruen; Default Gate kam weiter.
-- Neuer Blocker: Default pytest gate stoppt bei `tests/ui/test_b309_schnitt_no_project_empty.py::test_b315_workspace_switch_to_schnitt_has_no_direct_duplicate_refresh`.
+- B-455 targeted Tests gruen; Default Gate kam weiter.
+- Neuer Blocker: Default pytest gate stoppt bei `tests/ui/test_b389_thumb_late_signal_deleted_card.py::test_apply_thumbnail_ignores_deleted_card`.
 - Bugfile: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-441-default-gate-structure-enrichment-zero-scenes.md`.
 - Bugfile: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-442-plan-registry-missing-bug-hunt-repo-path.md`.
 - Bugfile: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-443-default-gate-pacing-cut-points-source-not-beat.md`.
@@ -69,4 +70,5 @@ PB-STUDIO-FULL-PROJECT-FILE-AUDIT-2026-05-31
 - Bugfile: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-453-default-gate-grid-stability-native-crash-after-b452.md`.
 - Bugfile: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-454-default-gate-video-pipeline-metadata-snapshot-fake-session.md`.
 - Bugfile: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-455-default-gate-schnitt-workspace-switch-refresh-missing.md`.
-- Naechster Schritt: Task 1n - B-455 Schnitt Workspace Switch Refresh Follow-Up.
+- Bugfile: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-456-default-gate-thumb-apply-helper-removed.md`.
+- Naechster Schritt: Task 1o - B-456 Thumbnail Apply Helper Follow-Up.

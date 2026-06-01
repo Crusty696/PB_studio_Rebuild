@@ -601,3 +601,46 @@ Bugfile:
 ```text
 C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-455-default-gate-schnitt-workspace-switch-refresh-missing.md
 ```
+
+## B-455 Follow-Up Result
+
+Root cause:
+
+```text
+_on_workspace_changed(2) pushed project state into SCHNITT but did not refresh Director combos for the active project. Putting the refresh into _push_active_project_to_schnitt() violates B-321 because project-change hooks must not synchronously refresh combos.
+```
+
+Fix:
+
+```text
+The combo refresh now runs only in the workspace-switch branch for index 2, after _push_active_project_to_schnitt(), with explicit project_id and allow_active_fallback=False.
+```
+
+Targeted tests after fix:
+
+```text
+tests/ui/test_b309_schnitt_no_project_empty.py::test_b315_workspace_switch_to_schnitt_has_no_direct_duplicate_refresh
+1 passed
+
+tests/ui/test_b309_schnitt_no_project_empty.py tests/ui/test_b321_project_open_avoids_sync_combo_refresh.py
+7 passed
+```
+
+Default gate after B-455:
+
+```text
+1 failed, 1916 passed, 29 skipped, 6 deselected, 61 warnings in 682.49s
+```
+
+Next failure:
+
+```text
+tests/ui/test_b389_thumb_late_signal_deleted_card.py::test_apply_thumbnail_ignores_deleted_card
+AttributeError: type object 'MediaPoolGrid' has no attribute '_apply_thumbnail'
+```
+
+Bugfile:
+
+```text
+C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-456-default-gate-thumb-apply-helper-removed.md
+```

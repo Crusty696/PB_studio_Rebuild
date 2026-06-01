@@ -653,6 +653,22 @@ class WorkspaceSetupController(PBComponent):
             self.window.workspace_stack.setCurrentIndex(2)
             # B-285 Phase B Hook-1: Tab-Wechsel zu SCHNITT.
             self._push_active_project_to_schnitt()
+            manager = getattr(self.window, "_project_manager", None)
+            if getattr(manager, "current_project_path", None) is not None:
+                try:
+                    from database import get_active_project_id
+                    pid = get_active_project_id()
+                except Exception as exc:
+                    self.logger.debug("active project id unavailable for director combos: %s", exc)
+                    pid = None
+            else:
+                pid = None
+            media_ctrl = getattr(self.window, "media_table_controller", None)
+            if media_ctrl is not None:
+                try:
+                    media_ctrl._refresh_director_combos(pid, allow_active_fallback=False)
+                except Exception as exc:
+                    self.logger.debug("schnitt director combo refresh failed: %s", exc)
             return
         if index == 3:
             self.window.workspace_stack.setCurrentIndex(3)

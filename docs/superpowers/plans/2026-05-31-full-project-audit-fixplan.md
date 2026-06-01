@@ -707,6 +707,33 @@ Do not weaken the expected refresh assertion unless evidence proves the expected
 
 Run targeted Schnitt test and default gate. Document next first failure if default gate still fails.
 
+## Task 1o: B-456 Thumbnail Apply Helper Follow-Up
+
+**Findings:** FPA-001, FPA-008
+
+**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-456-default-gate-thumb-apply-helper-removed.md`
+
+**Files:**
+- Test: `tests/ui/test_b389_thumb_late_signal_deleted_card.py`
+- Modify only if root cause proves it: `ui/widgets/media_grid.py`, thumbnail late-signal compatibility.
+- Modify: `docs/superpowers/synthesis/test-gate-policy-2026-05-31.md`
+
+- [ ] **Step 1: Reproduce exact failure**
+
+Run targeted B-389 thumbnail late-signal test.
+
+- [ ] **Step 2: Trace compatibility contract**
+
+Read the B-389 test and B-453 thumbnail slot change. Decide whether to restore helper compatibility or update the test to the new slot contract.
+
+- [ ] **Step 3: Implement root-cause fix only**
+
+Do not reintroduce worker-thread QPixmap creation.
+
+- [ ] **Step 4: Verify targeted and default gate**
+
+Run targeted thumbnail tests and default gate. Document next first failure if default gate still fails.
+
 ## Task 2: Runtime Manifest Drift Audit/Fix
 
 **Findings:** FPA-002
@@ -1226,4 +1253,4 @@ Stop and ask user if:
 
 ## Current Next Task
 
-Task 1n - B-455 Schnitt Workspace Switch Refresh Follow-Up.
+Task 1o - B-456 Thumbnail Apply Helper Follow-Up.
