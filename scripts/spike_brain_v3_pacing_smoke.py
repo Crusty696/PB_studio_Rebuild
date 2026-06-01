@@ -40,6 +40,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     tmp_root = _configure_appdata(args)
+    project_root = None
+    if tmp_root is not None:
+        project_root = tmp_root / "project"
+        project_root.mkdir(parents=True, exist_ok=True)
 
     from services.brain_v3.brain_v3_service import BrainV3Service
     from services.brain_v3.schemas.brain_v3_schemas import (
@@ -49,7 +53,7 @@ def main(argv: list[str] | None = None) -> int:
     from services.pacing.pipeline import PacingPipeline
     from services.pacing.scorer import AudioContext, ClipFeatures
 
-    svc = BrainV3Service()
+    svc = BrainV3Service(project_root=project_root)
 
     suggest = svc.suggest(
         SuggestRequest(audio_clip_id=1, video_clip_ids=[101, 102, 103], n_top=3)

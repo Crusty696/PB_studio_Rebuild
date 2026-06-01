@@ -502,6 +502,37 @@ Do not loosen the 2s threshold unless evidence proves the budget is obsolete or 
 
 Run the targeted performance-profile test and default gate. Document next first failure if default gate still fails.
 
+## Task 1h: B-449 Grid Stability Default-Gate Crash Recurrence Follow-Up
+
+**Findings:** FPA-001
+
+**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-449-default-gate-grid-stability-crash-recurrence.md`
+
+**Files:**
+- Test: `tests/test_grid_stability.py`
+- Modify only if root cause proves it: `ui/widgets/media_grid.py` and thumbnail-thread lifecycle code used by the test.
+- Modify: `docs/superpowers/synthesis/test-gate-policy-2026-05-31.md`
+
+- [ ] **Step 1: Reproduce exact crash**
+
+Run:
+
+```powershell
+& "C:\Users\David Lochmann\miniconda3\envs\pb-studio\python.exe" -X faulthandler -m pytest tests/test_grid_stability.py -vv --tb=short
+```
+
+- [ ] **Step 2: Trace full-order grid lifecycle**
+
+Read `tests/test_grid_stability.py`, `ui/widgets/media_grid.py`, and the default-gate log. Identify why the full default-gate order can still crash at `test_grid_delete_later_stops_thumbnail_threads` after B-444 targeted tests passed.
+
+- [ ] **Step 3: Implement root-cause fix only**
+
+Do not skip or mark the test as live-only unless evidence proves a Qt/native dependency cannot be isolated in pytest.
+
+- [ ] **Step 4: Verify targeted and default gate**
+
+Run targeted grid tests and default gate. Document next first failure if default gate still fails.
+
 ## Task 2: Runtime Manifest Drift Audit/Fix
 
 **Findings:** FPA-002
@@ -1021,4 +1052,4 @@ Stop and ask user if:
 
 ## Current Next Task
 
-Task 1g - B-448 Brain V3 Performance Profile Default-Gate Failure Follow-Up.
+Task 1h - B-449 Grid Stability Default-Gate Crash Recurrence Follow-Up.

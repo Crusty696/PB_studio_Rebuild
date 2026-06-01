@@ -334,3 +334,42 @@ Bugfile:
 ```text
 C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-448-default-gate-brain-v3-performance-profile-learning-timeout.md
 ```
+
+## B-448 Follow-Up Result
+
+Root cause:
+
+```text
+scripts/spike_brain_v3_pacing_smoke.py isolated APPDATA but did not isolate project_root. BrainV3Service(project_root=None) used the default project state and real main DB, so the isolated smoke loaded real timeline preview paths and spent 6143 ms in learning_session().
+```
+
+Targeted tests after fix:
+
+```text
+tests/test_services/test_brain_v3_performance_profile_script.py::test_performance_profile_collects_pacing_samples
+tests/test_services/test_brain_v3_phase4_pacing_smoke_script.py::test_phase4_pacing_smoke_reports_compare_and_timings
+2 passed
+```
+
+Direct smoke after fix:
+
+```text
+ok=True
+learning_ms=1058.85
+samples=15
+has_real_paths=False
+learning_session_under_2s=True
+```
+
+Default gate after B-448:
+
+```text
+Exitcode -1073741819
+Last visible running test: tests/test_grid_stability.py::test_grid_delete_later_stops_thumbnail_threads
+```
+
+Bugfile:
+
+```text
+C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-449-default-gate-grid-stability-crash-recurrence.md
+```
