@@ -52,6 +52,15 @@ class _FakeSession:
     def get(self, _model, _clip_id):
         return self.row
 
+    def query(self, _model):
+        return self
+
+    def filter(self, *_criteria):
+        return self
+
+    def first(self):
+        return self.row
+
 
 def test_pipeline_metadata_snapshot_before_session_close(monkeypatch, qapp) -> None:
     from services import analysis_status_service

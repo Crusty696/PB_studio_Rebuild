@@ -680,6 +680,33 @@ Do not skip metadata extraction or weaken the expected `mark_done` assertion unl
 
 Run targeted metadata snapshot test and default gate. Document next first failure if default gate still fails.
 
+## Task 1n: B-455 Schnitt Workspace Switch Refresh Follow-Up
+
+**Findings:** FPA-001, FPA-003
+
+**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-455-default-gate-schnitt-workspace-switch-refresh-missing.md`
+
+**Files:**
+- Test: `tests/ui/test_b309_schnitt_no_project_empty.py`
+- Modify only if root cause proves it: Schnitt workspace switch/project refresh UI path.
+- Modify: `docs/superpowers/synthesis/test-gate-policy-2026-05-31.md`
+
+- [ ] **Step 1: Reproduce exact failure**
+
+Run targeted Schnitt workspace-switch test.
+
+- [ ] **Step 2: Trace refresh path**
+
+Read the test and UI workspace-switch code. Identify why `refresh_media_combos(23, allow_active_fallback=False)` is missing.
+
+- [ ] **Step 3: Implement root-cause fix only**
+
+Do not weaken the expected refresh assertion unless evidence proves the expected workflow changed.
+
+- [ ] **Step 4: Verify targeted and default gate**
+
+Run targeted Schnitt test and default gate. Document next first failure if default gate still fails.
+
 ## Task 2: Runtime Manifest Drift Audit/Fix
 
 **Findings:** FPA-002
@@ -1199,4 +1226,4 @@ Stop and ask user if:
 
 ## Current Next Task
 
-Task 1m - B-454 Video Pipeline Metadata Snapshot Follow-Up.
+Task 1n - B-455 Schnitt Workspace Switch Refresh Follow-Up.

@@ -558,3 +558,46 @@ Bugfile:
 ```text
 C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-454-default-gate-video-pipeline-metadata-snapshot-fake-session.md
 ```
+
+## B-454 Follow-Up Result
+
+Root cause:
+
+```text
+The metadata snapshot test fake session only implemented .get(), but the worker metadata path now uses .query(VideoClip).filter(...).first() to include the soft-delete guard. The fake was stale.
+```
+
+Fix:
+
+```text
+_FakeSession now implements query(), filter(), and first() for the worker's current DB access contract.
+```
+
+Targeted tests after fix:
+
+```text
+tests/test_workers/test_video_pipeline_metadata_snapshot.py::test_pipeline_metadata_snapshot_before_session_close
+1 passed
+
+tests/test_workers/test_video_pipeline_metadata.py tests/test_workers/test_video_pipeline_metadata_snapshot.py
+3 passed
+```
+
+Default gate after B-454:
+
+```text
+1 failed, 1901 passed, 29 skipped, 6 deselected, 61 warnings in 639.40s
+```
+
+Next failure:
+
+```text
+tests/ui/test_b309_schnitt_no_project_empty.py::test_b315_workspace_switch_to_schnitt_has_no_direct_duplicate_refresh
+AssertionError: assert [] == [((23,), {'allow_active_fallback': False})]
+```
+
+Bugfile:
+
+```text
+C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-455-default-gate-schnitt-workspace-switch-refresh-missing.md
+```
