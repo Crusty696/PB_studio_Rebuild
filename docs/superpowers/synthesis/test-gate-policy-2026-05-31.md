@@ -231,3 +231,38 @@ Bugfile:
 ```text
 C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-445-default-gate-pacing-scoring-latency-regression.md
 ```
+
+## B-445 Follow-Up Result
+
+Root cause:
+
+```text
+PacingScorer.score() hot path rebuilt static role/mood maps per candidate and repeatedly fingerprinted identical numpy embeddings.
+The default gate exposed this as latency variance above the 30 ms regression limit.
+```
+
+Targeted tests after fix:
+
+```text
+tests/integration/test_pacing_performance.py::test_scoring_latency_per_cut_under_budget
+1 passed; median=14.73 ms, p90=22.84 ms
+
+tests/integration/test_pacing_performance.py::test_per_term_scoring_cost
+1 passed; single score=54.8 us per call
+
+tests/pacing/test_pacing_scorer.py tests/pacing/test_pacing_configs.py tests/pacing/test_pacing_stages.py
+28 passed
+```
+
+Default gate after B-445:
+
+```text
+Exitcode -1073740791
+Last visible running test: tests/test_pre_cache_headless.py::test_pre_cache_headless_mode
+```
+
+Bugfile:
+
+```text
+C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-446-default-gate-pre-cache-headless-crash.md
+```

@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
+import weakref
 
 import numpy as np
 import yaml  # PyYAML already in the project via alembic
@@ -60,6 +61,26 @@ class AudioContext:
 # These return values in [0, 1] for positive terms, or [0, 1] representing
 # a penalty magnitude that gets multiplied by the weight and subtracted.
 
+_ROLE_PREFERRED: dict[str, frozenset[str]] = {
+    "drop": frozenset({"hero", "action"}),
+    "buildup": frozenset({"hero", "action", "transition"}),
+    "intro": frozenset({"establishing", "ambient", "detail"}),
+    "outro": frozenset({"establishing", "detail", "ambient"}),
+    "breakdown": frozenset({"detail", "ambient", "establishing"}),
+    "chorus": frozenset({"hero", "action"}),
+    "verse": frozenset({"hero", "detail"}),
+    "bridge": frozenset({"transition", "detail"}),
+    "warmup": frozenset({"establishing", "hero", "detail"}),
+    "transition": frozenset({"transition", "action", "hero"}),
+}
+
+_MOOD_FAMILY: dict[str, frozenset[str]] = {
+    "energetic": frozenset({"euphoric", "aggressive", "uplifting"}),
+    "calm": frozenset({"calm", "ambient", "dreamy"}),
+    "dramatic": frozenset({"dark", "tense", "aggressive"}),
+    "ambient": frozenset({"ambient", "dreamy", "calm"}),
+}
+
 
 def role_fit(section_type: str | None, clip_role: str) -> float:
     """1.0 if clip_role is plausible for the section; 0.3 if tolerated; 0.0 if
@@ -69,20 +90,7 @@ def role_fit(section_type: str | None, clip_role: str) -> float:
     if not section_type:
         return 0.5  # unknown section → neutral
     section = section_type.lower()
-    # Preferred pairings — the positive majority
-    preferred: dict[str, set[str]] = {
-        "drop": {"hero", "action"},
-        "buildup": {"hero", "action", "transition"},
-        "intro": {"establishing", "ambient", "detail"},
-        "outro": {"establishing", "detail", "ambient"},
-        "breakdown": {"detail", "ambient", "establishing"},
-        "chorus": {"hero", "action"},
-        "verse": {"hero", "detail"},
-        "bridge": {"transition", "detail"},
-        "warmup": {"establishing", "hero", "detail"},
-        "transition": {"transition", "action", "hero"},
-    }
-    allowed = preferred.get(section, set())
+    allowed = _ROLE_PREFERRED.get(section, frozenset())
     if clip_role in allowed:
         return 1.0
     if clip_role == "filler" or clip_role == "unknown":
@@ -132,12 +140,29 @@ _STYLE_COMPAT_CACHE: dict[
     float,
 ] = {}
 _STYLE_COMPAT_CACHE_MAX = 16384
+_FINGERPRINT_ID_CACHE: dict[
+    int,
+    tuple[weakref.ReferenceType[np.ndarray], tuple[bytes, tuple[int, ...], str]],
+] = {}
+_FINGERPRINT_ID_CACHE_MAX = 4096
 
 
 def _embedding_fingerprint(arr: np.ndarray) -> tuple[bytes, tuple[int, ...], str]:
     """Small content fingerprint for bounded scorer caches."""
+    arr_id = id(arr)
+    cached = _FINGERPRINT_ID_CACHE.get(arr_id)
+    if cached is not None:
+        ref, key = cached
+        if ref() is arr:
+            return key
+        _FINGERPRINT_ID_CACHE.pop(arr_id, None)
+
     fingerprint = arr[:8].tobytes() if arr.size >= 8 else arr.tobytes()
-    return fingerprint, arr.shape, arr.dtype.str
+    key = (fingerprint, arr.shape, arr.dtype.str)
+    if len(_FINGERPRINT_ID_CACHE) >= _FINGERPRINT_ID_CACHE_MAX:
+        _FINGERPRINT_ID_CACHE.clear()
+    _FINGERPRINT_ID_CACHE[arr_id] = (weakref.ref(arr), key)
+    return key
 
 
 def _embedding_norm(arr: np.ndarray) -> float:
@@ -173,13 +198,7 @@ def mood_match(audio_mood: str | None, clip_mood: str) -> float:
         return 0.5
     if audio_mood == clip_mood:
         return 1.0
-    FAMILY: dict[str, frozenset[str]] = {
-        "energetic": frozenset({"euphoric", "aggressive", "uplifting"}),
-        "calm": frozenset({"calm", "ambient", "dreamy"}),
-        "dramatic": frozenset({"dark", "tense", "aggressive"}),
-        "ambient": frozenset({"ambient", "dreamy", "calm"}),
-    }
-    if clip_mood in FAMILY.get(audio_mood, frozenset()):
+    if clip_mood in _MOOD_FAMILY.get(audio_mood, frozenset()):
         return 0.6
     return 0.0
 
@@ -440,22 +459,41 @@ class PacingScorer:
         )
 
         w = self._weights
-        contribs: dict[str, float] = {}
-        contribs["role"] = w["w_role"] * role_fit(ctx.at_section_type, clip.role)
-        contribs["style"] = w["w_style"] * style_sim
-        contribs["mood_video"] = w["w_mood_video"] * mood_match(ctx.at_mood_video, clip.mood_refined)
-        contribs["mood_audio"] = w["w_mood_audio"] * mood_match(ctx.at_mood_audio, clip.mood_refined)
-        contribs["genre"] = w["w_genre"] * genre_score
-        contribs["key"] = w["w_key"] * key_score
-        contribs["tension"] = w["w_tension"] * tension_fit(ctx.at_harmonic_tension, clip.role)
-        contribs["energy"] = w["w_energy"] * energy_match(ctx.at_energy, clip.motion_score)
-        contribs["spectral"] = w["w_spectral"] * spectral_score
-        contribs["groove"] = w["w_groove"] * groove_fit(ctx.at_groove_template, clip.motion_score)
-        contribs["memory"] = w["w_memory"] * memory_score
-        contribs["collision"] = -(w["w_collision"] * collision_mag)
-        contribs["freshness"] = -(w["w_freshness"] * staleness_penalty(clip, recent))
+        role_contrib = w["w_role"] * role_fit(ctx.at_section_type, clip.role)
+        style_contrib = w["w_style"] * style_sim
+        mood_video_contrib = w["w_mood_video"] * mood_match(ctx.at_mood_video, clip.mood_refined)
+        mood_audio_contrib = w["w_mood_audio"] * mood_match(ctx.at_mood_audio, clip.mood_refined)
+        genre_contrib = w["w_genre"] * genre_score
+        key_contrib = w["w_key"] * key_score
+        tension_contrib = w["w_tension"] * tension_fit(ctx.at_harmonic_tension, clip.role)
+        energy_contrib = w["w_energy"] * energy_match(ctx.at_energy, clip.motion_score)
+        spectral_contrib = w["w_spectral"] * spectral_score
+        groove_contrib = w["w_groove"] * groove_fit(ctx.at_groove_template, clip.motion_score)
+        memory_contrib = w["w_memory"] * memory_score
+        collision_contrib = -(w["w_collision"] * collision_mag)
+        freshness_contrib = -(w["w_freshness"] * staleness_penalty(clip, recent))
 
-        total = sum(contribs.values())
+        total = (
+            role_contrib + style_contrib + mood_video_contrib + mood_audio_contrib
+            + genre_contrib + key_contrib + tension_contrib + energy_contrib
+            + spectral_contrib + groove_contrib + memory_contrib
+            + collision_contrib + freshness_contrib
+        )
+        contribs: dict[str, float] = {
+            "role": role_contrib,
+            "style": style_contrib,
+            "mood_video": mood_video_contrib,
+            "mood_audio": mood_audio_contrib,
+            "genre": genre_contrib,
+            "key": key_contrib,
+            "tension": tension_contrib,
+            "energy": energy_contrib,
+            "spectral": spectral_contrib,
+            "groove": groove_contrib,
+            "memory": memory_contrib,
+            "collision": collision_contrib,
+            "freshness": freshness_contrib,
+        }
         # Scorer does NOT clip to [0, 1] — test_negative_score_allowed verifies this.
         return float(total), contribs
 

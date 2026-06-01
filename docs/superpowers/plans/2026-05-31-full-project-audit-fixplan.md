@@ -378,8 +378,6 @@ Expected:
 Targeted test passes. Default gate passes or next first failure/crash is documented as a new blocker/bug.
 ```
 
-## Task 2: Runtime Manifest Drift Audit/Fix
-
 ## Task 1d: B-445 Pacing Scoring Performance Default-Gate Follow-Up
 
 **Findings:** FPA-001
@@ -410,6 +408,39 @@ Do not loosen the threshold unless evidence proves the budget is obsolete.
 - [ ] **Step 4: Verify targeted and default gate**
 
 Run targeted performance test and default gate. Document next first failure if default gate still fails.
+
+## Task 1e: B-446 Pre-Cache Headless Default-Gate Crash Follow-Up
+
+**Findings:** FPA-001
+
+**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-446-default-gate-pre-cache-headless-crash.md`
+
+**Files:**
+- Test: `tests/test_pre_cache_headless.py`
+- Modify only if root cause proves it: pre-cache / model-cache / Qt-headless startup modules used by the test.
+- Modify: `docs/superpowers/synthesis/test-gate-policy-2026-05-31.md`
+
+- [ ] **Step 1: Reproduce exact crash**
+
+Run:
+
+```powershell
+& "C:\Users\David Lochmann\miniconda3\envs\pb-studio\python.exe" -m pytest tests/test_pre_cache_headless.py::test_pre_cache_headless_mode -vv --tb=short
+```
+
+- [ ] **Step 2: Trace headless pre-cache path**
+
+Read `tests/test_pre_cache_headless.py` and the invoked pre-cache code. Identify why it crashes under default-gate order.
+
+- [ ] **Step 3: Implement root-cause fix only**
+
+Do not skip the test unless evidence proves it is inherently live/GPU-only and must be moved behind a marker.
+
+- [ ] **Step 4: Verify targeted and default gate**
+
+Run targeted pre-cache test and default gate. Document next first failure if default gate still fails.
+
+## Task 2: Runtime Manifest Drift Audit/Fix
 
 **Findings:** FPA-002
 
@@ -928,4 +959,4 @@ Stop and ask user if:
 
 ## Current Next Task
 
-Task 1d - B-445 Pacing Scoring Performance Default-Gate Follow-Up.
+Task 1e - B-446 Pre-Cache Headless Default-Gate Crash Follow-Up.
