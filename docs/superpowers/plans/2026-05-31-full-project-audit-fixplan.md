@@ -634,7 +634,7 @@ Run targeted corrupt-video test and default gate. Document next first failure if
 
 **Files:**
 - Test: `tests/test_grid_stability.py`
-- Modify only if root cause proves it: `ui/media_pool.py`, thumbnail worker cleanup, Qt signal/lifecycle code.
+- Modify only if root cause proves it: `ui/widgets/media_grid.py`, thumbnail worker cleanup, Qt signal/lifecycle code.
 - Modify: `docs/superpowers/synthesis/test-gate-policy-2026-05-31.md`
 
 - [ ] **Step 1: Reproduce exact crash**
@@ -652,6 +652,33 @@ Do not mask the crash by skipping the test or weakening lifecycle assertions.
 - [ ] **Step 4: Verify targeted and default gate**
 
 Run targeted grid test(s) and default gate. Document next first failure if default gate still fails.
+
+## Task 1m: B-454 Video Pipeline Metadata Snapshot Follow-Up
+
+**Findings:** FPA-001
+
+**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-454-default-gate-video-pipeline-metadata-snapshot-fake-session.md`
+
+**Files:**
+- Test: `tests/test_workers/test_video_pipeline_metadata_snapshot.py`
+- Modify only if root cause proves it: `workers/video.py` metadata snapshot path.
+- Modify: `docs/superpowers/synthesis/test-gate-policy-2026-05-31.md`
+
+- [ ] **Step 1: Reproduce exact failure**
+
+Run targeted metadata snapshot test.
+
+- [ ] **Step 2: Trace fake session contract**
+
+Read the test and worker metadata extraction path. Identify whether the test fake is stale or the worker contract changed.
+
+- [ ] **Step 3: Implement root-cause fix only**
+
+Do not skip metadata extraction or weaken the expected `mark_done` assertion unless evidence proves the contract changed.
+
+- [ ] **Step 4: Verify targeted and default gate**
+
+Run targeted metadata snapshot test and default gate. Document next first failure if default gate still fails.
 
 ## Task 2: Runtime Manifest Drift Audit/Fix
 
@@ -1172,4 +1199,4 @@ Stop and ask user if:
 
 ## Current Next Task
 
-Task 1l - B-453 Grid Stability Native Crash After B-452 Follow-Up.
+Task 1m - B-454 Video Pipeline Metadata Snapshot Follow-Up.

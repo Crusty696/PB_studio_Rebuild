@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-FULL-AUDIT-FIXPLAN-2026-05-31
-next_allowed_task: Task 1l - B-453 Grid Stability Native Crash After B-452 Follow-Up
+next_allowed_task: Task 1m - B-454 Video Pipeline Metadata Snapshot Follow-Up
 updated: 2026-06-01
 
 ## Meaning
@@ -51,7 +51,8 @@ PB-STUDIO-FULL-PROJECT-FILE-AUDIT-2026-05-31
 - B-450 targeted Test gruen; Default Gate kam weiter.
 - B-451 targeted Test gruen; Default Gate kam weiter.
 - B-452 targeted Test und Modul gruen; Default Gate erreicht B-452 nicht, weil es vorher nativ crasht.
-- Neuer Blocker: Default pytest gate crasht wieder um `tests/test_grid_stability.py::test_grid_delete_later_stops_thumbnail_threads` mit Exitcode `-1073740791`; targeted Grid-Test gruen.
+- B-453 targeted Tests gruen; Default Gate crasht nicht mehr bei Grid und kam weiter.
+- Neuer Blocker: Default pytest gate stoppt bei `tests/test_workers/test_video_pipeline_metadata_snapshot.py::test_pipeline_metadata_snapshot_before_session_close`.
 - Bugfile: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-441-default-gate-structure-enrichment-zero-scenes.md`.
 - Bugfile: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-442-plan-registry-missing-bug-hunt-repo-path.md`.
 - Bugfile: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-443-default-gate-pacing-cut-points-source-not-beat.md`.
@@ -65,4 +66,5 @@ PB-STUDIO-FULL-PROJECT-FILE-AUDIT-2026-05-31
 - Bugfile: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-451-default-gate-stem-separator-fp16-cpu-clamp.md`.
 - Bugfile: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-452-default-gate-corrupt-video-pipeline-missing-clip-message.md`.
 - Bugfile: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-453-default-gate-grid-stability-native-crash-after-b452.md`.
-- Naechster Schritt: Task 1l - B-453 Grid Stability Native Crash After B-452 Follow-Up.
+- Bugfile: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-454-default-gate-video-pipeline-metadata-snapshot-fake-session.md`.
+- Naechster Schritt: Task 1m - B-454 Video Pipeline Metadata Snapshot Follow-Up.

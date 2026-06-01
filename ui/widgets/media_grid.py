@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
     QWidget, QScrollArea, QGridLayout, QFrame, QVBoxLayout,
     QHBoxLayout, QLabel, QLineEdit, QComboBox, QMenu,
 )
-from PySide6.QtCore import Qt, Signal, QRect, QThread, QObject, QTimer
+from PySide6.QtCore import Qt, Signal, QRect, QThread, QObject, QTimer, Slot
 from PySide6.QtGui import QPixmap, QImage, QPainter, QColor, QPen, QFont, QFontMetrics
 
 from services.timeout_constants import FFMPEG_THUMBNAIL_TIMEOUT_SEC
@@ -312,6 +312,13 @@ class VideoCard(MediaCard):
         # und bei 100+ Cards im Pool ein Scroll-Freeze.
         if not pix.isNull():
             self._thumb.setPixmap(pix)
+
+    @Slot(str, object)
+    def apply_thumbnail_image(self, _path: str, img: QImage) -> None:
+        try:
+            self.set_thumbnail(QPixmap.fromImage(img))
+        except RuntimeError:
+            pass
 
 
 class AudioCard(MediaCard):
@@ -663,31 +670,14 @@ class MediaPoolGrid(QWidget):
             self._apply_filter()
         # KEIN processEvents() hier — der Timer gibt Qt bereits genug Zeit zum Zeichnen
 
-    @staticmethod
-    def _apply_thumbnail(card, img) -> None:
-        """B-389: setzt das Thumbnail, ignoriert aber beim Rebuild geloeschte Cards.
-
-        Ein spaet feuerndes ``done``-Signal kann eine bereits via ``deleteLater()``
-        entfernte Card treffen — der Zugriff auf das geloeschte Qt-Objekt wirft
-        ``RuntimeError``, der hier abgefangen wird.
-        """
-        try:
-            card.set_thumbnail(QPixmap.fromImage(img))
-        except RuntimeError:
-            pass
-
     def _start_thumb_loader(self, card: VideoCard, file_path: str) -> None:
         thread = QThread()
         worker = _ThumbWorker(file_path, _CW - 8, _TH)
         worker.moveToThread(thread)
 
         thread.started.connect(worker.run)
-        # Use default args to capture per-iteration values
-        # B-388: QImage→QPixmap im GUI-Thread-Slot umwandeln.
-        # B-389: ueber _apply_thumbnail gegen beim Rebuild geloeschte Cards geschuetzt.
-        worker.done.connect(
-            lambda _path, img, c=card: MediaPoolGrid._apply_thumbnail(c, img)
-        )
+        # B-453: QObject receiver keeps QPixmap creation on the GUI thread.
+        worker.done.connect(card.apply_thumbnail_image)
         worker.done.connect(
             lambda _path, _pix, t=thread: t.quit()
         )

@@ -156,6 +156,8 @@ def test_thumb_loader_callbacks_do_not_capture_grid_self():
     assert "self._apply_thumbnail" not in src
     assert "self._thumb_threads.remove" not in src
     assert "QThread(self)" not in src
+    assert "lambda _path, img" not in src
+    assert "card.apply_thumbnail_image" in src
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)

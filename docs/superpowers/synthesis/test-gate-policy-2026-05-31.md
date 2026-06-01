@@ -514,3 +514,47 @@ Next bugfile:
 ```text
 C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-453-default-gate-grid-stability-native-crash-after-b452.md
 ```
+
+## B-453 Follow-Up Result
+
+Root cause:
+
+```text
+_ThumbWorker.done connected to a free Python lambda that converted QImage to QPixmap. The callable had no QObject receiver/thread affinity, so QPixmap creation could happen outside the GUI thread when emitted from the thumbnail worker thread.
+```
+
+Fix:
+
+```text
+VideoCard.apply_thumbnail_image() is now a QObject slot. worker.done connects to card.apply_thumbnail_image, keeping QPixmap.fromImage() on the GUI-thread receiver. Source invariant forbids the free image lambda.
+```
+
+Targeted tests after fix:
+
+```text
+tests/test_grid_stability.py::test_thumb_loader_callbacks_do_not_capture_grid_self
+1 passed
+
+tests/test_grid_stability.py
+4 passed
+```
+
+Default gate after B-453:
+
+```text
+1 failed, 1852 passed, 29 skipped, 6 deselected, 60 warnings in 792.65s
+```
+
+Next failure:
+
+```text
+tests/test_workers/test_video_pipeline_metadata_snapshot.py::test_pipeline_metadata_snapshot_before_session_close
+AssertionError: done_calls == []
+Captured log: B-287: metadata_extract for clip 42 failed: '_FakeSession' object has no attribute 'query'
+```
+
+Bugfile:
+
+```text
+C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-454-default-gate-video-pipeline-metadata-snapshot-fake-session.md
+```
