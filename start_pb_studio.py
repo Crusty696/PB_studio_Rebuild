@@ -36,8 +36,15 @@ CRASH_LOG = PROJECT_DIR / "logs" / "crash.log"
 
 def _cleanup_pycache():
     """Loescht alle __pycache__ Verzeichnisse (verhindert Probleme nach Updates)."""
+    project_root = PROJECT_DIR.resolve()
     for cache_dir in PROJECT_DIR.rglob("__pycache__"):
-        if ".venv" not in str(cache_dir):
+        try:
+            resolved_cache = cache_dir.resolve()
+        except OSError:
+            continue
+        if project_root != resolved_cache and project_root not in resolved_cache.parents:
+            continue
+        if ".venv" not in str(resolved_cache):
             shutil.rmtree(cache_dir, ignore_errors=True)
 
 def main():

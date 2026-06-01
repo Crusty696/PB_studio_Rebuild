@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-FULL-AUDIT-FIXPLAN-2026-05-31
-next_allowed_task: Task 7 - Mutating Surface Guard Tests
+next_allowed_task: Task 8 - GPU Serialization Verification Gate
 updated: 2026-06-01
 
 ## Meaning
@@ -78,4 +78,5 @@ PB-STUDIO-FULL-PROJECT-FILE-AUDIT-2026-05-31
 - Task 4 DB Project Switch And Soft-Delete Safety abgeschlossen als Coverage/Verification: neue Guard-/Visibility-Tests gruen; kein App-Code-Fix erforderlich. `pytest tests/test_db_deep.py -v` bleibt wegen `sys.exit` im Standalone-Script ein pytest-Runner-Problem; direkte Script-Ausfuehrung ergibt 78 PASS / 0 FAIL.
 - Task 5 QThread Lifecycle Contract abgeschlossen als Coverage/Verification: neue finished/error/cancel Lifecycle-Tests und bestehende Dispatcher/TaskManager-Tests gruen; kein App-Code-Fix erforderlich.
 - Task 6 Deterministic LLM/Action Boundary Gate abgeschlossen: destruktive Registry-Actions brauchen `confirm=True`; malformed JSON liefert strukturierten Error ohne Side Effect; targeted action tests gruen.
-- Naechster Schritt: Task 7 - Mutating Surface Guard Tests.
+- Task 7 Mutating Surface Guard Tests abgeschlossen: pycache cleanup prueft repo scope; failed Save-As cleanup verweigert source/parent/root; VectorDB delete und Snapshot-Restore scoped; targeted tests gruen.
+- Naechster Schritt: Task 8 - GPU Serialization Verification Gate.

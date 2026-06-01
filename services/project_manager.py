@@ -394,13 +394,27 @@ class ProjectManager(QObject):
             # Bei Fehler angefangene Kopie aufraeumen, damit naechster
             # Save-As nicht auf "existiert bereits" stoesst.
             if target_path.exists():
-                shutil.rmtree(target_path, ignore_errors=True)
+                self._cleanup_failed_save_as(source, target_path)
             raise
 
         # Open the copy as the new active project
         self.open_project(target_path, task_id=task_id)
         logger.info("Projekt gespeichert unter: %s", target_path)
         return target_path
+
+    @staticmethod
+    def _cleanup_failed_save_as(source: Path, target_path: Path) -> None:
+        """Remove only the newly-created Save-As target, never source/parents."""
+        source_resolved = Path(source).resolve()
+        target_resolved = Path(target_path).resolve()
+        if target_resolved == source_resolved:
+            raise ValueError(f"Refusing to cleanup source project path: {target_resolved}")
+        if target_resolved in source_resolved.parents:
+            raise ValueError(f"Refusing to cleanup source parent path: {target_resolved}")
+        if target_resolved.parent == target_resolved:
+            raise ValueError(f"Refusing to cleanup filesystem root: {target_resolved}")
+        if target_resolved.exists():
+            shutil.rmtree(target_resolved, ignore_errors=True)
 
     @staticmethod
     def _copy_sqlite_db(src_db: Path, dst_db: Path) -> None:

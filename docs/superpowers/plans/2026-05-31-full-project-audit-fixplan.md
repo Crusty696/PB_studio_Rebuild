@@ -1253,4 +1253,4 @@ Stop and ask user if:
 
 ## Current Next Task
 
-Task 7 - Mutating Surface Guard Tests.
+Task 8 - GPU Serialization Verification Gate.
