@@ -1092,11 +1092,11 @@ git commit -m "fix(FPA-010): guard mutating surfaces" -m "Verification: mutating
 - Modify only if failing tests require: `services/video_pipeline/stages/siglip_embed_stage.py`
 - Modify only if failing tests require: `services/video_pipeline/stages/raft_motion_stage.py`
 
-- [ ] **Step 1: Write unit lock contract tests**
+- [x] **Step 1: Write unit lock contract tests**
 
 Tests must assert shared lock objects or explicit serialization path is used by ModelManager, Brain V3 serializer, SigLIP stage, and RAFT stage.
 
-- [ ] **Step 2: Run unit tests**
+- [x] **Step 2: Run unit tests**
 
 Run:
 
@@ -1110,7 +1110,7 @@ Expected:
 PASS, or exact serialization gap documented.
 ```
 
-- [ ] **Step 3: Run live GPU command only after unit pass**
+- [x] **Step 3: Run live GPU command only after unit pass**
 
 Run on GTX 1060 machine:
 
@@ -1124,7 +1124,7 @@ Expected:
 PASS with CUDA available, or exact failure/VRAM/OOM captured.
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```powershell
 git add services tests/test_services/test_gpu_lock_contract.py docs/superpowers/synthesis/gpu-serialization-live-2026-05-31.md
@@ -1253,4 +1253,4 @@ Stop and ask user if:
 
 ## Current Next Task
 
-Task 8 - GPU Serialization Verification Gate.
+Task 9 - Boot Path Guardrails.

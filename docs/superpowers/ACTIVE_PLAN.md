@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-FULL-AUDIT-FIXPLAN-2026-05-31
-next_allowed_task: Task 8 - GPU Serialization Verification Gate
+next_allowed_task: Task 9 - Boot Path Guardrails
 updated: 2026-06-01
 
 ## Meaning
@@ -79,4 +79,5 @@ PB-STUDIO-FULL-PROJECT-FILE-AUDIT-2026-05-31
 - Task 5 QThread Lifecycle Contract abgeschlossen als Coverage/Verification: neue finished/error/cancel Lifecycle-Tests und bestehende Dispatcher/TaskManager-Tests gruen; kein App-Code-Fix erforderlich.
 - Task 6 Deterministic LLM/Action Boundary Gate abgeschlossen: destruktive Registry-Actions brauchen `confirm=True`; malformed JSON liefert strukturierten Error ohne Side Effect; targeted action tests gruen.
 - Task 7 Mutating Surface Guard Tests abgeschlossen: pycache cleanup prueft repo scope; failed Save-As cleanup verweigert source/parent/root; VectorDB delete und Snapshot-Restore scoped; targeted tests gruen.
-- Naechster Schritt: Task 8 - GPU Serialization Verification Gate.
+- Task 8 GPU Serialization Verification Gate abgeschlossen: Lock-Contract-Test hinzugefuegt; targeted GPU contract/model tests gruen; live_gpu Pipeline-E2E gruen; kein manueller App-Workflow.
+- Naechster Schritt: Task 9 - Boot Path Guardrails.
