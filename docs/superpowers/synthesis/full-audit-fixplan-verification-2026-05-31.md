@@ -40,3 +40,33 @@ Task 10 plan order asks for `agent_handoff` before the matrix commit while also 
 - No `fixed` status written.
 - Manual user workflows remain open where matrix rows say no live workflow.
 - Full default pytest gate was not rerun after Task 9; Task-specific gates after Task 1 passed as listed.
+
+## Live Verification Results 2026-06-03 (project-audit-team)
+
+Function-by-function live verify of the FPA findings via real app runs
+(pb-gui-tester, GTX 1060, conda env pb-studio) plus a fresh full default gate.
+No `status: fixed` set (user-only). No code edits. Worktree clean.
+
+| Fn | Finding | Live status | Evidence |
+|---|---|---|---|
+| F1 | FPA-003 boot | green | window opened, `Startup checks completed`, no traceback (3 starts) |
+| F2 | FPA-009 gpu pipeline | green | `live_gpu` gate + real NVENC export |
+| F3 | FPA-001 default gate | green | rerun after Task 9: `2351 passed, 35 skipped, 6 deselected in 493.43s`, exit 0; `tests/qa_artifacts/f3_default_gate_20260603.log` |
+| F4 | FPA-002 runtime | green | app runs 3.10+cu113, GTX 1060/CUDA 11.3 in log |
+| F5 | FPA-004 project switch | yellow | service guard fires (no DB swap/crash); no GUI pre-block -> B-465 |
+| F6 | FPA-005 soft-delete | red | GUI delete is HARD DELETE (`ingest_service.py:738`), no undo -> B-462 |
+| F7 | FPA-006 ffmpeg | yellow | NVENC export real (`preview_1.mp4`, h264_nvenc, 18.8 MB); progress parser bug -> B-467 |
+| F8 | FPA-007 action boundary | green | confirm-gate live: `delete_all_media` -> "Confirmation required", DB 315->315. Vision-route + moondream2 crash separate -> B-463, B-464 |
+| F9 | FPA-008 qthread | yellow | cancel clean, no crash; status label "Fertig" not "Abgebrochen" -> B-466 |
+| F10 | FPA-010 mutating | n/a (gui) | guard unit-tested; negative path not GUI-triggerable (native dialog) |
+
+Tally: 5 green (F1/F2/F3/F4/F8), 3 yellow (F5/F7/F9), 1 red (F6), 1 n/a (F10).
+
+New findings logged as bugs (open, no fix): B-462 (critical, hard-delete),
+B-463 (moondream2 crash), B-464 (delete routes to vision), B-465 (no GUI
+pre-block), B-466 (cancel label), B-467 (export progress parser), B-468 (chat
+"Projektstatus" misroute to save_project).
+
+Honest note: F5/F7/F9 cores work (no data risk); only F6 is a verified
+functional defect with data-loss risk. F8 boundary is live-proven; its
+surrounding routing/vision crash are separate bugs, not a boundary failure.
