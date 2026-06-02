@@ -106,8 +106,13 @@ class RaftMotionService:
             a = F.pad(a, (0, pad_w, 0, pad_h), mode="replicate")
             b = F.pad(b, (0, pad_w, 0, pad_h), mode="replicate")
 
-        with torch.no_grad():
-            flows = self._model(a, b, num_flow_updates=self.iter_count)
+        old_default_dtype = torch.get_default_dtype()
+        try:
+            torch.set_default_dtype(torch.float32)
+            with torch.no_grad():
+                flows = self._model(a, b, num_flow_updates=self.iter_count)
+        finally:
+            torch.set_default_dtype(old_default_dtype)
         flow = flows[-1][0]  # [2, H, W]
         if pad_h or pad_w:
             flow = flow[:, :h, :w]

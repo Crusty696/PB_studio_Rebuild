@@ -859,12 +859,17 @@ class ModelManager:
                     # from_pretrained(); CPU half ops can fail before the model
                     # is moved to CUDA. Load fp32 first, then cast on CUDA.
                     load_dtype = torch.float32 if dt == torch.float16 else dt
-                    m = AutoModel.from_pretrained(  # nosec B615
-                        model_id, torch_dtype=load_dtype,
-                    )
-                    m.to(self.device)
-                    if self.device == "cuda" and dt == torch.float16:
-                        m.half()
+                    old_default_dtype = torch.get_default_dtype()
+                    try:
+                        torch.set_default_dtype(torch.float32)
+                        m = AutoModel.from_pretrained(  # nosec B615
+                            model_id, torch_dtype=load_dtype,
+                        )
+                        m.to(self.device)
+                        if self.device == "cuda" and dt == torch.float16:
+                            m.half()
+                    finally:
+                        torch.set_default_dtype(old_default_dtype)
                     m.eval()
                     return m
 
@@ -873,8 +878,13 @@ class ModelManager:
                         1, 3, 384, 384,
                         dtype=next(m.parameters()).dtype, device=self.device,
                     )
-                    with torch.no_grad():
-                        feats = m.get_image_features(pixel_values=px)
+                    old_default_dtype = torch.get_default_dtype()
+                    try:
+                        torch.set_default_dtype(torch.float32)
+                        with torch.no_grad():
+                            feats = m.get_image_features(pixel_values=px)
+                    finally:
+                        torch.set_default_dtype(old_default_dtype)
                     return self._all_finite(feats)
 
                 # B-336: fp16 mit NaN-Guard + fp32-Fallback (Pascal/GTX 1060).
