@@ -54,8 +54,12 @@ class CockpitReadiness:
 AUDIO_STEP_SPECS = [
     PipelineStepSpec("bpm_detection", "audio", "Beats", True, "run_audio_complete"),
     PipelineStepSpec("waveform_analysis", "audio", "Waveform", True, "run_audio_complete"),
+    PipelineStepSpec("key_detection", "audio", "Tonart", True, "run_audio_complete"),
+    PipelineStepSpec("lufs_analysis", "audio", "LUFS", True, "run_audio_complete"),
+    PipelineStepSpec("mood_genre_classify", "audio", "Mood/Genre", True, "run_audio_complete"),
+    PipelineStepSpec("spectral_analysis", "audio", "Spektral", True, "run_audio_complete"),
     PipelineStepSpec("structure_detection", "audio", "Songstruktur", True, "run_audio_complete"),
-    PipelineStepSpec("stem_separation", "audio", "Stems", False, "run_audio_complete"),
+    PipelineStepSpec("stem_separation", "audio", "Stems", True, "run_audio_complete"),
 ]
 
 VIDEO_STEP_SPECS = [
@@ -84,7 +88,7 @@ ACTIONS = {
     "run_audio_complete": CockpitAction(
         key="run_audio_complete",
         label="Audio analysieren",
-        description="Erzeugt Beats, Waveform und Songstruktur fuer den Auto-Schnitt.",
+        description="Erzeugt Beats, Waveform, Tonart, LUFS, Mood/Genre, Spektral-Daten, Songstruktur und Stems.",
         target_workspace=1,
         command="run_audio_complete",
     ),

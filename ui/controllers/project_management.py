@@ -179,6 +179,28 @@ class ProjectManagementController(PBComponent):
             description=f"Speichere Kopie in {target.name}"
         )
 
+    def _save_project(self):
+        """Save current project state marker for an already-open project."""
+        manager = getattr(self.window, "_project_manager", None)
+        project_path = getattr(manager, "current_project_path", None)
+        if project_path is None:
+            QMessageBox.information(
+                self.window,
+                "Speichern",
+                "Kein Projekt geoeffnet. Lege zuerst ein Projekt an oder oeffne eines.",
+            )
+            return
+
+        try:
+            self.window._save_window_state()
+        except Exception as exc:
+            logger.warning("save_project: failed to save window state: %s", exc)
+
+        self._mark_clean()
+        path = Path(project_path)
+        self.window.panel_setup._console_append(f"[Projekt] Gespeichert: {path}")
+        self.window.status_bar.showMessage(f"Projekt gespeichert: {path.name}", 5000)
+
     def _on_project_changed(self, path):
         """Refresh all UI after a project switch."""
         path = Path(path)

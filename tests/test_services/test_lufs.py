@@ -121,6 +121,23 @@ class TestLUFSService:
             assert isinstance(result, LUFSResult)
             assert result.integrated == -14.0
 
+    def test_b460_long_dj_mix_timeout_uses_duration_budget(self):
+        """B-460: LUFS loudnorm timeout must scale with duration, not only MB size."""
+        fake_stderr = '{"input_i": "-13.7", "input_tp": "-0.4", "input_lra": "7.2"}'
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stderr = fake_stderr
+
+        with patch("services.lufs_service.os.path.getsize", return_value=143 * 1024 * 1024), \
+             patch("services.lufs_service._probe_duration_sec", return_value=3745.0), \
+             patch("services.lufs_service.subprocess.run", return_value=mock_result) as run_mock:
+            svc = LUFSService()
+            stderr = svc._run_ffmpeg(r"C:\audio\dj-set.mp3")
+
+        assert stderr == fake_stderr
+        timeout = run_mock.call_args.kwargs["timeout"]
+        assert timeout >= 1200
+
     def test_short_term_max_clamped(self):
         """Short-term max darf true_peak + 3 dB nicht überschreiten."""
         fake_stderr = '{"input_i": "-5.0", "input_tp": "-1.0", "input_lra": "20.0"}'

@@ -70,6 +70,29 @@ def test_b292_panel_set_media_renders_steps(qapp, project, video_clip, monkeypat
     assert not missing, f"B-292: Step-Keys fehlen im Panel: {missing}"
 
 
+def test_b458_audio_pending_filter_renders_missing_steps_with_start_buttons(qapp):
+    """B-458: fehlende Audio-Steps muessen im Pending-Filter startbar bleiben."""
+    from services.analysis_status_service import AUDIO_STEPS
+    from ui.widgets.analysis_status_panel import AnalysisStatusPanel
+
+    panel = AnalysisStatusPanel()
+    try:
+        panel._media_type = "audio"
+        panel._media_id = 1
+        panel._filter_mode = "pending"
+
+        panel._apply_status_data({}, None, "audio", 1)
+
+        rendered_keys = panel.rendered_step_keys()
+        assert rendered_keys == AUDIO_STEPS
+        for row in range(panel.table.rowCount()):
+            button = panel.table.cellWidget(row, 3)
+            assert button is not None
+            assert button.text() == "Starten"
+    finally:
+        panel.deleteLater()
+
+
 def test_b292_panel_set_media_uses_proxy_aware_index(qapp):
     """Phase-C-fix: pool-selection lambda must read via curr.sibling
     so PagedProxyModel page>0 maps to correct source row."""

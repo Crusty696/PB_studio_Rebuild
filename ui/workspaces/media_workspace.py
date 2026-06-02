@@ -1039,7 +1039,7 @@ class MediaWorkspace(QWidget):
         self.btn_analyze_all = self._configure_analysis_button(
             self.btn_analyze_all,
             "Audio komplett analysieren",
-            "Was macht es? Fuehrt BPM/Beatgrid, Wellenform, Tonart, LUFS, Songstruktur und Stems "
+            "Was macht es? Fuehrt BPM/Beatgrid, Wellenform, Tonart, LUFS, Mood/Genre, Spektral-Analyse, Songstruktur und Stems "
             "in sinnvoller Reihenfolge aus. Wann nutzen? Standardweg fuer neue Tracks. Voraussetzung? "
             "Ein Audio-Track ist importiert oder links gewaehlt. Ergebnis? Audio-Daten sind fuer "
             "Pacing und Auto-Schnitt bereit.",

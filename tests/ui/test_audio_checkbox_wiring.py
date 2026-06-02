@@ -204,13 +204,85 @@ def test_b293_run_audio_steps_for_track_exists():
     )
 
 
+def test_b458_complete_audio_chain_covers_all_audio_steps(qapp, monkeypatch):
+    """B-458: Komplett-Analyse muss alle AUDIO_STEPS fahren, sonst bleibt UI bei 75%."""
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    from services import analysis_status_service
+    from services.analysis_status_service import AUDIO_STEPS
+    from ui.controllers.audio_analysis import AudioAnalysisController
+
+    ctrl = AudioAnalysisController.__new__(AudioAnalysisController)
+    ctrl.window = MagicMock()
+    ctrl.window._media_ws.btn_analyze_all.setText = MagicMock()
+    ctrl.window.progress_bar.setVisible = MagicMock()
+    ctrl.window.progress_bar.setRange = MagicMock()
+    ctrl.window.progress_bar.setValue = MagicMock()
+    ctrl.window.console_text.append = MagicMock()
+    ctrl._run_next_sequential_step = MagicMock()
+    monkeypatch.setattr(analysis_status_service, "infer_from_db", lambda *_args: None)
+    monkeypatch.setattr(analysis_status_service, "get_status", lambda *_args: {})
+
+    ctrl._run_audio_steps_for_track(7, "C:/audio.mp3", "Track", 142.0)
+
+    step_names = [name for name, _factory in ctrl._seq_steps]
+    assert len(step_names) == len(AUDIO_STEPS), (
+        f"B-458: Komplett-Analyse muss {len(AUDIO_STEPS)} Audio-Steps starten, "
+        f"nicht {len(step_names)}: {step_names}"
+    )
+    assert "Mood/Genre" in step_names
+    assert "Spektral" in step_names
+
+
+def test_b461_complete_audio_chain_skips_done_steps(qapp, monkeypatch):
+    """B-461: Komplett-Analyse darf erledigte schwere Steps nicht erneut starten."""
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    from services import analysis_status_service
+    from ui.controllers.audio_analysis import AudioAnalysisController
+
+    done_steps = {
+        "bpm_detection",
+        "waveform_analysis",
+        "key_detection",
+        "structure_detection",
+        "stem_separation",
+    }
+
+    def fake_get_status(*_args):
+        status = {key: SimpleNamespace(status="done") for key in done_steps}
+        status["lufs_analysis"] = SimpleNamespace(status="error")
+        return status
+
+    ctrl = AudioAnalysisController.__new__(AudioAnalysisController)
+    ctrl.window = MagicMock()
+    ctrl.window._media_ws.btn_analyze_all.setText = MagicMock()
+    ctrl.window.progress_bar.setVisible = MagicMock()
+    ctrl.window.progress_bar.setRange = MagicMock()
+    ctrl.window.progress_bar.setValue = MagicMock()
+    ctrl.window.console_text.append = MagicMock()
+    ctrl._run_next_sequential_step = MagicMock()
+    monkeypatch.setattr(analysis_status_service, "infer_from_db", lambda *_args: None)
+    monkeypatch.setattr(analysis_status_service, "get_status", fake_get_status)
+
+    ctrl._run_audio_steps_for_track(7, "C:/audio.mp3", "Track", 142.0)
+
+    assert [name for name, _factory in ctrl._seq_steps] == [
+        "LUFS",
+        "Mood/Genre",
+        "Spektral",
+    ]
+
+
 def test_b293_sequential_step_chain_calls_next_batch_track():
-    """C-1 Fix: Nach Step 6 muss zum naechsten Batch-Track weitergeschaltet werden."""
+    """C-1 Fix: Nach letztem Step muss zum naechsten Batch-Track weitergeschaltet werden."""
     body = _slot_body(
         "ui/controllers/audio_analysis.py", "_run_next_sequential_step_inner"
     )
     assert "_process_next_batch_track" in body, (
-        "C-1: _run_next_sequential_step_inner muss nach Step 6 "
+        "C-1: _run_next_sequential_step_inner muss nach letztem Step "
         "_process_next_batch_track triggern (Track-Chain)."
     )
 

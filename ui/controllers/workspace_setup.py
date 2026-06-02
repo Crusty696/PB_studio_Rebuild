@@ -108,6 +108,7 @@ class WorkspaceSetupController(PBComponent):
         tools.addSeparator()
         tools.addAction("Neues Projekt", self.window.project_management._new_project)
         tools.addAction("Projekt oeffnen", self.window.project_management._open_project)
+        tools.addAction("Speichern", self.window.project_management._save_project)
         tools.addAction("Speichern unter", self.window.project_management._save_project_as)
         tools.addAction("Zuletzt geoeffnete Projekte", self._show_recent_projects_menu)
         tools.addSeparator()

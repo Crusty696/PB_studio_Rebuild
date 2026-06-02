@@ -52,3 +52,12 @@ def test_missing_required_steps_empty_status_returns_all_required():
     assert video_missing
     video_required = sorted(s.key for s in VIDEO_STEP_SPECS if s.required_for_auto_edit)
     assert video_missing == video_required
+
+
+def test_b458_cockpit_audio_specs_cover_all_audio_steps():
+    """B-458: Cockpit darf Audio nicht nach Teilmenge als bereit melden."""
+    from services.analysis_status_service import AUDIO_STEPS
+    from services.cockpit_orchestrator import AUDIO_STEP_SPECS
+
+    assert [spec.key for spec in AUDIO_STEP_SPECS] == AUDIO_STEPS
+    assert all(spec.required_for_auto_edit for spec in AUDIO_STEP_SPECS)

@@ -404,7 +404,7 @@ class AudioAnalysisController(PBComponent):
     def _process_next_batch_track(self):
         """B-293 R-23 C-1 Fix: Startet den naechsten Track der Batch-Queue.
 
-        Wird zu Beginn jedes Track-Durchlaufs gerufen sowie nach Step 6 des
+        Wird zu Beginn jedes Track-Durchlaufs gerufen sowie nach letztem Step des
         vorherigen Tracks. Leere Queue -> Batch-Finish (UI-Reset).
         """
         # Guard gegen UI-Shutdown waehrend Batch
@@ -459,17 +459,21 @@ class AudioAnalysisController(PBComponent):
 
     def _run_audio_steps_for_track(self, track_id: int, file_path: str, title: str, bpm):
         """B-293 R-23 C-1 Fix: Setzt _seq_*-State fuer EINEN Track auf und
-        kickt die 6-Step-Chain. Nach Step 6 chained _on_seq_step_done bzw.
+        kickt die 8-Step-Chain. Nach Step 8 chained _on_seq_step_done bzw.
         _run_next_sequential_step_inner zu _process_next_batch_track().
         """
-        steps = [
-            ("BPM/Beats", lambda: self._create_analysis_worker(track_id, title)),
-            ("Wellenform", lambda: self._create_waveform_worker(track_id)),
-            ("Key", lambda: self._create_key_worker(track_id, file_path)),
-            ("LUFS", lambda: self._create_lufs_worker(track_id, file_path)),
-            ("Struktur", lambda: self._create_structure_worker(track_id, file_path, bpm)),
-            ("Stems", lambda: self._create_stem_worker(track_id)),
+        step_specs = [
+            ("bpm_detection", "BPM/Beats", lambda: self._create_analysis_worker(track_id, title)),
+            ("waveform_analysis", "Wellenform", lambda: self._create_waveform_worker(track_id)),
+            ("key_detection", "Key", lambda: self._create_key_worker(track_id, file_path)),
+            ("lufs_analysis", "LUFS", lambda: self._create_lufs_worker(track_id, file_path)),
+            ("mood_genre_classify", "Mood/Genre", lambda: self._create_classify_worker(track_id, file_path, bpm)),
+            ("spectral_analysis", "Spektral", lambda: self._create_spectral_worker(track_id, file_path)),
+            ("structure_detection", "Struktur", lambda: self._create_structure_worker(track_id, file_path, bpm)),
+            ("stem_separation", "Stems", lambda: self._create_stem_worker(track_id)),
         ]
+        pending_keys = set(self._get_pending_audio_step_keys(track_id))
+        steps = [(name, factory) for key, name, factory in step_specs if key in pending_keys]
 
         self._seq_steps = steps
         self._seq_index = 0
@@ -486,6 +490,29 @@ class AudioAnalysisController(PBComponent):
             f"[Komplett] Starte Komplett-Analyse fuer '{title}' ({self._seq_total} Schritte)..."
         )
         self._run_next_sequential_step()
+
+    def _get_pending_audio_step_keys(self, track_id: int) -> list[str]:
+        """Return audio steps that are not already done for complete analysis."""
+        from services import analysis_status_service
+
+        try:
+            analysis_status_service.infer_from_db("audio", track_id)
+        except Exception as exc:
+            logger.warning("[Komplett] Status-Inferenz fuer Audio %s fehlgeschlagen: %s", track_id, exc)
+
+        try:
+            status_dict = analysis_status_service.get_status("audio", track_id)
+        except Exception as exc:
+            logger.warning("[Komplett] Status-Lookup fuer Audio %s fehlgeschlagen: %s", track_id, exc)
+            return list(analysis_status_service.AUDIO_STEPS)
+
+        pending: list[str] = []
+        for step_key in analysis_status_service.AUDIO_STEPS:
+            status_entry = status_dict.get(step_key)
+            status = status_entry.status if status_entry else "pending"
+            if status != "done":
+                pending.append(step_key)
+        return pending
 
     def _run_next_sequential_step(self):
         """Startet den naechsten Schritt in der sequentiellen Analyse-Queue."""
@@ -595,6 +622,14 @@ class AudioAnalysisController(PBComponent):
     def _create_lufs_worker(self, track_id: int, file_path: str):
         from workers.audio_analysis import LUFSAnalysisWorker
         return LUFSAnalysisWorker(track_id, file_path)
+
+    def _create_classify_worker(self, track_id: int, file_path: str, bpm: float):
+        from workers.audio_analysis import AudioClassifyWorker
+        return AudioClassifyWorker(track_id, file_path, bpm=bpm)
+
+    def _create_spectral_worker(self, track_id: int, file_path: str):
+        from workers.audio_analysis import SpectralAnalysisWorker
+        return SpectralAnalysisWorker(track_id, file_path)
 
     def _create_structure_worker(self, track_id: int, file_path: str, bpm: float):
         from workers.audio_analysis import StructureDetectionWorker

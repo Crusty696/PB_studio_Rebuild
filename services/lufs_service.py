@@ -15,10 +15,35 @@ from dataclasses import dataclass
 
 log = logging.getLogger(__name__)
 
-from services.startup_checks import get_ffmpeg_bin
+from services.startup_checks import get_ffmpeg_bin, get_ffprobe_bin
 
 # FFmpeg binary — honour env override (same convention as convert_service.py)
 _FFMPEG = get_ffmpeg_bin()
+
+
+def _probe_duration_sec(file_path: str) -> float:
+    """Probe audio duration via ffprobe; return 0.0 when probing fails."""
+    try:
+        result = subprocess.run(
+            [
+                get_ffprobe_bin(),
+                "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                file_path,
+            ],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=10,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        if result.returncode != 0:
+            return 0.0
+        return max(0.0, float((result.stdout or "0").strip() or 0.0))
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return 0.0
 
 
 @dataclass
@@ -92,6 +117,21 @@ def _safe_float(value, default: float = 0.0) -> float:
 class LUFSService:
     """Misst die Lautstaerke nach EBU R128 Standard via FFmpeg loudnorm."""
 
+    def _timeout_for_file(self, file_path: str) -> int:
+        """Return bounded LUFS timeout based on size and duration evidence."""
+        from services.audio_constants import FFMPEG_TIMEOUT_SEC
+
+        try:
+            file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
+            size_timeout = int(file_size_mb * 2) + 60
+        except OSError:
+            size_timeout = FFMPEG_TIMEOUT_SEC
+
+        duration_sec = _probe_duration_sec(file_path)
+        duration_timeout = int(duration_sec * 0.30) + 180 if duration_sec > 0 else 0
+
+        return max(FFMPEG_TIMEOUT_SEC, size_timeout, duration_timeout)
+
     def analyze(self, file_path: str) -> LUFSResult:
         """Analysiert die Lautstaerke einer Audio-Datei.
 
@@ -156,19 +196,15 @@ class LUFSService:
         Returns:
             stderr-Output bei Erfolg, None bei Fehler.
         """
-        from services.audio_constants import FFMPEG_TIMEOUT_SEC
-
-        # Dynamisches Timeout: Grosse Dateien (DJ-Sets, 2-3h) brauchen mehr Zeit.
-        # Basis: FFMPEG_TIMEOUT_SEC (120s), skaliert mit Dateigroesse (~2s pro MB).
-        try:
-            file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
-            timeout = max(FFMPEG_TIMEOUT_SEC, int(file_size_mb * 2) + 60)
-        except OSError:
-            timeout = FFMPEG_TIMEOUT_SEC
+        # B-460: loudnorm muss die Audiodaten dekodieren. Dateigroesse allein
+        # war fuer lange DJ-Sets zu knapp; Dauer via ffprobe gibt ein stabileres
+        # Timeout-Budget.
+        timeout = self._timeout_for_file(file_path)
 
         cmd = [
             _FFMPEG,
             "-hide_banner",
+            "-nostdin",
             "-i", file_path,
             "-af", "loudnorm=print_format=json",
             "-f", "null",

@@ -405,3 +405,14 @@ def _ensure_status_done(session: Session, media_type: str, media_id: int, step_k
         )
         session.add(entry)
         logger.info("Inferred status='done' for %s/%d/%s", media_type, media_id, step_key)
+    elif entry.status != "done":
+        entry.status = "done"
+        entry.completed_at = datetime.now(timezone.utc)
+        entry.value_summary = value_summary
+        entry.error_message = None
+        logger.info(
+            "Reconciled status='done' for %s/%d/%s from DB evidence",
+            media_type,
+            media_id,
+            step_key,
+        )

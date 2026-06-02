@@ -45,7 +45,7 @@ def test_cockpit_project_with_audio_missing_beatgrid_runs_audio(project, audio_t
 
 
 def test_cockpit_audio_ready_video_missing_scenes_runs_video(db_session, project, audio_track, video_clip):
-    from services.cockpit_orchestrator import get_cockpit_readiness
+    from services.cockpit_orchestrator import AUDIO_STEP_SPECS, get_cockpit_readiness
 
     db_session.add(
         Beatgrid(
@@ -57,7 +57,7 @@ def test_cockpit_audio_ready_video_missing_scenes_runs_video(db_session, project
         )
     )
     audio_track.energy_curve = [0.5, 0.6]
-    for step in ("bpm_detection", "waveform_analysis", "structure_detection"):
+    for step in (spec.key for spec in AUDIO_STEP_SPECS):
         _mark(db_session, "audio", audio_track.id, step)
     db_session.commit()
 
@@ -70,7 +70,7 @@ def test_cockpit_audio_ready_video_missing_scenes_runs_video(db_session, project
 
 
 def test_cockpit_audio_and_video_ready_opens_auto_edit(db_session, project, audio_track, video_clip):
-    from services.cockpit_orchestrator import get_cockpit_readiness
+    from services.cockpit_orchestrator import AUDIO_STEP_SPECS, get_cockpit_readiness
 
     db_session.add(
         Beatgrid(
@@ -82,7 +82,7 @@ def test_cockpit_audio_and_video_ready_opens_auto_edit(db_session, project, audi
         )
     )
     db_session.add(Scene(video_clip_id=video_clip.id, start_time=0.0, end_time=1.0, energy=0.7))
-    for step in ("bpm_detection", "waveform_analysis", "structure_detection"):
+    for step in (spec.key for spec in AUDIO_STEP_SPECS):
         _mark(db_session, "audio", audio_track.id, step)
     for step in (
         "scene_detection",
