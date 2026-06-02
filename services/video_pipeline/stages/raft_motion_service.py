@@ -59,7 +59,7 @@ class RaftMotionService:
             model = raft_small(weights=Raft_Small_Weights.C_T_V2)
         if self.device.startswith("cuda") and torch.cuda.is_available():
             model = model.to(self.device)
-        self._model = model.eval()
+        self._model = model.float().eval()
 
     def compute_flow(self, frame_a: np.ndarray, frame_b: np.ndarray) -> np.ndarray:
         """Berechnet Optical-Flow zwischen ``frame_a`` und ``frame_b``.
@@ -87,6 +87,11 @@ class RaftMotionService:
             scale = self.resolution_scale
             a = F.interpolate(a, scale_factor=scale, mode="bilinear", align_corners=False)
             b = F.interpolate(b, scale_factor=scale, mode="bilinear", align_corners=False)
+
+        model_dtype = next(self._model.parameters(), a).dtype
+        if a.dtype != model_dtype:
+            a = a.to(dtype=model_dtype)
+            b = b.to(dtype=model_dtype)
 
         # B-440: torchvision-RAFT verlangt H,W teilbar durch 8. Keyframe- bzw.
         # interpolierte Dims sind das nicht garantiert -> auf Vielfaches von 8

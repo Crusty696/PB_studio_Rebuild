@@ -49,6 +49,22 @@ def _summary(values: list[float]) -> dict[str, float]:
     }
 
 
+def _ensure_qt_app_for_profile():
+    """Return a Qt app without blocking later QApplication-based tests."""
+    from PySide6.QtCore import QCoreApplication
+
+    app = QCoreApplication.instance()
+    if app is not None:
+        return app
+
+    try:
+        from PySide6.QtWidgets import QApplication
+
+        return QApplication([])
+    except Exception:
+        return QCoreApplication([])
+
+
 def _run_pacing_smoke_once() -> dict[str, Any]:
     env = dict(os.environ)
     env["PYTHONIOENCODING"] = "utf-8"
@@ -109,8 +125,6 @@ def run_embedding_queue_profile(
     n_jobs: int = 20,
     fake_work_seconds: float = 0.02,
 ) -> dict[str, Any]:
-    from PySide6.QtCore import QCoreApplication
-
     from services.brain_v3.embedding_scheduler import (
         EmbeddingScheduler,
         reset_default_scheduler_for_tests,
@@ -123,7 +137,7 @@ def run_embedding_queue_profile(
 
     tmp_root = Path(tempfile.mkdtemp(prefix="pb-brain-v3-perf-"))
     os.environ["APPDATA"] = str(tmp_root / "Roaming")
-    app = QCoreApplication.instance() or QCoreApplication([])
+    app = _ensure_qt_app_for_profile()
     reset_default_scheduler_for_tests()
     reset_default_serializer_for_tests()
     cache = EmbeddingCache()

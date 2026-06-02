@@ -855,10 +855,16 @@ class ModelManager:
                 )
 
                 def _build_siglip(dt):
+                    # SigLIP initializes some tensors on CPU during
+                    # from_pretrained(); CPU half ops can fail before the model
+                    # is moved to CUDA. Load fp32 first, then cast on CUDA.
+                    load_dtype = torch.float32 if dt == torch.float16 else dt
                     m = AutoModel.from_pretrained(  # nosec B615
-                        model_id, torch_dtype=dt,
+                        model_id, torch_dtype=load_dtype,
                     )
                     m.to(self.device)
+                    if self.device == "cuda" and dt == torch.float16:
+                        m.half()
                     m.eval()
                     return m
 

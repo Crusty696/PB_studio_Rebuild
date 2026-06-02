@@ -15,6 +15,7 @@ class DummySignal:
 
 # Test, ob der CLI-Handler in main.py `--pre-cache` korrekt und ohne Race-Condition abarbeitet
 def test_pre_cache_headless_mode(monkeypatch):
+    modules_before = set(sys.modules)
     # Mocke sys.argv, damit `--pre-cache` übergeben wird
     monkeypatch.setattr(sys, "argv", ["main.py", "--pre-cache"])
     
@@ -79,6 +80,16 @@ def test_pre_cache_headless_mode(monkeypatch):
                     main.main()
         finally:
             sys.modules.pop("main", None)
+            for mod_name in list(sys.modules):
+                if mod_name in modules_before:
+                    continue
+                if (
+                    mod_name == "ui"
+                    or mod_name.startswith("ui.")
+                    or mod_name == "workers"
+                    or mod_name.startswith("workers.")
+                ):
+                    sys.modules.pop(mod_name, None)
 
         assert exit_info.value.code == 0
         mock_setup_logging.assert_not_called()

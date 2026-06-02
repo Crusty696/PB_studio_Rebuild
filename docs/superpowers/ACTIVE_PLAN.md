@@ -1,6 +1,6 @@
 # PB Studio Active Plan
 
-status: code-complete-live-pending
+status: active
 active_plan_id: PB-STUDIO-FULL-AUDIT-FIXPLAN-2026-05-31
 next_allowed_task: none - verification matrix recorded; user live confirmation/final decision only
 updated: 2026-06-01
@@ -24,7 +24,7 @@ PB-STUDIO-FULL-PROJECT-FILE-AUDIT-2026-05-31
 ## Agent Behavior
 
 - Nur `PB-STUDIO-FULL-AUDIT-FIXPLAN-2026-05-31` bearbeiten.
-- Status aktuell: code-complete-live-pending.
+- Registry-/Lifecycle-Status aktuell: code-complete-live-pending.
 - User hat Implementierung am 2026-05-31 im Chat freigegeben.
 - Task-Reihenfolge aus dem Fixplan strikt einhalten.
 - `verified` / `fixed` nur nach realem App-Workflow plus Log-/UI-Beleg.

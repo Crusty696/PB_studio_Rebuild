@@ -23,14 +23,20 @@ def test_startup_checks_run_without_qapplication(monkeypatch, tmp_path):
         SimpleNamespace(__version__="test", version=SimpleNamespace(cuda="test")),
     )
 
-    sys.modules.pop("PySide6.QtWidgets", None)
+    qtwidgets_was_loaded = "PySide6.QtWidgets" in sys.modules
+    qtwidgets_before = sys.modules.get("PySide6.QtWidgets")
+    if not qtwidgets_was_loaded:
+        monkeypatch.delitem(sys.modules, "PySide6.QtWidgets", raising=False)
 
     status = startup_checks.check_system(tmp_path)
 
     assert status.ffmpeg_ok is True
     assert status.disk_ok is True
     assert status.cuda_ok is False
-    assert "PySide6.QtWidgets" not in sys.modules
+    if qtwidgets_was_loaded:
+        assert sys.modules.get("PySide6.QtWidgets") is qtwidgets_before
+    else:
+        assert "PySide6.QtWidgets" not in sys.modules
 
 
 def test_database_bootstrap_failure_logs_and_exits_cleanly(monkeypatch, caplog):

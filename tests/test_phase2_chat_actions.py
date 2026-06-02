@@ -112,7 +112,7 @@ def test_move_clip_invalid_entry():
 
 def test_remove_clip_invalid_entry():
     """remove_clip mit nicht-existenter Entry-ID soll Fehler geben."""
-    result = action_registry.execute("remove_clip", {"entry_id": 999999})
+    result = action_registry.execute("remove_clip", {"entry_id": 999999, "confirm": True})
     assert "error" in result
 
 

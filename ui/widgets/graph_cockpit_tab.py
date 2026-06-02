@@ -15,6 +15,7 @@ fällt graceful auf einen Plain-QTextEdit-Fallback zurück.
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 from PySide6.QtCore import QObject, Qt, QTimer, Signal, Slot
@@ -50,6 +51,9 @@ class _CockpitBridge(QObject):
 
 def _try_import_qwebengine():
     """Try-Import-Helper — gibt None zurück wenn QtWebEngine fehlt."""
+    if os.environ.get("QT_QPA_PLATFORM") == "offscreen" or "PYTEST_CURRENT_TEST" in os.environ:
+        logger.info("QWebEngineView im Headless/Test-Modus deaktiviert — fallback auf Text-View.")
+        return None
     try:
         from PySide6.QtWebEngineWidgets import QWebEngineView  # noqa: F401
         return QWebEngineView
