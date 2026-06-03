@@ -1020,6 +1020,8 @@ class InteractiveTimeline(QGraphicsView):
         vp.setUpdatesEnabled(True)
         vp.update()
         self._schedule_thumb_request()  # B-471 T1: lazy thumbs fuer sichtbare Clips
+        logger.info("[T1] build done: registered_paths=%d clips=%d",
+                    len(self._thumb_items_by_path), len(self.clip_items))
 
     def _build_entries(self, entries, audio_map, video_map, anchor_map):
         max_end = 0.0
@@ -1114,6 +1116,7 @@ class InteractiveTimeline(QGraphicsView):
     def _request_visible_thumbnails(self) -> None:
         """Fordert Thumbnails fuer aktuell sichtbare Video-Clips an (lazy)."""
         if not self._thumb_items_by_path:
+            logger.info("[T1] request_visible: keine registrierten Thumbnail-Pfade")
             return
         try:
             view_rect = self.mapToScene(self.viewport().rect()).boundingRect()
@@ -1121,21 +1124,32 @@ class InteractiveTimeline(QGraphicsView):
             return
         # etwas Vorlauf, damit knapp ausserhalb liegende Clips vorgeladen werden
         view_rect.adjust(-300.0, 0.0, 300.0, 0.0)
+        requested = 0
         for fp, items in list(self._thumb_items_by_path.items()):
             if self._thumb_loader.is_done(fp):
                 continue
             for it in items:
                 try:
                     if it.sceneBoundingRect().intersects(view_rect):
+                        before = self._thumb_loader.inflight_count + self._thumb_loader.queued_count
                         self._thumb_loader.request(fp)
+                        if (self._thumb_loader.inflight_count
+                                + self._thumb_loader.queued_count) > before:
+                            requested += 1
                         break
                 except RuntimeError:
                     continue
+        logger.info(
+            "[T1] request_visible: paths=%d view=(%.0f..%.0f) new_requests=%d inflight=%d",
+            len(self._thumb_items_by_path), view_rect.left(), view_rect.right(),
+            requested, self._thumb_loader.inflight_count,
+        )
 
     def _start_thumb_worker(self, file_path: str) -> None:
         """Startet einen async _ThumbWorker (ffmpeg) fuer eine Clip-Datei."""
         try:
             from ui.widgets.media_grid import _ThumbWorker
+            logger.info("[T1] thumb worker start: %s", file_path)
             thumb_h = max(16, TRACK_HEIGHT - 6)
             thread = QThread()
             worker = _ThumbWorker(file_path, 220, thumb_h)
@@ -1788,6 +1802,13 @@ class InteractiveTimeline(QGraphicsView):
         r = self._scene.itemsBoundingRect()
         r.adjust(-60, -10, 200, 40)
         self._scene.setSceneRect(r)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        # B-471 T1: View wurde sichtbar (z.B. Tab-Wechsel zu SCHNITT). Erst jetzt
+        # ist viewport().rect() gueltig -> sichtbare Thumbnails anfordern. Ohne
+        # diesen Trigger blieb der Build-Zeit-Request (View noch versteckt) wirkungslos.
+        self._schedule_thumb_request()
 
     def wheelEvent(self, event):
         """Zoom mit Mausrad — sanfter Faktor, nur horizontal, zur Mausposition."""
