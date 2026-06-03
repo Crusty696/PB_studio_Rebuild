@@ -1240,11 +1240,86 @@ git add docs/superpowers/ACTIVE_PLAN.md docs/superpowers/PLAN_REGISTRY.md docs/s
 git commit -m "docs(PB-STUDIO-FULL-AUDIT-FIXPLAN-2026-05-31): record verification matrix" -m "Verification: handoff clean; matrix records exact test/live status."
 ```
 
+## Task 11: B-462 Soft-Delete Stage 1 (FPA-005 follow-up)
+
+**Findings:** FPA-005 (live-verify follow-up)
+
+**Bug:** `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-462-gui-media-delete-hard-delete-not-soft-delete.md`
+
+**Decision:** `C:\Brain-Bug\projects\pb-studio\wiki\decisions\D-056-soft-delete-staged-a-then-c.md`
+
+**Context:** Live verify 2026-06-03 proved the GUI delete path does a physical
+`DELETE` while the read side is fully soft-delete-aware. Stage 1 = make the delete
+actions set `deleted_at` (option A). Stage 2 (Task 12, option C) adds an explicit
+purge later. User authorized A now, C as follow-up. Implementation only after the
+user releases this task.
+
+**Acceptance criteria:**
+- `delete_selected_media` and `delete_all_media` set `deleted_at` on
+  `VideoClip`/`AudioTrack` parents instead of physical delete.
+- Child rows (`Scene`/`Beatgrid`/`WaveformData`/`StructureSegment`/`HotCue`/
+  `AudioVideoAnchor`) are no longer hard-deleted; they stay and are excluded via
+  the soft-deleted parent on read paths.
+- VectorDB embedding deletion is decoupled from soft-delete (embeddings are not
+  destroyed on a soft delete in Stage 1; revisited in Stage 2 purge).
+- No regression in existing read filters; orphan-child invariant from
+  `tests/test_services/test_soft_delete_visibility.py` still holds.
+
+**Files:**
+- Test: `tests/test_services/test_soft_delete_visibility.py` (extend) or new
+  `tests/test_services/test_delete_sets_soft_delete.py`
+- Modify only if failing tests confirm: `services/ingest_service.py`
+  (`delete_selected_media` :654, `delete_all_media` :529)
+
+- [ ] **Step 1: Write failing test**
+
+Test calls `delete_selected_media([video_id], [])` (and `delete_all_media`) on a
+populated test project, then asserts: parent row still exists, `deleted_at` is set,
+`get_all_video`/`get_all_audio` exclude it, and no orphan child is exposed.
+Expected before fix: red (row physically gone / `deleted_at` None).
+
+- [ ] **Step 2: Implement minimal soft-delete**
+
+Replace the parent `.delete(synchronize_session=False)` with
+`.update({Model.deleted_at: <now>}, synchronize_session=False)`. Stop hard-deleting
+child rows. Decouple the VectorDB delete from this path (do not destroy embeddings
+on soft delete). No read-path query rewrite unless a failing test proves an orphan
+leak.
+
+- [ ] **Step 3: Verify targeted and default gate**
+
+Run the new test plus `tests/test_services/test_soft_delete_visibility.py` and the
+default gate `pytest -m "not live_gpu and not e2e and not slow"`. Document first
+failure if any.
+
+- [ ] **Step 4: Live verify**
+
+GUI delete a media item, confirm it disappears from active views AND the DB row
+remains with `deleted_at` set. Autonomous run cannot click for `fixed`: status
+stays `code-fix-pending-live-verification` until the user confirms a real workflow.
+
+- [ ] **Step 5: Vault + commit**
+
+Update B-462 and D-056. Commit `fix(B-462): soft-delete media instead of hard
+delete` with honest verification status.
+
+## Task 12: B-462 Two-Tier Purge Stage 2 (option C, planned follow-up)
+
+**Status:** planned / not started. Do not begin before Task 11 is live-verified and
+the user releases Task 12.
+
+**Goal:** Add an explicit "Endgueltig loeschen / Papierkorb leeren" action that
+performs the physical delete (recycling the old hard-delete code as the purge path)
+plus VectorDB cleanup, and a way to view/restore soft-deleted media. Keeps option A
+as the default UI delete and adds the irreversible purge as a separate, confirmed
+action.
+
 ## Implementation Stop Conditions
 
 Stop and ask user if:
 
-- Any task wants to change scope outside FPA-001..FPA-010.
+- Any task wants to change scope outside FPA-001..FPA-010 (B-462 stays inside
+  FPA-005 soft-delete scope).
 - A failing test indicates architecture rewrite rather than local fix.
 - GPU live run needs model/download/install not already present.
 - CI fix requires changing supported Python/CUDA runtime.
@@ -1253,4 +1328,5 @@ Stop and ask user if:
 
 ## Current Next Task
 
-Task 10 - Final Verification Matrix And Handoff.
+Task 11 - B-462 Soft-Delete Stage 1. Formally added; awaits user implementation
+release before any `services/ingest_service.py` edit.

@@ -2,8 +2,8 @@
 
 status: active
 active_plan_id: PB-STUDIO-FULL-AUDIT-FIXPLAN-2026-05-31
-next_allowed_task: none - verification matrix recorded; user live confirmation/final decision only
-updated: 2026-06-01
+next_allowed_task: Task 11 (B-462 soft-delete stage 1) - pending user implementation release
+updated: 2026-06-03
 
 ## Meaning
 
@@ -83,3 +83,7 @@ PB-STUDIO-FULL-PROJECT-FILE-AUDIT-2026-05-31
 - Task 9 Boot Path Guardrails abgeschlossen: DB-Bootstrap loggt Critical und beendet sauber bei DB-Fehler; startup checks laufen ohne QApplication; CUDA-unavailable bleibt degradierter Status; Boot-Live-Fenster und Startup-completed-Log belegt.
 - Task 10 Final Verification Matrix erstellt: `docs/superpowers/synthesis/full-audit-fixplan-verification-2026-05-31.md`.
 - Naechster Schritt: Handoff nach Matrix-Commit; danach User-Live-Entscheidung. Kein `fixed`-Status geschrieben.
+- 2026-06-03 Live-Verify (project-audit-team): alle 10 FPA-Funktionen real getestet. 5 green (F1/F2/F3/F4/F8), 3 yellow (F5/F7/F9), 1 red (F6 GUI-Hard-Delete), 1 n/a (F10). Default gate rerun green (2351 passed). Matrix-Live-Sektion committed (1b93a18).
+- 7 neue Bug-Files B-462..B-468 (open, kein Fix). B-462 (critical) = GUI-Hard-Delete statt Soft-Delete.
+- User-Entscheidung 2026-06-03: B-462 gestuft fixen, A (Soft-Delete) jetzt, C (Two-Tier/Purge) als Folge. Decision D-056.
+- Task 11 (B-462-A) + Task 12 (B-462-C) in Fixplan aufgenommen. Implementierung von Task 11 wartet auf explizite User-Freigabe; noch kein `ingest_service.py`-Edit.
