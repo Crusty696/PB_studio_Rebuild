@@ -819,24 +819,35 @@ class InteractiveTimeline(QGraphicsView):
             from database import get_active_project_id
             project_id = get_active_project_id()
 
-        # UI sofort bereinigen
-        for item in self.clip_items:
-            self._scene.removeItem(item)
-        self.clip_items.clear()
-        for wf in self.waveform_items:
-            self._scene.removeItem(wf)
-        self.waveform_items.clear()
-        # Clear old cut lines
-        for line in self.cut_lines:
-            self._scene.removeItem(line)
-        self.cut_lines.clear()
-        # Clear old beat markers
-        for marker in self._beat_markers:
-            self._scene.removeItem(marker)
-        self._beat_markers.clear()
-        # Clear sections + beat grid + drop markers (AUD-70)
-        self._clear_sections()
-        self._clear_beat_grid()
+        # UI sofort bereinigen.
+        # B-470 Stack A: Der Szene-Teardown laeuft synchron auf dem Main-Thread.
+        # Ohne stummgeschaltete Viewport-Updates triggert JEDES removeItem() einen
+        # partiellen Repaint -> bei vielen Items ~7s Freeze beim Projekt-Switch
+        # (live gemessen via perf-watchdog Sampled Stack:
+        # _on_project_changed -> load_from_db -> clip_items.clear()). Spiegelt die
+        # Build-Seite (_start_batched_entry_build), die Updates ebenfalls mutet.
+        _vp = self.viewport()
+        _vp.setUpdatesEnabled(False)
+        try:
+            for item in self.clip_items:
+                self._scene.removeItem(item)
+            self.clip_items.clear()
+            for wf in self.waveform_items:
+                self._scene.removeItem(wf)
+            self.waveform_items.clear()
+            # Clear old cut lines
+            for line in self.cut_lines:
+                self._scene.removeItem(line)
+            self.cut_lines.clear()
+            # Clear old beat markers
+            for marker in self._beat_markers:
+                self._scene.removeItem(marker)
+            self._beat_markers.clear()
+            # Clear sections + beat grid + drop markers (AUD-70)
+            self._clear_sections()
+            self._clear_beat_grid()
+        finally:
+            _vp.setUpdatesEnabled(True)
 
         # Hintergrund-Worker für die Datenbankabfrage
         from PySide6.QtCore import QObject, Signal, QThread
