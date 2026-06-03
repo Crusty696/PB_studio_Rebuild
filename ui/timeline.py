@@ -194,19 +194,20 @@ class TimelineClipItem(QGraphicsRectItem):
         self.setPen(QPen(color.darker(120), 1))
         self.setZValue(2)  # Über der Wellenform
 
+        # B-471 T1: kein synchroner Disk-Read mehr beim Item-Build. Erst
+        # Placeholder; das echte Thumbnail wird viewport-lazy + async
+        # nachgeladen (TimelineView._request_visible_thumbnails ->
+        # set_thumbnail_pixmap). Verhindert 1132x ffmpeg/Disk-I/O auf dem
+        # Main-Thread beim Aufbau.
+        self.thumbnail_file_path = thumbnail_file_path
+        self._thumb_w = max(24, min(int(width), 220))
+        self._thumb_h = max(16, int(height) - 6)
         self._thumbnail_item: QGraphicsPixmapItem | None = None
         if track_type == "video":
-            thumb_h = max(16, int(height) - 6)
-            thumb_w = max(24, min(int(width), 220))
-            pix = _timeline_video_thumbnail(
-                thumbnail_file_path,
-                thumb_w,
-                thumb_h,
-                f"#{media_id}",
-            )
+            pix = _timeline_video_placeholder(self._thumb_w, self._thumb_h, f"#{media_id}")
             self._thumbnail_item = QGraphicsPixmapItem(pix, self)
             self._thumbnail_item.setPos(0, 3)
-            self._thumbnail_item.setOpacity(0.58)
+            self._thumbnail_item.setOpacity(0.85)
             self._thumbnail_item.setZValue(3)
 
         label = QGraphicsTextItem(title[:30], self)
@@ -260,6 +261,20 @@ class TimelineClipItem(QGraphicsRectItem):
             self._apply_anchors(anchors)
         else:
             self._load_anchors()
+
+    def set_thumbnail_pixmap(self, pix) -> None:
+        """B-471 T1: setzt das real generierte Thumbnail (vom async Loader)."""
+        if self._thumbnail_item is None or pix is None:
+            return
+        try:
+            scaled = pix.scaled(
+                self._thumb_w, self._thumb_h,
+                Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            self._thumbnail_item.setPixmap(scaled)
+        except RuntimeError:
+            pass
 
     def _apply_anchors(self, anchors):
         """Zeichnet vorab geladene Anker (vermeidet N+1 DB-Queries)."""
@@ -696,6 +711,19 @@ class InteractiveTimeline(QGraphicsView):
         self._track_bg_items: list[QGraphicsRectItem] = []
         self._pending_entry_build: dict | None = None
 
+        # B-471 T1: viewport-lazy thumbnail generation. Nur sichtbare Video-
+        # Clips bekommen ihr Thumbnail async (ffmpeg via _ThumbWorker),
+        # max 2 parallel, jede Datei genau einmal.
+        from ui.timeline_thumbnail_loader import ThumbnailLoadManager
+        self._thumb_items_by_path: dict[str, list[TimelineClipItem]] = {}
+        self._thumb_threads: list = []
+        self._thumb_loader = ThumbnailLoadManager(self._start_thumb_worker, max_concurrent=2)
+        self._thumb_request_timer = QTimer(self)
+        self._thumb_request_timer.setSingleShot(True)
+        self._thumb_request_timer.setInterval(120)
+        self._thumb_request_timer.timeout.connect(self._request_visible_thumbnails)
+        self.horizontalScrollBar().valueChanged.connect(self._schedule_thumb_request)
+
         # Beat Grid Overlay + Section Colors (AUD-70)
         self._section_items: list = []        # Section color backgrounds
         self._beat_grid_items: list = []      # Adaptive beat grid lines
@@ -832,6 +860,10 @@ class InteractiveTimeline(QGraphicsView):
             for item in self.clip_items:
                 self._scene.removeItem(item)
             self.clip_items.clear()
+            # B-471 T1: Thumbnail-Registry + Scheduler zuruecksetzen (Done-Set
+            # bleibt erhalten -> bereits generierte Thumbs werden nicht neu erzeugt).
+            self._thumb_items_by_path.clear()
+            self._thumb_loader.reset()
             for wf in self.waveform_items:
                 self._scene.removeItem(wf)
             self.waveform_items.clear()
@@ -987,6 +1019,7 @@ class InteractiveTimeline(QGraphicsView):
         vp = self.viewport()
         vp.setUpdatesEnabled(True)
         vp.update()
+        self._schedule_thumb_request()  # B-471 T1: lazy thumbs fuer sichtbare Clips
 
     def _build_entries(self, entries, audio_map, video_map, anchor_map):
         max_end = 0.0
@@ -1056,11 +1089,81 @@ class InteractiveTimeline(QGraphicsView):
         self._apply_brain_v3_timeline_metadata(item, entry)
         self._scene.addItem(item)
         self.clip_items.append(item)
+        self._register_clip_thumbnail(item)
 
         if entry.track == "audio" and has_waveform:
             # B-383/B-432: Asynchrones Laden der Wellenform im Hintergrund
             self._load_waveform_async(entry.media_id, entry.start_time, dur, y, item)
         return entry.start_time + dur
+
+    # ── B-471 T1: viewport-lazy thumbnail loading ─────────────────────────
+    def _register_clip_thumbnail(self, item: "TimelineClipItem") -> None:
+        """Merkt ein Video-Clip-Item fuer spaeteres lazy Thumbnail-Laden."""
+        fp = getattr(item, "thumbnail_file_path", None)
+        if item.track_type != "video" or not fp:
+            return
+        self._thumb_items_by_path.setdefault(str(fp), []).append(item)
+
+    def _schedule_thumb_request(self) -> None:
+        """Coalesct Viewport-Aenderungen (Scroll/Zoom/Build) zu einem Request."""
+        try:
+            self._thumb_request_timer.start()
+        except RuntimeError:
+            pass
+
+    def _request_visible_thumbnails(self) -> None:
+        """Fordert Thumbnails fuer aktuell sichtbare Video-Clips an (lazy)."""
+        if not self._thumb_items_by_path:
+            return
+        try:
+            view_rect = self.mapToScene(self.viewport().rect()).boundingRect()
+        except RuntimeError:
+            return
+        # etwas Vorlauf, damit knapp ausserhalb liegende Clips vorgeladen werden
+        view_rect.adjust(-300.0, 0.0, 300.0, 0.0)
+        for fp, items in list(self._thumb_items_by_path.items()):
+            if self._thumb_loader.is_done(fp):
+                continue
+            for it in items:
+                try:
+                    if it.sceneBoundingRect().intersects(view_rect):
+                        self._thumb_loader.request(fp)
+                        break
+                except RuntimeError:
+                    continue
+
+    def _start_thumb_worker(self, file_path: str) -> None:
+        """Startet einen async _ThumbWorker (ffmpeg) fuer eine Clip-Datei."""
+        try:
+            from ui.widgets.media_grid import _ThumbWorker
+            thumb_h = max(16, TRACK_HEIGHT - 6)
+            thread = QThread()
+            worker = _ThumbWorker(file_path, 220, thumb_h)
+            worker.moveToThread(thread)
+            thread.started.connect(worker.run)
+            worker.done.connect(self._on_thumb_ready)
+            worker.done.connect(lambda _p, _i, t=thread: t.quit())
+            thread.finished.connect(thread.deleteLater)
+            thread.finished.connect(lambda w=worker: w.deleteLater())
+            thread.finished.connect(lambda t=thread: self._thumb_threads.remove(t)
+                                    if t in self._thumb_threads else None)
+            self._thumb_threads.append(thread)
+            thread.start()
+        except Exception as exc:  # noqa: BLE001 — Thumbnail darf nie die UI killen
+            logger.debug("Thumbnail-Worker-Start fehlgeschlagen (%s): %s", file_path, exc)
+            self._thumb_loader.on_done(file_path)
+
+    def _on_thumb_ready(self, file_path: str, qimage) -> None:
+        """GUI-Thread-Slot: wandelt QImage->QPixmap und setzt es auf alle Items."""
+        from PySide6.QtGui import QPixmap
+        try:
+            pix = QPixmap.fromImage(qimage)
+        except (RuntimeError, TypeError):
+            pix = None
+        if pix is not None and not pix.isNull():
+            for it in self._thumb_items_by_path.get(str(file_path), []):
+                it.set_thumbnail_pixmap(pix)
+        self._thumb_loader.on_done(str(file_path))
 
     def _apply_brain_v3_timeline_metadata(self, item: TimelineClipItem, entry) -> None:
         if item.track_type != "video":
@@ -1171,11 +1274,13 @@ class InteractiveTimeline(QGraphicsView):
         )
         self._scene.addItem(item)
         self.clip_items.append(item)
+        self._register_clip_thumbnail(item)
 
         if track_type == "audio" and has_waveform:
             # Asynchrones Laden im Hintergrund, kein UI-Blocking beim Drop
             self._load_waveform_async(media_id, start_time, duration, y, item)
         self._update_scene_rect()
+        self._schedule_thumb_request()
 
     def set_cut_points(self, cuts: list[CutPoint], total_duration: float):
         for line in self.cut_lines:
@@ -1702,6 +1807,7 @@ class InteractiveTimeline(QGraphicsView):
         new_lod = 4 if new_scale < 0.5 else (2 if new_scale < 1.5 else 1)
         if old_lod != new_lod:
             self._update_beat_grid_lod()
+        self._schedule_thumb_request()  # B-471 T1: Zoom aendert sichtbaren Clip-Satz
 
     def mousePressEvent(self, event):
         """Fokus für Timeline-Hotkeys setzen + mittlere Maustaste startet Panning.
