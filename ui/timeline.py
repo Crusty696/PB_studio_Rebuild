@@ -215,6 +215,11 @@ class TimelineClipItem(QGraphicsRectItem):
         label.setFont(QFont("Segoe UI Variable Text", 8, QFont.Weight.Bold))
         label.setPos(4, 2)
         label.setZValue(6)
+        # B-471 T3: Label ignoriert die View-Transform -> beim horizontalen Zoom
+        # (wheelEvent self.scale) wird der Text NICHT mehr gestaucht/gestreckt,
+        # sondern bleibt bei jedem Zoom-Level normal lesbar.
+        label.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, True)
+        self._label_item = label
 
         # Trim handle visuals (thin colored bars at edges)
         trim_color = QColor(255, 255, 255, 100)
