@@ -41,7 +41,11 @@ class VisionAgent(BaseAgent):
 
     name = "vision"
     domain = "vision"
-    model_id = "vikhyatk/moondream2"
+    # B-463 (2026-06-03): Vision laeuft jetzt out-of-process ueber Ollama
+    # (VisionAnalysisService -> chat_vision). Kein HF-Modell mehr ueber den
+    # ModelManager preloaden — model_id=None verhindert den crashenden
+    # ensure_loaded("vikhyatk/moondream2","vision")-Preload im Orchestrator.
+    model_id = None
 
     def __init__(self):
         super().__init__()

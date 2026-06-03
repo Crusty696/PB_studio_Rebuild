@@ -1347,7 +1347,8 @@ def test_agents():
         agent = VisionAgent()
         assert agent.name == "vision"
         assert agent.domain == "vision"
-        assert agent.model_id == "vikhyatk/moondream2"
+        # B-463: Vision laeuft via Ollama, kein HF-Preload -> model_id None
+        assert agent.model_id is None
         record("VisionAgent", "__init__", "PASS")
     except Exception:
         record("VisionAgent", "__init__", "FAIL", traceback.format_exc())

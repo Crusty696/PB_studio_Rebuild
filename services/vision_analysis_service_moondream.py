@@ -1,18 +1,43 @@
-"""Vision-Analyse Service — Moondream2 Backend.
+"""Vision-Analyse Service — Ollama Vision Backend.
 
-Analysiert Video-Frames mit dem Moondream2 Vision-Language-Modell.
+Analysiert Video-Frames mit einem Vision-faehigen Ollama-Modell
+(Standard: ``moondream:latest``) ueber ``OllamaClient.chat_vision``.
 Extrahiert Frame-Beschreibungen fuer die Video-Szenen-Datenbank.
+
+B-463 (2026-06-03): Umbau weg vom HF-transformers-Pfad
+(``vikhyatk/moondream2``), der in der GPU-Hartregel-Umgebung
+(torch 1.12.1+cu113 / torchvision 0.13.1) nicht laeuft — die moondream2
+remote-code-Module importieren ``torchvision.transforms.v2`` (nur torch 2.x).
+Der existierende Ollama-Vision-Pfad (auch von ``video_analysis_service``
+genutzt) laeuft dagegen out-of-process auf der GTX 1060.
 """
 
+import base64
 import logging
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
 # L-38 FIX: Move heavy imports to module level (was inside method)
 import cv2
-from PIL import Image
 
 logger = logging.getLogger(__name__)
+
+# Vision-faehiges Ollama-Modell (~1.6 GB, passt in GTX-1060-VRAM).
+# Ueber PB_VISION_MODEL env-var ueberschreibbar (siehe video_analysis_service).
+_VISION_MODEL = "moondream:latest"
+
+_VISION_QUESTION = "Describe this video frame in detail. What do you see?"
+
+
+def get_ollama_client():
+    """Wrapper, damit Tests den Client monkeypatchen koennen."""
+    from services.ollama_client import get_ollama_client as _get
+    return _get()
+
+
+def _resolve_vision_model() -> str:
+    return os.environ.get("PB_VISION_MODEL") or _VISION_MODEL
 
 
 @dataclass
@@ -24,10 +49,10 @@ class VisionAnalysisResult:
 
 
 class VisionAnalysisService:
-    """Analysiert Video-Frames via Moondream2.
+    """Analysiert Video-Frames via Ollama Vision (moondream:latest).
 
     Extrahiert Frames in regelmaessigen Abstaenden und beschreibt sie
-    mit dem Moondream2 Vision-Language-Modell.
+    ueber den Ollama-Vision-Endpunkt (``chat_vision``).
     """
 
     def analyze(self, video_path: str, interval_sec: float = 5.0,
@@ -40,68 +65,32 @@ class VisionAnalysisService:
             max_frames: Maximale Anzahl zu analysierender Frames
             progress_cb: Optional callback(int, str)
         """
-        # L-38 FIX: cv2 now imported at module level
-        from services.model_manager import ModelManager, GPU_LOAD_LOCK
+        from services.errors import (
+            OllamaNotAvailableError,
+            OllamaModelNotFoundError,
+            OllamaPausedError,
+        )
 
         path = Path(video_path)
         if not path.exists():
             raise FileNotFoundError(f"Video nicht gefunden: {video_path}")
 
         if progress_cb:
-            progress_cb(0, "Lade Moondream2 Modell...")
+            progress_cb(0, "Verbinde mit Ollama Vision...")
 
-        # Modell laden (mit trust_remote_code fuer Moondream2)
-        # Graceful degradation: wenn Modell nicht vorhanden, leeres Ergebnis zurueckgeben
-        from services.errors import MLModelNotFoundError, CUDAOutOfMemoryError
-
-        # H-9 FIX: Initialize mm to None to prevent NameError in finally block
-        mm = None
-
-        try:
-            with GPU_LOAD_LOCK:
-                mm = ModelManager()
-                model, tokenizer = mm.load_vision("vikhyatk/moondream2")
-        except MLModelNotFoundError as e:
-            logger.warning(
-                "Moondream2 nicht verfuegbar (nicht heruntergeladen): %s", e
-            )
-            if progress_cb:
-                progress_cb(100, "Moondream2 nicht verfuegbar")
-            result = VisionAnalysisResult()
-            result.summary = (
-                "Moondream2 Modell nicht heruntergeladen. "
-                "Bitte laden: huggingface-cli download vikhyatk/moondream2"
-            )
-            return result
-        except CUDAOutOfMemoryError as e:
-            logger.warning("Moondream2 OOM: %s", e)
-            if progress_cb:
-                progress_cb(100, "Nicht genug VRAM fuer Moondream2")
-            result = VisionAnalysisResult()
-            result.summary = (
-                f"Nicht genug VRAM fuer Moondream2: {e}. "
-                "Bitte andere GPU-Modelle zuerst entladen."
-            )
-            return result
-        except OSError as e:
-            # VAD-83 FIX: Catch OSError from invalid HuggingFace revision or
-            # network/filesystem errors during model download
-            logger.warning("Moondream2 OSError: %s", e)
-            if progress_cb:
-                progress_cb(100, "Moondream2 Ladefehler")
-            result = VisionAnalysisResult()
-            result.summary = f"Moondream2 konnte nicht geladen werden: {e}"
-            return result
+        client = get_ollama_client()
+        model = _resolve_vision_model()
 
         if progress_cb:
             progress_cb(10, "Extrahiere Frames...")
 
-        # Frames extrahieren
+        # Frames extrahieren (als base64-JPEG fuer Ollama)
         cap = cv2.VideoCapture(str(video_path))
+        frames: list[tuple[float, str]] = []  # (time_sec, base64_jpeg)
         try:
             fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
             total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-            duration = total_frames / fps
+            duration = total_frames / fps if fps else 0.0
 
             frame_times = []
             t = 0.0
@@ -109,15 +98,17 @@ class VisionAnalysisService:
                 frame_times.append(t)
                 t += interval_sec
 
-            frames = []
             for time_sec in frame_times:
                 frame_idx = int(time_sec * fps)
                 cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
-                ret, frame = cap.read()
-                if ret:
-                    # BGR → RGB, resize fuer Moondream2
-                    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                    frames.append((time_sec, frame_rgb))
+                ret, frame_bgr = cap.read()
+                if not ret:
+                    continue
+                ok, buf = cv2.imencode(".jpg", frame_bgr)
+                if not ok:
+                    continue
+                b64 = base64.b64encode(buf.tobytes()).decode("utf-8")
+                frames.append((time_sec, b64))
         finally:
             cap.release()
 
@@ -128,61 +119,57 @@ class VisionAnalysisService:
         if progress_cb:
             progress_cb(20, f"Analysiere {len(frames)} Frames...")
 
-        # H-9 FIX: Wrap frame processing in try-finally to ensure VRAM cleanup
-        try:
-            # Frames mit Moondream2 beschreiben
-            # L-38 FIX: PIL.Image now imported at module level
-            import torch
+        descriptions = []
+        for i, (time_sec, b64) in enumerate(frames):
+            if progress_cb:
+                pct = 20 + int(75 * (i + 1) / len(frames))
+                progress_cb(pct, f"Frame {i+1}/{len(frames)} ({time_sec:.1f}s)...")
 
-            descriptions = []
-            for i, (time_sec, frame_rgb) in enumerate(frames):
+            try:
+                answer = client.chat_vision(
+                    model=model,
+                    user_message=_VISION_QUESTION,
+                    images_base64=[b64],
+                )
+            except (OllamaNotAvailableError, OllamaModelNotFoundError, OllamaPausedError) as e:
+                # Vision-Backend nicht nutzbar -> graceful degradation.
+                # Bei i==0 nichts Brauchbares; sonst behalte was schon da ist.
+                logger.warning("[Vision] Ollama Vision nicht verfuegbar: %s", e)
                 if progress_cb:
-                    pct = 20 + int(70 * (i + 1) / len(frames))
-                    progress_cb(pct, f"Frame {i+1}/{len(frames)} ({time_sec:.1f}s)...")
+                    progress_cb(100, "Ollama Vision nicht verfuegbar")
+                if not descriptions:
+                    result = VisionAnalysisResult()
+                    result.summary = (
+                        f"Ollama-Vision-Modell '{model}' nicht verfuegbar: {e}. "
+                        "Bitte Ollama starten und Modell laden: ollama pull moondream"
+                    )
+                    return result
+                break
+            except (OSError, ValueError, RuntimeError, AttributeError) as e:
+                logger.warning("[Vision] Frame bei %.1fs fehlgeschlagen: %s", time_sec, e)
+                descriptions.append({
+                    "time": round(time_sec, 2),
+                    "description": f"[Analyse-Fehler: {e}]",
+                })
+                continue
 
-                try:
-                    pil_image = Image.fromarray(frame_rgb)
+            descriptions.append({
+                "time": round(time_sec, 2),
+                "description": (answer or "").strip(),
+            })
 
-                    # Moondream2 API: model.answer_question(image, question, tokenizer)
-                    with torch.no_grad():
-                        answer = model.answer_question(
-                            tokenizer=tokenizer,
-                            image=pil_image,
-                            question="Describe this video frame in detail. What do you see?",
-                        )
+        # Summary aus allen erfolgreichen Beschreibungen
+        good = [d["description"] for d in descriptions if not d["description"].startswith("[")]
+        summary = " | ".join(good[:5])
 
-                    descriptions.append({
-                        "time": round(time_sec, 2),
-                        "description": answer.strip(),
-                    })
-                except (OSError, ValueError, RuntimeError, AttributeError) as e:
-                    logger.warning("[Vision] Frame bei %.1fs fehlgeschlagen: %s", time_sec, e)
-                    descriptions.append({
-                        "time": round(time_sec, 2),
-                        "description": f"[Analyse-Fehler: {e}]",
-                    })
+        if progress_cb:
+            progress_cb(100, "Fertig")
 
-            # Summary aus allen Beschreibungen
-            if descriptions:
-                all_texts = [d["description"] for d in descriptions if not d["description"].startswith("[")]
-                summary = " | ".join(all_texts[:5])  # Erste 5 Beschreibungen als Summary
-            else:
-                summary = ""
+        logger.info("[Vision] Analyse fertig: %s, %d Frames, %d Beschreibungen",
+                    path.name, len(frames), len(descriptions))
 
-            if progress_cb:
-                progress_cb(100, "Fertig")
-
-            logger.info("[Vision] Analyse fertig: %s, %d Frames, %d Beschreibungen",
-                        path.name, len(frames), len(descriptions))
-
-            return VisionAnalysisResult(
-                descriptions=descriptions,
-                summary=summary,
-                frame_count=len(frames),
-            )
-        finally:
-            # H-9 FIX: Always unload model to prevent VRAM leak, even on exception
-            if progress_cb:
-                progress_cb(95, "Aufraemen...")
-            if mm is not None:
-                mm.unload()
+        return VisionAnalysisResult(
+            descriptions=descriptions,
+            summary=summary,
+            frame_count=len(frames),
+        )

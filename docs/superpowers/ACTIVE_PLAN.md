@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-FULL-AUDIT-FIXPLAN-2026-05-31
-next_allowed_task: B-462-A code-complete + tester-live-green; user `fixed` confirmation, then optional Task 12 release
+next_allowed_task: B-463 Option-A code-complete (TDD green); run default gate + GUI live-verify, then user `fixed` confirmation. B-462-A also awaits user `fixed`. Open: B-464..B-468.
 updated: 2026-06-03
 
 ## Meaning
@@ -89,5 +89,5 @@ PB-STUDIO-FULL-PROJECT-FILE-AUDIT-2026-05-31
 - Task 11 (B-462-A) + Task 12 (B-462-C) in Fixplan aufgenommen.
 - 2026-06-03 Task 11 (B-462-A) implementiert (TDD, D-056 Option 2): `ingest_service.py` delete_selected_media + delete_all_media setzen `deleted_at` statt physisch loeschen; Analyse-Children behalten, Beziehungs-/Timeline-Children entfernt, VectorDB-Embeddings entfernt (B-139/B-350 rollback erhalten). 66 targeted Tests gruen, Default-Gate `2353 passed` (keine Regression), GUI-Tester-Live gruen (Clip id=2: Row bleibt, deleted_at gesetzt, Grid versteckt, Scenes bleiben, Timeline geleert). `status: fixed` nur User.
 - Task 12 (B-462-C purge) bleibt geplant, wartet auf User-Freigabe.
-- 2026-06-03 B-463 (moondream2 Chat-Crash) untersucht: Revision-Pin loest es NICHT (alle moondream2-Revisionen brauchen torchvision.transforms.v2; env torch 1.12.1+cu113/torchvision 0.13.1 hat das nicht; torch-2.x-Upgrade per GPU-Hartregel verboten). Pin-Versuch reverted, worktree clean. User-Richtung: Option A = VisionAgent/VisionAnalysisService.analyze() auf existierenden Ollama-chat_vision-Pfad umstellen statt HF-moondream2. Mittlerer Service-Umbau, NOCH NICHT implementiert, wartet auf User-Freigabe. Details im Bugfile B-463.
+- 2026-06-03 B-463 (moondream2 Chat-Crash) untersucht: Revision-Pin loest es NICHT (alle moondream2-Revisionen brauchen torchvision.transforms.v2; env torch 1.12.1+cu113/torchvision 0.13.1 hat das nicht; torch-2.x-Upgrade per GPU-Hartregel verboten). Pin-Versuch reverted, worktree clean. User-Richtung: Option A = VisionAgent/VisionAnalysisService.analyze() auf existierenden Ollama-chat_vision-Pfad umstellen statt HF-moondream2. Mittlerer Service-Umbau. 2026-06-03 IMPLEMENTIERT (User-Freigabe, TDD): zwei Edits — (1) `agents/vision_agent.py` `model_id=None` (verhindert den eigentlichen Crash-Pfad `orchestrator_agent.py:845 ensure_loaded(...,"vision")` HF-Preload VOR process()), (2) `services/vision_analysis_service_moondream.py` `analyze()` auf Ollama `chat_vision` (cv2-Frames bleiben, ModelManager/torch raus, graceful degrade). Neuer Test `tests/test_services/test_vision_analysis_ollama.py` (5 Tests gruen); `test_deep_functional.py:1350` -> model_id None. Regression `-k "orchestrat or vision or model_manager"` 99 passed/0 fail. Default-Gate + GUI-Live-Verify offen. `status: fixed` nur User. Details im Bugfile B-463.
 - Offene Findings aus Live-Verify: B-463 (Plan steht), B-464/B-465/B-466/B-467/B-468 (open, ungefixt).
