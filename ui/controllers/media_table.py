@@ -76,7 +76,21 @@ class MediaTableController(PBComponent):
             model.toggle_all()
 
     def _refresh_media_table(self, _also_combos: bool = True):
-        """Aktualisiert die Medien-Listen asynchron (Fix F-028)."""
+        """Aktualisiert die Medien-Listen asynchron (Fix F-028).
+
+        B-469 Gap-2 (single-flight): startet keinen zweiten "Medien-DB laden"-
+        Worker waehrend bereits einer laeuft. Concurrent calls werden zu EINEM
+        In-Flight-Task gebuendelt; treffen waehrend des Laufs weitere Aufrufe
+        ein, wird genau EIN nachgelagerter Reload nach Abschluss ausgefuehrt
+        (dirty-Flag). Reduziert das Task-Pile-up aus B-469.
+        """
+        if getattr(self, "_reload_inflight", False):
+            self._reload_dirty = True
+            # Merke ob irgendein wartender Aufruf die Combos mit aktualisieren will.
+            self._reload_dirty_combos = getattr(self, "_reload_dirty_combos", False) or _also_combos
+            return
+        self._reload_inflight = True
+
         class DBFetchWorker(QObject):
             finished = Signal(list, list)
             error = Signal(str)
@@ -92,10 +106,16 @@ class MediaTableController(PBComponent):
 
         worker = DBFetchWorker()
         worker.finished.connect(
-            lambda v, a: self._apply_refreshed_data(v, a, _also_combos),
+            lambda v, a, _c=_also_combos: self._on_media_reload_done(v, a, _c),
             Qt.ConnectionType.QueuedConnection,
         )
-        
+        # B-469: Error-Pfad muss den In-Flight-Status loesen, sonst bleibt der
+        # Reload fuer immer blockiert (vorher war error unverbunden).
+        worker.error.connect(
+            lambda _msg: self._on_media_reload_failed(),
+            Qt.ConnectionType.QueuedConnection,
+        )
+
         # Starte via TaskEngine (Hintergrund)
         from services.task_manager import GlobalTaskManager
         GlobalTaskManager.instance().start_task(
@@ -103,6 +123,27 @@ class MediaTableController(PBComponent):
             worker=worker,
             description="Lade Clip-Metadaten aus SQLite"
         )
+
+    def _on_media_reload_done(self, videos: list, audios: list, also_combos: bool):
+        """Finished-Slot: wendet Daten an und loest dann den In-Flight-Status."""
+        try:
+            self._apply_refreshed_data(videos, audios, also_combos)
+        finally:
+            self._reload_finished_cleanup()
+
+    def _on_media_reload_failed(self):
+        """Error-Slot: kein Daten-Apply, aber In-Flight-Status loesen."""
+        self._reload_finished_cleanup()
+
+    def _reload_finished_cleanup(self):
+        """Markiert den Reload als beendet; faehrt genau einen nachgelagerten
+        Reload nach, falls waehrend des Laufs weitere Aufrufe kamen (dirty)."""
+        self._reload_inflight = False
+        if getattr(self, "_reload_dirty", False):
+            self._reload_dirty = False
+            combos = getattr(self, "_reload_dirty_combos", False)
+            self._reload_dirty_combos = False
+            self._refresh_media_table(combos)
 
     def _apply_refreshed_data(self, videos: list, audios: list, also_combos: bool):
         """Wendet die im Hintergrund geladenen Daten auf die UI an."""
