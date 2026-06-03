@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-FULL-AUDIT-FIXPLAN-2026-05-31
-next_allowed_task: Task 11 (B-462 soft-delete stage 1) - pending user implementation release
+next_allowed_task: B-462-A code-complete + tester-live-green; user `fixed` confirmation, then optional Task 12 release
 updated: 2026-06-03
 
 ## Meaning
@@ -86,4 +86,6 @@ PB-STUDIO-FULL-PROJECT-FILE-AUDIT-2026-05-31
 - 2026-06-03 Live-Verify (project-audit-team): alle 10 FPA-Funktionen real getestet. 5 green (F1/F2/F3/F4/F8), 3 yellow (F5/F7/F9), 1 red (F6 GUI-Hard-Delete), 1 n/a (F10). Default gate rerun green (2351 passed). Matrix-Live-Sektion committed (1b93a18).
 - 7 neue Bug-Files B-462..B-468 (open, kein Fix). B-462 (critical) = GUI-Hard-Delete statt Soft-Delete.
 - User-Entscheidung 2026-06-03: B-462 gestuft fixen, A (Soft-Delete) jetzt, C (Two-Tier/Purge) als Folge. Decision D-056.
-- Task 11 (B-462-A) + Task 12 (B-462-C) in Fixplan aufgenommen. Implementierung von Task 11 wartet auf explizite User-Freigabe; noch kein `ingest_service.py`-Edit.
+- Task 11 (B-462-A) + Task 12 (B-462-C) in Fixplan aufgenommen.
+- 2026-06-03 Task 11 (B-462-A) implementiert (TDD, D-056 Option 2): `ingest_service.py` delete_selected_media + delete_all_media setzen `deleted_at` statt physisch loeschen; Analyse-Children behalten, Beziehungs-/Timeline-Children entfernt, VectorDB-Embeddings entfernt (B-139/B-350 rollback erhalten). 66 targeted Tests gruen, Default-Gate `2353 passed` (keine Regression), GUI-Tester-Live gruen (Clip id=2: Row bleibt, deleted_at gesetzt, Grid versteckt, Scenes bleiben, Timeline geleert). `status: fixed` nur User.
+- Task 12 (B-462-C purge) bleibt geplant, wartet auf User-Freigabe.

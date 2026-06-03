@@ -49,6 +49,15 @@ def test_b350_delete_selected_media_rollback_on_vector_db_failure(monkeypatch) -
                 return 0
             return 0
 
+        def update(self, values, synchronize_session=False):
+            # B-462 Stage 1: soft-delete uses UPDATE deleted_at instead of DELETE;
+            # rowcount semantics are identical for the VectorDB-rollback contract.
+            if self.entity is database.VideoClip:
+                return 1
+            if self.entity is database.AudioTrack:
+                return 0
+            return 0
+
     class FakeSession:
         def __init__(self):
             self.committed = False
@@ -106,6 +115,15 @@ def test_b350_delete_selected_media_commits_after_vector_db_success(monkeypatch)
             return []
 
         def delete(self, synchronize_session=False):
+            if self.entity is database.VideoClip:
+                return 1
+            if self.entity is database.AudioTrack:
+                return 0
+            return 0
+
+        def update(self, values, synchronize_session=False):
+            # B-462 Stage 1: soft-delete uses UPDATE deleted_at instead of DELETE;
+            # rowcount semantics are identical for the VectorDB-rollback contract.
             if self.entity is database.VideoClip:
                 return 1
             if self.entity is database.AudioTrack:

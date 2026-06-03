@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+from datetime import datetime
 from pathlib import Path
 
 from sqlalchemy import or_
@@ -538,10 +539,10 @@ def delete_all_media(project_id: int | None = None) -> int:
     geworfen statt versehentlich Medien von project_id=1 zu loeschen.
     """
     project_id = _resolve_project_id_for_ingest(project_id)
+    # B-462 Stage 1 (D-056): analysis children (Scene/Beatgrid/...) are no longer
+    # deleted here; only relationship children (anchors/timeline/blueprint).
     from database import (
-        AudioVideoAnchor, ClipAnchor, TimelineEntry,
-        Scene, Beatgrid, WaveformData, PacingBlueprint,
-        StructureSegment, HotCue,
+        AudioVideoAnchor, ClipAnchor, TimelineEntry, PacingBlueprint,
     )
     from database import nullpool_session
     with nullpool_session() as session:
@@ -587,25 +588,9 @@ def delete_all_media(project_id: int | None = None) -> int:
                 or_(*anchor_conds)
             ).delete(synchronize_session=False)
 
-        if video_ids:
-            session.query(Scene).filter(
-                Scene.video_clip_id.in_(video_ids)
-            ).delete(synchronize_session=False)
-
-        if audio_ids:
-            session.query(Beatgrid).filter(
-                Beatgrid.audio_track_id.in_(audio_ids)
-            ).delete(synchronize_session=False)
-            session.query(WaveformData).filter(
-                WaveformData.audio_track_id.in_(audio_ids)
-            ).delete(synchronize_session=False)
-            # Phase 4: Neue Child-Tabellen von AudioTrack
-            session.query(StructureSegment).filter(
-                StructureSegment.audio_track_id.in_(audio_ids)
-            ).delete(synchronize_session=False)
-            session.query(HotCue).filter(
-                HotCue.audio_track_id.in_(audio_ids)
-            ).delete(synchronize_session=False)
+        # B-462 Stage 1 (D-056): analysis children (Scene/Beatgrid/WaveformData/
+        # StructureSegment/HotCue) are KEPT on soft delete for full undo; they are
+        # filtered via the soft-deleted parent on read paths.
 
         # PacingBlueprints (direct child of Project, but media-related)
         session.query(PacingBlueprint).filter_by(project_id=project_id).delete(
@@ -619,31 +604,37 @@ def delete_all_media(project_id: int | None = None) -> int:
         # Zukuenftige Agenten: Fuege hier KEINEN Delete auf AIPacingMemory hinzu.
         # ================================================================
 
-        # Jetzt die Parents selbst
-        count_a = session.query(AudioTrack).filter_by(project_id=project_id).delete(
-            synchronize_session=False
+        # B-462 Stage 1 (D-056): soft-delete the parents (set deleted_at) instead of
+        # a physical delete. Only currently-active rows (deleted_at IS NULL) are
+        # affected and counted.
+        _now = datetime.now()
+        count_a = session.query(AudioTrack).filter_by(
+            project_id=project_id
+        ).filter(AudioTrack.deleted_at.is_(None)).update(
+            {AudioTrack.deleted_at: _now}, synchronize_session=False
         )
-        count_v = session.query(VideoClip).filter_by(project_id=project_id).delete(
-            synchronize_session=False
+        count_v = session.query(VideoClip).filter_by(
+            project_id=project_id
+        ).filter(VideoClip.deleted_at.is_(None)).update(
+            {VideoClip.deleted_at: _now}, synchronize_session=False
         )
 
-        # B-139 Fix: VectorDB-Cleanup VOR dem SQL-Commit. Wenn die
-        # VectorDB scheitert (locked/corrupt/remote), rollback der
-        # SQL-Deletes — User retried den Reset wenn VectorDB wieder
-        # erreichbar ist. Vorher: SQL committed + Orphan-Embeddings
-        # in VectorDB (Semantic-Search lieferte Hits auf nicht-existente Clips).
+        # B-139 / B-462 Stage 1 (D-056): VectorDB-Cleanup VOR dem SQL-Commit. Auch
+        # bei Soft-Delete werden die Embeddings entfernt, damit Semantic-Search keine
+        # soft-deleted Clips findet (die VectorDB kennt deleted_at nicht). Schlaegt
+        # die VectorDB fehl, rollback der Soft-Delete-Updates — kein partial state.
         try:
             VectorDBService().delete_all()
         except (RuntimeError, OSError, ImportError) as e:
             logger.error(
-                "VectorDB delete_all fehlgeschlagen — SQL-Reset rolled back "
+                "VectorDB delete_all fehlgeschlagen — Soft-Delete rolled back "
                 "um Orphan-Embeddings zu vermeiden. Bitte VectorDB pruefen und "
                 "Reset wiederholen. Fehler: %s", e
             )
             session.rollback()
             raise RuntimeError(
                 f"Reset abgebrochen: VectorDB konnte nicht geleert werden ({e}). "
-                "SQL-Tabellen wurden NICHT geleert um Orphan-Embeddings zu vermeiden."
+                "Soft-Delete wurde NICHT angewendet um Orphan-Embeddings zu vermeiden."
             ) from e
 
         session.commit()
@@ -658,9 +649,10 @@ def delete_selected_media(video_ids: list[int], audio_ids: list[int]) -> int:
     AudioVideoAnchors, Scenes, Beatgrids, WaveformData), dann die Parents.
     AIPacingMemory wird NIEMALS geloescht.
     """
+    # B-462 Stage 1 (D-056): analysis children kept on soft delete; only
+    # relationship children (anchors/timeline) are removed here.
     from database import (
         AudioVideoAnchor, ClipAnchor, TimelineEntry,
-        Scene, Beatgrid, WaveformData, StructureSegment, HotCue,
         nullpool_session,
     )
     if not video_ids and not audio_ids:
@@ -708,53 +700,44 @@ def delete_selected_media(video_ids: list[int], audio_ids: list[int]) -> int:
                 or_(*anchor_conds)
             ).delete(synchronize_session=False)
 
-        if video_ids:
-            session.query(Scene).filter(
-                Scene.video_clip_id.in_(video_ids)
-            ).delete(synchronize_session=False)
+        # B-462 Stage 1 (D-056): analysis children (Scene/Beatgrid/WaveformData/
+        # StructureSegment/HotCue) are KEPT on soft delete; filtered via parent.
 
-        if audio_ids:
-            session.query(Beatgrid).filter(
-                Beatgrid.audio_track_id.in_(audio_ids)
-            ).delete(synchronize_session=False)
-            session.query(WaveformData).filter(
-                WaveformData.audio_track_id.in_(audio_ids)
-            ).delete(synchronize_session=False)
-            session.query(StructureSegment).filter(
-                StructureSegment.audio_track_id.in_(audio_ids)
-            ).delete(synchronize_session=False)
-            session.query(HotCue).filter(
-                HotCue.audio_track_id.in_(audio_ids)
-            ).delete(synchronize_session=False)
-
-        # Parents loeschen
+        # B-462 Stage 1 (D-056): soft-delete parents (set deleted_at) instead of
+        # physical delete. Only currently-active rows are affected and counted.
+        _now = datetime.now()
         count_a = 0
         count_v = 0
         if audio_ids:
             count_a = session.query(AudioTrack).filter(
                 AudioTrack.id.in_(audio_ids)
-            ).delete(synchronize_session=False)
+            ).filter(AudioTrack.deleted_at.is_(None)).update(
+                {AudioTrack.deleted_at: _now}, synchronize_session=False
+            )
         if video_ids:
             count_v = session.query(VideoClip).filter(
                 VideoClip.id.in_(video_ids)
-            ).delete(synchronize_session=False)
+            ).filter(VideoClip.deleted_at.is_(None)).update(
+                {VideoClip.deleted_at: _now}, synchronize_session=False
+            )
 
-        # P2-01 / B-350: VectorDB-Cleanup VOR SQL-Commit. Wenn die
-        # VectorDB scheitert, rollback der SQL-Deletes, damit keine
-        # Embeddings fuer geloeschte Clips uebrig bleiben.
+        # B-350 / B-462 Stage 1 (D-056): VectorDB-Cleanup VOR SQL-Commit. Auch bei
+        # Soft-Delete werden die Embeddings der betroffenen Clips entfernt, damit
+        # Semantic-Search keine soft-deleted Clips findet. Schlaegt die VectorDB
+        # fehl, rollback der Soft-Delete-Updates — kein partial state.
         if video_ids:
             try:
                 VectorDBService().delete_by_clip_ids(video_ids)
             except (RuntimeError, OSError, ImportError) as e:
                 logger.error(
-                    "VectorDB delete_by_clip_ids fehlgeschlagen — SQL-Deletes "
+                    "VectorDB delete_by_clip_ids fehlgeschlagen — Soft-Delete "
                     "rolled back um Orphan-Embeddings zu vermeiden. Fehler: %s",
                     e,
                 )
                 session.rollback()
                 raise RuntimeError(
                     "Loeschen abgebrochen: VectorDB konnte Embeddings nicht "
-                    f"loeschen ({e}). SQL-Zeilen wurden NICHT geloescht."
+                    f"loeschen ({e}). Soft-Delete wurde NICHT angewendet."
                 ) from e
 
         session.commit()
