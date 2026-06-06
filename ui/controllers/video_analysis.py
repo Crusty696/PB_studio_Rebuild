@@ -142,12 +142,15 @@ class VideoAnalysisController(PBComponent):
             return self._start_video_pipeline_engine()
         view = self.window.video_pool_table
         model = view.model()
-        if not model: return
+        if not model:
+            # B-472: vorher voellig stiller Abbruch — Button wirkte tot.
+            logger.warning("[Pipeline] Start abgebrochen: video_pool_table hat kein Model")
+            return
 
         # IDs sammeln (angehakt oder selektiert)
         checked_ids = model.get_checked_ids()
         batch = []
-        
+
         if checked_ids:
             for cid in checked_ids:
                 batch.append((cid, f"Clip {cid}"))
@@ -160,7 +163,36 @@ class VideoAnalysisController(PBComponent):
                     batch.append((int(cid), str(title)))
 
         if not batch:
-            self.window.console_text.append("[Warnung] Keine gültigen Videos in der Auswahl.")
+            # B-472: Kein Auswahl-Zwang mehr. Ohne angehakte/selektierte Videos
+            # laeuft die Pipeline ueber ALLE Videos des Projekts — genau das
+            # verspricht der Button-Tooltip, und der "Video analysieren"-Button
+            # verhaelt sich genauso. Vorher: stiller return (nur eine
+            # console_text-Zeile, kein Dialog, kein Log) -> Button wirkte tot.
+            from services.ingest_service import get_all_video
+            try:
+                videos = get_all_video()
+            except Exception as e:  # noqa: BLE001 — Fallback darf UI nicht crashen
+                logger.error("[Pipeline] Alle-Videos-Fallback fehlgeschlagen: %s", e)
+                videos = []
+            batch = [
+                (int(v["id"]), str(v.get("title") or f"Clip {v['id']}"))
+                for v in videos
+                if v.get("id") is not None
+            ]
+            if batch:
+                logger.info("[Pipeline] Keine Auswahl -> Fallback auf alle %d Videos", len(batch))
+                self.window.console_text.append(
+                    f"[Pipeline] Keine Auswahl — starte fuer alle {len(batch)} Videos des Projekts."
+                )
+
+        if not batch:
+            msg = "Keine Videos im Projekt — bitte zuerst Videos importieren."
+            logger.info("[Pipeline] Start abgebrochen: %s", msg)
+            self.window.console_text.append(f"[Warnung] {msg}")
+            try:
+                self.window.status_bar.showMessage(msg, 5000)
+            except (AttributeError, RuntimeError):
+                pass
             return
 
         count = len(batch)

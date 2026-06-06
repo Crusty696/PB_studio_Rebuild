@@ -1170,6 +1170,34 @@ class MediaWorkspace(QWidget):
         panel = self.video_analysis_panel if media_type == "video" else self.audio_analysis_panel
         panel.set_media(media_type, media_id, title)
 
+    def ensure_status_panel_selection(self, videos: list, audios: list) -> None:
+        """B-473: Analyse-Status-Panels nie leer lassen.
+
+        Sobald der Medien-Pool geladen ist und noch keine Datei gewaehlt wurde,
+        wird automatisch die erste gesetzt. Vorher blieb das Panel dauerhaft
+        auf "Keine Datei ausgewählt" stehen, bis der User von selbst eine Karte
+        anklickte — das Feld wirkte funktionslos (Click-Log 2026-06-04).
+        """
+        import logging
+        try:
+            if videos and self.video_analysis_panel._media_id is None:
+                v = videos[0]
+                logging.info("[StatusPanel] auto-select video id=%s", v.get("id"))
+                self.video_analysis_panel.set_media(
+                    "video", int(v["id"]), str(v.get("title") or "")
+                )
+        except (AttributeError, RuntimeError, KeyError, ValueError, TypeError) as e:
+            logging.debug("auto-select video status panel failed: %s", e)
+        try:
+            if audios and self.audio_analysis_panel._media_id is None:
+                a = audios[0]
+                logging.info("[StatusPanel] auto-select audio id=%s", a.get("id"))
+                self.audio_analysis_panel.set_media(
+                    "audio", int(a["id"]), str(a.get("title") or "")
+                )
+        except (AttributeError, RuntimeError, KeyError, ValueError, TypeError) as e:
+            logging.debug("auto-select audio status panel failed: %s", e)
+
     def _on_grid_show_status(self, media_type: str, media_id: int):
         """Show analysis status panel for a grid card (context menu)."""
         title = self._get_media_title(media_type, media_id)

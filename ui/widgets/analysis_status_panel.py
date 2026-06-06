@@ -78,6 +78,9 @@ class AnalysisStatusPanel(QWidget):
 
     analysis_requested = Signal(str)  # step_key
 
+    # B-473: klarer Handlungs-Hinweis statt passivem "Keine Datei ausgewählt".
+    _NO_MEDIA_HINT = "← Links eine Datei anklicken — der Analyse-Status erscheint hier."
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._media_type: Optional[str] = None
@@ -101,9 +104,12 @@ class AnalysisStatusPanel(QWidget):
         layout.addWidget(header)
 
         # File info label
-        self.file_info_label = QLabel("Keine Datei ausgewählt")
+        # B-473: Vorher "Keine Datei ausgewählt" (klein/grau) — User verstand
+        # nicht, dass das Panel eine Auswahl braucht, und hielt es fuer tot.
+        self.file_info_label = QLabel(self._NO_MEDIA_HINT)
+        self.file_info_label.setWordWrap(True)
         self.file_info_label.setStyleSheet(
-            "color: #9ca3af; font-size: 11px; padding: 4px 0px;"
+            "color: #f0c866; font-size: 11px; font-weight: 600; padding: 4px 0px;"
         )
         layout.addWidget(self.file_info_label)
 
@@ -322,7 +328,11 @@ class AnalysisStatusPanel(QWidget):
         Apply geprueft — Stale-Results aus vorigem Media werden verworfen.
         """
         if self._media_type is None or self._media_id is None:
+            # B-473: Vorher stiller Clear — "Aktualisieren" wirkte funktionslos.
+            # Jetzt sichtbarer Hinweis + Log-Spur.
             self._clear_display()
+            self.file_info_label.setText(self._NO_MEDIA_HINT)
+            logger.info("[StatusPanel] refresh ohne Auswahl — Hinweis angezeigt")
             return
 
         media_type = self._media_type
@@ -582,7 +592,7 @@ class AnalysisStatusPanel(QWidget):
 
     def _clear_display(self):
         """Leert die Anzeige."""
-        self.file_info_label.setText("Keine Datei ausgewählt")
+        self.file_info_label.setText(self._NO_MEDIA_HINT)  # B-473
         self.progress_bar.setValue(0)
         self.progress_bar.setMaximum(100)
         self.table.setRowCount(0)

@@ -1333,6 +1333,63 @@ def main():
     app._wheel_guard = WheelGuard(app)
     app.installEventFilter(app._wheel_guard)
 
+    # User-Anweisung 2026-06-03: Opt-in Click-Logger (PB_CLICK_LOG=1).
+    # Application-globaler EventFilter (wie WheelGuard, QObject-basiert — B-330)
+    # loggt JEDEN MouseButtonPress/-Release mit Widget-Klasse, objectName, Text
+    # und Position ins normale Logging (=Session-Log). Die Auswirkungen eines
+    # Klicks sind die unmittelbar folgenden Action-/Task-Logzeilen in derselben
+    # Datei -> Klick->Wirkung direkt korrelierbar. Default AUS (env-gated),
+    # damit normale Laeufe/Tests unbeeinflusst bleiben.
+    # Lokaler Import noetig: main() enthaelt weiter unten ein lokales
+    # `import os`, das `os` fuer die GESAMTE Funktion lokal macht ->
+    # Zugriff hier oben waere sonst UnboundLocalError.
+    import os as _os_clicklog
+    if _os_clicklog.environ.get("PB_CLICK_LOG") == "1":
+        from PySide6.QtCore import QObject as _QObject, QEvent as _QEvent
+
+        class _ClickLogger(_QObject):
+            def eventFilter(self, obj, event):
+                et = event.type()
+                if et in (_QEvent.Type.MouseButtonPress, _QEvent.Type.MouseButtonRelease):
+                    try:
+                        kind = "PRESS" if et == _QEvent.Type.MouseButtonPress else "RELEASE"
+                        try:
+                            btn = event.button().name
+                        except Exception:
+                            btn = "?"
+                        cls = type(obj).__name__
+                        try:
+                            name = obj.objectName() or ""
+                        except Exception:
+                            name = ""
+                        text = ""
+                        try:
+                            t = getattr(obj, "text", None)
+                            if callable(t):
+                                text = str(t())[:40]
+                        except Exception:
+                            text = ""
+                        try:
+                            p = event.globalPosition().toPoint()
+                            pos = f"({p.x()},{p.y()})"
+                        except Exception:
+                            pos = ""
+                        try:
+                            en = "1" if obj.isEnabled() else "0"
+                        except Exception:
+                            en = "?"
+                        logging.info(
+                            "[CLICK] %s %s %s name='%s' text='%s' en=%s %s",
+                            kind, btn, cls, name, text, en, pos,
+                        )
+                    except Exception:  # Logging darf NIE die App stoeren
+                        pass
+                return False  # nur beobachten, nie schlucken
+
+        app._click_logger = _ClickLogger(app)
+        app.installEventFilter(app._click_logger)
+        logging.info("[CLICK] Click-Logger aktiv (PB_CLICK_LOG=1)")
+
     # B-218: Native Power-Event-Listener fuer Windows. Bei Laptop-Andocken/
     # -Sleep verliert die GTX 1060 Mobile den CUDA-Power-State -> der
     # gehaltene CUDA-Context wird stale. Beim naechsten cuda-Call (Modell-

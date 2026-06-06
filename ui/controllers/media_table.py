@@ -202,6 +202,21 @@ class MediaTableController(PBComponent):
                 self.window.audio_combo.blockSignals(audio_blocked)
                 self.window.video_combo.blockSignals(video_blocked)
             self._sync_schnitt_audio_selection()
+        # B-472: Workflow-Gates nach JEDEM Pool-Refresh re-evaluieren. Vorher
+        # liefen sie nur beim Workspace-Wechsel (_on_workspace_changed) ->
+        # wenn der Medien-Pool erst NACH dem Gate-Lauf async gefuellt wurde,
+        # blieben btn_video_pipeline & Co. dauerhaft disabled (Klicks ohne
+        # Wirkung, clicked-Signal feuert bei disabled Buttons nicht).
+        try:
+            self.window.workspace_setup._update_workflow_gates()
+        except (AttributeError, RuntimeError):
+            pass
+        # B-473: Analyse-Status-Panels automatisch mit erster Datei fuellen,
+        # solange der User noch nichts gewaehlt hat (Panel wirkte sonst tot).
+        try:
+            self.window._media_ws.ensure_status_panel_selection(videos, audios)
+        except (AttributeError, RuntimeError):
+            pass
 
     def _sync_schnitt_audio_selection(self) -> None:
         """Propagate blocked combo selection to SCHNITT audio binders."""
