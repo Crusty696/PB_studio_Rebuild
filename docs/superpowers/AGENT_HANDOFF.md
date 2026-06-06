@@ -28,11 +28,102 @@ This file is a repository-local continuity checkpoint for all agents.
 
 ## Current Branch
 
-`main`
+`codex/PB-STUDIO-FULL-AUDIT-FIXPLAN-2026-05-31`
+
+22 commits ahead of origin (pushed 2026-06-07T01:16Z).
 
 ## Current Active Plan
 
 See `docs/superpowers/ACTIVE_PLAN.md`.
+
+Active plan: `PB-STUDIO-FULL-AUDIT-FIXPLAN-2026-05-31`
+
+## Last Handoff
+
+- **Agent:** Gemini CLI (Antigravity)
+- **Date:** 2026-06-07T01:20+02:00
+- **Worktree:** CLEAN (no uncommitted changes)
+- **Remote:** PUSHED (all 22 commits on origin)
+
+## Open Work — Status per Task
+
+### B-471 Timeline Quality Fix (Hauptarbeitsstrang)
+
+Plan: `docs/superpowers/plans/2026-06-03-timeline-quality-fix-plan.md`
+
+| Task | Beschreibung | Status | Commits |
+|------|-------------|--------|---------|
+| T1 | Thumbnail-Rendering (viewport-lazy) | ✅ DONE + live-GREEN | `562fe38`, `5e95e11` |
+| T2 | Thumbnail-Coverage | — übersprungen (T1 reicht) | — |
+| T3 | Zoom-Distortion (Label ItemIgnoresTransformations) | ✅ DONE + live-GREEN | `1324c8c` |
+| T4 | Paint/Perf (BeatGridItem, Culling, LOD) | Code done, Tests grün, **live-verify ausstehend** | `b8b0b95` |
+| T5 | Optik-Polish | **Offen — braucht User-Richtungsentscheidung** | — |
+
+**T4 nächste Aktion:** App starten, Timeline mit vielen Clips öffnen, Zoom/Scroll testen. Kein Freeze → `status: fixed` durch User.
+
+**T5 nächste Aktion:** User muss Optik-Richtung vorgeben (Farben, Styling, Track-Hintergründe). Erst dann implementieren.
+
+### B-458 Audio-Analyse Refinement
+
+| Änderung | Status |
+|----------|--------|
+| Alle 8 Audio-Schritte laufen (kein Skip von done) | Code done, 17 Tests grün, **live-verify ausstehend** |
+| "Wiederholen"-Button im Status-Panel | Code done, **live-verify ausstehend** |
+| Mood/Genre + Spectral Buttons einzeln auslösbar | Code done, **live-verify ausstehend** |
+
+**Commit:** `2c7a5e4`
+**Nächste Aktion:** App starten → Track auswählen → "Audio komplett analysieren" → prüfen ob alle 8 Schritte laufen → Status-Panel "Wiederholen" klicken.
+
+### B-463 Vision/Ollama (moondream2 Crash-Fix)
+
+- Code + Live grün (Ollama-Pfad statt HF-moondream2)
+- **`status: fixed` durch User ausstehend**
+- Commit: `1a77db2`
+
+### B-462-A Soft-Delete
+
+- Code + Live grün (deleted_at statt physisch löschen)
+- **`status: fixed` durch User ausstehend**
+- Bugfile: `wiki/bugs/B-462-...md`
+
+### Offene Bugs (kein Fix, nur dokumentiert)
+
+- B-464, B-465, B-466, B-467, B-468 — alle `status: open`
+- B-469 — `status: parked-not-reproducible-monitoring`
+- B-462-C (Purge/Two-Tier) — geplant, wartet auf User-Freigabe
+
+## Default Gate
+
+Letzter vollständiger Lauf: `2362 passed, 0 failed` (vor B-458 Commit).
+Neuer Lauf nach B-458 wurde gestartet aber durch Session-Ende abgebrochen.
+**Codex muss Default-Gate erneut laufen lassen:**
+
+```bash
+conda run -n pb-studio pytest tests/ui/ --tb=short -q
+```
+
+Erwartung: ~2360+ passed, 0 failed. Dauert ~10-15 Minuten.
+
+## Geänderte Dateien (letzte Session, bereits committed)
+
+- `ui/controllers/audio_analysis.py` — alle 8 Schritte ohne Skip
+- `ui/widgets/analysis_status_panel.py` — "Wiederholen"-Button
+- `ui/workspaces/media_workspace.py` — Mood/Genre + Spectral Buttons
+- `ui/controllers/workspace_setup.py` — Connections für neue Buttons
+- `ui/controllers/stems.py` — Button-Text-Kosmetik
+- `tests/ui/test_audio_checkbox_wiring.py` — 17 Tests (alle grün)
+
+## Vault
+
+Pfad: `C:\Brain-Bug\projects\pb-studio\`
+
+Relevante Einträge:
+- `wiki/bugs/B-458-...md`
+- `wiki/bugs/B-462-...md`
+- `wiki/bugs/B-463-...md`
+- `wiki/bugs/B-471-...md`
+- `wiki/synthesis/plan-full-project-audit-fixplan-2026-05-31.md`
+- `log.md` — letzte Einträge dokumentieren B-458 Refinement
 
 ## Required Handoff State
 
