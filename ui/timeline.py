@@ -9,7 +9,7 @@ from pathlib import Path
 from PySide6.QtWidgets import (
     QGraphicsView, QGraphicsScene, QGraphicsRectItem,
     QGraphicsTextItem, QGraphicsLineItem, QGraphicsPolygonItem, QGraphicsPixmapItem, QMenu,
-    QGraphicsItem,
+    QGraphicsItem, QStyleOptionGraphicsItem,
 )
 from PySide6.QtCore import Qt, QRectF, QPointF, Signal, QTimer
 from PySide6.QtGui import (
@@ -112,6 +112,101 @@ class AnchorMarkerItem(QGraphicsPolygonItem):
         if self.scene():
             self.scene().removeItem(self._line)
             self.scene().removeItem(self)
+
+
+
+class BeatGridItem(QGraphicsItem):
+    """Adaptive Beatgrid-Zeichnung als einzelnes, optimiertes GraphicsItem.
+
+    Verhindert das Erzeugen/Loeschen von Tausenden QGraphicsLineItems in der Szene.
+    Nutzt exposedRect Culling und binary search fuer extrem schnellen Redraw beim Scrollen/Zoom.
+    """
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._beat_times: list[float] = []
+        self._downbeat_times: set[float] = set()
+        self._energy_per_beat: list[float] = []
+        self._current_zoom: float = 1.0
+        self.setZValue(-3)
+
+    def set_data(self, beat_times: list[float], downbeat_times: list[float] | None = None, energy_per_beat: list[float] | None = None, zoom: float = 1.0):
+        self._beat_times = sorted(beat_times) if beat_times else []
+        self._downbeat_times = set(downbeat_times) if downbeat_times else set()
+        self._energy_per_beat = energy_per_beat or []
+        self._current_zoom = zoom
+        self.prepareGeometryChange()
+        self.update()
+
+    def update_zoom(self, zoom: float):
+        if abs(self._current_zoom - zoom) > 0.001:
+            self._current_zoom = zoom
+            self.update()
+
+    def boundingRect(self) -> QRectF:
+        if not self._beat_times:
+            return QRectF()
+        w = self._beat_times[-1] * PIXELS_PER_SECOND
+        grid_top = AUDIO_TRACK_Y
+        grid_bottom = VIDEO_TRACK_Y + TRACK_HEIGHT
+        return QRectF(0, grid_top, w + 100, grid_bottom - grid_top)
+
+    def paint(self, painter: QPainter, option: QStyleOptionGraphicsItem, widget=None):
+        clip_rect = option.exposedRect
+        if clip_rect.isEmpty() or not self._beat_times:
+            return
+
+        grid_top = AUDIO_TRACK_Y
+        grid_bottom = VIDEO_TRACK_Y + TRACK_HEIGHT
+        zoom = self._current_zoom
+
+        # Adaptive LOD: Beat-Dichte je nach Zoom
+        if zoom < 0.5:
+            step = 4  # Nur Downbeats
+        elif zoom < 1.5:
+            step = 2  # Halbe Beats
+        else:
+            step = 1  # Alle Beats
+
+        # Pens fuer verschiedene Beat-Typen vorab instanziieren
+        downbeat_pen = QPen(QColor(212, 175, 55, 140), 1, Qt.PenStyle.SolidLine)
+        beat_pen = QPen(QColor(90, 90, 100, 60), 1, Qt.PenStyle.DotLine)
+        half_beat_pen = QPen(QColor(60, 60, 70, 40), 1, Qt.PenStyle.DotLine)
+
+        # Culling via binary search fuer sichtbares Intervall
+        t_left = max(0.0, clip_rect.left()) / PIXELS_PER_SECOND
+        t_right = clip_rect.right() / PIXELS_PER_SECOND
+
+        idx_start = bisect.bisect_left(self._beat_times, t_left)
+        idx_end = bisect.bisect_right(self._beat_times, t_right)
+
+        # Sicherstellen, dass wir an der step-Grenze anfangen
+        start_i = max(0, idx_start - (idx_start % step))
+        end_i = min(idx_end + 1, len(self._beat_times))
+
+        for i in range(start_i, end_i):
+            if i % step != 0:
+                continue
+
+            t = self._beat_times[i]
+            x = t * PIXELS_PER_SECOND
+            is_downbeat = t in self._downbeat_times or (not self._downbeat_times and i % 4 == 0)
+
+            if is_downbeat:
+                pen = downbeat_pen
+            elif i % 2 == 0:
+                pen = beat_pen
+            else:
+                pen = half_beat_pen
+
+            # Energy-basierte Opacity (falls verfuegbar)
+            if self._energy_per_beat and i < len(self._energy_per_beat):
+                e = max(0.2, min(1.0, self._energy_per_beat[i]))
+                pen_color = pen.color()
+                pen_color.setAlphaF(pen_color.alphaF() * e)
+                pen = QPen(pen_color, pen.widthF(), pen.style())
+
+            painter.setPen(pen)
+            painter.drawLine(x, grid_top, x, grid_bottom)
 
 
 # ======================================================================
@@ -734,6 +829,8 @@ class InteractiveTimeline(QGraphicsView):
         self._beat_grid_items: list = []      # Adaptive beat grid lines
         self._drop_markers: list = []         # Drop event markers
         self._current_zoom: float = 1.0       # Current horizontal zoom factor
+        self._beat_grid_item = BeatGridItem()
+        self._scene.addItem(self._beat_grid_item)
 
         # Drop indicator (visual feedback during drag-over)
         self._drop_indicator: QGraphicsLineItem | None = None
@@ -1454,71 +1551,33 @@ class InteractiveTimeline(QGraphicsView):
     def set_beat_grid(self, beat_times: list[float],
                       downbeat_times: list[float] | None = None,
                       energy_per_beat: list[float] | None = None) -> None:
-        """Zeichnet ein adaptives Beat-Grid auf die Timeline.
+        """Zeichnet ein adaptives Beat-Grid auf die Timeline via BeatGridItem.
 
-        Das Grid passt die Dichte automatisch an den Zoom-Level an:
-        - Zoom < 0.5: Nur Downbeats (jeder 4.)
-        - Zoom 0.5-1.5: Halbe Beats (jeder 2.)
-        - Zoom > 1.5: Alle Beats
-
-        Args:
-            beat_times: Alle Beat-Positionen in Sekunden
-            downbeat_times: Optional: Downbeat-Positionen (jeder 1.)
-            energy_per_beat: Optional: Energie pro Beat [0.0-1.0] fuer Farb-Intensitaet
+        Das Grid passt die Dichte automatisch an den Zoom-Level an.
         """
-        self._clear_beat_grid()
+        for marker in self._drop_markers:
+            if marker not in self._section_items:
+                self._scene.removeItem(marker)
+        self._drop_markers.clear()
+
         if not beat_times:
+            self._beat_grid_item.set_data([], [], [], self._current_zoom)
+            self._beat_times = []
             return
 
-        sorted_beats = sorted(beat_times)
-        downbeats = set(downbeat_times) if downbeat_times else set()
-        zoom = self._current_zoom
+        self._beat_times = beat_times
+        self._downbeat_times = downbeat_times or []
+        self._energy_per_beat = energy_per_beat or []
 
-        # Adaptive LOD: Beat-Dichte je nach Zoom
-        if zoom < 0.5:
-            step = 4  # Nur Downbeats
-        elif zoom < 1.5:
-            step = 2  # Halbe Beats
-        else:
-            step = 1  # Alle Beats
-
-        grid_top = AUDIO_TRACK_Y
-        grid_bottom = VIDEO_TRACK_Y + TRACK_HEIGHT
-
-        # Pens fuer verschiedene Beat-Typen
-        downbeat_pen = QPen(QColor(212, 175, 55, 140), 1, Qt.PenStyle.SolidLine)
-        beat_pen = QPen(QColor(90, 90, 100, 60), 1, Qt.PenStyle.DotLine)
-        half_beat_pen = QPen(QColor(60, 60, 70, 40), 1, Qt.PenStyle.DotLine)
-
-        for i, t in enumerate(sorted_beats):
-            if i % step != 0:
-                continue
-
-            x = t * PIXELS_PER_SECOND
-            is_downbeat = t in downbeats or (not downbeats and i % 4 == 0)
-
-            if is_downbeat:
-                pen = downbeat_pen
-            elif i % 2 == 0:
-                pen = beat_pen
-            else:
-                pen = half_beat_pen
-
-            # Energy-basierte Opacity (wenn verfuegbar)
-            if energy_per_beat and i < len(energy_per_beat):
-                e = max(0.2, min(1.0, energy_per_beat[i]))
-                pen_color = pen.color()
-                pen_color.setAlphaF(pen_color.alphaF() * e)
-                pen = QPen(pen_color, pen.widthF(), pen.style())
-
-            line = self._scene.addLine(x, grid_top, x, grid_bottom, pen)
-            line.setZValue(-3)  # Hinter Clips, ueber Sections
-            self._beat_grid_items.append(line)
+        self._beat_grid_item.set_data(
+            beat_times,
+            downbeat_times,
+            energy_per_beat,
+            self._current_zoom
+        )
 
     def _clear_beat_grid(self):
-        for item in self._beat_grid_items:
-            self._scene.removeItem(item)
-        self._beat_grid_items.clear()
+        self._beat_grid_item.set_data([], [], [], self._current_zoom)
         for marker in self._drop_markers:
             if marker not in self._section_items:
                 self._scene.removeItem(marker)
@@ -1570,22 +1629,10 @@ class InteractiveTimeline(QGraphicsView):
         self.load_sections(audio_track_id)
 
     def _update_beat_grid_lod(self):
-        """Aktualisiert die Beat-Grid Dichte nach Zoom-Aenderung.
-
-        P8-B2-FIX: Scene-Updates waehrend des Clear+Rebuild-Zyklus stummschalten.
-        Vorher: 7200 removeItem + 7200 addLine → 14400 einzelne Paint-Events,
-        Qt versucht nach jedem Call die Scene neu zu zeichnen → Scroll-Hickser.
-        Jetzt: genau 1 Paint nach dem Rebuild.
-        """
+        """Aktualisiert die Beat-Grid Dichte nach Zoom-Aenderung."""
         if not self._beat_times:
             return
-        vp = self.viewport()
-        vp.setUpdatesEnabled(False)
-        try:
-            self.set_beat_grid(self._beat_times)
-        finally:
-            vp.setUpdatesEnabled(True)
-            vp.update()
+        self._beat_grid_item.update_zoom(self._current_zoom)
 
     def _snap_x_to_beat(self, x: float) -> float:
         """Rastet x (in Pixeln) an den naechsten Beat ein (Snap-Radius: 8px).

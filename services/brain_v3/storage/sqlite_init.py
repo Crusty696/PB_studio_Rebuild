@@ -48,7 +48,11 @@ def open_connection(
     """
     db_path = Path(db_path)
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(db_path), isolation_level=isolation_level)
+    conn = sqlite3.connect(
+        str(db_path),
+        isolation_level=isolation_level,
+        check_same_thread=False
+    )
     init_connection(conn)
     if load_sqlite_vec:
         load_vec_extension(conn)
