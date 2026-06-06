@@ -117,7 +117,7 @@ class StemsController(PBComponent):
         track_id, _, title, _ = info
         task = task_manager.create_task(f"Stems: {title}", "KI Stem Separation (Demucs)")
         self.window.btn_stem_separate.setEnabled(False)
-        self.window.btn_stem_separate.setText("Separation laeuft...")
+        self.window.btn_stem_separate.setText("Stems laeuft...")
         self.window.progress_bar.setRange(0, 100)
         self.window.progress_bar.setValue(0)
         self.window.progress_bar.setVisible(True)
@@ -150,7 +150,7 @@ class StemsController(PBComponent):
 
     def _on_stem_finished(self, track_id: int, stems: dict, task_id: str):
         self.window.btn_stem_separate.setEnabled(True)
-        self.window.btn_stem_separate.setText("KI Stem Separation")
+        self.window.btn_stem_separate.setText("Stems")
         self.window.progress_bar.setVisible(False)
         if not stems:
             task_manager.finish_task(task_id, "error", "Leeres Ergebnis")
@@ -163,7 +163,7 @@ class StemsController(PBComponent):
 
     def _on_stem_error(self, track_id: int, error_msg: str, task_id: str):
         self.window.btn_stem_separate.setEnabled(True)
-        self.window.btn_stem_separate.setText("KI Stem Separation")
+        self.window.btn_stem_separate.setText("Stems")
         self.window.progress_bar.setVisible(False)
         if "abgebrochen" in error_msg.lower() or "cancel" in error_msg.lower():
             self.window.console_text.append(f"[Stems] {error_msg}")

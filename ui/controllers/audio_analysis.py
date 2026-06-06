@@ -84,19 +84,36 @@ class AudioAnalysisController(PBComponent):
         task = task_manager.create_task(f"Key: {title}", "Key-Erkennung (Krumhansl-Kessler)")
         worker = KeyDetectionWorker(track_id, file_path)
         worker.task_id = task.task_id
+
+        self.window.btn_key_detect.setEnabled(False)
+        self.window.btn_key_detect.setText("Tonart laeuft...")
+        self.window.progress_bar.setVisible(True)
+
         worker.progress.connect(
-            lambda pct, msg: self.window._console_append(f"[Key] {msg}"),
+            lambda pct, msg: (
+                self.window.progress_bar.setValue(int(pct)),
+                self.window.progress_bar.setFormat(f"Tonart: %p%% — {msg[:50]}"),
+                self.window._console_append(f"[Key] {msg}")
+            ),
             Qt.ConnectionType.QueuedConnection,
         )
         worker.finished.connect(
             lambda tid, res: (
                 self.window._console_append(f"[Key] Erkannt: {res.get('key','?')} ({res.get('camelot','?')}) Conf={res.get('confidence',0):.0%}"),
                 self.window.media_table_controller._refresh_media_table_debounced(),
+                self.window.btn_key_detect.setEnabled(True),
+                self.window.btn_key_detect.setText("Tonart"),
+                self.window.progress_bar.setVisible(False),
             ),
             Qt.ConnectionType.QueuedConnection,
         )
         worker.error.connect(
-            lambda tid, err: self.window._console_append(f"[Key] Fehler: {err}"),
+            lambda tid, err: (
+                self.window._console_append(f"[Key] Fehler: {err}"),
+                self.window.btn_key_detect.setEnabled(True),
+                self.window.btn_key_detect.setText("Tonart"),
+                self.window.progress_bar.setVisible(False),
+            ),
             Qt.ConnectionType.QueuedConnection,
         )
         self.window.worker_dispatcher._start_worker_thread(worker)
@@ -112,19 +129,36 @@ class AudioAnalysisController(PBComponent):
         task = task_manager.create_task(f"LUFS: {title}", "LUFS-Analyse (EBU R128)")
         worker = LUFSAnalysisWorker(track_id, file_path)
         worker.task_id = task.task_id
+
+        self.window.btn_lufs_analyze.setEnabled(False)
+        self.window.btn_lufs_analyze.setText("LUFS laeuft...")
+        self.window.progress_bar.setVisible(True)
+
         worker.progress.connect(
-            lambda pct, msg: self.window._console_append(f"[LUFS] {msg}"),
+            lambda pct, msg: (
+                self.window.progress_bar.setValue(int(pct)),
+                self.window.progress_bar.setFormat(f"LUFS: %p%% — {msg[:50]}"),
+                self.window._console_append(f"[LUFS] {msg}")
+            ),
             Qt.ConnectionType.QueuedConnection,
         )
         worker.finished.connect(
             lambda tid, res: (
                 self.window._console_append(f"[LUFS] Integrated: {res.get('integrated',0):.1f} dB, LRA: {res.get('loudness_range',0):.1f} LU, TP: {res.get('true_peak',0):.1f} dBTP"),
                 self.window.media_table_controller._refresh_media_table_debounced(),
+                self.window.btn_lufs_analyze.setEnabled(True),
+                self.window.btn_lufs_analyze.setText("LUFS"),
+                self.window.progress_bar.setVisible(False),
             ),
             Qt.ConnectionType.QueuedConnection,
         )
         worker.error.connect(
-            lambda tid, err: self.window._console_append(f"[LUFS] Fehler: {err}"),
+            lambda tid, err: (
+                self.window._console_append(f"[LUFS] Fehler: {err}"),
+                self.window.btn_lufs_analyze.setEnabled(True),
+                self.window.btn_lufs_analyze.setText("LUFS"),
+                self.window.progress_bar.setVisible(False),
+            ),
             Qt.ConnectionType.QueuedConnection,
         )
         self.window.worker_dispatcher._start_worker_thread(worker)
@@ -140,19 +174,36 @@ class AudioAnalysisController(PBComponent):
         task = task_manager.create_task(f"Struktur: {title}", "Song-Struktur Erkennung")
         worker = StructureDetectionWorker(track_id, file_path, bpm=bpm)
         worker.task_id = task.task_id
+
+        self.window.btn_structure_detect.setEnabled(False)
+        self.window.btn_structure_detect.setText("Songstruktur laeuft...")
+        self.window.progress_bar.setVisible(True)
+
         worker.progress.connect(
-            lambda pct, msg: self.window._console_append(f"[Struktur] {msg}"),
+            lambda pct, msg: (
+                self.window.progress_bar.setValue(int(pct)),
+                self.window.progress_bar.setFormat(f"Songstruktur: %p%% — {msg[:50]}"),
+                self.window._console_append(f"[Struktur] {msg}")
+            ),
             Qt.ConnectionType.QueuedConnection,
         )
         worker.finished.connect(
             lambda tid, res: (
                 self.window._console_append(f"[Struktur] {len(res.get('segments',[]))} Segmente erkannt"),
                 self.window.media_table_controller._refresh_media_table_debounced(),
+                self.window.btn_structure_detect.setEnabled(True),
+                self.window.btn_structure_detect.setText("Songstruktur"),
+                self.window.progress_bar.setVisible(False),
             ),
             Qt.ConnectionType.QueuedConnection,
         )
         worker.error.connect(
-            lambda tid, err: self.window._console_append(f"[Struktur] Fehler: {err}"),
+            lambda tid, err: (
+                self.window._console_append(f"[Struktur] Fehler: {err}"),
+                self.window.btn_structure_detect.setEnabled(True),
+                self.window.btn_structure_detect.setText("Songstruktur"),
+                self.window.progress_bar.setVisible(False),
+            ),
             Qt.ConnectionType.QueuedConnection,
         )
         self.window.worker_dispatcher._start_worker_thread(worker)
@@ -293,7 +344,7 @@ class AudioAnalysisController(PBComponent):
         )
 
         self.window.btn_waveform.setEnabled(False)
-        self.window.btn_waveform.setText("Analyse laeuft...")
+        self.window.btn_waveform.setText("Wellenform laeuft...")
         self.window.progress_bar.setVisible(True)
         self.window.console_text.append(f"[Waveform] Starte Rekordbox-Analyse fuer '{title}'...")
         self.window.worker_dispatcher._start_worker_thread(worker)
@@ -302,12 +353,12 @@ class AudioAnalysisController(PBComponent):
         # B-291: progress_bar live binden — vorher leerer Slot.
         self.window.progress_bar.setRange(0, 100)
         self.window.progress_bar.setValue(int(pct))
-        self.window.progress_bar.setFormat(f"Waveform: %p%% — {msg[:50]}")
+        self.window.progress_bar.setFormat(f"Wellenform: %p%% — {msg[:50]}")
 
     def _on_waveform_finished(self, track_id: int, result: dict, title: str, task_id: str):
         if not result:
             self.window.btn_waveform.setEnabled(True)
-            self.window.btn_waveform.setText("Rekordbox Wellenform")
+            self.window.btn_waveform.setText("Wellenform")
             self.window.progress_bar.setVisible(False)
             if task_id:
                 task_manager.finish_task(task_id, "error", "Leeres Ergebnis")
@@ -321,7 +372,7 @@ class AudioAnalysisController(PBComponent):
             f"{beats} Beats | {samples} Wellenform-Samples (Low/Mid/High)"
         )
         self.window.btn_waveform.setEnabled(True)
-        self.window.btn_waveform.setText("Rekordbox Wellenform")
+        self.window.btn_waveform.setText("Wellenform")
         self.window.progress_bar.setVisible(False)
         self.window.status_bar.showMessage(f"Wellenform fertig: {title} | {bpm} BPM")
         self.window.media_table_controller._refresh_media_table_debounced()
@@ -339,7 +390,7 @@ class AudioAnalysisController(PBComponent):
             f"[Fehler] Wellenform-Analyse fehlgeschlagen (ID {track_id}): {error_msg}"
         )
         self.window.btn_waveform.setEnabled(True)
-        self.window.btn_waveform.setText("Rekordbox Wellenform")
+        self.window.btn_waveform.setText("Wellenform")
         self.window.progress_bar.setVisible(False)
         self.window.status_bar.showMessage("Wellenform-Fehler | System bereit")
         if task_id:
@@ -472,8 +523,8 @@ class AudioAnalysisController(PBComponent):
             ("structure_detection", "Struktur", lambda: self._create_structure_worker(track_id, file_path, bpm)),
             ("stem_separation", "Stems", lambda: self._create_stem_worker(track_id)),
         ]
-        pending_keys = set(self._get_pending_audio_step_keys(track_id))
-        steps = [(name, factory) for key, name, factory in step_specs if key in pending_keys]
+        # B-458 / User-Anweisung: Bereits gemachte Analysen nicht ueberspringen, sondern nochmals ausfuehren.
+        steps = [(name, factory) for key, name, factory in step_specs]
 
         self._seq_steps = steps
         self._seq_index = 0
@@ -608,6 +659,96 @@ class AudioAnalysisController(PBComponent):
         # F-046 Fix: Kuerzerer Timer fuer Responsiveness + Guard
         if self.window.isVisible():
             QTimer.singleShot(100, self._run_next_sequential_step)
+
+    def _classify_mood(self):
+        """Klassifiziert die Stimmung und das Genre des ausgewaehlten Audio-Tracks."""
+        info = self._get_selected_audio_track()
+        if not info:
+            return
+        track_id, file_path, title, bpm = info
+        from workers.audio_analysis import AudioClassifyWorker
+        task = task_manager.create_task(f"Classify: {title}", "Mood/Genre AI")
+        worker = AudioClassifyWorker(track_id, file_path, bpm=bpm)
+        worker.task_id = task.task_id
+
+        self.window.btn_mood_classify.setEnabled(False)
+        self.window.btn_mood_classify.setText("Mood/Genre laeuft...")
+        self.window.progress_bar.setVisible(True)
+
+        worker.progress.connect(
+            lambda pct, msg: (
+                self.window.progress_bar.setValue(int(pct)),
+                self.window.progress_bar.setFormat(f"Mood/Genre: %p%% — {msg[:50]}"),
+                self.window._console_append(f"[Classify] {msg}")
+            ),
+            Qt.ConnectionType.QueuedConnection,
+        )
+        worker.finished.connect(
+            lambda tid, res: (
+                self.window._console_append(f"[Classify] Genre: {res.get('genre', '?')}, Mood: {res.get('mood', '?')}"),
+                self.window.media_table_controller._refresh_media_table_debounced(),
+                self.window.btn_mood_classify.setEnabled(True),
+                self.window.btn_mood_classify.setText("Mood / Genre"),
+                self.window.progress_bar.setVisible(False),
+            ),
+            Qt.ConnectionType.QueuedConnection,
+        )
+        worker.error.connect(
+            lambda tid, err: (
+                self.window._console_append(f"[Classify] Fehler: {err}"),
+                self.window.btn_mood_classify.setEnabled(True),
+                self.window.btn_mood_classify.setText("Mood / Genre"),
+                self.window.progress_bar.setVisible(False),
+            ),
+            Qt.ConnectionType.QueuedConnection,
+        )
+        self.window.worker_dispatcher._start_worker_thread(worker)
+        self.window.console_text.append(f"[Classify] Starte Mood/Genre-Klassifikation fuer '{title}'...")
+
+    def _analyze_spectral(self):
+        """Analysiert das Spektrum (8-Band Frequenzanalyse) des ausgewaehlten Audio-Tracks."""
+        info = self._get_selected_audio_track()
+        if not info:
+            return
+        track_id, file_path, title, _ = info
+        from workers.audio_analysis import SpectralAnalysisWorker
+        task = task_manager.create_task(f"Spectral: {title}", "8-Band Spektralanalyse")
+        worker = SpectralAnalysisWorker(track_id, file_path)
+        worker.task_id = task.task_id
+
+        self.window.btn_spectral_analyze.setEnabled(False)
+        self.window.btn_spectral_analyze.setText("Spektral laeuft...")
+        self.window.progress_bar.setVisible(True)
+
+        worker.progress.connect(
+            lambda pct, msg: (
+                self.window.progress_bar.setValue(int(pct)),
+                self.window.progress_bar.setFormat(f"Spektral: %p%% — {msg[:50]}"),
+                self.window._console_append(f"[Spectral] {msg}")
+            ),
+            Qt.ConnectionType.QueuedConnection,
+        )
+        worker.finished.connect(
+            lambda tid, res: (
+                self.window._console_append(f"[Spectral] Dominant: {res.get('dominant_band', '?')}"),
+                self.window.media_table_controller._refresh_media_table_debounced(),
+                self.window.btn_spectral_analyze.setEnabled(True),
+                self.window.btn_spectral_analyze.setText("Spektral"),
+                self.window.progress_bar.setVisible(False),
+            ),
+            Qt.ConnectionType.QueuedConnection,
+        )
+        worker.error.connect(
+            lambda tid, err: (
+                self.window._console_append(f"[Spectral] Fehler: {err}"),
+                self.window.btn_spectral_analyze.setEnabled(True),
+                self.window.btn_spectral_analyze.setText("Spektral"),
+                self.window.progress_bar.setVisible(False),
+            ),
+            Qt.ConnectionType.QueuedConnection,
+        )
+        self.window.worker_dispatcher._start_worker_thread(worker)
+        self.window.console_text.append(f"[Spectral] Starte Spektralanalyse fuer '{title}'...")
 
     def _create_analysis_worker(self, track_id: int, title: str):
         return AnalysisWorker(track_id, title)

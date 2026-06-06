@@ -202,6 +202,11 @@ class WorkspaceSetupController(PBComponent):
         self.window.btn_analyze_video = self.window._media_ws.btn_analyze_video
         self.window.btn_video_pipeline = self.window._media_ws.btn_video_pipeline
         self.window.btn_waveform = self.window._media_ws.btn_waveform
+        self.window.btn_key_detect = self.window._media_ws.btn_key_detect
+        self.window.btn_lufs_analyze = self.window._media_ws.btn_lufs_analyze
+        self.window.btn_structure_detect = self.window._media_ws.btn_structure_detect
+        self.window.btn_mood_classify = self.window._media_ws.btn_mood_classify
+        self.window.btn_spectral_analyze = self.window._media_ws.btn_spectral_analyze
         self.window.btn_stem_separate = self.window._media_ws.btn_stem_separate
         self.window.btn_keyframe_string = self.window._media_ws.btn_keyframe_string
         self.window.keyframe_text = self.window._media_ws.keyframe_text
@@ -231,6 +236,11 @@ class WorkspaceSetupController(PBComponent):
         self.window.btn_analyze_video.clicked.connect(self.window.video_analysis._analyze_selected_video)
         self.window.btn_video_pipeline.clicked.connect(self.window.video_analysis._start_video_pipeline)
         self.window.btn_waveform.clicked.connect(self.window.audio_analysis._analyze_waveform)
+        self.window.btn_key_detect.clicked.connect(self.window.audio_analysis._detect_key)
+        self.window.btn_lufs_analyze.clicked.connect(self.window.audio_analysis._analyze_lufs)
+        self.window.btn_mood_classify.clicked.connect(self.window.audio_analysis._classify_mood)
+        self.window.btn_spectral_analyze.clicked.connect(self.window.audio_analysis._analyze_spectral)
+        self.window.btn_structure_detect.clicked.connect(self.window.audio_analysis._detect_structure)
         self.window.btn_stem_separate.clicked.connect(self.window.stems._start_stem_separation)
         self.window.btn_auto_duck.clicked.connect(self.window.stems._start_auto_ducking)
         self.window._media_ws.btn_analyze_all.clicked.connect(self.window.audio_analysis._analyze_all_sequential)
@@ -269,13 +279,6 @@ class WorkspaceSetupController(PBComponent):
         )
         self.window.stem_player.playback_finished.connect(self.window.stems._on_stem_playback_finished)
 
-        # Phase 4: Media-Buttons
-        if hasattr(self.window._media_ws, 'btn_key_detect'):
-            self.window._media_ws.btn_key_detect.clicked.connect(self.window.audio_analysis._detect_key)
-        if hasattr(self.window._media_ws, 'btn_lufs_analyze'):
-            self.window._media_ws.btn_lufs_analyze.clicked.connect(self.window.audio_analysis._analyze_lufs)
-        if hasattr(self.window._media_ws, 'btn_structure_detect'):
-            self.window._media_ws.btn_structure_detect.clicked.connect(self.window.audio_analysis._detect_structure)
         # B-296/R-15: btn_motion_analysis + btn_siglip_embeddings entfernt
         # (Aliase auf _start_video_pipeline). btn_video_pipeline ist Primary.
 

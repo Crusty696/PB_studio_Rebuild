@@ -461,8 +461,8 @@ class AnalysisStatusPanel(QWidget):
             value_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
             self.table.setItem(row_idx, 2, value_item)
 
-            # Column 3: Action button (only for pending/error)
-            if status in ("pending", "error"):
+            # Column 3: Action button (for pending/error/done)
+            if status in ("pending", "error", "done"):
                 btn = QPushButton("Starten" if status == "pending" else "Wiederholen")
                 btn.setFixedHeight(24)
                 btn.setStyleSheet("""

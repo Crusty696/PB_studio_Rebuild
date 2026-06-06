@@ -830,11 +830,14 @@ class MediaWorkspace(QWidget):
         self.btn_waveform = _toolbar_btn("Wellenform", "3-Band Wellenform + Beatgrid")
         self.btn_key_detect = _toolbar_btn("Key", "Tonart + Camelot")
         self.btn_lufs_analyze = _toolbar_btn("LUFS", "Lautheit / True Peak")
+        self.btn_mood_classify = _toolbar_btn("Mood/Genre", "AI Mood/Genre Klassifikation")
+        self.btn_spectral_analyze = _toolbar_btn("Spektral", "8-Band Spektral-Analyse")
         self.btn_structure_detect = _toolbar_btn("Struktur", "Intro/Buildup/Drop/...")
         self.btn_stem_separate = _toolbar_btn("Stems", "Demucs Vocals/Drums/Bass/Other")
         for b in (
             self.btn_analyze, self.btn_waveform, self.btn_key_detect,
-            self.btn_lufs_analyze, self.btn_structure_detect, self.btn_stem_separate,
+            self.btn_lufs_analyze, self.btn_mood_classify, self.btn_spectral_analyze,
+            self.btn_structure_detect, self.btn_stem_separate,
         ):
             b.setVisible(False)
             audio_expert_layout.addWidget(b)
@@ -1075,6 +1078,18 @@ class MediaWorkspace(QWidget):
                 "LUFS",
                 "Was macht es? Misst Loudness und Peak. Wann nutzen? Vor Export oder Lautheitskontrolle. "
                 "Voraussetzung? Audio-Track gewaehlt. Ergebnis? Lautheitswerte fuer Qualitaetssicherung.",
+            ),
+            (
+                self.btn_mood_classify,
+                "Mood / Genre",
+                "Was macht es? Klassifiziert Musikrichtung und emotionale Stimmung. Wann nutzen? Fuer die passende Trackauswahl. "
+                "Voraussetzung? Audio-Track gewaehlt. Ergebnis? Genre- und Mood-Metadaten.",
+            ),
+            (
+                self.btn_spectral_analyze,
+                "Spektralanalyse",
+                "Was macht es? Analysiert die Frequenzverteilung in 8 Baendern. Wann nutzen? Fuer detaillierte Equalizer- und Mixing-Entscheidungen. "
+                "Voraussetzung? Audio-Track gewaehlt. Ergebnis? 8-Band Frequenzdaten.",
             ),
             (
                 self.btn_structure_detect,

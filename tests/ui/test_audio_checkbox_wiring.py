@@ -235,12 +235,13 @@ def test_b458_complete_audio_chain_covers_all_audio_steps(qapp, monkeypatch):
     assert "Spektral" in step_names
 
 
-def test_b461_complete_audio_chain_skips_done_steps(qapp, monkeypatch):
-    """B-461: Komplett-Analyse darf erledigte schwere Steps nicht erneut starten."""
+def test_b461_complete_audio_chain_does_not_skip_done_steps(qapp, monkeypatch):
+    """B-461: Komplett-Analyse muss alle Steps erneut starten, auch wenn sie done sind."""
     from types import SimpleNamespace
     from unittest.mock import MagicMock
 
     from services import analysis_status_service
+    from services.analysis_status_service import AUDIO_STEPS
     from ui.controllers.audio_analysis import AudioAnalysisController
 
     done_steps = {
@@ -269,11 +270,8 @@ def test_b461_complete_audio_chain_skips_done_steps(qapp, monkeypatch):
 
     ctrl._run_audio_steps_for_track(7, "C:/audio.mp3", "Track", 142.0)
 
-    assert [name for name, _factory in ctrl._seq_steps] == [
-        "LUFS",
-        "Mood/Genre",
-        "Spektral",
-    ]
+    step_names = [name for name, _factory in ctrl._seq_steps]
+    assert len(step_names) == len(AUDIO_STEPS)
 
 
 def test_b293_sequential_step_chain_calls_next_batch_track():
@@ -330,3 +328,51 @@ def test_b293_batch_queue_contains_all_checked_ids(qapp, monkeypatch):
         f"C-1: Batch-Queue muss [10,11,12] sein, got {list(ctrl._batch_queue)}."
     )
     assert calls, "C-1: _process_next_batch_track muss am Ende von _analyze_all_sequential gerufen werden."
+
+
+def test_audio_analysis_mood_and_spectral_actions(qapp, monkeypatch):
+    """Verifies that _classify_mood and _analyze_spectral correctly instantiate and run workers."""
+    from ui.controllers.audio_analysis import AudioAnalysisController
+    from unittest.mock import MagicMock
+
+    ctrl = AudioAnalysisController.__new__(AudioAnalysisController)
+    ctrl.window = MagicMock()
+    ctrl.window.btn_mood_classify = MagicMock()
+    ctrl.window.btn_spectral_analyze = MagicMock()
+    ctrl.window.progress_bar = MagicMock()
+    ctrl.window._console_append = MagicMock()
+    ctrl.window.console_text.append = MagicMock()
+
+    # Mock selection
+    ctrl._get_selected_audio_track = MagicMock(return_value=(12, "/path/track.mp3", "Track Title", 120.0))
+
+    # Mock worker dispatcher
+    dispatched_worker = None
+    def fake_start_worker_thread(w, **kwargs):
+        nonlocal dispatched_worker
+        dispatched_worker = w
+
+    ctrl.window.worker_dispatcher._start_worker_thread = fake_start_worker_thread
+
+    # Test Mood Classify
+    ctrl._classify_mood()
+    assert dispatched_worker is not None
+    from workers.audio_analysis import AudioClassifyWorker
+    assert isinstance(dispatched_worker, AudioClassifyWorker)
+    assert dispatched_worker.audio_track_id == 12
+    assert dispatched_worker.file_path == "/path/track.mp3"
+    assert dispatched_worker.bpm == 120.0
+    ctrl.window.btn_mood_classify.setEnabled.assert_called_with(False)
+    ctrl.window.btn_mood_classify.setText.assert_called_with("Mood/Genre laeuft...")
+
+    dispatched_worker = None
+    # Test Spectral Analyse
+    ctrl._analyze_spectral()
+    assert dispatched_worker is not None
+    from workers.audio_analysis import SpectralAnalysisWorker
+    assert isinstance(dispatched_worker, SpectralAnalysisWorker)
+    assert dispatched_worker.audio_track_id == 12
+    assert dispatched_worker.file_path == "/path/track.mp3"
+    ctrl.window.btn_spectral_analyze.setEnabled.assert_called_with(False)
+    ctrl.window.btn_spectral_analyze.setText.assert_called_with("Spektral laeuft...")
+
