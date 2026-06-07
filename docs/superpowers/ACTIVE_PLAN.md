@@ -1,59 +1,56 @@
 # PB Studio Active Plan
 
 status: active
-active_plan_id: PB-STUDIO-FFMPEG-RESOLVER-FIX-2026-06-07
-next_allowed_task: No implementation task. Code fix pending live GUI verification.
+active_plan_id: PB-STUDIO-B471-TIMELINE-USABILITY-RECOVERY-2026-06-07
+next_allowed_task: Task 1 Reproduce And Pin Timeline Surface Failures
 updated: 2026-06-07
 
 ## Meaning
 
-Der User hat am 2026-06-07 entschieden, den Fix mit groesserem direktem App-Mehrwert zuerst zu machen: FFmpeg/FFprobe-Resolver-Fixes fuer Thumbnail- und Ingest-Pfade aus dem Audit `PB-STUDIO-CONFLICT-QUALITY-AUDIT-2026-06-07`.
+Der User hat am 2026-06-07 per Live-Screenshot gemeldet, dass B-471 weiterhin nicht geloest ist: Timeline-Zoom verschiebt A1/V1, Audio-Waveform fehlt, Video-Thumbnails fehlen, Pacing-Panel und Tooltips sind nicht nutzbar.
 
 Aktiver Plan:
 
 ```text
-PB-STUDIO-FFMPEG-RESOLVER-FIX-2026-06-07
+PB-STUDIO-B471-TIMELINE-USABILITY-RECOVERY-2026-06-07
 ```
 
 Repo-Plan:
 
 ```text
-docs/superpowers/plans/2026-06-07-ffmpeg-resolver-fix.md
+docs/superpowers/plans/2026-06-07-b471-timeline-usability-recovery.md
 ```
 
 Vault-Mirror:
 
 ```text
-C:\Brain-Bug\projects\pb-studio\wiki\synthesis\plan-ffmpeg-resolver-fix-2026-06-07.md
+C:\Brain-Bug\projects\pb-studio\wiki\synthesis\plan-b471-timeline-usability-recovery-2026-06-07.md
 ```
 
 Decision:
 
 ```text
-C:\Brain-Bug\projects\pb-studio\wiki\decisions\D-058-ffmpeg-resolver-fix.md
+C:\Brain-Bug\projects\pb-studio\wiki\decisions\D-059-b471-timeline-usability-recovery.md
 ```
 
 ## Agent Behavior
 
-- Nur `PB-STUDIO-FFMPEG-RESOLVER-FIX-2026-06-07` bearbeiten.
+- Nur `PB-STUDIO-B471-TIMELINE-USABILITY-RECOVERY-2026-06-07` bearbeiten.
 - Modus: `fix-plan`.
-- Nur CQ-004/CQ-005 Resolver-Call-Sites bearbeiten.
-- Keine Dependency-Swaps, keine UI-Optik, kein Poetry-Lock-Cleanup.
+- Scope: B-471 Timeline-Usability, Zoom/Lanes, Waveform, Thumbnails, Pacing-Panel, Tooltips.
+- Keine Dependency-Swaps, keine Pacing-Algorithmus-Aenderung ohne separaten Root-Cause.
 - `verified` / `fixed` nur nach realem App-Workflow plus Log-/UI-Beleg. Focused pytest/import-smoke ist keine Live-Verifikation.
 
 ## Current Status
 
-- Branch erstellt: `codex/PB-STUDIO-FFMPEG-RESOLVER-FIX-2026-06-07`.
+- Branch erstellt: `codex/B-471-timeline-usability-recovery-2026-06-07`.
 - Repo-Plan, Vault-Decision und Vault-Mirror wurden erstellt.
-- Task 0 Governance Activation abgeschlossen: Registry, Active Plan, Handoff, Vault-Decision und Vault-Mirror gesetzt.
-- Task 1 Regression Tests abgeschlossen: `tests/test_ffmpeg_resolver_usage.py` rot vor Fix, gruen nach Fix.
-- Task 2 Resolver Implementation abgeschlossen: CQ-004/CQ-005 Call-Sites nutzen zentrale Resolver.
-- Task 3 Verification abgeschlossen: focused pytest, adjacent ingest pytest und import smoke gruen.
-- Task 4 Vault And Commit abgeschlossen; Live-GUI-Verifikation fehlt.
+- B-471 wurde mit Live-Screenshot-Befund 2026-06-07 erweitert.
+- Task 0 Governance Activation abgeschlossen.
 - Vorherige Plaene bleiben in Registry erhalten; offene Live-/Fixpunkte wurden nicht geloescht.
 
 ## Current Next Task
 
 ```text
-No implementation task. Code fix pending live GUI verification.
+Task 1 Reproduce And Pin Timeline Surface Failures
 ```
