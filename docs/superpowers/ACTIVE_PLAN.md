@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-B471-TIMELINE-USABILITY-RECOVERY-2026-06-07
-next_allowed_task: Task 1 Reproduce And Pin Timeline Surface Failures
+next_allowed_task: Task 5 Verification, Vault, Commit
 updated: 2026-06-07
 
 ## Meaning
@@ -47,10 +47,15 @@ C:\Brain-Bug\projects\pb-studio\wiki\decisions\D-059-b471-timeline-usability-rec
 - Repo-Plan, Vault-Decision und Vault-Mirror wurden erstellt.
 - B-471 wurde mit Live-Screenshot-Befund 2026-06-07 erweitert.
 - Task 0 Governance Activation abgeschlossen.
+- Task 1 Reproduce And Pin Timeline Surface Failures abgeschlossen: focused tests reproduzierten die gemeldeten Timeline-Probleme vor dem Fix.
+- Task 2 Timeline Lane And Zoom Recovery code-complete: focused lane/zoom tests gruen.
+- Task 3 Audio Waveform And Video Thumbnail Recovery code-complete: focused thumbnail/waveform tests gruen.
+- Task 4 Pacing Panel And Tooltip Recovery code-complete: focused tooltip tests gruen.
+- Task 5 Verification gestartet: App wurde neu gestartet; Live-Timeline-Verifikation blockiert, weil keine aktive Projekt-DB/kein aktives Projekt vorhanden war.
 - Vorherige Plaene bleiben in Registry erhalten; offene Live-/Fixpunkte wurden nicht geloescht.
 
 ## Current Next Task
 
 ```text
-Task 1 Reproduce And Pin Timeline Surface Failures
+Task 5 Verification, Vault, Commit
 ```

@@ -11,7 +11,7 @@
 ---
 
 plan_id: PB-STUDIO-B471-TIMELINE-USABILITY-RECOVERY-2026-06-07
-status: approved-for-implementation
+status: code-complete-live-pending
 mode: fix-plan
 created: 2026-06-07
 authorized_by_user: 2026-06-07 chat screenshot/report
@@ -151,5 +151,15 @@ Acceptance criteria:
 ## Current Next Task
 
 ```text
-Task 0 Governance Activation
+Task 5 Verification, Vault, Commit
 ```
+
+## 2026-06-07 Code-Complete Status
+
+- Task 1: focused tests added; baseline run against `HEAD` failed for lane fit, thumbnail width, missing waveform overlay, weak pacing tooltip, weak timeline toolbar tooltip (`5 failed, 2 passed`).
+- Task 2: code-complete; horizontal fit now avoids vertical `fitInView` squeezing.
+- Task 3: code-complete; video thumbnail width no longer capped to 220 px for long clips, and audio clips without waveform show `Waveform fehlt - Audioanalyse starten`.
+- Task 4: code-complete; SCHNITT timeline and pacing tooltips now state effect, when to use, and result.
+- Task 5: focused tests and import smoke passed. App restarted, but real live timeline verification is blocked because the app reported no active project.
+
+Status remains `code-complete-live-pending`, not `fixed`.

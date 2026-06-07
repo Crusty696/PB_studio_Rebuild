@@ -43,7 +43,9 @@ class SchnittTabPacingAnker(QWidget):
         self.cut_rate_combo.setCurrentIndex(2)
         self.cut_rate_combo.setFocusPolicy(Qt.FocusPolicy.StrongFocus)  # T4.5
         self.cut_rate_combo.setToolTip(
-            "Grundraster für Schnitte: kleinere Beat-Werte schneiden schneller."
+            "Wirkung: Legt das Grundraster fuer neue Schnitte fest. "
+            "Wann: Kleinere Werte fuer schnelle Drops, groessere Werte fuer ruhige Parts. "
+            "Ergebnis: Auto-Edit setzt Cuts dichter oder weiter auseinander."
         )
         row1.addWidget(self.cut_rate_combo, stretch=1)
         row1.addWidget(self._small_label("Style"))
@@ -54,7 +56,9 @@ class SchnittTabPacingAnker(QWidget):
         ])
         self.style_combo.setFocusPolicy(Qt.FocusPolicy.StrongFocus)  # T4.5
         self.style_combo.setToolTip(
-            "Genre-/Stil-Preset für Pacing-Gewichte und Energieverhalten."
+            "Wirkung: Waehlt ein Stilprofil fuer Clip-Auswahl und Energieverlauf. "
+            "Wann: Nutze es passend zum Track-Genre oder zur Zielaesthetik. "
+            "Ergebnis: Pacing-Gewichte werden fuer diesen Stil voreingestellt."
         )
         row1.addWidget(self.style_combo, stretch=1)
         row1.addWidget(self._small_label("Breakdown"))
@@ -62,8 +66,9 @@ class SchnittTabPacingAnker(QWidget):
         self.breakdown_combo.addItems(["halve", "force16", "none"])
         self.breakdown_combo.setFocusPolicy(Qt.FocusPolicy.StrongFocus)  # T4.5
         self.breakdown_combo.setToolTip(
-            "Verhalten in ruhigen Breakdown-Parts: halve = halbieren, "
-            "force16 = 16-Beat erzwingen, none = keine Cuts."
+            "Wirkung: Steuert Schnitte in ruhigen Breakdown-Abschnitten. "
+            "Wann: Nutze es, wenn Breakdowns weniger hektisch wirken sollen. "
+            "Ergebnis: halve halbiert Cut-Dichte, force16 erzwingt 16-Beat-Abstand, none vermeidet Cuts."
         )
         row1.addWidget(self.breakdown_combo, stretch=1)
         v.addLayout(row1)
@@ -76,8 +81,9 @@ class SchnittTabPacingAnker(QWidget):
         self.reactivity_slider.setValue(50)
         self.reactivity_slider.setFocusPolicy(Qt.FocusPolicy.StrongFocus)  # T4.5
         self.reactivity_slider.setToolTip(
-            "Wie stark Audio-Energie die Schnittdichte beeinflusst. "
-            "0 ist stabil, 100 sehr reaktiv."
+            "Wirkung: Bestimmt wie stark Audio-Energie die Schnittdichte bewegt. "
+            "Wann: Niedrig fuer stabile Montage, hoch fuer energiegetriebene Drops. "
+            "Ergebnis: 0 bleibt ruhig, 100 reagiert stark auf Energie."
         )
         row2.addWidget(self.reactivity_slider, stretch=1)
         self.reactivity_spin = QSpinBox()
@@ -86,7 +92,9 @@ class SchnittTabPacingAnker(QWidget):
         self.reactivity_spin.setValue(50)
         self.reactivity_spin.setFocusPolicy(Qt.FocusPolicy.StrongFocus)  # T4.5
         self.reactivity_spin.setToolTip(
-            "Exakter Prozentwert für Energie-Reaktivität der Pacing-Engine."
+            "Wirkung: Setzt die Energie-Reaktivitaet exakt in Prozent. "
+            "Wann: Nutze es fuer reproduzierbare Feineinstellung. "
+            "Ergebnis: Gleicher Wert erzeugt denselben Reaktivitaetsgrad."
         )
         self.reactivity_spin.lineEdit().setToolTip(self.reactivity_spin.toolTip())
         row2.addWidget(self.reactivity_spin)
@@ -97,8 +105,9 @@ class SchnittTabPacingAnker(QWidget):
         self.vibe_input = QLineEdit()
         self.vibe_input.setPlaceholderText("z.B. 'dunkel, strobo, club'")
         self.vibe_input.setToolTip(
-            "Freitext für Stimmung oder visuelle Richtung, "
-            "z.B. 'dunkel, strobo, club'."
+            "Wirkung: Gibt Auto-Edit eine textliche visuelle Richtung. "
+            "Wann: Nutze es fuer Mood wie dunkel, strobo, club oder natur. "
+            "Ergebnis: Die Richtung kann in Pacing-/Auswahlentscheidungen einfliessen."
         )
         row3.addWidget(self.vibe_input, stretch=1)
         v.addLayout(row3)
@@ -109,7 +118,9 @@ class SchnittTabPacingAnker(QWidget):
         self.btn_regenerate.setObjectName("btn_accent")
         self.btn_regenerate.setFixedHeight(30)
         self.btn_regenerate.setToolTip(
-            "Timeline mit den aktuellen Pacing-, Stil- und Anker-Einstellungen neu berechnen."
+            "Wirkung: Berechnet die Timeline mit aktuellen Pacing-, Stil- und Ankerwerten neu. "
+            "Wann: Nutze es nach Aenderung von Cut Rate, Style, Breakdown, Reaktivitaet oder Vibe. "
+            "Ergebnis: Clips/Cuts koennen ersetzt oder verschoben werden."
         )
         self.btn_regenerate.setAccessibleName("Timeline mit neuen Pacing-Einstellungen generieren")
         self.btn_regenerate.setStyleSheet(
@@ -135,7 +146,9 @@ class SchnittTabPacingAnker(QWidget):
         self.anchor_list.setHeaderLabels(["Zeit", "Video", "Label", "Gewicht"])
         self.anchor_list.setSortingEnabled(True)
         self.anchor_list.setToolTip(
-            "Liste fester Audio-Video-Anker. Diese Punkte bleiben beim Auto-Edit synchron."
+            "Wirkung: Zeigt feste Audio-Video-Sync-Punkte. "
+            "Wann: Nutze Anker fuer wichtige Drops, Vocals oder Bildtreffer. "
+            "Ergebnis: Auto-Edit soll diese Punkte synchron halten."
         )
         self.anchor_list.setAccessibleName("Audio-Video-Ankerliste")
         v.addWidget(self.anchor_list, stretch=1)
@@ -143,17 +156,23 @@ class SchnittTabPacingAnker(QWidget):
         toolbar = QHBoxLayout()
         self.btn_add_anchor = QPushButton("+ Anker")
         self.btn_add_anchor.setToolTip(
-            "Neuen Sync-Anker an aktueller Zeit oder per Dialog hinzufügen."
+            "Wirkung: Fuegt einen festen Sync-Punkt hinzu. "
+            "Wann: Nutze es bei Drops, Vocals oder Bildmomenten, die exakt sitzen muessen. "
+            "Ergebnis: Dieser Punkt kann beim Auto-Edit als harte Orientierung dienen."
         )
         self.btn_add_anchor.setAccessibleName("Sync-Anker hinzufuegen")
         self.btn_remove_anchor = QPushButton("− Anker")
         self.btn_remove_anchor.setToolTip(
-            "Ausgewählten Sync-Anker aus der Liste entfernen."
+            "Wirkung: Entfernt den ausgewaehlten Sync-Punkt. "
+            "Wann: Nutze es bei falschen oder nicht mehr benoetigten Ankern. "
+            "Ergebnis: Auto-Edit beruecksichtigt diesen Anker nicht mehr."
         )
         self.btn_remove_anchor.setAccessibleName("Sync-Anker entfernen")
         self.btn_sync_anchors = QPushButton("Sync")
         self.btn_sync_anchors.setToolTip(
-            "Ankerpunkte auf Timeline und aktuelle Medienauswahl synchronisieren."
+            "Wirkung: Synchronisiert Anker mit Timeline und aktueller Medienauswahl. "
+            "Wann: Nutze es nach manuellen Aenderungen an Clips oder Ankern. "
+            "Ergebnis: Audio- und Video-Anker liegen wieder aufeinander."
         )
         self.btn_sync_anchors.setAccessibleName("Sync-Anker synchronisieren")
         for b in (self.btn_add_anchor, self.btn_remove_anchor, self.btn_sync_anchors):
@@ -164,8 +183,9 @@ class SchnittTabPacingAnker(QWidget):
 
         self.btn_learn_ai = QPushButton("Als KI-Lernregel speichern")
         self.btn_learn_ai.setToolTip(
-            "Ausgewählten Anker als Lernregel speichern, damit künftige Auto-Edits "
-            "diese Wahl berücksichtigen."
+            "Wirkung: Speichert den ausgewaehlten Anker als Lernsignal. "
+            "Wann: Nutze es, wenn eine Sync-Entscheidung kuenftig bevorzugt werden soll. "
+            "Ergebnis: Spaetere Auto-Edits koennen diese Wahl staerker beruecksichtigen."
         )
         self.btn_learn_ai.setAccessibleName("Anker als KI-Lernregel speichern")
         self.btn_learn_ai.setFixedHeight(24)

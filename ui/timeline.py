@@ -295,7 +295,7 @@ class TimelineClipItem(QGraphicsRectItem):
         # set_thumbnail_pixmap). Verhindert 1132x ffmpeg/Disk-I/O auf dem
         # Main-Thread beim Aufbau.
         self.thumbnail_file_path = thumbnail_file_path
-        self._thumb_w = max(24, min(int(width), 220))
+        self._thumb_w = max(24, min(int(width), 3000))
         self._thumb_h = max(16, int(height) - 6)
         self._thumbnail_item: QGraphicsPixmapItem | None = None
         if track_type == "video":
@@ -315,6 +315,16 @@ class TimelineClipItem(QGraphicsRectItem):
         # sondern bleibt bei jedem Zoom-Level normal lesbar.
         label.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, True)
         self._label_item = label
+
+        self._missing_waveform_label: QGraphicsTextItem | None = None
+        if track_type == "audio" and not has_waveform:
+            missing = QGraphicsTextItem("Waveform fehlt - Audioanalyse starten", self)
+            missing.setDefaultTextColor(QColor(220, 230, 245, 210))
+            missing.setFont(QFont("Segoe UI Variable Text", 8, QFont.Weight.Bold))
+            missing.setPos(8, max(16, int(height) // 2 - 7))
+            missing.setZValue(5)
+            missing.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, True)
+            self._missing_waveform_label = missing
 
         # Trim handle visuals (thin colored bars at edges)
         trim_color = QColor(255, 255, 255, 100)
@@ -2368,15 +2378,26 @@ class InteractiveTimeline(QGraphicsView):
             self._update_beat_grid_lod()
 
     def fit_to_content(self):
-        """Fit the current timeline scene into the visible viewport."""
+        """Fit horizontally while preserving lane height.
+
+        Full ``fitInView(...KeepAspectRatio)`` scales Y as well as X. On wide
+        timelines that makes A1/V1 lanes almost disappear, matching B-471 live
+        feedback. Timeline fit is a time-axis operation, so keep Y at 1.0.
+        """
         rect = self._scene.sceneRect()
         if rect.isNull() or rect.width() <= 0 or rect.height() <= 0:
             rect = self._scene.itemsBoundingRect()
         if rect.isNull() or rect.width() <= 0 or rect.height() <= 0:
             return
-        self.fitInView(rect, Qt.AspectRatioMode.KeepAspectRatio)
+        viewport_w = max(1.0, float(self.viewport().width() - 8))
+        x_scale = viewport_w / max(1.0, float(rect.width()))
+        x_scale = max(0.01, min(200.0, x_scale))
+        self.resetTransform()
+        self.scale(x_scale, 1.0)
         self._current_zoom = self.transform().m11()
         self._update_beat_grid_lod()
+        self.centerOn(rect.center().x(), AUDIO_TRACK_Y + TRACK_HEIGHT + 5)
+        self._schedule_thumb_request()
 
     def _set_anchor_on_selected(self):
         """Setzt einen Anker in der Mitte des aktuell selektierten Clips (Taste M)."""
