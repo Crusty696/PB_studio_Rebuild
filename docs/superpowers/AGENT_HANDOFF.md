@@ -28,7 +28,7 @@ This file is a repository-local continuity checkpoint for all agents.
 
 ## Current Branch
 
-`codex/PB-STUDIO-FULL-AUDIT-FIXPLAN-2026-05-31`
+`codex/PB-STUDIO-FFMPEG-RESOLVER-FIX-2026-06-07`
 
 22 commits ahead of origin (pushed 2026-06-07T01:16Z).
 
@@ -36,7 +36,9 @@ This file is a repository-local continuity checkpoint for all agents.
 
 See `docs/superpowers/ACTIVE_PLAN.md`.
 
-Active plan: `PB-STUDIO-FULL-AUDIT-FIXPLAN-2026-05-31`
+Active plan: `PB-STUDIO-FFMPEG-RESOLVER-FIX-2026-06-07`
+
+Current next task: Task 0 Governance Activation, then Task 1 Regression Tests from `docs/superpowers/plans/2026-06-07-ffmpeg-resolver-fix.md`.
 
 ## Last Handoff
 

@@ -1,60 +1,55 @@
 # PB Studio Active Plan
 
 status: active
-active_plan_id: PB-STUDIO-CONFLICT-QUALITY-AUDIT-2026-06-07
-next_allowed_task: No implementation task. User decision required for any fix plan.
+active_plan_id: PB-STUDIO-FFMPEG-RESOLVER-FIX-2026-06-07
+next_allowed_task: Task 1 Regression Tests
 updated: 2026-06-07
 
 ## Meaning
 
-Der User hat am 2026-06-07 eine neue Vollprojekt-Untersuchung beauftragt:
-Konflikte, Bugs, Luecken, Fehler, falsche Annahmen, toter Code, nicht aktivierte Funktionen, Blocker sowie Stabilitaets-, Performance- und Qualitaetsverbesserungen.
+Der User hat am 2026-06-07 entschieden, den Fix mit groesserem direktem App-Mehrwert zuerst zu machen: FFmpeg/FFprobe-Resolver-Fixes fuer Thumbnail- und Ingest-Pfade aus dem Audit `PB-STUDIO-CONFLICT-QUALITY-AUDIT-2026-06-07`.
 
 Aktiver Plan:
 
 ```text
-PB-STUDIO-CONFLICT-QUALITY-AUDIT-2026-06-07
+PB-STUDIO-FFMPEG-RESOLVER-FIX-2026-06-07
 ```
 
 Repo-Plan:
 
 ```text
-docs/superpowers/plans/2026-06-07-full-project-conflict-quality-audit.md
+docs/superpowers/plans/2026-06-07-ffmpeg-resolver-fix.md
 ```
 
 Vault-Mirror:
 
 ```text
-C:\Brain-Bug\projects\pb-studio\wiki\synthesis\plan-full-project-conflict-quality-audit-2026-06-07.md
+C:\Brain-Bug\projects\pb-studio\wiki\synthesis\plan-ffmpeg-resolver-fix-2026-06-07.md
 ```
 
 Decision:
 
 ```text
-C:\Brain-Bug\projects\pb-studio\wiki\decisions\D-057-full-project-conflict-quality-audit.md
+C:\Brain-Bug\projects\pb-studio\wiki\decisions\D-058-ffmpeg-resolver-fix.md
 ```
 
 ## Agent Behavior
 
-- Nur `PB-STUDIO-CONFLICT-QUALITY-AUDIT-2026-06-07` bearbeiten.
-- Modus: `audit-plan`.
-- Keine App-Code-Edits.
-- Keine Fixes, Refactors, Dependency-Swaps, Status-`fixed`-Aenderungen.
-- Findings nur mit Datei-/Command-/Vault-/Test-/Log-Evidence.
-- `verified` / `fixed` nur nach realem App-Workflow plus Log-/UI-Beleg, aber dieser Audit-Plan setzt keine `fixed`-Marker.
+- Nur `PB-STUDIO-FFMPEG-RESOLVER-FIX-2026-06-07` bearbeiten.
+- Modus: `fix-plan`.
+- Nur CQ-004/CQ-005 Resolver-Call-Sites bearbeiten.
+- Keine Dependency-Swaps, keine UI-Optik, kein Poetry-Lock-Cleanup.
+- `verified` / `fixed` nur nach realem App-Workflow plus Log-/UI-Beleg. Focused pytest/import-smoke ist keine Live-Verifikation.
 
 ## Current Status
 
-- Task 0 Governance Activation abgeschlossen: Repo-Plan, Registry, Active Plan, Vault-Decision und Vault-Mirror erstellt.
-- Task 1 Inventory And Exclusion Map static-complete: 1187 tracked files classified, 1451 ignored paths classified, inventory report and TSV artifacts created.
-- Task 2 Top-Down Audit static-complete: governance/runtime/FFmpeg/known-bug/UI-risk findings CQ-001..CQ-007 documented.
-- Task 3 Bottom-Up Audit static-complete: pytest collect-only succeeded via absolute Conda path; findings BU-001..BU-005 documented.
-- Task 4 Reviewer Challenge static-complete: CQ-004 downgraded to medium; BU-003 downgraded to low; no findings removed.
-- Task 5 Final Audit Report And Fix-Plan Candidate static-complete: final repo report and vault mirror created. No app-code edits, no live verification, no `fixed` markers.
-- Vorheriger Plan `PB-STUDIO-FULL-AUDIT-FIXPLAN-2026-05-31` bleibt in Registry erhalten; seine offenen Live-/Fixpunkte wurden nicht geloescht.
+- Branch erstellt: `codex/PB-STUDIO-FFMPEG-RESOLVER-FIX-2026-06-07`.
+- Repo-Plan, Vault-Decision und Vault-Mirror wurden erstellt.
+- Task 0 Governance Activation abgeschlossen: Registry, Active Plan, Handoff, Vault-Decision und Vault-Mirror gesetzt.
+- Vorherige Plaene bleiben in Registry erhalten; offene Live-/Fixpunkte wurden nicht geloescht.
 
 ## Current Next Task
 
 ```text
-No implementation task. User decision required for any fix plan.
+Task 1 Regression Tests
 ```
