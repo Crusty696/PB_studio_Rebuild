@@ -71,6 +71,7 @@ class WaveformLoadWorker(QObject):
 
 PIXELS_PER_SECOND = 20
 TRACK_HEIGHT = 80
+MIN_READABLE_FIT_SCALE = 0.25
 AUDIO_TRACK_Y = 10
 VIDEO_TRACK_Y = AUDIO_TRACK_Y + TRACK_HEIGHT + 12
 CUT_MARKERS_Y = VIDEO_TRACK_Y + TRACK_HEIGHT + 10
@@ -2461,7 +2462,7 @@ class InteractiveTimeline(QGraphicsView):
             return
         viewport_w = max(1.0, float(self.viewport().width() - 8))
         x_scale = viewport_w / max(1.0, float(rect.width()))
-        x_scale = max(0.01, min(200.0, x_scale))
+        x_scale = max(MIN_READABLE_FIT_SCALE, min(200.0, x_scale))
         self.resetTransform()
         self.scale(x_scale, 1.0)
         self._current_zoom = self.transform().m11()

@@ -7,12 +7,14 @@ from types import SimpleNamespace
 
 import pytest
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsTextItem
+from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 import ui.timeline as timeline_mod
-from database import AudioTrack, Beatgrid, TimelineEntry, VideoClip, WaveformData
+from database import AudioTrack, Base, Beatgrid, Project, TimelineEntry, VideoClip, WaveformData
 from ui.timeline import (
     AUDIO_TRACK_Y,
+    MIN_READABLE_FIT_SCALE,
     TRACK_HEIGHT,
     VIDEO_TRACK_Y,
     InteractiveTimeline,
@@ -20,6 +22,7 @@ from ui.timeline import (
 )
 from ui.timeline_thumbnail_loader import ThumbnailLoadManager
 from ui.waveform_item import WaveformGraphicsItem
+from ui.workspaces.schnitt.tab_schnitt import SchnittTabSchnitt
 from ui.workspaces.schnitt.tab_pacing_anker import SchnittTabPacingAnker
 from ui.workspaces.schnitt.timeline_shell import TimelineShell
 
@@ -50,6 +53,32 @@ def test_fit_to_content_keeps_vertical_scale_at_one(qapp) -> None:
         "Fit must not vertically scale A1/V1 lanes; user screenshot shows "
         "tracks squeezed upward and A1 nearly invisible."
     )
+
+
+def test_fit_to_content_keeps_readable_thumbnail_scale(qapp) -> None:
+    """B-471 live: full-project fit must not compress thumbnails into stripes."""
+    timeline = InteractiveTimeline()
+    timeline.resize(1200, 320)
+    item = TimelineClipItem(
+        entry_id=101,
+        media_id=101,
+        track_type="video",
+        title="long project",
+        x=0.0,
+        y=VIDEO_TRACK_Y,
+        width=75000.0,
+        height=TRACK_HEIGHT,
+        anchors=[],
+        thumbnail_file_path="C:/videos/clip.mp4",
+    )
+    timeline.scene().addItem(item)
+    timeline.clip_items.append(item)
+    timeline._update_scene_rect()
+
+    timeline.fit_to_content()
+
+    assert timeline.transform().m11() >= MIN_READABLE_FIT_SCALE
+    assert timeline.transform().m22() == pytest.approx(1.0)
 
 
 def test_video_thumbnail_item_covers_clip_width(qapp) -> None:
@@ -206,10 +235,15 @@ def test_build_entry_item_adds_waveform_immediately_from_loaded_audio_map(qapp) 
 def test_load_from_db_preserves_media_maps_across_worker_signal(
     qapp,
     monkeypatch,
-    test_engine,
-    project,
+    tmp_path,
 ) -> None:
     """B-471 live: typed Qt dict signals dropped SQLAlchemy media maps."""
+    test_engine = create_engine(
+        f"sqlite:///{tmp_path / 'b471_worker.db'}",
+        echo=False,
+        connect_args={"check_same_thread": False},
+    )
+    Base.metadata.create_all(test_engine)
 
     @contextmanager
     def _test_nullpool():
@@ -218,6 +252,14 @@ def test_load_from_db_preserves_media_maps_across_worker_signal(
 
     monkeypatch.setattr(timeline_mod, "nullpool_session", _test_nullpool)
     with Session(test_engine) as session:
+        project = Project(
+            name="b471-worker",
+            path=str(tmp_path),
+            resolution="1920x1080",
+            fps=30.0,
+        )
+        session.add(project)
+        session.flush()
         audio = AudioTrack(
             project_id=project.id,
             file_path="/tmp/audio.mp3",
@@ -265,10 +307,11 @@ def test_load_from_db_preserves_media_maps_across_worker_signal(
                 ),
             ]
         )
+        pid = project.id
         session.commit()
 
     timeline = InteractiveTimeline()
-    timeline.load_from_db(project.id)
+    timeline.load_from_db(pid)
     deadline = time.time() + 5.0
     while time.time() < deadline:
         qapp.processEvents()
@@ -432,3 +475,12 @@ def test_timeline_toolbar_buttons_are_touchpad_sized(qapp) -> None:
     for button in (shell.btn_zoom_out, shell.btn_zoom_fit, shell.btn_zoom_reset, shell.btn_zoom_in):
         assert button.minimumWidth() >= 44
         assert button.minimumHeight() >= 36
+
+
+def test_schnitt_tab_prioritizes_timeline_surface(qapp) -> None:
+    """B-471 live: preview/cut list must not squeeze the timeline back to a strip."""
+    tab = SchnittTabSchnitt()
+
+    assert tab.timeline_shell.minimumHeight() >= 260
+    assert tab.video_preview.maximumHeight() <= 240
+    assert tab.cut_list_panel.maximumHeight() <= 140

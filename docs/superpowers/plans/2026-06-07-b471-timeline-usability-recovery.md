@@ -164,6 +164,26 @@ Task 5 Verification, Vault, Commit
 
 Status remains `code-complete-live-pending`, not `fixed`.
 
+## 2026-06-07 Layout Recovery Follow-up
+
+User rejected previous timeline result as still not good. Follow-up changed visible layout and fit behavior:
+
+- SCHNITT preview max size reduced to 420 x 236.
+- Timeline shell min height set to 260 and layout stretch increased.
+- Cut list max height capped at 130.
+- `fit_to_content()` keeps minimum horizontal scale `0.25` and vertical scale `1.0`.
+
+Live app check on `C:\Users\David Lochmann\Downloads\video\test55655`:
+
+- `clip_items=768`
+- `waveform_items=1`
+- `registered_thumb_paths=5`
+- `timeline_viewport_size=[1195, 305]`
+- `m11_after_fit=0.25`
+- `m22_after_fit=1.0`
+
+Status: `code-complete-user-review-pending`, not `fixed`.
+
 ## 2026-06-07 Rekordbox Waveform Follow-up
 
 - User live-tested `1966e94` and reported the timeline still looked unchanged.

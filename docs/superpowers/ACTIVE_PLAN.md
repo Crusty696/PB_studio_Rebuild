@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-B471-TIMELINE-USABILITY-RECOVERY-2026-06-07
-next_allowed_task: B-471 follow-up live verification on active project
+next_allowed_task: B-471 user review of layout recovery
 updated: 2026-06-07
 
 ## Meaning
@@ -58,10 +58,13 @@ C:\Brain-Bug\projects\pb-studio\wiki\decisions\D-059-b471-timeline-usability-rec
 - Follow-up-Fix: DB-Worker-Signal nutzt `object`-Payloads; Waveform wird direkt aus der geladenen Audio-Map gezeichnet.
 - DB-backed Headless-Check `test_reports/b471_db_timeline_build_after_waveform_fix.json`: `clip_items=768`, `waveform_items=1`, `waveform_z=4.0`, `audio_clip_z=2.0`, `m22_after_fit=1.0`.
 - Focused tests: `27 passed`; `run_pytest_schnitt.bat`: `25 passed`; py_compile/import smoke gruen.
+- User lehnte danach Timeline weiter ab. Layout-Recovery-Follow-up: Preview reduziert, Timeline-Hoehe/Prioritaet erhoeht, Cutliste begrenzt, Fit-Mindestskala `0.25`.
+- Live-App-Check mit `test55655`: `clip_items=768`, `waveform_items=1`, `registered_thumb_paths=5`, `timeline_viewport_size=[1195,305]`, `m11_after_fit=0.25`, `m22_after_fit=1.0`.
+- Status: `code-complete-user-review-pending`; kein `fixed` Marker.
 - Vorherige Plaene bleiben in Registry erhalten; offene Live-/Fixpunkte wurden nicht geloescht.
 
 ## Current Next Task
 
 ```text
-B-471 follow-up live verification on active project
+B-471 user review of layout recovery
 ```

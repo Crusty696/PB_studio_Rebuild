@@ -1,6 +1,7 @@
 """Sub-Tab 'Schnitt' im SCHNITT-Editor: Preview + Transport + Timeline."""
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
+    QSizePolicy,
 )
 from ui.widgets.cut_list_panel import CutListPanel
 from ui.widgets.video_preview import VideoPreviewWidget
@@ -20,8 +21,8 @@ class SchnittTabSchnitt(QWidget):
         preview_row = QHBoxLayout()
         preview_row.addStretch(1)
         self.video_preview = VideoPreviewWidget()
-        self.video_preview.setMinimumSize(640, 360)
-        self.video_preview.setMaximumSize(640, 360)
+        self.video_preview.setMinimumSize(360, 200)
+        self.video_preview.setMaximumSize(420, 236)
         preview_row.addWidget(self.video_preview)
         preview_row.addStretch(1)
         v.addLayout(preview_row)
@@ -45,11 +46,16 @@ class SchnittTabSchnitt(QWidget):
         v.addLayout(transport)
 
         self.timeline_shell = TimelineShell()
+        self.timeline_shell.setMinimumHeight(260)
+        self.timeline_shell.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Expanding,
+        )
         self.timeline_view = self.timeline_shell.timeline
         self.timeline_view.setToolTip(
             "Timeline: Drag&Drop, Mausrad zum Zoomen, Lock-Icon pro Clip."
         )
-        v.addWidget(self.timeline_shell, stretch=1)
+        v.addWidget(self.timeline_shell, stretch=4)
 
         self.cut_info_label = QLabel("")
         self.cut_info_label.setStyleSheet("color: #6b7280; font-size: 10px; padding: 1px 4px;")
@@ -57,6 +63,7 @@ class SchnittTabSchnitt(QWidget):
 
         # B-295: CutListPanel — textuelle Cutliste unter der Timeline.
         self.cut_list_panel = CutListPanel(self)
-        v.addWidget(self.cut_list_panel)
+        self.cut_list_panel.setMaximumHeight(130)
+        v.addWidget(self.cut_list_panel, stretch=0)
         if hasattr(self.timeline_view, "set_playhead_time"):
             self.cut_list_panel.cut_selected.connect(self.timeline_view.set_playhead_time)

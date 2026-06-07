@@ -6,6 +6,7 @@ undo() und redo() fuer bidirektionale Zustandsaenderungen in DB + UI.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 import logging
 import time
 from typing import TYPE_CHECKING
@@ -13,13 +14,57 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import QTimer
 from PySide6.QtGui import QUndoCommand
 
-from database import TimelineEntry, engine
+from database import TimelineEntry, engine, nullpool_session
+from database import engine as _app_engine
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session as DBSession
 
 if TYPE_CHECKING:
     from ui.timeline import InteractiveTimeline
 
 logger = logging.getLogger(__name__)
+
+_DB_LOCK_RETRIES = 3
+_DB_LOCK_RETRY_SLEEP_SEC = 0.25
+
+
+def _is_database_locked(exc: OperationalError) -> bool:
+    return "database is locked" in str(exc).lower()
+
+
+@contextmanager
+def _timeline_write_session():
+    """Use NullPool for app writes, but keep monkeypatched test engines working."""
+    if engine is _app_engine:
+        with nullpool_session() as session:
+            yield session
+    else:
+        with DBSession(engine) as session:
+            yield session
+
+
+def _run_timeline_write(operation, label: str):
+    """Retry transient SQLite writer locks instead of crashing the UI callback."""
+    for attempt in range(1, _DB_LOCK_RETRIES + 1):
+        try:
+            with _timeline_write_session() as session:
+                result = operation(session)
+                session.commit()
+                return result
+        except OperationalError as exc:
+            if not _is_database_locked(exc) or attempt >= _DB_LOCK_RETRIES:
+                logger.exception("%s failed", label)
+                raise
+            delay = _DB_LOCK_RETRY_SLEEP_SEC * attempt
+            logger.warning(
+                "%s hit database lock; retry %d/%d in %.2fs",
+                label,
+                attempt + 1,
+                _DB_LOCK_RETRIES,
+                delay,
+            )
+            time.sleep(delay)
+    raise RuntimeError(f"{label} failed without result")
 
 
 class MoveClipCommand(QUndoCommand):
@@ -104,8 +149,8 @@ class AddClipCommand(QUndoCommand):
         self._replaced_entries: list[dict] = []
 
     def redo(self):
-        with DBSession(engine) as session:
-            self._replaced_entries = []
+        def _operation(session):
+            replaced_entries = []
             if self._track_type == "audio":
                 existing_audio = (
                     session.query(TimelineEntry)
@@ -113,7 +158,7 @@ class AddClipCommand(QUndoCommand):
                     .all()
                 )
                 for old in existing_audio:
-                    self._replaced_entries.append({
+                    replaced_entries.append({
                         "project_id": old.project_id,
                         "track": old.track,
                         "media_id": old.media_id,
@@ -140,9 +185,13 @@ class AddClipCommand(QUndoCommand):
                 lane=0,
             )
             session.add(entry)
-            session.commit()
-            session.refresh(entry)
-            self._entry_id = entry.id
+            session.flush()
+            return int(entry.id), replaced_entries
+
+        self._entry_id, self._replaced_entries = _run_timeline_write(
+            _operation,
+            "AddClipCommand.redo",
+        )
 
         self._timeline.add_clip(
             entry_id=self._entry_id,
@@ -156,13 +205,15 @@ class AddClipCommand(QUndoCommand):
     def undo(self):
         if self._entry_id is None:
             return
-        with DBSession(engine) as session:
+
+        def _operation(session):
             entry = session.get(TimelineEntry, self._entry_id)
             if entry:
                 session.delete(entry)
             for snap in self._replaced_entries:
                 session.add(TimelineEntry(**snap))
-            session.commit()
+
+        _run_timeline_write(_operation, "AddClipCommand.undo")
         if self._track_type == "audio" and hasattr(self._timeline, "load_from_db"):
             self._timeline.load_from_db(self._project_id)
         else:
