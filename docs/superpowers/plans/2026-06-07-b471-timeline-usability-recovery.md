@@ -169,7 +169,8 @@ Status remains `code-complete-live-pending`, not `fixed`.
 - User live-tested `1966e94` and reported the timeline still looked unchanged.
 - Research reference: rekordbox supports `Blue`, `RGB`, and `3Band` waveform display; 3Band depends on suitable analysis data.
 - Root cause found: previous tests proved waveform item existence, not visibility. Waveform z-order was behind the audio clip, and async child waveform used `ItemStacksBehindParent`.
-- Follow-up code fix: waveform/beatgrid now paints above the audio clip fill; timeline lanes are 80 px high; zoom buttons are touchpad-sized; zoom button step is 15 percent; video clips show `Thumbnail laedt` or `Thumbnail fehlt - Datei fehlt`.
-- Verification: focused tests `25 passed`; `run_pytest_schnitt.bat` `23 passed`; affected py_compile passed; `from main import PBWindow` returned `OK` with GPU readiness warning.
-- Additional live-test report `test_reports/b471_live_test55655.json`: project `test55655` blocked by running background tasks.
+- Second root cause found on real project DB `test55655`: `TimelineDBWorker.finished = Signal(list, dict, dict, dict, dict)` delivered SQLAlchemy object maps as empty dicts across the Qt thread boundary. Entries arrived, but `audio_map` and `video_map` were empty, so clips fell back to flat/default media state.
+- Follow-up code fix: waveform/beatgrid now paints above the audio clip fill; timeline lanes are 80 px high; zoom buttons are touchpad-sized; zoom button step is 15 percent; video clips show `Thumbnail laedt` or `Thumbnail fehlt - Datei fehlt`; DB worker signal now uses `object` payloads; waveform is drawn immediately from the loaded audio map.
+- Verification: focused tests `27 passed`; `run_pytest_schnitt.bat` `25 passed`; affected py_compile passed; `from main import PBWindow` returned `OK` with GPU readiness warning.
+- DB-backed headless project check `test_reports/b471_db_timeline_build_after_waveform_fix.json`: `clip_items=768`, `waveform_items=1`, `waveform_z=4.0`, `audio_clip_z=2.0`, `m22_after_fit=1.0`.
 - Live verification remains open on a real active project.

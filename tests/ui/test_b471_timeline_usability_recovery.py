@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+import json
+import time
+from contextlib import contextmanager
 from types import SimpleNamespace
 
 import pytest
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsTextItem
+from sqlalchemy.orm import Session
 
+import ui.timeline as timeline_mod
+from database import AudioTrack, Beatgrid, TimelineEntry, VideoClip, WaveformData
 from ui.timeline import (
     AUDIO_TRACK_Y,
     TRACK_HEIGHT,
@@ -164,6 +170,116 @@ def test_audio_clip_with_waveform_data_adds_waveform_item(qapp) -> None:
 
     assert any(isinstance(item, WaveformGraphicsItem) for item in timeline.waveform_items)
     assert any(isinstance(item, WaveformGraphicsItem) for item in timeline.scene().items())
+
+
+def test_build_entry_item_adds_waveform_immediately_from_loaded_audio_map(qapp) -> None:
+    """B-471 live: build completion must not depend on a late async waveform worker."""
+    timeline = InteractiveTimeline()
+    waveform_data = SimpleNamespace(
+        band_low="[0.1, 0.8, 0.2, 0.7]",
+        band_mid="[0.2, 0.3, 0.4, 0.5]",
+        band_high="[0.5, 0.4, 0.3, 0.2]",
+        duration=4.0,
+    )
+    audio = SimpleNamespace(
+        id=41,
+        title="loaded audio",
+        duration=4.0,
+        waveform_data=waveform_data,
+        beatgrid=SimpleNamespace(beat_positions="[0.0, 1.0, 2.0, 3.0]"),
+    )
+    entry = SimpleNamespace(
+        id=410,
+        media_id=41,
+        track="audio",
+        start_time=0.0,
+        end_time=4.0,
+        locked=False,
+    )
+
+    timeline._build_entry_item(entry, audio_map={41: audio}, video_map={}, anchor_map={})
+
+    assert len(timeline.clip_items) == 1
+    assert any(isinstance(item, WaveformGraphicsItem) for item in timeline.waveform_items)
+
+
+def test_load_from_db_preserves_media_maps_across_worker_signal(
+    qapp,
+    monkeypatch,
+    test_engine,
+    project,
+) -> None:
+    """B-471 live: typed Qt dict signals dropped SQLAlchemy media maps."""
+
+    @contextmanager
+    def _test_nullpool():
+        with Session(test_engine) as session:
+            yield session
+
+    monkeypatch.setattr(timeline_mod, "nullpool_session", _test_nullpool)
+    with Session(test_engine) as session:
+        audio = AudioTrack(
+            project_id=project.id,
+            file_path="/tmp/audio.mp3",
+            title="loaded audio",
+            duration=8.0,
+        )
+        video = VideoClip(
+            project_id=project.id,
+            file_path="/tmp/video.mp4",
+            duration=4.0,
+            width=1920,
+            height=1080,
+            fps=30.0,
+        )
+        session.add_all([audio, video])
+        session.flush()
+        session.add_all(
+            [
+                WaveformData(
+                    audio_track_id=audio.id,
+                    num_samples=4,
+                    duration=8.0,
+                    band_low=[0.1, 0.8, 0.2, 0.7],
+                    band_mid=[0.2, 0.3, 0.4, 0.5],
+                    band_high=[0.5, 0.4, 0.3, 0.2],
+                ),
+                Beatgrid(
+                    audio_track_id=audio.id,
+                    bpm=120.0,
+                    beat_positions=json.dumps([0.0, 1.0, 2.0, 3.0]),
+                ),
+                TimelineEntry(
+                    project_id=project.id,
+                    track="audio",
+                    media_id=audio.id,
+                    start_time=0.0,
+                    end_time=8.0,
+                ),
+                TimelineEntry(
+                    project_id=project.id,
+                    track="video",
+                    media_id=video.id,
+                    start_time=0.0,
+                    end_time=4.0,
+                ),
+            ]
+        )
+        session.commit()
+
+    timeline = InteractiveTimeline()
+    timeline.load_from_db(project.id)
+    deadline = time.time() + 5.0
+    while time.time() < deadline:
+        qapp.processEvents()
+        if timeline._pending_entry_build is None and len(timeline.clip_items) >= 2:
+            break
+        time.sleep(0.01)
+
+    assert len(timeline.clip_items) == 2
+    assert any(item.title == "loaded audio" for item in timeline.clip_items)
+    assert any(item.title == "video" for item in timeline.clip_items)
+    assert len(timeline.waveform_items) == 1
 
 
 def test_audio_waveform_paints_above_audio_clip(qapp) -> None:

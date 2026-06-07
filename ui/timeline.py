@@ -17,7 +17,7 @@ from PySide6.QtGui import (
 )
 
 from sqlalchemy import text
-from sqlalchemy.orm import Session as DBSession
+from sqlalchemy.orm import Session as DBSession, joinedload
 
 from database import engine, AudioTrack, VideoClip, TimelineEntry, Beatgrid, ClipAnchor, StructureSegment, nullpool_session
 
@@ -664,7 +664,7 @@ class TimelineClipItem(QGraphicsRectItem):
         super().mouseMoveEvent(event)
 
     def itemChange(self, change, value):
-        if self._trim_mode:
+        if getattr(self, "_trim_mode", None):
             return super().itemChange(change, value)
         if change == QGraphicsRectItem.GraphicsItemChange.ItemPositionChange:
             # Drag-Start merken (erste Bewegung).
@@ -685,7 +685,7 @@ class TimelineClipItem(QGraphicsRectItem):
 
     def mouseReleaseEvent(self, event):
         """Drag-Start oder Trim beenden."""
-        if self._trim_mode:
+        if getattr(self, "_trim_mode", None):
             self.setFlag(QGraphicsRectItem.GraphicsItemFlag.ItemIsMovable, True)
             if self.on_trimmed:
                 self.on_trimmed(
@@ -1008,7 +1008,9 @@ class InteractiveTimeline(QGraphicsView):
         from PySide6.QtCore import QObject, Signal, QThread
         
         class TimelineDBWorker(QObject):
-            finished = Signal(list, dict, dict, dict, dict)  # entries, audio_map, video_map, anchor_map, brain_meta
+            # PySide queued signals with typed dict arguments drop dicts that
+            # contain detached SQLAlchemy objects. Use object to preserve maps.
+            finished = Signal(object, object, object, object, object)  # entries, audio_map, video_map, anchor_map, brain_meta
             
             def __init__(self, pid):
                 super().__init__(None) # Parent explizit None für moveToThread
@@ -1023,7 +1025,10 @@ class InteractiveTimeline(QGraphicsView):
                         _video_ids = [e.media_id for e in entries if e.track == "video"]
                         
                         _audio_map = (
-                            {t.id: t for t in session.query(AudioTrack).filter(
+                            {t.id: t for t in session.query(AudioTrack).options(
+                                joinedload(AudioTrack.waveform_data),
+                                joinedload(AudioTrack.beatgrid),
+                            ).filter(
                                 AudioTrack.id.in_(_audio_ids), AudioTrack.deleted_at.is_(None)).all()}
                             if _audio_ids else {}
                         )
@@ -1086,7 +1091,49 @@ class InteractiveTimeline(QGraphicsView):
         """
         self._anchor_map = anchor_map
         self._brain_v3_timeline_meta = brain_meta or {}
+        audio_map, video_map = self._recover_missing_media_maps(entries, audio_map, video_map)
         self._start_batched_entry_build(entries, audio_map, video_map, anchor_map)
+
+    def _recover_missing_media_maps(self, entries, audio_map, video_map):
+        """B-471 live hardening: recover media maps if worker delivered entries only."""
+        missing_audio_ids = {
+            e.media_id for e in entries
+            if e.track == "audio" and e.media_id not in audio_map
+        }
+        missing_video_ids = {
+            e.media_id for e in entries
+            if e.track == "video" and e.media_id not in video_map
+        }
+        if not missing_audio_ids and not missing_video_ids:
+            return audio_map, video_map
+
+        audio_map = dict(audio_map)
+        video_map = dict(video_map)
+        try:
+            with DBSession(engine) as session:
+                if missing_audio_ids:
+                    for track in session.query(AudioTrack).options(
+                        joinedload(AudioTrack.waveform_data),
+                        joinedload(AudioTrack.beatgrid),
+                    ).filter(
+                        AudioTrack.id.in_(missing_audio_ids),
+                        AudioTrack.deleted_at.is_(None),
+                    ).all():
+                        audio_map[track.id] = track
+                if missing_video_ids:
+                    for clip in session.query(VideoClip).filter(
+                        VideoClip.id.in_(missing_video_ids),
+                        VideoClip.deleted_at.is_(None),
+                    ).all():
+                        video_map[clip.id] = clip
+                session.expunge_all()
+            logger.warning(
+                "[B-471] recovered missing timeline media maps: audio=%d video=%d",
+                len(missing_audio_ids), len(missing_video_ids),
+            )
+        except Exception as exc:
+            logger.warning("[B-471] media map recovery failed: %s", exc)
+        return audio_map, video_map
 
     def _cancel_pending_entry_build(self) -> None:
         """Stoppt einen laufenden inkrementellen Scene-Aufbau."""
@@ -1217,8 +1264,11 @@ class InteractiveTimeline(QGraphicsView):
         self._register_clip_thumbnail(item)
 
         if entry.track == "audio" and has_waveform:
-            # B-383/B-432: Asynchrones Laden der Wellenform im Hintergrund
-            self._load_waveform_async(entry.media_id, entry.start_time, dur, y, item)
+            # B-471 Follow-up: TimelineDBWorker hat waveform_data bereits
+            # geladen. Direkt aus diesem Snapshot zeichnen, sonst endet der
+            # Live-Build sichtbar mit waveform_items=0 und die Wellenform
+            # taucht erst spaet oder gar nicht auf.
+            self._load_waveform_for_track(None, track, entry, dur, y)
         return entry.start_time + dur
 
     # ── B-471 T1: viewport-lazy thumbnail loading ─────────────────────────

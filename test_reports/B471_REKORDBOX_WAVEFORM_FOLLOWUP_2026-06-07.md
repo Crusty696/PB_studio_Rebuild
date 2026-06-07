@@ -14,20 +14,24 @@ User tested commit `1966e94` and reported the timeline still looked the same as 
 
 ## Root Cause Found
 
-The previous tests only checked that a `WaveformGraphicsItem` exists. They did not prove visibility.
+Two root causes were found.
+
+First, the previous tests only checked that a `WaveformGraphicsItem` exists. They did not prove visibility.
 
 In `ui/timeline.py`, waveform items were painted behind the audio clip:
 
 - scene waveform z was `1`, while audio clip z was `2`;
 - async child waveform used `ItemStacksBehindParent`, so the clip fill could still cover it.
 
-That matches the user's live result: flat audio bar, no visible waveform/beatgrid.
+Second, the real `test55655` project DB had waveform and beatgrid rows, but the timeline build still ended with `waveform_items=0`. The DB worker emitted SQLAlchemy object maps through `Signal(list, dict, dict, dict, dict)`. PySide queued delivery preserved the entries list but delivered `audio_map` and `video_map` as empty dicts. That made audio clips fall back to `?`/flat clip behavior and prevented thumbnail paths from reaching the UI.
 
 ## Code Changes
 
 - Increased timeline lane height from 50 px to 80 px for readable waveform/beatgrid.
 - Moved waveform items above audio clip fill, below labels/handles.
 - Removed `ItemStacksBehindParent` from styled waveform items.
+- Changed the timeline DB worker signal to `Signal(object, object, object, object, object)` so SQLAlchemy media maps survive the thread boundary.
+- Draws waveform immediately from the already loaded audio map instead of depending on a late async worker.
 - Added visible video thumbnail state text: `Thumbnail laedt` or `Thumbnail fehlt - Datei fehlt`.
 - Enlarged timeline zoom toolbar buttons to at least 48 x 36 px.
 - Reduced button zoom step from 25% to 15% for touchpad usability.
@@ -36,12 +40,14 @@ That matches the user's live result: flat audio bar, no visible waveform/beatgri
 ## Verification
 
 - New RED tests first failed: waveform z-order, async child waveform stacking, lane height, touchpad button size, thumbnail status.
-- Current focused tests passed: `25 passed`.
-- `run_pytest_schnitt.bat`: `23 passed`.
+- New DB worker regression test first reproduced empty media maps; current focused tests passed: `27 passed`.
+- `run_pytest_schnitt.bat`: `25 passed`.
 - Affected-file py_compile passed.
 - `from main import PBWindow`: `OK`, with GPU readiness warning.
 - Offscreen visual smoke image: `test_reports/b471_professional_timeline_surface_2026-06-07.png`.
+- DB-backed headless build on `C:\Users\David Lochmann\Downloads\video\test55655`: `clip_items=768`, `waveform_items=1`, `waveform_z=4.0`, `audio_clip_z=2.0`, vertical fit scale `m22_after_fit=1.0`.
+- DB-backed screenshot: `test_reports/b471_db_timeline_build_after_waveform_fix.png`.
 
 ## Open
 
-Real app workflow still needs user/live verification on an active project with analyzed audio waveform data and video paths. Status remains `code-fix-pending-live-verification`.
+Real app workflow still needs user/live verification on an active project with analyzed audio waveform data and video paths. The offscreen screenshot shows waveform/beatgrid, but many text labels render as square glyphs in the headless image; that is not proof of real-app readability. Status remains `code-fix-pending-live-verification`.

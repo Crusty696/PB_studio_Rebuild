@@ -54,7 +54,10 @@ C:\Brain-Bug\projects\pb-studio\wiki\decisions\D-059-b471-timeline-usability-rec
 - Task 5 Verification gestartet: App wurde neu gestartet; Live-Timeline-Verifikation blockiert, weil keine aktive Projekt-DB/kein aktives Projekt vorhanden war.
 - User-Live-Test nach `1966e94` war rot: Timeline sah laut User noch gleich aus.
 - B-471 Rekordbox-Waveform-Follow-up code-fix-pending-live-verification: Waveform/Beatgrid-Z-Order sichtbar gemacht, Trackhoehe und Zoom-Buttons vergroessert, Zoom-Step auf 15 Prozent reduziert, Thumbnail-Status sichtbar gemacht.
-- Zusaetzlicher Live-Testbericht `test_reports/b471_live_test55655.json`: Projekt `test55655` blockiert durch laufende Hintergrund-Tasks.
+- Zweiter Root Cause auf realer Projekt-DB `test55655`: `TimelineDBWorker.finished = Signal(list, dict, dict, dict, dict)` lieferte SQLAlchemy-Objekt-Maps leer ueber die Qt-Thread-Grenze; dadurch blieben `audio_map`/`video_map` leer.
+- Follow-up-Fix: DB-Worker-Signal nutzt `object`-Payloads; Waveform wird direkt aus der geladenen Audio-Map gezeichnet.
+- DB-backed Headless-Check `test_reports/b471_db_timeline_build_after_waveform_fix.json`: `clip_items=768`, `waveform_items=1`, `waveform_z=4.0`, `audio_clip_z=2.0`, `m22_after_fit=1.0`.
+- Focused tests: `27 passed`; `run_pytest_schnitt.bat`: `25 passed`; py_compile/import smoke gruen.
 - Vorherige Plaene bleiben in Registry erhalten; offene Live-/Fixpunkte wurden nicht geloescht.
 
 ## Current Next Task

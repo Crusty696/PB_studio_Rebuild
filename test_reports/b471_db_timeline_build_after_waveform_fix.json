@@ -1,0 +1,42 @@
+{
+  "project": "C:\\Users\\David Lochmann\\Downloads\\video\\test55655",
+  "steps": [
+    "set_project",
+    "load_from_db"
+  ],
+  "project_id": 1,
+  "project_row": {
+    "name": "test55655",
+    "path": "C:\\Users\\David Lochmann\\Downloads\\video\\test55655"
+  },
+  "db_counts": {
+    "audio_tracks": 1,
+    "video_clips": 200,
+    "timeline_entries": 768,
+    "waveform_data": 1,
+    "beatgrids": 1
+  },
+  "clip_items": 768,
+  "waveform_items": 1,
+  "scene_items": 6148,
+  "pending_entry_build": false,
+  "m11_after_fit": 0.018431762036669925,
+  "m22_after_fit": 1.0,
+  "waveform_z": [
+    4.0
+  ],
+  "audio_clip_z": [
+    2.0
+  ],
+  "audio_titles": [
+    "Crusty_Progressive Psy Set2"
+  ],
+  "video_titles": [
+    "20250719_0213_Mystical_Jungle_Glow_v2",
+    "20250719_0213_Mystical_Jungle_Glow_v2",
+    "20250719_0204_Enchanted_Bioluminescent_Jungle_v1_std",
+    "20250719_0456_Enchanted_Bioluminescent_Jungle_v1_std",
+    "20250719_0456_Enchanted_Bioluminescent_Jungle_v1_std"
+  ],
+  "screenshot": "C:\\Users\\David Lochmann\\Documents\\PB_studio_Rebuild\\PB_studio_Rebuild\\test_reports\\b471_db_timeline_build_after_waveform_fix.png"
+}
