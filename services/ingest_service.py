@@ -1,6 +1,7 @@
 import json
 import logging
-import os
+import subprocess
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -8,6 +9,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from database import engine, AudioTrack, VideoClip, StructureSegment
+from services.startup_checks import get_ffprobe_bin
 from services.timeout_constants import FFMPEG_PROBE_TIMEOUT_SEC
 from services.vector_db_service import VectorDBService
 
@@ -121,12 +123,6 @@ def _ensure_project_exists(project_id: int) -> None:
         # konkreten Fehler.
         logger.warning("B-054: _ensure_project_exists query failed: %s", exc)
 
-# FFmpeg/FFprobe Pfade werden zentral in main.py via PATH injiziert.
-# Hier erlauben wir Overrides via Umgebungsvariablen.
-_FFPROBE = os.environ.get("FFPROBE_PATH", "ffprobe")
-_FFMPEG = os.environ.get("FFMPEG_PATH", "ffmpeg")
-
-
 def _json_loads_safe(value):
     """Parst einen JSON-String zu einer Liste/dict; gibt None zurueck bei Fehler."""
     if value is None:
@@ -226,10 +222,9 @@ def ingest_audio(
 
 def _probe_video_meta(file_path: str) -> dict:
     """Schnelle ffprobe-Abfrage fuer Video-Metadaten beim Import."""
-    import subprocess, json, sys
     try:
         cmd = [
-            _FFPROBE, "-v", "quiet",
+            get_ffprobe_bin(), "-v", "quiet",
             "-print_format", "json",
             "-show_format", "-show_streams",
             file_path,

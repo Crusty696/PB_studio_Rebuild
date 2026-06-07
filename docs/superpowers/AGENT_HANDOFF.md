@@ -38,7 +38,15 @@ See `docs/superpowers/ACTIVE_PLAN.md`.
 
 Active plan: `PB-STUDIO-FFMPEG-RESOLVER-FIX-2026-06-07`
 
-Current next task: Task 0 Governance Activation, then Task 1 Regression Tests from `docs/superpowers/plans/2026-06-07-ffmpeg-resolver-fix.md`.
+Current next task: No implementation task. CQ-004/CQ-005 code is complete; live GUI verification is pending.
+
+Focused verification already run:
+
+- `pytest tests/test_ffmpeg_resolver_usage.py -q` -> 3 passed.
+- `pytest tests/test_services/test_ingest_service.py -q` -> 21 passed.
+- Import smoke for `workers.video`, `ui.widgets.media_grid`, `services.ingest_service` -> `imports ok`.
+
+Live verification not run: media-grid thumbnail path, frame extraction path, and video ingest GUI workflow.
 
 ## Last Handoff
 

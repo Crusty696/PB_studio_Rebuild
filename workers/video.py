@@ -13,6 +13,7 @@ from PySide6.QtCore import QObject, Signal
 from sqlalchemy.orm import Session as DBSession
 
 from database import engine, VideoClip
+from services.startup_checks import get_ffmpeg_bin
 from services.timeout_constants import FFMPEG_THUMBNAIL_TIMEOUT_SEC
 from services.video_service import VideoAnalyzer
 from .base import CancellableMixin, format_user_error
@@ -632,7 +633,7 @@ class FrameExtractWorker(QObject, CancellableMixin):
             if self.vf_extra:
                 vf = f"{self.vf_extra},{vf}"
             cmd = [
-                "ffmpeg", "-ss", str(self.time_sec), "-i", self.file_path,
+                get_ffmpeg_bin(), "-ss", str(self.time_sec), "-i", self.file_path,
                 "-frames:v", "1", "-vf", vf,
                 "-f", "rawvideo", "-pix_fmt", "rgb24",
                 # B-391: "-v error" statt "quiet" — Fehlerursache landet auf stderr

@@ -153,5 +153,5 @@ Acceptance criteria:
 ## Current Next Task
 
 ```text
-Task 0 Governance Activation
+No implementation task. Code fix pending live GUI verification.
 ```

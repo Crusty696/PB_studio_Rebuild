@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal, QRect, QThread, QObject, QTimer, Slot
 from PySide6.QtGui import QPixmap, QImage, QPainter, QColor, QPen, QFont, QFontMetrics
 
+from services.startup_checks import get_ffmpeg_bin
 from services.timeout_constants import FFMPEG_THUMBNAIL_TIMEOUT_SEC
 
 logger = logging.getLogger(__name__)
@@ -152,7 +153,7 @@ class _ThumbWorker(QObject):
             try:
                 subprocess.run(
                     [
-                        "ffmpeg", "-y", "-ss", "0", "-i", self._path,
+                        get_ffmpeg_bin(), "-y", "-ss", "0", "-i", self._path,
                         "-vframes", "1",
                         "-vf",
                         f"scale={self._w}:{self._h}:force_original_aspect_ratio=decrease,"

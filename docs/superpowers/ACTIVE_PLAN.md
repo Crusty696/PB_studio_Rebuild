@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-FFMPEG-RESOLVER-FIX-2026-06-07
-next_allowed_task: Task 1 Regression Tests
+next_allowed_task: No implementation task. Code fix pending live GUI verification.
 updated: 2026-06-07
 
 ## Meaning
@@ -46,10 +46,14 @@ C:\Brain-Bug\projects\pb-studio\wiki\decisions\D-058-ffmpeg-resolver-fix.md
 - Branch erstellt: `codex/PB-STUDIO-FFMPEG-RESOLVER-FIX-2026-06-07`.
 - Repo-Plan, Vault-Decision und Vault-Mirror wurden erstellt.
 - Task 0 Governance Activation abgeschlossen: Registry, Active Plan, Handoff, Vault-Decision und Vault-Mirror gesetzt.
+- Task 1 Regression Tests abgeschlossen: `tests/test_ffmpeg_resolver_usage.py` rot vor Fix, gruen nach Fix.
+- Task 2 Resolver Implementation abgeschlossen: CQ-004/CQ-005 Call-Sites nutzen zentrale Resolver.
+- Task 3 Verification abgeschlossen: focused pytest, adjacent ingest pytest und import smoke gruen.
+- Task 4 Vault And Commit laeuft; Live-GUI-Verifikation fehlt.
 - Vorherige Plaene bleiben in Registry erhalten; offene Live-/Fixpunkte wurden nicht geloescht.
 
 ## Current Next Task
 
 ```text
-Task 1 Regression Tests
+No implementation task. Code fix pending live GUI verification.
 ```
