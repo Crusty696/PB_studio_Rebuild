@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-CONFLICT-QUALITY-AUDIT-2026-06-07
-next_allowed_task: Task 1 Inventory And Exclusion Map
+next_allowed_task: Task 2 Top-Down Audit
 updated: 2026-06-07
 
 ## Meaning
@@ -46,10 +46,11 @@ C:\Brain-Bug\projects\pb-studio\wiki\decisions\D-057-full-project-conflict-quali
 ## Current Status
 
 - Task 0 Governance Activation abgeschlossen: Repo-Plan, Registry, Active Plan, Vault-Decision und Vault-Mirror erstellt.
+- Task 1 Inventory And Exclusion Map static-complete: 1187 tracked files classified, 1451 ignored paths classified, inventory report and TSV artifacts created.
 - Vorheriger Plan `PB-STUDIO-FULL-AUDIT-FIXPLAN-2026-05-31` bleibt in Registry erhalten; seine offenen Live-/Fixpunkte wurden nicht geloescht.
 
 ## Current Next Task
 
 ```text
-Task 1 Inventory And Exclusion Map
+Task 2 Top-Down Audit
 ```
