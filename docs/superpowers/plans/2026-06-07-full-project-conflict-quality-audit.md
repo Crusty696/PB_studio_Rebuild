@@ -251,10 +251,10 @@ Stop and ask user if:
 
 ## Current Next Task
 
-Task 0 Governance Activation is authorized by user response on 2026-06-07.
+All audit tasks are static-complete as of 2026-06-07.
 
-Next task after Task 0:
+Next task:
 
 ```text
-Task 1 Inventory And Exclusion Map
+No implementation task. User decision required for any fix plan.
 ```

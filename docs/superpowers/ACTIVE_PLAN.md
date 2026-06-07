@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-CONFLICT-QUALITY-AUDIT-2026-06-07
-next_allowed_task: Task 5 Final Audit Report And Fix-Plan Candidate
+next_allowed_task: No implementation task. User decision required for any fix plan.
 updated: 2026-06-07
 
 ## Meaning
@@ -50,10 +50,11 @@ C:\Brain-Bug\projects\pb-studio\wiki\decisions\D-057-full-project-conflict-quali
 - Task 2 Top-Down Audit static-complete: governance/runtime/FFmpeg/known-bug/UI-risk findings CQ-001..CQ-007 documented.
 - Task 3 Bottom-Up Audit static-complete: pytest collect-only succeeded via absolute Conda path; findings BU-001..BU-005 documented.
 - Task 4 Reviewer Challenge static-complete: CQ-004 downgraded to medium; BU-003 downgraded to low; no findings removed.
+- Task 5 Final Audit Report And Fix-Plan Candidate static-complete: final repo report and vault mirror created. No app-code edits, no live verification, no `fixed` markers.
 - Vorheriger Plan `PB-STUDIO-FULL-AUDIT-FIXPLAN-2026-05-31` bleibt in Registry erhalten; seine offenen Live-/Fixpunkte wurden nicht geloescht.
 
 ## Current Next Task
 
 ```text
-Task 5 Final Audit Report And Fix-Plan Candidate
+No implementation task. User decision required for any fix plan.
 ```
