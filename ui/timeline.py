@@ -70,9 +70,9 @@ class WaveformLoadWorker(QObject):
 # ======================================================================
 
 PIXELS_PER_SECOND = 20
-TRACK_HEIGHT = 50
+TRACK_HEIGHT = 80
 AUDIO_TRACK_Y = 10
-VIDEO_TRACK_Y = AUDIO_TRACK_Y + TRACK_HEIGHT + 10
+VIDEO_TRACK_Y = AUDIO_TRACK_Y + TRACK_HEIGHT + 12
 CUT_MARKERS_Y = VIDEO_TRACK_Y + TRACK_HEIGHT + 10
 RULER_Y = CUT_MARKERS_Y + 30
 
@@ -245,8 +245,8 @@ def _timeline_video_thumbnail(file_path: str | None, width: int, height: int, la
 
 class TimelineClipItem(QGraphicsRectItem):
     # Audio-Clips: refined slate blue
-    AUDIO_COLOR = QColor(45, 85, 150, 80)
-    AUDIO_COLOR_NO_WAVEFORM = QColor(60, 100, 180, 210)
+    AUDIO_COLOR = QColor(12, 18, 28, 35)
+    AUDIO_COLOR_NO_WAVEFORM = QColor(45, 82, 145, 205)
     # Video-Clips: Premium Gold / Amber
     VIDEO_COLOR = QColor(212, 164, 74, 210)
 
@@ -298,17 +298,26 @@ class TimelineClipItem(QGraphicsRectItem):
         self._thumb_w = max(24, min(int(width), 3000))
         self._thumb_h = max(16, int(height) - 6)
         self._thumbnail_item: QGraphicsPixmapItem | None = None
+        self._thumbnail_status_label: QGraphicsTextItem | None = None
         if track_type == "video":
             pix = _timeline_video_placeholder(self._thumb_w, self._thumb_h, f"#{media_id}")
             self._thumbnail_item = QGraphicsPixmapItem(pix, self)
             self._thumbnail_item.setPos(0, 3)
             self._thumbnail_item.setOpacity(0.85)
             self._thumbnail_item.setZValue(3)
+            thumb_status = "Thumbnail laedt" if thumbnail_file_path else "Thumbnail fehlt - Datei fehlt"
+            status = QGraphicsTextItem(thumb_status, self)
+            status.setDefaultTextColor(QColor(245, 205, 105, 230))
+            status.setFont(QFont("Segoe UI Variable Text", 9, QFont.Weight.Bold))
+            status.setPos(10, max(24, int(height) - 25))
+            status.setZValue(5)
+            status.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, True)
+            self._thumbnail_status_label = status
 
         label = QGraphicsTextItem(title[:30], self)
         label.setDefaultTextColor(QColor(255, 255, 255))
-        label.setFont(QFont("Segoe UI Variable Text", 8, QFont.Weight.Bold))
-        label.setPos(4, 2)
+        label.setFont(QFont("Segoe UI Variable Text", 9, QFont.Weight.Bold))
+        label.setPos(6, 4)
         label.setZValue(6)
         # B-471 T3: Label ignoriert die View-Transform -> beim horizontalen Zoom
         # (wheelEvent self.scale) wird der Text NICHT mehr gestaucht/gestreckt,
@@ -320,8 +329,8 @@ class TimelineClipItem(QGraphicsRectItem):
         if track_type == "audio" and not has_waveform:
             missing = QGraphicsTextItem("Waveform fehlt - Audioanalyse starten", self)
             missing.setDefaultTextColor(QColor(220, 230, 245, 210))
-            missing.setFont(QFont("Segoe UI Variable Text", 8, QFont.Weight.Bold))
-            missing.setPos(8, max(16, int(height) // 2 - 7))
+            missing.setFont(QFont("Segoe UI Variable Text", 9, QFont.Weight.Bold))
+            missing.setPos(10, max(22, int(height) // 2 - 8))
             missing.setZValue(5)
             missing.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, True)
             self._missing_waveform_label = missing
@@ -383,6 +392,8 @@ class TimelineClipItem(QGraphicsRectItem):
                 Qt.TransformationMode.SmoothTransformation,
             )
             self._thumbnail_item.setPixmap(scaled)
+            if self._thumbnail_status_label is not None:
+                self._thumbnail_status_label.setVisible(False)
         except RuntimeError:
             pass
 
@@ -629,7 +640,7 @@ class TimelineClipItem(QGraphicsRectItem):
 
     def mouseMoveEvent(self, event):
         """Trim-Handle ziehen: Clip-Groesse aendern."""
-        if self._trim_mode:
+        if getattr(self, "_trim_mode", None):
             delta_x = event.scenePos().x() - self._trim_start_mouse_x
             min_width = 10  # minimal 10px
 
@@ -893,22 +904,22 @@ class InteractiveTimeline(QGraphicsView):
         w = self._scene_width
         audio_bg = self._scene.addRect(
             QRectF(0, AUDIO_TRACK_Y, w, TRACK_HEIGHT),
-            QPen(Qt.PenStyle.NoPen), QBrush(QColor(22, 22, 26))
+            QPen(QColor(48, 58, 72, 100), 1), QBrush(QColor(9, 14, 22))
         )
         audio_bg.setZValue(-10)
         self._track_bg_items.append(audio_bg)
         video_bg = self._scene.addRect(
             QRectF(0, VIDEO_TRACK_Y, w, TRACK_HEIGHT),
-            QPen(Qt.PenStyle.NoPen), QBrush(QColor(26, 22, 22))
+            QPen(QColor(68, 56, 32, 110), 1), QBrush(QColor(15, 13, 10))
         )
         video_bg.setZValue(-10)
         self._track_bg_items.append(video_bg)
 
     def _draw_labels(self):
         for label_text, y in [("A1", AUDIO_TRACK_Y), ("V1", VIDEO_TRACK_Y)]:
-            txt = self._scene.addText(label_text, QFont("Segoe UI", 9, QFont.Weight.Bold))
-            txt.setDefaultTextColor(QColor(90, 90, 90))
-            txt.setPos(-35, y + 15)
+            txt = self._scene.addText(label_text, QFont("Segoe UI", 11, QFont.Weight.Bold))
+            txt.setDefaultTextColor(QColor(150, 160, 175))
+            txt.setPos(-42, y + 25)
             txt.setZValue(10)
 
     def _cancel_pending_db_load(self):
@@ -1291,6 +1302,16 @@ class InteractiveTimeline(QGraphicsView):
                 it.set_thumbnail_pixmap(pix)
         self._thumb_loader.on_done(str(file_path))
 
+    def _style_visible_waveform(self, wf_item: WaveformGraphicsItem, parent_clip: TimelineClipItem | None = None) -> None:
+        """Macht 3-Band-Waveform und Beatgrid sichtbar ueber der Clip-Flaeche."""
+        try:
+            wf_item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemStacksBehindParent, False)
+            base_z = parent_clip.zValue() if parent_clip is not None else 2.0
+            wf_item.setZValue(base_z + 2.0)
+            wf_item.setOpacity(0.96)
+        except RuntimeError:
+            pass
+
     def _apply_brain_v3_timeline_metadata(self, item: TimelineClipItem, entry) -> None:
         if item.track_type != "video":
             return
@@ -1326,9 +1347,8 @@ class InteractiveTimeline(QGraphicsView):
                         height=TRACK_HEIGHT,
                         parent=clip_item,
                     )
-                    wf_item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemStacksBehindParent, True)
                     wf_item.setPos(0, 0)  # Position relativ zum Parent
-                    wf_item.setZValue(1)
+                    self._style_visible_waveform(wf_item, parent_clip=clip_item)
                     self.waveform_items.append(wf_item)
             finally:
                 if (worker, thread) in self._waveform_workers:
@@ -1359,7 +1379,7 @@ class InteractiveTimeline(QGraphicsView):
         )
         x = entry.start_time * PIXELS_PER_SECOND
         wf_item.setPos(x, y)
-        wf_item.setZValue(1)  # Über dem Track-Background, unter dem Clip-Label
+        self._style_visible_waveform(wf_item)
         self._scene.addItem(wf_item)
         self.waveform_items.append(wf_item)
 

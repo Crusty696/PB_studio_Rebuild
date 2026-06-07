@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-B471-TIMELINE-USABILITY-RECOVERY-2026-06-07
-next_allowed_task: Task 5 Verification, Vault, Commit
+next_allowed_task: B-471 follow-up live verification on active project
 updated: 2026-06-07
 
 ## Meaning
@@ -52,10 +52,13 @@ C:\Brain-Bug\projects\pb-studio\wiki\decisions\D-059-b471-timeline-usability-rec
 - Task 3 Audio Waveform And Video Thumbnail Recovery code-complete: focused thumbnail/waveform tests gruen.
 - Task 4 Pacing Panel And Tooltip Recovery code-complete: focused tooltip tests gruen.
 - Task 5 Verification gestartet: App wurde neu gestartet; Live-Timeline-Verifikation blockiert, weil keine aktive Projekt-DB/kein aktives Projekt vorhanden war.
+- User-Live-Test nach `1966e94` war rot: Timeline sah laut User noch gleich aus.
+- B-471 Rekordbox-Waveform-Follow-up code-fix-pending-live-verification: Waveform/Beatgrid-Z-Order sichtbar gemacht, Trackhoehe und Zoom-Buttons vergroessert, Zoom-Step auf 15 Prozent reduziert, Thumbnail-Status sichtbar gemacht.
+- Zusaetzlicher Live-Testbericht `test_reports/b471_live_test55655.json`: Projekt `test55655` blockiert durch laufende Hintergrund-Tasks.
 - Vorherige Plaene bleiben in Registry erhalten; offene Live-/Fixpunkte wurden nicht geloescht.
 
 ## Current Next Task
 
 ```text
-Task 5 Verification, Vault, Commit
+B-471 follow-up live verification on active project
 ```

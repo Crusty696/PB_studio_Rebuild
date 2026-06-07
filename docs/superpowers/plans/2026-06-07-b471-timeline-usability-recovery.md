@@ -163,3 +163,13 @@ Task 5 Verification, Vault, Commit
 - Task 5: focused tests and import smoke passed. App restarted, but real live timeline verification is blocked because the app reported no active project.
 
 Status remains `code-complete-live-pending`, not `fixed`.
+
+## 2026-06-07 Rekordbox Waveform Follow-up
+
+- User live-tested `1966e94` and reported the timeline still looked unchanged.
+- Research reference: rekordbox supports `Blue`, `RGB`, and `3Band` waveform display; 3Band depends on suitable analysis data.
+- Root cause found: previous tests proved waveform item existence, not visibility. Waveform z-order was behind the audio clip, and async child waveform used `ItemStacksBehindParent`.
+- Follow-up code fix: waveform/beatgrid now paints above the audio clip fill; timeline lanes are 80 px high; zoom buttons are touchpad-sized; zoom button step is 15 percent; video clips show `Thumbnail laedt` or `Thumbnail fehlt - Datei fehlt`.
+- Verification: focused tests `25 passed`; `run_pytest_schnitt.bat` `23 passed`; affected py_compile passed; `from main import PBWindow` returned `OK` with GPU readiness warning.
+- Additional live-test report `test_reports/b471_live_test55655.json`: project `test55655` blocked by running background tasks.
+- Live verification remains open on a real active project.

@@ -23,11 +23,11 @@ class TimelineShell(QWidget):
 
         toolbar = QHBoxLayout()
         toolbar.setContentsMargins(0, 0, 0, 0)
-        toolbar.setSpacing(4)
+        toolbar.setSpacing(8)
 
         self.status_label = QLabel("Timeline bereit")
         self.status_label.setObjectName("schnitt_timeline_status")
-        self.status_label.setStyleSheet("color: #9ca3af; font-size: 10px;")
+        self.status_label.setStyleSheet("color: #cbd5e1; font-size: 12px; font-weight: 600;")
         toolbar.addWidget(self.status_label)
 
         toolbar.addStretch(1)
@@ -39,14 +39,14 @@ class TimelineShell(QWidget):
             "Wann: Nutze es zur Orientierung beim Schneiden und Zoomen. "
             "Ergebnis: A1 ist Master-Audio, V1 sind Video-Clips, Marker zeigen Beats/Anker."
         )
-        self.legend_label.setStyleSheet("color: #6b7280; font-size: 10px;")
+        self.legend_label.setStyleSheet("color: #94a3b8; font-size: 12px;")
         toolbar.addWidget(self.legend_label)
 
         self.zoom_label = QLabel("Zoom 100%")
         self.zoom_label.setObjectName("schnitt_timeline_zoom_label")
         self.zoom_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.zoom_label.setMinimumWidth(72)
-        self.zoom_label.setStyleSheet("color: #9ca3af; font-size: 10px;")
+        self.zoom_label.setMinimumWidth(86)
+        self.zoom_label.setStyleSheet("color: #cbd5e1; font-size: 12px; font-weight: 600;")
         toolbar.addWidget(self.zoom_label)
 
         self.btn_zoom_out = self._button(
@@ -81,14 +81,14 @@ class TimelineShell(QWidget):
         layout.addLayout(toolbar)
         layout.addWidget(self.timeline, stretch=1)
 
-        self.btn_zoom_out.clicked.connect(lambda: self._zoom_by(1 / 1.25))
-        self.btn_zoom_in.clicked.connect(lambda: self._zoom_by(1.25))
+        self.btn_zoom_out.clicked.connect(lambda: self._zoom_by(1 / 1.15))
+        self.btn_zoom_in.clicked.connect(lambda: self._zoom_by(1.15))
         self.btn_zoom_fit.clicked.connect(self._fit_to_content)
         self.btn_zoom_reset.clicked.connect(self._reset_zoom)
 
     def _button(self, text: str, label: str, tooltip: str) -> QPushButton:
         button = QPushButton(text)
-        button.setFixedSize(34, 24)
+        button.setMinimumSize(48, 36)
         button.setToolTip(tooltip)
         button.setAccessibleName(label)
         button.setObjectName("schnitt_" + label.lower().replace(" ", "_"))

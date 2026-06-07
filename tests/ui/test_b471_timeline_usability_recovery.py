@@ -3,7 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
-from PySide6.QtWidgets import QGraphicsTextItem
+from PySide6.QtWidgets import QGraphicsItem, QGraphicsTextItem
 
 from ui.timeline import (
     AUDIO_TRACK_Y,
@@ -67,6 +67,47 @@ def test_video_thumbnail_item_covers_clip_width(qapp) -> None:
     )
 
 
+def test_video_clip_explains_thumbnail_loading_or_missing_path(qapp) -> None:
+    with_path = TimelineClipItem(
+        entry_id=12,
+        media_id=12,
+        track_type="video",
+        title="clip with path",
+        x=0.0,
+        y=VIDEO_TRACK_Y,
+        width=800.0,
+        height=TRACK_HEIGHT,
+        anchors=[],
+        thumbnail_file_path="C:/videos/clip.mp4",
+    )
+    no_path = TimelineClipItem(
+        entry_id=13,
+        media_id=13,
+        track_type="video",
+        title="clip without path",
+        x=0.0,
+        y=VIDEO_TRACK_Y,
+        width=800.0,
+        height=TRACK_HEIGHT,
+        anchors=[],
+        thumbnail_file_path=None,
+    )
+
+    with_path_text = "\n".join(
+        child.toPlainText()
+        for child in with_path.childItems()
+        if isinstance(child, QGraphicsTextItem)
+    )
+    no_path_text = "\n".join(
+        child.toPlainText()
+        for child in no_path.childItems()
+        if isinstance(child, QGraphicsTextItem)
+    )
+
+    assert "Thumbnail laedt" in with_path_text
+    assert "Thumbnail fehlt" in no_path_text
+
+
 def test_visible_video_clip_requests_thumbnail_worker(qapp) -> None:
     """B-471 recovery: visible video clips with paths must request real thumbnails."""
     timeline = InteractiveTimeline()
@@ -123,6 +164,79 @@ def test_audio_clip_with_waveform_data_adds_waveform_item(qapp) -> None:
 
     assert any(isinstance(item, WaveformGraphicsItem) for item in timeline.waveform_items)
     assert any(isinstance(item, WaveformGraphicsItem) for item in timeline.scene().items())
+
+
+def test_audio_waveform_paints_above_audio_clip(qapp) -> None:
+    """B-471 live: waveform/beatgrid must not be hidden behind the blue clip bar."""
+    timeline = InteractiveTimeline()
+    clip = TimelineClipItem(
+        entry_id=30,
+        media_id=30,
+        track_type="audio",
+        title="audio with waveform",
+        x=20.0,
+        y=AUDIO_TRACK_Y,
+        width=400.0,
+        height=TRACK_HEIGHT,
+        has_waveform=True,
+        anchors=[],
+    )
+    timeline.scene().addItem(clip)
+    timeline.clip_items.append(clip)
+    waveform_data = SimpleNamespace(
+        band_low="[0.1, 0.8, 0.2, 0.7]",
+        band_mid="[0.2, 0.3, 0.4, 0.5]",
+        band_high="[0.5, 0.4, 0.3, 0.2]",
+        duration=20.0,
+    )
+    track = SimpleNamespace(
+        waveform_data=waveform_data,
+        beatgrid=SimpleNamespace(beat_positions="[0.0, 1.0, 2.0, 3.0]"),
+    )
+    entry = SimpleNamespace(start_time=1.0)
+
+    timeline._load_waveform_for_track(
+        session=None,
+        track=track,
+        entry=entry,
+        dur=20.0,
+        y=AUDIO_TRACK_Y,
+    )
+    waveform = next(item for item in timeline.waveform_items if isinstance(item, WaveformGraphicsItem))
+
+    assert waveform.zValue() > clip.zValue()
+
+
+def test_attached_waveform_is_not_stacked_behind_clip(qapp) -> None:
+    """B-471 live: async waveform child must remain visible above the clip fill."""
+    clip = TimelineClipItem(
+        entry_id=31,
+        media_id=31,
+        track_type="audio",
+        title="async waveform",
+        x=0.0,
+        y=AUDIO_TRACK_Y,
+        width=400.0,
+        height=TRACK_HEIGHT,
+        has_waveform=True,
+        anchors=[],
+    )
+    waveform = WaveformGraphicsItem(
+        band_low=[0.1, 0.8, 0.2, 0.7],
+        band_mid=[0.2, 0.3, 0.4, 0.5],
+        band_high=[0.5, 0.4, 0.3, 0.2],
+        duration=20.0,
+        beat_positions=[0.0, 1.0, 2.0, 3.0],
+        height=TRACK_HEIGHT,
+        parent=clip,
+    )
+    waveform.setFlag(QGraphicsItem.GraphicsItemFlag.ItemStacksBehindParent, True)
+
+    timeline = InteractiveTimeline()
+    timeline._style_visible_waveform(waveform, parent_clip=clip)
+
+    assert not bool(waveform.flags() & QGraphicsItem.GraphicsItemFlag.ItemStacksBehindParent)
+    assert waveform.zValue() > clip.zValue()
 
 
 def test_audio_clip_without_waveform_explains_missing_waveform(qapp) -> None:
@@ -189,3 +303,16 @@ def test_timeline_toolbar_tooltips_explain_zoom_impact(qapp) -> None:
         assert "Wirkung:" in tooltip
         assert "Wann:" in tooltip
         assert "Ergebnis:" in tooltip
+
+
+def test_timeline_tracks_are_large_enough_for_readable_professional_waveform() -> None:
+    """Notebook touchpad workflow needs readable lanes, not 50px micro tracks."""
+    assert TRACK_HEIGHT >= 72
+
+
+def test_timeline_toolbar_buttons_are_touchpad_sized(qapp) -> None:
+    shell = TimelineShell()
+
+    for button in (shell.btn_zoom_out, shell.btn_zoom_fit, shell.btn_zoom_reset, shell.btn_zoom_in):
+        assert button.minimumWidth() >= 44
+        assert button.minimumHeight() >= 36

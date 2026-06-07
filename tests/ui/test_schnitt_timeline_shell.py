@@ -47,8 +47,8 @@ def test_timeline_shell_zoom_buttons_call_timeline_methods():
     shell.btn_zoom_reset.click()
 
     assert calls == [
-        ("zoom", 1.25),
-        ("zoom", 1 / 1.25),
+        ("zoom", 1.15),
+        ("zoom", 1 / 1.15),
         ("fit", None),
         ("reset", None),
     ]
