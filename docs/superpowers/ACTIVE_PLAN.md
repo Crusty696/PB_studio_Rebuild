@@ -49,7 +49,7 @@ C:\Brain-Bug\projects\pb-studio\wiki\decisions\D-058-ffmpeg-resolver-fix.md
 - Task 1 Regression Tests abgeschlossen: `tests/test_ffmpeg_resolver_usage.py` rot vor Fix, gruen nach Fix.
 - Task 2 Resolver Implementation abgeschlossen: CQ-004/CQ-005 Call-Sites nutzen zentrale Resolver.
 - Task 3 Verification abgeschlossen: focused pytest, adjacent ingest pytest und import smoke gruen.
-- Task 4 Vault And Commit laeuft; Live-GUI-Verifikation fehlt.
+- Task 4 Vault And Commit abgeschlossen; Live-GUI-Verifikation fehlt.
 - Vorherige Plaene bleiben in Registry erhalten; offene Live-/Fixpunkte wurden nicht geloescht.
 
 ## Current Next Task
