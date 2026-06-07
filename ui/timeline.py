@@ -17,7 +17,7 @@ from PySide6.QtGui import (
 )
 
 from sqlalchemy import text
-from sqlalchemy.orm import Session as DBSession, joinedload
+from sqlalchemy.orm import Session as DBSession, joinedload, lazyload
 
 from database import engine, AudioTrack, VideoClip, TimelineEntry, Beatgrid, ClipAnchor, StructureSegment, nullpool_session
 
@@ -1027,6 +1027,7 @@ class InteractiveTimeline(QGraphicsView):
                         
                         _audio_map = (
                             {t.id: t for t in session.query(AudioTrack).options(
+                                lazyload("*"),
                                 joinedload(AudioTrack.waveform_data),
                                 joinedload(AudioTrack.beatgrid),
                             ).filter(
@@ -1034,7 +1035,9 @@ class InteractiveTimeline(QGraphicsView):
                             if _audio_ids else {}
                         )
                         _video_map = (
-                            {c.id: c for c in session.query(VideoClip).filter(
+                            {c.id: c for c in session.query(VideoClip).options(
+                                lazyload("*"),
+                            ).filter(
                                 VideoClip.id.in_(_video_ids), VideoClip.deleted_at.is_(None)).all()}
                             if _video_ids else {}
                         )
@@ -1052,16 +1055,10 @@ class InteractiveTimeline(QGraphicsView):
                             
                         # Objekte vom Session-State lösen für sichere Übergabe an Main-Thread
                         session.expunge_all()
-                        try:
-                            from services.brain_v3.timeline_state import (
-                                load_current_timeline_metadata,
-                            )
-                            # B-383: sync_current_timeline_from_entries removed to prevent mutations to state.db on read path
-                            pass
-                            _brain_meta = load_current_timeline_metadata()
-                        except Exception as brain_exc:
-                            logger.debug("Brain V3 Timeline-Metadata nicht geladen: %s", brain_exc)
-                            _brain_meta = {}
+                        # B-472: Brain V3 metadata is optional for rendering.
+                        # Importing pydantic/brain modules inside this QThread
+                        # caused native access violations during timeline load.
+                        _brain_meta = {}
 
                         self.finished.emit(entries, _audio_map, _video_map, _anchor_map, _brain_meta)
                 except Exception as e:
@@ -1114,6 +1111,7 @@ class InteractiveTimeline(QGraphicsView):
             with DBSession(engine) as session:
                 if missing_audio_ids:
                     for track in session.query(AudioTrack).options(
+                        lazyload("*"),
                         joinedload(AudioTrack.waveform_data),
                         joinedload(AudioTrack.beatgrid),
                     ).filter(
@@ -1122,7 +1120,9 @@ class InteractiveTimeline(QGraphicsView):
                     ).all():
                         audio_map[track.id] = track
                 if missing_video_ids:
-                    for clip in session.query(VideoClip).filter(
+                    for clip in session.query(VideoClip).options(
+                        lazyload("*"),
+                    ).filter(
                         VideoClip.id.in_(missing_video_ids),
                         VideoClip.deleted_at.is_(None),
                     ).all():
