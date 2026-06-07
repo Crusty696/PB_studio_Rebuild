@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-CONFLICT-QUALITY-AUDIT-2026-06-07
-next_allowed_task: Task 4 Reviewer Challenge
+next_allowed_task: Task 5 Final Audit Report And Fix-Plan Candidate
 updated: 2026-06-07
 
 ## Meaning
@@ -49,10 +49,11 @@ C:\Brain-Bug\projects\pb-studio\wiki\decisions\D-057-full-project-conflict-quali
 - Task 1 Inventory And Exclusion Map static-complete: 1187 tracked files classified, 1451 ignored paths classified, inventory report and TSV artifacts created.
 - Task 2 Top-Down Audit static-complete: governance/runtime/FFmpeg/known-bug/UI-risk findings CQ-001..CQ-007 documented.
 - Task 3 Bottom-Up Audit static-complete: pytest collect-only succeeded via absolute Conda path; findings BU-001..BU-005 documented.
+- Task 4 Reviewer Challenge static-complete: CQ-004 downgraded to medium; BU-003 downgraded to low; no findings removed.
 - Vorheriger Plan `PB-STUDIO-FULL-AUDIT-FIXPLAN-2026-05-31` bleibt in Registry erhalten; seine offenen Live-/Fixpunkte wurden nicht geloescht.
 
 ## Current Next Task
 
 ```text
-Task 4 Reviewer Challenge
+Task 5 Final Audit Report And Fix-Plan Candidate
 ```
