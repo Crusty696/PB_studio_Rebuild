@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09
-next_allowed_task: OTK-001: Governance-Drift bereinigen und dann offene Live-/User-Verification-Tasks in Prioritaetsreihenfolge abarbeiten.
+next_allowed_task: OTK-002: User review of created agent/team skill files.
 updated: 2026-06-09
 
 ## Meaning
@@ -46,11 +46,12 @@ C:\Brain-Bug\projects\pb-studio\wiki\decisions\D-061-offene-tasks-konsolidierung
 - Neuer Masterplan erstellt.
 - Neue Vault-Decision erstellt.
 - Neuer Vault-Mirror erstellt.
-- Registry-Umschaltung vorbereitet.
+- Registry-Umschaltung abgeschlossen.
 - Offene Tasks aus Registry, Handoff und gezielten Vault-Bugstatusquellen in OTK-Tasks konsolidiert.
+- OTK-001 Governance-Drift im Handoff wurde bereinigt.
 
 ## Current Next Task
 
 ```text
-OTK-001: Governance-Drift bereinigen und dann offene Live-/User-Verification-Tasks in Prioritaetsreihenfolge abarbeiten.
+OTK-002: User review of created agent/team skill files.
 ```
