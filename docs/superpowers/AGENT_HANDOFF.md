@@ -12,6 +12,7 @@ This file is a repository-local continuity checkpoint for all agents.
 - **Status:** previous registry plans with open work were marked `superseded` and transferred into OTK tasks. No app-code change. No product bug marked `fixed`.
 - **OTK-001:** Governance drift in this handoff file was cleaned on 2026-06-09. Older FFmpeg/B-471/B-458/B-462/B-463 details remain represented in the OTK masterplan, not as active-plan authority here.
 - **OTK-002:** Completed by user continuation release plus agent review. No blocking issue found in `.agents/skills/pb-agent-team-architect`, `pb-live-verify-orchestrator`, `pb-concurrency-strike-team`, or `pb-release-readiness-team`. No claim that the user read every file line-by-line.
+- **OTK-003:** Agent-side check ran on 2026-06-09: existing layout screenshot inspected; waveform and thumbnails are visible, but many labels render as square glyphs in the captured image. `run_pytest_schnitt.bat` passed (`27 passed`). User readability/touchpad/real workflow review is still missing; no `fixed` marker.
 - **Next task:** `OTK-003: B-471 user review of layout recovery; real app/user workflow still not fixed.`
 
 ## Current Protocol
@@ -64,6 +65,12 @@ Current next task:
 
 ```text
 OTK-003: B-471 user review of layout recovery; real app/user workflow still not fixed.
+```
+
+Current OTK-003 status:
+
+```text
+blocked-user-review: focused tests green, screenshot inspected, real user readability/touchpad verdict missing.
 ```
 
 ## Consolidated Open Work
