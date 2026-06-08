@@ -125,3 +125,13 @@ PB Studio
 ## Globaler Erfolgs-Test
 
 User importiert eine bereits in Projekt A analysierte Datei in Projekt B → Notify-Toast erscheint, alle Analysen sofort gruen ohne Re-Run. User verschiebt Source-Datei auf Festplatte → App findet Datei via SHA wieder, kein Daten-Verlust. SCHNITT-Audio-Subtab funktioniert unveraendert ueber Adapter.
+
+## Superseded / Task Transfer
+
+Transferred to `PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09` / `OTK-021` on 2026-06-09.
+
+- Original plan: `GLOBAL-STORAGE-PROVENANCE-2026-05-19`
+- Original open work: Planning/review only until prerequisites and active selection.
+- Transfer status: `transferred`
+- Archive rule: source remains evidence only; do not use this plan as active work authority.
+- Honesty guard: no `fixed` marker was set by this transfer.

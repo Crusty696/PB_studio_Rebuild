@@ -1,64 +1,56 @@
 # PB Studio Active Plan
 
 status: active
-active_plan_id: PB-STUDIO-AGENT-TEAM-SKILL-ARCHITECTURE-2026-06-08
-next_allowed_task: User review of created agent/team skill files
-updated: 2026-06-08
+active_plan_id: PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09
+next_allowed_task: OTK-001: Governance-Drift bereinigen und dann offene Live-/User-Verification-Tasks in Prioritaetsreihenfolge abarbeiten.
+updated: 2026-06-09
 
 ## Meaning
 
-Der User hat am 2026-06-08 explizit entschieden, dass vor dem Erstellen neuer Agenten-/Team-Dateien zuerst ein eigener autorisierter Plan angelegt und aktiviert werden soll.
+Der User hat am 2026-06-09 explizit entschieden, offene Tasks aus Repo-Planen, Vault-Mirrors, Bugfiles und Handoff in einem neuen Masterplan zusammenzufuehren und alte Quellplaene zu archivieren.
 
 Aktiver Plan:
 
 ```text
-PB-STUDIO-AGENT-TEAM-SKILL-ARCHITECTURE-2026-06-08
+PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09
 ```
 
 Repo-Plan:
 
 ```text
-docs/superpowers/plans/2026-06-08-agent-team-skill-architecture.md
+docs/superpowers/plans/2026-06-09-offene-tasks-konsolidierung-masterplan.md
 ```
 
 Vault-Mirror:
 
 ```text
-C:\Brain-Bug\projects\pb-studio\wiki\synthesis\plan-agent-team-skill-architecture-2026-06-08.md
+C:\Brain-Bug\projects\pb-studio\wiki\synthesis\plan-offene-tasks-konsolidierung-masterplan-2026-06-09.md
 ```
 
 Decision:
 
 ```text
-C:\Brain-Bug\projects\pb-studio\wiki\decisions\D-060-agent-team-skill-architecture.md
+C:\Brain-Bug\projects\pb-studio\wiki\decisions\D-061-offene-tasks-konsolidierung-masterplan.md
 ```
 
 ## Agent Behavior
 
-- Nur `PB-STUDIO-AGENT-TEAM-SKILL-ARCHITECTURE-2026-06-08` bearbeiten.
-- Scope: Meta-Arbeit fuer neue Agent-/Team-Skill-Dateien unter `.agents/skills/`.
-- Kein App-Code-Bugfix unter diesem Plan.
-- Neue Agent-Dateien muessen AGENTS.md-Honesty, Plan-Governance, Live-Verify-Disziplin, Vault-Pflichten und GTX-1060/CUDA-Regeln erben.
-- Keine Produkt-Bugs unter diesem Plan als `fixed` markieren.
+- Nur diesen neuen Masterplan als Arbeitsautoritaet verwenden.
+- Alte Registry-Plaene mit `superseded` nicht mehr als aktive Arbeitsplaene nutzen.
+- Alte Plaene bleiben Quellen fuer Belege und Transferhistorie.
+- Kein `fixed` setzen ohne echten Live-Workflow plus User-Bestaetigung.
+- Keine App-Code-Fixes unter reiner Governance-Konsolidierung.
 
 ## Current Status
 
-- Governance-Aktivierung fuer neuen Meta-Plan abgeschlossen.
-- Repo-Plan erstellt.
-- Registry-Eintrag erstellt.
-- Vault-Decision erstellt.
-- Vault-Mirror erstellt.
-- Vorheriger B-471-Plan bleibt in Registry erhalten und wird nicht als erledigt umgeschrieben.
-- Bestandsaufnahme vorhandener Skills, Team-Muster und belegter Luecken wurde abgeschlossen.
-- Neue Agent-/Team-Skill-Dateien wurden erstellt:
-  - `.agents/skills/pb-agent-team-architect/SKILL.md`
-  - `.agents/skills/pb-live-verify-orchestrator/SKILL.md`
-  - `.agents/skills/pb-concurrency-strike-team/SKILL.md`
-  - `.agents/skills/pb-release-readiness-team/SKILL.md`
-- Naechster erlaubter Schritt ist User-Review dieser neuen Dateien oder explizite Beauftragung fuer Tests/Feinschliff/Commit.
+- Neuer Masterplan erstellt.
+- Neue Vault-Decision erstellt.
+- Neuer Vault-Mirror erstellt.
+- Registry-Umschaltung vorbereitet.
+- Offene Tasks aus Registry, Handoff und gezielten Vault-Bugstatusquellen in OTK-Tasks konsolidiert.
 
 ## Current Next Task
 
 ```text
-User review of created agent/team skill files
+OTK-001: Governance-Drift bereinigen und dann offene Live-/User-Verification-Tasks in Prioritaetsreihenfolge abarbeiten.
 ```

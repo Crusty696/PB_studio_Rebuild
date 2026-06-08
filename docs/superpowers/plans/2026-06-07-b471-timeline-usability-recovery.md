@@ -194,3 +194,13 @@ Status: `code-complete-user-review-pending`, not `fixed`.
 - Verification: focused tests `27 passed`; `run_pytest_schnitt.bat` `25 passed`; affected py_compile passed; `from main import PBWindow` returned `OK` with GPU readiness warning.
 - DB-backed headless project check `test_reports/b471_db_timeline_build_after_waveform_fix.json`: `clip_items=768`, `waveform_items=1`, `waveform_z=4.0`, `audio_clip_z=2.0`, `m22_after_fit=1.0`.
 - Live verification remains open on a real active project.
+
+## Superseded / Task Transfer
+
+Transferred to `PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09` / `OTK-003` on 2026-06-09.
+
+- Original plan: `PB-STUDIO-B471-TIMELINE-USABILITY-RECOVERY-2026-06-07`
+- Original open work: B-471 user review of layout recovery; real app/user workflow still not fixed.
+- Transfer status: `transferred`
+- Archive rule: source remains evidence only; do not use this plan as active work authority.
+- Honesty guard: no `fixed` marker was set by this transfer.

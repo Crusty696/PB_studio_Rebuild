@@ -98,3 +98,13 @@ Nach Phase 12: User startet PB Studio, importiert Solo_Natur (103 Files) + Crust
 | A18 | Test-Infra (Tier 6) | Plan implizit | `StaticPool`-In-Memory-Engine + session-scoped `qapp` + `patched_schnitt_engine`-Fixture in `tests/conftest.py` | Cross-Thread-Tests stabilisieren, Multi-QApplication-Warnungen vermeiden. |
 
 Spec-Status: weiterhin `draft-approved-for-planning` — `status: fixed` vergibt User nach Live-Verify gemäß Phase 12.
+
+## Superseded / Task Transfer
+
+Transferred to `PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09` / `OTK-008` on 2026-06-09.
+
+- Original plan: `SCHNITT-WORKSPACE-REDESIGN-2026-05-09`
+- Original open work: Phase 12 live verification / user confirmation path.
+- Transfer status: `transferred`
+- Archive rule: source remains evidence only; do not use this plan as active work authority.
+- Honesty guard: no `fixed` marker was set by this transfer.

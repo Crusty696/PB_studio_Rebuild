@@ -161,3 +161,13 @@ Next task:
 ```text
 No implementation task. User decision required for any fix or verification plan.
 ```
+
+## Superseded / Task Transfer
+
+Transferred to `PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09` / `OTK-012` on 2026-06-09.
+
+- Original plan: `PB-STUDIO-FULL-PROJECT-FILE-AUDIT-2026-05-31`
+- Original open work: User decision for any fix or verification plan after audit-only completion.
+- Transfer status: `transferred`
+- Archive rule: source remains evidence only; do not use this plan as active work authority.
+- Honesty guard: no `fixed` marker was set by this transfer.

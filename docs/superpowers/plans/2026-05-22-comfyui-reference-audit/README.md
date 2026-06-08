@@ -150,3 +150,13 @@ Phase 1 workflow-first reference audit from 30_Workflows row 22: 30_Workflows\Mi
 - `30_Workflows\Frontmatter_Schema.md`: auditiert, keine Code-Aenderung. Naechste Datei: `30_Workflows\INDEX.md`.
 - `30_Workflows\INDEX.md`: auditiert, keine Code-Aenderung. Naechste Datei: `30_Workflows\LTX-2.3_ICLoRA_Motion_Track_Distilled.json`.
 - `30_Workflows\LTX-2.3_ICLoRA_Motion_Track_Distilled.json`: auditiert, keine Code-Aenderung. Ergebnis: ComfyUI-GUI-Workflow fuer LTX-2.3-Videoerzeugung mit Motion-Track-Control, IC-LoRA und Distilled-LoRA; keine Integration, weil neuer ComfyUI/LTX-Backendpfad, Secret-/Runtime-/Output-Resolver und GTX-1060-VRAM-Entscheid noetig waeren. Naechste Datei: `30_Workflows\Migration_Setup.md`.
+
+## Superseded / Task Transfer
+
+Transferred to `PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09` / `OTK-022` on 2026-06-09.
+
+- Original plan: `COMFYUI-REFERENCE-AUDIT-INTEGRATION-2026-05-22`
+- Original open work: Phase 1 workflow-first reference audit from 30_Workflows/Migration_Setup.md.
+- Transfer status: `transferred`
+- Archive rule: source remains evidence only; do not use this plan as active work authority.
+- Honesty guard: no `fixed` marker was set by this transfer.

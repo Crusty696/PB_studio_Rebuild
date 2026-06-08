@@ -1336,3 +1336,13 @@ Stop and ask user if:
 Task 11 (B-462-A) is code-complete and tester-live-verified (row kept + deleted_at
 set live). `status: fixed` is user-only. Next: user `fixed` confirmation for B-462,
 then optional Task 12 (option C purge) on user release.
+
+## Superseded / Task Transfer
+
+Transferred to `PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09` / `OTK-005` on 2026-06-09.
+
+- Original plan: `PB-STUDIO-FULL-AUDIT-FIXPLAN-2026-05-31`
+- Original open work: B-462-A user fixed confirmation and optional Task 12 purge decision.
+- Transfer status: `transferred`
+- Archive rule: source remains evidence only; do not use this plan as active work authority.
+- Honesty guard: no `fixed` marker was set by this transfer.

@@ -142,3 +142,13 @@ For every area:
 - 2026-05-25: Area 8 audited. Export/convert/proxy safe gates produced 14 passed, 40 passed/1 failed, 24 passed; py_compile passed; global collect remains blocked by B-348; new bugs B-392 through B-408 documented; live Export/NVENC/LUFS GUI path open. Next allowed task: Area 9 Chat, Actions, Agents, Ollama.
 - 2026-05-25: Area 9 audited. Agent/action/chat gates produced 106 passed, 23 passed, 25 passed/1 skipped; py_compile passed after split; global collect remains blocked by B-348; new bugs B-409 through B-417 documented; live Chat/Ollama/tool-calling GUI path open. Next allowed task: Area 10 Packaging, Installer, Docs, Launch Scripts.
 - 2026-05-25: Area 10 audited. Packaging/startup safe gates produced 23 passed; corrected py_compile passed; global collect remains blocked by B-348; new bugs B-418 through B-430 documented; no release build run. Final synthesis and fixplan created. No app-code fixes authorized.
+
+## Superseded / Task Transfer
+
+Transferred to `PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09` / `OTK-011` on 2026-06-09.
+
+- Original plan: `PB-STUDIO-AREA-AUDIT-2026-05-24`
+- Original open work: User-approved fix plan / live-verification decision after audit-only completion.
+- Transfer status: `transferred`
+- Archive rule: source remains evidence only; do not use this plan as active work authority.
+- Honesty guard: no `fixed` marker was set by this transfer.

@@ -132,3 +132,13 @@ Phase 4 (Pacing-Integration + in-process BrainV3Service): 3-5 Tage
 Phase 5 (PySide6-UI: 4-Klick-Popup, Stats-Tab, Lern-Session-Dialog): 3-5 Tage
 Phase 6 (Härtung: Backup, NVENC-Konflikt-Test, Lizenz-Attribution): laufend
 ```
+
+## Superseded / Task Transfer
+
+Transferred to `PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09` / `OTK-010` on 2026-06-09.
+
+- Original plan: `BRAIN-V3-NVIDIA-2026-05-04`
+- Original open work: Phase 1-3 App-Sync/live pending, Pre-Phase-4 PacingConfig spike, NVENC parallel, real DJ-mix validation.
+- Transfer status: `transferred`
+- Archive rule: source remains evidence only; do not use this plan as active work authority.
+- Honesty guard: no `fixed` marker was set by this transfer.

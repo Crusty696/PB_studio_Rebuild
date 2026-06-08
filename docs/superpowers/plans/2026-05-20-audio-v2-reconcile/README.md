@@ -179,3 +179,13 @@ Definition of Done:
 ## Current Next Task
 
 `P0 - Freeze And Snapshot`.
+
+## Superseded / Task Transfer
+
+Transferred to `PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09` / `OTK-018` on 2026-06-09.
+
+- Original plan: `AUDIO-ANALYSIS-V2-STRICT-SEQUENTIAL-2026-05-17`
+- Original open work: P0 Freeze And Snapshot before Audio-V2 port; sandbox branch dirty/old, direct merge forbidden.
+- Transfer status: `transferred`
+- Archive rule: source remains evidence only; do not use this plan as active work authority.
+- Honesty guard: no `fixed` marker was set by this transfer.

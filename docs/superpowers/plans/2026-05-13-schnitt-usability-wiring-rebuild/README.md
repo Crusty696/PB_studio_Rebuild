@@ -393,3 +393,13 @@ git diff --check
 
 - `outputs/pytest_brain_v3_results.txt` remains generated report; do not stage unless deliberately refreshing Brain V3 proof.
 - Update `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-310-schnitt-workspace-unusable-half-wired-ux.md` after every task.
+
+## Superseded / Task Transfer
+
+Transferred to `PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09` / `OTK-009` on 2026-06-09.
+
+- Original plan: `SCHNITT-USABILITY-WIRING-REBUILD-2026-05-13`
+- Original open work: Task 8 live verification plus B-316..B-320 contradiction check against newer fixed evidence.
+- Transfer status: `transferred`
+- Archive rule: source remains evidence only; do not use this plan as active work authority.
+- Honesty guard: no `fixed` marker was set by this transfer.

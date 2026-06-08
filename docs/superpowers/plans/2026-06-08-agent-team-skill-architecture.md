@@ -186,3 +186,13 @@ User review of created agent/team skill files
 - No subagent pressure-test run yet against these new skill files.
 - No commit yet.
 - No claim that the new teams are field-proven; current status is authored and documented.
+
+## Superseded / Task Transfer
+
+Transferred to `PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09` / `OTK-002` on 2026-06-09.
+
+- Original plan: `PB-STUDIO-AGENT-TEAM-SKILL-ARCHITECTURE-2026-06-08`
+- Original open work: User review of created agent/team skill files.
+- Transfer status: `transferred`
+- Archive rule: source remains evidence only; do not use this plan as active work authority.
+- Honesty guard: no `fixed` marker was set by this transfer.

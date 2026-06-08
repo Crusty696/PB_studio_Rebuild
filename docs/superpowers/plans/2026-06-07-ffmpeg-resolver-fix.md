@@ -155,3 +155,13 @@ Acceptance criteria:
 ```text
 No implementation task. Code fix pending live GUI verification.
 ```
+
+## Superseded / Task Transfer
+
+Transferred to `PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09` / `OTK-004` on 2026-06-09.
+
+- Original plan: `PB-STUDIO-FFMPEG-RESOLVER-FIX-2026-06-07`
+- Original open work: Live GUI verification for media-grid thumbnail path, frame extraction path, and video ingest GUI workflow.
+- Transfer status: `transferred`
+- Archive rule: source remains evidence only; do not use this plan as active work authority.
+- Honesty guard: no `fixed` marker was set by this transfer.

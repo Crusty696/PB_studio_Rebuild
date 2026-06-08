@@ -173,3 +173,13 @@ Nicht im aktiven Fixplan, weiter offen:
 **Offen (status:fixed nur User):** App-Workflow-Live-Verify B-439 (Sammlung bereinigen ohne aktives Projekt) + B-440 (RAFT in App-verdrahteter Pipeline — video_pipeline noch nicht App-integriert).
 
 **Geänderte Projekt-Dateien:** services/ingest_service.py, services/video_pipeline/stages/raft_motion_service.py, tests/test_services/test_b440_raft_divisible_by_8.py (neu), tests/test_services/test_cycle12_critical_batch.py, tests/test_services/test_video_pipeline_e2e_live.py, docs/superpowers/PLAN_REGISTRY.md, docs/superpowers/plans/2026-05-31-...md (neu).
+
+## Superseded / Task Transfer
+
+Transferred to `PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09` / `OTK-006` on 2026-06-09.
+
+- Original plan: `CONSULTING-TEAM-UND-LUECKEN-KONSOLIDIERUNG-2026-05-31`
+- Original open work: B-439/B-440 App-Workflow-Live-Verify.
+- Transfer status: `transferred`
+- Archive rule: source remains evidence only; do not use this plan as active work authority.
+- Honesty guard: no `fixed` marker was set by this transfer.

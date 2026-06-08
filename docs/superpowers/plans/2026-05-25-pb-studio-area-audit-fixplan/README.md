@@ -991,3 +991,13 @@ After Task 1, continue High bugs in order from the final audit:
 - No unrelated files changed.
 - Vault updated per bug.
 - Commit only when a logically complete verified change exists and user workflow status is honestly described.
+
+## Superseded / Task Transfer
+
+Transferred to `PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09` / `OTK-007` on 2026-06-09.
+
+- Original plan: `PB-STUDIO-AREA-AUDIT-FIXPLAN-2026-05-25`
+- Original open work: User/live verification of remaining code-fix-pending-live-verification bugs B-348..B-430.
+- Transfer status: `transferred`
+- Archive rule: source remains evidence only; do not use this plan as active work authority.
+- Honesty guard: no `fixed` marker was set by this transfer.

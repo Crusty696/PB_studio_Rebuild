@@ -186,3 +186,13 @@ User startet PB Studio frisch installiert, sieht First-Run-Wizard, waehlt Reason
 ## Plan-Abweichungs-Register
 
 (Wird wie in SCHNITT-Plan gepflegt — Spalten: # / Bereich / Plan-Soll / Ist / Begruendung. Leer bis Implementation startet.)
+
+## Superseded / Task Transfer
+
+Transferred to `PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09` / `OTK-020` on 2026-06-09.
+
+- Original plan: `LLM-BACKEND-PLATFORM-2026-05-19`
+- Original open work: Planning/review only; caller migration restrictions; open questions and live verify remain.
+- Transfer status: `transferred`
+- Archive rule: source remains evidence only; do not use this plan as active work authority.
+- Honesty guard: no `fixed` marker was set by this transfer.

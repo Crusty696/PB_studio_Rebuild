@@ -163,3 +163,13 @@ PB Studio
 ## Globaler Erfolgs-Test
 
 User importiert Video, klickt "Alle Analysen", Pipeline laeuft sequentiell (Scene → Keyframes → SigLIP → RAFT → VLM → Cross-Modal), Status-Panel zeigt Fortschritt, Coverage-Garantie ≥ 99.5 %, Proxy fuer UI-Editing erstellt, Crash-Recovery via Resume-Checkpoint. Bei 4 h Video Vollstaendigkeit gegeben.
+
+## Superseded / Task Transfer
+
+Transferred to `PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09` / `OTK-019` on 2026-06-09.
+
+- Original plan: `VIDEO-PIPELINE-ENGINE-2026-05-19`
+- Original open work: Continue from first unchecked/unfinished phase; open questions and live verify remain.
+- Transfer status: `transferred`
+- Archive rule: source remains evidence only; do not use this plan as active work authority.
+- Honesty guard: no `fixed` marker was set by this transfer.

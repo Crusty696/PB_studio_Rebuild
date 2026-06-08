@@ -1004,3 +1004,13 @@ Commit body contains: (unverified - pending user test)
 - Placeholder scan: no `TBD`/`TODO` placeholders used as implementation steps.
 - Type consistency: plan uses existing bug ids and file paths read from Vault/plan docs.
 - Honesty: no `fixed`, `works`, or `DONE` claim made by this plan.
+
+## Superseded / Task Transfer
+
+Transferred to `PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09` / `OTK-016` on 2026-06-09.
+
+- Original plan: `PB-STUDIO-OFFENE-BUGS-TASKS-MASTERPLAN-2026-05-20`
+- Original open work: Governance gate plus remaining non-fixed/open bugs from old bug/task masterplan.
+- Transfer status: `transferred`
+- Archive rule: source remains evidence only; do not use this plan as active work authority.
+- Honesty guard: no `fixed` marker was set by this transfer.

@@ -2,6 +2,16 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## Latest Governance Update
+
+- **Date:** 2026-06-09
+- **Active plan:** `PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09`
+- **Repo plan:** `docs/superpowers/plans/2026-06-09-offene-tasks-konsolidierung-masterplan.md`
+- **Vault mirror:** `C:\Brain-Bug\projects\pb-studio\wiki\synthesis\plan-offene-tasks-konsolidierung-masterplan-2026-06-09.md`
+- **Decision:** `C:\Brain-Bug\projects\pb-studio\wiki\decisions\D-061-offene-tasks-konsolidierung-masterplan.md`
+- **Status:** previous registry plans with open work were marked `superseded` and transferred into OTK tasks. No app-code change. No product bug marked `fixed`.
+- **Next task:** `OTK-001: Governance-Drift bereinigen und dann offene Live-/User-Verification-Tasks in Prioritaetsreihenfolge abarbeiten.`
+
 ## Current Protocol
 
 1. Start every agent session with:
