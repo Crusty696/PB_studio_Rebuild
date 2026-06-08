@@ -11,7 +11,8 @@ This file is a repository-local continuity checkpoint for all agents.
 - **Decision:** `C:\Brain-Bug\projects\pb-studio\wiki\decisions\D-061-offene-tasks-konsolidierung-masterplan.md`
 - **Status:** previous registry plans with open work were marked `superseded` and transferred into OTK tasks. No app-code change. No product bug marked `fixed`.
 - **OTK-001:** Governance drift in this handoff file was cleaned on 2026-06-09. Older FFmpeg/B-471/B-458/B-462/B-463 details remain represented in the OTK masterplan, not as active-plan authority here.
-- **Next task:** `OTK-002: User review of created agent/team skill files.`
+- **OTK-002:** Completed by user continuation release plus agent review. No blocking issue found in `.agents/skills/pb-agent-team-architect`, `pb-live-verify-orchestrator`, `pb-concurrency-strike-team`, or `pb-release-readiness-team`. No claim that the user read every file line-by-line.
+- **Next task:** `OTK-003: B-471 user review of layout recovery; real app/user workflow still not fixed.`
 
 ## Current Protocol
 
@@ -62,7 +63,7 @@ PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09
 Current next task:
 
 ```text
-OTK-002: User review of created agent/team skill files.
+OTK-003: B-471 user review of layout recovery; real app/user workflow still not fixed.
 ```
 
 ## Consolidated Open Work

@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09
-next_allowed_task: OTK-002: User review of created agent/team skill files.
+next_allowed_task: OTK-003: B-471 user review of layout recovery; real app/user workflow still not fixed.
 updated: 2026-06-09
 
 ## Meaning
@@ -49,9 +49,10 @@ C:\Brain-Bug\projects\pb-studio\wiki\decisions\D-061-offene-tasks-konsolidierung
 - Registry-Umschaltung abgeschlossen.
 - Offene Tasks aus Registry, Handoff und gezielten Vault-Bugstatusquellen in OTK-Tasks konsolidiert.
 - OTK-001 Governance-Drift im Handoff wurde bereinigt.
+- OTK-002 wurde als Weiterfreigabe + Agent-Review ohne Blocker abgeschlossen; kein Beleg, dass der User jede Skill-Datei selbst gelesen hat.
 
 ## Current Next Task
 
 ```text
-OTK-002: User review of created agent/team skill files.
+OTK-003: B-471 user review of layout recovery; real app/user workflow still not fixed.
 ```

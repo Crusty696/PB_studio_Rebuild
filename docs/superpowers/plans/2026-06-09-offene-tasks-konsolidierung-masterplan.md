@@ -23,7 +23,7 @@ Keine App-Code-Aenderung ist durch diese Konsolidierung erfolgt. Kein Produkt-Bu
 ## Current Next Task
 
 ```text
-OTK-002: User review of created agent/team skill files.
+OTK-003: B-471 user review of layout recovery; real app/user workflow still not fixed.
 ```
 
 ## Consolidated Tasks
@@ -31,7 +31,7 @@ OTK-002: User review of created agent/team skill files.
 | new_task_id | priority | source_plan | source_status | transferred_work | evidence | status |
 |---|---:|---|---|---|---|---|
 | OTK-001 | 1 | ACTIVE_PLAN + AGENT_HANDOFF | conflict | Governance-Drift: ACTIVE_PLAN nannte Agent-Team-Skill-Plan, Handoff nannte FFmpeg-Resolver-Fix. Bereinigt am 2026-06-09; Handoff verweist jetzt auf diesen Masterplan und OTK-Taskfolge. | `docs/superpowers/ACTIVE_PLAN.md`; `docs/superpowers/AGENT_HANDOFF.md` | completed |
-| OTK-002 | 1 | PB-STUDIO-AGENT-TEAM-SKILL-ARCHITECTURE-2026-06-08 | approved-for-implementation | User review of created agent/team skill files. | Registry `next_allowed_task`; active plan current task. | open |
+| OTK-002 | 1 | PB-STUDIO-AGENT-TEAM-SKILL-ARCHITECTURE-2026-06-08 | approved-for-implementation | User continuation release received; agent review found no blocking issue in created agent/team skill files. No claim that user read every file line-by-line. | Registry `next_allowed_task`; `.agents/skills/pb-agent-team-architect/SKILL.md`; `.agents/skills/pb-live-verify-orchestrator/SKILL.md`; `.agents/skills/pb-concurrency-strike-team/SKILL.md`; `.agents/skills/pb-release-readiness-team/SKILL.md` | completed-by-user-release |
 | OTK-003 | 1 | PB-STUDIO-B471-TIMELINE-USABILITY-RECOVERY-2026-06-07 | code-complete-live-pending | B-471 user review of layout recovery; real app/user workflow still not `fixed`. | Registry; `wiki/bugs/B-471...`; plan mirror. | open |
 | OTK-004 | 1 | PB-STUDIO-FFMPEG-RESOLVER-FIX-2026-06-07 | code-complete-live-pending | Live GUI verification for media-grid thumbnail path, frame extraction path, and video ingest GUI workflow. | Registry; Handoff; plan mirror. | open |
 | OTK-005 | 1 | PB-STUDIO-FULL-AUDIT-FIXPLAN-2026-05-31 | code-complete-live-pending | B-462-A user `fixed` confirmation and optional Task 12 purge decision. | Registry; `wiki/bugs/B-462...`; `full-audit-fixplan-verification`. | open |
