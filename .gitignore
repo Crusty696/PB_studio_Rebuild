@@ -56,6 +56,20 @@ poc_lancedb_data/
 skills/
 skills-lock.json
 
+# Explicitly versioned PB Studio agent-team skill files
+!.agents/
+.agents/*
+!.agents/skills/
+.agents/skills/*
+!.agents/skills/pb-agent-team-architect/
+!.agents/skills/pb-agent-team-architect/SKILL.md
+!.agents/skills/pb-live-verify-orchestrator/
+!.agents/skills/pb-live-verify-orchestrator/SKILL.md
+!.agents/skills/pb-concurrency-strike-team/
+!.agents/skills/pb-concurrency-strike-team/SKILL.md
+!.agents/skills/pb-release-readiness-team/
+!.agents/skills/pb-release-readiness-team/SKILL.md
+
 # QA screenshots and recordings (binary assets)
 docs/qa_screenshots/**/*.png
 docs/qa_screenshots/**/*.mp4

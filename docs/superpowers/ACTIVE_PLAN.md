@@ -1,70 +1,64 @@
 # PB Studio Active Plan
 
 status: active
-active_plan_id: PB-STUDIO-B471-TIMELINE-USABILITY-RECOVERY-2026-06-07
-next_allowed_task: B-471 user review of layout recovery
-updated: 2026-06-07
+active_plan_id: PB-STUDIO-AGENT-TEAM-SKILL-ARCHITECTURE-2026-06-08
+next_allowed_task: User review of created agent/team skill files
+updated: 2026-06-08
 
 ## Meaning
 
-Der User hat am 2026-06-07 per Live-Screenshot gemeldet, dass B-471 weiterhin nicht geloest ist: Timeline-Zoom verschiebt A1/V1, Audio-Waveform fehlt, Video-Thumbnails fehlen, Pacing-Panel und Tooltips sind nicht nutzbar.
+Der User hat am 2026-06-08 explizit entschieden, dass vor dem Erstellen neuer Agenten-/Team-Dateien zuerst ein eigener autorisierter Plan angelegt und aktiviert werden soll.
 
 Aktiver Plan:
 
 ```text
-PB-STUDIO-B471-TIMELINE-USABILITY-RECOVERY-2026-06-07
+PB-STUDIO-AGENT-TEAM-SKILL-ARCHITECTURE-2026-06-08
 ```
 
 Repo-Plan:
 
 ```text
-docs/superpowers/plans/2026-06-07-b471-timeline-usability-recovery.md
+docs/superpowers/plans/2026-06-08-agent-team-skill-architecture.md
 ```
 
 Vault-Mirror:
 
 ```text
-C:\Brain-Bug\projects\pb-studio\wiki\synthesis\plan-b471-timeline-usability-recovery-2026-06-07.md
+C:\Brain-Bug\projects\pb-studio\wiki\synthesis\plan-agent-team-skill-architecture-2026-06-08.md
 ```
 
 Decision:
 
 ```text
-C:\Brain-Bug\projects\pb-studio\wiki\decisions\D-059-b471-timeline-usability-recovery.md
+C:\Brain-Bug\projects\pb-studio\wiki\decisions\D-060-agent-team-skill-architecture.md
 ```
 
 ## Agent Behavior
 
-- Nur `PB-STUDIO-B471-TIMELINE-USABILITY-RECOVERY-2026-06-07` bearbeiten.
-- Modus: `fix-plan`.
-- Scope: B-471 Timeline-Usability, Zoom/Lanes, Waveform, Thumbnails, Pacing-Panel, Tooltips.
-- Keine Dependency-Swaps, keine Pacing-Algorithmus-Aenderung ohne separaten Root-Cause.
-- `verified` / `fixed` nur nach realem App-Workflow plus Log-/UI-Beleg. Focused pytest/import-smoke ist keine Live-Verifikation.
+- Nur `PB-STUDIO-AGENT-TEAM-SKILL-ARCHITECTURE-2026-06-08` bearbeiten.
+- Scope: Meta-Arbeit fuer neue Agent-/Team-Skill-Dateien unter `.agents/skills/`.
+- Kein App-Code-Bugfix unter diesem Plan.
+- Neue Agent-Dateien muessen AGENTS.md-Honesty, Plan-Governance, Live-Verify-Disziplin, Vault-Pflichten und GTX-1060/CUDA-Regeln erben.
+- Keine Produkt-Bugs unter diesem Plan als `fixed` markieren.
 
 ## Current Status
 
-- Branch erstellt: `codex/B-471-timeline-usability-recovery-2026-06-07`.
-- Repo-Plan, Vault-Decision und Vault-Mirror wurden erstellt.
-- B-471 wurde mit Live-Screenshot-Befund 2026-06-07 erweitert.
-- Task 0 Governance Activation abgeschlossen.
-- Task 1 Reproduce And Pin Timeline Surface Failures abgeschlossen: focused tests reproduzierten die gemeldeten Timeline-Probleme vor dem Fix.
-- Task 2 Timeline Lane And Zoom Recovery code-complete: focused lane/zoom tests gruen.
-- Task 3 Audio Waveform And Video Thumbnail Recovery code-complete: focused thumbnail/waveform tests gruen.
-- Task 4 Pacing Panel And Tooltip Recovery code-complete: focused tooltip tests gruen.
-- Task 5 Verification gestartet: App wurde neu gestartet; Live-Timeline-Verifikation blockiert, weil keine aktive Projekt-DB/kein aktives Projekt vorhanden war.
-- User-Live-Test nach `1966e94` war rot: Timeline sah laut User noch gleich aus.
-- B-471 Rekordbox-Waveform-Follow-up code-fix-pending-live-verification: Waveform/Beatgrid-Z-Order sichtbar gemacht, Trackhoehe und Zoom-Buttons vergroessert, Zoom-Step auf 15 Prozent reduziert, Thumbnail-Status sichtbar gemacht.
-- Zweiter Root Cause auf realer Projekt-DB `test55655`: `TimelineDBWorker.finished = Signal(list, dict, dict, dict, dict)` lieferte SQLAlchemy-Objekt-Maps leer ueber die Qt-Thread-Grenze; dadurch blieben `audio_map`/`video_map` leer.
-- Follow-up-Fix: DB-Worker-Signal nutzt `object`-Payloads; Waveform wird direkt aus der geladenen Audio-Map gezeichnet.
-- DB-backed Headless-Check `test_reports/b471_db_timeline_build_after_waveform_fix.json`: `clip_items=768`, `waveform_items=1`, `waveform_z=4.0`, `audio_clip_z=2.0`, `m22_after_fit=1.0`.
-- Focused tests: `27 passed`; `run_pytest_schnitt.bat`: `25 passed`; py_compile/import smoke gruen.
-- User lehnte danach Timeline weiter ab. Layout-Recovery-Follow-up: Preview reduziert, Timeline-Hoehe/Prioritaet erhoeht, Cutliste begrenzt, Fit-Mindestskala `0.25`.
-- Live-App-Check mit `test55655`: `clip_items=768`, `waveform_items=1`, `registered_thumb_paths=5`, `timeline_viewport_size=[1195,305]`, `m11_after_fit=0.25`, `m22_after_fit=1.0`.
-- Status: `code-complete-user-review-pending`; kein `fixed` Marker.
-- Vorherige Plaene bleiben in Registry erhalten; offene Live-/Fixpunkte wurden nicht geloescht.
+- Governance-Aktivierung fuer neuen Meta-Plan abgeschlossen.
+- Repo-Plan erstellt.
+- Registry-Eintrag erstellt.
+- Vault-Decision erstellt.
+- Vault-Mirror erstellt.
+- Vorheriger B-471-Plan bleibt in Registry erhalten und wird nicht als erledigt umgeschrieben.
+- Bestandsaufnahme vorhandener Skills, Team-Muster und belegter Luecken wurde abgeschlossen.
+- Neue Agent-/Team-Skill-Dateien wurden erstellt:
+  - `.agents/skills/pb-agent-team-architect/SKILL.md`
+  - `.agents/skills/pb-live-verify-orchestrator/SKILL.md`
+  - `.agents/skills/pb-concurrency-strike-team/SKILL.md`
+  - `.agents/skills/pb-release-readiness-team/SKILL.md`
+- Naechster erlaubter Schritt ist User-Review dieser neuen Dateien oder explizite Beauftragung fuer Tests/Feinschliff/Commit.
 
 ## Current Next Task
 
 ```text
-B-471 user review of layout recovery
+User review of created agent/team skill files
 ```
