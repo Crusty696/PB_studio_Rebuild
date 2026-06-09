@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09
-next_allowed_task: OTK-004: FFmpeg resolver / media grid / ingest; partial autonomous GUI PASS, new import/live resolver path still open.
+next_allowed_task: OTK-008: SCHNITT Workspace Redesign Phase 12; autonomous GUI PASS, formal Phase-12 criteria still open.
 updated: 2026-06-09
 
 ## Meaning
@@ -64,9 +64,10 @@ C:\Brain-Bug\projects\pb-studio\wiki\decisions\D-061-offene-tasks-konsolidierung
   - Evidence saved in `test_reports/live_autonomous_20260609_*.png` and Vault synthesis `functional-test-otk-autonomous-gui-2026-06-09.md`.
 - User explicitly approved OTK-020/B-473 `fixed` marker on 2026-06-09.
 - User explicitly approved OTK-003/B-471 `fixed` marker on 2026-06-09.
+- User gave broad release to continue/status workflows. OTK-004 missing import/live resolver path was executed autonomously through GUI: Video import dialog, 1 MP4 selected, FolderImport and BrainV3Hashing finished, no checked Traceback/ERROR/resolver failure. OTK-004 marked `fixed`.
 
 ## Current Next Task
 
 ```text
-OTK-004: FFmpeg resolver / media grid / ingest; partial autonomous GUI PASS, new import/live resolver path still open.
+OTK-008: SCHNITT Workspace Redesign Phase 12; autonomous GUI PASS, formal Phase-12 criteria still open.
 ```

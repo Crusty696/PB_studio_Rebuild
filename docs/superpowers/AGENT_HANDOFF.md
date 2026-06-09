@@ -17,7 +17,8 @@ This file is a repository-local continuity checkpoint for all agents.
 - **Filled checklist update 2026-06-09:** `C:\Users\David Lochmann\Desktop\PB-Studio-Pruefcheckliste-2026-06-09-AUSGEFUELLT.md` reports OTK-020, OTK-003, OTK-004, OTK-008 as GUI PASS; OTK-010, OTK-015, OTK-019 as PARTIAL; remaining listed tasks as decision/scope. The checklist explicitly says no agent-side `fixed` marker.
 - **Autonomous GUI verification 2026-06-09:** Agent used real PB Studio GUI with `pywinauto`. OTK-020 PASS (ChatDock/Ollama UI answer, KI-Agent tasks finished); OTK-003 PASS (project `test55655`, SCHNITT timeline/waveform/thumbnails/zoom/cut list/inspector); OTK-004 PARTIAL PASS (media table and analyzed clips observed, no new import); OTK-008 PASS for GUI navigation (Pacing/Anker, Audio, RL Notes, Schnitt tabs). Evidence: `test_reports/live_autonomous_20260609_*.png`; Vault synthesis `wiki/synthesis/functional-test-otk-autonomous-gui-2026-06-09.md`. `fixed` markers were set only after explicit user approval.
 - **OTK-020/B-473:** User explicitly approved `fixed` marker on 2026-06-09 after autonomous GUI verification.
-- **Next task:** `OTK-004: FFmpeg resolver / media grid / ingest; partial autonomous GUI PASS, new import/live resolver path still open.`
+- **OTK-004:** User gave broad release, then agent executed missing GUI import/live resolver path. Video import dialog opened, 1 MP4 selected, FolderImport and BrainV3Hashing finished, media table stayed populated, no checked Traceback/ERROR/resolver failure. OTK-004 marked `fixed`.
+- **Next task:** `OTK-008: SCHNITT Workspace Redesign Phase 12; autonomous GUI PASS, formal Phase-12 criteria still open.`
 
 ## Current Protocol
 
@@ -68,7 +69,7 @@ PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09
 Current next task:
 
 ```text
-OTK-004: FFmpeg resolver / media grid / ingest; partial autonomous GUI PASS, new import/live resolver path still open.
+OTK-008: SCHNITT Workspace Redesign Phase 12; autonomous GUI PASS, formal Phase-12 criteria still open.
 ```
 
 Current OTK-003 status:
@@ -81,6 +82,12 @@ Current OTK-020 status:
 
 ```text
 fixed: standalone service smoke green, autonomous GUI ChatDock/Ollama test passed, and user explicitly approved `fixed` marker on 2026-06-09.
+```
+
+Current OTK-004 status:
+
+```text
+fixed: autonomous GUI media/import workflow passed after user broad release; FolderImport and BrainV3Hashing finished, no checked resolver failure.
 ```
 
 ## Consolidated Open Work
