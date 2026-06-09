@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09
-next_allowed_task: OTK-014/B-350: F-18 Trigger queue pause returns mid-loop and drops remaining jobs.
+next_allowed_task: OTK-006: B-439/B-440 App-Workflow-Live-Verify.
 updated: 2026-06-09
 
 ## Meaning
