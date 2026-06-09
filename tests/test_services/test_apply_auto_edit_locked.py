@@ -291,8 +291,8 @@ def test_b319_segment_duration_is_clamped_to_source_span(test_engine, monkeypatc
     assert len(rows) == 2
     assert rows[0].start_time == 0.0
     assert rows[0].end_time == 10.0
-    assert rows[1].start_time == 10.322
-    assert rows[1].end_time == 15.522
+    assert rows[1].start_time == 10.0
+    assert rows[1].end_time == 15.2
     assert rows[0].end_time <= rows[1].start_time
 
 
@@ -366,6 +366,7 @@ def test_b319_repair_timeline_integrity_fixes_existing_bad_rows(test_engine, mon
     result = ts_mod.repair_timeline_integrity(pid)
 
     assert result["video_duration_clamped"] == 3
+    assert result["video_gaps_closed"] == 1
     assert result["audio_duplicates_removed"] == 1
     assert result["audio_duration_synced"] == 1
     with DBSession(test_engine) as s:
@@ -385,10 +386,75 @@ def test_b319_repair_timeline_integrity_fixes_existing_bad_rows(test_engine, mon
     assert audio_rows[0].start_time == 0.0
     assert audio_rows[0].end_time == 5531.005
     assert video_rows[0].end_time == 10.0
-    assert video_rows[1].end_time == 15.522
+    assert video_rows[1].start_time == 10.0
+    assert video_rows[1].end_time == 15.2
     assert video_rows[2].locked is True
     assert video_rows[2].end_time == 24.5
     assert video_rows[0].end_time <= video_rows[1].start_time
+
+
+def test_b471_repair_timeline_integrity_closes_unlocked_video_gaps(test_engine, monkeypatch):
+    """B-471: sichtbare Video-Gaps muessen aus vorhandenen Timeline-Zeilen raus."""
+    import services.timeline_service as ts_mod
+    monkeypatch.setattr(ts_mod, "engine", test_engine)
+    with DBSession(test_engine) as s:
+        p = Project(name="b471-gap-repair", path="/tmp/b471-gap-repair")
+        s.add(p)
+        s.flush()
+        s.add_all([
+            TimelineEntry(
+                project_id=p.id,
+                track="video",
+                media_id=1,
+                start_time=0.0,
+                end_time=2.0,
+                source_start=0.0,
+                source_end=2.0,
+                lane=0,
+                locked=False,
+            ),
+            TimelineEntry(
+                project_id=p.id,
+                track="video",
+                media_id=2,
+                start_time=5.0,
+                end_time=8.0,
+                source_start=0.0,
+                source_end=3.0,
+                lane=0,
+                locked=False,
+            ),
+            TimelineEntry(
+                project_id=p.id,
+                track="video",
+                media_id=3,
+                start_time=12.0,
+                end_time=14.0,
+                source_start=0.0,
+                source_end=2.0,
+                lane=0,
+                locked=False,
+            ),
+        ])
+        s.commit()
+        pid = p.id
+
+    result = ts_mod.repair_timeline_integrity(pid)
+
+    assert result["video_gaps_closed"] == 2
+    with DBSession(test_engine) as s:
+        rows = (
+            s.query(TimelineEntry)
+            .filter_by(project_id=pid, track="video")
+            .order_by(TimelineEntry.start_time, TimelineEntry.id)
+            .all()
+        )
+
+    assert [(r.start_time, r.end_time) for r in rows] == [
+        (0.0, 2.0),
+        (2.0, 5.0),
+        (5.0, 7.0),
+    ]
 
 
 def test_b319_auto_edit_repairs_preexisting_locked_zero_source_span(test_engine, monkeypatch):

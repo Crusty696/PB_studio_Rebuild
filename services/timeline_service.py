@@ -230,6 +230,7 @@ def repair_timeline_integrity(project_id: int) -> dict[str, int]:
     result = {
         "video_duration_clamped": 0,
         "video_overlaps_shifted": 0,
+        "video_gaps_closed": 0,
         "video_source_span_rebuilt": 0,
         "audio_duplicates_removed": 0,
         "audio_duration_synced": 0,
@@ -268,6 +269,13 @@ def repair_timeline_integrity(project_id: int) -> dict[str, int]:
                 row.start_time = start
                 row.end_time = end
                 result["video_overlaps_shifted"] += 1
+            elif start > cursor + 1e-3 and not bool(row.locked):
+                duration = max(0.0, end - start)
+                start = round(cursor, 4)
+                end = round(start + duration, 4)
+                row.start_time = start
+                row.end_time = end
+                result["video_gaps_closed"] += 1
             cursor = max(cursor, float(row.end_time or end))
 
         audio_rows = (
