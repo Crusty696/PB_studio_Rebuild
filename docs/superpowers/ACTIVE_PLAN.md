@@ -51,9 +51,20 @@ C:\Brain-Bug\projects\pb-studio\wiki\decisions\D-061-offene-tasks-konsolidierung
 - OTK-001 Governance-Drift im Handoff wurde bereinigt.
 - OTK-002 wurde als Weiterfreigabe + Agent-Review ohne Blocker abgeschlossen; kein Beleg, dass der User jede Skill-Datei selbst gelesen hat.
 - User hat am 2026-06-09 Fokuswechsel auf OTK-020/Ollama-Recovery autorisiert.
+- User supplied filled live verification checklist on 2026-06-09:
+  - OTK-020, OTK-003, OTK-004, OTK-008 reported PASS in real GUI workflow.
+  - OTK-010, OTK-015, OTK-019 reported PARTIAL.
+  - OTK-005, OTK-006, OTK-007, OTK-009, OTK-011, OTK-012, OTK-013, OTK-014, OTK-016, OTK-017, OTK-018, OTK-021, OTK-022 remain decision/scope tasks.
+  - Checklist explicitly says no agent-side `fixed` marker; `fixed` remains user-only.
+- Agent autonomous GUI verification on 2026-06-09:
+  - OTK-020 PASS: ChatDock/Ollama answered in UI; KI-Agent tasks finished.
+  - OTK-003 PASS: project `test55655` opened through GUI; SCHNITT timeline, waveform, thumbnails, zoom controls, cut list, and clip inspector observed.
+  - OTK-004 PARTIAL PASS: Material/Analyse media table and analyzed clips observed; no new import performed.
+  - OTK-008 PASS for GUI navigation: Pacing/Anker, Audio, RL Notes, and Schnitt tabs opened.
+  - Evidence saved in `test_reports/live_autonomous_20260609_*.png` and Vault synthesis `functional-test-otk-autonomous-gui-2026-06-09.md`.
 
 ## Current Next Task
 
 ```text
-OTK-020: B-473 Ollama local-agent connection recovery; code-fix-pending-live-verification.
+OTK-020: B-473 Ollama local-agent connection recovery; autonomous GUI verification PASS, fixed marker pending explicit user status decision.
 ```
