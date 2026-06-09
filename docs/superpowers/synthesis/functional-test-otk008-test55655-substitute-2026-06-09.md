@@ -32,6 +32,10 @@ Facts checked before this run:
 - Pacing & Anker tab opened.
 - Mouse hovered over `cut_rate_combo` without clicking and wheel-scrolled.
 - Crop of `cut_rate_combo` before/after wheel-scroll was pixel-identical (`diff_sum=0.0`).
+- RL Notes editor opened again.
+- Temporary suffix `UNDO_PROBE_2026_06_09` appended.
+- `Ctrl+Z` pressed.
+- Notes text returned exactly to original value `Test 2026-06-09 Schnitt-Verify test55655`.
 
 ## Evidence
 
@@ -42,6 +46,9 @@ Facts checked before this run:
 - `test_reports/live_autonomous_20260609_otk008_pacing_before_wheel.png`
 - `test_reports/live_autonomous_20260609_otk008_cut_rate_before_wheel.png`
 - `test_reports/live_autonomous_20260609_otk008_cut_rate_after_wheel.png`
+- `test_reports/live_autonomous_20260609_otk008_undo_notes_before.png`
+- `test_reports/live_autonomous_20260609_otk008_undo_notes_after_type.png`
+- `test_reports/live_autonomous_20260609_otk008_undo_notes_after_ctrlz.png`
 
 ## Verified
 
@@ -50,6 +57,7 @@ Facts checked before this run:
 - RL Notes persistence after reload for `test55655`.
 - SCHNITT tab navigation and existing timeline/editor visibility for `test55655`.
 - Combo-wheel protection for visible `cut_rate_combo` in `test55655` substitute run, measured by unchanged combo crop after hover+wheel-scroll.
+- Undo behavior inside RL Notes editor in `test55655` substitute run.
 
 ## Not Verified
 
@@ -60,8 +68,8 @@ Facts checked before this run:
 - Techno preset selection sequence from formal guide.
 - Clip lock preservation across pacing regeneration.
 - Pacing regeneration dialog end-to-end.
-- Undo behavior.
+- Timeline lock-toggle undo from the formal guide. Only notes-editor undo was verified.
 
 ## Honest Result
 
-OTK-008 cannot be marked `fixed` from this run. Substitute verification passed for GUI navigation, RL Notes persistence, and combo-wheel protection in `test55655`, but formal Phase-12 criteria remain open.
+OTK-008 cannot be marked `fixed` from this run. Substitute verification passed for GUI navigation, RL Notes persistence, combo-wheel protection, and notes-editor undo in `test55655`, but formal Phase-12 criteria remain open.
