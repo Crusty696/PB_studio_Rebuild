@@ -34,6 +34,9 @@ class TriggerJob:
     result: object | None = None
 
 
+import threading
+
+
 class TriggerQueue:
     """Sequentielle Queue mit Pause/Cancel-Support.
 
@@ -49,6 +52,8 @@ class TriggerQueue:
     def __init__(self):
         self._jobs: list[TriggerJob] = []
         self._state = QueueState.IDLE
+        self._resume_event = threading.Event()
+        self._resume_event.set()  # Standardmäßig offen (nicht pausiert)
 
     @property
     def state(self) -> QueueState:
@@ -74,13 +79,16 @@ class TriggerQueue:
     def pause(self) -> None:
         if self._state == QueueState.RUNNING:
             self._state = QueueState.PAUSED
+            self._resume_event.clear()
 
     def resume(self) -> None:
         if self._state == QueueState.PAUSED:
             self._state = QueueState.RUNNING
+            self._resume_event.set()
 
     def cancel(self) -> None:
         self._state = QueueState.CANCELLED
+        self._resume_event.set()  # Weckt wartende Threads auf
 
     def run_single(self, stage_id: str) -> TriggerJob:
         job = self.get_job(stage_id)
@@ -103,13 +111,19 @@ class TriggerQueue:
         Respektiert Pause/Cancel zwischen Jobs.
         """
         self._state = QueueState.RUNNING
+        self._resume_event.set()  # Sicherstellen, dass die Schranke offen ist beim Start
         ran: list[TriggerJob] = []
         for job in self._jobs:
             if self._state == QueueState.CANCELLED:
                 break
-            while self._state == QueueState.PAUSED:
-                # Caller muss resume() von aussen rufen — polling vermeiden
-                return ran
+            
+            # F-18 (B-350): Blockiert hier ohne CPU-Last (no polling), 
+            # falls pausiert, anstatt die Methode vorzeitig zu verlassen
+            # und verbleibende Jobs zu droppen.
+            self._resume_event.wait()
+            
+            if self._state == QueueState.CANCELLED:
+                break
             if job.status not in {"pending", "failed"}:
                 continue
             job.status = "running"

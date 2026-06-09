@@ -145,3 +145,33 @@ def test_status_reporter_integrates_with_orchestrator(tmp_path):
     pipe.run()
     sum_ = rep.progress_summary()
     assert sum_["done"] == 2
+
+
+def test_trigger_queue_pause_and_resume():
+    import time
+    import threading
+    from services.video_pipeline.trigger_queue import TriggerQueue, TriggerJob
+    
+    q = TriggerQueue()
+    order = []
+    
+    def run_a():
+        order.append("a")
+        q.pause()  # Pausiert die Queue nach Job a
+        
+    q.enqueue(TriggerJob("a", runner=run_a))
+    q.enqueue(TriggerJob("b", runner=lambda: order.append("b") or "B"))
+    
+    # Timer-Thread, der nach 0.1s resume() aufruft
+    t = threading.Timer(0.1, q.resume)
+    t.start()
+    
+    t0 = time.monotonic()
+    q.run_all()
+    duration = time.monotonic() - t0
+    
+    # Der Timer-Thread muss beendet sein
+    t.join()
+    
+    assert order == ["a", "b"]  # Beide Jobs müssen gelaufen sein, keiner verloren (no drops)
+    assert duration >= 0.05      # Verifiziert, dass blockiert wurde und nicht sofort zurückgekehrt wurde
