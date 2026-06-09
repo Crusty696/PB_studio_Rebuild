@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09
-next_allowed_task: OTK-010: Brain V3 / NVIDIA partial checklist follow-up, focusing only on still-open items.
+next_allowed_task: OTK-011: PB Studio Area Audit user-approved fix plan / live-verification decision.
 updated: 2026-06-09
 
 ## Meaning
@@ -68,10 +68,10 @@ C:\Brain-Bug\projects\pb-studio\wiki\decisions\D-061-offene-tasks-konsolidierung
 - OTK-008 substitute GUI verification on 2026-06-09 used existing project `test55655` after user wrote `freigegeben`. RL Notes persistence was verified across app restart/project reload. Combo-wheel protection for `cut_rate_combo` was verified by unchanged crop after hover+wheel-scroll. Notes-editor undo was verified by appending `UNDO_PROBE_2026_06_09`, pressing `Ctrl+Z`, and confirming exact original text returned. Pacing regenerate mouse-automation attempts did not show the dialog, but UIA `Invoke()` on the same visible enabled button did show the expected QMessageBox; B-474 corrected to `cannot-reproduce` as app bug. Formal Phase-12 criteria are still open because the exact audio file, fresh project, expected 103-file source set, empty/load state, lock/regenerate execution, and timeline-lock undo checks were not verified.
 - OTK-008 autonomous limit reached: formal Phase-12 completion is blocked because `Crusty Progressive Psy Set2.mp3` was not found and the available Solo_Natur folder contains 124 MP4 files instead of the plan's 103. Status remains `blocked-formal-dataset-missing-substitute-partial-pass`; no `fixed` marker.
 - OTK-009 completed on 2026-06-09. B-310 and B-313 were live-verified on `test55655`; SCHNITT timeline, thumbnails, cut list, audio metadata/stems/waveform, and sub-tab tooltip were observed. B-316..B-320 current Vault state is fixed; no remaining contradiction found.
-- OTK-010 partial follow-up on 2026-06-09: Brain V3 boot health, GpuSerializer init, EmbeddingScheduler active, Brain V3 GUI panel, Brain V3 tests, and isolated NVENC 1-frame encode verified. Still open: real parallel Brain+NVENC stress, full DJ-mix Brain/Pacing validation, PacingConfig decision.
+- OTK-010 completed on 2026-06-09. Brain V3 boot health, GpuSerializer init, EmbeddingScheduler active, Brain V3 GUI panel, Brain V3 tests, isolated NVENC 1-frame encode, existing B-276 Brain+NVENC serializer evidence, adopted D-035 Pacing decision, and B-370 GUI Auto-Edit with Studio-Brain flag on `test55655` were verified. GUI Auto-Edit produced 767 segments / 767 cuts and 1447 `mem_decision` rows.
 
 ## Current Next Task
 
 ```text
-OTK-010: Brain V3 / NVIDIA partial checklist follow-up, focusing only on still-open items.
+OTK-011: PB Studio Area Audit user-approved fix plan / live-verification decision.
 ```
