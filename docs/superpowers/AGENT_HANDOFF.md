@@ -25,7 +25,7 @@ This file is a repository-local continuity checkpoint for all agents.
 - **OTK-011:** Completed on 2026-06-09 as decision/transfer task. Original area audit completed all 10 audit areas and final synthesis; user-approved follow-up fixplan already exists as `PB-STUDIO-AREA-AUDIT-FIXPLAN-2026-05-25`. Remaining B-348..B-430 fix/live work is tracked as OTK-007.
 - **OTK-012:** Completed on 2026-06-09 as decision/transfer task. Full project file audit completed as read-only static audit; user-approved follow-up fixplan exists as `PB-STUDIO-FULL-AUDIT-FIXPLAN-2026-05-31` via D-055. Remaining fixplan work is tracked as OTK-005.
 - **OTK-013:** Completed on 2026-06-09 as decision/transfer task. Conflict-quality audit completed as static audit; user decision exists as D-058 for FFmpeg resolver fix CQ-004/CQ-005. That follow-up was transferred to OTK-004 and live-verified there. No new broad fixplan was invented for candidate-only findings.
-- **Next task:** `OTK-006: B-439/B-440 App-Workflow-Live-Verify.`
+- **Next task:** `OTK-016: Verify open bugs B-327, B-331, B-332, B-197, B-198, B-265.`
 
 ## Current Protocol
 
@@ -76,7 +76,7 @@ PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09
 Current next task:
 
 ```text
-OTK-006: B-439/B-440 App-Workflow-Live-Verify.
+OTK-016: Verify open bugs B-327, B-331, B-332, B-197, B-198, B-265.
 ```
 
 Current OTK-003 status:

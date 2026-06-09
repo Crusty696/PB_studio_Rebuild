@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09
-next_allowed_task: OTK-006: B-439/B-440 App-Workflow-Live-Verify.
+next_allowed_task: OTK-016: Verify open bugs B-327, B-331, B-332, B-197, B-198, B-265.
 updated: 2026-06-09
 
 ## Meaning
