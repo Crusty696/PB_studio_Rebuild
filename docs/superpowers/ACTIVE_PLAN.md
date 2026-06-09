@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09
-next_allowed_task: OTK-014/B-346: F-14 FrameExtractWorker masks RuntimeError/MemoryError path as finished.
+next_allowed_task: OTK-014/B-350: F-18 Trigger queue pause returns mid-loop and drops remaining jobs.
 updated: 2026-06-09
 
 ## Meaning
