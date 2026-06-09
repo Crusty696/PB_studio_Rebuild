@@ -1,0 +1,183 @@
+{
+  "ok": true,
+  "elapsed_sec": 35.53,
+  "completed": 7,
+  "failed": 0,
+  "stage_results": [
+    {
+      "stage_id": "proxy_gen",
+      "status": "done",
+      "error": null
+    },
+    {
+      "stage_id": "scene_detect",
+      "status": "done",
+      "error": null
+    },
+    {
+      "stage_id": "keyframe_extract",
+      "status": "done",
+      "error": null
+    },
+    {
+      "stage_id": "siglip_embed",
+      "status": "done",
+      "error": null
+    },
+    {
+      "stage_id": "raft_motion",
+      "status": "done",
+      "error": null
+    },
+    {
+      "stage_id": "vlm_caption",
+      "status": "done",
+      "error": null
+    },
+    {
+      "stage_id": "cross_modal",
+      "status": "done",
+      "error": null
+    }
+  ],
+  "measurements": [
+    {
+      "label": "baseline",
+      "allocated_mb": 0.0,
+      "reserved_mb": 0.0,
+      "max_reserved_mb": 0.0
+    },
+    {
+      "label": "start_proxy_gen",
+      "allocated_mb": 0.0,
+      "reserved_mb": 0.0,
+      "max_reserved_mb": 0.0
+    },
+    {
+      "label": "before_unload_proxy_gen",
+      "allocated_mb": 0.0,
+      "reserved_mb": 0.0,
+      "max_reserved_mb": 0.0
+    },
+    {
+      "label": "after_unload_proxy_gen",
+      "allocated_mb": 0.0,
+      "reserved_mb": 0.0,
+      "max_reserved_mb": 0.0
+    },
+    {
+      "label": "start_scene_detect",
+      "allocated_mb": 0.0,
+      "reserved_mb": 0.0,
+      "max_reserved_mb": 0.0
+    },
+    {
+      "label": "before_unload_scene_detect",
+      "allocated_mb": 0.0,
+      "reserved_mb": 0.0,
+      "max_reserved_mb": 0.0
+    },
+    {
+      "label": "after_unload_scene_detect",
+      "allocated_mb": 0.0,
+      "reserved_mb": 0.0,
+      "max_reserved_mb": 0.0
+    },
+    {
+      "label": "start_keyframe_extract",
+      "allocated_mb": 0.0,
+      "reserved_mb": 0.0,
+      "max_reserved_mb": 0.0
+    },
+    {
+      "label": "before_unload_keyframe_extract",
+      "allocated_mb": 0.0,
+      "reserved_mb": 0.0,
+      "max_reserved_mb": 0.0
+    },
+    {
+      "label": "after_unload_keyframe_extract",
+      "allocated_mb": 0.0,
+      "reserved_mb": 0.0,
+      "max_reserved_mb": 0.0
+    },
+    {
+      "label": "start_siglip_embed",
+      "allocated_mb": 0.0,
+      "reserved_mb": 0.0,
+      "max_reserved_mb": 0.0
+    },
+    {
+      "label": "before_unload_siglip_embed",
+      "allocated_mb": 1723.6,
+      "reserved_mb": 1932.0,
+      "max_reserved_mb": 3894.0
+    },
+    {
+      "label": "after_unload_siglip_embed",
+      "allocated_mb": 0.0,
+      "reserved_mb": 0.0,
+      "max_reserved_mb": 3894.0
+    },
+    {
+      "label": "start_raft_motion",
+      "allocated_mb": 0.0,
+      "reserved_mb": 0.0,
+      "max_reserved_mb": 3894.0
+    },
+    {
+      "label": "before_unload_raft_motion",
+      "allocated_mb": 4.2,
+      "reserved_mb": 6.0,
+      "max_reserved_mb": 3894.0
+    },
+    {
+      "label": "after_unload_raft_motion",
+      "allocated_mb": 0.0,
+      "reserved_mb": 0.0,
+      "max_reserved_mb": 3894.0
+    },
+    {
+      "label": "start_vlm_caption",
+      "allocated_mb": 0.0,
+      "reserved_mb": 0.0,
+      "max_reserved_mb": 3894.0
+    },
+    {
+      "label": "before_unload_vlm_caption",
+      "allocated_mb": 0.0,
+      "reserved_mb": 0.0,
+      "max_reserved_mb": 3894.0
+    },
+    {
+      "label": "after_unload_vlm_caption",
+      "allocated_mb": 0.0,
+      "reserved_mb": 0.0,
+      "max_reserved_mb": 3894.0
+    },
+    {
+      "label": "start_cross_modal",
+      "allocated_mb": 0.0,
+      "reserved_mb": 0.0,
+      "max_reserved_mb": 3894.0
+    },
+    {
+      "label": "before_unload_cross_modal",
+      "allocated_mb": 0.0,
+      "reserved_mb": 0.0,
+      "max_reserved_mb": 3894.0
+    },
+    {
+      "label": "after_unload_cross_modal",
+      "allocated_mb": 0.0,
+      "reserved_mb": 0.0,
+      "max_reserved_mb": 3894.0
+    },
+    {
+      "label": "final_cleanup",
+      "allocated_mb": 0.0,
+      "reserved_mb": 0.0,
+      "max_reserved_mb": 3894.0
+    }
+  ]
+}

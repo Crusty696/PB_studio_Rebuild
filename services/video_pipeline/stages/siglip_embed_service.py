@@ -82,9 +82,23 @@ class SigLipEmbedService:
         return arr
 
     def unload(self) -> None:
-        """Gibt nur die lokalen Referenzen frei. Das Modell selbst gehoert dem
-        ModelManager und wird von ihm verwaltet (Single-Model-Swap) — wir
-        zerstoeren es hier NICHT, sonst muessten Enrichment/VectorDB es neu laden.
+        """Gibt lokale Referenzen und das passende ModelManager-SigLIP frei.
+
+        B-333: Die Video-Pipeline ruft Stage-``unload()`` nach jedem GPU-Stage
+        auf, damit SigLIP vor RAFT wieder VRAM freigibt. Der ModelManager wird
+        nur entladen, wenn sein Hauptslot exakt dieses SigLIP haelt; andere
+        aktuell geladene Hauptmodelle bleiben unberuehrt.
         """
+        if self._model is None and self._processor is None:
+            return
+
         self._model = None
         self._processor = None
+        from services.model_manager import ModelManager
+
+        manager = ModelManager()
+        if (
+            getattr(manager, "current_model_id", None) == self.model_id
+            and getattr(manager, "model_type", None) == "siglip"
+        ):
+            manager.unload()

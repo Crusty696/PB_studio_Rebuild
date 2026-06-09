@@ -61,6 +61,56 @@ def test_siglip_service_unload_idempotent():
     assert svc.is_loaded is False
 
 
+def test_siglip_service_unload_releases_matching_model_manager_siglip(monkeypatch):
+    from services.video_pipeline.stages.siglip_embed_service import SigLipEmbedService
+
+    class _FakeModelManager:
+        current_model_id = "google/siglip-so400m-patch14-384"
+        model_type = "siglip"
+
+        def __init__(self):
+            self.unload_calls = 0
+
+        def unload(self):
+            self.unload_calls += 1
+
+    fake = _FakeModelManager()
+    monkeypatch.setattr("services.model_manager.ModelManager", lambda: fake)
+
+    svc = SigLipEmbedService()
+    svc._model = object()
+    svc._processor = object()
+    svc.unload()
+
+    assert svc.is_loaded is False
+    assert fake.unload_calls == 1
+
+
+def test_siglip_service_unload_keeps_non_matching_model_manager_model(monkeypatch):
+    from services.video_pipeline.stages.siglip_embed_service import SigLipEmbedService
+
+    class _FakeModelManager:
+        current_model_id = "other-model"
+        model_type = "siglip"
+
+        def __init__(self):
+            self.unload_calls = 0
+
+        def unload(self):
+            self.unload_calls += 1
+
+    fake = _FakeModelManager()
+    monkeypatch.setattr("services.model_manager.ModelManager", lambda: fake)
+
+    svc = SigLipEmbedService()
+    svc._model = object()
+    svc._processor = object()
+    svc.unload()
+
+    assert svc.is_loaded is False
+    assert fake.unload_calls == 0
+
+
 @pytest.mark.live_gpu
 def test_siglip_live_embed_batch():
     """Slow: laedt echtes SigLIP-Modell auf GPU (~600MB VRAM)."""

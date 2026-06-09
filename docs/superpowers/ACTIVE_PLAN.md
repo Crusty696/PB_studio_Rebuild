@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09
-next_allowed_task: OTK-014: PB Studio Bugfix phase order F-1..F-30 / B-333..B-362.
+next_allowed_task: OTK-014/B-334: F-2 gpu_lock_aware gate not used by stages/orchestrator.
 updated: 2026-06-09
 
 ## Meaning
@@ -72,9 +72,10 @@ C:\Brain-Bug\projects\pb-studio\wiki\decisions\D-061-offene-tasks-konsolidierung
 - OTK-011 completed on 2026-06-09 as decision/transfer task. `PB-STUDIO-AREA-AUDIT-2026-05-24` completed all 10 audit areas and final synthesis; user-approved follow-up fixplan already exists as `PB-STUDIO-AREA-AUDIT-FIXPLAN-2026-05-25`. Remaining B-348..B-430 fix/live work is tracked as OTK-007.
 - OTK-012 completed on 2026-06-09 as decision/transfer task. Full project file audit completed as read-only static audit; user-approved follow-up fixplan exists as `PB-STUDIO-FULL-AUDIT-FIXPLAN-2026-05-31` via D-055. Remaining fixplan work is tracked as OTK-005.
 - OTK-013 completed on 2026-06-09 as decision/transfer task. Conflict-quality audit completed as static audit; user decision exists as D-058 for FFmpeg resolver fix CQ-004/CQ-005. That follow-up was transferred to OTK-004 and live-verified there. No new broad fixplan was invented for candidate-only findings.
+- OTK-014/B-333 completed on 2026-06-09. Root-cause follow-up fixed SigLIP `ModelManager` residency during stage unload. Unit tests passed and real GTX-1060/CUDA pipeline showed SigLIP allocated VRAM dropping from 1723.6 MB before unload to 0.0 MB after unload; RAFT started at 0.0 MB allocated. B-333 marked fixed. OTK-014 remains open; next finding is F-2/B-334.
 
 ## Current Next Task
 
 ```text
-OTK-014: PB Studio Bugfix phase order F-1..F-30 / B-333..B-362.
+OTK-014/B-334: F-2 gpu_lock_aware gate not used by stages/orchestrator.
 ```
