@@ -406,6 +406,27 @@ def test_scorer_returns_scored_candidate(store: WeightStore):
     assert len(res.brain_v3_scores) == 17
 
 
+def test_scorer_normalizes_by_weight_sum_not_axis_count():
+    from services.brain_v3.cold_start import BRIDGE_AXES
+
+    primary_axis = BRIDGE_AXES[0]
+
+    class _Bridge:
+        def compute(self, axis, candidate, cut_context):
+            return 1.0 if axis == primary_axis else 0.0
+
+    class _Weights:
+        def get_posterior_mean(self, axis, keys):
+            return 10.0 if axis == primary_axis else 0.0
+
+    sc = Scorer(_Bridge(), _Weights())
+    cand = ClipCandidate(clip_id="c1", duration_s=2.0, motion_score=0.6)
+
+    res = sc.score(cand, CutContext())
+
+    assert res.final_score == 1.0
+
+
 def test_scorer_score_all_sorts_descending(store: WeightStore):
     sc = Scorer(BridgeDimensions(), store)
     cands = [

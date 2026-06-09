@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09
-next_allowed_task: OTK-014/B-335: F-3 Brain V3 scorer divides by constant count instead of sum of weights.
+next_allowed_task: OTK-014/B-336: F-4 ModelManager forces torch.float16 on non-CPU devices, risky on Pascal.
 updated: 2026-06-09
 
 ## Meaning
@@ -74,9 +74,10 @@ C:\Brain-Bug\projects\pb-studio\wiki\decisions\D-061-offene-tasks-konsolidierung
 - OTK-013 completed on 2026-06-09 as decision/transfer task. Conflict-quality audit completed as static audit; user decision exists as D-058 for FFmpeg resolver fix CQ-004/CQ-005. That follow-up was transferred to OTK-004 and live-verified there. No new broad fixplan was invented for candidate-only findings.
 - OTK-014/B-333 completed on 2026-06-09. Root-cause follow-up fixed SigLIP `ModelManager` residency during stage unload. Unit tests passed and real GTX-1060/CUDA pipeline showed SigLIP allocated VRAM dropping from 1723.6 MB before unload to 0.0 MB after unload; RAFT started at 0.0 MB allocated. B-333 marked fixed. OTK-014 remains open; next finding is F-2/B-334.
 - OTK-014/B-334 completed on 2026-06-09. Contract tests proved SigLIP/RAFT stages use `gpu_serializer` and `gpu_lock_aware` primitive still behaves; live GTX-1060/CUDA video pipeline e2e passed 3 tests. B-334 marked fixed. OTK-014 remains open; next finding is F-3/B-335.
+- OTK-014/B-335 completed on 2026-06-09. Missing Vault bugfile was created. Existing scorer code already normalized by `weight_sum`; new regression test proves the formula. Brain V3 core tests passed 43 tests. B-335 marked fixed. OTK-014 remains open; next finding is F-4/B-336.
 
 ## Current Next Task
 
 ```text
-OTK-014/B-335: F-3 Brain V3 scorer divides by constant count instead of sum of weights.
+OTK-014/B-336: F-4 ModelManager forces torch.float16 on non-CPU devices, risky on Pascal.
 ```
