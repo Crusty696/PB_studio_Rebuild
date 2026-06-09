@@ -47,6 +47,7 @@ def test_enabled_schnitt_controls_have_tooltips_and_button_accessible_names():
     sub_tabs = workspace.editor_view.sub_tabs
     for tab_index in range(sub_tabs.count()):
         tab_name = sub_tabs.tabText(tab_index)
+        assert sub_tabs.tabToolTip(tab_index).strip(), f"{tab_name}: missing tab tooltip"
         sub_tabs.setCurrentIndex(tab_index)
         QApplication.processEvents()
 

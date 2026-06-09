@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09
-next_allowed_task: OTK-009: SCHNITT Usability Wiring Rebuild contradiction check and remaining live verification only where current vault state still contradicts.
+next_allowed_task: OTK-010: Brain V3 / NVIDIA partial checklist follow-up, focusing only on still-open items.
 updated: 2026-06-09
 
 ## Meaning
@@ -67,9 +67,10 @@ C:\Brain-Bug\projects\pb-studio\wiki\decisions\D-061-offene-tasks-konsolidierung
 - User gave broad release to continue/status workflows. OTK-004 missing import/live resolver path was executed autonomously through GUI: Video import dialog, 1 MP4 selected, FolderImport and BrainV3Hashing finished, no checked Traceback/ERROR/resolver failure. OTK-004 marked `fixed`.
 - OTK-008 substitute GUI verification on 2026-06-09 used existing project `test55655` after user wrote `freigegeben`. RL Notes persistence was verified across app restart/project reload. Combo-wheel protection for `cut_rate_combo` was verified by unchanged crop after hover+wheel-scroll. Notes-editor undo was verified by appending `UNDO_PROBE_2026_06_09`, pressing `Ctrl+Z`, and confirming exact original text returned. Pacing regenerate mouse-automation attempts did not show the dialog, but UIA `Invoke()` on the same visible enabled button did show the expected QMessageBox; B-474 corrected to `cannot-reproduce` as app bug. Formal Phase-12 criteria are still open because the exact audio file, fresh project, expected 103-file source set, empty/load state, lock/regenerate execution, and timeline-lock undo checks were not verified.
 - OTK-008 autonomous limit reached: formal Phase-12 completion is blocked because `Crusty Progressive Psy Set2.mp3` was not found and the available Solo_Natur folder contains 124 MP4 files instead of the plan's 103. Status remains `blocked-formal-dataset-missing-substitute-partial-pass`; no `fixed` marker.
+- OTK-009 completed on 2026-06-09. B-310 and B-313 were live-verified on `test55655`; SCHNITT timeline, thumbnails, cut list, audio metadata/stems/waveform, and sub-tab tooltip were observed. B-316..B-320 current Vault state is fixed; no remaining contradiction found.
 
 ## Current Next Task
 
 ```text
-OTK-009: SCHNITT Usability Wiring Rebuild contradiction check and remaining live verification only where current vault state still contradicts.
+OTK-010: Brain V3 / NVIDIA partial checklist follow-up, focusing only on still-open items.
 ```

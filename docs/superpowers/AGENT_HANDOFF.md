@@ -20,7 +20,8 @@ This file is a repository-local continuity checkpoint for all agents.
 - **OTK-004:** User gave broad release, then agent executed missing GUI import/live resolver path. Video import dialog opened, 1 MP4 selected, FolderImport and BrainV3Hashing finished, media table stayed populated, no checked Traceback/ERROR/resolver failure. OTK-004 marked `fixed`.
 - **OTK-008:** User selected `test55655` and wrote `freigegeben`. Agent ran substitute GUI verification on existing project `test55655`: SCHNITT opened, RL Notes text was written, app restarted, project reopened, and the same RL Notes text was still present. Agent also checked `cut_rate_combo` wheel protection by hover+wheel-scroll; combo crop stayed pixel-identical (`diff_sum=0.0`). Notes-editor undo also passed: suffix appended, `Ctrl+Z`, exact original text returned. Pacing regenerate mouse-automation attempts did not show the dialog, but UIA `Invoke()` on the same visible enabled button showed the expected QMessageBox; B-474 corrected to `cannot-reproduce` as app bug. Evidence: `test_reports/live_autonomous_20260609_otk008_rl_notes_after_reload.png`, `test_reports/live_autonomous_20260609_otk008_cut_rate_after_wheel.png`, `test_reports/live_autonomous_20260609_otk008_undo_notes_after_ctrlz.png`, `test_reports/live_autonomous_20260609_otk008_regenerate_dialog_invoke.png`; repo synthesis `docs/superpowers/synthesis/functional-test-otk008-test55655-substitute-2026-06-09.md`. Honest status: partial substitute verification only; formal Phase-12 criteria still open, so no `fixed` marker.
 - **OTK-008 autonomous limit:** Formal Phase-12 completion is blocked because `Crusty Progressive Psy Set2.mp3` was not found and the available Solo_Natur folder contains 124 MP4 files instead of the plan's 103. Substitute checks passed only for `test55655` navigation, RL Notes persistence, combo-wheel protection, notes-editor undo, and regenerate dialog via UIA Invoke. No `fixed` marker.
-- **Next task:** `OTK-009: SCHNITT Usability Wiring Rebuild contradiction check and remaining live verification only where current vault state still contradicts.`
+- **OTK-009:** Completed on 2026-06-09. B-310 and B-313 live-verified on `test55655`; SCHNITT timeline, thumbnails, cut list, audio metadata/stems/waveform, and sub-tab tooltip were observed. B-316..B-320 current Vault state is fixed; no remaining contradiction found.
+- **Next task:** `OTK-010: Brain V3 / NVIDIA partial checklist follow-up, focusing only on still-open items.`
 
 ## Current Protocol
 
@@ -71,7 +72,7 @@ PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09
 Current next task:
 
 ```text
-OTK-009: SCHNITT Usability Wiring Rebuild contradiction check and remaining live verification only where current vault state still contradicts.
+OTK-010: Brain V3 / NVIDIA partial checklist follow-up, focusing only on still-open items.
 ```
 
 Current OTK-003 status:
@@ -101,7 +102,7 @@ partial-substitute-live-verification-formal-open: `test55655` SCHNITT/RL Notes p
 Current OTK-009 status:
 
 ```text
-next: contradiction check against current vault state. Do not assume B-316..B-320 need work unless current vault still contradicts them.
+fixed: contradiction check found B-316..B-320 current fixed; B-310/B-313 live-verified on test55655 and marked fixed.
 ```
 
 ## Consolidated Open Work
