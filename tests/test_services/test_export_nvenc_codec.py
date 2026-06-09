@@ -71,3 +71,42 @@ def test_run_ffmpeg_serializes_only_nvenc(monkeypatch):
     es._run_ffmpeg(["ffmpeg", "-c:v", "libx264", "out.mp4"])
     assert calls["acquired"] == 1  # libx264 holt KEINEN GPU-Lock
     assert calls["impl"] == 2
+
+
+def test_preprocess_segment_uses_video_encode_args(monkeypatch, tmp_path):
+    """B-339: Preprocess darf keinen hardcodierten libx264-Command bauen."""
+    commands = []
+    source = tmp_path / "source.mp4"
+    source.write_bytes(b"dummy")
+
+    monkeypatch.setattr(
+        es,
+        "_video_encode_args",
+        lambda: ["-c:v", "h264_nvenc", "-preset", "p4"],
+    )
+    monkeypatch.setattr(
+        es,
+        "_run_ffmpeg",
+        lambda cmd, **kwargs: commands.append(cmd),
+    )
+
+    temp_files = []
+    es._preprocess_segment(
+        {
+            "path": str(source),
+            "start": 0.0,
+            "end": 1.0,
+            "source_start": 0.0,
+            "source_duration": 1.0,
+        },
+        index=1,
+        w="1920",
+        h="1080",
+        fps=30.0,
+        temp_files=temp_files,
+    )
+
+    assert commands
+    assert "-c:v" in commands[0]
+    assert commands[0][commands[0].index("-c:v") + 1] == "h264_nvenc"
+    assert "libx264" not in commands[0]

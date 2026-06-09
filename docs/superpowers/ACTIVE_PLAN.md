@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09
-next_allowed_task: OTK-014/B-339: F-7 Export/preprocess hardcode libx264; no NVENC.
+next_allowed_task: OTK-014/B-340: F-8 Video embedder can skip bad frame and shift scene/embedding pairing.
 updated: 2026-06-09
 
 ## Meaning
@@ -78,9 +78,10 @@ C:\Brain-Bug\projects\pb-studio\wiki\decisions\D-061-offene-tasks-konsolidierung
 - OTK-014/B-336 completed on 2026-06-09. Guard tests passed 15 tests. GTX-1060 SigLIP precision benchmark showed fp16 has no NaN/Inf and uses 1.805 GB peak alloc vs fp32 3.440 GB. Existing fp16 + NaN-Guard + fp32-Fallback policy is verified. B-336 marked fixed. OTK-014 remains open; next finding is F-5/B-337.
 - OTK-014/B-337 completed on 2026-06-09. Live GUI opened `test55655`, loaded SCHNITT, selected first timeline clip, and confirmed ClipInspector effect controls visible: brightness, contrast, crossfade. B-337 marked fixed. OTK-014 remains open; next finding is F-6/B-338.
 - OTK-014/B-338 completed on 2026-06-09. Live GUI showed Material/Analyse Preflight format controls, selected 3840x2160/50fps/H.265, clicked standardize button, and verified controller created worker args `3840x2160`, `50`, `hevc_nvenc`, `.mp4`. B-338 marked fixed. OTK-014 remains open; next finding is F-7/B-339.
+- OTK-014/B-339 completed on 2026-06-09. Regression tests passed and a real `_preprocess_segment()` FFmpeg run produced output with command codec `h264_nvenc`, not `libx264`. Missing Vault bugfile was created. B-339 marked fixed. OTK-014 remains open; next finding is F-8/B-340.
 
 ## Current Next Task
 
 ```text
-OTK-014/B-339: F-7 Export/preprocess hardcode libx264; no NVENC.
+OTK-014/B-340: F-8 Video embedder can skip bad frame and shift scene/embedding pairing.
 ```
