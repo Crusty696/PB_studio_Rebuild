@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09
-next_allowed_task: OTK-003: B-471 Timeline usability recovery; autonomous GUI verification PASS, fixed marker pending explicit user status decision.
+next_allowed_task: OTK-004: FFmpeg resolver / media grid / ingest; partial autonomous GUI PASS, new import/live resolver path still open.
 updated: 2026-06-09
 
 ## Meaning
@@ -63,9 +63,10 @@ C:\Brain-Bug\projects\pb-studio\wiki\decisions\D-061-offene-tasks-konsolidierung
   - OTK-008 PASS for GUI navigation: Pacing/Anker, Audio, RL Notes, and Schnitt tabs opened.
   - Evidence saved in `test_reports/live_autonomous_20260609_*.png` and Vault synthesis `functional-test-otk-autonomous-gui-2026-06-09.md`.
 - User explicitly approved OTK-020/B-473 `fixed` marker on 2026-06-09.
+- User explicitly approved OTK-003/B-471 `fixed` marker on 2026-06-09.
 
 ## Current Next Task
 
 ```text
-OTK-003: B-471 Timeline usability recovery; autonomous GUI verification PASS, fixed marker pending explicit user status decision.
+OTK-004: FFmpeg resolver / media grid / ingest; partial autonomous GUI PASS, new import/live resolver path still open.
 ```
