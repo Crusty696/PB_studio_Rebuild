@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09
-next_allowed_task: OTK-014/B-340: F-8 Video embedder can skip bad frame and shift scene/embedding pairing.
+next_allowed_task: OTK-014/B-341: F-9 Standalone stems workspace created but not added.
 updated: 2026-06-09
 
 ## Meaning
@@ -79,9 +79,10 @@ C:\Brain-Bug\projects\pb-studio\wiki\decisions\D-061-offene-tasks-konsolidierung
 - OTK-014/B-337 completed on 2026-06-09. Live GUI opened `test55655`, loaded SCHNITT, selected first timeline clip, and confirmed ClipInspector effect controls visible: brightness, contrast, crossfade. B-337 marked fixed. OTK-014 remains open; next finding is F-6/B-338.
 - OTK-014/B-338 completed on 2026-06-09. Live GUI showed Material/Analyse Preflight format controls, selected 3840x2160/50fps/H.265, clicked standardize button, and verified controller created worker args `3840x2160`, `50`, `hevc_nvenc`, `.mp4`. B-338 marked fixed. OTK-014 remains open; next finding is F-7/B-339.
 - OTK-014/B-339 completed on 2026-06-09. Regression tests passed and a real `_preprocess_segment()` FFmpeg run produced output with command codec `h264_nvenc`, not `libx264`. Missing Vault bugfile was created. B-339 marked fixed. OTK-014 remains open; next finding is F-8/B-340.
+- OTK-014/B-340 completed on 2026-06-09. Missing Vault bugfile was created. Existing video embedder keeps scene/frame alignment by returning `kept_scenes` from `_sample_frames()` and zipping embeddings with those kept scenes. Regression tests passed. B-340 marked fixed. OTK-014 remains open; next finding is F-9/B-341.
 
 ## Current Next Task
 
 ```text
-OTK-014/B-340: F-8 Video embedder can skip bad frame and shift scene/embedding pairing.
+OTK-014/B-341: F-9 Standalone stems workspace created but not added.
 ```
