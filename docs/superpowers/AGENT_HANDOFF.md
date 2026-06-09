@@ -21,7 +21,8 @@ This file is a repository-local continuity checkpoint for all agents.
 - **OTK-008:** User selected `test55655` and wrote `freigegeben`. Agent ran substitute GUI verification on existing project `test55655`: SCHNITT opened, RL Notes text was written, app restarted, project reopened, and the same RL Notes text was still present. Agent also checked `cut_rate_combo` wheel protection by hover+wheel-scroll; combo crop stayed pixel-identical (`diff_sum=0.0`). Notes-editor undo also passed: suffix appended, `Ctrl+Z`, exact original text returned. Pacing regenerate mouse-automation attempts did not show the dialog, but UIA `Invoke()` on the same visible enabled button showed the expected QMessageBox; B-474 corrected to `cannot-reproduce` as app bug. Evidence: `test_reports/live_autonomous_20260609_otk008_rl_notes_after_reload.png`, `test_reports/live_autonomous_20260609_otk008_cut_rate_after_wheel.png`, `test_reports/live_autonomous_20260609_otk008_undo_notes_after_ctrlz.png`, `test_reports/live_autonomous_20260609_otk008_regenerate_dialog_invoke.png`; repo synthesis `docs/superpowers/synthesis/functional-test-otk008-test55655-substitute-2026-06-09.md`. Honest status: partial substitute verification only; formal Phase-12 criteria still open, so no `fixed` marker.
 - **OTK-008 autonomous limit:** Formal Phase-12 completion is blocked because `Crusty Progressive Psy Set2.mp3` was not found and the available Solo_Natur folder contains 124 MP4 files instead of the plan's 103. Substitute checks passed only for `test55655` navigation, RL Notes persistence, combo-wheel protection, notes-editor undo, and regenerate dialog via UIA Invoke. No `fixed` marker.
 - **OTK-009:** Completed on 2026-06-09. B-310 and B-313 live-verified on `test55655`; SCHNITT timeline, thumbnails, cut list, audio metadata/stems/waveform, and sub-tab tooltip were observed. B-316..B-320 current Vault state is fixed; no remaining contradiction found.
-- **Next task:** `OTK-010: Brain V3 / NVIDIA partial checklist follow-up, focusing only on still-open items.`
+- **OTK-010:** Partial follow-up on 2026-06-09. Brain V3 boot health, GpuSerializer init, EmbeddingScheduler active, Brain V3 GUI panel, Brain V3 tests (`37 passed`), and isolated NVENC 1-frame encode verified. Still open: real parallel Brain+NVENC stress, full DJ-mix Brain/Pacing validation, PacingConfig decision.
+- **Next task:** `OTK-010: continue only the remaining Brain V3/NVIDIA open items, or move on only if these are explicitly accepted as deferred.`
 
 ## Current Protocol
 
@@ -72,7 +73,7 @@ PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09
 Current next task:
 
 ```text
-OTK-010: Brain V3 / NVIDIA partial checklist follow-up, focusing only on still-open items.
+OTK-010: continue only the remaining Brain V3/NVIDIA open items, or move on only if these are explicitly accepted as deferred.
 ```
 
 Current OTK-003 status:
