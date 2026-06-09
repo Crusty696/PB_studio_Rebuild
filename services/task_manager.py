@@ -413,8 +413,15 @@ class GlobalTaskManager(QObject):
         with self._tasks_lock:
             if task_id in self._tasks:
                 t = self._tasks[task_id]
-                t.status = status
-                t.message = message
+                # B-466: Ein kooperativer Abbruch ist terminal. Der Worker laeuft
+                # nach cancel_task() oft noch normal zu Ende und meldet dann ueber
+                # seinen on_finish-Handler "finished" — das darf den bereits
+                # gesetzten "cancelled"-Status NICHT ueberschreiben, sonst zeigt
+                # das TASKS-Panel "Fertig" statt "Abgebrochen". Fehler/andere
+                # Status duerfen weiterhin gesetzt werden.
+                if not (t.status == "cancelled" and status == "finished"):
+                    t.status = status
+                    t.message = message
         self.task_finished.emit(task_id)
 
     def unload_in_background(self):
