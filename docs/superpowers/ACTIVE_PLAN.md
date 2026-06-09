@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09
-next_allowed_task: OTK-014/B-342: F-10 StartupCheckWorker/QThread cleanup missing on quit branch.
+next_allowed_task: OTK-014/B-343: F-11 Completion listener registered without unregister.
 updated: 2026-06-09
 
 ## Meaning
@@ -81,9 +81,10 @@ C:\Brain-Bug\projects\pb-studio\wiki\decisions\D-061-offene-tasks-konsolidierung
 - OTK-014/B-339 completed on 2026-06-09. Regression tests passed and a real `_preprocess_segment()` FFmpeg run produced output with command codec `h264_nvenc`, not `libx264`. Missing Vault bugfile was created. B-339 marked fixed. OTK-014 remains open; next finding is F-8/B-340.
 - OTK-014/B-340 completed on 2026-06-09. Missing Vault bugfile was created. Existing video embedder keeps scene/frame alignment by returning `kept_scenes` from `_sample_frames()` and zipping embeddings with those kept scenes. Regression tests passed. B-340 marked fixed. OTK-014 remains open; next finding is F-9/B-341.
 - OTK-014/B-341 completed on 2026-06-09. Current Vault state was already `cannot-reproduce` as reachability bug because SCHNITT Audio owns the reachable stem workspace. UI tests passed and confirmed 4-workspace stack plus SCHNITT Audio `stem_workspace`. No product code changed. OTK-014 remains open; next finding is F-10/B-342.
+- OTK-014/B-342 completed on 2026-06-09. Missing Vault bugfile was created. Existing startup path quits `_startup_check_thread` on both dialog-exit and success branches and connects thread `finished` to worker/thread `deleteLater`. Regression test passed. B-342 marked fixed. OTK-014 remains open; next finding is F-11/B-343.
 
 ## Current Next Task
 
 ```text
-OTK-014/B-342: F-10 StartupCheckWorker/QThread cleanup missing on quit branch.
+OTK-014/B-343: F-11 Completion listener registered without unregister.
 ```
