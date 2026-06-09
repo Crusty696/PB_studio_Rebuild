@@ -22,7 +22,8 @@ This file is a repository-local continuity checkpoint for all agents.
 - **OTK-008 autonomous limit:** Formal Phase-12 completion is blocked because `Crusty Progressive Psy Set2.mp3` was not found and the available Solo_Natur folder contains 124 MP4 files instead of the plan's 103. Substitute checks passed only for `test55655` navigation, RL Notes persistence, combo-wheel protection, notes-editor undo, and regenerate dialog via UIA Invoke. No `fixed` marker.
 - **OTK-009:** Completed on 2026-06-09. B-310 and B-313 live-verified on `test55655`; SCHNITT timeline, thumbnails, cut list, audio metadata/stems/waveform, and sub-tab tooltip were observed. B-316..B-320 current Vault state is fixed; no remaining contradiction found.
 - **OTK-010:** Fixed on 2026-06-09 for masterplan scope. Brain V3 boot health, GpuSerializer init, EmbeddingScheduler active, Brain V3 GUI panel, Brain V3 tests (`37 passed`), isolated NVENC 1-frame encode, existing B-276 Brain+NVENC serializer live evidence, adopted D-035 Pacing decision, and B-370 GUI Auto-Edit with Studio-Brain flag were verified. GUI Auto-Edit on `test55655` produced 767 segments / 767 cuts and 1447 `mem_decision` rows.
-- **Next task:** `OTK-011: PB Studio Area Audit user-approved fix plan / live-verification decision.`
+- **OTK-011:** Completed on 2026-06-09 as decision/transfer task. Original area audit completed all 10 audit areas and final synthesis; user-approved follow-up fixplan already exists as `PB-STUDIO-AREA-AUDIT-FIXPLAN-2026-05-25`. Remaining B-348..B-430 fix/live work is tracked as OTK-007.
+- **Next task:** `OTK-012: PB Studio Full Project File Audit user decision for any fix or verification plan.`
 
 ## Current Protocol
 
@@ -73,7 +74,7 @@ PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09
 Current next task:
 
 ```text
-OTK-011: PB Studio Area Audit user-approved fix plan / live-verification decision.
+OTK-012: PB Studio Full Project File Audit user decision for any fix or verification plan.
 ```
 
 Current OTK-003 status:
