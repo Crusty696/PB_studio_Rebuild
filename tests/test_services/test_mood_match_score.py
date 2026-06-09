@@ -41,6 +41,16 @@ def test_dim_mismatch_raises():
         compute_mood_match_score(a, b)
 
 
+def test_b344_siglip2_768_vs_legacy_1152_dim_mismatch_raises():
+    """B-344: 768-dim Brain-V3 vectors must not be scored against 1152 anchors."""
+    import pytest
+    legacy_mood_anchor = np.zeros(1152, dtype=np.float32)
+    siglip2_video_embedding = np.zeros(768, dtype=np.float32)
+
+    with pytest.raises(ValueError, match="dim mismatch"):
+        compute_mood_match_score(legacy_mood_anchor, siglip2_video_embedding)
+
+
 def test_bounded_zero_one():
     rng = np.random.default_rng(0)
     for _ in range(20):
