@@ -28,6 +28,25 @@ def test_workspace_setup_wires_cockpit_actions_and_completion_refresh():
     assert "unregister_completion_listener" in source
 
 
+def test_b343_completion_listeners_unregister_on_window_teardown():
+    workspace_setup = (ROOT / "ui" / "controllers" / "workspace_setup.py").read_text(
+        encoding="utf-8"
+    )
+    panel_setup = (ROOT / "ui" / "controllers" / "panel_setup.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "self.window._cockpit_completion_listener" in workspace_setup
+    assert "register_completion_listener(\n            self.window._cockpit_completion_listener" in workspace_setup
+    assert "self.window.destroyed.connect(\n            lambda *_args: self._unregister_cockpit_listener()" in workspace_setup
+    assert "def _unregister_cockpit_listener(self):" in workspace_setup
+    assert "analysis_status_service.unregister_completion_listener(listener)" in workspace_setup
+
+    assert "self.window._completion_bridge_listener = _bg_listener" in panel_setup
+    assert "self.window.destroyed.connect(_unregister_bridge_listener)" in panel_setup
+    assert "analysis_status_service.unregister_completion_listener(_bg_listener)" in panel_setup
+
+
 def test_cockpit_primary_labels_are_user_facing_not_model_names():
     source = (ROOT / "ui" / "workspaces" / "workflow_pages.py").read_text(encoding="utf-8")
 

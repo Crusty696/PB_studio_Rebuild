@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09
-next_allowed_task: OTK-014/B-343: F-11 Completion listener registered without unregister.
+next_allowed_task: OTK-014/B-344: F-12 Mood anchors vs video embedder dimension mismatch risk.
 updated: 2026-06-09
 
 ## Meaning
@@ -82,9 +82,10 @@ C:\Brain-Bug\projects\pb-studio\wiki\decisions\D-061-offene-tasks-konsolidierung
 - OTK-014/B-340 completed on 2026-06-09. Missing Vault bugfile was created. Existing video embedder keeps scene/frame alignment by returning `kept_scenes` from `_sample_frames()` and zipping embeddings with those kept scenes. Regression tests passed. B-340 marked fixed. OTK-014 remains open; next finding is F-9/B-341.
 - OTK-014/B-341 completed on 2026-06-09. Current Vault state was already `cannot-reproduce` as reachability bug because SCHNITT Audio owns the reachable stem workspace. UI tests passed and confirmed 4-workspace stack plus SCHNITT Audio `stem_workspace`. No product code changed. OTK-014 remains open; next finding is F-10/B-342.
 - OTK-014/B-342 completed on 2026-06-09. Missing Vault bugfile was created. Existing startup path quits `_startup_check_thread` on both dialog-exit and success branches and connects thread `finished` to worker/thread `deleteLater`. Regression test passed. B-342 marked fixed. OTK-014 remains open; next finding is F-11/B-343.
+- OTK-014/B-343 completed on 2026-06-09. Missing Vault bugfile was created. Existing panel/workspace completion listeners unregister on window teardown. Regression test passed. B-343 marked fixed. OTK-014 remains open; next finding is F-12/B-344.
 
 ## Current Next Task
 
 ```text
-OTK-014/B-343: F-11 Completion listener registered without unregister.
+OTK-014/B-344: F-12 Mood anchors vs video embedder dimension mismatch risk.
 ```
