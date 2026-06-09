@@ -164,6 +164,22 @@ PROJECT_MENTION_KEYWORDS = (
     "projektstatus", "projekt", "project", "ueberblick", "überblick", "overview",
 )
 
+# B-464: Destruktive Natural-Language-Befehle (z.B. "loesche alle Videos") werden
+# sonst vom VisionAgent abgefangen (Score 0.45 wegen "Videos"/"Clip") und
+# erreichen NIE den Confirm-Gate im Action-Registry. Ein Pre-Router VOR dem
+# Agent-Routing erkennt destruktive Intent und leitet sie an die passende
+# destruktive Action — deren Confirm-Gate dann (ohne confirm=True) anschlaegt.
+DESTRUCTIVE_INTENT_VERBS = (
+    "loesche", "lösche", "loesch", "lösch", "delete", "entferne", "entfern",
+    "remove", "leere", "leer ", "lösche", "lösch",
+)
+DESTRUCTIVE_BULK_WORDS = (
+    "alle", "all ", "gesamte", "gesamten", "komplett", "saemtliche", "sämtliche",
+)
+DESTRUCTIVE_MEDIA_WORDS = (
+    "medien", "media", "videos", "clips", "dateien", "material", "audios",
+)
+
 
 class OrchestratorAgent(BaseAgent):
     """Orchestrator: Verteilt Anfragen an spezialisierte Agenten oder das Action-Registry.
@@ -714,6 +730,78 @@ class OrchestratorAgent(BaseAgent):
 
         return None
 
+    def _handle_destructive_intent(self, user_text: str) -> dict[str, Any] | None:
+        """B-464: Routet destruktive NL-Befehle zur destruktiven Action + Confirm-Gate.
+
+        Ein Befehl wie "loesche alle Videos" wuerde sonst vom VisionAgent
+        abgefangen (Score 0.45 wegen "Videos") und nie den Confirm-Gate erreichen.
+        Wird VOR dem Agent-Routing aufgerufen. Erkennt einen destruktiven Verb +
+        Ziel (Bulk-Medien / Timeline / Projekt) und ruft die passende destruktive
+        Action OHNE ``confirm`` auf — der Gate im Registry wirft dann
+        ``ValueError("Confirmation required ...")``, die als Sicherheitsabfrage an
+        den User zurueckgegeben wird. Liefert None, wenn keine eindeutige
+        destruktive Intent erkennbar ist (dann laeuft das normale Routing weiter).
+        """
+        from services.action_registry import action_registry
+
+        text_lower = user_text.lower()
+        if not any(v in text_lower for v in DESTRUCTIVE_INTENT_VERBS):
+            return None
+
+        # Nur tatsaechlich registrierte destruktive Actions sind hier Ziele.
+        # delete_media + clear_timeline sind registriert und im Registry gated;
+        # delete_all_media/delete_project existieren NICHT als Action und werden
+        # daher nicht angesteuert (sonst KeyError statt Confirm-Gate).
+        action_name: str | None = None
+        bulk = any(b in text_lower for b in DESTRUCTIVE_BULK_WORDS)
+        media = any(m in text_lower for m in DESTRUCTIVE_MEDIA_WORDS)
+        if bulk and media:
+            action_name = "delete_media"
+        elif "timeline" in text_lower or "zeitleiste" in text_lower:
+            action_name = "clear_timeline"
+
+        if action_name is None:
+            return None
+
+        logger.info(
+            "B-464: Destruktive Intent erkannt → %s (Confirm-Gate) ('%s')",
+            action_name, user_text[:60],
+        )
+        try:
+            # Ohne confirm=True -> Confirm-Gate im Registry schlaegt an.
+            result = action_registry.execute(action_name, {})
+            return {
+                "agent": self.name,
+                "action": action_name,
+                "params": {},
+                "result": result,
+                "message": None,
+                "error": None,
+            }
+        except ValueError as e:
+            # Confirm-Gate (oder destruktiver Param-Guard): als Sicherheitsabfrage
+            # an den User zurueckgeben statt als harter Fehler.
+            return {
+                "agent": self.name,
+                "action": action_name,
+                "params": {},
+                "result": None,
+                "message": (
+                    f"Sicherheitsabfrage: Diese Aktion ist destruktiv "
+                    f"({action_name}). Bitte ausdruecklich bestaetigen. ({e})"
+                ),
+                "error": str(e),
+            }
+        except (KeyError, RuntimeError, OSError) as e:
+            return {
+                "agent": self.name,
+                "action": action_name,
+                "params": {},
+                "result": None,
+                "message": None,
+                "error": str(e),
+            }
+
     def _handle_project_status_read(self, user_text: str) -> dict[str, Any] | None:
         """B-468: Routet Read-Intent-Projektstatus-Anfragen zu summarize_project.
 
@@ -910,6 +998,13 @@ class OrchestratorAgent(BaseAgent):
             cross_modal = self._handle_cross_modal_clip_match(user_text)
             if cross_modal is not None:
                 return cross_modal
+
+            # B-464: Destruktive NL-Befehle ("loesche alle Videos") VOR dem
+            # Agent-Routing abfangen, sonst greift der VisionAgent (Score 0.45
+            # wegen "Videos") und der Confirm-Gate wird nie erreicht.
+            destructive = self._handle_destructive_intent(user_text)
+            if destructive is not None:
+                return destructive
 
             # 3. Spezialisierter Agent
             agent = self._route_to_agent(user_text)
