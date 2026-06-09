@@ -138,6 +138,32 @@ COMPOUND_ACTION_MAP = [
     },
 ]
 
+# B-468: Zustands-aendernde (nicht-destruktive) Actions duerfen im
+# _route_to_registry-Loose-Pfad NICHT von einem schwachen Einzelwort-Fuzzy-Match
+# ausgeloest werden. "zeige Projektstatus" fuzzy-matchte "save_project" mit 64%
+# und fuehrte einen Write aus. Destruktive Actions sind separat geschuetzt
+# (DESTRUCTIVE_FUZZY_THRESHOLD im Registry); dies erweitert dieselbe Idee auf
+# Writes — sie matchen weiter bei quasi-exaktem Score. create_proxy/separate_stems
+# werden bereits frueher ueber COMPOUND_ACTION_MAP abgefangen.
+WRITE_ACTION_FUZZY_THRESHOLD = 90
+WRITE_ACTIONS: frozenset[str] = frozenset({
+    "save_project", "save_project_as", "create_project", "open_project",
+    "import_file", "convert_videos", "auto_edit", "add_to_timeline",
+    "set_clip_effects", "move_clip", "apply_style_preset", "add_anchor",
+    "sync_anchors", "learn_anchor", "auto_ducking", "rl_feedback",
+    "undo_timeline", "redo_timeline", "create_proxy",
+})
+
+# B-468: Read-Intent-Verben. Eine Lese-Anfrage nach dem Projektstatus soll zur
+# Read-Action summarize_project gehen, nicht per Fuzzy zu einer Write-Action.
+READ_INTENT_KEYWORDS = (
+    "zeige", "zeig ", "zeig'", "show", "anzeige", "anzeigen",
+    "wie ist", "wie steht", "gib mir", "was ist der",
+)
+PROJECT_MENTION_KEYWORDS = (
+    "projektstatus", "projekt", "project", "ueberblick", "überblick", "overview",
+)
+
 
 class OrchestratorAgent(BaseAgent):
     """Orchestrator: Verteilt Anfragen an spezialisierte Agenten oder das Action-Registry.
@@ -688,6 +714,46 @@ class OrchestratorAgent(BaseAgent):
 
         return None
 
+    def _handle_project_status_read(self, user_text: str) -> dict[str, Any] | None:
+        """B-468: Routet Read-Intent-Projektstatus-Anfragen zu summarize_project.
+
+        Eine Lese-Anfrage wie "zeige Projektstatus" darf nicht per Fuzzy auf die
+        Write-Action save_project laufen. Wenn ein Read-Verb UND ein Projekt-Bezug
+        vorliegt, wird die nicht-mutierende summarize_project-Action ausgefuehrt.
+        Liefert None, wenn keine Projektstatus-Lese-Absicht erkennbar ist.
+        """
+        from services.action_registry import action_registry
+
+        text_lower = user_text.lower()
+        has_read = any(kw in text_lower for kw in READ_INTENT_KEYWORDS)
+        mentions_project = any(kw in text_lower for kw in PROJECT_MENTION_KEYWORDS)
+        if not (has_read and mentions_project):
+            return None
+
+        logger.info(
+            "B-468: Read-Intent-Projektstatus erkannt → summarize_project ('%s')",
+            user_text[:60],
+        )
+        try:
+            result = action_registry.execute("summarize_project", {})
+            return {
+                "agent": self.name,
+                "action": "summarize_project",
+                "params": {},
+                "result": result,
+                "message": None,
+                "error": None,
+            }
+        except (KeyError, ValueError, RuntimeError, OSError) as e:
+            return {
+                "agent": self.name,
+                "action": "summarize_project",
+                "params": {},
+                "result": None,
+                "message": None,
+                "error": str(e),
+            }
+
     def _route_to_registry(self, user_text: str) -> dict[str, Any] | None:
         """Versucht über das Action-Registry (mit Fuzzy) zu routen.
 
@@ -707,6 +773,17 @@ class OrchestratorAgent(BaseAgent):
                 continue
             matched_name, score = action_registry.fuzzy_match(word)
             if matched_name and score >= 60 and matched_name not in seen_actions:
+                # B-468: Write-Actions brauchen in diesem Loose-Pfad einen
+                # quasi-exakten Score. Sonst loest ein schwacher Fuzzy-Treffer
+                # (z.B. "projektstatus" -> "save_project" 64%) ungewollt einen
+                # Write aus. Destruktive Actions sind im Registry separat gesperrt.
+                if matched_name in WRITE_ACTIONS and score < WRITE_ACTION_FUZZY_THRESHOLD:
+                    logger.info(
+                        "B-468: Loose-Write-Match abgelehnt: '%s' → '%s' "
+                        "(Score %d%% < %d%%)",
+                        word, matched_name, score, WRITE_ACTION_FUZZY_THRESHOLD,
+                    )
+                    continue
                 seen_actions.add(matched_name)
                 logger.info("Registry-Routing: '%s' → '%s' (Score: %d%%)", word, matched_name, score)
 
@@ -846,6 +923,13 @@ class OrchestratorAgent(BaseAgent):
                 # Context aufbauen und an den Agenten weiterreichen
                 agent_context = self._build_context(user_text, context)
                 return agent.process(user_text, agent_context)
+
+            # B-468: Read-Intent-Projektstatus-Anfragen ("zeige Projektstatus")
+            # gehen zur Read-Action summarize_project, nicht per Fuzzy zu einer
+            # Write-Action wie save_project.
+            status_read = self._handle_project_status_read(user_text)
+            if status_read is not None:
+                return status_read
 
             # 4. Direktes Action-Registry (Fuzzy)
             registry_result = self._route_to_registry(user_text)
