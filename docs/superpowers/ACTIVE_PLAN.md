@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09
-next_allowed_task: OTK-014/B-345: F-13 Ingest duplicate check lacks project_id.
+next_allowed_task: OTK-014/B-346: F-14 FrameExtractWorker masks RuntimeError/MemoryError path as finished.
 updated: 2026-06-09
 
 ## Meaning
@@ -84,9 +84,10 @@ C:\Brain-Bug\projects\pb-studio\wiki\decisions\D-061-offene-tasks-konsolidierung
 - OTK-014/B-342 completed on 2026-06-09. Missing Vault bugfile was created. Existing startup path quits `_startup_check_thread` on both dialog-exit and success branches and connects thread `finished` to worker/thread `deleteLater`. Regression test passed. B-342 marked fixed. OTK-014 remains open; next finding is F-11/B-343.
 - OTK-014/B-343 completed on 2026-06-09. Missing Vault bugfile was created. Existing panel/workspace completion listeners unregister on window teardown. Regression test passed. B-343 marked fixed. OTK-014 remains open; next finding is F-12/B-344.
 - OTK-014/B-344 completed on 2026-06-09. Missing Vault bugfile was created. Mood-score path raises `ValueError` on 1152-vs-768 mismatch instead of silently scoring incompatible vectors. Regression test passed. B-344 marked fixed. OTK-014 remains open; next finding is F-13/B-345.
+- OTK-014/B-345 completed on 2026-06-09. Missing Vault bugfile was created. Ingest duplicate checks are scoped by `project_id` and `file_path`; cross-project audio/video duplicate regressions passed. B-345 marked fixed. OTK-014 remains open; next finding is F-14/B-346.
 
 ## Current Next Task
 
 ```text
-OTK-014/B-345: F-13 Ingest duplicate check lacks project_id.
+OTK-014/B-346: F-14 FrameExtractWorker masks RuntimeError/MemoryError path as finished.
 ```

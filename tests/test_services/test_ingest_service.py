@@ -101,6 +101,29 @@ class TestIngestAudio:
         second = svc.ingest_audio(str(audio_file), project_id=1)
         assert second is None
 
+    def test_b345_ingest_audio_allows_same_file_in_second_project(self, test_engine, tmp_path):
+        """B-345: Duplicate check muss project_id scopen."""
+        import services.ingest_service as svc
+        svc.engine = test_engine
+
+        with Session(test_engine) as s:
+            s.add_all([
+                Project(id=1, name="P1", path="."),
+                Project(id=2, name="P2", path="."),
+            ])
+            s.commit()
+
+        audio_file = tmp_path / "mix.mp3"
+        audio_file.write_bytes(b"fake mp3")
+
+        first = svc.ingest_audio(str(audio_file), project_id=1)
+        second = svc.ingest_audio(str(audio_file), project_id=2)
+
+        assert first is not None
+        assert second is not None
+        assert first.id != second.id
+        assert second.project_id == 2
+
     def test_ingest_audio_raises_for_missing_file(self, test_engine):
         """ingest_audio() loest FileNotFoundError aus wenn Datei fehlt."""
         import services.ingest_service as svc
@@ -207,6 +230,30 @@ class TestIngestVideo:
             assert first is not None
             second = svc.ingest_video(str(video_file), project_id=1)
             assert second is None
+
+    def test_b345_ingest_video_allows_same_file_in_second_project(self, test_engine, tmp_path):
+        """B-345: Video duplicate check muss project_id scopen."""
+        import services.ingest_service as svc
+        svc.engine = test_engine
+
+        with Session(test_engine) as s:
+            s.add_all([
+                Project(id=1, name="P1", path="."),
+                Project(id=2, name="P2", path="."),
+            ])
+            s.commit()
+
+        video_file = tmp_path / "clip.mp4"
+        video_file.write_bytes(b"fake mp4")
+
+        with patch.object(svc, "_probe_video_meta", return_value=self._fake_probe()):
+            first = svc.ingest_video(str(video_file), project_id=1)
+            second = svc.ingest_video(str(video_file), project_id=2)
+
+        assert first is not None
+        assert second is not None
+        assert first.id != second.id
+        assert second.project_id == 2
 
     def test_ingest_video_stores_empty_meta_on_probe_failure(self, test_engine, tmp_path):
         """ingest_video() legt Clip auch bei fehlgeschlagenem ffprobe an."""
