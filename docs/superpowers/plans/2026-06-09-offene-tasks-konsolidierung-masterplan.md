@@ -23,7 +23,7 @@ Keine App-Code-Aenderung ist durch diese Konsolidierung erfolgt. Kein Produkt-Bu
 ## Current Next Task
 
 ```text
-OTK-003: B-471 user review of layout recovery; real app/user workflow still not fixed.
+OTK-020: B-473 Ollama local-agent connection recovery; code-fix-pending-live-verification.
 ```
 
 ## Consolidated Tasks
@@ -49,7 +49,7 @@ OTK-003: B-471 user review of layout recovery; real app/user workflow still not 
 | OTK-017 | 2 | Handoff / Vault bugs | mixed | B-458/B-459/B-460/B-463 user/live verification; B-464..B-468 open; B-469 monitoring; B-470 status drift; B-472 live verification. | `AGENT_HANDOFF.md`; `wiki/bugs/B-458...B-472`. | open |
 | OTK-018 | 3 | AUDIO-ANALYSIS-V2-STRICT-SEQUENTIAL-2026-05-17 | approved-for-planning | P0 Freeze And Snapshot before any Audio-V2 port; sandbox branch dirty/old, direct merge forbidden. | Registry. | open |
 | OTK-019 | 3 | VIDEO-PIPELINE-ENGINE-2026-05-19 | approved-for-implementation | Continue from first unchecked/unfinished phase; open questions and live verify remain. | Registry; plan `99_OPEN_QUESTIONS.md`; `90_LIVE_VERIFY.md`. | open |
-| OTK-020 | 3 | LLM-BACKEND-PLATFORM-2026-05-19 | approved-for-planning | Planning/review only; caller migration restrictions; open questions and live verify remain. | Registry; plan `99_OPEN_QUESTIONS.md`; `90_LIVE_VERIFY.md`; `61_LIVE_VERIFY_USER.md`. | open |
+| OTK-020 | 3 | LLM-BACKEND-PLATFORM-2026-05-19 | user-authorized-fix-follow-up | B-473 Ollama local-agent connection recovery. Evidence: stale settings `http://legacy:8080` + `legacy-model`, local Ollama reachable on `localhost:11434`, full PB system prompt timed out beyond 120s, ChatDock watchdog was 60s. Fix: stale URL fallback, missing model reselect, compact GTX-1060 prompt budget, 180s ChatDock watchdog, settings reset with backup. GUI live verification remains. | `wiki/bugs/B-473-ollama-local-agent-connection.md`; tests `test_local_agent_health_check.py`; standalone Agent smoke. | code-fix-pending-live-verification |
 | OTK-021 | 3 | GLOBAL-STORAGE-PROVENANCE-2026-05-19 | approved-for-planning | Planning/review only until prerequisites; open implementation/live-verify plan files remain. | Registry. | open |
 | OTK-022 | 3 | COMFYUI-REFERENCE-AUDIT-INTEGRATION-2026-05-22 | approved-for-implementation | Phase 1 workflow-first reference audit from `30_Workflows\Migration_Setup.md`. | Registry. | open |
 

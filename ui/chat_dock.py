@@ -34,6 +34,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+CHAT_AGENT_WATCHDOG_TIMEOUT_MS = 180_000
+
 
 class _TrackedRegistry:
     """Thread-sicherer Wrapper um eine ActionRegistry.
@@ -352,7 +354,8 @@ class ChatDock(QDockWidget):
         self._status_cursor_pos = self.chat_log.textCursor().position()
         self._append_colored("Agent arbeitet...", T4)
 
-        # B-180: Watchdog 60s — wenn der Worker bis dahin nicht fertig ist,
+        # B-180/B-473: Watchdog 180s — lokale GTX-1060-Ollama-Inference
+        # kann mit PB-Systemprompt laenger als 60s brauchen.
         # UI wieder freigeben + Fehler zeigen. Schutz gegen Ollama-Hang,
         # Modell-Lazy-Load und tote TaskManager-Queue.
         # Cycle 13 BUG-5: vorhandenen Watchdog stoppen bevor neuer startet
@@ -362,7 +365,7 @@ class ChatDock(QDockWidget):
         self._watchdog_timer = QTimer(self)
         self._watchdog_timer.setSingleShot(True)
         self._watchdog_timer.timeout.connect(self._on_agent_watchdog)
-        self._watchdog_timer.start(60_000)
+        self._watchdog_timer.start(CHAT_AGENT_WATCHDOG_TIMEOUT_MS)
 
         # Worker ueber zentrale Task-Engine starten
         self._current_request_id += 1
@@ -685,11 +688,11 @@ class ChatDock(QDockWidget):
             # Bereits sauber abgeschlossen — Watchdog feuert evtl. trotzdem
             # durch Race; ignorieren.
             return
-        logger.warning("ChatDock: Watchdog-Timeout (60s) — Agent antwortet nicht.")
+        logger.warning("ChatDock: Watchdog-Timeout (180s) — Agent antwortet nicht.")
         self._cancel_agent_worker_for_timeout()
         self._on_agent_error(
             self.tr(
-                "Timeout: Der KI-Agent antwortet nicht (60s). "
+                "Timeout: Der KI-Agent antwortet nicht (180s). "
                 "Prüfe ob Ollama läuft (localhost:11434) oder schaue im "
                 "Konsolen-Log nach Hängern beim Modell-Laden."
             )

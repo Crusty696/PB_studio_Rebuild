@@ -79,6 +79,24 @@ REGELN:
 7. Bei mehreren Aktionen: Führe sie in logischer Reihenfolge auf.
 8. Bei QA-Fragen: Pruefe anhand der QA-Pruefpunkte und melde Vertoesse."""
 
+LOCAL_LLM_SYSTEM_PROMPT_MAX_CHARS = 1200
+
+COMPACT_SYSTEM_PROMPT = """\
+Du bist der lokale KI-Assistent von PB Studio.
+Antworte kurz, deutsch und praktisch.
+
+App-Kontext:
+- PB Studio ist private Video-/Audio-Produktionssoftware.
+- Audio ist Master, Video folgt Beat/Pacing.
+- Bekannte App-Befehle wie analysiere, schneide, auto-edit und gpu status werden vor dem LLM direkt geroutet.
+
+Regeln:
+1. Wenn der User freie Hilfe will: antworte normal.
+2. Wenn eine App-Aktion eindeutig ist: gib JSON {"action": "<name>", "params": {...}}.
+3. Wenn keine Aktion passt: gib JSON {"action": "none", "params": {}, "message": "<Antwort>"}.
+4. Erfinde keine Dateipfade, Modelle oder App-Zustaende.
+5. Bei Unsicherheit: sage, was geprueft werden muss."""
+
 
 class LocalAgentService:
     """Lokaler KI-Agent mit einem Small Language Model.
@@ -162,6 +180,11 @@ class LocalAgentService:
             dict mit Keys: backend ('ollama'|'fallback'), ollama_reachable
             (bool), model (str|None), message (str für Anzeige).
         """
+        auto_detected = False
+        if self._use_ollama is None:
+            auto_detected = True
+            self._use_ollama = self._auto_detect_ollama()
+
         result = {
             "backend": "ollama" if self._use_ollama else "fallback",
             "ollama_reachable": False,
@@ -169,11 +192,18 @@ class LocalAgentService:
             "message": "",
         }
         if not self._use_ollama:
-            result["message"] = (
-                "Ollama deaktiviert — keine echten LLM-Antworten. "
-                "Quick-Commands ('analysiere', 'schneide', 'gpu status') "
-                "funktionieren weiterhin."
-            )
+            if auto_detected:
+                result["message"] = (
+                    f"Ollama nicht erreichbar an {self._ollama_url}. "
+                    "Starte Ollama via 'ollama serve' oder pruefe die Settings. "
+                    "Quick-Commands funktionieren weiterhin."
+                )
+            else:
+                result["message"] = (
+                    "Ollama deaktiviert — keine echten LLM-Antworten. "
+                    "Quick-Commands ('analysiere', 'schneide', 'gpu status') "
+                    "funktionieren weiterhin."
+                )
             return result
         try:
             client = self._get_ollama_client()
@@ -232,9 +262,13 @@ class LocalAgentService:
         if self._ollama_client is None:
             with self._lock:
                 if self._ollama_client is None:
-                    from services.ollama_client import get_ollama_client
-                    self._ollama_client = get_ollama_client(self._ollama_url)
+                    self._ollama_client = self._make_ollama_client(self._ollama_url)
         return self._ollama_client
+
+    def _make_ollama_client(self, url: str):
+        """Erzeugt OllamaClient fuer eine URL; eigener Helper fuer Fallback-Tests."""
+        from services.ollama_client import get_ollama_client
+        return get_ollama_client(url)
 
     def _auto_detect_ollama(self) -> bool:
         """Prüft ob Ollama verfügbar ist und wählt das beste Modell.
@@ -245,12 +279,36 @@ class LocalAgentService:
         try:
             client = self._get_ollama_client()
             if not client.is_available():
-                logger.info("LocalAgentService: Ollama nicht verfügbar → HuggingFace-Fallback.")
-                return False
+                if self._ollama_url.rstrip("/") != OLLAMA_DEFAULT_URL:
+                    local_client = self._make_ollama_client(OLLAMA_DEFAULT_URL)
+                    if local_client.is_available():
+                        logger.warning(
+                            "LocalAgentService: konfigurierte Ollama-URL '%s' nicht erreichbar; "
+                            "nutze lokalen Default '%s'.",
+                            self._ollama_url,
+                            OLLAMA_DEFAULT_URL,
+                        )
+                        self._ollama_url = OLLAMA_DEFAULT_URL
+                        self._ollama_client = local_client
+                        client = local_client
+                    else:
+                        logger.info("LocalAgentService: Ollama nicht verfügbar → HuggingFace-Fallback.")
+                        return False
+                else:
+                    logger.info("LocalAgentService: Ollama nicht verfügbar → HuggingFace-Fallback.")
+                    return False
 
             # Modell wählen falls noch nicht gesetzt
             # B-239: Erst OllamaService-Auto-Detect (matcht Gemma-4-Family
             # auch bei Community-Tags), dann Fallback auf RECOMMENDED_MODELS.
+            if self._ollama_model and not client.model_exists(self._ollama_model):
+                logger.warning(
+                    "LocalAgentService: konfiguriertes Ollama-Modell '%s' nicht installiert; "
+                    "waehle bestes verfuegbares Modell.",
+                    self._ollama_model,
+                )
+                self._ollama_model = None
+
             if not self._ollama_model:
                 try:
                     from services.ollama_service import OllamaService
@@ -507,9 +565,16 @@ class LocalAgentService:
 
         with self._lock:
             if self._sysprompt_base_cache is None:
-                self._sysprompt_base_cache = SYSTEM_PROMPT_TEMPLATE.format(
+                base_prompt = SYSTEM_PROMPT_TEMPLATE.format(
                     actions_json=self.registry.get_schema_for_prompt()
                 )
+                if len(base_prompt) > LOCAL_LLM_SYSTEM_PROMPT_MAX_CHARS:
+                    logger.info(
+                        "LocalAgentService: Systemprompt von %d auf kompaktes GTX-1060-Budget begrenzt.",
+                        len(base_prompt),
+                    )
+                    base_prompt = COMPACT_SYSTEM_PROMPT
+                self._sysprompt_base_cache = base_prompt
             now = _time.monotonic()
             if (self._sysprompt_media_cache is None
                     or (now - self._sysprompt_media_ts) > 30.0):
@@ -538,7 +603,18 @@ class LocalAgentService:
             if self._sysprompt_few_shots_cache:
                 parts.append(self._sysprompt_few_shots_cache)
 
-        return "\n\n".join(parts)
+        prompt = "\n\n".join(parts)
+        if len(prompt) > LOCAL_LLM_SYSTEM_PROMPT_MAX_CHARS:
+            logger.info(
+                "LocalAgentService: finaler Systemprompt von %d auf %d Zeichen gekuerzt.",
+                len(prompt),
+                LOCAL_LLM_SYSTEM_PROMPT_MAX_CHARS,
+            )
+            prompt = (
+                prompt[: LOCAL_LLM_SYSTEM_PROMPT_MAX_CHARS - 80].rstrip()
+                + "\n\n[Systemprompt gekuerzt fuer lokale GTX-1060-Inference.]"
+            )
+        return prompt
 
     def invalidate_system_prompt_cache(self, kind: str = "all") -> None:
         """B-082: Cache-Invalidation Hook.

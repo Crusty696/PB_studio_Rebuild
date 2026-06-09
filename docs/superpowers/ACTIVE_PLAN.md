@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09
-next_allowed_task: OTK-003: B-471 user review of layout recovery; real app/user workflow still not fixed.
+next_allowed_task: OTK-020: B-473 Ollama local-agent connection recovery; code-fix-pending-live-verification.
 updated: 2026-06-09
 
 ## Meaning
@@ -50,9 +50,10 @@ C:\Brain-Bug\projects\pb-studio\wiki\decisions\D-061-offene-tasks-konsolidierung
 - Offene Tasks aus Registry, Handoff und gezielten Vault-Bugstatusquellen in OTK-Tasks konsolidiert.
 - OTK-001 Governance-Drift im Handoff wurde bereinigt.
 - OTK-002 wurde als Weiterfreigabe + Agent-Review ohne Blocker abgeschlossen; kein Beleg, dass der User jede Skill-Datei selbst gelesen hat.
+- User hat am 2026-06-09 Fokuswechsel auf OTK-020/Ollama-Recovery autorisiert.
 
 ## Current Next Task
 
 ```text
-OTK-003: B-471 user review of layout recovery; real app/user workflow still not fixed.
+OTK-020: B-473 Ollama local-agent connection recovery; code-fix-pending-live-verification.
 ```

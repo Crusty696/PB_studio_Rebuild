@@ -13,7 +13,8 @@ This file is a repository-local continuity checkpoint for all agents.
 - **OTK-001:** Governance drift in this handoff file was cleaned on 2026-06-09. Older FFmpeg/B-471/B-458/B-462/B-463 details remain represented in the OTK masterplan, not as active-plan authority here.
 - **OTK-002:** Completed by user continuation release plus agent review. No blocking issue found in `.agents/skills/pb-agent-team-architect`, `pb-live-verify-orchestrator`, `pb-concurrency-strike-team`, or `pb-release-readiness-team`. No claim that the user read every file line-by-line.
 - **OTK-003:** Agent-side check ran on 2026-06-09: existing layout screenshot inspected; waveform and thumbnails are visible, but many labels render as square glyphs in the captured image. `run_pytest_schnitt.bat` passed (`27 passed`). User readability/touchpad/real workflow review is still missing; no `fixed` marker.
-- **Next task:** `OTK-003: B-471 user review of layout recovery; real app/user workflow still not fixed.`
+- **OTK-020/B-473:** User authorized switching focus on 2026-06-09. Root cause evidence: app settings pointed at `http://legacy:8080` with `legacy-model`, while local Ollama answered on `localhost:11434`; full PB system prompt caused `OllamaClient.chat()` timeout beyond 120s; ChatDock watchdog was 60s. Code now falls back from stale configured URL to localhost, reselects missing model, caps LocalAgent system prompt for GTX-1060 latency, and uses a 180s ChatDock watchdog. User settings were reset to `http://localhost:11434` / `gemma3:4b` after backup. Standalone agent smoke returned `OK` in 67.34s. Real GUI/user chat workflow still pending; no `fixed` marker.
+- **Next task:** `OTK-020: B-473 Ollama local-agent connection recovery; code-fix-pending-live-verification.`
 
 ## Current Protocol
 
@@ -64,13 +65,13 @@ PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09
 Current next task:
 
 ```text
-OTK-003: B-471 user review of layout recovery; real app/user workflow still not fixed.
+OTK-020: B-473 Ollama local-agent connection recovery; code-fix-pending-live-verification.
 ```
 
-Current OTK-003 status:
+Current OTK-020 status:
 
 ```text
-blocked-user-review: focused tests green, screenshot inspected, real user readability/touchpad verdict missing.
+code-fix-pending-live-verification: standalone service smoke green, real GUI chat/user workflow pending.
 ```
 
 ## Consolidated Open Work
