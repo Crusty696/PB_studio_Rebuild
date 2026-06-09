@@ -36,10 +36,11 @@ Facts checked before this run:
 - Temporary suffix `UNDO_PROBE_2026_06_09` appended.
 - `Ctrl+Z` pressed.
 - Notes text returned exactly to original value `Test 2026-06-09 Schnitt-Verify test55655`.
-- Pacing & Anker regenerate button was clicked once by coordinate and once by UIA button object.
-- No QMessageBox/modal dialog appeared.
-- No UIA text matched `Achtung`, `überschreibt`, `ueberschreibt`, or `Fortfahren`.
-- Bug file created: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-474-schnitt-verify-step-10-regenerate-dialog-missing.md`.
+- Pacing & Anker regenerate button was clicked once by coordinate and once by pywinauto click on the UIA button object; no QMessageBox/modal dialog appeared in those two mouse-automation attempts.
+- Follow-up used UIA `Invoke()` on the same visible enabled button.
+- UIA `Invoke()` opened the expected text `Achtung: Dies überschreibt aktuelle ungelockte Schnitte. Fortfahren?`.
+- Dialog was dismissed with `Esc`; no regenerate was executed.
+- Bug file created and then corrected to `cannot-reproduce`: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-474-schnitt-verify-step-10-regenerate-dialog-missing.md`.
 
 ## Evidence
 
@@ -59,6 +60,7 @@ Facts checked before this run:
 - `test_reports/live_autonomous_20260609_otk008_regenerate_uia_before_click.png`
 - `test_reports/live_autonomous_20260609_otk008_regenerate_dialog_uia.png`
 - `test_reports/live_autonomous_20260609_otk008_regenerate_after_cancel_uia.png`
+- `test_reports/live_autonomous_20260609_otk008_regenerate_dialog_invoke.png`
 
 ## Verified
 
@@ -77,11 +79,11 @@ Facts checked before this run:
 - Formal Phase-12 empty-state/load-state steps.
 - Techno preset selection sequence from formal guide.
 - Clip lock preservation across pacing regeneration.
-- Pacing regeneration dialog end-to-end. In the `test55655` substitute run, the expected QMessageBox did not appear; tracked as B-474.
+- Pacing regeneration dialog trigger by UIA `Invoke()` on `test55655`; the expected QMessageBox text appeared and was dismissed with `Esc`.
 - Timeline lock-toggle undo from the formal guide. Only notes-editor undo was verified.
 
 ## Honest Result
 
 OTK-008 cannot be marked `fixed` from this run. Substitute verification passed for GUI navigation, RL Notes persistence, combo-wheel protection, and notes-editor undo in `test55655`, but formal Phase-12 criteria remain open.
 
-New blocking bug: B-474.
+B-474 status corrected to `cannot-reproduce` as app bug after UIA `Invoke()` showed the expected dialog.
