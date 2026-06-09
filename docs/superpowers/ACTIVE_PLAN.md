@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09
-next_allowed_task: OTK-016: Verify open bugs B-327, B-331, B-332, B-197, B-198, B-265.
+next_allowed_task: OTK-017: Handoff/Vault bugs B-458..B-472 user/live verification.
 updated: 2026-06-09
 
 ## Meaning
@@ -85,9 +85,10 @@ C:\Brain-Bug\projects\pb-studio\wiki\decisions\D-061-offene-tasks-konsolidierung
 - OTK-014/B-343 completed on 2026-06-09. Missing Vault bugfile was created. Existing panel/workspace completion listeners unregister on window teardown. Regression test passed. B-343 marked fixed. OTK-014 remains open; next finding is F-12/B-344.
 - OTK-014/B-344 completed on 2026-06-09. Missing Vault bugfile was created. Mood-score path raises `ValueError` on 1152-vs-768 mismatch instead of silently scoring incompatible vectors. Regression test passed. B-344 marked fixed. OTK-014 remains open; next finding is F-13/B-345.
 - OTK-014/B-345 completed on 2026-06-09. Missing Vault bugfile was created. Ingest duplicate checks are scoped by `project_id` and `file_path`; cross-project audio/video duplicate regressions passed. B-345 marked fixed. OTK-014 remains open; next finding is F-14/B-346.
+- OTK-016 completed on 2026-06-09. B-327 fixed (M4A FFmpeg-Fallback E2E verifiziert). B-331 cannot-reproduce (Chunk-51-Hang nicht reproduzierbar). B-332 fixed (Preview-Fenster am ersten Video verankert). B-197 fixed (F-4 live via OTK-010, F-2/F-3 guard-tests). B-198 fixed (Worker-Pfad live via OTK-010). B-265 wontfix (kein Code-Bug, SB2 dGPU intermittent).
 
 ## Current Next Task
 
 ```text
-OTK-014/B-346: F-14 FrameExtractWorker masks RuntimeError/MemoryError path as finished.
+OTK-017: Handoff/Vault bugs B-458..B-472 user/live verification.
 ```
