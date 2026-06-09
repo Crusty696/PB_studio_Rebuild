@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09
-next_allowed_task: OTK-014/B-338: F-6 Convert workspace created but not added to stack.
+next_allowed_task: OTK-014/B-339: F-7 Export/preprocess hardcode libx264; no NVENC.
 updated: 2026-06-09
 
 ## Meaning
@@ -77,9 +77,10 @@ C:\Brain-Bug\projects\pb-studio\wiki\decisions\D-061-offene-tasks-konsolidierung
 - OTK-014/B-335 completed on 2026-06-09. Missing Vault bugfile was created. Existing scorer code already normalized by `weight_sum`; new regression test proves the formula. Brain V3 core tests passed 43 tests. B-335 marked fixed. OTK-014 remains open; next finding is F-4/B-336.
 - OTK-014/B-336 completed on 2026-06-09. Guard tests passed 15 tests. GTX-1060 SigLIP precision benchmark showed fp16 has no NaN/Inf and uses 1.805 GB peak alloc vs fp32 3.440 GB. Existing fp16 + NaN-Guard + fp32-Fallback policy is verified. B-336 marked fixed. OTK-014 remains open; next finding is F-5/B-337.
 - OTK-014/B-337 completed on 2026-06-09. Live GUI opened `test55655`, loaded SCHNITT, selected first timeline clip, and confirmed ClipInspector effect controls visible: brightness, contrast, crossfade. B-337 marked fixed. OTK-014 remains open; next finding is F-6/B-338.
+- OTK-014/B-338 completed on 2026-06-09. Live GUI showed Material/Analyse Preflight format controls, selected 3840x2160/50fps/H.265, clicked standardize button, and verified controller created worker args `3840x2160`, `50`, `hevc_nvenc`, `.mp4`. B-338 marked fixed. OTK-014 remains open; next finding is F-7/B-339.
 
 ## Current Next Task
 
 ```text
-OTK-014/B-338: F-6 Convert workspace created but not added to stack.
+OTK-014/B-339: F-7 Export/preprocess hardcode libx264; no NVENC.
 ```
