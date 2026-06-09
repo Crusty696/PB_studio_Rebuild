@@ -1356,24 +1356,31 @@ def _run_ffmpeg_impl(cmd: list[str], timeout: int = 600, progress_cb=None,
                 continue
             # Progress-Parsing: out_time_ms oder out_time
             if line.startswith("out_time_ms=") and total_duration > 0 and progress_cb:
-                try:
-                    time_us = int(line.split("=")[1])
-                    current_sec = time_us / 1_000_000
-                    pct = min(99, int(current_sec / total_duration * 100))
-                    progress_cb(pct, f"Rendering {pct}%...")
-                except (ValueError, IndexError) as e:
-                    logger.warning("Parsing FFmpeg export out_time_ms progress: %s", e)
-            elif line.startswith("out_time=") and total_duration > 0 and progress_cb:
-                try:
-                    time_str = line.split("=")[1]
-                    parts = time_str.split(":")
-                    if len(parts) == 3:
-                        h, m, s = float(parts[0]), float(parts[1]), float(parts[2])
-                        current_sec = h * 3600 + m * 60 + s
+                # B-467: FFmpeg schreibt im ersten Progress-Frame oft
+                # ``out_time_ms=N/A`` (noch kein Output). Das ist kein Fehler —
+                # ueberspringen statt eine WARNING zu loggen.
+                raw = line.split("=", 1)[1].strip()
+                if raw and raw != "N/A":
+                    try:
+                        time_us = int(raw)
+                        current_sec = time_us / 1_000_000
                         pct = min(99, int(current_sec / total_duration * 100))
                         progress_cb(pct, f"Rendering {pct}%...")
-                except (ValueError, IndexError) as e:
-                    logger.warning("Parsing FFmpeg export out_time progress: %s", e)
+                    except (ValueError, IndexError) as e:
+                        logger.warning("Parsing FFmpeg export out_time_ms progress: %s", e)
+            elif line.startswith("out_time=") and total_duration > 0 and progress_cb:
+                # B-467: gleiche N/A-Behandlung fuer den out_time-Branch.
+                time_str = line.split("=", 1)[1].strip()
+                if time_str and time_str != "N/A":
+                    try:
+                        parts = time_str.split(":")
+                        if len(parts) == 3:
+                            h, m, s = float(parts[0]), float(parts[1]), float(parts[2])
+                            current_sec = h * 3600 + m * 60 + s
+                            pct = min(99, int(current_sec / total_duration * 100))
+                            progress_cb(pct, f"Rendering {pct}%...")
+                    except (ValueError, IndexError) as e:
+                        logger.warning("Parsing FFmpeg export out_time progress: %s", e)
 
         process.wait(timeout=timeout)
     except subprocess.TimeoutExpired:
