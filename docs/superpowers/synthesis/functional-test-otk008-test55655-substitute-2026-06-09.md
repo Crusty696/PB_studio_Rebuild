@@ -29,6 +29,9 @@ Facts checked before this run:
 - SCHNITT workflow opened again.
 - RL Notes tab opened again.
 - Same note text was still present after reload.
+- Pacing & Anker tab opened.
+- Mouse hovered over `cut_rate_combo` without clicking and wheel-scrolled.
+- Crop of `cut_rate_combo` before/after wheel-scroll was pixel-identical (`diff_sum=0.0`).
 
 ## Evidence
 
@@ -36,6 +39,9 @@ Facts checked before this run:
 - `test_reports/live_autonomous_20260609_otk008_rl_notes_before.png`
 - `test_reports/live_autonomous_20260609_otk008_rl_notes_after_write.png`
 - `test_reports/live_autonomous_20260609_otk008_rl_notes_after_reload.png`
+- `test_reports/live_autonomous_20260609_otk008_pacing_before_wheel.png`
+- `test_reports/live_autonomous_20260609_otk008_cut_rate_before_wheel.png`
+- `test_reports/live_autonomous_20260609_otk008_cut_rate_after_wheel.png`
 
 ## Verified
 
@@ -43,6 +49,7 @@ Facts checked before this run:
 - Project reopen through GUI.
 - RL Notes persistence after reload for `test55655`.
 - SCHNITT tab navigation and existing timeline/editor visibility for `test55655`.
+- Combo-wheel protection for visible `cut_rate_combo` in `test55655` substitute run, measured by unchanged combo crop after hover+wheel-scroll.
 
 ## Not Verified
 
@@ -53,9 +60,8 @@ Facts checked before this run:
 - Techno preset selection sequence from formal guide.
 - Clip lock preservation across pacing regeneration.
 - Pacing regeneration dialog end-to-end.
-- Mouse wheel protection.
 - Undo behavior.
 
 ## Honest Result
 
-OTK-008 cannot be marked `fixed` from this run. Substitute verification passed for GUI navigation and RL Notes persistence in `test55655`, but formal Phase-12 criteria remain open.
+OTK-008 cannot be marked `fixed` from this run. Substitute verification passed for GUI navigation, RL Notes persistence, and combo-wheel protection in `test55655`, but formal Phase-12 criteria remain open.
