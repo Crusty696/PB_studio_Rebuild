@@ -73,6 +73,19 @@ class KeyframeExtractStage:
         skipped: list[dict[str, Any]] = []
         cancelled = False
         for kf in keyframes:
+            fname = f"scene{kf.scene_idx:04d}_{kf.role}_{kf.time_s:.2f}.jpg"
+            target = kf_dir / fname
+
+            # F-28 (B-488): Skip extraction if the file already exists (Resume optimization)
+            if target.exists() and target.stat().st_size > 0:
+                extracted.append({
+                    "scene_idx": kf.scene_idx,
+                    "role": kf.role,
+                    "time_s": kf.time_s,
+                    "path": str(target.relative_to(storage_dir)),
+                })
+                continue
+
             if cancel_token is not None and getattr(cancel_token, "cancelled", False):
                 cancelled = True
                 break
@@ -84,8 +97,6 @@ class KeyframeExtractStage:
                     "time_s": kf.time_s, "reason": str(ex),
                 })
                 continue
-            fname = f"scene{kf.scene_idx:04d}_{kf.role}_{kf.time_s:.2f}.jpg"
-            target = kf_dir / fname
             Image.fromarray(arr).save(
                 target, format="JPEG", quality=self.jpeg_quality,
             )
