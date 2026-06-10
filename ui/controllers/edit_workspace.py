@@ -73,6 +73,21 @@ class EditWorkspaceController(PBComponent):
                         f"({track.duration:.1f}s) — Pacing-Kurve aktualisiert."
                     )
 
+    def _generate_timeline_from_button(self):
+        """B-286: Editor-Header-Button 'Timeline generieren'.
+
+        Wenn bereits eine Timeline existiert, vor dem Ueberschreiben einen
+        Bestaetigungs-Dialog zeigen (Datenverlust-Schutz fuer ungelockte
+        Schnitte). Der Live-Pfad ueber ``pacing_curve.curve_changed`` ruft
+        weiterhin direkt ``_generate_timeline`` (kein Confirm pro Kurven-Klick).
+        """
+        from ui.workspaces.schnitt.regenerate_dialog import confirm_regenerate
+        tv = getattr(self.window, "timeline_view", None)
+        has_timeline = bool(tv is not None and getattr(tv, "clip_items", None))
+        if has_timeline and not confirm_regenerate(self.window):
+            return
+        self._generate_timeline()
+
     def _generate_timeline(self):
         """P8-FREEZE-FIX: Debounced + Worker-based.
 

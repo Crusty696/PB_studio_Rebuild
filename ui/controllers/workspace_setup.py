@@ -366,7 +366,9 @@ class WorkspaceSetupController(PBComponent):
         self.window.btn_preview_stop.clicked.connect(self.window.video_preview.stop)
         self.window.video_combo.currentIndexChanged.connect(self.window.edit_workspace._on_video_combo_changed)
         self.window.audio_combo.currentIndexChanged.connect(self.window.edit_workspace._on_audio_combo_changed)
-        self.window.btn_generate.clicked.connect(self.window.edit_workspace._generate_timeline)
+        # B-286: Button-Klick geht ueber den Confirm-Pfad (ueberschreibt bestehende
+        # Timeline nur nach Bestaetigung); curve_changed bleibt confirm-frei (s.u.).
+        self.window.btn_generate.clicked.connect(self.window.edit_workspace._generate_timeline_from_button)
         self.window.btn_auto_edit.clicked.connect(self.window.edit_workspace._auto_edit_to_beat)
         self.window.btn_add_anchor.clicked.connect(self.window.edit_workspace._add_anchor_dialog)
         self.window.btn_remove_anchor.clicked.connect(self.window.edit_workspace._remove_selected_anchor)
