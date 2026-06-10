@@ -106,7 +106,24 @@ Du bist der KI-Assistent von PB Studio, einem professionellen Tool für DJ-Video
 Beantworte Fragen präzise, hilfreich und auf Deutsch.
 Wenn du Pacing-Aufgaben oder Auto-Edits erklärst, sei fachlich fundiert (BPM, Phrasen-Schnitt, Energie-Level).
 Du hast Zugriff auf spezialisierte Agenten für Vision, Audio und Pacing.
+
+WICHTIG: In diesem Modus kannst du KEINE Aktionen ausführen (keine Tool-Aufrufe verfügbar).
+Behaupte NIEMALS, eine Aktion durchgeführt zu haben (z.B. "Ich habe gesperrt/gelöscht/
+exportiert/erstellt"). Wenn der User eine Aktion verlangt, erkläre kurz, dass die Aktion
+im Chat nicht direkt ausführbar ist und über die entsprechende Schaltfläche/Menü erfolgt.
 """
+
+# B-411: Imperative Aktions-Verben. Erreicht ein Befehl, der mit einem solchen Verb
+# BEGINNT, den Chat-Fallback (kein Agent/keine Action hat ihn ausgeführt, Modell ohne
+# Tool-Support), darf das LLM keinen Erfolg halluzinieren — wir antworten transparent.
+# Start-mit-Verb-Heuristik haelt Fragen ("wie sperre ich…", "kannst du…") ausgeschlossen.
+_ACTION_COMMAND_VERBS = frozenset({
+    "sperre", "entsperre", "lock", "unlock", "loesche", "lösche", "loesch", "lösch",
+    "delete", "entferne", "entfern", "remove", "erstelle", "erzeuge", "generiere",
+    "generate", "exportiere", "export", "rendere", "render", "starte", "start",
+    "importiere", "import", "konvertiere", "convert", "verschiebe", "move",
+    "speichere", "save", "oeffne", "öffne", "schneide", "ducke", "wende",
+})
 
 # Generische Analyse-Keywords (treffen auf mehrere Domänen zu)
 ANALYZE_ALL_KEYWORDS = [
@@ -802,6 +819,18 @@ class OrchestratorAgent(BaseAgent):
                 "error": str(e),
             }
 
+    def _looks_like_action_command(self, user_text: str) -> bool:
+        """B-411: True, wenn der Text mit einem imperativen Aktions-Verb BEGINNT.
+
+        Heuristik zur Unterscheidung Befehl ("sperre cut 3") vs Frage ("wie sperre
+        ich…", "kannst du…"): nur wenn das erste Wort ein Aktions-Verb ist.
+        """
+        text = user_text.strip().lower()
+        if not text:
+            return False
+        first = re.split(r"[^a-zäöüß]+", text, maxsplit=1)[0]
+        return first in _ACTION_COMMAND_VERBS
+
     def _handle_project_status_read(self, user_text: str) -> dict[str, Any] | None:
         """B-468: Routet Read-Intent-Projektstatus-Anfragen zu summarize_project.
 
@@ -1044,6 +1073,24 @@ class OrchestratorAgent(BaseAgent):
                     "params": {"user_text": user_text},
                     "result": tool_response,
                     "message": tool_response,
+                    "error": None,
+                }
+
+            # B-411: Ein Aktions-Befehl, der bis hierher KEINEN Executor erreicht hat
+            # (kein Agent/keine Action, Modell ohne Tool-Support), darf nicht in einer
+            # halluzinierten LLM-Erfolgsmeldung enden. Transparent ablehnen statt chat().
+            if self._looks_like_action_command(user_text):
+                return {
+                    "agent": self.name,
+                    "action": "action_not_executable",
+                    "params": {"user_text": user_text},
+                    "result": None,
+                    "message": (
+                        "Diese Aktion kann ich über den Chat nicht direkt ausführen "
+                        "(das aktive Modell unterstützt keine Tool-Aufrufe). Bitte nutze "
+                        "die entsprechende Schaltfläche oder das Menü in der App — es "
+                        "wurde nichts verändert."
+                    ),
                     "error": None,
                 }
 
