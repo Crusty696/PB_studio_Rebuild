@@ -4,7 +4,7 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import threading
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, QObject, Signal
 from PySide6.QtGui import QImage, QPixmap
 from database import VideoClip, TimelineEntry, get_active_project_id, nullpool_session
 from services.task_manager import TaskManagerProxy
@@ -42,8 +42,38 @@ def shutdown_convert_db_pool(timeout: float = 2.0) -> bool:
     pool.shutdown(wait=True, cancel_futures=True)
     return not any(t.name.startswith("convert_db") for t in threading.enumerate())
 
+class _MainThreadInvoker(QObject):
+    """B-390/B-292: Liefert ein Callable aus einem Nicht-Qt-Thread in den Main-Thread.
+
+    Die convert-DB-Jobs laufen in einem ``ThreadPoolExecutor`` (kein Qt-Event-Loop).
+    Ein von dort gestartetes ``QTimer.singleShot`` feuert NIE — Ergebnisse erreichten
+    die UI nicht (Effekt-Combo blieb leer, Clip-Werte/Preview kamen nicht). Ein
+    Qt-Signal wird hingegen cross-thread als QueuedConnection an den Empfaenger-Thread
+    (Main) zugestellt. Diese Instanz MUSS im Main-Thread erzeugt werden.
+    """
+    _invoke = Signal(object)
+
+    def __init__(self):
+        super().__init__()
+        self._invoke.connect(self._run)
+
+    def post(self, fn):
+        self._invoke.emit(fn)
+
+    def _run(self, fn):
+        try:
+            fn()
+        except Exception:  # broad: Main-Thread-Callback darf nichts crashen
+            logger.exception("[ConvertController] Main-Thread-Callback fehlgeschlagen")
+
+
 class ConvertController(PBComponent):
     """Convert workspace methods for PBWindow."""
+
+    def __init__(self, window):
+        super().__init__(window)
+        # B-390/B-292: im Main-Thread erzeugt -> liefert Pool-Ergebnisse korrekt.
+        self._main_invoker = _MainThreadInvoker()
 
     def _refresh_effects_combos(self):
         """Laedt Effects-Combo-Daten im Hintergrund-Thread, aktualisiert UI im Main-Thread."""
@@ -76,7 +106,9 @@ class ConvertController(PBComponent):
                             items.append((label, entry.id))
             except Exception as e:
                 logger.warning("[ConvertController] _refresh_effects_combos DB-Fehler: %s", e)
-            QTimer.singleShot(0, lambda: self._populate_effects_combo(items))
+            # B-390/B-292: Main-Thread-Delivery via Signal (QTimer.singleShot aus
+            # dem convert_db-Pool-Thread feuert nie -> Combo blieb leer).
+            self._main_invoker.post(lambda: self._populate_effects_combo(items))
 
         submit_convert_db_job(_fetch)
 
@@ -100,7 +132,7 @@ class ConvertController(PBComponent):
                             int((entry.contrast or 1.0) * 100),
                             int((entry.crossfade_duration or 0.0) * 10),
                         )
-                        QTimer.singleShot(0, lambda: self._apply_clip_values(*vals))
+                        self._main_invoker.post(lambda: self._apply_clip_values(*vals))
             except Exception as e:
                 logger.warning("[ConvertController] _on_effects_clip_changed DB-Fehler: %s", e)
 
@@ -158,7 +190,7 @@ class ConvertController(PBComponent):
                     file_path = clip.file_path
 
                 vf_extra = f"eq=brightness={b}:contrast={c}"
-                QTimer.singleShot(0, lambda: self._start_effect_worker(file_path, vf_extra))
+                self._main_invoker.post(lambda: self._start_effect_worker(file_path, vf_extra))
             except Exception as e:
                 logger.warning("[ConvertController] _show_effect_preview DB-Fehler: %s", e)
 
