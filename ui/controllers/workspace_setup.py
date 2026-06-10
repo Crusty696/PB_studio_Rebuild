@@ -112,6 +112,13 @@ class WorkspaceSetupController(PBComponent):
         tools.addAction("Speichern unter", self.window.project_management._save_project_as)
         tools.addAction("Zuletzt geoeffnete Projekte", self._show_recent_projects_menu)
         tools.addSeparator()
+        # B-351: Import auch ueber das Tools-Menue erreichbar (ruft denselben
+        # Flow wie die Import-Buttons im MATERIAL-&-ANALYSE-Workspace).
+        import_menu = tools.addMenu("Medien importieren")
+        import_menu.addAction("Video importieren", self.window.import_media._import_video)
+        import_menu.addAction("Audio importieren", self.window.import_media._import_audio)
+        import_menu.addAction("Ordner importieren", self.window.import_media._import_folder)
+        tools.addSeparator()
         tools.addAction("Studio Brain (Ctrl+B)", self.window._open_studio_brain)
         tools.addAction("Tastaturkuerzel", self.window.project_management._show_shortcut_help)
         tools.addAction("About", self.window.project_management._show_about)
