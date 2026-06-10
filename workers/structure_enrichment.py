@@ -464,12 +464,18 @@ class StructureEnrichmentWorker(QObject):
                             ).scalar_one()
                             label_to_db_id[0] = noise_id
                             session.flush()
-                    else:
+                    elif reducer is not None:
                         # Assign to nearest centroid
                         emb_i = enrichable_matrix[i].astype(np.float64)
                         reduced_pt = reducer.transform([emb_i])
                         dists = np.linalg.norm(centroids - reduced_pt, axis=1)
                         label = int(unique_labels[int(np.argmin(dists))])
+                    else:
+                        # B-491: Degraded-Modus (Single-Bucket / kein gefitteter
+                        # Reducer) — keine Dim-Reduktion moeglich. Frueher crashte
+                        # ``reducer.transform`` mit AttributeError ('NoneType').
+                        # Noise-Point dem ersten vorhandenen Bucket zuordnen.
+                        label = int(unique_labels[0]) if len(unique_labels) else 0
 
                 bucket_db_id = label_to_db_id.get(
                     label, next(iter(label_to_db_id.values())) if label_to_db_id else 1
