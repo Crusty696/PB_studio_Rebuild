@@ -36,9 +36,10 @@ def test_b401_batch_convert_cancel_stops_running_ffmpeg(tmp_path, monkeypatch):
     release = threading.Event()
 
     def fake_run(cmd, **kwargs):
-        started.set()
-        release.wait(timeout=5.0)
-        return subprocess.CompletedProcess(cmd, 0, stdout=b"", stderr=b"")
+        # B-402: ffprobe-Dauer-Probe (subprocess.run) ist ein schneller Metadaten-
+        # Aufruf, NICHT der cancelbare Encode. Sofort zurueck, damit der Test den
+        # eigentlichen ffmpeg-Cancel-Pfad (Popen-Terminate) erreicht.
+        return subprocess.CompletedProcess(cmd, 0, stdout=b"5.0\n", stderr=b"")
 
     class FakeProcess:
         returncode = None

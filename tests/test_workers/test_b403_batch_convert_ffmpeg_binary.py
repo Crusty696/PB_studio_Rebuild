@@ -51,4 +51,10 @@ def test_b403_batch_convert_uses_configured_ffmpeg_binary(tmp_path, monkeypatch)
     worker.run()
 
     assert captured_cmds
-    assert captured_cmds[0][0] == configured_ffmpeg
+    # B-402: Vor dem Convert laeuft jetzt ein ffprobe-Dauer-Probe-Call. Der
+    # eigentliche Convert-Befehl muss weiterhin die konfigurierte ffmpeg-Binary
+    # nutzen — irgendein captured cmd beginnt mit configured_ffmpeg.
+    assert any(c[0] == configured_ffmpeg for c in captured_cmds), (
+        f"Convert nutzte nicht die konfigurierte ffmpeg-Binary: "
+        f"{[c[0] for c in captured_cmds]}"
+    )

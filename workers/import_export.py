@@ -24,7 +24,18 @@ from .base import CancellableMixin, format_user_error
 logger = logging.getLogger(__name__)
 
 
-def _run_batch_ffmpeg_cancellable(cmd: list[str], cancel_check, timeout: float):
+def _run_batch_ffmpeg_cancellable(cmd: list[str], cancel_check, timeout: float,
+                                  progress_cb=None):
+    """B-401: FFmpeg mit Cancel-/Timeout-Watchdog.
+
+    B-402: Wenn ``progress_cb`` gesetzt ist (und das cmd ``-progress pipe:1``
+    enthaelt), liest ein Daemon-Thread die FFmpeg-``out_time_ms``-Zeilen aus
+    stdout und meldet die aktuelle Ausgabe-Zeit in Sekunden. So zeigt der
+    Progress-Bar echten Frame-Fortschritt INNERHALB eines Clips statt nur
+    einem Item-Count-Sprung pro fertigem Clip.
+    """
+    import threading
+
     kwargs = {}
     if sys.platform == "win32":
         kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
@@ -34,7 +45,31 @@ def _run_batch_ffmpeg_cancellable(cmd: list[str], cancel_check, timeout: float):
         stderr=subprocess.PIPE,
         **kwargs,
     )
+
+    # B-402: stdout-Reader-Thread parst out_time_ms (FFmpeg -progress pipe:1).
+    # Laeuft nur wenn progress_cb gesetzt ist; konsumiert stdout, damit der
+    # Cancel/Timeout-Loop unten unveraendert bleibt (er liest stdout nicht).
+    state = {"sec": 0.0}
+    reader = None
+    if progress_cb is not None and getattr(process, "stdout", None) is not None:
+        def _read_progress():
+            try:
+                for raw in process.stdout:
+                    line = raw.decode(errors="replace").strip() if isinstance(raw, bytes) else raw.strip()
+                    if line.startswith("out_time_ms="):
+                        val = line.split("=", 1)[1].strip()
+                        if val and val != "N/A":
+                            try:
+                                state["sec"] = int(val) / 1_000_000.0
+                            except ValueError:
+                                pass
+            except Exception:  # broad: Reader darf den Convert nie crashen
+                pass
+        reader = threading.Thread(target=_read_progress, daemon=True)
+        reader.start()
+
     deadline = time.monotonic() + timeout
+    last_emit = -1.0
     while process.poll() is None:
         if cancel_check is not None and cancel_check():
             process.terminate()
@@ -48,12 +83,49 @@ def _run_batch_ffmpeg_cancellable(cmd: list[str], cancel_check, timeout: float):
             process.kill()
             process.wait(timeout=2.0)
             raise subprocess.TimeoutExpired(cmd, timeout)
+        if progress_cb is not None and state["sec"] != last_emit:
+            last_emit = state["sec"]
+            try:
+                progress_cb(state["sec"])
+            except Exception:  # broad: UI-Callback darf den Convert nie crashen
+                pass
         time.sleep(0.1)
+
+    if reader is not None:
+        reader.join(timeout=2.0)
+        # stdout vom Reader konsumiert -> nur stderr separat lesen.
+        try:
+            stderr = process.stderr.read() if process.stderr else b""
+        except Exception:
+            stderr = b""
+        try:
+            if process.stdout:
+                process.stdout.close()
+        except Exception:
+            pass
+        return subprocess.CompletedProcess(cmd, process.returncode, stdout=b"", stderr=stderr)
 
     stdout, stderr = process.communicate(timeout=2.0)
     return subprocess.CompletedProcess(
         cmd, process.returncode, stdout=stdout, stderr=stderr
     )
+
+
+def _ffprobe_duration(path: str) -> float:
+    """B-402: Clip-Dauer in Sekunden via ffprobe; 0.0 bei Fehler/Unbekannt."""
+    try:
+        from services.startup_checks import get_ffprobe_bin
+        kwargs = {}
+        if sys.platform == "win32":
+            kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+        out = subprocess.run(
+            [get_ffprobe_bin(), "-v", "quiet", "-show_entries",
+             "format=duration", "-of", "csv=p=0", path],
+            capture_output=True, text=True, timeout=15, **kwargs,
+        )
+        return float(out.stdout.strip())
+    except Exception:  # broad: Dauer-Probe darf den Convert nie crashen
+        return 0.0
 
 
 class ExportWorker(QObject, CancellableMixin):
@@ -388,13 +460,29 @@ class BatchConvertWorker(QObject, CancellableMixin):
                     "-c:a", "aac",
                     "-preset", "medium",
                     "-v", "quiet",
+                    # B-402: echter Frame-Fortschritt pro Clip statt Item-Count.
+                    "-progress", "pipe:1",
                     dst,
                 ]
+                # B-402: out_time_ms (Sekunden) -> Anteil am aktuellen Clip ->
+                # Gesamt-Prozent (i + frac) / total, gedeckelt auf 99 bis der
+                # Clip fertig ist (das OK unten setzt dann die Item-Grenze).
+                _clip_dur = _ffprobe_duration(src)
+
+                def _conv_progress(sec, _i=i, _dur=_clip_dur):
+                    frac = min(1.0, sec / _dur) if _dur and _dur > 0 else 0.0
+                    pct = int((_i + frac) / total * 100)
+                    self.progress.emit(
+                        min(99, pct),
+                        f"[Convert] {_i+1}/{total}: {int(frac*100)}% — {Path(src).name}",
+                    )
+
                 try:
                     result = _run_batch_ffmpeg_cancellable(
                         cmd,
                         cancel_check=self.should_stop,
                         timeout=FFMPEG_EXPORT_TIMEOUT_SEC,
+                        progress_cb=_conv_progress,
                     )
                     if self.should_stop():
                         break
