@@ -618,6 +618,7 @@ def get_cut_list(project_id: int) -> list[dict]:
     with nullpool_session() as s:
         entries = (
             s.query(
+                TimelineEntry.id,
                 TimelineEntry.media_id,
                 TimelineEntry.start_time,
                 TimelineEntry.end_time,
@@ -651,6 +652,7 @@ def get_cut_list(project_id: int) -> list[dict]:
                 title = f"Clip {e.media_id}"
             rows.append({
                 "index": idx,
+                "entry_id": int(e.id),  # B-295: TimelineEntry-ID fuer Lock/Remove
                 "time": start_t,
                 "duration": max(0.0, end_t - start_t),
                 "source": str(getattr(e, "cut_source", "") or ""),

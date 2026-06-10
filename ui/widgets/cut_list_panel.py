@@ -13,7 +13,7 @@ from typing import Optional
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTableWidget,
-    QTableWidgetItem, QHeaderView, QPushButton,
+    QTableWidgetItem, QHeaderView, QPushButton, QMenu,
 )
 
 # M-5: Module-top import statt lokalem Import in refresh().
@@ -30,6 +30,13 @@ class CutListPanel(QWidget):
     """
 
     cut_selected = Signal(float)
+    # B-295: Edit-Affordances via Kontextmenue. entry_id = TimelineEntry-ID.
+    cut_lock_toggle_requested = Signal(int, bool)  # (entry_id, new_locked)
+    cut_remove_requested = Signal(int)             # (entry_id)
+
+    # ItemDataRole-Offsets fuer Zeilen-Metadaten am "#"-Item (Spalte 0).
+    _ROLE_ENTRY_ID = int(Qt.ItemDataRole.UserRole) + 10
+    _ROLE_LOCKED = int(Qt.ItemDataRole.UserRole) + 11
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -72,6 +79,9 @@ class CutListPanel(QWidget):
         )
         self.table.setAccessibleName("Cutliste der aktuellen Timeline")
         self.table.cellClicked.connect(self._on_cell_clicked)
+        # B-295: Rechtsklick-Kontextmenue (Sperren/Entsperren, Cut entfernen).
+        self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self._on_context_menu)
         layout.addWidget(self.table)
 
         # M-2: konsistenter initial-Empty-State-Text (vorher "Noch keine Timeline.").
@@ -106,7 +116,12 @@ class CutListPanel(QWidget):
     def _render_cuts(self, cuts: list[dict]) -> None:
         self.table.setRowCount(len(cuts))
         for row, cut in enumerate(cuts):
-            self.table.setItem(row, 0, QTableWidgetItem(str(cut["index"])))
+            idx_item = QTableWidgetItem(str(cut["index"]))
+            # B-295: entry_id + locked am "#"-Item ablegen fuer das Kontextmenue.
+            if cut.get("entry_id") is not None:
+                idx_item.setData(self._ROLE_ENTRY_ID, int(cut["entry_id"]))
+            idx_item.setData(self._ROLE_LOCKED, bool(cut.get("locked")))
+            self.table.setItem(row, 0, idx_item)
             # I-2: Time als UserRole-Daten attachieren — Klick liest Wert
             # statt Display-String zu parsen (Locale-safe gegen Dezimaltrenner).
             time_item = QTableWidgetItem(f"{cut['time']:.2f}s")
@@ -125,6 +140,34 @@ class CutListPanel(QWidget):
         t = time_item.data(Qt.ItemDataRole.UserRole)
         if isinstance(t, (int, float)):
             self.cut_selected.emit(float(t))
+
+    def _on_context_menu(self, pos) -> None:
+        """B-295: Rechtsklick-Menue auf einer Cut-Zeile — Sperren/Entsperren + Entfernen."""
+        item = self.table.itemAt(pos)
+        if item is None:
+            return
+        idx_item = self.table.item(item.row(), 0)
+        if idx_item is None:
+            return
+        entry_id = idx_item.data(self._ROLE_ENTRY_ID)
+        if entry_id is None:
+            return
+        entry_id = int(entry_id)
+        locked = bool(idx_item.data(self._ROLE_LOCKED))
+
+        menu = QMenu(self)
+        act_lock = menu.addAction("Entsperren" if locked else "Sperren")
+        act_remove = menu.addAction("Cut entfernen")
+        chosen = self._exec_menu(menu, self.table.viewport().mapToGlobal(pos))
+        if chosen is act_lock:
+            self.cut_lock_toggle_requested.emit(entry_id, not locked)
+        elif chosen is act_remove:
+            self.cut_remove_requested.emit(entry_id)
+
+    def _exec_menu(self, menu: QMenu, global_pos):
+        """Gekapselter modaler Menue-Aufruf — in Tests patchbar (``QMenu.exec``
+        ist eine C++-Methode und laesst sich nicht direkt monkeypatchen)."""
+        return menu.exec(global_pos)
 
     def rendered_row_count(self) -> int:
         """B-295 Test-Affordance."""

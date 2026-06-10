@@ -1915,6 +1915,35 @@ class InteractiveTimeline(QGraphicsView):
             })
         self.selection_changed.emit(clip_data)
 
+    def toggle_clip_lock_by_id(self, entry_id: int, locked: bool) -> None:
+        """B-295: Lock-Status eines Cuts per entry_id setzen (CutListPanel-Kontextmenue).
+
+        Nutzt denselben ToggleClipLockCommand wie der Lock-Icon-Klick — also
+        Undo + DB-Persistenz. Aktualisiert zusaetzlich das Lock-Visual des Clips.
+        """
+        from ui.undo_commands import ToggleClipLockCommand
+        cmd = ToggleClipLockCommand(int(entry_id), bool(locked), timeline=self)
+        stack = getattr(self, "undo_stack", None)
+        if stack is not None:
+            stack.push(cmd)
+        else:
+            cmd.redo()
+        self._sync_clip_lock_visual(int(entry_id), bool(locked))
+
+    def remove_clip_by_id(self, entry_id: int) -> None:
+        """B-295: Cut per entry_id entfernen (CutListPanel-Kontextmenue).
+
+        Nutzt denselben RemoveClipCommand wie remove_selected_clips — also
+        Undo + DB-Loeschung + Scene-Cleanup.
+        """
+        from ui.undo_commands import RemoveClipCommand
+        cmd = RemoveClipCommand(timeline=self, entry_id=int(entry_id))
+        stack = getattr(self, "undo_stack", None)
+        if stack is not None:
+            stack.push(cmd)
+        else:
+            cmd.redo()
+
     def remove_selected_clips(self):
         """Entfernt alle ausgewaehlten Clips via UndoCommand."""
         selected = [item for item in self._scene.selectedItems()

@@ -67,3 +67,19 @@ class SchnittTabSchnitt(QWidget):
         v.addWidget(self.cut_list_panel, stretch=0)
         if hasattr(self.timeline_view, "set_playhead_time"):
             self.cut_list_panel.cut_selected.connect(self.timeline_view.set_playhead_time)
+        # B-295: Edit-Affordances aus dem Cutlisten-Kontextmenue an die Timeline-Ops
+        # (gleiche Undo/DB-Commands wie Lock-Icon / remove_selected_clips).
+        self.cut_list_panel.cut_lock_toggle_requested.connect(self._on_cut_lock_toggle)
+        self.cut_list_panel.cut_remove_requested.connect(self._on_cut_remove)
+
+    def _on_cut_lock_toggle(self, entry_id: int, new_locked: bool) -> None:
+        tv = self.timeline_view
+        if hasattr(tv, "toggle_clip_lock_by_id"):
+            tv.toggle_clip_lock_by_id(int(entry_id), bool(new_locked))
+        self.cut_list_panel.refresh()
+
+    def _on_cut_remove(self, entry_id: int) -> None:
+        tv = self.timeline_view
+        if hasattr(tv, "remove_clip_by_id"):
+            tv.remove_clip_by_id(int(entry_id))
+        self.cut_list_panel.refresh()
