@@ -77,6 +77,11 @@ class AnalysisStatusPanel(QWidget):
     """
 
     analysis_requested = Signal(str)  # step_key
+    # B-292: Liefert das im Hintergrund-Thread geladene Status-Ergebnis an den
+    # Main-Thread. Ein Qt-Signal wird cross-thread automatisch als QueuedConnection
+    # an den Empfaenger-Thread (Main) zugestellt — anders als QTimer.singleShot,
+    # das aus einem Nicht-Qt-Thread (ThreadPoolExecutor) nie feuert.
+    _status_loaded = Signal(object, int, str, int)  # (status_dict, gen, type, id)
 
     # B-473: klarer Handlungs-Hinweis statt passivem "Keine Datei ausgewählt".
     _NO_MEDIA_HINT = "← Links eine Datei anklicken — der Analyse-Status erscheint hier."
@@ -88,6 +93,8 @@ class AnalysisStatusPanel(QWidget):
         self._filter_mode: str = "all"  # "all", "pending", "error"
         self._build_ui()
         self._setup_shortcuts()
+        # B-292: Hintergrund-Ergebnis im Main-Thread anwenden (queued cross-thread).
+        self._status_loaded.connect(self._apply_status_data)
 
     def _build_ui(self):
         """Erstellt das UI-Layout."""
@@ -346,11 +353,14 @@ class AnalysisStatusPanel(QWidget):
                 analysis_status_service.infer_from_db(media_type, media_id)
             except Exception as e:
                 logger.warning("infer_from_db failed: %s", e)
-            status_dict = analysis_status_service.get_status(media_type, media_id)
-            QTimer.singleShot(
-                0,
-                lambda: self._apply_status_data(status_dict, my_gen, media_type, media_id),
-            )
+            try:
+                status_dict = analysis_status_service.get_status(media_type, media_id)
+            except Exception as e:  # B-292: sonst stirbt der Worker still -> Panel leer
+                logger.warning("get_status failed: %s", e)
+                return
+            # B-292: Ergebnis per Signal an den Main-Thread (QTimer.singleShot aus
+            # diesem Nicht-Qt-Pool-Thread haette nie gefeuert -> Tabelle blieb leer).
+            self._status_loaded.emit(status_dict, my_gen, media_type, media_id)
 
         _status_db_pool.submit(_db_work)
 
