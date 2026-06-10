@@ -11,6 +11,7 @@ JSON-Array zurueckgeben, wenn der User mehrere Dinge verlangt.
 import json
 import logging
 import threading
+import time
 from typing import Any
 
 from services.action_registry import ActionRegistry, action_registry
@@ -29,6 +30,9 @@ OLLAMA_DEFAULT_URL = "http://localhost:11434"
 OLLAMA_ENABLED_ENV = "PB_OLLAMA_ENABLED"   # "1" oder "0"
 OLLAMA_URL_ENV = "PB_OLLAMA_URL"
 OLLAMA_MODEL_ENV = "PB_OLLAMA_MODEL"
+
+# B-434: Throttle fuer den defensiven Ollama-Reprobe (gecachtes _use_ollama=False).
+_OLLAMA_REPROBE_INTERVAL_SEC = 30.0
 
 SYSTEM_PROMPT_TEMPLATE = """\
 Du bist der KI-Assistent von PB Studio, einer Video- und Audio-Produktionssoftware.
@@ -156,6 +160,15 @@ class LocalAgentService:
             self._use_ollama = None  # Auto-detect
         self._ollama_client = None  # Lazy init
 
+        # B-434: Ein gecachtes _use_ollama=False aus dem Auto-Detect darf den Chat
+        # nicht die ganze Session tot halten (Boot-Race: Ollama-Subprocess noch
+        # nicht API-ready, Power-Event-Sturm). Wir reprobben throttled — AUSSER
+        # Ollama wurde explizit deaktiviert (Konstruktor use_ollama=False oder ENV=0).
+        self._ollama_disabled_explicit = (
+            use_ollama is False or _os.environ.get(OLLAMA_ENABLED_ENV) == "0"
+        )
+        self._last_ollama_reprobe_ts = 0.0
+
         # B-082: Caches fuer System-Prompt-Bestandteile, damit nicht jeder
         # User-Turn 2 DB-Queries + 5000-Row-Hydrate triggert. TTLs:
         #  - base (Registry-Schema): bis Process-Ende, Registry-Aenderung
@@ -180,6 +193,9 @@ class LocalAgentService:
             dict mit Keys: backend ('ollama'|'fallback'), ollama_reachable
             (bool), model (str|None), message (str für Anzeige).
         """
+        # B-434: gecachtes False defensiv neu proben, damit der UI-Banner sich
+        # erholt, sobald Ollama gesund ist.
+        self._maybe_reprobe_ollama()
         auto_detected = False
         if self._use_ollama is None:
             auto_detected = True
@@ -676,10 +692,33 @@ class LocalAgentService:
             {"role": "user", "content": user_text},
         ]
 
+    def _maybe_reprobe_ollama(self) -> None:
+        """B-434: Reprobt ein gecachtes ``_use_ollama=False`` (throttled).
+
+        Wurde Ollama beim Boot faelschlich als nicht-erreichbar erkannt (Subprocess
+        noch nicht API-ready, 0x000A-Power-Event-Sturm), blieb der Chat sonst die
+        ganze Session tot, weil nur ``None`` neu geprobt wurde. Hier proben wir
+        ``_use_ollama is False`` hoechstens alle ``_OLLAMA_REPROBE_INTERVAL_SEC``
+        Sekunden erneut und schalten bei Erfolg auf den Ollama-Pfad zurueck.
+        Explizit deaktiviertes Ollama wird NICHT reprobed.
+        """
+        if self._use_ollama is not False or self._ollama_disabled_explicit:
+            return
+        now = time.monotonic()
+        if now - self._last_ollama_reprobe_ts < _OLLAMA_REPROBE_INTERVAL_SEC:
+            return
+        self._last_ollama_reprobe_ts = now
+        if self._auto_detect_ollama():
+            self._use_ollama = True
+            logger.info("B-434: Ollama wieder erreichbar — Chat-Backend reaktiviert.")
+
     def _generate(self, user_text: str, max_new_tokens: int = 512) -> str:
         """Erzeugt die rohe Modellantwort via Ollama (Gemma 4 E4B)."""
         if self._use_ollama is None:
             self._use_ollama = self._auto_detect_ollama()
+        else:
+            # B-434: gecachtes False defensiv (throttled) neu proben.
+            self._maybe_reprobe_ollama()
 
         if self._use_ollama and self._ollama_model:
             try:
