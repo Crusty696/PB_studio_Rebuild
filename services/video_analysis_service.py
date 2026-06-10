@@ -947,9 +947,21 @@ def store_scenes_in_db(
     scenes: list[SceneInfo],
 ) -> None:
     """Speichert erkannte Szenen in der SQLite-DB (NullPool)."""
-    from database import nullpool_session, Scene
+    from database import nullpool_session, Scene, VideoClip
 
     with nullpool_session() as session:
+        # B-490: Existenz des VideoClips in der AKTUELLEN DB pruefen. Lief die
+        # Pipeline auf Projekt A und wurde mid-run zu Projekt B gewechselt (oder
+        # ist die clip_id stale), zeigt nullpool_session auf eine DB ohne diese
+        # Zeile -> der Scene-Foreign-Key crasht beim Commit (sqlite3.IntegrityError
+        # 'FOREIGN KEY constraint failed') und riss die ganze Pipeline-Task ab.
+        # Statt zu crashen ueberspringen wir die Szenen-Speicherung.
+        if session.query(VideoClip.id).filter_by(id=video_clip_id).first() is None:
+            logger.warning(
+                "store_scenes_in_db: VideoClip %d existiert nicht in der aktiven DB "
+                "— Szenen werden uebersprungen (verhindert FK-Crash).", video_clip_id,
+            )
+            return
         try:
             # Alte Szenen löschen
             session.query(Scene).filter_by(video_clip_id=video_clip_id).delete()
