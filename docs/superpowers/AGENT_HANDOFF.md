@@ -26,7 +26,8 @@ This file is a repository-local continuity checkpoint for all agents.
 - **OTK-012:** Completed on 2026-06-09 as decision/transfer task. Full project file audit completed as read-only static audit; user-approved follow-up fixplan exists as `PB-STUDIO-FULL-AUDIT-FIXPLAN-2026-05-31` via D-055. Remaining fixplan work is tracked as OTK-005.
 - **OTK-013:** Completed on 2026-06-09 as decision/transfer task. Conflict-quality audit completed as static audit; user decision exists as D-058 for FFmpeg resolver fix CQ-004/CQ-005. That follow-up was transferred to OTK-004 and live-verified there. No new broad fixplan was invented for candidate-only findings.
 - **OTK-016:** Completed on 2026-06-09. B-327 fixed (M4A FFmpeg fallback E2E), B-332 fixed (preview anchored to first video), B-197/B-198 fixed (live via OTK-010 + guard tests), B-331 cannot-reproduce (chunk-51 hang), B-265 wontfix (SB2 dGPU intermittent, no code bug). No agent `fixed` marker on product bugs without user.
-- **Next task:** `OTK-017: Handoff/Vault bugs B-458..B-472 user/live verification.`
+- **OTK-017:** Completed on 2026-06-10. 11 bugs user-confirmed fixed after GUI live-verify (B-458/459/460/463/464/465/466/467/468/470/472); B-469 stays parked-monitoring. Commits 88fd73b/b9d6b63/a7776d2/8075a92/683f048. New findings B-490/B-491 filed open (out of scope).
+- **Next task:** `OTK-017 completed. User selects next among open OTK tasks (OTK-005/007/018/019/021/022) or triage B-490/B-491.`
 
 ## Current Protocol
 
@@ -77,7 +78,8 @@ PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09
 Current next task:
 
 ```text
-OTK-017: Handoff/Vault bugs B-458..B-472 user/live verification.
+OTK-017 completed 2026-06-10. Next task = user selection among open OTK tasks
+(OTK-005/007/018/019/021/022) or triage of new findings B-490 / B-491.
 ```
 
 Current OTK-003 status:
