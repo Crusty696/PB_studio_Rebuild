@@ -155,3 +155,8 @@ EBU_R128_STREAMING_MAX: float = -9.0       # Streaming obere Grenze (LUFS)
 EBU_TRUE_PEAK_MAX: float = -1.0            # Maximaler True Peak (dBTP)
 CREST_FACTOR_COMPRESSED_DB: float = 8.0   # Darunter = stark komprimiert
 CREST_FACTOR_WIDE_DB: float = 15.0         # Darueber = weite Dynamik
+
+# -- Stem-Namen (Audio-V2 Pipeline, OTK-018 Bucket-B) ------------------
+# Reihenfolge entspricht Demucs-4-Stem-Output. Genutzt von
+# services/stem_router.py (SERVICE_ROUTING / Stem-Auswahl pro Service).
+STEM_NAMES: tuple[str, ...] = ("vocals", "drums", "bass", "other")
