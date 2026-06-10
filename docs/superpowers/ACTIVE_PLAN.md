@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09
-next_allowed_task: OTK-007 completed 2026-06-11 (56/56 verified, user set all fixed). Next = user selection among open OTK tasks (OTK-005/018/019/021/022).
+next_allowed_task: 2026-06-11 autonomous sweep OTK-005/018/019/021/022 done as far as governance allows. OTK-018 P0-freeze done (port pending), OTK-019 E2E rerun 17/18 (GUI-acceptance pending), OTK-022 Phase-1 audit done (no-port), OTK-021 blocked-prerequisite, OTK-005 awaiting user fixed+Task-12 decision. Next = USER decisions: (a) B-462 fixed?, (b) Task-12 purge feature?, (c) start audio-V2 Bucket-A port?, (d) OTK-019 GUI 11-step acceptance?
 updated: 2026-06-11
 
 ## Meaning
