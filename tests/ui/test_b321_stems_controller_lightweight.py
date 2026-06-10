@@ -74,6 +74,11 @@ def test_b321_stems_controller_uses_lightweight_audio_query(test_engine, monkeyp
         event.remove(test_engine, "before_cursor_execute", capture_sql)
 
     joined_sql = "\n".join(statements)
-    assert "beatgrids" not in joined_sql
+    # B-355: Eine gezielte, billige beatgrids-Onset-Query (3 indizierte JSON-
+    # Spalten onset_*_data) ist erlaubt — sie fuettert den Onsets-Subtab beim
+    # Trackwechsel. Der SCHWERE Beatgrid-Relation-Load (alle Spalten inkl.
+    # beat_positions/energy_per_beat), den B-321 verhindert, muss weiter fehlen.
+    assert "beat_positions" not in joined_sql
+    assert "energy_per_beat" not in joined_sql
     assert "video_clips" not in joined_sql
     assert "audio_tracks.file_path" not in joined_sql

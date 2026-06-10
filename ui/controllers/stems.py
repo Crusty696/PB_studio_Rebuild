@@ -4,7 +4,7 @@ import logging
 from types import SimpleNamespace
 from pathlib import Path
 from PySide6.QtCore import Qt
-from database import engine, AudioTrack
+from database import engine, AudioTrack, Beatgrid
 from sqlalchemy.orm import Session as DBSession
 from services.task_manager import TaskManagerProxy
 from workers import StemSeparationWorker, AutoDuckingWorker
@@ -93,12 +93,31 @@ class StemsController(PBComponent):
                     else:
                         self.window._schnitt_audio_binder.set_duration(0.0)
                 if hasattr(self.window, "_stems_ws"):
+                    # B-355: Onset-Daten (Kick/Snare/Hihat) liegen in der beatgrids-
+                    # Tabelle, NICHT am AudioTrack. Innerhalb der Session laden und
+                    # in den Snapshot packen, damit der Onsets-Subtab ueber den
+                    # Controller-Pfad (Trackwechsel) gefuettert wird statt leer zu
+                    # bleiben. SNR (acoustic_metadata) hat aktuell keine DB-Quelle —
+                    # bleibt None (Subtab zeigt "nicht verfuegbar").
+                    beatgrid_row = (
+                        session.query(
+                            Beatgrid.onset_kick_data,
+                            Beatgrid.onset_snare_data,
+                            Beatgrid.onset_hihat_data,
+                        )
+                        .filter(Beatgrid.audio_track_id == track_id)
+                        .first()
+                    )
                     self.window._stems_ws.update_analysis(
                         SimpleNamespace(
                             id=track_row.id,
                             title=track_row.title,
                             duration=track_row.duration,
                             energy_curve=track_row.energy_curve,
+                            onset_kick_data=(beatgrid_row.onset_kick_data if beatgrid_row else None),
+                            onset_snare_data=(beatgrid_row.onset_snare_data if beatgrid_row else None),
+                            onset_hihat_data=(beatgrid_row.onset_hihat_data if beatgrid_row else None),
+                            acoustic_metadata=None,
                         )
                     )
                 if loaded:
