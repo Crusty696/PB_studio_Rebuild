@@ -2,8 +2,8 @@
 
 status: active
 active_plan_id: PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09
-next_allowed_task: OTK-017 completed 2026-06-10. Next = user selection among open OTK tasks (OTK-005/007/018/019/021/022) or triage B-490/B-491.
-updated: 2026-06-10
+next_allowed_task: OTK-007 completed 2026-06-11 (56/56 verified, user set all fixed). Next = user selection among open OTK tasks (OTK-005/018/019/021/022).
+updated: 2026-06-11
 
 ## Meaning
 
