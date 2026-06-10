@@ -47,8 +47,46 @@ class ProjectManagementController(PBComponent):
             logger.error("B-050 %s: %s", prefix, err_msg)
         return _on_error
 
+    def _tasks_running_block(self, action_label: str) -> bool:
+        """B-465: Sichtbarer Pre-Block vor Projekt-Oeffnen/-Erstellen.
+
+        Wenn Hintergrund-Tasks laufen, warnt den User SOFORT (statt erst tief im
+        Worker nach Dialog-Bestaetigung mit dem B-050-Fehler) und bricht ab. Der
+        Service-Guard ``ProjectManager._wait_for_tasks_idle`` bleibt unveraendert
+        die eigentliche Sicherung — dies ist nur ein zusaetzliches UX-Gate.
+
+        Returns True wenn geblockt (Aufrufer soll dann ohne Dialog returnen).
+        """
+        try:
+            from services.project_manager import ProjectManager
+            if not ProjectManager._has_running_tasks():
+                return False
+        except Exception:  # best-effort: Pre-Block darf den echten Guard nie ersetzen
+            return False
+        msg = (
+            f"{action_label} ist nicht moeglich, solange Hintergrund-Tasks laufen.\n\n"
+            "Bitte warte, bis alle Tasks im TASKS-Panel beendet sind, und versuche "
+            "es erneut."
+        )
+        try:
+            if hasattr(self.window, "status_bar"):
+                self.window.status_bar.showMessage(
+                    f"{action_label}: Hintergrund-Tasks laufen noch.", 8000,
+                )
+        except Exception:  # broad: Status-Bar darf den Dialog nicht blocken
+            pass
+        try:
+            QMessageBox.warning(self.window, action_label, msg)
+        except Exception as exc:  # broad: best-effort
+            logger.warning("B-465: pre-block dialog failed: %s", exc)
+        logger.info("B-465: Pre-Block '%s' — Hintergrund-Tasks laufen noch.", action_label)
+        return True
+
     def _new_project(self):
         """Show NewProjectDialog and create a new project (Fix F-045: Async)."""
+        # B-465: sichtbarer Pre-Block statt Dialog-oeffnen-dann-tief-im-Worker-Fehler.
+        if self._tasks_running_block("Neues Projekt"):
+            return
         from ui.dialogs.project_dialog import NewProjectDialog
         dlg = NewProjectDialog(self.window)
         if dlg.exec() != QDialog.DialogCode.Accepted:
@@ -99,6 +137,9 @@ class ProjectManagementController(PBComponent):
 
     def _open_project(self):
         """Show OpenProjectDialog and open an existing project (Fix F-045: Async)."""
+        # B-465: sichtbarer Pre-Block statt Dialog-oeffnen-dann-tief-im-Worker-Fehler.
+        if self._tasks_running_block("Projekt oeffnen"):
+            return
         from ui.dialogs.project_dialog import OpenProjectDialog
         dlg = OpenProjectDialog(self.window)
         if dlg.exec() != QDialog.DialogCode.Accepted:
