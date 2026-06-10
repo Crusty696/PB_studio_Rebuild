@@ -370,6 +370,16 @@ class MaterialAnalysisWorkspace(QWidget):
                 self.convert_widget, "format_group"
             ):
                 self.media_widget.attach_preflight_format(self.convert_widget.format_group)
+            # B-492: Die PREFLIGHT-Controls sind jetzt in den Media-Bereich injiziert
+            # (reparentet) — der PREFLIGHT-Tab des ConvertWorkspace ist dadurch leer.
+            # Die uebrige EFFEKTE-Funktion (Clip-Helligkeit/Kontrast/Crossfade +
+            # Vorschau) war bisher NIE sichtbar. Den leeren PREFLIGHT-Tab entfernen
+            # und den ConvertWorkspace (zeigt dann nur noch EFFEKTE) unter dem
+            # Media-Bereich einblenden, damit das Feature erreichbar ist.
+            _tabs = getattr(self.convert_widget, "_tabs", None)
+            if _tabs is not None and _tabs.count() >= 2:
+                _tabs.removeTab(0)  # leerer PREFLIGHT-Tab
+            layout.addWidget(self.convert_widget, stretch=0)
 
         self.btn_stems = self.media_widget.btn_stem_separate
         self.btn_video_pipeline = self.media_widget.btn_video_pipeline
