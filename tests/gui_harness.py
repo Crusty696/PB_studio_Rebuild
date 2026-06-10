@@ -40,6 +40,23 @@ for _stream in (sys.stdout, sys.stderr):
     except (AttributeError, OSError):
         pass
 
+# HiDPI-Fix: Ohne Per-Monitor-DPI-Awareness virtualisiert Windows die Koordinaten
+# fuer den (nicht-aware) Python-Prozess. pyautogui klickt dann bei z.B. 200% DPI
+# um den Skalierungsfaktor daneben, waehrend pywinauto ``element.rectangle()``
+# physische Pixel liefert -> Klicks auf Custom-Widgets (Tabellen-Checkboxen,
+# QGraphicsView, QTabBar) verfehlen ihr Ziel. DPI-Aware bringt beide
+# Koordinatensysteme in Deckung (physische Pixel). MUSS vor dem ersten
+# pyautogui-Import laufen.
+if sys.platform == "win32":
+    try:
+        import ctypes
+        try:
+            ctypes.windll.shcore.SetProcessDpiAwareness(2)  # PER_MONITOR_AWARE
+        except (AttributeError, OSError):
+            ctypes.windll.user32.SetProcessDPIAware()
+    except Exception:
+        pass
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 # Allow override via PB_PYTHON env-var (e.g. conda env) when .venv310 is absent
 VENV_PYTHON = Path(os.environ["PB_PYTHON"]) if "PB_PYTHON" in os.environ else PROJECT_ROOT / ".venv310" / "Scripts" / "python.exe"
