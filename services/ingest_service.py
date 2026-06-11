@@ -740,6 +740,218 @@ def delete_selected_media(video_ids: list[int], audio_ids: list[int]) -> int:
         return count_a + count_v
 
 
+def get_soft_deleted_media(project_id: int | None = None) -> list[dict]:
+    """Listet soft-geloeschte Medien (der "Papierkorb") eines Projekts.
+
+    B-462 Stage 2 (Task 12, option C): Gibt alle Parents mit gesetztem
+    ``deleted_at`` zurueck — die Gegenstuecke zu ``get_all_video`` /
+    ``get_all_audio``, die soft-deleted Rows ausblenden. Read-Pfad nutzt den
+    Read-Resolver (kein raise) wie die anderen Listen-Funktionen.
+    """
+    project_id = _resolve_project_id(project_id)
+    from database import nullpool_session
+    items: list[dict] = []
+    with nullpool_session() as session:
+        videos = session.query(
+            VideoClip.id, VideoClip.file_path, VideoClip.deleted_at,
+        ).filter(
+            VideoClip.project_id == project_id,
+            VideoClip.deleted_at.isnot(None),
+        ).order_by(VideoClip.deleted_at.desc(), VideoClip.id).all()
+        for vid, path, deleted_at in videos:
+            items.append({
+                "id": vid,
+                "title": Path(path).stem,
+                "type": "Video",
+                "deleted_at": deleted_at,
+            })
+
+        audios = session.query(
+            AudioTrack.id, AudioTrack.title, AudioTrack.file_path,
+            AudioTrack.deleted_at,
+        ).filter(
+            AudioTrack.project_id == project_id,
+            AudioTrack.deleted_at.isnot(None),
+        ).order_by(AudioTrack.deleted_at.desc(), AudioTrack.id).all()
+        for aid, title, path, deleted_at in audios:
+            items.append({
+                "id": aid,
+                "title": title or Path(path).stem,
+                "type": "Audio",
+                "deleted_at": deleted_at,
+            })
+    return items
+
+
+def restore_media(video_ids: list[int], audio_ids: list[int]) -> int:
+    """Stellt soft-geloeschte Medien wieder her (``deleted_at`` zuruecksetzen).
+
+    B-462 Stage 2 (Task 12, option C): Setzt ``deleted_at = NULL`` auf den
+    angegebenen, aktuell soft-geloeschten Parents. Analyse-Children
+    (Scene/Beatgrid/...) ueberleben den Soft-Delete (Stage 1), darum kehrt der
+    Clip mit ihnen zurueck. HINWEIS: VectorDB-Embeddings werden beim Soft-Delete
+    entfernt und durch ein Restore NICHT wiederhergestellt — fuer Semantic-Search
+    muss der Clip neu analysiert werden.
+    """
+    if not video_ids and not audio_ids:
+        return 0
+    from database import nullpool_session
+    count = 0
+    with nullpool_session() as session:
+        if video_ids:
+            count += session.query(VideoClip).filter(
+                VideoClip.id.in_(video_ids)
+            ).filter(VideoClip.deleted_at.isnot(None)).update(
+                {VideoClip.deleted_at: None}, synchronize_session=False
+            )
+        if audio_ids:
+            count += session.query(AudioTrack).filter(
+                AudioTrack.id.in_(audio_ids)
+            ).filter(AudioTrack.deleted_at.isnot(None)).update(
+                {AudioTrack.deleted_at: None}, synchronize_session=False
+            )
+        session.commit()
+    return count
+
+
+def purge_soft_deleted_media(project_id: int | None = None) -> int:
+    """Loescht ALLE soft-geloeschten Medien eines Projekts endgueltig ("Papierkorb leeren").
+
+    B-462 Stage 2 (Task 12, option C): Irreversibler physischer Delete der
+    soft-geloeschten Parents (``deleted_at IS NOT NULL``) inklusive ihrer
+    Analyse-Children (Scene/Beatgrid/WaveformData/StructureSegment/HotCue) und der
+    zugehoerigen VectorDB-Embeddings. Recycelt die alte Hard-Delete-Logik, jetzt
+    aber strikt auf soft-geloeschte Rows beschraenkt — aktive Medien
+    (``deleted_at IS NULL``) bleiben unangetastet. Relationship-Children
+    (Timeline/Anchors) wurden bereits beim Soft-Delete entfernt; sie werden hier
+    defensiv erneut bereinigt. AIPacingMemory wird NIEMALS geloescht.
+
+    B-439: Nutzt den raise-Resolver — ohne aktives Projekt ValueError statt
+    versehentlichem Purge von project_id=1.
+    """
+    project_id = _resolve_project_id_for_ingest(project_id)
+    from database import (
+        AudioVideoAnchor, ClipAnchor, TimelineEntry,
+        Scene, Beatgrid, WaveformData, StructureSegment, HotCue,
+        AnalysisStatus,
+        nullpool_session as _nps,
+    )
+    with _nps() as session:
+        audio_ids = [
+            r[0] for r in session.query(AudioTrack.id).filter_by(
+                project_id=project_id
+            ).filter(AudioTrack.deleted_at.isnot(None)).all()
+        ]
+        video_ids = [
+            r[0] for r in session.query(VideoClip.id).filter_by(
+                project_id=project_id
+            ).filter(VideoClip.deleted_at.isnot(None)).all()
+        ]
+        if not audio_ids and not video_ids:
+            return 0
+
+        # Relationship-Children defensiv (i.d.R. schon beim Soft-Delete weg).
+        # B-153: konditional bauen statt [0]-Sentinel.
+        if video_ids:
+            timeline_ids = [
+                r[0] for r in session.query(TimelineEntry.id).filter(
+                    TimelineEntry.media_id.in_(video_ids),
+                    TimelineEntry.track == "video",
+                ).all()
+            ]
+        else:
+            timeline_ids = []
+        if audio_ids:
+            timeline_ids += [
+                r[0] for r in session.query(TimelineEntry.id).filter(
+                    TimelineEntry.media_id.in_(audio_ids),
+                    TimelineEntry.track == "audio",
+                ).all()
+            ]
+        if timeline_ids:
+            session.query(ClipAnchor).filter(
+                ClipAnchor.timeline_entry_id.in_(timeline_ids)
+            ).delete(synchronize_session=False)
+            session.query(TimelineEntry).filter(
+                TimelineEntry.id.in_(timeline_ids)
+            ).delete(synchronize_session=False)
+
+        anchor_conds = []
+        if audio_ids:
+            anchor_conds.append(AudioVideoAnchor.audio_track_id.in_(audio_ids))
+        if video_ids:
+            anchor_conds.append(AudioVideoAnchor.video_clip_id.in_(video_ids))
+        if anchor_conds:
+            session.query(AudioVideoAnchor).filter(
+                or_(*anchor_conds)
+            ).delete(synchronize_session=False)
+
+        # Analyse-Children physisch (recycelte Hard-Delete-Logik).
+        if video_ids:
+            session.query(Scene).filter(
+                Scene.video_clip_id.in_(video_ids)
+            ).delete(synchronize_session=False)
+        if audio_ids:
+            session.query(Beatgrid).filter(
+                Beatgrid.audio_track_id.in_(audio_ids)
+            ).delete(synchronize_session=False)
+            session.query(WaveformData).filter(
+                WaveformData.audio_track_id.in_(audio_ids)
+            ).delete(synchronize_session=False)
+            session.query(StructureSegment).filter(
+                StructureSegment.audio_track_id.in_(audio_ids)
+            ).delete(synchronize_session=False)
+            session.query(HotCue).filter(
+                HotCue.audio_track_id.in_(audio_ids)
+            ).delete(synchronize_session=False)
+
+        # B-188/D-028: ``analysis_status`` ist ein polymorpher Pointer ohne SQL-FK,
+        # bleibt bei reinem Parent-Delete als Orphan zurueck. Beim endgueltigen
+        # Purge werden die zugehoerigen Status-Rows mitentfernt (Soft-Delete behaelt
+        # sie fuer Restore — hier nicht).
+        if video_ids:
+            session.query(AnalysisStatus).filter(
+                AnalysisStatus.media_type == "video",
+                AnalysisStatus.media_id.in_(video_ids),
+            ).delete(synchronize_session=False)
+        if audio_ids:
+            session.query(AnalysisStatus).filter(
+                AnalysisStatus.media_type == "audio",
+                AnalysisStatus.media_id.in_(audio_ids),
+            ).delete(synchronize_session=False)
+
+        # ===== WARNUNG: AIPacingMemory darf NIE geloescht werden! =====
+        # KI-Langzeitgedaechtnis ist projektuebergreifend — kein Delete hier.
+        # ================================================================
+
+        count_a = session.query(AudioTrack).filter(
+            AudioTrack.id.in_(audio_ids)
+        ).delete(synchronize_session=False) if audio_ids else 0
+        count_v = session.query(VideoClip).filter(
+            VideoClip.id.in_(video_ids)
+        ).delete(synchronize_session=False) if video_ids else 0
+
+        # VectorDB-Cleanup VOR dem Commit. Schlaegt sie fehl, rollback —
+        # kein partial state, keine Orphan-Embeddings.
+        if video_ids:
+            try:
+                VectorDBService().delete_by_clip_ids(video_ids)
+            except (RuntimeError, OSError, ImportError) as e:
+                logger.error(
+                    "VectorDB delete_by_clip_ids fehlgeschlagen — Purge rolled "
+                    "back um Orphan-Embeddings zu vermeiden. Fehler: %s", e,
+                )
+                session.rollback()
+                raise RuntimeError(
+                    "Endgueltiges Loeschen abgebrochen: VectorDB konnte "
+                    f"Embeddings nicht loeschen ({e}). Purge wurde NICHT angewendet."
+                ) from e
+
+        session.commit()
+
+        return count_a + count_v
+
+
 def import_video_folder(
     folder_path: str,
     project_id: int | None = None,

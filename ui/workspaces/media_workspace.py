@@ -491,9 +491,14 @@ class MediaWorkspace(QWidget):
         self.btn_delete_selected_video = _toolbar_btn(
             "Loeschen", "Ausgewaehlte Videos loeschen", danger=True,
         )
+        self.btn_trash = _toolbar_btn(
+            "Papierkorb",
+            "Soft-geloeschte Medien anzeigen, wiederherstellen oder endgueltig loeschen",
+        )
         tb.addWidget(self.btn_import_video)
         tb.addWidget(self.btn_import_folder)
         tb.addWidget(self.btn_delete_selected_video)
+        tb.addWidget(self.btn_trash)
 
         tb.addSpacing(10)
         lbl = QLabel("SigLIP")

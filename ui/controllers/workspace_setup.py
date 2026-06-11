@@ -243,6 +243,7 @@ class WorkspaceSetupController(PBComponent):
         self.window._media_ws.btn_import_audio.clicked.connect(self.window.import_media._import_audio)
         self.window._media_ws.btn_import_folder.clicked.connect(self.window.import_media._import_folder)
         self.window._media_ws.btn_clear_all.clicked.connect(self.window.import_media._clear_all_media)
+        self.window._media_ws.btn_trash.clicked.connect(self.window.import_media._open_trash)
         self.window.btn_analyze.clicked.connect(self.window.audio_analysis._analyze_selected_audio)
         self.window.btn_analyze_video.clicked.connect(self.window.video_analysis._analyze_selected_video)
         self.window.btn_video_pipeline.clicked.connect(self.window.video_analysis._start_video_pipeline)

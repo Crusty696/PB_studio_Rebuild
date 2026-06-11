@@ -75,6 +75,22 @@ class _PartialDeleteWorker(QObject):
 class ImportMediaController(PBComponent):
     """Media import methods for PBWindow."""
 
+    def _open_trash(self):
+        """Oeffnet den Papierkorb-Dialog (B-462 Stage 2 / Task 12).
+
+        Zeigt soft-geloeschte Medien des aktiven Projekts; Restore und der
+        endgueltige Purge laufen synchron im Dialog. Nach dem Schliessen wird
+        die Media-Tabelle aktualisiert (ein Restore bringt Rows zurueck).
+        """
+        from ui.dialogs.trash_dialog import TrashDialog
+        logger.info("ImportMedia._open_trash: Klick angekommen, oeffne Papierkorb")
+        dialog = TrashDialog(project_id=None, parent=self.window)
+        dialog.exec()
+        try:
+            self.window.media_table_controller._refresh_media_table_debounced()
+        except (AttributeError, RuntimeError):
+            logger.debug("ImportMedia._open_trash: Media-Refresh uebersprungen")
+
     def _import_video(self):
         logger.info("ImportMedia._import_video: Klick angekommen, oeffne FileDialog")
         ext_filter = "Video-Dateien (" + " ".join(f"*{e}" for e in VIDEO_EXTENSIONS) + ")"
