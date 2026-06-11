@@ -72,7 +72,8 @@ class StructureDetectionService:
 
     def detect(self, file_path: str, bpm: float | None = None,
                beat_positions: list[float] | None = None,
-               energy_per_beat: list[float] | None = None) -> StructureResult:
+               energy_per_beat: list[float] | None = None,
+               stem_paths: dict[str, str] | None = None) -> StructureResult:
         """Erkennt die Song-Struktur mit Multi-Feature-Analyse.
 
         Args:
@@ -145,6 +146,35 @@ class StructureDetectionService:
 
             # ── 2. Beat-Regularitaet berechnen ──────────────────────────
             regularity_per_beat = self._compute_beat_regularity(beats, n_beats)
+
+            # ── 2b. Stem-basierte Bass-Features (OTK-018 / D-062, additiv) ─
+            # Wenn Stems vorhanden, ueberschreibe bass_per_beat mit echtem
+            # Bass-Stem — ABER nur wenn Quality-Gate passt (Korrelation Stem-Bass
+            # vs Mix-Bass >= 0.4), sonst hat Demucs schlecht separiert. Bessere
+            # Drop-Detection ohne Drums-Rauschen. Ohne Stems = Verhalten unveraendert.
+            if stem_paths and _HAS_LIBROSA:
+                stem_features = self._compute_stem_features_per_beat(stem_paths, beats)
+                if stem_features is not None:
+                    stem_bass = stem_features[0]
+                    if stem_bass is not None and bass_per_beat is not None:
+                        try:
+                            mb = np.asarray(bass_per_beat, dtype=np.float64)
+                            sb = np.asarray(stem_bass, dtype=np.float64)
+                            n_min = min(len(mb), len(sb))
+                            if n_min >= 4 and mb[:n_min].std() > 1e-9 and sb[:n_min].std() > 1e-9:
+                                corr = float(np.corrcoef(mb[:n_min], sb[:n_min])[0, 1])
+                            else:
+                                corr = 0.0
+                            if corr >= 0.4:
+                                bass_per_beat = stem_bass
+                                log.info("Structure: stem-bass aktiv (corr=%.2f >= 0.4)", corr)
+                            else:
+                                log.warning("Structure: stem-bass corr=%.2f < 0.4 -> mix-bass behalten", corr)
+                        except Exception as e:  # noqa: BLE001
+                            log.debug("Stem-Quality-Gate exception (%s) -> mix-bass behalten", e)
+                    elif stem_bass is not None and bass_per_beat is None:
+                        bass_per_beat = stem_bass
+                        log.info("Structure: stem-bass aktiv (kein mix-bass-Vergleich)")
 
             # ── 3. Features normalisieren ────────────────────────────────
             energy_norm = self._normalize(energy)
@@ -366,6 +396,47 @@ class StructureDetectionService:
             w_end = min(len(feature_frames), idx + window + 1)
             result[i] = float(np.mean(feature_frames[w_start:w_end]))
         return result
+
+    def _compute_stem_features_per_beat(self, stem_paths: dict[str, str], beats):
+        """OTK-018 / D-062: Bass/Drums/Vocals-Energie pro Beat aus Stems.
+
+        Returns (bass_per_beat, drums_per_beat, vocals_per_beat) als np.ndarrays
+        gleicher Laenge wie beats, oder None bei Fehler. Streaming-konform:
+        sequentiell laden, RMS rechnen, Array freigeben (nie alle 3 Stems im RAM).
+        Aktuell wird in der Segmentierung nur der Bass-Stem genutzt (Drop-Detection);
+        drums/vocals werden zukunftssicher mitberechnet.
+        """
+        if not _HAS_LIBROSA:
+            return None
+        try:
+            from services.audio_constants import DEFAULT_SR, HOP_LENGTH, MAX_DURATION_STRUCTURE
+            results: list = []
+            for stem_name in ("bass", "drums", "vocals"):
+                path = stem_paths.get(stem_name)
+                if not path:
+                    results.append(None)
+                    continue
+                try:
+                    y_stem, sr = librosa.load(
+                        path, sr=DEFAULT_SR, mono=True, duration=MAX_DURATION_STRUCTURE,
+                    )
+                    if len(y_stem) == 0:
+                        results.append(None)
+                        continue
+                    rms = librosa.feature.rms(y=y_stem, hop_length=HOP_LENGTH)[0]
+                    frame_times = librosa.frames_to_time(
+                        np.arange(len(rms)), sr=sr, hop_length=HOP_LENGTH,
+                    )
+                    per_beat = self._sample_feature_at_beats(rms, frame_times, beats)
+                    results.append(per_beat)
+                    del y_stem
+                except Exception as e:  # noqa: BLE001
+                    log.warning("Stem-Load %s fehlgeschlagen: %s", path, e)
+                    results.append(None)
+            return tuple(results)
+        except Exception as e:  # noqa: BLE001
+            log.debug("Stem-Feature-Berechnung fehlgeschlagen: %s", e)
+            return None
 
     @staticmethod
     def _compute_beat_regularity(beats, n_beats: int):

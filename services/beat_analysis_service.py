@@ -457,8 +457,13 @@ class BeatAnalysisService:
         downbeats_arr = np.unique(np.round(np.array(all_downbeats), 2)) if all_downbeats else np.array([])
         return beats_arr, downbeats_arr
 
-    def analyze_and_store(self, track_id: int, progress_cb=None) -> dict:
+    def analyze_and_store(self, track_id: int, progress_cb=None, *, trigger_onset: bool = True) -> dict:
         """Analysiert einen AudioTrack und speichert Beats/Downbeats in der DB.
+
+        OTK-018 / D-062 (additiv, backward-compat): ``trigger_onset`` (default True)
+        erhaelt das bestehende Verhalten fuer alle Alt-Caller. Die Audio-V2-Pipeline
+        ruft mit ``trigger_onset=False`` und faehrt die Onset-Stage separat
+        (drums-Stem-Routing via OnsetStage), um Doppel-Onset zu vermeiden.
 
         Aktualisiert den Beatgrid-Eintrag mit beat_this-Ergebnissen.
         Phase 3: Speichert auch Downbeats und Per-Beat-RMS-Energie.
@@ -598,12 +603,15 @@ class BeatAnalysisService:
             # AUD-83: Onset Rhythm Analysis (non-blocking, nach Beat-Analyse)
             # Nutzt bereits geladenes Audio (y/sr wurden vor unload() entnommen).
             # Fehler hier unterbrechen die Beat-Analyse NICHT.
-            try:
-                from services.onset_rhythm_service import OnsetRhythmService
-                onset_svc = OnsetRhythmService()
-                onset_svc.analyze_and_store(track_id, progress_cb=None)
-            except (ImportError, ValueError, RuntimeError, OSError) as e:
-                logger.warning("OnsetRhythmService.analyze_and_store() fehlgeschlagen: %s", e)
+            # D-062: nur wenn trigger_onset (Alt-Caller). Audio-V2 setzt False und
+            # routet Onset separat ueber die drums-Stem (OnsetStage).
+            if trigger_onset:
+                try:
+                    from services.onset_rhythm_service import OnsetRhythmService
+                    onset_svc = OnsetRhythmService()
+                    onset_svc.analyze_and_store(track_id, progress_cb=None)
+                except (ImportError, ValueError, RuntimeError, OSError) as e:
+                    logger.warning("OnsetRhythmService.analyze_and_store() fehlgeschlagen: %s", e)
 
         # B-062: kein cleanup von ``_last_y`` mehr noetig — y ist
         # lokale Variable in dieser Methode, GC kuemmert sich nach

@@ -177,7 +177,8 @@ def harmonic_distance(camelot1: str, camelot2: str) -> int:
 class KeyDetectionService:
     """Erkennt die musikalische Tonart eines Audio-Tracks (ML-Ensemble)."""
 
-    def detect_key(self, file_path: str) -> KeyResult:
+    def detect_key(self, file_path: str, bass_path: str | None = None,
+                   other_path: str | None = None) -> KeyResult:
         """Erkennt die Tonart aus einer Audio-Datei.
 
         Laeuft vollstaendige Analyse:
@@ -185,8 +186,15 @@ class KeyDetectionService:
         - Modulation Tracking (bei Tracks >= MIN_DURATION_MODULATION)
         - Harmonic Tension Curve
 
+        OTK-018 / D-062 (additiv, backward-compat): Wenn ``bass_path`` UND
+        ``other_path`` gesetzt sind, werden Bass- + Other-Stem gemischt und als
+        Key-Input verwendet (Drums-Rauschen entfaellt, Konfidenz steigt). Ohne
+        Stems = Original-Mix (Verhalten unveraendert).
+
         Args:
-            file_path: Pfad zur Audio-Datei (WAV, MP3, FLAC)
+            file_path: Pfad zur Audio-Datei (WAV, MP3, FLAC) — Original-Mix
+            bass_path: optional Bass-Stem-Pfad
+            other_path: optional Other-Stem-Pfad
 
         Returns:
             KeyResult mit Key, Camelot, Confidence, Modulation und Tension
@@ -206,8 +214,29 @@ class KeyDetectionService:
 
             # ------------------------------------------------------------------
             # 1. Audio laden — bis zu MAX_DURATION_MODULATION fuer volle Analyse
+            # D-062: Bass+Other-Stems mischen wenn beide vorhanden (Streaming-Mix
+            # via stem_router, nie >1 Stem komplett im RAM), sonst Original-Mix.
             # ------------------------------------------------------------------
-            y, sr = librosa.load(file_path, sr=DEFAULT_SR, mono=True, duration=MAX_DURATION_MODULATION)
+            if bass_path and other_path:
+                import os
+                import tempfile
+                from services.stem_router import mix_bass_other
+                try:
+                    tmp_dir = tempfile.mkdtemp(prefix="pb_keydet_")
+                    tmp_mix = os.path.join(tmp_dir, "bass_other.wav")
+                    mix_bass_other({"bass": bass_path, "other": other_path}, tmp_mix)
+                    y, sr = librosa.load(tmp_mix, sr=DEFAULT_SR, mono=True, duration=MAX_DURATION_MODULATION)
+                    log.info("Key detection: bass+other streaming-mix used (%d samples @ %d Hz)", len(y), sr)
+                    try:
+                        os.unlink(tmp_mix)
+                        os.rmdir(tmp_dir)
+                    except OSError:
+                        pass
+                except Exception as e:  # noqa: BLE001
+                    log.warning("bass/other streaming-mix failed (%s) -> fallback to original", e)
+                    y, sr = librosa.load(file_path, sr=DEFAULT_SR, mono=True, duration=MAX_DURATION_MODULATION)
+            else:
+                y, sr = librosa.load(file_path, sr=DEFAULT_SR, mono=True, duration=MAX_DURATION_MODULATION)
             if y is None or len(y) == 0:
                 log.warning("Audio-Datei leer oder nicht lesbar: %s", file_path)
                 return fallback
