@@ -55,6 +55,16 @@ class Stage:
     def run(self, context: PipelineContext) -> None:
         raise NotImplementedError("Stage.run must be implemented by subclass")
 
+    def rehydrate(self, context: PipelineContext) -> None:
+        """Resume-Hook: wird vom Orchestrator aufgerufen, wenn die Stage per
+        Checkpoint uebersprungen wird (bereits erfolgreich gelaufen). Default no-op.
+
+        OTK-018: StemGenStage ueberschreibt dies, um ``context.stem_paths`` aus
+        Cache/DB zu rehydrieren — sonst stehen nachfolgende stem-geroutete Stages
+        (Onset/Key/Structure) nach einem Resume ohne Stem-Pfade da und brechen ab.
+        """
+        return None
+
 
 def _require_stems(context: PipelineContext, names: tuple[str, ...], stage_name: str) -> None:
     missing = [n for n in names if n not in context.stem_paths]
@@ -199,6 +209,39 @@ class StemGenStage(Stage):
             if "other" in stem_paths:
                 track.stem_other_path = stem_paths["other"]
             sess.commit()
+
+
+    def rehydrate(self, context: PipelineContext) -> None:
+        """Resume: stem_gen war schon erfolgreich -> Stem-Pfade in den frischen
+        Context zurueckholen, damit Onset/Key/Structure nicht an fehlenden Stems
+        scheitern. Erst Cache-Reuse (Hash-validiert), sonst DB-Fallback."""
+        reuse = self._try_reuse(context)
+        if reuse is not None:
+            context.stem_paths.update(reuse)
+            return
+        # DB-Fallback: persistierte stem_*_path-Felder.
+        if nullpool_session is None:
+            return
+        try:
+            from database import AudioTrack
+        except ImportError:
+            return
+        try:
+            with nullpool_session() as sess:
+                track = sess.query(AudioTrack).filter(AudioTrack.id == context.track_id).first()
+                if track is None:
+                    return
+                mapping = {
+                    "drums": getattr(track, "stem_drums_path", None),
+                    "bass": getattr(track, "stem_bass_path", None),
+                    "vocals": getattr(track, "stem_vocals_path", None),
+                    "other": getattr(track, "stem_other_path", None),
+                }
+                for name, path in mapping.items():
+                    if path:
+                        context.stem_paths[name] = path
+        except Exception as e:  # noqa: BLE001
+            logger.warning("StemGenStage.rehydrate DB-Fallback fehlgeschlagen: %s", e)
 
 
 class BeatGridStage(Stage):

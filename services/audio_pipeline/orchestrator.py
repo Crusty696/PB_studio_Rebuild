@@ -98,6 +98,13 @@ class AudioAnalysisPipeline(QObject):
             name = getattr(stage, "name", stage.__class__.__name__)
             if _ckpt.is_stage_done(context.track_id, name):
                 # T4.2: Skip - bereits in vorherigem Lauf erfolgreich.
+                # OTK-018: Resume-Rehydration - uebersprungene Stage darf Context
+                # noch befuellen (z.B. StemGenStage -> stem_paths), damit
+                # nachfolgende stem-geroutete Stages nicht an leerem Context scheitern.
+                try:
+                    stage.rehydrate(context)
+                except Exception as e:
+                    logger.warning("Rehydrate von Stage '%s' fehlgeschlagen: %s", name, e)
                 self.stage_done.emit(name, {"skipped": True})
                 continue
             self.stage_started.emit(name)
