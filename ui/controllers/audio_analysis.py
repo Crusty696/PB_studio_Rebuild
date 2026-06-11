@@ -74,6 +74,51 @@ class AudioAnalysisController(PBComponent):
                 ids.append(int(val))
         return ids
 
+    def _analyze_audio_v2(self):
+        """OTK-018: faehrt die strict-sequential Audio-V2-Pipeline (Orchestrator)
+        fuer den ausgewaehlten Track — Demucs-Stems + stem-geroutete Analyse
+        (Onset=drums, Key=bass+other, Structure=stem-bass) in einem Durchlauf,
+        resume-faehig. Opt-in: bindet die portierte V2-Pipeline ein, ohne den
+        bestehenden Einzel-Service-Pfad (_detect_key/_analyze_lufs/...) zu aendern.
+        """
+        info = self._get_selected_audio_track()
+        if not info:
+            return
+        track_id, file_path, title, _ = info
+        from workers.audio_pipeline_v2_worker import AudioPipelineV2Worker
+        task = task_manager.create_task(f"Audio-V2: {title}", "Audio-V2 Pipeline (strict-sequential)")
+        worker = AudioPipelineV2Worker(track_id, file_path)
+        worker.task_id = task.task_id
+
+        self.window.progress_bar.setVisible(True)
+        self.window.progress_bar.setRange(0, 100)
+
+        worker.progress.connect(
+            lambda pct, msg: (
+                self.window.progress_bar.setValue(int(pct)),
+                self.window.progress_bar.setFormat(f"Audio-V2: %p%% — {msg[:50]}"),
+                self.window._console_append(f"[Audio-V2] {msg}")
+            ),
+            Qt.ConnectionType.QueuedConnection,
+        )
+        worker.finished.connect(
+            lambda tid, res: (
+                self.window._console_append(f"[Audio-V2] Pipeline fertig: {len(res)} Stages"),
+                self.window.media_table_controller._refresh_media_table_debounced(),
+                self.window.progress_bar.setVisible(False),
+            ),
+            Qt.ConnectionType.QueuedConnection,
+        )
+        worker.error.connect(
+            lambda tid, err: (
+                self.window._console_append(f"[Audio-V2] Fehler: {err}"),
+                self.window.progress_bar.setVisible(False),
+            ),
+            Qt.ConnectionType.QueuedConnection,
+        )
+        self.window.worker_dispatcher._start_worker_thread(worker)
+        self.window.console_text.append(f"[Audio-V2] Starte Pipeline fuer '{title}'...")
+
     def _detect_key(self):
         """Erkennt die musikalische Tonart des ausgewaehlten Audio-Tracks."""
         info = self._get_selected_audio_track()

@@ -119,6 +119,10 @@ class WorkspaceSetupController(PBComponent):
         import_menu.addAction("Audio importieren", self.window.import_media._import_audio)
         import_menu.addAction("Ordner importieren", self.window.import_media._import_folder)
         tools.addSeparator()
+        # OTK-018: Audio-V2 strict-sequential Pipeline (Demucs-Stems + stem-geroutete
+        # Analyse) als opt-in. Aendert den bestehenden Einzel-Service-Analysepfad nicht.
+        tools.addAction("Audio-V2 Pipeline (Beta)", self.window.audio_analysis._analyze_audio_v2)
+        tools.addSeparator()
         tools.addAction("Studio Brain (Ctrl+B)", self.window._open_studio_brain)
         tools.addAction("Tastaturkuerzel", self.window.project_management._show_shortcut_help)
         tools.addAction("About", self.window.project_management._show_about)
