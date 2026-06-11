@@ -687,6 +687,56 @@ class StemSeparator:
 
         return stems
 
+    def separate_to(self, file_path: str, out_dir: str, subtype: str = "PCM_24",
+                    model: str = "htdemucs_ft", progress_cb=None, should_stop=None) -> dict[str, str]:
+        """Plan AUDIO-ANALYSIS-V2 T2.1 (A-2 + Q-C): separiert Stems direkt nach
+        ``out_dir/{name}.wav`` als ``subtype`` (default PCM_24).
+
+        Wrappt ``separate()`` und re-encoded/kopiert die WAVs ins track-id-zentrierte
+        Layout (``storage/stems/<track_id>/``) statt ins Alt-Layout. Atomic-write
+        pflichtig (T2.4): tmp+os.replace pro WAV (Windows-safe).
+
+        OTK-018 Bucket-B: additiv aus sandbox/audio-analysis-v2@2cd9ca1 portiert,
+        damit StemGenStage den Demucs-First-Stage real fahren kann.
+        """
+        import shutil
+        import torchaudio
+        out_dir_path = Path(out_dir)
+        out_dir_path.mkdir(parents=True, exist_ok=True)
+
+        # 1. Bestehendes separate() schreibt nach Alt-Layout.
+        alt_stems = self.separate(file_path, model=model, progress_cb=progress_cb, should_stop=should_stop)
+
+        # 2. Re-encode/copy nach neuem Layout mit PCM_24 + atomic-write.
+        new_stems: dict[str, str] = {}
+        tmp_files: list[Path] = []
+        try:
+            for name, alt_path in alt_stems.items():
+                target = out_dir_path / f"{name}.wav"
+                # tmp-Datei MUSS auf .wav enden, sonst scheitert die torchaudio-
+                # Format-Inferenz ("Unsupported format: tmp"). os.replace ist
+                # trotzdem atomic (gleiches Verzeichnis).
+                tmp_target = out_dir_path / f"{name}.tmp.wav"
+                tmp_files.append(tmp_target)
+                if subtype == "PCM_24":
+                    waveform, sr = torchaudio.load(str(alt_path))
+                    torchaudio.save(str(tmp_target), waveform, sr,
+                                    encoding="PCM_S", bits_per_sample=24)
+                else:
+                    shutil.copyfile(alt_path, tmp_target)
+                os.replace(str(tmp_target), str(target))
+                new_stems[name] = str(target.resolve())
+        except Exception:
+            for tmp in tmp_files:
+                if tmp.exists():
+                    try:
+                        tmp.unlink()
+                    except OSError:
+                        pass
+            raise
+
+        return new_stems
+
     def separate_and_store(self, track_id: int, progress_cb=None, should_stop=None) -> dict:
         """Separiert Stems und speichert Pfade in der DB.
 
