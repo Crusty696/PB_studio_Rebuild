@@ -74,6 +74,33 @@ def _require_stems(context: PipelineContext, names: tuple[str, ...], stage_name:
         )
 
 
+def _persist_to_track(track_id: int, fields: dict) -> None:
+    """OTK-018: schreibt berechnete Analyse-Felder an den AudioTrack.
+
+    Die V2-Stages rufen die reinen ``detect()``/``analyze()``-Services (kein
+    DB-Write); ohne dieses Persistieren landen Key/LUFS/Spectral nicht in der DB
+    (analog zu den klassischen Worker-``_save_to_db``). None-Werte werden
+    uebersprungen. DB nicht verfuegbar (headless) -> no-op.
+    """
+    fields = {k: v for k, v in fields.items() if v is not None}
+    if nullpool_session is None or not fields:
+        return
+    try:
+        from database import AudioTrack
+    except ImportError:
+        return
+    try:
+        with nullpool_session() as sess:
+            track = sess.query(AudioTrack).filter(AudioTrack.id == track_id).first()
+            if track is None:
+                return
+            for key, value in fields.items():
+                setattr(track, key, value)
+            sess.commit()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Persist track=%s fehlgeschlagen: %s", track_id, e)
+
+
 _DEMUCS_VERSION = "htdemucs_ft"
 _TARGET_WAV_SUBTYPE = "PCM_24"
 
@@ -307,7 +334,16 @@ class KeyStage(Stage):
             bass_path=context.stem_paths["bass"],
             other_path=context.stem_paths["other"],
         )
-        # result = KeyResult dataclass
+        # result = KeyResult dataclass. OTK-018: an AudioTrack persistieren.
+        conf = getattr(result, "confidence", None)
+        if conf is not None:
+            conf = max(0.0, min(1.0, float(conf)))
+        _persist_to_track(context.track_id, {
+            "key": getattr(result, "key", None),
+            "key_confidence": conf,
+            "key_modulation_data": getattr(result, "modulation_segments", None) or None,
+            "harmonic_tension_curve": getattr(result, "harmonic_tension_curve", None) or None,
+        })
         context.set_result(self.name, {
             "key": getattr(result, "key", None),
             "camelot": getattr(result, "camelot", None),
@@ -331,6 +367,12 @@ class StructureStage(Stage):
         filtered = {k: context.stem_paths[k] for k in ("bass", "drums", "vocals")}
         bpm = context.results.get("beat_grid", {}).get("bpm")
         result = svc.detect(context.original_path, bpm=bpm, stem_paths=filtered)
+        # OTK-018: Segmente in structure_segments persistieren (Service-Methode).
+        try:
+            svc.save_to_db(context.track_id, result)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("StructureStage save_to_db track=%s fehlgeschlagen: %s",
+                           context.track_id, e)
         context.set_result(self.name, {"segments_count": len(getattr(result, "segments", []) or [])})
 
 
@@ -346,9 +388,14 @@ class LUFSStage(Stage):
             self._service_cls = LUFSService
         svc = self._service_cls()
         result = svc.analyze(context.original_path)
+        # OTK-018: LUFS an AudioTrack persistieren (Worker-konform: result.integrated).
+        integrated = getattr(result, "integrated", None)
+        if integrated is None:
+            integrated = getattr(result, "integrated_lufs", None)
+        _persist_to_track(context.track_id, {"lufs": integrated})
         context.set_result(self.name, {
-            "integrated_lufs": getattr(result, "integrated_lufs", None),
-            "true_peak_db": getattr(result, "true_peak_db", None),
+            "integrated_lufs": integrated,
+            "true_peak": getattr(result, "true_peak", None),
         })
 
 
@@ -365,8 +412,15 @@ class SpectralStage(Stage):
         svc = self._service_cls()
         bpm = context.results.get("beat_grid", {}).get("bpm")
         result = svc.analyze(context.original_path, bpm=bpm)
+        # OTK-018: Spektral-Baender an AudioTrack persistieren (Worker-konform).
+        try:
+            bands_json = svc.get_bands_json(result)
+        except Exception:  # noqa: BLE001
+            bands_json = None
+        _persist_to_track(context.track_id, {"spectral_bands": bands_json})
         context.set_result(self.name, {
-            "centroid_mean": getattr(result, "centroid_mean", None),
+            "dominant_band": getattr(result, "dominant_band", None),
+            "centroid_mean": getattr(result, "spectral_centroid_mean", None),
         })
 
 
