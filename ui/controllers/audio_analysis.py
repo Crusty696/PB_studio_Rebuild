@@ -455,6 +455,78 @@ class AudioAnalysisController(PBComponent):
         if task_id:
             task_manager.finish_task(task_id, "error", error_msg)
 
+    def _analyze_all_v2_batch(self, track_ids):
+        """OTK-018: faehrt die Audio-V2-Pipeline sequentiell fuer alle gewaehlten
+        Tracks (ein V2-Worker nach dem anderen, kein GPU-Parallelismus). Default-
+        Pfad des KOMPLETT-ANALYSE-Buttons (Setting audio.v2_default)."""
+        from database import engine, AudioTrack
+        from sqlalchemy.orm import Session
+        queue = []
+        with Session(engine) as s:
+            for tid in track_ids:
+                t = s.query(AudioTrack).filter(AudioTrack.id == tid).first()
+                if t and t.file_path:
+                    queue.append((tid, t.file_path, t.title or str(tid)))
+        if not queue:
+            self.window.console_text.append("[Komplett-Analyse V2] Keine gueltigen Tracks.")
+            return
+        self._v2_queue = queue
+        self._v2_total = len(queue)
+        self._v2_done = 0
+        self._seq_running = True
+        self.window._media_ws.btn_analyze_all.setEnabled(False)
+        self.window.console_text.append(
+            f"[Komplett-Analyse V2] Starte V2-Pipeline fuer {self._v2_total} Track(s)."
+        )
+        self._v2_next()
+
+    def _v2_next(self):
+        if not getattr(self, "_v2_queue", None):
+            self._seq_running = False
+            try:
+                self.window._media_ws.btn_analyze_all.setEnabled(True)
+                self.window._media_ws.btn_analyze_all.setText("KOMPLETT-ANALYSE")
+                self.window.progress_bar.setVisible(False)
+                self.window.media_table_controller._refresh_media_table_debounced()
+            except (RuntimeError, AttributeError):
+                pass
+            self.window.console_text.append(
+                f"[Komplett-Analyse V2] Fertig: {self._v2_done}/{getattr(self, '_v2_total', 0)} Track(s)."
+            )
+            return
+        track_id, file_path, title = self._v2_queue.pop(0)
+        from workers.audio_pipeline_v2_worker import AudioPipelineV2Worker
+        task = task_manager.create_task(f"Audio-V2: {title}", "Audio-V2 Pipeline (strict-sequential)")
+        worker = AudioPipelineV2Worker(track_id, file_path)
+        worker.task_id = task.task_id
+        self.window.progress_bar.setVisible(True)
+        self.window.progress_bar.setRange(0, 100)
+        worker.progress.connect(
+            lambda pct, msg: (
+                self.window.progress_bar.setValue(int(pct)),
+                self.window.progress_bar.setFormat(f"Audio-V2: %p%% — {msg[:50]}"),
+                self.window._console_append(f"[Audio-V2] {msg}")
+            ),
+            Qt.ConnectionType.QueuedConnection,
+        )
+        worker.finished.connect(
+            lambda tid, res: self._v2_advance(),
+            Qt.ConnectionType.QueuedConnection,
+        )
+        worker.error.connect(
+            lambda tid, err: (
+                self.window._console_append(f"[Audio-V2] Fehler: {err}"),
+                self._v2_advance(),
+            ),
+            Qt.ConnectionType.QueuedConnection,
+        )
+        self.window.worker_dispatcher._start_worker_thread(worker)
+        self.window.console_text.append(f"[Audio-V2] Starte Pipeline fuer '{title}'...")
+
+    def _v2_advance(self):
+        self._v2_done = getattr(self, "_v2_done", 0) + 1
+        self._v2_next()
+
     def _analyze_all_sequential(self):
         """Startet alle Audio-Analysen nacheinander fuer alle gewaehlten Tracks.
 
@@ -483,6 +555,18 @@ class AudioAnalysisController(PBComponent):
                 )
         if not track_ids:
             self.window.console_text.append("[Komplett-Analyse] Keine Audio-Tracks im Pool.")
+            return
+
+        # OTK-018: Audio-V2 strict-sequential Pipeline als Default-Analysepfad
+        # (Demucs-Stems + stem-geroutete Onset/Key/Structure). Reversibel via
+        # Setting audio.v2_default=false -> klassischer 6-Step-Batch.
+        try:
+            from services.settings_store import get_settings_store
+            v2_default = get_settings_store().get_nested("audio", "v2_default", default=True)
+        except Exception:
+            v2_default = True
+        if v2_default:
+            self._analyze_all_v2_batch(track_ids)
             return
 
         # Multi-Track-Queue: ein Track nach dem anderen.

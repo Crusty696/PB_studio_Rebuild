@@ -29,6 +29,24 @@ def test_routes_to_v2_when_default_on(monkeypatch):
     assert calls.get("v2") is True
 
 
+def test_batch_button_routes_to_v2_when_default_on(monkeypatch):
+    """Der sichtbare KOMPLETT-ANALYSE-Button (_analyze_all_sequential) routet bei
+    Default auf die V2-Batch."""
+    from ui.controllers.audio_analysis import AudioAnalysisController
+    import services.settings_store as ss
+    ctrl = AudioAnalysisController.__new__(AudioAnalysisController)
+    ctrl.window = SimpleNamespace(console_text=SimpleNamespace(append=lambda s: None))
+    ctrl._seq_running = False
+    monkeypatch.setattr(ctrl, "_get_selected_audio_tracks", lambda: [1, 2])
+    monkeypatch.setattr(ss, "get_settings_store",
+                        lambda: SimpleNamespace(get_nested=lambda *a, **k: True))
+    got = {}
+    monkeypatch.setattr(ctrl, "_analyze_all_v2_batch", lambda ids: got.update({"ids": ids}))
+
+    ctrl._analyze_all_sequential()
+    assert got.get("ids") == [1, 2]
+
+
 def test_uses_classic_path_when_default_off(monkeypatch):
     ctrl = _ctrl(monkeypatch, v2_default=False)
     calls = {}
