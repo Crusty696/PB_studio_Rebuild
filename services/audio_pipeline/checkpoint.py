@@ -13,7 +13,45 @@ DB-Service = UI-Status-Quelle. Orchestrator-Heal:
 """
 from __future__ import annotations
 
+import logging
+
 from services.audio_pipeline import stem_cache
+
+logger = logging.getLogger(__name__)
+
+
+def invalidate_if_stale(track_id: int, original_path: str) -> bool:
+    """OTK-018 / BUG-1: Verwirft den Checkpoint, wenn die gespeicherte
+    ``original_hash`` nicht zur aktuellen Audio-Datei passt.
+
+    Der Checkpoint liegt global unter ``storage/pipeline_state/<track_id>.json``.
+    Verschiedene Projekte vergeben track_id=1 -> ohne diese Pruefung erbt ein
+    neuer Track die stage-done-Flags eines fremden Tracks und alle Stages werden
+    faelschlich uebersprungen (keine Analyse, keine DB-Writes). Bei Hash-Mismatch
+    wird das Meta-File geloescht (frischer Lauf: stages_done + Stem-Reuse weg).
+
+    Returns True wenn verworfen, sonst False. Bei nicht lesbarer Datei
+    (z.B. Tests mit Fake-Pfad) konservativ False (Checkpoint behalten).
+    """
+    meta = stem_cache.load_cache_meta(track_id)
+    if not meta:
+        return False
+    stored = meta.get("original_hash")
+    if not stored:
+        return False
+    try:
+        current = stem_cache.compute_audio_hash(original_path)
+    except OSError:
+        return False  # nicht validierbar -> Checkpoint unveraendert lassen
+    if stored == current:
+        return False
+    try:
+        stem_cache.cache_meta_path(track_id).unlink()
+    except OSError:
+        pass
+    logger.info("Checkpoint track=%s verworfen (Datei geaendert: %s != %s)",
+                track_id, str(current)[:8], str(stored)[:8])
+    return True
 
 
 def _ensure_meta(track_id: int) -> dict:

@@ -138,6 +138,69 @@ def test_stemgen_rehydrate_db_fallback_when_no_cache(tmp_path, monkeypatch, qapp
     assert "vocals" not in ctx.stem_paths  # None -> nicht gesetzt
 
 
+def test_invalidate_if_stale_drops_checkpoint_on_file_change(tmp_path, monkeypatch, qapp):
+    """OTK-018 BUG-1: anderer File gleicher track_id (Projektwechsel) -> stale
+    Checkpoint muss verworfen werden, sonst werden alle Stages faelschlich geskippt."""
+    from services.audio_pipeline import stem_cache, checkpoint
+    monkeypatch.setattr(stem_cache, "_STORAGE_ROOT", tmp_path)
+
+    audio = tmp_path / "neu.wav"
+    audio.write_bytes(b"NEUER TRACK INHALT")
+    # Checkpoint stammt von einer ANDEREN Datei (fremder Hash) + alle Stages done.
+    stem_cache.save_cache_meta(20, {
+        "version": 1, "original_hash": "ALTERHASH", "stem_hashes": {},
+        "stages_done": ["stem_gen", "beat_grid", "key"],
+    })
+    assert checkpoint.is_stage_done(20, "stem_gen") is True
+
+    dropped = checkpoint.invalidate_if_stale(20, str(audio))
+    assert dropped is True
+    assert checkpoint.is_stage_done(20, "stem_gen") is False
+    assert checkpoint.stages_done(20) == []
+
+
+def test_invalidate_keeps_checkpoint_on_matching_hash(tmp_path, monkeypatch, qapp):
+    """Gleiche Datei (Hash passt) -> Checkpoint bleibt (legitimes Resume)."""
+    from services.audio_pipeline import stem_cache, checkpoint
+    monkeypatch.setattr(stem_cache, "_STORAGE_ROOT", tmp_path)
+
+    audio = tmp_path / "gleich.wav"
+    audio.write_bytes(b"SELBER TRACK")
+    h = stem_cache.compute_audio_hash(str(audio))
+    stem_cache.save_cache_meta(21, {
+        "version": 1, "original_hash": h, "stem_hashes": {},
+        "stages_done": ["stem_gen"],
+    })
+    dropped = checkpoint.invalidate_if_stale(21, str(audio))
+    assert dropped is False
+    assert checkpoint.is_stage_done(21, "stem_gen") is True
+
+
+def test_orchestrator_reruns_stages_after_stale_checkpoint(tmp_path, monkeypatch, qapp):
+    """Orchestrator verwirft stale Checkpoint vor dem Loop -> Stages laufen real."""
+    from services.audio_pipeline import stem_cache, checkpoint
+    from services.audio_pipeline.orchestrator import AudioAnalysisPipeline
+    from services.audio_pipeline.context import PipelineContext
+    monkeypatch.setattr(stem_cache, "_STORAGE_ROOT", tmp_path)
+
+    audio = tmp_path / "track.wav"
+    audio.write_bytes(b"ECHTER INHALT")
+    stem_cache.save_cache_meta(22, {
+        "version": 1, "original_hash": "FREMD", "stem_hashes": {},
+        "stages_done": ["stem_gen", "beat_grid"],
+    })
+
+    order = []
+    pipeline = AudioAnalysisPipeline(stages=[
+        _RecordingStage("stem_gen", order),
+        _RecordingStage("beat_grid", order),
+    ])
+    ctx = PipelineContext(track_id=22, original_path=str(audio))
+    pipeline._run_stages(ctx)
+    # Trotz "done"-Flags muss wegen Hash-Mismatch alles real laufen.
+    assert order == ["stem_gen", "beat_grid"]
+
+
 def test_run_marks_stage_done_after_success(tmp_path, monkeypatch, qapp):
     """Orchestrator markiert nach Stage-Success automatisch checkpoint.mark_stage_done."""
     from services.audio_pipeline import stem_cache, checkpoint

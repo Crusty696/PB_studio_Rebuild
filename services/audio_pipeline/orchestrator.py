@@ -94,6 +94,11 @@ class AudioAnalysisPipeline(QObject):
         """
         from services.audio_pipeline import checkpoint as _ckpt
 
+        # OTK-018 / BUG-1: stale Checkpoint (fremder Track gleicher track_id, oder
+        # geaenderte Datei) verwerfen, sonst werden alle Stages faelschlich als
+        # done uebersprungen ("0 Stages", keine DB-Writes).
+        _ckpt.invalidate_if_stale(context.track_id, context.original_path)
+
         for stage in self._stages:
             name = getattr(stage, "name", stage.__class__.__name__)
             if _ckpt.is_stage_done(context.track_id, name):
