@@ -160,3 +160,10 @@ CREST_FACTOR_WIDE_DB: float = 15.0         # Darueber = weite Dynamik
 # Reihenfolge entspricht Demucs-4-Stem-Output. Genutzt von
 # services/stem_router.py (SERVICE_ROUTING / Stem-Auswahl pro Service).
 STEM_NAMES: tuple[str, ...] = ("vocals", "drums", "bass", "other")
+
+# -- AV-Pacing (Audio-V2 Pipeline, OTK-018 Bucket-B av_pacing_service) --
+# Hop/Frame/Stream-Chunk fuer die 4 AV-Pacing-Metriken (Spectral-Centroid,
+# -Flux, Stereo-Width, Percussive-Ratio). Werte aus sandbox@2cd9ca1.
+AV_PACING_HOP_SEC: float = 0.1
+AV_PACING_FRAME_SEC: float = 0.4
+AV_PACING_STREAM_CHUNK_SEC: float = 60.0
