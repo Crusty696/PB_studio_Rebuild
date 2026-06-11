@@ -152,10 +152,14 @@ class StructureDetectionService:
             # Bass-Stem — ABER nur wenn Quality-Gate passt (Korrelation Stem-Bass
             # vs Mix-Bass >= 0.4), sonst hat Demucs schlecht separiert. Bessere
             # Drop-Detection ohne Drums-Rauschen. Ohne Stems = Verhalten unveraendert.
+            stem_drums_pb = None
+            stem_vocals_pb = None
             if stem_paths and _HAS_LIBROSA:
                 stem_features = self._compute_stem_features_per_beat(stem_paths, beats)
                 if stem_features is not None:
                     stem_bass = stem_features[0]
+                    stem_drums_pb = stem_features[1]
+                    stem_vocals_pb = stem_features[2]
                     if stem_bass is not None and bass_per_beat is not None:
                         try:
                             mb = np.asarray(bass_per_beat, dtype=np.float64)
@@ -196,6 +200,17 @@ class StructureDetectionService:
             centroid_smooth = self._normalize(centroid_smooth)
             bass_smooth = self._normalize(bass_smooth)
 
+            # D-062: Drums-/Vocals-Stem-Kurven (geglaettet) fuer stem-genaue
+            # Drop-/Breakdown-Labels. None wenn keine Stems -> Labels nutzen nur Energie.
+            drums_smooth = None
+            if stem_drums_pb is not None:
+                drums_smooth = self._normalize(np.convolve(
+                    self._normalize(stem_drums_pb), kernel, mode='same'))
+            vocal_smooth = None
+            if stem_vocals_pb is not None:
+                vocal_smooth = self._normalize(np.convolve(
+                    self._normalize(stem_vocals_pb), kernel, mode='same'))
+
             # ── 5. Genre erkennen ────────────────────────────────────────
             detected_genre, genre_confidence = self._detect_genre(
                 bpm, energy_smooth, centroid_smooth, bass_smooth, beats
@@ -212,8 +227,10 @@ class StructureDetectionService:
             self._label_warmups(labels, energy_smooth, centroid_smooth, gradient, n_beats)
             self._label_buildups(labels, gradient, energy_smooth, n_beats)
             self._label_drops_multi(labels, energy_smooth, bass_smooth, centroid_smooth,
-                                    regularity_per_beat, n_beats)
-            self._label_breakdowns(labels, energy_smooth, n_beats)
+                                    regularity_per_beat, n_beats, drums_norm=drums_smooth)
+            self._label_breakdowns(labels, energy_smooth, n_beats,
+                                   bass_norm=bass_smooth, drums_norm=drums_smooth,
+                                   vocal_norm=vocal_smooth, centroid_norm=centroid_smooth)
 
             # Verbleibende unlabeled Beats: VERSE oder CHORUS
             for i in range(n_beats):
@@ -769,6 +786,7 @@ class StructureDetectionService:
         centroid_norm,
         regularity,
         n_beats: int,
+        drums_norm=None,
     ) -> None:
         """Labelt DROP-Bereiche mit Multi-Feature-Bestaetigung.
 
@@ -777,6 +795,8 @@ class StructureDetectionService:
         - ODER hohe Bass-Energie (> MULTI_FEATURE_BASS_DROP_THRESHOLD) + mittlere RMS
         - UND hoher Spectral Centroid (Hochfrequenzanteil steigt)
         - ODER Beat-Regularitaet hoch (Maschinen-Beat im Drop)
+        - D-062: WENN drums_norm vorhanden (Stems da), Drop-Trigger STRENGER:
+          Kick (drums) + Sub-Bass gleichzeitig Maximum. None -> Verhalten unveraendert.
         - Vorher ein BUILDUP
         """
         from services.audio_constants import (
@@ -802,6 +822,14 @@ class StructureDetectionService:
                 or (beat_regular and rms_high)
             )
 
+            # D-062 Stem-strenger Pfad: verlangt drums+bass gleichzeitig (Kick+Sub).
+            if drums_norm is not None and is_drop_candidate:
+                drums_high = float(drums_norm[i]) > MULTI_FEATURE_BASS_DROP_THRESHOLD
+                if not drums_high and not (
+                    bass_high and float(drums_norm[i]) > MULTI_FEATURE_BASS_DROP_THRESHOLD * 0.7
+                ):
+                    is_drop_candidate = False
+
             if not is_drop_candidate:
                 continue
 
@@ -826,17 +854,53 @@ class StructureDetectionService:
                     else:
                         break
 
-    def _label_breakdowns(self, labels: list[str], energy_norm, n_beats: int) -> None:
-        """Labelt BREAKDOWN-Bereiche: Energie faellt von hoch auf niedrig."""
+    def _label_breakdowns(self, labels: list[str], energy_norm, n_beats: int,
+                          bass_norm=None, drums_norm=None, vocal_norm=None,
+                          centroid_norm=None) -> None:
+        """Labelt BREAKDOWN-Bereiche: Energie faellt von hoch auf niedrig.
+
+        D-062: WENN bass/drums/vocal-Stems vorhanden, zusaetzlicher Break-Trigger:
+        Bass UND Drums fallen weg, Vocals ODER Centroid (Synths) bleiben — vermeidet
+        False-Positives durch reine Energie-Dips wo Bass durchspielt. Ohne Stems
+        (alle None) -> reiner Energie-Trigger wie bisher (Verhalten unveraendert).
+        """
         from services.audio_constants import (
             BREAKDOWN_HIGH_THRESHOLD, BREAKDOWN_LOW_THRESHOLD, BREAKDOWN_EXTEND_THRESHOLD,
+            MULTI_FEATURE_BASS_DROP_THRESHOLD, SPECTRAL_CENTROID_LOW,
+            DROP_VOCAL_BREAK_THRESHOLD,
+        )
+
+        stems_available = (
+            bass_norm is not None and drums_norm is not None and vocal_norm is not None
         )
 
         for i in range(1, n_beats):
             if labels[i]:
                 continue
-            if (energy_norm[i - 1] > BREAKDOWN_HIGH_THRESHOLD
-                    and energy_norm[i] < BREAKDOWN_LOW_THRESHOLD):
+
+            energy_break = (
+                energy_norm[i - 1] > BREAKDOWN_HIGH_THRESHOLD
+                and energy_norm[i] < BREAKDOWN_LOW_THRESHOLD
+            )
+
+            stem_break = False
+            if stems_available:
+                bass_drop = (
+                    float(bass_norm[i - 1]) > MULTI_FEATURE_BASS_DROP_THRESHOLD * 0.7
+                    and float(bass_norm[i]) < MULTI_FEATURE_BASS_DROP_THRESHOLD * 0.4
+                )
+                drums_drop = (
+                    float(drums_norm[i - 1]) > MULTI_FEATURE_BASS_DROP_THRESHOLD * 0.7
+                    and float(drums_norm[i]) < MULTI_FEATURE_BASS_DROP_THRESHOLD * 0.4
+                )
+                vocal_present = float(vocal_norm[i]) > DROP_VOCAL_BREAK_THRESHOLD
+                synth_present = (
+                    centroid_norm is not None
+                    and float(centroid_norm[i]) > SPECTRAL_CENTROID_LOW
+                )
+                stem_break = bass_drop and drums_drop and (vocal_present or synth_present)
+
+            if energy_break or stem_break:
                 labels[i] = "BREAKDOWN"
                 for j in range(i + 1, n_beats):
                     if labels[j]:

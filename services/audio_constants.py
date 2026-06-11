@@ -167,3 +167,8 @@ STEM_NAMES: tuple[str, ...] = ("vocals", "drums", "bass", "other")
 AV_PACING_HOP_SEC: float = 0.1
 AV_PACING_FRAME_SEC: float = 0.4
 AV_PACING_STREAM_CHUNK_SEC: float = 60.0
+
+# -- Vocal-Break-Schwelle (Audio-V2 Structure, OTK-018/D-062) -----------
+# Vocal-Energie darunter = Break (low = silent). Genutzt von stem-geroutetem
+# _label_breakdowns (Bass+Drums weg, Vocals/Synths bleiben).
+DROP_VOCAL_BREAK_THRESHOLD: float = 0.15
