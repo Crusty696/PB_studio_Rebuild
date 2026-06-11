@@ -296,6 +296,20 @@ class AudioAnalysisController(PBComponent):
         info = self._get_selected_audio_track()
         if not info:
             return
+        # OTK-018: Audio-V2 strict-sequential Pipeline als Default-Analysepfad
+        # (Demucs-Stems + stem-geroutete Analyse). Reversibel via Setting
+        # audio.v2_default=false -> faellt auf den klassischen Einzel-Service-
+        # AnalysisWorker zurueck. Der Tools-Menue-Eintrag bleibt unabhaengig.
+        try:
+            from services.settings_store import get_settings_store
+            v2_default = get_settings_store().get_nested("audio", "v2_default", default=True)
+        except Exception:
+            v2_default = True
+        if v2_default:
+            self.window._console_append("[Audio] V2-Pipeline (Default) — stem-geroutete Analyse")
+            self._analyze_audio_v2()
+            return
+
         track_id, _, title, _ = info
 
         task = task_manager.create_task(f"Audio: {title}", "BPM + Beat-Analyse")
