@@ -313,7 +313,42 @@ def _patch_service_paths(project_path: Path):
                 logger.debug("Patched %s.%s -> %s", mod_name, attr, value)
 
 
-def set_project(project_path: Path):
+def _running_tasks_block_reason(exclude_task_id: str | None = None) -> str | None:
+    """B-490 Followup (CRF-005): laufende TaskManager-Tasks ermitteln.
+
+    Returns:
+        Beschreibung der laufenden Tasks (fuer die Fehlermeldung) oder
+        ``None`` wenn keine laufen bzw. der TaskManager nicht verfuegbar
+        ist (Headless-Skripte/Tests ohne QApplication — dort existieren
+        keine Hintergrund-Tasks).
+
+    Lazy import vermeidet den Import-Zyklus database -> services
+    (gleiches Pattern wie ``ProjectManager._has_running_tasks``).
+    """
+    try:
+        from services.task_manager import GlobalTaskManager
+        tm = GlobalTaskManager.instance()
+        running = [
+            t for t in tm.get_all_tasks()
+            if getattr(t, "status", None) == "running"
+            and (exclude_task_id is None
+                 or getattr(t, "task_id", None) != exclude_task_id)
+        ]
+    except (ImportError, AttributeError, RuntimeError):
+        # Kein QApplication / TaskManager nicht initialisiert -> keine Tasks.
+        return None
+    if not running:
+        return None
+    names = ", ".join(str(getattr(t, "name", "?")) for t in running[:5])
+    return f"{len(running)} laufende(r) Task(s): {names}"
+
+
+def set_project(
+    project_path: Path,
+    *,
+    exclude_task_id: str | None = None,
+    force: bool = False,
+):
     """Switch the active project to *project_path*.
 
     MEDIUM-10 AUDIT: Globale APP_ROOT Mutation via Lock.
@@ -328,18 +363,38 @@ def set_project(project_path: Path):
 
     Thread-safe: Uses _APP_ROOT_LOCK to prevent race conditions during project switch.
 
-    M-42 MITIGATION: Disposes old engine to close connections. Callers should
-    ensure no workers are actively processing before calling this function.
+    B-490 Followup (CRF-005): Wenn der GlobalTaskManager laufende Tasks
+    meldet, wird der Engine-Swap mit ``RuntimeError`` ABGELEHNT statt nur
+    zu warnen (vorher M-42: Log-Warnung). Ein Swap mid-run liess Worker
+    still in die falsche Projekt-DB schreiben bzw. FK-crashen.
+
+    Args:
+        exclude_task_id: Eigene Task-ID des Aufrufers — ein Worker, der den
+            Projektwechsel selbst ausfuehrt (ProjectManager.open_project im
+            OpenWorker, B-047), zaehlt nicht als blockierender Task.
+        force: Nur fuer interne Recovery-Pfade (B-051-Rollback nach
+            init_db-Fehler) — Swap trotz laufender Tasks, mit Warn-Log.
+
+    Raises:
+        RuntimeError: wenn laufende Tasks existieren und ``force`` False ist.
     """
     global APP_ROOT
     project_path = Path(project_path)
     db_file = project_path / "pb_studio.db"
 
-    # M-42 Fix: Log warning about in-flight workers
-    logger.warning(
-        "Project switch to %s — ensure all workers are idle to avoid DB inconsistency",
-        project_path
-    )
+    # B-490 Followup (CRF-005): harte Sperre statt M-42-Log-Warnung.
+    block_reason = _running_tasks_block_reason(exclude_task_id=exclude_task_id)
+    if block_reason is not None:
+        if force:
+            logger.warning(
+                "set_project(force=True) trotz laufender Tasks (%s) — "
+                "Recovery-Pfad, Caller uebernimmt Verantwortung.", block_reason,
+            )
+        else:
+            raise RuntimeError(
+                "Projektwechsel erst nach Abschluss/Abbruch laufender Tasks "
+                f"moeglich — {block_reason}"
+            )
 
     # FIX H-7: Create engine inside lock to prevent race window
     with _APP_ROOT_LOCK:

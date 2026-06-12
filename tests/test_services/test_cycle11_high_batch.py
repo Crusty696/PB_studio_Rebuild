@@ -123,7 +123,9 @@ def test_b048_open_project_accepts_valid_pb_studio_db(tmp_path, monkeypatch):
 
     # Mock set_project + init_db damit der Test nicht die echte DB swappt
     import database
-    monkeypatch.setattr(database, "set_project", lambda p: None)
+    # **k: B-490 Followup (CRF-005) — set_project hat jetzt keyword-only
+    # Parameter (exclude_task_id, force); Mock muss die Signatur akzeptieren.
+    monkeypatch.setattr(database, "set_project", lambda p, **k: None)
     monkeypatch.setattr(database, "init_db", lambda: None)
     monkeypatch.setattr(ProjectManager, "_wait_for_tasks_idle", lambda *a, **k: True)
 

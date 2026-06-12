@@ -496,7 +496,31 @@ class StructureEnrichmentWorker(QObject):
 
         else:
             # ── Assign mode ───────────────────────────────────────────────────
-            reducer = StyleBucketClusterer.load_reducer(_REDUCER_PATH)
+            # B-491 Followup (CRF-005): Ein degradierter Fit (kleine Library)
+            # persistiert Buckets, aber KEINE Reducer-Datei (fit() liefert
+            # reducer=None -> save_reducer wird uebersprungen, Z.421-423).
+            # Ein spaeterer Assign-Lauf crashte dann hart: load_reducer wirft
+            # FileNotFoundError. Erkennung "degraded" = fehlende Reducer-Datei
+            # — dieselbe Quelle, die der Fit-Pfad schreibt.
+            reducer = None
+            if _REDUCER_PATH.exists():
+                try:
+                    reducer = StyleBucketClusterer.load_reducer(_REDUCER_PATH)
+                except FileNotFoundError as load_exc:
+                    # Belt+Suspenders: Datei zwischen exists() und open()
+                    # verschwunden (Race/Cleanup) — kein Crash, Fallback.
+                    logger.warning(
+                        "StructureEnrichment assign: Reducer-Datei %s nicht "
+                        "ladbar (%s) — Single-Bucket-Fallback.",
+                        _REDUCER_PATH, load_exc,
+                    )
+                    reducer = None
+            else:
+                logger.warning(
+                    "StructureEnrichment assign: keine Reducer-Datei %s "
+                    "(degradierter Fit?) — Single-Bucket-Fallback statt Crash.",
+                    _REDUCER_PATH,
+                )
 
             # Load active bucket centroids
             bucket_rows = session.execute(
@@ -516,14 +540,23 @@ class StructureEnrichmentWorker(QObject):
                 )
             centroids = np.stack(centroids_list, axis=0)
 
-            for i, s in enumerate(enrichable_scenes):
-                emb_i = enrichable_matrix[i]
-                label_idx = clusterer.assign(emb_i, centroids, reducer)
-                bucket_db_id = bucket_ids[label_idx]
-                centroid = centroids[label_idx]
-                reduced_pt = reducer.transform([emb_i.astype(np.float64)])
-                style_dist = float(np.linalg.norm(centroid - reduced_pt[0]))
-                bucket_assignment[s["id"]] = (bucket_db_id, style_dist)
+            if reducer is None:
+                # B-491 Followup: Single-Bucket-Fallback wie im degradierten
+                # Fit-Pfad — alle Szenen dem ersten aktiven Bucket zuordnen,
+                # style_distance 0.0 (analog cluster_degraded im Fit-Pfad).
+                cluster_degraded = True
+                fallback_bucket_id = bucket_ids[0]
+                for s in enrichable_scenes:
+                    bucket_assignment[s["id"]] = (fallback_bucket_id, 0.0)
+            else:
+                for i, s in enumerate(enrichable_scenes):
+                    emb_i = enrichable_matrix[i]
+                    label_idx = clusterer.assign(emb_i, centroids, reducer)
+                    bucket_db_id = bucket_ids[label_idx]
+                    centroid = centroids[label_idx]
+                    reduced_pt = reducer.transform([emb_i.astype(np.float64)])
+                    style_dist = float(np.linalg.norm(centroid - reduced_pt[0]))
+                    bucket_assignment[s["id"]] = (bucket_db_id, style_dist)
 
         # ── 6. Compat graph ───────────────────────────────────────────────────
         self.progress.emit(80, "Compat-Graph aufbauen …")

@@ -942,12 +942,50 @@ def store_embeddings(
     return len(entries)
 
 
+def _current_db_url() -> str:
+    """B-490 Followup (CRF-005): aktuelle Projekt-Identitaet als Engine-URL.
+
+    Robustester vorhandener Anker fuer "welches Projekt ist aktiv": die
+    SQLite-URL der globalen Engine (eindeutig pro Projektordner, wird bei
+    ``set_project()`` via EngineProxy.swap() ausgetauscht).
+    """
+    from database.session import engine
+    return str(engine.url)
+
+
 def store_scenes_in_db(
     video_clip_id: int,
     scenes: list[SceneInfo],
-) -> None:
-    """Speichert erkannte Szenen in der SQLite-DB (NullPool)."""
+    expected_db_url: str | None = None,
+) -> bool:
+    """Speichert erkannte Szenen in der SQLite-DB (NullPool).
+
+    Args:
+        expected_db_url: B-490 Followup (CRF-005) — Projekt-Token vom
+            Pipeline-Start (``_current_db_url()``). Wenn gesetzt und die
+            aktive Engine-URL davon abweicht (Projektwechsel mid-run),
+            wird NICHT gespeichert.
+
+    Returns:
+        True wenn die Szenen gespeichert wurden, False bei Skip
+        (VideoClip fehlt in aktiver DB oder Projekt-Mismatch). Caller
+        muessen bei False ``mark_error`` statt ``mark_done`` setzen.
+    """
     from database import nullpool_session, Scene, VideoClip
+
+    # B-490 Followup (CRF-005): Projekt-Token-Check VOR dem DB-Zugriff.
+    # Ohne diesen Check konnte ein mid-run Projektwechsel dazu fuehren,
+    # dass clip_id zufaellig auch im NEUEN Projekt existiert und die
+    # Szenen still in die falsche Projekt-DB geschrieben wurden.
+    if expected_db_url is not None:
+        active_url = _current_db_url()
+        if active_url != expected_db_url:
+            logger.error(
+                "store_scenes_in_db: Projekt-Mismatch — Pipeline startete auf "
+                "'%s', aktive DB ist '%s'. Szenen fuer VideoClip %d werden "
+                "NICHT gespeichert.", expected_db_url, active_url, video_clip_id,
+            )
+            return False
 
     with nullpool_session() as session:
         # B-490: Existenz des VideoClips in der AKTUELLEN DB pruefen. Lief die
@@ -961,7 +999,7 @@ def store_scenes_in_db(
                 "store_scenes_in_db: VideoClip %d existiert nicht in der aktiven DB "
                 "— Szenen werden uebersprungen (verhindert FK-Crash).", video_clip_id,
             )
-            return
+            return False
         try:
             # Alte Szenen löschen
             session.query(Scene).filter_by(video_clip_id=video_clip_id).delete()
@@ -986,6 +1024,7 @@ def store_scenes_in_db(
             raise
 
     logger.info("SQLite: %d Szenen gespeichert für VideoClip %d", len(scenes), video_clip_id)
+    return True
 
 
 # ======================================================================
@@ -1197,6 +1236,12 @@ def run_deferred_captioning(
     should_stop: Callable[[], bool] | None = None,
 ) -> list[SceneInfo]:
     """Run Ollama/Gemma captioning after batch GPU models were unloaded."""
+    # B-490 Followup (CRF-005): Projekt-Token am Funktions-Eintritt festhalten.
+    # Deferred Captioning laeuft NACH dem Batch — ein Projektwechsel waehrend
+    # dieser Funktion darf die Szenen nicht in die falsche Projekt-DB schreiben.
+    # (Restluecke: Wechsel ZWISCHEN Pipeline-Ende und diesem Eintritt faengt nur
+    # der VideoClip-Existenz-Check in store_scenes_in_db ab.)
+    deferred_db_url = _current_db_url()
     analysis_status_service.mark_started("video", video_clip_id, "ai_scene_caption")
     try:
         logger.info("[PIPELINE] Deferred Gemma Vision Captioning fuer Clip %d...", video_clip_id)
@@ -1219,7 +1264,23 @@ def run_deferred_captioning(
     try:
         if progress_cb:
             progress_cb(93, "Szenen-Captions in DB speichern...")
-        store_scenes_in_db(video_clip_id, scenes)
+        stored = store_scenes_in_db(
+            video_clip_id, scenes, expected_db_url=deferred_db_url,
+        )
+        if not stored:
+            # B-490 Followup (CRF-005): Skip ist KEIN Erfolg. Vorher wurde hier
+            # mark_done gesetzt obwohl die DB leer blieb -> Status "done" log.
+            reason = (
+                f"Szenen nicht gespeichert: VideoClip {video_clip_id} fehlt in "
+                "der aktiven DB oder das Projekt wurde waehrend des Laufs "
+                "gewechselt (Projekt-Token-Mismatch)."
+            )
+            analysis_status_service.mark_error(
+                "video", video_clip_id, "scene_db_storage", reason,
+            )
+            logger.error("[PIPELINE] %s", reason)
+            # Kein Structure-Enrichment auf einer DB ohne diese Szenen.
+            return scenes
         analysis_status_service.mark_done("video", video_clip_id, "scene_db_storage", {
             "scenes": len(scenes),
             "captions_updated": True,
@@ -1254,6 +1315,10 @@ def run_full_pipeline(
 
     # B-150: Snapshot der projekt-abhaengigen Pfade am Pipeline-Eintritt.
     pipeline_keyframe_dir = _keyframe_dir()
+    # B-490 Followup (CRF-005): Projekt-Token am Pipeline-Start festhalten.
+    # Wird an store_scenes_in_db durchgereicht — bei Engine-Swap mid-run
+    # (set_project) wird NICHT in die fremde Projekt-DB geschrieben.
+    pipeline_db_url = _current_db_url()
     # Proxy-First: video_path kann Proxy sein — Original aus DB laden für LanceDB-Storage
     try:
         from sqlalchemy.orm import Session as _Session
@@ -1402,7 +1467,24 @@ def run_full_pipeline(
         if progress_cb:
             progress_cb(93, "Szenen in DB speichern...")
 
-        store_scenes_in_db(video_clip_id, scenes)
+        stored = store_scenes_in_db(
+            video_clip_id, scenes, expected_db_url=pipeline_db_url,
+        )
+        if not stored:
+            # B-490 Followup (CRF-005): Skip ist KEIN Erfolg. Vorher wurde hier
+            # mark_done({"scenes": N}) gesetzt obwohl die DB leer blieb.
+            reason = (
+                f"Szenen nicht gespeichert: VideoClip {video_clip_id} fehlt in "
+                "der aktiven DB oder das Projekt wurde waehrend des Laufs "
+                "gewechselt (Projekt-Token-Mismatch)."
+            )
+            analysis_status_service.mark_error(
+                "video", video_clip_id, "scene_db_storage", reason,
+            )
+            logger.error("[PIPELINE] %s", reason)
+            # B-368-Konsistenz: ohne SQLite-Szenen keine VectorDB-Writes
+            # (sonst entstehen Embedding-Orphans) und kein Enrichment.
+            return result
         logger.info("[PIPELINE] Pipeline KOMPLETT für %s", Path(original_video_path).name)
         analysis_status_service.mark_done("video", video_clip_id, "scene_db_storage", {
             "scenes": len(scenes),

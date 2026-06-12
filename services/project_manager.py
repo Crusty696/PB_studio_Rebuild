@@ -186,7 +186,9 @@ class ProjectManager(QObject):
         import database
         import database.session as _ses
         _previous_root = _ses.APP_ROOT
-        database.set_project(path)
+        # B-490 Followup (CRF-005): eigene task_id durchreichen — der
+        # CreateWorker-Task selbst ist "running" und darf nicht blocken.
+        database.set_project(path, exclude_task_id=task_id)
         try:
             database.init_db()  # idempotent — re-erstellt fehlende Tabellen
         except Exception as init_err:
@@ -197,7 +199,10 @@ class ProjectManager(QObject):
             )
             try:
                 if _previous_root is not None:
-                    database.set_project(Path(_previous_root))
+                    # B-490 Followup: force=True — der Rollback auf die vorige
+                    # Engine darf NIE an der Task-Sperre scheitern, sonst
+                    # bleibt die App auf einer halb-initialisierten DB.
+                    database.set_project(Path(_previous_root), force=True)
                     database.init_db()
             except Exception as rollback_err:
                 logger.critical(
@@ -304,7 +309,9 @@ class ProjectManager(QObject):
         import database
         import database.session as _ses
         _previous_root = _ses.APP_ROOT
-        database.set_project(path)
+        # B-490 Followup (CRF-005): eigene task_id durchreichen — der
+        # OpenWorker-Task selbst ist "running" und darf nicht blocken.
+        database.set_project(path, exclude_task_id=task_id)
         try:
             database.init_db()
         except Exception as init_err:
@@ -315,7 +322,8 @@ class ProjectManager(QObject):
             )
             try:
                 if _previous_root is not None:
-                    database.set_project(Path(_previous_root))
+                    # B-490 Followup: force=True — Rollback-Pfad, siehe create_project.
+                    database.set_project(Path(_previous_root), force=True)
                     database.init_db()
             except Exception as rollback_err:
                 logger.critical(

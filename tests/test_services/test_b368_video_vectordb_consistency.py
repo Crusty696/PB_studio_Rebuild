@@ -61,7 +61,9 @@ def test_b368_run_full_pipeline_does_not_write_vectordb_before_scene_db_commit(m
     monkeypatch.setattr(video_analysis_service.analysis_status_service, "mark_done", lambda *_a, **_k: None)
     monkeypatch.setattr(video_analysis_service.analysis_status_service, "mark_error", lambda *_a, **_k: None)
 
-    def _failing_scene_store(_clip_id, _scenes):
+    def _failing_scene_store(_clip_id, _scenes, **_kwargs):
+        # **_kwargs: B-490 Followup (CRF-005) erweitert store_scenes_in_db
+        # um expected_db_url — Mock muss die neue Signatur akzeptieren.
         raise RuntimeError("sqlite commit failed")
 
     def _store_embeddings(*_args, **_kwargs):
