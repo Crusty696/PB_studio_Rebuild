@@ -30,6 +30,35 @@ FFMPEG_RENDER_TIMEOUT_SEC: int = 300
 # Langer Export / Konvertierung (kompletter DJ-Set, 2-3 h)
 FFMPEG_EXPORT_TIMEOUT_SEC: int = 600
 
+
+def ffmpeg_timeout_for(duration_sec, min_sec: float = 600.0,
+                       factor: float = 3.0) -> float:
+    """B-506: Dauer-basierter FFmpeg-Timeout statt statischem Per-File-Kill.
+
+    Der statische ``FFMPEG_EXPORT_TIMEOUT_SEC`` (600 s) killte lange
+    Quellen (3h-DJ-Set) nach 10 Minuten mitten im Encode. Vorbild:
+    dauerbasierter Timeout in ``export_service`` (Concat/Filtergraph).
+
+    Args:
+        duration_sec: Quell-Dauer in Sekunden. ``None``/``<= 0``/nicht
+            numerisch → Dauer unbekannt → konservativ ``min_sec``
+            (bisheriger Default).
+        min_sec: Untergrenze (Default 600 s = alter statischer Wert).
+        factor: Sicherheitsfaktor auf die Quell-Dauer (Default 3.0 —
+            auch ein langsamer CPU-Encode unter Last bleibt unter 3×
+            Realtime fuer die hiesigen Presets).
+
+    Returns:
+        ``max(min_sec, duration_sec * factor)`` als float.
+    """
+    try:
+        d = float(duration_sec) if duration_sec is not None else 0.0
+    except (TypeError, ValueError):
+        d = 0.0
+    if d <= 0.0:
+        return float(min_sec)
+    return max(float(min_sec), d * float(factor))
+
 # LUFS-Messung (loudnorm-Filter, kann bei langen Dateien dauern)
 FFMPEG_LUFS_MEASURE_TIMEOUT_SEC: int = 300
 

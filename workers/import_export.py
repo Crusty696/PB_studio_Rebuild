@@ -17,7 +17,7 @@ from services.ingest_service import (
     ingest_video,
     _invalidate_pacing_caches,
 )
-from services.timeout_constants import FFMPEG_EXPORT_TIMEOUT_SEC
+from services.timeout_constants import FFMPEG_EXPORT_TIMEOUT_SEC, ffmpeg_timeout_for
 from services.startup_checks import get_ffmpeg_bin
 from .base import CancellableMixin, format_user_error
 
@@ -478,10 +478,15 @@ class BatchConvertWorker(QObject, CancellableMixin):
                     )
 
                 try:
+                    # B-506: dauerbasierter Timeout statt statischem 600s-Kill
+                    # — eine 3h-Quelle wurde sonst nach 10 min abgebrochen.
+                    # Dauer unbekannt (_clip_dur == 0.0) → bisheriger Default.
                     result = _run_batch_ffmpeg_cancellable(
                         cmd,
                         cancel_check=self.should_stop,
-                        timeout=FFMPEG_EXPORT_TIMEOUT_SEC,
+                        timeout=ffmpeg_timeout_for(
+                            _clip_dur, min_sec=FFMPEG_EXPORT_TIMEOUT_SEC,
+                        ),
                         progress_cb=_conv_progress,
                     )
                     if self.should_stop():
@@ -562,14 +567,18 @@ class ProxyCreationWorker(QObject, CancellableMixin):
         _ok = False
         try:
             from services.convert_service import convert
-            # B-059: Wall-Clock-Timeout (10 min) — verhindert Orphan-Worker bei
+            # B-059: Wall-Clock-Timeout — verhindert Orphan-Worker bei
             # haengender FFmpeg/NVENC-Encoding (korrupter Codec, Treiber-Hang).
+            # B-506: dauerbasiert statt statisch 600 s — der Proxy-Encode
+            # einer 3h-Quelle wurde sonst nach 10 min gekillt. Dauer
+            # unbekannt (0.0) → bisheriger 600s-Default.
+            _src_dur = _ffprobe_duration(self.video_path)
             proxy_path = convert(
                 self.video_path,
                 preset_name="edit_proxy",
                 progress_cb=lambda pct, msg: self.progress.emit(pct, msg),
                 cancel_check=self.should_stop,
-                timeout=600.0,
+                timeout=ffmpeg_timeout_for(_src_dur, min_sec=600.0),
             )
             # Proxy-Pfad in SQLite speichern (NullPool: verhindert DB-Lock)
             from database import nullpool_session
