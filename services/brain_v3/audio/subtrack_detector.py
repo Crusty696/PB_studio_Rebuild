@@ -42,6 +42,13 @@ DEFAULT_FUSION_WEIGHTS: dict[str, float] = {
 MIN_DISTANCE_SECONDS = 60.0  # Plan-Doc 06: min_distance=60s
 ADAPTIVE_THRESHOLD_K = 1.5    # Threshold = mean + K * std
 DEFAULT_HOP_SECONDS = 1.0     # 1-Hz-Sampling der Curves intern
+# B-510: feste Analyse-SR statt nativer SR (sr=None lud 44.1/48k -> doppelter
+# RAM bei 3h-Mixes). 22050 Hz reicht fuer MFCC/Tempo/Flux-Features vollstaendig.
+TARGET_SR = 22050
+
+
+class _DetectionAborted(Exception):
+    """B-510: internes Signal fuer sauberen Abbruch via should_stop()."""
 
 
 @dataclass(frozen=True)
@@ -95,7 +102,9 @@ class SubtrackDetector:
         audio_path: Path | str,
         audio_hash: str,
         stems_paths: Optional[dict[str, Path]] = None,
-    ) -> SubtrackDetectionResult:
+        progress_cb=None,
+        should_stop=None,
+    ) -> Optional[SubtrackDetectionResult]:
         """Fuehrt die 4-Signal-Pipeline aus.
 
         Args:
@@ -105,25 +114,56 @@ class SubtrackDetector:
             stems_paths: Optional dict {stem_name: file_path} (z.B. von Demucs).
                          Wenn None: S2-Stem-Activity nutzt Null-Curve, S2-Gewicht
                          wird auf andere Signale re-normalisiert.
+            progress_cb: Optional callable(pct: int, msg: str) — B-510.
+            should_stop: Optional callable() -> bool — B-510. Liefert es True,
+                         bricht detect() sauber ab und gibt None zurueck
+                         (kein Teilergebnis; aktuelle Aufrufer — Tests und
+                         Spike-Skripte — reichen should_stop nicht durch).
 
         Returns:
-            SubtrackDetectionResult mit Segmenten oder Fallback (1 Segment).
+            SubtrackDetectionResult mit Segmenten oder Fallback (1 Segment);
+            None bei Abbruch via should_stop.
         """
         librosa, _signal = self._import_deps()
         logger.info("SubtrackDetector.detect start: %s", audio_path)
 
-        y, sr = librosa.load(str(audio_path), sr=None, mono=True)
+        # B-510: feste 22050 Hz statt nativer SR (halbiert RAM bei 44.1/48k-Mixes)
+        y, sr = librosa.load(str(audio_path), sr=TARGET_SR, mono=True)
         duration = float(len(y) / sr)
         if duration <= 0:
             raise ValueError(f"Audio-Datei leer: {audio_path}")
 
         hop = _Hop(sr=sr, hop_seconds=self.hop_seconds)
 
-        # Pipeline
-        s1 = self._signal_foote_novelty(y, sr, hop)
-        s2 = self._signal_stem_activity(stems_paths, sr, hop, n_samples=len(s1))
-        s3 = self._signal_tempo_drift(y, sr, hop, n_samples=len(s1))
-        s4 = self._signal_spectral_flux(y, sr, hop, n_samples=len(s1))
+        if progress_cb:
+            progress_cb(10, "Audio geladen")
+
+        # Pipeline (B-510: abbrechbar via should_stop)
+        try:
+            self._check_stop(should_stop)
+            s1 = self._signal_foote_novelty(y, sr, hop)
+            if progress_cb:
+                progress_cb(35, "Foote-Novelty berechnet")
+            self._check_stop(should_stop)
+            s2 = self._signal_stem_activity(
+                stems_paths, sr, hop, n_samples=len(s1), should_stop=should_stop,
+            )
+            if progress_cb:
+                progress_cb(45, "Stem-Aktivitaet berechnet")
+            self._check_stop(should_stop)
+            s3 = self._signal_tempo_drift(
+                y, sr, hop, n_samples=len(s1),
+                progress_cb=progress_cb, should_stop=should_stop,
+            )
+            if progress_cb:
+                progress_cb(85, "Tempo-Drift berechnet")
+            self._check_stop(should_stop)
+            s4 = self._signal_spectral_flux(y, sr, hop, n_samples=len(s1))
+            if progress_cb:
+                progress_cb(95, "Spectral-Flux berechnet")
+        except _DetectionAborted:
+            logger.info("SubtrackDetector: Abbruch via should_stop() — return None.")
+            return None
 
         # Re-normalisiere Gewichte falls S2 fehlt
         weights = self._effective_weights(stems_used=stems_paths is not None)
@@ -151,6 +191,9 @@ class SubtrackDetector:
         if fallback_used:
             logger.info("SubtrackDetector: 0 Boundaries → Fallback (Mix als 1 Sub-Track).")
 
+        if progress_cb:
+            progress_cb(100, "Subtrack-Detektion abgeschlossen")
+
         return SubtrackDetectionResult(
             audio_hash=audio_hash,
             duration_seconds=duration,
@@ -163,6 +206,12 @@ class SubtrackDetector:
     # ------------------------------------------------------------------
     # 4 Signale
     # ------------------------------------------------------------------
+    @staticmethod
+    def _check_stop(should_stop) -> None:
+        """B-510: wirft _DetectionAborted wenn should_stop() True liefert."""
+        if should_stop is not None and should_stop():
+            raise _DetectionAborted()
+
     def _signal_foote_novelty(self, y: np.ndarray, sr: int, hop: _Hop) -> np.ndarray:
         """S1 — Foote-Novelty ueber MFCC-Self-Similarity."""
         librosa, _ = self._import_deps()
@@ -181,18 +230,40 @@ class SubtrackDetector:
 
     @staticmethod
     def _foote_kernel_novelty(rec: np.ndarray, kernel_size: int) -> np.ndarray:
-        """Klassischer Foote-Kernel: Differenz zwischen +1/+1 und +1/-1 Quadranten."""
+        """Klassischer Foote-Kernel: Differenz zwischen +1/+1 und +1/-1 Quadranten.
+
+        B-510: vektorisiert via Summed-Area-Table (Integralbild) statt purem
+        Python-Doppelloop (O(n*k^2) -> O(n^2) Aufbau + O(n) Auswertung).
+        Numerische Aequivalenz zum alten Loop: tests/test_services/
+        test_brain_v3_subtrack_detector.py (_foote_novelty_reference).
+        """
         n = rec.shape[0]
         novelty = np.zeros(n)
-        k = kernel_size
+        k = int(kernel_size)
         if n < 2 * k + 1:
             return novelty
-        for i in range(k, n - k):
-            tl = rec[i - k:i, i - k:i].mean()
-            br = rec[i:i + k, i:i + k].mean()
-            tr = rec[i - k:i, i:i + k].mean()
-            bl = rec[i:i + k, i - k:i].mean()
-            novelty[i] = (tl + br) - (tr + bl)
+        # Slab-weise: SAT nur ueber (slab+2k)^2-Ausschnitt statt n^2 —
+        # bei 3h-Mix (n=10800) sonst ~933 MB Zusatz-Transient.
+        slab = 2048
+        for i0 in range(k, n - k, slab):
+            i1 = min(i0 + slab, n - k)
+            r0 = i0 - k
+            r1 = i1 + k  # exklusiv; alle Bloecke fuer i in [i0, i1) liegen darin
+            sub = rec[r0:r1, r0:r1].astype(np.float64)
+            m = sub.shape[0]
+            # Integralbild mit Null-Rand: sat[r, c] = Summe von sub[:r, :c]
+            sat = np.zeros((m + 1, m + 1), dtype=np.float64)
+            sat[1:, 1:] = np.cumsum(np.cumsum(sub, axis=0), axis=1)
+            idx = np.arange(i0, i1) - r0  # lokale Diagonal-Mittelpunkte
+
+            def _block_sum(a0, a1, b0, b1):
+                return sat[a1, b1] - sat[a0, b1] - sat[a1, b0] + sat[a0, b0]
+
+            tl = _block_sum(idx - k, idx, idx - k, idx)
+            br = _block_sum(idx, idx + k, idx, idx + k)
+            tr = _block_sum(idx - k, idx, idx, idx + k)
+            bl = _block_sum(idx, idx + k, idx - k, idx)
+            novelty[i0:i1] = ((tl + br) - (tr + bl)) / float(k * k)
         return np.clip(novelty, 0, None)
 
     def _signal_stem_activity(
@@ -201,17 +272,21 @@ class SubtrackDetector:
         sr: int,
         hop: _Hop,
         n_samples: int,
+        should_stop=None,
     ) -> np.ndarray:
         """S2 — RMS-Spruenge in Stems (Drum-In/Out, Bass-Drop, etc.).
 
         Wenn keine Stems vorhanden: Null-Curve. Gewicht wird in
         _effective_weights() re-normalisiert.
+        B-510: Stems werden mit der festen Detector-SR (22050 via ``sr``)
+        geladen statt nativ — 4 Full-Loads @ 44.1k entfallen.
         """
         if not stems_paths:
             return np.zeros(n_samples)
         librosa, _ = self._import_deps()
         rms_diff_total = np.zeros(n_samples)
         for stem_name, stem_path in stems_paths.items():
+            self._check_stop(should_stop)
             try:
                 y, _ = librosa.load(str(stem_path), sr=sr, mono=True)
                 rms = librosa.feature.rms(y=y, hop_length=hop.hop_samples)[0]
@@ -224,11 +299,13 @@ class SubtrackDetector:
         return self._normalize(rms_diff_total)
 
     def _signal_tempo_drift(self, y: np.ndarray, sr: int, hop: _Hop,
-                            n_samples: int) -> np.ndarray:
+                            n_samples: int, progress_cb=None,
+                            should_stop=None) -> np.ndarray:
         """S3 — Sliding-Window Tempo-Drift via librosa.beat.tempo.
 
         Window 30 s, Step = hop_seconds. Tempo-Differenz zwischen Windows
-        ist das Signal.
+        ist das Signal. B-510: teuerste Schleife der Pipeline — prueft
+        should_stop pro Window und meldet Fortschritt (45..85 %).
         """
         librosa, _ = self._import_deps()
         win_seconds = 30.0
@@ -245,7 +322,12 @@ class SubtrackDetector:
         total_steps = n_steps + (1 if _add_tail else 0)
 
         tempos = np.zeros(total_steps)
+        _progress_every = max(1, total_steps // 20)
         for i in range(total_steps):
+            self._check_stop(should_stop)
+            if progress_cb and i % _progress_every == 0:
+                pct = 45 + int(40 * i / max(1, total_steps))
+                progress_cb(pct, f"Tempo-Drift Window {i + 1}/{total_steps}")
             if _add_tail and i == total_steps - 1:
                 start = len(y) - win_samples
             else:

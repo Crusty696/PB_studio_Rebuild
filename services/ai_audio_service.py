@@ -62,14 +62,121 @@ def _sanitize_ffmpeg_error(stderr: str, max_lines: int = 3) -> str:
     return "\n".join(tail)
 
 
+# B-510: Chunk-Groesse fuer das Einlesen des Demucs-Inputs (Sekunden).
+STEM_LOAD_CHUNK_SECONDS = 30
+# B-510: Kontext-Rand pro Chunk fuer chunk-weises Resampling (Sekunden).
+# Muss nur die Sinc-Filterbreite von torchaudio.functional.resample abdecken
+# (Default lowpass_filter_width=6 -> wenige ms); 1 s ist sehr konservativ.
+STEM_RESAMPLE_MARGIN_SECONDS = 1.0
+
+
+def _finalize_stem_waveform(waveform, sr: int, target_sr: int, torchaudio_module):
+    """Legacy-Fallback (B-510): Full-Array-Resample + Kanal-Anpassung auf (2, n).
+
+    Identisches Verhalten wie der alte Code in separate() vor B-510:
+    Resample auf target_sr, Mono->Stereo via repeat, >2 Kanaele -> erste 2.
+    Wird nur noch benutzt, wenn der chunked soundfile-Pfad nicht greift
+    (Formate, die torchaudio kann, libsndfile aber nicht).
+    """
+    if sr != target_sr:
+        waveform = torchaudio_module.functional.resample(waveform, sr, target_sr)
+    if waveform.shape[0] == 1:
+        waveform = waveform.repeat(2, 1)
+    elif waveform.shape[0] > 2:
+        waveform = waveform[:2]
+    return waveform
+
+
+def _chunked_soundfile_load(src: Path, target_sr: int, torchaudio_module):
+    """B-510: Chunk-weises Laden via soundfile in vorallokiertes (2, n)-float32-Array.
+
+    Vermeidet die transienten Vollkopien des alten Pfads (torchaudio-Full-Load
+    @ nativer SR + Full-Resample-Zweitkopie + Mono->Stereo-Repeat ≈ bis zu 3x
+    Mix-Groesse Peak-RAM; 3h-Mix ~7 GB transient). Peak ist jetzt das finale
+    Ziel-Array + ein ~32-s-Chunk-Puffer.
+
+    Resampling erfolgt pro Chunk mit Kontext-Rand; Chunk-Starts liegen auf dem
+    Polyphasen-Raster (Vielfache von file_sr // gcd(file_sr, target_sr)),
+    dadurch identische Filterphasen wie beim Full-Signal-Resample. Numerische
+    Aequivalenz: tests/test_services/test_stem_separator_audio_decode.py
+    (test_chunked_loader_matches_legacy_full_load).
+    """
+    import math
+    if not _TORCH_AVAILABLE:
+        raise RuntimeError("torch nicht verfuegbar fuer chunked Stem-Input-Load")
+    torch = _torch_module
+    with sf.SoundFile(str(src), mode="r") as f:
+        file_sr = int(f.samplerate)
+        total_in = int(f.frames)
+        if file_sr <= 0 or total_in <= 0:
+            raise RuntimeError(f"Audio-Datei leer oder Laenge unbekannt: {src}")
+        if file_sr == target_sr:
+            total_out = total_in
+            margin = 0
+        else:
+            total_out = -((-total_in * target_sr) // file_sr)  # ceil-div, exakt wie torchaudio
+            poly = file_sr // math.gcd(file_sr, target_sr)
+            margin = int(math.ceil(STEM_RESAMPLE_MARGIN_SECONDS * file_sr / poly)) * poly
+        out = torch.zeros((2, total_out), dtype=torch.float32)
+        # chunk_in ist Vielfaches von poly (poly teilt file_sr) -> Raster-aligned
+        chunk_in = int(STEM_LOAD_CHUNK_SECONDS) * file_sr
+        pos_in = 0
+        pos_out = 0
+        while pos_in < total_in:
+            core_len = min(chunk_in, total_in - pos_in)
+            lead = min(pos_in, margin)
+            read_start = pos_in - lead
+            read_stop = min(total_in, pos_in + core_len + margin)
+            f.seek(read_start)
+            block = f.read(frames=read_stop - read_start, dtype="float32", always_2d=True)
+            data = torch.from_numpy(np.ascontiguousarray(block.T))
+            del block
+            if data.shape[0] > 2:
+                data = data[:2].contiguous()
+            if file_sr != target_sr:
+                data = torchaudio_module.functional.resample(data, file_sr, target_sr)
+                out_lead = (lead * target_sr) // file_sr  # lead raster-aligned -> exakt
+                out_core = min(total_out - pos_out, -((-core_len * target_sr) // file_sr))
+                seg = data[:, out_lead:out_lead + out_core]
+            else:
+                seg = data[:, lead:lead + core_len]
+            # Mono (1, n) broadcastet beim Zuweisen auf beide Kanaele
+            out[:, pos_out:pos_out + seg.shape[1]] = seg
+            pos_out += seg.shape[1]
+            pos_in += core_len
+            del data, seg
+        if pos_out != total_out:
+            raise RuntimeError(
+                f"Chunked-Load Laengen-Mismatch: {pos_out} != {total_out} ({src})"
+            )
+    return out
+
+
 def _load_audio_for_stem_separation(
     src: Path,
     torchaudio_module,
     target_sr: int,
 ):
-    """Load audio for Demucs, falling back to FFmpeg for containers unsupported by libsndfile."""
+    """Load audio for Demucs as (2, n) float32 waveform at ``target_sr``.
+
+    B-510: Primaerpfad ist chunk-weises soundfile-Lesen in ein vorallokiertes
+    Ziel-Array (finale SR, 2 Kanaele). Fallback 1: torchaudio-Full-Load
+    (Formate, die libsndfile nicht kann). Fallback 2: FFmpeg-Decode in
+    temp-WAV (bereits 2ch float32 @ target_sr), erneut chunk-weise gelesen.
+
+    Returns:
+        (waveform, sr) mit waveform-Shape (2, n) und sr == target_sr.
+    """
     try:
-        return torchaudio_module.load(str(src))
+        return _chunked_soundfile_load(src, target_sr, torchaudio_module), target_sr
+    except Exception as sf_error:
+        logger.debug(
+            "[StemSeparator] Chunked soundfile-Load fehlgeschlagen (%s) — torchaudio-Fallback.",
+            sf_error,
+        )
+    try:
+        waveform, sr = torchaudio_module.load(str(src))
+        return _finalize_stem_waveform(waveform, sr, target_sr, torchaudio_module), target_sr
     except Exception as first_error:
         ffmpeg_bin = str(get_ffmpeg_bin())
         tmp_wav = tempfile.NamedTemporaryFile(prefix="pb_stem_decode_", suffix=".wav", delete=False)
@@ -119,7 +226,13 @@ def _load_audio_for_stem_separation(
             ) from first_error
 
         try:
-            waveform, sr = torchaudio_module.load(str(tmp_wav_path))
+            # B-510: temp-WAV ist bereits 2ch float32 @ target_sr -> chunk-weises
+            # Lesen ohne Resample; torchaudio-Full-Load nur als letzter Fallback.
+            try:
+                waveform = _chunked_soundfile_load(tmp_wav_path, target_sr, torchaudio_module)
+            except Exception:
+                wf, sr = torchaudio_module.load(str(tmp_wav_path))
+                waveform = _finalize_stem_waveform(wf, sr, target_sr, torchaudio_module)
         except Exception as wav_error:
             raise RuntimeError(
                 "Audio-Datei wurde via FFmpeg dekodiert, aber temp WAV konnte nicht geladen werden: "
@@ -131,10 +244,10 @@ def _load_audio_for_stem_separation(
         logger.info(
             "[StemSeparator] Audio via FFmpeg geladen: %s, SR=%s, Samples=%s",
             src.name,
-            sr,
+            target_sr,
             waveform.shape[1],
         )
-        return waveform, sr
+        return waveform, target_sr
 
 # Chunk-Dauer in Sekunden fuer VRAM-schonendes Processing
 CHUNK_SECONDS = 30
@@ -387,16 +500,10 @@ class StemSeparator:
         # Stems werden in model_sr gespeichert. Die Pacing-Pipeline (pacing_service.py)
         # laedt Stems spaeter mit librosa (Default 22050 Hz) — das Downsampling ist beabsichtigt.
         model_sr = demucs_model.samplerate
+        # B-510: Loader liefert bereits (2, n) float32 @ model_sr (chunk-weises
+        # Lesen + Resample pro Chunk in vorallokiertes Ziel-Array). Die frueheren
+        # Full-Array-Kopien (Resample-Zweitkopie + Mono->Stereo-Repeat) entfallen.
         waveform, sr = _load_audio_for_stem_separation(src, torchaudio, model_sr)
-        if sr != model_sr:
-            waveform = torchaudio.functional.resample(waveform, sr, model_sr)
-            sr = model_sr
-
-        # Stereo sicherstellen (Demucs erwartet 2 Kanaele)
-        if waveform.shape[0] == 1:
-            waveform = waveform.repeat(2, 1)
-        elif waveform.shape[0] > 2:
-            waveform = waveform[:2]
 
         total_samples = waveform.shape[1]
         # D-01 Fix: chunk_seconds als lokale Variable, damit VRAM-Check sie reduzieren kann
