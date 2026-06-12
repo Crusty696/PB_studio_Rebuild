@@ -25,7 +25,9 @@ def test_brain_gpu_serializer_bridges_to_model_manager_execution_lock():
     assert serializer._legacy_gpu_execution_lock() is model_manager.GPU_EXECUTION_LOCK
     source = inspect.getsource(GpuSerializer.acquire)
     assert "_legacy_gpu_execution_lock" in source
-    assert "legacy_lock.acquire()" in source
+    # B-503: Acquire laeuft jetzt ueber _timed_acquire (Timeout + Holder-Log),
+    # die Bridge auf den legacy Lock bleibt bestehen.
+    assert "_timed_acquire(legacy_lock" in source
 
 
 def test_siglip_stage_runs_gpu_work_under_default_serializer():

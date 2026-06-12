@@ -53,13 +53,35 @@ class RaftMotionService:
         # nur raft_small — das waere ein Optical-Flow-Qualitaetsverlust. Die
         # Execution-Koordination uebernimmt der gpu_serializer in RaftMotionStage;
         # raft_large (~1 GB) koexistiert problemlos mit dem so400m im VRAM-Budget.
-        if self.variant == "raft_large":
-            model = raft_large(weights=Raft_Large_Weights.C_T_SKHT_V2)
-        else:
-            model = raft_small(weights=Raft_Small_Weights.C_T_V2)
-        if self.device.startswith("cuda") and torch.cuda.is_available():
-            model = model.to(self.device)
-        self._model = model.float().eval()
+        #
+        # B-502: Der eigentliche Load (inkl. ~1 GB fp32 VRAM-Alloc) lief bisher
+        # komplett am ModelManager-Locking vorbei — parallele Loads anderer
+        # Threads (Demucs/beat_this/SigLIP unter GPU_LOAD_LOCK) konnten
+        # gleichzeitig allozieren → OOM-Race auf der 6-GB GTX 1060. Fix:
+        # Load unter GPU_LOAD_LOCK + proaktiver VRAM-Precheck via
+        # ModelManager._handle_oom_prevention (F-011-Pattern).
+        # Lock-Ordnung bleibt konsistent: RaftMotionStage haelt beim Aufruf
+        # bereits den gpu_serializer (= legacy GPU_EXECUTION_LOCK), danach
+        # GPU_LOAD_LOCK — exakt die gpu_resource_lease-Reihenfolge
+        # (EXECUTION → LOAD, model_manager.py).
+        from services.model_manager import GPU_LOAD_LOCK, ModelManager
+        with GPU_LOAD_LOCK:
+            if self.is_loaded:  # double-check nach Lock-Wartezeit
+                return
+            use_cuda = self.device.startswith("cuda") and torch.cuda.is_available()
+            if use_cuda:
+                # Precheck kann bei knappem Speicher das ModelManager-Hauptmodell
+                # entladen bzw. RuntimeError werfen (statt spaeter hartem CUDA-OOM).
+                ModelManager()._handle_oom_prevention(
+                    f"RAFT '{self.variant}' laden (RaftMotionService)"
+                )
+            if self.variant == "raft_large":
+                model = raft_large(weights=Raft_Large_Weights.C_T_SKHT_V2)
+            else:
+                model = raft_small(weights=Raft_Small_Weights.C_T_V2)
+            if use_cuda:
+                model = model.to(self.device)
+            self._model = model.float().eval()
 
     def compute_flow(self, frame_a: np.ndarray, frame_b: np.ndarray) -> np.ndarray:
         """Berechnet Optical-Flow zwischen ``frame_a`` und ``frame_b``.

@@ -17,12 +17,20 @@ App-Schicht wird ein Modul-globales Singleton erzeugt (siehe get_default_seriali
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import logging
 import threading
+import time
 from contextlib import contextmanager
 from typing import Iterator, Optional
 
 logger = logging.getLogger(__name__)
+
+# B-503: sync acquire() bekommt einen Timeout (default 300 s) statt unendlich
+# zu blockieren (non-reentranter self._lock → Self-Deadlock bei Verschachtelung
+# war vorher unentdeckbar). Ab 30 s Wartezeit wird der aktuelle Holder geloggt.
+DEFAULT_ACQUIRE_TIMEOUT_S = 300.0
+_WAIT_LOG_INTERVAL_S = 30.0
 
 
 class GpuSerializer:
@@ -48,12 +56,39 @@ class GpuSerializer:
         self._current_holder: Optional[str] = None
 
     @contextmanager
-    def acquire(self, holder: str = "anonymous") -> Iterator[None]:
-        """Sync-Variante. Gibt nichts zurueck — Lock wird ueber Context geschuetzt."""
+    def acquire(
+        self,
+        holder: str = "anonymous",
+        timeout: Optional[float] = DEFAULT_ACQUIRE_TIMEOUT_S,
+    ) -> Iterator[None]:
+        """Sync-Variante. Gibt nichts zurueck — Lock wird ueber Context geschuetzt.
+
+        B-503: ``timeout`` (Sekunden, default 300, ``None`` = unendlich) begrenzt
+        die Gesamt-Wartezeit auf legacy GPU_EXECUTION_LOCK + internen Lock.
+        Bei Wartezeit > 30 s wird der aktuelle Holder geloggt; bei Timeout
+        fliegt ``TimeoutError`` mit Holder-Info statt stillem Ewig-Block
+        (z.B. Self-Deadlock durch verschachteltes acquire im selben Thread).
+        """
         logger.debug("GpuSerializer[%s].acquire(%s) waiting", self.name, holder)
+        deadline = None if timeout is None else time.monotonic() + timeout
+        # Bridge-Verhalten unveraendert (B-503): erst legacy GPU_EXECUTION_LOCK
+        # (RLock, reentrant), dann der eigene non-reentrante Serializer-Lock.
         legacy_lock = self._legacy_gpu_execution_lock()
-        legacy_lock.acquire()
-        self._lock.acquire()
+        if not self._timed_acquire(legacy_lock, "GPU_EXECUTION_LOCK(legacy)", holder, deadline):
+            raise TimeoutError(
+                f"GpuSerializer[{self.name}]: '{holder}' Timeout ({timeout}s) beim Warten "
+                f"auf GPU_EXECUTION_LOCK(legacy) — aktueller Serializer-Holder: "
+                f"{self._current_holder!r}"
+            )
+        try:
+            if not self._timed_acquire(self._lock, "serializer-lock", holder, deadline):
+                raise TimeoutError(
+                    f"GpuSerializer[{self.name}]: '{holder}' Timeout ({timeout}s) beim Warten "
+                    f"auf serializer-lock — aktueller Holder: {self._current_holder!r}"
+                )
+        except BaseException:
+            legacy_lock.release()
+            raise
         prev = self._current_holder
         self._current_holder = holder
         logger.debug("GpuSerializer[%s].acquired by %s", self.name, holder)
@@ -66,6 +101,35 @@ class GpuSerializer:
             self._lock.release()
             legacy_lock.release()
             logger.debug("GpuSerializer[%s].released by %s", self.name, holder)
+
+    def _timed_acquire(self, lock, label: str, holder: str, deadline: Optional[float]) -> bool:
+        """B-503: Lock-Acquire mit Deadline + Holder-Logging bei langer Wartezeit.
+
+        Returns ``True`` wenn der Lock gehalten wird, ``False`` bei Timeout.
+        Mock-Locks ohne ``timeout``-Support fallen auf blocking acquire zurueck.
+        """
+        start = time.monotonic()
+        while True:
+            remaining = None if deadline is None else deadline - time.monotonic()
+            if remaining is not None and remaining <= 0:
+                return False
+            slice_s = (
+                _WAIT_LOG_INTERVAL_S
+                if remaining is None
+                else min(_WAIT_LOG_INTERVAL_S, remaining)
+            )
+            try:
+                acquired = lock.acquire(timeout=slice_s)
+            except TypeError:
+                # Test-Doubles ohne timeout-Parameter — blocking acquire wie vorher.
+                lock.acquire()
+                acquired = True
+            if acquired:
+                return True
+            logger.warning(
+                "GpuSerializer[%s]: '%s' wartet seit %.0fs auf %s (aktueller Holder: %r)",
+                self.name, holder, time.monotonic() - start, label, self._current_holder,
+            )
 
     def acquire_async(self, holder: str = "anonymous"):
         """Async-Variante — lazy-init asyncio.Lock im Event-Loop."""
@@ -97,27 +161,55 @@ class GpuSerializer:
 
 
 class _AsyncAcquireCtx:
-    """Async-Context-Manager fuer GpuSerializer.acquire_async()."""
+    """Async-Context-Manager fuer GpuSerializer.acquire_async().
+
+    B-503: Blocking Lock-Acquires laufen via ``loop.run_in_executor`` in einem
+    dedizierten Single-Thread-Executor statt synchron in der Coroutine — vorher
+    blockierte ``__aenter__`` den gesamten Event-Loop solange ein anderer
+    Thread den GPU-Lock hielt. Der Single-Thread-Executor ist Pflicht, weil
+    der legacy GPU_EXECUTION_LOCK ein ``threading.RLock`` ist (thread-affin):
+    acquire und release MUESSEN im selben Thread passieren.
+
+    Hinweis: Dadurch greift die RLock-Reentranz des Event-Loop-Threads fuer
+    den legacy Lock nicht mehr (Acquire laeuft im Executor-Thread). Der
+    Async-Pfad wird aktuell nur in Tests genutzt; Konsumenten duerfen
+    ``acquire_async`` nicht aufrufen waehrend derselbe Thread den
+    GPU_EXECUTION_LOCK bereits haelt.
+    """
 
     def __init__(self, serializer: GpuSerializer, holder: str):
         self._s = serializer
         self._holder = holder
         self._prev: Optional[str] = None
         self._legacy_lock = None
+        self._executor: Optional[concurrent.futures.ThreadPoolExecutor] = None
 
     async def __aenter__(self):
         assert self._s._async_lock is not None
+        loop = asyncio.get_running_loop()
+        self._executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix=f"gpu_ser_async_{self._s.name}",
+        )
         self._legacy_lock = self._s._legacy_gpu_execution_lock()
-        self._legacy_lock.acquire()
+        try:
+            await loop.run_in_executor(self._executor, self._legacy_lock.acquire)
+        except BaseException:
+            self._cleanup_executor()
+            self._legacy_lock = None
+            raise
         try:
             await self._s._async_lock.acquire()
-            # Auch sync-Lock greifen — dieselbe Resource wird ggf. von sync-Konsumenten genutzt
-            self._s._lock.acquire()
+            # Auch sync-Lock greifen — dieselbe Resource wird ggf. von
+            # sync-Konsumenten genutzt. threading.Lock darf von beliebigen
+            # Threads released werden — Executor-Acquire ist hier unkritisch.
+            await loop.run_in_executor(self._executor, self._s._lock.acquire)
             self._prev = self._s._current_holder
             self._s._current_holder = self._holder
             return None
         except BaseException:
-            self._legacy_lock.release()
+            # Legacy-RLock im selben Executor-Thread releasen (thread-affin).
+            self._executor.submit(self._legacy_lock.release).result()
+            self._cleanup_executor()
             self._legacy_lock = None
             raise
 
@@ -129,9 +221,18 @@ class _AsyncAcquireCtx:
         assert self._s._async_lock is not None
         self._s._async_lock.release()
         assert self._legacy_lock is not None
-        self._legacy_lock.release()
+        assert self._executor is not None
+        loop = asyncio.get_running_loop()
+        # Release im selben Executor-Thread wie das Acquire (RLock thread-affin).
+        await loop.run_in_executor(self._executor, self._legacy_lock.release)
+        self._cleanup_executor()
         self._legacy_lock = None
         return False  # don't suppress
+
+    def _cleanup_executor(self) -> None:
+        if self._executor is not None:
+            self._executor.shutdown(wait=False)
+            self._executor = None
 
 
 # --- Modul-globaler Default-Serializer (lazy) -------------------------------
