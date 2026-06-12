@@ -105,6 +105,24 @@ def _sanitize_ffmpeg_error(stderr: str, max_lines: int = 3) -> str:
     return "\n".join(tail)
 
 
+# B-505: stderr-Signaturen, die auf einen NVENC-/Treiber-Fehler hindeuten
+# (Sessions erschoepft, nvcuda.dll nicht ladbar, kein NVENC-Device) — nur
+# dann ist ein libx264-CPU-Retry sinnvoll; andere FFmpeg-Fehler (kaputte
+# Quelle etc.) wuerden auf CPU genauso scheitern.
+_NVENC_FAILURE_SIGNATURES = (
+    "openencodesessionex",
+    "nvcuda",
+    "no nvenc capable devices",
+    "cannot load nvenc",
+)
+
+
+def _is_nvenc_failure(stderr: str) -> bool:
+    """True wenn FFmpeg-stderr eine bekannte NVENC-Fehlersignatur enthaelt."""
+    low = (stderr or "").lower()
+    return any(sig in low for sig in _NVENC_FAILURE_SIGNATURES)
+
+
 class VideoAnalyzer:
     """Extrahiert Video-Metadaten via ffprobe und erstellt Proxy-Videos."""
 
@@ -229,7 +247,10 @@ class VideoAnalyzer:
                     ) from exc
                 raise
 
-            cmd = [
+            if progress_cb:
+                progress_cb(20, "FFmpeg Proxy-Encoding...")
+
+            nvenc_cmd = [
                 _FFMPEG, "-y", "-i", file_path,
                 "-vf", f"scale=-2:{target_height}",
                 "-c:v", "h264_nvenc", "-preset", "p1",
@@ -237,108 +258,149 @@ class VideoAnalyzer:
                 "-c:a", "aac", "-b:a", "128k",
                 str(proxy_path),
             ]
-            kwargs = {}
-            if sys.platform == "win32":
-                kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
-            if progress_cb:
-                progress_cb(20, "FFmpeg Proxy-Encoding...")
 
-            import tempfile as _tempfile
-            import time as _time
-            stderr_file = _tempfile.TemporaryFile(
-                mode="w+",
-                encoding="utf-8",
-                errors="replace",
-            )
-            proc = subprocess.Popen(
-                cmd,
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=stderr_file,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                **kwargs,
-            )
-            start = _time.monotonic()
-            cancelled = False
-            while proc.poll() is None:
-                if should_stop is not None:
-                    try:
-                        if should_stop():
-                            cancelled = True
-                            proc.terminate()
-                            try:
-                                proc.wait(timeout=2.0)
-                            except subprocess.TimeoutExpired:
-                                proc.kill()
-                            break
-                    except Exception:
-                        pass
-                if _time.monotonic() - start > FFMPEG_RENDER_TIMEOUT_SEC:
-                    proc.kill()
-                    try:
-                        proc.wait(timeout=2.0)
-                    except (subprocess.TimeoutExpired, AttributeError):
-                        pass
-                    # B-219: unlink kann mit WinError 32 failen wenn FFmpeg
-                    # den Handle noch nicht freigegeben hat. Retry.
-                    try:
-                        _retry_on_file_lock(
-                            "proxy unlink (timeout)",
-                            proxy_path.unlink, missing_ok=True,
-                        )
-                    except OSError:
-                        pass  # Best effort — Timeout ist eh schon der Fehler.
-                    stderr_file.close()
-                    raise subprocess.TimeoutExpired(cmd, FFMPEG_RENDER_TIMEOUT_SEC)
-                _time.sleep(0.5)
-
-            proc.communicate()
-            stderr_file.seek(0)
-            stderr = stderr_file.read()
-            stderr_file.close()
-
-            if cancelled:
-                # B-219: gleiches Pattern, retry-with-backoff
-                try:
-                    _retry_on_file_lock(
-                        "proxy unlink (cancel)",
-                        proxy_path.unlink, missing_ok=True,
-                    )
-                except OSError:
-                    pass
-                raise RuntimeError("Proxy-Erstellung abgebrochen (User-Cancel)")
-
-            if proc.returncode != 0:
-                logger.info(f"[VideoAnalyzer] FFmpeg FEHLER (rc={proc.returncode}):")
-                logger.info(f"[VideoAnalyzer] stderr: {_sanitize_ffmpeg_error(stderr)}")
-                raise FFmpegError(
-                    f"Proxy-Erstellung fehlgeschlagen: {_sanitize_ffmpeg_error(stderr)}",
-                    returncode=proc.returncode,
-                    stderr=stderr,
+            # B-505: NVENC-Encode app-weit serialisieren — gleicher
+            # GpuSerializer wie export_service._run_ffmpeg und
+            # convert_service. Die GTX 1060 (Pascal) erlaubt nur 2-3
+            # NVENC-Sessions; parallele Encodes enden in
+            # "OpenEncodeSessionEx failed". Lock NUR um den
+            # Subprocess-Lauf — die Datei-Checks oben bleiben lockfrei.
+            try:
+                from services.brain_v3.gpu_serializer import get_default_serializer
+                with get_default_serializer().acquire("proxy_encode"):
+                    self._run_proxy_encode(nvenc_cmd, proxy_path, should_stop)
+            except FFmpegError as exc:
+                if not _is_nvenc_failure(getattr(exc, "stderr", None) or ""):
+                    raise
+                # B-505: einmaliger CPU-Retry bei NVENC-Signatur (Sessions
+                # erschoepft / nvcuda nicht ladbar). libx264 ist CPU-only
+                # und braucht keinen GPU-Lock (GPU-Hartregel: kein CUDA-
+                # Backend verfuegbar -> CPU erlaubt).
+                logger.warning(
+                    "B-505: NVENC-Proxy-Encode fehlgeschlagen (NVENC-Signatur "
+                    "in stderr) -> einmaliger libx264-CPU-Retry fuer %s",
+                    file_path,
                 )
-
-            if not proxy_path.exists() or proxy_path.stat().st_size == 0:
-                logger.info("[VideoAnalyzer] FFmpeg lief durch (rc=0), aber Proxy ist 0 Bytes oder fehlt!")
-                logger.info(f"[VideoAnalyzer] stderr: {_sanitize_ffmpeg_error(stderr)}")
-                # B-219: retry-on-lock — gleiches Problem.
-                try:
-                    _retry_on_file_lock(
-                        "proxy unlink (0-byte after ffmpeg)",
-                        proxy_path.unlink, missing_ok=True,
-                    )
-                except OSError:
-                    pass
-                raise FFmpegError(
-                    f"Proxy ist 0 Bytes. FFmpeg stderr: {_sanitize_ffmpeg_error(stderr)}",
-                    returncode=0,
-                    stderr=stderr,
-                )
+                if progress_cb:
+                    progress_cb(20, "FFmpeg Proxy-Encoding (CPU-Fallback)...")
+                cpu_cmd = [
+                    _FFMPEG, "-y", "-i", file_path,
+                    "-vf", f"scale=-2:{target_height}",
+                    "-c:v", "libx264", "-preset", "veryfast", "-crf", "28",
+                    "-c:a", "aac", "-b:a", "128k",
+                    str(proxy_path),
+                ]
+                self._run_proxy_encode(cpu_cmd, proxy_path, should_stop)
 
             if progress_cb:
                 progress_cb(100, "Proxy fertig")
             return str(proxy_path.resolve())
+
+    def _run_proxy_encode(self, cmd: list, proxy_path: Path, should_stop) -> None:
+        """Fuehrt einen Proxy-FFmpeg-Encode aus (Popen + Cancel/Timeout-Loop).
+
+        B-505: aus ``create_proxy`` extrahiert, damit NVENC-Lauf und
+        libx264-CPU-Retry denselben Lauf-/Fehlerpfad nutzen. Wirft
+        ``FFmpegError`` (rc != 0 oder 0-Byte-Output),
+        ``subprocess.TimeoutExpired`` (Render-Timeout) oder
+        ``RuntimeError`` (User-Cancel).
+        """
+        kwargs = {}
+        if sys.platform == "win32":
+            kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+
+        import tempfile as _tempfile
+        import time as _time
+        stderr_file = _tempfile.TemporaryFile(
+            mode="w+",
+            encoding="utf-8",
+            errors="replace",
+        )
+        proc = subprocess.Popen(
+            cmd,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=stderr_file,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            **kwargs,
+        )
+        start = _time.monotonic()
+        cancelled = False
+        while proc.poll() is None:
+            if should_stop is not None:
+                try:
+                    if should_stop():
+                        cancelled = True
+                        proc.terminate()
+                        try:
+                            proc.wait(timeout=2.0)
+                        except subprocess.TimeoutExpired:
+                            proc.kill()
+                        break
+                except Exception:
+                    pass
+            if _time.monotonic() - start > FFMPEG_RENDER_TIMEOUT_SEC:
+                proc.kill()
+                try:
+                    proc.wait(timeout=2.0)
+                except (subprocess.TimeoutExpired, AttributeError):
+                    pass
+                # B-219: unlink kann mit WinError 32 failen wenn FFmpeg
+                # den Handle noch nicht freigegeben hat. Retry.
+                try:
+                    _retry_on_file_lock(
+                        "proxy unlink (timeout)",
+                        proxy_path.unlink, missing_ok=True,
+                    )
+                except OSError:
+                    pass  # Best effort — Timeout ist eh schon der Fehler.
+                stderr_file.close()
+                raise subprocess.TimeoutExpired(cmd, FFMPEG_RENDER_TIMEOUT_SEC)
+            _time.sleep(0.5)
+
+        proc.communicate()
+        stderr_file.seek(0)
+        stderr = stderr_file.read()
+        stderr_file.close()
+
+        if cancelled:
+            # B-219: gleiches Pattern, retry-with-backoff
+            try:
+                _retry_on_file_lock(
+                    "proxy unlink (cancel)",
+                    proxy_path.unlink, missing_ok=True,
+                )
+            except OSError:
+                pass
+            raise RuntimeError("Proxy-Erstellung abgebrochen (User-Cancel)")
+
+        if proc.returncode != 0:
+            logger.info(f"[VideoAnalyzer] FFmpeg FEHLER (rc={proc.returncode}):")
+            logger.info(f"[VideoAnalyzer] stderr: {_sanitize_ffmpeg_error(stderr)}")
+            raise FFmpegError(
+                f"Proxy-Erstellung fehlgeschlagen: {_sanitize_ffmpeg_error(stderr)}",
+                returncode=proc.returncode,
+                stderr=stderr,
+            )
+
+        if not proxy_path.exists() or proxy_path.stat().st_size == 0:
+            logger.info("[VideoAnalyzer] FFmpeg lief durch (rc=0), aber Proxy ist 0 Bytes oder fehlt!")
+            logger.info(f"[VideoAnalyzer] stderr: {_sanitize_ffmpeg_error(stderr)}")
+            # B-219: retry-on-lock — gleiches Problem.
+            try:
+                _retry_on_file_lock(
+                    "proxy unlink (0-byte after ffmpeg)",
+                    proxy_path.unlink, missing_ok=True,
+                )
+            except OSError:
+                pass
+            raise FFmpegError(
+                f"Proxy ist 0 Bytes. FFmpeg stderr: {_sanitize_ffmpeg_error(stderr)}",
+                returncode=0,
+                stderr=stderr,
+            )
 
     def analyze_and_store(self, clip_id: int, create_proxy: bool = True, progress_cb=None,
                           should_stop=None) -> dict:

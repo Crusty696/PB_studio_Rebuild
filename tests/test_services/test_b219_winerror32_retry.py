@@ -95,18 +95,25 @@ def test_b219_retry_does_not_swallow_non_lock_errors() -> None:
 
 
 def test_b219_create_proxy_uses_retry_for_stat_and_unlink() -> None:
-    """Source-Inspect: create_proxy ruft _retry_on_file_lock fuer stat/unlink."""
+    """Source-Inspect: create_proxy ruft _retry_on_file_lock fuer stat/unlink.
+
+    B-505: Der Encode-Lauf (inkl. der unlink-Pfade timeout/cancel/0-byte)
+    wurde nach ``_run_proxy_encode`` extrahiert — Source-Inspect deckt
+    daher beide Methoden ab.
+    """
     from services.video_service import VideoAnalyzer
 
     src = inspect.getsource(VideoAnalyzer.create_proxy)
+    encode_src = inspect.getsource(VideoAnalyzer._run_proxy_encode)
     # stat-pfad muss retry-wrapped sein:
     assert "_retry_on_file_lock" in src, (
         "B-219: create_proxy muss _retry_on_file_lock fuer Lock-anfaellige "
         "Operationen einsetzen."
     )
     # mindestens 3 unlink-Stellen (timeout, cancel, 0-byte) muessen wrapped sein:
-    assert src.count("_retry_on_file_lock") >= 3, (
-        "B-219: alle 3 unlink-Pfade in create_proxy (timeout/cancel/0-byte) muessen retry haben."
+    assert encode_src.count("_retry_on_file_lock") >= 3, (
+        "B-219: alle 3 unlink-Pfade im Proxy-Encode (timeout/cancel/0-byte) "
+        "muessen retry haben."
     )
 
 

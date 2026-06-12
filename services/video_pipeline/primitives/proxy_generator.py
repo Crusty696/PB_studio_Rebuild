@@ -84,7 +84,16 @@ def _try_encode(src: Path, dst: Path, max_width: int, bitrate: str, codec: str) 
         "-c:a", "aac", "-b:a", "128k",
         str(dst),
     ]
-    res = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+    if "nvenc" in codec:
+        # B-505: NVENC app-weit serialisieren — gleicher GpuSerializer wie
+        # export_service/convert_service/video_service. GTX 1060 (Pascal)
+        # erlaubt nur 2-3 NVENC-Sessions; parallele Encodes enden in
+        # "OpenEncodeSessionEx failed". Lock NUR um den Subprocess-Lauf.
+        from services.brain_v3.gpu_serializer import get_default_serializer
+        with get_default_serializer().acquire("proxy_gen"):
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+    else:
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
     return res.returncode == 0
 
 
@@ -120,8 +129,18 @@ def generate_proxy(
     dst.parent.mkdir(parents=True, exist_ok=True)
 
     if codec == "auto":
-        if _has_nvenc() and _try_encode(src, dst, max_width, bitrate, "h264_nvenc"):
-            return dst
+        if _has_nvenc():
+            # B-505: TimeoutExpired vom NVENC-Versuch fangen — vorher riss
+            # ein haengender NVENC-Encode (z.B. Session-Stau) die ganze
+            # Proxy-Stage ab, obwohl der CPU-Fallback funktioniert haette.
+            try:
+                if _try_encode(src, dst, max_width, bitrate, "h264_nvenc"):
+                    return dst
+            except subprocess.TimeoutExpired:
+                logger.warning(
+                    "proxy: h264_nvenc timeout for %s -> libx264 (CPU) fallback",
+                    src.name,
+                )
         # F-17: NVENC unavailable or failed -> CPU fallback is allowed per GPU
         # rule, but make it visible instead of silent.
         logger.warning(
