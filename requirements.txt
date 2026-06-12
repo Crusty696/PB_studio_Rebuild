@@ -1,3 +1,4 @@
+# NICHT INSTALLIEREN — Legacy/Future-Referenz. Kanonische Quelle: requirements-py310-cu113.txt (siehe B-499)
 # LEGACY/FUTURE: Python 3.11 + cu124 Requirements (braucht Treiber >=550).
 # NICHT aktiver PB-Studio-Zielpfad fuer GTX 1060.
 # AKTIV: Python 3.10 + cu113 via requirements-py310-cu113.txt / environment.yml.

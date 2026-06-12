@@ -1,9 +1,13 @@
 # PB Studio Active Plan
 
 status: active
-active_plan_id: PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09
-next_allowed_task: 2026-06-11 OTK-005 fully closed — B-462-A Stage 1 + Task 12 Stage 2 (Two-Tier Purge) both live-verified and USER-set `fixed`. Next = USER selection among remaining open OTK tasks: (a) start audio-V2 Bucket-A port (OTK-018)?, (b) OTK-019 GUI 11-step acceptance?, (c) OTK-007 build-Vorbehalt B-421/422/423/430 frozen-smoke?, (d) triage new findings B-490/B-491. Pending: commit Task-12 working tree (user-authorized).
-updated: 2026-06-11
+active_plan_id: PB-STUDIO-CONSULTING-REVIEW-FIXPLAN-2026-06-12
+next_allowed_task: Wave 1 — CRF-002 (B-499 Runtime-Diagnose + Interpreter-Check) zuerst, danach CRF-001 (B-498 Backup), CRF-003 (B-500 clear_finished), CRF-004 (B-501 Waveform). User-Auftrag 2026-06-12: Plan erstellen und durch Agenten ausfuehren lassen. Status-Cap fuer alle Agenten-Arbeit: code-fix-pending-live-verification.
+updated: 2026-06-12
+
+## Vorheriger aktiver Plan (pausiert, nicht superseded)
+
+PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09 bleibt `approved-for-implementation` in der Registry. Offene OTK-Tasks (OTK-005, OTK-007, OTK-018, OTK-019, OTK-021, OTK-022) + B-490/B-491-Triage: B-490/B-491 werden in CRF-005 abgearbeitet; Rest wartet auf User-Selektion nach CRF-Abschluss. Pending aus 2026-06-11: commit Task-12 working tree (user-authorized) — weiterhin offen.
 
 ## Meaning
 

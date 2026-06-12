@@ -77,6 +77,8 @@ class SystemStatus:
     hf_cache_source: str = ""
     hf_cache_detail: str = ""
     ollama_ok: bool = False
+    python_ok: bool = False
+    python_version: str = ""
     beat_this_ok: bool = False
     demucs_ok: bool = False
     model_cache_warnings: list[str] = field(default_factory=list)
@@ -320,6 +322,30 @@ def _check_cuda() -> tuple[bool, str, int]:
     return cuda_ok, gpu_name, vram_mb
 
 
+def check_python_version() -> tuple[bool, str]:
+    """B-499: Hard-Check auf den kanonischen Python-Interpreter (3.10.x).
+
+    PB Studio laeuft ausschliesslich auf Python 3.10 (conda-env "pb-studio",
+    torch 1.12.1+cu113). Laeuft der App-Code unter einem fremden Interpreter
+    (z.B. conda-base 3.13 oder uv-Python 3.11), brechen die gepinnten
+    ML-Dependencies — daher harter Fehler-Eintrag im Startup-Dialog,
+    aber KEIN sys.exit (User sieht die Meldung, App beendet nicht still).
+
+    Returns:
+        (python_ok, version_str)  z.B. (True, "3.10.20")
+    """
+    vi = sys.version_info
+    version_str = f"{vi[0]}.{vi[1]}.{vi[2]}"
+    python_ok = tuple(vi[:2]) == (3, 10)
+    if not python_ok:
+        logger.error(
+            "FALSCHE PYTHON-VERSION: %s — PB Studio benoetigt 3.10.x "
+            "(conda-env pb-studio). Siehe B-499.",
+            version_str,
+        )
+    return python_ok, version_str
+
+
 def _check_ml_packages() -> tuple[bool, bool]:
     """Prueft ob ML-Pakete installiert und Modelle lokal gecacht sind.
 
@@ -416,6 +442,7 @@ def check_system(app_root: Path | None = None) -> SystemStatus:
         futures["hf_cache"] = pool.submit(_check_hf_cache)
         futures["ollama"] = pool.submit(_check_ollama)
         futures["ml"] = pool.submit(_check_ml_packages)
+        futures["python"] = pool.submit(check_python_version)
 
         for key, future in futures.items():
             try:
@@ -445,6 +472,10 @@ def check_system(app_root: Path | None = None) -> SystemStatus:
                     bt_ok, dmc_ok = future.result(timeout=STARTUP_MODEL_CHECK_TIMEOUT_SEC)
                     status.beat_this_ok = bt_ok
                     status.demucs_ok = dmc_ok
+                elif key == "python":
+                    py_ok, py_ver = future.result(timeout=STARTUP_MODEL_CHECK_TIMEOUT_SEC)
+                    status.python_ok = py_ok
+                    status.python_version = py_ver
             except (FuturesTimeoutError, TimeoutError, RuntimeError, OSError) as exc:
                 # B-278: concurrent.futures.TimeoutError ist in Python 3.10
                 # KEINE Subklasse des builtin TimeoutError. Ohne diesen
@@ -456,6 +487,21 @@ def check_system(app_root: Path | None = None) -> SystemStatus:
                 # Check als Warnung degradiert; die betroffene Status-Flag
                 # (z.B. ollama_ok) bleibt auf ihrem Default False.
                 logger.warning("Startup check '%s' raised: %s", key, exc)
+
+    # B-499: Falscher Interpreter ist ein kritischer Fehler (gleiche
+    # Severity-Mechanik wie FFmpeg/CUDA) — Dialog statt sys.exit.
+    if not status.python_ok:
+        status.errors.append(
+            f"FALSCHE PYTHON-VERSION: {status.python_version or 'unbekannt'}\n"
+            "PB Studio benoetigt Python 3.10.x "
+            "(conda-env pb-studio, torch 1.12.1+cu113).\n\n"
+            "REPARATUR:\n"
+            "1. App ueber start_pb_studio.bat starten "
+            "(waehlt den korrekten Interpreter automatisch)\n"
+            "2. Falls conda-env fehlt: setup_pb_studio.bat ausfuehren\n\n"
+            "HINWEIS: Unter fremden Interpretern (z.B. 3.11/3.13) brechen "
+            "die gepinnten ML-Dependencies (B-499)."
+        )
 
     if not status.ffmpeg_ok:
         status.errors.append(
