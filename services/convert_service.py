@@ -167,6 +167,7 @@ def detect_nvenc() -> dict:
         p = subprocess.run(
             [FFMPEG, "-version"], capture_output=True, text=True, timeout=FFMPEG_PROBE_TIMEOUT_SEC,
             encoding="utf-8", errors="replace",
+            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
         )
         if p.returncode == 0 and p.stdout:
             result["ffmpeg_version"] = p.stdout.strip().split("\n")[0]
@@ -176,6 +177,7 @@ def detect_nvenc() -> dict:
             [FFMPEG, "-hide_banner", "-encoders"],
             capture_output=True, text=True, timeout=FFMPEG_PROBE_TIMEOUT_SEC,
             encoding="utf-8", errors="replace",
+            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
         )
         h264_in_list = False
         hevc_in_list = False
@@ -190,6 +192,7 @@ def detect_nvenc() -> dict:
                  "-c:v", "h264_nvenc", "-f", "null", "-"],
                 capture_output=True, timeout=FFMPEG_PROBE_TIMEOUT_SEC,
                 encoding="utf-8", errors="replace",
+                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
             )
             if p.returncode == 0:
                 result["h264_nvenc"] = True
@@ -207,6 +210,7 @@ def detect_nvenc() -> dict:
                  "-c:v", "hevc_nvenc", "-f", "null", "-"],
                 capture_output=True, timeout=FFMPEG_PROBE_TIMEOUT_SEC,
                 encoding="utf-8", errors="replace",
+                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
             )
             if p.returncode == 0:
                 result["hevc_nvenc"] = True
@@ -222,6 +226,7 @@ def detect_nvenc() -> dict:
             [FFMPEG, "-hide_banner", "-hwaccels"],
             capture_output=True, text=True, timeout=FFMPEG_PROBE_TIMEOUT_SEC,
             encoding="utf-8", errors="replace",
+            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
         )
         if p.returncode == 0:
             result["cuda_hwaccel"] = "cuda" in p.stdout.lower()
