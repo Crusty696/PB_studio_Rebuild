@@ -63,17 +63,37 @@ def _sanitize_ffmpeg_error(stderr: str, max_lines: int = 3) -> str:
 logger = logging.getLogger(__name__)
 
 
-def _probe_video(file_path: str) -> dict:
-    """Ermittelt Aufloesung, FPS und Codec eines Videos via ffprobe.
+def _parse_frame_rate(rate_str: str) -> float:
+    """Parst ffprobe-Frame-Rate ("30/1", "30000/1001", "29.97") → float fps.
 
-    Returns: {"width": int, "height": int, "fps": float, "codec": str}
+    Unbekannt/ungueltig ("0/0", "", "N/A") → 0.0.
+    """
+    try:
+        if "/" in rate_str:
+            num, den = rate_str.split("/")
+            return float(num) / float(den) if float(den) > 0 else 0.0
+        return float(rate_str)
+    except (ValueError, ZeroDivisionError):
+        return 0.0
+
+
+def _probe_video(file_path: str) -> dict:
+    """Ermittelt Aufloesung, FPS, Codec, pix_fmt und Dauer eines Videos via ffprobe.
+
+    Returns: {"width": int, "height": int, "fps": float, "avg_fps": float,
+              "codec": str, "pix_fmt": str, "duration": float}
     Falls Probe fehlschlaegt: leeres dict.
+
+    B-504: avg_frame_rate (VFR-Indiz), pix_fmt (Concat-Kompatibilitaet) und
+    duration (outpoint-Trim in der Concat-Liste) ergaenzt.
     """
     try:
         cmd = [
             FFPROBE, "-v", "quiet",
             "-select_streams", "v:0",
-            "-show_entries", "stream=width,height,r_frame_rate,codec_name",
+            "-show_entries",
+            "stream=width,height,r_frame_rate,avg_frame_rate,codec_name,"
+            "pix_fmt,duration:format=duration",
             "-of", "json",
             file_path,
         ]
@@ -93,18 +113,28 @@ def _probe_video(file_path: str) -> dict:
             return {}
         s = streams[0]
         # FPS: r_frame_rate ist "30/1" oder "30000/1001" etc.
-        fps = 0.0
-        rfr = s.get("r_frame_rate", "0/1")
-        if "/" in rfr:
-            num, den = rfr.split("/")
-            fps = float(num) / float(den) if float(den) > 0 else 0.0
-        else:
-            fps = float(rfr)
+        fps = _parse_frame_rate(s.get("r_frame_rate", "0/1"))
+        avg_fps = _parse_frame_rate(s.get("avg_frame_rate", "0/0"))
+        # Dauer: Stream-Dauer bevorzugt, sonst Container-Dauer (z.B. MKV
+        # hat oft keine Stream-Duration).
+        duration = 0.0
+        try:
+            duration = float(s.get("duration") or 0.0)
+        except (TypeError, ValueError):
+            duration = 0.0
+        if duration <= 0.0:
+            try:
+                duration = float(data.get("format", {}).get("duration") or 0.0)
+            except (TypeError, ValueError):
+                duration = 0.0
         return {
             "width": int(s.get("width", 0)),
             "height": int(s.get("height", 0)),
             "fps": round(fps, 2),
+            "avg_fps": round(avg_fps, 2),
             "codec": s.get("codec_name", ""),
+            "pix_fmt": s.get("pix_fmt", ""),
+            "duration": duration,
         }
     except (subprocess.SubprocessError, OSError, _json.JSONDecodeError, ValueError) as e:
         logger.warning("[Export] ffprobe fehlgeschlagen fuer %s: %s", file_path, e)
@@ -139,16 +169,30 @@ def clear_probe_cache():
     logger.debug("[Export] Probe cache cleared")
 
 
+# B-504: Ziel-Pixelformat der standardisierten Segmente. Sowohl libx264
+# (CRF-Preset) als auch h264_nvenc erzeugen bei 8-bit-Input per Default
+# yuv420p — abweichende Quellen (yuv444p, yuv420p10le, yuvj420p, ...)
+# wuerden beim Concat-Stream-Copy einen inkonsistenten Stream ergeben.
+_CONCAT_TARGET_PIX_FMT = "yuv420p"
+
+
+def _get_probed_info(file_path: str) -> dict:
+    """Probe-Info aus Cache holen (bei Miss: einmal proben)."""
+    with _probe_cache_lock:
+        if file_path not in _probe_cache:
+            _probe_cache[file_path] = _probe_video(file_path)
+        return _probe_cache[file_path]
+
+
 def _needs_preprocessing(file_path: str, target_w: int, target_h: int,
                           target_fps: float) -> bool:
     """Prueft ob ein Video vor dem Concat standardisiert werden muss.
 
-    True wenn: andere Aufloesung, andere FPS, oder nicht-H.264 Codec.
+    True wenn: andere Aufloesung, andere FPS, nicht-H.264 Codec,
+    VFR-Indiz (avg_frame_rate weicht von r_frame_rate ab) oder
+    abweichendes Pixelformat (B-504).
     """
-    with _probe_cache_lock:
-        if file_path not in _probe_cache:
-            _probe_cache[file_path] = _probe_video(file_path)
-        info = _probe_cache[file_path]
+    info = _get_probed_info(file_path)
     if not info:
         return True  # Im Zweifel: standardisieren
     # Aufloesung pruefen (Toleranz: exakt match oder kleiner mit Padding)
@@ -159,6 +203,17 @@ def _needs_preprocessing(file_path: str, target_w: int, target_h: int,
         return True
     # Codec: nur h264 kann direkt concat-kopiert werden
     if info["codec"] not in ("h264", "libx264"):
+        return True
+    # B-504: VFR-Indiz — avg_frame_rate weicht messbar von r_frame_rate ab.
+    # Konservativ: nur werten wenn avg_fps bekannt (>0); "0/0"/unbekannt
+    # zaehlt NICHT als Abweichung.
+    avg_fps = info.get("avg_fps", 0.0)
+    if avg_fps > 0.0 and abs(avg_fps - info["fps"]) > 0.5:
+        return True
+    # B-504: Pixelformat — konservativ nur bekannte Abweichungen werten:
+    # pix_fmt muss vorhanden sein UND vom Concat-Ziel abweichen.
+    pix_fmt = info.get("pix_fmt", "")
+    if pix_fmt and pix_fmt != _CONCAT_TARGET_PIX_FMT:
         return True
     return False
 
@@ -735,16 +790,33 @@ def _export_optimized_concat(video_segments, audio_path, output_path,
                 })
             else:
                 # Bereits konform, kein Offset: direkt
-                processed_segments.append({
-                    "path": seg["path"],
-                    "duration": source_duration,
-                    "inpoint": None,
-                    "outpoint": None,
-                })
+                # B-504: `duration` allein trimmt im concat-Demuxer NICHT —
+                # ist das Timeline-Segment kuerzer als der Quellclip, liefe
+                # der ganze Clip rein und die Audio-Sync kippt. Daher bei
+                # kuerzerem Segment explizit inpoint/outpoint schreiben.
+                clip_duration = _get_probed_info(seg["path"]).get("duration", 0.0)
+                if clip_duration > 0.0 and source_duration < clip_duration - 0.05:
+                    processed_segments.append({
+                        "path": seg["path"],
+                        "duration": source_duration,
+                        "inpoint": 0.0,
+                        "outpoint": source_duration,
+                    })
+                else:
+                    processed_segments.append({
+                        "path": seg["path"],
+                        "duration": source_duration,
+                        "inpoint": None,
+                        "outpoint": None,
+                    })
 
         # Concat-Datei erstellen
+        # B-504: encoding="utf-8" zwingend — FFmpeg liest die Concat-Liste
+        # als UTF-8; ohne explizites encoding schreibt Windows cp1252 und
+        # Umlaut-/Unicode-Pfade zerbrechen (vgl. pb_fcs_-Tempfile unten).
         concat_file = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".txt", delete=False, prefix="pb_concat_"
+            mode="w", suffix=".txt", delete=False, prefix="pb_concat_",
+            encoding="utf-8",
         )
         temp_files.append(concat_file.name)
 
