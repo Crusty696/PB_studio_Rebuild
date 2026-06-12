@@ -16,11 +16,14 @@ import os
 import subprocess
 from pathlib import Path
 
+import shiboken6
 from PySide6.QtWidgets import (
     QWidget, QScrollArea, QGridLayout, QFrame, QVBoxLayout,
     QHBoxLayout, QLabel, QLineEdit, QComboBox, QMenu,
 )
-from PySide6.QtCore import Qt, Signal, QRect, QThread, QObject, QTimer, Slot
+from PySide6.QtCore import (
+    Qt, Signal, QRect, QObject, QRunnable, QThreadPool, QTimer, Slot,
+)
 from PySide6.QtGui import QPixmap, QImage, QPainter, QColor, QPen, QFont, QFontMetrics
 
 from services.startup_checks import get_ffmpeg_bin
@@ -129,7 +132,47 @@ def _paint_waveform(w: int, h: int, energy: list[float]) -> QPixmap:
 
 # ── Background thumbnail loader ───────────────────────────────────────────────
 
+def _extract_thumb_qimage(file_path: str, w: int, h: int) -> QImage:
+    """Extrahiert das First-Frame-Thumbnail als QImage (thread-sicher).
+
+    B-388: QImage statt QPixmap — darf ausserhalb des GUI-Threads entstehen.
+    B-508: als Modulfunktion herausgezogen, damit sowohl der Legacy-
+    ``_ThumbWorker`` (ui/timeline.py) als auch der gepoolte ``_ThumbRunnable``
+    (MediaPoolGrid) dieselbe ffmpeg-/Cache-Logik nutzen.
+    """
+    _ensure_thumb_dir()
+    dest = _thumb_path(file_path)
+    if not file_path or not Path(file_path).exists():
+        return _placeholder_image(w, h, "✖")
+
+    if not dest.exists():
+        try:
+            subprocess.run(
+                [
+                    get_ffmpeg_bin(), "-y", "-ss", "0", "-i", file_path,
+                    "-vframes", "1",
+                    "-vf",
+                    f"scale={w}:{h}:force_original_aspect_ratio=decrease,"
+                    f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:black",
+                    str(dest),
+                ],
+                capture_output=True,
+                timeout=FFMPEG_THUMBNAIL_TIMEOUT_SEC,
+            )
+        except (subprocess.SubprocessError, OSError, FileNotFoundError):
+            return _placeholder_image(w, h, "▶")
+    img = QImage(str(dest))
+    return img if not img.isNull() else _placeholder_image(w, h, "▶")
+
+
 class _ThumbWorker(QObject):
+    """Legacy QThread-Worker — wird weiterhin von ``ui/timeline.py`` genutzt.
+
+    B-508: ``MediaPoolGrid`` nutzt diesen Worker NICHT mehr (dort laeuft
+    Thumbnail-Extraktion ueber den begrenzten ``QThreadPool`` mit
+    ``_ThumbRunnable``). Klasse bleibt fuer den Timeline-Pfad erhalten.
+    """
+
     # B-388: emittiert ein QImage (thread-sicher). Der GUI-Thread-Slot wandelt
     # es via QPixmap.fromImage um — QPixmap darf nicht im Worker-Thread entstehen.
     done = Signal(str, object)  # (file_path, QImage)
@@ -144,29 +187,84 @@ class _ThumbWorker(QObject):
         self.done.emit(self._path, self._extract())
 
     def _extract(self) -> QImage:
-        _ensure_thumb_dir()
-        dest = _thumb_path(self._path)
-        if not self._path or not Path(self._path).exists():
-            return _placeholder_image(self._w, self._h, "✖")
+        return _extract_thumb_qimage(self._path, self._w, self._h)
 
-        if not dest.exists():
-            try:
-                subprocess.run(
-                    [
-                        get_ffmpeg_bin(), "-y", "-ss", "0", "-i", self._path,
-                        "-vframes", "1",
-                        "-vf",
-                        f"scale={self._w}:{self._h}:force_original_aspect_ratio=decrease,"
-                        f"pad={self._w}:{self._h}:(ow-iw)/2:(oh-ih)/2:black",
-                        str(dest),
-                    ],
-                    capture_output=True,
-                    timeout=FFMPEG_THUMBNAIL_TIMEOUT_SEC,
-                )
-            except (subprocess.SubprocessError, OSError, FileNotFoundError):
-                return _placeholder_image(self._w, self._h, "▶")
-        img = QImage(str(dest))
-        return img if not img.isNull() else _placeholder_image(self._w, self._h, "▶")
+
+# B-508: geteilter, begrenzter Thread-Pool fuer Grid-Thumbnails.
+# Vorher: pro VideoCard ein eigener QThread + ffmpeg-Subprocess — bei
+# 300-Clip-Imports bis zu 300 parallele Threads/Prozesse. Jetzt: max. 4
+# gleichzeitige ffmpeg-Laeufe, Rest wartet in der Pool-Queue.
+_THUMB_POOL_MAX_THREADS = 4
+_THUMB_POOL: QThreadPool | None = None
+
+
+def _get_thumb_pool() -> QThreadPool:
+    """Lazy-Init des modulweiten Thumbnail-Pools (max. 4 Threads)."""
+    global _THUMB_POOL
+    if _THUMB_POOL is None:
+        pool = QThreadPool()
+        pool.setMaxThreadCount(_THUMB_POOL_MAX_THREADS)
+        _THUMB_POOL = pool
+    return _THUMB_POOL
+
+
+class _ThumbSignals(QObject):
+    """Signal-Holder fuer _ThumbRunnable.
+
+    PySide6: Signale brauchen ein QObject — QRunnable ist keines. Der Holder
+    wird im GUI-Thread erzeugt; emit() aus dem Pool-Thread laeuft damit als
+    AutoConnection == QueuedConnection in den GUI-Thread des Receivers.
+    """
+
+    done = Signal(str, object)  # (file_path, QImage)
+
+
+class _ThumbRunnable(QRunnable):
+    """B-508: gepoolter Thumbnail-Job (ffmpeg) fuer eine VideoCard.
+
+    - ``setAutoDelete(True)``: der Pool raeumt das C++-Objekt nach run() ab.
+    - Card-Destroy-Sicherheit: vor Extraktion UND vor Emit wird
+      ``shiboken6.isValid(card)`` geprueft — tote Card => still beenden.
+    - Veraltete Ergebnisse: Generation-Counter des Grids; clear()/Neuladen
+      erhoeht ihn, Jobs mit alter Generation verwerfen ihr Ergebnis.
+    """
+
+    def __init__(
+        self,
+        card: "VideoCard",
+        file_path: str,
+        w: int,
+        h: int,
+        grid: "MediaPoolGrid",
+        generation: int,
+    ) -> None:
+        super().__init__()
+        self.setAutoDelete(True)
+        self._card = card
+        self._path = file_path
+        self._w = w
+        self._h = h
+        self._grid = grid
+        self._generation = generation
+        self.signals = _ThumbSignals()
+
+    def _is_stale(self) -> bool:
+        """True wenn das Grid weg ist oder eine neuere Generation laeuft."""
+        grid = self._grid
+        if grid is None or not shiboken6.isValid(grid):
+            return True
+        return getattr(grid, "_thumb_generation", self._generation) != self._generation
+
+    def run(self) -> None:  # pool thread
+        try:
+            if self._is_stale() or not shiboken6.isValid(self._card):
+                return
+            img = _extract_thumb_qimage(self._path, self._w, self._h)
+            if self._is_stale() or not shiboken6.isValid(self._card):
+                return
+            self.signals.done.emit(self._path, img)
+        except Exception as exc:  # noqa: BLE001 — Thumbnail darf nie die UI killen
+            logger.debug("B-508: thumbnail runnable failed for %s: %s", self._path, exc)
 
 
 # ── Card constants ────────────────────────────────────────────────────────────
@@ -420,8 +518,10 @@ class MediaPoolGrid(QWidget):
         self._cards: list[MediaCard] = []
         self._filtered: list[MediaCard] = []
         self._selected_id: int | None = None
-        self._thumb_threads: list[QThread] = []
-        self._thumb_workers: dict[QThread, _ThumbWorker] = {}
+        # B-508: Generation-Counter fuer gepoolte Thumbnail-Jobs. Wird bei
+        # clear()/Neuladen erhoeht; Runnables mit alter Generation verwerfen
+        # ihr Ergebnis (kein quit/wait auf per-Card-Threads mehr noetig).
+        self._thumb_generation: int = 0
         self._in_relayout = False  # Rekursions-Guard (Fix: Freeze)
         
         # Debounce timer fuer Relayout (Fix F-029)
@@ -535,41 +635,22 @@ class MediaPoolGrid(QWidget):
 
     # ── Internal ─────────────────────────────────────────────────────
 
-    def _stop_thumb_threads(self, wait: bool = False) -> None:
-        """Stop background thumbnail threads before rebuild or widget deletion."""
+    def _cancel_pending_thumbs(self) -> None:
+        """B-508: invalidiert ausstehende gepoolte Thumbnail-Jobs.
+
+        Ersetzt das alte ``_stop_thumb_threads`` (quit/wait auf per-Card-
+        QThreads). Mit dem geteilten QThreadPool gibt es keine eigenen
+        Threads mehr zu stoppen — der Generation-Bump sorgt dafuer, dass
+        noch laufende/gequeute Runnables ihr Ergebnis verwerfen.
+        """
         if hasattr(self, "_load_timer"):
             self._load_timer.stop()
         if hasattr(self, "_relayout_timer"):
             self._relayout_timer.stop()
-
-        threads = list(self._thumb_threads)
-        self._thumb_threads.clear()
-
-        for thread in threads:
-            worker = self._thumb_workers.get(thread)
-            if worker is not None:
-                try:
-                    worker.done.disconnect()
-                except (RuntimeError, TypeError):
-                    pass
-            try:
-                if thread.isRunning():
-                    thread.quit()
-            except RuntimeError:
-                continue
-
-        if wait:
-            for thread in threads:
-                try:
-                    if thread.isRunning() and not thread.wait(2000):
-                        logger.warning("Thumbnail thread did not stop before grid deletion")
-                except RuntimeError:
-                    continue
-                finally:
-                    self._thumb_workers.pop(thread, None)
+        self._thumb_generation += 1
 
     def deleteLater(self) -> None:  # noqa: N802
-        self._stop_thumb_threads(wait=True)
+        self._cancel_pending_thumbs()
         super().deleteLater()
 
     def _rebuild_cards(self) -> None:
@@ -583,8 +664,8 @@ class MediaPoolGrid(QWidget):
         if _parent is not None:
             _parent.setUpdatesEnabled(False)
         try:
-            # H-27 Fix: Threads sauber beenden mit deleteLater nach finished
-            self._stop_thumb_threads(wait=False)
+            # B-508: ausstehende Thumbnail-Jobs invalidieren (Generation-Bump)
+            self._cancel_pending_thumbs()
 
             # Remove all cards from layout and delete
             while self._grid.count():
@@ -672,33 +753,15 @@ class MediaPoolGrid(QWidget):
         # KEIN processEvents() hier — der Timer gibt Qt bereits genug Zeit zum Zeichnen
 
     def _start_thumb_loader(self, card: VideoCard, file_path: str) -> None:
-        thread = QThread()
-        worker = _ThumbWorker(file_path, _CW - 8, _TH)
-        worker.moveToThread(thread)
-
-        thread.started.connect(worker.run)
-        # B-453: QObject receiver keeps QPixmap creation on the GUI thread.
-        worker.done.connect(card.apply_thumbnail_image)
-        worker.done.connect(
-            lambda _path, _pix, t=thread: t.quit()
+        # B-508: kein per-Card-QThread mehr — geteilter QThreadPool mit
+        # max. 4 Threads begrenzt die Zahl paralleler ffmpeg-Prozesse.
+        runnable = _ThumbRunnable(
+            card, file_path, _CW - 8, _TH, self, self._thumb_generation,
         )
-        thread.finished.connect(thread.deleteLater)
-        # B-107 / BUG-A5: also schedule the worker for deletion. Without
-        # this the _ThumbWorker C++ shell leaks once per thumbnail; on
-        # DJ-set imports with hundreds of clips that adds up.
-        thread.finished.connect(worker.deleteLater)
-        thumb_threads = self._thumb_threads
-        thumb_workers = self._thumb_workers
-        thumb_workers[thread] = worker
-        thread.finished.connect(
-            lambda t=thread, threads=thumb_threads: threads.remove(t) if t in threads else None
-        )
-        thread.finished.connect(
-            lambda t=thread, workers=thumb_workers: workers.pop(t, None)
-        )
-
-        self._thumb_threads.append(thread)
-        thread.start()
+        # B-453: QObject receiver keeps QPixmap creation on the GUI thread
+        # (Queued-Zustellung — emit passiert im Pool-Thread).
+        runnable.signals.done.connect(card.apply_thumbnail_image)
+        _get_thumb_pool().start(runnable)
 
     def _apply_filter(self) -> None:
         if self._in_relayout:

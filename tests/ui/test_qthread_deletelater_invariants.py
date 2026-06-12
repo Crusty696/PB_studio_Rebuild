@@ -19,21 +19,35 @@ from __future__ import annotations
 import inspect
 
 
-def test_media_grid_thumb_loader_deletes_worker_and_thread() -> None:
-    """BUG-A5: ``MediaGridWidget._start_thumb_loader`` must connect
-    ``thread.finished`` to BOTH ``thread.deleteLater`` AND
-    ``worker.deleteLater``. Missing the latter leaks one ``_ThumbWorker``
-    C++ shell per thumbnail (DJ-set imports = hundreds of clips)."""
-    from ui.widgets.media_grid import MediaPoolGrid
+def test_media_grid_thumb_loader_uses_bounded_pool() -> None:
+    """B-508 (ersetzt BUG-A5): ``MediaPoolGrid._start_thumb_loader``
+    darf KEINE per-Card-QThreads mehr starten — Thumbnails laufen ueber
+    den geteilten, begrenzten ``QThreadPool`` (max. 4). Das frueher hier
+    geforderte deleteLater-Wiring entfaellt: ``setAutoDelete(True)``
+    laesst den Pool das Runnable nach run() selbst abraeumen."""
+    from ui.widgets.media_grid import (
+        MediaPoolGrid, _ThumbRunnable, _get_thumb_pool,
+        _THUMB_POOL_MAX_THREADS,
+    )
 
     src = inspect.getsource(MediaPoolGrid._start_thumb_loader)
-    assert "thread.finished.connect(thread.deleteLater)" in src, (
-        "BUG-A5: _start_thumb_loader must wire thread.deleteLater. "
-        "Without it the QThread C++ shell leaks."
+    assert "QThread(" not in src, (
+        "B-508 regression: _start_thumb_loader spawnt wieder per-Card-"
+        "QThreads statt den geteilten Pool zu nutzen."
     )
-    assert "worker.deleteLater" in src, (
-        "BUG-A5: _start_thumb_loader must wire worker.deleteLater. "
-        "Without it the _ThumbWorker C++ shell leaks per thumbnail."
+    assert "_get_thumb_pool().start" in src, (
+        "B-508: _start_thumb_loader muss Jobs ueber _get_thumb_pool() starten."
+    )
+
+    rsrc = inspect.getsource(_ThumbRunnable.__init__)
+    assert "setAutoDelete(True)" in rsrc, (
+        "B-508: _ThumbRunnable braucht setAutoDelete(True), sonst leakt "
+        "ein Runnable-Shell pro Thumbnail."
+    )
+
+    assert _THUMB_POOL_MAX_THREADS == 4
+    assert _get_thumb_pool().maxThreadCount() == 4, (
+        "B-508: geteilter Thumbnail-Pool muss auf 4 Threads begrenzt sein."
     )
 
 

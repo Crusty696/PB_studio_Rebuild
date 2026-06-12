@@ -54,18 +54,25 @@ def test_grid_with_invalid_paths():
     app.processEvents()
 
 
-def test_grid_delete_later_stops_thumbnail_threads(monkeypatch, tmp_path):
+def test_grid_delete_later_invalidates_pending_thumbnails(monkeypatch, tmp_path):
+    """B-508: deleteLater bump die Thumbnail-Generation, sodass noch
+    laufende/gequeute Pool-Jobs ihr Ergebnis verwerfen (kein quit/wait
+    auf per-Card-Threads mehr — der Pool ist geteilt und begrenzt)."""
     app = QApplication.instance() or QApplication(sys.argv)
 
+    import threading
     import ui.widgets.media_grid as media_grid
 
-    def slow_extract(self):
-        time.sleep(0.5)
-        img = QImage(self._w, self._h, QImage.Format.Format_ARGB32_Premultiplied)
+    started = threading.Event()
+
+    def slow_extract(path, w, h):
+        started.set()
+        time.sleep(0.2)
+        img = QImage(w, h, QImage.Format.Format_ARGB32_Premultiplied)
         img.fill(0)
         return img
 
-    monkeypatch.setattr(media_grid._ThumbWorker, "_extract", slow_extract)
+    monkeypatch.setattr(media_grid, "_extract_thumb_qimage", slow_extract)
 
     grid = MediaPoolGrid(media_type="video")
     fake_items = []
@@ -80,42 +87,31 @@ def test_grid_delete_later_stops_thumbnail_threads(monkeypatch, tmp_path):
             "fps": 30.0,
         })
 
-    threads = []
     try:
         grid.set_items(fake_items)
-        deadline = time.time() + 2.0
-        while time.time() < deadline:
+        deadline = time.time() + 3.0
+        while time.time() < deadline and not started.is_set():
             app.processEvents()
-            threads = list(grid._thumb_threads)
-            if threads and any(t.isRunning() for t in threads):
-                break
             time.sleep(0.02)
+        assert started.is_set()
 
-        assert threads
-        assert any(t.isRunning() for t in threads)
-
+        gen_before = grid._thumb_generation
         grid.deleteLater()
-        app.processEvents()
+        # Generation muss bereits VOR dem tatsaechlichen Qt-Delete erhoeht
+        # sein — laufende Runnables sehen den Bump und verwerfen still.
+        assert grid._thumb_generation > gen_before
 
-        still_running = []
-        for thread in threads:
-            try:
-                still_running.append(thread.isRunning())
-            except RuntimeError:
-                still_running.append(False)
-        assert not any(still_running)
+        app.processEvents()
     finally:
-        for thread in threads:
-            try:
-                if thread.isRunning():
-                    thread.quit()
-                    thread.wait(1000)
-            except RuntimeError:
-                pass
+        # Pool-Jobs auslaufen lassen — darf nicht crashen.
+        deadline = time.time() + 3.0
+        while time.time() < deadline and media_grid._get_thumb_pool().activeThreadCount() > 0:
+            app.processEvents()
+            time.sleep(0.02)
         app.processEvents()
 
 
-def test_grid_invalid_paths_do_not_start_thumbnail_threads(monkeypatch):
+def test_grid_invalid_paths_do_not_start_thumbnail_jobs(monkeypatch):
     app = QApplication.instance() or QApplication(sys.argv)
     grid = MediaPoolGrid(media_type="video")
     started_paths = []
@@ -145,7 +141,6 @@ def test_grid_invalid_paths_do_not_start_thumbnail_threads(monkeypatch):
 
         assert grid._cards
         assert started_paths == []
-        assert grid._thumb_threads == []
     finally:
         grid.deleteLater()
         app.processEvents()
