@@ -545,8 +545,17 @@ def generate_embeddings(
                     embeddings = outputs / outputs.norm(p=2, dim=-1, keepdim=True)
                     embeddings = embeddings.cpu().numpy().astype(np.float32)
 
+                nan_count = 0
                 for i, scene in enumerate(valid_scenes):
-                    scene.embedding = embeddings[i]
+                    emb = embeddings[i]
+                    if not np.isfinite(emb).all():
+                        nan_count += 1
+                        logger.warning(
+                            "B-511: Video-Analyse Batch-Embedding enthaelt NaN/Inf (Zaehler=%d). "
+                            "Scene wird uebersprungen: %s", nan_count, scene
+                        )
+                        continue
+                    scene.embedding = emb
 
                 # F-019 Fix: Explicit cleanup to prevent unbounded memory growth
                 del inputs, outputs, embeddings
@@ -588,7 +597,14 @@ def generate_embeddings(
                             if not isinstance(out, torch.Tensor):
                                 out = out.pooler_output if hasattr(out, 'pooler_output') else out[0]
                             emb = out / out.norm(p=2, dim=-1, keepdim=True)
-                            scene.embedding = emb.cpu().numpy().astype(np.float32)[0]
+                            emb_np = emb.cpu().numpy().astype(np.float32)[0]
+                            if not np.isfinite(emb_np).all():
+                                logger.warning(
+                                    "B-511: Video-Analyse Einzel-Embedding enthaelt NaN/Inf. "
+                                    "Scene wird uebersprungen: %s", scene
+                                )
+                            else:
+                                scene.embedding = emb_np
                         del inp, out, emb
                     except RuntimeError as single_err:
                         torch.cuda.empty_cache()
