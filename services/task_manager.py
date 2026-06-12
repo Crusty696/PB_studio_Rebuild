@@ -468,22 +468,30 @@ class GlobalTaskManager(QObject):
             worker = task.worker
             thread = task.thread
 
+        # B-507: worker.cancel() ist der einzige reale Cancel-Mechanismus
+        # (CancellableMixin in workers/base.py:39-58 setzt _cancelled, der
+        # Worker pollt should_stop() in seiner Arbeitsschleife). Der fruehere
+        # FIX-H-15-Block, der zusaetzlich ein eigenes GPU-Cancel-Flag am
+        # Worker setzte, ist entfernt: das Flag hatte repo-weit null Leser
+        # (toter Code) und sein Guard war zudem invertiert (setzte nur wenn
+        # das Attribut NICHT existierte). GPU-Locks gibt der Worker selbst in
+        # seinem finally-Block frei, sobald should_stop() greift.
+        # try/except RuntimeError: das C++-Objekt kann zwischen isValid()
+        # und cancel() von Qt (deleteLater) zerstoert werden.
         if worker and shiboken6.isValid(worker) and hasattr(worker, "cancel"):
-            worker.cancel()
+            try:
+                worker.cancel()
+            except RuntimeError:
+                logger.debug(
+                    "worker.cancel() auf bereits geloeschtem Qt-Objekt (%s)",
+                    task_id,
+                )
 
         if thread and shiboken6.isValid(thread) and thread.isRunning():
             thread.quit()
             # B-120: kein thread.wait() — blockiert sonst Main/UI bis 2s.
             # _safe_cleanup wird durch thread.finished signal getriggert
             # und raeumt dort auf, sobald der Thread tatsaechlich endet.
-
-        # FIX H-15: Don't try to release locks from the Main Thread.
-        # _is_owned() checks the CALLING thread, but GPU locks are held by the
-        # Worker thread — so _is_owned() always returns False here (Main Thread).
-        # Instead, set a cancellation flag on the worker so it can release its
-        # own locks during its cleanup/finally block.
-        if worker and not hasattr(worker, '_gpu_cancel_requested'):
-            worker._gpu_cancel_requested = True
 
         self.finish_task(task_id, "cancelled", "Abbruch angefordert")
         logging.info("[TaskEngine] Kooperativer Abbruch: %s", task_id)
