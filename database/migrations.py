@@ -343,9 +343,63 @@ def _run_alembic_migrations():
         logger.info("Legacy-DB erkannt — stampe Alembic Baseline (%s)", _ALEMBIC_BASELINE_REV)
         command.stamp(alembic_cfg, _ALEMBIC_BASELINE_REV)
 
+    # B-498: Snapshot der Haupt-DB BEVOR Alembic Schema-Aenderungen anwendet
+    # (nur wenn tatsaechlich Revisionen anstehen). Das bestehende
+    # FK-Migrations-Backup (B-174/B-191) bleibt davon unberuehrt.
+    _backup_before_alembic_upgrade(alembic_cfg)
+
     # Run any pending migrations (creates tables on fresh DBs, applies deltas on existing)
     command.upgrade(alembic_cfg, "head")
     logger.info("Alembic-Migrationen abgeschlossen (head).")
+
+
+def _backup_before_alembic_upgrade(alembic_cfg) -> None:
+    """B-498: Pre-Migration-Backup vor ``alembic upgrade head``.
+
+    Backup wird NUR gezogen wenn (a) die DB Bestandsdaten haben kann
+    (``projects``- und ``alembic_version``-Tabelle existieren) und (b)
+    tatsaechlich Revisionen anstehen (current revision != head) — sonst
+    wuerde jeder App-Start ein neues Backup erzeugen. Fehler in diesem
+    Pfad werden geloggt und blockieren die Migration nicht
+    (``run_pre_migration_backup`` faengt intern, der Revision-Check hier
+    ist zusaetzlich defensiv gekapselt).
+    """
+    try:
+        from alembic.script import ScriptDirectory
+
+        _raw = get_raw_engine()
+        insp = inspect(_raw)
+        tables = set(insp.get_table_names())
+        if "projects" not in tables or "alembic_version" not in tables:
+            # Frische DB ohne Bestandsdaten — nichts Sicherungswuerdiges.
+            return
+
+        with _raw.connect() as conn:
+            current = conn.execute(
+                text("SELECT version_num FROM alembic_version")
+            ).scalar()
+        heads = set(ScriptDirectory.from_config(alembic_cfg).get_heads())
+        if current in heads:
+            return  # bereits auf head — kein Schema-Change, kein Backup noetig
+
+        from services.backup_service import run_pre_migration_backup
+
+        db_path = Path(_raw.url.database)
+        backup_path = run_pre_migration_backup(
+            db_path=db_path,
+            backup_dir=db_path.parent / "storage" / "backups",
+        )
+        if backup_path is not None:
+            logger.info(
+                "B-498: Pre-Migration-Backup erstellt (current=%s, heads=%s): %s",
+                current, heads, backup_path,
+            )
+    except Exception as exc:
+        logger.error(
+            "B-498: Pre-Migration-Backup uebersprungen (Fehler) — Migration "
+            "laeuft trotzdem weiter: %s",
+            exc, exc_info=True,
+        )
 
 
 def _run_legacy_migrations():

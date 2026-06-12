@@ -1548,6 +1548,23 @@ def main():
     from services.startup_checks import run_database_bootstrap
     run_database_bootstrap(splash=splash, process_events=QApplication.processEvents)
 
+    # ── B-498: Automatisches taegliches DB-Backup ─────────────────────
+    # Nach erfolgreichem DB-Bootstrap (init_db + Alembic sind durch), VOR
+    # PBWindow-Konstruktion und allen Worker-Starts. Laeuft synchron im
+    # Main-Thread: die sqlite3-backup()-API liegt fuer eine DB im
+    # 100-MB-Bereich im Sekundenbereich, und max. 1x pro 24h (if_stale).
+    # Fehler werden geloggt, blockieren den Start aber NICHT —
+    # run_startup_backup() faengt intern alle Exceptions.
+    splash.show_message("Pruefe Datenbank-Backup...")
+    QApplication.processEvents()
+    from services.backup_service import run_startup_backup
+    from database import session as _db_session
+    run_startup_backup(
+        db_path=Path(_db_session.APP_ROOT) / "pb_studio.db",
+        backup_dir=Path(_db_session.APP_ROOT) / "storage" / "backups",
+        reason="daily",
+    )
+
     # P1-FIX: Fenster sofort zeigen, damit der User Feedback hat.
     # Schwere Operationen werden verzögert ausgeführt.
     splash.show_message("Lade Benutzeroberfläche...")

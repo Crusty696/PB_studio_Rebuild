@@ -10,7 +10,12 @@ from unittest.mock import patch
 
 import pytest
 
-from services.backup_service import BackupService, BackupInfo
+from services.backup_service import (
+    BackupService,
+    BackupInfo,
+    run_pre_migration_backup,
+    run_startup_backup,
+)
 
 
 def _make_empty_sqlite(path: Path) -> None:
@@ -162,6 +167,99 @@ def test_malformed_filename_is_ignored(tmp_path: Path) -> None:
     # Only the one well-formed file
     assert len(backups) == 1
     assert backups[0].path.name == "pb_studio_2026-04-10-100000.db"
+
+
+# ── B-498: WAL-Sicherheit + Auto-Backup-Einstiegspunkte ────────────────────
+
+
+def test_backup_wal_db_contains_uncheckpointed_commit(tmp_path: Path) -> None:
+    """B-498: Letzter Commit liegt nur im -wal-Sidecar (kein Checkpoint).
+
+    Ein naiver Datei-Copy (shutil.copy2, alter Code) wuerde diesen Commit
+    verlieren — die sqlite3.Connection.backup()-API muss ihn enthalten.
+    """
+    db_path = tmp_path / "db.db"
+    writer = sqlite3.connect(str(db_path))
+    try:
+        writer.execute("PRAGMA journal_mode=WAL")
+        writer.execute("CREATE TABLE t (x INTEGER)")
+        writer.execute("INSERT INTO t VALUES (42)")
+        writer.commit()
+        # Kein Checkpoint, Writer-Connection bleibt offen → Daten leben im WAL.
+        wal_file = tmp_path / "db.db-wal"
+        assert wal_file.exists() and wal_file.stat().st_size > 0
+
+        svc = BackupService(db_path=db_path, backup_dir=tmp_path / "backups")
+        backup_path = svc.backup(reason="waltest")
+    finally:
+        writer.close()
+
+    out = sqlite3.connect(str(backup_path))
+    try:
+        rows = out.execute("SELECT x FROM t").fetchall()
+    finally:
+        out.close()
+    assert rows == [(42,)]
+
+
+def test_pre_migration_backup_creates_listed_file(tmp_path: Path) -> None:
+    """B-498: reason='pre-migration' erzeugt eine Datei, die list_backups()
+    auch sieht (Filename-Regex muss '-' im Reason erlauben)."""
+    db_path = tmp_path / "db.db"
+    _make_empty_sqlite(db_path)
+
+    result = run_pre_migration_backup(
+        db_path=db_path, backup_dir=tmp_path / "backups"
+    )
+    assert result is not None
+    assert result.exists()
+    assert result.name.endswith("_pre-migration.db")
+
+    svc = BackupService(db_path=db_path, backup_dir=tmp_path / "backups")
+    infos = svc.list_backups()
+    assert len(infos) == 1
+    assert infos[0].reason == "pre-migration"
+
+
+def test_run_startup_backup_never_raises(tmp_path: Path) -> None:
+    """B-498: Backup-Fehler duerfen den Aufrufer (App-Start) nicht crashen."""
+    # (a) DB existiert nicht → FileNotFoundError intern → None, kein Raise.
+    result = run_startup_backup(
+        db_path=tmp_path / "missing.db", backup_dir=tmp_path / "backups"
+    )
+    assert result is None
+
+    # (b) Beliebige Exception im Backup-Pfad → None, kein Raise.
+    db_path = tmp_path / "db.db"
+    _make_empty_sqlite(db_path)
+    with patch.object(
+        BackupService, "backup_if_stale", side_effect=RuntimeError("boom")
+    ):
+        result = run_startup_backup(
+            db_path=db_path, backup_dir=tmp_path / "backups"
+        )
+    assert result is None
+
+
+def test_run_startup_backup_creates_file_on_happy_path(tmp_path: Path) -> None:
+    """B-498: Happy-Path des Startup-Hooks erzeugt eine daily-Datei."""
+    db_path = tmp_path / "db.db"
+    _make_empty_sqlite(db_path)
+    result = run_startup_backup(
+        db_path=db_path, backup_dir=tmp_path / "backups", reason="daily"
+    )
+    assert result is not None
+    assert result.exists()
+    assert result.name.endswith("_daily.db")
+
+
+def test_run_pre_migration_backup_never_raises(tmp_path: Path) -> None:
+    """B-498: Pre-Migration-Backup-Fehler crasht die Migration nicht."""
+    with patch.object(BackupService, "backup", side_effect=RuntimeError("boom")):
+        result = run_pre_migration_backup(
+            db_path=tmp_path / "x.db", backup_dir=tmp_path / "backups"
+        )
+    assert result is None
 
 
 def test_no_deprecated_utcnow_usage() -> None:

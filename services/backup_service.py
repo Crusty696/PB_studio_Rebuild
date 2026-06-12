@@ -7,8 +7,11 @@ Strategy per Design §8.5:
   - Filename: `pb_studio_YYYY-MM-DD-HHMMSS[_<reason>].db`.
   - Scope: full DB copy (cheaper than selective; 14×100 MB = 1.4 GB max).
 
-Uses shutil.copy2 — preserves metadata, single-file atomic copy. No SQLAlchemy
-connection needed; SQLite WAL allows hot-copy safely (readers don't block copy).
+B-498: Snapshots use the ``sqlite3.Connection.backup()`` API (source opened
+read-only, see ``_sqlite_backup``). A naive file copy (``shutil.copy2``) is
+NOT safe under WAL: committed data lives in the ``-wal`` sidecar until a
+checkpoint runs, so a plain copy of the main file silently loses the latest
+commits. Pattern follows ``project_manager._copy_sqlite_db`` (B-137).
 
 Public API:
   - backup(reason: str) -> Path             # always creates a new snapshot
@@ -17,13 +20,15 @@ Public API:
   - prune() -> int                           # returns how many were deleted
   - list_backups() -> list[BackupInfo]       # sorted newest-first
   - pattern_reset_context(reason=...)        # context manager that triggers backup before destructive op
+  - run_startup_backup(db_path, backup_dir)  # module-level, never raises (B-498)
+  - run_pre_migration_backup(db_path, backup_dir)  # module-level, never raises (B-498)
 """
 
 from __future__ import annotations
 
 import logging
 import re
-import shutil
+import sqlite3
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -32,7 +37,9 @@ from typing import Iterator
 
 logger = logging.getLogger(__name__)
 
-_FILENAME_RE = re.compile(r"pb_studio_(\d{4}-\d{2}-\d{2}-\d{6})(?:_(\w+))?\.db$")
+# B-498: Reason darf Bindestriche enthalten (z.B. "pre-migration") — sonst
+# waeren solche Backups fuer list_backups()/prune() unsichtbar.
+_FILENAME_RE = re.compile(r"pb_studio_(\d{4}-\d{2}-\d{2}-\d{6})(?:_([\w-]+))?\.db$")
 _TS_FORMAT = "%Y-%m-%d-%H%M%S"
 
 
@@ -74,11 +81,35 @@ class BackupService:
             filename = f"pb_studio_{ts}.db"
 
         dest = self.backup_dir / filename
-        shutil.copy2(str(self.db_path), str(dest))
+        self._sqlite_backup(self.db_path, dest)
         logger.info("Backup created: %s", dest)
 
         self.prune()
         return dest
+
+    @staticmethod
+    def _sqlite_backup(src_db: Path, dst_db: Path) -> None:
+        """B-498: WAL-sicherer Snapshot via ``sqlite3.Connection.backup()``.
+
+        Ein ``shutil.copy2`` des Haupt-Files verliert bei aktivem WAL alle
+        Commits, die noch nicht gecheckpointed sind (sie liegen im
+        ``-wal``-Sidecar). Die backup()-API liest dagegen den vollstaendigen,
+        transaktionskonsistenten Stand — auch waehrend andere Connections
+        schreiben (Pattern: ``project_manager._copy_sqlite_db``, B-137).
+
+        Source wird read-only geoeffnet (URI ``mode=ro``), damit der Backup-
+        Pfad garantiert nie in die Live-DB schreibt.
+        """
+        src_uri = f"{src_db.resolve().as_uri()}?mode=ro"
+        src_conn = sqlite3.connect(src_uri, uri=True)
+        try:
+            dst_conn = sqlite3.connect(str(dst_db))
+            try:
+                src_conn.backup(dst_conn)
+            finally:
+                dst_conn.close()
+        finally:
+            src_conn.close()
 
     def backup_if_stale(self, reason: str = "daily") -> Path | None:
         """Create a backup only if the most recent existing backup is older than
@@ -152,3 +183,54 @@ class BackupService:
         """
         self.backup(reason=reason)
         yield
+
+
+# ── B-498: Fail-safe Einstiegspunkte fuer App-Start + Migrationen ──────────
+# Beide Funktionen propagieren NIE Exceptions an den Aufrufer: ein
+# fehlgeschlagenes Backup darf weder den App-Start noch eine anstehende
+# Migration blockieren. Fehler werden via log.error sichtbar gemacht.
+
+
+def run_startup_backup(
+    db_path: Path | str,
+    backup_dir: Path | str,
+    reason: str = "daily",
+) -> Path | None:
+    """Taegliches Auto-Backup beim App-Start (skip wenn letztes Backup < 24h).
+
+    Returns the new backup path, ``None`` wenn kein Backup noetig war ODER
+    ein Fehler auftrat (Fehler wird geloggt, nie geraised).
+    """
+    try:
+        svc = BackupService(db_path=db_path, backup_dir=backup_dir)
+        result = svc.backup_if_stale(reason=reason)
+        if result is not None:
+            logger.info("B-498: Startup-Backup erstellt: %s", result)
+        return result
+    except Exception:
+        logger.error(
+            "B-498: Automatisches DB-Backup fehlgeschlagen (reason=%s, db=%s) "
+            "— Aufrufer laeuft weiter.",
+            reason, db_path, exc_info=True,
+        )
+        return None
+
+
+def run_pre_migration_backup(
+    db_path: Path | str,
+    backup_dir: Path | str,
+) -> Path | None:
+    """Unbedingter Snapshot vor Alembic-Schema-Migrationen.
+
+    Returns the new backup path, ``None`` bei Fehler (geloggt, nie geraised).
+    """
+    try:
+        svc = BackupService(db_path=db_path, backup_dir=backup_dir)
+        return svc.backup(reason="pre-migration")
+    except Exception:
+        logger.error(
+            "B-498: Pre-Migration-Backup fehlgeschlagen (db=%s) — Migration "
+            "laeuft trotzdem weiter.",
+            db_path, exc_info=True,
+        )
+        return None
