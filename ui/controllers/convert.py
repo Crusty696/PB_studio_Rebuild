@@ -240,7 +240,11 @@ class ConvertController(PBComponent):
         elif "mkv" in fmt_text:
             vcodec, ext = "libx264", ".mkv"
         else:
-            vcodec, ext = "libx264", ".mp4"
+            from services.convert_service import detect_nvenc
+            if detect_nvenc().get("h264_nvenc"):
+                vcodec, ext = "h264_nvenc", ".mp4"
+            else:
+                vcodec, ext = "libx264", ".mp4"
 
         self.window.convert_progress.setVisible(True)
         self.window.convert_progress.setRange(0, 100)
