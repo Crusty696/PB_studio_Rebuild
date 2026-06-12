@@ -26,6 +26,10 @@ class TaskInfo:
         # Referenzen auf Thread und Worker — GC-Schutz!
         self.thread: QThread | None = None
         self.worker: QObject | None = None
+        # B-500: clear_finished() hat diesen Task uebersprungen, weil sein
+        # QThread noch lief. _on_thread_done() raeumt ihn nach echtem
+        # Thread-Ende ab (deferred removal).
+        self.pending_clear = False
 
     @property
     def elapsed(self) -> float:
@@ -499,8 +503,37 @@ class GlobalTaskManager(QObject):
         to_remove = []
         with self._tasks_lock:
             for k, v in self._tasks.items():
-                if v.status != "running":
-                    to_remove.append(k)
+                if v.status == "running":
+                    continue
+                # B-500: cancel_task() ist kooperativ — der Status springt
+                # sofort auf "cancelled", obwohl der QThread im Hintergrund
+                # weiterlaeuft (siehe B-466-Kommentar in finish_task).
+                # deleteLater() auf einen noch laufenden QThread loest den
+                # Qt-FATAL "QThread: Destroyed while thread is still running"
+                # aus → App-Crash. Deshalb ist der isRunning()-Check hier
+                # zwingend: solche Tasks werden UEBERSPRUNGEN (kein pop, kein
+                # deleteLater) und nur via pending_clear markiert.
+                # _safe_cleanup/_on_thread_done (thread.finished-Signal)
+                # raeumen sie nach echtem Thread-Ende ab.
+                try:
+                    thread_still_running = (
+                        v.thread is not None
+                        and shiboken6.isValid(v.thread)
+                        and v.thread.isRunning()
+                    )
+                except RuntimeError:
+                    # C++-Objekt zwischen isValid und isRunning zerstoert
+                    # (Race mit _safe_cleanup) — dann laeuft nichts mehr.
+                    thread_still_running = False
+                if thread_still_running:
+                    v.pending_clear = True
+                    logger.info(
+                        "[TaskEngine] clear_finished: Task %s (%s) hat noch "
+                        "laufenden Thread — Abraeumung verschoben (B-500)",
+                        k, v.status,
+                    )
+                    continue
+                to_remove.append(k)
             for k in to_remove:
                 task = self._tasks.pop(k)
                 # Race zwischen diesem Pfad (User klickt "Fertige loeschen" /
@@ -533,6 +566,20 @@ class GlobalTaskManager(QObject):
             task = self._tasks.get(task_id)
         if task and task.status == "running":
             self.finish_task(task_id, "finished", "Fertig")
+        # B-500: Deferred removal — clear_finished() hat diesen Task
+        # uebersprungen, weil sein Thread damals noch lief. Jetzt ist der
+        # Thread wirklich beendet (thread.finished → _safe_cleanup hat
+        # Worker+Thread bereits via deleteLater freigegeben und die Refs
+        # genullt) — also den Task-Eintrag nachtraeglich entfernen.
+        if task and task.pending_clear:
+            with self._tasks_lock:
+                self._tasks.pop(task_id, None)
+            # UI (TaskManagerDock) ueber Entfernung informieren.
+            self.task_finished.emit(task_id)
+            logging.info(
+                "[TaskEngine] Deferred clear: Task %s nach Thread-Ende "
+                "abgeraeumt (B-500)", task_id,
+            )
 
 
 # Singleton-Instanz: Wird in main() an QApplication verankert.
