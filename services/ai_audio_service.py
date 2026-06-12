@@ -11,7 +11,6 @@ from functools import wraps
 from pathlib import Path
 
 from services.errors import CUDAOutOfMemoryError
-from services.audio_constants import clamp_bpm
 from services.timeout_constants import FFMPEG_RENDER_TIMEOUT_SEC
 from services.startup_checks import get_ffmpeg_bin
 
@@ -1040,9 +1039,101 @@ class FrequencyAnalyzer:
     SR = 22050
     HOP_LENGTH = 512      # ~23ms pro Frame → hochauflösend
     N_FFT = 2048          # Frequenzauflösung: ~10.7 Hz pro Bin
+    # B-501: Dateien laenger als BLOCK_SEC werden blockweise geladen und
+    # analysiert statt komplett in den RAM (3h-Mix @22050Hz mono float32 +
+    # volle STFT waren mehrere GB RAM-Peak). 600s-Block ≈ 53 MB Audio +
+    # ~210 MB STFT — danach wird der Block freigegeben.
+    BLOCK_SEC = 600.0
+
+    def _band_masks(self):
+        """Boolesche Frequenz-Bin-Masken fuer Low/Mid/High (Raster SR/N_FFT)."""
+        freqs = librosa.fft_frequencies(sr=self.SR, n_fft=self.N_FFT)
+        low_mask = freqs <= self.LOW_MAX
+        mid_mask = (freqs > self.LOW_MAX) & (freqs <= self.MID_MAX)
+        high_mask = freqs > self.MID_MAX
+        return low_mask, mid_mask, high_mask
+
+    def _band_energies(self, y, center: bool = True):
+        """STFT eines Signal-Abschnitts → mittlere Magnitude pro Band und Frame.
+
+        center=False im Chunked-Pfad: Frames liegen exakt auf dem globalen
+        Hop-Raster, kein Zero-Padding pro Block → keine Pad-Artefakte an
+        Blockgrenzen. Single-Pass behaelt das bisherige center=True.
+        """
+        S = np.abs(librosa.stft(y, n_fft=self.N_FFT, hop_length=self.HOP_LENGTH,
+                                center=center))
+        low_mask, mid_mask, high_mask = self._band_masks()
+        band_low = np.mean(S[low_mask, :], axis=0)
+        band_mid = np.mean(S[mid_mask, :], axis=0)
+        band_high = np.mean(S[high_mask, :], axis=0)
+        return band_low, band_mid, band_high
+
+    def _analyze_chunked(self, file_path: str, duration: float, progress_cb=None):
+        """B-501: Blockweise Band-Analyse fuer lange Dateien (RAM-Schutz).
+
+        Laedt BLOCK_SEC-Bloecke via ``librosa.load(offset=..., duration=...)``,
+        rechnet pro Block STFT-Band-Energien und haengt sie an. Ein Carry-
+        Puffer (Rest-Samples, die kein volles Frame mehr fuellen) wandert in
+        den naechsten Block, damit das Frame-Raster ohne Luecke durchlaeuft.
+        Der finale Carry-Rest (< N_FFT Samples ≈ 93 ms) wird verworfen.
+
+        WICHTIG: Hier wird NICHT normalisiert — Normalisierung erfolgt global
+        in analyze() nach der Block-Schleife. Pro-Block-Normalisierung wuerde
+        sichtbare Spruenge an Blockgrenzen erzeugen.
+
+        Bekannte Einschraenkung (nur dokumentiert, siehe B-501): MP3 ohne
+        soundfile-Support faellt in librosa auf audioread zurueck, das bei
+        offset-Loads jeweils vom Dateianfang dekodiert (O(n²) ueber alle
+        Bloecke). WAV/FLAC seeken sample-genau.
+        """
+        low_parts, mid_parts, high_parts = [], [], []
+        carry = np.zeros(0, dtype=np.float32)
+        n_blocks = max(1, int(np.ceil(duration / self.BLOCK_SEC)))
+        block_idx = 0
+        block_start = 0.0
+        while block_start < duration:
+            y_block, _ = librosa.load(
+                file_path, sr=self.SR, mono=True,
+                offset=block_start, duration=self.BLOCK_SEC,
+            )
+            block_start += self.BLOCK_SEC
+            block_idx += 1
+            if y_block.size == 0:
+                break
+            y_proc = np.concatenate([carry, y_block]) if carry.size else y_block
+            del y_block
+            if y_proc.size < self.N_FFT:
+                carry = y_proc
+                continue
+            band_low, band_mid, band_high = self._band_energies(y_proc, center=False)
+            n_frames = int(band_low.shape[0])
+            consumed = n_frames * self.HOP_LENGTH
+            carry = np.array(y_proc[consumed:], dtype=np.float32, copy=True)
+            del y_proc
+            low_parts.append(band_low)
+            mid_parts.append(band_mid)
+            high_parts.append(band_high)
+            gc.collect()
+            if progress_cb:
+                pct = 5 + int(70 * min(1.0, block_idx / n_blocks))
+                progress_cb(pct, f"STFT Block {block_idx}/{n_blocks}...")
+        if not low_parts:
+            empty = np.zeros(0, dtype=np.float32)
+            return empty, empty.copy(), empty.copy()
+        return (
+            np.concatenate(low_parts),
+            np.concatenate(mid_parts),
+            np.concatenate(high_parts),
+        )
 
     def analyze(self, file_path: str, progress_cb=None) -> dict:
-        """Berechnet Frequenzband-Amplituden + präzises Beatgrid.
+        """Berechnet Frequenzband-Amplituden (3-Band-Waveform).
+
+        B-501: Dateien laenger als BLOCK_SEC (600 s) werden blockweise
+        verarbeitet (konstanter RAM-Peak statt Full-Load + Voll-STFT).
+        BPM/Beatgrid berechnet diese Methode NICHT mehr — das macht
+        ausschliesslich BeatAnalysisService (beat_this). Das fruehere
+        ``librosa.beat.beat_track`` ueber den ganzen Mix war ungenutzt.
 
         Returns dict mit:
             band_low:  list[float]   Normalisierte Bass-Amplituden [0..1]
@@ -1050,37 +1141,31 @@ class FrequencyAnalyzer:
             band_high: list[float]   Normalisierte Höhen-Amplituden [0..1]
             num_samples: int         Anzahl der Zeitschritte
             duration: float          Track-Dauer in Sekunden
-            bpm: float               Erkannte BPM
-            beat_positions: list[float]  Beat-Zeitstempel in Sekunden
         """
         if progress_cb:
             progress_cb(0, "Lade Audio...")
 
-        y, sr = librosa.load(file_path, sr=self.SR, mono=True)
-        duration = librosa.get_duration(y=y, sr=sr)
+        # B-501: Dauer vorab ohne Full-Load ermitteln (Header/Stream-Scan)
+        duration = float(librosa.get_duration(path=file_path))
 
-        if progress_cb:
-            progress_cb(20, "STFT Frequenzanalyse...")
+        if duration > self.BLOCK_SEC:
+            band_low, band_mid, band_high = self._analyze_chunked(
+                file_path, duration, progress_cb=progress_cb,
+            )
+        else:
+            # Bestehender Single-Pass fuer kurze Dateien (≤ BLOCK_SEC)
+            y, _sr = librosa.load(file_path, sr=self.SR, mono=True)
+            if progress_cb:
+                progress_cb(20, "STFT Frequenzanalyse...")
+            band_low, band_mid, band_high = self._band_energies(y, center=True)
+            del y
 
-        # Short-Time Fourier Transform → Magnitude-Spektrogramm
-        S = np.abs(librosa.stft(y, n_fft=self.N_FFT, hop_length=self.HOP_LENGTH))
-
-        # Frequenz-Bins zu Hz mappen
-        freqs = librosa.fft_frequencies(sr=sr, n_fft=self.N_FFT)
-
-        # Frequenzband-Masken
-        low_mask = freqs <= self.LOW_MAX
-        mid_mask = (freqs > self.LOW_MAX) & (freqs <= self.MID_MAX)
-        high_mask = freqs > self.MID_MAX
-
-        # Mittlere Energie pro Band über alle Frequenz-Bins im Band
-        band_low = np.mean(S[low_mask, :], axis=0)
-        band_mid = np.mean(S[mid_mask, :], axis=0)
-        band_high = np.mean(S[high_mask, :], axis=0)
-
-        # Normalisierung: Jedes Band auf [0..1] skalieren (Peak = 1.0)
+        # Normalisierung: GLOBAL ueber die gesamte Datei auf [0..1] (Peak=1.0).
+        # B-501: zwingend NACH der Block-Schleife — pro Block normalisieren
+        # wuerde jeden Block gegen sein eigenes Maximum skalieren und sichtbare
+        # Spruenge an Blockgrenzen erzeugen.
         def _normalize(arr):
-            peak = arr.max()
+            peak = arr.max() if arr.size else 0.0
             if peak > 0:
                 return arr / peak
             return arr
@@ -1088,20 +1173,6 @@ class FrequencyAnalyzer:
         band_low = _normalize(band_low)
         band_mid = _normalize(band_mid)
         band_high = _normalize(band_high)
-
-        if progress_cb:
-            progress_cb(50, "Beatgrid-Erkennung...")
-
-        # Präzises Beatgrid via librosa
-        tempo, beat_frames = librosa.beat.beat_track(y=y, sr=sr, hop_length=self.HOP_LENGTH)
-        if isinstance(tempo, np.ndarray):
-            bpm = float(tempo.flat[0])
-        else:
-            bpm = float(tempo)
-        bpm = round(bpm, 1)
-
-        beat_times = librosa.frames_to_time(beat_frames, sr=sr, hop_length=self.HOP_LENGTH)
-        beat_positions = [round(float(t), 4) for t in beat_times]
 
         if progress_cb:
             progress_cb(80, "Daten komprimieren...")
@@ -1124,14 +1195,14 @@ class FrequencyAnalyzer:
             store_samples = num_samples
 
         # Auf 4 Dezimalstellen runden für kompakte JSON-Speicherung
+        # B-501: "bpm" und "beat_positions" entfernt — BPM/Beatgrid liefert
+        # ausschliesslich BeatAnalysisService; Aufrufer nutzen .get()-Defaults.
         result = {
             "band_low": [round(float(v), 4) for v in band_low_store],
             "band_mid": [round(float(v), 4) for v in band_mid_store],
             "band_high": [round(float(v), 4) for v in band_high_store],
             "num_samples": store_samples,
             "duration": round(duration, 3),
-            "bpm": bpm,
-            "beat_positions": beat_positions,
         }
 
         if progress_cb:
@@ -1140,7 +1211,13 @@ class FrequencyAnalyzer:
         return result
 
     def analyze_and_store(self, track_id: int, progress_cb=None) -> dict:
-        """Analysiert einen AudioTrack und speichert Waveform + Beatgrid in der DB."""
+        """Analysiert einen AudioTrack und speichert die 3-Band-Waveform in der DB.
+
+        B-501: Schreibt NUR WaveformData + track.duration. BPM und Beatgrid
+        schreibt ausschliesslich BeatAnalysisService (beat_this) — ein in der
+        DB vorhandener BPM-Wert wird lediglich fuer die UI-Anzeige in das
+        Ergebnis-Dict durchgereicht ("bpm"-Key fehlt, wenn kein BPM in DB).
+        """
         import time as _time
 
         with nullpool_session() as session:
@@ -1159,12 +1236,12 @@ class FrequencyAnalyzer:
                     if track is None:
                         raise ValueError(f"AudioTrack {track_id} nach Frequenzanalyse nicht mehr gefunden")
 
-                    # J-01 Fix: BPM nur setzen wenn noch kein BPM vorhanden ist.
-                    # In der Komplett-Analyse laeuft BeatAnalysisService (beat_this) zuerst
-                    # und liefert praezisere BPM. FrequencyAnalyzer (librosa) laeuft danach
-                    # und soll den genaueren beat_this-Wert nicht ueberschreiben.
-                    if track.bpm is None:
-                        track.bpm = clamp_bpm(result["bpm"])
+                    # B-501: FrequencyAnalyzer berechnet/schreibt kein BPM mehr
+                    # (totes librosa.beat.beat_track entfernt; ersetzt J-01).
+                    # BPM/Beatgrid schreibt ausschliesslich BeatAnalysisService.
+                    # Vorhandenen DB-Wert nur fuer die UI-Anzeige durchreichen.
+                    if track.bpm is not None:
+                        result["bpm"] = float(track.bpm)
                     track.duration = result["duration"]
 
                     # DB-07 Fix: Expliziter Query-Check gegen Duplikate

@@ -276,14 +276,14 @@ class TestFrequencyAnalyzerAndStore:
             return track.id
 
     def _fake_analysis_result(self):
+        # B-501: analyze() liefert keine "bpm"/"beat_positions"-Keys mehr —
+        # BPM/Beatgrid kommt ausschliesslich von BeatAnalysisService.
         return {
             "band_low":  [0.1, 0.2, 0.3],
             "band_mid":  [0.4, 0.5, 0.6],
             "band_high": [0.7, 0.8, 0.9],
             "num_samples": 3,
             "duration": 60.0,
-            "bpm": 128.0,
-            "beat_positions": [0.0, 0.47, 0.94],
         }
 
     def test_analyze_and_store_raises_for_missing_track(self, test_engine):
@@ -305,12 +305,14 @@ class TestFrequencyAnalyzerAndStore:
         with patch.object(svc.FrequencyAnalyzer, "analyze", return_value=fake_result):
             result = svc.FrequencyAnalyzer().analyze_and_store(track_id)
 
-        assert result["bpm"] == 128.0
+        # B-501: FrequencyAnalyzer schreibt kein BPM mehr — Track ohne BPM
+        # bleibt ohne BPM, "bpm"-Key fehlt im Ergebnis.
+        assert "bpm" not in result
         assert result["duration"] == 60.0
 
         with Session(test_engine) as s:
             track = s.get(AudioTrack, track_id)
-            assert track.bpm == 128.0
+            assert track.bpm is None
             assert track.duration == 60.0
             assert track.waveform_data is not None
             assert track.waveform_data.num_samples == 3
@@ -327,14 +329,22 @@ class TestFrequencyAnalyzerAndStore:
 
         track_id = self._setup_track(test_engine)
 
+        # B-501: BPM in DB simuliert BeatAnalysisService-Schreibvorgang
+        with Session(test_engine) as s:
+            track = s.get(AudioTrack, track_id)
+            track.bpm = 128.0
+            s.commit()
+
         # Erste Analyse
         with patch.object(svc.FrequencyAnalyzer, "analyze",
                           return_value=self._fake_analysis_result()):
-            svc.FrequencyAnalyzer().analyze_and_store(track_id)
+            r1 = svc.FrequencyAnalyzer().analyze_and_store(track_id)
+
+        # B-501: vorhandener DB-BPM wird nur durchgereicht (UI-Anzeige)
+        assert r1.get("bpm") == 128.0
 
         # Zweite Analyse mit neuen Werten
         v2 = self._fake_analysis_result()
-        v2["bpm"] = 140.0
         v2["num_samples"] = 5
         v2["band_low"]  = [0.9, 0.8, 0.7, 0.6, 0.5]
         v2["band_mid"]  = [0.1, 0.2, 0.3, 0.4, 0.5]
@@ -348,8 +358,8 @@ class TestFrequencyAnalyzerAndStore:
             count = s.query(WaveformData).filter_by(audio_track_id=track_id).count()
             assert count == 1, f"Erwartet 1 WaveformData, gefunden: {count}"
             track = s.get(AudioTrack, track_id)
-            # J-01 Fix: BPM wird NICHT ueberschrieben wenn bereits gesetzt (128.0 aus erster Analyse)
-            # FrequencyAnalyzer soll den praeziseren BPM-Wert von BeatAnalysisService nicht ueberschreiben
+            # B-501 (ersetzt J-01): FrequencyAnalyzer fasst track.bpm gar nicht
+            # mehr an — der BeatAnalysisService-Wert bleibt unveraendert.
             assert track.bpm == 128.0
             assert track.waveform_data.num_samples == 5
 

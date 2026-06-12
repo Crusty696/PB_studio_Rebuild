@@ -261,8 +261,10 @@ def main():
             result = fa.analyze(AUDIO_FILE)
 
             # Validate result structure
+            # B-501: "bpm"/"beat_positions" entfernt — BPM/Beatgrid liefert
+            # ausschliesslich BeatAnalysisService (beat_this).
             errors = []
-            for key in ["band_low", "band_mid", "band_high", "num_samples", "duration", "bpm", "beat_positions"]:
+            for key in ["band_low", "band_mid", "band_high", "num_samples", "duration"]:
                 if key not in result:
                     errors.append(f"Missing key: {key}")
 
@@ -276,10 +278,6 @@ def main():
                     errors.append("band_high is empty or not a list")
                 if result["duration"] <= 0:
                     errors.append(f"Invalid duration: {result['duration']}")
-                if result["bpm"] <= 0:
-                    errors.append(f"Invalid BPM: {result['bpm']}")
-                if not isinstance(result["beat_positions"], list) or len(result["beat_positions"]) == 0:
-                    errors.append("beat_positions is empty or not a list")
 
                 # Check value ranges [0..1] for bands
                 for band_name in ["band_low", "band_mid", "band_high"]:
@@ -295,8 +293,8 @@ def main():
                               "; ".join(errors), vram_before, vram_after)
             else:
                 detail = (
-                    f"BPM={result['bpm']}, duration={result['duration']:.1f}s, "
-                    f"samples={result['num_samples']}, beats={len(result['beat_positions'])}, "
+                    f"duration={result['duration']:.1f}s, "
+                    f"samples={result['num_samples']}, "
                     f"band_low[0..5]={result['band_low'][:5]}"
                 )
                 record_result("FrequencyAnalyzer.analyze()", "PASS", time.time() - t0,

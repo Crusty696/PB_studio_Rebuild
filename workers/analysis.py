@@ -86,7 +86,11 @@ class AnalysisWorker(QObject, CancellableMixin):
 
 
 class WaveformAnalysisWorker(QObject, CancellableMixin):
-    """Background Worker: Rekordbox-Style Frequenzanalyse + Beatgrid."""
+    """Background Worker: Rekordbox-Style 3-Band-Frequenzanalyse (Waveform).
+
+    B-501: Liefert KEIN Beatgrid/BPM mehr — das macht ausschliesslich
+    BeatAnalysisService (AnalysisWorker-Pfad).
+    """
     finished = Signal(int, dict)   # track_id, result
     error = Signal(int, str)       # track_id, error_msg
     progress = Signal(int, str)    # percent, message

@@ -385,7 +385,7 @@ class AudioAnalysisController(PBComponent):
         track_id, _, title, _ = info
 
         task = task_manager.create_task(
-            f"Waveform: {title}", "Rekordbox Frequenz-Wellenform + Beatgrid"
+            f"Waveform: {title}", "Rekordbox Frequenz-Wellenform (3-Band)"
         )
         worker = WaveformAnalysisWorker(track_id)
         worker.task_id = task.task_id
@@ -423,12 +423,13 @@ class AudioAnalysisController(PBComponent):
                 task_manager.finish_task(task_id, "error", "Leeres Ergebnis")
             return
         # M-58 Fix: Use .get() with safe defaults to prevent KeyError in UI thread
+        # B-501: FrequencyAnalyzer liefert keine beat_positions mehr; "bpm" ist
+        # nur noch der durchgereichte DB-Wert (von BeatAnalysisService) oder fehlt.
         bpm = result.get("bpm", 0)
-        beats = len(result.get("beat_positions", []))
         samples = result.get("num_samples", 0)
         self.window.console_text.append(
             f"[Waveform] Rekordbox-Analyse fertig: '{title}' | {bpm} BPM | "
-            f"{beats} Beats | {samples} Wellenform-Samples (Low/Mid/High)"
+            f"{samples} Wellenform-Samples (Low/Mid/High)"
         )
         self.window.btn_waveform.setEnabled(True)
         self.window.btn_waveform.setText("Wellenform")
@@ -441,7 +442,7 @@ class AudioAnalysisController(PBComponent):
         if task_id:
             task_manager.finish_task(
                 task_id, "finished",
-                f"{bpm} BPM, {beats} Beats, {samples} Samples"
+                f"{bpm} BPM, {samples} Samples"
             )
 
     def _on_waveform_error(self, track_id: int, error_msg: str, task_id: str):
