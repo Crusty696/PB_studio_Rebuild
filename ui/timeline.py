@@ -35,7 +35,11 @@ _EntryStub = namedtuple("_EntryStub", ["start_time"])
 from PySide6.QtCore import QThread, QObject
 
 class WaveformLoadWorker(QObject):
-    finished = Signal(object, list, list, list, list)  # (track, band_low, band_mid, band_high, beat_positions)
+    # H-2: Nur Primitive ueber die Thread-Grenze emittieren. Vorher wurde das
+    # SQLAlchemy-ORM-Objekt ``track`` emittiert — beim (queued) Slot-Aufruf war
+    # die nullpool_session bereits geschlossen -> DetachedInstanceError-Klasse,
+    # sobald ein Slot Attribute liest.
+    finished = Signal(bool, list, list, list, list)  # (ok, band_low, band_mid, band_high, beat_positions)
 
     def __init__(self, media_id: int):
         super().__init__()
@@ -59,11 +63,11 @@ class WaveformLoadWorker(QObject):
                     if track.beatgrid and track.beatgrid.beat_positions:
                         beat_positions = json.loads(track.beatgrid.beat_positions) if isinstance(track.beatgrid.beat_positions, str) else (track.beatgrid.beat_positions or [])
                     
-                    self.finished.emit(track, band_low, band_mid, band_high, beat_positions)
+                    self.finished.emit(True, band_low, band_mid, band_high, beat_positions)
                     return
         except Exception as e:
             logger.error("Async Waveform Load Error: %s", e)
-        self.finished.emit(None, [], [], [], [])
+        self.finished.emit(False, [], [], [], [])
 
 # ======================================================================
 # Constants
@@ -946,10 +950,15 @@ class InteractiveTimeline(QGraphicsView):
             try:
                 if shiboken6.isValid(self._db_thread):
                     if self._db_thread.isRunning():
-                        logger.debug("[B-283] Stopping old db_thread")
+                        logger.debug("[B-283] Stopping old db_thread (non-blocking)")
+                        # H-1: KEIN blockierendes wait() im Main-Thread — das
+                        # fror die UI beim Project-Switch bis zu 1,5 s ein.
+                        # Der alte Worker ist oben bereits von
+                        # _on_db_load_finished disconnected; die bestehende
+                        # finished-Signal-Kette (worker.finished -> thread.quit,
+                        # thread.finished -> deleteLater fuer Thread + Worker)
+                        # raeumt asynchron auf, sobald run() zurueckkehrt.
                         self._db_thread.quit()
-                        if not self._db_thread.wait(1500):
-                            logger.warning("[B-283] db_thread didn't stop, continuing anyway")
                     else:
                         logger.debug("[B-283] db_thread not running")
                 else:
@@ -1329,17 +1338,49 @@ class InteractiveTimeline(QGraphicsView):
             worker = _ThumbWorker(file_path, 220, thumb_h)
             worker.moveToThread(thread)
             thread.started.connect(worker.run)
-            worker.done.connect(self._on_thumb_ready)
-            worker.done.connect(lambda _p, _i, t=thread: t.quit())
-            thread.finished.connect(thread.deleteLater)
-            thread.finished.connect(lambda w=worker: w.deleteLater())
-            thread.finished.connect(lambda t=thread: self._thumb_threads.remove(t)
-                                    if t in self._thumb_threads else None)
-            self._thumb_threads.append(thread)
+            # H-1/H-8: UI-erzeugender Slot explizit queued in den Main-Thread.
+            worker.done.connect(
+                self._on_thumb_ready, Qt.ConnectionType.QueuedConnection)
+            # H-8: EIN Cleanup-Slot statt 3 Lambda-Connects mit QObject-
+            # Capture. Registry haelt (worker, thread)-Paare, damit der
+            # Cleanup-Slot via sender() das richtige Paar findet. Das
+            # Parallel-Limit liefert weiterhin ThumbnailLoadManager
+            # (max_concurrent=2), der einziger Aufrufer dieser Methode ist.
+            worker.done.connect(
+                self._on_thumb_worker_done, Qt.ConnectionType.QueuedConnection)
+            self._thumb_threads.append((worker, thread))
             thread.start()
         except Exception as exc:  # noqa: BLE001 — Thumbnail darf nie die UI killen
             logger.debug("Thumbnail-Worker-Start fehlgeschlagen (%s): %s", file_path, exc)
             self._thumb_loader.on_done(file_path)
+
+    def _on_thumb_worker_done(self, _file_path: str, _qimage) -> None:
+        """H-8: einziger Cleanup-Slot fuer _ThumbWorker-Threads (Main-Thread).
+
+        Feste Reihenfolge mit try/finally: quit -> wait -> deleteLater ->
+        Registry-Entfernung. ``done`` wird am Ende von ``run()`` emittiert,
+        der wait() kehrt daher praktisch sofort zurueck (kein UI-Freeze).
+        """
+        worker = self.sender()
+        entry = None
+        for pair in self._thumb_threads:
+            if pair[0] is worker:
+                entry = pair
+                break
+        if entry is None:
+            return
+        w, t = entry
+        try:
+            t.quit()
+            if not t.wait(2000):
+                logger.warning("[H-8] Thumb-Thread stoppte nicht innerhalb 2s")
+            w.deleteLater()
+            t.deleteLater()
+        finally:
+            try:
+                self._thumb_threads.remove(entry)
+            except ValueError:
+                pass
 
     def _on_thumb_ready(self, file_path: str, qimage) -> None:
         """GUI-Thread-Slot: wandelt QImage->QPixmap und setzt es auf alle Items."""
@@ -1384,9 +1425,9 @@ class InteractiveTimeline(QGraphicsView):
             self._waveform_workers = []
         self._waveform_workers.append((worker, thread))
 
-        def on_done(track, band_low, band_mid, band_high, beat_positions):
+        def on_done(ok, band_low, band_mid, band_high, beat_positions):
             try:
-                if track and shiboken6.isValid(clip_item):
+                if ok and shiboken6.isValid(clip_item):
                     # Erstelle das WaveformGraphicsItem im Main-Thread als Child des Clip-Items
                     wf_item = WaveformGraphicsItem(
                         band_low=band_low,
@@ -1402,11 +1443,21 @@ class InteractiveTimeline(QGraphicsView):
                     self._style_visible_waveform(wf_item, parent_clip=clip_item)
                     self.waveform_items.append(wf_item)
             finally:
-                if (worker, thread) in self._waveform_workers:
-                    self._waveform_workers.remove((worker, thread))
-                thread.quit()
+                # H-8: feste Reihenfolge — erst quit(), dann Registry-
+                # Entfernung; selbst wenn remove() wirft, wird der Thread
+                # gestoppt. deleteLater haengt bereits an thread.finished.
+                try:
+                    thread.quit()
+                finally:
+                    if (worker, thread) in self._waveform_workers:
+                        self._waveform_workers.remove((worker, thread))
 
-        worker.finished.connect(on_done)
+        # H-1/B-222: Explizit QueuedConnection. ``on_done`` ist ein kontext-
+        # freier Python-Callable — mit AutoConnection liefe er direkt im
+        # Worker-Thread und wuerde dort ein WaveformGraphicsItem (UI-Objekt)
+        # erzeugen (Qt-Undefined-Behavior, Crash-Klasse B-222). Queued landet
+        # der Aufruf im Thread, in dem connect() lief (Main-Thread).
+        worker.finished.connect(on_done, Qt.ConnectionType.QueuedConnection)
         thread.started.connect(worker.run)
         thread.finished.connect(thread.deleteLater)
         thread.finished.connect(worker.deleteLater)

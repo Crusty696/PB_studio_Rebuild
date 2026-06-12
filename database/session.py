@@ -298,6 +298,21 @@ def _patch_service_paths(project_path: Path):
     # ai_audio_service, export_service, timeline_service, video_service,
     # convert_service, video_analysis_service no longer need patching
     # — they use lazy getter functions that re-read APP_ROOT at call time (BUG-002 fix)
+
+    # H-6: Alte VectorDB-Instanz sauber schliessen (expliziter
+    # WAL-Checkpoint) BEVOR der Singleton-Reset sie verwaist — sonst
+    # bleiben embeddings.db-wal/-shm Sidecars des alten Projekts zurueck.
+    _vdb_mod = sys.modules.get("services.vector_db_service")
+    if _vdb_mod is not None:
+        _old_vdb = getattr(_vdb_mod, "_instance", None)
+        if _old_vdb is not None:
+            try:
+                _old_vdb.close()
+            except Exception as exc:  # Project-Switch darf hieran nicht scheitern
+                logger.warning(
+                    "VectorDB close() vor Singleton-Reset fehlgeschlagen: %s", exc
+                )
+
     patches = {
         "services.vector_db_service": {
             "DB_DIR": project_path / "data" / "vector",

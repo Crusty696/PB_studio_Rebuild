@@ -24,7 +24,16 @@ import numpy as np
 
 from services import startup_checks
 
-__all__ = ["VideoDecoder", "VideoMeta"]
+__all__ = ["VideoDecoder", "VideoMeta", "InvalidVideoError"]
+
+
+class InvalidVideoError(RuntimeError):
+    """L-1: Video mit unbrauchbaren Metadaten (z.B. duration<=0).
+
+    Permanenter Fehler — Retries sind sinnlos. Der Klassenname wird von
+    der TriggerQueue (M-10) namensbasiert als permanent klassifiziert,
+    analog zu services.brain_v3.video.video_embedder.InvalidVideoError.
+    """
 
 
 @dataclass(frozen=True)
@@ -92,6 +101,13 @@ class VideoDecoder:
         duration_s = float(data.get("format", {}).get("duration", 0.0))
         if duration_s <= 0:
             duration_s = float(v_stream.get("duration", 0.0))
+        if duration_s <= 0:
+            # L-1: duration<=0 wurde stillschweigend akzeptiert — Folge:
+            # alle Keyframes/Flow-Samples kamen aus Frame 0. Hartes Raise
+            # statt stillem Weiterlaufen (permanenter Fehler, kein Retry).
+            raise InvalidVideoError(
+                f"invalid video: non-positive duration ({duration_s}) for {path}"
+            )
 
         fps_str = v_stream.get("r_frame_rate", "0/1")
         num, den = fps_str.split("/") if "/" in fps_str else (fps_str, "1")

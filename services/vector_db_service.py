@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 import threading
+from contextlib import closing
 
 from services.timeout_constants import DB_SQLITE_CONNECT_TIMEOUT_SEC
 from pathlib import Path
@@ -22,6 +23,14 @@ _APP_ROOT = Path(__file__).resolve().parent.parent
 DB_DIR = _APP_ROOT / "data" / "vector"
 DB_FILE = DB_DIR / "embeddings.db"
 EMBEDDING_DIM = 1152
+
+# M-11: Modell-Identitaet des Legacy-Vector-Stores. Die Dimension (1152)
+# bleibt hart geprueft (add_embedding/search); Name/Version werden als
+# Store-Metadatum persistiert, damit ein Modellwechsel beim Oeffnen
+# erkannt und gewarnt werden kann (keine automatische Invalidierung).
+# Quelle: ModelManager.load_siglip() Default-Model-ID.
+MODEL_NAME = "google/siglip-so400m-patch14-384"
+MODEL_VERSION = "1"
 
 
 def _default_db_file() -> Path:
@@ -42,6 +51,14 @@ CREATE TABLE IF NOT EXISTS clip_embeddings (
 )
 """
 _INDEX_SQL = "CREATE INDEX IF NOT EXISTS idx_emb_video ON clip_embeddings(video_path)"
+
+# M-11: Meta-Tabelle fuer Store-weite Metadaten (model_name/model_version).
+_CREATE_META_SQL = """
+CREATE TABLE IF NOT EXISTS vector_db_meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+)
+"""
 
 # F-030: Singleton — verhindert desynchronisierte Write-Locks bei mehreren Instanzen
 _instance: "VectorDBService | None" = None
@@ -108,11 +125,50 @@ class VectorDBService:
             self._cache_metadata = None
 
     def _init_db(self):
-        with sqlite3.connect(str(self.db_path)) as conn:
+        # H-6: closing() stellt sicher, dass die Connection wirklich
+        # geschlossen wird — `with sqlite3.connect(...)` committet nur,
+        # schliesst aber NICHT (WAL-Sidecars blieben sonst offen).
+        with closing(sqlite3.connect(str(self.db_path))) as conn, conn:
             # F-042 Fix: WAL Modus für parallele Zugriffe
             conn.execute("PRAGMA journal_mode=WAL")
             conn.execute(_CREATE_SQL)
             conn.execute(_INDEX_SQL)
+            conn.execute(_CREATE_META_SQL)
+            self._check_model_metadata(conn)
+
+    def _check_model_metadata(self, conn: sqlite3.Connection) -> None:
+        """M-11: model_name/model_version als Store-Metadatum verwalten.
+
+        Beim ersten Init wird die aktuelle Modell-Identitaet persistiert.
+        Bei jedem Open wird verglichen; bei Mismatch wird NUR gewarnt —
+        keine automatische Invalidierung (offene User-Entscheidung,
+        Embedding-Stores sind one-way-doors).
+        """
+        rows = dict(conn.execute(
+            "SELECT key, value FROM vector_db_meta "
+            "WHERE key IN ('model_name', 'model_version')"
+        ).fetchall())
+        if not rows:
+            conn.execute(
+                "INSERT OR IGNORE INTO vector_db_meta (key, value) "
+                "VALUES ('model_name', ?), ('model_version', ?)",
+                (MODEL_NAME, MODEL_VERSION),
+            )
+            logger.info(
+                "VectorDB: Modell-Metadatum persistiert: %s/%s",
+                MODEL_NAME, MODEL_VERSION,
+            )
+            return
+        stored = (rows.get("model_name"), rows.get("model_version"))
+        if stored != (MODEL_NAME, MODEL_VERSION):
+            logger.warning(
+                "VectorDB-Modell-Mismatch: Store enthaelt Embeddings von "
+                "model=%s version=%s, App erwartet %s/%s. Vorhandene "
+                "Embeddings sind ggf. nicht mit neuen Queries vergleichbar. "
+                "KEINE automatische Invalidierung — bitte Embeddings neu "
+                "generieren oder Modell zuruecksetzen (User-Entscheidung).",
+                stored[0], stored[1], MODEL_NAME, MODEL_VERSION,
+            )
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(str(self.db_path), timeout=DB_SQLITE_CONNECT_TIMEOUT_SEC)
@@ -145,7 +201,7 @@ class VectorDBService:
         blob = embedding.astype(np.float32).tobytes()
         
         with self._write_lock:
-            with self._connect() as conn:
+            with closing(self._connect()) as conn, conn:
                 conn.execute(
                     "INSERT OR REPLACE INTO clip_embeddings "
                     "(id, video_path, scene_index, scene_start, scene_end, "
@@ -184,7 +240,7 @@ class VectorDBService:
         if not rows:
             return
         with self._write_lock:
-            with self._connect() as conn:
+            with closing(self._connect()) as conn, conn:
                 conn.executemany(
                     "INSERT OR REPLACE INTO clip_embeddings "
                     "(id, video_path, scene_index, scene_start, scene_end, "
@@ -258,7 +314,7 @@ class VectorDBService:
         """Lädt alle Daten aus der DB (interner Helper für Cache)."""
         sql = ("SELECT id, video_path, scene_index, scene_start, scene_end, "
                "motion_score, description, embedding FROM clip_embeddings")
-        with self._connect() as conn:
+        with closing(self._connect()) as conn, conn:
             rows = conn.execute(sql).fetchall()
 
         if not rows:
@@ -293,7 +349,7 @@ class VectorDBService:
         """
         sql = ("SELECT id, video_path, scene_index, scene_start, scene_end, "
                "motion_score, embedding FROM clip_embeddings")
-        with self._connect() as conn:
+        with closing(self._connect()) as conn, conn:
             rows = conn.execute(sql).fetchall()
 
         if not rows:
@@ -318,7 +374,7 @@ class VectorDBService:
     def count(self) -> int:
         """Gibt die Anzahl der Eintraege zurueck."""
         try:
-            with self._connect() as conn:
+            with closing(self._connect()) as conn, conn:
                 return conn.execute("SELECT COUNT(*) FROM clip_embeddings").fetchone()[0]
         except (OSError, RuntimeError, ValueError) as e:
             logger.warning("Counting embeddings in VectorDB: %s", e)
@@ -327,7 +383,7 @@ class VectorDBService:
     def delete_by_video(self, video_path: str) -> None:
         """Loescht alle Embeddings fuer ein Video."""
         with self._write_lock:
-            with self._connect() as conn:
+            with closing(self._connect()) as conn, conn:
                 conn.execute(
                     "DELETE FROM clip_embeddings WHERE video_path = ?",
                     (video_path,),
@@ -339,7 +395,7 @@ class VectorDBService:
         if not clip_ids:
             return
         with self._write_lock:
-            with self._connect() as conn:
+            with closing(self._connect()) as conn, conn:
                 placeholders = ",".join("?" for _ in clip_ids)
                 # B-037 / B608: ``placeholders`` ist nur die Zaehl-Reihe
                 # ``?,?,?...`` aus ``len(clip_ids)``. Werte selbst fliessen
@@ -357,12 +413,32 @@ class VectorDBService:
     def delete_all(self) -> None:
         """Loescht alle Embeddings aus der Datenbank."""
         with self._write_lock:
-            with self._connect() as conn:
+            with closing(self._connect()) as conn, conn:
                 conn.execute("DELETE FROM clip_embeddings")
         # B-080: Cache invalidieren — siehe delete_by_clip_ids.
         self._invalidate_cache()
         logger.info("VectorDB: Alle Embeddings geloescht")
 
     def close(self) -> None:
-        """Nichts zu tun — Connections werden per Context-Manager verwaltet."""
-        pass
+        """Schliesst den Store: expliziter WAL-Checkpoint + Cache leeren.
+
+        H-6: War vorher ein No-Op. Vor Project-Switch/Purge noetig, damit
+        die ``-wal``/``-shm`` Sidecars in das Haupt-DB-File gemerged
+        (TRUNCATE) werden und keine Restdaten auf dem alten Projektpfad
+        zurueckbleiben. Operative Connections sind seit dem closing()-Fix
+        per Aufruf geschlossen — hier wird nur noch das WAL-File
+        checkpointet und der In-Memory-Cache invalidiert.
+        """
+        try:
+            if not Path(self.db_path).exists():
+                return
+            with self._write_lock:
+                with closing(sqlite3.connect(
+                    str(self.db_path), timeout=DB_SQLITE_CONNECT_TIMEOUT_SEC
+                )) as conn:
+                    conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            logger.info("VectorDB close(): WAL checkpointed (%s)", self.db_path)
+        except sqlite3.Error as e:
+            logger.warning("VectorDB close(): WAL-Checkpoint fehlgeschlagen: %s", e)
+        finally:
+            self._invalidate_cache()

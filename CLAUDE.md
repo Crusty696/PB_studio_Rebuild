@@ -43,6 +43,12 @@ prüfe verifiziere und mach noch eine gegenprüfung deiner arbeit mit unterschie
 - **HARTREGEL GPU (User-Anweisung 2026-05-11):** Einzige zulaessige GPU
   ist die **NVIDIA GeForce GTX 1060 (6 GB VRAM, CUDA 11.3 /
   Treiber 546.33)**.
+  - **Stack-Realitaet (verifiziert 2026-06-12):** Treiber 546.33
+    (nvidia-smi: CUDA 12.3 runtime-faehig), conda-env `pb-studio` mit
+    Python 3.10.20, torch 1.12.1+cu113 (CUDA verfuegbar), numpy 1.26.4,
+    onnxruntime-gpu 1.18.1. Kanonische Install-Quelle: `environment.yml`
+    + `requirements-py310-cu113.txt`. Aeltere Doku mit Treiber 461.40
+    oder torch 2.x ist historisch bzw. Fremd-Maschine.
   - PyTorch: ausschliesslich `torch.device("cuda:0")`.
   - FFmpeg: ausschliesslich `-hwaccel cuda`, `h264_nvenc`, `hevc_nvenc`.
   - OpenCV: falls cuda-Build, `cv2.cuda.setDevice(0)`.

@@ -1,7 +1,14 @@
 # PB Studio Rebuild — Conda Environment (Python 3.10 + CUDA 11.3)
+# KANONISCHE INSTALL-QUELLE (Fix-Team 2026-06-12): Diese Datei + die von ihr
+# referenzierte requirements-py310-cu113.txt (Versionspins) definieren das
+# aktive Setup. setup_pb_studio.bat und start_pb_studio.bat nutzen das
+# conda-env "pb-studio". requirements.txt = Legacy/Future, pyproject.toml =
+# Tooling/Metadaten — beide sind NICHT der Install-Pfad.
 #
-# Zielhardware: GTX 1060 / Surface Book 2, NVIDIA-Treiber 461.40
-# (CUDA 11.3 ist die letzte mit diesem Treiber kompatible Toolchain).
+# Zielhardware (verifiziert 2026-06-12): GTX 1060 6 GB / Surface Book 2,
+# NVIDIA-Treiber 546.33 (CUDA 12.3 runtime-faehig). cu113 ist der getestete,
+# aktive Torch-Stack (torch 1.12.1+cu113, Python 3.10.20). Aeltere Verweise
+# auf Treiber 461.40 sind historisch.
 #
 # Erstellen:
 #   conda env create -f environment.yml

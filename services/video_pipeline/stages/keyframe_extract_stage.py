@@ -6,11 +6,14 @@ Phase: 35 (Tier 3 Workspace+Services)
 from __future__ import annotations
 
 import json
+import logging
 import time
 from pathlib import Path
 from typing import Any
 
 from PIL import Image
+
+logger = logging.getLogger(__name__)
 
 from services.video_pipeline.primitives.decoder import VideoDecoder
 from services.video_pipeline.primitives.keyframe_selector import select_keyframes
@@ -77,14 +80,33 @@ class KeyframeExtractStage:
             target = kf_dir / fname
 
             # F-28 (B-488): Skip extraction if the file already exists (Resume optimization)
+            # M-9: size>0 ist keine Datei-Validierung — korrupte/abgeschnittene
+            # JPEGs (z.B. Crash mitten im save()) wurden beim Resume akzeptiert.
+            # PIL verify() prueft die JPEG-Struktur; korrupte Dateien werden
+            # geloescht und unten regulaer neu extrahiert.
             if target.exists() and target.stat().st_size > 0:
-                extracted.append({
-                    "scene_idx": kf.scene_idx,
-                    "role": kf.role,
-                    "time_s": kf.time_s,
-                    "path": str(target.relative_to(storage_dir)),
-                })
-                continue
+                try:
+                    with Image.open(target) as _im:
+                        _im.verify()
+                    extracted.append({
+                        "scene_idx": kf.scene_idx,
+                        "role": kf.role,
+                        "time_s": kf.time_s,
+                        "path": str(target.relative_to(storage_dir)),
+                    })
+                    continue
+                except Exception as ex:
+                    logger.warning(
+                        "Keyframe-Resume: korruptes JPEG %s (%s) — "
+                        "wird geloescht und neu extrahiert.", target, ex,
+                    )
+                    try:
+                        target.unlink()
+                    except OSError as unlink_ex:
+                        logger.warning(
+                            "Keyframe-Resume: Loeschen von %s fehlgeschlagen: %s",
+                            target, unlink_ex,
+                        )
 
             if cancel_token is not None and getattr(cancel_token, "cancelled", False):
                 cancelled = True

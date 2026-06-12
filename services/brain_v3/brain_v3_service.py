@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import logging
 import secrets
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -43,6 +44,13 @@ from services.brain_v3.storage.brain_store import BrainStore
 from services.brain_v3.weight_store import WeightStore, MIN_CONFIDENT_SAMPLES
 
 logger = logging.getLogger(__name__)
+
+# H-12: Prozessweiter Lock fuer den Feedback-Schreibpfad. Modul-global (nicht
+# Instanz-Attribut), weil Caller (z.B. _FeedbackSubmitWorker im UI-Layer) pro
+# Worker-Thread eigene Service-Instanzen bauen — alle schreiben aber in
+# dieselbe weights.db. RLock serialisiert die BEGIN..COMMIT-Transaktion von
+# FeedbackLogger.log_feedback ueber alle Instanzen und Threads hinweg.
+_FEEDBACK_WRITE_LOCK = threading.RLock()
 
 
 @dataclass
@@ -70,9 +78,14 @@ class BrainV3Service:
     """In-process Service-Fassade fuer den Brain-V3-Lern-Algorithmus.
 
     Lazy-init aller V3-Stores (BrainStore + WeightStore + FeedbackLogger).
-    Threading: Service ist NICHT thread-safe; pro Caller-Thread eine
-    Instanz nutzen oder per Lock im Caller schuetzen (sqlite3 ist
-    thread-local).
+
+    Threading (H-12-Fix): ``feedback()`` ist durch den prozessweiten
+    ``_FEEDBACK_WRITE_LOCK`` serialisiert und darf aus beliebigen Threads
+    aufgerufen werden — auch ueber mehrere Service-Instanzen hinweg (alle
+    schreiben in dieselbe weights.db). Die uebrigen Methoden (suggest,
+    learning_session, stats, health, reset) sind weiterhin NICHT
+    thread-safe: pro Caller-Thread eine eigene Instanz nutzen (WeightStore
+    cached eine sqlite3-Connection).
     """
 
     def __init__(
@@ -229,7 +242,13 @@ class BrainV3Service:
         """
         ctx = context or CutContext()
         keys_by_level = context_keys(ctx)
-        diag = self._feedback_logger.log_feedback(request.rating, keys_by_level)
+        # H-12: Schreibpfad prozessweit serialisieren. Ohne Lock koennen
+        # parallele feedback()-Aufrufe (a) auf einer geteilten Instanz die
+        # BEGIN..COMMIT-Transaktion auf der gecachten Connection verschraenken
+        # ("cannot start a transaction within a transaction") und (b) ueber
+        # mehrere Instanzen WAL-Write-Contention auf weights.db erzeugen.
+        with _FEEDBACK_WRITE_LOCK:
+            diag = self._feedback_logger.log_feedback(request.rating, keys_by_level)
         return FeedbackResponse(
             cut_id=request.cut_id,
             rating=request.rating,
