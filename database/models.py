@@ -356,6 +356,10 @@ class HotCue(Base):
     """Manueller Marker auf einem Audio-Track (wie Rekordbox HotCues)."""
     __tablename__ = "hotcues"
 
+    __table_args__ = (
+        Index("idx_hotcue_audio", "audio_track_id"),
+    )
+
     id = Column(Integer, primary_key=True, autoincrement=True)
     audio_track_id = Column(Integer, ForeignKey("audio_tracks.id", ondelete="CASCADE"), nullable=False)
     time = Column(Float, nullable=False)                 # Zeitposition in Sekunden
@@ -447,6 +451,10 @@ class StylePreset(Base):
 class TimelineEntry(Base):
     """Ein Clip auf der Timeline mit Position und Spur."""
     __tablename__ = "timeline_entries"
+
+    __table_args__ = (
+        Index("idx_timeline_project", "project_id"),
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
