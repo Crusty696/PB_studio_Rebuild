@@ -115,3 +115,8 @@ tests/fixtures/clips_20/*.mp4
 # bug-hunter scan artifacts (transient)
 .bug-hunter/
 .bug-hunter-branch/
+
+# CRF-019 / B-515: Ignore backups, test reports, and beat_this build dirs
+pb_studio.db.*
+test_reports/
+vendor/beat_this/build/
