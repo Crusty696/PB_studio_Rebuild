@@ -50,7 +50,8 @@ def test_b070_create_proxy_accepts_should_stop() -> None:
     sig = inspect.signature(VideoAnalyzer.create_proxy)
     assert "should_stop" in sig.parameters
 
-    src = inspect.getsource(VideoAnalyzer.create_proxy)
+    # B-505: Logik in _run_proxy_encode ausgelagert. Wir pruefen beide Quellen zusammen.
+    src = inspect.getsource(VideoAnalyzer.create_proxy) + inspect.getsource(VideoAnalyzer._run_proxy_encode)
     assert "Popen(" in src or "subprocess.Popen" in src
     assert "should_stop" in src
     # Loop-basierter Watchdog
