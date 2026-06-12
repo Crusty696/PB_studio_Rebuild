@@ -409,6 +409,15 @@ def _run_legacy_migrations():
     old databases up to the baseline schema. They are safe to run even on
     databases that are already at the baseline — every statement checks
     for column/index existence before acting.
+
+    FROZEN (B-509 / CRF-011, 2026-06-12): Diese Funktion ist eingefroren —
+    neue Schemaaenderungen werden NUR noch als Alembic-Revisionen unter
+    ``database/alembic/versions/`` angelegt, NICHT mehr hier. Die
+    bestehenden Bloecke bleiben fuer Bestands-DBs erhalten (nicht
+    loeschen!). Die post-Baseline-Teile (locked, timeline_snapshots,
+    project_notes, video_pipeline-Spalten) sind zusaetzlich idempotent in
+    Alembic-Revision ``d4e5f6a7b8c9_post_baseline_consolidation``
+    konsolidiert.
     """
     _raw = get_raw_engine()
     insp = inspect(_raw)
@@ -466,6 +475,8 @@ def _run_legacy_migrations():
             if "contrast" not in te_columns:
                 conn.execute(text("ALTER TABLE timeline_entries ADD COLUMN contrast FLOAT DEFAULT 1.0"))
 
+    # FROZEN (B-509): neue Schemaaenderungen nur noch via Alembic.
+    # Block konsolidiert in Revision d4e5f6a7b8c9_post_baseline_consolidation.
     # SCHNITT-Redesign 2026-05-09: locked-Flag fuer Clip-Locking
     insp = inspect(get_raw_engine())
     if "timeline_entries" in insp.get_table_names():
@@ -474,6 +485,8 @@ def _run_legacy_migrations():
             if "locked" not in te_columns:
                 conn.execute(text("ALTER TABLE timeline_entries ADD COLUMN locked BOOLEAN NOT NULL DEFAULT 0"))
 
+    # FROZEN (B-509): neue Schemaaenderungen nur noch via Alembic.
+    # Block konsolidiert in Revision d4e5f6a7b8c9_post_baseline_consolidation.
     # SCHNITT-Redesign 2026-05-09: Tabelle fuer persistente Timeline-Snapshots
     insp = inspect(get_raw_engine())
     if "timeline_snapshots" not in insp.get_table_names():
@@ -494,6 +507,8 @@ def _run_legacy_migrations():
             "ON timeline_snapshots(project_id, version)"
         ))
 
+    # FROZEN (B-509): neue Schemaaenderungen nur noch via Alembic.
+    # Block konsolidiert in Revision d4e5f6a7b8c9_post_baseline_consolidation.
     # SCHNITT-Redesign 2026-05-09 Task 1.3: project_notes (1:1 pro Projekt)
     insp = inspect(get_raw_engine())
     if "project_notes" not in insp.get_table_names():
@@ -660,6 +675,8 @@ def _run_legacy_migrations():
                 if col_name not in scene_cols:
                     conn.execute(text(f"ALTER TABLE scenes ADD COLUMN {col_name} {col_type}"))
 
+    # FROZEN (B-509): neue Schemaaenderungen nur noch via Alembic.
+    # Block konsolidiert in Revision d4e5f6a7b8c9_post_baseline_consolidation.
     # VIDEO-PIPELINE-ENGINE-2026-05-19 Phase 01: Pipeline-State + Cross-Modal-Felder
     # auf video_clips + scenes nachruesten (idempotent).
     insp = inspect(get_raw_engine())
@@ -692,6 +709,8 @@ def _run_legacy_migrations():
                         f"ALTER TABLE scenes ADD COLUMN {col_name} {col_type}"
                     ))
 
+    # FROZEN (B-509): neue Schemaaenderungen nur noch via Alembic.
+    # Block konsolidiert in Revision d4e5f6a7b8c9_post_baseline_consolidation.
     # VIDEO-PIPELINE-ENGINE-2026-05-19 Phase 01: Indizes auf neue Felder.
     insp = inspect(get_raw_engine())
     existing_tables = set(insp.get_table_names())
