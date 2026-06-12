@@ -121,6 +121,8 @@ class ClapAudioEmbedder:
         audio_path: Path | str,
         audio_hash: str,
         section_boundaries_seconds: Optional[list[float]] = None,
+        should_stop: Optional[Callable[[], bool]] = None,
+        progress_cb: Optional[Callable[[int, str], None]] = None,
     ) -> MixEmbeddingResult:
         """Volle Pipeline: Window-Embeddings → Section-Aggregation → Mix-Embedding.
 
@@ -129,6 +131,8 @@ class ClapAudioEmbedder:
             audio_hash: sha256 von services.brain_v3.hashing.
             section_boundaries_seconds: optional Subtrack-Grenzen aus
                 SubtrackDetector. Wenn None → fixe 30-s-Sections.
+            should_stop: Optionaler Callback zur Abbruch-Pruefung.
+            progress_cb: Optionaler Callback fuer Fortschritts-Anzeige (0-100%, msg).
 
         Returns:
             MixEmbeddingResult mit window/section/mix Embeddings.
@@ -139,25 +143,57 @@ class ClapAudioEmbedder:
             self._ensure_loaded()
             assert self._model is not None and self._processor is not None
 
-            y, sr = librosa.load(str(audio_path), sr=CLAP_SAMPLE_RATE, mono=True)
-            duration = float(len(y) / sr)
+            # B-519: Audio-Dauer per Header-Read ermitteln und chunk-weise laden (streamend)
+            duration = float(librosa.get_duration(path=str(audio_path)))
             if duration <= 0:
                 raise ValueError(f"Audio leer: {audio_path}")
 
+            sr = CLAP_SAMPLE_RATE
             window_samples = int(CLAP_WINDOW_SECONDS * sr)
             hop_samples = int(CLAP_HOP_SECONDS * sr)
 
+            hop_sec = CLAP_HOP_SECONDS
+            win_sec = CLAP_WINDOW_SECONDS
+
+            # Vorab-Berechnung der Windows fuer praezisen Fortschritt und Abbruch-Sicherheit
+            expected_starts = []
+            curr = 0.0
+            while curr < duration:
+                clip_dur = min(win_sec, duration - curr)
+                if clip_dur < win_sec / 2:
+                    break
+                expected_starts.append(curr)
+                curr += hop_sec
+
+            total_windows = len(expected_starts)
+
             # Window-Embeddings
             windows: list[WindowEmbedding] = []
-            for start in range(0, max(1, len(y) - window_samples + 1), hop_samples):
-                end = start + window_samples
-                clip = y[start:end]
+            for idx, start_sec in enumerate(expected_starts):
+                if should_stop is not None and should_stop():
+                    logger.info("ClapAudioEmbedder: embedding mix abgebrochen")
+                    raise RuntimeError("Embedding mix cancelled")
+
+                if progress_cb is not None and total_windows > 0:
+                    pct = int(idx / total_windows * 100)
+                    progress_cb(pct, f"CLAP Audio-Embedding: Window {idx+1}/{total_windows}")
+
+                # Lade streamend nur das aktuelle Fenster in den Speicher
+                clip, _ = librosa.load(
+                    str(audio_path),
+                    sr=sr,
+                    mono=True,
+                    offset=start_sec,
+                    duration=win_sec,
+                )
+
                 if len(clip) < window_samples // 2:
                     continue  # zu kurzer Rest
+
                 emb = self._embed_audio_window(clip, sr)
                 windows.append(WindowEmbedding(
-                    start_time=float(start / sr),
-                    end_time=float(end / sr),
+                    start_time=start_sec,
+                    end_time=start_sec + float(len(clip) / sr),
                     embedding=emb,
                 ))
 

@@ -58,8 +58,15 @@ def _default_embedder_factory(
             CLAP_MODEL_ID,
             CLAP_MODEL_VERSION,
         )
+        def _adapted_progress(pct: int, msg: str):
+            progress_cb(float(pct / 100.0), msg)
+
         emb = ClapAudioEmbedder(serializer=serializer)
-        result = emb.embed_mix(task.source_path, audio_hash=task.media_hash)
+        result = emb.embed_mix(
+            task.source_path,
+            audio_hash=task.media_hash,
+            progress_cb=_adapted_progress,
+        )
         return {
             "embedding": result.mix_embedding,
             "model_name": CLAP_MODEL_ID,

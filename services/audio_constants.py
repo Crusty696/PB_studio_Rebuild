@@ -12,6 +12,8 @@ MAX_DURATION_KEY: float = 120.0      # Key Detection: 2 Min reichen
 MAX_DURATION_CLASSIFY: float = 180.0  # Classification: 3 Min fuer Feature-Extraktion
 MAX_DURATION_SPECTRAL: float = 300.0  # Spektral: 5 Min fuer Band-Analyse
 MAX_DURATION_STRUCTURE: float = 600.0  # Struktur: 10 Min fuer Segment-Erkennung
+MAX_DURATION_BEAT: float = 600.0       # Beat/BPM Fallback: 10 Min fuer BPM-Erkennung
+
 
 # -- STFT Parameters ---------------------------------------------------
 N_FFT: int = 2048
