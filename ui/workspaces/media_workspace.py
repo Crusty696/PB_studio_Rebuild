@@ -457,7 +457,9 @@ class MediaWorkspace(QWidget):
 
         # -------- Model + Proxy (Paginierung) --------
         self.video_pool_model = MediaTableModel(media_type="Video")
-        self._video_pool_proxy = PagedProxyModel(page_size=16)
+        # UI-Ueberholung 2026-06-13 (User-Feedback "Tabelle groesser"): mehr
+        # Zeilen pro Seite, damit mehr Files auf einmal sichtbar sind.
+        self._video_pool_proxy = PagedProxyModel(page_size=30)
         self._video_pool_proxy.setSourceModel(self.video_pool_model)
 
         self.video_pool_table = DraggablePoolView(track_type="video")
@@ -474,13 +476,20 @@ class MediaWorkspace(QWidget):
         vh.resizeSection(6, 80)
         self.video_pool_table.verticalHeader().setDefaultSectionSize(24)
         self.video_pool_table.verticalHeader().setVisible(False)
-        self.video_pool_table.setFixedHeight(448)  # 16 Zeilen × 28 px
+        # UI-Ueberholung 2026-06-13: fixe Hoehe (448px/16 Zeilen) entfernt — die
+        # Tabelle fuellt jetzt die verfuegbare Spaltenhoehe (Expanding), zeigt also
+        # deutlich mehr Files auf einmal.
+        self.video_pool_table.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
 
         self.video_grid = MediaPoolGrid(media_type="video")
         self._video_pool_stack = QStackedWidget()
         self._video_pool_stack.addWidget(self.video_pool_table)
         self._video_pool_stack.addWidget(self.video_grid)
-        self._video_pool_stack.setFixedHeight(448)
+        self._video_pool_stack.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
 
         # -------- Toolbar (Import + Aktionen + Pager + View + Select) --------
         tb = QHBoxLayout()
@@ -727,7 +736,7 @@ class MediaWorkspace(QWidget):
 
         # -------- Model + Proxy --------
         self.audio_pool_model = MediaTableModel(media_type="Audio")
-        self._audio_pool_proxy = PagedProxyModel(page_size=16)
+        self._audio_pool_proxy = PagedProxyModel(page_size=30)  # UI-Ueberholung 2026-06-13: mehr Zeilen
         self._audio_pool_proxy.setSourceModel(self.audio_pool_model)
 
         self.audio_pool_table = DraggablePoolView(track_type="audio")
@@ -744,13 +753,18 @@ class MediaWorkspace(QWidget):
         ah.resizeSection(6, 80)
         self.audio_pool_table.verticalHeader().setDefaultSectionSize(24)
         self.audio_pool_table.verticalHeader().setVisible(False)
-        self.audio_pool_table.setFixedHeight(448)
+        # UI-Ueberholung 2026-06-13: fixe Hoehe raus -> Tabelle fuellt die Spalte.
+        self.audio_pool_table.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
 
         self.audio_grid = MediaPoolGrid(media_type="audio")
         self._audio_pool_stack = QStackedWidget()
         self._audio_pool_stack.addWidget(self.audio_pool_table)
         self._audio_pool_stack.addWidget(self.audio_grid)
-        self._audio_pool_stack.setFixedHeight(448)
+        self._audio_pool_stack.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
 
         # -------- Toolbar --------
         tb = QHBoxLayout()

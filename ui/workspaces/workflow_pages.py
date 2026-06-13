@@ -371,12 +371,14 @@ class MaterialAnalysisWorkspace(QWidget):
             # loesung/FPS/Container/Copy werden jetzt in einem modalen Dialog
             # gewaehlt (Profi-Pattern), den der Standardisieren-Button oeffnet.
             # Nur der Button bleibt als Trigger in der Spalte.
-            # B-492: PREFLIGHT-Tab des ConvertWorkspace ist dadurch leer -> entfernen,
-            # damit der ConvertWorkspace (zeigt dann nur noch EFFEKTE) erreichbar ist.
-            _tabs = getattr(self.convert_widget, "_tabs", None)
-            if _tabs is not None and _tabs.count() >= 2:
-                _tabs.removeTab(0)  # leerer PREFLIGHT-Tab
-            layout.addWidget(self.convert_widget, stretch=0)
+            # UI-Ueberholung 2026-06-13 (User-Feedback): Der ConvertWorkspace
+            # (EFFEKTE-Tab) wird NICHT mehr unter den Medien-Bereich gemountet.
+            # Er fraß mit der leeren 360px-Vorschau (effects_preview) den unteren
+            # Bereich des Material-Tabs als toten Platz. Per-Clip-Effekte
+            # (Helligkeit/Kontrast/Crossfade) sind im SCHNITT Clip-Inspector
+            # verfuegbar; der Standardisieren-Button bleibt als Trigger erhalten.
+            # convert_widget bleibt konstruiert (Controller-Referenzen + Dialog),
+            # nur unsichtbar (kein Layout-Mount).
 
         self.btn_stems = self.media_widget.btn_stem_separate
         self.btn_video_pipeline = self.media_widget.btn_video_pipeline

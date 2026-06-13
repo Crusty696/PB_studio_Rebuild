@@ -151,6 +151,7 @@ from PySide6.QtWidgets import (
     QLabel, QFrame,
     QStackedWidget,
     QSizePolicy,
+    QDockWidget,
 )
 from PySide6.QtCore import Qt, QThread, QObject, QTimer, QTranslator, QLocale
 
@@ -314,14 +315,30 @@ class PBWindow(QMainWindow):
         # can expand it when the user or a task needs context.
         self.right_panel = ContextPanel()
 
-        # Hauptbereich: Workspace links + Right-Panel rechts (HBox)
+        # Hauptbereich: nur noch der Workspace-Stack im zentralen Layout.
         _content = QWidget()
         _content_h = QHBoxLayout(_content)
         _content_h.setContentsMargins(0, 0, 0, 0)
         _content_h.setSpacing(0)
         _content_h.addWidget(self.workspace_stack)
-        _content_h.addWidget(self.right_panel)
         main_layout.addWidget(_content, stretch=1)
+
+        # UI-Ueberholung 2026-06-13 (User-Feedback "TASKS halb so gross + andockbar"):
+        # Das Kontext-/TASKS-Panel ist jetzt ein QDockWidget statt fest in der
+        # HBox -> abreissbar (float), verschiebbar (links/rechts), schliessbar,
+        # und mit ~halber Breite (ContextPanel.DEFAULT_WIDTH 280 -> 180).
+        self.right_dock = QDockWidget("Kontext", self)
+        self.right_dock.setObjectName("context_dock")
+        self.right_dock.setAllowedAreas(
+            Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea
+        )
+        self.right_dock.setFeatures(
+            QDockWidget.DockWidgetFeature.DockWidgetMovable
+            | QDockWidget.DockWidgetFeature.DockWidgetFloatable
+            | QDockWidget.DockWidgetFeature.DockWidgetClosable
+        )
+        self.right_dock.setWidget(self.right_panel)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.right_dock)
 
         # Kompatibilitaets-Aliase (alter Code referenziert _main_splitter
         # / _inner_splitter — gibt's nicht mehr, aber wir setzen None damit
@@ -425,12 +442,21 @@ class PBWindow(QMainWindow):
             logger.warning("Brain-V3-Stats-Panel konnte nicht geladen werden: %s", exc)
 
     def _set_context_panel_visible(self, visible: bool) -> None:
-        """Collapse/expand the contextual side panel without destroying widgets."""
+        """Collapse/expand the contextual side panel without destroying widgets.
+
+        UI-Ueberholung 2026-06-13: Das Panel sitzt jetzt in einem QDockWidget;
+        Ein-/Ausblenden geschieht ueber die Dock-Sichtbarkeit. Die Panel-interne
+        Breiten-Logik (set_context_visible) setzt zusaetzlich die ~halbe Breite,
+        wenn sichtbar.
+        """
+        dock = getattr(self, "right_dock", None)
         if hasattr(self.right_panel, "set_context_visible"):
             self.right_panel.set_context_visible(visible)
         else:
-            self.right_panel.setFixedWidth(280 if visible else 0)
+            self.right_panel.setFixedWidth(self.right_panel.DEFAULT_WIDTH if visible else 0)
             self.right_panel.setVisible(visible)
+        if dock is not None:
+            dock.setVisible(visible)
         if hasattr(self, "_btn_context_panel"):
             self._btn_context_panel.setChecked(visible)
 
