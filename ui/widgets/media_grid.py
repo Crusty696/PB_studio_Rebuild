@@ -834,7 +834,7 @@ class MediaPoolGrid(QWidget):
         """Place filtered cards into grid, hide the rest."""
         if self._in_relayout or not self.isVisible():
             return
-        
+
         self._in_relayout = True
         try:
             while self._grid.count():

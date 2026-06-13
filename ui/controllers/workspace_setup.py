@@ -230,10 +230,16 @@ class WorkspaceSetupController(PBComponent):
         self.window.btn_select_all_video = self.window._media_ws.btn_select_all_video
         self.window.video_pool_table = self.window._media_ws.video_pool_table
         self.window.video_pool_model = self.window._media_ws.video_pool_model
+        # B-526: video_grid/audio_grid muessen ebenfalls als window-Alias
+        # vorliegen — sonst ist hasattr(window, "video_grid") in
+        # MediaTableController._apply_refreshed_data False und set_items() wird
+        # NIE aufs Grid gerufen -> Kachelansicht bleibt dauerhaft leer.
+        self.window.video_grid = self.window._media_ws.video_grid
         self.window.btn_delete_selected_video = self.window._media_ws.btn_delete_selected_video
         self.window.btn_select_all_audio = self.window._media_ws.btn_select_all_audio
         self.window.audio_pool_table = self.window._media_ws.audio_pool_table
         self.window.audio_pool_model = self.window._media_ws.audio_pool_model
+        self.window.audio_grid = self.window._media_ws.audio_grid
         self.window.btn_delete_selected_audio = self.window._media_ws.btn_delete_selected_audio
         self.window.stem_player = self.window._media_ws.stem_player
         self.window.media_table = self.window._media_ws.media_table
