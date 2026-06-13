@@ -2,7 +2,7 @@
 
 status: active
 active_plan_id: PB-STUDIO-CONSULTING-REVIEW-FIXPLAN-2026-06-12
-next_allowed_task: USER-Triage der 7 neuen Live-Befunde (B-523..B-529) + Entscheidung Wave-4-Fortgang (CRF-024). Live-Verifikation CRF Waves 1-4 wurde am 2026-06-13 (02:03-02:48, GUI Computer-Use) durchgefuehrt: 8 PASS, 2 TEIL-PASS (B-507/B-510 Stems-Cancel-Haenger), 2 FAIL (B-498 daily-Backup, B-517 BLOCKIERT keine GUI-Copy-Option), 1 nur statisch (B-508). 7 neue Bugfiles im Vault angelegt (status: open). Report: Test-ergebniss/2026-06-13_0203_live-verifikation-crf-waves-1-4/report.md. status:fixed setzt nur User.
+next_allowed_task: USER-Live-Verifikation der 6 Code-Fixes B-523/B-524/B-526/B-527/B-528/B-529 (+ B-525 Teil Copy) per echter GUI + status:fixed-Vergabe; offen: B-525 Teil 1 (Convert-Panel Layout-Ueberlappung, braucht GUI-Repro/Diagnose) + Wave-4-Entscheid (CRF-024). Stand 2026-06-13: alle 7 neuen Live-Befunde bearbeitet — 6 chirurgisch gefixt (alle code-fix-pending-live-verification, Unit/Integration gruen, je eigener Commit auf fix-team/2026-06-12-vollaudit: B-523 abb6380f, B-524 afbbac63, B-526 d01db939, B-527 83fcc7d6, B-528 e5161f8a, B-529 497f7201), B-525 Copy d88dbce6 (Layout-Teil offen). status:fixed setzt nur User.
 updated: 2026-06-13
 
 ## Vorheriger aktiver Plan (pausiert, nicht superseded)
