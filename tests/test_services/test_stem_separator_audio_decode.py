@@ -166,6 +166,66 @@ def test_chunked_loader_rejects_empty_file(tmp_path: Path):
         ai_audio_service._chunked_soundfile_load(wav, 44100, None)
 
 
+def test_chunked_loader_aborts_on_should_stop(monkeypatch, tmp_path: Path):
+    """B-524: should_stop unterbricht den Lade-Loop zeitnah (raise User-Cancel),
+    statt einen langen Mix nach Cancel weiter zu laden und den GPU-Lock zu halten.
+    """
+    import soundfile as sf_mod
+    from services import ai_audio_service
+
+    file_sr = 44100
+    duration = 10.0  # mit 2-s-Chunks => 5 Lade-Chunks
+    n = int(duration * file_sr)
+    data = (0.2 * np.sin(2 * np.pi * 220.0 * np.arange(n) / file_sr)).astype(np.float32)
+    wav = tmp_path / "long.wav"
+    sf_mod.write(str(wav), data, file_sr)
+
+    monkeypatch.setattr(ai_audio_service, "STEM_LOAD_CHUNK_SECONDS", 2)
+
+    calls = {"n": 0}
+
+    def should_stop():
+        # erster Chunk laeuft, danach Cancel
+        calls["n"] += 1
+        return calls["n"] > 1
+
+    with pytest.raises(RuntimeError, match="abgebrochen"):
+        ai_audio_service._chunked_soundfile_load(wav, 44100, None, should_stop)
+    # Loop wurde frueh abgebrochen, nicht alle 5 Chunks verarbeitet.
+    assert calls["n"] <= 3
+
+
+def test_load_audio_propagates_cancel_without_fallback(monkeypatch, tmp_path: Path):
+    """B-524: ein User-Cancel im primaeren Loader darf NICHT in den
+    torchaudio-/FFmpeg-Fallback laufen, sondern muss durchpropagieren."""
+    torchaudio = pytest.importorskip("torchaudio")
+    import soundfile as sf_mod
+    from services import ai_audio_service
+
+    file_sr = 44100
+    n = int(6.0 * file_sr)
+    data = (0.2 * np.sin(2 * np.pi * 220.0 * np.arange(n) / file_sr)).astype(np.float32)
+    wav = tmp_path / "cancel.wav"
+    sf_mod.write(str(wav), data, file_sr)
+
+    monkeypatch.setattr(ai_audio_service, "STEM_LOAD_CHUNK_SECONDS", 2)
+
+    fallback_used = {"hit": False}
+    orig_load = torchaudio.load
+
+    def _spy_load(*a, **k):
+        fallback_used["hit"] = True
+        return orig_load(*a, **k)
+
+    monkeypatch.setattr(torchaudio, "load", _spy_load)
+
+    with pytest.raises(RuntimeError, match="abgebrochen"):
+        ai_audio_service._load_audio_for_stem_separation(
+            wav, torchaudio, target_sr=44100, should_stop=lambda: True,
+        )
+    assert fallback_used["hit"] is False
+
+
 def test_stem_diagnostic_chunk_limit_raises_before_partial_success(monkeypatch):
     from services import ai_audio_service
 
