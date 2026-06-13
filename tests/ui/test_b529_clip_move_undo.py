@@ -138,5 +138,13 @@ def test_b529_real_clip_item_move_undo_roundtrip(
             assert abs(row.start_time) < 1e-6, f"Undo hat Move nicht revertiert: start={row.start_time}"
         assert tl._find_clip_item(eid) is not None
     finally:
+        # Test-Isolation: Timeline-Worker/Timer stoppen + Event-Loop drainen,
+        # damit kein Hintergrund-Job in timing-sensitive Folgetests laeuft.
+        import time as _t
+        try:
+            tl._cancel_pending_db_load()
+        except Exception:
+            pass
         tl.deleteLater()
-        app.processEvents()
+        for _ in range(10):
+            app.processEvents(); _t.sleep(0.02)

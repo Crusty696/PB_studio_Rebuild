@@ -730,4 +730,15 @@ def test_refresh_clip_geometry_keeps_items_and_updates_width(
         # ... und die Breite spiegelt den neuen Trim (5s).
         assert item._clip_width == pytest.approx(5.0 * PIXELS_PER_SECOND)
     finally:
+        # Test-Isolation: ausstehende Timeline-Worker/Timer + Thumb-Threads
+        # stoppen und Event-Loop drainen, damit kein Hintergrund-Job in einen
+        # nachfolgenden (timing-sensitiven) Test wie test_b508 hineinlaeuft.
+        import time as _t
+        try:
+            tl._cancel_pending_db_load()
+        except Exception:
+            pass
         tl.deleteLater()
+        app = _qapp()
+        for _ in range(10):
+            app.processEvents(); _t.sleep(0.02)
