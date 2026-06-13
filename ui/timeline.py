@@ -826,7 +826,11 @@ class InteractiveTimeline(QGraphicsView):
         self._beat_times: list[float] = []
         self._snap_to_beat = True
         self._ruler_items: list = []
-        self._pending_moves: dict[int, float] = {}  # entry_id -> new_start
+        # B-529: entry_id -> {"new_start", "drag_start_x", "duration"}. Die
+        # Drag-Start-Daten werden zur Move-Zeit festgehalten (Item-Cache noch
+        # gueltig), nicht erst im Flush — mouseReleaseEvent loescht den
+        # Item-Cache, bevor der 200ms-Debounce feuert.
+        self._pending_moves: dict[int, dict] = {}
         self._move_timer = QTimer(self)
         self._move_timer.setSingleShot(True)
         self._move_timer.setInterval(200)
@@ -1810,7 +1814,25 @@ class InteractiveTimeline(QGraphicsView):
         """Debounced: Sammelt Drag-Events und schreibt erst nach 200ms Ruhe in die DB."""
         snapped_x = self._snap_x_to_beat(max(0, new_x))
         new_start = max(0, snapped_x / PIXELS_PER_SECOND)
-        self._pending_moves[entry_id] = new_start
+        # B-529: Drag-Start/Dauer JETZT festhalten (waehrend des Drags ist der
+        # Item-Cache gueltig). mouseReleaseEvent loescht ihn, bevor der
+        # 200ms-Debounce _flush_pending_moves feuert -> sonst ging das
+        # MoveClipCommand verloren und Strg+Z entfernte stattdessen
+        # Clip-Hinzufuegungen.
+        clip_item = self._find_clip_item(entry_id)
+        drag_start_x = getattr(clip_item, "_drag_start_x", None) if clip_item else None
+        duration = getattr(clip_item, "_drag_duration", None) if clip_item else None
+        prev = self._pending_moves.get(entry_id)
+        # Den ersten erfassten Drag-Start behalten (Beginn der Drag-Geste).
+        if isinstance(prev, dict) and prev.get("drag_start_x") is not None:
+            drag_start_x = prev["drag_start_x"]
+            if prev.get("duration") is not None:
+                duration = prev["duration"]
+        self._pending_moves[entry_id] = {
+            "new_start": new_start,
+            "drag_start_x": drag_start_x,
+            "duration": duration,
+        }
         self._move_timer.start()
 
     def _flush_pending_moves(self):
@@ -1828,14 +1850,20 @@ class InteractiveTimeline(QGraphicsView):
             self.undo_stack.beginMacro(f"{len(moves)} Clips verschieben")
 
         try:
-            for entry_id, new_start in moves.items():
+            for entry_id, rec in moves.items():
                 clip_item = self._find_clip_item(entry_id)
                 if not clip_item:
                     continue
 
-                # Use cached values from drag start - no DB read needed
-                drag_start_x = clip_item._drag_start_x
-                duration = clip_item._drag_duration
+                # B-529: bevorzugt die zur Move-Zeit festgehaltenen Werte; der
+                # Item-Cache ist nach mouseReleaseEvent bereits geloescht.
+                new_start = rec["new_start"]
+                drag_start_x = rec.get("drag_start_x")
+                duration = rec.get("duration")
+                if drag_start_x is None:
+                    drag_start_x = clip_item._drag_start_x
+                if duration is None:
+                    duration = clip_item._drag_duration
 
                 if drag_start_x is None or duration is None:
                     # Fallback: skip this clip if no cached data
