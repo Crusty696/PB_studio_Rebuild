@@ -2,8 +2,8 @@
 
 status: active
 active_plan_id: PB-STUDIO-CONSULTING-REVIEW-FIXPLAN-2026-06-12
-next_allowed_task: Wave 1+2+3 komplett (22 Commits, 34d459ef..0f87b08a, alle code-fix-pending-live-verification). Naechster Schritt = USER: Live-Verifikation per test_reports/CRF-live-verify-checkliste-2026-06-12.md + Entscheidungen CRF-D1/D2/D3 + OK fuer Wave 4 (CRF-024).
-updated: 2026-06-12
+next_allowed_task: USER-Triage der 7 neuen Live-Befunde (B-523..B-529) + Entscheidung Wave-4-Fortgang (CRF-024). Live-Verifikation CRF Waves 1-4 wurde am 2026-06-13 (02:03-02:48, GUI Computer-Use) durchgefuehrt: 8 PASS, 2 TEIL-PASS (B-507/B-510 Stems-Cancel-Haenger), 2 FAIL (B-498 daily-Backup, B-517 BLOCKIERT keine GUI-Copy-Option), 1 nur statisch (B-508). 7 neue Bugfiles im Vault angelegt (status: open). Report: Test-ergebniss/2026-06-13_0203_live-verifikation-crf-waves-1-4/report.md. status:fixed setzt nur User.
+updated: 2026-06-13
 
 ## Vorheriger aktiver Plan (pausiert, nicht superseded)
 
