@@ -87,7 +87,7 @@ def _finalize_stem_waveform(waveform, sr: int, target_sr: int, torchaudio_module
     return waveform
 
 
-def _chunked_soundfile_load(src: Path, target_sr: int, torchaudio_module):
+def _chunked_soundfile_load(src: Path, target_sr: int, torchaudio_module, should_stop=None):
     """B-510: Chunk-weises Laden via soundfile in vorallokiertes (2, n)-float32-Array.
 
     Vermeidet die transienten Vollkopien des alten Pfads (torchaudio-Full-Load
@@ -123,6 +123,12 @@ def _chunked_soundfile_load(src: Path, target_sr: int, torchaudio_module):
         pos_in = 0
         pos_out = 0
         while pos_in < total_in:
+            # B-524: Abbruch-Check pro Lade-Chunk. Ohne ihn lief der CPU-Loader
+            # eines langen Mixes nach User-Cancel minutenlang weiter (Status
+            # haengt auf "0% - Initialisierung") und hielt den GPU_EXECUTION_LOCK
+            # → wartende Proxy-/GPU-Folge-Tasks blockiert.
+            if should_stop and should_stop():
+                raise RuntimeError("Stem-Separation abgebrochen (User-Cancel)")
             core_len = min(chunk_in, total_in - pos_in)
             lead = min(pos_in, margin)
             read_start = pos_in - lead
@@ -156,6 +162,7 @@ def _load_audio_for_stem_separation(
     src: Path,
     torchaudio_module,
     target_sr: int,
+    should_stop=None,
 ):
     """Load audio for Demucs as (2, n) float32 waveform at ``target_sr``.
 
@@ -168,8 +175,12 @@ def _load_audio_for_stem_separation(
         (waveform, sr) mit waveform-Shape (2, n) und sr == target_sr.
     """
     try:
-        return _chunked_soundfile_load(src, target_sr, torchaudio_module), target_sr
+        return _chunked_soundfile_load(src, target_sr, torchaudio_module, should_stop), target_sr
     except Exception as sf_error:
+        # B-524: User-Cancel NICHT als Lade-Fehler behandeln (sonst liefe der
+        # torchaudio-/FFmpeg-Fallback trotz Abbruch weiter).
+        if should_stop and should_stop():
+            raise
         logger.debug(
             "[StemSeparator] Chunked soundfile-Load fehlgeschlagen (%s) — torchaudio-Fallback.",
             sf_error,
@@ -492,6 +503,12 @@ class StemSeparator:
             demucs_model.eval()
         logger.info(f"[StemSeparator] Modell '{model}' geladen auf {device}")
 
+        # B-524: Abbruch-Check vor dem (potentiell minutenlangen) Audio-Load,
+        # damit ein Cancel zwischen Modell- und Audio-Load sofort den
+        # GPU_EXECUTION_LOCK freigibt statt erst nach dem Laden.
+        if should_stop and should_stop():
+            raise RuntimeError("Stem-Separation abgebrochen (User-Cancel)")
+
         if progress_cb:
             progress_cb(10, "Lade Audio-Datei...")
 
@@ -503,7 +520,12 @@ class StemSeparator:
         # B-510: Loader liefert bereits (2, n) float32 @ model_sr (chunk-weises
         # Lesen + Resample pro Chunk in vorallokiertes Ziel-Array). Die frueheren
         # Full-Array-Kopien (Resample-Zweitkopie + Mono->Stereo-Repeat) entfallen.
-        waveform, sr = _load_audio_for_stem_separation(src, torchaudio, model_sr)
+        waveform, sr = _load_audio_for_stem_separation(src, torchaudio, model_sr, should_stop=should_stop)
+
+        # B-524: Abbruch-Check direkt nach dem Audio-Load, bevor das
+        # Chunk-Setup/erste apply_model laeuft.
+        if should_stop and should_stop():
+            raise RuntimeError("Stem-Separation abgebrochen (User-Cancel)")
 
         total_samples = waveform.shape[1]
         # D-01 Fix: chunk_seconds als lokale Variable, damit VRAM-Check sie reduzieren kann

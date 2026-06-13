@@ -2,12 +2,12 @@
 
 status: active
 active_plan_id: PB-STUDIO-CONSULTING-REVIEW-FIXPLAN-2026-06-12
-next_allowed_task: Wave 1 — CRF-002 (B-499 Runtime-Diagnose + Interpreter-Check) zuerst, danach CRF-001 (B-498 Backup), CRF-003 (B-500 clear_finished), CRF-004 (B-501 Waveform). User-Auftrag 2026-06-12: Plan erstellen und durch Agenten ausfuehren lassen. Status-Cap fuer alle Agenten-Arbeit: code-fix-pending-live-verification.
-updated: 2026-06-12
+next_allowed_task: USER-Live-Verifikation aller 7 Befund-Fixes per echter GUI + status:fixed-Vergabe; danach Wave-4-Entscheid (CRF-024). Stand 2026-06-13: ALLE 7 neuen Live-Befunde code-gefixt (alle code-fix-pending-live-verification, Tests gruen, Commits auf fix-team/2026-06-12-vollaudit): B-523 abb6380f, B-524 afbbac63, B-526 d01db939, B-527 83fcc7d6, B-528 e5161f8a, B-529 497f7201, B-525 d88dbce6(Copy)+20f0e6aa(Layout via Standardisieren-Dialog, recherche-gestuetzt, von Agent live per Screenshot verifiziert: Spalte clean + Dialog funktioniert). status:fixed setzt nur User.
+updated: 2026-06-13
 
 ## Vorheriger aktiver Plan (pausiert, nicht superseded)
 
-PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09 bleibt `approved-for-implementation` in der Registry. Offene OTK-Tasks (OTK-005, OTK-007, OTK-018, OTK-019, OTK-021, OTK-022) + B-490/B-491-Triage: B-490/B-491 werden in CRF-005 abgearbeitet; Rest wartet auf User-Selektion nach CRF-Abschluss. Pending aus 2026-06-11: commit Task-12 working tree (user-authorized) — weiterhin offen.
+PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09 bleibt `approved-for-implementation` in der Registry. Offene OTK-Tasks (OTK-005, OTK-007, OTK-018, OTK-019, OTK-021, OTK-022) + B-490/B-491-Triage: B-490/B-491 werden in CRF-005 abgearbeitet; Rest wartet auf User-Selektion nach CRF-Abschluss. Pending aus 2026-06-11: commit Task-12 working tree (user-authorized) â€” weiterhin offen.
 
 ## Meaning
 

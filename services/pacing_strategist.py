@@ -290,7 +290,7 @@ class PacingStrategist:
         skaliert das Budget proportional zur Section-Count damit lange
         DJ-Mixes nicht mid-JSON abschneiden.
         """
-        from ui.dialogs.settings_dialog import get_ollama_settings
+        from services.settings_store import get_ollama_settings
 
         cfg = get_ollama_settings()
         if not cfg.get("enabled", True):

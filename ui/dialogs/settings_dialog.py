@@ -30,14 +30,9 @@ if TYPE_CHECKING:
     pass
 
 from services.timeout_constants import HTTP_API_TIMEOUT_SEC
-from services.settings_store import get_settings_store
+from services.settings_store import get_settings_store, get_ollama_settings
 
 logger = logging.getLogger(__name__)
-
-
-def get_ollama_settings() -> dict:
-    """Gibt die gespeicherten Ollama-Einstellungen zurück."""
-    return get_settings_store().get_ollama_settings()
 
 
 def save_ollama_settings(enabled: bool, url: str, model: str) -> None:

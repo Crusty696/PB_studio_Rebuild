@@ -247,3 +247,9 @@ def get_settings_store() -> SettingsStore:
     if _store is None:
         _store = SettingsStore()
     return _store
+
+
+def get_ollama_settings() -> dict[str, Any]:
+    """Get Ollama configuration (convenience module-level wrapper)."""
+    return get_settings_store().get_ollama_settings()
+

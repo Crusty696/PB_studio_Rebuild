@@ -1,5 +1,13 @@
 # PB Studio Rebuild — Phase 4 Real-Data Test Completion
 
+> **HINWEIS (Fix-Team 2026-06-12): Fremd-Maschine — nicht repraesentativ fuer
+> die Zielmaschine.** Der unten genannte Stack "CUDA 11.8, PyTorch 2.7.1+cu118"
+> ist auf der PB-Studio-Zielmaschine (GTX 1060, Treiber 546.33, conda-env
+> `pb-studio` mit Python 3.10.20 + torch 1.12.1+cu113) nie gelaufen. Der
+> Bericht wird als historisches Testdokument unveraendert aufbewahrt;
+> massgeblich fuer das aktive Setup sind `environment.yml` +
+> `requirements-py310-cu113.txt` sowie CLAUDE.md (HARTREGEL GPU).
+
 **Datum:** 2026-04-14
 **Branch:** feature/phase6-sprint1
 **Basis:** `docs/REAL_DATA_TESTBERICHT_2026-04-13.md` — Phase 4 (Ausstehende Tests)

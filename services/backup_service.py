@@ -112,17 +112,27 @@ class BackupService:
             src_conn.close()
 
     def backup_if_stale(self, reason: str = "daily") -> Path | None:
-        """Create a backup only if the most recent existing backup is older than
-        STALE_THRESHOLD (24h). Returns the new backup path, or None if no backup
-        was needed.
+        """Create a backup only if the most recent backup OF THE SAME REASON is
+        older than STALE_THRESHOLD (24h). Returns the new backup path, or None if
+        no backup was needed.
+
+        B-527: Frueher wurde die Staleness gegen ALLE Backups geprueft. Da der
+        Pre-Migration-Snapshot (``run_pre_migration_backup``) im selben
+        ``main()``-Startlauf VOR ``run_startup_backup`` erzeugt wird, galt das
+        taegliche Backup dadurch faelschlich als "frisch" und wurde dauerhaft
+        uebersprungen — es entstand nie ein ``*_daily.db``. Die Staleness wird
+        jetzt nur gegen Backups desselben ``reason`` gewertet, damit die
+        taegliche Kadenz unabhaengig von pre-migration/pattern_reset-Snapshots
+        garantiert ist.
         """
-        existing = self.list_backups()
-        if existing:
-            newest = existing[0]
+        same_reason = [b for b in self.list_backups() if b.reason == reason]
+        if same_reason:
+            newest = same_reason[0]
             cutoff = datetime.now(timezone.utc) - self.STALE_THRESHOLD
             if newest.created_at > cutoff:
                 logger.debug(
-                    "Backup skipped — last backup within threshold: %s", newest.path
+                    "Backup skipped — last '%s' backup within threshold: %s",
+                    reason, newest.path,
                 )
                 return None
 

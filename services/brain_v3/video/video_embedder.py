@@ -173,11 +173,21 @@ class Siglip2VideoEmbedder:
                 embeddings = self._embed_in_batches(frames)
 
                 scene_embs: list[SceneEmbedding] = []
+                nan_count = 0
                 for spec, emb in zip(sampled_scenes, embeddings):
+                    normed = _l2_normalize(emb)
+                    if not np.isfinite(normed).all():
+                        nan_count += 1
+                        logger.warning(
+                            "B-511: NaN/Inf-Werte im Scene-Embedding erkannt (Zaehler=%d). "
+                            "Scene wird uebersprungen: start=%.2f, end=%.2f",
+                            nan_count, spec.start_time, spec.end_time
+                        )
+                        continue
                     scene_embs.append(SceneEmbedding(
                         start_time=spec.start_time,
                         end_time=spec.end_time,
-                        embedding=_l2_normalize(emb).astype("float32"),
+                        embedding=normed.astype("float32"),
                     ))
 
                 clip_emb = self._aggregate_clip(scene_embs)
@@ -286,7 +296,7 @@ class Siglip2VideoEmbedder:
 # ---------------------------------------------------------------------------
 def _l2_normalize(v: np.ndarray) -> np.ndarray:
     norm = float(np.linalg.norm(v))
-    if norm < 1e-12:
+    if norm < 1e-12 or not np.isfinite(norm):
         return v
     return v / norm
 

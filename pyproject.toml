@@ -6,17 +6,21 @@ authors = ["Your Name <you@example.com>"]
 package-mode = false
 
 # Aktive Ziel-Runtime (D-040): Python 3.10 + torch 1.12.1+cu113
-# auf NVIDIA GTX 1060 / CUDA 11.3. Installation erfolgt ueber
-# requirements-py310-cu113.txt / environment.yml.
+# auf NVIDIA GTX 1060 / CUDA 11.3 (Treiber 546.33, verifiziert 2026-06-12).
+# Installation erfolgt ueber environment.yml -> requirements-py310-cu113.txt
+# (kanonische Quelle). Diese Poetry-Ranges sind NICHT der Install-Pfad,
+# wurden aber 2026-06-12 an die kanonischen Pins angeglichen (M-17).
 # requirements.txt bleibt Legacy/Future-Referenz fuer Python 3.11+cu124
 # und ist nicht der aktive GTX-1060-Setup-Pfad.
 [tool.poetry.dependencies]
 python = ">=3.10,<3.12"
-pyside6 = ">=6.6.0,<7.0.0"
+# PySide6 6.8+ braucht Python 3.11 — Obergrenze wie requirements-py310-cu113.txt
+pyside6 = ">=6.6.0,<6.8.0"
 sqlalchemy = ">=2.0.20,<3.0.0"
 alembic = ">=1.13.0,<2.0.0"
 librosa = ">=0.10.0,<0.12.0"
-numpy = ">=1.24.0,<3.0.0"
+# numpy 2.x braucht Python 3.11+ — Obergrenze wie requirements-py310-cu113.txt
+numpy = ">=1.24.0,<2.0.0"
 demucs = ">=4.0.1,<5.0.0"
 opencv-python = ">=4.8.0,<5.0.0"
 scipy = ">=1.11.0,<2.0.0"
@@ -26,7 +30,9 @@ einops = ">=0.8.0,<0.9.0"
 pillow = ">=10.0.0,<13.0.0"
 accelerate = ">=0.27.0,<2.0.0"
 opentimelineio = ">=0.17.0,<1.0.0"
-pyarrow = ">=14.0.0,<24.0.0"
+# pyarrow/lancedb: Ranges wie requirements-py310-cu113.txt (M-17)
+pyarrow = ">=14.0.0,<18.0.0"
+lancedb = ">=0.4.0,<0.20.0"
 python-dotenv = ">=1.0.0,<2.0.0"
 scenedetect = ">=0.6.0,<1.0.0"
 sounddevice = ">=0.5.0,<1.0.0"
@@ -37,10 +43,11 @@ click = ">=8.0.0,<8.4.0"
 # requirements-py310-cu113.txt pflegen; requirements.txt nur synchron halten,
 # wenn der Legacy/Future-cu124-Pfad bewusst aktualisiert wird.
 beat-this = {path = "vendor/beat_this", develop = false}
-# Torch-Versions sind Setup-abhaengig — siehe requirements*.txt
-torch = {version = ">=1.10.0", source = "pytorch", markers = "sys_platform == 'win32' or sys_platform == 'linux'"}
-torchvision = {version = ">=0.11.0", source = "pytorch", markers = "sys_platform == 'win32' or sys_platform == 'linux'"}
-torchaudio = {version = ">=0.10.0", source = "pytorch", markers = "sys_platform == 'win32' or sys_platform == 'linux'"}
+# Torch-Versions: aktive Pins (torch==1.12.1+cu113 etc.) stehen in
+# requirements-py310-cu113.txt; Floors hier 2026-06-12 daran angeglichen (M-17).
+torch = {version = ">=1.12.1", source = "pytorch", markers = "sys_platform == 'win32' or sys_platform == 'linux'"}
+torchvision = {version = ">=0.13.1", source = "pytorch", markers = "sys_platform == 'win32' or sys_platform == 'linux'"}
+torchaudio = {version = ">=0.12.1", source = "pytorch", markers = "sys_platform == 'win32' or sys_platform == 'linux'"}
 # === Studio Brain ===
 umap-learn = ">=0.5,<0.6"
 pyqtgraph = ">=0.13,<0.14"
@@ -69,8 +76,6 @@ ignore = [
     "E702",   # semicolon-separated statements in legacy math/UI code
     "F401",   # imported but unused (too noisy during refactoring)
     "F541",   # f-string without placeholders (legacy UI logging strings)
-    "F811",   # redefinitions from local lazy imports in monolith modules
-    "F821",   # forward-ref type names used without runtime imports
     "F841",   # assigned-but-unused locals in diagnostic legacy code
     "I001",   # import ordering is intentionally loose in legacy Qt modules
     "E741",   # short math variable names are common in signal/stack code

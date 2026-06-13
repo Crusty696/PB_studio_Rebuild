@@ -171,47 +171,67 @@ else:
 def run_worker(owner, worker, on_finish=None, on_error=None):
     """Führt einen BaseWorker auf einem eigenen QThread aus und liefert die
     Signale per QueuedConnection im owner-Thread (i. d. R. GUI-Thread) zurück.
-
-    Für leichte UI-Komponenten (Dialoge), die NICHT am MainWindow-TaskManager
-    haengen. Thread + Worker werden in ``owner._async_jobs`` referenziert, damit
-    sie waehrend der Laufzeit nicht GC'd werden; nach finished/error wird beides
-    via deleteLater abgeraeumt.
-
-    ``on_finish`` feuert nur im Erfolgsfall (BaseWorker.finished emittiert auch
-    bei Fehler, deshalb der _errored-Guard). ``on_error`` bekommt die Meldung.
+    
+    B-513: Verbindet owner.destroyed -> worker.cancel() + thread.quit() und
+    sichert Callbacks mit shiboken6.isValid + weakref.ref ab, um Abstürze bei
+    zerstörten UI-Komponenten zu verhindern und Referenzzyklen zu vermeiden.
     """
     from PySide6.QtCore import QThread, Qt
-
+    import shiboken6
+    import weakref
+    
     jobs = getattr(owner, "_async_jobs", None)
     if jobs is None:
         jobs = []
         owner._async_jobs = jobs
-
+        
     thread = QThread()
     worker.moveToThread(thread)
     qc = Qt.ConnectionType.QueuedConnection
     thread.started.connect(worker.run)
-
+    
+    owner_ref = weakref.ref(owner)
+    
+    # owner.destroyed -> worker.cancel() + thread.quit()
+    if hasattr(owner, "destroyed"):
+        def _on_owner_destroyed():
+            try:
+                worker.cancel()
+            except Exception:
+                pass
+            try:
+                thread.quit()
+            except Exception:
+                pass
+        owner.destroyed.connect(_on_owner_destroyed)
+        
     if on_finish is not None:
-        def _guarded_finish(payload, _w=worker, _cb=on_finish):
-            if not getattr(_w, "_errored", False):
+        def _guarded_finish(payload, _w=worker, _cb=on_finish, _owner_ref=owner_ref):
+            _owner = _owner_ref()
+            if _owner is not None and shiboken6.isValid(_owner) and not getattr(_w, "_errored", False):
                 _cb(payload)
         worker.finished.connect(_guarded_finish, qc)
+        
     if on_error is not None:
-        worker.error.connect(on_error, qc)
-
+        def _guarded_error(err_msg, _cb=on_error, _owner_ref=owner_ref):
+            _owner = _owner_ref()
+            if _owner is not None and shiboken6.isValid(_owner):
+                _cb(err_msg)
+        worker.error.connect(_guarded_error, qc)
+        
     worker.finished.connect(thread.quit)
     worker.error.connect(thread.quit)
     thread.finished.connect(worker.deleteLater)
     thread.finished.connect(thread.deleteLater)
-
+    
     job = (thread, worker)
     jobs.append(job)
-
-    def _drop(_job=job, _jobs=jobs):
-        if _job in _jobs:
+    
+    def _drop(_job=job, _jobs=jobs, _owner_ref=owner_ref):
+        _owner = _owner_ref()
+        if _owner is not None and shiboken6.isValid(_owner) and _job in _jobs:
             _jobs.remove(_job)
     thread.finished.connect(_drop, qc)
-
+    
     thread.start()
     return thread

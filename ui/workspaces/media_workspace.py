@@ -422,7 +422,8 @@ class MediaWorkspace(QWidget):
         if not hasattr(self, "_video_preflight_layout"):
             return
         button.setParent(self._video_preflight_panel)
-        button.setText("Preflight standardisieren")
+        # B-525: oeffnet jetzt den modalen Ziel-Format-Dialog (Ellipsis-Konvention).
+        button.setText("Videos standardisieren…")
         button.setFixedHeight(30)
         button.setVisible(True)
         button.setToolTip(
@@ -456,7 +457,9 @@ class MediaWorkspace(QWidget):
 
         # -------- Model + Proxy (Paginierung) --------
         self.video_pool_model = MediaTableModel(media_type="Video")
-        self._video_pool_proxy = PagedProxyModel(page_size=16)
+        # UI-Ueberholung 2026-06-13 (User-Feedback "Tabelle groesser"): mehr
+        # Zeilen pro Seite, damit mehr Files auf einmal sichtbar sind.
+        self._video_pool_proxy = PagedProxyModel(page_size=30)
         self._video_pool_proxy.setSourceModel(self.video_pool_model)
 
         self.video_pool_table = DraggablePoolView(track_type="video")
@@ -473,13 +476,20 @@ class MediaWorkspace(QWidget):
         vh.resizeSection(6, 80)
         self.video_pool_table.verticalHeader().setDefaultSectionSize(24)
         self.video_pool_table.verticalHeader().setVisible(False)
-        self.video_pool_table.setFixedHeight(448)  # 16 Zeilen × 28 px
+        # UI-Ueberholung 2026-06-13: fixe Hoehe (448px/16 Zeilen) entfernt — die
+        # Tabelle fuellt jetzt die verfuegbare Spaltenhoehe (Expanding), zeigt also
+        # deutlich mehr Files auf einmal.
+        self.video_pool_table.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
 
         self.video_grid = MediaPoolGrid(media_type="video")
         self._video_pool_stack = QStackedWidget()
         self._video_pool_stack.addWidget(self.video_pool_table)
         self._video_pool_stack.addWidget(self.video_grid)
-        self._video_pool_stack.setFixedHeight(448)
+        self._video_pool_stack.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
 
         # -------- Toolbar (Import + Aktionen + Pager + View + Select) --------
         tb = QHBoxLayout()
@@ -696,12 +706,11 @@ class MediaWorkspace(QWidget):
         self._video_preflight_layout = QVBoxLayout(self._video_preflight_panel)
         self._video_preflight_layout.setContentsMargins(8, 8, 8, 8)
         self._video_preflight_layout.setSpacing(6)
-        preflight_hint = QLabel(
-            "Preflight gehoert zu Video: Format, FPS, Codec und Proxy werden vor Analyse/Export geprueft."
-        )
-        preflight_hint.setWordWrap(True)
-        preflight_hint.setStyleSheet("color:#9ca3af; font-size:10px;")
-        self._video_preflight_layout.addWidget(preflight_hint)
+        # B-525: Frueher lag hier ein mehrzeiliges Hinweis-Label, das zusammen mit
+        # dem reparenteten Standardisieren-Button + dem (inzwischen in den Dialog
+        # ausgelagerten) Ziel-Format-GroupBox in der engen Spalte ueberlappte.
+        # Der Hinweis ist jetzt im modalen Dialog; das Panel haelt nur noch den
+        # Trigger-Button (via attach_preflight_button) -> keine Ueberlappung.
         layout.addWidget(self._video_preflight_panel)
 
         self.keyframe_text = QTextEdit()
@@ -727,7 +736,7 @@ class MediaWorkspace(QWidget):
 
         # -------- Model + Proxy --------
         self.audio_pool_model = MediaTableModel(media_type="Audio")
-        self._audio_pool_proxy = PagedProxyModel(page_size=16)
+        self._audio_pool_proxy = PagedProxyModel(page_size=30)  # UI-Ueberholung 2026-06-13: mehr Zeilen
         self._audio_pool_proxy.setSourceModel(self.audio_pool_model)
 
         self.audio_pool_table = DraggablePoolView(track_type="audio")
@@ -744,13 +753,18 @@ class MediaWorkspace(QWidget):
         ah.resizeSection(6, 80)
         self.audio_pool_table.verticalHeader().setDefaultSectionSize(24)
         self.audio_pool_table.verticalHeader().setVisible(False)
-        self.audio_pool_table.setFixedHeight(448)
+        # UI-Ueberholung 2026-06-13: fixe Hoehe raus -> Tabelle fuellt die Spalte.
+        self.audio_pool_table.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
 
         self.audio_grid = MediaPoolGrid(media_type="audio")
         self._audio_pool_stack = QStackedWidget()
         self._audio_pool_stack.addWidget(self.audio_pool_table)
         self._audio_pool_stack.addWidget(self.audio_grid)
-        self._audio_pool_stack.setFixedHeight(448)
+        self._audio_pool_stack.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
 
         # -------- Toolbar --------
         tb = QHBoxLayout()

@@ -101,7 +101,8 @@ class ConvertWorkspace(QWidget):
         format_layout.addWidget(QLabel("Container:"))
         self.convert_format = QComboBox()
         self.convert_format.addItems([
-            "mp4 (H.264)", "mp4 (H.265/HEVC)", "mov (ProRes)", "mkv (H.264)"
+            "mp4 (H.264)", "mp4 (H.265/HEVC)", "mov (ProRes)", "mkv (H.264)",
+            "mp4 (Kopieren/Copy)",
         ])
         self.convert_format.setFixedHeight(22)
         self.convert_format.setAccessibleName("Ziel-Containerformat")

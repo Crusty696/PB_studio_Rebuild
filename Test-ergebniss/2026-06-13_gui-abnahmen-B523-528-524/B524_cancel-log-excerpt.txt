@@ -1,0 +1,16 @@
+2026-06-13 10:16:33 [INFO    ] services.analysis_status_service: Analysis started: audio/1/stem_separation
+2026-06-13 10:16:35 [INFO    ] services.ai_audio_service: [StemSeparator] GPU erkannt: NVIDIA GeForce GTX 1060 (6.0 GB VRAM)
+2026-06-13 10:16:39 [INFO    ] services.ai_audio_service: [StemSeparator] Modell 'htdemucs_ft' geladen auf cuda
+2026-06-13 10:16:51 [INFO    ] services.ai_audio_service: [StemSeparator] Audio: 3745.5s, SR=44100, Chunks=134 (je 30s, 2s Overlap)
+2026-06-13 10:16:51 [INFO    ] services.ai_audio_service: [StemSeparator] Output: 4.9 GB RAM fuer Akkumulator vermieden; Streaming aktiv.
+2026-06-13 10:16:52 [INFO    ] services.ai_audio_service: [StemSeparator] Verarbeite Chunk 1/134 auf CUDA (0.0s - 30.0s)...
+2026-06-13 10:17:06 [INFO    ] services.ai_audio_service: [StemSeparator] Chunk 1/134 apply_model fertig: 14.56s, VRAM frei vor/nach: 4.42/3.10 GB
+2026-06-13 10:17:06 [INFO    ] services.ai_audio_service: [StemSeparator] Chunk 1/134 CPU/Write fertig: 0.18s, Gesamt-Chunk: 14.79s
+2026-06-13 10:17:07 [INFO    ] services.ai_audio_service: [StemSeparator] Verarbeite Chunk 2/134 auf CUDA (28.0s - 58.0s)...
+2026-06-13 10:17:08 [INFO    ] root: [TaskEngine] Kooperativer Abbruch: task_50ad7f03fc13
+2026-06-13 10:17:16 [INFO    ] services.ai_audio_service: [StemSeparator] Chunk 2/134 apply_model fertig: 9.47s, VRAM frei vor/nach: 3.87/3.10 GB
+2026-06-13 10:17:16 [INFO    ] services.ai_audio_service: [StemSeparator] Chunk 2/134 CPU/Write fertig: 0.15s, Gesamt-Chunk: 9.66s
+2026-06-13 10:17:16 [INFO    ] services.ai_audio_service: [StemSeparator] Abbruch durch Benutzer.
+2026-06-13 10:17:17 [WARNING ] services.ai_audio_service: [StemSeparator] Streaming-Cleanup fehlgeschlagen: [WinError 32] Der Prozess kann nicht auf die Datei zugreifen, da sie von einem anderen Prozess verwendet wird: 'C:\\Users\\David Lochmann\\Downloads\\video\\test55655\\storage\\stems\\htdemucs_ft\\Crusty_Progressive Psy Set2\\drums.wav'
+2026-06-13 10:17:17 [INFO    ] workers.audio: StemSeparationWorker[1] cancelled: Stem-Separation fehlgeschlagen fuer Track 1: Stem-Separation abgebrochen (User-Cancel)
+2026-06-13 10:17:17 [INFO    ] services.analysis_status_service: Analysis cancelled: audio/1/stem_separation

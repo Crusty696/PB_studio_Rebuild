@@ -221,26 +221,49 @@ class ConvertController(PBComponent):
         self.window.effects_preview.setPixmap(QPixmap.fromImage(img))
 
     def _standardize_all_videos(self):
-        """Konvertiert alle Videos im Video Pool ins gewaehlte Format."""
+        """B-525: Ziel-Format wird in einem modalen Dialog gewaehlt (Profi-Pattern
+        wie Premiere 'Create Proxies' / DaVinci Optimized-Media), statt inline in
+        der engen Material-&-Analyse-Spalte (das verursachte die Layout-
+        Ueberlappung). Oeffnet den Dialog und delegiert an _run_standardize.
+        """
+        from PySide6.QtWidgets import QDialog
+        from ui.dialogs.standardize_dialog import StandardizeVideosDialog
+        dlg = StandardizeVideosDialog(self.window)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        res_text, fps_text, fmt_text = dlg.selected()
+        self._run_standardize(res_text, fps_text, fmt_text)
+
+    def _run_standardize(self, res_text: str, fps_text: str, fmt_text: str):
+        """Fuehrt die Batch-Standardisierung mit den gewaehlten Ziel-Werten aus.
+
+        Von _standardize_all_videos (Dialog) aufgerufen; separat testbar
+        (Codec-Mapping) ohne modalen Dialog.
+        """
         from services.ingest_service import get_all_video
         videos = get_all_video()
         if not videos:
             self.window.convert_log.append("[Convert] Keine Videos im Pool.")
             return
 
-        res_text = self.window.convert_resolution.currentText()
         resolution = res_text.split(" ")[0]
-        fps_text = self.window.convert_fps.currentText()
         fps = fps_text.split(" ")[0]
-        fmt_text = self.window.convert_format.currentText()
-        if "H.265" in fmt_text or "HEVC" in fmt_text:
+        if "Copy" in fmt_text or "Kopieren" in fmt_text:
+            # B-525: Stream-Copy (kein Re-Encode). BatchConvertWorker entfernt bei
+            # vcodec="copy" unzulaessige Parameter (-vf/-preset) — siehe B-517.
+            vcodec, ext = "copy", ".mp4"
+        elif "H.265" in fmt_text or "HEVC" in fmt_text:
             vcodec, ext = "hevc_nvenc", ".mp4"
         elif "ProRes" in fmt_text:
             vcodec, ext = "prores_ks", ".mov"
         elif "mkv" in fmt_text:
             vcodec, ext = "libx264", ".mkv"
         else:
-            vcodec, ext = "libx264", ".mp4"
+            from services.convert_service import detect_nvenc
+            if detect_nvenc().get("h264_nvenc"):
+                vcodec, ext = "h264_nvenc", ".mp4"
+            else:
+                vcodec, ext = "libx264", ".mp4"
 
         self.window.convert_progress.setVisible(True)
         self.window.convert_progress.setRange(0, 100)

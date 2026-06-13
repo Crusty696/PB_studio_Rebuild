@@ -44,7 +44,13 @@ def _timeline_write_session():
 
 
 def _run_timeline_write(operation, label: str):
-    """Retry transient SQLite writer locks instead of crashing the UI callback."""
+    """Fuehrt DB-Schreiboperation aus. SQLite blockiert bei busy_timeout intern im C-Code.
+    
+    B-512: Kein time.sleep() im GUI-Thread mehr. Da PRAGMA busy_timeout=120s 
+    aktiv ist, wartet SQLite selbstaendig bei Locks. Ein manueller Python-Sleep 
+    ist unnoetig und blockiert die Benutzeroberflaeche. Wir versuchen den Write 
+    dennoch transient _DB_LOCK_RETRIES Mal, ohne jedoch den Thread schlafen zu legen.
+    """
     for attempt in range(1, _DB_LOCK_RETRIES + 1):
         try:
             with _timeline_write_session() as session:
@@ -53,17 +59,14 @@ def _run_timeline_write(operation, label: str):
                 return result
         except OperationalError as exc:
             if not _is_database_locked(exc) or attempt >= _DB_LOCK_RETRIES:
-                logger.exception("%s failed", label)
+                logger.exception("%s failed due to database operational error", label)
                 raise
-            delay = _DB_LOCK_RETRY_SLEEP_SEC * attempt
             logger.warning(
-                "%s hit database lock; retry %d/%d in %.2fs",
+                "%s hit database lock; retrying immediately (%d/%d)",
                 label,
                 attempt + 1,
                 _DB_LOCK_RETRIES,
-                delay,
             )
-            time.sleep(delay)
     raise RuntimeError(f"{label} failed without result")
 
 

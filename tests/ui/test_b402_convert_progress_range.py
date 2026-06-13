@@ -57,7 +57,11 @@ def test_b402_convert_progress_range_matches_worker_percent(monkeypatch):
     )
     controller = SimpleNamespace(window=window)
 
-    convert.ConvertController._standardize_all_videos(controller)
+    # B-525: Ziel-Format kommt jetzt aus dem modalen Dialog; der Convert-Start
+    # (inkl. Progress-Range) wird ueber _run_standardize(res, fps, fmt) getestet.
+    convert.ConvertController._run_standardize(
+        controller, "1920x1080 HD", "30 fps", "H.264 mp4"
+    )
 
     assert progress.range == (0, 100)
     assert progress.value == 0

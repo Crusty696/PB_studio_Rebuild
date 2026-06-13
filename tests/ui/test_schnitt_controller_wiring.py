@@ -209,19 +209,36 @@ def test_inspector_property_change_refreshes_timeline_and_reemits(monkeypatch):
     ws._project_id = 1
     ctrl = SchnittController(ws)
 
-    refreshed = []
     timeline = ws.editor_view.tab_schnitt.timeline_view
-    monkeypatch.setattr(timeline, "load_from_db", lambda: refreshed.append(True))
+    # B-523-FIX: Voll-Teardown via load_from_db() darf bei Inspector-Edits NICHT
+    # mehr laufen — er riss die gesamte Timeline-Ansicht ab und liess sie bei
+    # async-Reload-Fehlern leer (A1/V1 verschwanden bis App-Neustart).
+    full_reload = []
+    monkeypatch.setattr(timeline, "load_from_db", lambda *a, **k: full_reload.append(True))
+    geometry_refresh = []
+    monkeypatch.setattr(
+        timeline, "refresh_clip_geometry_from_db",
+        lambda entry_id: geometry_refresh.append(entry_id),
+    )
 
     emitted = []
     ctrl.clip_property_changed.connect(
         lambda entry_id, field, value: emitted.append((entry_id, field, value))
     )
 
+    # Nicht-geometrisches Feld (Effekt, wirkt erst beim Export): kein
+    # Timeline-Refresh, aber Re-Emit an die Host-Logik bleibt.
     ws.editor_view.inspector_panel.clip_property_changed.emit(7, "brightness", 0.5)
+    assert full_reload == []
+    assert geometry_refresh == []
 
-    assert refreshed == [True]
-    assert emitted == [(7, "brightness", 0.5)]
+    # Geometrie-Feld (Trim): nur In-Place-Geometrie-Update des betroffenen
+    # Clips, KEIN Voll-Reload.
+    ws.editor_view.inspector_panel.clip_property_changed.emit(7, "end_time", 5.0)
+    assert full_reload == []
+    assert geometry_refresh == [7]
+
+    assert emitted == [(7, "brightness", 0.5), (7, "end_time", 5.0)]
 
 
 def test_inspector_async_db_load_updates_fields(
@@ -655,3 +672,73 @@ def test_attach_worker_replaces_old_worker():
     assert ctrl._current_worker is a
     ctrl.attach_worker(b)
     assert ctrl._current_worker is b
+
+
+# ---------------------------------------------------------------------------
+# B-523 — Inspector-Trim leert NICHT mehr die Timeline-Ansicht
+# (Regression: frueher riss _on_clip_property_changed via load_from_db() die
+#  ganze Szene ab und liess sie bei async-Reload-Fehlern leer bis Neustart).
+# ---------------------------------------------------------------------------
+
+def test_refresh_clip_geometry_keeps_items_and_updates_width(
+    test_engine, db_session, project, video_clip, monkeypatch
+):
+    _qapp()
+    import database
+    import ui.timeline as timeline_mod
+    from database import TimelineEntry
+    from ui.timeline import InteractiveTimeline, PIXELS_PER_SECOND
+
+    # ui.timeline wird von conftest NICHT automatisch auf die Test-DB gepatcht.
+    monkeypatch.setattr(timeline_mod, "nullpool_session", database.nullpool_session)
+
+    entry = TimelineEntry(
+        project_id=project.id,
+        track="video",
+        media_id=video_clip.id,
+        start_time=0.0,
+        end_time=10.0,
+    )
+    db_session.add(entry)
+    db_session.commit()
+    db_session.refresh(entry)
+
+    tl = InteractiveTimeline()
+    try:
+        # Echtes Clip-Item synchron in die Szene bauen. Im echten Pfad setzt
+        # _on_db_load_finished diese Maps vor dem Build — hier explizit setzen.
+        tl._brain_v3_timeline_meta = {}
+        tl._anchor_map = {}
+        tl._build_entries([entry], {}, {video_clip.id: video_clip}, {})
+        assert len(tl.clip_items) == 1
+        item = tl._find_clip_item(entry.id)
+        assert item is not None
+        assert item._clip_width == pytest.approx(10.0 * PIXELS_PER_SECOND)
+
+        # Trim auf 5s in der DB (so wie der Inspector es nach dem Debounce tut).
+        with database.nullpool_session() as s:
+            row = s.get(TimelineEntry, entry.id)
+            row.end_time = 5.0
+            s.commit()
+
+        # B-523-FIX: In-Place-Update statt Voll-Teardown.
+        tl.refresh_clip_geometry_from_db(entry.id)
+
+        # KERN-REGRESSION: Item bleibt erhalten (Szene NICHT geleert) ...
+        assert len(tl.clip_items) == 1
+        assert tl._find_clip_item(entry.id) is item
+        # ... und die Breite spiegelt den neuen Trim (5s).
+        assert item._clip_width == pytest.approx(5.0 * PIXELS_PER_SECOND)
+    finally:
+        # Test-Isolation: ausstehende Timeline-Worker/Timer + Thumb-Threads
+        # stoppen und Event-Loop drainen, damit kein Hintergrund-Job in einen
+        # nachfolgenden (timing-sensitiven) Test wie test_b508 hineinlaeuft.
+        import time as _t
+        try:
+            tl._cancel_pending_db_load()
+        except Exception:
+            pass
+        tl.deleteLater()
+        app = _qapp()
+        for _ in range(10):
+            app.processEvents(); _t.sleep(0.02)

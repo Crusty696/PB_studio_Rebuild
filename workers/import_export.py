@@ -451,19 +451,25 @@ class BatchConvertWorker(QObject, CancellableMixin):
                     f"[Convert] {i+1}/{total}: {Path(src).name} -> {self.resolution} @ {self.fps}fps"
                 )
 
-                cmd = [
-                    get_ffmpeg_bin(), "-y", "-i", src,
-                    "-vf", f"scale={w_res}:{h_res}:force_original_aspect_ratio=decrease,"
-                           f"pad={w_res}:{h_res}:(ow-iw)/2:(oh-ih)/2",
-                    "-r", self.fps,
+                # B-517: copy codec filter/preset constraints
+                cmd = [get_ffmpeg_bin(), "-y", "-i", src]
+                if self.vcodec != "copy":
+                    cmd.extend([
+                        "-vf", f"scale={w_res}:{h_res}:force_original_aspect_ratio=decrease,"
+                               f"pad={w_res}:{h_res}:(ow-iw)/2:(oh-ih)/2",
+                        "-r", self.fps,
+                    ])
+                cmd.extend([
                     "-c:v", self.vcodec,
                     "-c:a", "aac",
-                    "-preset", "medium",
+                ])
+                if self.vcodec in {"libx264", "libx265", "h264_nvenc", "hevc_nvenc"}:
+                    cmd.extend(["-preset", "medium"])
+                cmd.extend([
                     "-v", "quiet",
-                    # B-402: echter Frame-Fortschritt pro Clip statt Item-Count.
                     "-progress", "pipe:1",
                     dst,
-                ]
+                ])
                 # B-402: out_time_ms (Sekunden) -> Anteil am aktuellen Clip ->
                 # Gesamt-Prozent (i + frac) / total, gedeckelt auf 99 bis der
                 # Clip fertig ist (das OK unten setzt dann die Item-Grenze).

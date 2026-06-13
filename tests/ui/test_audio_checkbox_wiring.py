@@ -302,6 +302,11 @@ def test_b293_batch_queue_contains_all_checked_ids(qapp, monkeypatch):
 
     monkeypatch.setattr(mod, "_SeqStepSignalHelper", _HelperStub)
 
+    # Mock settings store to return v2_default = False, so we hit the classical batch path
+    mock_store = MagicMock()
+    mock_store.get_nested.return_value = False
+    monkeypatch.setattr("services.settings_store.get_settings_store", lambda: mock_store)
+
     ctrl = AudioAnalysisController.__new__(AudioAnalysisController)
     ctrl.window = MagicMock()
     # Window visible -> guards pass

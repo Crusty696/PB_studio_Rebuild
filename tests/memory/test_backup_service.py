@@ -108,6 +108,30 @@ def test_daily_check_creates_after_24h(tmp_path: Path) -> None:
     assert new_path != old_file
 
 
+def test_daily_not_suppressed_by_recent_pre_migration_backup(tmp_path: Path) -> None:
+    """B-527: Ein frischer pre-migration-Snapshot (erzeugt im selben Startlauf
+    VOR dem daily-Backup) darf das taegliche Backup NICHT unterdruecken — sonst
+    entsteht nie ein ``*_daily.db``.
+    """
+    db_path = tmp_path / "db.db"
+    _make_empty_sqlite(db_path)
+    backup_dir = tmp_path / "backups"
+    svc = BackupService(db_path=db_path, backup_dir=backup_dir)
+
+    # Simuliert run_pre_migration_backup im selben Start (frisch, < 24h).
+    pre = svc.backup(reason="pre-migration")
+    assert pre.exists()
+
+    # daily darf trotzdem erzeugt werden.
+    daily = svc.backup_if_stale(reason="daily")
+    assert daily is not None, "B-527: daily-Backup wurde durch pre-migration unterdrueckt"
+    assert "_daily" in daily.name
+
+    # Zweiter Start innerhalb 24h: daily existiert -> skip (Kadenz korrekt).
+    again = svc.backup_if_stale(reason="daily")
+    assert again is None
+
+
 def test_destructive_action_hook_triggers_backup(tmp_path: Path) -> None:
     db_path = tmp_path / "db.db"
     _make_empty_sqlite(db_path)

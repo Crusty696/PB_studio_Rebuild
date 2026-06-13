@@ -93,7 +93,7 @@ class SectionTabs(QTabWidget):
 class ContextPanel(SectionTabs):
     """Right-side context panel. Collapsed by default, contents survive."""
 
-    DEFAULT_WIDTH = 280
+    DEFAULT_WIDTH = 180  # UI-Ueberholung 2026-06-13 (User-Feedback): ~halbe Breite, dafuer andockbar (QDockWidget)
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)

@@ -60,8 +60,88 @@ class EmbeddingCache:
         self.embeddings_dir = (
             Path(embeddings_dir) if embeddings_dir else paths.brain_v3_app_embeddings_dir()
         )
+        # H-5: Pre-Flight-Kollisions-Check VOR der 003-PK-Migration
+        # (one-way-door: INSERT OR REPLACE wuerde Duplikate still kollabieren).
+        self._preflight_003_collision_check()
         # Erstmals: Migrate
         migrate(self.db_path, _MIGRATIONS_DIR)
+
+    def _preflight_003_collision_check(self) -> None:
+        """H-5: Kollisionsfaelle zaehlen/loggen bevor Migration 003 laeuft.
+
+        003 wechselt den PK von ``media_hash`` auf
+        ``(media_hash, model_name, model_version)`` und kopiert die Daten
+        per ``INSERT OR REPLACE`` in eine neue Tabelle — Zeilen, die auf
+        denselben neuen PK fallen, wuerden dabei STILL verloren gehen.
+        Unter dem alten Schema (PK=media_hash) sollte das nicht vorkommen
+        koennen; falls die DB extern manipuliert wurde, wird es hier vor
+        der Anwendung gezaehlt und nach logs/migration_collisions.log
+        protokolliert. Die SQL-Datei selbst bleibt unveraendert; bereits
+        migrierte DBs (user_version >= 3) werden uebersprungen.
+        """
+        if not self.db_path.exists():
+            return  # frische DB — 003 laeuft auf leerer Tabelle
+        try:
+            conn = sqlite3.connect(str(self.db_path))
+            try:
+                version = int(conn.execute("PRAGMA user_version").fetchone()[0])
+                if version >= 3:
+                    return  # 003 bereits angewendet — nichts zu pruefen
+                has_table = conn.execute(
+                    "SELECT name FROM sqlite_master "
+                    "WHERE type='table' AND name='media_embedding_index'"
+                ).fetchone()
+                if has_table is None:
+                    return
+                total = conn.execute(
+                    "SELECT COUNT(*) FROM media_embedding_index"
+                ).fetchone()[0]
+                collisions = conn.execute(
+                    "SELECT media_hash, model_name, model_version, COUNT(*) AS n "
+                    "FROM media_embedding_index "
+                    "GROUP BY media_hash, model_name, model_version "
+                    "HAVING n > 1"
+                ).fetchall()
+            finally:
+                conn.close()
+        except sqlite3.Error as exc:
+            logger.warning(
+                "EmbeddingCache: Pre-Flight-Kollisions-Check (003) "
+                "fehlgeschlagen: %s", exc,
+            )
+            return
+
+        ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        lines = [
+            f"[{ts}] preflight 003 db={self.db_path} user_version<3 "
+            f"rows={total} collision_groups={len(collisions)}"
+        ]
+        for media_hash, model_name, model_version, n in collisions:
+            lines.append(
+                f"[{ts}]   COLLISION hash={media_hash} model={model_name}/"
+                f"{model_version} rows={n} -> {n - 1} Zeile(n) wuerden "
+                f"durch INSERT OR REPLACE verloren gehen"
+            )
+        try:
+            log_path = Path(__file__).resolve().parents[3] / "logs" / "migration_collisions.log"
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            with log_path.open("a", encoding="utf-8") as fh:
+                fh.write("\n".join(lines) + "\n")
+        except OSError as exc:
+            logger.warning(
+                "EmbeddingCache: migration_collisions.log nicht schreibbar: %s", exc
+            )
+        if collisions:
+            logger.warning(
+                "EmbeddingCache: %d Kollisions-Gruppe(n) vor Migration 003 "
+                "gefunden (siehe logs/migration_collisions.log) — Datenverlust "
+                "durch PK-Umstellung moeglich!", len(collisions),
+            )
+        else:
+            logger.info(
+                "EmbeddingCache: Pre-Flight 003 ok — %d Zeile(n), keine "
+                "Kollisionen.", total,
+            )
 
     # ------------------------------------------------------------------
     # Public API

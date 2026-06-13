@@ -19,8 +19,7 @@ def test_pacing_strategist_ignores_stale_settings_model(monkeypatch):
             return '{"sections": [], "global_min_duration": 3.0, "variety_priority": 0.7}'
 
     monkeypatch.setattr(
-        settings_dialog,
-        "get_ollama_settings",
+        "services.settings_store.get_ollama_settings",
         lambda: {"enabled": True, "url": "http://localhost:11434", "model": "gemma3:4b"},
     )
     monkeypatch.setattr(pacing_strategist, "get_ollama_client", lambda _url=None: _Client(), raising=False)

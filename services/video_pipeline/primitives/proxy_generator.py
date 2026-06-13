@@ -55,6 +55,7 @@ def _is_valid_video(path: Path) -> bool:
             str(path),
         ],
         capture_output=True, text=True, timeout=30,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
     return res.returncode == 0 and "video" in res.stdout
 
@@ -64,6 +65,7 @@ def _has_nvenc() -> bool:
     res = subprocess.run(
         [_ffmpeg(), "-hide_banner", "-encoders"],
         capture_output=True, text=True, timeout=10,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
     return "h264_nvenc" in res.stdout
 
@@ -91,9 +93,15 @@ def _try_encode(src: Path, dst: Path, max_width: int, bitrate: str, codec: str) 
         # "OpenEncodeSessionEx failed". Lock NUR um den Subprocess-Lauf.
         from services.brain_v3.gpu_serializer import get_default_serializer
         with get_default_serializer().acquire("proxy_gen"):
-            res = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            res = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=300,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
     else:
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        res = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=300,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
     return res.returncode == 0
 
 

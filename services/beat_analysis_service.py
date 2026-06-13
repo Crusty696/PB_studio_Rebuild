@@ -255,8 +255,9 @@ class BeatAnalysisService:
         sr = DEFAULT_SR
         if self._beat_this_unavailable:
             # Librosa-Fallback braucht das volle Signal (beat_track).
+            from services.audio_constants import MAX_DURATION_BEAT
             try:
-                y, sr = librosa.load(audio_path, sr=DEFAULT_SR, mono=True)
+                y, sr = librosa.load(audio_path, sr=DEFAULT_SR, mono=True, duration=MAX_DURATION_BEAT)
             except (OSError, IOError, ValueError, RuntimeError) as e:
                 raise RuntimeError(f"Audio konnte nicht geladen werden: {e}") from e
             logger.warning(

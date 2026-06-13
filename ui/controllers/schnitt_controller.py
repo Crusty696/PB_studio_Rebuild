@@ -83,13 +83,22 @@ class SchnittController(QObject):
         self.workspace.set_active_project(project_id)
 
     def _on_clip_property_changed(self, entry_id: int, field: str, value: float) -> None:
-        """Inspector-DB-Write zur sichtbaren Timeline und Host-Logik weitergeben."""
+        """Inspector-DB-Write zur sichtbaren Timeline und Host-Logik weitergeben.
+
+        B-523-FIX: Geometrie-relevante Felder (start_time/end_time) aktualisieren
+        nur das betroffene Clip-Item in-place statt die ganze Timeline neu zu
+        laden. Der frueher genutzte tl.load_from_db() riss die Szene komplett ab
+        und liess sie bei async-Reload-Fehlern leer zurueck (Timeline-Ansicht
+        A1/V1 verschwand bis App-Neustart). Nicht-geometrische Felder
+        (brightness/contrast/crossfade) wirken erst beim Export und brauchen
+        keinen Timeline-Refresh.
+        """
         tl = self.workspace.editor_view.tab_schnitt.timeline_view
-        if hasattr(tl, "load_from_db"):
+        if field in ("start_time", "end_time") and hasattr(tl, "refresh_clip_geometry_from_db"):
             try:
-                tl.load_from_db()
+                tl.refresh_clip_geometry_from_db(entry_id)
             except Exception as exc:
-                logger.warning("SchnittController: timeline refresh after inspector edit failed: %s", exc)
+                logger.warning("SchnittController: in-place clip geometry update failed: %s", exc)
         self.clip_property_changed.emit(entry_id, field, value)
 
     # ------------------------------------------------------------------

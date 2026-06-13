@@ -1,10 +1,25 @@
 # PB Studio Rebuild — AKTIVE Ziel-Runtime: Python 3.10 + CUDA 11.3 / cu113
 # Hardware-Regel D-040: NVIDIA GTX 1060 6 GB, cuda:0 only.
+#
+# KANONISCHE QUELLE: environment.yml (conda-Setup seit 2026-04-27) zieht diese
+# Datei als pip-Sektion. Versionspins werden HIER gepflegt; environment.yml
+# referenziert sie. requirements.txt = Legacy/Future (py3.11+cu124, NICHT
+# installieren); pyproject.toml-Ranges sind nicht der Install-Pfad.
+#
+# ENVIRONMENT-REALITAET (verifiziert 2026-06-12 auf der Zielmaschine):
+#   NVIDIA-Treiber 546.33 (nvidia-smi meldet CUDA 12.3 runtime-faehig)
+#   GPU: GTX 1060 6 GB | conda-env "pb-studio": Python 3.10.20,
+#   torch 1.12.1+cu113 (CUDA verfuegbar), numpy 1.26.4, onnxruntime-gpu 1.18.1.
+#   Aeltere Verweise auf Treiber 461.40 sind historisch (Stand vor 2026-06).
+#
 # Installieren mit:
 #   pip install -r requirements-py310-cu113.txt --extra-index-url https://download.pytorch.org/whl/cu113
 --extra-index-url https://download.pytorch.org/whl/cu113
 
-# === PyTorch + CUDA 11.3 (kompatibel mit Treiber 461.40 via Enhanced Compat) ===
+# === PyTorch + CUDA 11.3 ===
+# cu113 laeuft auf dem realen Treiber 546.33 (abwaertskompatibel, CUDA 12.3
+# runtime-faehig). Historische Begruendung "Treiber 461.40 via Enhanced Compat"
+# ist ueberholt; cu113 bleibt der getestete, aktive Stack (D-040).
 torch==1.12.1+cu113
 torchaudio==0.12.1+cu113
 torchvision==0.13.1+cu113
@@ -96,6 +111,13 @@ pydantic>=2.5.0,<3.0.0
 # === Protobuf (fuer ONNX etc.) ===
 protobuf>=4.25.0,<6.0.0
 # Phase 6 ONNX CUDA eval: ORT 1.18.1 CUDA 11.x + Torch cu113 DLL preload.
+# WARNUNG (Fix-Team 2026-06-12): onnxruntime-gpu 1.18.1 ist offiziell gegen
+# CUDA 11.8/12.x gebaut (letzte explizit cu113-getestete Linie war 1.16.x).
+# Im realen conda-env "pb-studio" ist 1.18.1 installiert und funktioniert
+# (CUDA-DLLs werden via Torch-cu113-Preload aufgeloest, siehe
+# services/brain_v3/onnx_export.py / scripts/spike_brain_v3_onnx_eval.py).
+# Pin NICHT blind aendern; bei einem pip-Fresh-Install ohne Torch-Preload
+# kann der CUDAExecutionProvider fehlen — dann faellt ORT auf CPU zurueck.
 onnx==1.16.2
 onnxruntime-gpu==1.18.1
 
