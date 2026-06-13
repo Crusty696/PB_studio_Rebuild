@@ -1951,6 +1951,29 @@ class InteractiveTimeline(QGraphicsView):
         # Update right trim handle position
         item._right_handle.setRect(QRectF(new_width - 3, 0, 3, item._clip_height))
 
+    def refresh_clip_geometry_from_db(self, entry_id: int) -> None:
+        """B-523-FIX: aktualisiert NUR die Geometrie des betroffenen Clips aus
+        der DB (Position/Breite), statt die gesamte Timeline via load_from_db()
+        abzureissen. Der frueher vom SchnittController genutzte Voll-Teardown
+        liess die Szene bei async-Reload-Fehlern komplett leer zurueck (A1/V1
+        verschwanden bis App-Neustart). Spiegelt den bewaehrten Undo/Redo-Pfad
+        ueber _sync_clip_after_trim.
+        """
+        item = self._find_clip_item(entry_id)
+        if item is None:
+            return
+        try:
+            with nullpool_session() as session:
+                entry = session.get(TimelineEntry, entry_id)
+                if entry is None:
+                    return
+                start = entry.start_time or 0.0
+                end = entry.end_time
+        except Exception as exc:  # noqa: BLE001 — Inspector-Edit darf UI nie killen
+            logger.warning("[B-523] refresh_clip_geometry_from_db fehlgeschlagen: %s", exc)
+            return
+        self._sync_clip_after_trim(entry_id, start, end)
+
     def _on_selection_changed(self):
         """Emits selection_changed signal with selected clip data for inspector."""
         selected = [item for item in self._scene.selectedItems()
