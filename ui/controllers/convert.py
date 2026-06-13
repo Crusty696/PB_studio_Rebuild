@@ -233,7 +233,11 @@ class ConvertController(PBComponent):
         fps_text = self.window.convert_fps.currentText()
         fps = fps_text.split(" ")[0]
         fmt_text = self.window.convert_format.currentText()
-        if "H.265" in fmt_text or "HEVC" in fmt_text:
+        if "Copy" in fmt_text or "Kopieren" in fmt_text:
+            # B-525: Stream-Copy (kein Re-Encode). BatchConvertWorker entfernt bei
+            # vcodec="copy" unzulaessige Parameter (-vf/-preset) — siehe B-517.
+            vcodec, ext = "copy", ".mp4"
+        elif "H.265" in fmt_text or "HEVC" in fmt_text:
             vcodec, ext = "hevc_nvenc", ".mp4"
         elif "ProRes" in fmt_text:
             vcodec, ext = "prores_ks", ".mov"

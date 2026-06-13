@@ -124,6 +124,16 @@ def test_b517_convert_controller_nvenc_mapping(monkeypatch):
     monkeypatch.setattr("services.convert_service.detect_nvenc", lambda: {"h264_nvenc": False})
     
     controller._standardize_all_videos()
-    
+
     assert len(created_workers) == 1
     assert created_workers[0][3] == "libx264"
+
+    # B-525 Case C: GUI-Option "Kopieren/Copy" -> vcodec "copy", ext ".mp4"
+    created_workers.clear()
+    mock_window.convert_format.currentText.return_value = "mp4 (Kopieren/Copy)"
+
+    controller._standardize_all_videos()
+
+    assert len(created_workers) == 1
+    assert created_workers[0][3] == "copy"
+    assert created_workers[0][4] == ".mp4"
