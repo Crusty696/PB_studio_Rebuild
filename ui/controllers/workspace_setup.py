@@ -415,6 +415,15 @@ class WorkspaceSetupController(PBComponent):
         redo_action.triggered.connect(self.window.timeline_view.undo_stack.redo)
         self.window.addAction(redo_action)
 
+        # B-528: Strg+S war nur als Menue-Eintrag "Speichern" vorhanden (ohne
+        # Shortcut) -> Strg+S loeste nichts aus, der Titel blieb "ungespeichert"
+        # und beim Beenden kam der "Ungespeicherte Aenderungen"-Dialog. Window-
+        # weiter Save-Shortcut analog zu Undo/Redo.
+        save_action = QAction("Speichern", self.window)
+        save_action.setShortcut(QKeySequence.StandardKey.Save)  # Strg+S
+        save_action.triggered.connect(self.window.project_management._save_project)
+        self.window.addAction(save_action)
+
         self.window.video_preview.position_changed.connect(self.window.edit_workspace._on_preview_position_changed)
         self.window.video_preview.playback_state_changed.connect(self.window.edit_workspace._on_preview_state_changed)
 

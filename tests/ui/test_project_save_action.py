@@ -25,6 +25,23 @@ def test_b459_tools_menu_has_save_before_save_as() -> None:
     assert save_idx < save_as_idx
 
 
+def test_b528_ctrl_s_shortcut_wired_to_save_project() -> None:
+    """B-528: Strg+S muss window-weit an _save_project gebunden sein (vorher nur
+    Menue-Eintrag ohne Shortcut -> Strg+S speicherte nicht)."""
+    from ui.controllers.workspace_setup import WorkspaceSetupController
+
+    source = inspect.getsource(WorkspaceSetupController._create_workspaces)
+    assert "QKeySequence.StandardKey.Save" in source, (
+        "B-528: kein Save-Shortcut (Strg+S) registriert"
+    )
+    save_idx = source.find("QKeySequence.StandardKey.Save")
+    # Der Save-Shortcut-Block muss _save_project verdrahten und am Fenster
+    # registriert sein (addAction), damit Strg+S app-weit greift.
+    tail = source[save_idx:save_idx + 400]
+    assert "project_management._save_project" in tail
+    assert "self.window.addAction(save_action)" in tail
+
+
 def test_b459_save_project_marks_existing_dirty_project_clean() -> None:
     from ui.controllers.project_management import ProjectManagementController
 
