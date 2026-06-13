@@ -422,7 +422,8 @@ class MediaWorkspace(QWidget):
         if not hasattr(self, "_video_preflight_layout"):
             return
         button.setParent(self._video_preflight_panel)
-        button.setText("Preflight standardisieren")
+        # B-525: oeffnet jetzt den modalen Ziel-Format-Dialog (Ellipsis-Konvention).
+        button.setText("Videos standardisieren…")
         button.setFixedHeight(30)
         button.setVisible(True)
         button.setToolTip(
@@ -696,12 +697,11 @@ class MediaWorkspace(QWidget):
         self._video_preflight_layout = QVBoxLayout(self._video_preflight_panel)
         self._video_preflight_layout.setContentsMargins(8, 8, 8, 8)
         self._video_preflight_layout.setSpacing(6)
-        preflight_hint = QLabel(
-            "Preflight gehoert zu Video: Format, FPS, Codec und Proxy werden vor Analyse/Export geprueft."
-        )
-        preflight_hint.setWordWrap(True)
-        preflight_hint.setStyleSheet("color:#9ca3af; font-size:10px;")
-        self._video_preflight_layout.addWidget(preflight_hint)
+        # B-525: Frueher lag hier ein mehrzeiliges Hinweis-Label, das zusammen mit
+        # dem reparenteten Standardisieren-Button + dem (inzwischen in den Dialog
+        # ausgelagerten) Ziel-Format-GroupBox in der engen Spalte ueberlappte.
+        # Der Hinweis ist jetzt im modalen Dialog; das Panel haelt nur noch den
+        # Trigger-Button (via attach_preflight_button) -> keine Ueberlappung.
         layout.addWidget(self._video_preflight_panel)
 
         self.keyframe_text = QTextEdit()

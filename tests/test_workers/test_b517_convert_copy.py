@@ -1,8 +1,29 @@
+import os
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
 import pytest
 from unittest.mock import MagicMock, patch
 import subprocess
 from PySide6.QtCore import QObject, Signal
+from PySide6.QtWidgets import QApplication
 from workers.import_export import BatchConvertWorker
+
+
+def test_b525_standardize_dialog_exposes_format_options_incl_copy():
+    """B-525: der modale Ziel-Format-Dialog bietet Aufloesung/FPS/Container inkl.
+    Copy und liefert die Auswahl-Strings, die _run_standardize erwartet."""
+    QApplication.instance() or QApplication([])
+    from ui.dialogs.standardize_dialog import StandardizeVideosDialog
+    dlg = StandardizeVideosDialog()
+    try:
+        fmts = [dlg.convert_format.itemText(i) for i in range(dlg.convert_format.count())]
+        assert any("Copy" in f or "Kopieren" in f for f in fmts), fmts
+        res, fps, fmt = dlg.selected()
+        assert "x" in res  # Aufloesung wie "1920x1080 (1080p)"
+        assert "fps" in fps
+        assert fmt  # nicht leer
+    finally:
+        dlg.deleteLater()
 
 def test_b517_batch_convert_copy_codec_options(monkeypatch):
     # Mock duration check to avoid actual ffprobe calls
@@ -109,31 +130,27 @@ def test_b517_convert_controller_nvenc_mapping(monkeypatch):
     monkeypatch.setattr("ui.controllers.convert.BatchConvertWorker", MockBatchConvertWorker)
     
     controller = ConvertController(mock_window)
-    
-    # Case A: Format option matches MP4 H.264, NVENC available
-    mock_window.convert_format.currentText.return_value = "MP4 (H.264)"
+
+    # B-525: Codec-Mapping wird ueber _run_standardize(res, fps, fmt) getestet
+    # (das frueher inline-lesende _standardize_all_videos oeffnet jetzt einen
+    # modalen Dialog und ist daher nicht headless aufrufbar).
+
+    # Case A: MP4 H.264, NVENC available
     monkeypatch.setattr("services.convert_service.detect_nvenc", lambda: {"h264_nvenc": True})
-    
-    controller._standardize_all_videos()
-    
+    controller._run_standardize("1920x1080 (HD)", "30 fps", "MP4 (H.264)")
     assert len(created_workers) == 1
     assert created_workers[0][3] == "h264_nvenc"
-    
-    # Case B: Format option matches MP4 H.264, NVENC NOT available
+
+    # Case B: MP4 H.264, NVENC NOT available
     created_workers.clear()
     monkeypatch.setattr("services.convert_service.detect_nvenc", lambda: {"h264_nvenc": False})
-    
-    controller._standardize_all_videos()
-
+    controller._run_standardize("1920x1080 (HD)", "30 fps", "MP4 (H.264)")
     assert len(created_workers) == 1
     assert created_workers[0][3] == "libx264"
 
-    # B-525 Case C: GUI-Option "Kopieren/Copy" -> vcodec "copy", ext ".mp4"
+    # B-525 Case C: "Kopieren/Copy" -> vcodec "copy", ext ".mp4"
     created_workers.clear()
-    mock_window.convert_format.currentText.return_value = "mp4 (Kopieren/Copy)"
-
-    controller._standardize_all_videos()
-
+    controller._run_standardize("1920x1080 (HD)", "30 fps", "mp4 (Kopieren/Copy)")
     assert len(created_workers) == 1
     assert created_workers[0][3] == "copy"
     assert created_workers[0][4] == ".mp4"

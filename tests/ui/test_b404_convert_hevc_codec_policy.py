@@ -51,6 +51,10 @@ def test_b404_hevc_ui_selects_nvenc_codec(monkeypatch):
     )
     controller = SimpleNamespace(window=window)
 
-    convert.ConvertController._standardize_all_videos(controller)
+    # B-525: Ziel-Format kommt jetzt aus dem modalen Dialog; das Codec-Mapping
+    # wird ueber _run_standardize(res, fps, fmt) getestet (dialogfrei).
+    convert.ConvertController._run_standardize(
+        controller, "1920x1080 HD", "30 fps", "H.265 / HEVC mp4"
+    )
 
     assert captured == {"vcodec": "hevc_nvenc", "ext": ".mp4"}

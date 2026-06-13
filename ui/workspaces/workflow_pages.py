@@ -366,16 +366,13 @@ class MaterialAnalysisWorkspace(QWidget):
 
         if self.convert_widget is not None and hasattr(self.media_widget, "attach_preflight_button"):
             self.media_widget.attach_preflight_button(self.convert_widget.btn_standardize_all)
-            if hasattr(self.media_widget, "attach_preflight_format") and hasattr(
-                self.convert_widget, "format_group"
-            ):
-                self.media_widget.attach_preflight_format(self.convert_widget.format_group)
-            # B-492: Die PREFLIGHT-Controls sind jetzt in den Media-Bereich injiziert
-            # (reparentet) — der PREFLIGHT-Tab des ConvertWorkspace ist dadurch leer.
-            # Die uebrige EFFEKTE-Funktion (Clip-Helligkeit/Kontrast/Crossfade +
-            # Vorschau) war bisher NIE sichtbar. Den leeren PREFLIGHT-Tab entfernen
-            # und den ConvertWorkspace (zeigt dann nur noch EFFEKTE) unter dem
-            # Media-Bereich einblenden, damit das Feature erreichbar ist.
+            # B-525: Das "Ziel-Format"-GroupBox wird NICHT mehr inline in die enge
+            # Material-Spalte reparentet (verursachte Layout-Ueberlappung). Auf-
+            # loesung/FPS/Container/Copy werden jetzt in einem modalen Dialog
+            # gewaehlt (Profi-Pattern), den der Standardisieren-Button oeffnet.
+            # Nur der Button bleibt als Trigger in der Spalte.
+            # B-492: PREFLIGHT-Tab des ConvertWorkspace ist dadurch leer -> entfernen,
+            # damit der ConvertWorkspace (zeigt dann nur noch EFFEKTE) erreichbar ist.
             _tabs = getattr(self.convert_widget, "_tabs", None)
             if _tabs is not None and _tabs.count() >= 2:
                 _tabs.removeTab(0)  # leerer PREFLIGHT-Tab
