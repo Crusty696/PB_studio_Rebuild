@@ -5,6 +5,9 @@ import json
 import logging
 from collections import namedtuple
 from pathlib import Path
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from services.feedback_service import FeedbackService
 
 from PySide6.QtWidgets import (
     QGraphicsView, QGraphicsScene, QGraphicsRectItem,

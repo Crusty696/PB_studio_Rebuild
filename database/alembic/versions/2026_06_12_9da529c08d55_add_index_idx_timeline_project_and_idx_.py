@@ -17,11 +17,23 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
+def _index_exists(index_name: str, table_name: str) -> bool:
+    from sqlalchemy import inspect
+    bind = op.get_bind()
+    inspector = inspect(bind)
+    indexes = inspector.get_indexes(table_name)
+    return any(idx['name'] == index_name for idx in indexes)
+
+
 def upgrade() -> None:
-    op.create_index('idx_timeline_project', 'timeline_entries', ['project_id'])
-    op.create_index('idx_hotcue_audio', 'hotcues', ['audio_track_id'])
+    if not _index_exists('idx_timeline_project', 'timeline_entries'):
+        op.create_index('idx_timeline_project', 'timeline_entries', ['project_id'])
+    if not _index_exists('idx_hotcue_audio', 'hotcues'):
+        op.create_index('idx_hotcue_audio', 'hotcues', ['audio_track_id'])
 
 
 def downgrade() -> None:
-    op.drop_index('idx_timeline_project', table_name='timeline_entries')
-    op.drop_index('idx_hotcue_audio', table_name='hotcues')
+    if _index_exists('idx_timeline_project', 'timeline_entries'):
+        op.drop_index('idx_timeline_project', table_name='timeline_entries')
+    if _index_exists('idx_hotcue_audio', 'hotcues'):
+        op.drop_index('idx_hotcue_audio', table_name='hotcues')

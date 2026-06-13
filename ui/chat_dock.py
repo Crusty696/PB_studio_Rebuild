@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 import threading
 from typing import TYPE_CHECKING
+from pathlib import Path
 
 from PySide6.QtWidgets import (
     QDockWidget, QWidget, QVBoxLayout, QHBoxLayout,

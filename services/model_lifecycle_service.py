@@ -436,8 +436,10 @@ class ModelLifecycleService:
                 return False
 
         prog = DownloadProgress(model_name)
+        cancelled = False
 
         def _do_pull():
+            nonlocal cancelled
             import time
             try:
                 # Status in DB: downloading
@@ -459,6 +461,12 @@ class ModelLifecycleService:
                 t_start = time.time()
                 with urllib.request.urlopen(req, timeout=MODEL_DOWNLOAD_TIMEOUT_SEC) as resp:
                     for line in resp:
+                        # Abbruch-Pruefung (B-534)
+                        with self._lock:
+                            if model_name not in self._active_downloads:
+                                cancelled = True
+                                raise ValueError("Download kooperativ abgebrochen")
+
                         line = line.strip()
                         if not line:
                             continue
@@ -502,14 +510,14 @@ class ModelLifecycleService:
 
             except (ConnectionError, TimeoutError, OSError, ValueError, RuntimeError) as e:
                 prog.error = str(e)
-                prog.status = "error"
+                prog.status = "cancelled" if cancelled else "error"
                 prog.finished = True
-                logger.error("Ollama pull '%s' fehlgeschlagen: %s", model_name, e)
+                logger.error("Ollama pull '%s' fehlgeschlagen/abgebrochen: %s", model_name, e)
 
                 self._upsert_model(ModelEntry(
                     model_id=model_name,
                     source="ollama",
-                    status="error",
+                    status="cancelled" if cancelled else "error",
                 ))
 
             finally:
@@ -747,6 +755,12 @@ class ModelLifecycleService:
                     # Explicit cleanup: delete references and run GC
                     del tokenizer, model
                     gc.collect()
+                    try:
+                        import torch
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                    except ImportError:
+                        pass
 
                     prog.progress = 1.0
                     prog.finished = True

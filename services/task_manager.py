@@ -487,8 +487,15 @@ class GlobalTaskManager(QObject):
                     task_id,
                 )
 
-        if thread and shiboken6.isValid(thread) and thread.isRunning():
-            thread.quit()
+        if thread and shiboken6.isValid(thread):
+            try:
+                if thread.isRunning():
+                    thread.quit()
+            except RuntimeError:
+                logger.debug(
+                    "thread.quit() auf bereits geloeschtem Qt-Objekt (%s)",
+                    task_id,
+                )
             # B-120: kein thread.wait() — blockiert sonst Main/UI bis 2s.
             # _safe_cleanup wird durch thread.finished signal getriggert
             # und raeumt dort auf, sobald der Thread tatsaechlich endet.
