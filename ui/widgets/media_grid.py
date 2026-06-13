@@ -868,6 +868,16 @@ class MediaPoolGrid(QWidget):
         self._selected_id = media_id
         self.item_selected.emit(media_id)
 
+    def showEvent(self, event) -> None:  # noqa: N802
+        # B-526: Karten werden beim Daten-Refresh (set_items) evtl. gebaut,
+        # waehrend das Grid unsichtbar ist (Default-Ansicht = Liste).
+        # _do_relayout_debounced ueberspringt dann das Einsortieren
+        # (not self.isVisible()) -> beim spaeteren Umschalten auf die
+        # Kachelansicht blieb das Grid komplett leer. Beim Sichtbarwerden das
+        # Relayout der bereits gebauten _filtered-Karten nachholen.
+        super().showEvent(event)
+        self._relayout()
+
     def resizeEvent(self, event) -> None:  # noqa: N802
         super().resizeEvent(event)
         self._relayout()

@@ -120,6 +120,56 @@ def test_runnable_skips_emit_for_destroyed_card(monkeypatch):
     app.processEvents()
 
 
+def test_grid_lays_out_cards_when_shown_after_invisible_set_items(monkeypatch, tmp_path):
+    """B-526: Karten, die bei UNSICHTBAREM Grid via set_items gesetzt werden
+    (Default-Ansicht = Liste), erscheinen beim Sichtbarwerden (Umschalten auf
+    Kachelansicht). Vorher blieb das Grid komplett leer, weil
+    _do_relayout_debounced bei `not isVisible()` abbrach und kein showEvent
+    nachlegte."""
+    app = _qapp()
+    import ui.widgets.media_grid as media_grid
+    from ui.widgets.media_grid import MediaPoolGrid
+
+    monkeypatch.setattr(
+        media_grid, "_extract_thumb_qimage", lambda p, w, h: _img(w, h)
+    )
+
+    grid = MediaPoolGrid(media_type="video")
+    try:
+        assert not grid.isVisible()
+        items = _video_items(tmp_path, 6)
+        grid.set_items(items)
+
+        # Karten bauen lassen (Load-Timer) ...
+        deadline = time.time() + 10.0
+        while time.time() < deadline and len(grid._cards) < len(items):
+            app.processEvents()
+            time.sleep(0.02)
+        # ... und den Relayout-Debounce (100ms) ablaufen lassen.
+        t2 = time.time() + 0.5
+        while time.time() < t2:
+            app.processEvents()
+            time.sleep(0.02)
+
+        assert len(grid._cards) == len(items)
+        # Unsichtbar -> Relayout uebersprungen -> keine Karten im Grid-Layout.
+        assert grid._grid.count() == 0
+
+        # Umschalten auf Kachelansicht = Grid wird sichtbar -> showEvent.
+        grid.show()
+        t3 = time.time() + 2.0
+        while time.time() < t3 and grid._grid.count() == 0:
+            app.processEvents()
+            time.sleep(0.02)
+
+        assert grid._grid.count() == len(items), (
+            f"B-526: Grid zeigt nach show() {grid._grid.count()}/{len(items)} Karten"
+        )
+    finally:
+        grid.deleteLater()
+        app.processEvents()
+
+
 def test_clear_discards_stale_results(monkeypatch):
     """(c) clear() waehrend pending -> alte Generation, Ergebnis verworfen."""
     app = _qapp()
