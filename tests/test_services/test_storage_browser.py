@@ -100,3 +100,45 @@ def test_storage_browser_delete_selected_removes_only_selected_analysis_jobs(tmp
     assert result.deleted_sources == 1
     assert result.deleted_jobs == 1
     assert remaining == {kept_sha}
+
+
+def test_storage_browser_delete_empty_selection_is_noop() -> None:
+    with _session() as session:
+        result = StorageBrowserService(session).delete_analysis_sources([])
+
+    assert result.deleted_sources == 0
+    assert result.deleted_jobs == 0
+    assert result.deleted_artifacts == 0
+    assert result.deleted_storage_dirs == 0
+
+
+def test_storage_browser_lists_job_without_project_source() -> None:
+    sha = "1" * 64
+    with _session() as session:
+        _job(session, sha, "audio.v2.stems", finished_at=datetime(2026, 6, 15), bytes_=0)
+        session.commit()
+
+        rows = StorageBrowserService(session).list_sources()
+
+    assert len(rows) == 1
+    assert rows[0].file_name == "-"
+    assert rows[0].projects_used_by == "-"
+    assert rows[0].project_count == 0
+
+
+def test_storage_browser_delete_removes_storage_directory(tmp_path: Path) -> None:
+    sha = "2" * 64
+    storage_root = tmp_path / "storage"
+
+    with _session() as session:
+        _job(session, sha, "audio.v2.stems", finished_at=datetime(2026, 6, 15), bytes_=10)
+        session.commit()
+        service = StorageBrowserService(session, storage_root=storage_root)
+        source_root = service.layout.source_root(sha)
+        source_root.mkdir(parents=True)
+        (source_root / "artifact.bin").write_bytes(b"x")
+
+        result = service.delete_analysis_sources([sha], delete_storage_dirs=True)
+
+    assert result.deleted_storage_dirs == 1
+    assert not source_root.exists()

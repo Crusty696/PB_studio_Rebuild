@@ -88,3 +88,69 @@ def test_stems_controller_also_updates_schnitt_binder(monkeypatch):
     )
     assert old_calls == [expected]
     assert schnitt_calls == [expected]
+
+
+def test_audio_binder_skips_invalid_signal_connections():
+    from ui.controllers.schnitt_audio_binder import SchnittAudioBinder
+
+    class BadSignal:
+        def connect(self, _slot):
+            raise TypeError("bad signal")
+
+    class StemWorkspace:
+        stem_volume_changed = BadSignal()
+        stem_mute_toggled = BadSignal()
+        play_requested = BadSignal()
+        pause_requested = BadSignal()
+        stop_requested = BadSignal()
+        seek_requested = BadSignal()
+
+        def update_position(self, _seconds):
+            pass
+
+        def update_playback_state(self, _state):
+            pass
+
+    tab = SimpleNamespace(stem_workspace=StemWorkspace())
+    player = SimpleNamespace(
+        set_volume=lambda *_args: None,
+        set_mute=lambda *_args: None,
+        play=lambda *_args: None,
+        pause=lambda *_args: None,
+        stop=lambda *_args: None,
+        seek=lambda *_args: None,
+        position_changed=BadSignal(),
+        state_changed=BadSignal(),
+        playback_finished=BadSignal(),
+    )
+
+    binder = SchnittAudioBinder(tab, player)
+
+    assert binder.stem_player is player
+
+
+def test_audio_binder_forwards_waveform_meta_and_audio_id():
+    from ui.controllers.schnitt_audio_binder import SchnittAudioBinder
+
+    calls = []
+    tab = SimpleNamespace(
+        stem_workspace=SimpleNamespace(),
+        set_waveform_data=lambda row, beats: calls.append(("waveform", row, beats)),
+        set_structure_markers=lambda markers: calls.append(("markers", markers)),
+        set_lufs=lambda value: calls.append(("lufs", value)),
+        set_key=lambda key, camelot: calls.append(("key", key, camelot)),
+        set_audio_id=lambda audio_id: calls.append(("audio_id", audio_id)),
+    )
+
+    binder = SchnittAudioBinder(tab)
+    binder.update_waveform("row", beat_positions=None, structure_markers=None)
+    binder.update_audio_meta(-13.2, "Fm", "4A")
+    binder.set_audio_id(9)
+
+    assert calls == [
+        ("waveform", "row", []),
+        ("markers", []),
+        ("lufs", -13.2),
+        ("key", "Fm", "4A"),
+        ("audio_id", 9),
+    ]

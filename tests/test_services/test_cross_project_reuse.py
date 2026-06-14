@@ -131,3 +131,79 @@ def test_lookup_cross_project_reuse_ignores_current_project_only_hit(tmp_path: P
         result = lookup_cross_project_reuse(session, source, media_type="audio", current_project_id=2)
 
     assert result is None
+
+
+def test_apply_cross_project_reuse_updates_existing_pending_status_and_project_source(tmp_path: Path) -> None:
+    source = tmp_path / "clip.mp4"
+    source.write_bytes(b"same video bytes")
+    source_sha = compute_source_sha256(source, media_type="video", mode="strict")
+
+    with _session() as session:
+        session.add(Project(id=1, name="Projekt A", path=str(tmp_path / "a"), resolution="1920x1080", fps=30.0))
+        session.add(Project(id=2, name="Projekt B", path=str(tmp_path / "b"), resolution="1920x1080", fps=30.0))
+        session.add(ProjectSource(project_id=1, source_sha256=source_sha, current_source_path=str(source)))
+        session.add(ProjectSource(project_id=2, source_sha256=source_sha, current_source_path=str(tmp_path / "old.mp4")))
+        session.add(
+            AnalysisJob(
+                source_sha256=source_sha,
+                step_id="video.plan_a.outputs",
+                step_version="1",
+                params_hash="plan-a",
+                status="done",
+                produced_by_model="PlanA",
+                produced_by_model_version="v1",
+                finished_at=None,
+            )
+        )
+        session.add(
+            AnalysisStatus(
+                media_type="video",
+                media_id=7,
+                step_key="motion_scores",
+                status="failed",
+                error_message="old error",
+            )
+        )
+        session.commit()
+
+        result = apply_cross_project_reuse_status(
+            session,
+            source,
+            media_type="video",
+            media_id=7,
+            current_project_id=2,
+        )
+        status = session.query(AnalysisStatus).filter_by(media_type="video", media_id=7, step_key="motion_scores").one()
+        project_source = session.query(ProjectSource).filter_by(project_id=2, source_sha256=source_sha).one()
+
+    assert result is not None
+    assert [step.analysis_step_key for step in result.steps] == ["motion_scores", "siglip_embeddings"]
+    assert result.steps[0].model == "PlanA v1"
+    assert "Erzeugt am unbekannt" in result.steps[0].tooltip
+    assert status.status == "done"
+    assert status.error_message is None
+    assert Path(project_source.current_source_path) == source
+
+
+def test_lookup_cross_project_reuse_ignores_unknown_dotted_step(tmp_path: Path) -> None:
+    source = tmp_path / "track.wav"
+    source.write_bytes(b"same audio bytes")
+    source_sha = compute_source_sha256(source, media_type="audio", mode="strict")
+
+    with _session() as session:
+        session.add(Project(id=1, name="Projekt A", path=str(tmp_path / "a"), resolution="1920x1080", fps=30.0))
+        session.add(ProjectSource(project_id=1, source_sha256=source_sha, current_source_path=str(source)))
+        session.add(
+            AnalysisJob(
+                source_sha256=source_sha,
+                step_id="unknown.dotted.step",
+                step_version="1",
+                params_hash="unknown",
+                status="done",
+            )
+        )
+        session.commit()
+
+        result = lookup_cross_project_reuse(session, source, media_type="audio", current_project_id=None)
+
+    assert result is None

@@ -352,28 +352,13 @@ class ImportMediaController(PBComponent):
         return message
 
     def _show_cross_project_reuse_notice(self, message: str, mute_key: str) -> None:
-        try:
-            from PySide6.QtWidgets import QCheckBox, QMessageBox
+        from ui.widgets.cross_project_reuse_toast import show_cross_project_reuse_toast
 
-            box = QMessageBox(self.window)
-            box.setWindowTitle("Analyse-Ergebnisse wiederverwendet")
-            box.setText(message)
-            box.setIcon(QMessageBox.Icon.Information)
-            box.setStandardButtons(QMessageBox.StandardButton.Ok)
-            box.setWindowModality(Qt.WindowModality.NonModal)
-            checkbox = QCheckBox("Nicht mehr fragen")
-            box.setCheckBox(checkbox)
-
-            def _store_mute(checked: bool) -> None:
-                QSettings("PB Studio", "Rebuild").setValue(mute_key, checked)
-
-            checkbox.toggled.connect(_store_mute)
-            box.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
-            self._active_reuse_notice = box
-            box.finished.connect(lambda _result: setattr(self, "_active_reuse_notice", None))
-            box.show()
-        except Exception as exc:
-            logger.warning("OTK-021 reuse notice failed: %s", exc)
+        box = show_cross_project_reuse_toast(self.window, message, mute_key)
+        if box is None:
+            return
+        self._active_reuse_notice = box
+        box.finished.connect(lambda _result: setattr(self, "_active_reuse_notice", None))
 
     def _clear_all_media(self):
         """Loescht alle Medien asynchron aus Datenbank und UI (Fix F-045)."""

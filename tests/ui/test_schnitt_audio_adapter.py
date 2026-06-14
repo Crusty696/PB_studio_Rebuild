@@ -4,7 +4,10 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from database.models import AnalysisArtifact, AudioTrack, Base, Project
-from services.storage_provenance.schnitt_audio_adapter import ensure_schnitt_audio_adapter
+from services.storage_provenance.schnitt_audio_adapter import (
+    default_global_storage_root,
+    ensure_schnitt_audio_adapter,
+)
 
 
 def test_schnitt_audio_adapter_builds_missing_stem_junction(tmp_path: Path) -> None:
@@ -60,3 +63,16 @@ def test_schnitt_audio_adapter_is_idempotent(tmp_path: Path) -> None:
         ensure_schnitt_audio_adapter(session, storage_root=tmp_path / "global")
 
         assert session.query(AnalysisArtifact).filter_by(artifact_role="vocals_stem").count() == 1
+
+
+def test_default_global_storage_root_uses_appdata(monkeypatch) -> None:
+    monkeypatch.setenv("APPDATA", r"C:\Users\tester\AppData\Roaming")
+
+    assert default_global_storage_root() == Path(r"C:\Users\tester\AppData\Roaming") / "PBStudio" / "storage"
+
+
+def test_default_global_storage_root_falls_back_to_home(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.delenv("APPDATA", raising=False)
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+    assert default_global_storage_root() == tmp_path / ".PBStudio" / "storage"
