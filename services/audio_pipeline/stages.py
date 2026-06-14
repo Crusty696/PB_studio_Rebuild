@@ -184,6 +184,7 @@ class StemGenStage(Stage):
         if reuse is not None:
             context.stem_paths.update(reuse)
             context.set_result(self.name, {"stem_paths": dict(reuse), "reused": True})
+            self._record_stem_provenance(context, reuse)
             return
 
         if self._separator_cls is None:
@@ -214,6 +215,7 @@ class StemGenStage(Stage):
 
         # T3.2: Cache-Meta + Stem-Hashes persistieren
         self._persist_cache_meta(context, result)
+        self._record_stem_provenance(context, result)
 
     @staticmethod
     def _persist_stem_paths_to_db(track_id: int, stem_paths: dict[str, str]) -> None:
@@ -236,6 +238,46 @@ class StemGenStage(Stage):
             if "other" in stem_paths:
                 track.stem_other_path = stem_paths["other"]
             sess.commit()
+
+    @staticmethod
+    def _record_stem_provenance(context: PipelineContext, stem_paths: dict[str, str]) -> None:
+        """OTK-021/40: V2 stem stage writes analysis_jobs/artifacts."""
+        if nullpool_session is None:
+            return
+        try:
+            from database import AudioTrack
+            from services.storage_provenance.caller_migration import ProvenanceRecorder
+        except ImportError:
+            return
+        try:
+            with nullpool_session() as sess:
+                track = sess.query(AudioTrack).filter(AudioTrack.id == context.track_id).first()
+                if track is None or not getattr(track, "project_id", None):
+                    return
+                source_path = getattr(track, "file_path", None) or context.original_path
+                if not source_path:
+                    return
+                ProvenanceRecorder(sess).record_done(
+                    project_id=track.project_id,
+                    source_path=source_path,
+                    media_type="audio",
+                    step_id="audio.v2.stems",
+                    params={
+                        "stage": StemGenStage.name,
+                        "demucs_version": _DEMUCS_VERSION,
+                        "wav_subtype": _TARGET_WAV_SUBTYPE,
+                    },
+                    artifacts={
+                        "vocals_stem": stem_paths.get("vocals"),
+                        "drums_stem": stem_paths.get("drums"),
+                        "bass_stem": stem_paths.get("bass"),
+                        "other_stem": stem_paths.get("other"),
+                    },
+                    produced_by_model="Demucs",
+                    produced_by_model_version=_DEMUCS_VERSION,
+                )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("StemGenStage provenance track=%s fehlgeschlagen: %s", context.track_id, e)
 
 
     def rehydrate(self, context: PipelineContext) -> None:

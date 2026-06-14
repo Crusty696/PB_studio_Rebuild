@@ -47,6 +47,7 @@ NOT_TO_CONFUSE_WITH:
 PB Studio
 ├── services/storage_provenance/
 │     ├── source_identity.py         SHA fuer Audio/Video/Image
+│     ├── caller_migration.py        Pipeline-Caller -> analysis_jobs/artifacts
 │     ├── cross_project_reuse.py     Import-Hinweis + AnalysisStatus-Reuse
 │     ├── project_bundle.py          .pbbundle Export/Import
 │     ├── file_tracking.py           Source-Move-Repair

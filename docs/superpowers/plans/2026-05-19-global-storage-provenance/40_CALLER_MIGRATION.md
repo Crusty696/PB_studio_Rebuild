@@ -25,3 +25,13 @@ Bestehende Pipeline-Caller schreiben Provenance-Jobs in neue DB-Tabellen, ohne S
 - V2-Stage-Lauf legt Eintrag in `analysis_jobs` + `analysis_artifacts`
 - Dedup-Hit bei Re-Run
 - `pytest tests/test_services/test_caller_migration_storage.py -v` gruen
+
+## Implementation Status — 2026-06-15
+
+- `services/storage_provenance/caller_migration.py` added.
+- Audio V2 `StemGenStage` records generated and reused stem artifacts into `analysis_jobs` and `analysis_artifacts`.
+- Plan-A `VideoAnalysisPipeline` records done-stage artifacts into `analysis_jobs` and `analysis_artifacts`.
+- SCHNITT stem access remains through existing adapter layer; no direct SCHNITT caller added.
+- Brain V3 and Plan B LLM left isolated per plan.
+- Verification: caller-migration focus `3 passed`; OTK-021 Slice `33 passed`; py_compile green.
+- Product live verification pending; no `fixed` marker.

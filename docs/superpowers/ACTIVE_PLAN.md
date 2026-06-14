@@ -23,9 +23,10 @@ Those decisions are not app-code implementation tasks and must not be executed b
 ## Current Next Task
 
 ```text
-OTK-021 next subtask: 40 Caller-Migration. Tier 1-2 plus
+OTK-021 next subtask: 50 Service-Coverage. Tier 1-2 plus
 Tier 3/30 Storage-Migration-Service, 31 SCHNITT-Audio-Adapter,
-32 Cross-Project-Reuse UX, 33 Storage-Browser UI, and 34 Project-Export + Import code/tests completed
+32 Cross-Project-Reuse UX, 33 Storage-Browser UI, 34 Project-Export + Import,
+and 40 Caller-Migration code/tests completed
 by 2026-06-15. Product live verification remains pending. DG-001 remains
 mandatory before fixed/release status.
 ```

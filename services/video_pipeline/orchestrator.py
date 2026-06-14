@@ -16,6 +16,11 @@ from services.video_pipeline.stages.base import StageResult
 
 logger = logging.getLogger(__name__)
 
+try:
+    from database import nullpool_session
+except ImportError:
+    nullpool_session = None
+
 __all__ = ["VideoAnalysisPipeline", "PipelineListener", "CancelToken", "PipelineResult"]
 
 
@@ -130,6 +135,7 @@ class VideoAnalysisPipeline:
             try:
                 if sr.status == "done":
                     result.completed_count += 1
+                    self._record_stage_provenance(sr)
                     self.listener.on_stage_done(self.track_id, sr)
                 elif sr.status == "failed":
                     result.failed_count += 1
@@ -164,3 +170,36 @@ class VideoAnalysisPipeline:
 
         self.listener.on_pipeline_done(self.track_id)
         return result
+
+    def _record_stage_provenance(self, stage_result: StageResult) -> None:
+        """OTK-021/40: Plan-A video stages write analysis_jobs/artifacts."""
+        if nullpool_session is None or not stage_result.artifacts:
+            return
+        try:
+            from database import VideoClip
+            from services.storage_provenance.caller_migration import ProvenanceRecorder
+        except ImportError:
+            return
+        try:
+            with nullpool_session() as sess:
+                clip = sess.query(VideoClip).filter(VideoClip.id == self.track_id).first()
+                if clip is None or not getattr(clip, "project_id", None):
+                    return
+                source_path = getattr(clip, "file_path", None) or self.source_path
+                if not source_path:
+                    return
+                ProvenanceRecorder(sess).record_done(
+                    project_id=clip.project_id,
+                    source_path=source_path,
+                    media_type="video",
+                    step_id=f"video.{stage_result.stage_id}",
+                    params={"stage": stage_result.stage_id},
+                    artifacts=dict(stage_result.artifacts),
+                )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Video provenance track=%s stage=%s fehlgeschlagen: %s",
+                self.track_id,
+                stage_result.stage_id,
+                exc,
+            )
