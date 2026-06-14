@@ -5,7 +5,7 @@ active_plan_id: PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09
 repo_plan: docs/superpowers/plans/2026-06-09-offene-tasks-konsolidierung-masterplan.md
 vault_mirror: C:\Brain-Bug\projects\pb-studio\wiki\synthesis\plan-offene-tasks-konsolidierung-masterplan-2026-06-09.md
 decision: C:\Brain-Bug\projects\pb-studio\wiki\decisions\D-061-offene-tasks-konsolidierung-masterplan.md
-updated: 2026-06-14
+updated: 2026-06-15
 
 ## Why This Plan Is Active
 
@@ -23,9 +23,10 @@ Those decisions are not app-code implementation tasks and must not be executed b
 ## Current Next Task
 
 ```text
-OTK-021 Tier 3 next subtask: 32 Cross-Project-Reuse UX. Tier 1-2 plus
-Tier 3/30 Storage-Migration-Service and 31 SCHNITT-Audio-Adapter code/tests
-completed on 2026-06-14. DG-001 remains mandatory before fixed/release status.
+OTK-021 Tier 3 next subtask: 33 Storage-Browser UI. Tier 1-2 plus
+Tier 3/30 Storage-Migration-Service, 31 SCHNITT-Audio-Adapter, and
+32 Cross-Project-Reuse UX code/tests completed by 2026-06-15. Product live
+verification remains pending. DG-001 remains mandatory before fixed/release status.
 ```
 
 ## Agent Behavior

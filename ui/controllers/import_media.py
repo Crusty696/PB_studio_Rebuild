@@ -146,7 +146,9 @@ class ImportMediaController(PBComponent):
                 for clip_id, video_path, title in new_video_clips:
                     self.window.video_analysis._start_proxy_creation(clip_id, video_path, title)
                 self.window._mark_dirty()
-            self.window.status_bar.showMessage(f"{added} Datei(en) importiert | System bereit")
+            reuse_message = self._notify_cross_project_reuse(paths, media_type, worker.project_id)
+            if reuse_message is None:
+                self.window.status_bar.showMessage(f"{added} Datei(en) importiert | System bereit")
             # Phase-1 App-Sync: Hash-Hook nach erfolgreichem Import.
             # Idempotent — Re-Import liefert is_new=False / Cache-Hit-Log.
             self._spawn_brain_v3_hash_worker(paths_audio, paths_video)
@@ -266,7 +268,15 @@ class ImportMediaController(PBComponent):
                     for clip_id, video_path, title in new_video_clips:
                         self.window.video_analysis._start_proxy_creation(clip_id, video_path, title)
                     self.window._mark_dirty()
-                self.window.status_bar.showMessage(f"{added} Datei(en) aus Ordner importiert | System bereit")
+                reuse_message = self._notify_cross_project_reuse(
+                    list(worker.paths_audio), "audio", worker.project_id
+                )
+                if reuse_message is None:
+                    reuse_message = self._notify_cross_project_reuse(
+                        list(worker.paths_video), "video", worker.project_id
+                    )
+                if reuse_message is None:
+                    self.window.status_bar.showMessage(f"{added} Datei(en) aus Ordner importiert | System bereit")
                 # Phase-1 App-Sync: paths_audio/paths_video wurden vom Worker
                 # waehrend des Walks befuellt — jetzt verfuegbar.
                 self._spawn_brain_v3_hash_worker(
@@ -282,6 +292,88 @@ class ImportMediaController(PBComponent):
 
         dialog.finished.connect(_finish)
         dialog.open()
+
+    def _notify_cross_project_reuse(
+        self,
+        paths: list[str],
+        media_type: str,
+        project_id: int | None,
+    ) -> str | None:
+        if not paths or project_id is None:
+            return None
+        settings = QSettings("PB Studio", "Rebuild")
+        mute_key = f"reuse_notifications/muted_project_{int(project_id)}"
+        if settings.value(mute_key, False, type=bool):
+            return None
+        try:
+            from database import nullpool_session
+            from database.models import AnalysisStatus, AudioTrack, VideoClip
+
+            media_model = AudioTrack if media_type == "audio" else VideoClip
+            resolved_paths = {str(Path(path).resolve()) for path in paths}
+            messages: list[str] = []
+            with nullpool_session() as session:
+                media_rows = (
+                    session.query(media_model)
+                    .filter(
+                        media_model.project_id == int(project_id),
+                        media_model.file_path.in_(resolved_paths),
+                    )
+                    .all()
+                )
+                for row in media_rows:
+                    statuses = (
+                        session.query(AnalysisStatus)
+                        .filter_by(media_type=media_type, media_id=row.id, status="done")
+                        .all()
+                    )
+                    for status in statuses:
+                        summary = status.value_summary or {}
+                        project_name = summary.get("reuse_source_project") if isinstance(summary, dict) else None
+                        if not project_name:
+                            continue
+                        messages.append(
+                            f"Datei wurde bereits in Projekt {project_name} analysiert. "
+                            "Ergebnisse werden mitverwendet."
+                        )
+                        break
+        except Exception as exc:
+            logger.warning("OTK-021 reuse notification failed: %s", exc)
+            return None
+
+        if not messages:
+            return None
+        message = messages[0]
+        self.window.console_text.append(f"[Reuse] {message}")
+        if len(messages) > 1:
+            self.window.console_text.append(f"[Reuse] {len(messages)} Dateien mit wiederverwendeten Ergebnissen.")
+        self.window.status_bar.showMessage(message, 10_000)
+        self._show_cross_project_reuse_notice(message, mute_key)
+        return message
+
+    def _show_cross_project_reuse_notice(self, message: str, mute_key: str) -> None:
+        try:
+            from PySide6.QtWidgets import QCheckBox, QMessageBox
+
+            box = QMessageBox(self.window)
+            box.setWindowTitle("Analyse-Ergebnisse wiederverwendet")
+            box.setText(message)
+            box.setIcon(QMessageBox.Icon.Information)
+            box.setStandardButtons(QMessageBox.StandardButton.Ok)
+            box.setWindowModality(Qt.WindowModality.NonModal)
+            checkbox = QCheckBox("Nicht mehr fragen")
+            box.setCheckBox(checkbox)
+
+            def _store_mute(checked: bool) -> None:
+                QSettings("PB Studio", "Rebuild").setValue(mute_key, checked)
+
+            checkbox.toggled.connect(_store_mute)
+            box.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+            self._active_reuse_notice = box
+            box.finished.connect(lambda _result: setattr(self, "_active_reuse_notice", None))
+            box.show()
+        except Exception as exc:
+            logger.warning("OTK-021 reuse notice failed: %s", exc)
 
     def _clear_all_media(self):
         """Loescht alle Medien asynchron aus Datenbank und UI (Fix F-045)."""

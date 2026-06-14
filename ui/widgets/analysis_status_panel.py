@@ -436,6 +436,9 @@ class AnalysisStatusPanel(QWidget):
 
             if status == "done":
                 completed_count += 1
+            provenance_tooltip = ""
+            if isinstance(value_summary, dict):
+                provenance_tooltip = str(value_summary.get("provenance_tooltip") or "")
 
             # Column 0: Status icon
             icon_item = QTableWidgetItem(STATUS_ICONS.get(status, "?"))
@@ -446,6 +449,8 @@ class AnalysisStatusPanel(QWidget):
             font.setBold(True)
             icon_item.setFont(font)
             icon_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+            if provenance_tooltip:
+                icon_item.setToolTip(provenance_tooltip)
             self.table.setItem(row_idx, 0, icon_item)
 
             # Column 1: Step name
@@ -453,6 +458,8 @@ class AnalysisStatusPanel(QWidget):
             name_item = QTableWidgetItem(step_name)
             name_item.setData(Qt.ItemDataRole.UserRole, step_key)
             name_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+            if provenance_tooltip:
+                name_item.setToolTip(provenance_tooltip)
             self.table.setItem(row_idx, 1, name_item)
 
             # Column 2: Value summary
@@ -469,6 +476,8 @@ class AnalysisStatusPanel(QWidget):
             value_item = QTableWidgetItem(value_text)
             value_item.setForeground(QBrush(value_color))
             value_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+            if provenance_tooltip:
+                value_item.setToolTip(provenance_tooltip)
             self.table.setItem(row_idx, 2, value_item)
 
             # Column 3: Action button (for pending/error/done)
@@ -494,6 +503,8 @@ class AnalysisStatusPanel(QWidget):
                 btn.setToolTip(
                     f"Analyse-Schritt '{step_name}' {'starten' if status == 'pending' else 'erneut starten'}."
                 )
+                if provenance_tooltip:
+                    btn.setToolTip(provenance_tooltip)
                 btn.clicked.connect(self._on_action_clicked)
                 self.table.setCellWidget(row_idx, 3, btn)
             else:

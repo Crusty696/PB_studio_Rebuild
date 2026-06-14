@@ -143,6 +143,43 @@ def _invalidate_pacing_caches():
     except ImportError as e:
         logger.warning("Invalidating pacing caches after media import: %s", e)
 
+
+def _apply_cross_project_reuse_after_ingest(
+    session: Session,
+    *,
+    source_path: Path,
+    media_type: str,
+    media_id: int,
+    project_id: int,
+) -> None:
+    """Best-effort OTK-021 reuse status; import itself stays authoritative."""
+    try:
+        from services.storage_provenance.cross_project_reuse import apply_cross_project_reuse_status
+
+        hit = apply_cross_project_reuse_status(
+            session,
+            source_path,
+            media_type=media_type,
+            media_id=media_id,
+            current_project_id=project_id,
+        )
+        if hit is not None:
+            logger.info(
+                "OTK-021 cross-project reuse applied: %s/%d from project=%s steps=%s",
+                media_type,
+                media_id,
+                hit.project_name,
+                [step.analysis_step_key for step in hit.steps],
+            )
+    except Exception as exc:
+        logger.warning(
+            "OTK-021 cross-project reuse check failed for %s/%d (%s): %s",
+            media_type,
+            media_id,
+            source_path,
+            exc,
+        )
+
 AUDIO_EXTENSIONS = {".mp3", ".wav", ".flac", ".ogg", ".aac", ".m4a", ".wma"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".wmv", ".webm", ".flv", ".m4v"}
 
@@ -198,6 +235,13 @@ def ingest_audio(
                     existing.deleted_at = None
                     session.commit()
                     session.refresh(existing)
+                    _apply_cross_project_reuse_after_ingest(
+                        session,
+                        source_path=path,
+                        media_type="audio",
+                        media_id=existing.id,
+                        project_id=project_id,
+                    )
                     if invalidate_caches:
                         _invalidate_pacing_caches()
                     return existing
@@ -212,6 +256,13 @@ def ingest_audio(
             session.add(track)
             session.commit()
             session.refresh(track)
+            _apply_cross_project_reuse_after_ingest(
+                session,
+                source_path=path,
+                media_type="audio",
+                media_id=track.id,
+                project_id=project_id,
+            )
             if invalidate_caches:
                 _invalidate_pacing_caches()
             return track
@@ -298,6 +349,13 @@ def ingest_video(
                     existing.deleted_at = None
                     session.commit()
                     session.refresh(existing)
+                    _apply_cross_project_reuse_after_ingest(
+                        session,
+                        source_path=path,
+                        media_type="video",
+                        media_id=existing.id,
+                        project_id=project_id,
+                    )
                     if invalidate_caches:
                         _invalidate_pacing_caches()
                     return existing
@@ -316,6 +374,13 @@ def ingest_video(
             session.add(clip)
             session.commit()
             session.refresh(clip)
+            _apply_cross_project_reuse_after_ingest(
+                session,
+                source_path=path,
+                media_type="video",
+                media_id=clip.id,
+                project_id=project_id,
+            )
             if invalidate_caches:
                 _invalidate_pacing_caches()
             return clip

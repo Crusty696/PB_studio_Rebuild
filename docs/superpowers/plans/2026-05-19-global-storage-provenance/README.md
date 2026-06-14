@@ -47,12 +47,11 @@ NOT_TO_CONFUSE_WITH:
 PB Studio
 ├── services/storage_provenance/
 │     ├── source_identity.py         SHA fuer Audio/Video/Image
-│     ├── provenance_db.py           analysis_jobs / artifacts / step_deps
+│     ├── cross_project_reuse.py     Import-Hinweis + AnalysisStatus-Reuse
 │     ├── file_tracking.py           Source-Move-Repair
 │     ├── adapter_layer.py           alte Pfade -> globale Lookup
 │     └── dedup_lookup.py            existing-analysis-check
 ├── ui/widgets/
-│     ├── cross_project_reuse_toast.py
 │     └── storage_browser_dialog.py
 └── %APPDATA%/PBStudio/storage/
         └── by_sha/<source_sha256>/
