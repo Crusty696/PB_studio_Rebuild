@@ -23,10 +23,10 @@ Those decisions are not app-code implementation tasks and must not be executed b
 ## Current Next Task
 
 ```text
-blocked-needs-user-decision: OTK-019 technical rest-probe passed on 2026-06-14,
-but plan acceptance still needs full 4h model-pipeline run and human/user
-playback acceptance. Decide whether to run/defer the heavy 4h test before
-moving to another OTK task.
+OTK-021 prerequisite re-check / planning only.
+Previous task OTK-019 is deferred-heavy-live-gate by user decision on
+2026-06-14: full 4h model-pipeline run and human/user playback acceptance are
+planned for later, not fixed.
 ```
 
 ## Agent Behavior
