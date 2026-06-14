@@ -8,6 +8,13 @@
 > 3. `GLOBAL-STORAGE-PROVENANCE-2026-05-19` (Plan C) — Content-Address-Storage + Provenance. **Brain V3 bleibt isoliert**, kein Provenance-Crosswalk noetig. Mirror `wiki/synthesis/plan-global-storage-provenance-2026-05-19.md` · Decision `D-046`.
 >
 > **Konkret fuer Brain V3:** GPU-Pfad unangetastet. LLM-Pfad (falls noetig) ueber Plan B `services/llm/`.
+>
+> **Update 2026-06-14:** OTK-021 / Plan C darf nach User-Waiver `D-063`
+> weitergehen. Brain V3 bleibt ausserhalb des Provenance-Systems; keine neue
+> Kopplung an `analysis_jobs`, `analysis_artifacts` oder `source_sha256`.
+> Deferred Gate `DG-001` aus OTK-019 bleibt Pflicht vor fixed/release:
+> 4h Video-Modelllauf, human/QMediaPlayer Playback, real Demucs+Video
+> Coexistence.
 
 **Datum:** 2026-05-04
 **Ersetzt:** den frueheren Plan im Project-Cache

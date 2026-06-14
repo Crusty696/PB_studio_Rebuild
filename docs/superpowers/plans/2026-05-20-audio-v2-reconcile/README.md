@@ -4,6 +4,16 @@ Plan ID: `AUDIO-ANALYSIS-V2-STRICT-SEQUENTIAL-2026-05-17`
 Status: `approved-for-planning`
 Date: 2026-05-20
 
+> **Cross-Plan-Awareness — OTK-021 / Plan C update 2026-06-14:**
+>
+> `GLOBAL-STORAGE-PROVENANCE-2026-05-19` may proceed under OTK-021 after user
+> prerequisite waiver `D-063`. Audio-V2 is now agent-live-verified-complete, but
+> OTK-019 deferred gate `DG-001` remains active: full 4h model-pipeline,
+> human/QMediaPlayer proxy playback acceptance, and real Demucs+Video
+> coexistence must be completed before fixed/release status. Audio-V2 storage
+> paths stay stable; Plan C must use adapter/provenance mapping, not hidden V2
+> path rewrites.
+
 ## Goal
 
 Rette die verwertbare Arbeit aus `sandbox/audio-analysis-v2`, ohne den alten Branch zu mergen und ohne GUI-/Tab-Drift in den aktuellen Branch zu tragen.

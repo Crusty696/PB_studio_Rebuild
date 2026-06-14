@@ -8,6 +8,12 @@
 > 3. `GLOBAL-STORAGE-PROVENANCE-2026-05-19` (Plan C) — Content-Address-Storage + Provenance. **SCHNITT-Audio-Subtab bleibt unangetastet** dank Backward-compat-Adapter-Layer (Junction `storage/stems/<track_id>/` → `by_sha/<sha>/audio/`). Mirror `wiki/synthesis/plan-global-storage-provenance-2026-05-19.md` · Decision `D-046`.
 >
 > **Konkret fuer SCHNITT-Workspace-Redesign:** Stems-Pfade nicht aendern. LLM-Aufrufe ueber Plan B. Cut-Plan-Konsumenten optional in Plan A integriert.
+>
+> **Update 2026-06-14:** OTK-021 / Plan C darf nach User-Waiver `D-063`
+> weitergehen. SCHNITT bleibt Consumer: keine direkten Stem-Pfad-Migrationen im
+> SCHNITT-Plan. Plan C muss Backward-compat ueber Adapter/Junction liefern.
+> Deferred Gate `DG-001` aus OTK-019 bleibt offen und muss vor fixed/release
+> nachgeholt werden.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 

@@ -8,6 +8,12 @@
 > 3. `GLOBAL-STORAGE-PROVENANCE-2026-05-19` (Plan C) — Content-Address-Storage + Provenance + Adapter. **SCHNITT-Audio-Subtab Backward-compat via Junction**, kein Code-Touch. Mirror `wiki/synthesis/plan-global-storage-provenance-2026-05-19.md` · Decision `D-046`.
 >
 > **Konkret fuer SCHNITT-Usability-Wiring:** Stems-Pfade nicht aendern. Neue LLM-Aufrufe ueber Plan B. Cut-Plan-Anzeige optional.
+>
+> **Update 2026-06-14:** OTK-021 / Plan C darf nach User-Waiver `D-063`
+> weitergehen. SCHNITT-Wiring darf keine globalen Storage-Pfade direkt
+> einbauen; Zugriff bleibt ueber Adapter/alte sichtbare Pfade. Deferred Gate
+> `DG-001` aus OTK-019 bleibt offen und muss vor fixed/release nachgeholt
+> werden.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
