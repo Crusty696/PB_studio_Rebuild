@@ -23,10 +23,10 @@ Those decisions are not app-code implementation tasks and must not be executed b
 ## Current Next Task
 
 ```text
-OTK-022 Phase-2 decision/planning review.
-Previous task OTK-021 prerequisite re-check remains blocked: Audio-V2 is
-agent-live-verified, but Plan A heavy live gate is deferred and no explicit
-Plan-C prerequisite waiver exists.
+blocked-needs-user-selection: no remaining autonomous app-code task is currently
+unblocked in the OTK masterplan. OTK-008 lacks the formal dataset, OTK-019 is
+deferred-heavy-live-gate, OTK-021 is prerequisite-blocked, and OTK-022 is
+completed as no-port/design-pattern.
 ```
 
 ## Agent Behavior
