@@ -23,10 +23,10 @@ Those decisions are not app-code implementation tasks and must not be executed b
 ## Current Next Task
 
 ```text
-OTK-021 prerequisite re-check / planning only.
-Previous task OTK-019 is deferred-heavy-live-gate by user decision on
-2026-06-14: full 4h model-pipeline run and human/user playback acceptance are
-planned for later, not fixed.
+OTK-022 Phase-2 decision/planning review.
+Previous task OTK-021 prerequisite re-check remains blocked: Audio-V2 is
+agent-live-verified, but Plan A heavy live gate is deferred and no explicit
+Plan-C prerequisite waiver exists.
 ```
 
 ## Agent Behavior
