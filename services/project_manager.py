@@ -333,6 +333,19 @@ class ProjectManager(QObject):
                 )
             raise
 
+        try:
+            from services.storage_provenance.schnitt_audio_adapter import (
+                ensure_schnitt_audio_adapter,
+            )
+            with database.nullpool_session() as session:
+                ensure_schnitt_audio_adapter(session)
+        except Exception as adapter_err:  # broad catch intentional: adapter must not block project open
+            logger.warning(
+                "OTK-021: SCHNITT-Audio-Adapter konnte beim Projekt-Open nicht "
+                "initialisiert werden: %s",
+                adapter_err,
+            )
+
         self.current_project_path = path
         logger.info("Projekt geoeffnet: %s (%s)", meta["name"], path)
         self.project_changed.emit(path)

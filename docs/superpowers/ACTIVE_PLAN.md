@@ -23,9 +23,9 @@ Those decisions are not app-code implementation tasks and must not be executed b
 ## Current Next Task
 
 ```text
-OTK-021 Tier 3 next subtask: 31 SCHNITT-Audio-Adapter. Tier 1-2 plus
-Tier 3/30 Storage-Migration-Service code/tests completed on 2026-06-14.
-Deferred gate DG-001 remains mandatory before fixed/release status.
+OTK-021 Tier 3 next subtask: 32 Cross-Project-Reuse UX. Tier 1-2 plus
+Tier 3/30 Storage-Migration-Service and 31 SCHNITT-Audio-Adapter code/tests
+completed on 2026-06-14. DG-001 remains mandatory before fixed/release status.
 ```
 
 ## Agent Behavior
