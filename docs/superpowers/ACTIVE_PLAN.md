@@ -23,10 +23,11 @@ Those decisions are not app-code implementation tasks and must not be executed b
 ## Current Next Task
 
 ```text
-OTK-021 Tier 3 next subtask: 33 Storage-Browser UI. Tier 1-2 plus
-Tier 3/30 Storage-Migration-Service, 31 SCHNITT-Audio-Adapter, and
-32 Cross-Project-Reuse UX code/tests completed by 2026-06-15. Product live
-verification remains pending. DG-001 remains mandatory before fixed/release status.
+OTK-021 Tier 3 next subtask: 34 Project-Export + Import. Tier 1-2 plus
+Tier 3/30 Storage-Migration-Service, 31 SCHNITT-Audio-Adapter,
+32 Cross-Project-Reuse UX, and 33 Storage-Browser UI code/tests completed
+by 2026-06-15. Product live verification remains pending. DG-001 remains
+mandatory before fixed/release status.
 ```
 
 ## Agent Behavior

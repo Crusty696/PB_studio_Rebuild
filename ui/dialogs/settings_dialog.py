@@ -437,6 +437,20 @@ class SettingsDialog(QDialog):
         mgr_layout.addWidget(self._btn_model_manager)
         llm_layout.addWidget(mgr_group)
 
+        storage_group = QGroupBox("Storage")
+        storage_layout = QHBoxLayout(storage_group)
+        lbl_storage = QLabel("Globale Analyse-Artefakte projektuebergreifend ansehen und bereinigen.")
+        lbl_storage.setStyleSheet(f"color: {T2}; font-size: 11px;")
+        lbl_storage.setWordWrap(True)
+        storage_layout.addWidget(lbl_storage, 1)
+        self._btn_storage_browser = QPushButton("Storage-Browser")
+        self._btn_storage_browser.setToolTip(
+            "Storage-Browser oeffnen: analysierte Dateien projektuebergreifend listen und Analysen nach Bestaetigung loeschen."
+        )
+        self._btn_storage_browser.clicked.connect(self._on_open_storage_browser)
+        storage_layout.addWidget(self._btn_storage_browser)
+        llm_layout.addWidget(storage_group)
+
         lbl_info = QLabel(
             "Wenn Ollama nicht verfügbar ist, fällt PB Studio automatisch auf das lokale "
             "HuggingFace-Modell zurück (Gemma 4 E4B)."
@@ -526,6 +540,12 @@ class SettingsDialog(QDialog):
         from ui.dialogs.model_manager_dialog import ModelManagerDialog
         url = self._txt_url.text().strip() or "http://localhost:11434"
         dlg = ModelManagerDialog(parent=self, ollama_url=url)
+        dlg.exec()
+
+    def _on_open_storage_browser(self) -> None:
+        from ui.dialogs.storage_browser_dialog import StorageBrowserDialog
+
+        dlg = StorageBrowserDialog(parent=self)
         dlg.exec()
 
     def _validate_ollama_model(self, url: str, model: str) -> bool:

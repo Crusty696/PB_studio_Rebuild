@@ -52,7 +52,7 @@ PB Studio
 │     ├── adapter_layer.py           alte Pfade -> globale Lookup
 │     └── dedup_lookup.py            existing-analysis-check
 ├── ui/widgets/
-│     └── storage_browser_dialog.py
+│     └── storage_browser_dialog.py  Storage-Browser UI
 └── %APPDATA%/PBStudio/storage/
         └── by_sha/<source_sha256>/
             ├── audio/    (Symlink/Junction zu V2-stems)
