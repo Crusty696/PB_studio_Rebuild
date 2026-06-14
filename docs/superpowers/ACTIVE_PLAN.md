@@ -23,10 +23,10 @@ Those decisions are not app-code implementation tasks and must not be executed b
 ## Current Next Task
 
 ```text
-blocked-needs-user-selection: no remaining autonomous app-code task is currently
-unblocked in the OTK masterplan. OTK-008 lacks the formal dataset, OTK-019 is
-deferred-heavy-live-gate, OTK-021 is prerequisite-blocked, and OTK-022 is
-completed as no-port/design-pattern.
+OTK-021 Global Storage Provenance can proceed after user prerequisite waiver on
+2026-06-14. Deferred gates are tracked in docs/superpowers/DEFERRED_GATES.md:
+OTK-019 full 4h model-pipeline, human playback acceptance, and real
+Demucs+Video coexistence must be completed later before fixed/release status.
 ```
 
 ## Agent Behavior
