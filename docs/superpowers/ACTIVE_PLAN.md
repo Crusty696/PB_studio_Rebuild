@@ -23,10 +23,10 @@ Those decisions are not app-code implementation tasks and must not be executed b
 ## Current Next Task
 
 ```text
-OTK-019: Video Pipeline Engine remaining GUI/user acceptance checks.
-Previous task OTK-018 was live-verified-complete on 2026-06-14 after user broad
-autonomous release: Audio-V2 tests 82 passed, fresh GTX-1060 service E2E green,
-and real GUI default route completed.
+blocked-needs-user-decision: OTK-019 technical rest-probe passed on 2026-06-14,
+but plan acceptance still needs full 4h model-pipeline run and human/user
+playback acceptance. Decide whether to run/defer the heavy 4h test before
+moving to another OTK task.
 ```
 
 ## Agent Behavior
