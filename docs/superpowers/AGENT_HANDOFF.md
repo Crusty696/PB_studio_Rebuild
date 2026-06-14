@@ -11,7 +11,7 @@ This file is a repository-local continuity checkpoint for all agents.
 - **Decision:** `C:\Brain-Bug\projects\pb-studio\wiki\decisions\D-061-offene-tasks-konsolidierung-masterplan.md`
 - **Status:** CRF executable fix waves are complete per CRF Vault mirror; B-498..B-520 and B-523..B-529 are recorded fixed after live/user confirmation. `ACTIVE_PLAN.md` selects the OTK masterplan only. OTK-018 was live-verified-complete on 2026-06-14 after user broad autonomous release. OTK-019 technical rest-probe passed; user decided to defer the heavy 4h live gate for later.
 - **CRF remaining:** CRF-D1 Brain deprecation, CRF-D2 Vault sync, CRF-D3 cu121/torch-2.x migration remain user decisions, not agent app-code tasks.
-- **Next task:** `OTK-021 Tier 3/34 Project-Export + Import`. User approved prerequisite waiver on 2026-06-14, with deferred gates tracked in `docs/superpowers/DEFERRED_GATES.md`.
+- **Next task:** `OTK-021 40 Caller-Migration`. User approved prerequisite waiver on 2026-06-14, with deferred gates tracked in `docs/superpowers/DEFERRED_GATES.md`.
 - **Parallel work rule:** user gave broad release on 2026-06-14, but AGENTS.md still forbids parallel half-finished app-code work in the same repo. Parallel teams may only do read-only analysis or work in isolated worktrees after one task is selected.
 - **OTK-018 verification:** focused Audio-V2 package `82 passed`; fresh GTX-1060 service E2E ran stem_gen, beat_grid, onset, key, structure, lufs, spectral, av_pacing with `failed=False` in 276.4s; real GUI selected audio and clicked `Audio analysieren`, console showed V2 default route start and completion with no V2 error. Evidence: `test-report/e2e-audio-v2-otk018-2026-06-14-fresh.log`, `test-report/otk018-audio-v2-gui-live-2026-06-14.log`, `test_reports/otk018_audio_v2_gui_live_20260614.py`.
 - **OTK-019 2026-06-14:** focused technical tests `39 passed`; `test_reports/otk019_remaining_verify_20260614.py` exit 0. Passed: proxy generation/decode (size ratio 0.1301, 5s decode in 0.344s), 3-keyframe contact sheet, process-kill resume from checkpoint, synthetic 4h coverage guard 100%, GPU-lock wait behind simulated Audio-V2 holder. Honest limits: no human/QMediaPlayer smoothness verdict, no full 4h video through all model stages, no real concurrent Demucs+Video run. User decision: defer heavy 4h gate for later, status `deferred-heavy-live-gate`.
@@ -24,6 +24,7 @@ This file is a repository-local continuity checkpoint for all agents.
 - **OTK-021 Tier 3/31 2026-06-14:** SCHNITT-Audio-Adapter code/tests complete. `ProjectManager.open_project()` runs adapter defensively after DB init; service builds missing stem Junctions idempotently. Verification: adapter/storage-migration `5 passed`; OTK-021 Slice `20 passed`; py_compile; `git diff --check`. No GUI live click; no fixed marker.
 - **OTK-021 Tier 3/32 2026-06-15:** Cross-Project-Reuse UX code/tests complete. Added `services/storage_provenance/cross_project_reuse.py`; import path applies reusable provenance to `analysis_status`; status panel shows provenance tooltips; import controller shows non-modal reuse notice with project-scoped "Nicht mehr fragen". Verification: cross-project reuse focus `5 passed`; OTK-021 Slice `20 passed`; py_compile; `git diff --check`. No product live re-import verification; no fixed marker.
 - **OTK-021 Tier 3/33 2026-06-15:** Storage-Browser UI code/tests complete. Added `services/storage_provenance/storage_browser.py`, `ui/dialogs/storage_browser_dialog.py`, and Settings button. Browser lists sources sorted with project usage, stage count, byte total, last-used, unused/age filters, per-row delete, and bulk delete with confirm. Verification: storage-browser focus `5 passed`; OTK-021 Slice `27 passed`; py_compile; `git diff --check`. No Settings GUI live click; no fixed marker.
+- **OTK-021 Tier 3/34 2026-06-15:** Project-Export + Import code/tests complete. Added `services/storage_provenance/project_bundle.py` and tests. Exports `.pbbundle` zip with manifest, project subset, project_sources, analysis_jobs/artifacts, and referenced `by_sha` files; import validates manifest/file SHA, preserves existing artifacts on conflict, creates project and sources. Verification: project-export focus `3 passed`; OTK-021 Slice `30 passed`; py_compile; `git diff --check`. No real same-machine/other-machine export-import live verification; no fixed marker.
 
 ## Previous Governance Update
 
@@ -101,7 +102,7 @@ PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09
 Current next task:
 
 ```text
-OTK-021 Tier 3/34 Project-Export + Import next. Tier 1-2 and Tier 3/30-33
+OTK-021 40 Caller-Migration next. Tier 1-2 and Tier 3/30-34
 code/tests completed by 2026-06-15. Product live verification and DG-001
 remain required before fixed/release status.
 ```

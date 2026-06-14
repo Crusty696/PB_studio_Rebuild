@@ -48,6 +48,7 @@ PB Studio
 ├── services/storage_provenance/
 │     ├── source_identity.py         SHA fuer Audio/Video/Image
 │     ├── cross_project_reuse.py     Import-Hinweis + AnalysisStatus-Reuse
+│     ├── project_bundle.py          .pbbundle Export/Import
 │     ├── file_tracking.py           Source-Move-Repair
 │     ├── adapter_layer.py           alte Pfade -> globale Lookup
 │     └── dedup_lookup.py            existing-analysis-check
