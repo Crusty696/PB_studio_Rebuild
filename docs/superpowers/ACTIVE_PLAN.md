@@ -23,9 +23,8 @@ Those decisions are not app-code implementation tasks and must not be executed b
 ## Current Next Task
 
 ```text
-OTK-021 Tier 3 Workspace+Services next: Storage-Migration-Service,
-SCHNITT-Audio-Adapter, Cross-Project-Reuse Toast, Storage-Browser,
-Project Export/Import. Tier 1-2 code/tests completed on 2026-06-14.
+OTK-021 Tier 3 next subtask: 31 SCHNITT-Audio-Adapter. Tier 1-2 plus
+Tier 3/30 Storage-Migration-Service code/tests completed on 2026-06-14.
 Deferred gate DG-001 remains mandatory before fixed/release status.
 ```
 

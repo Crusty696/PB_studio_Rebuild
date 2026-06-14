@@ -32,8 +32,8 @@ class StorageLayout:
         return root
 
     def relative_artifact_path(self, source_sha256: str, artifact_path: str | Path) -> str:
-        root = self.source_root(source_sha256).resolve()
-        artifact = Path(artifact_path).resolve()
+        root = self.source_root(source_sha256).absolute()
+        artifact = Path(artifact_path).absolute()
         try:
             rel = artifact.relative_to(root)
         except ValueError as exc:

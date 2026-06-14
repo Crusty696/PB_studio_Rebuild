@@ -11,7 +11,7 @@ This file is a repository-local continuity checkpoint for all agents.
 - **Decision:** `C:\Brain-Bug\projects\pb-studio\wiki\decisions\D-061-offene-tasks-konsolidierung-masterplan.md`
 - **Status:** CRF executable fix waves are complete per CRF Vault mirror; B-498..B-520 and B-523..B-529 are recorded fixed after live/user confirmation. `ACTIVE_PLAN.md` selects the OTK masterplan only. OTK-018 was live-verified-complete on 2026-06-14 after user broad autonomous release. OTK-019 technical rest-probe passed; user decided to defer the heavy 4h live gate for later.
 - **CRF remaining:** CRF-D1 Brain deprecation, CRF-D2 Vault sync, CRF-D3 cu121/torch-2.x migration remain user decisions, not agent app-code tasks.
-- **Next task:** `OTK-021 Tier 3 Workspace+Services: Storage-Migration-Service, SCHNITT-Audio-Adapter, Cross-Project-Reuse Toast, Storage-Browser, Project Export/Import`. User approved prerequisite waiver on 2026-06-14, with deferred gates tracked in `docs/superpowers/DEFERRED_GATES.md`.
+- **Next task:** `OTK-021 Tier 3/31 SCHNITT-Audio-Adapter`. User approved prerequisite waiver on 2026-06-14, with deferred gates tracked in `docs/superpowers/DEFERRED_GATES.md`.
 - **Parallel work rule:** user gave broad release on 2026-06-14, but AGENTS.md still forbids parallel half-finished app-code work in the same repo. Parallel teams may only do read-only analysis or work in isolated worktrees after one task is selected.
 - **OTK-018 verification:** focused Audio-V2 package `82 passed`; fresh GTX-1060 service E2E ran stem_gen, beat_grid, onset, key, structure, lufs, spectral, av_pacing with `failed=False` in 276.4s; real GUI selected audio and clicked `Audio analysieren`, console showed V2 default route start and completion with no V2 error. Evidence: `test-report/e2e-audio-v2-otk018-2026-06-14-fresh.log`, `test-report/otk018-audio-v2-gui-live-2026-06-14.log`, `test_reports/otk018_audio_v2_gui_live_20260614.py`.
 - **OTK-019 2026-06-14:** focused technical tests `39 passed`; `test_reports/otk019_remaining_verify_20260614.py` exit 0. Passed: proxy generation/decode (size ratio 0.1301, 5s decode in 0.344s), 3-keyframe contact sheet, process-kill resume from checkpoint, synthetic 4h coverage guard 100%, GPU-lock wait behind simulated Audio-V2 holder. Honest limits: no human/QMediaPlayer smoothness verdict, no full 4h video through all model stages, no real concurrent Demucs+Video run. User decision: defer heavy 4h gate for later, status `deferred-heavy-live-gate`.
@@ -20,6 +20,7 @@ This file is a repository-local continuity checkpoint for all agents.
 - **OTK-021 waiver 2026-06-14:** user approved proceeding despite missing OTK-019 heavy gate, explicitly requiring the deferred work not be forgotten. DG-001 tracks full 4h model-pipeline, human playback acceptance, and real Demucs+Video coexistence before fixed/release status.
 - **OTK-021 Tier 1 2026-06-14:** DB-Provenance tables and Storage-Layout helper are code/tests complete. Added Alembic revision `e5f6a7b8c9d0`, ORM models, `services/storage_provenance/layout.py`, and focused tests. Verification: `6 passed` focused, `5 passed` migration regressions, `2 passed` Alembic roundtrip, py_compile, `git diff --check`. No fixed marker.
 - **OTK-021 Tier 2 2026-06-14:** Building blocks are code/tests complete: `source_identity.py`, `file_tracking.py`, `dedup_lookup.py`, `adapter_layer.py`, plus focused tests. Verification: Tier-2 `9 passed`; Tier1+Tier2 combined `15 passed`; py_compile; `git diff --check`. No product live verification; no fixed marker.
+- **OTK-021 Tier 3/30 2026-06-14:** Storage-Migration-Service code/tests complete. Registers existing V2 stems and Plan-A video outputs into provenance tables; audio stems use Junction/Symlink under `by_sha`. Verification: storage migration/layout `6 passed`; OTK-021 service suite `18 passed`; py_compile; `git diff --check`. No product live verification; no fixed marker.
 
 ## Previous Governance Update
 
@@ -97,8 +98,9 @@ PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09
 Current next task:
 
 ```text
-OTK-021 Tier 3 Workspace+Services next. Tier 1-2 code/tests completed on
-2026-06-14. DG-001 remains required before fixed/release status.
+OTK-021 Tier 3/31 SCHNITT-Audio-Adapter next. Tier 1-2 and Tier 3/30
+code/tests completed on 2026-06-14. DG-001 remains required before fixed/release
+status.
 ```
 
 Current OTK-003 status:
