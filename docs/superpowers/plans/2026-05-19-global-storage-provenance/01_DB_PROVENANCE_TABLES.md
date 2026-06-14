@@ -1,7 +1,7 @@
 # 01 — DB-Provenance-Tabellen
 
 > Plan: `GLOBAL-STORAGE-PROVENANCE-2026-05-19` — Tier 1
-> Status: planned · 2026-05-19
+> Status: code-complete-tests-green · 2026-06-14
 
 ## Ziel
 
@@ -63,3 +63,11 @@ CREATE TABLE project_sources (
 
 - Migration laeuft idempotent
 - `pytest tests/test_db/test_provenance_migration.py -v` gruen
+
+## Progress 2026-06-14
+
+- Implementiert via Alembic-Revision `e5f6a7b8c9d0`.
+- ORM-Modelle: `AnalysisJob`, `AnalysisArtifact`, `StepDep`, `ProjectSource`.
+- Testpfad im aktuellen Repo: `tests/test_database/test_provenance_migration.py`.
+- Verifiziert: fokussierte Provenance/Layout-Tests `6 passed`; Alembic-Roundtrip `2 passed`; Migration-Regressionen `5 passed`; py_compile gruen.
+- Kein `fixed` Marker. Kein Produkt-Live-Verify.

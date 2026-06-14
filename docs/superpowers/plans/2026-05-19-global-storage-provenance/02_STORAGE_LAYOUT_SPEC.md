@@ -1,7 +1,7 @@
 # 02 — Storage-Layout-Spec (Content-Address)
 
 > Plan: `GLOBAL-STORAGE-PROVENANCE-2026-05-19` — Tier 1
-> Status: planned · 2026-05-19
+> Status: code-complete-tests-green · 2026-06-14
 
 ## Layout
 
@@ -41,3 +41,12 @@
 
 - Junction-Resolution funktioniert (V2 schreibt project-lokal, by_sha-Pfad findet Datei via Junction)
 - `pytest tests/test_services/test_storage_layout.py -v` gruen
+
+## Progress 2026-06-14
+
+- Implementiert `services/storage_provenance/layout.py`.
+- `StorageLayout` erzeugt `by_sha/<prefix>/<source_sha256>/audio|video`.
+- `create_directory_link()` nutzt Windows Junction (`mklink /J`) oder POSIX Symlink.
+- Testpfad: `tests/test_services/test_storage_layout.py`.
+- Verifiziert: fokussierte Provenance/Layout-Tests `6 passed`; py_compile gruen.
+- Kein `fixed` Marker. Kein Produkt-Live-Verify.

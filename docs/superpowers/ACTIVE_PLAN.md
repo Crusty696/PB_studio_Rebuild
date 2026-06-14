@@ -23,10 +23,10 @@ Those decisions are not app-code implementation tasks and must not be executed b
 ## Current Next Task
 
 ```text
-OTK-021 Global Storage Provenance can proceed after user prerequisite waiver on
-2026-06-14. Deferred gates are tracked in docs/superpowers/DEFERRED_GATES.md:
-OTK-019 full 4h model-pipeline, human playback acceptance, and real
-Demucs+Video coexistence must be completed later before fixed/release status.
+OTK-021 Tier 2 Building-Blocks next: Source-Hash, File-Tracking, Dedup-Lookup,
+Adapter. Tier 1 DB-Provenance + Storage-Layout code/tests completed on
+2026-06-14. Deferred gate DG-001 from docs/superpowers/DEFERRED_GATES.md
+remains mandatory before fixed/release status.
 ```
 
 ## Agent Behavior

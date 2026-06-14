@@ -16,6 +16,10 @@ from database.session import (  # noqa: F401
 from database.models import (  # noqa: F401
     Base,
     Project,
+    AnalysisJob,
+    AnalysisArtifact,
+    StepDep,
+    ProjectSource,
     AudioTrack,
     VideoClip,
     Scene,

@@ -20,7 +20,7 @@ joinen oder eigene Filter setzen.
 """
 import datetime as _datetime
 
-from sqlalchemy import Column, Integer, String, Float, ForeignKey, Text, Boolean, UniqueConstraint, JSON, DateTime, Index
+from sqlalchemy import Column, Integer, String, Float, ForeignKey, Text, Boolean, UniqueConstraint, JSON, DateTime, Index, BigInteger
 from sqlalchemy.orm import DeclarativeBase, relationship
 
 
@@ -49,6 +49,98 @@ class Project(Base):
 
     def __repr__(self):
         return f"<Project(id={self.id}, name='{self.name}', fps={self.fps})>"
+
+
+class AnalysisJob(Base):
+    """GLOBAL-STORAGE-PROVENANCE-2026-05-19: provenance job identity.
+
+    Identity is content hash + step + step version + stable parameter hash.
+    This table is intentionally independent from project-local media rows so
+    cross-project reuse can find completed work by ``source_sha256``.
+    """
+    __tablename__ = "analysis_jobs"
+    __table_args__ = (
+        Index(
+            "uq_analysis_jobs_identity",
+            "source_sha256",
+            "step_id",
+            "step_version",
+            "params_hash",
+            unique=True,
+        ),
+        Index("ix_analysis_jobs_source_sha256", "source_sha256"),
+        Index("ix_analysis_jobs_status", "status"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    source_sha256 = Column(String, nullable=False)
+    step_id = Column(String, nullable=False)
+    step_version = Column(String, nullable=False)
+    params_hash = Column(String, nullable=False)
+    status = Column(String, nullable=False)
+    produced_by_model = Column(String, nullable=True)
+    produced_by_model_version = Column(String, nullable=True)
+    coverage_percent = Column(Float, nullable=True)
+    started_at = Column(DateTime, nullable=True)
+    finished_at = Column(DateTime, nullable=True)
+    duration_seconds = Column(Float, nullable=True)
+    error = Column(Text, nullable=True)
+
+    artifacts = relationship(
+        "AnalysisArtifact",
+        back_populates="job",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        lazy="selectin",
+    )
+
+
+class AnalysisArtifact(Base):
+    """Artifact path relative to ``storage/by_sha/<prefix>/<source_sha256>/``."""
+    __tablename__ = "analysis_artifacts"
+    __table_args__ = (
+        Index("ix_analysis_artifacts_job_id", "job_id"),
+        Index("ix_analysis_artifacts_role", "artifact_role"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    job_id = Column(Integer, ForeignKey("analysis_jobs.id", ondelete="CASCADE"), nullable=False)
+    artifact_type = Column(String, nullable=False)
+    artifact_role = Column(String, nullable=False)
+    path = Column(String, nullable=False)
+    bytes = Column(BigInteger, nullable=True)
+    sha256 = Column(String, nullable=True)
+
+    job = relationship("AnalysisJob", back_populates="artifacts", lazy="joined")
+
+
+class StepDep(Base):
+    """Static dependency map between provenance steps."""
+    __tablename__ = "step_deps"
+
+    step_id = Column(String, primary_key=True)
+    depends_on_step_id = Column(String, primary_key=True)
+    uses_artifact_role = Column(String, nullable=True)
+
+
+class ProjectSource(Base):
+    """Last known project-local path for a content-addressed source file."""
+    __tablename__ = "project_sources"
+    __table_args__ = (
+        Index(
+            "uq_project_sources_project_source",
+            "project_id",
+            "source_sha256",
+            unique=True,
+        ),
+        Index("ix_project_sources_source_sha256", "source_sha256"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    source_sha256 = Column(String, nullable=False)
+    current_source_path = Column(String, nullable=False)
+    last_seen_at = Column(DateTime, nullable=True)
 
 
 class AudioTrack(Base):

@@ -11,13 +11,14 @@ This file is a repository-local continuity checkpoint for all agents.
 - **Decision:** `C:\Brain-Bug\projects\pb-studio\wiki\decisions\D-061-offene-tasks-konsolidierung-masterplan.md`
 - **Status:** CRF executable fix waves are complete per CRF Vault mirror; B-498..B-520 and B-523..B-529 are recorded fixed after live/user confirmation. `ACTIVE_PLAN.md` selects the OTK masterplan only. OTK-018 was live-verified-complete on 2026-06-14 after user broad autonomous release. OTK-019 technical rest-probe passed; user decided to defer the heavy 4h live gate for later.
 - **CRF remaining:** CRF-D1 Brain deprecation, CRF-D2 Vault sync, CRF-D3 cu121/torch-2.x migration remain user decisions, not agent app-code tasks.
-- **Next task:** `OTK-021 Global Storage Provenance start`. User approved prerequisite waiver on 2026-06-14, with deferred gates tracked in `docs/superpowers/DEFERRED_GATES.md`.
+- **Next task:** `OTK-021 Tier 2 Building-Blocks: Source-Hash, File-Tracking, Dedup-Lookup, Adapter`. User approved prerequisite waiver on 2026-06-14, with deferred gates tracked in `docs/superpowers/DEFERRED_GATES.md`.
 - **Parallel work rule:** user gave broad release on 2026-06-14, but AGENTS.md still forbids parallel half-finished app-code work in the same repo. Parallel teams may only do read-only analysis or work in isolated worktrees after one task is selected.
 - **OTK-018 verification:** focused Audio-V2 package `82 passed`; fresh GTX-1060 service E2E ran stem_gen, beat_grid, onset, key, structure, lufs, spectral, av_pacing with `failed=False` in 276.4s; real GUI selected audio and clicked `Audio analysieren`, console showed V2 default route start and completion with no V2 error. Evidence: `test-report/e2e-audio-v2-otk018-2026-06-14-fresh.log`, `test-report/otk018-audio-v2-gui-live-2026-06-14.log`, `test_reports/otk018_audio_v2_gui_live_20260614.py`.
 - **OTK-019 2026-06-14:** focused technical tests `39 passed`; `test_reports/otk019_remaining_verify_20260614.py` exit 0. Passed: proxy generation/decode (size ratio 0.1301, 5s decode in 0.344s), 3-keyframe contact sheet, process-kill resume from checkpoint, synthetic 4h coverage guard 100%, GPU-lock wait behind simulated Audio-V2 holder. Honest limits: no human/QMediaPlayer smoothness verdict, no full 4h video through all model stages, no real concurrent Demucs+Video run. User decision: defer heavy 4h gate for later, status `deferred-heavy-live-gate`.
 - **OTK-021 2026-06-14:** prerequisite re-check only. Audio-V2 is now agent-live-verified-complete, but Plan A heavy live gate is deferred, Plan B Tier-1/2 completion is not proven, and no explicit Plan-C prerequisite waiver/user V2 acceptance exists. Status remains `blocked-prerequisite-rechecked-2026-06-14`.
 - **OTK-022 2026-06-14:** Phase-2 review completed. Read `_lib/build_edl_v7.py` and PB pacing counterparts. Thematic Chapter Sequencing is useful design pattern, but port would introduce new PB feature/architecture surface. No code port. Status `completed-no-port-design-pattern`.
 - **OTK-021 waiver 2026-06-14:** user approved proceeding despite missing OTK-019 heavy gate, explicitly requiring the deferred work not be forgotten. DG-001 tracks full 4h model-pipeline, human playback acceptance, and real Demucs+Video coexistence before fixed/release status.
+- **OTK-021 Tier 1 2026-06-14:** DB-Provenance tables and Storage-Layout helper are code/tests complete. Added Alembic revision `e5f6a7b8c9d0`, ORM models, `services/storage_provenance/layout.py`, and focused tests. Verification: `6 passed` focused, `5 passed` migration regressions, `2 passed` Alembic roundtrip, py_compile, `git diff --check`. No fixed marker.
 
 ## Previous Governance Update
 
@@ -95,11 +96,9 @@ PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09
 Current next task:
 
 ```text
-OTK-021 Global Storage Provenance start. User approved prerequisite waiver on
-2026-06-14 with deferred gate DG-001. OTK-019 4h/playback/Demucs gates remain
-required before fixed/release status. B-490/B-491 were handled by CRF-005.
-OTK-018 is live-verified-complete after 2026-06-14 autonomous service+GUI
-verification.
+OTK-021 Tier 2 Building-Blocks next: Source-Hash, File-Tracking, Dedup-Lookup,
+Adapter. Tier 1 DB-Provenance + Storage-Layout code/tests completed on
+2026-06-14. DG-001 remains required before fixed/release status.
 ```
 
 Current OTK-003 status:
