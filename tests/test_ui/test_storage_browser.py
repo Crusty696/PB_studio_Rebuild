@@ -64,7 +64,7 @@ def test_storage_browser_dialog_populates_rows_and_selection(monkeypatch, qapp) 
     assert dialog.table.item(0, 1).text() == "track.wav"
     assert dialog.table.item(0, 4).text() == "2.0 KB"
     assert dialog.table.item(0, 5).text() == "2026-06-15 12:00"
-    assert dialog._summary.text() == "1 Quellen"
+    assert dialog._summary.text() == "1 Quellen / 2.0 KB"
     assert dialog._selected_sources() == ["a" * 64]
 
 

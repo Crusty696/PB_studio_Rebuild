@@ -115,7 +115,7 @@ class StorageBrowserDialog(QDialog):
             delete_btn.clicked.connect(lambda _checked=False, source_sha=row.source_sha256: self._delete_sources([source_sha]))
             self.table.setCellWidget(row_idx, 6, delete_btn)
 
-        self._summary.setText(f"{len(self._rows)} Quellen")
+        self._summary.setText(f"{len(self._rows)} Quellen / {_format_bytes(sum(row.total_bytes for row in self._rows))}")
         self._delete_selected_btn.setEnabled(bool(self._rows))
 
     def _selected_sources(self) -> list[str]:
