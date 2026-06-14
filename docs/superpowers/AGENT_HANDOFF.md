@@ -4,6 +4,18 @@ This file is a repository-local continuity checkpoint for all agents.
 
 ## Latest Governance Update
 
+- **Date:** 2026-06-14
+- **Active plan:** `PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09`
+- **Repo plan:** `docs/superpowers/plans/2026-06-09-offene-tasks-konsolidierung-masterplan.md`
+- **Vault mirror:** `C:\Brain-Bug\projects\pb-studio\wiki\synthesis\plan-offene-tasks-konsolidierung-masterplan-2026-06-09.md`
+- **Decision:** `C:\Brain-Bug\projects\pb-studio\wiki\decisions\D-061-offene-tasks-konsolidierung-masterplan.md`
+- **Status:** CRF executable fix waves are complete per CRF Vault mirror; B-498..B-520 and B-523..B-529 are recorded fixed after live/user confirmation. `ACTIVE_PLAN.md` was cleaned up and now selects the OTK masterplan only.
+- **CRF remaining:** CRF-D1 Brain deprecation, CRF-D2 Vault sync, CRF-D3 cu121/torch-2.x migration remain user decisions, not agent app-code tasks.
+- **Next task:** `blocked-needs-user-selection`: user must select exactly one remaining OTK task before implementation. Candidates: OTK-008, OTK-018, OTK-019, OTK-021, OTK-022.
+- **Parallel work rule:** user gave broad release on 2026-06-14, but AGENTS.md still forbids parallel half-finished app-code work in the same repo. Parallel teams may only do read-only analysis or work in isolated worktrees after one task is selected.
+
+## Previous Governance Update
+
 - **Date:** 2026-06-09
 - **Active plan:** `PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09`
 - **Repo plan:** `docs/superpowers/plans/2026-06-09-offene-tasks-konsolidierung-masterplan.md`
@@ -78,8 +90,9 @@ PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09
 Current next task:
 
 ```text
-OTK-017 completed 2026-06-10. Next task = user selection among open OTK tasks
-(OTK-005/007/018/019/021/022) or triage of new findings B-490 / B-491.
+blocked-needs-user-selection: select exactly one remaining OTK task before
+implementation. Current candidates: OTK-008, OTK-018, OTK-019, OTK-021, OTK-022.
+B-490/B-491 were handled by CRF-005.
 ```
 
 Current OTK-003 status:
