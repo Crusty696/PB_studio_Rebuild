@@ -9,10 +9,11 @@ This file is a repository-local continuity checkpoint for all agents.
 - **Repo plan:** `docs/superpowers/plans/2026-06-09-offene-tasks-konsolidierung-masterplan.md`
 - **Vault mirror:** `C:\Brain-Bug\projects\pb-studio\wiki\synthesis\plan-offene-tasks-konsolidierung-masterplan-2026-06-09.md`
 - **Decision:** `C:\Brain-Bug\projects\pb-studio\wiki\decisions\D-061-offene-tasks-konsolidierung-masterplan.md`
-- **Status:** CRF executable fix waves are complete per CRF Vault mirror; B-498..B-520 and B-523..B-529 are recorded fixed after live/user confirmation. `ACTIVE_PLAN.md` was cleaned up and now selects the OTK masterplan only.
+- **Status:** CRF executable fix waves are complete per CRF Vault mirror; B-498..B-520 and B-523..B-529 are recorded fixed after live/user confirmation. `ACTIVE_PLAN.md` selects the OTK masterplan only. OTK-018 was live-verified-complete on 2026-06-14 after user broad autonomous release.
 - **CRF remaining:** CRF-D1 Brain deprecation, CRF-D2 Vault sync, CRF-D3 cu121/torch-2.x migration remain user decisions, not agent app-code tasks.
-- **Next task:** `blocked-needs-user-selection`: user must select exactly one remaining OTK task before implementation. Candidates: OTK-008, OTK-018, OTK-019, OTK-021, OTK-022.
+- **Next task:** `OTK-019`: Video Pipeline Engine remaining GUI/user acceptance checks.
 - **Parallel work rule:** user gave broad release on 2026-06-14, but AGENTS.md still forbids parallel half-finished app-code work in the same repo. Parallel teams may only do read-only analysis or work in isolated worktrees after one task is selected.
+- **OTK-018 verification:** focused Audio-V2 package `82 passed`; fresh GTX-1060 service E2E ran stem_gen, beat_grid, onset, key, structure, lufs, spectral, av_pacing with `failed=False` in 276.4s; real GUI selected audio and clicked `Audio analysieren`, console showed V2 default route start and completion with no V2 error. Evidence: `test-report/e2e-audio-v2-otk018-2026-06-14-fresh.log`, `test-report/otk018-audio-v2-gui-live-2026-06-14.log`, `test_reports/otk018_audio_v2_gui_live_20260614.py`.
 
 ## Previous Governance Update
 
@@ -90,9 +91,9 @@ PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09
 Current next task:
 
 ```text
-blocked-needs-user-selection: select exactly one remaining OTK task before
-implementation. Current candidates: OTK-008, OTK-018, OTK-019, OTK-021, OTK-022.
-B-490/B-491 were handled by CRF-005.
+OTK-019: Video Pipeline Engine remaining GUI/user acceptance checks.
+B-490/B-491 were handled by CRF-005. OTK-018 is live-verified-complete after
+2026-06-14 autonomous service+GUI verification.
 ```
 
 Current OTK-003 status:

@@ -23,13 +23,10 @@ Those decisions are not app-code implementation tasks and must not be executed b
 ## Current Next Task
 
 ```text
-blocked-needs-user-selection: select exactly one remaining OTK task before implementation.
-Candidates from the OTK masterplan:
-- OTK-008: formal SCHNITT Phase-12 verification is blocked by missing original dataset.
-- OTK-018: Audio-V2 P0 freeze is done; port work needs explicit single-task start.
-- OTK-019: Video Pipeline Engine is partial-live-verification; remaining GUI/user acceptance checks open.
-- OTK-021: Global Storage Provenance is blocked by prerequisites.
-- OTK-022: ComfyUI reference audit Phase 1 done; Phase 2 needs user decision.
+OTK-019: Video Pipeline Engine remaining GUI/user acceptance checks.
+Previous task OTK-018 was live-verified-complete on 2026-06-14 after user broad
+autonomous release: Audio-V2 tests 82 passed, fresh GTX-1060 service E2E green,
+and real GUI default route completed.
 ```
 
 ## Agent Behavior
