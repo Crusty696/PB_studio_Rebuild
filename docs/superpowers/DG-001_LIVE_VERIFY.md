@@ -11,8 +11,8 @@ Ziel: kein OOM/Crash, stabiler VRAM/RAM über die ganze Länge.
 
 | # | Schritt | Erwartung | Wer | OK |
 |---|---|---|---|----|
-| H1.1 | Realen Langmix wählen (`Crusty_Progressive Psy Set2.mp3`) | Dauer dokumentiert | [Agent] | ☐ |
-| H1.2 | Beat + Struktur + Demucs (chunked) über volle Länge | `failed=False`, VRAM-Peak < 6 GB stabil | [Agent] | ☐ |
+| H1.1 | Realen Langmix wählen (`Crusty_Progressive Psy Set2.mp3`) | Dauer dokumentiert | [Agent] | ☑ |
+| H1.2 | Beat + Struktur + Demucs (chunked) über volle Länge | `failed=False`, VRAM-Peak < 6 GB stabil | [Agent] | ☑ |
 | H1.3 | Voller 4h-Lauf (unbeaufsichtigt) | Endurance ohne Leak/Crash | [User]/Schedule | ☐ |
 
 ## H2 — Mensch/QMediaPlayer-Playback-Abnahme
@@ -20,7 +20,7 @@ Ziel: subjektiv flüssige Proxy-Wiedergabe. **Verdikt ist menschlich — nicht a
 
 | # | Schritt | Erwartung | Wer | OK |
 |---|---|---|---|----|
-| H2.1 | Proxy/Export erzeugen (NVENC) | abspielbare Datei | [Agent] | ☐ |
+| H2.1 | Proxy/Export erzeugen (NVENC) | abspielbare Datei | [Agent] | ☑ |
 | H2.2 | In PB Studio / QMediaPlayer abspielen, ruckelfrei? | subjektiv flüssig | [User] | ☐ |
 
 ## H3 — Echte gleichzeitige Demucs + Video-Analyse
@@ -28,18 +28,18 @@ Ziel: kein Deadlock, GPU-Lock fair, beide Ergebnisse korrekt.
 
 | # | Schritt | Erwartung | Wer | OK |
 |---|---|---|---|----|
-| H3.1 | Stem-Separation + Video-Pipeline parallel starten | beide laufen an, kein Hänger | [Agent] | ☐ |
-| H3.2 | GPU-Serializer / Lock-Verhalten | sauberes Acquire/Release, keine Kollision | [Agent] | ☐ |
-| H3.3 | Beide Ergebnisse | Stems + Scenes/Embeddings korrekt, `failed=False` | [Agent] | ☐ |
+| H3.1 | Stem-Separation + Video-Pipeline parallel starten | beide laufen an, kein Hänger | [Agent] | ☑ |
+| H3.2 | GPU-Serializer / Lock-Verhalten | sauberes Acquire/Release, keine Kollision | [Agent] | ☑ |
+| H3.3 | Beide Ergebnisse | Stems + Scenes/Embeddings korrekt, `failed=False` | [Agent] | ☑ |
 
 ## SCHNITT-GUI-Widget-Abnahme (separat von DG-001)
 Service-E2E deckt die Engine, nicht die Widgets. Braucht GUI-Steuerung.
 
 | # | Schritt | Erwartung | Wer | OK |
 |---|---|---|---|----|
-| G.1 | Computer-Use-Freigabe für `python.exe` erteilen | Zugriff gewährt | [User] | ☐ |
-| G.2 | SCHNITT: Timeline, Lock-Icons, Re-Generate-Dialog | wie OTK-008 spez. | [Agent+User] | ☐ |
-| G.3 | RL-Notes Persistenz nach Neustart | Text bleibt | [Agent+User] | ☐ |
+| G.1 | Computer-Use-Freigabe für `python.exe` erteilen | Zugriff gewährt | [User] | ☑ |
+| G.2 | SCHNITT: Timeline, Lock-Icons, Re-Generate-Dialog | wie OTK-008 spez. | [Agent+User] | ☑ |
+| G.3 | RL-Notes Persistenz nach Neustart | Text bleibt | [Agent+User] | ☑ |
 
 ## Abschluss
 - `python tools/release_gate.py` → Exit-Code: `____`
@@ -101,3 +101,24 @@ Zwischenstand bei Chunk 25/134:
   heißt das: deutlich länger als linear; Kühlung/Pausen in die Planung aufnehmen.
 - Endergebnis (`failed=False` über alle 8 Stages) wird beim Lauf-Ende ins Log geschrieben;
   separat auszulesen.
+
+
+### H1 — Scale-Lauf (62-Min-Mix) — Ergebnis 2026-06-15: **PASS für H1.1/H1.2**
+Log: `outputs/h1_scale.log`.
+- Quelle: `C:\Users\David Lochmann\Music\Crusty_Progressive Psy Set2.mp3`,
+  Dauer `3745.5s` ≈ 62 Minuten, 134 Demucs-Chunks.
+- Endmarker: `H1_EXIT 0`.
+- Orchestrator-Ergebnis: `track_id=2 total=3324.5s failed=False`.
+- Stages erfolgreich: `stem_gen`, `beat_grid`, `onset`, `key`, `structure`, `lufs`,
+  `spectral`, `av_pacing`.
+- VRAM bei Demucs stabil: Chunk-Ende bis 134/134 mit ca. `3.87/3.10 GB` frei
+  vor/nach Apply; kein OOM, kein Leak/Creep im Log-Ende.
+- Bekannter Rest: **H1.3 voller 4h-Lauf bleibt offen**. 62-Min-PASS ersetzt den
+  4h-User/Schedule-Gate nicht.
+
+### Aktuell noch offen für `release/fixed`
+- **H1.3** voller 4h-Modell-Pipeline-Lauf auf GTX 1060.
+- **H2.2** menschliches QMediaPlayer/PB-Playback-Verdikt.
+
+`python tools/release_gate.py` bleibt korrekt Exit 2, bis diese Punkte live
+abgenommen oder vom User neu entschieden sind.

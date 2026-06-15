@@ -8,7 +8,7 @@ live-verified or explicitly re-decided by the user.
 
 | gate_id | source_task | status | must_happen_later | reason | evidence |
 |---|---|---|---|---|---|
-| DG-001 | OTK-019 Video Pipeline Engine | deferred-heavy-live-gate | Run full 4h model-pipeline test on GTX 1060; verify human/QMediaPlayer proxy playback acceptance; run real concurrent Demucs+Video coexistence test. | User chose on 2026-06-14 to plan the heavy 4h gate for later so OTK-021 can proceed. | `test-report/otk019-remaining-2026-06-14/result.json`; Vault `live-verify-video-pipeline-2026-06-11.md`; Decision `D-063-storage-provenance-prereq-waiver.md` |
+| DG-001 | OTK-019 Video Pipeline Engine | deferred-heavy-live-gate | Remaining before release/fixed: run full 4h model-pipeline test on GTX 1060; obtain human/QMediaPlayer proxy playback acceptance. Already passed: H1 62-min scale run (`H1_EXIT 0`, `failed=False`), H2.1 NVENC export, H3 real concurrent Demucs+Video, SCHNITT GUI widget acceptance. | User chose on 2026-06-14 to plan the heavy 4h gate for later so OTK-021 can proceed. | `outputs/h1_scale.log`; `test-report/e2e-live-acceptance-20260615/RESULT.md`; `test-report/e2e-live-acceptance-20260615/exports/phase4_export.mp4`; `test-report/e2e-h3-concurrency-20260615`; `docs/superpowers/DG-001_LIVE_VERIFY.md`; Decision `D-063-storage-provenance-prereq-waiver.md` |
 
 ## Rules
 

@@ -36,6 +36,8 @@ Mögliche User-Aktionen: (a) Plan/Checkliste auf den realen Dateinamen (Unterstr
 (b) Clip-Soll 103 ↔ 124/100 klären, dann OTK-008 Phase-12 GUI-Abnahme erneut ansetzen.
 
 ## Noch offen (keine App-Code-Tasks)
-- **DG-001** (Deferred Gate): 4h-Modell-Pipeline, Mensch/QMediaPlayer-Playback-Abnahme,
-  echte gleichzeitige Demucs+Video-Analyse — Pflicht vor `release/fixed`.
-- SCHNITT-**GUI-Widget**-Abnahme (Timeline/Lock-Icons/RL-Notes) — im Service-E2E nicht abgedeckt.
+- **DG-001** (Deferred Gate): voller 4h-Modell-Pipeline-Lauf und
+  Mensch/QMediaPlayer-Playback-Abnahme bleiben Pflicht vor `release/fixed`.
+- **Bereits nachtraeglich live erledigt:** H3 echte gleichzeitige Demucs+Video-Analyse,
+  H2.1 NVENC-Export, SCHNITT-GUI-Widget-Abnahme, und H1 62-Min-Scale-Lauf
+  (`outputs/h1_scale.log`, `H1_EXIT 0`, `failed=False`).
