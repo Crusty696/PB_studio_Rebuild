@@ -2,6 +2,26 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## Cowork-Agent-Session 2026-06-15 (newest)
+
+- **Scope:** Status-Review-Folgearbeit + Release-Gate + E2E-Live-Abnahme + DG-001 Teil-Live-Verify.
+  Alle Aenderungen committet + auf `origin/main` gepusht (head `855ae32` zum Schreibzeitpunkt; H1-Lauf laeuft noch).
+- **Alembic-CRITICAL (13.06.) = bereits gefixt + test-abgesichert** (11 passed); Orphan-Index-Drop-Revision
+  `f0a1b2c3d4e5` hinzugefuegt (idempotent, gegen Live-DB verifiziert). Commit `cbfbca4`.
+- **Release-Gate (neu):** `services/deferred_gates.py`, `tools/release_gate.py` (Exit 2 bei offenen Gates),
+  `tools/agent_handoff.ps1 -ReleaseGate`, weiches Start-Banner in `services/startup_checks.py`
+  (LIVE in GUI bestaetigt). Pflicht-Checklisten: `docs/superpowers/E2E_LIVE_ACCEPTANCE.md`,
+  `docs/superpowers/DG-001_LIVE_VERIFY.md`.
+- **E2E-Live-Abnahme** (Service + GUI, GTX 1060): Phasen 1-4 PASS. Beleg
+  `test-report/e2e-live-acceptance-20260615/RESULT.md`. **DG-001 H3** (Demucs+Video parallel) PASS,
+  **G.\*** SCHNITT-GUI live PASS, **H2.1** NVENC-Export. **H1** 62-Min-Scale-Lauf laeuft (VRAM stabil).
+- **Neue Bugs gefixt:** **B-536** PacingStrategist Fence-Parse-Mislabel (Commit `dd90d87`),
+  **B-537** Diag-Skripte Repo-Root (Commit `2fb7f4d`). Status beide `code-fix-pending-live-verification`.
+- **OTK-008:** Audio-"fehlt"-Blockade ist nur Such-String-Fehler (`Crusty_Progressive Psy Set2.mp3`
+  mit Unterstrich existiert) -> aufhebbar. Doku `docs/superpowers/E2E_FINDINGS_2026-06-15.md` (`b162015d`).
+- **Next agent:** H1-Endergebnis aus `outputs/h1_scale.log` (`H1_EXIT`) lesen; offen bleiben user-only
+  H1.3 (4h), H2.2 (Playback-Verdikt), CRF-D1/D2/D3. KEIN `fixed`-Marker gesetzt.
+
 ## Latest Governance Update
 
 - **Date:** 2026-06-14
