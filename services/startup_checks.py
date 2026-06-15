@@ -555,6 +555,25 @@ def check_system(app_root: Path | None = None) -> SystemStatus:
             f"Wenig Speicherplatz: {status.disk_free_gb:.1f} GB frei (1 GB empfohlen)."
         )
 
+    # Deferred-Gates-Banner (non-blocking): offene Gates aus
+    # docs/superpowers/DEFERRED_GATES.md erinnern sichtbar daran, dass
+    # KEIN release/fixed erlaubt ist, bevor sie live-verifiziert/re-decided
+    # sind. Reine Sichtbarkeit — App startet normal weiter. Der harte Gate
+    # sitzt in tools/release_gate.py + tools/agent_handoff.ps1.
+    try:
+        from services.deferred_gates import active_gates as _active_gates
+
+        _gates = _active_gates(app_root / "docs" / "superpowers" / "DEFERRED_GATES.md")
+        if _gates:
+            _ids = ", ".join(g.gate_id for g in _gates)
+            status.warnings.append(
+                f"Offene Deferred Gates ({_ids}) — kein Release/fixed bis "
+                "live-verifiziert oder vom User re-entschieden "
+                "(docs/superpowers/DEFERRED_GATES.md)."
+            )
+    except Exception as exc:  # defensiv: Banner darf Start nie blockieren
+        logger.warning("Deferred-Gates-Check uebersprungen: %s", exc)
+
     return status
 
 
