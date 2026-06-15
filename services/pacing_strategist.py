@@ -253,18 +253,31 @@ class PacingStrategist:
             estimated = 200 + len(sections) * 60
             max_tokens = min(4096, max(1024, estimated))
 
+        # Ollama-Call: Verbindung/Config/Modell nicht verfuegbar -> ollama_unavailable.
         try:
             raw_response = self._generate(user_prompt, max_tokens=max_tokens)
-            plan = self._parse_response(raw_response)
-            logger.info("PacingStrategist: Plan generiert mit %d Section-Overrides",
-                        len(plan.section_overrides))
-            return plan
-        except (ValueError, RuntimeError, OSError) as e:
-            logger.warning("PacingStrategist Fehler, nutze Default-Plan: %s", e)
+        except (RuntimeError, OSError) as e:
+            logger.warning("PacingStrategist: Ollama nicht nutzbar, Default-Plan: %s", e)
             plan = PacingPlan.default()
             plan.degraded = True
             plan.degraded_reason = f"ollama_unavailable:{e}"
             return plan
+
+        # Response-Parsing: Ollama lieferte, aber die Antwort ist unbrauchbar
+        # (kein/abgeschnittenes JSON) -> ehrlich als unparseable_response labeln,
+        # NICHT als ollama_unavailable (E2E-Live-Abnahme 2026-06-15).
+        try:
+            plan = self._parse_response(raw_response)
+        except (ValueError, json.JSONDecodeError) as e:
+            logger.warning("PacingStrategist: LLM-Antwort nicht parsebar, Default-Plan: %s", e)
+            plan = PacingPlan.default()
+            plan.degraded = True
+            plan.degraded_reason = f"unparseable_response:{e}"
+            return plan
+
+        logger.info("PacingStrategist: Plan generiert mit %d Section-Overrides",
+                    len(plan.section_overrides))
+        return plan
 
     def _format_sections(self, sections: list[dict], total_duration: float) -> str:
         """Formatiert Sektionen als lesbaren Text fuer den Prompt."""
@@ -337,14 +350,23 @@ class PacingStrategist:
         """Parst die JSON-Antwort des LLM."""
         # JSON aus der Antwort extrahieren (kann in Markdown-Block sein)
         json_str = raw
+        # Robust gegen truncierte/unvollstaendige Fences: ``.find`` statt
+        # ``.index``. Ohne schliessenden Fence (z.B. max_tokens-Abbruch oder
+        # Modell vergisst das Closing) wuerde ``.index`` ``ValueError:
+        # substring not found`` werfen — der Crash entkam aus _parse_response
+        # und wurde faelschlich als ``ollama_unavailable`` gelabelt. Jetzt:
+        # Fence-Block nur nutzen wenn geschlossen, sonst auf Brace-Extraktion
+        # unten zurueckfallen (E2E-Live-Abnahme 2026-06-15).
         if "```json" in raw:
-            start = raw.index("```json") + 7
-            end = raw.index("```", start)
-            json_str = raw[start:end].strip()
+            start = raw.find("```json") + 7
+            end = raw.find("```", start)
+            if end != -1:
+                json_str = raw[start:end].strip()
         elif "```" in raw:
-            start = raw.index("```") + 3
-            end = raw.index("```", start)
-            json_str = raw[start:end].strip()
+            start = raw.find("```") + 3
+            end = raw.find("```", start)
+            if end != -1:
+                json_str = raw[start:end].strip()
 
         # Versuche direktes Parsing
         try:
