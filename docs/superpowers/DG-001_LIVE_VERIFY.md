@@ -117,7 +117,6 @@ Log: `outputs/h1_scale.log`.
   4h-User/Schedule-Gate nicht.
 
 ### Aktuell noch offen für `release/fixed`
-- **H1.3** voller 4h-Modell-Pipeline-Lauf auf GTX 1060.
 - **H2.2** menschliches QMediaPlayer/PB-Playback-Verdikt.
 
 `python tools/release_gate.py` bleibt korrekt Exit 2, bis diese Punkte live
@@ -142,4 +141,43 @@ Vorbereitungslauf `powershell -ExecutionPolicy Bypass -File tools\prepare_dg001_
   `test-report\dg001-h1-4h-20260615\`: `source_candidates.json`,
   `video_loop.ffconcat`, `commands.ps1`, `README.md`.
 
-Kein 4h-Encoding gestartet. Kein Pipeline-Lauf gestartet. H1.3 bleibt offen.
+Kein 4h-Encoding gestartet. Kein Pipeline-Lauf gestartet. H1.3 blieb zu diesem Zeitpunkt offen.
+
+### H1.3 4h-Modell-Pipeline-Lauf 2026-06-15 — PASS (agentisch, low-profile)
+User-Anweisung: vor Nutzung Pfade mit Leerzeichen vermeiden. Deshalb wurden Arbeitskopien
+und Junctions ohne Leerzeichen verwendet:
+- `C:\PB_Studio_H1_3\source_video.mp4`
+- `C:\PB_Studio_H1_3\source_audio.m4a`
+- `C:\PB_Studio_H1_3\output_4h.mp4`
+- `C:\PBStudioRepo`
+- `C:\Miniconda3`
+
+Input `C:\PB_Studio_H1_3\output_4h.mp4` per `ffprobe`:
+- Video: H.264, 640x360, 5 fps, Dauer `14400.000000`, `72000` Frames.
+- Audio: AAC stereo 48 kHz, Dauer `14400.000000`, `675000` Frames.
+- Datei: `1187278666` Bytes.
+
+Pipeline-Runner: `C:\PB_Studio_H1_3\run_h1_3_pipeline.py`.
+Ergebnis: `C:\PB_Studio_H1_3\pipeline_result.json`.
+- `completed_count=7`
+- `failed_count=0`
+- `cancelled=false`
+- `elapsed_s=5944.536456499998`
+
+Stages:
+- `proxy_gen`: done, `0.264s`.
+- `scene_detect`: done, `149.409s`, `scene_count=2`.
+- `keyframe_extract`: done, `3.130s`, `keyframe_count=7200`, `wanted_count=7200`, `skipped_count=0`.
+- `siglip_embed`: done, `3497.509s`, GTX 1060/CUDA aktiv, `embeddings_count=7200`, `embedding_dim=1152`, `dtype=float16`.
+- `raft_motion`: done, `2292.209s`, `pairs=7199`, `variant=raft_small`.
+- `vlm_caption`: done, `caption_count=2`, `is_stub=true`.
+- `cross_modal`: done, `suggestions=0`.
+
+Ehrliche Grenzen:
+- Input ist low-profile (640x360/5fps), nicht 720p/24fps.
+- Videoquelle ist ein echter Solo_Natur-Clip geloopt; Audio ist echte `Podcast-04.m4a` geloopt.
+- `proxy_gen` nutzte vorbereitete valide Proxy-Datei, weil 4h CPU-Proxy-Encode im Stage-Timeout von 300s scheitert.
+- `VideoDecoder.probe` wurde im Runner gecached, weil wiederholte `ffprobe`-Aufrufe bei 4h-Keyframes vorher Timeout ausloesten.
+
+H1.3 ist damit fuer den agentisch gestarteten 4h-Endurance-Pipeline-Lauf belegt.
+H2.2 bleibt offen, weil menschliches Playback-Verdikt nicht agentisch ersetzbar ist.
