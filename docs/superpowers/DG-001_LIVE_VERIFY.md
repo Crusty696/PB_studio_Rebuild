@@ -71,3 +71,21 @@ Echter gleichzeitiger Lauf auf GTX 1060 (isoliertes Projekt
 - **G.*** SCHNITT-GUI-Widgets — braucht Computer-Use-Freigabe für `python.exe` ([User] klickt „Erlauben").
 
 `python tools/release_gate.py` bleibt Exit 2, bis der User die offenen Punkte abnimmt.
+
+
+### SCHNITT-GUI-Widgets (G.*) — Agent-Live durchgeführt 2026-06-15: **PASS**
+Computer-Use-Freigabe für die conda-`python.exe` erteilt; echte App bedient.
+Projekt `e2e-live-acceptance-20260615` über „Projekt oeffnen" geladen.
+- **Deferred-Gates-Banner LIVE sichtbar** im System-Check unter WARNUNGEN
+  („Offene Deferred Gates (DG-001) …") → bestätigt die Banner-Code-Änderung visuell.
+- **SCHNITT/Schnitt:** Timeline mit 4 Clips + Thumbnails (V1), CUTLISTE „4 Cuts",
+  Transport + Zoom (−/Fit/1:1/+), Audio „pb_short_3min (142.9 BPM)".
+- **Clip-Inspector:** Klick auf Clip füllt Typ/Media-ID/Start 0.000/Ende 3.000/Dauer 3.00s/
+  Helligkeit/Kontrast/Crossfade → Selektion-Wiring OK.
+- **RL Notes:** 👍/👎 + Markdown-Editor, Auto-Save gefeuert; Persistenz DB-verifiziert:
+  `project_notes` enthält exakt den getippten Text + `updated_at`.
+- **Audio:** Frequenz-Waveform + Beatgrid, STEM TRACKS „4/4 Stems"
+  (Vocals/Drums/Bass/Other) mit Mute/Solo/Volume.
+- Sub-Tabs Schnitt/Pacing Anker/Audio/RL Notes navigierbar.
+→ G.2 + G.3 erfüllt (Agent-Seite). Voller App-Restart-Persistenz-Sichtcheck optional
+  (DB-Roundtrip bereits belegt).
