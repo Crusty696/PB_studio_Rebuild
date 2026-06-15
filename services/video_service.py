@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from database import VideoClip, engine
 from services import analysis_status_service
 from services.errors import FFmpegError
+from services.nvenc_policy import require_nvenc
 from services.startup_checks import get_ffmpeg_bin, get_ffprobe_bin
 from services.timeout_constants import FFMPEG_PROBE_TIMEOUT_SEC, FFMPEG_RENDER_TIMEOUT_SEC
 
@@ -271,6 +272,8 @@ class VideoAnalyzer:
                     self._run_proxy_encode(nvenc_cmd, proxy_path, should_stop)
             except FFmpegError as exc:
                 if not _is_nvenc_failure(getattr(exc, "stderr", None) or ""):
+                    raise
+                if require_nvenc():
                     raise
                 # B-505: einmaliger CPU-Retry bei NVENC-Signatur (Sessions
                 # erschoepft / nvcuda nicht ladbar). libx264 ist CPU-only

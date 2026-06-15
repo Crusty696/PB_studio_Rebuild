@@ -41,19 +41,30 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _BIN_DIR = _PROJECT_ROOT / "bin"
 
 def get_ffmpeg_bin():
-    """Finds the FFmpeg binary, preferring the local bin/ folder."""
-    # Suche zuerst im lokalen bin-Ordner (absoluter Pfad)
+    """Finds the FFmpeg binary.
+
+    Explicit env pins win over bundled ``bin`` so Surface Book 2 can stay on a
+    known-good FFmpeg/NVENC build when driver updates are not possible.
+    """
+    for env_name in ("PB_FFMPEG_EXE", "PB_FFMPEG_PATH", "FFMPEG_PATH"):
+        configured = os.environ.get(env_name)
+        if configured:
+            return str(Path(configured).expanduser())
     local_ffmpeg = _BIN_DIR / ("ffmpeg.exe" if sys.platform == "win32" else "ffmpeg")
     if local_ffmpeg.exists():
         return str(local_ffmpeg.resolve())
-    return os.environ.get("FFMPEG_PATH", "ffmpeg")
+    return "ffmpeg"
 
 def get_ffprobe_bin():
-    """Finds the FFprobe binary, preferring the local bin/ folder."""
+    """Finds the FFprobe binary."""
+    for env_name in ("PB_FFPROBE_EXE", "PB_FFPROBE_PATH", "FFPROBE_PATH"):
+        configured = os.environ.get(env_name)
+        if configured:
+            return str(Path(configured).expanduser())
     local_ffprobe = _BIN_DIR / ("ffprobe.exe" if sys.platform == "win32" else "ffprobe")
     if local_ffprobe.exists():
         return str(local_ffprobe.resolve())
-    return os.environ.get("FFPROBE_PATH", "ffprobe")
+    return "ffprobe"
 
 _FFMPEG_BIN = get_ffmpeg_bin()
 _FFPROBE_BIN = get_ffprobe_bin()

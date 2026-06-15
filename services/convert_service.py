@@ -27,6 +27,7 @@ from services.timeout_constants import (
     THREAD_JOIN_TIMEOUT_SEC,
 )
 from services.errors import ConversionError, FFmpegError, FFmpegTimeoutError
+from services.nvenc_policy import require_nvenc, required_message
 from services.startup_checks import get_ffmpeg_bin, get_ffprobe_bin
 
 logger = logging.getLogger(__name__)
@@ -285,6 +286,14 @@ def convert(
         # hevc_nvenc), nicht nur h264 — sonst faellt ein HEVC-Preset selbst dann
         # auf libx264 zurueck, wenn hevc_nvenc funktioniert.
         if not nvenc_info.get(preset.video_codec):
+            if require_nvenc():
+                raise ConversionError(
+                    required_message(
+                        f"{preset.video_codec} nicht verfuegbar; CPU-Fallback verboten"
+                    ),
+                    input_file=str(input_path),
+                    output_format=preset_name,
+                )
             logger.warning(
                 "NVENC nicht verfuegbar (kein %s) — Fallback auf libx264 (CPU). "
                 "Konvertierung wird langsamer sein.",

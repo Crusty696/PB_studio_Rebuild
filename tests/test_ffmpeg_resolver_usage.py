@@ -13,6 +13,16 @@ from types import SimpleNamespace
 from PySide6.QtGui import QImage
 
 
+def test_startup_checks_prefers_explicit_ffmpeg_env(monkeypatch):
+    import services.startup_checks as startup_checks
+
+    monkeypatch.setenv("PB_FFMPEG_EXE", r"C:\PB_Studio_H1_3\ffmpeg.exe")
+    monkeypatch.setenv("PB_FFPROBE_EXE", r"C:\PB_Studio_H1_3\ffprobe.exe")
+
+    assert startup_checks.get_ffmpeg_bin() == r"C:\PB_Studio_H1_3\ffmpeg.exe"
+    assert startup_checks.get_ffprobe_bin() == r"C:\PB_Studio_H1_3\ffprobe.exe"
+
+
 def test_frame_extract_worker_uses_configured_ffmpeg(monkeypatch):
     import workers.video as video_mod
 

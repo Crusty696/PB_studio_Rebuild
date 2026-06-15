@@ -23,6 +23,7 @@ from services.timeout_constants import (
     THREAD_JOIN_TIMEOUT_SEC,
 )
 from services.startup_checks import get_ffmpeg_bin, get_ffprobe_bin
+from services.nvenc_policy import require_nvenc, required_message
 
 # FIX-1.2: FFmpeg-Pfad konfigurierbar (identisch mit convert_service.py)
 FFMPEG = get_ffmpeg_bin()
@@ -49,6 +50,10 @@ def _video_encode_args() -> list[str]:
     if _export_nvenc_available:
         return ["-c:v", "h264_nvenc", "-preset", "p4", "-rc", "vbr",
                 "-cq", "18", "-b:v", "15M"]
+    if require_nvenc():
+        raise RuntimeError(
+            required_message("h264_nvenc nicht verfuegbar; Export-CPU-Fallback verboten")
+        )
     return ["-c:v", "libx264", "-preset", "fast", "-crf", "23"]
 
 

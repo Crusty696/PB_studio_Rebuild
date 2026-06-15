@@ -14,6 +14,10 @@ cd /d "%~dp0"
 :: NVIDIA GTX 1060 Fix: Lazy Loading fuer CUDA Module
 set CUDA_MODULE_LOADING=LAZY
 
+:: DG-001 / Surface Book 2: Video-Encode muss NVENC nutzen.
+:: Kein libx264-CPU-Fallback bei Proxy/Export/Convert.
+set PB_REQUIRE_NVENC=1
+
 :: B-215 Fix: OpenMP/MKL Doppel-Init verhindern.
 :: Conda's intel-openmp (libiomp5md.dll) + Windows' vcomp140.dll = /GS-Stack-
 :: Guard schlaegt zu (STATUS_STACK_BUFFER_OVERRUN, exit -1073740791) beim

@@ -17,6 +17,7 @@ import subprocess
 from pathlib import Path
 
 from services import startup_checks
+from services.nvenc_policy import require_nvenc, required_message
 
 logger = logging.getLogger(__name__)
 
@@ -149,6 +150,14 @@ def generate_proxy(
                     "proxy: h264_nvenc timeout for %s -> libx264 (CPU) fallback",
                     src.name,
                 )
+            if require_nvenc():
+                raise RuntimeError(
+                    required_message(f"proxy h264_nvenc failed for {src.name}")
+                )
+        elif require_nvenc():
+            raise RuntimeError(
+                required_message("proxy h264_nvenc nicht verfuegbar")
+            )
         # F-17: NVENC unavailable or failed -> CPU fallback is allowed per GPU
         # rule, but make it visible instead of silent.
         logger.warning(
@@ -159,6 +168,10 @@ def generate_proxy(
             return dst
         raise RuntimeError("proxy encode failed (both nvenc + libx264)")
 
+    if codec == "libx264" and require_nvenc():
+        raise RuntimeError(
+            required_message("proxy codec=libx264 angefordert; CPU-Fallback verboten")
+        )
     if not _try_encode(src, dst, max_width, bitrate, codec):
         raise RuntimeError(f"proxy encode failed with codec={codec}")
     return dst

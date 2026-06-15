@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import importlib
 
+import pytest
+
 import services.export_service as es
 
 
@@ -41,6 +43,35 @@ def test_video_encode_args_falls_back_on_detect_error(monkeypatch):
     args = es._video_encode_args()
     assert args[1] == "libx264"
     _reset_cache()
+
+
+def test_video_encode_args_strict_nvenc_blocks_cpu_fallback(monkeypatch):
+    _reset_cache()
+    monkeypatch.setenv("PB_REQUIRE_NVENC", "1")
+    monkeypatch.setattr(
+        "services.convert_service.detect_nvenc",
+        lambda: {"h264_nvenc": False, "hevc_nvenc": False},
+    )
+
+    with pytest.raises(RuntimeError, match="NVENC_REQUIRED_FAILED"):
+        es._video_encode_args()
+    _reset_cache()
+
+
+def test_convert_strict_nvenc_blocks_cpu_fallback(monkeypatch, tmp_path):
+    from services.convert_service import convert
+    from services.errors import ConversionError
+
+    src = tmp_path / "input.mp4"
+    src.write_bytes(b"not a real video; strict fails before ffmpeg run")
+    monkeypatch.setenv("PB_REQUIRE_NVENC", "1")
+    monkeypatch.setattr(
+        "services.convert_service.detect_nvenc",
+        lambda: {"h264_nvenc": False, "hevc_nvenc": False, "cuda_hwaccel": False},
+    )
+
+    with pytest.raises(ConversionError, match="NVENC_REQUIRED_FAILED"):
+        convert(src, preset_name="edit_proxy", output_path=tmp_path / "out.mp4")
 
 
 def test_run_ffmpeg_serializes_only_nvenc(monkeypatch):

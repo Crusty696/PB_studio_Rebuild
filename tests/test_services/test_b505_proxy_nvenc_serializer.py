@@ -126,6 +126,26 @@ def test_create_proxy_nvenc_failure_falls_back_to_libx264(
     assert serializer_spy.holders == ["proxy_encode"]
 
 
+def test_create_proxy_strict_nvenc_blocks_cpu_retry(
+        tmp_path, monkeypatch, serializer_spy):
+    from services.errors import FFmpegError
+    from services.video_service import VideoAnalyzer
+
+    monkeypatch.setenv("PB_REQUIRE_NVENC", "1")
+    monkeypatch.setattr("services.video_service._proxy_dir", lambda: tmp_path / "proxies")
+    captured = _install_fake_popen(monkeypatch, serializer_spy, [
+        (1, "OpenEncodeSessionEx failed: out of memory (10): (no details)", False),
+    ])
+
+    src = tmp_path / "input.mp4"
+    src.write_bytes(b"video")
+    with pytest.raises(FFmpegError):
+        VideoAnalyzer().create_proxy(str(src), target_height=480)
+
+    assert len(captured) == 1
+    assert captured[0][0][captured[0][0].index("-c:v") + 1] == "h264_nvenc"
+
+
 def test_create_proxy_nvcuda_signature_triggers_fallback(
         tmp_path, monkeypatch, serializer_spy):
     from services.video_service import VideoAnalyzer
@@ -251,3 +271,29 @@ def test_generate_proxy_auto_nvenc_failure_falls_back_to_cpu(
 
     assert result == dst
     assert codecs == ["h264_nvenc", "libx264"]
+
+
+def test_generate_proxy_auto_strict_nvenc_blocks_cpu_fallback(
+        tmp_path, monkeypatch, serializer_spy):
+    import services.video_pipeline.primitives.proxy_generator as pg
+
+    monkeypatch.setenv("PB_REQUIRE_NVENC", "1")
+    monkeypatch.setattr(pg, "_ffmpeg", lambda: "ffmpeg")
+    monkeypatch.setattr(pg, "_has_nvenc", lambda: True)
+    codecs = []
+
+    def fake_run(cmd, **kwargs):
+        codec = cmd[cmd.index("-c:v") + 1]
+        codecs.append(codec)
+        return SimpleNamespace(returncode=1)
+
+    monkeypatch.setattr(pg.subprocess, "run", fake_run)
+
+    src = tmp_path / "src.mp4"
+    src.write_bytes(b"video")
+    dst = tmp_path / "out" / "proxy.mp4"
+
+    with pytest.raises(RuntimeError, match="NVENC_REQUIRED_FAILED"):
+        pg.generate_proxy(src, dst, codec="auto")
+
+    assert codecs == ["h264_nvenc"]
