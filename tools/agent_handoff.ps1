@@ -71,7 +71,7 @@ if ($gateExit -ne 0) {
         Write-Host "Release/fixed claim refused: open Deferred Gates (see above)."
         exit 4
     } else {
-        Write-Host "WARN: open Deferred Gates — no 'release/fixed' claim allowed until cleared."
+        Write-Host "WARN: open Deferred Gates - no 'release/fixed' claim allowed until cleared."
     }
 }
 
