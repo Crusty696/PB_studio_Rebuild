@@ -25,8 +25,8 @@ import traceback
 from datetime import datetime
 from pathlib import Path
 
-# Projekt-Root
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+# Projekt-Root (Skript liegt in scripts/diag/ -> parents[2] = Repo-Root; CRF-020-Move-Fix)
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 # E2E laeuft gegen ein isoliertes Projekt, damit kaputte oder private App-DBs

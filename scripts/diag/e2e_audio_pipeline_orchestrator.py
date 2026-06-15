@@ -20,7 +20,7 @@ import logging
 import argparse
 from pathlib import Path
 
-_APP_ROOT = Path(__file__).resolve().parent.parent
+_APP_ROOT = Path(__file__).resolve().parents[2]  # scripts/diag/ -> Repo-Root (CRF-020-Move-Fix)
 _BIN_DIR = str(_APP_ROOT / "bin")
 if "PATH" in os.environ and _BIN_DIR not in os.environ["PATH"]:
     os.environ["PATH"] = _BIN_DIR + os.pathsep + os.environ["PATH"]

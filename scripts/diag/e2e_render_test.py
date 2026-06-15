@@ -24,7 +24,7 @@ import logging
 from pathlib import Path
 
 # Copy main.py's early PATH setup
-_APP_ROOT = Path(__file__).parent.absolute()
+_APP_ROOT = Path(__file__).resolve().parents[2]  # scripts/diag/ -> Repo-Root (CRF-020-Move-Fix)
 _BIN_DIR = str(_APP_ROOT / "bin")
 if _BIN_DIR not in os.environ["PATH"]:
     os.environ["PATH"] = _BIN_DIR + os.pathsep + os.environ["PATH"]
