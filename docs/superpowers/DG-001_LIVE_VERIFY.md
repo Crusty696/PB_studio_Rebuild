@@ -89,3 +89,15 @@ Projekt `e2e-live-acceptance-20260615` über „Projekt oeffnen" geladen.
 - Sub-Tabs Schnitt/Pacing Anker/Audio/RL Notes navigierbar.
 → G.2 + G.3 erfüllt (Agent-Seite). Voller App-Restart-Persistenz-Sichtcheck optional
   (DB-Roundtrip bereits belegt).
+
+
+### H1 — Scale-Lauf (62-Min-Mix) — IN ARBEIT (Stand 2026-06-15 ~06:50)
+Quelle `Crusty_Progressive Psy Set2.mp3` = 3745s ≈ 62 Min, 134 Demucs-Chunks, Streaming-Modus.
+Detached-Hintergrundlauf, Log: `outputs/h1_scale.log` (Endmarker `H1_EXIT`).
+Zwischenstand bei Chunk 25/134:
+- **VRAM rock-stabil 3.87/3.10 GB** pro Chunk — kein Leak/Creep, kein OOM. (= Endurance-Kernkriterium erfüllt.)
+- **Neuer Befund (DG-001-relevant):** Chunk-Zeit degradiert unter Dauerlast 10→14→26s
+  (Thermal-Throttling GTX 1060). Speicher stabil, Durchsatz fällt ~2.5×. Für H1.3 (4h)
+  heißt das: deutlich länger als linear; Kühlung/Pausen in die Planung aufnehmen.
+- Endergebnis (`failed=False` über alle 8 Stages) wird beim Lauf-Ende ins Log geschrieben;
+  separat auszulesen.
