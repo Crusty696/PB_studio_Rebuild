@@ -122,3 +122,24 @@ Log: `outputs/h1_scale.log`.
 
 `python tools/release_gate.py` bleibt korrekt Exit 2, bis diese Punkte live
 abgenommen oder vom User neu entschieden sind.
+
+### H1.3 Vorbereitung 2026-06-15 — vorbereitet, nicht gestartet
+Runbook: `docs/superpowers/DG-001_H1_4H_PREP_RUNBOOK.md`.
+Dry-run/Manifest-Skript: `tools/prepare_dg001_h1_4h.ps1`.
+User-Quellen:
+- Video-Root: `C:\Users\David Lochmann\Documents\Solo_Natur-20260406T220640Z-3-001\Solo_Natur`
+- Audio: `C:\Users\David Lochmann\Music\Audio\Psy-Set\Podcast-04.m4a`
+
+Vorbereitungslauf `powershell -ExecutionPolicy Bypass -File tools\prepare_dg001_h1_4h.ps1 -WritePlan`:
+- 223 probe-lesbare Video-Kandidaten.
+- 2172.064 s eindeutige Videozeit.
+- 11258.659 s Audiozeit.
+- 7 Rotationen der Kandidatenliste reichen fuer 4 h.
+- Eine kaputte MP4 wurde uebersprungen:
+  `converted\20250719_0241_Mystical_Bioluminescent_Jungle_v1_std.mp4`
+  (`moov atom not found`).
+- Geschriebene Vorbereitungsdateien unter
+  `test-report\dg001-h1-4h-20260615\`: `source_candidates.json`,
+  `video_loop.ffconcat`, `commands.ps1`, `README.md`.
+
+Kein 4h-Encoding gestartet. Kein Pipeline-Lauf gestartet. H1.3 bleibt offen.
