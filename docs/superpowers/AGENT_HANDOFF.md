@@ -2,6 +2,42 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## Codex Recovery Session 2026-06-16 (newest)
+
+- **Scope:** Restore local-only progress from the non-git folder
+  `C:\Users\David_Lochmann\Documents\PB_studio_Rebuild\PB_studio_Rebuild`
+  into a clean GitHub clone without overwriting the old folder.
+- **Current working repo:** `C:\Users\David_Lochmann\Documents\PB_studio_Rebuild\PB_studio_Rebuild_github_compare`.
+  Use this repo/worktree, not the old non-git folder.
+- **Branch:** `codex/recover-local-analysis-percent-2026-06-16`.
+- **Commit:** `137c15e chore(recovery): restore local analysis percent progress`.
+- **Remote:** branch pushed to
+  `origin/codex/recover-local-analysis-percent-2026-06-16`.
+- **Recovered files:** `services/analysis_status_service.py`,
+  `services/ingest_service.py`, `tests/conftest.py`,
+  `tests/test_services/test_ingest_service.py`.
+- **Recovered behavior:** bulk analysis-status inference and percent map,
+  bulk media-list `analysis_percent` refresh, and regression coverage for
+  video metadata not showing as `0%`.
+- **Verification:** `git diff --check` passed; `py_compile` passed for the
+  four recovered files. Unit pytest did not run because no `pytest`/`uv`
+  was available in the clean clone; the old local venv failed earlier with
+  `uv trampoline failed to spawn Python child process`.
+- **Current request follow-up:** Added context-budget clean-stop discipline
+  to `AGENTS.md`: when context/capacity is low, stop starting new work,
+  finish only the smallest safe unit, write exact handoff, run
+  `tools\agent_handoff.ps1`, and leave no hidden dirty state.
+- **Vault path correction:** use
+  `C:\Users\David_Lochmann\Documents\Vaults\Brain-Bug\projects\pb-studio`
+  for current Vault logging. Older docs may still mention
+  `C:\Brain-Bug\projects\pb-studio`.
+- **Open:** Recovery branch has not been merged to `main`; tests still need a
+  working PB Studio Python environment. DG-001 remains open; no release/fixed
+  claim allowed.
+- **Next safe step:** create/review PR for the recovery branch, then repair
+  Python test environment and run
+  `tests\test_services\test_ingest_service.py::TestGetAllMedia::test_get_all_video_backfills_metadata_analysis_percent`.
+
 ## Cowork-Agent-Session 2026-06-15 (newest)
 
 - **Scope:** Status-Review-Folgearbeit + Release-Gate + E2E-Live-Abnahme + DG-001 Teil-Live-Verify.

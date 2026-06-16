@@ -315,6 +315,24 @@ Dirty worktrees are forbidden as a normal handoff state.
   4. `docs/superpowers/AGENT_HANDOFF.md`.
   Chat memory from a previous agent is not source of truth.
 
+## Context-budget and clean-stop discipline
+
+- When context budget / conversation capacity looks low, stop starting new
+  work immediately.
+- Finish only the current smallest safe unit: either commit verified work,
+  create a named stash, or document explicit user-approved dirty state.
+- Before handoff, write a clear status note with:
+  - current branch and commit hash;
+  - exact files changed;
+  - what was verified;
+  - what was not verified;
+  - next safe command / task for the next agent.
+- Run `powershell -ExecutionPolicy Bypass -File tools\agent_handoff.ps1`.
+  If it reports dirty/unpushed state, resolve that before ending.
+- Never leave half-started tasks, hidden local-only progress, or "continue
+  from chat" instructions. If it is not in Git plus Vault/Handoff, the next
+  agent must treat it as unknown.
+
 ---
 
 ## What is done
