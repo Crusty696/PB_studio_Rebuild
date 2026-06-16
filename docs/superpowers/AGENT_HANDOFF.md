@@ -25,6 +25,24 @@ This file is a repository-local continuity checkpoint for all agents.
   `tests\test_services\test_ingest_service.py::TestGetAllMedia::test_get_all_video_backfills_metadata_analysis_percent`
   -> `1 passed in 6.80s`. The temporary `.conda-test` env was removed after
   the run.
+- **Full small-data audio E2E 2026-06-16:** User requested a full test run
+  with few data and a 4-minute audio. A local `.conda-pb-full` env was created
+  from Python 3.10 plus `requirements-py310-cu113.txt`. Smoke check reported
+  `torch 1.12.1+cu113`, `cuda_available True`, GPU `NVIDIA GeForce GTX 1060`,
+  and `pipeline_import_ok 8`. Synthetic 4-minute WAV:
+  `test-report\e2e-audio-4min-20260616\synthetic_4min.wav`.
+  Command:
+  `.\.conda-pb-full\python.exe scripts\diag\e2e_audio_pipeline_orchestrator.py --audio test-report\e2e-audio-4min-20260616\synthetic_4min.wav`.
+  Result: `EXITCODE=0`; orchestrator log reports `failed=False`,
+  `total=274.3s`; stages completed: `stem_gen`, `beat_grid`, `onset`, `key`,
+  `structure`, `lufs`, `spectral`, `av_pacing`. Evidence log:
+  `test-report\e2e-audio-4min-20260616\e2e_audio_pipeline.log` (ignored by
+  git).
+- **Full small-data audio E2E limits:** `vendor/beat_this` submodule cannot be
+  initialized because remote commit `7ecf41375b9be919099b1ea2ecdd9fe5df937fa3`
+  is not available from `https://github.com/CPJKU/beat_this.git`. Therefore
+  beat detection used the built-in librosa fallback and returned `bpm=0.0` for
+  the synthetic test file. This is not proof that the `beat_this` path works.
 - **Current request follow-up:** Added context-budget clean-stop discipline
   to `AGENTS.md`: when context/capacity is low, stop starting new work,
   finish only the smallest safe unit, write exact handoff, run
