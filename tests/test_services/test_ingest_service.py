@@ -371,6 +371,40 @@ class TestGetAllMedia:
         assert len(result) == 1
         assert result[0]["resolution"] == "1920x1080"
 
+    def test_get_all_video_backfills_metadata_analysis_percent(self, test_engine, monkeypatch):
+        """Vorhandene Metadaten duerfen in der Medienliste nicht als 0% erscheinen."""
+        import database
+        import services.ingest_service as svc
+        from services import analysis_status_service
+
+        svc.engine = test_engine
+        monkeypatch.setattr(analysis_status_service, "nullpool_session", database.nullpool_session)
+
+        with Session(test_engine) as s:
+            proj = Project(name="P", path=".")
+            s.add(proj)
+            s.commit()
+            s.refresh(proj)
+            proj_id = proj.id
+
+            s.add(
+                VideoClip(
+                    project_id=proj_id,
+                    file_path="/v.mp4",
+                    duration=10.0,
+                    width=1920,
+                    height=1080,
+                    fps=30.0,
+                    codec="h264",
+                )
+            )
+            s.commit()
+
+        result = svc.get_all_video(project_id=proj_id)
+
+        assert len(result) == 1
+        assert result[0]["analysis_percent"] > 0.0
+
     def test_get_all_audio_empty_project(self, test_engine):
         """get_all_audio() liefert leere Liste fuer Projekt ohne Tracks."""
         import services.ingest_service as svc

@@ -263,6 +263,44 @@ def get_completion_percent(media_type: str, media_id: int) -> float:
     return (completed_count / total_steps) * 100.0
 
 
+def get_completion_percent_map(media_type: str, media_ids: list[int]) -> dict[int, float]:
+    """Berechnet Analyse-Prozente fuer mehrere Medien in einem DB-Read."""
+    ids = [int(media_id) for media_id in media_ids if media_id is not None]
+    if not ids:
+        return {}
+
+    steps = VIDEO_STEPS if media_type == "video" else AUDIO_STEPS
+    total_steps = len(steps)
+    if total_steps == 0:
+        return {media_id: 100.0 for media_id in ids}
+    step_set = set(steps)
+
+    done_counts = {media_id: 0 for media_id in ids}
+    with nullpool_session() as session:
+        rows = session.execute(
+            select(AnalysisStatus.media_id, AnalysisStatus.step_key).where(
+                AnalysisStatus.media_type == media_type,
+                AnalysisStatus.media_id.in_(ids),
+                AnalysisStatus.status == "done",
+            )
+        ).all()
+
+    seen: set[tuple[int, str]] = set()
+    for media_id, step_key in rows:
+        if step_key not in step_set:
+            continue
+        key = (int(media_id), str(step_key))
+        if key in seen:
+            continue
+        seen.add(key)
+        done_counts[int(media_id)] = done_counts.get(int(media_id), 0) + 1
+
+    return {
+        media_id: (done_counts.get(media_id, 0) / total_steps) * 100.0
+        for media_id in ids
+    }
+
+
 def infer_from_db(media_type: str, media_id: int) -> None:
     """Leitet den Analyse-Status aus existierenden DB-Daten ab.
 
@@ -278,6 +316,26 @@ def infer_from_db(media_type: str, media_id: int) -> None:
             _infer_audio_status(session, media_id)
         else:
             logger.warning("Unknown media_type for infer_from_db: %s", media_type)
+            return
+        session.commit()
+
+
+def infer_many_from_db(media_type: str, media_ids: list[int]) -> None:
+    """Leitet fehlende Analyse-Status fuer mehrere Medien aus DB-Daten ab."""
+    ids = [int(media_id) for media_id in media_ids if media_id is not None]
+    if not ids:
+        return
+    with nullpool_session() as session:
+        if media_type == "video":
+            for media_id in ids:
+                _infer_video_status(session, media_id)
+        elif media_type == "audio":
+            for media_id in ids:
+                _infer_audio_status(session, media_id)
+        else:
+            logger.warning("Unknown media_type for infer_many_from_db: %s", media_type)
+            return
+        session.commit()
 
 
 def _infer_video_status(session: Session, video_id: int) -> None:
@@ -314,8 +372,6 @@ def _infer_video_status(session: Session, video_id: int) -> None:
             _ensure_status_done(session, "video", video_id, "ai_scene_caption", {
                 "captioned_scenes": captioned_count,
             })
-
-    session.commit()
 
 
 def _infer_audio_status(session: Session, audio_id: int) -> None:
@@ -380,8 +436,6 @@ def _infer_audio_status(session: Session, audio_id: int) -> None:
         _ensure_status_done(session, "audio", audio_id, "stem_separation", {
             "stems": stem_count,
         })
-
-    session.commit()
 
 
 def _ensure_status_done(session: Session, media_type: str, media_id: int, step_key: str, value_summary: dict[str, Any]) -> None:
