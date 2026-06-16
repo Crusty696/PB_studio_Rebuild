@@ -20,9 +20,11 @@ This file is a repository-local continuity checkpoint for all agents.
   bulk media-list `analysis_percent` refresh, and regression coverage for
   video metadata not showing as `0%`.
 - **Verification:** `git diff --check` passed; `py_compile` passed for the
-  four recovered files. Unit pytest did not run because no `pytest`/`uv`
-  was available in the clean clone; the old local venv failed earlier with
-  `uv trampoline failed to spawn Python child process`.
+  four recovered files. Targeted regression test passed in a temporary local
+  Python 3.10 conda env:
+  `tests\test_services\test_ingest_service.py::TestGetAllMedia::test_get_all_video_backfills_metadata_analysis_percent`
+  -> `1 passed in 6.80s`. The temporary `.conda-test` env was removed after
+  the run.
 - **Current request follow-up:** Added context-budget clean-stop discipline
   to `AGENTS.md`: when context/capacity is low, stop starting new work,
   finish only the smallest safe unit, write exact handoff, run
@@ -31,12 +33,12 @@ This file is a repository-local continuity checkpoint for all agents.
   `C:\Users\David_Lochmann\Documents\Vaults\Brain-Bug\projects\pb-studio`
   for current Vault logging. Older docs may still mention
   `C:\Brain-Bug\projects\pb-studio`.
-- **Open:** Recovery branch has not been merged to `main`; tests still need a
-  working PB Studio Python environment. DG-001 remains open; no release/fixed
-  claim allowed.
-- **Next safe step:** create/review PR for the recovery branch, then repair
-  Python test environment and run
-  `tests\test_services\test_ingest_service.py::TestGetAllMedia::test_get_all_video_backfills_metadata_analysis_percent`.
+- **Open:** Recovery branch has not been merged to `main`. Full PB Studio test
+  environment is still not restored; only the targeted regression test above
+  passed. DG-001 remains open; no release/fixed claim allowed.
+- **Next safe step:** create/review PR for the recovery branch, then decide
+  whether to merge after broader test coverage or restore the full
+  `pb-studio` Python environment.
 
 ## Cowork-Agent-Session 2026-06-15 (newest)
 

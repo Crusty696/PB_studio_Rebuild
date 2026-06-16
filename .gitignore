@@ -90,6 +90,7 @@ desktop.ini
 # Virtual environments
 .venv/
 .venv310/
+.conda-test/
 
 # Binaries and downloaded tools (FFmpeg, Ollama - large, regenerate on demand)
 bin/
