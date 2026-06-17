@@ -154,14 +154,20 @@ def _apply_cross_project_reuse_after_ingest(
 ) -> None:
     """Best-effort OTK-021 reuse status; import itself stays authoritative."""
     try:
+        from database.models import Project
         from services.storage_provenance.cross_project_reuse import apply_cross_project_reuse_status
 
+        # B-539: pass the globally-unique project path so the by_sha manifest
+        # fallback can exclude the active project's own entries (project_id is
+        # not unique across per-project DBs).
+        _proj = session.get(Project, project_id)
         hit = apply_cross_project_reuse_status(
             session,
             source_path,
             media_type=media_type,
             media_id=media_id,
             current_project_id=project_id,
+            current_project_path=_proj.path if _proj is not None else None,
         )
         if hit is not None:
             logger.info(

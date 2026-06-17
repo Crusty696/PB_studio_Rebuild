@@ -7,9 +7,10 @@ from pathlib import Path
 
 from sqlalchemy.orm import Session
 
-from database.models import AnalysisArtifact, AnalysisJob, ProjectSource
+from database.models import AnalysisArtifact, AnalysisJob, Project, ProjectSource
 from services.storage_provenance.dedup_lookup import check_dedup, stable_params_hash
 from services.storage_provenance.source_identity import compute_source_sha256
+from services.storage_provenance.source_manifest import record_manifest_job
 
 
 @dataclass(frozen=True)
@@ -23,8 +24,34 @@ class ProvenanceRecordResult:
 class ProvenanceRecorder:
     """Caller migration writer for pipeline provenance tables."""
 
-    def __init__(self, session: Session) -> None:
+    def __init__(self, session: Session, *, storage_root: str | Path | None = None) -> None:
         self.session = session
+        self._storage_root = storage_root
+
+    def _record_manifest(self, project_id: int, source_sha: str, job: AnalysisJob) -> None:
+        """B-539: mirror provenance into the global by_sha manifest. Best-effort."""
+        try:
+            storage_root = self._storage_root
+            if storage_root is None:
+                from services.storage_provenance.schnitt_audio_adapter import (
+                    default_global_storage_root,
+                )
+
+                storage_root = default_global_storage_root()
+            project = self.session.get(Project, project_id)
+            record_manifest_job(
+                storage_root,
+                source_sha,
+                project_id=project_id,
+                project_name=project.name if project is not None else "unbekannt",
+                project_path=project.path if project is not None else str(project_id),
+                step_id=job.step_id,
+                model=job.produced_by_model,
+                model_version=job.produced_by_model_version,
+                finished_at=job.finished_at,
+            )
+        except Exception:  # never break the pipeline on manifest write
+            pass
 
     def record_done(
         self,
@@ -53,6 +80,7 @@ class ProvenanceRecorder:
             produced_by_model=produced_by_model,
             produced_by_model_version=produced_by_model_version,
         )
+        self._record_manifest(project_id, source_sha, job)
         artifact_count = 0
         for role, path in artifacts.items():
             if path is None:

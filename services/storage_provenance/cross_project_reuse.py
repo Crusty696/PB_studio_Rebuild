@@ -40,13 +40,22 @@ def lookup_cross_project_reuse(
     *,
     media_type: str,
     current_project_id: int | None,
+    current_project_path: str | None = None,
+    storage_root: str | Path | None = None,
 ) -> CrossProjectReuseHit | None:
-    """Find completed provenance jobs for the same source in another project."""
+    """Find completed provenance jobs for the same source in another project.
+
+    B-539: the DB query only sees the *active* project's DB. With per-project
+    DBs it never finds another project, so when it returns nothing we fall back
+    to the global by_sha provenance manifest, which is visible across projects.
+    ``current_project_path`` (globally unique, unlike ``current_project_id``)
+    excludes the active project's own manifest entries from the fallback.
+    """
 
     source_sha = compute_source_sha256(source_path, media_type=media_type, mode="strict")
     source_project = _find_previous_project(session, source_sha, current_project_id=current_project_id)
     if source_project is None:
-        return None
+        return _manifest_hit(source_sha, storage_root, current_project_path)
 
     jobs = (
         session.query(AnalysisJob)
@@ -95,6 +104,8 @@ def apply_cross_project_reuse_status(
     media_type: str,
     media_id: int,
     current_project_id: int | None,
+    current_project_path: str | None = None,
+    storage_root: str | Path | None = None,
 ) -> CrossProjectReuseHit | None:
     """Create local done AnalysisStatus rows for reusable provenance hits."""
 
@@ -103,6 +114,8 @@ def apply_cross_project_reuse_status(
         source_path,
         media_type=media_type,
         current_project_id=current_project_id,
+        current_project_path=current_project_path,
+        storage_root=storage_root,
     )
     if hit is None:
         return None
@@ -164,6 +177,86 @@ def _find_previous_project(
     if current_project_id is not None:
         query = query.filter(Project.id != int(current_project_id))
     return query.first()
+
+
+def _manifest_hit(
+    source_sha: str,
+    storage_root: str | Path | None,
+    current_project_path: str | None,
+) -> CrossProjectReuseHit | None:
+    """B-539 fallback: build a reuse hit from the global by_sha manifest.
+
+    Used when the active project's DB has no record of another project that
+    analysed this source (the normal case with per-project DBs). Entries are
+    matched/excluded by ``project_path`` because ``project_id`` is not unique
+    across separate per-project DBs.
+    """
+    from services.storage_provenance.source_manifest import read_manifest_jobs
+
+    if storage_root is None:
+        from services.storage_provenance.schnitt_audio_adapter import default_global_storage_root
+
+        storage_root = default_global_storage_root()
+
+    jobs = read_manifest_jobs(storage_root, source_sha)
+    candidates = [
+        j
+        for j in jobs
+        if current_project_path is None or str(j.get("project_path")) != str(current_project_path)
+    ]
+    if not candidates:
+        return None
+
+    src_name = candidates[0].get("project_name") or "unbekannt"
+    src_id = int(candidates[0].get("project_id") or 0)
+
+    steps: list[ReuseStep] = []
+    for j in candidates:
+        for analysis_step in _analysis_steps_for_job(str(j.get("step_id", ""))):
+            model = _format_model_from_manifest(j)
+            finished = _parse_iso(j.get("finished_at"))
+            tooltip = _format_tooltip(finished, j.get("project_name") or "unbekannt", model)
+            steps.append(
+                ReuseStep(
+                    provenance_step_id=str(j.get("step_id", "")),
+                    analysis_step_key=analysis_step,
+                    produced_at=finished,
+                    model=model,
+                    tooltip=tooltip,
+                )
+            )
+    if not steps:
+        return None
+
+    return CrossProjectReuseHit(
+        source_sha256=source_sha,
+        project_id=src_id,
+        project_name=src_name,
+        steps=tuple(steps),
+        toast_message=(
+            f"Datei wurde bereits in Projekt {src_name} analysiert. "
+            "Ergebnisse werden mitverwendet."
+        ),
+    )
+
+
+def _format_model_from_manifest(job: dict) -> str:
+    model = job.get("model")
+    version = job.get("model_version")
+    if model and version:
+        return f"{model} {version}"
+    if model:
+        return str(model)
+    return str(job.get("step_id", ""))
+
+
+def _parse_iso(value) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value))
+    except (ValueError, TypeError):
+        return None
 
 
 def _upsert_current_project_source(

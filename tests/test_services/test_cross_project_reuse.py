@@ -207,3 +207,127 @@ def test_lookup_cross_project_reuse_ignores_unknown_dotted_step(tmp_path: Path) 
         result = lookup_cross_project_reuse(session, source, media_type="audio", current_project_id=None)
 
     assert result is None
+
+
+def test_lookup_falls_back_to_by_sha_manifest_for_per_project_db(tmp_path: Path) -> None:
+    """B-539: per-project DBs hide other projects' rows. The lookup must recover
+    the previous project from the global by_sha manifest instead."""
+    from services.storage_provenance.source_manifest import record_manifest_job
+
+    source = tmp_path / "track.wav"
+    source.write_bytes(b"same audio bytes")
+    source_sha = compute_source_sha256(source, media_type="audio", mode="strict")
+    storage_root = tmp_path / "storage"
+    record_manifest_job(
+        storage_root,
+        source_sha,
+        project_id=1,
+        project_name="Projekt A",
+        project_path=str(tmp_path / "a"),
+        step_id="audio.v2.stems",
+        model="Demucs",
+        finished_at=datetime(2026, 6, 14, 13, 0, 0),
+    )
+
+    with _session() as session:
+        # Active (current) project DB only knows about itself — no Project A,
+        # no ProjectSource, no AnalysisJob. This is the real per-project-DB case.
+        session.add(Project(id=2, name="Projekt B", path=str(tmp_path / "b"), resolution="1920x1080", fps=30.0))
+        session.commit()
+
+        result = lookup_cross_project_reuse(
+            session,
+            source,
+            media_type="audio",
+            current_project_id=2,
+            current_project_path=str(tmp_path / "b"),
+            storage_root=storage_root,
+        )
+
+    assert result is not None
+    assert result.project_name == "Projekt A"
+    assert result.steps[0].analysis_step_key == "stem_separation"
+    assert result.toast_message == (
+        "Datei wurde bereits in Projekt Projekt A analysiert. Ergebnisse werden mitverwendet."
+    )
+    assert result.steps[0].tooltip == "Erzeugt am 2026-06-14 13:00 in Projekt Projekt A, Modell Demucs"
+
+
+def test_manifest_fallback_ignores_current_project_only_entry(tmp_path: Path) -> None:
+    """A manifest that only lists the current project must not yield a reuse hit."""
+    from services.storage_provenance.source_manifest import record_manifest_job
+
+    source = tmp_path / "track.wav"
+    source.write_bytes(b"same audio bytes")
+    source_sha = compute_source_sha256(source, media_type="audio", mode="strict")
+    storage_root = tmp_path / "storage"
+    record_manifest_job(
+        storage_root,
+        source_sha,
+        project_id=2,
+        project_name="Projekt B",
+        project_path=str(tmp_path / "b"),
+        step_id="audio.v2.stems",
+        model="Demucs",
+        finished_at=datetime(2026, 6, 14, 13, 0, 0),
+    )
+
+    with _session() as session:
+        session.add(Project(id=2, name="Projekt B", path=str(tmp_path / "b"), resolution="1920x1080", fps=30.0))
+        session.commit()
+
+        result = lookup_cross_project_reuse(
+            session,
+            source,
+            media_type="audio",
+            current_project_id=2,
+            current_project_path=str(tmp_path / "b"),
+            storage_root=storage_root,
+        )
+
+    assert result is None
+
+
+def test_apply_cross_project_reuse_status_uses_manifest_fallback(tmp_path: Path) -> None:
+    """B-539 end-to-end: with only a by_sha manifest (no DB rows for the other
+    project), apply_* still marks the local AnalysisStatus done."""
+    from services.storage_provenance.source_manifest import record_manifest_job
+
+    source = tmp_path / "track.wav"
+    source.write_bytes(b"same audio bytes")
+    source_sha = compute_source_sha256(source, media_type="audio", mode="strict")
+    storage_root = tmp_path / "storage"
+    record_manifest_job(
+        storage_root,
+        source_sha,
+        project_id=1,
+        project_name="Projekt A",
+        project_path=str(tmp_path / "a"),
+        step_id="audio.v2.stems",
+        model="Demucs",
+        finished_at=datetime(2026, 6, 14, 13, 0, 0),
+    )
+
+    with _session() as session:
+        session.add(Project(id=2, name="Projekt B", path=str(tmp_path / "b"), resolution="1920x1080", fps=30.0))
+        session.commit()
+
+        result = apply_cross_project_reuse_status(
+            session,
+            source,
+            media_type="audio",
+            media_id=99,
+            current_project_id=2,
+            current_project_path=str(tmp_path / "b"),
+            storage_root=storage_root,
+        )
+
+        status = (
+            session.query(AnalysisStatus)
+            .filter_by(media_type="audio", media_id=99, step_key="stem_separation")
+            .one()
+        )
+
+    assert result is not None
+    assert status.status == "done"
+    assert status.value_summary["reuse_source_project"] == "Projekt A"
