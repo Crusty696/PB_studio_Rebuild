@@ -12,12 +12,12 @@ anyio==4.13.0 ; python_version >= "3.11" and python_version < "3.13"
 audioread==3.1.0 ; python_version >= "3.11" and python_version < "3.13"
 av==17.0.0 ; python_version >= "3.11" and python_version < "3.13"
 bandit==1.8.0 ; python_version >= "3.11" and python_version < "3.13"
-# M-47 FIX: Git pin documented with rationale + integrity verification via commit hash
-# Rationale: beat-this has no stable PyPI release; latest commit (c8c320e, 2023-11-15)
-# provides BPM/beat detection. Commit hash serves as integrity check (immutable ref).
-# Alternative considered: forking to internal repo (rejected: maintenance overhead).
-# Security: Reviewed commit c8c320e - no malicious code, pure beat detection algorithm.
-beat-this @ git+https://github.com/CPJKU/beat_this.git@c8c320e84f1a4e5b291327debe754734ea802afc ; python_version >= "3.11" and python_version < "3.13"
+# beat-this has no stable PyPI release. As of the de-vendor (the former git
+# submodule's fork commit was no longer fetchable), it is vendored in-tree at
+# vendor/beat_this and installed from there — same as requirements-py310-cu113.txt.
+# Install manually after the env is created:
+#   pip install ./vendor/beat_this --no-deps
+# (Former dead reference removed: git+https://github.com/CPJKU/beat_this.git@c8c320e...)
 certifi==2026.2.25 ; python_version >= "3.11" and python_version < "3.13"
 cffi==2.0.0 ; python_version >= "3.11" and python_version < "3.13"
 charset-normalizer==3.4.6 ; python_version >= "3.11" and python_version < "3.13"
