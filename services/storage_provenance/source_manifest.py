@@ -155,6 +155,21 @@ def record_manifest_job(
 
     with _ManifestLock(root / (MANIFEST_NAME + ".lock")):
         data = _load_manifest(path, source_sha256)
+        # B-548: merge — keep the richer entry. A poorer writer (e.g. the
+        # open_project migration, which has no produced_by_model/finished_at)
+        # must not overwrite a record_done entry that already carries them.
+        prev = next(
+            (
+                j
+                for j in data.get("jobs", [])
+                if _norm_path(j.get("project_path", "")) == norm_pp and j.get("step_id") == step_id
+            ),
+            None,
+        )
+        if prev is not None:
+            for field in ("model", "model_version", "finished_at"):
+                if entry.get(field) is None and prev.get(field) is not None:
+                    entry[field] = prev.get(field)
         jobs = [
             j
             for j in data.get("jobs", [])
