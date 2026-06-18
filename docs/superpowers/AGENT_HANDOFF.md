@@ -2,6 +2,17 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## ⛔ VERIFIKATIONS-AUDIT 2026-06-18 — viele „fixed/PASS"-Marker sind NICHT gedeckt
+Ein 4-Agenten-Audit (read-only) ergab: von 23 geprüften OTK/DG-001/Bug-Markern sind nur **7
+nachprüfbar, 12 nicht überprüfbar (Evidenz gelöscht/nie im Clone), 4 ehrlich offen**.
+NICHT überprüfbar (reine Doku, NICHT als grün behandeln, vor Release neu fahren):
+**DG-001 H1/H1.3/H2.1-alt/H3/G.\***, **OTK-016/017/018/019**, **B-505, B-520** (verdächtig: B-512/527/528/532).
+Echt gedeckt (Screenshots vorhanden): **OTK-003/004/008/009/010** (09.06.).
+Per DB-Seed statt voll-E2E verifiziert (Integration NICHT bewiesen): **B-539 T32, Tier 31, Block 1**
+(Backup-70 + Disk-Budget-71 sind sogar toter Code ohne App-Aufruf).
+**B-539 `fixed` wurde zurückgezogen** → `fixed-with-critical-gaps` (siehe B-543..B-546).
+Vollständig: `wiki/synthesis/verifikations-gesamtaudit-2026-06-18.md`. OTK-021 ist NICHT release-/fixed-reif.
+
 ## Codex Recovery Session 2026-06-16 (newest)
 
 - **Scope:** Restore local-only progress from the non-git folder

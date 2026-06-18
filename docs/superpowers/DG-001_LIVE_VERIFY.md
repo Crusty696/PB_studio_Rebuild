@@ -1,5 +1,17 @@
 # DG-001 — Heavy-Live-Gate Verify-Checkliste
 
+> ## ⛔ EVIDENZ-VERLUST-WARNUNG (Audit 2026-06-18)
+> Die unten als ☑ markierten Heavy-Gate-Punkte **H1, H1.3, H2.1-alt, H3, G.\*** sind
+> **NICHT durch existierende Belege gedeckt** — alle referenzierten Evidenz-Dateien
+> (`outputs/h1_scale.log`, `C:\PB_Studio_H1_3\*`, `test-report/e2e-live-acceptance-20260615/*`,
+> `test-report/e2e-h3-concurrency-20260615`) existieren im Repo NICHT mehr. Forensik-Audit:
+> 0 von 6 DG-001-Belegen vorhanden. Status dieser ☑ = **`unverifiable-evidence-lost`**
+> (reine Doku-Behauptung, weder bestätigt noch widerlegbar). Vor echtem Release neu fahren,
+> Belege ins versionierte Verzeichnis committen. Siehe `wiki/synthesis/verifikations-gesamtaudit-2026-06-18.md`.
+> **H2.1-NEU (18.06.):** echter NVENC-Proxy existiert + ist `h264_nvenc`-verifiziert, liegt aber
+> in `storage/H2.2-Playback/storage/proxies/Stumes_video_ohne_Ton_Alles_t_edit_proxy.mp4`
+> (NICHT im zuvor falsch verwiesenen leeren Ordner `test-report/dg001-h22-retry/`).
+
 Quelle: `docs/superpowers/DEFERRED_GATES.md` (DG-001). Hartes Gate: vor jeder
 `release/fixed`-Behauptung muss jeder Punkt live-verifiziert oder vom User
 re-entschieden sein. Prüfbar via `python tools/release_gate.py` (Exit 2 = offen).
