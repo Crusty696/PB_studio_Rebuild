@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 import hashlib
+import logging
 from pathlib import Path
 
 from sqlalchemy.orm import Session
@@ -11,6 +12,8 @@ from database.models import AnalysisArtifact, AnalysisJob, Project, ProjectSourc
 from services.storage_provenance.dedup_lookup import check_dedup, stable_params_hash
 from services.storage_provenance.source_identity import compute_source_sha256
 from services.storage_provenance.source_manifest import record_manifest_job
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -50,8 +53,8 @@ class ProvenanceRecorder:
                 model_version=job.produced_by_model_version,
                 finished_at=job.finished_at,
             )
-        except Exception:  # never break the pipeline on manifest write
-            pass
+        except Exception as e:  # never break the pipeline on manifest write
+            logger.warning("B-545: provenance manifest write failed (project=%s): %s", project_id, e)
 
     def record_done(
         self,

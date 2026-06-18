@@ -191,21 +191,37 @@ def _manifest_hit(
     matched/excluded by ``project_path`` because ``project_id`` is not unique
     across separate per-project DBs.
     """
-    from services.storage_provenance.source_manifest import read_manifest_jobs
+    import os
+
+    from services.storage_provenance.source_manifest import MANIFEST_NAME, read_manifest_jobs
 
     if storage_root is None:
         from services.storage_provenance.schnitt_audio_adapter import default_global_storage_root
 
         storage_root = default_global_storage_root()
 
+    # B-544: only reuse if the artifacts physically still exist. If the by_sha
+    # source dir holds nothing but the manifest (artifacts deleted), do NOT mark
+    # the step done on a dangling reference — re-analysis is safer.
+    if not _source_root_has_artifacts(storage_root, source_sha):
+        return None
+
+    def _norm(p) -> str:
+        return os.path.normcase(os.path.normpath(str(p)))
+
+    cur_norm = _norm(current_project_path) if current_project_path is not None else None
     jobs = read_manifest_jobs(storage_root, source_sha)
     candidates = [
         j
         for j in jobs
-        if current_project_path is None or str(j.get("project_path")) != str(current_project_path)
+        if cur_norm is None or _norm(j.get("project_path", "")) != cur_norm
     ]
     if not candidates:
         return None
+
+    # B-546: pick the most recently finished job deterministically (like the DB
+    # path's finished_at.desc()), not the JSON insertion order.
+    candidates.sort(key=lambda j: (_parse_iso(j.get("finished_at")) or datetime.min), reverse=True)
 
     src_name = candidates[0].get("project_name") or "unbekannt"
     src_id = int(candidates[0].get("project_id") or 0)
@@ -238,6 +254,34 @@ def _manifest_hit(
             "Ergebnisse werden mitverwendet."
         ),
     )
+
+
+def _source_root_has_artifacts(storage_root, source_sha: str) -> bool:
+    """B-544: True if the by_sha source dir still holds artifacts (not just the
+    manifest/lock). Guards against marking a reuse step done when the underlying
+    stems/outputs were already deleted (e.g. via the storage browser)."""
+    from services.storage_provenance.layout import StorageLayout
+    from services.storage_provenance.source_manifest import MANIFEST_NAME
+
+    try:
+        root = StorageLayout(storage_root).source_root(source_sha)
+    except Exception:
+        return False
+    if not root.is_dir():
+        return False
+    # ensure_source_root() always creates empty audio/ + video/ subdirs, so check
+    # for a real artifact FILE (recursively), not just the presence of a subdir.
+    for f in root.rglob("*"):
+        try:
+            if not f.is_file():
+                continue
+        except OSError:
+            continue
+        nm = f.name
+        if nm == MANIFEST_NAME or nm.startswith(MANIFEST_NAME) or nm.endswith(".corrupt"):
+            continue
+        return True
+    return False
 
 
 def _format_model_from_manifest(job: dict) -> str:

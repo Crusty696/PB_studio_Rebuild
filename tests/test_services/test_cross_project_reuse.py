@@ -20,6 +20,16 @@ def _session() -> Session:
     return Session(engine)
 
 
+def _seed_artifact(storage_root, source_sha) -> None:
+    """B-544: place a real artifact file so reuse is considered valid (the
+    manifest alone is not enough; the underlying stems must still exist)."""
+    from services.storage_provenance.layout import StorageLayout
+
+    art = StorageLayout(storage_root).source_root(source_sha) / "audio" / "stems" / "drums.wav"
+    art.parent.mkdir(parents=True, exist_ok=True)
+    art.write_bytes(b"stem-bytes")
+
+
 def test_lookup_cross_project_reuse_returns_previous_project_and_tooltip(tmp_path: Path) -> None:
     source = tmp_path / "track.wav"
     source.write_bytes(b"same audio bytes")
@@ -228,6 +238,7 @@ def test_lookup_falls_back_to_by_sha_manifest_for_per_project_db(tmp_path: Path)
         model="Demucs",
         finished_at=datetime(2026, 6, 14, 13, 0, 0),
     )
+    _seed_artifact(storage_root, source_sha)
 
     with _session() as session:
         # Active (current) project DB only knows about itself — no Project A,
@@ -307,6 +318,7 @@ def test_apply_cross_project_reuse_status_uses_manifest_fallback(tmp_path: Path)
         model="Demucs",
         finished_at=datetime(2026, 6, 14, 13, 0, 0),
     )
+    _seed_artifact(storage_root, source_sha)
 
     with _session() as session:
         session.add(Project(id=2, name="Projekt B", path=str(tmp_path / "b"), resolution="1920x1080", fps=30.0))

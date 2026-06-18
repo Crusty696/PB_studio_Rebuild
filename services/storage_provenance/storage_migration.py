@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 import hashlib
+import logging
 from pathlib import Path
 from typing import Callable
 
@@ -20,6 +21,7 @@ from services.storage_provenance.layout import StorageLayout, create_directory_l
 from services.storage_provenance.source_identity import compute_source_sha256
 from services.storage_provenance.source_manifest import record_manifest_job
 
+logger = logging.getLogger(__name__)
 
 ProgressCallback = Callable[[str, int, int], None]
 
@@ -62,8 +64,8 @@ class StorageMigrationService:
                 model_version=job.produced_by_model_version,
                 finished_at=job.finished_at,
             )
-        except Exception:  # never break migration on manifest write
-            pass
+        except Exception as e:  # never break migration on manifest write
+            logger.warning("B-545: provenance manifest write failed (project=%s): %s", project_id, e)
 
     def migrate_existing_outputs(self) -> StorageMigrationResult:
         audio_tracks = self.session.query(AudioTrack).all()
