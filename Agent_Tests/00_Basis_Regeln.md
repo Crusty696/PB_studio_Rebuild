@@ -50,7 +50,8 @@ halte dich bei jedem Schritt daran. Sie ist nicht verhandelbar.
   Backend/Frontend — es ist EIN Programmfenster mit 4 Tabs:
   **PROJEKT · MATERIAL & ANALYSE · SCHNITT · EXPORT**.
 - **Umgebung:** conda-env `pb-studio`, Python 3.10, **CUDA 11.3**, Ziel-GPU
-  **NVIDIA GTX 1060 6 GB**. CPU-only wird nicht unterstützt.
+  **NVIDIA GTX 1060 6 GB**. Die App als Ganzes benötigt CUDA; einzelne
+  Bibliotheken ohne CUDA-Backend laufen gemäß `AGENTS.md` auf der CPU.
 - **Datenbank:** SQLite `pb_studio.db` im Projekt-Stamm (wird automatisch
   angelegt).
 - **Wichtige Log-Quellen für Beweise:**
