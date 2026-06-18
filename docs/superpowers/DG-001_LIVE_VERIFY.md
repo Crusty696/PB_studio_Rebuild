@@ -21,7 +21,14 @@ Ziel: subjektiv flüssige Proxy-Wiedergabe. **Verdikt ist menschlich — nicht a
 | # | Schritt | Erwartung | Wer | OK |
 |---|---|---|---|----|
 | H2.1 | Proxy/Export erzeugen (NVENC) | abspielbare Datei | [Agent] | ☑ |
-| H2.2 | In PB Studio / QMediaPlayer abspielen, ruckelfrei? | subjektiv flüssig | [User] | ☐ |
+| H2.2 | ~~In PB Studio / QMediaPlayer abspielen, ruckelfrei?~~ **NICHT ANWENDBAR** | entfällt | [User] | n/a |
+
+> **H2.2 = NICHT ANWENDBAR (User-Entscheidung 2026-06-18, B-542).**
+> Die App hat keinen `QMediaPlayer` / kein flüssiges Video-Playback — die SCHNITT-/Export-
+> Vorschau ist eine ffmpeg-Frame-Extraktion bei ~10 fps (Standbild-Diashow), kein
+> abspielbarer Video-Stream. Ein „ruckelfrei"-Verdikt ist gegen diese Architektur nicht
+> sinnvoll prüfbar. Das fehlende echte Playback bleibt als bekannte Produkt-Lücke in B-542
+> dokumentiert; H2.2 ist als Release-Gate-Kriterium gestrichen. Siehe B-542.
 
 ## H3 — Echte gleichzeitige Demucs + Video-Analyse
 Ziel: kein Deadlock, GPU-Lock fair, beide Ergebnisse korrekt.
@@ -43,7 +50,7 @@ Service-E2E deckt die Engine, nicht die Widgets. Braucht GUI-Steuerung.
 
 ## Abschluss
 - `python tools/release_gate.py` → Exit-Code: `____`
-- Alle [Agent]-Punkte grün + H1.3/H2.2/G.* vom User bestätigt: ☐
+- Alle [Agent]-Punkte grün + H1.3/G.* vom User bestätigt; **H2.2 = nicht anwendbar (B-542)**: ☐
 - **`fixed`/`release` setzt ausschließlich der User** — Datum/Name: `__________`
 
 
