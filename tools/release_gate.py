@@ -21,7 +21,16 @@ sys.path.insert(0, str(_REPO))
 from services.deferred_gates import active_gates  # noqa: E402
 
 
+def _configure_console_output() -> None:
+    """Keep gate output writable on legacy Windows console encodings."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            reconfigure(errors="backslashreplace")
+
+
 def main() -> int:
+    _configure_console_output()
     gates = active_gates(_REPO / "docs" / "superpowers" / "DEFERRED_GATES.md")
     if not gates:
         print("RELEASE-GATE OK: keine offenen Deferred Gates.")

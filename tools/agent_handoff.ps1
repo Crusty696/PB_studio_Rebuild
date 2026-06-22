@@ -65,7 +65,12 @@ $py = Join-Path $env:USERPROFILE "miniconda3\envs\pb-studio\python.exe"
 if (-not (Test-Path $py)) { $py = "python" }
 & $py "tools/release_gate.py"
 $gateExit = $LASTEXITCODE
-if ($gateExit -ne 0) {
+if ($gateExit -notin @(0, 2)) {
+    Write-Section "BLOCKED"
+    Write-Host "Release gate execution failed (exit $gateExit)."
+    exit 5
+}
+if ($gateExit -eq 2) {
     if ($ReleaseGate) {
         Write-Section "BLOCKED"
         Write-Host "Release/fixed claim refused: open Deferred Gates (see above)."
