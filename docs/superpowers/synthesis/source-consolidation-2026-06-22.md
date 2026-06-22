@@ -37,8 +37,8 @@ Integriert:
   76 s, kein Hang.
 - BUG-A stützt sich zusätzlich auf früheren GUI-Beleg.
 - Keine Bug-/Planphase wurde auf `fixed` gesetzt.
-- Branch noch nicht nach `main` gemergt.
+- Branch auf `origin` gepusht, noch nicht nach `main` gemergt.
 
 ## Nächster Schritt
 
-Branch zu `origin` pushen. Danach Review/PR bzw. explizite Main-Integration.
+Review/PR bzw. explizite Main-Integration.

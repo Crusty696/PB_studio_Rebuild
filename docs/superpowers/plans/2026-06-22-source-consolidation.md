@@ -133,4 +133,4 @@ Expected: alle ausgewählten Tests grün.
 
 - [x] **Step 3:** Kein `fixed`-Status ändern. Report/Vault/Handoff mit Branch, Commits, Tests und offenen Live-Gates aktualisieren.
 
-- [ ] **Step 4:** Branch zu `origin` pushen; `main` nicht direkt verändern.
+- [x] **Step 4:** Branch zu `origin` pushen; `main` nicht direkt verändern.

@@ -22,7 +22,8 @@ This file is a repository-local continuity checkpoint for all agents.
 - **Originalrepo:** dirty Zustand nicht verändert.
 - **Statussprache:** Integration test-grün; kein neuer vollständiger GUI-/GPU-E2E,
   keine neuen `fixed`-Marker.
-- **Nächster Schritt:** Branch pushen; danach separater Review/Merge nach `main`.
+- **Push:** Branch auf `origin` vorhanden.
+- **Nächster Schritt:** separater Review/PR bzw. explizite Integration nach `main`.
 
 ## ⛔ VERIFIKATIONS-AUDIT 2026-06-18 — viele „fixed/PASS"-Marker sind NICHT gedeckt
 Ein 4-Agenten-Audit (read-only) ergab: von 23 geprüften OTK/DG-001/Bug-Markern sind nur **7
