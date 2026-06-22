@@ -2,6 +2,28 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## Codex Quellstand-Konsolidierung 2026-06-22 (newest)
+
+- **Branch:** `codex/OTK-021-source-consolidation-2026-06-22`
+- **Worktree:** `C:\Users\David_Lochmann\.config\superpowers\worktrees\PB_studio_Rebuild\OTK-021-source-consolidation-2026-06-22`
+- **Basis:** `origin/main=9570374` (Agent_Tests PR #5).
+- **Merge:** `5f428ec` integriert 16 Commits aus
+  `origin/claude/B-539-cross-project-reuse-by-sha-2026-06-18`, inkl.
+  B-539, B-543..B-546, B-548, Recovery-/Dependency-/beat_this-Arbeit.
+- **B-549:** `91d62c1` — Audio-V2 cooperative cancellation aus Fremdrepo-Commit
+  `0f7fc3e` diffgenau rekonstruiert. Fokus: `3 passed`.
+- **B-554:** `d833492` — dirty Originaldiff byteidentisch übernommen:
+  lokaler HF-Cache zuerst, persistente Embedder, Unload beim Scheduler-Stop.
+  Fokus: `8 passed`; frühere GUI-Live-Evidenz 52 Clips/1 Modell-Load/76 s.
+- **BUG-A:** `7de108a` — SCHNITT-State nach Auto-Edit refresht; dirty
+  Originaldatei byteidentisch übernommen. Fokus: `30 passed`.
+- **Kombinierte Suite:** `80 passed in 9.07s`; `compileall`, Ruff und
+  `git diff --check` grün.
+- **Originalrepo:** dirty Zustand nicht verändert.
+- **Statussprache:** Integration test-grün; kein neuer vollständiger GUI-/GPU-E2E,
+  keine neuen `fixed`-Marker.
+- **Nächster Schritt:** Branch pushen; danach separater Review/Merge nach `main`.
+
 ## ⛔ VERIFIKATIONS-AUDIT 2026-06-18 — viele „fixed/PASS"-Marker sind NICHT gedeckt
 Ein 4-Agenten-Audit (read-only) ergab: von 23 geprüften OTK/DG-001/Bug-Markern sind nur **7
 nachprüfbar, 12 nicht überprüfbar (Evidenz gelöscht/nie im Clone), 4 ehrlich offen**.

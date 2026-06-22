@@ -19,15 +19,15 @@
 - Test: `tests/test_services/test_manifest_robustness.py`
 - Test: `tests/test_services/test_ingest_service.py`
 
-- [ ] **Step 1:** Merge ohne Rebase:
+- [x] **Step 1:** Merge ohne Rebase:
 
 ```powershell
 git merge --no-ff origin/claude/B-539-cross-project-reuse-by-sha-2026-06-18 -m "merge(OTK-021): consolidate provenance and recovery branch"
 ```
 
-- [ ] **Step 2:** Konflikte nur anhand beider Commit-Historien auflösen; bei fachlichem Widerspruch stoppen.
+- [x] **Step 2:** Konflikte nur anhand beider Commit-Historien auflösen; bei fachlichem Widerspruch stoppen.
 
-- [ ] **Step 3:** Syntax und fokussierte Tests:
+- [x] **Step 3:** Syntax und fokussierte Tests:
 
 ```powershell
 C:\Users\David_Lochmann\miniconda3\envs\pb-studio\python.exe -m compileall -q services\storage_provenance services\analysis_status_service.py services\ingest_service.py
@@ -46,9 +46,9 @@ Expected: compile exit 0; focused tests pass; diff-check exit 0.
 - Modify: `workers/audio_pipeline_v2_worker.py`
 - Modify: `tests/test_workers/test_audio_pipeline_v2_worker.py`
 
-- [ ] **Step 1:** Fremdrepo-Commit `0f7fc3e` diffgenau lesen und nur dessen fünf Pfade übernehmen.
+- [x] **Step 1:** Fremdrepo-Commit `0f7fc3e` diffgenau lesen und nur dessen fünf Pfade übernehmen.
 
-- [ ] **Step 2:** Fokus-Test:
+- [x] **Step 2:** Fokus-Test:
 
 ```powershell
 C:\Users\David_Lochmann\miniconda3\envs\pb-studio\python.exe -m pytest tests\test_workers\test_audio_pipeline_v2_worker.py -q
@@ -56,7 +56,7 @@ C:\Users\David_Lochmann\miniconda3\envs\pb-studio\python.exe -m pytest tests\tes
 
 Expected: alle Tests grün.
 
-- [ ] **Step 3:** Commit:
+- [x] **Step 3:** Commit:
 
 ```powershell
 git add services/audio_pipeline/context.py services/audio_pipeline/orchestrator.py services/audio_pipeline/stages.py workers/audio_pipeline_v2_worker.py tests/test_workers/test_audio_pipeline_v2_worker.py
@@ -70,9 +70,9 @@ git commit -m "fix(B-549): integrate Audio-V2 cooperative cancellation" -m "Live
 - Modify: `services/brain_v3/video/video_embedder.py`
 - Modify: `tests/test_services/test_brain_v3_embedding_scheduler.py`
 
-- [ ] **Step 1:** Dirty Originaldiff exakt übernehmen: lokaler HF-Cache zuerst; persistente Video-/Audio-Embedder; Cache-Unload bei Scheduler-Stop.
+- [x] **Step 1:** Dirty Originaldiff exakt übernehmen: lokaler HF-Cache zuerst; persistente Video-/Audio-Embedder; Cache-Unload bei Scheduler-Stop.
 
-- [ ] **Step 2:** Fokus-Test:
+- [x] **Step 2:** Fokus-Test:
 
 ```powershell
 C:\Users\David_Lochmann\miniconda3\envs\pb-studio\python.exe -m pytest tests\test_services\test_brain_v3_embedding_scheduler.py -q
@@ -80,7 +80,7 @@ C:\Users\David_Lochmann\miniconda3\envs\pb-studio\python.exe -m pytest tests\tes
 
 Expected: alle Tests grün, inklusive Ein-Instanz- und Unload-Regressions.
 
-- [ ] **Step 3:** Commit:
+- [x] **Step 3:** Commit:
 
 ```powershell
 git add services/brain_v3/embedding_scheduler.py services/brain_v3/video/video_embedder.py tests/test_services/test_brain_v3_embedding_scheduler.py
@@ -93,9 +93,9 @@ git commit -m "fix(B-554): reuse SigLIP embedder and prefer local cache" -m "Pri
 - Modify: `ui/controllers/edit_workspace.py`
 - Test: passende bestehende SCHNITT-Controller-/Empty-State-Tests
 
-- [ ] **Step 1:** Nach Auto-Edit-Abschluss `_schnitt_ws.refresh_state_from_db()` defensiv aufrufen.
+- [x] **Step 1:** Nach Auto-Edit-Abschluss `_schnitt_ws.refresh_state_from_db()` defensiv aufrufen.
 
-- [ ] **Step 2:** Tests:
+- [x] **Step 2:** Tests:
 
 ```powershell
 C:\Users\David_Lochmann\miniconda3\envs\pb-studio\python.exe -m pytest tests\ui\test_schnitt_empty_state_preset_runs_pipeline.py tests\ui\test_schnitt_controller_wiring.py -q
@@ -103,7 +103,7 @@ C:\Users\David_Lochmann\miniconda3\envs\pb-studio\python.exe -m pytest tests\ui\
 
 Expected: alle Tests grün.
 
-- [ ] **Step 3:** Commit:
+- [x] **Step 3:** Commit:
 
 ```powershell
 git add ui/controllers/edit_workspace.py
@@ -115,7 +115,7 @@ git commit -m "fix(OTK-021): refresh SCHNITT state after Auto-Edit" -m "Prior GU
 **Files:**
 - Verify only: gesamter Integrationsdiff gegen `origin/main`
 
-- [ ] **Step 1:** Status-/Diff-Prüfung:
+- [x] **Step 1:** Status-/Diff-Prüfung:
 
 ```powershell
 git status --short --branch
@@ -123,7 +123,7 @@ git diff --check origin/main...HEAD
 git log --oneline --decorate origin/main..HEAD
 ```
 
-- [ ] **Step 2:** Konsolidierte Fokus-Suite:
+- [x] **Step 2:** Konsolidierte Fokus-Suite:
 
 ```powershell
 C:\Users\David_Lochmann\miniconda3\envs\pb-studio\python.exe -m pytest tests\test_services\test_cross_project_reuse.py tests\test_services\test_manifest_robustness.py tests\test_services\test_ingest_service.py tests\test_workers\test_audio_pipeline_v2_worker.py tests\test_services\test_brain_v3_embedding_scheduler.py tests\ui\test_schnitt_empty_state_preset_runs_pipeline.py tests\ui\test_schnitt_controller_wiring.py -q
@@ -131,6 +131,6 @@ C:\Users\David_Lochmann\miniconda3\envs\pb-studio\python.exe -m pytest tests\tes
 
 Expected: alle ausgewählten Tests grün.
 
-- [ ] **Step 3:** Kein `fixed`-Status ändern. Report/Vault/Handoff mit Branch, Commits, Tests und offenen Live-Gates aktualisieren.
+- [x] **Step 3:** Kein `fixed`-Status ändern. Report/Vault/Handoff mit Branch, Commits, Tests und offenen Live-Gates aktualisieren.
 
 - [ ] **Step 4:** Branch zu `origin` pushen; `main` nicht direkt verändern.
