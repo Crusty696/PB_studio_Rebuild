@@ -19,11 +19,17 @@ This file is a repository-local continuity checkpoint for all agents.
   Originaldatei byteidentisch übernommen. Fokus: `30 passed`.
 - **Kombinierte Suite:** `80 passed in 9.07s`; `compileall`, Ruff und
   `git diff --check` grün.
+- **Vollsuite-Gate BLOCKIERT:** `pytest -q -m "not gui and not e2e and not
+  live_gpu and not long_form"` bricht während Collection ab:
+  `tests/test_video_analysis_real.py:93` ruft import-time `sys.exit(1)` auf.
+  Kein Vollsuite-Testverdikt; nicht als Regression des Integrationsdiffs
+  eingeordnet oder gefixt.
 - **Originalrepo:** dirty Zustand nicht verändert.
 - **Statussprache:** Integration test-grün; kein neuer vollständiger GUI-/GPU-E2E,
   keine neuen `fixed`-Marker.
 - **Push:** Branch auf `origin` vorhanden.
-- **Nächster Schritt:** separater Review/PR bzw. explizite Integration nach `main`.
+- **Nächster Schritt:** User-Entscheid: Collection-Blocker separat beheben/
+  aus pytest ausschließen; erst danach PR/Main-Integration.
 
 ## ⛔ VERIFIKATIONS-AUDIT 2026-06-18 — viele „fixed/PASS"-Marker sind NICHT gedeckt
 Ein 4-Agenten-Audit (read-only) ergab: von 23 geprüften OTK/DG-001/Bug-Markern sind nur **7
