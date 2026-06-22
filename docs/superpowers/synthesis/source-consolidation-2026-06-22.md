@@ -1,6 +1,6 @@
 # PB Studio Quellstand-Konsolidierung — 2026-06-22
 
-status: code-integrated-full-suite-two-failures-live-e2e-pending
+status: code-integrated-non-live-suite-green-live-e2e-pending
 plan: PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09
 task: OTK-021 source consolidation before 90 Live-Verify
 branch: codex/OTK-021-source-consolidation-2026-06-22
@@ -46,6 +46,17 @@ Zweiter Vollsuite-Lauf:
 - B-557: Caller-Migration-Testdouble akzeptiert neues `should_stop`-Argument
   von `StemGenStage` nicht.
 
+Autonomer Folge-Loop:
+
+- B-556: Legacy-Vault-Relocation, Commit `757fa6e`.
+- B-559: Legacy-Benutzer-Home-Relocation, Commit `6414d2a`.
+- B-557: Testdouble-Vertrag, Commit `23b48fd`.
+- B-560: QApplication-notify-Testisolation, Commit `bd37aff`.
+- B-561: Windows-Manifest-Lock-Contention, Commit `94d8111`.
+- Finale Nicht-Live-Suite:
+  `2762 passed, 45 skipped, 5 deselected, 41 warnings` in 528.36 s.
+- Orchestrator-Report: `test-report/ORCHESTRATOR-FINAL-REPORT.md`.
+
 Zusätzlicher Tool-Fix:
 
 - B-555 Commit `d37e710`: Release-Gate CP1252-sicher; unerwartete
@@ -73,9 +84,10 @@ Lokale Testumgebung:
 - BUG-A stützt sich zusätzlich auf früheren GUI-Beleg.
 - Keine Bug-/Planphase wurde auf `fixed` gesetzt.
 - Branch auf `origin` gepusht, noch nicht nach `main` gemergt.
-- Vollsuite nicht vollständig grün: B-556 und B-557 offen.
+- Nicht-Live-Suite vollständig grün.
+- GUI/GPU-End-to-End und DG-001 bleiben offen.
 
 ## Nächster Schritt
 
-B-556 und B-557 einzeln analysieren/fixen. Danach Vollsuite neu fahren.
-Main-Integration bleibt gestoppt.
+OTK-021 Live-Verifikation/DG-001 nach gültiger Live-Teststrategie ausführen.
+Main-Integration bleibt bis Live-/Release-Entscheid gestoppt.

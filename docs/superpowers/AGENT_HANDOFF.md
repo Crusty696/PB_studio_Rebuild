@@ -229,11 +229,11 @@ PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09
 Current next task:
 
 ```text
-Quellstand konsolidiert. Collection-Blocker behoben (`ab6cfab`), B-555
-Release-Gate behoben (`d37e710`). Vollständige Nicht-Live-Suite:
-2759 passed, 45 skipped, 5 deselected, 2 failed. B-556
-(Vault-Pfadauflösung) und B-557 (StemGenStage-Testdouble/should_stop)
-einzeln bearbeiten. Danach Vollsuite wiederholen. Main-Integration gestoppt.
+Quellstand konsolidiert. Folgeblocker B-556/B-559/B-557/B-560/B-561
+sequenziell korrigiert. Finale vollständige Nicht-Live-Suite:
+2762 passed, 45 skipped, 5 deselected, 0 failed.
+Nächster Task: OTK-021 Live-Verifikation und DG-001 Heavy Gates mit neuen,
+persistierten Belegen. Main-Integration/Release bleiben bis dahin gestoppt.
 ```
 
 Current OTK-003 status:
