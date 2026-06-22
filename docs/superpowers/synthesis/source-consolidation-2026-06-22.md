@@ -1,6 +1,6 @@
 # PB Studio Quellstand-Konsolidierung — 2026-06-22
 
-status: code-integrated-tests-green-live-e2e-pending
+status: code-integrated-full-suite-two-failures-live-e2e-pending
 plan: PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09
 task: OTK-021 source consolidation before 90 Live-Verify
 branch: codex/OTK-021-source-consolidation-2026-06-22
@@ -29,13 +29,30 @@ Integriert:
 - `git diff --check origin/main...HEAD`: grün.
 - B-554- und BUG-A-Dateien: SHA-256-identisch zum belegten dirty Originalstand.
 
-Vollsuite-Versuch:
+Erster Vollsuite-Versuch:
 
 - Command: `pytest -q -m "not gui and not e2e and not live_gpu and not long_form"`.
 - Ergebnis: pytest INTERNALERROR während Collection.
 - Ursache: `tests/test_video_analysis_real.py:93` führt import-time
   `sys.exit(1)` aus.
-- Deshalb kein vollständiges Suite-Verdikt.
+- Collection-Blocker danach separat mit Commit `ab6cfab` entfernt.
+
+Zweiter Vollsuite-Lauf:
+
+- Command: `pytest -q -m "not gui and not e2e and not live_gpu and not long_form"`.
+- Ergebnis: `2759 passed, 45 skipped, 5 deselected, 2 failed` in 526.86 s.
+- B-556: Plan-Governance-Test löst alten Vault-Pfad `C:\Brain-Bug\...`
+  nicht auf.
+- B-557: Caller-Migration-Testdouble akzeptiert neues `should_stop`-Argument
+  von `StemGenStage` nicht.
+
+Zusätzlicher Tool-Fix:
+
+- B-555 Commit `d37e710`: Release-Gate CP1252-sicher; unerwartete
+  Gate-Exitcodes blockieren Handoff separat.
+- Fokustests: `8 passed`.
+- Reale CLI-/Handoff-Prüfung: Gate Exit 2, Normal-Handoff Exit 0,
+  `-ReleaseGate` Exit 4; kein Unicode-Traceback.
 
 ## Grenzen
 
@@ -46,9 +63,9 @@ Vollsuite-Versuch:
 - BUG-A stützt sich zusätzlich auf früheren GUI-Beleg.
 - Keine Bug-/Planphase wurde auf `fixed` gesetzt.
 - Branch auf `origin` gepusht, noch nicht nach `main` gemergt.
-- Vollsuite-Collection-Blocker nicht behoben; außerhalb Quellkonsolidierung.
+- Vollsuite nicht vollständig grün: B-556 und B-557 offen.
 
 ## Nächster Schritt
 
-User-Entscheid zum Collection-Blocker. Danach Vollsuite neu fahren und erst
-dann Review/PR bzw. Main-Integration.
+B-556 und B-557 einzeln analysieren/fixen. Danach Vollsuite neu fahren.
+Main-Integration bleibt gestoppt.

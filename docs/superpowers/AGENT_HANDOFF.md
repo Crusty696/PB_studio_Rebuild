@@ -205,15 +205,16 @@ Vollständig: `wiki/synthesis/verifikations-gesamtaudit-2026-06-18.md`. OTK-021 
 
 ## Current Branch
 
-`codex/B-471-timeline-usability-recovery-2026-06-07`
+`codex/OTK-021-source-consolidation-2026-06-22`
 
-Latest local commit before OTK-001 cleanup:
+Latest pushed product/tool commit:
 
 ```text
-a5a52a5 chore(OTK): consolidate open tasks
+d37e710 fix(B-555): make release gate console-safe
 ```
 
-Push status was not checked in OTK-001.
+Push status: `origin/codex/OTK-021-source-consolidation-2026-06-22...HEAD 0 0`
+after commit `d37e710`.
 
 ## Current Active Plan
 
@@ -228,10 +229,11 @@ PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09
 Current next task:
 
 ```text
-OTK-021 90 Live-Verify next. Tier 1-2, Tier 3/30-34, 40 Caller-Migration,
-50 Service-Coverage, 51 Controller-Coverage, 60 Test-Infra, 70 Backup-Portability,
-and 71 Disk-Budget Global code/tests completed by 2026-06-15. Product live verification and DG-001
-remain required before fixed/release status.
+Quellstand konsolidiert. Collection-Blocker behoben (`ab6cfab`), B-555
+Release-Gate behoben (`d37e710`). Vollständige Nicht-Live-Suite:
+2759 passed, 45 skipped, 5 deselected, 2 failed. B-556
+(Vault-Pfadauflösung) und B-557 (StemGenStage-Testdouble/should_stop)
+einzeln bearbeiten. Danach Vollsuite wiederholen. Main-Integration gestoppt.
 ```
 
 Current OTK-003 status:
