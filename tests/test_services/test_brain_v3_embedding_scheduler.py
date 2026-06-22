@@ -241,3 +241,85 @@ def test_submit_raises_when_not_started(qt_app, isolated_appdata):
         scheduler.submit_path(
             media_hash="0" * 64, source_path=Path("x.wav"), media_type="audio",
         )
+
+
+def test_b554_default_factory_reuses_video_embedder(monkeypatch):
+    """B-554: _default_embedder_factory darf die Embedder-Instanz NICHT pro Clip
+    neu erzeugen — sonst wird das siglip2-Modell pro Clip neu geladen
+    (from_pretrained + to(cuda), Stack-belegt). Ueber mehrere Clips darf nur
+    EINE Instanz entstehen (Modell wird einmal geladen)."""
+    from types import SimpleNamespace
+
+    import services.brain_v3.video.video_embedder as ve
+    from services.brain_v3 import embedding_scheduler as sched
+
+    class _CountingEmbedder:
+        instances = 0
+
+        def __init__(self, serializer=None):
+            type(self).instances += 1
+
+        def embed_clip(self, source_path, video_hash):
+            return SimpleNamespace(clip_embedding=np.zeros(8, dtype=np.float32))
+
+        def unload(self):
+            pass
+
+    sched._reset_embedder_cache(unload=False)
+    monkeypatch.setattr(ve, "Siglip2VideoEmbedder", _CountingEmbedder)
+    monkeypatch.setattr(ve, "SIGLIP2_MODEL_ID", "fake/siglip2")
+    monkeypatch.setattr(ve, "SIGLIP2_MODEL_VERSION", "0.0")
+    _CountingEmbedder.instances = 0
+    try:
+        for h in ("11", "22", "33"):
+            task = EmbeddingTask(
+                media_hash=h * 32, media_type="video",
+                source_path=Path(f"{h}.mp4"),
+            )
+            payload = sched._default_embedder_factory(
+                task, lambda p, m: None,
+                GpuSerializer(empty_cache_on_release=False),
+            )
+            assert isinstance(payload["embedding"], np.ndarray)
+        assert _CountingEmbedder.instances == 1, (
+            f"Embedder {_CountingEmbedder.instances}x erzeugt (pro Clip neu) "
+            "statt wiederverwendet"
+        )
+    finally:
+        sched._reset_embedder_cache(unload=False)
+
+
+def test_b554_reset_embedder_cache_unloads_and_clears(monkeypatch):
+    """_reset_embedder_cache(unload=True) ruft unload() auf der persistenten
+    Instanz und leert den Cache (VRAM-Hygiene beim Scheduler-Stop)."""
+    from types import SimpleNamespace
+
+    import services.brain_v3.video.video_embedder as ve
+    from services.brain_v3 import embedding_scheduler as sched
+
+    unloaded = {"n": 0}
+
+    class _UnloadEmbedder:
+        def __init__(self, serializer=None):
+            pass
+
+        def embed_clip(self, source_path, video_hash):
+            return SimpleNamespace(clip_embedding=np.zeros(8, dtype=np.float32))
+
+        def unload(self):
+            unloaded["n"] += 1
+
+    sched._reset_embedder_cache(unload=False)
+    monkeypatch.setattr(ve, "Siglip2VideoEmbedder", _UnloadEmbedder)
+    monkeypatch.setattr(ve, "SIGLIP2_MODEL_ID", "fake/siglip2")
+    monkeypatch.setattr(ve, "SIGLIP2_MODEL_VERSION", "0.0")
+    task = EmbeddingTask(
+        media_hash="a" * 64, media_type="video", source_path=Path("a.mp4"),
+    )
+    sched._default_embedder_factory(
+        task, lambda p, m: None, GpuSerializer(empty_cache_on_release=False),
+    )
+    assert sched._VIDEO_EMBEDDER is not None
+    sched._reset_embedder_cache(unload=True)
+    assert unloaded["n"] == 1
+    assert sched._VIDEO_EMBEDDER is None

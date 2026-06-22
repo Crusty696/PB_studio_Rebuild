@@ -100,8 +100,23 @@ class Siglip2VideoEmbedder:
         from transformers import AutoModel, AutoImageProcessor  # type: ignore
         logger.info("Siglip2VideoEmbedder: loading %s on %s ...",
                     SIGLIP2_MODEL_ID, self.device)
-        self._processor = AutoImageProcessor.from_pretrained(SIGLIP2_MODEL_ID)
-        full = AutoModel.from_pretrained(SIGLIP2_MODEL_ID).eval()
+        # B-554 (Fix B): Modell zuerst NUR aus dem lokalen HF-Cache laden
+        # (local_files_only=True). Vermeidet einen potenziell blockierenden
+        # HF-Hub-Netzwerk-Check (etag/Revision), der waehrend des gehaltenen
+        # GpuSerializer-Locks haengen kann. Nur wenn das Modell nicht im Cache
+        # liegt, einmalig online laden.
+        def _load(local_only: bool):
+            proc = AutoImageProcessor.from_pretrained(
+                SIGLIP2_MODEL_ID, local_files_only=local_only)
+            mdl = AutoModel.from_pretrained(
+                SIGLIP2_MODEL_ID, local_files_only=local_only).eval()
+            return proc, mdl
+        try:
+            self._processor, full = _load(local_only=True)
+        except (OSError, EnvironmentError) as exc:
+            logger.warning(
+                "Siglip2: nicht im lokalen HF-Cache (%s) — lade online (einmalig)", exc)
+            self._processor, full = _load(local_only=False)
         vision = full.vision_model if hasattr(full, "vision_model") else full
         self._vision = vision.to(self.device)
         del full

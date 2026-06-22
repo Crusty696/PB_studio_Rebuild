@@ -46,6 +46,34 @@ class EmbeddingTask:
 EmbedderFactory = Callable[[EmbeddingTask, Callable[[float, str], None], GpuSerializer], "object"]
 
 
+# B-554: Persistente Embedder-Instanzen. Der Embedder cacht das Modell intern
+# (``_vision`` / CLAP-Modell). Frueher erzeugte ``_default_embedder_factory`` pro
+# Clip eine FRISCHE Instanz -> das Modell wurde fuer JEDEN Clip neu geladen
+# (``from_pretrained`` + ``.to(cuda)``, je ~2 s, Stack-belegt in freeze_stacks).
+# Eine wiederverwendete Instanz laedt das Modell EINMAL. Der Lock schuetzt den
+# Lazy-Init, falls die Factory aus mehreren Worker-Threads aufgerufen wird.
+_EMBEDDER_CACHE_LOCK = threading.Lock()
+_VIDEO_EMBEDDER = None  # type: ignore[var-annotated]
+_AUDIO_EMBEDDER = None  # type: ignore[var-annotated]
+
+
+def _reset_embedder_cache(*, unload: bool = True) -> None:
+    """B-554: persistente Embedder freigeben (VRAM) + Cache leeren.
+
+    Wird beim Scheduler-Stop gerufen (VRAM-Hygiene) und von Tests genutzt.
+    """
+    global _VIDEO_EMBEDDER, _AUDIO_EMBEDDER
+    with _EMBEDDER_CACHE_LOCK:
+        for emb in (_VIDEO_EMBEDDER, _AUDIO_EMBEDDER):
+            if emb is not None and unload:
+                try:
+                    emb.unload()
+                except Exception as exc:  # best-effort — Stop darf nie daran scheitern
+                    logger.debug("Embedder-unload fehlgeschlagen (ignoriert): %s", exc)
+        _VIDEO_EMBEDDER = None
+        _AUDIO_EMBEDDER = None
+
+
 def _default_embedder_factory(
     task: EmbeddingTask,
     progress_cb: Callable[[float, str], None],
@@ -61,7 +89,11 @@ def _default_embedder_factory(
         def _adapted_progress(pct: int, msg: str):
             progress_cb(float(pct / 100.0), msg)
 
-        emb = ClapAudioEmbedder(serializer=serializer)
+        global _AUDIO_EMBEDDER
+        with _EMBEDDER_CACHE_LOCK:
+            if _AUDIO_EMBEDDER is None:
+                _AUDIO_EMBEDDER = ClapAudioEmbedder(serializer=serializer)
+            emb = _AUDIO_EMBEDDER
         result = emb.embed_mix(
             task.source_path,
             audio_hash=task.media_hash,
@@ -78,7 +110,11 @@ def _default_embedder_factory(
             SIGLIP2_MODEL_ID,
             SIGLIP2_MODEL_VERSION,
         )
-        emb = Siglip2VideoEmbedder(serializer=serializer)
+        global _VIDEO_EMBEDDER
+        with _EMBEDDER_CACHE_LOCK:
+            if _VIDEO_EMBEDDER is None:
+                _VIDEO_EMBEDDER = Siglip2VideoEmbedder(serializer=serializer)
+            emb = _VIDEO_EMBEDDER
         result = emb.embed_clip(task.source_path, video_hash=task.media_hash)
         return {
             "embedding": result.clip_embedding,
@@ -299,6 +335,8 @@ class _SchedulerThread(QThread):
             loop.close()
             self._loop = None
             self._queue = None
+            # B-554: persistente Embedder beim Scheduler-Stop freigeben (VRAM).
+            _reset_embedder_cache(unload=True)
 
 
 # --- Modul-globaler Default-Scheduler ----------------------------------
