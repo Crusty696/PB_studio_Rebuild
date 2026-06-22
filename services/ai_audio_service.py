@@ -424,8 +424,13 @@ class StemSeparator:
     @oom_recovery
     @_gpu_execution_locked
     def separate(self, file_path: str, model: str = "htdemucs_ft",
-                 progress_cb=None, should_stop=None) -> dict[str, str]:
+                 progress_cb=None, should_stop=None,
+                 output_dir: str | Path | None = None) -> dict[str, str]:
         """Fuehrt Demucs Stem Separation mit Chunking + CUDA-Zwang aus.
+
+        ``output_dir`` erlaubt Pipeline-Aufrufern, direkt in ihr kurzes,
+        track-id-zentriertes Ziel zu schreiben. Ohne Override bleibt das
+        Legacy-Layout ``storage/stems/<model>/<source-stem>`` erhalten.
 
         Returns: dict mit Keys 'vocals', 'drums', 'bass', 'other' -> Pfade.
         """
@@ -569,7 +574,11 @@ class StemSeparator:
         # aber Warnung bei hohem geschaetztem RAM-Verbrauch.
         estimated_ram_gb = (num_sources * waveform.shape[0] * total_samples * 4) / (1024**3)
         stream_stems = estimated_ram_gb > 3.0
-        stem_dir = _get_stems_dir() / model / src.stem
+        stem_dir = (
+            Path(output_dir)
+            if output_dir is not None
+            else _get_stems_dir() / model / src.stem
+        )
         streaming_writer = None
         streaming_paths = None
         if estimated_ram_gb > 8.0:
@@ -832,8 +841,15 @@ class StemSeparator:
         out_dir_path = Path(out_dir)
         out_dir_path.mkdir(parents=True, exist_ok=True)
 
-        # 1. Bestehendes separate() schreibt nach Alt-Layout.
-        alt_stems = self.separate(file_path, model=model, progress_cb=progress_cb, should_stop=should_stop)
+        # 1. Direkt ins kurze track-id-zentrierte Layout schreiben. Dadurch
+        # entsteht unter Windows kein dateiname-basierter Langpfad mehr.
+        alt_stems = self.separate(
+            file_path,
+            model=model,
+            progress_cb=progress_cb,
+            should_stop=should_stop,
+            output_dir=out_dir_path,
+        )
 
         # 2. Re-encode/copy nach neuem Layout mit PCM_24 + atomic-write.
         new_stems: dict[str, str] = {}

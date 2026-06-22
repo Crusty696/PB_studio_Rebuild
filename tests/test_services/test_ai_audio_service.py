@@ -14,6 +14,7 @@ der Service-Datei als MagicMock-Stubs registriert.
 # GPU/ML-Paket-Stubs – muss VOR allen anderen Imports stehen!
 # ---------------------------------------------------------------------------
 import sys
+from pathlib import Path
 from unittest.mock import MagicMock
 
 _GPU_STUBS = [
@@ -175,6 +176,37 @@ class TestStemSeparatorAndStore:
                           side_effect=RuntimeError("CUDA OOM")):
             with pytest.raises(RuntimeError, match="Stem-Separation fehlgeschlagen"):
                 svc.StemSeparator().separate_and_store(track_id)
+
+    def test_b565_separate_to_writes_directly_to_short_output_dir(
+        self, monkeypatch, tmp_path
+    ):
+        """B-565: Pipeline darf nicht erst ins dateiname-basierte Alt-Layout schreiben."""
+        import services.ai_audio_service as svc
+
+        seen = {}
+
+        def fake_separate(
+            self,
+            file_path,
+            model="htdemucs_ft",
+            progress_cb=None,
+            should_stop=None,
+            output_dir=None,
+        ):
+            seen["file_path"] = file_path
+            seen["output_dir"] = output_dir
+            return {}
+
+        monkeypatch.setattr(svc.StemSeparator, "separate", fake_separate)
+        out_dir = tmp_path / "storage" / "stems" / "42"
+
+        result = svc.StemSeparator().separate_to(
+            file_path="Z" * 180 + ".mp3",
+            out_dir=str(out_dir),
+        )
+
+        assert result == {}
+        assert Path(seen["output_dir"]) == out_dir
 
 
 # ---------------------------------------------------------------------------
