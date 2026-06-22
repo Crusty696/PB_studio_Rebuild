@@ -455,6 +455,14 @@ class EditWorkspaceController(PBComponent):
         except Exception as exc:
             logger.debug("cut_list_panel refresh failed: %s", exc)
 
+        # BUG-A Fix: SchnittWorkspace nach Auto-Edit auf Editor-State umschalten
+        try:
+            ws = getattr(self.window, "_schnitt_ws", None)
+            if ws is not None:
+                ws.refresh_state_from_db()
+        except Exception as exc:
+            logger.debug("BUG-A: schnitt_ws.refresh_state_from_db nach Auto-Edit fehlgeschlagen: %s", exc)
+
     def _latest_mem_pacing_run_id(self, audio_id: int | None) -> int | None:
         if audio_id is None:
             return None
