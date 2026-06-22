@@ -56,10 +56,16 @@ def create_directory_link(link_path: str | Path, target_dir: str | Path) -> Path
         return link
 
     if os.name == "nt":
+        # text=True would decode mklink's output with the locale codec (cp1252
+        # on German Windows), which crashes on console bytes like 0x81. Decode
+        # explicitly as UTF-8 with replacement so a junction is never aborted by
+        # an undecodable status message.
         result = subprocess.run(
             ["cmd", "/c", "mklink", "/J", str(link), str(target)],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             check=False,
         )
         if result.returncode != 0:

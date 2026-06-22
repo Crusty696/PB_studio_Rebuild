@@ -25,9 +25,11 @@
 name: pb-studio
 channels:
   - conda-forge
+  - nodefaults
 # `defaults` (Anaconda repo) wird nicht gebraucht — Python kommt von
-# conda-forge, alle anderen Deps via pip. Spart die ToS-Akzeptanz, die
-# conda >= 26 fuer repo.anaconda.com/pkgs erzwingt.
+# conda-forge, alle anderen Deps via pip. `nodefaults` erzwingt das technisch
+# (sonst zieht conda die globalen default-Channels mit rein und verlangt deren
+# ToS-Akzeptanz fuer repo.anaconda.com/pkgs).
 
 dependencies:
   - python=3.10

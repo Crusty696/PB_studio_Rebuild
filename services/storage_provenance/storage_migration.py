@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 import hashlib
+import logging
 from pathlib import Path
 from typing import Callable
 
@@ -12,12 +13,15 @@ from database.models import (
     AnalysisArtifact,
     AnalysisJob,
     AudioTrack,
+    Project,
     ProjectSource,
     VideoClip,
 )
 from services.storage_provenance.layout import StorageLayout, create_directory_link
 from services.storage_provenance.source_identity import compute_source_sha256
+from services.storage_provenance.source_manifest import record_manifest_job
 
+logger = logging.getLogger(__name__)
 
 ProgressCallback = Callable[[str, int, int], None]
 
@@ -41,7 +45,27 @@ class StorageMigrationService:
     ) -> None:
         self.session = session
         self.layout = StorageLayout(storage_root)
+        self.storage_root = storage_root
         self.progress_callback = progress_callback
+
+    def _record_manifest(self, project_id: int, source_sha: str, job: AnalysisJob) -> None:
+        """B-539: mirror the provenance job into the global by_sha manifest so
+        cross-project reuse works across per-project DBs. Best-effort."""
+        try:
+            project = self.session.get(Project, project_id)
+            record_manifest_job(
+                self.storage_root,
+                source_sha,
+                project_id=project_id,
+                project_name=project.name if project is not None else "unbekannt",
+                project_path=project.path if project is not None else str(project_id),
+                step_id=job.step_id,
+                model=job.produced_by_model,
+                model_version=job.produced_by_model_version,
+                finished_at=job.finished_at,
+            )
+        except Exception as e:  # never break migration on manifest write
+            logger.warning("B-545: provenance manifest write failed (project=%s): %s", project_id, e)
 
     def migrate_existing_outputs(self) -> StorageMigrationResult:
         audio_tracks = self.session.query(AudioTrack).all()
@@ -99,6 +123,7 @@ class StorageMigrationService:
         create_directory_link(source_root / "audio" / "stems", first_stem_dir)
         self._upsert_project_source(track.project_id, source_sha, source)
         job = self._upsert_job(source_sha, "audio.v2.stems", "1", "legacy-v2-stems", "done")
+        self._record_manifest(track.project_id, source_sha, job)
 
         for role, stem_path in existing_stems.items():
             linked_path = source_root / "audio" / "stems" / stem_path.name
@@ -133,6 +158,7 @@ class StorageMigrationService:
         self.layout.ensure_source_root(source_sha)
         self._upsert_project_source(clip.project_id, source_sha, source)
         job = self._upsert_job(source_sha, "video.plan_a.outputs", "1", "legacy-plan-a", "done")
+        self._record_manifest(clip.project_id, source_sha, job)
 
         rel_names = {
             "proxy": "video/proxy.mp4",

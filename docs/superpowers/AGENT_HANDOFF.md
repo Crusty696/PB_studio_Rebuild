@@ -2,6 +2,77 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## ⛔ VERIFIKATIONS-AUDIT 2026-06-18 — viele „fixed/PASS"-Marker sind NICHT gedeckt
+Ein 4-Agenten-Audit (read-only) ergab: von 23 geprüften OTK/DG-001/Bug-Markern sind nur **7
+nachprüfbar, 12 nicht überprüfbar (Evidenz gelöscht/nie im Clone), 4 ehrlich offen**.
+NICHT überprüfbar (reine Doku, NICHT als grün behandeln, vor Release neu fahren):
+**DG-001 H1/H1.3/H2.1-alt/H3/G.\***, **OTK-016/017/018/019**, **B-505, B-520**.
+Einzeln nachgeprüft 2026-06-18: **B-512** (fixed widerspricht eigenem Body „Live offen", kein Test) + **B-532**
+(nur Linter, defensives try-except) = belegfrei, geflaggt. **B-527 + B-528 sind belegt** (existierende Tests
+`test_backup_service.py` 15p / `test_project_save_action.py` 4p selbst grün, ehrliche Vorbehalte, User-Freigabe) —
+der Pauschal-Verdacht des Forensik-Agenten war für diese beiden falsch.
+Echt gedeckt (Screenshots vorhanden): **OTK-003/004/008/009/010** (09.06.).
+Per DB-Seed statt voll-E2E verifiziert (Integration NICHT bewiesen): **B-539 T32, Tier 31, Block 1**
+(Backup-70 + Disk-Budget-71 sind sogar toter Code ohne App-Aufruf).
+**B-539 `fixed` wurde zurückgezogen** → `fixed-with-critical-gaps` (siehe B-543..B-546).
+Vollständig: `wiki/synthesis/verifikations-gesamtaudit-2026-06-18.md`. OTK-021 ist NICHT release-/fixed-reif.
+
+## Codex Recovery Session 2026-06-16 (newest)
+
+- **Scope:** Restore local-only progress from the non-git folder
+  `C:\Users\David_Lochmann\Documents\PB_studio_Rebuild\PB_studio_Rebuild`
+  into a clean GitHub clone without overwriting the old folder.
+- **Current working repo:** `C:\Users\David_Lochmann\Documents\PB_studio_Rebuild\PB_studio_Rebuild_github_compare`.
+  Use this repo/worktree, not the old non-git folder.
+- **Branch:** `codex/recover-local-analysis-percent-2026-06-16`.
+- **Commit:** `137c15e chore(recovery): restore local analysis percent progress`.
+- **Remote:** branch pushed to
+  `origin/codex/recover-local-analysis-percent-2026-06-16`.
+- **Recovered files:** `services/analysis_status_service.py`,
+  `services/ingest_service.py`, `tests/conftest.py`,
+  `tests/test_services/test_ingest_service.py`.
+- **Recovered behavior:** bulk analysis-status inference and percent map,
+  bulk media-list `analysis_percent` refresh, and regression coverage for
+  video metadata not showing as `0%`.
+- **Verification:** `git diff --check` passed; `py_compile` passed for the
+  four recovered files. Targeted regression test passed in a temporary local
+  Python 3.10 conda env:
+  `tests\test_services\test_ingest_service.py::TestGetAllMedia::test_get_all_video_backfills_metadata_analysis_percent`
+  -> `1 passed in 6.80s`. The temporary `.conda-test` env was removed after
+  the run.
+- **Full small-data audio E2E 2026-06-16:** User requested a full test run
+  with few data and a 4-minute audio. A local `.conda-pb-full` env was created
+  from Python 3.10 plus `requirements-py310-cu113.txt`. Smoke check reported
+  `torch 1.12.1+cu113`, `cuda_available True`, GPU `NVIDIA GeForce GTX 1060`,
+  and `pipeline_import_ok 8`. Synthetic 4-minute WAV:
+  `test-report\e2e-audio-4min-20260616\synthetic_4min.wav`.
+  Command:
+  `.\.conda-pb-full\python.exe scripts\diag\e2e_audio_pipeline_orchestrator.py --audio test-report\e2e-audio-4min-20260616\synthetic_4min.wav`.
+  Result: `EXITCODE=0`; orchestrator log reports `failed=False`,
+  `total=274.3s`; stages completed: `stem_gen`, `beat_grid`, `onset`, `key`,
+  `structure`, `lufs`, `spectral`, `av_pacing`. Evidence log:
+  `test-report\e2e-audio-4min-20260616\e2e_audio_pipeline.log` (ignored by
+  git).
+- **Full small-data audio E2E limits:** `vendor/beat_this` submodule cannot be
+  initialized because remote commit `7ecf41375b9be919099b1ea2ecdd9fe5df937fa3`
+  is not available from `https://github.com/CPJKU/beat_this.git`. Therefore
+  beat detection used the built-in librosa fallback and returned `bpm=0.0` for
+  the synthetic test file. This is not proof that the `beat_this` path works.
+- **Current request follow-up:** Added context-budget clean-stop discipline
+  to `AGENTS.md`: when context/capacity is low, stop starting new work,
+  finish only the smallest safe unit, write exact handoff, run
+  `tools\agent_handoff.ps1`, and leave no hidden dirty state.
+- **Vault path correction:** use
+  `C:\Users\David_Lochmann\Documents\Vaults\Brain-Bug\projects\pb-studio`
+  for current Vault logging. Older docs may still mention
+  `C:\Brain-Bug\projects\pb-studio`.
+- **Open:** Recovery branch has not been merged to `main`. Full PB Studio test
+  environment is still not restored; only the targeted regression test above
+  passed. DG-001 remains open; no release/fixed claim allowed.
+- **Next safe step:** create/review PR for the recovery branch, then decide
+  whether to merge after broader test coverage or restore the full
+  `pb-studio` Python environment.
+
 ## Cowork-Agent-Session 2026-06-15 (newest)
 
 - **Scope:** Status-Review-Folgearbeit + Release-Gate + E2E-Live-Abnahme + DG-001 Teil-Live-Verify.

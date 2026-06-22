@@ -90,6 +90,8 @@ desktop.ini
 # Virtual environments
 .venv/
 .venv310/
+.conda-test/
+.conda-pb-full/
 
 # Binaries and downloaded tools (FFmpeg, Ollama - large, regenerate on demand)
 bin/
@@ -106,6 +108,7 @@ storage/backups/*
 !storage/backups/.gitkeep
 storage/enricher/*
 !storage/enricher/.gitkeep
+storage/pipeline_state/
 
 # Studio Brain test fixtures — media files are regenerable via scripts/build_test_fixture.py;
 # only the selection_report.md + source_provenance.json are committed for reproducibility.

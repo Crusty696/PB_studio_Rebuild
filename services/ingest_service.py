@@ -154,14 +154,20 @@ def _apply_cross_project_reuse_after_ingest(
 ) -> None:
     """Best-effort OTK-021 reuse status; import itself stays authoritative."""
     try:
+        from database.models import Project
         from services.storage_provenance.cross_project_reuse import apply_cross_project_reuse_status
 
+        # B-539: pass the globally-unique project path so the by_sha manifest
+        # fallback can exclude the active project's own entries (project_id is
+        # not unique across per-project DBs).
+        _proj = session.get(Project, project_id)
         hit = apply_cross_project_reuse_status(
             session,
             source_path,
             media_type=media_type,
             media_id=media_id,
             current_project_id=project_id,
+            current_project_path=_proj.path if _proj is not None else None,
         )
         if hit is not None:
             logger.info(
@@ -489,12 +495,16 @@ def get_all_audio(project_id: int | None = None, limit: int | None = None) -> li
                 "energy_curve": t.energy_curve,
             })
 
-    # Session is closed — safe to call analysis_status_service (opens its own session)
+    # Session is closed — safe to reconcile analysis_status in bulk.
+    audio_ids = [int(item["id"]) for item in raw_data if item.get("id") is not None]
+    try:
+        analysis_status_service.infer_many_from_db("audio", audio_ids)
+        percent_map = analysis_status_service.get_completion_percent_map("audio", audio_ids)
+    except Exception:
+        logger.exception("get_all_audio: bulk analysis status refresh failed")
+        percent_map = {}
     for item in raw_data:
-        try:
-            item["analysis_percent"] = analysis_status_service.get_completion_percent("audio", item["id"])
-        except Exception:
-            item["analysis_percent"] = 0
+        item["analysis_percent"] = percent_map.get(int(item["id"]), 0.0)
 
     return raw_data
 
@@ -531,12 +541,16 @@ def get_all_video(project_id: int | None = None, limit: int | None = None) -> li
                 "stems": "-",
             })
 
-    # Session is closed — safe to call analysis_status_service (opens its own session)
+    # Session is closed — safe to reconcile analysis_status in bulk.
+    video_ids = [int(item["id"]) for item in raw_data if item.get("id") is not None]
+    try:
+        analysis_status_service.infer_many_from_db("video", video_ids)
+        percent_map = analysis_status_service.get_completion_percent_map("video", video_ids)
+    except Exception:
+        logger.exception("get_all_video: bulk analysis status refresh failed")
+        percent_map = {}
     for item in raw_data:
-        try:
-            item["analysis_percent"] = analysis_status_service.get_completion_percent("video", item["id"])
-        except Exception:
-            item["analysis_percent"] = 0
+        item["analysis_percent"] = percent_map.get(int(item["id"]), 0.0)
 
     return raw_data
 

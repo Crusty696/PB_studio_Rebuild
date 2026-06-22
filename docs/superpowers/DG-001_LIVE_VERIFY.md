@@ -1,5 +1,17 @@
 # DG-001 — Heavy-Live-Gate Verify-Checkliste
 
+> ## ⛔ EVIDENZ-VERLUST-WARNUNG (Audit 2026-06-18)
+> Die unten als ☑ markierten Heavy-Gate-Punkte **H1, H1.3, H2.1-alt, H3, G.\*** sind
+> **NICHT durch existierende Belege gedeckt** — alle referenzierten Evidenz-Dateien
+> (`outputs/h1_scale.log`, `C:\PB_Studio_H1_3\*`, `test-report/e2e-live-acceptance-20260615/*`,
+> `test-report/e2e-h3-concurrency-20260615`) existieren im Repo NICHT mehr. Forensik-Audit:
+> 0 von 6 DG-001-Belegen vorhanden. Status dieser ☑ = **`unverifiable-evidence-lost`**
+> (reine Doku-Behauptung, weder bestätigt noch widerlegbar). Vor echtem Release neu fahren,
+> Belege ins versionierte Verzeichnis committen. Siehe `wiki/synthesis/verifikations-gesamtaudit-2026-06-18.md`.
+> **H2.1-NEU (18.06.):** echter NVENC-Proxy existiert + ist `h264_nvenc`-verifiziert, liegt aber
+> in `storage/H2.2-Playback/storage/proxies/Stumes_video_ohne_Ton_Alles_t_edit_proxy.mp4`
+> (NICHT im zuvor falsch verwiesenen leeren Ordner `test-report/dg001-h22-retry/`).
+
 Quelle: `docs/superpowers/DEFERRED_GATES.md` (DG-001). Hartes Gate: vor jeder
 `release/fixed`-Behauptung muss jeder Punkt live-verifiziert oder vom User
 re-entschieden sein. Prüfbar via `python tools/release_gate.py` (Exit 2 = offen).
@@ -21,7 +33,14 @@ Ziel: subjektiv flüssige Proxy-Wiedergabe. **Verdikt ist menschlich — nicht a
 | # | Schritt | Erwartung | Wer | OK |
 |---|---|---|---|----|
 | H2.1 | Proxy/Export erzeugen (NVENC) | abspielbare Datei | [Agent] | ☑ |
-| H2.2 | In PB Studio / QMediaPlayer abspielen, ruckelfrei? | subjektiv flüssig | [User] | ☐ |
+| H2.2 | ~~In PB Studio / QMediaPlayer abspielen, ruckelfrei?~~ **NICHT ANWENDBAR** | entfällt | [User] | n/a |
+
+> **H2.2 = NICHT ANWENDBAR (User-Entscheidung 2026-06-18, B-542).**
+> Die App hat keinen `QMediaPlayer` / kein flüssiges Video-Playback — die SCHNITT-/Export-
+> Vorschau ist eine ffmpeg-Frame-Extraktion bei ~10 fps (Standbild-Diashow), kein
+> abspielbarer Video-Stream. Ein „ruckelfrei"-Verdikt ist gegen diese Architektur nicht
+> sinnvoll prüfbar. Das fehlende echte Playback bleibt als bekannte Produkt-Lücke in B-542
+> dokumentiert; H2.2 ist als Release-Gate-Kriterium gestrichen. Siehe B-542.
 
 ## H3 — Echte gleichzeitige Demucs + Video-Analyse
 Ziel: kein Deadlock, GPU-Lock fair, beide Ergebnisse korrekt.
@@ -43,7 +62,7 @@ Service-E2E deckt die Engine, nicht die Widgets. Braucht GUI-Steuerung.
 
 ## Abschluss
 - `python tools/release_gate.py` → Exit-Code: `____`
-- Alle [Agent]-Punkte grün + H1.3/H2.2/G.* vom User bestätigt: ☐
+- Alle [Agent]-Punkte grün + H1.3/G.* vom User bestätigt; **H2.2 = nicht anwendbar (B-542)**: ☐
 - **`fixed`/`release` setzt ausschließlich der User** — Datum/Name: `__________`
 
 

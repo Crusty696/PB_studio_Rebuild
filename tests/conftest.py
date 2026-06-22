@@ -109,6 +109,7 @@ def test_engine(monkeypatch):
         "services.pacing_service",
         "services.audio_service",
         "services.beat_analysis_service",
+        "services.analysis_status_service",
     ]:
         try:
             import importlib
