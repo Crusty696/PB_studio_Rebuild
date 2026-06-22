@@ -91,3 +91,15 @@ Lokale Testumgebung:
 
 OTK-021 Live-Verifikation/DG-001 nach gültiger Live-Teststrategie ausführen.
 Main-Integration bleibt bis Live-/Release-Entscheid gestoppt.
+
+## Live-Preflight 2026-06-22
+
+Verdikt: `BLOCKED`.
+
+- PyTorch `1.12.1+cu113`, CUDA false.
+- GTX 1060: `CM_PROB_PHANTOM`.
+- H.264-/HEVC-NVENC: `CUDA_ERROR_NO_DEVICE`.
+- App nicht gestartet; Intel-/CPU-Ersatz gemäß GPU-Hartregel verboten.
+- Report: `test_reports/LIVE_VERIFY_OTK021_DG001_2026-06-22.md`.
+
+Fortsetzung erst nach Hardware-Recovery und grünem CUDA-/NVENC-Preflight.

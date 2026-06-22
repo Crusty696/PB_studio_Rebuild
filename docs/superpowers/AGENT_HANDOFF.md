@@ -232,8 +232,11 @@ Current next task:
 Quellstand konsolidiert. Folgeblocker B-556/B-559/B-557/B-560/B-561
 sequenziell korrigiert. Finale vollständige Nicht-Live-Suite:
 2762 passed, 45 skipped, 5 deselected, 0 failed.
-Nächster Task: OTK-021 Live-Verifikation und DG-001 Heavy Gates mit neuen,
-persistierten Belegen. Main-Integration/Release bleiben bis dahin gestoppt.
+OTK-021 Live-Preflight 2026-06-22 ist BLOCKED:
+GTX 1060 `CM_PROB_PHANTOM`, CUDA false, H.264/HEVC NVENC
+`CUDA_ERROR_NO_DEVICE`. App nicht gestartet; Intel/CPU-Ersatz verboten.
+Nach Hardware-Recovery Preflight wiederholen, dann GUI/DG-001 fortsetzen.
+Main-Integration/Release bleiben gestoppt.
 ```
 
 Current OTK-003 status:
