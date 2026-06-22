@@ -107,7 +107,7 @@ def apply_cross_project_reuse_status(
     current_project_path: str | None = None,
     storage_root: str | Path | None = None,
 ) -> CrossProjectReuseHit | None:
-    """Create local done AnalysisStatus rows for reusable provenance hits."""
+    """Create local done rows only when the reusable outputs are accessible."""
 
     hit = lookup_cross_project_reuse(
         session,
@@ -120,6 +120,17 @@ def apply_cross_project_reuse_status(
     if hit is None:
         return None
 
+    applied_steps: list[ReuseStep] = []
+    stem_paths: dict[str, Path] | None = None
+    for step in hit.steps:
+        if step.provenance_step_id == "audio.v2.stems":
+            stem_paths = _global_stem_paths(storage_root, hit.source_sha256)
+            if stem_paths is None:
+                continue
+        applied_steps.append(step)
+    if not applied_steps:
+        return None
+
     now = datetime.now(timezone.utc)
     if current_project_id is not None:
         _upsert_current_project_source(
@@ -128,7 +139,10 @@ def apply_cross_project_reuse_status(
             source_sha=hit.source_sha256,
             source_path=source_path,
         )
-    for step in hit.steps:
+    if stem_paths is not None:
+        _apply_audio_stem_references(session, media_id=media_id, stem_paths=stem_paths)
+
+    for step in applied_steps:
         row = (
             session.query(AnalysisStatus)
             .filter_by(media_type=media_type, media_id=media_id, step_key=step.analysis_step_key)
@@ -158,7 +172,15 @@ def apply_cross_project_reuse_status(
             row.value_summary = summary
 
     session.commit()
-    return hit
+    if len(applied_steps) == len(hit.steps):
+        return hit
+    return CrossProjectReuseHit(
+        source_sha256=hit.source_sha256,
+        project_id=hit.project_id,
+        project_name=hit.project_name,
+        steps=tuple(applied_steps),
+        toast_message=hit.toast_message,
+    )
 
 
 def _find_previous_project(
@@ -282,6 +304,43 @@ def _source_root_has_artifacts(storage_root, source_sha: str) -> bool:
             continue
         return True
     return False
+
+
+def _global_stem_paths(
+    storage_root: str | Path | None,
+    source_sha: str,
+) -> dict[str, Path] | None:
+    """Return all four global stem artifacts or None when reuse is incomplete."""
+    from services.storage_provenance.layout import StorageLayout
+
+    if storage_root is None:
+        from services.storage_provenance.schnitt_audio_adapter import (
+            default_global_storage_root,
+        )
+
+        storage_root = default_global_storage_root()
+    stem_dir = StorageLayout(storage_root).source_root(source_sha) / "audio" / "stems"
+    paths = {name: (stem_dir / f"{name}.wav").resolve() for name in ("vocals", "drums", "bass", "other")}
+    if not all(path.is_file() for path in paths.values()):
+        return None
+    return paths
+
+
+def _apply_audio_stem_references(
+    session: Session,
+    *,
+    media_id: int,
+    stem_paths: dict[str, Path],
+) -> None:
+    from database.models import AudioTrack
+
+    track = session.get(AudioTrack, media_id)
+    if track is None:
+        raise ValueError(f"AudioTrack {media_id} nicht gefunden fuer Stem-Reuse")
+    track.stem_vocals_path = str(stem_paths["vocals"])
+    track.stem_drums_path = str(stem_paths["drums"])
+    track.stem_bass_path = str(stem_paths["bass"])
+    track.stem_other_path = str(stem_paths["other"])
 
 
 def _format_model_from_manifest(job: dict) -> str:

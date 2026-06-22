@@ -123,7 +123,12 @@ class StemGenStage(Stage):
         self._separator_cls = separator_cls
 
     def _resolve_stems_dir(self, track_id: int) -> Path:
-        root = self._stems_root if self._stems_root is not None else Path("storage") / "stems"
+        if self._stems_root is not None:
+            root = self._stems_root
+        else:
+            import database.session as db_session
+
+            root = Path(db_session.APP_ROOT) / "storage" / "stems"
         return root / str(track_id)
 
     def _try_reuse(self, context: PipelineContext) -> dict[str, str] | None:
@@ -132,20 +137,20 @@ class StemGenStage(Stage):
 
         meta = stem_cache.load_cache_meta(context.track_id)
         if not meta:
-            return None
+            return self._try_db_stem_references(context.track_id)
         # Subtype-Check (Q-C Migration)
         if meta.get("wav_subtype") != _TARGET_WAV_SUBTYPE:
-            return None
+            return self._try_db_stem_references(context.track_id)
         # Demucs-Version-Check
         if meta.get("demucs_version") != _DEMUCS_VERSION:
-            return None
+            return self._try_db_stem_references(context.track_id)
         # Original-Hash-Check
         try:
             orig_hash = stem_cache.compute_audio_hash(context.original_path)
         except OSError:
-            return None
+            return self._try_db_stem_references(context.track_id)
         if meta.get("original_hash") != orig_hash:
-            return None
+            return self._try_db_stem_references(context.track_id)
         # 4 WAVs existieren + Hash-Match (fixt R-07 partial-Crash)
         stems_dir = self._resolve_stems_dir(context.track_id)
         cached_stem_hashes = meta.get("stem_hashes", {})
@@ -153,13 +158,39 @@ class StemGenStage(Stage):
         for name in ("drums", "bass", "vocals", "other"):
             p = stems_dir / f"{name}.wav"
             if not p.exists():
-                return None
+                return self._try_db_stem_references(context.track_id)
             cached = cached_stem_hashes.get(name)
             actual = stem_cache.compute_stem_wav_hash(str(p))
             if cached != actual:
-                return None
+                return self._try_db_stem_references(context.track_id)
             result_paths[name] = str(p.resolve())
         return result_paths
+
+    @staticmethod
+    def _try_db_stem_references(track_id: int) -> dict[str, str] | None:
+        if nullpool_session is None:
+            return None
+        try:
+            from database import AudioTrack
+        except ImportError:
+            return None
+        try:
+            with nullpool_session() as sess:
+                track = sess.query(AudioTrack).filter(AudioTrack.id == track_id).first()
+                if track is None:
+                    return None
+                paths = {
+                    "drums": getattr(track, "stem_drums_path", None),
+                    "bass": getattr(track, "stem_bass_path", None),
+                    "vocals": getattr(track, "stem_vocals_path", None),
+                    "other": getattr(track, "stem_other_path", None),
+                }
+        except Exception as e:  # noqa: BLE001
+            logger.warning("StemGenStage DB-Reuse track=%s fehlgeschlagen: %s", track_id, e)
+            return None
+        if not all(path and Path(path).is_file() for path in paths.values()):
+            return None
+        return {name: str(Path(path).resolve()) for name, path in paths.items()}
 
     def _persist_cache_meta(self, context: PipelineContext, result: dict[str, str]) -> None:
         from services.audio_pipeline import stem_cache

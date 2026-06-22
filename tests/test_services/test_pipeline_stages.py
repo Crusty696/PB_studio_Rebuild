@@ -14,6 +14,9 @@ Service-Mapping (siehe A-8 + RED-Pre-Check-Update aus T1.0-Migration-Doc):
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 import pytest
 
@@ -59,6 +62,64 @@ def test_stem_gen_stage_calls_separator(ctx):
     mock_sep.separate_to.assert_called_once()
     # Stem-Pfade in Context geschrieben
     assert ctx.stem_paths["drums"].endswith("drums.wav")
+
+
+def test_b566_stem_dir_uses_active_project_root(monkeypatch, tmp_path):
+    from services.audio_pipeline.stages import StemGenStage
+    import database.session as db_session
+
+    project_root = tmp_path / "project"
+    monkeypatch.setattr(db_session, "APP_ROOT", project_root)
+
+    assert StemGenStage()._resolve_stems_dir(42) == project_root / "storage" / "stems" / "42"
+
+
+def test_b566_stem_gen_reuses_complete_db_stem_references(
+    monkeypatch, tmp_path, ctx
+):
+    import services.audio_pipeline.stages as stages
+    from services.audio_pipeline import stem_cache
+
+    paths = {}
+    for name in ("drums", "bass", "vocals", "other"):
+        path = tmp_path / f"{name}.wav"
+        path.write_bytes(b"stem")
+        paths[name] = str(path)
+    track = SimpleNamespace(
+        stem_drums_path=paths["drums"],
+        stem_bass_path=paths["bass"],
+        stem_vocals_path=paths["vocals"],
+        stem_other_path=paths["other"],
+    )
+
+    class _Query:
+        def filter(self, *_args):
+            return self
+
+        def first(self):
+            return track
+
+    class _Session:
+        def query(self, *_args):
+            return _Query()
+
+    @contextmanager
+    def _session():
+        yield _Session()
+
+    monkeypatch.setattr(stages, "nullpool_session", _session)
+    monkeypatch.setattr(
+        stem_cache,
+        "load_cache_meta",
+        lambda _track_id: {
+            "wav_subtype": "FLOAT",
+            "demucs_version": "stale",
+        },
+    )
+
+    result = stages.StemGenStage()._try_reuse(ctx)
+
+    assert result == paths
 
 
 def test_beat_grid_stage_calls_beat_analysis_with_trigger_onset_false(ctx):
