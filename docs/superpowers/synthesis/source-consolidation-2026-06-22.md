@@ -54,6 +54,16 @@ Zusätzlicher Tool-Fix:
 - Reale CLI-/Handoff-Prüfung: Gate Exit 2, Normal-Handoff Exit 0,
   `-ReleaseGate` Exit 4; kein Unicode-Traceback.
 
+Lokale Testumgebung:
+
+- B-558: `pytest.exe` war im `pb-studio`-Conda-Env installiert, dessen
+  `Scripts`-Ordner fehlte aber im Benutzer-PATH.
+- `C:\Users\David_Lochmann\miniconda3\envs\pb-studio\Scripts` dauerhaft
+  dem Benutzer-PATH vorangestellt; keine Paketinstallation.
+- Verifikation mit neu aufgebautem Machine+User-PATH:
+  `pytest 9.1.0`; `tests/test_scripts/test_release_gate_cli.py` = `2 passed`.
+- Bereits laufende Terminals müssen neu gestartet werden.
+
 ## Grenzen
 
 - Kein neuer kompletter GUI-/GPU-E2E.
