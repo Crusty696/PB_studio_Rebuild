@@ -328,6 +328,8 @@ class _PageHardware(QWidget):
              f"{status.ffmpeg_version} · {status.ffmpeg_path}" if status.ffmpeg_ok else f"Nicht gefunden · {status.ffmpeg_path}"),
             ("ffprobe", status.ffprobe_ok,
              status.ffprobe_path if status.ffprobe_path else "Nicht gefunden"),
+            ("NVENC Encode", status.nvenc_ok,
+             status.nvenc_detail if status.nvenc_detail else "H.264 Hardware-Encode bereit"),
             ("KI-Dienst", status.ollama_ok,
              "Läuft" if status.ollama_ok else "Nicht gestartet — wird im Hintergrund gestartet"),
             ("Hugging-Face Cache", status.hf_cache_ok,

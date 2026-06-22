@@ -34,6 +34,7 @@ from services.timeout_constants import (
     STARTUP_MODEL_CHECK_TIMEOUT_SEC,
     STARTUP_OLLAMA_CHECK_TIMEOUT_SEC,
 )
+from services.nvenc_policy import require_nvenc, required_message
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +79,8 @@ class SystemStatus:
     ffmpeg_path: str = ""
     ffprobe_ok: bool = False
     ffprobe_path: str = ""
+    nvenc_ok: bool = False
+    nvenc_detail: str = ""
     cuda_ok: bool = False
     gpu_name: str = ""
     gpu_vram_mb: int = 0
@@ -183,6 +186,47 @@ def _check_ffmpeg() -> tuple[bool, str, bool]:
         logger.debug("ffprobe check failed: %s", exc)
 
     return ffmpeg_ok, ffmpeg_version, ffprobe_ok
+
+
+def _check_nvenc() -> tuple[bool, str]:
+    """Run one real H.264 NVENC frame through the resolved FFmpeg binary."""
+    cmd = [
+        _FFMPEG_BIN,
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=black:s=256x256:d=1",
+        "-frames:v",
+        "1",
+        "-c:v",
+        "h264_nvenc",
+        "-f",
+        "null",
+        "-",
+    ]
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=STARTUP_FFMPEG_CHECK_TIMEOUT_SEC,
+            **_subprocess_kwargs(),
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as exc:
+        return False, str(exc)
+
+    if result.returncode == 0:
+        return True, ""
+
+    stderr = (result.stderr or "").strip()
+    if not stderr:
+        stderr = f"FFmpeg Exit-Code {result.returncode}"
+    return False, "\n".join(stderr.splitlines()[-4:])
 
 
 def _get_nvidia_driver_version() -> tuple[str, str]:
@@ -447,8 +491,9 @@ def check_system(app_root: Path | None = None) -> SystemStatus:
     status.cuda_ok, status.gpu_name, status.gpu_vram_mb = _check_cuda()
 
     futures: dict = {}
-    with ThreadPoolExecutor(max_workers=5, thread_name_prefix="startup_check") as pool:
+    with ThreadPoolExecutor(max_workers=6, thread_name_prefix="startup_check") as pool:
         futures["ffmpeg"] = pool.submit(_check_ffmpeg)
+        futures["nvenc"] = pool.submit(_check_nvenc)
         futures["disk"] = pool.submit(_check_disk, app_root)
         futures["hf_cache"] = pool.submit(_check_hf_cache)
         futures["ollama"] = pool.submit(_check_ollama)
@@ -462,6 +507,10 @@ def check_system(app_root: Path | None = None) -> SystemStatus:
                     status.ffmpeg_ok = ok
                     status.ffmpeg_version = ver
                     status.ffprobe_ok = probe_ok
+                elif key == "nvenc":
+                    ok, detail = future.result(timeout=STARTUP_FFMPEG_CHECK_TIMEOUT_SEC)
+                    status.nvenc_ok = ok
+                    status.nvenc_detail = detail
                 elif key == "cuda":
                     ok, name, vram = future.result(timeout=STARTUP_GPU_CHECK_TIMEOUT_SEC)
                     status.cuda_ok = ok
@@ -523,6 +572,16 @@ def check_system(app_root: Path | None = None) -> SystemStatus:
     elif not status.ffprobe_ok:
         status.warnings.append(
             "ffprobe nicht gefunden. Metadaten-Erkennung eingeschraenkt."
+        )
+
+    if require_nvenc() and not status.nvenc_ok:
+        detail = status.nvenc_detail or "H.264-NVENC-Probe fehlgeschlagen"
+        status.errors.append(
+            required_message(
+                "H.264-NVENC ist mit dem aufgeloesten FFmpeg nicht nutzbar.\n"
+                f"FFmpeg: {status.ffmpeg_path}\n"
+                f"Ursache: {detail}"
+            )
         )
 
     if not status.cuda_ok:

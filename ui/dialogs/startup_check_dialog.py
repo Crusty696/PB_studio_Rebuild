@@ -128,6 +128,7 @@ class StartupCheckDialog(QDialog):
         ffmpeg_detail = f"v{status.ffmpeg_version} · {status.ffmpeg_path}" if status.ffmpeg_version else status.ffmpeg_path
         cl.addWidget(_check_row("FFmpeg", status.ffmpeg_ok, ffmpeg_detail))
         cl.addWidget(_check_row("ffprobe", status.ffprobe_ok, status.ffprobe_path))
+        cl.addWidget(_check_row("NVENC Encode", status.nvenc_ok, status.nvenc_detail))
         gpu_detail = f"{status.gpu_name}  {round(status.gpu_vram_mb / 1024)} GB" if status.cuda_ok else ""
         cl.addWidget(_check_row("CUDA GPU", status.cuda_ok, gpu_detail))
         cl.addWidget(_check_row("Speicherplatz (>1 GB)", status.disk_ok, f"{status.disk_free_gb:.1f} GB frei"))
