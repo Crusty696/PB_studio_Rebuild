@@ -14,10 +14,12 @@ import logging
 
 from PySide6.QtCore import QObject, Signal
 
+from .base import CancellableMixin
+
 logger = logging.getLogger(__name__)
 
 
-class AudioPipelineV2Worker(QObject):
+class AudioPipelineV2Worker(QObject, CancellableMixin):
     """Faehrt die Audio-V2-Pipeline (8 Stages, strict-sequential) auf einem Track.
 
     Stages: stem_gen (Demucs) -> beat_grid -> onset -> key -> structure -> lufs
@@ -31,11 +33,15 @@ class AudioPipelineV2Worker(QObject):
 
     def __init__(self, audio_track_id: int, file_path: str):
         super().__init__()
+        CancellableMixin.__init__(self)
         self.audio_track_id = audio_track_id
         self.file_path = file_path
 
     def run(self) -> None:
+        self._errored = False
         try:
+            if self.should_stop():
+                return
             from services.audio_pipeline.orchestrator import AudioAnalysisPipeline
             from services.audio_pipeline.context import PipelineContext
             from services.audio_pipeline.stages import build_default_stages
@@ -43,7 +49,11 @@ class AudioPipelineV2Worker(QObject):
             stages = build_default_stages()
             total = max(1, len(stages))
             pipeline = AudioAnalysisPipeline(stages)
-            ctx = PipelineContext(track_id=self.audio_track_id, original_path=self.file_path)
+            ctx = PipelineContext(
+                track_id=self.audio_track_id,
+                original_path=self.file_path,
+                should_stop=self.should_stop,
+            )
 
             done = {"n": 0}
 
@@ -65,6 +75,7 @@ class AudioPipelineV2Worker(QObject):
             self.progress.emit(100, "Audio-V2: fertig")
             self.finished.emit(self.audio_track_id, dict(ctx.results))
         except Exception as e:  # noqa: BLE001
+            self._errored = True
             logger.error("AudioPipelineV2Worker fehlgeschlagen (track=%s): %s",
                          self.audio_track_id, e, exc_info=True)
             self.error.emit(self.audio_track_id, str(e))

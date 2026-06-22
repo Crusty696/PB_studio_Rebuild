@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import threading
-from typing import Any
+from typing import Any, Callable
 
 
 _LARGE_NBYTES_THRESHOLD = 1_000_000  # 1 MB
@@ -53,6 +53,7 @@ class PipelineContext:
     results: dict[str, Any] = field(default_factory=dict)
     status: str = "pending"
     save_lock: threading.RLock = field(default_factory=threading.RLock)
+    should_stop: Callable[[], bool] | None = None
 
     def set_result(self, stage_name: str, value: Any) -> None:
         """Setze Stage-Result. Raised bei Tensor-Guard-Verletzung (A-5)."""

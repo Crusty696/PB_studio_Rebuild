@@ -100,6 +100,8 @@ class AudioAnalysisPipeline(QObject):
         _ckpt.invalidate_if_stale(context.track_id, context.original_path)
 
         for stage in self._stages:
+            if context.should_stop and context.should_stop():
+                raise RuntimeError("Audio-V2 Pipeline abgebrochen (User-Cancel)")
             name = getattr(stage, "name", stage.__class__.__name__)
             if _ckpt.is_stage_done(context.track_id, name):
                 # T4.2: Skip - bereits in vorherigem Lauf erfolgreich.

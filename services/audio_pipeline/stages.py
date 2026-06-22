@@ -201,6 +201,7 @@ class StemGenStage(Stage):
                     file_path=context.original_path,
                     out_dir=out_dir,
                     subtype=_TARGET_WAV_SUBTYPE,
+                    should_stop=context.should_stop,
                 )
             finally:
                 if torch is not None and torch.cuda.is_available():

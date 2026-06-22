@@ -67,3 +67,34 @@ def test_worker_emits_error_on_stage_failure(qapp, tmp_path, monkeypatch):
     assert "fin" not in got
     assert got["tid"] == 5
     assert "demucs kaputt" in got["err"]
+
+
+def test_worker_cancellation(qapp, tmp_path, monkeypatch):
+    from services.audio_pipeline import checkpoint, stages as stages_mod, stem_cache
+
+    monkeypatch.setattr(stem_cache, "_STORAGE_ROOT", tmp_path)
+    monkeypatch.setattr(checkpoint, "_STATE_ROOT", tmp_path, raising=False)
+
+    class _CancellableStage:
+        name = "stem_gen"
+
+        def run(self, ctx):
+            if ctx.should_stop and ctx.should_stop():
+                raise RuntimeError("Audio-V2 Pipeline abgebrochen (User-Cancel)")
+            ctx.set_result(self.name, {"ok": True})
+
+    monkeypatch.setattr(stages_mod, "build_default_stages", lambda: [_CancellableStage()])
+
+    from workers.audio_pipeline_v2_worker import AudioPipelineV2Worker
+
+    worker = AudioPipelineV2Worker(audio_track_id=7, file_path="/x.wav")
+    worker.cancel()
+
+    got = {}
+    worker.finished.connect(lambda tid, res: got.update({"fin": True}))
+    worker.error.connect(lambda tid, err: got.update({"tid": tid, "err": err}))
+
+    worker.run()
+
+    assert "fin" not in got
+    assert "err" not in got
