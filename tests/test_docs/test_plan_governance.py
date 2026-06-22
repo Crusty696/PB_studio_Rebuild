@@ -5,6 +5,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
+LEGACY_HOME = Path(r"C:\Users\David Lochmann")
 LEGACY_VAULT = Path(r"C:\Brain-Bug\projects\pb-studio")
 CURRENT_VAULT = (
     Path.home() / "Documents" / "Vaults" / "Brain-Bug" / "projects" / "pb-studio"
@@ -38,7 +39,14 @@ def _registry_rows() -> list[dict[str, str]]:
 def _repo_path_exists(path_text: str) -> bool:
     if path_text.startswith("_sandbox_meta/"):
         return True
-    return (ROOT / path_text).exists()
+    path = Path(path_text)
+    if (ROOT / path).exists():
+        return True
+    try:
+        relative = path.relative_to(LEGACY_HOME)
+    except (OSError, ValueError):
+        return False
+    return (Path.home() / relative).exists()
 
 
 def _vault_path_exists(path_text: str) -> bool:
