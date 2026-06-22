@@ -4,7 +4,6 @@ from services.perf_watchdog import SlowEventHook
 
 
 def test_slow_event_hook_ignores_non_qobject_receiver(qapp) -> None:
-    original_notify = qapp.notify
     hook = SlowEventHook(qapp, threshold_ms=10_000)
     try:
         event = QEvent(QEvent.Type.ChildAdded)
@@ -13,12 +12,12 @@ def test_slow_event_hook_ignores_non_qobject_receiver(qapp) -> None:
 
         assert result is False
     finally:
-        qapp.notify = original_notify
         hook._timer.stop()
+        del qapp.notify
+        assert "notify" not in qapp.__dict__
 
 
 def test_slow_event_hook_still_delegates_qobject_receiver(qapp) -> None:
-    original_notify = qapp.notify
     calls = []
 
     def fake_notify(receiver, event):
@@ -35,5 +34,6 @@ def test_slow_event_hook_still_delegates_qobject_receiver(qapp) -> None:
         assert result is True
         assert calls == [(receiver, event)]
     finally:
-        qapp.notify = original_notify
         hook._timer.stop()
+        del qapp.notify
+        assert "notify" not in qapp.__dict__
