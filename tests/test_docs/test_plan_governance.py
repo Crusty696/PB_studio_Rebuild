@@ -5,7 +5,10 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-VAULT = Path(r"C:\Brain-Bug\projects\pb-studio")
+LEGACY_VAULT = Path(r"C:\Brain-Bug\projects\pb-studio")
+CURRENT_VAULT = (
+    Path.home() / "Documents" / "Vaults" / "Brain-Bug" / "projects" / "pb-studio"
+)
 REGISTRY = ROOT / "docs" / "superpowers" / "PLAN_REGISTRY.md"
 ACTIVE_PLAN = ROOT / "docs" / "superpowers" / "ACTIVE_PLAN.md"
 
@@ -43,9 +46,10 @@ def _vault_path_exists(path_text: str) -> bool:
     if path.exists():
         return True
     try:
-        return path_text.startswith(str(VAULT)) and path.exists()
-    except OSError:
+        relative = path.relative_to(LEGACY_VAULT)
+    except (OSError, ValueError):
         return False
+    return (CURRENT_VAULT / relative).exists()
 
 
 def test_agents_no_hardcoded_2026_05_14_plan_block() -> None:
