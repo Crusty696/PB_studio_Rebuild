@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import os
 from pathlib import Path
 
 from sqlalchemy import create_engine
@@ -17,6 +18,7 @@ from services.storage_provenance.source_manifest import (
     record_manifest_job,
 )
 from services.storage_provenance.layout import StorageLayout
+from services.storage_provenance import source_manifest
 
 
 def _session() -> Session:
@@ -129,6 +131,36 @@ def test_b543_concurrent_writes_no_lost_update(tmp_path: Path) -> None:
     jobs = read_manifest_jobs(sr, sha)
     names = {j.get("project_name") for j in jobs}
     assert names == {f"P{i}" for i in range(8)}, f"lost update: got {names}"
+
+
+def test_b561_windows_permissionerror_is_retried_as_lock_contention(
+    tmp_path: Path, monkeypatch
+) -> None:
+    src, sha = _sha(tmp_path)
+    sr = tmp_path / "storage"
+    real_open = os.open
+    calls = 0
+
+    def permission_once(path, flags, mode=0o777):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise PermissionError(13, "Windows sharing violation", path)
+        return real_open(path, flags, mode)
+
+    monkeypatch.setattr(source_manifest.os, "open", permission_once)
+
+    record_manifest_job(
+        sr,
+        sha,
+        project_id=1,
+        project_name="P",
+        project_path=str(tmp_path / "P"),
+        step_id="audio.v2.stems",
+    )
+
+    assert calls >= 2
+    assert {job["project_name"] for job in read_manifest_jobs(sr, sha)} == {"P"}
 
 
 def test_b548_merge_keeps_richer_entry(tmp_path: Path) -> None:

@@ -71,7 +71,7 @@ class _ManifestLock:
             try:
                 self._fd = os.open(str(self._lock_path), os.O_CREAT | os.O_EXCL | os.O_RDWR)
                 return self
-            except FileExistsError:
+            except (FileExistsError, PermissionError):
                 # break a stale lock left behind by a crashed writer
                 try:
                     age = time.time() - self._lock_path.stat().st_mtime
