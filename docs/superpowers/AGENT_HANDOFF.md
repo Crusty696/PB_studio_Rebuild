@@ -17,6 +17,13 @@ This file is a repository-local continuity checkpoint for all agents.
   Fokus: `8 passed`; frühere GUI-Live-Evidenz 52 Clips/1 Modell-Load/76 s.
 - **BUG-A:** `7de108a` — SCHNITT-State nach Auto-Edit refresht; dirty
   Originaldatei byteidentisch übernommen. Fokus: `30 passed`.
+- **B-570:** Codefix noch uncommitted — Shutdown erfasst jetzt auch
+  `cancelled` markierte, aber weiterlaufende QThreads. Nach vollständigem
+  Service-/CUDA-/DB-Cleanup beendet ein 1-s-Wächter ausschließlich bestätigte
+  Shutdowns mit verbleibenden Threads. `15 passed`; echter Qt-Child mit
+  blockiertem 30-s-Python-Worker endet vor 15-s-Grenze. Sichtbarer GUI-Klickpfad
+  blockiert durch Computer-Use-`@oai/sky`-Exportsfehler; Status
+  `code-fix-pending-live-verification`, kein `fixed`.
 - **Kombinierte Suite:** `80 passed in 9.07s`; `compileall`, Ruff und
   `git diff --check` grün.
 - **Vollsuite-Gate BLOCKIERT:** `pytest -q -m "not gui and not e2e and not
@@ -28,8 +35,8 @@ This file is a repository-local continuity checkpoint for all agents.
 - **Statussprache:** Integration test-grün; kein neuer vollständiger GUI-/GPU-E2E,
   keine neuen `fixed`-Marker.
 - **Push:** Branch auf `origin` vorhanden.
-- **Nächster Schritt:** User-Entscheid: Collection-Blocker separat beheben/
-  aus pytest ausschließen; erst danach PR/Main-Integration.
+- **Nächster Schritt:** B-570 sichtbaren GUI-Klickpfad retesten, sobald
+  Windows-Steuerung wieder verfügbar ist; danach nächsten Masterplan-Bug wählen.
 
 ## ⛔ VERIFIKATIONS-AUDIT 2026-06-18 — viele „fixed/PASS"-Marker sind NICHT gedeckt
 Ein 4-Agenten-Audit (read-only) ergab: von 23 geprüften OTK/DG-001/Bug-Markern sind nur **7

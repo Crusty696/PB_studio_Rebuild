@@ -851,7 +851,7 @@ class PBWindow(QMainWindow):
         # 3. Laufende Tasks prüfen
         try:
             tm = GlobalTaskManager.instance()
-            running = [t for t in tm.get_all_tasks() if t.status == "running"]
+            running = tm.get_shutdown_tasks()
             if running:
                 from PySide6.QtWidgets import QMessageBox
                 reply = QMessageBox.question(
@@ -886,10 +886,11 @@ class PBWindow(QMainWindow):
         # gewartet → bei ffmpeg-Export u.ä. loesst Qt beim nachfolgenden
         # event.accept() den FATAL "QThread: Destroyed while thread is still
         # running" aus, mit Risiko von DB-Korruption bei offenen Sessions.
+        lingering_shutdown_threads = []
         try:
             import time as _time
             tm = GlobalTaskManager.instance()
-            running_tasks = [t for t in tm.get_all_tasks() if t.status == "running"]
+            running_tasks = tm.get_shutdown_tasks()
             for task in running_tasks:
                 tm.cancel_task(task.task_id)
             # Gebe jeder Task zusammen max. 10s, pro Task max 3s
@@ -909,11 +910,15 @@ class PBWindow(QMainWindow):
                     thread.quit()
                     if not thread.wait(per_task_ms):
                         logger.warning(
-                            "closeEvent: Task %s beendet sich nicht in %dms, force terminate.",
+                            "closeEvent: Task %s beendet sich nicht in %dms; "
+                            "Hard-Exit nach synchronem Cleanup wird vorgemerkt.",
                             task.task_id, per_task_ms,
                         )
-                        thread.terminate()
-                        thread.wait(500)
+                        try:
+                            thread.requestInterruption()
+                        except RuntimeError:
+                            pass
+                        lingering_shutdown_threads.append(task.task_id)
                 except RuntimeError as exc:
                     logger.debug("closeEvent: thread cleanup raced with auto-delete (%s): %s",
                                  task.task_id, exc)
@@ -1027,6 +1032,33 @@ class PBWindow(QMainWindow):
         event.accept()
 
         super().closeEvent(event)
+
+        # B-570: QThread.terminate() beendet Python-Worker nicht zuverlässig.
+        # Nach vollständigem synchronem Cleanup darf kein unsichtbarer Prozess
+        # minutenlang weiterleben. Ein daemonischer Wächter gibt Qt noch eine
+        # kurze natürliche Exit-Chance und beendet dann ausschließlich den
+        # bereits bestätigten App-Shutdown hart.
+        if lingering_shutdown_threads:
+            import os as _os
+            import threading as _threading
+            import time as _time
+
+            lingering_ids = ", ".join(lingering_shutdown_threads)
+            logger.error(
+                "closeEvent: Threads nach Join-Deadline aktiv (%s); "
+                "Hard-Exit-Wächter in 1s aktiviert.",
+                lingering_ids,
+            )
+
+            def _hard_exit_after_cleanup() -> None:
+                _time.sleep(1.0)
+                _os._exit(0)
+
+            _threading.Thread(
+                target=_hard_exit_after_cleanup,
+                daemon=True,
+                name="pb-shutdown-hard-exit",
+            ).start()
 
 
 # ======================================================================

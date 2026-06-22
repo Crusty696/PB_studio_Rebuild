@@ -513,6 +513,32 @@ class GlobalTaskManager(QObject):
         with self._tasks_lock:
             return list(self._tasks.values())
 
+    def get_shutdown_tasks(self) -> list[TaskInfo]:
+        """Tasks, die beim App-Shutdown abgebrochen oder gejoint werden müssen.
+
+        B-570: ``cancel_task()`` setzt Status sofort auf ``cancelled``,
+        während QThread kooperativ weiterlaufen kann. Reiner
+        ``status == "running"``-Filter verliert solche Threads.
+        """
+        with self._tasks_lock:
+            tasks = list(self._tasks.values())
+
+        shutdown_tasks: list[TaskInfo] = []
+        for task in tasks:
+            if task.status == "running":
+                shutdown_tasks.append(task)
+                continue
+
+            thread = task.thread
+            if thread is None:
+                continue
+            try:
+                if shiboken6.isValid(thread) and thread.isRunning():
+                    shutdown_tasks.append(task)
+            except RuntimeError:
+                continue
+        return shutdown_tasks
+
     def clear_finished(self):
         # FIX B-011: Schütze dict-Iteration und Modifikation mit Lock
         to_remove = []
