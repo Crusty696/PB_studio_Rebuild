@@ -71,7 +71,13 @@ def test_audio_stem_stage_writes_provenance_job(monkeypatch, tmp_path: Path) -> 
         yield session
 
     class FakeSeparator:
-        def separate_to(self, file_path: str, out_dir: str, subtype: str):
+        def separate_to(
+            self,
+            file_path: str,
+            out_dir: str,
+            subtype: str,
+            should_stop=None,
+        ):
             root = Path(out_dir)
             root.mkdir(parents=True, exist_ok=True)
             result = {}
