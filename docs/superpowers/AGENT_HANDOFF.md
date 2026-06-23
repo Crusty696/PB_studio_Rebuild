@@ -24,6 +24,14 @@ This file is a repository-local continuity checkpoint for all agents.
   blockiertem 30-s-Python-Worker endet vor 15-s-Grenze. Sichtbarer GUI-Klickpfad
   blockiert durch Computer-Use-`@oai/sky`-Exportsfehler; Status
   `code-fix-pending-live-verification`, kein `fixed`.
+- **DG-001 H3 neu belegt 2026-06-23:** finaler Run `20260623-050437`
+  auf GTX1060. Echter `htdemucs_ft`-Lauf (`reused=False`, vier Stems,
+  Audio 8/8) parallel zur echten SigLIP+RAFT-Video-Pipeline (7/7).
+  Beide Threads beendet, Wall 36.375 s, Peak 4534/6144 MiB, kein
+  Deadlock/OOM. Runner:
+  `scripts/diag/verify_dg001_h3_concurrency.py`; versionierter Beleg:
+  `docs/superpowers/synthesis/dg001-h3-concurrency-live-2026-06-23.md`.
+  DG-001 bleibt wegen H1/H1.3/G-Evidenzverlust blockiert.
 - **Kombinierte Suite:** `80 passed in 9.07s`; `compileall`, Ruff und
   `git diff --check` grün.
 - **Vollsuite-Gate BLOCKIERT:** `pytest -q -m "not gui and not e2e and not

@@ -1,13 +1,16 @@
 # DG-001 — Heavy-Live-Gate Verify-Checkliste
 
 > ## ⛔ EVIDENZ-VERLUST-WARNUNG (Audit 2026-06-18)
-> Die unten als ☑ markierten Heavy-Gate-Punkte **H1, H1.3, H2.1-alt, H3, G.\*** sind
+> Die unten als ☑ markierten Heavy-Gate-Punkte **H1, H1.3, H2.1-alt, G.\*** sind
 > **NICHT durch existierende Belege gedeckt** — alle referenzierten Evidenz-Dateien
 > (`outputs/h1_scale.log`, `C:\PB_Studio_H1_3\*`, `test-report/e2e-live-acceptance-20260615/*`,
 > `test-report/e2e-h3-concurrency-20260615`) existieren im Repo NICHT mehr. Forensik-Audit:
 > 0 von 6 DG-001-Belegen vorhanden. Status dieser ☑ = **`unverifiable-evidence-lost`**
 > (reine Doku-Behauptung, weder bestätigt noch widerlegbar). Vor echtem Release neu fahren,
 > Belege ins versionierte Verzeichnis committen. Siehe `wiki/synthesis/verifikations-gesamtaudit-2026-06-18.md`.
+> **H3-NEU (23.06.):** echter paralleler Demucs+SigLIP/RAFT-Lauf auf GTX1060 neu
+> belegt. Versionierte Synthese:
+> `docs/superpowers/synthesis/dg001-h3-concurrency-live-2026-06-23.md`.
 > **H2.1-NEU (18.06.):** echter NVENC-Proxy existiert + ist `h264_nvenc`-verifiziert, liegt aber
 > in `storage/H2.2-Playback/storage/proxies/Stumes_video_ohne_Ton_Alles_t_edit_proxy.mp4`
 > (NICHT im zuvor falsch verwiesenen leeren Ordner `test-report/dg001-h22-retry/`).
@@ -70,8 +73,25 @@ Service-E2E deckt die Engine, nicht die Widgets. Braucht GUI-Steuerung.
 
 ## Ergebnisse 2026-06-15 (Agent-Lauf)
 
-### H3 — Demucs + Video parallel: **PASS**
-Echter gleichzeitiger Lauf auf GTX 1060 (isoliertes Projekt
+### H3 — Neu verifiziert 2026-06-23: **PASS**
+
+Reproduzierbarer Runner:
+`scripts/diag/verify_dg001_h3_concurrency.py`.
+
+- Echter `htdemucs_ft`-CUDA-Lauf, `reused=False`, vier Stems, Audio 8/8 Stages.
+- Echte Video-Pipeline mit SigLIP+RAFT, 7/7 Stages und allen Artefakten.
+- Beide Threads beendet, kein Deadlock/OOM, GPU-Peak 4534/6144 MiB.
+- Finaler Run `20260623-050437`, Walltime 36.375 s; GPU nach Lauf vollständig freigegeben.
+
+Beleg:
+`docs/superpowers/synthesis/dg001-h3-concurrency-live-2026-06-23.md`.
+
+### H3 — Historischer Lauf 2026-06-15: **EVIDENZ VERLOREN**
+
+Die folgende historische Beschreibung bleibt als Herkunftsnotiz erhalten,
+gilt aber nicht als Beleg. Der neue gültige H3-Beleg steht direkt darüber.
+
+Historisch behaupteter gleichzeitiger Lauf auf GTX 1060 (isoliertes Projekt
 `test-report/e2e-h3-concurrency-20260615`, je eigener Thread):
 - **Kein Deadlock** — beide Threads sauber beendet (alive=False).
 - Demucs: 4 Stems (drums/bass/other/vocals) in 97.7s.
