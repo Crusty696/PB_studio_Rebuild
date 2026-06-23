@@ -8,6 +8,10 @@
 > 0 von 6 DG-001-Belegen vorhanden. Status dieser ☑ = **`unverifiable-evidence-lost`**
 > (reine Doku-Behauptung, weder bestätigt noch widerlegbar). Vor echtem Release neu fahren,
 > Belege ins versionierte Verzeichnis committen. Siehe `wiki/synthesis/verifikations-gesamtaudit-2026-06-18.md`.
+> **H1/H1.3-NEU (23.06.):** 4h-Produktionspipeline auf GTX1060 neu
+> belegt: Proxy/SceneDetect/7201 Keyframes/7201x1152 SigLIP/RAFT 14399
+> Motion-Paare/VLM/CrossModal. Versionierte Synthese:
+> `docs/superpowers/synthesis/dg001-h1-4h-live-2026-06-23.md`.
 > **H3-NEU (23.06.):** echter paralleler Demucs+SigLIP/RAFT-Lauf auf GTX1060 neu
 > belegt. Versionierte Synthese:
 > `docs/superpowers/synthesis/dg001-h3-concurrency-live-2026-06-23.md`.
@@ -28,7 +32,7 @@ Ziel: kein OOM/Crash, stabiler VRAM/RAM über die ganze Länge.
 |---|---|---|---|----|
 | H1.1 | Realen Langmix wählen (`Crusty_Progressive Psy Set2.mp3`) | Dauer dokumentiert | [Agent] | ☑ |
 | H1.2 | Beat + Struktur + Demucs (chunked) über volle Länge | `failed=False`, VRAM-Peak < 6 GB stabil | [Agent] | ☑ |
-| H1.3 | Voller 4h-Lauf (unbeaufsichtigt) | Endurance ohne Leak/Crash | [User]/Schedule | ☐ |
+| H1.3 | Voller 4h-Lauf (unbeaufsichtigt) | Endurance ohne Leak/Crash | [Agent]/Schedule | ☑ |
 
 ## H2 — Mensch/QMediaPlayer-Playback-Abnahme
 Ziel: subjektiv flüssige Proxy-Wiedergabe. **Verdikt ist menschlich — nicht agent-prüfbar.**
@@ -65,13 +69,34 @@ Service-E2E deckt die Engine, nicht die Widgets. Braucht GUI-Steuerung.
 
 ## Abschluss
 - `python tools/release_gate.py` → Exit-Code: `____`
-- Alle [Agent]-Punkte grün + H1.3/G.* vom User bestätigt; **H2.2 = nicht anwendbar (B-542)**: ☐
+- H1/H1.3, H2.1 und H3 neu belegt; G.* braucht neuen belegbaren GUI-Nachweis oder User-Entscheid; **H2.2 = nicht anwendbar (B-542)**: ☐
 - **`fixed`/`release` setzt ausschließlich der User** — Datum/Name: `__________`
 
 
 ---
 
 ## Ergebnisse 2026-06-15 (Agent-Lauf)
+
+### H1/H1.3 — Neu verifiziert 2026-06-23: **AGENT-LIVE-PASS**
+
+Reproduzierbarer Runner:
+`scripts/diag/verify_dg001_h1_4h_pipeline.py`.
+
+Finaler Run `2026-06-23T15:40:33+0200`:
+
+- Input: `test-report/dg001-h1-4h-20260623/input_4h_real_pb_media.mp4`.
+- Input SHA256: `2F11621ACB07B894910B95EE1ECE9F646906B5743809D8B1F906981C61762D8C`.
+- Proxy, SceneDetect, 7201 Keyframes, 7201x1152 SigLIP-Embeddings, RAFT
+  14399 Motion-Paare, VLM und CrossModal vorhanden.
+- Finalstatus: `pass`, Walltime `8293.14s` im Resume-Lauf.
+- Bugs im Lauf gefunden und behandelt: B-571, B-573, B-574. B-572 im finalen
+  Resume nicht reproduziert, bleibt dokumentiert.
+
+Beleg:
+`docs/superpowers/synthesis/dg001-h1-4h-live-2026-06-23.md`.
+
+Ehrliche Grenze: Input ist vorhandenes PB-Medium als 4h-Schleife, nicht das
+historische verlorene H1-Originalmedium.
 
 ### H3 — Neu verifiziert 2026-06-23: **PASS**
 
@@ -104,9 +129,8 @@ Historisch behaupteter gleichzeitiger Lauf auf GTX 1060 (isoliertes Projekt
 `test-report/e2e-live-acceptance-20260615/exports/phase4_export.mp4` (h264, 1280×720),
 `detect_nvenc → h264_nvenc: True`. H2.2 (Mensch-Playback-Verdikt) bleibt **[User]**.
 
-### Offen (nicht agent-abschließbar)
-- **H1.3** voller 4h-unbeaufsichtigter Lauf — [User]/Schedule (H1.1/H1.2 Scale-Lauf agent-startbar).
-- **H2.2** subjektives Playback-Verdikt — [User].
+### Offen / neu zu entscheiden
+- **H1-Ersatzmedium:** User-Entscheid, ob 4h-Schleifenmedium als Ersatz fuer verlorenes historisches H1-Medium akzeptiert wird.
 - **G.*** SCHNITT-GUI-Widgets — braucht Computer-Use-Freigabe für `python.exe` ([User] klickt „Erlauben").
 
 `python tools/release_gate.py` bleibt Exit 2, bis der User die offenen Punkte abnimmt.
