@@ -126,3 +126,31 @@ def test_proxy_generator_uses_configured_ffmpeg_resolvers(monkeypatch):
 
     assert proxy_generator._ffmpeg() == configured_ffmpeg
     assert proxy_generator._ffprobe() == configured_ffprobe
+
+
+def test_b571_encode_timeout_scales_for_four_hour_media(monkeypatch, tmp_path: Path):
+    import services.video_pipeline.primitives.proxy_generator as proxy_generator
+
+    source = tmp_path / "four-hours.mp4"
+    source.touch()
+    monkeypatch.setattr(
+        proxy_generator,
+        "_probe_duration_seconds",
+        lambda _path: 4 * 60 * 60,
+    )
+
+    assert proxy_generator._encode_timeout_seconds(source) == 4 * 60 * 60
+
+
+def test_b571_encode_timeout_keeps_short_media_floor(monkeypatch, tmp_path: Path):
+    import services.video_pipeline.primitives.proxy_generator as proxy_generator
+
+    source = tmp_path / "short.mp4"
+    source.touch()
+    monkeypatch.setattr(
+        proxy_generator,
+        "_probe_duration_seconds",
+        lambda _path: 2.0,
+    )
+
+    assert proxy_generator._encode_timeout_seconds(source) == 300.0

@@ -19,12 +19,18 @@ from typing import Sequence
 __all__ = ["sample_frame_times"]
 
 
-def _uniform(duration_s: float, rate_s: float) -> list[float]:
+def _uniform(duration_s: float, rate_s: float, fps: float) -> list[float]:
     if rate_s <= 0:
         raise ValueError("rate_s must be > 0")
+    # B-573: Container-/Streamdauer kann bis in das Intervall nach dem letzten
+    # decodierbaren Videoframe reichen (z.B. laengere Audiospur). Samplepunkte
+    # innerhalb des letzten Frame-Intervalls vermeiden, sonst liefert FFmpeg
+    # bei Langform-Medien am Ende 0 Bytes.
+    frame_interval_s = 1.0 / fps if fps > 0 else 0.0
+    sample_end_s = max(0.0, duration_s - frame_interval_s)
     times: list[float] = []
     t = 0.0
-    while t < duration_s:
+    while t < sample_end_s or not times:
         times.append(round(t, 6))
         t += rate_s
     return times
@@ -85,7 +91,7 @@ def sample_frame_times(
     if strategy == "uniform":
         if rate_s is None:
             raise ValueError("uniform requires rate_s")
-        return _uniform(duration_s, rate_s)
+        return _uniform(duration_s, rate_s, fps)
 
     if strategy == "scene_anchored":
         if not scenes:
@@ -100,7 +106,7 @@ def sample_frame_times(
     if strategy == "mixed":
         if rate_s is None or not scenes:
             raise ValueError("mixed requires rate_s and scenes")
-        u = _uniform(duration_s, rate_s)
+        u = _uniform(duration_s, rate_s, fps)
         a = _scene_anchored(scenes, k)
         merged = sorted(set(u) | set(a))
         return merged

@@ -21,6 +21,20 @@ def test_uniform_sampling_short_clip():
     assert ts == [0.0]
 
 
+def test_b573_uniform_excludes_timestamp_inside_final_frame_interval():
+    from services.video_pipeline.primitives.frame_sampler import sample_frame_times
+
+    ts = sample_frame_times(
+        duration_s=14400.154297,
+        fps=5.0,
+        strategy="uniform",
+        rate_s=1.0,
+    )
+
+    assert ts[-1] == 14399.0
+    assert 14400.0 not in ts
+
+
 def test_scene_anchored_k3():
     from services.video_pipeline.primitives.frame_sampler import sample_frame_times
     scenes = [

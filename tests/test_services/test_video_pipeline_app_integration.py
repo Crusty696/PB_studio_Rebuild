@@ -39,6 +39,33 @@ def test_build_pipeline_assembles_seven_stages(monkeypatch, tmp_path):
     assert raft.is_loaded is False
 
 
+def test_b574_build_pipeline_loads_existing_checkpoint(tmp_path):
+    from services.video_pipeline.app_integration import build_pipeline
+    from services.video_pipeline.primitives.resume_checkpoint import ResumeCheckpoint
+    from services.video_pipeline.primitives.stream_hasher import stream_sha256
+
+    src = tmp_path / "x.mp4"
+    src.write_bytes(b"\x00\x01\x02\x03")
+    storage = tmp_path / "store"
+    storage.mkdir()
+    source_sha = stream_sha256(src)
+    checkpoint = ResumeCheckpoint(
+        storage / "checkpoint.json",
+        track_id=1,
+        stream_sha256=source_sha,
+    )
+    checkpoint.update_stage("proxy_gen", status="done")
+    checkpoint.save()
+
+    pipe, _services = build_pipeline(
+        track_id=1,
+        source_path=src,
+        storage_dir=storage,
+    )
+
+    assert pipe.checkpoint.completed_stages() == ["proxy_gen"]
+
+
 def test_engine_worker_has_dispatcher_contract_signals():
     """worker_dispatcher._start_worker_thread verbindet worker.error / finished /
     progress. Fehlt eines -> AttributeError beim Dispatch (Worker startet nie).

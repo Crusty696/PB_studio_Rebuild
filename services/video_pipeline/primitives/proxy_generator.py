@@ -12,6 +12,7 @@ Codec-Strategie:
 """
 from __future__ import annotations
 
+import json
 import logging
 import subprocess
 from pathlib import Path
@@ -20,6 +21,8 @@ from services import startup_checks
 from services.nvenc_policy import require_nvenc, required_message
 
 logger = logging.getLogger(__name__)
+
+_MIN_ENCODE_TIMEOUT_S = 300.0
 
 __all__ = ["generate_proxy"]
 
@@ -71,7 +74,36 @@ def _has_nvenc() -> bool:
     return "h264_nvenc" in res.stdout
 
 
+def _probe_duration_seconds(path: Path) -> float:
+    """Best-effort Mediendauer fuer laengenabhaengiges Encode-Budget."""
+    try:
+        res = subprocess.run(
+            [
+                _ffprobe(), "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "json",
+                str(path),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        if res.returncode != 0:
+            return 0.0
+        data = json.loads(res.stdout)
+        return max(0.0, float(data.get("format", {}).get("duration", 0.0)))
+    except (OSError, ValueError, TypeError, json.JSONDecodeError, subprocess.TimeoutExpired):
+        return 0.0
+
+
+def _encode_timeout_seconds(src: Path) -> float:
+    """B-571: Langform-Encode darf mindestens eine Mediendauer laufen."""
+    return max(_MIN_ENCODE_TIMEOUT_S, _probe_duration_seconds(src))
+
+
 def _try_encode(src: Path, dst: Path, max_width: int, bitrate: str, codec: str) -> bool:
+    timeout_s = _encode_timeout_seconds(src)
     cmd = [
         _ffmpeg(), "-y", "-hide_banner", "-loglevel", "error",
         "-i", str(src),
@@ -95,12 +127,12 @@ def _try_encode(src: Path, dst: Path, max_width: int, bitrate: str, codec: str) 
         from services.brain_v3.gpu_serializer import get_default_serializer
         with get_default_serializer().acquire("proxy_gen"):
             res = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=300,
+                cmd, capture_output=True, text=True, timeout=timeout_s,
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
     else:
         res = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=300,
+            cmd, capture_output=True, text=True, timeout=timeout_s,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     return res.returncode == 0

@@ -58,7 +58,7 @@ def build_pipeline(
     audio_dir = storage_dir / "audio"
     audio_dir.mkdir(parents=True, exist_ok=True)
 
-    checkpoint = ResumeCheckpoint(
+    checkpoint = ResumeCheckpoint.load(
         storage_dir / "checkpoint.json",
         track_id=track_id,
         stream_sha256=stream_sha256(source_path),
