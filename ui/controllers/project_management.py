@@ -256,12 +256,24 @@ class ProjectManagementController(PBComponent):
         if hasattr(self.window, "_save_state_label"):
             self.window._save_state_label.setText("gespeichert")
             self.window._save_state_label.setStyleSheet("color: #6b7280; font-size: 10px; background: transparent;")
+        # B-562: Cockpit-Dashboard VOLL refreshen (Name + Pfad + project_id +
+        # Readiness) statt nur das Namens-Label zu setzen. Vorher rief
+        # _on_project_changed nur dashboard.update_project(name, path) OHNE
+        # project_id/Readiness -> der Cockpit-Innenstatus blieb "Kein Projekt
+        # geladen" bis zum ersten Workspace-Wechsel zu Index 0 (der als
+        # einziger _refresh_project_dashboard ausloeste). _refresh_project_dashboard
+        # liest Name aus _project_name_label (oben gesetzt) + project_id via
+        # get_active_project_id() (database.set_project bereits erfolgt).
         try:
-            dashboard = getattr(self.window, "_project_dashboard", None)
-            if dashboard is not None:
-                dashboard.update_project(project_name, str(path))
+            ws_setup = getattr(self.window, "workspace_setup", None)
+            if ws_setup is not None and hasattr(ws_setup, "_refresh_project_dashboard"):
+                ws_setup._refresh_project_dashboard()
+            else:
+                dashboard = getattr(self.window, "_project_dashboard", None)
+                if dashboard is not None:
+                    dashboard.update_project(project_name, str(path))
         except Exception as exc:
-            logger.debug("Project dashboard update failed: %s", exc)
+            logger.debug("Project dashboard refresh failed: %s", exc)
         self._update_window_title()  # AUD-108: respects dirty flag
         self.window.media_table_controller._refresh_media_table()
         try:
