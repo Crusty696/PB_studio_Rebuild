@@ -321,6 +321,21 @@ class TaskManagerDock(QDockWidget):
         msg_label.setToolTip(message)
         time_label.setText(f"{task.elapsed}s")
 
+        # B-552/B-567: Silent-Failure beheben. Ein Fehler stand bisher nur (rot)
+        # im evtl. zugeklappten TASKS-Dock und im Log -> der User bekam keinen
+        # sichtbaren Hinweis (z.B. Export-Worker-Crash). Bei Fehlerstatus
+        # zusaetzlich eine rote Statuszeile im Hauptfenster zeigen.
+        if task.status not in ("finished", "cancelled"):
+            try:
+                win = self.window()
+                status_bar = win.statusBar() if win is not None else None
+                if status_bar is not None:
+                    task_name = getattr(task, "name", None) or "Task"
+                    short = (message or "Unbekannter Fehler")[:120]
+                    status_bar.showMessage(f"⚠ Fehler in '{task_name}': {short}", 8000)
+            except (AttributeError, RuntimeError):
+                pass
+
     def _update_elapsed(self):
         for task_id, row_data in self._task_rows.items():
             task = self._tm.get_task(task_id)
