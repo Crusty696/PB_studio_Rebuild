@@ -781,6 +781,10 @@ class PBWindow(QMainWindow):
             scheduler = get_default_scheduler()
             scheduler.start()
             self._brain_v3_scheduler = scheduler
+            # B-567 Rest: fehlgeschlagene Background-Embedding-Jobs (asyncio-Queue)
+            # waren ein zweiter stummer Pfad — das Fehler-Signal war an keinen UI-Slot
+            # verbunden. Jetzt rote Statuszeile analog TaskManagerDock (B-552/B-567).
+            scheduler.job_progress.connect(self._on_brain_v3_job_progress)
             logger.info("[Brain V3] EmbeddingScheduler gestartet")
             self.console_text.append("[Brain V3] EmbeddingScheduler gestartet")
         except Exception as exc:
@@ -788,6 +792,32 @@ class PBWindow(QMainWindow):
             self.console_text.append(f"[Brain V3] EmbeddingScheduler Fehler: {exc}")
 
         self._start_brain_v3_backup_check()
+
+    def _on_brain_v3_job_progress(
+        self, job_id: str, status: str, progress: float, message: str, error: str = ""
+    ) -> None:
+        """B-567 Rest: Fehler-Bruecke fuer die brain_v3-Background-Queue.
+
+        Fehlgeschlagene Embedding-Jobs liefen bisher stumm — das job_progress-Signal
+        war an keinen Slot verbunden. Bei status=='failed' jetzt rote Statuszeile im
+        Hauptfenster (analog TaskManagerDock._on_task_finished, B-552/B-567).
+        Cross-Thread sicher: das Signal wird aus dem Scheduler-QThread emittiert und
+        per Qt-Queued-Connection im GUI-Thread zugestellt.
+        """
+        if status != "failed":
+            return
+        try:
+            detail = (error or message or "Unbekannter Fehler").strip()[:120]
+            status_bar = self.statusBar()
+            if status_bar is not None:
+                status_bar.showMessage(f"⚠ Brain-V3-Analyse fehlgeschlagen: {detail}", 8000)
+            logger.warning("[Brain V3] Embedding-Job %s failed: %s", job_id, detail)
+            try:
+                self.console_text.append(f"[Brain V3] Job {job_id} fehlgeschlagen: {detail}")
+            except (AttributeError, RuntimeError):
+                pass
+        except (AttributeError, RuntimeError):
+            pass
 
     def _start_brain_v3_backup_check(self) -> None:
         """Phase 6: weekly Brain-V3 DB backup check, never on GUI thread."""

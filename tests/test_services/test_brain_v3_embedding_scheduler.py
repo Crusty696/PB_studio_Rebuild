@@ -232,6 +232,47 @@ def test_invalid_video_metadata_skips_instead_of_failing(qt_app, isolated_appdat
         scheduler.request_stop(timeout_ms=3000)
 
 
+def test_failed_job_emits_error_text(qt_app, isolated_appdata):
+    """B-567 Rest: ein fehlgeschlagener Embedding-Job muss status=='failed'
+    UND den Fehlertext ueber das job_progress-Signal liefern (5. Arg `error`).
+    Vorher wurde der Fehlertext in der Bridge verworfen -> stummer Pfad."""
+    def _raising_embedder(task, progress_cb, serializer):
+        raise RuntimeError("kaputter embedder xyz")
+
+    scheduler = EmbeddingScheduler(
+        n_workers=1, embedder_factory=_raising_embedder,
+        serializer=GpuSerializer(empty_cache_on_release=False),
+    )
+    events: list[tuple[str, str]] = []  # (status, error)
+    scheduler.job_progress.connect(
+        lambda jid, status, p, m, error="": events.append((status, error))
+    )
+    scheduler.start()
+    try:
+        job_id = scheduler.submit_path(
+            media_hash="f" * 64,
+            source_path=isolated_appdata / "broken.mp4",
+            media_type="video",
+        )
+        assert job_id is not None
+
+        deadline = time.time() + 5.0
+        while time.time() < deadline:
+            if any(status == "failed" for status, _err in events):
+                break
+            _spin_qt(qt_app, 50)
+        else:
+            pytest.fail("job_progress hat kein failed-Signal geliefert")
+
+        failed = [err for status, err in events if status == "failed"]
+        assert failed, "kein failed-Event"
+        assert "kaputter embedder xyz" in failed[-1], (
+            f"Fehlertext nicht durchgereicht, war: {failed[-1]!r}"
+        )
+    finally:
+        scheduler.request_stop(timeout_ms=3000)
+
+
 def test_submit_raises_when_not_started(qt_app, isolated_appdata):
     scheduler = EmbeddingScheduler(
         n_workers=1, embedder_factory=_fake_embedder,

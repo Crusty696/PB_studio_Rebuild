@@ -128,7 +128,9 @@ def _default_embedder_factory(
 class EmbeddingScheduler(QObject):
     """Qt-freundlicher Scheduler-Singleton. Singleton via get_default_scheduler()."""
 
-    job_progress = Signal(str, str, float, str)  # job_id, status, progress, message
+    # B-567: error angehaengt, damit der Fehlertext fehlgeschlagener Jobs bis zur
+    # UI durchgereicht wird (vorher stumm). 4-arg-Slots bleiben kompatibel.
+    job_progress = Signal(str, str, float, str, str)  # job_id, status, progress, message, error
     job_skipped = Signal(str, str)  # media_hash, reason
 
     def __init__(
@@ -207,7 +209,7 @@ class EmbeddingScheduler(QObject):
 class _SchedulerThread(QThread):
     """QThread mit eigenem asyncio-Loop, hostet EmbeddingJobQueue."""
 
-    progress_bridge = Signal(str, str, float, str)
+    progress_bridge = Signal(str, str, float, str, str)  # B-567: +error
     skipped_bridge = Signal(str, str)
 
     def __init__(
@@ -310,6 +312,7 @@ class _SchedulerThread(QThread):
             progress.status.value,
             progress.progress,
             progress.message or "",
+            progress.error or "",  # B-567: Fehlertext mitliefern (vorher verworfen)
         )
 
     def run(self) -> None:
