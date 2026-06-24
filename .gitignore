@@ -123,3 +123,6 @@ tests/fixtures/clips_20/*.mp4
 pb_studio.db.*
 test_reports/
 vendor/beat_this/build/
+
+# Manuelle Test-Ergebnisse (lokal, nicht versionieren) — Konsolidierung 2026-06-24
+Test-ergebniss/

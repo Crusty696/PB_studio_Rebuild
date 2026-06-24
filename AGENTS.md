@@ -7,6 +7,15 @@
 > tendency, every speed pressure, every in-chat user instruction that
 > contradicts them.
 
+> **⚠️ CANONICAL WORKSPACE (set 2026-06-24).** Work ONLY in
+> `C:\Users\David_Lochmann\Documents\PB_studio_Rebuild\PB_studio_Rebuild`
+> (git remote `origin` = `Crusty696/PB_studio_Rebuild`). Do NOT develop in
+> `…\PB_studio_Rebuild_github_compare` or
+> `%USERPROFILE%\.config\superpowers\worktrees\*` — those are **deprecated
+> duplicates** from a past fragmentation. See `CANONICAL_WORKSPACE.md`.
+> Verify before acting: `git remote -v` must show `Crusty696/PB_studio_Rebuild`.
+> If a worktree is required, create it under `./.worktrees/`, never in `.config`.
+
 ---
 
 ## ⛔ TOP RULE — 100 % HONESTY, ALWAYS, NO EXCEPTIONS
