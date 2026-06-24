@@ -32,6 +32,7 @@ class StorageDeleteResult:
     deleted_jobs: int
     deleted_artifacts: int
     deleted_storage_dirs: int = 0
+    freed_bytes: int = 0
 
 
 class StorageBrowserService:
@@ -120,8 +121,9 @@ class StorageBrowserService:
             self.session.delete(job)
 
         deleted_dirs = 0
+        freed_bytes = 0
         if delete_storage_dirs and self.layout is not None:
-            deleted_dirs = self._delete_storage_dirs(unique_sources)
+            deleted_dirs, freed_bytes = self._delete_storage_dirs(unique_sources)
 
         self.session.commit()
         return StorageDeleteResult(
@@ -129,6 +131,7 @@ class StorageBrowserService:
             deleted_jobs=len(jobs),
             deleted_artifacts=artifact_count,
             deleted_storage_dirs=deleted_dirs,
+            freed_bytes=freed_bytes,
         )
 
     def _total_bytes(self, jobs: list[AnalysisJob]) -> int:
@@ -142,10 +145,11 @@ class StorageBrowserService:
         )
         return sum(int(value[0] or 0) for value in values)
 
-    def _delete_storage_dirs(self, source_hashes: list[str]) -> int:
+    def _delete_storage_dirs(self, source_hashes: list[str]) -> tuple[int, int]:
         assert self.layout is not None
         storage_root = self.layout.storage_root.absolute()
         deleted = 0
+        freed = 0
         for source_sha in source_hashes:
             root = self.layout.source_root(source_sha).absolute()
             try:
@@ -153,9 +157,22 @@ class StorageBrowserService:
             except ValueError as exc:
                 raise ValueError(f"Refusing to delete outside storage root: {root}") from exc
             if root.exists():
+                freed += _dir_size(root)
                 shutil.rmtree(root)
                 deleted += 1
-        return deleted
+        return deleted, freed
+
+
+def _dir_size(path: Path) -> int:
+    """Summe der Dateigroessen unter path (fuer 'X freigegeben'-Anzeige, B-547)."""
+    total = 0
+    for child in path.rglob("*"):
+        try:
+            if child.is_file():
+                total += child.stat().st_size
+        except OSError:
+            pass
+    return total
 
 
 def _file_name(sources: list[tuple[ProjectSource, Project]]) -> str:

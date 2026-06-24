@@ -77,6 +77,14 @@ class StorageBrowserDialog(QDialog):
         self._summary = QLabel("0 Quellen")
         bottom.addWidget(self._summary)
         bottom.addStretch()
+        # B-547: Standard loescht nur DB-Eintraege. Angehakt loescht zusaetzlich
+        # die physischen by_sha-Dateien und gibt Plattenplatz frei.
+        self._delete_files = QCheckBox("Auch Speicherdateien loeschen (gibt Plattenplatz frei)")
+        self._delete_files.setToolTip(
+            "Aus: nur Analyse-DB-Eintraege loeschen (Dateien bleiben).\n"
+            "An: zusaetzlich die physischen by_sha-Dateien loeschen -> Plattenplatz wird frei."
+        )
+        bottom.addWidget(self._delete_files)
         self._delete_selected_btn = QPushButton("Ausgewaehlte loeschen")
         self._delete_selected_btn.setToolTip("Analysen fuer alle ausgewaehlten Zeilen nach Bestaetigung loeschen.")
         self._delete_selected_btn.clicked.connect(self._delete_selected)
@@ -135,10 +143,16 @@ class StorageBrowserDialog(QDialog):
         if not source_hashes:
             QMessageBox.information(self, "Storage-Browser", "Keine Zeile ausgewaehlt.")
             return
+        delete_files = self._delete_files.isChecked()
+        extra = (
+            " Inkl. physischer Dateien — Plattenplatz wird freigegeben."
+            if delete_files
+            else " (Nur DB-Eintraege; Dateien bleiben erhalten.)"
+        )
         reply = QMessageBox.question(
             self,
             "Analysen loeschen",
-            f"Wirklich Analysen fuer {len(source_hashes)} Quelle(n) loeschen?",
+            f"Wirklich Analysen fuer {len(source_hashes)} Quelle(n) loeschen?{extra}",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -146,16 +160,20 @@ class StorageBrowserDialog(QDialog):
             return
         try:
             with nullpool_session() as session:
-                result = StorageBrowserService(session).delete_analysis_sources(source_hashes)
+                result = StorageBrowserService(session).delete_analysis_sources(
+                    source_hashes, delete_storage_dirs=delete_files
+                )
         except Exception as exc:
             logger.exception("StorageBrowserDialog delete failed")
             QMessageBox.critical(self, "Storage-Browser", f"Loeschen fehlgeschlagen: {exc}")
             return
-        QMessageBox.information(
-            self,
-            "Storage-Browser",
-            f"{result.deleted_jobs} Analyse-Job(s) geloescht.",
-        )
+        msg = f"{result.deleted_jobs} Analyse-Job(s) geloescht."
+        if delete_files:
+            msg += (
+                f"\n{result.deleted_storage_dirs} Speicherordner geloescht, "
+                f"{_format_bytes(result.freed_bytes)} freigegeben."
+            )
+        QMessageBox.information(self, "Storage-Browser", msg)
         self.refresh()
 
 
