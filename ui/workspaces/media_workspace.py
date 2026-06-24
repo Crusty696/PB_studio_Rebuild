@@ -1213,19 +1213,37 @@ class MediaWorkspace(QWidget):
         anklickte — das Feld wirkte funktionslos (Click-Log 2026-06-04).
         """
         import logging
+
+        def _pool_ids(items):
+            out = set()
+            for it in items:
+                try:
+                    out.add(int(it["id"]))
+                except (KeyError, ValueError, TypeError):
+                    pass
+            return out
+
+        # B-568: Neu selektieren, wenn nichts gewaehlt ODER die zuvor gehaltene
+        # media_id NICHT mehr im aktuellen Pool ist (z.B. nach Projekt-Wechsel).
+        # Sonst blieb das Panel auf dem veralteten Stand des alten Projekts
+        # haengen, bis der User manuell einen Track neu anklickte.
+        video_ids = _pool_ids(videos)
+        audio_ids = _pool_ids(audios)
         try:
-            if videos and self.video_analysis_panel._media_id is None:
+            cur = self.video_analysis_panel._media_id
+            if videos and (cur is None or int(cur) not in video_ids):
                 v = videos[0]
-                logging.info("[StatusPanel] auto-select video id=%s", v.get("id"))
+                logging.info("[StatusPanel] auto-select video id=%s (prev=%s)", v.get("id"), cur)
                 self.video_analysis_panel.set_media(
                     "video", int(v["id"]), str(v.get("title") or "")
                 )
         except (AttributeError, RuntimeError, KeyError, ValueError, TypeError) as e:
             logging.debug("auto-select video status panel failed: %s", e)
         try:
-            if audios and self.audio_analysis_panel._media_id is None:
+            cur = self.audio_analysis_panel._media_id
+            if audios and (cur is None or int(cur) not in audio_ids):
                 a = audios[0]
-                logging.info("[StatusPanel] auto-select audio id=%s", a.get("id"))
+                logging.info("[StatusPanel] auto-select audio id=%s (prev=%s)", a.get("id"), cur)
                 self.audio_analysis_panel.set_media(
                     "audio", int(a["id"]), str(a.get("title") or "")
                 )
