@@ -996,24 +996,36 @@ class InteractiveTimeline(QGraphicsView):
         # Build-Seite (_start_batched_entry_build), die Updates ebenfalls mutet.
         _vp = self.viewport()
         _vp.setUpdatesEnabled(False)
+
+        def _safe_remove(graphics_item):
+            # B-575: Bei re-entrantem/ueberlappendem load_from_db (z.B. Auto-Edit-
+            # Finish + erneutes "Timeline generieren") kann das C++-Objekt eines
+            # noch in der Python-Liste referenzierten Items bereits geloescht sein.
+            # removeItem() wuerde dann RuntimeError("... already deleted") werfen und
+            # die App crashen. Stale Referenzen still ueberspringen, gueltige raeumen.
+            try:
+                self._scene.removeItem(graphics_item)
+            except RuntimeError:
+                pass
+
         try:
             for item in self.clip_items:
-                self._scene.removeItem(item)
+                _safe_remove(item)
             self.clip_items.clear()
             # B-471 T1: Thumbnail-Registry + Scheduler zuruecksetzen (Done-Set
             # bleibt erhalten -> bereits generierte Thumbs werden nicht neu erzeugt).
             self._thumb_items_by_path.clear()
             self._thumb_loader.reset()
             for wf in self.waveform_items:
-                self._scene.removeItem(wf)
+                _safe_remove(wf)
             self.waveform_items.clear()
             # Clear old cut lines
             for line in self.cut_lines:
-                self._scene.removeItem(line)
+                _safe_remove(line)
             self.cut_lines.clear()
             # Clear old beat markers
             for marker in self._beat_markers:
-                self._scene.removeItem(marker)
+                _safe_remove(marker)
             self._beat_markers.clear()
             # Clear sections + beat grid + drop markers (AUD-70)
             self._clear_sections()
