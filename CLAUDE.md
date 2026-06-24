@@ -57,7 +57,7 @@ prüfe verifiziere und mach noch eine gegenprüfung deiner arbeit mit unterschie
   - Die interne Intel-iGPU wird nicht angesprochen — weder Inferenz,
     noch Encode/Decode, noch Filter-Beschleunigung.
   - Bei Verstoss/Unsicherheit: stoppen + User fragen.
-- **Vault path: `C:\Brain-Bug\projects\pb-studio\`.** Every non-trivial
+- **Vault path: `C:\Users\David_Lochmann\Documents\Vaults\Brain-Bug\projects\pb-studio\`.** Every non-trivial
   action requires a vault entry — **per sub-task**, not bundled at
   phase end.
 - **Obsidian Vault Brain tooling:** use
@@ -94,7 +94,7 @@ prüfe verifiziere und mach noch eine gegenprüfung deiner arbeit mit unterschie
 5. Cross-check the current task against the selected plan, its Registry
    row, its Decision file, and its Vault living-plan mirror.
 6. Verify the predecessor task has `status: fixed` in the vault
-   (`C:\Brain-Bug\projects\pb-studio\wiki\`). If only present in
+   (`C:\Users\David_Lochmann\Documents\Vaults\Brain-Bug\projects\pb-studio\wiki\`). If only present in
    `docs/superpowers/synthesis/` of the repo, **stop and ask the user**
    to confirm verification status before mirroring to vault.
 7. Only then: act.
@@ -118,7 +118,7 @@ product/app-code work.
 
 ## Vault-Update-Pflicht — JEDER Fortschritt sofort spiegeln
 
-**Harte Regel (User-Anweisung 2026-05-09):** Nach **jedem** Sub-Schritt — User-Entscheidung, neue Risiko-Erkenntnis, Code-Änderung, Testlauf, Bugfix, Plan-Update, Commit — muss der Vault unter `C:\Brain-Bug\projects\pb-studio\` **am richtigen Ort** aktualisiert werden.
+**Harte Regel (User-Anweisung 2026-05-09):** Nach **jedem** Sub-Schritt — User-Entscheidung, neue Risiko-Erkenntnis, Code-Änderung, Testlauf, Bugfix, Plan-Update, Commit — muss der Vault unter `C:\Users\David_Lochmann\Documents\Vaults\Brain-Bug\projects\pb-studio\` **am richtigen Ort** aktualisiert werden.
 
 - Aktive Living-Plans (`wiki/synthesis/<plan>.md`): Status-Tabelle, Klärungs-Log, Risiko-Liste, Nächste Schritte fortschreiben — nicht am Ende sammeln.
 - Neue Bugs → eigenes File in `wiki/bugs/B-XXX-*.md` mit YAML-Frontmatter.

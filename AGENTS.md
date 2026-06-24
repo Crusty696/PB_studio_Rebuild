@@ -224,7 +224,7 @@ not write it without explicit user confirmation.
 
 ## Vault duties — mandatory, not optional
 
-Path: `C:\Brain-Bug\projects\pb-studio\`
+Path: `C:\Users\David_Lochmann\Documents\Vaults\Brain-Bug\projects\pb-studio\`
 
 Preferred Obsidian/Vault tooling when available:
 
@@ -260,7 +260,7 @@ documentation after.
 **Repo synthesis ≠ vault synthesis.** A synthesis file under
 `docs/superpowers/synthesis/` in the repo does **not** satisfy the
 vault duty. It must be mirrored to
-`C:\Brain-Bug\projects\pb-studio\wiki\synthesis\` with the correct
+`C:\Users\David_Lochmann\Documents\Vaults\Brain-Bug\projects\pb-studio\wiki\synthesis\` with the correct
 status marker before the next phase may begin.
 
 ---
@@ -320,7 +320,7 @@ Dirty worktrees are forbidden as a normal handoff state.
 - Cross-agent continuity source of truth:
   1. Git commits on the current branch.
   2. `docs/superpowers/ACTIVE_PLAN.md`.
-  3. Vault living plan and `C:\Brain-Bug\projects\pb-studio\log.md`.
+  3. Vault living plan and `C:\Users\David_Lochmann\Documents\Vaults\Brain-Bug\projects\pb-studio\log.md`.
   4. `docs/superpowers/AGENT_HANDOFF.md`.
   Chat memory from a previous agent is not source of truth.
 
