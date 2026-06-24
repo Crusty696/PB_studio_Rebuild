@@ -58,7 +58,31 @@ class MediaTableController(PBComponent):
                         preferred_audio_index = combo_index
                 elif item["type"] == "Video":
                     self.window.video_combo.addItem(label, item["id"])
-            if preferred_audio_index is not None:
+            # B-569: Das Dropdown soll den Audio-Track zeigen, der TATSAECHLICH
+            # in der A1-Lane liegt (timeline_entries track="audio"), nicht bloss
+            # den ersten/analysierten. Vorher waehlte die Logik unabhaengig vom
+            # A1-Inhalt -> Dropdown zeigte z.B. Normalize, obwohl Zyce in A1 lag.
+            a1_audio_index = None
+            try:
+                if _pid_now is not None:
+                    from database import nullpool_session, TimelineEntry
+                    with nullpool_session() as _s:
+                        _a1 = (
+                            _s.query(TimelineEntry.media_id)
+                            .filter_by(project_id=_pid_now, track="audio")
+                            .order_by(TimelineEntry.start_time, TimelineEntry.id)
+                            .first()
+                        )
+                    if _a1 is not None and _a1[0] is not None:
+                        _idx = self.window.audio_combo.findData(int(_a1[0]))
+                        if _idx >= 0:
+                            a1_audio_index = _idx
+            except Exception as exc:  # A1-Lookup darf den Combo-Refresh nie blocken
+                logger.debug("B-569 A1-audio lookup failed: %s", exc)
+
+            if a1_audio_index is not None:
+                self.window.audio_combo.setCurrentIndex(a1_audio_index)
+            elif preferred_audio_index is not None:
                 self.window.audio_combo.setCurrentIndex(preferred_audio_index)
             elif first_audio_index is not None:
                 self.window.audio_combo.setCurrentIndex(first_audio_index)
