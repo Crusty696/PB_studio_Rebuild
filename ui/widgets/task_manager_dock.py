@@ -323,16 +323,21 @@ class TaskManagerDock(QDockWidget):
 
         # B-552/B-567: Silent-Failure beheben. Ein Fehler stand bisher nur (rot)
         # im evtl. zugeklappten TASKS-Dock und im Log -> der User bekam keinen
-        # sichtbaren Hinweis (z.B. Export-Worker-Crash). Bei Fehlerstatus
-        # zusaetzlich eine rote Statuszeile im Hauptfenster zeigen.
+        # sichtbaren Hinweis (z.B. Export-Worker-Crash). Bei Fehlerstatus den
+        # persistenten Fehlerhinweis im Hauptfenster zeigen.
+        # B-567 (live-Fix 2026-06-24): NICHT mehr statusBar().showMessage — das
+        # wurde von Routine-Updates („… | System bereit") sofort ueberschrieben
+        # und war faktisch unsichtbar. Stattdessen das permanente Error-Label
+        # via PBWindow.show_status_error (separater, nicht ueberschriebener Bereich).
         if task.status not in ("finished", "cancelled"):
             try:
                 win = self.window()
-                status_bar = win.statusBar() if win is not None else None
-                if status_bar is not None:
-                    task_name = getattr(task, "name", None) or "Task"
-                    short = (message or "Unbekannter Fehler")[:120]
-                    status_bar.showMessage(f"⚠ Fehler in '{task_name}': {short}", 8000)
+                task_name = getattr(task, "name", None) or "Task"
+                short = (message or "Unbekannter Fehler")[:120]
+                if win is not None and hasattr(win, "show_status_error"):
+                    win.show_status_error(f"Fehler in '{task_name}': {short}")
+                elif win is not None and win.statusBar() is not None:
+                    win.statusBar().showMessage(f"⚠ Fehler in '{task_name}': {short}", 8000)
             except (AttributeError, RuntimeError):
                 pass
 

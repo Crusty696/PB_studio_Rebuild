@@ -156,7 +156,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QThread, QObject, QTimer, QTranslator, QLocale
 
 # NEU: PB Studio Gold-Accent Theme (ersetzt qt_material)
-from ui.theme import get_stylesheet
+from ui.theme import get_stylesheet, ERR
 from services.ollama_service import OllamaService
 
 APP_VERSION = "0.5.0"
@@ -354,6 +354,23 @@ class PBWindow(QMainWindow):
         self.status_bar.setStyleSheet("QStatusBar { font-size: 10px; padding: 0; }")
         self.setStatusBar(self.status_bar)
         self.status_bar.showMessage(f"PB_studio v{APP_VERSION} | System bereit")
+
+        # ── B-567: Persistentes Fehler-Label ──
+        # `statusBar().showMessage(...)` schreibt in den TEMPORAEREN Bereich, der
+        # von Routine-Updates (Import/Analyse „… | System bereit") sofort
+        # ueberschrieben wird -> Fehlerbanner war live faktisch unsichtbar
+        # (pb-gui-tester 2026-06-24). Ein addPermanentWidget liegt im separaten
+        # rechten Bereich und ueberlebt showMessage-Churn. Auto-Clear via Timer.
+        self._status_error_label = QLabel("")
+        self._status_error_label.setStyleSheet(
+            f"color: {ERR}; font-size: 10px; font-weight: bold; padding: 0 6px;"
+        )
+        self._status_error_label.setToolTip("")
+        self._status_error_label.hide()
+        self.statusBar().addPermanentWidget(self._status_error_label)
+        self._status_error_timer = QTimer(self)
+        self._status_error_timer.setSingleShot(True)
+        self._status_error_timer.timeout.connect(self._clear_status_error)
 
         # ── Resource Monitor (CPU / RAM / GPU) ──
         self._resource_monitor = ResourceMonitorWidget()
@@ -808,14 +825,47 @@ class PBWindow(QMainWindow):
             return
         try:
             detail = (error or message or "Unbekannter Fehler").strip()[:120]
-            status_bar = self.statusBar()
-            if status_bar is not None:
-                status_bar.showMessage(f"⚠ Brain-V3-Analyse fehlgeschlagen: {detail}", 8000)
+            self.show_status_error(f"Brain-V3-Analyse fehlgeschlagen: {detail}")
             logger.warning("[Brain V3] Embedding-Job %s failed: %s", job_id, detail)
             try:
                 self.console_text.append(f"[Brain V3] Job {job_id} fehlgeschlagen: {detail}")
             except (AttributeError, RuntimeError):
                 pass
+        except (AttributeError, RuntimeError):
+            pass
+
+    def show_status_error(self, text: str, timeout_ms: int = 15000) -> None:
+        """B-567: persistenten Fehlerhinweis rechts in der Statusleiste zeigen.
+
+        Anders als ``statusBar().showMessage`` wird dieses permanente Label NICHT
+        von Routine-Status-Updates ueberschrieben. Auto-Clear nach ``timeout_ms``
+        (<=0 = bleibt bis zum naechsten Fehler/Clear stehen).
+        """
+        try:
+            label = getattr(self, "_status_error_label", None)
+            if label is None:
+                # Fallback fuer den unwahrscheinlichen Fall ohne Label.
+                self.statusBar().showMessage(f"⚠ {text}", 8000)
+                return
+            short = (text or "Unbekannter Fehler").strip()[:160]
+            label.setText(f"⚠ {short}")
+            label.setToolTip(short)
+            label.show()
+            timer = getattr(self, "_status_error_timer", None)
+            if timer is not None:
+                timer.stop()
+                if timeout_ms and timeout_ms > 0:
+                    timer.start(timeout_ms)
+        except (AttributeError, RuntimeError):
+            pass
+
+    def _clear_status_error(self) -> None:
+        try:
+            label = getattr(self, "_status_error_label", None)
+            if label is not None:
+                label.clear()
+                label.setToolTip("")
+                label.hide()
         except (AttributeError, RuntimeError):
             pass
 
