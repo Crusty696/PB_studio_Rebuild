@@ -48,6 +48,23 @@ def _norm_path(value) -> str:
     return os.path.normcase(os.path.normpath(str(value)))
 
 
+def _normalise_artifacts(artifacts: dict) -> dict:
+    """B-579: coerce a ``role -> path`` (or ``role -> [paths]``) mapping into
+    JSON-serialisable absolute path strings. ``None`` values are dropped so a
+    missing artifact never gets persisted as a fake reference."""
+    out: dict[str, object] = {}
+    for role, value in artifacts.items():
+        if value is None:
+            continue
+        if isinstance(value, (list, tuple)):
+            paths = [str(Path(p)) for p in value if p is not None]
+            if paths:
+                out[str(role)] = paths
+        else:
+            out[str(role)] = str(Path(value))
+    return out
+
+
 def manifest_path(storage_root: str | Path, source_sha256: str) -> Path:
     return StorageLayout(storage_root).source_root(source_sha256) / MANIFEST_NAME
 
@@ -129,6 +146,7 @@ def record_manifest_job(
     model: str | None = None,
     model_version: str | None = None,
     finished_at=None,
+    artifacts: dict | None = None,
 ) -> Path:
     """Upsert one job entry into the source's provenance manifest.
 
@@ -137,6 +155,13 @@ def record_manifest_job(
     per-project DBs (both id=1) clobber each other; ``project_path`` is global,
     and normalisation keeps a rename/case change from creating a duplicate.
     Atomic + locked write (B-543). Best-effort: never raises into the analysis path.
+
+    B-579: ``artifacts`` is an optional ``role -> absolute path`` (or
+    ``role -> [paths]``) mapping carrying the *real* artifact locations of the
+    job, so cross-project reuse can resolve files that the regular V2 pipeline
+    wrote to project-local paths (and never copied into ``by_sha``). Older
+    manifest entries without ``artifacts`` stay valid (read side tolerates the
+    missing key).
     """
     layout = StorageLayout(storage_root)
     root = layout.ensure_source_root(source_sha256)
@@ -151,6 +176,8 @@ def record_manifest_job(
         "model_version": model_version,
         "finished_at": _iso(finished_at),
     }
+    if artifacts:
+        entry["artifacts"] = _normalise_artifacts(artifacts)
     norm_pp = _norm_path(project_path)
 
     with _ManifestLock(root / (MANIFEST_NAME + ".lock")):
@@ -167,7 +194,7 @@ def record_manifest_job(
             None,
         )
         if prev is not None:
-            for field in ("model", "model_version", "finished_at"):
+            for field in ("model", "model_version", "finished_at", "artifacts"):
                 if entry.get(field) is None and prev.get(field) is not None:
                     entry[field] = prev.get(field)
         jobs = [

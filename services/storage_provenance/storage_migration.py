@@ -48,9 +48,18 @@ class StorageMigrationService:
         self.storage_root = storage_root
         self.progress_callback = progress_callback
 
-    def _record_manifest(self, project_id: int, source_sha: str, job: AnalysisJob) -> None:
+    def _record_manifest(
+        self,
+        project_id: int,
+        source_sha: str,
+        job: AnalysisJob,
+        artifacts: dict[str, str | Path] | None = None,
+    ) -> None:
         """B-539: mirror the provenance job into the global by_sha manifest so
-        cross-project reuse works across per-project DBs. Best-effort."""
+        cross-project reuse works across per-project DBs. Best-effort.
+
+        B-579: also persist the real artifact paths so reuse resolves the actual
+        files instead of assuming the by_sha layout."""
         try:
             project = self.session.get(Project, project_id)
             record_manifest_job(
@@ -63,6 +72,7 @@ class StorageMigrationService:
                 model=job.produced_by_model,
                 model_version=job.produced_by_model_version,
                 finished_at=job.finished_at,
+                artifacts=artifacts,
             )
         except Exception as e:  # never break migration on manifest write
             logger.warning("B-545: provenance manifest write failed (project=%s): %s", project_id, e)
@@ -123,7 +133,14 @@ class StorageMigrationService:
         create_directory_link(source_root / "audio" / "stems", first_stem_dir)
         self._upsert_project_source(track.project_id, source_sha, source)
         job = self._upsert_job(source_sha, "audio.v2.stems", "1", "legacy-v2-stems", "done")
-        self._record_manifest(track.project_id, source_sha, job)
+        # B-579: record the real stem paths (stripped of the "_stem" role suffix so
+        # reuse keys match vocals/drums/bass/other) for cross-project reuse.
+        self._record_manifest(
+            track.project_id,
+            source_sha,
+            job,
+            {role.replace("_stem", ""): str(path) for role, path in existing_stems.items()},
+        )
 
         for role, stem_path in existing_stems.items():
             linked_path = source_root / "audio" / "stems" / stem_path.name
@@ -158,7 +175,13 @@ class StorageMigrationService:
         self.layout.ensure_source_root(source_sha)
         self._upsert_project_source(clip.project_id, source_sha, source)
         job = self._upsert_job(source_sha, "video.plan_a.outputs", "1", "legacy-plan-a", "done")
-        self._record_manifest(clip.project_id, source_sha, job)
+        # B-579: record the real proxy/embeddings/motion paths for cross-project reuse.
+        self._record_manifest(
+            clip.project_id,
+            source_sha,
+            job,
+            {role: str(path) for role, path in existing_outputs.items()},
+        )
 
         rel_names = {
             "proxy": "video/proxy.mp4",

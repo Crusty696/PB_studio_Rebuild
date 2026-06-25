@@ -31,8 +31,18 @@ class ProvenanceRecorder:
         self.session = session
         self._storage_root = storage_root
 
-    def _record_manifest(self, project_id: int, source_sha: str, job: AnalysisJob) -> None:
-        """B-539: mirror provenance into the global by_sha manifest. Best-effort."""
+    def _record_manifest(
+        self,
+        project_id: int,
+        source_sha: str,
+        job: AnalysisJob,
+        artifacts: dict[str, str | Path] | None = None,
+    ) -> None:
+        """B-539: mirror provenance into the global by_sha manifest. Best-effort.
+
+        B-579: also persist the *real* artifact paths so cross-project reuse can
+        resolve V2-pipeline outputs that live at project-local paths (never copied
+        into by_sha)."""
         try:
             storage_root = self._storage_root
             if storage_root is None:
@@ -52,6 +62,7 @@ class ProvenanceRecorder:
                 model=job.produced_by_model,
                 model_version=job.produced_by_model_version,
                 finished_at=job.finished_at,
+                artifacts=artifacts,
             )
         except Exception as e:  # never break the pipeline on manifest write
             logger.warning("B-545: provenance manifest write failed (project=%s): %s", project_id, e)
@@ -83,8 +94,8 @@ class ProvenanceRecorder:
             produced_by_model=produced_by_model,
             produced_by_model_version=produced_by_model_version,
         )
-        self._record_manifest(project_id, source_sha, job)
         artifact_count = 0
+        real_artifacts: dict[str, str] = {}
         for role, path in artifacts.items():
             if path is None:
                 continue
@@ -92,7 +103,13 @@ class ProvenanceRecorder:
             if not artifact_path.exists() or not artifact_path.is_file():
                 continue
             self._upsert_artifact(job, role, artifact_path)
+            real_artifacts[role] = str(artifact_path)
             artifact_count += 1
+
+        # B-579: record the manifest after collecting the real, on-disk artifact
+        # paths so cross-project reuse can resolve them without assuming the
+        # by_sha layout.
+        self._record_manifest(project_id, source_sha, job, real_artifacts)
 
         self.session.commit()
         return ProvenanceRecordResult(

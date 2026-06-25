@@ -216,10 +216,21 @@ def test_lookup_cross_project_reuse_ignores_current_project_only_hit(tmp_path: P
     assert result is None
 
 
+def _seed_video_artifact(storage_root, source_sha) -> None:
+    """B-579 (ST-3): place a real video output so reuse is considered valid."""
+    from services.storage_provenance.layout import StorageLayout
+
+    art = StorageLayout(storage_root).source_root(source_sha) / "video" / "motion.json"
+    art.parent.mkdir(parents=True, exist_ok=True)
+    art.write_text("{}", encoding="utf-8")
+
+
 def test_apply_cross_project_reuse_updates_existing_pending_status_and_project_source(tmp_path: Path) -> None:
     source = tmp_path / "clip.mp4"
     source.write_bytes(b"same video bytes")
     source_sha = compute_source_sha256(source, media_type="video", mode="strict")
+    storage_root = tmp_path / "storage"
+    _seed_video_artifact(storage_root, source_sha)
 
     with _session() as session:
         session.add(Project(id=1, name="Projekt A", path=str(tmp_path / "a"), resolution="1920x1080", fps=30.0))
@@ -255,6 +266,7 @@ def test_apply_cross_project_reuse_updates_existing_pending_status_and_project_s
             media_type="video",
             media_id=7,
             current_project_id=2,
+            storage_root=storage_root,
         )
         status = session.query(AnalysisStatus).filter_by(media_type="video", media_id=7, step_key="motion_scores").one()
         project_source = session.query(ProjectSource).filter_by(project_id=2, source_sha256=source_sha).one()
@@ -418,4 +430,261 @@ def test_apply_cross_project_reuse_status_uses_manifest_fallback(tmp_path: Path)
     assert result is not None
     assert status.status == "done"
     assert status.value_summary["reuse_source_project"] == "Projekt A"
+    assert Path(track.stem_vocals_path) == expected_stems["vocals"]
+
+
+
+# --- B-579 Teil A (ST-3): video existence guard ---------------------------
+
+
+def test_apply_video_reuse_does_not_mark_done_when_outputs_missing(tmp_path: Path) -> None:
+    """ST-3: video reuse must NOT mark a step done when the artifacts are not
+    reachable. Before the fix it marked done on a dangling reference."""
+    source = tmp_path / "clip.mp4"
+    source.write_bytes(b"same video bytes")
+    source_sha = compute_source_sha256(source, media_type="video", mode="strict")
+    storage_root = tmp_path / "storage"  # empty: no video outputs seeded
+
+    with _session() as session:
+        session.add(Project(id=1, name="Projekt A", path=str(tmp_path / "a"), resolution="1920x1080", fps=30.0))
+        session.add(Project(id=2, name="Projekt B", path=str(tmp_path / "b"), resolution="1920x1080", fps=30.0))
+        session.add(ProjectSource(project_id=1, source_sha256=source_sha, current_source_path=str(source)))
+        session.add(
+            AnalysisJob(
+                source_sha256=source_sha,
+                step_id="video.plan_a.outputs",
+                step_version="1",
+                params_hash="plan-a",
+                status="done",
+                produced_by_model="PlanA",
+                produced_by_model_version="v1",
+            )
+        )
+        session.commit()
+
+        result = apply_cross_project_reuse_status(
+            session,
+            source,
+            media_type="video",
+            media_id=7,
+            current_project_id=2,
+            storage_root=storage_root,
+        )
+        status = (
+            session.query(AnalysisStatus)
+            .filter_by(media_type="video", media_id=7, step_key="motion_scores")
+            .one_or_none()
+        )
+
+    assert result is None
+    assert status is None
+
+
+# --- B-579 Teil B: resolve reuse from real artifact paths in the manifest ---
+
+
+def test_apply_audio_reuse_resolves_real_manifest_paths(tmp_path: Path) -> None:
+    """B-579: after record_manifest_job with real stem paths (V2 layout, nothing
+    in by_sha), reuse resolves the real files and marks the step done."""
+    from services.storage_provenance.source_manifest import record_manifest_job
+
+    source = tmp_path / "track.wav"
+    source.write_bytes(b"same audio bytes")
+    source_sha = compute_source_sha256(source, media_type="audio", mode="strict")
+    storage_root = tmp_path / "storage"
+
+    # real V2 stem files at a project-local path (NOT in by_sha)
+    real_dir = tmp_path / "projA" / "stems"
+    real_dir.mkdir(parents=True)
+    real_paths = {}
+    for name in ("vocals", "drums", "bass", "other"):
+        path = real_dir / f"{name}.wav"
+        path.write_bytes(name.encode())
+        real_paths[name] = path.resolve()
+
+    record_manifest_job(
+        storage_root,
+        source_sha,
+        project_id=1,
+        project_name="Projekt A",
+        project_path=str(tmp_path / "a"),
+        step_id="audio.v2.stems",
+        model="Demucs",
+        finished_at=datetime(2026, 6, 14, 13, 0, 0),
+        artifacts={f"{n}_stem": str(p) for n, p in real_paths.items()},
+    )
+
+    with _session() as session:
+        session.add(Project(id=2, name="Projekt B", path=str(tmp_path / "b"), resolution="1920x1080", fps=30.0))
+        session.add(AudioTrack(id=99, project_id=2, file_path=str(source), title="Track"))
+        session.commit()
+
+        result = apply_cross_project_reuse_status(
+            session,
+            source,
+            media_type="audio",
+            media_id=99,
+            current_project_id=2,
+            current_project_path=str(tmp_path / "b"),
+            storage_root=storage_root,
+        )
+        status = (
+            session.query(AnalysisStatus)
+            .filter_by(media_type="audio", media_id=99, step_key="stem_separation")
+            .one()
+        )
+        track = session.get(AudioTrack, 99)
+
+    assert result is not None
+    assert status.status == "done"
+    assert Path(track.stem_vocals_path) == real_paths["vocals"]
+    assert Path(track.stem_drums_path) == real_paths["drums"]
+
+
+def test_apply_audio_reuse_no_done_when_real_manifest_paths_missing(tmp_path: Path) -> None:
+    """B-579: manifest records real paths but the files were deleted -> no reuse,
+    no by_sha fallback either -> step must stay unmarked."""
+    from services.storage_provenance.source_manifest import record_manifest_job
+
+    source = tmp_path / "track.wav"
+    source.write_bytes(b"same audio bytes")
+    source_sha = compute_source_sha256(source, media_type="audio", mode="strict")
+    storage_root = tmp_path / "storage"
+
+    missing = tmp_path / "gone"
+    record_manifest_job(
+        storage_root,
+        source_sha,
+        project_id=1,
+        project_name="Projekt A",
+        project_path=str(tmp_path / "a"),
+        step_id="audio.v2.stems",
+        model="Demucs",
+        finished_at=datetime(2026, 6, 14, 13, 0, 0),
+        artifacts={f"{n}_stem": str(missing / f"{n}.wav") for n in ("vocals", "drums", "bass", "other")},
+    )
+
+    with _session() as session:
+        session.add(Project(id=2, name="Projekt B", path=str(tmp_path / "b"), resolution="1920x1080", fps=30.0))
+        session.add(AudioTrack(id=99, project_id=2, file_path=str(source), title="Track"))
+        session.commit()
+
+        result = apply_cross_project_reuse_status(
+            session,
+            source,
+            media_type="audio",
+            media_id=99,
+            current_project_id=2,
+            current_project_path=str(tmp_path / "b"),
+            storage_root=storage_root,
+        )
+        status = (
+            session.query(AnalysisStatus)
+            .filter_by(media_type="audio", media_id=99, step_key="stem_separation")
+            .one_or_none()
+        )
+
+    assert result is None
+    assert status is None
+
+
+def test_apply_video_reuse_resolves_real_manifest_paths(tmp_path: Path) -> None:
+    """B-579: video reuse resolves from real manifest paths (nothing in by_sha)."""
+    from services.storage_provenance.source_manifest import record_manifest_job
+
+    source = tmp_path / "clip.mp4"
+    source.write_bytes(b"same video bytes")
+    source_sha = compute_source_sha256(source, media_type="video", mode="strict")
+    storage_root = tmp_path / "storage"
+
+    real_dir = tmp_path / "projA"
+    real_dir.mkdir(parents=True)
+    motion = real_dir / "motion.json"
+    motion.write_text("{}", encoding="utf-8")
+    embeddings = real_dir / "embeddings.npy"
+    embeddings.write_bytes(b"emb")
+
+    record_manifest_job(
+        storage_root,
+        source_sha,
+        project_id=1,
+        project_name="Projekt A",
+        project_path=str(tmp_path / "a"),
+        step_id="video.plan_a.outputs",
+        model="PlanA",
+        finished_at=datetime(2026, 6, 14, 13, 0, 0),
+        artifacts={"motion": str(motion), "embeddings": str(embeddings)},
+    )
+
+    with _session() as session:
+        session.add(Project(id=2, name="Projekt B", path=str(tmp_path / "b"), resolution="1920x1080", fps=30.0))
+        session.commit()
+
+        result = apply_cross_project_reuse_status(
+            session,
+            source,
+            media_type="video",
+            media_id=7,
+            current_project_id=2,
+            current_project_path=str(tmp_path / "b"),
+            storage_root=storage_root,
+        )
+        status = (
+            session.query(AnalysisStatus)
+            .filter_by(media_type="video", media_id=7, step_key="motion_scores")
+            .one_or_none()
+        )
+
+    assert result is not None
+    assert status is not None
+    assert status.status == "done"
+
+
+def test_record_manifest_job_without_artifacts_is_readable(tmp_path: Path) -> None:
+    """B-579 backward-compat: an old manifest entry (no artifacts key) must not
+    crash the reuse resolution; it falls back to the by_sha layout."""
+    from services.storage_provenance.source_manifest import (
+        read_manifest_jobs,
+        record_manifest_job,
+    )
+
+    source = tmp_path / "track.wav"
+    source.write_bytes(b"same audio bytes")
+    source_sha = compute_source_sha256(source, media_type="audio", mode="strict")
+    storage_root = tmp_path / "storage"
+
+    # legacy-style write: no artifacts kwarg at all
+    record_manifest_job(
+        storage_root,
+        source_sha,
+        project_id=1,
+        project_name="Projekt A",
+        project_path=str(tmp_path / "a"),
+        step_id="audio.v2.stems",
+        model="Demucs",
+        finished_at=datetime(2026, 6, 14, 13, 0, 0),
+    )
+    jobs = read_manifest_jobs(storage_root, source_sha)
+    assert jobs and "artifacts" not in jobs[0]
+
+    # by_sha fallback artifacts present -> reuse still works, no crash
+    expected_stems = _seed_stem_artifacts(storage_root, source_sha)
+
+    with _session() as session:
+        session.add(Project(id=2, name="Projekt B", path=str(tmp_path / "b"), resolution="1920x1080", fps=30.0))
+        session.add(AudioTrack(id=99, project_id=2, file_path=str(source), title="Track"))
+        session.commit()
+
+        result = apply_cross_project_reuse_status(
+            session,
+            source,
+            media_type="audio",
+            media_id=99,
+            current_project_id=2,
+            current_project_path=str(tmp_path / "b"),
+            storage_root=storage_root,
+        )
+        track = session.get(AudioTrack, 99)
+
+    assert result is not None
     assert Path(track.stem_vocals_path) == expected_stems["vocals"]
