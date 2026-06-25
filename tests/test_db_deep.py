@@ -38,6 +38,12 @@ def record(test_name, passed, detail=""):
 
 def run_test(test_name, func):
     """Run a test function, catching any exception as FAIL."""
+    # C1 (2026-06-25): under pytest this module is imported, not run as a script.
+    # pytest collects the test_* functions directly (they carry real asserts), so
+    # the module-level run_test(...) calls must be no-ops to avoid double execution
+    # and to keep _results empty (the sys.exit summary is gated to __main__ below).
+    if __name__ != "__main__":
+        return
     try:
         func()
         record(test_name, True)
@@ -2438,6 +2444,10 @@ def test_model_count():
         "AIPacingMemory", "StructureSegment", "HotCue", "ModelRegistry",
         "AgentFeedback", "StylePreset", "TimelineEntry", "AnalysisStatus",
         "TimelineSnapshot", "ProjectNote",
+        # C1 (2026-06-25): kept in sync with database/models.py — these storage-
+        # provenance + DAG models existed but the stale assertion (never run under
+        # pytest) omitted them, so the silent script always failed unnoticed.
+        "AnalysisArtifact", "AnalysisJob", "ProjectSource", "StepDep",
     ])
     assert names == expected, f"Model mismatch.\nExpected: {expected}\nActual:   {names}"
 
@@ -2485,5 +2495,6 @@ if failed > 0:
                     print(f"         {line}")
     print()
 
-# Exit code for CI
-sys.exit(0 if failed == 0 else 1)
+# Exit code for CI (only when run as a standalone script, never under pytest import)
+if __name__ == "__main__":
+    sys.exit(0 if failed == 0 else 1)

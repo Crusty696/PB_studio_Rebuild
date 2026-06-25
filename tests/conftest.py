@@ -20,6 +20,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import database
 
 
+# C1 (2026-06-25): standalone diagnostic scripts, NOT pytest unit tests. They use
+# a custom record()/run harness, need real GPU/video/audio data, and report failures
+# via return-value/print instead of assert -> pytest counted them as always-green.
+# Collecting them is misleading; run manually instead, e.g.
+#   python tests/test_video_analysis_real.py
+collect_ignore = [
+    "test_video_analysis_real.py",
+    "test_audio_analysis_real.py",
+    "test_performance_profiling.py",
+]
+
+
 # ---------------------------------------------------------------------------
 # PySide6 auto-skip — verhindert die Cross-Venv-Verwirrung aus 2026-04-25:
 # Default-`python` (3.14) hat kein PySide6, `.venv`-Python (3.10/3.11) hat es.
