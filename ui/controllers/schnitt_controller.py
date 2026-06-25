@@ -1,6 +1,6 @@
 """SchnittController — verbindet Workers mit SchnittWorkspace-States.
 
-Plan: docs/superpowers/plans/2026-05-09-schnitt-workspace-redesign/
+Plan: docs/superpowers/archive/2026-05-09-schnitt-workspace-redesign/
        09_WORKER_REFACTOR.md  (Task 9.3)
        Tier-1 Hardening 2026-05-09 — Wiring + State-Konflikt-Schutz.
 """

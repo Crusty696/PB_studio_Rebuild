@@ -1,6 +1,6 @@
 """Re-Export-Shim fuer AutoEditWorker.
 
-Plan ``docs/superpowers/plans/2026-05-09-schnitt-workspace-redesign/
+Plan ``docs/superpowers/archive/2026-05-09-schnitt-workspace-redesign/
 09_WORKER_REFACTOR.md`` referenziert ``services.auto_edit_worker``;
 die Klasse lebt aber historisch in ``workers.edit``. Dieser Shim
 haelt den im Plan dokumentierten Import-Pfad funktionsfaehig, ohne

@@ -1,6 +1,6 @@
 """Phase 09 Task 9.1: AutoEditWorker stage-progress signal.
 
-Plan: docs/superpowers/plans/2026-05-09-schnitt-workspace-redesign/
+Plan: docs/superpowers/archive/2026-05-09-schnitt-workspace-redesign/
        09_WORKER_REFACTOR.md
 """
 from __future__ import annotations

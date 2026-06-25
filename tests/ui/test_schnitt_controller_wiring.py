@@ -1,6 +1,6 @@
 """Tier-1 Wiring-Tests fuer SchnittController.
 
-Plan: docs/superpowers/plans/2026-05-09-schnitt-workspace-redesign/
+Plan: docs/superpowers/archive/2026-05-09-schnitt-workspace-redesign/
 Hardening 2026-05-09 — Tier 1 (Wiring + State-Konflikt-Schutz).
 
 Plan-Abweichung: nutzt `test_engine`-Fixture und monkeypatched `engine`

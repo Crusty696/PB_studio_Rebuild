@@ -1,7 +1,7 @@
 """TimelineState — zentraler Snapshot der Timeline für Versionierung (SCHNITT Redesign 2026-05-09).
 
 Task 2.2 des SCHNITT-Workspace-Redesign-Plans (siehe
-``docs/superpowers/plans/2026-05-09-schnitt-workspace-redesign/02_DATA_SERVICES.md``).
+``docs/superpowers/archive/2026-05-09-schnitt-workspace-redesign/02_DATA_SERVICES.md``).
 
 UI-freie Datenrepräsentation der Timeline. Lädt aus ``timeline_entries`` und
 persistiert serialisierte Snapshots in ``timeline_snapshots`` (Phase 01 Task 1.2).
