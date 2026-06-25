@@ -14,11 +14,18 @@ from datetime import datetime, timezone
 from typing import Any, Callable
 
 from sqlalchemy import select
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
 from database import nullpool_session, AnalysisStatus, VideoClip, AudioTrack, Scene
 
 logger = logging.getLogger(__name__)
+
+# B-581: Spalten des UNIQUE-Constraints uq_analysis_status_media_step
+# (database/models.py). Dienen als ON CONFLICT-Target fuer idempotente
+# Upserts, damit zwei parallele Worker fuer denselben Schritt nicht am
+# UNIQUE-Constraint scheitern (read-then-insert-Race -> IntegrityError).
+_UQ_COLS = ["media_type", "media_id", "step_key"]
 
 # B-253: Pub/Sub fuer Analysis-Completion-Events. Loest das UI-Refresh-Loch
 # wenn eine Pipeline ueber das ActionRegistry / agent_command_signal /
@@ -88,28 +95,23 @@ def mark_started(media_type: str, media_id: int, step_key: str) -> None:
     Setzt status='running' und started_at=now.
     Wenn der Eintrag noch nicht existiert, wird er angelegt.
     """
+    now = datetime.now(timezone.utc)
     with nullpool_session() as session:
-        stmt = select(AnalysisStatus).where(
-            AnalysisStatus.media_type == media_type,
-            AnalysisStatus.media_id == media_id,
-            AnalysisStatus.step_key == step_key,
+        # B-581: Idempotenter Upsert gegen uq_analysis_status_media_step.
+        # Ersetzt das read-then-insert-Pattern, bei dem zwei parallele
+        # Worker beide None lasen und beide INSERTeten -> IntegrityError.
+        # Endzustand der Row ist identisch zum vorigen if/else-Zweig.
+        stmt = sqlite_insert(AnalysisStatus).values(
+            media_type=media_type,
+            media_id=media_id,
+            step_key=step_key,
+            status="running",
+            started_at=now,
+        ).on_conflict_do_update(
+            index_elements=_UQ_COLS,
+            set_=dict(status="running", started_at=now, error_message=None),
         )
-        entry = session.execute(stmt).scalar_one_or_none()
-
-        if entry is None:
-            entry = AnalysisStatus(
-                media_type=media_type,
-                media_id=media_id,
-                step_key=step_key,
-                status="running",
-                started_at=datetime.now(timezone.utc),
-            )
-            session.add(entry)
-        else:
-            entry.status = "running"
-            entry.started_at = datetime.now(timezone.utc)
-            entry.error_message = None  # Clear previous error
-
+        session.execute(stmt)
         session.commit()
         logger.info("Analysis started: %s/%d/%s", media_type, media_id, step_key)
 
@@ -119,32 +121,30 @@ def mark_done(media_type: str, media_id: int, step_key: str, value_summary: dict
 
     Setzt status='done', completed_at=now und speichert value_summary.
     """
+    now = datetime.now(timezone.utc)
     with nullpool_session() as session:
-        stmt = select(AnalysisStatus).where(
-            AnalysisStatus.media_type == media_type,
-            AnalysisStatus.media_id == media_id,
-            AnalysisStatus.step_key == step_key,
-        )
-        entry = session.execute(stmt).scalar_one_or_none()
-
-        if entry is None:
-            # Create new entry directly as done (for backwards compat with existing data)
-            entry = AnalysisStatus(
-                media_type=media_type,
-                media_id=media_id,
-                step_key=step_key,
+        # B-581: Idempotenter Upsert gegen uq_analysis_status_media_step.
+        # INSERT setzt started_at+completed_at; bei Konflikt bleibt das
+        # bestehende started_at erhalten (Original-else setzte es ebenfalls
+        # nicht) und nur completed_at/value_summary/status werden aktualisiert.
+        stmt = sqlite_insert(AnalysisStatus).values(
+            media_type=media_type,
+            media_id=media_id,
+            step_key=step_key,
+            status="done",
+            started_at=now,
+            completed_at=now,
+            value_summary=value_summary,
+        ).on_conflict_do_update(
+            index_elements=_UQ_COLS,
+            set_=dict(
                 status="done",
-                started_at=datetime.now(timezone.utc),
-                completed_at=datetime.now(timezone.utc),
+                completed_at=now,
                 value_summary=value_summary,
-            )
-            session.add(entry)
-        else:
-            entry.status = "done"
-            entry.completed_at = datetime.now(timezone.utc)
-            entry.value_summary = value_summary
-            entry.error_message = None
-
+                error_message=None,
+            ),
+        )
+        session.execute(stmt)
         session.commit()
         logger.info("Analysis completed: %s/%d/%s (summary: %s)",
                    media_type, media_id, step_key, value_summary)
@@ -168,56 +168,46 @@ def mark_error(media_type: str, media_id: int, step_key: str, error_msg: str) ->
 
     Setzt status='error' und speichert error_message.
     """
+    now = datetime.now(timezone.utc)
     with nullpool_session() as session:
-        stmt = select(AnalysisStatus).where(
-            AnalysisStatus.media_type == media_type,
-            AnalysisStatus.media_id == media_id,
-            AnalysisStatus.step_key == step_key,
+        # B-581: Idempotenter Upsert gegen uq_analysis_status_media_step.
+        # Bei Konflikt bleibt started_at erhalten (Original-else fasste es
+        # nicht an); nur status+error_message werden aktualisiert.
+        stmt = sqlite_insert(AnalysisStatus).values(
+            media_type=media_type,
+            media_id=media_id,
+            step_key=step_key,
+            status="error",
+            started_at=now,
+            error_message=error_msg,
+        ).on_conflict_do_update(
+            index_elements=_UQ_COLS,
+            set_=dict(status="error", error_message=error_msg),
         )
-        entry = session.execute(stmt).scalar_one_or_none()
-
-        if entry is None:
-            entry = AnalysisStatus(
-                media_type=media_type,
-                media_id=media_id,
-                step_key=step_key,
-                status="error",
-                started_at=datetime.now(timezone.utc),
-                error_message=error_msg,
-            )
-            session.add(entry)
-        else:
-            entry.status = "error"
-            entry.error_message = error_msg
-
+        session.execute(stmt)
         session.commit()
         logger.error("Analysis error: %s/%d/%s — %s", media_type, media_id, step_key, error_msg)
 
 
 def mark_cancelled(media_type: str, media_id: int, step_key: str) -> None:
     """Markiert einen Analyse-Schritt als abgebrochen, retry-faehig aber ohne Error-Log."""
+    now = datetime.now(timezone.utc)
     with nullpool_session() as session:
-        stmt = select(AnalysisStatus).where(
-            AnalysisStatus.media_type == media_type,
-            AnalysisStatus.media_id == media_id,
-            AnalysisStatus.step_key == step_key,
+        # B-581: Idempotenter Upsert gegen uq_analysis_status_media_step.
+        # Bei Konflikt bleibt started_at erhalten (Original-else fasste es
+        # nicht an); nur status+error_message werden aktualisiert.
+        stmt = sqlite_insert(AnalysisStatus).values(
+            media_type=media_type,
+            media_id=media_id,
+            step_key=step_key,
+            status="error",
+            started_at=now,
+            error_message="cancelled",
+        ).on_conflict_do_update(
+            index_elements=_UQ_COLS,
+            set_=dict(status="error", error_message="cancelled"),
         )
-        entry = session.execute(stmt).scalar_one_or_none()
-
-        if entry is None:
-            entry = AnalysisStatus(
-                media_type=media_type,
-                media_id=media_id,
-                step_key=step_key,
-                status="error",
-                started_at=datetime.now(timezone.utc),
-                error_message="cancelled",
-            )
-            session.add(entry)
-        else:
-            entry.status = "error"
-            entry.error_message = "cancelled"
-
+        session.execute(stmt)
         session.commit()
         logger.info("Analysis cancelled: %s/%d/%s", media_type, media_id, step_key)
 
