@@ -12,6 +12,30 @@ from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import Qt, QThread, Signal, QObject
 
 
+def extract_worker_error_message(args) -> str:
+    """B-583: Robust den Fehlertext aus einem Worker-``error``-Signal ziehen.
+
+    Worker-``error``-Signale sind nicht einheitlich — manche emittieren
+    ``Signal(str)``, andere ``Signal(int, str)``. Das alte ``str(args[-1])``
+    nahm an, das letzte Argument sei immer der Text; ein kuenftiger
+    ``Signal(str, int)``-Worker wuerde dadurch eine nackte Zahl in die Statusbar
+    schreiben. Diese Funktion nimmt das letzte *String*-Argument (den Text),
+    warnt bei unerwarteter Signatur und faellt nur im Notfall auf die
+    Roh-Repraesentation zurueck.
+    """
+    if not args:
+        return "Unbekannter Fehler"
+    for value in reversed(args):
+        if isinstance(value, str):
+            return value
+    logging.warning(
+        "[TaskEngine] Worker-error-Signal ohne String-Argument: %r "
+        "(unerwartete Signatur) — zeige Roh-Wert",
+        args,
+    )
+    return str(args[-1])
+
+
 class TaskInfo:
     """Beschreibt einen laufenden Hintergrund-Task."""
     def __init__(self, task_id: str, name: str, description: str = ""):
@@ -303,7 +327,7 @@ class GlobalTaskManager(QObject):
         # Error-Signal: IMMER Task als Error markieren + optional custom callback.
         if hasattr(worker, "error"):
             def _task_error_handler(*args, _tid=task_id, _name=name, _tm=self):
-                err_msg = str(args[-1]) if args else "Unbekannter Fehler"
+                err_msg = extract_worker_error_message(args)
                 logging.error(
                     "[TaskEngine] Worker-Fehler '%s' (task_id=%s): %s",
                     _name, _tid, err_msg,
