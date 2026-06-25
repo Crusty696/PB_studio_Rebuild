@@ -569,8 +569,20 @@ def export_timeline(project_id: int = 1, output_name: str = "output.mp4",
         )
 
         video_segments = []
+        _missing_clip_count = 0
         for ve in video_entries:
             clip = _clips_by_id.get(ve.media_id)
+            if not clip:
+                # B-580: media_id ist kein FK (D-028) — ein soft-geloeschter
+                # oder fehlender VideoClip wuerde sonst still aus dem Export
+                # fallen. Sichtbar machen, aber Export NICHT abbrechen.
+                _missing_clip_count += 1
+                logger.warning(
+                    "Timeline-Eintrag %s referenziert fehlenden/soft-geloeschten "
+                    "VideoClip media_id=%s — Segment wird NICHT exportiert",
+                    getattr(ve, "id", "?"), ve.media_id,
+                )
+                continue
             if clip:
                 source_start = ve.source_start or 0.0
                 seg_duration = ve.end_time - ve.start_time if ve.end_time else (clip.duration or 10.0)
@@ -589,6 +601,15 @@ def export_timeline(project_id: int = 1, output_name: str = "output.mp4",
                     "brightness": ve.brightness or 0.0,
                     "contrast": ve.contrast or 1.0,
                 })
+
+        if _missing_clip_count:
+            # B-580: zusammenfassende Warnung, damit der Datenverlust nicht
+            # in vielen Einzelzeilen untergeht.
+            logger.warning(
+                "Export: %d von %d Video-Timeline-Eintraegen referenzieren "
+                "fehlende/soft-geloeschte VideoClips und wurden NICHT exportiert",
+                _missing_clip_count, len(video_entries),
+            )
 
         audio_source = None
         if audio_entries:
@@ -1537,11 +1558,19 @@ def export_preview(project_id: int = 1, resolution: str = "1920x1080",
 
         # Nur Segmente bis window_end aufnehmen
         video_segments = []
+        _missing_clip_count = 0
         for ve in video_entries:
             if ve.start_time >= window_end:
                 break
             clip = _clips_by_id.get(ve.media_id)
             if not clip:
+                # B-580: fehlender/soft-geloeschter Clip nicht still verwerfen.
+                _missing_clip_count += 1
+                logger.warning(
+                    "Timeline-Eintrag %s referenziert fehlenden/soft-geloeschten "
+                    "VideoClip media_id=%s — Segment wird NICHT exportiert",
+                    getattr(ve, "id", "?"), ve.media_id,
+                )
                 continue
             source_start = ve.source_start or 0.0
             seg_duration = ve.end_time - ve.start_time if ve.end_time else (clip.duration or 10.0)
@@ -1567,6 +1596,13 @@ def export_preview(project_id: int = 1, resolution: str = "1920x1080",
                 "brightness": ve.brightness or 0.0,
                 "contrast": ve.contrast or 1.0,
             })
+
+        if _missing_clip_count:
+            logger.warning(
+                "Preview: %d Video-Timeline-Eintraege referenzieren "
+                "fehlende/soft-geloeschte VideoClips und wurden NICHT gerendert",
+                _missing_clip_count,
+            )
 
         audio_source = None
         if audio_entries:
