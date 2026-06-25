@@ -3,7 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-import shutil
+import os
+import stat
 
 from sqlalchemy.orm import Session
 
@@ -156,9 +157,9 @@ class StorageBrowserService:
                 root.relative_to(storage_root)
             except ValueError as exc:
                 raise ValueError(f"Refusing to delete outside storage root: {root}") from exc
-            if root.exists():
+            if _path_exists_or_link(root):
                 freed += _dir_size(root)
-                shutil.rmtree(root)
+                _safe_rmtree(root)
                 deleted += 1
         return deleted, freed
 
@@ -173,6 +174,68 @@ def _dir_size(path: Path) -> int:
         except OSError:
             pass
     return total
+
+
+def _is_link(path: Path) -> bool:
+    """True for symlinks and Windows directory junctions.
+
+    ``os.path.islink`` returns ``False`` for ``mklink /J`` junctions on
+    CPython <= 3.11, and ``os.path.isjunction`` only exists on 3.12+. To stay
+    safe on the project's Python 3.10 runtime we additionally inspect the
+    reparse tag returned by ``os.lstat`` (the same signal 3.12's
+    ``os.path.isjunction`` uses), so junctions are never traversed (B-578).
+    """
+    if path.is_symlink():
+        return True
+    is_junction = getattr(os.path, "isjunction", None)
+    if is_junction is not None:
+        try:
+            if is_junction(path):
+                return True
+        except OSError:
+            return False
+    mount_point_tag = getattr(stat, "IO_REPARSE_TAG_MOUNT_POINT", None)
+    if mount_point_tag is not None:
+        try:
+            st = os.lstat(path)
+        except OSError:
+            return False
+        return getattr(st, "st_reparse_tag", 0) == mount_point_tag
+    return False
+
+
+def _path_exists_or_link(path: Path) -> bool:
+    return path.exists() or _is_link(path)
+
+
+def _safe_rmtree(root: Path) -> None:
+    """Delete ``root`` recursively without ever traversing symlinks/junctions.
+
+    Junctions and symlinks are unlinked in place (never followed), so cached
+    storage links such as ``by_sha/<sha>/audio/stems`` can never cascade into
+    the real project stems they point at (B-578). Mirrors the team's
+    ``symlinks=False`` convention in ``backup_portability.py``.
+    """
+    if _is_link(root):
+        _remove_link(root)
+        return
+    for entry in os.scandir(root):
+        child = Path(entry.path)
+        if _is_link(child):
+            _remove_link(child)
+        elif entry.is_dir(follow_symlinks=False):
+            _safe_rmtree(child)
+        else:
+            os.unlink(child)
+    os.rmdir(root)
+
+
+def _remove_link(link: Path) -> None:
+    """Remove a junction/symlink itself, never its target contents."""
+    try:
+        os.rmdir(link)
+    except OSError:
+        os.unlink(link)
 
 
 def _file_name(sources: list[tuple[ProjectSource, Project]]) -> str:
