@@ -357,6 +357,19 @@ def convert(
     cmd += ["-c:v", preset.video_codec]
     cmd += preset.codec_params
 
+    # B-584: h264_nvenc auf Pascal (GTX 1060) kann KEIN 10-bit. Eine
+    # 10-bit-Quelle (yuv420p10le / p010le / HEVC Main10) wuerde sonst mit
+    # "10 bit encode not supported" abbrechen. Bei 10-bit-Input ein
+    # 8-bit-Downconvert (yuv420p) erzwingen. 8-bit-Input bleibt unveraendert.
+    if is_nvenc:
+        src_pix_fmt = _get_pix_fmt(str(input_path))
+        if "10" in src_pix_fmt or src_pix_fmt.startswith("p010"):
+            cmd += ["-pix_fmt", "yuv420p"]
+            logger.info(
+                "B-584: 10-bit-Quelle (%s) erkannt — erzwinge -pix_fmt yuv420p "
+                "(h264_nvenc/Pascal ist 8-bit-only).", src_pix_fmt,
+            )
+
     # Audio-Codec
     if preset.audio_codec == "aac":
         cmd += ["-c:a", "aac", "-b:a", "192k"]
@@ -429,6 +442,28 @@ def _get_duration(file_path: str) -> float:
     except (subprocess.TimeoutExpired, ValueError, FileNotFoundError) as e:
         logger.warning("Getting media duration for '%s': %s", file_path, e)
     return 0.0
+
+
+def _get_pix_fmt(file_path: str) -> str:
+    """B-584: Ermittelt das Pixelformat des ersten Video-Streams via ffprobe.
+
+    Liefert z.B. "yuv420p", "yuv420p10le", "p010le". Leerer String bei
+    Fehler/unbekannt — der Caller behandelt das als "kein erzwungener
+    Downconvert".
+    """
+    try:
+        p = subprocess.run(
+            [FFPROBE, "-v", "quiet", "-select_streams", "v:0",
+             "-show_entries", "stream=pix_fmt",
+             "-of", "default=noprint_wrappers=1:nokey=1", file_path],
+            capture_output=True, text=True, timeout=FFMPEG_PROBE_TIMEOUT_SEC,
+            encoding="utf-8", errors="replace",
+        )
+        if p.returncode == 0 and p.stdout.strip():
+            return p.stdout.strip().splitlines()[0].strip()
+    except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+        logger.warning("Getting pix_fmt for '%s': %s", file_path, e)
+    return ""
 
 
 def _run_ffmpeg_with_progress(
