@@ -92,13 +92,30 @@ class EmbeddingJobQueue:
             self._workers.append(t)
         logger.info("EmbeddingJobQueue: %d worker(s) started", self.n_workers)
 
+    # Timeout (Sekunden), wie lange stop(drain=True) auf pending Jobs wartet,
+    # bevor haengende Worker hart gecancelt werden. Muss kleiner sein als der
+    # App-Shutdown-Timeout (main.py: request_stop timeout_ms=5000), damit der
+    # Shutdown nie am unbegrenzten queue.join() haengt (B-582).
+    DRAIN_TIMEOUT_S = 3.0
+
     async def stop(self, drain: bool = True) -> None:
-        """Stoppt Worker. drain=True wartet auf alle pending Jobs."""
+        """Stoppt Worker. drain=True wartet auf alle pending Jobs.
+
+        B-582: drain wartet nur mit Timeout (DRAIN_TIMEOUT_S). Laeuft ein Job
+        laenger (haengt), werden die Worker hart gecancelt statt unbegrenzt am
+        queue.join() zu blockieren — sonst haengt der App-Shutdown.
+        """
         if not self._workers:
             return
         self._stopped = True
         if drain:
-            await self._queue.join()
+            try:
+                await asyncio.wait_for(self._queue.join(),
+                                       timeout=self.DRAIN_TIMEOUT_S)
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "EmbeddingJobQueue: drain timeout nach %.1fs — haengende "
+                    "Worker werden hart gecancelt", self.DRAIN_TIMEOUT_S)
         for w in self._workers:
             w.cancel()
         for w in self._workers:
