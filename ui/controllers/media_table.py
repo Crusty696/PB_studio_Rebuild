@@ -62,24 +62,7 @@ class MediaTableController(PBComponent):
             # in der A1-Lane liegt (timeline_entries track="audio"), nicht bloss
             # den ersten/analysierten. Vorher waehlte die Logik unabhaengig vom
             # A1-Inhalt -> Dropdown zeigte z.B. Normalize, obwohl Zyce in A1 lag.
-            a1_audio_index = None
-            try:
-                if _pid_now is not None:
-                    from database import nullpool_session, TimelineEntry
-                    with nullpool_session() as _s:
-                        _a1 = (
-                            _s.query(TimelineEntry.media_id)
-                            .filter_by(project_id=_pid_now, track="audio")
-                            .order_by(TimelineEntry.start_time, TimelineEntry.id)
-                            .first()
-                        )
-                    if _a1 is not None and _a1[0] is not None:
-                        _idx = self.window.audio_combo.findData(int(_a1[0]))
-                        if _idx >= 0:
-                            a1_audio_index = _idx
-            except Exception as exc:  # A1-Lookup darf den Combo-Refresh nie blocken
-                logger.debug("B-569 A1-audio lookup failed: %s", exc)
-
+            a1_audio_index = self._a1_audio_combo_index(_pid_now)
             if a1_audio_index is not None:
                 self.window.audio_combo.setCurrentIndex(a1_audio_index)
             elif preferred_audio_index is not None:
@@ -92,6 +75,35 @@ class MediaTableController(PBComponent):
             self.window.audio_combo.blockSignals(audio_blocked)
             self.window.video_combo.blockSignals(video_blocked)
         self._sync_schnitt_audio_selection()
+
+    def _a1_audio_combo_index(self, pid: int | None) -> int | None:
+        """B-569/B-577: Liefert den audio_combo-Index des Audio-Tracks, der in
+        der A1-Lane liegt (erster timeline_entries-Eintrag track="audio"), oder
+        None falls kein A1-Audio existiert / nicht im Combo enthalten ist.
+
+        Exception-guarded — der A1-Lookup darf einen Combo-Refresh nie blocken.
+        Wird in BEIDEN Refresh-Pfaden (sync _refresh_director_combos + async
+        _apply_refreshed_data) genutzt, damit die Auswahl-Prioritaet identisch
+        ist: A1 -> preferred (analysiert) -> first.
+        """
+        try:
+            if pid is None:
+                return None
+            from database import nullpool_session, TimelineEntry
+            with nullpool_session() as _s:
+                _a1 = (
+                    _s.query(TimelineEntry.media_id)
+                    .filter_by(project_id=pid, track="audio")
+                    .order_by(TimelineEntry.start_time, TimelineEntry.id)
+                    .first()
+                )
+            if _a1 is not None and _a1[0] is not None:
+                _idx = self.window.audio_combo.findData(int(_a1[0]))
+                if _idx >= 0:
+                    return _idx
+        except Exception as exc:  # A1-Lookup darf den Combo-Refresh nie blocken
+            logger.debug("B-569 A1-audio lookup failed: %s", exc)
+        return None
 
     def _toggle_all_checkboxes(self, table_view):
         """Alle Checkboxen im Model toggeln."""
@@ -216,7 +228,14 @@ class MediaTableController(PBComponent):
                 for item in videos:
                     label = f"[{item['id']}] {item['title']}"
                     self.window.video_combo.addItem(label, item["id"])
-                if preferred_audio_index is not None:
+                # B-577: Auch der async-Pfad muss den A1-Lane-Track vorziehen
+                # (gleiche Prioritaet wie _refresh_director_combos). Vorher fehlte
+                # die A1-Logik -> nach Projekt-Open zeigte das Dropdown wieder den
+                # ersten/analysierten statt des A1-Tracks.
+                a1_audio_index = self._a1_audio_combo_index(_pid_now)
+                if a1_audio_index is not None:
+                    self.window.audio_combo.setCurrentIndex(a1_audio_index)
+                elif preferred_audio_index is not None:
                     self.window.audio_combo.setCurrentIndex(preferred_audio_index)
                 elif first_audio_index is not None:
                     self.window.audio_combo.setCurrentIndex(first_audio_index)
