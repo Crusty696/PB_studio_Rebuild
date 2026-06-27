@@ -99,16 +99,29 @@ def get_cuda_memory_info_bytes(device: int = 0) -> tuple[int, int]:
     if not torch.cuda.is_available():
         return 0, 0
 
+    props = torch.cuda.get_device_properties(device)
+    total_bytes = int(props.total_memory)
+
     mem_get_info = getattr(torch.cuda, "mem_get_info", None)
     if mem_get_info is not None:
         try:
-            free_bytes, total_bytes = mem_get_info(device)
-            return int(free_bytes), int(total_bytes)
+            free_bytes, total_bytes_info = mem_get_info(device)
+            free_bytes = int(free_bytes)
+            total_bytes_info = int(total_bytes_info)
+            
+            # B-572 Plausibilitätscheck (Windows WDDM Treiber meldet 0 Bytes frei)
+            allocated_bytes = int(torch.cuda.memory_allocated(device))
+            if free_bytes < 10 * 1024 * 1024 and allocated_bytes < 100 * 1024 * 1024:
+                logger.warning(
+                    "B-572: torch.cuda.mem_get_info() meldet unplausibel niedriges freies VRAM (%d Bytes) bei allocated=%d. Verwende Fallback.",
+                    free_bytes, allocated_bytes
+                )
+                free_bytes = max(total_bytes - allocated_bytes, 0)
+            
+            return free_bytes, total_bytes
         except (RuntimeError, TypeError, AttributeError) as exc:
             logger.warning("torch.cuda.mem_get_info() fehlgeschlagen, fallback: %s", exc)
 
-    props = torch.cuda.get_device_properties(device)
-    total_bytes = int(props.total_memory)
     used_bytes = int(torch.cuda.memory_allocated(device))
     return max(total_bytes - used_bytes, 0), total_bytes
 

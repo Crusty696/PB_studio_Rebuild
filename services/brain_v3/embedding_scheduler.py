@@ -41,6 +41,11 @@ class EmbeddingTask:
     source_path: Path
 
 
+class SkipEmbeddingError(Exception):
+    """Signalisiert, dass ein Video/Audio-Medium unlesbar ist und uebersprungen werden soll."""
+    pass
+
+
 # Embedder-Fabrik: liefert Callable[[EmbeddingTask, ProgressCb], np.ndarray].
 # Default = lazy import von ClapAudioEmbedder / Siglip2VideoEmbedder.
 EmbedderFactory = Callable[[EmbeddingTask, Callable[[float, str], None], GpuSerializer], "object"]
@@ -264,15 +269,31 @@ class _SchedulerThread(QThread):
         progress_cb: Callable[[float, str], None],
     ):
         import numpy as np
-        from services.brain_v3.video.video_embedder import InvalidVideoError
         progress_cb(0.05, "starting")
         loop = asyncio.get_running_loop()
 
-        def _blocking_embed_and_store():
-            payload = self._embedder_factory(task, progress_cb, self._serializer)
-            embedding = payload["embedding"]
-            model_name = payload["model_name"]
-            model_version = payload["model_version"]
+        def _blocking_embed():
+            from services.brain_v3.video.video_embedder import InvalidVideoError
+            try:
+                return self._embedder_factory(task, progress_cb, self._serializer)
+            except (InvalidVideoError, OSError, IOError) as exc:
+                raise SkipEmbeddingError(str(exc)) from exc
+
+        try:
+            payload = await loop.run_in_executor(None, _blocking_embed)
+        except SkipEmbeddingError as exc:
+            logger.info(
+                "Embedding-Skip (Medium unlesbar oder ungueltig) hash=%s: %s",
+                task.media_hash, exc,
+            )
+            self.skipped_bridge.emit(task.media_hash, str(exc))
+            progress_cb(1.0, f"skipped ({str(exc)})")
+            return None
+
+        def _blocking_store(payload_data):
+            embedding = payload_data["embedding"]
+            model_name = payload_data["model_name"]
+            model_version = payload_data["model_version"]
             if not isinstance(embedding, np.ndarray):
                 raise TypeError(
                     f"embedder lieferte kein numpy.ndarray, war: {type(embedding)}"
@@ -291,18 +312,7 @@ class _SchedulerThread(QThread):
                 "model_version": model_version,
             }
 
-        try:
-            result = await loop.run_in_executor(None, _blocking_embed_and_store)
-        except InvalidVideoError as exc:
-            # B-279: ungueltige/nonstandard Video-Metadaten (z.B. .stem.mp4 mit
-            # frames=-1) -> sauberer Skip-mit-Grund statt fehlgeschlagenem Job.
-            logger.info(
-                "Embedding-Skip (ungueltiges Video) hash=%s: %s",
-                task.media_hash, exc,
-            )
-            self.skipped_bridge.emit(task.media_hash, str(exc))
-            progress_cb(1.0, "skipped")
-            return None
+        result = await loop.run_in_executor(None, _blocking_store, payload)
         progress_cb(1.0, "stored")
         return result
 
