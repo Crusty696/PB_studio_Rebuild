@@ -186,7 +186,7 @@ def _apply_cross_project_reuse_after_ingest(
             exc,
         )
 
-AUDIO_EXTENSIONS = {".mp3", ".wav", ".flac", ".ogg", ".aac", ".m4a", ".wma"}
+AUDIO_EXTENSIONS = {".mp3", ".wav", ".flac", ".ogg", ".aac", ".m4a", ".wma", ".aiff", ".aif"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".wmv", ".webm", ".flv", ".m4v"}
 
 
@@ -240,7 +240,6 @@ def ingest_audio(
                 if existing.deleted_at is not None:
                     existing.deleted_at = None
                     session.commit()
-                    session.refresh(existing)
                     _apply_cross_project_reuse_after_ingest(
                         session,
                         source_path=path,
@@ -248,6 +247,8 @@ def ingest_audio(
                         media_id=existing.id,
                         project_id=project_id,
                     )
+                    # OTK-021: refresh NACH dem reuse-Schritt (siehe ingest_video).
+                    session.refresh(existing)
                     if invalidate_caches:
                         _invalidate_pacing_caches()
                     return existing
@@ -261,7 +262,6 @@ def ingest_audio(
             )
             session.add(track)
             session.commit()
-            session.refresh(track)
             _apply_cross_project_reuse_after_ingest(
                 session,
                 source_path=path,
@@ -269,6 +269,8 @@ def ingest_audio(
                 media_id=track.id,
                 project_id=project_id,
             )
+            # OTK-021: refresh NACH dem reuse-Schritt (siehe ingest_video).
+            session.refresh(track)
             if invalidate_caches:
                 _invalidate_pacing_caches()
             return track
@@ -354,7 +356,6 @@ def ingest_video(
                 if existing.deleted_at is not None:
                     existing.deleted_at = None
                     session.commit()
-                    session.refresh(existing)
                     _apply_cross_project_reuse_after_ingest(
                         session,
                         source_path=path,
@@ -362,6 +363,8 @@ def ingest_video(
                         media_id=existing.id,
                         project_id=project_id,
                     )
+                    # OTK-021: refresh NACH dem reuse-Schritt (siehe Neu-Import-Pfad).
+                    session.refresh(existing)
                     if invalidate_caches:
                         _invalidate_pacing_caches()
                     return existing
@@ -379,7 +382,6 @@ def ingest_video(
             )
             session.add(clip)
             session.commit()
-            session.refresh(clip)
             _apply_cross_project_reuse_after_ingest(
                 session,
                 source_path=path,
@@ -387,6 +389,11 @@ def ingest_video(
                 media_id=clip.id,
                 project_id=project_id,
             )
+            # OTK-021: der reuse-Schritt committet erneut in dieser Session ->
+            # expire_on_commit expired clip. Refresh MUSS NACH dem reuse stehen,
+            # sonst kommt das Objekt detached+expired zurueck und der Consumer
+            # crasht beim Lesen von .id (DetachedInstanceError).
+            session.refresh(clip)
             if invalidate_caches:
                 _invalidate_pacing_caches()
             return clip
