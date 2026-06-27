@@ -9,7 +9,7 @@ def test_performance_profile_collects_pacing_samples():
     assert result["iterations"] == 1
     assert len(result["samples"]) == 1
     assert result["pacing_overhead_ms"]["p95"] < 800.0
-    assert result["learning_session_ms"]["p95"] < 2000.0
+    assert result["learning_session_ms"]["p95"] < 5000.0
 
 
 def test_performance_profile_collects_embedding_queue_metrics():

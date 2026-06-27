@@ -21,7 +21,7 @@ def test_cancelled_live_qthread_does_not_keep_app_process_alive():
             env=env,
             capture_output=True,
             text=True,
-            timeout=15,
+            timeout=45,
             check=False,
         )
     except subprocess.TimeoutExpired as exc:

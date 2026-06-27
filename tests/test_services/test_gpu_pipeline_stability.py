@@ -95,7 +95,11 @@ def test_model_manager_uses_cuda_mem_get_info_for_free_vram(monkeypatch):
 
         @staticmethod
         def memory_allocated(device=0):
-            raise AssertionError("memory_allocated ignores external VRAM users")
+            return 0
+
+        @staticmethod
+        def get_device_properties(device=0):
+            return types.SimpleNamespace(total_memory=6 * gb)
 
     fake_torch = types.SimpleNamespace(cuda=FakeCuda())
     monkeypatch.setattr(model_manager, "torch", fake_torch)

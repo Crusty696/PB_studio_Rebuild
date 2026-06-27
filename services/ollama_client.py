@@ -82,6 +82,16 @@ class OllamaClient:
         self._lock = threading.Lock()
         self._paused = False  # VRAM-Koordination: True = keine neuen Requests
         self._unloadable_models: set[str] = set()  # Models that failed to load (RAM/VRAM)
+        self._low_vram = False
+        try:
+            import torch
+            if torch.cuda.is_available():
+                total_mem = torch.cuda.get_device_properties(0).total_memory
+                if total_mem < 8 * 1024 * 1024 * 1024:  # < 8 GB
+                    self._low_vram = True
+                    logger.info("OllamaClient: System hat < 8 GB VRAM. keep_alive=0 wird erzwungen.")
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     # VRAM-Koordination
@@ -330,6 +340,8 @@ class OllamaClient:
                 "num_predict": max_tokens,
             },
         }
+        if self._low_vram:
+            payload["keep_alive"] = 0
 
         body = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(
@@ -429,6 +441,8 @@ class OllamaClient:
                 "num_predict": max_tokens,
             },
         }
+        if self._low_vram:
+            payload["keep_alive"] = 0
 
         body = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(
@@ -501,6 +515,8 @@ class OllamaClient:
                 "num_predict": max_tokens,
             },
         }
+        if self._low_vram:
+            payload["keep_alive"] = 0
         body = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(
             f"{self.base_url}/api/generate",
@@ -581,6 +597,8 @@ class OllamaClient:
                 "num_predict": max_tokens,
             },
         }
+        if self._low_vram:
+            payload["keep_alive"] = 0
 
         body = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(
@@ -766,6 +784,8 @@ class OllamaClient:
                 "num_predict": max_tokens,
             },
         }
+        if self._low_vram:
+            payload["keep_alive"] = 0
 
         body = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(

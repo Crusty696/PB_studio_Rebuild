@@ -163,6 +163,8 @@ def test_auto_detect_falls_back_from_stale_settings_to_localhost(monkeypatch):
         return _ConfiguredClient() if "legacy" in url else _LocalClient()
 
     monkeypatch.setattr(agent, "_make_ollama_client", _make_client)
+    from services.ollama_service import OllamaService
+    monkeypatch.setattr(OllamaService.get(), "get_default_model", lambda: None)
 
     assert agent._auto_detect_ollama() is True
     assert agent._ollama_url == "http://localhost:11434"

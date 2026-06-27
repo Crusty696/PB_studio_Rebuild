@@ -251,7 +251,7 @@ class StructureDetectionService:
 
             # ── 10. DJ-Mix-Erkennung ─────────────────────────────────────
             track_duration = float(beats[-1]) if len(beats) > 0 else 0.0
-            dj_transitions = self._detect_dj_transitions(energy_smooth, beats, bpm)
+            dj_transitions = self._detect_dj_transitions(energy_smooth, centroid_smooth, beats, bpm)
             is_dj_mix = self._classify_dj_mix(track_duration, dj_transitions, bpm)
 
             log.info(
@@ -275,6 +275,92 @@ class StructureDetectionService:
 
     # ── Feature-Extraktion ───────────────────────────────────────────────
 
+    def _compute_features_chunked(
+        self,
+        file_path: str,
+        beats,
+        sr: int,
+        hop_length: int,
+        compute_rms: bool = True,
+    ):
+        import gc
+        import librosa
+        from services.audio_constants import BASS_FREQ_MAX_HZ
+        
+        duration = librosa.get_duration(path=file_path)
+        beats = np.asarray(beats, dtype=np.float64)
+        
+        # 10 Minuten Chunks
+        chunk_sec = 600.0
+        pos = 0.0
+        
+        rms_all = []
+        centroid_all = []
+        bass_all = []
+        
+        while pos < duration:
+            chunk_end = min(duration, pos + chunk_sec)
+            mask = (beats >= pos) & (beats < chunk_end)
+            beats_in_chunk = beats[mask]
+            
+            if len(beats_in_chunk) == 0:
+                pos = chunk_end
+                continue
+                
+            try:
+                # Chunk mit 5s Overlap laden, um Randeffekte bei FFT zu minimieren
+                load_start = max(0.0, pos - 5.0)
+                load_end = min(duration, chunk_end + 5.0)
+                load_dur = load_end - load_start
+                
+                y_chunk, _ = librosa.load(file_path, sr=sr, mono=True, offset=load_start, duration=load_dur)
+                if len(y_chunk) == 0:
+                    pos = chunk_end
+                    continue
+                
+                # Lokale Frame-Zeiten berechnen
+                n_frames = int(len(y_chunk) / hop_length) + 1
+                frame_times = librosa.frames_to_time(np.arange(n_frames), sr=sr, hop_length=hop_length) + load_start
+                
+                # Features berechnen
+                rms = librosa.feature.rms(y=y_chunk, hop_length=hop_length)[0]
+                centroid = librosa.feature.spectral_centroid(y=y_chunk, sr=sr, hop_length=hop_length)[0]
+                
+                stft = np.abs(librosa.stft(y_chunk, hop_length=hop_length))
+                freqs = librosa.fft_frequencies(sr=sr)
+                bass_mask = freqs <= BASS_FREQ_MAX_HZ
+                bass_energy = np.mean(stft[bass_mask, :], axis=0) if bass_mask.any() else rms.copy()
+                
+                min_frames = min(len(rms), len(centroid), len(bass_energy), len(frame_times))
+                rms = rms[:min_frames]
+                centroid = centroid[:min_frames]
+                bass_energy = bass_energy[:min_frames]
+                frame_times = frame_times[:min_frames]
+                
+                # An den Beats sampeln
+                r_beat = self._sample_feature_at_beats(rms, frame_times, beats_in_chunk) if compute_rms else None
+                c_beat = self._sample_feature_at_beats(centroid, frame_times, beats_in_chunk)
+                b_beat = self._sample_feature_at_beats(bass_energy, frame_times, beats_in_chunk)
+                
+                if compute_rms and r_beat is not None:
+                    rms_all.extend(r_beat.tolist())
+                centroid_all.extend(c_beat.tolist())
+                bass_all.extend(b_beat.tolist())
+                
+                del y_chunk
+                del stft
+                gc.collect()
+            except Exception as e:
+                log.warning("Fehler beim Chunk-Laden von %s bei %.1fs: %s", file_path, pos, e)
+                
+            pos = chunk_end
+            
+        return (
+            np.array(rms_all) if compute_rms else None,
+            np.array(centroid_all),
+            np.array(bass_all)
+        )
+
     def _compute_multi_features_from_audio(
         self,
         file_path: str,
@@ -292,69 +378,45 @@ class StructureDetectionService:
             return None
 
         try:
-            from services.audio_constants import (
-                DEFAULT_SR, HOP_LENGTH, MAX_DURATION_STRUCTURE, BASS_FREQ_MAX_HZ,
-            )
+            import gc
+            from services.audio_constants import DEFAULT_SR, HOP_LENGTH
             sr = DEFAULT_SR
             hop_length = HOP_LENGTH
 
-            log.info("Lade Audio fuer Multi-Feature-Extraktion: %s", file_path)
-            y, sr = librosa.load(file_path, sr=sr, mono=True, duration=MAX_DURATION_STRUCTURE)
-
-            if len(y) == 0:
-                return None
-
-            duration_sec = len(y) / sr
-
+            log.info("Lade Audio fuer Multi-Feature-Extraktion (Chunked): %s", file_path)
+            duration = librosa.get_duration(path=file_path)
+            
             # Beat-Grid bestimmen
             if beat_positions is not None and len(beat_positions) > 1:
                 beats = np.array(beat_positions, dtype=np.float64)
             elif bpm and bpm > 0:
                 beat_dur = 60.0 / bpm
-                beats = np.arange(0, duration_sec, beat_dur)
+                beats = np.arange(0, duration, beat_dur)
             else:
-                tempo, beat_frames = librosa.beat.beat_track(y=y, sr=sr, hop_length=hop_length)
-                beats = librosa.frames_to_time(beat_frames, sr=sr, hop_length=hop_length)
-                if hasattr(tempo, '__len__'):
-                    bpm = float(tempo[0]) if len(tempo) > 0 else 120.0
+                # Grobes globales Tempo schaetzen mit den ersten 5 Minuten, um RAM zu sparen
+                sample_dur = min(300.0, duration)
+                y_sample, _ = librosa.load(file_path, mono=True, duration=sample_dur)
+                tempo, _ = librosa.beat.beat_track(y=y_sample, sr=sr, hop_length=hop_length)
+                if hasattr(tempo, '__len__') and len(tempo) > 0:
+                    bpm = float(tempo[0])
                 else:
                     bpm = float(tempo) if tempo > 0 else 120.0
+                del y_sample
+                gc.collect()
+                
+                beat_dur = 60.0 / bpm
+                beats = np.arange(0, duration, beat_dur)
 
             if len(beats) < 2:
-                beats = np.arange(0, duration_sec, 0.5)
+                beats = np.arange(0, duration, 0.5)
 
-            frame_times = librosa.frames_to_time(
-                np.arange(int(len(y) / hop_length) + 1), sr=sr, hop_length=hop_length
+            rms_beat, centroid_beat, bass_beat = self._compute_features_chunked(
+                file_path, beats, sr, hop_length, compute_rms=True
             )
 
-            # RMS
-            rms = librosa.feature.rms(y=y, hop_length=hop_length)[0]
+            return rms_beat, beats, bpm, centroid_beat, bass_beat
 
-            # Spectral Centroid
-            centroid = librosa.feature.spectral_centroid(y=y, sr=sr, hop_length=hop_length)[0]
-
-            # Bass-Energie: Bandpass-Filterung (< BASS_FREQ_MAX_HZ)
-            # Nutze STFT und summiere Bins unterhalb der Cutoff-Frequenz
-            stft = np.abs(librosa.stft(y, hop_length=hop_length))
-            freqs = librosa.fft_frequencies(sr=sr)
-            bass_mask = freqs <= BASS_FREQ_MAX_HZ
-            bass_energy = np.mean(stft[bass_mask, :], axis=0) if bass_mask.any() else rms.copy()
-
-            # Passen Sie Laengen an (STFT kann +1 Frame haben)
-            min_frames = min(len(rms), len(centroid), len(bass_energy), len(frame_times))
-            rms = rms[:min_frames]
-            centroid = centroid[:min_frames]
-            bass_energy = bass_energy[:min_frames]
-            frame_times = frame_times[:min_frames]
-
-            # Features an Beat-Positionen samplen
-            energy_per_beat = self._sample_feature_at_beats(rms, frame_times, beats)
-            centroid_per_beat = self._sample_feature_at_beats(centroid, frame_times, beats)
-            bass_per_beat = self._sample_feature_at_beats(bass_energy, frame_times, beats)
-
-            return energy_per_beat, beats, bpm, centroid_per_beat, bass_per_beat
-
-        except Exception:  # B-230: audioread/soundfile-Errors mit aufnehmen
+        except Exception:
             log.exception("Fehler beim Multi-Feature-Laden von %s", file_path)
             return None
 
@@ -368,37 +430,12 @@ class StructureDetectionService:
         if not _HAS_LIBROSA or not _HAS_NUMPY:
             return None
         try:
-            from services.audio_constants import (
-                DEFAULT_SR, HOP_LENGTH, MAX_DURATION_STRUCTURE, BASS_FREQ_MAX_HZ,
+            from services.audio_constants import DEFAULT_SR, HOP_LENGTH
+            _, centroid_beat, bass_beat = self._compute_features_chunked(
+                file_path, beats, DEFAULT_SR, HOP_LENGTH, compute_rms=False
             )
-            y, sr = librosa.load(file_path, sr=DEFAULT_SR, mono=True,
-                                 duration=MAX_DURATION_STRUCTURE)
-            if len(y) == 0:
-                return None
-
-            hop_length = HOP_LENGTH
-            frame_times = librosa.frames_to_time(
-                np.arange(int(len(y) / hop_length) + 1), sr=sr, hop_length=hop_length
-            )
-            centroid = librosa.feature.spectral_centroid(y=y, sr=sr, hop_length=hop_length)[0]
-            stft = np.abs(librosa.stft(y, hop_length=hop_length))
-            freqs = librosa.fft_frequencies(sr=sr)
-            bass_mask = freqs <= BASS_FREQ_MAX_HZ
-            bass_energy = np.mean(stft[bass_mask, :], axis=0) if bass_mask.any() else None
-
-            min_f = min(len(centroid), len(frame_times))
-            centroid = centroid[:min_f]
-            frame_times = frame_times[:min_f]
-
-            centroid_per_beat = self._sample_feature_at_beats(centroid, frame_times, beats)
-            bass_per_beat = None
-            if bass_energy is not None:
-                bass_energy = bass_energy[:min_f]
-                bass_per_beat = self._sample_feature_at_beats(bass_energy, frame_times, beats)
-
-            return centroid_per_beat, bass_per_beat
-
-        except Exception:  # B-230: audioread/soundfile-Errors mit aufnehmen
+            return centroid_beat, bass_beat
+        except Exception:
             log.debug("Extra-Feature-Berechnung fehlgeschlagen fuer %s", file_path)
             return None
 
@@ -565,15 +602,12 @@ class StructureDetectionService:
 
     # ── DJ-Mix-Erkennung ──────────────────────────────────────────────────
 
-    @staticmethod
-    def _detect_dj_transitions(energy_norm, beats, bpm: float | None) -> list[float]:
-        """Erkennt DJ-Mix-Uebergaenge als tiefe Energie-Einbrueche zwischen Tracks.
-
-        Typisch fuer DJ-Mixes: Kurze Energie-Minima (~30-120s Abstand) gefolgt
-        von einem Energie-Anstieg (neuer Track beginnt).
-
-        Returns:
-            Liste von Uebergangszeiten in Sekunden
+    def _detect_dj_transitions(self, energy_norm, centroid_norm, beats, bpm: float | None) -> list[float]:
+        """Erkennt DJ-Mix-Uebergaenge.
+        
+        Kombiniert:
+        1. Energie-Dips (Lautstaerkeeinbrueche).
+        2. Spectral-Flux (Starke Aenderungen im Frequenz-Schwerpunkt bei EQ-Blending).
         """
         from services.audio_constants import (
             DJ_MIX_ENERGY_DIP_THRESHOLD, DJ_MIX_TRANSITION_MIN_GAP_SEC,
@@ -584,27 +618,35 @@ class StructureDetectionService:
 
         transitions: list[float] = []
         n = len(energy_norm)
-        min_gap_beats = 32  # Mind. 32 Beats zwischen Uebergaengen
+        min_gap_beats = 32
 
-        i = 16  # Starte nach dem Intro
+        # Berechne lokalen Spectral Flux (Aenderung des Centroids)
+        centroid_flux = np.abs(np.gradient(centroid_norm))
+
+        i = 16
         last_transition_beat = 0
 
         while i < n - 16:
-            # Erkenne: vorher hohe Energie, jetzt niedriger Einbruch, dann wieder hoch
             before_energy = float(np.mean(energy_norm[max(0, i - 8):i]))
             current_energy = float(energy_norm[i])
             after_energy = float(np.mean(energy_norm[i + 1:min(n, i + 9)]))
 
+            # 1. Klassischer Energie-Dip
             is_dip = (
                 current_energy < DJ_MIX_ENERGY_DIP_THRESHOLD
                 and before_energy > current_energy + 0.15
                 and after_energy > current_energy + 0.10
+            )
+
+            # 2. Spektraler Uebergang (EQ-Wechsel bei konstanter Energie)
+            # Centroid-Aenderung (Flux)
+            is_spectral_shift = (
+                centroid_flux[i] > 0.18
                 and (i - last_transition_beat) >= min_gap_beats
             )
 
-            if is_dip:
+            if (is_dip or is_spectral_shift) and (i - last_transition_beat) >= min_gap_beats:
                 transition_time = float(beats[i]) if i < len(beats) else 0.0
-                # Verifiziere Mindestabstand in Sekunden
                 if not transitions or (transition_time - transitions[-1]) >= DJ_MIX_TRANSITION_MIN_GAP_SEC:
                     transitions.append(transition_time)
                     last_transition_beat = i

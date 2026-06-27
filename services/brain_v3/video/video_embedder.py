@@ -132,7 +132,12 @@ class Siglip2VideoEmbedder:
 
     def unload(self) -> None:
         import gc
+        logger.info("Siglip2VideoEmbedder: Entlade Modell und gebe GPU-VRAM frei...")
         if self._vision is not None:
+            try:
+                self._vision.cpu()
+            except Exception as e:
+                logger.debug("Modell konnte nicht auf CPU verschoben werden: %s", e)
             del self._vision
             self._vision = None
         if self._processor is not None:
@@ -143,8 +148,11 @@ class Siglip2VideoEmbedder:
             import torch  # type: ignore
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
-        except Exception:
-            pass
+                torch.cuda.synchronize()
+                gc.collect()
+                torch.cuda.empty_cache()
+        except Exception as e:
+            logger.warning("CUDA Cache-Freigabe fehlgeschlagen: %s", e)
 
     @property
     def is_loaded(self) -> bool:

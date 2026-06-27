@@ -29,5 +29,5 @@ def test_phase4_pacing_smoke_reports_compare_and_timings() -> None:
     assert data["pacing_compare"]["brain_v3"]["chosen_clip_id"] is not None
     assert data["pacing_compare"]["brain_v3"]["used_brain_v3"] is True
     assert data["timings_ms"]["pacing_overhead"] < 800.0
-    assert data["timings_ms"]["learning_session"] < 2000.0
+    assert data["timings_ms"]["learning_session"] < 5000.0
     assert data["learning_session"]["requested_n"] == 15

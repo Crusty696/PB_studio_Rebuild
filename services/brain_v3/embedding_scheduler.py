@@ -324,6 +324,18 @@ class _SchedulerThread(QThread):
             progress.message or "",
             progress.error or "",  # B-567: Fehlertext mitliefern (vorher verworfen)
         )
+        # B-VRAM-HYGIENE: Wenn der Job beendet ist, pruefe ob die Queue leer ist
+        from services.brain_v3.background_queue import JobStatus
+        if progress.status in (JobStatus.DONE, JobStatus.FAILED, JobStatus.CANCELLED):
+            if self._queue is not None:
+                all_jobs = self._queue.all_progress().values()
+                active_count = sum(1 for j in all_jobs if j.status in (JobStatus.PENDING, JobStatus.RUNNING))
+                if active_count == 0:
+                    logger.info("VRAM-Hygiene: Alle Jobs erledigt. Entlade Embedder-Cache (VRAM freigeben)...")
+                    try:
+                        _reset_embedder_cache(unload=True)
+                    except Exception as exc:
+                        logger.warning("Automatisches VRAM-Entladen fehlgeschlagen: %s", exc)
 
     def run(self) -> None:
         loop = asyncio.new_event_loop()

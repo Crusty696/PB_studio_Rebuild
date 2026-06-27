@@ -48,8 +48,6 @@ class TestB576EmbeddingSkip(unittest.TestCase):
                 media_type="video"
             )
             
-            # Warte kurz, bis der Thread den Job abgearbeitet hat
-            loop = asyncio.get_event_loop()
             # Da es ein QThread mit asyncio-Loop ist, lassen wir Qt Events verarbeiten
             for _ in range(20):
                 self.app.processEvents()
