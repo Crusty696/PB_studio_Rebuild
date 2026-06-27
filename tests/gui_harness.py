@@ -735,6 +735,27 @@ def _iter_matching_elements(top, args, max_count: int = 9999):
         if yielded >= max_count:
             return
 
+    if yielded == 0:
+        # Fallback über pywinauto descendants() fuer tief verschachtelte Qt-Elemente
+        try:
+            elements = top.descendants()
+            for el in elements:
+                info = _element_info(el)
+                if auto_id and info.get("auto_id", "") != auto_id:
+                    continue
+                if ctrl_type and info.get("control_type", "") != ctrl_type:
+                    continue
+                if name_pat and not name_pat.search(info.get("name", "")):
+                    continue
+                if only_vis and not info.get("visible", False):
+                    continue
+                yield el, info
+                yielded += 1
+                if yielded >= max_count:
+                    return
+        except Exception:
+            pass
+
 
 def cmd_list_elements(args) -> int:
     try:
@@ -770,7 +791,7 @@ def cmd_find_element(args) -> int:
 
 
 def cmd_click_element(args) -> int:
-    """Klickt das erste passende Element per pywinauto invoke / Center-Klick Fallback."""
+    """Klickt das erste passende Element per pywinauto click_input() / invoke / Center-Klick Fallback."""
     try:
         top = _pwa_app(args.window_title)
         first = next(_iter_matching_elements(top, args, max_count=1), None)
@@ -778,13 +799,17 @@ def cmd_click_element(args) -> int:
             _fail("no element matched")
             return 10
         target, target_info = first
-        method = "invoke"
+        method = "click_input"
         try:
-            target.invoke()
+            target.click_input()
         except Exception:
-            method = "center-click"
-            import pyautogui
-            pyautogui.click(target_info["center_x"], target_info["center_y"])
+            try:
+                target.invoke()
+                method = "invoke"
+            except Exception:
+                method = "center-click"
+                import pyautogui
+                pyautogui.click(target_info["center_x"], target_info["center_y"])
         _ok(method=method, element=target_info)
         return 0
     except Exception as exc:
