@@ -455,15 +455,13 @@ class MediaWorkspace(QWidget):
         page_layout.setContentsMargins(4, 2, 4, 2)
         page_layout.setSpacing(4)
 
-        # -------- Model + Proxy (Paginierung) --------
+        # -------- Model + Proxy (Paginierung für Video deaktiviert, Tabelle direkt gebunden) --------
         self.video_pool_model = MediaTableModel(media_type="Video")
-        # UI-Ueberholung 2026-06-13 (User-Feedback "Tabelle groesser"): mehr
-        # Zeilen pro Seite, damit mehr Files auf einmal sichtbar sind.
-        self._video_pool_proxy = PagedProxyModel(page_size=30)
+        self._video_pool_proxy = PagedProxyModel(page_size=1000000)
         self._video_pool_proxy.setSourceModel(self.video_pool_model)
 
         self.video_pool_table = DraggablePoolView(track_type="video")
-        self.video_pool_table.setModel(self._video_pool_proxy)
+        self.video_pool_table.setModel(self.video_pool_model)
         vh = self.video_pool_table.horizontalHeader()
         vh.setStretchLastSection(True)
         vh.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
@@ -548,15 +546,15 @@ class MediaWorkspace(QWidget):
         self.btn_video_grid_view.setStyleSheet(_VIEW_TOGGLE_STYLE)
         tb.addWidget(self.btn_video_grid_view)
 
-        tb.addSpacing(10)
+        # Paginierung in Toolbar ausgeblendet (Tabelle ist scrollbar)
         self.btn_video_page_prev = _toolbar_btn("◀", "Vorherige Seite", width=28)
         self.btn_video_page_next = _toolbar_btn("▶", "Naechste Seite", width=28)
         self._lbl_video_page = QLabel("Seite 1 / 1")
         self._lbl_video_page.setStyleSheet("color:#9ca3af; font-size:10px; font-weight:600;")
         self._lbl_video_page.setFixedHeight(24)
-        tb.addWidget(self.btn_video_page_prev)
-        tb.addWidget(self._lbl_video_page)
-        tb.addWidget(self.btn_video_page_next)
+        self.btn_video_page_prev.hide()
+        self.btn_video_page_next.hide()
+        self._lbl_video_page.hide()
 
         page_layout.addLayout(tb)
 
@@ -643,10 +641,7 @@ class MediaWorkspace(QWidget):
             lambda mid: self._on_grid_run_all("video", mid),
         )
 
-        self.btn_video_page_prev.clicked.connect(self._video_pool_proxy.prev_page)
-        self.btn_video_page_next.clicked.connect(self._video_pool_proxy.next_page)
-        self._video_pool_proxy.pagesChanged.connect(self._refresh_video_pager)
-        self._refresh_video_pager()
+        # Paginierungs-Signale fuer Videos entfernt (Tabelle direkt gebunden)
         return page
 
     def _build_video_analysis_side_panel(self) -> None:
