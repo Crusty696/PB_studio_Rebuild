@@ -609,6 +609,13 @@ class TimelineClipItem(QGraphicsRectItem):
 
     def hoverMoveEvent(self, event):
         """Cursor aendern wenn ueber Trim-Handle."""
+        if self._locked:
+            self.setCursor(Qt.CursorShape.ArrowCursor)
+            self._left_handle.setVisible(False)
+            self._right_handle.setVisible(False)
+            super().hoverMoveEvent(event)
+            return
+
         edge = self._detect_trim_edge(event.pos().x())
         if edge:
             self.setCursor(Qt.CursorShape.SizeHorCursor)
@@ -635,15 +642,16 @@ class TimelineClipItem(QGraphicsRectItem):
                 self._handle_lock_icon_click()
                 event.accept()
                 return
-            edge = self._detect_trim_edge(event.pos().x())
-            if edge:
-                self._trim_mode = edge
-                self._trim_start_mouse_x = event.scenePos().x()
-                self._trim_start_width = self._clip_width
-                self._trim_start_pos_x = self.pos().x()
-                self.setFlag(QGraphicsRectItem.GraphicsItemFlag.ItemIsMovable, False)
-                event.accept()
-                return
+            if not self._locked:
+                edge = self._detect_trim_edge(event.pos().x())
+                if edge:
+                    self._trim_mode = edge
+                    self._trim_start_mouse_x = event.scenePos().x()
+                    self._trim_start_width = self._clip_width
+                    self._trim_start_pos_x = self.pos().x()
+                    self.setFlag(QGraphicsRectItem.GraphicsItemFlag.ItemIsMovable, False)
+                    event.accept()
+                    return
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
@@ -725,8 +733,10 @@ class TimelineClipItem(QGraphicsRectItem):
         # Goldrand bei Lock
         if self._locked:
             self.setPen(QPen(QColor(212, 164, 74, 255), 2))
+            self.setFlag(QGraphicsRectItem.GraphicsItemFlag.ItemIsMovable, False)
         else:
             self.setPen(QPen(self._base_color.darker(120), 1))
+            self.setFlag(QGraphicsRectItem.GraphicsItemFlag.ItemIsMovable, True)
 
     def _hit_lock_icon(self, local_pos) -> bool:
         rect = self.lock_icon.boundingRect().translated(self.lock_icon.pos())
@@ -2127,6 +2137,14 @@ class InteractiveTimeline(QGraphicsView):
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
             event.accept()
             return
+        elif event.button() == Qt.MouseButton.LeftButton:
+            # B-553: RubberBandDrag verhindern, wenn auf Clip oder dessen Kinder geklickt wird
+            item = self.itemAt(event.position().toPoint())
+            while item:
+                if isinstance(item, TimelineClipItem):
+                    self.setDragMode(QGraphicsView.DragMode.NoDrag)
+                    break
+                item = item.parentItem()
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
@@ -2152,6 +2170,9 @@ class InteractiveTimeline(QGraphicsView):
             event.accept()
             return
         super().mouseReleaseEvent(event)
+        # B-553: RubberBandDrag wieder aktivieren
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
 
     # ── AUD-71: Keyboard Shortcuts (configurable via ShortcutManager) ───
 
