@@ -470,7 +470,11 @@ class PBWindow(QMainWindow):
         if hasattr(self.right_panel, "set_context_visible"):
             self.right_panel.set_context_visible(visible)
         else:
-            self.right_panel.setFixedWidth(self.right_panel.DEFAULT_WIDTH if visible else 0)
+            if visible:
+                self.right_panel.setMinimumWidth(280)
+                self.right_panel.setMaximumWidth(1000)
+            else:
+                self.right_panel.setFixedWidth(0)
             self.right_panel.setVisible(visible)
         if dock is not None:
             dock.setVisible(visible)

@@ -93,7 +93,7 @@ class SectionTabs(QTabWidget):
 class ContextPanel(SectionTabs):
     """Right-side context panel. Collapsed by default, contents survive."""
 
-    DEFAULT_WIDTH = 180  # UI-Ueberholung 2026-06-13 (User-Feedback): ~halbe Breite, dafuer andockbar (QDockWidget)
+    DEFAULT_WIDTH = 280  # Erhöhte Standard-Mindestbreite für bessere Lesbarkeit
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -102,9 +102,14 @@ class ContextPanel(SectionTabs):
         self.set_context_visible(False)
 
     def set_context_visible(self, visible: bool) -> None:
-        self.setMinimumWidth(0)
-        self.setMaximumWidth(self.DEFAULT_WIDTH if visible else 0)
-        self.setFixedWidth(self.DEFAULT_WIDTH if visible else 0)
+        if visible:
+            self.setMinimumWidth(280)
+            self.setMaximumWidth(1000)
+            # setFixedWidth wird weggelassen, damit der User das Widget resizen kann
+        else:
+            self.setMinimumWidth(0)
+            self.setMaximumWidth(0)
+            self.setFixedWidth(0)
         self.setVisible(visible)
 
 
