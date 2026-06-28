@@ -732,6 +732,68 @@ def _auto_edit_phase3_inner(
         logger.warning("AUD-82: CrossModalMatcher uebersprungen: %s", e)
         cross_modal_matcher = None
 
+    # ── Ollama Direct EDL Reasoning (Stufe 3) ──────────────────────
+    if getattr(settings, "use_llm_pacing", False):
+        try:
+            from services.pacing.ollama_pacing import OllamaPacingService
+            logger.info("Ollama direct EDL reasoning aktiv: Generiere EDL...")
+            if progress_cb:
+                progress_cb(58, "Ollama generiert direkte EDL...")
+            ollama_service = OllamaPacingService()
+            edl = ollama_service.generate_edl(
+                audio_id=audio_id,
+                video_clip_ids=video_clip_ids,
+                user_preferences=settings.user_preferences
+            )
+            if edl:
+                segments: list[TimelineSegment] = []
+                cut_points: list[CutPoint] = []
+                
+                with Session(_ae_eng) as session:
+                    from database import VideoClip
+                    video_paths = {
+                        vc.id: vc.file_path
+                        for vc in session.query(VideoClip).filter(VideoClip.id.in_(video_clip_ids)).all()
+                    }
+                
+                for entry in edl:
+                    vid = entry["video_id"]
+                    if vid not in video_paths:
+                        continue
+                    vpath = video_paths[vid]
+                    v_start = entry["start"]
+                    v_end = entry["end"]
+                    scene_id = entry.get("scene_id")
+                    
+                    segments.append(TimelineSegment(
+                        video_id=vid,
+                        video_path=vpath,
+                        start=v_start,
+                        end=v_end,
+                        source_start=0.0,
+                        source_end=v_end - v_start,
+                        is_anchor=False,
+                        scene_id=str(scene_id) if scene_id is not None else ""
+                    ))
+                    
+                    cut_points.append(CutPoint(
+                        time=v_start,
+                        source="llm",
+                        strength=0.8
+                    ))
+                
+                if segments:
+                    cut_points.append(CutPoint(
+                        time=segments[-1].end,
+                        source="llm",
+                        strength=0.8
+                    ))
+                    cut_points.sort(key=lambda c: c.time)
+                    logger.info("EDL von Ollama erfolgreich in %d Segmente und %d CutPoints übersetzt.", len(segments), len(cut_points))
+                    return segments, cut_points
+        except Exception as e:
+            logger.warning("Ollama direct EDL reasoning fehlgeschlagen, Fallback auf Standard: %s", e)
+
     if progress_cb:
         progress_cb(60, "Erzeuge Timeline-Segmente...")
     # 6. Segmente erzeugen

@@ -251,7 +251,7 @@ class StructureDetectionService:
 
             # ── 10. DJ-Mix-Erkennung ─────────────────────────────────────
             track_duration = float(beats[-1]) if len(beats) > 0 else 0.0
-            dj_transitions = self._detect_dj_transitions(energy_smooth, centroid_smooth, beats, bpm)
+            dj_transitions = self._detect_dj_transitions(energy_smooth, centroid_smooth, bass_smooth, beats, bpm)
             is_dj_mix = self._classify_dj_mix(track_duration, dj_transitions, bpm)
 
             log.info(
@@ -456,41 +456,70 @@ class StructureDetectionService:
 
         Returns (bass_per_beat, drums_per_beat, vocals_per_beat) als np.ndarrays
         gleicher Laenge wie beats, oder None bei Fehler. Streaming-konform:
-        sequentiell laden, RMS rechnen, Array freigeben (nie alle 3 Stems im RAM).
-        Aktuell wird in der Segmentierung nur der Bass-Stem genutzt (Drop-Detection);
-        drums/vocals werden zukunftssicher mitberechnet.
+        sequentiell laden, RMS chunked rechnen, Array freigeben.
         """
         if not _HAS_LIBROSA:
             return None
-        try:
-            from services.audio_constants import DEFAULT_SR, HOP_LENGTH, MAX_DURATION_STRUCTURE
-            results: list = []
-            for stem_name in ("bass", "drums", "vocals"):
-                path = stem_paths.get(stem_name)
-                if not path:
-                    results.append(None)
-                    continue
-                try:
-                    y_stem, sr = librosa.load(
-                        path, sr=DEFAULT_SR, mono=True, duration=MAX_DURATION_STRUCTURE,
-                    )
-                    if len(y_stem) == 0:
-                        results.append(None)
+        import gc
+        import librosa
+        from services.audio_constants import DEFAULT_SR, HOP_LENGTH
+
+        results: list = []
+        for stem_name in ("bass", "drums", "vocals"):
+            path = stem_paths.get(stem_name)
+            if not path:
+                results.append(None)
+                continue
+            try:
+                duration = librosa.get_duration(path=path)
+                beats_arr = np.asarray(beats, dtype=np.float64)
+                
+                chunk_sec = 600.0
+                pos = 0.0
+                feature_beat_all = []
+                
+                while pos < duration:
+                    chunk_end = min(duration, pos + chunk_sec)
+                    mask = (beats_arr >= pos) & (beats_arr < chunk_end)
+                    beats_in_chunk = beats_arr[mask]
+                    
+                    if len(beats_in_chunk) == 0:
+                        pos = chunk_end
                         continue
-                    rms = librosa.feature.rms(y=y_stem, hop_length=HOP_LENGTH)[0]
-                    frame_times = librosa.frames_to_time(
-                        np.arange(len(rms)), sr=sr, hop_length=HOP_LENGTH,
-                    )
-                    per_beat = self._sample_feature_at_beats(rms, frame_times, beats)
-                    results.append(per_beat)
-                    del y_stem
-                except Exception as e:  # noqa: BLE001
-                    log.warning("Stem-Load %s fehlgeschlagen: %s", path, e)
-                    results.append(None)
-            return tuple(results)
-        except Exception as e:  # noqa: BLE001
-            log.debug("Stem-Feature-Berechnung fehlgeschlagen: %s", e)
-            return None
+                        
+                    try:
+                        load_start = max(0.0, pos - 5.0)
+                        load_end = min(duration, chunk_end + 5.0)
+                        load_dur = load_end - load_start
+                        
+                        y_chunk, _ = librosa.load(path, sr=DEFAULT_SR, mono=True, offset=load_start, duration=load_dur)
+                        if len(y_chunk) == 0:
+                            pos = chunk_end
+                            continue
+                            
+                        n_frames = int(len(y_chunk) / HOP_LENGTH) + 1
+                        frame_times = librosa.frames_to_time(np.arange(n_frames), sr=DEFAULT_SR, hop_length=HOP_LENGTH) + load_start
+                        
+                        rms = librosa.feature.rms(y=y_chunk, hop_length=HOP_LENGTH)[0]
+                        min_frames = min(len(rms), len(frame_times))
+                        rms = rms[:min_frames]
+                        frame_times = frame_times[:min_frames]
+                        
+                        r_beat = self._sample_feature_at_beats(rms, frame_times, beats_in_chunk)
+                        feature_beat_all.extend(r_beat.tolist())
+                        
+                        del y_chunk
+                        gc.collect()
+                    except Exception as e:
+                        log.warning("Fehler beim Chunk-Laden von Stem %s bei %.1fs: %s", path, pos, e)
+                        
+                    pos = chunk_end
+                
+                results.append(np.array(feature_beat_all) if feature_beat_all else None)
+            except Exception as e:  # noqa: BLE001
+                log.warning("Stem-Load %s fehlgeschlagen: %s", path, e)
+                results.append(None)
+        return tuple(results)
 
     @staticmethod
     def _compute_beat_regularity(beats, n_beats: int):
@@ -602,12 +631,12 @@ class StructureDetectionService:
 
     # ── DJ-Mix-Erkennung ──────────────────────────────────────────────────
 
-    def _detect_dj_transitions(self, energy_norm, centroid_norm, beats, bpm: float | None) -> list[float]:
+    def _detect_dj_transitions(self, energy_norm, centroid_norm, bass_norm, beats, bpm: float | None) -> list[float]:
         """Erkennt DJ-Mix-Uebergaenge.
         
         Kombiniert:
         1. Energie-Dips (Lautstaerkeeinbrueche).
-        2. Spectral-Flux (Starke Aenderungen im Frequenz-Schwerpunkt bei EQ-Blending).
+        2. Enhanced Spectral-Flux (Starke Aenderungen in Centroid und Bass bei EQ-Blending).
         """
         from services.audio_constants import (
             DJ_MIX_ENERGY_DIP_THRESHOLD, DJ_MIX_TRANSITION_MIN_GAP_SEC,
@@ -620,8 +649,10 @@ class StructureDetectionService:
         n = len(energy_norm)
         min_gap_beats = 32
 
-        # Berechne lokalen Spectral Flux (Aenderung des Centroids)
+        # Berechne lokalen Spectral Flux (Kombination aus Centroid- und Bass-Gradienten)
         centroid_flux = np.abs(np.gradient(centroid_norm))
+        bass_flux = np.abs(np.gradient(bass_norm))
+        spectral_flux = 0.5 * centroid_flux + 0.5 * bass_flux
 
         i = 16
         last_transition_beat = 0
@@ -639,9 +670,9 @@ class StructureDetectionService:
             )
 
             # 2. Spektraler Uebergang (EQ-Wechsel bei konstanter Energie)
-            # Centroid-Aenderung (Flux)
+            # Kombination aus Centroid- und Bass-Flux
             is_spectral_shift = (
-                centroid_flux[i] > 0.18
+                spectral_flux[i] > 0.15
                 and (i - last_transition_beat) >= min_gap_beats
             )
 

@@ -77,6 +77,8 @@ def _reset_embedder_cache(*, unload: bool = True) -> None:
                     logger.debug("Embedder-unload fehlgeschlagen (ignoriert): %s", exc)
         _VIDEO_EMBEDDER = None
         _AUDIO_EMBEDDER = None
+        if unload:
+            logger.info("VRAM-Hygiene: Embedder-Cache (VRAM) erfolgreich freigegeben.")
 
 
 def _default_embedder_factory(
