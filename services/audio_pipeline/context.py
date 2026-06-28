@@ -54,6 +54,7 @@ class PipelineContext:
     status: str = "pending"
     save_lock: threading.RLock = field(default_factory=threading.RLock)
     should_stop: Callable[[], bool] | None = None
+    on_progress: Callable[[int, str], None] | None = None  # Feinkoerniger Fortschritt
 
     def set_result(self, stage_name: str, value: Any) -> None:
         """Setze Stage-Result. Raised bei Tensor-Guard-Verletzung (A-5)."""

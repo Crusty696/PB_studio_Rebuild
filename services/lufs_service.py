@@ -132,7 +132,7 @@ class LUFSService:
 
         return max(FFMPEG_TIMEOUT_SEC, size_timeout, duration_timeout)
 
-    def analyze(self, file_path: str) -> LUFSResult:
+    def analyze(self, file_path: str, progress_cb=None) -> LUFSResult:
         """Analysiert die Lautstaerke einer Audio-Datei.
 
         Uses FFmpeg's ``loudnorm`` filter (EBU R128) to obtain integrated
@@ -140,6 +140,7 @@ class LUFSService:
 
         Args:
             file_path: Pfad zur Audio-Datei
+            progress_cb: Optionaler Fortschritts-Callback progress_cb(percent, msg)
 
         Returns:
             LUFSResult mit Integrated/Short-Term/Range/TruePeak
@@ -157,8 +158,14 @@ class LUFSService:
                 fallback_reason=reason,
             )
 
+        if progress_cb:
+            progress_cb(10, "Starte FFmpeg-Loudnorm-Prozess...")
+
         try:
             stderr = self._run_ffmpeg(file_path)
+            if progress_cb:
+                progress_cb(80, "Lese FFmpeg-Messergebnisse...")
+
             if stderr is None:
                 return _make_fallback("FFmpeg lieferte keinen Output")
 
@@ -171,7 +178,13 @@ class LUFSService:
                 )
                 return _make_fallback("loudnorm-JSON nicht parsebar")
 
-            return self._extract_values(data, file_path)
+            if progress_cb:
+                progress_cb(90, "Berechne EBU R128 Konformitätswerte...")
+
+            res = self._extract_values(data, file_path)
+            if progress_cb:
+                progress_cb(100, "LUFS-Analyse abgeschlossen")
+            return res
 
         except FileNotFoundError:
             log.error(

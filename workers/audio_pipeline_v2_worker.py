@@ -49,11 +49,6 @@ class AudioPipelineV2Worker(QObject, CancellableMixin):
             stages = build_default_stages()
             total = max(1, len(stages))
             pipeline = AudioAnalysisPipeline(stages)
-            ctx = PipelineContext(
-                track_id=self.audio_track_id,
-                original_path=self.file_path,
-                should_stop=self.should_stop,
-            )
 
             done = {"n": 0}
 
@@ -65,6 +60,18 @@ class AudioPipelineV2Worker(QObject, CancellableMixin):
                 done["n"] += 1
                 pct = int(done["n"] / total * 100)
                 self.progress.emit(pct, f"Audio-V2: {name} fertig")
+
+            def _on_sub_progress(stage_pct: int, message: str) -> None:
+                stage_idx = done["n"]
+                pct = int((stage_idx + (stage_pct / 100.0)) / total * 100)
+                self.progress.emit(pct, f"Audio-V2: {message}")
+
+            ctx = PipelineContext(
+                track_id=self.audio_track_id,
+                original_path=self.file_path,
+                should_stop=self.should_stop,
+                on_progress=_on_sub_progress,
+            )
 
             pipeline.stage_started.connect(_on_started)
             pipeline.stage_done.connect(_on_done)

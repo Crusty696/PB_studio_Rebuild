@@ -224,16 +224,32 @@ class StemGenStage(Stage):
 
         out_dir = str(self._resolve_stems_dir(context.track_id))
 
+        progress_cb = None
+        if context.on_progress:
+            def _progress_wrapper(pct: int, msg: str) -> None:
+                context.on_progress(pct, f"Stems: {msg}")
+            progress_cb = _progress_wrapper
+
         # T2.1: GPU-Lock + Demucs + VRAM-Cleanup
         with GPU_EXECUTION_LOCK:
             try:
                 separator = self._separator_cls()
-                result = separator.separate_to(
-                    file_path=context.original_path,
-                    out_dir=out_dir,
-                    subtype=_TARGET_WAV_SUBTYPE,
-                    should_stop=context.should_stop,
-                )
+                if progress_cb:
+                    result = separator.separate_to(
+                        file_path=context.original_path,
+                        out_dir=out_dir,
+                        subtype=_TARGET_WAV_SUBTYPE,
+                        model="htdemucs_ft",
+                        progress_cb=progress_cb,
+                        should_stop=context.should_stop,
+                    )
+                else:
+                    result = separator.separate_to(
+                        file_path=context.original_path,
+                        out_dir=out_dir,
+                        subtype=_TARGET_WAV_SUBTYPE,
+                        should_stop=context.should_stop,
+                    )
             finally:
                 if torch is not None and torch.cuda.is_available():
                     torch.cuda.empty_cache()
@@ -461,7 +477,17 @@ class LUFSStage(Stage):
             from services.lufs_service import LUFSService
             self._service_cls = LUFSService
         svc = self._service_cls()
-        result = svc.analyze(context.original_path)
+
+        progress_cb = None
+        if context.on_progress:
+            def _progress_wrapper(pct: int, msg: str) -> None:
+                context.on_progress(pct, f"LUFS: {msg}")
+            progress_cb = _progress_wrapper
+
+        if progress_cb:
+            result = svc.analyze(context.original_path, progress_cb=progress_cb)
+        else:
+            result = svc.analyze(context.original_path)
         # OTK-018: LUFS an AudioTrack persistieren (Worker-konform: result.integrated).
         integrated = getattr(result, "integrated", None)
         if integrated is None:
