@@ -32,7 +32,7 @@ def test_mark_stage_done_preserves_existing_meta(tmp_path, monkeypatch):
         "version": 1,
         "original_hash": "abc",
         "stem_hashes": {"drums": "h"},
-        "demucs_version": "htdemucs_ft",
+        "demucs_version": "htdemucs",
         "wav_subtype": "PCM_24",
         "stages_done": ["stem_gen"],
     })

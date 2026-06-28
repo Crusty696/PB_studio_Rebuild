@@ -59,7 +59,7 @@ def test_load_save_cache_meta_roundtrip(tmp_path, monkeypatch):
         "version": 1,
         "original_hash": "abc",
         "stem_hashes": {"drums": "h1", "bass": "h2", "vocals": "h3", "other": "h4"},
-        "demucs_version": "htdemucs_ft-v1",
+        "demucs_version": "htdemucs-v1",
         "wav_subtype": "PCM_24",
         "stages_done": ["stem_gen"],
     }

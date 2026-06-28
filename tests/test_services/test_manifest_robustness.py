@@ -170,7 +170,7 @@ def test_b548_merge_keeps_richer_entry(tmp_path: Path) -> None:
     sr = tmp_path / "storage"
     base = tmp_path / "Proj"
     record_manifest_job(sr, sha, project_id=1, project_name="P", project_path=str(base),
-                        step_id="audio.v2.stems", model="Demucs", model_version="htdemucs_ft",
+                        step_id="audio.v2.stems", model="Demucs", model_version="htdemucs",
                         finished_at=datetime(2026, 6, 14, 13, 0))
     # migration-style poorer write (no model / finished_at)
     record_manifest_job(sr, sha, project_id=1, project_name="P", project_path=str(base),
@@ -178,5 +178,5 @@ def test_b548_merge_keeps_richer_entry(tmp_path: Path) -> None:
     jobs = read_manifest_jobs(sr, sha)
     assert len(jobs) == 1
     assert jobs[0]["model"] == "Demucs"
-    assert jobs[0]["model_version"] == "htdemucs_ft"
+    assert jobs[0]["model_version"] == "htdemucs"
     assert jobs[0]["finished_at"] is not None

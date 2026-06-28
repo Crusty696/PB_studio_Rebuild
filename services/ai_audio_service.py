@@ -423,7 +423,7 @@ class StemSeparator:
 
     @oom_recovery
     @_gpu_execution_locked
-    def separate(self, file_path: str, model: str = "htdemucs_ft",
+    def separate(self, file_path: str, model: str = "htdemucs",
                  progress_cb=None, should_stop=None,
                  output_dir: str | Path | None = None) -> dict[str, str]:
         """Fuehrt Demucs Stem Separation mit Chunking + CUDA-Zwang aus.
@@ -825,7 +825,7 @@ class StemSeparator:
         return stems
 
     def separate_to(self, file_path: str, out_dir: str, subtype: str = "PCM_24",
-                    model: str = "htdemucs_ft", progress_cb=None, should_stop=None) -> dict[str, str]:
+                    model: str = "htdemucs", progress_cb=None, should_stop=None) -> dict[str, str]:
         """Plan AUDIO-ANALYSIS-V2 T2.1 (A-2 + Q-C): separiert Stems direkt nach
         ``out_dir/{name}.wav`` als ``subtype`` (default PCM_24).
 

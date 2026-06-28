@@ -101,7 +101,7 @@ def _persist_to_track(track_id: int, fields: dict) -> None:
         logger.warning("Persist track=%s fehlgeschlagen: %s", track_id, e)
 
 
-_DEMUCS_VERSION = "htdemucs_ft"
+_DEMUCS_VERSION = "htdemucs"
 _TARGET_WAV_SUBTYPE = "PCM_24"
 
 
@@ -239,7 +239,7 @@ class StemGenStage(Stage):
                         file_path=context.original_path,
                         out_dir=out_dir,
                         subtype=_TARGET_WAV_SUBTYPE,
-                        model="htdemucs_ft",
+                        model="htdemucs",
                         progress_cb=progress_cb,
                         should_stop=context.should_stop,
                     )

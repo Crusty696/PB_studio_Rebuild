@@ -188,7 +188,7 @@ class TestStemSeparatorAndStore:
         def fake_separate(
             self,
             file_path,
-            model="htdemucs_ft",
+            model="htdemucs",
             progress_cb=None,
             should_stop=None,
             output_dir=None,
