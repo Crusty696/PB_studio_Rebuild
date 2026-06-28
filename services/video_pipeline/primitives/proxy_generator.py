@@ -124,7 +124,7 @@ def _try_encode(src: Path, dst: Path, max_width: int, bitrate: str, codec: str) 
         # export_service/convert_service/video_service. GTX 1060 (Pascal)
         # erlaubt nur 2-3 NVENC-Sessions; parallele Encodes enden in
         # "OpenEncodeSessionEx failed". Lock NUR um den Subprocess-Lauf.
-        from services.brain_v3.gpu_serializer import get_default_serializer
+        from services.brain.gpu_serializer import get_default_serializer
         with get_default_serializer().acquire("proxy_gen"):
             res = subprocess.run(
                 cmd, capture_output=True, text=True, timeout=timeout_s,

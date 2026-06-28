@@ -71,7 +71,7 @@ class RaftMotionStage:
             # legacy GPU_EXECUTION_LOCK). Frame-Decode (CPU) liegt mit im Lock —
             # akzeptabel, da der Lock Mid-Stage-Konkurrenz auf der 6-GB-GPU
             # verhindert.
-            from services.brain_v3.gpu_serializer import get_default_serializer
+            from services.brain.gpu_serializer import get_default_serializer
             with get_default_serializer().acquire("video_pipeline_raft"):
                 # F-16 (B-348): pairs are consecutive sample times, so each interior
                 # timestamp is the second frame of one pair and the first of the next.

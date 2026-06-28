@@ -8,10 +8,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from services.brain_v3.bridge_dimensions import BridgeDimensions, ClipCandidate
-from services.brain_v3.cold_start import BRIDGE_AXES
-from services.brain_v3.context_resolver import CutContext, context_keys
-from services.brain_v3.weight_store import WeightStore
+from services.brain.bridge_dimensions import BridgeDimensions, ClipCandidate
+from services.brain.cold_start import BRIDGE_AXES
+from services.brain.context_resolver import CutContext, context_keys
+from services.brain.weight_store import WeightStore
 
 
 @dataclass

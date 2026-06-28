@@ -23,11 +23,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from services.brain_v3 import paths
-from services.brain_v3.cold_start import BRIDGE_AXES
-from services.brain_v3.context_resolver import CutContext, context_keys
-from services.brain_v3.feedback_logger import FeedbackLogger
-from services.brain_v3.schemas.brain_v3_schemas import (
+from services.brain import paths
+from services.brain.cold_start import BRIDGE_AXES
+from services.brain.context_resolver import CutContext, context_keys
+from services.brain.feedback_logger import FeedbackLogger
+from services.brain.schemas.brain_v3_schemas import (
     BrainV3HealthResponse,
     CutSuggestion,
     FeedbackRequest,
@@ -40,8 +40,8 @@ from services.brain_v3.schemas.brain_v3_schemas import (
     SuggestRequest,
     SuggestResponse,
 )
-from services.brain_v3.storage.brain_store import BrainStore
-from services.brain_v3.weight_store import WeightStore, MIN_CONFIDENT_SAMPLES
+from services.brain.storage.brain_store import BrainStore
+from services.brain.weight_store import WeightStore, MIN_CONFIDENT_SAMPLES
 
 logger = logging.getLogger(__name__)
 
@@ -129,7 +129,7 @@ class BrainV3Service:
         scored = self._build_service_candidates(request.video_clip_ids)
         if request.use_brain_v3:
             try:
-                from services.brain_v3.reranker import BrainV3Reranker
+                from services.brain.reranker import BrainV3Reranker
                 reranked = BrainV3Reranker(
                     self._weight_store,
                     brain_weight=1.0,
@@ -268,7 +268,7 @@ class BrainV3Service:
         Cuts vorhanden sind, faellt der Service auf den Weight-Bucket-Sampler
         ohne Medienpfade zurueck.
         """
-        from services.brain_v3.timeline_state import load_learning_preview_samples
+        from services.brain.timeline_state import load_learning_preview_samples
 
         try:
             real_samples = load_learning_preview_samples(
@@ -290,7 +290,7 @@ class BrainV3Service:
                 available_n=len(real_samples),
             )
 
-        from services.brain_v3.smart_sampler import sample_uncertain
+        from services.brain.smart_sampler import sample_uncertain
         points = sample_uncertain(self._weight_store, n=n)
         samples = [
             LearningSampleCut(
@@ -330,7 +330,7 @@ class BrainV3Service:
 
     def health(self) -> BrainV3HealthResponse:
         """In-process Health fuer UI/Diagnostik, keine REST-Schicht."""
-        from services.brain_v3.storage.embedding_cache import EmbeddingCache
+        from services.brain.storage.embedding_cache import EmbeddingCache
 
         EmbeddingCache(db_path=paths.embedding_cache_db_path())
         health = self._brain_store.health_check()

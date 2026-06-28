@@ -13,7 +13,7 @@ import types
 
 import pytest
 
-from services.brain_v3.gpu_serializer import GpuSerializer
+from services.brain.gpu_serializer import GpuSerializer
 
 
 # ===== B-503: sync acquire Timeout + Holder-Info =============================

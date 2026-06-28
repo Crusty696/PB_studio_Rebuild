@@ -21,14 +21,14 @@ from typing import Any, Optional, Sequence
 
 import numpy as np
 
-from services.brain_v3.bridge_dimensions import BridgeDimensions, ClipCandidate
-from services.brain_v3.context_mapping import ContextMappingConfig, build_cut_context
-from services.brain_v3.context_resolver import (
+from services.brain.bridge_dimensions import BridgeDimensions, ClipCandidate
+from services.brain.context_mapping import ContextMappingConfig, build_cut_context
+from services.brain.context_resolver import (
     CutContext,
     quantize_tertile,
 )
-from services.brain_v3.scorer import Scorer
-from services.brain_v3.weight_store import WeightStore
+from services.brain.scorer import Scorer
+from services.brain.weight_store import WeightStore
 
 logger = logging.getLogger(__name__)
 

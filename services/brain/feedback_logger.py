@@ -12,8 +12,8 @@ import logging
 from datetime import datetime, timezone
 from typing import Literal
 
-from services.brain_v3.cold_start import BRIDGE_AXES
-from services.brain_v3.weight_store import WeightStore
+from services.brain.cold_start import BRIDGE_AXES
+from services.brain.weight_store import WeightStore
 
 logger = logging.getLogger(__name__)
 

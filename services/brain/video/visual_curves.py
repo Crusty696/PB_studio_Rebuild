@@ -22,7 +22,7 @@ from typing import Optional
 
 import numpy as np
 
-from services.brain_v3.schemas.video import (
+from services.brain.schemas.video import (
     CurvePoint, VisualCurves, VisualCurvesResult,
 )
 
@@ -61,7 +61,7 @@ class VisualCurvesExtractor:
 
         Args:
             video_path: Pfad zur Video-Datei (mp4, mov, mkv, ...).
-            video_hash: sha256 der Video-Datei (von services.brain_v3.hashing).
+            video_hash: sha256 der Video-Datei (von services.brain.hashing).
             max_seconds: optional Max-Dauer fuer Tests (clamp).
 
         Returns:

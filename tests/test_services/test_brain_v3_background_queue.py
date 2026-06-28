@@ -1,4 +1,4 @@
-"""Tests fuer services.brain_v3.background_queue.
+"""Tests fuer services.brain.background_queue.
 
 Plan-Doc 06 Phase 2 DoD: Background-Queue + Progress.
 Pure asyncio + threading, kein GPU/Modell noetig.
@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 
-from services.brain_v3.background_queue import (
+from services.brain.background_queue import (
     EmbeddingJob, EmbeddingJobQueue, JobProgress, JobStatus,
 )
 

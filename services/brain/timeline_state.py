@@ -15,9 +15,9 @@ from typing import Callable, ContextManager
 
 import database
 import database.session as db_session_module
-from services.brain_v3 import paths
-from services.brain_v3.schemas.brain_v3_schemas import LearningSampleCut
-from services.brain_v3.storage.migration_runner import migrate
+from services.brain import paths
+from services.brain.schemas.brain_v3_schemas import LearningSampleCut
+from services.brain.storage.migration_runner import migrate
 
 logger = logging.getLogger(__name__)
 

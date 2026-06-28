@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from services.brain_v3.storage.brain_store import BrainStore, BrainStoreHealth
+from services.brain.storage.brain_store import BrainStore, BrainStoreHealth
 
 
 @pytest.fixture
@@ -42,7 +42,7 @@ def test_health_check_marks_missing_db_as_fail(isolated_appdata, tmp_path):
     weights_path.unlink()  # delete after init
     store2 = BrainStore.__new__(BrainStore)
     store2.weights_path = weights_path
-    from services.brain_v3 import paths as p
+    from services.brain import paths as p
     store2.patterns_path = p.patterns_db_path()
     health = store2.health_check()
     assert health.weights_ok is False

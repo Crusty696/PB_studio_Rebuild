@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from services.brain_v3.video.video_embedder import SceneSpec, Siglip2VideoEmbedder
+from services.brain.video.video_embedder import SceneSpec, Siglip2VideoEmbedder
 
 
 class _FakeCV2:

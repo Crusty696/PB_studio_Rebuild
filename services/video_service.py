@@ -267,7 +267,7 @@ class VideoAnalyzer:
             # "OpenEncodeSessionEx failed". Lock NUR um den
             # Subprocess-Lauf — die Datei-Checks oben bleiben lockfrei.
             try:
-                from services.brain_v3.gpu_serializer import get_default_serializer
+                from services.brain.gpu_serializer import get_default_serializer
                 with get_default_serializer().acquire("proxy_encode"):
                     self._run_proxy_encode(nvenc_cmd, proxy_path, should_stop)
             except FFmpegError as exc:

@@ -61,7 +61,7 @@ from sqlalchemy.exc import OperationalError
 
 import pyqtgraph as pg  # type: ignore[import-untyped]
 
-from services.brain_service import BrainService
+from services.brain import BrainService
 
 logger = logging.getLogger(__name__)
 

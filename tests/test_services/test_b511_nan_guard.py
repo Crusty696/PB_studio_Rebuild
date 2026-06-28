@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 import torch
 from unittest.mock import MagicMock, patch
-from services.brain_v3.video.video_embedder import _l2_normalize, Siglip2VideoEmbedder, SceneSpec
+from services.brain.video.video_embedder import _l2_normalize, Siglip2VideoEmbedder, SceneSpec
 from services.video_analysis_service import generate_embeddings, SceneInfo
 
 def test_l2_normalize_with_nan():

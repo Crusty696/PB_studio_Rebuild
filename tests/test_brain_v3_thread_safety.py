@@ -12,12 +12,12 @@ from __future__ import annotations
 
 import threading
 
-from services.brain_v3.brain_v3_service import BrainV3Service
-from services.brain_v3.cold_start import BRIDGE_AXES
-from services.brain_v3.context_resolver import CutContext, context_keys
-from services.brain_v3.schemas.brain_v3_schemas import FeedbackRequest
-from services.brain_v3.storage.brain_store import BrainStore
-from services.brain_v3.weight_store import WeightStore
+from services.brain.brain_v3_service import BrainV3Service
+from services.brain.cold_start import BRIDGE_AXES
+from services.brain.context_resolver import CutContext, context_keys
+from services.brain.schemas.brain_v3_schemas import FeedbackRequest
+from services.brain.storage.brain_store import BrainStore
+from services.brain.weight_store import WeightStore
 
 N_THREADS = 5
 N_CALLS_PER_THREAD = 30

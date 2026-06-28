@@ -1,4 +1,4 @@
-"""Tests fuer services.brain_v3.storage.embedding_repository (sqlite-vec).
+"""Tests fuer services.brain.storage.embedding_repository (sqlite-vec).
 
 Wenn sqlite-vec NICHT installiert: alle Tests werden SKIPPED, nicht failed.
 sqlite-vec>=0.1.6 ist feste Dependency in requirements-py310-cu113.txt; nach
@@ -28,7 +28,7 @@ HASH = "c" * 64
 
 
 def test_embedding_repository_console_log_messages_are_ascii_safe():
-    from services.brain_v3.storage.embedding_repository import EmbeddingRepository
+    from services.brain.storage.embedding_repository import EmbeddingRepository
 
     src = inspect.getsource(EmbeddingRepository._apply_migrations)
     assert "→" not in src
@@ -37,7 +37,7 @@ def test_embedding_repository_console_log_messages_are_ascii_safe():
 
 @pytest.fixture
 def repo(tmp_path: Path):
-    from services.brain_v3.storage.embedding_repository import EmbeddingRepository
+    from services.brain.storage.embedding_repository import EmbeddingRepository
     return EmbeddingRepository(project_root=tmp_path / "proj")
 
 
@@ -46,7 +46,7 @@ def test_repo_init_creates_db_and_schema(repo, tmp_path: Path):
     assert db_path.exists()
 
     import sqlite3
-    from services.brain_v3.storage.sqlite_init import open_connection
+    from services.brain.storage.sqlite_init import open_connection
     conn = open_connection(db_path, load_sqlite_vec=True)
     try:
         names = {r[0] for r in conn.execute(
@@ -60,7 +60,7 @@ def test_repo_init_creates_db_and_schema(repo, tmp_path: Path):
 
 
 def test_audio_unit_round_trip(repo):
-    from services.brain_v3.storage.embedding_repository import AudioUnit, CLAP_DIM
+    from services.brain.storage.embedding_repository import AudioUnit, CLAP_DIM
     unit = AudioUnit(
         level="window", media_id=1, media_hash=HASH,
         start_time=0.0, end_time=10.0,
@@ -79,7 +79,7 @@ def test_audio_unit_round_trip(repo):
 
 
 def test_audio_knn_returns_correct_order(repo):
-    from services.brain_v3.storage.embedding_repository import AudioUnit, CLAP_DIM
+    from services.brain.storage.embedding_repository import AudioUnit, CLAP_DIM
     a = repo.add_audio_unit(AudioUnit(
         level="window", media_id=1, media_hash=HASH, start_time=0, end_time=10,
     ))
@@ -99,7 +99,7 @@ def test_audio_knn_returns_correct_order(repo):
 
 
 def test_audio_knn_filtered_by_level(repo):
-    from services.brain_v3.storage.embedding_repository import AudioUnit, CLAP_DIM
+    from services.brain.storage.embedding_repository import AudioUnit, CLAP_DIM
     win = repo.add_audio_unit(AudioUnit(
         level="window", media_id=1, media_hash=HASH, start_time=0, end_time=10,
     ))
@@ -117,7 +117,7 @@ def test_audio_knn_filtered_by_level(repo):
 
 
 def test_video_unit_round_trip(repo):
-    from services.brain_v3.storage.embedding_repository import VideoUnit, SIGLIP_DIM
+    from services.brain.storage.embedding_repository import VideoUnit, SIGLIP_DIM
     unit = VideoUnit(
         level="scene", media_id=42, media_hash=HASH,
         start_time=0.0, end_time=5.0,
@@ -135,7 +135,7 @@ def test_video_unit_round_trip(repo):
 
 
 def test_dim_mismatch_raises(repo):
-    from services.brain_v3.storage.embedding_repository import AudioUnit, VideoUnit
+    from services.brain.storage.embedding_repository import AudioUnit, VideoUnit
     a = repo.add_audio_unit(AudioUnit(
         level="window", media_id=1, media_hash=HASH, start_time=0, end_time=10,
     ))

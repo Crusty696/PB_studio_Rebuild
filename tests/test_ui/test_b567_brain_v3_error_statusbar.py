@@ -24,11 +24,11 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import QTimer  # noqa: E402
 from PySide6.QtWidgets import QApplication, QLabel, QMainWindow  # noqa: E402
 
-from services.brain_v3.embedding_scheduler import (  # noqa: E402
+from services.brain.embedding_scheduler import (  # noqa: E402
     EmbeddingScheduler,
     reset_default_scheduler_for_tests,
 )
-from services.brain_v3.gpu_serializer import (  # noqa: E402
+from services.brain.gpu_serializer import (  # noqa: E402
     GpuSerializer,
     reset_default_serializer_for_tests,
 )

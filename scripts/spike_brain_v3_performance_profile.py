@@ -125,15 +125,15 @@ def run_embedding_queue_profile(
     n_jobs: int = 20,
     fake_work_seconds: float = 0.02,
 ) -> dict[str, Any]:
-    from services.brain_v3.embedding_scheduler import (
+    from services.brain.embedding_scheduler import (
         EmbeddingScheduler,
         reset_default_scheduler_for_tests,
     )
-    from services.brain_v3.gpu_serializer import (
+    from services.brain.gpu_serializer import (
         GpuSerializer,
         reset_default_serializer_for_tests,
     )
-    from services.brain_v3.storage.embedding_cache import EmbeddingCache
+    from services.brain.storage.embedding_cache import EmbeddingCache
 
     tmp_root = Path(tempfile.mkdtemp(prefix="pb-brain-v3-perf-"))
     os.environ["APPDATA"] = str(tmp_root / "Roaming")

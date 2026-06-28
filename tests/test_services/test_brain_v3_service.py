@@ -9,16 +9,16 @@ import pytest
 
 from database import AudioTrack, Project, TimelineEntry, VideoClip
 from sqlalchemy.orm import Session
-from services.brain_v3.brain_v3_service import BrainV3Service
-from services.brain_v3.context_resolver import CutContext
-from services.brain_v3.paths import project_state_db_path
-from services.brain_v3.schemas.brain_v3_schemas import (
+from services.brain.brain_v3_service import BrainV3Service
+from services.brain.context_resolver import CutContext
+from services.brain.paths import project_state_db_path
+from services.brain.schemas.brain_v3_schemas import (
     FeedbackRequest,
     ResetRequest,
     SuggestRequest,
 )
-from services.brain_v3.storage.migration_runner import migrate
-from services.brain_v3.timeline_state import sync_current_timeline_from_entries
+from services.brain.storage.migration_runner import migrate
+from services.brain.timeline_state import sync_current_timeline_from_entries
 
 
 @pytest.fixture

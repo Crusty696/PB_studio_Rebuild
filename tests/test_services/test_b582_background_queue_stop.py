@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import asyncio
 
-from services.brain_v3.background_queue import (
+from services.brain.background_queue import (
     EmbeddingJob, EmbeddingJobQueue, JobStatus,
 )
 

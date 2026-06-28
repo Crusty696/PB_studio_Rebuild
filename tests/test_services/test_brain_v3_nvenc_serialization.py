@@ -4,7 +4,7 @@ from __future__ import annotations
 def test_convert_nvenc_runs_inside_brain_v3_render_serializer(monkeypatch, tmp_path):
     """NVENC-Render muss denselben Brain-V3-Serializer wie CLAP/SigLIP nutzen."""
     from services import convert_service
-    from services.brain_v3.gpu_serializer import (
+    from services.brain.gpu_serializer import (
         get_default_serializer,
         reset_default_serializer_for_tests,
     )

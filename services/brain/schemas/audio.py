@@ -41,7 +41,7 @@ class BrainV3AudioMeta(BaseModel):
     """V3-Erweiterung zur bestehenden AudioClipInfo, ueber audio_hash verknuepft.
 
     Persistiert in projekt-spezifischer state.db (Plan-Doc 04 Schema 5).
-    Hash wird beim Audio-Import per services.brain_v3.hashing.compute_media_hash
+    Hash wird beim Audio-Import per services.brain.hashing.compute_media_hash
     berechnet und hier abgelegt.
     """
     audio_hash: str = Field(..., min_length=64, max_length=64, description="sha256 hex")

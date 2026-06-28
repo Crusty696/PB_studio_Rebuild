@@ -65,7 +65,7 @@ class SigLipEmbedStage:
             # stellen (haelt zusaetzlich den legacy GPU_EXECUTION_LOCK). Damit kann
             # waehrend dieser Stage kein anderer GPU-Consumer (Demucs, convert-NVENC,
             # brain_v3) laufen ODER das ModelManager-Modell wegswappen.
-            from services.brain_v3.gpu_serializer import get_default_serializer
+            from services.brain.gpu_serializer import get_default_serializer
             all_embeds: list[np.ndarray] = []
             cancelled = False
             with get_default_serializer().acquire("video_pipeline_siglip"):

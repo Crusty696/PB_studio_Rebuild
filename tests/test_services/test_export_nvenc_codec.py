@@ -88,7 +88,7 @@ def test_run_ffmpeg_serializes_only_nvenc(monkeypatch):
             yield
 
     monkeypatch.setattr(
-        "services.brain_v3.gpu_serializer.get_default_serializer",
+        "services.brain.gpu_serializer.get_default_serializer",
         lambda: _FakeSerializer(),
     )
     monkeypatch.setattr(

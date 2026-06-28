@@ -38,7 +38,7 @@ from PySide6.QtWidgets import (
 )
 from sqlalchemy.exc import OperationalError
 
-from services.brain_service import BrainService
+from services.brain import BrainService
 
 logger = logging.getLogger(__name__)
 

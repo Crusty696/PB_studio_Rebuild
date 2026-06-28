@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
-from services.brain_v3 import paths
+from services.brain import paths
 
 logger = logging.getLogger(__name__)
 

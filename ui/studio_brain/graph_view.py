@@ -36,7 +36,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from services.brain_service import BrainService
+from services.brain import BrainService
 from ui.studio_brain._palette import bucket_color
 
 logger = logging.getLogger(__name__)

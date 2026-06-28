@@ -13,8 +13,8 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
-from services.brain_v3.audio.audio_embedder import CLAP_MODEL_ID
-from services.brain_v3.video.video_embedder import SIGLIP2_MODEL_ID
+from services.brain.audio.audio_embedder import CLAP_MODEL_ID
+from services.brain.video.video_embedder import SIGLIP2_MODEL_ID
 
 
 FindSpec = Callable[[str], object | None]

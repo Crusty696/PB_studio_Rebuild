@@ -18,7 +18,7 @@ from typing import Optional, Callable
 
 import numpy as np
 
-from services.brain_v3.gpu_serializer import GpuSerializer, get_default_serializer
+from services.brain.gpu_serializer import GpuSerializer, get_default_serializer
 
 logger = logging.getLogger(__name__)
 
@@ -128,7 +128,7 @@ class ClapAudioEmbedder:
 
         Args:
             audio_path: Pfad zur Mix-Datei.
-            audio_hash: sha256 von services.brain_v3.hashing.
+            audio_hash: sha256 von services.brain.hashing.
             section_boundaries_seconds: optional Subtrack-Grenzen aus
                 SubtrackDetector. Wenn None → fixe 30-s-Sections.
             should_stop: Optionaler Callback zur Abbruch-Pruefung.

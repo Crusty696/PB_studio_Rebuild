@@ -71,7 +71,7 @@ from PySide6.QtWidgets import (
 )
 from sqlalchemy.exc import OperationalError
 
-from services.brain_service import BrainService
+from services.brain import BrainService
 from services.steer_override_queue import (
     PendingOverride,
     SteerOverrideQueue,

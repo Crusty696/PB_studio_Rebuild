@@ -16,9 +16,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from services.brain_v3 import paths
-from services.brain_v3.storage.migration_runner import migrate
-from services.brain_v3.storage.sqlite_init import open_connection, checkpoint
+from services.brain import paths
+from services.brain.storage.migration_runner import migrate
+from services.brain.storage.sqlite_init import open_connection, checkpoint
 
 logger = logging.getLogger(__name__)
 
@@ -144,7 +144,7 @@ class BrainStore:
         if also_embedding_cache:
             ec_path = paths.embedding_cache_db_path()
             # Init EmbeddingCache fall noch nie passiert (Tabelle koennte fehlen)
-            from services.brain_v3.storage.embedding_cache import EmbeddingCache
+            from services.brain.storage.embedding_cache import EmbeddingCache
             EmbeddingCache(db_path=ec_path)
             with open_connection(ec_path) as ec:
                 ec.execute("DELETE FROM media_embedding_index")

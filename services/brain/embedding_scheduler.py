@@ -23,13 +23,13 @@ from typing import Callable, Optional
 
 from PySide6.QtCore import QObject, QThread, Signal
 
-from services.brain_v3.background_queue import (
+from services.brain.background_queue import (
     EmbeddingJob,
     EmbeddingJobQueue,
     JobProgress,
 )
-from services.brain_v3.gpu_serializer import GpuSerializer, get_default_serializer
-from services.brain_v3.storage.embedding_cache import EmbeddingCache
+from services.brain.gpu_serializer import GpuSerializer, get_default_serializer
+from services.brain.storage.embedding_cache import EmbeddingCache
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +86,7 @@ def _default_embedder_factory(
 ):
     """Real-Embedder via Lazy-Import. Wirft ImportError wenn torch fehlt."""
     if task.media_type == "audio":
-        from services.brain_v3.audio.audio_embedder import (
+        from services.brain.audio.audio_embedder import (
             ClapAudioEmbedder,
             CLAP_MODEL_ID,
             CLAP_MODEL_VERSION,
@@ -110,7 +110,7 @@ def _default_embedder_factory(
             "model_version": CLAP_MODEL_VERSION,
         }
     elif task.media_type == "video":
-        from services.brain_v3.video.video_embedder import (
+        from services.brain.video.video_embedder import (
             Siglip2VideoEmbedder,
             SIGLIP2_MODEL_ID,
             SIGLIP2_MODEL_VERSION,
@@ -273,7 +273,7 @@ class _SchedulerThread(QThread):
         loop = asyncio.get_running_loop()
 
         def _blocking_embed():
-            from services.brain_v3.video.video_embedder import InvalidVideoError
+            from services.brain.video.video_embedder import InvalidVideoError
             try:
                 return self._embedder_factory(task, progress_cb, self._serializer)
             except (InvalidVideoError, OSError, IOError) as exc:
@@ -325,7 +325,7 @@ class _SchedulerThread(QThread):
             progress.error or "",  # B-567: Fehlertext mitliefern (vorher verworfen)
         )
         # B-VRAM-HYGIENE: Wenn der Job beendet ist, pruefe ob die Queue leer ist
-        from services.brain_v3.background_queue import JobStatus
+        from services.brain.background_queue import JobStatus
         if progress.status in (JobStatus.DONE, JobStatus.FAILED, JobStatus.CANCELLED):
             if self._queue is not None:
                 all_jobs = self._queue.all_progress().values()

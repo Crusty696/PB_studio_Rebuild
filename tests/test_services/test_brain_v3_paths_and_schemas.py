@@ -1,4 +1,4 @@
-"""Tests fuer services.brain_v3.paths und services.brain_v3.schemas.*.
+"""Tests fuer services.brain.paths und services.brain.schemas.*.
 
 Zweck: Pfad-Konvention + Schema-Validierung pruefen, OHNE auf System-
 APPDATA zu schreiben (TMP-overlay via monkeypatch).
@@ -10,11 +10,11 @@ from pathlib import Path
 
 import pytest
 
-from services.brain_v3 import paths
-from services.brain_v3.schemas.audio import (
+from services.brain import paths
+from services.brain.schemas.audio import (
     SubtrackSegment, TempoCurvePoint, BrainV3AudioMeta, SubtrackDetectionResult,
 )
-from services.brain_v3.schemas.video import (
+from services.brain.schemas.video import (
     CurvePoint, VisualCurves, BrainV3VideoMeta, VisualCurvesResult,
 )
 

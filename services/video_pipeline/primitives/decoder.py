@@ -32,7 +32,7 @@ class InvalidVideoError(RuntimeError):
 
     Permanenter Fehler — Retries sind sinnlos. Der Klassenname wird von
     der TriggerQueue (M-10) namensbasiert als permanent klassifiziert,
-    analog zu services.brain_v3.video.video_embedder.InvalidVideoError.
+    analog zu services.brain.video.video_embedder.InvalidVideoError.
     """
 
 

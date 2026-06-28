@@ -1,4 +1,4 @@
-"""Tests fuer services.brain_v3.storage.media_hash_registry (Phase 1 App-Sync).
+"""Tests fuer services.brain.storage.media_hash_registry (Phase 1 App-Sync).
 
 CPU-only, isoliertes APPDATA via tmp_path.
 """
@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from services.brain_v3.storage.media_hash_registry import (
+from services.brain.storage.media_hash_registry import (
     MediaHashRegistry,
     HashEntry,
     RegistrationResult,

@@ -16,8 +16,8 @@ from typing import Optional
 
 import numpy as np
 
-from services.brain_v3.cold_start import BRIDGE_AXES
-from services.brain_v3.context_resolver import CutContext
+from services.brain.cold_start import BRIDGE_AXES
+from services.brain.context_resolver import CutContext
 
 logger = logging.getLogger(__name__)
 

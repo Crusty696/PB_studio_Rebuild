@@ -1,4 +1,4 @@
-"""Tests fuer services.brain_v3.hashing.
+"""Tests fuer services.brain.hashing.
 
 Plan-Doc 06 Phase 1 / R-Doc 07 R07 (Modell-Update macht alte Embeddings
 inkompatibel) sind beide hash-abhaengig — daher sicherheitskritisch dass
@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from services.brain_v3.hashing import (
+from services.brain.hashing import (
     compute_media_hash, hash_iterable, quick_fingerprint, CHUNK_BYTES,
 )
 

@@ -30,7 +30,7 @@ class _NoopSerializer:
 
 
 def test_b363_raft_cancel_after_first_pair_is_not_done(monkeypatch, tmp_path: Path):
-    import services.brain_v3.gpu_serializer as gpu_serializer
+    import services.brain.gpu_serializer as gpu_serializer
 
     monkeypatch.setattr(gpu_serializer, "get_default_serializer", lambda: _NoopSerializer())
 
@@ -65,7 +65,7 @@ def test_b363_raft_cancel_after_first_pair_is_not_done(monkeypatch, tmp_path: Pa
 
 
 def test_b363_siglip_cancel_after_first_batch_is_not_done(monkeypatch, tmp_path: Path):
-    import services.brain_v3.gpu_serializer as gpu_serializer
+    import services.brain.gpu_serializer as gpu_serializer
 
     monkeypatch.setattr(gpu_serializer, "get_default_serializer", lambda: _NoopSerializer())
     storage = tmp_path / "storage"

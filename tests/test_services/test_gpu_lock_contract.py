@@ -18,7 +18,7 @@ def test_model_manager_uses_single_execution_lock_for_loaded_models():
 
 def test_brain_gpu_serializer_bridges_to_model_manager_execution_lock():
     from services import model_manager
-    from services.brain_v3.gpu_serializer import GpuSerializer
+    from services.brain.gpu_serializer import GpuSerializer
 
     serializer = GpuSerializer()
 

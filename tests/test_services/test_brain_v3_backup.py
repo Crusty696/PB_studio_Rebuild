@@ -6,13 +6,13 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from services.brain_v3.storage.backup import (
+from services.brain.storage.backup import (
     BackupResult,
     backup_brain_v3_store,
     prune_old_backups,
     run_weekly_backup_if_due,
 )
-from services.brain_v3.storage.brain_store import BrainStore
+from services.brain.storage.brain_store import BrainStore
 
 
 @pytest.fixture

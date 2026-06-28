@@ -21,7 +21,8 @@ from sqlalchemy.orm import sessionmaker
 
 from PySide6.QtWidgets import QApplication
 
-from services.brain_service import BrainService, _load_expected_moods
+from services.brain import BrainService
+from services.brain.legacy_sqlite import _load_expected_moods
 from ui.studio_brain.stats_panel import StatsPanel
 from ui.studio_brain.structure_tab import StructureTab
 

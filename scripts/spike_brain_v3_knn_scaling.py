@@ -177,7 +177,7 @@ def main() -> int:
     _setup_logging(out_dir)
 
     try:
-        from services.brain_v3.storage.embedding_repository import (
+        from services.brain.storage.embedding_repository import (
             EmbeddingRepository, AudioUnit, VideoUnit, CLAP_DIM, SIGLIP_DIM,
         )
     except ImportError as exc:

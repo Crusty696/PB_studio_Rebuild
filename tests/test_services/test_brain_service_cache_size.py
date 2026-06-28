@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import inspect
 
-from services.brain_service import BrainService
+from services.brain import BrainService
 
 
 def test_kwarg_caches_are_at_least_size_128() -> None:

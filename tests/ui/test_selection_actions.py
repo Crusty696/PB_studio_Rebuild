@@ -28,7 +28,7 @@ from sqlalchemy import text
 from PySide6.QtCore import QPoint
 from PySide6.QtWidgets import QApplication
 
-from services.brain_service import BrainService
+from services.brain import BrainService
 from services.steer_override_queue import (
     PendingOverride,
     SteerOverrideQueue,

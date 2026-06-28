@@ -5,7 +5,7 @@ Posterior-Mean = (α+1)/(α+β+2) (Laplace-Smoothing).
 
 Lookup-Strategie: spezifischster Bucket der ≥10 Samples hat,
 sonst zurück fallen auf allgemeineren Level. Wenn keiner konfident ist,
-Cold-Start-Default aus services.brain_v3.cold_start.
+Cold-Start-Default aus services.brain.cold_start.
 
 Single-Connection-Halter (sqlite3 ist threadlocal — diese Klasse
 ist NICHT thread-safe, sondern soll von einem Worker-Thread genutzt werden).
@@ -19,8 +19,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from services.brain_v3.cold_start import COLD_START_DEFAULTS, BRIDGE_AXES
-from services.brain_v3.storage.sqlite_init import open_connection
+from services.brain.cold_start import COLD_START_DEFAULTS, BRIDGE_AXES
+from services.brain.storage.sqlite_init import open_connection
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +87,7 @@ class WeightStore:
         Args:
             axis: Bridge-Axis-Name (siehe BRIDGE_AXES).
             context_keys_by_level: Liste mit 6 Strings (Level 0..5),
-                konstruiert von services.brain_v3.context_resolver.context_keys().
+                konstruiert von services.brain.context_resolver.context_keys().
 
         Returns:
             Posterior-Mean des spezifischsten konfidenten Buckets,

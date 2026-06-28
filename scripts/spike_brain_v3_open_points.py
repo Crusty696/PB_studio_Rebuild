@@ -92,8 +92,8 @@ def step_fmeasure(out_dir: Path) -> StepResult:
             res.duration_s = time.time() - t0
             return res
 
-        from services.brain_v3.audio.subtrack_detector import SubtrackDetector
-        from services.brain_v3.hashing import compute_media_hash
+        from services.brain.audio.subtrack_detector import SubtrackDetector
+        from services.brain.hashing import compute_media_hash
 
         sr = 22050  # geringere SR für Speed
         section_dur = 100.0  # je 100 s = 5 Sektionen × 100 s = 500 s = 8min20s
@@ -192,14 +192,14 @@ def step_extrapolation_500(out_dir: Path) -> StepResult:
         import soundfile as sf
         import cv2
 
-        from services.brain_v3.audio.audio_embedder import (
+        from services.brain.audio.audio_embedder import (
             ClapAudioEmbedder, CLAP_MODEL_ID, CLAP_MODEL_VERSION,
         )
-        from services.brain_v3.video.video_embedder import (
+        from services.brain.video.video_embedder import (
             Siglip2VideoEmbedder, SIGLIP2_MODEL_ID, SIGLIP2_MODEL_VERSION, SceneSpec,
         )
-        from services.brain_v3.hashing import compute_media_hash
-        from services.brain_v3.storage.embedding_cache import EmbeddingCache
+        from services.brain.hashing import compute_media_hash
+        from services.brain.storage.embedding_cache import EmbeddingCache
 
         cache = EmbeddingCache()
 
@@ -428,7 +428,7 @@ def step_demucs(out_dir: Path) -> StepResult:
         snaps.append(("after_demucs_load", vram_mb()))
 
         # 2. CLAP zusätzlich laden (Plan: kann nicht beide?)
-        from services.brain_v3.audio.audio_embedder import ClapAudioEmbedder
+        from services.brain.audio.audio_embedder import ClapAudioEmbedder
         clap = ClapAudioEmbedder()
         try:
             clap._ensure_loaded()

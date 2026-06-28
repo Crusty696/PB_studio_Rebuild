@@ -25,10 +25,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from services.brain_v3.brain_v3_service import BrainV3Service
-from services.brain_v3.context_resolver import CutContext
-from services.brain_v3.schemas.brain_v3_schemas import FeedbackRequest
-from services.brain_v3.weight_store import WeightStore
+from services.brain.brain_v3_service import BrainV3Service
+from services.brain.context_resolver import CutContext
+from services.brain.schemas.brain_v3_schemas import FeedbackRequest
+from services.brain.weight_store import WeightStore
 from workers.base import BaseWorker, run_worker
 
 logger = logging.getLogger(__name__)

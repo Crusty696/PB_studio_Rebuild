@@ -51,7 +51,7 @@ def _run_convert_capture(monkeypatch, tmp_path: Path, probed_pix_fmt: str) -> li
     monkeypatch.setattr(cs, "_get_pix_fmt", lambda _p: probed_pix_fmt, raising=True)
 
     # GpuSerializer.acquire umgehen (NVENC-Pfad nutzt ihn).
-    import services.brain_v3.gpu_serializer as gs
+    import services.brain.gpu_serializer as gs
 
     class _NullCtx:
         def __enter__(self):

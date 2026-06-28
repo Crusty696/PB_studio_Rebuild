@@ -386,7 +386,7 @@ def convert(
     if is_nvenc:
         logger.debug("[ConvertService] Warte auf NVENC-Slot...")
         with NVENC_SEMAPHORE:
-            from services.brain_v3.gpu_serializer import get_default_serializer
+            from services.brain.gpu_serializer import get_default_serializer
             logger.info("[ConvertService] GpuSerializer.acquire('render') wartet")
             with get_default_serializer().acquire("render"):
                 logger.info("[ConvertService] GpuSerializer holder='render' aktiv")

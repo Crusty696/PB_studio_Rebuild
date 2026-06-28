@@ -109,9 +109,9 @@ class PacingPipeline:
         self._brain_v3_reranker = brain_v3_reranker
         if self._use_brain_v3 and self._brain_v3_reranker is None:
             try:
-                from services.brain_v3.reranker import BrainV3Reranker
-                from services.brain_v3.storage.brain_store import BrainStore
-                from services.brain_v3.weight_store import WeightStore
+                from services.brain.reranker import BrainV3Reranker
+                from services.brain.storage.brain_store import BrainStore
+                from services.brain.weight_store import WeightStore
 
                 store = BrainStore()
                 self._brain_v3_reranker = BrainV3Reranker(

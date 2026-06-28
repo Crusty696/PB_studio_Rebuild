@@ -26,7 +26,7 @@ from typing import Optional
 
 import numpy as np
 
-from services.brain_v3.schemas.audio import (
+from services.brain.schemas.audio import (
     SubtrackSegment, SubtrackDetectionResult,
 )
 
@@ -109,7 +109,7 @@ class SubtrackDetector:
 
         Args:
             audio_path: Pfad zur Mix-Datei (mp3, wav, flac, ...).
-            audio_hash: sha256 der Mix-Datei (von services.brain_v3.hashing).
+            audio_hash: sha256 der Mix-Datei (von services.brain.hashing).
                         Wird unverarbeitet ins Result kopiert (fuer Caching).
             stems_paths: Optional dict {stem_name: file_path} (z.B. von Demucs).
                          Wenn None: S2-Stem-Activity nutzt Null-Curve, S2-Gewicht

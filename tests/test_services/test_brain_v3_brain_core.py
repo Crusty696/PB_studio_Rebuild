@@ -10,20 +10,20 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from services.brain_v3.cold_start import (
+from services.brain.cold_start import (
     BRIDGE_AXES, COLD_START_DEFAULTS, get_default,
 )
-from services.brain_v3.context_resolver import (
+from services.brain.context_resolver import (
     CutContext, context_keys, quantize_tertile, quantize_subtrack_position,
     VALID_SECTIONS, VALID_MOOD,
 )
-from services.brain_v3.bridge_dimensions import BridgeDimensions, ClipCandidate
-from services.brain_v3.weight_store import WeightStore, MIN_CONFIDENT_SAMPLES, AlphaBeta
-from services.brain_v3.feedback_logger import FeedbackLogger, RATING_MAP
-from services.brain_v3.scorer import Scorer
-from services.brain_v3.storage.brain_store import BrainStore
-from services.brain_v3.storage.migration_runner import migrate
-from services.brain_v3.storage.sqlite_init import open_connection
+from services.brain.bridge_dimensions import BridgeDimensions, ClipCandidate
+from services.brain.weight_store import WeightStore, MIN_CONFIDENT_SAMPLES, AlphaBeta
+from services.brain.feedback_logger import FeedbackLogger, RATING_MAP
+from services.brain.scorer import Scorer
+from services.brain.storage.brain_store import BrainStore
+from services.brain.storage.migration_runner import migrate
+from services.brain.storage.sqlite_init import open_connection
 
 
 # ---------------------------------------------------------------------------
@@ -407,7 +407,7 @@ def test_scorer_returns_scored_candidate(store: WeightStore):
 
 
 def test_scorer_normalizes_by_weight_sum_not_axis_count():
-    from services.brain_v3.cold_start import BRIDGE_AXES
+    from services.brain.cold_start import BRIDGE_AXES
 
     primary_axis = BRIDGE_AXES[0]
 
@@ -465,7 +465,7 @@ def test_brain_store_reset_clears_weights_and_patterns(isolated_appdata):
 
 def test_brain_store_reset_keeps_embedding_cache_by_default(isolated_appdata):
     """Plan-Doc 05 Reset-Verhalten: embedding_cache bleibt erhalten."""
-    from services.brain_v3.storage.embedding_cache import EmbeddingCache
+    from services.brain.storage.embedding_cache import EmbeddingCache
     cache = EmbeddingCache()
     cache.store("a" * 64, "audio", np.zeros(512, dtype="float32"),
                 "model_x", "1.0")

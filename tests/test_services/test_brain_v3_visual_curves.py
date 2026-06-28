@@ -97,7 +97,7 @@ def cool_video(tmp_path: Path) -> Path:
 # ---------------------------------------------------------------------------
 @pytest.mark.skipif(not _HAS_CV2, reason="opencv-python nicht installiert")
 def test_extract_returns_correct_shape(constant_bright_video: Path):
-    from services.brain_v3.video.visual_curves import VisualCurvesExtractor
+    from services.brain.video.visual_curves import VisualCurvesExtractor
     ex = VisualCurvesExtractor(sample_rate_hz=1.0)
     res = ex.extract(constant_bright_video, video_hash=HASH64)
 
@@ -112,7 +112,7 @@ def test_extract_returns_correct_shape(constant_bright_video: Path):
 
 @pytest.mark.skipif(not _HAS_CV2, reason="opencv-python nicht installiert")
 def test_bright_video_has_high_brightness(constant_bright_video: Path):
-    from services.brain_v3.video.visual_curves import VisualCurvesExtractor
+    from services.brain.video.visual_curves import VisualCurvesExtractor
     ex = VisualCurvesExtractor()
     res = ex.extract(constant_bright_video, video_hash=HASH64)
     avg = np.mean([p.value for p in res.curves.brightness])
@@ -121,7 +121,7 @@ def test_bright_video_has_high_brightness(constant_bright_video: Path):
 
 @pytest.mark.skipif(not _HAS_CV2, reason="opencv-python nicht installiert")
 def test_dark_video_has_low_brightness(constant_dark_video: Path):
-    from services.brain_v3.video.visual_curves import VisualCurvesExtractor
+    from services.brain.video.visual_curves import VisualCurvesExtractor
     ex = VisualCurvesExtractor()
     res = ex.extract(constant_dark_video, video_hash=HASH64)
     avg = np.mean([p.value for p in res.curves.brightness])
@@ -131,7 +131,7 @@ def test_dark_video_has_low_brightness(constant_dark_video: Path):
 @pytest.mark.skipif(not _HAS_CV2, reason="opencv-python nicht installiert")
 def test_warm_video_has_positive_color_temp(warm_video: Path):
     """R/B>1 → log positiv → tanh positiv."""
-    from services.brain_v3.video.visual_curves import VisualCurvesExtractor
+    from services.brain.video.visual_curves import VisualCurvesExtractor
     ex = VisualCurvesExtractor()
     res = ex.extract(warm_video, video_hash=HASH64)
     avg = np.mean([p.value for p in res.curves.color_temperature])
@@ -141,7 +141,7 @@ def test_warm_video_has_positive_color_temp(warm_video: Path):
 @pytest.mark.skipif(not _HAS_CV2, reason="opencv-python nicht installiert")
 def test_cool_video_has_negative_color_temp(cool_video: Path):
     """B/R>1 → log negativ → tanh negativ."""
-    from services.brain_v3.video.visual_curves import VisualCurvesExtractor
+    from services.brain.video.visual_curves import VisualCurvesExtractor
     ex = VisualCurvesExtractor()
     res = ex.extract(cool_video, video_hash=HASH64)
     avg = np.mean([p.value for p in res.curves.color_temperature])
@@ -149,7 +149,7 @@ def test_cool_video_has_negative_color_temp(cool_video: Path):
 
 
 def test_invalid_sample_rate_rejected():
-    from services.brain_v3.video.visual_curves import VisualCurvesExtractor
+    from services.brain.video.visual_curves import VisualCurvesExtractor
     with pytest.raises(ValueError):
         VisualCurvesExtractor(sample_rate_hz=0.0)
     with pytest.raises(ValueError):
@@ -160,7 +160,7 @@ def test_invalid_sample_rate_rejected():
 def test_metrics_computation_independent_of_io():
     """Direkt-Test der _compute_metrics-Statics ohne Video-IO."""
     import cv2
-    from services.brain_v3.video.visual_curves import VisualCurvesExtractor
+    from services.brain.video.visual_curves import VisualCurvesExtractor
     # Schwarz-Frame → brightness=0, saturation=0, color_temp ~0
     black = np.zeros((10, 10, 3), dtype=np.uint8)
     b, s, ct = VisualCurvesExtractor._compute_metrics(black, cv2)

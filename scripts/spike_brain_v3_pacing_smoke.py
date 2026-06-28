@@ -45,8 +45,8 @@ def main(argv: list[str] | None = None) -> int:
         project_root = tmp_root / "project"
         project_root.mkdir(parents=True, exist_ok=True)
 
-    from services.brain_v3.brain_v3_service import BrainV3Service
-    from services.brain_v3.schemas.brain_v3_schemas import (
+    from services.brain.brain_v3_service import BrainV3Service
+    from services.brain.schemas.brain_v3_schemas import (
         FeedbackRequest,
         SuggestRequest,
     )

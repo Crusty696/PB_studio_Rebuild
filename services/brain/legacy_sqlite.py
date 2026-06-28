@@ -60,7 +60,7 @@ logger = logging.getLogger(__name__)
 # label list from here to compute the "mood coverage lacuna" (moods that
 # are expected by the enrichment pipeline but have zero scenes yet).
 _MOOD_ANCHORS_YAML: Path = (
-    Path(__file__).resolve().parent.parent / "config" / "mood_anchors_v1.yaml"
+    Path(__file__).resolve().parents[2] / "config" / "mood_anchors_v1.yaml"
 )
 
 # Directory containing the per-genre pacing-weights profile YAMLs. The Steer
@@ -69,7 +69,7 @@ _MOOD_ANCHORS_YAML: Path = (
 # Module-level so tests can monkeypatch this path to exercise the missing-dir
 # failure mode without materialising a real directory.
 _PACING_WEIGHTS_DIR: Path = (
-    Path(__file__).resolve().parent.parent / "config" / "pacing_weights"
+    Path(__file__).resolve().parents[2] / "config" / "pacing_weights"
 )
 
 

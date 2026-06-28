@@ -2,7 +2,7 @@ from __future__ import annotations
 
 
 def test_onnx_eval_blocks_when_onnx_package_missing():
-    from services.brain_v3.onnx_export import evaluate_onnx_environment
+    from services.brain.onnx_export import evaluate_onnx_environment
 
     result = evaluate_onnx_environment(
         find_spec=lambda name: None if name == "onnx" else object(),
@@ -14,7 +14,7 @@ def test_onnx_eval_blocks_when_onnx_package_missing():
 
 
 def test_onnx_eval_ready_when_export_and_cuda_provider_available():
-    from services.brain_v3.onnx_export import evaluate_onnx_environment
+    from services.brain.onnx_export import evaluate_onnx_environment
 
     result = evaluate_onnx_environment(
         find_spec=lambda _name: object(),
@@ -37,7 +37,7 @@ def test_onnx_eval_script_writes_machine_readable_result(tmp_path):
 
 
 def test_onnx_cuda_smoke_reports_skipped_without_cuda_provider():
-    from services.brain_v3.onnx_export import run_onnx_cuda_smoke
+    from services.brain.onnx_export import run_onnx_cuda_smoke
 
     result = run_onnx_cuda_smoke(providers=["CPUExecutionProvider"])
 

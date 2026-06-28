@@ -182,12 +182,6 @@ class DecisionRecorder:
                 self._gui_thread_warning_logged = True
         try:
             decision_id = self._insert_with_retry(payload)
-            self._record_brain_v2_decision_if_enabled(
-                run_id=run_id,
-                decision_id=decision_id,
-                payload=payload,
-                rationale=rationale,
-            )
             return decision_id
         except OperationalError as exc:
             logger.warning(
@@ -347,88 +341,4 @@ class DecisionRecorder:
     def queue_size(self) -> int:
         return len(self._queue)
 
-    def _record_brain_v2_decision_if_enabled(
-        self,
-        run_id: int,
-        decision_id: int,
-        payload: dict[str, Any],
-        rationale: dict[str, Any],
-    ) -> None:
-        """Best-effort Brain v2 shadow write.
 
-        PB_STUDIO_BRAIN_V2 gates the new path so older project DBs without the
-        additive migration keep working. Failure here must never break pacing.
-        """
-        if os.environ.get("PB_STUDIO_BRAIN_V2") != "1":
-            return
-        try:
-            from services.brain_v2.store import BrainStore
-
-            store = BrainStore(self._session_factory)
-            audio_entity_id = store.upsert_entity(
-                "pacing_context",
-                "mem_pacing_run",
-                int(run_id),
-                f"Pacing run {run_id}",
-                str(payload.get("at_section_type") or ""),
-                {
-                    "bpm": payload.get("at_bpm"),
-                    "genre": payload.get("at_genre"),
-                    "sub_genre": payload.get("at_sub_genre"),
-                },
-            )
-            scene_id = payload.get("scene_id")
-            clip_entity_id = None
-            if scene_id is not None:
-                clip_entity_id = store.upsert_entity(
-                    "scene",
-                    "scenes",
-                    int(scene_id),
-                    f"Scene {scene_id}",
-                    str(payload.get("clip_role") or ""),
-                    {
-                        "role": payload.get("clip_role"),
-                        "mood": payload.get("clip_mood_refined"),
-                        "motion": payload.get("clip_motion_score"),
-                        "style_bucket_id": payload.get("clip_style_bucket_id"),
-                    },
-                )
-            why_json = {
-                "audio": {
-                    "section": payload.get("at_section_type"),
-                    "timestamp": payload.get("at_timestamp_sec"),
-                    "energy": payload.get("at_energy"),
-                    "mood": payload.get("at_mood_audio"),
-                    "tension": payload.get("at_harmonic_tension"),
-                },
-                "clip": {
-                    "scene_id": scene_id,
-                    "role": payload.get("clip_role"),
-                    "mood": payload.get("clip_mood_refined"),
-                    "motion": payload.get("clip_motion_score"),
-                    "style_bucket_id": payload.get("clip_style_bucket_id"),
-                },
-                "scores": {
-                    "agent_score": payload.get("agent_score"),
-                    "reward": payload.get("reward"),
-                    "reward_components": payload.get("reward_components"),
-                },
-                "rationale": rationale,
-            }
-            timestamp = float(payload.get("at_timestamp_sec") or 0.0)
-            why_text = (
-                f"{payload.get('at_section_type') or 'section'} at "
-                f"{timestamp:.2f}s chose scene {scene_id} "
-                f"({payload.get('clip_role') or 'unknown role'}, "
-                f"{payload.get('clip_mood_refined') or 'unknown mood'})."
-            )
-            store.record_decision(
-                run_id=run_id,
-                decision_id=decision_id,
-                audio_entity_id=audio_entity_id,
-                clip_entity_id=clip_entity_id,
-                why_json=why_json,
-                why_text=why_text,
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("BrainV2 decision shadow-write skipped: %s", exc)

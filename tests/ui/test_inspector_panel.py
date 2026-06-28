@@ -19,7 +19,7 @@ from sqlalchemy import text
 
 from PySide6.QtWidgets import QApplication
 
-from services.brain_service import BrainService
+from services.brain import BrainService
 from ui.studio_brain.inspector_panel import InspectorPanel
 from ui.studio_brain.structure_tab import StructureTab
 

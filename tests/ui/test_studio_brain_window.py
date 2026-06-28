@@ -22,7 +22,7 @@ from sqlalchemy.orm import sessionmaker
 
 from PySide6.QtWidgets import QApplication
 
-from services.brain_service import BrainService
+from services.brain import BrainService
 from ui.studio_brain_window import StudioBrainWindow
 
 

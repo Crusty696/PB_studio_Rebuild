@@ -3,12 +3,12 @@ from __future__ import annotations
 
 import pytest
 
-from services.brain_v3.context_resolver import (
+from services.brain.context_resolver import (
     quantize_quartile,
     quantize_tertile,
     CutContext,
 )
-from services.brain_v3.context_mapping import (
+from services.brain.context_mapping import (
     ContextMappingConfig,
     DEFAULT_SECTION_MAP,
     DEFAULT_MOOD_MAP,
@@ -17,7 +17,7 @@ from services.brain_v3.context_mapping import (
     derive_pace_class,
     build_cut_context,
 )
-from services.brain_v3.schemas.brain_v3_schemas import (
+from services.brain.schemas.brain_v3_schemas import (
     SuggestRequest,
     SuggestResponse,
     FeedbackRequest,

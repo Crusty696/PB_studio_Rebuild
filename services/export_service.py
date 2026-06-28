@@ -1354,7 +1354,7 @@ def _run_ffmpeg(cmd: list[str], timeout: int = 600, progress_cb=None,
     aktiv. libx264 (CPU) braucht keinen Lock.
     """
     if any("nvenc" in str(a) for a in cmd):
-        from services.brain_v3.gpu_serializer import get_default_serializer
+        from services.brain.gpu_serializer import get_default_serializer
         with get_default_serializer().acquire("export_render"):
             return _run_ffmpeg_impl(cmd, timeout, progress_cb, total_duration, cancel_check)
     return _run_ffmpeg_impl(cmd, timeout, progress_cb, total_duration, cancel_check)

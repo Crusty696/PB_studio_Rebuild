@@ -19,9 +19,9 @@ from typing import Optional
 
 import numpy as np
 
-from services.brain_v3 import paths
-from services.brain_v3.storage.sqlite_init import open_connection
-from services.brain_v3.storage.migration_runner import migrate
+from services.brain import paths
+from services.brain.storage.sqlite_init import open_connection
+from services.brain.storage.migration_runner import migrate
 
 logger = logging.getLogger(__name__)
 

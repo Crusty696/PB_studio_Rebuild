@@ -22,7 +22,7 @@ from typing import Optional
 
 import numpy as np
 
-from services.brain_v3.gpu_serializer import GpuSerializer, get_default_serializer
+from services.brain.gpu_serializer import GpuSerializer, get_default_serializer
 
 logger = logging.getLogger(__name__)
 

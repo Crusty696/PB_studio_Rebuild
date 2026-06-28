@@ -1,4 +1,4 @@
-"""Tests fuer services.brain_v3.storage.embedding_cache + sqlite_init + migration_runner.
+"""Tests fuer services.brain.storage.embedding_cache + sqlite_init + migration_runner.
 
 CPU-only — kein sqlite-vec, kein torch noetig. Nutzt isoliertes APPDATA via tmp_path.
 """
@@ -10,9 +10,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from services.brain_v3.storage import sqlite_init
-from services.brain_v3.storage.embedding_cache import EmbeddingCache, CacheEntry
-from services.brain_v3.storage.migration_runner import migrate
+from services.brain.storage import sqlite_init
+from services.brain.storage.embedding_cache import EmbeddingCache, CacheEntry
+from services.brain.storage.migration_runner import migrate
 
 
 HASH_AUDIO = "a" * 64

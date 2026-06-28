@@ -26,7 +26,7 @@ from PySide6.QtCore import QTimer, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import QApplication, QInputDialog
 
-from services.brain_service import BrainService
+from services.brain import BrainService
 from services.steer_override_queue import SteerOverrideQueue
 from tests.ui.test_structure_tab import _build_struct_db
 from ui.studio_brain.steer_tab import SteerTab
@@ -163,7 +163,7 @@ def test_list_weights_profiles_missing_dir_returns_empty(
     # Point the module-level pacing-weights dir at a guaranteed-missing path.
     ghost = tmp_path / "nonexistent_pacing_weights"
     monkeypatch.setattr(
-        "services.brain_service._PACING_WEIGHTS_DIR", ghost
+        "services.brain.legacy_sqlite._PACING_WEIGHTS_DIR", ghost
     )
     svc = BrainService(session_factory=Session)
     assert svc.list_weights_profiles() == []

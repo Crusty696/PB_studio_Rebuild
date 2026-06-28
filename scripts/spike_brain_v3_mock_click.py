@@ -42,8 +42,8 @@ def main(argv: list[str] | None = None) -> int:
 
     tmp_root = _configure_appdata(args)
 
-    from services.brain_v3.brain_v3_service import BrainV3Service
-    from services.brain_v3.schemas.brain_v3_schemas import FeedbackRequest
+    from services.brain.brain_v3_service import BrainV3Service
+    from services.brain.schemas.brain_v3_schemas import FeedbackRequest
 
     svc = BrainV3Service()
     before = svc.stats()

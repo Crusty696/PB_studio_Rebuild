@@ -106,12 +106,12 @@ def step_clap(n_files: int, audio_dir: Path, project_root: Path,
     res = StepResult(name="clap_embedder", detail={"n_files": n_files})
     t0 = time.time()
     try:
-        from services.brain_v3.audio.audio_embedder import (
+        from services.brain.audio.audio_embedder import (
             ClapAudioEmbedder, CLAP_MODEL_ID, CLAP_MODEL_VERSION, CLAP_DIM,
         )
-        from services.brain_v3.hashing import compute_media_hash
-        from services.brain_v3.storage.embedding_cache import EmbeddingCache
-        from services.brain_v3.storage.embedding_repository import (
+        from services.brain.hashing import compute_media_hash
+        from services.brain.storage.embedding_cache import EmbeddingCache
+        from services.brain.storage.embedding_repository import (
             EmbeddingRepository, AudioUnit,
         )
 
@@ -213,13 +213,13 @@ def step_siglip(n_files: int, video_dir: Path, project_root: Path) -> StepResult
     res = StepResult(name="siglip_embedder", detail={"n_files": n_files})
     t0 = time.time()
     try:
-        from services.brain_v3.video.video_embedder import (
+        from services.brain.video.video_embedder import (
             Siglip2VideoEmbedder, SIGLIP2_MODEL_ID, SIGLIP2_MODEL_VERSION,
             SIGLIP2_DIM, SceneSpec,
         )
-        from services.brain_v3.hashing import compute_media_hash
-        from services.brain_v3.storage.embedding_cache import EmbeddingCache
-        from services.brain_v3.storage.embedding_repository import (
+        from services.brain.hashing import compute_media_hash
+        from services.brain.storage.embedding_cache import EmbeddingCache
+        from services.brain.storage.embedding_repository import (
             EmbeddingRepository, VideoUnit,
         )
 

@@ -23,7 +23,7 @@ from PySide6.QtGui import QWheelEvent
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from services.backup_service import BackupService
-from services.brain_service import BrainService
+from services.brain import BrainService
 from services.enrichment import ENRICHER_VERSION
 from tests.ui.test_audit_tab import (
     _ensure_structure_segments_table,

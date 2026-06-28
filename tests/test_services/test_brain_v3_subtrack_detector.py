@@ -68,7 +68,7 @@ def synth_two_section_wav(tmp_path: Path) -> Path:
                     reason="librosa/soundfile nicht installiert")
 def test_drone_falls_back_to_single_segment(synth_drone_wav: Path):
     """Konstanter Drone hat keine Boundary → Fallback erwartet."""
-    from services.brain_v3.audio.subtrack_detector import SubtrackDetector
+    from services.brain.audio.subtrack_detector import SubtrackDetector
     det = SubtrackDetector()
     result = det.detect(synth_drone_wav, audio_hash=HASH64)
     assert result.audio_hash == HASH64
@@ -86,7 +86,7 @@ def test_drone_falls_back_to_single_segment(synth_drone_wav: Path):
 def test_two_section_does_not_crash(synth_two_section_wav: Path):
     """Mix mit Wechsel: Smoke-Test dass Detector durchlaeuft.
     F-Measure-Validierung ist separater Test mit annotierten Mixes."""
-    from services.brain_v3.audio.subtrack_detector import SubtrackDetector
+    from services.brain.audio.subtrack_detector import SubtrackDetector
     det = SubtrackDetector()
     result = det.detect(synth_two_section_wav, audio_hash=HASH64)
     assert result.duration_seconds == pytest.approx(120.0, abs=1.0)
@@ -136,7 +136,7 @@ def test_foote_novelty_vectorized_matches_reference_on_60s_signal(synth_60s_wav:
     """B-510: Vektorisierung (Summed-Area-Table) == alter Loop auf echter
     Recurrence-Matrix eines 60-s-Signals (rtol 1e-5)."""
     import librosa
-    from services.brain_v3.audio.subtrack_detector import SubtrackDetector
+    from services.brain.audio.subtrack_detector import SubtrackDetector
 
     y, sr = librosa.load(str(synth_60s_wav), sr=22050, mono=True)
     mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=20, hop_length=22050)
@@ -156,7 +156,7 @@ def test_foote_novelty_vectorized_matches_reference_on_60s_signal(synth_60s_wav:
 
 def test_foote_novelty_vectorized_matches_reference_random_matrices():
     """B-510: Aequivalenz auch auf groesseren Zufalls-Affinity-Matrizen."""
-    from services.brain_v3.audio.subtrack_detector import SubtrackDetector
+    from services.brain.audio.subtrack_detector import SubtrackDetector
     rng = np.random.default_rng(123)
     for n, k in [(60, 4), (240, 12), (500, 15)]:
         m = rng.random((n, n))
@@ -170,7 +170,7 @@ def test_foote_novelty_vectorized_matches_reference_random_matrices():
 
 def test_foote_novelty_small_matrix_returns_zeros():
     """Randfall n < 2k+1 bleibt unveraendert (Null-Vektor)."""
-    from services.brain_v3.audio.subtrack_detector import SubtrackDetector
+    from services.brain.audio.subtrack_detector import SubtrackDetector
     rec = np.ones((5, 5))
     out = SubtrackDetector._foote_kernel_novelty(rec, kernel_size=4)
     assert np.all(out == 0)
@@ -185,7 +185,7 @@ def test_foote_novelty_small_matrix_returns_zeros():
                     reason="librosa/soundfile nicht installiert")
 def test_detect_progress_cb_called(synth_60s_wav: Path):
     """B-510: progress_cb wird mit (pct, msg) aufgerufen, pct monoton 0..100."""
-    from services.brain_v3.audio.subtrack_detector import SubtrackDetector
+    from services.brain.audio.subtrack_detector import SubtrackDetector
     calls: list[tuple[int, str]] = []
     det = SubtrackDetector()
     result = det.detect(
@@ -204,7 +204,7 @@ def test_detect_progress_cb_called(synth_60s_wav: Path):
                     reason="librosa/soundfile nicht installiert")
 def test_detect_should_stop_aborts_cleanly(synth_60s_wav: Path):
     """B-510: should_stop=True -> sauberer Abbruch, return None, keine Exception."""
-    from services.brain_v3.audio.subtrack_detector import SubtrackDetector
+    from services.brain.audio.subtrack_detector import SubtrackDetector
     det = SubtrackDetector()
     result = det.detect(synth_60s_wav, audio_hash=HASH64, should_stop=lambda: True)
     assert result is None
@@ -215,7 +215,7 @@ def test_detect_should_stop_aborts_cleanly(synth_60s_wav: Path):
 def test_detect_loads_at_fixed_22050(synth_60s_wav: Path, monkeypatch):
     """B-510: detect() laedt mit fester sr=22050 statt sr=None (nativer SR)."""
     import librosa
-    from services.brain_v3.audio import subtrack_detector as mod
+    from services.brain.audio import subtrack_detector as mod
     seen = {}
     orig_load = librosa.load
 
@@ -230,7 +230,7 @@ def test_detect_loads_at_fixed_22050(synth_60s_wav: Path, monkeypatch):
 
 
 def test_effective_weights_renormalize_without_stems():
-    from services.brain_v3.audio.subtrack_detector import SubtrackDetector
+    from services.brain.audio.subtrack_detector import SubtrackDetector
     det = SubtrackDetector()
     # Mit Stems: original
     w_with = det._effective_weights(stems_used=True)
@@ -244,13 +244,13 @@ def test_effective_weights_renormalize_without_stems():
 
 
 def test_normalize_zero_array_returns_zeros():
-    from services.brain_v3.audio.subtrack_detector import SubtrackDetector
+    from services.brain.audio.subtrack_detector import SubtrackDetector
     out = SubtrackDetector._normalize(np.zeros(10))
     assert np.all(out == 0)
 
 
 def test_resize_to_lengths():
-    from services.brain_v3.audio.subtrack_detector import SubtrackDetector
+    from services.brain.audio.subtrack_detector import SubtrackDetector
     src = np.array([0.0, 1.0, 0.0, 1.0])
     out = SubtrackDetector._resize_to(src, 8)
     assert out.size == 8

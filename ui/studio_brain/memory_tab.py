@@ -53,7 +53,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 
 from services.backup_service import BackupService
-from services.brain_service import BrainService
+from services.brain import BrainService
 
 logger = logging.getLogger(__name__)
 

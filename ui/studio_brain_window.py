@@ -44,7 +44,7 @@ from PySide6.QtCore import QSettings, QSize, Signal
 from PySide6.QtWidgets import QMainWindow, QTabWidget
 
 from services.backup_service import BackupService
-from services.brain_service import BrainService
+from services.brain import BrainService
 from services.steer_override_queue import (
     SteerOverrideQueue,
     get_default_queue,

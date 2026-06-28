@@ -4,8 +4,8 @@ from unittest.mock import MagicMock, patch
 from pathlib import Path
 from PySide6.QtCore import QCoreApplication
 
-from services.brain_v3.embedding_scheduler import EmbeddingScheduler, SkipEmbeddingError, EmbeddingTask
-from services.brain_v3.storage.embedding_cache import EmbeddingCache
+from services.brain.embedding_scheduler import EmbeddingScheduler, SkipEmbeddingError, EmbeddingTask
+from services.brain.storage.embedding_cache import EmbeddingCache
 
 
 class TestB576EmbeddingSkip(unittest.TestCase):

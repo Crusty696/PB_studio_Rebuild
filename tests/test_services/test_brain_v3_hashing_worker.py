@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from services.brain_v3.storage.media_hash_registry import MediaHashRegistry
+from services.brain.storage.media_hash_registry import MediaHashRegistry
 from workers.brain_v3_hashing import BrainV3HashingWorker
 
 

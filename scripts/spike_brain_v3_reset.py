@@ -70,10 +70,10 @@ def main(argv: list[str] | None = None) -> int:
 
     tmp_root = _configure_appdata(args)
 
-    from services.brain_v3.brain_v3_service import BrainV3Service
-    from services.brain_v3.schemas.brain_v3_schemas import FeedbackRequest, ResetRequest
-    from services.brain_v3.storage.brain_store import BrainStore
-    from services.brain_v3.storage.embedding_cache import EmbeddingCache
+    from services.brain.brain_v3_service import BrainV3Service
+    from services.brain.schemas.brain_v3_schemas import FeedbackRequest, ResetRequest
+    from services.brain.storage.brain_store import BrainStore
+    from services.brain.storage.embedding_cache import EmbeddingCache
 
     svc = BrainV3Service()
     db_paths = [svc._brain_store.weights_path, svc._brain_store.patterns_path]

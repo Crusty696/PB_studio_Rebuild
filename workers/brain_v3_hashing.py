@@ -17,7 +17,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal
 
-from services.brain_v3.storage.media_hash_registry import (
+from services.brain.storage.media_hash_registry import (
     MediaHashRegistry,
     get_default_registry,
 )

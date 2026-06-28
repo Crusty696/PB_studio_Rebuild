@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import MagicMock, patch
 import numpy as np
-from services.brain_v3.audio.audio_embedder import ClapAudioEmbedder, WindowEmbedding
+from services.brain.audio.audio_embedder import ClapAudioEmbedder, WindowEmbedding
 
 def test_b519_audio_streaming_chunked_loads(monkeypatch):
     monkeypatch.setattr("librosa.get_duration", lambda path: 25.0)

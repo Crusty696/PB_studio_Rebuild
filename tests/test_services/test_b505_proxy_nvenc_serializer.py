@@ -40,7 +40,7 @@ class SerializerSpy:
 
 @pytest.fixture
 def serializer_spy(monkeypatch):
-    import services.brain_v3.gpu_serializer as gs
+    import services.brain.gpu_serializer as gs
     spy = SerializerSpy()
     monkeypatch.setattr(gs, "get_default_serializer", lambda: spy)
     return spy

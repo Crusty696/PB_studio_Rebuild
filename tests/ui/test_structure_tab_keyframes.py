@@ -28,8 +28,9 @@ from sqlalchemy import text
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import QApplication
 
-from services import brain_service as brain_service_mod
-from services.brain_service import BrainService, _resolve_keyframe_path
+from services import brain as brain_service_mod
+from services.brain import BrainService
+from services.brain.legacy_sqlite import _resolve_keyframe_path
 from ui.studio_brain.structure_tab import _ClipCard, _load_card_thumb
 
 # Reuse fixture helpers from test_structure_tab (plain import — keine conftest).

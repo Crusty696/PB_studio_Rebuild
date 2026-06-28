@@ -768,7 +768,7 @@ class PBWindow(QMainWindow):
         """
         # Health-Check
         try:
-            from services.brain_v3.storage.brain_store import BrainStore
+            from services.brain.storage.brain_store import BrainStore
             store = BrainStore()
             health = store.health_check()
             health_msg = (
@@ -790,7 +790,7 @@ class PBWindow(QMainWindow):
 
         # GpuSerializer-Init (Lazy-Singleton)
         try:
-            from services.brain_v3.gpu_serializer import get_default_serializer
+            from services.brain.gpu_serializer import get_default_serializer
             get_default_serializer()
             logger.info("_boot_brain_v3_services: GpuSerializer initialisiert")
         except Exception as exc:
@@ -798,7 +798,7 @@ class PBWindow(QMainWindow):
 
         # EmbeddingScheduler start
         try:
-            from services.brain_v3.embedding_scheduler import get_default_scheduler
+            from services.brain.embedding_scheduler import get_default_scheduler
             scheduler = get_default_scheduler()
             scheduler.start()
             self._brain_v3_scheduler = scheduler
@@ -889,7 +889,7 @@ class PBWindow(QMainWindow):
 
     def _run_brain_v3_backup_check(self) -> None:
         try:
-            from services.brain_v3.storage.backup import run_weekly_backup_if_due
+            from services.brain.storage.backup import run_weekly_backup_if_due
 
             result = run_weekly_backup_if_due()
         except Exception as exc:

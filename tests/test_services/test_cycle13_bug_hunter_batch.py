@@ -192,7 +192,7 @@ def test_bug6_graph_cockpit_has_refresh_debounce():
 
 
 def test_bug7_brain_service_has_public_session_factory():
-    from services.brain_service import BrainService
+    from services.brain import BrainService
     # Die Property muss als attribute sichtbar sein
     assert hasattr(BrainService, "session_factory")
     # Property-Type-Check
@@ -201,7 +201,7 @@ def test_bug7_brain_service_has_public_session_factory():
 
 
 def test_bug7_brain_service_session_factory_returns_factory():
-    from services.brain_service import BrainService
+    from services.brain import BrainService
     sentinel = lambda: "session-stub"
     bs = BrainService(session_factory=sentinel)
     assert bs.session_factory is sentinel

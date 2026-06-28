@@ -8,13 +8,13 @@ from typing import Optional
 import numpy as np
 import pytest
 
-from services.brain_v3.brain_v3_service import BrainV3Service
-from services.brain_v3.context_resolver import CutContext
-from services.brain_v3.reranker import BrainV3Reranker, RerankedCandidate
-from services.brain_v3.schemas.brain_v3_schemas import FeedbackRequest
-from services.brain_v3.smart_sampler import sample_uncertain, SamplePoint
-from services.brain_v3.storage.brain_store import BrainStore
-from services.brain_v3.weight_store import WeightStore
+from services.brain.brain_v3_service import BrainV3Service
+from services.brain.context_resolver import CutContext
+from services.brain.reranker import BrainV3Reranker, RerankedCandidate
+from services.brain.schemas.brain_v3_schemas import FeedbackRequest
+from services.brain.smart_sampler import sample_uncertain, SamplePoint
+from services.brain.storage.brain_store import BrainStore
+from services.brain.weight_store import WeightStore
 
 
 @pytest.fixture
@@ -122,7 +122,7 @@ def test_reranker_propagates_brain_v3_scores_per_axis(isolated_appdata):
     rr = BrainV3Reranker(ws)
     scored = [(_StubClipFeatures(clip_id=42), 0.5, {})]
     out = rr.rerank(scored, _StubAudioContext())
-    from services.brain_v3.cold_start import BRIDGE_AXES
+    from services.brain.cold_start import BRIDGE_AXES
     assert set(out[0].brain_v3_scores.keys()) == set(BRIDGE_AXES)
 
 

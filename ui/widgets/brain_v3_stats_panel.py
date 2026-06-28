@@ -30,8 +30,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from services.brain_v3.brain_v3_service import BrainV3Service
-from services.brain_v3.schemas.brain_v3_schemas import ResetRequest
+from services.brain.brain_v3_service import BrainV3Service
+from services.brain.schemas.brain_v3_schemas import ResetRequest
 from ui.widgets.brain_v3_learning_dialog import BrainV3LearningSessionDialog
 
 logger = logging.getLogger(__name__)

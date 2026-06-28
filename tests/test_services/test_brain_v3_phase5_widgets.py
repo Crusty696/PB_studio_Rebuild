@@ -13,10 +13,10 @@ from PySide6.QtCore import QCoreApplication, QEvent, Qt
 from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import QApplication
 
-from services.brain_v3.brain_v3_service import BrainV3Service
-from services.brain_v3.context_resolver import CutContext
-from services.brain_v3.schemas.brain_v3_schemas import FeedbackRequest
-from services.brain_v3.schemas.brain_v3_schemas import (
+from services.brain.brain_v3_service import BrainV3Service
+from services.brain.context_resolver import CutContext
+from services.brain.schemas.brain_v3_schemas import FeedbackRequest
+from services.brain.schemas.brain_v3_schemas import (
     LearningSampleCut,
     LearningSessionResponse,
 )
@@ -444,7 +444,7 @@ def test_interactive_timeline_resolves_child_item_context_target(qt_app, monkeyp
 
 
 def test_interactive_timeline_applies_brain_v3_state_metadata(qt_app):
-    from services.brain_v3.timeline_state import BrainV3TimelineCutMeta
+    from services.brain.timeline_state import BrainV3TimelineCutMeta
     from ui.timeline import InteractiveTimeline
 
     timeline = InteractiveTimeline()

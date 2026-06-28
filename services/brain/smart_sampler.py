@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
-from services.brain_v3.weight_store import WeightStore
+from services.brain.weight_store import WeightStore
 
 logger = logging.getLogger(__name__)
 

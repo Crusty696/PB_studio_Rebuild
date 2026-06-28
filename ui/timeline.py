@@ -551,13 +551,13 @@ class TimelineClipItem(QGraphicsRectItem):
 
     def _get_brain_v3_feedback_service(self):
         if self._brain_v3_feedback_service is None:
-            from services.brain_v3.brain_v3_service import BrainV3Service
+            from services.brain.brain_v3_service import BrainV3Service
 
             self._brain_v3_feedback_service = BrainV3Service()
         return self._brain_v3_feedback_service
 
     def _submit_brain_v3_feedback(self, rating: str) -> int:
-        from services.brain_v3.schemas.brain_v3_schemas import FeedbackRequest
+        from services.brain.schemas.brain_v3_schemas import FeedbackRequest
 
         svc = self._get_brain_v3_feedback_service()
         resp = svc.feedback(
@@ -2471,7 +2471,7 @@ class InteractiveTimeline(QGraphicsView):
         existing = getattr(self, "_brain_service", None)
         if existing is not None:
             return existing
-        from services.brain_service import BrainService
+        from services.brain import BrainService
         self._brain_service = BrainService(session_factory=nullpool_session)
         return self._brain_service
 

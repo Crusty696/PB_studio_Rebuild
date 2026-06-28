@@ -14,16 +14,16 @@ import pytest
 from PySide6.QtCore import QCoreApplication
 from PySide6.QtWidgets import QApplication
 
-from services.brain_v3.embedding_scheduler import (
+from services.brain.embedding_scheduler import (
     EmbeddingScheduler,
     EmbeddingTask,
     reset_default_scheduler_for_tests,
 )
-from services.brain_v3.gpu_serializer import (
+from services.brain.gpu_serializer import (
     GpuSerializer,
     reset_default_serializer_for_tests,
 )
-from services.brain_v3.storage.embedding_cache import EmbeddingCache
+from services.brain.storage.embedding_cache import EmbeddingCache
 
 
 @pytest.fixture(scope="module")
@@ -188,7 +188,7 @@ def test_submit_path_does_not_skip_other_model_variant(qt_app, isolated_appdata)
 def test_invalid_video_metadata_skips_instead_of_failing(qt_app, isolated_appdata):
     """B-279: ein Video mit ungueltigen Metadaten (.stem.mp4, frames=-1) wird
     als sauberer Skip-mit-Grund behandelt, nicht als fehlgeschlagener Job."""
-    from services.brain_v3.video.video_embedder import InvalidVideoError
+    from services.brain.video.video_embedder import InvalidVideoError
 
     def _bad_video_embedder(task, progress_cb, serializer):
         raise InvalidVideoError("Ungueltige Video-Metadaten: fps=1.0 frames=-1")
@@ -291,8 +291,8 @@ def test_b554_default_factory_reuses_video_embedder(monkeypatch):
     EINE Instanz entstehen (Modell wird einmal geladen)."""
     from types import SimpleNamespace
 
-    import services.brain_v3.video.video_embedder as ve
-    from services.brain_v3 import embedding_scheduler as sched
+    import services.brain.video.video_embedder as ve
+    from services.brain import embedding_scheduler as sched
 
     class _CountingEmbedder:
         instances = 0
@@ -335,8 +335,8 @@ def test_b554_reset_embedder_cache_unloads_and_clears(monkeypatch):
     Instanz und leert den Cache (VRAM-Hygiene beim Scheduler-Stop)."""
     from types import SimpleNamespace
 
-    import services.brain_v3.video.video_embedder as ve
-    from services.brain_v3 import embedding_scheduler as sched
+    import services.brain.video.video_embedder as ve
+    from services.brain import embedding_scheduler as sched
 
     unloaded = {"n": 0}
 

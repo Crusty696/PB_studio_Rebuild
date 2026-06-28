@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-from services.brain_v3.context_resolver import (
+from services.brain.context_resolver import (
     CutContext,
     VALID_SECTIONS,
     VALID_MOOD,

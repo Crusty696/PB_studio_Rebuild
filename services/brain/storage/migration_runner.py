@@ -17,7 +17,7 @@ import logging
 import sqlite3
 from pathlib import Path
 
-from services.brain_v3.storage.sqlite_init import init_connection
+from services.brain.storage.sqlite_init import init_connection
 
 logger = logging.getLogger(__name__)
 

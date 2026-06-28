@@ -1,4 +1,4 @@
-"""Tests fuer services.brain_v3.gpu_serializer.
+"""Tests fuer services.brain.gpu_serializer.
 
 CPU-only — kein torch/cuda noetig. Pruefen Lock-Semantik, async, holder-Tracking.
 """
@@ -10,7 +10,7 @@ import time
 
 import pytest
 
-from services.brain_v3.gpu_serializer import (
+from services.brain.gpu_serializer import (
     GpuSerializer, get_default_serializer, reset_default_serializer_for_tests,
 )
 
