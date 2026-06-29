@@ -5,6 +5,21 @@ This file is a repository-local continuity checkpoint for all agents.
 ## Codex Quellstand-Konsolidierung 2026-06-22 (newest)
 
 - **Branch:** `codex/OTK-021-source-consolidation-2026-06-22`
+- **Newest push 2026-06-29:** `d69115f test(OTK-021): fix storage browser UI test hang`
+  is pushed to origin. Worktree clean after push.
+- **Current OTK-021 preflight 2026-06-29:** Startup system check with
+  `pb-studio` env and start-script env vars is green: local
+  `bin/ffmpeg.exe` 6.1.1, `ffprobe`, real `h264_nvenc`, CUDA on
+  GTX 1060, Python 3.10.20, Ollama, `beat_this`, and Demucs all OK.
+  Earlier NVENC failure was PATH/WinGet FFmpeg, not the app-resolved binary.
+- **Current OTK-021 regression 2026-06-29:** OTK-021 combined non-live slice
+  is green: `66 passed in 21.13s`. Storage-Browser UI hang was test-only:
+  the test patched the wrong `QMessageBox` object and opened a real offscreen
+  modal. Product code unchanged.
+- **Current release status 2026-06-29:** `python tools\release_gate.py`
+  still exits 2. DG-001 remains active (`h1-3-h3-reverified-PLUS-g-open`):
+  G.* evidence / H1 replacement-medium decision still prevents `fixed` or
+  release status.
 - **Worktree:** `C:\Users\David_Lochmann\.config\superpowers\worktrees\PB_studio_Rebuild\OTK-021-source-consolidation-2026-06-22`
 - **Basis:** `origin/main=9570374` (Agent_Tests PR #5).
 - **Merge:** `5f428ec` integriert 16 Commits aus
