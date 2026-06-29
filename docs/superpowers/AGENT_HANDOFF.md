@@ -69,16 +69,22 @@ This file is a repository-local continuity checkpoint for all agents.
   Fokus: `8 passed`; frühere GUI-Live-Evidenz 52 Clips/1 Modell-Load/76 s.
 - **BUG-A:** `7de108a` — SCHNITT-State nach Auto-Edit refresht; dirty
   Originaldatei byteidentisch übernommen. Fokus: `30 passed`.
-- **B-570:** Codefix ist im Branch enthalten. Shutdown erfasst auch
-  `cancelled` markierte, aber weiterlaufende QThreads. Nach vollständigem
-  Service-/CUDA-/DB-Cleanup beendet ein 1-s-Wächter ausschließlich bestätigte
-  Shutdowns mit verbleibenden Threads. Recheck 2026-06-29:
+- **B-570 status 2026-06-30:** codefix is still in place and now has a
+  visible verifier. Added `scripts/diag/verify_b570_shutdown_visible.py`, which
+  launches a real visible Qt window with `PBWindow.closeEvent`, creates a
+  cancelled-but-still-running QThread, closes the window, clicks the real
+  `Laufende Tasks` QMessageBox via pywinauto, and checks process exit. Clean
+  run: `python scripts/diag/verify_b570_shutdown_visible.py --timeout-s 60`
+  -> exit 0; result artifact says `clicked_dialog=true`,
+  `clicked_button=Yes`, `returncode=0`, `alive_after=false`. Focus regression
+  after that:
   `tests/test_services/test_b570_shutdown_tasks.py`
-  `tests/test_services/test_b570_shutdown_process.py` -> `3 passed in 24.78s`.
-  Vier sichtbare Qt/pywinauto-Retestversuche lieferten keinen Live-PASS
-  (dGPU-Wakeup vor Ready, Ready-Timeouts, ein Harness-ImportError, ein
-  pywinauto-Fenster-Timeout). Kein Prozessrest. Status bleibt
-  `code-fix-pending-live-verification`, kein `fixed`.
+  `tests/test_services/test_b570_shutdown_process.py` -> `3 passed in 14.80s`.
+  Versioned evidence:
+  `docs/superpowers/synthesis/b570-visible-shutdown-2026-06-30.md`.
+  Honest limit: this is a minimal PBWindow/live-QThread verifier, not the full
+  original production case with five concurrent analysis pipelines. Status
+  remains `code-fix-pending-live-verification`, not `fixed`.
 - **DG-001 H3 neu belegt 2026-06-23:** finaler Run `20260623-050437`
   auf GTX1060. Echter `htdemucs_ft`-Lauf (`reused=False`, vier Stems,
   Audio 8/8) parallel zur echten SigLIP+RAFT-Video-Pipeline (7/7).
