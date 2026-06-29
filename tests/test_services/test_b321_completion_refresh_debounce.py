@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from types import SimpleNamespace
 
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -18,6 +19,42 @@ def test_b321_completion_bridge_uses_debounced_media_refresh():
     assert "_refresh_media_table_debounced()" in bridge_body
     assert "media_table_controller._refresh_media_table()" not in bridge_body
     assert '"no table refresh"' in bridge_body
+
+
+def test_b564_completion_bridge_refreshes_active_status_panel():
+    source = (ROOT / "ui" / "controllers" / "panel_setup.py").read_text(encoding="utf-8")
+    bridge_body = source.split("def setup_analysis_completion_bridge", 1)[1].split(
+        "def _console_append", 1
+    )[0]
+
+    assert "_refresh_active_analysis_status_panel" in source
+    assert "_refresh_active_analysis_status_panel(self.window, media_type, media_id)" in bridge_body
+    assert 'getattr(panel, "_media_type", None) != media_type' in source
+    assert 'getattr(panel, "_media_id", None) != media_id' in source
+    assert "panel.refresh()" in source
+
+
+def test_b564_refresh_active_analysis_status_panel_matches_selected_media():
+    from ui.controllers.panel_setup import _refresh_active_analysis_status_panel
+
+    class Panel:
+        _media_type = "video"
+        _media_id = 42
+
+        def __init__(self):
+            self.refresh_count = 0
+
+        def refresh(self):
+            self.refresh_count += 1
+
+    panel = Panel()
+    window = SimpleNamespace(_media_ws=SimpleNamespace(video_analysis_panel=panel))
+
+    _refresh_active_analysis_status_panel(window, "video", 42)
+    _refresh_active_analysis_status_panel(window, "video", 43)
+    _refresh_active_analysis_status_panel(window, "audio", 42)
+
+    assert panel.refresh_count == 1
 
 
 def test_b321_completion_bridge_skips_video_intermediate_steps():

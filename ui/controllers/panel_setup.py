@@ -38,6 +38,19 @@ def _completion_should_refresh_media_table(media_type: str, step_key: str) -> bo
     return False
 
 
+def _refresh_active_analysis_status_panel(window, media_type: str, media_id: int) -> None:
+    """Refresh the visible status panel when it is showing the completed media."""
+    panel_name = "video_analysis_panel" if media_type == "video" else "audio_analysis_panel"
+    panel = getattr(getattr(window, "_media_ws", None), panel_name, None)
+    if panel is None:
+        return
+    if getattr(panel, "_media_type", None) != media_type:
+        return
+    if getattr(panel, "_media_id", None) != media_id:
+        return
+    panel.refresh()
+
+
 class PanelSetupController(PBComponent):
     """Controller for TaskDock, Console, and ChatDock in PBWindow."""
 
@@ -259,6 +272,10 @@ class PanelSetupController(PBComponent):
                         self.window.media_table_controller._refresh_media_table_debounced()
                     except Exception as e:
                         logger.warning("B-253: media_table-Refresh fehlgeschlagen: %s", e)
+                try:
+                    _refresh_active_analysis_status_panel(self.window, media_type, media_id)
+                except Exception as e:
+                    logger.warning("B-564: analysis_status_panel-Refresh fehlgeschlagen: %s", e)
 
                 # Stem-Workspace nur bei stem_separation
                 if media_type == "audio" and step_key == "stem_separation":

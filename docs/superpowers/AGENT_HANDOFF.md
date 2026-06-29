@@ -5,8 +5,15 @@ This file is a repository-local continuity checkpoint for all agents.
 ## Codex Quellstand-Konsolidierung 2026-06-22 (newest)
 
 - **Branch:** `codex/OTK-021-source-consolidation-2026-06-22`
-- **Newest push 2026-06-29:** `d69115f test(OTK-021): fix storage browser UI test hang`
-  is pushed to origin. Worktree clean after push.
+- **Latest B-564 code-fix 2026-06-29:** branch contains B-564 work after
+  `d69115f`. Completion-Bridge now refreshes the active Video/Audio analysis
+  status panel when its `media_type` and `media_id` match the completed step.
+  Verification: B-564 focus `2 passed in 2.27s`; affected Statuspanel/
+  Completion regression `16 passed in 9.54s`; `py_compile` PASS;
+  `git diff --check` PASS. No GUI pipeline live retest yet; status remains
+  `code-fix-pending-live-verification`, not `fixed`.
+- **Previous push 2026-06-29:** `d69115f test(OTK-021): fix storage browser UI test hang`
+  is pushed to origin.
 - **Current OTK-021 preflight 2026-06-29:** Startup system check with
   `pb-studio` env and start-script env vars is green: local
   `bin/ffmpeg.exe` 6.1.1, `ffprobe`, real `h264_nvenc`, CUDA on
@@ -20,7 +27,7 @@ This file is a repository-local continuity checkpoint for all agents.
   still exits 2. DG-001 remains active (`h1-3-h3-reverified-PLUS-g-open`):
   G.* evidence / H1 replacement-medium decision still prevents `fixed` or
   release status.
-- **Worktree:** `C:\Users\David_Lochmann\.config\superpowers\worktrees\PB_studio_Rebuild\OTK-021-source-consolidation-2026-06-22`
+- **Worktree:** `C:\Users\David_Lochmann\Documents\PB_studio_Rebuild\PB_studio_Rebuild`
 - **Basis:** `origin/main=9570374` (Agent_Tests PR #5).
 - **Merge:** `5f428ec` integriert 16 Commits aus
   `origin/claude/B-539-cross-project-reuse-by-sha-2026-06-18`, inkl.
