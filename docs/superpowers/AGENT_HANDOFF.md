@@ -20,6 +20,21 @@ This file is a repository-local continuity checkpoint for all agents.
   `tests/ui/test_b577_async_dropdown_reflects_a1.py` -> `2 passed in 6.66s`.
   Vault status moved to `code-fix-pending-live-verification`; no fresh visible
   GUI retest in this session, not `fixed`.
+- **B-562 status 2026-06-30:** current code already contains the Cockpit
+  full-refresh fix in `ProjectManagementController._on_project_changed()`.
+  Focus test refreshed:
+  `tests/ui/test_b562_project_open_refreshes_cockpit.py -q` ->
+  `2 passed in 3.70s`. Vault frontmatter moved from stale `open` to
+  `code-fix-pending-live-verification`. No fresh visible GUI retest in this
+  session, not `fixed`.
+- **B-567 status 2026-06-30:** current code contains the persistent
+  `PBWindow.show_status_error()` path and Brain-V3 error bridge. Focus tests:
+  `tests/test_ui/test_b567_brain_v3_error_statusbar.py`
+  plus
+  `tests/test_services/test_brain_v3_embedding_scheduler.py::test_failed_job_emits_error_text`
+  -> `3 passed in 10.16s`. Vault frontmatter moved from stale `open` to
+  `code-fix-pending-live-verification`. The exact AudioPipelineV2/Demucs GUI
+  path was not freshly live-triggered in this session, not `fixed`.
 - **Previous push 2026-06-29:** `d69115f test(OTK-021): fix storage browser UI test hang`
   is pushed to origin.
 - **Current OTK-021 preflight 2026-06-29:** Startup system check with
