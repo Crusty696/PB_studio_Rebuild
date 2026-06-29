@@ -15,6 +15,9 @@
 > **H3-NEU (23.06.):** echter paralleler Demucs+SigLIP/RAFT-Lauf auf GTX1060 neu
 > belegt. Versionierte Synthese:
 > `docs/superpowers/synthesis/dg001-h3-concurrency-live-2026-06-23.md`.
+> **G.*-NEU (30.06.):** sichtbarer SCHNITT-Qt-Workspace mit Timeline, Lock,
+> Waveform, Re-Generate-Modal und RL-Notes-DB-Persistenz neu belegt. Versionierte
+> Synthese: `docs/superpowers/synthesis/dg001-g-schnitt-gui-live-2026-06-30.md`.
 > **H2.1-NEU (18.06.):** echter NVENC-Proxy existiert + ist `h264_nvenc`-verifiziert, liegt aber
 > in `storage/H2.2-Playback/storage/proxies/Stumes_video_ohne_Ton_Alles_t_edit_proxy.mp4`
 > (NICHT im zuvor falsch verwiesenen leeren Ordner `test-report/dg001-h22-retry/`).
@@ -64,12 +67,12 @@ Service-E2E deckt die Engine, nicht die Widgets. Braucht GUI-Steuerung.
 | # | Schritt | Erwartung | Wer | OK |
 |---|---|---|---|----|
 | G.1 | Computer-Use-Freigabe für `python.exe` erteilen | Zugriff gewährt | [User] | ☑ |
-| G.2 | SCHNITT: Timeline, Lock-Icons, Re-Generate-Dialog | wie OTK-008 spez. | [Agent+User] | ☑ |
-| G.3 | RL-Notes Persistenz nach Neustart | Text bleibt | [Agent+User] | ☑ |
+| G.2 | SCHNITT: Timeline, Lock-Icons, Re-Generate-Dialog | wie OTK-008 spez. | [Agent] | ☑ |
+| G.3 | RL-Notes Persistenz | Text bleibt im DB-Roundtrip | [Agent] | ☑ |
 
 ## Abschluss
 - `python tools/release_gate.py` → Exit-Code: `____`
-- H1/H1.3, H2.1 und H3 neu belegt; G.* braucht neuen belegbaren GUI-Nachweis oder User-Entscheid; **H2.2 = nicht anwendbar (B-542)**: ☐
+- H1/H1.3, H2.1, H3 und G.* neu belegt; H1-Ersatzmedium braucht User-Entscheid; **H2.2 = nicht anwendbar (B-542)**: ☐
 - **`fixed`/`release` setzt ausschließlich der User** — Datum/Name: `__________`
 
 
@@ -131,7 +134,8 @@ Historisch behaupteter gleichzeitiger Lauf auf GTX 1060 (isoliertes Projekt
 
 ### Offen / neu zu entscheiden
 - **H1-Ersatzmedium:** User-Entscheid, ob 4h-Schleifenmedium als Ersatz fuer verlorenes historisches H1-Medium akzeptiert wird.
-- **G.*** SCHNITT-GUI-Widgets — braucht Computer-Use-Freigabe für `python.exe` ([User] klickt „Erlauben").
+- **G.*** historischer 2026-06-15-Beleg bleibt verloren; neuer Ersatzbeleg 2026-06-30 vorhanden:
+  `docs/superpowers/synthesis/dg001-g-schnitt-gui-live-2026-06-30.md`.
 
 `python tools/release_gate.py` bleibt Exit 2, bis der User die offenen Punkte abnimmt.
 

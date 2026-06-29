@@ -5,6 +5,17 @@ This file is a repository-local continuity checkpoint for all agents.
 ## Codex Quellstand-Konsolidierung 2026-06-22 (newest)
 
 - **Branch:** `codex/OTK-021-source-consolidation-2026-06-22`
+- **DG-001 G.* neu belegt 2026-06-30:** added
+  `scripts/diag/verify_dg001_g_schnitt_gui.py` and versioned synthesis
+  `docs/superpowers/synthesis/dg001-g-schnitt-gui-live-2026-06-30.md`.
+  Direct run with `pb-studio` env exited 0 / `passed=True`: visible
+  `SchnittWorkspace`, editor state, tabs `Schnitt`, `Pacing & Anker`,
+  `Audio`, `RL & Notes`, 2 timeline clips, 1 locked video clip, 1 waveform,
+  RL Notes DB roundtrip, real `QMessageBox` Re-Generate warning, and `No`
+  emitted no regenerate signal. Honest limit: synthetic minimal project, not
+  historical `test55655`, not a full all-workspaces product run. Release-Gate
+  still blocks: DG-001 now waits on the User decision whether the H1 looped
+  medium is accepted as replacement for the lost historical H1 original.
 - **Latest B-564 code-fix 2026-06-29:** branch contains B-564 work after
   `d69115f`. Completion-Bridge now refreshes the active Video/Audio analysis
   status panel when its `media_type` and `media_id` match the completed step.
