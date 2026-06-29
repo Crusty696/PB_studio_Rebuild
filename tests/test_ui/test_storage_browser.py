@@ -85,14 +85,14 @@ def test_storage_browser_dialog_delete_paths(monkeypatch, qapp) -> None:
         def list_sources(self, **kwargs):
             return []
 
-        def delete_analysis_sources(self, source_hashes):
+        def delete_analysis_sources(self, source_hashes, **_kwargs):
             deleted.append(list(source_hashes))
             return SimpleNamespace(deleted_jobs=3)
 
     monkeypatch.setattr(mod, "nullpool_session", fake_session)
     monkeypatch.setattr(mod, "StorageBrowserService", FakeService)
-    monkeypatch.setattr(QMessageBox, "question", lambda *args, **kwargs: QMessageBox.StandardButton.Yes)
-    monkeypatch.setattr(QMessageBox, "information", lambda _parent, _title, text: info_messages.append(text))
+    monkeypatch.setattr(mod.QMessageBox, "question", lambda *args, **kwargs: QMessageBox.StandardButton.Yes)
+    monkeypatch.setattr(mod.QMessageBox, "information", lambda _parent, _title, text: info_messages.append(text))
 
     dialog = mod.StorageBrowserDialog()
     dialog._delete_sources([])
