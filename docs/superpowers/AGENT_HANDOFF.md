@@ -12,6 +12,14 @@ This file is a repository-local continuity checkpoint for all agents.
   Completion regression `16 passed in 9.54s`; `py_compile` PASS;
   `git diff --check` PASS. No GUI pipeline live retest yet; status remains
   `code-fix-pending-live-verification`, not `fixed`.
+- **B-569 status 2026-06-29:** current code already contains the A1-lane
+  audio dropdown fix in `MediaTableController._a1_audio_combo_index()` and
+  uses it in both sync `_refresh_director_combos()` and async
+  `_apply_refreshed_data()`. Focus tests are green:
+  `tests/ui/test_b569_audio_dropdown_reflects_a1.py`
+  `tests/ui/test_b577_async_dropdown_reflects_a1.py` -> `2 passed in 6.66s`.
+  Vault status moved to `code-fix-pending-live-verification`; no fresh visible
+  GUI retest in this session, not `fixed`.
 - **Previous push 2026-06-29:** `d69115f test(OTK-021): fix storage browser UI test hang`
   is pushed to origin.
 - **Current OTK-021 preflight 2026-06-29:** Startup system check with
@@ -39,12 +47,15 @@ This file is a repository-local continuity checkpoint for all agents.
   Fokus: `8 passed`; frühere GUI-Live-Evidenz 52 Clips/1 Modell-Load/76 s.
 - **BUG-A:** `7de108a` — SCHNITT-State nach Auto-Edit refresht; dirty
   Originaldatei byteidentisch übernommen. Fokus: `30 passed`.
-- **B-570:** Codefix noch uncommitted — Shutdown erfasst jetzt auch
+- **B-570:** Codefix ist im Branch enthalten. Shutdown erfasst auch
   `cancelled` markierte, aber weiterlaufende QThreads. Nach vollständigem
   Service-/CUDA-/DB-Cleanup beendet ein 1-s-Wächter ausschließlich bestätigte
-  Shutdowns mit verbleibenden Threads. `15 passed`; echter Qt-Child mit
-  blockiertem 30-s-Python-Worker endet vor 15-s-Grenze. Sichtbarer GUI-Klickpfad
-  blockiert durch Computer-Use-`@oai/sky`-Exportsfehler; Status
+  Shutdowns mit verbleibenden Threads. Recheck 2026-06-29:
+  `tests/test_services/test_b570_shutdown_tasks.py`
+  `tests/test_services/test_b570_shutdown_process.py` -> `3 passed in 24.78s`.
+  Vier sichtbare Qt/pywinauto-Retestversuche lieferten keinen Live-PASS
+  (dGPU-Wakeup vor Ready, Ready-Timeouts, ein Harness-ImportError, ein
+  pywinauto-Fenster-Timeout). Kein Prozessrest. Status bleibt
   `code-fix-pending-live-verification`, kein `fixed`.
 - **DG-001 H3 neu belegt 2026-06-23:** finaler Run `20260623-050437`
   auf GTX1060. Echter `htdemucs_ft`-Lauf (`reused=False`, vier Stems,
@@ -65,8 +76,9 @@ This file is a repository-local continuity checkpoint for all agents.
 - **Statussprache:** Integration test-grün; kein neuer vollständiger GUI-/GPU-E2E,
   keine neuen `fixed`-Marker.
 - **Push:** Branch auf `origin` vorhanden.
-- **Nächster Schritt:** B-570 sichtbaren GUI-Klickpfad retesten, sobald
-  Windows-Steuerung wieder verfügbar ist; danach nächsten Masterplan-Bug wählen.
+- **Nächster Schritt:** offene OTK-021 Live-Bugs weiter triagieren/fixen.
+  B-570 braucht weiter sichtbaren GUI-Klickpfad; B-562/B-567 haben bereits
+  Code-/Live-Hinweise im Bugfile, aber keine User-`fixed`-Freigabe.
 
 ## ⛔ VERIFIKATIONS-AUDIT 2026-06-18 — viele „fixed/PASS"-Marker sind NICHT gedeckt
 Ein 4-Agenten-Audit (read-only) ergab: von 23 geprüften OTK/DG-001/Bug-Markern sind nur **7
