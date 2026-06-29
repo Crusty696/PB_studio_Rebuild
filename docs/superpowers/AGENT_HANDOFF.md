@@ -35,6 +35,13 @@ This file is a repository-local continuity checkpoint for all agents.
   -> `3 passed in 10.16s`. Vault frontmatter moved from stale `open` to
   `code-fix-pending-live-verification`. The exact AudioPipelineV2/Demucs GUI
   path was not freshly live-triggered in this session, not `fixed`.
+- **B-573 status 2026-06-30:** current code already contains the frame-sampler
+  EOF prevention for late RAFT timestamps. Focus test refreshed:
+  `tests/test_services/test_video_frame_sampler.py -q` ->
+  `8 passed in 0.67s`. Vault frontmatter moved from stale `open` to
+  `code-fix-pending-live-verification`. Prior Agent-Live-PASS remains noted in
+  the bugfile; no new 4h RAFT product live retest in this session, not
+  `fixed`.
 - **Previous push 2026-06-29:** `d69115f test(OTK-021): fix storage browser UI test hang`
   is pushed to origin.
 - **Current OTK-021 preflight 2026-06-29:** Startup system check with
