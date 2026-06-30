@@ -92,6 +92,20 @@ This file is a repository-local continuity checkpoint for all agents.
   `305687BCF6AED0031B9AFC0A9B6255B7FF310614628B7A85C3BC298B41B21619`.
   Still blocked: no Clean-VM install, no signing, no full installed-app GUI
   workflow, DG-001 H1 decision.
+- **B-547 Storage-Browser delete live follow-up 2026-06-30:** added
+  `scripts/diag/verify_b547_storage_browser_delete_visible.py`. Direct run
+  Exit 0 with a visible real `StorageBrowserDialog`, temporary real SQLite DB,
+  temporary real `storage/by_sha`, physical-delete checkbox enabled, and real
+  QMessageBox confirmation/success dialogs clicked. Evidence: row count
+  `1 -> 0`, summary `1 Quellen / 4.0 KB -> 0 Quellen / 0 B`,
+  source root existed before and was gone after, `analysis_jobs=0`,
+  `analysis_artifacts=0`, `project_sources=1`, success text reported
+  `1 Speicherordner geloescht, 4.0 KB freigegeben`. Regression:
+  `tests/test_services/test_storage_browser.py tests/test_ui/test_storage_browser.py`
+  -> `10 passed in 2.34s`; synthesis
+  `docs/superpowers/synthesis/b547-storage-browser-delete-live-2026-06-30.md`.
+  Honest limit: not clean-VM, not full OTK-021 7-step live verify, no agent
+  `fixed` marker.
 - **DG-001 G.* neu belegt 2026-06-30:** added
   `scripts/diag/verify_dg001_g_schnitt_gui.py` and versioned synthesis
   `docs/superpowers/synthesis/dg001-g-schnitt-gui-live-2026-06-30.md`.
