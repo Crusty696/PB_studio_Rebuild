@@ -13,8 +13,17 @@ if getattr(sys, 'frozen', False):
     # We are running inside a PyInstaller bundle
     bundle_dir = sys._MEIPASS  # noqa: SIM117
 
-    # 1. Add bundle root to PATH so all bundled DLLs are found
-    os.environ['PATH'] = bundle_dir + os.pathsep + os.environ.get('PATH', '')
+    # 1. Add bundled DLL directories to PATH. PyInstaller may place CUDA/Torch
+    # DLLs either at bundle root or in package-local folders after pruning.
+    dll_dirs = [
+        bundle_dir,
+        os.path.join(bundle_dir, 'torch', 'lib'),
+        os.path.join(bundle_dir, 'torch', 'bin'),
+        os.path.join(bundle_dir, 'torchvision'),
+        os.path.join(bundle_dir, 'PySide6'),
+    ]
+    existing_dll_dirs = [p for p in dll_dirs if os.path.isdir(p)]
+    os.environ['PATH'] = os.pathsep.join(existing_dll_dirs + [os.environ.get('PATH', '')])
 
     # 2. Point CUDA_PATH to the bundle so torch finds cudart/cublas/cudnn
     os.environ['CUDA_PATH'] = bundle_dir

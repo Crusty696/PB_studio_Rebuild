@@ -9,16 +9,21 @@ This file is a repository-local continuity checkpoint for all agents.
   `C:\Users\David_Lochmann\miniconda3\envs\pb-studio\python.exe`
   ausgefuehrt (Python 3.10.20, torch 1.12.1+cu113, CUDA True,
   NVIDIA GeForce GTX 1060). `dist/pb_studio` wurde erzeugt
-  (14,802 Dateien, 8.83 GB). `installer/smoke_test.py` und
+  (nach Prune: 14,758 Dateien, 5.52 GB). `installer/smoke_test.py` und
   `SMOKE_TEST_LAUNCH=1 installer/smoke_test.py` beide Exit 0; EXE launchte
   und wurde nach 5s beendet. `tests/test_export_convert_real.py` mit
   synthetischer NVENC-Fixture via `PB_TEST_VIDEO_PATH` -> 21/21 PASS.
   Geaendert: PyInstaller Pins in `requirements-py310-cu113.txt`,
   Brain-SQL-Migration-Pfad in `pb_studio.spec`, Smoke-Test Exit-Policy,
-  Export-Test Env-Override/Exit-Policy, `.gitignore` fuer `build/`/`dist/`.
-  Weiter blockiert: `makensis` fehlt, kein NSIS-Installer, kein Clean-VM-Test,
-  keine Signatur, PyInstaller-Warnungen untriagiert, kein Full-Frozen-GUI-
-  Workflow, DG-001 User-Entscheid H1-Ersatzmedium offen. Details:
+  Export-Test Env-Override/Exit-Policy, Runtime-Hook DLL paths,
+  PyInstaller-Prune, NSISBI mode, `.gitignore` fuer `build/`/`dist/`.
+  Standard-NSIS scheiterte an grossem Payload; NSISBI 7069-1 erzeugte
+  `dist/pb_studio_setup_v0.5.0.exe` (422,872 bytes) plus
+  `dist/pb_studio_setup_v0.5.0.nsisbin` (2,816,861,307 bytes). Build-Script
+  Proof: `PB_SKIP_PYINSTALLER=1 cmd /c installer\build_installer.bat` Exit 0.
+  Weiter blockiert: kein Clean-VM-Test, keine Signatur, Installer nicht
+  installiert/gestartet, PyInstaller-Warnungen untriagiert, kein
+  Full-Frozen-GUI-Workflow, DG-001 User-Entscheid H1-Ersatzmedium offen. Details:
   `docs/superpowers/synthesis/packaging-gate-audit-2026-06-30.md`.
 - **DG-001 G.* neu belegt 2026-06-30:** added
   `scripts/diag/verify_dg001_g_schnitt_gui.py` and versioned synthesis

@@ -48,7 +48,9 @@ Use this checklist when preparing a production deployment of PB Studio.
 - [ ] NVIDIA driver compatible with the GTX 1060 target installed
 - [ ] Active release path verified with CUDA/cu113 torch in the `pb-studio` env
 - [ ] Local bundled FFmpeg exists and supports NVENC: `bin\ffmpeg.exe`, `bin\ffprobe.exe`
-- [ ] NSIS 3.x installed and on PATH: `makensis /VERSION`
+- [ ] NSISBI available for production packaging:
+  `%LOCALAPPDATA%\PBStudioTools\nsisbi-7069-1\Bin\makensis.exe`
+- [ ] Standard NSIS 3.x optional for local syntax checks: `makensis /VERSION`
 - [ ] Disk space: >50 GB free on build drive
 
 ### Python Environment
@@ -82,7 +84,7 @@ Use this checklist when preparing a production deployment of PB Studio.
 
 ### Build Verification
 - [ ] Check executable exists: `dist/pb_studio/pb_studio.exe`
-- [ ] Check build size: 8-20 GB range
+- [ ] Check pruned build size: about 5.5 GB for the current cu113 bundle
 - [ ] Verify CUDA DLLs included:
   - [ ] `cudart64_110.dll`
   - [ ] `cublas64_11.dll`
@@ -98,9 +100,12 @@ Use this checklist when preparing a production deployment of PB Studio.
   - [ ] `Qt6Widgets.dll`
 
 ### NSIS Installer Build
-- [ ] NSIS script runs without errors
-- [ ] Installer created: `dist/pb_studio_setup_v0.5.0.exe`
-- [ ] Installer size reasonable: ~8-15 GB
+- [ ] NSISBI script runs without errors:
+  `makensis /V2 /DUSE_NSISBI installer\pb_studio.nsi`
+- [ ] Installer stub created: `dist/pb_studio_setup_v0.5.0.exe`
+- [ ] Installer payload created beside it:
+  `dist/pb_studio_setup_v0.5.0.nsisbin`
+- [ ] Both files are included in the release package
 
 ---
 
@@ -119,7 +124,7 @@ Use this checklist when preparing a production deployment of PB Studio.
   - [ ] No development tools
   - [ ] NVIDIA drivers installed
   - [ ] 25+ GB free disk space
-- [ ] Copy installer to VM
+- [ ] Copy installer stub and `.nsisbin` payload to VM in the same folder
 - [ ] Run installer as admin
 - [ ] Verify installation completes
 - [ ] Run environment setup script
@@ -228,6 +233,7 @@ Use this checklist when preparing a production deployment of PB Studio.
   signtool sign /f certificate.pfx /p password /t http://timestamp.digicert.com dist\pb_studio_setup_v0.5.0.exe
   ```
 - [ ] Verify signature: Right-click installer → Properties → Digital Signatures
+- [ ] Keep `.nsisbin` hash in release notes because payload is unsigned external data
 - [ ] Test signed installer on clean VM
 
 ### Security Scan
@@ -242,10 +248,11 @@ Use this checklist when preparing a production deployment of PB Studio.
 ## Distribution
 
 ### Package Preparation
-- [ ] Rename installer with clear version: `pb_studio_setup_v0.5.0.exe`
+- [ ] Rename installer stub with clear version: `pb_studio_setup_v0.5.0.exe`
+- [ ] Keep payload filename matched: `pb_studio_setup_v0.5.0.nsisbin`
 - [ ] Generate checksums:
   ```powershell
-  Get-FileHash dist\pb_studio_setup_v0.5.0.exe -Algorithm SHA256
+  Get-FileHash dist\pb_studio_setup_v0.5.0.exe,dist\pb_studio_setup_v0.5.0.nsisbin -Algorithm SHA256
   ```
 - [ ] Create ZIP archive with installer + README
 - [ ] Test ZIP extraction

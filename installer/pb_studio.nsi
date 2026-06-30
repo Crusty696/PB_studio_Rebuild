@@ -31,6 +31,10 @@ Unicode True
 
 Name          "${APP_NAME} ${APP_VERSION}"
 OutFile       "${OUTPUT_EXE}"
+!ifdef USE_NSISBI
+OutFileMode   stub
+Target        amd64-unicode
+!endif
 InstallDir    "${INSTALL_DIR}"
 InstallDirRegKey HKLM "${UNINSTALL_KEY}" "InstallLocation"
 
@@ -81,6 +85,50 @@ VIAddVersionKey /LANG=${LANG_ENGLISH} "CompanyName"      "${APP_PUBLISHER}"
 VIAddVersionKey /LANG=${LANG_ENGLISH} "LegalCopyright"   "Copyright 2026 ${APP_PUBLISHER}"
 
 ;--------------------------------
+; Helper: StrContains
+; Usage: ${StrContains} $result "needle" $haystack
+;--------------------------------
+
+!macro StrContains ResultVar Needle Haystack
+  Push "${Haystack}"
+  Push "${Needle}"
+  Call StrContainsImpl
+  Pop ${ResultVar}
+!macroend
+
+Function StrContainsImpl
+  Exch $R0  ; needle
+  Exch
+  Exch $R1  ; haystack
+  Push $R2
+  Push $R3
+
+  StrLen $R2 $R0  ; needle length
+  StrCpy $R3 ""
+
+  loop:
+    StrCpy $R3 $R1 $R2
+    ${If} $R3 == $R0
+      StrCpy $R3 $R0
+      Goto done
+    ${EndIf}
+    StrCpy $R1 $R1 "" 1
+    ${If} $R1 == ""
+      StrCpy $R3 ""
+      Goto done
+    ${EndIf}
+    Goto loop
+
+  done:
+  Pop $R2
+  Exch $R1
+  Pop $R1
+  Exch $R0
+  Pop $R0
+  Exch $R3
+FunctionEnd
+
+;--------------------------------
 ; GPU Detection Macro
 ; Checks for NVIDIA GPU via WMI query. Sets $GPU_PRESENT to "1" if found.
 ;--------------------------------
@@ -91,7 +139,7 @@ VIAddVersionKey /LANG=${LANG_ENGLISH} "LegalCopyright"   "Copyright 2026 ${APP_P
   Pop $1  ; stdout
 
   ${If} $1 != ""
-    ${StrContains} $2 "NVIDIA" $1
+    !insertmacro StrContains $2 "NVIDIA" $1
     ${If} $2 != ""
       StrCpy $GPU_PRESENT "1"
     ${EndIf}
@@ -138,11 +186,9 @@ $\nCPU-only mode is not supported. $\nPlease install NVIDIA drivers from: https:
   ${EndIf}
 
 SectionEnd
-
 Section "Desktop Shortcut" SecDesktop
   CreateShortCut "$DESKTOP\${APP_NAME}.lnk" "$INSTDIR\${APP_EXE}" "" "$INSTDIR\${APP_EXE}" 0
 SectionEnd
-
 Section "Start Menu Entry" SecStartMenu
   CreateDirectory "$SMPROGRAMS\${APP_NAME}"
   CreateShortCut  "$SMPROGRAMS\${APP_NAME}\${APP_NAME}.lnk"       "$INSTDIR\${APP_EXE}" "" "$INSTDIR\${APP_EXE}" 0
@@ -184,47 +230,3 @@ Section "Uninstall"
   DeleteRegKey HKLM "${UNINSTALL_KEY}"
 
 SectionEnd
-
-;--------------------------------
-; Helper: StrContains
-; Usage: ${StrContains} $result "needle" $haystack
-;--------------------------------
-
-!macro StrContains ResultVar Needle Haystack
-  Push "${Haystack}"
-  Push "${Needle}"
-  Call StrContainsImpl
-  Pop ${ResultVar}
-!macroend
-
-Function StrContainsImpl
-  Exch $R0  ; needle
-  Exch
-  Exch $R1  ; haystack
-  Push $R2
-  Push $R3
-
-  StrLen $R2 $R0  ; needle length
-  StrCpy $R3 ""
-
-  loop:
-    StrCpy $R3 $R1 $R2
-    ${If} $R3 == $R0
-      StrCpy $R3 $R0
-      Goto done
-    ${EndIf}
-    StrCpy $R1 $R1 "" 1
-    ${If} $R1 == ""
-      StrCpy $R3 ""
-      Goto done
-    ${EndIf}
-    Goto loop
-
-  done:
-  Pop $R2
-  Exch $R1
-  Pop $R1
-  Exch $R0
-  Pop $R0
-  Exch $R3
-FunctionEnd

@@ -2,7 +2,7 @@
 
 **Version:** 0.5.0  
 **Target Platform:** Windows 11 (64-bit)  
-**Build System:** PyInstaller + NSIS
+**Build System:** PyInstaller + NSISBI/NSIS
 **Target Runtime:** Python 3.10 + CUDA 11.3 / cu113 (NVIDIA GTX 1060 compatible)
 
 ---
@@ -24,7 +24,9 @@ This guide covers building and deploying PB Studio for production distribution. 
 - Windows 11 (64-bit)
 - Python 3.10 (managed via Miniconda/Anaconda recommended)
 - Git
-- NSIS 3.x (for installer creation)
+- NSISBI 7069-1 for the production installer payload (standard NSIS 3.x is
+  useful for syntax checks but cannot package this CUDA bundle as one classic
+  installer on this machine)
 - CUDA-compatible GPU (GTX 1060 6GB minimum)
 
 ### Required Tools
@@ -36,9 +38,13 @@ conda activate pb-studio
 # Upgrade pip
 pip install --upgrade pip
 
-# Install NSIS
+# Install standard NSIS if needed for local checks
 # Download from: https://nsis.sourceforge.io/
-# Add to PATH: C:\Program Files (x86)\NSIS\makensis.exe
+#
+# Install NSISBI 7069-1 for the production installer:
+#   downloads.sourceforge.net/project/nsisbi/nsisbi3.04.1/nsis-binary-7069-1.zip
+# Expected local path used by installer\build_installer.bat:
+#   %LOCALAPPDATA%\PBStudioTools\nsisbi-7069-1\Bin\makensis.exe
 ```
 
 ---
@@ -70,14 +76,17 @@ installer\build_installer.bat
 ```
 
 **Build Timeline:**
-- PyInstaller compilation: 5-20 minutes
-- Expected output size: 8-20 GB (includes CUDA libraries)
-- NSIS packaging: 2-5 minutes
+- PyInstaller compilation: about 20 minutes on the current target machine
+- Post-build prune removes duplicated top-level Torch/CUDA DLLs
+- Expected pruned output size: about 5.5 GB on the current cu113 build
+- NSISBI packaging: about 15-20 minutes
 - Total time: ~15-30 minutes
 
 **Output:**
 - `dist\pb_studio\` — Application folder with all dependencies
-- `dist\pb_studio_setup_v0.5.0.exe` — Windows installer
+- `dist\pb_studio_setup_v0.5.0.exe` — NSISBI installer stub
+- `dist\pb_studio_setup_v0.5.0.nsisbin` — NSISBI external payload; must be
+  shipped beside the EXE
 
 ### 3. Build Verification
 
@@ -87,7 +96,7 @@ The build script automatically runs smoke tests. Manual verification:
 # Check executable exists
 dir dist\pb_studio\pb_studio.exe
 
-# Check total bundle size (should be 8-20 GB)
+# Check total bundle size (current pruned cu113 build is about 5.5 GB)
 python -c "import pathlib; root=pathlib.Path('dist/pb_studio'); print(f'{sum(p.stat().st_size for p in root.rglob(\"*\") if p.is_file()) / 1024**3:.2f} GB')"
 
 # Run installer smoke test
@@ -111,7 +120,8 @@ dist/
 │   │   └── knowledge/                  # AI knowledge base
 │   └── [CUDA DLLs and dependencies]
 │
-└── pb_studio_setup_v0.5.0.exe          # Windows installer
+├── pb_studio_setup_v0.5.0.exe          # NSISBI installer stub
+└── pb_studio_setup_v0.5.0.nsisbin      # NSISBI payload, required beside EXE
 ```
 
 ---
@@ -120,7 +130,8 @@ dist/
 
 ### End-User Installation
 
-1. **Download** `pb_studio_setup_v0.5.0.exe`
+1. **Download** `pb_studio_setup_v0.5.0.exe` and
+   `pb_studio_setup_v0.5.0.nsisbin` into the same folder
 2. **Run installer** (requires admin rights)
 3. **Choose installation directory** (default: `C:\Program Files\PB Studio`)
 4. **Complete installation** — Start Menu shortcuts created
