@@ -128,6 +128,21 @@ This file is a repository-local continuity checkpoint for all agents.
   `docs/superpowers/synthesis/otk021-project-bundle-roundtrip-2026-06-30.md`.
   Honest limit: local roundtrip only; Project-Export + Import on another VM
   still open.
+- **OTK-021 Disk-Budget follow-up 2026-06-30:** added
+  `scripts/diag/verify_otk021_disk_budget_real.py`. Direct run Exit 0 with
+  real `DiskBudgetService`, file-backed SQLite DB, real `storage/by_sha`
+  files, two projects, two used sources, one old unused source, one recent
+  unused source, summary/project usage check, cleanup estimate check, and real
+  free-space probe. Evidence:
+  `tests/qa_artifacts/otk021_disk_budget_real_result.json` reports
+  `total_bytes=10000`, `source_count=4`, cleanup `reclaimable_bytes=3000`,
+  and real disk free-space probe passed. Low-space guard uses patched
+  `disk_usage(free=10)`; disk filling was intentionally not done. Regression:
+  `tests/test_services/test_disk_budget_global.py` -> `3 passed in 1.17s`;
+  synthesis
+  `docs/superpowers/synthesis/otk021-disk-budget-real-2026-06-30.md`.
+  Honest limit: local service verification only; installed-app/VM path still
+  open.
 - **DG-001 G.* neu belegt 2026-06-30:** added
   `scripts/diag/verify_dg001_g_schnitt_gui.py` and versioned synthesis
   `docs/superpowers/synthesis/dg001-g-schnitt-gui-live-2026-06-30.md`.
