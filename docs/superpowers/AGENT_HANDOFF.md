@@ -92,6 +92,19 @@ This file is a repository-local continuity checkpoint for all agents.
   `305687BCF6AED0031B9AFC0A9B6255B7FF310614628B7A85C3BC298B41B21619`.
   Still blocked: no Clean-VM install, no signing, no full installed-app GUI
   workflow, DG-001 H1 decision.
+- **Release artifact pair audit 2026-07-01:** added
+  `scripts/diag/verify_release_artifact_pair.py`. Direct run Exit 0 and JSON
+  artifact `tests/qa_artifacts/release_artifact_pair_audit.json` prove current
+  local artifact pair exists and is structurally coherent: version sources all
+  normalize to `0.5.0`, `dist/pb_studio` size is 5,921,283,899 bytes, installer
+  stub exists (422,926 bytes), NSISBI payload exists (2,815,066,504 bytes),
+  required Qt/CUDA/Torch/FFmpeg/resource patterns are present, and hashes were
+  recorded. Authenticode status is `NotSigned`; `release_ready=false`. Synthesis:
+  `docs/superpowers/synthesis/release-artifact-pair-audit-2026-07-01.md`.
+  Still blocked: no code signing, no Clean-VM install, no installed-app full GUI
+  workflow, DG-001 H1 replacement-medium user decision open. Note:
+  `tools/release_gate.py` currently checks Deferred Gates only; it does not
+  cover signing/VM/installed-app GUI blockers.
 - **B-547 Storage-Browser delete live follow-up 2026-06-30:** added
   `scripts/diag/verify_b547_storage_browser_delete_visible.py`. Direct run
   Exit 0 with a visible real `StorageBrowserDialog`, temporary real SQLite DB,
