@@ -46,6 +46,20 @@ This file is a repository-local continuity checkpoint for all agents.
   Still not release-clean: pycparser/tzdata/scipy/sqlalchemy hidden imports,
   Qt SQL/WebView, TensorRT, TBB, torchaudio FFmpeg DLL warnings, no Clean-VM,
   no signing, no full frozen GUI workflow, DG-001 H1 user decision open.
+- **Packaging optional warning follow-up 2026-06-30:** `pb_studio.spec`
+  filters optional QtSql Mimer/Postgres plugin binaries, QtWebView QML, Numba
+  TBB pool, and optional hidden imports (`pycparser`, `tzdata`, scipy cdflib,
+  `pysqlite2`, `MySQLdb`). Added `installer/hooks/hook-onnxruntime.py` to
+  keep ONNX Runtime CUDA/CPU provider packaging while excluding TensorRT
+  provider DLL. Full build
+  `test-report/packaging-build-onnxfiltered-20260630.log` Exit 0; static
+  smoke, launch smoke, and focus regression (`38 passed in 66.39s`) passed.
+  New artifacts: EXE SHA256
+  `AD3A5182767E3A41C99969D38F1B662D6B7129022B6C2DD0CC5E784362EF33FF`,
+  NSISBIN SHA256
+  `23DC12FA7B98F053A515B6D0302CD823266D6B7F57C3E0F5EF55F2C0CDBA1FA3`.
+  Build log now still has torchaudio FFmpeg DLL warnings only. Still blocked:
+  no Clean-VM, no signing, no full frozen GUI workflow, DG-001 H1 decision.
 - **DG-001 G.* neu belegt 2026-06-30:** added
   `scripts/diag/verify_dg001_g_schnitt_gui.py` and versioned synthesis
   `docs/superpowers/synthesis/dg001-g-schnitt-gui-live-2026-06-30.md`.

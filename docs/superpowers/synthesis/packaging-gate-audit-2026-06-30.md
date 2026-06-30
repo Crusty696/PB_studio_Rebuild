@@ -226,6 +226,57 @@ Honest status: warning triage is **improved but still partial**. The noisy
 torch/pyqtgraph collection warnings were removed and the build still passes,
 but the warning set is not clean enough for a release-ready claim.
 
+## Optional Artifact Warntriage Update — 2026-06-30
+
+Commands:
+
+```powershell
+cmd /c installer\build_installer.bat 2>&1 | Tee-Object -FilePath test-report\packaging-build-onnxfiltered-20260630.log
+SMOKE_TEST_LAUNCH=1 python installer\smoke_test.py
+python -m pytest tests\test_services\test_bundle_hooks.py tests\test_b427_ffmpeg_check.py tests\test_services\test_b563_startup_nvenc_gate.py tests\test_services\test_ai_audio_service.py tests\test_services\test_stem_separator_audio_decode.py tests\test_services\test_brain_v3_onnx_eval.py -q
+python tools\release_gate.py
+```
+
+Result:
+
+- Full build: Exit `0`; PyInstaller build, prune, smoke, and NSISBI installer
+  creation completed.
+- Launch smoke: Exit `0`; frozen EXE launched and was terminated after 5s.
+- Focus regression: `38 passed in 66.39s`.
+- Release gate: Exit `1`, still blocked by DG-001 H1 replacement-medium user
+  decision.
+
+Changed:
+
+- `pb_studio.spec` filters optional PySide6 QtSql Mimer/Postgres plugin
+  binaries, QtWebView QML payload, Numba TBB pool extension, and optional
+  hidden imports for pycparser tables, tzdata, scipy cdflib, pysqlite2, and
+  MySQLdb.
+- `installer/hooks/hook-onnxruntime.py` was added to collect ONNX Runtime
+  dynamic libraries while excluding `onnxruntime_providers_tensorrt.dll`.
+  PB Studio's active ONNX path requires `CUDAExecutionProvider` and
+  `CPUExecutionProvider`, not TensorRT.
+
+Verified:
+
+- `test-report/packaging-build-onnxfiltered-20260630.log` no longer contains
+  QtSql Mimer/Postgres, QtWebView QML, TensorRT, TBB, pycparser, tzdata,
+  scipy cdflib, pysqlite2, or MySQLdb build-log warnings.
+- Remaining build-log warnings are torchaudio FFmpeg extension DLLs only:
+  `avformat-58.dll`, `avutil-56.dll`, `avdevice-58.dll`, `avcodec-58.dll`,
+  and `avfilter-7.dll`.
+- Regenerated artifacts:
+  - `dist/pb_studio_setup_v0.5.0.exe` SHA256:
+    `AD3A5182767E3A41C99969D38F1B662D6B7129022B6C2DD0CC5E784362EF33FF`
+  - `dist/pb_studio_setup_v0.5.0.nsisbin` SHA256:
+    `23DC12FA7B98F053A515B6D0302CD823266D6B7F57C3E0F5EF55F2C0CDBA1FA3`
+  - Authenticode remains `NotSigned`.
+
+Honest status: warning triage is still **partial**. The build log is much
+cleaner, but torchaudio FFmpeg extension warnings remain. Because PB Studio
+uses torchaudio in audio workflows, those binaries were not removed without a
+stronger frozen audio workflow proof.
+
 ## Honest Release Status
 
 Packaging is **partially verified**, not release-ready. The PyInstaller onedir

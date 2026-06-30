@@ -58,6 +58,29 @@ def _keep_known_used_submodule(name):
     return _filter_known_unused_hidden([name]) == [name]
 
 
+def _filter_known_unused_toc(entries):
+    blocked_names = {
+        'onnxruntime_providers_tensorrt.dll',
+        'qsqlmimer.dll',
+        'qsqlpsql.dll',
+        'tbbpool.cp310-win_amd64.pyd',
+    }
+    blocked_parts = (
+        'PySide6/qml/QtWebView/',
+        'PySide6\\qml\\QtWebView\\',
+    )
+    result = []
+    for entry in entries:
+        src = str(entry[0])
+        normalized = src.replace('\\', '/')
+        if Path(src).name in blocked_names:
+            continue
+        if any(part.replace('\\', '/') in normalized for part in blocked_parts):
+            continue
+        result.append(entry)
+    return result
+
+
 torch_datas,       torch_bins,       torch_hidden       = collect_all('torch', filter_submodules=_keep_known_used_submodule)
 torchaudio_datas,  torchaudio_bins,  torchaudio_hidden  = collect_all('torchaudio')
 torchvision_datas, torchvision_bins, torchvision_hidden = collect_all('torchvision')
@@ -65,6 +88,8 @@ pyside6_datas,     pyside6_bins,     pyside6_hidden     = collect_all('PySide6',
 
 torch_hidden = _filter_known_unused_hidden(torch_hidden)
 pyside6_hidden = _filter_known_unused_hidden(pyside6_hidden)
+pyside6_datas = _filter_known_unused_toc(pyside6_datas)
+pyside6_bins = _filter_known_unused_toc(pyside6_bins)
 
 # ---------------------------------------------------------------------------
 # Project asset data (resources, styles, knowledge)
@@ -85,7 +110,7 @@ project_datas = [
 ]
 
 all_datas    = project_datas + torch_datas + torchaudio_datas + torchvision_datas + pyside6_datas + [(str(ROOT / src), dest) for src, dest in pkg_datas]
-all_binaries = torch_bins + torchaudio_bins + torchvision_bins + pyside6_bins
+all_binaries = _filter_known_unused_toc(torch_bins + torchaudio_bins + torchvision_bins + pyside6_bins)
 
 # ---------------------------------------------------------------------------
 # Hidden imports — packages that PyInstaller can't auto-detect
@@ -200,6 +225,16 @@ a = Analysis(
         'torch.utils.tensorboard',
         'pyqtgraph.opengl',
         'PySide6.scripts.deploy_lib',
+        'pycparser.lextab',
+        'pycparser.yacctab',
+        'tzdata',
+        'scipy.special._cdflib',
+        'pysqlite2',
+        'MySQLdb',
+        'PySide6.QtSql',
+        'PySide6.QtWebView',
+        'onnxruntime.capi.onnxruntime_providers_tensorrt',
+        'numba.np.ufunc.tbbpool',
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
