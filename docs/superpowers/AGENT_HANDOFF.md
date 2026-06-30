@@ -102,9 +102,16 @@ This file is a repository-local continuity checkpoint for all agents.
   recorded. Authenticode status is `NotSigned`; `release_ready=false`. Synthesis:
   `docs/superpowers/synthesis/release-artifact-pair-audit-2026-07-01.md`.
   Still blocked: no code signing, no Clean-VM install, no installed-app full GUI
-  workflow, DG-001 H1 replacement-medium user decision open. Note:
-  `tools/release_gate.py` currently checks Deferred Gates only; it does not
-  cover signing/VM/installed-app GUI blockers.
+  workflow, DG-001 H1 replacement-medium user decision open.
+- **Release-Gate production blocker expansion 2026-07-01:** added
+  `services/release_readiness.py`, updated `tools/release_gate.py`, and added
+  tests. The gate now blocks on Deferred Gates plus production blockers:
+  missing/invalid artifact pair, unsigned installer, missing clean-VM install
+  proof, and missing installed-app full GUI proof. Verification:
+  `tests/test_services/test_release_readiness.py tests/test_scripts/test_release_gate_cli.py`
+  -> `3 passed in 4.38s`; direct `release_gate.py` reports DG-001 plus
+  `SIGN-001`, `VM-001`, and `GUI-001`. Synthesis:
+  `docs/superpowers/synthesis/release-gate-production-blockers-2026-07-01.md`.
 - **B-547 Storage-Browser delete live follow-up 2026-06-30:** added
   `scripts/diag/verify_b547_storage_browser_delete_visible.py`. Direct run
   Exit 0 with a visible real `StorageBrowserDialog`, temporary real SQLite DB,

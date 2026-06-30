@@ -60,7 +60,7 @@ if (Test-Path "docs/superpowers/ACTIVE_PLAN.md") {
     Write-Host "WARN: docs/superpowers/ACTIVE_PLAN.md missing"
 }
 
-Write-Section "Deferred Gates"
+Write-Section "Release Gate"
 $py = Join-Path $env:USERPROFILE "miniconda3\envs\pb-studio\python.exe"
 if (-not (Test-Path $py)) { $py = "python" }
 & $py "tools/release_gate.py"

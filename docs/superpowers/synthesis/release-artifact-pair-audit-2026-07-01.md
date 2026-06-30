@@ -97,7 +97,8 @@ release is still blocked by:
 
 No `fixed` or release-ready marker may be set from this audit.
 
-Important gate-scope note: `tools/release_gate.py` currently checks only
-`docs/superpowers/DEFERRED_GATES.md`. It blocks on DG-001, but it does not
-prove code signing, clean-VM installation, or installed-app GUI behavior.
-Those release blockers remain separate even after DG-001 is cleared.
+Updated 2026-07-01: `tools/release_gate.py` was expanded after this audit.
+It now also reports production blockers for signing, clean-VM install proof,
+and installed-app GUI proof. The missing work remains unchanged: the installer
+is still unsigned, no clean-VM install proof exists, no installed-app GUI proof
+exists, and DG-001 is still open.
