@@ -6,9 +6,11 @@ Usage: python installer/smoke_test.py [--dist-dir dist/pb_studio]
 """
 
 import argparse
+import json
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).parent.parent
@@ -101,8 +103,51 @@ def main():
             except subprocess.TimeoutExpired:
                 proc.terminate()
                 print("  [OK]  EXE launched (terminated after 5s timeout)")
+            else:
+                stdout = (proc.stdout.read() if proc.stdout else b"").decode(errors="replace").strip()
+                stderr = (proc.stderr.read() if proc.stderr else b"").decode(errors="replace").strip()
+                if stdout:
+                    print(f"  [INFO] launch stdout: {stdout[-500:]}")
+                if stderr:
+                    print(f"  [INFO] launch stderr: {stderr[-500:]}")
+                check("EXE stayed alive for 5s launch smoke", False, fatal=False)
         except Exception as e:
             print(f"  [WARN] Could not launch EXE: {e}")
+
+    if sys.platform == 'win32' and os.environ.get('SMOKE_TEST_FROZEN_AUDIO', '0') == '1':
+        print("\n  Running frozen audio smoke...")
+        with tempfile.TemporaryDirectory(prefix='pb_frozen_audio_smoke_') as tmp:
+            out_path = Path(tmp) / 'audio_smoke.json'
+            env = os.environ.copy()
+            env['PB_FROZEN_AUDIO_SMOKE'] = '1'
+            env['PB_FROZEN_AUDIO_SMOKE_OUT'] = str(out_path)
+            proc = subprocess.run(
+                [str(exe)],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=60,
+                env=env,
+            )
+            print(f"  [INFO] frozen audio smoke exit={proc.returncode}")
+            if proc.stdout.strip():
+                print(f"  [INFO] stdout: {proc.stdout.strip()[:500]}")
+            if proc.stderr.strip():
+                print(f"  [INFO] stderr: {proc.stderr.strip()[:500]}")
+            check("frozen audio smoke process exit 0", proc.returncode == 0, fatal=False)
+            check("frozen audio smoke artifact exists", out_path.exists(), fatal=False)
+            if out_path.exists():
+                payload = json.loads(out_path.read_text(encoding='utf-8'))
+                check("frozen audio smoke passed", bool(payload.get('passed')), fatal=False)
+                check("frozen audio smoke ran inside frozen exe", bool(payload.get('frozen')), fatal=False)
+                checks = payload.get('checks') or {}
+                check("frozen audio smoke found ffmpeg", bool(checks.get('ffmpeg_exists')), fatal=False)
+                shape = checks.get('shape') or []
+                check(
+                    "frozen audio smoke returned stereo waveform",
+                    len(shape) == 2 and shape[0] == 2 and shape[1] > 0,
+                    fatal=False,
+                )
 
     # 7. Size summary
     total_size_gb = sum(f.stat().st_size for f in dist.rglob('*') if f.is_file()) / 1024**3

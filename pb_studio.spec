@@ -143,6 +143,7 @@ all_hidden = list(set([
     'workers.base',
     'workers.edit',
     'workers.import_export',
+    'workers.brain_v3_hashing',
     'workers.registry',
     'workers.video',
     # UI

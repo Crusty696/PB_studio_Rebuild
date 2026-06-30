@@ -73,6 +73,25 @@ This file is a repository-local continuity checkpoint for all agents.
   `0F7DE9A1CA950D895893D5ED2EFC4FF87BC176D937DBC9F1CE5CC55E91CF06FE`.
   Still blocked: no Clean-VM install, no signing, no full frozen audio/GPU GUI
   workflow, DG-001 H1 decision.
+- **Packaging frozen-audio verifier follow-up 2026-06-30:** added
+  env-gated `PB_FROZEN_AUDIO_SMOKE` in `main.py`, `SMOKE_TEST_FROZEN_AUDIO=1`
+  in `installer/smoke_test.py`, early-exit failure for launch smoke, and
+  missing `workers.brain_v3_hashing` hidden import in `pb_studio.spec`.
+  Full build
+  `test-report/packaging-build-frozen-audio-smoke-hiddenimport-20260630.log`
+  Exit 0; buildlog has no Library-not-found/Traceback/ModuleNotFoundError
+  hits. Combined
+  `SMOKE_TEST_LAUNCH=1 SMOKE_TEST_FROZEN_AUDIO=1 installer/smoke_test.py`
+  Exit 0: frozen EXE stayed alive for 5s launch smoke, then frozen audio
+  selftest returned `frozen=true`, `passed=true`, `ffmpeg_exists=true`,
+  waveform shape `[2, 8820]`. Focus regression `34 passed in 42.54s`;
+  `release_gate.py` still Exit 1 because DG-001 H1 replacement-medium user
+  decision remains open. New artifacts: EXE SHA256
+  `AA07928CB4EE8EB3F73940FEA949C5FF3A031629B67A1DFFA3743C16478CF01C`,
+  NSISBIN SHA256
+  `305687BCF6AED0031B9AFC0A9B6255B7FF310614628B7A85C3BC298B41B21619`.
+  Still blocked: no Clean-VM install, no signing, no full installed-app GUI
+  workflow, DG-001 H1 decision.
 - **DG-001 G.* neu belegt 2026-06-30:** added
   `scripts/diag/verify_dg001_g_schnitt_gui.py` and versioned synthesis
   `docs/superpowers/synthesis/dg001-g-schnitt-gui-live-2026-06-30.md`.

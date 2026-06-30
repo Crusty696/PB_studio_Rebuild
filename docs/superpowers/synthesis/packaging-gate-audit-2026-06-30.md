@@ -327,11 +327,69 @@ does **not** prove release readiness. The torchaudio change has static smoke,
 launch smoke, and non-frozen audio regression coverage; it does not yet have a
 full frozen audio workflow proof from the installed app.
 
+## Frozen Audio Smoke Update — 2026-06-30
+
+Commands:
+
+```powershell
+cmd /c installer\build_installer.bat 2>&1 | Tee-Object -FilePath test-report\packaging-build-frozen-audio-smoke-hiddenimport-20260630.log
+SMOKE_TEST_LAUNCH=1 SMOKE_TEST_FROZEN_AUDIO=1 C:\Users\David_Lochmann\miniconda3\envs\pb-studio\python.exe installer\smoke_test.py
+C:\Users\David_Lochmann\miniconda3\envs\pb-studio\python.exe -m pytest tests\test_services\test_ai_audio_service.py tests\test_services\test_stem_separator_audio_decode.py tests\test_services\test_bundle_hooks.py tests\test_b427_ffmpeg_check.py tests\test_services\test_b563_startup_nvenc_gate.py -q
+C:\Users\David_Lochmann\miniconda3\envs\pb-studio\python.exe tools\release_gate.py
+```
+
+Result:
+
+- Full build: Exit `0`; PyInstaller build, duplicate-DLL prune, static smoke,
+  and NSISBI installer creation completed.
+- Build log: no `Library not found`, `Traceback`, `ModuleNotFoundError`, or
+  `ERROR` hits in `test-report/packaging-build-frozen-audio-smoke-hiddenimport-20260630.log`.
+- Combined launch + frozen audio smoke: Exit `0`.
+- Launch proof: frozen `pb_studio.exe` stayed alive until the 5s timeout.
+- Frozen audio proof: `PB_FROZEN_AUDIO_SMOKE=1` ran inside the frozen EXE,
+  wrote JSON, returned `frozen=true`, `passed=true`, `ffmpeg_exists=true`,
+  and waveform shape `[2, 8820]`.
+- Focus regression: `34 passed in 42.54s`.
+- Release gate: Exit `1`, still blocked by DG-001 H1 replacement-medium user
+  decision.
+
+Changed:
+
+- `main.py` adds an env-gated `PB_FROZEN_AUDIO_SMOKE` path after logging init.
+  It creates a tiny WAV, loads it through `_load_audio_for_stem_separation()`,
+  checks bundled `ffmpeg.exe`, writes JSON, prints JSON, and exits 0/1.
+- `installer/smoke_test.py` adds `SMOKE_TEST_FROZEN_AUDIO=1` frozen audio
+  verification and now fails if launch smoke sees the GUI EXE exit before the
+  5s timeout.
+- `pb_studio.spec` adds missing hidden import `workers.brain_v3_hashing`.
+
+Bug found and fixed during verification:
+
+- Before adding the hidden import, frozen `pb_studio.exe` exited before
+  `main()` with `ModuleNotFoundError: No module named 'workers.brain_v3_hashing'`
+  via `main.py -> ui.controllers.import_media -> workers.__getattr__`.
+- The old launch smoke did not fail that early nonzero exit; this was a real
+  smoke-test gap.
+
+Regenerated artifacts:
+
+- `dist/pb_studio/pb_studio.exe` SHA256:
+  `AA07928CB4EE8EB3F73940FEA949C5FF3A031629B67A1DFFA3743C16478CF01C`
+- `dist/pb_studio_setup_v0.5.0.nsisbin` SHA256:
+  `305687BCF6AED0031B9AFC0A9B6255B7FF310614628B7A85C3BC298B41B21619`
+- Authenticode remains `NotSigned`.
+
+Honest status: frozen audio loading is now proven inside the frozen app folder,
+including bundled FFmpeg resolution. This is still not a release-ready claim:
+clean-machine installation, code signing, full installed-app GUI workflow, and
+DG-001 user decision remain open.
+
 ## Honest Release Status
 
 Packaging is **partially verified**, not release-ready. The PyInstaller onedir
-build now exists and passes static + launch smoke in the correct Python
-3.10/cu113 target runtime after pruning duplicated DLLs. Export/convert paths
-pass with a synthetic NVENC fixture. A NSISBI installer stub and external
-payload now build successfully, but clean-machine installation, signing,
-warning triage, DG-001 user decision, and full frozen GUI workflow remain open.
+build now exists and passes static smoke, launch smoke, and frozen audio smoke
+in the correct Python 3.10/cu113 target runtime after pruning duplicated DLLs.
+Export/convert paths pass with a synthetic NVENC fixture. A NSISBI installer
+stub and external payload now build successfully, but clean-machine
+installation, signing, DG-001 user decision, and full installed-app GUI workflow
+remain open.

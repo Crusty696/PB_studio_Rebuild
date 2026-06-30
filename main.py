@@ -1349,6 +1349,66 @@ def main():
 
     setup_logging()
 
+    import os as _os_smoke
+    if _os_smoke.environ.get("PB_FROZEN_AUDIO_SMOKE") == "1":
+        import json
+        import tempfile
+        import wave
+        from pathlib import Path as _Path
+
+        result = {
+            "mode": "PB_FROZEN_AUDIO_SMOKE",
+            "frozen": bool(getattr(sys, "frozen", False)),
+            "passed": False,
+            "checks": {},
+        }
+        try:
+            import torchaudio  # type: ignore
+            from services.ai_audio_service import _load_audio_for_stem_separation
+            from services.startup_checks import get_ffmpeg_bin
+
+            with tempfile.TemporaryDirectory(prefix="pb_frozen_audio_") as tmp:
+                wav_path = _Path(tmp) / "smoke.wav"
+                sample_rate = 44100
+                frames = sample_rate // 5
+                with wave.open(str(wav_path), "wb") as wf:
+                    wf.setnchannels(1)
+                    wf.setsampwidth(2)
+                    wf.setframerate(sample_rate)
+                    wf.writeframes(b"\x00\x00" * frames)
+
+                waveform, sr = _load_audio_for_stem_separation(
+                    wav_path,
+                    torchaudio,
+                    target_sr=sample_rate,
+                )
+                ffmpeg_bin = _Path(get_ffmpeg_bin())
+                backend_getter = getattr(torchaudio, "get_audio_backend", None)
+                result["checks"] = {
+                    "torchaudio_version": getattr(torchaudio, "__version__", None),
+                    "torchaudio_backend": backend_getter() if callable(backend_getter) else None,
+                    "sample_rate": int(sr),
+                    "shape": list(waveform.shape),
+                    "ffmpeg_exists": ffmpeg_bin.exists(),
+                    "ffmpeg_path": str(ffmpeg_bin),
+                }
+                result["passed"] = (
+                    int(sr) == sample_rate
+                    and len(waveform.shape) == 2
+                    and int(waveform.shape[0]) == 2
+                    and int(waveform.shape[1]) > 0
+                    and ffmpeg_bin.exists()
+                )
+        except Exception as exc:
+            result["error"] = repr(exc)
+
+        out_path = _os_smoke.environ.get("PB_FROZEN_AUDIO_SMOKE_OUT")
+        if out_path:
+            _Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+            _Path(out_path).write_text(json.dumps(result, indent=2), encoding="utf-8")
+        print(json.dumps(result, sort_keys=True), flush=True)
+        sys.exit(0 if result["passed"] else 1)
+
     # P8-FAULTHANDLER: Heartbeat-Watchdog — dumpt NUR wenn der Qt-Main-Thread
     # den Event-Loop >1.5s nicht mehr bedient. Aktiv wenn PB_STUDIO_FREEZE_PROBE=1.
     #
