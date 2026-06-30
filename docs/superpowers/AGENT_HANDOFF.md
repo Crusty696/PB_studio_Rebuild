@@ -106,6 +106,17 @@ This file is a repository-local continuity checkpoint for all agents.
   `docs/superpowers/synthesis/b547-storage-browser-delete-live-2026-06-30.md`.
   Honest limit: not clean-VM, not full OTK-021 7-step live verify, no agent
   `fixed` marker.
+- **OTK-021 Backup/Restore portable follow-up 2026-06-30:** added
+  `scripts/diag/verify_otk021_backup_restore_portable.py`. Direct run Exit 0
+  with real `StoragePortabilityBackupService`, temporary WAL-mode SQLite DB,
+  real `storage/by_sha` files, ZIP manifest, restore into a second temp project
+  root, DB content check, and SHA256 comparison of restored files. Evidence:
+  `backup_storage_file_count=2`, `restore_storage_file_count=2`,
+  restored DB `user_version=21`, restored value `wal-visible`, storage hashes
+  matched, manifest schema/model/storage fields correct. Regression:
+  `tests/test_services/test_backup.py` -> `2 passed in 1.09s`; synthesis
+  `docs/superpowers/synthesis/otk021-backup-restore-portable-2026-06-30.md`.
+  Honest limit: local roundtrip only; Backup/Restore on VM still open.
 - **DG-001 G.* neu belegt 2026-06-30:** added
   `scripts/diag/verify_dg001_g_schnitt_gui.py` and versioned synthesis
   `docs/superpowers/synthesis/dg001-g-schnitt-gui-live-2026-06-30.md`.
