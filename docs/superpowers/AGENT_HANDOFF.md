@@ -117,6 +117,17 @@ This file is a repository-local continuity checkpoint for all agents.
   `tests/test_services/test_backup.py` -> `2 passed in 1.09s`; synthesis
   `docs/superpowers/synthesis/otk021-backup-restore-portable-2026-06-30.md`.
   Honest limit: local roundtrip only; Backup/Restore on VM still open.
+- **OTK-021 Project-Bundle follow-up 2026-06-30:** added
+  `scripts/diag/verify_otk021_project_bundle_roundtrip.py`. Direct run Exit 0
+  with real `ProjectBundleService`, separate file-backed export/import SQLite
+  DBs, separate source/target `storage/by_sha` roots, real `.pbbundle`, two
+  sources, two jobs, two artifacts, two files, manifest verification, imported
+  DB verification, and restored file SHA256 comparison. Regression:
+  `tests/test_services/test_project_export.py` -> `3 passed in 1.36s`;
+  synthesis
+  `docs/superpowers/synthesis/otk021-project-bundle-roundtrip-2026-06-30.md`.
+  Honest limit: local roundtrip only; Project-Export + Import on another VM
+  still open.
 - **DG-001 G.* neu belegt 2026-06-30:** added
   `scripts/diag/verify_dg001_g_schnitt_gui.py` and versioned synthesis
   `docs/superpowers/synthesis/dg001-g-schnitt-gui-live-2026-06-30.md`.
