@@ -13,13 +13,16 @@ from pathlib import Path
 
 ROOT = Path(__file__).parent.parent
 DIST_DIR_DEFAULT = ROOT / 'dist' / 'pb_studio'
+failures: list[str] = []
 
 
 def check(label: str, condition: bool, fatal: bool = True) -> bool:
     status = "[OK]  " if condition else "[FAIL]"
     print(f"  {status} {label}")
-    if not condition and fatal:
-        sys.exit(1)
+    if not condition:
+        failures.append(label)
+        if fatal:
+            sys.exit(1)
     return condition
 
 
@@ -39,9 +42,10 @@ def main():
     exe = dist / 'pb_studio.exe'
     check("pb_studio.exe exists", exe.exists())
 
-    # 3. EXE is non-trivial size (>= 50 MB sanity check)
+    # 3. EXE is non-trivial size. PyInstaller 6 onedir keeps payload under
+    # _internal, so the launcher EXE is smaller than the full application.
     size_mb = exe.stat().st_size / 1024 / 1024
-    check(f"EXE size >= 50 MB (actual: {size_mb:.0f} MB)", size_mb >= 50, fatal=False)
+    check(f"EXE size >= 10 MB (actual: {size_mb:.0f} MB)", size_mb >= 10, fatal=False)
 
     # 4. Critical DLLs present (CUDA, Qt, Torch)
     critical_dlls = [
@@ -103,9 +107,15 @@ def main():
     # 7. Size summary
     total_size_gb = sum(f.stat().st_size for f in dist.rglob('*') if f.is_file()) / 1024**3
     print(f"\n  Total dist size: {total_size_gb:.2f} GB")
+    check(f"Total dist size >= 1 GB (actual: {total_size_gb:.2f} GB)", total_size_gb >= 1, fatal=False)
 
     print("\n" + "=" * 50)
-    print("Smoke test complete. Review any [FAIL] / [WARN] items above.")
+    if failures:
+        print("Smoke test failed:")
+        for failure in failures:
+            print(f"  - {failure}")
+        sys.exit(1)
+    print("Smoke test passed.")
     print()
 
 

@@ -5,6 +5,21 @@ This file is a repository-local continuity checkpoint for all agents.
 ## Codex Quellstand-Konsolidierung 2026-06-22 (newest)
 
 - **Branch:** `codex/OTK-021-source-consolidation-2026-06-22`
+- **Packaging Gate partial 2026-06-30:** Zielruntime-Build wurde mit
+  `C:\Users\David_Lochmann\miniconda3\envs\pb-studio\python.exe`
+  ausgefuehrt (Python 3.10.20, torch 1.12.1+cu113, CUDA True,
+  NVIDIA GeForce GTX 1060). `dist/pb_studio` wurde erzeugt
+  (14,802 Dateien, 8.83 GB). `installer/smoke_test.py` und
+  `SMOKE_TEST_LAUNCH=1 installer/smoke_test.py` beide Exit 0; EXE launchte
+  und wurde nach 5s beendet. `tests/test_export_convert_real.py` mit
+  synthetischer NVENC-Fixture via `PB_TEST_VIDEO_PATH` -> 21/21 PASS.
+  Geaendert: PyInstaller Pins in `requirements-py310-cu113.txt`,
+  Brain-SQL-Migration-Pfad in `pb_studio.spec`, Smoke-Test Exit-Policy,
+  Export-Test Env-Override/Exit-Policy, `.gitignore` fuer `build/`/`dist/`.
+  Weiter blockiert: `makensis` fehlt, kein NSIS-Installer, kein Clean-VM-Test,
+  keine Signatur, PyInstaller-Warnungen untriagiert, kein Full-Frozen-GUI-
+  Workflow, DG-001 User-Entscheid H1-Ersatzmedium offen. Details:
+  `docs/superpowers/synthesis/packaging-gate-audit-2026-06-30.md`.
 - **DG-001 G.* neu belegt 2026-06-30:** added
   `scripts/diag/verify_dg001_g_schnitt_gui.py` and versioned synthesis
   `docs/superpowers/synthesis/dg001-g-schnitt-gui-live-2026-06-30.md`.

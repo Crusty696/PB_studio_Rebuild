@@ -52,7 +52,7 @@ project_datas = [
     (str(ROOT / 'translations'), 'translations'),
     (str(ROOT / 'config'),     'config'),
     (str(ROOT / 'database' / 'alembic'), 'database/alembic'),
-    (str(ROOT / 'services' / 'brain_v3' / 'storage' / 'sql_migrations'), 'services/brain_v3/storage/sql_migrations'),
+    (str(ROOT / 'services' / 'brain' / 'storage' / 'sql_migrations'), 'services/brain/storage/sql_migrations'),
     (str(ROOT / 'bin' / 'ffmpeg.exe'), 'bin'),
     (str(ROOT / 'bin' / 'ffprobe.exe'), 'bin'),
 ]

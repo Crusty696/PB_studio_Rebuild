@@ -26,7 +26,10 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(name)s | %(mes
 logger = logging.getLogger("TEST_EXPORT_CONVERT")
 
 # ---- Echte Videodatei ----
-VIDEO_PATH = r"C:\Users\David Lochmann\Documents\Solo_Natur-20260406T220640Z-3-001\Solo_Natur\20250612_2128_Neon_Jungle_Dreamscape_v1.mp4"
+VIDEO_PATH = os.environ.get(
+    "PB_TEST_VIDEO_PATH",
+    r"C:\Users\David Lochmann\Documents\Solo_Natur-20260406T220640Z-3-001\Solo_Natur\20250612_2128_Neon_Jungle_Dreamscape_v1.mp4",
+)
 FFPROBE = str(BIN_DIR / "ffprobe.exe")
 
 # ---- Ergebnis-Sammlung ----
@@ -702,3 +705,6 @@ db_session.APP_ROOT = original_app_root
 print("\n" + "=" * 70)
 print("  TESTS ABGESCHLOSSEN")
 print("=" * 70)
+
+if fail_count or crash_count:
+    sys.exit(1)

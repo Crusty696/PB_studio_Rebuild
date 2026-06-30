@@ -82,6 +82,10 @@ tests/qa_artifacts/
 # Test reports (generated at runtime)
 test-report/
 
+# PyInstaller build outputs (generated; release artifacts are built separately)
+build/
+dist/
+
 # OS
 Thumbs.db
 desktop.ini
