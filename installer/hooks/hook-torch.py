@@ -4,9 +4,20 @@
 # Ensures torch's lazy-loaded CUDA extension DLLs are picked up even if
 # collect_all() misses them (happens with torch >= 2.4 on Windows).
 
-from PyInstaller.utils.hooks import collect_all, collect_data_files, logger
+from PyInstaller.utils.hooks import collect_all, logger
 
-datas, binaries, hiddenimports = collect_all('torch')
+
+def _keep_runtime_submodule(name):
+    blocked_prefixes = (
+        'torch.distributed',
+        'torch.testing',
+        'torch.utils.benchmark',
+        'torch.utils.tensorboard',
+    )
+    return not any(name.startswith(prefix) for prefix in blocked_prefixes)
+
+
+datas, binaries, hiddenimports = collect_all('torch', filter_submodules=_keep_runtime_submodule)
 
 # Explicitly add torch.libs / torch.lib directory if present
 try:

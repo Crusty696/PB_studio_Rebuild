@@ -41,6 +41,8 @@ def _filter_known_unused_hidden(hiddenimports):
     }
     blocked_prefixes = (
         'torch.distributed',
+        'torch.testing',
+        'torch.utils.benchmark',
         'torch.utils.tensorboard',
         'pyqtgraph.opengl',
         'PySide6.scripts.deploy_lib',
@@ -193,6 +195,8 @@ a = Analysis(
         'sphinx',
         # Large unused torch backends
         'torch.distributed',
+        'torch.testing',
+        'torch.utils.benchmark',
         'torch.utils.tensorboard',
         'pyqtgraph.opengl',
         'PySide6.scripts.deploy_lib',

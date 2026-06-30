@@ -173,6 +173,59 @@ Honest status: warning triage is **partial**. One stale app hidden import was
 removed and the build still passes, but the PyInstaller warning output is not
 release-clean and must not be called resolved.
 
+## Hook-Filtered Warntriage Update — 2026-06-30
+
+Command:
+
+```powershell
+cmd /c installer\build_installer.bat 2>&1 | Tee-Object -FilePath test-report\packaging-build-hookfiltered3-20260630.log
+```
+
+Result: Exit `0`; PyInstaller build, duplicate-DLL prune, smoke test, and
+NSISBI installer creation completed.
+
+Changed:
+
+- `installer/hooks/hook-torch.py` now filters non-runtime torch submodule
+  collection for `torch.distributed`, `torch.testing`,
+  `torch.utils.benchmark`, and `torch.utils.tensorboard`.
+- `installer/hooks/hook-pyqtgraph.py` was added to collect pyqtgraph runtime
+  templates/bootstrap while excluding `pyqtgraph.examples`,
+  `pyqtgraph.jupyter`, and `pyqtgraph.opengl`.
+- `pb_studio.spec` applies the same non-runtime torch filters and excludes.
+
+Verified:
+
+- `test-report/packaging-build-hookfiltered3-20260630.log` no longer contains
+  failed-collection warnings for `torch.utils.tensorboard`,
+  `torch.utils.benchmark`, `pyqtgraph.opengl`, or `pyqtgraph.jupyter`.
+- It no longer contains the previous `torch.distributed.*` hidden-import flood.
+- `SMOKE_TEST_LAUNCH=1 installer/smoke_test.py` exited `0`; the frozen EXE
+  launched and was terminated after the 5s smoke timeout.
+- Regenerated artifacts:
+  - `dist/pb_studio_setup_v0.5.0.exe` = `423,231` bytes
+  - `dist/pb_studio_setup_v0.5.0.nsisbin` = `2,816,073,535` bytes
+  - EXE SHA256:
+    `560B1321158AD524A4BEEE3D43973BE9C1B6B1BE9B316CA62E2D73C589A2A3DA`
+  - NSISBIN SHA256:
+    `3BB9E7C2423EF0A11CAC02D1A9E18CFC7E14DA0F452BFAFCE7C8462AE2EF2123`
+  - Authenticode: `NotSigned`
+
+Still open:
+
+- Hidden import warnings remain for `pycparser.lextab`, `pycparser.yacctab`,
+  `tzdata`, `scipy.special._cdflib`, `pysqlite2`, and `MySQLdb`.
+- Missing optional DLL warnings remain for Qt SQL drivers, Qt WebView QML,
+  ONNX Runtime TensorRT provider, Numba TBB pool, and torchaudio FFmpeg
+  extension DLLs.
+- `build/pb_studio/warn-pb_studio.txt` still lists indirect missing
+  `torch.distributed.*` modules from conditional/optional paths, even though
+  the build log no longer shows the previous explicit hidden-import flood.
+
+Honest status: warning triage is **improved but still partial**. The noisy
+torch/pyqtgraph collection warnings were removed and the build still passes,
+but the warning set is not clean enough for a release-ready claim.
+
 ## Honest Release Status
 
 Packaging is **partially verified**, not release-ready. The PyInstaller onedir

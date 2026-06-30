@@ -30,6 +30,22 @@ This file is a repository-local continuity checkpoint for all agents.
   keine Signatur, Installer nicht installiert/gestartet, kein
   Full-Frozen-GUI-Workflow, DG-001 User-Entscheid H1-Ersatzmedium offen. Details:
   `docs/superpowers/synthesis/packaging-gate-audit-2026-06-30.md`.
+- **Packaging Warntriage follow-up 2026-06-30:** local PyInstaller hooks now
+  filter non-runtime torch/pyqtgraph submodule collection:
+  `installer/hooks/hook-torch.py`, `installer/hooks/hook-pyqtgraph.py`, and
+  matching `pb_studio.spec` excludes. Full build
+  `test-report/packaging-build-hookfiltered3-20260630.log` Exit 0; static
+  smoke and launch smoke Exit 0. Removed from build log: previous failed
+  collection warnings for `torch.utils.tensorboard`, `torch.utils.benchmark`,
+  `pyqtgraph.opengl`, `pyqtgraph.jupyter`, and the explicit
+  `torch.distributed.*` hidden-import flood. New artifacts:
+  `pb_studio_setup_v0.5.0.exe` 423,231 bytes SHA256
+  `560B1321158AD524A4BEEE3D43973BE9C1B6B1BE9B316CA62E2D73C589A2A3DA`;
+  `pb_studio_setup_v0.5.0.nsisbin` 2,816,073,535 bytes SHA256
+  `3BB9E7C2423EF0A11CAC02D1A9E18CFC7E14DA0F452BFAFCE7C8462AE2EF2123`.
+  Still not release-clean: pycparser/tzdata/scipy/sqlalchemy hidden imports,
+  Qt SQL/WebView, TensorRT, TBB, torchaudio FFmpeg DLL warnings, no Clean-VM,
+  no signing, no full frozen GUI workflow, DG-001 H1 user decision open.
 - **DG-001 G.* neu belegt 2026-06-30:** added
   `scripts/diag/verify_dg001_g_schnitt_gui.py` and versioned synthesis
   `docs/superpowers/synthesis/dg001-g-schnitt-gui-live-2026-06-30.md`.
