@@ -64,10 +64,10 @@ This file is a repository-local continuity checkpoint for all agents.
   is green: `66 passed in 21.13s`. Storage-Browser UI hang was test-only:
   the test patched the wrong `QMessageBox` object and opened a real offscreen
   modal. Product code unchanged.
-- **Current release status 2026-06-29:** `python tools\release_gate.py`
-  still exits 2. DG-001 remains active (`h1-3-h3-reverified-PLUS-g-open`):
-  G.* evidence / H1 replacement-medium decision still prevents `fixed` or
-  release status.
+- **Current release status 2026-06-30:** `python tools\release_gate.py`
+  exits 1. DG-001 remains active
+  (`h1-3-h3-g-reverified-PLUS-h1-user-decision-open`): H1
+  replacement-medium decision still prevents `fixed` or release status.
 - **Worktree:** `C:\Users\David_Lochmann\Documents\PB_studio_Rebuild\PB_studio_Rebuild`
 - **Basis:** `origin/main=9570374` (Agent_Tests PR #5).
 - **Merge:** `5f428ec` integriert 16 Commits aus
@@ -103,7 +103,7 @@ This file is a repository-local continuity checkpoint for all agents.
   Deadlock/OOM. Runner:
   `scripts/diag/verify_dg001_h3_concurrency.py`; versionierter Beleg:
   `docs/superpowers/synthesis/dg001-h3-concurrency-live-2026-06-23.md`.
-  DG-001 bleibt wegen H1/H1.3/G-Evidenzverlust blockiert.
+  DG-001 bleibt wegen H1-Ersatzmedium-User-Entscheid blockiert.
 - **Kombinierte Suite:** `80 passed in 9.07s`; `compileall`, Ruff und
   `git diff --check` grün.
 - **Vollsuite-Gate BLOCKIERT:** `pytest -q -m "not gui and not e2e and not
