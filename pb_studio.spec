@@ -34,10 +34,35 @@ except Exception as e:
 # ---------------------------------------------------------------------------
 # Heavy packages — collect all binaries + data (CUDA DLLs live here)
 # ---------------------------------------------------------------------------
-torch_datas,       torch_bins,       torch_hidden       = collect_all('torch')
+def _filter_known_unused_hidden(hiddenimports):
+    """Drop collected hidden imports that are explicitly unused by PB Studio."""
+    blocked_exact = {
+        'workers.debug',
+    }
+    blocked_prefixes = (
+        'torch.distributed',
+        'torch.utils.tensorboard',
+        'pyqtgraph.opengl',
+        'PySide6.scripts.deploy_lib',
+    )
+    return [
+        item for item in hiddenimports
+        if item not in blocked_exact
+        and not any(item.startswith(prefix) for prefix in blocked_prefixes)
+    ]
+
+
+def _keep_known_used_submodule(name):
+    return _filter_known_unused_hidden([name]) == [name]
+
+
+torch_datas,       torch_bins,       torch_hidden       = collect_all('torch', filter_submodules=_keep_known_used_submodule)
 torchaudio_datas,  torchaudio_bins,  torchaudio_hidden  = collect_all('torchaudio')
 torchvision_datas, torchvision_bins, torchvision_hidden = collect_all('torchvision')
-pyside6_datas,     pyside6_bins,     pyside6_hidden     = collect_all('PySide6')
+pyside6_datas,     pyside6_bins,     pyside6_hidden     = collect_all('PySide6', filter_submodules=_keep_known_used_submodule)
+
+torch_hidden = _filter_known_unused_hidden(torch_hidden)
+pyside6_hidden = _filter_known_unused_hidden(pyside6_hidden)
 
 # ---------------------------------------------------------------------------
 # Project asset data (resources, styles, knowledge)
@@ -87,7 +112,6 @@ all_hidden = list(set([
     'workers.audio',
     'workers.audio_analysis',
     'workers.base',
-    'workers.debug',
     'workers.edit',
     'workers.import_export',
     'workers.registry',
@@ -143,6 +167,7 @@ all_hidden = list(set([
     *collect_submodules('demucs'),
     *pkg_hidden,
 ]))
+all_hidden = _filter_known_unused_hidden(all_hidden)
 
 # ---------------------------------------------------------------------------
 # Analysis
@@ -169,6 +194,8 @@ a = Analysis(
         # Large unused torch backends
         'torch.distributed',
         'torch.utils.tensorboard',
+        'pyqtgraph.opengl',
+        'PySide6.scripts.deploy_lib',
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,

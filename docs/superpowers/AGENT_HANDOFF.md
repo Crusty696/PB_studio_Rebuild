@@ -21,8 +21,13 @@ This file is a repository-local continuity checkpoint for all agents.
   `dist/pb_studio_setup_v0.5.0.exe` (422,872 bytes) plus
   `dist/pb_studio_setup_v0.5.0.nsisbin` (2,816,861,307 bytes). Build-Script
   Proof: `PB_SKIP_PYINSTALLER=1 cmd /c installer\build_installer.bat` Exit 0.
-  Weiter blockiert: kein Clean-VM-Test, keine Signatur, Installer nicht
-  installiert/gestartet, PyInstaller-Warnungen untriagiert, kein
+  Warntriage update: `pb_studio.spec` entfernt stale `workers.debug`
+  hidden import; Full-Build nach Patch mit
+  `test-report/packaging-build-warntriage-filtered-20260630.log` Exit 0,
+  Smoke PASS, NSISBI Installer neu erzeugt. Nicht sauber: `torch.distributed*`,
+  `torch.utils.tensorboard`, `torch.utils.benchmark`, `pyqtgraph.opengl` und
+  optionale DLL-Warnungen bleiben offen. Weiter blockiert: kein Clean-VM-Test,
+  keine Signatur, Installer nicht installiert/gestartet, kein
   Full-Frozen-GUI-Workflow, DG-001 User-Entscheid H1-Ersatzmedium offen. Details:
   `docs/superpowers/synthesis/packaging-gate-audit-2026-06-30.md`.
 - **DG-001 G.* neu belegt 2026-06-30:** added

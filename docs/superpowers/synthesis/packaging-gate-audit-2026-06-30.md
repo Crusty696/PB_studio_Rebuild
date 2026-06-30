@@ -132,6 +132,47 @@ PyInstaller exited `0`, but warning output is not clean. These warnings are not 
 - PyInstaller warning set still needs triage before release claim.
 - DG-001 still blocks release status pending user decision on H1 replacement medium.
 
+## Warntriage Update — 2026-06-30
+
+Command:
+
+```powershell
+cmd /c installer\build_installer.bat 2>&1 | Tee-Object -FilePath test-report\packaging-build-warntriage-filtered-20260630.log
+```
+
+Result: Exit `0`; PyInstaller build, duplicate-DLL prune, smoke test, and
+NSISBI installer creation completed.
+
+Changed:
+
+- `pb_studio.spec` removes stale explicit hidden import `workers.debug`.
+- `pb_studio.spec` filters known unused hidden imports after collection and
+  excludes `torch.distributed`, `torch.utils.tensorboard`,
+  `pyqtgraph.opengl`, and `PySide6.scripts.deploy_lib`.
+
+Verified:
+
+- New build log does not contain the stale `workers.debug` warning.
+- `dist/pb_studio_setup_v0.5.0.exe` and
+  `dist/pb_studio_setup_v0.5.0.nsisbin` were regenerated.
+- Smoke test passed after prune with dist size `5.52 GB`.
+
+Still open:
+
+- `torch.distributed.*` hidden-import warnings remain. Evidence in
+  `build/pb_studio/warn-pb_studio.txt` shows imports from torch internal test
+  and optional distributed integration paths.
+- `torch.utils.tensorboard`, `torch.utils.benchmark`, and
+  `pyqtgraph.opengl` collection warnings remain from PyInstaller/contrib hook
+  collection, not from direct PB Studio source imports.
+- Missing optional DLL warnings remain for Qt SQL drivers, Qt WebView QML,
+  ONNX Runtime TensorRT provider, Numba TBB pool, and torchaudio FFmpeg
+  extension DLLs.
+
+Honest status: warning triage is **partial**. One stale app hidden import was
+removed and the build still passes, but the PyInstaller warning output is not
+release-clean and must not be called resolved.
+
 ## Honest Release Status
 
 Packaging is **partially verified**, not release-ready. The PyInstaller onedir
