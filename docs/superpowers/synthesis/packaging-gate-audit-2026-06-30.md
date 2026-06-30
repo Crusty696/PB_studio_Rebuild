@@ -277,6 +277,56 @@ cleaner, but torchaudio FFmpeg extension warnings remain. Because PB Studio
 uses torchaudio in audio workflows, those binaries were not removed without a
 stronger frozen audio workflow proof.
 
+## Torchaudio FFmpeg Warntriage Update — 2026-06-30
+
+Commands:
+
+```powershell
+cmd /c installer\build_installer.bat 2>&1 | Tee-Object -FilePath test-report\packaging-build-torchaudiofiltered-20260630.log
+SMOKE_TEST_LAUNCH=1 python installer\smoke_test.py
+python -m pytest tests\test_services\test_ai_audio_service.py tests\test_services\test_stem_separator_audio_decode.py tests\test_services\test_bundle_hooks.py tests\test_b427_ffmpeg_check.py tests\test_services\test_b563_startup_nvenc_gate.py -q
+python tools\release_gate.py
+```
+
+Result:
+
+- Full build: Exit `0`; PyInstaller build, duplicate-DLL prune, smoke test,
+  and NSISBI installer creation completed.
+- Build log: no `Library not found` warnings remain. Only a NumPy
+  `array_api` `UserWarning` remains during analysis.
+- Launch smoke: Exit `0`; frozen EXE launched and was terminated after 5s.
+- Focus regression: `34 passed in 57.88s`.
+- Release gate: Exit `1`, still blocked by DG-001 H1 replacement-medium user
+  decision.
+
+Changed:
+
+- `installer/hooks/hook-torchaudio.py` was added to keep torchaudio runtime
+  packaging while excluding `_torchaudio_ffmpeg.pyd` and
+  `libtorchaudio_ffmpeg.pyd`.
+- `pb_studio.spec` excludes the same torchaudio FFmpeg extension modules and
+  binaries.
+
+Evidence:
+
+- Target runtime reports torchaudio `0.12.1+cu113` with backend `soundfile`.
+- PB Studio audio loading uses chunked `soundfile` first and the managed
+  `bin/ffmpeg.exe` CLI fallback via `get_ffmpeg_bin()`.
+- Audio-focused tests passed after the hook change.
+
+Regenerated artifacts:
+
+- `dist/pb_studio_setup_v0.5.0.exe` SHA256:
+  `2F9853539694C139C1F71A5B82F2A063FE844DA74D076C09CF64C2314578A21A`
+- `dist/pb_studio_setup_v0.5.0.nsisbin` SHA256:
+  `0F7DE9A1CA950D895893D5ED2EFC4FF87BC176D937DBC9F1CE5CC55E91CF06FE`
+- Authenticode remains `NotSigned`.
+
+Honest status: PyInstaller warning output is now much cleaner, but this still
+does **not** prove release readiness. The torchaudio change has static smoke,
+launch smoke, and non-frozen audio regression coverage; it does not yet have a
+full frozen audio workflow proof from the installed app.
+
 ## Honest Release Status
 
 Packaging is **partially verified**, not release-ready. The PyInstaller onedir

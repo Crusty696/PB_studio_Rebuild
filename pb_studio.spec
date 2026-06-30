@@ -64,6 +64,8 @@ def _filter_known_unused_toc(entries):
         'qsqlmimer.dll',
         'qsqlpsql.dll',
         'tbbpool.cp310-win_amd64.pyd',
+        '_torchaudio_ffmpeg.pyd',
+        'libtorchaudio_ffmpeg.pyd',
     }
     blocked_parts = (
         'PySide6/qml/QtWebView/',
@@ -235,6 +237,8 @@ a = Analysis(
         'PySide6.QtWebView',
         'onnxruntime.capi.onnxruntime_providers_tensorrt',
         'numba.np.ufunc.tbbpool',
+        'torchaudio._torchaudio_ffmpeg',
+        'torchaudio.lib.libtorchaudio_ffmpeg',
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,

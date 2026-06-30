@@ -60,6 +60,19 @@ This file is a repository-local continuity checkpoint for all agents.
   `23DC12FA7B98F053A515B6D0302CD823266D6B7F57C3E0F5EF55F2C0CDBA1FA3`.
   Build log now still has torchaudio FFmpeg DLL warnings only. Still blocked:
   no Clean-VM, no signing, no full frozen GUI workflow, DG-001 H1 decision.
+- **Packaging torchaudio warning follow-up 2026-06-30:** added
+  `installer/hooks/hook-torchaudio.py` and matching `pb_studio.spec` excludes
+  for `_torchaudio_ffmpeg.pyd` and `libtorchaudio_ffmpeg.pyd`. Target runtime
+  torchaudio backend is `soundfile`; PB Studio uses chunked soundfile first and
+  managed `bin/ffmpeg.exe` CLI fallback. Full build
+  `test-report/packaging-build-torchaudiofiltered-20260630.log` Exit 0; no
+  `Library not found` warnings remain in build log; static smoke, launch
+  smoke, and focus regression (`34 passed in 57.88s`) passed. New artifacts:
+  EXE SHA256 `2F9853539694C139C1F71A5B82F2A063FE844DA74D076C09CF64C2314578A21A`,
+  NSISBIN SHA256
+  `0F7DE9A1CA950D895893D5ED2EFC4FF87BC176D937DBC9F1CE5CC55E91CF06FE`.
+  Still blocked: no Clean-VM install, no signing, no full frozen audio/GPU GUI
+  workflow, DG-001 H1 decision.
 - **DG-001 G.* neu belegt 2026-06-30:** added
   `scripts/diag/verify_dg001_g_schnitt_gui.py` and versioned synthesis
   `docs/superpowers/synthesis/dg001-g-schnitt-gui-live-2026-06-30.md`.
