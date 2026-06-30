@@ -1,7 +1,11 @@
 # PB Studio Deployment Checklist
 
 **Version:** 0.5.0  
-**Date:** 2026-04-07
+**Date:** 2026-06-30
+
+**Target runtime:** Windows 11, Python 3.10, torch `1.12.1+cu113`, CUDA on
+NVIDIA GTX 1060 (`cuda:0`). The root `requirements.txt` is legacy/future
+Python 3.11+/cu124 material and is not the active release path.
 
 Use this checklist when preparing a production deployment of PB Studio.
 
@@ -41,26 +45,28 @@ Use this checklist when preparing a production deployment of PB Studio.
 
 ### System Preparation
 - [ ] Clean Windows 11 build machine or VM
-- [ ] Latest NVIDIA drivers installed
-- [ ] CUDA Toolkit 12.4+ installed
-- [ ] FFmpeg on PATH: `ffmpeg -version`
+- [ ] NVIDIA driver compatible with the GTX 1060 target installed
+- [ ] Active release path verified with CUDA/cu113 torch in the `pb-studio` env
+- [ ] Local bundled FFmpeg exists and supports NVENC: `bin\ffmpeg.exe`, `bin\ffprobe.exe`
 - [ ] NSIS 3.x installed and on PATH: `makensis /VERSION`
 - [ ] Disk space: >50 GB free on build drive
 
 ### Python Environment
-- [ ] Python 3.11 or 3.12 installed
-- [ ] Poetry installed: `poetry --version`
-- [ ] Virtual environment created: `poetry install`
-- [ ] All dependencies installed without errors
-- [ ] PyInstaller available: `pip install pyinstaller`
+- [ ] Miniconda/Conda env active: `conda activate pb-studio`
+- [ ] Python reports 3.10.x
+- [ ] Dependencies installed from `requirements-py310-cu113.txt`
+- [ ] `torch.cuda.is_available()` is `True`
+- [ ] `torch.cuda.get_device_name(0)` is `NVIDIA GeForce GTX 1060`
+- [ ] PyInstaller available in that same active env: `python -c "import PyInstaller"`
 
 ### Resources
 - [ ] Icon file exists: `resources/pb_studio.ico`
 - [ ] License file exists or will be auto-created
 - [ ] All resource directories exist:
   - [ ] `resources/`
-  - [ ] `styles/`
   - [ ] `knowledge/`
+  - [ ] `config/`
+  - [ ] `translations/`
 
 ---
 
@@ -78,11 +84,13 @@ Use this checklist when preparing a production deployment of PB Studio.
 - [ ] Check executable exists: `dist/pb_studio/pb_studio.exe`
 - [ ] Check build size: 8-20 GB range
 - [ ] Verify CUDA DLLs included:
-  - [ ] `cudart64_12.dll`
-  - [ ] `cublas64_12.dll`
-  - [ ] `cudnn64_9.dll`
+  - [ ] `cudart64_110.dll`
+  - [ ] `cublas64_11.dll`
+  - [ ] `cudnn64_8.dll`
 - [ ] Verify PyTorch DLLs included:
   - [ ] `torch_cuda.dll`
+  - [ ] `torch_cuda_cu.dll`
+  - [ ] `torch_cuda_cpp.dll`
   - [ ] `_C.pyd`
 - [ ] Verify PySide6 DLLs included:
   - [ ] `Qt6Core.dll`
@@ -338,5 +346,5 @@ _______________________________________________________________
 
 ---
 
-**Last Updated:** 2026-04-07  
+**Last Updated:** 2026-06-30
 **For Version:** 0.5.0+

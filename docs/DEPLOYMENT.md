@@ -87,8 +87,8 @@ The build script automatically runs smoke tests. Manual verification:
 # Check executable exists
 dir dist\pb_studio\pb_studio.exe
 
-# Check size (should be 8-20 GB)
-python -c "import pathlib; exe = pathlib.Path('dist/pb_studio/pb_studio.exe'); print(f'{exe.stat().st_size / 1024**3:.2f} GB')"
+# Check total bundle size (should be 8-20 GB)
+python -c "import pathlib; root=pathlib.Path('dist/pb_studio'); print(f'{sum(p.stat().st_size for p in root.rglob(\"*\") if p.is_file()) / 1024**3:.2f} GB')"
 
 # Run installer smoke test
 python installer\smoke_test.py
@@ -106,7 +106,8 @@ dist/
 │   │   ├── torch/                      # PyTorch + CUDA libs
 │   │   ├── PySide6/                    # Qt framework
 │   │   ├── resources/                  # App resources
-│   │   ├── styles/                     # UI themes
+│   │   ├── config/                     # Runtime config defaults
+│   │   ├── translations/               # Qt/app translations
 │   │   └── knowledge/                  # AI knowledge base
 │   └── [CUDA DLLs and dependencies]
 │
