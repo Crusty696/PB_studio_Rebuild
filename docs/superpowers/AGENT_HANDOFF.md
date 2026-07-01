@@ -121,6 +121,15 @@ This file is a repository-local continuity checkpoint for all agents.
   -> `5 passed in 3.68s`; direct `release_gate.py` still reports DG-001,
   `SIGN-001`, `VM-001`, and `GUI-001`. Synthesis:
   `docs/superpowers/synthesis/release-gate-proof-schema-2026-07-01.md`.
+- **Signing readiness preflight 2026-07-01:** added
+  `scripts/diag/verify_signing_readiness.py`. Direct run Exit 0 and JSON
+  artifact `tests/qa_artifacts/signing_readiness.json` show:
+  `signtool` missing, CurrentUser/LocalMachine code-signing certificate count
+  is 0, installer Authenticode is not signed (`SignerCertificate=null`), and
+  `release_signing_ready=false`. Synthesis:
+  `docs/superpowers/synthesis/signing-readiness-preflight-2026-07-01.md`.
+  `SIGN-001` remains valid; signing cannot be completed here without a signing
+  tool and certificate.
 - **B-547 Storage-Browser delete live follow-up 2026-06-30:** added
   `scripts/diag/verify_b547_storage_browser_delete_visible.py`. Direct run
   Exit 0 with a visible real `StorageBrowserDialog`, temporary real SQLite DB,
