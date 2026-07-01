@@ -130,6 +130,15 @@ This file is a repository-local continuity checkpoint for all agents.
   `docs/superpowers/synthesis/signing-readiness-preflight-2026-07-01.md`.
   `SIGN-001` remains valid; signing cannot be completed here without a signing
   tool and certificate.
+- **Clean-VM readiness preflight 2026-07-01:** added
+  `scripts/diag/verify_clean_vm_readiness.py`. Direct run Exit 0 and JSON
+  artifact `tests/qa_artifacts/clean_vm_readiness.json` show:
+  current process is not admin, `Get-VM`/`vmrun`/`VBoxManage` are missing,
+  Hyper-V feature query requires elevated rights, while installer stub and
+  NSISBI payload exist. `clean_vm_ready=false`; blockers are
+  `not-running-as-admin` and `no-vm-control-tool-found`. Synthesis:
+  `docs/superpowers/synthesis/clean-vm-readiness-preflight-2026-07-01.md`.
+  `VM-001` remains valid.
 - **B-547 Storage-Browser delete live follow-up 2026-06-30:** added
   `scripts/diag/verify_b547_storage_browser_delete_visible.py`. Direct run
   Exit 0 with a visible real `StorageBrowserDialog`, temporary real SQLite DB,
