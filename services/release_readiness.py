@@ -64,35 +64,56 @@ def _artifact_blockers(root: Path) -> list[ReleaseBlocker]:
 def _proof_blockers(root: Path) -> list[ReleaseBlocker]:
     synthesis = root / "docs" / "superpowers" / "synthesis"
     blockers: list[ReleaseBlocker] = []
-    if not _has_matching_proof(synthesis, ("clean-vm", "install")):
+    if not _has_matching_proof(synthesis, "clean-vm-install"):
         blockers.append(
             ReleaseBlocker(
                 "VM-001",
                 "Clean Windows VM install proof missing",
-                "Need synthesis proof for installer run on clean Windows 11 VM without dev Python.",
+                "Need explicit release_gate_proof synthesis: proof_type=clean-vm-install, status=pass.",
             )
         )
-    if not _has_matching_proof(synthesis, ("installed-app", "gui")):
+    if not _has_matching_proof(synthesis, "installed-app-gui"):
         blockers.append(
             ReleaseBlocker(
                 "GUI-001",
                 "Installed-app full GUI workflow proof missing",
-                "Need synthesis proof from installed app, not dist-folder smoke.",
+                "Need explicit release_gate_proof synthesis: proof_type=installed-app-gui, status=pass.",
             )
         )
     return blockers
 
 
-def _has_matching_proof(folder: Path, needles: tuple[str, ...]) -> bool:
+def _has_matching_proof(folder: Path, proof_type: str) -> bool:
     if not folder.is_dir():
         return False
     for path in folder.glob("*.md"):
-        name = path.name.lower()
-        if all(needle in name for needle in needles):
-            text = path.read_text(encoding="utf-8", errors="replace").lower()
-            if "pass" in text and "release_ready" not in text:
-                return True
+        proof = _frontmatter(path)
+        if proof.get("release_gate_proof") != "true":
+            continue
+        if proof.get("proof_type") != proof_type:
+            continue
+        if proof.get("status") != "pass":
+            continue
+        if proof.get("evidence_level") != "live":
+            continue
+        return True
     return False
+
+
+def _frontmatter(path: Path) -> dict[str, str]:
+    text = path.read_text(encoding="utf-8", errors="replace")
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return {}
+    values: dict[str, str] = {}
+    for line in lines[1:]:
+        if line.strip() == "---":
+            break
+        if ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        values[key.strip().lower()] = value.strip().strip("'\"").lower()
+    return values
 
 
 def _authenticode_status(path: Path) -> str:

@@ -58,3 +58,8 @@ perform the missing work:
 - no clean VM install was executed
 - no installed-app full GUI workflow was executed
 - no DG-001 user decision was made
+
+Update 2026-07-01: proof detection was hardened further. VM and installed-app
+GUI blockers now require explicit `release_gate_proof` frontmatter with
+`proof_type`, `status: pass`, and `evidence_level: live`; see
+`docs/superpowers/synthesis/release-gate-proof-schema-2026-07-01.md`.

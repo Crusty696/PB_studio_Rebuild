@@ -112,6 +112,15 @@ This file is a repository-local continuity checkpoint for all agents.
   -> `3 passed in 4.38s`; direct `release_gate.py` reports DG-001 plus
   `SIGN-001`, `VM-001`, and `GUI-001`. Synthesis:
   `docs/superpowers/synthesis/release-gate-production-blockers-2026-07-01.md`.
+- **Release-Gate proof-schema hardening 2026-07-01:** `services/release_readiness.py`
+  now requires explicit synthesis frontmatter for VM/App-GUI proof:
+  `release_gate_proof: true`, matching `proof_type`, `status: pass`, and
+  `evidence_level: live`. Random Markdown with "PASS" no longer clears a
+  production blocker. Verification:
+  `tests/test_services/test_release_readiness.py tests/test_scripts/test_release_gate_cli.py`
+  -> `5 passed in 3.68s`; direct `release_gate.py` still reports DG-001,
+  `SIGN-001`, `VM-001`, and `GUI-001`. Synthesis:
+  `docs/superpowers/synthesis/release-gate-proof-schema-2026-07-01.md`.
 - **B-547 Storage-Browser delete live follow-up 2026-06-30:** added
   `scripts/diag/verify_b547_storage_browser_delete_visible.py`. Direct run
   Exit 0 with a visible real `StorageBrowserDialog`, temporary real SQLite DB,
