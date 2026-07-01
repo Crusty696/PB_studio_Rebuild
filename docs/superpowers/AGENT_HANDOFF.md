@@ -161,6 +161,15 @@ This file is a repository-local continuity checkpoint for all agents.
   `proof_written=false`. Synthesis:
   `docs/superpowers/synthesis/installed-app-gui-workflow-verifier-2026-07-01.md`.
   `GUI-001` remains valid.
+- **Release evidence matrix 2026-07-01:** added
+  `scripts/diag/verify_release_evidence_matrix.py`. Direct run Exit 0 and JSON
+  artifact `tests/qa_artifacts/release_evidence_matrix.json` aggregate active
+  Deferred Gates, production blockers, release-proof frontmatter, and QA JSON
+  artifacts for artifact pair, signing, clean VM, installed-app GUI readiness,
+  and installed-app GUI workflow. Current result: `release_ready=false`,
+  `status=blocked`, accepted release proofs `0`, open items `DG-001`,
+  `SIGN-001`, `VM-001`, `GUI-001`. Synthesis:
+  `docs/superpowers/synthesis/release-evidence-matrix-2026-07-01.md`.
 - **B-547 Storage-Browser delete live follow-up 2026-06-30:** added
   `scripts/diag/verify_b547_storage_browser_delete_visible.py`. Direct run
   Exit 0 with a visible real `StorageBrowserDialog`, temporary real SQLite DB,
