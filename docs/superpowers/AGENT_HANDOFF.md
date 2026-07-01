@@ -5,6 +5,21 @@ This file is a repository-local continuity checkpoint for all agents.
 ## Codex Quellstand-Konsolidierung 2026-06-22 (newest)
 
 - **Branch:** `codex/OTK-021-source-consolidation-2026-06-22`
+- **Distribution bundle candidate 2026-07-01:** added
+  `scripts/diag/verify_distribution_bundle_candidate.py` plus regression test
+  `tests/test_scripts/test_distribution_bundle_candidate.py`. Direct verifier
+  run Exit 0 and `tests/qa_artifacts/distribution_bundle_candidate.json`
+  report `artifact_pair_ready=true` for current local installer pair:
+  `dist/pb_studio_setup_v0.5.0.exe` (422,926 bytes, SHA256
+  `22DA36C7E077DFEF3BDF01E2F8F61157FFB4105A62D8461DACF44BAD0A500E62`)
+  and `dist/pb_studio_setup_v0.5.0.nsisbin` (2,815,066,504 bytes, SHA256
+  `305687BCF6AED0031B9AFC0A9B6255B7FF310614628B7A85C3BC298B41B21619`).
+  Required distribution docs/license exist. The verifier deliberately keeps
+  `distribution_candidate_ready=false`, `can_create_distribution_zip=false`,
+  and `release_ready=false` while release blockers remain. Verification:
+  py_compile OK, focused pytest `2 passed`, `release_gate.py` still blocked
+  by `DG-001`, `SIGN-001`, `VM-001`, `GUI-001`. Synthesis:
+  `docs/superpowers/synthesis/distribution-bundle-candidate-2026-07-01.md`.
 - **Packaging Gate partial 2026-06-30:** Zielruntime-Build wurde mit
   `C:\Users\David_Lochmann\miniconda3\envs\pb-studio\python.exe`
   ausgefuehrt (Python 3.10.20, torch 1.12.1+cu113, CUDA True,
