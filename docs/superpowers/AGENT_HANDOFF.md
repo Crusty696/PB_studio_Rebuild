@@ -5,18 +5,25 @@ This file is a repository-local continuity checkpoint for all agents.
 ## Codex Quellstand-Konsolidierung 2026-06-22 (newest)
 
 - **Branch:** `codex/OTK-021-source-consolidation-2026-06-22`
-- **Frozen-vs-installed GUI evidence split 2026-07-01:** added
+- **B-586 / Frozen-vs-installed GUI evidence split 2026-07-01:** added
   `scripts/diag/verify_frozen_gui_workflow.py` and custom output support in
   `verify_installed_app_gui_workflow.py` so frozen evidence writes to
   `tests/qa_artifacts/frozen_gui_workflow.json` and cannot overwrite
   installed-app proof state. `verify_release_evidence_matrix.py` now includes
-  `frozen_gui_workflow` separately. Verification: py_compile OK, focused
-  pytest `9 passed`, release matrix Exit 0, release gate still blocked.
-  Honest current state: `verify_frozen_gui_workflow.py` failed with
-  `window=null`, `process_alive_after_5s=false`, `uia_label_count=0`, while
-  default `installed_app_gui_workflow.json` has been reset to
-  `status=blocked`, `installed-exe-missing`, `proof_written=false`.
-  New bug tracked in vault as `B-586-frozen-gui-wrapper-no-window`. Synthesis:
+  `frozen_gui_workflow` separately. Follow-up root cause: the rebuilt frozen
+  app was blocked by `faulthandler.enable()` while windowed PyInstaller had
+  `sys.stderr is None`. `main.py` now falls back to
+  `_internal\logs\freeze_stacks.log` for faulthandler. The wrapper also picks
+  a verifier Python with `pygetwindow`/`pywinauto`/`pyautogui` instead of
+  blindly using base Conda. Rebuilt frozen app + installer pair. Verification:
+  PB-env py_compile OK, focused pytest `19 passed`, direct
+  `verify_frozen_gui_workflow.py` PASS after rebuild
+  (`window_responsive=true`, `uia_label_count=73`, screenshot
+  `tests/qa_artifacts/frozen_gui_workflow_20260701_210511.png`). Release
+  matrix still `release_ready=false`; `release_gate.py` still blocks
+  `DG-001`, `SIGN-001`, `VM-001`, `GUI-001`. Vault bug
+  `B-586-frozen-gui-wrapper-no-window` has `agent_status:
+  live-pass-user-fixed-marker-open`, not `fixed`. Synthesis:
   `docs/superpowers/synthesis/frozen-gui-workflow-evidence-split-2026-07-01.md`.
 - **Frozen GUI workflow verifier update 2026-07-01:** first live attempt
   against `dist\pb_studio\pb_studio.exe` exposed stale verifier labels and a

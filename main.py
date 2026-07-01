@@ -33,11 +33,24 @@ os.environ.setdefault("MKL_NUM_THREADS", "4")
 # Diagnose von UI-Hangs (Brain-Open et al.) — User triggert per
 # Ctrl+Pause einen Stack-Dump aller Threads.
 import faulthandler as _faulthandler
-_faulthandler.enable()
+_FAULT_HANDLER_FILE = None
+try:
+    _fault_handler_target = sys.stderr
+    if _fault_handler_target is None:
+        _early_log_dir = Path(__file__).parent / "logs"
+        _early_log_dir.mkdir(parents=True, exist_ok=True)
+        _FAULT_HANDLER_FILE = (_early_log_dir / "freeze_stacks.log").open("a", encoding="utf-8")
+        _fault_handler_target = _FAULT_HANDLER_FILE
+    _faulthandler.enable(file=_fault_handler_target)
+except Exception:  # broad: best-effort diagnostics must not kill GUI startup
+    pass
 try:
     import signal as _signal
     if hasattr(_signal, "SIGBREAK"):
-        _faulthandler.register(_signal.SIGBREAK, all_threads=True)
+        if _FAULT_HANDLER_FILE is not None:
+            _faulthandler.register(_signal.SIGBREAK, file=_FAULT_HANDLER_FILE, all_threads=True)
+        else:
+            _faulthandler.register(_signal.SIGBREAK, all_threads=True)
 except Exception:  # broad: best-effort, kein App-Killer
     pass
 
