@@ -168,7 +168,9 @@ This file is a repository-local continuity checkpoint for all agents.
   artifacts for artifact pair, signing, clean VM, installed-app GUI readiness,
   and installed-app GUI workflow. Current result: `release_ready=false`,
   `status=blocked`, accepted release proofs `0`, open items `DG-001`,
-  `SIGN-001`, `VM-001`, `GUI-001`. Synthesis:
+  `SIGN-001`, `VM-001`, `GUI-001`. Added regression
+  `tests/test_scripts/test_release_evidence_matrix.py`; focused run
+  `2 passed`. Synthesis:
   `docs/superpowers/synthesis/release-evidence-matrix-2026-07-01.md`.
 - **B-547 Storage-Browser delete live follow-up 2026-06-30:** added
   `scripts/diag/verify_b547_storage_browser_delete_visible.py`. Direct run

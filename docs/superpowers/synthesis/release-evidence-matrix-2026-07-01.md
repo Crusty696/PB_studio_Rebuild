@@ -31,6 +31,8 @@ Covered sources:
 - `release_ready=false`.
 - `status=blocked`.
 - Accepted schema-valid release proofs found: `0`.
+- Regression test:
+  `tests/test_scripts/test_release_evidence_matrix.py` -> `2 passed`.
 
 Open items:
 
@@ -46,6 +48,16 @@ Aggregated QA JSON sources:
 - `tests/qa_artifacts/clean_vm_readiness.json`
 - `tests/qa_artifacts/installed_app_gui_readiness.json`
 - `tests/qa_artifacts/installed_app_gui_workflow.json`
+
+## Regression Guard
+
+`tests/test_scripts/test_release_evidence_matrix.py` protects against two
+dangerous release-audit regressions:
+
+- matrix output must keep `release_ready=false` and show the current blocker
+  IDs `DG-001`, `SIGN-001`, `VM-001`, and `GUI-001`
+- matrix output must expose all required QA JSON sources and must not show a
+  written installed-app GUI proof while the installed EXE is missing
 
 ## Honest Limit
 
