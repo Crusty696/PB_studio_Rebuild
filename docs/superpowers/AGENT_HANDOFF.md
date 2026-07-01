@@ -5,6 +5,18 @@ This file is a repository-local continuity checkpoint for all agents.
 ## Codex Quellstand-Konsolidierung 2026-06-22 (newest)
 
 - **Branch:** `codex/OTK-021-source-consolidation-2026-06-22`
+- **Installed-app GUI readiness install detection 2026-07-01:** updated
+  `scripts/diag/verify_installed_app_gui_readiness.py` to report installed EXE
+  candidates (`Program Files`, `Program Files (x86)`, `LocalAppData`, and
+  `PB_INSTALLED_EXE`) plus PB Studio uninstall registry entries from HKLM/HKCU.
+  Direct verifier run Exit 0 and
+  `tests/qa_artifacts/installed_app_gui_readiness.json` report
+  `installed_app_gui_ready=false`: no installed EXE candidate, no registry
+  uninstall entry, current process not admin, and installer unsigned.
+  Verification: py_compile OK, installed-app/evidence/cutover pytest
+  `6 passed`, `release_gate.py` still blocks on `DG-001`, `SIGN-001`,
+  `VM-001`, `GUI-001`. Synthesis:
+  `docs/superpowers/synthesis/installed-app-gui-readiness-install-detection-2026-07-01.md`.
 - **Clean-VM readiness tool detection 2026-07-01:** updated
   `scripts/diag/verify_clean_vm_readiness.py` so Hyper-V `Get-VM` is checked
   as a PowerShell command, while `vmrun`/`VBoxManage` use PATH plus known
