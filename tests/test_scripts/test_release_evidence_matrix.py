@@ -45,6 +45,7 @@ def test_release_evidence_matrix_keeps_required_qa_sources_visible() -> None:
         "clean_vm_readiness",
         "installed_app_gui_readiness",
         "installed_app_gui_workflow",
+        "frozen_gui_workflow",
     }
     assert required_sources == set(sources)
     assert sources["release_artifact_pair_audit"]["release_ready"] is False
@@ -52,3 +53,4 @@ def test_release_evidence_matrix_keeps_required_qa_sources_visible() -> None:
     assert sources["clean_vm_readiness"]["clean_vm_ready"] is False
     assert sources["installed_app_gui_readiness"]["installed_app_gui_ready"] is False
     assert sources["installed_app_gui_workflow"]["proof_written"] is False
+    assert sources["frozen_gui_workflow"]["proof_written"] is False

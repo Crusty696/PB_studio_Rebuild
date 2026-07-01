@@ -30,3 +30,19 @@ def test_installed_app_gui_workflow_rejects_not_responding_window() -> None:
     assert module._window_responsive({"title": "PB_studio v0.5.0"}) is True
     assert module._window_responsive({"title": "PB_studio v0.5.0 (Keine Rückmeldung)"}) is False
     assert module._window_responsive({"title": "PB_studio v0.5.0 (Not Responding)"}) is False
+
+
+def test_installed_app_gui_workflow_handles_missing_window_pid() -> None:
+    module = _module()
+
+    assert module._window_process_id(None) is None
+    assert module._window_process_id({}) is None
+
+
+def test_installed_app_gui_workflow_can_write_to_custom_output(tmp_path) -> None:
+    module = _module()
+    target = tmp_path / "custom.json"
+
+    module._write_json_to(target, {"ok": True})
+
+    assert target.read_text(encoding="utf-8").strip() == '{\n  "ok": true\n}'

@@ -5,6 +5,19 @@ This file is a repository-local continuity checkpoint for all agents.
 ## Codex Quellstand-Konsolidierung 2026-06-22 (newest)
 
 - **Branch:** `codex/OTK-021-source-consolidation-2026-06-22`
+- **Frozen-vs-installed GUI evidence split 2026-07-01:** added
+  `scripts/diag/verify_frozen_gui_workflow.py` and custom output support in
+  `verify_installed_app_gui_workflow.py` so frozen evidence writes to
+  `tests/qa_artifacts/frozen_gui_workflow.json` and cannot overwrite
+  installed-app proof state. `verify_release_evidence_matrix.py` now includes
+  `frozen_gui_workflow` separately. Verification: py_compile OK, focused
+  pytest `9 passed`, release matrix Exit 0, release gate still blocked.
+  Honest current state: `verify_frozen_gui_workflow.py` failed with
+  `window=null`, `process_alive_after_5s=false`, `uia_label_count=0`, while
+  default `installed_app_gui_workflow.json` has been reset to
+  `status=blocked`, `installed-exe-missing`, `proof_written=false`.
+  New bug tracked in vault as `B-586-frozen-gui-wrapper-no-window`. Synthesis:
+  `docs/superpowers/synthesis/frozen-gui-workflow-evidence-split-2026-07-01.md`.
 - **Frozen GUI workflow verifier update 2026-07-01:** first live attempt
   against `dist\pb_studio\pb_studio.exe` exposed stale verifier labels and a
   transient `(Keine Rückmeldung)` title. Updated

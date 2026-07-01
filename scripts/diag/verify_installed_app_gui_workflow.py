@@ -22,6 +22,11 @@ def _write_json(payload: dict[str, object]) -> None:
     OUT.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str), encoding="utf-8")
 
 
+def _write_json_to(path: Path, payload: dict[str, object]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str), encoding="utf-8")
+
+
 def _running(pid: int) -> bool:
     if sys.platform == "win32":
         proc = subprocess.run(
@@ -59,6 +64,7 @@ def _wait_for_window(title_fragment: str, timeout_s: float) -> dict[str, object]
                 pass
             return {
                 "title": title,
+                "handle": int(window._hWnd),
                 "left": window.left,
                 "top": window.top,
                 "width": window.width,
@@ -93,19 +99,20 @@ def _screenshot(label: str, window: dict[str, object]) -> str:
     return str(path)
 
 
-def _uia_labels(title_fragment: str) -> list[str]:
+def _uia_labels(window: dict[str, object] | None, title_fragment: str) -> list[str]:
     import pygetwindow as gw
     from pywinauto import Application
 
-    target = None
-    for window in gw.getAllWindows():
-        if title_fragment in (window.title or "") and window.width >= 400 and window.height >= 300:
-            target = window
-            break
-    if target is None:
+    handle = int(window["handle"]) if window and window.get("handle") else None
+    if handle is None:
+        for candidate in gw.getAllWindows():
+            if title_fragment in (candidate.title or "") and candidate.width >= 400 and candidate.height >= 300:
+                handle = int(candidate._hWnd)
+                break
+    if handle is None:
         return []
-    app = Application(backend="uia").connect(handle=target._hWnd, timeout=10)
-    top = app.window(handle=target._hWnd)
+    app = Application(backend="uia").connect(handle=handle, timeout=10)
+    top = app.window(handle=handle)
     labels: list[str] = []
     for element in top.descendants():
         try:
@@ -117,6 +124,18 @@ def _uia_labels(title_fragment: str) -> list[str]:
         if len(labels) >= 250:
             break
     return labels
+
+
+def _window_process_id(window: dict[str, object] | None) -> int | None:
+    if not window or not window.get("handle"):
+        return None
+    try:
+        from pywinauto import Application
+
+        app = Application(backend="uia").connect(handle=int(window["handle"]), timeout=10)
+        return int(app.window(handle=int(window["handle"])).process_id())
+    except Exception:
+        return None
 
 
 def _required_label_groups() -> dict[str, list[str]]:
@@ -148,7 +167,7 @@ def _wait_for_responsive_labels(title_fragment: str, timeout_s: float) -> tuple[
         if not _window_responsive(last_window):
             time.sleep(1.0)
             continue
-        last_labels = _uia_labels(title_fragment)
+        last_labels = _uia_labels(last_window, title_fragment)
         last_observed = _observed_label_groups(last_labels)
         if len(last_observed) == len(_required_label_groups()):
             return last_window, last_labels, last_observed
@@ -173,7 +192,7 @@ def _close_process(proc: subprocess.Popen[object], pid: int) -> None:
         proc.kill()
 
 
-def _write_proof(result: dict[str, object], screenshot_path: str) -> None:
+def _write_proof(result: dict[str, object], screenshot_path: str, proof_path: Path) -> None:
     text = f"""---
 release_gate_proof: true
 proof_type: installed-app-gui
@@ -202,7 +221,7 @@ This proof only covers installed-app GUI launch/navigation shell readiness. It
 does not prove code signing, clean-VM installation, or the DG-001 H1 user
 decision.
 """
-    PROOF_PATH.write_text(text, encoding="utf-8")
+    proof_path.write_text(text, encoding="utf-8")
 
 
 def main() -> int:
@@ -212,7 +231,12 @@ def main() -> int:
     parser.add_argument("--timeout", type=float, default=90.0)
     parser.add_argument("--settle-timeout", type=float, default=30.0)
     parser.add_argument("--write-proof", action="store_true")
+    parser.add_argument("--output", default=str(OUT))
+    parser.add_argument("--proof-path", default=str(PROOF_PATH))
+    parser.add_argument("--artifact-label", default="installed_app_gui_workflow")
     args = parser.parse_args()
+    output_path = Path(args.output)
+    proof_path = Path(args.proof_path)
 
     installed_exe = Path(args.installed_exe)
     if not installed_exe.is_file():
@@ -224,7 +248,7 @@ def main() -> int:
             "proof_written": False,
             "note": "No installed-app GUI proof can be created without the installed EXE.",
         }
-        _write_json(result)
+        _write_json_to(output_path, result)
         print(json.dumps(result, indent=2, sort_keys=True))
         return 2
 
@@ -237,17 +261,22 @@ def main() -> int:
         window, labels, observed_groups = _wait_for_responsive_labels(args.window_title, args.settle_timeout) if window else (None, [], {})
         time.sleep(5)
         alive = _running(proc.pid)
+        window_pid = _window_process_id(window)
+        window_alive = _running(window_pid) if window_pid else False
         if window:
-            screenshot_path = _screenshot("installed_app_gui_workflow", window)
+            screenshot_path = _screenshot(args.artifact_label, window)
         required_groups = _required_label_groups()
         responsive = _window_responsive(window)
-        passed = bool(window and alive and responsive and len(observed_groups) == len(required_groups))
+        any_process_alive = alive or window_alive
+        passed = bool(window and any_process_alive and responsive and len(observed_groups) == len(required_groups))
         result = {
             "status": "pass" if passed else "fail",
             "installed_app_gui_workflow_passed": passed,
             "installed_exe": str(installed_exe),
             "pid": proc.pid,
             "process_alive_after_5s": alive,
+            "window_process_id": window_pid,
+            "window_process_alive_after_5s": window_alive,
             "window_title": window["title"] if window else None,
             "window_responsive": responsive,
             "window": window,
@@ -259,12 +288,12 @@ def main() -> int:
             "uia_label_count": len(labels),
             "screenshot": screenshot_path,
             "proof_written": False,
-            "proof_path": str(PROOF_PATH),
+            "proof_path": str(proof_path),
         }
         if passed and args.write_proof:
-            _write_proof(result, screenshot_path)
+            _write_proof(result, screenshot_path, proof_path)
             result["proof_written"] = True
-        _write_json(result)
+        _write_json_to(output_path, result)
         print(json.dumps(result, indent=2, sort_keys=True, default=str))
         return 0 if passed else 1
     finally:

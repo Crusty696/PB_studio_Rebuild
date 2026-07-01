@@ -24,6 +24,7 @@ JSON_SOURCES = {
     "clean_vm_readiness": QA / "clean_vm_readiness.json",
     "installed_app_gui_readiness": QA / "installed_app_gui_readiness.json",
     "installed_app_gui_workflow": QA / "installed_app_gui_workflow.json",
+    "frozen_gui_workflow": QA / "frozen_gui_workflow.json",
 }
 
 
