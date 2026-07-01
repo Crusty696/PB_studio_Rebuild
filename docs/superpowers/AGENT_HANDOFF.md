@@ -5,6 +5,16 @@ This file is a repository-local continuity checkpoint for all agents.
 ## Codex Quellstand-Konsolidierung 2026-06-22 (newest)
 
 - **Branch:** `codex/OTK-021-source-consolidation-2026-06-22`
+- **Release cutover manifest 2026-07-01:** added
+  `scripts/diag/verify_release_cutover_manifest.py` plus regression test
+  `tests/test_scripts/test_release_cutover_manifest.py`. Direct verifier
+  run Exit 0 and `tests/qa_artifacts/release_cutover_manifest.json` report
+  `status=blocked`, `release_ready=false`, and required actions for
+  `DG-001`, `SIGN-001`, `VM-001`, and `GUI-001`. The manifest records exact
+  follow-up commands/proof frontmatter but does not clear any blocker. Checks:
+  py_compile OK, focused pytest `2 passed`, `release_gate.py` still blocks as
+  expected. Synthesis:
+  `docs/superpowers/synthesis/release-cutover-manifest-2026-07-01.md`.
 - **Distribution bundle candidate 2026-07-01:** added
   `scripts/diag/verify_distribution_bundle_candidate.py` plus regression test
   `tests/test_scripts/test_distribution_bundle_candidate.py`. Direct verifier
