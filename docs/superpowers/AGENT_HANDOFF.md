@@ -150,6 +150,17 @@ This file is a repository-local continuity checkpoint for all agents.
   `installed-exe-missing`, and `installer-not-signed`. Synthesis:
   `docs/superpowers/synthesis/installed-app-gui-readiness-preflight-2026-07-01.md`.
   `GUI-001` remains valid.
+- **Installed-app GUI workflow verifier 2026-07-01:** added
+  `scripts/diag/verify_installed_app_gui_workflow.py`. The verifier launches
+  the installed EXE, waits for a visible GUI window, records a screenshot,
+  checks the four workflow tabs via UIA, and writes a schema-valid
+  `release_gate_proof` only on real PASS with explicit `--write-proof`.
+  Current direct run blocks with `installed-exe-missing` because
+  `C:\Program Files\PB Studio\pb_studio.exe` does not exist; JSON artifact:
+  `tests/qa_artifacts/installed_app_gui_workflow.json`.
+  `proof_written=false`. Synthesis:
+  `docs/superpowers/synthesis/installed-app-gui-workflow-verifier-2026-07-01.md`.
+  `GUI-001` remains valid.
 - **B-547 Storage-Browser delete live follow-up 2026-06-30:** added
   `scripts/diag/verify_b547_storage_browser_delete_visible.py`. Direct run
   Exit 0 with a visible real `StorageBrowserDialog`, temporary real SQLite DB,
