@@ -139,6 +139,17 @@ This file is a repository-local continuity checkpoint for all agents.
   `not-running-as-admin` and `no-vm-control-tool-found`. Synthesis:
   `docs/superpowers/synthesis/clean-vm-readiness-preflight-2026-07-01.md`.
   `VM-001` remains valid.
+- **Installed-app GUI readiness preflight 2026-07-01:** added
+  `scripts/diag/verify_installed_app_gui_readiness.py`. Direct run Exit 0 and
+  JSON artifact `tests/qa_artifacts/installed_app_gui_readiness.json` show:
+  installer stub and NSISBI payload exist, but current process is not admin,
+  default installed EXE `C:\Program Files\PB Studio\pb_studio.exe` is missing,
+  installer policy requests admin / Program Files / HKLM uninstall key, and
+  installer Authenticode is not signed. `installed_app_gui_ready=false`;
+  blockers are `installer-requires-admin-current-process-not-admin`,
+  `installed-exe-missing`, and `installer-not-signed`. Synthesis:
+  `docs/superpowers/synthesis/installed-app-gui-readiness-preflight-2026-07-01.md`.
+  `GUI-001` remains valid.
 - **B-547 Storage-Browser delete live follow-up 2026-06-30:** added
   `scripts/diag/verify_b547_storage_browser_delete_visible.py`. Direct run
   Exit 0 with a visible real `StorageBrowserDialog`, temporary real SQLite DB,
