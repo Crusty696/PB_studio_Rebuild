@@ -68,6 +68,18 @@ def _wait_for_window(title_fragment: str, timeout_s: float) -> dict[str, object]
     return None
 
 
+def _refresh_window(title_fragment: str) -> dict[str, object] | None:
+    return _wait_for_window(title_fragment, 0.1)
+
+
+def _window_responsive(window: dict[str, object] | None) -> bool:
+    if not window:
+        return False
+    title = str(window.get("title") or "")
+    not_responding_markers = ["Keine Rückmeldung", "Not Responding"]
+    return not any(marker in title for marker in not_responding_markers)
+
+
 def _screenshot(label: str, window: dict[str, object]) -> str:
     import pyautogui
 
@@ -105,6 +117,43 @@ def _uia_labels(title_fragment: str) -> list[str]:
         if len(labels) >= 250:
             break
     return labels
+
+
+def _required_label_groups() -> dict[str, list[str]]:
+    return {
+        "project": ["PROJEKT", "Projekt Workflow"],
+        "material": ["MATERIAL ANALYSE", "Material und Analyse Workflow", "Material & Analyse"],
+        "schnitt": ["SCHNITT", "Schnitt Workflow"],
+        "export": ["EXPORT", "Export Workflow"],
+    }
+
+
+def _observed_label_groups(labels: list[str]) -> dict[str, str]:
+    observed: dict[str, str] = {}
+    for group, candidates in _required_label_groups().items():
+        for candidate in candidates:
+            if any(candidate in seen for seen in labels):
+                observed[group] = candidate
+                break
+    return observed
+
+
+def _wait_for_responsive_labels(title_fragment: str, timeout_s: float) -> tuple[dict[str, object] | None, list[str], dict[str, str]]:
+    deadline = time.monotonic() + timeout_s
+    last_window: dict[str, object] | None = None
+    last_labels: list[str] = []
+    last_observed: dict[str, str] = {}
+    while time.monotonic() < deadline:
+        last_window = _refresh_window(title_fragment) or last_window
+        if not _window_responsive(last_window):
+            time.sleep(1.0)
+            continue
+        last_labels = _uia_labels(title_fragment)
+        last_observed = _observed_label_groups(last_labels)
+        if len(last_observed) == len(_required_label_groups()):
+            return last_window, last_labels, last_observed
+        time.sleep(1.0)
+    return last_window, last_labels, last_observed
 
 
 def _close_process(proc: subprocess.Popen[object], pid: int) -> None:
@@ -161,6 +210,7 @@ def main() -> int:
     parser.add_argument("--installed-exe", default=os.environ.get("PB_INSTALLED_EXE", str(DEFAULT_INSTALLED_EXE)))
     parser.add_argument("--window-title", default="PB_studio")
     parser.add_argument("--timeout", type=float, default=90.0)
+    parser.add_argument("--settle-timeout", type=float, default=30.0)
     parser.add_argument("--write-proof", action="store_true")
     args = parser.parse_args()
 
@@ -184,19 +234,14 @@ def main() -> int:
     screenshot_path = ""
     try:
         window = _wait_for_window(args.window_title, args.timeout)
-        labels = _uia_labels(args.window_title) if window else []
-        required = [
-            "Projekt Workflow",
-            "Material und Analyse Workflow",
-            "Schnitt Workflow",
-            "Export Workflow",
-        ]
-        observed = [label for label in required if any(label in seen for seen in labels)]
+        window, labels, observed_groups = _wait_for_responsive_labels(args.window_title, args.settle_timeout) if window else (None, [], {})
         time.sleep(5)
         alive = _running(proc.pid)
         if window:
             screenshot_path = _screenshot("installed_app_gui_workflow", window)
-        passed = bool(window and alive and len(observed) == len(required))
+        required_groups = _required_label_groups()
+        responsive = _window_responsive(window)
+        passed = bool(window and alive and responsive and len(observed_groups) == len(required_groups))
         result = {
             "status": "pass" if passed else "fail",
             "installed_app_gui_workflow_passed": passed,
@@ -204,9 +249,14 @@ def main() -> int:
             "pid": proc.pid,
             "process_alive_after_5s": alive,
             "window_title": window["title"] if window else None,
+            "window_responsive": responsive,
             "window": window,
-            "required_labels_observed": observed,
-            "required_labels_missing": [label for label in required if label not in observed],
+            "required_label_groups": required_groups,
+            "required_label_groups_observed": observed_groups,
+            "required_label_groups_missing": [
+                group for group in required_groups if group not in observed_groups
+            ],
+            "uia_label_count": len(labels),
             "screenshot": screenshot_path,
             "proof_written": False,
             "proof_path": str(PROOF_PATH),

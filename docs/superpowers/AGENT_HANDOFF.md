@@ -5,6 +5,18 @@ This file is a repository-local continuity checkpoint for all agents.
 ## Codex Quellstand-Konsolidierung 2026-06-22 (newest)
 
 - **Branch:** `codex/OTK-021-source-consolidation-2026-06-22`
+- **Frozen GUI workflow verifier update 2026-07-01:** first live attempt
+  against `dist\pb_studio\pb_studio.exe` exposed stale verifier labels and a
+  transient `(Keine Rückmeldung)` title. Updated
+  `scripts/diag/verify_installed_app_gui_workflow.py` to wait for a responsive
+  window and accept current UI labels (`PROJEKT`, `MATERIAL ANALYSE`,
+  `SCHNITT`, `EXPORT`) plus legacy workflow labels. Focused tests passed
+  (`6 passed`). Frozen GUI rerun passed: responsive window, process alive after
+  5s, `uia_label_count=250`, all label groups observed, screenshot
+  `tests/qa_artifacts/installed_app_gui_workflow_20260701_171050.png`,
+  `proof_written=false`. This is a frozen-dist GUI preflight only; `GUI-001`
+  remains open because no installed-app GUI proof exists. Synthesis:
+  `docs/superpowers/synthesis/frozen-gui-workflow-verifier-update-2026-07-01.md`.
 - **Installed-app GUI readiness install detection 2026-07-01:** updated
   `scripts/diag/verify_installed_app_gui_readiness.py` to report installed EXE
   candidates (`Program Files`, `Program Files (x86)`, `LocalAppData`, and
