@@ -5,6 +5,18 @@ This file is a repository-local continuity checkpoint for all agents.
 ## Codex Quellstand-Konsolidierung 2026-06-22 (newest)
 
 - **Branch:** `codex/OTK-021-source-consolidation-2026-06-22`
+- **Signing readiness SDK signtool check 2026-07-01:** updated
+  `scripts/diag/verify_signing_readiness.py` to search Windows Kits for
+  `signtool.exe` when it is not on PATH. Direct verifier run Exit 0 and
+  `tests/qa_artifacts/signing_readiness.json` now reports
+  `signtool_path_source=Windows Kits` with
+  `C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\signtool.exe`.
+  Release signing remains blocked: no CurrentUser/LocalMachine code-signing
+  certificate, installer Authenticode unsigned, `release_signing_ready=false`.
+  Verification: py_compile OK, signing/evidence/cutover pytest `6 passed`,
+  `release_gate.py` still blocks on `DG-001`, `SIGN-001`, `VM-001`, `GUI-001`.
+  Synthesis:
+  `docs/superpowers/synthesis/signing-readiness-signtool-sdk-2026-07-01.md`.
 - **Release cutover manifest 2026-07-01:** added
   `scripts/diag/verify_release_cutover_manifest.py` plus regression test
   `tests/test_scripts/test_release_cutover_manifest.py`. Direct verifier

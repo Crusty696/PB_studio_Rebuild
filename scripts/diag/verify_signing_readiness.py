@@ -10,6 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "tests" / "qa_artifacts" / "signing_readiness.json"
 INSTALLER = ROOT / "dist" / "pb_studio_setup_v0.5.0.exe"
+WINDOWS_KITS_BIN = Path(r"C:\Program Files (x86)\Windows Kits\10\bin")
 
 
 def _run(command: list[str], timeout: int = 30) -> dict[str, object]:
@@ -24,6 +25,23 @@ def _run(command: list[str], timeout: int = 30) -> dict[str, object]:
 
 def _powershell() -> str | None:
     return shutil.which("pwsh") or shutil.which("powershell")
+
+
+def _signtool() -> dict[str, object]:
+    path_signtool = shutil.which("signtool")
+    if path_signtool:
+        return {"path": path_signtool, "source": "PATH", "candidates": [path_signtool]}
+
+    candidates: list[str] = []
+    if WINDOWS_KITS_BIN.is_dir():
+        candidates = [str(path) for path in sorted(WINDOWS_KITS_BIN.glob(r"*\x64\signtool.exe"), reverse=True)]
+        if not candidates:
+            candidates = [str(path) for path in sorted(WINDOWS_KITS_BIN.rglob("signtool.exe"), reverse=True)]
+    return {
+        "path": candidates[0] if candidates else None,
+        "source": "Windows Kits" if candidates else "missing",
+        "candidates": candidates,
+    }
 
 
 def _code_signing_certs(scope: str) -> dict[str, object]:
@@ -69,7 +87,7 @@ def _authenticode(path: Path) -> dict[str, object]:
 
 
 def main() -> int:
-    signtool = shutil.which("signtool")
+    signtool = _signtool()
     current_user = _code_signing_certs("CurrentUser")
     local_machine = _code_signing_certs("LocalMachine")
     signature = _authenticode(INSTALLER) if INSTALLER.exists() else {
@@ -79,7 +97,7 @@ def main() -> int:
     }
 
     blockers = []
-    if not signtool:
+    if not signtool["path"]:
         blockers.append("signtool-missing")
     if current_user["count"] == 0 and local_machine["count"] == 0:
         blockers.append("code-signing-certificate-missing")
@@ -91,7 +109,9 @@ def main() -> int:
         "release_signing_ready": not blockers,
         "installer": str(INSTALLER),
         "installer_exists": INSTALLER.exists(),
-        "signtool": signtool,
+        "signtool": signtool["path"],
+        "signtool_path_source": signtool["source"],
+        "signtool_candidates": signtool["candidates"],
         "current_user_code_signing_certs": current_user,
         "local_machine_code_signing_certs": local_machine,
         "authenticode": signature,
