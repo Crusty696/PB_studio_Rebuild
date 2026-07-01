@@ -25,6 +25,18 @@ This file is a repository-local continuity checkpoint for all agents.
   `B-586-frozen-gui-wrapper-no-window` has `agent_status:
   live-pass-user-fixed-marker-open`, not `fixed`. Synthesis:
   `docs/superpowers/synthesis/frozen-gui-workflow-evidence-split-2026-07-01.md`.
+- **GUI-001 installed-app silent install attempt 2026-07-01:** attempted
+  `dist\pb_studio_setup_v0.5.0.exe /S` from the current non-admin agent
+  process. Windows/Start-Process blocked it with
+  `Der angeforderte Vorgang erfordert erhöhte Rechte`. After the attempt,
+  `C:\Program Files\PB Studio\pb_studio.exe` still did not exist. Refreshed
+  `installed_app_gui_readiness.json` and `installed_app_gui_workflow.json`:
+  readiness blockers remain `installer-requires-admin-current-process-not-admin`,
+  `installed-exe-missing`, `installed-app-registry-entry-missing`, and
+  `installer-not-signed`; workflow remains `status=blocked`,
+  `installed-exe-missing`. Release matrix and release gate still block
+  `DG-001`, `SIGN-001`, `VM-001`, `GUI-001`. Synthesis:
+  `docs/superpowers/synthesis/installed-app-silent-install-attempt-2026-07-01.md`.
 - **Frozen GUI workflow verifier update 2026-07-01:** first live attempt
   against `dist\pb_studio\pb_studio.exe` exposed stale verifier labels and a
   transient `(Keine Rückmeldung)` title. Updated
