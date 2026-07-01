@@ -5,6 +5,16 @@ This file is a repository-local continuity checkpoint for all agents.
 ## Codex Quellstand-Konsolidierung 2026-06-22 (newest)
 
 - **Branch:** `codex/OTK-021-source-consolidation-2026-06-22`
+- **Clean-VM readiness tool detection 2026-07-01:** updated
+  `scripts/diag/verify_clean_vm_readiness.py` so Hyper-V `Get-VM` is checked
+  as a PowerShell command, while `vmrun`/`VBoxManage` use PATH plus known
+  install paths. Direct verifier run Exit 0 and
+  `tests/qa_artifacts/clean_vm_readiness.json` report installer/payload present
+  but `clean_vm_ready=false`: current process is not admin and no VM control
+  tool is available. Verification: py_compile OK, clean-vm/evidence/cutover
+  pytest `6 passed`, `release_gate.py` still blocks on `DG-001`, `SIGN-001`,
+  `VM-001`, `GUI-001`. Synthesis:
+  `docs/superpowers/synthesis/clean-vm-readiness-tool-detection-2026-07-01.md`.
 - **Signing readiness SDK signtool check 2026-07-01:** updated
   `scripts/diag/verify_signing_readiness.py` to search Windows Kits for
   `signtool.exe` when it is not on PATH. Direct verifier run Exit 0 and

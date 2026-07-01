@@ -11,6 +11,14 @@ ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "tests" / "qa_artifacts" / "clean_vm_readiness.json"
 INSTALLER = ROOT / "dist" / "pb_studio_setup_v0.5.0.exe"
 PAYLOAD = ROOT / "dist" / "pb_studio_setup_v0.5.0.nsisbin"
+VBOX_DEFAULTS = [
+    Path(r"C:\Program Files\Oracle\VirtualBox\VBoxManage.exe"),
+    Path(r"C:\Program Files (x86)\Oracle\VirtualBox\VBoxManage.exe"),
+]
+VMRUN_DEFAULTS = [
+    Path(r"C:\Program Files (x86)\VMware\VMware Workstation\vmrun.exe"),
+    Path(r"C:\Program Files\VMware\VMware Workstation\vmrun.exe"),
+]
 
 
 def _run(command: list[str], timeout: int = 30) -> dict[str, object]:
@@ -34,6 +42,15 @@ def _command_path(name: str) -> str | None:
     return shutil.which(name)
 
 
+def _known_tool(name: str, defaults: list[Path]) -> dict[str, object]:
+    path = _command_path(name)
+    candidates = [str(path)] if path else []
+    for default in defaults:
+        if default.is_file() and str(default) not in candidates:
+            candidates.append(str(default))
+    return {"path": candidates[0] if candidates else None, "candidates": candidates}
+
+
 def _powershell_json(command: str) -> dict[str, object]:
     shell = _command_path("pwsh") or _command_path("powershell")
     if not shell:
@@ -48,10 +65,17 @@ def _powershell_json(command: str) -> dict[str, object]:
     return {"checked": result["returncode"] == 0, "result": payload, "raw": result}
 
 
+def _powershell_command(name: str) -> dict[str, object]:
+    return _powershell_json(
+        f"Get-Command {name} -ErrorAction SilentlyContinue "
+        "| Select-Object Name,CommandType,Source | ConvertTo-Json -Depth 3"
+    )
+
+
 def main() -> int:
-    hyperv_cmd = _command_path("Get-VM")
-    vmrun = _command_path("vmrun")
-    vboxmanage = _command_path("VBoxManage")
+    hyperv_cmd = _powershell_command("Get-VM")
+    vmrun = _known_tool("vmrun", VMRUN_DEFAULTS)
+    vboxmanage = _known_tool("VBoxManage", VBOX_DEFAULTS)
     hyperv_feature = _powershell_json(
         "Get-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V-All "
         "| Select-Object FeatureName,State | ConvertTo-Json -Depth 3"
@@ -65,7 +89,8 @@ def main() -> int:
     blockers = []
     if not _is_admin():
         blockers.append("not-running-as-admin")
-    if not hyperv_cmd and not vmrun and not vboxmanage:
+    hyperv_available = bool(hyperv_cmd.get("result"))
+    if not hyperv_available and not vmrun["path"] and not vboxmanage["path"]:
         blockers.append("no-vm-control-tool-found")
     if not INSTALLER.is_file():
         blockers.append("installer-stub-missing")
