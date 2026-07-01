@@ -13,7 +13,8 @@ OUT = ROOT / "tests" / "qa_artifacts" / "installed_app_gui_readiness.json"
 INSTALLER = ROOT / "dist" / "pb_studio_setup_v0.5.0.exe"
 PAYLOAD = ROOT / "dist" / "pb_studio_setup_v0.5.0.nsisbin"
 NSI = ROOT / "installer" / "pb_studio.nsi"
-INSTALLED_EXE = Path(os.environ.get("PB_INSTALLED_EXE", r"C:\Program Files\PB Studio\pb_studio.exe"))
+DEFAULT_INSTALLED_EXE = Path(os.environ.get("LOCALAPPDATA", "")) / "PB Studio" / "pb_studio.exe"
+INSTALLED_EXE = Path(os.environ.get("PB_INSTALLED_EXE", str(DEFAULT_INSTALLED_EXE)))
 INSTALL_CANDIDATES = [
     INSTALLED_EXE,
     Path(r"C:\Program Files\PB Studio\pb_studio.exe"),
@@ -50,8 +51,15 @@ def _authenticode(path: Path) -> dict[str, object]:
     if not path.exists():
         return {"checked": False, "status": "missing", "signed": False}
     ps = (
-        f"(Get-AuthenticodeSignature -LiteralPath {json.dumps(str(path))}) | "
-        "Select-Object Status,StatusMessage,SignerCertificate | ConvertTo-Json -Depth 4"
+        f"$sig = Get-AuthenticodeSignature -LiteralPath {json.dumps(str(path))}; "
+        "[pscustomobject]@{"
+        "Status=[string]$sig.Status;"
+        "StatusMessage=$sig.StatusMessage;"
+        "SignerSubject=if($sig.SignerCertificate){$sig.SignerCertificate.Subject}else{$null};"
+        "SignerIssuer=if($sig.SignerCertificate){$sig.SignerCertificate.Issuer}else{$null};"
+        "SignerThumbprint=if($sig.SignerCertificate){$sig.SignerCertificate.Thumbprint}else{$null};"
+        "SignerNotAfter=if($sig.SignerCertificate){$sig.SignerCertificate.NotAfter.ToString('o')}else{$null}"
+        "} | ConvertTo-Json -Depth 3"
     )
     result = _run([shell, "-NoProfile", "-Command", ps])
     if result["returncode"] != 0 or not result["stdout"]:
@@ -63,7 +71,10 @@ def _authenticode(path: Path) -> dict[str, object]:
         "status": status,
         "status_message": parsed.get("StatusMessage"),
         "signed": status == "Valid" or status == "0",
-        "signer_certificate": parsed.get("SignerCertificate"),
+        "signer_subject": parsed.get("SignerSubject"),
+        "signer_issuer": parsed.get("SignerIssuer"),
+        "signer_thumbprint": parsed.get("SignerThumbprint"),
+        "signer_not_after": parsed.get("SignerNotAfter"),
         "raw": result,
     }
 
@@ -74,8 +85,11 @@ def _nsi_install_policy() -> dict[str, object]:
         "path": str(NSI),
         "exists": NSI.exists(),
         "requests_admin": "RequestExecutionLevel admin" in text,
+        "requests_user": "RequestExecutionLevel user" in text,
         "program_files_default": "$PROGRAMFILES64\\PB Studio" in text,
+        "local_appdata_default": "$LOCALAPPDATA\\PB Studio" in text,
         "writes_hklm_uninstall_key": "WriteRegStr   HKLM" in text,
+        "writes_hkcu_uninstall_key": "WriteRegStr   HKCU" in text,
     }
 
 

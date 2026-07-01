@@ -24,13 +24,17 @@ def _run_signing_readiness() -> dict[str, object]:
     return json.loads(_OUT.read_text(encoding="utf-8"))
 
 
-def test_signing_readiness_keeps_unsigned_installer_blocked() -> None:
+def test_signing_readiness_reports_installer_signature_state() -> None:
     payload = _run_signing_readiness()
 
     assert payload["installer_exists"] is True
-    assert payload["release_signing_ready"] is False
-    assert "installer-not-signed" in payload["blockers"]
-    assert payload["authenticode"]["signed"] is False
+    assert payload["authenticode"]["checked"] is True
+    if payload["authenticode"]["signed"]:
+        assert "installer-not-signed" not in payload["blockers"]
+        assert payload["authenticode"]["signer_thumbprint"]
+    else:
+        assert payload["release_signing_ready"] is False
+        assert "installer-not-signed" in payload["blockers"]
 
 
 def test_signing_readiness_reports_signtool_source() -> None:

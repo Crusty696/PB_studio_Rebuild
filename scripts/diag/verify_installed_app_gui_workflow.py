@@ -13,7 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 ARTIFACT_DIR = ROOT / "tests" / "qa_artifacts"
 OUT = ARTIFACT_DIR / "installed_app_gui_workflow.json"
-DEFAULT_INSTALLED_EXE = Path(r"C:\Program Files\PB Studio\pb_studio.exe")
+DEFAULT_INSTALLED_EXE = Path(os.environ.get("LOCALAPPDATA", "")) / "PB Studio" / "pb_studio.exe"
 PROOF_PATH = ROOT / "docs" / "superpowers" / "synthesis" / "installed-app-gui-live-proof-2026-07-01.md"
 
 
@@ -193,6 +193,11 @@ def _close_process(proc: subprocess.Popen[object], pid: int) -> None:
 
 
 def _write_proof(result: dict[str, object], screenshot_path: str, proof_path: Path) -> None:
+    observed_groups = result.get("required_label_groups_observed", {})
+    if isinstance(observed_groups, dict):
+        observed_labels = ", ".join(str(label) for label in observed_groups.values())
+    else:
+        observed_labels = ""
     text = f"""---
 release_gate_proof: true
 proof_type: installed-app-gui
@@ -213,7 +218,7 @@ observing the real GUI window.
 - PID: `{result["pid"]}`
 - Window title: `{result["window_title"]}`
 - Screenshot: `{screenshot_path}`
-- Required labels observed: `{", ".join(result["required_labels_observed"])}`.
+- Required labels observed: `{observed_labels}`.
 
 ## Limit
 

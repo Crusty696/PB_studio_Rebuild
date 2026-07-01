@@ -68,8 +68,15 @@ def _authenticode(path: Path) -> dict[str, object]:
     if not shell:
         return {"checked": False, "status": "powershell-missing", "signed": False}
     ps = (
-        f"(Get-AuthenticodeSignature -LiteralPath {json.dumps(str(path))}) | "
-        "Select-Object Status,StatusMessage,SignerCertificate | ConvertTo-Json -Depth 4"
+        f"$sig = Get-AuthenticodeSignature -LiteralPath {json.dumps(str(path))}; "
+        "[pscustomobject]@{"
+        "Status=[string]$sig.Status;"
+        "StatusMessage=$sig.StatusMessage;"
+        "SignerSubject=if($sig.SignerCertificate){$sig.SignerCertificate.Subject}else{$null};"
+        "SignerIssuer=if($sig.SignerCertificate){$sig.SignerCertificate.Issuer}else{$null};"
+        "SignerThumbprint=if($sig.SignerCertificate){$sig.SignerCertificate.Thumbprint}else{$null};"
+        "SignerNotAfter=if($sig.SignerCertificate){$sig.SignerCertificate.NotAfter.ToString('o')}else{$null}"
+        "} | ConvertTo-Json -Depth 3"
     )
     result = _run([shell, "-NoProfile", "-Command", ps])
     if result["returncode"] != 0 or not result["stdout"]:
@@ -81,7 +88,10 @@ def _authenticode(path: Path) -> dict[str, object]:
         "status": status,
         "status_message": parsed.get("StatusMessage"),
         "signed": status == "Valid" or status == "0",
-        "signer_certificate": parsed.get("SignerCertificate"),
+        "signer_subject": parsed.get("SignerSubject"),
+        "signer_issuer": parsed.get("SignerIssuer"),
+        "signer_thumbprint": parsed.get("SignerThumbprint"),
+        "signer_not_after": parsed.get("SignerNotAfter"),
         "raw": result,
     }
 

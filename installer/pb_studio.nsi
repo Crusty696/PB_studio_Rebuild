@@ -25,7 +25,7 @@ Unicode True
 !define APP_URL         "https://github.com/paperclip/pb-studio"
 !define APP_EXE         "pb_studio.exe"
 !define APP_ICON        "pb_studio.ico"
-!define INSTALL_DIR     "$PROGRAMFILES64\PB Studio"
+!define INSTALL_DIR     "$LOCALAPPDATA\PB Studio"
 !define UNINSTALL_KEY   "Software\Microsoft\Windows\CurrentVersion\Uninstall\PBStudio"
 !define OUTPUT_EXE      "..\dist\pb_studio_setup_v${APP_VERSION}.exe"
 
@@ -36,10 +36,10 @@ OutFileMode   stub
 Target        amd64-unicode
 !endif
 InstallDir    "${INSTALL_DIR}"
-InstallDirRegKey HKLM "${UNINSTALL_KEY}" "InstallLocation"
+InstallDirRegKey HKCU "${UNINSTALL_KEY}" "InstallLocation"
 
-; Request admin rights (needed for Program Files install + Start Menu)
-RequestExecutionLevel admin
+; Per-user install for free distribution. Avoids admin rights and Program Files.
+RequestExecutionLevel user
 
 ;--------------------------------
 ; MUI2 Modern UI
@@ -161,16 +161,16 @@ Section "PB Studio (required)" SecMain
   File /r "..\dist\pb_studio\*.*"
 
   ; --- Write uninstall registry keys ---
-  WriteRegStr   HKLM "${UNINSTALL_KEY}" "DisplayName"          "${APP_NAME}"
-  WriteRegStr   HKLM "${UNINSTALL_KEY}" "DisplayVersion"       "${APP_VERSION}"
-  WriteRegStr   HKLM "${UNINSTALL_KEY}" "Publisher"            "${APP_PUBLISHER}"
-  WriteRegStr   HKLM "${UNINSTALL_KEY}" "InstallLocation"      "$INSTDIR"
-  WriteRegStr   HKLM "${UNINSTALL_KEY}" "UninstallString"      '"$INSTDIR\Uninstall.exe"'
-  WriteRegStr   HKLM "${UNINSTALL_KEY}" "QuietUninstallString" '"$INSTDIR\Uninstall.exe" /S'
-  WriteRegStr   HKLM "${UNINSTALL_KEY}" "DisplayIcon"          "$INSTDIR\${APP_EXE}"
-  WriteRegDWORD HKLM "${UNINSTALL_KEY}" "NoModify"             1
-  WriteRegDWORD HKLM "${UNINSTALL_KEY}" "NoRepair"             1
-  WriteRegStr   HKLM "${UNINSTALL_KEY}" "URLInfoAbout"         "${APP_URL}"
+  WriteRegStr   HKCU "${UNINSTALL_KEY}" "DisplayName"          "${APP_NAME}"
+  WriteRegStr   HKCU "${UNINSTALL_KEY}" "DisplayVersion"       "${APP_VERSION}"
+  WriteRegStr   HKCU "${UNINSTALL_KEY}" "Publisher"            "${APP_PUBLISHER}"
+  WriteRegStr   HKCU "${UNINSTALL_KEY}" "InstallLocation"      "$INSTDIR"
+  WriteRegStr   HKCU "${UNINSTALL_KEY}" "UninstallString"      '"$INSTDIR\Uninstall.exe"'
+  WriteRegStr   HKCU "${UNINSTALL_KEY}" "QuietUninstallString" '"$INSTDIR\Uninstall.exe" /S'
+  WriteRegStr   HKCU "${UNINSTALL_KEY}" "DisplayIcon"          "$INSTDIR\${APP_EXE}"
+  WriteRegDWORD HKCU "${UNINSTALL_KEY}" "NoModify"             1
+  WriteRegDWORD HKCU "${UNINSTALL_KEY}" "NoRepair"             1
+  WriteRegStr   HKCU "${UNINSTALL_KEY}" "URLInfoAbout"         "${APP_URL}"
 
   ; --- Write uninstaller ---
   WriteUninstaller "$INSTDIR\Uninstall.exe"
@@ -227,6 +227,6 @@ Section "Uninstall"
   Delete "$DESKTOP\${APP_NAME}.lnk"
 
   ; Remove registry keys
-  DeleteRegKey HKLM "${UNINSTALL_KEY}"
+  DeleteRegKey HKCU "${UNINSTALL_KEY}"
 
 SectionEnd

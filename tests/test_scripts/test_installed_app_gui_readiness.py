@@ -30,7 +30,10 @@ def test_installed_app_gui_readiness_keeps_gui_blocked_without_install() -> None
     assert payload["installed_app_gui_ready"] is False
     assert payload["installer"]["exists"] is True
     assert payload["payload"]["exists"] is True
-    assert "installer-not-signed" in payload["blockers"]
+    if payload["installer_authenticode"]["signed"]:
+        assert "installer-not-signed" not in payload["blockers"]
+    else:
+        assert "installer-not-signed" in payload["blockers"]
     assert "This preflight does not install PB Studio" in payload["note"]
 
 
@@ -43,3 +46,15 @@ def test_installed_app_gui_readiness_reports_install_detection_sources() -> None
     assert "checked" in payload["installed_app_registry_entries"]
     if "installed-exe-missing" in payload["blockers"]:
         assert not any(candidate["is_file"] for candidate in payload["installed_exe_candidates"])
+
+
+def test_installed_app_gui_readiness_reports_user_scope_installer_policy() -> None:
+    payload = _run_readiness()
+    policy = payload["nsi_install_policy"]
+
+    assert policy["requests_admin"] is False
+    assert policy["requests_user"] is True
+    assert policy["program_files_default"] is False
+    assert policy["local_appdata_default"] is True
+    assert policy["writes_hklm_uninstall_key"] is False
+    assert policy["writes_hkcu_uninstall_key"] is True
