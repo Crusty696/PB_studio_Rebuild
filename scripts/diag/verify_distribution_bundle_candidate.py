@@ -98,9 +98,9 @@ def main() -> int:
         "production_blockers": [blocker.__dict__ for blocker in blockers],
         "open_blocker_ids": open_blocker_ids,
         "honest_limit": (
-            "This verifier proves local bundle inputs only. It does not code-sign, "
-            "create a release ZIP, run a clean VM install, execute installed-app GUI "
-            "workflow, or resolve DG-001."
+            "This verifier proves local bundle inputs only. It does not create a "
+            "release ZIP or run a clean VM install. Final release state comes from "
+            "tools/release_gate.py."
         ),
     }
 

@@ -26,7 +26,8 @@ def test_release_gate_survives_strict_cp1252_output():
 
     assert result.returncode == 2
     assert "RELEASE-GATE BLOCKED" in result.stdout
-    assert "DG-001" in result.stdout
+    assert "VM-001" in result.stdout
+    assert "DG-001" not in result.stdout
     assert "Produktionsblocker" in result.stdout
     assert "Traceback" not in result.stderr
 

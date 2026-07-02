@@ -31,7 +31,7 @@ def test_distribution_bundle_candidate_never_clears_release_gate() -> None:
     assert payload["distribution_candidate_ready"] is False
     assert payload["can_create_distribution_zip"] is False
     assert payload["release_ready"] is False
-    assert {"DG-001", "SIGN-001", "VM-001", "GUI-001"}.issubset(payload["open_blocker_ids"])
+    assert payload["open_blocker_ids"] == ["VM-001"]
 
 
 def test_distribution_bundle_candidate_records_required_inputs() -> None:

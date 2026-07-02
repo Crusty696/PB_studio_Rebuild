@@ -38,6 +38,25 @@ class RaftMotionStage:
         """Free the RAFT model from VRAM (F-1)."""
         self.service.unload()
 
+    @staticmethod
+    def _read_progress(path: Path) -> list[dict[str, Any]]:
+        if not path.exists():
+            return []
+        rows: list[dict[str, Any]] = []
+        with path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                rows.append(json.loads(line))
+        return rows
+
+    @staticmethod
+    def _append_progress(path: Path, row: dict[str, Any]) -> None:
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(row) + "\n")
+            handle.flush()
+
     def run(
         self,
         source_path: Path,
@@ -64,8 +83,24 @@ class RaftMotionStage:
                     metrics={"pairs": 0},
                 )
 
-            motion_data: list[dict[str, Any]] = []
+            progress_jsonl = storage_dir / "motion.progress.jsonl"
+            motion_data = self._read_progress(progress_jsonl)
+            start_idx = min(len(motion_data), len(pairs))
             cancelled = False
+            if start_idx >= len(pairs):
+                out_json = storage_dir / "motion.json"
+                out_json.write_text(json.dumps(motion_data, indent=2))
+                return StageResult(
+                    stage_id=self.stage_id,
+                    status="done",
+                    duration_s=time.monotonic() - t0,
+                    artifacts={"motion_json": out_json, "motion_progress_jsonl": progress_jsonl},
+                    metrics={
+                        "pairs": len(motion_data),
+                        "variant": self.service.variant,
+                        "resumed_pairs": start_idx,
+                    },
+                )
             # Befund 2: GPU-Abschnitt unter den zentralen gpu_serializer stellen
             # (serialisiert RAFT-Inferenz mit allen anderen GPU-Consumern, haelt
             # legacy GPU_EXECUTION_LOCK). Frame-Decode (CPU) liegt mit im Lock —
@@ -76,8 +111,8 @@ class RaftMotionStage:
                 # F-16 (B-348): pairs are consecutive sample times, so each interior
                 # timestamp is the second frame of one pair and the first of the next.
                 # Reuse the previous frame instead of decoding every timestamp twice.
-                prev_frame = self.decoder.extract_frame(source_path, pairs[0][0])
-                for t_a, t_b in pairs:
+                prev_frame = self.decoder.extract_frame(source_path, pairs[start_idx][0])
+                for pair_idx, (t_a, t_b) in enumerate(pairs[start_idx:], start=start_idx):
                     if cancel_token is not None and getattr(cancel_token, "cancelled", False):
                         cancelled = True
                         break
@@ -85,12 +120,15 @@ class RaftMotionStage:
                     flow = self.service.compute_flow(prev_frame, fb)
                     prev_frame = fb
                     stats = RaftMotionService.aggregate(flow)
-                    motion_data.append({
+                    row = {
+                        "pair_index": pair_idx,
                         "time_a_s": t_a, "time_b_s": t_b,
                         "mean_magnitude": stats.mean_magnitude,
                         "std_magnitude": stats.std_magnitude,
                         "direction_rad": stats.dominant_direction_rad,
-                    })
+                    }
+                    motion_data.append(row)
+                    self._append_progress(progress_jsonl, row)
         except Exception as ex:
             return StageResult(
                 stage_id=self.stage_id, status="failed",
@@ -103,7 +141,11 @@ class RaftMotionStage:
         return StageResult(
             stage_id=self.stage_id, status="partial" if cancelled else "done",
             duration_s=time.monotonic() - t0,
-            artifacts={"motion_json": out_json},
-            metrics={"pairs": len(motion_data), "variant": self.service.variant},
+            artifacts={"motion_json": out_json, "motion_progress_jsonl": progress_jsonl},
+            metrics={
+                "pairs": len(motion_data),
+                "variant": self.service.variant,
+                "resumed_pairs": start_idx,
+            },
             error="cancelled" if cancelled else None,
         )

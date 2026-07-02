@@ -18,8 +18,18 @@ from dotenv import load_dotenv
 
 
 APP_ROOT = Path(__file__).resolve().parents[2]
-EVIDENCE_DIR = APP_ROOT / "test-report" / "dg001-h1-4h-20260623"
-INPUT_PATH = EVIDENCE_DIR / "input_4h_real_pb_media.mp4"
+EVIDENCE_DIR = Path(
+    os.environ.get(
+        "PB_DG001_H1_EVIDENCE_DIR",
+        str(APP_ROOT / "test-report" / "dg001-h1-4h-20260623"),
+    )
+)
+INPUT_PATH = Path(
+    os.environ.get(
+        "PB_DG001_H1_INPUT_PATH",
+        str(EVIDENCE_DIR / "input_4h_real_pb_media.mp4"),
+    )
+)
 STORAGE_DIR = EVIDENCE_DIR / "pipeline_storage"
 EVENTS_PATH = EVIDENCE_DIR / "stage_events.jsonl"
 SAMPLES_PATH = EVIDENCE_DIR / "resource_samples.jsonl"

@@ -31,8 +31,11 @@ def test_release_evidence_matrix_matches_current_gate_blockers() -> None:
 
     assert payload["release_ready"] is False
     assert payload["status"] == "blocked"
-    assert {"DG-001", "SIGN-001", "VM-001", "GUI-001"}.issubset(open_ids)
-    assert payload["release_gate_proofs"] == []
+    assert open_ids == {"VM-001"}
+    assert any(
+        proof["proof_type"] == "installed-app-gui" and proof["accepted_by_gate"]
+        for proof in payload["release_gate_proofs"]
+    )
 
 
 def test_release_evidence_matrix_keeps_required_qa_sources_visible() -> None:
@@ -49,8 +52,8 @@ def test_release_evidence_matrix_keeps_required_qa_sources_visible() -> None:
     }
     assert required_sources == set(sources)
     assert sources["release_artifact_pair_audit"]["release_ready"] is False
-    assert sources["signing_readiness"]["release_signing_ready"] is False
+    assert sources["signing_readiness"]["release_signing_ready"] is True
     assert sources["clean_vm_readiness"]["clean_vm_ready"] is False
-    assert sources["installed_app_gui_readiness"]["installed_app_gui_ready"] is False
-    assert sources["installed_app_gui_workflow"]["proof_written"] is False
+    assert sources["installed_app_gui_readiness"]["installed_app_gui_ready"] is True
+    assert sources["installed_app_gui_workflow"]["proof_written"] is True
     assert sources["frozen_gui_workflow"]["proof_written"] is False

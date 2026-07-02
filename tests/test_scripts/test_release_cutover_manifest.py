@@ -29,7 +29,7 @@ def test_release_cutover_manifest_keeps_release_blocked() -> None:
 
     assert payload["status"] == "blocked"
     assert payload["release_ready"] is False
-    assert {"DG-001", "SIGN-001", "VM-001", "GUI-001"}.issubset(payload["open_blocker_ids"])
+    assert payload["open_blocker_ids"] == ["VM-001"]
     assert "tools\\release_gate.py" in payload["final_gate_command"]
 
 
@@ -37,8 +37,6 @@ def test_release_cutover_manifest_has_action_for_each_current_blocker() -> None:
     payload = _run_manifest()
     action_ids = {action["blocker_id"] for action in payload["required_actions"]}
 
-    assert {"DG-001", "SIGN-001", "VM-001", "GUI-001"}.issubset(action_ids)
-    assert any("verify_signing_readiness.py" in str(action) for action in payload["required_actions"])
+    assert action_ids == {"VM-001"}
     assert any("verify_clean_vm_readiness.py" in str(action) for action in payload["required_actions"])
-    assert any("verify_installed_app_gui_workflow.py --write-proof" in str(action) for action in payload["required_actions"])
     assert all(action["clears_release_gate"] is False for action in payload["required_actions"])

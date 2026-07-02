@@ -130,7 +130,6 @@ def main() -> int:
         [
             "clean-vm-install-not-proven-by-this-audit",
             "installed-app-full-gui-workflow-not-proven-by-this-audit",
-            "dg001-h1-replacement-medium-user-decision-open",
         ]
     )
 
