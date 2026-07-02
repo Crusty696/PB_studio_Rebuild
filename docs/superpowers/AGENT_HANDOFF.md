@@ -30,6 +30,15 @@ This file is a repository-local continuity checkpoint for all agents.
   Honest limit: service-level VM proof, not manual installed-app GUI clicks;
   no `fixed` marker. Next OTK-021 work: audit 90_LIVE_VERIFY steps 1-5 against
   existing evidence.
+- **OTK-021 90 Live-Verify audit 2026-07-02:** synthesis
+  `docs/superpowers/synthesis/otk021-90-live-verify-audit-2026-07-02.md`
+  maps all seven mandatory steps. Current verdict: steps 5, 6, and 7 have
+  current strong evidence within documented limits; steps 1-4 are still
+  `partial`/`open` because no fresh current product-live proof exists for real
+  migration, SCHNITT-audio adapter with migrated stems, two-project reuse
+  import/toast/green status, or moved-file repair through the app. No `fixed`
+  marker. Next best work: build/run product-live verifier for step 3
+  Cross-Project-Reuse or step 1 migration.
 - **B-586 / Frozen-vs-installed GUI evidence split 2026-07-01:** added
   `scripts/diag/verify_frozen_gui_workflow.py` and custom output support in
   `verify_installed_app_gui_workflow.py` so frozen evidence writes to
