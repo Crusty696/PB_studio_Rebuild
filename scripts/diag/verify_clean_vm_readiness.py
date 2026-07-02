@@ -22,13 +22,38 @@ VMRUN_DEFAULTS = [
 
 
 def _run(command: list[str], timeout: int = 30) -> dict[str, object]:
-    proc = subprocess.run(command, capture_output=True, text=True, timeout=timeout, check=False)
-    return {
-        "command": command,
-        "returncode": proc.returncode,
-        "stdout": proc.stdout.strip(),
-        "stderr": proc.stderr.strip(),
-    }
+    proc = subprocess.Popen(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+        return {
+            "command": command,
+            "returncode": proc.returncode,
+            "stdout": (stdout or "").strip(),
+            "stderr": (stderr or "").strip(),
+        }
+    except subprocess.TimeoutExpired:
+        if proc.pid:
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        stdout, stderr = proc.communicate(timeout=5)
+        return {
+            "command": command,
+            "returncode": -9,
+            "stdout": (stdout or "").strip(),
+            "stderr": (stderr or "").strip(),
+            "timeout_s": timeout,
+        }
 
 
 def _is_admin() -> bool:
@@ -72,6 +97,28 @@ def _powershell_command(name: str) -> dict[str, object]:
     )
 
 
+def _dism_hyperv_feature() -> dict[str, object]:
+    dism = _command_path("dism.exe") or r"C:\Windows\System32\dism.exe"
+    result = _run(
+        [dism, "/Online", "/Get-FeatureInfo", "/FeatureName:Microsoft-Hyper-V-All"],
+        timeout=60,
+    )
+    state = None
+    restart_required = None
+    for raw_line in str(result["stdout"]).splitlines():
+        line = raw_line.strip()
+        if line.startswith("Status :"):
+            state = line.split(":", 1)[1].strip()
+        elif line.startswith("Neustart erforderlich :") or line.startswith("Restart Required :"):
+            restart_required = line.split(":", 1)[1].strip()
+    return {
+        "checked": result["returncode"] == 0,
+        "state": state,
+        "restart_required": restart_required,
+        "raw": result,
+    }
+
+
 def main() -> int:
     hyperv_cmd = _powershell_command("Get-VM")
     vmrun = _known_tool("vmrun", VMRUN_DEFAULTS)
@@ -80,6 +127,7 @@ def main() -> int:
         "Get-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V-All "
         "| Select-Object FeatureName,State | ConvertTo-Json -Depth 3"
     )
+    hyperv_feature_dism = _dism_hyperv_feature()
     hyperv_vms = _powershell_json(
         "if (Get-Command Get-VM -ErrorAction SilentlyContinue) "
         "{ Get-VM | Select-Object Name,State,Generation | ConvertTo-Json -Depth 3 } "
@@ -109,6 +157,7 @@ def main() -> int:
             "VBoxManage": vboxmanage,
         },
         "hyperv_feature": hyperv_feature,
+        "hyperv_feature_dism": hyperv_feature_dism,
         "hyperv_vms": hyperv_vms,
         "installer": {
             "path": str(INSTALLER),
