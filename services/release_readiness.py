@@ -103,7 +103,7 @@ def _has_matching_proof(folder: Path, proof_type: str) -> bool:
 def _frontmatter(path: Path) -> dict[str, str]:
     text = path.read_text(encoding="utf-8", errors="replace")
     lines = text.splitlines()
-    if not lines or lines[0].strip() != "---":
+    if not lines or lines[0].strip().lstrip("\ufeff") != "---":
         return {}
     values: dict[str, str] = {}
     for line in lines[1:]:

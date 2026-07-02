@@ -45,3 +45,23 @@ def test_schema_proof_clears_matching_release_proof_only(tmp_path: Path) -> None
 
     assert "VM-001" not in ids
     assert "GUI-001" in ids
+
+
+def test_schema_proof_allows_utf8_bom_frontmatter(tmp_path: Path) -> None:
+    synthesis = tmp_path / "docs" / "superpowers" / "synthesis"
+    synthesis.mkdir(parents=True)
+    (synthesis / "clean-vm-install-live.md").write_text(
+        "\ufeff---\n"
+        "release_gate_proof: true\n"
+        "proof_type: clean-vm-install\n"
+        "status: pass\n"
+        "evidence_level: live\n"
+        "---\n"
+        "# Clean VM Install\n",
+        encoding="utf-8",
+    )
+
+    blockers = production_blockers(tmp_path)
+    ids = {blocker.blocker_id for blocker in blockers}
+
+    assert "VM-001" not in ids

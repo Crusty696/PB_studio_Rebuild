@@ -24,19 +24,16 @@ def _run_manifest() -> dict[str, object]:
     return json.loads(_OUT.read_text(encoding="utf-8"))
 
 
-def test_release_cutover_manifest_keeps_release_blocked() -> None:
+def test_release_cutover_manifest_reports_release_ready_when_gate_is_clear() -> None:
     payload = _run_manifest()
 
-    assert payload["status"] == "blocked"
-    assert payload["release_ready"] is False
-    assert payload["open_blocker_ids"] == ["VM-001"]
+    assert payload["status"] == "pass"
+    assert payload["release_ready"] is True
+    assert payload["open_blocker_ids"] == []
     assert "tools\\release_gate.py" in payload["final_gate_command"]
 
 
-def test_release_cutover_manifest_has_action_for_each_current_blocker() -> None:
+def test_release_cutover_manifest_has_no_actions_when_gate_is_clear() -> None:
     payload = _run_manifest()
-    action_ids = {action["blocker_id"] for action in payload["required_actions"]}
 
-    assert action_ids == {"VM-001"}
-    assert any("verify_clean_vm_readiness.py" in str(action) for action in payload["required_actions"])
-    assert all(action["clears_release_gate"] is False for action in payload["required_actions"])
+    assert payload["required_actions"] == []

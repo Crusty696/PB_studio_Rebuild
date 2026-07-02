@@ -24,14 +24,16 @@ def _run_verifier() -> dict[str, object]:
     return json.loads(_OUT.read_text(encoding="utf-8"))
 
 
-def test_distribution_bundle_candidate_never_clears_release_gate() -> None:
+def test_distribution_bundle_candidate_is_ready_when_release_gate_is_clear() -> None:
     payload = _run_verifier()
 
-    assert payload["status"] == "blocked-candidate-only"
-    assert payload["distribution_candidate_ready"] is False
-    assert payload["can_create_distribution_zip"] is False
-    assert payload["release_ready"] is False
-    assert payload["open_blocker_ids"] == ["VM-001"]
+    assert payload["status"] == "pass"
+    assert payload["distribution_candidate_ready"] is True
+    assert payload["can_create_distribution_zip"] is True
+    assert payload["release_ready"] is True
+    assert payload["open_blocker_ids"] == []
+    assert payload["distribution_zip"]["exists"] is True
+    assert payload["distribution_zip"]["required_entries_present"] is True
 
 
 def test_distribution_bundle_candidate_records_required_inputs() -> None:
@@ -42,4 +44,4 @@ def test_distribution_bundle_candidate_records_required_inputs() -> None:
     assert payload["installer_payload"]["exists"] is True
     assert payload["installer_payload"]["size_bytes"] > 1024**3
     assert all(doc["exists"] for doc in payload["required_docs"].values())
-    assert payload["hard_checks"]["release_gate_still_blocks"] is True
+    assert payload["hard_checks"]["release_gate_ok"] is True

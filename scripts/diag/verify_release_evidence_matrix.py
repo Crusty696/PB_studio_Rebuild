@@ -44,7 +44,7 @@ def _load_json(path: Path) -> dict[str, object]:
 
 def _frontmatter(path: Path) -> dict[str, str]:
     lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-    if not lines or lines[0].strip() != "---":
+    if not lines or lines[0].strip().lstrip("\ufeff") != "---":
         return {}
     values: dict[str, str] = {}
     for line in lines[1:]:

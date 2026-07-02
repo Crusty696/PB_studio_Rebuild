@@ -24,10 +24,10 @@ def _run_clean_vm_readiness() -> dict[str, object]:
     return json.loads(_OUT.read_text(encoding="utf-8"))
 
 
-def test_clean_vm_readiness_keeps_vm_proof_blocked_without_live_install() -> None:
+def test_clean_vm_readiness_reports_ready_when_sandbox_tooling_and_artifacts_exist() -> None:
     payload = _run_clean_vm_readiness()
 
-    assert payload["clean_vm_ready"] is False
+    assert payload["clean_vm_ready"] is True
     assert payload["installer"]["exists"] is True
     assert payload["payload"]["exists"] is True
     assert payload["payload"]["size_bytes"] > 1024**3

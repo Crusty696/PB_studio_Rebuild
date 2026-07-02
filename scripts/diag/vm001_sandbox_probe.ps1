@@ -12,6 +12,17 @@ function Write-JsonFile {
     $Data | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $Path -Encoding UTF8
 }
 
+function Update-Phase {
+    param(
+        [string]$Name,
+        [string]$Detail = ""
+    )
+    $result.phase = $Name
+    $result.phase_detail = $Detail
+    $result.heartbeat_at = (Get-Date).ToString("o")
+    Write-JsonFile -Path $outJson -Data $result
+}
+
 $qaDir = Join-Path $RepoRoot "tests\qa_artifacts"
 $synthDir = Join-Path $RepoRoot "docs\superpowers\synthesis"
 New-Item -ItemType Directory -Force -Path $qaDir, $synthDir | Out-Null
@@ -51,11 +62,18 @@ $result = [ordered]@{
     app_stderr = $null
     app_failure_screenshot = $null
     app_direct_process_alive = $false
+    phase = "init"
+    phase_detail = ""
+    heartbeat_at = (Get-Date).ToString("o")
+    installer_elapsed_s = $null
+    app_launch_elapsed_s = $null
+    root_loader_files = @{}
     blockers = @()
     ended_at = $null
 }
 
 try {
+    Update-Phase -Name "init" -Detail "probe started"
     $osInfo = Get-CimInstance Win32_OperatingSystem
     $result.os = [ordered]@{
         caption = $osInfo.Caption
@@ -66,19 +84,43 @@ try {
     if (-not $result.installer_exists) { $result.blockers += "installer-missing" }
     if (-not $result.payload_exists) { $result.blockers += "payload-missing" }
     if ($result.blockers.Count -eq 0) {
+        $result.root_loader_files = [ordered]@{}
+        foreach ($loaderFile in @("python310.dll", "python3.dll", "zlib.dll", "vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll")) {
+            $loaderPath = Join-Path (Join-Path $RepoRoot "dist\pb_studio\_internal") $loaderFile
+            $result.root_loader_files[$loaderFile] = Test-Path -LiteralPath $loaderPath -PathType Leaf
+        }
+        Update-Phase -Name "install-start" -Detail "starting silent installer"
         $proc = Start-Process -FilePath $installer -ArgumentList "/S" -PassThru
-        if (-not $proc.WaitForExit(1800000)) {
+        $installStarted = Get-Date
+        $installDeadline = $installStarted.AddMinutes(30)
+        while ((Get-Date) -lt $installDeadline) {
+            $proc.Refresh()
+            $result.installer_elapsed_s = [int]((Get-Date) - $installStarted).TotalSeconds
+            Update-Phase -Name "install-wait" -Detail "silent installer running"
+            if ($proc.HasExited) {
+                $result.installer_exit_code = $proc.ExitCode
+                break
+            }
+            Start-Sleep -Seconds 10
+        }
+        $proc.Refresh()
+        if (-not $proc.HasExited) {
             $result.installer_timed_out = $true
+            $result.installer_elapsed_s = [int]((Get-Date) - $installStarted).TotalSeconds
+            Update-Phase -Name "install-timeout" -Detail "silent installer timed out"
             Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
-        } else {
+        } elseif ($null -eq $result.installer_exit_code) {
             $result.installer_exit_code = $proc.ExitCode
         }
+        Update-Phase -Name "install-ended" -Detail "silent installer process ended or was stopped"
 
         $deadline = (Get-Date).AddMinutes(5)
+        Update-Phase -Name "install-artifact-wait" -Detail "waiting for installed exe and registry"
         while ((Get-Date) -lt $deadline) {
             if ((Test-Path -LiteralPath $installExe -PathType Leaf) -and (Test-Path -LiteralPath $regPath)) {
                 break
             }
+            Update-Phase -Name "install-artifact-wait" -Detail "installed exe or registry missing"
             Start-Sleep -Seconds 5
         }
 
@@ -95,23 +137,31 @@ try {
                 UninstallString = $entry.UninstallString
             }
         }
+        Update-Phase -Name "install-artifact-check" -Detail "checked installed exe, uninstaller, registry"
 
         if ($result.installed_exe_exists) {
-            $stdout = Join-Path $qaDir "clean_vm_app_stdout.txt"
-            $stderr = Join-Path $qaDir "clean_vm_app_stderr.txt"
+            Update-Phase -Name "app-start" -Detail "starting installed app"
             $app = Start-Process `
                 -FilePath $installExe `
                 -WorkingDirectory (Split-Path -Parent $installExe) `
-                -RedirectStandardOutput $stdout `
-                -RedirectStandardError $stderr `
                 -PassThru
 
             $deadline = (Get-Date).AddSeconds(120)
+            $appStarted = Get-Date
             while ((Get-Date) -lt $deadline) {
                 $app.Refresh()
+                $result.app_launch_elapsed_s = [int]((Get-Date) - $appStarted).TotalSeconds
                 $direct = Get-Process -Id $app.Id -ErrorAction SilentlyContinue
                 $allPbStudio = @(Get-Process -Name "pb_studio" -ErrorAction SilentlyContinue)
                 $windowed = @($allPbStudio | Where-Object { $_.MainWindowTitle -like "*$expectedWindowTitleFragment*" })
+                $result.app_processes = @($allPbStudio | ForEach-Object {
+                    [ordered]@{
+                        id = $_.Id
+                        main_window_title = $_.MainWindowTitle
+                        start_time = try { $_.StartTime.ToString("o") } catch { $null }
+                    }
+                })
+                Update-Phase -Name "app-wait" -Detail "waiting for PB_studio main window"
                 if ($windowed.Count -gt 0) {
                     $selected = $windowed[0]
                     $result.app_started = $true
@@ -139,12 +189,6 @@ try {
                     start_time = try { $_.StartTime.ToString("o") } catch { $null }
                 }
             })
-            if (Test-Path -LiteralPath $stdout -PathType Leaf) {
-                $result.app_stdout = Get-Content -LiteralPath $stdout -Raw
-            }
-            if (Test-Path -LiteralPath $stderr -PathType Leaf) {
-                $result.app_stderr = Get-Content -LiteralPath $stderr -Raw
-            }
             if (-not $result.app_started) {
                 try {
                     Add-Type -AssemblyName System.Windows.Forms
@@ -165,6 +209,7 @@ try {
             if ($result.app_started -and $result.app_pid) {
                 Stop-Process -Id $result.app_pid -Force -ErrorAction SilentlyContinue
             }
+            Update-Phase -Name "app-ended" -Detail "installed app launch check finished"
         }
     }
 
@@ -176,6 +221,7 @@ try {
     if ($result.blockers.Count -eq 0) {
         $result.status = "pass"
     }
+    Update-Phase -Name "result" -Detail $result.status
 } catch {
     $result.blockers += ("exception: " + $_.Exception.GetType().Name + ": " + $_.Exception.Message)
 } finally {
@@ -184,6 +230,9 @@ try {
 }
 
 if ($result.status -eq "pass") {
+    $proofUser = $result["user"]
+    $proofComputer = $result["computer"]
+    $proofOs = $result["os"]
     $md = @"
 ---
 release_gate_proof: true
@@ -196,14 +245,14 @@ evidence_level: live
 
 ## Evidence
 
-- Environment: Windows Sandbox / clean ephemeral Windows user `$($result.user)` on `$($result.computer)`.
-- OS: `$($result.os.caption)` `$($result.os.version)` build `$($result.os.build)`.
-- Installer: `$installer`.
-- Payload: `$payload`.
-- Installed EXE: `$installExe`.
-- Registry key: `$regPath`.
+- Environment: Windows Sandbox / clean ephemeral Windows user $proofUser on $proofComputer.
+- OS: $($proofOs["caption"]) $($proofOs["version"]) build $($proofOs["build"]).
+- Installer: $installer
+- Payload: $payload
+- Installed EXE: $installExe
+- Registry key: $regPath
 - App launch: process started successfully in sandbox.
-- JSON proof: `$outJson`.
+- JSON proof: $outJson
 
 ## Limit
 

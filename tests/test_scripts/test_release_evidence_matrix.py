@@ -29,11 +29,15 @@ def test_release_evidence_matrix_matches_current_gate_blockers() -> None:
     payload = _run_matrix()
     open_ids = {item["id"] for item in payload["open_items"]}
 
-    assert payload["release_ready"] is False
-    assert payload["status"] == "blocked"
-    assert open_ids == {"VM-001"}
+    assert payload["release_ready"] is True
+    assert payload["status"] == "pass"
+    assert open_ids == set()
     assert any(
         proof["proof_type"] == "installed-app-gui" and proof["accepted_by_gate"]
+        for proof in payload["release_gate_proofs"]
+    )
+    assert any(
+        proof["proof_type"] == "clean-vm-install" and proof["accepted_by_gate"]
         for proof in payload["release_gate_proofs"]
     )
 
@@ -53,7 +57,7 @@ def test_release_evidence_matrix_keeps_required_qa_sources_visible() -> None:
     assert required_sources == set(sources)
     assert sources["release_artifact_pair_audit"]["release_ready"] is False
     assert sources["signing_readiness"]["release_signing_ready"] is True
-    assert sources["clean_vm_readiness"]["clean_vm_ready"] is False
+    assert sources["clean_vm_readiness"]["clean_vm_ready"] is True
     assert sources["installed_app_gui_readiness"]["installed_app_gui_ready"] is True
     assert sources["installed_app_gui_workflow"]["proof_written"] is True
     assert sources["frozen_gui_workflow"]["proof_written"] is False

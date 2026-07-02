@@ -5,6 +5,19 @@ This file is a repository-local continuity checkpoint for all agents.
 ## Codex Quellstand-Konsolidierung 2026-06-22 (newest)
 
 - **Branch:** `codex/OTK-021-source-consolidation-2026-06-22`
+- **Release-ready local package 2026-07-02:** `tools/release_gate.py`
+  exits 0 with no open Deferred Gates or production blockers. Windows Sandbox
+  clean install proof passed (`docs/superpowers/synthesis/clean-vm-sandbox-install-proof-2026-07-02.md`),
+  installed-app GUI proof is accepted, installer Authenticode is `Valid` with
+  locally trusted self-signed cert, and distribution ZIP exists at
+  `dist/PB_Studio_v0.5.0_distribution.zip` with SHA256
+  `822CB97A676D519AFCDA3A071AF06658724E93020DEBE3050D76DD19BE282B6B`.
+  Final release-focused verification passed: distribution bundle verifier,
+  release evidence matrix, cutover manifest, release gate, signing readiness,
+  clean-VM readiness, BOM handling, prune guard tests (`17 passed`). Honest
+  limits: no public Publisher/SmartScreen reputation, ZIP not uploaded to any
+  release channel, full repository suite not run in the final pass. Synthesis:
+  `docs/superpowers/synthesis/release-ready-2026-07-02.md`.
 - **B-586 / Frozen-vs-installed GUI evidence split 2026-07-01:** added
   `scripts/diag/verify_frozen_gui_workflow.py` and custom output support in
   `verify_installed_app_gui_workflow.py` so frozen evidence writes to
