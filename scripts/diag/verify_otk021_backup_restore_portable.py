@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 import sqlite3
 import sys
@@ -28,6 +29,8 @@ if str(REPO_ROOT) not in sys.path:
 
 ARTIFACT_DIR = REPO_ROOT / "tests" / "qa_artifacts"
 ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
+WORK_ROOT = Path(os.environ.get("PB_OTK021_WORK_ROOT", str(ARTIFACT_DIR)))
+WORK_ROOT.mkdir(parents=True, exist_ok=True)
 
 
 def _sha256(path: Path) -> str:
@@ -63,7 +66,7 @@ def main() -> int:
     from services.storage_provenance.backup_portability import StoragePortabilityBackupService
     from services.storage_provenance.layout import StorageLayout
 
-    work_dir = Path(tempfile.mkdtemp(prefix="pb-otk021-backup-restore-", dir=str(ARTIFACT_DIR)))
+    work_dir = Path(tempfile.mkdtemp(prefix="pb-otk021-backup-restore-", dir=str(WORK_ROOT)))
     db_path = work_dir / "source" / "database" / "pb_studio.db"
     storage_root = work_dir / "source" / "storage"
     restore_root = work_dir / "restored-project"

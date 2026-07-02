@@ -12,6 +12,7 @@ import argparse
 from datetime import datetime
 import hashlib
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -32,6 +33,8 @@ if str(REPO_ROOT) not in sys.path:
 
 ARTIFACT_DIR = REPO_ROOT / "tests" / "qa_artifacts"
 ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
+WORK_ROOT = Path(os.environ.get("PB_OTK021_WORK_ROOT", str(ARTIFACT_DIR)))
+WORK_ROOT.mkdir(parents=True, exist_ok=True)
 
 
 def _sha256(path: Path) -> str:
@@ -169,7 +172,7 @@ def main() -> int:
 
     from services.storage_provenance.project_bundle import ProjectBundleService
 
-    work_dir = Path(tempfile.mkdtemp(prefix="pb-otk021-project-bundle-", dir=str(ARTIFACT_DIR)))
+    work_dir = Path(tempfile.mkdtemp(prefix="pb-otk021-project-bundle-", dir=str(WORK_ROOT)))
     export_db = work_dir / "export" / "pb_studio.db"
     import_db = work_dir / "import" / "pb_studio.db"
     source_storage = work_dir / "source-storage"

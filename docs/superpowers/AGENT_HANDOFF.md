@@ -18,6 +18,18 @@ This file is a repository-local continuity checkpoint for all agents.
   limits: no public Publisher/SmartScreen reputation, ZIP not uploaded to any
   release channel, full repository suite not run in the final pass. Synthesis:
   `docs/superpowers/synthesis/release-ready-2026-07-02.md`.
+- **OTK-021 VM portability live proof 2026-07-02:** added
+  `scripts/diag/run_otk021_windows_sandbox.ps1` and
+  `scripts/diag/otk021_sandbox_probe.ps1`. Windows Sandbox ran the real
+  Project-Bundle and Backup/Restore service verifiers inside the guest using a
+  mapped Python runtime and a sandbox-local temp workdir. Result:
+  `tests/qa_artifacts/otk021_vm_portability_probe.json` has `status=pass`;
+  Project-Bundle `exit_code=0`, `ok=true`; Backup/Restore `exit_code=0`,
+  `ok=true`. Synthesis:
+  `docs/superpowers/synthesis/otk021-vm-portability-live-2026-07-02.md`.
+  Honest limit: service-level VM proof, not manual installed-app GUI clicks;
+  no `fixed` marker. Next OTK-021 work: audit 90_LIVE_VERIFY steps 1-5 against
+  existing evidence.
 - **B-586 / Frozen-vs-installed GUI evidence split 2026-07-01:** added
   `scripts/diag/verify_frozen_gui_workflow.py` and custom output support in
   `verify_installed_app_gui_workflow.py` so frozen evidence writes to
