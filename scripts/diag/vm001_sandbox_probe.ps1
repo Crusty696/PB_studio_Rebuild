@@ -23,6 +23,7 @@ $payload = Join-Path $RepoRoot "dist\pb_studio_setup_v0.5.0.nsisbin"
 $installExe = Join-Path $env:LOCALAPPDATA "PB Studio\pb_studio.exe"
 $uninstallExe = Join-Path $env:LOCALAPPDATA "PB Studio\Uninstall.exe"
 $regPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\PBStudio"
+$expectedWindowTitleFragment = "PB_studio"
 
 $result = [ordered]@{
     status = "fail"
@@ -43,6 +44,13 @@ $result = [ordered]@{
     registry_entry = $null
     app_started = $false
     app_pid = $null
+    app_exit_code = $null
+    app_window_title = $null
+    app_processes = @()
+    app_stdout = $null
+    app_stderr = $null
+    app_failure_screenshot = $null
+    app_direct_process_alive = $false
     blockers = @()
     ended_at = $null
 }
@@ -89,13 +97,73 @@ try {
         }
 
         if ($result.installed_exe_exists) {
-            $app = Start-Process -FilePath $installExe -PassThru
-            Start-Sleep -Seconds 15
-            $running = Get-Process -Id $app.Id -ErrorAction SilentlyContinue
-            if ($running) {
-                $result.app_started = $true
-                $result.app_pid = $app.Id
-                Stop-Process -Id $app.Id -Force -ErrorAction SilentlyContinue
+            $stdout = Join-Path $qaDir "clean_vm_app_stdout.txt"
+            $stderr = Join-Path $qaDir "clean_vm_app_stderr.txt"
+            $app = Start-Process `
+                -FilePath $installExe `
+                -WorkingDirectory (Split-Path -Parent $installExe) `
+                -RedirectStandardOutput $stdout `
+                -RedirectStandardError $stderr `
+                -PassThru
+
+            $deadline = (Get-Date).AddSeconds(120)
+            while ((Get-Date) -lt $deadline) {
+                $app.Refresh()
+                $direct = Get-Process -Id $app.Id -ErrorAction SilentlyContinue
+                $allPbStudio = @(Get-Process -Name "pb_studio" -ErrorAction SilentlyContinue)
+                $windowed = @($allPbStudio | Where-Object { $_.MainWindowTitle -like "*$expectedWindowTitleFragment*" })
+                if ($windowed.Count -gt 0) {
+                    $selected = $windowed[0]
+                    $result.app_started = $true
+                    $result.app_pid = $selected.Id
+                    $result.app_window_title = $selected.MainWindowTitle
+                    break
+                }
+                if ($app.HasExited) {
+                    $result.app_exit_code = $app.ExitCode
+                    break
+                }
+                Start-Sleep -Seconds 2
+            }
+
+            $app.Refresh()
+            if ($null -eq $result.app_exit_code -and $app.HasExited) {
+                $result.app_exit_code = $app.ExitCode
+            }
+            $directAfterLaunch = Get-Process -Id $app.Id -ErrorAction SilentlyContinue
+            $result.app_direct_process_alive = $null -ne $directAfterLaunch
+            $result.app_processes = @(Get-Process -Name "pb_studio" -ErrorAction SilentlyContinue | ForEach-Object {
+                [ordered]@{
+                    id = $_.Id
+                    main_window_title = $_.MainWindowTitle
+                    start_time = try { $_.StartTime.ToString("o") } catch { $null }
+                }
+            })
+            if (Test-Path -LiteralPath $stdout -PathType Leaf) {
+                $result.app_stdout = Get-Content -LiteralPath $stdout -Raw
+            }
+            if (Test-Path -LiteralPath $stderr -PathType Leaf) {
+                $result.app_stderr = Get-Content -LiteralPath $stderr -Raw
+            }
+            if (-not $result.app_started) {
+                try {
+                    Add-Type -AssemblyName System.Windows.Forms
+                    Add-Type -AssemblyName System.Drawing
+                    $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+                    $bitmap = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
+                    $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+                    $graphics.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
+                    $screenshot = Join-Path $qaDir "clean_vm_app_failure.png"
+                    $bitmap.Save($screenshot, [System.Drawing.Imaging.ImageFormat]::Png)
+                    $graphics.Dispose()
+                    $bitmap.Dispose()
+                    $result.app_failure_screenshot = $screenshot
+                } catch {
+                    $result.app_failure_screenshot = "screenshot-failed: " + $_.Exception.Message
+                }
+            }
+            if ($result.app_started -and $result.app_pid) {
+                Stop-Process -Id $result.app_pid -Force -ErrorAction SilentlyContinue
             }
         }
     }

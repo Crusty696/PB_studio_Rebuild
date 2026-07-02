@@ -25,6 +25,15 @@ KEEP_DIRS = (
 )
 
 SUFFIXES = {".dll", ".pyd"}
+ROOT_KEEP_DLLS = {
+    "concrt140.dll",
+    "msvcp140.dll",
+    "msvcp140_1.dll",
+    "msvcp140_2.dll",
+    "vcruntime140.dll",
+    "vcruntime140_1.dll",
+    "zlib.dll",
+}
 
 
 def main() -> int:
@@ -54,6 +63,8 @@ def main() -> int:
     removed_bytes = 0
     for file_path in internal.iterdir():
         if not file_path.is_file() or file_path.suffix.lower() not in SUFFIXES:
+            continue
+        if file_path.name.lower() in ROOT_KEEP_DLLS:
             continue
         package_copies = keep_by_name.get(file_path.name.lower(), [])
         if not package_copies:

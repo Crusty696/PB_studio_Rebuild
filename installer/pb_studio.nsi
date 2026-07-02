@@ -180,9 +180,11 @@ Section "PB Studio (required)" SecMain
   !insertmacro DetectNvidiaGPU
 
   ${If} $GPU_PRESENT == "0"
+    IfSilent gpu_warning_done 0
     MessageBox MB_ICONEXCLAMATION|MB_OK \
       "No NVIDIA GPU detected. $\n$\nPB Studio requires an NVIDIA GPU with CUDA support (target: GTX 1060 / CUDA 11.3). \
 $\nCPU-only mode is not supported. $\nPlease install NVIDIA drivers from: https://www.nvidia.com/drivers"
+    gpu_warning_done:
   ${EndIf}
 
 SectionEnd
@@ -196,8 +198,10 @@ Section "Start Menu Entry" SecStartMenu
 SectionEnd
 
 Section "Download AI Models (requires internet)" SecModels
+  IfSilent models_done 0
   DetailPrint "Pre-caching AI models... This may take several minutes."
   nsExec::ExecToLog '"$INSTDIR\${APP_EXE}" --pre-cache'
+  models_done:
 SectionEnd
 
 ;--------------------------------

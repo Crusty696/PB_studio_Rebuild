@@ -112,7 +112,21 @@ project_datas = [
 ]
 
 all_datas    = project_datas + torch_datas + torchaudio_datas + torchvision_datas + pyside6_datas + [(str(ROOT / src), dest) for src, dest in pkg_datas]
-all_binaries = _filter_known_unused_toc(torch_bins + torchaudio_bins + torchvision_bins + pyside6_bins)
+vc_runtime_bins = []
+for dll_name in (
+    'vcruntime140.dll',
+    'vcruntime140_1.dll',
+    'msvcp140.dll',
+    'msvcp140_1.dll',
+    'msvcp140_2.dll',
+    'concrt140.dll',
+    'zlib.dll',
+):
+    dll_path = Path(sys.prefix) / dll_name
+    if dll_path.exists():
+        vc_runtime_bins.append((str(dll_path), '.'))
+
+all_binaries = _filter_known_unused_toc(torch_bins + torchaudio_bins + torchvision_bins + pyside6_bins + vc_runtime_bins)
 
 # ---------------------------------------------------------------------------
 # Hidden imports — packages that PyInstaller can't auto-detect
