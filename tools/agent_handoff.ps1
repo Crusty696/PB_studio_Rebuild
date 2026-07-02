@@ -73,10 +73,10 @@ if ($gateExit -notin @(0, 2)) {
 if ($gateExit -eq 2) {
     if ($ReleaseGate) {
         Write-Section "BLOCKED"
-        Write-Host "Release/fixed claim refused: open Deferred Gates (see above)."
+        Write-Host "Release/fixed claim refused: open release blockers (see above)."
         exit 4
     } else {
-        Write-Host "WARN: open Deferred Gates - no 'release/fixed' claim allowed until cleared."
+        Write-Host "WARN: open release blockers - no 'release/fixed' claim allowed until cleared."
     }
 }
 
