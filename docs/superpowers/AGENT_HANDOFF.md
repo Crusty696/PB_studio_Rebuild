@@ -5,6 +5,19 @@ This file is a repository-local continuity checkpoint for all agents.
 ## Codex Quellstand-Konsolidierung 2026-06-22 (newest)
 
 - **Branch:** `codex/OTK-021-source-consolidation-2026-06-22`
+- **OTK-021 90 Live-Verify current audit 2026-07-04:** on HEAD
+  `29aaf37`, reran the short verifiers for steps 1-5 and checked release gate.
+  Results: Step 1-2 migration/SCHNITT verifier `status=pass`; Step 3
+  cross-project reuse import/notify verifier `status=pass`; Step 4 file-tracking
+  open-project verifier `status=pass`; Step 5 Storage-Browser visible-delete
+  verifier `ok=true`; focused regression `43 passed in 16.92s`; release gate
+  OK. Steps 6-7 remain backed by the 2026-07-02 Windows Sandbox VM service-level
+  proof. Synthesis:
+  `docs/superpowers/synthesis/otk021-90-live-verify-current-audit-2026-07-04.md`.
+  Honest limits: product-path/offscreen/service evidence, not full manual
+  installed-app GUI click-through; Step 5 temp DB/storage; VM proof service-level;
+  Antigravity commit `29aaf37` body says `(unverified -- pending user test)` for
+  B-553 and this audit did not verify B-553. No `fixed` marker.
 - **Release-ready local package 2026-07-02:** `tools/release_gate.py`
   exits 0 with no open Deferred Gates or production blockers. Windows Sandbox
   clean install proof passed (`docs/superpowers/synthesis/clean-vm-sandbox-install-proof-2026-07-02.md`),
