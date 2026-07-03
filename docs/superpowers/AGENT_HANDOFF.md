@@ -682,6 +682,21 @@ Nach Hardware-Recovery Preflight wiederholen, dann GUI/DG-001 fortsetzen.
 Main-Integration/Release bleiben gestoppt.
 ```
 
+Current OTK-021 Step 4 status:
+
+```text
+2026-07-03 product-path live pass, GUI live pending.
+ProjectManager.open_project() now repairs stale ProjectSource paths by SHA
+inside the opened project folder. Evidence:
+docs/superpowers/synthesis/otk021-step4-file-tracking-open-project-live-2026-07-03.md
+and tests/qa_artifacts/otk021_file_tracking_open_project_result.json.
+Verifier: scripts/diag/verify_otk021_file_tracking_open_project.py status=pass.
+Unit: tests/test_services/test_file_tracking.py 3 passed.
+Syntax: py_compile Exit 0.
+Honest limit: no manual GUI click. OTK-021 overall remains open; Steps 1-3
+still need product-live evidence.
+```
+
 Current OTK-003 status:
 
 ```text

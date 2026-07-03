@@ -23,11 +23,15 @@ def repair_missing_sources(
     *,
     search_roots: Iterable[str | Path],
     media_type: str,
+    source_ids: Iterable[int] | None = None,
 ) -> FileRepairResult:
     """Repair missing ``project_sources.current_source_path`` values by SHA."""
 
     roots = [Path(root) for root in search_roots]
-    sources = session.query(ProjectSource).all()
+    query = session.query(ProjectSource)
+    if source_ids is not None:
+        query = query.filter(ProjectSource.id.in_(tuple(source_ids)))
+    sources = query.all()
     repaired = 0
     missing: list[int] = []
 

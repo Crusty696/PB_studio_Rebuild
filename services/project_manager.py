@@ -11,8 +11,66 @@ import sqlite3
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal
+from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
+
+
+def repair_missing_sources_on_project_open(session: Session, project_path: Path) -> dict[str, int]:
+    """Repair stale project source paths when reopening a project.
+
+    OTK-021 step 4: if a source file was moved inside the project folder,
+    PB Studio must rediscover it by content SHA instead of leaving the stored
+    path stale. Keep the search scoped to the project folder to avoid hashing
+    unrelated user/model caches during app startup.
+    """
+    from database.models import Project, ProjectSource
+    from services.storage_provenance.file_tracking import repair_missing_sources
+
+    project_path_resolved = project_path.resolve()
+    projects = session.query(Project).all()
+    if len(projects) == 1:
+        project_ids = [projects[0].id]
+    else:
+        project_ids = []
+        for project in projects:
+            try:
+                if Path(project.path).resolve() == project_path_resolved:
+                    project_ids.append(project.id)
+            except (OSError, RuntimeError, TypeError, ValueError):
+                continue
+    if not project_ids:
+        return {"checked": 0, "repaired": 0, "missing": 0}
+
+    missing_before = [
+        source.id
+        for source in session.query(ProjectSource)
+        .filter(ProjectSource.project_id.in_(project_ids))
+        .all()
+        if not Path(source.current_source_path).exists()
+    ]
+    if not missing_before:
+        return {"checked": 0, "repaired": 0, "missing": 0}
+
+    repaired_total = 0
+    missing_after: set[int] = set(missing_before)
+    for media_type in ("audio", "video"):
+        result = repair_missing_sources(
+            session,
+            search_roots=[project_path],
+            media_type=media_type,
+            source_ids=missing_before,
+        )
+        repaired_total += result.repaired
+        missing_after = set(result.missing)
+        if not missing_after:
+            break
+
+    return {
+        "checked": len(missing_before),
+        "repaired": repaired_total,
+        "missing": len(missing_after),
+    }
 
 
 class ProjectManager(QObject):
@@ -339,9 +397,17 @@ class ProjectManager(QObject):
             )
             with database.nullpool_session() as session:
                 ensure_schnitt_audio_adapter(session)
+                repair_result = repair_missing_sources_on_project_open(session, path)
+                if repair_result["checked"]:
+                    logger.info(
+                        "OTK-021: File-Tracking beim Projekt-Open: checked=%s repaired=%s missing=%s",
+                        repair_result["checked"],
+                        repair_result["repaired"],
+                        repair_result["missing"],
+                    )
         except Exception as adapter_err:  # broad catch intentional: adapter must not block project open
             logger.warning(
-                "OTK-021: SCHNITT-Audio-Adapter konnte beim Projekt-Open nicht "
+                "OTK-021: SCHNITT-Audio-Adapter/File-Tracking konnte beim Projekt-Open nicht "
                 "initialisiert werden: %s",
                 adapter_err,
             )
