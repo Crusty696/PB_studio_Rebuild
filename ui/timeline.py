@@ -1307,7 +1307,8 @@ class InteractiveTimeline(QGraphicsView):
             # geladen. Direkt aus diesem Snapshot zeichnen, sonst endet der
             # Live-Build sichtbar mit waveform_items=0 und die Wellenform
             # taucht erst spaet oder gar nicht auf.
-            self._load_waveform_for_track(None, track, entry, dur, y)
+            # B-553: item (TimelineClipItem) als parent_clip uebergeben
+            self._load_waveform_for_track(None, track, entry, dur, y, item)
         return entry.start_time + dur
 
     # ── B-471 T1: viewport-lazy thumbnail loading ─────────────────────────
@@ -1492,8 +1493,8 @@ class InteractiveTimeline(QGraphicsView):
         thread.finished.connect(worker.deleteLater)
         thread.start()
 
-    def _load_waveform_for_track(self, session, track, entry, dur, y):
-        """Lädt Rekordbox-Wellenform aus DB und fügt sie zur Scene hinzu."""
+    def _load_waveform_for_track(self, session, track, entry, dur, y, parent_clip: TimelineClipItem | None = None):
+        """Lädt Rekordbox-Wellenform aus DB und fügt sie zur Scene oder als Child zum Clip hinzu."""
         if track is None or track.waveform_data is None:
             return
 
@@ -1507,11 +1508,16 @@ class InteractiveTimeline(QGraphicsView):
             beat_positions_json=beat_json,
             pixels_per_second=PIXELS_PER_SECOND,
             height=TRACK_HEIGHT,
+            parent=parent_clip,
         )
-        x = entry.start_time * PIXELS_PER_SECOND
-        wf_item.setPos(x, y)
-        self._style_visible_waveform(wf_item)
-        self._scene.addItem(wf_item)
+        if parent_clip:
+            wf_item.setPos(0, 0)
+            self._style_visible_waveform(wf_item, parent_clip=parent_clip)
+        else:
+            x = entry.start_time * PIXELS_PER_SECOND
+            wf_item.setPos(x, y)
+            self._style_visible_waveform(wf_item)
+            self._scene.addItem(wf_item)
         self.waveform_items.append(wf_item)
 
     def add_clip(self, entry_id: int, media_id: int, track_type: str,
