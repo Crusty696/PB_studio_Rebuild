@@ -18,6 +18,22 @@ This file is a repository-local continuity checkpoint for all agents.
   limits: no public Publisher/SmartScreen reputation, ZIP not uploaded to any
   release channel, full repository suite not run in the final pass. Synthesis:
   `docs/superpowers/synthesis/release-ready-2026-07-02.md`.
+- **OTK-021 Step 1-2 product-path proof 2026-07-03:** added
+  `scripts/diag/verify_otk021_migration_schnitt_audio_product_path.py`.
+  It creates a real project folder/SQLite DB with legacy Audio-V2 stems and
+  Plan-A video outputs, reopens through `ProjectManager.open_project()`, then
+  checks `by_sha` source roots, junction/reparse stem link, ProjectSource rows,
+  provenance jobs/artifacts, manifest artifacts, and real SCHNITT
+  `SchnittTabAudio` + `SchnittAudioBinder` offscreen. Result:
+  `tests/qa_artifacts/otk021_migration_schnitt_audio_product_path_result.json`
+  has `status=pass`, step 1 pass, step 2 pass. Screenshot:
+  `tests/qa_artifacts/otk021_migration_schnitt_audio_product_path_schnitt_audio.png`.
+  Focused regression `tests/test_services/test_storage_migration.py`
+  `tests/ui/test_schnitt_audio_adapter.py` `tests/ui/test_schnitt_audio_binder.py`
+  passed: `11 passed in 8.70s`; `py_compile` and `git diff --check` passed.
+  Honest limit: product-path/offscreen-widget proof, not manual installed-app
+  GUI click; screenshot text has square glyphs, machine label checks are green.
+  No `fixed` marker.
 - **OTK-021 VM portability live proof 2026-07-02:** added
   `scripts/diag/run_otk021_windows_sandbox.ps1` and
   `scripts/diag/otk021_sandbox_probe.ps1`. Windows Sandbox ran the real
