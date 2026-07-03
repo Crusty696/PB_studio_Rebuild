@@ -79,8 +79,15 @@ class SlowEventHook:
         self._main_thread_id = threading.current_thread().ident
 
         # Background-Thread der den Main-Thread-Stack sampelt bei langen Events
-        self._sampling = False
-        self._sample_stacks: list[str] = []
+        self._current_event_start = 0.0
+        self._current_event_name = ""
+        self._current_receiver_name = ""
+        self._sampled_stacks: list[tuple[float, str]] = []
+        self._stack_lock = threading.Lock()
+        self._running = True
+
+        self._watchdog_thread = threading.Thread(target=self._watchdog_loop, daemon=True)
+        self._watchdog_thread.start()
 
         # Monkey-patch notify
         app.notify = self._profiled_notify
@@ -93,70 +100,70 @@ class SlowEventHook:
 
         logger.info("[PerfWatchdog] Installiert. Threshold: %dms", threshold_ms)
 
-    def _sample_main_thread(self):
-        """Laeuft in einem Background-Thread und sampelt den Main-Thread-Stack alle 200ms."""
-        while self._sampling:
+    def _watchdog_loop(self) -> None:
+        """Laeuft in einem Background-Thread und sampelt den Main-Thread-Stack alle 200ms bei langen Events."""
+        while self._running:
             time.sleep(0.2)
-            frame = sys._current_frames().get(self._main_thread_id)
-            if frame:
-                stack = "".join(traceback.format_stack(frame))
-                self._sample_stacks.append(stack)
-            if len(self._sample_stacks) > 50:
-                break
+            start_time = self._current_event_start
+            if start_time > 0.0:
+                elapsed = time.perf_counter() - start_time
+                if elapsed > 1.0:  # Event dauert schon laenger als 1s
+                    frame = sys._current_frames().get(self._main_thread_id)
+                    if frame:
+                        stack = "".join(traceback.format_stack(frame))
+                        with self._stack_lock:
+                            if len(self._sampled_stacks) < 50:
+                                self._sampled_stacks.append((elapsed, stack))
 
     def _profiled_notify(self, receiver: QObject, event: QEvent) -> bool:
         if not isinstance(receiver, QObject):
             # PySide can route internal objects (e.g. QWidgetItem) through the
-            # monkey-patched notify hook. QApplication.notify only accepts
-            # QObject receivers; delegating those would raise TypeError and
-            # turn a watchdog into an app-level exception.
+            # monkey-patched notify hook.
             return False
 
         self._count += 1
         t0 = time.perf_counter()
 
-        # Bei MousePress/Release: Sampler starten fuer tiefe Analyse
         event_type = event.type()
-        is_interactive = event_type in (
-            QEvent.Type.MouseButtonPress, QEvent.Type.MouseButtonRelease,
-            QEvent.Type.KeyPress,
-        )
-        if is_interactive:
-            self._sample_stacks.clear()
-            self._sampling = True
-            sampler = threading.Thread(target=self._sample_main_thread, daemon=True)
-            sampler.start()
+        event_name = _EVENT_NAMES.get(event_type, f"Type({int(event_type)})")
+        try:
+            receiver_name = (
+                f"{type(receiver).__name__}"
+                f"({receiver.objectName() or '?'})"
+            )
+        except (RuntimeError, AttributeError):
+            receiver_name = "<deleted>"
+
+        # Aktiviert das Sampling fuer dieses Event
+        with self._stack_lock:
+            self._sampled_stacks.clear()
+        self._current_event_name = event_name
+        self._current_receiver_name = receiver_name
+        self._current_event_start = t0
 
         try:
             result = self._original_notify(receiver, event)
         except Exception:
             raise
         finally:
-            self._sampling = False
+            self._current_event_start = 0.0
             elapsed = time.perf_counter() - t0
 
             if elapsed > self._threshold:
                 self._slow_count += 1
-                event_name = _EVENT_NAMES.get(event_type, f"Type({int(event_type)})")
-
-                try:
-                    receiver_name = (
-                        f"{type(receiver).__name__}"
-                        f"({receiver.objectName() or '?'})"
-                    )
-                except (RuntimeError, AttributeError):
-                    receiver_name = "<deleted>"
-
                 ms = elapsed * 1000
                 msg = f"[SLOW EVENT] {ms:.0f}ms | {event_name} -> {receiver_name}"
                 self._slow_log.append(msg)
                 logger.warning(msg)
 
                 # Bei langen Events: Sampled Stacks zeigen (der echte Callstack!)
-                if elapsed > 1.0 and self._sample_stacks:
-                    # Dedupliziere und zeige die haeufigsten Stacks
+                with self._stack_lock:
+                    stacks_to_process = list(self._sampled_stacks)
+                    self._sampled_stacks.clear()
+
+                if stacks_to_process:
                     unique = {}
-                    for s in self._sample_stacks:
+                    for el_s, s in stacks_to_process:
                         # Letzten relevanten Frame extrahieren
                         lines = [l for l in s.strip().split('\n') if 'perf_watchdog' not in l and 'threading' not in l]
                         key = '\n'.join(lines[-6:]) if lines else s
@@ -167,7 +174,6 @@ class SlowEventHook:
                             "[SLOW EVENT] Sampled Stack (%dx bei %dms):\n%s",
                             count, int(ms), stack,
                         )
-                    self._sample_stacks.clear()
 
         return result
 
