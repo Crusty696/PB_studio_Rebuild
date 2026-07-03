@@ -6,10 +6,12 @@ This file is a repository-local continuity checkpoint for all agents.
 
 - **Branch:** `codex/OTK-021-source-consolidation-2026-06-22`
 - **Release gate stale artifact guard 2026-07-04:** current release gate is now
-  intentionally BLOCKED by `ART-005`. Reason: latest release-relevant product
-  commit `29aaf37` (`2026-07-03T13:43:45+02:00`, `ui/timeline.py`) is newer
-  than the current frozen EXE, installer, NSISBI payload, and distribution ZIP
-  from 2026-07-01/02. Added guard in `services/release_readiness.py` and tests
+  intentionally BLOCKED by `ART-005`. Initial reason: product commit `29aaf37`
+  (`2026-07-03T13:43:45+02:00`, `ui/timeline.py`) was newer than the current
+  frozen EXE, installer, NSISBI payload, and distribution ZIP from 2026-07-01/02.
+  After the guard commit, `ART-005` reports the newest release-relevant commit
+  on the branch until distribution artifacts are rebuilt. Added guard in
+  `services/release_readiness.py` and tests
   in `tests/test_services/test_release_readiness.py`; CLI encoding regression
   now accepts truthful gate states `0` or `2`. Verification:
   `py_compile` pass, focused release-readiness/CLI tests `8 passed in 2.99s`,

@@ -35,7 +35,7 @@ code.
 
 `services/release_readiness.py` now adds production blocker `ART-005` when
 existing release artifacts are older than the newest Git commit touching
-release-relevant product paths.
+release-relevant paths.
 
 The gate checks these artifacts:
 
@@ -55,7 +55,9 @@ the truthful states `0` or `2` and still checks strict `cp1252` output safety.
 
 ## Honest Status
 
-Code guard verified. Release itself is not ready.
+Code guard verified. Release itself is not ready. After this guard commit,
+`ART-005` reports the newest release-relevant commit on the branch until the
+distribution artifacts are rebuilt from current HEAD.
 
 Open:
 

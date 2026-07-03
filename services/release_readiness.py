@@ -122,9 +122,9 @@ def _artifact_freshness_blockers(root: Path, artifacts: list[Path]) -> list[Rele
     return [
         ReleaseBlocker(
             "ART-005",
-            "Release artifacts are older than current product code",
+            "Release artifacts are older than current release-relevant code",
             (
-                f"latest product commit {commit.commit_hash[:12]} at {commit.iso_date} "
+                f"latest release-relevant commit {commit.commit_hash[:12]} at {commit.iso_date} "
                 f"({commit.subject}); stale artifacts: {stale_details}"
             ),
         )
