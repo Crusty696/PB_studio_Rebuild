@@ -35,6 +35,14 @@ _LOCK_TIMEOUT_SEC = 10.0
 _LOCK_STALE_SEC = 60.0
 
 
+def _fs_path(path: Path) -> str:
+    """Return a filesystem path that also works past MAX_PATH on Windows."""
+    resolved = str(path.resolve())
+    if os.name == "nt" and not resolved.startswith("\\\\?\\"):
+        return "\\\\?\\" + resolved
+    return resolved
+
+
 def _iso(value) -> str | None:
     if isinstance(value, datetime):
         return value.isoformat()
@@ -86,15 +94,18 @@ class _ManifestLock:
         start = time.monotonic()
         while True:
             try:
-                self._fd = os.open(str(self._lock_path), os.O_CREAT | os.O_EXCL | os.O_RDWR)
+                self._fd = os.open(_fs_path(self._lock_path), os.O_CREAT | os.O_EXCL | os.O_RDWR)
                 return self
             except (FileExistsError, PermissionError):
                 # break a stale lock left behind by a crashed writer
                 try:
-                    age = time.time() - self._lock_path.stat().st_mtime
+                    age = time.time() - os.stat(_fs_path(self._lock_path)).st_mtime
                     if age > _LOCK_STALE_SEC:
                         logger.warning("manifest lock stale (%.0fs), breaking: %s", age, self._lock_path)
-                        self._lock_path.unlink(missing_ok=True)
+                        try:
+                            os.unlink(_fs_path(self._lock_path))
+                        except FileNotFoundError:
+                            pass
                         continue
                 except OSError:
                     pass
@@ -111,7 +122,9 @@ class _ManifestLock:
                 pass
             self._fd = None
         try:
-            self._lock_path.unlink(missing_ok=True)
+            os.unlink(_fs_path(self._lock_path))
+        except FileNotFoundError:
+            pass
         except OSError as e:
             logger.warning("manifest lock release failed %s: %s", self._lock_path, e)
 
@@ -122,14 +135,15 @@ def _load_manifest(path: Path, source_sha256: str) -> dict:
     if not path.is_file():
         return fresh
     try:
-        loaded = json.loads(path.read_text(encoding="utf-8"))
+        with open(_fs_path(path), encoding="utf-8") as fh:
+            loaded = json.load(fh)
         if isinstance(loaded, dict) and isinstance(loaded.get("jobs"), list):
             return loaded
         raise ValueError("manifest shape invalid")
     except (ValueError, OSError) as e:
         logger.warning("manifest corrupt at %s (%s) — backing up + resetting", path, e)
         try:
-            path.replace(path.with_suffix(path.suffix + ".corrupt"))
+            os.replace(_fs_path(path), _fs_path(path.with_suffix(path.suffix + ".corrupt")))
         except OSError as be:
             logger.warning("manifest corrupt-backup failed %s: %s", path, be)
         return fresh
@@ -209,8 +223,9 @@ def record_manifest_job(
         # B-543: atomic write — temp file + os.replace so a concurrent reader
         # never sees a half-written file.
         tmp = path.with_suffix(path.suffix + f".tmp.{os.getpid()}")
-        tmp.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
-        os.replace(str(tmp), str(path))
+        with open(_fs_path(tmp), "w", encoding="utf-8") as fh:
+            json.dump(data, fh, indent=2, sort_keys=True)
+        os.replace(_fs_path(tmp), _fs_path(path))
     return path
 
 
@@ -224,7 +239,8 @@ def read_manifest_jobs(storage_root: str | Path, source_sha256: str) -> list[dic
     if not path.is_file():
         return []
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        with open(_fs_path(path), encoding="utf-8") as fh:
+            data = json.load(fh)
     except (ValueError, OSError) as e:
         logger.warning("manifest read/parse failed at %s: %s", path, e)
         return []

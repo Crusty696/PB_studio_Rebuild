@@ -682,6 +682,23 @@ Nach Hardware-Recovery Preflight wiederholen, dann GUI/DG-001 fortsetzen.
 Main-Integration/Release bleiben gestoppt.
 ```
 
+Current OTK-021 Step 3 status:
+
+```text
+2026-07-03 product-path live pass, manual GUI click pending.
+Real ProjectManager project A/B, real ingest_audio import into both projects,
+global by_sha manifest + real stem artifacts, Project B AnalysisStatus
+stem_separation=done, stem paths exist, and ImportMediaController
+_notify_cross_project_reuse() created the reuse message and non-modal notice.
+Evidence:
+docs/superpowers/synthesis/otk021-step3-cross-project-reuse-import-notify-2026-07-03.md
+and tests/qa_artifacts/otk021_cross_project_reuse_import_notify_result.json.
+Verifier: scripts/diag/verify_otk021_cross_project_reuse_import_notify.py status=pass.
+Focused tests: cross-project reuse 17 passed; manifest robustness 8 passed.
+Honest limit: no manual import-dialog GUI click. OTK-021 overall remains open;
+Steps 1-2 still need current product-live evidence.
+```
+
 Current OTK-021 Step 4 status:
 
 ```text
@@ -693,7 +710,7 @@ and tests/qa_artifacts/otk021_file_tracking_open_project_result.json.
 Verifier: scripts/diag/verify_otk021_file_tracking_open_project.py status=pass.
 Unit: tests/test_services/test_file_tracking.py 3 passed.
 Syntax: py_compile Exit 0.
-Honest limit: no manual GUI click. OTK-021 overall remains open; Steps 1-3
+Honest limit: no manual GUI click. OTK-021 overall remains open; Steps 1-2
 still need product-live evidence.
 ```
 
