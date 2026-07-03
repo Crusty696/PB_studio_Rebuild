@@ -5,11 +5,31 @@ This module is intentionally conservative. Missing proof blocks a release.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 import json
 import shutil
 import subprocess
 import sys
+
+_RELEASE_RELEVANT_PATHS = (
+    "main.py",
+    "app.py",
+    "config",
+    "core",
+    "database",
+    "installer",
+    "knowledge",
+    "models",
+    "resources",
+    "services",
+    "ui",
+    "workers",
+    "pb_studio.spec",
+    "pyproject.toml",
+    "requirements.txt",
+    "requirements.lock",
+)
 
 
 @dataclass(frozen=True)
@@ -17,6 +37,14 @@ class ReleaseBlocker:
     blocker_id: str
     label: str
     detail: str
+
+
+@dataclass(frozen=True)
+class _RelevantCommit:
+    commit_hash: str
+    timestamp: int
+    iso_date: str
+    subject: str
 
 
 def production_blockers(repo_root: str | Path) -> list[ReleaseBlocker]:
@@ -29,8 +57,10 @@ def production_blockers(repo_root: str | Path) -> list[ReleaseBlocker]:
 
 def _artifact_blockers(root: Path) -> list[ReleaseBlocker]:
     dist = root / "dist" / "pb_studio"
+    frozen_exe = dist / "pb_studio.exe"
     installer = root / "dist" / "pb_studio_setup_v0.5.0.exe"
     payload = root / "dist" / "pb_studio_setup_v0.5.0.nsisbin"
+    distribution_zip = root / "dist" / "PB_Studio_v0.5.0_distribution.zip"
     blockers: list[ReleaseBlocker] = []
 
     if not dist.is_dir():
@@ -58,7 +88,88 @@ def _artifact_blockers(root: Path) -> list[ReleaseBlocker]:
                     f"{installer} Authenticode={signature}",
                 )
             )
+    blockers.extend(
+        _artifact_freshness_blockers(
+            root,
+            artifacts=[frozen_exe, installer, payload, distribution_zip],
+        )
+    )
     return blockers
+
+
+def _artifact_freshness_blockers(root: Path, artifacts: list[Path]) -> list[ReleaseBlocker]:
+    existing_artifacts = [path for path in artifacts if path.is_file()]
+    if not existing_artifacts:
+        return []
+
+    commit = _latest_release_relevant_commit(root)
+    if commit is None:
+        return [
+            ReleaseBlocker(
+                "ART-005",
+                "Release artifact freshness could not be proven",
+                "git log for release-relevant product paths returned no usable commit.",
+            )
+        ]
+
+    stale = [path for path in existing_artifacts if path.stat().st_mtime + 1 < commit.timestamp]
+    if not stale:
+        return []
+
+    stale_details = "; ".join(
+        f"{path.relative_to(root)} mtime={_format_mtime(path)}" for path in stale
+    )
+    return [
+        ReleaseBlocker(
+            "ART-005",
+            "Release artifacts are older than current product code",
+            (
+                f"latest product commit {commit.commit_hash[:12]} at {commit.iso_date} "
+                f"({commit.subject}); stale artifacts: {stale_details}"
+            ),
+        )
+    ]
+
+
+def _latest_release_relevant_commit(root: Path) -> _RelevantCommit | None:
+    git = shutil.which("git")
+    if not git:
+        return None
+    proc = subprocess.run(
+        [
+            git,
+            "log",
+            "-1",
+            "--format=%H%x09%ct%x09%cI%x09%s",
+            "--",
+            *_RELEASE_RELEVANT_PATHS,
+        ],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    if proc.returncode != 0:
+        return None
+    line = proc.stdout.strip().splitlines()[0] if proc.stdout.strip() else ""
+    parts = line.split("\t", 3)
+    if len(parts) != 4:
+        return None
+    try:
+        timestamp = int(parts[1])
+    except ValueError:
+        return None
+    return _RelevantCommit(
+        commit_hash=parts[0],
+        timestamp=timestamp,
+        iso_date=parts[2],
+        subject=parts[3],
+    )
+
+
+def _format_mtime(path: Path) -> str:
+    return datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).isoformat()
 
 
 def _proof_blockers(root: Path) -> list[ReleaseBlocker]:

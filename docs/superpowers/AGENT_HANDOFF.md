@@ -5,21 +5,37 @@ This file is a repository-local continuity checkpoint for all agents.
 ## Codex Quellstand-Konsolidierung 2026-06-22 (newest)
 
 - **Branch:** `codex/OTK-021-source-consolidation-2026-06-22`
+- **Release gate stale artifact guard 2026-07-04:** current release gate is now
+  intentionally BLOCKED by `ART-005`. Reason: latest release-relevant product
+  commit `29aaf37` (`2026-07-03T13:43:45+02:00`, `ui/timeline.py`) is newer
+  than the current frozen EXE, installer, NSISBI payload, and distribution ZIP
+  from 2026-07-01/02. Added guard in `services/release_readiness.py` and tests
+  in `tests/test_services/test_release_readiness.py`; CLI encoding regression
+  now accepts truthful gate states `0` or `2`. Verification:
+  `py_compile` pass, focused release-readiness/CLI tests `8 passed in 2.99s`,
+  `tools/release_gate.py` -> `RELEASE-GATE BLOCKED`, `ART-005`, `EXIT=2`.
+  Synthesis:
+  `docs/superpowers/synthesis/release-gate-stale-artifact-guard-2026-07-04.md`.
+  Next release work: rebuild distribution from current HEAD, rerun artifact pair
+  and distribution bundle checks, rerun installed-app GUI proof, rerun clean VM
+  proof if rebuilt installer identity changes. No `fixed` marker.
 - **OTK-021 90 Live-Verify current audit 2026-07-04:** on HEAD
   `29aaf37`, reran the short verifiers for steps 1-5 and checked release gate.
   Results: Step 1-2 migration/SCHNITT verifier `status=pass`; Step 3
   cross-project reuse import/notify verifier `status=pass`; Step 4 file-tracking
   open-project verifier `status=pass`; Step 5 Storage-Browser visible-delete
   verifier `ok=true`; focused regression `43 passed in 16.92s`; release gate
-  OK. Steps 6-7 remain backed by the 2026-07-02 Windows Sandbox VM service-level
+  OK at that moment, now superseded by `ART-005` stale-artifact guard above.
+  Steps 6-7 remain backed by the 2026-07-02 Windows Sandbox VM service-level
   proof. Synthesis:
   `docs/superpowers/synthesis/otk021-90-live-verify-current-audit-2026-07-04.md`.
   Honest limits: product-path/offscreen/service evidence, not full manual
   installed-app GUI click-through; Step 5 temp DB/storage; VM proof service-level;
   Antigravity commit `29aaf37` body says `(unverified -- pending user test)` for
   B-553 and this audit did not verify B-553. No `fixed` marker.
-- **Release-ready local package 2026-07-02:** `tools/release_gate.py`
-  exits 0 with no open Deferred Gates or production blockers. Windows Sandbox
+- **Release-ready local package 2026-07-02 (historical, now stale):**
+  `tools/release_gate.py` exited 0 before commit `29aaf37` and before the
+  `ART-005` guard. It is not current release-ready evidence. Windows Sandbox
   clean install proof passed (`docs/superpowers/synthesis/clean-vm-sandbox-install-proof-2026-07-02.md`),
   installed-app GUI proof is accepted, installer Authenticode is `Valid` with
   locally trusted self-signed cert, and distribution ZIP exists at
