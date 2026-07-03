@@ -506,6 +506,7 @@ def _evidence_matrix(result: dict[str, object]) -> str:
             "",
             f"- Dry-run imports: `{result['dry_run_imports']['ok']}`.",
             f"- Data preflight: `{result['data_preflight']['ok']}`.",
+            f"- FFmpeg GPU command: `-hwaccel cuda`, `h264_nvenc`, `128x128`.",
             f"- Disk free bytes: `{result['data_preflight']['disk']['free_bytes']}`.",
             f"- Disk warning: `{result['data_preflight']['disk']['warning']}`.",
             f"- Mini service prep run: `{result['mini_product_run']['ok']}`.",
@@ -525,11 +526,12 @@ def _evidence_matrix(result: dict[str, object]) -> str:
             "",
             "- No long product-live verification started in this prep step.",
             "- Steps 1-4 still need long product-live proof with real migrated project data.",
-            "- Free disk is below the 20GB recommendation for a long media run.",
             "- This document is `prep-pass`, not `fixed`.",
             "",
         ]
     )
+    if result["data_preflight"]["disk"]["warning"]:  # type: ignore[index]
+        lines.insert(-2, "- Free disk is below the 20GB recommendation for a long media run.")
     SYNTHESIS_MD.parent.mkdir(parents=True, exist_ok=True)
     SYNTHESIS_MD.write_text("\n".join(lines), encoding="utf-8")
     return str(SYNTHESIS_MD)
