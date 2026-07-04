@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import subprocess
@@ -15,6 +16,18 @@ ARTIFACT_DIR = ROOT / "tests" / "qa_artifacts"
 OUT = ARTIFACT_DIR / "installed_app_gui_workflow.json"
 DEFAULT_INSTALLED_EXE = Path(os.environ.get("LOCALAPPDATA", "")) / "PB Studio" / "pb_studio.exe"
 PROOF_PATH = ROOT / "docs" / "superpowers" / "synthesis" / "installed-app-gui-live-proof-2026-07-01.md"
+INSTALLER_EXE = ROOT / "dist" / "pb_studio_setup_v0.5.0.exe"
+INSTALLER_PAYLOAD = ROOT / "dist" / "pb_studio_setup_v0.5.0.nsisbin"
+
+
+def _sha256(path: Path) -> str | None:
+    if not path.is_file():
+        return None
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest().upper()
 
 
 def _write_json(payload: dict[str, object]) -> None:
@@ -198,6 +211,7 @@ def _write_proof(result: dict[str, object], screenshot_path: str, proof_path: Pa
         observed_labels = ", ".join(str(label) for label in observed_groups.values())
     else:
         observed_labels = ""
+    proof_date = datetime.now().strftime("%Y-%m-%d")
     text = f"""---
 release_gate_proof: true
 proof_type: installed-app-gui
@@ -205,7 +219,7 @@ status: pass
 evidence_level: live
 ---
 
-# Installed-App GUI Live Proof 2026-07-01
+# Installed-App GUI Live Proof {proof_date}
 
 ## Scope
 
@@ -215,6 +229,9 @@ observing the real GUI window.
 ## Evidence
 
 - Installed EXE: `{result["installed_exe"]}`
+- Installed EXE SHA256: `{result["installed_exe_sha256"]}`
+- Installer SHA256: `{result["installer_exe_sha256"]}`
+- NSISBI payload SHA256: `{result["installer_payload_sha256"]}`
 - PID: `{result["pid"]}`
 - Window title: `{result["window_title"]}`
 - Screenshot: `{screenshot_path}`
@@ -278,6 +295,11 @@ def main() -> int:
             "status": "pass" if passed else "fail",
             "installed_app_gui_workflow_passed": passed,
             "installed_exe": str(installed_exe),
+            "installed_exe_sha256": _sha256(installed_exe),
+            "installer_exe": str(INSTALLER_EXE),
+            "installer_exe_sha256": _sha256(INSTALLER_EXE),
+            "installer_payload": str(INSTALLER_PAYLOAD),
+            "installer_payload_sha256": _sha256(INSTALLER_PAYLOAD),
             "pid": proc.pid,
             "process_alive_after_5s": alive,
             "window_process_id": window_pid,

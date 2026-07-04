@@ -12,6 +12,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "tests" / "qa_artifacts" / "release_artifact_pair_audit.json"
+SIGNING_REQUIRED_FOR_PRIVATE_DISTRIBUTION = False
 
 
 def _sha256(path: Path) -> str:
@@ -124,7 +125,7 @@ def main() -> int:
 
     dist_size_bytes = sum(path.stat().st_size for path in dist.rglob("*") if path.is_file()) if dist.is_dir() else 0
     release_blockers = []
-    if not unsigned_status["signed"]:
+    if SIGNING_REQUIRED_FOR_PRIVATE_DISTRIBUTION and not unsigned_status["signed"]:
         release_blockers.append("installer-not-code-signed")
     release_blockers.extend(
         [
@@ -165,6 +166,10 @@ def main() -> int:
         "required_dist_patterns": required_dist_patterns,
         "installer_resources": installer_resources,
         "authenticode": unsigned_status,
+        "signing_required_for_private_distribution": SIGNING_REQUIRED_FOR_PRIVATE_DISTRIBUTION,
+        "unsigned_installer_allowed_for_private_distribution": (
+            not SIGNING_REQUIRED_FOR_PRIVATE_DISTRIBUTION and not unsigned_status["signed"]
+        ),
         "hashes": hashes,
         "hard_checks": hard_checks,
         "release_blockers": release_blockers,

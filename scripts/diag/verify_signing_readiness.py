@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "tests" / "qa_artifacts" / "signing_readiness.json"
 INSTALLER = ROOT / "dist" / "pb_studio_setup_v0.5.0.exe"
 WINDOWS_KITS_BIN = Path(r"C:\Program Files (x86)\Windows Kits\10\bin")
+SIGNING_REQUIRED_FOR_PRIVATE_DISTRIBUTION = False
 
 
 def _run(command: list[str], timeout: int = 30) -> dict[str, object]:
@@ -111,12 +112,16 @@ def main() -> int:
         blockers.append("signtool-missing")
     if current_user["count"] == 0 and local_machine["count"] == 0:
         blockers.append("code-signing-certificate-missing")
-    if not signature["signed"]:
+    if SIGNING_REQUIRED_FOR_PRIVATE_DISTRIBUTION and not signature["signed"]:
         blockers.append("installer-not-signed")
 
     result = {
         "status": "pass",
         "release_signing_ready": not blockers,
+        "signing_required_for_private_distribution": SIGNING_REQUIRED_FOR_PRIVATE_DISTRIBUTION,
+        "unsigned_installer_allowed_for_private_distribution": (
+            not SIGNING_REQUIRED_FOR_PRIVATE_DISTRIBUTION and not signature["signed"]
+        ),
         "installer": str(INSTALLER),
         "installer_exists": INSTALLER.exists(),
         "signtool": signtool["path"],
@@ -126,7 +131,10 @@ def main() -> int:
         "local_machine_code_signing_certs": local_machine,
         "authenticode": signature,
         "blockers": blockers,
-        "note": "This preflight does not create or import certificates and does not sign the installer.",
+        "note": (
+            "This preflight reports signing capability and Authenticode state. "
+            "Unsigned installers are allowed for the current private distribution policy."
+        ),
     }
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(json.dumps(result, indent=2, sort_keys=True, default=str), encoding="utf-8")

@@ -13,6 +13,7 @@ OUT = ROOT / "tests" / "qa_artifacts" / "installed_app_gui_readiness.json"
 INSTALLER = ROOT / "dist" / "pb_studio_setup_v0.5.0.exe"
 PAYLOAD = ROOT / "dist" / "pb_studio_setup_v0.5.0.nsisbin"
 NSI = ROOT / "installer" / "pb_studio.nsi"
+SIGNING_REQUIRED_FOR_PRIVATE_DISTRIBUTION = False
 DEFAULT_INSTALLED_EXE = Path(os.environ.get("LOCALAPPDATA", "")) / "PB Studio" / "pb_studio.exe"
 INSTALLED_EXE = Path(os.environ.get("PB_INSTALLED_EXE", str(DEFAULT_INSTALLED_EXE)))
 INSTALL_CANDIDATES = [
@@ -161,7 +162,7 @@ def main() -> int:
         blockers.append("installed-exe-missing")
     if not registry_installed:
         blockers.append("installed-app-registry-entry-missing")
-    if not installer_signature["signed"]:
+    if SIGNING_REQUIRED_FOR_PRIVATE_DISTRIBUTION and not installer_signature["signed"]:
         blockers.append("installer-not-signed")
 
     result = {
@@ -174,6 +175,10 @@ def main() -> int:
         "installed_exe_candidates": installed_candidates,
         "installed_app_registry_entries": registry_entries,
         "nsi_install_policy": nsi_policy,
+        "signing_required_for_private_distribution": SIGNING_REQUIRED_FOR_PRIVATE_DISTRIBUTION,
+        "unsigned_installer_allowed_for_private_distribution": (
+            not SIGNING_REQUIRED_FOR_PRIVATE_DISTRIBUTION and not installer_signature["signed"]
+        ),
         "installer_authenticode": installer_signature,
         "installed_exe_authenticode": installed_signature,
         "blockers": blockers,

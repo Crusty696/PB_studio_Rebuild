@@ -33,8 +33,10 @@ def test_signing_readiness_reports_installer_signature_state() -> None:
         assert "installer-not-signed" not in payload["blockers"]
         assert payload["authenticode"]["signer_thumbprint"]
     else:
-        assert payload["release_signing_ready"] is False
-        assert "installer-not-signed" in payload["blockers"]
+        assert payload["release_signing_ready"] is True
+        assert payload["signing_required_for_private_distribution"] is False
+        assert payload["unsigned_installer_allowed_for_private_distribution"] is True
+        assert "installer-not-signed" not in payload["blockers"]
 
 
 def test_signing_readiness_reports_signtool_source() -> None:
