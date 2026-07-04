@@ -12,6 +12,7 @@ if (-not (Test-Path -LiteralPath $sandboxExe -PathType Leaf)) {
 $repo = (Resolve-Path $RepoRoot).Path
 $wsb = Join-Path $repo "tests\qa_artifacts\vm001_pb_studio_clean_install.wsb"
 $escapedRepo = [System.Security.SecurityElement]::Escape($repo)
+$proofDate = Get-Date -Format "yyyy-MM-dd"
 
 $content = @"
 <Configuration>
@@ -36,5 +37,5 @@ Start-Process -FilePath $sandboxExe -ArgumentList $wsb
     status = "started"
     sandbox_config = $wsb
     expected_json = Join-Path $repo "tests\qa_artifacts\clean_vm_sandbox_probe.json"
-    expected_proof = Join-Path $repo "docs\superpowers\synthesis\clean-vm-sandbox-install-proof-2026-07-02.md"
+    expected_proof = Join-Path $repo "docs\superpowers\synthesis\clean-vm-sandbox-install-proof-$proofDate.md"
 } | ConvertTo-Json -Depth 3

@@ -28,7 +28,8 @@ $synthDir = Join-Path $RepoRoot "docs\superpowers\synthesis"
 New-Item -ItemType Directory -Force -Path $qaDir, $synthDir | Out-Null
 
 $outJson = Join-Path $qaDir "clean_vm_sandbox_probe.json"
-$outMd = Join-Path $synthDir "clean-vm-sandbox-install-proof-2026-07-02.md"
+$proofDate = Get-Date -Format "yyyy-MM-dd"
+$outMd = Join-Path $synthDir "clean-vm-sandbox-install-proof-$proofDate.md"
 $installer = Join-Path $RepoRoot "dist\pb_studio_setup_v0.5.0.exe"
 $payload = Join-Path $RepoRoot "dist\pb_studio_setup_v0.5.0.nsisbin"
 $installExe = Join-Path $env:LOCALAPPDATA "PB Studio\pb_studio.exe"
@@ -47,6 +48,8 @@ $result = [ordered]@{
     os = $null
     installer_exists = Test-Path -LiteralPath $installer -PathType Leaf
     payload_exists = Test-Path -LiteralPath $payload -PathType Leaf
+    installer_sha256 = $null
+    payload_sha256 = $null
     installer_exit_code = $null
     installer_timed_out = $false
     installed_exe_exists = $false
@@ -84,6 +87,8 @@ try {
     if (-not $result.installer_exists) { $result.blockers += "installer-missing" }
     if (-not $result.payload_exists) { $result.blockers += "payload-missing" }
     if ($result.blockers.Count -eq 0) {
+        $result.installer_sha256 = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash
+        $result.payload_sha256 = (Get-FileHash -LiteralPath $payload -Algorithm SHA256).Hash
         $result.root_loader_files = [ordered]@{}
         foreach ($loaderFile in @("python310.dll", "python3.dll", "zlib.dll", "vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll")) {
             $loaderPath = Join-Path (Join-Path $RepoRoot "dist\pb_studio\_internal") $loaderFile
@@ -241,14 +246,16 @@ status: pass
 evidence_level: live
 ---
 
-# Clean VM Install Proof - Windows Sandbox - 2026-07-02
+# Clean VM Install Proof - Windows Sandbox - $proofDate
 
 ## Evidence
 
 - Environment: Windows Sandbox / clean ephemeral Windows user $proofUser on $proofComputer.
 - OS: $($proofOs["caption"]) $($proofOs["version"]) build $($proofOs["build"]).
 - Installer: $installer
+- Installer SHA256: $($result.installer_sha256)
 - Payload: $payload
+- Payload SHA256: $($result.payload_sha256)
 - Installed EXE: $installExe
 - Registry key: $regPath
 - App launch: process started successfully in sandbox.

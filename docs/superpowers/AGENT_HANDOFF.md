@@ -5,8 +5,27 @@ This file is a repository-local continuity checkpoint for all agents.
 ## Codex Quellstand-Konsolidierung 2026-06-22 (newest)
 
 - **Branch:** `codex/OTK-021-source-consolidation-2026-06-22`
-- **Release gate stale artifact guard 2026-07-04:** current release gate is now
-  intentionally BLOCKED by `ART-005`. Initial reason: product commit `29aaf37`
+- **Release rebuild/sign/install/clean-VM evidence 2026-07-04:** ART-005 stale
+  artifact blocker is cleared for the current local v0.5.0 distribution
+  identity. Rebuilt with `installer/build_installer.bat`, signed installer with
+  self-signed CurrentUser code-signing cert
+  `EB0DF8D8AFBEDE5D7F8B3021076F502C3F04549F`, recreated distribution ZIP, ran
+  installed-app GUI live proof, and ran fresh Windows Sandbox clean install
+  proof against the current hashes. Current hashes: installer
+  `1BB5F755C805437D9EDDDA5E2A31FFAD52B0FEB0BCF94C0D1A8FD31B90C9B758`,
+  payload `8E15A1876216369F2F48FC83027A53993F74A6BDCF337BAB59541FEE4F36B4C9`,
+  ZIP `53B6F8ECA07C477AFA057B51A95AF7207C296B786433C21179EEC13A54ABC77D`.
+  `verify_release_evidence_matrix.py` -> `status=pass`, `release_ready=true`;
+  `tools/release_gate.py` -> `RELEASE-GATE OK`, `EXIT=0`. Proofs:
+  `docs/superpowers/synthesis/installed-app-gui-live-proof-2026-07-04.md`,
+  `docs/superpowers/synthesis/clean-vm-sandbox-install-proof-2026-07-04.md`,
+  `docs/superpowers/synthesis/release-rebuild-sign-install-cleanvm-2026-07-04.md`.
+  Honest limits: no public CA/SmartScreen reputation, installed inner EXE is
+  not individually signed, ZIP not uploaded, no OTK-021 `fixed` marker without
+  user confirmation.
+- **Release gate stale artifact guard 2026-07-04 (historical, superseded by
+  rebuild above):** release gate was intentionally BLOCKED by `ART-005`.
+  Initial reason: product commit `29aaf37`
   (`2026-07-03T13:43:45+02:00`, `ui/timeline.py`) was newer than the current
   frozen EXE, installer, NSISBI payload, and distribution ZIP from 2026-07-01/02.
   After the guard commit, `ART-005` reports the newest release-relevant commit
@@ -18,9 +37,8 @@ This file is a repository-local continuity checkpoint for all agents.
   `tools/release_gate.py` -> `RELEASE-GATE BLOCKED`, `ART-005`, `EXIT=2`.
   Synthesis:
   `docs/superpowers/synthesis/release-gate-stale-artifact-guard-2026-07-04.md`.
-  Next release work: rebuild distribution from current HEAD, rerun artifact pair
-  and distribution bundle checks, rerun installed-app GUI proof, rerun clean VM
-  proof if rebuilt installer identity changes. No `fixed` marker.
+  Superseded by the 2026-07-04 rebuild/sign/install/clean-VM evidence above.
+  No `fixed` marker.
 - **OTK-021 90 Live-Verify current audit 2026-07-04:** on HEAD
   `29aaf37`, reran the short verifiers for steps 1-5 and checked release gate.
   Results: Step 1-2 migration/SCHNITT verifier `status=pass`; Step 3
