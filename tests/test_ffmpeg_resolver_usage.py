@@ -129,3 +129,29 @@ def test_ingest_probe_uses_configured_ffprobe(monkeypatch):
     assert captured["cmd"][0] == configured_ffprobe
     assert meta["duration"] == 12.5
     assert meta["width"] == 1920
+
+
+def test_lufs_service_uses_current_configured_ffmpeg(monkeypatch):
+    import services.lufs_service as lufs_service
+
+    configured_ffmpeg = r"C:\PB-Studio-Bin\ffmpeg.exe"
+    captured: dict[str, list[str]] = {}
+
+    monkeypatch.setattr(
+        lufs_service,
+        "get_ffmpeg_bin",
+        lambda: configured_ffmpeg,
+        raising=False,
+    )
+    monkeypatch.setattr(lufs_service.LUFSService, "_timeout_for_file", lambda *_args: 120)
+
+    def fake_run(cmd, **_kwargs):
+        captured["cmd"] = cmd
+        return SimpleNamespace(returncode=0, stdout="", stderr='{"input_i":"-14","input_tp":"-1","input_lra":"8"}')
+
+    monkeypatch.setattr(lufs_service.subprocess, "run", fake_run, raising=False)
+
+    stderr = lufs_service.LUFSService()._run_ffmpeg(r"C:\media\mix.m4a")
+
+    assert stderr
+    assert captured["cmd"][0] == configured_ffmpeg

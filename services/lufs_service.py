@@ -17,10 +17,6 @@ log = logging.getLogger(__name__)
 
 from services.startup_checks import get_ffmpeg_bin, get_ffprobe_bin
 
-# FFmpeg binary — honour env override (same convention as convert_service.py)
-_FFMPEG = get_ffmpeg_bin()
-
-
 def _probe_duration_sec(file_path: str) -> float:
     """Probe audio duration via ffprobe; return 0.0 when probing fails."""
     try:
@@ -187,10 +183,11 @@ class LUFSService:
             return res
 
         except FileNotFoundError:
+            ffmpeg_bin = get_ffmpeg_bin()
             log.error(
                 "FFmpeg nicht gefunden ('%s'). Bitte FFmpeg installieren oder "
                 "FFMPEG_PATH Umgebungsvariable setzen.",
-                _FFMPEG,
+                ffmpeg_bin,
             )
             return _make_fallback("FFmpeg-Binary nicht gefunden")
 
@@ -213,9 +210,10 @@ class LUFSService:
         # war fuer lange DJ-Sets zu knapp; Dauer via ffprobe gibt ein stabileres
         # Timeout-Budget.
         timeout = self._timeout_for_file(file_path)
+        ffmpeg_bin = get_ffmpeg_bin()
 
         cmd = [
-            _FFMPEG,
+            ffmpeg_bin,
             "-hide_banner",
             "-nostdin",
             "-i", file_path,
