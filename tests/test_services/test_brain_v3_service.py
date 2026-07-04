@@ -113,7 +113,7 @@ def test_learning_session_prefers_real_timeline_cuts_with_preview_paths(
     state_db = project_state_db_path(project_root)
     migrate(
         state_db,
-        Path("services/brain_v3/storage/sql_migrations/state"),
+        Path("services/brain/storage/sql_migrations/state"),
     )
     with sqlite3.connect(state_db) as conn:
         conn.execute(
@@ -177,7 +177,7 @@ def test_learning_session_preview_resolver_survives_closed_session_factory(
         video_id = video.id
 
     state_db = project_state_db_path(project_root)
-    migrate(state_db, Path("services/brain_v3/storage/sql_migrations/state"))
+    migrate(state_db, Path("services/brain/storage/sql_migrations/state"))
     with sqlite3.connect(state_db) as conn:
         conn.execute(
             "INSERT INTO timelines(id, name, audio_clip_id, created_at, is_current) "
@@ -266,7 +266,7 @@ def test_sync_current_timeline_from_entries_replaces_stale_current_state(
     project_root = tmp_path / "project"
     project_root.mkdir()
     state_db = project_state_db_path(project_root)
-    migrate(state_db, Path("services/brain_v3/storage/sql_migrations/state"))
+    migrate(state_db, Path("services/brain/storage/sql_migrations/state"))
     with sqlite3.connect(state_db) as conn:
         conn.execute(
             "INSERT INTO timelines(id, name, audio_clip_id, created_at, is_current) "
@@ -383,7 +383,7 @@ def test_learning_session_recovers_from_stale_state_audio_id(
     db_session.commit()
 
     state_db = project_state_db_path(project_root)
-    migrate(state_db, Path("services/brain_v3/storage/sql_migrations/state"))
+    migrate(state_db, Path("services/brain/storage/sql_migrations/state"))
     with sqlite3.connect(state_db) as conn:
         conn.execute(
             "INSERT INTO timelines(id, name, audio_clip_id, created_at, is_current) "
@@ -435,7 +435,7 @@ def test_learning_session_uses_original_video_when_proxy_missing(
     db_session.commit()
 
     state_db = project_state_db_path(project_root)
-    migrate(state_db, Path("services/brain_v3/storage/sql_migrations/state"))
+    migrate(state_db, Path("services/brain/storage/sql_migrations/state"))
     with sqlite3.connect(state_db) as conn:
         conn.execute(
             "INSERT INTO timelines(id, name, audio_clip_id, created_at, is_current) "

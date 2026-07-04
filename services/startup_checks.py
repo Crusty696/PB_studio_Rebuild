@@ -492,11 +492,11 @@ def check_system(app_root: Path | None = None) -> SystemStatus:
 
     futures: dict = {}
     with ThreadPoolExecutor(max_workers=6, thread_name_prefix="startup_check") as pool:
+        futures["ollama"] = pool.submit(_check_ollama)
         futures["ffmpeg"] = pool.submit(_check_ffmpeg)
         futures["nvenc"] = pool.submit(_check_nvenc)
         futures["disk"] = pool.submit(_check_disk, app_root)
         futures["hf_cache"] = pool.submit(_check_hf_cache)
-        futures["ollama"] = pool.submit(_check_ollama)
         futures["ml"] = pool.submit(_check_ml_packages)
         futures["python"] = pool.submit(check_python_version)
 

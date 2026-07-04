@@ -27,8 +27,10 @@ import database
 #   python tests/test_video_analysis_real.py
 collect_ignore = [
     "test_video_analysis_real.py",
+    "test_export_convert_real.py",
     "test_audio_analysis_real.py",
     "test_performance_profiling.py",
+    "qa_artifacts",
 ]
 
 

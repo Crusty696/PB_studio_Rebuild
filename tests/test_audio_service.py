@@ -34,7 +34,7 @@ def test_analyze_and_store_updates_db(tmp_path, project):
     audio_file = tmp_path / "store_test.wav"
     audio_file.write_bytes(b"\x00" * 100)
 
-    track = ingest_audio(str(audio_file))
+    track = ingest_audio(str(audio_file), project_id=project.id)
     assert track is not None
 
     analyzer = AudioAnalyzer()

@@ -78,16 +78,21 @@ def _artifact_blockers(root: Path) -> list[ReleaseBlocker]:
             )
         )
 
-    if installer.is_file():
-        signature = _authenticode_status(installer)
-        if signature != "Valid":
-            blockers.append(
-                ReleaseBlocker(
-                    "SIGN-001",
-                    "Installer is not code-signed",
-                    f"{installer} Authenticode={signature}",
-                )
+    # Private/local distribution policy (user decision 2026-07-04):
+    # Authenticode is optional and must not block release readiness.
+    dirty_paths = _release_relevant_dirty_paths(root)
+    if dirty_paths:
+        blockers.append(
+            ReleaseBlocker(
+                "ART-006",
+                "Release-relevant source has uncommitted changes",
+                (
+                    "Current frozen artifacts cannot be proven to contain local "
+                    "release-relevant changes: "
+                    + "; ".join(dirty_paths[:20])
+                ),
             )
+        )
     blockers.extend(
         _artifact_freshness_blockers(
             root,
@@ -95,6 +100,35 @@ def _artifact_blockers(root: Path) -> list[ReleaseBlocker]:
         )
     )
     return blockers
+
+
+def _release_relevant_dirty_paths(root: Path) -> list[str]:
+    git = shutil.which("git")
+    if not git:
+        return []
+    proc = subprocess.run(
+        [
+            git,
+            "status",
+            "--porcelain",
+            "--untracked-files=all",
+            "--",
+            *_RELEASE_RELEVANT_PATHS,
+        ],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    if proc.returncode != 0:
+        return []
+    dirty: list[str] = []
+    for line in proc.stdout.splitlines():
+        path = line[3:].strip() if len(line) > 3 else line.strip()
+        if path:
+            dirty.append(path)
+    return dirty
 
 
 def _artifact_freshness_blockers(root: Path, artifacts: list[Path]) -> list[ReleaseBlocker]:

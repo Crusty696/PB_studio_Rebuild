@@ -112,9 +112,19 @@ def style_compat(predecessor: ClipFeatures | None, clip: ClipFeatures) -> float:
         return 0.5
     a = predecessor.embedding
     b = clip.embedding
+    pair_id = (id(a), id(b))
+    cached_id_sim = _STYLE_COMPAT_ID_CACHE.get(pair_id)
+    if cached_id_sim is not None:
+        ref_a, ref_b, sim = cached_id_sim
+        if ref_a() is a and ref_b() is b:
+            return sim
+        _STYLE_COMPAT_ID_CACHE.pop(pair_id, None)
     pair_key = (_embedding_fingerprint(a), _embedding_fingerprint(b))
     cached_sim = _STYLE_COMPAT_CACHE.get(pair_key)
     if cached_sim is not None:
+        if len(_STYLE_COMPAT_ID_CACHE) >= _STYLE_COMPAT_ID_CACHE_MAX:
+            _STYLE_COMPAT_ID_CACHE.clear()
+        _STYLE_COMPAT_ID_CACHE[pair_id] = (weakref.ref(a), weakref.ref(b), cached_sim)
         return cached_sim
     na = _embedding_norm(a)
     nb = _embedding_norm(b)
@@ -124,6 +134,9 @@ def style_compat(predecessor: ClipFeatures | None, clip: ClipFeatures) -> float:
     if len(_STYLE_COMPAT_CACHE) >= _STYLE_COMPAT_CACHE_MAX:
         _STYLE_COMPAT_CACHE.clear()
     _STYLE_COMPAT_CACHE[pair_key] = sim
+    if len(_STYLE_COMPAT_ID_CACHE) >= _STYLE_COMPAT_ID_CACHE_MAX:
+        _STYLE_COMPAT_ID_CACHE.clear()
+    _STYLE_COMPAT_ID_CACHE[pair_id] = (weakref.ref(a), weakref.ref(b), sim)
     return sim
 
 
@@ -140,6 +153,11 @@ _STYLE_COMPAT_CACHE: dict[
     float,
 ] = {}
 _STYLE_COMPAT_CACHE_MAX = 16384
+_STYLE_COMPAT_ID_CACHE: dict[
+    tuple[int, int],
+    tuple[weakref.ReferenceType[np.ndarray], weakref.ReferenceType[np.ndarray], float],
+] = {}
+_STYLE_COMPAT_ID_CACHE_MAX = 16384
 _FINGERPRINT_ID_CACHE: dict[
     int,
     tuple[weakref.ReferenceType[np.ndarray], tuple[bytes, tuple[int, ...], str]],

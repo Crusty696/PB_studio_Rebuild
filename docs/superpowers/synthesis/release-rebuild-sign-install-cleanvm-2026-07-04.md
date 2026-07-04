@@ -1,5 +1,5 @@
 ---
-status: evidence-pass-user-fixed-marker-open
+status: code-pass-artifact-rebuild-pending
 plan: PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09
 task: OTK-021 90 Live-Verify / Release-Distribution evidence refresh
 date: 2026-07-04
@@ -9,11 +9,18 @@ date: 2026-07-04
 
 ## Result
 
-Current local release evidence is green for the rebuilt v0.5.0 distribution
-artifacts from the current branch state.
+Earlier local release evidence was green for rebuilt v0.5.0 distribution
+artifacts, but this note is now superseded by later 2026-07-04 source fixes.
+The current repository state has fresh full-test evidence, but the existing
+`dist/` and installed-app artifacts cannot yet be claimed to contain those
+fixes until a new commit, rebuild, install, and live verification are complete.
 
-- `tools/release_gate.py` -> `RELEASE-GATE OK`, exit `0`.
-- `scripts/diag/verify_release_evidence_matrix.py` -> `status=pass`, `release_ready=true`, no open production blockers.
+- `python -m pytest -q --basetemp %TEMP%/pb_pytest_full_monolith` ->
+  `2834 passed, 34 skipped, 35 warnings in 960.28s`.
+- `tools/release_gate.py` currently blocks while local release-relevant source
+  changes are uncommitted via `ART-006`.
+- `scripts/diag/verify_release_evidence_matrix.py` mirrors that blocker until
+  the source changes are committed and the distribution artifacts are rebuilt.
 - Installed-app GUI live proof accepted by gate:
   `docs/superpowers/synthesis/installed-app-gui-live-proof-2026-07-04.md`.
 - Clean Windows Sandbox install proof accepted by gate:
@@ -36,6 +43,9 @@ artifacts from the current branch state.
 - Rebuilt release artifacts via `installer/build_installer.bat`.
 - Signed installer with CurrentUser self-signed code-signing certificate:
   thumbprint `EB0DF8D8AFBEDE5D7F8B3021076F502C3F04549F`.
+- User decision 2026-07-04: PB Studio is private-only distribution for the
+  user/Michael path. Authenticode signing/certificates are optional and must
+  not block release readiness.
 - `scripts/diag/verify_signing_readiness.py` -> `release_signing_ready=true`,
   Authenticode `Valid`.
 - `scripts/diag/verify_release_artifact_pair.py` -> `status=pass`,
@@ -69,9 +79,11 @@ artifacts from the current branch state.
 
 ## Honest Limits
 
+- Existing `dist/` artifacts predate the latest local source fixes in
+  `services/pacing/scorer.py`, `services/startup_checks.py`, and
+  `services/release_readiness.py`. Rebuild/install/live verification is pending.
 - This does not prove public Microsoft SmartScreen reputation or a public CA
-  publisher identity. The installer is signed with the local self-signed
-  certificate approved for the free-app path.
+  publisher identity. Current private-only distribution does not require that.
 - The installed `pb_studio.exe` inside LocalAppData is not individually signed;
   the installer is signed and verified as `Valid`.
 - This does not upload the ZIP to a distribution channel.

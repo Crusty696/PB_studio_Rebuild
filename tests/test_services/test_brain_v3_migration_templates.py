@@ -4,7 +4,7 @@ from pathlib import Path
 
 
 def test_phase6_example_migration_template_exists_outside_runtime_scopes():
-    root = Path("services/brain_v3/storage/sql_migrations")
+    root = Path("services/brain/storage/sql_migrations")
     template = root / "_templates" / "002_example_add_nullable_column.sql"
 
     assert template.exists()
@@ -15,7 +15,7 @@ def test_phase6_example_migration_template_exists_outside_runtime_scopes():
 
 
 def test_runtime_migration_scopes_do_not_contain_placeholder_templates():
-    root = Path("services/brain_v3/storage/sql_migrations")
+    root = Path("services/brain/storage/sql_migrations")
     runtime_scopes = [
         p for p in root.iterdir()
         if p.is_dir() and not p.name.startswith("_")

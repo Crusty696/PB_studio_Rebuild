@@ -24,16 +24,15 @@ def _run_readiness() -> dict[str, object]:
     return json.loads(_OUT.read_text(encoding="utf-8"))
 
 
-def test_installed_app_gui_readiness_keeps_gui_blocked_without_install() -> None:
+def test_installed_app_gui_readiness_reports_private_user_install_ready() -> None:
     payload = _run_readiness()
 
-    assert payload["installed_app_gui_ready"] is False
+    assert payload["installed_app_gui_ready"] is True
+    assert payload["blockers"] == []
     assert payload["installer"]["exists"] is True
     assert payload["payload"]["exists"] is True
-    if payload["installer_authenticode"]["signed"]:
-        assert "installer-not-signed" not in payload["blockers"]
-    else:
-        assert "installer-not-signed" in payload["blockers"]
+    assert payload["installed_exe"]["is_file"] is True
+    assert "installer-not-signed" not in payload["blockers"]
     assert "This preflight does not install PB Studio" in payload["note"]
 
 

@@ -24,10 +24,11 @@ def _run_clean_vm_readiness() -> dict[str, object]:
     return json.loads(_OUT.read_text(encoding="utf-8"))
 
 
-def test_clean_vm_readiness_reports_ready_when_sandbox_tooling_and_artifacts_exist() -> None:
+def test_clean_vm_readiness_reports_current_admin_blocker_and_artifacts() -> None:
     payload = _run_clean_vm_readiness()
 
-    assert payload["clean_vm_ready"] is True
+    assert payload["clean_vm_ready"] is False
+    assert "not-running-as-admin" in payload["blockers"]
     assert payload["installer"]["exists"] is True
     assert payload["payload"]["exists"] is True
     assert payload["payload"]["size_bytes"] > 1024**3

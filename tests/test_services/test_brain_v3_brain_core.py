@@ -33,7 +33,7 @@ from services.brain.storage.sqlite_init import open_connection
 def weights_db(tmp_path: Path) -> Path:
     db = tmp_path / "weights.db"
     mig = (Path(__file__).resolve().parents[2]
-           / "services" / "brain_v3" / "storage"
+           / "services" / "brain" / "storage"
            / "sql_migrations" / "weights")
     migrate(db, mig)
     return db
@@ -43,7 +43,7 @@ def weights_db(tmp_path: Path) -> Path:
 def patterns_db(tmp_path: Path) -> Path:
     db = tmp_path / "patterns.db"
     mig = (Path(__file__).resolve().parents[2]
-           / "services" / "brain_v3" / "storage"
+           / "services" / "brain" / "storage"
            / "sql_migrations" / "patterns")
     migrate(db, mig)
     return db
