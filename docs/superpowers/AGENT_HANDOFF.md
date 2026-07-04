@@ -5,6 +5,16 @@ This file is a repository-local continuity checkpoint for all agents.
 ## Codex Quellstand-Konsolidierung 2026-06-22 (newest)
 
 - **Branch:** `codex/OTK-021-source-consolidation-2026-06-22`
+- **Release governance sync 2026-07-04:** fixed stale governance/test wording
+  after DG-001 moved to `live-verified`. `tests/test_services/test_deferred_gates.py`
+  now asserts the real repo DG-001 row is parsed but inactive instead of
+  expecting an active blocker. `PLAN_REGISTRY.md`, `ACTIVE_PLAN.md`, the OTK
+  masterplan, and the Vault mirror now say: DG-001 live-verified, release gate
+  exits 0, fixed marker still user-confirmation-only. Verification:
+  release-governance focused tests `14 passed in 2.47s`,
+  `verify_release_evidence_matrix.py` -> `status=pass`,
+  `release_ready=true`, `deferred_count=0`, `blockers=0`, `open_items=0`;
+  `tools/release_gate.py` -> `EXIT=0`.
 - **Release rebuild/sign/install/clean-VM evidence 2026-07-04:** ART-005 stale
   artifact blocker is cleared for the current local v0.5.0 distribution
   identity. Rebuilt with `installer/build_installer.bat`, signed installer with

@@ -59,9 +59,10 @@ def test_missing_file_is_empty(tmp_path):
 
 
 def test_real_repo_file_parses():
-    """The shipped DEFERRED_GATES.md must parse; DG-001 is currently active."""
+    """The shipped DEFERRED_GATES.md must parse and reflect current gate state."""
     real = _REPO / "docs" / "superpowers" / "DEFERRED_GATES.md"
     gates = dg.parse_deferred_gates(real)
-    ids = [g.gate_id for g in gates]
-    assert "DG-001" in ids
-    assert any(g.is_active for g in gates)
+    by_id = {g.gate_id: g for g in gates}
+    assert "DG-001" in by_id
+    assert by_id["DG-001"].status == "live-verified"
+    assert by_id["DG-001"].is_active is False

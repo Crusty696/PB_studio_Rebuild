@@ -23,13 +23,15 @@ Those decisions are not app-code implementation tasks and must not be executed b
 ## Current Next Task
 
 ```text
-OTK-021 next subtask: 90 Live-Verify. Tier 1-2 plus
+OTK-021 current subtask: 90 Live-Verify evidence/fix-follow-up. Tier 1-2 plus
 Tier 3/30 Storage-Migration-Service, 31 SCHNITT-Audio-Adapter,
 32 Cross-Project-Reuse UX, 33 Storage-Browser UI, 34 Project-Export + Import,
 40 Caller-Migration, 50 Service-Coverage, 51 Controller-Coverage, 60 Test-Infra,
 70 Backup-Portability, and 71 Disk-Budget Global code/tests completed
-by 2026-06-15. Product live verification remains pending. DG-001 remains
-mandatory before fixed/release status.
+by 2026-06-15. As of 2026-07-04, product/release evidence is current green:
+DG-001 is `live-verified`, installed-app GUI proof and clean-VM proof pass, and
+`tools/release_gate.py` exits 0. Continue final verification/fix-follow-up only;
+do not set a `fixed` marker without explicit user confirmation.
 ```
 
 ## Agent Behavior
