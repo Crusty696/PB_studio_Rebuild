@@ -5,6 +5,20 @@ This file is a repository-local continuity checkpoint for all agents.
 ## Codex Quellstand-Konsolidierung 2026-06-22 (newest)
 
 - **Branch:** `codex/OTK-021-source-consolidation-2026-06-22`
+- **B-538 long-audio service E2E 2026-07-05:** commit `8aeb1ec` adds
+  isolated project/AppData/json-output support to
+  `scripts/diag/e2e_audio_pipeline_orchestrator.py` and documents the run in
+  `docs/superpowers/synthesis/b538-long-audio-service-e2e-2026-07-05.md`.
+  Real user WAV `C:\Users\David_Lochmann\Music\02 Mai19 - Kopie.wav`
+  (5531.005s) completed the service orchestrator with JSON `status=pass`,
+  `failed=false`, `total_seconds=3600.46`. Evidence: StemGen CUDA GTX 1060
+  `198/198`, BeatGrid `12569` beats, Structure `341` segments, LUFS `-14.83`,
+  AV-Pacing `55311` samples, 4 stem WAVs each `1463504060` bytes. Verification:
+  `py_compile` PASS, script `--help` PASS, `git diff --check` EXIT=0 with only
+  CRLF/LF warning, `tools/release_gate.py` EXIT=0 after commit. Honest limits:
+  no visible GUI workflow to Timeline/Export/Playback, DB has `waveform_data=0`,
+  `hotcues=0`, `timeline_entries=0`, and Onset warns `Audio truncated to 1800
+  sec`; B-538 remains `partial-fix`, no `fixed` marker.
 - **Release governance sync 2026-07-04:** fixed stale governance/test wording
   after DG-001 moved to `live-verified`. `tests/test_services/test_deferred_gates.py`
   now asserts the real repo DG-001 row is parsed but inactive instead of
