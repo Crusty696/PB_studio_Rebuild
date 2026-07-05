@@ -303,8 +303,8 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
 
             # H-25 FIX: Hold GPU_EXECUTION_LOCK for entire batch to prevent model invalidation mid-batch
             # (prevents other threads from unloading SigLIP/RAFT between video iterations)
-            from services.model_manager import GPU_EXECUTION_LOCK
-            with GPU_EXECUTION_LOCK:
+            from services.model_manager import gpu_execution_lease
+            with gpu_execution_lease("video_analysis_batch"):
                 for idx, (clip_id, video_path, title) in enumerate(self._batch, start=1):
                     if self.should_stop():
                         break
@@ -478,6 +478,7 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                         logger.warning("[BATCH] SigLIP Entladen fehlgeschlagen: %s", e)
                     siglip_model_processor = None
 
+            caption_failure_state = {"consecutive_failures": 0}
             for clip_id, scenes, caption_idx, caption_total in deferred_caption_jobs:
                 if self.should_stop():
                     break
@@ -497,6 +498,7 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                             )
                         ),
                         should_stop=self.should_stop,
+                        caption_failure_state=caption_failure_state,
                     )
                 except Exception as caption_exc:  # broad catch intentional — one job must not abort the batch (B-361)
                     logging.error(

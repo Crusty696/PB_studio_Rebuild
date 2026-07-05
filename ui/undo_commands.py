@@ -398,8 +398,21 @@ class ApplyAutoEditCommand(QUndoCommand):
                 })
 
         from services.timeline_service import apply_auto_edit_segments
+        apply_started_at = time.perf_counter()
         apply_auto_edit_segments(self._new_segments, self._project_id)
+        logger.info(
+            "B-598 ApplyAutoEditCommand.redo apply_auto_edit_segments project_id=%s segments=%d duration_ms=%.1f",
+            self._project_id,
+            len(self._new_segments),
+            (time.perf_counter() - apply_started_at) * 1000.0,
+        )
+        reload_started_at = time.perf_counter()
         self._timeline.load_from_db(self._project_id)
+        logger.info(
+            "B-598 ApplyAutoEditCommand.redo load_from_db project_id=%s duration_ms=%.1f",
+            self._project_id,
+            (time.perf_counter() - reload_started_at) * 1000.0,
+        )
         # Only save old_entries if redo succeeded
         self._old_entries = old_entries_backup
 

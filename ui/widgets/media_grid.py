@@ -515,6 +515,7 @@ class MediaPoolGrid(QWidget):
         super().__init__(parent)
         self._type = media_type
         self._all_items: list[dict] = []
+        self._items_signature: tuple = ()
         self._cards: list[MediaCard] = []
         self._filtered: list[MediaCard] = []
         self._selected_id: int | None = None
@@ -626,14 +627,56 @@ class MediaPoolGrid(QWidget):
 
     def set_items(self, items: list[dict]) -> None:
         """Populate grid from a list of media dicts."""
+        signature = self._build_items_signature(items)
         self._all_items = items
+        if signature == self._items_signature:
+            logger.debug(
+                "B-596: MediaPoolGrid %s set_items no-op for %d unchanged items",
+                self._type,
+                len(items),
+            )
+            return
+        self._items_signature = signature
         self._rebuild_cards()
 
     def clear(self) -> None:
         self._all_items = []
+        self._items_signature = ()
         self._rebuild_cards()
 
     # ── Internal ─────────────────────────────────────────────────────
+
+    @staticmethod
+    def _freeze_signature_value(value):
+        if isinstance(value, dict):
+            return tuple(
+                (key, MediaPoolGrid._freeze_signature_value(value[key]))
+                for key in sorted(value)
+            )
+        if isinstance(value, (list, tuple)):
+            return tuple(MediaPoolGrid._freeze_signature_value(v) for v in value)
+        return value
+
+    def _build_items_signature(self, items: list[dict]) -> tuple:
+        keys = (
+            "id",
+            "title",
+            "file_path",
+            "resolution",
+            "fps",
+            "bpm",
+            "key",
+            "mood",
+            "genre",
+            "energy_curve",
+        )
+        return tuple(
+            tuple(
+                (key, self._freeze_signature_value(item.get(key)))
+                for key in keys
+            )
+            for item in items
+        )
 
     def _cancel_pending_thumbs(self) -> None:
         """B-508: invalidiert ausstehende gepoolte Thumbnail-Jobs.

@@ -13,6 +13,7 @@ Unterstützte Modell-Typen:
 import gc
 import logging
 import threading
+import time
 import psutil
 from contextlib import contextmanager
 from functools import wraps
@@ -46,6 +47,73 @@ GPU_LOAD_LOCK = threading.RLock()
 # FIX: RLock für maximale Stabilität bei komplexen Pipelines.
 GPU_EXECUTION_LOCK = threading.RLock()
 
+_GPU_EXECUTION_HOLDER_LOCK = threading.Lock()
+_GPU_EXECUTION_HOLDER: dict[str, Any] | None = None
+
+
+@contextmanager
+def gpu_execution_lease(reason: str = "gpu operation"):
+    """Instrumented lease around the legacy GPU_EXECUTION_LOCK.
+
+    The exported lock stays a raw RLock for compatibility with older callers
+    and tests. This helper adds B-599 wait/holder/held timing where adopted.
+    """
+    global _GPU_EXECUTION_HOLDER
+    thread = threading.current_thread()
+    wait_start = time.perf_counter()
+    with _GPU_EXECUTION_HOLDER_LOCK:
+        holder_before = dict(_GPU_EXECUTION_HOLDER) if _GPU_EXECUTION_HOLDER else None
+    logger.info(
+        "B-599 GPU_EXECUTION_LOCK wait reason=%s thread=%s/%s holder=%s",
+        reason,
+        thread.name,
+        thread.ident,
+        holder_before,
+    )
+    lock_uses_acquire = hasattr(GPU_EXECUTION_LOCK, "acquire") and hasattr(
+        GPU_EXECUTION_LOCK, "release"
+    )
+    if lock_uses_acquire:
+        GPU_EXECUTION_LOCK.acquire()
+    else:
+        GPU_EXECUTION_LOCK.__enter__()
+    acquired_at = time.perf_counter()
+    previous_holder: dict[str, Any] | None
+    with _GPU_EXECUTION_HOLDER_LOCK:
+        previous_holder = dict(_GPU_EXECUTION_HOLDER) if _GPU_EXECUTION_HOLDER else None
+        _GPU_EXECUTION_HOLDER = {
+            "reason": reason,
+            "thread": thread.name,
+            "thread_id": thread.ident,
+            "acquired_at": acquired_at,
+        }
+    logger.info(
+        "B-599 GPU_EXECUTION_LOCK acquired reason=%s thread=%s/%s wait_ms=%.1f previous_holder=%s",
+        reason,
+        thread.name,
+        thread.ident,
+        (acquired_at - wait_start) * 1000.0,
+        previous_holder,
+    )
+    try:
+        yield
+    finally:
+        release_at = time.perf_counter()
+        with _GPU_EXECUTION_HOLDER_LOCK:
+            _GPU_EXECUTION_HOLDER = previous_holder
+        if lock_uses_acquire:
+            GPU_EXECUTION_LOCK.release()
+        else:
+            GPU_EXECUTION_LOCK.__exit__(None, None, None)
+        logger.info(
+            "B-599 GPU_EXECUTION_LOCK released reason=%s thread=%s/%s held_ms=%.1f restored_holder=%s",
+            reason,
+            thread.name,
+            thread.ident,
+            (release_at - acquired_at) * 1000.0,
+            previous_holder,
+        )
+
 
 @contextmanager
 def gpu_resource_lease(reason: str = "gpu operation"):
@@ -54,7 +122,7 @@ def gpu_resource_lease(reason: str = "gpu operation"):
     Reihenfolge ist absichtlich stabil: erst Execution, dann Load.
     Damit kann kein Inferenzpfad waehrend eines Loads/Unloads dazwischenfunken.
     """
-    with GPU_EXECUTION_LOCK:
+    with gpu_execution_lease(reason):
         with GPU_LOAD_LOCK:
             yield
 

@@ -16,6 +16,8 @@ Service-Mapping siehe A-8 + RED-Pre-Check-Updates aus T1.0-Migration:
 from __future__ import annotations
 
 import logging
+import time
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -46,6 +48,32 @@ except ImportError:
 
 class StageInputMissingError(RuntimeError):
     """A-1 / fixt R-01: Stage benoetigt Stem das fehlt -> Pipeline-Stop."""
+
+
+def _raise_if_cancelled(context: PipelineContext, stage_name: str) -> None:
+    if context.should_stop and context.should_stop():
+        raise RuntimeError(f"Audio-V2 Stage '{stage_name}' abgebrochen (User-Cancel)")
+
+
+@contextmanager
+def _audio_gpu_execution_lease(reason: str):
+    wait_start = time.perf_counter()
+    logger.info("B-597 GPU_EXECUTION_LOCK wait reason=%s", reason)
+    with GPU_EXECUTION_LOCK:
+        acquired_at = time.perf_counter()
+        logger.info(
+            "B-597 GPU_EXECUTION_LOCK acquired reason=%s wait_ms=%.1f",
+            reason,
+            (acquired_at - wait_start) * 1000.0,
+        )
+        try:
+            yield
+        finally:
+            logger.info(
+                "B-597 GPU_EXECUTION_LOCK released reason=%s held_ms=%.1f",
+                reason,
+                (time.perf_counter() - acquired_at) * 1000.0,
+            )
 
 
 class Stage:
@@ -231,7 +259,8 @@ class StemGenStage(Stage):
             progress_cb = _progress_wrapper
 
         # T2.1: GPU-Lock + Demucs + VRAM-Cleanup
-        with GPU_EXECUTION_LOCK:
+        _raise_if_cancelled(context, "stem_gen")
+        with _audio_gpu_execution_lease("audio_v2.stem_gen"):
             try:
                 separator = self._separator_cls()
                 if progress_cb:
@@ -253,6 +282,7 @@ class StemGenStage(Stage):
             finally:
                 if torch is not None and torch.cuda.is_available():
                     torch.cuda.empty_cache()
+        _raise_if_cancelled(context, "stem_gen")
 
         # Context + DB-Write nur bei Erfolg.
         context.stem_paths.update(result)
@@ -378,13 +408,15 @@ class BeatGridStage(Stage):
             from services.beat_analysis_service import BeatAnalysisService
             self._service_cls = BeatAnalysisService
 
-        with GPU_EXECUTION_LOCK:
+        _raise_if_cancelled(context, "beat_grid")
+        with _audio_gpu_execution_lease("audio_v2.beat_grid"):
             try:
                 svc = self._service_cls()
                 result = svc.analyze_and_store(context.track_id, trigger_onset=False)
             finally:
                 if torch is not None and torch.cuda.is_available():
                     torch.cuda.empty_cache()
+        _raise_if_cancelled(context, "beat_grid")
 
         context.set_result(self.name, {"bpm": (result or {}).get("bpm")})
 
@@ -397,12 +429,14 @@ class OnsetStage(Stage):
         self._service_cls = service_cls
 
     def run(self, context: PipelineContext) -> None:
+        _raise_if_cancelled(context, "onset")
         _require_stems(context, ("drums",), self.name)
         if self._service_cls is None:
             from services.onset_rhythm_service import OnsetRhythmService
             self._service_cls = OnsetRhythmService
         svc = self._service_cls()
         result = svc.analyze_and_store(context.track_id)
+        _raise_if_cancelled(context, "onset")
         context.set_result(self.name, {"ok": result is not None})
 
 
@@ -473,6 +507,7 @@ class LUFSStage(Stage):
         self._service_cls = service_cls
 
     def run(self, context: PipelineContext) -> None:
+        _raise_if_cancelled(context, "lufs")
         if self._service_cls is None:
             from services.lufs_service import LUFSService
             self._service_cls = LUFSService
@@ -488,6 +523,7 @@ class LUFSStage(Stage):
             result = svc.analyze(context.original_path, progress_cb=progress_cb)
         else:
             result = svc.analyze(context.original_path)
+        _raise_if_cancelled(context, "lufs")
         # OTK-018: LUFS an AudioTrack persistieren (Worker-konform: result.integrated).
         integrated = getattr(result, "integrated", None)
         if integrated is None:
@@ -506,12 +542,14 @@ class SpectralStage(Stage):
         self._service_cls = service_cls
 
     def run(self, context: PipelineContext) -> None:
+        _raise_if_cancelled(context, "spectral")
         if self._service_cls is None:
             from services.spectral_analysis_service import SpectralAnalysisService
             self._service_cls = SpectralAnalysisService
         svc = self._service_cls()
         bpm = context.results.get("beat_grid", {}).get("bpm")
         result = svc.analyze(context.original_path, bpm=bpm)
+        _raise_if_cancelled(context, "spectral")
         # OTK-018: Spektral-Baender an AudioTrack persistieren (Worker-konform).
         try:
             bands_json = svc.get_bands_json(result)
@@ -531,11 +569,13 @@ class AVPacingStage(Stage):
         self._service_cls = service_cls
 
     def run(self, context: PipelineContext) -> None:
+        _raise_if_cancelled(context, "av_pacing")
         if self._service_cls is None:
             from services.av_pacing_service import AVPacingService
             self._service_cls = AVPacingService
         svc = self._service_cls()
         result = svc.analyze(context.original_path)
+        _raise_if_cancelled(context, "av_pacing")
         context.set_result(self.name, {
             "samples": len(getattr(result, "times_sec", []) or []),
         })

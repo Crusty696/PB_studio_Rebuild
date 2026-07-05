@@ -3,6 +3,7 @@
 import bisect
 import json
 import logging
+import time
 from collections import namedtuple
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -834,9 +835,11 @@ class InteractiveTimeline(QGraphicsView):
         self.console_log = console_log
         self.clip_items: list[TimelineClipItem] = []
         self.cut_lines: list[QGraphicsLineItem] = []
+        self._cut_points_signature: tuple = ()
         self.waveform_items: list[WaveformGraphicsItem] = []
         self._beat_markers: list[QGraphicsLineItem] = []
         self._beat_times: list[float] = []
+        self._beat_marker_signature: tuple = ()
         self._snap_to_beat = True
         self._ruler_items: list = []
         # B-529: entry_id -> {"new_start", "drag_start_x", "duration"}. Die
@@ -990,6 +993,13 @@ class InteractiveTimeline(QGraphicsView):
     def load_from_db(self, project_id: int | None = None):
         """Asynchrones Laden der Timeline-Daten (Fix für Main-Thread Blocking)."""
         logger.debug("[B-283] load_from_db called for project_id=%s", project_id)
+        teardown_started_at = time.perf_counter()
+        teardown_counts = {
+            "clips": len(self.clip_items),
+            "waveforms": len(self.waveform_items),
+            "cut_lines": len(self.cut_lines),
+            "beat_markers": len(self._beat_markers),
+        }
         # M3-FIX: Alten Worker canceln bevor ein neuer gestartet wird
         self._cancel_pending_db_load()
 
@@ -1033,15 +1043,23 @@ class InteractiveTimeline(QGraphicsView):
             for line in self.cut_lines:
                 _safe_remove(line)
             self.cut_lines.clear()
+            self._cut_points_signature = ()
             # Clear old beat markers
             for marker in self._beat_markers:
                 _safe_remove(marker)
             self._beat_markers.clear()
+            self._beat_marker_signature = ()
             # Clear sections + beat grid + drop markers (AUD-70)
             self._clear_sections()
             self._clear_beat_grid()
         finally:
             _vp.setUpdatesEnabled(True)
+            logger.info(
+                "B-598 timeline load_from_db teardown project_id=%s duration_ms=%.1f counts=%s",
+                project_id,
+                (time.perf_counter() - teardown_started_at) * 1000.0,
+                teardown_counts,
+            )
 
         # Hintergrund-Worker für die Datenbankabfrage
         from PySide6.QtCore import QObject, Signal, QThread
@@ -1566,53 +1584,103 @@ class InteractiveTimeline(QGraphicsView):
         self._schedule_thumb_request()
 
     def set_cut_points(self, cuts: list[CutPoint], total_duration: float):
-        for line in self.cut_lines:
-            self._scene.removeItem(line)
-        self.cut_lines.clear()
+        started_at = time.perf_counter()
+        signature = (
+            round(float(total_duration or 0.0), 3),
+            tuple(
+                (
+                    round(float(cp.time), 3),
+                    str(cp.source),
+                    round(float(cp.strength), 3),
+                )
+                for cp in cuts
+            ),
+        )
+        if signature == self._cut_points_signature:
+            logger.info(
+                "B-598 timeline set_cut_points no-op count=%d duration_ms=%.1f",
+                len(cuts),
+                (time.perf_counter() - started_at) * 1000.0,
+            )
+            return
+        self._cut_points_signature = signature
+        vp = self.viewport()
+        vp.setUpdatesEnabled(False)
+        try:
+            for line in self.cut_lines:
+                self._scene.removeItem(line)
+            self.cut_lines.clear()
 
-        color_map = {
-            "beat": QColor(100, 200, 100, 180),
-            "scene": QColor(255, 200, 60, 180),
-            "energy": QColor(200, 100, 200, 180),
-            "drum": QColor(255, 80, 80, 220),
-            "anchor": QColor(255, 0, 255, 220),
-            "transition": QColor(0, 200, 255, 220),   # Cyan fuer DJ-Uebergaenge
-            "drop": QColor(255, 40, 40, 255),          # Rot fuer Drops
-        }
-        for cp in cuts:
-            x = cp.time * PIXELS_PER_SECOND
-            color = color_map.get(cp.source, QColor(180, 180, 180))
-            pen = QPen(color, 1)
-            line_h = int(20 * cp.strength)
-            line = self._scene.addLine(x, CUT_MARKERS_Y, x, CUT_MARKERS_Y + line_h, pen)
-            line.setZValue(5)
-            self.cut_lines.append(line)
+            color_map = {
+                "beat": QColor(100, 200, 100, 180),
+                "scene": QColor(255, 200, 60, 180),
+                "energy": QColor(200, 100, 200, 180),
+                "drum": QColor(255, 80, 80, 220),
+                "anchor": QColor(255, 0, 255, 220),
+                "transition": QColor(0, 200, 255, 220),   # Cyan fuer DJ-Uebergaenge
+                "drop": QColor(255, 40, 40, 255),          # Rot fuer Drops
+            }
+            for cp in cuts:
+                x = cp.time * PIXELS_PER_SECOND
+                color = color_map.get(cp.source, QColor(180, 180, 180))
+                pen = QPen(color, 1)
+                line_h = int(20 * cp.strength)
+                line = self._scene.addLine(x, CUT_MARKERS_Y, x, CUT_MARKERS_Y + line_h, pen)
+                line.setZValue(5)
+                self.cut_lines.append(line)
 
-        # Update total duration and redraw backgrounds if needed
-        if total_duration > self._total_duration:
-            self._total_duration = total_duration
-            self._draw_track_backgrounds()
+            # Update total duration and redraw backgrounds if needed
+            if total_duration > self._total_duration:
+                self._total_duration = total_duration
+                self._draw_track_backgrounds()
 
-        self._draw_ruler(total_duration)
-        self._update_scene_rect()
+            self._draw_ruler(total_duration)
+            self._update_scene_rect()
+        finally:
+            vp.setUpdatesEnabled(True)
+            logger.info(
+                "B-598 timeline set_cut_points count=%d duration_ms=%.1f",
+                len(cuts),
+                (time.perf_counter() - started_at) * 1000.0,
+            )
 
     def set_beat_markers(self, beat_times: list[float]) -> None:
         """Zeichnet goldene Beat-Marker auf der Timeline (AI-Funktion)."""
-        for line in self._beat_markers:
-            self._scene.removeItem(line)
-        self._beat_markers.clear()
-        self._beat_times = sorted(beat_times)
+        started_at = time.perf_counter()
+        signature = tuple(round(float(t), 3) for t in sorted(beat_times))
+        if signature == self._beat_marker_signature:
+            logger.info(
+                "B-598 timeline set_beat_markers no-op count=%d duration_ms=%.1f",
+                len(beat_times),
+                (time.perf_counter() - started_at) * 1000.0,
+            )
+            return
+        self._beat_marker_signature = signature
+        vp = self.viewport()
+        vp.setUpdatesEnabled(False)
+        try:
+            for line in self._beat_markers:
+                self._scene.removeItem(line)
+            self._beat_markers.clear()
+            self._beat_times = list(signature)
 
-        gold_pen = QPen(QColor(212, 175, 55, 160), 1)
-        downbeat_pen = QPen(QColor(212, 175, 55, 220), 1)
-        marker_height = AUDIO_TRACK_Y + TRACK_HEIGHT * 2 + 20
+            gold_pen = QPen(QColor(212, 175, 55, 160), 1)
+            downbeat_pen = QPen(QColor(212, 175, 55, 220), 1)
+            marker_height = AUDIO_TRACK_Y + TRACK_HEIGHT * 2 + 20
 
-        for i, t in enumerate(self._beat_times):
-            x = t * PIXELS_PER_SECOND
-            pen = downbeat_pen if (i % 4 == 0) else gold_pen
-            line = self._scene.addLine(x, AUDIO_TRACK_Y, x, marker_height, pen)
-            line.setZValue(3)
-            self._beat_markers.append(line)
+            for i, t in enumerate(self._beat_times):
+                x = t * PIXELS_PER_SECOND
+                pen = downbeat_pen if (i % 4 == 0) else gold_pen
+                line = self._scene.addLine(x, AUDIO_TRACK_Y, x, marker_height, pen)
+                line.setZValue(3)
+                self._beat_markers.append(line)
+        finally:
+            vp.setUpdatesEnabled(True)
+            logger.info(
+                "B-598 timeline set_beat_markers count=%d duration_ms=%.1f",
+                len(beat_times),
+                (time.perf_counter() - started_at) * 1000.0,
+            )
 
     # ── AUD-70: Beat Grid Overlay + Section Colors ───────────────
 

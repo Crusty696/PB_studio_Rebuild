@@ -214,6 +214,31 @@ class EditWorkspaceController(PBComponent):
             ctrl.attach_worker(self._cuts_worker)
         self._cuts_thread.start()
 
+    def _defer_cut_list_refresh(self) -> None:
+        def _refresh():
+            try:
+                tab_schnitt = self.window._schnitt_ws.editor_view.tab_schnitt
+                if hasattr(tab_schnitt, "cut_list_panel"):
+                    tab_schnitt.cut_list_panel.set_project(get_active_project_id())
+            except Exception as exc:
+                logger.debug("cut_list_panel refresh failed: %s", exc)
+
+        QTimer.singleShot(0, _refresh)
+
+    def _defer_schnitt_workspace_refresh(self) -> None:
+        def _refresh():
+            try:
+                ws = getattr(self.window, "_schnitt_ws", None)
+                if ws is not None:
+                    ws.refresh_state_from_db()
+            except Exception as exc:
+                logger.debug(
+                    "BUG-A: schnitt_ws.refresh_state_from_db nach Auto-Edit fehlgeschlagen: %s",
+                    exc,
+                )
+
+        QTimer.singleShot(0, _refresh)
+
     def _on_cuts_done(self, cuts: list, total_dur: float, seq: int = 0):
         # B-172: stale-result Drop wenn neuerer Klick schon in Flight.
         if seq and seq != getattr(self, "_gen_seq", seq):
@@ -243,13 +268,8 @@ class EditWorkspaceController(PBComponent):
         self.window._mark_dirty()
         self.window.console_text.append(f"[Pacing] {len(cuts)} Cuts generiert (Manual Curve aktiv)")
 
-        # B-295: CutListPanel nach Cut-Generation refresh
-        try:
-            tab_schnitt = self.window._schnitt_ws.editor_view.tab_schnitt
-            if hasattr(tab_schnitt, "cut_list_panel"):
-                tab_schnitt.cut_list_panel.set_project(get_active_project_id())
-        except Exception as exc:
-            logger.debug("cut_list_panel refresh failed: %s", exc)
+        # B-598: Finish-Refresh entkoppeln; CutList liest DB synchron.
+        self._defer_cut_list_refresh()
 
     def _on_cuts_failed(self, err: str, seq: int = 0):
         # B-172: stale-Fail-Drop
@@ -447,21 +467,11 @@ class EditWorkspaceController(PBComponent):
         except Exception as exc:
             logger.debug("active pacing run setup failed: %s", exc)
 
-        # B-295: CutListPanel nach Auto-Edit refresh
-        try:
-            tab_schnitt = self.window._schnitt_ws.editor_view.tab_schnitt
-            if hasattr(tab_schnitt, "cut_list_panel"):
-                tab_schnitt.cut_list_panel.set_project(get_active_project_id())
-        except Exception as exc:
-            logger.debug("cut_list_panel refresh failed: %s", exc)
+        # B-598: Finish-Refreshes entkoppeln; beide koennen DB synchron lesen.
+        self._defer_cut_list_refresh()
 
         # BUG-A Fix: SchnittWorkspace nach Auto-Edit auf Editor-State umschalten
-        try:
-            ws = getattr(self.window, "_schnitt_ws", None)
-            if ws is not None:
-                ws.refresh_state_from_db()
-        except Exception as exc:
-            logger.debug("BUG-A: schnitt_ws.refresh_state_from_db nach Auto-Edit fehlgeschlagen: %s", exc)
+        self._defer_schnitt_workspace_refresh()
 
     def _latest_mem_pacing_run_id(self, audio_id: int | None) -> int | None:
         if audio_id is None:

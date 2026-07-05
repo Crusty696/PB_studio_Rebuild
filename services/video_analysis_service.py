@@ -738,6 +738,7 @@ def analyze_scene_with_caption(
     scenes: list[SceneInfo],
     progress_cb: Callable[[int, str], None] | None = None,
     vision_model: str = _VISION_MODEL,
+    caption_failure_state: dict[str, int] | None = None,
 ) -> list[SceneInfo]:
     """Analysiert Szenen mit Gemma Vision und befüllt ai_caption, ai_mood, ai_tags.
 
@@ -791,8 +792,21 @@ def analyze_scene_with_caption(
     # (typisch: 404 weil nicht installiert), stoppe nach N consecutive Errors
     # statt fuer jede Szene 15s in den httpx-Timeout zu rennen. Bei 218
     # Videos a 15s wuerden sonst stundenlange Hintergrund-Hangs entstehen.
-    _consecutive_failures = 0
     _CAPTION_FAIL_THRESHOLD = 3
+    _FAILURE_STATE_KEY = "consecutive_failures"
+    _consecutive_failures = (
+        int(caption_failure_state.get(_FAILURE_STATE_KEY, 0))
+        if caption_failure_state is not None
+        else 0
+    )
+    if _consecutive_failures >= _CAPTION_FAIL_THRESHOLD:
+        logger.error(
+            "[CAPTION] Batch-Circuit bereits offen (%d Fehler) — "
+            "Vision-Captioning fuer %d Szenen uebersprungen.",
+            _consecutive_failures,
+            len(keyframe_scenes),
+        )
+        return scenes
 
     for scene in keyframe_scenes:
         # B-034 Fix: Check pause state in loop to handle GPU operations starting mid-captioning
@@ -869,6 +883,8 @@ def analyze_scene_with_caption(
                     scene.index, scene.ai_mood,
                 )
                 _consecutive_failures = 0
+                if caption_failure_state is not None:
+                    caption_failure_state[_FAILURE_STATE_KEY] = 0
 
         except OllamaPausedError:
             # B-146 Fix: explizite Pause-Exception statt fragiler
@@ -888,6 +904,8 @@ def analyze_scene_with_caption(
                 break
             logger.warning("[CAPTION] Szene %d: Fehler: %s — übersprungen", scene.index, e)
             _consecutive_failures += 1
+            if caption_failure_state is not None:
+                caption_failure_state[_FAILURE_STATE_KEY] = _consecutive_failures
             # B-195: Circuit-Breaker fuer dauerhaft scheiternde Modelle
             # (z.B. nicht installiertes Ollama-Modell → 404 in Schleife).
             if _consecutive_failures >= _CAPTION_FAIL_THRESHOLD:
@@ -1250,6 +1268,7 @@ def run_deferred_captioning(
     scenes: list[SceneInfo],
     progress_cb: Callable[[int, str], None] | None = None,
     should_stop: Callable[[], bool] | None = None,
+    caption_failure_state: dict[str, int] | None = None,
 ) -> list[SceneInfo]:
     """Run Ollama/Gemma captioning after batch GPU models were unloaded."""
     # B-490 Followup (CRF-005): Projekt-Token am Funktions-Eintritt festhalten.
@@ -1267,7 +1286,10 @@ def run_deferred_captioning(
             analysis_status_service.mark_error("video", video_clip_id, "ai_scene_caption", "cancelled")
             return scenes
 
-        scenes = analyze_scene_with_caption(scenes)
+        scenes = analyze_scene_with_caption(
+            scenes,
+            caption_failure_state=caption_failure_state,
+        )
         captioned_count = sum(1 for s in scenes if hasattr(s, 'ai_caption') and s.ai_caption)
         analysis_status_service.mark_done("video", video_clip_id, "ai_scene_caption", {
             "captioned_scenes": captioned_count,

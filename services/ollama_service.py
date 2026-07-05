@@ -448,10 +448,25 @@ class OllamaService:
         # B-242: Cold-Load-Schutz analog zu chat(). Vision-Modelle (Moondream
         # etc.) sind oft kleiner, aber Cold-Load aus HDD-Cache kann ebenfalls
         # > 60 s dauern. Der finale Request nutzt offenen Read-Timeout.
-        if not self._is_model_warm(model):
+        warm_before = self._is_model_warm(model)
+        logger.info(
+            "B-599 OllamaService.vision warm_state before model=%s warm=%s read_timeout_s=%s images=%d",
+            model,
+            warm_before,
+            read_timeout_s,
+            len(image_paths),
+        )
+        if not warm_before:
             logger.info("OllamaService.vision(): Modell '%s' nicht warm — ensure_model() vorab.", model)
             if not self.ensure_model(model):
                 return f"Fehler: Modell '{model}' konnte nicht geladen werden"
+        warm_after = self._is_model_warm(model)
+        logger.info(
+            "B-599 OllamaService.vision warm_state after_ensure model=%s warm=%s read_timeout_s=%s",
+            model,
+            warm_after,
+            read_timeout_s,
+        )
 
         import base64
 

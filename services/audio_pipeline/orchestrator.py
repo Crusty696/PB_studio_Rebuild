@@ -11,6 +11,7 @@ A-1 Fail-Fast: Stage-Exception -> Pipeline-Stop, kein Fallback.
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any, Iterable
 
 from PySide6.QtCore import QObject, Signal, QThreadPool, QRunnable, Slot
@@ -115,16 +116,38 @@ class AudioAnalysisPipeline(QObject):
                 self.stage_done.emit(name, {"skipped": True})
                 continue
             self.stage_started.emit(name)
+            stage_started_at = time.perf_counter()
+            logger.info(
+                "B-597 audio_stage start track=%s stage=%s",
+                context.track_id,
+                name,
+            )
             try:
                 stage.run(context)
             except Exception as e:
+                duration_ms = (time.perf_counter() - stage_started_at) * 1000.0
                 msg = f"{name} failed: {e}"
-                logger.error(msg, exc_info=True)
+                logger.error(
+                    "B-597 audio_stage failed track=%s stage=%s duration_ms=%.1f error=%s",
+                    context.track_id,
+                    name,
+                    duration_ms,
+                    e,
+                    exc_info=True,
+                )
                 self.stage_failed.emit(name, msg)
                 # A-1 / AC-9: Fail-fast - keine Fallback, keine weiteren Stages.
                 raise
             # T4.2: Checkpoint-Mark NACH Success, atomic.
             _ckpt.mark_stage_done(context.track_id, name)
             payload = context.results.get(name, {})
+            duration_ms = (time.perf_counter() - stage_started_at) * 1000.0
+            logger.info(
+                "B-597 audio_stage done track=%s stage=%s duration_ms=%.1f result_keys=%s",
+                context.track_id,
+                name,
+                duration_ms,
+                sorted(payload.keys()) if isinstance(payload, dict) else [],
+            )
             self.stage_done.emit(name, payload)
         self.pipeline_done.emit(context.track_id)
