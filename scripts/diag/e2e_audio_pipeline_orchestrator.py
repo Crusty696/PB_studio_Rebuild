@@ -16,6 +16,7 @@ load_dotenv()
 import os
 import sys
 import time
+import json
 import logging
 import argparse
 from pathlib import Path
@@ -41,7 +42,19 @@ PROJECT_ROOT = _APP_ROOT / "test-report" / "e2e-orchestrator-project"
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--audio", default=DEFAULT_AUDIO)
+    ap.add_argument("--project-root", default=str(PROJECT_ROOT))
+    ap.add_argument("--json-output", default="")
+    ap.add_argument("--appdata-root", default="")
+    ap.add_argument("--chdir-project-root", action="store_true")
     args = ap.parse_args()
+
+    if args.appdata_root:
+        appdata_root = Path(args.appdata_root).resolve()
+        appdata_root.mkdir(parents=True, exist_ok=True)
+        os.environ["APPDATA"] = str(appdata_root / "Roaming")
+        os.environ["LOCALAPPDATA"] = str(appdata_root / "Local")
+        Path(os.environ["APPDATA"]).mkdir(parents=True, exist_ok=True)
+        Path(os.environ["LOCALAPPDATA"]).mkdir(parents=True, exist_ok=True)
 
     audio_path = str(Path(args.audio).resolve())
     if not Path(audio_path).exists():
@@ -53,10 +66,13 @@ def main() -> int:
     _app = QApplication.instance() or QApplication(sys.argv)
 
     # Test-Projekt-Root aktivieren.
-    PROJECT_ROOT.mkdir(parents=True, exist_ok=True)
+    project_root = Path(args.project_root).resolve()
+    project_root.mkdir(parents=True, exist_ok=True)
+    if args.chdir_project_root:
+        os.chdir(project_root)
     from database.session import set_project
-    set_project(PROJECT_ROOT)
-    log.info("Projekt-Root: %s", PROJECT_ROOT)
+    set_project(project_root)
+    log.info("Projekt-Root: %s", project_root)
 
     # DB-Init + Projekt sicherstellen (ingest braucht aktives/explizites Projekt).
     from database import init_db, engine, AudioTrack, Project
@@ -66,7 +82,7 @@ def main() -> int:
         project = s.query(Project).filter(Project.deleted_at.is_(None)).first()
         if project is None:
             project = Project(name="E2E Orchestrator Project",
-                              path=str(PROJECT_ROOT), resolution="1920x1080", fps=30.0)
+                              path=str(project_root), resolution="1920x1080", fps=30.0)
             s.add(project)
             s.commit()
         project_id = project.id
@@ -139,6 +155,27 @@ def main() -> int:
     for name, payload in ctx.results.items():
         log.info("  %-10s %s", name, payload)
     log.info("=" * 60)
+    if args.json_output:
+        result_path = Path(args.json_output).resolve()
+        result_path.parent.mkdir(parents=True, exist_ok=True)
+        result_path.write_text(
+            json.dumps(
+                {
+                    "status": "fail" if failed["any"] else "pass",
+                    "audio_path": audio_path,
+                    "project_root": str(project_root),
+                    "track_id": track_id,
+                    "total_seconds": total,
+                    "failed": failed["any"],
+                    "timings": timings,
+                    "results": ctx.results,
+                },
+                ensure_ascii=False,
+                indent=2,
+                default=str,
+            ),
+            encoding="utf-8",
+        )
     return 1 if failed["any"] else 0
 
 
