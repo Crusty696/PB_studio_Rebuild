@@ -1198,7 +1198,18 @@ def setup_logging():
     log_file = log_dir / "pb_studio.log"
 
     root = logging.getLogger()
-    root.setLevel(logging.INFO)
+    # Clicklog-Modus: PB_LOG_LEVEL=DEBUG (start_pb_studio_clicklog.bat) hebt
+    # das Level fuer Root + beide Sinks an, damit wirklich alle App-Events
+    # (Pipeline, Worker, Clip-Auswahl) in der Aufzeichnung landen.
+    _level_name = os.environ.get("PB_LOG_LEVEL", "").strip().upper()
+    log_level = getattr(logging, _level_name, None)
+    if not isinstance(log_level, int):
+        log_level = logging.INFO
+    root.setLevel(log_level)
+    if log_level <= logging.DEBUG:
+        # Fremd-Libraries wuerden auf DEBUG das Log fluten — auf INFO deckeln.
+        for _noisy in ("PIL", "urllib3", "matplotlib", "numba", "httpx", "httpcore"):
+            logging.getLogger(_noisy).setLevel(logging.INFO)
 
     use_json = os.environ.get("PB_STUDIO_JSON_LOGS", "").strip() == "1"
 
@@ -1224,13 +1235,13 @@ def setup_logging():
 
     # Echte Sinks — bekommen Formatter + Level, laufen aber NUR im Listener-Thread
     ch = logging.StreamHandler()
-    ch.setLevel(logging.INFO)
+    ch.setLevel(log_level)
     ch.setFormatter(fmt)
 
     fh = RotatingFileHandler(
         log_file, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8"
     )
-    fh.setLevel(logging.INFO)
+    fh.setLevel(log_level)
     fh.setFormatter(fmt)
 
     # Falls setup_logging mehrfach aufgerufen werden sollte: alten Listener stoppen
@@ -1559,12 +1570,48 @@ def main():
     # `import os`, das `os` fuer die GESAMTE Funktion lokal macht ->
     # Zugriff hier oben waere sonst UnboundLocalError.
     import os as _os_clicklog
-    if _os_clicklog.environ.get("PB_CLICK_LOG") == "1":
+    # PB_CLICKLOG=1 (start_pb_studio_clicklog.bat) ist Alias fuer PB_CLICK_LOG=1.
+    if (_os_clicklog.environ.get("PB_CLICK_LOG") == "1"
+            or _os_clicklog.environ.get("PB_CLICKLOG") == "1"):
         from PySide6.QtCore import QObject as _QObject, QEvent as _QEvent
 
         class _ClickLogger(_QObject):
             def eventFilter(self, obj, event):
                 et = event.type()
+                # Tastatur-Aufzeichnung: KeyPress mit Key-Name + Ziel-Widget.
+                # Keine Klartext-Eingaben aus Passwort-Feldern loggen.
+                if et == _QEvent.Type.KeyPress:
+                    try:
+                        try:
+                            from PySide6.QtWidgets import QLineEdit as _QLineEdit
+                            if (isinstance(obj, _QLineEdit)
+                                    and obj.echoMode() != _QLineEdit.EchoMode.Normal):
+                                return False
+                        except Exception:
+                            pass
+                        key = event.key()
+                        try:
+                            from PySide6.QtCore import Qt as _Qt
+                            key_name = _Qt.Key(key).name
+                        except Exception:
+                            key_name = str(key)
+                        mods = ""
+                        try:
+                            mods = event.modifiers().name
+                        except Exception:
+                            pass
+                        cls = type(obj).__name__
+                        try:
+                            name = obj.objectName() or ""
+                        except Exception:
+                            name = ""
+                        logging.info(
+                            "[KEY] PRESS %s mods=%s %s name='%s'",
+                            key_name, mods, cls, name,
+                        )
+                    except Exception:  # Logging darf NIE die App stoeren
+                        pass
+                    return False
                 if et in (_QEvent.Type.MouseButtonPress, _QEvent.Type.MouseButtonRelease):
                     try:
                         kind = "PRESS" if et == _QEvent.Type.MouseButtonPress else "RELEASE"
@@ -1603,7 +1650,7 @@ def main():
 
         app._click_logger = _ClickLogger(app)
         app.installEventFilter(app._click_logger)
-        logging.info("[CLICK] Click-Logger aktiv (PB_CLICK_LOG=1)")
+        logging.info("[CLICK] Click/Key-Logger aktiv (PB_CLICK_LOG/PB_CLICKLOG=1)")
 
     # B-218: Native Power-Event-Listener fuer Windows. Bei Laptop-Andocken/
     # -Sleep verliert die GTX 1060 Mobile den CUDA-Power-State -> der
