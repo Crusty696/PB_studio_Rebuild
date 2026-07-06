@@ -880,6 +880,7 @@ def _match_video_by_motion(
 
     Ruhige Szenen (motion < 0.3) fuer ruhige Audio-Abschnitte.
     Action-Szenen (motion > 0.7) fuer energetische Audio-Abschnitte.
+    Fallback: Round-Robin ueber alle Kandidaten wenn keine Szenen-Daten.
     """
     if not available_ids:
         logger.warning("_match_video_by_motion: Keine Videos verfuegbar")
@@ -897,12 +898,14 @@ def _match_video_by_motion(
     best_vid = candidates[0]
     best_score = -1.0
     best_source_start = 0.0
+    any_scenes_found = False
 
     for vid in candidates:
         scenes = video_info.get(vid, {}).get("scenes", [])
         if not scenes:
             continue
 
+        any_scenes_found = True
         for scene in scenes:
             motion = scene.get("energy", 0.5)
             # Score: Je naeher motion an energy_value, desto besser
@@ -911,6 +914,22 @@ def _match_video_by_motion(
                 best_score = match_score
                 best_vid = vid
                 best_source_start = scene.get("start", 0.0)
+
+    if not any_scenes_found:
+        # Fallback: Round-Robin — waehle den am laengsten nicht genutzten Kandidaten
+        oldest_idx = -1
+        best_vid = candidates[0]
+        for candidate in candidates:
+            try:
+                idx = len(used_recently) - 1 - used_recently[::-1].index(candidate)
+            except ValueError:
+                # Nie benutzt → sofort waehlen
+                best_vid = candidate
+                break
+            if oldest_idx < 0 or idx < oldest_idx:
+                oldest_idx = idx
+                best_vid = candidate
+        logger.debug("_match_video_by_motion: Keine Szenen-Daten, Round-Robin Fallback → vid=%d", best_vid)
 
     return best_vid, best_source_start
 
