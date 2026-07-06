@@ -89,7 +89,7 @@ def test_run_deferred_captioning_marks_error_on_skip(monkeypatch):
 
     status_mock = MagicMock()
     monkeypatch.setattr(vas, "analysis_status_service", status_mock)
-    monkeypatch.setattr(vas, "analyze_scene_with_caption", lambda scenes: scenes)
+    monkeypatch.setattr(vas, "analyze_scene_with_caption", lambda scenes, *a, **k: scenes)
     monkeypatch.setattr(vas, "store_scenes_in_db", lambda *a, **k: False)
     enrichment_called = []
     monkeypatch.setattr(

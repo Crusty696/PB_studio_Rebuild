@@ -647,6 +647,7 @@ class CrossModalMatcher:
         scene_start: float = 0.0,
         scene_end: float = 0.0,
         seg_start: float = 0.0,
+        video_id: int | None = None,
     ) -> float:
         """Cross-Modal Fitness-Score mit section-spezifischer Gewichtung.
 
@@ -694,9 +695,10 @@ class CrossModalMatcher:
             visual_coherence = visual_coherence * 0.7 + coherence_penalty * 0.3
 
         # 4. Freshness
-        if clip_idx in used_recently[-3:]:
+        vid_id = video_id if video_id is not None else clip_idx
+        if vid_id in used_recently[-3:]:
             freshness = 0.0
-        elif clip_idx in used_recently[-5:]:
+        elif vid_id in used_recently[-5:]:
             freshness = 0.3
         else:
             freshness = 1.0
@@ -822,6 +824,7 @@ def _compute_clip_fitness(
     clip_embeddings: np.ndarray,
     used_recently: list[int],
     fitness_matrix: dict[tuple, float],
+    video_id: int | None = None,
 ) -> float:
     """Multi-dimensionales Fitness-Scoring fuer einen Clip-Kandidaten.
 
@@ -850,7 +853,7 @@ def _compute_clip_fitness(
                 visual_cont = sim
 
     # 4. Freshness: Wie lange seit letzter Verwendung
-    vid_id = clip_idx  # Mapping via caller
+    vid_id = video_id if video_id is not None else clip_idx
     if vid_id in used_recently[-5:]:
         freshness = 0.0 if vid_id in used_recently[-3:] else 0.3
     else:
@@ -1001,6 +1004,7 @@ def _match_video_for_segment(
                     scene_start=meta["scene_start"],
                     scene_end=meta["scene_end"],
                     seg_start=seg_start,
+                    video_id=vid,
                 )
             else:
                 score = _compute_clip_fitness(
@@ -1014,6 +1018,7 @@ def _match_video_for_segment(
                     clip_embeddings=clip_embeddings,
                     used_recently=used_recently,
                     fitness_matrix=fitness_matrix,
+                    video_id=vid,
                 )
 
             if score > best_score:
