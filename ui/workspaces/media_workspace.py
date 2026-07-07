@@ -372,6 +372,32 @@ class MediaWorkspace(QWidget):
         self.btn_mode_video.toggled.connect(self._on_mode_toggled)
         self.btn_mode_audio.toggled.connect(lambda checked: self.mode_stack.setCurrentIndex(1 if checked else 0))
 
+    def set_timeline_usage_summary(
+        self, used_count: int, total: int, extra: str = "",
+    ) -> None:
+        """Fixplan 2026-07-07 Schritt 7c: sichtbarer Verwendungs-Hinweis.
+
+        User-Vorgabe V3: kein Warn-Dialog — ein Info-Label erklaert, welche
+        Clips die Timeline nutzt und dass man manuell (ab)waehlen kann oder
+        die App (Auto-Edit) entscheiden laesst.
+        """
+        try:
+            if used_count <= 0 and not extra:
+                self.video_usage_hint.setVisible(False)
+                return
+            text = (
+                f"Timeline nutzt {used_count} von {total} Clips "
+                f"(gruen markiert, [N×] = Verwendungen; nicht verwendete sind "
+                f"ausgegraut). Nicht Passendes manuell abwaehlen/entfernen — "
+                f"oder Auto-Edit waehlt automatisch beat-genau."
+            )
+            if extra:
+                text += f"  |  {extra}"
+            self.video_usage_hint.setText(text)
+            self.video_usage_hint.setVisible(True)
+        except RuntimeError:
+            pass  # Widget bereits zerstoert (App-Shutdown)
+
     def _analysis_side_panel(self, title: str, summary: str) -> QFrame:
         panel = QFrame()
         panel.setObjectName("workflow_card")
@@ -489,6 +515,19 @@ class MediaWorkspace(QWidget):
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
 
+        # Fixplan 2026-07-07 Schritt 7c: sichtbares Verwendungs-Label statt
+        # versteckter Tooltip-/Konsolen-Hinweise. Wird nach jeder Timeline-
+        # Aenderung (Add + Auto-Edit) via set_timeline_usage_summary gefuellt.
+        self.video_usage_hint = QLabel("")
+        self.video_usage_hint.setObjectName("video_usage_hint")
+        self.video_usage_hint.setWordWrap(True)
+        self.video_usage_hint.setVisible(False)
+        self.video_usage_hint.setStyleSheet(
+            "QLabel#video_usage_hint { background:#12331d; color:#a7f3c0;"
+            " border:1px solid #1f6a38; border-radius:6px; padding:5px 10px;"
+            " font-size:11px; }"
+        )
+
         # -------- Toolbar (Import + Aktionen + Pager + View + Select) --------
         tb = QHBoxLayout()
         tb.setContentsMargins(0, 0, 0, 0)
@@ -567,6 +606,7 @@ class MediaWorkspace(QWidget):
         video_pool_layout = QVBoxLayout(video_pool_column)
         video_pool_layout.setContentsMargins(0, 0, 0, 0)
         video_pool_layout.setSpacing(4)
+        video_pool_layout.addWidget(self.video_usage_hint)
         video_pool_layout.addWidget(self._video_pool_stack)
         self._video_content_row.addWidget(video_pool_column, stretch=3)
         page_layout.addLayout(self._video_content_row, stretch=1)

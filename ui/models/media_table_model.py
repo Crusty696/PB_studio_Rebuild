@@ -69,18 +69,27 @@ class MediaTableModel(QAbstractTableModel):
                     return f"{val if val is not None else '-'}  [{n}×]"
             return str(val) if val is not None else "-"
 
-        # Schritt 7 (V3): verwendete Clips gruen hinterlegen, unverwendete
-        # neutral lassen (kein Dimmen — Lesbarkeit)
+        # Schritt 7c (User-Vorgabe V3): BEIDE Zustaende deutlich sichtbar —
+        # verwendete Clips kraeftig gruen, nicht verwendete ausgegraut.
         if role == Qt.ItemDataRole.BackgroundRole and self._timeline_usage:
             from PySide6.QtGui import QColor, QBrush
             if self._timeline_usage.get(item.get("id"), 0) > 0:
-                return QBrush(QColor(22, 58, 34))  # dezentes Gruen
+                return QBrush(QColor(31, 106, 56))  # deutliches Gruen
+            return QBrush(QColor(17, 20, 26))       # abgedunkelt
+
+        if role == Qt.ItemDataRole.ForegroundRole and self._timeline_usage \
+                and key != "analysis_percent":
+            from PySide6.QtGui import QColor, QBrush
+            if self._timeline_usage.get(item.get("id"), 0) > 0:
+                return QBrush(QColor(234, 255, 240))  # hell auf gruen
+            return QBrush(QColor(107, 114, 128))      # ausgegraut
 
         if role == Qt.ItemDataRole.ToolTipRole and self._timeline_usage:
             n = self._timeline_usage.get(item.get("id"), 0)
             if n > 0:
-                return f"Im aktuellen Auto-Edit {n}× verwendet"
-            return "Im aktuellen Auto-Edit nicht verwendet"
+                return f"In der Timeline {n}× verwendet"
+            return ("In der Timeline nicht verwendet — manuell markieren/"
+                    "hinzufuegen oder Auto-Edit entscheiden lassen")
 
         # Color coding for analysis_percent column
         if role == Qt.ItemDataRole.ForegroundRole and key == "analysis_percent":

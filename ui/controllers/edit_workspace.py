@@ -432,20 +432,19 @@ class EditWorkspaceController(PBComponent):
         )
         self.window.timeline_view.undo_stack.push(cmd)
 
-        # Fixplan 2026-07-07 Schritt 7 (V3): Verwendungs-Markierung im
-        # MATERIAL-Pool (Tabelle gruen + Titel [N×]; Grid-Cards Badge).
+        # Fixplan 2026-07-07 Schritt 7/7c: Verwendungs-Markierung im
+        # MATERIAL-Pool (Tabelle gruen vs. ausgegraut, Grid-Badges,
+        # sichtbares Hinweis-Label).
         try:
             usage: dict[int, int] = {}
             for seg in segments:
                 mid = seg.get("media_id", seg.get("video_id"))
                 if mid is not None:
                     usage[int(mid)] = usage.get(int(mid), 0) + 1
-            vm = getattr(self.window, "video_pool_model", None)
-            if vm is not None and hasattr(vm, "set_timeline_usage"):
-                vm.set_timeline_usage(usage)
-            grid = getattr(self.window, "video_grid", None)
-            if grid is not None and hasattr(grid, "set_timeline_usage"):
-                grid.set_timeline_usage(usage)
+            self._refresh_timeline_usage_marking(
+                usage,
+                extra=f"Auto-Edit: {len(segments)} Segmente beat-genau gesetzt.",
+            )
             self.window.console_text.append(
                 f"[Auto-Edit] {len(segments)} Segmente aus "
                 f"{len(usage)} verschiedenen Clips — verwendete Clips sind "
@@ -910,6 +909,52 @@ class EditWorkspaceController(PBComponent):
                 logger.debug("schnitt refresh after blocked action failed: %s", exc)
         return False
 
+    def _refresh_timeline_usage_marking(
+        self, usage: dict | None = None, extra: str = "",
+    ) -> None:
+        """Fixplan 2026-07-07 Schritt 7c: Verwendungs-Markierung im
+        MATERIAL-Pool nach JEDER Timeline-Aenderung (Add + Auto-Edit).
+
+        usage=None -> aus der Timeline-DB berechnen (media_id -> Anzahl).
+        Aktualisiert Tabelle (gruen/ausgegraut), Grid-Badges und das
+        sichtbare Hinweis-Label.
+        """
+        try:
+            if usage is None:
+                from database import TimelineEntry, nullpool_session
+                project_id = get_active_project_id()
+                if project_id is None:
+                    return
+                usage = {}
+                with nullpool_session() as session:
+                    rows = (
+                        session.query(TimelineEntry.media_id)
+                        .filter_by(project_id=project_id, track="video")
+                        .all()
+                    )
+                for (mid,) in rows:
+                    if mid is not None:
+                        usage[int(mid)] = usage.get(int(mid), 0) + 1
+
+            vm = getattr(self.window, "video_pool_model", None)
+            if vm is not None and hasattr(vm, "set_timeline_usage"):
+                vm.set_timeline_usage(usage)
+            grid = getattr(self.window, "video_grid", None)
+            if grid is not None and hasattr(grid, "set_timeline_usage"):
+                grid.set_timeline_usage(usage)
+
+            media_ws = getattr(self.window, "_media_ws", None)
+            if media_ws is not None and hasattr(media_ws, "set_timeline_usage_summary"):
+                total = 0
+                if vm is not None and hasattr(vm, "rowCount"):
+                    try:
+                        total = vm.rowCount()
+                    except TypeError:
+                        total = 0
+                media_ws.set_timeline_usage_summary(len(usage), total, extra)
+        except Exception as exc:
+            logger.warning("Timeline-Usage-Markierung fehlgeschlagen: %s", exc)
+
     def _on_schnitt_auto_edit_request(self, profile) -> None:
         # B-294/R-14: kein silent return — wenn Combos leer, Auto-Fill aus DB.
         if not self._guard_combos_or_notify("Auto-Edit"):
@@ -1073,6 +1118,7 @@ class EditWorkspaceController(PBComponent):
             plan = plan or {}
             if plan.get("blocked_reason"):
                 _notify(f"[Timeline] Nicht hinzugefuegt: {plan['blocked_reason']}")
+                self._refresh_timeline_usage_marking(extra=plan["blocked_reason"])
                 return
             if not clips:
                 if plan.get("skipped_duplicate") or plan.get("skipped_budget"):
@@ -1128,6 +1174,18 @@ class EditWorkspaceController(PBComponent):
                 if extras:
                     msg += " " + "; ".join(extras) + ". Tipp: Auto-Edit waehlt Clips beat-genau."
                 _notify(msg)
+
+            # Schritt 7c: Markierung + sichtbares Label nach JEDEM Add —
+            # nicht nur nach Auto-Edit (User-Vorgabe V3).
+            _label_extra = ""
+            if n_budget and budget is not None:
+                _label_extra = (
+                    f"{n_budget} Clips nicht uebergeben (Audio-Laenge "
+                    f"{budget:.0f}s erreicht)."
+                )
+            elif n_dup:
+                _label_extra = f"{n_dup} Clips waren bereits in der Timeline."
+            self._refresh_timeline_usage_marking(extra=_label_extra)
             self.window.nav_bar.set_workspace(1)
 
         GlobalTaskManager.instance().start_task(

@@ -37,14 +37,27 @@ class TestMediaTableModelUsage:
         assert m.data(title_idx, Qt.ItemDataRole.BackgroundRole) is not None
         assert "3× verwendet" in m.data(title_idx, Qt.ItemDataRole.ToolTipRole)
 
-    def test_unused_row_stays_neutral(self):
+    def test_unused_row_visibly_dimmed(self):
+        """Schritt 7c (User-Vorgabe): NICHT verwendete Clips sind sichtbar
+        ausgegraut — beide Zustaende erkennbar, nicht nur der gruene."""
         _qapp()
         m = self._model()
         m.set_timeline_usage({1: 3})
         idx = m.index(1, 2)
         assert "[" not in m.data(idx, Qt.ItemDataRole.DisplayRole)
-        assert m.data(idx, Qt.ItemDataRole.BackgroundRole) is None
+        assert m.data(idx, Qt.ItemDataRole.BackgroundRole) is not None
+        fg = m.data(idx, Qt.ItemDataRole.ForegroundRole)
+        assert fg is not None and fg.color().lightness() < 140  # gedimmt
         assert "nicht verwendet" in m.data(idx, Qt.ItemDataRole.ToolTipRole)
+
+    def test_used_and_unused_backgrounds_differ(self):
+        _qapp()
+        m = self._model()
+        m.set_timeline_usage({1: 2})
+        used_bg = m.data(m.index(0, 2), Qt.ItemDataRole.BackgroundRole)
+        unused_bg = m.data(m.index(1, 2), Qt.ItemDataRole.BackgroundRole)
+        assert used_bg.color().name() != unused_bg.color().name()
+        assert used_bg.color().green() > used_bg.color().red()  # gruen
 
     def test_no_usage_dict_no_marking(self):
         _qapp()
@@ -74,6 +87,28 @@ class TestMediaCardBadge:
         assert card._usage_badge.text() == "2×"
         card.set_timeline_usage(0)
         assert not card._usage_badge.isVisibleTo(card)
+
+
+class TestUsageHintLabel:
+    def test_label_text_and_visibility(self):
+        """Schritt 7c: sichtbares Hinweis-Label mit beiden Optionen
+        (manuell waehlen/entfernen ODER App entscheidet)."""
+        _qapp()
+        from ui.workspaces.media_workspace import MediaWorkspace
+        ws = MediaWorkspace.__new__(MediaWorkspace)
+        from PySide6.QtWidgets import QLabel
+        ws.video_usage_hint = QLabel("")
+        ws.video_usage_hint.setVisible(False)
+
+        MediaWorkspace.set_timeline_usage_summary(ws, 39, 46, "Auto-Edit: 77 Segmente.")
+        txt = ws.video_usage_hint.text()
+        assert ws.video_usage_hint.isVisibleTo(None) or ws.video_usage_hint.isVisible() or txt
+        assert "39 von 46" in txt
+        assert "manuell" in txt and "Auto-Edit" in txt
+        assert "77 Segmente" in txt
+
+        MediaWorkspace.set_timeline_usage_summary(ws, 0, 46, "")
+        assert not ws.video_usage_hint.isVisible()
 
 
 class _CheckModel:
