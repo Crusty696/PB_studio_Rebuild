@@ -644,17 +644,28 @@ def add_to_timeline(media_id: int, media_type: str) -> dict:
                 )
                 if not obj:
                     return {"error": f"Video-Clip #{media_id} im aktiven Projekt nicht gefunden."}
+                # Fixplan 2026-07-07 Schritt 7b: gleicher Budget-Planer wie der
+                # UI-Add-Pfad — die Audio-Laenge begrenzt die Video-Spur auch
+                # ueber die Chat-Action.
+                from services.timeline_service import plan_video_timeline_add
+                plan = plan_video_timeline_add(
+                    project_id, [media_id], allow_duplicates=True)
+                if plan["skipped_budget"]:
+                    return {
+                        "error": (
+                            f"Video-Spur ist bereits {plan['video_start']:.0f}s lang "
+                            f"und damit an der Audio-Laenge ({plan['budget']:.0f}s). "
+                            "Kein weiterer Clip noetig — Auto-Edit schneidet "
+                            "beat-genau auf die Audio-Laenge."
+                        )
+                    }
                 duration = float(obj.duration or 10.0)
                 from pathlib import Path
                 title = Path(obj.file_path).stem if obj.file_path else f"Video #{media_id}"
-                # Video ans Ende der bestehenden Video-Timeline
-                last_entry = (
-                    session.query(TimelineEntry)
-                    .filter_by(project_id=project_id, track="video")
-                    .order_by(TimelineEntry.end_time.desc())
-                    .first()
+                start_time = (
+                    plan["accepted"][0]["start_time"]
+                    if plan["accepted"] else plan["video_start"]
                 )
-                start_time = float(last_entry.end_time) if last_entry and last_entry.end_time else 0.0
 
             entry = TimelineEntry(
                 project_id=project_id,

@@ -40,6 +40,113 @@ def _get_exports_dir() -> Path:
 PB_NS = "pb_studio"
 
 
+def plan_video_timeline_add(
+    project_id: int,
+    video_ids: list[int],
+    *,
+    audio_id_hint: int | None = None,
+    allow_duplicates: bool | None = None,
+) -> dict:
+    """Fixplan 2026-07-07 Schritt 7b: Budget-Plan fuer das Einfuegen von
+    Video-Clips in die Timeline.
+
+    User-Regel (V3): Die Audio-Datei gibt die Laenge vor — es duerfen nur so
+    viele Clips in die Timeline uebergeben werden, wie das Audio braucht.
+    Vorher appendete der Add-Pfad unbegrenzt (real: 2x 39 Clips -> 137 Clips,
+    1003 s Timeline bei 308 s Audio) und ohne Duplikat-Schutz.
+
+    Regeln:
+    * Budget = Dauer des Audio-Tracks auf der Timeline; sonst
+      ``audio_id_hint`` (Audio, das im selben Vorgang hinzugefuegt wird);
+      ohne beides wird ein Bulk-Add (>1 Clip) blockiert (Einzel-Add erlaubt).
+    * Angenommen wird, solange der Startpunkt des Clips vor dem Budget-Ende
+      liegt (der letzte Clip darf ueberstehen — Render endet am Audio).
+    * Duplikat-Schutz nur bei Bulk-Add (>1 Clip); Einzel-Add darf bewusst
+      duplizieren. Ueberschreibbar via ``allow_duplicates``.
+
+    Returns dict:
+        accepted:          list[{media_id, title, duration, start_time}]
+        skipped_duplicate: list[int]
+        skipped_budget:    list[int]
+        budget:            float | None  (Sekunden)
+        video_start:       float  (Ende der bestehenden Video-Spur)
+        blocked_reason:    str | None  (gesetzt -> nichts einfuegen)
+    """
+    from database import AudioTrack, VideoClip, nullpool_session
+
+    result: dict = {
+        "accepted": [], "skipped_duplicate": [], "skipped_budget": [],
+        "budget": None, "video_start": 0.0, "blocked_reason": None,
+    }
+    if not video_ids:
+        return result
+
+    is_bulk = len(video_ids) > 1
+    dedup = is_bulk if allow_duplicates is None else not allow_duplicates
+
+    with nullpool_session() as session:
+        # Bestehende Video-Spur: Ende + bereits verwendete media_ids
+        rows = session.query(
+            TimelineEntry.media_id, TimelineEntry.end_time,
+        ).filter_by(project_id=project_id, track="video").all()
+        existing_ids = {int(r[0]) for r in rows if r[0] is not None}
+        video_start = max(
+            (float(r[1]) for r in rows if r[1] is not None), default=0.0)
+        result["video_start"] = video_start
+
+        # Budget-Referenz: Audio auf Timeline > audio_id_hint > None
+        budget = None
+        audio_row = (
+            session.query(TimelineEntry.media_id)
+            .filter_by(project_id=project_id, track="audio")
+            .first()
+        )
+        ref_audio_id = int(audio_row[0]) if audio_row and audio_row[0] else audio_id_hint
+        if ref_audio_id is not None:
+            track = session.get(AudioTrack, ref_audio_id)
+            if track is not None and track.duration:
+                budget = float(track.duration)
+        result["budget"] = budget
+
+        if budget is None and is_bulk:
+            result["blocked_reason"] = (
+                "Kein Audio-Track als Laengen-Referenz vorhanden. Zuerst "
+                "Audio zur Timeline hinzufuegen (oder mit-markieren) — die "
+                "Audio-Datei gibt die Timeline-Laenge vor."
+            )
+            return result
+
+        for vid in video_ids:
+            vid = int(vid)
+            if dedup and (vid in existing_ids
+                          or any(a["media_id"] == vid for a in result["accepted"])):
+                result["skipped_duplicate"].append(vid)
+                continue
+            if budget is not None and video_start >= budget - 0.01:
+                result["skipped_budget"].append(vid)
+                continue
+            clip = session.get(VideoClip, vid)
+            if clip is None:
+                continue
+            duration = float(clip.duration or 10.0)
+            title = Path(clip.file_path).stem if clip.file_path else f"Video #{vid}"
+            result["accepted"].append({
+                "media_id": vid, "title": title,
+                "duration": duration, "start_time": video_start,
+            })
+            video_start += duration
+
+    logger.info(
+        "plan_video_timeline_add: %d angefragt -> %d akzeptiert, "
+        "%d Duplikate, %d ueber Budget (budget=%s, start=%.1fs)",
+        len(video_ids), len(result["accepted"]),
+        len(result["skipped_duplicate"]), len(result["skipped_budget"]),
+        f"{budget:.1f}s" if budget is not None else "None",
+        result["video_start"],
+    )
+    return result
+
+
 def apply_auto_edit_segments(segments: list[dict], project_id: int | None = None,
                              max_retries: int = 5) -> int:
     """Ersetzt alle Video-Timeline-Eintraege durch neue Auto-Edit Segmente.

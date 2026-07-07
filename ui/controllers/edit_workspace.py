@@ -1003,7 +1003,8 @@ class EditWorkspaceController(PBComponent):
         from PySide6.QtCore import QObject, Signal
 
         class AddClipsWorker(QObject):
-            finished = Signal(list)  # prepared clip dicts
+            # Fixplan 2026-07-07 Schritt 7b: prepared clips + Budget-Info
+            finished = Signal(list, dict)
             error = Signal(str)
 
             def __init__(self, project_id: int, requests: list[dict]):
@@ -1013,85 +1014,120 @@ class EditWorkspaceController(PBComponent):
 
             def run(self):
                 try:
-                    from database import nullpool_session, TimelineEntry, AudioTrack, VideoClip
-                    with nullpool_session() as session:
-                        video_end_row = session.query(TimelineEntry).filter_by(
-                            project_id=self._project_id, track="video"
-                        ).order_by(TimelineEntry.end_time.desc()).first()
-                        video_start = (
-                            float(video_end_row.end_time)
-                            if video_end_row and video_end_row.end_time is not None
-                            else 0.0
-                        )
+                    from database import nullpool_session, AudioTrack
+                    from services.timeline_service import plan_video_timeline_add
 
-                        prepared: list[dict] = []
+                    prepared: list[dict] = []
+                    audio_hint: int | None = None
+                    with nullpool_session() as session:
                         for req in self._requests:
-                            media_type = req["media_type"]
+                            if req["media_type"] != "Audio":
+                                continue
                             media_id = int(req["media_id"])
-                            if media_type == "Audio":
-                                obj = session.get(AudioTrack, media_id)
-                                if obj is None:
-                                    raise ValueError(f"Audio #{media_id} nicht gefunden.")
-                                duration = float(obj.duration or 30.0)
-                                title = req.get("title") or obj.title or f"Audio #{media_id}"
-                                prepared.append({
-                                    "media_type": "Audio",
-                                    "track_type": "audio",
-                                    "media_id": media_id,
-                                    "title": title,
-                                    "start_time": 0.0,
-                                    "duration": duration,
-                                })
-                            else:
-                                obj = session.get(VideoClip, media_id)
-                                if obj is None:
-                                    raise ValueError(f"Video #{media_id} nicht gefunden.")
-                                duration = float(obj.duration or 10.0)
-                                title = (
-                                    req.get("title")
-                                    or (Path(obj.file_path).stem if obj.file_path else None)
-                                    or f"Video #{media_id}"
-                                )
-                                prepared.append({
-                                    "media_type": "Video",
-                                    "track_type": "video",
-                                    "media_id": media_id,
-                                    "title": title,
-                                    "start_time": video_start,
-                                    "duration": duration,
-                                })
-                                video_start += duration
-                        self.finished.emit(prepared)
+                            obj = session.get(AudioTrack, media_id)
+                            if obj is None:
+                                raise ValueError(f"Audio #{media_id} nicht gefunden.")
+                            duration = float(obj.duration or 30.0)
+                            title = req.get("title") or obj.title or f"Audio #{media_id}"
+                            prepared.append({
+                                "media_type": "Audio",
+                                "track_type": "audio",
+                                "media_id": media_id,
+                                "title": title,
+                                "start_time": 0.0,
+                                "duration": duration,
+                            })
+                            audio_hint = media_id
+
+                    # Schritt 7b: Video-Uebergabe laeuft durch den zentralen
+                    # Budget-Planer (Audio-Laenge = Limit, Duplikat-Schutz
+                    # bei Bulk). Vorher: ungebremstes Append aller Markierten.
+                    video_ids = [int(r["media_id"]) for r in self._requests
+                                 if r["media_type"] != "Audio"]
+                    plan = plan_video_timeline_add(
+                        self._project_id, video_ids, audio_id_hint=audio_hint)
+                    if plan["blocked_reason"] is None:
+                        for clip in plan["accepted"]:
+                            prepared.append({
+                                "media_type": "Video",
+                                "track_type": "video",
+                                "media_id": clip["media_id"],
+                                "title": clip["title"],
+                                "start_time": clip["start_time"],
+                                "duration": clip["duration"],
+                            })
+                    self.finished.emit(prepared, plan)
                 except Exception as e: self.error.emit(str(e))
 
         worker = AddClipsWorker(project_id, requests)
 
-        def _on_done(clips):
+        def _notify(text: str) -> None:
+            """Konsole + Statusbar — Kappen darf nie stumm passieren (7b)."""
+            self.window.console_text.append(text)
+            try:
+                self.window.statusBar().showMessage(text.replace("[Timeline] ", ""), 10000)
+            except Exception:
+                pass
+
+        def _on_done(clips, plan=None):
+            plan = plan or {}
+            if plan.get("blocked_reason"):
+                _notify(f"[Timeline] Nicht hinzugefuegt: {plan['blocked_reason']}")
+                return
             if not clips:
-                self.window.console_text.append("[Warnung] Keine Timeline-Clips vorbereitet.")
+                if plan.get("skipped_duplicate") or plan.get("skipped_budget"):
+                    _notify(
+                        "[Timeline] Nichts hinzugefuegt: "
+                        f"{len(plan.get('skipped_duplicate', []))} bereits in der "
+                        f"Timeline, {len(plan.get('skipped_budget', []))} ueber der "
+                        "Audio-Laenge. Tipp: Auto-Edit schneidet beat-genau auf "
+                        "die Audio-Laenge."
+                    )
+                else:
+                    self.window.console_text.append("[Warnung] Keine Timeline-Clips vorbereitet.")
                 return
             from ui.undo_commands import AddClipCommand
-            for clip in clips:
-                cmd = AddClipCommand(
-                    self.window.timeline_view,
-                    project_id,
-                    clip["track_type"],
-                    clip["media_id"],
-                    clip["title"],
-                    clip["start_time"],
-                    clip["duration"],
-                )
-                self.window.timeline_view.undo_stack.push(cmd)
+            # Schritt 7b: Bulk-Add als EIN Undo-Schritt
+            undo_stack = self.window.timeline_view.undo_stack
+            use_macro = len(clips) > 1
+            if use_macro:
+                undo_stack.beginMacro(f"{len(clips)} Medien zur Timeline")
+            try:
+                for clip in clips:
+                    cmd = AddClipCommand(
+                        self.window.timeline_view,
+                        project_id,
+                        clip["track_type"],
+                        clip["media_id"],
+                        clip["title"],
+                        clip["start_time"],
+                        clip["duration"],
+                    )
+                    undo_stack.push(cmd)
+            finally:
+                if use_macro:
+                    undo_stack.endMacro()
             self.window._mark_dirty()
-            if len(clips) == 1:
+
+            n_dup = len(plan.get("skipped_duplicate", []))
+            n_budget = len(plan.get("skipped_budget", []))
+            budget = plan.get("budget")
+            if len(clips) == 1 and not (n_dup or n_budget):
                 clip = clips[0]
-                self.window.console_text.append(
-                    f"[Timeline] {clip['media_type']} '{clip['title']}' hinzugefuegt."
-                )
+                _notify(f"[Timeline] {clip['media_type']} '{clip['title']}' hinzugefuegt.")
             else:
-                self.window.console_text.append(
-                    f"[Timeline] {len(clips)} markierte Medien hinzugefuegt."
-                )
+                msg = f"[Timeline] {len(clips)} Medien hinzugefuegt."
+                extras = []
+                if n_budget:
+                    extras.append(
+                        f"{n_budget} nicht uebergeben — Audio-Laenge "
+                        f"({budget:.0f}s) erreicht" if budget is not None
+                        else f"{n_budget} nicht uebergeben (Laengen-Limit)")
+                if n_dup:
+                    extras.append(f"{n_dup} uebersprungen (bereits in Timeline)")
+                if extras:
+                    msg += " " + "; ".join(extras) + ". Tipp: Auto-Edit waehlt Clips beat-genau."
+                _notify(msg)
             self.window.nav_bar.set_workspace(1)
 
         GlobalTaskManager.instance().start_task(

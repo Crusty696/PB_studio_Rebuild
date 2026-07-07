@@ -292,6 +292,26 @@ weiter wie wirklich gebraucht werden, und macht Verwendung sichtbar.
   zeigt exakt N+1 Eintraege; Grid markiert verwendete Clips; Vorauswahl von
   z. B. 10 Clips fuehrt zu Auto-Edit nur aus diesen 10.
 
+### Schritt 7b — Add-Pfad-Budget (Nachtrag 2026-07-07, nach User-Test 02:43)
+
+User-Test zeigte: V3 (Schritt 7) begrenzte nur den Auto-Edit-Pfad; „Zur
+Timeline hinzufuegen" appendete weiter unbegrenzt (2× 39 Clips → 137 Clips,
+1003 s bei 308 s Audio) — Interpretationsfehler des Agenten, User meinte die
+Weitergabe in die Timeline generell. Consulting-Team-Review: GO mit
+Modifikation (zentraler Helper, sichtbares Feedback, Audio-Pflicht bei Bulk).
+
+- **Was:** `services/timeline_service.py::plan_video_timeline_add()` als
+  zentraler Budget-Planer: Audio-Laenge = Limit (Referenz: Audio auf
+  Timeline → mit-markiertes Audio → sonst Bulk-Add blockiert mit Hinweis);
+  Duplikat-Schutz nur bei Bulk (>1); Einzel-Add darf duplizieren, wird aber
+  bei voller Spur abgelehnt. Genutzt von UI-Button (`_add_selected_to_timeline`,
+  Bulk-Add als EIN Undo-Macro, Meldung in Konsole + Statusbar) UND
+  Chat-Action (`edit_actions.add_to_timeline`).
+- **Verifikation:** 9 Unit-Tests (Budget-Kappung, Audio-Pflicht, Hint,
+  Dedup-Regeln) + 35 Regressionstests gruen; gegen reale final-check-DB:
+  identischer User-Klick liefert jetzt 0 statt +39 Clips (39 als Duplikate
+  gemeldet).
+
 ### Schritt 8 — Clip-Felder vergroessern (A6) (RECHERCHE ZUERST, DANN DEIN OK)
 
 - **Was:** Erst Recherche gemaess Regel B-525 (wie loesen Premiere/Resolve/FCP
