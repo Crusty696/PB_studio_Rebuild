@@ -155,6 +155,22 @@ def _load_raft_model():
         return None, None
 
 
+def _normalize_motion(raw_px: float) -> float:
+    """Normalisiert eine rohe Flow-Magnitude (px auf 520x320) auf 0.0–1.0.
+
+    Fixplan 2026-07-07 Schritt 1: vorher hartes ``min(1.0, raw/40)`` — auf dem
+    Testmaterial saturierten damit 41/42 Szenen auf exakt 1.0 (gemessen:
+    Median 156 px bei 1s-Frame-Abstand). Jetzt saettigungsfreie
+    Exponential-Kurve statt Clamp: ``1 - exp(-raw/40)``. Die Frame-Paare
+    werden mit fixem Zeitabstand ~1/30 s gesampelt (siehe
+    compute_motion_scores), gemessene Rohwerte 14–255 px mappen damit auf
+    ~0.3–1.0 mit echter Streuung (29 px Median → ~0.52).
+    """
+    if raw_px <= 0.0:
+        return 0.0
+    return round(1.0 - float(np.exp(-raw_px / 40.0)), 4)
+
+
 @oom_recovery
 def _raft_motion_score(
     raft_model, device, frame1_bgr: np.ndarray, frame2_bgr: np.ndarray,
@@ -204,8 +220,9 @@ def _raft_motion_score(
         magnitude = torch.sqrt(flow[:, 0] ** 2 + flow[:, 1] ** 2)
         raw = float(magnitude.mean().cpu())
 
-    # Normalisierung: typische Werte 0-50px → 0.0-1.0
-    return round(min(1.0, raw / 40.0), 4)
+    # Fixplan 2026-07-07 Schritt 1: saettigungsfreie Normalisierung
+    # (vorher min(1.0, raw/40) → 41/42 Szenen identisch 1.0).
+    return _normalize_motion(raw)
 
 
 def compute_motion_scores(
@@ -252,48 +269,65 @@ def compute_motion_scores(
             _owns_raft = True
         use_raft = raft_model is not None
 
+        # Fixplan 2026-07-07 Schritt 1: Frame-Paare mit fixem Zeitabstand
+        # ~1/30 s (Literatur-Standard: consecutive frames). Vorher lagen die
+        # zwei Sample-Frames 1 s auseinander → Flow-Magnituden 41–397 px →
+        # alle Szenen saturierten auf motion=1.0 (gemessen auf Testmaterial).
+        frame_step = max(1, int(round(fps / 30.0)))
+
         for scene in scenes:
             start_frame = int(scene.start_time * fps)
             end_frame = int(scene.end_time * fps)
-            mid_frame = (start_frame + end_frame) // 2
+            span = max(1, end_frame - start_frame)
 
-            # Sample 2 Frames um die Szenen-Mitte für Motion-Berechnung
-            sample_frames = [
-                max(start_frame, mid_frame - int(fps * 0.5)),
-                min(end_frame - 1, mid_frame + int(fps * 0.5)),
-            ]
+            # 3 Messpaare bei 25 % / 50 % / 75 % der Szene; Median ist robust
+            # gegen Ausreisser (Schnitt-Frames, RAFT-Fehlmessungen).
+            anchor_frames = sorted({
+                min(max(start_frame, start_frame + int(span * frac)),
+                    max(start_frame, end_frame - 1 - frame_step))
+                for frac in (0.25, 0.5, 0.75)
+            })
 
-            frames_bgr = []
-            for fnum in sample_frames:
-                cap.set(cv2.CAP_PROP_POS_FRAMES, fnum)
-                ret, frame = cap.read()
-                if ret:
-                    frames_bgr.append(frame)
-
-            if len(frames_bgr) == 2:
+            pair_scores: list[float] = []
+            for fnum in anchor_frames:
+                pair = []
+                for f in (fnum, fnum + frame_step):
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, f)
+                    ret, frame = cap.read()
+                    if ret:
+                        pair.append(frame)
+                if len(pair) != 2:
+                    continue
                 if use_raft:
-                    # GPU-beschleunigte RAFT Motion-Analyse
                     try:
-                        scene.motion_score = _raft_motion_score(
-                            raft_model, raft_device, frames_bgr[0], frames_bgr[1]
-                        )
+                        pair_scores.append(_raft_motion_score(
+                            raft_model, raft_device, pair[0], pair[1]))
                     except (RuntimeError, OSError) as e:
-                        logger.warning("RAFT Fehler bei Szene %d: %s — CPU-Fallback", scene.index, e)
-                        scene.motion_score = _cpu_motion_score(frames_bgr[0], frames_bgr[1])
-                    # Periodischer VRAM-Cleanup NUR wenn wir RAFT selbst geladen haben.
-                    # Im Batch-Modus (raft_model_device uebergeben) KEIN empty_cache() —
-                    # das korrumpiert den Heap wenn SigLIP/RAFT noch resident sind (0xC0000374).
-                    if _owns_raft and scene.index % 8 == 7:
-                        import torch
-                        if torch.cuda.is_available():
-                            torch.cuda.empty_cache()
+                        logger.warning(
+                            "RAFT Fehler bei Szene %d: %s — CPU-Fallback",
+                            scene.index, e)
+                        pair_scores.append(_cpu_motion_score(pair[0], pair[1]))
                 else:
-                    scene.motion_score = _cpu_motion_score(frames_bgr[0], frames_bgr[1])
+                    pair_scores.append(_cpu_motion_score(pair[0], pair[1]))
+                # F-019 Fix: Frame-Buffer sofort freigeben
+                pair.clear()
+
+            if pair_scores:
+                scene.motion_score = round(float(np.median(pair_scores)), 4)
+                logger.debug(
+                    "Motion Szene %d: pairs=%s median=%.4f (step=%d)",
+                    scene.index, [f"{s:.3f}" for s in pair_scores],
+                    scene.motion_score, frame_step)
             else:
                 scene.motion_score = 0.0
 
-            # F-019 Fix: Clear frame buffer to prevent memory accumulation
-            frames_bgr.clear()
+            # Periodischer VRAM-Cleanup NUR wenn wir RAFT selbst geladen haben.
+            # Im Batch-Modus (raft_model_device uebergeben) KEIN empty_cache() —
+            # das korrumpiert den Heap wenn SigLIP/RAFT noch resident sind (0xC0000374).
+            if use_raft and _owns_raft and scene.index % 8 == 7:
+                import torch
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
     finally:
         cap.release()
         # RAFT nur entladen wenn WIR es geladen haben (nicht im Batch-Modus)
