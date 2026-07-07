@@ -175,6 +175,46 @@ Run:
 python pre_cache_models.py
 ```
 
+---
+
+## Ollama Models (Chat + Vision-Captioning)
+
+Stand 2026-07-07 (Fixplan SCHNITT-CLIPAUSWAHL): Die App nutzt einen lokalen
+Ollama-Server (`http://localhost:11434`) fuer Chat/Agent-Funktionen und das
+Vision-Captioning der Video-Analyse.
+
+### Pflicht-Modell
+
+```powershell
+ollama pull gemma4:e4b
+```
+
+`gemma4:e4b` (offizieller Tag, multimodal: Vision + Tool-Calling) ist der
+Default fuer **beide** Aufgaben. Hinweise:
+
+- Thinking-Modell: die App sendet `think: false` bei Vision-Calls
+  (`services/ollama_service.py`), sonst bleibt `content` leer.
+- GTX 1060 (6 GB): laeuft mit Teil-CPU-Offload, warm ~6-30 s pro Caption;
+  Caption-Timeout ist dafuer auf 240 s gesetzt
+  (`services/timeout_constants.py::HTTP_OLLAMA_VISION_CAPTION_TIMEOUT_SEC`).
+
+### Fallback-Kette Vision-Captioning
+
+Definiert in `services/video_analysis_service.py::_VISION_MODEL_CANDIDATES`;
+das erste installierte Modell gewinnt:
+
+`gemma4:e4b` → `gemma4:e2b` → `qwen3-vl:4b` → `qwen2.5vl:3b` → `gemma3:4b`
+→ `minicpm-o2.6` → `moondream` (Not-Fallback; halluziniert auf komplexen
+Szenen, liefert kein mood/tags-Schema zuverlaessig)
+
+Override pro Umgebung: `PB_VISION_MODEL=<tag>` (env-var).
+Chat-Default-Aufloesung: `PB_OLLAMA_MODEL` env-var, sonst Family-Match
+`gemma4`, sonst `RECOMMENDED_MODELS` (`services/ollama_client.py`).
+
+Hinweis: `vikhyatk/moondream2` in der HuggingFace-Liste oben gehoert zum
+separaten HF-Vision-Subsystem (`services/vision_analysis_service_moondream.py`)
+und ist unabhaengig von der Ollama-Caption-Pipeline.
+
 ### Bundling Models with Installer
 
 To bundle models with the installer for offline installation:
