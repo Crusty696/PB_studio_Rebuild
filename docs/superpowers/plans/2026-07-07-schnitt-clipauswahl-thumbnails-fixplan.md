@@ -2,6 +2,12 @@
 
 - **Plan-ID:** PB-STUDIO-SCHNITT-CLIPAUSWAHL-FIXPLAN-2026-07-07
 - **Status:** `in_progress` — User-Freigabe 2026-07-07 („ja setzte deinen plan jetzt", autonome Abarbeitung 1–9). Registriert in PLAN_REGISTRY, aktiv via ACTIVE_PLAN.md, Decision D-063.
+- **Umsetzungs-Stand 2026-07-07 (Commits 7f46b72…c640495):** Schritte 0–8 code-complete;
+  Schritt 1 + 5 (Motion) live-verifiziert auf final-check-DB (energy 0.205–0.998, 38 distinct);
+  Schritt 9 Teil A (Headless-E2E, echte Daten) PASS: 49 Segmente = 308.00 s, 35/39 Videos (90 %),
+  Max-Nutzung 3 (=Cap), source_start variiert; App-Boot + Click/Key-Logger live bestaetigt.
+  Offen: GUI-Sichtpruefung durch User (Thumbnails nach Apply, Gruen-Markierung, Feldgroesse,
+  Bat-Doppelklick). Live-Status-Tabelle: Vault-Mirror. `fixed` setzt nur der User.
 - **Erstellt:** 2026-07-07, Agent Claude (Fable 5), Read-only-Analyse-Session
 - **Untersuchte Artefakte:**
   - Finales Render-Video: `outputs/final-check/exports/output.mp4` (675 MB)
