@@ -486,6 +486,11 @@ class OllamaService:
                         "images": images_b64
                     }],
                     "stream": False,
+                    # Fixplan 2026-07-07: Thinking-Modelle (gemma4:e4b) legen
+                    # die Antwort sonst ins "thinking"-Feld und "content"
+                    # bleibt leer — num_predict wird vom Denken aufgefressen.
+                    # Nicht-Thinking-Modelle ignorieren das Feld.
+                    "think": False,
                     "options": {"num_predict": num_predict},
                 })
                 if response.status_code == 200:
@@ -502,6 +507,7 @@ class OllamaService:
                         "prompt": prompt,
                         "images": images_b64,
                         "stream": False,
+                        "think": False,
                         "options": {"num_predict": num_predict},
                     })
                     if generate_response.status_code == 200:
