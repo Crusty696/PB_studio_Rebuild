@@ -23,13 +23,15 @@ dieses Fixplans.
 ## Current Next Task
 
 ```text
-Schritt 1: Motion-Score-Normalisierung reparieren
-(services/video_analysis_service.py::_raft_motion_score — min(1.0, raw/40)
-saettigt 41/42 Szenen auf 1.0). Danach Schritte 2-9 sequentiell laut Plan.
-User-Vorgaben: Schritt 7 in Variante V3 (nur benoetigte Clips weitergeben,
-farbliche Markierung verwendet/unverwendet im Material-Grid, Wahl manuell/auto);
-Schritt 8 erst nach Profi-Software-Recherche (B-525).
-`fixed`-Marker setzt nur der User nach eigener Live-Sichtung.
+NUR NOCH USER-AKTION: Sichtung des Durchgangs 3 (Projekt ghghgjkl —
+Beat-Sync 100%, Struktur-Grenzen 27/27, Ende exakt 459.4s; Markierung,
+Info-Label, Feldgroessen, Schrift-Kontrast) und `fixed`-Marker durch den
+User. Agenten: keine weiteren App-Code-Aenderungen unter diesem Plan;
+Auswertung neuer Sessions gemaess docs/SESSION_MONITORING_UND_ANALYSE.md.
+Nach User-`fixed`: ACTIVE_PLAN zurueck auf
+PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09 (OTK-021).
+Abschluss-Synthese: docs/superpowers/synthesis/
+schnitt-clipauswahl-fixplan-abschluss-2026-07-07.md (+ Vault-Mirror).
 ```
 
 ## Agent Behavior
