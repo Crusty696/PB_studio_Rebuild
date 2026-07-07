@@ -87,7 +87,7 @@ def reanalyze_motion(db_path: Path) -> tuple[int, int]:
         conn.close()
 
 
-def reanalyze_captions(db_path: Path) -> tuple[int, int]:
+def reanalyze_captions(db_path: Path, force_all: bool = False) -> tuple[int, int]:
     """Ersetzt Junk-Captions durch validierte Vision-Captions (wenn Ollama laeuft).
 
     Returns: (anzahl_neu_gecaptioned, anzahl_junk_geloescht)
@@ -128,7 +128,9 @@ def reanalyze_captions(db_path: Path) -> tuple[int, int]:
                     parsed = json.loads(cap_json)
                 except json.JSONDecodeError:
                     parsed = None
-            if _validate_caption_dict(parsed) is not None:
+            # force_all: auch valide Alt-Captions ersetzen (z.B. moondream-
+            # Prosa ohne mood/tags nach Modell-Upgrade auf gemma4:e4b)
+            if not force_all and _validate_caption_dict(parsed) is not None:
                 continue  # Caption ist brauchbar — nicht anfassen
             if cap_json:
                 conn.execute(
@@ -177,17 +179,23 @@ def main() -> int:
     ap.add_argument("--db", required=True, type=Path)
     ap.add_argument("--captions", action="store_true",
                     help="Junk-Captions loeschen + via Ollama neu erzeugen")
+    ap.add_argument("--recaption-all", action="store_true",
+                    help="ALLE Captions neu erzeugen (auch valide alte)")
+    ap.add_argument("--skip-motion", action="store_true",
+                    help="Motion-Re-Analyse ueberspringen (nur Captions)")
     args = ap.parse_args()
     if not args.db.exists():
         print(f"DB nicht gefunden: {args.db}")
         return 1
 
-    updated, n_videos = reanalyze_motion(args.db)
-    print(f"\nMotion-Re-Analyse: {updated} Szenen in {n_videos} Videos aktualisiert")
+    if not args.skip_motion:
+        updated, n_videos = reanalyze_motion(args.db)
+        print(f"\nMotion-Re-Analyse: {updated} Szenen in {n_videos} Videos aktualisiert")
 
-    if args.captions:
-        captioned, cleared = reanalyze_captions(args.db)
-        print(f"Captions: {cleared} Junk geloescht, {captioned} neu erzeugt")
+    if args.captions or args.recaption_all:
+        captioned, cleared = reanalyze_captions(
+            args.db, force_all=args.recaption_all)
+        print(f"Captions: {cleared} ersetzt/geloescht, {captioned} neu erzeugt")
 
     conn = sqlite3.connect(str(args.db))
     vals = [r[0] for r in conn.execute("SELECT energy FROM scenes")]

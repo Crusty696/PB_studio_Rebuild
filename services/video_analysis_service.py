@@ -904,9 +904,15 @@ def analyze_scene_with_caption(
             break
 
         try:
+            # Fixplan 2026-07-07: _CAPTION_SYSTEM_PROMPT (JSON-Schema +
+            # Feld-Regeln) war toter Code — der Vision-Call sendete nur den
+            # duerren User-Prompt, weshalb Modelle beliebige JSON-Strukturen
+            # halluzinierten (real gemessen: Metadaten-Echos, Fremd-Schemata).
+            # OllamaService.vision() hat keinen system-Parameter, daher wird
+            # das Schema dem Prompt vorangestellt.
             raw = svc.vision(
                 image_paths=[scene.keyframe_path],
-                prompt=_CAPTION_USER_PROMPT,
+                prompt=f"{_CAPTION_SYSTEM_PROMPT}\n\n{_CAPTION_USER_PROMPT}",
                 model=vision_model,
                 read_timeout_s=HTTP_OLLAMA_VISION_CAPTION_TIMEOUT_SEC,
             )
