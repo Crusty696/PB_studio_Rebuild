@@ -27,6 +27,15 @@ class _FakeStore:
             cur = cur[p]
         return cur
 
+
+    # ShortcutManager-Kompatibilitaet (Singleton kann je nach Test-Reihenfolge
+    # mit diesem Store initialisiert werden)
+    def get_shortcut(self, action_id, default=""):
+        return default
+
+    def set_all_shortcuts(self, shortcuts):
+        self.data["shortcuts"] = dict(shortcuts)
+
     def set_nested(self, *path, value=None):
         self.set_calls.append((path, value))
         cur = self.data

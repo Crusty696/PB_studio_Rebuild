@@ -337,6 +337,21 @@ class EditWorkspaceController(PBComponent):
         breakdown = breakdown_map.get(self.window.breakdown_combo.currentIndex(), "halve")
         anchors = self._collect_anchors_from_ui()
 
+        # NEUBAU-VOLLINTEGRATION T2.1 (USE-007): LLM-Pacing-Schalter aus dem
+        # SettingsStore (Checkboxen im Pacing-Panel persistieren dorthin).
+        # Vorher gab es repo-weit keinen Setter -> Gates waren toter Code.
+        _llm_strategist = False
+        _llm_pacing = False
+        try:
+            from services.settings_store import get_settings_store
+            _pstore = get_settings_store()
+            _llm_strategist = bool(_pstore.get_nested(
+                "pacing", "use_llm_strategist", default=False))
+            _llm_pacing = bool(_pstore.get_nested(
+                "pacing", "use_llm_pacing", default=False))
+        except Exception as exc:
+            logger.debug("LLM-Pacing-Settings nicht lesbar: %s", exc)
+
         settings = AdvancedPacingSettings(
             base_cut_rate=base_cut_rate,
             energy_reactivity=self.window.energy_reactivity_spin.value(),
@@ -344,7 +359,14 @@ class EditWorkspaceController(PBComponent):
             vibe=self.window.vibe_input.text(),
             manual_density_curve=self.window.pacing_curve.get_all_densities(),
             anchors=anchors,
+            use_llm_strategist=_llm_strategist,
+            use_llm_pacing=_llm_pacing,
         )
+        if _llm_strategist or _llm_pacing:
+            self.window.console_text.append(
+                f"[Auto-Edit] LLM-Pacing aktiv: Strategist={_llm_strategist}, "
+                f"EDL-Pacing={_llm_pacing} (Ollama)."
+            )
 
         self.window.console_text.append(
             f"[Auto-Edit] Phase 3 DJ-Pacing starte "

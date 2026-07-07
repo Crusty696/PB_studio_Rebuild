@@ -3,6 +3,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QLabel, QSplitter,
     QComboBox, QSlider, QSpinBox, QLineEdit, QPushButton, QTreeWidget,
+    QCheckBox,
 )
 from ui.widgets.pacing_curve import PacingCurveWidget
 
@@ -111,6 +112,54 @@ class SchnittTabPacingAnker(QWidget):
         )
         row3.addWidget(self.vibe_input, stretch=1)
         v.addLayout(row3)
+
+        # NEUBAU-VOLLINTEGRATION T2.1 (USE-007): LLM-Pacing per UI schaltbar.
+        # Persistiert sofort im SettingsStore (Panel hat keinen OK-Button);
+        # Controller liest die Werte beim Auto-Edit aus dem Store.
+        row4 = QHBoxLayout()
+        self.chk_llm_strategist = QCheckBox("LLM-Strategist")
+        self.chk_llm_strategist.setToolTip(
+            "Wirkung: Ein lokaler LLM (Ollama) erstellt vor dem Schnitt einen "
+            "Pacing-Plan pro Song-Abschnitt. "
+            "Wann: Fuer experimentell smartere Section-Strategien. "
+            "Ergebnis: Cut-Dichte-Plan kommt vom LLM statt nur aus der Heuristik."
+        )
+        self.chk_llm_pacing = QCheckBox("LLM-EDL-Pacing")
+        self.chk_llm_pacing.setToolTip(
+            "Wirkung: Ollama schlaegt die Schnittliste (EDL) direkt vor. "
+            "Wann: Experimentell; braucht laufendes Ollama. "
+            "Ergebnis: Alternative Cut-Liste aus LLM-Reasoning."
+        )
+        try:
+            from services.settings_store import (
+                get_ollama_settings, get_settings_store,
+            )
+            _store = get_settings_store()
+            self.chk_llm_strategist.setChecked(bool(_store.get_nested(
+                "pacing", "use_llm_strategist", default=False)))
+            self.chk_llm_pacing.setChecked(bool(_store.get_nested(
+                "pacing", "use_llm_pacing", default=False)))
+            self.chk_llm_strategist.toggled.connect(
+                lambda on: get_settings_store().set_nested(
+                    "pacing", "use_llm_strategist", value=bool(on)))
+            self.chk_llm_pacing.toggled.connect(
+                lambda on: get_settings_store().set_nested(
+                    "pacing", "use_llm_pacing", value=bool(on)))
+            # Voraussetzungs-Check ohne Netz-Call im UI-Thread: Ollama muss
+            # in den Einstellungen aktiviert sein, sonst Checkboxen gesperrt.
+            if not get_ollama_settings().get("enabled", False):
+                for _chk in (self.chk_llm_strategist, self.chk_llm_pacing):
+                    _chk.setEnabled(False)
+                    _chk.setToolTip(
+                        "Deaktiviert: Ollama ist in den Einstellungen "
+                        "ausgeschaltet (Einstellungen > LLM Backend)."
+                    )
+        except Exception:  # Settings duerfen den Tab-Aufbau nie brechen
+            pass
+        row4.addWidget(self.chk_llm_strategist)
+        row4.addWidget(self.chk_llm_pacing)
+        row4.addStretch(1)
+        v.addLayout(row4)
 
         action_row = QHBoxLayout()
         action_row.addStretch(1)
