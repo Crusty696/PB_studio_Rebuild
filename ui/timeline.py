@@ -864,6 +864,13 @@ class InteractiveTimeline(QGraphicsView):
         self._thumb_items_by_path: dict[str, list[TimelineClipItem]] = {}
         self._thumb_threads: list = []
         self._thumb_loader = ThumbnailLoadManager(self._start_thumb_worker, max_concurrent=2)
+        # Fixplan 2026-07-07 Schritt 6: Pixmap-Cache pro Datei. Vorher galt
+        # ein Pfad im Loader dauerhaft als "done", aber das Pixmap wurde nur
+        # auf die ZUM FERTIGSTELLUNGSZEITPUNKT registrierten Items gesetzt —
+        # nach jedem Timeline-Rebuild (Auto-Edit-Apply, Projekt-Reload)
+        # blieben alle neuen Items fuer immer Platzhalter (Log-Beweis:
+        # request_visible ... new_requests=0 nach Apply).
+        self._thumb_pixmaps: dict[str, "QPixmap"] = {}
         self._thumb_request_timer = QTimer(self)
         self._thumb_request_timer.setSingleShot(True)
         self._thumb_request_timer.setInterval(120)
@@ -1331,11 +1338,20 @@ class InteractiveTimeline(QGraphicsView):
 
     # ── B-471 T1: viewport-lazy thumbnail loading ─────────────────────────
     def _register_clip_thumbnail(self, item: "TimelineClipItem") -> None:
-        """Merkt ein Video-Clip-Item fuer spaeteres lazy Thumbnail-Laden."""
+        """Merkt ein Video-Clip-Item fuer spaeteres lazy Thumbnail-Laden.
+
+        Schritt 6: Liegt das Pixmap schon im Cache (Datei wurde in dieser
+        Session bereits generiert), wird es SOFORT gesetzt — sonst bleiben
+        Items nach einem Rebuild dauerhaft Platzhalter, weil der Loader den
+        Pfad als done dedupliziert.
+        """
         fp = getattr(item, "thumbnail_file_path", None)
         if item.track_type != "video" or not fp:
             return
         self._thumb_items_by_path.setdefault(str(fp), []).append(item)
+        cached = self._thumb_pixmaps.get(str(fp))
+        if cached is not None:
+            item.set_thumbnail_pixmap(cached)
 
     def _schedule_thumb_request(self) -> None:
         """Coalesct Viewport-Aenderungen (Scroll/Zoom/Build) zu einem Request."""
@@ -1438,6 +1454,10 @@ class InteractiveTimeline(QGraphicsView):
         except (RuntimeError, TypeError):
             pix = None
         if pix is not None and not pix.isNull():
+            # Schritt 6: cachen, damit nach Timeline-Rebuilds neue Items das
+            # Thumbnail sofort aus dem Cache bekommen (siehe
+            # _register_clip_thumbnail).
+            self._thumb_pixmaps[str(file_path)] = pix
             for it in self._thumb_items_by_path.get(str(file_path), []):
                 it.set_thumbnail_pixmap(pix)
         self._thumb_loader.on_done(str(file_path))
