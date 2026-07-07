@@ -83,8 +83,17 @@ set "PB_CLICKLOG_FILE=logs\clicklog_%PB_TS%.log"
 echo   === CLICKLOG-AUFZEICHNUNG AKTIV ===
 echo   Logdatei:  %PB_CLICKLOG_FILE%
 echo   Standard:  logs\pb_studio.log (wie immer)
+echo   Monitor:   logs\monitor_%PB_TS%.log (gefilterte Kern-Events)
 echo   Level:     DEBUG (alle Events)
 echo.
+
+:: Fixplan 2026-07-07: Session-Monitor laeuft OHNE Claude Code parallel mit.
+:: Filtert pb_studio.log auf Kern-Events (Fehler, Auto-Edit, Pacing, Render)
+:: nach logs\monitor_<ts>.log und beendet sich selbst nach App-Ende.
+:: Auswertung fuer Agenten: docs\SESSION_MONITORING_UND_ANALYSE.md
+start "PB Session-Monitor" /min powershell -NoProfile -ExecutionPolicy Bypass ^
+  -File "%~dp0scripts\diag\session_log_monitor.ps1" -SessionTag "%PB_TS%"
+
 echo   Starte PB Studio...
 echo.
 
