@@ -436,7 +436,7 @@ def finalize_cut_beats(
     # 4. Exakter Rahmen: 0.0 ... total_duration; zu kurzen Rest verschmelzen
     result = [0.0] + [t for t in cleaned if 0.05 < t < total_duration - 0.05]
     result.append(round(total_duration, 4))
-    while len(result) >= 3 and (result[-1] - result[-2]) < HARD_MIN_DURATION * 0.6:
+    while len(result) >= 3 and (result[-1] - result[-2]) < HARD_MIN_DURATION:
         result.pop(-2)
 
     # 5. Max-Segment-Laenge: kein Intervall darf laenger sein als der

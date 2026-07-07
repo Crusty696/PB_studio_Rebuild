@@ -73,7 +73,7 @@ class TestFinalizeCutBeats:
         out = finalize_cut_beats([0.0, 50.0, 99.0, 100.0], beats, downbeats,
                                  [], 100.0)
         assert out[-1] == 100.0
-        assert (out[-1] - out[-2]) >= HARD_MIN_DURATION * 0.6
+        assert (out[-1] - out[-2]) >= HARD_MIN_DURATION
 
     def test_empty_and_zero_duration_safe(self):
         assert finalize_cut_beats([], [], [], [], 0.0) == []
