@@ -463,10 +463,34 @@ class SettingsDialog(QDialog):
         self._tabs.addTab(llm_tab, "LLM Backend")
         self._tabs.setTabToolTip(0, "Ollama-Backend, Server-URL und Modell fuer KI-Funktionen konfigurieren.")
 
-        # ---- Tab 2: Shortcuts (AUD-71) ----
+        # ---- Tab 2: Analyse (NEUBAU-VOLLINTEGRATION T2.2 / USE-012) ----
+        analyse_tab = QWidget()
+        analyse_layout = QVBoxLayout(analyse_tab)
+        audio_group = QGroupBox("Audio-Analyse")
+        audio_form = QVBoxLayout(audio_group)
+        self._chk_audio_v2_default = QCheckBox("Audio-Analyse V2 als Standard")
+        self._chk_audio_v2_default.setToolTip(
+            "AN: Komplett-Analyse nutzt die V2-Pipeline (parallelisiert, "
+            "Status-Panel).\nAUS: klassischer sequenzieller Pfad "
+            "(_analyze_all_sequential) als Standard."
+        )
+        audio_form.addWidget(self._chk_audio_v2_default)
+        lbl_v2 = QLabel(
+            "Gilt fuer 'Audio komplett analysieren' und die Komplett-Analyse. "
+            "Wirkt sofort, kein Neustart noetig."
+        )
+        lbl_v2.setStyleSheet(f"color: {T2}; font-size: 11px;")
+        lbl_v2.setWordWrap(True)
+        audio_form.addWidget(lbl_v2)
+        analyse_layout.addWidget(audio_group)
+        analyse_layout.addStretch()
+        self._tabs.addTab(analyse_tab, "Analyse")
+        self._tabs.setTabToolTip(1, "Analyse-Pipelines konfigurieren (Audio V2 als Standard).")
+
+        # ---- Tab 3: Shortcuts (AUD-71) ----
         self._shortcut_tab = ShortcutEditorTab()
         self._tabs.addTab(self._shortcut_tab, "Tastaturkürzel")
-        self._tabs.setTabToolTip(1, "Tastaturkuerzel ansehen, bearbeiten oder auf Standard zuruecksetzen.")
+        self._tabs.setTabToolTip(2, "Tastaturkuerzel ansehen, bearbeiten oder auf Standard zuruecksetzen.")
 
         # --- Buttons ---
         btn_box = QDialogButtonBox(
@@ -488,6 +512,11 @@ class SettingsDialog(QDialog):
             self._cmb_model.addItem(cfg["model"])
             self._cmb_model.setCurrentText(cfg["model"])
         self._on_enabled_toggled(cfg["enabled"])
+        # T2.2 (USE-012): audio.v2_default — Default True wie der Leser
+        # in ui/controllers/audio_analysis.py
+        self._chk_audio_v2_default.setChecked(bool(
+            get_settings_store().get_nested("audio", "v2_default", default=True)
+        ))
 
     def _on_enabled_toggled(self, checked: bool) -> None:
         self._txt_url.setEnabled(checked)
@@ -627,6 +656,12 @@ class SettingsDialog(QDialog):
             "SettingsDialog: Ollama-Einstellungen gespeichert — enabled=%s, url=%s, model=%s",
             enabled, url, model,
         )
+
+        # T2.2 (USE-012): audio.v2_default persistieren — erster echter
+        # set_nested-Schreiber fuer dieses Setting.
+        v2_default = self._chk_audio_v2_default.isChecked()
+        get_settings_store().set_nested("audio", "v2_default", value=v2_default)
+        logger.info("SettingsDialog: audio.v2_default gespeichert = %s", v2_default)
 
         # Save shortcut changes (AUD-71)
         self._shortcut_tab.apply()
