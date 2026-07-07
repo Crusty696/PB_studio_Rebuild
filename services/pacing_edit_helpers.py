@@ -649,12 +649,12 @@ class CrossModalMatcher:
             mood_queries = mood_queries + ["slow movement", "ambient", "contemplative"]
 
         # Stem-basierte Erweiterung
-        if self.audio_ctx.drum_ratio > 0.5:
-            mood_queries = mood_queries + ["rhythmic motion", "percussion visual"]
-        if self.audio_ctx.bass_ratio > 0.4:
-            mood_queries = mood_queries + ["deep tones", "dark atmosphere", "sub bass visual"]
-        if self.audio_ctx.vocal_ratio > 0.25:
-            mood_queries = mood_queries + ["human presence", "portrait", "face close-up"]
+        if self.audio_ctx.drum_ratio > 0.4:
+            mood_queries = mood_queries + ["rhythmic motion", "high tempo action", "energetic dance"]
+        if self.audio_ctx.bass_ratio > 0.3:
+            mood_queries = mood_queries + ["deep tones", "dark atmosphere", "heavy shadows", "high contrast"]
+        if self.audio_ctx.vocal_ratio > 0.15:
+            mood_queries = mood_queries + ["human presence", "portrait", "face close-up", "vocal performance"]
 
         if not mood_queries:
             return None
@@ -802,7 +802,7 @@ class CrossModalMatcher:
         motion_target = self.compute_motion_target(section_type, section_progress, energy_value)
         # Gausssche Aehnlichkeit statt linearem Abstand — bestraft Abweichungen staerker
         motion_diff = motion_score - motion_target
-        energy_match = float(np.exp(-2.0 * motion_diff ** 2))
+        energy_match = float(np.exp(-5.0 * motion_diff ** 2))
 
         # 2. Mood-Match: Blende Section-Mood mit Audio-Mood
         section_mood = fitness_matrix.get((clip_idx, section_type), 0.5)
@@ -987,7 +987,7 @@ def _compute_clip_fitness(
             + 0.15 * visual_continuity + 0.15 * freshness + 0.15 * duration_fit
     """
     # 1. Energy-Match: Wie gut passt Motion-Score zur Musik-Energie
-    energy_match = 1.0 - abs(motion_score - energy_value)
+    energy_match = float(np.exp(-5.0 * (motion_score - energy_value) ** 2))
 
     # 2. Mood-Match: Pre-computed SigLIP similarity + Caption-Mood-Blend
     mood_match = fitness_matrix.get((clip_idx, section_type), 0.5)
