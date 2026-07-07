@@ -496,6 +496,35 @@ class OnsetRhythmService:
 
     # ── DB-Integration ────────────────────────────────────────────────────────
 
+    def _analyze_long_chunked(
+        self,
+        y: np.ndarray,
+        sr: int,
+        beats: list[float],
+        drums_y: np.ndarray | None = None,
+        chunk_sec: float = float(MAX_DURATION_SEC),
+    ) -> RhythmAnalysis:
+        """PIPE-016 (T2.5.1): Analyse langer Mixe in gleichmaessigen Chunks.
+
+        Baut kuenstliche (start, end)-Segmente der Laenge ``chunk_sec`` und
+        nutzt den vorhandenen per-Segment-Chunking-Pfad von ``analyze()``
+        (Q5-Rezept: 2s Overlap, Fade-in-Discard, Boundary-Dedup) — damit
+        haelt nur EIN Chunk-Spektrogramm RAM, egal wie lang der Mix ist.
+        """
+        total = len(y) / sr
+        segments: list[tuple[float, float]] = []
+        t = 0.0
+        while t < total:
+            segments.append((t, min(t + chunk_sec, total)))
+            t += chunk_sec
+        logger.info(
+            "PIPE-016: %d Chunks a %.0fs fuer %.0fs Gesamtlaenge",
+            len(segments), chunk_sec, total,
+        )
+        return self.analyze(
+            y, sr, beats, drums_y=drums_y, structure_segments=segments,
+        )
+
     def analyze_and_store(
         self,
         track_id: int,
@@ -535,14 +564,14 @@ class OnsetRhythmService:
             drums_path = track.stem_drums_path
 
         try:
-            # M-17 Fix: Load with duration limit to prevent RAM exhaustion
-            y, sr = librosa.load(audio_path, sr=DEFAULT_SR, mono=True, duration=MAX_DURATION_SEC)
+            # NEUBAU-VOLLINTEGRATION T2.5.1 / PIPE-016: kein hartes 1800s-Cap
+            # mehr. Lange DJ-Mixe werden vollstaendig geladen und unten
+            # CHUNKED analysiert — RAM-kritisch war das Mel-Spektrogramm
+            # (M-17), nicht das Raw-Array (~320 MB fuer 60 min mono@22050).
+            # Vorher fehlten der zweiten Haelfte langer Mixe alle Onsets,
+            # der Onset-Snap konnte dort nie greifen.
+            y, sr = librosa.load(audio_path, sr=DEFAULT_SR, mono=True)
             actual_duration = len(y) / sr
-            if actual_duration >= MAX_DURATION_SEC - 1:
-                logger.warning(
-                    "Audio truncated to %d sec (file may be longer): %s",
-                    MAX_DURATION_SEC, audio_path
-                )
         except Exception as e:  # B-230: audioread/soundfile-Errors auch abfangen
             logger.error("Audio-Load fehlgeschlagen '%s': %s", audio_path, e)
             return None
@@ -550,14 +579,9 @@ class OnsetRhythmService:
         drums_y: np.ndarray | None = None
         if drums_path and Path(drums_path).exists():
             try:
-                # B-359 Fix: Drums-Stem mit derselben duration=MAX_DURATION_SEC
-                # Grenze laden wie das Raw-Audio oben. Ohne Cap konnte ein langer
-                # Drums-Stem die 30-Minuten-RAM-Schutzgrenze umgehen, weil
-                # analyze() bei gesetztem drums_y das Mel-Spektrogramm auf dem
-                # vollen Stem berechnet (signal = drums_y).
-                drums_y, _ = librosa.load(
-                    drums_path, sr=DEFAULT_SR, mono=True, duration=MAX_DURATION_SEC
-                )
+                # B-359: Drums-Stem in voller Laenge wie das Raw-Audio; die
+                # Chunk-Analyse unten deckelt das Spektrogramm-RAM.
+                drums_y, _ = librosa.load(drums_path, sr=DEFAULT_SR, mono=True)
                 logger.debug("Drums-Stem geladen: %s", drums_path)
             except Exception as e:  # B-230: audioread/soundfile-Errors auch abfangen
                 logger.warning("Drums-Stem load fehlgeschlagen '%s': %s", drums_path, e)
@@ -569,7 +593,16 @@ class OnsetRhythmService:
         if progress_cb:
             progress_cb(20, "Spectral Flux Onset Detection...")
 
-        analysis = self.analyze(y, sr, beats, drums_y=drums_y)
+        if actual_duration > MAX_DURATION_SEC:
+            logger.info(
+                "PIPE-016: Audio %.0fs > %ds — Onset-Analyse laeuft chunked.",
+                actual_duration, MAX_DURATION_SEC,
+            )
+            analysis = self._analyze_long_chunked(
+                y, sr, beats, drums_y=drums_y, chunk_sec=float(MAX_DURATION_SEC),
+            )
+        else:
+            analysis = self.analyze(y, sr, beats, drums_y=drums_y)
 
         if progress_cb:
             progress_cb(85, "Speichere Onset-Daten in DB...")

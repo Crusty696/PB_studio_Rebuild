@@ -698,6 +698,52 @@ def _auto_edit_phase3_inner(
         max_segment_duration=_max_clip_dur if _max_clip_dur > 1.0 else None,
     )
 
+    # NEUBAU-VOLLINTEGRATION T2.5.1 (FR-S1-1): Onset-Feinsnap. Cuts werden
+    # innerhalb +-50ms auf den naechsten persistierten Kick/Snare-Onset
+    # geschoben (Beatgrid.onset_*_data, Writer: onset_rhythm_service).
+    # 50ms < 70ms-Beat-Sync-Toleranz -> SCHNITT-Garantie bleibt erhalten;
+    # Start (0.0) und Ende (=Audio-Dauer) werden nie verschoben.
+    try:
+        from services.pacing.cut_snapper import snap_to_onset
+        _onset_times: list[float] = []
+        with Session(_ae_eng) as _os_session:
+            from database import Beatgrid as _Beatgrid
+            _bg_row = (
+                _os_session.query(
+                    _Beatgrid.onset_kick_data, _Beatgrid.onset_snare_data,
+                )
+                .filter_by(audio_track_id=audio_id)
+                .first()
+            )
+        if _bg_row:
+            for _data in _bg_row:
+                if _data:
+                    _onset_times.extend(
+                        float(p[0]) for p in _data
+                        if isinstance(p, (list, tuple)) and p
+                    )
+        if _onset_times and len(cut_beats) > 2:
+            _onset_arr = sorted(_onset_times)
+            _snapped_mid = [
+                round(snap_to_onset(t, _onset_arr, max_shift_ms=50.0), 4)
+                for t in cut_beats[1:-1]
+            ]
+            _moved = sum(
+                1 for a, b in zip(cut_beats[1:-1], _snapped_mid) if a != b)
+            # Reihenfolge/Dedupe wahren, Rahmen fixieren
+            _mid_sorted = sorted(set(_snapped_mid))
+            cut_beats = [cut_beats[0]] + _mid_sorted + [cut_beats[-1]]
+            logger.info(
+                "T2.5.1 Onset-Snap: %d/%d Cuts auf Kick/Snare-Onsets "
+                "verschoben (+-50ms, %d Onsets)",
+                _moved, len(_snapped_mid), len(_onset_arr),
+            )
+        else:
+            logger.debug(
+                "T2.5.1 Onset-Snap uebersprungen (Onsets=%d)", len(_onset_times))
+    except Exception as _onset_exc:
+        logger.warning("T2.5.1 Onset-Snap fehlgeschlagen: %s", _onset_exc)
+
     # Phase 3: Mood-Embeddings + Fitness-Matrix pre-compute
     if progress_cb:
         progress_cb(55, "Lade KI-Modell fuer Video-Matching...")
