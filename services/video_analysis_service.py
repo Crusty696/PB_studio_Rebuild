@@ -681,15 +681,24 @@ def generate_embeddings(
 # ======================================================================
 
 # Ollama-Modell für Vision-Captioning (muss Vision-fähig sein)
-# B-241: ``gemma4:e4b`` war ein Phantom-Tag. ``moondream:latest`` ist ein
-# kleines (~1.6 GB), echtes Vision-LLM — ideal fuer GTX-1060-Klasse.
+# Fixplan 2026-07-07 (User-Auftrag): ``gemma4:e4b`` ist inzwischen ein
+# offizieller multimodaler Ollama-Tag (Vision + Tool-Calling, Edge-Klasse)
+# und ersetzt moondream als Default — moondream (1.8B) halluzinierte auf
+# komplexen Szenen und lieferte mood=NULL/Junk-Captions (real gemessen,
+# 42/42 Szenen im final-check-Projekt). Prioritaet: bestes installiertes
+# Modell zuerst, moondream nur noch Not-Fallback.
 # Caller koennen ``vision_model`` Parameter explizit ueberschreiben
 # (z.B. ueber Settings oder PB_VISION_MODEL env-var).
-_VISION_MODEL = "moondream:latest"
+_VISION_MODEL = "gemma4:e4b"
 _VISION_MODEL_CANDIDATES = [
+    "gemma4:e4b",
+    "gemma4:e2b",
+    "qwen3-vl:4b",
+    "qwen2.5vl:3b",
+    "gemma3:4b",
+    "openbmb/minicpm-o2.6:latest",
     "moondream:latest",
     "moondream:1.8b",
-    "openbmb/minicpm-o2.6:latest",
 ]
 
 _CAPTION_SYSTEM_PROMPT = """\

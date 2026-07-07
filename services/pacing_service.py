@@ -656,6 +656,39 @@ def _auto_edit_phase3_inner(
                 fitness_matrix = _precompute_clip_fitness_matrix(
                     mood_embeddings, clip_embeddings_matrix, clip_metadata_list,
                 )
+                # Fixplan 2026-07-07: Caption-Mood aus der Szenen-DB in die
+                # Kandidaten-Metadaten mischen (Vector-Store kennt ai_mood
+                # nicht). Join ueber VideoClip.file_path + Szenen-Start.
+                try:
+                    from database import Scene as _Scene, VideoClip as _VC
+                    with Session(_ae_eng) as _s:
+                        _rows = (
+                            _s.query(_VC.file_path, _Scene.start_time,
+                                     _Scene.ai_mood, _Scene.ai_tags)
+                            .join(_Scene, _Scene.video_clip_id == _VC.id)
+                            .filter(_VC.deleted_at.is_(None))
+                            .all()
+                        )
+                    _mood_by_key = {
+                        (fp, round(float(st or 0.0), 1)): (mood, tags)
+                        for fp, st, mood, tags in _rows
+                    }
+                    _enriched = 0
+                    for _meta in clip_metadata_list:
+                        _key = (_meta.get("video_path"),
+                                round(float(_meta.get("scene_start", 0.0)), 1))
+                        _mood_tags = _mood_by_key.get(_key)
+                        if _mood_tags and _mood_tags[0]:
+                            _meta["ai_mood"] = _mood_tags[0]
+                            _meta["ai_tags"] = _mood_tags[1]
+                            _enriched += 1
+                    logger.info(
+                        "Caption-Mood-Anreicherung: %d/%d Kandidaten mit "
+                        "ai_mood aus Szenen-DB", _enriched, len(clip_metadata_list),
+                    )
+                except Exception as _mood_exc:
+                    logger.warning(
+                        "Caption-Mood-Anreicherung uebersprungen: %s", _mood_exc)
         except (ImportError, ValueError, RuntimeError) as e:
             logger.warning("Fitness-Matrix uebersprungen: %s", e)
 

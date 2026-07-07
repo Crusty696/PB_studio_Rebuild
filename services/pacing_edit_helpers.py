@@ -37,6 +37,30 @@ logger = logging.getLogger(__name__)
 
 DOWNBEAT_MATCH_TOLERANCE_SEC = 0.03
 
+# Fixplan 2026-07-07 (User-Auftrag "Analyse-Daten wirklich nutzen"):
+# Caption-Mood (aus Vision-LLM, scenes.ai_mood) fliesst direkt in die
+# Clip-Fitness ein. Affinitaet: wie gut passt ein Szenen-Mood zu einem
+# Musik-Abschnitt. Werte 0..1; unbekannte Kombination -> 0.5 (neutral).
+SECTION_MOOD_AFFINITY: dict[str, dict[str, float]] = {
+    "DROP":       {"energetic": 1.0, "dramatic": 0.75, "calm": 0.10, "ambient": 0.20},
+    "BUILDUP":    {"energetic": 0.90, "dramatic": 0.80, "calm": 0.25, "ambient": 0.30},
+    "PEAK":       {"energetic": 1.0, "dramatic": 0.70, "calm": 0.10, "ambient": 0.15},
+    "BREAKDOWN":  {"energetic": 0.15, "dramatic": 0.50, "calm": 0.90, "ambient": 1.0},
+    "WARMUP":     {"energetic": 0.30, "dramatic": 0.40, "calm": 0.85, "ambient": 0.90},
+    "OUTRO":      {"energetic": 0.20, "dramatic": 0.50, "calm": 0.90, "ambient": 0.95},
+    "TRANSITION": {"energetic": 0.60, "dramatic": 0.80, "calm": 0.55, "ambient": 0.55},
+}
+
+
+def _caption_mood_score(section_type: str, ai_mood: str | None) -> float | None:
+    """Affinitaet Szenen-Mood <-> Section; None wenn kein Mood vorhanden."""
+    if not ai_mood:
+        return None
+    table = SECTION_MOOD_AFFINITY.get((section_type or "").upper())
+    if not table:
+        return 0.5
+    return table.get(str(ai_mood).strip().lower(), 0.5)
+
 
 def _is_downbeat_near(
     beat_time: float,
@@ -650,6 +674,7 @@ class CrossModalMatcher:
         seg_start: float = 0.0,
         video_id: int | None = None,
         usage_count: int = 0,
+        ai_mood: str | None = None,
     ) -> float:
         """Cross-Modal Fitness-Score mit section-spezifischer Gewichtung.
 
@@ -672,8 +697,15 @@ class CrossModalMatcher:
             clip_emb = clip_embeddings[clip_idx]
             norm = np.linalg.norm(clip_emb) + 1e-8
             audio_mood_score = float(np.dot(clip_emb / norm, self._audio_mood_embedding))
-        # Mische: 60% Section-Mood, 40% Audio-Mood
-        mood_match = section_mood * 0.6 + audio_mood_score * 0.4
+        # Fixplan 2026-07-07: Caption-Mood (Vision-LLM, scenes.ai_mood) als
+        # dritte Komponente — der Schnitt kennt damit den BILDINHALT, nicht
+        # nur Vektor-Naehe. Ohne Caption bleibt die alte 60/40-Mischung.
+        caption_mood = _caption_mood_score(section_type, ai_mood)
+        if caption_mood is not None:
+            mood_match = (section_mood * 0.40 + audio_mood_score * 0.30
+                          + caption_mood * 0.30)
+        else:
+            mood_match = section_mood * 0.6 + audio_mood_score * 0.4
 
         # 3. Visual Coherence mit Temporal Smoothing
         visual_coherence = 0.5
@@ -833,6 +865,7 @@ def _compute_clip_fitness(
     fitness_matrix: dict[tuple, float],
     video_id: int | None = None,
     usage_count: int = 0,
+    ai_mood: str | None = None,
 ) -> float:
     """Multi-dimensionales Fitness-Scoring fuer einen Clip-Kandidaten.
 
@@ -842,8 +875,11 @@ def _compute_clip_fitness(
     # 1. Energy-Match: Wie gut passt Motion-Score zur Musik-Energie
     energy_match = 1.0 - abs(motion_score - energy_value)
 
-    # 2. Mood-Match: Pre-computed SigLIP similarity
+    # 2. Mood-Match: Pre-computed SigLIP similarity + Caption-Mood-Blend
     mood_match = fitness_matrix.get((clip_idx, section_type), 0.5)
+    caption_mood = _caption_mood_score(section_type, ai_mood)
+    if caption_mood is not None:
+        mood_match = mood_match * 0.7 + caption_mood * 0.3
 
     # 3. Visual Continuity: Cosine-Sim zum vorherigen Clip
     visual_cont = 0.5  # Default bei keinem Vorgaenger
@@ -1045,6 +1081,7 @@ def _match_video_for_segment(
         for clip_idx, vid, meta in candidates:
             scene_duration = meta["scene_end"] - meta["scene_start"]
             motion = meta.get("motion_score", 0.5)
+            _ai_mood = meta.get("ai_mood")
             _usage = usage_counts.get(vid, 0) if usage_counts else 0
 
             # AUD-82 + AUD-101: Cross-Modal Scoring mit Beat-Sync
@@ -1066,6 +1103,7 @@ def _match_video_for_segment(
                     seg_start=seg_start,
                     video_id=vid,
                     usage_count=_usage,
+                    ai_mood=_ai_mood,
                 )
             else:
                 score = _compute_clip_fitness(
@@ -1081,6 +1119,7 @@ def _match_video_for_segment(
                     fitness_matrix=fitness_matrix,
                     video_id=vid,
                     usage_count=_usage,
+                    ai_mood=_ai_mood,
                 )
             scored.append((score, clip_idx, vid, meta))
 
