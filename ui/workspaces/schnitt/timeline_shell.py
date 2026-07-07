@@ -2,10 +2,19 @@
 
 from __future__ import annotations
 
+import logging
+
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QHBoxLayout, QLabel, QMenu, QPushButton, QToolButton, QVBoxLayout, QWidget,
+)
 
 from ui.timeline import InteractiveTimeline
+
+logger = logging.getLogger(__name__)
+
+# Max. Eintraege im Snapshot-Menue (Service-Retention ist 20)
+RETENTION_MENU_MAX = 20
 
 
 class TimelineShell(QWidget):
@@ -31,6 +40,27 @@ class TimelineShell(QWidget):
         toolbar.addWidget(self.status_label)
 
         toolbar.addStretch(1)
+
+        # NEUBAU-VOLLINTEGRATION T2.3 (USE-009): Snapshot-Restore-UI.
+        # Auto-Edit legt automatisch Snapshots an (timeline_service);
+        # hier lassen sie sich ansehen und wiederherstellen.
+        self.btn_snapshots = QToolButton()
+        self.btn_snapshots.setText("Snapshots")
+        self.btn_snapshots.setObjectName("schnitt_timeline_snapshots")
+        self.btn_snapshots.setMinimumSize(84, 36)
+        self.btn_snapshots.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self.btn_snapshots.setToolTip(
+            "Wirkung: Zeigt gespeicherte Timeline-Staende (automatisch bei "
+            "jedem Auto-Edit). "
+            "Wann: Nutze es nach einem Fehlgriff oder App-Absturz. "
+            "Ergebnis: Ein Klick stellt den gewaehlten Stand wieder her; der "
+            "aktuelle Stand wird vorher automatisch gesichert."
+        )
+        self.btn_snapshots.setAccessibleName("Timeline-Snapshots anzeigen und wiederherstellen")
+        self._snapshot_menu = QMenu(self.btn_snapshots)
+        self._snapshot_menu.aboutToShow.connect(self._populate_snapshot_menu)
+        self.btn_snapshots.setMenu(self._snapshot_menu)
+        toolbar.addWidget(self.btn_snapshots)
 
         self.legend_label = QLabel("A1 Audio | V1 Video | Marker: Beats/Anker")
         self.legend_label.setObjectName("schnitt_timeline_legend")
@@ -105,6 +135,57 @@ class TimelineShell(QWidget):
     def _reset_zoom(self) -> None:
         self.timeline.reset_zoom()
         self._update_zoom_label()
+
+    # ------------------------------------------------------------------
+    # T2.3: Snapshot-Menue
+    # ------------------------------------------------------------------
+
+    def _populate_snapshot_menu(self) -> None:
+        """Befuellt das Snapshot-Menue live beim Oeffnen (neueste zuerst)."""
+        self._snapshot_menu.clear()
+        try:
+            from database import get_active_project_id
+            from services.timeline_snapshot_service import list_snapshots
+            project_id = get_active_project_id()
+            if project_id is None:
+                self._snapshot_menu.addAction("Kein aktives Projekt").setEnabled(False)
+                return
+            snaps = list_snapshots(project_id)
+        except Exception as exc:
+            logger.warning("Snapshot-Liste nicht ladbar: %s", exc)
+            self._snapshot_menu.addAction("Snapshots nicht ladbar").setEnabled(False)
+            return
+        if not snaps:
+            self._snapshot_menu.addAction(
+                "Noch keine Snapshots (entstehen bei Auto-Edit)").setEnabled(False)
+            return
+        for snap in snaps[:RETENTION_MENU_MAX]:
+            created = snap["created_at"][:16].replace("T", " ")
+            text = f"v{snap['version']} — {snap['label'] or 'ohne Label'} " \
+                   f"({snap['clip_count']} Clips{', ' + created if created else ''})"
+            action = self._snapshot_menu.addAction(text)
+            action.triggered.connect(
+                lambda _=False, sid=snap["id"], ver=snap["version"]:
+                self._restore_snapshot(sid, ver)
+            )
+
+    def _restore_snapshot(self, snapshot_id: int, version: int) -> None:
+        """Stellt einen Snapshot her (aktueller Stand wird vorher gesichert)."""
+        try:
+            from database import get_active_project_id
+            from services.timeline_snapshot_service import restore_snapshot
+            restore_snapshot(snapshot_id, backup_current=True)
+            project_id = get_active_project_id()
+            if project_id is not None:
+                self.timeline.load_from_db(project_id)
+            self.status_label.setText(
+                f"Snapshot v{version} wiederhergestellt — vorheriger Stand "
+                f"wurde automatisch gesichert."
+            )
+            logger.info("Timeline-Snapshot v%d via UI wiederhergestellt", version)
+        except Exception as exc:
+            logger.error("Snapshot-Restore fehlgeschlagen: %s", exc)
+            self.status_label.setText(f"Snapshot-Restore fehlgeschlagen: {exc}")
 
     def _update_zoom_label(self) -> None:
         zoom = int(round(self.timeline.transform().m11() * 100))

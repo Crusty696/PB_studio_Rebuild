@@ -173,6 +173,17 @@ def apply_auto_edit_segments(segments: list[dict], project_id: int | None = None
                     _time.sleep(1)
                 inserted = _do_apply_segments(segments, project_id)
                 repair_timeline_integrity(project_id)
+                # NEUBAU-VOLLINTEGRATION T2.3 (USE-009): automatischer
+                # Snapshot nach jedem Auto-Edit-Apply — Timeline ist damit
+                # nach Crash/Fehlbedienung ueber die Snapshot-UI
+                # wiederherstellbar. Fehler duerfen den Apply nie brechen.
+                try:
+                    from services.timeline_snapshot_service import create_snapshot
+                    create_snapshot(
+                        project_id, f"Auto-Edit {inserted} Segmente (auto)")
+                except Exception as _snap_exc:
+                    logger.warning(
+                        "Auto-Snapshot nach Apply fehlgeschlagen: %s", _snap_exc)
                 return inserted
             except OperationalError as e:
                 if "database is locked" in str(e) and attempt < max_retries - 1:

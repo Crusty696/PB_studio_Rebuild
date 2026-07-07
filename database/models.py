@@ -627,11 +627,12 @@ class AnalysisStatus(Base):
 class TimelineSnapshot(Base):
     """SCHNITT-Redesign 2026-05-09: Snapshot des Timeline-State fuer Hybrid-Undo.
 
-    Bei jedem Auto-Edit-Run und jedem Re-Generate persistiert
-    ``services/timeline_snapshot_service.py`` den serialisierten Clip-State
-    (``payload_json``) zusammen mit einer monotonen ``version`` und einem
-    optionalen ``label``. Konsumenten: Timeline-State-Manager (Task 2.2)
-    + Snapshot-Service (Task 2.3).
+    NEUBAU-VOLLINTEGRATION T2.3 (2026-07-08): automatische Persistenz ist
+    jetzt real — ``services/timeline_service.py::apply_auto_edit_segments``
+    erstellt nach jedem Auto-Edit-Apply einen Snapshot (Label
+    "Auto-Edit N Segmente (auto)"); Restore ueber die Timeline-Shell-UI.
+    Retention: 20 Snapshots pro Projekt. Konsument/API:
+    ``services/timeline_snapshot_service.py``.
     """
     __tablename__ = "timeline_snapshots"
     __table_args__ = (
