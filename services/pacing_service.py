@@ -77,6 +77,7 @@ from services.pacing_edit_helpers import (
     _compute_effective_step,
     _select_cut_beats_advanced,
     _enforce_minimum_durations,
+    finalize_cut_beats,
     SECTION_MOOD_QUERIES,
     _precompute_mood_embeddings,
     _precompute_clip_fitness_matrix,
@@ -492,10 +493,61 @@ def _auto_edit_phase3_inner(
     # FIX-2.3: Wird ggf. vom LLM Strategist ueberschrieben
     _pacing_map_override = None
 
-    # F-005: Makro-Sektionserkennung
-    sections = detect_sections(energy_per_beat, beats, total_duration)
-    logger.info("Erkannte Sektionen: %s",
-                [(s.section_type, f"{s.start:.0f}-{s.end:.0f}s") for s in sections])
+    def _sections_from_structure_db(audio_id: int, total_duration: float):
+        """Laedt die echte Song-Struktur (structure_detection) als Sections.
+
+        Labels der Audio-Analyse werden auf die Pacing-Section-Typen
+        gemappt (INTRO->WARMUP etc.); unbekannte Labels -> TRANSITION.
+        Returns [] wenn keine (oder zu wenige) Struktur-Daten vorliegen.
+        """
+        _label_map = {
+            "INTRO": "WARMUP", "WARMUP": "WARMUP", "OUTRO": "COOLDOWN",
+            "COOLDOWN": "COOLDOWN", "BRIDGE": "TRANSITION",
+            "TRANSITION": "TRANSITION", "DROP": "DROP", "CHORUS": "CHORUS",
+            "BUILDUP": "BUILDUP", "BREAKDOWN": "BREAKDOWN", "VERSE": "VERSE",
+        }
+        try:
+            from database import StructureSegment
+            with Session(_ae_eng) as _s:
+                rows = (
+                    _s.query(StructureSegment)
+                    .filter_by(audio_track_id=audio_id)
+                    .order_by(StructureSegment.start_time)
+                    .all()
+                )
+                data = [(float(r.start_time), float(r.end_time or 0.0),
+                         str(r.label or ""), float(r.energy or 0.5))
+                        for r in rows]
+        except Exception as exc:
+            logger.debug("Struktur-Segmente nicht ladbar: %s", exc)
+            return []
+        if len(data) < 3:
+            return []
+        result = []
+        for start, end, label, energy in data:
+            if end <= start:
+                continue
+            stype = _label_map.get(label.strip().upper(), "TRANSITION")
+            result.append(Section(
+                start=start, end=min(end, total_duration),
+                section_type=stype, avg_energy=energy,
+            ))
+        return result
+
+    # Pacing-Tuning 2026-07-07: ECHTE Song-Struktur aus der Audio-Analyse
+    # (structure_detection -> structure_segments) hat Vorrang vor der groben
+    # Energie-Heuristik. Vorher wurde die DB-Struktur (INTRO/VERSE/DROP...)
+    # im Pacing komplett ignoriert — gemessen: nur 2/21 Struktur-Grenzen
+    # hatten einen Cut. Fallback bleibt detect_sections().
+    sections = _sections_from_structure_db(audio_id, total_duration)
+    if sections:
+        logger.info("Sektionen aus Struktur-Analyse (DB): %s",
+                    [(s.section_type, f"{s.start:.0f}-{s.end:.0f}s") for s in sections])
+    else:
+        # F-005: Makro-Sektionserkennung (Energie-Heuristik)
+        sections = detect_sections(energy_per_beat, beats, total_duration)
+        logger.info("Erkannte Sektionen (Heuristik): %s",
+                    [(s.section_type, f"{s.start:.0f}-{s.end:.0f}s") for s in sections])
 
     # FIX-2.1: bpm_val VOR dem LLM-Strategist-Block definieren (war NameError).
     bpm_val = _get_bpm(audio_id) or 120.0
@@ -634,6 +686,12 @@ def _auto_edit_phase3_inner(
 
     # Phase 2: Mindestdauer erzwingen — zu kurze Segmente entfernen
     cut_beats = _enforce_minimum_durations(cut_beats, sections, total_duration)
+
+    # Pacing-Tuning 2026-07-07: finaler Pass — Beat/Downbeat-Snap aller Cuts,
+    # Pflicht-Cuts an Section-Grenzen, Timeline-Ende exakt = Audio-Ende.
+    cut_beats = finalize_cut_beats(
+        cut_beats, beats, downbeats, sections, total_duration,
+    )
 
     # Phase 3: Mood-Embeddings + Fitness-Matrix pre-compute
     if progress_cb:
@@ -963,8 +1021,12 @@ def _auto_edit_phase3_inner(
         seg_end = cut_beats[i + 1]
         seg_duration = seg_end - seg_start
 
-        if seg_duration < HARD_MIN_DURATION:
-            continue
+        # Pacing-Tuning 2026-07-07: Mindestdauern erzwingt bereits
+        # _enforce_minimum_durations (section-aware, DROP darf 2.0s).
+        # Der alte HARD_MIN-Skip hier warf legitime kurze DROP-Segmente
+        # weg und riss Luecken in die Timeline (4.6s-Loch am Track-Ende).
+        if seg_duration < 0.5:
+            continue  # nur degenerierte Rest-Segmente ueberspringen
 
         # Section-Type frueh bestimmen (wird fuer Video-Matching benoetigt)
         seg_section = get_section_at_time(sections, seg_start)

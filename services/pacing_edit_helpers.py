@@ -346,12 +346,16 @@ def _enforce_minimum_durations(
     for i in range(1, len(cut_beats)):
         gap = cut_beats[i] - result[-1]
 
-        # Section-spezifisches Minimum ermitteln
+        # Section-spezifisches Minimum ermitteln.
+        # Pacing-Tuning 2026-07-07: SECTION_MIN_DURATION ist autoritativ —
+        # vorher galt max(HARD_MIN=3.0, section), wodurch DROP (2.0s) nie
+        # schneller als 3.0s geschnitten werden durfte und Drops traege
+        # wirkten (gemessen: DROP mean 5.16s == WARMUP 5.16s).
         min_dur = HARD_MIN_DURATION
         if sections:
             sec = get_section_at_time(sections, result[-1])
             if sec:
-                min_dur = max(min_dur, SECTION_MIN_DURATION.get(sec.section_type, HARD_MIN_DURATION))
+                min_dur = SECTION_MIN_DURATION.get(sec.section_type, HARD_MIN_DURATION)
 
         if gap >= min_dur or i in protected:
             result.append(cut_beats[i])
@@ -359,6 +363,86 @@ def _enforce_minimum_durations(
 
     logger.info("Mindestdauer: %d → %d Cut-Beats (entfernt: %d)",
                 len(cut_beats), len(result), len(cut_beats) - len(result))
+    return result
+
+
+def finalize_cut_beats(
+    cut_beats: list[float],
+    beats: list[float],
+    downbeats: list[float] | None,
+    sections: list | None,
+    total_duration: float,
+) -> list[float]:
+    """Pacing-Tuning 2026-07-07: finaler Qualitaets-Pass ueber alle Cut-Beats.
+
+    Behebt drei gemessene Probleme des realen Schnitts:
+    * Nur 44 % der Cuts lagen auf einem Beat (Drift bis 240 ms durch
+      vorgelagerte Stufen) -> ALLE Cuts werden auf den naechsten Beat
+      gesnappt; liegt ein Downbeat <= 0.2 s entfernt, gewinnt der Downbeat.
+    * Nur 2/21 Section-Grenzen hatten einen Cut -> Struktur-Wechsel
+      (DROP-Einstieg etc.) werden als Pflicht-Cuts eingefuegt; zu nahe
+      Nicht-Pflicht-Cuts daneben werden entfernt.
+    * Timeline-Ende != Audio-Ende (mal 4.6 s Loch, mal 5.5 s Ueberhang)
+      -> letzter Cut ist exakt total_duration; Cuts dahinter fliegen raus,
+      ein zu kurzer Rest vor dem Ende wird mit dem Vorgaenger verschmolzen.
+    """
+    if total_duration <= 0:
+        return cut_beats
+
+    beats_arr = np.asarray(beats, dtype=float)
+    down_arr = np.asarray(downbeats or [], dtype=float)
+
+    def _snap(t: float) -> float:
+        if beats_arr.size == 0:
+            return t
+        snapped = float(beats_arr[int(np.argmin(np.abs(beats_arr - t)))])
+        if down_arr.size:
+            d = float(down_arr[int(np.argmin(np.abs(down_arr - t)))])
+            if abs(d - t) <= 0.20:
+                snapped = d
+        return snapped
+
+    # 1. Pflicht-Cuts: Section-Grenzen (gesnappt)
+    mandatory: set[float] = set()
+    if sections:
+        for sec in sections:
+            t = getattr(sec, "start", None)
+            if t is None and isinstance(sec, (tuple, list)):
+                t = sec[0]
+            if t is None or t <= 0.05 or t >= total_duration - 0.05:
+                continue
+            mandatory.add(round(_snap(float(t)), 4))
+
+    # 2. Alle vorhandenen Cuts snappen (Start/Ende bleiben exakt)
+    snapped_cuts: list[float] = []
+    for t in cut_beats:
+        if t <= 0.05 or t >= total_duration - 0.05:
+            continue
+        snapped_cuts.append(round(_snap(float(t)), 4))
+
+    # 3. Mergen + dedupen; um Pflicht-Cuts herum Nicht-Pflicht-Cuts
+    #    entfernen, die zu kurze Nachbarsegmente erzeugen wuerden.
+    merged = sorted(set(snapped_cuts) | mandatory)
+    cleaned: list[float] = []
+    for t in merged:
+        if cleaned and (t - cleaned[-1]) < 0.05:
+            continue  # Duplikat nach Snap
+        if (t not in mandatory and any(
+                abs(t - m) < HARD_MIN_DURATION * 0.6 for m in mandatory)):
+            continue  # weicht dem Pflicht-Cut
+        cleaned.append(t)
+
+    # 4. Exakter Rahmen: 0.0 ... total_duration; zu kurzen Rest verschmelzen
+    result = [0.0] + [t for t in cleaned if 0.05 < t < total_duration - 0.05]
+    result.append(round(total_duration, 4))
+    while len(result) >= 3 and (result[-1] - result[-2]) < HARD_MIN_DURATION * 0.6:
+        result.pop(-2)
+
+    logger.info(
+        "finalize_cut_beats: %d -> %d Cuts (%d Pflicht-Cuts an "
+        "Section-Grenzen), Ende exakt %.2fs",
+        len(cut_beats), len(result), len(mandatory), total_duration,
+    )
     return result
 
 
