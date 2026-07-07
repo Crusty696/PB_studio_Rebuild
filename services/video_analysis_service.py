@@ -914,6 +914,9 @@ def analyze_scene_with_caption(
                 image_paths=[scene.keyframe_path],
                 prompt=f"{_CAPTION_SYSTEM_PROMPT}\n\n{_CAPTION_USER_PROMPT}",
                 model=vision_model,
+                # Caption-JSON braucht ~120 Tokens; 1024 verlaengerte nur die
+                # Inferenz und provozierte Timeouts auf der GTX 1060.
+                num_predict=256,
                 read_timeout_s=HTTP_OLLAMA_VISION_CAPTION_TIMEOUT_SEC,
             )
             if not raw.strip() and vision_model.lower().startswith("moondream"):

@@ -78,8 +78,11 @@ HTTP_HEALTH_CHECK_TIMEOUT_SEC: int = 2
 # Normale API-Aufrufe (Ollama /api/tags, /api/generate mit kleinen Prompts)
 HTTP_API_TIMEOUT_SEC: int = 5
 
-# Video-Pipeline Caption darf UI-nahe Workflows nicht minutenlang blockieren.
-HTTP_OLLAMA_VISION_CAPTION_TIMEOUT_SEC: int = 30
+# Video-Pipeline Caption: Vision-LLMs der 4B-Klasse (gemma4:e4b, MoE mit
+# Teil-CPU-Offload auf GTX 1060) brauchen warm 30-90 s pro Bild, kalt mehr.
+# Fixplan 2026-07-07: 30 s riss den Caption-Batch nach 3 Szenen (Circuit-
+# Breaker) — Captions laufen als Hintergrund-Pipeline-Step, nicht UI-nah.
+HTTP_OLLAMA_VISION_CAPTION_TIMEOUT_SEC: int = 240
 
 # Model-Info Abfrage (Ollama /api/show — Cold-Start kann 10-15s brauchen)
 HTTP_MODEL_INFO_TIMEOUT_SEC: int = 15
