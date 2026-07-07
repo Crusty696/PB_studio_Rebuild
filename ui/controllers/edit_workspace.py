@@ -454,6 +454,13 @@ class EditWorkspaceController(PBComponent):
         except Exception as exc:
             logger.warning("Auto-Edit Usage-Markierung fehlgeschlagen: %s", exc)
 
+        # Fixplan 2026-07-07 Schritt 8: nach Auto-Edit die Timeline auf den
+        # Inhalt einpassen (NLE-Konvention; ersetzt den manuellen Fit-Klick).
+        try:
+            self.window.timeline_view.fit_to_content()
+        except Exception as exc:
+            logger.debug("fit_to_content nach Auto-Edit fehlgeschlagen: %s", exc)
+
         try:
             self._build_otio_timeline(segments, audio_id=audio_id_override)
         except Exception as exc:

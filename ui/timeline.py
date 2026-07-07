@@ -78,7 +78,11 @@ class WaveformLoadWorker(QObject):
 # ======================================================================
 
 PIXELS_PER_SECOND = 20
-TRACK_HEIGHT = 80
+# Fixplan 2026-07-07 Schritt 8: 80 -> 110 px. Recherche Profi-NLEs
+# (Premiere/Resolve): Track-Hoehen und Zoom wirken zusammen; 80 px machte
+# Thumbnails (max. 74 px) und Titel unlesbar. Alle Track-Geometrien leiten
+# sich aus dieser Konstante ab (VIDEO_TRACK_Y, Thumb-Hoehe, Handles).
+TRACK_HEIGHT = 110
 MIN_READABLE_FIT_SCALE = 0.25
 AUDIO_TRACK_Y = 10
 VIDEO_TRACK_Y = AUDIO_TRACK_Y + TRACK_HEIGHT + 12
