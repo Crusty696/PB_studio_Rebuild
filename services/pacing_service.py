@@ -815,6 +815,24 @@ def _auto_edit_phase3_inner(
         for vid, offset in rows:
             clip_offsets[vid] = offset or 0.0
     used_recently: list[int] = []
+    # Fixplan 2026-07-07 Schritt 3: globale Nutzungs-Zaehlung + Cap + Sampling.
+    # Cap = ceil(Segmente/Videos)+1 → bei 58 Segmenten und 39 Videos max. 3
+    # Verwendungen pro Video (vorher real: 1 Video 58x, dann Top-Videos 8x).
+    usage_counts: dict[int, int] = {}
+    _n_slots = max(1, len(cut_beats) - 1)
+    max_uses_per_video = int(np.ceil(_n_slots / max(1, len(available_ids)))) + 1
+    # Seed: PB_PACING_SEED (Tests/Repro) oder zufaellig pro Run (geloggt).
+    import os as _os_seed
+    import random as _random
+    try:
+        _seed = int(_os_seed.environ.get("PB_PACING_SEED", ""))
+    except ValueError:
+        _seed = int.from_bytes(_os_seed.urandom(4), "little")
+    selection_rng = _random.Random(_seed)
+    logger.info(
+        "Schritt-3-Diversitaet: %d Slots, %d Videos, max_uses=%d, seed=%d",
+        _n_slots, len(available_ids), max_uses_per_video, _seed,
+    )
     prev_clip_idx: int | None = None
     # B-371: ClipFeatures der zuletzt vom Studio-Brain gewaehlten Scene.
     # Wird als predecessor an select_best uebergeben, damit PacingScorer
@@ -1043,8 +1061,25 @@ def _auto_edit_phase3_inner(
                     prev_clip_idx=prev_clip_idx,
                     cross_modal_matcher=cross_modal_matcher,
                     section_progress=_seg_section_progress,
+                    usage_counts=usage_counts,
+                    max_uses=max_uses_per_video,
+                    rng=selection_rng,
                 )
             prev_clip_idx = _clip_idx
+
+            # Fixplan 2026-07-07 Schritt 4: 36/39 Testvideos haben genau EINE
+            # Szene mit start=0 — Wiederholungen desselben Videos zeigten
+            # deshalb immer denselben Bildausschnitt ab Sekunde 0. Bei
+            # Wiederverwendung eines Ein-Szenen-Videos wird der Startpunkt
+            # innerhalb des nutzbaren Bereichs variiert (seed-gesteuert).
+            if vid != -1 and vid in video_info and usage_counts.get(vid, 0) >= 1:
+                _v_scenes = video_info[vid].get("scenes", [])
+                if len(_v_scenes) <= 1:
+                    _v_dur = video_info[vid].get("duration", 0.0)
+                    _headroom = _v_dur - (seg_end - seg_start)
+                    if _headroom > 0.5:
+                        source_start = round(
+                            selection_rng.uniform(0.0, _headroom), 4)
 
         if vid == -1:
             logger.warning("Kein Video fuer Segment %.2f-%.2f verfuegbar, ueberspringe.", seg_start, seg_end)
@@ -1122,6 +1157,8 @@ def _auto_edit_phase3_inner(
         used_recently.append(vid)
         if len(used_recently) > 10:
             used_recently[:] = used_recently[-10:]
+        # Schritt 3: globale Nutzung zaehlen (fuer Cap + Freshness-Strafe)
+        usage_counts[vid] = usage_counts.get(vid, 0) + 1
 
     if progress_cb:
         progress_cb(100, "Timeline fertig")

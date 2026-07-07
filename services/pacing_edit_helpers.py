@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import bisect
 import logging
+import random
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -648,6 +649,7 @@ class CrossModalMatcher:
         scene_end: float = 0.0,
         seg_start: float = 0.0,
         video_id: int | None = None,
+        usage_count: int = 0,
     ) -> float:
         """Cross-Modal Fitness-Score mit section-spezifischer Gewichtung.
 
@@ -694,7 +696,10 @@ class CrossModalMatcher:
             coherence_penalty = float(np.exp(-3.0 * motion_jump ** 2))
             visual_coherence = visual_coherence * 0.7 + coherence_penalty * 0.3
 
-        # 4. Freshness
+        # 4. Freshness — Fixplan 2026-07-07 Schritt 3: Fenster-Strafe (letzte
+        # 3/5 Selektionen) PLUS globale Nutzungs-Strafe. Vorher zaehlte nur
+        # das Kurzzeit-Fenster: ein Top-Clip war nach 3 Segmenten wieder
+        # "frisch" und gewann erneut (real: 1 Video 58x im Schnitt).
         vid_id = video_id if video_id is not None else clip_idx
         if vid_id in used_recently[-3:]:
             freshness = 0.0
@@ -702,6 +707,8 @@ class CrossModalMatcher:
             freshness = 0.3
         else:
             freshness = 1.0
+        if usage_count > 0:
+            freshness = max(0.0, freshness - 0.2 * usage_count)
 
         # 5. Duration-Fit
         if segment_duration > 0:
@@ -825,6 +832,7 @@ def _compute_clip_fitness(
     used_recently: list[int],
     fitness_matrix: dict[tuple, float],
     video_id: int | None = None,
+    usage_count: int = 0,
 ) -> float:
     """Multi-dimensionales Fitness-Scoring fuer einen Clip-Kandidaten.
 
@@ -852,12 +860,14 @@ def _compute_clip_fitness(
             else:
                 visual_cont = sim
 
-    # 4. Freshness: Wie lange seit letzter Verwendung
+    # 4. Freshness: Fenster-Strafe + globale Nutzungs-Strafe (Fixplan Schritt 3)
     vid_id = video_id if video_id is not None else clip_idx
     if vid_id in used_recently[-5:]:
         freshness = 0.0 if vid_id in used_recently[-3:] else 0.3
     else:
         freshness = 1.0
+    if usage_count > 0:
+        freshness = max(0.0, freshness - 0.2 * usage_count)
 
     # 5. Duration-Fit: Natuerliche Laenge passt zum Slot
     if segment_duration > 0:
@@ -875,12 +885,16 @@ def _match_video_by_motion(
     video_info: dict[int, dict],
     available_ids: list[int],
     used_recently: list[int],
+    usage_counts: dict[int, int] | None = None,
+    max_uses: int | None = None,
 ) -> tuple[int, float]:
     """Waehlt den Video-Clip basierend auf Motion-Score passend zur Audio-Energie.
 
     Ruhige Szenen (motion < 0.3) fuer ruhige Audio-Abschnitte.
     Action-Szenen (motion > 0.7) fuer energetische Audio-Abschnitte.
     Fallback: Round-Robin ueber alle Kandidaten wenn keine Szenen-Daten.
+    Fixplan Schritt 3: Videos am Nutzungs-Limit werden uebersprungen solange
+    Alternativen existieren.
     """
     if not available_ids:
         logger.warning("_match_video_by_motion: Keine Videos verfuegbar")
@@ -889,6 +903,11 @@ def _match_video_by_motion(
     candidates = [v for v in available_ids if v not in used_recently[-3:]]
     if not candidates:
         candidates = available_ids
+
+    if usage_counts is not None and max_uses is not None and max_uses > 0:
+        uncapped = [v for v in candidates if usage_counts.get(v, 0) < max_uses]
+        if uncapped:
+            candidates = uncapped
 
     # F-008 Fix: Additional safety check for empty candidates list
     if not candidates:
@@ -952,12 +971,22 @@ def _match_video_for_segment(
     prev_clip_idx: int | None = None,
     cross_modal_matcher: CrossModalMatcher | None = None,
     section_progress: float = 0.0,
+    usage_counts: dict[int, int] | None = None,
+    max_uses: int | None = None,
+    rng: "random.Random | None" = None,
 ) -> tuple[int, float, int | None]:
     """Waehlt den besten Video-Clip fuer ein Segment.
 
     Phase 3: Multi-dimensionales Fitness-Scoring mit SigLIP Mood-Matching.
     AUD-82: Cross-Modal Matching wenn CrossModalMatcher verfuegbar.
     Fallback: Motion-Score Matching wenn keine Embeddings verfuegbar.
+
+    Fixplan 2026-07-07 Schritt 3 (Diversitaet):
+    * ``usage_counts``/``max_uses``: Videos am globalen Nutzungs-Limit werden
+      uebersprungen solange Alternativen existieren (vorher: 1 Video 58x).
+    * ``rng``: Top-K-Sampling (K=4, score-gewichtet) statt deterministischem
+      argmax — verhindert dass ein statischer Spitzenreiter jedes Segment
+      gewinnt. Ohne rng bleibt das Verhalten argmax (deterministisch).
 
     Returns: (video_id, source_start, clip_idx_in_matrix)
     """
@@ -992,19 +1021,31 @@ def _match_video_for_segment(
         for vid, info in video_info.items():
             path_to_vid[info["path"]] = vid
 
-        best_score = -1.0
-        best_vid = -1
-        best_source_start = 0.0
-        best_clip_idx = None
-        best_motion = 0.5
-
+        # Kandidaten sammeln; Nutzungs-Cap nur anwenden wenn danach noch
+        # Alternativen uebrig bleiben (Schritt 3).
+        candidates: list[tuple[int, int, dict]] = []  # (clip_idx, vid, meta)
         for clip_idx, meta in enumerate(clip_metadata):
             vid = path_to_vid.get(meta["video_path"])
             if vid is None or vid not in available_ids:
                 continue
+            candidates.append((clip_idx, vid, meta))
 
+        if usage_counts is not None and max_uses is not None and max_uses > 0:
+            uncapped = [c for c in candidates
+                        if usage_counts.get(c[1], 0) < max_uses]
+            if uncapped:
+                candidates = uncapped
+            else:
+                logger.debug(
+                    "_match_video_for_segment: alle %d Kandidaten am "
+                    "Nutzungs-Limit (%d) — Cap ausgesetzt",
+                    len(candidates), max_uses)
+
+        scored: list[tuple[float, int, int, dict]] = []  # (score, clip_idx, vid, meta)
+        for clip_idx, vid, meta in candidates:
             scene_duration = meta["scene_end"] - meta["scene_start"]
             motion = meta.get("motion_score", 0.5)
+            _usage = usage_counts.get(vid, 0) if usage_counts else 0
 
             # AUD-82 + AUD-101: Cross-Modal Scoring mit Beat-Sync
             if cross_modal_matcher is not None:
@@ -1024,6 +1065,7 @@ def _match_video_for_segment(
                     scene_end=meta["scene_end"],
                     seg_start=seg_start,
                     video_id=vid,
+                    usage_count=_usage,
                 )
             else:
                 score = _compute_clip_fitness(
@@ -1038,16 +1080,24 @@ def _match_video_for_segment(
                     used_recently=used_recently,
                     fitness_matrix=fitness_matrix,
                     video_id=vid,
+                    usage_count=_usage,
                 )
+            scored.append((score, clip_idx, vid, meta))
 
-            if score > best_score:
-                best_score = score
-                best_vid = vid
-                best_source_start = meta["scene_start"]
-                best_clip_idx = clip_idx
-                best_motion = motion
+        if scored:
+            scored.sort(key=lambda t: t[0], reverse=True)
+            if rng is not None and len(scored) > 1:
+                # Top-K-Sampling: aus den besten K score-gewichtet ziehen
+                # (Quadrat schaerft die Gewichtung Richtung Spitzenreiter).
+                top = scored[:4]
+                weights = [max(s, 1e-6) ** 2 for s, _, _, _ in top]
+                chosen = rng.choices(top, weights=weights, k=1)[0]
+            else:
+                chosen = scored[0]
+            _, best_clip_idx, best_vid, best_meta = chosen
+            best_source_start = best_meta["scene_start"]
+            best_motion = best_meta.get("motion_score", 0.5)
 
-        if best_vid != -1:
             # AUD-82: Selektion im Matcher registrieren fuer Temporal Coherence
             if cross_modal_matcher is not None and best_clip_idx is not None:
                 cross_modal_matcher.record_selection(best_clip_idx, best_motion, section_type)
@@ -1070,6 +1120,7 @@ def _match_video_for_segment(
     # Fallback: Motion-basiertes Matching
     vid, source_start = _match_video_by_motion(
         energy_value, video_info, available_ids, used_recently,
+        usage_counts=usage_counts, max_uses=max_uses,
     )
     if source_start == 0.0:
         source_start = clip_offsets.get(vid, 0.0)
