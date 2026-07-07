@@ -77,12 +77,11 @@ class WaveformLoadWorker(QObject):
 # Constants
 # ======================================================================
 
-PIXELS_PER_SECOND = 20
-# Fixplan 2026-07-07 Schritt 8: 80 -> 110 px. Recherche Profi-NLEs
-# (Premiere/Resolve): Track-Hoehen und Zoom wirken zusammen; 80 px machte
-# Thumbnails (max. 74 px) und Titel unlesbar. Alle Track-Geometrien leiten
+PIXELS_PER_SECOND = 25
+# Fixplan 2026-07-07 Schritt 8: 80 -> 110 px -> Maengelbehebung 140 px.
+# Track-Hoehen und Zoom wirken zusammen. Alle Track-Geometrien leiten
 # sich aus dieser Konstante ab (VIDEO_TRACK_Y, Thumb-Hoehe, Handles).
-TRACK_HEIGHT = 110
+TRACK_HEIGHT = 140
 MIN_READABLE_FIT_SCALE = 0.25
 AUDIO_TRACK_Y = 10
 VIDEO_TRACK_Y = AUDIO_TRACK_Y + TRACK_HEIGHT + 12
@@ -1257,6 +1256,10 @@ class InteractiveTimeline(QGraphicsView):
         vp = self.viewport()
         vp.setUpdatesEnabled(True)
         vp.update()
+        try:
+            self.fit_to_content()
+        except Exception as fit_exc:
+            logger.debug("Automatic fit_to_content failed: %s", fit_exc)
         self._schedule_thumb_request()  # B-471 T1: lazy thumbs fuer sichtbare Clips
         logger.info("[T1] build done: registered_paths=%d clips=%d",
                     len(self._thumb_items_by_path), len(self.clip_items))
