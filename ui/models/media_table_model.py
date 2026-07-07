@@ -107,6 +107,16 @@ class MediaTableModel(QAbstractTableModel):
         if role == Qt.ItemDataRole.CheckStateRole and key == "_chk":
             return Qt.CheckState.Checked if item["id"] in self._checked_ids else Qt.CheckState.Unchecked
 
+        # Schritt 7c-Nachschaerfung (User: "besser farblich markieren"):
+        # Farb-Indikator in der ersten Spalte — gruen = in Timeline,
+        # grau = nicht verwendet. Faellt auch beim schnellen Scrollen auf.
+        if role == Qt.ItemDataRole.DecorationRole and key == "_chk" \
+                and self._timeline_usage:
+            from PySide6.QtGui import QColor
+            if self._timeline_usage.get(item.get("id"), 0) > 0:
+                return QColor(34, 197, 94)   # kraeftiges Gruen
+            return QColor(75, 85, 99)        # Grau
+
         return None
 
     def setData(self, index: QModelIndex, value: Any, role: int = Qt.ItemDataRole.EditRole) -> bool:

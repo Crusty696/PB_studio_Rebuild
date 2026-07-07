@@ -315,24 +315,53 @@ class MediaCard(QFrame):
         # set_timeline_usage().
         self._usage_badge: QLabel | None = None
 
-    def set_timeline_usage(self, count: int) -> None:
-        """Zeigt/versteckt das Verwendungs-Badge des letzten Auto-Edits."""
+    def set_timeline_usage(self, count: int, marking_active: bool = True) -> None:
+        """Zeigt Verwendungs-Status des Clips (7c: deutlich sichtbar).
+
+        Verwendet: gruener Rahmen + gruenes "N×"-Badge.
+        Nicht verwendet: Karte gedimmt (Opacity) — beide Zustaende erkennbar.
+        marking_active=False (kein Timeline-Stand) -> alles neutral.
+        Eigenes Stylesheet uebernimmt Hover-/Selected-Optik, damit die
+        globalen MediaCard-Regeln nicht verloren gehen.
+        """
+        if not marking_active:
+            if self._usage_badge is not None:
+                self._usage_badge.hide()
+            self.setStyleSheet("")
+            self.setGraphicsEffect(None)
+            return
         if count > 0:
             if self._usage_badge is None:
                 self._usage_badge = QLabel(self)
                 self._usage_badge.setStyleSheet(
-                    "QLabel{background:#1f7a3d;color:#eafff0;font-size:10px;"
-                    "font-weight:700;border-radius:7px;padding:1px 6px;}"
+                    "QLabel{background:#22c55e;color:#052e14;font-size:11px;"
+                    "font-weight:800;border-radius:7px;padding:1px 7px;}"
                 )
                 self._usage_badge.move(6, 6)
             self._usage_badge.setText(f"{count}×")
             self._usage_badge.setToolTip(
-                f"Im aktuellen Auto-Edit {count}× verwendet")
+                f"In der Timeline {count}× verwendet")
             self._usage_badge.adjustSize()
             self._usage_badge.raise_()
             self._usage_badge.show()
-        elif self._usage_badge is not None:
-            self._usage_badge.hide()
+            self.setStyleSheet(
+                "MediaCard{background:#12331d;border:2px solid #22c55e;"
+                "border-radius:8px;}"
+                "MediaCard:hover{border:2px solid #4ade80;background:#154024;}"
+                "MediaCard[selected=\"true\"]{border:2px solid #d4a44a;}"
+            )
+            self.setWindowOpacity(1.0)
+            self.setGraphicsEffect(None)
+        else:
+            if self._usage_badge is not None:
+                self._usage_badge.hide()
+            self.setStyleSheet("")
+            # Dimmen nur wenn ueberhaupt ein Auto-Edit-/Timeline-Stand
+            # existiert (Grid setzt usage-dict) — sonst neutral lassen.
+            from PySide6.QtWidgets import QGraphicsOpacityEffect
+            eff = QGraphicsOpacityEffect(self)
+            eff.setOpacity(0.45)
+            self.setGraphicsEffect(eff)
 
     def set_selected(self, sel: bool) -> None:
         # P8-F2-FIX: unpolish+polish in Click-Pfad triggerte O(N)-Style-
@@ -669,9 +698,13 @@ class MediaPoolGrid(QWidget):
         """Fixplan 2026-07-07 Schritt 7 (V3): markiert Cards, die der letzte
         Auto-Edit verwendet hat (gruenes "N×"-Badge)."""
         self._timeline_usage = dict(usage or {})
+        active = bool(self._timeline_usage)
         for card in self._cards:
             try:
-                card.set_timeline_usage(self._timeline_usage.get(card._id, 0))
+                card.set_timeline_usage(
+                    self._timeline_usage.get(card._id, 0),
+                    marking_active=active,
+                )
             except RuntimeError:
                 continue  # Card bereits zerstoert
 
