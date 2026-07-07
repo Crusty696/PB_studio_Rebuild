@@ -40,7 +40,7 @@ class SchnittTabSchnitt(QWidget):
         self.btn_stop.setAccessibleName("Vorschau stoppen")
         transport.addWidget(self.btn_stop)
         self.time_label = QLabel("00:00 / 00:00")
-        self.time_label.setStyleSheet("color: #6b7280; font-size: 10px;")
+        self.time_label.setStyleSheet("color: #98a2b1; font-size: 10px;")
         transport.addWidget(self.time_label)
         transport.addStretch(1)
         v.addLayout(transport)
@@ -58,7 +58,7 @@ class SchnittTabSchnitt(QWidget):
         v.addWidget(self.timeline_shell, stretch=4)
 
         self.cut_info_label = QLabel("")
-        self.cut_info_label.setStyleSheet("color: #6b7280; font-size: 10px; padding: 1px 4px;")
+        self.cut_info_label.setStyleSheet("color: #98a2b1; font-size: 10px; padding: 1px 4px;")
         v.addWidget(self.cut_info_label)
 
         # B-295: CutListPanel — textuelle Cutliste unter der Timeline.

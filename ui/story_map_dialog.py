@@ -184,7 +184,7 @@ class _ClipCard(QFrame):
         outer.addWidget(role_label)
 
         ts_label = QLabel(_format_mmss(self._timestamp_sec))
-        ts_label.setStyleSheet("color:#6b7280;font-size:9px;")
+        ts_label.setStyleSheet("color:#98a2b1;font-size:9px;")
         ts_label.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         outer.addWidget(ts_label)
 

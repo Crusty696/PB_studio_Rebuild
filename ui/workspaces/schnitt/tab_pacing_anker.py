@@ -196,5 +196,5 @@ class SchnittTabPacingAnker(QWidget):
     @staticmethod
     def _small_label(text: str) -> QLabel:
         lbl = QLabel(text)
-        lbl.setStyleSheet("color:#6b7280; font-size:9px; font-weight:700; letter-spacing:1px;")
+        lbl.setStyleSheet("color:#98a2b1; font-size:9px; font-weight:700; letter-spacing:1px;")
         return lbl

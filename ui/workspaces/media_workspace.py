@@ -133,7 +133,7 @@ _VIEW_TOGGLE_STYLE = """
         background: #1a2030;
         border: 1px solid rgba(255,255,255,0.08);
         border-radius: 4px;
-        color: #6b7280;
+        color: #98a2b1;
     }
     QPushButton:checked {
         background: rgba(212,164,74,0.15);
@@ -163,7 +163,7 @@ _CARD_VALUE_STYLE = (
     "color: #f9fafb; font-size: 20px; font-weight: 800;"
 )
 _CARD_LABEL_STYLE = (
-    "color: #6b7280; font-size: 10px; font-weight: 500;"
+    "color: #98a2b1; font-size: 10px; font-weight: 500;"
 )
 _CARD_TAG_BASE = (
     "font-size: 9px; font-weight: 600; padding: 2px 6px; "
@@ -280,7 +280,7 @@ class MediaWorkspace(QWidget):
         # P9-Step3a: Mode-Toggle als schmale Tab-Bar (vorher 2 Buttons à 42 px,
         # nahmen 1200×92 px Platz weg). Jetzt kompakte Tab-Bar 24 px.
         _TAB_STYLE = (
-            "QPushButton { background:transparent; color:#6b7280; border:none;"
+            "QPushButton { background:transparent; color:#98a2b1; border:none;"
             " border-bottom:2px solid transparent; padding:2px 14px; min-height:18px;"
             " font-size:10px; font-weight:700; letter-spacing:1px; text-transform:uppercase; }"
             "QPushButton:hover { color:#9ca3af; background:rgba(255,255,255,0.03); }"
@@ -921,7 +921,7 @@ class MediaWorkspace(QWidget):
         flay.setSpacing(6)
         # Shared clear-all button lives on video page; hier nur Hinweis.
         hint = QLabel("Filter/Sortierung folgen (Shared: 'Sammlung bereinigen' auf VIDEO-Tab FILTER).")
-        hint.setStyleSheet("color: #6b7280; font-size: 10px;")
+        hint.setStyleSheet("color: #98a2b1; font-size: 10px;")
         flay.addWidget(hint)
         flay.addStretch()
         self._audio_sub_tabs.addTab(filt, "FILTER")
@@ -1055,7 +1055,7 @@ class MediaWorkspace(QWidget):
         # ── Structure Bar ──────────────────────────────────────
         struct_hdr = QLabel("STRUCTURE")
         struct_hdr.setStyleSheet(
-            "color: #6b7280; font-weight: 700; font-size: 9px; "
+            "color: #98a2b1; font-weight: 700; font-size: 9px; "
             "letter-spacing: 1px; padding: 2px 4px;"
         )
         detail_layout.addWidget(struct_hdr)

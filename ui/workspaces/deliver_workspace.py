@@ -183,7 +183,7 @@ class DeliverWorkspace(QWidget):
         self.preview_video_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.preview_video_label.setFixedSize(960, 540)
         self.preview_video_label.setStyleSheet(
-            "background-color: #1a1a2e; color: #6b7280; "
+            "background-color: #1a1a2e; color: #98a2b1; "
             "border: 1px solid #374151; border-radius: 4px;"
         )
         wrap.addWidget(self.preview_video_label)
@@ -229,7 +229,7 @@ class DeliverWorkspace(QWidget):
         v.setSpacing(4)
 
         log_lbl = QLabel("EXPORT-PROTOKOLL")
-        log_lbl.setStyleSheet("color: #6b7280; font-size: 9px; font-weight: 700; letter-spacing: 1px;")
+        log_lbl.setStyleSheet("color: #98a2b1; font-size: 9px; font-weight: 700; letter-spacing: 1px;")
         v.addWidget(log_lbl)
 
         self.export_log = QTextEdit()

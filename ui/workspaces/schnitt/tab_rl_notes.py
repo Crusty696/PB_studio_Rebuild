@@ -85,7 +85,7 @@ class SchnittTabRlNotes(QWidget):
         v.addWidget(self.notes_edit, stretch=1)
 
         self.saved_label = QLabel("Noch nicht gespeichert.")
-        self.saved_label.setStyleSheet("color:#6b7280; font-size:10px;")
+        self.saved_label.setStyleSheet("color:#98a2b1; font-size:10px;")
         v.addWidget(self.saved_label)
         return col
 

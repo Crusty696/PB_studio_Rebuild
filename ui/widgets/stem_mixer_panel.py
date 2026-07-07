@@ -66,7 +66,7 @@ class StemMixerPanel(QWidget):
             f"""
             QPushButton {{
                 background: #1E1E1E;
-                color: #606060;
+                color: #8f8f8f;
                 border: 1px solid #2E2E2E;
                 border-radius: 3px;
                 font-weight: 700;
@@ -99,7 +99,7 @@ class StemMixerPanel(QWidget):
             f"""
             QPushButton {{
                 background: #1E1E1E;
-                color: #606060;
+                color: #8f8f8f;
                 border: 1px solid #2E2E2E;
                 border-radius: 3px;
                 font-weight: 700;
@@ -158,7 +158,7 @@ class StemMixerPanel(QWidget):
         self._db_label = QLabel("0 dB")
         self._db_label.setFixedWidth(42)
         self._db_label.setStyleSheet(
-            "color: #606060; font-size: 9px; background: transparent; border: none;"
+            "color: #8f8f8f; font-size: 9px; background: transparent; border: none;"
         )
         self._db_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self._vol_slider.valueChanged.connect(self._update_db)

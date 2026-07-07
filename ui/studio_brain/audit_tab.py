@@ -98,7 +98,7 @@ _HEADER_LABEL_STYLE = (
     "color:#e5e7eb;font-size:10px;font-weight:600;padding:4px 0px;"
 )
 
-_EMPTY_LABEL_STYLE = "color:#6b7280;font-size:10px;padding:6px;"
+_EMPTY_LABEL_STYLE = "color:#98a2b1;font-size:10px;padding:6px;"
 
 
 # ── Formatting helpers ───────────────────────────────────────────────────────

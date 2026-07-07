@@ -567,7 +567,7 @@ class LegacyAnalysisWorkspace(QWidget):
         # B-296/phase-E-fix I-4: nach Alias-Removal nur noch ein Einzelschritt-Button.
         # Hint-Label fuer User-Klarheit, dass btn_video_pipeline (oben) Standard ist.
         hint = QLabel("Einzelschritt (optional). Standardweg ist die Voll-Pipeline oben.")
-        hint.setStyleSheet("color: #6b7280; font-size: 10px; font-style: italic;")
+        hint.setStyleSheet("color: #98a2b1; font-size: 10px; font-style: italic;")
         layout.addWidget(hint)
         layout.addStretch(1)
         return page

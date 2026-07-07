@@ -55,7 +55,7 @@ _STATS_STYLE = (
     "QLabel[role='title']{color:#e5e7eb;font-size:11px;font-weight:700;}"
     "QLabel[role='section']{color:#9ca3af;font-size:10px;font-weight:600;}"
     "QLabel[role='value']{color:#e5e7eb;font-size:10px;}"
-    "QLabel[role='muted']{color:#6b7280;font-size:10px;}"
+    "QLabel[role='muted']{color:#98a2b1;font-size:10px;}"
     "QListWidget{background:#0f141d;color:#e5e7eb;font-size:10px;"
     "border:1px solid rgba(255,255,255,0.06);border-radius:4px;}"
 )

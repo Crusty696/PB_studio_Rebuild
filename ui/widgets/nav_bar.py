@@ -10,7 +10,7 @@ _NAV_STYLE = """
     }
     QPushButton#workspace_btn {
         background: transparent;
-        color: #6b7280;
+        color: #98a2b1;
         border: none;
         border-bottom: 2px solid transparent;
         border-radius: 0px;

@@ -284,7 +284,7 @@ class AnalysisStatusPanel(QWidget):
             QPushButton:disabled {
                 background: rgba(75,85,99,0.15);
                 border-color: #4b5563;
-                color: #6b7280;
+                color: #98a2b1;
             }
         """)
         self.btn_retry_errors.setEnabled(False)  # Will be enabled when errors exist

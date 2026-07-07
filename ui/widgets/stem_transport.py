@@ -96,7 +96,7 @@ class TransportBar(QWidget):
         self._time_total.setFixedWidth(70)
         self._time_total.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         self._time_total.setStyleSheet(
-            "color: #606060; font-size: 13px; font-weight: 500; "
+            "color: #8f8f8f; font-size: 13px; font-weight: 500; "
             "font-family: monospace; background: transparent; border: none;"
         )
         layout.addWidget(self._time_total)
@@ -106,7 +106,7 @@ class TransportBar(QWidget):
 
         zoom_label = QLabel("Zoom:")
         zoom_label.setStyleSheet(
-            "color: #505050; font-size: 10px; background: transparent; border: none;"
+            "color: #8a8a8a; font-size: 10px; background: transparent; border: none;"
         )
         layout.addWidget(zoom_label)
 
@@ -129,7 +129,7 @@ class TransportBar(QWidget):
         self._zoom_label = QLabel("1.0x")
         self._zoom_label.setFixedWidth(35)
         self._zoom_label.setStyleSheet(
-            "color: #505050; font-size: 9px; background: transparent; border: none;"
+            "color: #8a8a8a; font-size: 9px; background: transparent; border: none;"
         )
         layout.addWidget(self._zoom_label)
 

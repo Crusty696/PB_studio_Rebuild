@@ -253,7 +253,7 @@ class _RunTimeline(QScrollArea):
 
         self._empty_label = QLabel("Noch keine Pacing-Runs vorhanden.")
         self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._empty_label.setStyleSheet("color:#6b7280;font-size:11px;padding:24px;")
+        self._empty_label.setStyleSheet("color:#98a2b1;font-size:11px;padding:24px;")
         self._empty_label.setVisible(False)
         self._hl.addWidget(self._empty_label)
         self._hl.addStretch()

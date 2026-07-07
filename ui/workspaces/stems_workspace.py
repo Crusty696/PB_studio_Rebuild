@@ -201,7 +201,7 @@ class StemsWorkspace(QWidget):
         self._snr_labels: dict[str, QLabel] = {}
         for col, stem in enumerate(("vocals", "drums", "bass", "other")):
             title = QLabel(stem.upper())
-            title.setStyleSheet("color: #6b7280; font-size: 9px; font-weight: 700; letter-spacing: 1px;")
+            title.setStyleSheet("color: #98a2b1; font-size: 9px; font-weight: 700; letter-spacing: 1px;")
             value = QLabel("—")
             value.setStyleSheet("color: #e8e6e3; font-size: 13px; font-weight: 700;")
             self._snr_grid.addWidget(title, 0, col, alignment=Qt.AlignmentFlag.AlignCenter)

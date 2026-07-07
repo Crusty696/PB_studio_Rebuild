@@ -55,7 +55,7 @@ class WorkspaceSetupController(PBComponent):
         top_layout.addWidget(self.window._project_name_label)
 
         self.window._save_state_label = QLabel("gespeichert")
-        self.window._save_state_label.setStyleSheet("color: #6b7280; font-size: 10px; background: transparent;")
+        self.window._save_state_label.setStyleSheet("color: #98a2b1; font-size: 10px; background: transparent;")
         top_layout.addWidget(self.window._save_state_label)
 
         top_layout.addStretch()
@@ -858,7 +858,7 @@ class WorkspaceSetupController(PBComponent):
         row.setSpacing(4)
         lbl = QLabel(label)
         lbl.setFixedWidth(46)
-        lbl.setStyleSheet("color: #6b7280; font-size: 10px;")
+        lbl.setStyleSheet("color: #98a2b1; font-size: 10px;")
         row.addWidget(lbl)
         slider = QSlider(Qt.Orientation.Horizontal)
         slider.setRange(min_val, max_val)

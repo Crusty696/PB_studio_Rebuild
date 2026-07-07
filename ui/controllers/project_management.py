@@ -255,7 +255,7 @@ class ProjectManagementController(PBComponent):
         self.window._project_name_label.setText(project_name)
         if hasattr(self.window, "_save_state_label"):
             self.window._save_state_label.setText("gespeichert")
-            self.window._save_state_label.setStyleSheet("color: #6b7280; font-size: 10px; background: transparent;")
+            self.window._save_state_label.setStyleSheet("color: #98a2b1; font-size: 10px; background: transparent;")
         # B-562: Cockpit-Dashboard VOLL refreshen (Name + Pfad + project_id +
         # Readiness) statt nur das Namens-Label zu setzen. Vorher rief
         # _on_project_changed nur dashboard.update_project(name, path) OHNE
@@ -339,7 +339,7 @@ class ProjectManagementController(PBComponent):
             if hasattr(self.window, "_save_state_label"):
                 self.window._save_state_label.setText("gespeichert")
                 self.window._save_state_label.setStyleSheet(
-                    "color: #6b7280; font-size: 10px; background: transparent;"
+                    "color: #98a2b1; font-size: 10px; background: transparent;"
                 )
             self._update_window_title()
 

@@ -86,7 +86,7 @@ class CutListPanel(QWidget):
 
         # M-2: konsistenter initial-Empty-State-Text (vorher "Noch keine Timeline.").
         self.info_label = QLabel("Kein Projekt aktiv. — set_project() rufen.")
-        self.info_label.setStyleSheet("color: #6b7280; font-size: 10px;")
+        self.info_label.setStyleSheet("color: #98a2b1; font-size: 10px;")
         layout.addWidget(self.info_label)
 
     def set_project(self, project_id: Optional[int]) -> None:

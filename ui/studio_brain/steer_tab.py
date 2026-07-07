@@ -91,7 +91,7 @@ _SELECTOR_STYLE = (
     "border:1px solid rgba(255,255,255,0.1);border-radius:4px;"
     "padding:3px 8px;font-size:10px;}"
     "QPushButton:hover{background:#202838;}"
-    "QPushButton:disabled{color:#6b7280;background:#151a23;}"
+    "QPushButton:disabled{color:#98a2b1;background:#151a23;}"
     "QLabel{color:#9ca3af;font-size:10px;}"
 )
 

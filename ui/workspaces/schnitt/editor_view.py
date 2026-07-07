@@ -61,7 +61,7 @@ class SchnittEditorView(QWidget):
         row.setSpacing(8)
 
         a_lbl = QLabel("Audio")
-        a_lbl.setStyleSheet("color:#6b7280; font-size:10px;")
+        a_lbl.setStyleSheet("color:#98a2b1; font-size:10px;")
         row.addWidget(a_lbl)
         self.audio_combo = QComboBox()
         self.audio_combo.setToolTip("Audio-Track für BPM-Pacing")
@@ -71,7 +71,7 @@ class SchnittEditorView(QWidget):
         row.addWidget(self.audio_combo, stretch=2)
 
         v_lbl = QLabel("Video")
-        v_lbl.setStyleSheet("color:#6b7280; font-size:10px;")
+        v_lbl.setStyleSheet("color:#98a2b1; font-size:10px;")
         row.addWidget(v_lbl)
         self.video_combo = QComboBox()
         self.video_combo.setToolTip(
@@ -115,7 +115,7 @@ class SchnittEditorView(QWidget):
         v = QVBoxLayout(w)
         v.addStretch(1)
         lbl = QLabel(text)
-        lbl.setStyleSheet("color: #6b7280; font-size: 12px;")
+        lbl.setStyleSheet("color: #98a2b1; font-size: 12px;")
         v.addWidget(lbl, alignment=Qt.AlignmentFlag.AlignCenter)
         v.addStretch(1)
         return w

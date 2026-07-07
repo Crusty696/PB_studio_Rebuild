@@ -96,7 +96,7 @@ class StemWorkspace(QWidget):
 
         self._info_label = QLabel("Kein Track geladen")
         self._info_label.setStyleSheet(
-            "color: #505050; font-size: 11px; background: transparent; border: none;"
+            "color: #8a8a8a; font-size: 11px; background: transparent; border: none;"
         )
         header_layout.addWidget(self._info_label)
 
@@ -105,7 +105,7 @@ class StemWorkspace(QWidget):
         btn_reset = QPushButton("Reset All")
         btn_reset.setFixedHeight(24)
         btn_reset.setStyleSheet(
-            "QPushButton { background: #1E1E1E; color: #606060; border: 1px solid #2E2E2E; "
+            "QPushButton { background: #1E1E1E; color: #8f8f8f; border: 1px solid #2E2E2E; "
             "border-radius: 3px; font-size: 10px; padding: 2px 10px; }"
             "QPushButton:hover { color: #B0B0B0; border-color: #484848; }"
         )

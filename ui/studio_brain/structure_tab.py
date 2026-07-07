@@ -205,7 +205,7 @@ class _ClipCard(QFrame):
         vl.addWidget(mood_lbl)
 
         usage_lbl = QLabel(f"used: {usage}×")
-        usage_lbl.setStyleSheet("color:#6b7280;font-size:8px;")
+        usage_lbl.setStyleSheet("color:#98a2b1;font-size:8px;")
         vl.addWidget(usage_lbl)
 
     @property
@@ -497,7 +497,7 @@ class _GridView(QScrollArea):
 
         self._empty_label = QLabel("Keine Clips passen zu den aktuellen Filtern.")
         self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._empty_label.setStyleSheet("color:#6b7280;font-size:11px;padding:24px;")
+        self._empty_label.setStyleSheet("color:#98a2b1;font-size:11px;padding:24px;")
         self._empty_label.setVisible(False)
         self._outer.addWidget(self._empty_label)
 
