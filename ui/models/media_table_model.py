@@ -22,6 +22,9 @@ class MediaTableModel(QAbstractTableModel):
         self._media_type = media_type  # "Video" oder "Audio"
         self._items: list[dict] = []
         self._checked_ids: set[int] = set()
+        # Fixplan 2026-07-07 Schritt 7 (V3): media_id -> Anzahl Verwendungen
+        # im letzten Auto-Edit. Leeres Dict = kein Auto-Edit-Ergebnis bekannt.
+        self._timeline_usage: dict[int, int] = {}
         
         # Header Definitionen
         if media_type == "Video":
@@ -59,7 +62,25 @@ class MediaTableModel(QAbstractTableModel):
                     return f"{int(percent)}%"
                 return "-"
             val = item.get(key)
+            # Schritt 7 (V3): Verwendungszahl aus dem letzten Auto-Edit am Titel
+            if key == "title" and self._timeline_usage:
+                n = self._timeline_usage.get(item.get("id"), 0)
+                if n > 0:
+                    return f"{val if val is not None else '-'}  [{n}×]"
             return str(val) if val is not None else "-"
+
+        # Schritt 7 (V3): verwendete Clips gruen hinterlegen, unverwendete
+        # neutral lassen (kein Dimmen — Lesbarkeit)
+        if role == Qt.ItemDataRole.BackgroundRole and self._timeline_usage:
+            from PySide6.QtGui import QColor, QBrush
+            if self._timeline_usage.get(item.get("id"), 0) > 0:
+                return QBrush(QColor(22, 58, 34))  # dezentes Gruen
+
+        if role == Qt.ItemDataRole.ToolTipRole and self._timeline_usage:
+            n = self._timeline_usage.get(item.get("id"), 0)
+            if n > 0:
+                return f"Im aktuellen Auto-Edit {n}× verwendet"
+            return "Im aktuellen Auto-Edit nicht verwendet"
 
         # Color coding for analysis_percent column
         if role == Qt.ItemDataRole.ForegroundRole and key == "analysis_percent":
@@ -107,6 +128,17 @@ class MediaTableModel(QAbstractTableModel):
 
     def get_checked_ids(self) -> list[int]:
         return [i["id"] for i in self._items if i["id"] in self._checked_ids]
+
+    def set_timeline_usage(self, usage: dict[int, int] | None):
+        """Schritt 7 (V3): markiert, welche Clips der letzte Auto-Edit nutzt."""
+        self._timeline_usage = dict(usage or {})
+        if self._items:
+            self.dataChanged.emit(
+                self.index(0, 0),
+                self.index(len(self._items) - 1, len(self._headers) - 1),
+                [Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.BackgroundRole,
+                 Qt.ItemDataRole.ToolTipRole],
+            )
 
     def toggle_all(self):
         """Alle sichtbaren Zeilen toggeln."""
@@ -209,6 +241,11 @@ class PagedProxyModel(QSortFilterProxyModel):
     def get_checked_ids(self) -> list[int]:
         src = self.sourceModel()
         return src.get_checked_ids() if src is not None else []
+
+    def set_timeline_usage(self, usage: dict[int, int] | None):
+        src = self.sourceModel()
+        if src is not None and hasattr(src, "set_timeline_usage"):
+            src.set_timeline_usage(usage)
 
     def toggle_all(self):
         src = self.sourceModel()

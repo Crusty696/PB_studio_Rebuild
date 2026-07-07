@@ -310,6 +310,29 @@ class MediaCard(QFrame):
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._show_context_menu)
+        # Fixplan 2026-07-07 Schritt 7 (V3): Badge "N×" wenn der Clip im
+        # letzten Auto-Edit verwendet wurde. Lazy erzeugt in
+        # set_timeline_usage().
+        self._usage_badge: QLabel | None = None
+
+    def set_timeline_usage(self, count: int) -> None:
+        """Zeigt/versteckt das Verwendungs-Badge des letzten Auto-Edits."""
+        if count > 0:
+            if self._usage_badge is None:
+                self._usage_badge = QLabel(self)
+                self._usage_badge.setStyleSheet(
+                    "QLabel{background:#1f7a3d;color:#eafff0;font-size:10px;"
+                    "font-weight:700;border-radius:7px;padding:1px 6px;}"
+                )
+                self._usage_badge.move(6, 6)
+            self._usage_badge.setText(f"{count}×")
+            self._usage_badge.setToolTip(
+                f"Im aktuellen Auto-Edit {count}× verwendet")
+            self._usage_badge.adjustSize()
+            self._usage_badge.raise_()
+            self._usage_badge.show()
+        elif self._usage_badge is not None:
+            self._usage_badge.hide()
 
     def set_selected(self, sel: bool) -> None:
         # P8-F2-FIX: unpolish+polish in Click-Pfad triggerte O(N)-Style-
@@ -638,6 +661,19 @@ class MediaPoolGrid(QWidget):
             return
         self._items_signature = signature
         self._rebuild_cards()
+        # Schritt 7 (V3): Verwendungs-Badges nach Card-Rebuild reapplizieren
+        if getattr(self, "_timeline_usage", None):
+            self.set_timeline_usage(self._timeline_usage)
+
+    def set_timeline_usage(self, usage: dict[int, int] | None) -> None:
+        """Fixplan 2026-07-07 Schritt 7 (V3): markiert Cards, die der letzte
+        Auto-Edit verwendet hat (gruenes "N×"-Badge)."""
+        self._timeline_usage = dict(usage or {})
+        for card in self._cards:
+            try:
+                card.set_timeline_usage(self._timeline_usage.get(card._id, 0))
+            except RuntimeError:
+                continue  # Card bereits zerstoert
 
     def clear(self) -> None:
         self._all_items = []

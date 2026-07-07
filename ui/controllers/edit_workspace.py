@@ -299,18 +299,33 @@ class EditWorkspaceController(PBComponent):
             self.window.console_text.append("[Auto-Edit] Kein Audio-Track ausgewaehlt.")
             return
 
-        video_ids = []
-        # P9-C: direkt das Source-Model nehmen — der Proxy paginiert und
-        # wuerde sonst nur die aktuell sichtbaren 16 Zeilen liefern.
-        v_model = getattr(self.window, "video_pool_model", None) or self.window.video_pool_table.model()
-        if v_model:
-            for _row in range(v_model.rowCount()):
-                _id_val = v_model.index(_row, 1).data()
-                if _id_val:
-                    try:
-                        video_ids.append(int(_id_val))
-                    except ValueError as exc:
-                        logger.warning("_start_auto_edit: failed to parse video clip ID: %s", exc)
+        # Fixplan 2026-07-07 Schritt 7 (V3): Checkbox-markierte Clips sind die
+        # manuelle Vorauswahl fuer den Auto-Edit. Ohne Markierung entscheidet
+        # die App selbst (ganzer Pool). Ein Timeline-Vorbefuellen ist fuer den
+        # Auto-Edit NICHT noetig — er arbeitet auf dem Material-Pool.
+        video_ids = self._checked_ids_for_table(self.window.video_pool_table)
+        if video_ids:
+            self.window.console_text.append(
+                f"[Auto-Edit] Manuelle Vorauswahl aktiv: {len(video_ids)} "
+                f"markierte Clips werden verwendet."
+            )
+        else:
+            # P9-C: direkt das Source-Model nehmen — der Proxy paginiert und
+            # wuerde sonst nur die aktuell sichtbaren 16 Zeilen liefern.
+            v_model = getattr(self.window, "video_pool_model", None) or self.window.video_pool_table.model()
+            if v_model:
+                for _row in range(v_model.rowCount()):
+                    _id_val = v_model.index(_row, 1).data()
+                    if _id_val:
+                        try:
+                            video_ids.append(int(_id_val))
+                        except ValueError as exc:
+                            logger.warning("_start_auto_edit: failed to parse video clip ID: %s", exc)
+            if video_ids:
+                self.window.console_text.append(
+                    f"[Auto-Edit] Keine Clips markiert — App waehlt "
+                    f"automatisch aus allen {len(video_ids)} Clips."
+                )
 
         if not video_ids:
             self.window.console_text.append("[Auto-Edit] Keine Video-Clips vorhanden.")
@@ -416,6 +431,28 @@ class EditWorkspaceController(PBComponent):
             new_segments=segments,
         )
         self.window.timeline_view.undo_stack.push(cmd)
+
+        # Fixplan 2026-07-07 Schritt 7 (V3): Verwendungs-Markierung im
+        # MATERIAL-Pool (Tabelle gruen + Titel [N×]; Grid-Cards Badge).
+        try:
+            usage: dict[int, int] = {}
+            for seg in segments:
+                mid = seg.get("media_id", seg.get("video_id"))
+                if mid is not None:
+                    usage[int(mid)] = usage.get(int(mid), 0) + 1
+            vm = getattr(self.window, "video_pool_model", None)
+            if vm is not None and hasattr(vm, "set_timeline_usage"):
+                vm.set_timeline_usage(usage)
+            grid = getattr(self.window, "video_grid", None)
+            if grid is not None and hasattr(grid, "set_timeline_usage"):
+                grid.set_timeline_usage(usage)
+            self.window.console_text.append(
+                f"[Auto-Edit] {len(segments)} Segmente aus "
+                f"{len(usage)} verschiedenen Clips — verwendete Clips sind "
+                f"im MATERIAL-Pool gruen markiert."
+            )
+        except Exception as exc:
+            logger.warning("Auto-Edit Usage-Markierung fehlgeschlagen: %s", exc)
 
         try:
             self._build_otio_timeline(segments, audio_id=audio_id_override)

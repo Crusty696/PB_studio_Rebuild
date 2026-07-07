@@ -100,7 +100,11 @@ class SchnittEditorView(QWidget):
         self.btn_auto_edit.setMaximumWidth(140)
         self.btn_auto_edit.setAccessibleName("Auto-Edit starten")
         self.btn_auto_edit.setToolTip(
-            "Automatischen Beat-Schnitt starten: Pacing berechnet Cuts und wählt passende Clips."
+            "Automatischen Beat-Schnitt starten: Pacing berechnet Cuts und wählt passende Clips.\n"
+            "Quelle ist der MATERIAL-Pool — die Timeline muss NICHT vorbefüllt werden.\n"
+            "Vorauswahl: in MATERIAL & ANALYSE Clips per Checkbox markieren → nur diese werden verwendet.\n"
+            "Nichts markiert → die App wählt selbst aus allen analysierten Clips.\n"
+            "Nach dem Lauf sind verwendete Clips im Pool grün markiert ([N×])."
         )
         row.addWidget(self.btn_auto_edit)
         return row
