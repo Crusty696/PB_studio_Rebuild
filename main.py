@@ -1317,6 +1317,35 @@ def _qt_message_handler(mode, context, message):
                          message, context.file or "?", context.line)
 
 
+def _maybe_run_setup_wizard(splash=None) -> bool:
+    """NEUBAU-VOLLINTEGRATION T2.4: zeigt den SetupWizard genau beim First-Run.
+
+    Returns True wenn der Wizard angezeigt wurde. Fehler duerfen den
+    App-Start niemals verhindern (Wizard ist Komfort, kein Gate).
+    """
+    try:
+        from ui.dialogs.setup_wizard import SetupWizard, is_setup_complete
+        if is_setup_complete():
+            return False
+        logging.info("First-Run erkannt — SetupWizard startet (T2.4).")
+        if splash is not None:
+            try:
+                splash.hide()
+            except RuntimeError:
+                pass
+        wizard = SetupWizard()
+        wizard.exec()  # modal; Skip/Finish setzen setup_complete intern
+        if splash is not None:
+            try:
+                splash.show()
+            except RuntimeError:
+                pass
+        return True
+    except Exception as exc:  # Wizard darf den Boot nie brechen
+        logging.warning("SetupWizard uebersprungen (Fehler): %s", exc)
+        return False
+
+
 def main():
     # CLI-Argumente prüfen (HEADLESS MODE für Installer/Pre-Caching)
     if "--pre-cache" in sys.argv:
@@ -1898,6 +1927,13 @@ def main():
         raise
     except Exception as exc:  # pragma: no cover - diagnostic path
         logger.warning("GPU state check failed: %s", exc)
+
+    # NEUBAU-VOLLINTEGRATION T2.4 (WIRE-001/DEAD-002): First-Run-SetupWizard.
+    # Der fertige Wizard (ui/dialogs/setup_wizard.py) wurde nie aufgerufen.
+    # Jetzt: modal VOR dem MainWindow, nur wenn setup_complete fehlt;
+    # "Ueberspringen"/Abschluss markieren das Flag wizard-intern -> nie
+    # wieder automatisch. Laeuft NACH dem NVENC-/GPU-Gate (B-563 unberuehrt).
+    _maybe_run_setup_wizard(splash)
 
     try:
         window = PBWindow()
