@@ -768,6 +768,52 @@ def _encode_keyframe_base64(image_path: str) -> str | None:
         return None
 
 
+_CAPTION_JUNK_MARKERS = (
+    '"type"', "'type'", '"url"', "'url'", "file:///", '"size"', '"format"',
+    '"quality"', '"encoding"', '"timestamp"', '.jpeg', '.jpg', '.png',
+)
+
+
+def _caption_text_is_plausible(text: str) -> bool:
+    """Prueft ob ein Caption-Text eine natuerlichsprachliche Beschreibung ist.
+
+    Fixplan 2026-07-07 Schritt 2: Vision-Modelle (Ollama) echoen teils
+    Bild-Metadaten-JSON ('{"type": "image/jpeg", "url": ...}') statt einer
+    Beschreibung. Solcher Muell wurde bisher ungeprueft in scenes.ai_caption
+    gespeichert und vergiftete Mood-Matching + semantische Suche.
+    """
+    if not text or not isinstance(text, str):
+        return False
+    t = text.strip()
+    if len(t) < 15:
+        return False
+    # JSON-/Struktur-Echo statt Prosa
+    if t.startswith("[") or t.startswith("{"):
+        return False
+    low = t.lower()
+    if any(m in low for m in _CAPTION_JUNK_MARKERS):
+        return False
+    # Mindestens 3 Woerter mit Buchstaben (Prosa-Heuristik)
+    alpha_words = [w for w in t.split() if any(c.isalpha() for c in w)]
+    return len(alpha_words) >= 3
+
+
+def _validate_caption_dict(parsed) -> dict | None:
+    """Validiert das geparste Caption-Dict; None = unbrauchbar (Junk).
+
+    Akzeptiert nur Dicts mit plausibler natuerlichsprachlicher description.
+    Reine Metadaten-Dicts ({"type": "image/jpeg", "url": ...} oder
+    Koordinaten {"x":..,"y":..}) haben keine/keine plausible description und
+    fallen durch.
+    """
+    if not isinstance(parsed, dict):
+        return None
+    desc = parsed.get("description")
+    if not _caption_text_is_plausible(desc if isinstance(desc, str) else ""):
+        return None
+    return parsed
+
+
 def analyze_scene_with_caption(
     scenes: list[SceneInfo],
     progress_cb: Callable[[int, str], None] | None = None,
@@ -908,10 +954,39 @@ def analyze_scene_with_caption(
                 else:
                     raise  # leerer Response -> echter Fehler, Circuit-Breaker greift
 
-            if isinstance(parsed, dict):
-                scene.ai_caption = parsed
-                scene.ai_mood = parsed.get("mood")
-                scene.ai_tags = parsed.get("tags", []) or []
+            # Fixplan 2026-07-07 Schritt 2: Plausibilitaets-Validierung.
+            # Vision-Modelle echoen teils Bild-Metadaten-JSON statt einer
+            # Beschreibung — sowas darf nicht in scenes.ai_caption landen.
+            valid = _validate_caption_dict(parsed)
+            if valid is None:
+                logger.warning(
+                    "[CAPTION] Szene %d: Antwort verworfen (Metadaten-Echo/"
+                    "keine plausible description) — Retry mit Plain-Text-Prompt. "
+                    "Anfang: %r", scene.index, str(cleaned)[:80],
+                )
+                retry_raw = svc.vision(
+                    image_paths=[scene.keyframe_path],
+                    prompt=_CAPTION_PLAIN_TEXT_FALLBACK_PROMPT,
+                    model=vision_model,
+                    read_timeout_s=HTTP_OLLAMA_VISION_CAPTION_TIMEOUT_SEC,
+                ).strip()
+                if _caption_text_is_plausible(retry_raw):
+                    valid = {
+                        "description": retry_raw[:500],
+                        "mood": None,
+                        "motion": None,
+                        "tags": [],
+                    }
+                else:
+                    logger.warning(
+                        "[CAPTION] Szene %d: auch Plain-Text-Retry unbrauchbar "
+                        "— Szene bleibt ohne Caption.", scene.index,
+                    )
+
+            if valid is not None:
+                scene.ai_caption = valid
+                scene.ai_mood = valid.get("mood")
+                scene.ai_tags = valid.get("tags", []) or []
                 logger.debug(
                     "[CAPTION] Szene %d: mood=%s",
                     scene.index, scene.ai_mood,
