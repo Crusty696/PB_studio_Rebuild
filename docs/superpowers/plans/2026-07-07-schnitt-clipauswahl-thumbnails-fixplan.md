@@ -2,12 +2,19 @@
 
 - **Plan-ID:** PB-STUDIO-SCHNITT-CLIPAUSWAHL-FIXPLAN-2026-07-07
 - **Status:** `in_progress` — User-Freigabe 2026-07-07 („ja setzte deinen plan jetzt", autonome Abarbeitung 1–9). Registriert in PLAN_REGISTRY, aktiv via ACTIVE_PLAN.md, Decision D-063.
-- **Umsetzungs-Stand 2026-07-07 (Commits 7f46b72…c640495):** Schritte 0–8 code-complete;
-  Schritt 1 + 5 (Motion) live-verifiziert auf final-check-DB (energy 0.205–0.998, 38 distinct);
-  Schritt 9 Teil A (Headless-E2E, echte Daten) PASS: 49 Segmente = 308.00 s, 35/39 Videos (90 %),
-  Max-Nutzung 3 (=Cap), source_start variiert; App-Boot + Click/Key-Logger live bestaetigt.
-  Offen: GUI-Sichtpruefung durch User (Thumbnails nach Apply, Gruen-Markierung, Feldgroesse,
-  Bat-Doppelklick). Live-Status-Tabelle: Vault-Mirror. `fixed` setzt nur der User.
+- **Umsetzungs-Stand 2026-07-07 (Commits 7f46b72…397e960, 22 Commits):**
+  Schritte 0–9A abgeschlossen; Motion + Captions live auf Projekt-DBs verifiziert.
+  Nachtraege auf User-Feedback: 7b (Audio-Budget alle Add-Pfade), 7c (sichtbare
+  Zwei-Zustands-Markierung + Info-Label + Farb-Punkte), Vision-Upgrade
+  (gemma4:e4b, Schema-Prompt war toter Code, Timeout 240s, think:false,
+  42/42 Szenen re-captioned), Caption-Mood in Fitness, Pacing-Tuning
+  (finalize_cut_beats: Beat/Downbeat-Snap, Pflicht-Cuts an echten
+  structure_segments, exaktes Audio-Ende, Max-Segment = laengster Clip;
+  SECTION_MIN autoritativ; Materialdeckungs-Filter), Schrift-Kontrast-Pass.
+  End-Verifikation kompletter Pfad (auto_edit+apply+repair, DB-Kopie):
+  Beat-Sync 100 %, Struktur-Grenzen 21/21, Ende exakt 421.63 s.
+  Offen: finaler User-Durchgang (Neustart → Auto-Edit → Render) + GUI-Sichtung;
+  `fixed` setzt nur der User. Live-Status-Tabelle: Vault-Mirror.
 - **Erstellt:** 2026-07-07, Agent Claude (Fable 5), Read-only-Analyse-Session
 - **Untersuchte Artefakte:**
   - Finales Render-Video: `outputs/final-check/exports/output.mp4` (675 MB)
