@@ -372,6 +372,7 @@ def finalize_cut_beats(
     downbeats: list[float] | None,
     sections: list | None,
     total_duration: float,
+    max_segment_duration: float | None = None,
 ) -> list[float]:
     """Pacing-Tuning 2026-07-07: finaler Qualitaets-Pass ueber alle Cut-Beats.
 
@@ -437,6 +438,35 @@ def finalize_cut_beats(
     result.append(round(total_duration, 4))
     while len(result) >= 3 and (result[-1] - result[-2]) < HARD_MIN_DURATION * 0.6:
         result.pop(-2)
+
+    # 5. Max-Segment-Laenge: kein Intervall darf laenger sein als der
+    #    laengste verfuegbare Clip. Sonst klemmt apply_auto_edit_segments
+    #    das Segment aufs Material und repair_timeline_integrity zieht ALLE
+    #    folgenden Segmente vor (real gemessen: 17.5s-Intro bei 10s-Clips
+    #    -> 7.5s-Kaskade, gaps_closed=113, Beat-Sync 100%->46%).
+    if max_segment_duration and max_segment_duration > 1.0:
+        splitted: list[float] = []
+        added_splits = 0
+        for a, b in zip(result, result[1:]):
+            splitted.append(a)
+            cur = a
+            while (b - cur) > max_segment_duration + 0.05:
+                target = cur + max_segment_duration
+                # bevorzugt auf Beat vor der Grenze splitten
+                cand = beats_arr[beats_arr <= target + 0.001] if beats_arr.size else np.array([])
+                cand = cand[cand > cur + 1.0] if cand.size else cand
+                nxt = float(cand[-1]) if cand.size else round(target, 4)
+                if (b - nxt) < 1.0:  # Rest zu kurz -> mittig teilen
+                    nxt = round(cur + (b - cur) / 2.0, 4)
+                splitted.append(round(nxt, 4))
+                added_splits += 1
+                cur = nxt
+        splitted.append(result[-1])
+        if added_splits:
+            logger.info(
+                "finalize_cut_beats: %d Zusatz-Cuts (Segment > laengster "
+                "Clip %.1fs)", added_splits, max_segment_duration)
+        result = splitted
 
     logger.info(
         "finalize_cut_beats: %d -> %d Cuts (%d Pflicht-Cuts an "
@@ -1149,6 +1179,28 @@ def _match_video_for_segment(
             if vid is None or vid not in available_ids:
                 continue
             candidates.append((clip_idx, vid, meta))
+
+        # Pacing-Tuning 2026-07-07: Clip muss das Segment fuellen koennen.
+        # Sonst kappt apply_auto_edit_segments das Segment aufs Material,
+        # repair_timeline_integrity schliesst das entstandene Loch und
+        # schiebt ALLE folgenden Segmente nach vorn — gemessen: Beat-Sync
+        # fiel von 100% (Return) auf 46% (DB), Ende schrumpfte 421.6->417.4s.
+        if seg_duration > 0:
+            long_enough = [c for c in candidates
+                           if video_info.get(c[1], {}).get("duration", 0.0)
+                           >= seg_duration - 0.05]
+            if long_enough:
+                candidates = long_enough
+            elif candidates:
+                # Kein Clip lang genug: laengste nehmen (minimale Kappung)
+                _maxdur = max(video_info.get(c[1], {}).get("duration", 0.0)
+                              for c in candidates)
+                candidates = [c for c in candidates
+                              if video_info.get(c[1], {}).get("duration", 0.0)
+                              >= _maxdur - 0.05]
+                logger.debug(
+                    "_match_video_for_segment: kein Clip deckt %.2fs — "
+                    "nutze laengste (%.2fs)", seg_duration, _maxdur)
 
         if usage_counts is not None and max_uses is not None and max_uses > 0:
             uncapped = [c for c in candidates

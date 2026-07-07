@@ -688,9 +688,14 @@ def _auto_edit_phase3_inner(
     cut_beats = _enforce_minimum_durations(cut_beats, sections, total_duration)
 
     # Pacing-Tuning 2026-07-07: finaler Pass — Beat/Downbeat-Snap aller Cuts,
-    # Pflicht-Cuts an Section-Grenzen, Timeline-Ende exakt = Audio-Ende.
+    # Pflicht-Cuts an Section-Grenzen, Timeline-Ende exakt = Audio-Ende,
+    # Max-Segment-Laenge = laengster verfuegbarer Clip (verhindert
+    # Material-Kappung + gap-close-Kaskade in apply/repair).
+    _max_clip_dur = max(
+        (video_info[v].get("duration", 0.0) for v in video_info), default=0.0)
     cut_beats = finalize_cut_beats(
         cut_beats, beats, downbeats, sections, total_duration,
+        max_segment_duration=_max_clip_dur if _max_clip_dur > 1.0 else None,
     )
 
     # Phase 3: Mood-Embeddings + Fitness-Matrix pre-compute
