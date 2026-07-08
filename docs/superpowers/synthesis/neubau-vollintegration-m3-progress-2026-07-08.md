@@ -48,6 +48,25 @@ Monolith-520×320-Referenz. DbPersistStage aggregiert je Szene + wendet die
 identische Normalisierung `_normalize_motion` (1−exp(−raw/40)) an; die
 ABSOLUTE Skala kann abweichen → Toleranz-Item, kein Byte-Match.
 
+## Volle-Suite-Regression (3007 passed / 50 failed) — kategorisiert
+
+Ehrlich analysiert, keine offene echte Regression aus dieser Arbeit:
+
+- **~45 Failures = Windows-MAX_PATH** (WinError 206): tiefe by_sha-Content-
+  Storage-Pfade im Worktree (`.worktrees/vollintegration/...tests/qa_artifacts/
+  .../by_sha/<64-hex>/`). Mit kurzem basetemp (`C:/t`) laufen dieselben
+  Tests grün (55 passed). Kein Code-Fehler, keine meiner Änderungen; im
+  Haupt-Worktree (kürzerer Pfad) grün.
+- **3 Failures = eigene M1-Regressionen → GEFIXT** (Commit cc4c9b5):
+  - B-359-RAM: `_analyze_long_chunked` (T2.5.1) chunkte das Spektrogramm
+    nicht wirklich → echtes per-Chunk-Slicing (RAM ≤ alter Cap).
+  - 2× `timeline_snapshot_service` (T2.3): Test-Kontrakt auf DB-019-Dicts.
+- **2 Failures = geerbt aus SCHNITT-FIXPLAN** (Commit 8d03b57, main-Merge):
+  Vision-Caption-Timeout 30→240s + strengere Caption-Echo-Validierung
+  (User-verifiziert). `test_video_caption_timeout`/`_model_selection` sind
+  relativ dazu veraltet. NICHT meine Domäne — gehört zum Audit-Fixplan/
+  anderen Agenten.
+
 ## Nächste Schritte bis zum verbindlichen Abschluss
 
 1. GPU-Paritäts-Lauf (koordiniert) → Report.
