@@ -424,6 +424,22 @@ class EditWorkspaceController(PBComponent):
             task_manager.finish_task(task_id, "error", "Keine Segmente")
             return
 
+        _degraded = any(seg.get("degraded", False) for seg in segments)
+        if _degraded:
+            self.window.console_text.append(
+                "<span style='color: #ff3333; font-weight: bold;'>"
+                "[WARNUNG] SigLIP-Modell konnte nicht geladen werden! "
+                "Das Video-Matching wurde ohne Semantik-Fokus (degradiert) generiert."
+                "</span>"
+            )
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.warning(
+                self.window,
+                "Auto-Edit Degradiert",
+                "Das SigLIP-Modell konnte nicht geladen werden.\n\n"
+                "Der Auto-Edit wurde im degradierten Modus (ohne semantisches Audio-Video-Matching) erzeugt."
+            )
+
         from ui.undo_commands import ApplyAutoEditCommand
         cmd = ApplyAutoEditCommand(
             timeline=self.window.timeline_view,

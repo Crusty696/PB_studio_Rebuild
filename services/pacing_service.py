@@ -1287,4 +1287,9 @@ def _auto_edit_phase3_inner(
                 video_clip.playback_offset = offset
         session.commit()
 
+    _degraded = not bool(mood_embeddings)
+    if _degraded:
+        for seg in segments:
+            seg.degraded = True
+
     return segments, cut_points

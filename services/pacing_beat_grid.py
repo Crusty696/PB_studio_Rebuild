@@ -144,6 +144,7 @@ class TimelineSegment:
     scene_id: str = ""
     crossfade_duration: float = 0.0  # PhD-Spec: Crossfade per Section Type
     section_type: str = ""           # WARMUP/BUILDUP/DROP/BREAKDOWN/COOLDOWN
+    degraded: bool = False
 
 
 SECTION_PACING_MAP = {
