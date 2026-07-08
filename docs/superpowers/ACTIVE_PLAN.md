@@ -25,6 +25,9 @@ Parallel-Setup:
 Stand 2026-07-08: SCHNITT-Fixplan vom User live-verifiziert und `fixed`
 (Haupt-Branch). M1 (Paket 2) komplett — Synthese:
 `docs/superpowers/synthesis/neubau-vollintegration-m1-done-2026-07-08.md`.
+M2 (Paket 1, T1.1-T1.6) code-complete — Synthese:
+`docs/superpowers/synthesis/neubau-vollintegration-m2-done-2026-07-08.md`
+(Commits 2222f90, 20255b8, 8d7a538, 3182f43, 94e95a4, 8f405c6).
 Haupt-Branch-Stand 7114ac4 (A0, B1-B4, B7, A1) eingemergt; A2 lief im
 Haupt-Worktree noch (dirty) und wird vor der Paket-1-Default-AN-Abnahme
 nachgemergt.
@@ -50,11 +53,16 @@ SCHNITT-Garantien: Beat-Sync 100 %, exaktes Audio-Ende):
 ## Current Next Task
 
 ```text
-M2 / T1.1 — Studio-Brain-Pacing-Pipeline aktivieren (USE-001):
-Persistentes Setting + UI-Schalter (SettingsStore, Checkbox) statt nackter
-Env-Var PB_USE_STUDIO_BRAIN_PIPELINE (Env bleibt Override). Default AUS bis
-zur Paket-1-Abnahme nach A2-Merge. Verify: Auto-Edit-Lauf erzeugt
-mem_pacing_run- + mem_decision-Zeilen; DecisionRecorder im Explorer sichtbar.
-Danach T1.2 (use_brain_v3=True am Pipeline-Konstruktor, ans Setting
-gekoppelt) -> T1.3 (SteerOverrideQueue-Consumer) -> T1.5 -> T1.4 -> T1.6.
+M3 / Paket 3 — DAG-Video-Engine vollstaendig integrieren
+(USE-003 / PIPE-018 / DEAD-008):
+1. PIPE-018-Luecken schliessen: Ergebnis-Paritaet der Engine-Pipeline zum
+   Monolith (VectorDB-Persistenz, Scene.energy, Cross-Cutting-Module) —
+   erst Ist-Stand beider Pfade auditieren (services/video_pipeline/ vs.
+   services/video_analysis_service.py::run_full_pipeline).
+2. Paritaets-Nachweis mit echten Daten (gleiches Video beide Pfade,
+   Diff der persistierten Ergebnisse).
+3. Setting-Schalter statt Env-Var PB_ENABLE_VIDEO_PIPELINE_ENGINE
+   (Default AUS bis Paritaet bewiesen).
+Danach: A2-Nachmerge, volle Testsuite inkl. SCHNITT-Garantien,
+automatischer Merge zurueck in codex/OTK-021-... + Push (User-Auftrag).
 ```
