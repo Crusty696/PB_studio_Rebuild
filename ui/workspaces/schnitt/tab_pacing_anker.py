@@ -130,6 +130,18 @@ class SchnittTabPacingAnker(QWidget):
         # Persistiert sofort im SettingsStore (Panel hat keinen OK-Button);
         # Controller liest die Werte beim Auto-Edit aus dem Store.
         row4 = QHBoxLayout()
+        # NEUBAU-VOLLINTEGRATION T1.1 (USE-001): Studio-Brain-Pipeline als
+        # persistentes Setting (vorher nur nackte Env-Var, die niemand
+        # setzte). Env-Var PB_USE_STUDIO_BRAIN_PIPELINE bleibt Override.
+        self.chk_studio_brain = QCheckBox("Studio-Brain")
+        self.chk_studio_brain.setToolTip(
+            "Wirkung: Das lernende Studio-Brain (PacingPipeline + "
+            "DecisionRecorder) entscheidet den Schnitt mit und protokolliert "
+            "jede Entscheidung. "
+            "Wann: AN fuer lernenden Schnitt inkl. Decision-Explorer-Daten. "
+            "Ergebnis: mem_pacing_run/mem_decision werden befuellt; "
+            "Env-Var PB_USE_STUDIO_BRAIN_PIPELINE uebersteuert."
+        )
         self.chk_llm_strategist = QCheckBox("LLM-Strategist")
         self.chk_llm_strategist.setToolTip(
             "Wirkung: Ein lokaler LLM (Ollama) erstellt vor dem Schnitt einen "
@@ -148,6 +160,12 @@ class SchnittTabPacingAnker(QWidget):
                 get_ollama_settings, get_settings_store,
             )
             _store = get_settings_store()
+            # T1.1: Studio-Brain-Setting laden + sofort persistieren
+            self.chk_studio_brain.setChecked(bool(_store.get_nested(
+                "pacing", "use_studio_brain", default=False)))
+            self.chk_studio_brain.toggled.connect(
+                lambda on: get_settings_store().set_nested(
+                    "pacing", "use_studio_brain", value=bool(on)))
             self.chk_llm_strategist.setChecked(bool(_store.get_nested(
                 "pacing", "use_llm_strategist", default=False)))
             self.chk_llm_pacing.setChecked(bool(_store.get_nested(
@@ -169,6 +187,7 @@ class SchnittTabPacingAnker(QWidget):
                     )
         except Exception:  # Settings duerfen den Tab-Aufbau nie brechen
             pass
+        row4.addWidget(self.chk_studio_brain)
         row4.addWidget(self.chk_llm_strategist)
         row4.addWidget(self.chk_llm_pacing)
         # T2.5.6 (FR-S4-5): A/B-Gewichts-Vergleich (ab_runner) als UI
