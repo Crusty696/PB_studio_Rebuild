@@ -94,6 +94,14 @@ echo.
 start "PB Session-Monitor" /min powershell -NoProfile -ExecutionPolicy Bypass ^
   -File "%~dp0scripts\diag\session_log_monitor.ps1" -SessionTag "%PB_TS%"
 
+:: Dataflow-Recorder: zeichnet alle ~30s auf WOHIN Daten fliessen (DB-Zustand
+:: + Datei-Artefakte + Delta) nach logs\dataflow_<ts>.md. Laeuft OHNE Claude,
+:: stoppt selbst bei App-Ende.
+start "PB Dataflow-Recorder" /min powershell -NoProfile -ExecutionPolicy Bypass ^
+  -File "%~dp0scripts\diag\session_dataflow_recorder.ps1" -SessionTag "%PB_TS%" -PbPython "%PB_PYTHON%"
+
+echo   Dataflow:  logs\dataflow_%PB_TS%.md (DB + Datei-Fluss alle 30s)
+
 echo   Starte PB Studio...
 echo.
 
