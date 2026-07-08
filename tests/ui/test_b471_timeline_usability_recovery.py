@@ -124,6 +124,10 @@ def test_video_clip_explains_thumbnail_loading_or_missing_path(qapp) -> None:
         thumbnail_file_path=None,
     )
 
+    # PERF: Text-Content lazy (siehe _ensure_content) — explizit anstossen.
+    with_path._ensure_content()
+    no_path._ensure_content()
+
     with_path_text = "\n".join(
         child.toPlainText()
         for child in with_path.childItems()
@@ -324,6 +328,10 @@ def test_audio_clip_without_waveform_explains_missing_waveform(qapp) -> None:
         has_waveform=False,
         anchors=[],
     )
+    # PERF: Text-Content wird lazy beim Sichtbarwerden erzeugt
+    # (_ensure_content). Im Produkt triggert das der Viewport-Request bzw.
+    # bei Audio direkt _build_entry_item; hier explizit anstossen.
+    item._ensure_content()
 
     text = "\n".join(
         child.toPlainText()

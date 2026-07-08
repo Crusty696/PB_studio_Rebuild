@@ -318,41 +318,29 @@ class TimelineClipItem(QGraphicsRectItem):
         self._thumb_h = max(16, int(height) - 6)
         self._thumbnail_item: QGraphicsPixmapItem | None = None
         self._thumbnail_status_label: QGraphicsTextItem | None = None
+        self._label_item: QGraphicsTextItem | None = None
+        self._missing_waveform_label: QGraphicsTextItem | None = None
+        # PERF (Timeline-Hang 1352 Clips): QGraphicsTextItem-Erzeugung ist auf
+        # Windows teuer (Font-Layout pro Item). ~4000 solcher Items (Label +
+        # Status pro Clip) dominierten den Build (live ~29s CPU vs. 1.5s
+        # headless ohne Rendering). Fix: Text-Items LAZY erst beim
+        # Sichtbarwerden erzeugen (_ensure_content, getriggert vom Viewport-
+        # Request). Rect + Placeholder-Pixmap (billig) bleiben sofort da ->
+        # clip_items ist vollstaendig, Auswahl/Anker/Trim unveraendert.
+        self._content_built = False
+        self._content_title = title[:30]
+        self._content_height = int(height)
+        self._content_status_text: str | None = None
+        self._content_missing_waveform = (track_type == "audio" and not has_waveform)
         if track_type == "video":
             pix = _timeline_video_placeholder(self._thumb_w, self._thumb_h, f"#{media_id}")
             self._thumbnail_item = QGraphicsPixmapItem(pix, self)
             self._thumbnail_item.setPos(0, 3)
             self._thumbnail_item.setOpacity(0.85)
             self._thumbnail_item.setZValue(3)
-            thumb_status = "Thumbnail laedt" if thumbnail_file_path else "Thumbnail fehlt - Datei fehlt"
-            status = QGraphicsTextItem(thumb_status, self)
-            status.setDefaultTextColor(QColor(245, 205, 105, 230))
-            status.setFont(QFont("Segoe UI Variable Text", 9, QFont.Weight.Bold))
-            status.setPos(10, max(24, int(height) - 25))
-            status.setZValue(5)
-            status.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, True)
-            self._thumbnail_status_label = status
-
-        label = QGraphicsTextItem(title[:30], self)
-        label.setDefaultTextColor(QColor(255, 255, 255))
-        label.setFont(QFont("Segoe UI Variable Text", 9, QFont.Weight.Bold))
-        label.setPos(6, 4)
-        label.setZValue(6)
-        # B-471 T3: Label ignoriert die View-Transform -> beim horizontalen Zoom
-        # (wheelEvent self.scale) wird der Text NICHT mehr gestaucht/gestreckt,
-        # sondern bleibt bei jedem Zoom-Level normal lesbar.
-        label.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, True)
-        self._label_item = label
-
-        self._missing_waveform_label: QGraphicsTextItem | None = None
-        if track_type == "audio" and not has_waveform:
-            missing = QGraphicsTextItem("Waveform fehlt - Audioanalyse starten", self)
-            missing.setDefaultTextColor(QColor(220, 230, 245, 210))
-            missing.setFont(QFont("Segoe UI Variable Text", 9, QFont.Weight.Bold))
-            missing.setPos(10, max(22, int(height) // 2 - 8))
-            missing.setZValue(5)
-            missing.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, True)
-            self._missing_waveform_label = missing
+            self._content_status_text = (
+                "Thumbnail laedt" if thumbnail_file_path else "Thumbnail fehlt - Datei fehlt"
+            )
 
         # Trim handle visuals (thin colored bars at edges)
         trim_color = QColor(255, 255, 255, 100)
@@ -400,10 +388,46 @@ class TimelineClipItem(QGraphicsRectItem):
         else:
             self._load_anchors()
 
+    def _ensure_content(self) -> None:
+        """PERF: erzeugt die (auf Windows teuren) Text-Items lazy beim ersten
+        Sichtbarwerden des Clips. Idempotent. Label ignoriert die
+        View-Transform (B-471 T3: bleibt bei jedem Zoom lesbar)."""
+        if self._content_built:
+            return
+        self._content_built = True
+        _font = QFont("Segoe UI Variable Text", 9, QFont.Weight.Bold)
+        _ign = QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations
+        if self._content_status_text is not None and self._thumbnail_item is not None:
+            status = QGraphicsTextItem(self._content_status_text, self)
+            status.setDefaultTextColor(QColor(245, 205, 105, 230))
+            status.setFont(_font)
+            status.setPos(10, max(24, self._content_height - 25))
+            status.setZValue(5)
+            status.setFlag(_ign, True)
+            self._thumbnail_status_label = status
+        label = QGraphicsTextItem(self._content_title, self)
+        label.setDefaultTextColor(QColor(255, 255, 255))
+        label.setFont(_font)
+        label.setPos(6, 4)
+        label.setZValue(6)
+        label.setFlag(_ign, True)
+        self._label_item = label
+        if self._content_missing_waveform:
+            missing = QGraphicsTextItem("Waveform fehlt - Audioanalyse starten", self)
+            missing.setDefaultTextColor(QColor(220, 230, 245, 210))
+            missing.setFont(_font)
+            missing.setPos(10, max(22, self._content_height // 2 - 8))
+            missing.setZValue(5)
+            missing.setFlag(_ign, True)
+            self._missing_waveform_label = missing
+
     def set_thumbnail_pixmap(self, pix) -> None:
         """B-471 T1: setzt das real generierte Thumbnail (vom async Loader)."""
         if self._thumbnail_item is None or pix is None:
             return
+        # PERF: falls Content noch nicht lazy gebaut (Clip wurde direkt via
+        # Cache befuellt), jetzt nachziehen — sonst fehlt der Status-Label-Ref.
+        self._ensure_content()
         try:
             scaled = pix.scaled(
                 self._thumb_w, self._thumb_h,
@@ -1377,6 +1401,11 @@ class InteractiveTimeline(QGraphicsView):
         self._scene.addItem(item)
         self.clip_items.append(item)
         self._register_clip_thumbnail(item)
+        # PERF: Audio-Clip (genau 1, spannt die ganze Timeline) baut seinen
+        # Content sofort — er ist immer sichtbar und nicht im viewport-lazy
+        # Video-Thumbnail-Pfad. Video-Clips bleiben lazy (nur sichtbare).
+        if entry.track == "audio":
+            item._ensure_content()
 
         if entry.track == "audio" and has_waveform:
             # B-471 Follow-up: TimelineDBWorker hat waveform_data bereits
@@ -1413,15 +1442,26 @@ class InteractiveTimeline(QGraphicsView):
 
     def _request_visible_thumbnails(self) -> None:
         """Fordert Thumbnails fuer aktuell sichtbare Video-Clips an (lazy)."""
-        if not self._thumb_items_by_path:
-            logger.info("[T1] request_visible: keine registrierten Thumbnail-Pfade")
-            return
         try:
             view_rect = self.mapToScene(self.viewport().rect()).boundingRect()
         except RuntimeError:
             return
         # etwas Vorlauf, damit knapp ausserhalb liegende Clips vorgeladen werden
         view_rect.adjust(-300.0, 0.0, 300.0, 0.0)
+        # PERF: Text-Content (Label/Status) fuer aktuell sichtbare Clips lazy
+        # nachbauen (siehe TimelineClipItem._ensure_content). Idempotent +
+        # billiger Intersects-Check; baut nur neu-sichtbare. Deckt auch
+        # bereits-thumbnail-geladene Clips ab (die im Pfad-Loop uebersprungen
+        # werden). Muss VOR dem _thumb_items_by_path-Early-Return laufen.
+        for _it in self.clip_items:
+            try:
+                if not _it._content_built and _it.sceneBoundingRect().intersects(view_rect):
+                    _it._ensure_content()
+            except RuntimeError:
+                continue
+        if not self._thumb_items_by_path:
+            logger.info("[T1] request_visible: keine registrierten Thumbnail-Pfade")
+            return
         requested = 0
         for fp, items in list(self._thumb_items_by_path.items()):
             if self._thumb_loader.is_done(fp):
