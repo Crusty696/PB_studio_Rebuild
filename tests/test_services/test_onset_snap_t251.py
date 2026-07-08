@@ -3,46 +3,76 @@ cut_snapper verdrahtet + Onset-Analyse ohne 1800s-Kappung.
 """
 import numpy as np
 
-from services.onset_rhythm_service import MAX_DURATION_SEC, OnsetRhythmService
+from services.onset_rhythm_service import (
+    MAX_DURATION_SEC,
+    OnsetRhythmService,
+    PercussiveOnset,
+    RhythmAnalysis,
+)
 from services.pacing.cut_snapper import snap_to_onset
 
 
 class TestLongChunkedWrapper:
-    def test_segments_cover_full_duration(self, monkeypatch):
+    """B-359/PIPE-016: _analyze_long_chunked schneidet HIER pro Chunk und
+    ruft analyze() je Slice (RAM-sicher), statt structure_segments an
+    analyze() zu reichen (das chunkt nicht). Onsets werden auf globale Zeit
+    zurueckgerechnet."""
+
+    def test_chunks_slice_audio_ram_bounded(self, monkeypatch):
         svc = OnsetRhythmService()
-        captured = {}
+        seen_lengths: list[int] = []
 
         def fake_analyze(y, sr, beats, drums_y=None, structure_segments=None):
-            captured["segments"] = structure_segments
-            return "ANALYSIS"
+            # analyze() bekommt echte Slices — kein structure_segments mehr.
+            assert structure_segments is None
+            seen_lengths.append(len(y))
+            return RhythmAnalysis()
 
         monkeypatch.setattr(svc, "analyze", fake_analyze)
         sr = 1000
-        total_sec = int(MAX_DURATION_SEC * 2.5)  # 2.5 Chunks
+        total_sec = int(MAX_DURATION_SEC * 2.5)  # 2.5 Chunks -> 3 Analysen
+        y = np.zeros(total_sec * sr, dtype=np.float32)
+
+        svc._analyze_long_chunked(y, sr, beats=[], chunk_sec=float(MAX_DURATION_SEC))
+
+        assert len(seen_lengths) == 3
+        # KEIN Slice groesser als ein Chunk (RAM-Grenze = alter B-359-Cap).
+        assert max(seen_lengths) <= int(MAX_DURATION_SEC * sr)
+
+    def test_onsets_offset_to_global_time(self, monkeypatch):
+        """Onsets aus Chunk 2 muessen auf globale Zeit (+ Chunk-Start)
+        zurueckgerechnet werden."""
+        svc = OnsetRhythmService()
+        calls = {"i": 0}
+
+        def fake_analyze(y, sr, beats, drums_y=None, structure_segments=None):
+            calls["i"] += 1
+            # Jeder Chunk liefert einen Kick bei chunk-relativer Zeit 5.0s.
+            return RhythmAnalysis(onsets_kick=[PercussiveOnset(time=5.0, strength=1.0)])
+
+        monkeypatch.setattr(svc, "analyze", fake_analyze)
+        sr = 1000
+        total_sec = int(MAX_DURATION_SEC * 2)  # exakt 2 Chunks
         y = np.zeros(total_sec * sr, dtype=np.float32)
 
         result = svc._analyze_long_chunked(y, sr, beats=[], chunk_sec=float(MAX_DURATION_SEC))
 
-        assert result == "ANALYSIS"
-        segs = captured["segments"]
-        assert len(segs) == 3
-        assert segs[0][0] == 0.0
-        assert abs(segs[-1][1] - total_sec) < 1e-6  # Ende = Gesamtlaenge
-        # lueckenlos + monoton
-        for (a0, a1), (b0, b1) in zip(segs, segs[1:]):
-            assert abs(a1 - b0) < 1e-6
+        times = sorted(o.time for o in result.onsets_kick)
+        assert times == [5.0, MAX_DURATION_SEC + 5.0]
 
-    def test_short_audio_single_segment(self, monkeypatch):
+    def test_short_audio_single_analyze(self, monkeypatch):
         svc = OnsetRhythmService()
-        captured = {}
-        monkeypatch.setattr(
-            svc, "analyze",
-            lambda y, sr, beats, drums_y=None, structure_segments=None:
-            captured.update(segments=structure_segments) or "A")
+        calls = {"n": 0}
+
+        def fake_analyze(y, sr, beats, drums_y=None, structure_segments=None):
+            calls["n"] += 1
+            return RhythmAnalysis()
+
+        monkeypatch.setattr(svc, "analyze", fake_analyze)
         sr = 1000
-        y = np.zeros(100 * sr, dtype=np.float32)
+        y = np.zeros(100 * sr, dtype=np.float32)  # << Cap -> 1 Chunk
         svc._analyze_long_chunked(y, sr, beats=[], chunk_sec=float(MAX_DURATION_SEC))
-        assert len(captured["segments"]) == 1
+        assert calls["n"] == 1
 
 
 class TestSnapGuarantee:

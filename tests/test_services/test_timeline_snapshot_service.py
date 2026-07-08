@@ -35,8 +35,10 @@ def test_create_and_list(test_engine, monkeypatch):
     assert snap_id > 0
     snaps = list_snapshots(pid)
     assert len(snaps) == 1
-    assert snaps[0].label == "first"
-    assert snaps[0].version == 1
+    # DB-019 (NEUBAU-VOLLINTEGRATION T2.3): list_snapshots liefert Dicts
+    # statt detached ORM-Objekte (verhindert DetachedInstanceError).
+    assert snaps[0]["label"] == "first"
+    assert snaps[0]["version"] == 1
 
 
 def test_create_increments_version(test_engine, monkeypatch):
@@ -45,7 +47,8 @@ def test_create_increments_version(test_engine, monkeypatch):
     create_snapshot(pid, "v1")
     create_snapshot(pid, "v2")
     snaps = list_snapshots(pid)
-    versions = sorted(s.version for s in snaps)
+    # DB-019: Dict-Zugriff; Reihenfolge ist jetzt version DESC (neueste zuerst).
+    versions = sorted(s["version"] for s in snaps)
     assert versions == [1, 2]
 
 

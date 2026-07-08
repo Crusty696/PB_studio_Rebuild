@@ -506,23 +506,82 @@ class OnsetRhythmService:
     ) -> RhythmAnalysis:
         """PIPE-016 (T2.5.1): Analyse langer Mixe in gleichmaessigen Chunks.
 
-        Baut kuenstliche (start, end)-Segmente der Laenge ``chunk_sec`` und
-        nutzt den vorhandenen per-Segment-Chunking-Pfad von ``analyze()``
-        (Q5-Rezept: 2s Overlap, Fade-in-Discard, Boundary-Dedup) — damit
-        haelt nur EIN Chunk-Spektrogramm RAM, egal wie lang der Mix ist.
+        B-359-KRITISCH: ``analyze()`` berechnet das Mel-Spektrogramm
+        IMMER auf dem vollen Signal — der ``structure_segments``-Parameter
+        dort loggt nur, chunkt NICHT. Ein frueherer Stand rief hier
+        ``analyze(..., structure_segments=...)`` auf und hielt damit das
+        volle Drums-Spektrogramm im RAM (=exakt der B-359-RAM-Bug wieder).
+
+        Korrektur: wir schneiden ``y``/``drums_y`` HIER pro Chunk und rufen
+        ``analyze()` auf jedem Slice. Damit haelt nur EIN Chunk-Spektrogramm
+        (<= ``chunk_sec`` = MAX_DURATION_SEC = alter B-359-Load-Cap) RAM —
+        provably identisch zur alten Schutzgrenze — waehrend trotzdem der
+        GESAMTE Mix Onsets bekommt (PIPE-016-Ziel). Onsets werden auf
+        globale Zeit zurueckgerechnet und zusammengefuehrt; die globalen
+        Metriken (Syncopation/Groove/Swing) stammen vom onset-reichsten
+        Chunk (repraesentativ).
         """
+        import gc
+
         total = len(y) / sr
-        segments: list[tuple[float, float]] = []
-        t = 0.0
-        while t < total:
-            segments.append((t, min(t + chunk_sec, total)))
-            t += chunk_sec
+        n_chunks = max(1, int(np.ceil(total / chunk_sec)))
         logger.info(
-            "PIPE-016: %d Chunks a %.0fs fuer %.0fs Gesamtlaenge",
-            len(segments), chunk_sec, total,
+            "PIPE-016: %d Chunks a %.0fs fuer %.0fs Gesamtlaenge "
+            "(RAM je Chunk <= alter B-359-Cap)",
+            n_chunks, chunk_sec, total,
         )
-        return self.analyze(
-            y, sr, beats, drums_y=drums_y, structure_segments=segments,
+
+        merged_kick: list[PercussiveOnset] = []
+        merged_snare: list[PercussiveOnset] = []
+        merged_hihat: list[PercussiveOnset] = []
+        merged_curve: list[float] = []
+        best_metrics: tuple[int, RhythmAnalysis] | None = None
+
+        for ci in range(n_chunks):
+            c_start = ci * chunk_sec
+            c_end = min((ci + 1) * chunk_sec, total)
+            s0 = int(c_start * sr)
+            s1 = int(c_end * sr)
+            y_chunk = y[s0:s1]
+            drums_chunk = drums_y[s0:s1] if drums_y is not None else None
+            # Chunk-relative Beats (analyze() rechnet Syncopation/Swing gegen
+            # diese Grid-Positionen — muessen zum Slice-Nullpunkt passen).
+            beats_chunk = [b - c_start for b in beats if c_start <= b < c_end]
+
+            a = self.analyze(y_chunk, sr, beats_chunk, drums_y=drums_chunk)
+
+            # Onsets auf globale Zeit zurueckrechnen.
+            for o in a.onsets_kick:
+                merged_kick.append(PercussiveOnset(time=o.time + c_start,
+                                                   strength=o.strength))
+            for o in a.onsets_snare:
+                merged_snare.append(PercussiveOnset(time=o.time + c_start,
+                                                    strength=o.strength))
+            for o in a.onsets_hihat:
+                merged_hihat.append(PercussiveOnset(time=o.time + c_start,
+                                                    strength=o.strength))
+            merged_curve.extend(a.onset_strength_curve)
+
+            n_on = len(a.onsets_kick) + len(a.onsets_snare)
+            if best_metrics is None or n_on > best_metrics[0]:
+                best_metrics = (n_on, a)
+
+            # Chunk-Puffer sofort freigeben — sonst akkumulieren die
+            # librosa-Zwischenarrays ueber viele Chunks (B-359-Budget).
+            del y_chunk, drums_chunk, a
+            gc.collect()
+
+        agg = best_metrics[1] if best_metrics else RhythmAnalysis()
+        return RhythmAnalysis(
+            onsets_kick=merged_kick,
+            onsets_snare=merged_snare,
+            onsets_hihat=merged_hihat,
+            onset_strength_curve=merged_curve,
+            onset_strength_hop_sec=agg.onset_strength_hop_sec,
+            syncopation_score=agg.syncopation_score,
+            groove_template=agg.groove_template,
+            groove_confidence=agg.groove_confidence,
+            swing_ratio=agg.swing_ratio,
         )
 
     def analyze_and_store(
