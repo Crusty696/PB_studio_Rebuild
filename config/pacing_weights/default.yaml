@@ -16,3 +16,6 @@ w_memory:     0.20    # Confidence-gated via Wilson-Lower-Bound — actual influ
                       # scales with accumulated feedback, not weight.
 w_collision:  0.10    # Penalty (subtracted).
 w_freshness:  0.05    # Penalty (subtracted).
+w_stem_class: 1.0     # NEUBAU-VOLLINTEGRATION T2.5.4: Stem-Klasse<->Shot-
+                      # Klasse-Bonus (compute_stem_class_bonus liefert
+                      # bereits 0.0/0.15, daher Gewicht 1.0).

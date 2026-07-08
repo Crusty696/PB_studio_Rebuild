@@ -161,3 +161,26 @@ class RLPacingMemoryV2:
             d["components"] = dict(d["components"])
             out.append(d)
         return out
+
+
+# ── Process-wide singleton (NEUBAU-VOLLINTEGRATION T1.4 / USE-006) ──────────
+# FeedbackService speist Timeline-Verdicts hier ein; der Consumer war vorher
+# nur in Tests instanziert. Bewusst OHNE db_session_factory: den
+# mem_decision-Write macht bereits FeedbackService.record_verdict selbst —
+# ein zweiter Writer waere der im Plan verbotene stille Doppel-Write.
+
+_default_memory: RLPacingMemoryV2 | None = None
+
+
+def get_default_rl_memory() -> RLPacingMemoryV2:
+    """Shared prozessweite RLPacingMemoryV2-Instanz (lazy)."""
+    global _default_memory
+    if _default_memory is None:
+        _default_memory = RLPacingMemoryV2()
+    return _default_memory
+
+
+def reset_default_rl_memory_for_test() -> None:
+    """Test-only: Singleton verwerfen."""
+    global _default_memory
+    _default_memory = None

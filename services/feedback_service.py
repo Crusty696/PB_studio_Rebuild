@@ -57,10 +57,13 @@ class FeedbackService:
                 session = session.__enter__()
                 ownership = True
 
-            # Find the most-recent decision for (run_id, scene_id)
+            # Find the most-recent decision for (run_id, scene_id).
+            # T1.4 (USE-006): sequence_idx / at_section_type / at_timestamp_sec
+            # zusaetzlich lesen, um den RL-v2-Stack zu speisen.
             row = session.execute(
                 text(
-                    "SELECT id FROM mem_decision "
+                    "SELECT id, sequence_idx, at_section_type, at_timestamp_sec "
+                    "FROM mem_decision "
                     "WHERE run_id = :rid AND scene_id = :sid "
                     "ORDER BY sequence_idx DESC LIMIT 1"
                 ),
@@ -74,6 +77,9 @@ class FeedbackService:
                     f"no mem_decision for run={run_id} scene={scene_id}",
                 )
             decision_id = int(row[0])
+            _seq_idx = int(row[1]) if row[1] is not None else 0
+            _section_type = str(row[2]) if row[2] is not None else "verse"
+            _ts_sec = float(row[3]) if row[3] is not None else 0.0
 
             # Insert event
             now = datetime.now(timezone.utc)
@@ -107,6 +113,17 @@ class FeedbackService:
                 verdict,
                 event_id,
             )
+            # T1.4 (USE-006): Verdict in den RL-v2-Stack + WeightStore
+            # propagieren (best-effort, nach erfolgreichem Commit).
+            self._propagate_rl_v2(
+                run_id=run_id,
+                scene_id=scene_id,
+                verdict=verdict,
+                decision_id=decision_id,
+                sequence_idx=_seq_idx,
+                section_type=_section_type,
+                timestamp_sec=_ts_sec,
+            )
             return FeedbackResult(True, event_id, decision_id)
 
         except Exception as e:
@@ -132,6 +149,82 @@ class FeedbackService:
                         close()
             except Exception:
                 pass
+
+    # NEUBAU-VOLLINTEGRATION T1.4 (USE-006): Section-Mapping mem_decision
+    # (intro|buildup|drop|breakdown|outro|verse|chorus|bridge|transition,
+    # ggf. uppercase aus dem Pacing) -> CutContext.VALID_SECTIONS
+    # (intro|verse|build|drop|break|outro|transition).
+    _SECTION_TO_BRAIN: dict[str, str] = {
+        "intro": "intro", "verse": "verse", "buildup": "build",
+        "build": "build", "drop": "drop", "breakdown": "break",
+        "break": "break", "outro": "outro", "transition": "transition",
+        "chorus": "drop", "bridge": "transition",
+    }
+
+    def _propagate_rl_v2(
+        self,
+        *,
+        run_id: int,
+        scene_id: int,
+        verdict: str,
+        decision_id: int,
+        sequence_idx: int,
+        section_type: str,
+        timestamp_sec: float,
+    ) -> None:
+        """T1.4 (USE-006): Timeline-Verdict an den RL-Stack v2 anschliessen.
+
+        1. RLPacingMemoryV2 (prozessweiter Singleton): Verdict-Replay,
+           SectionPolicy-Update, VarietyMemory. Bewusst OHNE
+           db_session_factory — den mem_decision-Write hat record_verdict
+           bereits gemacht; ein zweiter Writer waere der im Plan verbotene
+           stille Doppel-Write. Das alte services/pacing_memory.py bleibt
+           unberuehrt (Track-Level-Sentiment, anderer Scope).
+        2. Brain-V3-WeightStore: accept -> 'fits', reject -> 'no_match'
+           via BrainV3Service.feedback (gleicher Pfad wie das
+           Brain-V3-Feedback-Popup) — damit veraendern A/R-Verdicts
+           nachweisbar die Reranker-Gewichte (T1.2-Pfad).
+
+        Best-effort: Fehler werden geloggt, nie geraised (Feedback darf
+        die UI nicht crashen).
+        """
+        v2_verdict = {"accept": "good", "reject": "bad"}.get(verdict)
+        try:
+            from services.pacing.rl_memory_v2 import (
+                DecisionRecord,
+                get_default_rl_memory,
+            )
+            get_default_rl_memory().record(DecisionRecord(
+                run_id=run_id,
+                cut_id=sequence_idx,
+                timestamp_ms=int(timestamp_sec * 1000),
+                section_type=section_type,
+                scene_id=scene_id,
+                verdict=v2_verdict,
+                reward=1.0 if v2_verdict == "good" else 0.0,
+            ))
+        except Exception as exc:
+            logger.warning("T1.4: RL-v2-Record fehlgeschlagen: %s", exc)
+
+        rating = {"accept": "fits", "reject": "no_match"}.get(verdict)
+        if rating is None:
+            return  # skip/modify/replace: kein Gewichts-Signal
+        try:
+            from services.brain.brain_v3_service import BrainV3Service
+            from services.brain.context_resolver import CutContext
+            from services.brain.schemas.brain_v3_schemas import FeedbackRequest
+            section = self._SECTION_TO_BRAIN.get(
+                section_type.strip().lower(), "verse")
+            resp = BrainV3Service().feedback(
+                FeedbackRequest(cut_id=decision_id, rating=rating),
+                context=CutContext(audio_section_type=section),
+            )
+            logger.info(
+                "T1.4: Verdict %s -> WeightStore (%d Buckets aktualisiert).",
+                verdict, resp.n_buckets_updated,
+            )
+        except Exception as exc:
+            logger.warning("T1.4: WeightStore-Update fehlgeschlagen: %s", exc)
 
     def record_rating(self, run_id: int, scene_id: int, rating: int) -> FeedbackResult:
         """Similar to record_verdict but writes the numeric user_rating (1-5)
