@@ -239,5 +239,32 @@ Kein Finding verschwindet stillschweigend. Nicht geroutete Findings + Grund:
 **Danach (verbindlich, User-Anweisung):**
 7. Folgeplan `PB-STUDIO-NEUBAUTEN-VOLLINTEGRATION-2026-07-07` — komplett.
 
+---
+
+## B9 — Crossfade-Export-Skalierung reparieren (ERSTES UPDATE, nach Release)
+
+**Status:** offen, terminiert aufs **erste Update** (User-Entscheidung
+2026-07-08). NICHT im aktuellen Release. Bis dahin: Default = harte Beat-Cuts
+(Option B, Commit `37dab60`), Crossfade in der UI als experimentell markiert.
+
+**Befund (live, track2b):** `_export_with_filtergraph`
+(`services/export_service.py:944`) erzeugt bei crossfade>0 und vielen
+Segmenten (138 → 137 verschachtelte `xfade`, offset-Akkumulator bis ~398 s,
+filter_complex_script 22 KB) **0 Frames** (`Nothing was written … streams
+received no packets`, frame=0). xfade-Grundlogik ist intakt — 4-Segment-Repro
+`PASS`. Harte Cuts (concat-Pfad) exportieren immer (track1: 222 MB). Der
+xfade-Pfad war toter Code (crossfade wegen PIPE-001-Key-Mismatch immer 0),
+erst durch A1 scharf → latenter Bug freigelegt, nicht durch A1 verursacht.
+
+**Fix-Richtung (Vorschlag, beim Update zu verifizieren):** die verschachtelte
+xfade-Kette entschärfen — Segmente ohne Crossfade zu concat-Gruppen bündeln
+(weniger Filterknoten), oder crossfade-Export in Batches (Zwischendateien)
+rendern, oder Segment-/Ketten-Obergrenze mit Fallback auf Cut. Erst Kipp-Punkt
+eingrenzen (ab welcher Segmentzahl/Kettentiefe ffmpeg 0 Frames liefert), dann
+Strategie wählen. Vault: `wiki/bugs/B-603-crossfade-export-skalierung.md`.
+
+**Verify-Kriterium:** track2b (138 Segmente, crossfade) exportiert ein
+abspielbares Video (ffprobe Dauer≈Audio-Länge, NVENC GTX 1060).
+
 **Abschluss:** Jede Task einzeln committet, live verifiziert mit Beweis,
 Vault-Log pro Sub-Schritt. `fixed` pro Task setzt nur der User.
