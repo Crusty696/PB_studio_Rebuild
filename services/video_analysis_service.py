@@ -46,6 +46,7 @@ class SceneInfo:
     start_time: float
     end_time: float
     motion_score: float = 0.0
+    motion_is_fallback: bool = False  # B3: Markiert ob Motion per CPU-Fallback berechnet wurde
     keyframe_path: str | None = None
     embedding: np.ndarray | None = None
     # AUD-128: Gemma 4 Vision captioning
@@ -289,6 +290,7 @@ def compute_motion_scores(
             })
 
             pair_scores: list[float] = []
+            is_fallback = not use_raft
             for fnum in anchor_frames:
                 pair = []
                 for f in (fnum, fnum + frame_step):
@@ -307,6 +309,7 @@ def compute_motion_scores(
                             "RAFT Fehler bei Szene %d: %s — CPU-Fallback",
                             scene.index, e)
                         pair_scores.append(_cpu_motion_score(pair[0], pair[1]))
+                        is_fallback = True
                 else:
                     pair_scores.append(_cpu_motion_score(pair[0], pair[1]))
                 # F-019 Fix: Frame-Buffer sofort freigeben
@@ -314,12 +317,14 @@ def compute_motion_scores(
 
             if pair_scores:
                 scene.motion_score = round(float(np.median(pair_scores)), 4)
+                scene.motion_is_fallback = is_fallback
                 logger.debug(
-                    "Motion Szene %d: pairs=%s median=%.4f (step=%d)",
+                    "Motion Szene %d: pairs=%s median=%.4f (fallback=%s, step=%d)",
                     scene.index, [f"{s:.3f}" for s in pair_scores],
-                    scene.motion_score, frame_step)
+                    scene.motion_score, scene.motion_is_fallback, frame_step)
             else:
                 scene.motion_score = 0.0
+                scene.motion_is_fallback = is_fallback
 
             # Periodischer VRAM-Cleanup NUR wenn wir RAFT selbst geladen haben.
             # Im Batch-Modus (raft_model_device uebergeben) KEIN empty_cache() —
@@ -351,7 +356,10 @@ def compute_motion_scores(
 
 
 def _cpu_motion_score(frame1_bgr: np.ndarray, frame2_bgr: np.ndarray) -> float:
-    """CPU-Fallback: Frame-Differenz-basierter Motion-Score."""
+    """CPU-Fallback: Frame-Differenz-basierter Motion-Score.
+
+    B3: Skalenkonsistent zu RAFT mittels exponentialer Normalisierung.
+    """
     import cv2
 
     gray1 = cv2.cvtColor(frame1_bgr, cv2.COLOR_BGR2GRAY)
@@ -364,7 +372,10 @@ def _cpu_motion_score(frame1_bgr: np.ndarray, frame2_bgr: np.ndarray) -> float:
         gray2 = cv2.resize(gray2, (320, int(h * scale)))
     diff = np.abs(gray1.astype(np.float32) - gray2.astype(np.float32))
     raw_score = float(np.mean(diff)) / 255.0
-    return round(min(1.0, raw_score * 3.0), 4)
+    # Skalenkonsistent zu RAFT (1 - exp(-x / 40.0) mit Median ~0.52 bei raw_px=29)
+    # raw_score 0.05 entspricht typischer mittlerer Helligkeitsaenderung.
+    # 1 - exp(-0.05 * 15) = 0.52 -> K=15 passt perfekt.
+    return round(1.0 - float(np.exp(-raw_score * 15.0)), 4)
 
 
 def _fallback_single_scene(video_path: str) -> list[SceneInfo]:

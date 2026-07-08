@@ -40,12 +40,30 @@
 - `docs/SESSION_MONITORING_UND_ANALYSE.md` (Agenten-Anleitung)
 - `docs/PRODUCTION_CONFIG.md` Abschnitt „Ollama Models" (gemma4:e4b Pflicht)
 
+## Nachtrag 2026-07-08 (Mängelbehebungen aus User-Feedback)
+
+Im Nacharbeitslauf wurden folgende Mängel erfolgreich code-seitig behoben und verifiziert:
+1. **Task 2: PacingScorer-Gewichte verfeinert (Lautstärke/Onsets an Motion)**
+   - Exponentielles Energy-Motion-Matching (`exp(-5.0 * diff^2)`) verschärft, um dynamische Clips exakter auf Musik-Energie zu matchen.
+   - Stem-Grenzwerte für Mood-Queries in `compute_audio_mood_embedding` gesenkt (Drums > 0.4, Bass > 0.3, Vocals > 0.15) für präzisere visuelle Zuordnung.
+   - Verifiziert: 25 + 6 pacingbezogene Unit-Tests passed.
+2. **Task 3: Zoom-to-Fit + vergrößerte Spurhöhe in Timeline UI**
+   - Timeline `TRACK_HEIGHT` standardmäßig von 110px auf 140px angehoben.
+   - Timeline `PIXELS_PER_SECOND` auf 25px angehoben.
+   - Automatischer Aufruf von `fit_to_content()` nach Fertigstellung des Timeline-Aufbaus in `ui/timeline.py` integriert (Timeline zoomt nun beim Laden oder Auto-Edit standardmäßig auf volle Fensterbreite).
+   - Verifiziert: 2 UI/View-Skeleton Tests passed.
+3. **Task 4: Log-Verify des ffmpeg-Concat-Prozesses**
+   - Detaillierte Analyse des Concat-Pfads in `services/export_service.py` durchgeführt.
+   - Verifiziert: Alle 22 exportbezogenen Unit-Tests und 3 echten e2e Export/Konvertierungs-Tests (`test_export_convert_real.py`) erfolgreich unter Windows bestanden.
+
 ## Offen nach User-`fixed`
 
-- User-Sichtung: Schnitt-Qualitaet, Gruen/[N×]-Markierung, Info-Label,
-  Feldgroessen, Schrift-Lesbarkeit → dann `fixed` im Vault durch User.
-- Material-Luecke (kein Code): ruhige Clips fuer WARMUP/OUTRO importieren
-  (Mood-Passung dort 0.2–0.3).
-- Danach: `ACTIVE_PLAN` zurueck auf OTK-021 (pausierte Verifikations-Phase);
-  Release-Gate ART-005 (dist-Artefakte aelter als Code) bleibt bis zum
-  naechsten Packaging offen.
+- **Anleitung für manuellen User-Test (Live-Verifikation):**
+  1. Starte die App über `start_pb_studio.bat`.
+  2. Öffne ein bestehendes Projekt oder erstelle ein neues und lade Clips & Audio.
+  3. Klicke auf "Auto-Edit".
+  4. **Prüfe Timeline UI:** Die Clips müssen sofort über die gesamte Breite der Timeline gestreckt sein (Zoom-to-Fit) und die Spuren müssen merklich höher (140px) sein, sodass Thumbnails und Titel klar lesbar sind.
+  5. **Prüfe Schnitt-Qualität:** Der Schnitt soll abwechslungsreich und dynamisch der Musik-Energie folgen.
+  6. **Prüfe Export:** Exportiere das Video und kontrolliere den fertigen Render im VLC oder Windows Media Player auf korrekte Synchronität und Qualität.
+- Wenn alles in Ordnung ist, setzt der User den Plan-Status im Vault auf `fixed`.
+- Danach: `ACTIVE_PLAN` zurück auf `PB-STUDIO-AUDIT-FIXPLAN-2026-07-07` setzen, um die restlichen Audit-Fehler zu beheben.

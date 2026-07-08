@@ -19,6 +19,18 @@ from .base import CancellableMixin
 logger = logging.getLogger(__name__)
 
 
+_STAGE_TO_STEP = {
+    "stem_gen": "stem_separation",
+    "beat_grid": "bpm_detection",
+    "key": "key_detection",
+    "structure": "structure_detection",
+    "lufs": "lufs_analysis",
+    "spectral": "spectral_analysis",
+    "mood_genre_classify": "mood_genre_classify",
+    "waveform_analysis": "waveform_analysis",
+}
+
+
 class AudioPipelineV2Worker(QObject, CancellableMixin):
     """Faehrt die Audio-V2-Pipeline (8 Stages, strict-sequential) auf einem Track.
 
@@ -36,6 +48,7 @@ class AudioPipelineV2Worker(QObject, CancellableMixin):
         CancellableMixin.__init__(self)
         self.audio_track_id = audio_track_id
         self.file_path = file_path
+        self._current_stage = None
 
     def run(self) -> None:
         self._errored = False
@@ -45,6 +58,7 @@ class AudioPipelineV2Worker(QObject, CancellableMixin):
             from services.audio_pipeline.orchestrator import AudioAnalysisPipeline
             from services.audio_pipeline.context import PipelineContext
             from services.audio_pipeline.stages import build_default_stages
+            from services.analysis_status_service import mark_started, mark_done
 
             stages = build_default_stages()
             total = max(1, len(stages))
@@ -53,13 +67,30 @@ class AudioPipelineV2Worker(QObject, CancellableMixin):
             done = {"n": 0}
 
             def _on_started(name: str) -> None:
+                self._current_stage = name
                 pct = int(done["n"] / total * 100)
                 self.progress.emit(pct, f"Audio-V2: {name}...")
+                step_key = _STAGE_TO_STEP.get(name)
+                if step_key:
+                    mark_started("audio", self.audio_track_id, step_key)
 
             def _on_done(name: str, _payload) -> None:
                 done["n"] += 1
                 pct = int(done["n"] / total * 100)
                 self.progress.emit(pct, f"Audio-V2: {name} fertig")
+                
+                step_key = _STAGE_TO_STEP.get(name)
+                if step_key:
+                    val_summary = {}
+                    if isinstance(_payload, dict):
+                        if name == "beat_grid":
+                            val_summary["bpm"] = _payload.get("bpm")
+                        elif name == "key":
+                            val_summary["key"] = _payload.get("key")
+                            val_summary["confidence"] = _payload.get("confidence")
+                        elif name == "lufs":
+                            val_summary["lufs"] = _payload.get("integrated_lufs")
+                    mark_done("audio", self.audio_track_id, step_key, val_summary)
 
             def _on_sub_progress(stage_pct: int, message: str) -> None:
                 stage_idx = done["n"]
@@ -85,4 +116,9 @@ class AudioPipelineV2Worker(QObject, CancellableMixin):
             self._errored = True
             logger.error("AudioPipelineV2Worker fehlgeschlagen (track=%s): %s",
                          self.audio_track_id, e, exc_info=True)
+            if self._current_stage:
+                step_key = _STAGE_TO_STEP.get(self._current_stage)
+                if step_key:
+                    from services.analysis_status_service import mark_error
+                    mark_error("audio", self.audio_track_id, step_key, str(e))
             self.error.emit(self.audio_track_id, str(e))

@@ -129,6 +129,7 @@ class AdvancedPacingSettings:
     use_llm_strategist: bool = False   # Phase 5: Lokaler LLM-Pacing-Strategist
     use_llm_pacing: bool = False       # Hybrid-Pipeline: Direktes Ollama EDL-Reasoning
     user_preferences: str = ""         # Natuerliche Sprache fuer LLM ("ruhigere Breakdowns")
+    transition_type: str = "crossfade"  # "crossfade" (automatisch) oder "cut" (hart)
 
 
 @dataclass
@@ -144,6 +145,7 @@ class TimelineSegment:
     scene_id: str = ""
     crossfade_duration: float = 0.0  # PhD-Spec: Crossfade per Section Type
     section_type: str = ""           # WARMUP/BUILDUP/DROP/BREAKDOWN/COOLDOWN
+    degraded: bool = False
 
 
 SECTION_PACING_MAP = {
@@ -212,27 +214,28 @@ def _get_beat_positions(audio_id: int | None) -> list[float]:
 
 def _get_beat_data_combined(
     audio_id: int | None,
-) -> tuple[list[float], list[float], list[float]]:
+) -> tuple[list[float], list[float], list[float], bool]:
     """Laedt beat_positions, downbeat_positions und energy_per_beat in EINER Session.
 
     Bug-14 Fix: Kombiniert die drei separaten DB-Sessions (_get_beat_positions,
     _get_downbeat_positions, _get_energy_per_beat) in einen einzigen Round-Trip.
     Vorher: 3 Sessions für die gleiche AudioTrack/Beatgrid-Zeile.
 
-    Returns: (beat_positions, downbeat_positions, energy_per_beat)
+    Returns: (beat_positions, downbeat_positions, energy_per_beat, is_fallback)
     """
     if audio_id is None:
-        return [], [], []
+        return [], [], [], False
     with Session(engine) as session:
         track = session.query(AudioTrack).filter(
             AudioTrack.id == audio_id, AudioTrack.deleted_at.is_(None)
         ).options(joinedload(AudioTrack.beatgrid)).first()
         if not track or not track.beatgrid:
-            return [], [], []
+            return [], [], [], False
         bg = track.beatgrid
 
         # beat_positions (mit BPM-Fallback)
         beat_positions: list[float] = []
+        is_fallback = False
         if bg.beat_positions:
             try:
                 # H7-FIX: Column(JSON) deserialisiert automatisch — isinstance-Check fuer Backward-compat.
@@ -241,6 +244,7 @@ def _get_beat_data_combined(
             except (json.JSONDecodeError, TypeError) as e:
                 logger.warning("Parsing beat_positions JSON in combined loader for audio_id=%s: %s", audio_id, e)
         if not beat_positions and bg.bpm and bg.bpm > 0:
+            is_fallback = True
             interval = 60.0 / bg.bpm
             # BUG-013 Fix: Guard gegen Endlosschleife bei extrem kleinem BPM (identisch zu _get_beat_positions)
             if interval < 0.01:
@@ -272,7 +276,7 @@ def _get_beat_data_combined(
             except (json.JSONDecodeError, TypeError) as e:
                 logger.warning("Parsing energy_per_beat JSON for audio_id=%s: %s", audio_id, e)
 
-        return beat_positions, downbeat_positions, energy_per_beat
+        return beat_positions, downbeat_positions, energy_per_beat, is_fallback
 
 
 @lru_cache(maxsize=64)

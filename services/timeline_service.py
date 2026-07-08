@@ -316,7 +316,7 @@ def _do_apply_segments(segments: list[dict], project_id: int) -> int:
                 source_start=source_start,
                 source_end=source_end,
                 lane=seg.get("lane", 0),
-                crossfade_duration=seg.get("crossfade_duration", 0.0),
+                crossfade_duration=seg.get("crossfade_duration", seg.get("crossfade", 0.0)),
                 brightness=seg.get("brightness", 0.0),
                 contrast=seg.get("contrast", 1.0),
                 locked=False,

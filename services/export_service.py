@@ -40,16 +40,18 @@ def _video_encode_args() -> list[str]:
     Export ueberall lauffaehig. NVENC-Parameter spiegeln das erprobte
     ``master``-Preset aus ``convert_service``.
     """
-    global _export_nvenc_available
-    if _export_nvenc_available is None:
-        try:
-            from services.convert_service import detect_nvenc
-            _export_nvenc_available = bool(detect_nvenc().get("h264_nvenc"))
-        except Exception:
-            _export_nvenc_available = False
-    if _export_nvenc_available:
+    try:
+        from services.convert_service import detect_nvenc
+        nvenc_available = bool(detect_nvenc().get("h264_nvenc"))
+    except Exception:
+        nvenc_available = False
+
+    if nvenc_available:
         return ["-c:v", "h264_nvenc", "-preset", "p4", "-rc", "vbr",
                 "-cq", "18", "-b:v", "15M"]
+
+    logger.warning("NVENC (h264_nvenc) nicht verfuegbar! Timeline-Export weicht auf CPU (libx264) aus.")
+
     if require_nvenc():
         raise RuntimeError(
             required_message("h264_nvenc nicht verfuegbar; Export-CPU-Fallback verboten")

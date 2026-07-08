@@ -359,6 +359,7 @@ class WorkspaceSetupController(PBComponent):
         self.window.cut_rate_combo = _schnitt_tab_pacing.cut_rate_combo
         self.window.vibe_input = _schnitt_tab_pacing.vibe_input
         self.window.breakdown_combo = _schnitt_tab_pacing.breakdown_combo
+        self.window.transition_combo = _schnitt_tab_pacing.transition_combo
         self.window.anchor_list = _schnitt_tab_pacing.anchor_list
         self.window.btn_add_anchor = _schnitt_tab_pacing.btn_add_anchor
         self.window.btn_remove_anchor = _schnitt_tab_pacing.btn_remove_anchor
@@ -615,6 +616,20 @@ class WorkspaceSetupController(PBComponent):
         binder = getattr(self.window, "_schnitt_action_binder", None)
         if binder is not None:
             binder.refresh(pid)
+
+        # transition_type aus DB laden und UI-Widget transition_combo synchronisieren
+        if pid:
+            try:
+                from database import nullpool_session, Project
+                with nullpool_session() as session:
+                    proj = session.get(Project, pid)
+                    if proj and proj.transition_type:
+                        idx = 1 if proj.transition_type == "cut" else 0
+                        self.window.transition_combo.blockSignals(True)
+                        self.window.transition_combo.setCurrentIndex(idx)
+                        self.window.transition_combo.blockSignals(False)
+            except Exception as db_exc:
+                self.logger.warning("Fehler beim Laden von transition_type: %s", db_exc)
 
     def _on_schnitt_clip_property_changed(self, entry_id: int, field: str, value: float) -> None:
         """Host-Rueckmeldung fuer Inspector-Aenderungen."""

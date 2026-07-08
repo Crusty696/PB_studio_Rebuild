@@ -101,6 +101,19 @@ class SchnittTabPacingAnker(QWidget):
         row2.addWidget(self.reactivity_spin)
         v.addLayout(row2)
 
+        row2b = QHBoxLayout()
+        row2b.setSpacing(8)
+        row2b.addWidget(self._small_label("Übergänge"))
+        self.transition_combo = QComboBox()
+        self.transition_combo.addItems(["Automatische Crossfades", "Harte Beat-Cuts"])
+        self.transition_combo.setCurrentIndex(0)
+        self.transition_combo.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.transition_combo.setToolTip(
+            "Wirkung: Bestimmt ob Schnitte weiche Überblendungen (Crossfades) erhalten oder harte Bildschnitte (Cuts) sind."
+        )
+        row2b.addWidget(self.transition_combo, stretch=1)
+        v.addLayout(row2b)
+
         row3 = QHBoxLayout()
         row3.addWidget(self._small_label("Vibe"))
         self.vibe_input = QLineEdit()

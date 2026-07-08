@@ -436,7 +436,7 @@ def _run_legacy_migrations():
             if "energy_per_beat" not in columns:
                 conn.execute(text("ALTER TABLE beatgrids ADD COLUMN energy_per_beat TEXT"))
 
-    # AUD-83: Onset Rhythm Intelligence — neue Beatgrid-Spalten nachrüsten
+    # AUD-83: Onset Rhythm Intelligence + AUDIT-FIXPLAN-2026-07-07 / A3: beatgrids.stem_weighted_energy nachrüsten
     insp = inspect(get_raw_engine())
     if "beatgrids" in insp.get_table_names():
         columns = {c["name"] for c in insp.get_columns("beatgrids")}
@@ -447,13 +447,13 @@ def _run_legacy_migrations():
                 ("onset_hihat_data", "TEXT"),
                 ("syncopation_score", "FLOAT"),
                 ("groove_template", "TEXT"),
+                ("stem_weighted_energy", "TEXT"),
             ]:
                 if col_name not in columns:
                     conn.execute(
                         text(f"ALTER TABLE beatgrids ADD COLUMN {col_name} {col_type}")
                     )
 
-    # Migration: source_start / source_end in timeline_entries nachrüsten
     insp = inspect(get_raw_engine())
     if "timeline_entries" in insp.get_table_names():
         te_columns = {c["name"] for c in insp.get_columns("timeline_entries")}
@@ -730,6 +730,14 @@ def _run_legacy_migrations():
                 "ON scenes(video_clip_id, scene_index)"
             ))
 
+    # AUDIT-FIXPLAN-2026-07-07 / A1: transition_type Spalte für Projects
+    insp = inspect(get_raw_engine())
+    if "projects" in insp.get_table_names():
+        p_columns = {c["name"] for c in insp.get_columns("projects")}
+        with engine.begin() as conn:
+            if "transition_type" not in p_columns:
+                conn.execute(text("ALTER TABLE projects ADD COLUMN transition_type TEXT NOT NULL DEFAULT 'crossfade'"))
+
 
 def _seed_defaults():
     """Seed *immutable* defaults that the App relies on for first-run UX.
@@ -839,6 +847,33 @@ def init_db():
 
     # Seed default data
     _seed_defaults()
+
+    # B7: Verifiziere, dass alle Pflicht-Tabellen in der DB existieren (Fail-fast)
+    _verify_required_tables()
+
+
+def _verify_required_tables() -> None:
+    """B7: Prueft ob alle in den SQLAlchemy-Modellen definierten Tabellen in der DB existieren.
+
+    Falls Tabellen fehlen (z.B. durch abgebrochene Alembic-Migrationen), wirft dies
+    einen RuntimeError (Fail-fast) statt erst im Betrieb zu crashen.
+    """
+    from sqlalchemy import inspect
+    from database.session import get_raw_engine
+    inspector = inspect(get_raw_engine())
+    db_tables = set(inspector.get_table_names())
+
+    required_tables = set(Base.metadata.tables.keys())
+    missing_tables = required_tables - db_tables
+
+    if missing_tables:
+        msg = (
+            f"Datenbank-Initialisierung unvollstaendig! Die folgenden Pflicht-Tabellen "
+            f"fehlen in der Datenbank: {sorted(list(missing_tables))}. "
+            f"Bitte loeschen Sie die Datenbank oder fuehren Sie die Migrationen manuell aus."
+        )
+        logger.error(msg)
+        raise RuntimeError(msg)
 
 
 def _alembic_config():

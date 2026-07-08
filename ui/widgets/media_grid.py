@@ -902,7 +902,7 @@ class MediaPoolGrid(QWidget):
 
             pairs: list[tuple[MediaCard, dict]] = []
             for card, data in zip(self._cards, self._all_items):
-                title = data.get("title", "").lower()
+                title = (data.get("title") or "").lower()
                 if text and text not in title:
                     continue
                 if bpm_min is not None:

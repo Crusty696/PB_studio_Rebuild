@@ -352,6 +352,21 @@ class EditWorkspaceController(PBComponent):
         except Exception as exc:
             logger.debug("LLM-Pacing-Settings nicht lesbar: %s", exc)
 
+        # AUDIT-FIXPLAN A1 (Merge 2026-07-08): transition_combo auslesen und
+        # in DB persistieren
+        transition_type = "cut" if self.window.transition_combo.currentIndex() == 1 else "crossfade"
+        try:
+            from database import nullpool_session, Project
+            from database import get_active_project_id
+            pid = get_active_project_id()
+            if pid:
+                with nullpool_session() as session:
+                    proj = session.get(Project, pid)
+                    if proj:
+                        proj.transition_type = transition_type
+        except Exception as db_exc:
+            logger.warning("_auto_edit_to_beat: transition_type konnte nicht in DB persistiert werden: %s", db_exc)
+
         settings = AdvancedPacingSettings(
             base_cut_rate=base_cut_rate,
             energy_reactivity=self.window.energy_reactivity_spin.value(),
@@ -361,6 +376,7 @@ class EditWorkspaceController(PBComponent):
             anchors=anchors,
             use_llm_strategist=_llm_strategist,
             use_llm_pacing=_llm_pacing,
+            transition_type=transition_type,
         )
         if _llm_strategist or _llm_pacing:
             self.window.console_text.append(
@@ -445,6 +461,22 @@ class EditWorkspaceController(PBComponent):
             self.window.console_text.append("[Auto-Edit] Keine Segmente erzeugt (kein Audio/Beats?).")
             task_manager.finish_task(task_id, "error", "Keine Segmente")
             return
+
+        _degraded = any(seg.get("degraded", False) for seg in segments)
+        if _degraded:
+            self.window.console_text.append(
+                "<span style='color: #ff3333; font-weight: bold;'>"
+                "[WARNUNG] SigLIP-Modell konnte nicht geladen werden! "
+                "Das Video-Matching wurde ohne Semantik-Fokus (degradiert) generiert."
+                "</span>"
+            )
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.warning(
+                self.window,
+                "Auto-Edit Degradiert",
+                "Das SigLIP-Modell konnte nicht geladen werden.\n\n"
+                "Der Auto-Edit wurde im degradierten Modus (ohne semantisches Audio-Video-Matching) erzeugt."
+            )
 
         from ui.undo_commands import ApplyAutoEditCommand
         cmd = ApplyAutoEditCommand(
