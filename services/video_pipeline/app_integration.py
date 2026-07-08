@@ -19,11 +19,28 @@ import os
 from pathlib import Path
 
 FEATURE_FLAG = "PB_ENABLE_VIDEO_PIPELINE_ENGINE"
+_TRUE = {"1", "true", "yes", "on"}
 
 
 def engine_enabled() -> bool:
-    """True nur wenn das Feature-Flag explizit auf '1' steht."""
-    return os.getenv(FEATURE_FLAG, "") == "1"
+    """True wenn die DAG-Video-Engine aktiviert wurde.
+
+    NEUBAU-VOLLINTEGRATION M3 (D-065): Aktivierung ueber persistentes
+    Setting ``video.use_pipeline_engine`` (SettingsStore, UI-Schalter).
+    Die Env-Var ``PB_ENABLE_VIDEO_PIPELINE_ENGINE`` bleibt als OVERRIDE:
+    ist sie nicht-leer gesetzt, gewinnt sie — "1/true/yes/on" erzwingt AN,
+    alles andere AUS (Test-Determinismus). Default AUS bis der
+    Paritaets-Nachweis (Engine == Monolith) erbracht ist.
+    """
+    env = os.getenv(FEATURE_FLAG, "")
+    if env.strip() != "":
+        return env.strip().lower() in _TRUE
+    try:
+        from services.settings_store import get_settings_store
+        return bool(get_settings_store().get_nested(
+            "video", "use_pipeline_engine", default=False))
+    except Exception:  # Settings duerfen das Gate nie crashen
+        return False
 
 
 def build_pipeline(

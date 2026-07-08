@@ -9,6 +9,7 @@ from services.video_pipeline.app_integration import engine_enabled, FEATURE_FLAG
 
 
 def test_engine_disabled_by_default(monkeypatch):
+    # M3 (D-065): kein Setting-Store im Test -> Fallback greift auf False.
     monkeypatch.delenv(FEATURE_FLAG, raising=False)
     assert engine_enabled() is False
 
@@ -18,11 +19,18 @@ def test_engine_enabled_when_flag_is_1(monkeypatch):
     assert engine_enabled() is True
 
 
-def test_engine_disabled_for_other_values(monkeypatch):
+def test_engine_disabled_for_zero(monkeypatch):
+    """0 als Env-Override erzwingt AUS (Test-Determinismus)."""
     monkeypatch.setenv(FEATURE_FLAG, "0")
     assert engine_enabled() is False
-    monkeypatch.setenv(FEATURE_FLAG, "true")
-    assert engine_enabled() is False
+
+
+def test_engine_env_truthy_values_enable(monkeypatch):
+    """M3 (D-065): Env-Override akzeptiert jetzt dieselbe Truthy-Menge wie
+    das T1.1-Studio-Brain-Gate (1/true/yes/on) — vorher nur exakt '1'."""
+    for val in ("true", "yes", "on", "TRUE"):
+        monkeypatch.setenv(FEATURE_FLAG, val)
+        assert engine_enabled() is True
 
 
 def test_build_pipeline_assembles_eight_stages(monkeypatch, tmp_path):
