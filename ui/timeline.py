@@ -1159,7 +1159,16 @@ class InteractiveTimeline(QGraphicsView):
         """
         self._anchor_map = anchor_map
         self._brain_v3_timeline_meta = brain_meta or {}
+        # PERF-DIAG (Timeline-Hang-Untersuchung, 1352 Clips): synchroner
+        # Recover-Schritt (ggf. DB-Query im UI-Thread) separat messen.
+        _rec_t0 = time.perf_counter()
         audio_map, video_map = self._recover_missing_media_maps(entries, audio_map, video_map)
+        logger.info(
+            "[PERF] recover_missing_media_maps=%.0fms entries=%d",
+            (time.perf_counter() - _rec_t0) * 1000.0, len(entries),
+        )
+        self._batch_build_started_at = time.perf_counter()
+        self._batch_build_cpu_ms = 0.0
         self._start_batched_entry_build(entries, audio_map, video_map, anchor_map)
 
     def _recover_missing_media_maps(self, entries, audio_map, video_map):
@@ -1235,6 +1244,10 @@ class InteractiveTimeline(QGraphicsView):
         if state is None:
             return
 
+        # PERF-DIAG: CPU-Zeit pro Batch akkumulieren (zeigt, ob der Build
+        # wirklich zwischen Batches ans Event-Loop zurueckgibt oder ein
+        # einzelner Batch den 62s-Hang verursacht).
+        _batch_t0 = time.perf_counter()
         entries = state["entries"]
         start = state["index"]
         end = min(start + self._BUILD_BATCH_SIZE, len(entries))
@@ -1248,6 +1261,7 @@ class InteractiveTimeline(QGraphicsView):
             if clip_end is not None and clip_end > state["max_end"]:
                 state["max_end"] = clip_end
         state["index"] = end
+        self._batch_build_cpu_ms += (time.perf_counter() - _batch_t0) * 1000.0
 
         if end < len(entries):
             QTimer.singleShot(0, self._build_entry_batch)
@@ -1267,6 +1281,16 @@ class InteractiveTimeline(QGraphicsView):
         self._schedule_thumb_request()  # B-471 T1: lazy thumbs fuer sichtbare Clips
         logger.info("[T1] build done: registered_paths=%d clips=%d",
                     len(self._thumb_items_by_path), len(self.clip_items))
+        # PERF-DIAG: Wall-Zeit (inkl. Event-Loop-Yields) vs. reine Build-CPU-Zeit.
+        # Grosse Differenz = Build yieldet gut (kein Hang durch den Build);
+        # Wall ~= CPU = ein Batch/der Build blockiert durchgehend.
+        _wall = (time.perf_counter() - getattr(self, "_batch_build_started_at",
+                                                time.perf_counter())) * 1000.0
+        logger.info(
+            "[PERF] batched build: wall=%.0fms cpu=%.0fms clips=%d batch_size=%d",
+            _wall, getattr(self, "_batch_build_cpu_ms", 0.0),
+            len(self.clip_items), self._BUILD_BATCH_SIZE,
+        )
 
     def _build_entries(self, entries, audio_map, video_map, anchor_map):
         max_end = 0.0

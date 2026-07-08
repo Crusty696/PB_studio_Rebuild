@@ -98,6 +98,11 @@ class CutListPanel(QWidget):
         if self._project_id is None:
             self._render_empty("Kein Projekt aktiv.")
             return
+        # PERF-DIAG (Timeline-Hang-Untersuchung): getrennte Messung von
+        # DB-Query vs. Widget-Aufbau, um den Flaschenhals bei grossen
+        # Timelines (1352 Clips -> 62s-Hang) exakt zu lokalisieren.
+        import time as _perf_time
+        _t0 = _perf_time.perf_counter()
         try:
             cuts = get_cut_list(self._project_id)
         # M-3: broad fuer UI-Safety. Erwartete Exceptions: SQLAlchemyError
@@ -107,7 +112,13 @@ class CutListPanel(QWidget):
             logger.warning("CutListPanel.refresh failed: %s", exc)
             self._render_empty(f"Fehler: {exc}")
             return
+        _t1 = _perf_time.perf_counter()
         self._render_cuts(cuts)
+        _t2 = _perf_time.perf_counter()
+        logger.info(
+            "[PERF] CutList.refresh: get_cut_list=%.0fms render=%.0fms rows=%d",
+            (_t1 - _t0) * 1000.0, (_t2 - _t1) * 1000.0, len(cuts),
+        )
 
     def _render_empty(self, msg: str) -> None:
         self.table.setRowCount(0)
