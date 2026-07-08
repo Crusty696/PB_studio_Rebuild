@@ -871,6 +871,26 @@ def _auto_edit_phase3_inner(
         except (ImportError, ValueError, RuntimeError) as e:
             logger.warning("Fitness-Matrix uebersprungen: %s", e)
 
+    # NEUBAU-VOLLINTEGRATION T2.5.5 (FR-S2-1): Shot-Klassen einmal pro Run
+    # aus den Kandidaten-Embeddings klassifizieren + Lookup fuer den
+    # Studio-Brain-Kandidatenbau ((video_path, scene_start) -> emb/conf).
+    _shot_lookup: dict[tuple[str, float], tuple[np.ndarray, dict]] = {}
+    try:
+        from services.pacing.shot_centroids import get_shot_class_centroids
+        from services.pacing.shot_type_classifier import classify as _shot_classify
+        _cents = get_shot_class_centroids()
+        if _cents and clip_embeddings_matrix.shape[0] and clip_metadata_list:
+            for _i, _m in enumerate(clip_metadata_list):
+                _key = (_m.get("video_path"), round(float(_m.get("scene_start", 0.0)), 2))
+                _emb_row = clip_embeddings_matrix[_i]
+                _shot_lookup[_key] = (_emb_row, _shot_classify(_emb_row, _cents))
+            logger.info(
+                "T2.5.5 Shot-Klassen: %d Kandidaten klassifiziert (%d Centroids)",
+                len(_shot_lookup), len(_cents),
+            )
+    except Exception as _shot_exc:
+        logger.warning("T2.5.5 Shot-Klassifikation uebersprungen: %s", _shot_exc)
+
     # AUD-97: DJ-Mix-Flag aus DB lesen (Fallback: Stem-basierte BPM-Analyse)
     track_is_dj_mix = False
 
@@ -1229,6 +1249,13 @@ def _auto_edit_phase3_inner(
                         _sc = _select_scene_for_offset(
                             _scenes, clip_offsets.get(_vid, 0.0),
                         )
+                        # T2.5.5: Embedding + Shot-Konfidenzen aus dem
+                        # Run-Lookup (loest das Cycle-12-deferred
+                        # "embedding: None" — VectorDB-Join laeuft jetzt
+                        # ueber (video_path, scene_start)).
+                        _sb_key = (video_info[_vid].get("path"),
+                                   round(float(_sc.get("start", 0.0)), 2))
+                        _sb_emb, _sb_shot = _shot_lookup.get(_sb_key, (None, None))
                         # Stub-Scene-Objekt mit den nötigen Feldern
                         _sb_candidates.append(build_clip_features(
                             video_clip_id=_vid,
@@ -1238,11 +1265,8 @@ def _auto_edit_phase3_inner(
                                 "ai_mood": _sc.get("ai_mood"),
                                 "role": _sc.get("role"),
                                 "style_bucket_id": _sc.get("style_bucket_id"),
-                                # B-371: predecessor wird jetzt an select_best
-                                # uebergeben; Embedding-Lookup (Style/Collision-
-                                # Signal) bleibt deferred (Cycle 12 — VectorDB-
-                                # Join video_path/scene_index noch nicht verdrahtet).
-                                "embedding": None,
+                                "embedding": _sb_emb,
+                                "shot_confidences": _sb_shot,
                             })(),
                         ))
                     if _sb_candidates:

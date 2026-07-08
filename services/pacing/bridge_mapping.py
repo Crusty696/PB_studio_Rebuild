@@ -174,6 +174,21 @@ def build_clip_features(video_clip_id: int, scene) -> ClipFeatures:
         except (TypeError, ValueError):
             embedding = None
 
+    # NEUBAU-VOLLINTEGRATION T2.5.5 (FR-S2-1): Shot-Klassen-Konfidenzen.
+    # Entweder vom Caller vorberechnet (scene.shot_confidences) oder — wenn
+    # ein Embedding + Centroids vorliegen — hier on-the-fly klassifiziert.
+    shot_conf = _safe_attr(scene, "shot_confidences", None)
+    if shot_conf is None and embedding is not None:
+        try:
+            from services.pacing.shot_centroids import get_shot_class_centroids
+            from services.pacing.shot_type_classifier import classify
+            _cents = get_shot_class_centroids()
+            if _cents:
+                shot_conf = classify(embedding, _cents)
+        except Exception as exc:  # defensiv: Feature-Bau darf nie crashen
+            logger.debug("shot_confidences nicht berechenbar: %s", exc)
+            shot_conf = None
+
     return ClipFeatures(
         clip_id=int(video_clip_id),
         scene_id=scene_id,
@@ -182,4 +197,5 @@ def build_clip_features(video_clip_id: int, scene) -> ClipFeatures:
         style_bucket_id=int(bucket),
         motion_score=motion,
         embedding=embedding,
+        shot_confidences=shot_conf,
     )
