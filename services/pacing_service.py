@@ -1128,8 +1128,16 @@ def _auto_edit_phase3_inner(
                     "pacing", "brain_v3_min_confidence", default=0.0))
             except Exception:
                 pass
+            # NEUBAU-VOLLINTEGRATION T1.5 (USE-008): gelernte Patterns
+            # (mem_learned_pattern, PatternAggregator) fliessen ueber den
+            # w_memory-Term in den Scorer. Vorher pattern_lookup=None ->
+            # Term dauerhaft neutral 0.5, Lernschleife offen.
+            from services.pacing.pattern_lookup import LearnedPatternLookup
             _studio_brain_pipeline = PacingPipeline(
-                scorer=PacingScorer(weights_profile="default"),
+                scorer=PacingScorer(
+                    weights_profile="default",
+                    pattern_lookup=LearnedPatternLookup(nullpool_session),
+                ),
                 decision_recorder=DecisionRecorder(
                     session_factory=nullpool_session,
                 ),

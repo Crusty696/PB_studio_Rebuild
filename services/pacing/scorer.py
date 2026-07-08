@@ -344,7 +344,9 @@ def staleness_penalty(
 # ── Main PacingScorer class ─────────────────────────────────────────────────
 
 
-# The 13 canonical term keys (without w_ prefix). Frozen set for validation.
+# The 14 canonical term keys (without w_ prefix). Frozen set for validation.
+# NEUBAU-VOLLINTEGRATION T2.5.4: "stem_class" gehoert seit dem
+# Stem-Klasse<->Shot-Klasse-Bonus zu den score()-Contribs.
 CANONICAL_TERM_KEYS: frozenset[str] = frozenset(
     {
         "role",
@@ -358,6 +360,7 @@ CANONICAL_TERM_KEYS: frozenset[str] = frozenset(
         "spectral",
         "groove",
         "memory",
+        "stem_class",
         "collision",
         "freshness",
     }
