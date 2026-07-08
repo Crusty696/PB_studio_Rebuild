@@ -685,7 +685,47 @@ def _auto_edit_phase3_inner(
                         _scene_cuts_added)
 
     # Phase 2: Mindestdauer erzwingen — zu kurze Segmente entfernen
-    cut_beats = _enforce_minimum_durations(cut_beats, sections, total_duration)
+    # NEUBAU-VOLLINTEGRATION T2.5.3 (FR-S1-2): Vocal-on-Hold.
+    # Pro Section werden die vorhandenen per-Beat-Stem-Energien (Demucs)
+    # L1-normalisiert aggregiert (identische Normierung wie
+    # stem_section_aggregator.aggregate — nur ohne doppeltes Audio-Laden);
+    # vocal_hold_spacing_modifier liefert 2.0 fuer vocal-dominante Sections
+    # -> Mindestdauer dort verdoppelt, Schnitte atmen ueber die Lyric-Phrase.
+    _vocal_hold_windows: list[tuple[float, float, float]] = []
+    _section_dominant_stems: dict[tuple[float, float], str | None] = {}
+    try:
+        from services.pacing.stem_section_aggregator import dominant_stem
+        from services.pacing.vocal_hold_modifier import vocal_hold_spacing_modifier
+        if stem_energy is not None and sections and beats:
+            _b_arr = np.asarray(beats)
+            for _sec in sections:
+                _lo = int(np.searchsorted(_b_arr, _sec.start))
+                _hi = max(_lo + 1, int(np.searchsorted(_b_arr, _sec.end)))
+                _means = {}
+                for _name in ("drums", "bass", "vocals", "other"):
+                    _vals = getattr(stem_energy, _name, None) or []
+                    _seg_vals = _vals[_lo:_hi]
+                    _means[_name] = float(np.mean(_seg_vals)) if _seg_vals else 0.0
+                _total_e = sum(_means.values())
+                if _total_e > 1e-9:
+                    _means = {k: v / _total_e for k, v in _means.items()}
+                _mult = vocal_hold_spacing_modifier(_means)
+                _section_dominant_stems[(_sec.start, _sec.end)] = dominant_stem(_means)
+                if _mult > 1.0:
+                    _vocal_hold_windows.append((_sec.start, _sec.end, _mult))
+            if _vocal_hold_windows:
+                logger.info(
+                    "T2.5.3 Vocal-on-Hold: %d Sections mit Modifier 2.0: %s",
+                    len(_vocal_hold_windows),
+                    [f"{a:.0f}-{b:.0f}s" for a, b, _ in _vocal_hold_windows],
+                )
+    except Exception as _vh_exc:
+        logger.warning("T2.5.3 Vocal-on-Hold uebersprungen: %s", _vh_exc)
+
+    cut_beats = _enforce_minimum_durations(
+        cut_beats, sections, total_duration,
+        min_multiplier_windows=_vocal_hold_windows or None,
+    )
 
     # Pacing-Tuning 2026-07-07: finaler Pass — Beat/Downbeat-Snap aller Cuts,
     # Pflicht-Cuts an Section-Grenzen, Timeline-Ende exakt = Audio-Ende,

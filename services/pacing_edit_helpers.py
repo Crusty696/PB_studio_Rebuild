@@ -321,12 +321,17 @@ def _enforce_minimum_durations(
     cut_beats: list[float],
     sections: list | None,
     total_duration: float,
+    min_multiplier_windows: list[tuple[float, float, float]] | None = None,
 ) -> list[float]:
     """Phase 2: Entfernt Cut-Beats die zu kurze Segmente erzeugen wuerden.
 
     - HARD_MIN_DURATION (3s) gilt immer
     - SECTION_MIN_DURATION gibt hoeheres Minimum pro Section-Type
     - Strukturgrenzen (DROP-Eintritt) werden nie entfernt
+    - NEUBAU-VOLLINTEGRATION T2.5.3 (FR-S1-2): ``min_multiplier_windows``
+      [(start, end, mult)] skaliert das Minimum zeitfensterweise —
+      Vocal-on-Hold-Sections liefern mult=2.0 (Schnitte atmen ueber die
+      Lyric-Phrase), sonst 1.0.
     """
     if len(cut_beats) < 3:
         return cut_beats
@@ -356,6 +361,14 @@ def _enforce_minimum_durations(
             sec = get_section_at_time(sections, result[-1])
             if sec:
                 min_dur = SECTION_MIN_DURATION.get(sec.section_type, HARD_MIN_DURATION)
+
+        # T2.5.3: Vocal-on-Hold — Fenster-Multiplikator anwenden
+        if min_multiplier_windows:
+            _t = result[-1]
+            for _w_start, _w_end, _w_mult in min_multiplier_windows:
+                if _w_start <= _t < _w_end:
+                    min_dur *= _w_mult
+                    break
 
         if gap >= min_dur or i in protected:
             result.append(cut_beats[i])
