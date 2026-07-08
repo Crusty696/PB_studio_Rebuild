@@ -693,6 +693,7 @@ def _auto_edit_phase3_inner(
     # -> Mindestdauer dort verdoppelt, Schnitte atmen ueber die Lyric-Phrase.
     _vocal_hold_windows: list[tuple[float, float, float]] = []
     _section_dominant_stems: dict[tuple[float, float], str | None] = {}
+    _section_stem_energies: dict[tuple[float, float], dict[str, float]] = {}
     try:
         from services.pacing.stem_section_aggregator import dominant_stem
         from services.pacing.vocal_hold_modifier import vocal_hold_spacing_modifier
@@ -711,6 +712,7 @@ def _auto_edit_phase3_inner(
                     _means = {k: v / _total_e for k, v in _means.items()}
                 _mult = vocal_hold_spacing_modifier(_means)
                 _section_dominant_stems[(_sec.start, _sec.end)] = dominant_stem(_means)
+                _section_stem_energies[(_sec.start, _sec.end)] = dict(_means)
                 if _mult > 1.0:
                     _vocal_hold_windows.append((_sec.start, _sec.end, _mult))
             if _vocal_hold_windows:
@@ -1197,12 +1199,22 @@ def _auto_edit_phase3_inner(
                         build_audio_context, build_clip_features,
                     )
                     # Build AudioContext
+                    # T2.5.4: Stem-Kontext der aktuellen Section (aus dem
+                    # T2.5.3-Aggregat) fuer stem_class_bonus + audio_mood_vec.
+                    _sb_stem_e = None
+                    _sb_dom = None
+                    if seg_section is not None:
+                        _sb_key = (seg_section.start, seg_section.end)
+                        _sb_dom = _section_dominant_stems.get(_sb_key)
+                        _sb_stem_e = _section_stem_energies.get(_sb_key)
                     _sb_ctx = build_audio_context(
                         seg_start_sec=seg_start,
                         seg_section_type=seg_section_type,
                         audio_track=_studio_brain_audio_track,
                         beats=beats,
                         energy_per_beat=energy_per_beat,
+                        stem_energies=_sb_stem_e,
+                        dominant_stem=_sb_dom,
                     )
                     # Cycle 14 Option A: Build ClipFeatures pro Clip mit der
                     # Scene die zum aktuellen clip_offsets[vid] passt — nicht

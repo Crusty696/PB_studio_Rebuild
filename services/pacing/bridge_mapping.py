@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from typing import Iterable
 
+import logging
+
 import numpy as np
 
 from services.pacing.scorer import AudioContext, ClipFeatures
@@ -25,12 +27,17 @@ def _safe_attr(obj, name, default=None):
     return getattr(obj, name, default)
 
 
+logger = logging.getLogger(__name__)
+
+
 def build_audio_context(
     seg_start_sec: float,
     seg_section_type: str | None,
     audio_track,
     beats,
     energy_per_beat: Iterable[float] | None,
+    stem_energies: dict | None = None,
+    dominant_stem: str | None = None,
 ) -> AudioContext:
     """Baut einen AudioContext-Snapshot für einen Cut-Punkt.
 
@@ -108,7 +115,30 @@ def build_audio_context(
         at_spectral_hash=_safe_attr(audio_track, "spectral_hash", None),
         at_groove_template=groove_template,
         at_lufs=_safe_attr(audio_track, "lufs", None),
+        # NEUBAU-VOLLINTEGRATION T2.5.4: Stem-Kontext + Audio-Mood-Vektor.
+        # audio_mood_vector braucht Shot-Klassen-Centroids (SigLIP-Text,
+        # prozess-gecacht); ohne Centroids/Stems bleiben die Felder None
+        # und der Scorer nutzt seine Fallback-Terme.
+        at_stem_energies=stem_energies,
+        at_dominant_stem=dominant_stem,
+        at_audio_mood_vec=_build_audio_mood_vec(stem_energies, section_lower),
     )
+
+
+def _build_audio_mood_vec(stem_energies: dict | None, section_type: str | None):
+    if not stem_energies:
+        return None
+    try:
+        from services.pacing.audio_mood_vector import compute_audio_mood_vector
+        from services.pacing.shot_centroids import get_shot_class_centroids
+        centroids = get_shot_class_centroids()
+        if not centroids:
+            return None
+        vec = compute_audio_mood_vector(stem_energies, section_type, centroids)
+        return vec
+    except Exception as exc:  # defensiv: Kontextbau darf nie crashen
+        logger.debug("audio_mood_vec nicht berechenbar: %s", exc)
+        return None
 
 
 def build_clip_features(video_clip_id: int, scene) -> ClipFeatures:

@@ -25,6 +25,7 @@
         "mood_video": 0.1,
         "role": 0.25,
         "spectral": 0.025,
+        "stem_class": 0.0,
         "style": 0.075,
         "tension": 0.08
       },
@@ -64,6 +65,7 @@
         "mood_video": 0.1,
         "role": 0.25,
         "spectral": 0.025,
+        "stem_class": 0.0,
         "style": 0.097693,
         "tension": 0.04
       },
@@ -103,6 +105,7 @@
         "mood_video": 0.1,
         "role": 0.25,
         "spectral": 0.025,
+        "stem_class": 0.0,
         "style": 0.063326,
         "tension": 0.08
       },
@@ -142,6 +145,7 @@
         "mood_video": 0.1,
         "role": 0.25,
         "spectral": 0.025,
+        "stem_class": 0.0,
         "style": 0.063326,
         "tension": 0.04
       },
@@ -181,6 +185,7 @@
         "mood_video": 0.1,
         "role": 0.25,
         "spectral": 0.025,
+        "stem_class": 0.0,
         "style": 0.063326,
         "tension": 0.08
       },
@@ -220,6 +225,7 @@
         "mood_video": 0.1,
         "role": 0.25,
         "spectral": 0.025,
+        "stem_class": 0.0,
         "style": 0.070588,
         "tension": 0.04
       },
@@ -259,6 +265,7 @@
         "mood_video": 0.1,
         "role": 0.25,
         "spectral": 0.025,
+        "stem_class": 0.0,
         "style": 0.097693,
         "tension": 0.04
       },
@@ -298,6 +305,7 @@
         "mood_video": 0.1,
         "role": 0.25,
         "spectral": 0.025,
+        "stem_class": 0.0,
         "style": 0.063326,
         "tension": 0.08
       },
@@ -337,6 +345,7 @@
         "mood_video": 0.1,
         "role": 0.25,
         "spectral": 0.025,
+        "stem_class": 0.0,
         "style": 0.070588,
         "tension": 0.08
       },
@@ -376,6 +385,7 @@
         "mood_video": 0.1,
         "role": 0.25,
         "spectral": 0.025,
+        "stem_class": 0.0,
         "style": 0.081461,
         "tension": 0.08
       },

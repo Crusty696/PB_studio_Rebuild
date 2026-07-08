@@ -27,6 +27,12 @@ class ClipFeatures:
     # Optional: embedding for spectral_fit / style_compat when the caller has it cached.
     # Absent = term returns 0.0 (neutral).
     embedding: np.ndarray | None = None
+    # NEUBAU-VOLLINTEGRATION T2.5.4/T2.5.5 (optional, None = Fallback):
+    # Shot-Klassen-Konfidenzen aus shot_type_classifier.classify()
+    shot_confidences: "Mapping[str, float] | None" = None
+    # 100ms-Motion-Kurve des Clips (audio_video_curves) fuer den
+    # kurvenbasierten Energy-Match
+    motion_curve: np.ndarray | None = None
 
 
 @dataclass(frozen=True)
@@ -54,6 +60,11 @@ class AudioContext:
     at_spectral_hash: str | None  # 8-band signature hash
     at_groove_template: str | None
     at_lufs: float | None
+    # NEUBAU-VOLLINTEGRATION T2.5.4 (optional, None = Fallback):
+    at_stem_energies: "Mapping[str, float] | None" = None   # L1-normalisiert
+    at_dominant_stem: str | None = None                      # stem_section_aggregator
+    at_audio_mood_vec: np.ndarray | None = None              # audio_mood_vector (1152d)
+    at_rms_curve: np.ndarray | None = None                   # audio_video_curves (100ms)
 
 
 # ── Scoring helper functions (pure — no DB/IO) ──────────────────────────────
@@ -369,6 +380,9 @@ DEFAULT_WEIGHTS: dict[str, float] = {
     "w_memory": 0.20,
     "w_collision": 0.10,  # penalty
     "w_freshness": 0.05,  # penalty
+    # NEUBAU-VOLLINTEGRATION T2.5.4: Stem-Klasse<->Shot-Klasse-Bonus
+    # (compute_stem_class_bonus liefert bereits 0.0/0.15)
+    "w_stem_class": 1.0,
 }
 
 
@@ -480,14 +494,34 @@ class PacingScorer:
         role_contrib = w["w_role"] * role_fit(ctx.at_section_type, clip.role)
         style_contrib = w["w_style"] * style_sim
         mood_video_contrib = w["w_mood_video"] * mood_match(ctx.at_mood_video, clip.mood_refined)
-        mood_audio_contrib = w["w_mood_audio"] * mood_match(ctx.at_mood_audio, clip.mood_refined)
+        # T2.5.4 (FR-S3-1/2): Mood-Match ueber SigLIP-Vektoren wenn beide
+        # Seiten vorliegen (audio_mood_vector x Clip-Embedding); sonst der
+        # bisherige String-Vergleich (Kombination, kein Ersatz).
+        if ctx.at_audio_mood_vec is not None and clip.embedding is not None:
+            from services.pacing.mood_match_score import compute_mood_match_score
+            mood_audio_contrib = w["w_mood_audio"] * compute_mood_match_score(
+                ctx.at_audio_mood_vec, clip.embedding)
+        else:
+            mood_audio_contrib = w["w_mood_audio"] * mood_match(ctx.at_mood_audio, clip.mood_refined)
         genre_contrib = w["w_genre"] * genre_score
         key_contrib = w["w_key"] * key_score
         tension_contrib = w["w_tension"] * tension_fit(ctx.at_harmonic_tension, clip.role)
-        energy_contrib = w["w_energy"] * energy_match(ctx.at_energy, clip.motion_score)
+        # T2.5.4 (FR-S1-4/FR-S0-2): kurvenbasierter Energy-Match (RMS- vs.
+        # Motion-Kurve, cosine) wenn beide Kurven vorliegen; sonst der
+        # skalare Bestands-Match.
+        if ctx.at_rms_curve is not None and clip.motion_curve is not None:
+            from services.pacing.energy_match_reward import compute_energy_match_reward
+            energy_contrib = w["w_energy"] * compute_energy_match_reward(
+                ctx.at_rms_curve, clip.motion_curve)
+        else:
+            energy_contrib = w["w_energy"] * energy_match(ctx.at_energy, clip.motion_score)
         spectral_contrib = w["w_spectral"] * spectral_score
         groove_contrib = w["w_groove"] * groove_fit(ctx.at_groove_template, clip.motion_score)
         memory_contrib = w["w_memory"] * memory_score
+        # T2.5.4 (FR-S2-2): Stem-Klasse<->Shot-Klasse-Bonus (0.0 oder 0.15)
+        from services.pacing.stem_class_bonus import compute_stem_class_bonus
+        stem_class_contrib = w.get("w_stem_class", 1.0) * compute_stem_class_bonus(
+            ctx.at_dominant_stem, clip.shot_confidences or {})
         collision_contrib = -(w["w_collision"] * collision_mag)
         freshness_contrib = -(w["w_freshness"] * staleness_penalty(clip, recent))
 
@@ -495,7 +529,7 @@ class PacingScorer:
             role_contrib + style_contrib + mood_video_contrib + mood_audio_contrib
             + genre_contrib + key_contrib + tension_contrib + energy_contrib
             + spectral_contrib + groove_contrib + memory_contrib
-            + collision_contrib + freshness_contrib
+            + stem_class_contrib + collision_contrib + freshness_contrib
         )
         contribs: dict[str, float] = {
             "role": role_contrib,
@@ -509,6 +543,7 @@ class PacingScorer:
             "spectral": spectral_contrib,
             "groove": groove_contrib,
             "memory": memory_contrib,
+            "stem_class": stem_class_contrib,
             "collision": collision_contrib,
             "freshness": freshness_contrib,
         }
