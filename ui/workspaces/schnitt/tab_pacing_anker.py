@@ -158,6 +158,17 @@ class SchnittTabPacingAnker(QWidget):
             pass
         row4.addWidget(self.chk_llm_strategist)
         row4.addWidget(self.chk_llm_pacing)
+        # T2.5.6 (FR-S4-5): A/B-Gewichts-Vergleich (ab_runner) als UI
+        self.btn_ab_compare = QPushButton("A/B-Gewichte testen")
+        self.btn_ab_compare.setToolTip(
+            "Wirkung: Vergleicht zwei Scorer-Gewichtsprofile auf dem "
+            "Kandidatenpool (reine Analyse, kein Eingriff). "
+            "Wann: Zum Austarieren von Energy-/Mood-/Stem-Gewichten. "
+            "Ergebnis: Zeigt, welchen Clip jedes Profil waehlen wuerde."
+        )
+        self.btn_ab_compare.setAccessibleName("A/B-Gewichtsvergleich oeffnen")
+        self.btn_ab_compare.clicked.connect(self._open_ab_compare)
+        row4.addWidget(self.btn_ab_compare)
         row4.addStretch(1)
         v.addLayout(row4)
 
@@ -183,6 +194,17 @@ class SchnittTabPacingAnker(QWidget):
         v.addLayout(action_row)
 
         return col
+
+    def _open_ab_compare(self) -> None:
+        """T2.5.6: A/B-Vergleichs-Dialog oeffnen (lazy Import)."""
+        try:
+            from ui.dialogs.ab_compare_dialog import ABCompareDialog
+            dlg = ABCompareDialog(self)
+            dlg.exec()
+        except Exception as exc:  # Dialog darf den Tab nie crashen
+            import logging
+            logging.getLogger(__name__).warning(
+                "A/B-Dialog nicht startbar: %s", exc)
 
     def _build_anker_column(self) -> QWidget:
         col = QWidget()
