@@ -1124,6 +1124,9 @@ def _match_video_for_segment(
     usage_counts: dict[int, int] | None = None,
     max_uses: int | None = None,
     rng: "random.Random | None" = None,
+    cut_beat_idx: int | None = None,
+    boundary_distance_sec: float | None = None,
+    prev_mood: str | None = None,
 ) -> tuple[int, float, int | None]:
     """Waehlt den besten Video-Clip fuer ein Segment.
 
@@ -1256,6 +1259,32 @@ def _match_video_for_segment(
                     video_id=vid,
                     usage_count=_usage,
                     ai_mood=_ai_mood,
+                )
+
+            # NEUBAU-VOLLINTEGRATION T2.5.2 (FR-S1-5 + FR-S3-4):
+            # Phrase-Boundary-Constraint: an 4/8/16-Bar-Grenzen wird derselbe
+            # Mood wie der Vorgaenger bestraft (Cluster-Switch erzwingen).
+            # Section-Coherence: im Section-Inneren visuelle Kontinuitaet
+            # belohnen, nahe der Grenze bewussten Kontrast.
+            # Beide Terme sind klein gewichtet und ohne Kontext neutral —
+            # Alt-Caller/Tests ohne die neuen Parameter verhalten sich exakt
+            # wie vorher.
+            if cut_beat_idx is not None and prev_mood is not None:
+                from services.pacing.phrase_boundary_constraint import (
+                    phrase_boundary_penalty,
+                )
+                score -= 0.10 * phrase_boundary_penalty(
+                    cut_beat_idx, prev_mood, _ai_mood)
+            if (boundary_distance_sec is not None
+                    and prev_clip_idx is not None
+                    and clip_embeddings.shape[0] > max(prev_clip_idx, clip_idx)):
+                from services.pacing.section_coherence import (
+                    compute_section_coherence,
+                )
+                score += 0.06 * compute_section_coherence(
+                    clip_embeddings[prev_clip_idx],
+                    clip_embeddings[clip_idx],
+                    boundary_distance_sec,
                 )
             scored.append((score, clip_idx, vid, meta))
 

@@ -698,6 +698,34 @@ def _auto_edit_phase3_inner(
         max_segment_duration=_max_clip_dur if _max_clip_dur > 1.0 else None,
     )
 
+    # NEUBAU-VOLLINTEGRATION T2.5.2 (FR-S1-3): Drop-Burst + Hold-Bars.
+    # 3 Cuts in 800ms um jeden Drop, danach 4 Bars Halten — die klassische
+    # EDM-Editor-Heuristik fuer Drop-Impact. Rahmen (0.0/Audio-Ende) bleibt
+    # fixiert. Hinweis: apply_bpm_adaptation aus demselben Modul wird
+    # BEWUSST NICHT verdrahtet — SECTION_PACING_MAP + BUILDUP-Progression
+    # leisten dieselbe Aufgabe feiner; doppeltes Ausduennen wuerde die
+    # BUILDUP-Beschleunigung zerstoeren (Entscheidung T2.5.2, dokumentiert).
+    try:
+        from services.pacing.cut_density_modulator import apply_drop_burst
+        if drop_times and bpm_val > 0:
+            _pre_n = len(cut_beats)
+            _burst = apply_drop_burst(
+                cut_beats, sorted(float(d) for d in drop_times), bpm=bpm_val)
+            _inner = sorted({
+                round(float(t), 4) for t in _burst
+                if 0.05 < t < total_duration - 0.05
+            })
+            cut_beats = [0.0] + _inner + [round(total_duration, 4)]
+            while (len(cut_beats) >= 3
+                   and (cut_beats[-1] - cut_beats[-2]) < HARD_MIN_DURATION * 0.6):
+                cut_beats.pop(-2)
+            logger.info(
+                "T2.5.2 Drop-Burst: %d -> %d Cuts (%d Drops, Burst 3x/800ms, "
+                "Hold 4 Bars)", _pre_n, len(cut_beats), len(drop_times),
+            )
+    except Exception as _burst_exc:
+        logger.warning("T2.5.2 Drop-Burst fehlgeschlagen: %s", _burst_exc)
+
     # NEUBAU-VOLLINTEGRATION T2.5.1 (FR-S1-1): Onset-Feinsnap. Cuts werden
     # innerhalb +-50ms auf den naechsten persistierten Kick/Snare-Onset
     # geschoben (Beatgrid.onset_*_data, Writer: onset_rhythm_service).
@@ -976,6 +1004,8 @@ def _auto_edit_phase3_inner(
         _n_slots, len(available_ids), max_uses_per_video, _seed,
     )
     prev_clip_idx: int | None = None
+    # T2.5.2: ai_mood des zuletzt gewaehlten Clips (Phrase-Boundary-Constraint)
+    _prev_clip_mood: str | None = None
     # B-371: ClipFeatures der zuletzt vom Studio-Brain gewaehlten Scene.
     # Wird als predecessor an select_best uebergeben, damit PacingScorer
     # Style-Kompatibilitaet/Collision-Penalty gegen die Vorgaenger-Wahl
@@ -1076,7 +1106,9 @@ def _auto_edit_phase3_inner(
         # _enforce_minimum_durations (section-aware, DROP darf 2.0s).
         # Der alte HARD_MIN-Skip hier warf legitime kurze DROP-Segmente
         # weg und riss Luecken in die Timeline (4.6s-Loch am Track-Ende).
-        if seg_duration < 0.5:
+        if seg_duration < 0.2:
+            # T2.5.2: Schwelle 0.5 -> 0.2, damit Drop-Burst-Segmente
+            # (3 Cuts / 800ms => ~0.4s) nicht verworfen werden.
             continue  # nur degenerierte Rest-Segmente ueberspringen
 
         # Section-Type frueh bestimmen (wird fuer Video-Matching benoetigt)
@@ -1194,6 +1226,18 @@ def _auto_edit_phase3_inner(
                     available_ids.index(vid) if vid in available_ids else None
                 )
             else:
+                # NEUBAU-VOLLINTEGRATION T2.5.2: Kontext fuer Phrase-Boundary-
+                # Constraint (Beat-Index des Cuts) + Section-Coherence
+                # (Abstand zur naechsten Section-Grenze) berechnen.
+                _t252_beat_idx = int(np.searchsorted(beats_arr, seg_start)) \
+                    if beats_arr.size else None
+                _t252_bdist = None
+                if seg_section is not None:
+                    _t252_bdist = float(min(
+                        max(0.0, seg_start - seg_section.start),
+                        max(0.0, seg_section.end - seg_start),
+                    ))
+
                 # Legacy-Pfad (default oder Studio-Brain-Fallback)
                 vid, source_start, _clip_idx = _match_video_for_segment(
                     seg_start, seg_end, settings.vibe,
@@ -1210,8 +1254,16 @@ def _auto_edit_phase3_inner(
                     usage_counts=usage_counts,
                     max_uses=max_uses_per_video,
                     rng=selection_rng,
+                    cut_beat_idx=_t252_beat_idx,
+                    boundary_distance_sec=_t252_bdist,
+                    prev_mood=_prev_clip_mood,
                 )
             prev_clip_idx = _clip_idx
+            # T2.5.2: Mood des gewaehlten Clips fuer den Phrase-Constraint
+            # des naechsten Segments merken.
+            if (_clip_idx is not None and clip_metadata_list
+                    and _clip_idx < len(clip_metadata_list)):
+                _prev_clip_mood = clip_metadata_list[_clip_idx].get("ai_mood")
 
             # Fixplan 2026-07-07 Schritt 4: 36/39 Testvideos haben genau EINE
             # Szene mit start=0 — Wiederholungen desselben Videos zeigten
