@@ -1,8 +1,8 @@
 # Fixplan: Schnitt / Clip-Auswahl / Thumbnails / Timeline-UI
 
 - **Plan-ID:** PB-STUDIO-SCHNITT-CLIPAUSWAHL-FIXPLAN-2026-07-07
-- **Status:** `in_progress` — User-Freigabe 2026-07-07 („ja setzte deinen plan jetzt", autonome Abarbeitung 1–9). Registriert in PLAN_REGISTRY, aktiv via ACTIVE_PLAN.md, Decision D-063.
-- **Umsetzungs-Stand 2026-07-07 (Commits 7f46b72…397e960, 22 Commits):**
+- **Status:** `fixed` — Live-verifiziert und vom User am 2026-07-08 abgenommen („schnitt ist besser noch nicht ganz perfeckt aber gut den kann man auf fix stellen mit einem vermerk das der schnitt später noch ein update bekommt“). Spätere Verfeinerungen erfolgen im Rahmen des Folgeplans PB-STUDIO-NEUBAUTEN-VOLLINTEGRATION-2026-07-07.
+- **Umsetzungs-Stand 2026-07-08 (Commits 7f46b72…9f775e2, 27 Commits):**
   Schritte 0–9A abgeschlossen; Motion + Captions live auf Projekt-DBs verifiziert.
   Nachtraege auf User-Feedback: 7b (Audio-Budget alle Add-Pfade), 7c (sichtbare
   Zwei-Zustands-Markierung + Info-Label + Farb-Punkte), Vision-Upgrade
