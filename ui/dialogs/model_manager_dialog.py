@@ -188,6 +188,30 @@ class _DeleteWorker(QObject):
                 logger.exception("DeleteWorker.finished emit failed")
 
 
+class _CleanupScanWorker(QObject):
+    """Berechnet Cleanup-Kandidaten (Registry-DB-Lesen) im Hintergrund."""
+    finished = Signal(list)  # list[ModelEntry]
+
+    def __init__(self, ollama_url: str, days: int):
+        super().__init__()
+        self.ollama_url = ollama_url
+        self.days = days
+
+    def run(self) -> None:
+        candidates: list = []
+        try:
+            from services.model_lifecycle_service import get_model_lifecycle_service
+            svc = get_model_lifecycle_service(self.ollama_url)
+            candidates = svc.get_cleanup_candidates(days_unused=self.days)
+        except BaseException as exc:  # Worker darf Main-Thread nie killen
+            logger.exception("CleanupScanWorker crashed: %s", exc)
+        finally:
+            try:
+                self.finished.emit(candidates)
+            except Exception:
+                logger.exception("CleanupScanWorker.finished emit failed")
+
+
 class _ProgressRelay(QObject):
     """Leitet Thread-sichere Progress-Updates an den GUI-Thread weiter."""
     update = Signal(object)     # DownloadProgress
@@ -215,6 +239,9 @@ class ModelManagerDialog(QDialog):
         # Freeze-Fix: Loeschen laeuft asynchron in einem Worker-Thread.
         self._delete_thread: QThread | None = None
         self._delete_worker: _DeleteWorker | None = None
+        # Cleanup-Analyse ebenfalls asynchron.
+        self._cleanup_thread: QThread | None = None
+        self._cleanup_worker: _CleanupScanWorker | None = None
 
         self.setWindowTitle("Modell-Manager — PB Studio")
         self.setMinimumSize(900, 650)
@@ -236,6 +263,7 @@ class ModelManagerDialog(QDialog):
         _cleanup_thread(self._scan_thread)
         _cleanup_thread(self._status_thread)
         _cleanup_thread(self._delete_thread)
+        _cleanup_thread(self._cleanup_thread)
         for thread in self._download_threads.values():
             _cleanup_thread(thread)
         super().closeEvent(event)
@@ -983,12 +1011,25 @@ class ModelManagerDialog(QDialog):
     # ──────────────────────────────────────────────────────────────────────
 
     def _on_cleanup_scan(self):
-        """Führt Cleanup-Analyse durch."""
-        from services.model_lifecycle_service import get_model_lifecycle_service
-        svc = get_model_lifecycle_service(self.ollama_url)
+        """Führt Cleanup-Analyse im Hintergrund durch (non-blocking).
+
+        get_cleanup_candidates liest die Registry-DB; formal synchron konnte
+        das den UI-Thread bis DB_BUSY_TIMEOUT (30s) blockieren. Jetzt via
+        Worker, damit der Dialog vollstaendig non-blocking ist."""
+        if self._cleanup_thread is not None and self._cleanup_thread.isRunning():
+            return
         days = self._days_spin.value()
-        candidates = svc.get_cleanup_candidates(days_unused=days)
-        self._populate_cleanup_table(candidates)
+        self._cleanup_info.setText("Analysiere…")
+        self._cleanup_thread = QThread()
+        self._cleanup_worker = _CleanupScanWorker(self.ollama_url, days)
+        self._cleanup_worker.moveToThread(self._cleanup_thread)
+        self._cleanup_thread.started.connect(self._cleanup_worker.run)
+        self._cleanup_worker.finished.connect(
+            self._populate_cleanup_table, Qt.ConnectionType.QueuedConnection
+        )
+        self._cleanup_worker.finished.connect(self._cleanup_thread.quit)
+        self._cleanup_thread.finished.connect(self._cleanup_thread.deleteLater)
+        self._cleanup_thread.start()
 
     def _on_delete_all_selected(self):
         """Löscht alle vorgeschlagenen Modelle nach Bestätigung (async)."""

@@ -320,14 +320,19 @@ class SettingsDialog(QDialog):
         self.setStyleSheet(_DIALOG_STYLE)
         self._test_thread: QThread | None = None
         self._test_worker: _OllamaTestWorker | None = None
+        # Freeze-Fix: Ollama-Modell-Validierung beim Speichern laeuft async.
+        self._validate_thread: QThread | None = None
+        self._validate_worker: _OllamaTestWorker | None = None
+        self._pending_save: tuple | None = None
 
         self._build_ui()
         self._load_current_settings()
 
     def closeEvent(self, event) -> None:
-        if self._test_thread is not None and self._test_thread.isRunning():
-            self._test_thread.quit()
-            self._test_thread.wait(2000)
+        for _t in (self._test_thread, self._validate_thread):
+            if _t is not None and _t.isRunning():
+                _t.quit()
+                _t.wait(2000)
         super().closeEvent(event)
 
     # ------------------------------------------------------------------
@@ -520,6 +525,9 @@ class SettingsDialog(QDialog):
         btn_box = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
+        # OK-Button-Referenz merken: waehrend der async Ollama-Pruefung beim
+        # Speichern wird er kurz deaktiviert (Freeze-Fix).
+        self._btn_ok = btn_box.button(QDialogButtonBox.StandardButton.Ok)
         btn_box.accepted.connect(self._on_accept)
         btn_box.rejected.connect(self.reject)
         layout.addWidget(btn_box)
@@ -606,52 +614,56 @@ class SettingsDialog(QDialog):
         dlg = StorageBrowserDialog(parent=self)
         dlg.exec()
 
-    def _validate_ollama_model(self, url: str, model: str) -> bool:
-        """B-195: Prueft ob ``model`` auf ``url`` installiert ist.
+    def _on_accept(self) -> None:
+        enabled = self._chk_enabled.isChecked()
+        url = self._txt_url.text().strip() or "http://localhost:11434"
+        model = self._cmb_model.currentText().strip()
 
-        Returns:
-            True   = Modell installiert ODER Ollama unerreichbar (lassen
-                     wir durch, damit Offline-Setups arbeitsfaehig bleiben)
-                     ODER User wollte explizit trotzdem speichern.
-            False  = Modell fehlt UND User hat den Save-Versuch abgebrochen.
-        """
-        try:
-            from services.ollama_client import OllamaClient
+        # B-195 / Freeze-Fix: Pre-Check vor Save — ist das Modell auf diesem
+        # Ollama-Server installiert? Verhindert 404-Timeouts in der Pipeline.
+        # FRUEHER lief die Pruefung (client.list_models(), bis 5s) SYNCHRON im
+        # UI-Thread -> der Speichern-Button fror die App bis 5s (bei DNS-Pleite
+        # laenger) ein. Jetzt: Pruefung im Hintergrund-Thread; erst danach
+        # wird gespeichert bzw. gewarnt.
+        if enabled and model:
+            self._pending_save = (enabled, url, model)
+            self._btn_ok.setEnabled(False)
+            self._set_status("Prüfe Ollama-Modell…", "info")
+            self._validate_thread = QThread(self)
+            self._validate_worker = _OllamaTestWorker(url=url)
+            self._validate_worker.moveToThread(self._validate_thread)
+            self._validate_thread.started.connect(self._validate_worker.run)
+            self._validate_worker.finished.connect(self._on_validate_finished)
+            self._validate_worker.finished.connect(self._validate_thread.quit)
+            self._validate_thread.start()
+            return
 
-            client = OllamaClient(base_url=url)
-            installed = client.list_models()
-        except Exception as exc:  # broad: jede Verbindungs-/Import-Pleite
-            logger.warning(
-                "B-195: Modell-Validierung fehlgeschlagen (%s) — "
-                "lasse Speichern zu (Offline-Modus).", exc,
-            )
-            return True
+        # Ollama aus oder kein Modell gewaehlt -> nichts zu pruefen.
+        self._commit_and_accept(enabled, url, model)
 
-        if not installed:
-            # ollama lieferte leere Liste → wahrscheinlich nicht erreichbar
-            # oder gerade frisch ohne Modelle. Nicht hart blockieren.
-            logger.info(
-                "B-195: Ollama-Modellliste leer fuer %s — Speichern zugelassen.",
-                url,
-            )
-            return True
+    def _on_validate_finished(self, ok: bool, message: str, models: list) -> None:
+        """Async-Fortsetzung von _on_accept nach der Ollama-Modell-Pruefung."""
+        if self._pending_save is None:
+            return
+        enabled, url, model = self._pending_save
+        self._btn_ok.setEnabled(True)
 
-        if model in installed:
-            return True
+        # Durchlassen wenn: Ollama unerreichbar (offline-tolerant) ODER
+        # leere Liste (frisch/nicht erreichbar) ODER Modell installiert.
+        if (not ok) or (not models) or (model in models):
+            self._commit_and_accept(enabled, url, model)
+            return
 
-        # Modell fehlt — User-Bestaetigung einholen
+        # Modell fehlt -> User-Bestaetigung einholen (UI-Thread, unkritisch).
         from PySide6.QtWidgets import QMessageBox
 
-        preview = ", ".join(installed[:5])
-        if len(installed) > 5:
-            preview += f", … (+{len(installed) - 5})"
-
+        preview = ", ".join(models[:5])
+        if len(models) > 5:
+            preview += f", … (+{len(models) - 5})"
         msg = QMessageBox(self)
         msg.setIcon(QMessageBox.Icon.Warning)
         msg.setWindowTitle("Ollama-Modell nicht installiert")
-        msg.setText(
-            f"Das Modell '{model}' ist auf {url} NICHT installiert."
-        )
+        msg.setText(f"Das Modell '{model}' ist auf {url} NICHT installiert.")
         msg.setInformativeText(
             "Pipeline-Aufrufe wuerden mit HTTP 404 scheitern und "
             "Hintergrund-Worker koennen mehrere Minuten in Timeouts "
@@ -663,22 +675,13 @@ class SettingsDialog(QDialog):
             QMessageBox.StandardButton.Cancel | QMessageBox.StandardButton.Save
         )
         msg.setDefaultButton(QMessageBox.StandardButton.Cancel)
-        choice = msg.exec()
-        return choice == QMessageBox.StandardButton.Save
+        if msg.exec() == QMessageBox.StandardButton.Save:
+            self._commit_and_accept(enabled, url, model)
+        # sonst: Dialog bleibt offen, OK ist wieder aktiv.
 
-    def _on_accept(self) -> None:
-        enabled = self._chk_enabled.isChecked()
-        url = self._txt_url.text().strip() or "http://localhost:11434"
-        model = self._cmb_model.currentText().strip()
-
-        # B-195: Pre-Check vor Save — ist das Modell auf diesem Ollama-Server
-        # installiert? Verhindert dass die nachfolgende Pipeline auf jeden
-        # Caption-Call ein 404 bekommt, in 15s-Timeouts haengt und im
-        # schlimmsten Fall einen nativen Crash triggert (gemeldet 2026-04-27
-        # nach Conda-Migration: 12420ms MouseRelease + SIGSEGV).
-        if enabled and model and not self._validate_ollama_model(url, model):
-            return  # User hat im Validierungs-Dialog abgebrochen
-
+    def _commit_and_accept(self, enabled: bool, url: str, model: str) -> None:
+        """Persistiert alle Einstellungen und schliesst den Dialog."""
+        self._pending_save = None
         save_ollama_settings(enabled=enabled, url=url, model=model)
         self.ollama_settings_changed.emit(enabled, url, model)
         logger.info(
