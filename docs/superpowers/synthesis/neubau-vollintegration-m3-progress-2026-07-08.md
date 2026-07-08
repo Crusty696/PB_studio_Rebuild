@@ -21,13 +21,36 @@ normalisiert, VLM-Caption als Stub, 6 Cross-Cutting-Module unverdrahtet.
 | Paritäts-Harness | `scripts/diag/video_engine_parity.py`: sequentieller Monolith-vs-Engine-Vergleich (Scene+LanceDB, Toleranzen dokumentiert). | 2bb9488 |
 | Observability | `JsonlObserver` als Default-Listener (DEAD-008 Teil 1) — Engine-Events als Audit-Trail. | a87d15e |
 
-## Live-Pending (Verify braucht echte GPU + Projekt)
+## Paritäts-Nachweis (GPU-Lauf 2026-07-08, GTX 1060) — GEMISCHT
 
-1. **Paritäts-Nachweis-Lauf**: `video_engine_parity.py` auf realem Clip
-   ausführen (GTX 1060, sequentiell — mit Haupt-Worktree koordinieren).
-   Toleranzen: Szenen-Anzahl exakt, Energy-Mittel ≤0.20 (Skala-Drift),
-   Embedding-Anzahl exakt.
-2. **Checkpoint-Resume**: Analyse unterbrechen → fortsetzen, VRAM stabil.
+Ausgeführt auf DB-Kopie von `outputs/6262626` (Original unberührt), 2 Clips:
+
+| Clip | Szenen | VectorDB | Energy-Diff | Ergebnis |
+|---|---|---|---|---|
+| 1 (langsam) | 1=1 ✓ | ✓ | 0.031 | PARITÄT |
+| 3 (bewegt) | 1=1 ✓ | ✓ | **0.630** | **ABWEICHUNG** |
+
+**Befund:** Szenen-Struktur + Embeddings sind paritätisch. **`Scene.energy`
+ist es NICHT** — echte Motion-Skalen-Drift.
+
+**Ursache (verifiziert):** Der Monolith skaliert Frames auf **fest 520×320**
+vor RAFT (`_raft_motion_score`, Z.196); die Engine-`RaftMotionService`
+rechnet mit `resolution_scale=1.0` auf **voller Auflösung**. Gleiche
+Normalisierung `_normalize_motion` → verschiedene Werte. Bei langsamen
+Clips nahe 0 (unauffällig), bei bewegten stark divergent.
+
+**Konsequenz:** Die Engine ist **kein Drop-in für das Pacing**, solange
+`Scene.energy` divergiert (Pacing liest genau diesen Wert). Engine-Default
+bleibt AUS (ist es). Persistenz (Scene-Write + VectorDB) funktioniert live.
+
+**Fix-Option (Entscheidung offen):** Engine-Flow ebenfalls auf 520×320
+skalieren (RaftMotionStage/Service) → ändert bestehendes Engine-Verhalten
+→ braucht User-OK (HARTREGEL). Danach Paritäts-Lauf wiederholen.
+
+**Harness-Caveat:** VectorDB-Count ist global (kumulativ), nicht per-Clip —
+misst „Embeddings werden geschrieben", nicht die exakte Pro-Clip-Zahl.
+
+Weiterhin offen: Checkpoint-Resume-Verify (VRAM stabil).
 
 ## Bewusst offen (ehrlich, kein stiller Skip)
 

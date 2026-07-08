@@ -26,6 +26,11 @@ import argparse
 import sys
 from pathlib import Path
 
+# Repo-Root in den Importpfad (Direktaufruf legt nur scripts/diag/ hinein).
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
 
 # Toleranzen (dokumentiert in D-065): Szenen-Anzahl exakt; Energy im Mittel
 # innerhalb ENERGY_MEAN_TOL (andere Motion-Aufloesung -> Skala-Drift);
@@ -128,6 +133,14 @@ def main() -> int:
     if args.project:
         from database.session import set_project
         set_project(args.project)
+        # Aeltere Projekt-DBs (z.B. kopierte Bestandsprojekte) auf das
+        # aktuelle Schema heben — set_project legt nur fehlende Tabellen an,
+        # keine fehlenden Spalten (z.B. projects.transition_type).
+        try:
+            from database.migrations import init_db
+            init_db()
+        except Exception as exc:
+            print(f"[warn] init_db/Migration nach set_project: {exc}")
 
     clip_id = args.clip_id
     video_path = _resolve_video_path(clip_id)
