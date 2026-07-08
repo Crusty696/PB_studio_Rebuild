@@ -436,7 +436,7 @@ def _run_legacy_migrations():
             if "energy_per_beat" not in columns:
                 conn.execute(text("ALTER TABLE beatgrids ADD COLUMN energy_per_beat TEXT"))
 
-    # AUD-83: Onset Rhythm Intelligence — neue Beatgrid-Spalten nachrüsten
+    # AUD-83: Onset Rhythm Intelligence + AUDIT-FIXPLAN-2026-07-07 / A3: beatgrids.stem_weighted_energy nachrüsten
     insp = inspect(get_raw_engine())
     if "beatgrids" in insp.get_table_names():
         columns = {c["name"] for c in insp.get_columns("beatgrids")}
@@ -447,13 +447,13 @@ def _run_legacy_migrations():
                 ("onset_hihat_data", "TEXT"),
                 ("syncopation_score", "FLOAT"),
                 ("groove_template", "TEXT"),
+                ("stem_weighted_energy", "TEXT"),
             ]:
                 if col_name not in columns:
                     conn.execute(
                         text(f"ALTER TABLE beatgrids ADD COLUMN {col_name} {col_type}")
                     )
 
-    # Migration: source_start / source_end in timeline_entries nachrüsten
     insp = inspect(get_raw_engine())
     if "timeline_entries" in insp.get_table_names():
         te_columns = {c["name"] for c in insp.get_columns("timeline_entries")}
