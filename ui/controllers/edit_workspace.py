@@ -337,6 +337,20 @@ class EditWorkspaceController(PBComponent):
         breakdown = breakdown_map.get(self.window.breakdown_combo.currentIndex(), "halve")
         anchors = self._collect_anchors_from_ui()
 
+        # transition_combo auslesen und in DB persistieren
+        transition_type = "cut" if self.window.transition_combo.currentIndex() == 1 else "crossfade"
+        try:
+            from database import nullpool_session, Project
+            from database import get_active_project_id
+            pid = get_active_project_id()
+            if pid:
+                with nullpool_session() as session:
+                    proj = session.get(Project, pid)
+                    if proj:
+                        proj.transition_type = transition_type
+        except Exception as db_exc:
+            logger.warning("_auto_edit_to_beat: transition_type konnte nicht in DB persistiert werden: %s", db_exc)
+
         settings = AdvancedPacingSettings(
             base_cut_rate=base_cut_rate,
             energy_reactivity=self.window.energy_reactivity_spin.value(),
@@ -344,6 +358,7 @@ class EditWorkspaceController(PBComponent):
             vibe=self.window.vibe_input.text(),
             manual_density_curve=self.window.pacing_curve.get_all_densities(),
             anchors=anchors,
+            transition_type=transition_type,
         )
 
         self.window.console_text.append(

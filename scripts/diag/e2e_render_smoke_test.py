@@ -121,7 +121,8 @@ seg_dicts = [
         "start": s.start, "end": s.end,
         "source_start": s.source_start, "source_end": s.source_end,
         "is_anchor": s.is_anchor, "scene_id": s.scene_id,
-        "crossfade": s.crossfade_duration, "section_type": s.section_type,
+        "crossfade": s.crossfade_duration, "crossfade_duration": s.crossfade_duration, "section_type": s.section_type,
+        "degraded": getattr(s, "degraded", False)
     }
     for s in segments
 ]

@@ -730,6 +730,14 @@ def _run_legacy_migrations():
                 "ON scenes(video_clip_id, scene_index)"
             ))
 
+    # AUDIT-FIXPLAN-2026-07-07 / A1: transition_type Spalte für Projects
+    insp = inspect(get_raw_engine())
+    if "projects" in insp.get_table_names():
+        p_columns = {c["name"] for c in insp.get_columns("projects")}
+        with engine.begin() as conn:
+            if "transition_type" not in p_columns:
+                conn.execute(text("ALTER TABLE projects ADD COLUMN transition_type TEXT NOT NULL DEFAULT 'crossfade'"))
+
 
 def _seed_defaults():
     """Seed *immutable* defaults that the App relies on for first-run UX.

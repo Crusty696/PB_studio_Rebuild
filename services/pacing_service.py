@@ -1226,7 +1226,7 @@ def _auto_edit_phase3_inner(
             source_end=round(source_end, 4),
             is_anchor=is_anchor,
             scene_id=anchor_scene_id,
-            crossfade_duration=round(seg_crossfade, 2),
+            crossfade_duration=round(seg_crossfade, 2) if settings.transition_type != "cut" else 0.0,
             section_type=seg_section_type,
         ))
 

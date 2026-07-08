@@ -37,6 +37,7 @@ class Project(Base):
     resolution = Column(String, nullable=False, default="1920x1080")
     fps = Column(Float, nullable=False, default=30.0)
     deleted_at = Column(DateTime, nullable=True)  # P1-FIX: Soft-Delete Support
+    transition_type = Column(String, nullable=False, default="crossfade", server_default="'crossfade'")
 
     # Relationships — P1-FIX: lazy='selectin' verhindert N+1 Queries
     # M-37 Fix: Changed from lazy='selectin' to lazy='select' (on-demand loading)
