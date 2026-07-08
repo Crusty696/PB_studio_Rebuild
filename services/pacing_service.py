@@ -1116,6 +1116,18 @@ def _auto_edit_phase3_inner(
                 is_dj_mix=track_is_dj_mix,
                 weights_profile="default",
             )
+            # NEUBAU-VOLLINTEGRATION T1.2 (USE-002): Brain-V3-Reranker ist an
+            # das T1.1-Setting gekoppelt — laeuft die Studio-Brain-Pipeline
+            # (dieser Block), rerankt auch der WeightStore-basierte Reranker.
+            # Vorher: use_brain_v3 blieb am Default False, der Reranker war
+            # toter Code. Konfidenz per Setting justierbar (Default 0.0).
+            _brain_v3_conf = 0.0
+            try:
+                from services.settings_store import get_settings_store
+                _brain_v3_conf = float(get_settings_store().get_nested(
+                    "pacing", "brain_v3_min_confidence", default=0.0))
+            except Exception:
+                pass
             _studio_brain_pipeline = PacingPipeline(
                 scorer=PacingScorer(weights_profile="default"),
                 decision_recorder=DecisionRecorder(
@@ -1127,6 +1139,12 @@ def _auto_edit_phase3_inner(
                 # (VariationsBudget.DJ_MIX_SCENE_ID_GLOBAL_MAX) nie, obwohl der
                 # Run als DJ-Mix erkannt und in mem_pacing_run markiert wird.
                 dj_mix=track_is_dj_mix,
+                use_brain_v3=True,
+                brain_v3_min_confidence=_brain_v3_conf,
+            )
+            logger.info(
+                "T1.2: Brain-V3-Reranker aktiv (min_confidence=%.2f) — "
+                "WeightStore wirkt im Schnitt.", _brain_v3_conf,
             )
             with Session(_ae_eng) as _sb_session:
                 _studio_brain_audio_track = (
