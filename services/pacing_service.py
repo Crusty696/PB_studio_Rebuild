@@ -1462,7 +1462,13 @@ def _auto_edit_phase3_inner(
             start=round(seg_start, 4),
             end=round(seg_end, 4),
             source_start=round(source_start, 4),
-            source_end=round(source_end, 4),
+            # B-611: round(..,4) konnte den auf vid_duration geklemmten
+            # source_end minimal HOCH-runden (8.666667 -> 8.6667) und damit um
+            # ~Mikrosekunden ueber die echte Clip-Laenge schieben. Der Export
+            # (_source_duration_from_entry) warf dann ValueError und brach den
+            # ganzen Export ab. Nach dem Runden erneut auf die (ungerundete)
+            # vid_duration clampen — source_end liegt garantiert im Clip.
+            source_end=min(round(source_end, 4), vid_duration),
             is_anchor=is_anchor,
             scene_id=anchor_scene_id,
             crossfade_duration=round(seg_crossfade, 2) if settings.transition_type != "cut" else 0.0,

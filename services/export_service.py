@@ -326,11 +326,22 @@ def _source_duration_from_entry(
         )
     if clip_duration is not None and clip_duration > 0:
         source_end_abs = source_start + source_duration
-        if source_end_abs > clip_duration + 1e-6:
+        # B-611: source_end wird beim Pacing auf 4 Dezimalen gerundet; ein
+        # Ueberschuss im ms-Bereich ist Rundung, KEIN Datenfehler. Frueher
+        # warf schon ein 33-us-Ueberschuss (1e-6-Toleranz) hier ValueError und
+        # brach den GESAMTEN Export ab. Jetzt: kleinen Ueberschuss auf die
+        # echte Clip-Laenge clampen (ffmpeg liest bis Clip-Ende), nur einen
+        # GROBEN Ueberschuss (echte Korruption) weiterhin als Fehler werfen.
+        # Wirkt auch fuer bestehende Timelines mit bereits hochgerundeten
+        # source_end-Werten (kein Neu-Rendern noetig).
+        ROUNDING_TOLERANCE_SEC = 0.05  # 50ms — deckt 4-Dezimal-Rundung + Frame-Grenzen
+        if source_end_abs > clip_duration + ROUNDING_TOLERANCE_SEC:
             raise ValueError(
                 f"Source-Bereich fuer TimelineEntry {getattr(entry, 'id', '?')} "
                 f"ueberschreitet clip duration {clip_duration:.3f}s"
             )
+        if source_end_abs > clip_duration:
+            source_duration = max(0.0, clip_duration - source_start)
     return source_duration
 
 
