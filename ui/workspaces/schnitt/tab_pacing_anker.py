@@ -104,11 +104,20 @@ class SchnittTabPacingAnker(QWidget):
         row2b.setSpacing(8)
         row2b.addWidget(self._small_label("Übergänge"))
         self.transition_combo = QComboBox()
-        self.transition_combo.addItems(["Automatische Crossfades", "Harte Beat-Cuts"])
-        self.transition_combo.setCurrentIndex(0)
+        # Reihenfolge fix (0=Crossfade, 1=Cut) — Index-Mapping in
+        # edit_workspace/workspace_setup haengt daran. Default = Harte Beat-Cuts
+        # (B: crossfade-Export ist bei langen Timelines noch limitiert, B9).
+        self.transition_combo.addItems([
+            "Automatische Crossfades (experimentell)", "Harte Beat-Cuts",
+        ])
+        self.transition_combo.setCurrentIndex(1)
         self.transition_combo.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.transition_combo.setToolTip(
-            "Wirkung: Bestimmt ob Schnitte weiche Überblendungen (Crossfades) erhalten oder harte Bildschnitte (Cuts) sind."
+            "Wirkung: Bestimmt ob Schnitte weiche Überblendungen (Crossfades) "
+            "erhalten oder harte Bildschnitte (Cuts) sind.\n"
+            "Hinweis: Harte Beat-Cuts sind der stabile Standard. Automatische "
+            "Crossfades sind experimentell und beim Export langer Timelines "
+            "(viele Segmente) derzeit noch limitiert (Fix folgt mit B9)."
         )
         row2b.addWidget(self.transition_combo, stretch=1)
         v.addLayout(row2b)

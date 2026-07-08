@@ -129,7 +129,7 @@ class AdvancedPacingSettings:
     use_llm_strategist: bool = False   # Phase 5: Lokaler LLM-Pacing-Strategist
     use_llm_pacing: bool = False       # Hybrid-Pipeline: Direktes Ollama EDL-Reasoning
     user_preferences: str = ""         # Natuerliche Sprache fuer LLM ("ruhigere Breakdowns")
-    transition_type: str = "crossfade"  # "crossfade" (automatisch) oder "cut" (hart)
+    transition_type: str = "cut"  # "cut" (hart, Standard) oder "crossfade" (experimentell, B9)
 
 
 @dataclass
