@@ -14,15 +14,23 @@ Nun wird plangemäß auf den Audit-Fixplan `PB-STUDIO-AUDIT-FIXPLAN-2026-07-07` 
 
 ## Current Next Task
 
-Wir beginnen mit der Ausführung des Audit-Fixplans gemäß der definierten Reihenfolge:
-1. **A0: Smoke-Test des E2E-Render-Pfads (repro-gated)**
-   - Testdurchlauf mit Testset: Video-Ordner `Solo_Natur`, Audio `Crusty Progressive Psy Set2.mp3` importieren -> Analyse -> Auto-Edit -> Export.
-   - Ergebnis-Video und Logs sichern, um Lauffähigkeit zu belegen.
-2. **A3: DB-010 Migration (präventiv)**
-   - Nachrüst-Migration für `beatgrids.stem_weighted_energy` in `database/migrations.py` implementieren.
-3. **B1 bis B4, B7 (Stille Degradierung robust machen)**
-4. **A1 (Crossfades + UI-Schalter)** und **A2 (V2-Default komplett)**
-5. **B5, B6**
+**NUR NOCH USER-AKTION: Live-Sichtung + `fixed`-Marker.**
+
+Alle Release-Tasks sind code-complete, getestet und gepusht (`4422afa`):
+A0–A3, B1–B8. Highlights:
+- **B8 (B-602 Checkpoint-Kollision)** live bestätigt — track2b liefert 138
+  Auto-Edit-Segmente statt vorher 0.
+- **A2** live bestätigt — V2-Analyse schreibt mood/genre/sub_genre + Waveform.
+- **Option B**: Default = harte Beat-Cuts (stabil); Crossfade umschaltbar, in
+  der UI als experimentell markiert.
+- **B9 (B-603 Crossfade-Export-Skalierung)** bewusst deferred aufs **erste
+  Update** nach Release.
+
+Abschluss-Synthese: `docs/superpowers/synthesis/audit-fixplan-abschluss-2026-07-08.md`.
+
+Nach User-`fixed`: `ACTIVE_PLAN` auf
+`PB-STUDIO-NEUBAUTEN-VOLLINTEGRATION-2026-07-07` (verbindlicher Folgeplan,
+hohe Priorität).
 
 ## Agent Behavior
 
