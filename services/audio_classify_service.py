@@ -212,11 +212,22 @@ class AudioClassifyService:
 
         try:
             # ----------------------------------------------------------
-            # 1. Audio laden
+            # 1. Audio laden mit Langform-Sampling-Strategie
             # ----------------------------------------------------------
             from services.audio_constants import DEFAULT_SR, MAX_DURATION_CLASSIFY
-            y, sr = librosa.load(file_path, sr=DEFAULT_SR, mono=True, duration=MAX_DURATION_CLASSIFY)
-            # L-8 Fix: librosa.load() never returns None (raises exception instead)
+            duration_sec = float(librosa.get_duration(path=file_path))
+            sr = DEFAULT_SR
+
+            if duration_sec > MAX_DURATION_CLASSIFY:
+                # Chunks über den Track verteilt laden
+                seg_dur = 30.0
+                y_start, _ = librosa.load(file_path, sr=sr, mono=True, offset=0.0, duration=seg_dur)
+                y_mid, _ = librosa.load(file_path, sr=sr, mono=True, offset=max(0.0, (duration_sec / 2.0) - 15.0), duration=seg_dur)
+                y_end, _ = librosa.load(file_path, sr=sr, mono=True, offset=max(0.0, duration_sec - seg_dur), duration=seg_dur)
+                y = np.concatenate([y_start, y_mid, y_end])
+            else:
+                y, _ = librosa.load(file_path, sr=sr, mono=True, duration=MAX_DURATION_CLASSIFY)
+
             if len(y) == 0:
                 log.warning("classify(): Leere Audio-Daten fuer %s", file_path)
                 return _fallback_result("Leere Audio-Daten")
@@ -272,7 +283,6 @@ class AudioClassifyService:
             # ----------------------------------------------------------
             # 6. DJ-Mix Erkennung (schnell, wiederverwendet geladenes y)
             # ----------------------------------------------------------
-            duration_sec = float(len(y)) / sr
             is_dj_mix = self._quick_dj_mix_check(y, sr, duration_sec, tempo)
 
             # ----------------------------------------------------------

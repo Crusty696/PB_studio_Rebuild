@@ -26,8 +26,8 @@ _STAGE_TO_STEP = {
     "structure": "structure_detection",
     "lufs": "lufs_analysis",
     "spectral": "spectral_analysis",
-    "mood_genre_classify": "mood_genre_classify",
-    "waveform_analysis": "waveform_analysis",
+    "classify": "mood_genre_classify",
+    "waveform": "waveform_analysis",
 }
 
 
@@ -90,6 +90,13 @@ class AudioPipelineV2Worker(QObject, CancellableMixin):
                             val_summary["confidence"] = _payload.get("confidence")
                         elif name == "lufs":
                             val_summary["lufs"] = _payload.get("integrated_lufs")
+                        elif name == "classify":
+                            val_summary["mood"] = _payload.get("mood")
+                            val_summary["genre"] = _payload.get("genre")
+                            val_summary["sub_genre"] = _payload.get("sub_genre")
+                            val_summary["is_dj_mix"] = _payload.get("is_dj_mix")
+                        elif name == "waveform":
+                            val_summary["num_samples"] = _payload.get("num_samples")
                     mark_done("audio", self.audio_track_id, step_key, val_summary)
 
             def _on_sub_progress(stage_pct: int, message: str) -> None:
