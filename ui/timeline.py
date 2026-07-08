@@ -778,7 +778,14 @@ class TimelineClipItem(QGraphicsRectItem):
 class InteractiveTimeline(QGraphicsView):
     clip_moved = Signal(int, float)
     selection_changed = Signal(list)  # emits list of dicts with clip data
-    _BUILD_BATCH_SIZE = 25
+    # Timeline-Perf: grosse Batch-Groesse. Der Build laeuft mit deaktivierten
+    # Viewport-Updates (setUpdatesEnabled(False)); JEDER Batch-Yield via
+    # QTimer.singleShot gibt aber ans Event-Loop zurueck, wo die reale
+    # QGraphicsView die wachsende Szene teil-verarbeitet. Bei 1353 Clips
+    # verursachten 54 Yields (batch=25) ~33s Build (headless ohne Rendering:
+    # 2.3s). Grosse Batches -> nahezu Single-Pass -> minimale Inter-Batch-
+    # Event-Verarbeitung. Cancel-Check greift weiterhin pro Batch.
+    _BUILD_BATCH_SIZE = 2000
 
     # T8.1: Feedback shortcut signal — emits event_id after a successful DB write.
     # B-197 F-3: ``_notify_memory_updater`` ruft jetzt direkt
