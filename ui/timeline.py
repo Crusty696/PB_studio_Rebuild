@@ -26,6 +26,13 @@ from sqlalchemy.orm import Session as DBSession, joinedload, lazyload
 from database import engine, AudioTrack, VideoClip, TimelineEntry, Beatgrid, ClipAnchor, StructureSegment, nullpool_session
 
 logger = logging.getLogger(__name__)
+
+# Timeline-Perf-Diagnose: [PERF]-Timing-Logs nur bei gesetztem Env-Flag
+# PB_TIMELINE_PERF=1 (fuer die Timeline-Virtualisierungs-Untersuchung).
+# Default AUS -> kein Diagnose-Rauschen im Normalbetrieb. Die Timing-
+# Akkumulation selbst ist vernachlaessigbar guenstig und bleibt.
+import os as _os
+_TIMELINE_PERF = _os.getenv("PB_TIMELINE_PERF", "") == "1"
 from services.pacing_service import CutPoint
 from ui.shortcut_manager import get_shortcut_manager
 from ui.waveform_item import WaveformGraphicsItem
@@ -1163,10 +1170,11 @@ class InteractiveTimeline(QGraphicsView):
         # Recover-Schritt (ggf. DB-Query im UI-Thread) separat messen.
         _rec_t0 = time.perf_counter()
         audio_map, video_map = self._recover_missing_media_maps(entries, audio_map, video_map)
-        logger.info(
-            "[PERF] recover_missing_media_maps=%.0fms entries=%d",
-            (time.perf_counter() - _rec_t0) * 1000.0, len(entries),
-        )
+        if _TIMELINE_PERF:
+            logger.info(
+                "[PERF] recover_missing_media_maps=%.0fms entries=%d",
+                (time.perf_counter() - _rec_t0) * 1000.0, len(entries),
+            )
         self._batch_build_started_at = time.perf_counter()
         self._batch_build_cpu_ms = 0.0
         self._start_batched_entry_build(entries, audio_map, video_map, anchor_map)
@@ -1284,13 +1292,14 @@ class InteractiveTimeline(QGraphicsView):
         # PERF-DIAG: Wall-Zeit (inkl. Event-Loop-Yields) vs. reine Build-CPU-Zeit.
         # Grosse Differenz = Build yieldet gut (kein Hang durch den Build);
         # Wall ~= CPU = ein Batch/der Build blockiert durchgehend.
-        _wall = (time.perf_counter() - getattr(self, "_batch_build_started_at",
-                                                time.perf_counter())) * 1000.0
-        logger.info(
-            "[PERF] batched build: wall=%.0fms cpu=%.0fms clips=%d batch_size=%d",
-            _wall, getattr(self, "_batch_build_cpu_ms", 0.0),
-            len(self.clip_items), self._BUILD_BATCH_SIZE,
-        )
+        if _TIMELINE_PERF:
+            _wall = (time.perf_counter() - getattr(self, "_batch_build_started_at",
+                                                    time.perf_counter())) * 1000.0
+            logger.info(
+                "[PERF] batched build: wall=%.0fms cpu=%.0fms clips=%d batch_size=%d",
+                _wall, getattr(self, "_batch_build_cpu_ms", 0.0),
+                len(self.clip_items), self._BUILD_BATCH_SIZE,
+            )
 
     def _build_entries(self, entries, audio_map, video_map, anchor_map):
         max_end = 0.0
