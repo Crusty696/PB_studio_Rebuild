@@ -38,6 +38,10 @@ def invalidate_if_stale(track_id: int, original_path: str) -> bool:
         return False
     stored = meta.get("original_hash")
     if not stored:
+        # Ein hashloser Checkpoint ist legitim (Resume nach stem_gen ohne echten
+        # Demucs-Hash, z.B. Stem-Reuse). Die eigentliche B-602-Kollision wird an
+        # der Wurzel verhindert: der Checkpoint liegt jetzt projekt-relativ
+        # (stem_cache._storage_root via APP_ROOT), nicht mehr CWD-global.
         return False
     try:
         current = stem_cache.compute_audio_hash(original_path)
