@@ -83,6 +83,18 @@ def build_pipeline(
         track_id=track_id,
         stream_sha256=stream_sha256(source_path),
     )
+
+    # NEUBAU-VOLLINTEGRATION M3 (DEAD-008): ohne externen Listener bekommt der
+    # Engine-Lauf einen JsonlObserver — Stage-Events landen als Audit-Trail in
+    # storage_dir/pipeline.events.jsonl (vorher war observability.py toter
+    # Code). Uebergibt der Aufrufer einen eigenen Listener (UI-Qt-Signale),
+    # bleibt der unangetastet.
+    if listener is None:
+        try:
+            from services.video_pipeline.observability import JsonlObserver
+            listener = JsonlObserver(storage_dir / "pipeline.events.jsonl")
+        except Exception:  # Observability darf den Lauf nie blockieren
+            listener = None
     siglip = SigLipEmbedService(model_id="google/siglip-so400m-patch14-384")
     raft = RaftMotionService(variant=raft_variant)
 
