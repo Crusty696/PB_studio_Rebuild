@@ -581,6 +581,57 @@ class AVPacingStage(Stage):
         })
 
 
+class ClassifyStage(Stage):
+    name = "classify"
+
+    def __init__(self, service_cls: Any = None):
+        self._service_cls = service_cls
+
+    def run(self, context: PipelineContext) -> None:
+        _raise_if_cancelled(context, "classify")
+        if self._service_cls is None:
+            from services.audio_classify_service import AudioClassifyService
+            self._service_cls = AudioClassifyService
+        svc = self._service_cls()
+        bpm = context.results.get("beat_grid", {}).get("bpm")
+        result = svc.classify(context.original_path, bpm=bpm)
+        _raise_if_cancelled(context, "classify")
+        fields = {
+            "mood": result.mood,
+            "genre": result.genre,
+            "sub_genre": result.sub_genre,
+            "is_dj_mix": result.is_dj_mix,
+        }
+        _persist_to_track(context.track_id, fields)
+        context.set_result(self.name, {
+            "mood": result.mood,
+            "genre": result.genre,
+            "sub_genre": result.sub_genre,
+            "is_dj_mix": result.is_dj_mix,
+            "confidence": result.confidence,
+        })
+
+
+class WaveformStage(Stage):
+    name = "waveform"
+
+    def __init__(self, service_cls: Any = None):
+        self._service_cls = service_cls
+
+    def run(self, context: PipelineContext) -> None:
+        _raise_if_cancelled(context, "waveform")
+        if self._service_cls is None:
+            from services.ai_audio_service import FrequencyAnalyzer
+            self._service_cls = FrequencyAnalyzer
+        analyzer = self._service_cls()
+        result = analyzer.analyze_and_store(context.track_id, progress_cb=context.on_progress)
+        _raise_if_cancelled(context, "waveform")
+        context.set_result(self.name, {
+            "num_samples": result.get("num_samples"),
+            "duration": result.get("duration"),
+        })
+
+
 # Plan-Reihenfolge fuer Default-Pipeline.
 DEFAULT_STAGE_ORDER: tuple[type, ...] = (
     StemGenStage,
@@ -590,6 +641,8 @@ DEFAULT_STAGE_ORDER: tuple[type, ...] = (
     StructureStage,
     LUFSStage,
     SpectralStage,
+    ClassifyStage,
+    WaveformStage,
     AVPacingStage,
 )
 

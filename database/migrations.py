@@ -730,13 +730,15 @@ def _run_legacy_migrations():
                 "ON scenes(video_clip_id, scene_index)"
             ))
 
-    # AUDIT-FIXPLAN-2026-07-07 / A1: transition_type Spalte für Projects
+    # AUDIT-FIXPLAN-2026-07-07 / A1: transition_type Spalte für Projects.
+    # B: Default 'cut' (harte Beat-Cuts) — crossfade-Export bei langen
+    # Timelines noch limitiert (B9). Bestehende Werte bleiben unveraendert.
     insp = inspect(get_raw_engine())
     if "projects" in insp.get_table_names():
         p_columns = {c["name"] for c in insp.get_columns("projects")}
         with engine.begin() as conn:
             if "transition_type" not in p_columns:
-                conn.execute(text("ALTER TABLE projects ADD COLUMN transition_type TEXT NOT NULL DEFAULT 'crossfade'"))
+                conn.execute(text("ALTER TABLE projects ADD COLUMN transition_type TEXT NOT NULL DEFAULT 'cut'"))
 
 
 def _seed_defaults():

@@ -13,8 +13,36 @@ import json
 import os
 from pathlib import Path
 
-_STORAGE_ROOT = Path("storage")
+_STORAGE_ROOT = Path("storage")  # Fallback; projekt-relativ via _storage_root()
 _CHUNK = 1_000_000  # 1 MB
+
+
+def _storage_root() -> Path:
+    """B-602: projekt-relativer storage-Ordner.
+
+    Frueher war ``_STORAGE_ROOT = Path("storage")`` CWD-relativ und damit
+    projekt-blind: der Pipeline-Checkpoint ``pipeline_state/<track_id>.json``
+    landete global im Prozess-CWD und wurde von ALLEN Projekten mit derselben
+    ``track_id`` geteilt (bei 1-Audio-Projekten immer 1). Ein voll analysiertes
+    Projekt liess so ein frisch geoeffnetes zweites Projekt alle Stages
+    ueberspringen -> keine Analyse, Auto-Edit 0 Segmente.
+
+    APP_ROOT wird per ``set_project`` mutiert -> zur Laufzeit lesen. Faellt auf
+    CWD-relativ ``storage`` zurueck, wenn ``database.session`` nicht verfuegbar
+    ist (z.B. isolierte Unit-Tests, die _STORAGE_ROOT patchen).
+    """
+    # Test-Override / explizite Konfiguration: ein vom Default abweichendes
+    # _STORAGE_ROOT (z.B. monkeypatch in Unit-Tests) hat Vorrang.
+    if _STORAGE_ROOT != Path("storage"):
+        return _STORAGE_ROOT
+    try:
+        import database.session as _db
+        root = getattr(_db, "APP_ROOT", None)
+        if root:
+            return Path(root) / "storage"
+    except Exception:
+        pass
+    return _STORAGE_ROOT
 
 
 def _hash_file_bytes(path: str) -> str:
@@ -42,7 +70,7 @@ def compute_stem_wav_hash(path: str) -> str:
 
 
 def cache_meta_path(track_id: int) -> Path:
-    return _STORAGE_ROOT / "pipeline_state" / f"{track_id}.json"
+    return _storage_root() / "pipeline_state" / f"{track_id}.json"
 
 
 def load_cache_meta(track_id: int) -> dict | None:

@@ -309,6 +309,7 @@ class AudioClassifyWorker(BaseAnalysisWorker):
             if track:
                 track.mood = result.mood
                 track.genre = result.genre
+                track.sub_genre = result.sub_genre or None
                 track.is_dj_mix = result.is_dj_mix
                 session.commit()
 

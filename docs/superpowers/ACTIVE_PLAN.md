@@ -52,17 +52,31 @@ SCHNITT-Garantien: Beat-Sync 100 %, exaktes Audio-Ende):
 
 ## Current Next Task
 
-```text
-M3 / Paket 3 — DAG-Video-Engine vollstaendig integrieren
-(USE-003 / PIPE-018 / DEAD-008):
-1. PIPE-018-Luecken schliessen: Ergebnis-Paritaet der Engine-Pipeline zum
-   Monolith (VectorDB-Persistenz, Scene.energy, Cross-Cutting-Module) —
-   erst Ist-Stand beider Pfade auditieren (services/video_pipeline/ vs.
-   services/video_analysis_service.py::run_full_pipeline).
-2. Paritaets-Nachweis mit echten Daten (gleiches Video beide Pfade,
-   Diff der persistierten Ergebnisse).
-3. Setting-Schalter statt Env-Var PB_ENABLE_VIDEO_PIPELINE_ENGINE
-   (Default AUS bis Paritaet bewiesen).
-Danach: A2-Nachmerge, volle Testsuite inkl. SCHNITT-Garantien,
-automatischer Merge zurueck in codex/OTK-021-... + Push (User-Auftrag).
-```
+**BEIDE Plaene code-complete und in `codex/OTK-021` zusammengefuehrt
+(2026-07-08). NUR NOCH USER-AKTION: Live-Test in der App + `fixed`-Marker.**
+
+**Audit-Fixplan** — alle Release-Tasks code-complete/getestet/gepusht
+(`4422afa`): A0–A3, B1–B8. B8 (B-602) live bestaetigt (track2b 138
+Segmente). A2 (V2-Analyse mood/genre/sub_genre + Waveform) live bestaetigt.
+Option B: Default harte Beat-Cuts, Crossfade experimentell. B9 deferred.
+Abschluss: `synthesis/audit-fixplan-abschluss-2026-07-08.md`.
+
+**NEUBAUTEN-VOLLINTEGRATION** — parallel im Worktree abgearbeitet, dann
+`codex/OTK-021` (inkl. A2) eingemergt und zurueckgemergt:
+- M1 (Paket 2): 16 Slice-1-Module produktiv verdrahtet.
+- M2 (Paket 1): Studio-Brain live schaltbar, Brain-V3-Reranker, Steer-
+  Overrides, Lernschleife (mem_learned_pattern -> Scorer), RL-v2.
+- M3 (Paket 3): DAG-Engine schreibt Scene+VectorDB (DbPersistStage);
+  **Motion-Paritaet live auf GTX 1060 bewiesen** (Energy-Diff 0.0000,
+  Clip 1+3); Setting-Schalter statt Env-Var.
+- Zusaetzlich **B-611** (Export-Crash durch Rundung) gefixt, an 1352 echten
+  Eintraegen verifiziert.
+- Bewusst offen: VLM-Backend (Stub), DEAD-008-Rest, UI-Perf bei sehr vielen
+  Clips (92-min-Mix -> ~1352 Clips, 13s/Klick).
+
+## Agent Behavior
+
+- Jede Task einzeln committen und im Vault loggen.
+- Höhlenmensch-Modus (German, terse) in der Kommunikation beibehalten.
+- GPU-Regel unverändert (GTX 1060 / cuda:0).
+- fixed-Marker setzt nur der User.
