@@ -916,6 +916,10 @@ class InteractiveTimeline(QGraphicsView):
         )
         self._brain_v3_feedback_service = None
         self._brain_v3_feedback_context = None
+        # NEUBAU-VOLLINTEGRATION T1.6: Feedback-Tastendruck (A/R/S/1-5) hat
+        # jetzt eine sichtbare Bestaetigung — vorher feuerte
+        # feedback_event_emitted ohne einen einzigen Subscriber.
+        self.feedback_event_emitted.connect(self._on_feedback_confirmed)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.viewport().setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
@@ -2497,6 +2501,20 @@ class InteractiveTimeline(QGraphicsView):
         m = int(t) // 60
         s = t - 60 * m
         return f"{m:02d}:{s:06.3f}"
+
+    def _on_feedback_confirmed(self, event_id: int) -> None:
+        """NEUBAU-VOLLINTEGRATION T1.6: sichtbare Bestaetigung fuer
+        Feedback-Tastendruecke (A/R/S/1-5). Console-Log falls verdrahtet,
+        sonst mindestens App-Log."""
+        msg = (
+            f"[Feedback] Bewertung gespeichert (Event #{event_id}) — "
+            "fliesst in das Pacing-Lernen ein."
+        )
+        cb = getattr(self, "console_log", None)
+        if callable(cb):
+            cb(msg)
+        else:
+            logger.info(msg)
 
     def _on_set_in_point_local(self, time_sec: float) -> None:
         """B-200: lokaler Slot für In-Point-Taste (I).

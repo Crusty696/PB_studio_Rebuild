@@ -270,6 +270,20 @@ class StudioBrainWindow(QMainWindow):
         except (AttributeError, RuntimeError) as exc:
             logger.debug("AuditTab.cutSelected not wired: %s", exc)
 
+        # NEUBAU-VOLLINTEGRATION T1.6 — Dead-End-Signals verdrahten:
+        # WIRE-009: Explorer -> Graph-Cockpit (Decision -> scene-Node
+        # fokussieren, sofern das Cockpit bereits geladen ist; kein
+        # Force-Load der WebEngine nur fuer die Navigation).
+        self._pacing_explorer_tab.decisionSelected.connect(
+            self._on_decision_selected_sync_graph
+        )
+        # WIRE-010: Pattern-Reset im Gedaechtnis-Tab -> Explorer-Runs neu
+        # laden (Anzeige haengt an denselben mem_*-Tabellen).
+        self._memory_tab.patternsReset.connect(self._on_patterns_reset)
+        # WIRE-008: Trackwechsel im Steer-Tab -> Explorer springt auf den
+        # juengsten Run dieses Audio-Tracks.
+        self._steer_tab.trackChanged.connect(self._on_steer_track_changed)
+
         # Tab-Tooltips (deutsche, einsteigerfreundliche Erklaerungen).
         self._tabs.setTabToolTip(
             0,
@@ -405,6 +419,11 @@ class StudioBrainWindow(QMainWindow):
             except (RuntimeError, AttributeError):
                 pass  # Widget evtl. schon weg.
 
+            # NEUBAU-VOLLINTEGRATION T1.6 (WIRE-004): Graph -> Explorer.
+            # Klick auf einen scene-Node zeigt die juengste Decision dieser
+            # Scene im Pacing-Explorer.
+            real_tab.nodeSelected.connect(self._on_graph_node_selected)
+
             logger.info("B-222 F4: GraphCockpitTab live.")
         except Exception as exc:
             logger.error(
@@ -413,6 +432,92 @@ class StudioBrainWindow(QMainWindow):
             )
             # Bei Fehler: lazy-Flag zurueck auf True, naechster Klick versucht erneut.
             self._graph_cockpit_lazy = True
+
+    # ── NEUBAU-VOLLINTEGRATION T1.6: Cross-Tab-Slots ──────────────────────
+    def _session_factory(self):
+        """Session-Factory des BrainService (public property bevorzugt)."""
+        factory = getattr(self._brain_service, "session_factory", None)
+        if factory is None:
+            factory = getattr(self._brain_service, "_session_factory", None)
+        return factory
+
+    def _on_decision_selected_sync_graph(self, decision_id: int) -> None:
+        """WIRE-009: Decision im Explorer -> scene-Node im Graph-Cockpit.
+
+        Laeuft nur wenn das Cockpit bereits geladen ist (Lazy-Stub wird
+        nicht extra hochgefahren)."""
+        if getattr(self, "_graph_cockpit_lazy", True):
+            return
+        select_node = getattr(self._graph_cockpit_tab, "select_node", None)
+        if not callable(select_node):
+            return
+        factory = self._session_factory()
+        if factory is None:
+            return
+        try:
+            from sqlalchemy import text as _text
+            with factory() as session:
+                row = session.execute(
+                    _text("SELECT scene_id FROM mem_decision WHERE id = :id"),
+                    {"id": int(decision_id)},
+                ).fetchone()
+            if row is None or row[0] is None:
+                return
+            select_node(f"scene-{int(row[0])}")
+        except Exception as exc:  # Navigation darf nie crashen
+            logger.debug("T1.6: Explorer->Graph-Sync fehlgeschlagen: %s", exc)
+
+    def _on_graph_node_selected(self, node_id: str) -> None:
+        """WIRE-004: scene-Node-Klick im Graph -> juengste Decision der
+        Scene im Pacing-Explorer anzeigen."""
+        if not str(node_id).startswith("scene-"):
+            return
+        try:
+            scene_id = int(str(node_id).split("-", 1)[1])
+        except (ValueError, IndexError):
+            return
+        factory = self._session_factory()
+        if factory is None:
+            return
+        try:
+            from sqlalchemy import text as _text
+            with factory() as session:
+                row = session.execute(
+                    _text(
+                        "SELECT id FROM mem_decision WHERE scene_id = :sid "
+                        "ORDER BY id DESC LIMIT 1"
+                    ),
+                    {"sid": scene_id},
+                ).fetchone()
+            if row is None:
+                return
+            self._pacing_explorer_tab.select_decision(int(row[0]))
+        except Exception as exc:
+            logger.debug("T1.6: Graph->Explorer-Sync fehlgeschlagen: %s", exc)
+
+    def _on_patterns_reset(self, deleted_count: int) -> None:
+        """WIRE-010: nach Pattern-Reset Explorer-Runs neu laden."""
+        logger.info(
+            "T1.6: Pattern-Reset (%d geloescht) — Explorer-Refresh.",
+            deleted_count,
+        )
+        try:
+            self._pacing_explorer_tab.refresh_runs()
+        except Exception as exc:
+            logger.debug("T1.6: Explorer-Refresh nach Reset: %s", exc)
+
+    def _on_steer_track_changed(self, track_id: int) -> None:
+        """WIRE-008: Trackwechsel im Steer-Tab -> Explorer auf juengsten
+        Run dieses Audio-Tracks stellen."""
+        try:
+            found = self._pacing_explorer_tab.select_run_for_audio(int(track_id))
+            if found:
+                logger.debug(
+                    "T1.6: Explorer auf Run von audio_track_id=%s gestellt.",
+                    track_id,
+                )
+        except Exception as exc:
+            logger.debug("T1.6: Steer->Explorer-Sync fehlgeschlagen: %s", exc)
 
     # ── P12 internal slots ────────────────────────────────────────────────
     def _on_story_map_thumbnail_clicked(

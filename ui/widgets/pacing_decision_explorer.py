@@ -157,9 +157,25 @@ class PacingDecisionExplorer(QWidget):
         self.run_combo.clear()
         for run_id, audio_id, started_at in rows:
             self.run_combo.addItem(f"Run {run_id} (audio={audio_id}, {started_at})", run_id)
+            # T1.6 (WIRE-008): Audio-Track-ID zusaetzlich hinterlegen, damit
+            # der Steer-Tab-Trackwechsel den passenden Run vorwaehlen kann.
+            self.run_combo.setItemData(
+                self.run_combo.count() - 1, int(audio_id),
+                Qt.ItemDataRole.UserRole + 1,
+            )
         self.run_combo.blockSignals(False)
         if self.run_combo.count() > 0:
             self._on_run_changed(0)
+
+    def select_run_for_audio(self, audio_track_id: int) -> bool:
+        """NEUBAU-VOLLINTEGRATION T1.6 (WIRE-008): den juengsten Run des
+        gegebenen Audio-Tracks vorwaehlen (Consumer fuer
+        SteerTab.trackChanged). Returns True wenn ein Run gefunden wurde."""
+        for i in range(self.run_combo.count()):
+            if self.run_combo.itemData(i, Qt.ItemDataRole.UserRole + 1) == int(audio_track_id):
+                self.run_combo.setCurrentIndex(i)
+                return True
+        return False
 
     def select_decision(self, decision_id: int) -> None:
         """Externer Hook (z.B. von Audit-Tab): Detail-Panel auf eine

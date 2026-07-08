@@ -40,7 +40,8 @@ logger = logging.getLogger(__name__)
 class BrainV3StatsPanel(QWidget):
     """Read-only Status + Reset-Action."""
 
-    stats_refreshed = Signal()
+    # NEUBAU-VOLLINTEGRATION T1.6 (WIRE-011): ``stats_refreshed`` entfernt —
+    # das Signal hatte nie einen Subscriber und keinen geplanten Zweck.
     reset_done = Signal()
 
     def __init__(
@@ -159,7 +160,6 @@ class BrainV3StatsPanel(QWidget):
         )
         self._fill_tree(self._tree_pos, stats.top_positive_buckets)
         self._fill_tree(self._tree_neg, stats.top_negative_buckets)
-        self.stats_refreshed.emit()
 
     @staticmethod
     def _fill_tree(tree: QTreeWidget, buckets: list[dict]) -> None:
@@ -225,7 +225,18 @@ class BrainV3StatsPanel(QWidget):
         )
         self._learning_dialog = dlg
         dlg.finished.connect(self._on_learning_finished)
+        # NEUBAU-VOLLINTEGRATION T1.6 (WIRE-012): session_finished war ein
+        # Dead-End-Signal — jetzt refresht das Stats-Panel sofort wenn die
+        # Lern-Session durch ist (nicht erst beim Dialog-Schliessen).
+        dlg.session_finished.connect(self._on_learning_session_finished)
         dlg.open()
+
+    def _on_learning_session_finished(self, n_processed: int) -> None:
+        logger.info(
+            "Brain-V3-Lern-Session abgeschlossen (%d Bewertungen) — "
+            "Stats-Refresh.", n_processed,
+        )
+        self.refresh()
 
     def _on_learning_finished(self) -> None:
         self._learning_dialog = None
