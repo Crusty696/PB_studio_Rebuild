@@ -851,7 +851,8 @@ def _verify_required_tables() -> None:
     einen RuntimeError (Fail-fast) statt erst im Betrieb zu crashen.
     """
     from sqlalchemy import inspect
-    inspector = inspect(engine)
+    from database.session import get_raw_engine
+    inspector = inspect(get_raw_engine())
     db_tables = set(inspector.get_table_names())
 
     required_tables = set(Base.metadata.tables.keys())
