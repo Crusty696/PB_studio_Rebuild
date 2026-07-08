@@ -1164,6 +1164,30 @@ def _auto_edit_phase3_inner(
         )
         _studio_brain_pipeline = None
 
+    # NEUBAU-VOLLINTEGRATION T1.3 (USE-004): SteerOverrideQueue konsumieren.
+    # Vorher schrieb nur die UI (steer_tab/structure_tab) — kein Backend las
+    # die Queue, Boost/Exclude waren wirkungslos. Boost -> Score-Bonus in
+    # select_best, Exclude -> harter Kandidaten-Ausschluss (mit
+    # never-empty-cut-Fallback). Nach erfolgreichem Lauf wird die Queue
+    # gedraint (Overrides gelten als verbraucht).
+    _steer_boost: set[int] = set()
+    _steer_exclude: set[int] = set()
+    if _studio_brain_pipeline is not None:
+        try:
+            from services.steer_override_queue import get_default_queue
+            for _ov in get_default_queue().list():
+                if _ov.action == "boost":
+                    _steer_boost.add(int(_ov.scene_id))
+                elif _ov.action == "exclude":
+                    _steer_exclude.add(int(_ov.scene_id))
+            if _steer_boost or _steer_exclude:
+                logger.info(
+                    "T1.3: Steer-Overrides aktiv — %d Boost, %d Exclude.",
+                    len(_steer_boost), len(_steer_exclude),
+                )
+        except Exception as _steer_exc:  # Queue darf Pacing nie crashen
+            logger.warning("T1.3: SteerOverrideQueue nicht lesbar: %s", _steer_exc)
+
     # P-022 Fix: Sortierte Drop-Zeiten fuer O(log N) bisect statt O(N) any()
     sorted_drops = sorted(drop_times)
     # P-023 Fix: Sortierte Transition-Ranges fuer O(log N) bisect statt O(N) any()
@@ -1288,12 +1312,27 @@ def _auto_edit_phase3_inner(
                                 "shot_confidences": _sb_shot,
                             })(),
                         ))
+                    # T1.3 (USE-004): Exclude = harter Ausschluss. Wuerde er
+                    # ALLE Kandidaten treffen, wird er fuer dieses Segment
+                    # ignoriert (never-empty-cut).
+                    if _sb_candidates and _steer_exclude:
+                        _kept = [c for c in _sb_candidates
+                                 if int(c.scene_id) not in _steer_exclude]
+                        if _kept:
+                            _sb_candidates = _kept
+                        else:
+                            logger.debug(
+                                "T1.3: Exclude traefe alle Kandidaten bei "
+                                "seg=%.2f — ignoriert (never-empty-cut).",
+                                seg_start,
+                            )
                     if _sb_candidates:
                         _sb_result = _studio_brain_pipeline.select_best(
                             candidates=_sb_candidates,
                             ctx=_sb_ctx,
                             predecessor=_sb_predecessor,
                             recent_clip_ids=used_recently[-3:] if used_recently else None,
+                            boost_scene_ids=_steer_boost or None,
                         )
                         if _sb_result.chosen is not None:
                             _sb_chosen_vid = _sb_result.chosen.clip_id
@@ -1468,6 +1507,20 @@ def _auto_edit_phase3_inner(
                 _studio_brain_run_id,
                 exc,
             )
+
+    # T1.3 (USE-004): angewendete Steer-Overrides gelten nach erfolgreichem
+    # Lauf als verbraucht — Queue drainen (Steer-Tab aktualisiert sich via
+    # pendingChanged).
+    if _steer_boost or _steer_exclude:
+        try:
+            from services.steer_override_queue import get_default_queue
+            get_default_queue().clear()
+            logger.info(
+                "T1.3: %d Steer-Overrides angewendet und gedraint.",
+                len(_steer_boost) + len(_steer_exclude),
+            )
+        except Exception as _steer_exc:
+            logger.warning("T1.3: Queue-Drain fehlgeschlagen: %s", _steer_exc)
 
     # F-001 Fix: Save playback_offset to database for persistence
     with Session(_ae_eng) as session:

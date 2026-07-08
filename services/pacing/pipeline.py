@@ -20,6 +20,13 @@ from services.pacing.variations_budget import BudgetRule, VariationsBudget
 if TYPE_CHECKING:
     from services.pacing.decision_recorder import DecisionRecorder
 
+# NEUBAU-VOLLINTEGRATION T1.3 (USE-004): Score-Bonus fuer vom User im
+# Steer-Tab geboostete Scenes. Additiv auf den Stage-4-Soft-Score bzw. den
+# Brain-V3-final_score — gross genug um typische Score-Differenzen
+# (Terme sind auf ~0..1 gewichtet) zu dominieren, ohne Excludes/Stage-1-3
+# zu umgehen.
+STEER_BOOST_BONUS = 0.5
+
 
 @dataclass
 class StageResult:
@@ -175,8 +182,15 @@ class PacingPipeline:
         ctx: AudioContext,
         predecessor: ClipFeatures | None = None,
         recent_clip_ids: Sequence[int] | None = None,
+        boost_scene_ids: "set[int] | None" = None,
     ) -> PipelineResult:
-        """Run all 4 stages and return (chosen, rationale)."""
+        """Run all 4 stages and return (chosen, rationale).
+
+        ``boost_scene_ids`` (T1.3/USE-004): Scenes aus der
+        SteerOverrideQueue mit action="boost" erhalten STEER_BOOST_BONUS
+        additiv auf den Stage-4-Score (und auf den Brain-V3-final_score,
+        damit der Reranker den User-Boost nicht wegsortiert).
+        """
         if not candidates:
             return PipelineResult(
                 chosen=None,
@@ -296,6 +310,11 @@ class PacingPipeline:
             total, contribs = self._scorer.score(
                 c, ctx, predecessor=predecessor, recent_clip_ids=recent_clip_ids
             )
+            # T1.3 (USE-004): User-Boost aus dem Steer-Tab additiv anwenden.
+            if boost_scene_ids and c.scene_id in boost_scene_ids:
+                total = float(total) + STEER_BOOST_BONUS
+                contribs = dict(contribs)
+                contribs["steer_boost"] = STEER_BOOST_BONUS
             r.soft_score = total
             r.contribs = dict(contribs)
             scored.append((c, total, contribs))
@@ -327,10 +346,21 @@ class PacingPipeline:
                     brain_v3_final_score_by_clip = {
                         r.clip_id: float(r.final_score) for r in reranked
                     }
+                    # T1.3 (USE-004): User-Boost auch auf den Brain-V3-
+                    # final_score, sonst wuerde der Reranker den Boost aus
+                    # Stage 4 wieder wegsortieren.
+                    if boost_scene_ids:
+                        for _bc, _, _ in scored:
+                            if (_bc.scene_id in boost_scene_ids
+                                    and _bc.clip_id in brain_v3_final_score_by_clip):
+                                brain_v3_final_score_by_clip[_bc.clip_id] += (
+                                    STEER_BOOST_BONUS
+                                )
                     # Re-Order der scored-Liste nach Reranker-final_score
                     scored.sort(
-                        key=lambda t: -score_by_id[t[0].clip_id].final_score
-                        if t[0].clip_id in score_by_id else float("inf"),
+                        key=lambda t: -brain_v3_final_score_by_clip[t[0].clip_id]
+                        if t[0].clip_id in brain_v3_final_score_by_clip
+                        else float("inf"),
                     )
                     # Update r.contribs mit Brain-V3-Sub-Scores
                     stage_result_by_clip = {
