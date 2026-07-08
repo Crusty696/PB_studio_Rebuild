@@ -28,6 +28,7 @@ class RaftMotionService:
         device: str = "cuda:0",
         iter_count: int = 12,
         resolution_scale: float = 1.0,
+        flow_resolution: "tuple[int, int] | None" = None,
     ):
         if variant not in {"raft_large", "raft_small"}:
             raise ValueError(f"unknown variant: {variant!r}")
@@ -35,6 +36,15 @@ class RaftMotionService:
         self.device = device
         self.iter_count = iter_count
         self.resolution_scale = resolution_scale
+        # NEUBAU-VOLLINTEGRATION M3 (D-065): optionale FESTE Flow-Aufloesung
+        # (H, W). Wenn gesetzt, werden beide Frames vor dem Flow auf genau
+        # diese Groesse skaliert — analog zum Monolith-Pfad
+        # (_raft_motion_score skaliert auf 520x320). Damit liegen die
+        # Roh-Magnituden auf derselben Pixel-Skala und Scene.energy
+        # (_normalize_motion, raw/40) ist zwischen beiden Pfaden vergleichbar.
+        # Default None = bisheriges Verhalten (Skalierung nur via
+        # resolution_scale), damit Bestands-Engine-Tests unveraendert bleiben.
+        self.flow_resolution = flow_resolution
         self._model = None
 
     @property
@@ -104,7 +114,15 @@ class RaftMotionService:
         if self.device.startswith("cuda") and torch.cuda.is_available():
             a = a.to(self.device)
             b = b.to(self.device)
-        if self.resolution_scale != 1.0:
+        # M3 (D-065): FESTE Ziel-Aufloesung hat Vorrang vor resolution_scale
+        # (Monolith-Parität). size = (H, W).
+        if self.flow_resolution is not None:
+            import torch.nn.functional as F
+            a = F.interpolate(a, size=self.flow_resolution,
+                              mode="bilinear", align_corners=False)
+            b = F.interpolate(b, size=self.flow_resolution,
+                              mode="bilinear", align_corners=False)
+        elif self.resolution_scale != 1.0:
             import torch.nn.functional as F
             scale = self.resolution_scale
             a = F.interpolate(a, scale_factor=scale, mode="bilinear", align_corners=False)

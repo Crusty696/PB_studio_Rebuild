@@ -96,7 +96,10 @@ def build_pipeline(
         except Exception:  # Observability darf den Lauf nie blockieren
             listener = None
     siglip = SigLipEmbedService(model_id="google/siglip-so400m-patch14-384")
-    raft = RaftMotionService(variant=raft_variant)
+    # M3 (D-065): feste Flow-Aufloesung 520x320 (H=320, W=520) wie der
+    # Monolith-Pfad (_raft_motion_score), damit Scene.energy zwischen beiden
+    # Pipelines auf derselben Motion-Skala liegt (Paritaets-Fix).
+    raft = RaftMotionService(variant=raft_variant, flow_resolution=(320, 520))
 
     # D-065: Projekt-Token beim Pipeline-Bau festhalten, damit ein mid-run
     # Projektwechsel den Scene-Write in die falsche DB verhindert (gleiche
