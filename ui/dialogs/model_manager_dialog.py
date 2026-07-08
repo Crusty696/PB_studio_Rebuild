@@ -145,6 +145,49 @@ class _DownloadWorker(QObject):
                 log.exception("DownloadWorker.finished emit failed")
 
 
+class _DeleteWorker(QObject):
+    """Loescht ein oder mehrere Modelle im Hintergrund (Freeze-Fix).
+
+    Das Loeschen lief vorher SYNCHRON im UI-Thread: delete_ollama_model
+    (bis 30s Timeout pro Modell) bzw. delete_hf_model (KEIN Timeout —
+    voller HF-Cache-Scan + rmtree). Bei haengendem Ollama / grossem Cache /
+    Bulk-Delete fror die ganze App zig Sekunden ein (verifiziert: 52s).
+    """
+    finished = Signal(int, list)  # (deleted_count, errors: list[str])
+
+    def __init__(self, ollama_url: str, targets: list):
+        super().__init__()
+        self.ollama_url = ollama_url
+        self.targets = targets  # list[(model_id, source)]
+
+    def run(self) -> None:
+        from services.model_lifecycle_service import get_model_lifecycle_service
+        deleted = 0
+        errors: list[str] = []
+        try:
+            svc = get_model_lifecycle_service(self.ollama_url)
+            for model_id, source in self.targets:
+                try:
+                    if source == "ollama":
+                        ok = svc.delete_ollama_model(model_id)
+                    else:
+                        ok = svc.delete_hf_model(model_id)
+                    if ok:
+                        deleted += 1
+                    else:
+                        errors.append(model_id)
+                except BaseException as exc:  # ein Fehler darf den Rest nicht killen
+                    errors.append(f"{model_id}: {exc}")
+        except BaseException as exc:  # Worker-Thread darf Main-Thread nie killen
+            logger.exception("DeleteWorker crashed: %s", exc)
+            errors.append(str(exc))
+        finally:
+            try:
+                self.finished.emit(deleted, errors)
+            except Exception:
+                logger.exception("DeleteWorker.finished emit failed")
+
+
 class _ProgressRelay(QObject):
     """Leitet Thread-sichere Progress-Updates an den GUI-Thread weiter."""
     update = Signal(object)     # DownloadProgress
@@ -169,6 +212,9 @@ class ModelManagerDialog(QDialog):
         self._progress_relays: dict[str, _ProgressRelay] = {}
         self._download_rows: dict[str, int] = {}  # model_id → Tabellenzeile
         self._entries: list = []
+        # Freeze-Fix: Loeschen laeuft asynchron in einem Worker-Thread.
+        self._delete_thread: QThread | None = None
+        self._delete_worker: _DeleteWorker | None = None
 
         self.setWindowTitle("Modell-Manager — PB Studio")
         self.setMinimumSize(900, 650)
@@ -189,6 +235,7 @@ class ModelManagerDialog(QDialog):
 
         _cleanup_thread(self._scan_thread)
         _cleanup_thread(self._status_thread)
+        _cleanup_thread(self._delete_thread)
         for thread in self._download_threads.values():
             _cleanup_thread(thread)
         super().closeEvent(event)
@@ -944,7 +991,7 @@ class ModelManagerDialog(QDialog):
         self._populate_cleanup_table(candidates)
 
     def _on_delete_all_selected(self):
-        """Löscht alle vorgeschlagenen Modelle nach Bestätigung."""
+        """Löscht alle vorgeschlagenen Modelle nach Bestätigung (async)."""
         rows = self._cleanup_table.rowCount()
         if rows == 0:
             return
@@ -959,33 +1006,64 @@ class ModelManagerDialog(QDialog):
         if reply != QMessageBox.Yes:
             return
 
-        from services.model_lifecycle_service import get_model_lifecycle_service
-        svc = get_model_lifecycle_service(self.ollama_url)
-
-        deleted = 0
+        targets: list = []
         for row in range(rows):
             name_item = self._cleanup_table.item(row, 0)
             source_item = self._cleanup_table.item(row, 1)
             if name_item and source_item:
-                model_id = name_item.text()
-                source = source_item.text().lower()
-                if source == "ollama":
-                    svc.delete_ollama_model(model_id)
-                else:
-                    svc.delete_hf_model(model_id)
-                deleted += 1
+                targets.append((name_item.text(), source_item.text().lower()))
+        if targets:
+            self._start_delete(targets)
 
-        self._status_lbl.setText(f"{deleted} Modell(e) gelöscht.")
-        QTimer.singleShot(500, self._start_scan)
+    # ──────────────────────────────────────────────────────────────────────
+    # Asynchrones Loeschen (Freeze-Fix)
+    # ──────────────────────────────────────────────────────────────────────
+
+    def _start_delete(self, targets: list):
+        """Startet das Loeschen im Hintergrund-Thread — nie im UI-Thread,
+        damit ein haengendes Ollama / grosser HF-Cache die App nicht
+        einfriert (verifizierter 52s-Freeze)."""
+        if self._delete_thread is not None and self._delete_thread.isRunning():
+            self._status_lbl.setText("Löschen läuft bereits — bitte warten...")
+            return
+
+        n = len(targets)
+        self._status_lbl.setText(
+            f"Lösche {n} Modell(e)... (läuft im Hintergrund)"
+        )
+
+        self._delete_thread = QThread()
+        self._delete_worker = _DeleteWorker(self.ollama_url, targets)
+        self._delete_worker.moveToThread(self._delete_thread)
+        self._delete_thread.started.connect(self._delete_worker.run)
+        self._delete_worker.finished.connect(
+            self._on_delete_finished, Qt.ConnectionType.QueuedConnection
+        )
+        self._delete_worker.finished.connect(self._delete_thread.quit)
+        self._delete_thread.finished.connect(self._delete_thread.deleteLater)
+        self._delete_thread.start()
+
+    def _on_delete_finished(self, deleted: int, errors: list):
+        if not self.isVisible():
+            return
+        if errors:
+            self._status_lbl.setText(
+                f"{deleted} gelöscht, {len(errors)} fehlgeschlagen: "
+                f"{', '.join(str(e) for e in errors[:3])}"
+            )
+        else:
+            self._status_lbl.setText(f"{deleted} Modell(e) gelöscht.")
+        # Cleanup-Tabelle leeren und neu scannen.
         self._cleanup_table.setRowCount(0)
         self._cleanup_info.setText(f"{deleted} Modell(e) gelöscht.")
+        QTimer.singleShot(300, self._start_scan)
 
     # ──────────────────────────────────────────────────────────────────────
     # Löschen (Einzel)
     # ──────────────────────────────────────────────────────────────────────
 
     def _on_delete_model(self, model_id: str, source: str):
-        """Löscht ein einzelnes Modell nach Bestätigung."""
+        """Löscht ein einzelnes Modell nach Bestätigung (async)."""
         reply = QMessageBox.question(
             self,
             "Modell löschen",
@@ -995,17 +1073,6 @@ class ModelManagerDialog(QDialog):
         )
         if reply != QMessageBox.Yes:
             return
-
-        from services.model_lifecycle_service import get_model_lifecycle_service
-        svc = get_model_lifecycle_service(self.ollama_url)
-
-        if source == "ollama":
-            ok = svc.delete_ollama_model(model_id)
-        else:
-            ok = svc.delete_hf_model(model_id)
-
-        if ok:
-            self._status_lbl.setText(f"'{model_id}' gelöscht.")
-            QTimer.singleShot(300, self._start_scan)
-        else:
-            self._status_lbl.setText(f"Fehler beim Löschen von '{model_id}'.")
+        # Freeze-Fix: Loeschen laeuft im Worker-Thread (delete_hf_model hat
+        # kein Timeout, delete_ollama_model bis 30s) — nie synchron im UI.
+        self._start_delete([(model_id, source)])
