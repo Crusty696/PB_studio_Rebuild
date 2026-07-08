@@ -29,12 +29,18 @@ M3 (DAG-Video-Engine), B-359-RAM-Fix, UI-Async-Fixes, Timeline-Instrumentierung.
 Keine im **heute geänderten Code** gefunden. Die 3 gemeldeten Crashes sind
 gefixt und live verifiziert.
 
-### 🟠 HOCH
-- **Timeline-Hang 62s bleibt UNGEFIXT** (bewusst, als eigener Task
-  ausgelagert). Bei sehr grossen Timelines (92-min-Mix, 1352 Clips) friert
-  der Schnitt-Workspace-Wechsel ~62s ein (kein Crash). Ursache präzise
-  gemessen (Qt View/Scene-Maschinerie bei 1353 Items). Betrifft nur
-  Pathologie-Fall; normale Projekte flüssig.
+### 🟠 HOCH — GELÖST (2026-07-09, live verifiziert)
+- **Timeline-Hang 62s** war bei sehr grossen Timelines (92-min-Mix, 1352
+  Clips). **BEHOBEN** in zwei Schritten (Commits 83bfa3f + 7868107):
+  (1) Batch-Groesse 25→2000 (weniger Inter-Batch-Paints, wall −56%);
+  (2) Text-Items (Label/Status pro Clip) LAZY erst bei Sichtbarkeit
+  (`_ensure_content`) — der echte CPU-Treiber waren ~4000 QGraphicsTextItem
+  (Windows-Font-Layout). **Live-GPU-verifiziert:** batched-build cpu
+  29266ms→**1623ms** (~18-20×), SCHNITT-Wechsel 62000ms→**302ms**,
+  Projekt-Open ~17s aber durchgehend responsiv (kein "Keine Rueckmeldung").
+  Cutliste/Labels korrekt, Labels bleiben beim Scrollen (Lazy ohne
+  Regression). 89 Timeline + 582 UI-Tests gruen.
+  Rest: Projekt-Open ~17s (DB/Audio-Load, responsiv) — akzeptabel, kein Freeze.
 
 ### 🟡 MITTEL
 - **B-613 Cut-Dedup ändert Auto-Edit-Ausgabe.** `services/pacing_service.py`
@@ -55,15 +61,17 @@ gefixt und live verifiziert.
   selbst sind vollständig+korrekt gemergt.
 
 ### 🟢 NIEDRIG
-- **B-611 Rest-Edge-Cases** (theoretisch, unbeobachtet):
-  (a) `source_start` wird separat gerundet, aber NICHT mit auf `vid_duration`
-  geclampt → bei Mini-Segment sehr nah am Clip-Ende theoretisch negative
-  Dauer möglich (durch B-613-Min-0.2s praktisch ausgeschlossen).
-  (b) Export-Clamp `max(0.0, clip_duration - source_start)` kann 0 ergeben
-  ohne erneute `source_duration <= 0`-Prüfung → theoretisch 0-Längen-Segment.
-- **Timeline-[PERF]-Instrumentierung bleibt in Produktivcode**
-  (`ui/timeline.py`, `ui/widgets/cut_list_panel.py`). Low-overhead, aber
-  Diagnose-Logging dauerhaft aktiv — sollte später gated/entfernt werden.
+- **B-611 Rest-Edge-Cases** (theoretisch, unbeobachtet) — **BEWUSST AKZEPTIERT,
+  nicht geändert:** (a) `source_start` separat gerundet ohne Co-Clamp;
+  (b) Export-Clamp kann 0 ergeben. Beide sind durch B-613-Min-0.2s-Dedup +
+  Intelligent-Looping-Reset in der Praxis ausgeschlossen. Eine spekulative
+  Härtung (skip/return 0.0) würde ein 0-Längen-Segment an ffmpeg reichen
+  (Concat-Caller-Verhalten unklar) → NEUES Risiko für unbeobachteten Fall.
+  Ingenieur-Entscheidung: funktionierenden Export-Code nicht spekulativ
+  ändern (Honesty/Don't-break-working-things).
+- **Timeline-[PERF]-Instrumentierung** — **GEFIXT** (Commit fd3c213): jetzt
+  hinter Env-Flag `PB_TIMELINE_PERF=1` (default AUS), kein Rauschen im
+  Normalbetrieb.
 
 ### ⚪ UNBEKANNT / offen
 - **Projekt-Datenverlust** (`outputs/6262626`, `outputs/final-check`) während
@@ -94,8 +102,10 @@ gefixt und live verifiziert.
 1. Die Setting-gated Features (M2 Studio-Brain, M3 Engine) im **echten
    App-Betrieb mit aktiviertem Setting** — Defaults sind AUS, ich habe sie
    nicht live durchlaufen. Ihre Praxis-Korrektheit ist unbewiesen.
-2. Die **reale Auswirkung des B-613-Cut-Dedups** auf frische Auto-Edits
-   echten Materials (nur Golden-Fixture geprüft).
+2. ~~B-613-Cut-Dedup real~~ — **NACHTRAEGLICH VERIFIZIERT** (frischer
+   Auto-Edit Projekt 21): Dedup merged 55/1365 Cuts (~4%), ausschliesslich
+   Paare <0.2s (imperceptibel schnell); Drop-Burst-Kadenz bleibt. User-
+   Entscheidung: beide Fixes behalten.
 3. Ein **vollständiger 92-min-Export bis 100%** (nur bis 40% live gesehen).
 4. Interna von `rl_memory_v2.py` (SectionPolicy/VarietyMemory-Korrektheit)
    nur oberflächlich.
@@ -111,12 +121,22 @@ gefixt und live verifiziert.
 Wiederverwendung der Live-GUI-Test-Ergebnisse. KEIN vollständiger dynamischer
 E2E-Durchlauf jeder einzelnen Funktion.
 
-## Die 5 wichtigsten Punkte
+## Status nach Nachbearbeitung (Normalmodus, 2026-07-09)
 
-1. 🟠 Timeline-62s-Hang ungefixt (bewusst ausgelagert) — grösste offene UX-Last.
-2. 🟡 B-613-Cut-Dedup verändert Auto-Edit-Ausgabe, nur Golden-geprüft.
-3. 🟡 M2/M3-Features default AUS → reale Korrektheit unbewiesen (nur Unit-Tests).
-4. ⚪ Ungeklärter Projekt-Datenverlust (6262626/final-check) — Recovery/Ursache offen.
-5. 🟢 [PERF]-Instrumentierung dauerhaft im Produktivcode.
+1. 🟠→✅ **Timeline-62s-Hang GELÖST** + live verifiziert (cpu 29s→1.6s,
+   Wechsel 62s→302ms). Commits 83bfa3f + 7868107.
+2. 🟡→✅ **B-613-Dedup real gemessen** (55/1365 Cuts, nur <0.2s-Flicker) —
+   User behaelt beide Fixes.
+3. 🟡 **M2/M3-Features default AUS** → reale Korrektheit weiterhin nur
+   Unit-belegt (nicht live mit aktivem Setting). Bewusst experimentell/OFF
+   bis User-Abnahme. (Offen, aber by-design kein Normalbetrieb-Risiko.)
+4. ⚪ **Projekt-Datenverlust** (6262626/final-check): forensisch als
+   gezielt/extern eingegrenzt, NICHT durch heutigen Code/App. Ursache
+   (User vs. anderer Chat) offen.
+5. 🟢→✅ **[PERF]-Instrumentierung** hinter Env-Flag (fd3c213); B-611-Edge-
+   Cases bewusst akzeptiert (guarded, spekulative Aenderung waere neues Risiko).
 
-**Keine Fixes vorgenommen (Auditor-Regel).**
+**Fazit:** Alle findbaren REALEN Bugs (3 Crashes + Timeline-Hang) gefixt +
+live verifiziert. Rest = experimentelle Setting-gated-Features (OFF),
+dokumentierte Limitierungen, oder externer Datenverlust — keine offenen
+Crashes/Fehlfunktionen im Normalbetrieb.
