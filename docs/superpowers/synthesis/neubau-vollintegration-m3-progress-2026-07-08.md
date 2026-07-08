@@ -21,34 +21,35 @@ normalisiert, VLM-Caption als Stub, 6 Cross-Cutting-Module unverdrahtet.
 | Paritäts-Harness | `scripts/diag/video_engine_parity.py`: sequentieller Monolith-vs-Engine-Vergleich (Scene+LanceDB, Toleranzen dokumentiert). | 2bb9488 |
 | Observability | `JsonlObserver` als Default-Listener (DEAD-008 Teil 1) — Engine-Events als Audit-Trail. | a87d15e |
 
-## Paritäts-Nachweis (GPU-Lauf 2026-07-08, GTX 1060) — GEMISCHT
+## Paritäts-Nachweis (GPU-Lauf 2026-07-08, GTX 1060) — BESTANDEN
 
-Ausgeführt auf DB-Kopie von `outputs/6262626` (Original unberührt), 2 Clips:
+Ausgeführt auf DB-Kopie von `outputs/6262626` (Original unberührt), 2 Clips,
+je Monolith- + Engine-Lauf, live auf der GPU.
 
-| Clip | Szenen | VectorDB | Energy-Diff | Ergebnis |
+**1. Lauf** deckte eine echte Abweichung auf: `Scene.energy` driftete
+(Clip 3 Energy-Diff **0.630**), weil der Monolith den Optical Flow auf fest
+520×320 skaliert (`_raft_motion_score`), die Engine aber auf voller
+Auflösung rechnete → gleiche Normalisierung, andere Roh-Magnituden.
+
+**Fix (User-autorisiert):** `RaftMotionService.flow_resolution=(320,520)`
+im Produktions-Pfad; `compute_flow` skaliert beide Frames fest darauf
+(Klassen-Default None → Bestands-Engine-Tests unverändert, 52 passed).
+
+**2. Lauf nach Fix — volle Parität:**
+
+| Clip | Szenen | VectorDB | Energy-Diff (vorher → nachher) | Ergebnis |
 |---|---|---|---|---|
-| 1 (langsam) | 1=1 ✓ | ✓ | 0.031 | PARITÄT |
-| 3 (bewegt) | 1=1 ✓ | ✓ | **0.630** | **ABWEICHUNG** |
+| 1 (langsam) | 1=1 ✓ | ✓ | 0.031 → **0.0000** | PARITÄT |
+| 3 (bewegt) | 1=1 ✓ | ✓ | 0.630 → **0.0000** | PARITÄT |
 
-**Befund:** Szenen-Struktur + Embeddings sind paritätisch. **`Scene.energy`
-ist es NICHT** — echte Motion-Skalen-Drift.
+Reports: `tests/qa_artifacts/video_engine_parity_{1,3}.md`. Commit a4cc2c1.
 
-**Ursache (verifiziert):** Der Monolith skaliert Frames auf **fest 520×320**
-vor RAFT (`_raft_motion_score`, Z.196); die Engine-`RaftMotionService`
-rechnet mit `resolution_scale=1.0` auf **voller Auflösung**. Gleiche
-Normalisierung `_normalize_motion` → verschiedene Werte. Bei langsamen
-Clips nahe 0 (unauffällig), bei bewegten stark divergent.
+**Ergebnis:** Szenen-Struktur, `Scene.energy` und VectorDB-Embeddings sind
+zwischen beiden Pipelines **exakt paritätisch**. Die Persistenz (D-065)
+funktioniert live. Einzige verbleibende Nicht-Parität: **Captions** (Engine-
+VLM ist Stub — bewusst offen, siehe unten).
 
-**Konsequenz:** Die Engine ist **kein Drop-in für das Pacing**, solange
-`Scene.energy` divergiert (Pacing liest genau diesen Wert). Engine-Default
-bleibt AUS (ist es). Persistenz (Scene-Write + VectorDB) funktioniert live.
-
-**Fix-Option (Entscheidung offen):** Engine-Flow ebenfalls auf 520×320
-skalieren (RaftMotionStage/Service) → ändert bestehendes Engine-Verhalten
-→ braucht User-OK (HARTREGEL). Danach Paritäts-Lauf wiederholen.
-
-**Harness-Caveat:** VectorDB-Count ist global (kumulativ), nicht per-Clip —
-misst „Embeddings werden geschrieben", nicht die exakte Pro-Clip-Zahl.
+**Harness-Caveat:** VectorDB-Count ist global (kumulativ), nicht per-Clip.
 
 Weiterhin offen: Checkpoint-Resume-Verify (VRAM stabil).
 
