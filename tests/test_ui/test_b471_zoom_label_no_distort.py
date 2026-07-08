@@ -29,6 +29,9 @@ def _video_item():
 
 def test_label_ignores_view_transform():
     item = _video_item()
+    # PERF: Text-Content wird lazy beim Sichtbarwerden erzeugt
+    # (_ensure_content). B-471-T3-Intent (Label ignoriert Transform) bleibt.
+    item._ensure_content()
     flag = QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations
     assert bool(item._label_item.flags() & flag), (
         "B-471 T3: clip label must set ItemIgnoresTransformations so zoom does "
@@ -41,5 +44,6 @@ def test_audio_clip_also_has_undistorted_label():
         entry_id=2, media_id=2, track_type="audio", title="track",
         x=0.0, y=10.0, width=300.0, height=TRACK_HEIGHT, anchors=[],
     )
+    item._ensure_content()
     flag = QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations
     assert bool(item._label_item.flags() & flag)

@@ -103,26 +103,30 @@ def test_settings_dialog_has_model_validator() -> None:
     """
     from ui.dialogs import settings_dialog as sd
 
-    assert hasattr(sd.SettingsDialog, "_validate_ollama_model"), (
-        "B-195: SettingsDialog._validate_ollama_model fehlt — User kann "
-        "ein nicht-installiertes Modell speichern und triggert die "
-        "404-Spirale."
+    # B-612-Follow-up: die Modell-Validierung laeuft jetzt ASYNC (der frueher
+    # synchrone _validate_ollama_model blockierte den Speichern-Button bis 5s).
+    # B-195-Intent (Modell vor Save pruefen + warnen) bleibt: _on_validate_finished
+    # wertet die im Hintergrund geholte Modell-Liste aus.
+    assert hasattr(sd.SettingsDialog, "_on_validate_finished"), (
+        "B-195/B-612: SettingsDialog._on_validate_finished fehlt — die "
+        "(async) Pre-Save-Modell-Validierung ist nicht verdrahtet."
     )
 
 
 def test_settings_dialog_on_accept_calls_validator() -> None:
-    """B-195: ``_on_accept`` muss den Validator aufrufen und bei
-    User-Cancel ohne Save abbrechen.
+    """B-195/B-612: ``_on_accept`` muss die (async) Modell-Validierung
+    anstossen; die Save/Cancel-Entscheidung faellt in _on_validate_finished.
     """
     from ui.dialogs import settings_dialog as sd
 
-    src = inspect.getsource(sd.SettingsDialog._on_accept)
-    assert "_validate_ollama_model" in src, (
-        "B-195: _on_accept ruft den Modell-Validator nicht — Save "
-        "passiert ungebremst."
+    accept_src = inspect.getsource(sd.SettingsDialog._on_accept)
+    # _on_accept stoesst die async Validierung an (Worker + pending save)
+    assert "_OllamaTestWorker" in accept_src and "_pending_save" in accept_src, (
+        "B-195/B-612: _on_accept startet die async Modell-Validierung nicht."
     )
-    # Cancel-Pfad: bei Validator==False muss return statt save erfolgen
-    assert "return" in src, (
-        "B-195: _on_accept braucht einen frueh-return wenn der "
-        "Validator False liefert."
+    finish_src = inspect.getsource(sd.SettingsDialog._on_validate_finished)
+    # Cancel-Pfad: bei fehlendem Modell + User-Cancel wird NICHT committet
+    assert "_commit_and_accept" in finish_src, (
+        "B-195/B-612: _on_validate_finished committet nicht ueber "
+        "_commit_and_accept (Save/Cancel-Entscheidung fehlt)."
     )
