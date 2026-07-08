@@ -51,6 +51,9 @@ def build_pipeline(
     from services.video_pipeline.stages.raft_motion_service import RaftMotionService
     from services.video_pipeline.stages.vlm_caption_stage import VlmCaptionStage
     from services.video_pipeline.stages.cross_modal_stage import CrossModalStage
+    # NEUBAU-VOLLINTEGRATION M3 (D-065): Persistenz-Stage schreibt die
+    # Engine-Artefakte in Scene + VectorDB (vorher nur Dateien).
+    from services.video_pipeline.stages.db_persist_stage import DbPersistStage
 
     source_path = Path(source_path)
     storage_dir = Path(storage_dir)
@@ -66,6 +69,15 @@ def build_pipeline(
     siglip = SigLipEmbedService(model_id="google/siglip-so400m-patch14-384")
     raft = RaftMotionService(variant=raft_variant)
 
+    # D-065: Projekt-Token beim Pipeline-Bau festhalten, damit ein mid-run
+    # Projektwechsel den Scene-Write in die falsche DB verhindert (gleiche
+    # Guard-Semantik wie der Monolith-Pfad).
+    try:
+        from services.video_analysis_service import _current_db_url
+        _expected_db_url = _current_db_url()
+    except Exception:
+        _expected_db_url = None
+
     stages = [
         ProxyGenStage(),
         SceneDetectStage(),
@@ -74,6 +86,9 @@ def build_pipeline(
         RaftMotionStage(service=raft, sample_rate_s=1.0),
         VlmCaptionStage(),
         CrossModalStage(audio_outputs_dir=audio_dir),
+        # Muss ZULETZT laufen — liest scenes/keyframes/embeddings/motion/
+        # captions und schreibt Scene + VectorDB (D-065 / PIPE-018).
+        DbPersistStage(clip_id=track_id, expected_db_url=_expected_db_url),
     ]
     pipe = VideoAnalysisPipeline(
         track_id=track_id,

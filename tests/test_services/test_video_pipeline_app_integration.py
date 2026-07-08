@@ -25,8 +25,11 @@ def test_engine_disabled_for_other_values(monkeypatch):
     assert engine_enabled() is False
 
 
-def test_build_pipeline_assembles_seven_stages(monkeypatch, tmp_path):
-    """build_pipeline baut die Kette ohne GPU/Modelle zu laden (lazy load)."""
+def test_build_pipeline_assembles_eight_stages(monkeypatch, tmp_path):
+    """build_pipeline baut die Kette ohne GPU/Modelle zu laden (lazy load).
+
+    NEUBAU-VOLLINTEGRATION M3 (D-065): DbPersistStage kam als 8. Stage
+    (Scene + VectorDB-Write) hinzu — sie muss ZULETZT laufen."""
     # Dummy-Quelldatei (stream_sha256 liest sie, kein Decode noetig)
     src = tmp_path / "x.mp4"
     src.write_bytes(b"\x00\x01\x02\x03")
@@ -34,7 +37,8 @@ def test_build_pipeline_assembles_seven_stages(monkeypatch, tmp_path):
     pipe, (siglip, raft) = build_pipeline(
         track_id=1, source_path=src, storage_dir=tmp_path / "store",
     )
-    assert len(pipe.stages) == 7
+    assert len(pipe.stages) == 8
+    assert pipe.stages[-1].stage_id == "db_persist"
     # Modelle noch nicht geladen (lazy)
     assert raft.is_loaded is False
 
