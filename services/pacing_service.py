@@ -793,6 +793,36 @@ def _auto_edit_phase3_inner(
     except Exception as _onset_exc:
         logger.warning("T2.5.1 Onset-Snap fehlgeschlagen: %s", _onset_exc)
 
+    # B-613 (Ursache): Nach Drop-Burst (T2.5.2) und Onset-Snap (T2.5.1)
+    # koennen zwei Cuts naeher als die Segment-Skip-Schwelle (0.2s)
+    # beieinander liegen. Der Segment-Loop verwirft das Mini-Segment
+    # dazwischen (``seg_duration < 0.2: continue``) und HINTERLAESST eine
+    # Luecke in der Timeline (2026-07-08 Projekt 21: 35ms-Luecke ->
+    # Export-Gap-Crash). Fix: solche zu nahen Cuts hier zusammenfuehren
+    # (frueheren behalten) -> kein degeneriertes Segment, keine Luecke.
+    # Erster Cut (0.0) und letzter Cut (=Audio-Dauer) bleiben EXAKT fix,
+    # damit die SCHNITT-Garantie "Ende == Audio-Dauer" erhalten bleibt.
+    if len(cut_beats) > 2:
+        _MIN_SEG = 0.2
+        _kept = [cut_beats[0]]
+        for _c in cut_beats[1:-1]:
+            if _c - _kept[-1] >= _MIN_SEG:
+                _kept.append(_c)
+        _last = cut_beats[-1]
+        if _last - _kept[-1] >= _MIN_SEG:
+            _kept.append(_last)
+        else:
+            # Letzter regulaerer Cut zu nah am Track-Ende -> durch das
+            # exakte Audio-Ende ersetzen (Ende bleibt fix, keine Mini-Luecke).
+            _kept[-1] = _last
+        if len(_kept) < len(cut_beats):
+            logger.info(
+                "B-613: Cut-Mindestabstand %.2fs erzwungen: %d -> %d Cuts "
+                "(verhindert geskippte Mini-Segmente + Timeline-Luecken).",
+                _MIN_SEG, len(cut_beats), len(_kept),
+            )
+        cut_beats = _kept
+
     # Phase 3: Mood-Embeddings + Fitness-Matrix pre-compute
     if progress_cb:
         progress_cb(55, "Lade KI-Modell fuer Video-Matching...")

@@ -400,16 +400,46 @@ def _prepare_audio_entry_for_timeline(
     return tmp.name
 
 
-def _validate_video_timeline_gaps(video_segments: list[dict], epsilon: float = 0.01) -> None:
+def _validate_video_timeline_gaps(
+    video_segments: list[dict],
+    epsilon: float = 0.01,
+    close_threshold: float = 0.05,
+) -> None:
+    """Prueft die Video-Timeline auf Luecken und SCHLIESST kleine automatisch.
+
+    B-613: Eine winzige Luecke (z.B. 35ms durch 4-Dezimal-Rundung oder den
+    Onset-Snap ±50ms) liess frueher den GESAMTEN Export mit ValueError
+    abbrechen (Concat/Filtergraph ist gegen so kleine Luecken unempfindlich —
+    35ms = imperceptibler A/V-Versatz). Jetzt: Luecken bis ``close_threshold``
+    (50ms) werden geschlossen, indem das betroffene Segment um die
+    Lueckenbreite nach vorne geschoben wird (Dauer bleibt, Anschluss wird
+    lueckenlos). NUR echte, grosse Luecken (> close_threshold, = fehlendes
+    Material) werfen weiterhin — die sind ein echter Desync-Fehler.
+    Gleiche Robustheits-Philosophie wie B-611.
+    """
     previous_end = 0.0
     for index, segment in enumerate(video_segments):
         start = float(segment["start"])
         end = float(segment["end"])
-        if start > previous_end + epsilon:
-            raise ValueError(
-                f"Timeline gap vor Video-Segment {index + 1}: "
-                f"{previous_end:.3f}s bis {start:.3f}s"
-            )
+        gap = start - previous_end
+        if gap > epsilon:
+            if gap <= close_threshold:
+                # Kleine Luecke -> Segment zurueckschieben (Dauer erhalten).
+                duration = end - start
+                segment["start"] = previous_end
+                segment["end"] = previous_end + duration
+                start = segment["start"]
+                end = segment["end"]
+                logger.warning(
+                    "B-613: kleine Timeline-Luecke %.3fs vor Video-Segment %d "
+                    "geschlossen (Segment um %.3fs zurueckgeschoben).",
+                    gap, index + 1, gap,
+                )
+            else:
+                raise ValueError(
+                    f"Timeline gap vor Video-Segment {index + 1}: "
+                    f"{previous_end:.3f}s bis {start:.3f}s"
+                )
         previous_end = max(previous_end, end)
 
 
