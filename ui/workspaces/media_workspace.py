@@ -1572,7 +1572,11 @@ class MediaWorkspace(QWidget):
         task_name = f"Video Pipeline: {title}"
         task = task_manager.create_task(task_name, "Full Video Analysis Pipeline")
 
-        worker = workers.VideoAnalysisPipelineWorker(video_id)
+        # AUDIT-FIXPLAN B6 (PIPE-013): 2-Tupel-Batch statt positionalem
+        # video_id — nur so laedt run() den file_path aus der DB (Proxy-First).
+        # Der alte Aufruf erzeugte (id, "", "") und lief nur ueber den
+        # FileNotFoundError/TOCTOU-Fallback aufs Original.
+        worker = workers.VideoAnalysisPipelineWorker(batch=[(video_id, title)])
         worker.task_id = task.task_id
         worker.progress.connect(
             lambda pct, msg: pb_window._console_append(f"[Video] {msg}"),
