@@ -420,12 +420,13 @@ def _auto_edit_phase3_inner(
 
     # 2. Beats + Downbeats + Energie laden
     # Bug-14 Fix: _get_beat_data_combined() öffnet nur EINE Session statt 3
-    beats, downbeats, energy_per_beat = _get_beat_data_combined(audio_id)
+    beats, downbeats, energy_per_beat, beat_fallback = _get_beat_data_combined(audio_id)
 
     # Fallback: Beats aus BPM generieren
     if not beats:
         bpm = _get_bpm(audio_id)
         if bpm and bpm > 0:
+            beat_fallback = True
             interval = 60.0 / bpm
             t = 0.0
             beats = []
@@ -1287,7 +1288,7 @@ def _auto_edit_phase3_inner(
                 video_clip.playback_offset = offset
         session.commit()
 
-    _degraded = not bool(mood_embeddings)
+    _degraded = (not bool(mood_embeddings)) or beat_fallback
     if _degraded:
         for seg in segments:
             seg.degraded = True
