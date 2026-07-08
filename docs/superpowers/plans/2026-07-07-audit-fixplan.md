@@ -159,6 +159,13 @@ PIPE-001 = Multi-Key-Angleichung über ALLE Producer/Consumer + UI-Schalter.
   erst zur Laufzeit (`no such table: mem_pacing_run`,
   `services/pacing_service.py:116`). Fix: Fail-fast oder expliziter
   Tabellen-Existenz-Guard mit klarer Fehlermeldung beim Start.
+- **B8 — B-602 (NEU, aufgedeckt durch A0-track2):** Pipeline-Checkpoint
+  `stem_cache._STORAGE_ROOT = Path("storage")` war CWD-relativ →
+  `pipeline_state/<track_id>.json` global geteilt über alle Projekte gleicher
+  track_id → zweites Projekt übersprang alle Audio-Stages → Auto-Edit 0
+  Segmente. Fix: `_storage_root()` projekt-relativ via `APP_ROOT`; vergifteter
+  Alt-Checkpoint entfernt. Commit `39a6b3d`. Vault: `wiki/bugs/B-602-*.md`.
+  **code-complete; Live-Repro (track2 voll durchlaufen) offen.**
 
 ---
 
