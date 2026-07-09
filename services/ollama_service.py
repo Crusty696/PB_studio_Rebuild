@@ -115,6 +115,24 @@ def _find_ollama_bin() -> Path:
     return Path('ollama')  # Fallback auf System-PATH
 
 
+def _emit_model_status(phase: str, model: str, task: str) -> None:
+    """Meldet den Modell-Lade-Status an die UI (ModelStatusField).
+
+    Defensiv: schlaegt nie fehl, auch ohne laufende Qt-App (Tests/headless).
+    """
+    try:
+        from services.model_load_status import ModelLoadStatus
+        status = ModelLoadStatus.get()
+        if phase == "loading":
+            status.set_loading(model, task)
+        elif phase == "ready":
+            status.set_ready(model, task)
+        elif phase == "error":
+            status.set_error(model, task)
+    except Exception:
+        pass
+
+
 class OllamaService:
     """Singleton. Verwaltet Ollama-Prozess und stellt chat/vision bereit."""
     
@@ -400,7 +418,9 @@ class OllamaService:
         # Client-Abbruch sieht.
         if not self._is_model_warm(model):
             logger.info("OllamaService.chat(): Modell '%s' nicht warm — ensure_model() vorab.", model)
+            _emit_model_status("loading", model, "chat")
             if not self.ensure_model(model):
+                _emit_model_status("error", model, "chat")
                 return f"Fehler: Modell '{model}' konnte nicht geladen werden"
 
         with httpx.Client(base_url=OLLAMA_BASE, timeout=self._inference_timeout()) as client:
@@ -412,6 +432,7 @@ class OllamaService:
                     "options": {"num_predict": num_predict},
                 })
                 if response.status_code == 200:
+                    _emit_model_status("ready", model, "chat")
                     # B1-Fix: Thinking models return response in "thinking" field instead of "content"
                     content = response.json().get("message", {}).get("content", "")
                     if not content:
@@ -454,7 +475,9 @@ class OllamaService:
         # > 60 s dauern. Der finale Request nutzt offenen Read-Timeout.
         if not self._is_model_warm(model):
             logger.info("OllamaService.vision(): Modell '%s' nicht warm — ensure_model() vorab.", model)
+            _emit_model_status("loading", model, "vision")
             if not self.ensure_model(model):
+                _emit_model_status("error", model, "vision")
                 return f"Fehler: Modell '{model}' konnte nicht geladen werden"
 
         import base64
@@ -478,6 +501,7 @@ class OllamaService:
                     "options": {"num_predict": num_predict},
                 })
                 if response.status_code == 200:
+                    _emit_model_status("ready", model, "vision")
                     content = response.json().get("message", {}).get("content", "")
                     if content:
                         return content

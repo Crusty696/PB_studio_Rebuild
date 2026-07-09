@@ -355,6 +355,11 @@ class PBWindow(QMainWindow):
         self.setStatusBar(self.status_bar)
         self.status_bar.showMessage(f"PB_studio v{APP_VERSION} | System bereit")
 
+        # ── LLM-Anzeige (aktuelles KI-Modell + Ladebalken) ──
+        from ui.widgets.model_status_field import ModelStatusField
+        self._model_status_field = ModelStatusField()
+        self.statusBar().addPermanentWidget(self._model_status_field)
+
         # ── Resource Monitor (CPU / RAM / GPU) ──
         self._resource_monitor = ResourceMonitorWidget()
         self.statusBar().addPermanentWidget(self._resource_monitor)
