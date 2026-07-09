@@ -672,6 +672,15 @@ class WorkspaceSetupController(PBComponent):
         self.window._cockpit_completion_listener = None
 
     def _on_workspace_changed(self, index: int):
+        # Freeze-Fix (Option 2): Paint-Updates des Stacks fuer die Dauer des
+        # Umschaltens + Refresh aussetzen und danach EINMAL konsolidiert
+        # neu zeichnen, statt waehrend des Aufbaus mehrfach (Qt-Standardmuster
+        # gegen Flicker/Mehrfach-Repaint). Das singleShot(0) feuert erst,
+        # nachdem dieser Slot (inkl. aller early-returns) durchgelaufen ist.
+        _stack = self.window.workspace_stack
+        _stack.setUpdatesEnabled(False)
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(0, lambda: _stack.setUpdatesEnabled(True))
         self._update_workflow_gates()
         if index == 0:
             self.window.workspace_stack.setCurrentIndex(0)
