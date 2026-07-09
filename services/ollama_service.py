@@ -38,10 +38,10 @@ def _resolve_default_model(base_url: str = OLLAMA_BASE) -> str | None:
 
     Reihenfolge:
     1. ``PB_OLLAMA_MODEL`` env-var, wenn dieses Modell installiert ist
-    2. Erstes installiertes Modell der Family ``gemma4`` (User-Wunsch
-       laut Vault: Gemma 4 als Hauptmodell)
-    3. ``RECOMMENDED_MODELS`` aus ollama_client (phi3, qwen, etc.)
-    4. Erstes ueberhaupt installiertes Modell
+    2. Auto-Auswahl ``select_best_model("chat")``: bestes installiertes
+       Chat-faehiges Modell das in den VRAM (GTX 1060, 6 GB) passt, groesste
+       Parameterzahl zuerst
+    3. Fallback: erstes installiertes completion-faehiges Modell
 
     Returns ``None`` wenn Ollama nicht erreichbar oder leer.
     """
@@ -68,17 +68,15 @@ def _resolve_default_model(base_url: str = OLLAMA_BASE) -> str | None:
         )
 
     try:
-        from services.ollama_client import OllamaClient, RECOMMENDED_MODELS
-        client = OllamaClient(base_url=base_url)
-        for rec in RECOMMENDED_MODELS:
-            if rec in installed and client.model_supports_completion(rec):
-                return rec
-    except ImportError:
-        pass
-
-    try:
         from services.ollama_client import OllamaClient
         client = OllamaClient(base_url=base_url)
+        # Auto-Auswahl: bestes Chat-faehiges Modell das in den VRAM (GTX 1060,
+        # 6 GB) passt, groesste Parameterzahl zuerst. Loest die alte feste
+        # Gemma-Prioritaet ab -> nutzt automatisch das beste installierte Modell.
+        best = client.select_best_model("chat")
+        if best:
+            return best
+        # Fallback: erstes installiertes completion-faehiges Modell
         for model in sorted(installed):
             if client.model_supports_completion(model):
                 return model
