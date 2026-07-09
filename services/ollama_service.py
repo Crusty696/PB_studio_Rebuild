@@ -92,9 +92,15 @@ def _find_ollama_bin() -> Path:
     """Ollama-Binary suchen: PyInstaller-Bundle > System-PATH > Standard-Pfade."""
     import sys
     if getattr(sys, 'frozen', False):  # PyInstaller-Bundle
-        base = Path(sys._MEIPASS) / 'redist'
-        return base / ('ollama.exe' if os.name == 'nt' else 'ollama')
-    
+        # PB Studio buendelt KEIN Ollama (pb_studio.spec haelt kein redist/).
+        # System-Ollama ist dokumentierte Voraussetzung. Ein gebuendeltes
+        # redist/ollama.exe wird nur genutzt, wenn es tatsaechlich existiert —
+        # sonst faellt die Suche auf die System-Installationspfade durch,
+        # statt einen nicht-existenten Pfad an Popen zu geben ([WinError 2]).
+        bundled = Path(sys._MEIPASS) / 'redist' / ('ollama.exe' if os.name == 'nt' else 'ollama')
+        if bundled.exists():
+            return bundled
+
     # Bekannte Installationspfade
     candidates = [
         Path.home() / '.local' / 'bin' / 'ollama',
