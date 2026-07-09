@@ -14,7 +14,16 @@ def test_video_caption_falls_back_to_installed_vision_model(monkeypatch, tmp_pat
 
         def vision(self, **kwargs):
             used["model"] = kwargs["model"]
-            return '{"description":"x","mood":"calm","motion":"static","tags":["x"]}'
+            # SCHNITT-FIXPLAN 2026-07-07: die Caption-Validierung
+            # (_caption_text_is_plausible) verwirft jetzt zu kurze Nicht-Prosa
+            # (<15 Zeichen / <3 Woerter). Ein Ein-Zeichen-"x" faellt korrekt
+            # durch → ai_caption bleibt None. Fuer diesen Fallback-Test (Intent:
+            # moondream:latest → moondream:1.8b) liefert der Fake daher eine
+            # plausible Beschreibung, damit der Caption-Pfad durchlaeuft.
+            return (
+                '{"description":"a calm static forest scene",'
+                '"mood":"calm","motion":"static","tags":["forest"]}'
+            )
 
     class _Client:
         is_paused = False
@@ -31,4 +40,4 @@ def test_video_caption_falls_back_to_installed_vision_model(monkeypatch, tmp_pat
     result = vas.analyze_scene_with_caption([scene], vision_model="moondream:latest")
 
     assert used["model"] == "moondream:1.8b"
-    assert result[0].ai_caption["description"] == "x"
+    assert result[0].ai_caption["description"] == "a calm static forest scene"
