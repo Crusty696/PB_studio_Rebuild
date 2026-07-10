@@ -25,16 +25,20 @@ wurden bei der main-Konsolidierung entfernt.
 
 ## Current Next Task
 
-M4 — Verify (hart): Profil-Lauf (M0-Harness) auf test33 gegen die
-Abnahme-Kriterien (Klick < 2 s, kein Watchdog-Dump > 2 s); volle
-Testsuite ist gruen (648 passed); Live-GUI-Check + User-Sichtung —
-`fixed` setzt der User.
+M4-Rest — B-614 Cold-Start-Freeze fixen: Stem-Preview liest beim
+Projekt-Open 4x ~1.4-GB-Stem-WAVs komplett (stem_track_widget) und
+drueckt per GIL/IO den ersten Workspace-Zyklus (Lauf 4: MATERIAL-Show
+9.3 s, worst_click 22.75 s). Hebel: downsampled Peek statt Vollread,
+Thread-Drosselung, Cockpit-Readiness async. Danach Harness-Wiederholung.
 
-Stand 2026-07-10 spaet: M0-M3 KOMPLETT code-complete. Live-Verify-Rezept:
-alte App (pid 8032, alter Stand) schliessen, Start mit
-PB_STUDIO_FREEZE_PROBE=1 + PB_TIMELINE_PERF=1, test33 via Dialog oeffnen,
-`python scripts/diag/verify_workspace_switch_perf.py --cycles 3`.
-B-613 root-caused + Tests nachgezogen (ddd2293-Semantik, kein Produkt-Bug).
+Stand 2026-07-10 nacht: M0-M3 code-complete; M4-Fix-Runden 1-3 committed
+(2763832 refresh_audio-Guard + CutList-Deferral, 477ed9f ORM-Kaskaden ->
+Spalten-Queries, 1788a42 Zeitbudget-Materialisierung). 4 Harness-Laeufe
+gefahren (pb-gui-tester, echte App, test33): Zyklen 1+2 GRUEN
+(alle Klicks <= 1.2-1.7 s), worst_click 28.9 -> 22.75 s, max_block
+25.7 -> 10.5 s, Abnahme (<= 2 s) noch NICHT erfuellt — Rest = Zyklus 0
+(B-614). Ergebnisse: tests/qa_artifacts/workspace_switch_perf.json,
+Vault log.md 20:37-21:2x.
 
 Stand 2026-07-10 abends: M0 fertig (50c6683). M1 Records +
 Materialisierungs-Fenster + record-first Syncs code-complete
