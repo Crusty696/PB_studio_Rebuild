@@ -702,16 +702,16 @@ class WorkspaceSetupController(PBComponent):
         QTimer.singleShot(0, lambda: _stack.setUpdatesEnabled(True))
         self._update_workflow_gates()
         if index == 0:
-            self.window.workspace_stack.setCurrentIndex(0)
+            self._switch_stack(0)
             self._refresh_project_dashboard()
             return
         if index == 1:
-            self.window.workspace_stack.setCurrentIndex(1)
+            self._switch_stack(1)
             if hasattr(self.window, 'convert'):
                 self.window.convert._refresh_effects_combos()
             return
         if index == 2:
-            self.window.workspace_stack.setCurrentIndex(2)
+            self._switch_stack(2)
             # B-285 Phase B Hook-1: Tab-Wechsel zu SCHNITT.
             self._push_active_project_to_schnitt()
             manager = getattr(self.window, "_project_manager", None)
@@ -732,10 +732,31 @@ class WorkspaceSetupController(PBComponent):
                     self.logger.debug("schnitt director combo refresh failed: %s", exc)
             return
         if index == 3:
-            self.window.workspace_stack.setCurrentIndex(3)
+            self._switch_stack(3)
             if hasattr(self.window, 'export'):
                 self.window.export._refresh_production_info()
             return
+
+    def _switch_stack(self, index: int) -> None:
+        """setCurrentIndex mit PERF-Messpunkt (Virtualisierungs-Plan M0).
+
+        Der 2026-07-10-Watchdog bewies: Die verbleibende Freeze-Zeit steckt
+        im Qt-Show/Layout des Ziel-Workspace INNERHALB von setCurrentIndex
+        (20-34s bei 1428 Cuts/375 Videos). Dieser Messpunkt macht jeden
+        Virtualisierungs-Schritt (M1-M3) in ms belegbar.
+        Aktiv nur bei PB_TIMELINE_PERF=1 — sonst kein Overhead.
+        """
+        import os as _os
+        if _os.getenv("PB_TIMELINE_PERF", "") == "1":
+            import time as _time
+            _t0 = _time.perf_counter()
+            self.window.workspace_stack.setCurrentIndex(index)
+            self.logger.info(
+                "[PERF] workspace_stack.setCurrentIndex(%d) show=%.0fms",
+                index, (_time.perf_counter() - _t0) * 1000.0,
+            )
+        else:
+            self.window.workspace_stack.setCurrentIndex(index)
 
     def _update_workflow_gates(self):
         """Keep primary actions honest about their prerequisites."""
