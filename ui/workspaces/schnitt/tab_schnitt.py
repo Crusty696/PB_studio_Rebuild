@@ -104,16 +104,21 @@ class SchnittTabSchnitt(QWidget):
         self.timeline_view.setToolTip(
             "Timeline: Drag&Drop, Mausrad zum Zoomen, Lock-Icon pro Clip."
         )
-        v.addWidget(self.timeline_shell, stretch=4)
+        v.addWidget(self.timeline_shell, stretch=3)
 
         self.cut_info_label = QLabel("")
-        self.cut_info_label.setStyleSheet("color: #98a2b1; font-size: 10px; padding: 1px 4px;")
+        self.cut_info_label.setStyleSheet("color: #98a2b1; font-size: 11px; padding: 2px 4px;")
         v.addWidget(self.cut_info_label)
 
         # B-295: CutListPanel — textuelle Cutliste unter der Timeline.
+        # Nutzbarkeits-Fix 2026-07-10 (User: "nichts davon kann man lesen oder
+        # nutzen"): maxHeight 130 liess nach Margins/Header/Info nur ~1 sichtbare
+        # Tabellenzeile (bei 1428 Cuts unbrauchbar). Jetzt min. ~6 Zeilen und
+        # mitwachsend (stretch 1 gegen Timeline 3).
         self.cut_list_panel = CutListPanel(self)
-        self.cut_list_panel.setMaximumHeight(130)
-        v.addWidget(self.cut_list_panel, stretch=0)
+        self.cut_list_panel.setMinimumHeight(220)
+        self.cut_list_panel.setMaximumHeight(380)
+        v.addWidget(self.cut_list_panel, stretch=1)
         if hasattr(self.timeline_view, "set_playhead_time"):
             self.cut_list_panel.cut_selected.connect(self.timeline_view.set_playhead_time)
         # B-295: Edit-Affordances aus dem Cutlisten-Kontextmenue an die Timeline-Ops

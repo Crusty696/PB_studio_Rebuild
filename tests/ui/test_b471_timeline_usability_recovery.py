@@ -401,6 +401,12 @@ def test_schnitt_tab_prioritizes_timeline_surface(qapp) -> None:
     """B-471 live: preview/cut list must not squeeze the timeline back to a strip."""
     tab = SchnittTabSchnitt()
 
-    assert tab.timeline_shell.minimumHeight() >= 260
-    assert tab.video_preview.maximumHeight() <= 240
-    assert tab.cut_list_panel.maximumHeight() <= 140
+    # Pro-Editor-Umbau 2026-07-10: Invariante bleibt (Timeline dominant),
+    # Zahlen neu — Vorschau lebt jetzt im oberen Band NEBEN dem Inspector
+    # (max 315 hoch, nimmt der Timeline keine Breite mehr); Cutliste ist
+    # nutzbar (min ~6 Zeilen statt 1), waechst aber nur mit stretch 1 gegen
+    # Timeline-stretch 3 und bleibt gedeckelt.
+    assert tab.timeline_shell.minimumHeight() >= 340
+    assert tab.video_preview.maximumHeight() <= 315
+    assert tab.cut_list_panel.minimumHeight() >= 220  # Nutzbarkeit: >=~6 Zeilen
+    assert tab.cut_list_panel.maximumHeight() <= 380

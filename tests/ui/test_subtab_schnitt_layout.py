@@ -19,10 +19,11 @@ def test_tab_has_preview_transport_timeline():
     assert t.cut_info_label is not None
 
 
-def test_preview_minimum_size_360x200():
-    # B-471: Preview wurde verkleinert (mehr Platz fuer die Timeline);
-    # tab_schnitt.py setzt setMinimumSize(360, 200) / setMaximumSize(420, 236).
+def test_preview_minimum_size_400x225():
+    # Pro-Editor-Umbau 2026-07-10: Vorschau sitzt links im oberen Band neben
+    # dem CLIP INSPECTOR (nicht mehr ueber der vollen Breite) — 16:9 mit
+    # setMinimumSize(400, 225) / setMaximumSize(560, 315).
     _qapp()
     t = SchnittTabSchnitt()
-    assert t.video_preview.minimumWidth() == 360
-    assert t.video_preview.minimumHeight() == 200
+    assert t.video_preview.minimumWidth() == 400
+    assert t.video_preview.minimumHeight() == 225

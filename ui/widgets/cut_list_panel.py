@@ -76,8 +76,21 @@ class CutListPanel(QWidget):
         )
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         self.table.horizontalHeader().setStretchLastSection(True)
+        # Nutzbarkeits-Fix 2026-07-10: definierte Startbreiten — vorher teilte
+        # Qt die Breite gleichmaessig ("#" riesig, "Clip" gequetscht). Schmale
+        # Zahlen-Spalten, Clip-Titel bekommt via StretchLastSection den Rest.
+        self.table.setColumnWidth(0, 56)
+        self.table.setColumnWidth(1, 96)
+        self.table.setColumnWidth(2, 84)
+        self.table.setColumnWidth(3, 60)
+        # Lesbare Zeilen: 24px statt Qt-Default (~30 mit Padding-Kollaps) —
+        # kompakt, aber klickbar; vertikalen Header ausblenden (Spalte "#"
+        # traegt die Nummer bereits).
+        self.table.verticalHeader().setVisible(False)
+        self.table.verticalHeader().setDefaultSectionSize(24)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.setAlternatingRowColors(True)
         self.table.setToolTip(
             "Cutliste der aktuellen Timeline. Zeile anklicken setzt den Playhead "
             "auf den Cut-Zeitpunkt."
@@ -91,7 +104,7 @@ class CutListPanel(QWidget):
 
         # M-2: konsistenter initial-Empty-State-Text (vorher "Noch keine Timeline.").
         self.info_label = QLabel("Kein Projekt aktiv. — set_project() rufen.")
-        self.info_label.setStyleSheet("color: #98a2b1; font-size: 10px;")
+        self.info_label.setStyleSheet("color: #98a2b1; font-size: 11px;")
         layout.addWidget(self.info_label)
 
     def set_project(self, project_id: Optional[int]) -> None:
