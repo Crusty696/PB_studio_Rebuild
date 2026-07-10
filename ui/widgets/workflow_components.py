@@ -93,7 +93,9 @@ class SectionTabs(QTabWidget):
 class ContextPanel(SectionTabs):
     """Right-side context panel. Collapsed by default, contents survive."""
 
-    DEFAULT_WIDTH = 180  # UI-Ueberholung 2026-06-13 (User-Feedback): ~halbe Breite, dafuer andockbar (QDockWidget)
+    DEFAULT_WIDTH = 280  # 2026-07-10: 180 war zu schmal -> Tabs (CHAT/TASKS/LOG/Brain)
+    # und die Aktions-Buttons (Hintergrund/Fertige loeschen/Abbrechen) wurden abgeschnitten
+    # ("verdeckt"). Zurueck auf 280 (voller Inhalt sichtbar); User priorisiert Sichtbarkeit.
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)

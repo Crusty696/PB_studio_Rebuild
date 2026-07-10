@@ -474,7 +474,7 @@ class MediaWorkspace(QWidget):
         vh.resizeSection(4, 50)
         vh.resizeSection(5, 70)
         vh.resizeSection(6, 80)
-        self.video_pool_table.verticalHeader().setDefaultSectionSize(24)
+        self.video_pool_table.verticalHeader().setDefaultSectionSize(26)
         self.video_pool_table.verticalHeader().setVisible(False)
         # UI-Ueberholung 2026-06-13: fixe Hoehe (448px/16 Zeilen) entfernt — die
         # Tabelle fuellt jetzt die verfuegbare Spaltenhoehe (Expanding), zeigt also
@@ -751,7 +751,7 @@ class MediaWorkspace(QWidget):
         ah.resizeSection(4, 50)
         ah.resizeSection(5, 60)
         ah.resizeSection(6, 80)
-        self.audio_pool_table.verticalHeader().setDefaultSectionSize(24)
+        self.audio_pool_table.verticalHeader().setDefaultSectionSize(26)
         self.audio_pool_table.verticalHeader().setVisible(False)
         # UI-Ueberholung 2026-06-13: fixe Hoehe raus -> Tabelle fuellt die Spalte.
         self.audio_pool_table.setSizePolicy(
