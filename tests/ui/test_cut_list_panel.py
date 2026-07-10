@@ -34,6 +34,7 @@ def test_b295_cut_list_panel_renders_cuts(qapp, monkeypatch):
 
     panel = CutListPanel()
     panel.set_project(42)
+    qapp.processEvents()  # virt-M4: set_project refresht deferred via QTimer(0)
     assert panel.rendered_row_count() == 2
 
 
@@ -45,6 +46,7 @@ def test_b295_cut_list_panel_cut_selected_signal(qapp, monkeypatch):
     ])
     panel = CutListPanel()
     panel.set_project(1)
+    qapp.processEvents()  # virt-M4: set_project refresht deferred via QTimer(0)
     captured = []
     panel.cut_selected.connect(lambda t: captured.append(t))
     # simulate cell click on row 0 col 1 (time)
@@ -71,6 +73,7 @@ def test_b295_cut_list_panel_cut_selected_uses_userrole(qapp, monkeypatch):
     ])
     panel = CutListPanel()
     panel.set_project(1)
+    qapp.processEvents()  # virt-M4: set_project refresht deferred via QTimer(0)
     captured = []
     panel.cut_selected.connect(lambda t: captured.append(t))
     panel._on_cell_clicked(0, 1)

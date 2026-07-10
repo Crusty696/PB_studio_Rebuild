@@ -108,9 +108,16 @@ class CutListPanel(QWidget):
         layout.addWidget(self.info_label)
 
     def set_project(self, project_id: Optional[int]) -> None:
-        """B-295 Public-API: Projekt setzen + refresh."""
+        """B-295 Public-API: Projekt setzen + refresh.
+
+        virt-M4 2026-07-10: Refresh laeuft via QTimer(0) NACH dem
+        aktuellen Event (erster SCHNITT-Klick zeichnet erst, dann fuellt
+        sich die Liste) — get_cut_list (1428 Rows) blockierte sonst den
+        Klick-zu-Paint-Pfad (Profil: 2351ms unter Hintergrund-Last).
+        """
         self._project_id = project_id
-        self.refresh()
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(0, self.refresh)
 
     def refresh(self) -> None:
         if self._project_id is None:

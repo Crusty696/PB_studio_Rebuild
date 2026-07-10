@@ -220,8 +220,11 @@ def test_m2_large_materialization_runs_in_qtimer_batches():
         wide = QRectF(0.0, 0.0, 500.0 * 25.0, 200.0)
         tl._update_virtualization(wide)
 
-        assert len(tl.clip_items) == tl._VIRT_MAT_BATCH  # nur erster Batch
-        assert len(tl._virt_mat_queue) == 400 - tl._VIRT_MAT_BATCH
+        # M4-Haertung: Sync-Pass ist stueckzahl- UND zeitbudget-begrenzt —
+        # exakte Anzahl haengt von der Maschinenlast ab. Invariante: nicht
+        # alles sofort, Rest liegt vollstaendig in der Queue.
+        assert 0 < len(tl.clip_items) <= tl._VIRT_MAT_BATCH
+        assert len(tl._virt_mat_queue) == 400 - len(tl.clip_items)
 
         # QTimer(0)-Kette abarbeiten lassen.
         for _ in range(20):

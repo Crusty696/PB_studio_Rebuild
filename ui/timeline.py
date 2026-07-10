@@ -1055,7 +1055,13 @@ class InteractiveTimeline(QGraphicsView):
         # M2 Show-Entkopplung (D-066): grosse Materialisierungs-Mengen werden
         # in QTimer(0)-Batches NACH dem ersten Paint abgearbeitet, damit der
         # Workspace-Klick sofort reagiert und der Inhalt progressiv erscheint.
-        self._VIRT_MAT_BATCH = 150
+        # M4-Haertung 2026-07-10 (Profil Lauf 3: virt dt=17327ms): ZEITBUDGET
+        # statt fixer Stueckzahl — unter GIL-/IO-Last (z.B. 5 parallele
+        # Stem-Preview-Threads beim ersten SCHNITT-Klick) kostete EIN Item
+        # ~115ms statt ~4ms; 150 Stueck am Block = 17s Main-Thread-Freeze.
+        # Budget haelt jeden Block klein, egal wie langsam Einzel-Items sind.
+        self._VIRT_MAT_BATCH = 150            # Obergrenze pro Tick
+        self._VIRT_SYNC_BUDGET_MS = 40.0      # Zeitbudget pro Tick/Sync-Pass
         self._virt_mat_queue: list[ClipRecord] = []
         self._virt_drain_scheduled = False
         self.cut_lines: list[QGraphicsLineItem] = []
@@ -1728,7 +1734,12 @@ class InteractiveTimeline(QGraphicsView):
                     if rec.h_intersects(keep):
                         # M2: kleine Mengen sofort (Scroll-Nachladen), grosse
                         # Mengen unten via QTimer(0)-Batches (Show-Entkopplung).
-                        if mat < self._VIRT_MAT_BATCH:
+                        # M4: zusaetzlich Zeitbudget — unter Hintergrund-Last
+                        # bricht der Sync-Pass frueh ab und der Rest laeuft
+                        # progressiv in der Drain-Kette.
+                        if (mat < self._VIRT_MAT_BATCH
+                                and (time.perf_counter() - _t0) * 1000.0
+                                < self._VIRT_SYNC_BUDGET_MS):
                             self._materialize_record(rec)
                             mat += 1
                         else:
@@ -1777,23 +1788,29 @@ class InteractiveTimeline(QGraphicsView):
         if not queue:
             return
         _t0 = time.perf_counter()
-        batch = queue[:self._VIRT_MAT_BATCH]
-        del queue[:self._VIRT_MAT_BATCH]
         try:
             vp = self.viewport()
             vp.setUpdatesEnabled(False)
         except RuntimeError:
             return  # View bereits zerstoert
+        done = 0
         try:
-            for rec in batch:
+            # M4-Haertung: Zeitbudget pro Tick (statt fixe Stueckzahl) —
+            # unter GIL-/IO-Last bleibt der Main-Thread-Block klein und
+            # das Event-Loop (Paint/Input) kommt zwischen den Ticks dran.
+            while (queue and done < self._VIRT_MAT_BATCH
+                    and (time.perf_counter() - _t0) * 1000.0
+                    < self._VIRT_SYNC_BUDGET_MS):
+                rec = queue.pop(0)
                 if rec.item is None:
                     self._materialize_record(rec)
+                done += 1
         finally:
             vp.setUpdatesEnabled(True)
         if _TIMELINE_PERF:
             logger.info(
                 "[PERF] virt drain: batch=%d rest=%d items=%d dt=%.0fms",
-                len(batch), len(queue), len(self.clip_items),
+                done, len(queue), len(self.clip_items),
                 (time.perf_counter() - _t0) * 1000.0,
             )
         if queue:
