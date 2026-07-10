@@ -462,6 +462,13 @@ class PBWindow(QMainWindow):
             self.right_panel.setVisible(visible)
         if dock is not None:
             dock.setVisible(visible)
+            # 2026-07-10 (User): Dock nicht mehr starr -> einmalig eine sinnvolle
+            # Startbreite geben; danach kann der User sie frei per Splitter ziehen.
+            if visible and not getattr(self, "_context_dock_sized", False):
+                self._context_dock_sized = True
+                self.resizeDocks(
+                    [dock], [self.right_panel.DEFAULT_WIDTH], Qt.Orientation.Horizontal
+                )
         if hasattr(self, "_btn_context_panel"):
             self._btn_context_panel.setChecked(visible)
 
