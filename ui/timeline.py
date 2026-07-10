@@ -849,6 +849,9 @@ class InteractiveTimeline(QGraphicsView):
         # max 2 parallel, jede Datei genau einmal.
         from ui.timeline_thumbnail_loader import ThumbnailLoadManager
         self._thumb_items_by_path: dict[str, list[TimelineClipItem]] = {}
+        # Pfade, deren gecachtes Thumbnail nach einem Rebuild bereits auf die
+        # neuen Clip-Items angewendet wurde (verhindert Wiederholung je Poll).
+        self._cache_applied_paths: set[str] = set()
         self._thumb_threads: list = []
         self._thumb_loader = ThumbnailLoadManager(self._start_thumb_worker, max_concurrent=2)
         self._thumb_request_timer = QTimer(self)
@@ -1018,6 +1021,7 @@ class InteractiveTimeline(QGraphicsView):
             # bleibt erhalten -> bereits generierte Thumbs werden nicht neu erzeugt).
             self._thumb_items_by_path.clear()
             self._thumb_loader.reset()
+            self._cache_applied_paths.clear()  # neuer Rebuild -> Cache erneut anwenden
             for wf in self.waveform_items:
                 _safe_rm(wf)
             self.waveform_items.clear()
@@ -1331,6 +1335,13 @@ class InteractiveTimeline(QGraphicsView):
         requested = 0
         for fp, items in list(self._thumb_items_by_path.items()):
             if self._thumb_loader.is_done(fp):
+                # Pfad bereits geladen. Nach einem Timeline-Rebuild sind die
+                # Clip-Items neu, haben aber noch kein Bild -> das gecachte
+                # Thumbnail direkt anwenden statt zu skippen (sonst bleiben die
+                # Clips dauerhaft auf "Thumbnail laedt"). Nur einmal je Pfad.
+                if fp not in self._cache_applied_paths:
+                    self._apply_cached_thumb(fp, items)
+                    self._cache_applied_paths.add(fp)
                 continue
             for it in items:
                 try:
@@ -1414,6 +1425,28 @@ class InteractiveTimeline(QGraphicsView):
             for it in self._thumb_items_by_path.get(str(file_path), []):
                 it.set_thumbnail_pixmap(pix)
         self._thumb_loader.on_done(str(file_path))
+
+    def _apply_cached_thumb(self, file_path: str, items) -> None:
+        """Wendet ein bereits auf Platte gecachtes Thumbnail direkt auf die
+        Items an (kein erneuter ffmpeg-Lauf) — fuer ``is_done``-Pfade nach einem
+        Timeline-Rebuild, deren neue Clip-Items sonst auf 'Thumbnail laedt' blieben.
+        """
+        from PySide6.QtGui import QPixmap, QImage
+        from ui.widgets.media_grid import _thumb_path
+        try:
+            dest = _thumb_path(str(file_path))
+            if not dest.exists():
+                return  # kein Disk-Cache -> normaler async Load-Pfad kuemmert sich
+            qimg = QImage(str(dest))  # nur Disk lesen, KEIN ffmpeg im GUI-Thread
+            pix = QPixmap.fromImage(qimg)
+        except (RuntimeError, TypeError, OSError):
+            return
+        if pix is not None and not pix.isNull():
+            for it in items:
+                try:
+                    it.set_thumbnail_pixmap(pix)
+                except RuntimeError:
+                    continue
 
     def _style_visible_waveform(self, wf_item: WaveformGraphicsItem, parent_clip: TimelineClipItem | None = None) -> None:
         """Macht 3-Band-Waveform und Beatgrid sichtbar ueber der Clip-Flaeche."""
