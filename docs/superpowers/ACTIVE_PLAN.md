@@ -25,9 +25,12 @@ wurden bei der main-Konsolidierung entfernt.
 
 ## Current Next Task
 
-M2 — Show-Entkopplung: Beim Workspace-Wechsel Stack sofort umschalten,
-Scene-/Grid-Fuellung via QTimer(0)-Batches NACH dem ersten Paint
-(progressiv sichtbar). M1 ist komplett code-complete (live-pending).
+M3 — Grid-Virtualisierung: MediaPoolGrid nur sichtbare Cards bauen
+(Scroll-Viewport), Rest als Platzhalter-Records; bestehendes
+`_load_next_chunk`-Chunking auf Viewport-Steuerung umstellen (kein
+Vollbuild bei showEvent). M1+M2 (Timeline-Anteil) sind code-complete
+(live-pending). ACHTUNG: B-613 (3 media_grid-Tests rot auf HEAD,
+pre-existing) VOR M3-Beginn klaeren — betrifft dieselbe Datei.
 
 Stand 2026-07-10 abends: M0 fertig (50c6683). M1 Records +
 Materialisierungs-Fenster + record-first Syncs code-complete

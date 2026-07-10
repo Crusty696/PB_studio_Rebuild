@@ -68,8 +68,13 @@ Plan loest das ein.
       code-complete, live-pending)
 
 ### M2 — Show-Entkopplung (Klick reagiert sofort)
-- [ ] Beim Workspace-Wechsel: Stack sofort umschalten, Scene-/Grid-Fuellung
+- [x] Beim Workspace-Wechsel: Stack sofort umschalten, Scene-/Grid-Fuellung
       via QTimer(0)-Batches NACH dem ersten Paint (progressiv sichtbar).
+      (2026-07-10, Timeline-Anteil: versteckte Timeline materialisiert
+      nichts (isVisible-Gate im Polling-Anker); Materialisierung >150
+      Records laeuft als QTimer(0)-Batch-Kette (_drain_virt_mat_queue);
+      Teardown leert die Queue (kein Alt-Projekt-Drain). Grid-Anteil
+      kommt mit M3 — code-complete, live-pending)
 
 ### M3 — Grid-Virtualisierung
 - [ ] MediaPoolGrid: nur sichtbare Cards bauen (Scroll-Viewport), Rest als

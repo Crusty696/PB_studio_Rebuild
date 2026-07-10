@@ -206,6 +206,63 @@ def test_beat_markers_use_single_item_not_per_beat_lines():
         _qapp().processEvents()
 
 
+def test_m2_large_materialization_runs_in_qtimer_batches():
+    """M2 Show-Entkopplung: > _VIRT_MAT_BATCH Records werden nicht in einem
+    Rutsch materialisiert — erster Batch sofort, Rest via QTimer(0)-Kette
+    (progressiv, Event-Loop kommt zwischendurch dran)."""
+    app = _qapp()
+    tl = _make_timeline()
+    try:
+        entries, video_map = _video_entries(400, spacing_s=1.0, dur_s=0.5)
+        tl._build_entries(entries, {}, video_map, {})
+
+        # Fenster, das ALLE 400 Clips einschliesst (wie fit_to_content).
+        wide = QRectF(0.0, 0.0, 500.0 * 25.0, 200.0)
+        tl._update_virtualization(wide)
+
+        assert len(tl.clip_items) == tl._VIRT_MAT_BATCH  # nur erster Batch
+        assert len(tl._virt_mat_queue) == 400 - tl._VIRT_MAT_BATCH
+
+        # QTimer(0)-Kette abarbeiten lassen.
+        for _ in range(20):
+            app.processEvents()
+            if not tl._virt_mat_queue:
+                break
+        assert tl._virt_mat_queue == []
+        assert len(tl.clip_items) == 400
+    finally:
+        tl.deleteLater()
+        _qapp().processEvents()
+
+
+def test_m2_hidden_timeline_materializes_nothing():
+    """M2 Show-Entkopplung: eine versteckte Timeline baut ueber den
+    Polling-Anker (_request_visible_thumbnails) keine Items — erst nach
+    show() fuellt sich die Scene."""
+    app = _qapp()
+    tl = _make_timeline()
+    tl.resize(900, 220)
+    try:
+        entries, video_map = _video_entries(10, spacing_s=1.0, dur_s=0.5)
+        tl._build_entries(entries, {}, video_map, {})
+
+        assert not tl.isVisible()
+        tl._request_visible_thumbnails()
+        assert tl.clip_items == []  # versteckt -> nichts materialisiert
+
+        tl.show()
+        app.processEvents()
+        tl._request_visible_thumbnails()
+        for _ in range(20):
+            app.processEvents()
+            if not tl._virt_mat_queue:
+                break
+        assert len(tl.clip_items) > 0  # sichtbar -> Fenster materialisiert
+    finally:
+        tl.deleteLater()
+        _qapp().processEvents()
+
+
 def test_audio_clip_stays_materialized():
     _qapp()
     tl = _make_timeline()

@@ -1052,6 +1052,12 @@ class InteractiveTimeline(QGraphicsView):
         # > 3 wieder entmaterialisieren (Hysterese gegen Scroll-Flattern).
         self._virt_keep_screens = 2.0
         self._virt_drop_screens = 3.0
+        # M2 Show-Entkopplung (D-066): grosse Materialisierungs-Mengen werden
+        # in QTimer(0)-Batches NACH dem ersten Paint abgearbeitet, damit der
+        # Workspace-Klick sofort reagiert und der Inhalt progressiv erscheint.
+        self._VIRT_MAT_BATCH = 150
+        self._virt_mat_queue: list[ClipRecord] = []
+        self._virt_drain_scheduled = False
         self.cut_lines: list[QGraphicsLineItem] = []
         self._cut_points_signature: tuple = ()
         self.waveform_items: list[WaveformGraphicsItem] = []
@@ -1276,9 +1282,12 @@ class InteractiveTimeline(QGraphicsView):
             for item in self.clip_items:
                 _safe_rm(item)
             self.clip_items.clear()
-            # M1 (D-066): Record-Schicht mit abreissen.
+            # M1 (D-066): Record-Schicht mit abreissen. Die M2-Materialisierungs-
+            # Queue MUSS mit — sie haelt eigene Record-Refs; ein spaeterer Drain
+            # wuerde sonst Items des ALTEN Projekts in die neue Scene bauen.
             self.clip_records.clear()
             self._records_by_entry.clear()
+            self._virt_mat_queue = []
             # B-471 T1: Thumbnail-Registry + Scheduler zuruecksetzen (Done-Set
             # bleibt erhalten -> bereits generierte Thumbs werden nicht neu erzeugt).
             self._thumb_items_by_path.clear()
@@ -1710,14 +1719,20 @@ class InteractiveTimeline(QGraphicsView):
         drop = QRectF(view_rect).adjusted(-self._virt_drop_screens * span, 0.0,
                                           self._virt_drop_screens * span, 0.0)
         mat = demat = 0
+        to_mat: list[ClipRecord] = []
         vp = self.viewport()
         vp.setUpdatesEnabled(False)
         try:
             for rec in self.clip_records:
                 if rec.item is None:
                     if rec.h_intersects(keep):
-                        self._materialize_record(rec)
-                        mat += 1
+                        # M2: kleine Mengen sofort (Scroll-Nachladen), grosse
+                        # Mengen unten via QTimer(0)-Batches (Show-Entkopplung).
+                        if mat < self._VIRT_MAT_BATCH:
+                            self._materialize_record(rec)
+                            mat += 1
+                        else:
+                            to_mat.append(rec)
                     continue
                 # Audio bleibt permanent materialisiert (Waveform-Parent).
                 if rec.track_type != "video":
@@ -1741,12 +1756,52 @@ class InteractiveTimeline(QGraphicsView):
                     demat += 1
         finally:
             vp.setUpdatesEnabled(True)
-        if _TIMELINE_PERF and (mat or demat):
+        # M2: Rest-Materialisierung progressiv nach dem naechsten Paint.
+        self._virt_mat_queue = to_mat
+        if to_mat and not self._virt_drain_scheduled:
+            self._virt_drain_scheduled = True
+            QTimer.singleShot(0, self._drain_virt_mat_queue)
+        if _TIMELINE_PERF and (mat or demat or to_mat):
             logger.info(
-                "[PERF] virt: mat=%d demat=%d items=%d records=%d window=(%.0f..%.0f) dt=%.0fms",
-                mat, demat, len(self.clip_items), len(self.clip_records),
+                "[PERF] virt: mat=%d queued=%d demat=%d items=%d records=%d window=(%.0f..%.0f) dt=%.0fms",
+                mat, len(to_mat), demat, len(self.clip_items), len(self.clip_records),
                 keep.left(), keep.right(), (time.perf_counter() - _t0) * 1000.0,
             )
+
+    def _drain_virt_mat_queue(self) -> None:
+        """M2 Show-Entkopplung (D-066): arbeitet die Materialisierungs-Queue
+        in QTimer(0)-Batches ab — zwischen den Batches kommt das Event-Loop
+        (Paint/Input) dran, der Inhalt erscheint progressiv."""
+        self._virt_drain_scheduled = False
+        queue = self._virt_mat_queue
+        if not queue:
+            return
+        _t0 = time.perf_counter()
+        batch = queue[:self._VIRT_MAT_BATCH]
+        del queue[:self._VIRT_MAT_BATCH]
+        try:
+            vp = self.viewport()
+            vp.setUpdatesEnabled(False)
+        except RuntimeError:
+            return  # View bereits zerstoert
+        try:
+            for rec in batch:
+                if rec.item is None:
+                    self._materialize_record(rec)
+        finally:
+            vp.setUpdatesEnabled(True)
+        if _TIMELINE_PERF:
+            logger.info(
+                "[PERF] virt drain: batch=%d rest=%d items=%d dt=%.0fms",
+                len(batch), len(queue), len(self.clip_items),
+                (time.perf_counter() - _t0) * 1000.0,
+            )
+        if queue:
+            self._virt_drain_scheduled = True
+            QTimer.singleShot(0, self._drain_virt_mat_queue)
+        else:
+            # Fertig: Thumbnails/Content fuer die neuen Items anfordern.
+            self._schedule_thumb_request()
 
     def materialize_all(self) -> None:
         """Materialisiert ALLE Records — fuer Tests und Nicht-Viewport-Pfade,
@@ -1783,6 +1838,12 @@ class InteractiveTimeline(QGraphicsView):
 
     def _request_visible_thumbnails(self) -> None:
         """Fordert Thumbnails fuer aktuell sichtbare Video-Clips an (lazy)."""
+        # M2 Show-Entkopplung (D-066): eine VERSTECKTE Timeline baut nichts —
+        # weder Items noch Thumbnails. Der Workspace-Klick zeigt dadurch eine
+        # fast leere Scene (Track-BGs + Audio + Single-Items = billig);
+        # showEvent triggert diesen Pfad erneut und fuellt progressiv.
+        if not self.isVisible():
+            return
         try:
             view_rect = self.mapToScene(self.viewport().rect()).boundingRect()
         except RuntimeError:
