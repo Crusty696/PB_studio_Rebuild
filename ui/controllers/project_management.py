@@ -144,7 +144,25 @@ class ProjectManagementController(PBComponent):
         dlg = OpenProjectDialog(self.window)
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
-        path = dlg.get_path()
+        self.open_project_async(dlg.get_path())
+
+    def open_project_async(self, path, on_error_extra=None):
+        """Oeffnet ein Projekt asynchron via OpenWorker (gemeinsamer Pfad).
+
+        FREEZE-Fix 2026-07-10 (freeze_stacks-Profil): Der Recent-Projekte-Pfad
+        rief ``open_project`` bisher SYNCHRON im Main-Thread auf. Bei busy DB
+        (Hintergrund-Writer + busy_timeout 120s) blockierte der Klick die UI
+        30-60s+ (Watchdog-Beweis: Query.all in migrate_existing_outputs /
+        ensure_schnitt_audio_adapter). Jetzt laeuft JEDES Projekt-Oeffnen
+        ueber denselben async OpenWorker wie der Dialog-Pfad (F-045).
+
+        Args:
+            path: Projektordner.
+            on_error_extra: optionaler Callable(exc) zusaetzlich zum
+                Standard-Fehlerdialog (z.B. Recent-Eintrag entfernen).
+        """
+        if self._tasks_running_block("Projekt oeffnen"):
+            return
 
         class OpenWorker(BaseWorker):
             def __init__(self, manager, target_path):
@@ -169,12 +187,22 @@ class ProjectManagementController(PBComponent):
             self.window.panel_setup._console_append(f"[Projekt] Geoeffnet: {meta.get('name', path.name)}")
             self.window.status_bar.showMessage(f"Projekt geladen: {meta.get('name')}")
 
+        base_error_handler = self._make_project_error_handler("Projekt-Laden fehlgeschlagen")
+
+        def _on_error(exc):
+            base_error_handler(exc)
+            if on_error_extra is not None:
+                try:
+                    on_error_extra(exc)
+                except Exception:  # noqa: BLE001 — Zusatz-Handler darf nichts brechen
+                    logger.debug("open_project_async on_error_extra failed", exc_info=True)
+
         from services.task_manager import GlobalTaskManager
         GlobalTaskManager.instance().start_task(
             name="Projekt laden",
             worker=worker,
             on_finish=_on_done,
-            on_error=self._make_project_error_handler("Projekt-Laden fehlgeschlagen"),
+            on_error=_on_error,
             description=f"Lade '{path.name}'"
         )
 

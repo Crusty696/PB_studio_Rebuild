@@ -1,7 +1,7 @@
 """ExportController — Refactored from ExportMixin."""
 
 import logging
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QThread, QObject, Signal
 from database import get_active_project_id
 from services.task_manager import TaskManagerProxy
 from services.export_service import get_timeline_summary, estimate_render_time
@@ -11,37 +11,98 @@ from ui.base_component import PBComponent
 logger = logging.getLogger(__name__)
 task_manager = TaskManagerProxy()
 
+
+class _ProductionInfoWorker(QObject):
+    """FREEZE-Fix 2026-07-10: get_timeline_summary + estimate_render_time
+    liefen beim EXPORT-Workspace-Wechsel SYNCHRON im Main-Thread. Bei busy DB
+    (Hintergrund-Writer + busy_timeout) fror der Klick die UI 20-60s ein
+    (freeze_stacks-Watchdog-Beweis: Query.all in get_all_audio). Beide
+    DB-Reads laufen jetzt hier im Hintergrund-Thread."""
+
+    done = Signal(dict, object)  # (summary, estimate|None)
+
+    def __init__(self, project_id, resolution: str, fps: float):
+        super().__init__()
+        self._project_id = project_id
+        self._resolution = resolution
+        self._fps = fps
+
+    def run(self):
+        try:
+            summary = get_timeline_summary(self._project_id)
+        except Exception as e:  # noqa: BLE001 — Label-Refresh darf nie crashen
+            logger.debug("ProductionInfo summary fehlgeschlagen: %s", e)
+            self.done.emit({}, None)
+            return
+        estimate = None
+        try:
+            estimate = estimate_render_time(self._project_id, self._resolution, self._fps)
+        except (OSError, RuntimeError, ValueError) as e:
+            logger.debug("Render-Schaetzung fehlgeschlagen: %s", e)
+        self.done.emit(summary, estimate)
+
+
 class ExportController(PBComponent):
     """Export / Deliver methods for PBWindow."""
 
     def _refresh_production_info(self):
-        summary = get_timeline_summary(get_active_project_id())
+        """Startet den async Refresh der Produktions-Infos (nicht-blockierend).
+
+        UI-Werte (Combos) werden VOR dem Worker-Start im Main-Thread gelesen;
+        die DB-Reads laufen im Worker; die Labels setzt der done-Slot (queued,
+        Main-Thread). Doppelstart-Guard: laeuft bereits ein Refresh, wird der
+        Klick ignoriert (der laufende liefert gleich frische Werte).
+        """
+        if getattr(self, "_pinfo_thread", None) is not None and self._pinfo_thread.isRunning():
+            return
+        try:
+            resolution = self.window.resolution_combo.currentText()
+            fps = float(self.window.fps_combo.currentText())
+        except (AttributeError, ValueError):
+            resolution, fps = "1920x1080", 30.0
+        self.window.production_info.setText("Lade Produktions-Infos…")
+
+        worker = _ProductionInfoWorker(get_active_project_id(), resolution, fps)
+        thread = QThread(self.window)
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.done.connect(self._on_production_info_ready, Qt.ConnectionType.QueuedConnection)
+        worker.done.connect(thread.quit)
+        thread.finished.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+        # Controller lebt app-lang -> Referenzen hier sind GC-sicher (B-605-Lektion).
+        self._pinfo_worker = worker
+        self._pinfo_thread = thread
+        thread.start()
+
+    def _on_production_info_ready(self, summary: dict, estimate) -> None:
+        self._pinfo_worker = None
+        self._pinfo_thread = None
+        if not summary:
+            self.window.production_info.setText("Produktions-Infos nicht verfuegbar.")
+            self.window.render_estimate_label.setText("Geschaetzte Renderzeit: —")
+            return
         self.window.production_info.setText(
             f"Video-Clips: {summary['video_clips']} | "
             f"Audio-Tracks: {summary['audio_tracks']} | "
             f"Gesamt-Eintraege: {summary['total_entries']} | "
             f"Geschaetzte Dauer: {summary['estimated_duration']:.1f}s"
         )
-        self._update_render_estimate()
+        if estimate is None:
+            self.window.render_estimate_label.setText("Geschaetzte Renderzeit: —")
+            return
+        preset_name = self.window.preset_combo.currentText()
+        self.window.render_estimate_label.setText(
+            f"Geschaetzte Renderzeit: {estimate['estimated_label']} | "
+            f"Dauer: {estimate['total_duration']:.1f}s | "
+            f"{estimate['segment_count']} Clips | "
+            f"Preset: {preset_name}"
+        )
 
     def _update_render_estimate(self):
-        """Aktualisiert die geschaetzte Renderzeit basierend auf aktuellen Settings."""
-        try:
-            resolution = self.window.resolution_combo.currentText()
-            fps = float(self.window.fps_combo.currentText())
-            estimate = estimate_render_time(
-                get_active_project_id(), resolution, fps
-            )
-            preset_name = self.window.preset_combo.currentText()
-            self.window.render_estimate_label.setText(
-                f"Geschaetzte Renderzeit: {estimate['estimated_label']} | "
-                f"Dauer: {estimate['total_duration']:.1f}s | "
-                f"{estimate['segment_count']} Clips | "
-                f"Preset: {preset_name}"
-            )
-        except (OSError, RuntimeError, ValueError) as e:
-            logger.debug("Render-Schaetzung fehlgeschlagen: %s", e)
-            self.window.render_estimate_label.setText("Geschaetzte Renderzeit: —")
+        """Aktualisiert die Render-Schaetzung — delegiert an den async Refresh
+        (FREEZE-Fix 2026-07-10: vorher synchrone DB-Reads im Main-Thread)."""
+        self._refresh_production_info()
 
     def _start_export(self):
         summary = get_timeline_summary(get_active_project_id())

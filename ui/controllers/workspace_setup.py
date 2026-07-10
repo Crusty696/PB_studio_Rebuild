@@ -169,18 +169,22 @@ class WorkspaceSetupController(PBComponent):
         ))
 
     def _open_recent_project(self, path_str: str) -> None:
-        """Oeffnet ein Projekt direkt aus der Recent-Liste."""
+        """Oeffnet ein Projekt aus der Recent-Liste — asynchron.
+
+        FREEZE-Fix 2026-07-10: lief vorher synchron im Main-Thread
+        (open_project inkl. Storage-Migration + DB-Queries) und fror die UI
+        bei busy DB 30-60s+ ein (freeze_stacks-Watchdog-Beweis). Nutzt jetzt
+        denselben async OpenWorker-Pfad wie der 'Projekt oeffnen'-Dialog.
+        """
         from pathlib import Path
-        path = Path(path_str)
-        try:
-            meta = self.window._project_manager.open_project(path)
-            self.window.panel_setup._console_append(f"[Projekt] Geoeffnet: {meta.get('name', path.name)}")
-        except Exception as exc:
-            from PySide6.QtWidgets import QMessageBox
+
+        def _drop_recent(_exc):
             from services.recent_projects import RecentProjectsManager
-            QMessageBox.critical(self.window, "Fehler", str(exc))
-            self.window.panel_setup._console_append(f"[Projekt-Fehler] {exc}")
             RecentProjectsManager.clear_entry(path_str)
+
+        self.window.project_management.open_project_async(
+            Path(path_str), on_error_extra=_drop_recent
+        )
 
     def _clear_recent_projects(self) -> None:
         """Loescht die gesamte Recent-Projekte-Liste."""
