@@ -120,11 +120,14 @@ class StemsController(PBComponent):
                             acoustic_metadata=None,
                         )
                     )
-                if loaded:
+                if loaded and hasattr(self.window, "console_text"):
                     self.window.console_text.append(f"[StemPlayer] Track #{track_id} geladen: {self.window.stem_player.duration:.1f}s")
         except Exception as e:
             logger.error("[StemWorkspace] Error: %s", e, exc_info=True)
-            self.window.console_text.append(f"[Stem-Widget] Fehler: {e}")
+            # console_text (LOG-Panel) existiert erst nach panel_setup; beim
+            # fruehen Aufruf aus _create_workspaces darf das Logging nicht crashen.
+            if hasattr(self.window, "console_text"):
+                self.window.console_text.append(f"[Stem-Widget] Fehler: {e}")
 
     def _start_stem_separation(self):
         # B-293 Phase B: Stems bleibt Single-Track. Demucs braucht 5+ min/Track,
