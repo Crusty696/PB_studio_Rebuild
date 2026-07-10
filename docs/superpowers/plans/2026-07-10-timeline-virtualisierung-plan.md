@@ -77,9 +77,14 @@ Plan loest das ein.
       kommt mit M3 — code-complete, live-pending)
 
 ### M3 — Grid-Virtualisierung
-- [ ] MediaPoolGrid: nur sichtbare Cards bauen (Scroll-Viewport), Rest als
+- [x] MediaPoolGrid: nur sichtbare Cards bauen (Scroll-Viewport), Rest als
       Platzhalter-Records; bestehendes `_load_next_chunk`-Chunking auf
       Viewport-Steuerung umstellen (kein Vollbuild bei showEvent).
+      (2026-07-10: QGridLayout -> absolute Positionierung; _filtered_data
+      (Dicts) als Records; _card_by_id-Pool baut nur Fenster viewport ±1
+      Screen, erste 20 synchron + Rest via 20ms-Chunk-Timer; Scrollbar-
+      Anker debounced; Guards tests/ui/test_media_grid_virtualization_m3.py
+      — code-complete, live-pending)
 
 ### M4 — Verify (hart)
 - [ ] Profil-Lauf (M0-Harness) auf test33: Abnahme-Kriterien oben.

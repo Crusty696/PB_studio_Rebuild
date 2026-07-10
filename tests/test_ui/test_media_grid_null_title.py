@@ -32,13 +32,15 @@ def test_media_grid_null_title(qapp):
         }
     ]
     
-    # Cards aufbauen
+    # Cards aufbauen (set_items -> _rebuild_cards -> _apply_filter). Der
+    # Filter lief damit bereits ueber den Null-Titel.
     grid.set_items(items)
-    
-    # Da set_items asynchron Chunks via QTimer lädt, rufen wir _load_next_chunk direkt auf,
-    # um die Karten synchron zu erstellen und den Filter auszuführen.
-    grid._load_next_chunk()
-    
-    # Wenn wir hier ankommen, lief _apply_filter fehlerfrei durch!
+
+    # M3 Grid-Virtualisierung (D-066): Cards baut das debounced Relayout
+    # fuer das Scroll-Fenster — hier synchron anstossen statt auf den
+    # 100ms-Timer zu warten (_load_next_chunk existiert nicht mehr).
+    grid._do_relayout_debounced()
+
+    # Wenn wir hier ankommen, liefen _apply_filter + Card-Bau fehlerfrei durch!
     assert len(grid._cards) == 1
     assert grid._cards[0]._title is None

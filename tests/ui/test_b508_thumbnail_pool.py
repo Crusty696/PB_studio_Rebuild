@@ -70,6 +70,9 @@ def test_pool_limits_concurrency_to_four_and_serves_all(monkeypatch, tmp_path):
     try:
         # ddd2293 (Freeze-Fix, B-613-Nachzug): unsichtbares Grid cached
         # set_items nur — fuer den Pool-Test muss das Grid sichtbar sein.
+        # M3 (D-066): gross genug, damit alle 20 Cards im Scroll-Fenster
+        # (viewport ± 1 Screen) liegen und gebaut werden.
+        grid.resize(900, 800)
         grid.show()
         app.processEvents()
         grid.set_items(_video_items(tmp_path, 20))
@@ -150,20 +153,20 @@ def test_grid_lays_out_cards_when_shown_after_invisible_set_items(monkeypatch, t
             time.sleep(0.02)
         assert grid._cards == []
         assert grid._pending_rebuild is True
-        assert grid._grid.count() == 0
 
         # Umschalten auf Kachelansicht = Grid wird sichtbar -> showEvent
-        # baut die Karten nach und sortiert sie ein.
+        # baut die Fenster-Karten (M3: absolute Positionierung, kein
+        # QGridLayout mehr) und zeigt sie.
+        grid.resize(700, 500)
         grid.show()
         deadline = time.time() + 10.0
-        while time.time() < deadline and (
-                len(grid._cards) < len(items) or grid._grid.count() < len(items)):
+        while time.time() < deadline and len(grid._cards) < len(items):
             app.processEvents()
             time.sleep(0.02)
 
         assert len(grid._cards) == len(items)
-        assert grid._grid.count() == len(items), (
-            f"B-526: Grid zeigt nach show() {grid._grid.count()}/{len(items)} Karten"
+        assert all(not c.isHidden() for c in grid._cards), (
+            "B-526: Karten nach show() nicht sichtbar einsortiert"
         )
     finally:
         grid.deleteLater()

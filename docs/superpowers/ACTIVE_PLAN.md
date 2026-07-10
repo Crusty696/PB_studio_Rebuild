@@ -25,12 +25,16 @@ wurden bei der main-Konsolidierung entfernt.
 
 ## Current Next Task
 
-M3 — Grid-Virtualisierung: MediaPoolGrid nur sichtbare Cards bauen
-(Scroll-Viewport), Rest als Platzhalter-Records; bestehendes
-`_load_next_chunk`-Chunking auf Viewport-Steuerung umstellen (kein
-Vollbuild bei showEvent). M1+M2 (Timeline-Anteil) sind code-complete
-(live-pending). ACHTUNG: B-613 (3 media_grid-Tests rot auf HEAD,
-pre-existing) VOR M3-Beginn klaeren — betrifft dieselbe Datei.
+M4 — Verify (hart): Profil-Lauf (M0-Harness) auf test33 gegen die
+Abnahme-Kriterien (Klick < 2 s, kein Watchdog-Dump > 2 s); volle
+Testsuite ist gruen (648 passed); Live-GUI-Check + User-Sichtung —
+`fixed` setzt der User.
+
+Stand 2026-07-10 spaet: M0-M3 KOMPLETT code-complete. Live-Verify-Rezept:
+alte App (pid 8032, alter Stand) schliessen, Start mit
+PB_STUDIO_FREEZE_PROBE=1 + PB_TIMELINE_PERF=1, test33 via Dialog oeffnen,
+`python scripts/diag/verify_workspace_switch_perf.py --cycles 3`.
+B-613 root-caused + Tests nachgezogen (ddd2293-Semantik, kein Produkt-Bug).
 
 Stand 2026-07-10 abends: M0 fertig (50c6683). M1 Records +
 Materialisierungs-Fenster + record-first Syncs code-complete

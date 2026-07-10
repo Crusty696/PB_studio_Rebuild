@@ -88,6 +88,11 @@ def test_grid_delete_later_invalidates_pending_thumbnails(monkeypatch, tmp_path)
         })
 
     try:
+        # ddd2293 + M3 (D-066): Cards entstehen nur fuer das Scroll-Fenster
+        # eines SICHTBAREN Grids -> sichtbar und gross genug machen.
+        grid.resize(900, 800)
+        grid.show()
+        app.processEvents()
         grid.set_items(fake_items)
         deadline = time.time() + 3.0
         while time.time() < deadline and not started.is_set():
@@ -125,6 +130,11 @@ def test_grid_invalid_paths_do_not_start_thumbnail_jobs(monkeypatch):
     monkeypatch.setattr(grid, "_start_thumb_loader", record_start)
 
     try:
+        # ddd2293 + M3 (D-066): Cards entstehen nur fuer das Scroll-Fenster
+        # eines SICHTBAREN Grids.
+        grid.resize(700, 500)
+        grid.show()
+        app.processEvents()
         grid.set_items([
             {
                 "id": 1,

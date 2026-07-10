@@ -579,6 +579,15 @@ class MediaPoolGrid(QWidget):
         self._items_signature: tuple = ()
         self._cards: list[MediaCard] = []
         self._filtered: list[MediaCard] = []
+        # M3 Grid-Virtualisierung (D-066): _filtered_data haelt die
+        # gefilterten+sortierten Item-Dicts (Records) fuer ALLE Eintraege;
+        # Card-Widgets entstehen NUR fuer das Scroll-Fenster (viewport
+        # ± 1 Bildschirmhoehe) und werden per media_id wiederverwendet.
+        self._filtered_data: list[dict] = []
+        self._card_by_id: dict[int, MediaCard] = {}
+        self._build_queue: list[int] = []   # Indizes in _filtered_data
+        self._cols: int = 1
+        self._SYNC_BUILD = 20               # sofort gebaute Cards je Relayout
         self._selected_id: int | None = None
         # B-508: Generation-Counter fuer gepoolte Thumbnail-Jobs. Wird bei
         # clear()/Neuladen erhoeht; Runnables mit alter Generation verwerfen
@@ -597,7 +606,13 @@ class MediaPoolGrid(QWidget):
         self._relayout_timer.setSingleShot(True)
         self._relayout_timer.setInterval(100) # Max 10 Layouts pro Sekunde
         self._relayout_timer.timeout.connect(self._do_relayout_debounced)
-        
+
+        # M3 (D-066): Chunk-Timer baut gequeue-te Fenster-Cards progressiv
+        # (bestehendes 20ms/10er-Chunking, jetzt viewport-gesteuert statt
+        # Vollbuild aller Items).
+        self._load_timer = QTimer(self)
+        self._load_timer.timeout.connect(self._build_next_chunk)
+
         self._build_ui()
 
     # ── Construction ─────────────────────────────────────────────────
@@ -683,12 +698,15 @@ class MediaPoolGrid(QWidget):
 
         self._container = QWidget()
         self._container.setObjectName("grid_container")
-        self._grid = QGridLayout(self._container)
-        self._grid.setContentsMargins(2, 2, 2, 2)
-        self._grid.setSpacing(_GAP)
+        # M3 Grid-Virtualisierung (D-066): KEIN QGridLayout mehr — Cards
+        # werden absolut positioniert (deterministisches Raster aus Index),
+        # damit nur die Fenster-Cards existieren muessen und der Rest als
+        # Record ohne Widget bleibt.
 
         self._scroll.setWidget(self._container)
         outer.addWidget(self._scroll, stretch=1)
+        # Scroll-Anker: Fenster-Cards beim Scrollen nachfuehren (debounced).
+        self._scroll.verticalScrollBar().valueChanged.connect(self._relayout)
 
     # ── Public API ───────────────────────────────────────────────────
 
@@ -788,6 +806,8 @@ class MediaPoolGrid(QWidget):
             self._load_timer.stop()
         if hasattr(self, "_relayout_timer"):
             self._relayout_timer.stop()
+        # M3: gequeue-te Fenster-Builds verfallen mit (Indizes waeren stale).
+        self._build_queue = []
         self._thumb_generation += 1
 
     def deleteLater(self) -> None:  # noqa: N802
@@ -795,103 +815,126 @@ class MediaPoolGrid(QWidget):
         super().deleteLater()
 
     def _rebuild_cards(self) -> None:
+        """M3 Grid-Virtualisierung (D-066): reisst nur noch den Card-Pool ab
+        und stoesst Filter + Fenster-Aufbau an — KEIN Vollbuild aller Items
+        mehr (vorher: _load_next_chunk baute alle ~375 Card-Widgets)."""
         if self._in_relayout:
             return
         self._in_relayout = True
-        # P8-F1-FIX: Bulk-Remove triggert sonst N Layout-Recomputes +
-        # Paint-Events waehrend des while-Loops. Updates aus fuer die
-        # Dauer des Rebuilds stummschalten.
-        _parent = self._grid.parentWidget() if hasattr(self._grid, "parentWidget") else None
-        if _parent is not None:
-            _parent.setUpdatesEnabled(False)
         try:
             # B-508: ausstehende Thumbnail-Jobs invalidieren (Generation-Bump)
             self._cancel_pending_thumbs()
-
-            # Remove all cards from layout and delete
-            while self._grid.count():
-                item = self._grid.takeAt(0)
-                if item.widget():
-                    item.widget().deleteLater()
+            self._build_queue = []
+            for card in self._cards:
+                try:
+                    card.deleteLater()
+                except RuntimeError:
+                    pass
             self._cards.clear()
-
-            # Fix: Inkrementelles Laden via Timer (F-020)
-            self._load_index = 0
-            self._load_timer = QTimer(self)
-            self._load_timer.timeout.connect(self._load_next_chunk)
-            self._load_timer.start(20)  # Alle 20ms ein Chunk (stabiler als 5ms)
+            self._card_by_id.clear()
+            self._filtered = []
         except Exception as e:
             logger.error("Fehler beim Vorbereiten des Card-Rebuilds: %s", e)
-            self._in_relayout = False
         finally:
-            # P8-F1-FIX: Updates in jedem Fall wieder aktivieren
-            if _parent is not None:
-                _parent.setUpdatesEnabled(True)
-
-    def _load_next_chunk(self):
-        """Erstellt Karten in kleinen Batches um UI-Freeze zu verhindern."""
-        chunk_size = 10  # Groessere Batches fuer Effizienz
-        end = min(self._load_index + chunk_size, len(self._all_items))
-        
-        for i in range(self._load_index, end):
-            data = self._all_items[i]
-            if self._type == "video":
-                card = VideoCard(
-                    media_id=data["id"],
-                    title=data.get("title", ""),
-                    file_path=data.get("file_path", ""),
-                    resolution=data.get("resolution", ""),
-                    fps=data.get("fps"),
-                )
-                # B-087: Thumbnail-Worker auch wirklich starten — vorher
-                # war ``_start_thumb_loader`` Dead-Code und alle VideoCards
-                # blieben auf dem grauen ``▶``-Placeholder.
-                _fp = data.get("file_path")
-                if _fp:
-                    if Path(_fp).exists():
-                        try:
-                            self._start_thumb_loader(card, _fp)
-                        except Exception as _thumb_exc:
-                            # Thumb-Spawn darf das Card-Rendering nicht killen.
-                            import logging as _log
-                            _log.getLogger(__name__).warning(
-                                "B-087: Thumb-Loader spawn failed for %s: %s",
-                                _fp, _thumb_exc,
-                            )
-                    else:
-                        card.set_thumbnail(_placeholder_pixmap(_CW - 8, _TH, "✖"))
-            else:
-                energy = []
-                ec = data.get("energy_curve")
-                if ec:
-                    # H7-FIX: Column(JSON) deserialisiert automatisch.
-                    if isinstance(ec, (list, tuple)):
-                        energy = ec
-                    elif isinstance(ec, str):
-                        try:
-                            energy = json.loads(ec)
-                        except (json.JSONDecodeError, TypeError):  # B-035 Fix: Specific exception types
-                            pass  # Invalid JSON or wrong type — use empty list fallback
-                card = AudioCard(
-                    media_id=data["id"],
-                    title=data.get("title", ""),
-                    file_path=data.get("file_path", ""),
-                    bpm=data.get("bpm"),
-                    key=data.get("key"),
-                    energy_data=energy,
-                )
-            card.clicked.connect(self._on_card_clicked)
-            card.show_status_requested.connect(self.show_status_requested)
-            card.run_all_requested.connect(self.run_all_requested)
-            self._cards.append(card)
-
-        self._load_index = end
-        if self._load_index >= len(self._all_items):
-            self._load_timer.stop()
-            self._filtered = list(self._cards)
             self._in_relayout = False
-            self._apply_filter()
-        # KEIN processEvents() hier — der Timer gibt Qt bereits genug Zeit zum Zeichnen
+        self._apply_filter()
+
+    def _create_card(self, data: dict) -> "MediaCard":
+        """Baut EINE Card fuer ein Item-Dict (Bau-Code des frueheren
+        _load_next_chunk, unveraendert inkl. Thumb-Start und Signals)."""
+        if self._type == "video":
+            card = VideoCard(
+                media_id=data["id"],
+                title=data.get("title", ""),
+                file_path=data.get("file_path", ""),
+                resolution=data.get("resolution", ""),
+                fps=data.get("fps"),
+            )
+            # B-087: Thumbnail-Worker auch wirklich starten — vorher
+            # war ``_start_thumb_loader`` Dead-Code und alle VideoCards
+            # blieben auf dem grauen ``▶``-Placeholder.
+            _fp = data.get("file_path")
+            if _fp:
+                if Path(_fp).exists():
+                    try:
+                        self._start_thumb_loader(card, _fp)
+                    except Exception as _thumb_exc:
+                        # Thumb-Spawn darf das Card-Rendering nicht killen.
+                        import logging as _log
+                        _log.getLogger(__name__).warning(
+                            "B-087: Thumb-Loader spawn failed for %s: %s",
+                            _fp, _thumb_exc,
+                        )
+                else:
+                    card.set_thumbnail(_placeholder_pixmap(_CW - 8, _TH, "✖"))
+        else:
+            energy = []
+            ec = data.get("energy_curve")
+            if ec:
+                # H7-FIX: Column(JSON) deserialisiert automatisch.
+                if isinstance(ec, (list, tuple)):
+                    energy = ec
+                elif isinstance(ec, str):
+                    try:
+                        energy = json.loads(ec)
+                    except (json.JSONDecodeError, TypeError):  # B-035 Fix: Specific exception types
+                        pass  # Invalid JSON or wrong type — use empty list fallback
+            card = AudioCard(
+                media_id=data["id"],
+                title=data.get("title", ""),
+                file_path=data.get("file_path", ""),
+                bpm=data.get("bpm"),
+                key=data.get("key"),
+                energy_data=energy,
+            )
+        card.clicked.connect(self._on_card_clicked)
+        card.show_status_requested.connect(self.show_status_requested)
+        card.run_all_requested.connect(self.run_all_requested)
+        # Zustand aus Records anwenden (Selection + Verwendungs-Badge),
+        # damit spaet gebaute Fenster-Cards identisch aussehen.
+        card.set_selected(data["id"] == self._selected_id)
+        usage = getattr(self, "_timeline_usage", None)
+        if usage:
+            try:
+                card.set_timeline_usage(usage.get(data["id"], 0), marking_active=True)
+            except Exception:
+                pass
+        return card
+
+    def _ensure_card_at(self, idx: int) -> None:
+        """Stellt sicher, dass fuer _filtered_data[idx] eine positionierte
+        Card existiert (Pool-Wiederverwendung per media_id)."""
+        if idx >= len(self._filtered_data):
+            return
+        data = self._filtered_data[idx]
+        card = self._card_by_id.get(data["id"])
+        if card is None:
+            card = self._create_card(data)
+            self._card_by_id[data["id"]] = card
+            self._cards.append(card)
+        self._place_card(card, idx)
+
+    def _place_card(self, card: "MediaCard", idx: int) -> None:
+        row, col = divmod(idx, max(1, self._cols))
+        x = 2 + col * (_CW + _GAP)
+        y = 2 + row * (_CH + _GAP)
+        try:
+            if card.parentWidget() is not self._container:
+                card.setParent(self._container)
+            card.setGeometry(x, y, _CW, _CH)
+            card.show()
+        except RuntimeError:
+            pass  # Card C++-seitig bereits weg
+
+    def _build_next_chunk(self):
+        """M3: baut gequeue-te Fenster-Cards in 20ms-Chunks (progressiv),
+        statt wie frueher ALLE Items durchzubauen."""
+        built = 0
+        while self._build_queue and built < 10:
+            self._ensure_card_at(self._build_queue.pop(0))
+            built += 1
+        if not self._build_queue:
+            self._load_timer.stop()
 
     def _start_thumb_loader(self, card: VideoCard, file_path: str) -> None:
         # B-508: kein per-Card-QThread mehr — geteilter QThreadPool mit
@@ -929,8 +972,10 @@ class MediaPoolGrid(QWidget):
                     except ValueError as exc:
                         logger.warning("_apply_filter: failed to parse BPM value: %s", exc)
 
-            pairs: list[tuple[MediaCard, dict]] = []
-            for card, data in zip(self._cards, self._all_items):
+            # M3 Grid-Virtualisierung (D-066): Filter + Sort laufen auf den
+            # Item-Dicts (Records) — Cards sind dafuer nicht noetig.
+            selected: list[dict] = []
+            for data in self._all_items:
                 title = (data.get("title") or "").lower()
                 if text and text not in title:
                     continue
@@ -942,64 +987,98 @@ class MediaPoolGrid(QWidget):
                     continue
                 if genre_text and genre_text not in (data.get("genre") or "").lower():
                     continue
-                pairs.append((card, data))
+                selected.append(data)
 
             sort_key = self._sort_combo.currentText()
             if sort_key == "BPM ▲":
-                pairs.sort(key=lambda x: x[1].get("bpm") or 0)
+                selected.sort(key=lambda d: d.get("bpm") or 0)
             elif sort_key == "BPM ▼":
-                pairs.sort(key=lambda x: x[1].get("bpm") or 0, reverse=True)
+                selected.sort(key=lambda d: d.get("bpm") or 0, reverse=True)
             elif sort_key == "Key":
-                pairs.sort(key=lambda x: x[1].get("key") or "")
+                selected.sort(key=lambda d: d.get("key") or "")
             elif sort_key == "Genre":
-                pairs.sort(key=lambda x: x[1].get("genre") or "")
+                selected.sort(key=lambda d: d.get("genre") or "")
             elif sort_key == "Mood":
-                pairs.sort(key=lambda x: x[1].get("mood") or "")
+                selected.sort(key=lambda d: d.get("mood") or "")
             elif sort_key == "Aufloesung":
-                pairs.sort(key=lambda x: x[1].get("resolution") or "")
+                selected.sort(key=lambda d: d.get("resolution") or "")
             elif sort_key == "FPS ▼":
-                pairs.sort(key=lambda x: x[1].get("fps") or 0, reverse=True)
+                selected.sort(key=lambda d: d.get("fps") or 0, reverse=True)
             else:
-                pairs.sort(key=lambda x: x[1].get("title") or "")
+                selected.sort(key=lambda d: d.get("title") or "")
 
-            self._filtered = [c for c, _ in pairs]
+            self._filtered_data = selected
             self._relayout()
         finally:
             self._in_relayout = False
 
-    def _relayout(self) -> None:
-        """Trigger debounced relayout (Fix F-029)."""
+    def _relayout(self, *_args) -> None:
+        """Trigger debounced relayout (Fix F-029). *_args schluckt das
+        int-Argument von verticalScrollBar().valueChanged (M3-Scroll-Anker)."""
         self._relayout_timer.start()
 
     def _do_relayout_debounced(self) -> None:
-        """Place filtered cards into grid, hide the rest."""
+        """M3 Grid-Virtualisierung (D-066): positioniert NUR die Cards im
+        Scroll-Fenster (viewport ± 1 Bildschirmhoehe). Fehlende Fenster-Cards
+        werden gebaut — die ersten _SYNC_BUILD sofort, der Rest progressiv
+        via 20ms-Chunk-Timer. Cards ausserhalb des Fensters werden versteckt
+        (einmal gebaute bleiben im Pool, per media_id wiederverwendet)."""
         if self._in_relayout or not self.isVisible():
             return
 
         self._in_relayout = True
         try:
-            while self._grid.count():
-                item = self._grid.takeAt(0)
-                if item.widget():
-                    item.widget().setParent(None)
-
             avail_w = max(_CW + _GAP, self._scroll.viewport().width())
-            cols = max(1, (avail_w + _GAP) // (_CW + _GAP))
-
-            for i, card in enumerate(self._filtered):
-                row, col = divmod(i, cols)
-                self._grid.addWidget(card, row, col)
-                card.show()
-
-            for card in self._cards:
-                if card not in self._filtered:
-                    card.hide()
-
-            rows = (len(self._filtered) + cols - 1) // cols if self._filtered else 0
+            self._cols = max(1, (avail_w + _GAP) // (_CW + _GAP))
+            total = len(self._filtered_data)
+            rows_total = (total + self._cols - 1) // self._cols if total else 0
             # Blockiere Signale um Resize-Loops zu vermeiden
             self._container.blockSignals(True)
-            self._container.setMinimumHeight(rows * (_CH + _GAP) + 10)
+            self._container.setMinimumHeight(rows_total * (_CH + _GAP) + 10)
             self._container.blockSignals(False)
+
+            vp_h = max(1, self._scroll.viewport().height())
+            y0 = self._scroll.verticalScrollBar().value()
+            pad = vp_h  # 1 Bildschirmhoehe Puffer ober-/unterhalb
+            row_h = _CH + _GAP
+            row_first = max(0, int((y0 - pad) // row_h))
+            row_last = max(row_first, int((y0 + vp_h + pad) // row_h))
+            i0 = row_first * self._cols
+            i1 = min(total, (row_last + 1) * self._cols)
+
+            # Fenster neu bestimmen -> alte Build-Queue ist stale.
+            self._build_queue = []
+            visible_ids: set[int] = set()
+            shown: list[MediaCard] = []
+            for idx in range(i0, i1):
+                data = self._filtered_data[idx]
+                visible_ids.add(data["id"])
+                card = self._card_by_id.get(data["id"])
+                if card is not None:
+                    self._place_card(card, idx)
+                    shown.append(card)
+                else:
+                    self._build_queue.append(idx)
+
+            # Pool-Cards ausserhalb des Fensters (oder aus dem Filter
+            # gefallen) verstecken.
+            for card in self._cards:
+                try:
+                    if card._id not in visible_ids:
+                        card.hide()
+                except RuntimeError:
+                    continue
+
+            self._filtered = shown
+
+            # Sofort-Anteil synchron bauen (Content ohne sichtbare Luecke),
+            # Rest progressiv im Chunk-Timer.
+            built = 0
+            while self._build_queue and built < self._SYNC_BUILD:
+                self._ensure_card_at(self._build_queue.pop(0))
+                built += 1
+            if self._build_queue and not self._load_timer.isActive():
+                self._load_timer.start(20)
         finally:
             self._in_relayout = False
 
