@@ -25,7 +25,7 @@ class SchnittEmptyView(QWidget):
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(40, 60, 40, 40)
+        layout.setContentsMargins(40, 40, 40, 40)  # P2: symmetrisch (war 60 oben)
         layout.setSpacing(16)
         layout.addStretch(1)
 
@@ -62,7 +62,7 @@ class SchnittEmptyView(QWidget):
         custom_row.addStretch(1)
         layout.addLayout(custom_row)
 
-        layout.addStretch(2)
+        layout.addStretch(1)  # P2: 1:1 oben/unten -> Inhalt vertikal zentriert (war 2)
 
     def _make_preset_button(self, key: str, hint: str) -> QPushButton:
         btn = QPushButton(f"{key}\n\n{hint}")

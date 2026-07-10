@@ -376,7 +376,7 @@ class MediaWorkspace(QWidget):
         panel = QFrame()
         panel.setObjectName("workflow_card")
         panel.setMinimumWidth(360)
-        panel.setMaximumWidth(460)
+        panel.setMaximumWidth(520)  # P3: 460 deckelte das Panel -> 64:36; 520 -> ~60:40 (Golden Ratio)
         panel.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
         panel.setStyleSheet(
             "QFrame#workflow_card { background:#111821; border:1px solid rgba(255,255,255,18); "
@@ -563,7 +563,7 @@ class MediaWorkspace(QWidget):
         # -------- Pool + context actions --------
         self._video_content_row = QHBoxLayout()
         self._video_content_row.setContentsMargins(0, 0, 0, 0)
-        self._video_content_row.setSpacing(8)
+        self._video_content_row.setSpacing(16)  # P3: mehr Luft zwischen Tabelle und Analyse-Panel
 
         video_pool_column = QWidget()
         video_pool_layout = QVBoxLayout(video_pool_column)
@@ -817,7 +817,7 @@ class MediaWorkspace(QWidget):
         page_layout.addLayout(tb)
         self._audio_content_row = QHBoxLayout()
         self._audio_content_row.setContentsMargins(0, 0, 0, 0)
-        self._audio_content_row.setSpacing(8)
+        self._audio_content_row.setSpacing(16)  # P3: mehr Luft zwischen Tabelle und Analyse-Panel
 
         self._audio_pool_column = QWidget()
         self._audio_pool_layout = QVBoxLayout(self._audio_pool_column)
