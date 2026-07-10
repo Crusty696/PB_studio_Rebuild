@@ -251,6 +251,114 @@ class BeatGridItem(QGraphicsItem):
             painter.drawLine(x, grid_top, x, grid_bottom)
 
 
+class CutLinesItem(QGraphicsItem):
+    """M1.3 Timeline-Virtualisierung (D-066): ALLE Cut-Marker als EIN Item.
+
+    Ersetzt 1400+ einzelne QGraphicsLineItems (set_cut_points) durch ein
+    Item mit exposedRect-Culling + bisect — LOD-Ansatz aus BeatGridItem.
+    Qt zeichnet nur den sichtbaren Ausschnitt; Show/Polish der Scene muss
+    nicht mehr pro Cut-Linie arbeiten.
+    """
+
+    COLOR_MAP = {
+        "beat": QColor(100, 200, 100, 180),
+        "scene": QColor(255, 200, 60, 180),
+        "energy": QColor(200, 100, 200, 180),
+        "drum": QColor(255, 80, 80, 220),
+        "anchor": QColor(255, 0, 255, 220),
+        "transition": QColor(0, 200, 255, 220),   # Cyan fuer DJ-Uebergaenge
+        "drop": QColor(255, 40, 40, 255),          # Rot fuer Drops
+    }
+    DEFAULT_COLOR = QColor(180, 180, 180)
+    MAX_LINE_H = 20
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        # (time, source, strength), nach time sortiert; _times parallel
+        # fuer bisect-Culling im paint.
+        self._cuts: list[tuple[float, str, float]] = []
+        self._times: list[float] = []
+        self.setZValue(5)
+
+    def set_data(self, cuts) -> None:
+        self._cuts = sorted(
+            (float(cp.time), str(cp.source), float(cp.strength)) for cp in cuts
+        )
+        self._times = [c[0] for c in self._cuts]
+        self.prepareGeometryChange()
+        self.update()
+
+    def boundingRect(self) -> QRectF:
+        if not self._times:
+            return QRectF()
+        w = self._times[-1] * PIXELS_PER_SECOND
+        return QRectF(0, CUT_MARKERS_Y, w + 10, self.MAX_LINE_H + 2)
+
+    def paint(self, painter: QPainter, option: QStyleOptionGraphicsItem, widget=None):
+        clip_rect = option.exposedRect
+        if clip_rect.isEmpty() or not self._cuts:
+            return
+        t_left = max(0.0, clip_rect.left()) / PIXELS_PER_SECOND
+        t_right = clip_rect.right() / PIXELS_PER_SECOND
+        idx_start = bisect.bisect_left(self._times, t_left)
+        idx_end = bisect.bisect_right(self._times, t_right)
+        pens: dict[str, QPen] = {}
+        for i in range(idx_start, idx_end):
+            t, source, strength = self._cuts[i]
+            pen = pens.get(source)
+            if pen is None:
+                pen = QPen(self.COLOR_MAP.get(source, self.DEFAULT_COLOR), 1)
+                pens[source] = pen
+            x = t * PIXELS_PER_SECOND
+            line_h = int(self.MAX_LINE_H * strength)
+            painter.setPen(pen)
+            painter.drawLine(x, CUT_MARKERS_Y, x, CUT_MARKERS_Y + line_h)
+
+
+class BeatMarkersItem(QGraphicsItem):
+    """M1.3 Timeline-Virtualisierung (D-066): goldene Beat-Marker als EIN
+    Item (vorher ein QGraphicsLineItem pro Beat — bei DJ-Sets 12k+ Items).
+    exposedRect-Culling + bisect wie BeatGridItem; Downbeat-Logik
+    (jeder 4.) bleibt ueber den absoluten Listen-Index erhalten.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._beat_times: list[float] = []
+        self.setZValue(3)
+
+    def set_data(self, beat_times: list[float]) -> None:
+        self._beat_times = sorted(float(t) for t in beat_times)
+        self.prepareGeometryChange()
+        self.update()
+
+    def _marker_bottom(self) -> float:
+        return AUDIO_TRACK_Y + TRACK_HEIGHT * 2 + 20
+
+    def boundingRect(self) -> QRectF:
+        if not self._beat_times:
+            return QRectF()
+        w = self._beat_times[-1] * PIXELS_PER_SECOND
+        return QRectF(0, AUDIO_TRACK_Y, w + 10,
+                      self._marker_bottom() - AUDIO_TRACK_Y)
+
+    def paint(self, painter: QPainter, option: QStyleOptionGraphicsItem, widget=None):
+        clip_rect = option.exposedRect
+        if clip_rect.isEmpty() or not self._beat_times:
+            return
+        gold_pen = QPen(QColor(212, 175, 55, 160), 1)
+        downbeat_pen = QPen(QColor(212, 175, 55, 220), 1)
+        bottom = self._marker_bottom()
+        t_left = max(0.0, clip_rect.left()) / PIXELS_PER_SECOND
+        t_right = clip_rect.right() / PIXELS_PER_SECOND
+        idx_start = bisect.bisect_left(self._beat_times, t_left)
+        idx_end = bisect.bisect_right(self._beat_times, t_right)
+        for i in range(idx_start, idx_end):
+            x = self._beat_times[i] * PIXELS_PER_SECOND
+            painter.setPen(downbeat_pen if (i % 4 == 0) else gold_pen)
+            painter.drawLine(x, AUDIO_TRACK_Y, x, bottom)
+
+
 # ======================================================================
 # Draggable Timeline Clip
 # ======================================================================
@@ -998,6 +1106,13 @@ class InteractiveTimeline(QGraphicsView):
         self._current_zoom: float = 1.0       # Current horizontal zoom factor
         self._beat_grid_item = BeatGridItem()
         self._scene.addItem(self._beat_grid_item)
+        # M1.3 (D-066): Cut-Marker + Beat-Marker als je EIN Single-Item mit
+        # exposedRect-Culling. Die Legacy-Listen cut_lines/_beat_markers
+        # bleiben (leer) fuer Teardown-Kompatibilitaet bestehen.
+        self._cut_lines_item = CutLinesItem()
+        self._scene.addItem(self._cut_lines_item)
+        self._beat_markers_item = BeatMarkersItem()
+        self._scene.addItem(self._beat_markers_item)
 
         # Drop indicator (visual feedback during drag-over)
         self._drop_indicator: QGraphicsLineItem | None = None
@@ -1182,6 +1297,9 @@ class InteractiveTimeline(QGraphicsView):
                 _safe_rm(marker)
             self._beat_markers.clear()
             self._beat_marker_signature = ()
+            # M1.3 (D-066): Single-Item-Daten leeren (Cut-/Beat-Marker).
+            self._cut_lines_item.set_data([])
+            self._beat_markers_item.set_data([])
             # Clear sections + beat grid + drop markers (AUD-70)
             self._clear_sections()
             self._clear_beat_grid()
@@ -1957,27 +2075,13 @@ class InteractiveTimeline(QGraphicsView):
         vp = self.viewport()
         vp.setUpdatesEnabled(False)
         try:
+            # M1.3 (D-066): Legacy-Einzel-Items raeumen (nach dem Umbau leer),
+            # dann alle Cuts als Daten in das EINE CutLinesItem geben —
+            # kein QGraphicsLineItem pro Cut mehr (vorher 1400+ Items).
             for line in self.cut_lines:
                 self._scene.removeItem(line)
             self.cut_lines.clear()
-
-            color_map = {
-                "beat": QColor(100, 200, 100, 180),
-                "scene": QColor(255, 200, 60, 180),
-                "energy": QColor(200, 100, 200, 180),
-                "drum": QColor(255, 80, 80, 220),
-                "anchor": QColor(255, 0, 255, 220),
-                "transition": QColor(0, 200, 255, 220),   # Cyan fuer DJ-Uebergaenge
-                "drop": QColor(255, 40, 40, 255),          # Rot fuer Drops
-            }
-            for cp in cuts:
-                x = cp.time * PIXELS_PER_SECOND
-                color = color_map.get(cp.source, QColor(180, 180, 180))
-                pen = QPen(color, 1)
-                line_h = int(20 * cp.strength)
-                line = self._scene.addLine(x, CUT_MARKERS_Y, x, CUT_MARKERS_Y + line_h, pen)
-                line.setZValue(5)
-                self.cut_lines.append(line)
+            self._cut_lines_item.set_data(cuts)
 
             # Update total duration and redraw backgrounds if needed
             if total_duration > self._total_duration:
@@ -2009,21 +2113,14 @@ class InteractiveTimeline(QGraphicsView):
         vp = self.viewport()
         vp.setUpdatesEnabled(False)
         try:
+            # M1.3 (D-066): Legacy-Einzel-Items raeumen (nach dem Umbau leer),
+            # dann alle Beats als Daten in das EINE BeatMarkersItem geben —
+            # kein QGraphicsLineItem pro Beat mehr (DJ-Sets: 12k+ Items).
             for line in self._beat_markers:
                 self._scene.removeItem(line)
             self._beat_markers.clear()
             self._beat_times = list(signature)
-
-            gold_pen = QPen(QColor(212, 175, 55, 160), 1)
-            downbeat_pen = QPen(QColor(212, 175, 55, 220), 1)
-            marker_height = AUDIO_TRACK_Y + TRACK_HEIGHT * 2 + 20
-
-            for i, t in enumerate(self._beat_times):
-                x = t * PIXELS_PER_SECOND
-                pen = downbeat_pen if (i % 4 == 0) else gold_pen
-                line = self._scene.addLine(x, AUDIO_TRACK_Y, x, marker_height, pen)
-                line.setZValue(3)
-                self._beat_markers.append(line)
+            self._beat_markers_item.set_data(self._beat_times)
         finally:
             vp.setUpdatesEnabled(True)
             logger.info(

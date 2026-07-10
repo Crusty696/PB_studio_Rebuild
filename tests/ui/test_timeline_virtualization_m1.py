@@ -154,6 +154,58 @@ def test_record_first_syncs_apply_without_item():
         _qapp().processEvents()
 
 
+def test_cut_points_use_single_item_not_per_cut_lines():
+    """M1.3: set_cut_points erzeugt KEINE QGraphicsLineItems pro Cut mehr —
+    alle Cuts leben als Daten im einen CutLinesItem (exposedRect-Culling)."""
+    _qapp()
+    tl = _make_timeline()
+    try:
+        cuts = [SimpleNamespace(time=float(i), source="beat", strength=1.0)
+                for i in range(500)]
+        tl.set_cut_points(cuts, total_duration=500.0)
+        assert tl.cut_lines == []  # keine Einzel-Items
+        assert len(tl._cut_lines_item._cuts) == 500
+        assert not tl._cut_lines_item.boundingRect().isEmpty()
+
+        # Signature-No-op (B-598) bleibt erhalten.
+        tl.set_cut_points(cuts, total_duration=500.0)
+        assert len(tl._cut_lines_item._cuts) == 500
+
+        # Paint-Smoke mit kleinem exposedRect (Culling-Pfad).
+        from PySide6.QtGui import QImage, QPainter
+        from PySide6.QtWidgets import QStyleOptionGraphicsItem
+        img = QImage(200, 100, QImage.Format.Format_ARGB32)
+        img.fill(0)
+        p = QPainter(img)
+        opt = QStyleOptionGraphicsItem()
+        opt.exposedRect = QRectF(0.0, 0.0, 200.0, 100.0)
+        tl._cut_lines_item.paint(p, opt, None)
+        p.end()
+    finally:
+        tl.deleteLater()
+        _qapp().processEvents()
+
+
+def test_beat_markers_use_single_item_not_per_beat_lines():
+    """M1.3: set_beat_markers erzeugt KEINE QGraphicsLineItems pro Beat mehr."""
+    _qapp()
+    tl = _make_timeline()
+    try:
+        beats = [i * 0.5 for i in range(2000)]
+        tl.set_beat_markers(beats)
+        assert tl._beat_markers == []  # keine Einzel-Items
+        assert len(tl._beat_markers_item._beat_times) == 2000
+        assert tl._beat_times  # Snap-Datenbasis weiterhin gesetzt
+        assert not tl._beat_markers_item.boundingRect().isEmpty()
+
+        # Teardown-Aequivalent: Daten leeren.
+        tl._beat_markers_item.set_data([])
+        assert tl._beat_markers_item.boundingRect().isEmpty()
+    finally:
+        tl.deleteLater()
+        _qapp().processEvents()
+
+
 def test_audio_clip_stays_materialized():
     _qapp()
     tl = _make_timeline()

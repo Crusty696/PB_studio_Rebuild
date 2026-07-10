@@ -56,8 +56,10 @@ Plan loest das ein.
       (2026-07-10, `_update_virtualization`, Fenster ±2 Screens, Demat-
       Hysterese ±3, Guards fuer Selection/Drag/Trim/pending-Moves —
       code-complete, live-pending)
-- [ ] Cut-Lines/Beat-Marker viewport-lazy (LOD-Ansatz aus BeatGridItem
-      uebernehmen).
+- [x] Cut-Lines/Beat-Marker viewport-lazy (LOD-Ansatz aus BeatGridItem
+      uebernehmen). (2026-07-10, CutLinesItem + BeatMarkersItem als je EIN
+      QGraphicsItem mit exposedRect-Culling + bisect statt 1400+/12k+
+      Einzel-Line-Items — code-complete, live-pending)
 - [x] Selection/Undo/Lock arbeiten auf Records; Item-Zustand wird beim
       Materialisieren angewandt. (2026-07-10, record-first Syncs:
       _sync_clip_position/_sync_clip_after_trim/_sync_clip_lock_visual/

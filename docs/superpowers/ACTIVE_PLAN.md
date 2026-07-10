@@ -25,8 +25,9 @@ wurden bei der main-Konsolidierung entfernt.
 
 ## Current Next Task
 
-M1.3 — Cut-Lines/Beat-Marker viewport-lazy (LOD-Ansatz aus BeatGridItem).
-Danach M2 (Show-Entkopplung).
+M2 — Show-Entkopplung: Beim Workspace-Wechsel Stack sofort umschalten,
+Scene-/Grid-Fuellung via QTimer(0)-Batches NACH dem ersten Paint
+(progressiv sichtbar). M1 ist komplett code-complete (live-pending).
 
 Stand 2026-07-10 abends: M0 fertig (50c6683). M1 Records +
 Materialisierungs-Fenster + record-first Syncs code-complete
