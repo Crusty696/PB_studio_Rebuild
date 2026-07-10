@@ -37,10 +37,13 @@ def test_teardown_loops_go_through_guard_not_direct_removeitem() -> None:
     # The only place removeItem may be called is inside the guarded helper.
     assert teardown.count("self._scene.removeItem(") == 1, (
         "B-575: the four teardown loops must route through the guarded helper "
-        "(_safe_remove); only the helper may call self._scene.removeItem(...)."
+        "(_safe_rm); only the helper may call self._scene.removeItem(...)."
     )
-    assert "_safe_remove(" in teardown, (
-        "B-575: teardown loops must use the guarded _safe_remove(...) helper."
+    # 2026-07-10 Konsolidierung: Guard heisst jetzt _safe_rm (shiboken6.isValid
+    # + RuntimeError-Netz, robuster als das alte _safe_remove). Invariante
+    # unveraendert: alle teardown-Loops routen ueber den Guard.
+    assert "_safe_rm(" in teardown, (
+        "B-575: teardown loops must use the guarded _safe_rm(...) helper."
     )
 
 

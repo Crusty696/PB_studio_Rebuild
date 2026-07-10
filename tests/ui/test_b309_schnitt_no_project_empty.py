@@ -46,6 +46,11 @@ class _Stack:
     def setCurrentIndex(self, index):
         self.indices.append(index)
 
+    def setUpdatesEnabled(self, on):
+        # 2026-07-10 Konsolidierung: jovial Freeze-Fix (_on_workspace_changed
+        # setzt Paint-Updates des Stacks fuer die Umschalt-Dauer aus). Mock-No-op.
+        pass
+
 
 class _SchnittWs:
     def __init__(self, notes, cut_list):

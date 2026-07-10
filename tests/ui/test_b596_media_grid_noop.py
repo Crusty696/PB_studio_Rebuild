@@ -17,6 +17,10 @@ def test_b596_identical_video_items_do_not_rebuild_cards(monkeypatch, tmp_path):
 
     _qapp()
     grid = MediaPoolGrid(media_type="video")
+    # 2026-07-10 Konsolidierung: set_items baut nur bei sichtbarem Grid eager
+    # (jovial Freeze-Fix). Sichtbar machen, damit die B-596-no-op-Logik im
+    # eager-Pfad getestet wird (Invariante: identische Items -> kein Rebuild).
+    grid.show()
     calls: list[tuple[int, ...]] = []
 
     def fake_rebuild() -> None:
@@ -49,6 +53,8 @@ def test_b596_changed_video_item_rebuilds_cards(monkeypatch, tmp_path):
 
     _qapp()
     grid = MediaPoolGrid(media_type="video")
+    # 2026-07-10 Konsolidierung: siehe oben - eager-Pfad via show() erzwingen.
+    grid.show()
     calls: list[tuple[str, ...]] = []
 
     def fake_rebuild() -> None:

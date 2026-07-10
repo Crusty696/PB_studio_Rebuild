@@ -13,7 +13,12 @@ def qapp():
 def test_media_grid_null_title(qapp):
     """Verifiziert, dass MediaPoolGrid nicht abstuerzt, wenn ein Item einen Null-Titel (None) hat."""
     grid = MediaPoolGrid(media_type="audio")
-    
+    # 2026-07-10 Konsolidierung: set_items baut Cards nur, wenn das Grid sichtbar
+    # ist (jovial Freeze-Fix: unsichtbares Grid schiebt den Rebuild auf showEvent).
+    # Der Test braucht den eager-Pfad -> Grid sichtbar machen, damit _rebuild_cards
+    # (und damit _load_index/_load_next_chunk) initialisiert wird.
+    grid.show()
+
     # Item mit "title": None
     items = [
         {
