@@ -184,7 +184,16 @@ class _ThumbWorker(QObject):
         self._h = h
 
     def run(self) -> None:
-        self.done.emit(self._path, self._extract())
+        # B-605: done MUSS immer emittiert werden — die Thread-Beendigung
+        # haengt daran (worker.done -> thread.quit). Wirft _extract (ffmpeg-
+        # Fehler, kaputte Datei), wuerde der Thread sonst ewig im Event-Loop
+        # haengen (Leak) statt sich sauber zu beenden.
+        try:
+            img = self._extract()
+        except Exception:  # noqa: BLE001 — Thumbnail darf nie den Thread killen
+            logger.debug("_ThumbWorker: Extract fehlgeschlagen fuer %s", self._path, exc_info=True)
+            img = QImage()
+        self.done.emit(self._path, img)
 
     def _extract(self) -> QImage:
         return _extract_thumb_qimage(self._path, self._w, self._h)

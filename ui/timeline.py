@@ -27,6 +27,28 @@ from database import engine, AudioTrack, VideoClip, TimelineEntry, Beatgrid, Cli
 
 logger = logging.getLogger(__name__)
 
+# B-605-Fix: Modul-globale Registry fuer laufende Thumbnail-QThreads.
+# Vorher hing der einzige GC-Schutz (self._thumb_threads) und der einzige
+# Cleanup-Pfad (_on_thumb_worker_done) am Timeline-WIDGET. Wurde die Timeline
+# beim Workspace-/Projekt-Wechsel zerstoert waehrend ffmpeg-Thumb-Threads
+# liefen, sammelte Python-GC die QThread-Wrapper ein -> C++-QThread wurde
+# geloescht WAEHREND der Thread lief -> beim run()-Ende feuerte
+# QThread::finished auf freigegebenen Speicher -> nativer Crash
+# (CrashDump 2026-07-08 05:45: NULL_CLASS_PTR_WRITE Qt6Core
+# QThread::start->finished->qt_static_metacall, kein Python-Frame im
+# Crash-Thread). Die Lebensdauer der Paare ist jetzt widget-UNABHAENGIG:
+# worker.done -> thread.quit beendet den Thread immer, thread.finished
+# raeumt via _release_thumb_pair die globale Registry auf.
+_ACTIVE_THUMB_THREADS: list = []
+
+
+def _release_thumb_pair(pair) -> None:
+    """thread.finished-Slot: Paar aus der globalen Registry entfernen."""
+    try:
+        _ACTIVE_THUMB_THREADS.remove(pair)
+    except ValueError:
+        pass
+
 # Timeline-Perf-Diagnose: [PERF]-Timing-Logs nur bei gesetztem Env-Flag
 # PB_TIMELINE_PERF=1 (fuer die Timeline-Virtualisierungs-Untersuchung).
 # Default AUS -> kein Diagnose-Rauschen im Normalbetrieb. Die Timing-
@@ -906,7 +928,8 @@ class InteractiveTimeline(QGraphicsView):
         # Pfade, deren gecachtes Thumbnail nach einem Rebuild bereits auf die
         # neuen Clip-Items angewendet wurde (verhindert Wiederholung je Poll).
         self._cache_applied_paths: set[str] = set()
-        self._thumb_threads: list = []
+        # B-605: Thumb-Thread-Registry ist jetzt modul-global
+        # (_ACTIVE_THUMB_THREADS) — Lebensdauer unabhaengig vom Widget.
         self._thumb_loader = ThumbnailLoadManager(self._start_thumb_worker, max_concurrent=2)
         # Fixplan 2026-07-07 Schritt 6: Pixmap-Cache pro Datei. Vorher galt
         # ein Pfad im Loader dauerhaft als "done", aber das Pixmap wurde nur
@@ -1499,8 +1522,20 @@ class InteractiveTimeline(QGraphicsView):
         )
 
     def _start_thumb_worker(self, file_path: str) -> None:
-        """Startet einen async _ThumbWorker (ffmpeg) fuer eine Clip-Datei."""
+        """Startet einen async _ThumbWorker (ffmpeg) fuer eine Clip-Datei.
+
+        B-605-Fix: Die Thread-Lebensdauer ist widget-UNABHAENGIG verdrahtet.
+        Vorher liefen Beendigung + GC-Schutz ueber eine Widget-Liste plus
+        einen Widget-Cleanup-Slot mit quit/wait — wurde die Timeline beim
+        Workspace-Wechsel zerstoert, waehrend ffmpeg lief, crashte
+        QThread::finished nativ auf freigegebenem Speicher (Dump
+        2026-07-08). Jetzt: worker.done -> thread.quit (worker/thread-intern),
+        finished -> deleteLater + globale Registry-Freigabe. Stirbt die
+        Timeline vorher, trennt Qt nur die UI-Slots — der Thread beendet
+        sich trotzdem sauber und bleibt bis dahin GC-geschuetzt.
+        """
         try:
+            import functools
             from ui.widgets.media_grid import _ThumbWorker
             logger.info("[T1] thumb worker start: %s", file_path)
             thumb_h = max(16, TRACK_HEIGHT - 6)
@@ -1511,46 +1546,19 @@ class InteractiveTimeline(QGraphicsView):
             # H-1/H-8: UI-erzeugender Slot explizit queued in den Main-Thread.
             worker.done.connect(
                 self._on_thumb_ready, Qt.ConnectionType.QueuedConnection)
-            # H-8: EIN Cleanup-Slot statt 3 Lambda-Connects mit QObject-
-            # Capture. Registry haelt (worker, thread)-Paare, damit der
-            # Cleanup-Slot via sender() das richtige Paar findet. Das
-            # Parallel-Limit liefert weiterhin ThumbnailLoadManager
-            # (max_concurrent=2), der einziger Aufrufer dieser Methode ist.
-            worker.done.connect(
-                self._on_thumb_worker_done, Qt.ConnectionType.QueuedConnection)
-            self._thumb_threads.append((worker, thread))
+            # Widget-unabhaengige Beendigungs-Kette (B-605): done beendet den
+            # Thread-Event-Loop direkt; finished raeumt Worker+Thread und die
+            # globale Registry auf. Kein self-Capture -> ueberlebt Widget-Tod.
+            worker.done.connect(thread.quit)
+            thread.finished.connect(worker.deleteLater)
+            thread.finished.connect(thread.deleteLater)
+            pair = (worker, thread)
+            thread.finished.connect(functools.partial(_release_thumb_pair, pair))
+            _ACTIVE_THUMB_THREADS.append(pair)
             thread.start()
         except Exception as exc:  # noqa: BLE001 — Thumbnail darf nie die UI killen
             logger.debug("Thumbnail-Worker-Start fehlgeschlagen (%s): %s", file_path, exc)
             self._thumb_loader.on_done(file_path)
-
-    def _on_thumb_worker_done(self, _file_path: str, _qimage) -> None:
-        """H-8: einziger Cleanup-Slot fuer _ThumbWorker-Threads (Main-Thread).
-
-        Feste Reihenfolge mit try/finally: quit -> wait -> deleteLater ->
-        Registry-Entfernung. ``done`` wird am Ende von ``run()`` emittiert,
-        der wait() kehrt daher praktisch sofort zurueck (kein UI-Freeze).
-        """
-        worker = self.sender()
-        entry = None
-        for pair in self._thumb_threads:
-            if pair[0] is worker:
-                entry = pair
-                break
-        if entry is None:
-            return
-        w, t = entry
-        try:
-            t.quit()
-            if not t.wait(2000):
-                logger.warning("[H-8] Thumb-Thread stoppte nicht innerhalb 2s")
-            w.deleteLater()
-            t.deleteLater()
-        finally:
-            try:
-                self._thumb_threads.remove(entry)
-            except ValueError:
-                pass
 
     def _on_thumb_ready(self, file_path: str, qimage) -> None:
         """GUI-Thread-Slot: wandelt QImage->QPixmap und setzt es auf alle Items."""
