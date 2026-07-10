@@ -86,24 +86,35 @@ class ConvertController(PBComponent):
             items = []
             try:
                 with nullpool_session() as session:
-                    entries = (
-                        session.query(TimelineEntry)
+                    # virt-M4-Fix 2026-07-10: Spalten-Queries statt Voll-ORM —
+                    # query(TimelineEntry).all() zog via lazy='selectin' alle
+                    # ClipAnchors, query(VideoClip).all() alle Scenes mit
+                    # (Watchdog-Beweis Lauf 2: convert.py:93 _fetch hielt die
+                    # DB parallel zum EXPORT-Summary-Worker busy => Main-
+                    # Thread-Queries hingen im busy_timeout).
+                    entry_rows = (
+                        session.query(
+                            TimelineEntry.id,
+                            TimelineEntry.media_id,
+                            TimelineEntry.start_time,
+                            TimelineEntry.end_time,
+                        )
                         .filter_by(project_id=project_id, track="video")
                         .order_by(TimelineEntry.start_time)
                         .all()
                     )
-                    _eids = [e.media_id for e in entries]
-                    _clips = (
-                        {c.id: c for c in session.query(VideoClip).filter(
-                            VideoClip.id.in_(_eids)).all()}
+                    _eids = [r.media_id for r in entry_rows]
+                    _paths = (
+                        dict(session.query(VideoClip.id, VideoClip.file_path).filter(
+                            VideoClip.id.in_(_eids)).all())
                         if _eids else {}
                     )
-                    for entry in entries:
-                        clip = _clips.get(entry.media_id)
-                        if clip:
-                            name = Path(clip.file_path).stem[:30]
-                            label = f"[{entry.id}] {name} ({entry.start_time:.1f}s-{(entry.end_time or 0):.1f}s)"
-                            items.append((label, entry.id))
+                    for entry_id, media_id, start_time, end_time in entry_rows:
+                        file_path = _paths.get(media_id)
+                        if file_path:
+                            name = Path(file_path).stem[:30]
+                            label = f"[{entry_id}] {name} ({start_time:.1f}s-{(end_time or 0):.1f}s)"
+                            items.append((label, entry_id))
             except Exception as e:
                 logger.warning("[ConvertController] _refresh_effects_combos DB-Fehler: %s", e)
             # B-390/B-292: Main-Thread-Delivery via Signal (QTimer.singleShot aus

@@ -1693,8 +1693,13 @@ def export_preview(project_id: int = 1, resolution: str = "1920x1080",
 
 
 def estimate_render_time(project_id: int = 1, resolution: str = "1920x1080",
-                         fps: float = 30.0) -> dict:
+                         fps: float = 30.0, summary: dict | None = None) -> dict:
     """Schaetzt die Renderzeit fuer den kompletten Timeline-Export.
+
+    Args:
+        summary: optional bereits geladenes ``get_timeline_summary``-Ergebnis
+            (virt-M4-Fix: der _ProductionInfoWorker rief die Summary sonst
+            doppelt — zweimal derselbe Timeline-Scan pro EXPORT-Klick).
 
     Returns:
         {
@@ -1706,7 +1711,8 @@ def estimate_render_time(project_id: int = 1, resolution: str = "1920x1080",
             "preset_summary": str,        # z.B. "1920x1080 @ 30fps"
         }
     """
-    summary = get_timeline_summary(project_id)
+    if summary is None:
+        summary = get_timeline_summary(project_id)
     total_dur = summary["estimated_duration"]
     seg_count = summary["video_clips"]
 
@@ -1728,19 +1734,25 @@ def estimate_render_time(project_id: int = 1, resolution: str = "1920x1080",
     except (ValueError, ZeroDivisionError):
         pixel_factor = 1.0
 
-    # Pruefen ob Effekte vorhanden sind (vereinfachte Pruefung via DB)
+    # Pruefen ob Effekte vorhanden sind (vereinfachte Pruefung via DB).
+    # virt-M4-Fix: Spalten-Query statt Voll-ORM-Load (TimelineEntry.anchors
+    # ist lazy='selectin' — der Voll-Load zog alle ClipAnchors mit).
     has_effects = False
     with Session(engine) as session:
-        entries = (
-            session.query(TimelineEntry)
+        effect_rows = (
+            session.query(
+                TimelineEntry.crossfade_duration,
+                TimelineEntry.brightness,
+                TimelineEntry.contrast,
+            )
             .filter_by(project_id=project_id, track="video")
             .all()
         )
         has_effects = any(
-            (e.crossfade_duration or 0) > 0
-            or (e.brightness or 0) != 0
-            or (e.contrast or 1.0) != 1.0
-            for e in entries
+            (cf or 0) > 0
+            or (br or 0) != 0
+            or (ct or 1.0) != 1.0
+            for cf, br, ct in effect_rows
         )
 
     base_time_per_sec = 0.5 * pixel_factor
@@ -1774,48 +1786,61 @@ def estimate_render_time(project_id: int = 1, resolution: str = "1920x1080",
 
 
 def get_timeline_summary(project_id: int = 1) -> dict:
+    """Zaehlt exportierbare Timeline-Eintraege + max. Video-Endzeit.
+
+    virt-M4-Fix 2026-07-10 (Watchdog-Beweis workspace_switch_perf Lauf 2):
+    Vorher Voll-ORM-Loads — ``query(TimelineEntry).all()`` zog via
+    lazy='selectin' ALLE ClipAnchors nach, ``query(VideoClip).all()`` alle
+    Scenes, ``query(AudioTrack).all()`` die Waveform-/Beatgrid-Blobs
+    (lazy='joined'). Bei 1429 Entries/375 Clips lief die Query minutenlang
+    (Stack: _load_via_parent) und verstopfte die DB — Main-Thread-Queries
+    (get_cut_list & Co.) hingen im busy_timeout => 25-32s-Klick-Freezes.
+    Jetzt reine Spalten-Queries: keine Relationship-Loads, nur Tupel.
+    """
     with Session(engine) as session:
-        entries = (
-            session.query(TimelineEntry)
+        rows = (
+            session.query(
+                TimelineEntry.media_id,
+                TimelineEntry.track,
+                TimelineEntry.end_time,
+            )
             .filter_by(project_id=project_id)
             .all()
         )
-        video_ids = [e.media_id for e in entries if e.track == "video"]
-        audio_ids = [e.media_id for e in entries if e.track == "audio"]
+        video_ids = [m for m, t, _ in rows if t == "video"]
+        audio_ids = [m for m, t, _ in rows if t == "audio"]
         active_video_ids = (
             {
-                c.id for c in session.query(VideoClip).filter(
+                r[0] for r in session.query(VideoClip.id).filter(
                     VideoClip.id.in_(video_ids), VideoClip.deleted_at.is_(None)
                 ).all()
-                if getattr(c, "deleted_at", None) is None
             }
             if video_ids else set()
         )
         active_audio_ids = (
             {
-                a.id for a in session.query(AudioTrack).filter(
+                r[0] for r in session.query(AudioTrack.id).filter(
                     AudioTrack.id.in_(audio_ids), AudioTrack.deleted_at.is_(None)
                 ).all()
-                if getattr(a, "deleted_at", None) is None
             }
             if audio_ids else set()
         )
-        exportable_entries = [
-            e for e in entries
+        exportable = [
+            (m, t, e) for m, t, e in rows
             if (
-                (e.track == "video" and e.media_id in active_video_ids)
-                or (e.track == "audio" and e.media_id in active_audio_ids)
+                (t == "video" and m in active_video_ids)
+                or (t == "audio" and m in active_audio_ids)
             )
         ]
-        video_count = sum(1 for e in exportable_entries if e.track == "video")
-        audio_count = sum(1 for e in exportable_entries if e.track == "audio")
+        video_count = sum(1 for _, t, _e in exportable if t == "video")
+        audio_count = sum(1 for _, t, _e in exportable if t == "audio")
         total_duration = 0.0
-        for e in exportable_entries:
-            if e.track == "video" and e.end_time:
-                total_duration = max(total_duration, e.end_time)
+        for _, t, end_time in exportable:
+            if t == "video" and end_time:
+                total_duration = max(total_duration, end_time)
         return {
             "video_clips": video_count,
             "audio_tracks": audio_count,
-            "total_entries": len(exportable_entries),
+            "total_entries": len(exportable),
             "estimated_duration": total_duration,
         }

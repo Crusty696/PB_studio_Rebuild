@@ -36,7 +36,12 @@ class _ProductionInfoWorker(QObject):
             return
         estimate = None
         try:
-            estimate = estimate_render_time(self._project_id, self._resolution, self._fps)
+            # virt-M4-Fix: summary weiterreichen — vorher lief derselbe
+            # Timeline-Scan pro EXPORT-Klick doppelt (get_timeline_summary
+            # intern nochmal in estimate_render_time).
+            estimate = estimate_render_time(
+                self._project_id, self._resolution, self._fps, summary=summary
+            )
         except (OSError, RuntimeError, ValueError) as e:
             logger.debug("Render-Schaetzung fehlgeschlagen: %s", e)
         self.done.emit(summary, estimate)
