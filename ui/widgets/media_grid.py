@@ -576,6 +576,12 @@ class MediaPoolGrid(QWidget):
         # ihr Ergebnis (kein quit/wait auf per-Card-Threads mehr noetig).
         self._thumb_generation: int = 0
         self._in_relayout = False  # Rekursions-Guard (Fix: Freeze)
+        # Freeze-Fix: Karten werden bei set_items nur gebaut, wenn das Grid
+        # sichtbar ist. In der Default-Listenansicht ist das Grid versteckt —
+        # dann werden die Daten nur gecacht und die (teuren) N Card-Widgets
+        # erst beim Sichtbarwerden (showEvent) gebaut. Vermeidet den
+        # Aufbau von ~2000 Widgets fuer eine unsichtbare Ansicht.
+        self._pending_rebuild = False
         
         # Debounce timer fuer Relayout (Fix F-029)
         self._relayout_timer = QTimer(self)
@@ -678,7 +684,13 @@ class MediaPoolGrid(QWidget):
     # ── Public API ───────────────────────────────────────────────────
 
     def set_items(self, items: list[dict]) -> None:
-        """Populate grid from a list of media dicts."""
+        """Populate grid from a list of media dicts.
+
+        Freeze-Fix: Ist das Grid unsichtbar (Default-Listenansicht), werden
+        die Daten nur gecacht und der teure Card-Aufbau auf das erste
+        Sichtbarwerden verschoben (``showEvent``). Ist es bereits sichtbar,
+        wird sofort gebaut (unveraendertes Verhalten).
+        """
         signature = self._build_items_signature(items)
         self._all_items = items
         if signature == self._items_signature:
@@ -689,10 +701,14 @@ class MediaPoolGrid(QWidget):
             )
             return
         self._items_signature = signature
-        self._rebuild_cards()
-        # Schritt 7 (V3): Verwendungs-Badges nach Card-Rebuild reapplizieren
-        if getattr(self, "_timeline_usage", None):
-            self.set_timeline_usage(self._timeline_usage)
+        if self.isVisible():
+            self._pending_rebuild = False
+            self._rebuild_cards()
+            # Schritt 7 (V3): Verwendungs-Badges nach Card-Rebuild reapplizieren
+            if getattr(self, "_timeline_usage", None):
+                self.set_timeline_usage(self._timeline_usage)
+        else:
+            self._pending_rebuild = True
 
     def set_timeline_usage(self, usage: dict[int, int] | None) -> None:
         """Fixplan 2026-07-07 Schritt 7 (V3): markiert Cards, die der letzte
@@ -711,7 +727,11 @@ class MediaPoolGrid(QWidget):
     def clear(self) -> None:
         self._all_items = []
         self._items_signature = ()
-        self._rebuild_cards()
+        if self.isVisible():
+            self._pending_rebuild = False
+            self._rebuild_cards()
+        else:
+            self._pending_rebuild = True
 
     # ── Internal ─────────────────────────────────────────────────────
 
@@ -988,7 +1008,19 @@ class MediaPoolGrid(QWidget):
         # Kachelansicht blieb das Grid komplett leer. Beim Sichtbarwerden das
         # Relayout der bereits gebauten _filtered-Karten nachholen.
         super().showEvent(event)
-        self._relayout()
+        # Freeze-Fix: Wurden die Daten gesetzt waehrend das Grid unsichtbar war
+        # (Listenansicht aktiv), sind die Karten noch nicht gebaut -> jetzt
+        # nachbauen. Sonst nur die bereits gebauten Karten neu einsortieren.
+        if self._pending_rebuild:
+            self._pending_rebuild = False
+            self._rebuild_cards()
+            # Schritt 7 (V3): Verwendungs-Badges nach verzoegertem (lazy)
+            # Card-Rebuild reapplizieren, sonst fehlt das gruene "N×"-Badge
+            # bis zum naechsten set_timeline_usage-Aufruf.
+            if getattr(self, "_timeline_usage", None):
+                self.set_timeline_usage(self._timeline_usage)
+        else:
+            self._relayout()
 
     def resizeEvent(self, event) -> None:  # noqa: N802
         super().resizeEvent(event)

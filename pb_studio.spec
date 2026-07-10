@@ -13,6 +13,13 @@
 #
 # NOTE: Full CUDA build is ~15-20 GB. Use --onedir (default here), not --onefile.
 # Models (Demucs, SigLIP) are NOT bundled — downloaded to %USERPROFILE%\.cache on first use.
+# Ollama is NOT bundled — a system-wide Ollama install is a documented prerequisite
+#   (LLM features: Caption / Studio-Brain). The app uses the system Ollama
+#   (%LOCALAPPDATA%\Programs\Ollama\ollama.exe or PATH); see services/ollama_service.py.
+#   VERSION MATTERS: on the GTX 1060 / driver 546.33 target (GPU hard rule), use a
+#   546-CUDA-compatible Ollama (verified: 0.21.2 uses cuda_v12 on the GPU). Ollama
+#   0.30.10+ requires driver >= 570 for CUDA -> falls back to CPU-only on 546.33
+#   (Vulkan would work but is forbidden by the GPU hard rule). Verified 2026-07-09.
 
 import sys
 from pathlib import Path

@@ -53,7 +53,8 @@ class TaskManagerDock(QDockWidget):
         # Header mit Cancel-Button und Clear-Button
         header_row = QHBoxLayout()
         header_row.setContentsMargins(0, 0, 0, 0)
-        header_label = QLabel("HINTERGRUND-PROZESSE")
+        header_label = QLabel("PROZESSE")  # 2026-07-10: gekuerzt von "HINTERGRUND-PROZESSE";
+        # bei schmalem Dock (280) sonst neben den Buttons "Fertige loeschen"/"Abbrechen" abgeschnitten.
         header_label.setStyleSheet(
             f"color: {T3}; font-size: 10px; font-weight: 700; letter-spacing: 1px;"
         )

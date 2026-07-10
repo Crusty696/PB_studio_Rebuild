@@ -166,6 +166,7 @@ class DeliverWorkspace(QWidget):
         self.export_progress.setFixedHeight(20)
         self.export_progress.setTextVisible(True)
         v.addWidget(self.export_progress)
+        v.insertStretch(0, 1)  # P4: Stretch oben + unten -> Formular vertikal zentriert (kein 700px-Loch)
         v.addStretch(1)
         return page
 

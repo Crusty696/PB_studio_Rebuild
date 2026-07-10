@@ -338,8 +338,9 @@ class PBWindow(QMainWindow):
 
         # UI-Ueberholung 2026-06-13 (User-Feedback "TASKS halb so gross + andockbar"):
         # Das Kontext-/TASKS-Panel ist jetzt ein QDockWidget statt fest in der
-        # HBox -> abreissbar (float), verschiebbar (links/rechts), schliessbar,
-        # und mit ~halber Breite (ContextPanel.DEFAULT_WIDTH 280 -> 180).
+        # HBox -> abreissbar (float), verschiebbar (links/rechts), schliessbar.
+        # 2026-07-10: nicht mehr starr — Startbreite ContextPanel.DEFAULT_WIDTH (300),
+        # frei per Splitter resizable (siehe set_context_visible + resizeDocks unten).
         self.right_dock = QDockWidget("Kontext", self)
         self.right_dock.setObjectName("context_dock")
         self.right_dock.setAllowedAreas(
@@ -384,6 +385,11 @@ class PBWindow(QMainWindow):
         self._status_error_timer = QTimer(self)
         self._status_error_timer.setSingleShot(True)
         self._status_error_timer.timeout.connect(self._clear_status_error)
+
+        # ── LLM-Anzeige (aktuelles KI-Modell + Ladebalken) ──
+        from ui.widgets.model_status_field import ModelStatusField
+        self._model_status_field = ModelStatusField()
+        self.statusBar().addPermanentWidget(self._model_status_field)
 
         # ── Resource Monitor (CPU / RAM / GPU) ──
         self._resource_monitor = ResourceMonitorWidget()
@@ -491,6 +497,13 @@ class PBWindow(QMainWindow):
             self.right_panel.setVisible(visible)
         if dock is not None:
             dock.setVisible(visible)
+            # 2026-07-10 (User): Dock nicht mehr starr -> einmalig eine sinnvolle
+            # Startbreite geben; danach kann der User sie frei per Splitter ziehen.
+            if visible and not getattr(self, "_context_dock_sized", False):
+                self._context_dock_sized = True
+                self.resizeDocks(
+                    [dock], [self.right_panel.DEFAULT_WIDTH], Qt.Orientation.Horizontal
+                )
         if hasattr(self, "_btn_context_panel"):
             self._btn_context_panel.setChecked(visible)
 

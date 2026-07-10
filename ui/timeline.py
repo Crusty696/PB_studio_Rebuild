@@ -903,6 +903,9 @@ class InteractiveTimeline(QGraphicsView):
         # max 2 parallel, jede Datei genau einmal.
         from ui.timeline_thumbnail_loader import ThumbnailLoadManager
         self._thumb_items_by_path: dict[str, list[TimelineClipItem]] = {}
+        # Pfade, deren gecachtes Thumbnail nach einem Rebuild bereits auf die
+        # neuen Clip-Items angewendet wurde (verhindert Wiederholung je Poll).
+        self._cache_applied_paths: set[str] = set()
         self._thumb_threads: list = []
         self._thumb_loader = ThumbnailLoadManager(self._start_thumb_worker, max_concurrent=2)
         # Fixplan 2026-07-07 Schritt 6: Pixmap-Cache pro Datei. Vorher galt
@@ -1069,36 +1072,41 @@ class InteractiveTimeline(QGraphicsView):
         _vp = self.viewport()
         _vp.setUpdatesEnabled(False)
 
-        def _safe_remove(graphics_item):
-            # B-575: Bei re-entrantem/ueberlappendem load_from_db (z.B. Auto-Edit-
-            # Finish + erneutes "Timeline generieren") kann das C++-Objekt eines
-            # noch in der Python-Liste referenzierten Items bereits geloescht sein.
-            # removeItem() wuerde dann RuntimeError("... already deleted") werfen und
-            # die App crashen. Stale Referenzen still ueberspringen, gueltige raeumen.
-            try:
-                self._scene.removeItem(graphics_item)
-            except RuntimeError:
-                pass
-
         try:
+            # B-598/B-575-Fix: Items koennen C++-seitig bereits geloescht sein
+            # (z.B. Auto-Edit-Finish -> undo redo -> load_from_db oder
+            # re-entrantes "Timeline generieren", waehrend ein
+            # WaveformGraphicsItem schon zerstoert wurde). removeItem() auf einem
+            # toten Wrapper wirft "Internal C++ object already deleted". Guard via
+            # shiboken6.isValid (+ RuntimeError-Netz), konsistent mit B-283 oben.
+            import shiboken6
+
+            def _safe_rm(_it):
+                try:
+                    if shiboken6.isValid(_it):
+                        self._scene.removeItem(_it)
+                except RuntimeError:
+                    pass  # C++-Objekt bereits geloescht
+
             for item in self.clip_items:
-                _safe_remove(item)
+                _safe_rm(item)
             self.clip_items.clear()
             # B-471 T1: Thumbnail-Registry + Scheduler zuruecksetzen (Done-Set
             # bleibt erhalten -> bereits generierte Thumbs werden nicht neu erzeugt).
             self._thumb_items_by_path.clear()
             self._thumb_loader.reset()
+            self._cache_applied_paths.clear()  # neuer Rebuild -> Cache erneut anwenden
             for wf in self.waveform_items:
-                _safe_remove(wf)
+                _safe_rm(wf)
             self.waveform_items.clear()
             # Clear old cut lines
             for line in self.cut_lines:
-                _safe_remove(line)
+                _safe_rm(line)
             self.cut_lines.clear()
             self._cut_points_signature = ()
             # Clear old beat markers
             for marker in self._beat_markers:
-                _safe_remove(marker)
+                _safe_rm(marker)
             self._beat_markers.clear()
             self._beat_marker_signature = ()
             # Clear sections + beat grid + drop markers (AUD-70)
@@ -1465,6 +1473,13 @@ class InteractiveTimeline(QGraphicsView):
         requested = 0
         for fp, items in list(self._thumb_items_by_path.items()):
             if self._thumb_loader.is_done(fp):
+                # Pfad bereits geladen. Nach einem Timeline-Rebuild sind die
+                # Clip-Items neu, haben aber noch kein Bild -> das gecachte
+                # Thumbnail direkt anwenden statt zu skippen (sonst bleiben die
+                # Clips dauerhaft auf "Thumbnail laedt"). Nur einmal je Pfad.
+                if fp not in self._cache_applied_paths:
+                    self._apply_cached_thumb(fp, items)
+                    self._cache_applied_paths.add(fp)
                 continue
             for it in items:
                 try:
@@ -1552,6 +1567,28 @@ class InteractiveTimeline(QGraphicsView):
             for it in self._thumb_items_by_path.get(str(file_path), []):
                 it.set_thumbnail_pixmap(pix)
         self._thumb_loader.on_done(str(file_path))
+
+    def _apply_cached_thumb(self, file_path: str, items) -> None:
+        """Wendet ein bereits auf Platte gecachtes Thumbnail direkt auf die
+        Items an (kein erneuter ffmpeg-Lauf) — fuer ``is_done``-Pfade nach einem
+        Timeline-Rebuild, deren neue Clip-Items sonst auf 'Thumbnail laedt' blieben.
+        """
+        from PySide6.QtGui import QPixmap, QImage
+        from ui.widgets.media_grid import _thumb_path
+        try:
+            dest = _thumb_path(str(file_path))
+            if not dest.exists():
+                return  # kein Disk-Cache -> normaler async Load-Pfad kuemmert sich
+            qimg = QImage(str(dest))  # nur Disk lesen, KEIN ffmpeg im GUI-Thread
+            pix = QPixmap.fromImage(qimg)
+        except (RuntimeError, TypeError, OSError):
+            return
+        if pix is not None and not pix.isNull():
+            for it in items:
+                try:
+                    it.set_thumbnail_pixmap(pix)
+                except RuntimeError:
+                    continue
 
     def _style_visible_waveform(self, wf_item: WaveformGraphicsItem, parent_clip: TimelineClipItem | None = None) -> None:
         """Macht 3-Band-Waveform und Beatgrid sichtbar ueber der Clip-Flaeche."""

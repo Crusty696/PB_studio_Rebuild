@@ -214,7 +214,7 @@ def get_stylesheet() -> str:
     }}
 
     /* === TABLES & TREES ===  P9-Step6: kompakter padding */
-    QTableView, QTableWidget, QTreeWidget, QListView {{
+    QTableWidget, QTreeWidget, QListView, QTableView {{
         background-color: {BG1};
         alternate-background-color: {BG2};
         color: {T2};
@@ -223,11 +223,11 @@ def get_stylesheet() -> str:
         gridline-color: rgba(255,255,255,0.03);
         font-size: 10px;
     }}
-    QTableView::item, QTableWidget::item, QTreeWidget::item {{
+    QTableWidget::item, QTreeWidget::item, QTableView::item {{
         padding: 3px 8px;
         border-bottom: 1px solid rgba(255,255,255,0.02);
     }}
-    QTableView::item:selected, QTableWidget::item:selected, QTreeWidget::item:selected {{
+    QTableWidget::item:selected, QTreeWidget::item:selected, QTableView::item:selected {{
         background-color: {ACCENT_MUTED};
         color: {T1};
         border-left: 3px solid {ACCENT};

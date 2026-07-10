@@ -755,15 +755,36 @@ def _ollama_model_exists(client, model: str) -> bool:
 
 
 def _resolve_vision_caption_model(client, requested_model: str) -> str:
-    """Choose an installed vision-capable Ollama model for captioning."""
+    """Choose an installed vision-capable Ollama model for captioning.
+
+    Reihenfolge:
+    1. ``PB_VISION_MODEL`` env-var, wenn installiert
+    2. Auto-Auswahl ``select_best_model("vision")``: bestes installiertes
+       Vision-faehiges Modell das in den VRAM (GTX 1060, 6 GB) passt
+    3. Fallback: ``requested_model`` bzw. feste ``_VISION_MODEL_CANDIDATES``
+    """
     import os
 
-    candidates: list[str] = []
     env_model = os.environ.get("PB_VISION_MODEL")
-    for model in (requested_model, env_model, *_VISION_MODEL_CANDIDATES):
+    if env_model and _ollama_model_exists(client, env_model):
+        return env_model
+
+    # Auto-Auswahl: bestes installiertes Vision-Modell (groesste Params, VRAM-fit).
+    try:
+        best = client.select_best_model("vision")
+    except AttributeError:
+        best = None
+    if best:
+        if best != requested_model:
+            logger.info("[CAPTION] Auto-Vision-Modell '%s' (statt Default '%s').",
+                        best, requested_model)
+        return best
+
+    # Fallback: feste Kandidaten-Reihenfolge.
+    candidates: list[str] = []
+    for model in (requested_model, *_VISION_MODEL_CANDIDATES):
         if model and model not in candidates:
             candidates.append(model)
-
     for model in candidates:
         if _ollama_model_exists(client, model):
             if model != requested_model:

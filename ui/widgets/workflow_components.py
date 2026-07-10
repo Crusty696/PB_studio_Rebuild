@@ -93,7 +93,8 @@ class SectionTabs(QTabWidget):
 class ContextPanel(SectionTabs):
     """Right-side context panel. Collapsed by default, contents survive."""
 
-    DEFAULT_WIDTH = 280  # Erhöhte Standard-Mindestbreite für bessere Lesbarkeit
+    DEFAULT_WIDTH = 300  # Start-/Wunschbreite (nicht mehr starr, siehe unten)
+    MIN_WIDTH = 220      # 2026-07-10: darunter werden Tabs/Buttons abgeschnitten
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -102,14 +103,16 @@ class ContextPanel(SectionTabs):
         self.set_context_visible(False)
 
     def set_context_visible(self, visible: bool) -> None:
+        # 2026-07-10 (User): Das Dock ist an-/abdockbar -> es darf NICHT starr sein.
+        # Statt setFixedWidth nur eine Mindestbreite + freies Maximum, damit der
+        # User die Breite per Dock-Splitter frei ziehen kann. Beim Ausblenden
+        # kollabiert es auf 0.
         if visible:
-            self.setMinimumWidth(280)
-            self.setMaximumWidth(1000)
-            # setFixedWidth wird weggelassen, damit der User das Widget resizen kann
+            self.setMinimumWidth(self.MIN_WIDTH)
+            self.setMaximumWidth(16777215)  # QWIDGETSIZE_MAX -> frei resizable
         else:
             self.setMinimumWidth(0)
             self.setMaximumWidth(0)
-            self.setFixedWidth(0)
         self.setVisible(visible)
 
 

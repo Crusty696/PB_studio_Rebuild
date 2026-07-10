@@ -140,7 +140,12 @@ class ProjectDashboard(QWidget):
             self.system_labels.append(label)
         system_layout.addStretch(1)
         body.addWidget(self.system_card, stretch=1)
-        layout.addLayout(body, stretch=1)
+        # P1 (Layout 2026-07-10): Kopf-Karten nicht mehr auf ~594px aufblaehen.
+        # Sie bekommen Preferred-Hoehe (Inhalt), der vertikale Ueberschuss geht an
+        # den Readiness-Block (stretch=1 unten) statt in halbleere Kopf-Karten.
+        for _c in (self.next_card, self.status_card, self.system_card):
+            _c.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        layout.addLayout(body, stretch=0)
 
         readiness = self._card("Readiness")
         readiness_layout = QGridLayout(readiness)
@@ -157,7 +162,7 @@ class ProjectDashboard(QWidget):
             card, state_label, detail_label = self._readiness_card(title, detail)
             readiness_layout.addWidget(card, idx // 2, idx % 2)
             self.readiness_cards[key] = (card, state_label, detail_label)
-        layout.addWidget(readiness)
+        layout.addWidget(readiness, stretch=1)  # P1: absorbiert den vertikalen Ueberschuss
 
         warnings = self._card("Qualitaetswarnungen")
         warnings_layout = QVBoxLayout(warnings)

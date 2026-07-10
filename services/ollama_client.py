@@ -200,6 +200,105 @@ class OllamaClient:
         except (ConnectionError, TimeoutError, OSError, ValueError, json.JSONDecodeError):
             return True
 
+    # ------------------------------------------------------------------
+    # Auto-Auswahl: bestes installiertes Modell pro Aufgabe
+    # ------------------------------------------------------------------
+
+    def _list_models_detailed(self) -> list[dict]:
+        """Wie list_models(), aber liefert die vollen /api/tags-Eintraege
+        (inkl. ``size`` in Bytes und ``details.parameter_size``)."""
+        try:
+            req = urllib.request.Request(
+                f"{self.base_url}/api/tags",
+                headers={"Accept": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=HTTP_API_TIMEOUT_SEC) as resp:
+                data = json.loads(resp.read())
+            return [m for m in data.get("models", []) if isinstance(m, dict) and m.get("name")]
+        except (ConnectionError, TimeoutError, OSError, ValueError, json.JSONDecodeError):
+            return []
+
+    def _capabilities(self, model_name: str) -> list[str] | None:
+        """Cached /api/show-``capabilities`` eines Modells (z.B.
+        ``["completion", "vision", "tools"]``). ``None`` wenn nicht ermittelbar."""
+        cache = self.__dict__.setdefault("_caps_cache", {})
+        if model_name in cache:
+            return cache[model_name]
+        caps: list[str] | None = None
+        payload = json.dumps({"model": model_name}).encode("utf-8")
+        req = urllib.request.Request(
+            f"{self.base_url}/api/show",
+            data=payload,
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=HTTP_MODEL_INFO_TIMEOUT_SEC) as resp:
+                data = json.loads(resp.read())
+            c = data.get("capabilities")
+            if isinstance(c, list):
+                caps = c
+        except (urllib.error.HTTPError, ConnectionError, TimeoutError, OSError,
+                ValueError, json.JSONDecodeError):
+            caps = None
+        cache[model_name] = caps
+        return caps
+
+    def model_supports_vision(self, model_name: str) -> bool:
+        """True, wenn das Modell laut /api/show Bild-Eingaben (``vision``) kann."""
+        caps = self._capabilities(model_name)
+        return bool(caps) and "vision" in caps
+
+    @staticmethod
+    def _parse_param_size(raw) -> float:
+        """'4.4B' -> 4.4, '1b' -> 1.0, '840M' -> 0.84. Qualitaets-Proxy."""
+        import re
+        if not raw:
+            return 0.0
+        m = re.match(r"\s*([\d.]+)\s*([bBmM])?", str(raw))
+        if not m:
+            return 0.0
+        try:
+            val = float(m.group(1))
+        except ValueError:
+            return 0.0
+        unit = (m.group(2) or "b").lower()
+        return val / 1000.0 if unit == "m" else val
+
+    def select_best_model(self, task: str = "chat",
+                          max_size_bytes: int = 5_300_000_000) -> str | None:
+        """Waehlt automatisch das beste installierte Modell fuer die Aufgabe.
+
+        task: ``"chat"`` (braucht ``completion``-capability) oder ``"vision"``
+        (braucht ``vision``). Ranking: groesste ``parameter_size`` zuerst
+        (Qualitaets-Proxy), gefiltert auf Modelle die in den VRAM passen
+        (GTX 1060, 6 GB -> Default ~5.3 GB, laesst Platz fuer KV-cache).
+        Returns Modellname oder ``None`` wenn keins passt.
+        """
+        need = "vision" if task == "vision" else "completion"
+        scored: list[tuple[float, int, str]] = []
+        for m in self._list_models_detailed():
+            name = m["name"]
+            size = int(m.get("size") or 0)
+            if size and size > max_size_bytes:
+                continue
+            caps = self._capabilities(name)
+            if caps is None:
+                # capabilities unbekannt: Vision NICHT annehmen; Chat als ok werten
+                if need == "vision":
+                    continue
+            elif need not in caps:
+                continue
+            psize = self._parse_param_size(m.get("details", {}).get("parameter_size"))
+            scored.append((psize, size, name))
+        if not scored:
+            return None
+        scored.sort(key=lambda t: (t[0], t[1]), reverse=True)
+        best = scored[0][2]
+        logger.info("select_best_model(task=%s): '%s' (aus %d Kandidaten)",
+                    task, best, len(scored))
+        return best
+
     def probe_model(self, model_name: str) -> bool:
         """Prüft ob ein Modell tatsächlich geladen werden kann (nicht nur heruntergeladen).
 

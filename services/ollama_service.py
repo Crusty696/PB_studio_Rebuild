@@ -38,10 +38,10 @@ def _resolve_default_model(base_url: str = OLLAMA_BASE) -> str | None:
 
     Reihenfolge:
     1. ``PB_OLLAMA_MODEL`` env-var, wenn dieses Modell installiert ist
-    2. Erstes installiertes Modell der Family ``gemma4`` (User-Wunsch
-       laut Vault: Gemma 4 als Hauptmodell)
-    3. ``RECOMMENDED_MODELS`` aus ollama_client (phi3, qwen, etc.)
-    4. Erstes ueberhaupt installiertes Modell
+    2. Auto-Auswahl ``select_best_model("chat")``: bestes installiertes
+       Chat-faehiges Modell das in den VRAM (GTX 1060, 6 GB) passt, groesste
+       Parameterzahl zuerst
+    3. Fallback: erstes installiertes completion-faehiges Modell
 
     Returns ``None`` wenn Ollama nicht erreichbar oder leer.
     """
@@ -68,17 +68,15 @@ def _resolve_default_model(base_url: str = OLLAMA_BASE) -> str | None:
         )
 
     try:
-        from services.ollama_client import OllamaClient, RECOMMENDED_MODELS
-        client = OllamaClient(base_url=base_url)
-        for rec in RECOMMENDED_MODELS:
-            if rec in installed and client.model_supports_completion(rec):
-                return rec
-    except ImportError:
-        pass
-
-    try:
         from services.ollama_client import OllamaClient
         client = OllamaClient(base_url=base_url)
+        # Auto-Auswahl: bestes Chat-faehiges Modell das in den VRAM (GTX 1060,
+        # 6 GB) passt, groesste Parameterzahl zuerst. Loest die alte feste
+        # Gemma-Prioritaet ab -> nutzt automatisch das beste installierte Modell.
+        best = client.select_best_model("chat")
+        if best:
+            return best
+        # Fallback: erstes installiertes completion-faehiges Modell
         for model in sorted(installed):
             if client.model_supports_completion(model):
                 return model
@@ -92,9 +90,15 @@ def _find_ollama_bin() -> Path:
     """Ollama-Binary suchen: PyInstaller-Bundle > System-PATH > Standard-Pfade."""
     import sys
     if getattr(sys, 'frozen', False):  # PyInstaller-Bundle
-        base = Path(sys._MEIPASS) / 'redist'
-        return base / ('ollama.exe' if os.name == 'nt' else 'ollama')
-    
+        # PB Studio buendelt KEIN Ollama (pb_studio.spec haelt kein redist/).
+        # System-Ollama ist dokumentierte Voraussetzung. Ein gebuendeltes
+        # redist/ollama.exe wird nur genutzt, wenn es tatsaechlich existiert —
+        # sonst faellt die Suche auf die System-Installationspfade durch,
+        # statt einen nicht-existenten Pfad an Popen zu geben ([WinError 2]).
+        bundled = Path(sys._MEIPASS) / 'redist' / ('ollama.exe' if os.name == 'nt' else 'ollama')
+        if bundled.exists():
+            return bundled
+
     # Bekannte Installationspfade
     candidates = [
         Path.home() / '.local' / 'bin' / 'ollama',
@@ -109,6 +113,24 @@ def _find_ollama_bin() -> Path:
             return candidate
             
     return Path('ollama')  # Fallback auf System-PATH
+
+
+def _emit_model_status(phase: str, model: str, task: str) -> None:
+    """Meldet den Modell-Lade-Status an die UI (ModelStatusField).
+
+    Defensiv: schlaegt nie fehl, auch ohne laufende Qt-App (Tests/headless).
+    """
+    try:
+        from services.model_load_status import ModelLoadStatus
+        status = ModelLoadStatus.get()
+        if phase == "loading":
+            status.set_loading(model, task)
+        elif phase == "ready":
+            status.set_ready(model, task)
+        elif phase == "error":
+            status.set_error(model, task)
+    except Exception:
+        pass
 
 
 class OllamaService:
@@ -396,7 +418,9 @@ class OllamaService:
         # Client-Abbruch sieht.
         if not self._is_model_warm(model):
             logger.info("OllamaService.chat(): Modell '%s' nicht warm — ensure_model() vorab.", model)
+            _emit_model_status("loading", model, "chat")
             if not self.ensure_model(model):
+                _emit_model_status("error", model, "chat")
                 return f"Fehler: Modell '{model}' konnte nicht geladen werden"
 
         with httpx.Client(base_url=OLLAMA_BASE, timeout=self._inference_timeout()) as client:
@@ -408,6 +432,7 @@ class OllamaService:
                     "options": {"num_predict": num_predict},
                 })
                 if response.status_code == 200:
+                    _emit_model_status("ready", model, "chat")
                     # B1-Fix: Thinking models return response in "thinking" field instead of "content"
                     content = response.json().get("message", {}).get("content", "")
                     if not content:
@@ -458,7 +483,9 @@ class OllamaService:
         )
         if not warm_before:
             logger.info("OllamaService.vision(): Modell '%s' nicht warm — ensure_model() vorab.", model)
+            _emit_model_status("loading", model, "vision")
             if not self.ensure_model(model):
+                _emit_model_status("error", model, "vision")
                 return f"Fehler: Modell '{model}' konnte nicht geladen werden"
         warm_after = self._is_model_warm(model)
         logger.info(
@@ -494,6 +521,7 @@ class OllamaService:
                     "options": {"num_predict": num_predict},
                 })
                 if response.status_code == 200:
+                    _emit_model_status("ready", model, "vision")
                     content = response.json().get("message", {}).get("content", "")
                     if content:
                         return content
