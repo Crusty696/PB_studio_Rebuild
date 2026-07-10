@@ -1,8 +1,15 @@
-"""Sub-Tab 'Schnitt' im SCHNITT-Editor: Preview + Transport + Timeline."""
+"""Sub-Tab 'Schnitt' im SCHNITT-Editor: Preview + Inspector oben, Timeline unten.
+
+Pro-Editor-Umbau 2026-07-10 (User-Feedback): Der CLIP INSPECTOR sass als
+fast leere Spalte ueber die volle Hoehe rechts neben ALLEN Sub-Tabs und nahm
+der Timeline die Breite. Jetzt: kompaktes oberes Band (Vorschau + Transport
+links, Inspector rechts), darunter Timeline + Cutliste in voller Breite.
+"""
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QSizePolicy,
 )
+from ui.clip_inspector import ClipInspectorPanel
 from ui.widgets.cut_list_panel import CutListPanel
 from ui.widgets.video_preview import VideoPreviewWidget
 from ui.workspaces.schnitt.timeline_shell import TimelineShell
@@ -18,20 +25,21 @@ class SchnittTabSchnitt(QWidget):
         v.setContentsMargins(4, 4, 4, 4)
         v.setSpacing(4)
 
-        preview_row = QHBoxLayout()
-        preview_row.addStretch(1)
+        # ── Oberes Band: [Vorschau+Transport | stretch | CLIP INSPECTOR] ──
+        top_band = QHBoxLayout()
+        top_band.setSpacing(8)
+
+        left_col = QVBoxLayout()
+        left_col.setSpacing(4)
         self.video_preview = VideoPreviewWidget()
-        # Pro-Editor Program-Monitor: fuellt das obere Band (statt Mini-Vorschau
-        # 420x236 mit ~615px Totraum). Expanding + grosszuegiges Maximum, 16:9;
-        # das obere Band bekommt vertikalen stretch, die Timeline unten bleibt.
-        self.video_preview.setMinimumSize(480, 270)
-        self.video_preview.setMaximumSize(1280, 720)
+        # 16:9-Monitor, moderat: gross genug fuer die Bildkontrolle, aber die
+        # Timeline unten bleibt der dominante Arbeitsbereich.
+        self.video_preview.setMinimumSize(400, 225)
+        self.video_preview.setMaximumSize(560, 315)
         self.video_preview.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
         )
-        preview_row.addWidget(self.video_preview, stretch=8)
-        preview_row.addStretch(1)
-        v.addLayout(preview_row, stretch=3)
+        left_col.addWidget(self.video_preview)
 
         transport = QHBoxLayout()
         transport.addStretch(1)
@@ -49,10 +57,25 @@ class SchnittTabSchnitt(QWidget):
         self.time_label.setStyleSheet("color: #98a2b1; font-size: 10px;")
         transport.addWidget(self.time_label)
         transport.addStretch(1)
-        v.addLayout(transport)
+        left_col.addLayout(transport)
+        top_band.addLayout(left_col, stretch=2)
+
+        top_band.addStretch(1)
+
+        # CLIP INSPECTOR: kompakter Kasten neben der Vorschau (Inhalt ~280px
+        # hoch) statt fast-leerer Vollhoehen-Spalte. editor_view aliasiert
+        # self.inspector_panel fuer Controller/Wiring (schnitt_controller B5).
+        self.inspector_panel = ClipInspectorPanel(self)
+        self.inspector_panel.setMinimumWidth(260)
+        self.inspector_panel.setMaximumWidth(380)
+        top_band.addWidget(self.inspector_panel, stretch=1)
+
+        v.addLayout(top_band)
 
         self.timeline_shell = TimelineShell()
-        self.timeline_shell.setMinimumHeight(260)
+        # Timeline = Hauptarbeitsbereich -> hohe Mindesthoehe + dominanter
+        # Stretch (die kompakte Vorschau oben hat keinen vertikalen Stretch).
+        self.timeline_shell.setMinimumHeight(340)
         self.timeline_shell.setSizePolicy(
             QSizePolicy.Policy.Expanding,
             QSizePolicy.Policy.Expanding,

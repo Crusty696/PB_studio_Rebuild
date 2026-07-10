@@ -10,7 +10,6 @@ from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QTabWidget, QVBoxLayout, QLabel,
     QComboBox, QPushButton,
 )
-from ui.clip_inspector import ClipInspectorPanel
 from ui.workspaces.schnitt.tab_schnitt import SchnittTabSchnitt
 from ui.workspaces.schnitt.tab_pacing_anker import SchnittTabPacingAnker
 from ui.workspaces.schnitt.tab_audio import SchnittTabAudio
@@ -48,12 +47,14 @@ class SchnittEditorView(QWidget):
         self.tab_rl_notes = SchnittTabRlNotes(self)
         self.sub_tabs.addTab(self.tab_rl_notes, "RL & Notes")
         self.sub_tabs.setTabToolTip(3, "Auto-Edit-Feedback, Lernereignisse und gespeicherte Notizen verwalten.")
-        body.addWidget(self.sub_tabs, stretch=2)
+        body.addWidget(self.sub_tabs, stretch=1)
 
-        # Pro-Editor-Layout: CLIP INSPECTOR als breitere rechte Spalte
-        # (2:1 statt 3:1 -> ~33 % statt 25 %), damit Properties lesbar sind.
-        self.inspector_panel = ClipInspectorPanel(self)
-        body.addWidget(self.inspector_panel, stretch=1)
+        # Pro-Editor-Umbau 2026-07-10: Der CLIP INSPECTOR lebt jetzt im oberen
+        # Band des Schnitt-Tabs (neben der Vorschau) statt als fast-leere
+        # Vollhoehen-Spalte — Timeline + Cutliste bekommen die volle Breite.
+        # Alias bleibt fuer Controller/Wiring (workspace_setup.py:357,
+        # schnitt_controller.py B5) erhalten.
+        self.inspector_panel = self.tab_schnitt.inspector_panel
 
         outer.addLayout(body)
 

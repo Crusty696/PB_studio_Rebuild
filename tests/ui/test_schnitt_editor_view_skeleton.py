@@ -20,4 +20,9 @@ def test_editor_has_persistent_inspector():
     _qapp()
     v = SchnittEditorView()
     assert v.inspector_panel is not None
-    assert v.inspector_panel.parent() is v
+    # Pro-Editor-Umbau 2026-07-10: Inspector lebt im oberen Band des
+    # Schnitt-Tabs (neben der Vorschau); editor_view haelt den Alias fuer
+    # Controller/Wiring. Invariante: Attribut existiert + haengt im
+    # editor_view-Widget-Baum.
+    assert v.inspector_panel.parent() is v.tab_schnitt
+    assert v.inspector_panel is v.tab_schnitt.inspector_panel
