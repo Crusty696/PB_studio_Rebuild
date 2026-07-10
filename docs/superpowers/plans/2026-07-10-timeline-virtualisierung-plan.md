@@ -87,10 +87,26 @@ Plan loest das ein.
       — code-complete, live-pending)
 
 ### M4 — Verify (hart)
-- [ ] Profil-Lauf (M0-Harness) auf test33: Abnahme-Kriterien oben.
-- [ ] Volle Timeline-/Grid-Testsuite gruen; neue Guards fuer
+- [x] Profil-Lauf (M0-Harness) auf test33: Abnahme-Kriterien oben.
+      (2026-07-10, Lauf 7: **status=pass**, worst_click 0.89 s,
+      0 Watchdog-Dumps ueber 3 Zyklen, setCurrentIndex max 72 ms.
+      Fix-Kette: 2763832 refresh_audio-Guard + CutList-Deferral,
+      477ed9f ORM-Kaskaden -> Spalten-Queries, 1788a42 Zeitbudget-
+      Materialisierung, 7a65fef B-614 Stem-Peak sequentiell+seriell,
+      dca67e9+67af4f9 Harness-Messgenauigkeit. Verlauf worst_click:
+      28.9 -> 0.89 s. EHRLICHE GRENZE: pass gilt fuer den Zustand nach
+      der Post-Open-Hintergrundarbeit (~2 Min bei test33); waehrend
+      dieser Phase koennen Wechsel noch traege sein (Lauf 6), und beim
+      Projekt-LOAD selbst bleiben Dumps bis 6.7 s — separates
+      Cold-Load-Thema ausserhalb dieser Abnahme.)
+- [x] Volle Timeline-/Grid-Testsuite gruen; neue Guards fuer
       Virtualisierungs-Invarianten (Item-Count <= sichtbar+Puffer).
+      (654 passed / 0 failed inkl. test_timeline_virtualization_m1,
+      test_media_grid_virtualization_m3, test_m4_workspace_click_guards,
+      test_b614_stem_peak_serial)
 - [ ] Live-GUI-Check (pb-gui-tester) + User-Sichtung → `fixed` setzt User.
+      (pb-gui-tester: 7 Laeufe, 0 Crashes, saubere Shutdowns —
+      User-Sichtung + `fixed`-Marker OFFEN)
 
 ## Risiken
 

@@ -25,20 +25,22 @@ wurden bei der main-Konsolidierung entfernt.
 
 ## Current Next Task
 
-M4-Rest — B-614 Cold-Start-Freeze fixen: Stem-Preview liest beim
-Projekt-Open 4x ~1.4-GB-Stem-WAVs komplett (stem_track_widget) und
-drueckt per GIL/IO den ersten Workspace-Zyklus (Lauf 4: MATERIAL-Show
-9.3 s, worst_click 22.75 s). Hebel: downsampled Peek statt Vollread,
-Thread-Drosselung, Cockpit-Readiness async. Danach Harness-Wiederholung.
+USER-SICHTUNG + `fixed`-Marker: Die Harness-Abnahme ist BESTANDEN
+(Lauf 7: status=pass, worst_click 0.89 s, 0 Watchdog-Dumps ueber
+3 Zyklen). Der User sichtet die App live (test33 oeffnen, Workspace-
+Wechsel, Timeline scrollen/zoomen, Grid scrollen, Drag/Lock/Undo)
+und setzt danach `fixed` auf dem Plan.
 
-Stand 2026-07-10 nacht: M0-M3 code-complete; M4-Fix-Runden 1-3 committed
-(2763832 refresh_audio-Guard + CutList-Deferral, 477ed9f ORM-Kaskaden ->
-Spalten-Queries, 1788a42 Zeitbudget-Materialisierung). 4 Harness-Laeufe
-gefahren (pb-gui-tester, echte App, test33): Zyklen 1+2 GRUEN
-(alle Klicks <= 1.2-1.7 s), worst_click 28.9 -> 22.75 s, max_block
-25.7 -> 10.5 s, Abnahme (<= 2 s) noch NICHT erfuellt — Rest = Zyklus 0
-(B-614). Ergebnisse: tests/qa_artifacts/workspace_switch_perf.json,
-Vault log.md 20:37-21:2x.
+Stand 2026-07-10 nacht: M0-M4 code-complete + Harness-verifiziert.
+7 Live-Laeufe (pb-gui-tester, echte App, test33), 0 Crashes.
+Fix-Kette M4: 2763832, 477ed9f, 1788a42, 7a65fef (B-614), dca67e9 +
+67af4f9 (Harness-Messgenauigkeit). Verlauf worst_click 28.9 -> 0.89 s.
+Bekannte Grenzen (dokumentiert, ausserhalb der Plan-Abnahme):
+(1) Projekt-LOAD selbst hat weiter Dumps bis 6.7 s (Cold-Load,
+u.a. media_workspace._build_video_page, 17.7-s-SLOW-EVENT beim
+Recent-Menue-Klick); (2) waehrend der Post-Open-Hintergrundphase
+(~2 Min bei test33) koennen Wechsel noch traege sein.
+Synthese: docs/superpowers/synthesis/virt-plan-m4-harness-pass-2026-07-10.md.
 
 Stand 2026-07-10 abends: M0 fertig (50c6683). M1 Records +
 Materialisierungs-Fenster + record-first Syncs code-complete
