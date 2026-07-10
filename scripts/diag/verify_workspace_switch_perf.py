@@ -89,9 +89,15 @@ def main() -> int:
         for name, xf in NAV.items():
             t0 = time.perf_counter()
             mouse.click(button="left", coords=(r.left + int(width * xf), nav_y))
-            time.sleep(0.4)
+            # M4-Messgenauigkeit (Lauf 5): Poll-Raster 0.25s statt 2s. Das
+            # alte 2s-Raster quantisierte einen responsiven Klick auf bis zu
+            # ~2.5s (0.4 initial + 2.0 sleep + UIA-Kosten) und riss damit
+            # die 2.0s-Abnahme, obwohl im Messfenster 0 Watchdog-Dumps
+            # auftraten (echte Blockaden faengt weiterhin der
+            # FREEZE_PROBE-Watchdog, nicht dieser UI-Poll).
+            time.sleep(0.25)
             responsive = None
-            for _ in range(90):  # bis 180s
+            for _ in range(720):  # bis 180s
                 try:
                     w = find_win()
                     if w is not None:
@@ -100,7 +106,7 @@ def main() -> int:
                         break
                 except Exception:
                     pass
-                time.sleep(2)
+                time.sleep(0.25)
             clicks.append({"cycle": cycle, "workspace": name,
                            "responsive_s": round(responsive, 2) if responsive else None})
             time.sleep(4)  # Phasen trennen
