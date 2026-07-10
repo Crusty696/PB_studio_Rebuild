@@ -89,23 +89,28 @@ def main() -> int:
         for name, xf in NAV.items():
             t0 = time.perf_counter()
             mouse.click(button="left", coords=(r.left + int(width * xf), nav_y))
-            # M4-Messgenauigkeit (Lauf 5): Poll-Raster 0.25s statt 2s. Das
-            # alte 2s-Raster quantisierte einen responsiven Klick auf bis zu
-            # ~2.5s (0.4 initial + 2.0 sleep + UIA-Kosten) und riss damit
-            # die 2.0s-Abnahme, obwohl im Messfenster 0 Watchdog-Dumps
-            # auftraten (echte Blockaden faengt weiterhin der
-            # FREEZE_PROBE-Watchdog, nicht dieser UI-Poll).
+            # M4-Messgenauigkeit (Lauf 5+6):
+            # - Das alte 2s-Poll-Raster quantisierte einen responsiven Klick
+            #   auf bis zu ~2.5s (Lauf 5: 0 Watchdog-Dumps, trotzdem 2.52s).
+            # - UIA-Polling (pywinauto find_win) im engen Raster erzeugt
+            #   OBSERVER-LAST: UIA-Anfragen werden im Main-Thread der
+            #   Ziel-App beantwortet (Lauf 6: Dumps mit opakem notify-Stack
+            #   im Messfenster). Jetzt: SendMessageTimeout(WM_NULL) auf das
+            #   einmal ermittelte HWND — der Standard-Responsiveness-Check,
+            #   beantwortet vom Event-Loop ohne App-seitige Python-Arbeit.
             time.sleep(0.25)
             responsive = None
-            for _ in range(720):  # bis 180s
-                try:
-                    w = find_win()
-                    if w is not None:
-                        _ = w.window_text()
-                        responsive = time.perf_counter() - t0
-                        break
-                except Exception:
-                    pass
+            _user32 = ctypes.windll.user32
+            _SMTO_ABORTIFHUNG = 0x0002
+            _res = ctypes.c_ulong()
+            for _ in range(720):  # bis ~180s
+                ok = _user32.SendMessageTimeoutW(
+                    int(win.handle), 0x0000, 0, 0,  # WM_NULL
+                    _SMTO_ABORTIFHUNG, 250, ctypes.byref(_res),
+                )
+                if ok:
+                    responsive = time.perf_counter() - t0
+                    break
                 time.sleep(0.25)
             clicks.append({"cycle": cycle, "workspace": name,
                            "responsive_s": round(responsive, 2) if responsive else None})
