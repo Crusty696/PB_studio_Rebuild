@@ -19,10 +19,27 @@ class SchnittCoordinator:
     def __init__(self, audio_binder, db_engine):
         self.audio_binder = audio_binder
         self.db_engine = db_engine
+        # virt-M4-Fix 2026-07-10 (Watchdog-Beweis workspace_switch_perf):
+        # refresh_audio lief bei JEDEM Workspace-Klick komplett durch —
+        # scene().clear() + 3x ~55k-Float-Waveform-Query + Rebuild im
+        # Main-Thread (25-29s-Freezes ab Zyklus 1, Stack: tab_audio.py:137).
+        # Merker: welches Audio ist bereits gebunden? Gleiches Audio mit
+        # gebundener Waveform => No-op. Solange noch KEINE Waveform gebunden
+        # wurde (Analyse laeuft evtl. noch), wird weiter neu geladen, damit
+        # das Analyse-Ergebnis erscheint.
+        self._loaded_audio_id: int | None = None
+        self._loaded_had_waveform = False
 
-    def refresh_audio(self, audio_id: int | None) -> None:
+    def refresh_audio(self, audio_id: int | None, force: bool = False) -> None:
+        if (not force and audio_id is not None
+                and audio_id == self._loaded_audio_id
+                and self._loaded_had_waveform):
+            logger.debug("refresh_audio no-op: audio %s bereits gebunden", audio_id)
+            return
         self.audio_binder.set_audio_id(audio_id)
         if audio_id is None:
+            self._loaded_audio_id = None
+            self._loaded_had_waveform = False
             self.audio_binder.update_waveform(None, [], [])
             self.audio_binder.update_audio_meta(None, None, None)
             return
@@ -38,6 +55,8 @@ class SchnittCoordinator:
                 .first()
             )
             if track_row is None:
+                self._loaded_audio_id = None
+                self._loaded_had_waveform = False
                 self.audio_binder.update_waveform(None, [], [])
                 self.audio_binder.update_audio_meta(None, None, None)
                 return
@@ -95,6 +114,8 @@ class SchnittCoordinator:
                 track_row.key,
                 self._camelot_from_values(track_row.key, track_row.key_modulation_data),
             )
+            self._loaded_audio_id = audio_id
+            self._loaded_had_waveform = waveform is not None
 
     @staticmethod
     def _camelot_from_track(track: AudioTrack) -> str | None:

@@ -614,7 +614,17 @@ class WorkspaceSetupController(PBComponent):
             self.logger.debug("tab_rl_notes set_active_project failed: %s", exc)
         try:
             cut_list = ws.editor_view.tab_schnitt.cut_list_panel
-            cut_list.set_project(pid)
+            # virt-M4-Fix 2026-07-10 (Watchdog-Beweis workspace_switch_perf):
+            # set_project lief bei JEDEM SCHNITT-Klick synchron im Main-Thread
+            # (get_cut_list, 1428 Rows — bei DB-Last 2.5-7.4s Klick-Freeze).
+            # Gleiches Projekt: Refresh via QTimer(0) NACH dem ersten Paint —
+            # Klick reagiert sofort, Daten bleiben frisch (Timeline-Aenderungen
+            # refreshen ohnehin separat via _defer_cut_list_refresh).
+            if getattr(cut_list, "_project_id", None) == pid and pid is not None:
+                from PySide6.QtCore import QTimer
+                QTimer.singleShot(0, cut_list.refresh)
+            else:
+                cut_list.set_project(pid)
         except Exception as exc:
             self.logger.debug("cut_list_panel set_project failed: %s", exc)
         binder = getattr(self.window, "_schnitt_action_binder", None)
