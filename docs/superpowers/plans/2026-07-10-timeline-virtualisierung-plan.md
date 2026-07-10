@@ -40,21 +40,30 @@ Plan loest das ein.
 ## Tasks
 
 ### M0 — Messbasis (klein)
-- [ ] `PB_TIMELINE_PERF`-Messpunkte um `setCurrentIndex`-Show (Scene- vs
-      Grid-Anteil in ms), damit jeder M-Schritt belegbar ist.
-- [ ] Repro-Harness: `self_test_freeze.py`-Ablauf (Open → Zyklen → Profil)
-      als wiederholbares Skript in `scripts/diag/` versionieren.
+- [x] `PB_TIMELINE_PERF`-Messpunkte um `setCurrentIndex`-Show (Scene- vs
+      Grid-Anteil in ms), damit jeder M-Schritt belegbar ist. (50c6683)
+- [x] Repro-Harness: `self_test_freeze.py`-Ablauf (Open → Zyklen → Profil)
+      als wiederholbares Skript in `scripts/diag/` versionieren. (50c6683,
+      `scripts/diag/verify_workspace_switch_perf.py`)
 
 ### M1 — Timeline-Viewport-Virtualisierung (Kern)
-- [ ] Clip-Datensaetze von Item-Objekten trennen: leichte Records fuer alle
+- [x] Clip-Datensaetze von Item-Objekten trennen: leichte Records fuer alle
       1428 Cuts, echte `TimelineClipItem`s NUR fuer Viewport ± Puffer
-      (~2 Bildschirmbreiten).
-- [ ] Materialisieren/Entmaterialisieren bei Scroll/Zoom (Handler existiert:
+      (~2 Bildschirmbreiten). (2026-07-10, `ClipRecord` in ui/timeline.py —
+      code-complete, live-pending)
+- [x] Materialisieren/Entmaterialisieren bei Scroll/Zoom (Handler existiert:
       `_request_visible_thumbnails`-Polling als Anker nutzen).
+      (2026-07-10, `_update_virtualization`, Fenster ±2 Screens, Demat-
+      Hysterese ±3, Guards fuer Selection/Drag/Trim/pending-Moves —
+      code-complete, live-pending)
 - [ ] Cut-Lines/Beat-Marker viewport-lazy (LOD-Ansatz aus BeatGridItem
       uebernehmen).
-- [ ] Selection/Undo/Lock arbeiten auf Records; Item-Zustand wird beim
-      Materialisieren angewandt.
+- [x] Selection/Undo/Lock arbeiten auf Records; Item-Zustand wird beim
+      Materialisieren angewandt. (2026-07-10, record-first Syncs:
+      _sync_clip_position/_sync_clip_after_trim/_sync_clip_lock_visual/
+      _remove_clip_item/sync_anchors/refresh_clip_geometry_from_db;
+      TDD-Guards tests/ui/test_timeline_virtualization_m1.py —
+      code-complete, live-pending)
 
 ### M2 — Show-Entkopplung (Klick reagiert sofort)
 - [ ] Beim Workspace-Wechsel: Stack sofort umschalten, Scene-/Grid-Fuellung

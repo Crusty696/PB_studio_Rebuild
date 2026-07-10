@@ -532,6 +532,19 @@ def test_timeline_anchor_sync_clamps_db_start_time_to_zero(
     timeline._scene.addItem(audio_item)
     timeline._scene.addItem(video_item)
     timeline.clip_items.extend([audio_item, video_item])
+    # M1 Timeline-Virtualisierung (D-066): sync_anchors arbeitet auf Records.
+    # Manuell gebaute Items hier als materialisierte Records registrieren.
+    from ui.timeline import ClipRecord
+    for _it in (audio_item, video_item):
+        _rec = ClipRecord(
+            entry_id=_it.entry_id, media_id=_it.media_id,
+            track_type=_it.track_type, title=_it.title,
+            x=_it.pos().x(), y=_it._track_y,
+            width=_it._clip_width, height=_it._clip_height,
+            item=_it,
+        )
+        timeline.clip_records.append(_rec)
+        timeline._records_by_entry[_it.entry_id] = _rec
     timeline._anchor_map = {
         audio_entry.id: [SimpleNamespace(time_offset=1.0)],
         video_entry.id: [SimpleNamespace(time_offset=5.0)],
@@ -710,6 +723,9 @@ def test_refresh_clip_geometry_keeps_items_and_updates_width(
         tl._brain_v3_timeline_meta = {}
         tl._anchor_map = {}
         tl._build_entries([entry], {}, {video_clip.id: video_clip}, {})
+        # M1 Timeline-Virtualisierung (D-066): Build erzeugt Records; fuer den
+        # Headless-Test explizit materialisieren.
+        tl.materialize_all()
         assert len(tl.clip_items) == 1
         item = tl._find_clip_item(entry.id)
         assert item is not None

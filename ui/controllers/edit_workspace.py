@@ -83,7 +83,10 @@ class EditWorkspaceController(PBComponent):
         """
         from ui.workspaces.schnitt.regenerate_dialog import confirm_regenerate
         tv = getattr(self.window, "timeline_view", None)
-        has_timeline = bool(tv is not None and getattr(tv, "clip_items", None))
+        # M1 Timeline-Virtualisierung (D-066): clip_records ist die Wahrheit —
+        # clip_items enthaelt nur die materialisierten Viewport-Items.
+        has_timeline = bool(tv is not None and (
+            getattr(tv, "clip_records", None) or getattr(tv, "clip_items", None)))
         if has_timeline and not confirm_regenerate(self.window):
             return
         self._generate_timeline()

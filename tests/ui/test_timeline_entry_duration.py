@@ -37,6 +37,9 @@ def test_b318_video_clip_width_uses_timeline_entry_duration():
             video_map={7: video},
             anchor_map={},
         )
+        # M1 Timeline-Virtualisierung (D-066): Video-Build erzeugt nur einen
+        # Record; Item entsteht viewport-getrieben -> hier explizit.
+        timeline.materialize_all()
 
         assert len(timeline.clip_items) == 1
         assert timeline.clip_items[0]._clip_width == 5.25 * timeline_mod.PIXELS_PER_SECOND

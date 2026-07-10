@@ -827,7 +827,11 @@ class WorkspaceSetupController(PBComponent):
         preview_btn = getattr(self.window, "btn_preview", None)
         timeline_ready = False
         try:
-            timeline_ready = bool(getattr(self.window.timeline_view, "clip_items", None))
+            # M1 Timeline-Virtualisierung (D-066): clip_records ist die
+            # Wahrheit — clip_items sind nur die materialisierten Items.
+            _tv = self.window.timeline_view
+            timeline_ready = bool(getattr(_tv, "clip_records", None)
+                                  or getattr(_tv, "clip_items", None))
         except Exception:
             timeline_ready = True
         for btn in (export_btn, preview_btn):

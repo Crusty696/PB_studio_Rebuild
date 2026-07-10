@@ -105,6 +105,9 @@ def test_b529_real_clip_item_move_undo_roundtrip(
         tl._brain_v3_timeline_meta = {}
         tl._anchor_map = {}
         tl._build_entries([entry], {}, {video_clip.id: video_clip}, {})
+        # M1 Timeline-Virtualisierung (D-066): Build erzeugt Records; Items
+        # entstehen viewport-getrieben. Headless-Test: explizit materialisieren.
+        tl.materialize_all()
         item = tl._find_clip_item(eid)
         assert item is not None
         assert item.pos().x() == 0.0  # Start 0.0 -> x 0

@@ -5,6 +5,7 @@ import json
 import logging
 import time
 from collections import namedtuple
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -818,6 +819,43 @@ class TimelineClipItem(QGraphicsRectItem):
 
 
 # ======================================================================
+# M1 Timeline-Virtualisierung (D-066): leichter Clip-Datensatz
+# ======================================================================
+
+@dataclass
+class ClipRecord:
+    """Leichter Datensatz pro Timeline-Cut (D-066 M1).
+
+    Haelt alles, um ein TimelineClipItem jederzeit identisch zu
+    (re-)materialisieren. ``item`` ist None, solange der Clip ausserhalb
+    von Viewport+Puffer liegt. Geometrie (x/width) und Zustand
+    (locked/selected) werden beim Entmaterialisieren vom Item
+    zurueckgespiegelt — Undo/Lock/Trim-Syncs schreiben record-first.
+    """
+    entry_id: int
+    media_id: int
+    track_type: str
+    title: str
+    x: float
+    y: float
+    width: float
+    height: float
+    has_waveform: bool = False
+    thumbnail_file_path: str | None = None
+    locked: bool = False
+    selected: bool = False
+    brain_cut_id: int | None = None
+    brain_confidence: float | None = None
+    item: "TimelineClipItem | None" = None
+
+    def h_intersects(self, rect: QRectF) -> bool:
+        """Horizontaler Overlap-Test (Tracks sind vertikal fix, View
+        scrollt nur horizontal — Y bewusst ignoriert, damit kleine/
+        offscreen Viewports keine falschen Negative liefern)."""
+        return self.x < rect.right() and (self.x + self.width) > rect.left()
+
+
+# ======================================================================
 # Interactive Timeline (QGraphicsView) — Performance Optimized
 # ======================================================================
 
@@ -897,6 +935,15 @@ class InteractiveTimeline(QGraphicsView):
 
         self.console_log = console_log
         self.clip_items: list[TimelineClipItem] = []
+        # M1 Timeline-Virtualisierung (D-066): clip_records haelt ALLE Cuts
+        # als leichte Datensaetze; clip_items enthaelt nur die aktuell
+        # materialisierten TimelineClipItems (Viewport + Puffer).
+        self.clip_records: list[ClipRecord] = []
+        self._records_by_entry: dict[int, ClipRecord] = {}
+        # Puffer in Bildschirmbreiten: materialisieren bei <= 2, erst bei
+        # > 3 wieder entmaterialisieren (Hysterese gegen Scroll-Flattern).
+        self._virt_keep_screens = 2.0
+        self._virt_drop_screens = 3.0
         self.cut_lines: list[QGraphicsLineItem] = []
         self._cut_points_signature: tuple = ()
         self.waveform_items: list[WaveformGraphicsItem] = []
@@ -1114,6 +1161,9 @@ class InteractiveTimeline(QGraphicsView):
             for item in self.clip_items:
                 _safe_rm(item)
             self.clip_items.clear()
+            # M1 (D-066): Record-Schicht mit abreissen.
+            self.clip_records.clear()
+            self._records_by_entry.clear()
             # B-471 T1: Thumbnail-Registry + Scheduler zuruecksetzen (Done-Set
             # bleibt erhalten -> bereits generierte Thumbs werden nicht neu erzeugt).
             self._thumb_items_by_path.clear()
@@ -1349,8 +1399,9 @@ class InteractiveTimeline(QGraphicsView):
         except Exception as fit_exc:
             logger.debug("Automatic fit_to_content failed: %s", fit_exc)
         self._schedule_thumb_request()  # B-471 T1: lazy thumbs fuer sichtbare Clips
-        logger.info("[T1] build done: registered_paths=%d clips=%d",
-                    len(self._thumb_items_by_path), len(self.clip_items))
+        logger.info("[T1] build done: registered_paths=%d records=%d materialized=%d",
+                    len(self._thumb_items_by_path), len(self.clip_records),
+                    len(self.clip_items))
         # PERF-DIAG: Wall-Zeit (inkl. Event-Loop-Yields) vs. reine Build-CPU-Zeit.
         # Grosse Differenz = Build yieldet gut (kein Hang durch den Build);
         # Wall ~= CPU = ein Batch/der Build blockiert durchgehend.
@@ -1358,9 +1409,9 @@ class InteractiveTimeline(QGraphicsView):
             _wall = (time.perf_counter() - getattr(self, "_batch_build_started_at",
                                                     time.perf_counter())) * 1000.0
             logger.info(
-                "[PERF] batched build: wall=%.0fms cpu=%.0fms clips=%d batch_size=%d",
+                "[PERF] batched build: wall=%.0fms cpu=%.0fms records=%d materialized=%d batch_size=%d",
                 _wall, getattr(self, "_batch_build_cpu_ms", 0.0),
-                len(self.clip_items), self._BUILD_BATCH_SIZE,
+                len(self.clip_records), len(self.clip_items), self._BUILD_BATCH_SIZE,
             )
 
     def _build_entries(self, entries, audio_map, video_map, anchor_map):
@@ -1409,43 +1460,184 @@ class InteractiveTimeline(QGraphicsView):
         width = dur * PIXELS_PER_SECOND
         x = entry.start_time * PIXELS_PER_SECOND
 
-        item = TimelineClipItem(
+        # M1 Timeline-Virtualisierung (D-066): Build erzeugt nur noch einen
+        # leichten ClipRecord. Das echte TimelineClipItem entsteht erst in
+        # _materialize_record, wenn der Clip in Viewport+Puffer liegt
+        # (_update_virtualization, getriggert vom Thumbnail-Polling-Anker).
+        rec = ClipRecord(
             entry_id=entry.id,
             media_id=entry.media_id,
             track_type=entry.track,
             title=title,
             x=x, y=y,
             width=width, height=TRACK_HEIGHT,
+            has_waveform=has_waveform,
+            thumbnail_file_path=str(clip.file_path) if entry.track == "video" and clip else None,
+            locked=bool(getattr(entry, "locked", False)),
+        )
+        if entry.track == "video":
+            key = (int(entry.media_id), int(round(float(entry.start_time or 0.0) * 1000.0)))
+            meta = self._brain_v3_timeline_meta.get(key)
+            if meta is not None:
+                rec.brain_cut_id = getattr(meta, "cut_id", None)
+                rec.brain_confidence = getattr(meta, "confidence", None)
+        self.clip_records.append(rec)
+        self._records_by_entry[rec.entry_id] = rec
+
+        if entry.track == "audio":
+            # Audio-Clip (1-3 Stueck, spannt die ganze Timeline): IMMER sofort
+            # materialisieren — permanent sichtbar, traegt die Waveform als
+            # Child und wird nie entmaterialisiert.
+            item = self._materialize_record(rec)
+            if item is not None and has_waveform:
+                # B-471 Follow-up: TimelineDBWorker hat waveform_data bereits
+                # geladen. Direkt aus diesem Snapshot zeichnen, sonst endet der
+                # Live-Build sichtbar mit waveform_items=0 und die Wellenform
+                # taucht erst spaet oder gar nicht auf.
+                # B-553: item (TimelineClipItem) als parent_clip uebergeben
+                self._load_waveform_for_track(None, track, entry, dur, y, item)
+        return entry.start_time + dur
+
+    # ── M1 Timeline-Virtualisierung (D-066) ──────────────────────────────
+    def _materialize_record(self, rec: ClipRecord) -> TimelineClipItem | None:
+        """Erzeugt das echte TimelineClipItem fuer einen Record (idempotent).
+
+        Wendet den Record-Zustand (Geometrie, Lock, Selection, Brain-Meta)
+        auf das frische Item an; gecachte Thumbnails kommen sofort via
+        _register_clip_thumbnail/_thumb_pixmaps.
+        """
+        if rec.item is not None:
+            return rec.item
+        item = TimelineClipItem(
+            entry_id=rec.entry_id,
+            media_id=rec.media_id,
+            track_type=rec.track_type,
+            title=rec.title,
+            x=rec.x, y=rec.y,
+            width=rec.width, height=rec.height,
             on_moved=self._on_clip_moved,
             on_trimmed=self._on_clip_trimmed,
-            has_waveform=has_waveform,
-            anchors=anchor_map.get(entry.id, []),
-            thumbnail_file_path=str(clip.file_path) if entry.track == "video" and clip else None,
+            has_waveform=rec.has_waveform,
+            anchors=self._anchor_map.get(rec.entry_id, []),
+            thumbnail_file_path=rec.thumbnail_file_path,
         )
         item.set_brain_v3_feedback(
             service=self._brain_v3_feedback_service,
             context=self._brain_v3_feedback_context,
         )
-        # SCHNITT-Redesign Phase 05 Task 5.3: locked-Flag aus DB uebernehmen
-        item.set_locked(bool(getattr(entry, "locked", False)))
-        self._apply_brain_v3_timeline_metadata(item, entry)
+        if rec.locked:
+            item.set_locked(True)
+        if rec.brain_cut_id is not None:
+            item.set_brain_v3_cut_id(rec.brain_cut_id)
+        if rec.brain_confidence is not None:
+            item.set_brain_v3_confidence(rec.brain_confidence)
         self._scene.addItem(item)
+        if rec.selected:
+            item.setSelected(True)
+        rec.item = item
         self.clip_items.append(item)
         self._register_clip_thumbnail(item)
-        # PERF: Audio-Clip (genau 1, spannt die ganze Timeline) baut seinen
-        # Content sofort — er ist immer sichtbar und nicht im viewport-lazy
-        # Video-Thumbnail-Pfad. Video-Clips bleiben lazy (nur sichtbare).
-        if entry.track == "audio":
+        # PERF: Audio-Content sofort (immer sichtbar, nicht im viewport-lazy
+        # Video-Thumbnail-Pfad); Video-Text bleibt lazy (_ensure_content via
+        # _request_visible_thumbnails).
+        if rec.track_type == "audio":
             item._ensure_content()
+        return item
 
-        if entry.track == "audio" and has_waveform:
-            # B-471 Follow-up: TimelineDBWorker hat waveform_data bereits
-            # geladen. Direkt aus diesem Snapshot zeichnen, sonst endet der
-            # Live-Build sichtbar mit waveform_items=0 und die Wellenform
-            # taucht erst spaet oder gar nicht auf.
-            # B-553: item (TimelineClipItem) als parent_clip uebergeben
-            self._load_waveform_for_track(None, track, entry, dur, y, item)
-        return entry.start_time + dur
+    def _dematerialize_record(self, rec: ClipRecord) -> None:
+        """Entfernt das Item eines Records aus der Scene; Zustand wird in den
+        Record zurueckgespiegelt, damit Re-Materialisierung identisch ist."""
+        item = rec.item
+        if item is None:
+            return
+        rec.item = None
+        try:
+            import shiboken6
+            alive = shiboken6.isValid(item)
+        except Exception:
+            alive = True
+        if alive:
+            try:
+                rec.x = item.pos().x()
+                rec.width = item._clip_width
+                rec.locked = item.is_locked()
+                rec.selected = item.isSelected()
+                self._scene.removeItem(item)
+            except RuntimeError:
+                pass
+        if item in self.clip_items:
+            self.clip_items.remove(item)
+        fp = rec.thumbnail_file_path
+        if fp:
+            lst = self._thumb_items_by_path.get(str(fp))
+            if lst and item in lst:
+                lst.remove(item)
+
+    def _update_virtualization(self, view_rect: QRectF | None = None) -> None:
+        """Materialisiert Records im Fenster Viewport ± _virt_keep_screens,
+        entmaterialisiert Video-Items ausserhalb ± _virt_drop_screens
+        (Hysterese). Anker ist das bestehende 120ms-Polling
+        (_request_visible_thumbnails: Scroll/Zoom/Show/Build)."""
+        if not self.clip_records:
+            return
+        _t0 = time.perf_counter()
+        if view_rect is None:
+            try:
+                view_rect = self.mapToScene(self.viewport().rect()).boundingRect()
+            except RuntimeError:
+                return
+        span = max(200.0, view_rect.width())
+        keep = QRectF(view_rect).adjusted(-self._virt_keep_screens * span, 0.0,
+                                          self._virt_keep_screens * span, 0.0)
+        drop = QRectF(view_rect).adjusted(-self._virt_drop_screens * span, 0.0,
+                                          self._virt_drop_screens * span, 0.0)
+        mat = demat = 0
+        vp = self.viewport()
+        vp.setUpdatesEnabled(False)
+        try:
+            for rec in self.clip_records:
+                if rec.item is None:
+                    if rec.h_intersects(keep):
+                        self._materialize_record(rec)
+                        mat += 1
+                    continue
+                # Audio bleibt permanent materialisiert (Waveform-Parent).
+                if rec.track_type != "video":
+                    continue
+                # Clips mit offenem Interaktions-Zustand nie entziehen:
+                # Selection (Inspector/Hotkeys), laufender Drag/Trim,
+                # ungeflushte Moves (200ms-Debounce, B-529).
+                if rec.entry_id in self._pending_moves:
+                    continue
+                item = rec.item
+                try:
+                    if (item.isSelected() or item._drag_start_x is not None
+                            or getattr(item, "_trim_mode", None)):
+                        continue
+                    item_rect = item.sceneBoundingRect()
+                except RuntimeError:
+                    item_rect = QRectF(rec.x, rec.y, rec.width, rec.height)
+                if not (item_rect.left() < drop.right()
+                        and item_rect.right() > drop.left()):
+                    self._dematerialize_record(rec)
+                    demat += 1
+        finally:
+            vp.setUpdatesEnabled(True)
+        if _TIMELINE_PERF and (mat or demat):
+            logger.info(
+                "[PERF] virt: mat=%d demat=%d items=%d records=%d window=(%.0f..%.0f) dt=%.0fms",
+                mat, demat, len(self.clip_items), len(self.clip_records),
+                keep.left(), keep.right(), (time.perf_counter() - _t0) * 1000.0,
+            )
+
+    def materialize_all(self) -> None:
+        """Materialisiert ALLE Records — fuer Tests und Nicht-Viewport-Pfade,
+        die vollstaendige clip_items erwarten. Kein Produktions-Hot-Path."""
+        for rec in self.clip_records:
+            self._materialize_record(rec)
+
+    def _find_clip_record(self, entry_id: int) -> "ClipRecord | None":
+        return self._records_by_entry.get(int(entry_id))
 
     # ── B-471 T1: viewport-lazy thumbnail loading ─────────────────────────
     def _register_clip_thumbnail(self, item: "TimelineClipItem") -> None:
@@ -1479,6 +1671,10 @@ class InteractiveTimeline(QGraphicsView):
             return
         # etwas Vorlauf, damit knapp ausserhalb liegende Clips vorgeladen werden
         view_rect.adjust(-300.0, 0.0, 300.0, 0.0)
+        # M1 (D-066): Materialisierungs-Fenster VOR der Thumbnail-Logik
+        # nachfuehren — neu materialisierte Items nehmen direkt am
+        # _ensure_content-/Thumbnail-Pass unten teil.
+        self._update_virtualization(view_rect)
         # PERF: Text-Content (Label/Status) fuer aktuell sichtbare Clips lazy
         # nachbauen (siehe TimelineClipItem._ensure_content). Idempotent +
         # billiger Intersects-Check; baut nur neu-sichtbare. Deckt auch
@@ -1717,21 +1913,19 @@ class InteractiveTimeline(QGraphicsView):
                 ).first()
                 thumbnail_file_path = str(clip.file_path) if clip else None
 
-        item = TimelineClipItem(
+        # M1 (D-066): Record anlegen + sofort materialisieren — ein Drop/Add
+        # passiert immer im sichtbaren Bereich. Neue Clips haben keine Anker
+        # (P8-A2-FIX: _anchor_map hat keinen Eintrag -> leere Liste, kein
+        # DB-Query).
+        rec = ClipRecord(
             entry_id=entry_id, media_id=media_id, track_type=track_type,
             title=title, x=x, y=y, width=width, height=TRACK_HEIGHT,
-            on_moved=self._on_clip_moved, on_trimmed=self._on_clip_trimmed,
             has_waveform=has_waveform,
-            anchors=[],  # P8-A2-FIX: neue Clips haben keine Anker → keine DB-Query
             thumbnail_file_path=thumbnail_file_path,
         )
-        item.set_brain_v3_feedback(
-            service=self._brain_v3_feedback_service,
-            context=self._brain_v3_feedback_context,
-        )
-        self._scene.addItem(item)
-        self.clip_items.append(item)
-        self._register_clip_thumbnail(item)
+        self.clip_records.append(rec)
+        self._records_by_entry[entry_id] = rec
+        item = self._materialize_record(rec)
 
         if track_type == "audio" and has_waveform:
             # Asynchrones Laden im Hintergrund, kein UI-Blocking beim Drop
@@ -2151,26 +2345,52 @@ class InteractiveTimeline(QGraphicsView):
         return None
 
     def _sync_clip_position(self, entry_id: int, start_time: float):
-        """Aktualisiert die visuelle Position eines Clips (fuer Undo/Redo)."""
+        """Aktualisiert die Position eines Clips (fuer Undo/Redo).
+
+        M1 (D-066): record-first — der Record ist die Wahrheit fuer alle
+        (auch entmaterialisierte) Clips; das Item zieht nach, falls es
+        gerade materialisiert ist.
+        """
+        new_x = start_time * PIXELS_PER_SECOND
+        rec = self._find_clip_record(entry_id)
+        if rec is not None:
+            rec.x = new_x
         item = self._find_clip_item(entry_id)
         if item:
-            new_x = start_time * PIXELS_PER_SECOND
             item.setPos(new_x, item._track_y)
 
     def _remove_clip_item(self, entry_id: int):
-        """Entfernt ein Clip-Item aus der Scene (fuer Undo/Redo)."""
-        item = self._find_clip_item(entry_id)
+        """Entfernt einen Clip (Record + Item, fuer Undo/Redo)."""
+        rec = self._records_by_entry.pop(int(entry_id), None)
+        if rec is not None and rec in self.clip_records:
+            self.clip_records.remove(rec)
+        item = rec.item if rec is not None else self._find_clip_item(entry_id)
+        if rec is not None:
+            rec.item = None
         if item:
-            self._scene.removeItem(item)
-            self.clip_items.remove(item)
+            try:
+                self._scene.removeItem(item)
+            except RuntimeError:
+                pass
+            if item in self.clip_items:
+                self.clip_items.remove(item)
+            fp = getattr(item, "thumbnail_file_path", None)
+            if fp:
+                lst = self._thumb_items_by_path.get(str(fp))
+                if lst and item in lst:
+                    lst.remove(item)
 
     def _sync_clip_lock_visual(self, entry_id: int, locked: bool) -> None:
-        """Synchronisiert die visuelle Lock-Anzeige nach DB-Toggle.
+        """Synchronisiert die Lock-Anzeige nach DB-Toggle.
 
         SCHNITT-Redesign 2026-05-09 Tier-1 Hardening (D11):
         ToggleClipLockCommand.redo/undo ruft das nach dem DB-Write,
         damit Goldrand + Lock-Icon ohne Full-Reload mitziehen.
+        M1 (D-066): record-first, Item nur falls materialisiert.
         """
+        rec = self._find_clip_record(entry_id)
+        if rec is not None:
+            rec.locked = bool(locked)
         item = self._find_clip_item(entry_id)
         if item is not None:
             item.set_locked(bool(locked))
@@ -2221,13 +2441,25 @@ class InteractiveTimeline(QGraphicsView):
         self.undo_stack.push(cmd)
 
     def _sync_clip_after_trim(self, entry_id: int, start: float, end: float | None):
-        """Aktualisiert Position und Breite eines Clips nach Trim (fuer Undo/Redo)."""
+        """Aktualisiert Position und Breite eines Clips nach Trim (fuer Undo/Redo).
+
+        M1 (D-066): record-first — Geometrie landet immer im Record; das
+        Item zieht nur nach, falls es gerade materialisiert ist.
+        """
+        rec = self._find_clip_record(entry_id)
         item = self._find_clip_item(entry_id)
-        if not item:
+        if rec is None and item is None:
             return
+        old_width = (item._clip_width if item is not None
+                     else rec.width)
         new_x = start * PIXELS_PER_SECOND
-        duration = (end - start) if end is not None else item._clip_width / PIXELS_PER_SECOND
+        duration = (end - start) if end is not None else old_width / PIXELS_PER_SECOND
         new_width = duration * PIXELS_PER_SECOND
+        if rec is not None:
+            rec.x = new_x
+            rec.width = new_width
+        if item is None:
+            return
         item.setPos(new_x, item._track_y)
         item.setRect(QRectF(0, 0, new_width, item._clip_height))
         item._clip_width = new_width
@@ -2242,8 +2474,9 @@ class InteractiveTimeline(QGraphicsView):
         verschwanden bis App-Neustart). Spiegelt den bewaehrten Undo/Redo-Pfad
         ueber _sync_clip_after_trim.
         """
-        item = self._find_clip_item(entry_id)
-        if item is None:
+        # M1 (D-066): Record reicht — _sync_clip_after_trim ist record-first,
+        # ein gerade entmaterialisierter Clip bekommt die Geometrie trotzdem.
+        if self._find_clip_record(entry_id) is None and self._find_clip_item(entry_id) is None:
             return
         try:
             with nullpool_session() as session:
@@ -2944,8 +3177,11 @@ class InteractiveTimeline(QGraphicsView):
 
         Returns True wenn mindestens ein Sync durchgefuehrt wurde.
         """
-        audio_clips = [c for c in self.clip_items if c.track_type == "audio"]
-        video_clips = [c for c in self.clip_items if c.track_type == "video"]
+        # M1 (D-066): arbeitet auf Records — deckt auch entmaterialisierte
+        # Video-Clips ab. Bei materialisierten Items ist item.pos() die
+        # frischeste Position (laufende Drags), sonst record.x.
+        audio_clips = [r for r in self.clip_records if r.track_type == "audio"]
+        video_clips = [r for r in self.clip_records if r.track_type == "video"]
 
         if not audio_clips or not video_clips:
             return False
@@ -2954,12 +3190,20 @@ class InteractiveTimeline(QGraphicsView):
         # Bug-18 Fix: Eine Session für alle Updates statt einer pro Video-Clip
         updates: list[tuple[int, float, float | None]] = []  # (entry_id, new_start, new_end|None)
 
-        def _first_anchor_offset(clip: TimelineClipItem) -> float | None:
+        def _first_anchor_offset(rec: ClipRecord) -> float | None:
             """Get first anchor time_offset from cached _anchor_map (no DB hit)."""
-            anchors = self._anchor_map.get(clip.entry_id)
+            anchors = self._anchor_map.get(rec.entry_id)
             if not anchors:
                 return None
             return min(a.time_offset for a in anchors)
+
+        def _rec_x(rec: ClipRecord) -> float:
+            if rec.item is not None:
+                try:
+                    return rec.item.pos().x()
+                except RuntimeError:
+                    pass
+            return rec.x
 
         for audio_clip in audio_clips:
             audio_anchor_offset = _first_anchor_offset(audio_clip)
@@ -2967,7 +3211,7 @@ class InteractiveTimeline(QGraphicsView):
                 continue
 
             # Absoluter Zeitpunkt des Audio-Ankers auf der Timeline
-            audio_clip_start = audio_clip.pos().x() / PIXELS_PER_SECOND
+            audio_clip_start = _rec_x(audio_clip) / PIXELS_PER_SECOND
             audio_anchor_abs = audio_clip_start + audio_anchor_offset
 
             for video_clip in video_clips:
@@ -2978,7 +3222,12 @@ class InteractiveTimeline(QGraphicsView):
                 # Video-Clip verschieben: Anker soll auf audio_anchor_abs landen
                 new_video_start = max(0.0, audio_anchor_abs - video_anchor_offset)
                 new_x = new_video_start * PIXELS_PER_SECOND
-                video_clip.setPos(new_x, video_clip._track_y)
+                video_clip.x = new_x
+                if video_clip.item is not None:
+                    try:
+                        video_clip.item.setPos(new_x, video_clip.item._track_y)
+                    except RuntimeError:
+                        pass
                 updates.append((video_clip.entry_id, new_video_start, None))
                 synced = True
 

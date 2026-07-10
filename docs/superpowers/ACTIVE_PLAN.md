@@ -25,10 +25,16 @@ wurden bei der main-Konsolidierung entfernt.
 
 ## Current Next Task
 
-M0 — Messbasis: PB_TIMELINE_PERF-Messpunkte um den setCurrentIndex-Show
-(Scene- vs Grid-Anteil) + Repro-Harness nach scripts/diag/ versionieren.
-Danach M1 (Timeline-Viewport-Virtualisierung) — Tasks einzeln, jede mit
-Vault-Log und Commit.
+M1.3 — Cut-Lines/Beat-Marker viewport-lazy (LOD-Ansatz aus BeatGridItem).
+Danach M2 (Show-Entkopplung).
+
+Stand 2026-07-10 abends: M0 fertig (50c6683). M1 Records +
+Materialisierungs-Fenster + record-first Syncs code-complete
+(TDD-Guards gruen, live-pending — User-App pid 8032 mit altem Stand
+lief noch, kein paralleler App-Start wegen SQLite-Lock-Risiko).
+Live-Verify: App neu starten (PB_STUDIO_FREEZE_PROBE=1,
+PB_TIMELINE_PERF=1), test33 oeffnen, scripts/diag/
+verify_workspace_switch_perf.py.
 
 ## Agent Behavior
 
