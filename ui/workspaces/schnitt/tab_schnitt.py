@@ -7,7 +7,7 @@ links, Inspector rechts), darunter Timeline + Cutliste in voller Breite.
 """
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
-    QSizePolicy,
+    QSizePolicy, QFrame,
 )
 from ui.clip_inspector import ClipInspectorPanel
 from ui.widgets.cut_list_panel import CutListPanel
@@ -33,11 +33,18 @@ class SchnittTabSchnitt(QWidget):
         left_col.setSpacing(4)
         self.video_preview = VideoPreviewWidget()
         # 16:9-Monitor, moderat: gross genug fuer die Bildkontrolle, aber die
-        # Timeline unten bleibt der dominante Arbeitsbereich.
+        # Timeline unten bleibt der dominante Arbeitsbereich. Sichtbarer
+        # Rahmen: ohne ihn schwebte "Keine Vorschau" als nackter Text im
+        # Fenster-Schwarz (Live-Prueffund 2026-07-10).
         self.video_preview.setMinimumSize(400, 225)
         self.video_preview.setMaximumSize(560, 315)
         self.video_preview.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
+        )
+        self.video_preview.setStyleSheet(
+            "QLabel#video_preview { background-color: #05070c;"
+            " border: 1px solid #2a2f3a; border-radius: 6px;"
+            " color: #98a2b1; font-size: 11px; }"
         )
         left_col.addWidget(self.video_preview)
 
@@ -62,13 +69,26 @@ class SchnittTabSchnitt(QWidget):
 
         top_band.addStretch(1)
 
-        # CLIP INSPECTOR: kompakter Kasten neben der Vorschau (Inhalt ~280px
-        # hoch) statt fast-leerer Vollhoehen-Spalte. editor_view aliasiert
-        # self.inspector_panel fuer Controller/Wiring (schnitt_controller B5).
-        self.inspector_panel = ClipInspectorPanel(self)
-        self.inspector_panel.setMinimumWidth(260)
-        self.inspector_panel.setMaximumWidth(380)
-        top_band.addWidget(self.inspector_panel, stretch=1)
+        # CLIP INSPECTOR: kompakter, sichtbar abgegrenzter Kasten neben der
+        # Vorschau statt fast-leerer Vollhoehen-Spalte. QFrame-Huelle liefert
+        # den Rahmen (Panel-internes Stylesheet bleibt unangetastet); die
+        # Hoehenbegrenzung verhindert, dass der Inspector das obere Band auf
+        # Leerflaechen-Hoehe streckt (Live-Prueffund 2026-07-10: 665px Band).
+        # editor_view aliasiert self.inspector_panel (schnitt_controller B5).
+        self._inspector_box = QFrame()
+        self._inspector_box.setObjectName("inspector_box")
+        self._inspector_box.setStyleSheet(
+            "QFrame#inspector_box { background-color: #0b0e14;"
+            " border: 1px solid #2a2f3a; border-radius: 6px; }"
+        )
+        self._inspector_box.setMaximumHeight(345)
+        self._inspector_box.setMinimumWidth(260)
+        self._inspector_box.setMaximumWidth(380)
+        _box_lay = QVBoxLayout(self._inspector_box)
+        _box_lay.setContentsMargins(2, 2, 2, 2)
+        self.inspector_panel = ClipInspectorPanel(self._inspector_box)
+        _box_lay.addWidget(self.inspector_panel)
+        top_band.addWidget(self._inspector_box, stretch=1)
 
         v.addLayout(top_band)
 
