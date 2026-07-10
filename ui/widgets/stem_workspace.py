@@ -178,6 +178,12 @@ class StemWorkspace(QWidget):
         self._peak_workers: list[PeakWorker] = []
         # B-602 Fix: Lock für Thread-Safe Access auf Peak-Thread-Listen
         self._peak_lock = threading.Lock()
+        # B-614: Peak-Jobs laufen SERIELL (max. 1 aktiver Reader). Vorher
+        # lasen 4 parallele Threads gleichzeitig von derselben Platte —
+        # Seek-Konkurrenz + GIL-Druck froren den ersten Workspace-Zyklus
+        # nach Projekt-Open ein (Watchdog-Beweis workspace_switch_perf).
+        self._peak_queue: list[tuple[str, str]] = []
+        self._peak_active = False
         self._solo_active: set[str] = set()
         self._pre_solo_mute_state: dict[str, bool] = {}
 
@@ -254,7 +260,19 @@ class StemWorkspace(QWidget):
     # ── Interne Logik ──
 
     def _start_peak_generation(self, stem_name: str, file_path: str):
-        """Startet Peak-Berechnung in einem Worker-Thread."""
+        """B-614: Peak-Job einreihen — es laeuft maximal EIN Reader."""
+        with self._peak_lock:
+            self._peak_queue.append((stem_name, file_path))
+        self._drain_peak_queue()
+
+    def _drain_peak_queue(self):
+        """Startet den naechsten Peak-Job, falls keiner aktiv ist (B-614)."""
+        with self._peak_lock:
+            if self._peak_active or not self._peak_queue:
+                return
+            stem_name, file_path = self._peak_queue.pop(0)
+            self._peak_active = True
+
         thread = QThread()
         worker = PeakWorker(stem_name, file_path)
         worker.moveToThread(thread)
@@ -270,7 +288,7 @@ class StemWorkspace(QWidget):
         # (verhindert "Internal C++ object already deleted" wenn quit() async läuft)
         thread.finished.connect(worker.deleteLater)
         thread.finished.connect(thread.deleteLater)
-        thread.finished.connect(lambda t=thread, w=worker: self._remove_finished_thread(t, w))
+        thread.finished.connect(lambda t=thread, w=worker: self._on_peak_thread_done(t, w))
 
         # B-602 Fix: Thread-Safe Zugriff auf Listen mit Lock
         with self._peak_lock:
@@ -278,6 +296,14 @@ class StemWorkspace(QWidget):
             self._peak_workers.append(worker)
 
         thread.start()
+
+    def _on_peak_thread_done(self, thread: QThread, worker: "PeakWorker"):
+        """B-614: Slot fuer thread.finished — raeumt auf und startet den
+        naechsten Job aus der Queue (seriell)."""
+        self._remove_finished_thread(thread, worker)
+        with self._peak_lock:
+            self._peak_active = False
+        self._drain_peak_queue()
 
     def _remove_finished_thread(self, thread: QThread, worker: "PeakWorker"):
         """Entfernt einen fertigen Thread/Worker aus den Tracking-Listen.
@@ -316,7 +342,13 @@ class StemWorkspace(QWidget):
         die Listen auf sobald das thread.finished-Signal eintrifft.
         """
         # B-602 Fix: Thread-Safe Zugriff auf Listen mit Lock
+        # B-614: wartende Queue-Jobs verwerfen — nach einem Track-Wechsel
+        # duerfen keine Peak-Jobs des alten Tracks mehr anlaufen. Der ggf.
+        # laufende Thread wird via cancel/quit beendet; sein finished-Slot
+        # (_on_peak_thread_done) setzt _peak_active zurueck und draint die
+        # (dann neue) Queue.
         with self._peak_lock:
+            self._peak_queue.clear()
             workers_to_cancel = list(self._peak_workers)
             threads_to_quit = list(self._peak_threads)
 

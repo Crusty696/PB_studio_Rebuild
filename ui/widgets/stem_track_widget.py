@@ -27,7 +27,14 @@ logger = logging.getLogger(__name__)
 
 # Peak-Auflösung: max Peaks pro Waveform-Cache
 PEAKS_TARGET = 8000  # Genug für Full-HD Breite, wenig genug für Speed
-PEAK_SAMPLE_FRAMES = 512  # B-321: Preview-Peaks lesen nicht die komplette Langdatei
+# B-614: Buckets je sequentiellem Block-Read. Der alte B-321-Sampling-Pfad
+# (512 Frames je Bucket) machte 8000 seek+read-Zyklen PRO Stem-Datei —
+# auf HDD ein Seek-Sturm (Minuten-Laufzeit) und via Python-Schleife
+# (8000 Iterationen x 4-5 Threads) massiver GIL-Druck auf den Main-Thread
+# (Watchdog-Beweis workspace_switch_perf Lauf 3+4: Cold-Start-Freezes).
+# Jetzt: sequentiell in grossen Bloecken lesen und die Buckets numpy-
+# vektorisiert rechnen — HDD-freundlich, kaum Python-Bytecode.
+PEAK_BLOCK_BUCKETS = 64
 
 
 # =====================================================================
@@ -71,17 +78,16 @@ class PeakWorker(QObject):
 
                 peaks = np.zeros((actual_peaks, 2), dtype=np.float32)
 
-                for peak_idx in range(actual_peaks):
-                    # [I-04 FIX] Check cancellation between chunks
+                # B-614: sequentiell blockweise lesen (KEIN seek+read pro
+                # Bucket mehr) und Buckets vektorisiert rechnen. Cancel-Check
+                # pro Block (~0.1s Latenz statt pro-Bucket).
+                block_frames = PEAK_BLOCK_BUCKETS * frames_per_peak
+                peak_idx = 0
+                f.seek(0)
+                while peak_idx < actual_peaks:
                     if self._cancelled:
                         return
-
-                    segment_start = peak_idx * frames_per_peak
-                    read_n = min(PEAK_SAMPLE_FRAMES, total_frames - segment_start)
-                    if read_n <= 0:
-                        break
-                    f.seek(segment_start)
-                    chunk = f.read(read_n, dtype="float32", always_2d=True)
+                    chunk = f.read(block_frames, dtype="float32", always_2d=True)
                     if chunk.shape[0] == 0:
                         break
 
@@ -90,8 +96,23 @@ class PeakWorker(QObject):
                     else:
                         mono = chunk[:, 0]
 
-                    peaks[peak_idx, 0] = mono.min()
-                    peaks[peak_idx, 1] = mono.max()
+                    n_full = mono.shape[0] // frames_per_peak
+                    if n_full:
+                        end = min(peak_idx + n_full, actual_peaks)
+                        seg = mono[: (end - peak_idx) * frames_per_peak].reshape(
+                            end - peak_idx, frames_per_peak
+                        )
+                        peaks[peak_idx:end, 0] = seg.min(axis=1)
+                        peaks[peak_idx:end, 1] = seg.max(axis=1)
+                        peak_idx = end
+                    rest = mono[n_full * frames_per_peak:]
+                    if rest.size and peak_idx < actual_peaks and chunk.shape[0] < block_frames:
+                        # letzter Teil-Bucket am Dateiende
+                        peaks[peak_idx, 0] = rest.min()
+                        peaks[peak_idx, 1] = rest.max()
+                        peak_idx += 1
+                    if chunk.shape[0] < block_frames:
+                        break  # EOF
 
                 if self._cancelled:
                     return
