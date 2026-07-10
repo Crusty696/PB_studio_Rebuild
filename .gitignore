@@ -99,6 +99,7 @@ desktop.ini
 
 # Binaries and downloaded tools (FFmpeg, Ollama - large, regenerate on demand)
 bin/
+redist/
 *.zip
 
 # Pytest cache
