@@ -997,23 +997,37 @@ class InteractiveTimeline(QGraphicsView):
         _vp = self.viewport()
         _vp.setUpdatesEnabled(False)
         try:
+            # B-598-Fix: Items koennen C++-seitig bereits geloescht sein (z.B.
+            # Auto-Edit-Finish -> undo redo -> load_from_db, waehrend ein
+            # WaveformGraphicsItem schon zerstoert wurde). removeItem() auf einem
+            # toten Wrapper wirft "Internal C++ object already deleted". Guard via
+            # shiboken6.isValid (+ RuntimeError-Netz), konsistent mit B-283 oben.
+            import shiboken6
+
+            def _safe_rm(_it):
+                try:
+                    if shiboken6.isValid(_it):
+                        self._scene.removeItem(_it)
+                except RuntimeError:
+                    pass  # C++-Objekt bereits geloescht
+
             for item in self.clip_items:
-                self._scene.removeItem(item)
+                _safe_rm(item)
             self.clip_items.clear()
             # B-471 T1: Thumbnail-Registry + Scheduler zuruecksetzen (Done-Set
             # bleibt erhalten -> bereits generierte Thumbs werden nicht neu erzeugt).
             self._thumb_items_by_path.clear()
             self._thumb_loader.reset()
             for wf in self.waveform_items:
-                self._scene.removeItem(wf)
+                _safe_rm(wf)
             self.waveform_items.clear()
             # Clear old cut lines
             for line in self.cut_lines:
-                self._scene.removeItem(line)
+                _safe_rm(line)
             self.cut_lines.clear()
             # Clear old beat markers
             for marker in self._beat_markers:
-                self._scene.removeItem(marker)
+                _safe_rm(marker)
             self._beat_markers.clear()
             # Clear sections + beat grid + drop markers (AUD-70)
             self._clear_sections()
