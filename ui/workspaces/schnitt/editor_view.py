@@ -48,8 +48,10 @@ class SchnittEditorView(QWidget):
         self.tab_rl_notes = SchnittTabRlNotes(self)
         self.sub_tabs.addTab(self.tab_rl_notes, "RL & Notes")
         self.sub_tabs.setTabToolTip(3, "Auto-Edit-Feedback, Lernereignisse und gespeicherte Notizen verwalten.")
-        body.addWidget(self.sub_tabs, stretch=3)
+        body.addWidget(self.sub_tabs, stretch=2)
 
+        # Pro-Editor-Layout: CLIP INSPECTOR als breitere rechte Spalte
+        # (2:1 statt 3:1 -> ~33 % statt 25 %), damit Properties lesbar sind.
         self.inspector_panel = ClipInspectorPanel(self)
         body.addWidget(self.inspector_panel, stretch=1)
 

@@ -21,11 +21,17 @@ class SchnittTabSchnitt(QWidget):
         preview_row = QHBoxLayout()
         preview_row.addStretch(1)
         self.video_preview = VideoPreviewWidget()
-        self.video_preview.setMinimumSize(360, 200)
-        self.video_preview.setMaximumSize(420, 236)
-        preview_row.addWidget(self.video_preview)
+        # Pro-Editor Program-Monitor: fuellt das obere Band (statt Mini-Vorschau
+        # 420x236 mit ~615px Totraum). Expanding + grosszuegiges Maximum, 16:9;
+        # das obere Band bekommt vertikalen stretch, die Timeline unten bleibt.
+        self.video_preview.setMinimumSize(480, 270)
+        self.video_preview.setMaximumSize(1280, 720)
+        self.video_preview.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
+        preview_row.addWidget(self.video_preview, stretch=8)
         preview_row.addStretch(1)
-        v.addLayout(preview_row)
+        v.addLayout(preview_row, stretch=3)
 
         transport = QHBoxLayout()
         transport.addStretch(1)
