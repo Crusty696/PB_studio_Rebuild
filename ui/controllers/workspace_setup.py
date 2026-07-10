@@ -819,9 +819,61 @@ class WorkspaceSetupController(PBComponent):
             manager = getattr(self.window, "_project_manager", None)
             has_project = getattr(manager, "current_project_path", None) is not None
             if has_project:
-                binder.refresh_current_project()
+                # FREEZE-Fix 2026-07-10: build_schnitt_context macht mehrere
+                # DB-Queries — bei busy DB blockierte das den Klick sekunden-
+                # lang (Watchdog-Profil). Kontext jetzt im Worker bauen,
+                # apply_context (nur UI) im queued Slot.
+                self._refresh_schnitt_gates_async(binder)
             else:
                 binder.refresh(None)
+
+    def _refresh_schnitt_gates_async(self, binder):
+        """Baut den SchnittDataContext im Hintergrund-Thread und wendet ihn
+        queued im Main-Thread an. Doppelstart-Guard: ein laufender Refresh
+        liefert gleich frische Werte, weitere Klicks werden ignoriert."""
+        from PySide6.QtCore import QThread, QObject, Signal, Qt as _Qt
+
+        if getattr(self, "_gates_thread", None) is not None and self._gates_thread.isRunning():
+            return
+
+        class _GatesWorker(QObject):
+            done = Signal(object)  # SchnittDataContext
+
+            def __init__(self, db_engine):
+                super().__init__()
+                self._engine = db_engine
+
+            def run(self):
+                try:
+                    from database import get_active_project_id
+                    from services.schnitt_context import build_schnitt_context
+                    ctx = build_schnitt_context(self._engine, get_active_project_id())
+                except Exception:  # noqa: BLE001 — Gate-Refresh darf nie crashen
+                    ctx = None
+                self.done.emit(ctx)
+
+        worker = _GatesWorker(binder.db_engine)
+        thread = QThread(self.window)
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+
+        def _apply(ctx):
+            self._gates_worker = None
+            self._gates_thread = None
+            if ctx is not None:
+                try:
+                    binder.apply_context(ctx)
+                except RuntimeError:
+                    pass  # Buttons bereits zerstoert (App-Close)
+
+        worker.done.connect(_apply, _Qt.ConnectionType.QueuedConnection)
+        worker.done.connect(thread.quit)
+        thread.finished.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+        # Controller lebt app-lang -> GC-sichere Referenzen (B-605-Lektion).
+        self._gates_worker = worker
+        self._gates_thread = thread
+        thread.start()
 
     def _refresh_project_dashboard(self):
         dashboard = getattr(self.window, "_project_dashboard", None)

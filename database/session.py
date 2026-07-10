@@ -271,17 +271,44 @@ class _TrackedSession(Session):
         return super().rollback()
 
 
+# FREEZE-Fix 2026-07-10: get_active_project_id wird aus UI-Klick-Pfaden
+# (Workspace-Wechsel, Gates) aufgerufen. Als DB-Query blockierte sie bei
+# busy DB (Hintergrund-Writer + busy_timeout) den Main-Thread sekundenlang
+# (freeze_stacks-Watchdog: 9 Dumps auf dieser Zeile). Pro Projekt-DB gibt es
+# genau ein aktives Projekt; die ID aendert sich nur mit der Engine
+# (set_project-Swap) oder wenn das Projekt-Row erst noch entsteht. Der Cache
+# ist an die Identitaet der ECHTEN Engine gebunden — jeder Engine-Wechsel
+# (set_project, Test-Patch) macht ihn automatisch ungueltig, ohne dass eine
+# Stelle explizit invalidieren muss. None wird bewusst NICHT gecacht
+# (Default-Projekt kann kurz nach Boot entstehen). Kein Soft-Delete-Pfad
+# setzt Project.deleted_at (repo-weit verifiziert 2026-07-10).
+_active_project_id_cache: tuple[int, int] | None = None  # (id(engine), project_id)
+
+
+def _invalidate_active_project_id_cache() -> None:
+    global _active_project_id_cache
+    _active_project_id_cache = None
+
+
 def get_active_project_id() -> int | None:
     """Gibt die ID des aktiven Projekts zurueck (erstes in der DB, oder None).
 
     H9-FIX: Kein Fallback auf ID=1 mehr — das konnte auf ein nicht-existentes
     Projekt verweisen. Caller muessen mit None umgehen koennen.
     """
+    global _active_project_id_cache
+    try:
+        eng_key = id(object.__getattribute__(engine, '_engine'))
+    except AttributeError:
+        eng_key = id(engine)
+    if _active_project_id_cache is not None and _active_project_id_cache[0] == eng_key:
+        return _active_project_id_cache[1]
     try:
         from database.models import Project
         with Session(engine) as s:
             proj = s.query(Project).filter(Project.deleted_at.is_(None)).first()
             if proj is not None:
+                _active_project_id_cache = (eng_key, proj.id)
                 return proj.id
             logger.warning("get_active_project_id(): Kein aktives Projekt in der DB gefunden")
             return None
@@ -432,6 +459,8 @@ def set_project(
 
         engine.swap(new_engine)
         APP_ROOT = project_path
+        # FREEZE-Fix 2026-07-10: Projekt-ID-Cache gehoert zur alten Engine.
+        _invalidate_active_project_id_cache()
         _patch_service_paths(project_path)
 
         # B-133 + B-134: alter dead-code Block entfernt — engine._proxied
