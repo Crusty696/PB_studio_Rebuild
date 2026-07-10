@@ -68,6 +68,10 @@ def test_pool_limits_concurrency_to_four_and_serves_all(monkeypatch, tmp_path):
 
     grid = MediaPoolGrid(media_type="video")
     try:
+        # ddd2293 (Freeze-Fix, B-613-Nachzug): unsichtbares Grid cached
+        # set_items nur — fuer den Pool-Test muss das Grid sichtbar sein.
+        grid.show()
+        app.processEvents()
         grid.set_items(_video_items(tmp_path, 20))
 
         deadline = time.time() + 15.0
@@ -121,11 +125,10 @@ def test_runnable_skips_emit_for_destroyed_card(monkeypatch):
 
 
 def test_grid_lays_out_cards_when_shown_after_invisible_set_items(monkeypatch, tmp_path):
-    """B-526: Karten, die bei UNSICHTBAREM Grid via set_items gesetzt werden
-    (Default-Ansicht = Liste), erscheinen beim Sichtbarwerden (Umschalten auf
-    Kachelansicht). Vorher blieb das Grid komplett leer, weil
-    _do_relayout_debounced bei `not isVisible()` abbrach und kein showEvent
-    nachlegte."""
+    """B-526 + ddd2293 (B-613-Nachzug): set_items bei UNSICHTBAREM Grid
+    cached nur die Daten (lazy Freeze-Fix ddd2293 — vorher wurden Cards
+    sofort gebaut). Beim Sichtbarwerden (showEvent) werden die Karten
+    nachgebaut UND einsortiert — das Grid darf nicht leer bleiben (B-526)."""
     app = _qapp()
     import ui.widgets.media_grid as media_grid
     from ui.widgets.media_grid import MediaPoolGrid
@@ -140,28 +143,25 @@ def test_grid_lays_out_cards_when_shown_after_invisible_set_items(monkeypatch, t
         items = _video_items(tmp_path, 6)
         grid.set_items(items)
 
-        # Karten bauen lassen (Load-Timer) ...
-        deadline = time.time() + 10.0
-        while time.time() < deadline and len(grid._cards) < len(items):
-            app.processEvents()
-            time.sleep(0.02)
-        # ... und den Relayout-Debounce (100ms) ablaufen lassen.
+        # ddd2293: unsichtbar -> KEIN Card-Aufbau, nur Daten-Cache.
         t2 = time.time() + 0.5
         while time.time() < t2:
             app.processEvents()
             time.sleep(0.02)
-
-        assert len(grid._cards) == len(items)
-        # Unsichtbar -> Relayout uebersprungen -> keine Karten im Grid-Layout.
+        assert grid._cards == []
+        assert grid._pending_rebuild is True
         assert grid._grid.count() == 0
 
-        # Umschalten auf Kachelansicht = Grid wird sichtbar -> showEvent.
+        # Umschalten auf Kachelansicht = Grid wird sichtbar -> showEvent
+        # baut die Karten nach und sortiert sie ein.
         grid.show()
-        t3 = time.time() + 2.0
-        while time.time() < t3 and grid._grid.count() == 0:
+        deadline = time.time() + 10.0
+        while time.time() < deadline and (
+                len(grid._cards) < len(items) or grid._grid.count() < len(items)):
             app.processEvents()
             time.sleep(0.02)
 
+        assert len(grid._cards) == len(items)
         assert grid._grid.count() == len(items), (
             f"B-526: Grid zeigt nach show() {grid._grid.count()}/{len(items)} Karten"
         )
@@ -181,6 +181,11 @@ def test_clear_discards_stale_results(monkeypatch):
     )
 
     grid = MediaPoolGrid(media_type="video")
+    # ddd2293 (Freeze-Fix, B-613-Nachzug): clear() bei unsichtbarem Grid
+    # deferred den Rebuild (kein Generation-Bump bis showEvent). Der
+    # Stale-Invalidierungs-Test braucht den sofortigen Pfad -> sichtbar.
+    grid.show()
+    app.processEvents()
     card = VideoCard(1, "t", "p.mp4")
     received: list[str] = []
 
@@ -189,7 +194,7 @@ def test_clear_discards_stale_results(monkeypatch):
     runnable.signals.done.connect(lambda path, img: received.append(path))
 
     gen_before = grid._thumb_generation
-    grid.clear()  # -> _rebuild_cards -> _cancel_pending_thumbs -> Generation-Bump
+    grid.clear()  # sichtbar -> _rebuild_cards -> _cancel_pending_thumbs -> Bump
     assert grid._thumb_generation > gen_before
 
     runnable.run()  # Job traegt noch die alte Generation
