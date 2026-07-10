@@ -1,10 +1,20 @@
 # PB Studio — UI-Redesign Layout-Plan
 
-**Ziel:** Alles sichtbar und lesbar, **festes Fenster 1513×936 px**, KEINE Scrollbars,
-KEINE Splitter, KEIN Resize. Inhalte per Tab-Hierarchie statt per Platzwucher.
+> [!warning] ÜBERHOLT / NICHT UMGESETZT (Stand 2026-07-10)
+> Dieser Entwurf verfolgt ein **festes Fenster ohne Resize/Splitter** mit festen
+> Größen. Der tatsächlich umgesetzte Ansatz (Juli 2026, Commits fb5b231/ead8989/
+> 8ea98ae) geht **bewusst anders** vor:
+> - **resizable** Fenster, Kontext-Dock **frei per Splitter** ziehbar (nicht starr).
+> - **Stretch-/Proportions-basiertes** Layout (Golden-Ratio ~60:40), Empty-States
+>   zentriert, statt fester px-Größen.
+> - Tabellen über zentrales Theme (QTableView), keine festen Sonderregeln.
+>
+> Die Kernprinzipien unten (festes Fenster, min==max, keine Splitter) gelten
+> daher **nicht mehr**. Als historischer Kontext belassen; nicht als aktueller
+> Plan verwenden. Aktueller Layout-Stand: Vault `wiki/synthesis` + Git-History.
 
 **Datum:** 2026-04-14
-**Status:** ENTWURF — Freigabe erforderlich vor jeder Implementation.
+**Status:** ENTWURF — ÜBERHOLT durch den resizable/stretch-Ansatz (2026-07-10), nicht umgesetzt.
 
 ---
 
