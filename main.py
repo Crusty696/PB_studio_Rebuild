@@ -325,8 +325,9 @@ class PBWindow(QMainWindow):
 
         # UI-Ueberholung 2026-06-13 (User-Feedback "TASKS halb so gross + andockbar"):
         # Das Kontext-/TASKS-Panel ist jetzt ein QDockWidget statt fest in der
-        # HBox -> abreissbar (float), verschiebbar (links/rechts), schliessbar,
-        # und mit ~halber Breite (ContextPanel.DEFAULT_WIDTH 280 -> 180).
+        # HBox -> abreissbar (float), verschiebbar (links/rechts), schliessbar.
+        # 2026-07-10: nicht mehr starr — Startbreite ContextPanel.DEFAULT_WIDTH (300),
+        # frei per Splitter resizable (siehe set_context_visible + resizeDocks unten).
         self.right_dock = QDockWidget("Kontext", self)
         self.right_dock.setObjectName("context_dock")
         self.right_dock.setAllowedAreas(
