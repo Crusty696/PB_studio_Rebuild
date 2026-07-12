@@ -97,13 +97,14 @@ class MoveClipCommand(QUndoCommand):
         self._apply(self._old_start, self._old_end)
 
     def _apply(self, start: float, end: float | None):
-        with DBSession(engine) as session:
+        def _operation(session):
             entry = session.get(TimelineEntry, self._entry_id)
             if entry:
                 entry.start_time = round(start, 3)
                 if end is not None:
                     entry.end_time = round(end, 3)
-                session.commit()
+
+        _run_timeline_write(_operation, "MoveClipCommand._apply")
         # FIX C-7: Queue UI update to main thread to avoid Qt threading violation
         QTimer.singleShot(0, lambda: self._timeline._sync_clip_position(self._entry_id, start))
 
@@ -244,7 +245,7 @@ class RemoveClipCommand(QUndoCommand):
 
     def redo(self):
         # Snapshot vor dem Loeschen speichern
-        with DBSession(engine) as session:
+        def _operation(session):
             entry = session.get(TimelineEntry, self._current_entry_id)
             if entry:
                 self._snapshot = {
@@ -261,7 +262,8 @@ class RemoveClipCommand(QUndoCommand):
                     "contrast": entry.contrast,
                 }
                 session.delete(entry)
-                session.commit()
+
+        _run_timeline_write(_operation, "RemoveClipCommand.redo")
         self._timeline._remove_clip_item(self._current_entry_id)
 
     def undo(self):
@@ -272,10 +274,10 @@ class RemoveClipCommand(QUndoCommand):
         from database import AudioTrack, VideoClip
         from pathlib import Path
 
-        title = f"Clip #{self._snapshot['media_id']}"
-        duration = 30.0 if self._snapshot["track"] == "audio" else 10.0
+        def _operation(session):
+            title = f"Clip #{self._snapshot['media_id']}"
+            duration = 30.0 if self._snapshot["track"] == "audio" else 10.0
 
-        with DBSession(engine) as session:
             # M4-FIX: Gleiche ID wiederverwenden statt auto-increment,
             # damit andere Code-Teile die die alte ID gecacht haben weiterhin funktionieren.
             entry = TimelineEntry(id=self._current_entry_id, **self._snapshot)
@@ -293,8 +295,10 @@ class RemoveClipCommand(QUndoCommand):
                     title = Path(obj.file_path).stem
                     duration = obj.duration or duration
 
-            # Commit once after all DB operations complete
-            session.commit()
+            # Commit uebernimmt _run_timeline_write nach Abschluss der Operation
+            return title, duration
+
+        title, duration = _run_timeline_write(_operation, "RemoveClipCommand.undo")
 
         self._timeline.add_clip(
             entry_id=self._current_entry_id,
@@ -344,7 +348,7 @@ class TrimClipCommand(QUndoCommand):
 
     def _apply(self, start: float, end: float | None,
                source_start: float | None, source_end: float | None):
-        with DBSession(engine) as session:
+        def _operation(session):
             entry = session.get(TimelineEntry, self._entry_id)
             if entry:
                 entry.start_time = round(start, 3)
@@ -354,7 +358,8 @@ class TrimClipCommand(QUndoCommand):
                     entry.source_start = round(source_start, 3)
                 if source_end is not None:
                     entry.source_end = round(source_end, 3)
-                session.commit()
+
+        _run_timeline_write(_operation, "TrimClipCommand._apply")
         self._timeline._sync_clip_after_trim(self._entry_id, start, end)
 
 
@@ -375,15 +380,15 @@ class ApplyAutoEditCommand(QUndoCommand):
 
     def redo(self):
         # Alte Video-Entries sichern
-        old_entries_backup = []
-        with DBSession(engine) as session:
+        def _backup_operation(session):
+            backup = []
             old = (
                 session.query(TimelineEntry)
                 .filter_by(project_id=self._project_id, track="video")
                 .all()
             )
             for e in old:
-                old_entries_backup.append({
+                backup.append({
                     "project_id": e.project_id,
                     "track": e.track,
                     "media_id": e.media_id,
@@ -396,6 +401,12 @@ class ApplyAutoEditCommand(QUndoCommand):
                     "brightness": e.brightness,
                     "contrast": e.contrast,
                 })
+            return backup
+
+        old_entries_backup = _run_timeline_write(
+            _backup_operation,
+            "ApplyAutoEditCommand.redo.backup",
+        )
 
         from services.timeline_service import apply_auto_edit_segments
         apply_started_at = time.perf_counter()
@@ -419,13 +430,15 @@ class ApplyAutoEditCommand(QUndoCommand):
     def undo(self):
         if self._old_entries is None:
             return
-        with DBSession(engine) as session:
+
+        def _operation(session):
             session.query(TimelineEntry).filter_by(
                 project_id=self._project_id, track="video"
             ).delete()
             for snap in self._old_entries:
                 session.add(TimelineEntry(**snap))
-            session.commit()
+
+        _run_timeline_write(_operation, "ApplyAutoEditCommand.undo")
         self._timeline.load_from_db(self._project_id)
 
 
@@ -487,22 +500,29 @@ class ToggleClipLockCommand(QUndoCommand):
                 logger.debug("ToggleClipLockCommand: visual sync skipped", exc_info=True)
 
     def redo(self):
-        with DBSession(engine) as s:
+        def _operation(s):
             e = s.get(TimelineEntry, self._entry_id)
             if e is None:
-                return
+                return False
             self._old = bool(e.locked)
             e.locked = self._new
-            s.commit()
+            return True
+
+        if not _run_timeline_write(_operation, "ToggleClipLockCommand.redo"):
+            return
         self._sync_visual(self._new)
 
     def undo(self):
         if self._old is None:
             return
-        with DBSession(engine) as s:
+
+        def _operation(s):
             e = s.get(TimelineEntry, self._entry_id)
             if e is None:
-                return
+                return False
             e.locked = self._old
-            s.commit()
+            return True
+
+        if not _run_timeline_write(_operation, "ToggleClipLockCommand.undo"):
+            return
         self._sync_visual(self._old)
