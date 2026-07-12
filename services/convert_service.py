@@ -27,16 +27,11 @@ from services.timeout_constants import (
     THREAD_JOIN_TIMEOUT_SEC,
 )
 from services.errors import ConversionError, FFmpegError, FFmpegTimeoutError
+from services.ffmpeg_utils import proxy_dir as _proxy_dir, sanitize_ffmpeg_error as _sanitize_ffmpeg_error
 from services.nvenc_policy import require_nvenc, required_message
 from services.startup_checks import get_ffmpeg_bin, get_ffprobe_bin
 
 logger = logging.getLogger(__name__)
-
-
-def _proxy_dir() -> Path:
-    """Returns proxy directory for the current project (lazy APP_ROOT read)."""
-    import database.session as _session
-    return _session.APP_ROOT / "storage" / "proxies"
 
 
 def _master_dir() -> Path:
@@ -54,15 +49,6 @@ _WIN_RESERVED = frozenset(
     | {f"com{i}" for i in range(1, 10)}
     | {f"lpt{i}" for i in range(1, 10)}
 )
-
-
-def _sanitize_ffmpeg_error(stderr: str, max_lines: int = 3) -> str:
-    """Sanitize FFmpeg stderr for safe error messages — strip full paths."""
-    if not stderr:
-        return "(no stderr)"
-    lines = stderr.strip().splitlines()
-    tail = lines[-max_lines:] if len(lines) > max_lines else lines
-    return "\n".join(tail)
 
 
 def _safe_stem(stem: str) -> str:

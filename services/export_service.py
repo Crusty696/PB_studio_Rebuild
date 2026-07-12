@@ -24,6 +24,7 @@ from services.timeout_constants import (
 )
 from services.startup_checks import get_ffmpeg_bin, get_ffprobe_bin
 from services.nvenc_policy import require_nvenc, required_message
+from services.ffmpeg_utils import sanitize_ffmpeg_error as _sanitize_ffmpeg_error
 
 # FIX-1.2: FFmpeg-Pfad konfigurierbar (identisch mit convert_service.py)
 FFMPEG = get_ffmpeg_bin()
@@ -58,14 +59,6 @@ def _video_encode_args() -> list[str]:
         )
     return ["-c:v", "libx264", "-preset", "fast", "-crf", "23"]
 
-
-def _sanitize_ffmpeg_error(stderr: str, max_lines: int = 3) -> str:
-    """Sanitize FFmpeg stderr for safe error messages."""
-    if not stderr:
-        return "(no stderr)"
-    lines = stderr.strip().splitlines()
-    tail = lines[-max_lines:] if len(lines) > max_lines else lines
-    return "\n".join(tail)
 
 logger = logging.getLogger(__name__)
 

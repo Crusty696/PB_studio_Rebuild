@@ -798,17 +798,6 @@ def _resolve_vision_caption_model(client, requested_model: str) -> str:
     return requested_model
 
 
-def _encode_keyframe_base64(image_path: str) -> str | None:
-    """Lädt ein Keyframe-Bild und kodiert es als base64-String für Ollama."""
-    import base64
-    try:
-        with open(image_path, "rb") as f:
-            return base64.b64encode(f.read()).decode("utf-8")
-    except (OSError, IOError) as e:
-        logger.warning("Keyframe-base64-Encoding fehlgeschlagen: %s — %s", image_path, e)
-        return None
-
-
 _CAPTION_JUNK_MARKERS = (
     '"type"', "'type'", '"url"', "'url'", "file:///", '"size"', '"format"',
     '"quality"', '"encoding"', '"timestamp"', '.jpeg', '.jpg', '.png',

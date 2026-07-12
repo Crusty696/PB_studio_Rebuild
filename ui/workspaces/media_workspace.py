@@ -1211,12 +1211,6 @@ class MediaWorkspace(QWidget):
             self.audio_analysis_panel.set_media("audio", int(audio_id), str(title or ""))
 
     # ── Pager helpers ─────────────────────────────────────────
-    def _refresh_video_pager(self):
-        p = self._video_pool_proxy
-        self._lbl_video_page.setText(f"Seite {p.page() + 1} / {p.page_count()}")
-        self.btn_video_page_prev.setEnabled(p.page() > 0)
-        self.btn_video_page_next.setEnabled(p.page() < p.page_count() - 1)
-
     def _refresh_audio_pager(self):
         p = self._audio_pool_proxy
         self._lbl_audio_page.setText(f"Seite {p.page() + 1} / {p.page_count()}")

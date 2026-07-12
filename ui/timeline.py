@@ -2001,16 +2001,6 @@ class InteractiveTimeline(QGraphicsView):
         except RuntimeError:
             pass
 
-    def _apply_brain_v3_timeline_metadata(self, item: TimelineClipItem, entry) -> None:
-        if item.track_type != "video":
-            return
-        key = (int(entry.media_id), int(round(float(entry.start_time or 0.0) * 1000.0)))
-        meta = self._brain_v3_timeline_meta.get(key)
-        if meta is None:
-            return
-        item.set_brain_v3_cut_id(getattr(meta, "cut_id", None))
-        item.set_brain_v3_confidence(getattr(meta, "confidence", None))
-
     def _load_waveform_async(self, media_id: int, start_time: float, duration: float, y: float, clip_item: TimelineClipItem):
         """Startet das asynchrone Laden der Wellenform im Hintergrund."""
         import shiboken6
@@ -3007,10 +2997,6 @@ class InteractiveTimeline(QGraphicsView):
         Must be called after every pacing run for feedback shortcuts to work.
         None disables the shortcuts."""
         self._active_pacing_run_id = run_id
-
-    def set_feedback_service(self, service: "FeedbackService") -> None:  # type: ignore[name-defined]
-        """Inject a custom FeedbackService (for tests). Not used in production."""
-        self._feedback_service = service
 
     def set_brain_v3_feedback_service(self, service, context=None) -> None:
         """Inject Brain-V3 feedback service and propagate to loaded clips."""

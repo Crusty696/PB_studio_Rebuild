@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from database import VideoClip, engine
 from services import analysis_status_service
 from services.errors import FFmpegError
+from services.ffmpeg_utils import proxy_dir as _proxy_dir, sanitize_ffmpeg_error as _sanitize_ffmpeg_error
 from services.nvenc_policy import require_nvenc
 from services.startup_checks import get_ffmpeg_bin, get_ffprobe_bin
 from services.timeout_constants import FFMPEG_PROBE_TIMEOUT_SEC, FFMPEG_RENDER_TIMEOUT_SEC
@@ -36,12 +37,6 @@ _FFMPEG = get_ffmpeg_bin()
 _FFPROBE = get_ffprobe_bin()
 
 logger = logging.getLogger(__name__)
-
-
-def _proxy_dir() -> Path:
-    """Returns proxy directory for the current project (lazy APP_ROOT read)."""
-    import database.session as _session
-    return _session.APP_ROOT / "storage" / "proxies"
 
 
 # B-219: WinError 32 ("Datei wird von anderem Prozess verwendet") tritt auf,
@@ -95,15 +90,6 @@ def _retry_on_file_lock(
     # Alle Retries erschoepft.
     assert last_exc is not None
     raise last_exc
-
-
-def _sanitize_ffmpeg_error(stderr: str, max_lines: int = 3) -> str:
-    """Sanitize FFmpeg stderr for safe error messages."""
-    if not stderr:
-        return "(no stderr)"
-    lines = stderr.strip().splitlines()
-    tail = lines[-max_lines:] if len(lines) > max_lines else lines
-    return "\n".join(tail)
 
 
 # B-505: stderr-Signaturen, die auf einen NVENC-/Treiber-Fehler hindeuten

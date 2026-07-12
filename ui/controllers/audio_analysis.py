@@ -686,29 +686,6 @@ class AudioAnalysisController(PBComponent):
         )
         self._run_next_sequential_step()
 
-    def _get_pending_audio_step_keys(self, track_id: int) -> list[str]:
-        """Return audio steps that are not already done for complete analysis."""
-        from services import analysis_status_service
-
-        try:
-            analysis_status_service.infer_from_db("audio", track_id)
-        except Exception as exc:
-            logger.warning("[Komplett] Status-Inferenz fuer Audio %s fehlgeschlagen: %s", track_id, exc)
-
-        try:
-            status_dict = analysis_status_service.get_status("audio", track_id)
-        except Exception as exc:
-            logger.warning("[Komplett] Status-Lookup fuer Audio %s fehlgeschlagen: %s", track_id, exc)
-            return list(analysis_status_service.AUDIO_STEPS)
-
-        pending: list[str] = []
-        for step_key in analysis_status_service.AUDIO_STEPS:
-            status_entry = status_dict.get(step_key)
-            status = status_entry.status if status_entry else "pending"
-            if status != "done":
-                pending.append(step_key)
-        return pending
-
     def _run_next_sequential_step(self):
         """Startet den naechsten Schritt in der sequentiellen Analyse-Queue."""
         try:

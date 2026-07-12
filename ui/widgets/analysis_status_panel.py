@@ -57,6 +57,7 @@ STEP_NAMES = {
     "vector_db_storage": "Vector DB",
     "ai_scene_caption": "AI Captioning",
     "scene_db_storage": "Scene DB",
+    "structure_enrichment": "Struktur-Anreicherung",
     # Audio steps
     "bpm_detection": "BPM & Beats",
     "waveform_analysis": "Waveform",

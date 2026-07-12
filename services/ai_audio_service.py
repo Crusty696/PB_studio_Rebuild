@@ -29,6 +29,7 @@ except ImportError:
     _TORCH_AVAILABLE = False
 from database import AudioTrack, WaveformData, nullpool_session
 
+from services.ffmpeg_utils import sanitize_ffmpeg_error as _sanitize_ffmpeg_error
 from services.model_manager import oom_recovery
 
 logger = logging.getLogger(__name__)
@@ -51,15 +52,6 @@ def _get_stems_dir() -> Path:
     """
     import database.session as _session
     return _session.APP_ROOT / "storage" / "stems"
-
-
-def _sanitize_ffmpeg_error(stderr: str, max_lines: int = 3) -> str:
-    """Sanitize FFmpeg stderr for safe error messages — strip full paths."""
-    if not stderr:
-        return "(no stderr)"
-    lines = stderr.strip().splitlines()
-    tail = lines[-max_lines:] if len(lines) > max_lines else lines
-    return "\n".join(tail)
 
 
 # B-510: Chunk-Groesse fuer das Einlesen des Demucs-Inputs (Sekunden).

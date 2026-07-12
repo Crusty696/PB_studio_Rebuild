@@ -226,22 +226,19 @@ def _manifest_hit(
     """
     import os
 
-    from services.storage_provenance.source_manifest import MANIFEST_NAME, read_manifest_jobs
+    from services.storage_provenance.source_manifest import MANIFEST_NAME, _norm_path, read_manifest_jobs
 
     if storage_root is None:
         from services.storage_provenance.schnitt_audio_adapter import default_global_storage_root
 
         storage_root = default_global_storage_root()
 
-    def _norm(p) -> str:
-        return os.path.normcase(os.path.normpath(str(p)))
-
-    cur_norm = _norm(current_project_path) if current_project_path is not None else None
+    cur_norm = _norm_path(current_project_path) if current_project_path is not None else None
     jobs = read_manifest_jobs(storage_root, source_sha)
     candidates = [
         j
         for j in jobs
-        if cur_norm is None or _norm(j.get("project_path", "")) != cur_norm
+        if cur_norm is None or _norm_path(j.get("project_path", "")) != cur_norm
     ]
     if not candidates:
         return None

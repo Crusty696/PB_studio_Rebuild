@@ -1088,35 +1088,7 @@ class StructureDetectionService:
 
         return segments
 
-    # ── Legacy-Methoden (Rueckwaerts-Kompatibilitaet) ─────────────────────
-
-    def _form_segments(self, labels: list[str], beats, energy_norm, n_beats: int) -> list[StructureSegmentResult]:
-        """Formt zusammenhaengende Labels zu StructureSegmentResult-Liste (Legacy)."""
-        # F-044 Fix: Nutze realistische Durchschnittswerte statt 0.5er Dummy-Array
-        mean_energy = np.mean(energy_norm) if len(energy_norm) > 0 else 0.5
-        avg_energy = np.full(n_beats, mean_energy)
-        return self._form_segments_multi(
-            labels, beats, energy_norm, avg_energy, avg_energy, np.ones(n_beats), n_beats
-        )
-
     # ── Weitere Hilfsmethoden ─────────────────────────────────────────────
-
-    def _compute_energy_from_audio(
-        self,
-        file_path: str,
-        bpm: float | None,
-        beat_positions: list[float] | None,
-    ):
-        """Laedt Audio und berechnet Energie pro Beat (Legacy — verwendet Multi-Feature intern).
-
-        Returns:
-            Tuple (energy_array, beat_array, bpm) oder (None, None, None) bei Fehler
-        """
-        result = self._compute_multi_features_from_audio(file_path, bpm, beat_positions)
-        if result is None:
-            return None, None, None
-        energy, beats, bpm, _, _ = result
-        return energy, beats, bpm
 
     @staticmethod
     def _remove_short_segments(

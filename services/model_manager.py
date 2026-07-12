@@ -25,18 +25,6 @@ torch = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
 
-# Compat: RuntimeError existiert erst ab PyTorch 2.0.
-# In torch 1.12 ist es ein normaler RuntimeError.
-def _is_cuda_oom(exc: Exception) -> bool:
-    """Prueft ob eine Exception ein CUDA OOM ist (kompatibel mit torch 1.12+)."""
-    # H20 FIX: torch ist auf Modul-Ebene None bis _ensure_torch() laeuft
-    if torch is None:
-        return False
-    # K6 FIX: Pruefe auf torch.cuda.OutOfMemoryError (nicht alle RuntimeErrors!)
-    if hasattr(torch, 'cuda') and hasattr(torch.cuda, 'OutOfMemoryError'):
-        return isinstance(exc, torch.cuda.OutOfMemoryError)
-    return isinstance(exc, RuntimeError) and "out of memory" in str(exc).lower()
-
 # Globaler GPU-Semaphore: Serialisiert alle GPU-Modell-Lade-Operationen
 # (SigLIP, RAFT, beat_this) um VRAM-Races auf 6GB GTX 1060 zu verhindern.
 # FIX: RLock erlaubt verschachtelte Aufrufe (reentrant).

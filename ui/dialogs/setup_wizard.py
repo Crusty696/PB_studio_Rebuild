@@ -86,14 +86,6 @@ def mark_setup_complete() -> None:
     s.sync()
 
 
-def _ollama_running(url: str = "http://localhost:11434") -> bool:
-    try:
-        with urllib.request.urlopen(f"{url}/api/tags", timeout=HTTP_HEALTH_CHECK_TIMEOUT_SEC) as r:
-            return r.status == 200
-    except OSError:
-        return False
-
-
 def _hf_cache_has(repo_id: str) -> bool:
     """Returns True if the HuggingFace cache contains this repo."""
     try:
@@ -101,16 +93,6 @@ def _hf_cache_has(repo_id: str) -> bool:
         cache = scan_cache_dir()
         return any(r.repo_id == repo_id for r in cache.repos)
     except (ImportError, OSError):
-        return False
-
-
-def _ollama_has_model(model_id: str, url: str = "http://localhost:11434") -> bool:
-    try:
-        with urllib.request.urlopen(f"{url}/api/tags", timeout=HTTP_HEALTH_CHECK_TIMEOUT_SEC) as r:
-            data = json.loads(r.read())
-        return any(m.get("name", "").startswith(model_id.split(":")[0])
-                   for m in data.get("models", []))
-    except (OSError, ValueError):
         return False
 
 
