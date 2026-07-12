@@ -12,6 +12,7 @@ import sqlite3
 import threading
 from contextlib import closing
 
+from services.model_warmup import SIGLIP_DEFAULT_MODEL
 from services.timeout_constants import DB_SQLITE_CONNECT_TIMEOUT_SEC
 from pathlib import Path
 
@@ -29,7 +30,7 @@ EMBEDDING_DIM = 1152
 # Store-Metadatum persistiert, damit ein Modellwechsel beim Oeffnen
 # erkannt und gewarnt werden kann (keine automatische Invalidierung).
 # Quelle: ModelManager.load_siglip() Default-Model-ID.
-MODEL_NAME = "google/siglip-so400m-patch14-384"
+MODEL_NAME = SIGLIP_DEFAULT_MODEL
 MODEL_VERSION = "1"
 
 

@@ -18,6 +18,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from services.model_warmup import SIGLIP_DEFAULT_MODEL
+
 FEATURE_FLAG = "PB_ENABLE_VIDEO_PIPELINE_ENGINE"
 _TRUE = {"1", "true", "yes", "on"}
 
@@ -95,7 +97,7 @@ def build_pipeline(
             listener = JsonlObserver(storage_dir / "pipeline.events.jsonl")
         except Exception:  # Observability darf den Lauf nie blockieren
             listener = None
-    siglip = SigLipEmbedService(model_id="google/siglip-so400m-patch14-384")
+    siglip = SigLipEmbedService(model_id=SIGLIP_DEFAULT_MODEL)
     # M3 (D-065): feste Flow-Aufloesung 520x320 (H=320, W=520) wie der
     # Monolith-Pfad (_raft_motion_score), damit Scene.energy zwischen beiden
     # Pipelines auf derselben Motion-Skala liegt (Paritaets-Fix).

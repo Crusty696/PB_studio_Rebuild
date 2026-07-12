@@ -832,7 +832,8 @@ def _auto_edit_phase3_inner(
         logger.warning("Mood-Embeddings uebersprungen: %s", e)
         mood_embeddings = {}
 
-    clip_embeddings_matrix = np.empty((0, 1152), dtype=np.float32)
+    from services.vector_db_service import EMBEDDING_DIM
+    clip_embeddings_matrix = np.empty((0, EMBEDDING_DIM), dtype=np.float32)
     clip_metadata_list: list[dict] = []
     fitness_matrix: dict[tuple, float] = {}
     if mood_embeddings:
