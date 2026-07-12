@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import Qt, Signal, QObject, QThread
+from PySide6.QtCore import Qt, Signal, QThread
 from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QGroupBox,
@@ -31,6 +31,7 @@ if TYPE_CHECKING:
 
 from services.timeout_constants import HTTP_API_TIMEOUT_SEC
 from services.settings_store import get_settings_store, get_ollama_settings
+from workers.base import BaseWorker, run_worker
 
 logger = logging.getLogger(__name__)
 
@@ -40,30 +41,35 @@ def save_ollama_settings(enabled: bool, url: str, model: str) -> None:
     get_settings_store().save_ollama_settings(enabled, url, model)
 
 
-class _OllamaTestWorker(QObject):
-    """Prüft Ollama-Verbindung und lädt Modell-Liste in einem Thread."""
-    finished = Signal(bool, str, list)  # (ok, message, models)
+class _OllamaTestWorker(BaseWorker):
+    """Prüft Ollama-Verbindung und lädt Modell-Liste in einem Thread.
+
+    K8-Migration auf run_worker (B-513-Helper): BaseWorker-Subklasse.
+    Payload von ``finished``: Tupel ``(ok, message, models)``. Alle
+    erwartbaren Fehler werden wie vor der Migration INTERN gefangen und
+    als ``ok=False``-Payload geliefert — der BaseWorker-error-Pfad ist
+    nur das Sicherheitsnetz fuer unerwartete Exceptions.
+    """
 
     def __init__(self, url: str):
         super().__init__()
         self.url = url
 
-    def run(self) -> None:
+    def _do_work(self):
         try:
             from services.ollama_client import OllamaClient
             client = OllamaClient(base_url=self.url, timeout=HTTP_API_TIMEOUT_SEC)
             if not client.is_available():
-                self.finished.emit(False, f"Ollama nicht erreichbar unter {self.url}", [])
-                return
+                return (False, f"Ollama nicht erreichbar unter {self.url}", [])
             version = client.get_version() or "?"
             models = client.list_models()
-            self.finished.emit(
+            return (
                 True,
                 f"Verbunden! Ollama v{version} — {len(models)} Modell(e) verfügbar.",
                 models,
             )
         except (ImportError, OSError, RuntimeError) as e:
-            self.finished.emit(False, f"Fehler: {e}", [])
+            return (False, f"Fehler: {e}", [])
 
 
 _STATUS_STYLE = {
@@ -570,13 +576,31 @@ class SettingsDialog(QDialog):
         self._set_status("Teste Verbindung...", "info")
         self._btn_test.setEnabled(False)
 
-        self._test_thread = QThread(self)
+        # K8: run_worker (B-513) statt Hand-Verdrahtung — ergaenzt
+        # destroyed-Guard, error->quit und die deleteLater-Kette (vorher
+        # leakten Worker+Thread pro Klick).
         self._test_worker = _OllamaTestWorker(url=url)
-        self._test_worker.moveToThread(self._test_thread)
-        self._test_thread.started.connect(self._test_worker.run)
-        self._test_worker.finished.connect(self._on_test_finished)
-        self._test_worker.finished.connect(self._test_thread.quit)
-        self._test_thread.start()
+        self._test_thread = run_worker(
+            self, self._test_worker,
+            on_finish=self._on_test_payload,
+            on_error=self._on_test_error,
+        )
+
+    def _on_test_payload(self, payload) -> None:
+        """run_worker-Adapter: Payload-Tupel -> bestehender 3-Arg-Slot.
+
+        Refs VOR dem Slot nullen — der Thread wird gleich deleteLater'd,
+        closeEvent darf keine stale Referenz mehr sehen.
+        """
+        self._test_thread = None
+        self._test_worker = None
+        ok, message, models = payload
+        self._on_test_finished(ok, message, models)
+
+    def _on_test_error(self, msg: str) -> None:
+        self._test_thread = None
+        self._test_worker = None
+        self._on_test_finished(False, msg, [])
 
     def _on_test_finished(self, ok: bool, message: str, models: list) -> None:
         if not self.isVisible():
@@ -629,17 +653,35 @@ class SettingsDialog(QDialog):
             self._pending_save = (enabled, url, model)
             self._btn_ok.setEnabled(False)
             self._set_status("Prüfe Ollama-Modell…", "info")
-            self._validate_thread = QThread(self)
+            # K8: run_worker (B-513) statt Hand-Verdrahtung (deleteLater-
+            # Kette + destroyed-Guard; Verhalten der finished-Kette identisch).
             self._validate_worker = _OllamaTestWorker(url=url)
-            self._validate_worker.moveToThread(self._validate_thread)
-            self._validate_thread.started.connect(self._validate_worker.run)
-            self._validate_worker.finished.connect(self._on_validate_finished)
-            self._validate_worker.finished.connect(self._validate_thread.quit)
-            self._validate_thread.start()
+            self._validate_thread = run_worker(
+                self, self._validate_worker,
+                on_finish=self._on_validate_payload,
+                on_error=self._on_validate_error,
+            )
             return
 
         # Ollama aus oder kein Modell gewaehlt -> nichts zu pruefen.
         self._commit_and_accept(enabled, url, model)
+
+    def _on_validate_payload(self, payload) -> None:
+        """run_worker-Adapter: Payload-Tupel -> bestehender 3-Arg-Slot."""
+        self._validate_thread = None
+        self._validate_worker = None
+        ok, message, models = payload
+        self._on_validate_finished(ok, message, models)
+
+    def _on_validate_error(self, msg: str) -> None:
+        """Sicherheitsnetz fuer unerwartete Worker-Exceptions (vorher: Thread
+        blieb haengen und der OK-Button dauerhaft deaktiviert). Konservativ:
+        NICHT speichern, OK reaktivieren, Fehler anzeigen."""
+        self._validate_thread = None
+        self._validate_worker = None
+        self._pending_save = None
+        self._btn_ok.setEnabled(True)
+        self._set_status(msg, "error")
 
     def _on_validate_finished(self, ok: bool, message: str, models: list) -> None:
         """Async-Fortsetzung von _on_accept nach der Ollama-Modell-Pruefung."""
