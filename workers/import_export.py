@@ -17,7 +17,7 @@ from services.ingest_service import (
     _invalidate_pacing_caches,
 )
 from services.timeout_constants import FFMPEG_EXPORT_TIMEOUT_SEC, ffmpeg_timeout_for
-from services.ffmpeg_utils import subprocess_kwargs
+from services.ffmpeg_utils import probe_duration, subprocess_kwargs
 from services.startup_checks import get_ffmpeg_bin
 from .base import CancellableMixin, format_user_error
 
@@ -112,14 +112,7 @@ def _run_batch_ffmpeg_cancellable(cmd: list[str], cancel_check, timeout: float,
 def _ffprobe_duration(path: str) -> float:
     """B-402: Clip-Dauer in Sekunden via ffprobe; 0.0 bei Fehler/Unbekannt."""
     try:
-        from services.startup_checks import get_ffprobe_bin
-        kwargs = subprocess_kwargs()
-        out = subprocess.run(
-            [get_ffprobe_bin(), "-v", "quiet", "-show_entries",
-             "format=duration", "-of", "csv=p=0", path],
-            capture_output=True, text=True, timeout=15, **kwargs,
-        )
-        return float(out.stdout.strip())
+        return probe_duration(path, fallback=0.0, timeout=15)
     except Exception:  # broad: Dauer-Probe darf den Convert nie crashen
         return 0.0
 

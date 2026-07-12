@@ -26,7 +26,7 @@ from services.timeout_constants import (
     THREAD_JOIN_TIMEOUT_SEC,
 )
 from services.errors import ConversionError, FFmpegError, FFmpegTimeoutError
-from services.ffmpeg_utils import subprocess_kwargs
+from services.ffmpeg_utils import probe_duration, subprocess_kwargs
 from services.nvenc_policy import require_nvenc, required_message
 from services.startup_checks import get_ffmpeg_bin, get_ffprobe_bin
 
@@ -431,14 +431,10 @@ def convert(
 def _get_duration(file_path: str) -> float:
     """Ermittelt die Dauer einer Mediendatei in Sekunden via ffprobe."""
     try:
-        p = subprocess.run(
-            [FFPROBE, "-v", "quiet", "-show_entries", "format=duration",
-             "-of", "default=noprint_wrappers=1:nokey=1", file_path],
-            capture_output=True, text=True, timeout=FFMPEG_PROBE_TIMEOUT_SEC,
-            encoding="utf-8", errors="replace",
+        return probe_duration(
+            file_path, fallback=0.0,
+            timeout=FFMPEG_PROBE_TIMEOUT_SEC, ffprobe_bin=FFPROBE,
         )
-        if p.returncode == 0 and p.stdout.strip():
-            return float(p.stdout.strip())
     except (subprocess.TimeoutExpired, ValueError, FileNotFoundError) as e:
         logger.warning("Getting media duration for '%s': %s", file_path, e)
     return 0.0

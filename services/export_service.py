@@ -21,7 +21,7 @@ from services.timeout_constants import (
     FFMPEG_RENDER_TIMEOUT_SEC,
     THREAD_JOIN_TIMEOUT_SEC,
 )
-from services.ffmpeg_utils import subprocess_kwargs
+from services.ffmpeg_utils import parse_frame_rate, probe_duration, subprocess_kwargs
 from services.startup_checks import get_ffmpeg_bin, get_ffprobe_bin
 from services.nvenc_policy import require_nvenc, required_message
 
@@ -70,18 +70,9 @@ def _sanitize_ffmpeg_error(stderr: str, max_lines: int = 3) -> str:
 logger = logging.getLogger(__name__)
 
 
-def _parse_frame_rate(rate_str: str) -> float:
-    """Parst ffprobe-Frame-Rate ("30/1", "30000/1001", "29.97") → float fps.
-
-    Unbekannt/ungueltig ("0/0", "", "N/A") → 0.0.
-    """
-    try:
-        if "/" in rate_str:
-            num, den = rate_str.split("/")
-            return float(num) / float(den) if float(den) > 0 else 0.0
-        return float(rate_str)
-    except (ValueError, ZeroDivisionError):
-        return 0.0
+# K7: kanonische Implementierung nach services.ffmpeg_utils verschoben.
+# Alias bleibt fuer in-Modul-Caller + Tests (test_b504_concat_utf8_outpoint).
+_parse_frame_rate = parse_frame_rate
 
 
 def _probe_video(file_path: str) -> dict:
@@ -536,20 +527,10 @@ def _probe_audio_duration(audio_path: str) -> float:
         ffprobe_bin = get_ffprobe_bin()
     except (ImportError, AttributeError, RuntimeError):
         return 0.0
-    cmd = [
-        ffprobe_bin, "-v", "error",
-        "-show_entries", "format=duration",
-        "-of", "default=noprint_wrappers=1:nokey=1",
-        audio_path,
-    ]
-    kwargs: dict = subprocess_kwargs()
     try:
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=10,
-            encoding="utf-8", errors="replace", **kwargs,
+        return probe_duration(
+            audio_path, fallback=0.0, timeout=10, ffprobe_bin=ffprobe_bin,
         )
-        if result.returncode == 0:
-            return float(result.stdout.strip())
     except (subprocess.SubprocessError, OSError, ValueError) as exc:
         logger.debug("ffprobe duration failed for %s: %s", audio_path, exc)
     return 0.0

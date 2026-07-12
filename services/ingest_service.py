@@ -8,7 +8,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from database import engine, AudioTrack, VideoClip, StructureSegment
-from services.ffmpeg_utils import subprocess_kwargs
+from services.ffmpeg_utils import parse_frame_rate, subprocess_kwargs
 from services.startup_checks import get_ffprobe_bin
 from services.timeout_constants import FFMPEG_PROBE_TIMEOUT_SEC
 from services.vector_db_service import VectorDBService
@@ -299,9 +299,12 @@ def _probe_video_meta(file_path: str) -> dict:
         )
         if not video_stream:
             return {}
-        fps_str = video_stream.get("r_frame_rate", "30/1")
-        num, den = fps_str.split("/") if "/" in fps_str else (fps_str, "1")
-        fps = round(float(num) / float(den), 2) if float(den) > 0 else 30.0
+        # K7: strict=True — nicht-numerische Werte re-raisen die ValueError
+        # in den umgebenden except-Block (gibt {} zurueck), wie zuvor.
+        fps = parse_frame_rate(
+            video_stream.get("r_frame_rate", "30/1"),
+            default=30.0, ndigits=2, strict=True,
+        )
         return {
             "duration": float(data.get("format", {}).get("duration", 0)),
             "width": int(video_stream.get("width", 0)),
