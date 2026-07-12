@@ -116,6 +116,11 @@ class TimelineShell(QWidget):
         self.btn_zoom_fit.clicked.connect(self._fit_to_content)
         self.btn_zoom_reset.clicked.connect(self._reset_zoom)
 
+        # B-616: Label folgt JEDEM Zoom-Pfad (auch Mausrad und dem internen
+        # fit_to_content beim Projekt-Load), nicht nur den Shell-Buttons.
+        self.timeline.zoom_changed.connect(lambda _scale: self._update_zoom_label())
+        self._update_zoom_label()
+
     def _button(self, text: str, label: str, tooltip: str) -> QPushButton:
         button = QPushButton(text)
         button.setMinimumSize(48, 36)

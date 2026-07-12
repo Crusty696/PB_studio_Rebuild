@@ -995,6 +995,7 @@ class InteractiveTimeline(QGraphicsView):
     jump_to_end = Signal()                # End
     zoom_in_requested = Signal()          # + / =
     zoom_out_requested = Signal()         # -
+    zoom_changed = Signal(float)          # B-616: echter View-Scale nach jedem Zoom-Pfad
     set_in_point = Signal(float)          # I (current playhead time)
     set_out_point = Signal(float)         # O (current playhead time)
 
@@ -2756,6 +2757,7 @@ class InteractiveTimeline(QGraphicsView):
         if old_lod != new_lod:
             self._update_beat_grid_lod()
         self._schedule_thumb_request()  # B-471 T1: Zoom aendert sichtbaren Clip-Satz
+        self.zoom_changed.emit(new_scale)
 
     def mousePressEvent(self, event):
         """Fokus für Timeline-Hotkeys setzen + mittlere Maustaste startet Panning.
@@ -3257,6 +3259,7 @@ class InteractiveTimeline(QGraphicsView):
         new_lod = 4 if new_scale < 0.5 else (2 if new_scale < 1.5 else 1)
         if old_lod != new_lod:
             self._update_beat_grid_lod()
+        self.zoom_changed.emit(new_scale)
 
     def reset_zoom(self):
         """Reset timeline zoom to 100 percent."""
@@ -3266,6 +3269,7 @@ class InteractiveTimeline(QGraphicsView):
         old_lod = 4 if old_zoom < 0.5 else (2 if old_zoom < 1.5 else 1)
         if old_lod != 2:
             self._update_beat_grid_lod()
+        self.zoom_changed.emit(1.0)
 
     def fit_to_content(self):
         """Fit horizontally while preserving lane height.
@@ -3288,6 +3292,7 @@ class InteractiveTimeline(QGraphicsView):
         self._update_beat_grid_lod()
         self.centerOn(rect.center().x(), AUDIO_TRACK_Y + TRACK_HEIGHT + 5)
         self._schedule_thumb_request()
+        self.zoom_changed.emit(self._current_zoom)
 
     def _set_anchor_on_selected(self):
         """Setzt einen Anker in der Mitte des aktuell selektierten Clips (Taste M)."""
