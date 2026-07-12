@@ -939,6 +939,13 @@ class PBWindow(QMainWindow):
         alle Controller braucht. Refactor in ShutdownManager wuerde nur
         verschieben, nicht vereinfachen.
         """
+        # B-615 Diagnose: Close-Eintritt beweisfähig loggen (Live-Vorfall
+        # 2026-07-11 00:23:33 lief ohne Save-Prompt trotz dirty-Titel).
+        logger.info(
+            "closeEvent: eingetreten (dirty=%s, spontaneous=%s)",
+            getattr(self, "_dirty", "<fehlt>"), event.spontaneous(),
+        )
+
         # 1. Fenster-Zustand sofort sichern
         try:
             self._save_window_state()
@@ -954,6 +961,7 @@ class PBWindow(QMainWindow):
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
             )
+            logger.info("closeEvent: Dirty-Prompt beantwortet mit %s", reply)
             if reply == QMessageBox.StandardButton.No:
                 event.ignore()
                 return
@@ -970,6 +978,7 @@ class PBWindow(QMainWindow):
                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                     QMessageBox.StandardButton.No,
                 )
+                logger.info("closeEvent: Task-Prompt beantwortet mit %s", reply)
                 if reply == QMessageBox.StandardButton.No:
                     event.ignore()
                     return
