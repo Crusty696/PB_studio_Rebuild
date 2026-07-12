@@ -1,25 +1,28 @@
 """ExportController — Refactored from ExportMixin."""
 
 import logging
-from PySide6.QtCore import Qt, QThread, QObject, Signal
+from PySide6.QtCore import Qt
 from database import get_active_project_id
 from services.task_manager import TaskManagerProxy
 from services.export_service import get_timeline_summary, estimate_render_time
 from workers import ExportWorker, PreviewExportWorker
+from workers.base import BaseWorker, run_worker
 from ui.base_component import PBComponent
 
 logger = logging.getLogger(__name__)
 task_manager = TaskManagerProxy()
 
 
-class _ProductionInfoWorker(QObject):
+class _ProductionInfoWorker(BaseWorker):
     """FREEZE-Fix 2026-07-10: get_timeline_summary + estimate_render_time
     liefen beim EXPORT-Workspace-Wechsel SYNCHRON im Main-Thread. Bei busy DB
     (Hintergrund-Writer + busy_timeout) fror der Klick die UI 20-60s ein
     (freeze_stacks-Watchdog-Beweis: Query.all in get_all_audio). Beide
-    DB-Reads laufen jetzt hier im Hintergrund-Thread."""
+    DB-Reads laufen jetzt hier im Hintergrund-Thread.
 
-    done = Signal(dict, object)  # (summary, estimate|None)
+    K8-Migration: BaseWorker-Subklasse fuer run_worker (B-513). Payload
+    von ``finished``: Tupel ``(summary, estimate|None)``. Fehler werden
+    wie vor der Migration intern gefangen (leere Payload statt Crash)."""
 
     def __init__(self, project_id, resolution: str, fps: float):
         super().__init__()
@@ -27,13 +30,12 @@ class _ProductionInfoWorker(QObject):
         self._resolution = resolution
         self._fps = fps
 
-    def run(self):
+    def _do_work(self):
         try:
             summary = get_timeline_summary(self._project_id)
         except Exception as e:  # noqa: BLE001 — Label-Refresh darf nie crashen
             logger.debug("ProductionInfo summary fehlgeschlagen: %s", e)
-            self.done.emit({}, None)
-            return
+            return ({}, None)
         estimate = None
         try:
             # virt-M4-Fix: summary weiterreichen — vorher lief derselbe
@@ -44,7 +46,7 @@ class _ProductionInfoWorker(QObject):
             )
         except (OSError, RuntimeError, ValueError) as e:
             logger.debug("Render-Schaetzung fehlgeschlagen: %s", e)
-        self.done.emit(summary, estimate)
+        return (summary, estimate)
 
 
 class ExportController(PBComponent):
@@ -68,17 +70,28 @@ class ExportController(PBComponent):
         self.window.production_info.setText("Lade Produktions-Infos…")
 
         worker = _ProductionInfoWorker(get_active_project_id(), resolution, fps)
-        thread = QThread(self.window)
-        worker.moveToThread(thread)
-        thread.started.connect(worker.run)
-        worker.done.connect(self._on_production_info_ready, Qt.ConnectionType.QueuedConnection)
-        worker.done.connect(thread.quit)
-        thread.finished.connect(worker.deleteLater)
-        thread.finished.connect(thread.deleteLater)
-        # Controller lebt app-lang -> Referenzen hier sind GC-sicher (B-605-Lektion).
+        # K8: run_worker (B-513) statt Hand-Verdrahtung — gleiche Signal-
+        # Kette (finished->Slot queued, finished->quit, deleteLater), plus
+        # destroyed-Guard am Window. Referenzen bleiben fuer den
+        # Doppelstart-Guard erhalten (B-605-Lektion) und werden im Slot
+        # VOR dem deleteLater genullt.
         self._pinfo_worker = worker
-        self._pinfo_thread = thread
-        thread.start()
+        self._pinfo_thread = run_worker(
+            self.window, worker,
+            on_finish=self._on_production_info_payload,
+            on_error=self._on_production_info_error,
+        )
+
+    def _on_production_info_payload(self, payload) -> None:
+        """run_worker-Adapter: Payload-Tupel -> bestehender 2-Arg-Slot."""
+        summary, estimate = payload
+        self._on_production_info_ready(summary, estimate)
+
+    def _on_production_info_error(self, msg: str) -> None:
+        """Sicherheitsnetz fuer unerwartete Worker-Exceptions — wie leere
+        Summary behandeln (vorher: Thread blieb ohne quit haengen)."""
+        logger.debug("ProductionInfo-Worker error: %s", msg)
+        self._on_production_info_ready({}, None)
 
     def _on_production_info_ready(self, summary: dict, estimate) -> None:
         self._pinfo_worker = None
