@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGridLayout,
 )
 
+from services.audio_constants import STEM_NAMES
 from ui.widgets.stem_workspace import StemWorkspace as StemWorkspaceWidget
 from ui.widgets.workflow_components import SectionTabs
 
@@ -199,7 +200,7 @@ class StemsWorkspace(QWidget):
         self._snr_grid.setHorizontalSpacing(20)
         self._snr_grid.setVerticalSpacing(4)
         self._snr_labels: dict[str, QLabel] = {}
-        for col, stem in enumerate(("vocals", "drums", "bass", "other")):
+        for col, stem in enumerate(STEM_NAMES):
             title = QLabel(stem.upper())
             title.setStyleSheet("color: #98a2b1; font-size: 9px; font-weight: 700; letter-spacing: 1px;")
             value = QLabel("—")
@@ -329,7 +330,7 @@ def _extract_snr(meta) -> dict[str, float]:
     if not isinstance(snr, dict):
         return {}
     out: dict[str, float] = {}
-    for stem in ("vocals", "drums", "bass", "other"):
+    for stem in STEM_NAMES:
         val = snr.get(stem)
         if isinstance(val, (int, float)):
             out[stem] = float(val)

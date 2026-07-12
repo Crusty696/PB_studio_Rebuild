@@ -353,14 +353,16 @@ def _make_auto_edit_engine():
     Workern (StemSeparator, Export, etc.) zusaetzlich belastet. Auto-Edit
     oeffnet bis zu 4 Sessions auf 101+ Clips. Eigene NullPool-Engine pro
     Worker-Aufruf entkoppelt den langen DB-intensiven Pfad vom UI-Pool.
+
+    K6a: Engine-Bau ueber die gemeinsame Fabrik ``make_nullpool_engine``
+    aus database/session.py (statt duplizierter create_engine-Aufruf).
+    enable_foreign_keys=False = heutiges Verhalten des Auto-Edit-Pfads
+    (FK aus); connect-timeout/busy_timeout wie in session.py.
     """
-    from sqlalchemy import create_engine as _create_engine
-    from sqlalchemy.pool import NullPool
     import database.session as _session
-    return _create_engine(
-        f"sqlite:///{_session.APP_ROOT / 'pb_studio.db'}",
-        connect_args={"check_same_thread": False, "timeout": 30},
-        poolclass=NullPool,
+    return _session.make_nullpool_engine(
+        _session.APP_ROOT / 'pb_studio.db',
+        enable_foreign_keys=False,
     )
 
 
@@ -832,7 +834,8 @@ def _auto_edit_phase3_inner(
         logger.warning("Mood-Embeddings uebersprungen: %s", e)
         mood_embeddings = {}
 
-    clip_embeddings_matrix = np.empty((0, 1152), dtype=np.float32)
+    from services.vector_db_service import EMBEDDING_DIM
+    clip_embeddings_matrix = np.empty((0, EMBEDDING_DIM), dtype=np.float32)
     clip_metadata_list: list[dict] = []
     fitness_matrix: dict[tuple, float] = {}
     if mood_embeddings:

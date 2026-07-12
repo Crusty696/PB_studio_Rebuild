@@ -23,6 +23,7 @@ import urllib.request
 from pathlib import Path
 from typing import Callable
 
+from services.model_warmup import SIGLIP_DEFAULT_MODEL
 from services.timeout_constants import (
     HTTP_API_TIMEOUT_SEC,
     HTTP_HEALTH_CHECK_TIMEOUT_SEC,
@@ -77,7 +78,7 @@ RECOMMENDED_OLLAMA_MODELS = [
 
 RECOMMENDED_HF_MODELS = [
     {
-        "id": "google/siglip-so400m-patch14-384",
+        "id": SIGLIP_DEFAULT_MODEL,
         "display": "SigLIP Vision (Google)",
         "size_gb": 1.6,
         "description": "Video-Clip-Analyse & Szenen-Embedding",

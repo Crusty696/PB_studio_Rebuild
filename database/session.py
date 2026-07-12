@@ -158,6 +158,51 @@ def get_raw_engine():
     return object.__getattribute__(engine, '_engine')
 
 
+def make_nullpool_engine(db_url_or_path, *, enable_foreign_keys: bool):
+    """K6a: Gemeinsame Fabrik fuer NullPool-Engines (frische Connection pro Session).
+
+    Einzige Quelle fuer den Engine-Bau, den vorher ``nullpool_session()`` und
+    ``services.pacing_service._make_auto_edit_engine`` (P7-FIX) dupliziert
+    hatten. Pragmas identisch zu ``nullpool_session()``:
+    WAL + synchronous=NORMAL + busy_timeout (P1-FIX, 120s fuer Worker-Threads).
+
+    Args:
+        db_url_or_path: SQLAlchemy-URL (``sqlite:///...``) oder Dateipfad —
+            ein Pfad wird zu ``sqlite:///<pfad>`` normalisiert.
+        enable_foreign_keys: True = ``PRAGMA foreign_keys=ON`` (Verhalten von
+            ``nullpool_session()``); False = FK aus (heutiges Verhalten des
+            Auto-Edit-Pfads in pacing_service).
+
+    Caller ist fuer ``engine.dispose()`` verantwortlich.
+    """
+    from sqlalchemy import create_engine as _ce, event as _ev
+    from sqlalchemy.pool import NullPool
+
+    url = str(db_url_or_path)
+    if not url.startswith("sqlite:"):
+        url = f"sqlite:///{url}"
+
+    _eng = _ce(
+        url,
+        echo=False,
+        connect_args={"check_same_thread": False, "timeout": DB_SQLITE_CONNECT_TIMEOUT_SEC},
+        poolclass=NullPool,
+    )
+
+    @_ev.listens_for(_eng, "connect")
+    def _set_pragma(dbapi_conn, _rec):
+        c = dbapi_conn.cursor()
+        c.execute("PRAGMA journal_mode=WAL")
+        c.execute("PRAGMA synchronous=NORMAL")
+        # P1-FIX: Konsistenz mit Haupt-Engine (120s für Worker-Threads mit langen Ops)
+        c.execute(f"PRAGMA busy_timeout={DB_BUSY_TIMEOUT_ANALYSIS_MS}")
+        if enable_foreign_keys:
+            c.execute("PRAGMA foreign_keys=ON")
+        c.close()
+
+    return _eng
+
+
 def nullpool_session():
     """Erzeugt eine SQLAlchemy Session mit NullPool-Engine (frische Connection).
 
@@ -174,26 +219,7 @@ def nullpool_session():
 
     Die Engine wird automatisch disposed wenn der Context-Manager endet.
     """
-    from sqlalchemy import create_engine as _ce, event as _ev
-    from sqlalchemy.pool import NullPool
-
-    _eng = _ce(
-        str(engine.url),
-        echo=False,
-        connect_args={"check_same_thread": False, "timeout": DB_SQLITE_CONNECT_TIMEOUT_SEC},
-        poolclass=NullPool,
-    )
-
-    @_ev.listens_for(_eng, "connect")
-    def _set_pragma(dbapi_conn, _rec):
-        c = dbapi_conn.cursor()
-        c.execute("PRAGMA journal_mode=WAL")
-        c.execute("PRAGMA synchronous=NORMAL")
-        # P1-FIX: Konsistenz mit Haupt-Engine (120s für Worker-Threads mit langen Ops)
-        c.execute(f"PRAGMA busy_timeout={DB_BUSY_TIMEOUT_ANALYSIS_MS}")
-        c.execute("PRAGMA foreign_keys=ON")
-        c.close()
-
+    _eng = make_nullpool_engine(str(engine.url), enable_foreign_keys=True)
     return _NullPoolSessionContext(_eng)
 
 

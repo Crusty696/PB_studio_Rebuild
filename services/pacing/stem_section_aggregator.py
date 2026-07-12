@@ -12,8 +12,11 @@ from typing import Iterable, Mapping
 
 import numpy as np
 
+from services.audio_constants import STEM_NAMES
+
 EPS = 1e-9
-DEFAULT_STEM_NAMES = ("vocals", "drums", "bass", "other")
+# K2: kanonische Quelle services/audio_constants.py (STEM_NAMES)
+DEFAULT_STEM_NAMES = STEM_NAMES
 
 
 def _rms(arr: np.ndarray) -> float:

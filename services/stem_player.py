@@ -18,6 +18,8 @@ import numpy as np
 import soundfile as sf
 from PySide6.QtCore import QObject, Signal, QTimer
 
+from services.audio_constants import STEM_NAMES as _CANONICAL_STEM_NAMES
+
 logger = logging.getLogger(__name__)
 
 # [C-03 FIX] Module-level import statt __import__ im Callback
@@ -54,7 +56,8 @@ class StemPlayer(QObject):
     playback_finished = Signal()
     state_changed = Signal(str)
 
-    STEM_NAMES = ("vocals", "drums", "bass", "other")
+    # K2: kanonische Quelle services/audio_constants.py (STEM_NAMES)
+    STEM_NAMES = _CANONICAL_STEM_NAMES
 
     def __init__(self, parent: QObject | None = None):
         super().__init__(parent)

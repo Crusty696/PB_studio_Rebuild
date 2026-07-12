@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 from .stem_track_widget import StemTrackWidget, PeakWorker, WaveformWidget  # noqa: F401 (re-exported)
 from .stem_mixer_panel import StemMixerPanel  # noqa: F401 (re-exported)
 from .stem_transport import TransportBar  # noqa: F401 (re-exported)
+from services.audio_constants import STEM_NAMES
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +37,8 @@ STEM_CONFIG = {
     "bass":   {"color": "#00E676", "label": "BASS"},
     "other":  {"color": "#42A5F5", "label": "OTHER"},
 }
-STEM_ORDER = ["vocals", "drums", "bass", "other"]
+# K2: UI-Track-Reihenfolge == kanonische STEM_NAMES aus audio_constants
+STEM_ORDER = list(STEM_NAMES)
 
 
 # =====================================================================

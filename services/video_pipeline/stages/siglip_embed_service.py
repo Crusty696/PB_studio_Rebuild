@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from services.model_warmup import SIGLIP_DEFAULT_MODEL
+
 
 __all__ = ["SigLipEmbedService"]
 
@@ -17,7 +19,7 @@ class SigLipEmbedService:
     def __init__(
         self,
         *,
-        model_id: str = "google/siglip-so400m-patch14-384",
+        model_id: str = SIGLIP_DEFAULT_MODEL,
         device: str = "cuda:0",
         dtype: str = "float16",  # storage dtype
     ):

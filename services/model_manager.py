@@ -19,6 +19,8 @@ from contextlib import contextmanager
 from functools import wraps
 from typing import Any
 
+from services.model_warmup import SIGLIP_DEFAULT_MODEL
+
 # torch wird LAZY importiert
 # (spart ~11s Startup wenn ModelManager nicht sofort gebraucht wird)
 torch = None  # type: ignore[assignment]
@@ -879,7 +881,7 @@ class ModelManager:
             finally:
                 self._resume_ollama_if_paused()
 
-    def load_siglip(self, model_id: str = "google/siglip-so400m-patch14-384") -> tuple:
+    def load_siglip(self, model_id: str = SIGLIP_DEFAULT_MODEL) -> tuple:
         """Lädt SigLIP Vision+Text Encoder für 1152-dim Embeddings.
 
         Returns:

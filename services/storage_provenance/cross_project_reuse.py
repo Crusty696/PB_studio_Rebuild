@@ -7,6 +7,7 @@ from pathlib import Path
 from sqlalchemy.orm import Session
 
 from database.models import AnalysisJob, AnalysisStatus, Project, ProjectSource
+from services.audio_constants import STEM_NAMES
 from services.storage_provenance.source_identity import compute_source_sha256
 
 
@@ -355,7 +356,7 @@ def _resolve_stem_paths(
     set only when all four exist now, else None (no done on missing files)."""
     paths: dict[str, Path] = {}
     if isinstance(manifest_artifacts, dict):
-        for name in ("vocals", "drums", "bass", "other"):
+        for name in STEM_NAMES:
             # V2 records roles as "<name>_stem"; migration as "<name>". Accept both.
             value = manifest_artifacts.get(name)
             if value is None:
@@ -383,7 +384,7 @@ def _global_stem_paths(
 
         storage_root = default_global_storage_root()
     stem_dir = StorageLayout(storage_root).source_root(source_sha) / "audio" / "stems"
-    paths = {name: (stem_dir / f"{name}.wav").resolve() for name in ("vocals", "drums", "bass", "other")}
+    paths = {name: (stem_dir / f"{name}.wav").resolve() for name in STEM_NAMES}
     if not all(path.is_file() for path in paths.values()):
         return None
     return paths
