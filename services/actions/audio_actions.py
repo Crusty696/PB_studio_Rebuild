@@ -122,208 +122,133 @@ def separate_stems(track_id: int | None = None) -> dict:
     }
 
 
-@action_registry.register(
+# ---------------------------------------------------------------------------
+# K5: Factory fuer Enqueue-Actions — ersetzt 5x identisches Copy-Paste-Muster
+# (detect_key, analyze_lufs, classify_audio, analyze_spectral, detect_structure).
+# Ablauf: file_path-Lookup -> TaskManager-Check -> agent_command_signal.emit.
+# ---------------------------------------------------------------------------
+
+def _audio_track_id_schema() -> dict:
+    """Frisches param_schema-Dict pro Action (kein Shared-State im Registry)."""
+    return {
+        "type": "object",
+        "properties": {
+            "audio_track_id": {
+                "type": "integer",
+                "description": "ID des AudioTracks in der Datenbank."
+            }
+        },
+        "required": ["audio_track_id"]
+    }
+
+
+def _make_enqueue_action(
+    name: str,
+    description: str,
+    task_label: str,
+    worker_name: str,
+    include_bpm: bool = False,
+):
+    """Erzeugt + registriert eine Enqueue-Action (Command Pattern).
+
+    Args:
+        name: Registry-Name = Emit-Kanal (z.B. "detect_key").
+        description: Beschreibung fuer Agent-Discovery im Registry.
+        task_label: Deutscher Label-Prefix der Result-Message
+            (z.B. "Key-Erkennung").
+        worker_name: Worker-Klassenname fuer den Handler-Docstring.
+        include_bpm: BPM zusaetzlich aus DB lesen und in Payload mitgeben.
+
+    Returns:
+        Der registrierte Handler mit Signatur ``(audio_track_id: int) -> dict``.
+    """
+
+    def handler(audio_track_id: int) -> dict:
+        file_path = _get_audio_track_file_path(audio_track_id)
+        if not file_path:
+            return {"error": f"AudioTrack {audio_track_id} nicht gefunden."}
+
+        payload = {"audio_track_id": audio_track_id, "file_path": file_path}
+        if include_bpm:
+            payload["bpm"] = _get_audio_track_bpm(audio_track_id)
+
+        tm = _get_task_manager()
+        if tm is None:
+            _logger.warning("TaskManager nicht verfuegbar - App nicht bereit")
+            return {"error": "App nicht initialisiert"}
+
+        tm.agent_command_signal.emit(name, payload)
+        return {
+            "status": "Task in Warteschlange",
+            "action": name,
+            "audio_track_id": audio_track_id,
+            "message": f"{task_label} fuer Track #{audio_track_id} gestartet. Fortschritt im TaskManagerDock.",
+        }
+
+    handler.__name__ = f"{name}_action"
+    handler.__qualname__ = f"{name}_action"
+    handler.__doc__ = (
+        f"Command Pattern: Emittiert Signal -> Main-Thread baut {worker_name}."
+    )
+    return action_registry.register(
+        name=name,
+        description=description,
+        param_schema=_audio_track_id_schema(),
+    )(handler)
+
+
+detect_key_action = _make_enqueue_action(
     name="detect_key",
     description=(
         "Erkennt die musikalische Tonart eines Audio-Tracks (Key + Camelot-Notation). "
         "Nutze diese Aktion wenn der User nach 'Key', 'Tonart', 'Camelot' oder 'harmonisch' fragt."
     ),
-    param_schema={
-        "type": "object",
-        "properties": {
-            "audio_track_id": {
-                "type": "integer",
-                "description": "ID des AudioTracks in der Datenbank."
-            }
-        },
-        "required": ["audio_track_id"]
-    }
+    task_label="Key-Erkennung",
+    worker_name="KeyDetectionWorker",
 )
-def detect_key_action(audio_track_id: int) -> dict:
-    """Command Pattern: Emittiert Signal -> Main-Thread baut KeyDetectionWorker."""
-    file_path = _get_audio_track_file_path(audio_track_id)
-    if not file_path:
-        return {"error": f"AudioTrack {audio_track_id} nicht gefunden."}
 
-    tm = _get_task_manager()
-    if tm is None:
-        _logger.warning("TaskManager nicht verfuegbar - App nicht bereit")
-        return {"error": "App nicht initialisiert"}
-
-    tm.agent_command_signal.emit(
-        "detect_key", {"audio_track_id": audio_track_id, "file_path": file_path}
-    )
-    return {
-        "status": "Task in Warteschlange",
-        "action": "detect_key",
-        "audio_track_id": audio_track_id,
-        "message": f"Key-Erkennung fuer Track #{audio_track_id} gestartet. Fortschritt im TaskManagerDock.",
-    }
-
-
-@action_registry.register(
+analyze_lufs_action = _make_enqueue_action(
     name="analyze_lufs",
     description=(
         "Misst die Lautstaerke eines Audio-Tracks nach EBU R128 (LUFS). "
         "Nutze diese Aktion wenn der User nach 'Lautstaerke', 'LUFS', 'Loudness' oder 'Pegel' fragt."
     ),
-    param_schema={
-        "type": "object",
-        "properties": {
-            "audio_track_id": {
-                "type": "integer",
-                "description": "ID des AudioTracks in der Datenbank."
-            }
-        },
-        "required": ["audio_track_id"]
-    }
+    task_label="LUFS-Analyse",
+    worker_name="LUFSAnalysisWorker",
 )
-def analyze_lufs_action(audio_track_id: int) -> dict:
-    """Command Pattern: Emittiert Signal -> Main-Thread baut LUFSAnalysisWorker."""
-    file_path = _get_audio_track_file_path(audio_track_id)
-    if not file_path:
-        return {"error": f"AudioTrack {audio_track_id} nicht gefunden."}
 
-    tm = _get_task_manager()
-    if tm is None:
-        _logger.warning("TaskManager nicht verfuegbar - App nicht bereit")
-        return {"error": "App nicht initialisiert"}
-
-    tm.agent_command_signal.emit(
-        "analyze_lufs", {"audio_track_id": audio_track_id, "file_path": file_path}
-    )
-    return {
-        "status": "Task in Warteschlange",
-        "action": "analyze_lufs",
-        "audio_track_id": audio_track_id,
-        "message": f"LUFS-Analyse fuer Track #{audio_track_id} gestartet. Fortschritt im TaskManagerDock.",
-    }
-
-
-@action_registry.register(
+classify_audio_action = _make_enqueue_action(
     name="classify_audio",
     description=(
         "Klassifiziert einen Audio-Track nach Mood, Genre und erkennt DJ-Mixes. "
         "Nutze diese Aktion wenn der User nach 'Genre', 'Mood', 'Stimmung', 'Musikstil' oder 'DJ-Mix' fragt."
     ),
-    param_schema={
-        "type": "object",
-        "properties": {
-            "audio_track_id": {
-                "type": "integer",
-                "description": "ID des AudioTracks in der Datenbank."
-            }
-        },
-        "required": ["audio_track_id"]
-    }
+    task_label="Audio-Klassifikation",
+    worker_name="AudioClassifyWorker",
+    include_bpm=True,
 )
-def classify_audio_action(audio_track_id: int) -> dict:
-    """Command Pattern: Emittiert Signal -> Main-Thread baut AudioClassifyWorker."""
-    file_path = _get_audio_track_file_path(audio_track_id)
-    if not file_path:
-        return {"error": f"AudioTrack {audio_track_id} nicht gefunden."}
 
-    bpm = _get_audio_track_bpm(audio_track_id)
-
-    tm = _get_task_manager()
-    if tm is None:
-        _logger.warning("TaskManager nicht verfuegbar - App nicht bereit")
-        return {"error": "App nicht initialisiert"}
-
-    tm.agent_command_signal.emit(
-        "classify_audio", {"audio_track_id": audio_track_id, "file_path": file_path, "bpm": bpm}
-    )
-    return {
-        "status": "Task in Warteschlange",
-        "action": "classify_audio",
-        "audio_track_id": audio_track_id,
-        "message": f"Audio-Klassifikation fuer Track #{audio_track_id} gestartet. Fortschritt im TaskManagerDock.",
-    }
-
-
-@action_registry.register(
+analyze_spectral_action = _make_enqueue_action(
     name="analyze_spectral",
     description=(
         "Analysiert die Frequenzverteilung eines Audio-Tracks (8-Band Spektral-Analyse). "
         "Nutze diese Aktion wenn der User nach 'Frequenzen', 'Spektrum', 'Bass', 'Hoehen' oder 'EQ' fragt."
     ),
-    param_schema={
-        "type": "object",
-        "properties": {
-            "audio_track_id": {
-                "type": "integer",
-                "description": "ID des AudioTracks in der Datenbank."
-            }
-        },
-        "required": ["audio_track_id"]
-    }
+    task_label="Spektral-Analyse",
+    worker_name="SpectralAnalysisWorker",
 )
-def analyze_spectral_action(audio_track_id: int) -> dict:
-    """Command Pattern: Emittiert Signal -> Main-Thread baut SpectralAnalysisWorker."""
-    file_path = _get_audio_track_file_path(audio_track_id)
-    if not file_path:
-        return {"error": f"AudioTrack {audio_track_id} nicht gefunden."}
 
-    tm = _get_task_manager()
-    if tm is None:
-        _logger.warning("TaskManager nicht verfuegbar - App nicht bereit")
-        return {"error": "App nicht initialisiert"}
-
-    tm.agent_command_signal.emit(
-        "analyze_spectral", {"audio_track_id": audio_track_id, "file_path": file_path}
-    )
-    return {
-        "status": "Task in Warteschlange",
-        "action": "analyze_spectral",
-        "audio_track_id": audio_track_id,
-        "message": f"Spektral-Analyse fuer Track #{audio_track_id} gestartet. Fortschritt im TaskManagerDock.",
-    }
-
-
-@action_registry.register(
+detect_structure_action = _make_enqueue_action(
     name="detect_structure",
     description=(
         "Erkennt die Song-Struktur eines Audio-Tracks (Intro, Drop, Breakdown, Outro, ...). "
         "Nutze diese Aktion wenn der User nach 'Struktur', 'Song-Teile', 'Intro', 'Drop', "
         "'Breakdown' oder 'Segmente' fragt."
     ),
-    param_schema={
-        "type": "object",
-        "properties": {
-            "audio_track_id": {
-                "type": "integer",
-                "description": "ID des AudioTracks in der Datenbank."
-            }
-        },
-        "required": ["audio_track_id"]
-    }
+    task_label="Struktur-Erkennung",
+    worker_name="StructureDetectionWorker",
+    include_bpm=True,
 )
-def detect_structure_action(audio_track_id: int) -> dict:
-    """Command Pattern: Emittiert Signal -> Main-Thread baut StructureDetectionWorker."""
-    file_path = _get_audio_track_file_path(audio_track_id)
-    if not file_path:
-        return {"error": f"AudioTrack {audio_track_id} nicht gefunden."}
-
-    bpm = _get_audio_track_bpm(audio_track_id)
-
-    tm = _get_task_manager()
-    if tm is None:
-        _logger.warning("TaskManager nicht verfuegbar - App nicht bereit")
-        return {"error": "App nicht initialisiert"}
-
-    tm.agent_command_signal.emit(
-        "detect_structure", {
-            "audio_track_id": audio_track_id,
-            "file_path": file_path,
-            "bpm": bpm,
-        }
-    )
-    return {
-        "status": "Task in Warteschlange",
-        "action": "detect_structure",
-        "audio_track_id": audio_track_id,
-        "message": f"Struktur-Erkennung fuer Track #{audio_track_id} gestartet. Fortschritt im TaskManagerDock.",
-    }
 
 
 # ---------------------------------------------------------------------------
