@@ -17,7 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
-from database import nullpool_session, AnalysisStatus, VideoClip, AudioTrack, Scene
+from database import nullpool_session, AnalysisStatus, VideoClip, AudioTrack
 
 logger = logging.getLogger(__name__)
 
@@ -316,19 +316,33 @@ def infer_many_from_db(media_type: str, media_ids: list[int]) -> None:
     if not ids:
         return
     with nullpool_session() as session:
+        rows = session.execute(
+            select(AnalysisStatus).where(
+                AnalysisStatus.media_type == media_type,
+                AnalysisStatus.media_id.in_(ids),
+            )
+        ).scalars().all()
+        status_entries = {
+            (int(entry.media_id), str(entry.step_key)): entry
+            for entry in rows
+        }
         if media_type == "video":
             for media_id in ids:
-                _infer_video_status(session, media_id)
+                _infer_video_status(session, media_id, status_entries=status_entries)
         elif media_type == "audio":
             for media_id in ids:
-                _infer_audio_status(session, media_id)
+                _infer_audio_status(session, media_id, status_entries=status_entries)
         else:
             logger.warning("Unknown media_type for infer_many_from_db: %s", media_type)
             return
         session.commit()
 
 
-def _infer_video_status(session: Session, video_id: int) -> None:
+def _infer_video_status(
+    session: Session,
+    video_id: int,
+    status_entries: dict[tuple[int, str], AnalysisStatus] | None = None,
+) -> None:
     """Infer video analysis status from existing DB data."""
     video = session.get(VideoClip, video_id)
     if not video:
@@ -341,30 +355,33 @@ def _infer_video_status(session: Session, video_id: int) -> None:
             "resolution": f"{video.width}x{video.height}",
             "fps": video.fps,
             "codec": video.codec,
-        })
+        }, status_entries)
 
     # scene_detection: Scenes vorhanden?
-    stmt = select(Scene).where(Scene.video_clip_id == video_id)
-    scenes = session.execute(stmt).scalars().all()
+    scenes = video.scenes
     if scenes:
         _ensure_status_done(session, "video", video_id, "scene_detection", {
             "scenes": len(scenes),
-        })
+        }, status_entries)
 
         # scene_db_storage: implizit auch done wenn Scenes existieren
         _ensure_status_done(session, "video", video_id, "scene_db_storage", {
             "scenes": len(scenes),
-        })
+        }, status_entries)
 
         # ai_scene_caption: wenn mindestens eine Scene ai_caption hat
         captioned_count = sum(1 for s in scenes if s.ai_caption)
         if captioned_count > 0:
             _ensure_status_done(session, "video", video_id, "ai_scene_caption", {
                 "captioned_scenes": captioned_count,
-            })
+            }, status_entries)
 
 
-def _infer_audio_status(session: Session, audio_id: int) -> None:
+def _infer_audio_status(
+    session: Session,
+    audio_id: int,
+    status_entries: dict[tuple[int, str], AnalysisStatus] | None = None,
+) -> None:
     """Infer audio analysis status from existing DB data."""
     audio = session.get(AudioTrack, audio_id)
     if not audio:
@@ -375,45 +392,45 @@ def _infer_audio_status(session: Session, audio_id: int) -> None:
         _ensure_status_done(session, "audio", audio_id, "bpm_detection", {
             "bpm": audio.beatgrid.bpm,
             "beats": len(audio.beatgrid.beat_positions or []),
-        })
+        }, status_entries)
 
     # waveform_analysis: WaveformData vorhanden?
     if audio.waveform_data:
         _ensure_status_done(session, "audio", audio_id, "waveform_analysis", {
             "num_samples": audio.waveform_data.num_samples,
-        })
+        }, status_entries)
 
     # key_detection: Key + key_confidence vorhanden?
     if audio.key and audio.key_confidence:
         _ensure_status_done(session, "audio", audio_id, "key_detection", {
             "key": audio.key,
             "confidence": audio.key_confidence,
-        })
+        }, status_entries)
 
     # lufs_analysis: LUFS vorhanden?
     if audio.lufs is not None:
         _ensure_status_done(session, "audio", audio_id, "lufs_analysis", {
             "lufs": audio.lufs,
-        })
+        }, status_entries)
 
     # mood_genre_classify: mood + genre vorhanden?
     if audio.mood or audio.genre:
         _ensure_status_done(session, "audio", audio_id, "mood_genre_classify", {
             "mood": audio.mood,
             "genre": audio.genre,
-        })
+        }, status_entries)
 
     # spectral_analysis: spectral_bands vorhanden?
     if audio.spectral_bands:
         _ensure_status_done(session, "audio", audio_id, "spectral_analysis", {
             "bands": len(audio.spectral_bands) if isinstance(audio.spectral_bands, list) else "present",
-        })
+        }, status_entries)
 
     # structure_detection: StructureSegments vorhanden?
     if audio.structure_segments:
         _ensure_status_done(session, "audio", audio_id, "structure_detection", {
             "segments": len(audio.structure_segments),
-        })
+        }, status_entries)
 
     # stem_separation: Stem-Pfade vorhanden?
     stem_count = sum(1 for p in [
@@ -425,17 +442,28 @@ def _infer_audio_status(session: Session, audio_id: int) -> None:
     if stem_count > 0:
         _ensure_status_done(session, "audio", audio_id, "stem_separation", {
             "stems": stem_count,
-        })
+        }, status_entries)
 
 
-def _ensure_status_done(session: Session, media_type: str, media_id: int, step_key: str, value_summary: dict[str, Any]) -> None:
+def _ensure_status_done(
+    session: Session,
+    media_type: str,
+    media_id: int,
+    step_key: str,
+    value_summary: dict[str, Any],
+    status_entries: dict[tuple[int, str], AnalysisStatus] | None = None,
+) -> None:
     """Helper: Setzt status='done' nur wenn noch kein Eintrag existiert."""
-    stmt = select(AnalysisStatus).where(
-        AnalysisStatus.media_type == media_type,
-        AnalysisStatus.media_id == media_id,
-        AnalysisStatus.step_key == step_key,
-    )
-    entry = session.execute(stmt).scalar_one_or_none()
+    key = (media_id, step_key)
+    if status_entries is None:
+        stmt = select(AnalysisStatus).where(
+            AnalysisStatus.media_type == media_type,
+            AnalysisStatus.media_id == media_id,
+            AnalysisStatus.step_key == step_key,
+        )
+        entry = session.execute(stmt).scalar_one_or_none()
+    else:
+        entry = status_entries.get(key)
 
     if entry is None:
         entry = AnalysisStatus(
@@ -448,6 +476,8 @@ def _ensure_status_done(session: Session, media_type: str, media_id: int, step_k
             value_summary=value_summary,
         )
         session.add(entry)
+        if status_entries is not None:
+            status_entries[key] = entry
         logger.info("Inferred status='done' for %s/%d/%s", media_type, media_id, step_key)
     elif entry.status != "done":
         entry.status = "done"
