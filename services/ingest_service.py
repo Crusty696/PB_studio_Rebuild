@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path
 
 from sqlalchemy import or_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, lazyload
 
 from database import engine, AudioTrack, VideoClip, StructureSegment
 from services.ffmpeg_utils import parse_frame_rate, subprocess_kwargs
@@ -472,7 +472,7 @@ def get_all_audio(project_id: int | None = None, limit: int | None = None) -> li
     # to avoid connection pool exhaustion (selectin loaders hold pool connections).
     with Session(engine) as session:
         # H-4 FIX: Filter out soft-deleted tracks (deleted_at is None)
-        q = session.query(AudioTrack).filter_by(
+        q = session.query(AudioTrack).options(lazyload("*")).filter_by(
             project_id=project_id
         ).filter(
             AudioTrack.deleted_at.is_(None)
@@ -524,7 +524,7 @@ def get_all_video(project_id: int | None = None, limit: int | None = None) -> li
     # Collect ORM data first, then close session before calling analysis_status_service
     # to avoid connection pool exhaustion (selectin loaders hold pool connections).
     with Session(engine) as session:
-        q = session.query(VideoClip).filter(
+        q = session.query(VideoClip).options(lazyload("*")).filter(
             VideoClip.project_id == project_id,
             VideoClip.deleted_at.is_(None)
         )
