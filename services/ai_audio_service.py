@@ -4,13 +4,13 @@ import gc
 import logging
 import os
 import subprocess
-import sys
 import tempfile
 import time
 from functools import wraps
 from pathlib import Path
 
 from services.errors import CUDAOutOfMemoryError
+from services.ffmpeg_utils import subprocess_kwargs
 from services.timeout_constants import FFMPEG_RENDER_TIMEOUT_SEC
 from services.startup_checks import get_ffmpeg_bin
 
@@ -211,9 +211,7 @@ def _load_audio_for_stem_separation(
             str(target_sr),
             str(tmp_wav_path),
         ]
-        kwargs = {}
-        if sys.platform == "win32":
-            kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+        kwargs = subprocess_kwargs()
         try:
             result = subprocess.run(
                 cmd,
@@ -952,9 +950,7 @@ def _run_ffmpeg_cancellable(
     import threading
     import time as _time
 
-    kwargs: dict = {}
-    if sys.platform == "win32":
-        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+    kwargs: dict = subprocess_kwargs()
 
     if should_stop is None:
         result = subprocess.run(

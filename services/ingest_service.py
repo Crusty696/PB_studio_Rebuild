@@ -1,7 +1,6 @@
 import json
 import logging
 import subprocess
-import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -9,6 +8,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from database import engine, AudioTrack, VideoClip, StructureSegment
+from services.ffmpeg_utils import subprocess_kwargs
 from services.startup_checks import get_ffprobe_bin
 from services.timeout_constants import FFMPEG_PROBE_TIMEOUT_SEC
 from services.vector_db_service import VectorDBService
@@ -288,9 +288,7 @@ def _probe_video_meta(file_path: str) -> dict:
             "-show_format", "-show_streams",
             file_path,
         ]
-        kwargs = {}
-        if sys.platform == "win32":
-            kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+        kwargs = subprocess_kwargs()
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=FFMPEG_PROBE_TIMEOUT_SEC,
                                 encoding="utf-8", errors="replace", **kwargs)
         if result.returncode != 0:

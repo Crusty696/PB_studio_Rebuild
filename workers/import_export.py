@@ -2,7 +2,6 @@
 
 import logging
 import subprocess
-import sys
 import time
 import traceback
 from pathlib import Path
@@ -18,6 +17,7 @@ from services.ingest_service import (
     _invalidate_pacing_caches,
 )
 from services.timeout_constants import FFMPEG_EXPORT_TIMEOUT_SEC, ffmpeg_timeout_for
+from services.ffmpeg_utils import subprocess_kwargs
 from services.startup_checks import get_ffmpeg_bin
 from .base import CancellableMixin, format_user_error
 
@@ -36,9 +36,7 @@ def _run_batch_ffmpeg_cancellable(cmd: list[str], cancel_check, timeout: float,
     """
     import threading
 
-    kwargs = {}
-    if sys.platform == "win32":
-        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+    kwargs = subprocess_kwargs()
     process = subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
@@ -115,9 +113,7 @@ def _ffprobe_duration(path: str) -> float:
     """B-402: Clip-Dauer in Sekunden via ffprobe; 0.0 bei Fehler/Unbekannt."""
     try:
         from services.startup_checks import get_ffprobe_bin
-        kwargs = {}
-        if sys.platform == "win32":
-            kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+        kwargs = subprocess_kwargs()
         out = subprocess.run(
             [get_ffprobe_bin(), "-v", "quiet", "-show_entries",
              "format=duration", "-of", "csv=p=0", path],

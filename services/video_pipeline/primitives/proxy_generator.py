@@ -18,6 +18,7 @@ import subprocess
 from pathlib import Path
 
 from services import startup_checks
+from services.ffmpeg_utils import subprocess_kwargs
 from services.nvenc_policy import require_nvenc, required_message
 
 logger = logging.getLogger(__name__)
@@ -59,7 +60,7 @@ def _is_valid_video(path: Path) -> bool:
             str(path),
         ],
         capture_output=True, text=True, timeout=30,
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        **subprocess_kwargs(),
     )
     return res.returncode == 0 and "video" in res.stdout
 
@@ -69,7 +70,7 @@ def _has_nvenc() -> bool:
     res = subprocess.run(
         [_ffmpeg(), "-hide_banner", "-encoders"],
         capture_output=True, text=True, timeout=10,
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        **subprocess_kwargs(),
     )
     return "h264_nvenc" in res.stdout
 
@@ -87,7 +88,7 @@ def _probe_duration_seconds(path: Path) -> float:
             capture_output=True,
             text=True,
             timeout=30,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            **subprocess_kwargs(),
         )
         if res.returncode != 0:
             return 0.0
@@ -128,12 +129,12 @@ def _try_encode(src: Path, dst: Path, max_width: int, bitrate: str, codec: str) 
         with get_default_serializer().acquire("proxy_gen"):
             res = subprocess.run(
                 cmd, capture_output=True, text=True, timeout=timeout_s,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                **subprocess_kwargs(),
             )
     else:
         res = subprocess.run(
             cmd, capture_output=True, text=True, timeout=timeout_s,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            **subprocess_kwargs(),
         )
     return res.returncode == 0
 

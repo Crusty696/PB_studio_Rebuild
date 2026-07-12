@@ -7,7 +7,6 @@ Optimiert fuer viele kleine Segmente (Auto-Edit to Beat).
 import json as _json
 import logging
 import subprocess
-import sys
 import tempfile
 import threading
 import time
@@ -22,6 +21,7 @@ from services.timeout_constants import (
     FFMPEG_RENDER_TIMEOUT_SEC,
     THREAD_JOIN_TIMEOUT_SEC,
 )
+from services.ffmpeg_utils import subprocess_kwargs
 from services.startup_checks import get_ffmpeg_bin, get_ffprobe_bin
 from services.nvenc_policy import require_nvenc, required_message
 
@@ -104,9 +104,7 @@ def _probe_video(file_path: str) -> dict:
             "-of", "json",
             file_path,
         ]
-        kwargs = {}
-        if sys.platform == "win32":
-            kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+        kwargs = subprocess_kwargs()
         result = subprocess.run(
             cmd, capture_output=True, text=True, timeout=FFMPEG_PROBE_TIMEOUT_SEC,
             encoding="utf-8", errors="replace", **kwargs,
@@ -544,9 +542,7 @@ def _probe_audio_duration(audio_path: str) -> float:
         "-of", "default=noprint_wrappers=1:nokey=1",
         audio_path,
     ]
-    kwargs: dict = {}
-    if sys.platform == "win32":
-        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+    kwargs: dict = subprocess_kwargs()
     try:
         result = subprocess.run(
             cmd, capture_output=True, text=True, timeout=10,
@@ -1161,9 +1157,7 @@ def _run_subprocess_cancellable(
     Returns: subprocess.CompletedProcess (returncode/stdout/stderr).
     Raises: RuntimeError("LUFS-Normalisierung abgebrochen") bei Cancel.
     """
-    kwargs: dict = {}
-    if sys.platform == "win32":
-        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+    kwargs: dict = subprocess_kwargs()
 
     if cancel_check is None and progress_cb is None:
         return subprocess.run(
@@ -1427,9 +1421,7 @@ def _run_ffmpeg_impl(cmd: list[str], timeout: int = 600, progress_cb=None,
         idx = 1 if len(cmd) > 1 else 0
         cmd = cmd[:idx] + ["-progress", "pipe:1"] + cmd[idx:]
 
-    kwargs = {}
-    if sys.platform == "win32":
-        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+    kwargs = subprocess_kwargs()
 
     process = subprocess.Popen(
         cmd,

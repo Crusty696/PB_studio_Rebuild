@@ -15,6 +15,7 @@ from dataclasses import dataclass
 
 log = logging.getLogger(__name__)
 
+from services.ffmpeg_utils import subprocess_kwargs
 from services.startup_checks import get_ffmpeg_bin, get_ffprobe_bin
 
 def _probe_duration_sec(file_path: str) -> float:
@@ -33,7 +34,7 @@ def _probe_duration_sec(file_path: str) -> float:
             encoding="utf-8",
             errors="replace",
             timeout=10,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            **subprocess_kwargs(),
         )
         if result.returncode != 0:
             return 0.0
@@ -233,7 +234,7 @@ class LUFSService:
             encoding="utf-8",
             errors="replace",
             timeout=timeout,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            **subprocess_kwargs(),
         )
 
         stderr = result.stderr or ""

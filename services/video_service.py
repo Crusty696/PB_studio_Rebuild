@@ -1,7 +1,6 @@
 import json
 import logging
 import subprocess
-import sys
 import threading
 from pathlib import Path
 
@@ -10,6 +9,7 @@ from sqlalchemy.orm import Session
 from database import VideoClip, engine
 from services import analysis_status_service
 from services.errors import FFmpegError
+from services.ffmpeg_utils import subprocess_kwargs
 from services.nvenc_policy import require_nvenc
 from services.startup_checks import get_ffmpeg_bin, get_ffprobe_bin
 from services.timeout_constants import FFMPEG_PROBE_TIMEOUT_SEC, FFMPEG_RENDER_TIMEOUT_SEC
@@ -140,9 +140,7 @@ class VideoAnalyzer:
             "-select_streams", "v:0",
             file_path,
         ]
-        kwargs = {}
-        if sys.platform == "win32":
-            kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+        kwargs = subprocess_kwargs()
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=FFMPEG_PROBE_TIMEOUT_SEC, **kwargs)
         if result.returncode != 0:
             raise FFmpegError(
@@ -308,9 +306,7 @@ class VideoAnalyzer:
         ``subprocess.TimeoutExpired`` (Render-Timeout) oder
         ``RuntimeError`` (User-Cancel).
         """
-        kwargs = {}
-        if sys.platform == "win32":
-            kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+        kwargs = subprocess_kwargs()
 
         import tempfile as _tempfile
         import time as _time

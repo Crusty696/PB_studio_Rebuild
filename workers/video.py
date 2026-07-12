@@ -4,7 +4,6 @@ import gc
 import logging
 import re
 import subprocess
-import sys
 import time
 import traceback
 from pathlib import Path
@@ -13,6 +12,7 @@ from PySide6.QtCore import QObject, Signal
 from sqlalchemy.orm import Session as DBSession
 
 from database import engine, VideoClip
+from services.ffmpeg_utils import subprocess_kwargs
 from services.startup_checks import get_ffmpeg_bin
 from services.timeout_constants import FFMPEG_THUMBNAIL_TIMEOUT_SEC
 from services.video_service import VideoAnalyzer
@@ -644,7 +644,7 @@ class FrameExtractWorker(QObject, CancellableMixin):
             ]
             result = subprocess.run(
                 cmd, capture_output=True, timeout=FFMPEG_THUMBNAIL_TIMEOUT_SEC,
-                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+                **subprocess_kwargs(),
             )
             expected = self.width * self.height * 3
             if result.returncode == 0 and len(result.stdout) == expected:

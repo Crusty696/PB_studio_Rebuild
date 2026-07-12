@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import logging
 import subprocess
-import sys
 import threading
 import time
 from dataclasses import dataclass
@@ -27,6 +26,7 @@ from services.timeout_constants import (
     THREAD_JOIN_TIMEOUT_SEC,
 )
 from services.errors import ConversionError, FFmpegError, FFmpegTimeoutError
+from services.ffmpeg_utils import subprocess_kwargs
 from services.nvenc_policy import require_nvenc, required_message
 from services.startup_checks import get_ffmpeg_bin, get_ffprobe_bin
 
@@ -168,7 +168,7 @@ def detect_nvenc() -> dict:
         p = subprocess.run(
             [FFMPEG, "-version"], capture_output=True, text=True, timeout=FFMPEG_PROBE_TIMEOUT_SEC,
             encoding="utf-8", errors="replace",
-            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+            **subprocess_kwargs(),
         )
         if p.returncode == 0 and p.stdout:
             result["ffmpeg_version"] = p.stdout.strip().split("\n")[0]
@@ -178,7 +178,7 @@ def detect_nvenc() -> dict:
             [FFMPEG, "-hide_banner", "-encoders"],
             capture_output=True, text=True, timeout=FFMPEG_PROBE_TIMEOUT_SEC,
             encoding="utf-8", errors="replace",
-            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+            **subprocess_kwargs(),
         )
         h264_in_list = False
         hevc_in_list = False
@@ -193,7 +193,7 @@ def detect_nvenc() -> dict:
                  "-c:v", "h264_nvenc", "-f", "null", "-"],
                 capture_output=True, timeout=FFMPEG_PROBE_TIMEOUT_SEC,
                 encoding="utf-8", errors="replace",
-                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+                **subprocess_kwargs(),
             )
             if p.returncode == 0:
                 result["h264_nvenc"] = True
@@ -211,7 +211,7 @@ def detect_nvenc() -> dict:
                  "-c:v", "hevc_nvenc", "-f", "null", "-"],
                 capture_output=True, timeout=FFMPEG_PROBE_TIMEOUT_SEC,
                 encoding="utf-8", errors="replace",
-                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+                **subprocess_kwargs(),
             )
             if p.returncode == 0:
                 result["hevc_nvenc"] = True
@@ -227,7 +227,7 @@ def detect_nvenc() -> dict:
             [FFMPEG, "-hide_banner", "-hwaccels"],
             capture_output=True, text=True, timeout=FFMPEG_PROBE_TIMEOUT_SEC,
             encoding="utf-8", errors="replace",
-            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+            **subprocess_kwargs(),
         )
         if p.returncode == 0:
             result["cuda_hwaccel"] = "cuda" in p.stdout.lower()
@@ -494,9 +494,7 @@ def _run_ffmpeg_with_progress(
     if timeout is None:
         timeout = float(FFMPEG_EXPORT_TIMEOUT_SEC)
 
-    kwargs = {}
-    if sys.platform == "win32":
-        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+    kwargs = subprocess_kwargs()
 
     process = subprocess.Popen(
         cmd,
