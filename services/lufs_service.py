@@ -15,29 +15,13 @@ from dataclasses import dataclass
 
 log = logging.getLogger(__name__)
 
-from services.startup_checks import get_ffmpeg_bin, get_ffprobe_bin
+from services.ffmpeg_utils import probe_duration, subprocess_kwargs
+from services.startup_checks import get_ffmpeg_bin
 
 def _probe_duration_sec(file_path: str) -> float:
     """Probe audio duration via ffprobe; return 0.0 when probing fails."""
     try:
-        result = subprocess.run(
-            [
-                get_ffprobe_bin(),
-                "-v", "error",
-                "-show_entries", "format=duration",
-                "-of", "default=noprint_wrappers=1:nokey=1",
-                file_path,
-            ],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=10,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
-        if result.returncode != 0:
-            return 0.0
-        return max(0.0, float((result.stdout or "0").strip() or 0.0))
+        return max(0.0, probe_duration(file_path, fallback=0.0, timeout=10))
     except (OSError, ValueError, subprocess.SubprocessError):
         return 0.0
 
@@ -233,7 +217,7 @@ class LUFSService:
             encoding="utf-8",
             errors="replace",
             timeout=timeout,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            **subprocess_kwargs(),
         )
 
         stderr = result.stderr or ""

@@ -7,7 +7,6 @@ sind, zeigt der Dialog Audio-/Video-Preview und kann sie starten/stoppen.
 from __future__ import annotations
 
 import logging
-import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -27,6 +26,7 @@ from PySide6.QtWidgets import (
 )
 
 from services.brain.brain_v3_service import BrainV3Service
+from services.ffmpeg_utils import subprocess_kwargs
 from services.brain.context_resolver import CutContext
 from services.brain.schemas.brain_v3_schemas import (
     LearningSampleCut,
@@ -62,12 +62,11 @@ class _AudioPreviewSpawnWorker(BaseWorker):
         self._cmd = cmd
 
     def _do_work(self):
-        creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
         return subprocess.Popen(
             self._cmd,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            creationflags=creationflags,
+            **subprocess_kwargs(),
         )
 
 

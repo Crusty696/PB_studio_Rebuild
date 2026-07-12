@@ -13,7 +13,6 @@ from __future__ import annotations
 import gc
 import logging
 import subprocess
-import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -26,6 +25,7 @@ from services.timeout_constants import (
     HTTP_OLLAMA_VISION_CAPTION_TIMEOUT_SEC,
 )
 
+from services.ffmpeg_utils import probe_duration, subprocess_kwargs
 from services.model_manager import oom_recovery
 from services import analysis_status_service
 from services.errors import OllamaPausedError
@@ -388,20 +388,12 @@ def _get_video_duration(video_path: str) -> float:
     """Ermittelt Video-Dauer via ffprobe."""
     from services.startup_checks import get_ffprobe_bin
     ffprobe_bin = get_ffprobe_bin()
-    
-    kwargs = {}
-    if sys.platform == "win32":
-        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
 
     try:
-        p = subprocess.run(
-            [ffprobe_bin, "-v", "quiet", "-show_entries", "format=duration",
-             "-of", "default=noprint_wrappers=1:nokey=1", video_path],
-            capture_output=True, text=True, timeout=FFMPEG_PROBE_TIMEOUT_SEC,
-            encoding="utf-8", errors="replace", **kwargs
+        return probe_duration(
+            video_path, fallback=60.0,
+            timeout=FFMPEG_PROBE_TIMEOUT_SEC, ffprobe_bin=ffprobe_bin,
         )
-        if p.returncode == 0 and p.stdout.strip():
-            return float(p.stdout.strip())
     except (subprocess.SubprocessError, OSError, ValueError) as e:
         logger.warning("ffprobe Dauer-Abfrage fehlgeschlagen für '%s': %s", video_path, e)
     return 60.0
@@ -455,9 +447,7 @@ def extract_keyframes(
             str(kf_path),
         ]
 
-        kwargs = {}
-        if sys.platform == "win32":
-            kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+        kwargs = subprocess_kwargs()
 
         try:
             result = subprocess.run(cmd, capture_output=True, timeout=FFMPEG_THUMBNAIL_TIMEOUT_SEC,

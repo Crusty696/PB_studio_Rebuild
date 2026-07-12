@@ -34,6 +34,7 @@ from services.timeout_constants import (
     STARTUP_MODEL_CHECK_TIMEOUT_SEC,
     STARTUP_OLLAMA_CHECK_TIMEOUT_SEC,
 )
+from services.ffmpeg_utils import subprocess_kwargs
 from services.nvenc_policy import require_nvenc, required_message
 
 logger = logging.getLogger(__name__)
@@ -146,13 +147,6 @@ def _check_ollama() -> bool:
     return False
 
 
-def _subprocess_kwargs() -> dict:
-    kw: dict = {}
-    if sys.platform == "win32":
-        kw["creationflags"] = subprocess.CREATE_NO_WINDOW
-    return kw
-
-
 def _check_ffmpeg() -> tuple[bool, str, bool]:
     import re
     ffmpeg_ok = False
@@ -163,7 +157,7 @@ def _check_ffmpeg() -> tuple[bool, str, bool]:
         result = subprocess.run(
             [_FFMPEG_BIN, "-version"],
             capture_output=True, text=True, timeout=STARTUP_FFMPEG_CHECK_TIMEOUT_SEC,
-            **_subprocess_kwargs(),
+            **subprocess_kwargs(),
         )
         if result.returncode == 0:
             ffmpeg_ok = True
@@ -179,7 +173,7 @@ def _check_ffmpeg() -> tuple[bool, str, bool]:
         r2 = subprocess.run(
             [_FFPROBE_BIN, "-version"],
             capture_output=True, text=True, timeout=STARTUP_FFMPEG_CHECK_TIMEOUT_SEC,
-            **_subprocess_kwargs(),
+            **subprocess_kwargs(),
         )
         ffprobe_ok = r2.returncode == 0
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as exc:
@@ -215,7 +209,7 @@ def _check_nvenc() -> tuple[bool, str]:
             encoding="utf-8",
             errors="replace",
             timeout=STARTUP_FFMPEG_CHECK_TIMEOUT_SEC,
-            **_subprocess_kwargs(),
+            **subprocess_kwargs(),
         )
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as exc:
         return False, str(exc)
@@ -246,7 +240,7 @@ def _get_nvidia_driver_version() -> tuple[str, str]:
              "| Select-Object -First 1 Name, DriverVersion "
              "| Format-List"],
             capture_output=True, text=True, timeout=8,
-            **_subprocess_kwargs(),
+            **subprocess_kwargs(),
         )
         for line in result.stdout.splitlines():
             line = line.strip()
@@ -726,7 +720,7 @@ def check_nvidia_gpu_state() -> tuple[GpuPnpState, str | None]:
             capture_output=True,
             text=True,
             timeout=5,
-            **_subprocess_kwargs(),
+            **subprocess_kwargs(),
         )
     except subprocess.TimeoutExpired:
         return "absent", "PnP-Abfrage hat das Zeitlimit (5 s) ueberschritten."

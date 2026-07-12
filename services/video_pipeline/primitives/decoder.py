@@ -23,6 +23,7 @@ from typing import Iterator, Optional
 import numpy as np
 
 from services import startup_checks
+from services.ffmpeg_utils import parse_frame_rate
 
 __all__ = ["VideoDecoder", "VideoMeta", "InvalidVideoError"]
 
@@ -110,8 +111,9 @@ class VideoDecoder:
             )
 
         fps_str = v_stream.get("r_frame_rate", "0/1")
-        num, den = fps_str.split("/") if "/" in fps_str else (fps_str, "1")
-        fps = float(num) / float(den) if float(den) != 0 else 0.0
+        # K7: strict=True — nicht-numerische Werte propagieren wie zuvor
+        # als ValueError zum Caller.
+        fps = parse_frame_rate(fps_str, default=0.0, strict=True)
 
         return VideoMeta(
             duration_s=duration_s,

@@ -7,7 +7,6 @@ Optimiert fuer viele kleine Segmente (Auto-Edit to Beat).
 import json as _json
 import logging
 import subprocess
-import sys
 import tempfile
 import threading
 import time
@@ -22,6 +21,7 @@ from services.timeout_constants import (
     FFMPEG_RENDER_TIMEOUT_SEC,
     THREAD_JOIN_TIMEOUT_SEC,
 )
+from services.ffmpeg_utils import parse_frame_rate, probe_duration, subprocess_kwargs
 from services.startup_checks import get_ffmpeg_bin, get_ffprobe_bin
 from services.nvenc_policy import require_nvenc, required_message
 from services.ffmpeg_utils import sanitize_ffmpeg_error as _sanitize_ffmpeg_error
@@ -63,18 +63,9 @@ def _video_encode_args() -> list[str]:
 logger = logging.getLogger(__name__)
 
 
-def _parse_frame_rate(rate_str: str) -> float:
-    """Parst ffprobe-Frame-Rate ("30/1", "30000/1001", "29.97") → float fps.
-
-    Unbekannt/ungueltig ("0/0", "", "N/A") → 0.0.
-    """
-    try:
-        if "/" in rate_str:
-            num, den = rate_str.split("/")
-            return float(num) / float(den) if float(den) > 0 else 0.0
-        return float(rate_str)
-    except (ValueError, ZeroDivisionError):
-        return 0.0
+# K7: kanonische Implementierung nach services.ffmpeg_utils verschoben.
+# Alias bleibt fuer in-Modul-Caller + Tests (test_b504_concat_utf8_outpoint).
+_parse_frame_rate = parse_frame_rate
 
 
 def _probe_video(file_path: str) -> dict:
@@ -97,9 +88,7 @@ def _probe_video(file_path: str) -> dict:
             "-of", "json",
             file_path,
         ]
-        kwargs = {}
-        if sys.platform == "win32":
-            kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+        kwargs = subprocess_kwargs()
         result = subprocess.run(
             cmd, capture_output=True, text=True, timeout=FFMPEG_PROBE_TIMEOUT_SEC,
             encoding="utf-8", errors="replace", **kwargs,
@@ -531,22 +520,10 @@ def _probe_audio_duration(audio_path: str) -> float:
         ffprobe_bin = get_ffprobe_bin()
     except (ImportError, AttributeError, RuntimeError):
         return 0.0
-    cmd = [
-        ffprobe_bin, "-v", "error",
-        "-show_entries", "format=duration",
-        "-of", "default=noprint_wrappers=1:nokey=1",
-        audio_path,
-    ]
-    kwargs: dict = {}
-    if sys.platform == "win32":
-        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
     try:
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=10,
-            encoding="utf-8", errors="replace", **kwargs,
+        return probe_duration(
+            audio_path, fallback=0.0, timeout=10, ffprobe_bin=ffprobe_bin,
         )
-        if result.returncode == 0:
-            return float(result.stdout.strip())
     except (subprocess.SubprocessError, OSError, ValueError) as exc:
         logger.debug("ffprobe duration failed for %s: %s", audio_path, exc)
     return 0.0
@@ -1154,9 +1131,7 @@ def _run_subprocess_cancellable(
     Returns: subprocess.CompletedProcess (returncode/stdout/stderr).
     Raises: RuntimeError("LUFS-Normalisierung abgebrochen") bei Cancel.
     """
-    kwargs: dict = {}
-    if sys.platform == "win32":
-        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+    kwargs: dict = subprocess_kwargs()
 
     if cancel_check is None and progress_cb is None:
         return subprocess.run(
@@ -1420,9 +1395,7 @@ def _run_ffmpeg_impl(cmd: list[str], timeout: int = 600, progress_cb=None,
         idx = 1 if len(cmd) > 1 else 0
         cmd = cmd[:idx] + ["-progress", "pipe:1"] + cmd[idx:]
 
-    kwargs = {}
-    if sys.platform == "win32":
-        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+    kwargs = subprocess_kwargs()
 
     process = subprocess.Popen(
         cmd,
