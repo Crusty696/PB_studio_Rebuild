@@ -19,9 +19,6 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-_APP_ROOT = Path(__file__).resolve().parent.parent
-DB_DIR = _APP_ROOT / "data" / "vector"
-DB_FILE = DB_DIR / "embeddings.db"
 EMBEDDING_DIM = 1152
 
 # M-11: Modell-Identitaet des Legacy-Vector-Stores. Die Dimension (1152)

@@ -966,7 +966,7 @@ def test_vector_db_service():
 
     # Import test
     try:
-        from services.vector_db_service import VectorDBService, EMBEDDING_DIM, DB_DIR
+        from services.vector_db_service import VectorDBService, EMBEDDING_DIM
         record("VectorDBService", "import", "PASS")
     except Exception:
         record("VectorDBService", "import", "FAIL", traceback.format_exc())

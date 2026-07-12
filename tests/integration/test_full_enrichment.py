@@ -245,8 +245,6 @@ def enrichment_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
     original_instance = _vdb_mod._instance
     monkeypatch.setattr(_vdb_mod, "_instance", None)
-    monkeypatch.setattr(_vdb_mod, "DB_FILE", vdb_db_path)
-    monkeypatch.setattr(_vdb_mod, "DB_DIR", vdb_dir)
     _vdb_mod.VectorDBService(db_path=vdb_db_path)
 
     # Storage dir for reducer pickle

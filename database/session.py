@@ -342,8 +342,6 @@ def _patch_service_paths(project_path: Path):
 
     patches = {
         "services.vector_db_service": {
-            "DB_DIR": project_path / "data" / "vector",
-            "DB_FILE": project_path / "data" / "vector" / "embeddings.db",
             "_instance": None,  # F-030: Singleton reset on project switch
         },
     }
