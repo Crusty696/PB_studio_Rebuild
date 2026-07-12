@@ -22,17 +22,21 @@ und laeuft parallel; sie blockiert diesen Plan nicht.
 
 ## Current Next Task
 
-K4 — subprocess_kwargs: Helper aus startup_checks.py:149 oeffentlich
-machen (bzw. nach services/ffmpeg_utils), ~25 Inline-Stellen umstellen
-(Liste im Repo-Plan). Pro Datei ein Edit; Verify: ruff+compile, ein
-realer ffmpeg-Aufruf pro betroffenem Service (kein Konsolen-Fenster,
-Rueckgabe identisch).
+ALLE 9 TASKS CODE-COMPLETE (2026-07-13, main 277d2b9). Ausfuehrung:
+5 parallele Worktree-Agenten + sequentielle Merges, je Task
+Paritaets-Verify. Synthese:
+docs/superpowers/synthesis/konsolidierung-abschluss-2026-07-13.md
+(Vault-Mirror vorhanden).
 
-Erledigt: K9 (618a5ca) — toter VectorDB-Konstanten-Patch raus,
-F-030-Reset + H-6-close verifiziert (27/27 Tests + Live-Skript).
+OFFEN (nur User):
+1. K6 Teil B: foreign_keys=ON im Auto-Edit-Pfad — expliziter
+   User-Entscheid (STOP+ASK).
+2. Live-Sichtung der 4 K8-Flows (siehe Synthese) + allgemeine
+   App-Sichtung.
+3. `fixed`-Marker auf dem Plan.
 
-Danach strikt sequentiell: K7 -> K5 -> K2 -> K3 -> K6 -> K1 -> K8
-(Details im Repo-Plan). K6 Teil B (foreign_keys=ON) = STOP + ASK.
+Danach naechster Plan: PB-STUDIO-PERF-DB-CLEANUP-2026-07-12 (E1-E10,
+Blocker: virt-M4-User-fixed + Konsolidierung-User-fixed).
 
 ## Agent Behavior
 
