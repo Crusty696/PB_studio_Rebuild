@@ -689,14 +689,6 @@ class TimelineService:
             )
         return str(path)
 
-    def export_otio_json(self, path: str | Path | None = None) -> str:
-        """Exportiert die Timeline als OTIO-JSON."""
-        exports_dir = _get_exports_dir()
-        exports_dir.mkdir(parents=True, exist_ok=True)
-        if path is None:
-            path = exports_dir / f"{self.timeline.name}.otio"
-        return self.save_otio(path)
-
     def get_duration(self) -> float:
         """Berechnet die Gesamtdauer der Timeline in Sekunden."""
         try:

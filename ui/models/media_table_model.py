@@ -215,14 +215,6 @@ class PagedProxyModel(QSortFilterProxyModel):
     def page_size(self) -> int:
         return self._page_size
 
-    def set_page_size(self, n: int):
-        n = max(1, int(n))
-        if n != self._page_size:
-            self._page_size = n
-            self._clamp_page()
-            self.invalidateFilter()
-            self.pagesChanged.emit()
-
     def page(self) -> int:
         return self._page
 

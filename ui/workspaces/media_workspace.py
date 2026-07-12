@@ -459,18 +459,6 @@ class MediaWorkspace(QWidget):
         )
         self._video_preflight_layout.insertWidget(0, button)
 
-    def attach_preflight_format(self, widget: QWidget) -> None:
-        """Surface the Convert target-format selectors next to the preflight button.
-
-        Without this, resolution/fps/format live in a ConvertWorkspace that is
-        never shown, so the standardize button always ran on its defaults.
-        """
-        if not hasattr(self, "_video_preflight_layout"):
-            return
-        widget.setParent(self._video_preflight_panel)
-        widget.setVisible(True)
-        self._video_preflight_layout.insertWidget(0, widget)
-
     # ── VIDEO PAGE ────────────────────────────────────────────
     def _build_video_page(self):
         """P9-C: Sidebar entfernt — Toolbar oben, Pool im Zentrum,

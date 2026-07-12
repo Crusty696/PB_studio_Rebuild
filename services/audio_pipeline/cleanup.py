@@ -15,7 +15,10 @@ STEMS_MAX_TOTAL_GB = int(os.environ.get("PB_STEMS_MAX_GB", "50"))  # Q-H 50 GB
 
 
 def _stems_root() -> Path:
-    return Path("storage") / "stems"
+    """Stems-Root fuer das aktuelle Projekt (lazy APP_ROOT-Read, B-602-Muster —
+    CWD-relativer Pfad waere je nach Startverzeichnis ein anderes Verzeichnis)."""
+    import database.session as _session
+    return _session.APP_ROOT / "storage" / "stems"
 
 
 def _track_dir(track_id: int) -> Path:

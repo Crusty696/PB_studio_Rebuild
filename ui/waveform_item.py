@@ -97,15 +97,6 @@ class WaveformGraphicsItem(QGraphicsItem):
     def boundingRect(self) -> QRectF:
         return QRectF(0, 0, self._width, self._height)
 
-    def set_pixels_per_second(self, pps: float):
-        """Update bei Zoom-Änderung."""
-        if abs(pps - self._pps) > 0.01:
-            self._pps = pps
-            self._width = self._duration * self._pps
-            self._tile_cache.clear()  # Alle Tiles invalidieren
-            self.prepareGeometryChange()
-            self.update()
-
     def paint(self, painter: QPainter, option: QStyleOptionGraphicsItem,
               widget: Optional[QWidget] = None):
         """Zeichnet nur den sichtbaren Bereich (Culling + Tile-Cache)."""

@@ -374,25 +374,6 @@ def _timeline_video_placeholder(width: int, height: int, label: str) -> QPixmap:
     return pix
 
 
-def _timeline_video_thumbnail(file_path: str | None, width: int, height: int, label: str) -> QPixmap:
-    if file_path:
-        try:
-            from ui.widgets.media_grid import _thumb_path
-            thumb = _thumb_path(file_path)
-            if thumb.exists():
-                pix = QPixmap(str(thumb))
-                if not pix.isNull():
-                    return pix.scaled(
-                        max(1, width),
-                        max(1, height),
-                        Qt.AspectRatioMode.KeepAspectRatioByExpanding,
-                        Qt.TransformationMode.FastTransformation,
-                    )
-        except (ImportError, OSError, RuntimeError):
-            pass
-    return _timeline_video_placeholder(width, height, label)
-
-
 class TimelineClipItem(QGraphicsRectItem):
     # Audio-Clips: refined slate blue
     AUDIO_COLOR = QColor(12, 18, 28, 35)
