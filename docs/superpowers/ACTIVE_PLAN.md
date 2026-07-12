@@ -22,14 +22,16 @@ und laeuft parallel; sie blockiert diesen Plan nicht.
 
 ## Current Next Task
 
-K9 — database/session.py:343-354: toten Monkey-Patch auf
-vector_db_service.DB_DIR/DB_FILE entfernen (beide ohne Konsumenten,
-Service nutzt Lazy-Getter _default_db_file). "_instance": None
-(F-030 Singleton-Reset) BEHALTEN. Verify: Grep Tests auf
-DB_FILE/DB_DIR-Import, pytest test_database + Vector-DB-Tests,
-Live-App-Start + Projekt-Swap.
+K4 — subprocess_kwargs: Helper aus startup_checks.py:149 oeffentlich
+machen (bzw. nach services/ffmpeg_utils), ~25 Inline-Stellen umstellen
+(Liste im Repo-Plan). Pro Datei ein Edit; Verify: ruff+compile, ein
+realer ffmpeg-Aufruf pro betroffenem Service (kein Konsolen-Fenster,
+Rueckgabe identisch).
 
-Danach strikt sequentiell: K4 -> K7 -> K5 -> K2 -> K3 -> K6 -> K1 -> K8
+Erledigt: K9 (618a5ca) — toter VectorDB-Konstanten-Patch raus,
+F-030-Reset + H-6-close verifiziert (27/27 Tests + Live-Skript).
+
+Danach strikt sequentiell: K7 -> K5 -> K2 -> K3 -> K6 -> K1 -> K8
 (Details im Repo-Plan). K6 Teil B (foreign_keys=ON) = STOP + ASK.
 
 ## Agent Behavior
