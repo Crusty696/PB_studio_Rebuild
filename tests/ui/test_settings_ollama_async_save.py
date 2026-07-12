@@ -109,14 +109,15 @@ class TestValidateDecision:
 
 
 def test_on_accept_is_async_no_sync_list_models(monkeypatch):
-    """Quelltext-Vertrag: _on_accept nutzt den Worker/QThread, ruft NICHT
+    """Quelltext-Vertrag: _on_accept nutzt den Worker (seit K8 via
+    run_worker/B-513 statt hand-verdrahtetem QThread), ruft NICHT
     mehr synchron _validate_ollama_model/list_models im UI-Thread."""
     import inspect
 
     import ui.dialogs.settings_dialog as sd
     src = inspect.getsource(sd.SettingsDialog._on_accept)
     assert "_OllamaTestWorker" in src
-    assert "QThread" in src
+    assert "run_worker" in src
     assert "_validate_ollama_model" not in src
     # die alte synchrone Methode existiert nicht mehr
     assert not hasattr(sd.SettingsDialog, "_validate_ollama_model")
