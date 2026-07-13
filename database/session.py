@@ -203,6 +203,30 @@ def make_nullpool_engine(db_url_or_path, *, enable_foreign_keys: bool):
     return _eng
 
 
+_NULLPOOL_ENGINE_CACHE_LOCK = threading.Lock()
+_nullpool_engine_cache = None  # tuple[str, sqlalchemy.Engine] | None
+
+
+def _get_cached_nullpool_engine():
+    """Return one NullPool engine for the current project database URL."""
+    global _nullpool_engine_cache
+    current_url = str(engine.url)
+    with _NULLPOOL_ENGINE_CACHE_LOCK:
+        cached = _nullpool_engine_cache
+        if cached is not None and cached[0] == current_url:
+            return cached[1]
+
+        new_engine = make_nullpool_engine(
+            current_url, enable_foreign_keys=True
+        )
+        _nullpool_engine_cache = (current_url, new_engine)
+        # Do not dispose the previous engine here. A context opened just before
+        # set_project() may still own a checked-out connection. NullPool holds
+        # no idle connections; dropping the cache reference lets old contexts
+        # finish safely and the old engine become collectible afterwards.
+        return new_engine
+
+
 def nullpool_session():
     """Erzeugt eine SQLAlchemy Session mit NullPool-Engine (frische Connection).
 
@@ -217,10 +241,13 @@ def nullpool_session():
             track.bpm = 120.0
             session.commit()
 
-    Die Engine wird automatisch disposed wenn der Context-Manager endet.
+    Die modulweit pro Projekt-URL gecachte NullPool-Engine bleibt bestehen;
+    NullPool selbst erstellt und schliesst weiterhin pro Session eine frische
+    DBAPI-Connection.
     """
-    _eng = make_nullpool_engine(str(engine.url), enable_foreign_keys=True)
-    return _NullPoolSessionContext(_eng)
+    return _NullPoolSessionContext(
+        _get_cached_nullpool_engine(), dispose_engine=False
+    )
 
 
 class _NullPoolSessionContext:
@@ -231,8 +258,9 @@ class _NullPoolSessionContext:
     werden doppelte Commits und Commits nach Rollback vermieden.
     """
 
-    def __init__(self, eng):
+    def __init__(self, eng, *, dispose_engine: bool = True):
         self._eng = eng
+        self._dispose_engine = dispose_engine
         self._session = None
         self._explicitly_committed = False
         self._explicitly_rolled_back = False
@@ -274,10 +302,11 @@ class _NullPoolSessionContext:
                     logger.warning("session.close() fehlgeschlagen: %s", close_err)
         finally:
             # B-008 Fix: dispose() Fehler abfangen statt still zu schlucken
-            try:
-                self._eng.dispose()
-            except Exception as dispose_err:  # broad catch intentional — dispose() can raise various engine errors
-                logger.warning("engine.dispose() fehlgeschlagen: %s", dispose_err)
+            if self._dispose_engine:
+                try:
+                    self._eng.dispose()
+                except Exception as dispose_err:  # broad catch intentional — dispose() can raise various engine errors
+                    logger.warning("engine.dispose() fehlgeschlagen: %s", dispose_err)
         return False
 
 
