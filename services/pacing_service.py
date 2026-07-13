@@ -1548,14 +1548,19 @@ def _auto_edit_phase3_inner(
             logger.warning("T1.3: Queue-Drain fehlgeschlagen: %s", _steer_exc)
 
     # F-001 Fix: Save playback_offset to database for persistence
+    # E4 (Perf): UPDATE pro Clip statt Voll-ORM-Load (SELECT + selectin
+    # Scenes/Anchors = 3 Queries pro Clip, nur um einen Float zu setzen).
+    # Filter-Semantik identisch: nur nicht-geloeschte Clips (deleted_at IS
+    # NULL), unbekannte/geloeschte IDs werden stillschweigend uebersprungen.
     with Session(_ae_eng) as session:
+        from sqlalchemy import update as _sa_update
         from database import VideoClip
         for vid, offset in clip_offsets.items():
-            video_clip = session.query(VideoClip).filter(
-                VideoClip.id == vid, VideoClip.deleted_at.is_(None)
-            ).first()
-            if video_clip:
-                video_clip.playback_offset = offset
+            session.execute(
+                _sa_update(VideoClip)
+                .where(VideoClip.id == vid, VideoClip.deleted_at.is_(None))
+                .values(playback_offset=offset)
+            )
         session.commit()
 
     _degraded = (not bool(mood_embeddings)) or beat_fallback
