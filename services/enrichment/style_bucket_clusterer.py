@@ -6,15 +6,102 @@ Reducer is persisted via pickle so new clips can be assigned without refitting.
 
 from __future__ import annotations
 
+import logging
+import os
 import pickle
+import subprocess
+import sys
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
+logger = logging.getLogger(__name__)
+
 # umap.UMAP has no type stubs; we use Any for the public API surface.
 _UMAPReducer = Any
+
+# ---------------------------------------------------------------------------
+# B-618: Numba-JIT-Kaltstart-Warmup
+#
+# Der Lazy-Import von ``umap`` (direkt in ``fit()`` bzw. indirekt via
+# ``pickle.load`` in ``load_reducer()`` — Unpickling des UMAP-Reducers
+# importiert das umap-Modul) loest bei KALTEM Numba-Disk-Cache
+# JIT-Kompilierung aus (pynndescent/distances.py). Diese haelt den GIL des
+# App-Prozesses so lange, dass der Qt-Main-Thread eskalierend blockiert
+# (Watchdog-Stacks 19.9s -> 24.0s -> 26.7s) und der Prozess ohne Traceback
+# starb (live-belegt 2026-07-13). Bei warmem Cache dauert derselbe Pfad nur
+# noch 1.5-4.7s und ist stabil (Warmlauf-Nachtest, 8x ausgeloest).
+#
+# Fix: Vor dem In-Process-Import einmalig ``import umap`` in einem
+# SEPARATEN Subprocess ausfuehren. Der Subprocess fuellt den Numba-Disk-
+# Cache, ohne den GIL des App-Prozesses zu halten; der anschliessende
+# In-Process-Import trifft dann den warmen Cache.
+# ---------------------------------------------------------------------------
+_WARMUP_TIMEOUT_S: float = 600.0
+_WARMUP_LOCK = threading.Lock()
+_WARMUP_STATE: dict[str, bool] = {"done": False}
+
+
+def warm_umap_cache(timeout: float = _WARMUP_TIMEOUT_S) -> bool:
+    """Fuellt den Numba-Disk-Cache fuer umap/pynndescent per Subprocess (B-618).
+
+    Returns:
+        True  -- In-Process-Import trifft warmen Zustand (Warmup gelaufen,
+                 umap bereits importiert, oder Warmup schon erledigt).
+        False -- Warmup konnte nicht laufen (Frozen-Build, Subprocess-Fehler
+                 oder Timeout); der Aufrufer faellt auf den bisherigen
+                 In-Process-Import zurueck (der den Cache dann selbst fuellt).
+
+    Thread-safe und idempotent: Nur der erste Aufrufer zahlt die Warmup-Zeit;
+    parallele Aufrufer warten am Lock, bis der Cache warm ist. Nach einem
+    Fehlschlag wird NICHT erneut versucht -- der In-Process-Import
+    kompiliert und persistiert den Cache ohnehin selbst.
+    """
+    with _WARMUP_LOCK:
+        if _WARMUP_STATE["done"]:
+            return True
+        if "umap" in sys.modules:
+            # JIT-Kosten in diesem Prozess bereits bezahlt.
+            _WARMUP_STATE["done"] = True
+            return True
+        if getattr(sys, "frozen", False):
+            # PyInstaller-Build: sys.executable ist die App-EXE selbst;
+            # ``app.exe -c "import umap"`` wuerde die GUI neu starten statt
+            # einen Python-Einzeiler auszufuehren. Dokumentierte
+            # B-618-Einschraenkung: Frozen-Builds ueberspringen den
+            # Subprocess-Warmup und importieren in-process.
+            _WARMUP_STATE["done"] = True
+            logger.warning(
+                "B-618: Frozen-Build erkannt — UMAP-Warmup-Subprocess "
+                "uebersprungen, umap-Import erfolgt in-process."
+            )
+            return False
+        creationflags = (
+            getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
+        )
+        try:
+            subprocess.run(
+                [sys.executable, "-c", "import umap"],
+                check=True,
+                timeout=timeout,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=creationflags,
+            )
+        except Exception as exc:  # noqa: BLE001 — Warmup darf Aufrufer nie crashen
+            _WARMUP_STATE["done"] = True
+            logger.warning(
+                "B-618: UMAP-Warmup-Subprocess fehlgeschlagen (%s) — "
+                "Fallback auf In-Process-Import.",
+                exc,
+            )
+            return False
+        _WARMUP_STATE["done"] = True
+        logger.info("B-618: UMAP/Numba-Disk-Cache-Warmup-Subprocess erfolgreich.")
+        return True
 
 
 @dataclass(frozen=True)
@@ -91,6 +178,9 @@ class StyleBucketClusterer:
                 reason=f"small_library:{n_samples}",
             )
 
+        # B-618: Numba-Disk-Cache per Subprocess fuellen, bevor der Import den
+        # GIL dieses Prozesses fuer die JIT-Kompilierung blockieren kann.
+        warm_umap_cache()
         import umap  # type: ignore[import-untyped]  # lazy -- keeps module import cheap
         from sklearn.cluster import HDBSCAN  # type: ignore[import-untyped]  # lazy
 
@@ -171,6 +261,11 @@ class StyleBucketClusterer:
                 f"UMAP reducer not found at '{p}'. "
                 "Run StyleBucketClusterer.fit() and save_reducer() first."
             )
+        # B-618: Unpickling des UMAP-Reducers importiert das umap-Modul und
+        # loeste bei kaltem Numba-Disk-Cache GIL-blockierende JIT-Kompilierung
+        # aus (App-Prozess starb ohne Traceback). Cache vorher per Subprocess
+        # waermen.
+        warm_umap_cache()
         # B-037 / B301: ``p`` zeigt auf den eigenen UMAP-Reducer-Cache
         # unter ``storage/`` — ausschliesslich von uns geschrieben in
         # ``save_reducer()``. Kein attacker-controlled Pickle-Source.
