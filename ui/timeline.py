@@ -1324,7 +1324,14 @@ class InteractiveTimeline(QGraphicsView):
             def run(self):
                 try:
                     with nullpool_session() as session:
-                        entries = session.query(TimelineEntry).filter_by(project_id=self.pid).all()
+                        # E5: lazyload("*") verhindert den Selectin-Load ALLER
+                        # ClipAnchors + joined Project pro Entry — die Anchors
+                        # laedt die explizite ClipAnchor-Query unten ohnehin
+                        # (Doppel-Load bei 1428 Entries), entry.project wird
+                        # downstream nie gelesen (nur Column-Attribute).
+                        entries = session.query(TimelineEntry).options(
+                            lazyload("*"),
+                        ).filter_by(project_id=self.pid).all()
                         
                         _audio_ids = [e.media_id for e in entries if e.track == "audio"]
                         _video_ids = [e.media_id for e in entries if e.track == "video"]
