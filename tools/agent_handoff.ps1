@@ -80,5 +80,15 @@ if ($gateExit -eq 2) {
     }
 }
 
+Write-Section "Session Learning Check"
+$learningPython = Join-Path $env:USERPROFILE "miniconda3\envs\pb-studio\python.exe"
+if (-not (Test-Path $learningPython)) { $learningPython = "python" }
+& $learningPython "tools\session_learning.py" verify
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "BLOCKED: session learning entry missing"
+    Write-Host "Record problem, root cause, reusable rule, and applicability before handoff."
+    exit 6
+}
+
 Write-Section "Result"
 Write-Host "OK: clean handoff state."

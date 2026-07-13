@@ -324,6 +324,22 @@ Dirty worktrees are forbidden as a normal handoff state.
   4. `docs/superpowers/AGENT_HANDOFF.md`.
   Chat memory from a previous agent is not source of truth.
 
+## Persistentes Agentenlernen — Pflicht
+
+- `tools/agent_start.ps1` startet eine worktree-lokale Lernsession und laedt
+  die neuesten repo-weiten Lektionen automatisch.
+- Nach jedem abgeschlossenen Task sowie nach jedem Problem mit geklaerter Root
+  Cause muss vor dem naechsten Task genau eine wiederverwendbare Lektion
+  gespeichert werden:
+  `python tools/session_learning.py record --problem "..." --cause "..." --rule "..." --applies-to "..."`.
+- Lektionen muessen beobachtete Fakten, Root Cause und uebertragbare Regel
+  enthalten. Keine Hypothesen als Wissen speichern.
+- `tools/agent_handoff.ps1` blockiert Sessions ohne mindestens eine Lektion.
+- Speicherung: `docs/superpowers/agent_lessons/*.json`; eine Datei pro
+  Lektion verhindert Konflikte zwischen parallelen Worktrees.
+- System erweitert externes Projektwissen, nicht Modellgewichte. Aussagen wie
+  "selbst trainiert" oder "vergisst nie" sind verboten.
+
 ## Context-budget and clean-stop discipline
 
 - When context budget / conversation capacity looks low, stop starting new

@@ -1,0 +1,10 @@
+{
+  "lesson_id": "ffmpeg-identity-20260713",
+  "recorded_at": "2026-07-13T01:57:42+00:00",
+  "session_id": "da38084d4ff74c019fdb791805f97c49",
+  "head_at_start": "1272b6c23bcff94b4e85c66be45d09fe1d10621f",
+  "problem": "Linked Worktree erzeugte andere Keyframe-SHAs als main",
+  "cause": "Ignoriertes bin-Verzeichnis fehlte; Resolver fiel unbemerkt von FFmpeg 6.1.1 auf PATH 8.1.1 zurueck",
+  "rule": "Externe Tool-Binaries per absolutem Pfad, Version und SHA256 pinnen; Paritaetsvergleiche nur bei identischer Tool-Identitaet",
+  "applies_to": "FFmpeg, ffprobe und alle externen CLI-Tools in Root, Worktrees, CI und Frozen Builds"
+}

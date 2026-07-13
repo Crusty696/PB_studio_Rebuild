@@ -52,6 +52,13 @@ if ($ffmpegVerifyExit -ne 0) {
     exit 6
 }
 
+Write-Section "Session Lessons"
+& $verifyPython "tools\session_learning.py" start
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "BLOCKED: session learning initialization failed"
+    exit 7
+}
+
 if ($Pull) {
     Write-Section "Remote Sync"
     & git fetch --prune

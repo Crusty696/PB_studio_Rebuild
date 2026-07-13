@@ -1,0 +1,10 @@
+{
+  "lesson_id": "test-path-inventory-20260713",
+  "recorded_at": "2026-07-13T01:58:04+00:00",
+  "session_id": "da38084d4ff74c019fdb791805f97c49",
+  "head_at_start": "1272b6c23bcff94b4e85c66be45d09fe1d10621f",
+  "problem": "Zwei Pytest-Laeufe starteten wegen erfundener Testpfade nicht",
+  "cause": "Testdateinamen aus Erinnerung statt Repo-Inventar verwendet",
+  "rule": "Vor selektivem Testlauf Pfade mit rg --files oder Git-Inventar belegen; nie Testpfade raten",
+  "applies_to": "Alle Repositories und Test-Runner"
+}
