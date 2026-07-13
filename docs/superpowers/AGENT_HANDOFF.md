@@ -78,9 +78,16 @@ This file is a repository-local continuity checkpoint for all agents.
   `test-report/e-live-gui-20260713/*.json`. Testfixture
   `projects/qa_e9_switch` angelegt — User entscheidet ueber Loeschung.
   Bugfiles: Vault `wiki/bugs/B-618..B-621`. KEINE Fixes ohne User-Auftrag.
+- **Clean-VM 2026-07-13 PASS (nach Host-Reboot):** Reboot behob Sandbox-
+  Fehler 0x800706EF. `run_vm001_windows_sandbox.ps1`: Guest Win10 19041,
+  Installer Exit 0, Installed-EXE + HKCU-Key vorhanden, App startete,
+  blockers=[]. Proof-MD hash-gebunden an NEUE Artefakte
+  (`EAC4B9DB...` / `FF1A80AC...`):
+  `docs/superpowers/synthesis/clean-vm-sandbox-install-proof-2026-07-13.md`.
+  Release-Gate weiterhin EXIT=0. Komplette Release-Kette (Build, Sign,
+  Install, Installed-GUI, Clean-VM) belegt gegen aktuelle Hashes.
 - **Offen:** Bug-Triage/Fixplan B-618/B-620/B-619 (User-Entscheid),
-  Clean-VM nach Host-Reboot (Sandbox 0x800706EF), E10-Zweitlauf mit
-  warmem Numba-Cache, User-`fixed`.
+  E10-Zweitlauf mit warmem Numba-Cache (laeuft), User-`fixed`.
 - **Synthese:**
   `docs/superpowers/synthesis/perf-db-cleanup-abschluss-2026-07-13.md` und
   Vault `wiki/synthesis/perf-db-cleanup-abschluss-2026-07-13.md`.
