@@ -3388,8 +3388,21 @@ class InteractiveTimeline(QGraphicsView):
         if updates:
             from database import nullpool_session
             with nullpool_session() as session:
+                # E7: EIN Bulk-Load statt session.get() pro Update —
+                # session.get() lud pro Entry zusaetzlich joined Project +
+                # selectin Anchors. Fehlende IDs werden wie bisher
+                # uebersprungen (get->None-Semantik via dict.get). Doppelte
+                # entry_ids in updates treffen dank Identity-Map/Dict
+                # dasselbe Objekt — letzter Schreiber gewinnt, wie vorher.
+                _ids = [entry_id for entry_id, _, _ in updates]
+                _entries_by_id = {
+                    e.id: e
+                    for e in session.query(TimelineEntry).options(
+                        lazyload("*"),
+                    ).filter(TimelineEntry.id.in_(_ids)).all()
+                }
                 for entry_id, new_start, _ in updates:
-                    entry = session.get(TimelineEntry, entry_id)
+                    entry = _entries_by_id.get(entry_id)
                     if entry:
                         if entry.end_time is not None:
                             duration = entry.end_time - entry.start_time
