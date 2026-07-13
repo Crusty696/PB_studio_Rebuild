@@ -41,15 +41,25 @@ This file is a repository-local continuity checkpoint for all agents.
   alive, Screenshot `tests/qa_artifacts/frozen_gui_workflow_20260713_072304.png`.
   Danach keine pb_studio-Prozesse.
 - **Lernen:** `8421e27` + Lessons; Start lädt Regeln, Handoff verlangt Lesson.
-- **Offen:** reale GUI-/App-Livepfade E1/E3/E4/E5/E7/E8/E9/E10,
-  Signierung des neuen Installers (Cert-Entscheid User), Installed-App-Install
-  (braucht Admin-Elevation), Clean-VM gegen NEUE Hashes, User-`fixed`.
-- **Naechster sicherer Schritt:** keine neue Codearbeit. Installer signieren
-  (falls User Self-Signed-Cert `EB0DF8D8...` weiter akzeptiert), dann
-  Installed-App-Install mit Admin + `verify_installed_app_gui_workflow.py`,
-  dann Windows-Sandbox-Clean-VM-Proof gegen die neuen Hashes
-  (E9FD73... / FF1A80...). Installer-Build reproduzierbar via
-  `PB_NSISBI_MAKENSIS` + `PB_SKIP_PYINSTALLER=1`.
+- **Release-Kette 2026-07-13 (User-Freigabe, autonom):** main gepusht
+  (`478fde9..1e31f35`). Installer signiert: signtool + Cert
+  `EB0DF8D8AFBEDE5D7F8B3021076F502C3F04549F` + DigiCert-Timestamp,
+  `Get-AuthenticodeSignature` **Valid**; signierte EXE-Identitaet 432,232 B
+  SHA256 `EAC4B9DB96BEAF52538603F63E9E4E543B2DE7B52FD6427ABBB2307AC325DF2F`.
+  Silent-Install per-user Exit 0: `%LOCALAPPDATA%\PB Studio\pb_studio.exe`
+  42,334,829 B SHA256 `2005BE20...9A12119E` byte-identisch Frozen-EXE;
+  HKCU-Key `...\Uninstall\PBStudio` korrekt. Installed-App-GUI-Proof PASS
+  (`--write-proof`): responsives Fenster, 63 UIA-Labels, 4 Workflow-Gruppen,
+  Proof-MD mit NEUEN Hashes aktualisiert, Screenshot
+  `installed_app_gui_workflow_20260713_073746.png`.
+- **Clean-VM VERTAGT (User 2026-07-13):** Windows Sandbox host-seitig defekt —
+  `WindowsSandbox.exe` scheitert auch ohne Config mit HRESULT 0x800706EF
+  (RPC NULL-Kontexthandle); Dienste liefen, HypervisorPresent=true; am
+  2026-07-05 lief Sandbox noch. Fix-Kandidaten: Host-Reboot oder
+  CmService/vmcompute-Neustart (Admin). Danach
+  `scripts/diag/run_vm001_windows_sandbox.ps1` gegen neue Hashes nachziehen.
+- **Offen:** reale GUI-/App-Livepfade E1/E3/E4/E5/E7/E8/E9/E10 (laufen
+  autonom per GUI-Tester), Clean-VM nach Sandbox-Fix, User-`fixed`.
 - **Synthese:**
   `docs/superpowers/synthesis/perf-db-cleanup-abschluss-2026-07-13.md` und
   Vault `wiki/synthesis/perf-db-cleanup-abschluss-2026-07-13.md`.

@@ -59,7 +59,14 @@ Git-ignoriert.
   `PB_NSISBI_MAKENSIS`-Override + `PB_SKIP_PYINSTALLER=1` -> Build Exit 0.
   EXE 424,755 B SHA256 `E9FD7313...C9F1FFD7`; NSISBIN 2,817,285,191 B SHA256
   `FF1A80AC...7757F76D`. Release-Gate EXIT=0; Evidence-Matrix
-  `release_ready=true`. Ehrliches Limit: Installer `NotSigned`; alte
-  Signing-/VM-/GUI-Proofs referenzieren alte Hashes; Installed-App-Install
-  (Admin) und Clean-VM gegen neue Hashes offen.
+  `release_ready=true`.
+- Release-Kette 2026-07-13 (User-Freigabe): Installer signiert (Valid +
+  DigiCert-Timestamp; signierte EXE 432,232 B SHA256 `EAC4B9DB...C325DF2F`),
+  Silent-Install per-user PASS (Installed-EXE byte-identisch Frozen-EXE,
+  HKCU-Key `PBStudio` ok), Installed-App-GUI-Proof PASS mit neuen Hashes
+  (Screenshot `installed_app_gui_workflow_20260713_073746.png`).
+  main gepusht (`1e31f35`).
+- Clean-VM VERTAGT (User): Windows Sandbox host-defekt — 0x800706EF auch
+  ohne Config; nach Host-Reboot/CmService-Neustart
+  `run_vm001_windows_sandbox.ps1` gegen neue Hashes nachziehen.
 - User setzt Plan-/Task-`fixed` erst nach Live-Sichtung.
