@@ -95,10 +95,30 @@ This file is a repository-local continuity checkpoint for all agents.
   Visual-Embeddings; App-Peak 7.2 GB WorkingSet / 12.5 GB PrivateBytes.
   Artefakte: `test-report/e-live-gui-20260713/` (RAM-CSV, Freeze-Dauern,
   Screenshots E10warm_01-17). Bugfile B-618 im Vault fortgeschrieben.
-- **Offen:** Bug-Triage/Fixplan B-618/B-620/B-619 (User-Entscheid;
-  B-618-Fix-Kandidaten: Numba-Warmup beim Erststart, load_reducer im
-  Worker-Thread, RAM-Gate), Entscheid Testfixture `projects/qa_e9_switch`
-  behalten/loeschen, User-`fixed`.
+- **Fixplan 2026-07-13 (User-Auftrag, autonom) — Ergebnis:**
+  - `projects/qa_e9_switch` geloescht (User-OK).
+  - **B-618 FIX + LIVE-PASS** (Merge `21c3d37`): Numba-Warmup-Subprocess vor
+    umap-Import. GUI-Kaltstart-Retest (Cache leer) — Warmup-Logzeile 21:40:05,
+    beide Clips structure_enrichment completed, Prozess ueberlebte (vorher
+    26.7s->Tod). Limit: greift nicht im Frozen-Build (dokumentiert).
+  - **B-620 FIX + LIVE-PASS** (Merge `699ca36`): Root-Cause korrigiert —
+    nicht Main-Thread-Query, sondern GIL-Starvation durch JSON-Blob-ORM-Loads;
+    Fix = Spalten-Selects, paritaets-gepinnt. E1-Retest: **233ms statt
+    7-14s**.
+  - **B-619 STOPP** (kein Code): belegte Konzept-Kollision — Dialog-Anker
+    (Auto-Edit, paarweise) != ClipAnchor/_anchor_map (Entry-Offset, min).
+    3 User-Optionen im Bugfile. Folge-Fund: `add_anchor`-Chat-Action baut
+    ClipAnchor mit nicht existierenden Feldern -> TypeError.
+  - Alle 3 gepusht bis `699ca36`. `fixed` setzt nur User.
+- **NEU aus Retest — 3 Rest-Freezes gleicher Klasse, NICHT im Fixplan-Scope,
+  nur dokumentiert:** B-622 (`edit_workspace.py:598 _build_otio_timeline`
+  sync `session.get()` auf GUI-Thread, 42s einmalig), B-623
+  (`storage_migration.py:81` Blob-Decode bei jedem Projektload, ~3s), B-624
+  (`pacing_beat_grid.py:891/314` Blob-Lazy-Load bei Auto-Edit, ~3s).
+  Muster: JSON-Blob-Voll-Loads ueber mehrere Services -> Kandidat fuer
+  systematischen Blob-Load-Audit. Vault `wiki/bugs/B-622..B-624`.
+- **Offen:** B-619-Optionswahl (User), B-622/B-623/B-624-Triage (User),
+  B-618-Frozen-Build-Restrisiko, Clean-VM war heute PASS, User-`fixed`.
 - **Synthese:**
   `docs/superpowers/synthesis/perf-db-cleanup-abschluss-2026-07-13.md` und
   Vault `wiki/synthesis/perf-db-cleanup-abschluss-2026-07-13.md`.
