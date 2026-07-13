@@ -1,0 +1,10 @@
+{
+  "lesson_id": "34eb130ae9754db9b0535fe04b5ac44f",
+  "recorded_at": "2026-07-13T07:02:50+00:00",
+  "session_id": "8e0510d0162f4a6b8097a3851d9a85e8",
+  "head_at_start": "4a61dc2d0d9cec7eaf00ef0e4d39a6f4ebfa708b",
+  "problem": "Perf-Watchdog loggte nach Idle-Pausen absurde SLOW-EVENT-Dauern (bis 239s) ohne echten Freeze",
+  "cause": "Event-Timestamp-Akkumulation ueber Idle-Zeit; SLOW-EVENT-Zeile allein beweist keine Main-Thread-Blockade",
+  "rule": "Freeze-Befunde nur werten wenn korrespondierender freeze_stacks.log-Dump existiert; Watchdog-Einzelzeilen nach Idle-Phasen als Messartefakt behandeln",
+  "applies_to": "PB-Studio Perf-Watchdog-Analysen und generell Event-basierte Latenz-Messungen mit Idle-Phasen"
+}

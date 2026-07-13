@@ -43,12 +43,20 @@ Git-ignoriert.
 - FFmpeg-Doku bestaetigt zeitpunkt-/frame-limit-basierte Bildextraktion;
   Byte-Paritaet wurde zusaetzlich lokal mit exakt gleicher Binary belegt.
 
-## Offen — Live
+## E-Live-GUI-Ergebnis 2026-07-13 (pb-gui-tester, echte App, test33)
 
-- E1 sichtbarer Media-Refresh; E3 Brain-Run mit FreezeProbe.
-- E4 Auto-Edit; E5 Timeline-Projektload; E7 Anchor-Sync; E8 Storage Browser.
-- E9 laufender App-Projektwechsel mit Worker-/Lock-Beobachtung.
-- E10 echter langer Videoanalyse-Workflow; CPU-/UI-Beobachtung.
+- E5 Timeline-Projektload PASS; E8 Storage-Browser PASS (105 Quellen/5.7GB).
+- E1/E3/E4/E9 FAIL wegen Main-Thread-Freezes 2-14s (B-620: synchrone
+  AnalysisStatus-DB-Queries im Qt-Notify); funktional korrekt (Auto-Edit
+  1428 Segmente, Projektwechsel ohne DB-Lock).
+- E7 FAIL: Anchor-Sync No-Op (B-619, getrennte Datenquellen Dialog vs.
+  `_anchor_map`).
+- E10 FAIL KRITISCH: App verschwindet spurlos bei Struktur-Enrichment
+  (B-618, Numba-JIT-Kaltstart `umap`/`pynndescent`).
+- B-621: Watchdog-Idle-Messartefakte (nur informativ).
+- Gesamt: RED — Live-Abnahme des Plans nicht bestanden; Bug-Triage beim User.
+
+## Offen — Live
 - D-069 PyInstaller/Frozen-Smoke PASS: 14,839 Dateien, 5,926,420,584 Bytes;
   Bundle-FFmpeg/ffprobe-SHAs exakt Manifest.
 - Frozen-GUI-Live 2026-07-13 PASS: `verify_frozen_gui_workflow.py` Exit 0,

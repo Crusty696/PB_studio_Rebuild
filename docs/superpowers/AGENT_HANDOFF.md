@@ -58,8 +58,29 @@ This file is a repository-local continuity checkpoint for all agents.
   2026-07-05 lief Sandbox noch. Fix-Kandidaten: Host-Reboot oder
   CmService/vmcompute-Neustart (Admin). Danach
   `scripts/diag/run_vm001_windows_sandbox.ps1` gegen neue Hashes nachziehen.
-- **Offen:** reale GUI-/App-Livepfade E1/E3/E4/E5/E7/E8/E9/E10 (laufen
-  autonom per GUI-Tester), Clean-VM nach Sandbox-Fix, User-`fixed`.
+- **E-Live-GUI-Tests 2026-07-13 RED (pb-gui-tester, echte App, test33):**
+  E5 Timeline-Projektload + E8 Storage-Browser **PASS**; 6/8 **FAIL**:
+  - **B-618 KRITISCH:** App-Prozess verschwindet spurlos waehrend
+    Struktur-Enrichment (E10). Numba-JIT-Kaltstart via `umap`/`pynndescent`
+    Lazy-Import in `services/enrichment/style_bucket_clusterer.py:178`;
+    Main-Thread-Block eskaliert 19.9->26.7s, dann Prozess weg ohne
+    OS-Crash-Event. Stacks: `logs/freeze_stacks.log:40802-40962`.
+  - **B-620 HOCH:** synchrone AnalysisStatus-DB-Queries
+    (`services/analysis_status_service.py:334/386`) im Qt-Notify-Wrapper
+    -> Main-Thread-Freezes 2-14s bei Workspace-Wechsel/Projektload
+    (Grund fuer FAIL von E1/E3/E4/E9; funktional waren diese Pfade ok,
+    z.B. Auto-Edit 1428 Segmente korrekt, kein DB-Lock bei E9).
+  - **B-619 MITTEL:** Anchor-Sync No-Op — `_add_anchor_dialog` schreibt
+    nur QTreeWidget, `sync_anchors()` liest nur `_anchor_map` (E7).
+  - **B-621 NIEDRIG:** Watchdog loggt nach Idle absurde SLOW-EVENT-Dauern
+    ohne freeze_stacks-Dump (Messartefakt; immer gegenpruefen).
+  Artefakte: `tests/qa_artifacts/E1_-E10_*.png`,
+  `test-report/e-live-gui-20260713/*.json`. Testfixture
+  `projects/qa_e9_switch` angelegt — User entscheidet ueber Loeschung.
+  Bugfiles: Vault `wiki/bugs/B-618..B-621`. KEINE Fixes ohne User-Auftrag.
+- **Offen:** Bug-Triage/Fixplan B-618/B-620/B-619 (User-Entscheid),
+  Clean-VM nach Host-Reboot (Sandbox 0x800706EF), E10-Zweitlauf mit
+  warmem Numba-Cache, User-`fixed`.
 - **Synthese:**
   `docs/superpowers/synthesis/perf-db-cleanup-abschluss-2026-07-13.md` und
   Vault `wiki/synthesis/perf-db-cleanup-abschluss-2026-07-13.md`.
