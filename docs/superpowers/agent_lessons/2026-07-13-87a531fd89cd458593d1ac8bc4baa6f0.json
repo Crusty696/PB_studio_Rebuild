@@ -1,0 +1,10 @@
+{
+  "lesson_id": "87a531fd89cd458593d1ac8bc4baa6f0",
+  "recorded_at": "2026-07-13T02:22:48+00:00",
+  "session_id": "446695f551d24be98898b57035c543c3",
+  "head_at_start": "8421e27ca04fe70a06814ab83bb2914f2b74164e",
+  "problem": "Engine-Cache-URL-Swap wollte alte SQLAlchemy-Engine sofort disposen",
+  "cause": "Cleanup-Reflex ohne Beruecksichtigung moeglicher checked-out Connections",
+  "rule": "Vor Engine.dispose aktive Connections ausschliessen; bei NullPool-Cache-Swap nur Cache-Referenz ersetzen, weil NullPool keine idle Connections haelt",
+  "applies_to": "SQLAlchemy Engine-Caches, Projekt-/Tenant-Swaps und andere Connection-Lifecycle-Aenderungen"
+}
