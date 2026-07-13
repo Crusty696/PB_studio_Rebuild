@@ -360,6 +360,24 @@ def repair_timeline_integrity(project_id: int) -> dict[str, int]:
             .order_by(TimelineEntry.start_time, TimelineEntry.id)
             .all()
         )
+        # E6 (Perf): Dauer-Lookup vorab als 2 Spalten-Queries statt
+        # ``session.get(VideoClip/AudioTrack)`` pro Row. session.get
+        # laedt das komplette ORM-Objekt inkl. aller Eager-Loads,
+        # gebraucht wird hier aber nur ``duration``. Fehlende IDs sind
+        # nicht im Dict — ``dict.get`` liefert dann None und verhaelt
+        # sich exakt wie ``session.get -> None`` (bzw. wie
+        # ``duration is None``, beides ergibt denselben Falsy-Pfad).
+        video_media_ids = {
+            row.media_id for row in video_rows if row.media_id is not None
+        }
+        video_durations: dict[int, float | None] = (
+            dict(
+                session.query(VideoClip.id, VideoClip.duration)
+                .filter(VideoClip.id.in_(video_media_ids))
+            )
+            if video_media_ids
+            else {}
+        )
         cursor = 0.0
         for row in video_rows:
             start = float(row.start_time or 0.0)
@@ -368,8 +386,13 @@ def repair_timeline_integrity(project_id: int) -> dict[str, int]:
                 source_span = float(row.source_end) - float(row.source_start)
                 duration = end - start
                 if source_span <= 1e-3 and duration > 1e-3:
-                    clip = session.get(VideoClip, row.media_id) if row.media_id is not None else None
-                    clip_duration = float(clip.duration or 0.0) if clip is not None else 0.0
+                    # E6: Lookup statt session.get — fehlender Clip UND
+                    # ``duration=None`` ergeben beide 0.0 (wie vorher).
+                    clip_duration = (
+                        float(video_durations.get(row.media_id) or 0.0)
+                        if row.media_id is not None
+                        else 0.0
+                    )
                     source_start = float(row.source_start or 0.0)
                     available = clip_duration - source_start if clip_duration > source_start else duration
                     if available > 1e-3:
@@ -402,6 +425,21 @@ def repair_timeline_integrity(project_id: int) -> dict[str, int]:
             .order_by(TimelineEntry.start_time, TimelineEntry.id)
             .all()
         )
+        # E6 (Perf): analog zum Video-Pfad — eine Spalten-Query statt
+        # ``session.get(AudioTrack)`` pro Row. ``track and track.duration``
+        # (Track fehlt ODER duration falsy -> skip) wird 1:1 durch den
+        # Falsy-Check auf dem Dict-Lookup abgebildet.
+        audio_media_ids = {
+            row.media_id for row in audio_rows if row.media_id is not None
+        }
+        audio_durations: dict[int, float | None] = (
+            dict(
+                session.query(AudioTrack.id, AudioTrack.duration)
+                .filter(AudioTrack.id.in_(audio_media_ids))
+            )
+            if audio_media_ids
+            else {}
+        )
         seen_audio: set[tuple[int | None, int]] = set()
         for row in audio_rows:
             key = (row.media_id, int(row.lane or 0))
@@ -410,10 +448,14 @@ def repair_timeline_integrity(project_id: int) -> dict[str, int]:
                 result["audio_duplicates_removed"] += 1
             else:
                 seen_audio.add(key)
-                track = session.get(AudioTrack, row.media_id) if row.media_id is not None else None
-                if track and track.duration:
+                track_duration = (
+                    audio_durations.get(row.media_id)
+                    if row.media_id is not None
+                    else None
+                )
+                if track_duration:
                     expected_start = 0.0
-                    expected_end = round(float(track.duration), 4)
+                    expected_end = round(float(track_duration), 4)
                     current_start = float(row.start_time or 0.0)
                     current_end = float(row.end_time or current_start)
                     if (
