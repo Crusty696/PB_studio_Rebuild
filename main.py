@@ -674,9 +674,31 @@ class PBWindow(QMainWindow):
                     "B-198 F-1: Brain-Run ignoriert — kein audio_track_id im Snapshot."
                 )
                 return
-            from services.ingest_service import get_all_video
+            # E3 (Perf): direkte Spalten-Query statt get_all_video().
+            # get_all_video() macht pro Clip einen Voll-ORM-Load plus
+            # Bulk-Status-Reconcile (analysis_status_service.
+            # infer_many_from_db) im GUI-Thread — hier wird aber nur
+            # die ID-Liste gebraucht (375 Clips = sekundenlanger
+            # Freeze). Filter exakt wie get_all_video(): aktives
+            # Projekt via _resolve_project_id(None), deleted_at IS
+            # NULL, kein ORDER BY, kein Limit. Der Status-Reconcile-
+            # Seiteneffekt entfaellt hier bewusst: die auto_edit-
+            # Pipeline (pacing_service / Worker) liest AnalysisStatus
+            # nicht — nur Analyse-Worker schreiben ihn.
+            from sqlalchemy.orm import Session as _SaSession
 
-            video_ids = [v["id"] for v in get_all_video()]
+            from database import VideoClip, engine as _db_engine
+            from services.ingest_service import _resolve_project_id
+
+            project_id = _resolve_project_id(None)
+            with _SaSession(_db_engine) as _id_session:
+                video_ids = [
+                    row[0]
+                    for row in _id_session.query(VideoClip.id).filter(
+                        VideoClip.project_id == project_id,
+                        VideoClip.deleted_at.is_(None),
+                    )
+                ]
             if not video_ids:
                 logger.warning(
                     "B-198 F-1: Brain-Run ignoriert — keine Video-Clips im aktiven Project."
