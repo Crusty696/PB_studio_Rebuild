@@ -49,5 +49,8 @@ Git-ignoriert.
 - E4 Auto-Edit; E5 Timeline-Projektload; E7 Anchor-Sync; E8 Storage Browser.
 - E9 laufender App-Projektwechsel mit Worker-/Lock-Beobachtung.
 - E10 echter langer Videoanalyse-Workflow; CPU-/UI-Beobachtung.
-- D-069 voller PyInstaller-Build, installierte App, GUI-E2E.
+- D-069 PyInstaller/Frozen-Smoke PASS: 14,839 Dateien, 5,926,420,584 Bytes;
+  Bundle-FFmpeg/ffprobe-SHAs exakt Manifest. Offen: Frozen-GUI-Live.
+- Installer blockiert: NSISBI fehlt; Standard-NSIS-Lauf fuer sauberen Handoff
+  beendet. Kein Installer/NSISBI-Payload, keine Installed-App/Clean-VM-Evidenz.
 - User setzt Plan-/Task-`fixed` erst nach Live-Sichtung.

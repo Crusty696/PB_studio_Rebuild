@@ -1,0 +1,10 @@
+{
+  "lesson_id": "50d8a8a026074f19966d1d3d0fd66225",
+  "recorded_at": "2026-07-13T03:53:06+00:00",
+  "session_id": "a158666762314e0b93f622cfeb95488e",
+  "head_at_start": "17654d982f2f5a59f8371c857fd199216f647705",
+  "problem": "PyInstaller-Spec verlangte gitignored Ollama-redist trotz User-Entscheid System-Ollama",
+  "cause": "Packaging-Manifest und dokumentierte Runtime-Policy drifteten auseinander",
+  "rule": "Optionale gitignored Bundle-Assets nie als obligatorische Spec-Inputs eintragen; Packaging-Policy per Test gegen User-Decision pinnen",
+  "applies_to": "PyInstaller/Installer-Manifeste und alle optional lokal vendorten Runtime-Abhaengigkeiten"
+}

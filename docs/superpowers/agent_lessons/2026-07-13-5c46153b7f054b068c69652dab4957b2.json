@@ -1,0 +1,10 @@
+{
+  "lesson_id": "5c46153b7f054b068c69652dab4957b2",
+  "recorded_at": "2026-07-13T03:53:37+00:00",
+  "session_id": "a158666762314e0b93f622cfeb95488e",
+  "head_at_start": "17654d982f2f5a59f8371c857fd199216f647705",
+  "problem": "Build-Wrapper-Timeout liess Kindprozesse weiterlaufen und fiel auf nicht-kanonisches Standard-NSIS zurueck",
+  "cause": "Zu kurzer Tool-Timeout plus Wrapper akzeptiert beliebiges makensis wenn NSISBI fehlt",
+  "rule": "Lange Wrapper mit realistischem Timeout starten, nach Timeout gesamten Prozessbaum pruefen; kanonisches Backend vor Start explizit verifizieren statt stillen Fallback zuzulassen",
+  "applies_to": "Build-, Packaging-, Installer- und andere Prozessbaum-Orchestrierungen"
+}

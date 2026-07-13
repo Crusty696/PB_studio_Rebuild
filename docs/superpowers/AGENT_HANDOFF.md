@@ -4,8 +4,9 @@ This file is a repository-local continuity checkpoint for all agents.
 
 ## Perf-DB-Cleanup code-complete-live-pending 2026-07-13 (newest)
 
-- **Main:** `990bbf0` vor Governance-Abschlusscommit; E1-E10 Produktcommit-Kette
-  vollständig, letzter Produktcommit E9 `1cc0f0f`.
+- **Main:** `686aaae` vor finalem Handoff-Doku/Lesson-Commit; E1-E10
+  Produktcommit-Kette vollständig, E9 `1cc0f0f`; Governance `17654d9`;
+  System-Ollama-Packaging-Fix `686aaae`.
 - **Status:** Registry/Plan `code-complete-live-pending`; Active Plan bleibt
   ausgewählt für Live-Follow-up. Kein `fixed`.
 - **Gesamtverify:** DB-Core 221 PASS/3 skipped; D-069/E10 70 PASS + reale
@@ -13,12 +14,20 @@ This file is a repository-local continuity checkpoint for all agents.
   5 Fokus + 56 DB/Undo + 78/78 Deep-DB PASS. Detached-Audit ohne Fund.
 - **Perf-Flake:** einmal Scorer 34.88ms >30ms unter Parallel-/Suite-Last;
   danach 6/6 kontrolliert PASS (10.52–14.77ms plus 13.76ms).
-- **FFmpeg:** `bin/` bleibt ignoriert; Resolver/Manifest pinnt FFmpeg/ffprobe
-  v6.1.1 + SHA; Worktree/PyInstaller-Sourcepfad stabil. Voll-Package und
-  Installed-App-Live offen.
+- **FFmpeg/Frozen:** `bin/` bleibt ignoriert; Resolver/Manifest pinnt
+  FFmpeg/ffprobe v6.1.1 + SHA. Frozen-App neu gebaut: 14,839 Dateien,
+  5,926,420,584 Bytes; Bundle-SHAs exakt Manifest; `smoke_test.py` PASS.
+- **Installer:** NICHT fertig. NSISBI fehlt; Wrapper fiel auf Standard-NSIS
+  zurueck und lief >40min. Fuer sauberen Handoff wurde nur verifizierter
+  Buildprozessbaum beendet. Kein Installer-EXE/`.nsisbin`; keine Prozesse.
 - **Lernen:** `8421e27` + Lessons; Start lädt Regeln, Handoff verlangt Lesson.
-- **Offen:** reale GUI-/App-Livepfade E1/E3/E4/E5/E7/E8/E9/E10,
-  PyInstaller-/Installed-App-Test, User-`fixed`.
+- **Offen:** Frozen-GUI-Live, reale GUI-/App-Livepfade E1/E3/E4/E5/E7/E8/E9/E10,
+  NSISBI beschaffen/`PB_NSISBI_MAKENSIS` setzen, Installer/Installed-App/
+  Clean-VM, User-`fixed`.
+- **Naechster sicherer Schritt:** keine neue Codearbeit. Erst NSISBI-Pfad
+  verifizieren; danach mit `PB_SKIP_PYINSTALLER=1` bestehenden Frozen-Dist
+  wiederverwenden und `installer/build_installer.bat` ausfuehren. Vorher
+  `git status`, Source-/Bundle-FFmpeg-SHAs und freien Diskplatz pruefen.
 - **Synthese:**
   `docs/superpowers/synthesis/perf-db-cleanup-abschluss-2026-07-13.md` und
   Vault `wiki/synthesis/perf-db-cleanup-abschluss-2026-07-13.md`.
