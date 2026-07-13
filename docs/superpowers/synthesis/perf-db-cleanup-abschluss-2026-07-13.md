@@ -50,7 +50,16 @@ Git-ignoriert.
 - E9 laufender App-Projektwechsel mit Worker-/Lock-Beobachtung.
 - E10 echter langer Videoanalyse-Workflow; CPU-/UI-Beobachtung.
 - D-069 PyInstaller/Frozen-Smoke PASS: 14,839 Dateien, 5,926,420,584 Bytes;
-  Bundle-FFmpeg/ffprobe-SHAs exakt Manifest. Offen: Frozen-GUI-Live.
-- Installer blockiert: NSISBI fehlt; Standard-NSIS-Lauf fuer sauberen Handoff
-  beendet. Kein Installer/NSISBI-Payload, keine Installed-App/Clean-VM-Evidenz.
+  Bundle-FFmpeg/ffprobe-SHAs exakt Manifest.
+- Frozen-GUI-Live 2026-07-13 PASS: `verify_frozen_gui_workflow.py` Exit 0,
+  Fenster responsiv, 63 UIA-Labels, alle 4 Workflow-Gruppen, Screenshot
+  `frozen_gui_workflow_20260713_072304.png`.
+- Installer 2026-07-13 ERZEUGT: NSISBI-Fund (Extra-Ebene `nsis-binary-7069-1`
+  im Entpackpfad, daher frueherer stiller Standard-NSIS-Fallback);
+  `PB_NSISBI_MAKENSIS`-Override + `PB_SKIP_PYINSTALLER=1` -> Build Exit 0.
+  EXE 424,755 B SHA256 `E9FD7313...C9F1FFD7`; NSISBIN 2,817,285,191 B SHA256
+  `FF1A80AC...7757F76D`. Release-Gate EXIT=0; Evidence-Matrix
+  `release_ready=true`. Ehrliches Limit: Installer `NotSigned`; alte
+  Signing-/VM-/GUI-Proofs referenzieren alte Hashes; Installed-App-Install
+  (Admin) und Clean-VM gegen neue Hashes offen.
 - User setzt Plan-/Task-`fixed` erst nach Live-Sichtung.

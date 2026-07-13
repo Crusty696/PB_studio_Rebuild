@@ -1,0 +1,10 @@
+{
+  "lesson_id": "05b420eae5e942f1b9af98b84471da72",
+  "recorded_at": "2026-07-13T05:27:06+00:00",
+  "session_id": "8e0510d0162f4a6b8097a3851d9a85e8",
+  "head_at_start": "4a61dc2d0d9cec7eaf00ef0e4d39a6f4ebfa708b",
+  "problem": "Installer-Blocker beruhte auf angeblich fehlendem NSISBI, das lokal vorhanden war",
+  "cause": "ZIP entpackte mit Extra-Ebene nsis-binary-7069-1; Build-Script-Default nsisbi-7069-1\\Bin\\makensis.exe zeigte eine Ebene zu hoch, Fallback-Meldung sagte nur 'fehlt'",
+  "rule": "Bevor ein Tool als fehlend gilt: Installations-Wurzel rekursiv nach der Binary inventarisieren und exakten Fundpfad gegen den erwarteten Default diffen; Pfad-Drift per dokumentiertem Env-Override statt Neubeschaffung loesen",
+  "applies_to": "Externe Build-Tools mit gepinnten Default-Pfaden (NSIS/NSISBI, Compiler, SDKs) in Build-Scripts und CI"
+}

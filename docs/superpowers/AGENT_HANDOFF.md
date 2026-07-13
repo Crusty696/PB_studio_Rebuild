@@ -17,17 +17,39 @@ This file is a repository-local continuity checkpoint for all agents.
 - **FFmpeg/Frozen:** `bin/` bleibt ignoriert; Resolver/Manifest pinnt
   FFmpeg/ffprobe v6.1.1 + SHA. Frozen-App neu gebaut: 14,839 Dateien,
   5,926,420,584 Bytes; Bundle-SHAs exakt Manifest; `smoke_test.py` PASS.
-- **Installer:** NICHT fertig. NSISBI fehlt; Wrapper fiel auf Standard-NSIS
-  zurueck und lief >40min. Fuer sauberen Handoff wurde nur verifizierter
-  Buildprozessbaum beendet. Kein Installer-EXE/`.nsisbin`; keine Prozesse.
+- **Installer FERTIG 2026-07-13:** NSISBI war lokal vorhanden unter
+  `%LOCALAPPDATA%\PBStudioTools\nsisbi-7069-1\nsis-binary-7069-1\Bin\makensis.exe`
+  — ZIP entpackte mit Extra-Ebene `nsis-binary-7069-1`, Build-Script-Default
+  (`nsisbi-7069-1\Bin\`) fand ihn daher nicht -> stiller Standard-NSIS-Fallback.
+  Fix ohne Code-Change: `PB_NSISBI_MAKENSIS`-Env-Override. Build mit
+  `PB_SKIP_PYINSTALLER=1` (Dist wiederverwendet, Smoke erneut PASS) Exit 0,
+  Log bestaetigt `Using NSISBI from PB_NSISBI_MAKENSIS`. Artefakte:
+  `pb_studio_setup_v0.5.0.exe` 424,755 B SHA256
+  `E9FD73132E0CEC7476715B9595F36D5A6B7DF10C4914A37ABC57A57AC9F1FFD7`;
+  `pb_studio_setup_v0.5.0.nsisbin` 2,817,285,191 B SHA256
+  `FF1A80ACD3ADC91A23E87B10EF209D6BCEBED288BEB63091392A23877757F76D`.
+  Buildlog: `test-report/installer-build-nsisbi-20260713.log`.
+- **Release-Gate 2026-07-13:** `tools/release_gate.py` -> `RELEASE-GATE OK`,
+  EXIT=0 (ART-002/ART-003 durch neue Artefakte frei). Evidence-Matrix
+  `status=pass`, `release_ready=true`. **Ehrliches Limit:** neuer Installer ist
+  `NotSigned`; akzeptierte Signing-/Clean-VM-/Installed-App-Proofs
+  (2026-07-01..05) referenzieren die ALTEN Artefakt-Hashes — Gate/Matrix
+  pruefen Proof-Existenz, nicht Hash-Bindung an aktuelle Artefakte.
+- **Frozen-GUI-Live 2026-07-13 PASS:** `verify_frozen_gui_workflow.py` Exit 0:
+  Fenster responsiv (`PB_studio v0.5.0 — Director's Cockpit`),
+  `uia_label_count=63`, alle 4 Workflow-Gruppen beobachtet, Prozess nach 5s
+  alive, Screenshot `tests/qa_artifacts/frozen_gui_workflow_20260713_072304.png`.
+  Danach keine pb_studio-Prozesse.
 - **Lernen:** `8421e27` + Lessons; Start lädt Regeln, Handoff verlangt Lesson.
-- **Offen:** Frozen-GUI-Live, reale GUI-/App-Livepfade E1/E3/E4/E5/E7/E8/E9/E10,
-  NSISBI beschaffen/`PB_NSISBI_MAKENSIS` setzen, Installer/Installed-App/
-  Clean-VM, User-`fixed`.
-- **Naechster sicherer Schritt:** keine neue Codearbeit. Erst NSISBI-Pfad
-  verifizieren; danach mit `PB_SKIP_PYINSTALLER=1` bestehenden Frozen-Dist
-  wiederverwenden und `installer/build_installer.bat` ausfuehren. Vorher
-  `git status`, Source-/Bundle-FFmpeg-SHAs und freien Diskplatz pruefen.
+- **Offen:** reale GUI-/App-Livepfade E1/E3/E4/E5/E7/E8/E9/E10,
+  Signierung des neuen Installers (Cert-Entscheid User), Installed-App-Install
+  (braucht Admin-Elevation), Clean-VM gegen NEUE Hashes, User-`fixed`.
+- **Naechster sicherer Schritt:** keine neue Codearbeit. Installer signieren
+  (falls User Self-Signed-Cert `EB0DF8D8...` weiter akzeptiert), dann
+  Installed-App-Install mit Admin + `verify_installed_app_gui_workflow.py`,
+  dann Windows-Sandbox-Clean-VM-Proof gegen die neuen Hashes
+  (E9FD73... / FF1A80...). Installer-Build reproduzierbar via
+  `PB_NSISBI_MAKENSIS` + `PB_SKIP_PYINSTALLER=1`.
 - **Synthese:**
   `docs/superpowers/synthesis/perf-db-cleanup-abschluss-2026-07-13.md` und
   Vault `wiki/synthesis/perf-db-cleanup-abschluss-2026-07-13.md`.
