@@ -428,14 +428,15 @@ def extract_keyframes(
 
     video_stem = Path(video_path).stem
 
-    for scene in scenes:
+    def _extract_one(scene: SceneInfo) -> None:
+        """Extrahiert Keyframe für eine Szene (mutiert scene.keyframe_path)."""
         # Keyframe in der Mitte der Szene
         mid_time = (scene.start_time + scene.end_time) / 2.0
         kf_path = out_dir / f"{video_stem}_scene{scene.index:04d}.jpg"
 
         if kf_path.exists():
             scene.keyframe_path = str(kf_path)
-            continue
+            return
 
         cmd = [
             ffmpeg_bin, "-y", "-ss", str(mid_time),
@@ -460,6 +461,17 @@ def extract_keyframes(
                                scene.index, result.returncode, stderr)
         except (subprocess.SubprocessError, OSError, ValueError) as e:
             logger.warning("Keyframe-Fehler Szene %d: %s", scene.index, e)
+
+    # E10: Szenen sind unabhängig — ffmpeg-Spawns parallelisieren.
+    # max_workers=4 fest gemaess E10-Plan.
+    # Ergebnisse werden in-place auf den scene-Objekten gesetzt; die
+    # Rückgabe-Liste `scenes` behält damit die ursprüngliche Reihenfolge.
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        futures = [pool.submit(_extract_one, scene) for scene in scenes]
+        for future in futures:
+            future.result()
 
     extracted = sum(1 for s in scenes if s.keyframe_path)
     logger.info("Keyframes extrahiert: %d/%d", extracted, len(scenes))
