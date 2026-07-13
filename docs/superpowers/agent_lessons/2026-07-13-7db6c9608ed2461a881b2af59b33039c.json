@@ -1,0 +1,10 @@
+{
+  "lesson_id": "7db6c9608ed2461a881b2af59b33039c",
+  "recorded_at": "2026-07-13T02:07:22+00:00",
+  "session_id": "446695f551d24be98898b57035c543c3",
+  "head_at_start": "8421e27ca04fe70a06814ab83bb2914f2b74164e",
+  "problem": "Sessionwissen war nur in Chat, Handoff und Vault verteilt und wurde nicht verpflichtend geladen",
+  "cause": "Kein strukturierter Session-State, kein per-Task-Record-Vertrag, kein Handoff-Gate",
+  "rule": "Agentenwissen extern strukturiert persistieren, bei Start automatisch laden und Handoff ohne belegte Lektion blockieren; parallele Agenten schreiben disjunkte Dateien",
+  "applies_to": "Mehrsession- und Multi-Agent-Softwareprojekte; ersetzt kein Modelltraining"
+}
