@@ -13,11 +13,20 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Callable
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
-from database import nullpool_session, AnalysisStatus, VideoClip, AudioTrack
+from database import (
+    AnalysisStatus,
+    AudioTrack,
+    Beatgrid,
+    Scene,
+    StructureSegment,
+    VideoClip,
+    WaveformData,
+    nullpool_session,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -343,8 +352,26 @@ def _infer_video_status(
     video_id: int,
     status_entries: dict[tuple[int, str], AnalysisStatus] | None = None,
 ) -> None:
-    """Infer video analysis status from existing DB data."""
-    video = session.get(VideoClip, video_id)
+    """Infer video analysis status from existing DB data.
+
+    B-620: Laedt nur die tatsaechlich benoetigten Spalten statt voller
+    ORM-Entities. ``session.get(VideoClip)`` zog vorher via
+    ``lazy='joined'``/``lazy='selectin'`` alle Relationships mit — volle
+    Scene-Rows inkl. ``keyframe_paths``/``embedding_indices``/``ai_tags``
+    plus ``audio_video_anchors``. Die json.loads-Decodes dieser Blobs
+    hielten den GIL sekundenlang und froren den Qt-Main-Thread ein
+    (E-Live-Freezes 2-14s, freeze_stacks.log 2026-07-13).
+    Status-Werte und value_summary bleiben identisch.
+    """
+    video = session.execute(
+        select(
+            VideoClip.duration,
+            VideoClip.width,
+            VideoClip.height,
+            VideoClip.fps,
+            VideoClip.codec,
+        ).where(VideoClip.id == video_id)
+    ).first()
     if not video:
         return
 
@@ -357,20 +384,24 @@ def _infer_video_status(
             "codec": video.codec,
         }, status_entries)
 
-    # scene_detection: Scenes vorhanden?
-    scenes = video.scenes
-    if scenes:
+    # scene_detection: Scenes vorhanden? (nur ai_caption-Spalte laden —
+    # gebraucht werden Anzahl + Caption-Truthiness, keine Blob-Spalten)
+    scene_captions = session.execute(
+        select(Scene.ai_caption).where(Scene.video_clip_id == video_id)
+    ).all()
+    if scene_captions:
+        scene_count = len(scene_captions)
         _ensure_status_done(session, "video", video_id, "scene_detection", {
-            "scenes": len(scenes),
+            "scenes": scene_count,
         }, status_entries)
 
         # scene_db_storage: implizit auch done wenn Scenes existieren
         _ensure_status_done(session, "video", video_id, "scene_db_storage", {
-            "scenes": len(scenes),
+            "scenes": scene_count,
         }, status_entries)
 
         # ai_scene_caption: wenn mindestens eine Scene ai_caption hat
-        captioned_count = sum(1 for s in scenes if s.ai_caption)
+        captioned_count = sum(1 for (caption,) in scene_captions if caption)
         if captioned_count > 0:
             _ensure_status_done(session, "video", video_id, "ai_scene_caption", {
                 "captioned_scenes": captioned_count,
@@ -382,22 +413,57 @@ def _infer_audio_status(
     audio_id: int,
     status_entries: dict[tuple[int, str], AnalysisStatus] | None = None,
 ) -> None:
-    """Infer audio analysis status from existing DB data."""
-    audio = session.get(AudioTrack, audio_id)
+    """Infer audio analysis status from existing DB data.
+
+    B-620: Laedt nur die tatsaechlich benoetigten Spalten statt voller
+    ORM-Entities. ``session.get(AudioTrack)`` zog vorher via
+    ``lazy='joined'`` Beatgrid (onset_*/energy_per_beat/...) und
+    WaveformData (band_low/mid/high) komplett mit — megabyte-grosse
+    JSON-Blobs, deren json.loads den GIL sekundenlang hielt und den
+    Qt-Main-Thread einfror (E-Live-Freezes 2-14s, freeze_stacks.log
+    2026-07-13, Frame sqltypes.py:2821 process/json.loads).
+    Status-Werte und value_summary bleiben identisch.
+    """
+    audio = session.execute(
+        select(
+            AudioTrack.key,
+            AudioTrack.key_confidence,
+            AudioTrack.lufs,
+            AudioTrack.mood,
+            AudioTrack.genre,
+            AudioTrack.spectral_bands,
+            AudioTrack.stem_vocals_path,
+            AudioTrack.stem_drums_path,
+            AudioTrack.stem_bass_path,
+            AudioTrack.stem_other_path,
+        ).where(AudioTrack.id == audio_id)
+    ).first()
     if not audio:
         return
 
-    # bpm_detection: Beatgrid vorhanden?
-    if audio.beatgrid:
+    # bpm_detection: Beatgrid vorhanden? (nur bpm + beat_positions laden —
+    # beat_positions wird fuer den beats-Count gebraucht; onset_*/energy-
+    # Blobs bleiben ungeladen)
+    beatgrid = session.execute(
+        select(Beatgrid.bpm, Beatgrid.beat_positions).where(
+            Beatgrid.audio_track_id == audio_id
+        )
+    ).first()
+    if beatgrid:
         _ensure_status_done(session, "audio", audio_id, "bpm_detection", {
-            "bpm": audio.beatgrid.bpm,
-            "beats": len(audio.beatgrid.beat_positions or []),
+            "bpm": beatgrid.bpm,
+            "beats": len(beatgrid.beat_positions or []),
         }, status_entries)
 
-    # waveform_analysis: WaveformData vorhanden?
-    if audio.waveform_data:
+    # waveform_analysis: WaveformData vorhanden? (band_low/mid/high NICHT laden)
+    waveform = session.execute(
+        select(WaveformData.num_samples).where(
+            WaveformData.audio_track_id == audio_id
+        )
+    ).first()
+    if waveform:
         _ensure_status_done(session, "audio", audio_id, "waveform_analysis", {
-            "num_samples": audio.waveform_data.num_samples,
+            "num_samples": waveform.num_samples,
         }, status_entries)
 
     # key_detection: Key + key_confidence vorhanden?
@@ -426,10 +492,16 @@ def _infer_audio_status(
             "bands": len(audio.spectral_bands) if isinstance(audio.spectral_bands, list) else "present",
         }, status_entries)
 
-    # structure_detection: StructureSegments vorhanden?
-    if audio.structure_segments:
+    # structure_detection: StructureSegments vorhanden? (COUNT statt
+    # selectin-Load aller Segment-Rows)
+    segment_count = session.execute(
+        select(func.count()).select_from(StructureSegment).where(
+            StructureSegment.audio_track_id == audio_id
+        )
+    ).scalar_one()
+    if segment_count:
         _ensure_status_done(session, "audio", audio_id, "structure_detection", {
-            "segments": len(audio.structure_segments),
+            "segments": segment_count,
         }, status_entries)
 
     # stem_separation: Stem-Pfade vorhanden?
