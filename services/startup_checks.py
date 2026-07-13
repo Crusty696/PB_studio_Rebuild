@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shutil
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
@@ -40,33 +41,76 @@ from services.nvenc_policy import require_nvenc, required_message
 logger = logging.getLogger(__name__)
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
-_BIN_DIR = _PROJECT_ROOT / "bin"
 
-def get_ffmpeg_bin():
-    """Finds the FFmpeg binary.
+def _git_common_repo_root(project_root: Path) -> Path | None:
+    """Resolve the main repository root for a linked Git worktree."""
+    dot_git = project_root / ".git"
+    if not dot_git.is_file():
+        return None
+    try:
+        marker = dot_git.read_text(encoding="utf-8").strip()
+        if not marker.lower().startswith("gitdir:"):
+            return None
+        git_dir = Path(marker.split(":", 1)[1].strip()).expanduser()
+        if not git_dir.is_absolute():
+            git_dir = (project_root / git_dir).resolve()
+        common_marker = git_dir / "commondir"
+        if not common_marker.is_file():
+            return None
+        common_dir = Path(
+            common_marker.read_text(encoding="utf-8").strip()
+        ).expanduser()
+        if not common_dir.is_absolute():
+            common_dir = (git_dir / common_dir).resolve()
+        else:
+            common_dir = common_dir.resolve()
+        return common_dir.parent if common_dir.name == ".git" else None
+    except (OSError, ValueError):
+        return None
 
-    Explicit env pins win over bundled ``bin`` so Surface Book 2 can stay on a
-    known-good FFmpeg/NVENC build when driver updates are not possible.
-    """
-    for env_name in ("PB_FFMPEG_EXE", "PB_FFMPEG_PATH", "FFMPEG_PATH"):
+
+def _resolve_media_binary(tool: str, env_names: tuple[str, ...]) -> str:
+    filename = f"{tool}.exe" if sys.platform == "win32" else tool
+
+    # Frozen distributions must use the tested binary shipped in
+    # ``_internal/bin``. Host environment/PATH must not override it.
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        return str((Path(sys._MEIPASS) / "bin" / filename).resolve())
+
+    for env_name in env_names:
         configured = os.environ.get(env_name)
         if configured:
             return str(Path(configured).expanduser())
-    local_ffmpeg = _BIN_DIR / ("ffmpeg.exe" if sys.platform == "win32" else "ffmpeg")
-    if local_ffmpeg.exists():
-        return str(local_ffmpeg.resolve())
-    return "ffmpeg"
 
-def get_ffprobe_bin():
-    """Finds the FFprobe binary."""
-    for env_name in ("PB_FFPROBE_EXE", "PB_FFPROBE_PATH", "FFPROBE_PATH"):
-        configured = os.environ.get(env_name)
-        if configured:
-            return str(Path(configured).expanduser())
-    local_ffprobe = _BIN_DIR / ("ffprobe.exe" if sys.platform == "win32" else "ffprobe")
-    if local_ffprobe.exists():
-        return str(local_ffprobe.resolve())
-    return "ffprobe"
+    local_binary = _PROJECT_ROOT / "bin" / filename
+    if local_binary.is_file():
+        return str(local_binary.resolve())
+
+    common_root = _git_common_repo_root(_PROJECT_ROOT)
+    if common_root is not None:
+        common_binary = common_root / "bin" / filename
+        if common_binary.is_file():
+            return str(common_binary.resolve())
+
+    path_binary = shutil.which(filename) or shutil.which(tool)
+    if path_binary:
+        return str(Path(path_binary).resolve())
+
+    return tool
+
+
+def get_ffmpeg_bin() -> str:
+    """Resolve the canonical FFmpeg binary for source/worktree/frozen runs."""
+    return _resolve_media_binary(
+        "ffmpeg", ("PB_FFMPEG_EXE", "PB_FFMPEG_PATH", "FFMPEG_PATH")
+    )
+
+
+def get_ffprobe_bin() -> str:
+    """Resolve the canonical FFprobe binary for source/worktree/frozen runs."""
+    return _resolve_media_binary(
+        "ffprobe", ("PB_FFPROBE_EXE", "PB_FFPROBE_PATH", "FFPROBE_PATH")
+    )
 
 _FFMPEG_BIN = get_ffmpeg_bin()
 _FFPROBE_BIN = get_ffprobe_bin()

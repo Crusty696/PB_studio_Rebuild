@@ -33,6 +33,25 @@ if ($dirty) {
     exit 3
 }
 
+Write-Section "FFmpeg Identity"
+$pythonCandidates = @(
+    (Join-Path $env:USERPROFILE "miniconda3\envs\pb-studio\python.exe"),
+    (Join-Path $env:USERPROFILE "anaconda3\envs\pb-studio\python.exe"),
+    (Join-Path $repoRoot ".venv310\Scripts\python.exe"),
+    (Join-Path $repoRoot ".venv\Scripts\python.exe")
+)
+$verifyPython = $pythonCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+if (-not $verifyPython) {
+    Write-Host "BLOCKED: canonical PB Studio Python runtime not found for FFmpeg verification"
+    exit 5
+}
+& $verifyPython "tools\verify_ffmpeg_identity.py"
+$ffmpegVerifyExit = $LASTEXITCODE
+if ($ffmpegVerifyExit -ne 0) {
+    Write-Host "BLOCKED: canonical FFmpeg identity verification failed"
+    exit 6
+}
+
 if ($Pull) {
     Write-Section "Remote Sync"
     & git fetch --prune

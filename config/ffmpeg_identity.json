@@ -1,0 +1,13 @@
+{
+  "version": "6.1.1",
+  "tools": {
+    "ffmpeg": {
+      "filename": "ffmpeg.exe",
+      "sha256": "2E00E43AEB1929D19763ED3CA1E226B3BC81CB50F6B0B04709F1EE504657E2C5"
+    },
+    "ffprobe": {
+      "filename": "ffprobe.exe",
+      "sha256": "201FB44DFA973B303D7A254F44ACA3680F282BBAD732ACE68F64B06E3B2C3E41"
+    }
+  }
+}

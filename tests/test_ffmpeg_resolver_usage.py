@@ -8,9 +8,108 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import shutil
+import sys
 from types import SimpleNamespace
 
 from PySide6.QtGui import QImage
+
+
+def _clear_ffmpeg_env(monkeypatch) -> None:
+    for name in (
+        "PB_FFMPEG_EXE",
+        "PB_FFMPEG_PATH",
+        "FFMPEG_PATH",
+        "PB_FFPROBE_EXE",
+        "PB_FFPROBE_PATH",
+        "FFPROBE_PATH",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+
+def _touch_pair(bin_dir: Path) -> tuple[Path, Path]:
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    ffmpeg = bin_dir / ("ffmpeg.exe" if sys.platform == "win32" else "ffmpeg")
+    ffprobe = bin_dir / ("ffprobe.exe" if sys.platform == "win32" else "ffprobe")
+    ffmpeg.write_bytes(b"ffmpeg")
+    ffprobe.write_bytes(b"ffprobe")
+    return ffmpeg.resolve(), ffprobe.resolve()
+
+
+def test_resolver_uses_git_common_repo_bin_before_path(monkeypatch, tmp_path):
+    import services.startup_checks as startup_checks
+
+    _clear_ffmpeg_env(monkeypatch)
+    common_repo = tmp_path / "repo"
+    common_git = common_repo / ".git"
+    gitdir = common_git / "worktrees" / "agent"
+    gitdir.mkdir(parents=True)
+    (gitdir / "commondir").write_text("../..\n", encoding="utf-8")
+    worktree = common_repo / ".worktrees" / "agent"
+    worktree.mkdir(parents=True)
+    (worktree / ".git").write_text(f"gitdir: {gitdir}\n", encoding="utf-8")
+    expected_ffmpeg, expected_ffprobe = _touch_pair(common_repo / "bin")
+    path_dir = tmp_path / "path-bin"
+    path_ffmpeg, path_ffprobe = _touch_pair(path_dir)
+    monkeypatch.setattr(startup_checks, "_PROJECT_ROOT", worktree)
+    monkeypatch.setattr(
+        shutil,
+        "which",
+        lambda name: str(path_ffprobe if "probe" in name else path_ffmpeg),
+    )
+
+    assert Path(startup_checks.get_ffmpeg_bin()) == expected_ffmpeg
+    assert Path(startup_checks.get_ffprobe_bin()) == expected_ffprobe
+
+
+def test_resolver_prefers_source_local_bundle_over_common_and_path(
+    monkeypatch, tmp_path
+):
+    import services.startup_checks as startup_checks
+
+    _clear_ffmpeg_env(monkeypatch)
+    project_root = tmp_path / "root"
+    expected_ffmpeg, expected_ffprobe = _touch_pair(project_root / "bin")
+    monkeypatch.setattr(startup_checks, "_PROJECT_ROOT", project_root)
+    monkeypatch.setattr(shutil, "which", lambda name: str(tmp_path / name))
+
+    assert Path(startup_checks.get_ffmpeg_bin()) == expected_ffmpeg
+    assert Path(startup_checks.get_ffprobe_bin()) == expected_ffprobe
+
+
+def test_frozen_resolver_forces_bundle_despite_hostile_env_and_path(
+    monkeypatch, tmp_path
+):
+    import services.startup_checks as startup_checks
+
+    bundle_root = tmp_path / "_internal"
+    expected_ffmpeg, expected_ffprobe = _touch_pair(bundle_root / "bin")
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "_MEIPASS", str(bundle_root), raising=False)
+    monkeypatch.setenv("PB_FFMPEG_EXE", str(tmp_path / "hostile-ffmpeg.exe"))
+    monkeypatch.setenv("PB_FFPROBE_EXE", str(tmp_path / "hostile-ffprobe.exe"))
+    monkeypatch.setattr(shutil, "which", lambda name: str(tmp_path / name))
+
+    assert Path(startup_checks.get_ffmpeg_bin()) == expected_ffmpeg
+    assert Path(startup_checks.get_ffprobe_bin()) == expected_ffprobe
+
+
+def test_resolver_returns_absolute_path_fallback(monkeypatch, tmp_path):
+    import services.startup_checks as startup_checks
+
+    _clear_ffmpeg_env(monkeypatch)
+    project_root = tmp_path / "root"
+    project_root.mkdir()
+    path_ffmpeg, path_ffprobe = _touch_pair(tmp_path / "path-bin")
+    monkeypatch.setattr(startup_checks, "_PROJECT_ROOT", project_root)
+    monkeypatch.setattr(
+        shutil,
+        "which",
+        lambda name: str(path_ffprobe if "probe" in name else path_ffmpeg),
+    )
+
+    assert Path(startup_checks.get_ffmpeg_bin()) == path_ffmpeg
+    assert Path(startup_checks.get_ffprobe_bin()) == path_ffprobe
 
 
 def test_startup_checks_prefers_explicit_ffmpeg_env(monkeypatch):

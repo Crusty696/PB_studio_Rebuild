@@ -21,12 +21,41 @@
 #   0.30.10+ requires driver >= 570 for CUDA -> falls back to CPU-only on 546.33
 #   (Vulkan would work but is forbidden by the GPU hard rule). Verified 2026-07-09.
 
+import os
 import sys
 from pathlib import Path
 from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_submodules
 
 block_cipher = None
 ROOT = Path(SPEC).parent  # project root
+
+
+def _resolve_packaged_binary(filename):
+    """Find ignored FFmpeg assets in main checkout or linked worktree."""
+    env_name = 'PB_FFPROBE_EXE' if filename.startswith('ffprobe') else 'PB_FFMPEG_EXE'
+    configured = os.environ.get(env_name)
+    candidates = [Path(configured).expanduser()] if configured else []
+    candidates.append(ROOT / 'bin' / filename)
+
+    dot_git = ROOT / '.git'
+    if dot_git.is_file():
+        marker = dot_git.read_text(encoding='utf-8').strip()
+        if marker.lower().startswith('gitdir:'):
+            git_dir = Path(marker.split(':', 1)[1].strip())
+            if not git_dir.is_absolute():
+                git_dir = (ROOT / git_dir).resolve()
+            common_marker = git_dir / 'commondir'
+            if common_marker.is_file():
+                common_dir = Path(common_marker.read_text(encoding='utf-8').strip())
+                if not common_dir.is_absolute():
+                    common_dir = (git_dir / common_dir).resolve()
+                if common_dir.name == '.git':
+                    candidates.append(common_dir.parent / 'bin' / filename)
+
+    for candidate in candidates:
+        if candidate.is_file():
+            return str(candidate.resolve())
+    raise FileNotFoundError(f'Canonical packaged binary missing: {filename}')
 
 # ---------------------------------------------------------------------------
 # Import packaging hooks directly from pb_packaging
@@ -114,8 +143,8 @@ project_datas = [
     (str(ROOT / 'config'),     'config'),
     (str(ROOT / 'database' / 'alembic'), 'database/alembic'),
     (str(ROOT / 'services' / 'brain' / 'storage' / 'sql_migrations'), 'services/brain/storage/sql_migrations'),
-    (str(ROOT / 'bin' / 'ffmpeg.exe'), 'bin'),
-    (str(ROOT / 'bin' / 'ffprobe.exe'), 'bin'),
+    (_resolve_packaged_binary('ffmpeg.exe'), 'bin'),
+    (_resolve_packaged_binary('ffprobe.exe'), 'bin'),
     # Bundled Ollama (GPU/CUDA) — services/ollama_service.py:95 sucht im frozen
     # Bundle nach {sys._MEIPASS}/redist/ollama.exe. lib/ollama/ enthaelt die
     # CUDA-Runner (cuda_v12 fuer GTX 1060) + ggml-DLLs; Ollama laedt sie relativ
