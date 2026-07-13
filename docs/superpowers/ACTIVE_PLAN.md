@@ -25,10 +25,10 @@ parallel — als letzter Solo-Schritt nach allen Merges.
 
 ## Current Next Task
 
-Parallel-Welle 1 (5 Agenten): E1+E2, E3+E6, E5+E7, E4+E8, E10.
-Danach Solo: E9. Task-Details + Verify-Kriterien im Repo-Plan.
-Jeder Task: Paritaetsbeweis (identisches Ergebnis) + Query-Count-/
-Timing-Beleg. DetachedInstanceError-Check pro lazyload-Callsite.
+Keine offene Code-Task. E1-E10 sind committed und backend-verifiziert.
+Offen bleiben reale GUI-/App-Livepfade, D-069 Voll-Package-/Installed-App-Test
+und User-`fixed`. Abschlussbeleg:
+`docs/superpowers/synthesis/perf-db-cleanup-abschluss-2026-07-13.md`.
 
 ## Agent Behavior
 

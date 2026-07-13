@@ -1,7 +1,6 @@
 # Plan: PB-STUDIO-PERF-DB-CLEANUP-2026-07-12
 
-status: approved-for-implementation (Start-Blocker: erst nach User-`fixed`
-auf PB-STUDIO-TIMELINE-VIRTUALISIERUNG-2026-07-10)
+status: code-complete-live-pending
 decision: D-067 (Vault)
 vault_mirror: wiki/synthesis/plan-perf-db-cleanup-2026-07-12.md
 quelle: /simplify 4-Agenten-Review 2026-07-12, Efficiency-Angle
@@ -157,3 +156,11 @@ Jede Voll-ORM-Query zahlt diese Loads mit. Fix-Baustein ueberall:
 - Reihenfolge E1->E10; E9 zuletzt vor E10 verhandelbar, aber nie
   parallel zu anderen Tasks.
 - `status: fixed` setzt nur der User nach Live-Test.
+
+## Abschlussstand 2026-07-13
+
+E1-E10 committed und backend-verifiziert. Paritaets-, Query-/Timing- und
+DetachedInstanceError-Belege:
+[Abschlusssynthese](../synthesis/perf-db-cleanup-abschluss-2026-07-13.md).
+Offen: reale GUI-/App-Livepfade, D-069 Voll-Package-/Installed-App-Test,
+User-`fixed`.

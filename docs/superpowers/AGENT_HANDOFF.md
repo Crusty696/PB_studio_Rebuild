@@ -2,7 +2,28 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
-## Codex Quellstand-Konsolidierung 2026-06-22 (newest)
+## Perf-DB-Cleanup code-complete-live-pending 2026-07-13 (newest)
+
+- **Main:** `990bbf0` vor Governance-Abschlusscommit; E1-E10 Produktcommit-Kette
+  vollständig, letzter Produktcommit E9 `1cc0f0f`.
+- **Status:** Registry/Plan `code-complete-live-pending`; Active Plan bleibt
+  ausgewählt für Live-Follow-up. Kein `fixed`.
+- **Gesamtverify:** DB-Core 221 PASS/3 skipped; D-069/E10 70 PASS + reale
+  5/5 JPG-SHA-Parität; E1-E8 15 Fokus + 84 angrenzend PASS; E9 zusätzlich
+  5 Fokus + 56 DB/Undo + 78/78 Deep-DB PASS. Detached-Audit ohne Fund.
+- **Perf-Flake:** einmal Scorer 34.88ms >30ms unter Parallel-/Suite-Last;
+  danach 6/6 kontrolliert PASS (10.52–14.77ms plus 13.76ms).
+- **FFmpeg:** `bin/` bleibt ignoriert; Resolver/Manifest pinnt FFmpeg/ffprobe
+  v6.1.1 + SHA; Worktree/PyInstaller-Sourcepfad stabil. Voll-Package und
+  Installed-App-Live offen.
+- **Lernen:** `8421e27` + Lessons; Start lädt Regeln, Handoff verlangt Lesson.
+- **Offen:** reale GUI-/App-Livepfade E1/E3/E4/E5/E7/E8/E9/E10,
+  PyInstaller-/Installed-App-Test, User-`fixed`.
+- **Synthese:**
+  `docs/superpowers/synthesis/perf-db-cleanup-abschluss-2026-07-13.md` und
+  Vault `wiki/synthesis/perf-db-cleanup-abschluss-2026-07-13.md`.
+
+## Codex Quellstand-Konsolidierung 2026-06-22 (historical)
 
 - **Branch:** `codex/OTK-021-source-consolidation-2026-06-22`
 - **B-538 long-audio service E2E 2026-07-05:** commit `8aeb1ec` adds
