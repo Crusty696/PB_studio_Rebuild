@@ -145,13 +145,6 @@ project_datas = [
     (str(ROOT / 'services' / 'brain' / 'storage' / 'sql_migrations'), 'services/brain/storage/sql_migrations'),
     (_resolve_packaged_binary('ffmpeg.exe'), 'bin'),
     (_resolve_packaged_binary('ffprobe.exe'), 'bin'),
-    # Bundled Ollama (GPU/CUDA) — services/ollama_service.py:95 sucht im frozen
-    # Bundle nach {sys._MEIPASS}/redist/ollama.exe. lib/ollama/ enthaelt die
-    # CUDA-Runner (cuda_v12 fuer GTX 1060) + ggml-DLLs; Ollama laedt sie relativ
-    # zur EXE (redist/lib/ollama/). Ohne dieses Bundle faellt die App auf ein
-    # systemweit installiertes Ollama zurueck (ollama_service.py:101).
-    (str(ROOT / 'redist' / 'ollama.exe'), 'redist'),
-    (str(ROOT / 'redist' / 'lib'), 'redist/lib'),
 ]
 
 all_datas    = project_datas + torch_datas + torchaudio_datas + torchvision_datas + pyside6_datas + [(str(ROOT / src), dest) for src, dest in pkg_datas]
