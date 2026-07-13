@@ -6,7 +6,7 @@ from pathlib import Path
 import os
 import stat
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, lazyload
 
 from database.models import AnalysisArtifact, AnalysisJob, Project, ProjectSource
 from services.storage_provenance.layout import StorageLayout
@@ -51,35 +51,64 @@ class StorageBrowserService:
         now: datetime | None = None,
     ) -> list[StorageBrowserRow]:
         rows: list[StorageBrowserRow] = []
-        source_hashes = [
-            value[0]
-            for value in (
-                self.session.query(AnalysisJob.source_sha256)
-                .distinct()
-                .order_by(AnalysisJob.source_sha256.asc())
-                .all()
+        jobs = (
+            self.session.query(AnalysisJob)
+            .options(lazyload("*"))
+            .order_by(AnalysisJob.source_sha256.asc(), AnalysisJob.id.asc())
+            .all()
+        )
+        if not jobs:
+            return rows
+
+        source_hashes = sorted({job.source_sha256 for job in jobs})
+        jobs_by_source: dict[str, list[AnalysisJob]] = {}
+        job_source_by_id: dict[int, str] = {}
+        for job in jobs:
+            jobs_by_source.setdefault(job.source_sha256, []).append(job)
+            if job.id is not None:
+                job_source_by_id[int(job.id)] = job.source_sha256
+
+        source_project_rows = (
+            self.session.query(ProjectSource, Project)
+            .join(Project, Project.id == ProjectSource.project_id)
+            .filter(ProjectSource.source_sha256.in_(source_hashes))
+            .order_by(
+                ProjectSource.source_sha256.asc(),
+                ProjectSource.last_seen_at.desc().nullslast(),
+                Project.name.asc(),
             )
-        ]
+            .all()
+        )
+        sources_by_hash: dict[str, list[tuple[ProjectSource, Project]]] = {}
+        for source, project in source_project_rows:
+            sources_by_hash.setdefault(source.source_sha256, []).append(
+                (source, project)
+            )
+
+        artifact_values = (
+            self.session.query(AnalysisArtifact.job_id, AnalysisArtifact.bytes)
+            .filter(AnalysisArtifact.job_id.in_(list(job_source_by_id)))
+            .all()
+        )
+        total_bytes_by_source = {source_sha: 0 for source_sha in source_hashes}
+        for job_id, value in artifact_values:
+            source_sha = job_source_by_id.get(int(job_id))
+            if source_sha is not None:
+                total_bytes_by_source[source_sha] += int(value or 0)
 
         cutoff = None
         if older_than_days is not None and older_than_days > 0:
             cutoff = (now or datetime.utcnow()) - timedelta(days=older_than_days)
 
         for source_sha in source_hashes:
-            jobs = self.session.query(AnalysisJob).filter_by(source_sha256=source_sha).all()
-            sources = (
-                self.session.query(ProjectSource, Project)
-                .join(Project, Project.id == ProjectSource.project_id)
-                .filter(ProjectSource.source_sha256 == source_sha)
-                .order_by(ProjectSource.last_seen_at.desc().nullslast(), Project.name.asc())
-                .all()
-            )
+            source_jobs = jobs_by_source.get(source_sha, [])
+            sources = sources_by_hash.get(source_sha, [])
             if unused_only and sources:
                 continue
 
             last_used = _latest_datetime(
                 [source.last_seen_at for source, _project in sources]
-                + [job.finished_at for job in jobs]
+                + [job.finished_at for job in source_jobs]
             )
             if cutoff is not None and (last_used is None or last_used >= cutoff):
                 continue
@@ -90,8 +119,8 @@ class StorageBrowserService:
                     file_name=_file_name(sources),
                     projects_used_by=", ".join(project.name for _source, project in sources) or "-",
                     project_count=len(sources),
-                    stages_done=len({job.step_id for job in jobs if job.status == "done"}),
-                    total_bytes=self._total_bytes(jobs),
+                    stages_done=len({job.step_id for job in source_jobs if job.status == "done"}),
+                    total_bytes=total_bytes_by_source[source_sha],
                     last_used=last_used,
                 )
             )
