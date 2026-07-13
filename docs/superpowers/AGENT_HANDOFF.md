@@ -86,8 +86,19 @@ This file is a repository-local continuity checkpoint for all agents.
   `docs/superpowers/synthesis/clean-vm-sandbox-install-proof-2026-07-13.md`.
   Release-Gate weiterhin EXIT=0. Komplette Release-Kette (Build, Sign,
   Install, Installed-GUI, Clean-VM) belegt gegen aktuelle Hashes.
-- **Offen:** Bug-Triage/Fixplan B-618/B-620/B-619 (User-Entscheid),
-  E10-Zweitlauf mit warmem Numba-Cache (laeuft), User-`fixed`.
+- **E10-Warmlauf 2026-07-13 PASS (B-618-Nachtest):** exakter Trigger-Pfad
+  (`load_reducer`/umap-Import) 8x erneut ausgeloest — Freezes nur 1.5-4.7s
+  statt 19.9->26.7s-Eskalation; beide Clips inkl. structure_enrichment
+  fertig (`degraded: False`), Prozess ueberlebte, UI bedienbar, 0
+  Crash-Marker. **Kaltstart-Hypothese als Hauptfaktor bestaetigt.**
+  Restrisiko: Beinahe-OOM (418.7 MB frei von 16 GB) waehrend
+  Visual-Embeddings; App-Peak 7.2 GB WorkingSet / 12.5 GB PrivateBytes.
+  Artefakte: `test-report/e-live-gui-20260713/` (RAM-CSV, Freeze-Dauern,
+  Screenshots E10warm_01-17). Bugfile B-618 im Vault fortgeschrieben.
+- **Offen:** Bug-Triage/Fixplan B-618/B-620/B-619 (User-Entscheid;
+  B-618-Fix-Kandidaten: Numba-Warmup beim Erststart, load_reducer im
+  Worker-Thread, RAM-Gate), Entscheid Testfixture `projects/qa_e9_switch`
+  behalten/loeschen, User-`fixed`.
 - **Synthese:**
   `docs/superpowers/synthesis/perf-db-cleanup-abschluss-2026-07-13.md` und
   Vault `wiki/synthesis/perf-db-cleanup-abschluss-2026-07-13.md`.
