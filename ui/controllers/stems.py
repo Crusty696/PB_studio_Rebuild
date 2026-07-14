@@ -60,6 +60,9 @@ class StemsController(PBComponent):
                         AudioTrack.stem_drums_path,
                         AudioTrack.stem_bass_path,
                         AudioTrack.stem_other_path,
+                        # B-494: acoustic_metadata (Stem-SNR) muss in die Column-
+                        # Selektion (B-090 column-select), sonst nicht am track_row.
+                        AudioTrack.acoustic_metadata,
                     )
                     .filter(AudioTrack.id == track_id)
                     .first()
@@ -98,8 +101,9 @@ class StemsController(PBComponent):
                     # Tabelle, NICHT am AudioTrack. Innerhalb der Session laden und
                     # in den Snapshot packen, damit der Onsets-Subtab ueber den
                     # Controller-Pfad (Trackwechsel) gefuettert wird statt leer zu
-                    # bleiben. SNR (acoustic_metadata) hat aktuell keine DB-Quelle —
-                    # bleibt None (Subtab zeigt "nicht verfuegbar").
+                    # bleiben. B-494: SNR (acoustic_metadata) wird nach StemGen
+                    # persistiert und hier aus track_row durchgereicht; NULL bei
+                    # Alt-Tracks ohne SNR-Backfill (Subtab zeigt "nicht verfuegbar").
                     beatgrid_row = (
                         session.query(
                             Beatgrid.onset_kick_data,
@@ -118,7 +122,7 @@ class StemsController(PBComponent):
                             onset_kick_data=(beatgrid_row.onset_kick_data if beatgrid_row else None),
                             onset_snare_data=(beatgrid_row.onset_snare_data if beatgrid_row else None),
                             onset_hihat_data=(beatgrid_row.onset_hihat_data if beatgrid_row else None),
-                            acoustic_metadata=None,
+                            acoustic_metadata=track_row.acoustic_metadata,  # B-494
                         )
                     )
                 if loaded and hasattr(self.window, "console_text"):

@@ -920,6 +920,35 @@ class StemSeparator:
                     session.rollback()
                     raise
 
+            # B-494: Stem-SNR pro Track persistent in acoustic_metadata ablegen.
+            # StemGen-Abschluss-Punkt: stem_*_path sind committed -> compute_stem_snr
+            # liest sie frisch aus der DB. Format exakt wie ui _extract_snr erwartet:
+            # {"stem_snr": {"drums":..,"bass":..,"vocals":..,"other":..}}.
+            # compute_stem_snr liefert None wenn keine Stems -> acoustic_metadata bleibt
+            # unangetastet (UI degradiert sauber auf "nicht verfuegbar"). Fehler hier
+            # duerfen den erfolgreichen StemGen nicht kippen -> best-effort mit Log.
+            try:
+                from services.pacing_beat_grid import compute_stem_snr
+                _snr = compute_stem_snr(track_id)
+                if _snr is not None:
+                    with nullpool_session() as session:
+                        track = session.get(AudioTrack, track_id)
+                        if track is not None:
+                            track.acoustic_metadata = {
+                                "stem_snr": {
+                                    "drums": _snr.drums,
+                                    "bass": _snr.bass,
+                                    "vocals": _snr.vocals,
+                                    "other": _snr.other,
+                                }
+                            }
+                            session.commit()
+            except Exception as _e:  # broad: SNR-Persistenz ist best-effort, StemGen bleibt gueltig
+                logger.warning(
+                    "B-494: Stem-SNR-Persistenz fehlgeschlagen (track=%s): %s",
+                    track_id, _e,
+                )
+
         return stems
 
 

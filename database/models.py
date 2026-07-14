@@ -183,6 +183,12 @@ class AudioTrack(Base):
     key_modulation_data = Column(JSON, nullable=True)   # P1.7-FIX: [{time, key, camelot, confidence}, ...]
     harmonic_tension_curve = Column(JSON, nullable=True)  # P1.7-FIX: [float, ...] Dissonanz pro Zeitschritt
 
+    # B-494: Akustik-Metadaten (winziges JSON-Dict, direkte Column — kein Blob).
+    # Aktuell: {"stem_snr": {"drums": <float>, "bass": <float>, "vocals": <float>,
+    # "other": <float>}} — persistierte Stem-SNR-Qualitaet nach Demucs-StemGen.
+    # UI: ui/workspaces/stems_workspace.py _extract_snr liest meta["stem_snr"].
+    acoustic_metadata = Column(JSON, nullable=True)
+
     # Cycle 14 / Option A: Studio-Brain Bridge — Skalar-Spalten für AudioContext.
     # bridge_mapping.build_audio_context() liest diese Felder direkt; vorher
     # waren sie alle None weil sie im Schema fehlten (Bug-Hunter BUG-2).
