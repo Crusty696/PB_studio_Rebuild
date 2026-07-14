@@ -689,12 +689,16 @@ def compute_vocal_activity(
     Returns: Liste von booleans, True = Vocals aktiv bei diesem Beat.
     """
     with Session(engine) as session:
-        track = session.query(AudioTrack).filter(
-            AudioTrack.id == audio_id, AudioTrack.deleted_at.is_(None)
+        # B-629: nur Skalar-Spalte stem_vocals_path laden statt ORM-Objekt mit
+        # lazy='joined' Blob-Relationships (beatgrid/waveform_data)
+        row = session.execute(
+            select(AudioTrack.stem_vocals_path).where(
+                AudioTrack.id == audio_id, AudioTrack.deleted_at.is_(None)
+            )
         ).first()
-        if not track or not track.stem_vocals_path:
+        if not row or not row.stem_vocals_path:
             return [False] * len(beats)
-        vocals_path = track.stem_vocals_path
+        vocals_path = row.stem_vocals_path
 
     if not Path(vocals_path).exists():
         return [False] * len(beats)
