@@ -835,9 +835,13 @@ def init_db():
                 command.stamp(alembic_cfg, "beb242bcd1fb")
                 logger.info("init_db(): alembic_version-Tabelle als Baseline gestempelt.")
             _run_alembic_migrations()
-        except Exception as e:  # broad catch intentional — Alembic errors must not block app startup
+        except Exception as e:
+            # B-626: Echter Migration-Fehler darf NICHT mehr geschluckt werden.
+            # Frueher lief die App bewusst mit alter Schema-Version weiter — das
+            # ist per User-Entscheid ein Bug. Jetzt: Fehler loggen, Engine-Locks
+            # freigeben (VAD-83), dann hart propagieren (Fail-fast).
             logger.critical(
-                "Alembic-Migration fehlgeschlagen (App startet trotzdem mit alter Schema-Version): %s",
+                "Alembic-Migration fehlgeschlagen — App-Start wird abgebrochen: %s",
                 e,
             )
             # VAD-83 FIX: Dispose engine to release any write-locked connections
@@ -846,6 +850,7 @@ def init_db():
                 engine.dispose()
             except Exception:
                 pass
+            raise
 
     # Seed default data
     _seed_defaults()
