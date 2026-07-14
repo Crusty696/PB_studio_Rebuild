@@ -20,7 +20,7 @@ import logging
 from datetime import datetime, timezone
 
 import numpy as np
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from database import engine, Scene
@@ -919,8 +919,18 @@ def _auto_edit_phase3_inner(
         _track_key = ""
         _track_found = False
         with Session(_ae_eng) as session:
-            _track = session.query(_AudioTrack).filter(
-                _AudioTrack.id == audio_id, _AudioTrack.deleted_at.is_(None)
+            # B-629 (A): column-select statt volles ORM — vermeidet eager-load
+            # (lazy='joined') der grossen beatgrid/waveform_data JSON-Blobs
+            # (json.loads = GIL-Freeze im Auto-Edit). Nur genutzte Skalar-Spalten.
+            _track = session.execute(
+                select(
+                    _AudioTrack.is_dj_mix,
+                    _AudioTrack.mood,
+                    _AudioTrack.genre,
+                    _AudioTrack.key,
+                ).where(
+                    _AudioTrack.id == audio_id, _AudioTrack.deleted_at.is_(None)
+                )
             ).first()
             if _track:
                 _track_found = True

@@ -22,7 +22,7 @@ import numpy as np
 from sqlalchemy import select  # B-624: column-select statt Blob-eager-load
 from sqlalchemy.orm import Session, joinedload
 
-from database import engine, AudioTrack, VideoClip
+from database import engine, AudioTrack, VideoClip, Beatgrid  # B-629 (B): Beatgrid fuer column-select
 from services.audio_constants import DEFAULT_SR
 
 logger = logging.getLogger(__name__)
@@ -183,28 +183,42 @@ def _get_beat_positions(audio_id: int | None) -> list[float]:
     if audio_id is None:
         return []
     with Session(engine) as session:
-        track = session.query(AudioTrack).filter(
-            AudioTrack.id == audio_id, AudioTrack.deleted_at.is_(None)
-        ).options(joinedload(AudioTrack.beatgrid)).first()
-        if not track or not track.beatgrid:
+        # B-629 (B): statt volles AudioTrack-ORM mit joinedload(beatgrid) — was
+        # ungenutzte Beatgrid-Blobs (stem_weighted_energy, onset_*) und
+        # waveform_data eager mitlaedt — nur die genutzten Spalten via
+        # column-select + Inner-Join auf Beatgrid laden. Der Inner-Join
+        # bildet die Bedingung "not track or not track.beatgrid" ab: kein Row
+        # wenn Track soft-deleted/fehlt ODER kein Beatgrid existiert.
+        bg_row = session.execute(
+            select(
+                Beatgrid.beat_positions,
+                Beatgrid.bpm,
+                Beatgrid.offset,
+                AudioTrack.duration,
+            )
+            .join(AudioTrack, Beatgrid.audio_track_id == AudioTrack.id)
+            .where(
+                AudioTrack.id == audio_id, AudioTrack.deleted_at.is_(None)
+            )
+        ).first()
+        if not bg_row:
             return []
-        bg = track.beatgrid
-        if bg.beat_positions:
+        if bg_row.beat_positions:
             try:
                 # H7-FIX: Column(JSON) deserialisiert automatisch.
                 # Backward-compat: isinstance-Check fuer alte doppelt-serialisierte Daten.
-                positions = json.loads(bg.beat_positions) if isinstance(bg.beat_positions, str) else bg.beat_positions
+                positions = json.loads(bg_row.beat_positions) if isinstance(bg_row.beat_positions, str) else bg_row.beat_positions
                 return [float(p) for p in positions]
             except (json.JSONDecodeError, TypeError) as e:
                 logger.warning("Parsing beat_positions JSON for audio_id=%s: %s", audio_id, e)
-        if bg.bpm and bg.bpm > 0:
-            interval = 60.0 / bg.bpm
+        if bg_row.bpm and bg_row.bpm > 0:
+            interval = 60.0 / bg_row.bpm
             # FIX-2.2: Guard gegen Endlosschleife bei extrem kleinem BPM
             if interval < 0.01:
-                logger.warning("BPM %.1f ergibt interval=%.4fs — ueberspringe Fallback-Beats", bg.bpm, interval)
+                logger.warning("BPM %.1f ergibt interval=%.4fs — ueberspringe Fallback-Beats", bg_row.bpm, interval)
                 return []
-            duration = track.duration or 300.0
-            t = bg.offset or 0.0
+            duration = bg_row.duration or 300.0
+            t = bg_row.offset or 0.0
             positions = []
             while t < duration:
                 positions.append(round(t, 4))
@@ -227,52 +241,68 @@ def _get_beat_data_combined(
     if audio_id is None:
         return [], [], [], False
     with Session(engine) as session:
-        track = session.query(AudioTrack).filter(
-            AudioTrack.id == audio_id, AudioTrack.deleted_at.is_(None)
-        ).options(joinedload(AudioTrack.beatgrid)).first()
-        if not track or not track.beatgrid:
+        # B-629 (B): statt volles AudioTrack-ORM mit joinedload(beatgrid) — was
+        # ungenutzte Beatgrid-Blobs (stem_weighted_energy, onset_*) und
+        # waveform_data eager mitlaedt — nur die genutzten Spalten via
+        # column-select + Inner-Join auf Beatgrid laden. Der Inner-Join
+        # bildet die Bedingung "not track or not track.beatgrid" ab: kein Row
+        # wenn Track soft-deleted/fehlt ODER kein Beatgrid existiert.
+        bg_row = session.execute(
+            select(
+                Beatgrid.beat_positions,
+                Beatgrid.downbeat_positions,
+                Beatgrid.energy_per_beat,
+                Beatgrid.bpm,
+                Beatgrid.offset,
+                AudioTrack.duration,
+            )
+            .join(AudioTrack, Beatgrid.audio_track_id == AudioTrack.id)
+            .where(
+                AudioTrack.id == audio_id, AudioTrack.deleted_at.is_(None)
+            )
+        ).first()
+        if not bg_row:
             return [], [], [], False
-        bg = track.beatgrid
 
         # beat_positions (mit BPM-Fallback)
         beat_positions: list[float] = []
         is_fallback = False
-        if bg.beat_positions:
+        if bg_row.beat_positions:
             try:
                 # H7-FIX: Column(JSON) deserialisiert automatisch — isinstance-Check fuer Backward-compat.
-                raw_bp = json.loads(bg.beat_positions) if isinstance(bg.beat_positions, str) else bg.beat_positions
+                raw_bp = json.loads(bg_row.beat_positions) if isinstance(bg_row.beat_positions, str) else bg_row.beat_positions
                 beat_positions = [float(p) for p in raw_bp]
             except (json.JSONDecodeError, TypeError) as e:
                 logger.warning("Parsing beat_positions JSON in combined loader for audio_id=%s: %s", audio_id, e)
-        if not beat_positions and bg.bpm and bg.bpm > 0:
+        if not beat_positions and bg_row.bpm and bg_row.bpm > 0:
             is_fallback = True
-            interval = 60.0 / bg.bpm
+            interval = 60.0 / bg_row.bpm
             # BUG-013 Fix: Guard gegen Endlosschleife bei extrem kleinem BPM (identisch zu _get_beat_positions)
             if interval < 0.01:
-                logger.warning("BPM %.1f ergibt interval=%.4fs — ueberspringe Fallback-Beats", bg.bpm, interval)
+                logger.warning("BPM %.1f ergibt interval=%.4fs — ueberspringe Fallback-Beats", bg_row.bpm, interval)
             else:
-                duration = track.duration or 300.0
-                t = bg.offset or 0.0
+                duration = bg_row.duration or 300.0
+                t = bg_row.offset or 0.0
                 while t < duration:
                     beat_positions.append(round(t, 4))
                     t += interval
 
         # downbeat_positions
         downbeat_positions: list[float] = []
-        if bg.downbeat_positions:
+        if bg_row.downbeat_positions:
             try:
                 # H7-FIX: Column(JSON) deserialisiert automatisch — isinstance-Check fuer Backward-compat.
-                raw_dp = json.loads(bg.downbeat_positions) if isinstance(bg.downbeat_positions, str) else bg.downbeat_positions
+                raw_dp = json.loads(bg_row.downbeat_positions) if isinstance(bg_row.downbeat_positions, str) else bg_row.downbeat_positions
                 downbeat_positions = [float(p) for p in raw_dp]
             except (json.JSONDecodeError, TypeError) as e:
                 logger.warning("Parsing downbeat_positions JSON for audio_id=%s: %s", audio_id, e)
 
         # energy_per_beat
         energy_per_beat: list[float] = []
-        if bg.energy_per_beat:
+        if bg_row.energy_per_beat:
             try:
                 # H7-FIX: Column(JSON) deserialisiert automatisch — isinstance-Check fuer Backward-compat.
-                raw_epb = json.loads(bg.energy_per_beat) if isinstance(bg.energy_per_beat, str) else bg.energy_per_beat
+                raw_epb = json.loads(bg_row.energy_per_beat) if isinstance(bg_row.energy_per_beat, str) else bg_row.energy_per_beat
                 energy_per_beat = [float(e) for e in raw_epb]
             except (json.JSONDecodeError, TypeError) as e:
                 logger.warning("Parsing energy_per_beat JSON for audio_id=%s: %s", audio_id, e)
@@ -284,10 +314,14 @@ def _get_beat_data_combined(
 def _get_audio_duration(audio_id: int) -> float:
     """Gibt die Dauer des Audio-Tracks in Sekunden zurueck."""
     with Session(engine) as session:
-        track = session.query(AudioTrack).filter(
-            AudioTrack.id == audio_id, AudioTrack.deleted_at.is_(None)
+        # B-629 (A): nur Skalar-Spalte duration laden statt ORM-Objekt mit
+        # lazy='joined' Blob-Relationships (beatgrid/waveform_data)
+        row = session.execute(
+            select(AudioTrack.duration).where(
+                AudioTrack.id == audio_id, AudioTrack.deleted_at.is_(None)
+            )
         ).first()
-        return track.duration if track and track.duration else 60.0
+        return row.duration if row and row.duration else 60.0
 
 
 @lru_cache(maxsize=64)
@@ -416,16 +450,25 @@ def compute_stem_weighted_energy(
     Faellt auf die Stereo-Summe zurueck wenn Stems nicht vorhanden sind.
     """
     with Session(engine) as session:
-        track = session.query(AudioTrack).filter(
-            AudioTrack.id == audio_id, AudioTrack.deleted_at.is_(None)
+        # B-629 (A): nur Stem-Pfad-Skalarspalten laden statt ORM-Objekt mit
+        # lazy='joined' Blob-Relationships (beatgrid/waveform_data)
+        row = session.execute(
+            select(
+                AudioTrack.stem_drums_path,
+                AudioTrack.stem_bass_path,
+                AudioTrack.stem_vocals_path,
+                AudioTrack.stem_other_path,
+            ).where(
+                AudioTrack.id == audio_id, AudioTrack.deleted_at.is_(None)
+            )
         ).first()
-        if not track:
+        if not row:
             return None
         stem_paths = {
-            "drums": track.stem_drums_path,
-            "bass": track.stem_bass_path,
-            "vocals": track.stem_vocals_path,
-            "other": track.stem_other_path,
+            "drums": row.stem_drums_path,
+            "bass": row.stem_bass_path,
+            "vocals": row.stem_vocals_path,
+            "other": row.stem_other_path,
         }
 
     # Pruefen ob mindestens ein Stem vorhanden ist
@@ -977,15 +1020,23 @@ def detect_dj_mix_from_stems(audio_id: int, n_segments: int = 5) -> bool:
     Returns True wenn DJ-Mix erkannt, False sonst.
     """
     with Session(engine) as session:
-        track = session.query(AudioTrack).filter(
-            AudioTrack.id == audio_id, AudioTrack.deleted_at.is_(None)
+        # B-629 (A): nur die drei genutzten Stem-Pfad-Skalarspalten laden statt
+        # ORM-Objekt mit lazy='joined' Blob-Relationships (beatgrid/waveform_data)
+        row = session.execute(
+            select(
+                AudioTrack.stem_drums_path,
+                AudioTrack.stem_bass_path,
+                AudioTrack.stem_vocals_path,
+            ).where(
+                AudioTrack.id == audio_id, AudioTrack.deleted_at.is_(None)
+            )
         ).first()
-        if not track:
+        if not row:
             return False
         stem_paths = {
-            "drums": track.stem_drums_path,
-            "bass":  track.stem_bass_path,
-            "vocals": track.stem_vocals_path,
+            "drums": row.stem_drums_path,
+            "bass":  row.stem_bass_path,
+            "vocals": row.stem_vocals_path,
         }
 
     # Bevorzuge Drums (praeziseste Rhythmus-Information), dann Bass, dann Vocals
