@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from pathlib import Path
 from PySide6.QtCore import Qt
 from database import engine, AudioTrack, Beatgrid
+from sqlalchemy import select
 from sqlalchemy.orm import Session as DBSession
 from services.task_manager import TaskManagerProxy
 from workers import StemSeparationWorker, AutoDuckingWorker
@@ -200,7 +201,14 @@ class StemsController(PBComponent):
             return
         track_id = info[0]
         with DBSession(engine) as session:
-            track = session.get(AudioTrack, track_id)
+            # B-625: nur Skalar-Spalten selektieren statt session.get() (laedt JSON-Blobs waveform_data/beatgrid eager -> GIL-Freeze)
+            track = session.execute(
+                select(
+                    AudioTrack.stem_vocals_path,
+                    AudioTrack.stem_other_path,
+                    AudioTrack.title,
+                ).where(AudioTrack.id == track_id)
+            ).first()
             if not track or not track.stem_vocals_path or not track.stem_other_path:
                 self.window.console_text.append("[Ducking] Zuerst Stems separieren!")
                 return

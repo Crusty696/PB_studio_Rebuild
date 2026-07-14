@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QTimer
 from database import engine, AudioTrack, VideoClip, get_active_project_id
-from sqlalchemy import text
+from sqlalchemy import text, select
 from sqlalchemy.orm import Session as DBSession
 from services.task_manager import GlobalTaskManager, TaskManagerProxy
 from services.pacing_service import (
@@ -31,7 +31,13 @@ class EditWorkspaceController(PBComponent):
             self.window.video_preview.setText("Keine Vorschau")
             return
         with DBSession(engine) as session:
-            clip = session.get(VideoClip, video_id)
+            # B-625: column-select statt session.get(VideoClip) — laed keine
+            # selectin-scenes (keyframe_paths/embedding_indices-Blobs) mit.
+            clip = session.execute(
+                select(VideoClip.file_path, VideoClip.duration).where(
+                    VideoClip.id == video_id
+                )
+            ).first()
             if clip and clip.file_path:
                 dur = clip.duration if clip.duration else 0.0
                 self.window.video_preview.load_video(clip.file_path, dur)
@@ -64,7 +70,14 @@ class EditWorkspaceController(PBComponent):
         if hasattr(self.window, "stems"):
             self.window.stems._update_stem_workspace(audio_id)
         with DBSession(engine) as session:
-            track = session.get(AudioTrack, audio_id)
+            # B-625: column-select statt session.get(AudioTrack) — vermeidet
+            # eager beatgrid/waveform_data-Blobs (lazy='joined'), die den
+            # Qt-Main-Thread einfrieren.
+            track = session.execute(
+                select(AudioTrack.duration, AudioTrack.title).where(
+                    AudioTrack.id == audio_id
+                )
+            ).first()
             if track and track.duration:
                 self.window.pacing_curve.set_duration(track.duration)
                 if hasattr(self.window, "console_text"):
@@ -595,7 +608,15 @@ class EditWorkspaceController(PBComponent):
 
         if audio_id is not None:
             with DBSession(engine) as session:
-                track = session.get(AudioTrack, audio_id)
+                # B-622: column-select statt session.get(AudioTrack) — vermeidet
+                # eager beatgrid/waveform_data-Blobs (lazy='joined'), 42s-Freeze.
+                track = session.execute(
+                    select(
+                        AudioTrack.title,
+                        AudioTrack.file_path,
+                        AudioTrack.duration,
+                    ).where(AudioTrack.id == audio_id)
+                ).first()
                 if track:
                     audio_track = tls.get_audio_track()
                     tls.add_clip(

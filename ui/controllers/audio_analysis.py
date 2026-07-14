@@ -20,6 +20,7 @@ class AudioAnalysisController(PBComponent):
         """B-293: Checkbox-first, Maus-Selection-Fallback. Symmetrisch zu Video-Helper."""
         from database import engine, AudioTrack
         from sqlalchemy.orm import Session as DBSession
+        from sqlalchemy import select  # B-625
 
         view = self.window.audio_pool_table
         model = view.model()
@@ -47,7 +48,17 @@ class AudioAnalysisController(PBComponent):
             return None
 
         with DBSession(engine) as session:
-            track = session.get(AudioTrack, audio_id)
+            # B-625: nur Skalar-Spalten selektieren statt session.get() —
+            # verhindert eager-load der JSON-Blob-Spalten (waveform_data/
+            # beatgrid), die den Qt-Main-Thread einfrieren.
+            track = session.execute(
+                select(
+                    AudioTrack.id,
+                    AudioTrack.file_path,
+                    AudioTrack.title,
+                    AudioTrack.bpm,
+                ).where(AudioTrack.id == audio_id)
+            ).first()
             if not track:
                 self.window.console_text.append("[Warnung] Audio-Track nicht in DB gefunden.")
                 return None
@@ -632,8 +643,19 @@ class AudioAnalysisController(PBComponent):
 
         from database import engine, AudioTrack
         from sqlalchemy.orm import Session as DBSession
+        from sqlalchemy import select  # B-625
         with DBSession(engine) as session:
-            track = session.get(AudioTrack, track_id_raw)
+            # B-625: nur Skalar-Spalten selektieren statt session.get() —
+            # verhindert eager-load der JSON-Blob-Spalten (waveform_data/
+            # beatgrid), die den Qt-Main-Thread (QTimer) einfrieren.
+            track = session.execute(
+                select(
+                    AudioTrack.id,
+                    AudioTrack.file_path,
+                    AudioTrack.title,
+                    AudioTrack.bpm,
+                ).where(AudioTrack.id == track_id_raw)
+            ).first()
             if not track:
                 self.window.console_text.append(
                     f"[Komplett-Analyse] Track {track_id_raw} nicht in DB gefunden — uebersprungen."

@@ -273,6 +273,7 @@ class RemoveClipCommand(QUndoCommand):
         # Combine both DB operations in a single session to avoid orphaned rows
         from database import AudioTrack, VideoClip
         from pathlib import Path
+        from sqlalchemy import select
 
         def _operation(session):
             title = f"Clip #{self._snapshot['media_id']}"
@@ -285,10 +286,17 @@ class RemoveClipCommand(QUndoCommand):
 
             # Look up title and duration in the same session
             if self._snapshot["track"] == "audio":
-                obj = session.get(AudioTrack, self._snapshot["media_id"])
-                if obj:
-                    title = obj.title or title
-                    duration = obj.duration or duration
+                # B-625: column-select statt session.get — vermeidet den eager-join
+                # von AudioTrack.beatgrid/waveform_data (lazy='joined' Blob-Spalten),
+                # der den Qt-Main-Thread einfriert. Nur genutzte Skalarfelder laden.
+                row = session.execute(
+                    select(AudioTrack.title, AudioTrack.duration).where(
+                        AudioTrack.id == self._snapshot["media_id"]
+                    )
+                ).first()
+                if row:
+                    title = row.title or title
+                    duration = row.duration or duration
             else:
                 obj = session.get(VideoClip, self._snapshot["media_id"])
                 if obj:

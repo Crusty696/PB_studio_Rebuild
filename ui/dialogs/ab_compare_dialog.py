@@ -82,6 +82,9 @@ class ABCompareDialog(QDialog):
     # ------------------------------------------------------------------
     def _load_context_and_candidates(self, t_sec: float):
         """Baut (ctx, candidates, labels) aus dem aktiven Projekt."""
+        from types import SimpleNamespace
+
+        from sqlalchemy import select
         from sqlalchemy.orm import Session
 
         from database import AudioTrack, Scene, VideoClip, engine, get_active_project_id
@@ -92,6 +95,12 @@ class ABCompareDialog(QDialog):
         if project_id is None:
             raise RuntimeError("Kein aktives Projekt.")
         with Session(engine) as s:
+            # B-625 (blocked): AudioTrack bleibt ORM .first(). build_audio_context
+            # navigiert die Relationship audio_track.beatgrid.groove_template
+            # (services/pacing/bridge_mapping.py:98-100). Ein column-select liefert
+            # eine Row ohne .beatgrid -> getattr faellt still auf None zurueck und
+            # at_groove_template ginge verloren. Relationship-Navigation macht den
+            # column-select unzulaessig, daher hier nicht umgestellt.
             track = (
                 s.query(AudioTrack)
                 .filter(AudioTrack.project_id == project_id,
@@ -100,23 +109,35 @@ class ABCompareDialog(QDialog):
             )
             if track is None:
                 raise RuntimeError("Kein Audio-Track im Projekt.")
-            rows = (
-                s.query(Scene, VideoClip)
+            # B-625: column-select statt query(Scene, VideoClip).all() — vermeidet
+            # ORM-Hydration + eager-loading pro Zeile. build_clip_features nutzt
+            # scene nur via getattr auf Skalarfelder (id/energy/ai_mood); nicht
+            # selektierte Felder liefern wie beim ORM-Objekt None. clip nur id/
+            # file_path. Nur genutzte Skalarspalten laden, keine Blob-Spalten.
+            rows = s.execute(
+                select(
+                    Scene.id, Scene.energy, Scene.ai_mood, Scene.start_time,
+                    VideoClip.id, VideoClip.file_path,
+                )
                 .join(VideoClip, Scene.video_clip_id == VideoClip.id)
-                .filter(VideoClip.project_id == project_id,
-                        VideoClip.deleted_at.is_(None))
-                .all()
-            )
+                .where(VideoClip.project_id == project_id,
+                       VideoClip.deleted_at.is_(None))
+            ).all()
             beats = _get_beat_positions(track.id)
             ctx = build_audio_context(
                 seg_start_sec=t_sec, seg_section_type=None,
                 audio_track=track, beats=beats, energy_per_beat=None,
             )
             candidates, labels = [], []
-            for scene, clip in rows:
-                candidates.append(build_clip_features(clip.id, scene))
-                from pathlib import Path
-                labels.append(f"{Path(clip.file_path).stem[:34]} @{scene.start_time:.1f}s")
+            from pathlib import Path
+            for (scene_id, scene_energy, scene_ai_mood, scene_start,
+                 clip_id, clip_path) in rows:
+                # B-625: leichter Stub statt ORM-Scene; build_clip_features liest nur
+                # getattr-Skalarfelder, fehlende Felder -> None (wie ORM-Objekt).
+                scene_stub = SimpleNamespace(
+                    id=scene_id, energy=scene_energy, ai_mood=scene_ai_mood)
+                candidates.append(build_clip_features(clip_id, scene_stub))
+                labels.append(f"{Path(clip_path).stem[:34]} @{scene_start:.1f}s")
         if not candidates:
             raise RuntimeError("Keine analysierten Szenen im Projekt.")
         return ctx, candidates, labels

@@ -19,6 +19,7 @@ from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
+from sqlalchemy import select  # B-624: column-select statt Blob-eager-load
 from sqlalchemy.orm import Session, joinedload
 
 from database import engine, AudioTrack, VideoClip
@@ -309,10 +310,13 @@ def _get_bpm_cached(engine_identity: tuple[int, str], audio_id: int) -> float | 
     if audio_id is None:
         return None
     with Session(engine) as session:
-        track = session.query(AudioTrack).filter(
-            AudioTrack.id == audio_id, AudioTrack.deleted_at.is_(None)
+        # B-624: nur Skalar-Spalte bpm laden statt ORM-Objekt mit Blob-Spalten
+        row = session.execute(
+            select(AudioTrack.bpm).where(
+                AudioTrack.id == audio_id, AudioTrack.deleted_at.is_(None)
+            )
         ).first()
-        return track.bpm if track else None
+        return row.bpm if row else None
 
 
 def _get_bpm(audio_id: int | None) -> float | None:
@@ -886,16 +890,24 @@ def compute_stem_snr(audio_id: int) -> StemSNR | None:
     Returns None wenn keine Stems vorhanden sind.
     """
     with Session(engine) as session:
-        track = session.query(AudioTrack).filter(
-            AudioTrack.id == audio_id, AudioTrack.deleted_at.is_(None)
+        # B-624: nur Stem-Pfad-Skalarspalten laden statt ORM-Objekt mit Blob-Spalten
+        row = session.execute(
+            select(
+                AudioTrack.stem_drums_path,
+                AudioTrack.stem_bass_path,
+                AudioTrack.stem_vocals_path,
+                AudioTrack.stem_other_path,
+            ).where(
+                AudioTrack.id == audio_id, AudioTrack.deleted_at.is_(None)
+            )
         ).first()
-        if not track:
+        if not row:
             return None
         stem_paths = {
-            "drums": track.stem_drums_path,
-            "bass": track.stem_bass_path,
-            "vocals": track.stem_vocals_path,
-            "other": track.stem_other_path,
+            "drums": row.stem_drums_path,
+            "bass": row.stem_bass_path,
+            "vocals": row.stem_vocals_path,
+            "other": row.stem_other_path,
         }
 
     available = {k: v for k, v in stem_paths.items() if v and Path(v).exists()}

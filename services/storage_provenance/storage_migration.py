@@ -7,6 +7,7 @@ import logging
 from pathlib import Path
 from typing import Callable
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from database.models import (
@@ -78,8 +79,29 @@ class StorageMigrationService:
             logger.warning("B-545: provenance manifest write failed (project=%s): %s", project_id, e)
 
     def migrate_existing_outputs(self) -> StorageMigrationResult:
-        audio_tracks = self.session.query(AudioTrack).all()
-        video_clips = self.session.query(VideoClip).all()
+        # B-623: nur die von den Migrations-Helfern gelesenen Skalar-Spalten laden
+        # statt voller ORM-Rows. session.query(...).all() lud sonst via
+        # lazy='joined' die grossen JSON-Blob-Relationships mit
+        # (AudioTrack.beatgrid/waveform_data, VideoClip.scenes) und fror den Thread ein.
+        audio_tracks = self.session.execute(
+            select(
+                AudioTrack.file_path,
+                AudioTrack.stem_vocals_path,
+                AudioTrack.stem_drums_path,
+                AudioTrack.stem_bass_path,
+                AudioTrack.stem_other_path,
+                AudioTrack.project_id,
+            )
+        ).all()
+        video_clips = self.session.execute(
+            select(
+                VideoClip.file_path,
+                VideoClip.proxy_path,
+                VideoClip.embeddings_path,
+                VideoClip.motion_path,
+                VideoClip.project_id,
+            )
+        ).all()
 
         audio_count = 0
         video_count = 0
