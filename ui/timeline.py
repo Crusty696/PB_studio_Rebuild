@@ -1662,6 +1662,19 @@ class InteractiveTimeline(QGraphicsView):
                 _ew._populate_anchor_list_from_db()
         except Exception as _list_exc:
             logger.debug("[B-634] Dialog-Anker-Listen-Refresh fehlgeschlagen: %s", _list_exc)
+        # B-617: Beat-Grid-Overlay + Song-Struktur-Sektionen (INTRO/DROP-Farbflaechen)
+        # nach dem Load repopulieren. load_from_db-Teardown ruft _clear_sections/
+        # _clear_beat_grid, fuellt aber nie neu -> die Overlays blieben leer trotz
+        # DB-Daten. Hier (Build fertig, Viewport-Updates aktiv, nach dem Clear) den
+        # bestehenden Repopulator wiederverwenden. audio_map-Keys = AudioTrack.id.
+        # Bei mehreren Audio-Tracks das Overlay des ersten zeichnen (Single-Overlay-
+        # Semantik von set_beat_grid/load_sections). Kein Audio -> ueberspringen.
+        try:
+            _audio_ids = list(state["audio_map"].keys())
+            if _audio_ids:
+                self.load_beat_grid_from_db(_audio_ids[0])
+        except Exception as _grid_exc:
+            logger.debug("[B-617] Beat-Grid/Section-Repopulate fehlgeschlagen: %s", _grid_exc)
         vp.update()
         try:
             self.fit_to_content()
@@ -2486,10 +2499,20 @@ class InteractiveTimeline(QGraphicsView):
     def load_beat_grid_from_db(self, audio_track_id: int) -> None:
         """Laedt Beatgrid + Sections aus der DB und zeichnet alles."""
         with DBSession(engine) as session:
-            beatgrid = session.query(Beatgrid).filter_by(
-                audio_track_id=audio_track_id
+            # B-617: column-select statt ORM-Voll-Laden. Beatgrid.audio_track ist
+            # lazy='joined' (models.py:292) und wuerde ueber AudioTrack.waveform_data/
+            # beatgrid (lazy='joined', 195/196) die grossen JSON-Blobs eager ziehen ->
+            # GUI-Freeze (B-090/B-630-Klasse), sobald dieser frueher tote Code aktiv
+            # wird. column-select vermeidet den relationship-join automatisch und
+            # laedt nur die 3 real genutzten JSON-Arrays.
+            row = session.execute(
+                select(
+                    Beatgrid.beat_positions,
+                    Beatgrid.downbeat_positions,
+                    Beatgrid.energy_per_beat,
+                ).where(Beatgrid.audio_track_id == audio_track_id)
             ).first()
-            if not beatgrid:
+            if not row:
                 return
 
             beat_times = []
@@ -2498,27 +2521,27 @@ class InteractiveTimeline(QGraphicsView):
 
             # H7-FIX: Column(JSON) deserialisiert automatisch.
             # isinstance-Check fuer Backward-compat mit alten doppelt-serialisierten Daten.
-            if beatgrid.beat_positions:
+            if row.beat_positions:
                 try:
-                    beat_times = (json.loads(beatgrid.beat_positions)
-                                  if isinstance(beatgrid.beat_positions, str)
-                                  else beatgrid.beat_positions)
+                    beat_times = (json.loads(row.beat_positions)
+                                  if isinstance(row.beat_positions, str)
+                                  else row.beat_positions)
                 except (json.JSONDecodeError, TypeError) as exc:
                     logger.warning("load_beat_grid: failed to parse beat_positions: %s", exc)
 
-            if beatgrid.downbeat_positions:
+            if row.downbeat_positions:
                 try:
-                    downbeat_times = (json.loads(beatgrid.downbeat_positions)
-                                      if isinstance(beatgrid.downbeat_positions, str)
-                                      else beatgrid.downbeat_positions)
+                    downbeat_times = (json.loads(row.downbeat_positions)
+                                      if isinstance(row.downbeat_positions, str)
+                                      else row.downbeat_positions)
                 except (json.JSONDecodeError, TypeError) as exc:
                     logger.warning("load_beat_grid: failed to parse downbeat_positions: %s", exc)
 
-            if beatgrid.energy_per_beat:
+            if row.energy_per_beat:
                 try:
-                    energy_per_beat = (json.loads(beatgrid.energy_per_beat)
-                                       if isinstance(beatgrid.energy_per_beat, str)
-                                       else beatgrid.energy_per_beat)
+                    energy_per_beat = (json.loads(row.energy_per_beat)
+                                       if isinstance(row.energy_per_beat, str)
+                                       else row.energy_per_beat)
                 except (json.JSONDecodeError, TypeError) as exc:
                     logger.warning("load_beat_grid: failed to parse energy_per_beat: %s", exc)
 
