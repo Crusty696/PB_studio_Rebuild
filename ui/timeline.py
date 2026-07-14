@@ -397,6 +397,10 @@ class DialogAnchorMarkersItem(QGraphicsItem):
             return
         # Cyan/Tuerkis, klar verschieden vom Gold der Beat-Marker.
         dialog_pen = QPen(QColor(0, 200, 255, 210), 2)
+        # B-619: cosmetic -> 2px bildschirm-konstant, zoom-unabhaengig sichtbar.
+        # Ohne cosmetic wird die Linie bei starkem Zoom-out (langer Track im
+        # Fit-View) auf Sub-Pixel skaliert und verschwindet.
+        dialog_pen.setCosmetic(True)
         bottom = self._marker_bottom()
         t_left = max(0.0, clip_rect.left()) / PIXELS_PER_SECOND
         t_right = clip_rect.right() / PIXELS_PER_SECOND
