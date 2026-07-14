@@ -3733,6 +3733,17 @@ class InteractiveTimeline(QGraphicsView):
         # Get active project
         from database import get_active_project_id
         project_id = get_active_project_id()
+        if project_id is None:
+            # Sweep-2 (2026-07-14): get_active_project_id() liefert bewusst None
+            # wenn kein Projekt aktiv ist (database/session.py — kein Fallback auf
+            # ID=1). AddClipCommand -> TimelineEntry(project_id NOT NULL) wuerde
+            # beim flush eine IntegrityError werfen, die roh aus diesem Qt-Drop-
+            # Handler propagiert und die App beendet. Statt Crash: Drop ignorieren.
+            logger.warning("[Timeline] Drop ignoriert — kein aktives Projekt geladen.")
+            if self.console_log:
+                self.console_log("[Timeline] Drop ignoriert — kein aktives Projekt geladen.")
+            event.ignore()
+            return
 
         # Create clip via UndoCommand
         from ui.undo_commands import AddClipCommand
