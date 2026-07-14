@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import shutil
 import subprocess
+import threading
 from pathlib import Path
 from typing import Optional
 
@@ -298,11 +299,20 @@ class BrainV3LearningSessionDialog(QDialog):
         proc = self._audio_preview_process
         self._audio_preview_process = None
         if proc is not None and proc.poll() is None:
-            proc.terminate()
-            try:
-                proc.wait(timeout=2)
-            except subprocess.TimeoutExpired:
-                proc.kill()
+            # low-fix (Sweep 2026-07-14): terminate/kill-Wartezeit NICHT auf dem
+            # GUI-Thread — proc.wait(timeout=2) friert die UI bis zu 2s ein, falls
+            # ffplay nicht sofort auf terminate() reagiert. Cleanup in Daemon-Thread.
+            def _terminate_ffplay(p: subprocess.Popen) -> None:
+                try:
+                    p.terminate()
+                    p.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    p.kill()
+                except Exception:  # broad — cleanup darf nie den Thread crashen
+                    pass
+            threading.Thread(
+                target=_terminate_ffplay, args=(proc,), daemon=True
+            ).start()
         self._btn_preview_play.setText("Preview starten")
 
     def _start_audio_preview(self, source: Path, start_s: float, duration_s: float) -> bool:

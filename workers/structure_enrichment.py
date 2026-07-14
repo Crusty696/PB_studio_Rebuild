@@ -71,6 +71,10 @@ def _default_session_factory() -> Session:
         connect_args={"check_same_thread": False},
         poolclass=NullPool,
     )
+    # low-fix (Sweep 2026-07-14): markiere die selbst-erstellte Engine als
+    # worker-owned, damit run() sie im finally disposen kann. Extern uebergebene
+    # (evtl. geteilte) Engines tragen dieses Flag NICHT und bleiben unangetastet.
+    _eng._pb_worker_owned = True
     return Session(_eng)
 
 
@@ -165,9 +169,21 @@ class StructureEnrichmentWorker(QObject):
                 )
         finally:
             try:
+                _eng = session.get_bind()
+            except Exception:
+                _eng = None
+            try:
                 session.close()
             except Exception:  # broad catch — close() errors are non-fatal
                 pass
+            # low-fix (Sweep 2026-07-14): nur die worker-eigene NullPool-Engine
+            # disposen (Flag aus _default_session_factory) — verhindert Engine-Leak
+            # pro run(), ohne extern geteilte Engines zu zerstoeren.
+            if _eng is not None and getattr(_eng, "_pb_worker_owned", False):
+                try:
+                    _eng.dispose()
+                except Exception:
+                    pass
 
     def _do_enrich(  # noqa: C901 — complex but linear, steps match spec §T4.1
         self,
