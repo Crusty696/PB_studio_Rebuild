@@ -512,12 +512,21 @@ def _auto_edit_phase3_inner(
         try:
             from database import StructureSegment
             with Session(_ae_eng) as _s:
-                rows = (
-                    _s.query(StructureSegment)
-                    .filter_by(audio_track_id=audio_id)
+                # B-632: nur genutzte Skalar-Spalten laden statt ORM-Objekte.
+                # StructureSegment.audio_track ist lazy='joined' -> volles
+                # ORM-Laden zieht AudioTrack mit JSON-Blob-Spalten -> json.loads
+                # im Row-Processing (1.5-2.8s-Blips). Hier nur die 4 Skalare
+                # start_time/end_time/label/energy gebraucht.
+                rows = _s.execute(
+                    select(
+                        StructureSegment.start_time,
+                        StructureSegment.end_time,
+                        StructureSegment.label,
+                        StructureSegment.energy,
+                    )
+                    .where(StructureSegment.audio_track_id == audio_id)
                     .order_by(StructureSegment.start_time)
-                    .all()
-                )
+                ).all()
                 data = [(float(r.start_time), float(r.end_time or 0.0),
                          str(r.label or ""), float(r.energy or 0.5))
                         for r in rows]

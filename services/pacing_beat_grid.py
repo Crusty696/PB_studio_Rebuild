@@ -22,7 +22,7 @@ import numpy as np
 from sqlalchemy import select  # B-624: column-select statt Blob-eager-load
 from sqlalchemy.orm import Session, joinedload
 
-from database import engine, AudioTrack, VideoClip, Beatgrid  # B-629 (B): Beatgrid fuer column-select
+from database import engine, AudioTrack, VideoClip, Beatgrid, Scene  # B-629 (B): Beatgrid fuer column-select; B-632: Scene fuer column-select
 from services.audio_constants import DEFAULT_SR
 
 logger = logging.getLogger(__name__)
@@ -381,22 +381,39 @@ def _get_video_info_cached(video_ids: tuple[int, ...]) -> dict[int, dict]:
     if not video_ids:
         return info
     with Session(engine) as session:
-        clips = (
-            session.query(VideoClip)
-            .options(joinedload(VideoClip.scenes))
-            .filter(VideoClip.id.in_(video_ids), VideoClip.deleted_at.is_(None))
-            .all()
-        )
-        for clip in clips:
-            info[clip.id] = {
-                "duration": clip.duration or 10.0,
-                "path": clip.file_path,
-                "scenes": [
-                    {"start": s.start_time, "end": s.end_time,
-                     "energy": s.energy or 0.5, "id": s.id}
-                    for s in clip.scenes
-                ],
-            }
+        # B-632: nur genutzte Skalar-Spalten laden statt joinedload voller
+        # Scene-Rows. Scene hat JSON-Blob-Spalten (ai_caption/ai_tags/
+        # keyframe_paths/embedding_indices) die im ORM-Row-Processing json.loads
+        # ausloesen (1.5-2.8s-Blips), hier aber NICHT gebraucht werden.
+        # outerjoin erhaelt Clips ohne Scenes (analog altem joinedload-Verhalten).
+        rows = session.execute(
+            select(
+                VideoClip.id,
+                VideoClip.duration,
+                VideoClip.file_path,
+                Scene.id,
+                Scene.start_time,
+                Scene.end_time,
+                Scene.energy,
+            )
+            .outerjoin(Scene, Scene.video_clip_id == VideoClip.id)
+            .where(VideoClip.id.in_(video_ids), VideoClip.deleted_at.is_(None))
+        ).all()
+        for (clip_id, clip_duration, clip_path,
+             scene_id, s_start, s_end, s_energy) in rows:
+            entry = info.get(clip_id)
+            if entry is None:
+                entry = {
+                    "duration": clip_duration or 10.0,
+                    "path": clip_path,
+                    "scenes": [],
+                }
+                info[clip_id] = entry
+            if scene_id is not None:
+                entry["scenes"].append(
+                    {"start": s_start, "end": s_end,
+                     "energy": s_energy or 0.5, "id": scene_id}
+                )
     return info
 
 
