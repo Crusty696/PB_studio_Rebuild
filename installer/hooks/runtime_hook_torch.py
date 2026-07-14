@@ -41,6 +41,15 @@ if getattr(sys, 'frozen', False):
     os.environ.setdefault('HF_HOME', user_data)
     os.environ.setdefault('TORCH_HOME', user_data)
 
+    # 4b. Numba/umap JIT-Disk-Cache in ein beschreibbares Verzeichnis (B-618).
+    #     Im Frozen liegen pynndescents .py im PYZ (kein beschreibbarer Pfad) —
+    #     ohne dies kann numba den @njit(cache=True)-Cache nicht persistieren und
+    #     JITet bei JEDEM Start kalt neu. Der PB_WARMUP_UMAP-Kindprozess schreibt
+    #     hierhin, Eltern- und Folge-Starts lesen denselben warmen Cache.
+    numba_cache = os.path.join(os.path.expanduser('~'), '.pbstudio', 'numba_cache')
+    os.makedirs(numba_cache, exist_ok=True)
+    os.environ.setdefault('NUMBA_CACHE_DIR', numba_cache)
+
     # 5. PySide6/Qt plugin path — tell Qt where to find platform plugins
     qt_plugin_path = os.path.join(bundle_dir, 'PySide6', 'plugins')
     if os.path.isdir(qt_plugin_path):

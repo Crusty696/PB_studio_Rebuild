@@ -1446,6 +1446,19 @@ def main():
 
     setup_logging()
 
+    # B-618: Frozen-Warmup-Entrypoint. Der StyleBucketClusterer re-invoket die
+    # App-EXE mit PB_WARMUP_UMAP=1, um den Numba-JIT-Cache fuer umap/pynndescent
+    # in einem KIND-Prozess vorzuwaermen — so haelt der JIT-Kaltstart nie den GIL
+    # des Eltern-Main-Threads. Headless, VOR QApplication/GUI/Watchdog. Exit-Code
+    # != 0 signalisiert dem Aufrufer einen Import-Fehlschlag (z.B. Bundling).
+    if os.environ.get("PB_WARMUP_UMAP") == "1":
+        try:
+            import umap  # noqa: F401 — Import triggert den Numba-JIT-Kaltstart
+            sys.exit(0)
+        except Exception as _warm_exc:  # noqa: BLE001
+            print(f"PB_WARMUP_UMAP import failed: {_warm_exc}", file=sys.stderr)
+            sys.exit(2)
+
     import os as _os_smoke
     if _os_smoke.environ.get("PB_FROZEN_AUDIO_SMOKE") == "1":
         import json

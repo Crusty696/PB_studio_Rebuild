@@ -68,17 +68,40 @@ def warm_umap_cache(timeout: float = _WARMUP_TIMEOUT_S) -> bool:
             _WARMUP_STATE["done"] = True
             return True
         if getattr(sys, "frozen", False):
-            # PyInstaller-Build: sys.executable ist die App-EXE selbst;
-            # ``app.exe -c "import umap"`` wuerde die GUI neu starten statt
-            # einen Python-Einzeiler auszufuehren. Dokumentierte
-            # B-618-Einschraenkung: Frozen-Builds ueberspringen den
-            # Subprocess-Warmup und importieren in-process.
-            _WARMUP_STATE["done"] = True
-            logger.warning(
-                "B-618: Frozen-Build erkannt — UMAP-Warmup-Subprocess "
-                "uebersprungen, umap-Import erfolgt in-process."
+            # B-618 Frozen: sys.executable ist die App-EXE. ``app.exe -c "..."``
+            # wuerde die GUI hochfahren statt einen Python-Einzeiler laufen zu
+            # lassen. Loesung: die EXE mit PB_WARMUP_UMAP=1 re-invoken — main()
+            # faengt das VOR GUI/QApplication/Watchdog ab, importiert umap
+            # headless im KIND-Prozess und exitet. So JITet der Numba-Kaltstart
+            # nie den GIL des Eltern-Main-Threads (kein Watchdog-Kill). Der Cache
+            # landet in NUMBA_CACHE_DIR (runtime_hook_torch) und ist auch fuer
+            # Folge-Starts warm.
+            _frozen_flags = (
+                getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
             )
-            return False
+            try:
+                subprocess.run(
+                    [sys.executable],
+                    env={**os.environ, "PB_WARMUP_UMAP": "1"},
+                    check=True,
+                    timeout=timeout,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    creationflags=_frozen_flags,
+                )
+            except Exception as exc:  # noqa: BLE001 — Warmup darf Aufrufer nie crashen
+                _WARMUP_STATE["done"] = True
+                logger.warning(
+                    "B-618: Frozen-UMAP-Warmup-Subprocess fehlgeschlagen (%s) — "
+                    "Fallback auf In-Process-Import.",
+                    exc,
+                )
+                return False
+            _WARMUP_STATE["done"] = True
+            logger.info(
+                "B-618: Frozen-UMAP/Numba-Cache-Warmup-Subprocess erfolgreich."
+            )
+            return True
         creationflags = (
             getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
         )
