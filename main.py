@@ -1451,7 +1451,11 @@ def main():
     # in einem KIND-Prozess vorzuwaermen — so haelt der JIT-Kaltstart nie den GIL
     # des Eltern-Main-Threads. Headless, VOR QApplication/GUI/Watchdog. Exit-Code
     # != 0 signalisiert dem Aufrufer einen Import-Fehlschlag (z.B. Bundling).
-    if os.environ.get("PB_WARMUP_UMAP") == "1":
+    # Lokaler os-Alias (wie _os_smoke unten): main() enthaelt weiter unten ein
+    # bedingtes `import os` -> globales os ist hier funktionsweit als lokaler
+    # Name gebunden und waere vor jenem import unbound (UnboundLocalError).
+    import os as _os_warmup
+    if _os_warmup.environ.get("PB_WARMUP_UMAP") == "1":
         try:
             import umap  # noqa: F401 — Import triggert den Numba-JIT-Kaltstart
             sys.exit(0)
