@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import logging
 
+from sqlalchemy import select  # B-090: column-select statt Blob-Voll-Load
+
 from database import AudioVideoAnchor, Scene, nullpool_session
 
 logger = logging.getLogger(__name__)
@@ -54,7 +56,10 @@ def _resolve_scene_id(session, scene_id_raw: str):
     except ValueError:
         logger.warning("anchor_sync: ungueltige scene_id %r", scene_id_raw)
         return None
-    scene = session.get(Scene, scene_id)
+    # B-090: column-select statt ORM-Voll-Laden (keyframe_paths/embedding_indices/ai_caption/ai_tags JSON); nutzt nur video_clip_id, start_time
+    scene = session.execute(
+        select(Scene.video_clip_id, Scene.start_time).where(Scene.id == scene_id)
+    ).first()
     if scene is None:
         logger.warning("anchor_sync: Scene id=%s nicht gefunden", scene_id)
         return None

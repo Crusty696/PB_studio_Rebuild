@@ -18,18 +18,26 @@ def _get_task_manager():
 def _get_audio_track_file_path(audio_track_id: int) -> str | None:
     """Holt file_path eines AudioTracks aus der DB (leichtgewichtiger Lookup)."""
     from sqlalchemy.orm import Session as SASession
+    from sqlalchemy import select
     from database import engine, AudioTrack
     with SASession(engine) as session:
-        track = session.get(AudioTrack, audio_track_id)
+        # B-090: column-select statt ORM-Voll-Laden (waveform_data/beatgrid joined); nutzt nur file_path
+        track = session.execute(
+            select(AudioTrack.file_path).where(AudioTrack.id == audio_track_id)
+        ).first()
         return track.file_path if track else None
 
 
 def _get_audio_track_bpm(audio_track_id: int) -> float | None:
     """Holt BPM eines AudioTracks aus der DB."""
     from sqlalchemy.orm import Session as SASession
+    from sqlalchemy import select
     from database import engine, AudioTrack
     with SASession(engine) as session:
-        track = session.get(AudioTrack, audio_track_id)
+        # B-090: column-select statt ORM-Voll-Laden (waveform_data/beatgrid joined); nutzt nur bpm
+        track = session.execute(
+            select(AudioTrack.bpm).where(AudioTrack.id == audio_track_id)
+        ).first()
         return track.bpm if track else None
 
 
@@ -285,11 +293,22 @@ def describe_audio_track(track_id: int | None = None) -> dict:
     """
     try:
         from sqlalchemy.orm import Session as SASession
+        from sqlalchemy import select
         from database import engine, AudioTrack, Beatgrid, StructureSegment
 
         with SASession(engine) as session:
             if track_id:
-                track = session.get(AudioTrack, track_id)
+                # B-090: column-select statt ORM-Voll-Laden (waveform_data/beatgrid joined, JSON-Blobs energy_curve/spectral_bands/transcription/...); nutzt nur die real gelesenen Skalar-Felder
+                track = session.execute(
+                    select(
+                        AudioTrack.id, AudioTrack.title, AudioTrack.duration,
+                        AudioTrack.bpm, AudioTrack.key, AudioTrack.key_confidence,
+                        AudioTrack.genre, AudioTrack.sub_genre, AudioTrack.mood,
+                        AudioTrack.lufs, AudioTrack.is_dj_mix, AudioTrack.harmonic_tension,
+                        AudioTrack.stem_vocals_path, AudioTrack.stem_drums_path,
+                        AudioTrack.stem_bass_path, AudioTrack.stem_other_path,
+                    ).where(AudioTrack.id == track_id)
+                ).first()
             else:
                 track = session.query(AudioTrack).first()
 

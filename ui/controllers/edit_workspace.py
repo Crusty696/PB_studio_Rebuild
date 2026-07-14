@@ -1269,6 +1269,7 @@ class EditWorkspaceController(PBComponent):
             def run(self):
                 try:
                     from database import nullpool_session, AudioTrack
+                    from sqlalchemy import select  # B-090: column-select statt Blob-Voll-Load
                     from services.timeline_service import plan_video_timeline_add
 
                     prepared: list[dict] = []
@@ -1278,7 +1279,10 @@ class EditWorkspaceController(PBComponent):
                             if req["media_type"] != "Audio":
                                 continue
                             media_id = int(req["media_id"])
-                            obj = session.get(AudioTrack, media_id)
+                            # B-090: column-select statt ORM-Voll-Laden (waveform_data/beatgrid joined); nutzt nur duration, title
+                            obj = session.execute(
+                                select(AudioTrack.duration, AudioTrack.title).where(AudioTrack.id == media_id)
+                            ).first()
                             if obj is None:
                                 raise ValueError(f"Audio #{media_id} nicht gefunden.")
                             duration = float(obj.duration or 30.0)

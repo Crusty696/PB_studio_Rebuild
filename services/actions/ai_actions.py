@@ -240,12 +240,19 @@ def suggest_pacing(audio_track_id: int | None = None) -> dict:
     """Analyzes audio data and suggests optimal pacing settings."""
     try:
         from sqlalchemy.orm import Session as SASession
+        from sqlalchemy import select
         from database import engine, AudioTrack, Beatgrid
 
         with SASession(engine) as session:
             # Find the track
             if audio_track_id:
-                track = session.get(AudioTrack, audio_track_id)
+                # B-090: column-select statt ORM-Voll-Laden (waveform_data/beatgrid joined, JSON-Blobs); nutzt nur id, title, bpm, mood, genre, is_dj_mix
+                track = session.execute(
+                    select(
+                        AudioTrack.id, AudioTrack.title, AudioTrack.bpm,
+                        AudioTrack.mood, AudioTrack.genre, AudioTrack.is_dj_mix,
+                    ).where(AudioTrack.id == audio_track_id)
+                ).first()
             else:
                 track = session.query(AudioTrack).first()
 

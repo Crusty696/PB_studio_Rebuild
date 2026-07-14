@@ -23,6 +23,7 @@ from database import get_active_project_id
 # Nicht per ruff F401 entfernen.
 from database import engine  # noqa: F401
 from database import TimelineEntry
+from sqlalchemy import select  # B-090: column-select statt Blob-Voll-Load
 
 # M-12 Fix: Thread-safe lock for timeline writes to prevent data races
 _timeline_write_lock = threading.Lock()
@@ -103,7 +104,10 @@ def plan_video_timeline_add(
         )
         ref_audio_id = int(audio_row[0]) if audio_row and audio_row[0] else audio_id_hint
         if ref_audio_id is not None:
-            track = session.get(AudioTrack, ref_audio_id)
+            # B-090: column-select statt ORM-Voll-Laden (waveform_data/beatgrid joined); nutzt nur duration
+            track = session.execute(
+                select(AudioTrack.duration).where(AudioTrack.id == ref_audio_id)
+            ).first()
             if track is not None and track.duration:
                 budget = float(track.duration)
         result["budget"] = budget
@@ -125,7 +129,10 @@ def plan_video_timeline_add(
             if budget is not None and video_start >= budget - 0.01:
                 result["skipped_budget"].append(vid)
                 continue
-            clip = session.get(VideoClip, vid)
+            # B-090: column-select statt ORM-Voll-Laden (scenes/audio_video_anchors selectin); nutzt nur duration, file_path
+            clip = session.execute(
+                select(VideoClip.duration, VideoClip.file_path).where(VideoClip.id == vid)
+            ).first()
             if clip is None:
                 continue
             duration = float(clip.duration or 10.0)
