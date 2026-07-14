@@ -147,3 +147,11 @@ Verify: adversarial diff (alle SAFE) + Import-Smoke 8/8 + pytest 14 passed.
 - GUI-Live-Freeze-Messung (gebuendelter Test, User) — Tier V2/V3
 - Tier R Release-Rebuild, Tier M fixed-Marker, Tier P Alt-Bug-Triage
 - B-627 Off-Thread-Fix (User-Entscheid), ab_compare AudioTrack-Rest-Freeze
+
+### Update 2026-07-14 (Commits 24b104a, 60f273d)
+- D1 B-619 = Option 2 + Konsument (Timeline-Marker) UMGESETZT. anchor_sync_service +
+  edit_workspace + timeline DialogAnchorMarkersItem. pytest 9 passed.
+- F5 B-627 = Off-Thread UMGESETZT. embedding_scheduler non-blocking + fire-and-forget.
+Tier-F/D Code damit weitgehend abgeschlossen. Offen: B-618-Rest (Frozen/Tier R),
+ab_compare AudioTrack-Rest-Freeze, GUI-Live-Verify (Tier V2/V3), Tier R/M/P.
+5 Commits lokal, ungepusht.
