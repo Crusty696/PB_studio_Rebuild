@@ -535,7 +535,11 @@ class OnsetRhythmService:
         merged_snare: list[PercussiveOnset] = []
         merged_hihat: list[PercussiveOnset] = []
         merged_curve: list[float] = []
-        best_metrics: tuple[int, RhythmAnalysis] | None = None
+        # B-595: pro-Chunk NUR Skalare fuer gewichtete Global-Metrik-Aggregation
+        # sammeln (nicht das ganze RhythmAnalysis mit Onset-Listen -> RAM-Budget
+        # gewahrt). (n_onsets, syncopation, swing, groove_conf, groove_template).
+        chunk_stats: list[tuple[int, float, float, float, str]] = []
+        hop_sec_first: float | None = None
 
         for ci in range(n_chunks):
             c_start = ci * chunk_sec
@@ -563,25 +567,52 @@ class OnsetRhythmService:
             merged_curve.extend(a.onset_strength_curve)
 
             n_on = len(a.onsets_kick) + len(a.onsets_snare)
-            if best_metrics is None or n_on > best_metrics[0]:
-                best_metrics = (n_on, a)
+            # B-595: Skalar-Metriken je Chunk fuer gewichtete Aggregation.
+            chunk_stats.append(
+                (n_on, a.syncopation_score, a.swing_ratio,
+                 a.groove_confidence, a.groove_template)
+            )
+            if hop_sec_first is None:
+                hop_sec_first = a.onset_strength_hop_sec
 
             # Chunk-Puffer sofort freigeben — sonst akkumulieren die
             # librosa-Zwischenarrays ueber viele Chunks (B-359-Budget).
             del y_chunk, drums_chunk, a
             gc.collect()
 
-        agg = best_metrics[1] if best_metrics else RhythmAnalysis()
+        # B-595: globale Metriken gewichtet ueber ALLE Chunks aggregieren
+        # (Gewicht = Onset-Anzahl je Chunk) statt nur vom onset-reichsten Chunk.
+        # Onset-arme Chunks tragen weniger bei, aber der GESAMTE Mix fliesst ein.
+        # groove_template (kategorisch) via onset-gewichtetes Voting.
+        total_w = sum(w for w, *_ in chunk_stats)
+        if total_w > 0:
+            sync_agg = sum(w * s for w, s, _, _, _ in chunk_stats) / total_w
+            swing_agg = sum(w * sw for w, _, sw, _, _ in chunk_stats) / total_w
+            conf_agg = sum(w * c for w, _, _, c, _ in chunk_stats) / total_w
+            template_w: dict[str, float] = {}
+            for w, _, _, _, tmpl in chunk_stats:
+                template_w[tmpl] = template_w.get(tmpl, 0.0) + w
+            groove_agg = max(template_w, key=template_w.get)
+        else:
+            # Kein einziger Onset ueber alle Chunks -> Metriken bedeutungslos,
+            # Dataclass-Defaults verwenden.
+            _def = RhythmAnalysis()
+            sync_agg = _def.syncopation_score
+            swing_agg = _def.swing_ratio
+            conf_agg = _def.groove_confidence
+            groove_agg = _def.groove_template
+
         return RhythmAnalysis(
             onsets_kick=merged_kick,
             onsets_snare=merged_snare,
             onsets_hihat=merged_hihat,
             onset_strength_curve=merged_curve,
-            onset_strength_hop_sec=agg.onset_strength_hop_sec,
-            syncopation_score=agg.syncopation_score,
-            groove_template=agg.groove_template,
-            groove_confidence=agg.groove_confidence,
-            swing_ratio=agg.swing_ratio,
+            onset_strength_hop_sec=hop_sec_first if hop_sec_first is not None
+            else RhythmAnalysis().onset_strength_hop_sec,
+            syncopation_score=round(sync_agg, 4),
+            groove_template=groove_agg,
+            groove_confidence=round(conf_agg, 4),
+            swing_ratio=round(swing_agg, 4),
         )
 
     def analyze_and_store(
