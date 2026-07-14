@@ -215,6 +215,25 @@ class OllamaService:
         # VRAM sofort freigeben nach Inference (Fix F-001)
         env['OLLAMA_KEEP_ALIVE'] = '0'
 
+        # B-604: Vulkan-Backend unterbinden + CUDA (GTX 1060) forcieren.
+        # Der llama-server-Backend-Prozess crasht in ggml-vulkan.dll — das
+        # verletzt zudem die GPU-Hartregel (ausschliesslich GTX 1060 via CUDA,
+        # kein Vulkan, keine Intel-iGPU). Env-Fix (User-Entscheid).
+        # UNVERIFIZIERT ob dies den 46-Min-Vulkan-Crash tatsaechlich behebt
+        # (Root-Cause via Mini-Dump nicht 100% geklaert) — Verifikation im
+        # Backlog. Beide Vars sind aber belegt und in die richtige Richtung
+        # (CUDA-only, Vulkan aus) wirkend, ohne Regressions-Risiko am
+        # System-Ollama-Fallback-Pfad.
+        #
+        # OLLAMA_VULKAN=0 -> Vulkan-Backend-Discovery deaktivieren.
+        #   Beleg: envconfig `EnableVulkan = BoolWithDefault("OLLAMA_VULKAN")`
+        #   https://pkg.go.dev/github.com/ollama/ollama/envconfig
+        # CUDA_VISIBLE_DEVICES=0 -> nur GTX 1060 (cuda:0) sichtbar.
+        #   Versions-unabhaengiger CUDA-Standard.
+        #   https://docs.ollama.com/gpu
+        env['OLLAMA_VULKAN'] = '0'
+        env['CUDA_VISIBLE_DEVICES'] = '0'
+
         # Versteckter Prozess (kein CMD-Fenster unter Windows)
         creation_flags = 0x08000000 if os.name == 'nt' else 0
 
