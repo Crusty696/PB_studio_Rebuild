@@ -85,9 +85,9 @@ class ABCompareDialog(QDialog):
         from types import SimpleNamespace
 
         from sqlalchemy import select
-        from sqlalchemy.orm import Session
+        from sqlalchemy.orm import Session, joinedload, lazyload
 
-        from database import AudioTrack, Scene, VideoClip, engine, get_active_project_id
+        from database import AudioTrack, Beatgrid, Scene, VideoClip, engine, get_active_project_id
         from services.pacing.bridge_mapping import build_audio_context, build_clip_features
         from services.pacing_beat_grid import _get_beat_positions
 
@@ -95,14 +95,31 @@ class ABCompareDialog(QDialog):
         if project_id is None:
             raise RuntimeError("Kein aktives Projekt.")
         with Session(engine) as s:
-            # B-625 (blocked): AudioTrack bleibt ORM .first(). build_audio_context
-            # navigiert die Relationship audio_track.beatgrid.groove_template
-            # (services/pacing/bridge_mapping.py:98-100). Ein column-select liefert
-            # eine Row ohne .beatgrid -> getattr faellt still auf None zurueck und
-            # at_groove_template ginge verloren. Relationship-Navigation macht den
-            # column-select unzulaessig, daher hier nicht umgestellt.
+            # B-090/B-625: ORM-AudioTrack bleibt erhalten, da build_audio_context
+            # die Relationship audio_track.beatgrid.groove_template navigiert
+            # (services/pacing/bridge_mapping.py:98-100) — ein column-select wuerde
+            # .beatgrid still auf None brechen. Statt column-select werden nur die
+            # grossen JSON-Blob-Spalten vom eager-Load ausgenommen:
+            #  - waveform_data (band_low/mid/high) via lazyload — nie gelesen.
+            #  - beatgrid JSON-Arrays (beat_positions/downbeat_positions/
+            #    energy_per_beat/stem_weighted_energy/onset_*) via defer;
+            #    groove_template + Skalarfelder bleiben eager erreichbar.
+            # Deferred Spalten laden bei Zugriff transparent nach -> kein
+            # Relationship-Bruch. Track wird nur innerhalb dieses Session-Blocks
+            # gelesen (nur Skalare + groove_template), also faellt nichts nach.
             track = (
                 s.query(AudioTrack)
+                .options(
+                    lazyload(AudioTrack.waveform_data),
+                    joinedload(AudioTrack.beatgrid)
+                    .defer(Beatgrid.beat_positions)
+                    .defer(Beatgrid.downbeat_positions)
+                    .defer(Beatgrid.energy_per_beat)
+                    .defer(Beatgrid.stem_weighted_energy)
+                    .defer(Beatgrid.onset_kick_data)
+                    .defer(Beatgrid.onset_snare_data)
+                    .defer(Beatgrid.onset_hihat_data),
+                )
                 .filter(AudioTrack.project_id == project_id,
                         AudioTrack.deleted_at.is_(None))
                 .first()

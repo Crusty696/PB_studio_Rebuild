@@ -298,10 +298,17 @@ class RemoveClipCommand(QUndoCommand):
                     title = row.title or title
                     duration = row.duration or duration
             else:
-                obj = session.get(VideoClip, self._snapshot["media_id"])
-                if obj:
-                    title = Path(obj.file_path).stem
-                    duration = obj.duration or duration
+                # B-090/B-630: column-select statt session.get — vermeidet den
+                # eager-load von VideoClip.scenes-Relationships. Nur genutzte
+                # Skalarfelder file_path/duration laden.
+                row = session.execute(
+                    select(VideoClip.file_path, VideoClip.duration).where(
+                        VideoClip.id == self._snapshot["media_id"]
+                    )
+                ).first()
+                if row:
+                    title = Path(row.file_path).stem
+                    duration = row.duration or duration
 
             # Commit uebernimmt _run_timeline_write nach Abschluss der Operation
             return title, duration

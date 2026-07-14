@@ -21,10 +21,10 @@ from PySide6.QtGui import (
     QPainter, QColor, QFont, QBrush, QPen, QPolygonF, QUndoStack, QPixmap,
 )
 
-from sqlalchemy import text
+from sqlalchemy import text, select
 from sqlalchemy.orm import Session as DBSession, joinedload, lazyload
 
-from database import engine, AudioTrack, VideoClip, TimelineEntry, Beatgrid, ClipAnchor, StructureSegment, AudioVideoAnchor, nullpool_session
+from database import engine, AudioTrack, VideoClip, TimelineEntry, Beatgrid, ClipAnchor, StructureSegment, AudioVideoAnchor, WaveformData, nullpool_session
 
 logger = logging.getLogger(__name__)
 
@@ -2223,17 +2223,25 @@ class InteractiveTimeline(QGraphicsView):
         thumbnail_file_path = None
         if track_type == "audio":
             with DBSession(engine) as session:
-                track = session.query(AudioTrack).filter(
-                    AudioTrack.id == media_id, AudioTrack.deleted_at.is_(None)
-                ).first()
-                if track and track.waveform_data:
-                    has_waveform = True
+                # B-090/B-630: column-select statt ORM-Voll-Laden (waveform_data
+                # JSON-Blob band_low/mid/high). Reiner Existenz-Check ueber Child-PK
+                # ohne Blob-Load; nutzt nur WaveformData.id. Der async Waveform-Load
+                # bleibt unveraendert.
+                has_waveform = session.execute(
+                    select(WaveformData.id).where(
+                        WaveformData.audio_track_id == media_id
+                    )
+                ).first() is not None
         elif track_type == "video":
             with DBSession(engine) as session:
-                clip = session.query(VideoClip).filter(
-                    VideoClip.id == media_id, VideoClip.deleted_at.is_(None)
+                # B-090/B-630: column-select statt ORM-Voll-Laden (VideoClip.scenes
+                # eager-Relationships); nutzt nur file_path.
+                row = session.execute(
+                    select(VideoClip.file_path).where(
+                        VideoClip.id == media_id, VideoClip.deleted_at.is_(None)
+                    )
                 ).first()
-                thumbnail_file_path = str(clip.file_path) if clip else None
+                thumbnail_file_path = str(row.file_path) if row else None
 
         # M1 (D-066): Record anlegen + sofort materialisieren — ein Drop/Add
         # passiert immer im sichtbaren Bereich. Neue Clips haben keine Anker
@@ -2348,12 +2356,18 @@ class InteractiveTimeline(QGraphicsView):
         """Laedt StructureSegments aus der DB und zeichnet farbige Sektions-Hintergruende."""
         self._clear_sections()
         with DBSession(engine) as session:
-            segments = (
-                session.query(StructureSegment)
-                .filter_by(audio_track_id=audio_track_id)
+            # B-090/B-630: column-select statt ORM-Voll-Laden (StructureSegment.
+            # audio_track lazy='joined' zieht AudioTrack-Blobs); nutzt nur
+            # label/start_time/end_time/energy. Der column-select vermeidet den
+            # relationship-join automatisch.
+            segments = session.execute(
+                select(
+                    StructureSegment.label, StructureSegment.start_time,
+                    StructureSegment.end_time, StructureSegment.energy,
+                )
+                .where(StructureSegment.audio_track_id == audio_track_id)
                 .order_by(StructureSegment.start_time)
-                .all()
-            )
+            ).all()
             if not segments:
                 return
             for seg in segments:
@@ -3675,15 +3689,23 @@ class InteractiveTimeline(QGraphicsView):
         else:
             with DBSession(engine) as session:
                 if track_type == "audio":
-                    obj = session.query(AudioTrack).filter(
-                        AudioTrack.id == media_id, AudioTrack.deleted_at.is_(None)
+                    # B-090/B-630: column-select statt ORM-Voll-Laden (AudioTrack
+                    # beatgrid/waveform_data lazy='joined' Blobs); nutzt nur duration.
+                    row = session.execute(
+                        select(AudioTrack.duration).where(
+                            AudioTrack.id == media_id, AudioTrack.deleted_at.is_(None)
+                        )
                     ).first()
-                    duration = obj.duration if obj and obj.duration else 30.0
+                    duration = row.duration if row and row.duration else 30.0
                 else:
-                    obj = session.query(VideoClip).filter(
-                        VideoClip.id == media_id, VideoClip.deleted_at.is_(None)
+                    # B-090/B-630: column-select statt ORM-Voll-Laden (VideoClip.scenes
+                    # eager-Relationships); nutzt nur duration.
+                    row = session.execute(
+                        select(VideoClip.duration).where(
+                            VideoClip.id == media_id, VideoClip.deleted_at.is_(None)
+                        )
                     ).first()
-                    duration = obj.duration if obj and obj.duration else 10.0
+                    duration = row.duration if row and row.duration else 10.0
 
         # Get active project
         from database import get_active_project_id
