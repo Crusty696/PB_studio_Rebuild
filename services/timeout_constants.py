@@ -121,6 +121,13 @@ DB_SQLITE_CONNECT_TIMEOUT_SEC: int = 30
 # ---------------------------------------------------------------------------
 
 STARTUP_FFMPEG_CHECK_TIMEOUT_SEC: int = 8
+# B-600: aeusseres future.result-Timeout fuer den ffmpeg-Check. _check_ffmpeg
+# macht ZWEI sequenzielle subprocess-Calls (ffmpeg + ffprobe), jeder bis
+# STARTUP_FFMPEG_CHECK_TIMEOUT_SEC. Das aeussere Timeout muss beide abdecken
+# (>= 2x inneres + Puffer), sonst killt future.result() im Cold-Start (Windows-
+# Defender-Scan frischer EXEs) beide Calls vorzeitig -> false-fail trotz
+# funktionierender Binaries.
+STARTUP_FFMPEG_OUTER_TIMEOUT_SEC: int = 2 * STARTUP_FFMPEG_CHECK_TIMEOUT_SEC + 4  # 20s
 STARTUP_GPU_CHECK_TIMEOUT_SEC: int = 3
 STARTUP_DISK_CHECK_TIMEOUT_SEC: int = 4
 STARTUP_OLLAMA_CHECK_TIMEOUT_SEC: int = 10  # FIX H-1: aligned with _check_ollama() internal timeout

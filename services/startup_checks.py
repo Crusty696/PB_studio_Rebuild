@@ -31,6 +31,7 @@ GpuPnpState = Literal[
 from services.timeout_constants import (
     STARTUP_DISK_CHECK_TIMEOUT_SEC,
     STARTUP_FFMPEG_CHECK_TIMEOUT_SEC,
+    STARTUP_FFMPEG_OUTER_TIMEOUT_SEC,
     STARTUP_GPU_CHECK_TIMEOUT_SEC,
     STARTUP_MODEL_CHECK_TIMEOUT_SEC,
     STARTUP_OLLAMA_CHECK_TIMEOUT_SEC,
@@ -541,7 +542,9 @@ def check_system(app_root: Path | None = None) -> SystemStatus:
         for key, future in futures.items():
             try:
                 if key == "ffmpeg":
-                    ok, ver, probe_ok = future.result(timeout=STARTUP_FFMPEG_CHECK_TIMEOUT_SEC)
+                    # B-600: aeusseres Timeout deckt beide inneren Calls (ffmpeg
+                    # + ffprobe) + Cold-Start-Defender-Puffer ab, sonst false-fail.
+                    ok, ver, probe_ok = future.result(timeout=STARTUP_FFMPEG_OUTER_TIMEOUT_SEC)
                     status.ffmpeg_ok = ok
                     status.ffmpeg_version = ver
                     status.ffprobe_ok = probe_ok
