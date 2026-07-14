@@ -1490,26 +1490,44 @@ class InteractiveTimeline(QGraphicsView):
         self._batch_build_cpu_ms = 0.0
         self._start_batched_entry_build(entries, audio_map, video_map, anchor_map)
 
-    def _load_dialog_anchors(self, audio_track_ids) -> list[float]:
-        """B-619 Folge: laedt die ``audio_time``-Werte (Sekunden) der
+    def _load_dialog_anchors(self, audio_track_ids=None) -> list[float]:
+        """B-619/B-634: laedt die ``audio_time``-Werte (Sekunden) der
         persistierten Dialog-Anker (``AudioVideoAnchor`` mit
-        ``anchor_type="dialog"``) fuer die uebergebenen Audio-Track-ids.
+        ``anchor_type="dialog"``) des AKTIVEN PROJEKTS.
 
-        Rein lesend + additiv. Filtert strikt auf anchor_type="dialog", damit
-        Beat-/M-Tasten-Anker anderer anchor_types unberuehrt bleiben.
+        B-634: projekt-basiert statt audio_map-abhaengig. Beim reinen
+        Projekt-Oeffnen ist audio_map (die frueher uebergebenen
+        ``audio_track_ids``) leer/unvollstaendig -> die alte track-id-gefilterte
+        Query lieferte [] und es erschienen keine Marker. Es wird jetzt ueber
+        ``AudioTrack.project_id == get_active_project_id()`` gejoint.
+        ``audio_track_ids`` bleibt als Fallback, falls kein aktives Projekt
+        ermittelbar ist. Rein lesend + additiv; strikt auf anchor_type="dialog"
+        gefiltert, damit Beat-/M-Tasten-Anker anderer anchor_types unberuehrt
+        bleiben.
         """
-        ids = [int(a) for a in (audio_track_ids or []) if a is not None]
-        if not ids:
-            return []
         try:
+            from database import get_active_project_id
+            project_id = get_active_project_id()
             with DBSession(engine) as session:
-                rows = session.query(AudioVideoAnchor.audio_time).filter(
-                    AudioVideoAnchor.audio_track_id.in_(ids),
-                    AudioVideoAnchor.anchor_type == "dialog",
-                ).all()
+                if project_id is not None:
+                    rows = session.query(AudioVideoAnchor.audio_time).join(
+                        AudioTrack,
+                        AudioVideoAnchor.audio_track_id == AudioTrack.id,
+                    ).filter(
+                        AudioTrack.project_id == project_id,
+                        AudioVideoAnchor.anchor_type == "dialog",
+                    ).all()
+                else:
+                    ids = [int(a) for a in (audio_track_ids or []) if a is not None]
+                    if not ids:
+                        return []
+                    rows = session.query(AudioVideoAnchor.audio_time).filter(
+                        AudioVideoAnchor.audio_track_id.in_(ids),
+                        AudioVideoAnchor.anchor_type == "dialog",
+                    ).all()
             return sorted(float(r[0]) for r in rows if r[0] is not None)
         except Exception as exc:
-            logger.warning("[B-619] Dialog-Anker-Load fehlgeschlagen: %s", exc)
+            logger.warning("[B-634] Dialog-Anker-Load fehlgeschlagen: %s", exc)
             return []
 
     def set_dialog_anchor_markers(self, audio_times) -> None:
@@ -1631,6 +1649,19 @@ class InteractiveTimeline(QGraphicsView):
             self.set_dialog_anchor_markers(_dlg_times)
         except Exception as _dlg_exc:
             logger.debug("[B-619] Dialog-Anker-Render fehlgeschlagen: %s", _dlg_exc)
+        # B-634: die persistierte Dialog-Anker-LISTE (anchor_list-QTreeWidget im
+        # Schnitt/Pacing-Panel) synchron zur Marker-Ladung aus der DB befuellen.
+        # load_from_db ist der kanonische Projekt-Load-Refresh dieses Panels;
+        # der Aufruf haengt sich additiv an, ohne bestehende Pfade zu aendern.
+        # Guarded — darf den Build/Render nie brechen; im Headless-Test (Timeline
+        # ohne PBWindow) ist window() self -> kein edit_workspace -> No-op.
+        try:
+            _win = self.window()
+            _ew = getattr(_win, "edit_workspace", None) if _win is not None else None
+            if _ew is not None and hasattr(_ew, "_populate_anchor_list_from_db"):
+                _ew._populate_anchor_list_from_db()
+        except Exception as _list_exc:
+            logger.debug("[B-634] Dialog-Anker-Listen-Refresh fehlgeschlagen: %s", _list_exc)
         vp.update()
         try:
             self.fit_to_content()

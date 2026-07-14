@@ -1,8 +1,9 @@
 """B-619 Folge: Timeline rendert persistierte Dialog-Anker als Marker.
 
-Belegt, dass die neue Lade-Methode ``InteractiveTimeline._load_dialog_anchors``
-ausschliesslich ``AudioVideoAnchor``-Rows mit ``anchor_type="dialog"`` fuer den
-aktiven Audio-Track aus der DB holt und pro Anker ein Marker-Datum erzeugt.
+Belegt, dass die Lade-Methode ``InteractiveTimeline._load_dialog_anchors``
+ausschliesslich ``AudioVideoAnchor``-Rows mit ``anchor_type="dialog"`` des
+aktiven PROJEKTS aus der DB holt (B-634: projekt-weit statt track-scoped, robust
+gegen leeres audio_map beim Projekt-Oeffnen) und pro Anker ein Marker-Datum erzeugt.
 
 Deterministischer Daten-/Positions-Test (kein echtes Qt-Rendering) — laeuft
 offscreen ueber die ``qapp``-Fixture.
@@ -51,7 +52,8 @@ def test_load_dialog_anchors_reads_only_dialog_rows_and_builds_markers(
             audio_track_id=track.id, video_clip_id=clip.id,
             audio_time=99.0, video_time=0.0, anchor_type="beat",
         ))
-        # Dialog-Anker eines ANDEREN Tracks -> darf nicht auftauchen:
+        # B-634: Dialog-Anker eines ANDEREN Tracks im SELBEN Projekt taucht jetzt
+        # AUCH auf (projekt-weite Ladung). Nur anchor_type="beat" bleibt aussen vor.
         session.add(AudioVideoAnchor(
             audio_track_id=other_track.id, video_clip_id=clip.id,
             audio_time=77.0, video_time=0.0, anchor_type="dialog",
@@ -63,14 +65,14 @@ def test_load_dialog_anchors_reads_only_dialog_rows_and_builds_markers(
     try:
         times = timeline._load_dialog_anchors([track_id])
 
-        # Nur die 3 Dialog-Anker des aktiven Tracks, sortiert; kein Beat, kein
-        # Fremd-Track-Anker.
-        assert times == [5.0, 12.5, 30.0]
+        # B-634 projekt-weit: alle Dialog-Anker des Projekts (track + other_track),
+        # sortiert; anchor_type="beat" (99.0) bleibt ausgeschlossen.
+        assert times == [5.0, 12.5, 30.0, 77.0]
 
         # set_dialog_anchor_markers -> pro Anker genau ein Marker-Datum.
         timeline.set_dialog_anchor_markers(times)
-        assert timeline._dialog_anchor_times == [5.0, 12.5, 30.0]
-        assert timeline._dialog_anchor_markers_item._dialog_times == [5.0, 12.5, 30.0]
+        assert timeline._dialog_anchor_times == [5.0, 12.5, 30.0, 77.0]
+        assert timeline._dialog_anchor_markers_item._dialog_times == [5.0, 12.5, 30.0, 77.0]
         assert len(timeline._dialog_anchor_markers_item._dialog_times) == len(times)
 
         # Zeit->x-Umrechnung identisch zu Beats (t * PIXELS_PER_SECOND):

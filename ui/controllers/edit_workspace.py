@@ -787,6 +787,65 @@ class EditWorkspaceController(PBComponent):
             self.window.anchor_list.takeTopLevelItem(idx)
             self.window.console_text.append("[Anchor] Anker entfernt.")
 
+    def _populate_anchor_list_from_db(self):
+        """B-634: Befuellt die anchor_list-QTreeWidget beim Projekt-Load mit den
+        persistierten Dialog-Ankern (``AudioVideoAnchor`` mit
+        ``anchor_type="dialog"``) des aktiven Projekts.
+
+        Vorher wurde die Liste nur session-lokal beim manuellen '+Anker'
+        (``_add_anchor_dialog``) befuellt und blieb nach Projekt-Oeffnen leer.
+        Wird aus dem Timeline-Build-Ende (``load_from_db``) heraus getriggert,
+        damit Liste und Marker synchron erscheinen. Rein lesend + additiv.
+
+        Format identisch zu ``_add_anchor_dialog``: Zeit "M:SS.ss" in Spalte 0,
+        Label in Spalte 1. Da ``AudioVideoAnchor`` ``video_clip_id`` statt der
+        originalen scene_id speichert, wird fuers Label die ``video_clip_id``
+        genutzt; in die UserRole von Spalte 0 kommt ``str(video_clip_id)``.
+        Vor dem Befuellen wird die Liste geleert (kein Doppeln).
+        """
+        tree = getattr(self.window, "anchor_list", None)
+        if tree is None:
+            return
+        pid = get_active_project_id()
+        rows = []
+        if pid is not None:
+            try:
+                from database import nullpool_session, AudioVideoAnchor
+                with nullpool_session() as session:
+                    rows = session.execute(
+                        select(
+                            AudioVideoAnchor.audio_time,
+                            AudioVideoAnchor.video_clip_id,
+                        )
+                        .join(
+                            AudioTrack,
+                            AudioVideoAnchor.audio_track_id == AudioTrack.id,
+                        )
+                        .where(
+                            AudioTrack.project_id == pid,
+                            AudioVideoAnchor.anchor_type == "dialog",
+                        )
+                        .order_by(AudioVideoAnchor.audio_time)
+                    ).all()
+            except Exception as exc:
+                logger.warning("_populate_anchor_list_from_db: DB-Fehler: %s", exc)
+                rows = []
+        tree.clear()
+        for audio_time, video_clip_id in rows:
+            if audio_time is None:
+                continue
+            minutes = int(audio_time // 60)
+            secs = audio_time % 60
+            time_str = f"{minutes}:{secs:05.2f}"
+            label = f"Clip {video_clip_id} @{audio_time:.2f}s"
+            item = QTreeWidgetItem([time_str, label[:30]])
+            item.setData(
+                0,
+                Qt.ItemDataRole.UserRole,
+                str(video_clip_id) if video_clip_id is not None else "",
+            )
+            tree.addTopLevelItem(item)
+
     def _collect_dialog_anchors(self):
         """B-619: Liest die Dialog-Anker aus der anchor_list-QTreeWidget.
 
