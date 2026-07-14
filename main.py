@@ -1923,7 +1923,11 @@ def main():
         _max_rechecks = 5
         _recheck_count = 0
         while True:
-            _gpu_state, _gpu_msg = check_nvidia_gpu_state()
+            # B-630: Erster Check nutzt das beim Pre-CUDA-Check (Modul-Load,
+            # main.py:138) gecachte Ergebnis -> kein PowerShell-Subprocess auf
+            # dem Qt-Main-Thread beim Boot. Re-Checks nach User-Detach/Reattach
+            # fragen frisch ab (force_refresh=True).
+            _gpu_state, _gpu_msg = check_nvidia_gpu_state(force_refresh=(_recheck_count > 0))
             if _gpu_state == "ok":
                 # GPU jetzt verfuegbar — kein Dialog noetig.
                 if _recheck_count > 0:

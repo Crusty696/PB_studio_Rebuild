@@ -741,8 +741,35 @@ _GPU_PNP_QUERY = (
 )
 
 
-def check_nvidia_gpu_state() -> tuple[GpuPnpState, str | None]:
-    """Query Windows PnP for the NVIDIA dGPU state.
+# B-630: Session-Cache fuer den GPU-PnP-Zustand. Der PowerShell-PnP-Subprocess
+# (mehrere Sekunden Kaltstart) darf den Qt-Main-Thread beim Boot nicht
+# blockieren. Der Zustand aendert sich innerhalb einer Session praktisch nicht
+# (Ausnahme: User macht Detach/Reattach im Recovery-Dialog). Jede frische
+# Abfrage aktualisiert den Cache; Aufrufer koennen ihn via force_refresh=False
+# ohne erneuten Subprocess wiederverwenden.
+_GPU_STATE_CACHE: "tuple[GpuPnpState, str | None] | None" = None
+
+
+def check_nvidia_gpu_state(force_refresh: bool = True) -> tuple[GpuPnpState, str | None]:
+    """Query the NVIDIA dGPU PnP state (with optional session cache).
+
+    B-630: ``force_refresh=True`` (default) queries PnP freshly — unchanged
+    historic behaviour, used by the pre-CUDA wake-retry loop and the recovery
+    re-check. ``force_refresh=False`` returns the cached session result if one
+    exists, so the Qt main thread does not block on the PowerShell subprocess
+    during boot. The GPU-detection semantics (which GPU, cuda:0, error codes)
+    are identical either way — only the timing/caching differs.
+    """
+    global _GPU_STATE_CACHE
+    if not force_refresh and _GPU_STATE_CACHE is not None:
+        return _GPU_STATE_CACHE
+    result = _query_nvidia_gpu_state()
+    _GPU_STATE_CACHE = result
+    return result
+
+
+def _query_nvidia_gpu_state() -> tuple[GpuPnpState, str | None]:
+    """Uncached PnP query for the NVIDIA dGPU state.
 
     Returns:
         ("ok", None)              - GPU present and ready.

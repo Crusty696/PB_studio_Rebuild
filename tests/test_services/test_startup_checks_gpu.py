@@ -42,6 +42,14 @@ def _force_win32(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(startup_checks.sys, "platform", "win32")
 
 
+@pytest.fixture(autouse=True)
+def _reset_gpu_cache() -> None:
+    """B-630: isolate the module-level session cache between tests."""
+    startup_checks._GPU_STATE_CACHE = None
+    yield
+    startup_checks._GPU_STATE_CACHE = None
+
+
 def test_check_returns_ok_for_normal_gpu(monkeypatch: pytest.MonkeyPatch) -> None:
     payload = json.dumps({"Status": "OK", "ConfigManagerErrorCode": 0})
     _patch_run(monkeypatch, _FakeCompleted(stdout=payload))
@@ -129,3 +137,66 @@ def test_check_returns_absent_on_timeout(monkeypatch: pytest.MonkeyPatch) -> Non
     assert state == "absent"
     assert msg is not None
     assert "zeitlimit" in msg.lower() or "timeout" in msg.lower()
+
+
+# ---------------------------------------------------------------------------
+# B-630: session cache — the Qt main-thread boot path must not shell out
+# ---------------------------------------------------------------------------
+
+
+def test_cached_read_avoids_subprocess_on_boot(monkeypatch: pytest.MonkeyPatch) -> None:
+    """B-630: force_refresh=False reuses the cached state and NEVER launches
+    the PowerShell subprocess — this is what keeps the Qt main thread from
+    freezing during boot.
+    """
+    # 1. Prime the cache with a fresh (default) query — this is the pre-CUDA
+    #    module-load call in main.py that runs BEFORE Qt loads.
+    payload = json.dumps({"Status": "OK", "ConfigManagerErrorCode": 0})
+    _patch_run(monkeypatch, _FakeCompleted(stdout=payload))
+    state, _ = startup_checks.check_nvidia_gpu_state()
+    assert state == "ok"
+
+    # 2. Make ANY subprocess launch fail loudly. The cached boot-path read must
+    #    not touch it.
+    def _must_not_run(*_a, **_k):
+        raise AssertionError("subprocess.run must not be called on the cached path")
+
+    monkeypatch.setattr(startup_checks.subprocess, "run", _must_not_run)
+
+    cached_state, _ = startup_checks.check_nvidia_gpu_state(force_refresh=False)
+    assert cached_state == "ok"
+
+
+def test_cached_read_falls_through_when_cache_empty(monkeypatch: pytest.MonkeyPatch) -> None:
+    """B-630: force_refresh=False with an empty cache falls back to a fresh
+    query instead of returning a bogus/None result.
+    """
+    payload = json.dumps({"Status": "OK", "ConfigManagerErrorCode": 0})
+    _patch_run(monkeypatch, _FakeCompleted(stdout=payload))
+
+    # Cache is reset to None by the autouse fixture -> must query fresh.
+    state, _ = startup_checks.check_nvidia_gpu_state(force_refresh=False)
+    assert state == "ok"
+
+
+def test_force_refresh_requeries_and_updates_cache(monkeypatch: pytest.MonkeyPatch) -> None:
+    """B-630: force_refresh=True (wake-retry / recovery re-check) must query
+    fresh even when a cached value exists, and update the cache afterwards.
+    """
+    # Prime cache = stuck state.
+    _patch_run(monkeypatch, _FakeCompleted(stdout=json.dumps({"ConfigManagerErrorCode": 47})))
+    state, _ = startup_checks.check_nvidia_gpu_state()
+    assert state == "held_for_eject"
+
+    # GPU recovered after user detach/reattach; forced re-check must see it.
+    _patch_run(monkeypatch, _FakeCompleted(stdout=json.dumps({"ConfigManagerErrorCode": 0})))
+    state2, _ = startup_checks.check_nvidia_gpu_state(force_refresh=True)
+    assert state2 == "ok"
+
+    # Cache now reflects the recovered state for later cached reads.
+    def _must_not_run(*_a, **_k):
+        raise AssertionError("cached read must not shell out")
+
+    monkeypatch.setattr(startup_checks.subprocess, "run", _must_not_run)
+    state3, _ = startup_checks.check_nvidia_gpu_state(force_refresh=False)
+    assert state3 == "ok"
