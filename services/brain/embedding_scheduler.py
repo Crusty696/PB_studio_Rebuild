@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
@@ -171,7 +172,10 @@ class EmbeddingScheduler(QObject):
         self._thread.progress_bridge.connect(self.job_progress)
         self._thread.skipped_bridge.connect(self.job_skipped)
         self._thread.start()
-        self._thread.wait_ready(timeout=5.0)
+        # B-627: NICHT synchron auf Ready warten (frueher wait_ready(timeout=5.0)
+        # -> bis 5s GUI/Boot-Freeze). Der Thread wird gestartet, der Loop wird
+        # asynchron bereit. Frueh eintreffende submit_task()-Aufrufe werden im
+        # Scheduler-Thread gepuffert und geflusht, sobald der Loop laeuft.
         logger.info("EmbeddingScheduler: gestartet (n_workers=%d)", self.n_workers)
 
     def request_stop(self, timeout_ms: int = 5000) -> bool:
@@ -236,6 +240,12 @@ class _SchedulerThread(QThread):
         self._queue: Optional[EmbeddingJobQueue] = None
         self._ready_event = threading.Event()
         self._stop_event = threading.Event()
+        # B-627: Puffer fuer submit_task-Aufrufe, die eintreffen bevor der Loop
+        # bereit ist (early submit vor Boot-Ready). Geflusht in run(), sobald der
+        # Loop laeuft. _pending_lock serialisiert Ready-Wechsel + Puffer-Zugriff.
+        self._pending_lock = threading.Lock()
+        self._pending: list[tuple[str, EmbeddingTask]] = []
+        self._ready = False
 
     def wait_ready(self, timeout: float = 5.0) -> bool:
         return self._ready_event.wait(timeout=timeout)
@@ -246,24 +256,56 @@ class _SchedulerThread(QThread):
             self._loop.call_soon_threadsafe(self._loop.stop)
 
     def submit_task(self, task: EmbeddingTask) -> Optional[str]:
-        if self._loop is None or not self._loop.is_running():
-            raise RuntimeError("Scheduler-Loop ist nicht aktiv.")
-        future = asyncio.run_coroutine_threadsafe(
-            self._build_and_submit_job(task),
-            self._loop,
-        )
-        return future.result(timeout=5.0)
+        # B-627: job_id vorab auf dem Aufrufer-Thread (GUI) generieren, damit die
+        # Einreichung NICHT synchron auf den Scheduler-Loop warten muss (frueher
+        # future.result(timeout=5.0) -> bis 5s GUI-Freeze beim Import).
+        job_id = uuid.uuid4().hex[:12]
+        with self._pending_lock:
+            loop = self._loop
+            if not self._ready or loop is None or not loop.is_running():
+                if self._stop_event.is_set():
+                    # Explizit gestoppt -> keine neuen Jobs annehmen (wie bisher).
+                    raise RuntimeError("Scheduler-Loop ist nicht aktiv.")
+                # Loop noch nicht bereit (early submit vor Boot-Ready): puffern
+                # statt zu crashen. run() flusht den Puffer, sobald der Loop laeuft.
+                self._pending.append((job_id, task))
+                return job_id
+        # Loop laeuft -> fire-and-forget einreihen, NICHT auf das Ergebnis warten.
+        self._schedule_job(loop, job_id, task)
+        return job_id
 
-    async def _build_and_submit_job(self, task: EmbeddingTask) -> str:
+    def _schedule_job(
+        self, loop: asyncio.AbstractEventLoop, job_id: str, task: EmbeddingTask
+    ) -> None:
+        """Reiht die Job-Coroutine thread-safe in den laufenden Loop ein (fire-and-forget)."""
+        future = asyncio.run_coroutine_threadsafe(
+            self._build_and_submit_job(task, job_id),
+            loop,
+        )
+        future.add_done_callback(self._on_submit_done)
+
+    def _on_submit_done(self, future) -> None:
+        """B-627: Einreih-Fehler nicht stumm verschlucken (frueher via .result())."""
+        try:
+            exc = future.exception()
+        except Exception:  # CancelledError / InvalidState — ignorieren
+            return
+        if exc is not None:
+            logger.warning(
+                "EmbeddingScheduler: Job-Einreichung in Queue fehlgeschlagen: %s", exc
+            )
+
+    async def _build_and_submit_job(self, task: EmbeddingTask, job_id: str) -> str:
         async def _run(progress_cb):
             return await self._execute_embedding(task, progress_cb)
 
         job = EmbeddingJob(
             label=f"{task.media_type.upper()}: {task.source_path.name}",
             run=_run,
+            job_id=job_id,
         )
-        job_id = await self._queue.submit(job)
-        return job_id
+        submitted_id = await self._queue.submit(job)
+        return submitted_id
 
     async def _execute_embedding(
         self,
@@ -350,9 +392,31 @@ class _SchedulerThread(QThread):
             # Inside the running loop: asyncio.create_task ist erlaubt.
             self._queue.start()
 
+        def _mark_ready_and_flush() -> None:
+            # Laeuft INNERHALB des laufenden Loops (loop.is_running() == True),
+            # daher koennen gepufferte Early-Submits sicher eingereiht werden.
+            # B-627: Wurde bereits ein Stop angefordert BEVOR der Loop lief
+            # (request_stop() traf ein waehrend loop.is_running()==False, sein
+            # loop.stop() verpuffte), hier sofort stoppen statt run_forever
+            # endlos laufen zu lassen.
+            if self._stop_event.is_set():
+                loop.stop()
+                return
+            with self._pending_lock:
+                self._ready = True
+                pending = self._pending
+                self._pending = []
+            self._ready_event.set()
+            for job_id, task in pending:
+                fut = asyncio.ensure_future(
+                    self._build_and_submit_job(task, job_id)
+                )
+                fut.add_done_callback(self._on_submit_done)
+
         try:
             loop.run_until_complete(_bootstrap())
-            self._ready_event.set()
+            # B-627: Ready-Flag + Puffer-Flush erst setzen, wenn der Loop laeuft.
+            loop.call_soon(_mark_ready_and_flush)
             loop.run_forever()
         finally:
             try:
