@@ -377,8 +377,12 @@ class DialogAnchorMarkersItem(QGraphicsItem):
         self.setZValue(4)
 
     def set_data(self, dialog_times: list[float]) -> None:
-        self._dialog_times = sorted(float(t) for t in dialog_times)
+        # B-619: prepareGeometryChange() MUSS vor der boundingRect-Aenderung
+        # (== _dialog_times setzen) laufen. Sonst cached die QGraphicsScene den
+        # alten (bei __init__ leeren) Index und ruft paint() fuer dieses Item
+        # nie auf — genau der Grund, warum die Marker unsichtbar blieben.
         self.prepareGeometryChange()
+        self._dialog_times = sorted(float(t) for t in dialog_times)
         self.update()
 
     def _marker_bottom(self) -> float:
@@ -1477,16 +1481,11 @@ class InteractiveTimeline(QGraphicsView):
                 "[PERF] recover_missing_media_maps=%.0fms entries=%d",
                 (time.perf_counter() - _rec_t0) * 1000.0, len(entries),
             )
-        # B-619 Folge: persistierte Dialog-Anker (AudioVideoAnchor,
-        # anchor_type="dialog") des/der aktiven Audio-Track(s) als eigener
-        # Marker-Layer rendern. audio_map-Keys sind die AudioTrack.id der auf
-        # der Timeline liegenden Audio-Clips == aktive Audio-Track(s). Rein
-        # additiv, beruehrt Beat-/ClipAnchor-Pfade nicht.
-        try:
-            dlg_times = self._load_dialog_anchors(list(audio_map.keys()))
-            self.set_dialog_anchor_markers(dlg_times)
-        except Exception as exc:
-            logger.debug("[B-619] Dialog-Anker-Render fehlgeschlagen: %s", exc)
+        # B-619: Dialog-Anker-Marker werden am ENDE von _build_entry_batch
+        # gerendert (Build fertig, Viewport-Updates wieder aktiv). Ein Aufruf
+        # HIER — vor dem stummgeschalteten Batch-Build — verpuffte: das Repaint
+        # wurde vom setUpdatesEnabled(False)-Zyklus verworfen und paint() nie
+        # ausgeloest.
         self._batch_build_started_at = time.perf_counter()
         self._batch_build_cpu_ms = 0.0
         self._start_batched_entry_build(entries, audio_map, video_map, anchor_map)
@@ -1623,6 +1622,15 @@ class InteractiveTimeline(QGraphicsView):
         self._update_scene_rect()
         vp = self.viewport()
         vp.setUpdatesEnabled(True)
+        # B-619: jetzt (Build fertig, Updates aktiv) die persistierten Dialog-
+        # Anker-Marker rendern — VOR dem folgenden vp.update(), damit das volle
+        # Viewport-Repaint sie erfasst. audio_map-Keys = AudioTrack.id der
+        # Timeline-Audio-Clips. Rein additiv, beruehrt Beat-/ClipAnchor nicht.
+        try:
+            _dlg_times = self._load_dialog_anchors(list(state["audio_map"].keys()))
+            self.set_dialog_anchor_markers(_dlg_times)
+        except Exception as _dlg_exc:
+            logger.debug("[B-619] Dialog-Anker-Render fehlgeschlagen: %s", _dlg_exc)
         vp.update()
         try:
             self.fit_to_content()
