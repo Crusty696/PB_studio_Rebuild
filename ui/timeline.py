@@ -24,7 +24,7 @@ from PySide6.QtGui import (
 from sqlalchemy import text
 from sqlalchemy.orm import Session as DBSession, joinedload, lazyload
 
-from database import engine, AudioTrack, VideoClip, TimelineEntry, Beatgrid, ClipAnchor, StructureSegment, nullpool_session
+from database import engine, AudioTrack, VideoClip, TimelineEntry, Beatgrid, ClipAnchor, StructureSegment, AudioVideoAnchor, nullpool_session
 
 logger = logging.getLogger(__name__)
 
@@ -356,6 +356,55 @@ class BeatMarkersItem(QGraphicsItem):
         for i in range(idx_start, idx_end):
             x = self._beat_times[i] * PIXELS_PER_SECOND
             painter.setPen(downbeat_pen if (i % 4 == 0) else gold_pen)
+            painter.drawLine(x, AUDIO_TRACK_Y, x, bottom)
+
+
+class DialogAnchorMarkersItem(QGraphicsItem):
+    """B-619 Folge: persistierte Dialog-Anker (``AudioVideoAnchor`` mit
+    ``anchor_type="dialog"``) als vertikale Marker auf der Audio-Zeitachse.
+
+    Getrennter, rein additiver Layer neben ``BeatMarkersItem`` (Gold) und den
+    ClipAnchor-M-Markern. Deutlich unterscheidbare Farbe (Cyan/Tuerkis) statt
+    Gold, damit der User Dialog-Anker von Beats trennen kann. Zeichenlogik +
+    Zeit->x-Umrechnung sind identisch zu ``BeatMarkersItem`` (x = t *
+    PIXELS_PER_SECOND), damit Marker exakt auf derselben Achse liegen.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._dialog_times: list[float] = []
+        # ueber Beats (zValue 3), damit Dialog-Anker sichtbar bleiben
+        self.setZValue(4)
+
+    def set_data(self, dialog_times: list[float]) -> None:
+        self._dialog_times = sorted(float(t) for t in dialog_times)
+        self.prepareGeometryChange()
+        self.update()
+
+    def _marker_bottom(self) -> float:
+        return AUDIO_TRACK_Y + TRACK_HEIGHT * 2 + 20
+
+    def boundingRect(self) -> QRectF:
+        if not self._dialog_times:
+            return QRectF()
+        w = self._dialog_times[-1] * PIXELS_PER_SECOND
+        return QRectF(0, AUDIO_TRACK_Y, w + 10,
+                      self._marker_bottom() - AUDIO_TRACK_Y)
+
+    def paint(self, painter: QPainter, option: QStyleOptionGraphicsItem, widget=None):
+        clip_rect = option.exposedRect
+        if clip_rect.isEmpty() or not self._dialog_times:
+            return
+        # Cyan/Tuerkis, klar verschieden vom Gold der Beat-Marker.
+        dialog_pen = QPen(QColor(0, 200, 255, 210), 2)
+        bottom = self._marker_bottom()
+        t_left = max(0.0, clip_rect.left()) / PIXELS_PER_SECOND
+        t_right = clip_rect.right() / PIXELS_PER_SECOND
+        idx_start = bisect.bisect_left(self._dialog_times, t_left)
+        idx_end = bisect.bisect_right(self._dialog_times, t_right)
+        painter.setPen(dialog_pen)
+        for i in range(idx_start, idx_end):
+            x = self._dialog_times[i] * PIXELS_PER_SECOND
             painter.drawLine(x, AUDIO_TRACK_Y, x, bottom)
 
 
@@ -1107,6 +1156,14 @@ class InteractiveTimeline(QGraphicsView):
         self._scene.addItem(self._cut_lines_item)
         self._beat_markers_item = BeatMarkersItem()
         self._scene.addItem(self._beat_markers_item)
+        # B-619 Folge: eigener Layer fuer persistierte Dialog-Anker
+        # (AudioVideoAnchor, anchor_type="dialog"). Rein additiv, getrennt von
+        # _beat_markers und _anchor_map. Legacy-Liste _dialog_anchor_markers
+        # bleibt (leer) fuer Teardown-Symmetrie zu _beat_markers.
+        self._dialog_anchor_markers: list = []
+        self._dialog_anchor_times: list[float] = []
+        self._dialog_anchor_markers_item = DialogAnchorMarkersItem()
+        self._scene.addItem(self._dialog_anchor_markers_item)
 
         # Drop indicator (visual feedback during drag-over)
         self._drop_indicator: QGraphicsLineItem | None = None
@@ -1297,6 +1354,13 @@ class InteractiveTimeline(QGraphicsView):
             # M1.3 (D-066): Single-Item-Daten leeren (Cut-/Beat-Marker).
             self._cut_lines_item.set_data([])
             self._beat_markers_item.set_data([])
+            # B-619 Folge: alte Dialog-Anker-Marker leeren (verhindert Doppeln
+            # nach Reload). Rein additiv, spiegelt das Beat-Marker-Clear.
+            for _dm in self._dialog_anchor_markers:
+                _safe_rm(_dm)
+            self._dialog_anchor_markers.clear()
+            self._dialog_anchor_times = []
+            self._dialog_anchor_markers_item.set_data([])
             # Clear sections + beat grid + drop markers (AUD-70)
             self._clear_sections()
             self._clear_beat_grid()
@@ -1409,9 +1473,49 @@ class InteractiveTimeline(QGraphicsView):
                 "[PERF] recover_missing_media_maps=%.0fms entries=%d",
                 (time.perf_counter() - _rec_t0) * 1000.0, len(entries),
             )
+        # B-619 Folge: persistierte Dialog-Anker (AudioVideoAnchor,
+        # anchor_type="dialog") des/der aktiven Audio-Track(s) als eigener
+        # Marker-Layer rendern. audio_map-Keys sind die AudioTrack.id der auf
+        # der Timeline liegenden Audio-Clips == aktive Audio-Track(s). Rein
+        # additiv, beruehrt Beat-/ClipAnchor-Pfade nicht.
+        try:
+            dlg_times = self._load_dialog_anchors(list(audio_map.keys()))
+            self.set_dialog_anchor_markers(dlg_times)
+        except Exception as exc:
+            logger.debug("[B-619] Dialog-Anker-Render fehlgeschlagen: %s", exc)
         self._batch_build_started_at = time.perf_counter()
         self._batch_build_cpu_ms = 0.0
         self._start_batched_entry_build(entries, audio_map, video_map, anchor_map)
+
+    def _load_dialog_anchors(self, audio_track_ids) -> list[float]:
+        """B-619 Folge: laedt die ``audio_time``-Werte (Sekunden) der
+        persistierten Dialog-Anker (``AudioVideoAnchor`` mit
+        ``anchor_type="dialog"``) fuer die uebergebenen Audio-Track-ids.
+
+        Rein lesend + additiv. Filtert strikt auf anchor_type="dialog", damit
+        Beat-/M-Tasten-Anker anderer anchor_types unberuehrt bleiben.
+        """
+        ids = [int(a) for a in (audio_track_ids or []) if a is not None]
+        if not ids:
+            return []
+        try:
+            with DBSession(engine) as session:
+                rows = session.query(AudioVideoAnchor.audio_time).filter(
+                    AudioVideoAnchor.audio_track_id.in_(ids),
+                    AudioVideoAnchor.anchor_type == "dialog",
+                ).all()
+            return sorted(float(r[0]) for r in rows if r[0] is not None)
+        except Exception as exc:
+            logger.warning("[B-619] Dialog-Anker-Load fehlgeschlagen: %s", exc)
+            return []
+
+    def set_dialog_anchor_markers(self, audio_times) -> None:
+        """B-619 Folge: setzt die Dialog-Anker-Marker (Cyan) auf der Audio-
+        Zeitachse. audio_time (Sekunden) -> x via PIXELS_PER_SECOND, identisch
+        zur Beat-Marker-Umrechnung. Rein additiv."""
+        times = sorted(float(t) for t in (audio_times or []))
+        self._dialog_anchor_times = times
+        self._dialog_anchor_markers_item.set_data(times)
 
     def _recover_missing_media_maps(self, entries, audio_map, video_map):
         """B-471 live hardening: recover media maps if worker delivered entries only."""

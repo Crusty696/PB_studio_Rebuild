@@ -770,13 +770,68 @@ class EditWorkspaceController(PBComponent):
             self.window.anchor_list.takeTopLevelItem(idx)
             self.window.console_text.append("[Anchor] Anker entfernt.")
 
+    def _collect_dialog_anchors(self):
+        """B-619: Liest die Dialog-Anker aus der anchor_list-QTreeWidget.
+
+        Rueckgabe: Liste ``[{"audio_time": float, "scene_id": str}, ...]``.
+        Zeit-Format der Items ist "M:SS.ss" (siehe _add_anchor_dialog); scene_id
+        steckt in UserRole von Spalte 0.
+        """
+        anchors = []
+        tree = self.window.anchor_list
+        for i in range(tree.topLevelItemCount()):
+            item = tree.topLevelItem(i)
+            time_text = item.text(0)
+            scene_id = item.data(0, Qt.ItemDataRole.UserRole)
+            try:
+                if ":" in str(time_text):
+                    parts = str(time_text).split(":")
+                    audio_time = int(parts[0]) * 60 + float(parts[1])
+                else:
+                    audio_time = float(time_text)
+            except (ValueError, IndexError):
+                logger.warning("_collect_dialog_anchors: Zeit nicht parsebar: %r", time_text)
+                continue
+            anchors.append({"audio_time": audio_time, "scene_id": scene_id or ""})
+        return anchors
+
     def _sync_anchors(self):
+        # B-619: NEUER Pfad — Dialog-Anker (anchor_list) in AudioVideoAnchor
+        # persistieren. Getrennt vom M-Tasten-Sync (timeline_view.sync_anchors).
+        dialog_count = None
+        audio_id = self.window.audio_combo.currentData()
+        dialog_anchors = self._collect_dialog_anchors()
+        if dialog_anchors:
+            if audio_id is None:
+                self.window.console_text.append("[Anchor] Kein Audio-Track ausgewaehlt — Dialog-Anker koennen nicht gespeichert werden.")
+            else:
+                try:
+                    from services.anchor_sync_service import sync_dialog_anchors
+                    dialog_count = sync_dialog_anchors(audio_id, dialog_anchors)
+                    skipped = len(dialog_anchors) - dialog_count
+                    msg = f"[Anchor] {dialog_count} Dialog-Anker synchronisiert (AudioVideoAnchor)."
+                    if skipped:
+                        msg += f" {skipped} ohne aufloesbare Szene uebersprungen."
+                    self.window.console_text.append(msg)
+                except Exception as exc:
+                    logger.error("_sync_anchors: Dialog-Anker-Persistenz fehlgeschlagen: %s", exc, exc_info=True)
+                    self.window.console_text.append(f"[Anchor] Fehler beim Speichern der Dialog-Anker: {exc}")
+
+        # Bestehender M-Tasten-Anker-Sync — Verhalten unveraendert.
         synced = self.window.timeline_view.sync_anchors()
         if synced:
             self.window.timeline_view.load_from_db()
-            self.window.console_text.append("[Anchor] Anker synchronisiert — Video-Clips an Audio-Ankern ausgerichtet.")
-        else:
-            self.window.console_text.append("[Anchor] Keine Anker gefunden. Setze Anker auf Audio- und Video-Clips (Rechtsklick oder Taste M), dann klicke erneut.")
+            self.window.console_text.append("[Anchor] Timeline-Anker (M) synchronisiert — Video-Clips an Audio-Ankern ausgerichtet.")
+
+        # B-619 Folge: Wurden NUR Dialog-Anker persistiert (kein M-Sync), loest
+        # der Zweig oben keinen Reload aus -> die neuen Dialog-Marker blieben
+        # unsichtbar. Additiver Reload nur in diesem Fall (bei synced hat der
+        # M-Zweig bereits neu geladen und zeigt die Dialog-Marker mit).
+        if dialog_count and not synced:
+            self.window.timeline_view.load_from_db()
+
+        if dialog_count is None and not synced:
+            self.window.console_text.append("[Anchor] Keine Anker gefunden. Lege Anker per '+Anker' an oder setze Timeline-Anker (Rechtsklick oder Taste M), dann klicke erneut.")
 
     def _learn_anchor_as_ai_rule(self):
         selected = self.window.anchor_list.currentItem()
