@@ -9,6 +9,7 @@ import traceback
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal
+from sqlalchemy import select  # B-090: column-select statt eager ORM-Voll-Laden
 from sqlalchemy.orm import Session as DBSession
 
 from database import engine, VideoClip
@@ -188,11 +189,13 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
             from database import nullpool_session
             with nullpool_session() as session:
                 for clip_id, title in self._batch:
-                    clip = (
-                        session.query(VideoClip)
-                        .filter(VideoClip.id == clip_id, VideoClip.deleted_at.is_(None))
-                        .first()
-                    )
+                    # B-090: column-select statt ORM-Voll-Laden (VideoClip.scenes
+                    # lazy-Blob); _resolve_pipeline_analysis_path nutzt nur
+                    # proxy_path/file_path.
+                    clip = session.execute(
+                        select(VideoClip.proxy_path, VideoClip.file_path)
+                        .where(VideoClip.id == clip_id, VideoClip.deleted_at.is_(None))
+                    ).first()
                     if clip:
                         # Proxy-First: KI-Analyse nutzt Proxy nur wenn Datei existiert.
                         analysis_path = _resolve_pipeline_analysis_path(clip, clip_id)
@@ -321,11 +324,12 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                         # snapshotten. Vorher wurden Attribute nach Session-Close
                         # gelesen -> DetachedInstanceError "not bound to a Session".
                         with _ns() as _s:
-                            _clip_row = (
-                                _s.query(_VC)
-                                .filter(_VC.id == clip_id, _VC.deleted_at.is_(None))
-                                .first()
-                            )
+                            # B-090: column-select statt ORM-Voll-Laden (VideoClip.scenes
+                            # lazy-Blob); Folgecode nutzt nur duration/width/height/fps/codec.
+                            _clip_row = _s.execute(
+                                select(_VC.duration, _VC.width, _VC.height, _VC.fps, _VC.codec)
+                                .where(_VC.id == clip_id, _VC.deleted_at.is_(None))
+                            ).first()
                             if _clip_row is not None:
                                 _meta = {
                                     "duration": _clip_row.duration,
@@ -401,11 +405,12 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                         from database import nullpool_session as fallback_session
                         try:
                             with fallback_session() as fb_session:
-                                fb_clip = (
-                                    fb_session.query(VideoClip)
-                                    .filter(VideoClip.id == clip_id, VideoClip.deleted_at.is_(None))
-                                    .first()
-                                )
+                                # B-090: column-select statt ORM-Voll-Laden
+                                # (VideoClip.scenes lazy-Blob); nur file_path genutzt.
+                                fb_clip = fb_session.execute(
+                                    select(VideoClip.file_path)
+                                    .where(VideoClip.id == clip_id, VideoClip.deleted_at.is_(None))
+                                ).first()
                                 if fb_clip and fb_clip.file_path:
                                     defer_captioning = (
                                         total_videos > 1
@@ -706,7 +711,11 @@ class VideoPipelineEngineWorker(QObject, CancellableMixin):
                     break
                 try:
                     with nullpool_session() as session:
-                        vc = session.get(VideoClip, int(clip_id))
+                        # B-090: column-select statt session.get(VideoClip) —
+                        # laedt keine scenes-Blobs; nur file_path genutzt.
+                        vc = session.execute(
+                            select(VideoClip.file_path).where(VideoClip.id == int(clip_id))
+                        ).first()
                         src = vc.file_path if vc else None
                     if not src:
                         raise ValueError(f"VideoClip {clip_id} ohne file_path")

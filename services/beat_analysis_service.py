@@ -472,12 +472,17 @@ class BeatAnalysisService:
         # H19-FIX: nullpool_session() statt Session(engine) — verhindert Pool-Contention
         from database import nullpool_session as _np_session
         with _np_session() as session:
-            track = session.query(AudioTrack).filter(
-                AudioTrack.id == track_id, AudioTrack.deleted_at.is_(None)
+            # B-090: column-select statt ORM-Voll-Laden — Folgecode nutzt nur file_path (Skalar),
+            # vermeidet eager lazy='joined' JSON-Blob-Load (beatgrid/waveform_data).
+            from sqlalchemy import select
+            row = session.execute(
+                select(AudioTrack.file_path).where(
+                    AudioTrack.id == track_id, AudioTrack.deleted_at.is_(None)
+                )
             ).first()
-            if track is None:
+            if row is None:
                 raise ValueError(f"AudioTrack {track_id} nicht gefunden")
-            file_path = track.file_path
+            file_path = row.file_path
 
         try:
             # B-062: ``_analyze_with_audio()`` ersetzt das frueher

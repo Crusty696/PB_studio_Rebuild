@@ -13,6 +13,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, ContextManager
 
+from sqlalchemy import select  # B-090: column-select statt Blob-Voll-Load
+
 import database
 import database.session as db_session_module
 from services.brain import paths
@@ -231,10 +233,18 @@ def load_learning_preview_samples(
         )
         videos = (
             {
+                # B-090: column-select (id/proxy_path/file_path) statt Voll-ORM-Load
+                # mit lazy='joined' scenes-Blob; Folgecode nutzt nur diese Skalare.
                 v.id: _existing_media_path(v.proxy_path, v.file_path)
-                for v in session.query(database.VideoClip).filter(
-                    database.VideoClip.id.in_(video_ids),
-                    database.VideoClip.deleted_at.is_(None),
+                for v in session.execute(
+                    select(
+                        database.VideoClip.id,
+                        database.VideoClip.proxy_path,
+                        database.VideoClip.file_path,
+                    ).where(
+                        database.VideoClip.id.in_(video_ids),
+                        database.VideoClip.deleted_at.is_(None),
+                    )
                 ).all()
             }
             if video_ids

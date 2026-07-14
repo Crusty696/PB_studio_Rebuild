@@ -266,7 +266,8 @@ def calculate_drum_cuts(audio_id: int, total_duration: float = 60.0,
     """Berechnet Schnittpunkte basierend auf dem Drums-Stem."""
     from database import AudioTrack as _AudioTrack
     with Session(engine) as session:
-        track = session.query(_AudioTrack).filter(
+        # B-090: column-select statt Blob-eager-load (AudioTrack.beatgrid/waveform_data)
+        track = session.query(_AudioTrack.stem_drums_path).filter(
             _AudioTrack.id == audio_id, _AudioTrack.deleted_at.is_(None)
         ).first()
         if not track or not track.stem_drums_path:
@@ -1016,7 +1017,8 @@ def _auto_edit_phase3_inner(
                     from database import VideoClip
                     video_paths = {
                         vc.id: vc.file_path
-                        for vc in session.query(VideoClip).filter(VideoClip.id.in_(video_clip_ids)).all()
+                        # B-090: column-select statt Blob-eager-load (VideoClip.scenes)
+                        for vc in session.query(VideoClip.id, VideoClip.file_path).filter(VideoClip.id.in_(video_clip_ids)).all()
                     }
                 
                 for entry in edl:
@@ -1118,7 +1120,8 @@ def _auto_edit_phase3_inner(
                     logger.warning("Failed to parse scene_id in auto_edit_phase3: %s", exc)
         if scene_ids:
             with Session(_ae_eng) as session:
-                for scene in session.query(Scene).filter(Scene.id.in_(scene_ids)).all():
+                # B-090: column-select statt Blob-eager-load (VideoClip.scenes -> Scene)
+                for scene in session.query(Scene.id, Scene.video_clip_id).filter(Scene.id.in_(scene_ids)).all():
                     anchor_scene_map[str(scene.id)] = scene.video_clip_id
 
     # P0 #1 Cycle 11: Bridge-Pipeline-Setup wenn Studio-Brain-Flag aktiv.

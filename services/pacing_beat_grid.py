@@ -328,10 +328,14 @@ def _get_audio_duration(audio_id: int) -> float:
 def _get_audio_path(audio_id: int) -> str:
     """Gibt den Dateipfad des Audio-Tracks zurueck."""
     with Session(engine) as session:
-        track = session.query(AudioTrack).filter(
-            AudioTrack.id == audio_id, AudioTrack.deleted_at.is_(None)
+        # B-090: nur Skalar-Spalte file_path laden statt ORM-Objekt mit
+        # lazy='joined' Blob-Relationships (beatgrid/waveform_data)
+        row = session.execute(
+            select(AudioTrack.file_path).where(
+                AudioTrack.id == audio_id, AudioTrack.deleted_at.is_(None)
+            )
         ).first()
-        return track.file_path if track else ""
+        return row.file_path if row else ""
 
 
 def _engine_cache_identity() -> tuple[int, str]:
@@ -1166,12 +1170,16 @@ def compute_drum_onsets(
     Returns: Zeitlich sortierte Liste von DrumOnset-Objekten.
     """
     with Session(engine) as session:
-        track = session.query(AudioTrack).filter(
-            AudioTrack.id == audio_id, AudioTrack.deleted_at.is_(None)
+        # B-090: nur Skalar-Spalte stem_drums_path laden statt ORM-Objekt mit
+        # lazy='joined' Blob-Relationships (beatgrid/waveform_data)
+        row = session.execute(
+            select(AudioTrack.stem_drums_path).where(
+                AudioTrack.id == audio_id, AudioTrack.deleted_at.is_(None)
+            )
         ).first()
-        if not track or not track.stem_drums_path:
+        if not row or not row.stem_drums_path:
             return []
-        drums_path = track.stem_drums_path
+        drums_path = row.stem_drums_path
 
     if not Path(drums_path).exists():
         return []

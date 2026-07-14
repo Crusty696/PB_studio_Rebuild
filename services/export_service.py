@@ -12,6 +12,7 @@ import threading
 import time
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
+from sqlalchemy import select  # B-090
 from sqlalchemy.orm import Session
 from database import engine, TimelineEntry, AudioTrack, VideoClip
 from services.timeout_constants import (
@@ -574,10 +575,14 @@ def export_timeline(project_id: int = 1, output_name: str = "output.mp4",
         # Bug-12 Fix: Bulk-Load aller benötigten VideoClips verhindert N+1
         # (vorher: 1 SELECT pro Segment → bei 100 Auto-Edit Segmenten = 100 Queries)
         _vid_ids = [ve.media_id for ve in video_entries]
+        # B-090: nur Skalar-Spalten (id/file_path/duration) selektieren, kein
+        # eager JSON-Blob-Load (scenes/audio_video_anchors via lazy='selectin')
         _clips_by_id = (
-            {c.id: c for c in session.query(VideoClip).filter(
+            {c.id: c for c in session.execute(select(
+                VideoClip.id, VideoClip.file_path, VideoClip.duration
+            ).where(
                 VideoClip.id.in_(_vid_ids), VideoClip.deleted_at.is_(None)
-            ).all()}
+            )).all()}
             if _vid_ids else {}
         )
 
@@ -627,8 +632,12 @@ def export_timeline(project_id: int = 1, output_name: str = "output.mp4",
         audio_source = None
         if audio_entries:
             audio_entry = audio_entries[0]
-            track = session.query(AudioTrack).filter(
-                AudioTrack.id == audio_entry.media_id, AudioTrack.deleted_at.is_(None)
+            # B-090: nur Skalar-Spalten selektieren, kein eager JSON-Blob-Load
+            track = session.execute(
+                select(AudioTrack.file_path, AudioTrack.duration).where(
+                    AudioTrack.id == audio_entry.media_id,
+                    AudioTrack.deleted_at.is_(None),
+                )
             ).first()
             if track:
                 audio_source = (track.file_path, audio_entry, track.duration)
@@ -1549,10 +1558,14 @@ def export_preview(project_id: int = 1, resolution: str = "1920x1080",
         audio_entries = [e for e in entries if e.track == "audio"]
 
         _vid_ids = [ve.media_id for ve in video_entries]
+        # B-090: nur Skalar-Spalten (id/file_path/duration) selektieren, kein
+        # eager JSON-Blob-Load (scenes/audio_video_anchors via lazy='selectin')
         _clips_by_id = (
-            {c.id: c for c in session.query(VideoClip).filter(
+            {c.id: c for c in session.execute(select(
+                VideoClip.id, VideoClip.file_path, VideoClip.duration
+            ).where(
                 VideoClip.id.in_(_vid_ids), VideoClip.deleted_at.is_(None)
-            ).all()}
+            )).all()}
             if _vid_ids else {}
         )
 
@@ -1616,8 +1629,12 @@ def export_preview(project_id: int = 1, resolution: str = "1920x1080",
         audio_source = None
         if audio_entries:
             audio_entry = audio_entries[0]
-            track = session.query(AudioTrack).filter(
-                AudioTrack.id == audio_entry.media_id, AudioTrack.deleted_at.is_(None)
+            # B-090: nur Skalar-Spalten selektieren, kein eager JSON-Blob-Load
+            track = session.execute(
+                select(AudioTrack.file_path, AudioTrack.duration).where(
+                    AudioTrack.id == audio_entry.media_id,
+                    AudioTrack.deleted_at.is_(None),
+                )
             ).first()
             if track:
                 audio_source = (track.file_path, audio_entry, track.duration)

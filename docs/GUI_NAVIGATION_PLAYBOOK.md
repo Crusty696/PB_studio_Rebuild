@@ -48,20 +48,59 @@ Jeder Flow-Eintrag hat:
 
 ### 2.1 App-Boot
 - **Ziel:** sauberer Start ohne Boot-Freeze (B-627: EmbeddingScheduler-Boot).
-- **Schritte:** _TODO: App starten, Zeit bis Hauptfenster interaktiv messen._
+- **Schritte:**
+  1. `PB_STUDIO_FREEZE_PROBE=1 PB_TIMELINE_PERF=1` setzen, dann Harness `start --freeze-probe`.
+  2. `wait-window --title "PB_studio"` (matcht zunächst evtl. den Datei-Explorer-Titel
+     der Working-Dir, das Hauptfenster hat erst nach dem Splash-Screen den echten
+     Titel `PB_studio v0.5.0 — Director's Cockpit`; per `list-windows` verifizieren).
+  3. Alle ~2s `screenshot` bis Splash weg ist und Tabs (PROJEKT/MATERIAL
+     ANALYSE/SCHNITT/EXPORT) sichtbar + klickbar sind (Media-Tabelle gefüllt =
+     interaktiv).
+  4. Boot-Ende per Log bestimmen: `[FREEZE-PROBE] Heartbeat-Watchdog aktiv` (Start)
+     bis erste `[SLOW EVENT] ... Resize/Paint -> PBWindow` Zeilen (App reagiert).
 - **Erwartet:** Hauptfenster < ~3s interaktiv, kein 5s-Hang beim Brain-V3-Boot.
 - **Freeze-Beobachtung:** früher bis 5s (`embedding_scheduler.start/wait_ready`).
+  **Live-Befund 2026-07-14:** `embedding_scheduler` blockiert nicht mehr direkt,
+  ABER Boot zeigt weiterhin ~8–10s Main-Thread-Freeze
+  (`services/startup_checks.py:762 check_nvidia_gpu_state`, PowerShell-Subprocess
+  synchron im Main-Thread mit hartem 5s-Timeout + serielle Imports). Vorbestehend,
+  identisch in `freeze_stacks_BEFORE_FIX.log`, nicht Teil des B-627-Fixes.
 
 ### 2.2 Projekt öffnen / Projekt-Switch
 - **Ziel:** Projekt-Load ohne Freeze (B-620, B-622, B-623).
-- **Schritte:** _TODO: Menü/Toolbar Projekt öffnen → Projekt `test33` wählen._
+- **Schritte:**
+  1. Klick auf Tab-Button `auto_id="workspace_nav.workspace_btn"`, `name="Projekt Workflow"`
+     (Koordinate bei 3240x2160: ca. x=942, y=154) → PROJEKT-Tab.
+  2. Klick Button `name="Projekt oeffnen"` (kein auto_id, `control_type=Button`,
+     rechts oben, ca. x=2504, y=253) → öffnet Qt-Dialog "Projekt oeffnen"
+     (grüner Titlebar, eigenes Fenster).
+  3. Ins Textfeld `Projektordner waehlen...` klicken (ca. x=1553, y=1005 relativ zum
+     Dialog-Zustand) und Vollpfad tippen, z. B.
+     `C:\Users\David_Lochmann\Documents\PB_studio_Rebuild\projects\test33`.
+  4. Klick Button `Oeffnen` (rechts unten im Dialog).
+  5. Fenstertitel wechselt auf `PB_studio v0.5.0 — test33`; Cockpit zeigt
+     „Schnitt oeffnen (Review)“ + Audio/Video „Bereit“.
 - **Erwartet:** Timeline lädt, kein mehrsekündiger UI-Freeze.
 - **Freeze-Beobachtung:** früher 2–14s (Blob-ORM-Loads); B-622 einmalig 42s.
+  **Live-Befund 2026-07-14:** Projekt-Load selbst < 8s, 0 neue
+  `freeze_stacks.log`-Einträge → PASS für B-620/622/623. CAVEAT: perf_watchdog
+  loggte einmalig `[SLOW EVENT] 42047ms MouseRelease -> QPushButton` exakt beim
+  Öffnen des modalen Dialogs — sehr wahrscheinlich Messartefakt durch
+  `QDialog.exec()` reentrant in `notify()`, kein echter Freeze (kein
+  `freeze_stacks.log`-Hang in diesem Fenster). Bei künftigen Retests nicht
+  vorschnell als B-622-Regression werten, sondern Root-Cause-Stack prüfen.
 
 ### 2.3 Audio-/Video-Combo-Wechsel
 - **Ziel:** B-625 (edit_workspace combo). Kein Freeze beim Umschalten.
-- **Schritte:** _TODO: audio_combo / video_combo Dropdown → anderen Eintrag._
+- **Schritte:**
+  1. SCHNITT-Tab öffnen (Tab-Button `name="Schnitt Workflow"`, x≈1470, y≈154).
+  2. QComboBox `name="Video-Clip Auswahl"` (kein auto_id, oben rechts neben
+     „Audio-Track Auswahl“, ca. x=1404, y=224) anklicken → Dropdown öffnet mit
+     Liste `[ID] Dateiname`.
+  3. Eintrag anklicken (Liste beginnt bei y≈184 unter dem Combo, erster Eintrag
+     `-- kein Video --`, danach Video-IDs).
 - **Erwartet:** Vorschau/Pacing-Kurve aktualisiert, kein Stall.
+  **Live-Befund 2026-07-14:** max. 254ms Slow-Event, PASS.
 
 ### 2.4 Audio analysieren
 - **Ziel:** Audio-V2-Analyse-Route, kein Freeze.
@@ -81,27 +120,100 @@ Jeder Flow-Eintrag hat:
 
 ### 2.7 Auto-Edit
 - **Ziel:** B-624 (pacing_beat_grid), B-622 (OTIO-Timeline-Build nach Finish).
-- **Schritte:** _TODO: Auto-Edit auslösen._
+- **Schritte:**
+  1. SCHNITT-Tab, Button `auto_id="schnitt_editor.btn_accent"`, `name="Auto-Edit starten"`
+     (oben rechts neben "Timeline generieren", ca. x=2558, y=224).
+  2. Es öffnet ein Overlay „Auto-Edit läuft…“ mit Progress-Bar + Status-Text
+     (z. B. „Lade Audio…“) + Button `name="Auto-Edit abbrechen"` (ca. x=1316, y=1008).
+  3. Poll per Screenshot alle ~10s bis Overlay verschwindet ODER Fehlermeldung
+     im Status-Bar unten erscheint (`⚠ Fehler in 'Auto-Edit (Phase 3)': ...`).
 - **Erwartet:** Cuts erzeugt, kein wiederkehrender ~3s-Freeze, kein 42s-Hang beim Finish.
+  **Live-Befund 2026-07-14 (FAIL):** unter Last von 269 parallel importierten
+  Clips (Proxy+Embedding-Pipeline lief noch) hing der Prozess >3 Minuten in
+  „Lade Audio…“, Einzelfreezes bis 17.9s (`pacing_beat_grid.py:232/694`, JSON-Blob
+  ORM-Load-Muster wie B-620, hier nicht gefixt), Windows-Titel zeigte „Keine
+  Rückmeldung“. Ergebnis am Ende: Fehlermeldung „Keine Segmente“. Der
+  „Abbrechen“-Button schließt nur das Dialog-Overlay, der Hintergrund-Task
+  (`workers/edit.py`) läuft nachweislich weiter (siehe freeze_stacks.log nach
+  Cancel-Klick). Für sauberen Reproduktionstest: Auto-Edit NICHT parallel zu
+  einem großen Ordner-Import (>50 Dateien) ausführen, sondern isoliert.
 
 ### 2.8 Undo Clip entfernen
 - **Ziel:** B-625 (undo_commands RemoveClipCommand.undo).
-- **Schritte:** _TODO: Clip entfernen → Strg+Z._
+- **Schritte:** _TODO: Clip entfernen → Strg+Z._ (2026-07-14 nicht erreicht,
+  Zeitbudget durch Freeze/Crash-Kaskade bei 2.7/2.10 aufgebraucht.)
 - **Erwartet:** kein Freeze beim Undo.
 
 ### 2.9 Media-Import
 - **Ziel:** B-627 (submit_task fire-and-forget beim Import).
-- **Schritte:** _TODO: Video importieren (Solo_Natur)._
+- **Schritte:**
+  1. MATERIAL ANALYSE-Tab (Tab-Button `name="Material und Analyse Workflow"`,
+     x≈1206, y≈154), Sub-Tab „VIDEO“ ist Default.
+  2. Button `auto_id="btn_secondary"`, `name="Ordner importieren"` (ca. x=212,
+     y=384) → öffnet nativen Qt-Dateidialog „Ordner importieren“.
+  3. Ins Feld `Directory:` (unten im Dialog) klicken und Vollpfad tippen, z. B.
+     `C:\Users\David_Lochmann\Videos\Solo_Natur-20260406T220640Z-3-001\Solo_Natur`.
+  4. Button `name="Choose"` klicken (per `find-element --name-re Choose` sicher
+     zu treffen, Koordinaten der nativen Qt-Filedialog-Buttons verschieben sich
+     je nach Pfadlänge).
+  5. Dialog schließt sofort; rechtes Kontext-Panel (TASKS) zeigt neuen Eintrag
+     `FolderImport: Running`, Status-Bar unten zeigt `[Import] NN% — Importiere
+     X/Y`.
 - **Erwartet:** Import-Dialog blockiert nicht 5s beim Einreihen.
+  **Live-Befund 2026-07-14 (PASS):** 0s Main-Thread-Freeze beim Submit, Dialog
+  schloss sofort, Import lief komplett als Hintergrund-TaskEngine-Task. Klarer
+  B-627-Fixerfolg. ACHTUNG: der danach folgende automatische Proxy-Generierungs-
+  Sturm (1 Task pro importierter Datei, hier 269) verursacht SEPARATE, schwere
+  Freezes/Crashes in nachfolgenden Flows (siehe 2.7, 2.10) — bei kleineren
+  Testläufen ggf. bewusst kleine Ordner (5–10 Dateien) importieren.
 
 ### 2.10 Anker-Sync (Dialog → Timeline-Marker) — NEU B-619
 - **Ziel:** Dialog-Anker persistieren + als Cyan-Marker auf Timeline sehen.
-- **Schritte:** _TODO: Pacing & Anker → „+Anker" (1–2 Anker) → „Sync"._
+- **Schritte:**
+  1. SCHNITT-Tab, Sub-Tab `name="Pacing  Anker"` (Doppelleerzeichen im Label!,
+     ca. x=283, y=287 bei 3240x2160 — Tab-Leiste liegt bei y≈177 im 2000er
+     Vorschaubild, ×1.62 skalieren).
+  2. Rechtes Panel „ANKER (feste Audio-Video-Sync-Punkte)“ mit leerer Tabelle
+     (Spalten Zeit/Video/Label/Gewicht).
+  3. Button `+ Anker` (unten links im Anker-Panel, ca. x=1395, y=1925) → Dialog
+     „Anker hinzufügen“ (grüner Titlebar) mit Feldern `Zeitpunkt (Sek)` (QSpinBox)
+     und `Video/Szene` (QComboBox, Liste aller Szenen `Dateiname | Szene N
+     (start-end)`).
+  4. Szene per Klick auf Combo (ca. x=1669, y=1037 im Dialog) + Listeneintrag
+     wählen, dann Button `Hinzufügen` (ca. x=1447, y=1140) klicken.
+  5. Vorgang für 2. Anker wiederholen (Dialog öffnet sich erneut über denselben
+     `+ Anker`-Button).
+  6. Button `Sync` (rechts neben `+ Anker`/`- Anker`, ca. x=1639, y=1925) klicken.
+  7. Erwartete Erfolgsmeldung im Log: `"N Dialog-Anker synchronisiert"` — falls
+     NICHT im Log, per `log-since` auf `_sync_anchors` / `anchor_sync_service`
+     Traceback prüfen (siehe Live-Befund).
+  8. Cyan/türkise Marker sollten auf der Audio-Zeitachse im „Schnitt“-Sub-Tab
+     erscheinen (Timeline-Waveform-Bereich, getrennt von den goldenen
+     Beat-Gitterlinien) — per Screenshot-Crop `--region` auf den
+     Timeline-Waveform-Bereich prüfen (`y≈930-1230` bei 3240x2160).
 - **Erwartet:** Meldung „N Dialog-Anker synchronisiert"; **cyan-türkise vertikale
   Marker** erscheinen auf der Audio-Zeitachse der Timeline (getrennt von goldenen Beats).
+  **Live-Befund 2026-07-14 (FAIL/CRASH):** `+ Anker` funktioniert (2 Anker
+  erfolgreich in der Anker-Tabelle sichtbar), aber `Sync` crasht mit
+  `sqlite3.OperationalError: database is locked` in
+  `services/anchor_sync_service.py:58 _resolve_scene_id`, ausgelöst durch
+  `session._autoflush()` während massiver paralleler Hintergrundlast (Proxy-
+  Generierung + Embeddings für 269 Clips liefen noch). `select count(*) from
+  audio_video_anchors` ergab 0 Zeilen nach dem Sync-Versuch — nichts persistiert,
+  keine Timeline-Marker, keine Erfolgsmeldung. Für sauberen Reproduktionstest:
+  Sync NICHT parallel zu großer Hintergrundlast testen, sondern nach
+  vollständigem Abschluss aller Proxy/Embedding-Tasks (TASKS-Panel rechts prüfen:
+  alle Einträge müssen „Fertig“ statt „Running“ zeigen).
 
 ---
 
 ## 3. Änderungslog
 - 2026-07-14: Gerüst angelegt (Freeze-Sanierung B-619/622/623/624/625/626/627).
   Flow-Details TODO — erster GUI-Test befüllt Widget-Namen/Koordinaten.
+- 2026-07-14 (Freeze-Retest): Flows 2.1, 2.2, 2.3, 2.7, 2.9, 2.10 mit echten
+  Widget-Namen/Koordinaten/Klick-Pfaden befüllt + Live-Befunde eingetragen
+  (PASS: 2.2, 2.3, 2.9; FAIL: 2.7, 2.10; TEILWEISE FAIL: 2.1). Neuer Befund:
+  Masse-Import (>200 Dateien) erzeugt Hintergrundlast, die B-624/B-619 in
+  nachfolgenden Flows verschärft/reproduziert — Warnhinweis in 2.7/2.9/2.10
+  ergänzt. Report: `test_reports/freeze-retest-2026-07-14/report.md`.
+  Flows 2.4, 2.5, 2.6, 2.8 weiterhin TODO (nicht erreicht, Zeitbudget).

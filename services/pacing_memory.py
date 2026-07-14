@@ -13,6 +13,7 @@ import json
 import logging
 
 import numpy as np
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from database import engine, AudioTrack, AIPacingMemory, Beatgrid, Scene, TimelineEntry, VideoClip
@@ -48,10 +49,13 @@ def learn_from_anchor(
         from database import nullpool_session
         with nullpool_session() as session:
             # DB-10 Fix: Prüfe ob referenzierte Objekte noch existieren
-            audio = session.query(AudioTrack).filter(
-                AudioTrack.id == audio_track_id,
-                AudioTrack.deleted_at.is_(None),
-            ).one_or_none()
+            # B-090: column-select statt ORM-Voll-Laden (AudioTrack.beatgrid/waveform_data lazy='joined' Blobs); Folgecode nutzt nur audio.bpm
+            audio = session.execute(
+                select(AudioTrack.bpm).where(
+                    AudioTrack.id == audio_track_id,
+                    AudioTrack.deleted_at.is_(None),
+                )
+            ).first()
             if audio is None:
                 logger.warning(
                     "learn_from_anchor: AudioTrack %d existiert nicht mehr oder ist geloescht, ueberspringe.",
@@ -60,10 +64,13 @@ def learn_from_anchor(
                 return False
             scene = None
             if scene_id is not None:
-                scene = session.query(Scene).join(VideoClip).filter(
-                    Scene.id == scene_id,
-                    VideoClip.deleted_at.is_(None),
-                ).one_or_none()
+                # B-090: column-select statt ORM-Voll-Laden (Scene lazy='joined' Blobs); Folgecode nutzt nur scene.energy
+                scene = session.execute(
+                    select(Scene.energy).join(VideoClip).where(
+                        Scene.id == scene_id,
+                        VideoClip.deleted_at.is_(None),
+                    )
+                ).first()
                 if scene is None:
                     logger.warning(
                         "learn_from_anchor: Scene %d existiert nicht mehr oder VideoClip ist geloescht, ueberspringe.",
@@ -149,10 +156,13 @@ def record_rl_feedback(audio_track_id: int, sentiment: str, project_id: int = 1)
     try:
         from database import nullpool_session
         with nullpool_session() as session:
-            track = session.query(AudioTrack).filter(
-                AudioTrack.id == audio_track_id,
-                AudioTrack.deleted_at.is_(None),
-            ).one_or_none()
+            # B-090: column-select statt ORM-Voll-Laden (AudioTrack.beatgrid/waveform_data lazy='joined' Blobs); Folgecode nutzt nur track.bpm
+            track = session.execute(
+                select(AudioTrack.bpm).where(
+                    AudioTrack.id == audio_track_id,
+                    AudioTrack.deleted_at.is_(None),
+                )
+            ).first()
             if track is None:
                 logger.warning(
                     "record_rl_feedback: AudioTrack %d existiert nicht mehr oder ist geloescht, ueberspringe.",
