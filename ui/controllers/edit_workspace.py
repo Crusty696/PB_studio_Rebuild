@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (
     QComboBox, QPushButton, QDialog, QTreeWidgetItem,
 )
 from PySide6.QtCore import Qt, QTimer
-from database import engine, AudioTrack, VideoClip, get_active_project_id
+from database import engine, AudioTrack, VideoClip, Scene, get_active_project_id
 from sqlalchemy import text, select
 from sqlalchemy.orm import Session as DBSession
 from services.task_manager import GlobalTaskManager, TaskManagerProxy
@@ -714,22 +714,39 @@ class EditWorkspaceController(PBComponent):
         scene_combo.setToolTip(
             "Video oder erkannte Szene auswaehlen, die am Ankerzeitpunkt synchronisiert werden soll."
         )
-        from sqlalchemy.orm import joinedload
         try:
             with DBSession(engine) as session:
-                clips = session.query(VideoClip).options(
-                    joinedload(VideoClip.scenes)
-                ).filter(
-                    VideoClip.project_id == get_active_project_id(),
-                    VideoClip.deleted_at.is_(None)
+                # B-633: column-select statt joinedload(VideoClip.scenes) — laed
+                # keine Scene-JSON-Blobs (keyframe_paths/embedding_indices/ai_*),
+                # die den GUI-Thread beim Dialog-Oeffnen ~13s einfroren. Nur die
+                # genutzten Skalar-Spalten; outerjoin erhaelt Clips ohne Scenes.
+                rows = session.execute(
+                    select(
+                        VideoClip.id, VideoClip.file_path,
+                        Scene.id, Scene.start_time, Scene.end_time,
+                    )
+                    .outerjoin(Scene, Scene.video_clip_id == VideoClip.id)
+                    .where(
+                        VideoClip.project_id == get_active_project_id(),
+                        VideoClip.deleted_at.is_(None),
+                    )
                 ).all()
-                for clip in clips:
-                    clip_name = Path(clip.file_path).stem[:20]
-                    for scene in clip.scenes:
-                        label = f"{clip_name} | Szene {scene.id} ({scene.start_time:.1f}-{scene.end_time:.1f}s)"
-                        scene_combo.addItem(label, str(scene.id))
-                    if not clip.scenes:
-                        scene_combo.addItem(f"{clip_name} (komplett)", f"clip_{clip.id}")
+                # Nach Clip gruppieren (insertion order), Szenen sammeln.
+                clips_map: dict = {}
+                for clip_id, clip_path, scene_id, s_start, s_end in rows:
+                    entry = clips_map.get(clip_id)
+                    if entry is None:
+                        entry = {"path": clip_path, "scenes": []}
+                        clips_map[clip_id] = entry
+                    if scene_id is not None:
+                        entry["scenes"].append((scene_id, s_start, s_end))
+                for clip_id, entry in clips_map.items():
+                    clip_name = Path(entry["path"]).stem[:20]
+                    for scene_id, s_start, s_end in entry["scenes"]:
+                        label = f"{clip_name} | Szene {scene_id} ({s_start:.1f}-{s_end:.1f}s)"
+                        scene_combo.addItem(label, str(scene_id))
+                    if not entry["scenes"]:
+                        scene_combo.addItem(f"{clip_name} (komplett)", f"clip_{clip_id}")
         except Exception as exc:
             logger.warning("_add_anchor_dialog: DB error loading scenes: %s", exc)
         scene_row.addWidget(scene_combo)
