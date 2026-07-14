@@ -19,8 +19,7 @@ from __future__ import annotations
 
 import logging
 
-from database import engine, AudioVideoAnchor, Scene
-from sqlalchemy.orm import Session as DBSession
+from database import AudioVideoAnchor, Scene, nullpool_session
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +78,13 @@ def sync_dialog_anchors(audio_track_id: int, anchors: list[dict]) -> int:
     if audio_track_id is None:
         raise ValueError("audio_track_id darf nicht None sein")
 
-    with DBSession(engine) as session:
+    # B-628: nullpool_session() statt nacktem DBSession(engine). Die
+    # NullPool-Engine setzt busy_timeout=120s (database/session.py:198) und
+    # liefert eine frische Connection pro Session — das etablierte robuste
+    # Write-Muster gegen "database is locked" unter Multi-Worker-Last
+    # (Vorbild: services/analysis_status_service.py). Zuvor crashte der
+    # gepoolte Zugriff bei Lock-Contention waehrend Massen-Imports.
+    with nullpool_session() as session:
         # Idempotenz: alte Dialog-Anker dieses Tracks entfernen.
         session.query(AudioVideoAnchor).filter(
             AudioVideoAnchor.audio_track_id == audio_track_id,

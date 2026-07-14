@@ -6,8 +6,11 @@ idempotent ist.
 """
 
 import importlib
+from contextlib import contextmanager
 
 import pytest
+
+from sqlalchemy.orm import Session
 
 import database
 from database import AudioVideoAnchor
@@ -15,9 +18,20 @@ from database import AudioVideoAnchor
 
 @pytest.fixture
 def _patched_service(test_engine, monkeypatch):
-    """Patcht die engine-Referenz im anchor_sync_service auf die Test-Engine."""
+    """Patcht die nullpool_session-Referenz im anchor_sync_service auf die Test-Engine.
+
+    B-628: Der Service nutzt jetzt ``nullpool_session()`` (robustes Write-Muster
+    mit busy_timeout) statt ``DBSession(engine)``. Der Test leitet die Session
+    auf die In-Memory-Test-Engine um.
+    """
     mod = importlib.import_module("services.anchor_sync_service")
-    monkeypatch.setattr(mod, "engine", test_engine)
+
+    @contextmanager
+    def _test_nullpool():
+        with Session(test_engine) as s:
+            yield s
+
+    monkeypatch.setattr(mod, "nullpool_session", _test_nullpool)
     return mod
 
 
@@ -94,3 +108,43 @@ def test_sync_dialog_anchors_clip_form(_patched_service, db_session, audio_track
     ).one()
     assert row.video_clip_id == video_clip.id
     assert row.video_time == pytest.approx(0.0)
+
+
+# ---------------------------------------------------------------------------
+# B-628: DB-Lock-Robustheit
+# ---------------------------------------------------------------------------
+
+def test_sync_dialog_anchors_uses_robust_session(_patched_service, monkeypatch, audio_track):
+    """B-628: Der Service muss die robuste nullpool_session() nutzen, nicht
+    ein nacktes DBSession(engine). Beweist, dass der Write ueber die
+    busy_timeout-Engine laeuft statt ueber den gepoolten Zugriff, der bei
+    Lock-Contention crashte."""
+    mod = _patched_service
+    real_ctx = mod.nullpool_session
+    calls = {"n": 0}
+
+    def _spy():
+        calls["n"] += 1
+        return real_ctx()
+
+    monkeypatch.setattr(mod, "nullpool_session", _spy)
+
+    mod.sync_dialog_anchors(audio_track.id, [])
+    assert calls["n"] == 1, "sync_dialog_anchors muss ueber nullpool_session() laufen"
+
+
+def test_nullpool_engine_sets_busy_timeout():
+    """B-628: Die vom Service genutzte NullPool-Engine setzt busy_timeout=120s,
+    damit Writes bei Lock-Contention warten statt sofort mit
+    'database is locked' zu crashen (database/session.py:198)."""
+    from sqlalchemy import text
+    from database.session import make_nullpool_engine
+    from services.timeout_constants import DB_BUSY_TIMEOUT_ANALYSIS_MS
+
+    eng = make_nullpool_engine("sqlite:///:memory:", enable_foreign_keys=True)
+    try:
+        with eng.connect() as conn:
+            busy = conn.execute(text("PRAGMA busy_timeout")).scalar()
+        assert busy == DB_BUSY_TIMEOUT_ANALYSIS_MS
+    finally:
+        eng.dispose()
