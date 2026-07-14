@@ -961,10 +961,236 @@ def _export_optimized_concat(video_segments, audio_path, output_path,
     return str(Path(output_path).resolve())
 
 
+# B-603: Max. Segmente pro xfade-Zwischendatei im Batch-Pfad.
+# Die verschachtelte (nested) xfade-Kette hat n-1 Knoten und skaliert NICHT:
+# bei 138 Segmenten (137 Knoten, ~22k Zeichen Filtergraph) schrieb ffmpeg
+# 0 Frames ("Nothing was written ... frame=0, Conversion failed"). Fuer wenige
+# Segmente ist die Single-Chain erprobt (4 Segmente exportieren sauber). Wert
+# konservativ klein: jede Zwischendatei hat hoechstens XFADE_BATCH_SIZE-1
+# xfade-Knoten (bei 12 -> max. 11, weit unter der Fehler-Schwelle).
+XFADE_BATCH_SIZE = 12
+
+
+def _export_with_filtergraph_batched(video_segments, audio_path, output_path,
+                                     w, h, fps, progress_cb, total_steps,
+                                     cancel_check=None):
+    """B-603: Crossfade-Export fuer VIELE Segmente ueber Zwischendateien.
+
+    Warum: Die einkettige (nested) xfade-Filterkette skaliert nicht — bei 138
+    Segmenten (137 verschachtelte xfade-Knoten) schreibt ffmpeg 0 Frames.
+    Loesung: Segmente in Gruppen von ``XFADE_BATCH_SIZE`` rendern (jede Gruppe
+    hat hoechstens ``XFADE_BATCH_SIZE-1`` xfade-Knoten -> flach genug), jede
+    Gruppe als eigene standardisierte H.264/NVENC-Zwischendatei; danach die
+    Zwischendateien via concat-Demuxer (``-c:v copy``) verketten und das Audio
+    einmal muxen. Der concat-Demuxer justiert PTS/DTS ueber die Dateigrenzen
+    (verifiziert an libavformat/concatdec.c) — Stream-Copy ist sauber, weil
+    alle Zwischendateien identisch standardisiert sind (gleiche Aufloesung/
+    FPS/H.264 yuv420p).
+
+    GRENZ-UEBERGANG (bewusste Wahl): INNERHALB einer Gruppe echte Crossfades,
+    AN DEN GRUPPEN-GRENZEN HARTER SCHNITT. Begruendung: ein sauberer, immer
+    funktionierender Schnitt ist robuster als eine zweite verschachtelte
+    xfade-Ebene ueber die Gruppen-Outputs; bei XFADE_BATCH_SIZE=12 und 138
+    Segmenten sind das ~11 harte Schnitte gegen ~126 Crossfades — akzeptable,
+    ehrliche Degradation. Der Grenz-Schnitt ist der Preis fuer Skalierbarkeit.
+
+    Encoder-Flags: die Batch-Renders nutzen ``_video_encode_args()``
+    (``h264_nvenc`` gemaess GPU-Hartregel GTX 1060, libx264 nur als
+    CPU-Fallback wenn NVENC fehlt); die Verkettung nutzt ``-c:v copy`` (kein
+    Re-Encode). Es wird KEIN anderer Encoder/hwaccel eingefuehrt.
+
+    UNVERIFIZIERT (B-603): NICHT ffmpeg-getestet (Test verschoben). Muss track2b
+    (138 Segmente, crossfade) beim Test-Fenster ein abspielbares Video liefern
+    (ffprobe-Dauer ~ Audio-Laenge, NVENC) bevor es als funktionierend gilt.
+    Wirft bei JEDEM Fehler weiter -> der Caller faengt und faellt auf den
+    hard-cut/concat-Pfad zurueck (Sicherheitsnetz).
+    """
+    temp_files: list[str] = []
+    step = 0
+    n = len(video_segments)
+
+    try:
+        if progress_cb:
+            step += 1
+            progress_cb(int(step / total_steps * 100),
+                        f"Batch-Crossfade: {n} Segmente...")
+
+        # Segmente in Gruppen splitten.
+        batches = [
+            video_segments[i:i + XFADE_BATCH_SIZE]
+            for i in range(0, n, XFADE_BATCH_SIZE)
+        ]
+
+        # Jede Gruppe als eigene, video-only Zwischendatei rendern. Da jede
+        # Gruppe per Definition <= XFADE_BATCH_SIZE ist, faellt der rekursive
+        # Aufruf NICHT erneut in den Batch-Zweig -> Single-Chain-xfade, keine
+        # unbegrenzte Rekursion. audio_path=None (Audio wird erst am Ende
+        # gemuxt); progress_cb=None damit der Sub-Render nicht auf 100% springt.
+        batch_outputs: list[str] = []
+        for b_idx, batch in enumerate(batches):
+            if cancel_check is not None and cancel_check():
+                raise RuntimeError("Export abgebrochen (User-Cancel)")
+            tmp = tempfile.NamedTemporaryFile(
+                suffix=".mp4", delete=False, prefix=f"pb_xfb_{b_idx}_"
+            )
+            tmp.close()
+            temp_files.append(tmp.name)
+            _export_with_filtergraph(
+                batch, None, Path(tmp.name),
+                w, h, fps, None, 4,
+                cancel_check=cancel_check,
+                extra_temp_files=None,
+            )
+            # 0-Frames/leer: _export_with_filtergraph wirft bereits bei
+            # nonzero-exit UND bei leerer Ausgabedatei; hier zusaetzlicher
+            # defensiver Check, damit eine leere Zwischendatei nie stumm in
+            # den concat-Schritt laeuft.
+            if not Path(tmp.name).exists() or Path(tmp.name).stat().st_size == 0:
+                raise RuntimeError(
+                    f"B-603: Batch {b_idx + 1}/{len(batches)} lieferte leere "
+                    f"Zwischendatei"
+                )
+            batch_outputs.append(tmp.name)
+            if progress_cb:
+                pct = int(step / total_steps * 100) + int(
+                    (b_idx + 1) / len(batches) * 60
+                )
+                progress_cb(min(pct, 90),
+                            f"Batch {b_idx + 1}/{len(batches)} gerendert...")
+
+        # Concat-Liste der Zwischendateien (harte Schnitte an den Grenzen).
+        concat_file = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".txt", delete=False, prefix="pb_xfb_concat_",
+            encoding="utf-8",
+        )
+        temp_files.append(concat_file.name)
+        for bo in batch_outputs:
+            # B-168-Escaping wiederverwenden (Single-Quote/Backslash/Control).
+            safe_path = _sanitize_concat_path(bo)
+            concat_file.write(f"file '{safe_path}'\n")
+        concat_file.close()
+
+        if progress_cb:
+            step += 1
+            progress_cb(int(step / total_steps * 100),
+                        "Verkette Batch-Zwischendateien...")
+
+        # Audio einmal normalisieren (LUFS) + muxen — identisch zur
+        # concat-Pipeline in _export_optimized_concat.
+        normalized_audio, step = _prepare_normalized_audio(
+            audio_path, temp_files, progress_cb, step, total_steps,
+            cancel_check=cancel_check,
+        )
+
+        cmd = [
+            FFMPEG, "-y",
+            "-f", "concat", "-safe", "0",
+            "-i", concat_file.name,
+        ]
+        if normalized_audio:
+            cmd += ["-i", normalized_audio]
+        # Zwischendateien sind bereits standardisiert (gleiche Aufloesung/FPS/
+        # H.264 yuv420p, NVENC) -> Stream-Copy, kein Re-Encode. Kein neuer
+        # Encoder/hwaccel.
+        cmd += ["-c:v", "copy"]
+        if normalized_audio:
+            cmd += ["-c:a", "aac", "-b:a", "192k",
+                    "-map", "0:v:0", "-map", "1:a:0", "-shortest"]
+        else:
+            cmd += ["-an"]
+        cmd.append(str(output_path))
+
+        estimated_duration = sum(
+            seg.get("source_duration", seg["end"] - seg["start"])
+            for seg in video_segments
+        )
+        # Stream-Copy-Concat ist schnell; Timeout grosszuegig aber segmentabh.
+        dynamic_timeout = max(1800, 600 + n * 30)
+        logger.info(
+            "[Export] B-603 Batch-xfade: %d Segmente in %d Batches "
+            "(size=%d), concat -c:v copy, Timeout=%ds",
+            n, len(batches), XFADE_BATCH_SIZE, dynamic_timeout,
+        )
+        _run_ffmpeg(cmd, timeout=dynamic_timeout, progress_cb=progress_cb,
+                    total_duration=estimated_duration,
+                    cancel_check=cancel_check)
+
+        if progress_cb:
+            progress_cb(100, "Batch-Crossfade-Export abgeschlossen")
+    finally:
+        for tf in temp_files:
+            try:
+                Path(tf).unlink(missing_ok=True)
+            except PermissionError:
+                logger.warning(
+                    "B-007/B-603: Temp-Datei '%s' konnte nicht geloescht werden "
+                    "(Windows-Dateilock). Wird beim naechsten Export bereinigt.",
+                    tf,
+                )
+
+    # Harte 0-Frames-Absicherung: fehlt/leer -> werfen, der Caller faengt und
+    # faellt auf hard-cut zurueck. Es darf NIE 0 Frames nach aussen dringen.
+    if not Path(output_path).exists() or Path(output_path).stat().st_size == 0:
+        raise RuntimeError(
+            f"B-603: Batch-Crossfade-Export fehlgeschlagen: Ausgabedatei fehlt "
+            f"oder leer: {output_path}"
+        )
+    return str(Path(output_path).resolve())
+
+
 def _export_with_filtergraph(video_segments, audio_path, output_path,
                              w, h, fps, progress_cb, total_steps,
                              cancel_check=None, extra_temp_files=None):
     """Komplexer Export mit Filtergraph (Crossfades + Farbkorrektur)."""
+    # B-603: Skalierungs-Fix fuer viele-Segment-Crossfades.
+    # Die verschachtelte xfade-Kette (n-1 Knoten) skaliert nicht: bei 138
+    # Segmenten (137 Knoten, ~22k Zeichen Filtergraph) schrieb ffmpeg 0 Frames
+    # ("Nothing was written ... frame=0, Conversion failed"). Fuer wenige
+    # Segmente ist die Single-Chain erprobt (4 Segmente exportieren sauber),
+    # daher NUR bei grossen Segmentzahlen (> XFADE_BATCH_SIZE) auf den
+    # Batch-Pfad wechseln; bei wenigen Segmenten laeuft der bisherige,
+    # unveraenderte Single-Chain-Code unten weiter.
+    # HARTES SICHERHEITSNETZ: JEDE Exception (inkl. ffmpeg nonzero-exit / 0
+    # Frames, die _run_ffmpeg bzw. der Leer-Check als RuntimeError werfen) im
+    # Batch-Pfad faellt auf den hard-cut/concat-Pfad zurueck -> es darf NIE
+    # wieder 0 Frames nach aussen dringen; schlimmstenfalls hard-cut statt
+    # crossfade (abspielbares Video garantiert).
+    # UNVERIFIZIERT (B-603): NICHT ffmpeg-getestet. Muss track2b (138 Segmente,
+    # crossfade) beim Test-Fenster ein abspielbares Video liefern (ffprobe-
+    # Dauer ~ Audio-Laenge, NVENC) bevor es als funktionierend gilt. Bis dahin
+    # schuetzt der hard-cut-Fallback.
+    if len(video_segments) > XFADE_BATCH_SIZE:
+        try:
+            return _export_with_filtergraph_batched(
+                video_segments, audio_path, output_path,
+                w, h, fps, progress_cb, total_steps,
+                cancel_check=cancel_check,
+            )
+        except Exception as batch_exc:  # broad: JEDER Fehler -> hard-cut-Rettung
+            logger.warning(
+                "B-603: Batch-xfade-Pfad fehlgeschlagen (%s) -> Fallback auf "
+                "hard-cut/concat (abspielbares Video ohne Crossfades statt "
+                "0 Frames).", batch_exc,
+            )
+            return _export_optimized_concat(
+                video_segments, audio_path, output_path,
+                w, h, fps, progress_cb, total_steps,
+                cancel_check=cancel_check, extra_temp_files=extra_temp_files,
+            )
+        finally:
+            # B-603: extra_temp_files (vorbereitetes Audio-Tempfile) gehoert
+            # weder dem Batch- noch dem Single-Chain-Body -> hier zentral
+            # aufraeumen. missing_ok + doppeltes unlink (der Fallback raeumt es
+            # bereits) ist harmlos. Laeuft NACH dem vollstaendigen Sub-Export.
+            for tf in (extra_temp_files or []):
+                try:
+                    Path(tf).unlink(missing_ok=True)
+                except PermissionError:
+                    logger.warning(
+                        "B-007/B-603: Temp-Datei '%s' konnte nicht geloescht "
+                        "werden (Windows-Dateilock).", tf,
+                    )
+
     step = 0
     temp_files = list(extra_temp_files or [])
 
