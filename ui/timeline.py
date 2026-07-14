@@ -156,6 +156,132 @@ class AnchorMarkerItem(QGraphicsPolygonItem):
             self.scene().removeItem(self)
 
 
+# ======================================================================
+# B-077: Optimistic-UI — Anchor DB-Writes off GUI-Thread
+# ======================================================================
+# Marker/QGraphicsItem-Erstellung + jeder Marker-/Map-Zugriff bleiben auf
+# dem GUI-Thread. Der Pool macht AUSSCHLIESSLICH den ClipAnchor
+# INSERT/DELETE (nullpool_session). Ueber die Thread-Grenze gehen nur
+# primitive Werte (temp_id/entry_id/time_offset bzw. temp_id/real_id) —
+# NIE ein QGraphicsItem oder DB-Objekt. Muster gespiegelt von
+# ui/widgets/media_grid.py (_ThumbSignals/_ThumbRunnable + QThreadPool).
+from PySide6.QtCore import QThreadPool, QRunnable, Slot  # B-077
+
+_ANCHOR_DB_POOL: "QThreadPool | None" = None  # B-077
+
+
+def _get_anchor_db_pool() -> QThreadPool:
+    """B-077: modulweiter, auf 1 Thread begrenzter Pool fuer Anchor-DB-Writes.
+
+    maxThreadCount=1 serialisiert INSERT/DELETE in Submit-Reihenfolge — ein
+    add gefolgt von remove_all fuehrt so deterministisch zu INSERT-dann-DELETE.
+    """
+    global _ANCHOR_DB_POOL
+    if _ANCHOR_DB_POOL is None:
+        pool = QThreadPool()
+        pool.setMaxThreadCount(1)
+        _ANCHOR_DB_POOL = pool
+    return _ANCHOR_DB_POOL
+
+
+class _AnchorInsertSignals(QObject):
+    """B-077: Signal-Holder (QRunnable ist kein QObject). Im GUI-Thread
+    erzeugt -> emit aus dem Pool-Thread laeuft als QueuedConnection zurueck
+    in den GUI-Thread des Empfaengers."""
+
+    done = Signal(object, object)  # (temp_id, real_id|None)
+
+
+class _AnchorInsertRunnable(QRunnable):
+    """B-077: gepoolter ClipAnchor-INSERT.
+
+    Reicht NUR primitive Werte ueber die Thread-Grenze (temp_id, entry_id,
+    time_offset) und liefert die echte DB-id via Signal zurueck. Kein
+    QGraphicsItem, kein DB-Objekt cross-thread.
+    """
+
+    def __init__(self, temp_id: int, entry_id: int, time_offset: float) -> None:
+        super().__init__()
+        self.setAutoDelete(True)
+        self._temp_id = temp_id
+        self._entry_id = entry_id
+        self._time_offset = time_offset
+        self.signals = _AnchorInsertSignals()
+
+    @Slot()
+    def run(self) -> None:  # pool thread
+        real_id = None
+        try:
+            with nullpool_session() as session:
+                anchor = ClipAnchor(
+                    timeline_entry_id=self._entry_id,
+                    time_offset=round(self._time_offset, 4),
+                )
+                session.add(anchor)
+                session.commit()
+                real_id = anchor.id
+        except Exception:  # noqa: BLE001 — DB-Write darf den Pool-Thread nie killen
+            logger.error(
+                "B-077: Anchor-INSERT fehlgeschlagen (entry=%s)",
+                self._entry_id, exc_info=True,
+            )
+        self.signals.done.emit(self._temp_id, real_id)
+
+
+class _AnchorInsertReceiver(QObject):
+    """B-077: GUI-Thread-affiner Empfaenger fuer das Insert-Fertig-Signal.
+
+    Wird im GUI-Thread erzeugt (Auto/Queued-Connection -> Slot laeuft im
+    GUI-Thread). Haelt Referenzen auf Marker + _anchor_map-Namespace (beide
+    GUI-Thread-Objekte); der Pool-Thread beruehrt sie nie. Traegt die echte
+    DB-id nach (Temp-ID -> real_id) und raeumt sich danach ab.
+    """
+
+    def __init__(self, marker, ns, parent=None) -> None:
+        super().__init__(parent)
+        self._marker = marker
+        self._ns = ns
+
+    @Slot(object, object)
+    def _apply(self, temp_id, real_id) -> None:  # GUI thread
+        try:
+            if real_id is not None:
+                if getattr(self._marker, "anchor_id", None) == temp_id:
+                    self._marker.anchor_id = real_id
+                if self._ns is not None and getattr(self._ns, "id", None) == temp_id:
+                    self._ns.id = real_id
+        except RuntimeError:
+            pass  # Marker/Clip bereits zerstoert (z.B. remove_all dazwischen)
+        finally:
+            self.deleteLater()
+
+
+class _AnchorDeleteRunnable(QRunnable):
+    """B-077: gepoolter ClipAnchor-DELETE by timeline_entry_id.
+
+    Fire-and-forget — die UI wurde bereits synchron geleert. Loescht per
+    entry_id (NICHT per Anchor-id) -> keine Temp-ID erreicht je die DB.
+    """
+
+    def __init__(self, entry_id: int) -> None:
+        super().__init__()
+        self.setAutoDelete(True)
+        self._entry_id = entry_id
+
+    @Slot()
+    def run(self) -> None:  # pool thread
+        try:
+            with nullpool_session() as session:
+                session.query(ClipAnchor).filter_by(
+                    timeline_entry_id=self._entry_id
+                ).delete()
+                session.commit()
+        except Exception:  # noqa: BLE001 — DB-Write darf den Pool-Thread nie killen
+            logger.error(
+                "B-077: Anchor-DELETE fehlgeschlagen (entry=%s)",
+                self._entry_id, exc_info=True,
+            )
+
 
 class BeatGridItem(QGraphicsItem):
     """Adaptive Beatgrid-Zeichnung als einzelnes, optimiertes GraphicsItem.
@@ -638,44 +764,63 @@ class TimelineClipItem(QGraphicsRectItem):
                 return view
         return None
 
+    # B-077: klassenweiter, monoton fallender Temp-ID-Counter. Erzeugt
+    # eindeutige, negative Platzhalter-IDs. Echte DB-IDs sind positiv ->
+    # nie eine Kollision zwischen Temp- und echter ID.
+    _anchor_temp_id_counter: int = 0
+
     def add_anchor_at(self, local_x: float) -> int | None:
         """Setzt einen neuen Anker an der lokalen X-Position (in Pixeln).
-         Gibt die Anchor-ID zurueck oder None bei Fehler.
+
+        B-077: Optimistic-UI. Die lokale UI (Marker, ``_anchor_markers``,
+        ``_all_anchor_offsets``, ``timeline._anchor_map``) wird SYNCHRON im
+        GUI-Thread aktualisiert und sofort eine negative Temp-ID
+        zurueckgegeben (``not None`` erfuellt den Truthiness-Check des
+        Aufrufers). Der ClipAnchor-INSERT laeuft in einem Pool-Thread; die
+        echte DB-id wird via QueuedConnection auf dem GUI-Thread nachgetragen
+        (Temp-ID -> echte id in ``marker.anchor_id`` und im
+        ``_anchor_map``-Namespace).
         """
         time_offset = local_x / PIXELS_PER_SECOND
         if time_offset < 0:
             time_offset = 0.0
 
-        from database import nullpool_session
-        with nullpool_session() as session:
-            anchor = ClipAnchor(
-                timeline_entry_id=self.entry_id,
-                time_offset=round(time_offset, 4),
-            )
-            session.add(anchor)
-            session.commit()
-            anchor_id = anchor.id
+        # B-077: (a) eindeutige negative Temp-ID erzeugen.
+        TimelineClipItem._anchor_temp_id_counter -= 1
+        temp_id = TimelineClipItem._anchor_temp_id_counter
 
-        marker = AnchorMarkerItem(local_x, self._clip_height, anchor_id, parent=self)
+        # B-077: (b) SYNCHRON lokale UI-/Map-Updates im GUI-Thread.
+        marker = AnchorMarkerItem(local_x, self._clip_height, temp_id, parent=self)
         self._anchor_markers.append(marker)
         # B-211: _all_anchor_offsets parallel pflegen.
         self._all_anchor_offsets.append(float(time_offset))
+        ns = None
         timeline = self._timeline_view()
         if timeline is not None:
             from types import SimpleNamespace
-            timeline._anchor_map.setdefault(self.entry_id, []).append(
-                SimpleNamespace(id=anchor_id, time_offset=float(time_offset))
-            )
-        return anchor_id
+            ns = SimpleNamespace(id=temp_id, time_offset=float(time_offset))
+            timeline._anchor_map.setdefault(self.entry_id, []).append(ns)
+
+        # B-077: (c) DB-INSERT in Pool-Thread auslagern; (d) echte id via
+        # QueuedConnection im GUI-Thread nachtragen. Der Empfaenger (GUI-
+        # Thread-QObject) haelt die Marker/Namespace-Referenzen; der
+        # Runnable bekommt nur primitive Werte.
+        runnable = _AnchorInsertRunnable(temp_id, self.entry_id, float(time_offset))
+        receiver = _AnchorInsertReceiver(marker, ns, parent=timeline)
+        runnable.signals.done.connect(receiver._apply)
+        _get_anchor_db_pool().start(runnable)
+
+        # B-077: (e) Temp-ID sofort zurueckgeben.
+        return temp_id
 
     def remove_all_anchors(self):
-        """Entfernt alle Anker dieses Clips."""
-        from database import nullpool_session
-        with nullpool_session() as session:
-            session.query(ClipAnchor).filter_by(
-                timeline_entry_id=self.entry_id
-            ).delete()
-            session.commit()
+        """Entfernt alle Anker dieses Clips.
+
+        B-077: Optimistic-UI. Marker + lokale Maps werden SYNCHRON im
+        GUI-Thread entfernt; der ClipAnchor-DELETE (by ``timeline_entry_id``)
+        laeuft fire-and-forget in einem Pool-Thread.
+        """
+        # B-077: (a) SYNCHRON lokale UI-/Map-Updates.
         for m in self._anchor_markers:
             m.remove_from_scene()
         self._anchor_markers.clear()
@@ -684,6 +829,10 @@ class TimelineClipItem(QGraphicsRectItem):
         timeline = self._timeline_view()
         if timeline is not None:
             timeline._anchor_map[self.entry_id] = []
+
+        # B-077: (b) DELETE by timeline_entry_id im Pool-Thread. Loescht per
+        # entry_id, nicht per Anchor-id -> keine Temp-ID erreicht je die DB.
+        _get_anchor_db_pool().start(_AnchorDeleteRunnable(self.entry_id))
 
     def get_first_anchor_time(self) -> float | None:
         """Gibt den Zeitstempel des ersten Ankers zurueck (relativ zum Clip-Start).
