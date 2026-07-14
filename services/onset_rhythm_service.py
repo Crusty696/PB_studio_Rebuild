@@ -710,6 +710,13 @@ class OnsetRhythmService:
                     bg.onset_hihat_data = hihat_data
                     bg.syncopation_score = analysis.syncopation_score
                     bg.groove_template = analysis.groove_template
+                    # B-235: RhythmAnalysis-Felder persistent mitschreiben — sonst
+                    # Rueckfall auf Dataclass-Defaults nach DB-Reload (load_from_db).
+                    # onset_strength_curve ist list[float] -> Column(JSON) serialisiert
+                    # automatisch (analog onset_*_data, kein json.dumps noetig).
+                    bg.swing_ratio = analysis.swing_ratio
+                    bg.groove_confidence = analysis.groove_confidence
+                    bg.onset_strength_curve = analysis.onset_strength_curve
                     session.commit()
                 break  # Erfolg
             except Exception as e:
@@ -772,13 +779,33 @@ class OnsetRhythmService:
                 logger.warning("Onset-Daten konnten nicht geladen werden: %s", e)
                 return None
 
-            return RhythmAnalysis(
+            # B-235: onset_strength_curve analog onset_*_data laden (Column(JSON)
+            # deserialisiert automatisch; Backward-compat json.loads() falls String).
+            curve_raw = bg.onset_strength_curve or []
+            if isinstance(curve_raw, str):
+                try:
+                    curve_raw = json.loads(curve_raw)
+                except (json.JSONDecodeError, TypeError):
+                    curve_raw = []
+
+            # B-235: swing_ratio/groove_confidence/onset_strength_curve aus bg
+            # restaurieren — mit Fallback auf die RhythmAnalysis-Dataclass-Defaults
+            # (0.5 / 0.0 / []) falls Spalte NULL/leer (z.B. Alt-Rows vor Migration).
+            kwargs: dict = dict(
                 onsets_kick=[PercussiveOnset(time=r[0], strength=r[1]) for r in kick_raw],
                 onsets_snare=[PercussiveOnset(time=r[0], strength=r[1]) for r in snare_raw],
                 onsets_hihat=[PercussiveOnset(time=r[0], strength=r[1]) for r in hihat_raw],
                 syncopation_score=float(bg.syncopation_score or 0.0),
                 groove_template=bg.groove_template or "unknown",
             )
+            if bg.swing_ratio is not None:
+                kwargs["swing_ratio"] = float(bg.swing_ratio)
+            if bg.groove_confidence is not None:
+                kwargs["groove_confidence"] = float(bg.groove_confidence)
+            if curve_raw:
+                kwargs["onset_strength_curve"] = [float(v) for v in curve_raw]
+
+            return RhythmAnalysis(**kwargs)
 
 
 # ── Hilfsfunktionen ───────────────────────────────────────────────────────────

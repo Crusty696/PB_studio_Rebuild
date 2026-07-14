@@ -289,6 +289,11 @@ class Beatgrid(Base):
     syncopation_score = Column(Float, nullable=True) # 0.0 (gerade) – 1.0 (synkopiert)
     groove_template = Column(String, nullable=True)  # String is correct for template name
 
+    # B-235: RhythmAnalysis-Felder persistent — vorher nur Dataclass-Defaults nach DB-Reload.
+    swing_ratio = Column(Float, nullable=True, default=0.5, server_default="0.5")      # 0.5 = straight, 0.67 = Triplet-Swing
+    groove_confidence = Column(Float, nullable=True, default=0.0, server_default="0.0")  # 0.0–1.0 Groove-Template-Match-Konfidenz
+    onset_strength_curve = Column(JSON, nullable=True)  # B-235: [float, ...] downsampled Onset-Strength-Curve (analog onset_*_data)
+
     audio_track = relationship("AudioTrack", back_populates="beatgrid", lazy='joined')
 
     def __repr__(self):
