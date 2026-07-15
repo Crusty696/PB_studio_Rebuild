@@ -1680,10 +1680,25 @@ class InteractiveTimeline(QGraphicsView):
                         # caused native access violations during timeline load.
                         _brain_meta = {}
 
-                        self.finished.emit(entries, _audio_map, _video_map, _anchor_map, _brain_meta)
+                        self._safe_emit(entries, _audio_map, _video_map, _anchor_map, _brain_meta)
                 except Exception as e:
                     logger.error("TimelineDBWorker Fehler: %s", e)
-                    self.finished.emit([], {}, {}, {}, {})
+                    self._safe_emit([], {}, {}, {}, {})
+
+            def _safe_emit(self, *args) -> None:
+                # Nebenbefund B-workspace-switch-freeze-qt-render: beim App-
+                # Shutdown kann das C++-Gegenstueck dieses Workers bereits
+                # geloescht sein, waehrend run() noch im Worker-Thread
+                # weiterlaeuft -> finished.emit() wirft "Internal C++ object
+                # (TimelineDBWorker) already deleted". Guard via
+                # shiboken6.isValid (+ RuntimeError-Netz), konsistent mit dem
+                # B-283-Muster in _cancel_pending_db_load oben.
+                import shiboken6
+                try:
+                    if shiboken6.isValid(self):
+                        self.finished.emit(*args)
+                except RuntimeError:
+                    pass  # C++-Objekt bereits geloescht (App-Shutdown-Race)
 
         self._db_worker = TimelineDBWorker(project_id)
         self._db_thread = QThread(self)
