@@ -205,6 +205,49 @@ Jeder Flow-Eintrag hat:
   vollständigem Abschluss aller Proxy/Embedding-Tasks (TASKS-Panel rechts prüfen:
   alle Einträge müssen „Fertig“ statt „Running“ zeigen).
 
+### 2.11 Schnitt Sub-Tab-Leiste (Schnitt / Pacing Anker / Audio / RL Notes) — NEU 2026-07-15
+- **Ziel:** Sub-Tabs unterhalb der Audio/Video-Combo-Zeile im SCHNITT-Workspace anwaehlen.
+- **Koordinaten (3240x2160, reale Screen-Coords fuer Harness-`click`):**
+  - `Schnitt`: x=84, y=287
+  - `Pacing Anker`: x=280, y=287
+  - `Audio` (Stem-Mixer): x=470, y=287
+  - `RL Notes`: weiter rechts, ca. x=650, y=287 (nicht exakt vermessen)
+- **FALLE (2026-07-15 verifiziert):** Wenn Koordinaten aus einem Screenshot
+  abgelesen werden, das per `Read`-Tool angezeigt wird, gibt der Read-Tool-
+  Footer einen Skalierungsfaktor an (z. B. "displayed at 2000x1333, original
+  3240x2160 → Multiply coordinates by 1.62"). **Diesen Faktor IMMER auf die
+  abgelesenen Koordinaten anwenden**, bevor sie an `gui_harness click`
+  gehen — sonst landen Klicks (v. a. in QMenu-Kontextmenues) auf der
+  falschen Stelle und die Aktion feuert nicht (kein Fehler im Log, einfach
+  keine Wirkung). Genau das ist beim ersten B-077-Testversuch passiert:
+  Klick auf "Anker setzen" bei den *unskalierten* Read-Tool-Koordinaten traf
+  daneben, kein DB-Insert, kein Log-Eintrag. Nach Korrektur (×1.62) hat der
+  Klick sofort funktioniert.
+
+### 2.12 Clip-Kontextmenue (Rechtsklick auf Timeline-Clip) — NEU B-077, 2026-07-15
+- **Ziel:** Anker setzen/entfernen ueber das Clip-Kontextmenue (ClipAnchor,
+  NICHT zu verwechseln mit den Dialog-Ankern aus 2.10/AudioVideoAnchor).
+- **Schritte:**
+  1. SCHNITT-Tab, Sub-Tab `Schnitt`, Rechtsklick auf einen Video-Thumbnail
+     in der Video-Spur (unterhalb der Audio-Waveform, ca. y=1360 bei
+     Zoom 100%).
+  2. Kontextmenue (dunkel, `#1A1A1A`) mit 3 Eintraegen: `Anker setzen
+     (X.XXs)`, `Clip: video | ID: <n>`, `Brain V3: Cut bewerten`. Falls
+     bereits ein Anker auf dem Clip existiert, zusaetzlich `Alle Anker
+     entfernen` (2. Eintrag).
+  3. Menue-Item-Position relativ zum Rechtsklick-Punkt: erstes Item
+     (`Anker setzen`) ca. 15-30px unterhalb + rechts vom Klick-Y (Menue
+     oeffnet mit Top-Left nahe am Cursor).
+- **Erwartet:** Ankermarker (rotes Dreieck + gestrichelte rote Linie) an der
+  Klickposition erscheint SOFORT synchron (optimistic UI, B-077). ClipAnchor
+  wird asynchron in Pool-Thread in die DB geschrieben (Tabelle
+  `clip_anchors`).
+- **Live-Befund 2026-07-15 (PASS, nach Koordinaten-Fix):** Marker erscheint
+  augenblicklich, kein Freeze, kein Crash. `clip_anchors`-Zeile nach ca. 1s
+  Wartezeit verifiziert. "Alle Anker entfernen" entfernt Marker sofort
+  synchron, DB-Zeile async geloescht — verifiziert per DB-Query. Kein
+  `freeze_stacks.log`-Eintrag waehrend beider Aktionen.
+
 ---
 
 ## 3. Änderungslog
@@ -217,3 +260,16 @@ Jeder Flow-Eintrag hat:
   nachfolgenden Flows verschärft/reproduziert — Warnhinweis in 2.7/2.9/2.10
   ergänzt. Report: `test_reports/freeze-retest-2026-07-14/report.md`.
   Flows 2.4, 2.5, 2.6, 2.8 weiterhin TODO (nicht erreicht, Zeitbudget).
+- 2026-07-15 (B-617/B-077/B-494-Regressionstest, HEAD 3b32180): Flows 2.11
+  (neu, Sub-Tab-Leiste + Koordinaten-Skalierungsfalle dokumentiert), 2.12
+  (neu, Clip-Kontextmenue/Anker) ergaenzt. Beat-Grid+Sections (B-617) per
+  Pixel-zu-Zeit-Kalibrierung gegen `structure_segments`-DB exakt verifiziert
+  (PASS, auch nach Projekt-Reload). B-077 Anchor-Optimistic-UI PASS (nach
+  Koordinaten-Fix). B-494 SNR-Anzeige: Code-Trace ergab, dass
+  `ui/workspaces/stems_workspace.py` (`StemsWorkspace` mit ENERGIE/ONSETS/
+  SNR-Subtabs) im Fenster NIE eingehaengt wird — `ui/workspaces/schnitt/
+  tab_audio.py` instanziiert stattdessen eine eigene, separate
+  `StemWorkspace`-Mixer-Instanz ohne SNR-Subtab. `_stems_ws.update_analysis()`
+  wird zwar befuellt (B-494-Fix korrekt), aber niemand sieht das Ergebnis in
+  der laufenden App. Kein Crash (sauberer Silent-Fail), aber Feature real
+  nicht erreichbar. Report: siehe Task-Output pb-gui-tester 2026-07-15.

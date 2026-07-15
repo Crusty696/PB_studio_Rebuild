@@ -2510,6 +2510,10 @@ class InteractiveTimeline(QGraphicsView):
         "DROP":      (QColor(180, 40, 40, 35),   QColor(255, 60, 60, 100)),
         "BUILDUP":   (QColor(200, 170, 30, 30),  QColor(255, 210, 40, 90)),
         "BREAKDOWN": (QColor(40, 90, 180, 30),   QColor(60, 130, 255, 90)),
+        # B-617-Nachtrag (GUI-Verify 2026-07-15): VERSE/WARMUP sind echte,
+        # haeufige Labels (waren nicht im Dict -> fielen auf INTRO-Grau zurueck).
+        "VERSE":     (QColor(50, 150, 90, 30),   QColor(70, 200, 120, 90)),
+        "WARMUP":    (QColor(180, 110, 40, 30),  QColor(240, 150, 60, 90)),
         "INTRO":     (QColor(100, 100, 100, 20), QColor(140, 140, 140, 60)),
         "OUTRO":     (QColor(100, 100, 100, 20), QColor(140, 140, 140, 60)),
     }
