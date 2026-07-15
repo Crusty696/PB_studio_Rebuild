@@ -290,7 +290,12 @@ class WaveformGraphicsItem(QGraphicsItem):
                 continue
 
             beat_time = beats[i]
-            bx = int((beat_time / self._duration) * w_total)
+            # B-644: round() statt int() — int() schneidet immer AB (Richtung 0),
+            # nicht zum naechsten Pixel. Bei vielen Beats systematischer Drift bis
+            # zu 1px pro Linie ("Beatgrid sitzt ungenau"). AA bleibt bewusst AUS
+            # (P8-B1-FIX: 7200 Beat-Linien pro Frame, siehe timeline.py:1276) —
+            # das hier ist eine reine Positions-Korrektur, kein Visual-Fix.
+            bx = round((beat_time / self._duration) * w_total)
             painter.setPen(pen_downbeat if is_downbeat else pen_normal)
             painter.drawLine(bx, 0, bx, h)
 
