@@ -76,6 +76,9 @@ _EntryStub = namedtuple("_EntryStub", ["start_time"])
 
 from PySide6.QtCore import QThread, QObject
 
+_WAVEFORM_SUBPROCESS_TIMEOUT_S = 30.0
+
+
 class WaveformLoadWorker(QObject):
     # H-2: Nur Primitive ueber die Thread-Grenze emittieren. Vorher wurde das
     # SQLAlchemy-ORM-Objekt ``track`` emittiert — beim (queued) Slot-Aufruf war
@@ -88,6 +91,76 @@ class WaveformLoadWorker(QObject):
         self.media_id = media_id
 
     def run(self):
+        # B-646: Parse im KIND-Prozess (eigener GIL) statt in diesem QThread.
+        # Live-belegt: json.loads() auf grossen Waveform-Blobs (langer Audio-
+        # Track) haelt den GIL trotz Thread-Isolation durchgehend -> Watchdog
+        # mass einen echten Main-Thread-Freeze von 1.8-2.5s. Gleiches Muster
+        # wie B-618 (Cluster-Fit-Subprozess), hier aber in JEDEM Modus aktiv
+        # (nicht nur Frozen) — der GIL-Freeze trat auch im Dev-/Conda-Lauf auf.
+        try:
+            result = self._run_subprocess()
+        except Exception as exc:  # noqa: BLE001 — Subprocess-Fehler -> Fallback
+            logger.warning(
+                "B-646: Waveform-Subprozess fehlgeschlagen (%s) — Fallback "
+                "auf In-Process (kann kurz den GIL halten).", exc,
+            )
+            result = None
+        if result is not None:
+            self.finished.emit(*result)
+            return
+        self.finished.emit(*self._run_inprocess())
+
+    def _run_subprocess(self) -> "tuple | None":
+        """B-646: fuehrt den DB-Query + JSON-Parse in einem Kind-Prozess aus.
+
+        Returns None wenn der Subprozess nicht nutzbar war — der Aufrufer
+        faellt dann auf ``_run_inprocess`` zurueck (langsamer, aber korrekt).
+        """
+        import json
+        import pickle
+        import shutil
+        import subprocess
+        import sys
+        import tempfile
+        import os
+
+        from database.session import APP_ROOT
+
+        tmpdir = tempfile.mkdtemp(prefix="pb_waveform_")
+        job_path = os.path.join(tmpdir, "job.json")
+        out_path = os.path.join(tmpdir, "res.pkl")
+        try:
+            with open(job_path, "w", encoding="utf-8") as jf:
+                json.dump(
+                    {"project_path": str(APP_ROOT), "media_id": self.media_id, "out": out_path},
+                    jf,
+                )
+            # Frozen: sys.executable IST die App-EXE, self-invoke reicht (wie
+            # B-618). Dev/Conda: sys.executable ist der reine Interpreter,
+            # braucht den expliziten main.py-Pfad als Skript-Argument.
+            cmd = [sys.executable]
+            if not getattr(sys, "frozen", False):
+                main_py = str(Path(__file__).resolve().parent.parent / "main.py")
+                cmd.append(main_py)
+            flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
+            subprocess.run(
+                cmd,
+                env={**os.environ, "PB_WAVEFORM_PARSE": job_path},
+                check=True,
+                timeout=_WAVEFORM_SUBPROCESS_TIMEOUT_S,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                creationflags=flags,
+            )
+            with open(out_path, "rb") as of:
+                return pickle.load(of)
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def _run_inprocess(self) -> tuple:
+        """Fallback: identischer Query+Parse-Pfad, aber in diesem QThread
+        (haelt den GIL waehrend des Parse — nur genutzt wenn der Subprozess
+        fehlschlaegt, siehe run())."""
         try:
             from database import nullpool_session, AudioTrack
             import json
@@ -100,16 +173,15 @@ class WaveformLoadWorker(QObject):
                     band_low = json.loads(wd.band_low) if isinstance(wd.band_low, str) else (wd.band_low or [])
                     band_mid = json.loads(wd.band_mid) if isinstance(wd.band_mid, str) else (wd.band_mid or [])
                     band_high = json.loads(wd.band_high) if isinstance(wd.band_high, str) else (wd.band_high or [])
-                    
+
                     beat_positions = []
                     if track.beatgrid and track.beatgrid.beat_positions:
                         beat_positions = json.loads(track.beatgrid.beat_positions) if isinstance(track.beatgrid.beat_positions, str) else (track.beatgrid.beat_positions or [])
-                    
-                    self.finished.emit(True, band_low, band_mid, band_high, beat_positions)
-                    return
+
+                    return (True, band_low, band_mid, band_high, beat_positions)
         except Exception as e:
             logger.error("Async Waveform Load Error: %s", e)
-        self.finished.emit(False, [], [], [], [])
+        return (False, [], [], [], [])
 
 # ======================================================================
 # Constants

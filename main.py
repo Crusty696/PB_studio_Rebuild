@@ -1491,6 +1491,63 @@ def main():
             print(f"PB_CLUSTER_FIT failed: {_fit_exc}", file=sys.stderr)
             sys.exit(3)
 
+    # B-646: Waveform-Blob-Parse im KIND-Prozess (gleiche Methode wie B-618
+    # oben, aber fuer alle Betriebsarten — nicht nur Frozen). Live-belegt
+    # 2026-07-15: WaveformLoadWorker.run() (ui/timeline.py) laeuft zwar in
+    # einem eigenen QThread, aber json.loads() auf grossen Waveform-Blobs
+    # (band_low/mid/high bei langen Audio-Tracks) haelt den GIL durchgehend —
+    # der Watchdog maass einen echten Main-Thread-Freeze von 1.8-2.5s trotz
+    # Thread-Isolation, weil der GIL prozessweit ist, nicht Thread-lokal.
+    # Loesung wie beim Cluster-Fit: der Parse laeuft in einem eigenen Prozess
+    # mit eigenem GIL, der App-Main-Thread bleibt responsiv unabhaengig von
+    # der Parse-Dauer.
+    _waveform_job = _os_fit.environ.get("PB_WAVEFORM_PARSE")
+    if _waveform_job:
+        try:
+            import json as _wf_json
+            import pickle as _wf_pickle
+
+            with open(_waveform_job, "r", encoding="utf-8") as _wf_jf:
+                _wf_job = _wf_json.load(_wf_jf)
+            from database.session import set_project as _wf_set_project
+            from database import AudioTrack as _WfAudioTrack
+            from database import nullpool_session as _wf_nullpool_session
+
+            _wf_set_project(Path(_wf_job["project_path"]))
+            _wf_result = (False, [], [], [], [])
+            with _wf_nullpool_session() as _wf_session:
+                _wf_track = _wf_session.query(_WfAudioTrack).filter(
+                    _WfAudioTrack.id == _wf_job["media_id"],
+                    _WfAudioTrack.deleted_at.is_(None),
+                ).first()
+                if _wf_track and _wf_track.waveform_data:
+                    _wd = _wf_track.waveform_data
+                    _band_low = (
+                        _wf_json.loads(_wd.band_low)
+                        if isinstance(_wd.band_low, str) else (_wd.band_low or [])
+                    )
+                    _band_mid = (
+                        _wf_json.loads(_wd.band_mid)
+                        if isinstance(_wd.band_mid, str) else (_wd.band_mid or [])
+                    )
+                    _band_high = (
+                        _wf_json.loads(_wd.band_high)
+                        if isinstance(_wd.band_high, str) else (_wd.band_high or [])
+                    )
+                    _beat_positions = []
+                    if _wf_track.beatgrid and _wf_track.beatgrid.beat_positions:
+                        _bp = _wf_track.beatgrid.beat_positions
+                        _beat_positions = (
+                            _wf_json.loads(_bp) if isinstance(_bp, str) else (_bp or [])
+                        )
+                    _wf_result = (True, _band_low, _band_mid, _band_high, _beat_positions)
+            with open(_wf_job["out"], "wb") as _wf_of:
+                _wf_pickle.dump(_wf_result, _wf_of, protocol=_wf_pickle.HIGHEST_PROTOCOL)
+            sys.exit(0)
+        except Exception as _wf_exc:  # noqa: BLE001
+            print(f"PB_WAVEFORM_PARSE failed: {_wf_exc}", file=sys.stderr)
+            sys.exit(3)
+
     import os as _os_warmup
     if _os_warmup.environ.get("PB_WARMUP_UMAP") == "1":
         try:
