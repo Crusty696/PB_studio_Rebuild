@@ -3135,8 +3135,17 @@ class InteractiveTimeline(QGraphicsView):
         self._schedule_thumb_request()
 
     def wheelEvent(self, event):
-        """Zoom mit Mausrad — sanfter Faktor, nur horizontal, zur Mausposition."""
-        delta = event.angleDelta().y()
+        """Zoom mit Mausrad; Shift+Rad oder horizontales Rad-Delta scrollt seitlich."""
+        angle = event.angleDelta()
+        # B-645: Shift+Mausrad (Standard bei DaVinci/Studio One/Rekordbox) oder
+        # natives horizontales Delta (Trackpad-Swipe) scrollt statt zu zoomen.
+        if event.modifiers() & Qt.KeyboardModifier.ShiftModifier or angle.x() != 0:
+            hs = self.horizontalScrollBar()
+            step = angle.x() if angle.x() != 0 else angle.y()
+            hs.setValue(hs.value() - step)
+            event.accept()
+            return
+        delta = angle.y()
         if delta == 0:
             return
         factor = 1.08 if delta > 0 else 1.0 / 1.08
@@ -3145,7 +3154,9 @@ class InteractiveTimeline(QGraphicsView):
         if new_scale < 0.01 or new_scale > 200.0:
             return
         old_zoom = self._current_zoom
+        vscroll = self.verticalScrollBar().value()  # B-645: Zoom darf Y nicht verschieben
         self.scale(factor, 1.0)
+        self.verticalScrollBar().setValue(vscroll)
         self._current_zoom = new_scale
         # LOD-Update nur bei signifikanter Zoom-Aenderung (Schwellwert-Ueberschreitung)
         old_lod = 4 if old_zoom < 0.5 else (2 if old_zoom < 1.5 else 1)
@@ -3645,7 +3656,9 @@ class InteractiveTimeline(QGraphicsView):
         if new_scale < 0.01 or new_scale > 200.0:
             return
         old_zoom = self._current_zoom
+        vscroll = self.verticalScrollBar().value()  # B-645: Zoom darf Y nicht verschieben
         self.scale(factor, 1.0)
+        self.verticalScrollBar().setValue(vscroll)
         self._current_zoom = new_scale
         old_lod = 4 if old_zoom < 0.5 else (2 if old_zoom < 1.5 else 1)
         new_lod = 4 if new_scale < 0.5 else (2 if new_scale < 1.5 else 1)
@@ -3656,7 +3669,9 @@ class InteractiveTimeline(QGraphicsView):
     def reset_zoom(self):
         """Reset timeline zoom to 100 percent."""
         old_zoom = self._current_zoom
+        vscroll = self.verticalScrollBar().value()  # B-645: Zoom darf Y nicht verschieben
         self.resetTransform()
+        self.verticalScrollBar().setValue(vscroll)
         self._current_zoom = 1.0
         old_lod = 4 if old_zoom < 0.5 else (2 if old_zoom < 1.5 else 1)
         if old_lod != 2:
