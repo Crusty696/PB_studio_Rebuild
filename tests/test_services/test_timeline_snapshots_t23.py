@@ -112,9 +112,17 @@ class TestSnapshotMenuUi:
         import database as db_mod
         monkeypatch.setattr(db_mod, "get_active_project_id", lambda: project)
 
-        from PySide6.QtWidgets import QWidget
+        from PySide6.QtCore import Signal
+        from PySide6.QtWidgets import QGraphicsView
 
-        class _TL(QWidget):
+        class _TL(QGraphicsView):
+            # Reale InteractiveTimeline ist ein QGraphicsView (braucht
+            # .transform() fuer den Zoom-Label-Update in _update_zoom_label)
+            # und hat seit B-616 ein zoom_changed-Signal, das TimelineShell
+            # beim Bau verbindet. Der Stub muss beides mitbringen, sonst
+            # AttributeError beim Connect bzw. beim ersten Label-Update.
+            zoom_changed = Signal(float)
+
             def __init__(self):
                 super().__init__()
                 self.loaded = []

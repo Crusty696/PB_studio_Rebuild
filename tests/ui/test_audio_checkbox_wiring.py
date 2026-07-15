@@ -130,6 +130,9 @@ def test_b293_single_returns_first_checked_id(qapp, monkeypatch):
     model.get_checked_ids.return_value = [42]
     ctrl.window.audio_pool_table.model.return_value = model
 
+    # B-625: die Implementierung nutzt column-select (execute(select(...)).first())
+    # statt session.get() — verhindert eager-load der Blob-Spalten. .first() liefert
+    # ein Row-Objekt mit denselben Attributnamen wie die selektierten Spalten.
     fake_track = MagicMock()
     fake_track.id = 42
     fake_track.file_path = "/x.mp3"
@@ -137,7 +140,7 @@ def test_b293_single_returns_first_checked_id(qapp, monkeypatch):
     fake_track.bpm = 120.0
 
     fake_session = MagicMock()
-    fake_session.get.return_value = fake_track
+    fake_session.execute.return_value.first.return_value = fake_track
     fake_ctx = MagicMock()
     fake_ctx.__enter__.return_value = fake_session
     fake_ctx.__exit__.return_value = False

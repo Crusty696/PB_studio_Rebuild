@@ -8,9 +8,39 @@ from __future__ import annotations
 from services.video_pipeline.app_integration import engine_enabled, FEATURE_FLAG
 
 
+def _isolate_settings_store(monkeypatch, value: bool | None = False) -> None:
+    """Test-Isolation: engine_enabled() liest ohne Env-Override den ECHTEN,
+    persistenten SettingsStore (get_settings_store() ist ein Singleton, der
+    von der realen settings.json des Users laedt — kein Test-Double). Ohne
+    diesen Patch haengt das Testergebnis vom Zustand der Maschine ab, auf
+    der pytest laeuft.
+
+    Live belegt (2026-07-15): ein GUI-Testlauf hat versehentlich
+    video.use_pipeline_engine in der echten settings.json auf True gesetzt
+    (Zeitstempel deckt sich exakt mit dem Testfenster) — der experimentelle,
+    laut Code-Doku "AUS bis Paritaets-Nachweis erbracht" gedachte Flag war
+    dadurch im echten App-Zustand des Users aktiv, und dieser Test schlug
+    genau deswegen fehl. Der reale Wert wurde auf False zurueckgesetzt; diese
+    Isolation verhindert, dass ein kuenftiger Seiteneffekt denselben Fehler
+    wieder unbemerkt in die Nutzer-Config schreibt UND den Test faelscht.
+    """
+    class _FakeStore:
+        def get_nested(self, *path, default=None):
+            return value if value is not None else default
+
+    # app_integration.engine_enabled() importiert get_settings_store lokal
+    # (Docstring: "Settings duerfen das Gate nie crashen") -> Patch am
+    # Ursprungsmodul services.settings_store greift dort trotzdem, weil der
+    # Import bei jedem Aufruf frisch aufgeloest wird.
+    monkeypatch.setattr(
+        "services.settings_store.get_settings_store", lambda: _FakeStore()
+    )
+
+
 def test_engine_disabled_by_default(monkeypatch):
     # M3 (D-065): kein Setting-Store im Test -> Fallback greift auf False.
     monkeypatch.delenv(FEATURE_FLAG, raising=False)
+    _isolate_settings_store(monkeypatch, value=False)
     assert engine_enabled() is False
 
 

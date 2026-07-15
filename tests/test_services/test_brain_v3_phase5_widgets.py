@@ -461,7 +461,16 @@ def test_interactive_timeline_applies_brain_v3_state_metadata(qt_app):
 
     timeline._build_entries([entry], {}, {14: clip}, {})
 
-    item = timeline.clip_items[0]
+    # M1 Timeline-Virtualisierung (D-066): _build_entries erzeugt fuer
+    # Video-Clips nur einen leichten ClipRecord (Brain-Meta wird DORT schon
+    # gesetzt, siehe rec.brain_cut_id/rec.brain_confidence). Das echte
+    # TimelineClipItem entsteht erst lazy in _materialize_record, wenn der
+    # Clip in den Viewport kommt (_update_virtualization). Nur Audio-Clips
+    # werden beim Build sofort materialisiert. clip_items ist bei einem
+    # frischen, ungezeigten Widget also leer — das ist keine Regression.
+    assert timeline.clip_records[0].brain_cut_id == 901
+    item = timeline._materialize_record(timeline.clip_records[0])
+    assert item is not None
     assert item._brain_v3_cut_id == 901
     assert item._brain_v3_confidence == pytest.approx(0.66)
     assert item._brain_v3_confidence_bar.isVisible()

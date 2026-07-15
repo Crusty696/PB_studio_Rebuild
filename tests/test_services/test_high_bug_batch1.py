@@ -71,13 +71,19 @@ def test_export_optimized_concat_has_disk_check() -> None:
 
 
 def test_media_grid_loads_video_thumbnails() -> None:
-    """B-087: ``MediaPoolGrid._load_next_chunk`` muss
-    ``_start_thumb_loader`` für VideoCards rufen — sonst bleibt jede
-    Karte auf dem grauen ``▶``-Placeholder."""
+    """B-087: der Card-Bau-Pfad muss ``_start_thumb_loader`` für VideoCards
+    rufen — sonst bleibt jede Karte auf dem grauen ``▶``-Placeholder.
+
+    ``_load_next_chunk`` wurde seither in ``_create_card`` (Bau einer
+    einzelnen Card, inkl. Thumb-Start) und ``_build_next_chunk``
+    (Chunk-Iteration) aufgeteilt — Kommentar in media_grid.py bestaetigt das
+    ausdruecklich ("Bau-Code des frueheren _load_next_chunk"). Der B-087-Fix
+    lebt jetzt in ``_create_card``.
+    """
     from ui.widgets.media_grid import MediaPoolGrid
 
-    src = inspect.getsource(MediaPoolGrid._load_next_chunk)
+    src = inspect.getsource(MediaPoolGrid._create_card)
     assert "_start_thumb_loader" in src, (
-        "B-087: _load_next_chunk ruft _start_thumb_loader nicht — "
+        "B-087: _create_card ruft _start_thumb_loader nicht — "
         "Grid-View zeigt nur graue Placeholder statt echter Thumbs."
     )

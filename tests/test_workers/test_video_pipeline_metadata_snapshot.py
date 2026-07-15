@@ -38,7 +38,22 @@ class _DetachedSensitiveClip:
         return self._get("codec")
 
 
+class _FakeResult:
+    def __init__(self, row: _DetachedSensitiveClip) -> None:
+        self._row = row
+
+    def first(self):
+        return self._row
+
+
 class _FakeSession:
+    """B-090: workers/video.py liest die Metadaten inzwischen per
+    ``_s.execute(select(...)).first()`` (column-select statt ORM-Voll-Laden,
+    VideoClip.scenes ist ein lazy-Blob) — nicht mehr per query()/get(). Die
+    alten ORM-Methoden bleiben als Fallback erhalten, falls anderer
+    Test-Code sie noch braucht.
+    """
+
     def __init__(self, row: _DetachedSensitiveClip) -> None:
         self.row = row
 
@@ -48,6 +63,9 @@ class _FakeSession:
 
     def __exit__(self, exc_type, exc, tb) -> None:
         self.row.active = False
+
+    def execute(self, _stmt):
+        return _FakeResult(self.row)
 
     def get(self, _model, _clip_id):
         return self.row

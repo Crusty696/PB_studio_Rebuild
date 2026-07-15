@@ -41,10 +41,19 @@ def test_b597_heavy_audio_stages_check_cancel() -> None:
 
 
 def test_b597_identical_audio_items_do_not_rebuild_cards(monkeypatch):
+    """B-597: identische Items -> kein Card-Rebuild (Signatur-Vergleich).
+
+    B-596 (Freeze-Fix) baut Cards nur, wenn das Grid SICHTBAR ist — bei
+    unsichtbarem Grid wird nur ``_pending_rebuild`` gesetzt und der teure
+    Aufbau auf ``showEvent`` verschoben. Das Grid muss hier also sichtbar
+    sein, sonst feuert ``_rebuild_cards`` nie und der eigentlich zu
+    pruefende Dedup-Effekt (zweiter Call bleibt aus) ist gar nicht sichtbar.
+    """
     from ui.widgets.media_grid import MediaPoolGrid
 
     _qapp()
     grid = MediaPoolGrid(media_type="audio")
+    grid.show()
     calls: list[tuple[int, ...]] = []
 
     def fake_rebuild() -> None:

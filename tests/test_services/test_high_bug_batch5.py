@@ -17,15 +17,32 @@ def test_b049_save_project_as_uses_sqlite_backup() -> None:
 
 def test_b050_project_controller_has_error_handler() -> None:
     """B-050: ProjectManagementController hat _make_project_error_handler
-    und nutzt es in start_task-Calls."""
+    und nutzt es in start_task-Calls.
+
+    ``_open_project`` delegiert seit dem F-045-Async-Fix (freeze_stacks-Profil
+    2026-07-10) an ``open_project_async`` — der gemeinsame Pfad fuer Dialog-
+    UND Recent-Projekte-Oeffnen. Der Error-Handler sitzt seither dort
+    zentral statt dupliziert in jeder aufrufenden Methode. Das ist eine
+    Verbesserung (ein Ort statt drei), kein Regressions-Bug.
+    """
     from ui.controllers.project_management import ProjectManagementController
 
     assert hasattr(ProjectManagementController, "_make_project_error_handler")
-    for method_name in ("_new_project", "_open_project", "_save_project_as"):
+    for method_name in ("_new_project", "_save_project_as"):
         m = getattr(ProjectManagementController, method_name)
         src = inspect.getsource(m)
         assert "on_error=" in src, f"B-050: {method_name} fehlt on_error"
         assert "_make_project_error_handler" in src
+
+    # _open_project delegiert -> der Handler muss im Ziel sitzen.
+    open_src = inspect.getsource(ProjectManagementController._open_project)
+    assert "open_project_async" in open_src, (
+        "B-050: _open_project ruft open_project_async nicht mehr auf — "
+        "pruefen ob der Async-Fix (F-045) noch aktiv ist."
+    )
+    async_src = inspect.getsource(ProjectManagementController.open_project_async)
+    assert "on_error=" in async_src
+    assert "_make_project_error_handler" in async_src
 
 
 def test_b051_create_open_project_rolls_back_on_init_db_failure() -> None:
