@@ -55,6 +55,7 @@ def test_b355_controller_feeds_onsets_from_beatgrid():
         id=1, title="Track", duration=10.0, energy_curve=[],
         stem_vocals_path=None, stem_drums_path=None,
         stem_bass_path=None, stem_other_path=None,
+        acoustic_metadata=None,  # B-494: column-select liefert dieses Feld jetzt mit
     )
     beatgrid_row = SimpleNamespace(
         onset_kick_data=[[1.0, 0.5], [3.0, 0.4]],
@@ -81,6 +82,7 @@ def test_b355_no_beatgrid_passes_none_without_crash():
         id=2, title="T2", duration=5.0, energy_curve=[],
         stem_vocals_path=None, stem_drums_path=None,
         stem_bass_path=None, stem_other_path=None,
+        acoustic_metadata=None,  # B-494: column-select liefert dieses Feld jetzt mit
     )
     update_mock = MagicMock()
     ctrl = _make_ctrl(update_mock)
