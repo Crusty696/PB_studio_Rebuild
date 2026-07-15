@@ -250,6 +250,83 @@ Jeder Flow-Eintrag hat:
 
 ---
 
+### 2.13 Erststart / SetupWizard-Falle bei conda-Python (PB_PYTHON-Override) — NEU 2026-07-15
+- **Ziel:** App-Start via `PB_PYTHON=<conda-python>` dokumentieren — abweichend
+  von `.venv310`-Start kann ein First-Run-Marker fehlen, wodurch der
+  `SetupWizard` (Fenstertitel `"PB Studio — Ersteinrichtung"`, NICHT
+  `"PB_studio"`) statt des Hauptfensters erscheint.
+- **Erkennung:** `wait-window --title "PB_studio"` läuft in 60s Timeout,
+  `list-windows` zeigt `"PB Studio — Ersteinrichtung"`.
+- **Fix:** `screenshot --window-title "Ersteinrichtung"` (harness filtert
+  Screenshots sonst auf Fenster mit `"PB_studio"`-Fragment), dann Button
+  „Überspringen" klicken (bei 3240×2160 ca. x=1139, y=1513). Danach
+  erscheint das reguläre Hauptfenster `"PB_studio v0.5.0 — Director's
+  Cockpit"`.
+
+### 2.14 Schnitt/Audio-Subtab ENERGIE/ONSETS/SNR-Leiste — NEU B-494 GUI-Verify 2026-07-15
+- **Ziel:** Verifikation, dass die drei Analyse-Subtabs unterhalb des
+  Stem-Mixers sichtbar/klickbar sind (Fix aus Commit c9786d3, vorher laut
+  Playbook-Eintrag 2026-07-15 oben nie gemountet).
+- **Koordinaten (3240×2160):** Tab-Leiste liegt bei y≈1756 (unterhalb
+  Play/Stop-Reihe des Stem-Mixers). `ENERGIE` x≈89, `ONSETS` x≈228, `SNR`
+  x≈351 (aus Read-Tool-Displaykoordinaten × 1.62 skaliert — Playbook-Falle
+  aus 2.11 gilt auch hier, beim ersten Versuch unskaliert geklickt →
+  Klick ging ins Leere/auf falsches Widget).
+- **Play/Stop-Buttons Stem-Mixer:** Play ca. x=164, y=1680; Stop ca. x=76,
+  y=1680 (3240×2160).
+- **Live-Befund 2026-07-15 (PASS):** Alle 3 Tabs sichtbar + klickbar.
+  ONSETS zeigt bei geladenem, analysiertem Track echte Daten (`Kick 20371 /
+  Snare 25900 / Hihat 23933` + Marker-Streifen). ENERGIE/SNR zeigen für den
+  getesteten Track (`02 Mai19 - Kopie`) sauberen Leer-Zustand
+  („nicht berechnet" / „nicht verfuegbar") statt Crash — Feature ist
+  jetzt real erreichbar (vorher laut Code-Trace nie gemountet).
+- **Play/Stop-Regressionstest (8 doppelte Connects entfernt, Commit
+  c9786d3):** Play → Position lief einmalig hoch (0:05 → 0:20 in ~15s,
+  keine 2×-Geschwindigkeit als Indiz für Doppel-Trigger). Stop → Position
+  zurück auf 0:00, Icon zurück auf ▶. Keine doppelten Log-Einträge, kein
+  Crash. PASS.
+
+### 2.15 Material & Analyse Toolbar — Papierkorb + Sammlung bereinigen — NEU F-02 GUI-Verify 2026-07-15
+- **Ziel:** `btn_clear_all` ("Sammlung bereinigen") nach F-02-Fix (Commit
+  c9786d3) in der sichtbaren Toolbar statt im nie gemounteten FILTER-Subtab.
+- **Koordinaten/Elemente (3240×2160, via `find-element`):** Toolbar-Reihe
+  MATERIAL & ANALYSE → VIDEO-Subtab, y≈354-414. Button-Reihe: `+ Video`,
+  `+ Ordner`, `Loeschen` (danger), `Papierkorb` (auto_id btn_secondary,
+  center≈494,384), `Sammlung bereinigen` (auto_id **btn_danger**,
+  center≈696,384, `enabled: true`, `visible: true`).
+  `find-element --name-re "Sammlung bereinigen"` matcht NICHT (Name-Property
+  ist der Tooltip-Text, nicht der Label-Text!) — stattdessen
+  `--name-re "Alle Medien aus DB"` verwenden.
+- **BEOBACHTUNG (kein Bug aus dieser Session, aber real):** Trotz
+  `objectName="btn_danger"` und `danger=True`-Flag rendert der Button
+  NICHT rot. `resources/styles.qss` definiert `QPushButton#btn_danger`
+  (roter Text/Rand `#CC4444`), aber die App laedt diese Datei nicht — sie
+  nutzt `ui/theme.py::get_stylesheet()` (programmatisch, `app.setStyleSheet(...)`
+  in `main.py:1907`), und **dort existiert keine `btn_danger`-Regel**
+  (nur `btn_accent`/`btn_secondary`). `resources/styles.qss` ist toter Code
+  (nur `dist/`-Kopie + Quelle, kein `main.py`-Import). Betrifft auch
+  `btn_delete_selected_video` ("Loeschen", ebenfalls `danger=True`) —
+  gleiches Bild, gleiche Ursache, vorbestehend, NICHT durch c9786d3
+  eingefuehrt (Diff zeigt nur Verschieben des Buttons, kein Styling-Touch).
+- **Trash-Dialog (QThreadPool-Migration):** Klick auf "Papierkorb" öffnet
+  Dialog `"Papierkorb — soft-geloeschte Medien"` (grüner Titlebar) ohne
+  Main-Thread-Freeze (0 neue `freeze_stacks.log`-Einträge seit Boot-Ende).
+  Bei leerem Papierkorb erscheint Liste direkt mit "Papierkorb ist leer."
+  (Ladezustand ggf. zu kurz für Screenshot-Erfassung bei leerem Bestand).
+  Log zeigt `ImportMedia._open_trash: Klick angekommen, oeffne Papierkorb`.
+  Schliessen-Button ca. x=2067, y=1359 (3240×2160).
+
+### 2.16 Boot-Watchdog-Fehlalarm bei conda-Python + First-Run-SetupWizard
+- **Beobachtung 2026-07-15:** `freeze_stacks.log` zeigte beim Boot mit
+  aktivem SetupWizard (modaler `QDialog.exec()`) eine WATCHDOG-Kaskade
+  „Main-Thread blockiert seit 1.9s" hochzählend bis „90.3s", Stack zeigt
+  Haupt-Thread in `main.py:2063 main()` (App-Event-Loop) — kein echter
+  Hang, sondern bekanntes Watchdog-Fehlalarm-Muster bei offenen modalen
+  Dialogen (siehe bereits dokumentiert in 2.2 „QDialog.exec() reentrant").
+  Nach Wizard-Skip keine weiteren WATCHDOG-Einträge während des gesamten
+  Testlaufs (Projekt-Load, Tab-Switches, Play/Stop, Trash-Dialog) → alle
+  echten App-Interaktionen freeze-frei.
+
 ## 3. Änderungslog
 - 2026-07-14: Gerüst angelegt (Freeze-Sanierung B-619/622/623/624/625/626/627).
   Flow-Details TODO — erster GUI-Test befüllt Widget-Namen/Koordinaten.
@@ -273,3 +350,13 @@ Jeder Flow-Eintrag hat:
   wird zwar befuellt (B-494-Fix korrekt), aber niemand sieht das Ergebnis in
   der laufenden App. Kein Crash (sauberer Silent-Fail), aber Feature real
   nicht erreichbar. Report: siehe Task-Output pb-gui-tester 2026-07-15.
+- 2026-07-15 (E1/E3/Play-Stop/Trash-Regressionstest, Commit c9786d3): Flows
+  2.13 (SetupWizard-Falle bei conda-Python-Start, neu), 2.14 (Stems-Subtabs
+  ENERGIE/ONSETS/SNR jetzt real sichtbar+mit Daten, PASS; Play/Stop-Single-Fire
+  nach 8-fachem Doppel-Connect-Fix verifiziert, PASS), 2.15 (btn_clear_all in
+  sichtbarer Toolbar erreichbar+enabled PASS, ABER Danger-Styling fehlt real
+  — `btn_danger`-QSS-Regel existiert nur in ungeladener `resources/styles.qss`,
+  nicht in der tatsächlich geladenen `ui/theme.py::get_stylesheet()`,
+  vorbestehend nicht durch diese Session eingeführt; Trash-Dialog PASS ohne
+  Freeze), 2.16 (Boot-Watchdog-Fehlalarm bei offenem SetupWizard-Modal,
+  dokumentiert) ergaenzt. 0 neue Tracebacks/Crashes im gesamten Testlauf.

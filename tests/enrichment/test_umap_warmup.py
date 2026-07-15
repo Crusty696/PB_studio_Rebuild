@@ -89,11 +89,60 @@ def test_warmup_skipped_when_umap_already_imported(monkeypatch):
     assert calls == []
 
 
-# test_warmup_skipped_in_frozen_build (entfernt 2026-07-15, User-Entscheid):
-# pinnte das alte Verhalten "Frozen -> Warmup ueberspringen, return False, kein
-# Subprocess". Der B-618-Frozen-Branch re-invoket inzwischen die App-EXE mit
-# PB_WARMUP_UMAP=1 als Kind-Prozess und liefert True — der Test war seitdem rot
-# und beschrieb einen Zustand, den es nicht mehr gibt.
+def test_warmup_skipped_in_frozen_build(monkeypatch):
+    """PyInstaller: Warmup ueberspringen — er ist dort nachweislich wirkungslos.
+
+    Wiederhergestellt 2026-07-15 nach der Frozen-Messung: `PB_WARMUP_UMAP=1
+    pb_studio.exe` brauchte 79 s (Numba-JIT) und liess NUMBA_CACHE_DIR LEER —
+    im Frozen ist der Cache nicht persistierbar (gebundelte Quellen, kein
+    Cache-Locator). Ein Warmup-Subprozess verdoppelt damit nur die Zeit, ohne
+    den GIL-Freeze im Elternprozess zu verhindern. Der Fit laeuft stattdessen
+    komplett im Kind-Prozess (StyleBucketClusterer._fit_subprocess).
+
+    Dieser Test war zwischenzeitlich als "veraltet" entfernt worden — er hatte
+    aber recht: rot war er, weil der CODE falsch war, nicht die Erwartung.
+    """
+    monkeypatch.delitem(sys.modules, "umap", raising=False)
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    calls: list = []
+    monkeypatch.setattr(sbc.subprocess, "run", _make_fake_run(calls))
+
+    assert sbc.warm_umap_cache() is False
+    assert calls == [], "im Frozen darf KEIN Warmup-Subprozess starten"
+
+
+def test_frozen_fit_runs_in_subprocess(monkeypatch, tmp_path):
+    """B-618: im Frozen muss fit() den Kind-Prozess nutzen, nicht in-process JITen."""
+    import numpy as np
+
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    clusterer = StyleBucketClusterer()
+    sentinel = object()
+    seen: dict = {}
+
+    def _fake_sub(embeddings):
+        seen["called"] = True
+        return sentinel
+
+    def _boom(_embeddings):
+        raise AssertionError("In-Process-Fit darf im Frozen nicht laufen")
+
+    monkeypatch.setattr(clusterer, "_fit_subprocess", _fake_sub)
+    monkeypatch.setattr(clusterer, "_fit_inprocess", _boom)
+    assert clusterer.fit(np.zeros((20, 8), dtype=np.float32)) is sentinel
+    assert seen.get("called") is True
+
+
+def test_frozen_fit_falls_back_inprocess_when_subprocess_fails(monkeypatch):
+    """Kind-Prozess kaputt -> Fallback auf In-Process (langsam, aber korrekt)."""
+    import numpy as np
+
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    clusterer = StyleBucketClusterer()
+    sentinel = object()
+    monkeypatch.setattr(clusterer, "_fit_subprocess", lambda _e: None)
+    monkeypatch.setattr(clusterer, "_fit_inprocess", lambda _e: sentinel)
+    assert clusterer.fit(np.zeros((20, 8), dtype=np.float32)) is sentinel
 
 
 def test_warmup_idempotent_second_call_no_subprocess(monkeypatch):

@@ -1454,6 +1454,43 @@ def main():
     # Lokaler os-Alias (wie _os_smoke unten): main() enthaelt weiter unten ein
     # bedingtes `import os` -> globales os ist hier funktionsweit als lokaler
     # Name gebunden und waere vor jenem import unbound (UnboundLocalError).
+    # B-618 (Frozen-Fix 2026-07-15): Cluster-Fit im KIND-Prozess.
+    #
+    # Messung im Frozen-Build: der Numba-JIT fuer umap/pynndescent dauert 79 s und
+    # der Cache bleibt danach LEER (0 Dateien) — PyInstaller bundlet die Quellen,
+    # Numba findet keinen Cache-Locator und kann die Kompilate nicht persistieren.
+    # Ein Warmup-Kindprozess ist damit wirkungslos: der Elternprozess JITet beim
+    # ersten fit() erneut 79 s, haelt dabei den GIL (auch aus einem Worker-Thread
+    # heraus) und wird vom Watchdog abgeschossen (Stacks 19.9->24.0->26.7 s,
+    # live-belegt 2026-07-13).
+    # Loesung: nicht den Cache waermen, sondern den FIT selbst hier ausfuehren.
+    # Der JIT laeuft dann in einem eigenen Prozess mit eigenem GIL; der App-Main-
+    # Thread bleibt responsiv. Transport per Datei (npz rein, pickle raus) — der
+    # UMAP-Reducer ist laut StyleBucketClusterer-Docstring pickleable und wird
+    # ohnehin schon so persistiert.
+    import os as _os_fit
+    _fit_job = _os_fit.environ.get("PB_CLUSTER_FIT")
+    if _fit_job:
+        try:
+            import json as _json
+            import pickle as _pickle
+
+            import numpy as _np
+
+            with open(_fit_job, "r", encoding="utf-8") as _jf:
+                _job = _json.load(_jf)
+            _emb = _np.load(_job["in"])["embeddings"]
+            from services.enrichment.style_bucket_clusterer import (
+                StyleBucketClusterer as _SBC,
+            )
+            _res = _SBC(**_job.get("params", {}))._fit_inprocess(_emb)
+            with open(_job["out"], "wb") as _of:
+                _pickle.dump(_res, _of, protocol=_pickle.HIGHEST_PROTOCOL)
+            sys.exit(0)
+        except Exception as _fit_exc:  # noqa: BLE001
+            print(f"PB_CLUSTER_FIT failed: {_fit_exc}", file=sys.stderr)
+            sys.exit(3)
+
     import os as _os_warmup
     if _os_warmup.environ.get("PB_WARMUP_UMAP") == "1":
         try:

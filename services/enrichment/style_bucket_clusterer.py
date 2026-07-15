@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import os
 import pickle
+import shutil
 import subprocess
 import sys
 import threading
@@ -49,6 +50,11 @@ _WARMUP_TIMEOUT_S: float = 600.0
 _WARMUP_LOCK = threading.Lock()
 _WARMUP_STATE: dict[str, bool] = {"done": False}
 
+# B-618 Frozen: Zeitbudget fuer den Cluster-Fit im Kind-Prozess. Deckt den
+# nicht-cachebaren Numba-JIT (gemessen 79 s) PLUS den eigentlichen Fit auf
+# echten Datenmengen ab.
+_FIT_SUBPROCESS_TIMEOUT_S: float = 900.0
+
 # Ein blosser ``import umap`` reicht NICHT: Numba kompiliert die
 # pynndescent-Kernel lazy, also erst beim ersten fit(). Live-Beleg
 # (2026-07-15, Frozen): nach reinem Import blieb NUMBA_CACHE_DIR leer — der
@@ -88,40 +94,24 @@ def warm_umap_cache(timeout: float = _WARMUP_TIMEOUT_S) -> bool:
             _WARMUP_STATE["done"] = True
             return True
         if getattr(sys, "frozen", False):
-            # B-618 Frozen: sys.executable ist die App-EXE. ``app.exe -c "..."``
-            # wuerde die GUI hochfahren statt einen Python-Einzeiler laufen zu
-            # lassen. Loesung: die EXE mit PB_WARMUP_UMAP=1 re-invoken — main()
-            # faengt das VOR GUI/QApplication/Watchdog ab, importiert umap
-            # headless im KIND-Prozess und exitet. So JITet der Numba-Kaltstart
-            # nie den GIL des Eltern-Main-Threads (kein Watchdog-Kill). Der Cache
-            # landet in NUMBA_CACHE_DIR (runtime_hook_torch) und ist auch fuer
-            # Folge-Starts warm.
-            _frozen_flags = (
-                getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
-            )
-            try:
-                subprocess.run(
-                    [sys.executable],
-                    env={**os.environ, "PB_WARMUP_UMAP": "1"},
-                    check=True,
-                    timeout=timeout,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    creationflags=_frozen_flags,
-                )
-            except Exception as exc:  # noqa: BLE001 — Warmup darf Aufrufer nie crashen
-                _WARMUP_STATE["done"] = True
-                logger.warning(
-                    "B-618: Frozen-UMAP-Warmup-Subprocess fehlgeschlagen (%s) — "
-                    "Fallback auf In-Process-Import.",
-                    exc,
-                )
-                return False
+            # B-618 Frozen: KEIN Warmup — er waere nachweislich schaedlich.
+            #
+            # Messung 2026-07-15 im Frozen-Build: `PB_WARMUP_UMAP=1 pb_studio.exe`
+            # laeuft 79 s (das IST der Numba-JIT) und NUMBA_CACHE_DIR bleibt danach
+            # LEER (0 Dateien). PyInstaller bundlet die Quellen -> Numba findet
+            # keinen Cache-Locator und kann die Kompilate nicht persistieren.
+            # Ein Warmup-Kindprozess verpufft damit: der Elternprozess JITet beim
+            # ersten fit() erneut 79 s. Der Warmup verdoppelte also nur die Zeit,
+            # ohne den Freeze zu verhindern.
+            # Der Freeze wird stattdessen an der Wurzel geloest: ``fit()`` fuehrt
+            # den kompletten Cluster-Fit im Kind-Prozess aus (_fit_subprocess),
+            # wo der JIT einen eigenen GIL haelt.
             _WARMUP_STATE["done"] = True
             logger.info(
-                "B-618: Frozen-UMAP/Numba-Cache-Warmup-Subprocess erfolgreich."
+                "B-618: Warmup im Frozen uebersprungen (Numba-Cache dort nicht "
+                "persistierbar, gemessen) — der Fit laeuft im Kind-Prozess.",
             )
-            return True
+            return False
         creationflags = (
             getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
         )
@@ -207,7 +197,81 @@ class StyleBucketClusterer:
                     non-noise cluster. Ordered by ascending label id (0, 1, ..., K-1).
                     Excludes noise.
         reducer:    the fitted umap.UMAP instance. Pickleable.
+
+        Im Frozen-Build laeuft der Fit in einem KIND-Prozess (B-618): der
+        Numba-JIT kostet dort 79 s und ist nicht cachebar (gemessen 2026-07-15,
+        Cache bleibt leer — PyInstaller bundlet die Quellen, kein Cache-Locator).
+        In-Process wuerde er den GIL halten und den Watchdog ausloesen. Schlaegt
+        der Kind-Prozess fehl, faellt diese Methode auf den In-Process-Pfad
+        zurueck (langsam, aber korrekt).
         """
+        if getattr(sys, "frozen", False):
+            child = self._fit_subprocess(embeddings)
+            if child is not None:
+                return child
+            logger.warning(
+                "B-618: Cluster-Fit im Kind-Prozess fehlgeschlagen — Fallback auf "
+                "In-Process (kann den Main-Thread fuer ~80 s blockieren).",
+            )
+        return self._fit_inprocess(embeddings)
+
+    def _fit_subprocess(self, embeddings: np.ndarray) -> "ClusterResult | None":
+        """Fuehrt den Fit in einem eigenen Prozess aus (B-618, nur Frozen).
+
+        Returns:
+            ClusterResult, oder None wenn der Kind-Prozess nicht nutzbar war —
+            dann muss der Aufrufer in-process weitermachen.
+        """
+        import json
+        import tempfile
+
+        tmpdir = tempfile.mkdtemp(prefix="pb_clusterfit_")
+        in_path = os.path.join(tmpdir, "emb.npz")
+        out_path = os.path.join(tmpdir, "res.pkl")
+        job_path = os.path.join(tmpdir, "job.json")
+        try:
+            np.savez_compressed(in_path, embeddings=np.asarray(embeddings))
+            with open(job_path, "w", encoding="utf-8") as jf:
+                json.dump({
+                    "in": in_path,
+                    "out": out_path,
+                    "params": {
+                        "n_components": self.n_components,
+                        "n_neighbors": self.n_neighbors,
+                        "min_dist": self.min_dist,
+                        "metric": self.metric,
+                        "min_cluster_size": self.min_cluster_size,
+                        "min_samples": self.min_samples,
+                        "random_state": self.random_state,
+                    },
+                }, jf)
+
+            flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
+            subprocess.run(
+                [sys.executable],
+                env={**os.environ, "PB_CLUSTER_FIT": job_path},
+                check=True,
+                timeout=_FIT_SUBPROCESS_TIMEOUT_S,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                creationflags=flags,
+            )
+            with open(out_path, "rb") as of:
+                result = pickle.load(of)
+            logger.info("B-618: Cluster-Fit im Kind-Prozess erfolgreich.")
+            return result
+        except Exception as exc:  # noqa: BLE001 — jeder Fehler -> In-Process-Fallback
+            logger.warning("B-618: Cluster-Fit-Subprozess fehlgeschlagen: %s", exc)
+            return None
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def _fit_inprocess(
+        self,
+        embeddings: np.ndarray,
+    ) -> ClusterResult:
+        """Der eigentliche Fit. Im Frozen wird das im Kind-Prozess aufgerufen
+        (siehe ``fit`` und den PB_CLUSTER_FIT-Entrypoint in ``main.py``)."""
         n_samples = embeddings.shape[0]
         if n_samples < self.min_cluster_size:
             labels = np.zeros(n_samples, dtype=np.int32)
