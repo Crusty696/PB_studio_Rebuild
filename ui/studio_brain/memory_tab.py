@@ -30,7 +30,7 @@ from typing import Any, Callable, Optional, TypeVar
 
 T = TypeVar("T")
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
@@ -56,6 +56,57 @@ from services.backup_service import BackupService
 from services.brain import BrainService
 
 logger = logging.getLogger(__name__)
+
+
+# ── B-641 Fundstelle 2: Memory-Reset off GUI-Thread ───────────────────────────
+# _perform_reset() macht ein Full-DB-Backup (BackupService.backup, bis 100 MB+)
+# + DELETE FROM mem_learned_pattern + commit. Lief bisher synchron im
+# _on_reset_clicked-Slot -> blockierte den Event-Loop fuer die Kopierdauer.
+# Serialisierter Pool (maxThreadCount=1, wie B-077 fuer Anchor-Writes) haelt
+# destruktive DB-Operationen in Aufruf-Reihenfolge, ohne den GUI-Thread zu
+# blockieren.
+_MEMORY_RESET_POOL: "QThreadPool | None" = None
+
+
+def _get_memory_reset_pool() -> QThreadPool:
+    global _MEMORY_RESET_POOL
+    if _MEMORY_RESET_POOL is None:
+        pool = QThreadPool()
+        pool.setMaxThreadCount(1)
+        _MEMORY_RESET_POOL = pool
+    return _MEMORY_RESET_POOL
+
+
+class _MemoryResetSignals(QObject):
+    """Signal-Holder (QRunnable ist kein QObject). Lebt auf der MemoryTab-
+    Instanz (langlebig), nicht auf dem Runnable — sonst koennte er per
+    autoDelete/GC verschwinden, bevor das QueuedConnection-Event zugestellt
+    ist (gleiches Muster wie B-643 in ui/timeline.py)."""
+
+    done = Signal(object, object)  # (result: (count, path) | None, error: Exception | None)
+
+
+class _MemoryResetRunnable(QRunnable):
+    """B-641: fuehrt MemoryTab._perform_reset() im Pool-Thread aus."""
+
+    def __init__(self, perform_reset: Callable[[], tuple[int, Path]],
+                 signals: _MemoryResetSignals) -> None:
+        super().__init__()
+        self.setAutoDelete(True)
+        self._perform_reset = perform_reset
+        self._signals = signals
+
+    def run(self) -> None:  # pool thread
+        result = None
+        error = None
+        try:
+            result = self._perform_reset()
+        except Exception as exc:  # noqa: BLE001 — Fehler wird im GUI-Thread gemeldet
+            error = exc
+        try:
+            self._signals.done.emit(result, error)
+        except RuntimeError:
+            pass  # Holder (MemoryTab) bereits zerstoert — kein Leak moeglich
 
 
 # ── Layout / style constants ──────────────────────────────────────────────────
@@ -629,6 +680,10 @@ class _FooterBar(QWidget):
         self._status.setText("")
         self._status.setVisible(False)
 
+    def set_reset_enabled(self, enabled: bool) -> None:
+        """B-641: waehrend des Off-Thread-Resets gesperrt (kein Doppel-Klick)."""
+        self._reset_btn.setEnabled(enabled)
+
 
 # ── Memory tab ───────────────────────────────────────────────────────────────
 
@@ -676,6 +731,12 @@ class MemoryTab(QWidget):
         self._footer = _FooterBar(self)
         self._footer.resetClicked.connect(self._on_reset_clicked)
         outer.addWidget(self._footer)
+
+        # B-641: Signal-Holder fuer den Off-Thread-Reset lebt auf der
+        # MemoryTab-Instanz (langlebig), nicht auf dem Runnable.
+        self._reset_signals = _MemoryResetSignals()
+        self._reset_signals.done.connect(
+            self._on_reset_done, Qt.ConnectionType.QueuedConnection)
 
         # Initial render.
         self.refresh()
@@ -758,20 +819,30 @@ class MemoryTab(QWidget):
         if reply != QMessageBox.StandardButton.Yes:
             return
 
-        try:
-            deleted_count, backup_path = self._perform_reset()
-        except Exception as exc:  # noqa: BLE001 — surfaced to the user
-            logger.exception("MemoryTab: pattern reset failed")
+        # B-641: Backup (Full-DB-Copy) + DELETE laufen im Pool-Thread statt
+        # synchron im GUI-Thread — kein Event-Loop-Blockieren mehr bei
+        # grosser pb_studio.db. Button gesperrt gegen Doppel-Klick waehrend
+        # der Reset laeuft.
+        self._footer.set_reset_enabled(False)
+        self._footer.set_status_ok("Wird zurückgesetzt…")
+        runnable = _MemoryResetRunnable(self._perform_reset, self._reset_signals)
+        _get_memory_reset_pool().start(runnable)
+
+    def _on_reset_done(self, result: Optional[tuple], error: Optional[Exception]) -> None:  # GUI thread
+        self._footer.set_reset_enabled(True)
+        if error is not None:
+            logger.exception("MemoryTab: pattern reset failed", exc_info=error)
             QMessageBox.critical(
                 self,
                 "Zurücksetzen fehlgeschlagen",
-                f"Konnte gelernte Muster nicht zurücksetzen:\n{exc}",
+                f"Konnte gelernte Muster nicht zurücksetzen:\n{error}",
             )
             self._footer.set_status_error(
-                f"Zurücksetzen fehlgeschlagen: {exc}"
+                f"Zurücksetzen fehlgeschlagen: {error}"
             )
             return
 
+        deleted_count, backup_path = result
         self._svc.invalidate()
         self.refresh()
         self._footer.set_status_ok(

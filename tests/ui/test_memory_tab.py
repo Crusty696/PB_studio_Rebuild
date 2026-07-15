@@ -26,7 +26,7 @@ from services.backup_service import BackupService
 from services.brain import BrainService
 from services.enrichment import ENRICHER_VERSION
 from tests.ui.test_structure_tab import _build_struct_db
-from ui.studio_brain.memory_tab import MemoryTab
+from ui.studio_brain.memory_tab import MemoryTab, _get_memory_reset_pool
 from ui.studio_brain_window import StudioBrainWindow
 
 
@@ -38,6 +38,16 @@ def _ensure_qapp() -> QApplication:
     if app is None:
         app = QApplication([])
     return app
+
+
+def _wait_for_reset_pool(app: QApplication) -> None:
+    """B-641: Reset laeuft jetzt im QThreadPool (off GUI-Thread) statt
+    synchron. Test muss auf den Pool-Job + die QueuedConnection-Zustellung
+    des done-Signals warten, statt das Ergebnis direkt nach .click() zu
+    erwarten."""
+    _get_memory_reset_pool().waitForDone(5000)
+    for _ in range(20):
+        app.processEvents()
 
 
 @pytest.fixture(autouse=True)
@@ -441,7 +451,7 @@ def test_memory_tab_pattern_selection_populates_drill_down(tmp_path: Path) -> No
 def test_memory_tab_reset_creates_backup_and_deletes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _ensure_qapp()
+    app = _ensure_qapp()
     engine, Session = _build_struct_db(tmp_path)
     with engine.begin() as conn:
         _seed_pattern(conn, pattern_id=1, confidence=0.2)
@@ -475,6 +485,7 @@ def test_memory_tab_reset_creates_backup_and_deletes(
     tab.patternsReset.connect(received.append)
 
     tab._footer._reset_btn.click()
+    _wait_for_reset_pool(app)
 
     # 1) BackupService.backup called exactly once — by pattern_reset_context.
     assert len(call_log) == 1
