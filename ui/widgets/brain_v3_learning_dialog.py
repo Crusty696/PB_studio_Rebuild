@@ -51,7 +51,31 @@ class _LearningLoadWorker(BaseWorker):
         self._n = int(n)
 
     def _do_work(self):
-        resp = self._service.learning_session(n=self._n)
+        # Die uebergebene Service-Instanz stammt aus dem GUI-Thread
+        # (BrainV3StatsPanel baut sie dort und ruft darauf per QTimer alle 5s
+        # stats()). WeightStore haelt eine gecachte sqlite3-Connection und ist
+        # laut services/brain/weight_store.py:10 NICHT thread-safe;
+        # brain_v3_service.py:82-88 verlangt darum pro Caller-Thread eine
+        # eigene Instanz. Sie hier direkt zu benutzen, laesst GUI-Refresh und
+        # diesen Worker auf derselben Connection kollidieren.
+        # Gleiches Vorgehen wie brain_v3_feedback_popup.py fuer denselben Zweck:
+        # frische, thread-lokale Instanz IM Worker-Thread bauen.
+        #
+        # Nur wenn wirklich ein WeightStore dahinter haengt (_brain_store): dessen
+        # gecachte sqlite3-Connection ist das thread-lokale Problem. Ein Service
+        # ohne _brain_store (Fake/Stub) hat keine Connection und damit kein Race —
+        # er wird unveraendert benutzt. Sonst wuerde
+        # build_thread_local_brain_service ihn durch einen echten BrainV3Service
+        # ersetzen und die uebergebene Implementierung stillschweigend ignorieren.
+        src = self._service
+        if getattr(src, "_brain_store", None) is not None:
+            from ui.widgets.brain_v3_feedback_popup import (
+                build_thread_local_brain_service,
+            )
+            service = build_thread_local_brain_service(src)
+        else:
+            service = src
+        resp = service.learning_session(n=self._n)
         return list(resp.samples)
 
 

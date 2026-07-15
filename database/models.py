@@ -200,6 +200,9 @@ class AudioTrack(Base):
     project = relationship("Project", back_populates="audio_tracks", lazy='joined')
     beatgrid = relationship("Beatgrid", back_populates="audio_track", uselist=False, cascade="all, delete-orphan", passive_deletes=True, lazy='joined')
     waveform_data = relationship("WaveformData", back_populates="audio_track", uselist=False, cascade="all, delete-orphan", passive_deletes=True, lazy='joined')
+    # lazy='select' (nicht 'joined'): Zeitreihen-Blobs duerfen nicht bei jedem
+    # AudioTrack-Voll-Laden eager mitkommen — siehe AVPacingData-Docstring (B-090).
+    av_pacing_data = relationship("AVPacingData", back_populates="audio_track", uselist=False, cascade="all, delete-orphan", passive_deletes=True, lazy='select')
     structure_segments = relationship("StructureSegment", back_populates="audio_track", cascade="all, delete-orphan", passive_deletes=True, lazy='selectin')
     hotcues = relationship("HotCue", back_populates="audio_track", cascade="all, delete-orphan", passive_deletes=True, lazy='selectin')
     audio_video_anchors = relationship("AudioVideoAnchor", back_populates="audio_track", foreign_keys="AudioVideoAnchor.audio_track_id", cascade="all, delete-orphan", passive_deletes=True, lazy='selectin')
@@ -329,6 +332,58 @@ class WaveformData(Base):
 
     def __repr__(self):
         return f"<WaveformData(id={self.id}, samples={self.num_samples})>"
+
+
+class AVPacingData(Base):
+    """AV-Pacing-Kurven (AVPacingService) pro Audio-Track — eigene 1:1-Tabelle.
+
+    Bewusst NICHT als JSON-Spalten auf ``AudioTrack``: die Kurven sind
+    Zeitreihen (bei 0.4s-Raster ~9.000 Werte je Kurve fuer einen 60-min-Track).
+    ``energy_curve`` auf ``AudioTrack`` ist mit ~3.600 Werten bereits als
+    Freeze-Ursache dokumentiert (services/ingest_service.py:575, P8-FREEZE-FIX),
+    darum die Auslagerung analog ``WaveformData``.
+
+    Ebenfalls bewusst ``lazy='select'`` statt des ``lazy='joined'`` der
+    Nachbar-Tabellen: ``joined`` wuerde die Kurven bei JEDEM AudioTrack-
+    Voll-Laden eager mitziehen — exakt das B-090-Muster. So werden sie nur
+    geladen, wenn ein Consumer sie wirklich anfasst.
+    """
+    __tablename__ = "av_pacing_data"
+    __table_args__ = (
+        Index("idx_av_pacing_audio", "audio_track_id"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    audio_track_id = Column(Integer, ForeignKey("audio_tracks.id", ondelete="CASCADE"), nullable=False, unique=True)
+
+    # Raster nach Downsampling. AVPacingService rechnet auf AV_PACING_HOP_SEC
+    # (0.1s); persistiert wird jeder 4. Frame (Vorbild: onset_rhythm_service.py
+    # :213 curve[::4]) -> hop_sec = 0.4. Zeitindex: idx = int(t / hop_sec).
+    hop_sec = Column(Float, nullable=False, default=0.4)
+    num_samples = Column(Integer, nullable=False, default=0)
+    duration = Column(Float, nullable=False, default=0.0)
+
+    # Downgesampelte Zeitreihen (JSON-Arrays, gleiche Laenge = num_samples)
+    times_sec = Column(JSON, nullable=False)          # Zeitachse in Sekunden
+    spectral_centroid = Column(JSON, nullable=False)  # Hz — Klangfarbe/Helligkeit
+    spectral_flux = Column(JSON, nullable=False)      # Aenderungsrate
+    stereo_width = Column(JSON, nullable=False)       # 0..1 — Side/(Mid+Side)
+    percussive_ratio = Column(JSON, nullable=False)   # 0..1 — HPSS
+
+    # RMS-Energie in VOLLER Aufloesung (AV_PACING_HOP_SEC = 0.1s), bewusst NICHT
+    # downgesampelt: Konsument ist services/pacing/audio_video_curves
+    # (DEFAULT_BIN_MS = 100) fuer den kurvenbasierten Energy-Match gegen die
+    # Clip-Motion-Kurve — ein 0.4s-Raster wuerde dort nicht auf das Grid passen.
+    # Daher eigenes Hop-Feld: rms_curve hat ein ANDERES Raster als die vier
+    # Kurven oben (hop_sec). Wer rms_curve indiziert, muss rms_hop_sec nutzen.
+    # nullable, damit Bestandszeilen ohne RMS gueltig bleiben (Re-Analyse fuellt).
+    rms_hop_sec = Column(Float, nullable=True)
+    rms_curve = Column(JSON, nullable=True)           # 0..n, roh (nicht normiert)
+
+    audio_track = relationship("AudioTrack", back_populates="av_pacing_data", lazy='select')
+
+    def __repr__(self):
+        return f"<AVPacingData(id={self.id}, samples={self.num_samples}, hop={self.hop_sec})>"
 
 
 class PacingBlueprint(Base):

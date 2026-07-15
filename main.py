@@ -1457,10 +1457,32 @@ def main():
     import os as _os_warmup
     if _os_warmup.environ.get("PB_WARMUP_UMAP") == "1":
         try:
-            import umap  # noqa: F401 — Import triggert den Numba-JIT-Kaltstart
+            import numpy as _warm_np
+            import umap  # noqa: F401
+
+            # Ein blosser ``import umap`` genuegt NICHT: Numba kompiliert die
+            # pynndescent-Kernel lazy, also erst beim ersten fit(). Live-Beleg
+            # (2026-07-15): nach reinem Import blieb NUMBA_CACHE_DIR leer — der
+            # Warmup waermte den Cache also gar nicht, und der JIT-Kaltstart
+            # haette beim ersten echten Cluster-fit() trotzdem zugeschlagen.
+            # Darum hier ein Mini-fit mit denselben JIT-relevanten Parametern
+            # wie StyleBucketClusterer.fit(): metric="cosine" (kompiliert
+            # pynndescent/distances.py — genau der Pfad aus den Watchdog-Stacks)
+            # und float32-2D-Input (bestimmt die Numba-Signatur). Groesse und
+            # n_neighbors sind fuer die Signatur egal, darum bewusst winzig.
+            _warm_x = _warm_np.random.RandomState(0).rand(40, 32).astype(
+                _warm_np.float32
+            )
+            umap.UMAP(
+                n_neighbors=5,
+                min_dist=0.0,
+                n_components=2,
+                metric="cosine",
+                random_state=42,
+            ).fit(_warm_x)
             sys.exit(0)
         except Exception as _warm_exc:  # noqa: BLE001
-            print(f"PB_WARMUP_UMAP import failed: {_warm_exc}", file=sys.stderr)
+            print(f"PB_WARMUP_UMAP warmup failed: {_warm_exc}", file=sys.stderr)
             sys.exit(2)
 
     import os as _os_smoke

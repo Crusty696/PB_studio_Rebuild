@@ -534,10 +534,18 @@ class MediaWorkspace(QWidget):
             "Papierkorb",
             "Soft-geloeschte Medien anzeigen, wiederherstellen oder endgueltig loeschen",
         )
+        # F-02: btn_clear_all lag im FILTER-Subtab des nie gemounteten
+        # _video_sub_tabs -> verdrahtet (workspace_setup.py), aber unerreichbar.
+        # Hier in die sichtbare Toolbar gezogen.
+        self.btn_clear_all = _toolbar_btn(
+            "Sammlung bereinigen", "Alle Medien aus DB und Ansicht entfernen",
+            danger=True,
+        )
         tb.addWidget(self.btn_import_video)
         tb.addWidget(self.btn_import_folder)
         tb.addWidget(self.btn_delete_selected_video)
         tb.addWidget(self.btn_trash)
+        tb.addWidget(self.btn_clear_all)
 
         tb.addSpacing(10)
         lbl = QLabel("SigLIP")
@@ -644,11 +652,7 @@ class MediaWorkspace(QWidget):
         flay = QHBoxLayout(filt)
         flay.setContentsMargins(8, 6, 8, 6)
         flay.setSpacing(6)
-        self.btn_clear_all = _toolbar_btn(
-            "Sammlung bereinigen", "Alle Medien aus DB und Ansicht entfernen",
-            danger=True,
-        )
-        flay.addWidget(self.btn_clear_all)
+        # btn_clear_all wurde in die sichtbare Toolbar verschoben (F-02).
         flay.addStretch()
         self._video_sub_tabs.addTab(filt, "FILTER")
         self._video_sub_tabs.setTabToolTip(1, "Video-Pool verwalten, Auswahl loeschen und Pool-Filter nutzen.")

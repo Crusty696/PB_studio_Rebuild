@@ -573,7 +573,13 @@ def explain_clip(clip_id: int) -> dict:
         from database import engine, VideoClip, Scene
 
         with SASession(engine) as session:
-            clip = session.get(VideoClip, clip_id)
+            # PB-Studio-Norm — soft-deleted Clips duerfen nicht beschrieben
+            # werden (sonst liefert das Tool Szenen-Infos zu getrashtem
+            # Material). Konsistent zu _get_active_video_clip in
+            # services/actions/video_actions.py.
+            clip = session.query(VideoClip).filter(
+                VideoClip.id == clip_id, VideoClip.deleted_at.is_(None)
+            ).first()
             if clip is None:
                 return {
                     "status": "error",
@@ -701,7 +707,12 @@ def describe_set_overview(track_id: int | None = None) -> dict:
             if track_id:
                 track = session.get(AudioTrack, track_id)
             else:
-                track = session.query(AudioTrack).first()
+                # PB-Studio-Norm — Fallback ohne id darf keinen soft-deleted
+                # Track liefern (sonst Set-Zusammenfassung ueber getrashtes
+                # Audio). Analog zum Fallback in Z258.
+                track = session.query(AudioTrack).filter(
+                    AudioTrack.deleted_at.is_(None)
+                ).first()
 
             if not track:
                 return {
@@ -950,7 +961,11 @@ def match_clips_to_segment(
             if track_id:
                 track = session.get(AudioTrack, track_id)
             else:
-                track = session.query(AudioTrack).first()
+                # PB-Studio-Norm — Fallback ohne id darf keinen soft-deleted
+                # Track liefern (sonst Clip-Matching gegen getrashtes Audio).
+                track = session.query(AudioTrack).filter(
+                    AudioTrack.deleted_at.is_(None)
+                ).first()
 
             if not track:
                 return {

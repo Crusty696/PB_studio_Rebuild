@@ -35,14 +35,34 @@ _UMAPReducer = Any
 # starb (live-belegt 2026-07-13). Bei warmem Cache dauert derselbe Pfad nur
 # noch 1.5-4.7s und ist stabil (Warmlauf-Nachtest, 8x ausgeloest).
 #
-# Fix: Vor dem In-Process-Import einmalig ``import umap`` in einem
-# SEPARATEN Subprocess ausfuehren. Der Subprocess fuellt den Numba-Disk-
-# Cache, ohne den GIL des App-Prozesses zu halten; der anschliessende
-# In-Process-Import trifft dann den warmen Cache.
+# Fix: Vor dem In-Process-Import einmalig einen Mini-``fit()`` in einem
+# SEPARATEN Subprocess ausfuehren (``_WARMUP_SNIPPET``). Der Subprocess fuellt
+# den Numba-Disk-Cache, ohne den GIL des App-Prozesses zu halten; der
+# anschliessende In-Process-Import trifft dann den warmen Cache.
+#
+# Korrektur 2026-07-15: Frueher lief hier nur ``import umap``. Der Frozen-Verify
+# zeigte, dass NUMBA_CACHE_DIR danach LEER blieb — Numba kompiliert die
+# pynndescent-Kernel lazy, also erst beim ersten fit(). Der Warmup waermte den
+# relevanten Cache also nicht. Siehe ``_WARMUP_SNIPPET``.
 # ---------------------------------------------------------------------------
 _WARMUP_TIMEOUT_S: float = 600.0
 _WARMUP_LOCK = threading.Lock()
 _WARMUP_STATE: dict[str, bool] = {"done": False}
+
+# Ein blosser ``import umap`` reicht NICHT: Numba kompiliert die
+# pynndescent-Kernel lazy, also erst beim ersten fit(). Live-Beleg
+# (2026-07-15, Frozen): nach reinem Import blieb NUMBA_CACHE_DIR leer — der
+# Warmup fuellte den Cache also gar nicht. Darum ein Mini-fit mit denselben
+# JIT-relevanten Parametern wie ``fit()`` unten: metric="cosine" (kompiliert
+# pynndescent/distances.py — der Pfad aus den Watchdog-Stacks) und
+# float32-2D-Input (bestimmt die Numba-Signatur). Sample-Zahl und n_neighbors
+# beeinflussen die Signatur nicht, darum bewusst winzig gehalten.
+# Muss als Einzeiler-Snippet fuer ``python -c`` gueltig bleiben.
+_WARMUP_SNIPPET: str = (
+    "import numpy as np, umap; "
+    "umap.UMAP(n_neighbors=5, min_dist=0.0, n_components=2, metric='cosine', "
+    "random_state=42).fit(np.random.RandomState(0).rand(40, 32).astype(np.float32))"
+)
 
 
 def warm_umap_cache(timeout: float = _WARMUP_TIMEOUT_S) -> bool:
@@ -107,7 +127,7 @@ def warm_umap_cache(timeout: float = _WARMUP_TIMEOUT_S) -> bool:
         )
         try:
             subprocess.run(
-                [sys.executable, "-c", "import umap"],
+                [sys.executable, "-c", _WARMUP_SNIPPET],
                 check=True,
                 timeout=timeout,
                 stdout=subprocess.DEVNULL,

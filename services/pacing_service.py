@@ -1129,6 +1129,7 @@ def _auto_edit_phase3_inner(
     # bei Fehler fällt der Loop auf Legacy zurück (Snapshot-Test schützt).
     _studio_brain_pipeline = None
     _studio_brain_audio_track = None
+    _studio_brain_av_pacing = None  # AVPacingCurves, einmal pro Run geladen
     _studio_brain_run_id = None
     try:
         if studio_brain_requested:
@@ -1193,6 +1194,21 @@ def _auto_edit_phase3_inner(
                     .filter_by(id=audio_id)
                     .first()
                 )
+                # AV-Pacing-Kurven EINMAL hier laden, nicht im Cut-Loop:
+                # AudioTrack.av_pacing_data ist lazy='select' (Blob-Schutz,
+                # B-090) — nach diesem with-Block ist der Track detached, ein
+                # Attribut-Zugriff wuerde dann scheitern. build_audio_context
+                # ist zudem pure und darf keine Query machen.
+                from services.pacing.bridge_mapping import load_av_pacing_curves
+                _studio_brain_av_pacing = load_av_pacing_curves(
+                    _sb_session, audio_id,
+                )
+                if _studio_brain_av_pacing is None:
+                    logger.info(
+                        "AV-Pacing: keine av_pacing_data fuer track=%s — Scorer "
+                        "nutzt Fallback-Terme (Track vor der AVPacing-Stage "
+                        "analysiert?).", audio_id,
+                    )
             logger.info(
                 "Studio-Brain-Pipeline aktiv (PB_USE_STUDIO_BRAIN_PIPELINE=1) — "
                 "Cuts werden zusätzlich via select_best gerated, Legacy-Fallback bei None. "
@@ -1319,6 +1335,7 @@ def _auto_edit_phase3_inner(
                         energy_per_beat=energy_per_beat,
                         stem_energies=_sb_stem_e,
                         dominant_stem=_sb_dom,
+                        av_pacing=_studio_brain_av_pacing,
                     )
                     # Cycle 14 Option A: Build ClipFeatures pro Clip mit der
                     # Scene die zum aktuellen clip_offsets[vid] passt — nicht
@@ -1352,6 +1369,12 @@ def _auto_edit_phase3_inner(
                                 "embedding": _sb_emb,
                                 "shot_confidences": _sb_shot,
                             })(),
+                            # Alle Szenen + Abspiel-Offset -> motion_curve. Zusammen
+                            # mit AudioContext.at_rms_curve aktiviert das den
+                            # kurvenbasierten Energy-Match statt des skalaren.
+                            # Beides ab der Stelle, die als Naechstes laufen wuerde.
+                            scenes=_scenes,
+                            offset_sec=clip_offsets.get(_vid, 0.0),
                         ))
                     # T1.3 (USE-004): Exclude = harter Ausschluss. Wuerde er
                     # ALLE Kandidaten treffen, wird er fuer dieses Segment

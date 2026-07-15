@@ -130,6 +130,103 @@ def _persist_to_track(track_id: int, fields: dict) -> None:
         logger.warning("Persist track=%s fehlgeschlagen: %s", track_id, e)
 
 
+# AV-Pacing wird auf AV_PACING_HOP_SEC (0.1s) gerechnet, aber downgesampelt
+# gespeichert: jeder 4. Frame -> 0.4s-Raster. Vorbild: onset_rhythm_service.py
+# :213 (curve[::4], "downsampled fuer DB-Storage"). Bei einem 60-min-Track
+# schrumpft das von ~36.000 auf ~9.000 Werte je Kurve.
+_AV_PACING_DECIMATE = 4
+
+
+def _decimate(seq, step: int = _AV_PACING_DECIMATE, ndigits: int = 4) -> list:
+    """Jeden ``step``-ten Wert behalten und runden (DB-Storage-Groesse).
+
+    Defensiv: unerwartete/nicht-iterierbare Werte ergeben eine leere Liste
+    statt einer Exception — das Persistieren darf die Analyse-Stage nie
+    reissen (der Aufrufer behandelt [] als "nichts zu speichern").
+    """
+    if not seq:
+        return []
+    try:
+        return [round(float(v), ndigits) for v in list(seq)[::step]]
+    except (TypeError, ValueError):
+        return []
+
+
+def _persist_av_pacing(track_id: int, result) -> int:
+    """Schreibt die AV-Pacing-Kurven downgesampelt in ``av_pacing_data``.
+
+    Eigene 1:1-Tabelle statt JSON-Spalten auf AudioTrack — Begruendung siehe
+    ``database/models.py`` AVPacingData-Docstring (Blob/B-090). Upsert, weil
+    ``audio_track_id`` unique ist und eine Re-Analyse denselben Track trifft.
+    DB nicht verfuegbar (headless) -> no-op, wie ``_persist_to_track``.
+
+    Returns:
+        Anzahl persistierter Samples (0 wenn nichts geschrieben wurde).
+    """
+    if nullpool_session is None or result is None:
+        return 0
+    times = _decimate(getattr(result, "times_sec", None))
+    if not times:
+        return 0
+    try:
+        from database import AudioTrack, AVPacingData
+    except ImportError:
+        return 0
+
+    centroid = _decimate(getattr(result, "spectral_centroid", None))
+    flux = _decimate(getattr(result, "spectral_flux", None))
+    width = _decimate(getattr(result, "stereo_width", None))
+    perc = _decimate(getattr(result, "percussive_ratio", None))
+    # RMS in voller Aufloesung (step=1) — siehe row.rms_curve unten.
+    rms = _decimate(getattr(result, "rms", None), step=1)
+
+    # Die Kurven muessen gleich lang sein — der Consumer indiziert alle vier
+    # ueber denselben Zeitindex. Auf die kuerzeste kuerzen statt zu raten.
+    n = min(len(times), len(centroid), len(flux), len(width), len(perc))
+    if n <= 0:
+        return 0
+    times, centroid, flux, width, perc = (
+        times[:n], centroid[:n], flux[:n], width[:n], perc[:n],
+    )
+    hop = float(getattr(result, "hop_sec", 0.1) or 0.1) * _AV_PACING_DECIMATE
+
+    try:
+        with nullpool_session() as sess:
+            # PB-Studio-Norm: nicht in soft-deleted Track schreiben.
+            track = sess.query(AudioTrack).filter(
+                AudioTrack.id == track_id, AudioTrack.deleted_at.is_(None),
+            ).first()
+            if track is None:
+                return 0
+            row = sess.query(AVPacingData).filter(
+                AVPacingData.audio_track_id == track_id,
+            ).first()
+            if row is None:
+                row = AVPacingData(audio_track_id=track_id)
+                sess.add(row)
+            row.hop_sec = hop
+            row.num_samples = n
+            row.duration = float(times[-1]) if times else 0.0
+            row.times_sec = times
+            row.spectral_centroid = centroid
+            row.spectral_flux = flux
+            row.stereo_width = width
+            row.percussive_ratio = perc
+            # RMS bewusst NICHT decimiert: der Energy-Match in
+            # services/pacing/audio_video_curves arbeitet auf einem 100ms-Grid
+            # (DEFAULT_BIN_MS) — ein 0.4s-Raster passt dort nicht. Eigenes
+            # Hop-Feld, weil es sich vom Raster der vier Kurven unterscheidet.
+            row.rms_curve = rms
+            row.rms_hop_sec = float(
+                getattr(result, "hop_sec", 0.1) or 0.1
+            ) if rms else None
+            sess.commit()
+            return n
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Persist av_pacing track=%s fehlgeschlagen: %s", track_id, e)
+        return 0
+
+
 _DEMUCS_VERSION = "htdemucs"
 _TARGET_WAV_SUBTYPE = "PCM_24"
 
@@ -577,8 +674,14 @@ class AVPacingStage(Stage):
         svc = self._service_cls()
         result = svc.analyze(context.original_path)
         _raise_if_cancelled(context, "av_pacing")
+        # Frueher wurde hier nur len(times_sec) behalten und das Ergebnis
+        # verworfen — die HPSS-Rechnung lief also fuer nichts. Jetzt werden die
+        # Kurven downgesampelt in av_pacing_data persistiert und von
+        # services/pacing/bridge_mapping.py als AudioContext-Felder gelesen.
+        stored = _persist_av_pacing(context.track_id, result)
         context.set_result(self.name, {
             "samples": len(getattr(result, "times_sec", []) or []),
+            "stored_samples": stored,
         })
 
 

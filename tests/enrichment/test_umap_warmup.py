@@ -50,7 +50,7 @@ def _make_fake_run(calls: list, side_effect: Exception | None = None, delay: flo
 
 
 def test_cold_cache_runs_warmup_subprocess(monkeypatch):
-    """Kalter Cache: genau ein Subprocess `python -c "import umap"`."""
+    """Kalter Cache: genau ein Subprocess mit dem Mini-fit-Snippet."""
     monkeypatch.delitem(sys.modules, "umap", raising=False)
     monkeypatch.delattr(sys, "frozen", raising=False)
     calls: list = []
@@ -59,9 +59,24 @@ def test_cold_cache_runs_warmup_subprocess(monkeypatch):
     assert sbc.warm_umap_cache() is True
     assert len(calls) == 1
     cmd, kwargs = calls[0]
-    assert cmd == [sys.executable, "-c", "import umap"]
+    assert cmd == [sys.executable, "-c", sbc._WARMUP_SNIPPET]
     assert kwargs.get("timeout") is not None
     assert kwargs.get("check") is True
+
+
+def test_warmup_snippet_does_a_real_fit(monkeypatch):
+    """Das Snippet muss fit() aufrufen, nicht nur importieren.
+
+    Ein blosser ``import umap`` kompiliert die pynndescent-Kernel nicht (Numba
+    JITet lazy beim ersten fit) — live belegt: NUMBA_CACHE_DIR blieb nach
+    reinem Import leer. metric='cosine' ist der Pfad aus den Watchdog-Stacks
+    (pynndescent/distances.py) und muss mitkompiliert werden.
+    """
+    assert "umap" in sbc._WARMUP_SNIPPET
+    assert ".fit(" in sbc._WARMUP_SNIPPET, "Warmup ohne fit() waermt den Cache nicht"
+    assert "cosine" in sbc._WARMUP_SNIPPET, "metric muss dem echten fit() entsprechen"
+    # Muss als python -c Einzeiler kompilierbar sein.
+    compile(sbc._WARMUP_SNIPPET, "<warmup>", "exec")
 
 
 def test_warmup_skipped_when_umap_already_imported(monkeypatch):
@@ -74,15 +89,11 @@ def test_warmup_skipped_when_umap_already_imported(monkeypatch):
     assert calls == []
 
 
-def test_warmup_skipped_in_frozen_build(monkeypatch):
-    """PyInstaller: sys.executable ist die App-EXE -> Warmup kontrolliert skippen."""
-    monkeypatch.delitem(sys.modules, "umap", raising=False)
-    monkeypatch.setattr(sys, "frozen", True, raising=False)
-    calls: list = []
-    monkeypatch.setattr(sbc.subprocess, "run", _make_fake_run(calls))
-
-    assert sbc.warm_umap_cache() is False
-    assert calls == []
+# test_warmup_skipped_in_frozen_build (entfernt 2026-07-15, User-Entscheid):
+# pinnte das alte Verhalten "Frozen -> Warmup ueberspringen, return False, kein
+# Subprocess". Der B-618-Frozen-Branch re-invoket inzwischen die App-EXE mit
+# PB_WARMUP_UMAP=1 als Kind-Prozess und liefert True — der Test war seitdem rot
+# und beschrieb einen Zustand, den es nicht mehr gibt.
 
 
 def test_warmup_idempotent_second_call_no_subprocess(monkeypatch):

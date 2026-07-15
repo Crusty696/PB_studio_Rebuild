@@ -25,6 +25,7 @@ from database.models import (  # noqa: F401
     Scene,
     Beatgrid,
     WaveformData,
+    AVPacingData,
     PacingBlueprint,
     AudioVideoAnchor,
     ClipAnchor,

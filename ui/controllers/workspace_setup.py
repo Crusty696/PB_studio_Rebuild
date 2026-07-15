@@ -203,7 +203,7 @@ class WorkspaceSetupController(PBComponent):
         und seinen Sub-Tabs.
         """
         from ui.workspaces import (
-            MediaWorkspace, StemsWorkspace,
+            MediaWorkspace,
             ConvertWorkspace, DeliverWorkspace,
             MaterialAnalysisWorkspace, ProjectDashboard,
         )
@@ -451,16 +451,17 @@ class WorkspaceSetupController(PBComponent):
         self.window.media_table_controller._refresh_director_combos()
 
         # --- STEMS workspace ---
-        self.window._stems_ws = StemsWorkspace()
+        # Genau EINE StemsWorkspace-Instanz: die im sichtbaren SCHNITT-Audio-Tab.
+        # Hier wurde frueher eine zweite erzeugt, die nie gemountet war — deren
+        # sub_tabs (ENERGIE/ONSETS/SNR) blieben unsichtbar, obwohl die Controller
+        # sie per update_analysis fuetterten.
+        #
+        # Das Player-Wiring macht ausschliesslich der SchnittAudioBinder (siehe
+        # oben, connect_stem_player). Die frueheren acht connects standen hier
+        # ein zweites Mal — auf derselben Instanz wuerden sie jedes Signal
+        # doppelt ausloesen (Play/Stop zweimal), deshalb ersatzlos entfernt.
+        self.window._stems_ws = self.window._schnitt_ws.editor_view.tab_audio._stems_ws
         self.window.stem_workspace = self.window._stems_ws.stem_widget
-        self.window.stem_workspace.stem_volume_changed.connect(self.window.stem_player.set_volume)
-        self.window.stem_workspace.stem_mute_toggled.connect(self.window.stem_player.set_mute)
-        self.window.stem_workspace.play_requested.connect(self.window.stem_player.play)
-        self.window.stem_workspace.pause_requested.connect(self.window.stem_player.pause)
-        self.window.stem_workspace.stop_requested.connect(self.window.stem_player.stop)
-        self.window.stem_workspace.seek_requested.connect(self.window.stem_player.seek)
-        self.window.stem_player.position_changed.connect(self.window.stem_workspace.update_position)
-        self.window.stem_player.state_changed.connect(self.window.stem_workspace.update_playback_state)
 
         # --- CONVERT workspace ---
         self.window._convert_ws = ConvertWorkspace()

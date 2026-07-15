@@ -1030,28 +1030,34 @@ class EditWorkspaceController(PBComponent):
             return False
         try:
             with DBSession(engine) as s:
+                # B-090: nur die ID selektieren, nicht das ORM-Objekt. Gebraucht
+                # wird ausschliesslich .id (findData unten); ein Voll-Laden zoege
+                # ueber lazy='joined' die Beatgrid-/Waveform-JSON-Blobs mit bzw.
+                # ueber lazy='selectin' saemtliche Scenes des Clips. Dieser Guard
+                # laeuft laut Docstring zwingend auf dem Qt-Main-Thread (Pre-Flight
+                # VOR dem Worker-Start) — der Blob-Load blockierte also die GUI.
                 if self.window.audio_combo.currentData() is None:
-                    first_audio = (
-                        s.query(AudioTrack)
+                    first_audio_id = (
+                        s.query(AudioTrack.id)
                         .filter_by(project_id=pid)
                         .filter(AudioTrack.deleted_at.is_(None))
                         .order_by(AudioTrack.id)
-                        .first()
+                        .scalar()
                     )
-                    if first_audio is not None:
-                        idx = self.window.audio_combo.findData(first_audio.id)
+                    if first_audio_id is not None:
+                        idx = self.window.audio_combo.findData(first_audio_id)
                         if idx >= 0:
                             self.window.audio_combo.setCurrentIndex(idx)
                 if self.window.video_combo.currentData() is None:
-                    first_video = (
-                        s.query(VideoClip)
+                    first_video_id = (
+                        s.query(VideoClip.id)
                         .filter_by(project_id=pid)
                         .filter(VideoClip.deleted_at.is_(None))
                         .order_by(VideoClip.id)
-                        .first()
+                        .scalar()
                     )
-                    if first_video is not None:
-                        idx = self.window.video_combo.findData(first_video.id)
+                    if first_video_id is not None:
+                        idx = self.window.video_combo.findData(first_video_id)
                         if idx >= 0:
                             self.window.video_combo.setCurrentIndex(idx)
         except (RuntimeError, AttributeError) as exc:

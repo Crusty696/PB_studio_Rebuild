@@ -65,6 +65,12 @@ class AudioContext:
     at_dominant_stem: str | None = None                      # stem_section_aggregator
     at_audio_mood_vec: np.ndarray | None = None              # audio_mood_vector (1152d)
     at_rms_curve: np.ndarray | None = None                   # audio_video_curves (100ms)
+    # AV-Pacing-Snapshot am Cut-Punkt (av_pacing_data, 0.4s-Raster). Skalare,
+    # per Zeitindex aus den persistierten Kurven gezogen — None = kein
+    # av_pacing_data fuer den Track, Scorer nutzt dann seine Fallback-Terme.
+    at_spectral_flux: float | None = None                    # Aenderungsrate, 0..1 normiert
+    at_stereo_width: float | None = None                     # 0..1
+    at_percussive_ratio: float | None = None                 # 0..1 (HPSS)
 
 
 # ── Scoring helper functions (pure — no DB/IO) ──────────────────────────────
@@ -296,6 +302,37 @@ def groove_fit(audio_groove: str | None, motion_score: float | None) -> float:
     return 1.0 if 0.3 <= motion_score <= 0.7 else 0.4
 
 
+def pacing_fit(
+    spectral_flux: float | None,
+    percussive_ratio: float | None,
+    motion_score: float | None,
+) -> float:
+    """AV-Pacing: rhythmische Aktivitaet der Musik vs. Bewegung im Clip.
+
+    ``spectral_flux`` (Klangfarben-Aenderungsrate) und ``percussive_ratio``
+    (HPSS-Perkussivanteil) messen beide, wie "bewegt" die Musik am Cut-Punkt
+    ist. Viel Aktivitaet passt zu bewegten Clips, ruhige Passagen zu ruhigen —
+    dieselbe Logik wie ``energy_match``, nur auf der AV-Pacing-Kurve statt auf
+    dem Energie-Skalar.
+
+    Fehlt eine Seite (kein ``av_pacing_data`` fuer den Track, oder Clip ohne
+    ``motion_score``), ist das Ergebnis 0.5 = neutral. Das ist fuer ALLE
+    Kandidaten identisch und verschiebt damit nur den Absolutwert, nicht deren
+    Rangfolge.
+
+    ``stereo_width`` geht bewusst NICHT ein: dafuer gibt es keine belegte
+    Zuordnung zu einer Clip-Eigenschaft. Der Wert wird persistiert und steht im
+    AudioContext bereit, sobald es einen begruendeten Term gibt.
+    """
+    if motion_score is None:
+        return 0.5
+    parts = [v for v in (spectral_flux, percussive_ratio) if v is not None]
+    if not parts:
+        return 0.5
+    activity = sum(parts) / len(parts)
+    return 1.0 - abs(activity - float(motion_score))
+
+
 def historical_accept_rate(
     context_fingerprint: tuple[str | None, ...],
     clip: ClipFeatures,
@@ -347,6 +384,7 @@ def staleness_penalty(
 # The 14 canonical term keys (without w_ prefix). Frozen set for validation.
 # NEUBAU-VOLLINTEGRATION T2.5.4: "stem_class" gehoert seit dem
 # Stem-Klasse<->Shot-Klasse-Bonus zu den score()-Contribs.
+# "pacing": AV-Pacing-Term (av_pacing_data -> pacing_fit).
 CANONICAL_TERM_KEYS: frozenset[str] = frozenset(
     {
         "role",
@@ -359,6 +397,7 @@ CANONICAL_TERM_KEYS: frozenset[str] = frozenset(
         "energy",
         "spectral",
         "groove",
+        "pacing",
         "memory",
         "stem_class",
         "collision",
@@ -380,6 +419,9 @@ DEFAULT_WEIGHTS: dict[str, float] = {
     "w_energy": 0.15,
     "w_spectral": 0.05,
     "w_groove": 0.07,
+    # AV-Pacing (av_pacing_data -> pacing_fit). Ohne Daten liefert der Term
+    # konstant 0.5 fuer jeden Kandidaten -> reiner Offset, kein Ranking-Effekt.
+    "w_pacing": 0.08,
     "w_memory": 0.20,
     "w_collision": 0.10,  # penalty
     "w_freshness": 0.05,  # penalty
@@ -520,6 +562,10 @@ class PacingScorer:
             energy_contrib = w["w_energy"] * energy_match(ctx.at_energy, clip.motion_score)
         spectral_contrib = w["w_spectral"] * spectral_score
         groove_contrib = w["w_groove"] * groove_fit(ctx.at_groove_template, clip.motion_score)
+        # AV-Pacing (av_pacing_data via bridge_mapping): Aktivitaet der Musik am
+        # Cut-Punkt vs. Bewegung im Clip. Ohne Daten -> 0.5 fuer alle Kandidaten.
+        pacing_contrib = w.get("w_pacing", 0.0) * pacing_fit(
+            ctx.at_spectral_flux, ctx.at_percussive_ratio, clip.motion_score)
         memory_contrib = w["w_memory"] * memory_score
         # T2.5.4 (FR-S2-2): Stem-Klasse<->Shot-Klasse-Bonus (0.0 oder 0.15)
         from services.pacing.stem_class_bonus import compute_stem_class_bonus
@@ -531,7 +577,7 @@ class PacingScorer:
         total = (
             role_contrib + style_contrib + mood_video_contrib + mood_audio_contrib
             + genre_contrib + key_contrib + tension_contrib + energy_contrib
-            + spectral_contrib + groove_contrib + memory_contrib
+            + spectral_contrib + groove_contrib + pacing_contrib + memory_contrib
             + stem_class_contrib + collision_contrib + freshness_contrib
         )
         contribs: dict[str, float] = {
@@ -545,6 +591,7 @@ class PacingScorer:
             "energy": energy_contrib,
             "spectral": spectral_contrib,
             "groove": groove_contrib,
+            "pacing": pacing_contrib,
             "memory": memory_contrib,
             "stem_class": stem_class_contrib,
             "collision": collision_contrib,

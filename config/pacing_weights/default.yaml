@@ -12,6 +12,9 @@ w_tension:    0.08
 w_energy:     0.15
 w_spectral:   0.05
 w_groove:     0.07
+w_pacing:     0.08    # AV-Pacing (av_pacing_data -> pacing_fit): Aktivitaet der
+                      # Musik am Cut-Punkt vs. Clip-Bewegung. Ohne Daten liefert
+                      # der Term 0.5 fuer jeden Kandidaten -> reiner Offset.
 w_memory:     0.20    # Confidence-gated via Wilson-Lower-Bound — actual influence
                       # scales with accumulated feedback, not weight.
 w_collision:  0.10    # Penalty (subtracted).

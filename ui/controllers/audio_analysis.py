@@ -473,12 +473,29 @@ class AudioAnalysisController(PBComponent):
         Pfad des KOMPLETT-ANALYSE-Buttons (Setting audio.v2_default)."""
         from database import engine, AudioTrack
         from sqlalchemy.orm import Session
+        from sqlalchemy import select  # B-625/B-090
         queue = []
         with Session(engine) as s:
+            # B-625/B-090: nur Skalar-Spalten selektieren statt ORM-Voll-Laden —
+            # AudioTrack.beatgrid/waveform_data sind lazy='joined' und wuerden
+            # bei jedem Track die JSON-Blobs eager mitziehen. Das lief hier in
+            # einer Schleife auf dem Qt-Main-Thread (Klick-Handler ohne Worker),
+            # der Freeze skalierte also linear mit der Trackzahl. Gebraucht
+            # werden ohnehin nur file_path/title. Gleiches Muster wie in
+            # _get_selected_track (:51) und _batch_next (:648).
+            rows = s.execute(
+                select(
+                    AudioTrack.id,
+                    AudioTrack.file_path,
+                    AudioTrack.title,
+                ).where(AudioTrack.id.in_(list(track_ids)))
+            ).all()
+            by_id = {r.id: r for r in rows}
+            # Reihenfolge der Auswahl beibehalten (IN() garantiert sie nicht).
             for tid in track_ids:
-                t = s.query(AudioTrack).filter(AudioTrack.id == tid).first()
-                if t and t.file_path:
-                    queue.append((tid, t.file_path, t.title or str(tid)))
+                r = by_id.get(tid)
+                if r and r.file_path:
+                    queue.append((tid, r.file_path, r.title or str(tid)))
         if not queue:
             self.window.console_text.append("[Komplett-Analyse V2] Keine gueltigen Tracks.")
             return

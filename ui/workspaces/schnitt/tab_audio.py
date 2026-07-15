@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from ui.waveform_item import WaveformGraphicsItem
-from ui.widgets.stem_workspace import StemWorkspace
+from ui.workspaces.stems_workspace import StemsWorkspace
 
 
 # Zentrale Pixels-per-Second-Konstante (Tier-2 T2.4).
@@ -76,9 +76,18 @@ class SchnittTabAudio(QWidget):
         )
         v.addWidget(self.waveform_view)
 
-        # Stems-Mixer (Plan: StemWorkspaceWidget; Repo: StemWorkspace)
-        self.stem_workspace = StemWorkspace()
-        v.addWidget(self.stem_workspace, stretch=1)
+        # Stems-Mixer + Analyse-Sub-Tabs (ENERGIE / ONSETS / SNR).
+        #
+        # Frueher stand hier eine nackte StemWorkspace()-Instanz, waehrend
+        # workspace_setup.py parallel einen StemsWorkspace()-Container baute,
+        # der nie gemountet wurde. Ergebnis: zwei Mixer-Instanzen, von denen die
+        # unsichtbare per update_for_track sogar PeakWorker-Threads startete,
+        # und die sub_tabs (ENERGIE/ONSETS/SNR, u.a. B-494-SNR und B-355-Onsets)
+        # waren nie sichtbar. Jetzt gibt es genau eine Instanz: den Container
+        # hier, auf den workspace_setup.py verweist.
+        self._stems_ws = StemsWorkspace()
+        self.stem_workspace = self._stems_ws.stem_widget
+        v.addWidget(self._stems_ws, stretch=1)
 
     def set_lufs(self, lufs_value: float | None) -> None:
         if lufs_value is None:

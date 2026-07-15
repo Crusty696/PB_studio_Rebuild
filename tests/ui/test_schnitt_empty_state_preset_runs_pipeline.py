@@ -66,7 +66,7 @@ def test_b294_ensure_combos_signature():
 
 
 class _FakeQuery:
-    """Minimal SQLAlchemy-style query chain returning a fixed .first() result."""
+    """Minimal SQLAlchemy-style query chain returning a fixed result."""
     def __init__(self, result):
         self._result = result
 
@@ -82,9 +82,17 @@ class _FakeQuery:
     def first(self):
         return self._result
 
+    def scalar(self):
+        # B-090: der Helper selektiert nur noch die ID-Spalte
+        # (query(AudioTrack.id).scalar()) statt das ORM-Objekt zu laden —
+        # ein Voll-Laden zoege ueber lazy='joined'/'selectin' die JSON-Blobs
+        # bzw. alle Scenes auf den Qt-Main-Thread. scalar() liefert den
+        # Spaltenwert direkt.
+        return self._result
+
 
 class _FakeSession:
-    """Context-manager-capable fake session with model-keyed first() results."""
+    """Context-manager-capable fake session with model-keyed results."""
     def __init__(self, results_by_model):
         self._results = results_by_model
 
@@ -94,7 +102,11 @@ class _FakeSession:
     def __exit__(self, *_exc):
         return False
 
-    def query(self, model):
+    def query(self, entity):
+        # Der Helper ruft query(AudioTrack.id) — aus dem Spalten-Attribut die
+        # Model-Klasse ziehen, damit der Seed weiter modell-gekeyt bleibt.
+        # Plain-Model (query(AudioTrack)) funktioniert unveraendert.
+        model = getattr(entity, "class_", entity)
         return _FakeQuery(self._results.get(model))
 
 
@@ -154,9 +166,10 @@ def test_b294_ensure_combos_fills_from_db(monkeypatch):
     monkeypatch.setattr(
         _saorm,
         "Session",
+        # B-090: column-select -> scalar() liefert die ID, nicht das ORM-Objekt.
         lambda _engine: _FakeSession({
-            database.AudioTrack: audio_row,
-            database.VideoClip: video_row,
+            database.AudioTrack: audio_row.id,
+            database.VideoClip: video_row.id,
         }),
     )
 

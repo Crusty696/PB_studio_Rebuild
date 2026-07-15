@@ -43,7 +43,7 @@ log = logging.getLogger(__name__)
 
 @dataclass
 class AVPacingResult:
-    """Timeline-Sequenz der 4 AV-Pacing-Metriken (gleiche Laenge, gleicher Hop)."""
+    """Timeline-Sequenz der AV-Pacing-Metriken (gleiche Laenge, gleicher Hop)."""
     sample_rate: int = DEFAULT_SR
     hop_sec: float = AV_PACING_HOP_SEC
     times_sec: list[float] = field(default_factory=list)
@@ -51,6 +51,10 @@ class AVPacingResult:
     spectral_flux: list[float] = field(default_factory=list)        # 0..n
     stereo_width: list[float] = field(default_factory=list)         # 0..1 (Side/(Mid+Side))
     percussive_ratio: list[float] = field(default_factory=list)     # 0..1
+    # RMS-Energie pro Hop, roh (nicht normiert). Faellt im selben Stream ab —
+    # kein zusaetzliches Audio-Laden. Konsument: services/pacing/audio_video_curves
+    # (Energy-Match RMS-Kurve vs. Clip-Motion-Kurve, 100ms-Grid = AV_PACING_HOP_SEC).
+    rms: list[float] = field(default_factory=list)                  # 0..n
 
 
 class AVPacingService:
@@ -154,6 +158,17 @@ class AVPacingService:
                 sw = self._stereo_width_seq(ext_stereo, hop_samples, len(cent))
             else:
                 sw = np.zeros(len(cent), dtype=np.float32)
+            # RMS auf demselben Hop-Raster wie cent — laeuft im bestehenden
+            # Stream mit, kostet kein zusaetzliches Audio-Laden. center=True wie
+            # bei den librosa-Feature-Defaults oben, damit die Frame-Anzahl zu
+            # cent passt.
+            try:
+                rms_seq = librosa.feature.rms(
+                    y=ext_mono, frame_length=n_fft, hop_length=hop_samples,
+                )[0]
+            except Exception as e:  # noqa: BLE001
+                log.warning("RMS failed on chunk: %s -> zeros", e)
+                rms_seq = np.zeros(len(cent), dtype=np.float32)
 
             # Append: nur frames mit absolute_sample > last_emitted_sample
             for i in range(len(cent)):
@@ -166,6 +181,7 @@ class AVPacingService:
                 result.spectral_flux.append(float(flux[i]) if i < len(flux) else 0.0)
                 result.percussive_ratio.append(float(perc_ratio[i]) if i < len(perc_ratio) else 0.0)
                 result.stereo_width.append(float(sw[i]) if i < len(sw) else 0.0)
+                result.rms.append(float(rms_seq[i]) if i < len(rms_seq) else 0.0)
                 last_emitted_sample = abs_sample
 
             # Tail vom Ende des erweiterten Chunks bewahren
