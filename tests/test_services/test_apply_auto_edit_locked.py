@@ -116,19 +116,20 @@ def _setup_project_with_lock(test_engine, lock_range=(10.0, 14.0)):
         return p.id
 
 
-@pytest.mark.parametrize("seg_start,seg_end,expected_kept", [
+@pytest.mark.parametrize("seg_start,seg_end,expected_count", [
     # 1) Segment vollstaendig innerhalb der Locked-Range -> verworfen
-    (11.0, 13.0, False),
+    (11.0, 13.0, 0),
     # 2) Links klemmen: rechte Kante ragt in Locked, links draussen
-    #    seg=[5,12], lock=[10,14] -> seg_end auf 10 geklemmt -> Kept
-    (5.0, 12.0, True),
+    #    seg=[5,12], lock=[10,14] -> seg_end auf 10 geklemmt -> 1 Stueck
+    (5.0, 12.0, 1),
     # 3) Rechts klemmen: linke Kante in Locked, rechts draussen
-    #    seg=[12,18], lock=[10,14] -> seg_start auf 14 geklemmt -> Kept
-    (12.0, 18.0, True),
-    # 4) Umschliesst: seg=[5,20], lock=[10,14] -> seg_end auf 10 geklemmt -> Kept
-    (5.0, 20.0, True),
+    #    seg=[12,18], lock=[10,14] -> seg_start auf 14 geklemmt -> 1 Stueck
+    (12.0, 18.0, 1),
+    # 4) Umschliesst: seg=[5,20], lock=[10,14] -> B-641: Segment SPLITTET in
+    #    2 Stuecke [5,10) und [14,20) statt das rechte Stueck zu verlieren.
+    (5.0, 20.0, 2),
 ])
-def test_clamping_cases(test_engine, monkeypatch, seg_start, seg_end, expected_kept):
+def test_clamping_cases(test_engine, monkeypatch, seg_start, seg_end, expected_count):
     import services.timeline_service as ts_mod
     monkeypatch.setattr(ts_mod, "engine", test_engine)
     pid = _setup_project_with_lock(test_engine, (10.0, 14.0))
@@ -141,14 +142,54 @@ def test_clamping_cases(test_engine, monkeypatch, seg_start, seg_end, expected_k
             .filter_by(project_id=pid, track="video", locked=False)
             .all()
         )
-    if expected_kept:
-        assert len(unlocked) == 1
-        # Verifiziere: kein unlocked-Segment ueberlappt Locked-Range
-        for r in unlocked:
-            assert not (r.start_time < 14.0 and r.end_time > 10.0) or \
-                   r.end_time <= 10.0 or r.start_time >= 14.0
-    else:
-        assert len(unlocked) == 0
+    assert len(unlocked) == expected_count
+    # Verifiziere: kein unlocked-Segment ueberlappt Locked-Range
+    for r in unlocked:
+        assert r.end_time <= 10.0 or r.start_time >= 14.0
+
+
+def test_b641_segment_spans_multiple_locks_splits_into_pieces(test_engine, monkeypatch):
+    """B-641: seg=[0,30] ueberspannt locks=[(10,15),(20,25)] -> muss in 3
+    Stuecke [0,10), [15,20), [25,30] splitten statt nur [0,10) zu behalten."""
+    import services.timeline_service as ts_mod
+    monkeypatch.setattr(ts_mod, "engine", test_engine)
+    with DBSession(test_engine) as s:
+        p = Project(name="b641-multi-lock", path="/tmp/b641-multi-lock")
+        s.add(p)
+        s.flush()
+        s.add(TimelineEntry(
+            project_id=p.id, track="video", media_id=1,
+            start_time=10.0, end_time=15.0, lane=0, locked=True,
+        ))
+        s.add(TimelineEntry(
+            project_id=p.id, track="video", media_id=2,
+            start_time=20.0, end_time=25.0, lane=0, locked=True,
+        ))
+        s.commit()
+        pid = p.id
+
+    ts_mod.apply_auto_edit_segments([_seg(99, 0.0, 30.0)], pid)
+
+    with DBSession(test_engine) as s:
+        unlocked = (
+            s.query(TimelineEntry)
+            .filter_by(project_id=pid, track="video", locked=False)
+            .order_by(TimelineEntry.start_time)
+            .all()
+        )
+
+    assert [(r.start_time, r.end_time) for r in unlocked] == [
+        (0.0, 10.0), (15.0, 20.0), (25.0, 30.0),
+    ]
+    # source_start/source_end muessen pro Stueck konsistent mitwandern
+    # (Original source_start=0.0, source_end=30.0 aus _seg())
+    assert unlocked[0].source_start == 0.0 and unlocked[0].source_end == 10.0
+    assert unlocked[1].source_start == 15.0 and unlocked[1].source_end == 20.0
+    assert unlocked[2].source_start == 25.0 and unlocked[2].source_end == 30.0
+    # Keine Ueberlappung mit den Locks
+    for r in unlocked:
+        for lock_start, lock_end in [(10.0, 15.0), (20.0, 25.0)]:
+            assert r.end_time <= lock_start or r.start_time >= lock_end
 
 
 def test_threshold_edge_segment_too_thin(test_engine, monkeypatch):

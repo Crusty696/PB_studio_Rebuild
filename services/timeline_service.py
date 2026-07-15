@@ -246,64 +246,47 @@ def _do_apply_segments(segments: list[dict], project_id: int) -> int:
 
         # 3) Neue Segmente einfuegen, an Locked-Ranges geklemmt.
         #
-        # TODO (T4.10 / D16, deferred): Bei einem Segment, das MEHRERE Locks
-        # ueberspannt (z.B. seg=[0,30], locks=[(10,15),(20,25)]), klemmt die
-        # aktuelle Schleife auf das Stueck VOR dem ersten ueberspannenden
-        # Lock — Stuecke zwischen Locks und nach dem letzten Lock gehen
-        # verloren. Korrektes Verhalten: in mehrere Segmente splitten.
-        # Das aendert den Loop von "in-place clamp" zu "produziere Liste
-        # von Output-Segmenten" und beruehrt Tests in
-        # tests/test_services/test_apply_auto_edit*.py — daher als
-        # Folge-Plan vertagt. Aktueller Workaround: T4.9-Sortierung macht
-        # das Verhalten zumindest deterministisch.
+        # B-641 / T4.10 (D16): Ein Segment, das MEHRERE Locks ueberspannt
+        # (z.B. seg=[0,30], locks=[(10,15),(20,25)]), wird pro Lock in
+        # Stuecke gesplittet statt nur vor dem ersten ueberspannenden Lock
+        # geklemmt zu werden — sonst gehen die Stuecke zwischen den Locks
+        # und nach dem letzten Lock verloren. Interval-Subtraktion:
+        # jede Locked-Range schneidet die aktuelle Stueckliste, sortiert
+        # (T4.9) fuer deterministisches Ergebnis.
         for seg in segments:
-            seg_start = float(seg["start"])
-            seg_end = float(seg["end"])
-            source_start = float(seg.get("source_start", 0.0) or 0.0)
+            source_start0 = float(seg.get("source_start", 0.0) or 0.0)
             raw_source_end = seg.get("source_end")
-            source_end = float(raw_source_end) if raw_source_end is not None else None
+            source_end0 = float(raw_source_end) if raw_source_end is not None else None
 
-            def _trim_start(new_start: float) -> None:
-                nonlocal seg_start, source_start
-                delta = max(0.0, new_start - seg_start)
-                seg_start = new_start
-                if delta > 0.0:
-                    source_start = round(source_start + delta, 4)
-
-            def _trim_end(new_end: float) -> None:
-                nonlocal seg_end, source_end
-                delta = max(0.0, seg_end - new_end)
-                seg_end = new_end
-                if source_end is not None and delta > 0.0:
-                    source_end = round(max(source_start, source_end - delta), 4)
-
-            skip = False
+            # Stueck = (seg_start, seg_end, source_start, source_end)
+            pieces = [(float(seg["start"]), float(seg["end"]), source_start0, source_end0)]
             for lr_start, lr_end in locked_ranges:
-                # Komplett ausserhalb -> kein Konflikt
-                if seg_end <= lr_start or seg_start >= lr_end:
-                    continue
-                # Komplett innerhalb der Locked-Range -> verwerfen
-                if seg_start >= lr_start and seg_end <= lr_end:
-                    skip = True
+                if not pieces:
                     break
-                # Linke Kante ragt in die Locked-Range -> rechts klemmen
-                if seg_start < lr_start and seg_end > lr_start and seg_end <= lr_end:
-                    _trim_end(lr_start)
-                # Rechte Kante ragt aus der Locked-Range -> links klemmen
-                elif seg_start >= lr_start and seg_start < lr_end and seg_end > lr_end:
-                    _trim_start(lr_end)
-                # Locked-Range ist komplett im Segment -> auf erste Haelfte
-                # klemmen, hintere Haelfte geht verloren (selten; Plan-Verhalten)
-                elif seg_start < lr_start and seg_end > lr_end:
-                    _trim_end(lr_start)
-            if source_end is not None:
-                source_span = source_end - source_start
-                if source_span <= 1e-3:
-                    skip = True
-                elif (seg_end - seg_start) > source_span:
-                    seg_end = round(seg_start + source_span, 4)
-            if skip or (seg_end - seg_start) <= 1e-3:
-                continue
+                next_pieces = []
+                for p_start, p_end, p_src_start, p_src_end in pieces:
+                    # Komplett ausserhalb -> kein Konflikt
+                    if p_end <= lr_start or p_start >= lr_end:
+                        next_pieces.append((p_start, p_end, p_src_start, p_src_end))
+                        continue
+                    # Komplett innerhalb der Locked-Range -> verwerfen
+                    if p_start >= lr_start and p_end <= lr_end:
+                        continue
+                    # Linkes Reststueck vor der Locked-Range
+                    if p_start < lr_start:
+                        left_end = lr_start
+                        delta = p_end - left_end
+                        left_src_end = p_src_end
+                        if p_src_end is not None and delta > 0.0:
+                            left_src_end = round(max(p_src_start, p_src_end - delta), 4)
+                        next_pieces.append((p_start, left_end, p_src_start, left_src_end))
+                    # Rechtes Reststueck nach der Locked-Range
+                    if p_end > lr_end:
+                        right_start = lr_end
+                        delta = right_start - p_start
+                        right_src_start = round(p_src_start + delta, 4) if delta > 0.0 else p_src_start
+                        next_pieces.append((right_start, p_end, right_src_start, p_src_end))
+                pieces = next_pieces
 
             # Polymorphes Feld ``media_id``: Plan-Style ``seg["media_id"]``
             # ODER Legacy ``seg["video_id"]`` (Auto-Edit-Worker, undo_commands).
@@ -314,22 +297,32 @@ def _do_apply_segments(segments: list[dict], project_id: int) -> int:
                     "'media_id' or 'video_id'"
                 )
 
-            entry = TimelineEntry(
-                project_id=project_id,
-                track="video",
-                media_id=mid,
-                start_time=seg_start,
-                end_time=seg_end,
-                source_start=source_start,
-                source_end=source_end,
-                lane=seg.get("lane", 0),
-                crossfade_duration=seg.get("crossfade_duration", seg.get("crossfade", 0.0)),
-                brightness=seg.get("brightness", 0.0),
-                contrast=seg.get("contrast", 1.0),
-                locked=False,
-            )
-            session.add(entry)
-            inserted += 1
+            for seg_start, seg_end, source_start, source_end in pieces:
+                if source_end is not None:
+                    source_span = source_end - source_start
+                    if source_span <= 1e-3:
+                        continue
+                    if (seg_end - seg_start) > source_span:
+                        seg_end = round(seg_start + source_span, 4)
+                if (seg_end - seg_start) <= 1e-3:
+                    continue
+
+                entry = TimelineEntry(
+                    project_id=project_id,
+                    track="video",
+                    media_id=mid,
+                    start_time=seg_start,
+                    end_time=seg_end,
+                    source_start=source_start,
+                    source_end=source_end,
+                    lane=seg.get("lane", 0),
+                    crossfade_duration=seg.get("crossfade_duration", seg.get("crossfade", 0.0)),
+                    brightness=seg.get("brightness", 0.0),
+                    contrast=seg.get("contrast", 1.0),
+                    locked=False,
+                )
+                session.add(entry)
+                inserted += 1
         # SCHNITT-Redesign 2026-05-09 (Phase 06 / Task 6.2): expliziter
         # commit damit der Lock-aware-Path auch in Test-Sessions
         # (in-memory + plain Session) persistiert. ``nullpool_session``
