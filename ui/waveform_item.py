@@ -186,7 +186,13 @@ class WaveformGraphicsItem(QGraphicsItem):
         img.fill(COLOR_BG)
 
         p = QPainter(img)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+        # B-644: AA an fuer die Wellenform-Kurven (glatte 3-Band-Optik wie
+        # Rekordbox/DaVinci/Studio One statt treppiger "8-Bit"-Kanten). Anders
+        # als die Beat-Linien ist dieses Tile GECACHT (self._tile_cache) — die
+        # AA-Kosten fallen einmalig pro Tile an, nicht pro Frame. Der P8-B1-Lag
+        # (ui/timeline.py:1276) entstand durch AA JEDEN Frame bei vielen
+        # sichtbaren Items, nicht durch einmaliges Tile-Rendering.
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         p.setPen(Qt.PenStyle.NoPen)
 
         # --- Peak-Werte für alle Pixel im Tile berechnen ---
@@ -278,9 +284,29 @@ class WaveformGraphicsItem(QGraphicsItem):
         idx_start = bisect.bisect_left(beats, time_left - 0.1)
         idx_end = bisect.bisect_right(beats, time_right + 0.1)
 
-        # Vorbereitete Pens (vermeidet QPen-Erstellung pro Beat)
+        # Vorbereitete Pens (vermeidet QPen-Erstellung pro Beat).
+        # B-644: setCosmetic(True) — der Zoom laeuft ueber view.scale()
+        # (ui/timeline.py:3148/3648/3682), also skaliert eine normale
+        # (geometrische) Pen-Breite MIT dem Zoom: bei hohem Zoom dicker, bei
+        # Zoom-Out duenner/mit AA fast unsichtbar. Ein kosmetischer Pen bleibt
+        # dagegen immer exakt 1 Geraetepixel breit — konstante, saubere
+        # Grid-Linien unabhaengig vom Zoom-Level, wie bei DaVinci/Rekordbox.
         pen_downbeat = QPen(COLOR_DOWNBEAT, 2)
+        pen_downbeat.setCosmetic(True)
         pen_normal = QPen(COLOR_BEAT_LINE, 1)
+        pen_normal.setCosmetic(True)
+
+        # B-644: AA NUR lokal fuer diesen Block, gescoped auf DIESEN Painter-
+        # Aufruf — nicht global am QGraphicsView (ui/timeline.py:1280, das war
+        # der P8-B1-Lag: AA fuer ALLE Items JEDEN Frame). Beat-Linien werden
+        # zwar weiterhin pro Frame neu gezeichnet (nicht gecacht wie die
+        # Wellenform-Tiles), aber Linien-AA ist deutlich billiger als
+        # Pfad-Fill-AA, und LOD (Level 0/1 oben) haelt die Anzahl der
+        # gleichzeitig sichtbaren Linien ohnehin niedrig. Zustand danach
+        # zurueckgesetzt, damit die Mittellinie (direkt nach diesem Aufruf,
+        # gleicher Painter) unveraendert bleibt.
+        was_aa = painter.testRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
 
         for i in range(idx_start, idx_end):
             is_downbeat = (i % 4 == 0)
@@ -291,13 +317,13 @@ class WaveformGraphicsItem(QGraphicsItem):
 
             beat_time = beats[i]
             # B-644: round() statt int() — int() schneidet immer AB (Richtung 0),
-            # nicht zum naechsten Pixel. Bei vielen Beats systematischer Drift bis
-            # zu 1px pro Linie ("Beatgrid sitzt ungenau"). AA bleibt bewusst AUS
-            # (P8-B1-FIX: 7200 Beat-Linien pro Frame, siehe timeline.py:1276) —
-            # das hier ist eine reine Positions-Korrektur, kein Visual-Fix.
+            # nicht zum naechsten Pixel. Bei vielen Beats systematischer Drift
+            # bis zu 1px pro Linie ("Beatgrid sitzt ungenau").
             bx = round((beat_time / self._duration) * w_total)
             painter.setPen(pen_downbeat if is_downbeat else pen_normal)
             painter.drawLine(bx, 0, bx, h)
+
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, was_aa)
 
     @classmethod
     def from_db_data(cls, waveform_data, beat_positions_json: str = "[]",
