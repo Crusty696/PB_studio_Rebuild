@@ -77,6 +77,21 @@ prüfe verifiziere und mach noch eine gegenprüfung deiner arbeit mit unterschie
   stop, report paths, ask user. Multi-agent work requires separate Git
   worktree + separate branch per agent/task. End every handoff clean, stashed
   with name, or explicitly user-approved dirty and documented.
+- **HARTREGEL — Session-Registry: erst claimen, dann anfassen (2026-07-15).**
+  Ein dirty Worktree sagt "Arbeit unfertig", NICHT "anderer Agent lebt".
+  Genau diese Luecke fuehrte dazu, dass ein paralleler Agent 23 Dateien
+  committete, an denen gerade gearbeitet wurde — nach seinem Commit sah der
+  Baum sauber aus.
+  - Vor dem Editieren beanspruchen:
+    `python tools\agent_session.py claim --agent claude --task <id> --files <pfade>`
+    Exit 2 = fremde lebende Session haelt die Pfade -> NICHT weitermachen.
+  - Wer laeuft gerade? `python tools\agent_session.py status`
+  - Am Ende: `powershell tools\agent_handoff.ps1 -SessionId <id>`
+  - **Dirty Dateien gehoeren nicht automatisch dir.** Erst Ownership pruefen,
+    dann handeln. Gehoeren sie einer fremden Session: nicht committen, nicht
+    stashen, nicht loeschen — melden.
+  - **Nie `git add -A` / `git add .`** — nur die eigenen, beanspruchten Pfade
+    stagen. `-A` hat die fremden Dateien mitgerissen.
 
 ---
 

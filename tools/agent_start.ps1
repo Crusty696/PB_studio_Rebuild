@@ -23,17 +23,7 @@ Write-Host "Repo: $repoRoot"
 $status = (& git status --short --branch)
 $status | ForEach-Object { Write-Host $_ }
 
-$dirty = (& git status --porcelain)
-if ($dirty) {
-    Write-Section "BLOCKED"
-    Write-Host "Dirty worktree found before agent start."
-    Write-Host "Resolve first: commit, named stash, or user-approved dirty handoff."
-    Write-Host ""
-    $dirty | ForEach-Object { Write-Host $_ }
-    exit 3
-}
-
-Write-Section "FFmpeg Identity"
+# Python zuerst ermitteln - der Multi-Agent-Waechter unten braucht ihn.
 $pythonCandidates = @(
     (Join-Path $env:USERPROFILE "miniconda3\envs\pb-studio\python.exe"),
     (Join-Path $env:USERPROFILE "anaconda3\envs\pb-studio\python.exe"),
@@ -42,9 +32,45 @@ $pythonCandidates = @(
 )
 $verifyPython = $pythonCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
 if (-not $verifyPython) {
-    Write-Host "BLOCKED: canonical PB Studio Python runtime not found for FFmpeg verification"
+    Write-Host "BLOCKED: canonical PB Studio Python runtime not found"
     exit 5
 }
+
+# ---- Multi-Agent-Waechter - BEWUSST VOR dem dirty-Check --------------------
+# Arbeitet ein anderer Agent hier, ist der Worktree meist dirty - VON SEINER
+# ARBEIT. Der dirty-Check wuerde dann "commit, stash oder dirty-handoff"
+# fordern und damit genau den Vorfall vom 2026-07-15 ausloesen: fremde offene
+# Dateien werden mitcommittet (23 Stueck). Erst fragen WER hier arbeitet, dann
+# den Zustand bewerten. "Anderer Agent aktiv" ist die richtige Diagnose,
+# "dirty worktree" waere die irrefuehrende.
+Write-Section "Agent Sessions"
+& $verifyPython "tools\agent_session.py" guard --worktree $repoRoot
+if ($LASTEXITCODE -eq 2) {
+    Write-Host ""
+    Write-Host "BLOCKED: another agent is already working in THIS worktree."
+    Write-Host "Ein evtl. dirty Worktree ist WAHRSCHEINLICH SEINE Arbeit."
+    Write-Host "NICHT committen, NICHT stashen, NICHT loeschen."
+    exit 8
+}
+Write-Host ""
+Write-Host "Tipp: Dateien VOR der Arbeit beanspruchen - dann schuetzt der"
+Write-Host "Waechter sie vor anderen Agenten:"
+Write-Host "  python tools\agent_session.py claim --agent <name> --task <id> --files <pfade>"
+Write-Host "  -> gibt eine session-id aus; am Ende:"
+Write-Host "     powershell tools\agent_handoff.ps1 -SessionId <session-id>"
+
+$dirty = (& git status --porcelain)
+if ($dirty) {
+    Write-Section "BLOCKED"
+    Write-Host "Dirty worktree found before agent start."
+    Write-Host "Resolve first: commit, named stash, or user-approved dirty handoff."
+    Write-Host "(Kein anderer Agent aktiv - diese Aenderungen sind deine oder verwaist.)"
+    Write-Host ""
+    $dirty | ForEach-Object { Write-Host $_ }
+    exit 3
+}
+
+Write-Section "FFmpeg Identity"
 & $verifyPython "tools\verify_ffmpeg_identity.py"
 $ffmpegVerifyExit = $LASTEXITCODE
 if ($ffmpegVerifyExit -ne 0) {

@@ -1,6 +1,10 @@
 param(
     [switch]$CheckPush,
-    [switch]$ReleaseGate
+    [switch]$ReleaseGate,
+    # Eigene Agent-Session (aus 'agent_session.py claim'). Wird beim Handoff
+    # freigegeben, damit der naechste Agent nicht bis zum Heartbeat-Ablauf
+    # (15 Min) blockiert bleibt.
+    [string]$SessionId
 )
 
 $ErrorActionPreference = "Stop"
@@ -88,6 +92,21 @@ if ($LASTEXITCODE -ne 0) {
     Write-Host "BLOCKED: session learning entry missing"
     Write-Host "Record problem, root cause, reusable rule, and applicability before handoff."
     exit 6
+}
+
+# Eigene Session freigeben, sonst blockiert sie den naechsten Agenten bis der
+# Heartbeat verfaellt (15 Min). Ohne --SessionId wird nur angezeigt, was noch
+# offen ist - es wird bewusst NICHTS fremdes released.
+Write-Section "Agent Sessions"
+if ($SessionId) {
+    & $learningPython "tools\agent_session.py" release --id $SessionId
+    Write-Host "Session freigegeben: $SessionId"
+}
+& $learningPython "tools\agent_session.py" status
+if ($LASTEXITCODE -eq 0) {
+    Write-Host ""
+    Write-Host "Noch offene Sessions? Eigene mit 'release --id <id>' freigeben."
+    Write-Host "Fremde NICHT anfassen - sie verfallen von selbst (Heartbeat)."
 }
 
 Write-Section "Result"

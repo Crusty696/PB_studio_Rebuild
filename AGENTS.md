@@ -285,11 +285,44 @@ status marker before the next phase may begin.
 
 Dirty worktrees are forbidden as a normal handoff state.
 
+### Session registry — claim before you touch (mandatory)
+
+A dirty worktree tells you that work is UNFINISHED. It does NOT tell you
+whether another agent is ALIVE and working right now. That gap caused a real
+incident on 2026-07-15: a second agent committed 23 files another agent was
+actively editing, because after that commit the tree looked clean.
+
+`tools/agent_session.py` closes it. The registry lives in the **shared** git
+dir (`git rev-parse --git-common-dir`), so it is visible from every worktree.
+
+- **Claim before editing anything:**
+  ```
+  python tools\agent_session.py claim --agent <name> --task <id> --files <paths...>
+  ```
+  Prints a session id. Exit code 2 means another live session already claims
+  those paths — do not proceed, do not "just fix it quickly".
+- **Keep it alive** during long work: `heartbeat --id <session-id>`.
+  A session without heartbeat for 15 minutes is treated as dead and its claims
+  are released automatically — a crashed agent never blocks the repo forever.
+- **Release at the end:**
+  `powershell tools\agent_handoff.ps1 -SessionId <session-id>`
+- **Look before you start:** `python tools\agent_session.py status`
+  shows every live agent, its task, branch, worktree and claims.
+- Claims accept globs (`ui/**`). An empty claim never conflicts — that is the
+  correct choice for read-only/test runs.
+- Never release or edit another agent's session. Stale ones expire by themselves.
+
+### Automatic checks
+
 - **Automatic agent start:** before project work, run
   `powershell -ExecutionPolicy Bypass -File tools\agent_start.ps1`.
   If it reports `BLOCKED`, stop and follow its instruction.
+  It checks for a live foreign agent in this worktree **before** it checks for
+  a dirty tree — deliberately. If another agent works here, the dirty files are
+  probably HIS, and "clean it up first" would repeat the 2026-07-15 incident.
+  Exit 8 = foreign agent active. Exit 3 = dirty, nobody else here.
 - **Automatic agent handoff:** before ending or switching agents, run
-  `powershell -ExecutionPolicy Bypass -File tools\agent_handoff.ps1`.
+  `powershell -ExecutionPolicy Bypass -File tools\agent_handoff.ps1 -SessionId <id>`.
   If it reports dirty/unpushed state, resolve that first.
 - **Before any action that reads, edits, tests, commits, or reports status:**
   run `git status --short --branch`.
@@ -306,7 +339,13 @@ Dirty worktrees are forbidden as a normal handoff state.
   - named stash with exact reason and listed paths;
   - explicit user-approved dirty state documented in vault and chat.
 - **Multiple agents:** never work in the same repository directory at the
-  same time. Each agent must use its own Git worktree and branch.
+  same time. Each agent must use its own Git worktree and branch:
+  ```
+  git worktree add ../pb-<task> -b <tool>/<task>
+  ```
+  This is the only measure that makes the conflict structurally impossible
+  instead of merely detectable — foreign files are then physically elsewhere
+  and cannot be staged by accident.
 - Branch naming for agent work: `codex/<task>`, `claude/<task>`,
   `gemini/<task>`, `cursor/<task>`, or another tool prefix plus the bug/task
   id, e.g. `codex/B-410-chat-registry`.
@@ -315,8 +354,17 @@ Dirty worktrees are forbidden as a normal handoff state.
 - If a commit is only a checkpoint/tracking commit, the message and report
   must say so. Do not imply live verification.
 - Global prevention rule: any agent that sees a dirty tree at start must
-  treat cleanup/tracking as the first task unless the user explicitly says
-  to ignore it.
+  first find out **who owns those changes**, then treat cleanup/tracking as the
+  first task unless the user explicitly says to ignore it.
+  **Ownership check comes first — always:**
+  `python tools\agent_session.py status`
+  If a live session claims them, the changes are NOT yours: do not commit, do
+  not stash, do not delete, do not "clean up". Report and wait or use your own
+  worktree. Taking this rule literally without the ownership check is exactly
+  what produced the 2026-07-15 incident (23 foreign files committed under
+  "cleanup first").
+- **Commit only your own paths.** Never `git add -A` / `git add .` — stage the
+  explicit paths you claimed. `-A` is what swept the foreign files in.
 - Cross-agent continuity source of truth:
   1. Git commits on the current branch.
   2. `docs/superpowers/ACTIVE_PLAN.md`.
