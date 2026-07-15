@@ -119,7 +119,8 @@ def _persist_to_track(track_id: int, fields: dict) -> None:
         return
     try:
         with nullpool_session() as sess:
-            track = sess.query(AudioTrack).filter(AudioTrack.id == track_id).first()
+            # team-sweep 2026-07-15: PB-Studio-Norm — nicht in soft-deleted Track schreiben
+            track = sess.query(AudioTrack).filter(AudioTrack.id == track_id, AudioTrack.deleted_at.is_(None)).first()
             if track is None:
                 return
             for key, value in fields.items():

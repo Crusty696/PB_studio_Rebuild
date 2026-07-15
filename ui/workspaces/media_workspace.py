@@ -221,6 +221,10 @@ class StructureBarWidget(QWidget):
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         w, h = self.width(), self.height()
         for label, start, end in self._segments:
+            # team-sweep 2026-07-15: Crash-Guard — label/start/end koennen None sein (paintEvent darf nicht crashen)
+            label = label or "?"
+            start = start or 0.0
+            end = end or 0.0
             color = QColor(_SEGMENT_COLORS.get(label.upper(), "#555555"))
             p.setBrush(color)
             p.setPen(Qt.PenStyle.NoPen)

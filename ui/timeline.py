@@ -3861,7 +3861,11 @@ class InteractiveTimeline(QGraphicsView):
         # Drag-Start befuellt und vermeidet den DB-Hit beim Drop.
         duration = payload.get("duration")
         if duration is not None:
-            duration = float(duration)
+            # team-sweep 2026-07-15: Crash-Guard — float()-Konvertierung des MIME-Payload absichern
+            try:
+                duration = float(duration)
+            except (ValueError, TypeError):
+                duration = 30.0 if track_type == "audio" else 10.0
         else:
             with DBSession(engine) as session:
                 if track_type == "audio":

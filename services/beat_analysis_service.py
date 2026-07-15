@@ -93,7 +93,8 @@ class BeatAnalysisService:
         if self._device is None:
             import torch
             # GPU-ZWANG: beat_this MUSS auf CUDA laufen wenn verfügbar
-            self._device = "cuda" if torch.cuda.is_available() else "cpu"
+            # team-sweep 2026-07-15: GPU-Hartregel — nur cuda:0 (GTX 1060), kein generisches "cuda"
+            self._device = "cuda:0" if torch.cuda.is_available() else "cpu"
         return self._device
 
     @property

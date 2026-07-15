@@ -254,7 +254,8 @@ def suggest_pacing(audio_track_id: int | None = None) -> dict:
                     ).where(AudioTrack.id == audio_track_id)
                 ).first()
             else:
-                track = session.query(AudioTrack).first()
+                # team-sweep 2026-07-15: PB-Studio-Norm — Fallback ohne id darf keinen soft-deleted Track liefern
+                track = session.query(AudioTrack).filter(AudioTrack.deleted_at.is_(None)).first()
 
             if not track:
                 return {
@@ -731,7 +732,8 @@ def describe_set_overview(track_id: int | None = None) -> dict:
             # 2. Video-Pool im selben Projekt
             video_clips = (
                 session.query(VideoClip)
-                .filter_by(project_id=t_project_id)
+                # team-sweep 2026-07-15: PB-Studio-Norm — aktive Reads muessen soft-deleted Clips ausschliessen
+                .filter(VideoClip.project_id == t_project_id, VideoClip.deleted_at.is_(None))
                 .all()
             )
             clip_count = len(video_clips)

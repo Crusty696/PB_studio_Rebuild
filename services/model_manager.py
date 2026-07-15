@@ -355,7 +355,8 @@ class ModelManager:
             # Tiny-Probe: ein-Element-Tensor + synchronize. Zwingt den
             # cuda-Runtime, mindestens einen Op auszufuehren — bei stale
             # Context wirft das RuntimeError ("CUDA error: ...").
-            probe = torch.zeros(1, device="cuda")
+            # team-sweep 2026-07-15: GPU-Hartregel — nur cuda:0 (GTX 1060), kein generisches "cuda"
+            probe = torch.zeros(1, device="cuda:0")
             probe = probe + 1.0  # erzwingt Kernel-Launch
             torch.cuda.synchronize()
             del probe

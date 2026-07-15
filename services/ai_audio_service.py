@@ -448,7 +448,8 @@ class StemSeparator:
 
         # ── 2. Device bestimmen (GPU bevorzugt, CPU-Fallback erlaubt) ──
         if torch.cuda.is_available():
-            device = torch.device("cuda")
+            # team-sweep 2026-07-15: GPU-Hartregel — nur cuda:0 (GTX 1060), kein generisches "cuda"
+            device = torch.device("cuda:0")
             logger.info(f"[StemSeparator] GPU erkannt: {torch.cuda.get_device_name(0)} "
                   f"({torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB VRAM)")
         else:

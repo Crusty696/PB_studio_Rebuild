@@ -1402,7 +1402,8 @@ def generate_keyframe_strings_for_project(project_id: int = 1) -> str:
         clips = (
             session.query(VideoClip)
             .options(joinedload(VideoClip.scenes))
-            .filter_by(project_id=project_id)
+            # team-sweep 2026-07-15: PB-Studio-Norm — aktive Reads muessen soft-deleted Clips ausschliessen
+            .filter(VideoClip.project_id == project_id, VideoClip.deleted_at.is_(None))
             .all()
         )
         if not clips:

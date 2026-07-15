@@ -310,7 +310,8 @@ def describe_audio_track(track_id: int | None = None) -> dict:
                     ).where(AudioTrack.id == track_id)
                 ).first()
             else:
-                track = session.query(AudioTrack).first()
+                # team-sweep 2026-07-15: PB-Studio-Norm — Fallback ohne id darf keinen soft-deleted Track liefern
+                track = session.query(AudioTrack).filter(AudioTrack.deleted_at.is_(None)).first()
 
             if not track:
                 return {

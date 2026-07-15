@@ -184,25 +184,36 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
         # file_paths aus DB laden, falls batch nur (clip_id, title) Tupel enthält
         # (läuft im Worker-Thread, nicht im Main-Thread)
         if self._batch and len(self._batch[0]) == 2:
-            resolved_batch = []
-            # NullPool: Verhindert QueuePool-Exhaustion bei vielen parallelen Reads
-            from database import nullpool_session
-            with nullpool_session() as session:
-                for clip_id, title in self._batch:
-                    # B-090: column-select statt ORM-Voll-Laden (VideoClip.scenes
-                    # lazy-Blob); _resolve_pipeline_analysis_path nutzt nur
-                    # proxy_path/file_path.
-                    clip = session.execute(
-                        select(VideoClip.proxy_path, VideoClip.file_path)
-                        .where(VideoClip.id == clip_id, VideoClip.deleted_at.is_(None))
-                    ).first()
-                    if clip:
-                        # Proxy-First: KI-Analyse nutzt Proxy nur wenn Datei existiert.
-                        analysis_path = _resolve_pipeline_analysis_path(clip, clip_id)
-                        resolved_batch.append((clip_id, analysis_path, title))
-                    else:
-                        logger.warning("VideoClip %d nicht gefunden, überspringe.", clip_id)
-            self._batch = resolved_batch
+            # team-sweep 2026-07-15: Crash-Guard — DB-Resolve lief VOR dem try (Z~227);
+            # eine Exception hier (DB/Query) propagierte roh aus QThread.run → Prozess-Crash.
+            # Analog VideoAnalysisWorker.run: loggen + sauber terminal-emittieren + return.
+            try:
+                resolved_batch = []
+                # NullPool: Verhindert QueuePool-Exhaustion bei vielen parallelen Reads
+                from database import nullpool_session
+                with nullpool_session() as session:
+                    for clip_id, title in self._batch:
+                        # B-090: column-select statt ORM-Voll-Laden (VideoClip.scenes
+                        # lazy-Blob); _resolve_pipeline_analysis_path nutzt nur
+                        # proxy_path/file_path.
+                        clip = session.execute(
+                            select(VideoClip.proxy_path, VideoClip.file_path)
+                            .where(VideoClip.id == clip_id, VideoClip.deleted_at.is_(None))
+                        ).first()
+                        if clip:
+                            # Proxy-First: KI-Analyse nutzt Proxy nur wenn Datei existiert.
+                            analysis_path = _resolve_pipeline_analysis_path(clip, clip_id)
+                            resolved_batch.append((clip_id, analysis_path, title))
+                        else:
+                            logger.warning("VideoClip %d nicht gefunden, überspringe.", clip_id)
+                self._batch = resolved_batch
+            except Exception as resolve_exc:  # broad: DB-Resolve darf QThread nicht roh crashen
+                _first_clip_id = self._batch[0][0] if self._batch else 0
+                logger.error("VideoBatchWorker DB-Resolve crashed: %s\n%s",
+                             resolve_exc, traceback.format_exc())
+                self.error.emit(_first_clip_id, format_user_error(resolve_exc))
+                self.finished.emit(_first_clip_id, {})
+                return
 
         total_videos = len(self._batch)
         last_clip_id = self._batch[-1][0] if self._batch else 0
