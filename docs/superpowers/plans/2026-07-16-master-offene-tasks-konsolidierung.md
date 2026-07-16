@@ -113,6 +113,11 @@ Brauchen eine Richtungsentscheidung des Users, bevor irgendein Code entstehen da
   Widgets `brain_v3_feedback_popup.py` (live via Timeline-Clip-Kontextmenu) +
   `brain_v3_learning_dialog.py` nachziehen (0 `setToolTip`). Low-prio UI-Polish,
   kein Logik-Risiko. studio_brain-Tabs haben bereits Tooltips.
+- `[VAULT B-650]` (Live-Test 2026-07-17) LLM pro Aufgabe sichtbar machen: die
+  per-Task-LLM-Aufrufe (`pacing_strategist._generate`, `ai_actions`) umgehen den
+  `OllamaService` und melden nie Modell/Task ans `ModelStatusField`. Fix: an jeder
+  Aufrufstelle `_emit_model_status(model, task)` (oder gemeinsamer run_llm-Wrapper).
+  Reine Status-/UI-Meldung, keine GPU-Regel-Beruehrung. User wuenscht das seit langem.
 
 ---
 
