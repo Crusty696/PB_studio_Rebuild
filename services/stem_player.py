@@ -16,7 +16,7 @@ from pathlib import Path
 
 import numpy as np
 import soundfile as sf
-from PySide6.QtCore import QObject, Signal, QTimer
+from PySide6.QtCore import QObject, QMetaObject, Qt, Signal, Slot, QTimer
 
 from services.audio_constants import STEM_NAMES as _CANONICAL_STEM_NAMES
 
@@ -489,15 +489,27 @@ class StemPlayer(QObject):
     def _on_stream_finished(self):
         """Wird aufgerufen wenn der Stream endet (Ende des Tracks).
 
-        [F-016 FIX] Diese Methode wird vom Audio-Thread aufgerufen.
-        QTimer darf nur vom Owner-Thread (GUI) gesteuert werden,
-        daher alles via QTimer.singleShot(0, ...) in den GUI-Thread verlagern.
+        [F-016 FIX] Diese Methode wird vom Audio-Thread (PortAudio-Callback)
+        aufgerufen — kein QThread, kein Qt-Event-Dispatcher.
+        B-638-FIX: QTimer.singleShot(0, ...) feuert in einem Thread ohne
+        Event-Loop NIE (Qt-Warnung "Timers can only be used with threads
+        started with QThread"). QMetaObject.invokeMethod mit QueuedConnection
+        marshallt den Aufruf stattdessen korrekt in den GUI-Thread (Owner-
+        Thread von self), analog ai_status_dot._invoke_worker_stop /
+        resource_monitor.stop().
         """
-        QTimer.singleShot(0, self._pos_timer.stop)
+        QMetaObject.invokeMethod(
+            self, "_finish_on_gui_thread", Qt.ConnectionType.QueuedConnection
+        )
+
+    @Slot()
+    def _finish_on_gui_thread(self):
+        """Laeuft im GUI-Thread (siehe _on_stream_finished)."""
+        self._pos_timer.stop()
         # M-19 FIX: Use thread-safe state setter instead of direct setattr
-        QTimer.singleShot(0, lambda: self._set_state_safe('stopped'))
-        QTimer.singleShot(0, lambda: self.playback_finished.emit())
-        QTimer.singleShot(0, lambda: self.state_changed.emit("stopped"))
+        self._set_state_safe('stopped')
+        self.playback_finished.emit()
+        self.state_changed.emit("stopped")
 
     def _emit_position(self):
         """Emittiert die aktuelle Position (UI-Thread Timer).
