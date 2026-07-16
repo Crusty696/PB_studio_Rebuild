@@ -415,11 +415,31 @@ def _auto_edit_phase3_inner(
 ) -> tuple[list[TimelineSegment], list[CutPoint]]:
     """Innerer Auto-Edit-Body. Engine-Cleanup uebernimmt der aeussere
     Wrapper via try/finally (B-158)."""
+    # B-631: der bisherige Cancel-Check (B-157, ehemals einziger, siehe
+    # Hot-Loop unten) sitzt tief in der Pipeline (Segment-Selection). Alle
+    # vorgelagerten Stufen (Audio-Laden, Beat-/Struktur-Erkennung,
+    # Stem-/Motion-Analyse, optionaler LLM-Strategist) liefen bisher OHNE
+    # jeden Check — genau die Stufen, die laut B-629-Live-Retest unter Last
+    # minutenlang dauern koennen ("Lade Audio" >240s haengend). Ein Cancel-
+    # Klick waehrend dieser Stufen setzte zwar den Flag, aber die Pipeline
+    # prueft ihn erst Minuten spaeter (oder nie, wenn die Stufe selbst
+    # haengt) — der Worker lief nachweislich weiter, obwohl das Overlay
+    # (SchnittController._on_cancel ruft refresh_state_from_db() sofort)
+    # schon geschlossen war. Gleiches Rueckgabe-Idiom wie der bestehende
+    # Check: frueher Return mit leeren Listen statt Exception.
+    if should_stop_cb is not None and should_stop_cb():
+        logger.info("auto_edit_phase3: cancel-request vor Audio-Load")
+        return [], []
+
     # 1. Audio-Dauer = Timeline-Laenge
     if progress_cb:
         progress_cb(0, "Lade Audio-Daten...")
     total_duration = _get_audio_duration(audio_id)
     logger.info("Phase 3 Auto-Edit: Audio-Dauer = %.1fs", total_duration)
+
+    if should_stop_cb is not None and should_stop_cb():
+        logger.info("auto_edit_phase3: cancel-request nach Audio-Load")
+        return [], []
 
     # 2. Beats + Downbeats + Energie laden
     # Bug-14 Fix: _get_beat_data_combined() öffnet nur EINE Session statt 3
@@ -461,6 +481,10 @@ def _auto_edit_phase3_inner(
     # 4. Anker sammeln (erzwungene Video-Zuweisungen)
     anchors = settings.anchors or []
     anchor_times = {a["time"]: a for a in anchors}
+
+    if should_stop_cb is not None and should_stop_cb():
+        logger.info("auto_edit_phase3: cancel-request vor Stem-/Motion-Analyse")
+        return [], []
 
     if progress_cb:
         progress_cb(30, "Analysiere Stems und Motion...")
@@ -567,6 +591,9 @@ def _auto_edit_phase3_inner(
 
     # Phase 5: Optionaler LLM Pacing-Strategist (lokal, offline)
     if settings.use_llm_strategist:
+        if should_stop_cb is not None and should_stop_cb():
+            logger.info("auto_edit_phase3: cancel-request vor LLM-Strategist")
+            return [], []
         if progress_cb:
             progress_cb(35, "LLM Pacing-Strategist generiert Plan...")
         try:
