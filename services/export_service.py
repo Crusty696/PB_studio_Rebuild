@@ -560,12 +560,27 @@ def export_timeline(project_id: int = 1, output_name: str = "output.mp4",
     output_path = _resolve_export_output_path(export_dir, output_name)
 
     with Session(engine) as session:
-        entries = (
-            session.query(TimelineEntry)
-            .filter_by(project_id=project_id)
+        # B-636/B-090: column-select statt ORM-Voll-Load — TimelineEntry.project
+        # (lazy='joined') und .anchors (lazy='selectin') wuerden sonst bei JEDEM
+        # Eintrag mitgeladen, obwohl der Export-Code unten nur Skalarfelder
+        # (id/track/media_id/start_time/end_time/source_start/source_end/
+        # crossfade_duration/brightness/contrast) liest.
+        entries = session.execute(
+            select(
+                TimelineEntry.id,
+                TimelineEntry.track,
+                TimelineEntry.media_id,
+                TimelineEntry.start_time,
+                TimelineEntry.end_time,
+                TimelineEntry.source_start,
+                TimelineEntry.source_end,
+                TimelineEntry.crossfade_duration,
+                TimelineEntry.brightness,
+                TimelineEntry.contrast,
+            )
+            .where(TimelineEntry.project_id == project_id)
             .order_by(TimelineEntry.start_time)
-            .all()
-        )
+        ).all()
         if not entries:
             raise ValueError("Keine Timeline-Eintraege zum Exportieren vorhanden")
 

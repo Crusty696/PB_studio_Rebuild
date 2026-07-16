@@ -218,10 +218,16 @@ def load_learning_preview_samples(
     with sf() as session:
         audios = (
             {
+                # B-636/B-090: column-select (id/file_path) statt Voll-ORM-Load —
+                # AudioTrack.beatgrid/waveform_data sind lazy='joined' und wuerden
+                # sonst bei jedem Track die JSON-Blobs eager mitziehen, obwohl
+                # nur file_path gebraucht wird (Folgecode unten).
                 a.id: str(a.file_path) if a.file_path else None
-                for a in session.query(database.AudioTrack).filter(
-                    database.AudioTrack.id.in_(audio_ids),
-                    database.AudioTrack.deleted_at.is_(None),
+                for a in session.execute(
+                    select(database.AudioTrack.id, database.AudioTrack.file_path).where(
+                        database.AudioTrack.id.in_(audio_ids),
+                        database.AudioTrack.deleted_at.is_(None),
+                    )
                 ).all()
             }
             if audio_ids
