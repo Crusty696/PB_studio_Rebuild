@@ -1109,6 +1109,19 @@ class MediaPoolGrid(QWidget):
                 self.set_timeline_usage(self._timeline_usage)
         else:
             self._relayout()
+        # B-550: das erste Fenster-Layout NICHT auf den 100ms-Debounce-Timer
+        # verlassen. _rebuild_cards()/_apply_filter() rufen oben nur
+        # self._relayout() (startet den Timer) — _do_relayout_debounced()
+        # selbst guarded mit ``not self.isVisible(): return``. Reproduziert
+        # (Live-Retest 2026-06-24): beim ALLERERSTEN Sichtbarwerden blieb
+        # Seite 1 schwarz, self-heilend erst nach einem Folge-Trigger
+        # (Scroll/erneutes showEvent), der isVisible() dann zuverlaessig
+        # True sah. Qt garantiert isVisible()==True waehrend der
+        # showEvent-Verarbeitung selbst — hier synchron layouten schliesst
+        # das Race, der 100ms-Timer bleibt fuer alle anderen Trigger
+        # (Resize/Scroll/Filter) unveraendert als Debounce bestehen.
+        self._relayout_timer.stop()
+        self._do_relayout_debounced()
 
     def resizeEvent(self, event) -> None:  # noqa: N802
         super().resizeEvent(event)
