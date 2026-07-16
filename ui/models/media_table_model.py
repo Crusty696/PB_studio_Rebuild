@@ -17,7 +17,17 @@ logger = logging.getLogger(__name__)
 class MediaTableModel(QAbstractTableModel):
     """Modernes Model für Video- und Audio-Pools. Ersetzt QTableWidget-Loops."""
 
-    def __init__(self, media_type: str = "Video"):
+    # B-workspace-switch-freeze-qt-render: initiale/inkrementelle Fetch-Groesse
+    # fuer ``paginated_fetch=True`` (Video-Pool). Freezes bis 7,5s beim
+    # Workspace-Wechsel waren Qt-C++-Layout/Paint-Last, ausgeloest durch
+    # rowCount() == ALLE Zeilen (375+) sofort beim Sichtbarwerden. Mit
+    # fetchMore() zeigt die View anfangs nur einen kleinen Ausschnitt und
+    # laedt beim Scrollen inkrementell nach (Qt-Standardmuster) — freies
+    # Scrollen bleibt erhalten (kein Pager, anders als beim Audio-Pool).
+    _INITIAL_FETCH_ROWS = 100
+    _FETCH_CHUNK_ROWS = 100
+
+    def __init__(self, media_type: str = "Video", paginated_fetch: bool = False):
         super().__init__()
         self._media_type = media_type  # "Video" oder "Audio"
         self._items: list[dict] = []
@@ -25,7 +35,12 @@ class MediaTableModel(QAbstractTableModel):
         # Fixplan 2026-07-07 Schritt 7 (V3): media_id -> Anzahl Verwendungen
         # im letzten Auto-Edit. Leeres Dict = kein Auto-Edit-Ergebnis bekannt.
         self._timeline_usage: dict[int, int] = {}
-        
+        # B-workspace-switch-freeze-qt-render: nur fuer den Video-Pool aktiv
+        # (paginated_fetch=True) — der Audio-Pool nutzt weiterhin den
+        # bestehenden, funktionierenden PagedProxyModel-Pfad unveraendert.
+        self._paginated_fetch = paginated_fetch
+        self._fetched_count = 0
+
         # Header Definitionen
         if media_type == "Video":
             self._headers = ["✓", "ID", "Titel", "Auflösung", "FPS", "Codec", "Analyse %", "Pfad"]
@@ -35,7 +50,29 @@ class MediaTableModel(QAbstractTableModel):
             self._keys = ["_chk", "id", "title", "bpm", "key", "stems", "analysis_percent", "file_path"]
 
     def rowCount(self, parent=QModelIndex()) -> int:
+        if parent.isValid():
+            return 0
+        if self._paginated_fetch:
+            return min(len(self._items), self._fetched_count)
         return len(self._items)
+
+    def canFetchMore(self, parent=QModelIndex()) -> bool:
+        if parent.isValid() or not self._paginated_fetch:
+            return False
+        return self._fetched_count < len(self._items)
+
+    def fetchMore(self, parent=QModelIndex()) -> None:
+        if parent.isValid() or not self._paginated_fetch:
+            return
+        remaining = len(self._items) - self._fetched_count
+        add = min(self._FETCH_CHUNK_ROWS, remaining)
+        if add <= 0:
+            return
+        start = self._fetched_count
+        end = start + add - 1
+        self.beginInsertRows(QModelIndex(), start, end)
+        self._fetched_count += add
+        self.endInsertRows()
 
     def columnCount(self, parent=QModelIndex()) -> int:
         return len(self._headers)
@@ -143,6 +180,12 @@ class MediaTableModel(QAbstractTableModel):
         # Bestehende Check-Zustände beibehalten wenn IDs noch existieren
         current_ids = {i["id"] for i in items}
         self._checked_ids = self._checked_ids.intersection(current_ids)
+        # B-workspace-switch-freeze-qt-render: nach jedem set_items() wieder
+        # nur den ersten Fetch-Ausschnitt exponieren — sonst wuerde ein
+        # Reset bei bereits gescrollter View sofort wieder alle Zeilen zeigen.
+        self._fetched_count = (
+            min(self._INITIAL_FETCH_ROWS, len(items)) if self._paginated_fetch else len(items)
+        )
         self.endResetModel()
 
     def get_checked_ids(self) -> list[int]:
@@ -151,10 +194,15 @@ class MediaTableModel(QAbstractTableModel):
     def set_timeline_usage(self, usage: dict[int, int] | None):
         """Schritt 7 (V3): markiert, welche Clips der letzte Auto-Edit nutzt."""
         self._timeline_usage = dict(usage or {})
-        if self._items:
+        # B-workspace-switch-freeze-qt-render: nur ueber aktuell EXPONIERTE
+        # Zeilen emittieren (rowCount(), nicht len(_items)) — bei aktivem
+        # paginated_fetch waeren Indizes jenseits von rowCount() sonst
+        # ungueltig (noch nicht via fetchMore() geladen).
+        n_rows = self.rowCount()
+        if n_rows:
             self.dataChanged.emit(
                 self.index(0, 0),
-                self.index(len(self._items) - 1, len(self._headers) - 1),
+                self.index(n_rows - 1, len(self._headers) - 1),
                 [Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.BackgroundRole,
                  Qt.ItemDataRole.ToolTipRole],
             )

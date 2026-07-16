@@ -473,8 +473,13 @@ class MediaWorkspace(QWidget):
         page_layout.setContentsMargins(4, 2, 4, 2)
         page_layout.setSpacing(4)
 
-        # -------- Model + Proxy (Paginierung für Video deaktiviert, Tabelle direkt gebunden) --------
-        self.video_pool_model = MediaTableModel(media_type="Video")
+        # -------- Model (Paginierung/Pager fuer Video deaktiviert, Tabelle direkt
+        # gebunden) --------
+        # B-workspace-switch-freeze-qt-render: paginated_fetch=True aktiviert
+        # inkrementelles fetchMore() im Model selbst statt eines Pagers — die
+        # View zeigt anfangs nur einen Ausschnitt und laedt beim Scrollen
+        # nach, freies Scrollen (User-Entscheidung 2026-06-13) bleibt erhalten.
+        self.video_pool_model = MediaTableModel(media_type="Video", paginated_fetch=True)
         self._video_pool_proxy = PagedProxyModel(page_size=1000000)
         self._video_pool_proxy.setSourceModel(self.video_pool_model)
 
