@@ -85,10 +85,27 @@ class RaftMotionService:
                 ModelManager()._handle_oom_prevention(
                     f"RAFT '{self.variant}' laden (RaftMotionService)"
                 )
-            if self.variant == "raft_large":
-                model = raft_large(weights=Raft_Large_Weights.C_T_SKHT_V2)
-            else:
-                model = raft_small(weights=Raft_Small_Weights.C_T_V2)
+            # B-639: torchvision-Weights laden bereits implizit lokal-first
+            # (torch.hub.load_state_dict_from_url prueft den Hub-Cache-Dir
+            # zuerst) — es gibt aber, anders als bei transformers, keinen
+            # local_files_only-Parameter, und ein fehlender/instabiler
+            # Netzwerkzugriff beim ERSTEN Laden (kein Cache-Treffer) crashte
+            # bisher unbehandelt (URLError/HTTPError/OSError) WAEHREND
+            # GPU_LOAD_LOCK gehalten wird. Fix (B-554-analog, hier nur der
+            # Crash-Schutz-Teil — echtes local_files_only existiert fuer
+            # torchvision-Weights nicht): try/except mit klarer, definierter
+            # Fehlermeldung statt rohem Crash.
+            try:
+                if self.variant == "raft_large":
+                    model = raft_large(weights=Raft_Large_Weights.C_T_SKHT_V2)
+                else:
+                    model = raft_small(weights=Raft_Small_Weights.C_T_V2)
+            except (OSError, EnvironmentError) as exc:
+                raise RuntimeError(
+                    f"RaftMotionService: Laden von RAFT-Weights fuer Variante "
+                    f"'{self.variant}' fehlgeschlagen (kein lokaler Cache-Treffer "
+                    f"und Online-Download nicht moeglich): {exc}"
+                ) from exc
             if use_cuda:
                 model = model.to(self.device)
             self._model = model.float().eval()

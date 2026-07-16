@@ -88,8 +88,26 @@ class ClapAudioEmbedder:
             return
         from transformers import ClapModel, ClapProcessor  # type: ignore
         logger.info("ClapAudioEmbedder: loading %s on %s ...", CLAP_MODEL_ID, self.device)
-        self._processor = ClapProcessor.from_pretrained(CLAP_MODEL_ID)
-        model = ClapModel.from_pretrained(CLAP_MODEL_ID).eval()
+        # B-639 (B-554-Muster): Modell zuerst NUR aus dem lokalen HF-Cache
+        # laden (local_files_only=True). Vermeidet einen potenziell
+        # blockierenden HF-Hub-Netzwerk-Check, der WAEHREND des gehaltenen
+        # GpuSerializer-Locks (embed_mix ruft _ensure_loaded innerhalb
+        # ``with self.serializer.acquire(...)`` auf) haengen kann und damit
+        # andere GPU-Arbeit einfriert. Nur wenn das Modell nicht im Cache
+        # liegt, einmalig online laden. Schwester-Embedder
+        # video_embedder.py:_ensure_loaded traegt denselben Fix bereits.
+        def _load(local_only: bool):
+            proc = ClapProcessor.from_pretrained(
+                CLAP_MODEL_ID, local_files_only=local_only)
+            mdl = ClapModel.from_pretrained(
+                CLAP_MODEL_ID, local_files_only=local_only).eval()
+            return proc, mdl
+        try:
+            self._processor, model = _load(local_only=True)
+        except (OSError, EnvironmentError) as exc:
+            logger.warning(
+                "ClapAudioEmbedder: nicht im lokalen HF-Cache (%s) — lade online (einmalig)", exc)
+            self._processor, model = _load(local_only=False)
         self._model = model.to(self.device)
 
     def unload(self) -> None:
