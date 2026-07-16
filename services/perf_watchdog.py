@@ -89,6 +89,19 @@ class SlowEventHook:
         self._watchdog_thread = threading.Thread(target=self._watchdog_loop, daemon=True)
         self._watchdog_thread.start()
 
+        # B-621-FIX: notify() ist reentrant — ein Klick, der synchron einen
+        # modalen Dialog oeffnet (QDialog.exec()/QMenu.exec()), pumpt WAEHREND
+        # des aeusseren notify()-Aufrufs eine eigene, verschachtelte Event-
+        # Loop. Die dabei verstrichene Nutzerinteraktionszeit (Dialog offen
+        # bis Klick auf OK) faellt dem AEUSSEREN Event ("MouseRelease") zur
+        # Last, obwohl sie keine echte Verarbeitungsdauer ist — absurde Werte
+        # wie 73716ms/239604ms ohne freeze_stacks-Beleg. Dieser Stack merkt
+        # sich pro notify()-Frame, ob WAEHREND seiner Laufzeit ein
+        # verschachtelter notify()-Aufruf stattfand, und kennzeichnet den
+        # Log-Eintrag entsprechend statt ihn unkommentiert als Freeze
+        # auszuweisen.
+        self._call_stack: list[bool] = []
+
         # Monkey-patch notify
         app.notify = self._profiled_notify
 
@@ -141,6 +154,13 @@ class SlowEventHook:
         self._current_receiver_name = receiver_name
         self._current_event_start = t0
 
+        # B-621-FIX: dieser Aufruf ist verschachtelt in einem laufenden
+        # aeusseren notify() -> markiere den aeusseren Frame als "hatte
+        # verschachtelten Event-Loop" (Modal-Dialog-Verdacht).
+        if self._call_stack:
+            self._call_stack[-1] = True
+        self._call_stack.append(False)
+
         try:
             result = self._original_notify(receiver, event)
         except Exception:
@@ -148,11 +168,18 @@ class SlowEventHook:
         finally:
             self._current_event_start = 0.0
             elapsed = time.perf_counter() - t0
+            had_nested_loop = self._call_stack.pop()
 
             if elapsed > self._threshold:
                 self._slow_count += 1
                 ms = elapsed * 1000
-                msg = f"[SLOW EVENT] {ms:.0f}ms | {event_name} -> {receiver_name}"
+                suffix = (
+                    " [enthaelt verschachtelten Event-Loop — vermutlich "
+                    "Modal-Dialog/Nutzerinteraktion, KEINE reine "
+                    "Verarbeitungszeit, siehe B-621]"
+                    if had_nested_loop else ""
+                )
+                msg = f"[SLOW EVENT] {ms:.0f}ms | {event_name} -> {receiver_name}{suffix}"
                 self._slow_log.append(msg)
                 logger.warning(msg)
 
