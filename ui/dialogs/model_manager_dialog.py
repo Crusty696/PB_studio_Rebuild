@@ -791,9 +791,29 @@ class ModelManagerDialog(QDialog):
         self._scan_worker.finished.connect(self._on_scan_finished)
         self._scan_worker.error.connect(self._on_scan_error)
         self._scan_worker.finished.connect(self._scan_thread.quit)
-        self._scan_thread.finished.connect(lambda: self._refresh_btn.setEnabled(True))
+        # B-605: KEIN Lambda auf thread.finished. Ein freies Lambda hat keinen
+        # QObject-Receiver — Qt kann es NICHT automatisch trennen, wenn der
+        # Dialog (und sein C++-Button) zerstoert wird. Blockiert ein Scan-/
+        # Status-Worker im closeEvent laenger als das 1s-wait()-Timeout
+        # (HTTP-Hang zu Ollama), wird der Dialog zerstoert, das Lambda feuert
+        # danach trotzdem und schreibt auf den freigegebenen _refresh_btn ->
+        # Null-Pointer-Write (QThread::finished -> qt_static_metacall, exakt
+        # die B-605-Crash-Signatur). Eine gebundene Methode gibt Qt dagegen
+        # self als Receiver -> Qt trennt die Verbindung automatisch bei
+        # Dialog-Zerstoerung. Plus shiboken-Guard als zweites Netz.
+        self._scan_thread.finished.connect(self._on_scan_thread_finished)
 
         self._scan_thread.start()
+
+    def _on_scan_thread_finished(self) -> None:
+        """B-605: Scan-Thread-Ende — Refresh-Button reaktivieren.
+
+        Gebundene Methode (nicht Lambda) -> Qt auto-disconnected bei
+        Dialog-Zerstoerung. shiboken-Guard fuer den Rest-Race, in dem
+        self.finished noch queued ist waehrend der Button schon weg ist.
+        """
+        if shiboken6.isValid(self) and shiboken6.isValid(self._refresh_btn):
+            self._refresh_btn.setEnabled(True)
 
         # Ollama-Status parallel prüfen
         self._check_ollama_status()
