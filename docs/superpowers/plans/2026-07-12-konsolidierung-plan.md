@@ -1,5 +1,11 @@
 # Plan: PB-STUDIO-KONSOLIDIERUNG-2026-07-12
 
+> **⛔ SUPERSEDED 2026-07-16 — PLAN GESCHLOSSEN.** Alle offenen Tasks wurden in
+> `PB-STUDIO-MASTER-OFFENE-TASKS-2026-07-16` konsolidiert (Decision D-071, Registry-Status
+> `superseded`). Dieser Plan wird NICHT mehr als aktiver Plan genutzt; der Task-Text bleibt
+> nur als Historie. Aktuelle offene Arbeit:
+> `docs/superpowers/plans/2026-07-16-master-offene-tasks-konsolidierung.md`.
+
 status: approved-for-implementation — OBERSTE PRIORITAET (User 2026-07-12:
 "als erstes erledigt werden, auch wenn es ein anderer Agent machen muss")
 decision: D-068 (Vault)

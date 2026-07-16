@@ -1,5 +1,11 @@
 # Plan: PB-STUDIO-PERF-DB-CLEANUP-2026-07-12
 
+> **⛔ SUPERSEDED 2026-07-16 — PLAN GESCHLOSSEN.** Alle offenen Tasks wurden in
+> `PB-STUDIO-MASTER-OFFENE-TASKS-2026-07-16` konsolidiert (Decision D-071, Registry-Status
+> `superseded`). Dieser Plan wird NICHT mehr als aktiver Plan genutzt; der Task-Text bleibt
+> nur als Historie. Aktuelle offene Arbeit:
+> `docs/superpowers/plans/2026-07-16-master-offene-tasks-konsolidierung.md`.
+
 status: code-complete-live-pending
 decision: D-067 (Vault)
 vault_mirror: wiki/synthesis/plan-perf-db-cleanup-2026-07-12.md

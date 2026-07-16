@@ -1,5 +1,11 @@
 # NEUBAUTEN-VOLLINTEGRATIONS-PLAN — Studio-Brain, Slice-1-Pacing, Komfort-Features und DAG-Video-Engine komplett verdrahten
 
+> **⛔ SUPERSEDED 2026-07-16 — PLAN GESCHLOSSEN.** Alle offenen Tasks wurden in
+> `PB-STUDIO-MASTER-OFFENE-TASKS-2026-07-16` konsolidiert (Decision D-071, Registry-Status
+> `superseded`). Dieser Plan wird NICHT mehr als aktiver Plan genutzt; der Task-Text bleibt
+> nur als Historie. Aktuelle offene Arbeit:
+> `docs/superpowers/plans/2026-07-16-master-offene-tasks-konsolidierung.md`.
+
 - **plan_id:** `PB-STUDIO-NEUBAUTEN-VOLLINTEGRATION-2026-07-07`
 - **Priorität:** **HOCH** — verbindlicher Nachfolger. Startet **direkt nach**
   Abschluss UND Test des `PB-STUDIO-AUDIT-FIXPLAN-2026-07-07`. Kein anderer

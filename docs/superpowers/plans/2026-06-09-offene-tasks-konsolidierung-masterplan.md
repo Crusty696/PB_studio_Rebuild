@@ -1,5 +1,11 @@
 # Offene Tasks Konsolidierung Masterplan 2026-06-09
 
+> **⛔ SUPERSEDED 2026-07-16 — PLAN GESCHLOSSEN.** Alle offenen Tasks wurden in
+> `PB-STUDIO-MASTER-OFFENE-TASKS-2026-07-16` konsolidiert (Decision D-071, Registry-Status
+> `superseded`). Dieser Plan wird NICHT mehr als aktiver Plan genutzt; der Task-Text bleibt
+> nur als Historie. Aktuelle offene Arbeit:
+> `docs/superpowers/plans/2026-07-16-master-offene-tasks-konsolidierung.md`.
+
 plan_id: PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09
 status: approved-for-implementation
 owner: pb-plan-governor

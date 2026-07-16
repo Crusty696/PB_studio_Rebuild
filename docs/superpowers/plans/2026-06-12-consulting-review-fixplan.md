@@ -1,5 +1,11 @@
 # PB-STUDIO-CONSULTING-REVIEW-FIXPLAN-2026-06-12 (CRF)
 
+> **⛔ SUPERSEDED 2026-07-16 — PLAN GESCHLOSSEN.** Alle offenen Tasks wurden in
+> `PB-STUDIO-MASTER-OFFENE-TASKS-2026-07-16` konsolidiert (Decision D-071, Registry-Status
+> `superseded`). Dieser Plan wird NICHT mehr als aktiver Plan genutzt; der Task-Text bleibt
+> nur als Historie. Aktuelle offene Arbeit:
+> `docs/superpowers/plans/2026-07-16-master-offene-tasks-konsolidierung.md`.
+
 plan_id: PB-STUDIO-CONSULTING-REVIEW-FIXPLAN-2026-06-12
 status: approved-for-implementation (User-Auftrag 2026-06-12: "Erstelle Arbeitsplan ... und übergib es dem passenden Agenten um den Plan auszuführen")
 source: test_reports/consulting-team-review-2026-06-12.md (Consulting-Team-Review, 7 Agenten, statisch)

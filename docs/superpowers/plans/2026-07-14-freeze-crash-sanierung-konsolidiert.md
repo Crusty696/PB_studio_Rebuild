@@ -1,5 +1,11 @@
 # Freeze/Crash-Sanierung — Konsolidierter Fixplan 2026-07-14
 
+> **⛔ SUPERSEDED 2026-07-16 — PLAN GESCHLOSSEN.** Alle offenen Tasks wurden in
+> `PB-STUDIO-MASTER-OFFENE-TASKS-2026-07-16` konsolidiert (Decision D-071, Registry-Status
+> `superseded`). War nie ein aktiver Registry-Plan. Der Task-Text bleibt nur als Historie.
+> Tier-P-Alt-Bug-Triage ist grossteils 2026-07-16 bereits gefixt. Aktuelle offene Arbeit:
+> `docs/superpowers/plans/2026-07-16-master-offene-tasks-konsolidierung.md`.
+
 plan_id: PB-STUDIO-FREEZE-CRASH-SANIERUNG-KONSOLIDIERT-2026-07-14
 status: proposed-needs-user-activation
 owner: (agent-proposed, user aktiviert)

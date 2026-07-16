@@ -1,5 +1,11 @@
 # AUFRÄUM- & REFACTOR-PLAN (DRAFT) — 2026-07-08
 
+> **⛔ SUPERSEDED 2026-07-16 — PLAN GESCHLOSSEN.** Alle offenen Tasks wurden in
+> `PB-STUDIO-MASTER-OFFENE-TASKS-2026-07-16` konsolidiert (Decision D-071, Registry-Status
+> `superseded`). War nie ein aktiver Registry-Plan (draft, nichts ausgefuehrt). Der
+> Task-Text bleibt nur als Historie. Aktuelle offene Arbeit:
+> `docs/superpowers/plans/2026-07-16-master-offene-tasks-konsolidierung.md`.
+
 - **plan_id:** `PB-STUDIO-AUFRAEUM-REFACTOR-2026-07-08`
 - **status:** `draft` — reine Analyse, **kein Code angefasst**. Ausführung
   erst nach den Gates unten, jeweils mit pro-Kategorie-User-Freigabe.
