@@ -1,0 +1,10 @@
+{
+  "lesson_id": "97f64d139b5f48ffba33eb60d77dce96",
+  "recorded_at": "2026-07-16T23:48:04+00:00",
+  "session_id": "9040a52eb2c74611b70f9d56f3090b4b",
+  "head_at_start": "1c873dc7d9b5e9ba1498d8b26a36350124d7b40e",
+  "problem": "B-650: erster Fix waehlte qwen3-vl (Vision-Modell) fuer Text-Aufgaben (chat/pacing), und das Status-Feld zeigte 'LLM' statt der Aufgabe. Zudem wurde Erfolg auf Basis einer Code-Log-Zeile behauptet statt am UI-Effekt bewiesen.",
+  "cause": "ollama /api/show meldet fuer qwen3-vl UND gemma3 beide completion+vision -> reine Capability+Groessen-Auswahl (select_best_model) kann Vision-First-Modelle nicht von Text-Modellen trennen. Neue Task-Labels caption/pacing/action fehlten in ModelStatusField._TASK_LABEL -> Fallback 'LLM'. Log-Zeile faelschlich als UI-Beweis gewertet; zusaetzlich selbst erfundener Constraint 'ein Modell pro Lauf' den der User nie sagte.",
+  "rule": "Per-Aufgabe-Modellwahl braucht Familien-/Namens-Praeferenz + Vision-First-Ausschluss fuer Text-Aufgaben, nicht nur Capability-Flags. UI-Wirkung immer am UI-Slot beweisen (Log in _on_status), Code-Log allein ist kein Beweis. Keine Constraints erfinden die der User nicht vorgab; bei Unklarheit fragen statt verengen.",
+  "applies_to": "Ollama-Modell-Routing (services/model_router.py, ollama_client.select_best_model), UI-Status-Felder, allgemein Fix-Live-Verifikation"
+}
