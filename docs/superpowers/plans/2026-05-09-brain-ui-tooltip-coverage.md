@@ -1,5 +1,11 @@
 # Brain UI Tooltip Coverage Implementation Plan
 
+> **⛔ SUPERSEDED 2026-07-16 — PLAN GESCHLOSSEN.** Bucket-7-Aufloesung: die Brain-UI wurde
+> spaeter zu `ui/studio_brain/`-Tabs umgebaut (haben bereits Tooltips). Rest-Arbeit (Tooltips
+> fuer die noch-live Alt-Widgets `brain_v3_feedback_popup`/`brain_v3_learning_dialog`,
+> 0 setToolTip) → `PB-STUDIO-MASTER-OFFENE-TASKS-2026-07-16` Bucket 4 (Agent-frei, low-prio),
+> Decision D-071. Nicht mehr als aktiver Plan nutzen.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Vollständige Tooltip-Coverage aller interaktiven Bedienelemente in den Brain-V3-Widgets (Feedback-Popup, Stats-Panel, Learning-Dialog) plus Brain-v2-Tab und studio_brain_window-Brain-v2-Tab. Jeder Tooltip erklärt **WAS** das Element macht, **WIE** es benutzt wird und **WANN** es relevant ist. Hotkey-Mapping (Hotkeys 1-4) wird zusätzlich per Docstring im Code dokumentiert.

@@ -1,5 +1,10 @@
 # B-469 Fix Plan — Native Qt6Core crash on concurrent media-DB reload
 
+> **⛔ SUPERSEDED 2026-07-16 — PLAN GESCHLOSSEN.** Bucket-7-Aufloesung: B-469 =
+> `parked-not-reproducible-monitoring`. Offener Punkt in `PB-STUDIO-MASTER-OFFENE-TASKS-2026-07-16`
+> Bucket 6 (Sackgassen/parked), Decision D-071. Task-Text nur Historie.
+> Aktuelle offene Arbeit: `docs/superpowers/plans/2026-07-16-master-offene-tasks-konsolidierung.md`.
+
 status: proposed (awaits user release)
 plan_id: B-469-NATIVE-CRASH-FIX-2026-06-03
 parent_plan: PB-STUDIO-FULL-AUDIT-FIXPLAN-2026-05-31

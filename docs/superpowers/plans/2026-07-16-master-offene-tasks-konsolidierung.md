@@ -109,6 +109,10 @@ Brauchen eine Richtungsentscheidung des Users, bevor irgendein Code entstehen da
 - `[PERF-DB-CLEANUP]` D-069: Voll-Package-/Installed-App-Test durchfuehren.
 - `[FREEZE-CRASH-SANIERUNG]` ab_compare AudioTrack Rest-Freeze (F1-Teil).
 - `[FREEZE-CRASH-SANIERUNG]` F6 / B-618-Rest (Frozen-Warmup, mit Tier R).
+- `[BRAIN-TOOLTIP]` (aus Bucket 7 aufgeloest) Tooltips fuer die noch-live Alt-Brain-V3-
+  Widgets `brain_v3_feedback_popup.py` (live via Timeline-Clip-Kontextmenu) +
+  `brain_v3_learning_dialog.py` nachziehen (0 `setToolTip`). Low-prio UI-Polish,
+  kein Logik-Risiko. studio_brain-Tabs haben bereits Tooltips.
 
 ---
 
@@ -131,22 +135,35 @@ Brauchen eine Richtungsentscheidung des Users, bevor irgendein Code entstehen da
 - `[VAULT B-615]` Self-Close ohne Save-Prompt. Code-Pfad 2026-07-16 live bewiesen korrekt;
   Original-Vorfall bleibt ungeklaerter Einzelfall. Weiter nur mit neuem Vorfall.
 - `[VAULT B-592]` B-570-Shutdown-Child-Timeout dGPU-Wait. Weiter nur mit neuem Beleg.
+- `[b469-native-crash-2026-06-03 / VAULT B-469]` (aus Bucket 7 aufgeloest) Native
+  Qt6Core-Crash bei parallelem Media-DB-Reload nach Doppel-Import. Bug-File-Status
+  `parked-not-reproducible-monitoring` — nicht reproduzierbar, unter Beobachtung.
+  Weiter nur mit neuem Repro/Crash-Beleg.
 
 ---
 
-## BUCKET 7 — UNKLAR (Bug-File-Abgleich noetig, bevor eingeordnet)
+## BUCKET 7 — AUFGELOEST 2026-07-16 (Bug-File-/Code-Abgleich durchgefuehrt)
 
-Diese 3 nicht-registrierten Alt-Plaene sind laut Discovery nicht abschliessend als
-offen-oder-erledigt entscheidbar ohne Abgleich mit den zugehoerigen Bug-Files:
-- `[b469-native-crash-2026-06-03]` B-469 (native Crash) — Status via `wiki/bugs/B-469-*`
-  pruefen.
-- `[timeline-quality-2026-06-03]` B-472/473/474/475 (Thumbnail-Rendering/Optik) —
-  ueberlappt stark mit TIMELINE-VIRT + B471-Recovery; Einzelstatus pruefen.
-- `[brain-ui-tooltip-2026-05-09]` Tooltips fuer Brain-V3-Widgets (Task 1-9) — ob real
-  gesetzt, nicht aus Plan ableitbar.
+Die 3 unklaren Alt-Plaene wurden per Bug-File- und Code-Abgleich eingeordnet; die Plaene
+sind jetzt ebenfalls `superseded`. Ergebnis:
 
-Naechster Schritt fuer Bucket 7: je Plan die referenzierten Bug-Files lesen, dann in
-Bucket 1/4/6 einsortieren oder als erledigt schliessen.
+- `[b469-native-crash-2026-06-03]` → B-469 Bug-File-Status = `parked-not-reproducible-
+  monitoring`. Native Qt6Core-Crash bei parallelem Media-DB-Reload nach Doppel-Import,
+  nicht reproduzierbar, unter Beobachtung. → **verschoben nach Bucket 6 (Sackgassen/parked)**.
+- `[timeline-quality-2026-06-03]` → alle referenzierten Bugs erledigt: B-471 `fixed`,
+  B-472 `fixed`, B-473 `fixed`, B-475 `fixed`, B-474 `cannot-reproduce`. → **KOMPLETT
+  ERLEDIGT, keine offene Task** (Plan geschlossen).
+- `[brain-ui-tooltip-2026-05-09]` → Teil-erledigt/teil-superseded: die Brain-UI wurde
+  spaeter zu `ui/studio_brain/`-Tabs umgebaut (audit/graph/inspector/memory/stats/steer/
+  structure — DIESE haben bereits `setToolTip`). Der Plan zielte aber auf die aelteren
+  Widgets; davon sind `brain_v3_feedback_popup.py` (live via Timeline-Clip-Kontextmenu,
+  `ui/timeline.py`) und `brain_v3_learning_dialog.py` weiterhin OHNE Tooltips (0
+  `setToolTip`). → **verschoben nach Bucket 4 (Agent-frei, low-prio):**
+  `[BRAIN-TOOLTIP]` Tooltips fuer die noch-live Alt-Brain-V3-Widgets
+  (brain_v3_feedback_popup + brain_v3_learning_dialog) nachziehen. Kleine reine
+  UI-Polish-Aufgabe, kein Logik-Risiko.
+
+Bucket 7 ist damit leer — nichts mehr unklar.
 
 ---
 
@@ -157,6 +174,11 @@ Bucket 1/4/6 einsortieren oder als erledigt schliessen.
 `PB-STUDIO-NEUBAUTEN-VOLLINTEGRATION-2026-07-07`, `PB-STUDIO-CONSULTING-REVIEW-FIXPLAN-2026-06-12`,
 `PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09`, `FREEZE-CRASH-SANIERUNG-KONSOLIDIERT-2026-07-14`,
 `AUFRAEUM-REFACTOR-2026-07-08`.
+
+Aus der Bucket-7-Aufloesung (2026-07-16) zusaetzlich `superseded`:
+`B469-NATIVE-CRASH-FIX-2026-06-03` (B-469 parked → Bucket 6),
+`TIMELINE-QUALITY-FIX-2026-06-03` (komplett erledigt, alle Bugs fixed/cannot-reproduce),
+`BRAIN-UI-TOOLTIP-COVERAGE-2026-05-09` (Rest-Tooltips → Bucket 4).
 
 `PB-STUDIO-SCHNITT-CLIPAUSWAHL-FIXPLAN-2026-07-07` ist bereits `fixed` — nicht Teil dieser
 Konsolidierung. Tote Plaene (source-consolidation, full-app-green, studio-brain-*) ohne

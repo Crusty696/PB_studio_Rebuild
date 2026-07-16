@@ -1,5 +1,10 @@
 # Timeline Quality Fix Plan (user feedback 2026-06-03)
 
+> **⛔ SUPERSEDED 2026-07-16 — PLAN GESCHLOSSEN + KOMPLETT ERLEDIGT.** Bucket-7-Aufloesung:
+> alle referenzierten Bugs erledigt (B-471/472/473/475 `fixed`, B-474 `cannot-reproduce`) —
+> keine offene Task. Konsolidiert unter `PB-STUDIO-MASTER-OFFENE-TASKS-2026-07-16` (D-071).
+> Nicht mehr als aktiver Plan nutzen.
+
 status: in-progress (autonomous, user authorized "mach alles autonom bis alles fertig ist")
 plan_id: TIMELINE-QUALITY-FIX-2026-06-03
 parent_plan: PB-STUDIO-FULL-AUDIT-FIXPLAN-2026-05-31
