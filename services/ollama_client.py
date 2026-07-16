@@ -266,13 +266,18 @@ class OllamaClient:
         return val / 1000.0 if unit == "m" else val
 
     def select_best_model(self, task: str = "chat",
-                          max_size_bytes: int = 5_300_000_000) -> str | None:
+                          max_size_bytes: int = 5_300_000_000,
+                          prefer: str = "quality") -> str | None:
         """Waehlt automatisch das beste installierte Modell fuer die Aufgabe.
 
         task: ``"chat"`` (braucht ``completion``-capability) oder ``"vision"``
-        (braucht ``vision``). Ranking: groesste ``parameter_size`` zuerst
-        (Qualitaets-Proxy), gefiltert auf Modelle die in den VRAM passen
-        (GTX 1060, 6 GB -> Default ~5.3 GB, laesst Platz fuer KV-cache).
+        (braucht ``vision``). Immer gefiltert auf Modelle die in den VRAM
+        passen (GTX 1060, 6 GB -> Default ~5.3 GB, laesst Platz fuer KV-cache).
+
+        prefer (B-650, Weg B): ``"quality"`` = groesste ``parameter_size``
+        zuerst (Detail-Captioning, Pacing-Reasoning). ``"speed"`` = kleinste
+        Parameterzahl zuerst = schnellste Inferenz (Bulk-Captioning, kurze
+        KI-Aktionen). Bei Gleichstand entscheidet die Datei-Groesse.
         Returns Modellname oder ``None`` wenn keins passt.
         """
         need = "vision" if task == "vision" else "completion"
@@ -293,10 +298,13 @@ class OllamaClient:
             scored.append((psize, size, name))
         if not scored:
             return None
-        scored.sort(key=lambda t: (t[0], t[1]), reverse=True)
+        # prefer="quality" -> groesste Params/Groesse zuerst (reverse).
+        # prefer="speed"   -> kleinste zuerst = schnellste Inferenz.
+        reverse = (prefer != "speed")
+        scored.sort(key=lambda t: (t[0], t[1]), reverse=reverse)
         best = scored[0][2]
-        logger.info("select_best_model(task=%s): '%s' (aus %d Kandidaten)",
-                    task, best, len(scored))
+        logger.info("select_best_model(task=%s, prefer=%s): '%s' (aus %d Kandidaten)",
+                    task, prefer, best, len(scored))
         return best
 
     def probe_model(self, model_name: str) -> bool:

@@ -336,13 +336,22 @@ class PacingStrategist:
             raise RuntimeError("Kein Ollama-Modell verfuegbar")
 
         logger.info("PacingStrategist: Nutze Ollama '%s' fuer Pacing-Plan.", model)
-        result = client.chat(
-            model=model,
-            user_message=user_text,
-            system_prompt=SYSTEM_PROMPT,
-            temperature=0.1,
-            max_tokens=max_tokens,
-        )
+        # B-650: aktives Modell + Aufgabe an die UI melden (Status-Feld),
+        # damit sichtbar ist welches LLM fuer Pacing laeuft.
+        from services.model_router import emit_task_status
+        emit_task_status("loading", model, "pacing")
+        try:
+            result = client.chat(
+                model=model,
+                user_message=user_text,
+                system_prompt=SYSTEM_PROMPT,
+                temperature=0.1,
+                max_tokens=max_tokens,
+            )
+        except Exception:
+            emit_task_status("error", model, "pacing")
+            raise
+        emit_task_status("ready", model, "pacing")
         logger.info("PacingStrategist: Antwort erhalten (%d chars)", len(result))
         return result
 

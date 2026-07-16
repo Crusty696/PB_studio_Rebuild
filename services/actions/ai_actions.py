@@ -67,17 +67,13 @@ def ask_ai(question: str, max_tokens: int = 512) -> dict:
                 "message": "Ollama ist nicht erreichbar. Bitte starte Ollama mit 'ollama serve'.",
             }
 
-        import os
-        env_model = os.environ.get("PB_OLLAMA_MODEL")
-        if env_model and client.model_exists(env_model):
-            model = env_model
-        else:
-            if env_model:
-                _logger.warning(
-                    "ask_ai: PB_OLLAMA_MODEL='%s' ist nicht installiert; "
-                    "waehle automatisch bestes verfuegbares Modell.",
-                    env_model,
-                )
+        # B-650 (Weg B): kurze KI-Aktion -> schnellstes Text-Modell
+        # (phi3:mini-Klasse) via zentralem Router. Env PB_OLLAMA_MODEL bleibt
+        # Override (im Router behandelt). Loest die alte get_best_available_model-
+        # Wahl ab, die bei installiertem gemma4:e4b (9.6 GB) das VRAM sprengte.
+        from services.model_router import resolve_model_for_task, emit_task_status
+        model = resolve_model_for_task(client, "action")
+        if not model:
             model = client.get_best_available_model()
         if not model:
             return {
@@ -91,13 +87,19 @@ def ask_ai(question: str, max_tokens: int = 512) -> dict:
             "Audio/Video-Produktionssoftware fuer DJs und Video-Editoren. "
             "Antworte praezise, hilfreich und auf Deutsch."
         )
-        answer = client.chat(
-            model=model,
-            user_message=question,
-            system_prompt=system_prompt,
-            temperature=0.3,
-            max_tokens=max_tokens,
-        )
+        emit_task_status("loading", model, "action")
+        try:
+            answer = client.chat(
+                model=model,
+                user_message=question,
+                system_prompt=system_prompt,
+                temperature=0.3,
+                max_tokens=max_tokens,
+            )
+        except Exception:
+            emit_task_status("error", model, "action")
+            raise
+        emit_task_status("ready", model, "action")
         return {
             "status": "ok",
             "action": "ask_ai",

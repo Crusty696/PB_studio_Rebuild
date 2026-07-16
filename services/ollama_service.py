@@ -410,6 +410,7 @@ class OllamaService:
         messages: list[dict],
         model: str | None = None,
         num_predict: int = 1024,
+        task: str = "chat",
     ) -> str:
         """Synchroner Wrapper fuer Chat-Inference (K7-Fix: kein async mehr).
 
@@ -439,9 +440,9 @@ class OllamaService:
         # Client-Abbruch sieht.
         if not self._is_model_warm(model):
             logger.info("OllamaService.chat(): Modell '%s' nicht warm — ensure_model() vorab.", model)
-            _emit_model_status("loading", model, "chat")
+            _emit_model_status("loading", model, task)
             if not self.ensure_model(model):
-                _emit_model_status("error", model, "chat")
+                _emit_model_status("error", model, task)
                 return f"Fehler: Modell '{model}' konnte nicht geladen werden"
 
         with httpx.Client(base_url=OLLAMA_BASE, timeout=self._inference_timeout()) as client:
@@ -453,7 +454,7 @@ class OllamaService:
                     "options": {"num_predict": num_predict},
                 })
                 if response.status_code == 200:
-                    _emit_model_status("ready", model, "chat")
+                    _emit_model_status("ready", model, task)
                     # B1-Fix: Thinking models return response in "thinking" field instead of "content"
                     content = response.json().get("message", {}).get("content", "")
                     if not content:
@@ -471,6 +472,7 @@ class OllamaService:
         model: str | None = None,
         num_predict: int = 1024,
         read_timeout_s: float | None = None,
+        task: str = "vision",
     ) -> str:
         """Synchroner Wrapper fuer Vision-Inference (K7-Fix: kein async mehr).
 
@@ -504,9 +506,9 @@ class OllamaService:
         )
         if not warm_before:
             logger.info("OllamaService.vision(): Modell '%s' nicht warm — ensure_model() vorab.", model)
-            _emit_model_status("loading", model, "vision")
+            _emit_model_status("loading", model, task)
             if not self.ensure_model(model):
-                _emit_model_status("error", model, "vision")
+                _emit_model_status("error", model, task)
                 return f"Fehler: Modell '{model}' konnte nicht geladen werden"
         warm_after = self._is_model_warm(model)
         logger.info(
@@ -542,7 +544,7 @@ class OllamaService:
                     "options": {"num_predict": num_predict},
                 })
                 if response.status_code == 200:
-                    _emit_model_status("ready", model, "vision")
+                    _emit_model_status("ready", model, task)
                     content = response.json().get("message", {}).get("content", "")
                     if content:
                         return content

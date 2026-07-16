@@ -941,6 +941,7 @@ def analyze_scene_with_caption(
                 # Inferenz und provozierte Timeouts auf der GTX 1060.
                 num_predict=256,
                 read_timeout_s=HTTP_OLLAMA_VISION_CAPTION_TIMEOUT_SEC,
+                task="caption",  # B-650: Status-Feld zeigt "caption" + Modell
             )
             if not raw.strip() and vision_model.lower().startswith("moondream"):
                 logger.info(
@@ -953,6 +954,7 @@ def analyze_scene_with_caption(
                     prompt=_CAPTION_PLAIN_TEXT_FALLBACK_PROMPT,
                     model=vision_model,
                     read_timeout_s=HTTP_OLLAMA_VISION_CAPTION_TIMEOUT_SEC,
+                    task="caption",  # B-650
                 )
 
             # B-195: ``OllamaService.vision()`` returnt bei HTTP-Error
@@ -1010,6 +1012,7 @@ def analyze_scene_with_caption(
                     prompt=_CAPTION_PLAIN_TEXT_FALLBACK_PROMPT,
                     model=vision_model,
                     read_timeout_s=HTTP_OLLAMA_VISION_CAPTION_TIMEOUT_SEC,
+                    task="caption",  # B-650
                 ).strip()
                 if _caption_text_is_plausible(retry_raw):
                     valid = {
