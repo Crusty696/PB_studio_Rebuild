@@ -64,6 +64,10 @@ class VideoAnalysisController(PBComponent):
         self.window.progress_bar.setVisible(True)
         self.window.progress_bar.setRange(0, len(batch))
         self.window.progress_bar.setValue(0)
+        # B-649: eigenes Format setzen. Der progress_bar ist mit der Audio-
+        # Analyse geteilt; ohne setFormat behaelt er deren Label ("Audio-V2:
+        # %p%% ...") und die Video-Analyse sah aus, als liefe der Audio-Pfad.
+        self.window.progress_bar.setFormat("Video-Analyse: %p%% — %v/%m Clips")
         self.window.btn_analyze_video.setText(f"Analyse 0/{len(batch)}...")
         self.window.console_text.append(
             f"[Video] Batch-Analyse gestartet: {len(batch)} Videos (sequentiell)"
