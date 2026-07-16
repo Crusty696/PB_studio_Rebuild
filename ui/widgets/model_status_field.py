@@ -9,6 +9,7 @@ gefuettert). Reiner Anzeige-Consumer — keine eigene Inference-Logik.
 """
 from __future__ import annotations
 
+import logging
 import threading
 
 from PySide6.QtCore import Qt, QTimer, QRectF
@@ -18,7 +19,16 @@ from PySide6.QtWidgets import QWidget
 from ui.theme import ACCENT, BG2, OK, T3, WARN
 from services.model_load_status import ModelLoadStatus
 
-_TASK_LABEL = {"vision": "Vision", "chat": "Chat", "": "LLM"}
+_log = logging.getLogger(__name__)
+
+# B-650: Aufgaben-Labels. caption/pacing/action wurden neu eingefuehrt — ohne
+# sie hier fiel die Anzeige auf "LLM" zurueck und der Aufgaben-Wechsel war
+# unsichtbar. Unbekannte Tasks zeigen jetzt ihren Roh-Namen (nie versteckt).
+_TASK_LABEL = {
+    "vision": "Vision", "chat": "Chat",
+    "caption": "Caption", "pacing": "Pacing", "action": "Aktion",
+    "": "LLM",
+}
 
 
 class ModelStatusField(QWidget):
@@ -46,8 +56,11 @@ class ModelStatusField(QWidget):
     # ── Initial-Probe ────────────────────────────────────────────
     def _probe_initial(self):
         try:
-            from services.ollama_service import OllamaService
-            model = OllamaService.get().get_default_model()
+            # B-650: per-Aufgabe-Router (task=chat -> Text-Modell, kein qwen-vl),
+            # konsistent mit der Laufzeit-Auswahl.
+            from services.ollama_client import get_ollama_client
+            from services.model_router import resolve_model_for_task
+            model = resolve_model_for_task(get_ollama_client(), "chat")
             if model:
                 # ueber den Emitter -> landet threadsicher im _on_status-Slot
                 ModelLoadStatus.get().set_ready(model, "chat")
@@ -56,6 +69,9 @@ class ModelStatusField(QWidget):
 
     # ── Status-Updates ───────────────────────────────────────────
     def _on_status(self, model: str, task: str, phase: str, pct: float):
+        # B-650: beweist im Log, dass der UI-Slot (Main-Thread) wirklich feuert
+        # und was angezeigt wird — Live-Verifikation ohne Bildschirmzugriff.
+        _log.info("ModelStatusField.update: modell=%r aufgabe=%r phase=%r", model, task, phase)
         self._model = model
         self._task = task
         self._phase = phase
@@ -72,7 +88,7 @@ class ModelStatusField(QWidget):
         if not self._model:
             self.setToolTip(self.tr("Kein KI-Modell aktiv."))
             return
-        label = _TASK_LABEL.get(self._task, "LLM")
+        label = _TASK_LABEL.get(self._task, self._task or "LLM")
         state = {"loading": "wird geladen…", "ready": "bereit",
                  "error": "Fehler", "idle": ""}.get(self._phase, "")
         self.setToolTip(f"KI-Modell: {self._model} ({label}) — {state}")
@@ -116,7 +132,7 @@ class ModelStatusField(QWidget):
 
         # Text: "modell · Typ"
         p.setClipping(False)
-        label = _TASK_LABEL.get(self._task, "LLM")
+        label = _TASK_LABEL.get(self._task, self._task or "LLM")
         if self._model:
             text = f"{self._model} · {label}"
         else:

@@ -771,11 +771,17 @@ def _resolve_vision_caption_model(client, requested_model: str) -> str:
     if env_model and _ollama_model_exists(client, env_model):
         return env_model
 
-    # Auto-Auswahl: bestes installiertes Vision-Modell (groesste Params, VRAM-fit).
+    # B-650: per-Aufgabe-Router bevorzugt Vision-First-Modelle (qwen3-vl vor
+    # gemma3:4b — gemma3 kann zwar vision, ist aber ein Text-Modell). Faellt
+    # auf select_best_model("vision") zurueck.
     try:
-        best = client.select_best_model("vision")
-    except AttributeError:
-        best = None
+        from services.model_router import resolve_model_for_task
+        best = resolve_model_for_task(client, "caption")
+    except Exception:
+        try:
+            best = client.select_best_model("vision")
+        except AttributeError:
+            best = None
     if best:
         if best != requested_model:
             logger.info("[CAPTION] Auto-Vision-Modell '%s' (statt Default '%s').",

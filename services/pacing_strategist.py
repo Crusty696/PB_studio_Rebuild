@@ -313,17 +313,17 @@ class PacingStrategist:
         if not client.is_available():
             raise RuntimeError("Ollama-Server nicht erreichbar")
 
-        configured_model = cfg.get("model")
-        model = None
-        if configured_model:
-            if _client_model_exists(client, configured_model):
+        # B-650 (Weg B): per-Aufgabe-Auswahl hat Vorrang — Pacing braucht ein
+        # TEXT-Reasoning-Modell (gemma3:4b), NICHT ein Vision-Modell wie
+        # qwen3-vl. Der Router schliesst Vision-First-Modelle fuer Text aus.
+        # PB_STRATEGIST_MODEL-env wird im Router behandelt. Settings-Modell +
+        # get_strategist_model bleiben nur Fallback.
+        from services.model_router import resolve_model_for_task
+        model = resolve_model_for_task(client, "pacing")
+        if not model:
+            configured_model = cfg.get("model")
+            if configured_model and _client_model_exists(client, configured_model):
                 model = configured_model
-            else:
-                logger.warning(
-                    "PacingStrategist: Settings-Modell '%s' ist nicht installiert; "
-                    "waehle automatisch bestes verfuegbares Modell.",
-                    configured_model,
-                )
         model = model or get_strategist_model()
         if model and not _client_model_exists(client, model):
             logger.warning(
