@@ -140,6 +140,16 @@ class DbPersistStage:
         for cap in captions:
             sidx = int(cap.get("scene_idx", -1))
             txt = str(cap.get("text", "")).strip()
+            # B-640: Stub-VLM-Captions (kein llm_backend verdrahtet, Plan B
+            # Phase 11 pending) NICHT persistieren — vorher landete der
+            # Platzhaltertext "[VLM not wired ...]" als echte
+            # Scene.ai_caption in DB + VectorDB. vlm_caption_stage.py
+            # schreibt den Stub-Marker als model_id ("stub-vlm", siehe
+            # VlmCaptionService.stub_model_id) mit in captions.json — genau
+            # diese Zeilen werden hier uebersprungen, echte Captions
+            # (anderer model_id) bleiben unveraendert erhalten.
+            if cap.get("model_id") == "stub-vlm":
+                continue
             if sidx >= 0 and txt and sidx not in cap_by_scene:
                 cap_by_scene[sidx] = txt
 
