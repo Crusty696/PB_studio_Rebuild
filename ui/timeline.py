@@ -1809,6 +1809,36 @@ class InteractiveTimeline(QGraphicsView):
         """
         self._anchor_map = anchor_map
         self._brain_v3_timeline_meta = brain_meta or {}
+        # B-653 Fix 3: Ueberlappungen auf der Video-Spur wurden bisher STUMM
+        # per z-Order gestapelt — verdeckte Clips waren unsichtbar und der
+        # User erfuhr nie davon. Jetzt erkennen + laut warnen.
+        try:
+            vid = sorted(
+                ((float(e.start_time or 0.0), float(e.end_time or 0.0), e.id)
+                 for e in entries if getattr(e, "track", "") == "video"),
+            )
+            _prev_end, _prev_id, _overlaps = 0.0, None, []
+            for _s, _e, _eid in vid:
+                if _s < _prev_end - 1e-3:
+                    _overlaps.append((_prev_id, _eid, _s, _prev_end))
+                if _e > _prev_end:
+                    _prev_end, _prev_id = _e, _eid
+            if _overlaps:
+                logger.warning(
+                    "Timeline: %d UEBERLAPPUNG(EN) auf der Video-Spur — Clips "
+                    "liegen uebereinander und sind teils unsichtbar! Beispiele: %s",
+                    len(_overlaps), _overlaps[:3],
+                )
+                _win = self.window()
+                if _win is not None and hasattr(_win, "console_text"):
+                    _win.console_text.append(
+                        f"[Warnung] Timeline enthaelt {len(_overlaps)} "
+                        "ueberlappende Video-Clips (uebereinander, teils "
+                        "unsichtbar) — Entries "
+                        + ", ".join(f"{a}↔{b}" for a, b, *_ in _overlaps[:5])
+                    )
+        except Exception:  # noqa: BLE001 — Diagnose darf Load nie brechen
+            pass
         # PERF-DIAG (Timeline-Hang-Untersuchung, 1352 Clips): synchroner
         # Recover-Schritt (ggf. DB-Query im UI-Thread) separat messen.
         _rec_t0 = time.perf_counter()

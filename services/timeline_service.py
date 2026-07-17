@@ -253,6 +253,11 @@ def _do_apply_segments(segments: list[dict], project_id: int) -> int:
         # und nach dem letzten Lock verloren. Interval-Subtraktion:
         # jede Locked-Range schneidet die aktuelle Stueckliste, sortiert
         # (T4.9) fuer deterministisches Ergebnis.
+        # B-653 Fix 1: pro Lane das Ende des zuletzt akzeptierten Segments —
+        # Basis der Peer-Overlap-Klemme im Insert-Loop unten. (Kollisionen mit
+        # Locked-Ranges behandelt bereits das Interval-Splitting oben.)
+        _lane_last_end: dict[int, float] = {}
+
         for seg in segments:
             source_start0 = float(seg.get("source_start", 0.0) or 0.0)
             raw_source_end = seg.get("source_end")
@@ -304,8 +309,28 @@ def _do_apply_segments(segments: list[dict], project_id: int) -> int:
                         continue
                     if (seg_end - seg_start) > source_span:
                         seg_end = round(seg_start + source_span, 4)
+                # B-653 Fix 1: Peer-Overlap-Klemme pro Lane. Ohne sie wurden
+                # Segmente verbatim uebernommen und konnten sich (z.B. nach
+                # Locked-Splitting oder fehlerhaften Eingaben) still stapeln —
+                # Clips lagen unsichtbar uebereinander. Invariante: pro Lane
+                # keine zeitliche Ueberlappung; Quellfenster wird um den
+                # geklemmten Betrag mitverschoben.
+                lane = seg.get("lane", 0)
+                prev_end = _lane_last_end.get(lane, 0.0)
+                if seg_start < prev_end - 1e-6:
+                    delta = prev_end - seg_start
+                    logger.warning(
+                        "Timeline: Segment-Overlap geklemmt (lane=%s, media=%s): "
+                        "start %.3f -> %.3f", lane, mid, seg_start, prev_end,
+                    )
+                    seg_start = prev_end
+                    if source_end is not None:
+                        source_start = round(source_start + delta, 4)
+                        if (source_end - source_start) <= 1e-3:
+                            continue
                 if (seg_end - seg_start) <= 1e-3:
                     continue
+                _lane_last_end[lane] = max(prev_end, seg_end)
 
                 entry = TimelineEntry(
                     project_id=project_id,
@@ -334,6 +359,45 @@ def _do_apply_segments(segments: list[dict], project_id: int) -> int:
         inserted, project_id,
     )
     return inserted
+
+
+def resolve_video_overlaps(project_id: int) -> int:
+    """B-653 Fix 2: entfernt NUR Ueberlappungen auf der Video-Spur.
+
+    Anders als ``repair_timeline_integrity`` werden Luecken NICHT geschlossen —
+    manuell platzierte Clips bleiben, wo der User sie hingesetzt hat; kollidiert
+    ein (unlocked) Clip mit dem Vorgaenger, wird er hinter dessen Ende
+    geschoben (Kaskade ueber den cursor). Rueckgabe: Anzahl verschobener Rows.
+    """
+    from database import nullpool_session
+
+    shifted = 0
+    with nullpool_session() as session:
+        rows = (
+            session.query(TimelineEntry)
+            .filter_by(project_id=project_id, track="video")
+            .order_by(TimelineEntry.start_time, TimelineEntry.id)
+            .all()
+        )
+        cursor = 0.0
+        for row in rows:
+            start = float(row.start_time or 0.0)
+            end = float(row.end_time or start)
+            if start < cursor - 1e-6 and not bool(row.locked):
+                duration = max(0.0, end - start)
+                start = round(cursor, 4)
+                end = round(start + duration, 4)
+                row.start_time = start
+                row.end_time = end
+                shifted += 1
+                logger.warning(
+                    "Timeline: Overlap aufgeloest — Entry %s (media %s) nach "
+                    "%.3fs verschoben", row.id, row.media_id, start,
+                )
+            cursor = max(cursor, end)
+        if shifted:
+            session.commit()
+    return shifted
 
 
 def repair_timeline_integrity(project_id: int) -> dict[str, int]:

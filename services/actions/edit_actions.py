@@ -676,6 +676,17 @@ def add_to_timeline(media_id: int, media_type: str) -> dict:
             )
             session.add(entry)
             session.commit()
+            # B-653 Fix 2: manueller Add schrieb bisher OHNE Overlap-
+            # Normalisierung — voll-lange Clips stapelten sich unsichtbar
+            # ueber Auto-Edit-Segmente. Der Resolver schiebt Kollisionen nach
+            # rechts, laesst bewusste Luecken aber unangetastet (KEIN repair,
+            # das wuerde Gaps schliessen und manuelle Platzierung zerstoeren).
+            if track_type == "video":
+                try:
+                    from services.timeline_service import resolve_video_overlaps
+                    resolve_video_overlaps(project_id)
+                except Exception as _rex:  # noqa: BLE001 — Add selbst gilt
+                    _logger.warning("add_to_timeline: Overlap-Resolver fehlgeschlagen: %s", _rex)
 
             return {
                 "status": "ok",

@@ -184,7 +184,7 @@ class AddClipCommand(QUndoCommand):
                 media_id=self._media_id,
                 start_time=round(self._start_time, 3),
                 end_time=round(self._end_time, 3),
-                source_start=self._source_start,
+                source_start=max(0.0, self._source_start),  # B-653 Fix 4
                 source_end=self._source_end,
                 lane=0,
             )
@@ -205,6 +205,18 @@ class AddClipCommand(QUndoCommand):
             start_time=self._start_time,
             duration=self._duration,
         )
+        # B-653 Fix 2: Drag-Add konnte Clips still UEBER bestehende Segmente
+        # legen (unsichtbare zweite Schicht). Resolver schiebt Kollisionen nach
+        # rechts (Luecken bleiben); bei Verschiebung View neu laden, damit
+        # Szene und DB uebereinstimmen.
+        if self._track_type == "video":
+            try:
+                from services.timeline_service import resolve_video_overlaps
+                if resolve_video_overlaps(self._project_id) and hasattr(
+                        self._timeline, "load_from_db"):
+                    self._timeline.load_from_db(self._project_id)
+            except Exception as exc:  # noqa: BLE001 — Add selbst gilt
+                logger.warning("AddClipCommand: Overlap-Resolver fehlgeschlagen: %s", exc)
 
     def undo(self):
         if self._entry_id is None:
@@ -370,7 +382,10 @@ class TrimClipCommand(QUndoCommand):
                 if end is not None:
                     entry.end_time = round(end, 3)
                 if source_start is not None:
-                    entry.source_start = round(source_start, 3)
+                    # B-653 Fix 4: Trim-Links konnte source_start NEGATIV
+                    # rechnen (DB-Beweis: -3.626) — Quellfenster vor
+                    # Clip-Anfang existiert nicht. Auf >= 0 klemmen.
+                    entry.source_start = round(max(0.0, source_start), 3)
                 if source_end is not None:
                     entry.source_end = round(source_end, 3)
 
