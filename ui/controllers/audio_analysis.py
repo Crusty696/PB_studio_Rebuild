@@ -306,6 +306,13 @@ class AudioAnalysisController(PBComponent):
     def _analyze_selected_audio(self):
         info = self._get_selected_audio_track()
         if not info:
+            # UX-Fix (User 2026-07-17, Klasse B-472): vorher stiller Abbruch —
+            # Button wirkte tot, wenn keine Zeile markiert war.
+            self.window.console_text.append(
+                "[Warnung] Kein Audio ausgewählt — bitte zuerst einen Track "
+                "in der Audio-Liste anklicken."
+            )
+            self.window.status_bar.showMessage("Kein Audio ausgewählt", 5000)
             return
         # OTK-018: Audio-V2 strict-sequential Pipeline als Default-Analysepfad
         # (Demucs-Stems + stem-geroutete Analyse). Reversibel via Setting
