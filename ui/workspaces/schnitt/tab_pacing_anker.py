@@ -175,8 +175,10 @@ class SchnittTabPacingAnker(QWidget):
             self.chk_studio_brain.toggled.connect(
                 lambda on: get_settings_store().set_nested(
                     "pacing", "use_studio_brain", value=bool(on)))
+            # Haken-2-Fix (User 2026-07-17): Checkbox standardmaessig AN,
+            # konsistent mit dem Gate in edit_workspace.
             self.chk_llm_strategist.setChecked(bool(_store.get_nested(
-                "pacing", "use_llm_strategist", default=False)))
+                "pacing", "use_llm_strategist", default=True)))
             self.chk_llm_pacing.setChecked(bool(_store.get_nested(
                 "pacing", "use_llm_pacing", default=False)))
             self.chk_llm_strategist.toggled.connect(

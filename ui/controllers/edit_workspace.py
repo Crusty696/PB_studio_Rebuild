@@ -361,8 +361,11 @@ class EditWorkspaceController(PBComponent):
         try:
             from services.settings_store import get_settings_store
             _pstore = get_settings_store()
+            # Haken-2-Fix (User 2026-07-17): LLM-Strategist standardmaessig AN.
+            # Vorher default=False -> Auto-Edit lief ohne LLM-Pacing, obwohl das
+            # gewuenschte Feature. Kostet ~85s LLM-Call (gemma3 auf GPU).
             _llm_strategist = bool(_pstore.get_nested(
-                "pacing", "use_llm_strategist", default=False))
+                "pacing", "use_llm_strategist", default=True))
             _llm_pacing = bool(_pstore.get_nested(
                 "pacing", "use_llm_pacing", default=False))
         except Exception as exc:

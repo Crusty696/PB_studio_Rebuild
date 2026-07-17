@@ -943,17 +943,21 @@ def analyze_scene_with_caption(
                 image_paths=[scene.keyframe_path],
                 prompt=f"{_CAPTION_SYSTEM_PROMPT}\n\n{_CAPTION_USER_PROMPT}",
                 model=vision_model,
-                # Caption-JSON braucht ~120 Tokens; 1024 verlaengerte nur die
-                # Inferenz und provozierte Timeouts auf der GTX 1060.
-                num_predict=256,
+                # Fix 2026-07-17: 256 war zu wenig fuer Thinking-Modelle. qwen3-vl
+                # denkt im 'thinking'-Feld und verbrauchte das ganze 256-Budget ->
+                # content blieb LEER (done_reason=length) -> Caption scheiterte. Mit
+                # 1024 passt Denken + JSON (~12s auf GPU/0.21.2, verifiziert). Das
+                # alte 256-Limit war ein CPU-Era-Workaround. think:false wird von
+                # qwen3-vl ignoriert, daher hilft nur mehr Token-Budget.
+                num_predict=1024,
                 read_timeout_s=HTTP_OLLAMA_VISION_CAPTION_TIMEOUT_SEC,
                 task="caption",  # B-650: Status-Feld zeigt "caption" + Modell
             )
-            if not raw.strip() and vision_model.lower().startswith("moondream"):
+            if not raw.strip():
                 logger.info(
-                    "[CAPTION] Szene %d: Moondream lieferte leere JSON-Antwort — "
+                    "[CAPTION] Szene %d: Modell '%s' lieferte leere JSON-Antwort — "
                     "retry mit Plain-Text-Prompt.",
-                    scene.index,
+                    scene.index, vision_model,
                 )
                 raw = svc.vision(
                     image_paths=[scene.keyframe_path],

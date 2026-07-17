@@ -66,9 +66,11 @@ class TestLlmPacingToggles:
         _qapp()
         store = _FakeStore()
         tab = _make_tab(monkeypatch, store)
-        tab.chk_llm_strategist.setChecked(True)
+        # Haken-2-Fix: strategist ist default True -> auf False toggeln = echte
+        # Aenderung (setChecked(True) waere ein No-op ohne toggled-Signal).
+        tab.chk_llm_strategist.setChecked(False)
         tab.chk_llm_pacing.setChecked(True)
-        assert (("pacing", "use_llm_strategist"), True) in store.set_calls
+        assert (("pacing", "use_llm_strategist"), False) in store.set_calls
         assert (("pacing", "use_llm_pacing"), True) in store.set_calls
 
     def test_disabled_when_ollama_off(self, monkeypatch):
@@ -79,10 +81,11 @@ class TestLlmPacingToggles:
         assert not tab.chk_llm_pacing.isEnabled()
         assert "Ollama" in tab.chk_llm_strategist.toolTip()
 
-    def test_defaults_false(self, monkeypatch):
+    def test_defaults(self, monkeypatch):
+        # Haken-2-Fix (User 2026-07-17): Strategist default AN, Pacing default AUS.
         _qapp()
         tab = _make_tab(monkeypatch, _FakeStore())
-        assert tab.chk_llm_strategist.isChecked() is False
+        assert tab.chk_llm_strategist.isChecked() is True
         assert tab.chk_llm_pacing.isChecked() is False
 
 
