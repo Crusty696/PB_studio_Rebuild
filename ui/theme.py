@@ -62,7 +62,47 @@ def get_stylesheet() -> str:
         color: {T1};
         font-family: 'Segoe UI Variable Text', 'Segoe UI', system-ui, -apple-system, sans-serif;
         font-size: 11px;
-        outline: none;
+    }}
+
+    /* === FOCUS-SICHTBARKEIT (B-654) ===
+       User-Anweisung 2026-07-18: KEIN Bedienelement darf unsichtbar
+       fokussiert sein. Das fruehere globale `outline: none` unterdrueckte
+       jeden Fokus-Ring — Space/Enter loeste dann unbemerkt fokussierte
+       Buttons aus. Jedes fokussierbare Element zeigt jetzt einen goldenen
+       Rahmen. */
+    QPushButton:focus {{
+        border: 1px solid {ACCENT};
+        color: {T1};
+    }}
+    QComboBox:focus {{
+        border: 1px solid {ACCENT};
+        background-color: {BG2};
+    }}
+    QCheckBox:focus {{
+        color: {ACCENT_BRIGHT};
+    }}
+    QCheckBox::indicator:focus {{
+        border: 1px solid {ACCENT};
+    }}
+    QRadioButton:focus {{
+        color: {ACCENT_BRIGHT};
+    }}
+    QRadioButton::indicator:focus {{
+        border: 1px solid {ACCENT};
+    }}
+    QSlider::handle:horizontal:focus {{
+        background: {ACCENT_BRIGHT};
+        border: 2px solid {T1};
+    }}
+    QSlider::handle:vertical:focus {{
+        background: {ACCENT_BRIGHT};
+        border: 2px solid {T1};
+    }}
+    QTabBar::tab:focus {{
+        border: 1px solid {ACCENT};
+    }}
+    QToolButton:focus {{
+        border: 1px solid {ACCENT};
     }}
 
     QMainWindow {{

@@ -70,6 +70,9 @@ class WorkspaceSetupController(PBComponent):
         top_layout.addStretch(1)
 
         self.window._btn_context_panel = QPushButton("Kontext")
+        # B-654: Top-Bar-Buttons sind nicht per Tab fokussierbar — Space/Enter
+        # oeffnete sonst unbemerkt Dialoge (Einstellungen war Tab-Stopp #2).
+        self.window._btn_context_panel.setFocusPolicy(Qt.NoFocus)
         self.window._btn_context_panel.setCheckable(True)
         self.window._btn_context_panel.setChecked(False)
         self.window._btn_context_panel.setFixedHeight(24)
@@ -79,6 +82,7 @@ class WorkspaceSetupController(PBComponent):
         top_layout.addWidget(self.window._btn_context_panel)
 
         self.window._btn_open_brain = QPushButton("Brain")
+        self.window._btn_open_brain.setFocusPolicy(Qt.NoFocus)
         self.window._btn_open_brain.setFixedHeight(24)
         self.window._btn_open_brain.setToolTip(
             "Studio Brain direkt oeffnen (Ctrl+B). Zeigt Projektwissen, interne App-Erinnerungen, "
@@ -89,6 +93,7 @@ class WorkspaceSetupController(PBComponent):
         top_layout.addWidget(self.window._btn_open_brain)
 
         btn_settings = QPushButton("Einstellungen")
+        btn_settings.setFocusPolicy(Qt.NoFocus)
         btn_settings.setMaximumWidth(120)
         btn_settings.setFixedHeight(22)
         btn_settings.setToolTip(
@@ -136,6 +141,7 @@ class WorkspaceSetupController(PBComponent):
         tools.addAction("Tastaturkuerzel", self.window.project_management._show_shortcut_help)
         tools.addAction("About", self.window.project_management._show_about)
         btn_tools = QPushButton("Tools")
+        btn_tools.setFocusPolicy(Qt.NoFocus)
         btn_tools.setFixedHeight(22)
         btn_tools.setMenu(tools)
         btn_tools.setToolTip("Expertenwerkzeuge und Hilfe.")
