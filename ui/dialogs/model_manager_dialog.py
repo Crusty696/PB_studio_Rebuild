@@ -820,6 +820,21 @@ class ModelManagerDialog(QDialog):
 
     def _check_ollama_status(self):
         """Prüft Ollama-Verfügbarkeit und aktualisiert Status-Label (H-27 fix: async)."""
+        # B-652 (Dump-Beweis 2026-07-17, Qt6Core c0000409): das Rebind unten
+        # liess die LETZTE Python-Referenz auf einen noch LAUFENDEN alten
+        # Status-Thread sterben (haengender Ollama-HTTP-Check) ->
+        # ~QThread-qFatal "Destroyed while thread is still running".
+        # Alt-Thread deshalb bis zu seinem Ende in einer Halteliste parken.
+        old = getattr(self, "_status_thread", None)
+        if old is not None and shiboken6.isValid(old) and old.isRunning():
+            old.quit()
+            if not hasattr(self, "_dying_threads"):
+                self._dying_threads = []
+            self._dying_threads.append(old)
+            old.finished.connect(
+                lambda o=old: self._dying_threads.remove(o)
+                if o in getattr(self, "_dying_threads", []) else None
+            )
         self._status_worker = _OllamaStatusWorker(self.ollama_url)
         self._status_thread = QThread()
         self._status_worker.moveToThread(self._status_thread)

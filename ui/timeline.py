@@ -1587,13 +1587,26 @@ class InteractiveTimeline(QGraphicsView):
                         # thread.finished -> deleteLater fuer Thread + Worker)
                         # raeumt asynchron auf, sobald run() zurueckkehrt.
                         self._db_thread.quit()
+                        # B-652 (Dump-Beweis 2026-07-17): `self._db_thread = None`
+                        # unten liess die LETZTE Python-Referenz auf den noch
+                        # LAUFENDEN Thread sterben -> ~QThread-qFatal
+                        # (c0000409, "Destroyed while thread is still running").
+                        # Referenz bis zu finished in Halteliste parken.
+                        if not hasattr(self, "_dying_db_threads"):
+                            self._dying_db_threads = []
+                        _dying = self._db_thread
+                        self._dying_db_threads.append(_dying)
+                        _dying.finished.connect(
+                            lambda t=_dying: self._dying_db_threads.remove(t)
+                            if t in getattr(self, "_dying_db_threads", []) else None
+                        )
                     else:
                         logger.debug("[B-283] db_thread not running")
                 else:
                     logger.debug("[B-283] Old thread is invalid")
             except RuntimeError as e:
                 logger.debug("[B-283] Thread wait/check failed: %s", e)
-            
+
             self._db_worker = None
             self._db_thread = None
         logger.debug("[B-283] _cancel_pending_db_load finished")
