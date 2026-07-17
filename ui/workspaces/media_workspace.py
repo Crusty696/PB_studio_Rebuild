@@ -52,11 +52,26 @@ class DraggablePoolView(QTableView):
         self.setSelectionMode(QTableView.SelectionMode.ExtendedSelection)
         self.setAlternatingRowColors(True)
 
+    def _selected_media_ids(self) -> list[int]:
+        """IDs aller aktuell markierten Zeilen (Spalte 1 = ID)."""
+        ids: list[int] = []
+        for idx in self.selectionModel().selectedRows():
+            val = idx.sibling(idx.row(), 1).data()
+            try:
+                ids.append(int(val))
+            except (TypeError, ValueError):
+                continue
+        return ids
+
     def mousePressEvent(self, event):  # noqa: N802 — Qt override
         """Click auf Checkbox-Spalte → toggelt; sonst Default-Verhalten.
 
         Wir muessen das vor super().mousePressEvent abfangen, weil sonst
         Qt's Drag-Initiation-Pfad den Click verbraucht.
+
+        B-648-Erweiterung (User 2026-07-17): ist die geklickte Zeile Teil
+        einer Mehrfach-Markierung, wird der neue Haken-Zustand auf ALLE
+        markierten Zeilen angewendet (statt nur die eine).
         """
         if event.button() == Qt.MouseButton.LeftButton:
             index = self.indexAt(event.position().toPoint())
@@ -69,10 +84,34 @@ class DraggablePoolView(QTableView):
                         if current == Qt.CheckState.Checked
                         else Qt.CheckState.Checked
                     )
-                    model.setData(index, new_state, Qt.ItemDataRole.CheckStateRole)
+                    sel_rows = {i.row() for i in self.selectionModel().selectedRows()}
+                    if (index.row() in sel_rows and len(sel_rows) > 1
+                            and hasattr(model, "set_checked_for_ids")):
+                        model.set_checked_for_ids(
+                            self._selected_media_ids(),
+                            new_state == Qt.CheckState.Checked,
+                        )
+                    else:
+                        model.setData(index, new_state, Qt.ItemDataRole.CheckStateRole)
                     event.accept()
                     return
         super().mousePressEvent(event)
+
+    def contextMenuEvent(self, event):  # noqa: N802 — Qt override
+        """Kontextmenue: Haken fuer die markierten Zeilen setzen/entfernen."""
+        ids = self._selected_media_ids()
+        model = self.model()
+        if not ids or model is None or not hasattr(model, "set_checked_for_ids"):
+            return super().contextMenuEvent(event)
+        from PySide6.QtWidgets import QMenu
+        menu = QMenu(self)
+        act_check = menu.addAction(f"Markierte anhaken ({len(ids)})")
+        act_uncheck = menu.addAction(f"Markierte abhaken ({len(ids)})")
+        chosen = menu.exec(event.globalPos())
+        if chosen is act_check:
+            model.set_checked_for_ids(ids, True)
+        elif chosen is act_uncheck:
+            model.set_checked_for_ids(ids, False)
 
     def startDrag(self, supportedActions):
         indexes = self.selectionModel().selectedRows()
@@ -485,7 +524,13 @@ class MediaWorkspace(QWidget):
 
         self.video_pool_table = DraggablePoolView(track_type="video")
         self.video_pool_table.setModel(self.video_pool_model)
+        # B-648 (User 2026-07-17): Spalten per Header-Klick sortierbar.
+        # MediaTableModel.sort() sortiert die Daten typbewusst (ID/FPS/%
+        # numerisch, Aufloesung nach Pixelflaeche) und respektiert den
+        # paginated_fetch-Pfad.
+        self.video_pool_table.setSortingEnabled(True)
         vh = self.video_pool_table.horizontalHeader()
+        vh.setSortIndicatorShown(True)
         vh.setStretchLastSection(True)
         vh.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         vh.resizeSection(0, 36)

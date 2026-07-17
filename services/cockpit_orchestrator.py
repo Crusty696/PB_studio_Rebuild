@@ -60,6 +60,11 @@ AUDIO_STEP_SPECS = [
     PipelineStepSpec("spectral_analysis", "audio", "Spektral", True, "run_audio_complete"),
     PipelineStepSpec("structure_detection", "audio", "Songstruktur", True, "run_audio_complete"),
     PipelineStepSpec("stem_separation", "audio", "Stems", True, "run_audio_complete"),
+    # Stage-Sichtbarkeit (User 2026-07-17): optionale Audio-V2-Steps —
+    # sichtbar, aber required=False -> gaten die Cockpit-Readiness NICHT
+    # (alte Tracks ohne diese Marks bleiben "ready").
+    PipelineStepSpec("onset_detection", "audio", "Onsets", False, "run_audio_complete"),
+    PipelineStepSpec("av_pacing_curves", "audio", "AV-Pacing", False, "run_audio_complete"),
 ]
 
 VIDEO_STEP_SPECS = [

@@ -215,6 +215,59 @@ class MediaTableModel(QAbstractTableModel):
             self._checked_ids = {i["id"] for i in self._items}
         self.layoutChanged.emit()
 
+    def set_checked_for_ids(self, ids: list[int], checked: bool):
+        """B-648-Erweiterung (User 2026-07-17): Haken fuer eine ID-Teilmenge.
+
+        Grundlage fuer 'nur markierte Zeilen anhaken' — Auswahl in der View,
+        Haken-Klick/Kontextmenue wendet den Zustand auf ALLE markierten an.
+        """
+        ids_set = {int(i) for i in ids}
+        if checked:
+            valid = {i["id"] for i in self._items}
+            self._checked_ids |= (ids_set & valid)
+        else:
+            self._checked_ids -= ids_set
+        self.layoutChanged.emit()
+
+    # ------------------------------------------------------------------
+    # B-648: Spalten-Sortierung. Qt ruft sort() beim Header-Klick, wenn die
+    # View setSortingEnabled(True) hat. Sortiert die DATEN (_items), damit
+    # auch der paginated_fetch-Pfad (Video-Pool) korrekt sortiert nachlaedt.
+    # ------------------------------------------------------------------
+    def sort(self, column: int, order: Qt.SortOrder = Qt.SortOrder.AscendingOrder):  # noqa: N802
+        if not (0 <= column < len(self._keys)) or not self._items:
+            return
+        key = self._keys[column]
+
+        def sort_key(item: dict):
+            if key == "_chk":
+                return (0, 1 if item.get("id") in self._checked_ids else 0)
+            v = item.get(key)
+            if v is None:
+                return (1, 0)  # leere Werte ans Ende (bei Ascending)
+            if key in ("id", "fps", "analysis_percent", "bpm", "stems"):
+                try:
+                    return (0, float(v))
+                except (TypeError, ValueError):
+                    return (1, 0)
+            if key == "resolution":
+                # "1920x1080" -> Pixelflaeche als Sortierwert
+                try:
+                    w, h = str(v).lower().replace(" ", "").split("x")
+                    return (0, int(w) * int(h))
+                except (ValueError, AttributeError):
+                    return (1, 0)
+            return (0, str(v).lower())
+
+        self.beginResetModel()
+        self._items.sort(key=sort_key,
+                         reverse=(order == Qt.SortOrder.DescendingOrder))
+        # paginated_fetch: nach Sortierung wieder nur den ersten Ausschnitt
+        # exponieren (wie set_items) — View laedt beim Scrollen nach.
+        if self._paginated_fetch:
+            self._fetched_count = min(self._INITIAL_FETCH_ROWS, len(self._items))
+        self.endResetModel()
+
 
 class PagedProxyModel(QSortFilterProxyModel):
     """Paginations-Proxy fuer den MEDIA-Pool.
@@ -310,6 +363,11 @@ class PagedProxyModel(QSortFilterProxyModel):
         src = self.sourceModel()
         if src is not None:
             src.toggle_all()
+
+    def set_checked_for_ids(self, ids: list[int], checked: bool):
+        src = self.sourceModel()
+        if src is not None and hasattr(src, "set_checked_for_ids"):
+            src.set_checked_for_ids(ids, checked)
 
     def set_items(self, items: list[dict]):
         src = self.sourceModel()

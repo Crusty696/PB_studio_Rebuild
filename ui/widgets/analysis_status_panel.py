@@ -67,6 +67,9 @@ STEP_NAMES = {
     "spectral_analysis": "Spektral-Analyse",
     "structure_detection": "Song-Struktur",
     "stem_separation": "Stem-Separation",
+    # Stage-Sichtbarkeit (User 2026-07-17): optionale Audio-V2-Steps
+    "onset_detection": "Onset-Erkennung",
+    "av_pacing_curves": "AV-Pacing-Kurven",
 }
 
 
@@ -395,7 +398,10 @@ class AnalysisStatusPanel(QWidget):
         if self._media_type == "video":
             steps = analysis_status_service.VIDEO_STEPS
         elif self._media_type == "audio":
-            steps = analysis_status_service.AUDIO_STEPS
+            # Stage-Sichtbarkeit (User 2026-07-17): optionale Audio-V2-Steps
+            # (onset/av_pacing) mit anzeigen — %-Basis bleibt AUDIO_STEPS.
+            steps = (analysis_status_service.AUDIO_STEPS
+                     + getattr(analysis_status_service, "AUDIO_STEPS_OPTIONAL", []))
         else:
             steps = []
 

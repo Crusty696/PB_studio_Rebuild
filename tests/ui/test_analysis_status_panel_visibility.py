@@ -72,7 +72,7 @@ def test_b292_panel_set_media_renders_steps(qapp, project, video_clip, monkeypat
 
 def test_b458_audio_pending_filter_renders_missing_steps_with_start_buttons(qapp):
     """B-458: fehlende Audio-Steps muessen im Pending-Filter startbar bleiben."""
-    from services.analysis_status_service import AUDIO_STEPS
+    from services.analysis_status_service import AUDIO_STEPS, AUDIO_STEPS_OPTIONAL
     from ui.widgets.analysis_status_panel import AnalysisStatusPanel
 
     panel = AnalysisStatusPanel()
@@ -84,7 +84,9 @@ def test_b458_audio_pending_filter_renders_missing_steps_with_start_buttons(qapp
         panel._apply_status_data({}, None, "audio", 1)
 
         rendered_keys = panel.rendered_step_keys()
-        assert rendered_keys == AUDIO_STEPS
+        # Stage-Sichtbarkeit 2026-07-17: Panel zeigt auch die optionalen
+        # Audio-V2-Steps (onset/av_pacing) — %-Basis bleibt AUDIO_STEPS.
+        assert rendered_keys == AUDIO_STEPS + AUDIO_STEPS_OPTIONAL
         for row in range(panel.table.rowCount()):
             button = panel.table.cellWidget(row, 3)
             assert button is not None

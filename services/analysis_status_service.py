@@ -97,6 +97,15 @@ AUDIO_STEPS = [
     "stem_separation",       # Demucs 4-Stem Separation
 ]
 
+# Stage-Sichtbarkeit (User 2026-07-17): Audio-V2 faehrt zusaetzlich onset +
+# av_pacing — diese Steps werden ANGEZEIGT (Panel), zaehlen aber bewusst NICHT
+# in die %-Basis (AUDIO_STEPS) und gaten nicht das Cockpit: sonst wuerden
+# frueher voll analysierte Tracks ploetzlich <100% anzeigen.
+AUDIO_STEPS_OPTIONAL = [
+    "onset_detection",       # Onset-Erkennung (Cut-Snap-Grundlage)
+    "av_pacing_curves",      # AV-Pacing-Kurven (Audio->Video-Bruecke)
+]
+
 
 def mark_started(media_type: str, media_id: int, step_key: str) -> None:
     """Markiert einen Analyse-Schritt als gestartet.

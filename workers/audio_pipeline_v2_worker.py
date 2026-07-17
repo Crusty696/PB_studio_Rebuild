@@ -28,6 +28,10 @@ _STAGE_TO_STEP = {
     "spectral": "spectral_analysis",
     "classify": "mood_genre_classify",
     "waveform": "waveform_analysis",
+    # Stage-Sichtbarkeit (User 2026-07-17): vorher unsichtbare Stages —
+    # optionale Steps (AUDIO_STEPS_OPTIONAL), zaehlen nicht in die %-Basis.
+    "onset": "onset_detection",
+    "av_pacing": "av_pacing_curves",
 }
 
 
