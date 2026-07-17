@@ -381,19 +381,22 @@ class PBWindow(QMainWindow):
         )
         self._status_error_label.setToolTip("")
         self._status_error_label.hide()
-        self.statusBar().addPermanentWidget(self._status_error_label)
+        # User 2026-07-17: in die Kopfzeile statt der (von der Windows-
+        # Taskleiste verdeckten) unteren Statusleiste.
+        self._top_bar_status_slot.addWidget(self._status_error_label)
         self._status_error_timer = QTimer(self)
         self._status_error_timer.setSingleShot(True)
         self._status_error_timer.timeout.connect(self._clear_status_error)
 
         # ── LLM-Anzeige (aktuelles KI-Modell + Ladebalken) ──
+        # User 2026-07-17: Kopfzeile statt unterer Statusleiste (verdeckt).
         from ui.widgets.model_status_field import ModelStatusField
         self._model_status_field = ModelStatusField()
-        self.statusBar().addPermanentWidget(self._model_status_field)
+        self._top_bar_status_slot.addWidget(self._model_status_field)
 
         # ── Resource Monitor (CPU / RAM / GPU) ──
         self._resource_monitor = ResourceMonitorWidget()
-        self.statusBar().addPermanentWidget(self._resource_monitor)
+        self._top_bar_status_slot.addWidget(self._resource_monitor)
 
         # ── Panel Widgets — alle in das Right-Panel-TabWidget ──
         self.panel_setup.setup_task_dock()

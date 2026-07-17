@@ -58,7 +58,16 @@ class WorkspaceSetupController(PBComponent):
         self.window._save_state_label.setStyleSheet("color: #98a2b1; font-size: 10px; background: transparent;")
         top_layout.addWidget(self.window._save_state_label)
 
-        top_layout.addStretch()
+        # Status-Slot in der Kopfzeile (User 2026-07-17): KI-Modell-Feld,
+        # CPU/RAM/GPU-Monitor und Fehler-Label sassen unten in der 18px-
+        # Statusleiste, die von der Windows-Taskleiste verdeckt/unlesbar war.
+        # Sie werden in main.py in diesen Slot gehaengt — mittig zwischen
+        # Projekt-/Speicherstatus (links) und den Panel-Buttons (rechts).
+        top_layout.addStretch(1)
+        self.window._top_bar_status_slot = QHBoxLayout()
+        self.window._top_bar_status_slot.setSpacing(10)
+        top_layout.addLayout(self.window._top_bar_status_slot)
+        top_layout.addStretch(1)
 
         self.window._btn_context_panel = QPushButton("Kontext")
         self.window._btn_context_panel.setCheckable(True)
