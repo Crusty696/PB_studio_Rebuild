@@ -3,9 +3,30 @@
 from PySide6.QtWidgets import (
     QHBoxLayout, QLabel, QPushButton, QFrame, QWidget, QMenu,
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QEvent, QObject
 from PySide6.QtGui import QAction
 from ui.base_component import PBComponent
+
+
+class _NoKeyboardActivationFilter(QObject):
+    """B-654 Zusatz-Hardening: Qt.NoFocus blockt nur Tab-Traversal und
+    Click-to-Focus — ein expliziter setFocus()-Aufruf (z.B. via
+    Accessibility-/Automations-API) setzt den Fokus trotzdem, danach
+    aktiviert Space/Enter den Button. Dieser Filter gibt zugewiesenen
+    Fokus sofort zurueck und schluckt Space/Enter auf den Top-Bar-Buttons
+    komplett. Mausklicks bleiben unberuehrt.
+    """
+
+    _KEYS = (Qt.Key_Space, Qt.Key_Return, Qt.Key_Enter)
+
+    def eventFilter(self, obj, event):
+        t = event.type()
+        if t == QEvent.Type.FocusIn:
+            obj.clearFocus()
+            return True
+        if t in (QEvent.Type.KeyPress, QEvent.Type.KeyRelease) and event.key() in self._KEYS:
+            return True
+        return False
 
 
 def _migrate_workflow_stage_index(settings) -> None:
@@ -147,6 +168,17 @@ class WorkspaceSetupController(PBComponent):
         btn_tools.setToolTip("Expertenwerkzeuge und Hilfe.")
         top_layout.addWidget(btn_tools)
         self.window._btn_recent = btn_tools
+
+        # B-654 Zusatz-Hardening: auch programmatischer Fokus + Space/Enter
+        # darf die Top-Bar-Buttons nicht ausloesen (siehe Filter-Docstring).
+        self.window._topbar_key_filter = _NoKeyboardActivationFilter(self.window)
+        for topbar_btn in (
+            self.window._btn_context_panel,
+            self.window._btn_open_brain,
+            btn_settings,
+            btn_tools,
+        ):
+            topbar_btn.installEventFilter(self.window._topbar_key_filter)
 
         main_layout.addWidget(top_bar)
 
