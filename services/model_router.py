@@ -138,12 +138,19 @@ def resolve_model_for_task(client, task: str) -> str | None:
                     task, best, cap, prefer, len(candidates))
         return best
 
-    # Fallback: generische Auswahl (kann bei Text theoretisch Vision-First
-    # liefern, aber nur wenn KEIN passender Kandidat existierte).
+    # Fallback: generische Auswahl. Kann bei transienten Startup-Fehlern
+    # (leere Modell-/Capability-Liste) greifen.
     try:
         best = client.select_best_model(cap, prefer=prefer)
     except TypeError:
         best = client.select_best_model(cap)
+    # HARTE Regel: Text-Aufgaben NIE ein Vision-First-Modell (qwen-vl/moondream/
+    # minicpm-v) — auch nicht im Fallback. Lieber None (Caller hat eigenen Fallback).
+    if best and cap == "chat" and _is_vision_first(best):
+        logger.warning(
+            "[MODEL-ROUTER] task=%s: Fallback lieferte Vision-First '%s' -> verworfen "
+            "(kein Vision-Modell fuer Text).", task, best)
+        best = None
     if best:
         logger.info("[MODEL-ROUTER] task=%s -> '%s' (Fallback select_best_model)", task, best)
     else:

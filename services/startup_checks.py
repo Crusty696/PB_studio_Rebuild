@@ -168,6 +168,7 @@ def _check_ollama() -> bool:
     from services.ollama_service import OllamaService
     svc = OllamaService.get()
     if svc.is_ready:
+        svc.verify_gpu_async()  # GPU-Fail-fast: warnt laut bei CPU-Betrieb
         return True
 
     try:
@@ -182,6 +183,7 @@ def _check_ollama() -> bool:
         while time.time() - start_time < timeout:
             if svc.is_ready:
                 logger.info("Ollama ist bereit nach %.1fs", time.time() - start_time)
+                svc.verify_gpu_async()  # GPU-Fail-fast: warnt laut bei CPU-Betrieb
                 return True
             time.sleep(0.5)
         logger.warning("Ollama start timeout nach %ds", timeout)

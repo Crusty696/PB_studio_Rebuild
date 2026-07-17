@@ -97,6 +97,25 @@ def test_env_override_ignored_when_not_installed(monkeypatch):
     assert model_router.resolve_model_for_task(_FakeClient(), "pacing") == "gemma3:4b"
 
 
+def test_chat_fallback_never_returns_vision_first():
+    """Transiente Startup-Leere -> Fallback. Fuer Text darf NIE ein
+    Vision-First-Modell zurueckkommen (Bug: Probe waehlte minicpm-v fuer chat)."""
+    class _Cli:
+        def model_exists(self, n):
+            return False
+
+        def _list_models_detailed(self):
+            return []  # transiente Leere erzwingt Fallback
+
+        def _capabilities(self, n):
+            return None
+
+        def select_best_model(self, task="chat", max_size_bytes=None, prefer="quality"):
+            return "minicpm-v4.6:1b"  # Vision-First-Modell
+
+    assert model_router.resolve_model_for_task(_Cli(), "chat") is None
+
+
 def test_select_best_model_prefer_speed_vs_quality(monkeypatch):
     from services.ollama_client import OllamaClient
 

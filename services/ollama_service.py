@@ -87,8 +87,20 @@ def _resolve_default_model(base_url: str = OLLAMA_BASE) -> str | None:
 
 
 def _find_ollama_bin() -> Path:
-    """Ollama-Binary suchen: PyInstaller-Bundle > System-PATH > Standard-Pfade."""
+    """Ollama-Binary suchen: PB_OLLAMA_BIN > PyInstaller-Bundle > System-PATH > Standard-Pfade."""
     import sys
+    # GPU-Fix (2026-07-17): expliziter Override auf eine bestimmte ollama.exe.
+    # Noetig, weil das System-Ollama 0.30.10 auf der GTX 1060 / Treiber 546.33
+    # NUR CPU laeuft (CUDA verlangt Treiber 570+). Die GPU-faehige 0.21.2
+    # (cuda_v12/Pascal) wird per PB_OLLAMA_BIN erzwungen. Hat Vorrang.
+    env_bin = os.environ.get("PB_OLLAMA_BIN")
+    if env_bin:
+        p = Path(env_bin)
+        if p.exists():
+            logger.info("Ollama-Binary via PB_OLLAMA_BIN: %s", p)
+            return p
+        logger.warning("PB_OLLAMA_BIN='%s' existiert nicht — normale Suche.", env_bin)
+
     if getattr(sys, 'frozen', False):  # PyInstaller-Bundle
         # PB Studio buendelt Ollama optional: pb_studio.spec packt redist/
         # (ollama.exe + lib, 0.21.2/cuda_v12 fuer GTX 1060) INS Bundle, sofern
@@ -170,6 +182,64 @@ class OllamaService:
             if self._default_model is None or force_refresh:
                 self._default_model = _resolve_default_model()
             return self._default_model
+
+    # ── GPU-Fail-fast (2026-07-17) ────────────────────────────
+
+    def verify_gpu(self, model: str | None = None, timeout_s: float = 120.0) -> tuple[str, str]:
+        """Prueft, ob Ollama die Inferenz WIRKLICH auf der GPU macht.
+
+        User-Hartregel: kein LLM darf auf der CPU laufen. Das System-Ollama
+        0.30.10 laeuft auf der GTX 1060 / Treiber 546.33 nur CPU (CUDA verlangt
+        Treiber 570+); die GPU-faehige 0.21.2 laeuft via CUDA/cuda_v12.
+
+        Laedt kurz ein Modell (1 Token) und liest ``/api/ps`` ``size_vram``.
+        Returns ``(state, detail)``; state = ``gpu`` | ``partial`` | ``cpu`` |
+        ``unknown``. Bei ``cpu``/``partial`` wird CRITICAL geloggt.
+        """
+        try:
+            if model is None:
+                model = self.get_default_model()
+            if not model:
+                return ("unknown", "kein Modell verfuegbar")
+            with httpx.Client(base_url=OLLAMA_BASE, timeout=timeout_s) as c:
+                c.post("/api/generate", json={
+                    "model": model, "prompt": "hi", "stream": False,
+                    "keep_alive": "30s", "options": {"num_predict": 1},
+                })
+                ps = c.get("/api/ps").json()
+            loaded = ps.get("models", []) or []
+            me = next((m for m in loaded if m.get("name") == model),
+                      loaded[0] if loaded else None)
+            if not me:
+                return ("unknown", "Modell nicht in /api/ps")
+            size = int(me.get("size") or 0)
+            vram = int(me.get("size_vram") or 0)
+            if vram <= 0:
+                logger.critical(
+                    "OLLAMA LAEUFT AUF CPU! Modell '%s' size_vram=0 — GPU-Pflicht "
+                    "verletzt. Ursache pruefen: Ollama-Version (0.21.2 noetig fuer "
+                    "GTX 1060/Treiber 546.33; 0.30.10 = CPU) via PB_OLLAMA_BIN.",
+                    model)
+                return ("cpu", f"{model}: size_vram=0 (CPU)")
+            if size and vram < size * 0.9:
+                logger.critical(
+                    "OLLAMA nur TEILWEISE auf GPU: '%s' VRAM=%d/%d Bytes.",
+                    model, vram, size)
+                return ("partial", f"{model}: {vram}/{size} VRAM (teilweise CPU)")
+            logger.info("Ollama GPU-Check OK: '%s' size_vram=%d Bytes (GPU).", model, vram)
+            return ("gpu", f"{model}: {vram} Bytes VRAM (GPU)")
+        except Exception as e:
+            logger.warning("Ollama GPU-Check fehlgeschlagen: %s", e)
+            return ("unknown", str(e))
+
+    def verify_gpu_async(self) -> None:
+        """Feuert ``verify_gpu`` in einem Daemon-Thread und meldet bei CPU/partial
+        einen lauten Fehler ans Status-Feld (ModelLoadStatus) — nie stiller CPU."""
+        def _run():
+            state, detail = self.verify_gpu()
+            if state in ("cpu", "partial"):
+                _emit_model_status("error", f"CPU-BETRIEB ({detail})", "gpu-guard")
+        threading.Thread(target=_run, name="OllamaGpuVerify", daemon=True).start()
 
     # ── Lifecycle ─────────────────────────────────────────────
 
