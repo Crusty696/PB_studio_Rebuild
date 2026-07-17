@@ -1397,21 +1397,38 @@ def generate_keyframe_strings_for_project(project_id: int = 1) -> str:
 
     M10 Fix: Laedt alle Clips mit ihren Scenes in einer einzigen Session
     statt N+1 separate Sessions (1 fuer Clip-IDs + N fuer Videos).
+
+    B-647: column-select statt joinedload(VideoClip.scenes) — die Scene-
+    Zeilen tragen JSON-Blob-Spalten (keyframe_paths/ai_caption/...), die
+    hier nicht gebraucht werden; genutzt werden nur Skalarfelder.
     """
+    from sqlalchemy import select
+
+    from database import Scene
+
     with Session(engine) as session:
-        clips = (
-            session.query(VideoClip)
-            .options(joinedload(VideoClip.scenes))
+        clips = session.execute(
+            select(
+                VideoClip.id, VideoClip.file_path, VideoClip.duration,
+                VideoClip.width, VideoClip.height,
+            )
             # team-sweep 2026-07-15: PB-Studio-Norm — aktive Reads muessen soft-deleted Clips ausschliessen
-            .filter(VideoClip.project_id == project_id, VideoClip.deleted_at.is_(None))
-            .all()
-        )
+            .where(VideoClip.project_id == project_id, VideoClip.deleted_at.is_(None))
+        ).all()
         if not clips:
             return "[Keine Video-Clips im Projekt]"
 
+        scene_rows = session.execute(
+            select(Scene.video_clip_id, Scene.start_time, Scene.end_time, Scene.energy)
+            .where(Scene.video_clip_id.in_([c.id for c in clips]))
+        ).all()
+        scenes_by_clip: dict[int, list] = {}
+        for row in scene_rows:
+            scenes_by_clip.setdefault(row.video_clip_id, []).append(row)
+
         all_strings = []
         for clip in clips:
-            scenes = sorted(clip.scenes, key=lambda s: s.start_time)
+            scenes = sorted(scenes_by_clip.get(clip.id, []), key=lambda s: s.start_time)
             if not scenes:
                 dur = clip.duration or 0.0
                 all_strings.append(

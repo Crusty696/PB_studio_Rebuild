@@ -999,13 +999,28 @@ class EditWorkspaceController(PBComponent):
             self.window.console_text.append(f"[Style-Preset] Fehler: {e}")
 
     def _show_keyframe_strings(self):
-        try:
-            kf_string = generate_keyframe_strings_for_project(project_id=get_active_project_id())
-            self.window.keyframe_text.setPlainText(kf_string)
+        # B-647: DB-Load + String-Bau liefen synchron im GUI-Thread und froren
+        # die App bei grossen Projekten ~6s ein (WATCHDOG-Beleg 2026-07-17).
+        # Jetzt via BaseWorker/run_worker off-thread, Ergebnis per Signal.
+        from workers.base import BaseWorker, run_worker
+
+        project_id = get_active_project_id()
+        self.window.keyframe_text.setPlainText("Generiere Keyframe-Strings ...")
+
+        class _KeyframeStringsWorker(BaseWorker):
+            def _do_work(self):
+                return generate_keyframe_strings_for_project(project_id=project_id)
+
+        def _on_finish(kf_string):
+            self.window.keyframe_text.setPlainText(kf_string or "")
             self.window.console_text.append("[Pacing] Keyframe-Strings generiert.")
-        except Exception as e:
-            self.window.keyframe_text.setPlainText(f"Fehler: {e}")
-            self.window.console_text.append(f"[Pacing-Fehler] Keyframe-Strings: {e}")
+
+        def _on_error(err_msg):
+            self.window.keyframe_text.setPlainText(f"Fehler: {err_msg}")
+            self.window.console_text.append(f"[Pacing-Fehler] Keyframe-Strings: {err_msg}")
+
+        run_worker(self.window, _KeyframeStringsWorker(),
+                   on_finish=_on_finish, on_error=_on_error)
 
     def _on_timeline_clip_moved(self, entry_id: int, new_start: float):
         self.window._mark_dirty()
