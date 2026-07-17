@@ -58,10 +58,17 @@ def test_on_scan_thread_finished_enables_button_when_valid():
     _app()
     dlg = _make_dialog()
     try:
+        # B-651: _on_scan_thread_finished ruft _check_ollama_status, das einen
+        # ECHTEN Status-QThread (HTTP) startet. Der ueberlebte den Test-Teardown
+        # -> "QThread: Destroyed while thread is still running" -> 0xC0000409
+        # (toetete den ganzen pytest-Prozess ohne Summary). Unit-Scope hier ist
+        # NUR das Button-Re-Enable -> Status-Check stubben, kein echter Thread.
+        dlg._check_ollama_status = lambda: None
         dlg._refresh_btn.setEnabled(False)
         dlg._on_scan_thread_finished()
         assert dlg._refresh_btn.isEnabled() is True
     finally:
+        dlg.close()
         dlg.deleteLater()
         _app().processEvents()
 
@@ -72,6 +79,7 @@ def test_on_scan_thread_finished_survives_deleted_button():
     _app()
     dlg = _make_dialog()
     try:
+        dlg._check_ollama_status = lambda: None  # B-651: kein echter Thread
         btn = dlg._refresh_btn
         assert isinstance(btn, QPushButton)
         # C++-Button hart zerstoeren (simuliert Dialog-Teil-Teardown).
@@ -81,5 +89,7 @@ def test_on_scan_thread_finished_survives_deleted_button():
         # Darf nicht raisen (frueher: Zugriff auf freigegebenes Qt-Objekt).
         dlg._on_scan_thread_finished()
     finally:
+        # B-651: siehe oben — Status-QThread via close() sauber beenden.
+        dlg.close()
         dlg.deleteLater()
         _app().processEvents()
