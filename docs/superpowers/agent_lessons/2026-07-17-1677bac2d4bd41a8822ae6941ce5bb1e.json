@@ -1,0 +1,10 @@
+{
+  "lesson_id": "1677bac2d4bd41a8822ae6941ce5bb1e",
+  "recorded_at": "2026-07-17T15:42:36+00:00",
+  "session_id": "5843d8daf2c440d1a3db348389c8e58a",
+  "head_at_start": "66f490d9c375085898cacbc2c63a6c58628a6993",
+  "problem": "B-651: tests/ui-Vollsuite starb nativ ohne pytest-Summary an wechselnden Positionen; wirkte order-abhaengig und unfixbar",
+  "cause": "Zwei getrennte Taeter: (1) Unit-Test startete ueber Produkt-Callback (_on_scan_thread_finished -> _check_ollama_status) unbemerkt einen echten Status-QThread und riss ihn per deleteLater ohne close() ab -> QThread Destroyed while running (0xC0000409) erst beim naechsten DeferredDelete-Drain/Exit; (2) gc.collect() direkt nach DeferredDelete-Drain in Teardown-Fixture kollidierte mit frisch zerstoerten C++-Objekten -> Heap-Corruption 0xC0000374",
+  "rule": "Scheinbar order-abhaengige Qt-Native-Crashes zuerst mit DeferredDelete-Drain-Fixture lokalisieren (Crash materialisiert beim Verursacher), dann Paar-Bisektion; Unit-Tests duerfen ueber Produkt-Callbacks keine echten Threads starten (stubben) und Dialoge mit Thread-Cleanup im closeEvent per close() statt nur deleteLater abraeumen; niemals gc.collect() unmittelbar nach DeferredDelete-Drain",
+  "applies_to": "PySide6/Qt-Test-Suiten, Teardown-Fixtures, Dialog-Tests mit Hintergrund-Threads"
+}
