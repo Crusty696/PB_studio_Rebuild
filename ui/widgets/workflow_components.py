@@ -11,7 +11,6 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
-    QPushButton,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -44,24 +43,6 @@ class WorkflowHeader(QWidget):
         self.action_slot = QHBoxLayout()
         self.action_slot.setSpacing(6)
         layout.addLayout(self.action_slot)
-
-
-class PrimaryActionBar(QWidget):
-    """One visible primary command plus optional secondary controls."""
-
-    def __init__(self, primary_text: str, parent: QWidget | None = None):
-        super().__init__(parent)
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(8, 4, 8, 4)
-        layout.setSpacing(6)
-        self.primary_button = QPushButton(primary_text)
-        self.primary_button.setObjectName("btn_accent")
-        self.primary_button.setFixedHeight(28)
-        layout.addWidget(self.primary_button)
-        self.secondary_slot = QHBoxLayout()
-        self.secondary_slot.setSpacing(6)
-        layout.addLayout(self.secondary_slot)
-        layout.addStretch(1)
 
 
 class StatusStrip(QWidget):

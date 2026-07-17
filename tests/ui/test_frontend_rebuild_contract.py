@@ -61,14 +61,12 @@ def test_workflow_components_are_available():
     _ensure_qapp()
     from ui.widgets.workflow_components import (
         ContextPanel,
-        PrimaryActionBar,
         SectionTabs,
         StatusStrip,
         WorkflowHeader,
     )
 
     assert WorkflowHeader("Material & Analyse", "Auswahl und Analyse").title.text() == "Material & Analyse"
-    assert PrimaryActionBar("Importieren").primary_button.text() == "Importieren"
     assert StatusStrip().layout() is not None
     assert SectionTabs().documentMode()
     assert isinstance(ContextPanel(), QWidget)

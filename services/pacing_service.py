@@ -96,7 +96,6 @@ from services.pacing_memory import (
     learn_from_anchor,
     record_rl_feedback,
     _get_ai_memory_bias,
-    auto_edit_to_beats,
 )
 
 logger = logging.getLogger(__name__)

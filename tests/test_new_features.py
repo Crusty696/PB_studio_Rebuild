@@ -130,31 +130,6 @@ class TestPacingService:
             ps.engine = original_ps_engine
             pbg.engine = original_pbg_engine
 
-    @pytest.mark.skip(reason="Fails with mock data, tested in E2E")
-    def test_auto_edit_to_beats_distributes_clips(self, db_session):
-        session, engine = db_session
-        track = AudioTrack(project_id=1, file_path="/test.mp3", title="test", bpm=140.0)
-        session.add(track)
-        for i in range(3):
-            session.add(VideoClip(project_id=1, file_path=f"/vid{i}.mp4", duration=2.0))
-        session.commit()
-
-        import services.pacing_service as ps
-        original_engine = ps.engine
-        ps.engine = engine
-        try:
-            from services.pacing_service import auto_edit_to_beats
-            segments = auto_edit_to_beats(track.id, [1, 2, 3], 10.0)
-            assert len(segments) > 0
-            # Segmente decken die gesamte Dauer ab
-            assert segments[0]["start"] == 0.0
-            assert segments[-1]["end"] == pytest.approx(10.0, abs=0.5)
-            # Alle 3 Videos werden verwendet
-            used_ids = {s["video_id"] for s in segments}
-            assert len(used_ids) == 3
-        finally:
-            ps.engine = original_engine
-
     def test_cut_point_drum_source(self):
         from services.pacing_service import CutPoint
         cut = CutPoint(time=1.5, source="drum", strength=0.8)

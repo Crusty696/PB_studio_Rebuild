@@ -4,7 +4,6 @@ Enthält:
 - learn_from_anchor: Manuelle Schnitt-Entscheidungen persistieren
 - record_rl_feedback: Reinforcement-Learning Feedback speichern
 - _get_ai_memory_bias: Gespeicherte Lern-Beispiele abfragen
-- auto_edit_to_beats: Legacy Phase 2 Wrapper
 """
 
 from __future__ import annotations
@@ -243,49 +242,3 @@ def _get_ai_memory_bias(bpm: float, overall_energy: float) -> dict | None:
     except Exception as exc:  # broad catch intentional — SQLAlchemy query can raise many error types
         logger.warning("AI Memory Abfrage fehlgeschlagen: %s", exc)
         return None
-
-
-# ── Legacy wrapper (backward compat) ──
-
-def auto_edit_to_beats(
-    audio_id: int,
-    video_clip_ids: list[int],
-    total_duration: float = 60.0,
-    pacing_curve: list[float] | None = None,
-    tempo: int = 50,
-) -> list[dict]:
-    """Legacy Phase 2 wrapper — delegiert an Phase 3 Engine."""
-    # Map tempo slider to base_cut_rate
-    if tempo >= 80:
-        rate = 1
-    elif tempo >= 60:
-        rate = 2
-    elif tempo >= 40:
-        rate = 4
-    elif tempo >= 20:
-        rate = 8
-    else:
-        rate = 16
-
-    settings = AdvancedPacingSettings(
-        base_cut_rate=rate,
-        energy_reactivity=50,
-        breakdown_behavior="halve",
-        manual_density_curve=pacing_curve,
-    )
-    # Deferred import to avoid circular dependency
-    from services.pacing_service import auto_edit_phase3
-    segments, _ = auto_edit_phase3(audio_id, video_clip_ids, settings)
-
-    result = []
-    for seg in segments:
-        if seg.start >= total_duration:
-            break
-        end = min(seg.end, total_duration)
-        result.append({
-            "video_id": seg.video_id,
-            "start": seg.start,
-            "end": end,
-            "source_start": seg.source_start,
-        })
-    return result

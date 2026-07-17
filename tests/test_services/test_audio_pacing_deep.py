@@ -764,41 +764,6 @@ class TestInvalidatePacingCaches:
 
 
 # =========================================================================
-# pacing_memory.py — auto_edit_to_beats tempo mapping
-# =========================================================================
-
-
-class TestAutoEditToBeatsTempoMapping:
-    """Tests fuer die Tempo-zu-Rate Zuordnung in auto_edit_to_beats."""
-
-    @pytest.mark.parametrize("tempo,expected_rate", [
-        (90, 1),   # >= 80
-        (80, 1),   # >= 80
-        (70, 2),   # >= 60
-        (60, 2),   # >= 60
-        (50, 4),   # >= 40
-        (40, 4),   # >= 40
-        (30, 8),   # >= 20
-        (20, 8),   # >= 20
-        (10, 16),  # < 20
-    ])
-    def test_tempo_to_rate_mapping(self, tempo, expected_rate):
-        """Teste die Tempo-zu-base_cut_rate Zuordnung direkt."""
-        # Wir testen die Mapping-Logik inline
-        if tempo >= 80:
-            rate = 1
-        elif tempo >= 60:
-            rate = 2
-        elif tempo >= 40:
-            rate = 4
-        elif tempo >= 20:
-            rate = 8
-        else:
-            rate = 16
-        assert rate == expected_rate
-
-
-# =========================================================================
 # BeatAnalysisService — _compute_energy_per_beat (statische Methode)
 # =========================================================================
 
