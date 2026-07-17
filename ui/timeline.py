@@ -2707,21 +2707,6 @@ class InteractiveTimeline(QGraphicsView):
             for seg in segments:
                 self._draw_section(seg.label, seg.start_time, seg.end_time, seg.energy)
 
-    def set_sections(self, sections: list[dict]) -> None:
-        """Zeichnet Sektionen aus einer Liste von Dicts.
-
-        Args:
-            sections: [{"label": "DROP", "start": 30.0, "end": 45.0, "energy": 0.9}, ...]
-        """
-        self._clear_sections()
-        for sec in sections:
-            self._draw_section(
-                sec.get("label", ""),
-                sec.get("start", 0.0),
-                sec.get("end", 0.0),
-                sec.get("energy", 0.5),
-            )
-
     def _clear_sections(self):
         for item in self._section_items:
             self._scene.removeItem(item)
@@ -3598,16 +3583,6 @@ class InteractiveTimeline(QGraphicsView):
             logger.debug("B-197 F-3: notify_feedback skipped: %s", exc)
 
     # ── P12: Story-Map context-menu trigger ────────────────────────────────
-    def set_brain_service(self, service) -> None:  # type: ignore[name-defined]
-        """Inject a custom ``BrainService`` instance for the Story-Map menu.
-
-        Default is a lazily-constructed module-level singleton (built on
-        first ``contextMenuEvent`` so headless test contexts that never
-        right-click never pay the import cost). Tests should call this with
-        a fresh BrainService bound to their on-disk SQLite DB.
-        """
-        self._brain_service = service
-
     def _get_brain_service(self):
         """Return the BrainService for the Story-Map menu, lazily creating
         a default if none was injected. Headless / test setups that don't

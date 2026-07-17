@@ -196,21 +196,9 @@ def main():
     run_harness("key", key="escape") # schliesst Settings
     time.sleep(1)
     
-    # 10. Project-Bundle-Export (Backend-Service Check)
-    print("--> 10. Triggering backend export to test ProjectBundleService...")
-    # Wir benutzen ein Inline-Python-Kommando ueber die API, da keine UI dafuer existiert
-    bundle_path = PROJECT_ROOT / "tests" / "qa_artifacts" / "e2e_prov_1.pbbundle"
-    if bundle_path.exists():
-        bundle_path.unlink()
-        
-    export_cmd = f"{PYTHON_EXE} -c \"from database import nullpool_session; from services.storage_provenance.project_bundle import ProjectBundleService; session=nullpool_session(); ProjectBundleService(session).export_project(1, r'{bundle_path}')\""
-    print(f"Running backend export: {export_cmd}")
-    res = subprocess.run(export_cmd, capture_output=True, text=True, shell=True)
-    if res.returncode == 0:
-        print(f"SUCCESS: Project bundle exported to {bundle_path}")
-    else:
-        print(f"FAILED: Backend export failed: {res.stderr}")
-        
+    # 10. (entfernt 2026-07-17) Project-Bundle-Export — ProjectBundleService
+    # wurde im Altlast-Cleanup geloescht (war nie produktiv verdrahtet).
+
     # 11. Cross-Project Reuse verifizieren (Projekt 2)
     print("--> 11. Testing Cross-Project Reuse...")
     # Beende App

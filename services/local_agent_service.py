@@ -478,10 +478,6 @@ class LocalAgentService:
                     )
         return self._conversation_memory
 
-    def set_conversation_memory(self, memory) -> None:
-        """Setzt eine externe ConversationMemory (z.B. aus der GUI)."""
-        self._conversation_memory = memory
-
     def clear_conversation_history(self) -> None:
         """Löscht die Konversationshistorie."""
         mem = self._get_conversation_memory()

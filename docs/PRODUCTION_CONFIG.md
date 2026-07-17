@@ -211,6 +211,15 @@ Override pro Umgebung: `PB_VISION_MODEL=<tag>` (env-var).
 Chat-Default-Aufloesung: `PB_OLLAMA_MODEL` env-var, sonst Family-Match
 `gemma4`, sonst `RECOMMENDED_MODELS` (`services/ollama_client.py`).
 
+Weitere Env-Overrides (2026-07-17):
+- `PB_STRATEGIST_MODEL=<tag>` — erzwingt das Pacing-Strategist-Modell
+  (`services/model_router.py`, sonst Auto-Wahl gemma3-Klasse).
+- `PB_OLLAMA_BIN=<pfad\ollama.exe>` — erzwingt ein bestimmtes Ollama-Binary
+  (`services/ollama_service._find_ollama_bin`). PFLICHT auf der GTX 1060 /
+  Treiber 546.33: zeigt auf die GPU-faehige 0.21.2
+  (`%USERPROFILE%\ollama-0.21.2\ollama.exe`); das System-Ollama 0.30.10
+  laeuft dort NUR CPU (CUDA verlangt Treiber 570+). Per `setx` gesetzt.
+
 Hinweis: `vikhyatk/moondream2` in der HuggingFace-Liste oben gehoert zum
 separaten HF-Vision-Subsystem (`services/vision_analysis_service_moondream.py`)
 und ist unabhaengig von der Ollama-Caption-Pipeline.

@@ -11,7 +11,6 @@ Usage:
 Signals:
     update_available(str latest_version, str download_url)
         Emitted only when a newer release is found.
-    check_finished()
         Always emitted when the check completes (success or failure).
 """
 
@@ -57,7 +56,6 @@ class VersionCheckWorker(QThread):
     # Emitted when a newer version is available
     update_available = Signal(str, str)  # (latest_version, download_url)
     # Always emitted when the check is done (success or silent failure)
-    check_finished = Signal()
 
     def __init__(self, current_version: str, api_url: str = _DEFAULT_API_URL, parent=None):
         super().__init__(parent)
@@ -70,8 +68,6 @@ class VersionCheckWorker(QThread):
         except Exception as exc:  # broad catch intentional — background version check must never crash app, network/parse errors possible
             # Any unexpected error: log at DEBUG level, never surface to user
             logger.debug("Version check failed unexpectedly: %s", exc)
-        finally:
-            self.check_finished.emit()
 
     def _do_check(self) -> None:
         """Perform the actual HTTP request and comparison."""

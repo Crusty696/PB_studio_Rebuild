@@ -495,29 +495,9 @@ class SettingsDialog(QDialog):
         audio_form.addWidget(lbl_v2)
         analyse_layout.addWidget(audio_group)
 
-        # NEUBAU-VOLLINTEGRATION M3 (D-065 / USE-003): Video-Engine-Schalter
-        # statt nackter Env-Var PB_ENABLE_VIDEO_PIPELINE_ENGINE.
-        video_group = QGroupBox("Video-Analyse")
-        video_form = QVBoxLayout(video_group)
-        self._chk_video_engine = QCheckBox("Video-Analyse: DAG-Engine (experimentell)")
-        self._chk_video_engine.setToolTip(
-            "AN: neue DAG-Pipeline (Checkpoint-Resume, Provenance, "
-            "schreibt jetzt Scene + VectorDB via DbPersistStage).\n"
-            "AUS: bewaehrter Monolith-Pfad (run_full_pipeline).\n"
-            "Default AUS bis der Paritaets-Nachweis erbracht ist. "
-            "Die Env-Var PB_ENABLE_VIDEO_PIPELINE_ENGINE bleibt Override."
-        )
-        video_form.addWidget(self._chk_video_engine)
-        lbl_engine = QLabel(
-            "Experimentell: Ergebnis-Paritaet zum Monolith ist noch nicht "
-            "live bewiesen. VLM-Caption laeuft als Stub (ai_mood/ai_tags "
-            "bleiben leer). Wirkt beim naechsten Analyse-Start."
-        )
-        lbl_engine.setStyleSheet(f"color: {T2}; font-size: 11px;")
-        lbl_engine.setWordWrap(True)
-        video_form.addWidget(lbl_engine)
-        analyse_layout.addWidget(video_group)
-
+        # Cleanup 2026-07-17: DAG-Engine-Schalter entfernt — die
+        # video_pipeline-Engine wurde geloescht (Altlast-Audit), es gibt nur
+        # noch den Monolith-Pfad.
         analyse_layout.addStretch()
         self._tabs.addTab(analyse_tab, "Analyse")
         self._tabs.setTabToolTip(1, "Analyse-Pipelines konfigurieren (Audio V2 als Standard).")
@@ -554,11 +534,6 @@ class SettingsDialog(QDialog):
         # in ui/controllers/audio_analysis.py
         self._chk_audio_v2_default.setChecked(bool(
             get_settings_store().get_nested("audio", "v2_default", default=True)
-        ))
-        # M3 (D-065): video.use_pipeline_engine — Default False.
-        self._chk_video_engine.setChecked(bool(
-            get_settings_store().get_nested(
-                "video", "use_pipeline_engine", default=False)
         ))
 
     def _on_enabled_toggled(self, checked: bool) -> None:
@@ -737,14 +712,6 @@ class SettingsDialog(QDialog):
         get_settings_store().set_nested("audio", "v2_default", value=v2_default)
         logger.info("SettingsDialog: audio.v2_default gespeichert = %s", v2_default)
 
-        # M3 (D-065): video.use_pipeline_engine persistieren.
-        use_engine = self._chk_video_engine.isChecked()
-        get_settings_store().set_nested(
-            "video", "use_pipeline_engine", value=use_engine)
-        logger.info(
-            "SettingsDialog: video.use_pipeline_engine gespeichert = %s",
-            use_engine,
-        )
 
         # Save shortcut changes (AUD-71)
         self._shortcut_tab.apply()

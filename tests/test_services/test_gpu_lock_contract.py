@@ -28,23 +28,3 @@ def test_brain_gpu_serializer_bridges_to_model_manager_execution_lock():
     # B-503: Acquire laeuft jetzt ueber _timed_acquire (Timeout + Holder-Log),
     # die Bridge auf den legacy Lock bleibt bestehen.
     assert "_timed_acquire(legacy_lock" in source
-
-
-def test_siglip_stage_runs_gpu_work_under_default_serializer():
-    from services.video_pipeline.stages.siglip_embed_stage import SigLipEmbedStage
-
-    source = inspect.getsource(SigLipEmbedStage.run)
-
-    assert "get_default_serializer" in source
-    assert 'acquire("video_pipeline_siglip")' in source
-    assert "self.service.embed_batch" in source
-
-
-def test_raft_stage_runs_gpu_work_under_default_serializer():
-    from services.video_pipeline.stages.raft_motion_stage import RaftMotionStage
-
-    source = inspect.getsource(RaftMotionStage.run)
-
-    assert "get_default_serializer" in source
-    assert 'acquire("video_pipeline_raft")' in source
-    assert "self.service.compute_flow" in source

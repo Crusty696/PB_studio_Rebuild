@@ -1,1 +1,1 @@
-"""Brain V3 Audio-Layer — SubtrackDetector + (spaeter) AudioEmbedder (CLAP)."""
+"""Brain V3 Audio-Layer — AudioEmbedder (CLAP)."""

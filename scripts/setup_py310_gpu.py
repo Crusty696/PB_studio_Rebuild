@@ -420,9 +420,9 @@ def precache_hf(python: str, missing: list[tuple[str, str]]) -> None:
 def smoke_test(python: str) -> bool:
     code = (
         "mods = ['PySide6.QtWidgets','torch','transformers','demucs','librosa','cv2',"
-        "'scenedetect','sqlalchemy','alembic','opentimelineio','lancedb','beat_this',"
+        "'scenedetect','sqlalchemy','alembic','opentimelineio','beat_this',"
         "'numpy','scipy','sklearn','numba','thefuzz','httpx','requests','dotenv',"
-        "'yaml','PIL','onnxruntime','einops','rotary_embedding_torch',"
+        "'yaml','PIL','einops','rotary_embedding_torch',"
         "'huggingface_hub','accelerate','tokenizers','safetensors']\n"
         "fails = []\n"
         "for m in mods:\n"

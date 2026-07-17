@@ -83,12 +83,17 @@ def test_caption_loop_treats_fehler_string_as_failure() -> None:
     )
 
 
-def test_caption_loop_retries_moondream_empty_json_response() -> None:
-    """B-249: Moondream may return an empty string when forced to emit JSON."""
+def test_caption_loop_retries_empty_json_response() -> None:
+    """B-249 + Fix 2026-07-17: leerer JSON-Content (Thinking-Modelle wie
+    qwen3-vl verbrauchen das Token-Budget im 'thinking') wird fuer ALLE
+    Modelle abgefangen — erst JSON-Retry mit hohem Budget (mood/tags
+    erhalten), dann Plain-Text-Notnagel."""
     src = inspect.getsource(vas.analyze_scene_with_caption)
     assert "_CAPTION_PLAIN_TEXT_FALLBACK_PROMPT" in src
-    assert 'startswith("moondream")' in src
+    assert "num_predict=3072" in src
     assert "not raw.strip()" in src
+    # alter moondream-only-Gate darf NICHT zurueckkommen
+    assert 'startswith("moondream")' not in src
 
 
 # ---------------------------------------------------------------------------

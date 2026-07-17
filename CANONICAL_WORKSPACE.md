@@ -9,7 +9,7 @@ C:\Users\David_Lochmann\Documents\PB_studio_Rebuild\PB_studio_Rebuild
 ```
 
 - Git-Remote: `origin` = https://github.com/Crusty696/PB_studio_Rebuild.git
-- Aktueller Arbeitsbranch: `codex/OTK-021-source-consolidation-2026-06-22`
+- Aktueller Arbeitsbranch: `main` (Session-Pushes auf `session-2026-07-16-bugfixes`)
 - App-Start: `start_pb_studio.bat` (conda-env `pb-studio`).
   Manueller GUI-Test mit Klick-Aufzeichnung: `start_pb_studio_clicklog.bat`.
 

@@ -17,4 +17,3 @@ def test_manual_heavy_test_commands_are_documented():
     assert "Manual heavy-suite commands" in pyproject
     assert "pytest tests/test_db_deep.py -v" in pyproject
     assert "pytest tests/live_ollama_integration_test.py -v" in pyproject
-    assert "pytest tests/test_services/test_video_pipeline_e2e_live.py -m live_gpu -v" in pyproject

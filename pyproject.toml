@@ -97,7 +97,6 @@ testpaths = ["tests"]
 # Manual heavy-suite commands:
 #   pytest tests/test_db_deep.py -v
 #   pytest tests/live_ollama_integration_test.py -v
-#   pytest tests/test_services/test_video_pipeline_e2e_live.py -m live_gpu -v
 addopts = "--ignore=tests/e2e_functional_test.py --ignore=tests/functional_steer_tab_memory_loop.py --ignore=tests/gui_db_inspector.py --ignore=tests/live_ollama_integration_test.py --ignore=tests/test_db_deep.py --ignore=tests/test_video_analysis_real.py --ignore=tests/test_export_convert_real.py --ignore=tests/qa_artifacts"
 markers = [
     "gui: marks tests that require a display (deselect with -m 'not gui')",

@@ -244,11 +244,6 @@ class OllamaClient:
         cache[model_name] = caps
         return caps
 
-    def model_supports_vision(self, model_name: str) -> bool:
-        """True, wenn das Modell laut /api/show Bild-Eingaben (``vision``) kann."""
-        caps = self._capabilities(model_name)
-        return bool(caps) and "vision" in caps
-
     @staticmethod
     def _parse_param_size(raw) -> float:
         """'4.4B' -> 4.4, '1b' -> 1.0, '840M' -> 0.84. Qualitaets-Proxy."""

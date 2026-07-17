@@ -82,10 +82,6 @@ numba>=0.58.0,<0.60.0
 thefuzz>=0.22.1,<0.23.0
 rapidfuzz>=3.5.0,<4.0.0
 
-# === Vektor-DB ===
-pyarrow>=14.0.0,<18.0.0
-lancedb>=0.4.0,<0.20.0
-
 # === Netzwerk / API ===
 httpx>=0.25.0,<1.0.0
 requests>=2.31.0,<3.0.0
@@ -108,18 +104,8 @@ typing-extensions>=4.8.0,<5.0.0
 filelock>=3.12.0,<4.0.0
 pydantic>=2.5.0,<3.0.0
 
-# === Protobuf (fuer ONNX etc.) ===
+# === Protobuf (transitiv benoetigt) ===
 protobuf>=4.25.0,<6.0.0
-# Phase 6 ONNX CUDA eval: ORT 1.18.1 CUDA 11.x + Torch cu113 DLL preload.
-# WARNUNG (Fix-Team 2026-06-12): onnxruntime-gpu 1.18.1 ist offiziell gegen
-# CUDA 11.8/12.x gebaut (letzte explizit cu113-getestete Linie war 1.16.x).
-# Im realen conda-env "pb-studio" ist 1.18.1 installiert und funktioniert
-# (CUDA-DLLs werden via Torch-cu113-Preload aufgeloest, siehe
-# services/brain_v3/onnx_export.py / scripts/spike_brain_v3_onnx_eval.py).
-# Pin NICHT blind aendern; bei einem pip-Fresh-Install ohne Torch-Preload
-# kann der CUDAExecutionProvider fehlen — dann faellt ORT auf CPU zurueck.
-onnx==1.16.2
-onnxruntime-gpu==1.18.1
 
 # === Studio Brain ===
 umap-learn>=0.5,<0.6
@@ -131,10 +117,6 @@ networkx>=3.0,<4.0
 # Frueher per install_brain_v3_phase2_deps.bat nachinstalliert (2026-05-27 in
 # die requirements aufgenommen, .bat archiviert unter scripts/archive/).
 sqlite-vec>=0.1.6
-
-# === Brain V3 optional ANN eval (Phase 6 R18) ===
-vectorlite-py==0.2.0
-apsw>=3.53.1.0,<3.54.0.0
 
 # === Dev (optional) ===
 pytest>=7.4.0,<10.0.0

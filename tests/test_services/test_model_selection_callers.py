@@ -8,6 +8,15 @@ def test_pacing_strategist_ignores_stale_settings_model(monkeypatch):
         def is_available(self):
             return True
 
+        def _list_models_detailed(self):
+            return []  # Router findet nichts -> Fallback-Kette (Test-Intent)
+
+        def _capabilities(self, name):
+            return None
+
+        def select_best_model(self, task="chat", max_size_bytes=None, prefer="quality"):
+            return None
+
         def model_exists(self, model):
             return model == "gemma4:e4b"
 
@@ -76,6 +85,15 @@ def test_ask_ai_ignores_missing_env_model(monkeypatch):
     class _Client:
         def is_available(self):
             return True
+
+        def _list_models_detailed(self):
+            return []  # Router findet nichts -> Fallback-Kette (Test-Intent)
+
+        def _capabilities(self, name):
+            return None
+
+        def select_best_model(self, task="chat", max_size_bytes=None, prefer="quality"):
+            return None
 
         def model_exists(self, model):
             return model == "gemma4:e4b"

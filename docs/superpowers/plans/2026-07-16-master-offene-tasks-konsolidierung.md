@@ -88,7 +88,10 @@ Brauchen eine Richtungsentscheidung des Users, bevor irgendein Code entstehen da
   UI-Ehrlichkeit+Dead-End-Signals.
 - `[NEUBAUTEN]` T2.1-T2.5: LLM-Pacing UI-schaltbar, audio.v2_default im Settings-Dialog,
   Timeline-Snapshots verdrahten, SetupWizard First-Run, Slice-1-Pacing 16 Module.
-- `[NEUBAUTEN]` Paket3: DAG-Video-Engine vollintegrieren (PIPE-018/DEAD-008).
+- ~~`[NEUBAUTEN]` Paket3: DAG-Video-Engine vollintegrieren (PIPE-018/DEAD-008).~~
+  **ENTFALLEN (User-Entscheidung 2026-07-17):** `services/video_pipeline/` als
+  dormant Parallel-Engine komplett geloescht (Cleanup-Audit); Monolith-Pfad ist
+  der bewiesene Produktivpfad. Wiederherstellbar via Git-Historie.
 
 ### AUFRAEUM-REFACTOR — hinter Merge+pro-Kategorie-User-OK
 - `[AUFRAEUM]` A1 (Disk-Cleanup ~15GB, risikofrei), A2 (toter Code ~700 Z.), A3 (Doku),
@@ -125,7 +128,9 @@ Brauchen eine Richtungsentscheidung des Users, bevor irgendein Code entstehen da
 
 - `[FREEZE-CRASH-SANIERUNG]` Tier R (R1-R4): Frozen-Rebuild + Signieren + Clean-VM-Test +
   Release-Gate-Hash.
-- `[OTK-MASTERPLAN]` OTK-019: Video-Pipeline schwerer 4h-Live-Gate (DG-001, aufgeschoben).
+- ~~`[OTK-MASTERPLAN]` OTK-019: Video-Pipeline schwerer 4h-Live-Gate (DG-001, aufgeschoben).~~
+  **ENTFALLEN (User-Entscheidung 2026-07-17):** bezog sich auf die geloeschte
+  DAG-Engine (siehe Paket3-Vermerk).
 - `[OTK-MASTERPLAN]` OTK-008: SCHNITT Phase-12 formale Live-Verify — BLOCKIERT: formales
   Dataset fehlt (Crusty-Mix weg, Solo_Natur 124≠103). Braucht Dataset + User-Live.
 
