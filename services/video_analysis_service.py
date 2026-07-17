@@ -954,10 +954,29 @@ def analyze_scene_with_caption(
                 task="caption",  # B-650: Status-Feld zeigt "caption" + Modell
             )
             if not raw.strip():
+                # mood/tags-Fix 2026-07-17: qwen3-vl (Thinking-Modell) verbraucht
+                # bei manchen Szenen >1024 Tokens im 'thinking' -> leerer content.
+                # ERST JSON-Retry mit hohem Budget (3072) -> behaelt mood/motion/
+                # tags. Regelfall bleibt schnell (1024), nur harte Szenen zahlen
+                # den hoeheren Retry. Plain-Text erst danach als letzter Notnagel.
                 logger.info(
-                    "[CAPTION] Szene %d: Modell '%s' lieferte leere JSON-Antwort — "
-                    "retry mit Plain-Text-Prompt.",
+                    "[CAPTION] Szene %d: Modell '%s' leer bei 1024 Tokens — "
+                    "JSON-Retry mit 3072 Tokens (mood/tags erhalten).",
                     scene.index, vision_model,
+                )
+                raw = svc.vision(
+                    image_paths=[scene.keyframe_path],
+                    prompt=f"{_CAPTION_SYSTEM_PROMPT}\n\n{_CAPTION_USER_PROMPT}",
+                    model=vision_model,
+                    num_predict=3072,
+                    read_timeout_s=HTTP_OLLAMA_VISION_CAPTION_TIMEOUT_SEC,
+                    task="caption",
+                )
+            if not raw.strip():
+                logger.info(
+                    "[CAPTION] Szene %d: weiterhin leer — Plain-Text-Fallback "
+                    "(nur description).",
+                    scene.index,
                 )
                 raw = svc.vision(
                     image_paths=[scene.keyframe_path],
