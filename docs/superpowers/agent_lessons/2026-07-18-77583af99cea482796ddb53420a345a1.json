@@ -1,0 +1,10 @@
+{
+  "lesson_id": "77583af99cea482796ddb53420a345a1",
+  "recorded_at": "2026-07-18T05:21:32+00:00",
+  "session_id": "76c2faa4c8d44849bdad1351f522e36e",
+  "head_at_start": "1f7428e9d295c101b09ba65a3c598180795a656d",
+  "problem": "Master-Plan Bucket 4 fuehrte 5 von 10 Tasks als offen, die laengst code-complete waren (A3/B1/B3/B4/B9); Agent haette sie blind doppelt implementieren koennen",
+  "cause": "Plan-Eintraege wurden bei Konsolidierung aus aelteren Plan-Staenden uebernommen ohne Commit-Abgleich; Fix-Commits trugen zwar Task-Referenzen, aber niemand glich Plan gegen git log ab",
+  "rule": "Vor Implementierung jeder Plan-Task zuerst already-done-Check gegen git log + Code fahren (Recon-Phase); bei Fan-out pro Task einen read-only Analyse-Agenten mit explizitem already_done-Feld ansetzen und nur die echten Luecken implementieren",
+  "applies_to": "Konsolidierte Master-Plaene und alle Task-Listen die aus aelteren Plaenen uebernommen wurden"
+}
