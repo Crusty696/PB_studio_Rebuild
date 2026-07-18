@@ -207,3 +207,19 @@ Batch-Test 22+6 passed. Alle unverified — Live-Sichtung + `fixed` = User.
 Blockiert geblieben: D-069 + F6/B-618-Rest (User-Anweisung 2026-07-17: keine
 Installer-Builds). Offene User-Frage: librosa-Fallback-Grid downstream als degraded
 werten (B2-Punkt 3, Semantik).
+
+### Nachtrag 2026-07-18: D-069 + F6 nachgeholt (User-Klarstellung No-Install-Regel)
+
+User-Klarstellung: Regel 2026-07-17 verbietet nur die INSTALLATION von PB Studio
+auf dem User-Rechner, nicht Builds/Package-Tests. Daher nachgeholt:
+- Voll-Installer-Build Exit 0 (PyInstaller + NSISBI): dist/pb_studio 5.52 GB
+  smoke passed; pb_studio_setup_v0.5.0.exe 424.507 B; .nsisbin 2.817.446.413 B.
+  Log: test-report/installer-build-20260718.log.
+- D-069 PASS: Frozen _internal/bin ffmpeg/ffprobe SHA256 exakt auf Manifest-Pins.
+- Frozen-GUI-Live PASS: verify_frozen_gui_workflow.py Exit 0, status=pass,
+  Fenster responsiv, 74 UIA-Labels, 4 Workflow-Gruppen, Prozess stabil.
+- F6/B-618-Rest: war bereits an der Wurzel geloest (4ef48e3 + 2e0e739: Fit im
+  Kind-Prozess statt nutzlosem Frozen-Warmup, 79s-Messung 2026-07-15). Code im
+  neuen Build enthalten. EHRLICH OFFEN: Live-Enrichment-Lauf IM Frozen-Build
+  (F6-Endbeweis) + Installed-App-Test — Installation nur ausserhalb User-Host
+  (Sandbox/VM) bzw. auf User-Anweisung. Installer ist unsigniert (Tier R offen).
