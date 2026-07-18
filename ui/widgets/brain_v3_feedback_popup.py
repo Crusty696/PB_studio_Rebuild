@@ -96,6 +96,19 @@ FEEDBACK_BUTTONS: list[tuple[str, str, str]] = [
     ("no_match",  "4 — Passt gar nicht", "background: #6e1f1f; color: white;"),
 ]
 
+# Separates Dict statt 4. Tupel-Element: FEEDBACK_BUTTONS wird als 3er-Tupel
+# entpackt (auch in _wire_hotkeys) — Struktur nicht anfassen.
+FEEDBACK_TOOLTIPS: dict[str, str] = {
+    "perfect":   "Bewertung 1 (Hotkey 1): Cut passt perfekt zur Musik. "
+                 "Erhoeht das Vertrauen des Brains in diese Kombination stark.",
+    "fits":      "Bewertung 2 (Hotkey 2): Cut passt gut. "
+                 "Erhoeht das Vertrauen des Brains leicht.",
+    "not_quite": "Bewertung 3 (Hotkey 3): Cut passt nicht ganz. "
+                 "Senkt das Vertrauen des Brains leicht.",
+    "no_match":  "Bewertung 4 (Hotkey 4): Cut passt gar nicht. "
+                 "Senkt das Vertrauen des Brains stark.",
+}
+
 
 class BrainV3FeedbackPopup(QDialog):
     """Modal Popup mit 4 Bewertungs-Buttons + Hotkey 1-4."""
@@ -142,6 +155,7 @@ class BrainV3FeedbackPopup(QDialog):
                 style
                 + " padding: 6px 10px; border-radius: 4px; font-weight: 600;"
             )
+            btn.setToolTip(FEEDBACK_TOOLTIPS[rating])
             btn.clicked.connect(lambda _checked=False, r=rating: self._submit(r))
             root.addWidget(btn)
             self._rating_buttons.append(btn)
@@ -149,6 +163,9 @@ class BrainV3FeedbackPopup(QDialog):
         cancel_row = QHBoxLayout()
         cancel_row.addStretch(1)
         cancel = QPushButton("Abbrechen (Esc)")
+        cancel.setToolTip(
+            "Dialog ohne Bewertung schliessen (Esc). Es wird kein Feedback gespeichert."
+        )
         cancel.clicked.connect(self.reject)
         cancel_row.addWidget(cancel)
         root.addLayout(cancel_row)

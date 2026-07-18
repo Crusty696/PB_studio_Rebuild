@@ -134,12 +134,20 @@ class BrainV3LearningSessionDialog(QDialog):
 
         self._lbl_status = QLabel("Lade Stichproben ...")
         self._lbl_status.setStyleSheet("color: rgba(255,255,255,0.6); font-size: 11px;")
+        self._lbl_status.setToolTip(
+            "Status der Lern-Session: geladene Stichproben, bereits bewertete "
+            "und verbleibende Cuts."
+        )
         root.addWidget(self._lbl_status)
 
         body = QHBoxLayout()
         body.setSpacing(10)
 
         self._list = QListWidget()
+        self._list.setToolTip(
+            "Die unsichersten Cuts des Brains. Auswahl laedt die Preview rechts, "
+            "Doppelklick oeffnet das Bewertungs-Popup."
+        )
         self._list.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self._list.itemDoubleClicked.connect(self._on_item_activated)
         self._list.currentItemChanged.connect(self._on_current_item_changed)
@@ -149,18 +157,30 @@ class BrainV3LearningSessionDialog(QDialog):
         preview_box.setSpacing(6)
         self._lbl_preview = QLabel("Preview: keine Stichprobe")
         self._lbl_preview.setStyleSheet("font-weight: 600; font-size: 12px;")
+        self._lbl_preview.setToolTip(
+            "Zeigt, welche Stichprobe gerade fuer die Preview geladen ist."
+        )
         preview_box.addWidget(self._lbl_preview)
 
         self._video_preview = VideoPreviewWidget()
+        self._video_preview.setToolTip(
+            "Video-Vorschau des ausgewaehlten Cuts. 'Preview starten' spielt "
+            "Bild und Ton ab."
+        )
         self._video_preview.setFixedSize(320, 180)
         preview_box.addWidget(self._video_preview)
 
         preview_actions = QHBoxLayout()
         self._btn_preview_play = QPushButton("Preview starten")
+        self._btn_preview_play.setToolTip(
+            "Audio-/Video-Preview des ausgewaehlten Cuts abspielen. "
+            "Erneuter Klick stoppt die Wiedergabe."
+        )
         self._btn_preview_play.clicked.connect(self._toggle_preview)
         self._btn_preview_play.setEnabled(False)
         preview_actions.addWidget(self._btn_preview_play)
         self._btn_preview_stop = QPushButton("Stop")
+        self._btn_preview_stop.setToolTip("Laufende Preview sofort stoppen.")
         self._btn_preview_stop.clicked.connect(self._stop_preview)
         self._btn_preview_stop.setEnabled(False)
         preview_actions.addWidget(self._btn_preview_stop)
@@ -172,10 +192,18 @@ class BrainV3LearningSessionDialog(QDialog):
 
         actions = QHBoxLayout()
         self._btn_open = QPushButton("Bewerten")
+        self._btn_open.setToolTip(
+            "Bewertungs-Popup fuer den ausgewaehlten Cut oeffnen "
+            "(4-Klick-Feedback, Hotkeys 1-4). Alternativ: Doppelklick auf den "
+            "Listeneintrag."
+        )
         self._btn_open.clicked.connect(self._on_open_clicked)
         actions.addWidget(self._btn_open)
         actions.addStretch(1)
         self._btn_close = QPushButton("Schliessen")
+        self._btn_close.setToolTip(
+            "Lern-Session beenden. Bereits abgegebene Bewertungen bleiben gespeichert."
+        )
         self._btn_close.clicked.connect(self._on_close_clicked)
         actions.addWidget(self._btn_close)
         root.addLayout(actions)
