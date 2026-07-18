@@ -1,6 +1,7 @@
 """VideoAnalysisController — Refactored to Model/View (Fix F-006)."""
 
 import logging
+from collections import deque
 from PySide6.QtCore import Qt
 from services.task_manager import TaskManagerProxy
 from workers import (
@@ -278,7 +279,32 @@ class VideoAnalysisController(PBComponent):
         if task_id:
             _get_task_manager().finish_task(task_id, "error", error_msg)
 
+    # B-656: max. gleichzeitig laufende Proxy-Worker-THREADS. Der
+    # B-056-Semaphor begrenzt nur die ffmpeg-Laeufe — die QThreads pro
+    # Datei entstanden trotzdem sofort (103-Datei-Import → 100+ idle
+    # Threads am Semaphor → GIL-Halt/AppHang). Wert = Semaphor-Slots.
+    _PROXY_MAX_ACTIVE = 2
+
     def _start_proxy_creation(self, clip_id: int, video_path: str, title: str):
+        # B-656: nicht sofort einen Thread starten — Auftrag in die
+        # Warteschlange, Threads existieren nur fuer aktive Slots.
+        if not hasattr(self, "_proxy_pending"):
+            self._proxy_pending = deque()
+            self._proxy_active = 0
+        self._proxy_pending.append((clip_id, video_path, title))
+        self._drain_proxy_queue()
+
+    def _drain_proxy_queue(self):
+        while self._proxy_active < self._PROXY_MAX_ACTIVE and self._proxy_pending:
+            clip_id, video_path, title = self._proxy_pending.popleft()
+            self._proxy_active += 1
+            self._launch_proxy_worker(clip_id, video_path, title)
+
+    def _proxy_slot_released(self):
+        self._proxy_active = max(0, self._proxy_active - 1)
+        self._drain_proxy_queue()
+
+    def _launch_proxy_worker(self, clip_id: int, video_path: str, title: str):
         task = _get_task_manager().create_task(
             f"Proxy: {title}", "NVENC 540p Edit-Proxy"
         )
@@ -286,14 +312,19 @@ class VideoAnalysisController(PBComponent):
 
         worker = ProxyCreationWorker(clip_id, video_path)
         worker.task_id = task.task_id
-        worker.finished.connect(
-            lambda cid, path: self._on_proxy_finished(cid, path, title, task.task_id),
-            Qt.ConnectionType.QueuedConnection,
-        )
-        worker.error.connect(
-            lambda cid, err: self._on_proxy_error(cid, err, title, task.task_id),
-            Qt.ConnectionType.QueuedConnection,
-        )
+
+        # ProxyCreationWorker emittiert genau EIN Terminal-Signal
+        # (finished ODER error) — Slot-Freigabe darum in beiden Pfaden.
+        def _finished(cid, path, _title=title, _tid=task.task_id):
+            self._proxy_slot_released()
+            self._on_proxy_finished(cid, path, _title, _tid)
+
+        def _error(cid, err, _title=title, _tid=task.task_id):
+            self._proxy_slot_released()
+            self._on_proxy_error(cid, err, _title, _tid)
+
+        worker.finished.connect(_finished, Qt.ConnectionType.QueuedConnection)
+        worker.error.connect(_error, Qt.ConnectionType.QueuedConnection)
 
         self.window.worker_dispatcher._start_worker_thread(worker)
 
