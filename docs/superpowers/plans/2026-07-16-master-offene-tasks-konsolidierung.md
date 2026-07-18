@@ -193,3 +193,17 @@ Aus der Bucket-7-Aufloesung (2026-07-16) zusaetzlich `superseded`:
 `PB-STUDIO-SCHNITT-CLIPAUSWAHL-FIXPLAN-2026-07-07` ist bereits `fixed` — nicht Teil dieser
 Konsolidierung. Tote Plaene (source-consolidation, full-app-green, studio-brain-*) ohne
 offene Tasks — kein Transfer noetig.
+
+---
+
+## Bucket-4-Abarbeitung 2026-07-18 (Autonom-Lauf)
+
+Recon (10 Parallel-Agents) + Umsetzung. A3/B1/B3/B4/B9 waren bereits code-complete
+(8902291+ee0b1bb / 1a38460 / 83ab433 / a930468 / 035a841) — Eintraege oben teils stale.
+Rest-Arbeit committed: B7-Fresh-DB-Fail-fast (318fb39), B2-Rest librosa-Fallback
+sichtbar + degraded_reason (3a89ebf), ab_compare defer onset_strength_curve (0eeecdb),
+Brain-Tooltips + Audit-Test (29053a3), B-650-Rest Chat-Status + Router (f7cb757).
+Batch-Test 22+6 passed. Alle unverified — Live-Sichtung + `fixed` = User.
+Blockiert geblieben: D-069 + F6/B-618-Rest (User-Anweisung 2026-07-17: keine
+Installer-Builds). Offene User-Frage: librosa-Fallback-Grid downstream als degraded
+werten (B2-Punkt 3, Semantik).
