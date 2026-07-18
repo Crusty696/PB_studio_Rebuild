@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from database import engine, AudioTrack, VideoClip, Scene, StructureSegment
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from services.ollama_client import get_ollama_client
 from services.settings_store import get_ollama_settings
 from services.pacing_beat_grid import TimelineSegment, CutPoint
@@ -104,7 +104,11 @@ class OllamaPacingService:
                 })
 
             # Load videos and scenes
-            clips = session.query(VideoClip).filter(
+            # B-090: scenes ist jetzt lazy='select' (Model-Default eager entfernt).
+            # selectinload batcht die Scene-Loads gegen N+1 im for-c-Loop unten.
+            clips = session.query(VideoClip).options(
+                selectinload(VideoClip.scenes)
+            ).filter(
                 VideoClip.id.in_(video_clip_ids),
                 VideoClip.deleted_at.is_(None)
             ).all()

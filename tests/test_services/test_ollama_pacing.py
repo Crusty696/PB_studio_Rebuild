@@ -88,7 +88,9 @@ class TestOllamaPacing:
         mock_scene2.ai_tags = ["laser"]
         mock_clip2.scenes = [mock_scene2]
 
-        mock_db.query.return_value.filter.return_value.all.return_value = [mock_clip1, mock_clip2]
+        # B-090: clips-Query nutzt jetzt .options(selectinload(...)) vor .filter —
+        # Mock-Chain um das options-Glied ergaenzt (Code-Fix, kein Verhaltenswechsel).
+        mock_db.query.return_value.options.return_value.filter.return_value.all.return_value = [mock_clip1, mock_clip2]
 
         service = OllamaPacingService()
         result = service.generate_edl(audio_id=1, video_clip_ids=[1, 2])

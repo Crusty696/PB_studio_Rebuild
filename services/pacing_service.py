@@ -1215,8 +1215,28 @@ def _auto_edit_phase3_inner(
                 "WeightStore wirkt im Schnitt.", _brain_v3_conf,
             )
             with Session(_ae_eng) as _sb_session:
+                # B-090: beatgrid ist jetzt lazy='select' (Model-Default eager
+                # entfernt). build_audio_context liest nach Session-Close
+                # .beatgrid.groove_template (bridge_mapping) auf dem dann
+                # detachten Track -> DetachedInstanceError. joinedload holt die
+                # Beatgrid-Row eager INNERHALB des with-Blocks; defer haelt die
+                # JSON-Blob-Spalten draussen (nur groove_template + Skalare
+                # gebraucht) — proven Muster aus ab_compare_dialog.
+                from sqlalchemy.orm import joinedload
+                from database import Beatgrid
                 _studio_brain_audio_track = (
                     _sb_session.query(AudioTrack)
+                    .options(
+                        joinedload(AudioTrack.beatgrid)
+                        .defer(Beatgrid.beat_positions)
+                        .defer(Beatgrid.downbeat_positions)
+                        .defer(Beatgrid.energy_per_beat)
+                        .defer(Beatgrid.stem_weighted_energy)
+                        .defer(Beatgrid.onset_kick_data)
+                        .defer(Beatgrid.onset_snare_data)
+                        .defer(Beatgrid.onset_hihat_data)
+                        .defer(Beatgrid.onset_strength_curve),
+                    )
                     .filter_by(id=audio_id)
                     .first()
                 )

@@ -41,8 +41,8 @@ class Project(Base):
     # Timelines noch limitiert (B9). Umschaltbar pro Projekt in der UI.
     transition_type = Column(String, nullable=False, default="cut", server_default="'cut'")
 
-    # Relationships — P1-FIX: lazy='selectin' verhindert N+1 Queries
-    # M-37 Fix: Changed from lazy='selectin' to lazy='select' (on-demand loading)
+    # Relationships — P1-FIX: lazy='select' verhindert N+1 Queries
+    # M-37 Fix: Changed from lazy='select' to lazy='select' (on-demand loading)
     # This avoids 4 extra SELECTs on every Project load when relationships aren't needed
     audio_tracks = relationship("AudioTrack", back_populates="project", cascade="all, delete-orphan", passive_deletes=True, lazy='select')
     video_clips = relationship("VideoClip", back_populates="project", cascade="all, delete-orphan", passive_deletes=True, lazy='select')
@@ -197,15 +197,15 @@ class AudioTrack(Base):
     harmonic_tension = Column(Float, nullable=True)      # Skalar = mean(harmonic_tension_curve), 0..1
 
     # P1-FIX: Lazy loading optimiert für N+1 Query Prevention
-    project = relationship("Project", back_populates="audio_tracks", lazy='joined')
-    beatgrid = relationship("Beatgrid", back_populates="audio_track", uselist=False, cascade="all, delete-orphan", passive_deletes=True, lazy='joined')
-    waveform_data = relationship("WaveformData", back_populates="audio_track", uselist=False, cascade="all, delete-orphan", passive_deletes=True, lazy='joined')
+    project = relationship("Project", back_populates="audio_tracks", lazy='select')
+    beatgrid = relationship("Beatgrid", back_populates="audio_track", uselist=False, cascade="all, delete-orphan", passive_deletes=True, lazy='select')
+    waveform_data = relationship("WaveformData", back_populates="audio_track", uselist=False, cascade="all, delete-orphan", passive_deletes=True, lazy='select')
     # lazy='select' (nicht 'joined'): Zeitreihen-Blobs duerfen nicht bei jedem
     # AudioTrack-Voll-Laden eager mitkommen — siehe AVPacingData-Docstring (B-090).
     av_pacing_data = relationship("AVPacingData", back_populates="audio_track", uselist=False, cascade="all, delete-orphan", passive_deletes=True, lazy='select')
-    structure_segments = relationship("StructureSegment", back_populates="audio_track", cascade="all, delete-orphan", passive_deletes=True, lazy='selectin')
-    hotcues = relationship("HotCue", back_populates="audio_track", cascade="all, delete-orphan", passive_deletes=True, lazy='selectin')
-    audio_video_anchors = relationship("AudioVideoAnchor", back_populates="audio_track", foreign_keys="AudioVideoAnchor.audio_track_id", cascade="all, delete-orphan", passive_deletes=True, lazy='selectin')
+    structure_segments = relationship("StructureSegment", back_populates="audio_track", cascade="all, delete-orphan", passive_deletes=True, lazy='select')
+    hotcues = relationship("HotCue", back_populates="audio_track", cascade="all, delete-orphan", passive_deletes=True, lazy='select')
+    audio_video_anchors = relationship("AudioVideoAnchor", back_populates="audio_track", foreign_keys="AudioVideoAnchor.audio_track_id", cascade="all, delete-orphan", passive_deletes=True, lazy='select')
 
     def __repr__(self):
         return f"<AudioTrack(id={self.id}, title='{self.title}', bpm={self.bpm})>"
@@ -239,9 +239,9 @@ class VideoClip(Base):
     proxy_status = Column(String, nullable=True)                  # pending/done/failed/skipped
 
     # P1-FIX: Lazy loading optimiert
-    project = relationship("Project", back_populates="video_clips", lazy='joined')
-    scenes = relationship("Scene", back_populates="video_clip", cascade="all, delete-orphan", passive_deletes=True, lazy='selectin')
-    audio_video_anchors = relationship("AudioVideoAnchor", back_populates="video_clip", foreign_keys="AudioVideoAnchor.video_clip_id", cascade="all, delete-orphan", passive_deletes=True, lazy='selectin')
+    project = relationship("Project", back_populates="video_clips", lazy='select')
+    scenes = relationship("Scene", back_populates="video_clip", cascade="all, delete-orphan", passive_deletes=True, lazy='select')
+    audio_video_anchors = relationship("AudioVideoAnchor", back_populates="video_clip", foreign_keys="AudioVideoAnchor.video_clip_id", cascade="all, delete-orphan", passive_deletes=True, lazy='select')
 
     def __repr__(self):
         return f"<VideoClip(id={self.id}, path='{self.file_path}')>"
@@ -270,7 +270,7 @@ class Scene(Base):
     keyframe_paths = Column(JSON, nullable=True)             # ["keyframes/0_start.jpg", ...]
     embedding_indices = Column(JSON, nullable=True)          # [42, 43, 44] -> embeddings.npy
 
-    video_clip = relationship("VideoClip", back_populates="scenes", lazy='joined')
+    video_clip = relationship("VideoClip", back_populates="scenes", lazy='select')
 
     def __repr__(self):
         return f"<Scene(id={self.id}, start={self.start_time}, end={self.end_time})>"
@@ -303,7 +303,7 @@ class Beatgrid(Base):
     groove_confidence = Column(Float, nullable=True, default=0.0, server_default="0.0")  # 0.0–1.0 Groove-Template-Match-Konfidenz
     onset_strength_curve = Column(JSON, nullable=True)  # B-235: [float, ...] downsampled Onset-Strength-Curve (analog onset_*_data)
 
-    audio_track = relationship("AudioTrack", back_populates="beatgrid", lazy='joined')
+    audio_track = relationship("AudioTrack", back_populates="beatgrid", lazy='select')
 
     def __repr__(self):
         return f"<Beatgrid(id={self.id}, bpm={self.bpm})>"
@@ -328,7 +328,7 @@ class WaveformData(Base):
     band_mid = Column(JSON, nullable=False)    # Mitten: 250-4000 Hz (rosa/rot)
     band_high = Column(JSON, nullable=False)   # Höhen: 4000-20000 Hz (weiß/gelb)
 
-    audio_track = relationship("AudioTrack", back_populates="waveform_data", lazy='joined')
+    audio_track = relationship("AudioTrack", back_populates="waveform_data", lazy='select')
 
     def __repr__(self):
         return f"<WaveformData(id={self.id}, samples={self.num_samples})>"
@@ -343,7 +343,7 @@ class AVPacingData(Base):
     Freeze-Ursache dokumentiert (services/ingest_service.py:575, P8-FREEZE-FIX),
     darum die Auslagerung analog ``WaveformData``.
 
-    Ebenfalls bewusst ``lazy='select'`` statt des ``lazy='joined'`` der
+    Ebenfalls bewusst ``lazy='select'`` statt des ``lazy='select'`` der
     Nachbar-Tabellen: ``joined`` wuerde die Kurven bei JEDEM AudioTrack-
     Voll-Laden eager mitziehen — exakt das B-090-Muster. So werden sie nur
     geladen, wenn ein Consumer sie wirklich anfasst.
@@ -400,7 +400,7 @@ class PacingBlueprint(Base):
     energy_curve = Column(JSON, nullable=True)  # P1.7-FIX: JSON array of energy values
 
     # Bug-20 Fix: back_populates ergänzt
-    project = relationship("Project", back_populates="pacing_blueprints", lazy='joined')
+    project = relationship("Project", back_populates="pacing_blueprints", lazy='select')
 
     def __repr__(self):
         return f"<PacingBlueprint(id={self.id}, name='{self.name}')>"
@@ -421,8 +421,8 @@ class AudioVideoAnchor(Base):
     anchor_type = Column(String, nullable=True, default="beat")
 
     # Bug-20 Fix: fehlende Relationships ergänzt + DB-19 Fix: back_populates
-    audio_track = relationship("AudioTrack", back_populates="audio_video_anchors", foreign_keys=[audio_track_id], lazy='joined')
-    video_clip = relationship("VideoClip", back_populates="audio_video_anchors", foreign_keys=[video_clip_id], lazy='joined')
+    audio_track = relationship("AudioTrack", back_populates="audio_video_anchors", foreign_keys=[audio_track_id], lazy='select')
+    video_clip = relationship("VideoClip", back_populates="audio_video_anchors", foreign_keys=[video_clip_id], lazy='select')
 
     def __repr__(self):
         return f"<AudioVideoAnchor(id={self.id}, type='{self.anchor_type}')>"
@@ -447,7 +447,7 @@ class ClipAnchor(Base):
     color = Column(String, nullable=True, default="#FF3333")
 
     # Bug-20 Fix: Rückbeziehung zu TimelineEntry ergänzt
-    timeline_entry = relationship("TimelineEntry", back_populates="anchors", lazy='joined')
+    timeline_entry = relationship("TimelineEntry", back_populates="anchors", lazy='select')
 
     def __repr__(self):
         return f"<ClipAnchor(id={self.id}, entry={self.timeline_entry_id}, offset={self.time_offset})>"
@@ -507,7 +507,7 @@ class StructureSegment(Base):
     energy = Column(Float, nullable=True)                # Durchschnittliche Energie 0.0-1.0
     confidence = Column(Float, nullable=True)            # Erkennungs-Confidence 0.0-1.0
 
-    audio_track = relationship("AudioTrack", back_populates="structure_segments", lazy='joined')
+    audio_track = relationship("AudioTrack", back_populates="structure_segments", lazy='select')
 
     def __repr__(self):
         return f"<StructureSegment(id={self.id}, label='{self.label}', {self.start_time:.1f}-{self.end_time:.1f})>"
@@ -528,7 +528,7 @@ class HotCue(Base):
     color = Column(String, nullable=True, default="#FF3333")  # Hex-Farbe
     cue_type = Column(String, nullable=True, default="cue")   # "cue", "loop", "fade"
 
-    audio_track = relationship("AudioTrack", back_populates="hotcues", lazy='joined')
+    audio_track = relationship("AudioTrack", back_populates="hotcues", lazy='select')
 
     def __repr__(self):
         return f"<HotCue(id={self.id}, time={self.time:.2f}, label='{self.label}')>"
@@ -652,8 +652,8 @@ class TimelineEntry(Base):
     locked = Column(Boolean, nullable=False, default=False, server_default="0")
 
     # Bug-20 Fix: Rückbeziehungen zu Project und ClipAnchor ergänzt
-    project = relationship("Project", back_populates="timeline_entries", lazy='joined')
-    anchors = relationship("ClipAnchor", back_populates="timeline_entry", cascade="all, delete-orphan", passive_deletes=True, lazy='selectin')
+    project = relationship("Project", back_populates="timeline_entries", lazy='select')
+    anchors = relationship("ClipAnchor", back_populates="timeline_entry", cascade="all, delete-orphan", passive_deletes=True, lazy='select')
 
     def __repr__(self):
         return f"<TimelineEntry(id={self.id}, track='{self.track}', start={self.start_time})>"
