@@ -63,6 +63,7 @@ class AutoEditWorker(QObject, CancellableMixin):
                     "is_anchor": s.is_anchor, "scene_id": s.scene_id,
                     "crossfade": s.crossfade_duration, "crossfade_duration": s.crossfade_duration, "section_type": s.section_type,
                     "degraded": getattr(s, "degraded", False),
+                    "degraded_reason": getattr(s, "degraded_reason", ""),
                 }
                 for s in segments
             ]

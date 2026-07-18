@@ -73,3 +73,7 @@ def test_beat_analysis_degradation_fallback(tmp_path):
     # Assertions
     assert len(segments) > 0
     assert all(seg.degraded for seg in segments), "Alle Segmente muessen wegen Beat-Fallback degraded sein."
+    # B2-Rest: Ursache muss mitgefuehrt werden, damit die UI-Warnung nicht
+    # pauschal "SigLIP" behauptet.
+    assert all("beat_fallback" in seg.degraded_reason for seg in segments), \
+        "degraded_reason muss 'beat_fallback' enthalten."

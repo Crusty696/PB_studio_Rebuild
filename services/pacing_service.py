@@ -1634,9 +1634,17 @@ def _auto_edit_phase3_inner(
             )
         session.commit()
 
-    _degraded = (not bool(mood_embeddings)) or beat_fallback
-    if _degraded:
+    # B2: Ursache der Degradierung mitfuehren, damit die UI-Warnung nicht
+    # pauschal "SigLIP" behauptet, wenn eigentlich das Beatgrid im Fallback lief.
+    _degraded_reasons = []
+    if not bool(mood_embeddings):
+        _degraded_reasons.append("siglip")
+    if beat_fallback:
+        _degraded_reasons.append("beat_fallback")
+    if _degraded_reasons:
+        _reason = "+".join(_degraded_reasons)
         for seg in segments:
             seg.degraded = True
+            seg.degraded_reason = _reason
 
     return segments, cut_points

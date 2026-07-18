@@ -147,6 +147,7 @@ class TimelineSegment:
     crossfade_duration: float = 0.0  # PhD-Spec: Crossfade per Section Type
     section_type: str = ""           # WARMUP/BUILDUP/DROP/BREAKDOWN/COOLDOWN
     degraded: bool = False
+    degraded_reason: str = ""        # B2: "siglip", "beat_fallback" oder "siglip+beat_fallback"
 
 
 SECTION_PACING_MAP = {

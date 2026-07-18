@@ -483,18 +483,40 @@ class EditWorkspaceController(PBComponent):
 
         _degraded = any(seg.get("degraded", False) for seg in segments)
         if _degraded:
+            # B2: Warntext nach tatsaechlicher Ursache differenzieren — vorher
+            # stand hier pauschal "SigLIP", auch wenn der Beat-Fallback der
+            # Ausloeser war.
+            _reason = next(
+                (seg.get("degraded_reason", "") for seg in segments if seg.get("degraded")),
+                "",
+            )
+            _msgs = []
+            if "siglip" in _reason:
+                _msgs.append(
+                    "SigLIP-Modell konnte nicht geladen werden — "
+                    "kein semantisches Audio-Video-Matching."
+                )
+            if "beat_fallback" in _reason:
+                _msgs.append(
+                    "Beat-Analyse lief im Fallback-Modus — "
+                    "Beatgrid ist synthetisch (aus BPM) oder ohne beat_this erzeugt."
+                )
+            if not _msgs:
+                _msgs.append(
+                    "Der Auto-Edit wurde im degradierten Modus erzeugt (Ursache unbekannt)."
+                )
+            _detail = " ".join(_msgs)
             self.window.console_text.append(
                 "<span style='color: #ff3333; font-weight: bold;'>"
-                "[WARNUNG] SigLIP-Modell konnte nicht geladen werden! "
-                "Das Video-Matching wurde ohne Semantik-Fokus (degradiert) generiert."
+                f"[WARNUNG] Auto-Edit degradiert: {_detail}"
                 "</span>"
             )
             from PySide6.QtWidgets import QMessageBox
             QMessageBox.warning(
                 self.window,
                 "Auto-Edit Degradiert",
-                "Das SigLIP-Modell konnte nicht geladen werden.\n\n"
-                "Der Auto-Edit wurde im degradierten Modus (ohne semantisches Audio-Video-Matching) erzeugt."
+                "\n\n".join(_msgs)
+                + "\n\nDer Auto-Edit wurde im degradierten Modus erzeugt.",
             )
 
         from ui.undo_commands import ApplyAutoEditCommand

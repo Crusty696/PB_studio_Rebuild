@@ -52,12 +52,23 @@ class AnalysisWorker(QObject, CancellableMixin):
                     )
                     result["beat_positions"] = beat_result.get("beats", [])
                     result["downbeats"] = beat_result.get("downbeats", [])
-                    self.progress.emit(90, "Beat-Analyse fertig")
-                    mark_done("audio", self.track_id, "bpm_detection", {
+                    # B2 (AUDIT PIPE-009): librosa-Fallback sichtbar machen —
+                    # vorher existierte result["fallback"] nur in-memory und war
+                    # weder im Progress-Text noch im analysis_status auffindbar.
+                    _beat_fallback = bool(beat_result.get("fallback"))
+                    if _beat_fallback:
+                        self.progress.emit(90, "Beat-Analyse fertig (librosa-Fallback, keine Downbeats)")
+                    else:
+                        self.progress.emit(90, "Beat-Analyse fertig")
+                    _done_meta = {
                         "bpm": beat_result.get("bpm"),
                         "beats": len(beat_result.get("beats", [])),
                         "downbeats": len(beat_result.get("downbeats", [])),
-                    })
+                    }
+                    if _beat_fallback:
+                        _done_meta["fallback"] = True
+                        _done_meta["fallback_reason"] = beat_result.get("fallback_reason")
+                    mark_done("audio", self.track_id, "bpm_detection", _done_meta)
                 except (ValueError, RuntimeError, OSError) as e:
                     # Beat-Analyse ist optional — Grundanalyse reicht für den Betrieb
                     logging.warning("BeatAnalysis optional fehlgeschlagen: %s", e)
