@@ -821,8 +821,20 @@ def init_db():
             command.stamp(alembic_cfg, "beb242bcd1fb")
             logger.info("init_db(): Fresh-DB initialisiert + Alembic-Baseline gestempelt.")
             _run_alembic_migrations()
-        except Exception as e:  # broad catch intentional — stamp ist optional
-            logger.warning("Alembic-Upgrade auf Fresh-DB fehlgeschlagen: %s", e)
+        except Exception as e:
+            # B7 (AUDIT DB-017): Auch auf Fresh-DB darf ein Alembic-Fehler nicht
+            # geschluckt werden — Tabellen wie mem_*/struct_* entstehen NUR durch
+            # Alembic (kein ORM-Model), _verify_required_tables() prueft nur
+            # Base.metadata und wuerde das Loch nicht sehen. Fail-fast analog B-626.
+            logger.critical(
+                "Alembic-Migration auf Fresh-DB fehlgeschlagen — App-Start wird abgebrochen: %s",
+                e,
+            )
+            try:
+                engine.dispose()
+            except Exception:
+                pass
+            raise
     else:
         # Existing-DB: Legacy-Migrations bringen aelteres Schema auf Baseline-Stand.
         # Danach Alembic-Migrations fuer alle nachfolgenden Schema-Aenderungen.

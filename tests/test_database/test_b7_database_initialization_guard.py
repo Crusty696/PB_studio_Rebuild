@@ -29,3 +29,27 @@ def test_database_initialization_guard_all_tables_present():
     with patch("sqlalchemy.inspect", return_value=mock_inspector):
         # Sollte ohne Exception durchlaufen
         _verify_required_tables()
+
+
+def test_fresh_db_alembic_failure_fails_fast():
+    """B7-Rest: Alembic-Fehler auf Fresh-DB darf nicht mehr geschluckt werden.
+
+    Vorher: except-Block loggte nur ein Warning und die App lief mit
+    unvollstaendigem Schema weiter (mem_*/struct_*-Tabellen entstehen nur
+    durch Alembic). Jetzt: Fail-fast analog B-626."""
+    from database import migrations
+
+    mock_inspector = MagicMock()
+    mock_inspector.get_table_names.return_value = []  # Fresh-DB
+
+    with patch("sqlalchemy.inspect", return_value=mock_inspector), \
+         patch.object(migrations, "get_raw_engine"), \
+         patch.object(migrations, "engine"), \
+         patch.object(migrations.Base.metadata, "create_all"), \
+         patch("alembic.command.stamp"), \
+         patch.object(migrations, "_run_alembic_migrations",
+                      side_effect=RuntimeError("alembic kaputt")), \
+         patch.object(migrations, "_seed_defaults") as mock_seed:
+        with pytest.raises(RuntimeError, match="alembic kaputt"):
+            migrations.init_db()
+        mock_seed.assert_not_called()
