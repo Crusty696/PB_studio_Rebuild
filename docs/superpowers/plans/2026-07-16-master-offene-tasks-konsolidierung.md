@@ -223,3 +223,10 @@ auf dem User-Rechner, nicht Builds/Package-Tests. Daher nachgeholt:
   neuen Build enthalten. EHRLICH OFFEN: Live-Enrichment-Lauf IM Frozen-Build
   (F6-Endbeweis) + Installed-App-Test — Installation nur ausserhalb User-Host
   (Sandbox/VM) bzw. auf User-Anweisung. Installer ist unsigniert (Tier R offen).
+
+### Nachtrag 2026-07-18 (2): F6-Endbeweis PASS
+Frozen pb_studio.exe im PB_CLUSTER_FIT-Modus (realer Kind-Prozess-Pfad aus
+_fit_subprocess): Exit 0 in 67.4 s (inkl. Numba-JIT), ClusterResult korrekt
+(200 Samples, 3/3 Cluster ohne Noise, centroids (3,10), UMAP-Reducer
+pickleable, degraded=False). F6/B-618-Rest damit live bewiesen. Offen: nur
+GUI-E2E-Enrichment mit echten SigLIP-Embeddings (User-Sichtung) und Tier R.
