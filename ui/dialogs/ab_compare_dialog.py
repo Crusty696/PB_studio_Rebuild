@@ -118,7 +118,11 @@ class ABCompareDialog(QDialog):
                     .defer(Beatgrid.stem_weighted_energy)
                     .defer(Beatgrid.onset_kick_data)
                     .defer(Beatgrid.onset_snare_data)
-                    .defer(Beatgrid.onset_hihat_data),
+                    .defer(Beatgrid.onset_hihat_data)
+                    # B-625-Rest: onset_strength_curve kam mit Commit 2441d12
+                    # NACH dem defer-Fix 4bf6db3 dazu und wurde sonst wieder
+                    # eager auf dem GUI-Thread geladen.
+                    .defer(Beatgrid.onset_strength_curve),
                 )
                 .filter(AudioTrack.project_id == project_id,
                         AudioTrack.deleted_at.is_(None))
