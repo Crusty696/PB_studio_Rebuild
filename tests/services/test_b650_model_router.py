@@ -141,3 +141,63 @@ def test_select_best_model_excludes_gemma4_by_vram(monkeypatch):
     monkeypatch.setattr(c, "_list_models_detailed", lambda: models)
     monkeypatch.setattr(c, "_capabilities", lambda name: ["completion"])
     assert c.select_best_model("chat", prefer="quality") == "gemma3:4b"
+
+
+def test_local_agent_generate_ollama_emits_chat_status(monkeypatch):
+    """B-650-Rest: KI-Chat (_generate_ollama) muss Modell + Aufgabe 'chat'
+    ans ModelStatusField melden (loading -> ready) statt still zu laufen."""
+    from unittest.mock import MagicMock
+    from services import local_agent_service as las
+
+    svc = las.LocalAgentService.__new__(las.LocalAgentService)
+    svc._ollama_model = "phi3:mini"
+    client = MagicMock()
+    client.chat.return_value = "antwort"
+    monkeypatch.setattr(
+        las.LocalAgentService, "_get_ollama_client", lambda self: client
+    )
+    monkeypatch.setattr(
+        las.LocalAgentService, "_build_system_prompt",
+        lambda self, **kw: "sys",
+    )
+    calls = []
+    monkeypatch.setattr(
+        model_router, "emit_task_status",
+        lambda status, model, task: calls.append((status, model, task)),
+    )
+
+    out = svc._generate_ollama("hallo")
+
+    assert out == "antwort"
+    assert ("loading", "phi3:mini", "chat") in calls
+    assert ("ready", "phi3:mini", "chat") in calls
+
+
+def test_local_agent_auto_select_uses_router(monkeypatch):
+    """B-650-Rest: Auto-Select im Chat-Pfad nutzt resolve_model_for_task('chat')
+    statt blindem get_best_available_model (Vision-First-Ausschluss)."""
+    from unittest.mock import MagicMock
+    from services import local_agent_service as las
+
+    svc = las.LocalAgentService.__new__(las.LocalAgentService)
+    svc._ollama_model = None
+    svc._ollama_url = "http://localhost:11434"
+    svc._use_ollama = True
+    client = MagicMock()
+    client.is_available.return_value = True
+    client.get_best_available_model.return_value = "qwen3-vl:4b"  # falsch fuer Text
+    monkeypatch.setattr(
+        las.LocalAgentService, "_maybe_reprobe_ollama", lambda self: None
+    )
+    monkeypatch.setattr(
+        las.LocalAgentService, "_get_ollama_client", lambda self: client
+    )
+    monkeypatch.setattr(
+        model_router, "resolve_model_for_task",
+        lambda c, task: "phi3:mini" if task == "chat" else None,
+    )
+
+    result = svc.health_check()
+
+    assert result["model"] == "phi3:mini"
+    assert svc._ollama_model == "phi3:mini"

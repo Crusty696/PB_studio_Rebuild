@@ -233,7 +233,14 @@ class LocalAgentService:
                 )
                 return result
             if not self._ollama_model:
-                result["model"] = client.get_best_available_model()
+                # B-650: Auto-Select ueber den Task-Router (Vision-First-Modelle
+                # sind fuer Text-Chat ausgeschlossen); Router-None faellt auf
+                # das bisherige Bestmodell zurueck.
+                from services.model_router import resolve_model_for_task
+                result["model"] = (
+                    resolve_model_for_task(client, "chat")
+                    or client.get_best_available_model()
+                )
                 self._ollama_model = result["model"]
             if not result["model"]:
                 result["message"] = (
@@ -332,7 +339,13 @@ class LocalAgentService:
                 except Exception as e:
                     logger.debug("OllamaService-Default-Lookup fehlgeschlagen: %s", e)
                 if not self._ollama_model:
-                    self._ollama_model = client.get_best_available_model()
+                    # B-650: Router statt blindem Bestmodell (Vision-First-
+                    # Ausschluss fuer Text-Chat), Fallback bleibt erhalten.
+                    from services.model_router import resolve_model_for_task
+                    self._ollama_model = (
+                        resolve_model_for_task(client, "chat")
+                        or client.get_best_available_model()
+                    )
 
             if not self._ollama_model:
                 logger.warning(
@@ -377,13 +390,23 @@ class LocalAgentService:
         """Erzeugt Modellantwort via Ollama-HTTP-API."""
         client = self._get_ollama_client()
         system_prompt = self._build_system_prompt(user_query=user_text)
-        return client.chat(
-            model=self._ollama_model,
-            user_message=user_text,
-            system_prompt=system_prompt,
-            temperature=0.1,
-            max_tokens=max_new_tokens,
-        )
+        # B-650: KI-Chat meldet Modell + Aufgabe ans ModelStatusField
+        # (Muster: pacing_strategist._generate).
+        from services.model_router import emit_task_status
+        emit_task_status("loading", self._ollama_model, "chat")
+        try:
+            result = client.chat(
+                model=self._ollama_model,
+                user_message=user_text,
+                system_prompt=system_prompt,
+                temperature=0.1,
+                max_tokens=max_new_tokens,
+            )
+        except Exception:
+            emit_task_status("error", self._ollama_model, "chat")
+            raise
+        emit_task_status("ready", self._ollama_model, "chat")
+        return result
 
     def _generate_ollama_with_history(
         self, user_text: str, max_new_tokens: int = 512
@@ -398,12 +421,20 @@ class LocalAgentService:
         messages = mem.get_messages(system_prompt)
         # Aktuelle User-Nachricht anhängen
         messages.append({"role": "user", "content": user_text})
-        return client.chat_with_history(
-            model=self._ollama_model,
-            messages=messages,
-            temperature=0.1,
-            max_tokens=max_new_tokens,
-        )
+        from services.model_router import emit_task_status
+        emit_task_status("loading", self._ollama_model, "chat")
+        try:
+            result = client.chat_with_history(
+                model=self._ollama_model,
+                messages=messages,
+                temperature=0.1,
+                max_tokens=max_new_tokens,
+            )
+        except Exception:
+            emit_task_status("error", self._ollama_model, "chat")
+            raise
+        emit_task_status("ready", self._ollama_model, "chat")
+        return result
 
     def _generate_ollama_with_tools(
         self, user_text: str, max_new_tokens: int = 512
@@ -427,14 +458,22 @@ class LocalAgentService:
         messages = mem.get_messages(system_prompt)
         messages.append({"role": "user", "content": user_text})
 
-        return client.chat_with_tools(
-            model=self._ollama_model,
-            user_message=user_text,
-            tools=tools,
-            messages=messages,
-            temperature=0.1,
-            max_tokens=max_new_tokens,
-        )
+        from services.model_router import emit_task_status
+        emit_task_status("loading", self._ollama_model, "chat")
+        try:
+            result = client.chat_with_tools(
+                model=self._ollama_model,
+                user_message=user_text,
+                tools=tools,
+                messages=messages,
+                temperature=0.1,
+                max_tokens=max_new_tokens,
+            )
+        except Exception:
+            emit_task_status("error", self._ollama_model, "chat")
+            raise
+        emit_task_status("ready", self._ollama_model, "chat")
+        return result
 
     def _registry_to_tools(self) -> list[dict]:
         """Übersetzt das ActionRegistry in das Ollama-Tool-Format.
