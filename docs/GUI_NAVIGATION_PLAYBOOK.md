@@ -360,3 +360,82 @@ Jeder Flow-Eintrag hat:
   vorbestehend nicht durch diese Session eingeführt; Trash-Dialog PASS ohne
   Freeze), 2.16 (Boot-Watchdog-Fehlalarm bei offenem SetupWizard-Modal,
   dokumentiert) ergaenzt. 0 neue Tracebacks/Crashes im gesamten Testlauf.
+
+### 2.17 "Projekt oeffnen"-Button hat Recent-Projects-Quick-Menu — NEU 2026-07-19
+- **Beobachtung:** Klick auf `Projekt oeffnen` (PROJEKT-Tab, ca. x=2503,
+  y=253 bei 3240x2160) oeffnet NICHT immer den Datei-Browser-Dialog
+  ("Projektordner waehlen..."-Textfeld). Wenn zuvor bereits ein anderes
+  Projekt geoeffnet wurde, kann der Klick stattdessen ein QMenu mit
+  zuletzt-geoeffneten Projekten treffen/anzeigen (Log zeigt
+  `MouseRelease -> QMenu` SLOW EVENT statt Dialog-Fenster in
+  `list-windows`). Projekt-Wechsel dann sofort ohne Pfad-Eingabe (<1s
+  DB-Load). Fuer gezielte Tests: nach dem Klick immer per `list-windows`
+  pruefen, ob ein Dialogfenster `"Projekt oeffnen"` ODER direkt der neue
+  Projekttitel im Hauptfenster erschienen ist, bevor man blind den
+  Pfad-Textfeld-Flow (2.2) fortsetzt.
+
+### 2.18 Projekt-Wechsel hinterlaesst Stale-UI-Zaehler — NEU B-625-Klasse, 2026-07-19
+- **Ziel:** Verifikation ob UI-Zaehler/Labels nach Projekt-Wechsel korrekt
+  aus der neuen Projekt-DB neu geladen werden.
+- **Befund (FAIL, reproduzierbar):** Nach Wechsel von Projekt A (z. B.
+  "Test Project", 48 video_clips) zu Projekt B ("test-tabelle", 26
+  video_clips) zeigt MATERIAL ANALYSE -> VIDEO das gruene Info-Banner
+  weiterhin `"Timeline nutzt 1 von 48 Clips"` (48 = Zaehler von Projekt A)
+  obwohl die sichtbare Grid-Liste korrekt 26 Zeilen fuer Projekt B zeigt.
+  Root Cause (Code-Trace): `ui/controllers/edit_workspace.py:1194-1209`
+  `_mark_timeline_usage()` liest `total = vm.rowCount()` von
+  `self.window.video_pool_model` — dieses Model wird beim Projekt-Wechsel
+  offenbar nicht sofort neu befuellt, waehrend das separate sichtbare Grid
+  (`video_grid`) korrekt aktualisiert. Banner-Text kommt aus
+  `ui/workspaces/media_workspace.py:418 set_timeline_usage_summary()`.
+  Sobald im neuen Projekt ein neuer Auto-Edit-Lauf durchgefuehrt wird,
+  aktualisiert sich der Zaehler korrekt (verifiziert: nach Auto-Edit in
+  test-tabelle zeigte Label korrekt `"94 Cuts | Beat:54 | DJ-Mix:40 | 337s
+  | 94 Segmente"`). Gleiches Muster auch im SCHNITT-Tab: die
+  Cuts/Beat/Segmente-Zusammenfassung direkt ueber der Timeline zeigte nach
+  Projekt-Wechsel kurzzeitig den alten Stand (`"5 Cuts | Beat:5 | 30s | 5
+  Segmente"` von Projekt A), obwohl die CUTLISTE darunter bereits korrekt
+  94 Cuts von Projekt B anzeigte — bis zum naechsten Auto-Edit-Run oder
+  manuellen Refresh.
+- **Schwere:** NIEDRIG/KOSMETISCH — keine Datenkorruption, DB bleibt
+  korrekt (per DB-Inspector verifiziert: `video_clips` count stimmt exakt
+  mit Projekt), nur die zusammenfassenden Info-Labels lesen ein
+  stale gecachtes Model bis zum naechsten Rebuild-Trigger.
+
+### 2.19 Auto-Edit mit realem Datensatz (26 Clips, 337s Audio, 4 Stems) — NEU 2026-07-19
+- **Ziel:** Live-Verify Auto-Edit-Pfad mit echten Stems/Struktur-Daten
+  (Gegenprobe zu 2.7, das nur synthetisches Fallback-Beatgrid hatte).
+- **Ablauf:** SCHNITT-Tab, Button `Auto-Edit` oben rechts (bei 3240x2160
+  ca. x=2555, y=222) — nutzt aktuell in der Audio/Video-Combo gewaehlten
+  Track, kein Preset-Dialog wenn bereits eine Timeline existiert (nur im
+  Empty-State erscheinen die Techno/Cinematic/House/Festival-Karten,
+  siehe 2.7). Dauer real ca. 45s (Pacing-Plan via Ollama `gemma3:4b` +
+  Stem-SNR-Gewichtung + SigLIP-Cross-Modal-Matching + Brain-V3-Reranker).
+- **Live-Befund (PASS):** 94 Segmente erzeugt, Timeline korrekt
+  gezeichnet (`ApplyAutoEditCommand.redo` in 70ms), Beat-Marker (goldene
+  Linien) sichtbar auf Waveform (B-617 bestaetigt), kein Crash, kein
+  neuer `freeze_stacks.log`-Eintrag waehrend des gesamten Laufs
+  (Datei-mtime blieb auf Boot-Zeitpunkt stehen). NICHT "degradiert"
+  (im Gegensatz zu 2.7 mit synthetischem Test Project ohne Stems) —
+  echte `beat_this`-Onset-Daten vorhanden.
+- **Nebenbefund (nicht fatal):** Log zeigt 6x
+  `[Qt C++] QGraphicsScene::removeItem: item ...'s scene (0x0) is
+  different from this scene (...)` waehrend `ApplyAutoEditCommand.redo`
+  die alte Timeline-Szene raeumt. Keine Exception, kein sichtbarer
+  Rendering-Fehler im Screenshot, aber ein Qt-Widget-Lifecycle-Warnsignal
+  wert, im Auge zu behalten falls spaeter echte Rendering-Glitches
+  auftreten.
+- **Undo (K1):** `Ctrl+Z` nach Auto-Edit leert die Timeline sauber (V1/A1
+  Spuren leer, Cutliste-Ueberschrift bleibt informativ), kein Crash.
+
+### 2.20 App-Schliessen bei ungespeichertem Projekt via Harness-Kill
+- **Beobachtung:** Wenn Fenstertitel `"... *"` (dirty/ungespeichert)
+  zeigt, fuehrt `gui_harness.py kill` (graceful WM_CLOSE) NICHT zuverlaessig
+  zum sauberen Beenden — Log zeigt `closeEvent: eingetreten (dirty=True,
+  spontaneous=True)`, aber kein nachfolgendes `Cleanup-Tasks gestartet`
+  vor Ablauf der Grace-Periode. Vermutung: App zeigt bei dirty-State einen
+  "Speichern?"-Modal-Dialog, den WM_CLOSE nicht automatisch beantwortet —
+  Harness muss dann auf `--force` (taskkill /F) zurueckfallen. Kein
+  App-Bug, sondern Automatisierungs-Luecke: harness `kill` kennt diesen
+  Dialog nicht. Fuer sauberen Graceful-Shutdown-Test: vor `kill` erst
+  Ctrl+S oder "nicht speichern" im Dialog explizit klicken.
