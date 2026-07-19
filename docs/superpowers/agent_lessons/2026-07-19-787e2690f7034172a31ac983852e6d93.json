@@ -1,0 +1,10 @@
+{
+  "lesson_id": "787e2690f7034172a31ac983852e6d93",
+  "recorded_at": "2026-07-19T02:25:14+00:00",
+  "session_id": "bba5ac5f00e5462997de254e06f94bac",
+  "head_at_start": "08eaf560213f19987373082cdb4836d0197dce9a",
+  "problem": "GUI-Sichtung startete mit falschem Projekt: Agent nahm 'Test Project' aus der Repo-Root-pb_studio.db, User meinte das Projekt 'test-tabelle' in outputs\\test-tabelle\\ (eigener Projekt-Ordner mit eigener DB).",
+  "cause": "Annahme, die Root-DB sei die einzige Projektquelle. PB Studio hat aber Projekt-Ordner (outputs\\<name>\\pb_studio.db, projects\\...) mit je eigener DB, die per Projekt-oeffnen-Flow geladen werden.",
+  "rule": "Vor Projekt-abhaengigen GUI-/Test-Laeufen erst ALLE Projektquellen enumerieren (Root-DB-projects-Tabelle UND outputs\\*/projects\\*-Ordner mit pb_studio.db) und bei Namensnennung des Users gegen diese Liste matchen; bei Mehrdeutigkeit fragen.",
+  "applies_to": "pb-gui-tester, pb-functional-tester, alle projekt-bezogenen Testlaeufe in PB Studio"
+}
