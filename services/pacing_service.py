@@ -356,13 +356,14 @@ def _make_auto_edit_engine():
 
     K6a: Engine-Bau ueber die gemeinsame Fabrik ``make_nullpool_engine``
     aus database/session.py (statt duplizierter create_engine-Aufruf).
-    enable_foreign_keys=False = heutiges Verhalten des Auto-Edit-Pfads
-    (FK aus); connect-timeout/busy_timeout wie in session.py.
+    K6b (D-073/E4): enable_foreign_keys=True — FK-Enforcement gilt jetzt
+    auch im Auto-Edit-Pfad (wie ueberall sonst via session.py-Pragma).
+    connect-timeout/busy_timeout wie in session.py.
     """
     import database.session as _session
     return _session.make_nullpool_engine(
         _session.APP_ROOT / 'pb_studio.db',
-        enable_foreign_keys=False,
+        enable_foreign_keys=True,
     )
 
 
