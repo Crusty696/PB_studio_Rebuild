@@ -44,7 +44,7 @@ Die Workflow-Rail hat 4 Buttons: PROJEKT, MATERIAL & ANALYSE, SCHNITT, EXPORT (a
 |---|--------|-----------|
 | 1 | Klick auf "PROJEKT Workflow" | Projekt-Dashboard mit Status, Next-Step und Systemstatus sichtbar |
 | 2 | Klick auf "MATERIAL & ANALYSE Workflow" | Material-Stage sichtbar: Import/Medienpool, Proxy/Convert, Audio-Komplettanalyse, Stems, Video-Pipeline |
-| 3 | Klick auf "SCHNITT Workflow" | SCHNITT-Editor mit Sub-Tabs (Schnitt / Pacing & Anker / Audio / RL & Notes); Empty-State mit Preset-Buttons (Smooth/Energetic/Cinematic/Custom) wenn Timeline noch nicht erzeugt; CTA ohne Analyse gesperrt |
+| 3 | Klick auf "SCHNITT Workflow" | SCHNITT-Editor mit Sub-Tabs (Schnitt / Pacing & Anker / Audio / RL & Notes); Empty-State mit Preset-Buttons (Techno/Cinematic/House/Festival) wenn Timeline noch nicht erzeugt; CTA ohne Analyse gesperrt |
 | 4 | Sub-Tab "Pacing & Anker" prüfen | Pacing-Controls + Anchor-Liste sichtbar |
 | 5 | Sub-Tab "Audio" prüfen | Audio/Stem-Controls sichtbar |
 | 6 | Sub-Tab "RL & Notes" prüfen | RL-Rules + Notizen sichtbar |
