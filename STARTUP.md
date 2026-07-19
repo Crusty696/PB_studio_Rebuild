@@ -46,7 +46,8 @@ These are **infrastructure** scripts, not application entry points:
   - Create/update conda env `pb-studio` from `environment.yml`
   - Install PyTorch `1.12.1+cu113` and the CUDA 11.3 dependency set
   - Use `requirements-py310-cu113.txt` / `environment.yml` as active setup.
-    `requirements.txt` is legacy/future Python 3.11+cu124 reference only.
+    The legacy/future Python 3.11+cu124 reference lives in
+    `docs/archive/requirements.txt` (archived, D-073/E3).
   - Install `vendor/beat_this`
   - Verify installation
 

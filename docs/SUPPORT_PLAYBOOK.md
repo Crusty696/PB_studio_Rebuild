@@ -114,7 +114,7 @@ When a new issue arrives:
 source venv/bin/activate
 
 # Reinstall dependencies
-pip install -r requirements.txt
+pip install -r requirements-py310-cu113.txt --extra-index-url https://download.pytorch.org/whl/cu113
 ```
 
 #### Issue: CUDA/GPU not detected
@@ -329,7 +329,7 @@ This issue has been resolved in [version X.X.X / commit XXXXX].
 **To update:**
 ```bash
 git pull origin main
-pip install -r requirements.txt --upgrade
+pip install -r requirements-py310-cu113.txt --upgrade --extra-index-url https://download.pytorch.org/whl/cu113
 ```
 
 Please reopen this issue if the problem persists.

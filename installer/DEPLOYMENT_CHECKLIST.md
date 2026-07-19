@@ -4,8 +4,9 @@
 **Date:** 2026-06-30
 
 **Target runtime:** Windows 11, Python 3.10, torch `1.12.1+cu113`, CUDA on
-NVIDIA GTX 1060 (`cuda:0`). The root `requirements.txt` is legacy/future
-Python 3.11+/cu124 material and is not the active release path.
+NVIDIA GTX 1060 (`cuda:0`). The former root `requirements.txt` (legacy/future
+Python 3.11+/cu124 material) is archived at `docs/archive/requirements.txt`
+and is not the active release path.
 
 Use this checklist when preparing a production deployment of PB Studio.
 

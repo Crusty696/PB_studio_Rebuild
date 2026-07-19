@@ -87,7 +87,7 @@ When reporting an issue, please have ready:
 python -m venv venv
 .\venv\Scripts\activate  # Windows
 source venv/bin/activate  # Linux/Mac
-pip install -r requirements.txt
+pip install -r requirements-py310-cu113.txt --extra-index-url https://download.pytorch.org/whl/cu113
 ```
 
 **Issue**: GPU not detected

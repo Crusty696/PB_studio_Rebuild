@@ -286,7 +286,7 @@ To update dependencies:
 pip install -r requirements-py310-cu113.txt --extra-index-url https://download.pytorch.org/whl/cu113
 ```
 
-> **Note on requirements.txt:** The root `requirements.txt` is maintained as a **legacy / future Python 3.11 + cu124** stack (requiring driver >= 550) and is **not** the active runtime for the GTX 1060 targeting production deployment. Always use `requirements-py310-cu113.txt` for active GTX 1060 targeting.
+> **Note on requirements.txt:** The former root `requirements.txt` (**legacy / future Python 3.11 + cu124** stack, requiring driver >= 550) was archived to `docs/archive/requirements.txt` (D-073/E3) and is **not** the active runtime for the GTX 1060 targeting production deployment. Always use `requirements-py310-cu113.txt` for active GTX 1060 targeting.
 
 ---
 
