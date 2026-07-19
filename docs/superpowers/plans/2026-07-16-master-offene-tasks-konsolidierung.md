@@ -230,3 +230,17 @@ _fit_subprocess): Exit 0 in 67.4 s (inkl. Numba-JIT), ClusterResult korrekt
 (200 Samples, 3/3 Cluster ohne Noise, centroids (3,10), UMAP-Reducer
 pickleable, degraded=False). F6/B-618-Rest damit live bewiesen. Offen: nur
 GUI-E2E-Enrichment mit echten SigLIP-Embeddings (User-Sichtung) und Tier R.
+
+### Nachtrag 2026-07-19: Bucket 2 komplett entschieden + umgesetzt (D-073)
+
+User-Entscheidungsrunde E1-E6 (Zug um Zug, Vorlage: synthesis/
+bucket2-entscheidungsvorlage-2026-07-19.md, Vault: D-073):
+- E1 Brain-Deprecation: Usage-Check ergab NICHTS zu loeschen (Kandidaten waren
+  brain_v3-Spike, bereits weg; legacy_sqlite.py LIVE via BrainService). Erledigt.
+- E2 Vault-Sync = D-064 Opt. 1 (GitHub privat). Wartet auf User-Repo.
+- E3 torch-2.x aufgeschoben; requirements.txt -> docs/archive/ (accfdf5).
+- E4/K6-B FK-ON aktiviert nach 7/7-PASS-Paritaets-Test (1f1b44f).
+- E5: dist/ geloescht (8,1 GB), IDE-Configs weg (e52dfe4), DEAD-009 zu (c98496a),
+  Doku konsolidiert (5b93085); 5.4 mood/energy + 5.5 Migrationssysteme GEPARKT.
+- E6 B-634-Marker bleibt geparkt.
+Bucket 2 damit leer bis auf E2-User-Schritt; 5.4/5.5 als geparkt dokumentiert.
