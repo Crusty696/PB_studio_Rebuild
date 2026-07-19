@@ -178,6 +178,8 @@ Negativ: keine auskommentierten Blöcke >10 Zeilen, keine `if False:`-Blöcke, k
 
 - Rein statisch (Code-Lesung + Import-Graph + Grep-Kreuzverifikation). **Keine Laufzeit-Verifikation** — Findings mit Konfidenz "hoch" sind code-belegt, aber nicht live reproduziert. Gemäß Top-Rule gilt: nichts hiervon ist "verified" im Live-Sinn.
 - DEAD-009 (storage_provenance-Teile) könnte laufende OTK-021-Arbeit sein — vor jeder Konsequenz mit User klären.
+  **GESCHLOSSEN 2026-07-19 (D-073/E5-5.3):** OTK-021 hat live-evidence-pass →
+  storage_provenance ist aktiv, NICHT tot. Code bleibt, DEAD-009 erledigt.
 - Auftragsgemäß **keine Fixes, keine Priorisierungs-Entscheidung** — Fixplan wäre der nächste, separate Schritt nach User-Freigabe.
 
 ## Vorgeschlagene Priorisierung für einen späteren Fixplan (nur Vorschlag)
