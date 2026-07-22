@@ -56,8 +56,14 @@ def test_missing_required_steps_empty_status_returns_all_required():
 
 def test_b458_cockpit_audio_specs_cover_all_audio_steps():
     """B-458: Cockpit darf Audio nicht nach Teilmenge als bereit melden."""
-    from services.analysis_status_service import AUDIO_STEPS
+    from services.analysis_status_service import AUDIO_STEPS, AUDIO_STEPS_OPTIONAL
     from services.cockpit_orchestrator import AUDIO_STEP_SPECS
 
-    assert [spec.key for spec in AUDIO_STEP_SPECS] == AUDIO_STEPS
-    assert all(spec.required_for_auto_edit for spec in AUDIO_STEP_SPECS)
+    assert [spec.key for spec in AUDIO_STEP_SPECS] == AUDIO_STEPS + AUDIO_STEPS_OPTIONAL
+    
+    for spec in AUDIO_STEP_SPECS:
+        if spec.key in AUDIO_STEPS_OPTIONAL:
+            assert not spec.required_for_auto_edit
+        else:
+            assert spec.required_for_auto_edit
+
