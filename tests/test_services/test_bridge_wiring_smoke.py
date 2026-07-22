@@ -9,6 +9,11 @@ import os
 
 import pytest
 
+@pytest.fixture(autouse=True)
+def _stub_settings_store(monkeypatch):
+    import services.settings_store as ss
+    from tests.test_services.test_studio_brain_setting_t11 import _Store
+    monkeypatch.setattr(ss, "get_settings_store", lambda: _Store(False))
 
 def test_studio_brain_setup_block_present():
     """Source-Inspektion: Bridge-Setup vor dem Cut-Loop ist da."""

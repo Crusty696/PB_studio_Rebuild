@@ -28,6 +28,13 @@ from services.pacing.scorer import AudioContext, ClipFeatures
 BASELINE_PATH = Path(__file__).parent / "baselines" / "pacing_bridge_snapshot.json"
 
 
+@pytest.fixture(autouse=True)
+def _stub_settings_store(monkeypatch):
+    import services.settings_store as ss
+    from tests.test_services.test_studio_brain_setting_t11 import _Store
+    monkeypatch.setattr(ss, "get_settings_store", lambda: _Store(False))
+
+
 # ── Kontrakt-Snapshots: Source-Inspektion gegen versehentliche Drift ───────
 
 
