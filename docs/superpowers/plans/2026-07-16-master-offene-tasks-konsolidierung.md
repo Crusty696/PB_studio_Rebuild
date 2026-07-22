@@ -244,3 +244,34 @@ bucket2-entscheidungsvorlage-2026-07-19.md, Vault: D-073):
   Doku konsolidiert (5b93085); 5.4 mood/energy + 5.5 Migrationssysteme GEPARKT.
 - E6 B-634-Marker bleibt geparkt.
 Bucket 2 damit leer bis auf E2-User-Schritt; 5.4/5.5 als geparkt dokumentiert.
+
+### Nachtrag 2026-07-22: Bucket 3 komplett freigegeben (D-074) + Recon + Safe-Slice
+
+User David 2026-07-22: "B, ich gebe alles frei." Alle drei Bucket-3-Gates offen
+(D-074). Recon-Fan-out (3 read-only Agents, Lesson 77583af9 already-done-Check):
+
+- **AUDIT** A1/A2/B6 = code-complete auf main (nur User-`fixed`). B5 Restluecke =
+  fehlende Zeit-Semantik-Doku am Scene-Modell -> GESCHLOSSEN (Commit a881e9f,
+  Kommentar an `database/models.py` Scene.start_time/end_time: quellvideo-relativ).
+  **AUDIT-Bucket damit vollstaendig code-seitig.**
+- **NEUBAUTEN** T1.1-T1.6 + T2.1-T2.5 = ALLE code-complete auf main (Ancestor-
+  Pruefung + Live-grep der Verdrahtung). Kein Agent-Code offen, nur User-`fixed`.
+  Einschraenkung: reine Code-Praesenz-Verifikation, keine Laufzeit-Verifikation.
+- **AUFRAEUM** (User-Entscheidung 2026-07-22): B1/B2/B4 God-Object-Splits
+  AUFGESCHOBEN bis nach Release-Live-Verify (Regressionsrisiko an working +
+  seit Plan GEWACHSENEM Code: timeline.py 4125, main.py 2203, export_service.py
+  2070). Safe-Slice umgesetzt:
+  - A1 Disk-Cleanup: build/ (145 MB) + .pytest_cache + 107 __pycache__ geloescht
+    (gitignored/untracked). logs/ (freeze_stacks-Evidenz), test-report/,
+    outputs/test-tabelle/ (Live-Test heute), storage/ BEWUSST behalten. Real
+    ~145 MB (die "15 GB" waren dist/, laengst weg).
+  - A3 Doku (Commit 49d297d): 4 tote Alt-Plaene -> docs/superpowers/archive/,
+    6 datierte Diagnose-Reports -> docs/archive/ (git mv, History erhalten).
+  - A2/A4/DEAD-009 waren bereits erledigt (Recon bestaetigt).
+  - B3 Util-Dedup: User-Entscheidung "spaeter" (fasst working code an).
+  - A3-Rest offen (Content-Risiko/unscharf): module-map-Dedup (beschreibt
+    geloeschte Mixin-Architektur), synthesis/-Split (98 Dateien), Grenzfall-
+    Reports (HANDOVER/PHASE4/Architektur_Bericht).
+
+**Bucket-3-Restlage:** kein frei-ausfuehrbarer Agent-Code mehr offen. B1/B2/B4 +
+B3 warten bewusst (User-Entscheidung). Rest = User-Live-Sichtung + `fixed`.
