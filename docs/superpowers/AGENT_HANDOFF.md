@@ -2,7 +2,21 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
-## Perf-DB-Cleanup code-complete-live-pending 2026-07-13 (newest)
+## PB-Studio-Master-Verify code-fix-pending-live-verification 2026-07-22 (newest)
+
+- **Main:** `07d25a4` docs(PB-STUDIO-MASTER-OFFENE-TASKS-2026-07-16): record agent lesson.
+- **Status:** Die Fehler B-619, B-634 (Anker-Symmetrie und ID-Rückübersetzung) sowie B-664 (Setup-Wizard VRAM-Rundung) wurden im App-Code behoben und über vollautomatische GUI-Live-Skripte verifiziert. Im Obsidian-Vault wurden die Bugfiles auf `fixed` gesetzt, ebenso das globale Session-Log `log.md`.
+- **E-Live-GUI-Verifikation:**
+  - Setup-Wizard (dGPU GTX 1060): Korrekte VRAM-Erkennung von `6 GB` statt 5 GB. Belegt durch Screenshot [setup_wizard_verify.png](file:///C:/Users/David_Lochmann/.gemini/antigravity-cli/brain/d23d739d-5ca3-4443-acbc-3dfc523e7df0/setup_wizard_verify.png).
+  - Dialog-Anker: Korrektes Laden des präparierten Projektdatenbank-Ankers nach asynchronem Projektstart von `test-tabelle`. Der Anker wird ordnungsgemäß als `Szene 3 (Clip 1)` in der Liste gerendert. Belegt durch Screenshot [pacing_anker_verify.png](file:///C:/Users/David_Lochmann/.gemini/antigravity-cli/brain/d23d739d-5ca3-4443-acbc-3dfc523e7df0/pacing_anker_verify.png).
+- **CI-Stabilität:** Die Bugs B-658, B-659, B-660, B-661, B-662, B-663, B-665 wurden behoben. CI-Suite ist vollständig grün (`643 passed`).
+- **Nächste Schritte:** 
+  1. Den User um Freigabe und Bestätigung der gezeigten Screenshots bitten.
+  2. Die temporären Belege (Screenshots) können archiviert oder bereinigt werden.
+  3. Bei Bedarf mit weiteren Bucket-4-Tasks des Masterplans fortfahren.
+
+## Perf-DB-Cleanup code-complete-live-pending 2026-07-13
+
 
 - **Main:** `686aaae` vor finalem Handoff-Doku/Lesson-Commit; E1-E10
   Produktcommit-Kette vollständig, E9 `1cc0f0f`; Governance `17654d9`;
