@@ -257,7 +257,7 @@ class StyleBucketClusterer:
                 creationflags=flags,
             )
             with open(out_path, "rb") as of:
-                result = pickle.load(of)
+                result = pickle.load(of)  # nosec B301
             logger.info("B-618: Cluster-Fit im Kind-Prozess erfolgreich.")
             return result
         except Exception as exc:  # noqa: BLE001 — jeder Fehler -> In-Process-Fallback

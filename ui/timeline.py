@@ -153,7 +153,7 @@ class WaveformLoadWorker(QObject):
                 creationflags=flags,
             )
             with open(out_path, "rb") as of:
-                return pickle.load(of)
+                return pickle.load(of)  # nosec B301
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
 
