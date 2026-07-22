@@ -1,0 +1,10 @@
+{
+  "lesson_id": "d7d090b5687647e6b38379dd6e472c0e",
+  "recorded_at": "2026-07-22T10:21:57+00:00",
+  "session_id": "b2a2247f370445ab80a574b32bbf47e2",
+  "head_at_start": "bdccb77d5d0b4755ad3cfe6eaa56cd04ef0daad2",
+  "problem": "God-Object-Split (AUFRAEUM B1/B2): Aufteilen grosser Service-/Action-Module in Submodule bricht Tests, obwohl das Verhalten identisch ist und alle Importe re-exportiert werden.",
+  "cause": "Tests koppeln hart ans DEFINIERENDE Modul: (1) monkeypatch.setattr(modul, '_helper', stub) greift nicht mehr, weil verschobene Funktionen den Helper aus ihrem eigenen Submodul-__globals__ lesen (Python-Name-Binding, nicht ueber den Re-Export-Shim); (2) inspect.getsource(modul) prueft Implementierungs-Substrings, die nach dem Move nicht mehr im Shim-Source stehen; (3) conftest patcht Modul-Globals wie 'engine' nur im Ur-Modul.",
+  "rule": "Vor einem Modul-Split repo-weit nach monkeypatch/setattr auf Modul-Globals, inspect.getsource(<modul>) und conftest-Patches suchen. Fuer test-gekoppelte Funktionen den KONSERVATIVEN Split waehlen (nur entkoppelte Leaf-Helper auslagern, gekoppelte Funktionen im Modul lassen -> 0 Test-Aenderung, siehe export_service 2070->1649). Nur wenn voller Split gewollt: Patch-/Inspektions-Ziele der Tests aufs Submodul nachziehen (Verhalten bleibt, nur Zielpfad). Registry-/API-Paritaet immer gegen Baseline (stash) pruefen, nicht dem Agent-Count vertrauen.",
+  "applies_to": "Alle AUFRAEUM-B1/B2/B4-God-Object-Splits in PB Studio (services/, ui/, agents/); generell Modul-Refactors mit test-seitigem Modul-Global-Monkeypatch oder Source-Inspection."
+}
