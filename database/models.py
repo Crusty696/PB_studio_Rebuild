@@ -255,6 +255,12 @@ class Scene(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     video_clip_id = Column(Integer, ForeignKey("video_clips.id", ondelete="CASCADE"), nullable=False)
+    # AUDIT-FIXPLAN B5: Szenen-Zeit ist QUELLVIDEO-relativ (Sekunden ab Anfang des
+    # video_clip), NICHT timeline-relativ. Beim Pacing/Cut duerfen diese Werte daher
+    # nicht direkt als Timeline-Zeit interpretiert werden. Der Multi-Video-Pacing-Pfad
+    # injiziert keine Szenen-Cuts mehr (Commit e46b858); nur der 1-Video-Compat-Pfad
+    # (services/pacing_service.py calculate_cut_points) snappt start_time bewusst auf
+    # Audio-Beats, da dort Quellzeit == Timeline-Zeit gilt.
     start_time = Column(Float, nullable=False)
     end_time = Column(Float, nullable=False)
     label = Column(String, nullable=True)
