@@ -305,3 +305,18 @@ T1.2 (Brain-V3-Reranker), T1.3 (SteerOverrideQueue-Consumer), T1.6 (UI-Ehrlichke
 nur teilweise via CPU-Status), T2.4 (SetupWizard First-Run - braucht First-Run-Reset),
 T2.5.1-T2.5.5 (Slice-Module - Backend). Ebenso offen: B9 (Crossfade-Export-0-Frames,
 geparkt), B5 (nur Code-Doku), Backend E1-E10/K1-K9 (nur indirekt belegt).
+
+### Nachtrag 2026-07-22 09:29: T1.2 + T1.6 live-verifiziert -> User-fixed
+
+Fortsetzung Live-Sichtung (test-tabelle). User-Freigabe "T1.2 + T1.6 fixed":
+- T1.2 Brain-V3-Reranker im Cut-Pfad: Log frischer Auto-Edit-Lauf (LLM off)
+  "T1.2: Brain-V3-Reranker aktiv (min_confidence=0.00) — WeightStore wirkt im
+  Schnitt", "Phase 3: 94 Segmente/94 CutPoints", "Timeline: 94 Video-Segmente
+  geschrieben". Timeline gespeichert.
+- T1.6 UI-Ehrlichkeit + Dead-End-Signals: Studio-Brain Audit-Tab, pro-Cut
+  Score/Verdict/Alternativen (Top 3)/Term-Beitraege/Budget-Stand, Filter
+  "Nur abgelehnte"/"Nur Fallback".
+Damit zusaetzlich fixed neben dem Batch von 08:11. T1.3 (SteerTab gebaut,
+Consumer im Pfad; keine Override in Queue) + T2.5.5 (Shot-Klassen) live gesehen,
+aber vom User (noch) nicht als fixed markiert.
+NEU offen: Bug B-666 (LLM-Strategist-Pacing-Hang, high). Rest-Tests: B9, T2.4.
