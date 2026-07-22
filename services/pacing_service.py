@@ -403,6 +403,265 @@ def auto_edit_phase3(
         _ae_eng.dispose()
 
 
+# ======================================================================
+# AUFRAEUM B4: Verbatim aus _auto_edit_phase3_inner ausgelagerte
+# Teilschritte. REINER STRUKTUR-Refactor — Werte, Reihenfolge und
+# Seiteneffekte sind identisch zur Inline-Variante; die Hauptfunktion
+# ruft sie in exakt derselben Reihenfolge. Kein Verhaltens-Change.
+# ======================================================================
+
+
+def _compute_snr_stem_weights(stem_snr):
+    """F-010: SNR-adjustierte Stem-Weights (drums, bass, vocals, other).
+
+    Verbatim ausgelagert. Bei ``stem_snr is None`` bleiben die Defaults
+    (0.40/0.30/0.10/0.20) unveraendert.
+    """
+    _w_drums, _w_bass, _w_vocals, _w_other = 0.40, 0.30, 0.10, 0.20
+    if stem_snr is not None:
+        def _snr_factor(snr_db: float) -> float:
+            # SNR >= 20 dB → volles Gewicht (1.0); SNR < 6 dB → Mindestgewicht (0.3)
+            return min(1.0, max(0.3, snr_db / 20.0))
+        _w_drums  = 0.40 * _snr_factor(stem_snr.drums)
+        _w_bass   = 0.30 * _snr_factor(stem_snr.bass)
+        _w_vocals = 0.10 * _snr_factor(stem_snr.vocals)
+        _w_other  = 0.20 * _snr_factor(stem_snr.other)
+        _total_w = _w_drums + _w_bass + _w_vocals + _w_other
+        if _total_w > 0:
+            _w_drums /= _total_w; _w_bass /= _total_w
+            _w_vocals /= _total_w; _w_other /= _total_w
+        logger.info(
+            "F-010 SNR-Weights: drums=%.2f (%.1fdB) bass=%.2f (%.1fdB) "
+            "vocals=%.2f (%.1fdB) other=%.2f (%.1fdB)",
+            _w_drums, stem_snr.drums, _w_bass, stem_snr.bass,
+            _w_vocals, stem_snr.vocals, _w_other, stem_snr.other,
+        )
+    return _w_drums, _w_bass, _w_vocals, _w_other
+
+
+def _sections_from_structure_db(_bind, audio_id: int, total_duration: float):
+    """Laedt die echte Song-Struktur (structure_detection) als Sections.
+
+    Labels der Audio-Analyse werden auf die Pacing-Section-Typen
+    gemappt (INTRO->WARMUP etc.); unbekannte Labels -> TRANSITION.
+    Returns [] wenn keine (oder zu wenige) Struktur-Daten vorliegen.
+
+    AUFRAEUM B4: verbatim aus dem inner-Body ausgelagert; ``_bind`` ist die
+    zuvor per Closure genutzte Auto-Edit-Engine (``_ae_eng``).
+    """
+    _label_map = {
+        "INTRO": "WARMUP", "WARMUP": "WARMUP", "OUTRO": "COOLDOWN",
+        "COOLDOWN": "COOLDOWN", "BRIDGE": "TRANSITION",
+        "TRANSITION": "TRANSITION", "DROP": "DROP", "CHORUS": "CHORUS",
+        "BUILDUP": "BUILDUP", "BREAKDOWN": "BREAKDOWN", "VERSE": "VERSE",
+    }
+    try:
+        from database import StructureSegment
+        with Session(_bind) as _s:
+            # B-632: nur genutzte Skalar-Spalten laden statt ORM-Objekte.
+            # StructureSegment.audio_track ist lazy='joined' -> volles
+            # ORM-Laden zieht AudioTrack mit JSON-Blob-Spalten -> json.loads
+            # im Row-Processing (1.5-2.8s-Blips). Hier nur die 4 Skalare
+            # start_time/end_time/label/energy gebraucht.
+            rows = _s.execute(
+                select(
+                    StructureSegment.start_time,
+                    StructureSegment.end_time,
+                    StructureSegment.label,
+                    StructureSegment.energy,
+                )
+                .where(StructureSegment.audio_track_id == audio_id)
+                .order_by(StructureSegment.start_time)
+            ).all()
+            data = [(float(r.start_time), float(r.end_time or 0.0),
+                     str(r.label or ""), float(r.energy or 0.5))
+                    for r in rows]
+    except Exception as exc:
+        logger.debug("Struktur-Segmente nicht ladbar: %s", exc)
+        return []
+    if len(data) < 3:
+        return []
+    result = []
+    for start, end, label, energy in data:
+        if end <= start:
+            continue
+        stype = _label_map.get(label.strip().upper(), "TRANSITION")
+        result.append(Section(
+            start=start, end=min(end, total_duration),
+            section_type=stype, avg_energy=energy,
+        ))
+    return result
+
+
+def _compute_avg_scene_motion(video_info) -> float:
+    """PhD-Spec Schritt 3: durchschnittlicher Motion-Score aller Szenen.
+
+    Verbatim ausgelagert. 0.5 als Fallback wenn keine Szenen vorliegen.
+    """
+    total_motion = 0.0
+    motion_count = 0
+    for vid_data in video_info.values():
+        for scene in vid_data.get("scenes", []):
+            total_motion += scene.get("energy", 0.5)
+            motion_count += 1
+    return total_motion / motion_count if motion_count > 0 else 0.5
+
+
+def _compute_vocal_hold_windows(stem_energy, sections, beats):
+    """NEUBAU-VOLLINTEGRATION T2.5.3 (FR-S1-2): Vocal-on-Hold.
+
+    Verbatim ausgelagert. Liefert das Tripel
+    ``(_vocal_hold_windows, _section_dominant_stems, _section_stem_energies)``.
+    Pro Section werden die per-Beat-Stem-Energien (Demucs) L1-normalisiert
+    aggregiert; ``vocal_hold_spacing_modifier`` liefert 2.0 fuer vocal-
+    dominante Sections -> Mindestdauer dort verdoppelt.
+    """
+    _vocal_hold_windows: list[tuple[float, float, float]] = []
+    _section_dominant_stems: dict[tuple[float, float], str | None] = {}
+    _section_stem_energies: dict[tuple[float, float], dict[str, float]] = {}
+    try:
+        from services.pacing.stem_section_aggregator import dominant_stem
+        from services.pacing.vocal_hold_modifier import vocal_hold_spacing_modifier
+        if stem_energy is not None and sections and beats:
+            _b_arr = np.asarray(beats)
+            for _sec in sections:
+                _lo = int(np.searchsorted(_b_arr, _sec.start))
+                _hi = max(_lo + 1, int(np.searchsorted(_b_arr, _sec.end)))
+                _means = {}
+                for _name in ("drums", "bass", "vocals", "other"):
+                    _vals = getattr(stem_energy, _name, None) or []
+                    _seg_vals = _vals[_lo:_hi]
+                    _means[_name] = float(np.mean(_seg_vals)) if _seg_vals else 0.0
+                _total_e = sum(_means.values())
+                if _total_e > 1e-9:
+                    _means = {k: v / _total_e for k, v in _means.items()}
+                _mult = vocal_hold_spacing_modifier(_means)
+                _section_dominant_stems[(_sec.start, _sec.end)] = dominant_stem(_means)
+                _section_stem_energies[(_sec.start, _sec.end)] = dict(_means)
+                if _mult > 1.0:
+                    _vocal_hold_windows.append((_sec.start, _sec.end, _mult))
+            if _vocal_hold_windows:
+                logger.info(
+                    "T2.5.3 Vocal-on-Hold: %d Sections mit Modifier 2.0: %s",
+                    len(_vocal_hold_windows),
+                    [f"{a:.0f}-{b:.0f}s" for a, b, _ in _vocal_hold_windows],
+                )
+    except Exception as _vh_exc:
+        logger.warning("T2.5.3 Vocal-on-Hold uebersprungen: %s", _vh_exc)
+    return _vocal_hold_windows, _section_dominant_stems, _section_stem_energies
+
+
+def _apply_drop_burst_cuts(cut_beats, drop_times, bpm_val, total_duration):
+    """NEUBAU-VOLLINTEGRATION T2.5.2 (FR-S1-3): Drop-Burst + Hold-Bars.
+
+    Verbatim ausgelagert. 3 Cuts in 800ms um jeden Drop, danach 4 Bars
+    Halten. Rahmen (0.0/Audio-Ende) bleibt fixiert. Liefert das (ggf.
+    neu aufgebaute) ``cut_beats`` zurueck.
+    """
+    try:
+        from services.pacing.cut_density_modulator import apply_drop_burst
+        if drop_times and bpm_val > 0:
+            _pre_n = len(cut_beats)
+            _burst = apply_drop_burst(
+                cut_beats, sorted(float(d) for d in drop_times), bpm=bpm_val)
+            _inner = sorted({
+                round(float(t), 4) for t in _burst
+                if 0.05 < t < total_duration - 0.05
+            })
+            cut_beats = [0.0] + _inner + [round(total_duration, 4)]
+            while (len(cut_beats) >= 3
+                   and (cut_beats[-1] - cut_beats[-2]) < HARD_MIN_DURATION * 0.6):
+                cut_beats.pop(-2)
+            logger.info(
+                "T2.5.2 Drop-Burst: %d -> %d Cuts (%d Drops, Burst 3x/800ms, "
+                "Hold 4 Bars)", _pre_n, len(cut_beats), len(drop_times),
+            )
+    except Exception as _burst_exc:
+        logger.warning("T2.5.2 Drop-Burst fehlgeschlagen: %s", _burst_exc)
+    return cut_beats
+
+
+def _apply_onset_snap_cuts(_bind, audio_id, cut_beats):
+    """NEUBAU-VOLLINTEGRATION T2.5.1 (FR-S1-1): Onset-Feinsnap.
+
+    Verbatim ausgelagert. Cuts werden innerhalb +-50ms auf den naechsten
+    persistierten Kick/Snare-Onset geschoben (Beatgrid.onset_*_data).
+    Start (0.0) und Ende (=Audio-Dauer) werden nie verschoben. ``_bind`` ist
+    die Auto-Edit-Engine (``_ae_eng``). Liefert ``cut_beats`` zurueck.
+    """
+    try:
+        from services.pacing.cut_snapper import snap_to_onset
+        _onset_times: list[float] = []
+        with Session(_bind) as _os_session:
+            from database import Beatgrid as _Beatgrid
+            _bg_row = (
+                _os_session.query(
+                    _Beatgrid.onset_kick_data, _Beatgrid.onset_snare_data,
+                )
+                .filter_by(audio_track_id=audio_id)
+                .first()
+            )
+        if _bg_row:
+            for _data in _bg_row:
+                if _data:
+                    _onset_times.extend(
+                        float(p[0]) for p in _data
+                        if isinstance(p, (list, tuple)) and p
+                    )
+        if _onset_times and len(cut_beats) > 2:
+            _onset_arr = sorted(_onset_times)
+            _snapped_mid = [
+                round(snap_to_onset(t, _onset_arr, max_shift_ms=50.0), 4)
+                for t in cut_beats[1:-1]
+            ]
+            _moved = sum(
+                1 for a, b in zip(cut_beats[1:-1], _snapped_mid) if a != b)
+            # Reihenfolge/Dedupe wahren, Rahmen fixieren
+            _mid_sorted = sorted(set(_snapped_mid))
+            cut_beats = [cut_beats[0]] + _mid_sorted + [cut_beats[-1]]
+            logger.info(
+                "T2.5.1 Onset-Snap: %d/%d Cuts auf Kick/Snare-Onsets "
+                "verschoben (+-50ms, %d Onsets)",
+                _moved, len(_snapped_mid), len(_onset_arr),
+            )
+        else:
+            logger.debug(
+                "T2.5.1 Onset-Snap uebersprungen (Onsets=%d)", len(_onset_times))
+    except Exception as _onset_exc:
+        logger.warning("T2.5.1 Onset-Snap fehlgeschlagen: %s", _onset_exc)
+    return cut_beats
+
+
+def _enforce_min_cut_distance(cut_beats):
+    """B-613: erzwingt Cut-Mindestabstand 0.2s zwischen den inneren Cuts.
+
+    Verbatim ausgelagert. Verhindert degenerierte Mini-Segmente +
+    Timeline-Luecken. Erster Cut (0.0) und letzter Cut (=Audio-Dauer)
+    bleiben EXAKT fix. Liefert das gefilterte ``cut_beats`` zurueck.
+    """
+    if len(cut_beats) > 2:
+        _MIN_SEG = 0.2
+        _kept = [cut_beats[0]]
+        for _c in cut_beats[1:-1]:
+            if _c - _kept[-1] >= _MIN_SEG:
+                _kept.append(_c)
+        _last = cut_beats[-1]
+        if _last - _kept[-1] >= _MIN_SEG:
+            _kept.append(_last)
+        else:
+            # Letzter regulaerer Cut zu nah am Track-Ende -> durch das
+            # exakte Audio-Ende ersetzen (Ende bleibt fix, keine Mini-Luecke).
+            _kept[-1] = _last
+        if len(_kept) < len(cut_beats):
+            logger.info(
+                "B-613: Cut-Mindestabstand %.2fs erzwungen: %d -> %d Cuts "
+                "(verhindert geskippte Mini-Segmente + Timeline-Luecken).",
+                _MIN_SEG, len(cut_beats), len(_kept),
+            )
+        cut_beats = _kept
+    return cut_beats
+
+
 def _auto_edit_phase3_inner(
     _ae_eng,
     audio_id: int,
@@ -492,25 +751,7 @@ def _auto_edit_phase3_inner(
     # F-010: SNR-Qualitaets-Metriken — Stem-Weights proportional zur Trennungsqualitaet anpassen.
     # Stems mit niedrigem SNR (viel Bleed-Through) erhalten weniger Gewicht.
     stem_snr = compute_stem_snr(audio_id)
-    _w_drums, _w_bass, _w_vocals, _w_other = 0.40, 0.30, 0.10, 0.20
-    if stem_snr is not None:
-        def _snr_factor(snr_db: float) -> float:
-            # SNR >= 20 dB → volles Gewicht (1.0); SNR < 6 dB → Mindestgewicht (0.3)
-            return min(1.0, max(0.3, snr_db / 20.0))
-        _w_drums  = 0.40 * _snr_factor(stem_snr.drums)
-        _w_bass   = 0.30 * _snr_factor(stem_snr.bass)
-        _w_vocals = 0.10 * _snr_factor(stem_snr.vocals)
-        _w_other  = 0.20 * _snr_factor(stem_snr.other)
-        _total_w = _w_drums + _w_bass + _w_vocals + _w_other
-        if _total_w > 0:
-            _w_drums /= _total_w; _w_bass /= _total_w
-            _w_vocals /= _total_w; _w_other /= _total_w
-        logger.info(
-            "F-010 SNR-Weights: drums=%.2f (%.1fdB) bass=%.2f (%.1fdB) "
-            "vocals=%.2f (%.1fdB) other=%.2f (%.1fdB)",
-            _w_drums, stem_snr.drums, _w_bass, stem_snr.bass,
-            _w_vocals, stem_snr.vocals, _w_other, stem_snr.other,
-        )
+    _w_drums, _w_bass, _w_vocals, _w_other = _compute_snr_stem_weights(stem_snr)
 
     # F-004: Stem-gewichtete Energie (SNR-adjustierte Weights, ersetzt Stereo-Summe wenn Stems vorhanden)
     stem_energy = compute_stem_weighted_energy(audio_id, beats, _w_drums, _w_bass, _w_vocals, _w_other)
@@ -521,62 +762,14 @@ def _auto_edit_phase3_inner(
     # FIX-2.3: Wird ggf. vom LLM Strategist ueberschrieben
     _pacing_map_override = None
 
-    def _sections_from_structure_db(audio_id: int, total_duration: float):
-        """Laedt die echte Song-Struktur (structure_detection) als Sections.
-
-        Labels der Audio-Analyse werden auf die Pacing-Section-Typen
-        gemappt (INTRO->WARMUP etc.); unbekannte Labels -> TRANSITION.
-        Returns [] wenn keine (oder zu wenige) Struktur-Daten vorliegen.
-        """
-        _label_map = {
-            "INTRO": "WARMUP", "WARMUP": "WARMUP", "OUTRO": "COOLDOWN",
-            "COOLDOWN": "COOLDOWN", "BRIDGE": "TRANSITION",
-            "TRANSITION": "TRANSITION", "DROP": "DROP", "CHORUS": "CHORUS",
-            "BUILDUP": "BUILDUP", "BREAKDOWN": "BREAKDOWN", "VERSE": "VERSE",
-        }
-        try:
-            from database import StructureSegment
-            with Session(_ae_eng) as _s:
-                # B-632: nur genutzte Skalar-Spalten laden statt ORM-Objekte.
-                # StructureSegment.audio_track ist lazy='joined' -> volles
-                # ORM-Laden zieht AudioTrack mit JSON-Blob-Spalten -> json.loads
-                # im Row-Processing (1.5-2.8s-Blips). Hier nur die 4 Skalare
-                # start_time/end_time/label/energy gebraucht.
-                rows = _s.execute(
-                    select(
-                        StructureSegment.start_time,
-                        StructureSegment.end_time,
-                        StructureSegment.label,
-                        StructureSegment.energy,
-                    )
-                    .where(StructureSegment.audio_track_id == audio_id)
-                    .order_by(StructureSegment.start_time)
-                ).all()
-                data = [(float(r.start_time), float(r.end_time or 0.0),
-                         str(r.label or ""), float(r.energy or 0.5))
-                        for r in rows]
-        except Exception as exc:
-            logger.debug("Struktur-Segmente nicht ladbar: %s", exc)
-            return []
-        if len(data) < 3:
-            return []
-        result = []
-        for start, end, label, energy in data:
-            if end <= start:
-                continue
-            stype = _label_map.get(label.strip().upper(), "TRANSITION")
-            result.append(Section(
-                start=start, end=min(end, total_duration),
-                section_type=stype, avg_energy=energy,
-            ))
-        return result
-
     # Pacing-Tuning 2026-07-07: ECHTE Song-Struktur aus der Audio-Analyse
     # (structure_detection -> structure_segments) hat Vorrang vor der groben
     # Energie-Heuristik. Vorher wurde die DB-Struktur (INTRO/VERSE/DROP...)
     # im Pacing komplett ignoriert — gemessen: nur 2/21 Struktur-Grenzen
     # hatten einen Cut. Fallback bleibt detect_sections().
-    sections = _sections_from_structure_db(audio_id, total_duration)
+    # AUFRAEUM B4: _sections_from_structure_db ist jetzt modul-level (nimmt
+    # die Engine als 1. Parameter); Body verbatim, Verhalten identisch.
+    sections = _sections_from_structure_db(_ae_eng, audio_id, total_duration)
     if sections:
         logger.info("Sektionen aus Struktur-Analyse (DB): %s",
                     [(s.section_type, f"{s.start:.0f}-{s.end:.0f}s") for s in sections])
@@ -634,13 +827,7 @@ def _auto_edit_phase3_inner(
         progress_cb(40, "Berechne Cut-Beats...")
 
     # Berechne durchschnittlichen Motion-Score aller Szenen (PhD-Spec Schritt 3)
-    total_motion = 0.0
-    motion_count = 0
-    for vid_data in video_info.values():
-        for scene in vid_data.get("scenes", []):
-            total_motion += scene.get("energy", 0.5)
-            motion_count += 1
-    avg_motion = total_motion / motion_count if motion_count > 0 else 0.5
+    avg_motion = _compute_avg_scene_motion(video_info)
 
     # KI-Gedaechtnis: Aehnliche Audio-Situationen aus Lern-Beispielen abrufen
     avg_energy_val = float(np.mean(energy_per_beat)) if energy_per_beat else 0.5
@@ -709,38 +896,11 @@ def _auto_edit_phase3_inner(
     # stem_section_aggregator.aggregate — nur ohne doppeltes Audio-Laden);
     # vocal_hold_spacing_modifier liefert 2.0 fuer vocal-dominante Sections
     # -> Mindestdauer dort verdoppelt, Schnitte atmen ueber die Lyric-Phrase.
-    _vocal_hold_windows: list[tuple[float, float, float]] = []
-    _section_dominant_stems: dict[tuple[float, float], str | None] = {}
-    _section_stem_energies: dict[tuple[float, float], dict[str, float]] = {}
-    try:
-        from services.pacing.stem_section_aggregator import dominant_stem
-        from services.pacing.vocal_hold_modifier import vocal_hold_spacing_modifier
-        if stem_energy is not None and sections and beats:
-            _b_arr = np.asarray(beats)
-            for _sec in sections:
-                _lo = int(np.searchsorted(_b_arr, _sec.start))
-                _hi = max(_lo + 1, int(np.searchsorted(_b_arr, _sec.end)))
-                _means = {}
-                for _name in ("drums", "bass", "vocals", "other"):
-                    _vals = getattr(stem_energy, _name, None) or []
-                    _seg_vals = _vals[_lo:_hi]
-                    _means[_name] = float(np.mean(_seg_vals)) if _seg_vals else 0.0
-                _total_e = sum(_means.values())
-                if _total_e > 1e-9:
-                    _means = {k: v / _total_e for k, v in _means.items()}
-                _mult = vocal_hold_spacing_modifier(_means)
-                _section_dominant_stems[(_sec.start, _sec.end)] = dominant_stem(_means)
-                _section_stem_energies[(_sec.start, _sec.end)] = dict(_means)
-                if _mult > 1.0:
-                    _vocal_hold_windows.append((_sec.start, _sec.end, _mult))
-            if _vocal_hold_windows:
-                logger.info(
-                    "T2.5.3 Vocal-on-Hold: %d Sections mit Modifier 2.0: %s",
-                    len(_vocal_hold_windows),
-                    [f"{a:.0f}-{b:.0f}s" for a, b, _ in _vocal_hold_windows],
-                )
-    except Exception as _vh_exc:
-        logger.warning("T2.5.3 Vocal-on-Hold uebersprungen: %s", _vh_exc)
+    (
+        _vocal_hold_windows,
+        _section_dominant_stems,
+        _section_stem_energies,
+    ) = _compute_vocal_hold_windows(stem_energy, sections, beats)
 
     cut_beats = _enforce_minimum_durations(
         cut_beats, sections, total_duration,
@@ -765,72 +925,15 @@ def _auto_edit_phase3_inner(
     # BEWUSST NICHT verdrahtet — SECTION_PACING_MAP + BUILDUP-Progression
     # leisten dieselbe Aufgabe feiner; doppeltes Ausduennen wuerde die
     # BUILDUP-Beschleunigung zerstoeren (Entscheidung T2.5.2, dokumentiert).
-    try:
-        from services.pacing.cut_density_modulator import apply_drop_burst
-        if drop_times and bpm_val > 0:
-            _pre_n = len(cut_beats)
-            _burst = apply_drop_burst(
-                cut_beats, sorted(float(d) for d in drop_times), bpm=bpm_val)
-            _inner = sorted({
-                round(float(t), 4) for t in _burst
-                if 0.05 < t < total_duration - 0.05
-            })
-            cut_beats = [0.0] + _inner + [round(total_duration, 4)]
-            while (len(cut_beats) >= 3
-                   and (cut_beats[-1] - cut_beats[-2]) < HARD_MIN_DURATION * 0.6):
-                cut_beats.pop(-2)
-            logger.info(
-                "T2.5.2 Drop-Burst: %d -> %d Cuts (%d Drops, Burst 3x/800ms, "
-                "Hold 4 Bars)", _pre_n, len(cut_beats), len(drop_times),
-            )
-    except Exception as _burst_exc:
-        logger.warning("T2.5.2 Drop-Burst fehlgeschlagen: %s", _burst_exc)
+    cut_beats = _apply_drop_burst_cuts(
+        cut_beats, drop_times, bpm_val, total_duration)
 
     # NEUBAU-VOLLINTEGRATION T2.5.1 (FR-S1-1): Onset-Feinsnap. Cuts werden
     # innerhalb +-50ms auf den naechsten persistierten Kick/Snare-Onset
     # geschoben (Beatgrid.onset_*_data, Writer: onset_rhythm_service).
     # 50ms < 70ms-Beat-Sync-Toleranz -> SCHNITT-Garantie bleibt erhalten;
     # Start (0.0) und Ende (=Audio-Dauer) werden nie verschoben.
-    try:
-        from services.pacing.cut_snapper import snap_to_onset
-        _onset_times: list[float] = []
-        with Session(_ae_eng) as _os_session:
-            from database import Beatgrid as _Beatgrid
-            _bg_row = (
-                _os_session.query(
-                    _Beatgrid.onset_kick_data, _Beatgrid.onset_snare_data,
-                )
-                .filter_by(audio_track_id=audio_id)
-                .first()
-            )
-        if _bg_row:
-            for _data in _bg_row:
-                if _data:
-                    _onset_times.extend(
-                        float(p[0]) for p in _data
-                        if isinstance(p, (list, tuple)) and p
-                    )
-        if _onset_times and len(cut_beats) > 2:
-            _onset_arr = sorted(_onset_times)
-            _snapped_mid = [
-                round(snap_to_onset(t, _onset_arr, max_shift_ms=50.0), 4)
-                for t in cut_beats[1:-1]
-            ]
-            _moved = sum(
-                1 for a, b in zip(cut_beats[1:-1], _snapped_mid) if a != b)
-            # Reihenfolge/Dedupe wahren, Rahmen fixieren
-            _mid_sorted = sorted(set(_snapped_mid))
-            cut_beats = [cut_beats[0]] + _mid_sorted + [cut_beats[-1]]
-            logger.info(
-                "T2.5.1 Onset-Snap: %d/%d Cuts auf Kick/Snare-Onsets "
-                "verschoben (+-50ms, %d Onsets)",
-                _moved, len(_snapped_mid), len(_onset_arr),
-            )
-        else:
-            logger.debug(
-                "T2.5.1 Onset-Snap uebersprungen (Onsets=%d)", len(_onset_times))
-    except Exception as _onset_exc:
-        logger.warning("T2.5.1 Onset-Snap fehlgeschlagen: %s", _onset_exc)
+    cut_beats = _apply_onset_snap_cuts(_ae_eng, audio_id, cut_beats)
 
     # B-613 (Ursache): Nach Drop-Burst (T2.5.2) und Onset-Snap (T2.5.1)
     # koennen zwei Cuts naeher als die Segment-Skip-Schwelle (0.2s)
@@ -841,26 +944,7 @@ def _auto_edit_phase3_inner(
     # (frueheren behalten) -> kein degeneriertes Segment, keine Luecke.
     # Erster Cut (0.0) und letzter Cut (=Audio-Dauer) bleiben EXAKT fix,
     # damit die SCHNITT-Garantie "Ende == Audio-Dauer" erhalten bleibt.
-    if len(cut_beats) > 2:
-        _MIN_SEG = 0.2
-        _kept = [cut_beats[0]]
-        for _c in cut_beats[1:-1]:
-            if _c - _kept[-1] >= _MIN_SEG:
-                _kept.append(_c)
-        _last = cut_beats[-1]
-        if _last - _kept[-1] >= _MIN_SEG:
-            _kept.append(_last)
-        else:
-            # Letzter regulaerer Cut zu nah am Track-Ende -> durch das
-            # exakte Audio-Ende ersetzen (Ende bleibt fix, keine Mini-Luecke).
-            _kept[-1] = _last
-        if len(_kept) < len(cut_beats):
-            logger.info(
-                "B-613: Cut-Mindestabstand %.2fs erzwungen: %d -> %d Cuts "
-                "(verhindert geskippte Mini-Segmente + Timeline-Luecken).",
-                _MIN_SEG, len(cut_beats), len(_kept),
-            )
-        cut_beats = _kept
+    cut_beats = _enforce_min_cut_distance(cut_beats)
 
     # Phase 3: Mood-Embeddings + Fitness-Matrix pre-compute
     if progress_cb:
