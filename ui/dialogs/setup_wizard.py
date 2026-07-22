@@ -305,7 +305,7 @@ class _PageHardware(QWidget):
 
         rows = [
             ("GPU / CUDA", status.cuda_ok,
-             f"{status.gpu_name}  {status.gpu_vram_mb // 1024} GB" if status.cuda_ok else "Nicht gefunden — CPU-Modus"),
+             f"{status.gpu_name}  {round(status.gpu_vram_mb / 1024)} GB" if status.cuda_ok else "Nicht gefunden — CPU-Modus"),
             ("FFmpeg", status.ffmpeg_ok,
              f"{status.ffmpeg_version} · {status.ffmpeg_path}" if status.ffmpeg_ok else f"Nicht gefunden · {status.ffmpeg_path}"),
             ("ffprobe", status.ffprobe_ok,
