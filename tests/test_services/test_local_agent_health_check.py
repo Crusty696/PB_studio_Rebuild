@@ -60,6 +60,8 @@ def test_health_check_reports_no_model_installed(monkeypatch):
             return True
         def get_best_available_model(self):
             return None
+        def select_best_model(self, task="chat", prefer="quality"):
+            return self.get_best_available_model()
         def get_version(self):
             return "0.5.1"
 
@@ -82,6 +84,8 @@ def test_health_check_reports_ready(monkeypatch):
             return True
         def get_best_available_model(self):
             return "gemma3:4b"
+        def select_best_model(self, task="chat", prefer="quality"):
+            return self.get_best_available_model()
         def get_version(self):
             return "0.5.1"
 
@@ -126,6 +130,8 @@ def test_health_check_auto_detect_does_not_report_disabled(monkeypatch):
             return True
         def get_best_available_model(self):
             return "gemma3:4b"
+        def select_best_model(self, task="chat", prefer="quality"):
+            return self.get_best_available_model()
         def get_version(self):
             return "0.5.1"
 
@@ -156,6 +162,8 @@ def test_auto_detect_falls_back_from_stale_settings_to_localhost(monkeypatch):
             return model == "gemma3:4b"
         def get_best_available_model(self):
             return "gemma3:4b"
+        def select_best_model(self, task="chat", prefer="quality"):
+            return self.get_best_available_model()
         def get_version(self):
             return "0.5.1"
 
