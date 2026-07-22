@@ -275,3 +275,33 @@ User David 2026-07-22: "B, ich gebe alles frei." Alle drei Bucket-3-Gates offen
 
 **Bucket-3-Restlage:** kein frei-ausfuehrbarer Agent-Code mehr offen. B1/B2/B4 +
 B3 warten bewusst (User-Entscheidung). Rest = User-Live-Sichtung + `fixed`.
+
+## Nachtrag 2026-07-22 08:11: Live-Verify test-tabelle -> User-fixed
+
+User-Freigabe "alle live-verifizierten fixed" nach GUI-Live-Sichtung (App PID 5164,
+tests/gui_harness.py, Projekt test-tabelle, keine destruktiven Eingriffe). Folgende
+Tasks vom User als **fixed** bestaetigt (sichtbarer Screenshot-Beleg in
+tests/qa_artifacts/):
+
+- A1 (Crossfade-Schalter): Combo "Uebergaenge" beide Optionen, Default Harte Beat-Cuts.
+- A2 (V2-Default Classify+Waveform): Audio-Status Waveform 4000 samples + Mood/Genre
+  dark/House im Default-Lauf.
+- B1 (SigLIP sichtbar): Visual Embeddings dimension:1152.
+- B4 (analysis_status): 9/9-Video- + 8/10-Audio-Status-Tabelle pro Clip.
+- B6 (Media-Re-Analyse): Per-Schritt "Wiederholen"-Buttons + "Alle Fehler wiederholen".
+- T1.1 (Studio-Brain-Pacing): Checkbox aktiv.
+- T1.4/T1.5 (RL-Feedback + Lernschleife): RL-Notes Gut/Schlecht + Brain-V3-Lernstatus
+  187 Klicks / 17-17 Achsen / Feedback heute / Buckets gefuellt.
+- T2.1 (LLM-Pacing schaltbar): LLM-Strategist/LLM-EDL-Toggles.
+- T2.2 (audio.v2_default Settings): Checkbox "Audio-Analyse V2 als Standard".
+- T2.3 (Timeline-Snapshots): Snapshots-Control in Timeline-Leiste.
+- T2.5.6 (ab_runner): "A/B-Gewichte testen"-Button.
+- M4 (Timeline/Auto-Edit): 94 Cuts, Waveform, Thumbnails, Export-Timeline 337.1s.
+- B-650 (Bug): Model-Status pro Aufgabe sichtbar (phi3:mini/Chat) -> Bug-File fixed.
+- Zusatz: B-620/B-619/B-634 waren bereits fixed (bestaetigt).
+
+NICHT als fixed markiert (nicht einzeln live-gesichtet, bleiben code-complete-pending):
+T1.2 (Brain-V3-Reranker), T1.3 (SteerOverrideQueue-Consumer), T1.6 (UI-Ehrlichkeit,
+nur teilweise via CPU-Status), T2.4 (SetupWizard First-Run - braucht First-Run-Reset),
+T2.5.1-T2.5.5 (Slice-Module - Backend). Ebenso offen: B9 (Crossfade-Export-0-Frames,
+geparkt), B5 (nur Code-Doku), Backend E1-E10/K1-K9 (nur indirekt belegt).
