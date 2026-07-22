@@ -25,6 +25,16 @@ except ImportError:
 
 log = logging.getLogger(__name__)
 
+# AUFRAEUM B1: stateless Helfer nach services/structure_detection/ ausgelagert.
+# Re-Import haelt die Namen im Modul verfuegbar (Shim) + versorgt die interne
+# Nutzung unten. Kein Logik-Change.
+from services.structure_detection.genre_templates import (  # noqa: E402
+    _template_psytrance, _template_techno, _template_house,
+)
+from services.structure_detection.labeling import (  # noqa: E402
+    _label_confidence_multi,
+)
+
 # Gültige Segment-Labels
 SEGMENT_LABELS = ["INTRO", "WARMUP", "BUILDUP", "DROP", "BREAKDOWN", "OUTRO", "VERSE", "CHORUS", "BRIDGE"]
 
@@ -1000,43 +1010,14 @@ class StructureDetectionService:
         """
         labels = labels[:]  # Kopie
 
+        # AUFRAEUM B1: Templates in services/structure_detection/genre_templates.py
         if genre == "psytrance":
-            labels = self._template_psytrance(labels, energy_norm, n_beats)
+            labels = _template_psytrance(labels, energy_norm, n_beats)
         elif genre == "techno":
-            labels = self._template_techno(labels, energy_norm, n_beats)
+            labels = _template_techno(labels, energy_norm, n_beats)
         elif genre == "house":
-            labels = self._template_house(labels, energy_norm, n_beats)
+            labels = _template_house(labels, energy_norm, n_beats)
 
-        return labels
-
-    @staticmethod
-    def _template_psytrance(labels: list[str], energy_norm, n_beats: int) -> list[str]:
-        """Psytrance: CHORUS → DROP umwandeln bei hoher Energie (> 0.65)."""
-        for i in range(n_beats):
-            if labels[i] == "CHORUS" and energy_norm[i] > 0.65:
-                labels[i] = "DROP"
-        return labels
-
-    @staticmethod
-    def _template_techno(labels: list[str], energy_norm, n_beats: int) -> list[str]:
-        """Techno: VERSE/CHORUS → DROP bei mittlerer bis hoher Energie (> 0.45).
-
-        Techno hat selten echte Verses — wenn Energie > 0.45, ist es eher ein Drop-Phase.
-        """
-        for i in range(n_beats):
-            if labels[i] in ("VERSE", "CHORUS") and energy_norm[i] > 0.45:
-                labels[i] = "DROP"
-        return labels
-
-    @staticmethod
-    def _template_house(labels: list[str], energy_norm, n_beats: int) -> list[str]:
-        """House: DROP → CHORUS wenn Energie nicht extrem hoch (< 0.85).
-
-        House hat weniger aggressive Drops — sehr hohe Energie-Sektionen sind CHORUS.
-        """
-        for i in range(n_beats):
-            if labels[i] == "DROP" and energy_norm[i] < 0.85:
-                labels[i] = "CHORUS"
         return labels
 
     # ── Segment-Bildung ───────────────────────────────────────────────────
@@ -1238,72 +1219,5 @@ class StructureDetectionService:
 
 
 # ── Modul-Hilfsfunktionen ─────────────────────────────────────────────────────
-
-def _label_confidence_multi(
-    label: str,
-    avg_energy: float,
-    avg_centroid: float,
-    avg_bass: float,
-    avg_regularity: float,
-    n_beats: int,
-) -> float:
-    """Berechnet Confidence fuer ein Segment basierend auf Multi-Feature-Uebereinstimmung.
-
-    Hoehere Confidence wenn mehrere Features das Label gleichzeitig unterstuetzen.
-    """
-    conf = 0.35  # Niedrigere Basis — Multi-Feature muss bestaetigen
-
-    # Laengere Segmente → mehr Sicherheit
-    if n_beats >= 32:
-        conf += 0.15
-    elif n_beats >= 16:
-        conf += 0.08
-    elif n_beats >= 8:
-        conf += 0.04
-
-    # Label-spezifische Multi-Feature-Pruefung
-    if label == "DROP":
-        if avg_energy > 0.7:
-            conf += 0.15
-        if avg_bass > 0.6:
-            conf += 0.15
-        if avg_centroid > 0.6:
-            conf += 0.10
-        if avg_regularity > 0.8:
-            conf += 0.10
-
-    elif label == "BUILDUP":
-        if 0.3 < avg_energy < 0.8:
-            conf += 0.12
-        if avg_centroid > 0.5:
-            conf += 0.08
-        if avg_regularity > 0.7:
-            conf += 0.10
-
-    elif label == "BREAKDOWN":
-        if avg_energy < 0.4:
-            conf += 0.15
-        if avg_bass < 0.35:
-            conf += 0.10
-        if avg_centroid < 0.45:
-            conf += 0.10
-
-    elif label in ("INTRO", "OUTRO"):
-        if avg_energy < 0.3:
-            conf += 0.20
-        if avg_bass < 0.3:
-            conf += 0.10
-
-    elif label == "CHORUS":
-        if avg_energy >= 0.5:
-            conf += 0.10
-        if avg_centroid > 0.5:
-            conf += 0.10
-
-    elif label == "VERSE":
-        if avg_energy < 0.5:
-            conf += 0.10
-        if avg_centroid < 0.55:
-            conf += 0.05
-
-    return round(min(1.0, conf), 3)
+# AUFRAEUM B1: ``_label_confidence_multi`` nach
+# services/structure_detection/labeling.py ausgelagert und oben re-importiert.
