@@ -320,3 +320,16 @@ Damit zusaetzlich fixed neben dem Batch von 08:11. T1.3 (SteerTab gebaut,
 Consumer im Pfad; keine Override in Queue) + T2.5.5 (Shot-Klassen) live gesehen,
 aber vom User (noch) nicht als fixed markiert.
 NEU offen: Bug B-666 (LLM-Strategist-Pacing-Hang, high). Rest-Tests: B9, T2.4.
+
+### Nachtrag 2026-07-22 09:58: T2.4 + B9 live-verifiziert -> User-fixed
+
+User-Freigabe "T2.4 + B9 fixed" nach Live-Test test-tabelle:
+- T2.4 SetupWizard First-Run: setup_complete=false -> Wizard "PB Studio —
+  Ersteinrichtung" + Log "First-Run erkannt — SetupWizard startet (T2.4)";
+  =true -> kein Wizard. Beide Richtungen bestaetigt, Registry wiederhergestellt.
+- B9/B-603 Crossfade-Export: 0-Frames verhindert (ffprobe 10105 Frames, 337.11s,
+  valides Video). Bug-File B-603 status:fixed. Rest-Befund: Batch-xfade scheitert
+  bei 94 Seg -> Hard-Cut-Fallback (echte Crossfades rendern nicht) - als
+  Folge-Verbesserung dokumentiert, kein eigenes Bug-File (User-Entscheid).
+Damit alle vom User beauftragten Live-Tests abgeschlossen. Offener neuer Bug:
+B-666 (LLM-Strategist-Pacing-Hang, high). Test-Artefakt output.mp4 (749MB) geloescht.
