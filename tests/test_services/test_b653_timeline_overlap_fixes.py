@@ -107,7 +107,8 @@ def test_apply_segments_clamps_peer_overlap(test_engine, monkeypatch):
 
 
 def test_manual_add_paths_run_resolver_pin():
-    import services.actions.edit_actions as ea
+    # AUFRAEUM B1: add_to_timeline lebt jetzt in timeline_actions (edit_actions ist Shim).
+    import services.actions.edit.timeline_actions as ea
     import ui.undo_commands as uc
 
     assert "resolve_video_overlaps" in inspect.getsource(ea), (

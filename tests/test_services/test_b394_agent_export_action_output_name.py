@@ -16,9 +16,12 @@ class _TaskManagerStub:
 
 def test_b394_export_action_rejects_absolute_output_path(monkeypatch):
     from services.actions import edit_actions
+    # AUFRAEUM B1: export_timeline_action lebt jetzt in timeline_actions und
+    # bindet _get_task_manager aus dem eigenen Namespace -> dort patchen.
+    from services.actions.edit import timeline_actions
 
     task_manager = _TaskManagerStub()
-    monkeypatch.setattr(edit_actions, "_get_task_manager", lambda: task_manager)
+    monkeypatch.setattr(timeline_actions, "_get_task_manager", lambda: task_manager)
 
     result = edit_actions.export_timeline_action(1, output_path=r"C:\Temp\x.mp4")
 
@@ -28,9 +31,12 @@ def test_b394_export_action_rejects_absolute_output_path(monkeypatch):
 
 def test_b394_export_action_accepts_filename_only(monkeypatch):
     from services.actions import edit_actions
+    # AUFRAEUM B1: export_timeline_action lebt jetzt in timeline_actions und
+    # bindet _get_task_manager aus dem eigenen Namespace -> dort patchen.
+    from services.actions.edit import timeline_actions
 
     task_manager = _TaskManagerStub()
-    monkeypatch.setattr(edit_actions, "_get_task_manager", lambda: task_manager)
+    monkeypatch.setattr(timeline_actions, "_get_task_manager", lambda: task_manager)
 
     result = edit_actions.export_timeline_action(1, output_path="safe_name.mp4")
 

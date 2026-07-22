@@ -27,6 +27,9 @@ def _run_action_from_background(qapp, action):
 
 def test_b412_undo_timeline_runs_gui_call_on_qt_main_thread(qapp, monkeypatch):
     from services.actions import edit_actions
+    # AUFRAEUM B1: undo/redo_timeline liegen jetzt in timeline_actions und binden
+    # _get_main_window aus dem eigenen Namespace -> dort patchen.
+    from services.actions.edit import timeline_actions
 
     class _UndoStack:
         def __init__(self):
@@ -50,7 +53,7 @@ def test_b412_undo_timeline_runs_gui_call_on_qt_main_thread(qapp, monkeypatch):
             self.timeline_view = _TimelineView()
 
     main_window = _MainWindow()
-    monkeypatch.setattr(edit_actions, "_get_main_window", lambda: main_window)
+    monkeypatch.setattr(timeline_actions, "_get_main_window", lambda: main_window)
 
     result = _run_action_from_background(qapp, edit_actions.undo_timeline)
 
@@ -60,6 +63,9 @@ def test_b412_undo_timeline_runs_gui_call_on_qt_main_thread(qapp, monkeypatch):
 
 def test_b412_redo_timeline_runs_gui_call_on_qt_main_thread(qapp, monkeypatch):
     from services.actions import edit_actions
+    # AUFRAEUM B1: undo/redo_timeline liegen jetzt in timeline_actions und binden
+    # _get_main_window aus dem eigenen Namespace -> dort patchen.
+    from services.actions.edit import timeline_actions
 
     class _UndoStack:
         def __init__(self):
@@ -83,7 +89,7 @@ def test_b412_redo_timeline_runs_gui_call_on_qt_main_thread(qapp, monkeypatch):
             self.timeline_view = _TimelineView()
 
     main_window = _MainWindow()
-    monkeypatch.setattr(edit_actions, "_get_main_window", lambda: main_window)
+    monkeypatch.setattr(timeline_actions, "_get_main_window", lambda: main_window)
 
     result = _run_action_from_background(qapp, edit_actions.redo_timeline)
 
