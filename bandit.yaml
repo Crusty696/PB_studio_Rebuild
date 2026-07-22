@@ -12,6 +12,8 @@ exclude_dirs:
   - outputs        # generierte/gitignored Verify-Artefakte; auf CI nicht vorhanden
   - vendor         # CPJKU/beat_this Vendoring (LOW-18) — nicht unser Code
   - .git
+  - .worktrees
+  - .agents
   - __pycache__
   - build
   - dist
