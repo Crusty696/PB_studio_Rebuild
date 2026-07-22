@@ -1,0 +1,10 @@
+{
+  "lesson_id": "eaa25e45bd3c47f0a5c1f454649c45b9",
+  "recorded_at": "2026-07-22T05:17:56+00:00",
+  "session_id": "3dda7c33d8834b879d0fbef117a2132d",
+  "head_at_start": "6d170f5debbf8bd3568bfbfdd13ffd8a04e9f9d3",
+  "problem": "PySide6 C++ show() monkeypatching is bypassed by Qt-internals during live integration testing",
+  "cause": "C++-level virtual calls in PySide6 do not reliably dispatch to Python-overridden base class methods like QMainWindow.show()",
+  "rule": "Always patch concrete Python event handlers of the subclass, such as PBWindow.showEvent, to hook into widget display events instead of overriding C++ show()",
+  "applies_to": "PySide6/PyQt6 GUI testing and automation"
+}
