@@ -186,17 +186,18 @@ class WaveformLoadWorker(QObject):
 # ======================================================================
 # Constants
 # ======================================================================
-
-PIXELS_PER_SECOND = 25
-# Fixplan 2026-07-07 Schritt 8: 80 -> 110 px -> Maengelbehebung 140 px.
-# Track-Hoehen und Zoom wirken zusammen. Alle Track-Geometrien leiten
-# sich aus dieser Konstante ab (VIDEO_TRACK_Y, Thumb-Hoehe, Handles).
-TRACK_HEIGHT = 140
-MIN_READABLE_FIT_SCALE = 0.25
-AUDIO_TRACK_Y = 10
-VIDEO_TRACK_Y = AUDIO_TRACK_Y + TRACK_HEIGHT + 12
-CUT_MARKERS_Y = VIDEO_TRACK_Y + TRACK_HEIGHT + 10
-RULER_Y = CUT_MARKERS_Y + 30
+# AUFRAEUM B4: reine Layout-Konstanten nach ui/timeline_parts/geometry.py
+# ausgelagert (verbatim). Hier re-exportiert -> ``ui.timeline.PIXELS_PER_SECOND``
+# etc. bleiben unveraendert importier- und (als Modul-Global) monkeypatchbar.
+from ui.timeline_parts.geometry import (  # noqa: F401
+    PIXELS_PER_SECOND,
+    TRACK_HEIGHT,
+    MIN_READABLE_FIT_SCALE,
+    AUDIO_TRACK_Y,
+    VIDEO_TRACK_Y,
+    CUT_MARKERS_Y,
+    RULER_Y,
+)
 
 
 # ======================================================================
