@@ -817,16 +817,9 @@ class EditWorkspaceController(PBComponent):
         persistierten Dialog-Ankern (``AudioVideoAnchor`` mit
         ``anchor_type="dialog"``) des aktiven Projekts.
 
-        Vorher wurde die Liste nur session-lokal beim manuellen '+Anker'
-        (``_add_anchor_dialog``) befuellt und blieb nach Projekt-Oeffnen leer.
-        Wird aus dem Timeline-Build-Ende (``load_from_db``) heraus getriggert,
-        damit Liste und Marker synchron erscheinen. Rein lesend + additiv.
-
-        Format identisch zu ``_add_anchor_dialog``: Zeit "M:SS.ss" in Spalte 0,
-        Label in Spalte 1. Da ``AudioVideoAnchor`` ``video_clip_id`` statt der
-        originalen scene_id speichert, wird fuers Label die ``video_clip_id``
-        genutzt; in die UserRole von Spalte 0 kommt ``str(video_clip_id)``.
-        Vor dem Befuellen wird die Liste geleert (kein Doppeln).
+        B-619 Symmetrie-Fix: Liest auch video_time aus und loest dies ueber einen
+        SQL outerjoin mit Scene wieder auf die originalen scene_ids auf, damit
+        nachfolgende Sync-Operationen keine verfaelschten IDs lesen.
         """
         tree = getattr(self.window, "anchor_list", None)
         if tree is None:
@@ -835,16 +828,26 @@ class EditWorkspaceController(PBComponent):
         rows = []
         if pid is not None:
             try:
-                from database import nullpool_session, AudioVideoAnchor
+                from sqlalchemy import and_, func, select
+                from database import nullpool_session, AudioVideoAnchor, AudioTrack, Scene
                 with nullpool_session() as session:
                     rows = session.execute(
                         select(
                             AudioVideoAnchor.audio_time,
                             AudioVideoAnchor.video_clip_id,
+                            AudioVideoAnchor.video_time,
+                            Scene.id,
                         )
                         .join(
                             AudioTrack,
                             AudioVideoAnchor.audio_track_id == AudioTrack.id,
+                        )
+                        .outerjoin(
+                            Scene,
+                            and_(
+                                Scene.video_clip_id == AudioVideoAnchor.video_clip_id,
+                                func.abs(Scene.start_time - AudioVideoAnchor.video_time) < 1e-3
+                            )
                         )
                         .where(
                             AudioTrack.project_id == pid,
@@ -856,18 +859,25 @@ class EditWorkspaceController(PBComponent):
                 logger.warning("_populate_anchor_list_from_db: DB-Fehler: %s", exc)
                 rows = []
         tree.clear()
-        for audio_time, video_clip_id in rows:
+        for audio_time, video_clip_id, video_time, scene_id in rows:
             if audio_time is None:
                 continue
             minutes = int(audio_time // 60)
             secs = audio_time % 60
             time_str = f"{minutes}:{secs:05.2f}"
-            label = f"Clip {video_clip_id} @{audio_time:.2f}s"
+            
+            if scene_id is not None:
+                user_role_val = str(scene_id)
+                label = f"Szene {scene_id} (Clip {video_clip_id})"
+            else:
+                user_role_val = f"clip_{video_clip_id}" if video_clip_id is not None else ""
+                label = f"Clip {video_clip_id}" if video_clip_id is not None else "Unbekannt"
+
             item = QTreeWidgetItem([time_str, label[:30]])
             item.setData(
                 0,
                 Qt.ItemDataRole.UserRole,
-                str(video_clip_id) if video_clip_id is not None else "",
+                user_role_val,
             )
             tree.addTopLevelItem(item)
 

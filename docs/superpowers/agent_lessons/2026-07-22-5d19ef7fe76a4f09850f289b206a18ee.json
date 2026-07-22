@@ -1,0 +1,10 @@
+{
+  "lesson_id": "5d19ef7fe76a4f09850f289b206a18ee",
+  "recorded_at": "2026-07-22T04:12:00+00:00",
+  "session_id": "836578429c7a418db768e5993231459a",
+  "head_at_start": "7eb4c5eb1b778d971c2e756874f2673d55cbfe54",
+  "problem": "Vault scripts fail to start on Windows because user path defaults to space instead of underscore",
+  "cause": "The template command used 'David Lochmann' instead of the actual user folder name 'David_Lochmann'",
+  "rule": "Always run listing or check actual username folders under C:\\Users to handle paths with spaces/underscores correctly",
+  "applies_to": "All OS file system tools"
+}
