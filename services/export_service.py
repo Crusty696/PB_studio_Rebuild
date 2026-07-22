@@ -27,185 +27,41 @@ from services.startup_checks import get_ffmpeg_bin, get_ffprobe_bin
 from services.nvenc_policy import require_nvenc, required_message
 from services.ffmpeg_utils import sanitize_ffmpeg_error as _sanitize_ffmpeg_error
 
-# FIX-1.2: FFmpeg-Pfad konfigurierbar (identisch mit convert_service.py)
-FFMPEG = get_ffmpeg_bin()
-FFPROBE = get_ffprobe_bin()
+# AUFRAEUM B2: Kohaesions-Split von export_service in services/export/*.
+# Reiner Verbatim-Code-Move (kein Logik-Change). Die folgenden Namen werden
+# aus den Sub-Modulen re-importiert, damit ``from services.export_service
+# import <name>`` unveraendert funktioniert (API-Paritaet + Monkeypatch-
+# Kompatibilitaet: die Caller-Funktionen bleiben in DIESEM Modul definiert,
+# sodass ``monkeypatch.setattr(export_service, ...)`` weiter greift).
+from services.export._common import (
+    FFMPEG,
+    FFPROBE,
+    _CONCAT_TARGET_PIX_FMT,
+    _get_export_dir,
+    _resolve_export_output_path,
+    _sanitize_concat_path,
+    _source_duration_from_entry,
+    _validate_video_timeline_gaps,
+)
+from services.export.probe import (
+    _get_probed_info,
+    _needs_preprocessing,
+    _parse_frame_rate,
+    _probe_audio_duration,
+    _probe_cache,
+    _probe_cache_lock,
+    _probe_video,
+    clear_probe_cache,
+)
+from services.export.ffmpeg_runner import (
+    _run_subprocess_cancellable,
+    _video_encode_args,
+)
 
 _export_nvenc_available: bool | None = None
 
 
-def _video_encode_args() -> list[str]:
-    """Video-Codec-Args fuer Export-Re-Encodes (F-7 / B-339).
-
-    Bevorzugt ``h264_nvenc`` gemaess GPU-Hartregel (GTX 1060), faellt auf
-    ``libx264`` (CPU) zurueck wenn NVENC nicht verfuegbar ist — so bleibt der
-    Export ueberall lauffaehig. NVENC-Parameter spiegeln das erprobte
-    ``master``-Preset aus ``convert_service``.
-    """
-    try:
-        from services.convert_service import detect_nvenc
-        nvenc_available = bool(detect_nvenc().get("h264_nvenc"))
-    except Exception:
-        nvenc_available = False
-
-    if nvenc_available:
-        return ["-c:v", "h264_nvenc", "-preset", "p4", "-rc", "vbr",
-                "-cq", "18", "-b:v", "15M"]
-
-    logger.warning("NVENC (h264_nvenc) nicht verfuegbar! Timeline-Export weicht auf CPU (libx264) aus.")
-
-    if require_nvenc():
-        raise RuntimeError(
-            required_message("h264_nvenc nicht verfuegbar; Export-CPU-Fallback verboten")
-        )
-    return ["-c:v", "libx264", "-preset", "fast", "-crf", "23"]
-
-
 logger = logging.getLogger(__name__)
-
-
-# K7: kanonische Implementierung nach services.ffmpeg_utils verschoben.
-# Alias bleibt fuer in-Modul-Caller + Tests (test_b504_concat_utf8_outpoint).
-_parse_frame_rate = parse_frame_rate
-
-
-def _probe_video(file_path: str) -> dict:
-    """Ermittelt Aufloesung, FPS, Codec, pix_fmt und Dauer eines Videos via ffprobe.
-
-    Returns: {"width": int, "height": int, "fps": float, "avg_fps": float,
-              "codec": str, "pix_fmt": str, "duration": float}
-    Falls Probe fehlschlaegt: leeres dict.
-
-    B-504: avg_frame_rate (VFR-Indiz), pix_fmt (Concat-Kompatibilitaet) und
-    duration (outpoint-Trim in der Concat-Liste) ergaenzt.
-    """
-    try:
-        cmd = [
-            FFPROBE, "-v", "quiet",
-            "-select_streams", "v:0",
-            "-show_entries",
-            "stream=width,height,r_frame_rate,avg_frame_rate,codec_name,"
-            "pix_fmt,duration:format=duration",
-            "-of", "json",
-            file_path,
-        ]
-        kwargs = subprocess_kwargs()
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=FFMPEG_PROBE_TIMEOUT_SEC,
-            encoding="utf-8", errors="replace", **kwargs,
-        )
-        if result.returncode != 0:
-            return {}
-        import json
-        data = json.loads(result.stdout)
-        streams = data.get("streams", [])
-        if not streams:
-            return {}
-        s = streams[0]
-        # FPS: r_frame_rate ist "30/1" oder "30000/1001" etc.
-        fps = _parse_frame_rate(s.get("r_frame_rate", "0/1"))
-        avg_fps = _parse_frame_rate(s.get("avg_frame_rate", "0/0"))
-        # Dauer: Stream-Dauer bevorzugt, sonst Container-Dauer (z.B. MKV
-        # hat oft keine Stream-Duration).
-        duration = 0.0
-        try:
-            duration = float(s.get("duration") or 0.0)
-        except (TypeError, ValueError):
-            duration = 0.0
-        if duration <= 0.0:
-            try:
-                duration = float(data.get("format", {}).get("duration") or 0.0)
-            except (TypeError, ValueError):
-                duration = 0.0
-        return {
-            "width": int(s.get("width", 0)),
-            "height": int(s.get("height", 0)),
-            "fps": round(fps, 2),
-            "avg_fps": round(avg_fps, 2),
-            "codec": s.get("codec_name", ""),
-            "pix_fmt": s.get("pix_fmt", ""),
-            "duration": duration,
-        }
-    except (subprocess.SubprocessError, OSError, _json.JSONDecodeError, ValueError) as e:
-        logger.warning("[Export] ffprobe fehlgeschlagen fuer %s: %s", file_path, e)
-        return {}
-
-
-# Cache: Probe-Ergebnisse pro Dateipfad (gleiche Datei wird oft mehrfach referenziert)
-_probe_cache: dict[str, dict] = {}
-_probe_cache_lock = threading.Lock()
-
-
-def _sanitize_concat_path(path: str) -> str:
-    """B-168: Concat-Demuxer-Pfad sanitisieren.
-
-    Single-Quote-Escape (`'` → `'\\''`), Backslash → Slash. Steuerzeichen
-    (Newline, CR, NUL) sind nicht maskierbar — sie wuerden den concat-
-    Demuxer-Parser auseinander reissen oder die concat-Datei truncieren.
-    Daher: Pfad mit Control-Char ablehnen statt silent corruption.
-    """
-    if any(c in path for c in ("\n", "\r", "\x00")):
-        raise ValueError(
-            f"Pfad enthaelt nicht-maskierbare Steuerzeichen "
-            f"(newline/CR/NUL): {path!r}"
-        )
-    return path.replace("\\", "/").replace("'", "'\\''")
-
-
-def clear_probe_cache():
-    """H-3 FIX: Clears the probe cache to prevent unbounded memory growth and stale data."""
-    with _probe_cache_lock:
-        _probe_cache.clear()
-    logger.debug("[Export] Probe cache cleared")
-
-
-# B-504: Ziel-Pixelformat der standardisierten Segmente. Sowohl libx264
-# (CRF-Preset) als auch h264_nvenc erzeugen bei 8-bit-Input per Default
-# yuv420p — abweichende Quellen (yuv444p, yuv420p10le, yuvj420p, ...)
-# wuerden beim Concat-Stream-Copy einen inkonsistenten Stream ergeben.
-_CONCAT_TARGET_PIX_FMT = "yuv420p"
-
-
-def _get_probed_info(file_path: str) -> dict:
-    """Probe-Info aus Cache holen (bei Miss: einmal proben)."""
-    with _probe_cache_lock:
-        if file_path not in _probe_cache:
-            _probe_cache[file_path] = _probe_video(file_path)
-        return _probe_cache[file_path]
-
-
-def _needs_preprocessing(file_path: str, target_w: int, target_h: int,
-                          target_fps: float) -> bool:
-    """Prueft ob ein Video vor dem Concat standardisiert werden muss.
-
-    True wenn: andere Aufloesung, andere FPS, nicht-H.264 Codec,
-    VFR-Indiz (avg_frame_rate weicht von r_frame_rate ab) oder
-    abweichendes Pixelformat (B-504).
-    """
-    info = _get_probed_info(file_path)
-    if not info:
-        return True  # Im Zweifel: standardisieren
-    # Aufloesung pruefen (Toleranz: exakt match oder kleiner mit Padding)
-    if info["width"] != target_w or info["height"] != target_h:
-        return True
-    # FPS pruefen (Toleranz: 0.5 fps)
-    if abs(info["fps"] - target_fps) > 0.5:
-        return True
-    # Codec: nur h264 kann direkt concat-kopiert werden
-    if info["codec"] not in ("h264", "libx264"):
-        return True
-    # B-504: VFR-Indiz — avg_frame_rate weicht messbar von r_frame_rate ab.
-    # Konservativ: nur werten wenn avg_fps bekannt (>0); "0/0"/unbekannt
-    # zaehlt NICHT als Abweichung.
-    avg_fps = info.get("avg_fps", 0.0)
-    if avg_fps > 0.0 and abs(avg_fps - info["fps"]) > 0.5:
-        return True
-    # B-504: Pixelformat — konservativ nur bekannte Abweichungen werten:
-    # pix_fmt muss vorhanden sein UND vom Concat-Ziel abweichen.
-    pix_fmt = info.get("pix_fmt", "")
-    if pix_fmt and pix_fmt != _CONCAT_TARGET_PIX_FMT:
-        return True
-    return False
 
 
 def _preprocess_segment(seg: dict, index: int, w: str, h: str, fps: float,
@@ -249,84 +105,6 @@ def _preprocess_segment(seg: dict, index: int, w: str, h: str, fps: float,
         "outpoint": None,
         "standardized": True,
     }
-
-def _get_export_dir() -> Path:
-    """Return export directory for the current project (lazy APP_ROOT read).
-
-    BUG-FIX: Was module-level constant that became stale after set_project().
-    Now reads APP_ROOT at call time so project switches are respected.
-    """
-    import database.session as _session
-    return _session.APP_ROOT / "exports"
-
-
-def _resolve_export_output_path(export_dir: Path, output_name: str) -> Path:
-    """Build an export path from a filename-only output name."""
-    raw_name = str(output_name).strip()
-    if not raw_name:
-        raw_name = "output.mp4"
-
-    win_path = PureWindowsPath(raw_name)
-    posix_path = PurePosixPath(raw_name)
-    parts = set(win_path.parts) | set(posix_path.parts)
-    if (
-        win_path.is_absolute()
-        or posix_path.is_absolute()
-        or bool(win_path.drive)
-        or ".." in parts
-        or "\\" in raw_name
-        or "/" in raw_name
-        or win_path.name != raw_name
-        or posix_path.name != raw_name
-    ):
-        raise ValueError("Ungueltiger output_name: nur ein Dateiname im Export-Ordner ist erlaubt")
-
-    output_path = (export_dir / raw_name).resolve()
-    export_root = export_dir.resolve()
-    if output_path.parent != export_root:
-        raise ValueError("Ungueltiger output_name: Export-Pfad verlaesst den Export-Ordner")
-    return output_path
-
-
-def _source_duration_from_entry(
-    entry, fallback_duration: float, clip_duration: float | None = None
-) -> float:
-    source_start = entry.source_start or 0.0
-    source_end = entry.source_end
-    if source_end is not None and source_start is not None:
-        source_duration = source_end - source_start
-    else:
-        source_duration = fallback_duration
-    if source_duration <= 0:
-        raise ValueError(
-            f"Ungueltige source_duration fuer TimelineEntry {getattr(entry, 'id', '?')}: "
-            f"{source_duration:.3f}s"
-        )
-    if source_start < 0:
-        raise ValueError(
-            f"Ungueltiger source_start fuer TimelineEntry {getattr(entry, 'id', '?')}: "
-            f"{source_start:.3f}s"
-        )
-    if clip_duration is not None and clip_duration > 0:
-        source_end_abs = source_start + source_duration
-        # B-611: source_end wird beim Pacing auf 4 Dezimalen gerundet; ein
-        # Ueberschuss im ms-Bereich ist Rundung, KEIN Datenfehler. Frueher
-        # warf schon ein 33-us-Ueberschuss (1e-6-Toleranz) hier ValueError und
-        # brach den GESAMTEN Export ab. Jetzt: kleinen Ueberschuss auf die
-        # echte Clip-Laenge clampen (ffmpeg liest bis Clip-Ende), nur einen
-        # GROBEN Ueberschuss (echte Korruption) weiterhin als Fehler werfen.
-        # Wirkt auch fuer bestehende Timelines mit bereits hochgerundeten
-        # source_end-Werten (kein Neu-Rendern noetig).
-        ROUNDING_TOLERANCE_SEC = 0.05  # 50ms — deckt 4-Dezimal-Rundung + Frame-Grenzen
-        if source_end_abs > clip_duration + ROUNDING_TOLERANCE_SEC:
-            raise ValueError(
-                f"Source-Bereich fuer TimelineEntry {getattr(entry, 'id', '?')} "
-                f"ueberschreitet clip duration {clip_duration:.3f}s"
-            )
-        if source_end_abs > clip_duration:
-            source_duration = max(0.0, clip_duration - source_start)
-    return source_duration
-
 
 def _prepare_audio_entry_for_timeline(
     audio_path: str,
@@ -381,49 +159,6 @@ def _prepare_audio_entry_for_timeline(
         cmd, timeout=FFMPEG_RENDER_TIMEOUT_SEC, cancel_check=cancel_check
     )
     return tmp.name
-
-
-def _validate_video_timeline_gaps(
-    video_segments: list[dict],
-    epsilon: float = 0.01,
-    close_threshold: float = 0.05,
-) -> None:
-    """Prueft die Video-Timeline auf Luecken und SCHLIESST kleine automatisch.
-
-    B-613: Eine winzige Luecke (z.B. 35ms durch 4-Dezimal-Rundung oder den
-    Onset-Snap ±50ms) liess frueher den GESAMTEN Export mit ValueError
-    abbrechen (Concat/Filtergraph ist gegen so kleine Luecken unempfindlich —
-    35ms = imperceptibler A/V-Versatz). Jetzt: Luecken bis ``close_threshold``
-    (50ms) werden geschlossen, indem das betroffene Segment um die
-    Lueckenbreite nach vorne geschoben wird (Dauer bleibt, Anschluss wird
-    lueckenlos). NUR echte, grosse Luecken (> close_threshold, = fehlendes
-    Material) werfen weiterhin — die sind ein echter Desync-Fehler.
-    Gleiche Robustheits-Philosophie wie B-611.
-    """
-    previous_end = 0.0
-    for index, segment in enumerate(video_segments):
-        start = float(segment["start"])
-        end = float(segment["end"])
-        gap = start - previous_end
-        if gap > epsilon:
-            if gap <= close_threshold:
-                # Kleine Luecke -> Segment zurueckschieben (Dauer erhalten).
-                duration = end - start
-                segment["start"] = previous_end
-                segment["end"] = previous_end + duration
-                start = segment["start"]
-                end = segment["end"]
-                logger.warning(
-                    "B-613: kleine Timeline-Luecke %.3fs vor Video-Segment %d "
-                    "geschlossen (Segment um %.3fs zurueckgeschoben).",
-                    gap, index + 1, gap,
-                )
-            else:
-                raise ValueError(
-                    f"Timeline gap vor Video-Segment {index + 1}: "
-                    f"{previous_end:.3f}s bis {start:.3f}s"
-                )
-        previous_end = max(previous_end, end)
 
 
 def _cleanup_orphan_tempfiles(max_age_hours: float = 1.0) -> int:
@@ -510,24 +245,6 @@ def _prepare_normalized_audio(audio_path: str | None, temp_files: list,
     ):
         return norm_tmp.name, step
     return audio_path, step
-
-
-def _probe_audio_duration(audio_path: str) -> float:
-    """B-086: ffprobe-Helper fuer LUFS-Progress-Mapping. Returnt 0.0
-    bei Fehlern (= kein Progress, aber kein Crash).
-    """
-    try:
-        from services.startup_checks import get_ffprobe_bin
-        ffprobe_bin = get_ffprobe_bin()
-    except (ImportError, AttributeError, RuntimeError):
-        return 0.0
-    try:
-        return probe_duration(
-            audio_path, fallback=0.0, timeout=10, ffprobe_bin=ffprobe_bin,
-        )
-    except (subprocess.SubprocessError, OSError, ValueError) as exc:
-        logger.debug("ffprobe duration failed for %s: %s", audio_path, exc)
-    return 0.0
 
 
 def export_timeline(project_id: int = 1, output_name: str = "output.mp4",
@@ -1356,144 +1073,6 @@ def _export_with_filtergraph(video_segments, audio_path, output_path,
     if not Path(output_path).exists() or Path(output_path).stat().st_size == 0:
         raise RuntimeError(f"FFmpeg-Export fehlgeschlagen: Ausgabedatei fehlt oder leer: {output_path}")
     return str(Path(output_path).resolve())
-
-
-def _run_subprocess_cancellable(
-    cmd: list[str], timeout: int, cancel_check=None,
-    progress_cb=None, total_duration: float = 0.0,
-    progress_base_pct: int = 0, progress_range_pct: int = 100,
-):
-    """B-125: ``subprocess.run``-aequivalent mit Cancel-Watchdog.
-
-    Faehrt cmd via Popen, polled cancel_check alle 200ms, terminiert
-    den Process bei True. Wenn cancel_check None ist, faellt es auf
-    blockierendes ``subprocess.run`` zurueck.
-
-    B-086: optional ``progress_cb(pct, msg)`` parsed
-    ``out_time_ms=...``-Lines aus stdout (FFmpeg ``-progress pipe:1``)
-    und ruft den Callback waehrend des Laufs. ``total_duration`` ist
-    die Audio-/Video-Dauer in Sekunden — sonst kann der Prozentwert
-    nicht berechnet werden. ``progress_base_pct`` + ``progress_range_pct``
-    erlauben einem Caller mit mehrphasigem Lauf (Pass1+Pass2) die
-    inneren Prozente auf einen Bereich zu mappen (z.B. 50-100 fuer
-    Pass2).
-
-    Returns: subprocess.CompletedProcess (returncode/stdout/stderr).
-    Raises: RuntimeError("LUFS-Normalisierung abgebrochen") bei Cancel.
-    """
-    kwargs: dict = subprocess_kwargs()
-
-    if cancel_check is None and progress_cb is None:
-        return subprocess.run(
-            cmd, capture_output=True, text=True, timeout=timeout,
-            encoding="utf-8", errors="replace", **kwargs,
-        )
-
-    process = subprocess.Popen(
-        cmd, stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-        text=True, encoding="utf-8", errors="replace", **kwargs,
-    )
-    cancelled = threading.Event()
-
-    def _cancel_watch():
-        while process.poll() is None:
-            try:
-                if cancel_check is not None and cancel_check():
-                    cancelled.set()
-                    process.terminate()
-                    try:
-                        process.wait(timeout=2.0)
-                    except subprocess.TimeoutExpired:
-                        process.kill()
-                    return
-            except Exception as exc:  # broad: watchdog must keep running
-                # B-167: nicht stumm zurueckkehren — sonst stirbt der Watchdog
-                # bei einem temporaeren cancel_check-Fehler und der ffmpeg-Lauf
-                # ist nicht mehr abbrechbar.
-                logger.warning(
-                    "[Cancel-Watch] cancel_check raised: %s — Watchdog endet.", exc,
-                )
-                return
-            time.sleep(0.2)
-
-    watchdog = threading.Thread(target=_cancel_watch, daemon=True)
-    watchdog.start()
-
-    # B-086: Progress-Stream-Reader liest stdout zeilenweise und parsed
-    # ``out_time_ms`` aus dem ffmpeg ``-progress pipe:1`` Output. Laeuft
-    # in einem eigenen Thread damit ``communicate`` nicht blockiert.
-    stdout_lines: list[str] = []
-    progress_active = (
-        progress_cb is not None and total_duration > 0.0 and process.stdout is not None
-    )
-
-    def _progress_reader():
-        try:
-            for line in process.stdout:  # type: ignore[union-attr]
-                stdout_lines.append(line)
-                if not progress_active:
-                    continue
-                line = line.strip()
-                if line.startswith("out_time_ms=") and progress_cb is not None:
-                    try:
-                        time_us = int(line.split("=", 1)[1])
-                    except (ValueError, IndexError):
-                        continue
-                    current_sec = time_us / 1_000_000
-                    if total_duration > 0:
-                        inner_pct = max(0.0, min(1.0, current_sec / total_duration))
-                        global_pct = int(
-                            progress_base_pct + inner_pct * progress_range_pct
-                        )
-                        try:
-                            progress_cb(min(99, global_pct), "")
-                        except Exception as cb_exc:  # broad: ein Callback-Fehler darf den Run nicht killen
-                            logger.debug("progress_cb raised: %s", cb_exc)
-        except Exception as reader_exc:  # broad: Reader darf nicht crashen
-            logger.debug("progress reader exited: %s", reader_exc)
-
-    reader = None
-    if progress_active or progress_cb is not None:
-        reader = threading.Thread(target=_progress_reader, daemon=True)
-        reader.start()
-
-    timeout_error: subprocess.TimeoutExpired | None = None
-    try:
-        if reader is not None:
-            # stdout wird im Reader-Thread gelesen — wir warten nur auf stderr.
-            try:
-                _, stderr = process.communicate(timeout=timeout)
-            except subprocess.TimeoutExpired as exc:
-                process.kill()
-                _, stderr = process.communicate()
-                timeout_error = exc
-            reader.join(timeout=THREAD_JOIN_TIMEOUT_SEC)
-            stdout = "".join(stdout_lines)
-        else:
-            try:
-                stdout, stderr = process.communicate(timeout=timeout)
-            except subprocess.TimeoutExpired as exc:
-                process.kill()
-                stdout, stderr = process.communicate()
-                timeout_error = exc
-    finally:
-        watchdog.join(timeout=THREAD_JOIN_TIMEOUT_SEC)
-
-    if cancelled.is_set():
-        raise RuntimeError("LUFS-Normalisierung abgebrochen (User-Cancel)")
-    if timeout_error is not None:
-        raise subprocess.TimeoutExpired(
-            cmd=cmd,
-            timeout=timeout,
-            output=stdout,
-            stderr=stderr,
-        )
-
-    return subprocess.CompletedProcess(
-        args=cmd, returncode=process.returncode,
-        stdout=stdout, stderr=stderr,
-    )
 
 
 def _normalize_audio_lufs(input_path: str, output_path: str,
