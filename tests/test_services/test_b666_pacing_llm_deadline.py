@@ -68,3 +68,32 @@ def test_generate_pacing_plan_labels_timeout_not_unavailable(monkeypatch):
     reason = getattr(plan, "degraded_reason", "")
     assert reason.startswith("pacing_timeout:"), reason
     assert "ollama_unavailable" not in reason
+
+
+def test_generate_pacing_plan_survives_ollama_error(monkeypatch):
+    """B-666 Live-Verify: OllamaError (HTTP-500 / llama-server-Crash) ist kein
+    RuntimeError/OSError und propagierte frueher ungefangen -> Auto-Edit-Worker
+    starb. Muss jetzt auf degraded Default-Plan zurueckfallen."""
+    from services.pacing_strategist import PacingStrategist
+    from services.errors import OllamaError
+
+    strategist = PacingStrategist()
+
+    def _crash(*args, **kwargs):
+        raise OllamaError(
+            "HTTP-Fehler 500: llama-server process has terminated",
+            model="gemma3:4b",
+            http_code=500,
+        )
+
+    monkeypatch.setattr(strategist, "_generate", _crash)
+
+    plan = strategist.generate_pacing_plan(
+        sections=[{"type": "DROP", "start": 0, "end": 30, "avg_energy": 0.9}],
+        bpm=140,
+        total_duration=30,
+        clip_count=3,
+    )
+
+    assert getattr(plan, "degraded", False) is True
+    assert "ollama_unavailable" in getattr(plan, "degraded_reason", "")

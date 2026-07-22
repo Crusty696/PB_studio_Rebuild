@@ -10,6 +10,7 @@ import json
 import logging
 from dataclasses import dataclass, field
 
+from services.errors import OllamaError
 from services.timeout_constants import HTTP_OLLAMA_PACING_TIMEOUT_SEC
 
 logger = logging.getLogger(__name__)
@@ -259,9 +260,13 @@ class PacingStrategist:
         # B-666: Ein Pacing-LLM-Timeout (Wall-Clock-Deadline ueberschritten) wird
         # ehrlich als 'pacing_timeout' gelabelt, NICHT als 'ollama_unavailable' —
         # der Server war ja da, nur zu langsam.
+        # B-666 (Live-Verify): ``OllamaError`` (HTTP-500 / llama-server-Crash /
+        # Modell-zu-gross / pausiert / nicht erreichbar) ist KEIN RuntimeError/OSError
+        # und propagierte frueher ungefangen -> Auto-Edit-Worker starb, UI blieb
+        # bei "Lade Audio" haengen. Wird jetzt ebenfalls gefangen -> Default-Plan.
         try:
             raw_response = self._generate(user_prompt, max_tokens=max_tokens)
-        except (RuntimeError, OSError) as e:
+        except (RuntimeError, OSError, OllamaError) as e:
             if "pacing_llm_timeout" in str(e):
                 logger.warning("PacingStrategist: Pacing-LLM-Timeout, Default-Plan: %s", e)
                 plan = PacingPlan.default()
