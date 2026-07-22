@@ -1,0 +1,10 @@
+{
+  "lesson_id": "d3f33bd8da76450ba9bed3fcc1c2e764",
+  "recorded_at": "2026-07-22T09:01:25+00:00",
+  "session_id": "b2a2247f370445ab80a574b32bbf47e2",
+  "head_at_start": "bdccb77d5d0b4755ad3cfe6eaa56cd04ef0daad2",
+  "problem": "B-666: Auto-Edit hing mit aktivem LLM-Strategist ~50 Min am Pacing-LLM-Call (gemma3:4b, GTX 1060 Teil-CPU); der Cancel-Button wurde erst nach Rueckkehr des Calls wirksam.",
+  "cause": "OllamaClient.chat nutzt urllib.request.urlopen(timeout=self.timeout=120s). Das ist ein Socket-INAKTIVITAETS-Timeout pro Read, kein Wall-Clock. Bei streamendem/langsam ladendem Ollama kommt periodisch Aktivitaet -> Timeout resettet -> Call laeuft praktisch unbegrenzt; der Worker-Thread ist im blockierenden C-Call nicht unterbrechbar, daher greift auch die Cancel-Flag-Pruefung zwischen Stages nicht.",
+  "rule": "Blockierende, nicht unterbrechbare externe Calls (LLM/HTTP mit reinem Inaktivitaets-Timeout) in einem Worker-Thread mit future.result(timeout=WALL_CLOCK) hart bounden, executor.shutdown(wait=False), und bei Ueberschreitung auf den vorhandenen degraded-Fallback zuruckfallen. Nie auf urllib/socket-timeout als Gesamtlaufzeit-Grenze verlassen. Timeout ehrlich als eigenen degraded_reason labeln (nicht als 'unavailable').",
+  "applies_to": "Alle synchronen Ollama/LLM-Aufrufe in Worker-Threads (PacingStrategist, Caption-Pipeline, ai_actions) und generell blockierende Netz-/Subprozess-Calls mit reinem Inaktivitaets-Timeout in PB Studio."
+}
