@@ -1,0 +1,10 @@
+{
+  "lesson_id": "78ab2c7dba6f473f8a5e1886098a1fb5",
+  "recorded_at": "2026-07-22T09:36:12+00:00",
+  "session_id": "b2a2247f370445ab80a574b32bbf47e2",
+  "head_at_start": "bdccb77d5d0b4755ad3cfe6eaa56cd04ef0daad2",
+  "problem": "B-666 Live-Verify: erster Fix (Wall-Clock-Deadline) fing nur den Hang. Live zeigte einen ZWEITEN Failure-Mode: Ollama/llama-server crasht unter VRAM-Druck (HTTP-500) und wirft OllamaError, was den Auto-Edit-Worker killte (UI haengt bei 'Lade Audio').",
+  "cause": "OllamaError erbt von LLMError/PBStudioError/Exception, NICHT von RuntimeError/OSError. Der Fallback-except in generate_pacing_plan fing nur (RuntimeError, OSError) -> OllamaError propagierte ungefangen aus dem Worker.",
+  "rule": "Beim Absichern eines externen Calls ALLE Fehlerklassen abdecken, die die Lib tatsaechlich wirft (nicht nur Timeout/Connection). Exception-Hierarchie pruefen (issubclass) statt annehmen: projekteigene Fehler (OllamaError & Co.) erben oft direkt von Exception, nicht von RuntimeError/OSError, und entkommen zu engen except-Tupeln. Fix per echter Live-Reproduktion verifizieren, nicht nur per Unit-Test — der Live-Lauf offenbarte den zweiten Mode.",
+  "applies_to": "Alle Fallback-/except-Bloecke um Ollama/LLM/externe Service-Calls in PB Studio (pacing, captioning, ai_actions); generell Fehler-Hierarchie-Annahmen."
+}
