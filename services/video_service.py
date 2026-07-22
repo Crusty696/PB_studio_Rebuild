@@ -15,6 +15,7 @@ from services.ffmpeg_utils import (
     subprocess_kwargs,
 )
 from services.nvenc_policy import require_nvenc
+from services.video_encode_args import nvenc_video_args, libx264_fallback_args
 from services.startup_checks import get_ffmpeg_bin, get_ffprobe_bin
 from services.timeout_constants import FFMPEG_PROBE_TIMEOUT_SEC, FFMPEG_RENDER_TIMEOUT_SEC
 
@@ -241,8 +242,7 @@ class VideoAnalyzer:
             nvenc_cmd = [
                 _FFMPEG, "-y", "-i", file_path,
                 "-vf", f"scale=-2:{target_height}",
-                "-c:v", "h264_nvenc", "-preset", "p1",
-                "-rc", "vbr", "-cq", "28", "-b:v", "0",
+                *nvenc_video_args("p1", 28, bitrate="0"),
                 "-c:a", "aac", "-b:a", "128k",
                 str(proxy_path),
             ]
@@ -276,7 +276,7 @@ class VideoAnalyzer:
                 cpu_cmd = [
                     _FFMPEG, "-y", "-i", file_path,
                     "-vf", f"scale=-2:{target_height}",
-                    "-c:v", "libx264", "-preset", "veryfast", "-crf", "28",
+                    *libx264_fallback_args("veryfast", 28),
                     "-c:a", "aac", "-b:a", "128k",
                     str(proxy_path),
                 ]

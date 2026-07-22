@@ -18,6 +18,7 @@ from services.timeout_constants import THREAD_JOIN_TIMEOUT_SEC
 from services.ffmpeg_utils import subprocess_kwargs
 from services.ffmpeg_utils import sanitize_ffmpeg_error as _sanitize_ffmpeg_error
 from services.nvenc_policy import require_nvenc, required_message
+from services.video_encode_args import nvenc_video_args, libx264_fallback_args
 
 logger = logging.getLogger("services.export_service")
 
@@ -37,8 +38,7 @@ def _video_encode_args() -> list[str]:
         nvenc_available = False
 
     if nvenc_available:
-        return ["-c:v", "h264_nvenc", "-preset", "p4", "-rc", "vbr",
-                "-cq", "18", "-b:v", "15M"]
+        return nvenc_video_args("p4", 18, bitrate="15M")
 
     logger.warning("NVENC (h264_nvenc) nicht verfuegbar! Timeline-Export weicht auf CPU (libx264) aus.")
 
@@ -46,7 +46,7 @@ def _video_encode_args() -> list[str]:
         raise RuntimeError(
             required_message("h264_nvenc nicht verfuegbar; Export-CPU-Fallback verboten")
         )
-    return ["-c:v", "libx264", "-preset", "fast", "-crf", "23"]
+    return libx264_fallback_args("fast", 23)
 
 
 def _run_subprocess_cancellable(
