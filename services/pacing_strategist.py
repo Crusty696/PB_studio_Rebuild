@@ -10,6 +10,8 @@ import json
 import logging
 from dataclasses import dataclass, field
 
+from services.timeout_constants import HTTP_OLLAMA_PACING_TIMEOUT_SEC
+
 logger = logging.getLogger(__name__)
 
 # Fallback nur fuer alte Aufrufer. ``get_strategist_model()`` resolved live
@@ -254,9 +256,18 @@ class PacingStrategist:
             max_tokens = min(4096, max(1024, estimated))
 
         # Ollama-Call: Verbindung/Config/Modell nicht verfuegbar -> ollama_unavailable.
+        # B-666: Ein Pacing-LLM-Timeout (Wall-Clock-Deadline ueberschritten) wird
+        # ehrlich als 'pacing_timeout' gelabelt, NICHT als 'ollama_unavailable' —
+        # der Server war ja da, nur zu langsam.
         try:
             raw_response = self._generate(user_prompt, max_tokens=max_tokens)
         except (RuntimeError, OSError) as e:
+            if "pacing_llm_timeout" in str(e):
+                logger.warning("PacingStrategist: Pacing-LLM-Timeout, Default-Plan: %s", e)
+                plan = PacingPlan.default()
+                plan.degraded = True
+                plan.degraded_reason = f"pacing_timeout:{e}"
+                return plan
             logger.warning("PacingStrategist: Ollama nicht nutzbar, Default-Plan: %s", e)
             plan = PacingPlan.default()
             plan.degraded = True
@@ -341,19 +352,65 @@ class PacingStrategist:
         from services.model_router import emit_task_status
         emit_task_status("loading", model, "pacing")
         try:
-            result = client.chat(
-                model=model,
-                user_message=user_text,
-                system_prompt=SYSTEM_PROMPT,
-                temperature=0.1,
-                max_tokens=max_tokens,
-            )
+            result = self._chat_with_deadline(client, model, user_text, max_tokens)
         except Exception:
             emit_task_status("error", model, "pacing")
             raise
         emit_task_status("ready", model, "pacing")
         logger.info("PacingStrategist: Antwort erhalten (%d chars)", len(result))
         return result
+
+    def _chat_with_deadline(
+        self, client, model: str, user_text: str, max_tokens: int
+    ) -> str:
+        """B-666: ``client.chat`` mit hartem Wall-Clock-Deadline aufrufen.
+
+        Das urllib-Socket-Timeout (``DEFAULT_TIMEOUT_SEC``) ist ein
+        Inaktivitaets-Timeout pro Read und greift nicht, wenn Ollama
+        waehrend einer langen Generierung/eines Modell-Loads keine Pause
+        macht — auf der GTX 1060 (6 GB, Teil-CPU-Offload) hing der
+        Pacing-Call bis zu ~50 Min, den auch der Cancel-Button erst nach
+        Rueckkehr des Calls beenden konnte.
+
+        Hier laeuft der (blockierende, nicht unterbrechbare) HTTP-Call in
+        einem Worker-Thread. Nach ``HTTP_OLLAMA_PACING_TIMEOUT_SEC`` gibt
+        diese Methode die Kontrolle zurueck und wirft ``RuntimeError`` —
+        ``generate_pacing_plan`` faengt das ab und nutzt
+        ``PacingPlan.default()`` (degraded). Der abgekoppelte Thread
+        laeuft im Hintergrund aus (Ollama-Antwort oder Socket-Inaktivitaets-
+        Timeout); bei ``low_vram`` erzwingt der Client ``keep_alive=0``, das
+        Modell wird danach entladen — kein dauerhaftes Leck. GPU-Backend
+        bleibt unveraendert, reine Timeout-/Fallback-Logik.
+        """
+        import concurrent.futures
+
+        executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="pacing-llm"
+        )
+        try:
+            future = executor.submit(
+                client.chat,
+                model=model,
+                user_message=user_text,
+                system_prompt=SYSTEM_PROMPT,
+                temperature=0.1,
+                max_tokens=max_tokens,
+            )
+            try:
+                return future.result(timeout=HTTP_OLLAMA_PACING_TIMEOUT_SEC)
+            except concurrent.futures.TimeoutError as e:
+                logger.warning(
+                    "PacingStrategist: LLM-Pacing-Call ueberschritt %ds (Modell "
+                    "'%s') — Abbruch, Fallback auf Default-Plan (B-666).",
+                    HTTP_OLLAMA_PACING_TIMEOUT_SEC, model,
+                )
+                raise RuntimeError(
+                    f"pacing_llm_timeout nach {HTTP_OLLAMA_PACING_TIMEOUT_SEC}s"
+                ) from e
+        finally:
+            # Nicht auf einen evtl. noch laufenden Call warten (wait=False),
+            # sonst blockiert der Auto-Edit-Worker wieder bis Ollama antwortet.
+            executor.shutdown(wait=False)
 
     def _parse_response(self, raw: str) -> PacingPlan:
         """Parst die JSON-Antwort des LLM."""

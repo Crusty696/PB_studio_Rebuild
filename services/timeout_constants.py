@@ -87,6 +87,16 @@ HTTP_OLLAMA_VISION_CAPTION_TIMEOUT_SEC: int = 240
 # Model-Info Abfrage (Ollama /api/show — Cold-Start kann 10-15s brauchen)
 HTTP_MODEL_INFO_TIMEOUT_SEC: int = 15
 
+# B-666: Harte Wall-Clock-Obergrenze fuer den LLM-Pacing-Call (PacingStrategist).
+# Das urllib-Socket-Timeout (DEFAULT_TIMEOUT_SEC=120) ist ein Inaktivitaets-Timeout
+# pro Read und greift nicht, wenn Ollama waehrend einer langen Generierung
+# streamt/Modell laedt — auf der GTX 1060 (6 GB, Teil-CPU-Offload) fuehrte das zu
+# einem ~50-Min-Hang des Auto-Edits, den auch der Cancel-Button erst nach
+# Rueckkehr des Calls beenden konnte. Diese Grenze wird per Thread-Deadline HART
+# durchgesetzt; bei Ueberschreitung faellt der Strategist auf PacingPlan.default()
+# zurueck (degraded). GPU-Backend unveraendert — reine Timeout-/Fallback-Logik.
+HTTP_OLLAMA_PACING_TIMEOUT_SEC: int = 120
+
 # Update-Check (externe URL, muss nicht sofort antworten)
 HTTP_VERSION_CHECK_TIMEOUT_SEC: int = 10
 
