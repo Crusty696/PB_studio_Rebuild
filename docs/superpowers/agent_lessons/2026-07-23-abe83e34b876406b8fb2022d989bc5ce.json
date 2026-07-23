@@ -1,0 +1,10 @@
+{
+  "lesson_id": "abe83e34b876406b8fb2022d989bc5ce",
+  "recorded_at": "2026-07-23T22:42:40+00:00",
+  "session_id": "57a84b14a9a740529a2cee6f364b69c6",
+  "head_at_start": "5f4e1c24fd668915b37fc9ae6d20f9262319a6d4",
+  "problem": "B-677: eine Timeout-Absicherung mit process.wait(timeout=...) hinter einer 'for line in process.stdout'-Schleife greift bei einem still haengenden Prozess nie",
+  "cause": "for line in process.stdout blockiert in readline bis EOF; process.wait(timeout) wird erst NACH der Schleife erreicht. Haengt der Prozess mit offenem, stillem stdout, wird die Schleife nie verlassen und der Timeout nie erzwungen. Verschaerft, wenn der Lauf dabei einen app-weiten Lock (gpu_serializer) haelt",
+  "rule": "Wall-Clock-Timeouts fuer Subprozesse mit stdout-Streaming IMMER ueber einen unabhaengigen Daemon-Watchdog erzwingen (monotonic-Deadline -> terminate/kill), nie ueber wait() nach der Lese-Schleife. Beim Hinzufuegen eines weiteren terminate()-Callsites bestehende Guard-Invarianten pruefen (hier B-170: jedes terminate braucht is_set()-Guard gegen Double-terminate-Race) - Source-Inspection-Tests erzwingen das. Timeout als eigenen Fehler labeln, nicht als generischen returncode-Fail",
+  "applies_to": "Alle subprocess.Popen-Runner mit Progress-Streaming in PB Studio (export_service, convert_service, video_service, workers); generell Wall-Clock-Absicherung blockierender Reads"
+}
