@@ -91,24 +91,26 @@ def test_chunked_matches_single_pass_within_short_track() -> None:
 def test_memory_peak_stays_under_2gb_on_3h() -> None:
     """3h synthetic silence at 22050 Hz mono float32 is ~950 MB — chunking shouldn't double it."""
     import os
-    import sys
 
     try:
         import psutil  # type: ignore[import-not-found]
     except ImportError:
         pytest.skip("psutil not installed; memory-peak check can't run.")
 
-    if sys.platform == "win32":
-        # On Windows, np.zeros uses lazy VirtualAlloc — pages are not committed to physical
-        # memory until first access.  The RSS measurement therefore includes ~950 MB of page
-        # faults on the input array itself (which happens *inside* analyze_onsets_chunked as
-        # librosa reads each chunk), making the delta always exceed the 500 MB threshold even
-        # though chunking does not make a second copy.  This is a platform accounting artefact,
-        # not a real memory regression — skip rather than report a spurious failure.
-        pytest.skip(
-            "Windows lazy-page-fault accounting inflates RSS delta for np.zeros arrays; "
-            "memory-peak check only runs on Linux/macOS where pages are pre-faulted."
-        )
+    # B-673: on Windows, np.zeros commits pages via VirtualAlloc but they are
+    # not faulted into the working set until first touched. The input array
+    # (~950 MB) therefore faults in *inside* analyze_onsets_chunked as librosa
+    # reads each chunk, inflating the RSS delta past 500 MB without any second
+    # copy (measured: RSS delta 1028 MB vs. private 341 MB). ``private``
+    # (commit charge) is counted at allocation, immune to fault timing, so it
+    # still catches a real second copy but not the artefact. Windows-only
+    # field; on Linux/macOS the metric stays RSS.
+    def _mem_mb() -> float:
+        m = psutil.Process(os.getpid()).memory_info()
+        value = getattr(m, "private", None)
+        if value is None:
+            value = m.rss
+        return value / (1024**2)
 
     from services.onset_rhythm_service import analyze_onsets_chunked
 
@@ -128,11 +130,10 @@ def test_memory_peak_stays_under_2gb_on_3h() -> None:
     # 30-minute segments
     segments = [(float(i * 1800.0), float((i + 1) * 1800.0)) for i in range(6)]
 
-    proc = psutil.Process(os.getpid())
-    before = proc.memory_info().rss / (1024**2)
+    before = _mem_mb()
     analyze_onsets_chunked(audio=audio, sr=sr, structure_segments=segments)
-    after = proc.memory_info().rss / (1024**2)
+    after = _mem_mb()
     delta = after - before
     # The input array itself is ~950 MB. Chunking must not require a second full copy.
     # Allow up to +500 MB overhead for librosa internal buffers.
-    assert delta < 500, f"Chunked onset analysis grew RSS by {delta:.0f} MB (> 500 MB budget)"
+    assert delta < 500, f"Chunked onset analysis grew memory by {delta:.0f} MB (> 500 MB budget)"

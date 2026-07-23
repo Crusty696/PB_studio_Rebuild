@@ -15,7 +15,6 @@ pages are lazy-committed via VirtualAlloc. This test uses a preallocated
 from __future__ import annotations
 
 import os
-import sys
 import time
 from pathlib import Path
 
@@ -35,11 +34,27 @@ MEMORY_BUDGET_MB = 2048
 MAX_RUNTIME_SEC = 45 * 60  # 45 min max runtime
 
 
-def _measure_rss_mb() -> float:
+def _measure_mem_mb() -> float:
+    """B-673: committed-memory metric that is honest on Windows too.
+
+    RSS delta is misleading on Windows: ``np.zeros`` commits pages via
+    VirtualAlloc but they are not faulted into the working set until first
+    touched, so RSS grows *during* the measured operation as librosa reads the
+    input — inflating the delta by the full input size even without a second
+    copy (measured: RSS delta 1028 MB vs. private 341 MB on the 3h onset case).
+
+    ``memory_info().private`` (PrivateUsage / commit charge) is counted at
+    allocation time, independent of fault timing, so it still catches a real
+    second full copy but ignores the fault-in artefact. It exists only on
+    Windows; on Linux/macOS the field is absent and we keep RSS unchanged.
+    """
     if _psutil is None:
         pytest.skip("psutil not installed")
-    proc = _psutil.Process(os.getpid())
-    return float(proc.memory_info().rss / (1024 * 1024))
+    m = _psutil.Process(os.getpid()).memory_info()
+    value = getattr(m, "private", None)
+    if value is None:
+        value = m.rss
+    return float(value / (1024 * 1024))
 
 
 @pytest.mark.slow
@@ -50,15 +65,9 @@ def test_dj_mix_3h_onset_analysis_under_memory_budget() -> None:
       - RSS delta < 500 MB (chunking must not force a second audio copy)
       - Runtime finite (< 45 min)
 
-    Skip on Windows since RSS accounting for np.zeros is misleading
-    (see test_onset_chunked_boundary.py for details).
+    B-673: runs on Windows too now — the memory delta uses committed memory
+    (``private``) there instead of RSS, see ``_measure_mem_mb``.
     """
-    if sys.platform == "win32":
-        pytest.skip(
-            "Windows VirtualAlloc lazy-page-fault accounting inflates RSS "
-            "delta for np.zeros arrays; 3h test only runs on Linux/macOS."
-        )
-
     if _psutil is None:
         pytest.skip("psutil not installed")
 
@@ -75,13 +84,13 @@ def test_dj_mix_3h_onset_analysis_under_memory_budget() -> None:
     # Touch every page so RSS isn't biased by lazy allocation
     audio.sum()
 
-    baseline_mb = _measure_rss_mb()
+    baseline_mb = _measure_mem_mb()
     start = time.perf_counter()
     onsets = analyze_onsets_chunked(
         audio=audio, sr=spec.sr, structure_segments=segments
     )
     elapsed = time.perf_counter() - start
-    peak_mb = _measure_rss_mb()
+    peak_mb = _measure_mem_mb()
     delta_mb = peak_mb - baseline_mb
 
     print(
