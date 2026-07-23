@@ -1,0 +1,10 @@
+{
+  "lesson_id": "51891a269dad470f97f10d69d9fe1b1d",
+  "recorded_at": "2026-07-23T23:06:49+00:00",
+  "session_id": "57a84b14a9a740529a2cee6f364b69c6",
+  "head_at_start": "5f4e1c24fd668915b37fc9ae6d20f9262319a6d4",
+  "problem": "B-675/676/681: drei gekoppelte Qt-Thread-Lifecycle-Bugs in einem Dialog; naive Einheitsfixes (worker.deleteLater ueberall, quit im Slot) haetten neue Crashes erzeugt",
+  "cause": "Der Download-Worker ist ein Sonderfall: pull_ollama_model kehrt sofort zurueck und der echte Pull laeuft in einem Service-DAEMON, der worker.progress ueber das QThread-Ende hinaus minutenlang weiter emittiert. Ein pauschales worker.deleteLater bei thread.finished (wie fuer scan/status/delete/cleanup korrekt) haette den Download-Worker zerstoert waehrend der Daemon ihn nutzt. Zusaetzlich: quit() im Slot referenzierte self._status_thread, das ein spaeterer Aufruf neu band -> Wrong-Thread-quit; und deleteLater auf laufendem Thread nach fehlgeschlagenem wait -> 0xC0000409",
+  "rule": "Bei Qt-Worker-Lifecycle den Lebenszyklus PRO Worker analysieren, nicht uniform: laeuft die Arbeit synchron im QThread (deleteLater bei finished ok) oder ueberlebt sie ihn via Daemon/Callback (dann NICHT deleteLater, nur bound-slot-Auto-Disconnect + GC)? thread.quit immer an die Worker-Signale bei Erstellung binden (faengt den korrekten Thread), nie im Slot ueber ein rebindbares self._thread. Nach wait(timeout)==False Thread parken statt deleteLater. Native-Crash-Qt-Fixes mit no-op'd QThread.start deterministisch testen (RED/GREEN per git-stash-Gegencheck) statt echte Worker-Threads zu starten (Nativ-Crash-/Flake-Risiko)",
+  "applies_to": "Alle PySide6 QThread/QObject-Worker-Pfade in PB Studio; besonders Dialoge mit Background-Downloads/Deletes; generell Signal/Slot-Lebenszyklus"
+}
