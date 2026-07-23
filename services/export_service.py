@@ -1239,6 +1239,7 @@ def _run_ffmpeg_impl(cmd: list[str], timeout: int = 600, progress_cb=None,
 
     stderr_lines = []
     cancelled = threading.Event()
+    timed_out = threading.Event()
 
     def _drain_stderr():
         for line in process.stderr:
@@ -1274,6 +1275,37 @@ def _run_ffmpeg_impl(cmd: list[str], timeout: int = 600, progress_cb=None,
                 time.sleep(0.2)
         cancel_watchdog = threading.Thread(target=_cancel_watch, daemon=True)
         cancel_watchdog.start()
+
+    # B-677: Wall-Clock-Watchdog — killt den Prozess wenn FFmpeg ueber
+    # ``timeout`` Sekunden laeuft, auch ohne stdout-Output. Ohne ihn erzwingt
+    # der Timeout nur ``process.wait(timeout=...)``, das erst NACH der
+    # ``for line in process.stdout``-Schleife erreicht wird — ein still
+    # haengendes FFmpeg (stdout offen, keine Ausgabe) blockiert die Schleife
+    # sonst unbegrenzt, und der Lauf haelt dabei den gpu_serializer
+    # ("export_render") → app-weiter NVENC-Block. Vorbild: convert_service B-059.
+    timeout_watchdog = None
+    _start_ts = time.monotonic()
+    if timeout is not None and timeout > 0:
+        def _timeout_watch():
+            while process.poll() is None:
+                if time.monotonic() - _start_ts >= timeout:
+                    # B-170: nur terminieren wenn nicht bereits ein Cancel den
+                    # Prozess abbricht — sonst Double-terminate-Race. Feuerte
+                    # Cancel zuerst, ist es kein Timeout: still zurueckkehren.
+                    if not cancelled.is_set() and not timed_out.is_set():
+                        timed_out.set()
+                        try:
+                            process.terminate()
+                            try:
+                                process.wait(timeout=2.0)
+                            except subprocess.TimeoutExpired:
+                                process.kill()
+                        except Exception as exc:  # broad: watchdog must not die silently
+                            logger.warning("[Timeout-Watch] terminate raised: %s", exc)
+                    return
+                time.sleep(0.5)
+        timeout_watchdog = threading.Thread(target=_timeout_watch, daemon=True)
+        timeout_watchdog.start()
 
     try:
         for line in process.stdout:
@@ -1331,9 +1363,20 @@ def _run_ffmpeg_impl(cmd: list[str], timeout: int = 600, progress_cb=None,
         stderr_thread.join(timeout=THREAD_JOIN_TIMEOUT_SEC)
         if cancel_watchdog is not None:
             cancel_watchdog.join(timeout=THREAD_JOIN_TIMEOUT_SEC)
+        if timeout_watchdog is not None:
+            timeout_watchdog.join(timeout=THREAD_JOIN_TIMEOUT_SEC)
 
     if cancelled.is_set():
         raise RuntimeError("Export abgebrochen (User-Cancel)")
+
+    # B-677: der Wall-Clock-Watchdog hat den Prozess gekillt — als Timeout
+    # melden (vor dem generischen returncode-Zweig), damit die Diagnose stimmt.
+    if timed_out.is_set():
+        stderr = ''.join(stderr_lines)
+        raise RuntimeError(
+            f"FFmpeg Timeout ({timeout}s) — Prozess ohne Fortschritt beendet. "
+            f"Stderr:\n{_sanitize_ffmpeg_error(stderr)}"
+        )
 
     stderr = ''.join(stderr_lines)
     if process.returncode != 0:
