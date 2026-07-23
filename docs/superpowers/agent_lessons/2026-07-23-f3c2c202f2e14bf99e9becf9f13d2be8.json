@@ -1,0 +1,10 @@
+{
+  "lesson_id": "f3c2c202f2e14bf99e9becf9f13d2be8",
+  "recorded_at": "2026-07-23T08:58:55+00:00",
+  "session_id": "57a84b14a9a740529a2cee6f364b69c6",
+  "head_at_start": "5f4e1c24fd668915b37fc9ae6d20f9262319a6d4",
+  "problem": "B-669: das Bugfile listete 6 ungebundene LLM-Callsites; ein Fix pro Callsite waere unvollstaendig gewesen",
+  "cause": "Das Inventar war callsite-orientiert statt API-orientiert. Tatsaechlich haben FUENF OllamaClient-Methoden (chat, chat_with_history, _generate_text, chat_vision, chat_with_tools) denselben blockierenden urlopen(timeout=self.timeout)-Aufbau; chat_with_history war im Befund gar nicht aufgetaucht. Zusaetzlich rekursiert chat intern (Fallback-Modell) und delegiert an _generate_text - ein naiver Wrapper haette verschachtelte Deadlines und damit ein Vielfaches der gedachten Maximallaufzeit erzeugt",
+  "rule": "Vor dem Fix einer Fehlerklasse das Inventar an der API-Grenze aufnehmen (alle Methoden mit dem gleichen blockierenden Muster), nicht nur an den gefundenen Callsites - grep auf den gemeinsamen Aufruf (urlopen/subprocess/lock) statt auf die Aufrufer. Bei zentraler Absicherung interne Rekursion/Delegation pruefen und die Deadline per thread-lokalem Flag im WORKER-Thread einmalig setzen, damit Wieder-Eintritte keine zweite Deadline aufspannen. Wenn zentral-vs-lokal eine Architekturfrage ist, User entscheiden lassen statt selbst zu waehlen",
+  "applies_to": "Alle Absicherungen blockierender externer Calls in PB Studio (Ollama/LLM, ffmpeg, GPU-Locks); generell Timeout-/Retry-Wrapper um Client-Klassen mit internen Fallback-Pfaden"
+}

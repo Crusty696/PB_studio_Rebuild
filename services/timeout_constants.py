@@ -97,6 +97,18 @@ HTTP_MODEL_INFO_TIMEOUT_SEC: int = 15
 # zurueck (degraded). GPU-Backend unveraendert — reine Timeout-/Fallback-Logik.
 HTTP_OLLAMA_PACING_TIMEOUT_SEC: int = 120
 
+# B-669: allgemeine Wall-Clock-Obergrenze fuer ALLE generierenden
+# OllamaClient-Methoden (chat, chat_with_history, _generate_text, chat_vision,
+# chat_with_tools). B-666 hatte diese Grenze nur im PacingStrategist gezogen —
+# die uebrigen Callsites (Auto-Edit Stufe 3, Vision-Analyse unter GPU-Lock,
+# Chat-Actions, Orchestrator) blieben am reinen Inaktivitaets-Timeout haengen.
+#
+# Wert: grosszuegig genug fuer legitime lange Generierungen auf der GTX 1060
+# mit Teil-CPU-Offload (Vision-Captions brauchen laut
+# HTTP_OLLAMA_VISION_CAPTION_TIMEOUT_SEC bis 240 s), aber weit unterhalb des
+# live gemessenen ~50-Min-Hangs. Pro Aufruf ueberschreibbar.
+HTTP_OLLAMA_WALL_CLOCK_TIMEOUT_SEC: int = 300
+
 # Update-Check (externe URL, muss nicht sofort antworten)
 HTTP_VERSION_CHECK_TIMEOUT_SEC: int = 10
 

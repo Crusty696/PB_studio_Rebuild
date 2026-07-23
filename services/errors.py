@@ -155,6 +155,24 @@ class OllamaPausedError(OllamaError):
     """Ollama ist pausiert (GPU-intensive Operation laeuft)."""
 
 
+class OllamaTimeoutError(OllamaError):
+    """B-669: Wall-Clock-Grenze eines generierenden Ollama-Calls ueberschritten.
+
+    Bewusst ein eigener Typ und KEIN ``OllamaNotAvailableError``: der Server
+    war erreichbar, er hat nur zu lange gebraucht. Die Unterscheidung ist die
+    Lehre aus B-666 — ein Timeout, der als "nicht verfuegbar" geloggt wird,
+    schickt die Diagnose auf die falsche Faehrte.
+
+    Erbt von ``OllamaError``, damit bestehende ``except OllamaError``-Pfade
+    (z. B. der degraded-Fallback in ``pacing_strategist``) ihn weiterhin
+    fangen.
+    """
+
+    def __init__(self, message: str, model: str = "", timeout_sec: float = 0.0):
+        super().__init__(message, model=model)
+        self.timeout_sec = timeout_sec
+
+
 # ── Database ───────────────────────────────────────────────────
 
 class DatabaseError(PBStudioError):

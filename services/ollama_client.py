@@ -16,6 +16,7 @@ Koordination mit dem ModelManager:
 
 from __future__ import annotations
 
+import concurrent.futures
 import json
 import logging
 import threading
@@ -27,12 +28,14 @@ from services.timeout_constants import (
     HTTP_API_TIMEOUT_SEC,
     HTTP_HEALTH_CHECK_TIMEOUT_SEC,
     HTTP_MODEL_INFO_TIMEOUT_SEC,
+    HTTP_OLLAMA_WALL_CLOCK_TIMEOUT_SEC,
 )
 from services.errors import (
     OllamaError,
     OllamaNotAvailableError,
     OllamaModelNotFoundError,
     OllamaPausedError,
+    OllamaTimeoutError,
 )
 
 logger = logging.getLogger(__name__)
@@ -76,9 +79,18 @@ class OllamaClient:
         self,
         base_url: str = DEFAULT_OLLAMA_URL,
         timeout: int = DEFAULT_TIMEOUT_SEC,
+        wall_clock_timeout: float | None = None,
     ):
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
+        # B-669: Gesamtlaufzeit-Grenze der generierenden Methoden. ``timeout``
+        # oben bleibt unveraendert das urllib-Socket-Timeout (Inaktivitaet pro
+        # Read) — die beiden ersetzen einander nicht, sie ergaenzen sich.
+        self.wall_clock_timeout = (
+            float(wall_clock_timeout) if wall_clock_timeout is not None
+            else float(HTTP_OLLAMA_WALL_CLOCK_TIMEOUT_SEC)
+        )
+        self._deadline_ctx = threading.local()
         self._lock = threading.Lock()
         self._paused = False  # VRAM-Koordination: True = keine neuen Requests
         self._unloadable_models: set[str] = set()  # Models that failed to load (RAM/VRAM)
@@ -92,6 +104,71 @@ class OllamaClient:
                     logger.info("OllamaClient: System hat < 8 GB VRAM. keep_alive=0 wird erzwungen.")
         except Exception:
             pass
+
+    # ------------------------------------------------------------------
+    # B-669: Wall-Clock-Grenze fuer generierende Calls
+    # ------------------------------------------------------------------
+
+    def _wall_clock_deadline_active(self) -> bool:
+        """True, wenn der aktuelle Thread bereits unter einer Deadline laeuft.
+
+        Wird im Worker-Thread von ``_with_deadline`` gesetzt. Verhindert, dass
+        interne Rekursionen (``chat`` -> Fallback-Modell -> ``chat``) oder
+        Delegationen (``chat`` -> ``_generate_text``) eine ZWEITE Deadline
+        aufspannen und die maximale Gesamtlaufzeit dadurch vervielfachen.
+        """
+        return getattr(self._deadline_ctx, "active", False)
+
+    def _with_deadline(self, fn, *args, timeout: float | None = None, **kwargs):
+        """Fuehrt ``fn`` mit harter Wall-Clock-Grenze aus.
+
+        Der HTTP-Call in ``fn`` ist blockierend und nicht unterbrechbar; das
+        urllib-Timeout ist nur ein Inaktivitaets-Timeout pro Read. Deshalb
+        laeuft ``fn`` in einem Worker-Thread, dessen Ergebnis hier mit
+        ``future.result(timeout=...)`` hart begrenzt abgeholt wird.
+
+        Bei Ueberschreitung wird ``OllamaTimeoutError`` geworfen und der
+        Executor mit ``wait=False`` verlassen — der abgekoppelte Thread laeuft
+        im Hintergrund aus (Ollama-Antwort oder Socket-Inaktivitaets-Timeout).
+        Bei ``low_vram`` erzwingt der Client ohnehin ``keep_alive=0``, das
+        Modell wird danach entladen; kein dauerhaftes Leck.
+
+        GPU-Backend unveraendert — reine Timeout-/Fallback-Logik.
+        """
+        limit = float(timeout) if timeout is not None else self.wall_clock_timeout
+
+        def _runner():
+            # Markierung im WORKER-Thread setzen: rekursive Aufrufe von ``fn``
+            # laufen in genau diesem Thread und sehen die Deadline dadurch.
+            self._deadline_ctx.active = True
+            try:
+                return fn(*args, **kwargs)
+            finally:
+                self._deadline_ctx.active = False
+
+        executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="ollama-call"
+        )
+        try:
+            future = executor.submit(_runner)
+            try:
+                return future.result(timeout=limit)
+            except concurrent.futures.TimeoutError as e:
+                logger.warning(
+                    "OllamaClient: Call ueberschritt Wall-Clock-Grenze von %.0fs "
+                    "(%s) — Abbruch, Aufrufer faellt auf seinen degraded-Pfad "
+                    "zurueck (B-669).", limit, getattr(fn, "__name__", "call"),
+                )
+                raise OllamaTimeoutError(
+                    f"Ollama-Timeout nach {limit:.0f}s "
+                    f"({getattr(fn, '__name__', 'call')})",
+                    model=str(kwargs.get("model", args[0] if args else "")),
+                    timeout_sec=limit,
+                ) from e
+        finally:
+            # Nicht auf einen evtl. noch laufenden Call warten — sonst
+            # blockiert der Aufrufer weiter genau das, was hier begrenzt wird.
+            executor.shutdown(wait=False)
 
     # ------------------------------------------------------------------
     # VRAM-Koordination
@@ -420,7 +497,16 @@ class OllamaClient:
             OllamaNotAvailableError: Wenn Ollama nicht erreichbar
             OllamaModelNotFoundError: Wenn Modell nicht in RAM/VRAM passt
             OllamaError: Bei HTTP oder JSON-Fehlern
+            OllamaTimeoutError: Wenn die Wall-Clock-Grenze ueberschritten wird
         """
+        # B-669: Gesamtlaufzeit hart begrenzen. Beim Wieder-Eintritt aus dem
+        # Worker-Thread (und bei internen Rekursionen) faellt der Guard durch.
+        if not self._wall_clock_deadline_active():
+            return self._with_deadline(
+                self.chat, model, user_message, system_prompt, temperature,
+                max_tokens, _in_fallback,
+            )
+
         with self._lock:
             if self._paused:
                 raise OllamaPausedError(
@@ -529,7 +615,17 @@ class OllamaClient:
 
         Returns:
             Generierter Text
+
+        Raises:
+            OllamaTimeoutError: Wenn die Wall-Clock-Grenze ueberschritten wird
         """
+        # B-669: siehe ``chat``.
+        if not self._wall_clock_deadline_active():
+            return self._with_deadline(
+                self.chat_with_history, model, messages, temperature,
+                max_tokens, _in_fallback,
+            )
+
         with self._lock:
             if self._paused:
                 raise OllamaPausedError("OllamaClient ist pausiert.")
@@ -607,6 +703,16 @@ class OllamaClient:
         temperature: float = 0.1,
         max_tokens: int = 512,
     ) -> str:
+        # B-669: auch der /api/generate-Fallbackpfad blockiert; er wird von
+        # ``chat``/``chat_with_history`` genutzt, wenn ein Modell /api/chat
+        # nicht unterstuetzt. Dort laeuft bereits eine Deadline, der Guard
+        # faellt dann durch.
+        if not self._wall_clock_deadline_active():
+            return self._with_deadline(
+                self._generate_text, model, user_message, system_prompt,
+                temperature, max_tokens,
+            )
+
         prompt = user_message if not system_prompt else f"{system_prompt}\n\n{user_message}"
         payload = {
             "model": model,
@@ -674,7 +780,18 @@ class OllamaClient:
             OllamaPausedError: Wenn OllamaClient pausiert ist
             OllamaNotAvailableError: Wenn Ollama nicht erreichbar
             OllamaError: Bei HTTP oder JSON-Fehlern
+            OllamaTimeoutError: Wenn die Wall-Clock-Grenze ueberschritten wird
         """
+        # B-669: besonders wichtig hier — die Vision-Analyse laeuft in
+        # ``workers/video.py`` unter gehaltenem ``GPU_EXECUTION_LOCK``. Ein
+        # unbegrenzter Call blockierte damit die gesamte GPU-Pipeline
+        # (Demucs, RAFT, SigLIP, NVENC), nicht nur die Vision-Analyse.
+        if not self._wall_clock_deadline_active():
+            return self._with_deadline(
+                self.chat_vision, model, user_message, images_base64,
+                system_prompt, temperature, max_tokens, _in_fallback,
+            )
+
         with self._lock:
             if self._paused:
                 raise OllamaPausedError(
@@ -865,7 +982,15 @@ class OllamaClient:
             OllamaPausedError: Wenn OllamaClient pausiert ist
             OllamaNotAvailableError: Wenn Ollama nicht erreichbar
             OllamaError: Bei HTTP oder JSON-Fehlern
+            OllamaTimeoutError: Wenn die Wall-Clock-Grenze ueberschritten wird
         """
+        # B-669: siehe ``chat``.
+        if not self._wall_clock_deadline_active():
+            return self._with_deadline(
+                self.chat_with_tools, model, user_message, tools,
+                system_prompt, messages, temperature, max_tokens,
+            )
+
         with self._lock:
             if self._paused:
                 raise OllamaPausedError("OllamaClient ist pausiert.")
