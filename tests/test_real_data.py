@@ -1,10 +1,17 @@
-"""Tests mit echten Dateien aus C:/Users/david/Documents/test_data.
+"""Tests mit echten Dateien aus einem lokalen Test-Daten-Ordner.
 
 Nutzt eine temporaere SQLite-DB pro Test-Session um File-Lock-Probleme
 auf Windows zu vermeiden.
 
 Diese Tests werden automatisch uebersprungen wenn die Test-Daten nicht
 vorhanden sind (z.B. auf anderen Entwickler-Rechnern oder in CI).
+
+B-672: Der Pfad war fest auf ``C:/Users/david/Documents/test_data``
+verdrahtet — einen Benutzer ``david`` gibt es auf der Zielmaschine nicht
+(``David_Lochmann``), der Pfad konnte also nie aufloesen und die Tests
+verschwanden dauerhaft still hinter der Skip-Zahl. Jetzt per Umgebungs-
+variable ``PB_TEST_DATA`` konfigurierbar; der Default nutzt das echte
+Home-Verzeichnis (``Path.home()``) statt eines geratenen Benutzernamens.
 """
 
 import os
@@ -17,7 +24,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-TEST_DATA = Path("C:/Users/david/Documents/test_data")
+# PB_TEST_DATA ueberschreibt den Ort; Default ohne hartkodierten Benutzernamen.
+TEST_DATA = Path(
+    os.environ.get("PB_TEST_DATA", Path.home() / "Documents" / "test_data")
+)
 AUDIO_DIR = TEST_DATA / "audio"
 VIDEO_DIR = TEST_DATA / "video"
 
