@@ -1,0 +1,10 @@
+{
+  "lesson_id": "92604abbb2694181a315d7cbe5013575",
+  "recorded_at": "2026-07-23T09:15:05+00:00",
+  "session_id": "57a84b14a9a740529a2cee6f364b69c6",
+  "head_at_start": "5f4e1c24fd668915b37fc9ae6d20f9262319a6d4",
+  "problem": "B-668: die im Bugfile notierte Fix-Richtung ('OllamaError pauschal in den Frame-weiter-Zweig aufnehmen') war zum Umsetzungszeitpunkt nicht mehr korrekt",
+  "cause": "Zwischen Befund und Fix wurde B-669 umgesetzt und fuehrte OllamaTimeoutError als OllamaError-SUBKLASSE ein. Ein pauschaler except-OllamaError-Zweig mit 'markieren und weitermachen' haette den Timeout mitgefangen und pro Frame erneut in die 300s-Wall-Clock-Grenze laufen lassen - bei 10 Frames wieder bis zu 50 Minuten, also genau der Hang, den B-669 beseitigt hatte",
+  "rule": "Vor Umsetzung einer aelteren Fix-Richtung pruefen, ob zwischenzeitliche Fixes die Exception-Hierarchie oder die Semantik veraendert haben; Bugfiles sind Stand-zum-Zeitpunkt, nicht Spezifikation. Bei except-Zweigen nach FehlerART differenzieren statt nach Basisklasse: retrybare/lokale Fehler markieren und weiterlaufen, Timeout-/Ressourcenfehler abbrechen - sonst multipliziert die Schleife das Zeitlimit. Subklassen-Zweige immer VOR den Basisklassen-Zweig",
+  "applies_to": "Alle except-Bloecke um Ollama/LLM/externe Calls in PB Studio; generell Fix-Umsetzung aus aelteren Bug-/Plan-Eintraegen nach zwischenzeitlichen Aenderungen"
+}

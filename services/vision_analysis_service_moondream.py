@@ -66,9 +66,11 @@ class VisionAnalysisService:
             progress_cb: Optional callback(int, str)
         """
         from services.errors import (
+            OllamaError,
             OllamaNotAvailableError,
             OllamaModelNotFoundError,
             OllamaPausedError,
+            OllamaTimeoutError,
         )
 
         path = Path(video_path)
@@ -145,6 +147,39 @@ class VisionAnalysisService:
                     )
                     return result
                 break
+            except OllamaTimeoutError as e:
+                # B-668/B-669: Wall-Clock-Grenze gerissen. Hier NICHT
+                # weitermachen — jeder weitere Frame liefe erneut in die volle
+                # Grenze (bei 300 s und 10 Frames bis zu 50 min, also genau der
+                # Hang, den B-669 beseitigt hat). Teilergebnisse bleiben.
+                logger.warning("[Vision] Timeout bei %.1fs: %s — Analyse abgebrochen",
+                               time_sec, e)
+                if progress_cb:
+                    progress_cb(100, "Ollama Vision Timeout")
+                if not descriptions:
+                    result = VisionAnalysisResult()
+                    result.summary = (
+                        f"Ollama-Vision-Modell '{model}': Timeout nach "
+                        f"{getattr(e, 'timeout_sec', 0):.0f}s ohne Antwort. "
+                        "Modell zu gross fuer den freien VRAM oder Ollama ueberlastet."
+                    )
+                    return result
+                break
+            except OllamaError as e:
+                # B-668: der BASIS-OllamaError (HTTP-/JSON-Fehler, z. B.
+                # "HTTP-Fehler 500: llama-server process has terminated") erbt
+                # ueber LLMError/PBStudioError direkt von Exception und wurde
+                # von keinem der beiden Zweige gefangen -> die Schleife brach
+                # komplett ab und warf bereits erzeugte Beschreibungen weg.
+                # Ein einzelner fehlgeschlagener Frame darf die uebrigen nicht
+                # kosten: markieren und weiter, wie bei den lokalen Fehlern.
+                logger.warning("[Vision] Frame bei %.1fs fehlgeschlagen (Ollama): %s",
+                               time_sec, e)
+                descriptions.append({
+                    "time": round(time_sec, 2),
+                    "description": f"[Analyse-Fehler: {e}]",
+                })
+                continue
             except (OSError, ValueError, RuntimeError, AttributeError) as e:
                 logger.warning("[Vision] Frame bei %.1fs fehlgeschlagen: %s", time_sec, e)
                 descriptions.append({
