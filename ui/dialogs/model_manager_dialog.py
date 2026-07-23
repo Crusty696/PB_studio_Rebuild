@@ -253,12 +253,30 @@ class ModelManagerDialog(QDialog):
         QTimer.singleShot(100, self._start_scan)
 
     def closeEvent(self, event) -> None:
+        if not hasattr(self, "_dying_threads"):
+            self._dying_threads = []
+
         def _cleanup_thread(thread: QThread):
-            if thread is not None and shiboken6.isValid(thread) and thread.isRunning():
-                thread.quit()
-                thread.wait(1000)
+            if thread is None or not shiboken6.isValid(thread):
+                return
+            if not thread.isRunning():
+                thread.deleteLater()
+                return
+            thread.quit()
+            if thread.wait(1000):
+                # Sauber beendet -> jetzt sicher zerstoerbar.
                 if shiboken6.isValid(thread):
                     thread.deleteLater()
+            else:
+                # B-676: Thread laeuft noch (blockierender HTTP-Call haengt in
+                # urlopen, quit() greift erst nach Rueckkehr). ``deleteLater``
+                # JETZT wuerde ``~QThread`` waehrend ``isRunning()`` ausloesen
+                # -> qFatal "QThread: Destroyed while thread is still running"
+                # (0xC0000409). Stattdessen bis zu seinem ``finished`` parken
+                # (Muster B-652) und dort per gebundenem Reaper abraeumen.
+                if thread not in self._dying_threads:
+                    self._dying_threads.append(thread)
+                thread.finished.connect(self._reap_dying_thread)
 
         _cleanup_thread(self._scan_thread)
         _cleanup_thread(self._status_thread)
@@ -267,6 +285,19 @@ class ModelManagerDialog(QDialog):
         for thread in self._download_threads.values():
             _cleanup_thread(thread)
         super().closeEvent(event)
+
+    def _reap_dying_thread(self) -> None:
+        """B-676/B-681: geparkten Thread nach seinem ``finished`` sicher
+        abraeumen. Gebundene Methode -> Qt trennt die Verbindung automatisch,
+        falls der Dialog vorher zerstoert wird (kein Use-after-free)."""
+        thread = self.sender()
+        if thread is None:
+            return
+        dying = getattr(self, "_dying_threads", None)
+        if dying is not None and thread in dying:
+            dying.remove(thread)
+        if shiboken6.isValid(thread):
+            thread.deleteLater()
 
     def _apply_styles(self):
         self.setStyleSheet(f"""
@@ -802,6 +833,9 @@ class ModelManagerDialog(QDialog):
         # self als Receiver -> Qt trennt die Verbindung automatisch bei
         # Dialog-Zerstoerung. Plus shiboken-Guard als zweites Netz.
         self._scan_thread.finished.connect(self._on_scan_thread_finished)
+        # B-681: Worker mit dem Thread-Ende abraeumen (lief bisher nur der
+        # Thread deleteLater, der Worker leakte pro Scan).
+        self._scan_thread.finished.connect(self._scan_worker.deleteLater)
 
         self._scan_thread.start()
 
@@ -841,8 +875,17 @@ class ModelManagerDialog(QDialog):
 
         self._status_worker.success.connect(self._on_ollama_status_success)
         self._status_worker.error.connect(self._on_ollama_status_error)
+        # B-681: thread.quit an die Signale DIESES Workers/Threads binden statt
+        # in den Slots ``self._status_thread.quit()`` aufzurufen. Der Slot laeuft
+        # ggf. erst, nachdem ein spaeterer _check_ollama_status ``self._status_thread``
+        # neu gebunden hat — dann wuergte der alte Worker den FRISCHEN Thread ab.
+        # Die Signal->quit-Bindung hier faengt den korrekten (aktuellen) Thread.
+        self._status_worker.success.connect(self._status_thread.quit)
+        self._status_worker.error.connect(self._status_thread.quit)
         self._status_thread.started.connect(self._status_worker.run)
         self._status_thread.finished.connect(self._status_thread.deleteLater)
+        # B-681: Worker nicht mehr leaken — mit dem Thread-Ende abraeumen.
+        self._status_thread.finished.connect(self._status_worker.deleteLater)
 
         self._status_thread.start()
 
@@ -852,8 +895,9 @@ class ModelManagerDialog(QDialog):
             return
         self._ollama_status_lbl.setText(f"Ollama v{version} ✓")
         self._ollama_status_lbl.setStyleSheet(f"color: {OK}; font-size: 11px;")
-        if self._status_thread:
-            self._status_thread.quit()
+        # B-681: kein self._status_thread.quit() hier — der Quit ist an die
+        # Worker-Signale gebunden (siehe _check_ollama_status) und trifft damit
+        # den richtigen Thread, auch wenn self._status_thread neu gebunden wurde.
 
     def _on_ollama_status_error(self, error: str):
         """Handle failed Ollama status check."""
@@ -862,8 +906,7 @@ class ModelManagerDialog(QDialog):
         logger.warning("_check_ollama_status: failed to reach Ollama: %s", error)
         self._ollama_status_lbl.setText("Ollama: nicht erreichbar ✗")
         self._ollama_status_lbl.setStyleSheet(f"color: {ERR}; font-size: 11px;")
-        if self._status_thread:
-            self._status_thread.quit()
+        # B-681: quit an die Worker-Signale gebunden (siehe oben), nicht hier.
 
     def _on_scan_finished(self, entries: list):
         """Wird aufgerufen wenn Scan abgeschlossen."""
@@ -916,14 +959,26 @@ class ModelManagerDialog(QDialog):
         thread = QThread()
         worker.moveToThread(thread)
 
-        # Progress-Updates verarbeiten
+        # B-675: gebundene Slots statt freier Lambdas. Der echte Pull laeuft im
+        # Service-Daemon (pull_ollama_model kehrt sofort zurueck) und ruft
+        # ``worker.progress`` minutenlang — lange nachdem der QThread endete.
+        # Ein freies Lambda haette keinen QObject-Receiver; Qt kann es bei
+        # Dialog-Zerstoerung NICHT auto-trennen und wuerde danach auf das
+        # freigegebene C++-Widget schreiben (UAF / 0xC0000005). Gebundene
+        # Methoden geben Qt ``self`` als Receiver -> Auto-Disconnect bei
+        # Dialog-Zerstoerung. Kontext (model_id, row) liegt am Worker, der Slot
+        # liest ihn ueber ``sender()``.
+        # KEIN worker.deleteLater auf thread.finished: der Daemon haelt den
+        # Worker ueber das QThread-Ende hinaus am Leben; deleteLater wuerde ihn
+        # zerstoeren, waehrend der Daemon noch ``progress`` emittiert. Der Worker
+        # wird per GC frei, sobald der Daemon-Closure ihn loslaesst.
+        worker._pb_model_id = model_id
+        worker._pb_row_widget = row_widget
         worker.progress.connect(
-            lambda p: self._on_progress_update(p, row_widget),
-            Qt.ConnectionType.QueuedConnection,
+            self._on_download_progress, Qt.ConnectionType.QueuedConnection
         )
         worker.finished.connect(
-            lambda ok: self._on_download_finished(model_id, ok),
-            Qt.ConnectionType.QueuedConnection,
+            self._on_download_finished_signal, Qt.ConnectionType.QueuedConnection
         )
         thread.started.connect(worker.run)
         thread.finished.connect(thread.deleteLater)
@@ -932,6 +987,26 @@ class ModelManagerDialog(QDialog):
         self._download_threads[model_id] = thread
         self._download_workers[model_id] = worker
         thread.start()
+
+    def _on_download_progress(self, prog) -> None:
+        """B-675: gebundener Progress-Slot. Worker + Ziel-Widget via sender()
+        aufloesen; shiboken-Guard gegen ein zwischenzeitlich zerstoertes Row-
+        Widget."""
+        worker = self.sender()
+        if worker is None:
+            return
+        row_widget = getattr(worker, "_pb_row_widget", None)
+        if row_widget is None or not shiboken6.isValid(row_widget):
+            return
+        self._on_progress_update(prog, row_widget)
+
+    def _on_download_finished_signal(self, ok: bool) -> None:
+        """B-675: gebundener Finish-Slot. model_id via sender() aufloesen."""
+        worker = self.sender()
+        model_id = getattr(worker, "_pb_model_id", None) if worker is not None else None
+        if model_id is None:
+            return
+        self._on_download_finished(model_id, ok)
 
     def _on_download_finished(self, model_id: str, ok: bool):
         """Handle download completion."""
@@ -1064,6 +1139,8 @@ class ModelManagerDialog(QDialog):
         )
         self._cleanup_worker.finished.connect(self._cleanup_thread.quit)
         self._cleanup_thread.finished.connect(self._cleanup_thread.deleteLater)
+        # B-681: Worker nicht mehr leaken.
+        self._cleanup_thread.finished.connect(self._cleanup_worker.deleteLater)
         self._cleanup_thread.start()
 
     def _on_delete_all_selected(self):
@@ -1117,6 +1194,8 @@ class ModelManagerDialog(QDialog):
         )
         self._delete_worker.finished.connect(self._delete_thread.quit)
         self._delete_thread.finished.connect(self._delete_thread.deleteLater)
+        # B-681: Worker nicht mehr leaken.
+        self._delete_thread.finished.connect(self._delete_worker.deleteLater)
         self._delete_thread.start()
 
     def _on_delete_finished(self, deleted: int, errors: list):
