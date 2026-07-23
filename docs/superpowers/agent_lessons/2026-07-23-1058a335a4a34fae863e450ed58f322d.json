@@ -1,0 +1,10 @@
+{
+  "lesson_id": "1058a335a4a34fae863e450ed58f322d",
+  "recorded_at": "2026-07-23T11:33:27+00:00",
+  "session_id": "57a84b14a9a740529a2cee6f364b69c6",
+  "head_at_start": "5f4e1c24fd668915b37fc9ae6d20f9262319a6d4",
+  "problem": "B-673 Punkt 1: ein Test uebersprang sich selbst, sobald eine QApplication aus einem frueheren Test lebte - in der Vollsuite also immer. Die naheliegende Fix-Idee 'per Bisektion den Verursacher finden und dort aufraeumen' war falsch",
+  "cause": "Eine QApplication laesst sich pro Prozess nicht sauber wieder entfernen - Zerstoeren fuehrt bei Qt zu Abstuerzen, und praktisch jeder GUI-Test erzeugt sie. Es gibt also keinen einzelnen Verursacher; die Zusicherung 'Verhalten OHNE QApplication' ist im selben Prozess nach dem ersten Qt-Test strukturell nicht mehr pruefbar",
+  "rule": "Zusicherungen ueber einen ZUSTANDSLOSEN oder nicht wiederherstellbaren Prozesszustand (keine QApplication, kein geladenes Modul, leeres Singleton) gehoeren in einen Subprozess, nicht in einen Skip-Guard. Skip-Guard heisst: der Test verschwindet still und niemand merkt den Verlust. Gleiches Muster wie der Subprozess-Test aus B-670. Ausserdem: relative Pfade mit mehreren '..' immer gegen den aufgeloesten Absolutpfad gegenpruefen - vier statt zwei Ebenen zeigte hier zwei Verzeichnisse ueber das Repo hinaus und der Test haette nie getroffen",
+  "applies_to": "Alle pytest-Tests mit Skip-Guards auf Prozesszustand in PB Studio (Qt/QApplication, Singletons, Modul-Globals); Pfad-Aufloesung in Tests und Diagnose-Skripten"
+}

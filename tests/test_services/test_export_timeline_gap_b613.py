@@ -40,17 +40,26 @@ def test_large_gap_still_raises():
 
 
 def test_project21_real_data_passes():
-    """Gegenpruefung an den echten Projekt-21-Daten (falls vorhanden)."""
+    """Gegenpruefung an den echten Projekt-21-Daten (falls vorhanden).
+
+    Optional: die eigentliche Regressionsabsicherung leisten die Tests oben
+    mit synthetischen Segmenten. Dieser Test prueft zusaetzlich gegen einen
+    echten Projektbestand, wenn er lokal vorliegt.
+
+    B-673: der Pfad zeigte mit vier ``..`` zwei Ebenen ueber das Repo hinaus
+    (``<Repo>/../../outputs/21``) und konnte deshalb nie aufloesen — der Test
+    haette selbst bei vorhandenen Daten uebersprungen. Von
+    ``tests/test_services/`` sind es zwei Ebenen zum Repo-Root.
+    """
     import os
     import sqlite3
 
-    db = os.path.join(
-        os.path.dirname(__file__), "..", "..", "..", "..",
-        "outputs", "21", "pb_studio.db",
+    repo_root = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "..")
     )
-    db = os.path.abspath(db)
+    db = os.path.join(repo_root, "outputs", "21", "pb_studio.db")
     if not os.path.exists(db):
-        pytest.skip("Projekt 21 nicht vorhanden")
+        pytest.skip(f"Projekt-21-Daten nicht vorhanden ({db})")
     rows = sqlite3.connect(db).execute(
         "SELECT start_time,end_time FROM timeline_entries "
         "WHERE track='video' ORDER BY start_time"
