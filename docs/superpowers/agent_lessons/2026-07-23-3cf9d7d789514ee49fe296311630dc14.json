@@ -1,0 +1,10 @@
+{
+  "lesson_id": "3cf9d7d789514ee49fe296311630dc14",
+  "recorded_at": "2026-07-23T08:13:39+00:00",
+  "session_id": "57a84b14a9a740529a2cee6f364b69c6",
+  "head_at_start": "5f4e1c24fd668915b37fc9ae6d20f9262319a6d4",
+  "problem": "tests/test_pipeline/test_wiring.py war order-abhaengig rot: 4 Actions (auto_edit/import_file/export_timeline/list_actions) fehlten in der isolierten Registry, aber nur wenn vorher ein Test services.actions.edit_actions importiert hatte",
+  "cause": "Nach dem AUFRAEUM-B1-Split ist edit_actions.py nur noch ein Shim; die @action_registry.register-Decorators stehen in services/actions/edit/*. importlib.reload(shim) fuehrt dessen 'from ...edit.timeline_actions import *' NICHT erneut aus, solange das Submodul in sys.modules liegt -> Decorators feuern nicht gegen die frische Registry. Isoliert gruen, weil patch.dict(sys.modules) die im Block importierten Submodule beim Verlassen wieder entfernt",
+  "rule": "Test-Helfer, die eine Registry per importlib.reload neu aufbauen, muessen nach einem Modul-Split die SUBMODULE reloaden, nicht nur den Shim - tiefste Modulpfade zuerst, private Helfer innerhalb einer Ebene vorne. Bei order-abhaengigen Failures immer per Datei-Bisektion den Ausloeser bestimmen und den Fix per git-stash-Baseline-Diff gegenpruefen (Failure-Menge darf nur schrumpfen), statt am Gesamt-Exitcode zu messen",
+  "applies_to": "Alle Tests mit importlib.reload-basiertem Registry-/Singleton-Rebuild in PB Studio; generell Nachlauf zu AUFRAEUM-B1/B2/B4-God-Object-Splits"
+}

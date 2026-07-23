@@ -79,7 +79,30 @@ def _get_isolated_registry():
                 "services.actions.edit_actions",
                 "services.actions.ai_actions",
             ]
-            for mod_name in _action_modules:
+
+            # B-667: edit_actions ist seit AUFRAEUM-B1 nur noch ein Shim — die
+            # @action_registry.register-Decorators stehen in den Sub-Modulen
+            # services/actions/edit/*.py. Ein Reload des Shims fuehrt dessen
+            # `from ...edit.timeline_actions import *` NICHT erneut aus, solange
+            # das Sub-Modul in sys.modules liegt (was der Fall ist, sobald ein
+            # frueher laufender Test services.actions.edit_actions importiert
+            # hat). Die Decorators feuerten dann nicht gegen die frische
+            # Registry -> auto_edit/import_file/export_timeline/list_actions
+            # fehlten, order-abhaengig.
+            #
+            # Darum: alle bereits geladenen services.actions.*-Sub-Module vor
+            # den Shims reloaden, tiefste Modulpfade zuerst. Private Helfer
+            # (_common) kommen innerhalb einer Ebene zuerst, damit die Action-
+            # Module gegen den frisch geladenen Helfer binden.
+            _submodules = sorted(
+                (
+                    name for name in list(sys.modules)
+                    if name.startswith("services.actions.")
+                    and name not in _action_modules
+                ),
+                key=lambda n: (-n.count("."), not n.rsplit(".", 1)[-1].startswith("_"), n),
+            )
+            for mod_name in _submodules + _action_modules:
                 if mod_name in sys.modules:
                     importlib.reload(sys.modules[mod_name])
 
