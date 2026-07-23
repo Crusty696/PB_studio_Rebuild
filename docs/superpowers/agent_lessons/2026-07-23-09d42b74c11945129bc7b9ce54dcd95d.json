@@ -1,0 +1,10 @@
+{
+  "lesson_id": "09d42b74c11945129bc7b9ce54dcd95d",
+  "recorded_at": "2026-07-23T10:34:40+00:00",
+  "session_id": "57a84b14a9a740529a2cee6f364b69c6",
+  "head_at_start": "5f4e1c24fd668915b37fc9ae6d20f9262319a6d4",
+  "problem": "B-671: pytest-qt war in keiner Dependency-Datei deklariert; 5 Testdateien mit pytest.importorskip wurden dadurch dauerhaft still uebersprungen, darunter die Qt-Threading-Tests",
+  "cause": "importorskip macht eine fehlende Test-Dependency zu einem Skip statt zu einem Fehler. Im -q-Lauf verschwindet das hinter einer blossen Skip-Zahl, die Suite bleibt gruen. Zusaetzlich verschluckt Qt Exceptions, die im Event-Loop fliegen: ohne den pytest-qt-Hook blieb test_stats_panel_opens_learning_session_dialog jahrelang gruen, obwohl der Test-Stub seit WIRE-012 ein verdrahtetes Signal (session_finished) nicht mehr abbildete und die geprüfte Verbindung in Wahrheit scheiterte",
+  "rule": "Skip-Zahlen regelmaessig mit pytest -rs aufschluesseln; ein dauerhaft uebersprungener Test ist keine Abdeckung, sondern Dekoration. Test-Dependencies gehoeren deklariert, sonst entscheidet die Zufallsausstattung der Umgebung ueber die Abdeckung. Bei Qt/PySide immer pytest-qt einsetzen: nur dessen Hook macht Exceptions aus dem Event-Loop sichtbar - ohne ihn koennen GUI-Tests gruen sein, ohne irgendetwas zu pruefen. Nach Aktivieren zuvor toter Tests zuerst einzeln laufen lassen (Nativ-Crash-Risiko), dann Vollsuite auf Crash-Marker pruefen",
+  "applies_to": "Alle Test-Suiten mit importorskip und alle PySide6/Qt-Tests in PB Studio; generell Dependency-Deklaration von Test-Werkzeugen"
+}

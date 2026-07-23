@@ -120,6 +120,12 @@ sqlite-vec>=0.1.6
 
 # === Dev (optional) ===
 pytest>=7.4.0,<10.0.0
+# B-671: qtbot-Fixture fuer die Qt-Tests. Fehlte in jeder Dependency-Datei —
+# dadurch wurden 8 Testdateien still uebersprungen, darunter ausgerechnet die
+# Qt-Threading-Tests (test_task_manager_cross_thread, test_option_b_base_worker,
+# test_chat_dock_watchdog). Die Suite war gruen, ohne die riskanteste Klasse
+# des Projekts je auszufuehren.
+pytest-qt>=4.4.0,<5.0.0
 ruff>=0.9.0,<1.0.0
 # B-037: Security-Scanner. Wird in .github/workflows/ci.yml im lint-job
 # ausgefuehrt; lokal `python -m bandit -r . -c .bandit -ll` als Smoke-Check

@@ -89,6 +89,13 @@ def test_stats_panel_opens_learning_session_dialog(qt_app, isolated_appdata, mon
 
     class _FakeLearningDialog:
         finished = _FakeSignal()
+        # B-671: ``session_finished`` fehlte hier, seit WIRE-012 das Signal in
+        # BrainV3StatsPanel verdrahtet hat (brain_v3_stats_panel.py:231 ->
+        # brain_v3_learning_dialog.py:101). Der daraus folgende AttributeError
+        # flog im Qt-Event-Loop und wurde still verschluckt — der Test blieb
+        # gruen, pruefte die Verdrahtung aber faktisch nicht mehr. Erst der
+        # pytest-qt-Hook macht solche Event-Loop-Exceptions sichtbar.
+        session_finished = _FakeSignal()
 
         def __init__(self, service=None, n_samples=15, parent=None):
             opened.append((service, n_samples, parent))
