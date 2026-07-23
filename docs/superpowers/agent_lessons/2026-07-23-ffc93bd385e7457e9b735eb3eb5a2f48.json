@@ -1,0 +1,10 @@
+{
+  "lesson_id": "ffc93bd385e7457e9b735eb3eb5a2f48",
+  "recorded_at": "2026-07-23T23:45:11+00:00",
+  "session_id": "57a84b14a9a740529a2cee6f364b69c6",
+  "head_at_start": "5f4e1c24fd668915b37fc9ae6d20f9262319a6d4",
+  "problem": "B-678/B-674-Paket: Vollsuite meldete 2 Failures, die NICHT vom Fix stammten; ein blindes 'rot=meine Schuld' haette den Fix faelschlich verworfen oder zu Fehl-Debugging gefuehrt",
+  "cause": "Der Suite-Lauf lief mit 1.9x Normalzeit (18:51 statt 10:00) unter Maschinen-Last. test_pacing_performance (Latenz-Budget 30ms, gemessen 30.90ms) und test_b513_run_worker_teardown sind last-/order-empfindlich. Beide passen isoliert (b513) bzw. 5/5 kontrolliert (perf). Der Fix (DB-Connection-close + except-Tupel) beruehrt weder Scorer-Hotpath noch run_worker-Teardown",
+  "rule": "Bei Suite-Failures nach einem Fix immer zuerst pruefen ob sie ZUM Fix gehoeren: (1) beruehrt der Diff die fehlschlagende Codepfad-Familie? (2) Test isoliert + kontrolliert mehrfach laufen lassen. Perf-/Latenz- und Qt-Teardown-Tests sind last-/order-abhaengig; Gesamtlaufzeit deutlich ueber Norm ist ein Last-Indikator. Nicht blind pushen, aber auch nicht einen verifizierten Flake als eigene Regression fehldeuten. Ehrlich berichten: 'X passed, Y flaky-verified' statt 'clean green'",
+  "applies_to": "Alle Suite-Laeufe nach Fixes in PB Studio; besonders test_pacing_performance (Latenz) und Qt-Teardown-Tests; generell Flake-vs-Regression-Unterscheidung"
+}
