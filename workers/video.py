@@ -13,6 +13,7 @@ from sqlalchemy import select  # B-090: column-select statt eager ORM-Voll-Laden
 from sqlalchemy.orm import Session as DBSession
 
 from database import engine, VideoClip
+from services.errors import FFmpegError
 from services.ffmpeg_utils import subprocess_kwargs
 from services.startup_checks import get_ffmpeg_bin
 from services.timeout_constants import FFMPEG_THUMBNAIL_TIMEOUT_SEC
@@ -134,7 +135,15 @@ class VideoBatchAnalysisWorker(QObject, CancellableMixin):
                     else:
                         info = "OK"
                     self.item_done.emit(clip_id, info)
-                except (ValueError, RuntimeError, OSError) as e:
+                except (ValueError, RuntimeError, OSError,
+                        FFmpegError, subprocess.TimeoutExpired) as e:
+                    # B-674: FFmpegError (probe rc!=0 / NVENC-Proxy-Fail) UND
+                    # subprocess.TimeoutExpired (Proxy-Timeout, video_service.py:348)
+                    # erben von Exception, NICHT von RuntimeError/OSError — sie
+                    # entkamen dem Tupel und rissen ueber den aeusseren
+                    # ``except Exception`` die GANZE Batch ab. Genau der haeufigste
+                    # Fall (kaputte Datei / NVENC-Fail) ist damit jetzt per-Clip
+                    # isoliert; die restlichen Clips laufen weiter.
                     errors += 1
                     logger.error("BatchAnalysis[%d] '%s' failed: %s\n%s",
                                  clip_id, title, e, traceback.format_exc())

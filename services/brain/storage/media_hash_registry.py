@@ -17,7 +17,7 @@ Public API:
 from __future__ import annotations
 
 import logging
-import sqlite3
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -127,8 +127,18 @@ class MediaHashRegistry:
             ).fetchone()[0]
         return {"total": total, "audio": audio, "video": video}
 
-    def _conn(self) -> sqlite3.Connection:
-        return open_connection(self.db_path)
+    @contextmanager
+    def _conn(self):
+        # B-678: Context-Manager mit Transaktion (``with conn:``) UND close.
+        # Vorher gab ``_conn`` eine rohe Connection zurueck; ``with self._conn()
+        # as conn:`` committete nur, schloss aber nie -> Handle-Leck pro Aufruf
+        # (+ WAL-/SHM-Handles). Muster wie vector_db_service (H-6).
+        conn = open_connection(self.db_path)
+        try:
+            with conn:
+                yield conn
+        finally:
+            conn.close()
 
     @staticmethod
     def _row_to_entry(row: tuple) -> HashEntry:

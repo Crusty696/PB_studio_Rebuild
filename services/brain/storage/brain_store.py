@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from contextlib import closing, contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -104,11 +105,29 @@ class BrainStore:
         return target
 
     # ---- Connection-Helper -----------------------------------------------
-    def open_weights(self) -> sqlite3.Connection:
-        return open_connection(self.weights_path)
+    # B-678: Context-Manager mit Transaktion (``with conn:``) UND close.
+    # Vorher gaben diese eine rohe Connection zurueck; alle Aufrufer nutzen
+    # ``with store.open_weights() as c:`` (intern + brain_v3_service), das nur
+    # committete, aber die Connection nie schloss -> Handle-Leck (+ WAL/SHM).
+    # Die Umstellung schliesst die externen Callsites transparent mit, weil
+    # sie ausschliesslich ``with ... as`` nutzen. Muster wie H-6 / _probe_db.
+    @contextmanager
+    def open_weights(self):
+        conn = open_connection(self.weights_path)
+        try:
+            with conn:
+                yield conn
+        finally:
+            conn.close()
 
-    def open_patterns(self) -> sqlite3.Connection:
-        return open_connection(self.patterns_path)
+    @contextmanager
+    def open_patterns(self):
+        conn = open_connection(self.patterns_path)
+        try:
+            with conn:
+                yield conn
+        finally:
+            conn.close()
 
     # ---- Stats ------------------------------------------------------------
     def stats(self) -> BrainStoreStats:
@@ -118,7 +137,9 @@ class BrainStore:
             p_rows = pc.execute("SELECT COUNT(*) FROM pattern_correlations").fetchone()[0]
         ec_path = paths.embedding_cache_db_path()
         try:
-            with open_connection(ec_path) as ec:
+            # B-678: closing() -> Connection wird geschlossen (read-only, kein
+            # commit noetig). Vorher blieb sie offen.
+            with closing(open_connection(ec_path)) as ec:
                 ec_rows = ec.execute("SELECT COUNT(*) FROM media_embedding_index").fetchone()[0]
             ec_size = ec_path.stat().st_size if ec_path.exists() else 0
         except Exception:
@@ -146,7 +167,9 @@ class BrainStore:
             # Init EmbeddingCache fall noch nie passiert (Tabelle koennte fehlen)
             from services.brain.storage.embedding_cache import EmbeddingCache
             EmbeddingCache(db_path=ec_path)
-            with open_connection(ec_path) as ec:
+            # B-678: closing() -> Connection wird geschlossen; explizites
+            # commit unten persistiert das DELETE.
+            with closing(open_connection(ec_path)) as ec:
                 ec.execute("DELETE FROM media_embedding_index")
                 ec.commit()
         logger.info("BrainStore.reset done (embedding_cache also? %s)",

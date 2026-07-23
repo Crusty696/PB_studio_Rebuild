@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -250,10 +251,22 @@ class EmbeddingCache:
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
-    def _conn(self) -> sqlite3.Connection:
+    @contextmanager
+    def _conn(self):
         # Pro Aufruf neue Connection (sqlite3 ist nicht thread-safe shared) —
         # WAL macht das billig.
-        return open_connection(self.db_path)
+        # B-678: als Context-Manager, der die Transaktion (``with conn:`` —
+        # commit bei Erfolg / rollback bei Fehler) UND das Schliessen
+        # garantiert. Vorher gab ``_conn`` eine rohe Connection zurueck und
+        # ``with self._conn() as conn:`` committete nur, schloss aber NIE —
+        # jeder Aufruf leakte eine offene Connection (+ WAL-/SHM-Handles).
+        # Gleiches Muster wie vector_db_service (H-6) / migration_runner.
+        conn = open_connection(self.db_path)
+        try:
+            with conn:
+                yield conn
+        finally:
+            conn.close()
 
     def _path_for(self, media_hash: str, media_type: str,
                   model_name: str, model_version: str) -> Path:
