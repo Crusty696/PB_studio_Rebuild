@@ -16,7 +16,6 @@ Koordination mit dem ModelManager:
 
 from __future__ import annotations
 
-import concurrent.futures
 import json
 import logging
 import threading
@@ -30,6 +29,7 @@ from services.timeout_constants import (
     HTTP_MODEL_INFO_TIMEOUT_SEC,
     HTTP_OLLAMA_WALL_CLOCK_TIMEOUT_SEC,
 )
+from services.bounded_call import call_with_deadline
 from services.errors import (
     OllamaError,
     OllamaNotAvailableError,
@@ -124,51 +124,53 @@ class OllamaClient:
 
         Der HTTP-Call in ``fn`` ist blockierend und nicht unterbrechbar; das
         urllib-Timeout ist nur ein Inaktivitaets-Timeout pro Read. Deshalb
-        laeuft ``fn`` in einem Worker-Thread, dessen Ergebnis hier mit
-        ``future.result(timeout=...)`` hart begrenzt abgeholt wird.
+        laeuft ``fn`` in einem Daemon-Thread, auf den hier nur begrenzt
+        gewartet wird.
 
-        Bei Ueberschreitung wird ``OllamaTimeoutError`` geworfen und der
-        Executor mit ``wait=False`` verlassen — der abgekoppelte Thread laeuft
-        im Hintergrund aus (Ollama-Antwort oder Socket-Inaktivitaets-Timeout).
-        Bei ``low_vram`` erzwingt der Client ohnehin ``keep_alive=0``, das
-        Modell wird danach entladen; kein dauerhaftes Leck.
+        Bei Ueberschreitung wird ``OllamaTimeoutError`` geworfen; der
+        abgekoppelte Thread laeuft im Hintergrund aus (Ollama-Antwort oder
+        Socket-Inaktivitaets-Timeout). Bei ``low_vram`` erzwingt der Client
+        ohnehin ``keep_alive=0``, das Modell wird danach entladen; kein
+        dauerhaftes Leck.
+
+        B-670: bewusst ``call_with_deadline`` (Daemon-Thread) statt
+        ``ThreadPoolExecutor``. Dessen atexit-Hook joint jeden Worker-Thread
+        ohne Timeout — der abgekoppelte Call hielt sonst den Prozess-Exit auf
+        und der Hang wanderte nur von der Laufzeit in den Shutdown.
 
         GPU-Backend unveraendert — reine Timeout-/Fallback-Logik.
         """
         limit = float(timeout) if timeout is not None else self.wall_clock_timeout
 
-        def _runner():
-            # Markierung im WORKER-Thread setzen: rekursive Aufrufe von ``fn``
-            # laufen in genau diesem Thread und sehen die Deadline dadurch.
+        def _mark_active():
+            # Markierung im WORKER-Thread: rekursive Aufrufe von ``fn`` laufen
+            # in genau diesem Thread und sehen die Deadline dadurch.
             self._deadline_ctx.active = True
-            try:
-                return fn(*args, **kwargs)
-            finally:
-                self._deadline_ctx.active = False
 
-        executor = concurrent.futures.ThreadPoolExecutor(
-            max_workers=1, thread_name_prefix="ollama-call"
-        )
+        def _clear_active():
+            self._deadline_ctx.active = False
+
         try:
-            future = executor.submit(_runner)
-            try:
-                return future.result(timeout=limit)
-            except concurrent.futures.TimeoutError as e:
-                logger.warning(
-                    "OllamaClient: Call ueberschritt Wall-Clock-Grenze von %.0fs "
-                    "(%s) — Abbruch, Aufrufer faellt auf seinen degraded-Pfad "
-                    "zurueck (B-669).", limit, getattr(fn, "__name__", "call"),
-                )
-                raise OllamaTimeoutError(
-                    f"Ollama-Timeout nach {limit:.0f}s "
-                    f"({getattr(fn, '__name__', 'call')})",
-                    model=str(kwargs.get("model", args[0] if args else "")),
-                    timeout_sec=limit,
-                ) from e
-        finally:
-            # Nicht auf einen evtl. noch laufenden Call warten — sonst
-            # blockiert der Aufrufer weiter genau das, was hier begrenzt wird.
-            executor.shutdown(wait=False)
+            return call_with_deadline(
+                fn, *args,
+                timeout=limit,
+                thread_name=f"ollama-call-{getattr(fn, '__name__', 'call')}",
+                on_start=_mark_active,
+                on_finish=_clear_active,
+                **kwargs,
+            )
+        except TimeoutError as e:
+            logger.warning(
+                "OllamaClient: Call ueberschritt Wall-Clock-Grenze von %.1fs "
+                "(%s) — Abbruch, Aufrufer faellt auf seinen degraded-Pfad "
+                "zurueck (B-669).", limit, getattr(fn, "__name__", "call"),
+            )
+            raise OllamaTimeoutError(
+                f"Ollama-Timeout nach {limit:.1f}s "
+                f"({getattr(fn, '__name__', 'call')})",
+                model=str(kwargs.get("model", args[0] if args else "")),
+                timeout_sec=limit,
+            ) from e
 
     # ------------------------------------------------------------------
     # VRAM-Koordination

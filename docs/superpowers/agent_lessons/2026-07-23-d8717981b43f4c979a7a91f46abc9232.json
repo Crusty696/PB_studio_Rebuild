@@ -1,0 +1,10 @@
+{
+  "lesson_id": "d8717981b43f4c979a7a91f46abc9232",
+  "recorded_at": "2026-07-23T10:02:26+00:00",
+  "session_id": "57a84b14a9a740529a2cee6f364b69c6",
+  "head_at_start": "5f4e1c24fd668915b37fc9ae6d20f9262319a6d4",
+  "problem": "B-670: ein per ThreadPoolExecutor + shutdown(wait=False) bewusst abgekoppelter Call befreite zwar den Aufrufer, hielt aber den Prozess-Exit auf - der Hang wanderte von der Laufzeit in den Shutdown statt zu verschwinden",
+  "cause": "concurrent.futures.thread registriert _python_exit als atexit-Hook; der macht t.join() OHNE Timeout auf jeden je erzeugten Worker-Thread. shutdown(wait=False) beendet nur das Warten im Aufrufer, nicht die Registrierung des Threads. Gemessen: Aufrufer nach 0.52s frei, Prozess erst nach 7.91s bei einem 6s blockierenden Call",
+  "rule": "Fuer bewusst abgekoppelte (fire-and-forget) blockierende Calls niemals ThreadPoolExecutor verwenden, sondern threading.Thread(daemon=True) mit Ergebnis-Slot und Event.wait(timeout) - Daemon-Threads werden beim Interpreter-Exit nicht gejoint. Timeout-Fixes immer gegen die ECHTE Prozesslaufzeit im Subprozess verifizieren, nicht gegen die Rueckkehr des Aufrufers: nur so wird der atexit-Join sichtbar. Executor-Nutzung nach Muster unterscheiden - with-Block/shutdown(wait=True) wartet ohnehin und ist unkritisch, nur das Abkoppeln ist betroffen",
+  "applies_to": "Alle Timeout-/Bounding-Wrapper um blockierendes I/O in PB Studio (Ollama/LLM, HTTP, Subprozesse); generell fire-and-forget-Threads und App-Shutdown-Verhalten"
+}

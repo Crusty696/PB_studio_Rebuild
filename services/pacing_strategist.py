@@ -387,35 +387,33 @@ class PacingStrategist:
         Modell wird danach entladen — kein dauerhaftes Leck. GPU-Backend
         bleibt unveraendert, reine Timeout-/Fallback-Logik.
         """
-        import concurrent.futures
+        # B-670: Daemon-Thread statt ThreadPoolExecutor. Dessen atexit-Hook
+        # joint jeden Worker-Thread ohne Timeout — ``shutdown(wait=False)``
+        # befreit zwar den Aufrufer, hielt aber den Prozess-Exit auf, solange
+        # der abgekoppelte Ollama-Call noch lief. Der Hang wanderte damit nur
+        # von der Laufzeit in den Shutdown.
+        from services.bounded_call import call_with_deadline
 
-        executor = concurrent.futures.ThreadPoolExecutor(
-            max_workers=1, thread_name_prefix="pacing-llm"
-        )
         try:
-            future = executor.submit(
+            return call_with_deadline(
                 client.chat,
+                timeout=HTTP_OLLAMA_PACING_TIMEOUT_SEC,
+                thread_name="pacing-llm",
                 model=model,
                 user_message=user_text,
                 system_prompt=SYSTEM_PROMPT,
                 temperature=0.1,
                 max_tokens=max_tokens,
             )
-            try:
-                return future.result(timeout=HTTP_OLLAMA_PACING_TIMEOUT_SEC)
-            except concurrent.futures.TimeoutError as e:
-                logger.warning(
-                    "PacingStrategist: LLM-Pacing-Call ueberschritt %ds (Modell "
-                    "'%s') — Abbruch, Fallback auf Default-Plan (B-666).",
-                    HTTP_OLLAMA_PACING_TIMEOUT_SEC, model,
-                )
-                raise RuntimeError(
-                    f"pacing_llm_timeout nach {HTTP_OLLAMA_PACING_TIMEOUT_SEC}s"
-                ) from e
-        finally:
-            # Nicht auf einen evtl. noch laufenden Call warten (wait=False),
-            # sonst blockiert der Auto-Edit-Worker wieder bis Ollama antwortet.
-            executor.shutdown(wait=False)
+        except TimeoutError as e:
+            logger.warning(
+                "PacingStrategist: LLM-Pacing-Call ueberschritt %ss (Modell "
+                "'%s') — Abbruch, Fallback auf Default-Plan (B-666).",
+                HTTP_OLLAMA_PACING_TIMEOUT_SEC, model,
+            )
+            raise RuntimeError(
+                f"pacing_llm_timeout nach {HTTP_OLLAMA_PACING_TIMEOUT_SEC}s"
+            ) from e
 
     def _parse_response(self, raw: str) -> PacingPlan:
         """Parst die JSON-Antwort des LLM."""
