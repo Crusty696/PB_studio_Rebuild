@@ -7,6 +7,7 @@ import traceback
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session as DBSession
 
 from database import engine, VideoClip
@@ -285,7 +286,10 @@ class FolderImportWorker(QObject, CancellableMixin):
                     else:
                         self.file_imported.emit(f"[Ingest] Audio importiert: {name}")
                         added += 1
-                except (OSError, IOError, ValueError, RuntimeError) as e:
+                except (OSError, IOError, ValueError, RuntimeError, SQLAlchemyError) as e:
+                    # B-700: SQLAlchemyError (z.B. IntegrityError bei parallelem
+                    # Import derselben Datei) darf nur DIESE Datei ueberspringen,
+                    # nicht den ganzen Rest-Batch abbrechen (B-140-Muster).
                     logger.error(
                         "Audio-Import fehlgeschlagen fuer '%s': %s\n%s",
                         p, e, traceback.format_exc(),
@@ -316,7 +320,8 @@ class FolderImportWorker(QObject, CancellableMixin):
                             new_video_clips.append(
                                 (result.id, str(Path(p).resolve()), name)
                             )
-                except (OSError, IOError, ValueError, RuntimeError) as e:
+                except (OSError, IOError, ValueError, RuntimeError, SQLAlchemyError) as e:
+                    # B-700: siehe Audio-Loop — DB-Kollision = Datei skippen, Batch weiter.
                     logger.error(
                         "Video-Import fehlgeschlagen fuer '%s': %s\n%s",
                         p, e, traceback.format_exc(),

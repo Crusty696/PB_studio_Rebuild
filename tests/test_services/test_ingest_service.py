@@ -255,8 +255,12 @@ class TestIngestVideo:
         assert first.id != second.id
         assert second.project_id == 2
 
-    def test_ingest_video_stores_empty_meta_on_probe_failure(self, test_engine, tmp_path):
-        """ingest_video() legt Clip auch bei fehlgeschlagenem ffprobe an."""
+    def test_ingest_video_rejects_unreadable_file_on_probe_failure(self, test_engine, tmp_path):
+        """B-701: leeres Probe-Ergebnis (korrupt/0-Byte/kein Video-Stream) wird
+        sichtbar abgelehnt statt still als metadatenloser Clip importiert.
+
+        (Ersetzt das alte Verhalten 'Clip auch bei fehlgeschlagenem ffprobe
+        anlegen' — genau das war der stille Bad-Import aus B-701 Defekt 1.)"""
         import services.ingest_service as svc
         svc.engine = test_engine
 
@@ -268,11 +272,11 @@ class TestIngestVideo:
         video_file.write_bytes(b"fake mp4")
 
         with patch.object(svc, "_probe_video_meta", return_value={}):
-            result = svc.ingest_video(str(video_file), project_id=1)
+            with pytest.raises(ValueError, match="unlesbar"):
+                svc.ingest_video(str(video_file), project_id=1)
 
-        assert result is not None
-        assert result.width is None
-        assert result.fps is None
+        with Session(test_engine) as s:
+            assert s.query(VideoClip).count() == 0  # nichts still angelegt
 
     def test_ingest_video_raises_for_missing_file(self, test_engine):
         """ingest_video() loest FileNotFoundError aus wenn Datei fehlt."""

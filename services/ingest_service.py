@@ -137,8 +137,22 @@ def _probe_video_meta(file_path: str) -> dict:
             video_stream.get("r_frame_rate", "30/1"),
             default=30.0, ndigits=2, strict=True,
         )
+        # B-701 Defekt 2: format.duration kann "N/A" sein (manche webm/VFR/
+        # gestreamte Container). Frueher warf float("N/A") ValueError -> der
+        # umgebende except gab {} zurueck und verwarf AUCH width/height/fps/
+        # codec, die der Stream korrekt geliefert hatte. Jetzt: duration
+        # defensiv parsen (Fallback Stream-Duration, sonst None), Rest behalten.
+        def _parse_dur(raw):
+            try:
+                return float(raw)
+            except (TypeError, ValueError):
+                return None
+
+        duration = _parse_dur(data.get("format", {}).get("duration"))
+        if duration is None:
+            duration = _parse_dur(video_stream.get("duration"))
         return {
-            "duration": float(data.get("format", {}).get("duration", 0)),
+            "duration": duration,
             "width": int(video_stream.get("width", 0)),
             "height": int(video_stream.get("height", 0)),
             "fps": fps,
@@ -169,6 +183,16 @@ def ingest_video(
     # Session-Split-Pattern: DB-Session nicht länger als nötig offen halten,
     # insbesondere nicht während externer Subprocess-Aufrufe.
     video_meta = _probe_video_meta(resolved)
+    # B-701 Defekt 1: leeres Probe-Ergebnis = korrupte/0-Byte-Datei, kein
+    # Video-Stream (z.B. Audio-only) oder ffprobe-Fehler. Frueher wurde der
+    # Clip TROTZDEM angelegt (duration/width/height/fps=None) — stiller
+    # Bad-Import, der erst beim Export weit weg vom Import fehlschlug.
+    # Jetzt: sichtbar ablehnen. Der FolderImportWorker faengt ValueError
+    # per Datei ab (Skip + Batch laeuft weiter, B-700).
+    if not video_meta:
+        raise ValueError(
+            f"Video-Datei unlesbar oder ohne Video-Stream (Import abgelehnt): {file_path}"
+        )
 
     try:
         from database import nullpool_session

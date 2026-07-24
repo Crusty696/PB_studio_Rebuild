@@ -131,7 +131,13 @@ class VideoAnalyzer:
             file_path,
         ]
         kwargs = subprocess_kwargs()
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=FFMPEG_PROBE_TIMEOUT_SEC, **kwargs)
+        # B-698: ffprobe liefert UTF-8; ohne explizites encoding dekodiert
+        # Python mit dem Locale-Default (cp1252 auf DE-Windows) und wirft bei
+        # CJK-/Emoji-/Kyrillisch-Metadaten-Tags UnicodeDecodeError — noch vor
+        # dem returncode-Check. Identisch zu den anderen Probe-Callsites
+        # (export/probe.py, ingest_service.py, lufs_service.py C-03).
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=FFMPEG_PROBE_TIMEOUT_SEC,
+                                encoding="utf-8", errors="replace", **kwargs)
         if result.returncode != 0:
             raise FFmpegError(
                 f"ffprobe fehlgeschlagen: {_sanitize_ffmpeg_error(result.stderr)}",
