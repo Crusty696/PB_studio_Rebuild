@@ -1,0 +1,10 @@
+{
+  "lesson_id": "d001c23a8fd945c1abe2b2f9ffd97f1e",
+  "recorded_at": "2026-07-24T00:17:09+00:00",
+  "session_id": "57a84b14a9a740529a2cee6f364b69c6",
+  "head_at_start": "5f4e1c24fd668915b37fc9ae6d20f9262319a6d4",
+  "problem": "B-679: ein generischer OOM-Recovery-Decorator (oom_recovery) rief pauschal ModelManager().unload() (main+aux); auf eine aux/RAFT-Operation angewandt zerstoerte das die im Batch gehaltene main-SigLIP-Referenz -> Mixed-Device-Crash aller Folge-Clips",
+  "cause": "Der Decorator war scope-blind: er unterschied nicht, ob die dekorierte Operation das main-Modell oder nur aux/RAFT betreibt. Zusaetzlich verhinderte die vorhandene H-25-Sperre (gpu_execution_lease) den Unload NICHT, weil oom_recovery einen ANDEREN Lock (GPU_LOAD_LOCK) nimmt. Die B-194-Absicherung (aux-Slot + unload_raft) existierte bereits, wurde aber vom generischen Decorator umgangen",
+  "rule": "Generische Recovery-/Cleanup-Decorators, die geteilte Ressourcen (VRAM-Slots, Modelle, Locks) anfassen, muessen scope-aware sein: parametrisieren, was sie freigeben duerfen (hier unload_scope aux vs all), statt pauschal alles zu entladen. Vor dem Anwenden pruefen, welchen Slot die dekorierte Funktion nutzt und ob Referenzen ueber den Aufruf hinaus gehalten werden. Bei mehreren Locks pruefen, ob eine vorhandene Schutzsperre ueberhaupt denselben Lock nimmt - sonst schuetzt sie nicht",
+  "applies_to": "Alle Decorator-/Wrapper um GPU-Operationen in PB Studio (oom_recovery, gpu_serializer, ModelManager-Slots); generell geteilte-Ressourcen-Cleanup mit gehaltenen Referenzen"
+}
