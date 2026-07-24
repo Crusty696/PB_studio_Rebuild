@@ -931,12 +931,48 @@ def _export_with_filtergraph(video_segments, audio_path, output_path,
         progress_cb(int(step / total_steps * 100), "Baue FFmpeg-Kommando...")
 
     cmd = [FFMPEG, "-y"]
-    for seg in video_segments:
+
+    # B-687 Defekt 1 (Variant A): Overlap-Extension gegen A/V-Drift.
+    # Die xfade-Kette ueberlappt Clips -> ohne Gegenmassnahme ist das Video um
+    # Sigma(xfade) kuerzer als das voll gemuxte Audio -> progressiver Drift.
+    # Fix: jedes Segment spielt beim Export um ``ext[i]`` laenger (Tail-Material
+    # fuer den Uebergang zu i+1). Damit wird Composite = Sigma(slot+ext) -
+    # Sigma(xfade) = Sigma(slot) = Audiodauer, und der xfade-Offset landet exakt
+    # auf der Beat-Grenze (offset_i == start[i]) — Cuts bleiben beat-verankert.
+    # ext ist auf das real vorhandene Restmaterial begrenzt (kein Over-Read).
+    # OF1 (User): faellt der verfuegbare Tail unter 0.1 s, KEIN Overlap ->
+    # harter Schnitt an diesem Uebergang (ext=0), statt Mikro-/Freeze-Crossfade.
+    def _slot(_s):
+        return _s.get("source_duration", _s["end"] - _s["start"])
+
+    _n_seg = len(video_segments)
+    ext = [0.0] * _n_seg
+    for _i in range(_n_seg - 1):
+        _xf_next = min(video_segments[_i + 1].get("crossfade", 0.0) or 0.0, 2.0)
+        _base = _slot(video_segments[_i])
+        _clip_dur = video_segments[_i].get("duration")
+        _ss = video_segments[_i].get("source_start", 0.0) or 0.0
+        # Ohne bekanntes clip.duration Material als vorhanden annehmen.
+        _avail = (_clip_dur - (_ss + _base)) if _clip_dur else _xf_next
+        # Der Overlap-Tail ist zusaetzlich durch BEIDE Beat-Slots begrenzt: ein
+        # Crossfade darf nie laenger als der Slot des ab- oder des aufgehenden
+        # Segments sein (sonst wird ein Segment ueber seinen Beat hinaus gezeigt
+        # -> Beat-Drift; das ist auch die B-687-Defekt-2-Eigenschaft).
+        _e = max(0.0, min(_xf_next, _avail, _base, _slot(video_segments[_i + 1])))
+        ext[_i] = _e if _e >= 0.1 else 0.0  # OF1: <0.1 s -> harter Schnitt
+    eff_dur = [
+        (video_segments[_i].get(
+            "source_duration",
+            video_segments[_i]["end"] - video_segments[_i]["start"],
+        ) + ext[_i])
+        for _i in range(_n_seg)
+    ]
+
+    for i, seg in enumerate(video_segments):
         source_start = seg.get("source_start", 0.0)
-        source_duration = seg.get("source_duration", seg["end"] - seg["start"])
         if source_start > 0.01:
             cmd += ["-ss", f"{source_start:.3f}"]
-        cmd += ["-t", f"{source_duration:.3f}", "-i", seg["path"]]
+        cmd += ["-t", f"{eff_dur[i]:.3f}", "-i", seg["path"]]
     # LUFS-Normalisierung auf Audio anwenden (wenn vorhanden)
     normalized_audio, step = _prepare_normalized_audio(
         audio_path, temp_files, progress_cb, step, total_steps,
@@ -965,11 +1001,10 @@ def _export_with_filtergraph(video_segments, audio_path, output_path,
             base_filter += f",eq=brightness={_b2}:contrast={_c2}"
         filter_parts.append(f"[{i}:v]{base_filter}[v{i}]")
 
-    # Segment-Dauern: Source-Duration wenn vorhanden, sonst Timeline-Duration
-    seg_durations = [
-        seg.get("source_duration", seg["end"] - seg["start"])
-        for seg in video_segments
-    ]
+    # Segment-Dauern: B-687 D1 — die effektiven (um den Overlap-Tail
+    # verlaengerten) Dauern, damit die xfade-Offset-Arithmetik den Beat-Anker
+    # trifft und die Composite-Laenge = Sigma(slot) = Audiodauer bleibt.
+    seg_durations = list(eff_dur)
 
     current_label = None
     if n == 0:
@@ -985,8 +1020,10 @@ def _export_with_filtergraph(video_segments, audio_path, output_path,
         # laenger als der bisher aufgelaufene Composite sein — sonst wird
         # ``accumulated_duration`` negativ und alle folgenden Offsets bleiben bei
         # 0.1 gepinnt (Frozen-Frames + gestapelte Segmente).
-        xfade_dur = min(xfade_dur, seg_durations[1], accumulated_duration)
-        if xfade_dur > 0:
+        # B-687 Defekt 1: zusaetzlich durch den real vorhandenen Overlap-Tail
+        # ``ext[0]`` des OUTGOING Segments begrenzt (kein Over-Read).
+        xfade_dur = min(xfade_dur, seg_durations[1], accumulated_duration, ext[0])
+        if xfade_dur >= 0.1:  # OF1: darunter harter Schnitt (concat) statt Crossfade
             offset = max(0.1, accumulated_duration - xfade_dur)
             filter_parts.append(
                 f"[v0][v1]xfade=transition=fade:duration={xfade_dur}:offset={offset}[xf0]"
@@ -999,9 +1036,11 @@ def _export_with_filtergraph(video_segments, audio_path, output_path,
 
         for i in range(2, n):
             xfade_dur = min(video_segments[i].get("crossfade", 0.0), 2.0)
-            # B-687 Defekt 2: siehe oben — Clamp auf Segment- und Composite-Laenge.
-            xfade_dur = min(xfade_dur, seg_durations[i], accumulated_duration)
-            if xfade_dur > 0:
+            # B-687 Defekt 2: Clamp auf Segment- und Composite-Laenge.
+            # B-687 Defekt 1: zusaetzlich auf den Overlap-Tail ext[i-1] des
+            # OUTGOING Segments (kein Over-Read).
+            xfade_dur = min(xfade_dur, seg_durations[i], accumulated_duration, ext[i - 1])
+            if xfade_dur >= 0.1:  # OF1: darunter harter Schnitt (concat) statt Crossfade
                 offset = max(0.1, accumulated_duration - xfade_dur)
                 filter_parts.append(
                     f"[{current_label}][v{i}]xfade=transition=fade:"
