@@ -1,0 +1,10 @@
+{
+  "lesson_id": "895f9f16fb8548e7a8c91d6892ee5a0f",
+  "recorded_at": "2026-07-24T03:32:12+00:00",
+  "session_id": "57a84b14a9a740529a2cee6f364b69c6",
+  "head_at_start": "5f4e1c24fd668915b37fc9ae6d20f9262319a6d4",
+  "problem": "B-686: eine deadlock-riskante GPU-VRAM-Koordinationsaenderung (cross-subsystem, Multi-Lock) direkt auf main waere gefaehrlich gewesen; der offensichtliche Fix war ein Lade-Deadlock",
+  "cause": "Der naheliegende Fix (Embedder aus dem ModelManager-Load-Pfad freigeben) erzeugte eine LOAD->EXECUTION-Lock-Inversion. Die sichere Loesung (Koordination am Worker-run()-Start vor jeder GPU-Lease + Refcount-Pause-Gate) hatte selbst eine subtile Concurrency-Falle (binaeres Pause-Flag ohne Refcount -> paralleler Worker-resume oeffnet Gate mid-Analyse), die im normalen Testlauf unsichtbar war",
+  "rule": "Fuer deadlock-/concurrency-riskante Mehrdatei-GPU-Aenderungen sandbox-feasibility nutzen: isolierter Worktree, Architekt entwirft Varianten mit statischem Lock-Ordering-Beweis, dann sandbox-skeptic (adversarial) + sandbox-verifier (Baseline-Diff) VOR dem Merge. Der Skeptic fand hier einen echten P1 (Refcount fehlte), den weder Impl noch Tests zeigten. Deadlock-Stress-Tests scharf machen: ein bewusst falscher Kontroll-Lauf MUSS deadlocken (Mid-Barrier erzwingt Interleaving; RLock+einfache Barrier deadlockt nicht zuverlaessig), sonst beweist der Safe-Lauf nichts. Cross-subsystem-Cleanup, das einen Lock nimmt, immer ausserhalb jedes anderen gehaltenen Locks platzieren + per Source-Anker-Test gegen Verschiebung sichern",
+  "applies_to": "Alle deadlock-/concurrency-riskanten GPU-/Multi-Lock-Aenderungen in PB Studio; sandbox-feasibility-Workflow; Pause/Resume-Gates mit mehreren Ownern"
+}
