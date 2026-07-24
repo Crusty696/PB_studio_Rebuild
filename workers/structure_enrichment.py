@@ -61,16 +61,16 @@ def _default_session_factory() -> Session:
     # The worker needs a plain Session it manages manually so we can keep
     # a single transaction across all writes.  We therefore extract the
     # underlying engine URL and build a plain Session here.
-    from sqlalchemy import create_engine as _ce
-    from sqlalchemy.pool import NullPool
-
+    # B-699: Engine ueber die kanonische Fabrik bauen statt roh via
+    # create_engine. Die rohe Engine hatte KEINE connect-Pragmas — kein
+    # busy_timeout (Worker warf nach ~5s "database is locked" statt der
+    # ueberall sonst gueltigen 120s), kein WAL, kein foreign_keys=ON.
+    # Gleiche Migration wie pacing_service (K6a/K6b), timeline_service
+    # (B-079) und anchor_sync_service.
     from database.session import engine as _proxy_engine
+    from database.session import make_nullpool_engine
 
-    _eng = _ce(
-        str(_proxy_engine.url),
-        connect_args={"check_same_thread": False},
-        poolclass=NullPool,
-    )
+    _eng = make_nullpool_engine(str(_proxy_engine.url), enable_foreign_keys=True)
     # low-fix (Sweep 2026-07-14): markiere die selbst-erstellte Engine als
     # worker-owned, damit run() sie im finally disposen kann. Extern uebergebene
     # (evtl. geteilte) Engines tragen dieses Flag NICHT und bleiben unangetastet.

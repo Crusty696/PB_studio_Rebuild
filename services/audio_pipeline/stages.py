@@ -276,7 +276,11 @@ class StemGenStage(Stage):
         except OSError:
             return self._try_db_stem_references(context.track_id)
         if meta.get("original_hash") != orig_hash:
-            return self._try_db_stem_references(context.track_id)
+            # B-702: Hash-Mismatch = der Audio-Inhalt hat sich GEAENDERT. Die
+            # DB-Referenzen zeigen dann genauso auf Stems des alten Inhalts —
+            # ein Fallback dorthin wuerde die Invalidierung aushebeln. Kein
+            # Reuse: Demucs muss neu laufen.
+            return None
         # 4 WAVs existieren + Hash-Match (fixt R-07 partial-Crash)
         stems_dir = self._resolve_stems_dir(context.track_id)
         cached_stem_hashes = meta.get("stem_hashes", {})
@@ -510,7 +514,12 @@ class BeatGridStage(Stage):
         with _audio_gpu_execution_lease("audio_v2.beat_grid"):
             try:
                 svc = self._service_cls()
-                result = svc.analyze_and_store(context.track_id, trigger_onset=False)
+                # B-703: Cancel-Callback in den Chunk-Loop reichen — Abbruch
+                # wirkt jetzt pro Chunk statt erst an der Stage-Grenze.
+                result = svc.analyze_and_store(
+                    context.track_id, trigger_onset=False,
+                    should_stop=context.should_stop,
+                )
             finally:
                 if torch is not None and torch.cuda.is_available():
                     torch.cuda.empty_cache()

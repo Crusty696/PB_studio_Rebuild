@@ -211,7 +211,16 @@ class KeyDetectionWorker(BaseAnalysisWorker):
     def _save_to_db(self, result) -> None:
         from database import AudioTrack
         with self._get_session_context() as session:
-            track = session.get(AudioTrack, self.audio_track_id)
+            # B-706/S2: deleted_at-Filter wie im LUFS-Worker — sonst schreibt
+            # der Key-Worker auf eine waehrend der Analyse soft-geloeschte Row.
+            track = (
+                session.query(AudioTrack)
+                .filter(
+                    AudioTrack.id == self.audio_track_id,
+                    AudioTrack.deleted_at.is_(None),
+                )
+                .first()
+            )
             if track:
                 track.key = result.key
                 track.key_confidence = clamp_confidence(result.confidence)

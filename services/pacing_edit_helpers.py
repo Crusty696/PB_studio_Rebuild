@@ -35,7 +35,14 @@ from services.pacing_beat_grid import (
 
 logger = logging.getLogger(__name__)
 
-DOWNBEAT_MATCH_TOLERANCE_SEC = 0.03
+# B-705: 0.20s statt 0.03s — Beats (4 Dezimalstellen) und Downbeats (im
+# chunked-Pfad auf 2 Dezimalstellen gerundet + chunk_offset) stammen aus
+# getrennten Analyse-Ausgaben und driften real bis ~240 ms auseinander
+# (dokumentiert in finalize_cut_beats, das bewusst 0.20s nutzt). Mit 30 ms
+# matchte _is_downbeat_near in ruhigen Sektionen (step>=8: "nur auf Downbeat
+# schneiden") oft NIE -> die regulaere Cut-Auswahl lieferte dort gar keine
+# Cuts. Jetzt konsistent mit finalize_cut_beats.
+DOWNBEAT_MATCH_TOLERANCE_SEC = 0.20
 
 # Fixplan 2026-07-07 (User-Auftrag "Analyse-Daten wirklich nutzen"):
 # Caption-Mood (aus Vision-LLM, scenes.ai_mood) fliesst direkt in die

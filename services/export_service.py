@@ -381,13 +381,25 @@ def export_timeline(project_id: int = 1, output_name: str = "output.mp4",
     audio_temp_files = []
     audio_path = None
     if audio_source:
-        audio_path = _prepare_audio_entry_for_timeline(
-            audio_source[0],
-            audio_source[1],
-            audio_source[2],
-            audio_temp_files,
-            cancel_check=cancel_check,
-        )
+        try:
+            audio_path = _prepare_audio_entry_for_timeline(
+                audio_source[0],
+                audio_source[1],
+                audio_source[2],
+                audio_temp_files,
+                cancel_check=cancel_check,
+            )
+        except Exception:
+            # B-706/F3: schlaegt das Audio-Trim/adelay-ffmpeg fehl, liegen die
+            # pb_audio_entry_*.wav (delete=False) bereits auf Disk, aber kein
+            # Export-finally raeumt sie mehr auf (Exception propagiert vor dem
+            # try/finally der Export-Pfade). Hier direkt entsorgen.
+            for _tf in audio_temp_files:
+                try:
+                    Path(_tf).unlink(missing_ok=True)
+                except OSError:
+                    pass
+            raise
 
     # Berechne total_steps basierend auf Audio-Normalisierung
     total_steps = 5 if audio_path else 4
@@ -1554,13 +1566,25 @@ def export_preview(project_id: int = 1, resolution: str = "1920x1080",
     audio_temp_files = []
     audio_path = None
     if audio_source:
-        audio_path = _prepare_audio_entry_for_timeline(
-            audio_source[0],
-            audio_source[1],
-            audio_source[2],
-            audio_temp_files,
-            cancel_check=cancel_check,
-        )
+        try:
+            audio_path = _prepare_audio_entry_for_timeline(
+                audio_source[0],
+                audio_source[1],
+                audio_source[2],
+                audio_temp_files,
+                cancel_check=cancel_check,
+            )
+        except Exception:
+            # B-706/F3: schlaegt das Audio-Trim/adelay-ffmpeg fehl, liegen die
+            # pb_audio_entry_*.wav (delete=False) bereits auf Disk, aber kein
+            # Export-finally raeumt sie mehr auf (Exception propagiert vor dem
+            # try/finally der Export-Pfade). Hier direkt entsorgen.
+            for _tf in audio_temp_files:
+                try:
+                    Path(_tf).unlink(missing_ok=True)
+                except OSError:
+                    pass
+            raise
 
     total_steps = 5 if audio_path else 4
     has_effects = any(

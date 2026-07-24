@@ -822,6 +822,19 @@ class ChatDock(QDockWidget):
         self.append_divider()
 
     def _on_agent_error(self, error_msg: str) -> None:
+        # B-706/Q2: gleiche Stale-Guards wie _on_agent_finished (B-417) — ein
+        # Fehler eines veralteten/projektfremden Workers darf weder in den
+        # aktuellen Chat schreiben noch die UI freigeben.
+        sender_worker = self.sender()
+        if isinstance(sender_worker, AIAgentWorker):
+            if getattr(sender_worker, "request_id", None) != self._active_request_id:
+                logger.warning("ChatDock: Ignoriere Fehler von veraltetem/abgebrochenem Worker (Request-ID Mismatch).")
+                return
+            current_project = self._get_current_project_path()
+            if getattr(sender_worker, "project_path", None) != current_project:
+                logger.warning("ChatDock: Ignoriere Fehler von veraltetem Worker (Projekt gewechselt).")
+                return
+
         self._stop_watchdog()
         self._remove_status_line()
         self._on_agent_status("Fehler")

@@ -150,12 +150,18 @@ class StorageBrowserService:
         for job in jobs:
             self.session.delete(job)
 
+        # B-706/S1: DB-commit VOR dem physischen Loeschen der Storage-Dirs.
+        # Vorher lief rmtree vor dem commit — schlug der commit fehl
+        # (Lock/IntegrityError), rollten die DB-Rows zurueck, waehrend die
+        # Dateien bereits unwiderruflich weg waren -> DB verwies auf
+        # nicht-existente Artefakte. Ein Filesystem-Delete nach erfolgreichem
+        # commit ist dagegen idempotent nachholbar.
+        self.session.commit()
+
         deleted_dirs = 0
         freed_bytes = 0
         if delete_storage_dirs and self.layout is not None:
             deleted_dirs, freed_bytes = self._delete_storage_dirs(unique_sources)
-
-        self.session.commit()
         return StorageDeleteResult(
             deleted_sources=len(unique_sources),
             deleted_jobs=len(jobs),

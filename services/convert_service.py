@@ -444,6 +444,8 @@ def _get_pix_fmt(file_path: str) -> str:
              "-of", "default=noprint_wrappers=1:nokey=1", file_path],
             capture_output=True, text=True, timeout=FFMPEG_PROBE_TIMEOUT_SEC,
             encoding="utf-8", errors="replace",
+            # B-706/F2: CREATE_NO_WINDOW — sonst Konsolenfenster-Blitz pro Probe.
+            **subprocess_kwargs(),
         )
         if p.returncode == 0 and p.stdout.strip():
             return p.stdout.strip().splitlines()[0].strip()

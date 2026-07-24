@@ -61,6 +61,28 @@ class SchnittController(QObject):
             inspector.clip_property_changed.connect(self._on_clip_property_changed)
 
     def attach_worker(self, worker: Any) -> None:
+        # B-704/D2: Vorgaenger-Worker sauber abkoppeln. Vorher ueberschrieb
+        # attach_worker nur die Referenz — ein noch laufender alter Worker
+        # blieb mit _on_done/_on_failed verbunden und sein spaetes done()
+        # schaltete den Workspace-State um, waehrend der neue Worker noch
+        # rechnete (Loading-Overlay verschwand, Cancel traf den falschen).
+        prev = self._current_worker
+        if prev is not None and prev is not worker:
+            for _sig, _slot in (
+                ("progress", self.workspace.show_progress),
+                ("done", self._on_done),
+                ("failed", self._on_failed),
+            ):
+                if hasattr(prev, _sig):
+                    try:
+                        getattr(prev, _sig).disconnect(_slot)
+                    except (RuntimeError, TypeError):
+                        pass  # bereits getrennt / C++-Objekt weg
+            if hasattr(prev, "cancel"):
+                try:
+                    prev.cancel()
+                except Exception:
+                    pass
         self._current_worker = worker
         if hasattr(worker, "progress"):
             worker.progress.connect(self.workspace.show_progress)
@@ -105,10 +127,23 @@ class SchnittController(QObject):
     # Worker-Lifecycle
     # ------------------------------------------------------------------
     def _on_done(self, *args, **kwargs):
+        # B-704/D1: Stale-Guard — done() eines Workers, der nicht mehr der
+        # aktuelle ist (ueberlappende Generierung), darf den Workspace-State
+        # nicht umschalten (sonst verschwindet das Loading-Overlay, waehrend
+        # der echte Worker noch rechnet).
+        sender = self.sender()
+        if sender is not None and self._current_worker is not None and sender is not self._current_worker:
+            logger.info("SchnittController: ignoriere done() eines veralteten Workers")
+            return
         self.workspace.refresh_state_from_db()
         self._current_worker = None
 
     def _on_failed(self, *args, **kwargs):
+        # B-704/D1: gleicher Stale-Guard wie _on_done.
+        sender = self.sender()
+        if sender is not None and self._current_worker is not None and sender is not self._current_worker:
+            logger.info("SchnittController: ignoriere failed() eines veralteten Workers")
+            return
         self.workspace.refresh_state_from_db()
         self._current_worker = None
 

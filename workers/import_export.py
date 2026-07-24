@@ -42,8 +42,25 @@ def _run_batch_ffmpeg_cancellable(cmd: list[str], cancel_check, timeout: float,
         cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
+        stdin=subprocess.DEVNULL,  # B-706/F4: ffmpeg darf nie auf stdin warten
         **kwargs,
     )
+
+    # B-706/F4: stderr WAEHREND des Laufs drainen. Vorher wurde stderr erst
+    # nach Prozessende gelesen — laeuft der 64-KB-Windows-Pipe-Buffer voll
+    # (ffmpeg ohne "-v quiet"), blockiert der Prozess unbegrenzt (klassischer
+    # PIPE-Deadlock). Der Drain-Thread sammelt stderr fuer die Rueckgabe.
+    stderr_chunks: list = []
+    stderr_reader = None
+    if getattr(process, "stderr", None) is not None:
+        def _drain_stderr():
+            try:
+                for raw in process.stderr:
+                    stderr_chunks.append(raw if isinstance(raw, bytes) else raw.encode())
+            except Exception:  # broad: Drain darf den Convert nie crashen
+                pass
+        stderr_reader = threading.Thread(target=_drain_stderr, daemon=True)
+        stderr_reader.start()
 
     # B-402: stdout-Reader-Thread parst out_time_ms (FFmpeg -progress pipe:1).
     # Laeuft nur wenn progress_cb gesetzt ist; konsumiert stdout, damit der
@@ -90,13 +107,13 @@ def _run_batch_ffmpeg_cancellable(cmd: list[str], cancel_check, timeout: float,
                 pass
         time.sleep(0.1)
 
+    # B-706/F4: stderr kommt jetzt immer aus dem Drain-Thread.
+    if stderr_reader is not None:
+        stderr_reader.join(timeout=2.0)
+    stderr = b"".join(stderr_chunks)
+
     if reader is not None:
         reader.join(timeout=2.0)
-        # stdout vom Reader konsumiert -> nur stderr separat lesen.
-        try:
-            stderr = process.stderr.read() if process.stderr else b""
-        except Exception:
-            stderr = b""
         try:
             if process.stdout:
                 process.stdout.close()
@@ -104,7 +121,16 @@ def _run_batch_ffmpeg_cancellable(cmd: list[str], cancel_check, timeout: float,
             pass
         return subprocess.CompletedProcess(cmd, process.returncode, stdout=b"", stderr=stderr)
 
-    stdout, stderr = process.communicate(timeout=2.0)
+    # Kein Progress-Reader: stdout noch ungelesen — nachziehen.
+    try:
+        stdout = process.stdout.read() if process.stdout else b""
+    except Exception:
+        stdout = b""
+    try:
+        if process.stdout:
+            process.stdout.close()
+    except Exception:
+        pass
     return subprocess.CompletedProcess(
         cmd, process.returncode, stdout=stdout, stderr=stderr
     )
@@ -583,10 +609,31 @@ class ProxyCreationWorker(QObject, CancellableMixin):
             # Proxy-Pfad in SQLite speichern (NullPool: verhindert DB-Lock)
             from database import nullpool_session
             with nullpool_session() as session:
-                clip = session.get(VideoClip, self.clip_id)
+                # B-706/M2: deleted_at-Filter — wird der Clip waehrend des
+                # Proxy-Encodes soft-geloescht/gepurged, nicht auf die
+                # Tombstone-Row schreiben und die verwaiste Proxy-Datei
+                # direkt wieder entfernen (sonst liegt sie fuer immer da).
+                clip = (
+                    session.query(VideoClip)
+                    .filter(
+                        VideoClip.id == self.clip_id,
+                        VideoClip.deleted_at.is_(None),
+                    )
+                    .first()
+                )
                 if clip:
                     clip.proxy_path = proxy_path
                     session.commit()
+                elif proxy_path:
+                    try:
+                        Path(proxy_path).unlink(missing_ok=True)
+                        logging.info(
+                            "ProxyCreationWorker[%s]: Clip geloescht waehrend "
+                            "Encode — verwaiste Proxy-Datei entfernt: %s",
+                            self.clip_id, proxy_path,
+                        )
+                    except OSError:
+                        pass
             self.finished.emit(self.clip_id, proxy_path)
             _ok = True
         except Exception as e:  # broad catch intentional — top-level worker safety net

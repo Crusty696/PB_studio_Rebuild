@@ -333,7 +333,15 @@ class ProjectManagementController(PBComponent):
         from ui.dialogs.settings_dialog import SettingsDialog
         dlg = SettingsDialog(parent=self.window)
         dlg.ollama_settings_changed.connect(self._apply_ollama_settings)
-        dlg.exec()
+        try:
+            dlg.exec()
+        finally:
+            # B-706/Q1: ohne Aufraeumen blieb pro Oeffnen ein verstecktes
+            # Dialog-QObject samt Signal-Connection am parent haengen
+            # (wachsender Leak ueber die Session). deleteLater() NACH exec()
+            # ist der sichere Weg (WA_DeleteOnClose + exec() waere ein
+            # Use-after-free-Risiko, waehrend exec noch auf dem Stack ist).
+            dlg.deleteLater()
 
     def _apply_ollama_settings(self, enabled: bool, url: str, model: str):
         """Apply changed Ollama settings to running services."""

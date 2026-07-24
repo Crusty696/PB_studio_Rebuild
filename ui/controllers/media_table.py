@@ -153,12 +153,19 @@ class MediaTableController(PBComponent):
         )
 
         # Starte via TaskEngine (Hintergrund)
-        from services.task_manager import GlobalTaskManager
-        GlobalTaskManager.instance().start_task(
-            name="Medien-DB laden",
-            worker=worker,
-            description="Lade Clip-Metadaten aus SQLite"
-        )
+        # B-706/Q3: wirft start_task selbst (vor dem Scheduling), feuern die
+        # Worker-Slots nie -> _reload_inflight bliebe fuer immer True und die
+        # Medien-Tabelle wuerde bis zum App-Neustart nie mehr aktualisieren.
+        try:
+            from services.task_manager import GlobalTaskManager
+            GlobalTaskManager.instance().start_task(
+                name="Medien-DB laden",
+                worker=worker,
+                description="Lade Clip-Metadaten aus SQLite"
+            )
+        except Exception as e:
+            logger.error("Medien-Reload: start_task fehlgeschlagen: %s", e)
+            self._on_media_reload_failed()
 
     def _on_media_reload_done(self, videos: list, audios: list, also_combos: bool):
         """Finished-Slot: wendet Daten an und loest dann den In-Flight-Status."""

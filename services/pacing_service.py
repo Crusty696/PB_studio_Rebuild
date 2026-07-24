@@ -1551,8 +1551,20 @@ def _auto_edit_phase3_inner(
                 _vid_dur = video_info[vid].get("duration", 0.0)
                 if _vid_dur - source_start < seg_duration:
                     source_start = 0.0
-                _clip_idx = (
-                    available_ids.index(vid) if vid in available_ids else None
+                # B-706/P1: prev_clip_idx wird downstream als ZEILEN-Index in
+                # clip_embeddings_matrix/clip_metadata_list konsumiert
+                # (Visual-Coherence in _compute_clip_fitness). Frueher stand
+                # hier available_ids.index(vid) — ein ANDERER Index-Raum →
+                # der naechste Legacy-Fallback verglich gegen einen fremden
+                # Clip. Jetzt: Zeile ueber den video_path mappen; ohne
+                # Treffer None (= kein Coherence-Bias, ehrlicher als falsch).
+                _sb_path = video_info[vid].get("path")
+                _clip_idx = next(
+                    (
+                        _i for _i, _m in enumerate(clip_metadata_list or [])
+                        if _m.get("video_path") == _sb_path
+                    ),
+                    None,
                 )
             else:
                 # NEUBAU-VOLLINTEGRATION T2.5.2: Kontext fuer Phrase-Boundary-

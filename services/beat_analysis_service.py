@@ -229,6 +229,7 @@ class BeatAnalysisService:
         self,
         audio_path: str | Path,
         progress_cb=None,
+        should_stop=None,
     ) -> tuple[dict, np.ndarray | None, int | None]:
         """B-062: Race-freier interner Worker.
 
@@ -295,7 +296,9 @@ class BeatAnalysisService:
             if progress_cb:
                 progress_cb(20, "Chunked Beat-Analyse...")
             # Lange Datei: Chunked Processing streamt Chunks von Disk (B-358).
-            beats, downbeats = self._analyze_chunked(audio_path, duration, sr)
+            beats, downbeats = self._analyze_chunked(
+                audio_path, duration, sr, should_stop=should_stop,
+            )
 
         if progress_cb:
             progress_cb(80, "Berechne BPM...")
@@ -363,7 +366,7 @@ class BeatAnalysisService:
 
     def _analyze_chunked(
         self, audio_path: str, total_duration: float,
-        sr: int,
+        sr: int, should_stop=None,
     ) -> tuple[np.ndarray, np.ndarray]:
         """Chunked Processing: Teilt Audio in 10-Min-Segmente.
 
@@ -393,6 +396,11 @@ class BeatAnalysisService:
         pos = 0
 
         while pos < total_samples:
+            # B-703: Cancel-Check pro Chunk, VOR Disk-Load und GPU-Lock-Erwerb
+            # (B-524-Muster). Sonst laeuft die Analyse eines langen Mixes nach
+            # User-Abbruch minutenlang weiter und haelt den GPU_EXECUTION_LOCK.
+            if should_stop and should_stop():
+                raise RuntimeError("Beat-Analyse abgebrochen (User-Cancel)")
             chunk_end = min(pos + chunk_samples, total_samples)
             chunk_offset_sec = pos / sr
             # B-358: nur diesen Chunk von Disk laden (kein Full-Load).
@@ -472,13 +480,22 @@ class BeatAnalysisService:
         downbeats_arr = np.unique(np.round(np.array(all_downbeats), 2)) if all_downbeats else np.array([])
         return beats_arr, downbeats_arr
 
-    def analyze_and_store(self, track_id: int, progress_cb=None, *, trigger_onset: bool = True) -> dict:
+    def analyze_and_store(
+        self, track_id: int, progress_cb=None, *,
+        trigger_onset: bool = True, should_stop=None,
+    ) -> dict:
         """Analysiert einen AudioTrack und speichert Beats/Downbeats in der DB.
 
         OTK-018 / D-062 (additiv, backward-compat): ``trigger_onset`` (default True)
         erhaelt das bestehende Verhalten fuer alle Alt-Caller. Die Audio-V2-Pipeline
         ruft mit ``trigger_onset=False`` und faehrt die Onset-Stage separat
         (drums-Stem-Routing via OnsetStage), um Doppel-Onset zu vermeiden.
+
+        B-703 (additiv, backward-compat): ``should_stop`` — optionaler
+        Cancel-Callback, wird im Chunk-Loop VOR jedem GPU-Lock-Erwerb geprueft
+        (B-524-Muster der Stem-Separation). Ohne ihn ignorierte die Beat-Analyse
+        eines langen DJ-Mixes den User-Abbruch bis zur Stage-Grenze und hielt
+        den GPU_EXECUTION_LOCK minutenlang.
 
         Aktualisiert den Beatgrid-Eintrag mit beat_this-Ergebnissen.
         Phase 3: Speichert auch Downbeats und Per-Beat-RMS-Energie.
@@ -504,7 +521,9 @@ class BeatAnalysisService:
             # y/sr kommen jetzt als Tuple-Return zurueck und sind exklusiv
             # fuer diesen Aufruf — keine Race-Condition mehr moeglich.
             # ``_analysis_lock`` bleibt nicht mehr noetig fuer diese Stelle.
-            result, y, sr = self._analyze_with_audio(file_path, progress_cb=progress_cb)
+            result, y, sr = self._analyze_with_audio(
+                file_path, progress_cb=progress_cb, should_stop=should_stop,
+            )
 
             # Phase 3: Per-Beat RMS-Energie berechnen (nach erfolgreichem analyze())
             if y is not None and sr is not None:

@@ -53,6 +53,27 @@ def invalidate_if_stale(track_id: int, original_path: str) -> bool:
         stem_cache.cache_meta_path(track_id).unlink()
     except OSError:
         pass
+    # B-702: Der Audio-Inhalt hat sich geaendert -> die stem_*_path-Spalten in
+    # der DB zeigen definitiv auf Stems des ALTEN Inhalts. Ohne dieses Clearing
+    # griff der StemGen-DB-Fallback (_try_db_stem_references) nach der
+    # Invalidierung die alten Pfade ohne jede Hash-Pruefung wieder auf und
+    # Demucs wurde uebersprungen -> alle Folge-Stages (Onset/Key/Structure)
+    # liefen still auf veralteten Stems. Nach dem Re-Run schreibt StemGenStage
+    # die Spalten neu (stages.py). Best-effort: DB-Fehler blockieren die
+    # Invalidierung nicht.
+    try:
+        from database import AudioTrack, nullpool_session
+        with nullpool_session() as sess:
+            row = sess.query(AudioTrack).filter(AudioTrack.id == track_id).first()
+            if row is not None:
+                row.stem_drums_path = None
+                row.stem_bass_path = None
+                row.stem_vocals_path = None
+                row.stem_other_path = None
+                sess.commit()
+                logger.info("B-702: stale Stem-DB-Referenzen fuer track=%s geleert", track_id)
+    except Exception as exc:  # noqa: BLE001 — best-effort
+        logger.warning("B-702: Stem-Referenz-Clearing track=%s fehlgeschlagen: %s", track_id, exc)
     logger.info("Checkpoint track=%s verworfen (Datei geaendert: %s != %s)",
                 track_id, str(current)[:8], str(stored)[:8])
     return True

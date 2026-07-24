@@ -26,6 +26,7 @@ from PySide6.QtCore import (
 )
 from PySide6.QtGui import QPixmap, QImage, QPainter, QColor, QPen, QFont, QFontMetrics
 
+from services.ffmpeg_utils import subprocess_kwargs
 from services.startup_checks import get_ffmpeg_bin
 from services.timeout_constants import FFMPEG_THUMBNAIL_TIMEOUT_SEC
 
@@ -147,7 +148,9 @@ def _extract_thumb_qimage(file_path: str, w: int, h: int) -> QImage:
 
     if not dest.exists():
         try:
-            subprocess.run(
+            # B-706/F2: subprocess_kwargs() ergaenzt CREATE_NO_WINDOW — sonst
+            # blitzt auf Windows pro Thumbnail ein Konsolenfenster auf.
+            result = subprocess.run(
                 [
                     get_ffmpeg_bin(), "-y", "-ss", "0", "-i", file_path,
                     "-vframes", "1",
@@ -158,11 +161,31 @@ def _extract_thumb_qimage(file_path: str, w: int, h: int) -> QImage:
                 ],
                 capture_output=True,
                 timeout=FFMPEG_THUMBNAIL_TIMEOUT_SEC,
+                **subprocess_kwargs(),
             )
+            # B-706/F1: bei ffmpeg-Fehler bleibt sonst eine 0-Byte-/Partial-
+            # Datei liegen; der ``dest.exists()``-Guard ueberspringt dann jede
+            # Regenerierung -> Clip zeigt dauerhaft Placeholder (Cache-
+            # Poisoning). Kaputte Ausgabe sofort entfernen.
+            if result.returncode != 0 or not dest.exists() or dest.stat().st_size == 0:
+                dest.unlink(missing_ok=True)
+                return _placeholder_image(w, h, "▶")
         except (subprocess.SubprocessError, OSError, FileNotFoundError):
+            try:
+                dest.unlink(missing_ok=True)  # B-706/F1: Partial nach Timeout
+            except OSError:
+                pass
             return _placeholder_image(w, h, "▶")
     img = QImage(str(dest))
-    return img if not img.isNull() else _placeholder_image(w, h, "▶")
+    if img.isNull():
+        # B-706/F1: unlesbarer Cache-Eintrag — entfernen, damit der naechste
+        # Aufruf regenerieren kann, statt fuer immer Placeholder zu zeigen.
+        try:
+            dest.unlink(missing_ok=True)
+        except OSError:
+            pass
+        return _placeholder_image(w, h, "▶")
+    return img
 
 
 class _ThumbWorker(QObject):
