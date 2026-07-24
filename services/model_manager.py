@@ -184,57 +184,88 @@ def get_cuda_memory_info_bytes(device: int = 0) -> tuple[int, int]:
     return max(total_bytes - used_bytes, 0), total_bytes
 
 
-def oom_recovery(func):
+def oom_recovery(func=None, *, unload_scope: str = "all"):
     """Decorator für robuste Error-Recovery bei OOM-Fehlern (Fix F-047).
 
     Versucht bis zu 3-mal, eine GPU-Operation durchzuführen, wobei zwischen
     den Versuchen zunehmend aggressiv Speicher freigegeben wird.
+
+    ``unload_scope`` steuert, was beim 2. Versuch (anhaltendes OOM) entladen
+    wird:
+
+    - ``"all"`` (Default): ``ModelManager().unload()`` — entlaedt main + aux.
+      Verhalten wie bisher; gilt fuer Operationen, die das main-Modell selbst
+      betreiben (z.B. SigLIP-Embeddings, Audio-Modelle).
+    - ``"aux"``: ``ModelManager().unload_raft()`` — entlaedt NUR das aux-Modell
+      (RAFT), das main-Modell bleibt resident. B-679: fuer RAFT-Operationen,
+      damit ein RAFT-OOM nicht die im Batch gehaltene SigLIP-Referenz auf CPU
+      schiebt und so ALLE folgenden Clips mit einem Mixed-Device-RuntimeError
+      abreissen laesst. ``unload()`` (all) verletzte hier das B-194-Design
+      (aux-Slot statt brutalem Voll-Unload).
+
+    Nutzbar als ``@oom_recovery`` (Default-Scope) oder
+    ``@oom_recovery(unload_scope="aux")``.
     """
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        import time as _time
-        max_retries = 3
-        for attempt in range(max_retries):
-            try:
-                return func(*args, **kwargs)
-            except Exception as e:
-                error_str = str(e).lower()
-                is_oom = "out of memory" in error_str or "cuda error: out of memory" in error_str
+    def decorate(fn):
+        @wraps(fn)
+        def wrapper(*args, **kwargs):
+            import time as _time
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    return fn(*args, **kwargs)
+                except Exception as e:
+                    error_str = str(e).lower()
+                    is_oom = "out of memory" in error_str or "cuda error: out of memory" in error_str
 
-                if not is_oom or attempt == max_retries - 1:
-                    raise e
+                    if not is_oom or attempt == max_retries - 1:
+                        raise e
 
-                wait_time = (attempt + 1) * 2
-                logger.warning(
-                    "OOM in %s (Versuch %d/%d) — warte %ds und räume auf...",
-                    func.__name__, attempt + 1, max_retries, wait_time
-                )
+                    wait_time = (attempt + 1) * 2
+                    logger.warning(
+                        "OOM in %s (Versuch %d/%d) — warte %ds und räume auf...",
+                        fn.__name__, attempt + 1, max_retries, wait_time
+                    )
 
-                _ensure_torch()
-                # C-6 FIX: Alle GPU-Operationen muessen gelockt sein
-                with GPU_LOAD_LOCK:
-                    # Aggressiver Cleanup
-                    gc.collect()
-                    if torch.cuda.is_available():
-                        torch.cuda.empty_cache()
-                        torch.cuda.synchronize()
+                    _ensure_torch()
+                    # C-6 FIX: Alle GPU-Operationen muessen gelockt sein
+                    with GPU_LOAD_LOCK:
+                        # Aggressiver Cleanup
+                        gc.collect()
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                            torch.cuda.synchronize()
 
-                    if attempt == 1:
-                        # Im zweiten Versuch entladen wir ALLES
-                        logger.info("OOM persistiert — erzwinge vollständigen Modell-Unload.")
-                        ModelManager().unload()
+                        if attempt == 1:
+                            if unload_scope == "aux":
+                                # B-679: nur RAFT/aux entladen — main-Modell
+                                # (z.B. im Batch gehaltenes SigLIP) bleibt resident.
+                                logger.info(
+                                    "OOM persistiert — entlade nur aux/RAFT (B-679), "
+                                    "main-Modell bleibt resident."
+                                )
+                                ModelManager().unload_raft()
+                            else:
+                                # Im zweiten Versuch entladen wir ALLES
+                                logger.info("OOM persistiert — erzwinge vollständigen Modell-Unload.")
+                                ModelManager().unload()
 
-                # Kurze Pause damit Treiber/OS sich fangen kann
-                _time.sleep(wait_time)
+                    # Kurze Pause damit Treiber/OS sich fangen kann
+                    _time.sleep(wait_time)
 
-        # H21 FIX: Alle Retries erschoepft — letzte Exception werfen statt None
-        # zurueckzugeben, da Caller oft ein Tuple erwarten und sonst mit
-        # TypeError crashen.
-        raise RuntimeError(
-            f"OOM in {func.__name__}: Alle {max_retries} Retries erschoepft."
-        )
+            # H21 FIX: Alle Retries erschoepft — letzte Exception werfen statt None
+            # zurueckzugeben, da Caller oft ein Tuple erwarten und sonst mit
+            # TypeError crashen.
+            raise RuntimeError(
+                f"OOM in {fn.__name__}: Alle {max_retries} Retries erschoepft."
+            )
 
-    return wrapper
+        return wrapper
+
+    # Erlaubt sowohl @oom_recovery als auch @oom_recovery(unload_scope="aux").
+    if func is not None:
+        return decorate(func)
+    return decorate
 
 
 class ModelManager:

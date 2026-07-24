@@ -172,7 +172,7 @@ def _normalize_motion(raw_px: float) -> float:
     return round(1.0 - float(np.exp(-raw_px / 40.0)), 4)
 
 
-@oom_recovery
+@oom_recovery(unload_scope="aux")
 def _raft_motion_score(
     raft_model, device, frame1_bgr: np.ndarray, frame2_bgr: np.ndarray,
 ) -> float:
