@@ -1,0 +1,10 @@
+{
+  "lesson_id": "5af14a02f95b4e09a422158c6176e454",
+  "recorded_at": "2026-07-24T01:28:25+00:00",
+  "session_id": "57a84b14a9a740529a2cee6f364b69c6",
+  "head_at_start": "5f4e1c24fd668915b37fc9ae6d20f9262319a6d4",
+  "problem": "B-683: ein blockierender Retry-Backoff-sleep (5..20s) lag innerhalb eines Write-Locks UND lief synchron im GUI-Thread -> bis ~50s UI-Freeze + Blockade anderer Applies",
+  "cause": "Der Retry-Loop war komplett in 'with lock' gewickelt, inkl. der sleep-Wartezeit; und die Funktion wird via QUndoStack.push synchron im GUI-Thread ausgefuehrt. Zusaetzlich war der Backoff redundant, weil nullpool_session busy_timeout=120s setzt - SQLite wartet das Lock-Fenster also schon auf C-Ebene ab, bevor der OperationalError fliegt",
+  "rule": "Retry-Backoff-sleeps NIE innerhalb eines Locks halten (Lock pro Versuch nehmen, waehrend der Wartezeit freigeben) und nie blockierend im GUI-Thread. Vor dem Hinzufuegen/Behalten eines DB-Retry-Backoffs pruefen, ob die Session bereits ein busy_timeout hat - dann ist zusaetzliches langes Warten redundant. Lock-frei-waehrend-sleep laesst sich deterministisch per lock.locked() im gepatchten sleep testen",
+  "applies_to": "Alle DB-Retry-Schleifen mit Lock + sleep in PB Studio; GUI-Thread-synchrone Service-Aufrufe (undo commands, apply-Operationen)"
+}
