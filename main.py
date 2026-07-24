@@ -956,6 +956,35 @@ class PBWindow(QMainWindow):
         elif result.reason != "not_due":
             logger.warning("[Brain V3] Weekly backup skipped: %s", result.reason)
 
+    def _final_cuda_cleanup(self, scheduler_stopped: bool) -> None:
+        """B-692: Finaler CUDA-Cleanup beim App-Close.
+
+        NUR ausfuehren, wenn der EmbeddingScheduler sauber gestoppt ist
+        (``request_stop`` lieferte True). Kam er nicht sauber runter, kann ein
+        Embedder-Thread noch Tensoren auf der GTX 1060 halten. Ein
+        ``torch.cuda.empty_cache()`` aus dem Main-Thread laeuft am
+        GpuSerializer/GPU_EXECUTION_LOCK vorbei (der Embedder nutzt ihn seit
+        B-684 exklusiv) und wuerde den CUDA-Context waehrend aktiver
+        Embedder-Tensoren zerreissen -> nativer Heap-Crash
+        (STATUS_STACK_BUFFER_OVERRUN, 0xC0000409) plus Risiko eines
+        gesperrten CUDA-Contexts beim naechsten Start.
+        """
+        try:
+            import torch  # type: ignore
+            if not scheduler_stopped:
+                logger.warning(
+                    "closeEvent: EmbeddingScheduler nicht sauber gestoppt — "
+                    "finaler CUDA-Cleanup uebersprungen (B-692: kein empty_cache "
+                    "gegen evtl. noch aktiven Embedder auf der GPU)."
+                )
+                return
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+                torch.cuda.empty_cache()
+                logger.info("closeEvent: CUDA synchronize + empty_cache")
+        except Exception as exc:
+            logger.debug("closeEvent: final CUDA cleanup: %s", exc)
+
     def closeEvent(self, event):
         """Behandelt das Schliessen der Anwendung (Fix F-003: Asynchroner Shutdown).
 
@@ -1129,12 +1158,17 @@ class PBWindow(QMainWindow):
             logger.warning("closeEvent: convert DB pool stop fehlgeschlagen: %s", exc)
 
         # 8b. Brain V3 EmbeddingScheduler graceful drain (Phase-3 App-Sync).
+        # B-692: Rueckgabe merken. request_stop == False heisst, ein Embed-Job
+        # laeuft nach dem Timeout noch auf der GPU -> der finale CUDA-Cleanup
+        # darf dann NICHT laufen (siehe _final_cuda_cleanup).
+        scheduler_stopped = True
         try:
             scheduler = getattr(self, "_brain_v3_scheduler", None)
             if scheduler is not None and scheduler.is_running():
-                scheduler.request_stop(timeout_ms=5000)
-                logger.info("closeEvent: EmbeddingScheduler gestoppt")
+                scheduler_stopped = bool(scheduler.request_stop(timeout_ms=5000))
+                logger.info("closeEvent: EmbeddingScheduler gestoppt (clean=%s)", scheduler_stopped)
         except Exception as exc:
+            scheduler_stopped = False  # Zustand unsicher -> Cleanup nicht erzwingen
             logger.warning("closeEvent: EmbeddingScheduler-Stop fehlgeschlagen: %s", exc)
 
         # 9. VRAM final freigeben — **SYNCHRON**. P8-CUDA-FIX: Vorher
@@ -1156,14 +1190,7 @@ class PBWindow(QMainWindow):
 
         # Finaler CUDA-Cleanup — auch falls der ModelManager schon leer war,
         # koennen Worker-lokale Tensor-Referenzen noch VRAM halten.
-        try:
-            import torch  # type: ignore
-            if torch.cuda.is_available():
-                torch.cuda.synchronize()
-                torch.cuda.empty_cache()
-                logger.info("closeEvent: CUDA synchronize + empty_cache")
-        except Exception as exc:
-            logger.debug("closeEvent: final CUDA cleanup: %s", exc)
+        self._final_cuda_cleanup(scheduler_stopped)
 
         # 10. Close DB connection pool (FIX C-2: BEFORE event.accept())
         try:

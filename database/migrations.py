@@ -77,10 +77,44 @@ def _needs_fk_cascade_migration(insp) -> bool:
     return False
 
 
+def _wal_safe_db_copy(src: Path, dst: Path) -> None:
+    """B-691: WAL-sicherer DB-Snapshot via ``sqlite3.Connection.backup()``.
+
+    ``shutil.copy2`` kopiert nur die Haupt-Datei. Laeuft die Engine im
+    WAL-Modus (``session.py``: ``PRAGMA journal_mode=WAL``), liegen committete,
+    noch nicht gecheckpointete Zeilen im ``-wal``-Sidecar — ein reiner
+    File-Copy verliert sie still. Die backup()-API (B-498-Muster, siehe
+    ``BackupService._sqlite_backup``) liest den vollstaendigen,
+    transaktionskonsistenten Stand inkl. WAL.
+    """
+    from services.backup_service import BackupService
+    BackupService._sqlite_backup(Path(src), Path(dst))
+
+
+def _wal_safe_db_restore(backup_src: Path, db_dst: Path) -> None:
+    """B-691: WAL-sicheres Restore aus einem (standalone) Backup.
+
+    Entfernt zuerst evtl. verbliebene ``-wal``/``-shm``-Sidecars der nach
+    ``engine.dispose()`` geschlossenen Ziel-DB. Sonst spielt SQLite beim
+    naechsten Oeffnen die *stale* WAL des abgebrochenen Migrations-Standes auf
+    die zurueckgespielte Datei -> Korruption. Danach Snapshot via backup().
+    """
+    db_dst = Path(db_dst)
+    for suffix in ("-wal", "-shm"):
+        side = db_dst.with_name(db_dst.name + suffix)
+        try:
+            if side.exists():
+                side.unlink()
+        except OSError as exc:
+            logger.warning("B-691: Sidecar %s nicht entfernbar: %s", side, exc)
+    from services.backup_service import BackupService
+    BackupService._sqlite_backup(Path(backup_src), db_dst)
+
+
 def _migrate_fk_cascade():
     """Recreate alle Tabellen mit ON DELETE CASCADE (SQLite kann FK nicht ALTER).
 
-    SICHERHEIT: Erstellt vorher ein Backup der DB-Datei.
+    SICHERHEIT: Erstellt vorher ein WAL-sicheres Backup der DB (B-691).
     """
     # Backup vor destruktiver Migration — mit Verifikation
     # Dynamischer Pfad: nutzt die URL der aktuellen Engine
@@ -92,13 +126,19 @@ def _migrate_fk_cascade():
     backup_path = None
     if db_path.exists():
         backup_path = db_path.with_suffix(".db.backup_before_fk_migration")
-        shutil.copy2(db_path, backup_path)
+        # B-691: WAL-sicher statt shutil.copy2 (verlor bei aktivem WAL alle
+        # noch nicht gecheckpointeten Commits aus dem -wal-Sidecar).
+        _wal_safe_db_copy(db_path, backup_path)
 
         # M-6 Fix: Enhanced backup verification
-        # 1. Check: Backup must exist and have same size
+        # 1. Check: Backup must exist and be non-empty.
+        #    B-691: KEIN Groessen-Gleichheits-Vergleich mehr — die backup()-API
+        #    schreibt eine kompaktierte Standalone-DB, deren Byte-Groesse
+        #    legitim von der WAL-Haupt-Datei abweicht. Die inhaltliche
+        #    Integritaet prueft der sqlite-Lesetest unten.
         original_size = db_path.stat().st_size
         backup_size = backup_path.stat().st_size if backup_path.exists() else 0
-        if not backup_path.exists() or backup_size != original_size:
+        if not backup_path.exists() or backup_size == 0:
             raise MigrationError(
                 f"FK-Migration abgebrochen: Backup-Verifikation fehlgeschlagen "
                 f"(original={original_size}B, backup={backup_size}B). Daten unveraendert."
@@ -269,7 +309,9 @@ def _migrate_fk_cascade():
         if backup_path and backup_path.exists():
             try:
                 engine.dispose()
-                shutil.copy2(backup_path, db_path)
+                # B-691: WAL-sicheres Restore statt shutil.copy2 — entfernt
+                # stale -wal/-shm der abgebrochenen Migration, sonst Korruption.
+                _wal_safe_db_restore(backup_path, db_path)
                 logger.info("Backup automatisch wiederhergestellt von: %s", backup_path)
             except Exception as restore_error:
                 logger.critical("Backup-Wiederherstellung FEHLGESCHLAGEN: %s — Manuell wiederherstellen von: %s",

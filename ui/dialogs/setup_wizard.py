@@ -549,7 +549,9 @@ class _PageDownload(QWidget):
             self._add_row(mid)
 
         self._worker = _DownloadWorker(ollama_models, hf_models)
-        self._thread = QThread()
+        # B-688: QThread mit Parent -> Qt-Ownership, wird nicht von Pythons GC
+        # mitten im Lauf eingesammelt.
+        self._thread = QThread(self)
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
         self._worker.step_progress.connect(self._on_progress)
@@ -625,6 +627,33 @@ class _PageDownload(QWidget):
         self._cancel_btn.setEnabled(False)
         self._status_lbl.setText("Breche ab…")
 
+    def shutdown(self, timeout_ms: int = 4000) -> None:
+        """B-688: Download-Thread sauber beenden, BEVOR das Widget zerstoert wird.
+
+        Ohne das wird ein noch laufender ``QThread`` beim Schliessen des Wizards
+        (Fenster-X, Esc/reject) zusammen mit der Seite destruiert -> Qt-Fehler
+        "QThread: Destroyed while thread is still running" -> nativer Crash
+        (0xC0000409). Ablauf: kooperativ abbrechen (Worker prueft ``_cancelled``),
+        dann ``quit()`` + ``wait()``; als letzter Ausweg ``terminate()``, damit
+        der Close garantiert nicht blockiert und der Thread nie laufend zerstoert
+        wird.
+        """
+        worker, thread = self._worker, self._thread
+        if worker is not None:
+            worker.cancel()
+        if thread is not None:
+            if thread.isRunning():
+                thread.quit()
+                if not thread.wait(timeout_ms):
+                    logger.warning(
+                        "SetupWizard: Download-Thread reagiert nicht in %d ms — terminate()",
+                        timeout_ms,
+                    )
+                    thread.terminate()
+                    thread.wait(1000)
+            self._thread = None
+            self._worker = None
+
 
 # ── Page 4: Finish ────────────────────────────────────────────────────────────
 
@@ -689,6 +718,26 @@ class SetupWizard(QDialog):
         self._apply_styles()
         self._build_ui()
         self._go_to(self.PAGE_HARDWARE)
+
+    def _shutdown_downloads(self) -> None:
+        """B-688: Download-Thread der Download-Seite sicher beenden, egal ueber
+        welchen Weg der Dialog geschlossen wird."""
+        page = getattr(self, "_page_dl", None)
+        if page is not None:
+            try:
+                page.shutdown()
+            except Exception as exc:  # Close darf nie an Cleanup scheitern
+                logger.warning("SetupWizard: Download-Shutdown fehlgeschlagen: %s", exc)
+
+    def done(self, result: int) -> None:
+        # done() ist der zentrale Ausgang fuer accept()/reject() (inkl. Esc).
+        self._shutdown_downloads()
+        super().done(result)
+
+    def closeEvent(self, event) -> None:
+        # Fenster-X / Window-Manager-Close, falls es done() nicht durchlaeuft.
+        self._shutdown_downloads()
+        super().closeEvent(event)
 
     def _apply_styles(self) -> None:
         self.setStyleSheet(
