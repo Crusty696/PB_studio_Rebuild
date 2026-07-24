@@ -166,18 +166,31 @@ class BeatAnalysisService:
         """Entlaedt das Modell und gibt VRAM frei."""
         if self._model is not None:
             import torch, gc
-            # Model auf CPU verschieben bevor Referenz geloescht wird
-            if hasattr(self._model, 'cpu'):
-                try:
-                    self._model.cpu()
-                except (RuntimeError, AttributeError) as e:
-                    logger.warning("model.cpu() VRAM-Freigabe fehlgeschlagen: %s", e)
-            del self._model
-            self._model = None
-            gc.collect()
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-            logger.info("beat_this Modell entladen, VRAM freigegeben.")
+            # B-697: unter demselben GPU_EXECUTION_LOCK wie die Inferenz
+            # (_analyze_chunked :413 / _analyze_full). ``BeatAnalysisService`` ist
+            # ein prozessweiter Singleton -> alle Tracks teilen sich EIN
+            # ``self._model``. Ohne Lock gibt ``unload()`` das Modell frei
+            # (``del`` + ``empty_cache``), waehrend ein paralleler Worker noch
+            # darauf inferiert -> ``'NoneType' object is not callable`` bzw.
+            # VRAM-use-after-free (Heap-Corruption 0xC0000374), analog B-684.
+            # RLock -> reentrant, die Aufrufer (:535/:628) halten den Lock nicht.
+            from services.model_manager import GPU_EXECUTION_LOCK
+            with GPU_EXECUTION_LOCK:
+                if self._model is None:
+                    # Anderer Thread hat waehrend des Lock-Wartens entladen.
+                    return
+                # Model auf CPU verschieben bevor Referenz geloescht wird
+                if hasattr(self._model, 'cpu'):
+                    try:
+                        self._model.cpu()
+                    except (RuntimeError, AttributeError) as e:
+                        logger.warning("model.cpu() VRAM-Freigabe fehlgeschlagen: %s", e)
+                del self._model
+                self._model = None
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                logger.info("beat_this Modell entladen, VRAM freigegeben.")
 
     def analyze(self, audio_path: str | Path, progress_cb=None) -> dict:
         """Analysiert eine Audio-Datei und gibt Beats + Downbeats zurueck.
