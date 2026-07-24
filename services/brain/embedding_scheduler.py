@@ -191,6 +191,36 @@ class EmbeddingScheduler(QObject):
         return self._thread is not None and self._thread.isRunning()
 
     # ------------------------------------------------------------------
+    # B-686: VRAM-Koordination mit dem ModelManager
+    # ------------------------------------------------------------------
+    def pause_for_analysis(self) -> None:
+        """Haelt neue Embeds an UND gibt die residenten Embedder frei, damit
+        eine schwere ModelManager-Analyse (SigLIP-so400m + RAFT) VRAM bekommt.
+
+        DEADLOCK-CONSTRAINT: NUR aufrufen, wenn der Caller KEINEN GPU-Lock
+        haelt. Der Embedder-Free nimmt via ``emb.unload()`` (B-684) den
+        GpuSerializer/GPU_EXECUTION_LOCK. Innerhalb einer gehaltenen
+        ``gpu_resource_lease`` (GPU_LOAD_LOCK) waere das die verbotene Kante
+        LOAD -> EXECUTION (Gegenkante EXECUTION -> LOAD existiert via
+        oom_recovery -> Deadlock). Am ``run()``-Start des Analyse-Workers ist
+        noch keine Lease genommen -> sicher.
+        """
+        thread = self._thread
+        if thread is not None:
+            thread.pause_embeddings()
+        # Free residenter Embedder (beide: SigLIP-2 + CLAP) ausserhalb jeder Lease.
+        try:
+            _reset_embedder_cache(unload=True)
+        except Exception as exc:  # best-effort — Analyse darf nie daran scheitern
+            logger.warning("B-686 pause_for_analysis: Embedder-Free fehlgeschlagen: %s", exc)
+
+    def resume_after_analysis(self) -> None:
+        """Hebt die Embed-Pause auf. Der naechste Job laedt die Embedder lazy neu."""
+        thread = self._thread
+        if thread is not None:
+            thread.resume_embeddings()
+
+    # ------------------------------------------------------------------
     # Submit
     # ------------------------------------------------------------------
     def submit_path(
@@ -240,6 +270,16 @@ class _SchedulerThread(QThread):
         self._queue: Optional[EmbeddingJobQueue] = None
         self._ready_event = threading.Event()
         self._stop_event = threading.Event()
+        # B-686: Pause-Gate — gesetzt = neue Embeds warten (VRAM-Koordination
+        # waehrend schwerer ModelManager-Analyse). Cross-thread via Event.
+        # Refcount, weil MEHRERE Analyse-Worker gleichzeitig laufen koennen
+        # (Batch + Pipeline, 2 Pipeline-Entry-Points): das Gate darf erst
+        # aufgehen, wenn ALLE resume gerufen haben — sonst laedt ein Embed die
+        # Embedder neu resident, waehrend ein zweiter Worker noch analysiert
+        # (reproduziert genau den OOM, den B-686 verhindert). P1-Skeptic-Fund.
+        self._pause_event = threading.Event()
+        self._pause_count = 0
+        self._pause_lock = threading.Lock()
         # B-627: Puffer fuer submit_task-Aufrufe, die eintreffen bevor der Loop
         # bereit ist (early submit vor Boot-Ready). Geflusht in run(), sobald der
         # Loop laeuft. _pending_lock serialisiert Ready-Wechsel + Puffer-Zugriff.
@@ -254,6 +294,27 @@ class _SchedulerThread(QThread):
         self._stop_event.set()
         if self._loop is not None and self._loop.is_running():
             self._loop.call_soon_threadsafe(self._loop.stop)
+
+    # B-686: Pause-Gate ----------------------------------------------------
+    def pause_embeddings(self) -> None:
+        with self._pause_lock:
+            self._pause_count += 1
+            self._pause_event.set()
+
+    def resume_embeddings(self) -> None:
+        with self._pause_lock:
+            if self._pause_count > 0:
+                self._pause_count -= 1
+            # Gate erst aufmachen, wenn KEIN Analyse-Worker mehr pausiert.
+            if self._pause_count == 0:
+                self._pause_event.clear()
+
+    async def _await_gate(self) -> bool:
+        """B-686: Blockiert (async, ohne GPU-Lock) solange pausiert. Liefert
+        ``True`` = weitermachen, ``False`` = Stop angefordert (Vorrang)."""
+        while self._pause_event.is_set() and not self._stop_event.is_set():
+            await asyncio.sleep(0.1)
+        return not self._stop_event.is_set()
 
     def submit_task(self, task: EmbeddingTask) -> Optional[str]:
         # B-627: job_id vorab auf dem Aufrufer-Thread (GUI) generieren, damit die
@@ -314,6 +375,13 @@ class _SchedulerThread(QThread):
     ):
         import numpy as np
         progress_cb(0.05, "starting")
+        # B-686: Pause-Gate VOR dem Executor-Dispatch — waehrend einer schweren
+        # ModelManager-Analyse wartet der Job hier, statt den Embedder (VRAM)
+        # neu resident zu machen. Das Warten haelt KEINEN GPU-Lock -> keine
+        # Lock-Inversion. Stop hat Vorrang (bricht das Warten ab).
+        if not await self._await_gate():
+            progress_cb(1.0, "paused-stop")
+            return None
         loop = asyncio.get_running_loop()
 
         def _blocking_embed():

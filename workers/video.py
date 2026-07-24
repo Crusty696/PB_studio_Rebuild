@@ -23,6 +23,37 @@ from .base import CancellableMixin, format_user_error
 logger = logging.getLogger(__name__)
 
 
+def _pause_embeddings_for_analysis():
+    """B-686: Embedding-Scheduler pausieren + persistente Brain-V3-Embedder
+    (SigLIP-2 + CLAP) freigeben, BEVOR die Video-Analyse eine GPU-Lease nimmt.
+
+    Deadlock-sicher, weil am ``run()``-Start noch KEIN GPU-Lock gehalten wird:
+    der Free nimmt via Serializer den GPU_EXECUTION_LOCK; innerhalb einer
+    gehaltenen GPU_LOAD_LOCK-Lease waere das die verbotene LOAD->EXECUTION-
+    Inversion (siehe B-686). Best-effort — Fehler brechen die Analyse nie.
+    Gibt den Scheduler zurueck (fuer resume) oder ``None``.
+    """
+    try:
+        from services.brain.embedding_scheduler import get_default_scheduler
+        sched = get_default_scheduler()
+        if sched.is_running():
+            sched.pause_for_analysis()
+            return sched
+    except Exception as exc:  # broad: Koordination darf die Analyse nie brechen
+        logger.warning("B-686: Embedding-Pause fehlgeschlagen (fahre fort): %s", exc)
+    return None
+
+
+def _resume_embeddings(sched) -> None:
+    """B-686: Gegenstueck zu _pause_embeddings_for_analysis. Immer im finally."""
+    if sched is None:
+        return
+    try:
+        sched.resume_after_analysis()
+    except Exception as exc:  # broad: resume-Fehler darf den Worker nie brechen
+        logger.warning("B-686: Embedding-Resume fehlgeschlagen: %s", exc)
+
+
 def _existing_path(value: str | None) -> bool:
     if not value:
         return False
@@ -112,6 +143,9 @@ class VideoBatchAnalysisWorker(QObject, CancellableMixin):
         done = 0
         errors = 0
         _ok = False
+        # B-686: Embedder freigeben + Embeds pausieren VOR jeder GPU-Arbeit
+        # (Proxy/NVENC). Noch kein GPU-Lock gehalten -> deadlock-sicher.
+        _scheduler = _pause_embeddings_for_analysis()
         try:
             analyzer = VideoAnalyzer()
             total = len(self._batch)
@@ -157,6 +191,7 @@ class VideoBatchAnalysisWorker(QObject, CancellableMixin):
             self._errored = True
             self.error.emit(format_user_error(e))
         finally:
+            _resume_embeddings(_scheduler)  # B-686
             if not _ok and not self._errored:
                 self.finished.emit(done, errors)
 
@@ -244,6 +279,10 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
 
         siglip_model_processor = None  # Vor try-Block definiert für finally-Zugriff
         raft_model_device = None       # RAFT-Cache fuer Batch-Modus
+        # B-686: Embedder freigeben + Embeds pausieren VOR der ersten GPU-Lease
+        # (Preload-Lease weiter unten). Hier haelt run() noch KEINEN GPU-Lock ->
+        # der Serializer-Zugriff im Free erzeugt keine LOAD->EXECUTION-Inversion.
+        _scheduler = _pause_embeddings_for_analysis()
         try:
             from services.video_analysis_service import run_deferred_captioning, run_full_pipeline
 
@@ -574,6 +613,11 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                     ModelManager().unload()
                 except (RuntimeError, AttributeError) as e:
                     logger.warning("SigLIP cleanup failed during finally block: %s", e)
+            # B-686: Embeds erst NACH dem Modell-Cleanup fortsetzen (P2), damit
+            # der Embedder-Reload nicht mit noch residentem SigLIP/RAFT um VRAM
+            # konkurriert. Refcount im Scheduler haelt das Gate zu, solange ein
+            # weiterer Analyse-Worker parallel laeuft.
+            _resume_embeddings(_scheduler)
             # finished MUSS immer emittiert werden damit thread.quit() greift —
             # ABER nur wenn weder finished noch error bereits emittiert wurde.
             # Bug A Fix: Verhindert Race zwischen error.emit + finished.emit, der
