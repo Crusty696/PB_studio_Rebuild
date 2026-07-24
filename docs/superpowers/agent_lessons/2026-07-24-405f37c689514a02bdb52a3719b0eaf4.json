@@ -1,0 +1,10 @@
+{
+  "lesson_id": "405f37c689514a02bdb52a3719b0eaf4",
+  "recorded_at": "2026-07-24T01:31:49+00:00",
+  "session_id": "57a84b14a9a740529a2cee6f364b69c6",
+  "head_at_start": "5f4e1c24fd668915b37fc9ae6d20f9262319a6d4",
+  "problem": "B-686: der naheliegende VRAM-Koordinations-Fix (Embedder aus dem Load-Pfad freigeben) haette einen Deadlock im Modell-Lade-Pfad eingefuehrt",
+  "cause": "load_siglip wird via ensure_loaded unter GPU_LOAD_LOCK gerufen; ein Embedder-Free nimmt seit B-684 den GPU_EXECUTION_LOCK -> neue Kante GPU_LOAD_LOCK->GPU_EXECUTION_LOCK. Die Gegenkante GPU_EXECUTION_LOCK->GPU_LOAD_LOCK existiert bereits (generate_embeddings unter gpu_execution_lease + @oom_recovery, das GPU_LOAD_LOCK nimmt). Zwei-Lock-Inversion ueber zwei Threads",
+  "rule": "Bevor ein neuer Lock in einen bestehenden Multi-Lock-Pfad eingefuegt wird (besonders GPU: GPU_LOAD_LOCK/GPU_EXECUTION_LOCK/_swap_lock), den vollen Lock-Graph auf beide Richtungen pruefen - eine neue Kante A->B ist ein Deadlock, wenn B->A irgendwo existiert. Cross-Subsystem-Cleanup, das einen Lock nimmt, NIE aus einem Pfad rufen, der bereits einen anderen GPU-Lock haelt. Bei bewiesener Inversion den Fix stoppen und als Design-Task eskalieren statt blind zu committen - ein Lade-Deadlock ist schlimmer als der bedingte OOM, den man fixen wollte",
+  "applies_to": "Alle Lock-einfuehrenden Aenderungen an GPU-Pfaden in PB Studio (model_manager, gpu_serializer, embedding_scheduler); generell Multi-Lock-Ordering"
+}
