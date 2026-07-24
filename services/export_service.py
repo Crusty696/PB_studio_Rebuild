@@ -1042,7 +1042,13 @@ def _export_with_filtergraph(video_segments, audio_path, output_path,
             )
             accumulated_duration = accumulated_duration + seg_durations[1] - xfade_dur
         else:
-            filter_parts.append("[v0][v1]concat=n=2:v=1:a=0[xf0]")
+            # B-707: concat setzt die Output-Timebase auf 1/1000000; ein
+            # nachfolgender xfade-Knoten in derselben Kette (gemischte
+            # cut+crossfade-Gruppe) verlangt aber, dass beide Inputs dieselbe
+            # Timebase haben wie die fps-normalisierten [vi]-Streams (1/fps) —
+            # sonst "timebase do not match" -> 0 Frames. settb=1/{fps} setzt sie
+            # zurueck. Reine cut- oder reine xfade-Ketten sind unbetroffen.
+            filter_parts.append(f"[v0][v1]concat=n=2:v=1:a=0,settb=1/{fps}[xf0]")
             accumulated_duration += seg_durations[1]
         current_label = "xf0"
 
@@ -1060,8 +1066,11 @@ def _export_with_filtergraph(video_segments, audio_path, output_path,
                 )
                 accumulated_duration = accumulated_duration + seg_durations[i] - xfade_dur
             else:
+                # B-707: siehe oben — Timebase-Reset nach concat, damit ein
+                # spaeterer xfade in derselben Kette die Inputs mit gleicher tb
+                # sieht (gemischte cut+crossfade-Gruppe).
                 filter_parts.append(
-                    f"[{current_label}][v{i}]concat=n=2:v=1:a=0[xf{i-1}]"
+                    f"[{current_label}][v{i}]concat=n=2:v=1:a=0,settb=1/{fps}[xf{i-1}]"
                 )
                 accumulated_duration += seg_durations[i]
             current_label = f"xf{i-1}"
