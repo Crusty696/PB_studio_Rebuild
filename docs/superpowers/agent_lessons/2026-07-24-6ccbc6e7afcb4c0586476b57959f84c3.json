@@ -1,0 +1,10 @@
+{
+  "lesson_id": "6ccbc6e7afcb4c0586476b57959f84c3",
+  "recorded_at": "2026-07-24T00:43:46+00:00",
+  "session_id": "57a84b14a9a740529a2cee6f364b69c6",
+  "head_at_start": "5f4e1c24fd668915b37fc9ae6d20f9262319a6d4",
+  "problem": "B-684: ein GPU-Cleanup-Pfad (Embedder-unload: cpu/empty_cache/synchronize) lief un-serialisiert, obwohl die zugehoerigen embed-Pfade denselben GpuSerializer bereits korrekt nehmen -> latente Heap-Corruption-Race gegen ModelManager-Kernels",
+  "cause": "Bei GPU-Subsystemen wird die Serialisierung oft nur auf dem offensichtlichen Hot-Path (Inferenz/embed) angebracht, der teardown-/unload-Pfad aber vergessen. empty_cache/synchronize sind genauso GPU-Ops und muessen unter denselben Lock. Zusaetzlich feuert unload aus einem ANDEREN Thread (Scheduler) als die Inferenz (TaskManager), und der Import startet beide Subsysteme parallel ohne gegenseitigen Ausschluss",
+  "rule": "Wenn ein GPU-Pfad (Inferenz) einen Serializer/Lock nimmt, MUSS jeder andere GPU-Pfad derselben Ressource (unload, empty_cache, synchronize, .cpu()-Move, Warmup) denselben Lock nehmen - teardown-Pfade gezielt mitpruefen, nicht nur den Hot-Path. Bei zwei parallel gestarteten GPU-Subsystemen (hier Embedding-Scheduler vs ModelManager) kein empty_cache/synchronize ohne Serialisierung, wenn fremde Modelle resident sein koennen",
+  "applies_to": "Alle GPU-Teardown/Cleanup-Pfade in PB Studio (Embedder, ModelManager, gpu_serializer); generell Lock-Abdeckung von Nicht-Hot-Path-GPU-Ops"
+}
