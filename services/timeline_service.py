@@ -171,13 +171,14 @@ def apply_auto_edit_segments(segments: list[dict], project_id: int | None = None
     if project_id is None:
         project_id = get_active_project_id()
 
-    # M-12 Fix: Acquire lock to serialize timeline writes and prevent race conditions
-    with _timeline_write_lock:
-        for attempt in range(max_retries):
+    # M-12 Fix: Lock serialisiert Timeline-Writes gegen parallele Applies.
+    # B-683: Lock PRO Versuch nehmen (nicht ueber die ganze Retry-Schleife) und
+    # den Backoff-``sleep`` AUSSERHALB des Locks halten — sonst blockierte ein
+    # wartender Apply jeden anderen bis zu ~50s. Jeder ``_do_apply_segments``-
+    # Aufruf bleibt weiterhin voll im Lock (atomar), nur die Wartezeit nicht.
+    for attempt in range(max_retries):
+        with _timeline_write_lock:
             try:
-                if attempt > 0:
-                    # H-15 FIX: Don't dispose shared engine in retry loop — just wait
-                    _time.sleep(1)
                 inserted = _do_apply_segments(segments, project_id)
                 repair_timeline_integrity(project_id)
                 # NEUBAU-VOLLINTEGRATION T2.3 (USE-009): automatischer
@@ -193,13 +194,26 @@ def apply_auto_edit_segments(segments: list[dict], project_id: int | None = None
                         "Auto-Snapshot nach Apply fehlgeschlagen: %s", _snap_exc)
                 return inserted
             except OperationalError as e:
-                if "database is locked" in str(e) and attempt < max_retries - 1:
-                    wait = 5 * (attempt + 1)
-                    logger.warning("DB locked bei Timeline-Write, Retry %d/%d (warte %ds)...",
-                                   attempt + 1, max_retries, wait)
-                    _time.sleep(wait)
-                else:
+                # Nur "database is locked" ist retrybar; letzter Versuch re-raist.
+                if not ("database is locked" in str(e)
+                        and attempt < max_retries - 1):
                     raise
+                # sonst: aus dem ``with`` fallen (Lock freigeben), dann warten.
+
+        # B-683: Backoff KURZ und AUSSERHALB des Locks. ``nullpool_session``
+        # setzt ``busy_timeout=120s`` — SQLite wartet das eigentliche
+        # Lock-Fenster also bereits ab, bevor der OperationalError ueberhaupt
+        # fliegt. Der frueher 5..20s-Backoff (im Lock, im GUI-Thread) war
+        # redundantes Extra-Warten und fror die UI bis ~50s ein.
+        wait = 0.5 * (attempt + 1)
+        logger.warning("DB locked bei Timeline-Write, Retry %d/%d (warte %.1fs)...",
+                       attempt + 1, max_retries, wait)
+        _time.sleep(wait)
+
+    # Sicherheitsnetz — der letzte Versuch re-raist bereits; hier landet man nur,
+    # falls max_retries <= 0 uebergeben wird.
+    raise RuntimeError(
+        f"apply_auto_edit_segments: {max_retries} Versuche erschoepft (DB locked)")
 
 
 def _do_apply_segments(segments: list[dict], project_id: int) -> int:
