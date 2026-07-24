@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QObject, Signal
 from PySide6.QtWidgets import (
     QHBoxLayout, QLabel, QMenu, QPushButton, QToolButton, QVBoxLayout, QWidget,
 )
@@ -15,6 +15,30 @@ logger = logging.getLogger(__name__)
 
 # Max. Eintraege im Snapshot-Menue (Service-Retention ist 20)
 RETENTION_MENU_MAX = 20
+
+
+class _SnapshotRestoreWorker(QObject):
+    """B-708 (Variant B): fuehrt den Snapshot-Restore (DB-Arbeit inkl.
+    Retry/busy_timeout) im Hintergrund-Thread aus, damit der GUI-Thread NICHT
+    einfriert. ``restore_snapshot`` fasst keine Qt-Objekte an (reine DB-Ops via
+    nullpool_session) und ist damit thread-sicher. Das anschliessende
+    ``load_from_db`` + ``undo_stack.clear`` bleibt im Main-Thread (Widgets)."""
+
+    finished = Signal()
+    error = Signal(str)
+
+    def __init__(self, snapshot_id: int):
+        super().__init__()
+        self._snapshot_id = snapshot_id
+
+    def run(self) -> None:
+        try:
+            from services.timeline_snapshot_service import restore_snapshot
+            restore_snapshot(self._snapshot_id, backup_current=True)
+            self.finished.emit()
+        except Exception as exc:  # an den Main-Thread-Slot durchreichen
+            logger.error("Snapshot-Restore (Worker) fehlgeschlagen: %s", exc)
+            self.error.emit(str(exc))
 
 
 class TimelineShell(QWidget):
@@ -175,11 +199,58 @@ class TimelineShell(QWidget):
             )
 
     def _restore_snapshot(self, snapshot_id: int, version: int) -> None:
-        """Stellt einen Snapshot her (aktueller Stand wird vorher gesichert)."""
+        """Stellt einen Snapshot her (aktueller Stand wird vorher gesichert).
+
+        B-708 (Variant B): Die DB-Arbeit (inkl. Retry gegen "database is locked"
+        + busy_timeout) laeuft jetzt in einem Hintergrund-Worker, damit der
+        GUI-Thread nicht einfriert. Das UI-Update (load_from_db + undo_stack
+        leeren) passiert nach Worker-Erfolg wieder im Main-Thread.
+        """
+        if getattr(self, "_restore_inflight", False):
+            self.status_label.setText("Snapshot-Restore laeuft bereits …")
+            return
+        self._restore_inflight = True
+        self.status_label.setText(f"Stelle Snapshot v{version} wieder her …")
+        worker = _SnapshotRestoreWorker(snapshot_id)
+        try:
+            from services.task_manager import GlobalTaskManager
+            GlobalTaskManager.instance().start_task(
+                name=f"Snapshot v{version} wiederherstellen",
+                worker=worker,
+                description="Timeline-Snapshot wiederherstellen",
+                on_finish=lambda *_a, _v=version: self._on_restore_done(_v),
+                on_error=lambda msg, _v=version: self._on_restore_failed(_v, msg),
+            )
+        except Exception as exc:  # start_task selbst fehlgeschlagen (B-706/Q3-Muster)
+            self._restore_inflight = False
+            logger.error("Snapshot-Restore konnte nicht gestartet werden: %s", exc)
+            self.status_label.setText(f"Snapshot-Restore fehlgeschlagen: {exc}")
+
+    def _shell_alive(self) -> bool:
+        """B-708: Der async Restore-Handler kann per QueuedConnection NACH dem
+        Schliessen/Zerstoeren der Shell feuern. Zugriff auf ein dann
+        C++-zerstoertes Widget (status_label/self) wuerde einen RuntimeError im
+        Qt-Slot werfen -> moeglicher PySide6-Abbruch. Vorher pruefen."""
+        try:
+            import shiboken6
+            return shiboken6.isValid(self) and shiboken6.isValid(self.status_label)
+        except Exception:
+            return False
+
+    def _set_status_safe(self, text: str) -> None:
+        if self._shell_alive():
+            try:
+                self.status_label.setText(text)
+            except RuntimeError:
+                pass  # C++-Objekt zwischenzeitlich zerstoert
+
+    def _on_restore_done(self, version: int) -> None:
+        """Main-Thread: Timeline neu laden + Undo-Stack leeren nach erfolgreichem Restore."""
+        self._restore_inflight = False
+        if not self._shell_alive():
+            return  # Shell waehrend des Restores geschlossen -> nichts mehr anfassen
         try:
             from database import get_active_project_id
-            from services.timeline_snapshot_service import restore_snapshot
-            restore_snapshot(snapshot_id, backup_current=True)
             project_id = get_active_project_id()
             if project_id is not None:
                 self.timeline.load_from_db(project_id)
@@ -192,14 +263,20 @@ class TimelineShell(QWidget):
             undo_stack = getattr(self.timeline, "undo_stack", None)
             if undo_stack is not None:
                 undo_stack.clear()
-            self.status_label.setText(
+            self._set_status_safe(
                 f"Snapshot v{version} wiederhergestellt — vorheriger Stand "
                 f"wurde automatisch gesichert."
             )
             logger.info("Timeline-Snapshot v%d via UI wiederhergestellt", version)
         except Exception as exc:
-            logger.error("Snapshot-Restore fehlgeschlagen: %s", exc)
-            self.status_label.setText(f"Snapshot-Restore fehlgeschlagen: {exc}")
+            logger.error("Snapshot-Restore Post-Load fehlgeschlagen: %s", exc)
+            self._set_status_safe(f"Snapshot-Restore fehlgeschlagen: {exc}")
+
+    def _on_restore_failed(self, version: int, msg: str) -> None:
+        """Main-Thread: Restore-Worker meldete einen Fehler."""
+        self._restore_inflight = False
+        logger.error("Snapshot-Restore v%d fehlgeschlagen: %s", version, msg)
+        self._set_status_safe(f"Snapshot-Restore fehlgeschlagen: {msg}")
 
     def _update_zoom_label(self) -> None:
         zoom = int(round(self.timeline.transform().m11() * 100))

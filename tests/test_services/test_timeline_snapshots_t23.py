@@ -134,5 +134,14 @@ class TestSnapshotMenuUi:
         assert actions and "ui-test" in actions[0].text()
 
         actions[0].trigger()
+        # B-708 Variant B: Restore laeuft jetzt als Hintergrund-Task (kein
+        # GUI-Freeze). load_from_db + Status passieren im Main-Thread-Handler
+        # _on_restore_done nach Worker-Erfolg -> Event-Loop pumpen bis fertig.
+        import time as _t
+        from PySide6.QtWidgets import QApplication as _QA
+        _deadline = _t.time() + 5.0
+        while not shell.timeline.loaded and _t.time() < _deadline:
+            _QA.processEvents()
+            _t.sleep(0.02)
         assert shell.timeline.loaded == [project]
         assert "wiederhergestellt" in shell.status_label.text()

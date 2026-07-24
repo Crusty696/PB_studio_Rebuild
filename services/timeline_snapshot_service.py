@@ -12,7 +12,9 @@ from __future__ import annotations
 import json
 import logging
 import threading
+import time as _time
 
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from database import engine
@@ -127,21 +129,58 @@ def restore_snapshot(snapshot_id: int, *, backup_current: bool = True) -> None:
         except Exception as exc:  # Backup darf Restore nicht verhindern
             logger.warning("Backup-Snapshot vor Restore fehlgeschlagen: %s", exc)
 
-    with Session(engine) as s:
-        s.query(TimelineEntry).filter_by(project_id=project_id).delete()
-        for c in clips:
-            s.add(TimelineEntry(
-                project_id=project_id,
-                track=c["track"],
-                media_id=c["media_id"],
-                start_time=c["start"],
-                end_time=c["end"],
-                lane=c["lane"],
-                source_start=c.get("source_start", 0.0),
-                source_end=c.get("source_end"),
-                locked=c.get("locked", False),
-            ))
-        s.commit()
+    # B-708: Der Restore war frueher der EINZIGE timeline_entries-Writer ohne die
+    # etablierte Anti-Lock-Haertung. apply_auto_edit_segments (timeline_service)
+    # schreibt dieselbe Tabelle seit M-12/B-079/B-683 mit
+    # _timeline_write_lock + nullpool_session + Retry-auf-"database is locked",
+    # alles in EINER Transaktion. Der Restore lief dagegen ueber den geteilten
+    # QueuePool ohne Lock/Retry -> gegen einen zweiten prozess-internen
+    # Timeline-Writer (paralleler Auto-Edit-Apply/Retention-DELETE) SQLITE_BUSY
+    # ("database is locked"), plus mehrsekuendiger Main-Thread-Freeze.
+    # Fix: exakt dasselbe Muster wie apply_auto_edit_segments.
+    # Lock-Ordnung: backup_current (oben, nutzt _version_lock) ist hier bereits
+    # fertig und AUSSERHALB des Write-Locks -> keine Inversion gegen
+    # apply_auto_edit_segments (das _timeline_write_lock -> _version_lock haelt).
+    # Lazy-Imports: Zyklus-sicher UND respektiert den Test-Monkeypatch von
+    # ``database.nullpool_session`` (die conftest-Fixture patcht das Attribut
+    # zur Laufzeit; ein Modul-Top-Import wuerde die alte Referenz einfrieren —
+    # exakt wie timeline_service._do_apply_segments es macht).
+    from database import nullpool_session
+    from services.timeline_service import _timeline_write_lock
+
+    max_retries = 5
+    for attempt in range(max_retries):
+        with _timeline_write_lock:
+            try:
+                with nullpool_session() as s:
+                    s.query(TimelineEntry).filter_by(project_id=project_id).delete()
+                    for c in clips:
+                        s.add(TimelineEntry(
+                            project_id=project_id,
+                            track=c["track"],
+                            media_id=c["media_id"],
+                            start_time=c["start"],
+                            end_time=c["end"],
+                            lane=c["lane"],
+                            source_start=c.get("source_start", 0.0),
+                            source_end=c.get("source_end"),
+                            locked=c.get("locked", False),
+                        ))
+                    s.commit()
+                break
+            except OperationalError as e:
+                # Nur "database is locked" ist retrybar; letzter Versuch re-raist.
+                if not ("database is locked" in str(e) and attempt < max_retries - 1):
+                    raise
+                # sonst: aus dem ``with`` fallen (Lock freigeben), dann warten.
+        # B-683: Backoff KURZ und AUSSERHALB des Locks.
+        wait = 0.5 * (attempt + 1)
+        logger.warning(
+            "B-708: DB locked bei Snapshot-Restore, Retry %d/%d (warte %.1fs)...",
+            attempt + 1, max_retries, wait,
+        )
+        _time.sleep(wait)
+
     logger.info(
         "Snapshot v%d wiederhergestellt (project=%d, %d Clips)",
         version, project_id, len(clips),

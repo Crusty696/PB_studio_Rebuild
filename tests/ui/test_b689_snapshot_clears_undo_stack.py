@@ -23,10 +23,12 @@ class _NoopCommand(QUndoCommand):
         pass
 
 
-def test_restore_snapshot_clears_undo_stack(monkeypatch):
+def test_restore_done_clears_undo_stack(monkeypatch):
+    """B-689 (nach B-708 Variant B async): das Leeren des Undo-Stacks passiert
+    im Main-Thread-Completion-Handler ``_on_restore_done`` (nach Worker-Erfolg),
+    nicht mehr synchron in ``_restore_snapshot``. Getestet wird der Handler."""
     _qapp()
     import database
-    import services.timeline_snapshot_service as tss
     from ui.workspaces.schnitt.timeline_shell import TimelineShell
 
     shell = TimelineShell()
@@ -35,14 +37,45 @@ def test_restore_snapshot_clears_undo_stack(monkeypatch):
     shell.timeline.undo_stack.push(_NoopCommand("dummy"))
     assert shell.timeline.undo_stack.count() == 1
 
-    # Restore + Reload stubben, damit kein echter DB-Zugriff passiert.
-    monkeypatch.setattr(tss, "restore_snapshot", lambda *a, **k: None)
     monkeypatch.setattr(database, "get_active_project_id", lambda: 1)
     shell.timeline.load_from_db = lambda project_id=None: None
 
-    shell._restore_snapshot(snapshot_id=7, version=3)
+    shell._on_restore_done(version=3)
 
     assert shell.timeline.undo_stack.count() == 0, (
         "Undo-Stack nach Snapshot-Restore nicht geleert (B-689) — Ctrl+Z wuerde "
         "den wiederhergestellten Stand zerstoeren."
     )
+
+
+def test_restore_snapshot_runs_async_without_blocking(monkeypatch):
+    """B-708 Variant B: _restore_snapshot startet den Restore als Hintergrund-Task
+    (kein synchroner DB-Call im GUI-Thread) und ist re-entrancy-geschuetzt."""
+    _qapp()
+    from ui.workspaces.schnitt import timeline_shell as tshell
+    from ui.workspaces.schnitt.timeline_shell import TimelineShell
+
+    shell = TimelineShell()
+
+    started = {"n": 0, "worker": None}
+
+    class _FakeTM:
+        @staticmethod
+        def instance():
+            return _FakeTM()
+
+        def start_task(self, name, worker, description="", on_finish=None, on_error=None):
+            started["n"] += 1
+            started["worker"] = worker
+            return "task_x"
+
+    monkeypatch.setattr("services.task_manager.GlobalTaskManager", _FakeTM)
+
+    shell._restore_snapshot(snapshot_id=7, version=3)
+    assert started["n"] == 1, "Restore wurde nicht als Hintergrund-Task gestartet"
+    assert isinstance(started["worker"], tshell._SnapshotRestoreWorker)
+    assert shell._restore_inflight is True
+
+    # Re-Entrancy: zweiter Klick startet KEINEN zweiten Task.
+    shell._restore_snapshot(snapshot_id=8, version=4)
+    assert started["n"] == 1, "Zweiter Restore trotz laufendem gestartet (Re-Entrancy)"
