@@ -113,19 +113,24 @@ class ClapAudioEmbedder:
     def unload(self) -> None:
         """Gibt CLAP-VRAM frei. Sicher erneut aufrufbar."""
         import gc
-        if self._model is not None:
-            del self._model
-            self._model = None
-        if self._processor is not None:
-            del self._processor
-            self._processor = None
-        gc.collect()
-        try:
-            import torch  # type: ignore
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-        except Exception:
-            pass
+        # B-684: GPU-Cleanup unter dem GpuSerializer serialisieren (wie
+        # ``embed_mix``), damit ``empty_cache`` nicht un-serialisiert aus dem
+        # Scheduler-Thread gegen live ModelManager-Kernels feuert
+        # (Heap-Corruption 0xC0000374).
+        with self.serializer.acquire(holder="clap_unload"):
+            if self._model is not None:
+                del self._model
+                self._model = None
+            if self._processor is not None:
+                del self._processor
+                self._processor = None
+            gc.collect()
+            try:
+                import torch  # type: ignore
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            except Exception:
+                pass
 
     @property
     def is_loaded(self) -> bool:

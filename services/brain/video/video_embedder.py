@@ -133,26 +133,33 @@ class Siglip2VideoEmbedder:
     def unload(self) -> None:
         import gc
         logger.info("Siglip2VideoEmbedder: Entlade Modell und gebe GPU-VRAM frei...")
-        if self._vision is not None:
+        # B-684: Der GPU-Cleanup (``.cpu()`` / ``empty_cache`` / ``synchronize``)
+        # MUSS unter demselben GpuSerializer laufen wie die embed-Pfade
+        # (``embed_clip`` haelt ``serializer.acquire``). Sonst feuert dieser
+        # un-serialisierte Cleanup aus dem Scheduler-Thread gegen live laufende
+        # ModelManager-Kernels in einem anderen Thread -> Heap-Corruption
+        # (0xC0000374). Genau davor warnt services/video_analysis_service.py:329.
+        with self.serializer.acquire(holder="siglip2_unload"):
+            if self._vision is not None:
+                try:
+                    self._vision.cpu()
+                except Exception as e:
+                    logger.debug("Modell konnte nicht auf CPU verschoben werden: %s", e)
+                del self._vision
+                self._vision = None
+            if self._processor is not None:
+                del self._processor
+                self._processor = None
+            gc.collect()
             try:
-                self._vision.cpu()
+                import torch  # type: ignore
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                    torch.cuda.synchronize()
+                    gc.collect()
+                    torch.cuda.empty_cache()
             except Exception as e:
-                logger.debug("Modell konnte nicht auf CPU verschoben werden: %s", e)
-            del self._vision
-            self._vision = None
-        if self._processor is not None:
-            del self._processor
-            self._processor = None
-        gc.collect()
-        try:
-            import torch  # type: ignore
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-                torch.cuda.synchronize()
-                gc.collect()
-                torch.cuda.empty_cache()
-        except Exception as e:
-            logger.warning("CUDA Cache-Freigabe fehlgeschlagen: %s", e)
+                logger.warning("CUDA Cache-Freigabe fehlgeschlagen: %s", e)
 
     @property
     def is_loaded(self) -> bool:

@@ -15,6 +15,7 @@ import time
 from typing import Any
 
 from services.action_registry import ActionRegistry, action_registry
+from services.errors import PBStudioError
 
 logger = logging.getLogger(__name__)
 
@@ -837,7 +838,13 @@ class LocalAgentService:
                         result["error"] = f"Fehler bei '{action_def.name}': {action_result['error']}"
                     else:
                         result["result"] = action_result
-                except (ValueError, RuntimeError, TypeError, OSError) as e:
+                except (ValueError, RuntimeError, TypeError, OSError, PBStudioError) as e:
+                    # B-685: PBStudioError (u.a. OllamaError/FFmpegError/DatabaseError)
+                    # erbt direkt von Exception, nicht von RuntimeError/OSError. Ohne
+                    # diesen Zweig entkam z.B. ein OllamaError aus dem synchronen
+                    # ask_ai-Handler dem Tupel, riss den Multi-Action-Loop ab und
+                    # verwarf ALLE Per-Aktion-Ergebnisse (statt strukturierter
+                    # Per-Aktion-Fehlermeldung).
                     result["error"] = f"Fehler bei '{action_def.name}': {e}"
 
         return result
