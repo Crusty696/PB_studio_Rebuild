@@ -376,6 +376,37 @@ def export_timeline(project_id: int = 1, output_name: str = "output.mp4",
 
     if not video_segments:
         raise ValueError("Keine Video-Clips auf der Timeline")
+
+    # B-693: Ein B-580-Skip (fehlender/soft-geloeschter Clip, media_id ist kein
+    # FK, D-028) hinterlaesst eine Luecke in den start/end-Zeiten. Der
+    # Gap-Validator unten wuerde deshalb den GESAMTEN Export mit ValueError
+    # abbrechen und damit die B-580-Absicht (nicht abbrechen) aufheben. Nur wenn
+    # tatsaechlich uebersprungen wurde, reihen wir die verbleibenden Segmente
+    # hier lueckenlos aneinander (Dauer je Segment bleibt). Folge: das Video ist
+    # um die Summe der uebersprungenen Slots kuerzer als das Audio (lokaler
+    # A/V-Versatz ab der Luecke) — bewusste Degradation gegenueber Totalabbruch.
+    # Normale Exports (ohne Skip) bleiben unberuehrt: der Validator laeuft dort
+    # unveraendert und faengt echte Desync-Fehler weiter ab.
+    if _missing_clip_count:
+        _cursor = 0.0
+        _total_shift = 0.0
+        for _seg in video_segments:
+            _dur = float(_seg["end"]) - float(_seg["start"])
+            _shift = float(_seg["start"]) - _cursor
+            if _shift > 0.05:
+                _total_shift += _shift
+            _seg["start"] = _cursor
+            _seg["end"] = _cursor + _dur
+            _cursor += _dur
+        if _total_shift > 0.05:
+            logger.warning(
+                "B-693: %d uebersprungene(s) Segment(e) -> %.2fs Timeline-Luecke(n) "
+                "geschlossen (Segmente nach vorne gezogen). Video ist entsprechend "
+                "kuerzer als Audio (lokaler A/V-Versatz), Export laeuft aber durch "
+                "statt abzubrechen.",
+                _missing_clip_count, _total_shift,
+            )
+
     _validate_video_timeline_gaps(video_segments)
 
     audio_temp_files = []

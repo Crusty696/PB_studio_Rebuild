@@ -40,9 +40,16 @@ def test_startup_checks_run_without_qapplication(monkeypatch, tmp_path):
 
 
 def test_database_bootstrap_failure_logs_and_exits_cleanly(monkeypatch, caplog):
+    # B-694 Defekt 1: run_database_bootstrap ruft KEIN separates create_all mehr
+    # auf, sondern nur noch init_db. Der Fehler-Injektionspunkt wandert damit von
+    # metadata.create_all zu init_db. Der Contract (Boot-Fehler -> sauberer
+    # SystemExit(1), Splash geschlossen, CRITICAL geloggt) bleibt unveraendert.
     class _Metadata:
-        def create_all(self, _engine):
+        def create_all(self, _engine):  # nicht mehr aufgerufen (nur Fallback)
             raise RuntimeError("db locked for test")
+
+    def _failing_init_db():
+        raise RuntimeError("db locked for test")
 
     class _Splash:
         closed = False
@@ -56,7 +63,7 @@ def test_database_bootstrap_failure_logs_and_exits_cleanly(monkeypatch, caplog):
     fake_database = SimpleNamespace(
         Base=SimpleNamespace(metadata=_Metadata()),
         engine=object(),
-        init_db=lambda: None,
+        init_db=_failing_init_db,
     )
     monkeypatch.setitem(sys.modules, "database", fake_database)
 

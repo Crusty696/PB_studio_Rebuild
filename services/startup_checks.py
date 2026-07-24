@@ -713,9 +713,15 @@ def run_database_bootstrap(*, splash=None, process_events=None) -> None:
     try:
         _show("Initialisiere Datenbank...")
         _process_events()
-        from database import Base, engine
-        Base.metadata.create_all(engine)
-
+        # B-694 Defekt 1: KEIN separates ``Base.metadata.create_all`` mehr vor
+        # ``init_db``. Es legte alle Tabellen an, BEVOR init_db die
+        # Fresh-Erkennung (``is_fresh = len(existing_tables) == 0``,
+        # migrations.py) machen konnte -> is_fresh war IMMER False, der
+        # Fresh-DB-Pfad (Alembic-Baseline stempeln statt Legacy-Migrationen)
+        # wurde nie genommen. ``init_db`` erstellt die Tabellen in BEIDEN Zweigen
+        # selbst (Fresh: create_all + stamp + upgrade; Existing: create_all +
+        # legacy), das Vorab-create_all war also nur redundant + brach die
+        # Erkennung.
         _show("Datenbank-Migrationen pruefen...")
         _process_events()
         from database import init_db as _init_db_sync

@@ -817,6 +817,15 @@ class PBWindow(QMainWindow):
         - EmbeddingScheduler start (QThread + asyncio-Loop)
         Alle Aktionen sind best-effort; Fehler werden geloggt, App laeuft weiter.
         """
+        # B-694 Defekt 2: Dieser Boot-Teil ist per QTimer.singleShot(0) geplant
+        # und kann feuern, NACHDEM der User das Fenster geschlossen hat
+        # (closeEvent lief bereits, Widgets/Services werden abgebaut). Dann wuerde
+        # der Zugriff auf self.console_text / das Starten des EmbeddingSchedulers
+        # gegen halb-zerstoerte Objekte laufen. Schliesst der Close bereits ->
+        # nichts mehr initialisieren.
+        if getattr(self, "_closing", False):
+            logger.info("_boot_brain_v3_services: App schliesst bereits — Boot uebersprungen.")
+            return
         # Health-Check
         try:
             from services.brain.storage.brain_store import BrainStore
@@ -934,6 +943,10 @@ class PBWindow(QMainWindow):
                 name="brain-v3-weekly-backup",
                 daemon=True,
             )
+            # B-694 Defekt 3: Referenz halten, damit der Shutdown den Thread mit
+            # kurzem Timeout joinen kann. Ohne Join konnte der Close mitten in
+            # einen laufenden DB-Backup fallen -> halb-geschriebene Backup-Datei.
+            self._weekly_backup_thread = thread
             thread.start()
         except Exception as exc:
             logger.warning("Brain-V3 weekly backup thread start failed: %s", exc)
@@ -993,12 +1006,30 @@ class PBWindow(QMainWindow):
         alle Controller braucht. Refactor in ShutdownManager wuerde nur
         verschieben, nicht vereinfachen.
         """
+        # B-694 Defekt 2: Sofort markieren, dass geschlossen wird. Ein per
+        # QTimer.singleShot(0) noch ausstehender _boot_brain_v3_services sieht das
+        # Flag und bricht ab, statt gegen abgebaute Widgets/Services zu laufen.
+        self._closing = True
+
         # B-615 Diagnose: Close-Eintritt beweisfähig loggen (Live-Vorfall
         # 2026-07-11 00:23:33 lief ohne Save-Prompt trotz dirty-Titel).
         logger.info(
             "closeEvent: eingetreten (dirty=%s, spontaneous=%s)",
             getattr(self, "_dirty", "<fehlt>"), event.spontaneous(),
         )
+
+        # B-694 Defekt 3: Weekly-Backup-Daemon mit kurzem Timeout joinen, damit
+        # ein gerade laufender Brain-V3-DB-Backup nicht mitten im Schreiben durch
+        # den Prozess-Tod abgeschnitten wird (halb-geschriebene Backup-Datei).
+        _wb = getattr(self, "_weekly_backup_thread", None)
+        if _wb is not None:
+            try:
+                if _wb.is_alive():
+                    _wb.join(timeout=3.0)
+                    if _wb.is_alive():
+                        logger.warning("closeEvent: Weekly-Backup-Thread nach 3s noch aktiv.")
+            except Exception as exc:
+                logger.debug("closeEvent: Weekly-Backup-Join fehlgeschlagen: %s", exc)
 
         # 1. Fenster-Zustand sofort sichern
         try:
