@@ -183,6 +183,15 @@ class TimelineShell(QWidget):
             project_id = get_active_project_id()
             if project_id is not None:
                 self.timeline.load_from_db(project_id)
+            # B-689: Der Restore schreibt neue TimelineEntry-Zeilen mit NEUEN IDs.
+            # Der Undo-Stack haelt danach Commands auf tote/fremde entry_ids —
+            # ein Ctrl+Z wuerde den gerade wiederhergestellten Stand zerstoeren
+            # (z.B. ApplyAutoEditCommand.undo() loescht alle Video-Clips). Ein
+            # Restore ist ein neuer Ausgangszustand -> Stack leeren. NICHT in
+            # load_from_db selbst, weil undo/redo diese Methode aufrufen.
+            undo_stack = getattr(self.timeline, "undo_stack", None)
+            if undo_stack is not None:
+                undo_stack.clear()
             self.status_label.setText(
                 f"Snapshot v{version} wiederhergestellt — vorheriger Stand "
                 f"wurde automatisch gesichert."

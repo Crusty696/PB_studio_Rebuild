@@ -981,6 +981,11 @@ def _export_with_filtergraph(video_segments, audio_path, output_path,
         accumulated_duration = seg_durations[0]
 
         xfade_dur = min(video_segments[1].get("crossfade", 0.0), 2.0)
+        # B-687 Defekt 2: xfade darf weder laenger als das eingehende Segment noch
+        # laenger als der bisher aufgelaufene Composite sein — sonst wird
+        # ``accumulated_duration`` negativ und alle folgenden Offsets bleiben bei
+        # 0.1 gepinnt (Frozen-Frames + gestapelte Segmente).
+        xfade_dur = min(xfade_dur, seg_durations[1], accumulated_duration)
         if xfade_dur > 0:
             offset = max(0.1, accumulated_duration - xfade_dur)
             filter_parts.append(
@@ -994,6 +999,8 @@ def _export_with_filtergraph(video_segments, audio_path, output_path,
 
         for i in range(2, n):
             xfade_dur = min(video_segments[i].get("crossfade", 0.0), 2.0)
+            # B-687 Defekt 2: siehe oben — Clamp auf Segment- und Composite-Laenge.
+            xfade_dur = min(xfade_dur, seg_durations[i], accumulated_duration)
             if xfade_dur > 0:
                 offset = max(0.1, accumulated_duration - xfade_dur)
                 filter_parts.append(
