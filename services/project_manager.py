@@ -241,6 +241,14 @@ class ProjectManager(QObject):
         # Engine auf der halb-initialisierten neuen DB → alle naechsten
         # ORM-Reads crashed mit OperationalError. Wir merken uns den
         # vorigen Pfad (kann None sein) und switchen zurueck.
+        # B-695 D1: Steer-Override-Queue beim Wechsel auf das neue Projekt leeren
+        # (analog open_project) — keine Uebernahme alter Override-Eintraege.
+        try:
+            from services.steer_override_queue import get_default_queue
+            get_default_queue().clear()
+        except (ImportError, AttributeError, RuntimeError) as exc:
+            logger.warning("Failed to clear steer override queue in create_project: %s", exc)
+
         import database
         import database.session as _ses
         _previous_root = _ses.APP_ROOT
@@ -361,6 +369,14 @@ class ProjectManager(QObject):
             invalidate_pacing_caches()
         except (ImportError, AttributeError, RuntimeError) as exc:
             logger.warning("Failed to invalidate pacing caches in open_project: %s", exc)
+
+        # B-695 D1: prozessweite Steer-Override-Queue beim Projektwechsel leeren,
+        # damit Override-Eintraege aus dem vorigen Projekt nicht ins neue lecken.
+        try:
+            from services.steer_override_queue import get_default_queue
+            get_default_queue().clear()
+        except (ImportError, AttributeError, RuntimeError) as exc:
+            logger.warning("Failed to clear steer override queue in open_project: %s", exc)
 
         # Swap database engine
         # B-051: Rollback bei init_db-Fehler (siehe create_project).

@@ -311,9 +311,18 @@ def _get_beat_data_combined(
         return beat_positions, downbeat_positions, energy_per_beat, is_fallback
 
 
+def _engine_cache_identity() -> tuple[int, str]:
+    return id(engine), str(getattr(engine, "url", ""))
+
+
 @lru_cache(maxsize=64)
-def _get_audio_duration(audio_id: int) -> float:
-    """Gibt die Dauer des Audio-Tracks in Sekunden zurueck."""
+def _get_audio_duration_cached(engine_identity: tuple[int, str], audio_id: int) -> float:
+    """Gibt die Dauer des Audio-Tracks in Sekunden zurueck.
+
+    B-695 D2: engine_identity ist Teil des Cache-Keys, damit ein
+    Projektwechsel (neue Engine, evtl. gleiche audio_id) keinen Stale-Treffer
+    aus dem alten Projekt liefert. Session nutzt weiter die aktuelle Engine.
+    """
     with Session(engine) as session:
         # B-629 (A): nur Skalar-Spalte duration laden statt ORM-Objekt mit
         # lazy='joined' Blob-Relationships (beatgrid/waveform_data)
@@ -325,9 +334,20 @@ def _get_audio_duration(audio_id: int) -> float:
         return row.duration if row and row.duration else 60.0
 
 
+def _get_audio_duration(audio_id: int) -> float:
+    return _get_audio_duration_cached(_engine_cache_identity(), int(audio_id))
+
+
+_get_audio_duration.cache_clear = _get_audio_duration_cached.cache_clear
+_get_audio_duration.cache_info = _get_audio_duration_cached.cache_info
+
+
 @lru_cache(maxsize=64)
-def _get_audio_path(audio_id: int) -> str:
-    """Gibt den Dateipfad des Audio-Tracks zurueck."""
+def _get_audio_path_cached(engine_identity: tuple[int, str], audio_id: int) -> str:
+    """Gibt den Dateipfad des Audio-Tracks zurueck.
+
+    B-695 D2: engine_identity im Cache-Key (siehe _get_audio_duration_cached).
+    """
     with Session(engine) as session:
         # B-090: nur Skalar-Spalte file_path laden statt ORM-Objekt mit
         # lazy='joined' Blob-Relationships (beatgrid/waveform_data)
@@ -339,8 +359,12 @@ def _get_audio_path(audio_id: int) -> str:
         return row.file_path if row else ""
 
 
-def _engine_cache_identity() -> tuple[int, str]:
-    return id(engine), str(getattr(engine, "url", ""))
+def _get_audio_path(audio_id: int) -> str:
+    return _get_audio_path_cached(_engine_cache_identity(), int(audio_id))
+
+
+_get_audio_path.cache_clear = _get_audio_path_cached.cache_clear
+_get_audio_path.cache_info = _get_audio_path_cached.cache_info
 
 
 @lru_cache(maxsize=64)
@@ -371,11 +395,17 @@ _get_bpm.cache_info = _get_bpm_cached.cache_info
 def _get_video_info(video_ids: list[int]) -> dict[int, dict]:
     """Holt Video-Metadaten (Dauer, Pfad) fuer alle IDs. Cached intern."""
     import copy
-    return copy.deepcopy(_get_video_info_cached(tuple(sorted(video_ids))))
+    # B-695 D2: engine_identity im Cache-Key, damit Projektwechsel keinen
+    # Stale-Treffer aus dem alten Projekt liefert.
+    return copy.deepcopy(
+        _get_video_info_cached(_engine_cache_identity(), tuple(sorted(video_ids)))
+    )
 
 
 @lru_cache(maxsize=32)
-def _get_video_info_cached(video_ids: tuple[int, ...]) -> dict[int, dict]:
+def _get_video_info_cached(
+    engine_identity: tuple[int, str], video_ids: tuple[int, ...]
+) -> dict[int, dict]:
     """Cached-Backend fuer _get_video_info (tuple ist hashable).
 
     Nutzt joinedload um N+1 Lazy-Loading zu vermeiden — ohne joinedload
