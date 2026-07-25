@@ -247,17 +247,29 @@ class TestOrchestratorProcess:
     def test_process_returns_dict_with_required_keys(self):
         """process() gibt immer einen Dict mit 'agent', 'action', 'result' zurueck.
         Fallback-Pfad: kein Agent, kein Registry-Match -> 'action': 'none'.
+
+        B-696: Konversationstext matcht keinen Agent/keine Action -> process()
+        faellt auf den Ollama-Chat-Pfad. Ohne Mocks telefonierte der Test live zu
+        Ollama (Tool-Loop-Inferenz >120 s) und fror die ganze Suite ein. Daher den
+        gesamten Ollama-Pfad deterministisch stilllegen: kein Tool-Loop-Response
+        und OllamaService nicht bereit -> sauberer 'none'-Fallback ohne Netz.
         """
         orch = self._make_orchestrator()
 
         # Sub-Agenten-Liste ist leer -> _route_to_agent gibt None zurueck.
         # _route_to_registry mocken, damit kein echter Registry-Zugriff stattfindet.
-        with patch.object(orch, "_route_to_registry", return_value=None):
+        # _chat_with_tools_loop + OllamaService mocken -> keine Live-Inferenz (B-696).
+        with patch.object(orch, "_route_to_registry", return_value=None), \
+             patch.object(orch, "_chat_with_tools_loop", return_value=None), \
+             patch("agents.orchestrator_agent.OllamaService") as mock_ollama:
+            mock_ollama.get.return_value.is_ready = False
             result = orch.process("hallo wie geht es dir heute")
 
         assert "agent" in result
         assert "action" in result
         assert "result" in result
+        # Dokumentierter Fallback-Kontrakt: kein Agent/Action + Ollama nicht bereit.
+        assert result["action"] == "none"
 
     def test_process_detect_analyze_all_triggers_handle_all(self):
         """'analysiere alle' triggert _handle_analyze_all."""
