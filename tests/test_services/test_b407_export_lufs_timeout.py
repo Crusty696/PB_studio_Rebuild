@@ -27,6 +27,14 @@ def test_b407_lufs_subprocess_timeout_is_raised(monkeypatch):
                 raise subprocess.TimeoutExpired(["ffmpeg"], timeout)
             return "", "timed out"
 
+        def wait(self, timeout=None):
+            # B-706/F5: der Progress-Pfad wartet jetzt via wait() (stdout/stderr
+            # werden separat gedraint) statt via communicate(). Timeout-Contract
+            # unveraendert: solange nicht gekillt -> TimeoutExpired.
+            if not self.killed:
+                raise subprocess.TimeoutExpired(["ffmpeg"], timeout)
+            return self.returncode
+
     monkeypatch.setattr("services.export_service.subprocess.Popen", FakeProcess)
 
     with pytest.raises(subprocess.TimeoutExpired):

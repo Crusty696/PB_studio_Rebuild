@@ -733,6 +733,47 @@ class TimelineSnapshot(Base):
         return f"<TimelineSnapshot(id={self.id}, project_id={self.project_id}, v={self.version})>"
 
 
+class SoftDeleteTimelineBackup(Base):
+    """B-706/M1: Sichert die Timeline-Platzierung eines Mediums beim Soft-Delete.
+
+    Der Soft-Delete (``services/ingest_service.py``) loescht die zugehoerigen
+    ``TimelineEntry``- + ``ClipAnchor``-Rows physisch, damit kein Consumer
+    (Export/Pacing/Timeline-UI) einen getrashten Clip referenziert. Ohne Backup
+    ist die Timeline-Position nach einem Papierkorb-Restore unwiederbringlich weg
+    (stiller Verlust). Diese Tabelle haelt einen JSON-Snapshot der geloeschten
+    Platzierung (Liste von Entries inkl. ihrer Anchors) pro (media_type, media_id);
+    ``restore_media`` legt daraus neue Rows an und loescht den Backup-Eintrag,
+    ``purge_soft_deleted_media`` raeumt Backups endgueltig mit.
+
+    Bewusst eine EIGENE Tabelle statt einer Blob-Spalte auf ``audio_tracks`` /
+    ``video_clips`` (Konvention, vgl. ``av_pacing_data`` / ``waveform_data`` —
+    keine weiteren Blob-Spalten auf den Hot-Media-Tabellen, B-090).
+    """
+    __tablename__ = "soft_delete_timeline_backup"
+    __table_args__ = (
+        Index("idx_sd_timeline_backup_media", "media_type", "media_id"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    project_id = Column(
+        Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
+    )
+    # Polymorpher Discriminator/Pointer analog TimelineEntry.track/media_id
+    # (kein SQL-FK — SQL kennt keine Disjunktiv-FKs).
+    media_type = Column(String, nullable=False)   # "audio" | "video"
+    media_id = Column(Integer, nullable=False)
+    payload_json = Column(Text, nullable=False)
+    created_at = Column(
+        DateTime, nullable=False, default=lambda: _datetime.datetime.utcnow()
+    )
+
+    def __repr__(self):
+        return (
+            f"<SoftDeleteTimelineBackup(id={self.id}, "
+            f"{self.media_type}:{self.media_id})>"
+        )
+
+
 class ProjectNote(Base):
     """SCHNITT-Redesign 2026-05-09: Markdown-Notes pro Projekt (Sub-Tab "RL & Notes").
 

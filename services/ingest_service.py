@@ -194,6 +194,19 @@ def ingest_video(
             f"Video-Datei unlesbar oder ohne Video-Stream (Import abgelehnt): {file_path}"
         )
 
+    # B-706/M3: Content-Hash fuer Dedup ueber verschiedene Pfade auf denselben
+    # Inhalt (UNC/gemapptes Laufwerk/Junction/8.3). 'fast'-Modus (erste + letzte
+    # 5 MiB + Groesse) haelt die Import-Kosten auch bei grossen Dateien gering.
+    # Ein Hash-Fehler darf den Import NICHT blockieren -> stream_sha256=None.
+    stream_sha256 = None
+    try:
+        from services.storage_provenance.source_identity import compute_source_sha256
+        stream_sha256 = compute_source_sha256(resolved, media_type="video", mode="fast")
+    except Exception as _hash_exc:  # broad: Hashing ist best-effort
+        logger.warning(
+            "B-706/M3: stream_sha256 fuer '%s' fehlgeschlagen: %s", resolved, _hash_exc
+        )
+
     try:
         from database import nullpool_session
         with nullpool_session() as session:
@@ -227,6 +240,24 @@ def ingest_video(
                     return existing
                 return None
 
+            # B-706/M3: Kein Pfad-Treffer, aber evtl. derselbe INHALT unter einem
+            # anderen Pfad bereits aktiv im Projekt -> Doppel-Import ueberspringen.
+            if stream_sha256:
+                content_dup = (
+                    session.query(VideoClip)
+                    .filter_by(project_id=project_id, stream_sha256=stream_sha256)
+                    .filter(VideoClip.deleted_at.is_(None))
+                    .first()
+                )
+                if content_dup is not None:
+                    logger.info(
+                        "B-706/M3: identischer Video-Inhalt (sha=%s) bereits im "
+                        "Projekt als '%s' (id=%s) — Import von '%s' uebersprungen.",
+                        stream_sha256[:12], content_dup.file_path, content_dup.id,
+                        resolved,
+                    )
+                    return None
+
             meta = _file_meta(path)
             clip = VideoClip(
                 project_id=project_id,
@@ -236,6 +267,7 @@ def ingest_video(
                 height=video_meta.get("height"),
                 fps=video_meta.get("fps"),
                 codec=video_meta.get("codec"),
+                stream_sha256=stream_sha256,
             )
             session.add(clip)
             session.commit()
@@ -580,6 +612,91 @@ def delete_all_media(project_id: int | None = None) -> int:
         return count_a + count_v
 
 
+# ── B-706/M1: Timeline-Platzierung ueber Soft-Delete/Restore erhalten ─────────
+# Feld-Whitelist eines TimelineEntry, die beim Soft-Delete gesichert und beim
+# Restore neu gesetzt wird (id/project_id/track/media_id werden separat gesetzt).
+_M1_ENTRY_FIELDS = (
+    "start_time", "end_time", "lane", "crossfade_duration",
+    "source_start", "source_end", "brightness", "contrast", "locked",
+)
+
+
+def _m1_serialize_entry(entry) -> dict:
+    """Serialisiert einen TimelineEntry inkl. seiner ClipAnchors zu JSON-Dict."""
+    data = {f: getattr(entry, f) for f in _M1_ENTRY_FIELDS}
+    data["anchors"] = [
+        {"time_offset": a.time_offset, "label": a.label, "color": a.color}
+        for a in (entry.anchors or [])
+    ]
+    return data
+
+
+def _m1_backup_timeline_placement(session, entries) -> None:
+    """B-706/M1: Sichert die Platzierung der (gleich physisch geloeschten)
+    TimelineEntries pro (media_type, media_id) in soft_delete_timeline_backup,
+    damit restore_media sie wiederherstellen kann."""
+    from database import SoftDeleteTimelineBackup
+    grouped: dict[tuple[str, int], list[dict]] = {}
+    project_of: dict[tuple[str, int], int] = {}
+    for e in entries:
+        key = (e.track, e.media_id)
+        grouped.setdefault(key, []).append(_m1_serialize_entry(e))
+        project_of[key] = e.project_id
+    for (track, media_id), payload in grouped.items():
+        # Etwaiges Alt-Backup derselben Media entfernen (erneuter Soft-Delete
+        # ohne zwischenzeitliches Restore) — media_id ist polymorph, daher
+        # immer mit media_type paaren.
+        session.query(SoftDeleteTimelineBackup).filter(
+            SoftDeleteTimelineBackup.media_type == track,
+            SoftDeleteTimelineBackup.media_id == media_id,
+        ).delete(synchronize_session=False)
+        session.add(SoftDeleteTimelineBackup(
+            project_id=project_of[(track, media_id)],
+            media_type=track,
+            media_id=media_id,
+            payload_json=json.dumps(payload),
+        ))
+
+
+def _m1_restore_timeline_placement(session, video_ids, audio_ids) -> None:
+    """B-706/M1: Legt gesicherte TimelineEntries + ClipAnchors neu an und loescht
+    die zugehoerigen Backup-Rows. No-op, wenn kein Backup existiert."""
+    from database import SoftDeleteTimelineBackup, TimelineEntry, ClipAnchor
+    pairs: list[tuple[str, int]] = []
+    if video_ids:
+        pairs += [("video", mid) for mid in video_ids]
+    if audio_ids:
+        pairs += [("audio", mid) for mid in audio_ids]
+    for media_type, media_id in pairs:
+        backups = session.query(SoftDeleteTimelineBackup).filter(
+            SoftDeleteTimelineBackup.media_type == media_type,
+            SoftDeleteTimelineBackup.media_id == media_id,
+        ).all()
+        for backup in backups:
+            try:
+                entry_dicts = json.loads(backup.payload_json)
+            except (ValueError, TypeError):
+                entry_dicts = []
+            for edata in entry_dicts:
+                anchors = edata.get("anchors", []) or []
+                entry = TimelineEntry(
+                    project_id=backup.project_id,
+                    track=media_type,
+                    media_id=media_id,
+                    **{k: edata.get(k) for k in _M1_ENTRY_FIELDS},
+                )
+                session.add(entry)
+                session.flush()  # entry.id fuer die Anchors
+                for a in anchors:
+                    session.add(ClipAnchor(
+                        timeline_entry_id=entry.id,
+                        time_offset=a.get("time_offset"),
+                        label=a.get("label"),
+                        color=a.get("color"),
+                    ))
+            session.delete(backup)
+
+
 def delete_selected_media(video_ids: list[int], audio_ids: list[int]) -> int:
     """Loescht einzelne Audio- und Video-Eintraege anhand ihrer IDs.
 
@@ -598,22 +715,25 @@ def delete_selected_media(video_ids: list[int], audio_ids: list[int]) -> int:
 
     # BUG-006: nullpool_session vermeidet Connection-Leaks in Worker-Threads
     with nullpool_session() as session:
-        # Timeline-Entries fuer diese Medien finden
-        timeline_ids = []
+        # Timeline-Entries fuer diese Medien finden (B-706/M1: volle Rows statt
+        # nur IDs — die Platzierung wird vor dem physischen Delete gesichert).
+        entries = []
         if audio_ids:
-            timeline_ids += [
-                r[0] for r in session.query(TimelineEntry.id).filter(
-                    TimelineEntry.media_id.in_(audio_ids),
-                    TimelineEntry.track == "audio",
-                ).all()
-            ]
+            entries += session.query(TimelineEntry).filter(
+                TimelineEntry.media_id.in_(audio_ids),
+                TimelineEntry.track == "audio",
+            ).all()
         if video_ids:
-            timeline_ids += [
-                r[0] for r in session.query(TimelineEntry.id).filter(
-                    TimelineEntry.media_id.in_(video_ids),
-                    TimelineEntry.track == "video",
-                ).all()
-            ]
+            entries += session.query(TimelineEntry).filter(
+                TimelineEntry.media_id.in_(video_ids),
+                TimelineEntry.track == "video",
+            ).all()
+        timeline_ids = [e.id for e in entries]
+
+        # B-706/M1: Platzierung sichern, BEVOR ClipAnchor/TimelineEntry geloescht
+        # werden — restore_media legt sie daraus wieder an.
+        if entries:
+            _m1_backup_timeline_placement(session, entries)
 
         # Grandchildren zuerst
         if timeline_ids:
@@ -732,9 +852,16 @@ def restore_media(video_ids: list[int], audio_ids: list[int]) -> int:
     B-462 Stage 2 (Task 12, option C): Setzt ``deleted_at = NULL`` auf den
     angegebenen, aktuell soft-geloeschten Parents. Analyse-Children
     (Scene/Beatgrid/...) ueberleben den Soft-Delete (Stage 1), darum kehrt der
-    Clip mit ihnen zurueck. HINWEIS: VectorDB-Embeddings werden beim Soft-Delete
-    entfernt und durch ein Restore NICHT wiederhergestellt — fuer Semantic-Search
-    muss der Clip neu analysiert werden.
+    Clip mit ihnen zurueck.
+
+    B-706/M1: Zusaetzlich wird die Timeline-Platzierung (TimelineEntry +
+    ClipAnchor) aus ``soft_delete_timeline_backup`` wiederhergestellt — der Clip
+    kehrt mit neuen Row-IDs an seine alte Timeline-Position zurueck. Existiert
+    kein Backup (z. B. Alt-Delete vor diesem Fix), ist das ein No-op.
+
+    HINWEIS: VectorDB-Embeddings werden beim Soft-Delete entfernt und durch ein
+    Restore NICHT wiederhergestellt — fuer Semantic-Search muss der Clip neu
+    analysiert werden.
     """
     if not video_ids and not audio_ids:
         return 0
@@ -753,6 +880,8 @@ def restore_media(video_ids: list[int], audio_ids: list[int]) -> int:
             ).filter(AudioTrack.deleted_at.isnot(None)).update(
                 {AudioTrack.deleted_at: None}, synchronize_session=False
             )
+        # B-706/M1: Timeline-Platzierung aus dem Soft-Delete-Backup wiederherstellen.
+        _m1_restore_timeline_placement(session, video_ids, audio_ids)
         session.commit()
     return count
 
@@ -776,7 +905,7 @@ def purge_soft_deleted_media(project_id: int | None = None) -> int:
     from database import (
         AudioVideoAnchor, ClipAnchor, TimelineEntry,
         Scene, Beatgrid, WaveformData, StructureSegment, HotCue,
-        AnalysisStatus,
+        AnalysisStatus, SoftDeleteTimelineBackup,
         nullpool_session as _nps,
     )
     with _nps() as session:
@@ -817,6 +946,19 @@ def purge_soft_deleted_media(project_id: int | None = None) -> int:
             ).delete(synchronize_session=False)
             session.query(TimelineEntry).filter(
                 TimelineEntry.id.in_(timeline_ids)
+            ).delete(synchronize_session=False)
+
+        # B-706/M1: Timeline-Backups der endgueltig geloeschten Medien mitraeumen
+        # (FK-CASCADE greift nur bei Projekt-Delete, nicht beim Media-Purge).
+        if video_ids:
+            session.query(SoftDeleteTimelineBackup).filter(
+                SoftDeleteTimelineBackup.media_type == "video",
+                SoftDeleteTimelineBackup.media_id.in_(video_ids),
+            ).delete(synchronize_session=False)
+        if audio_ids:
+            session.query(SoftDeleteTimelineBackup).filter(
+                SoftDeleteTimelineBackup.media_type == "audio",
+                SoftDeleteTimelineBackup.media_id.in_(audio_ids),
             ).delete(synchronize_session=False)
 
         anchor_conds = []

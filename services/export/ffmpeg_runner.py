@@ -152,15 +152,34 @@ def _run_subprocess_cancellable(
     timeout_error: subprocess.TimeoutExpired | None = None
     try:
         if reader is not None:
-            # stdout wird im Reader-Thread gelesen — wir warten nur auf stderr.
+            # B-706/F5: stdout wird bereits vom _progress_reader-Thread konsumiert.
+            # ``communicate()`` wuerde stdout PARALLEL mitlesen -> die beiden Leser
+            # teilen sich die Progress-Zeilen (ruckelnder LUFS-Balken). Stattdessen
+            # stderr in einem EIGENEN Thread draINen und nur auf den Prozess warten:
+            # beide Pipes werden nebenlaeufig geleert (kein 64KB-Pipe-Deadlock),
+            # und stdout gehoert exklusiv dem _progress_reader.
+            stderr_chunks: list[str] = []
+
+            def _stderr_reader():
+                try:
+                    if process.stderr is not None:
+                        for line in process.stderr:
+                            stderr_chunks.append(line)
+                except Exception as stderr_exc:  # broad: Reader darf nicht crashen
+                    logger.debug("stderr reader exited: %s", stderr_exc)
+
+            stderr_thread = threading.Thread(target=_stderr_reader, daemon=True)
+            stderr_thread.start()
             try:
-                _, stderr = process.communicate(timeout=timeout)
+                process.wait(timeout=timeout)
             except subprocess.TimeoutExpired as exc:
                 process.kill()
-                _, stderr = process.communicate()
+                process.wait()
                 timeout_error = exc
             reader.join(timeout=THREAD_JOIN_TIMEOUT_SEC)
+            stderr_thread.join(timeout=THREAD_JOIN_TIMEOUT_SEC)
             stdout = "".join(stdout_lines)
+            stderr = "".join(stderr_chunks)
         else:
             try:
                 stdout, stderr = process.communicate(timeout=timeout)

@@ -38,6 +38,7 @@ from database.models import (  # noqa: F401
     TimelineEntry,
     AnalysisStatus,
     TimelineSnapshot,
+    SoftDeleteTimelineBackup,
     ProjectNote,
 )
 

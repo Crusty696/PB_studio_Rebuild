@@ -172,9 +172,17 @@ class BaseAnalysisWorker(QObject, CancellableMixin):
         mehrere Audio-Analyse-Worker sequentiell liefen (Komplett-Analyse).
         NullPool erstellt eine frische Connection und schliesst sie sofort.
 
-        Verwendung:
+        Verwendung (B-706/S2: immer mit deleted_at-Filter, damit kein
+        Tombstone-Write auf eine waehrend der Analyse soft-geloeschte Row):
             with self._get_session_context() as session:
-                track = session.get(AudioTrack, self.audio_track_id)
+                track = (
+                    session.query(AudioTrack)
+                    .filter(
+                        AudioTrack.id == self.audio_track_id,
+                        AudioTrack.deleted_at.is_(None),
+                    )
+                    .one_or_none()
+                )
                 ...
         """
         from database import nullpool_session
@@ -314,7 +322,17 @@ class AudioClassifyWorker(BaseAnalysisWorker):
     def _save_to_db(self, result) -> None:
         from database import AudioTrack
         with self._get_session_context() as session:
-            track = session.get(AudioTrack, self.audio_track_id)
+            # B-706/S2-Neufund: deleted_at-Filter wie LUFS-/Key-Worker — sonst
+            # schreibt der Classify-Worker auf eine waehrend der Analyse
+            # soft-geloeschte Row (Tombstone-Write).
+            track = (
+                session.query(AudioTrack)
+                .filter(
+                    AudioTrack.id == self.audio_track_id,
+                    AudioTrack.deleted_at.is_(None),
+                )
+                .one_or_none()
+            )
             if track:
                 track.mood = result.mood
                 track.genre = result.genre
@@ -369,7 +387,16 @@ class SpectralAnalysisWorker(BaseAnalysisWorker):
         from database import AudioTrack
         bands_json = self._svc.get_bands_json(result)
         with self._get_session_context() as session:
-            track = session.get(AudioTrack, self.audio_track_id)
+            # B-706/S2-Neufund: deleted_at-Filter wie LUFS-/Key-Worker (Tombstone-
+            # Write auf soft-geloeschte Row vermeiden).
+            track = (
+                session.query(AudioTrack)
+                .filter(
+                    AudioTrack.id == self.audio_track_id,
+                    AudioTrack.deleted_at.is_(None),
+                )
+                .one_or_none()
+            )
             if track:
                 track.spectral_bands = bands_json
                 session.commit()
