@@ -32,8 +32,29 @@ class StorageBrowserDialog(QDialog):
         self.setWindowTitle("Storage-Browser")
         self.setMinimumSize(880, 520)
         self._rows: list[StorageBrowserRow] = []
+        # B-547 Folgefix: ohne storage_root bleibt StorageBrowserService.layout
+        # None und _delete_storage_dirs wird komplett uebersprungen — die
+        # Checkbox "Auch Speicherdateien loeschen" war dadurch wirkungslos
+        # (Meldung "0 Ordner / 0 B"). Kanonische Quelle des globalen
+        # by_sha-Roots ist default_global_storage_root() (%APPDATA%/PBStudio/
+        # storage), dieselbe Funktion, die auch Migration und Cross-Project-
+        # Reuse benutzen.
+        self._storage_root = self._resolve_storage_root()
         self._build_ui()
         self.refresh()
+
+    @staticmethod
+    def _resolve_storage_root():
+        """Globalen by_sha-Storage-Root ermitteln; None wenn nicht bestimmbar."""
+        try:
+            from services.storage_provenance.schnitt_audio_adapter import (
+                default_global_storage_root,
+            )
+
+            return default_global_storage_root()
+        except Exception:
+            logger.exception("StorageBrowserDialog: storage_root nicht ermittelbar")
+            return None
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -84,6 +105,16 @@ class StorageBrowserDialog(QDialog):
             "Aus: nur Analyse-DB-Eintraege loeschen (Dateien bleiben).\n"
             "An: zusaetzlich die physischen by_sha-Dateien loeschen -> Plattenplatz wird frei."
         )
+        if self._storage_root is None:
+            # Kein ermittelbarer Storage-Root -> das physische Loeschen kann
+            # nicht ausgefuehrt werden. Sichtbar deaktivieren statt still
+            # nichts zu tun.
+            self._delete_files.setChecked(False)
+            self._delete_files.setEnabled(False)
+            self._delete_files.setToolTip(
+                "Nicht verfuegbar: der globale Storage-Ordner konnte nicht "
+                "ermittelt werden. Es werden nur DB-Eintraege geloescht."
+            )
         bottom.addWidget(self._delete_files)
         self._delete_selected_btn = QPushButton("Ausgewaehlte loeschen")
         self._delete_selected_btn.setToolTip("Analysen fuer alle ausgewaehlten Zeilen nach Bestaetigung loeschen.")
@@ -94,7 +125,7 @@ class StorageBrowserDialog(QDialog):
     def refresh(self) -> None:
         try:
             with nullpool_session() as session:
-                service = StorageBrowserService(session)
+                service = StorageBrowserService(session, storage_root=self._storage_root)
                 self._rows = service.list_sources(
                     unused_only=self._unused_only.isChecked(),
                     older_than_days=self._older_than_days.value() or None,
@@ -143,7 +174,7 @@ class StorageBrowserDialog(QDialog):
         if not source_hashes:
             QMessageBox.information(self, "Storage-Browser", "Keine Zeile ausgewaehlt.")
             return
-        delete_files = self._delete_files.isChecked()
+        delete_files = self._delete_files.isChecked() and self._storage_root is not None
         extra = (
             " Inkl. physischer Dateien — Plattenplatz wird freigegeben."
             if delete_files
@@ -160,7 +191,9 @@ class StorageBrowserDialog(QDialog):
             return
         try:
             with nullpool_session() as session:
-                result = StorageBrowserService(session).delete_analysis_sources(
+                result = StorageBrowserService(
+                    session, storage_root=self._storage_root
+                ).delete_analysis_sources(
                     source_hashes, delete_storage_dirs=delete_files
                 )
         except Exception as exc:
