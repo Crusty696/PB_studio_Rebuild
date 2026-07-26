@@ -1181,6 +1181,21 @@ class StructureDetectionService:
         from database import StructureSegment, nullpool_session
         from sqlalchemy.exc import OperationalError
 
+        # Guard vor dem Delete: ``detect()`` liefert im catch-all-Fehlerpfad
+        # (und bei fehlendem numpy / nicht berechenbaren Features) ein LEERES
+        # StructureResult zurueck, das vom Aufrufer wie ein Erfolg behandelt
+        # wird. Der delete-then-insert-Block loeschte daraufhin die bereits
+        # vorhandenen Segmente und schrieb nichts zurueck -> stiller
+        # Datenverlust. Ein leeres Ergebnis darf bestehende Daten nicht
+        # zerstoeren: wir speichern nichts und melden es im Log.
+        if not result.segments:
+            log.warning(
+                "Struktur-Save uebersprungen: leeres/degradiertes Ergebnis fuer "
+                "AudioTrack %d — vorhandene Segmente bleiben unveraendert.",
+                audio_track_id,
+            )
+            return
+
         for attempt in range(max_retries):
             try:
                 if attempt > 0:

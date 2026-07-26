@@ -31,10 +31,15 @@ logger = logging.getLogger(__name__)
 _status_db_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="status_db")
 
 # Status icons
+# "degraded": Schritt lief durch, das Ergebnis stammt aber aus einem
+# Fallback-/Rate-Pfad (services/analysis_status_service.mark_degraded).
+# Eigenes Symbol, damit ein geratener Lauf nicht wie ein sauberer
+# Messwert mit gruenem Haekchen aussieht.
 STATUS_ICONS = {
     "done": "✓",
     "running": "⟳",
     "error": "✗",
+    "degraded": "⚠",
     "pending": "○",
 }
 
@@ -43,6 +48,7 @@ STATUS_COLORS = {
     "done": QColor(74, 222, 128),      # Green
     "running": QColor(212, 164, 74),   # Yellow/Gold
     "error": QColor(239, 68, 68),      # Red
+    "degraded": QColor(245, 158, 11),  # Amber/Orange — geraten, nicht gemessen
     "pending": QColor(156, 163, 175),  # Gray
 }
 
@@ -86,6 +92,9 @@ class AnalysisStatusPanel(QWidget):
     # an den Empfaenger-Thread (Main) zugestellt — anders als QTimer.singleShot,
     # das aus einem Nicht-Qt-Thread (ThreadPoolExecutor) nie feuert.
     _status_loaded = Signal(object, int, str, int)  # (status_dict, gen, type, id)
+    # Retry-Pfad: Fehler-Steps werden im Pool-Thread ermittelt und hier
+    # zurueck in den Main-Thread gereicht (gleiches Muster wie _status_loaded).
+    _retry_steps_loaded = Signal(object, int, str, int)  # (steps, gen, type, id)
 
     # B-473: klarer Handlungs-Hinweis statt passivem "Keine Datei ausgewählt".
     _NO_MEDIA_HINT = "← Links eine Datei anklicken — der Analyse-Status erscheint hier."
@@ -99,6 +108,7 @@ class AnalysisStatusPanel(QWidget):
         self._setup_shortcuts()
         # B-292: Hintergrund-Ergebnis im Main-Thread anwenden (queued cross-thread).
         self._status_loaded.connect(self._apply_status_data)
+        self._retry_steps_loaded.connect(self._emit_retry_steps)
 
     def _build_ui(self):
         """Erstellt das UI-Layout."""
@@ -394,16 +404,7 @@ class AnalysisStatusPanel(QWidget):
             self._clear_display()
             return
 
-        # Get steps for this media type
-        if self._media_type == "video":
-            steps = analysis_status_service.VIDEO_STEPS
-        elif self._media_type == "audio":
-            # Stage-Sichtbarkeit (User 2026-07-17): optionale Audio-V2-Steps
-            # (onset/av_pacing) mit anzeigen — %-Basis bleibt AUDIO_STEPS.
-            steps = (analysis_status_service.AUDIO_STEPS
-                     + getattr(analysis_status_service, "AUDIO_STEPS_OPTIONAL", []))
-        else:
-            steps = []
+        steps = self._steps_for_media(self._media_type)
 
         # Apply filter
         filtered_steps = []
@@ -470,7 +471,12 @@ class AnalysisStatusPanel(QWidget):
             self.table.setItem(row_idx, 1, name_item)
 
             # Column 2: Value summary
-            if error_msg:
+            if error_msg and status == "degraded":
+                # Bei 'degraded' traegt error_message den Fallback-Grund —
+                # kein Fehler, aber auch kein Messwert.
+                value_text = f"Geraten: {error_msg[:40]}..."
+                value_color = STATUS_COLORS["degraded"]
+            elif error_msg:
                 value_text = f"Fehler: {error_msg[:40]}..."
                 value_color = STATUS_COLORS["error"]
             elif value_summary:
@@ -487,8 +493,8 @@ class AnalysisStatusPanel(QWidget):
                 value_item.setToolTip(provenance_tooltip)
             self.table.setItem(row_idx, 2, value_item)
 
-            # Column 3: Action button (for pending/error/done)
-            if status in ("pending", "error", "done"):
+            # Column 3: Action button (for pending/error/degraded/done)
+            if status in ("pending", "error", "degraded", "done"):
                 btn = QPushButton("Starten" if status == "pending" else "Wiederholen")
                 btn.setFixedHeight(24)
                 btn.setStyleSheet("""
@@ -529,6 +535,25 @@ class AnalysisStatusPanel(QWidget):
             self.btn_retry_errors.setText(f"Alle Fehler wiederholen ({error_count})")
         else:
             self.btn_retry_errors.setText("Alle Fehler wiederholen")
+
+    @staticmethod
+    def _steps_for_media(media_type: str | None) -> list[str]:
+        """Step-Liste die dieses Panel fuer ``media_type`` anzeigt.
+
+        Eine einzige Quelle fuer Anzeige, Fehler-Zaehlung und Retry — vorher
+        zaehlte ``_apply_status_data`` die Fehler ueber AUDIO_STEPS +
+        AUDIO_STEPS_OPTIONAL, ``_on_retry_all_errors`` startete aber nur
+        AUDIO_STEPS neu. Fehler in optionalen Schritten (onset, av_pacing)
+        wurden also mitgezaehlt und dann nicht wiederholt.
+        """
+        if media_type == "video":
+            return list(analysis_status_service.VIDEO_STEPS)
+        if media_type == "audio":
+            # Stage-Sichtbarkeit (User 2026-07-17): optionale Audio-V2-Steps
+            # (onset/av_pacing) mit anzeigen — %-Basis bleibt AUDIO_STEPS.
+            return (list(analysis_status_service.AUDIO_STEPS)
+                    + list(getattr(analysis_status_service, "AUDIO_STEPS_OPTIONAL", [])))
+        return []
 
     def _format_value_summary(self, summary: dict) -> str:
         """Formatiert value_summary für Anzeige."""
@@ -588,35 +613,57 @@ class AnalysisStatusPanel(QWidget):
         self.refresh()
 
     def _on_retry_all_errors(self):
-        """Sendet analysis_requested Signal für alle fehlgeschlagenen Schritte."""
+        """Sendet analysis_requested Signal für alle fehlgeschlagenen Schritte.
+
+        Zwei Korrekturen:
+        - Retry laeuft ueber ``_steps_for_media`` — dieselbe Menge, die
+          ``_apply_status_data`` fuer den Fehler-Zaehler am Button benutzt.
+          Vorher wurden Fehler inkl. AUDIO_STEPS_OPTIONAL gezaehlt, aber nur
+          AUDIO_STEPS neu gestartet.
+        - ``get_status`` lief synchron im Main-Thread. Es laeuft jetzt ueber
+          denselben ``_status_db_pool``, den ``refresh()`` schon fuer den
+          DB-Poll nutzt; das Emittieren passiert per Signal wieder im
+          Main-Thread (B-292-Muster).
+        """
         if self._media_type is None or self._media_id is None:
             return
 
-        # Get status
-        status_dict = analysis_status_service.get_status(self._media_type, self._media_id)
-
-        # Get steps for this media type
-        if self._media_type == "video":
-            steps = analysis_status_service.VIDEO_STEPS
-        elif self._media_type == "audio":
-            steps = analysis_status_service.AUDIO_STEPS
-        else:
+        media_type = self._media_type
+        media_id = self._media_id
+        steps = self._steps_for_media(media_type)
+        if not steps:
             return
+        my_gen = getattr(self, "_refresh_generation", 0)
 
-        # Find all error steps
-        error_steps = []
-        for step_key in steps:
-            status_entry = status_dict.get(step_key)
-            if status_entry and status_entry.status == "error":
-                error_steps.append(step_key)
+        def _db_work():
+            try:
+                status_dict = analysis_status_service.get_status(media_type, media_id)
+            except Exception as e:  # pragma: no cover - DB-Ausfall
+                logger.warning("get_status (retry) failed: %s", e)
+                return
+            error_steps = [
+                step_key for step_key in steps
+                if (entry := status_dict.get(step_key)) is not None
+                and entry.status == "error"
+            ]
+            if error_steps:
+                self._retry_steps_loaded.emit(error_steps, my_gen, media_type, media_id)
 
-        # Emit signal for each error step
+        _status_db_pool.submit(_db_work)
+
+    def _emit_retry_steps(self, error_steps: list, expected_gen: int,
+                          expected_type: str, expected_id: int):
+        """Main-Thread-Teil von ``_on_retry_all_errors`` (B-089-Stale-Check)."""
+        if (
+            expected_gen != getattr(self, "_refresh_generation", 0)
+            or expected_type != self._media_type
+            or expected_id != self._media_id
+        ):
+            return  # superseded — anderes Media inzwischen aktiv
         for step_key in error_steps:
             logger.info("Retrying error step: %s", step_key)
             self.analysis_requested.emit(step_key)
-
-        if error_steps:
-            logger.info("Retrying %d error steps", len(error_steps))
+        logger.info("Retrying %d error steps", len(error_steps))
 
     def _clear_display(self):
         """Leert die Anzeige."""
