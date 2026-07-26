@@ -2,6 +2,18 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## Current-HEAD-App-Qualitätsaudit 2026-07-26 (newest)
+
+- Baseline `9a321dc`; Produktcode unverändert.
+- Bericht: `docs/superpowers/synthesis/app-quality-audit-2026-07-26.md`.
+- Default-Suite: 3062 passed, 53 skipped, 3 deselected.
+- Kritischer Audit-Incident B-727: Suite schrieb in ignorierte reale
+  `pb_studio.db`; Integrity ok, Audio-Statuszeilen 99/5 verändert,
+  kein Vorher-Snapshot, daher nicht zurückgesetzt.
+- Current CI rot: B-709 Ruff F811. Release-Pfad B-720 nicht kanonisch/buildbar.
+- Neue offene Current-HEAD-Funde B-709 bis B-727; kein `fixed`.
+- Nächster sicherer Schritt: B-727 isolieren/fixen, bevor erneut Vollsuite läuft.
+
 ## PB-Studio-Master-Verify code-fix-pending-live-verification 2026-07-22 (newest)
 
 - **Main:** `07d25a4` docs(PB-STUDIO-MASTER-OFFENE-TASKS-2026-07-16): record agent lesson.

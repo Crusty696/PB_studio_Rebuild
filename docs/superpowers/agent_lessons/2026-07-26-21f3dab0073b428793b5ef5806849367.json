@@ -1,0 +1,10 @@
+{
+  "lesson_id": "21f3dab0073b428793b5ef5806849367",
+  "recorded_at": "2026-07-26T21:17:59+00:00",
+  "session_id": "2a8acb5643024ec1a3818caca9d861ac",
+  "head_at_start": "9a321dcbeb7b98febf1a13608e0ebca314228006",
+  "problem": "Default-Testlauf veraenderte reale ignorierte Projekt-DB",
+  "cause": "Worker-Test patchte Checkpoint-Storage, aber nicht globale DB-Engine; dokumentierte In-Memory-Fixture war nicht autouse",
+  "rule": "Vor Full-Suite jeden Test mit AnalysisStatus-/DB-Schreibpfad auf autouse oder explizite Temp-Engine pruefen; Testlauf erst nach read-only DB-Mtime/Backup-Gate starten",
+  "applies_to": "pytest integration tests, database.session globals, worker tests"
+}
