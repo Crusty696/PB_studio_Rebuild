@@ -225,6 +225,17 @@ def ingest_video(
                 # nicht-soft-delete-awaren UNIQUE-Constraint zu scheitern.
                 if existing.deleted_at is not None:
                     existing.deleted_at = None
+                    # B-706/M1 Folgefix: der Re-Import hebt den Soft-Delete auf,
+                    # ohne die Timeline-Platzierung wiederherzustellen. Das
+                    # zugehoerige Backup ist damit verbraucht und darf nicht
+                    # liegenbleiben — sonst wuerde ein spaeteres restore_media
+                    # auf dieser (wieder aktiven) Media die alten Entries ein
+                    # zweites Mal anlegen. Strikt nur die Zeile dieses Mediums.
+                    from database import SoftDeleteTimelineBackup
+                    session.query(SoftDeleteTimelineBackup).filter(
+                        SoftDeleteTimelineBackup.media_type == "video",
+                        SoftDeleteTimelineBackup.media_id == existing.id,
+                    ).delete(synchronize_session=False)
                     session.commit()
                     _apply_cross_project_reuse_after_ingest(
                         session,
@@ -528,9 +539,18 @@ def delete_all_media(project_id: int | None = None) -> int:
                 project_id=project_id
             ).filter(VideoClip.deleted_at.is_(None)).all()
         ]
-        timeline_ids = [
-            r[0] for r in session.query(TimelineEntry.id).filter_by(project_id=project_id).all()
-        ]
+        # B-706/M1: volle Rows statt nur IDs — die Platzierung wird vor dem
+        # physischen Delete gesichert (identisches Muster wie in
+        # delete_selected_media). Ohne dieses Backup kehrten Clips aus dem
+        # Papierkorb ohne Timeline-Position zurueck, wenn sie ueber
+        # "Sammlung bereinigen" geloescht wurden.
+        entries = session.query(TimelineEntry).filter_by(project_id=project_id).all()
+        timeline_ids = [e.id for e in entries]
+
+        # B-706/M1: Platzierung sichern, BEVOR ClipAnchor/TimelineEntry
+        # geloescht werden — restore_media legt sie daraus wieder an.
+        if entries:
+            _m1_backup_timeline_placement(session, entries)
 
         # Grandchildren zuerst
         if timeline_ids:

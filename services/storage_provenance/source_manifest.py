@@ -89,12 +89,18 @@ class _ManifestLock:
     def __init__(self, lock_path: Path):
         self._lock_path = lock_path
         self._fd: int | None = None
+        # True nur, wenn DIESE Instanz das Lockfile selbst erzeugt hat.
+        # Bei Timeout laeuft der Block bewusst weiter (Availability-Semantik),
+        # darf dann aber das Lockfile des FREMDEN Schreibers nicht entfernen —
+        # sonst ist die Sperre danach fuer alle aufgehoben.
+        self._acquired = False
 
     def __enter__(self) -> "_ManifestLock":
         start = time.monotonic()
         while True:
             try:
                 self._fd = os.open(_fs_path(self._lock_path), os.O_CREAT | os.O_EXCL | os.O_RDWR)
+                self._acquired = True
                 return self
             except (FileExistsError, PermissionError):
                 # break a stale lock left behind by a crashed writer
@@ -121,6 +127,12 @@ class _ManifestLock:
             except OSError:
                 pass
             self._fd = None
+        if not self._acquired:
+            # Timeout-Pfad: das Lockfile gehoert einem anderen Schreiber.
+            # Nicht loeschen — sonst raeumt der Timeout-Verlierer die Sperre
+            # des Gewinners ab und alle weiteren Writer laufen ungesperrt.
+            return
+        self._acquired = False
         try:
             os.unlink(_fs_path(self._lock_path))
         except FileNotFoundError:
