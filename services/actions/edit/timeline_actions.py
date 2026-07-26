@@ -26,6 +26,31 @@ __all__ = [
 ]
 
 
+def _worker_registered(action_name: str) -> bool:
+    """Prueft, ob fuer *action_name* ein Worker im Command-Pattern-Registry haengt.
+
+    Ohne Registry-Eintrag verwirft ``GlobalTaskManager._build_and_execute_task``
+    das ``agent_command_signal`` still (Log: "Unbekannte Action"). Die Action
+    darf in dem Fall keinen Erfolg melden.
+    """
+    try:
+        import workers.registry  # noqa: F401  (Side-Effect: registriert Worker)
+    except Exception:  # noqa: BLE001 — Registry-Import darf die Pruefung nicht sprengen
+        _logger.warning("workers.registry konnte nicht importiert werden", exc_info=True)
+    from services.task_manager import GlobalTaskManager
+    return action_name in GlobalTaskManager._WORKER_REGISTRY
+
+
+def _no_worker_error(action_name: str) -> dict:
+    return {
+        "error": (
+            f"Aktion ist derzeit nicht verfuegbar: kein Worker registriert "
+            f"('{action_name}')."
+        ),
+        "action": action_name,
+    }
+
+
 @action_registry.register(
     name="auto_edit",
     description="Erstellt automatisch eine Timeline mit Schnitten auf den Beats der Musik.",
@@ -509,6 +534,9 @@ def preview_export() -> dict:
     if tm is None:
         return {"error": "App nicht initialisiert"}
 
+    if not _worker_registered("preview_export"):
+        return _no_worker_error("preview_export")
+
     tm.agent_command_signal.emit("preview_export", {})
     return {
         "status": "Task in Warteschlange",
@@ -551,6 +579,9 @@ def auto_ducking(audio_track_id: int) -> dict:
     tm = _get_task_manager()
     if tm is None:
         return {"error": "App nicht initialisiert"}
+
+    if not _worker_registered("auto_ducking"):
+        return _no_worker_error("auto_ducking")
 
     tm.agent_command_signal.emit("auto_ducking", {
         "audio_track_id": audio_track_id,

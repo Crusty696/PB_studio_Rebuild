@@ -5,6 +5,7 @@ from services.actions.edit._common import (
     _logger,
     _get_task_manager,
     _get_main_window,
+    _run_on_main_thread,
 )
 
 __all__ = [
@@ -46,11 +47,15 @@ def rl_feedback(sentiment: str) -> dict:
     if not project_id:
         return {"error": "Kein aktives Projekt geladen."}
 
-    # audio_track_id aus dem aktuellen Zustand ableiten
-    mw = _get_main_window()
-    audio_id = None
-    if mw and hasattr(mw, "audio_combo"):
-        audio_id = mw.audio_combo.currentData()
+    # audio_track_id aus dem aktuellen Zustand ableiten.
+    # Qt-Thread-Regel: der Combo-Zugriff muss im Main-Thread laufen.
+    def _read_audio_id():
+        mw = _get_main_window()
+        if mw and hasattr(mw, "audio_combo"):
+            return mw.audio_combo.currentData()
+        return None
+
+    audio_id = _run_on_main_thread(_read_audio_id)
 
     if audio_id is None:
         return {"error": "Kein Audio-Track ausgewählt. Bitte zuerst einen Track wählen."}
@@ -80,23 +85,27 @@ def rl_feedback(sentiment: str) -> dict:
     param_schema={"type": "object", "properties": {}}
 )
 def clear_search() -> dict:
-    mw = _get_main_window()
-    if not mw:
-        return {"error": "Hauptfenster nicht verfügbar."}
+    # Qt-Thread-Regel: Widget-Zugriffe muessen im Main-Thread laufen.
+    def _clear():
+        mw = _get_main_window()
+        if not mw:
+            return {"error": "Hauptfenster nicht verfügbar."}
 
-    try:
-        if hasattr(mw, "search_input"):
-            mw.search_input.clear()
-        if hasattr(mw, "media_table_controller"):
-            mw.media_table_controller._refresh_media_table()
-        return {
-            "status": "ok",
-            "action": "clear_search",
-            "message": "Suchfilter zurückgesetzt — alle Videos werden angezeigt.",
-        }
-    except Exception as e:
-        _logger.exception("Fehler in clear_search-Aktion")
-        return {"error": f"Fehler beim Zurücksetzen der Suche: {e}"}
+        try:
+            if hasattr(mw, "search_input"):
+                mw.search_input.clear()
+            if hasattr(mw, "media_table_controller"):
+                mw.media_table_controller._refresh_media_table()
+            return {
+                "status": "ok",
+                "action": "clear_search",
+                "message": "Suchfilter zurückgesetzt — alle Videos werden angezeigt.",
+            }
+        except Exception as e:
+            _logger.exception("Fehler in clear_search-Aktion")
+            return {"error": f"Fehler beim Zurücksetzen der Suche: {e}"}
+
+    return _run_on_main_thread(_clear)
 
 
 @action_registry.register(

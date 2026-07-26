@@ -29,6 +29,21 @@ def _get_task_manager():
     return GlobalTaskManager.instance()
 
 
+def _worker_registered(action_name: str) -> bool:
+    """Prueft, ob fuer *action_name* ein Worker im Command-Pattern-Registry haengt.
+
+    Ohne Registry-Eintrag verwirft ``GlobalTaskManager._build_and_execute_task``
+    das ``agent_command_signal`` still (Log: "Unbekannte Action"). Die Action
+    darf in dem Fall keinen Erfolg/Pending melden.
+    """
+    try:
+        import workers.registry  # noqa: F401  (Side-Effect: registriert Worker)
+    except Exception:  # noqa: BLE001 — Registry-Import darf die Pruefung nicht sprengen
+        _logger.warning("workers.registry konnte nicht importiert werden", exc_info=True)
+    from services.task_manager import GlobalTaskManager
+    return action_name in GlobalTaskManager._WORKER_REGISTRY
+
+
 # ---------------------------------------------------------------------------
 # 1. ask_ai — Free question to local LLM
 # ---------------------------------------------------------------------------
@@ -642,6 +657,22 @@ def explain_clip(clip_id: int) -> dict:
                 "status": "error",
                 "action": "explain_clip",
                 "message": "Keine Szenen-Beschreibungen vorhanden und TaskManager nicht bereit.",
+            }
+
+        if not _worker_registered("analyze_video_content"):
+            return {
+                "status": "error",
+                "action": "explain_clip",
+                "clip_id": clip_id,
+                "error": (
+                    "Aktion ist derzeit nicht verfuegbar: kein Worker "
+                    "registriert ('analyze_video_content')."
+                ),
+                "message": (
+                    f"Keine Szenen-Beschreibungen fuer Clip #{clip_id} vorhanden "
+                    f"und die Vision-Analyse kann nicht gestartet werden: "
+                    f"kein Worker fuer 'analyze_video_content' registriert."
+                ),
             }
 
         tm.agent_command_signal.emit(

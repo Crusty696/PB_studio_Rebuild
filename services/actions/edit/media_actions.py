@@ -16,6 +16,31 @@ __all__ = [
 ]
 
 
+def _worker_registered(action_name: str) -> bool:
+    """Prueft, ob fuer *action_name* ein Worker im Command-Pattern-Registry haengt.
+
+    Ohne Registry-Eintrag verwirft ``GlobalTaskManager._build_and_execute_task``
+    das ``agent_command_signal`` still (Log: "Unbekannte Action"). Die Action
+    darf in dem Fall keinen Erfolg melden.
+    """
+    try:
+        import workers.registry  # noqa: F401  (Side-Effect: registriert Worker)
+    except Exception:  # noqa: BLE001 — Registry-Import darf die Pruefung nicht sprengen
+        _logger.warning("workers.registry konnte nicht importiert werden", exc_info=True)
+    from services.task_manager import GlobalTaskManager
+    return action_name in GlobalTaskManager._WORKER_REGISTRY
+
+
+def _no_worker_error(action_name: str) -> dict:
+    return {
+        "error": (
+            f"Aktion ist derzeit nicht verfuegbar: kein Worker registriert "
+            f"('{action_name}')."
+        ),
+        "action": action_name,
+    }
+
+
 @action_registry.register(
     name="import_file",
     description="Importiert eine Audio- oder Videodatei in das aktuelle Projekt.",
@@ -164,6 +189,9 @@ def convert_videos(
     tm = _get_task_manager()
     if tm is None:
         return {"error": "App nicht initialisiert"}
+
+    if not _worker_registered("convert_videos"):
+        return _no_worker_error("convert_videos")
 
     tm.agent_command_signal.emit("convert_videos", {
         "resolution": resolution,
