@@ -1314,8 +1314,6 @@ def _run_ffmpeg_impl(cmd: list[str], timeout: int = 600, progress_cb=None,
     abgefragt; bei True wird der ffmpeg-Prozess terminiert und eine
     ``RuntimeError("Export abgebrochen")`` geworfen.
     """
-    import threading
-
     # -progress pipe:1 einfuegen falls nicht vorhanden (fuer Progress-Parsing)
     if "-progress" not in cmd and progress_cb and total_duration > 0:
         # Nach "ffmpeg" und vor "-y" einfuegen
