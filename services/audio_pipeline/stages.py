@@ -102,6 +102,79 @@ def _require_stems(context: PipelineContext, names: tuple[str, ...], stage_name:
         )
 
 
+def _is_fallback_result(result: Any) -> bool:
+    """B-066-Muster fuer die V2-Pipeline. Vorbild: ``workers/audio_analysis.py``
+    ``BaseAnalysisWorker._is_fallback_result`` (dort Zeile ~108).
+
+    Die Heuristik ist bewusst 1:1 vom V1-Worker uebernommen (kein neues
+    Konzept), damit V1 und V2 dieselben Rate-Ergebnisse erkennen:
+
+    1. ``is_fallback is True``           — explizites Flag (LUFSResult,
+                                           SpectralResult).
+    2. ``method == "fallback"``          — KeyResult-Pattern.
+    3. ``confidence == 0.0`` und
+       ``description`` beginnt mit
+       "Klassifikation nicht moeglich"   — ClassifyResult-Pattern.
+
+    Die Heuristik ist nicht beweisbar vollstaendig: ein Service, der weder
+    Flag noch ``method``/``description``-Marker setzt, wird hier NICHT
+    erkannt (gleiche Luecke wie in V1).
+
+    Kein Import aus ``workers.audio_analysis``, weil das PySide6 in die
+    Pipeline ziehen wuerde — die Pipeline-Stages sind bewusst Qt-frei.
+    """
+    if getattr(result, "is_fallback", False) is True:
+        return True
+    method = getattr(result, "method", None)
+    if isinstance(method, str) and method.lower() == "fallback":
+        return True
+    confidence = getattr(result, "confidence", None)
+    description = getattr(result, "description", "")
+    if (
+        confidence == 0.0
+        and isinstance(description, str)
+        and description.lower().startswith("klassifikation nicht moeglich")
+    ):
+        return True
+    return False
+
+
+def _fallback_reason(result: Any) -> str:
+    """Lesbarer Grund fuers Logging — identisch zu V1 (``workers/audio_analysis.py``)."""
+    for attr in ("fallback_reason", "description", "method"):
+        v = getattr(result, attr, None)
+        if isinstance(v, str) and v.strip():
+            return v
+    return "kein Grund verfuegbar"
+
+
+def _guard_no_fallback_persist(result: Any, stage_name: str) -> None:
+    """Blockt das Persistieren von Fallback-/Rate-Ergebnissen (B-066 fuer V2).
+
+    V1 macht das in ``BaseAnalysisWorker.run`` (workers/audio_analysis.py:108
+    ff.): erkanntes Fallback-Result -> ``RuntimeError`` -> ``mark_error``, die
+    DB-Spalten bleiben ``None``. V2 hatte diesen Schutz nicht, deshalb landeten
+    Key ``Am``/``8A`` mit confidence 0.0, Spektral-Baender mit lauter 0.0 und
+    LUFS ``-14.0`` als scheinbar gueltige Messwerte in ``audio_tracks``.
+
+    Hier wird derselbe Weg gegangen: Exception statt Fake-Persistenz. Der
+    Orchestrator ist fail-fast (A-1) und meldet die Stage als failed, der
+    ``AudioPipelineV2Worker`` schreibt daraufhin ``mark_error`` fuer den
+    zugehoerigen Step.
+    """
+    if not _is_fallback_result(result):
+        return
+    reason = _fallback_reason(result)
+    logger.error(
+        "B-066/V2 %s: Fallback-Result erkannt — NICHT persistiert (%s)",
+        stage_name, reason,
+    )
+    raise RuntimeError(
+        f"Analyse-Fallback in Stage '{stage_name}' erkannt — Result wurde "
+        f"NICHT als gueltig persistiert: {reason}"
+    )
+
+
 def _persist_to_track(track_id: int, fields: dict) -> None:
     """OTK-018: schreibt berechnete Analyse-Felder an den AudioTrack.
 
@@ -566,6 +639,9 @@ class KeyStage(Stage):
             other_path=context.stem_paths["other"],
         )
         # result = KeyResult dataclass. OTK-018: an AudioTrack persistieren.
+        # B-066/V2: Fallback ("Am"/"8A", confidence 0.0, method="fallback")
+        # darf NICHT als Messwert in die DB.
+        _guard_no_fallback_persist(result, self.name)
         conf = getattr(result, "confidence", None)
         if conf is not None:
             conf = max(0.0, min(1.0, float(conf)))
@@ -632,6 +708,9 @@ class LUFSStage(Stage):
             result = svc.analyze(context.original_path)
         _raise_if_cancelled(context, "lufs")
         # OTK-018: LUFS an AudioTrack persistieren (Worker-konform: result.integrated).
+        # B-066/V2: LUFSService setzt is_fallback bei -14.0-Default korrekt —
+        # hier wird es jetzt auch ausgewertet statt blind zu persistieren.
+        _guard_no_fallback_persist(result, self.name)
         integrated = getattr(result, "integrated", None)
         if integrated is None:
             integrated = getattr(result, "integrated_lufs", None)
@@ -658,6 +737,9 @@ class SpectralStage(Stage):
         result = svc.analyze(context.original_path, bpm=bpm)
         _raise_if_cancelled(context, "spectral")
         # OTK-018: Spektral-Baender an AudioTrack persistieren (Worker-konform).
+        # B-066/V2: 8 Baender mit energy 0.0 aus dem Fehlerpfad sind ein
+        # Rate-Ergebnis (SpectralResult.is_fallback) — nicht persistieren.
+        _guard_no_fallback_persist(result, self.name)
         try:
             bands_json = svc.get_bands_json(result)
         except Exception:  # noqa: BLE001
@@ -709,6 +791,9 @@ class ClassifyStage(Stage):
         bpm = context.results.get("beat_grid", {}).get("bpm")
         result = svc.classify(context.original_path, bpm=bpm)
         _raise_if_cancelled(context, "classify")
+        # B-066/V2: ClassifyResult-Fallback ("Klassifikation nicht moeglich",
+        # confidence 0.0) nicht als Mood/Genre in die DB schreiben.
+        _guard_no_fallback_persist(result, self.name)
         fields = {
             "mood": result.mood,
             "genre": result.genre,

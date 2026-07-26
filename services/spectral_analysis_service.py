@@ -76,6 +76,16 @@ class SpectralResult:
     events: list[SpectralEvent] = field(default_factory=list)
     dominant_band: str = ""
     spectral_centroid_mean: float = 0.0
+    # B-066-Muster (Vorbild: services/lufs_service.py LUFSResult): der
+    # Fehler-/Degraded-Pfad liefert alle 8 Baender mit energy=0.0 zurueck.
+    # Das sah in der DB aus wie eine echte Messung ("Track hat ueberall
+    # 0 Energie"). Mit diesem Flag koennen Persistenz-Pfade (V1-Worker
+    # ueber BaseAnalysisWorker._is_fallback_result, V2-Stages ueber
+    # services/audio_pipeline/stages.py) den Rate-Wert erkennen und NICHT
+    # als Messwert speichern. Default False, wird nur in den degradierten
+    # Rueckgabepfaden auf True gesetzt. Die Berechnung selbst ist unveraendert.
+    is_fallback: bool = False
+    fallback_reason: str = ""
 
 
 @dataclass
@@ -175,6 +185,8 @@ class SpectralAnalysisService:
                     events=[],
                     dominant_band="",
                     spectral_centroid_mean=0.0,
+                    is_fallback=True,
+                    fallback_reason="librosa/numpy nicht verfuegbar",
                 ),
                 None,
                 None,
@@ -199,6 +211,8 @@ class SpectralAnalysisService:
                         events=[],
                         dominant_band="",
                         spectral_centroid_mean=0.0,
+                        is_fallback=True,
+                        fallback_reason="Audio-Datei ist leer (0 Samples geladen)",
                     ),
                     None,
                     None,
@@ -287,6 +301,8 @@ class SpectralAnalysisService:
                     events=[],
                     dominant_band="",
                     spectral_centroid_mean=0.0,
+                    is_fallback=True,
+                    fallback_reason=f"{type(e).__name__}: {e}",
                 ),
                 None,
                 None,

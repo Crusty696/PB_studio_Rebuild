@@ -207,6 +207,63 @@ def mark_error(media_type: str, media_id: int, step_key: str, error_msg: str) ->
         logger.error("Analysis error: %s/%d/%s — %s", media_type, media_id, step_key, error_msg)
 
 
+def mark_degraded(
+    media_type: str,
+    media_id: int,
+    step_key: str,
+    reason: str,
+    value_summary: dict[str, Any] | None = None,
+) -> None:
+    """Markiert einen Analyse-Schritt als degradiert ("hat geraten").
+
+    Zwischenzustand zwischen ``done`` und ``error``: der Schritt ist
+    durchgelaufen, das Ergebnis stammt aber aus einem Fallback-/Rate-Pfad
+    (z.B. Key ``Am`` mit confidence 0.0, Spektral-Baender alle 0.0) oder ist
+    inhaltlich leer. Vorher gab es dafuer keinen eigenen Zustand — solche
+    Laeufe bekamen ``done`` und damit ein gruenes Haekchen im Panel.
+
+    Bewusste Eigenschaften:
+    - ``AnalysisStatus.status`` ist eine freie String-Spalte
+      (``database/models.py``: ``Column(String, ...)``) ohne Enum/CHECK-
+      Constraint — der neue Wert braucht KEINE Migration.
+    - ``done``/``error`` bleiben semantisch unveraendert. ``degraded`` zaehlt
+      NICHT als ``done``, d.h. ``get_completion_percent`` und
+      ``get_completion_percent_map`` (die auf ``status == "done"`` filtern)
+      werten es als nicht abgeschlossen.
+    - ``error_message`` traegt den Grund (analog ``mark_error``), damit das
+      Panel ihn anzeigen kann.
+    - Es werden KEINE Completion-Listener benachrichtigt (das ist
+      ``mark_done`` vorbehalten — ein geratenes Ergebnis ist kein
+      Completion-Event).
+    """
+    now = datetime.now(timezone.utc)
+    with nullpool_session() as session:
+        # B-581-Muster: idempotenter Upsert gegen uq_analysis_status_media_step.
+        stmt = sqlite_insert(AnalysisStatus).values(
+            media_type=media_type,
+            media_id=media_id,
+            step_key=step_key,
+            status="degraded",
+            started_at=now,
+            completed_at=now,
+            value_summary=value_summary,
+            error_message=reason,
+        ).on_conflict_do_update(
+            index_elements=_UQ_COLS,
+            set_=dict(
+                status="degraded",
+                completed_at=now,
+                value_summary=value_summary,
+                error_message=reason,
+            ),
+        )
+        session.execute(stmt)
+        session.commit()
+        logger.warning(
+            "Analysis degraded: %s/%d/%s — %s", media_type, media_id, step_key, reason,
+        )
+
+
 def mark_cancelled(media_type: str, media_id: int, step_key: str) -> None:
     """Markiert einen Analyse-Schritt als abgebrochen, retry-faehig aber ohne Error-Log."""
     now = datetime.now(timezone.utc)
