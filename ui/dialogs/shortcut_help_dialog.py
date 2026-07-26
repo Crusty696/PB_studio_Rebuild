@@ -24,16 +24,19 @@ from ui.theme import (
 # hard-coded global shortcuts are defined here.
 # ---------------------------------------------------------------------------
 
+# 2026-07-26: Die Liste enthielt Kuerzel, die es im Code NICHT gibt
+# ("1"-"5" fuer Workspace-Wechsel, Ctrl+N, Ctrl+O, Ctrl+, sowie einen
+# kompletten Stem-Block M/S/R/Ctrl+Up/Ctrl+Down) — repo-weit existiert dafuer
+# weder ein QShortcut/QAction-Shortcut noch ein keyPressEvent. "Neues Projekt"
+# / "Projekt oeffnen" / "Einstellungen" sind reine Menue-Eintraege OHNE
+# Tastenbelegung (ui/controllers/workspace_setup.py:144-163). Hier steht nur
+# noch, was wirklich verdrahtet ist:
+#   Ctrl+S  -> workspace_setup.py:481 (QKeySequence.StandardKey.Save)
+#   F1/Ctrl+? -> main.py:454-455 (QShortcut)
+#   Ctrl+B  -> main.py:459 (QShortcut, Studio Brain)
 GLOBAL_SHORTCUTS: list[tuple[str, str]] = [
-    ("MEDIA Workspace",          "1"),
-    ("EDIT Workspace",           "2"),
-    ("STEMS Workspace",          "3"),
-    ("CONVERT Workspace",        "4"),
-    ("DELIVER Workspace",        "5"),
-    ("Neues Projekt",            "Ctrl+N"),
-    ("Projekt öffnen",           "Ctrl+O"),
     ("Projekt speichern",        "Ctrl+S"),
-    ("Einstellungen",            "Ctrl+,"),
+    ("Studio Brain",             "Ctrl+B"),
     ("Hilfe (dieser Dialog)",    "F1 / Ctrl+?"),
     ("App beenden",              "Alt+F4"),
 ]
@@ -61,12 +64,11 @@ TIMELINE_ACTION_IDS: list[str] = [
     "paste",
 ]
 
-STEM_SHORTCUTS: list[tuple[str, str]] = [
-    ("Stem-Spur stummschalten",  "M"),
-    ("Stem-Spur solo",           "S"),
-    ("Alle Spuren zurücksetzen", "R"),
-    ("Lautstärke +",             "Ctrl+Up"),
-    ("Lautstärke −",             "Ctrl+Down"),
+# Analyse-Status-Panel (ui/widgets/analysis_status_panel.py:576-581).
+# Der frueher hier stehende Stem-Block war komplett unbelegt und wurde
+# entfernt — im STEMS-Workspace gibt es keinen keyPressEvent/QShortcut.
+STATUS_PANEL_SHORTCUTS: list[tuple[str, str]] = [
+    ("Analyse-Status aktualisieren", "F5 / Ctrl+R"),
 ]
 
 
@@ -172,14 +174,14 @@ class ShortcutHelpDialog(QDialog):
         layout.setContentsMargins(20, 16, 20, 16)
         layout.setSpacing(6)
 
-        # ── Three column layout (Global | Timeline | Stems) ──
+        # ── Three column layout (Global | Timeline | Analyse-Status) ──
         cols = QHBoxLayout()
         cols.setSpacing(20)
         cols.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         cols.addLayout(self._build_global_section(), stretch=1)
         cols.addLayout(self._build_timeline_section(), stretch=1)
-        cols.addLayout(self._build_stems_section(), stretch=1)
+        cols.addLayout(self._build_status_panel_section(), stretch=1)
 
         layout.addLayout(cols)
         layout.addStretch()
@@ -239,12 +241,12 @@ class ShortcutHelpDialog(QDialog):
         col.addLayout(_build_shortcut_grid(rows, self))
         return col
 
-    def _build_stems_section(self) -> QVBoxLayout:
+    def _build_status_panel_section(self) -> QVBoxLayout:
         col = QVBoxLayout()
         col.setSpacing(4)
         col.setAlignment(Qt.AlignmentFlag.AlignTop)
-        col.addWidget(_section_header("Stem Workspace"))
-        col.addLayout(_build_shortcut_grid(STEM_SHORTCUTS, self))
+        col.addWidget(_section_header("Analyse-Status-Panel"))
+        col.addLayout(_build_shortcut_grid(STATUS_PANEL_SHORTCUTS, self))
         return col
 
     def keyPressEvent(self, event) -> None:

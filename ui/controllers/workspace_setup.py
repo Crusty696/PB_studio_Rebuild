@@ -983,7 +983,7 @@ class WorkspaceSetupController(PBComponent):
         dashboard.refresh(project_id)
 
     def _save_window_state(self) -> None:
-        """Persist workflow stage and context-panel tab."""
+        """Persist window geometry, dock layout, workflow stage and context tab."""
         from PySide6.QtCore import QSettings
         settings = QSettings("PBStudio", "PBStudioApp")
         try:
@@ -994,11 +994,38 @@ class WorkspaceSetupController(PBComponent):
             settings.setValue("window/rightTabIndex", self.window.right_panel.currentIndex())
         except Exception as exc:
             self.logger.debug("save rightTabIndex: %s", exc)
+        # Fenster-Geometrie + Dock-Layout wurden bisher GAR NICHT persistiert —
+        # die App startete immer showMaximized() mit Default-Dock-Breite.
+        # saveState() braucht objectName auf jedem Dock; der einzige Dock
+        # (right_dock) hat "context_dock" gesetzt (main.py:345).
+        try:
+            settings.setValue("window/geometry", self.window.saveGeometry())
+        except Exception as exc:
+            self.logger.debug("save window geometry: %s", exc)
+        try:
+            settings.setValue("window/dockState", self.window.saveState())
+        except Exception as exc:
+            self.logger.debug("save window dockState: %s", exc)
 
     def _restore_window_state(self) -> None:
-        """Restore workflow stage and context-panel tab."""
+        """Restore window geometry, dock layout, workflow stage and context tab."""
         from PySide6.QtCore import QSettings
         settings = QSettings("PBStudio", "PBStudioApp")
+        # Geometrie zuerst: Erststart (kein gespeicherter Wert) laesst das in
+        # main.py gesetzte showMaximized() unangetastet.
+        geometry = settings.value("window/geometry")
+        if geometry:
+            try:
+                if self.window.restoreGeometry(geometry):
+                    self._ensure_window_on_screen()
+            except Exception as exc:
+                self.logger.debug("restore window geometry: %s", exc)
+        dock_state = settings.value("window/dockState")
+        if dock_state:
+            try:
+                self.window.restoreState(dock_state)
+            except Exception as exc:
+                self.logger.debug("restore window dockState: %s", exc)
         _migrate_workflow_stage_index(settings)
         workspace_idx = settings.value("window/workflowStageIndex")
         if workspace_idx is not None:
@@ -1012,6 +1039,32 @@ class WorkspaceSetupController(PBComponent):
                 self.window.right_panel.setCurrentIndex(int(right_idx))
             except (ValueError, TypeError):
                 pass
+
+    def _ensure_window_on_screen(self) -> None:
+        """Zieht ein ausserhalb aller Screens liegendes Fenster zurueck.
+
+        Wurde die Geometrie auf einem zweiten Monitor gespeichert, der beim
+        naechsten Start nicht mehr angeschlossen ist, laege das Fenster sonst
+        unerreichbar ausserhalb des sichtbaren Bereichs (Surface Book 2 +
+        Dock-Monitor). Fallback = maximiert auf dem Primaerbildschirm, also das
+        bisherige Startverhalten.
+        """
+        from PySide6.QtWidgets import QApplication
+        try:
+            frame = self.window.frameGeometry()
+            screens = QApplication.screens()
+            if any(s.availableGeometry().intersects(frame) for s in screens):
+                return
+            primary = QApplication.primaryScreen()
+            if primary is not None:
+                self.window.setGeometry(primary.availableGeometry().adjusted(40, 40, -40, -40))
+            self.window.showMaximized()
+            self.logger.warning(
+                "Gespeicherte Fenster-Geometrie lag ausserhalb aller Bildschirme "
+                "— Fenster auf den Primaerbildschirm zurueckgeholt."
+            )
+        except Exception as exc:
+            self.logger.debug("ensure window on screen: %s", exc)
 
     def _create_compact_slider(self, label: str, min_val: int, max_val: int, default: int):
         from PySide6.QtWidgets import QHBoxLayout, QLabel, QSlider

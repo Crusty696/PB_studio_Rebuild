@@ -304,6 +304,20 @@ class ProjectManagementController(PBComponent):
             logger.debug("Project dashboard refresh failed: %s", exc)
         self._update_window_title()  # AUD-108: respects dirty flag
         self.window.media_table_controller._refresh_media_table()
+        # Analog B-689 (timeline_shell._on_restore_done): Der QUndoStack haelt
+        # nach einem Projektwechsel Commands, die auf entry_ids des ALTEN
+        # Projekts zeigen. Ein Ctrl+Z danach wuerde Zeilen eines fremden
+        # Projekts aendern oder wieder einfuegen. Ein Projektwechsel ist ein
+        # neuer Ausgangszustand -> Stack leeren. Bewusst VOR load_from_db und
+        # ausserhalb des Reload-try, damit der Stack auch dann sauber ist,
+        # wenn der Timeline-Reload scheitert. NICHT in load_from_db selbst,
+        # weil undo/redo diese Methode aufrufen.
+        try:
+            undo_stack = getattr(self.window.timeline_view, "undo_stack", None)
+            if undo_stack is not None:
+                undo_stack.clear()
+        except (AttributeError, RuntimeError) as e:
+            logging.warning("Undo-Stack-Reset nach Projektwechsel fehlgeschlagen: %s", e)
         try:
             self.window.timeline_view.load_from_db()
         except (OSError, RuntimeError, ValueError) as e:

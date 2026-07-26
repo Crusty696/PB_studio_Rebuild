@@ -272,6 +272,11 @@ class RemoveClipCommand(QUndoCommand):
                     "crossfade_duration": entry.crossfade_duration,
                     "brightness": entry.brightness,
                     "contrast": entry.contrast,
+                    # B-716-Batch: ``locked`` fehlte im Snapshot -> nach
+                    # Loeschen+Undo kam ein gesperrter Clip ENTSPERRT zurueck
+                    # (TimelineEntry.locked default False). AddClipCommand
+                    # fuehrt das Feld bereits mit (siehe _replaced_entries).
+                    "locked": entry.locked,
                 }
                 session.delete(entry)
 
@@ -335,6 +340,20 @@ class RemoveClipCommand(QUndoCommand):
             start_time=self._snapshot["start_time"],
             duration=duration,
         )
+        # ``add_clip`` kennt kein locked-Argument — die Lock-Optik (Goldrand +
+        # Icon) wird deshalb wie bei ToggleClipLockCommand nachgezogen, damit
+        # der wiederhergestellte Clip nicht "entsperrt" aussieht obwohl die
+        # DB-Zeile locked=True traegt.
+        if self._snapshot.get("locked"):
+            sync = getattr(self._timeline, "_sync_clip_lock_visual", None)
+            if callable(sync):
+                try:
+                    sync(self._current_entry_id, True)
+                except Exception as exc:  # noqa: BLE001 — Undo selbst gilt
+                    logger.warning(
+                        "RemoveClipCommand.undo: Lock-Visual-Sync fehlgeschlagen: %s",
+                        exc,
+                    )
 
 
 class TrimClipCommand(QUndoCommand):
