@@ -1,0 +1,10 @@
+{
+  "lesson_id": "b27c133272e047349807117cee694f43",
+  "recorded_at": "2026-07-26T21:54:37+00:00",
+  "session_id": "1159816256744784b58c1c78c7f09c76",
+  "head_at_start": "8e3a7eb8ece54157a410e90ca46be82f3ea1cdd1",
+  "problem": "Statusaufnahme fand mehrere verdrahtete, aber wirkungslose Wirkungsketten (Pacing-Section-Logik, Brain-Reranker-Features, Lernschleife), die in Tests und frueheren Audits als vorhanden galten",
+  "cause": "Verifikation prueft ueberwiegend Existenz und Aufruf, nicht Wirkung. Eine Default-Initialisierung (pacing_curve _density=[0.5]*200) macht einen len()>0-Guard permanent wahr; ein fehlender Parameter (brain_weight) laesst einen Blend-Default alles andere verwerfen; ein Feature-Adapter liest Keys, die der Produzent nicht liefert -> Konstanten statt Fehler. Alle drei scheitern lautlos, weil der Code laeuft",
+  "rule": "Bei Feature-Status-Pruefungen nicht nur 'ist es verdrahtet' fragen, sondern 'variiert der Output ueber Eingaben'. Konkret: (1) Guards gegen Default-initialisierte Container pruefen - len()>0 auf einer Liste, die nie leer ist, ist kein Guard; (2) bei Blend-/Gewichtungsparametern pruefen, ob der Aufrufer sie setzt oder der Default alles andere neutralisiert; (3) bei Feature-Adaptern die Key-Mengen von Produzent und Konsument gegeneinander greppen, weil dict.get(key, default) fehlende Keys in Konstanten verwandelt; (4) bei Lern-/Gewichtssystemen die Live-DB auf Varianz pruefen - identische Werte ueber alle Achsen beweisen fehlendes Credit-Assignment",
+  "applies_to": "PB Studio Pacing/Brain/Scoring-Pfade; generell Status-Audits und Wirksamkeitspruefungen von verdrahteten Features"
+}
