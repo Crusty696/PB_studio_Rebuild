@@ -5,6 +5,7 @@ from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from PySide6.QtWidgets import QMessageBox
 
 from services.storage_provenance.storage_browser import StorageBrowserRow
@@ -47,14 +48,25 @@ def test_storage_browser_dialog_populates_rows_and_selection(monkeypatch, qapp) 
         yield object()
 
     class FakeService:
-        def __init__(self, session):
+        # storage_root seit dem B-547-Folgefix: der Dialog injiziert den
+        # globalen by_sha-Root, damit "Auch Speicherdateien loeschen" ueberhaupt
+        # wirken kann. Ein Mock ohne diesen Parameter erzeugt einen TypeError
+        # in refresh(), der dort in QMessageBox.critical laeuft — ein modaler
+        # Dialog, der einen Testlauf blockiert statt ihn fehlschlagen zu lassen.
+        def __init__(self, session, storage_root=None):
             self.session = session
+            self.storage_root = storage_root
 
         def list_sources(self, **kwargs):
             return rows
 
     monkeypatch.setattr(mod, "nullpool_session", fake_session)
     monkeypatch.setattr(mod, "StorageBrowserService", FakeService)
+    # Sicherheitsnetz: ein unerwarteter Fehler darf den Lauf nicht blockieren.
+    monkeypatch.setattr(
+        mod.QMessageBox, "critical",
+        lambda *a, **k: pytest.fail(f"refresh() meldete einen Fehler: {a[-1]}"),
+    )
 
     dialog = mod.StorageBrowserDialog()
     dialog.table.selectRow(0)
@@ -79,8 +91,9 @@ def test_storage_browser_dialog_delete_paths(monkeypatch, qapp) -> None:
         yield object()
 
     class FakeService:
-        def __init__(self, session):
+        def __init__(self, session, storage_root=None):
             self.session = session
+            self.storage_root = storage_root
 
         def list_sources(self, **kwargs):
             return []
@@ -91,6 +104,10 @@ def test_storage_browser_dialog_delete_paths(monkeypatch, qapp) -> None:
 
     monkeypatch.setattr(mod, "nullpool_session", fake_session)
     monkeypatch.setattr(mod, "StorageBrowserService", FakeService)
+    monkeypatch.setattr(
+        mod.QMessageBox, "critical",
+        lambda *a, **k: pytest.fail(f"refresh() meldete einen Fehler: {a[-1]}"),
+    )
     monkeypatch.setattr(mod.QMessageBox, "question", lambda *args, **kwargs: QMessageBox.StandardButton.Yes)
     monkeypatch.setattr(mod.QMessageBox, "information", lambda _parent, _title, text: info_messages.append(text))
 
