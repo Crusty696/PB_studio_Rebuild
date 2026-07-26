@@ -182,6 +182,11 @@ def _cleanup_orphan_tempfiles(max_age_hours: float = 1.0) -> int:
             "pb_audio_entry_*",
             "pb_concat_*",
             "pb_fcs_*",
+            # Batch-Crossfade-Zwischendateien (``pb_xfb_<n>_*.mp4`` in voller
+            # Aufloesung) + deren Concat-Liste (``pb_xfb_concat_*.txt``), s.
+            # _export_with_filtergraph. Fehlten hier: bei Windows-Filelock im
+            # finally-Unlink blieben sie dauerhaft im Temp liegen.
+            "pb_xfb_*",
         ):
             for tf in tmpdir.glob(pattern):
                 try:
@@ -1506,12 +1511,29 @@ def export_preview(project_id: int = 1, resolution: str = "1920x1080",
     output_path = preview_dir / f"preview_{project_id}.mp4"
 
     with Session(engine) as session:
-        entries = (
-            session.query(TimelineEntry)
-            .filter_by(project_id=project_id)
+        # B-636/B-090: identisches Spalten-Select wie in ``export_timeline``.
+        # Der Voll-ORM-Load (query(TimelineEntry).all()) zog ueber
+        # TimelineEntry.project (lazy='joined') und .anchors (lazy='selectin')
+        # bei JEDEM Eintrag die JSON-Blobs mit — DB-Freeze-Risiko bei grossen
+        # Projekten. Der Preview-Code unten liest ausschliesslich diese
+        # Skalarfelder (inkl. source_start/source_end via
+        # _source_duration_from_entry und _prepare_audio_entry_for_timeline).
+        entries = session.execute(
+            select(
+                TimelineEntry.id,
+                TimelineEntry.track,
+                TimelineEntry.media_id,
+                TimelineEntry.start_time,
+                TimelineEntry.end_time,
+                TimelineEntry.source_start,
+                TimelineEntry.source_end,
+                TimelineEntry.crossfade_duration,
+                TimelineEntry.brightness,
+                TimelineEntry.contrast,
+            )
+            .where(TimelineEntry.project_id == project_id)
             .order_by(TimelineEntry.start_time)
-            .all()
-        )
+        ).all()
         if not entries:
             raise ValueError("Keine Timeline-Eintraege zum Vorschau-Rendern vorhanden")
 
