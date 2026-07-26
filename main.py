@@ -438,6 +438,15 @@ class PBWindow(QMainWindow):
         self._btn_toggle_console.clicked.connect(lambda: _to_tab("log"))
         self._btn_toggle_chat.clicked.connect(lambda: _to_tab("chat"))
         self._btn_context_panel.clicked.connect(self._set_context_panel_visible)
+        # B-716: Der Kontext-Dock ist DockWidgetClosable — schliesst der User ihn
+        # ueber sein eigenes "X", laeuft _set_context_panel_visible NICHT und der
+        # Topbar-Button blieb "gedrueckt". Der naechste Klick sendete dann
+        # checked=False -> zuklappen statt aufklappen. visibilityChanged zieht
+        # den Button-Zustand nach (Guard + blockSignals gegen Signal-Rekursion
+        # Button -> Dock -> Button).
+        self.right_dock.visibilityChanged.connect(
+            self._on_context_dock_visibility_changed
+        )
 
         # AUD-107: Restore window state after event loop starts (docks need a shown window)
         QTimer.singleShot(0, self.workspace_setup._restore_window_state)
@@ -509,6 +518,32 @@ class PBWindow(QMainWindow):
                 )
         if hasattr(self, "_btn_context_panel"):
             self._btn_context_panel.setChecked(visible)
+
+    def _on_context_dock_visibility_changed(self, visible: bool) -> None:
+        """B-716: Dock-Sichtbarkeit -> Topbar-Button nachfuehren.
+
+        Feuert auch, wenn der User den Dock ueber sein "X" schliesst oder ihn
+        aus der Dock-Titelleiste heraus wieder oeffnet. Reiner Zustands-Sync,
+        KEIN Aufruf von _set_context_panel_visible — sonst wuerde der Dock den
+        Button setzen, der wieder den Dock setzt.
+        """
+        if getattr(self, "_context_visibility_syncing", False):
+            return
+        btn = getattr(self, "_btn_context_panel", None)
+        if btn is None:
+            return
+        self._context_visibility_syncing = True
+        try:
+            btn.blockSignals(True)
+            btn.setChecked(bool(visible))
+        except RuntimeError:
+            pass  # C++-Objekt beim Shutdown bereits weg
+        finally:
+            try:
+                btn.blockSignals(False)
+            except RuntimeError:
+                pass
+            self._context_visibility_syncing = False
 
     # ── AUD-103: Update notification ──────────────────────────────────────
 
@@ -2196,7 +2231,14 @@ def main():
     # ── Verzögerte Initialisierung (Fix F-035) ────────────────────────
     def final_init():
         try:
-            # FIX H-21: Removed duplicate init_db() call - StartupCheckWorker handles it
+            # init_db() laeuft AUSSCHLIESSLICH synchron vor PBWindow, in
+            # run_database_bootstrap() (oben). Der frueher hier stehende
+            # Kommentar "StartupCheckWorker handles it" war ueberholt: beide
+            # Pfade liefen, die Alembic-Migrationen wurden beim Boot zweimal
+            # ausgefuehrt ("Alembic-Migrationen abgeschlossen (head)." stand
+            # zweimal im Log). Der synchrone Pfad muss bleiben, weil PBWindow
+            # und die Media-Tabelle sofort ORM-Queries fahren; der Worker-Call
+            # ist der ueberfluessige. Siehe _SystemCheckOnlyWorker unten.
             # 1. KI-Engine (Gemma 4 Arbeitsplan)
             try:
                 OllamaService.get().start_background()
@@ -2210,7 +2252,30 @@ def main():
             # 3. System Check (async via Worker um UI flüssig zu halten)
             # FIX C-4: Store worker refs on window to prevent GC while thread runs
             from workers.startup import StartupCheckWorker
-            window._startup_check_worker = StartupCheckWorker()
+
+            class _SystemCheckOnlyWorker(StartupCheckWorker):
+                """StartupCheckWorker ohne den doppelten init_db()-Aufruf.
+
+                ``StartupCheckWorker.run`` ruft ``init_db()`` (workers/startup.py:19)
+                — das ist nach ``run_database_bootstrap()`` der zweite Durchlauf
+                derselben Alembic-Migrationen, im Hintergrund-Thread und parallel
+                zu den ersten UI-DB-Zugriffen. Hier bleibt nur der System-Check.
+                """
+
+                def run(self):
+                    from services.startup_checks import check_system, SystemStatus
+                    try:
+                        self.progress.emit("Initialisiere KI-Umgebung (torch)...")
+                        self.finished.emit(check_system())
+                    except Exception as exc:  # noqa: BLE001 — 1:1 wie im Basis-Worker
+                        logger.error(
+                            "Kritischer Fehler bei Systempruefung: %s", exc, exc_info=True
+                        )
+                        err_status = SystemStatus()
+                        err_status.errors.append(f"Systemcheck abgestuerzt: {exc}")
+                        self.finished.emit(err_status)
+
+            window._startup_check_worker = _SystemCheckOnlyWorker()
             window._startup_check_thread = QThread(window)
             window._startup_check_worker.moveToThread(window._startup_check_thread)
 
@@ -2222,12 +2287,24 @@ def main():
                 logger.info("Startup checks completed: %s", status.status_bar_text())
                 # FIX H-4: Show startup check dialog if there are errors or warnings
                 from ui.dialogs.startup_check_dialog import maybe_show_startup_dialog
+                # Der "Beenden"-Zweig rief frueher nur app.quit(). Es gibt
+                # repo-weit KEINEN aboutToQuit-Hook -> die komplette
+                # closeEvent-Aufraeumkette (ModelManager.unload, CUDA-Gate,
+                # Ollama-Stop, engine.dispose) wurde uebersprungen und der
+                # NVIDIA-Context blieb gesperrt (siehe P8-CUDA-FIX in
+                # closeEvent). ``window`` existiert hier sicher: on_done ist
+                # eine Closure aus final_init, das erst per QTimer 500 ms nach
+                # ``window = PBWindow()`` + showMaximized() laeuft.
+                # window.close() liefert False, wenn closeEvent das Event
+                # ignoriert (Dirty-/Task-Prompt mit "Nein") — dann bleibt die
+                # App bewusst offen statt hart wegzufallen.
                 if not maybe_show_startup_dialog(status, window):
                     # User chose "Beenden" — exit the application
                     # F-10 (B-342): quit the worker thread on the exit path too,
                     # not only on success, so it does not leak.
                     window._startup_check_thread.quit()
-                    app.quit()
+                    if window.close():
+                        app.quit()
                     return
                 # 3. Timeline laden wenn alles bereit ist
                 window.timeline_view.load_from_db()

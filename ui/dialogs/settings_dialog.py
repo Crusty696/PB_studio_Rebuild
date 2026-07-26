@@ -216,6 +216,11 @@ class ShortcutEditorTab(QWidget):
         from ui.shortcut_manager import get_shortcut_manager, ACTIONS
         self._sm = get_shortcut_manager()
         self._actions = ACTIONS
+        # Aenderungen landen ZUERST hier und erst bei OK (apply()) auf dem
+        # ShortcutManager-Singleton. Vorher schrieben _edit_selected/_reset_all
+        # sofort auf das Singleton; "Abbrechen" uebersprang nur save(), die
+        # geaenderte Belegung blieb aber fuer die laufende Session aktiv.
+        self._pending: dict[str, QKeySequence] = {}
         self._build_ui()
         self._populate()
 
@@ -277,8 +282,10 @@ class ShortcutEditorTab(QWidget):
             item_name.setData(Qt.ItemDataRole.UserRole, action_id)
             self._table.setItem(row, 0, item_name)
             self._table.setItem(row, 1, QTableWidgetItem(desc))
+            pending = self._pending.get(action_id)
             self._table.setItem(row, 2, QTableWidgetItem(
-                self._sm.display_text(action_id)
+                pending.toString() if pending is not None
+                else self._sm.display_text(action_id)
             ))
 
     def _edit_selected(self) -> None:
@@ -292,15 +299,23 @@ class ShortcutEditorTab(QWidget):
         dlg = _KeyCaptureDialog(action_name, parent=self)
         if dlg.exec() == QDialog.DialogCode.Accepted and dlg.captured_sequence():
             seq = dlg.captured_sequence()
-            self._sm.set_sequence(action_id, seq)
+            self._pending[action_id] = seq
             self._table.item(row, 2).setText(seq.toString())
 
     def _reset_all(self) -> None:
-        self._sm.reset_to_defaults()
+        # Nur die Arbeitskopie zuruecksetzen. Erst OK schreibt das auf das
+        # Singleton — "Abbrechen" laesst die laufende Belegung unangetastet.
+        self._pending = {
+            action_id: QKeySequence(default)
+            for action_id, (_name, _desc, default) in self._actions.items()
+        }
         self._populate()
 
     def apply(self) -> None:
         """Persist changes — called by SettingsDialog on OK."""
+        for action_id, seq in self._pending.items():
+            self._sm.set_sequence(action_id, seq)
+        self._pending.clear()
         self._sm.save()
 
 
