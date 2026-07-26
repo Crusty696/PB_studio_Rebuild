@@ -43,15 +43,26 @@ def add_anchor(time_seconds: float, scene_id: str | None = None) -> dict:
 
     try:
         with nullpool_session() as session:
-            # Finde den nächstgelegenen Timeline-Eintrag
-            closest_entry = (
+            # Finde den zum Zeitpunkt nächstgelegenen Timeline-Eintrag.
+            # Vorher: order_by(start_time).first() -> IMMER der erste Clip,
+            # unabhaengig von time_seconds.
+            video_entries = (
                 session.query(TimelineEntry)
                 .filter_by(project_id=project_id, track="video")
                 .order_by(TimelineEntry.start_time)
-                .first()
+                .all()
             )
-            if not closest_entry:
+            if not video_entries:
                 return {"error": "Keine Video-Clips auf der Timeline. Bitte erst Clips hinzufügen."}
+
+            def _distance(entry) -> float:
+                start = float(entry.start_time) if entry.start_time is not None else 0.0
+                end = float(entry.end_time) if entry.end_time is not None else start
+                if start <= time_seconds <= end:
+                    return 0.0
+                return min(abs(time_seconds - start), abs(time_seconds - end))
+
+            closest_entry = min(video_entries, key=_distance)
 
             anchor = ClipAnchor(
                 timeline_entry_id=closest_entry.id,

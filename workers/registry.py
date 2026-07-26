@@ -42,16 +42,40 @@ GlobalTaskManager.register_worker(
     mapper=lambda kw: {"clip_id": kw["clip_id"], "video_path": kw["video_path"]},
 )
 
+def _map_auto_edit(kw: dict) -> dict:
+    """Mapper fuer die auto_edit-Action.
+
+    Die Chat-Action ``services/actions/edit/timeline_actions.py::auto_edit``
+    sendet neben audio_track_id/video_ids auch die DJ-Regler
+    (base_cut_rate, energy_reactivity, breakdown_behavior, vibe). Vorher
+    nahm der Mapper nur audio_id/video_ids/settings entgegen — alle
+    Pacing-Parameter wurden still verworfen. Sie werden jetzt in die
+    ``AdvancedPacingSettings`` gefaltet, die der AutoEditWorker erwartet.
+    """
+    settings = kw.get("settings")
+    if settings is None:
+        settings = AdvancedPacingSettings()
+        if kw.get("base_cut_rate") is not None:
+            settings.base_cut_rate = int(round(float(kw["base_cut_rate"])))
+        if kw.get("energy_reactivity") is not None:
+            settings.energy_reactivity = int(round(float(kw["energy_reactivity"])))
+        if kw.get("breakdown_behavior") is not None:
+            settings.breakdown_behavior = str(kw["breakdown_behavior"])
+        if kw.get("vibe") is not None:
+            settings.vibe = str(kw["vibe"])
+    return {
+        # register_actions.py emittiert "audio_track_id"; AutoEditWorker erwartet "audio_id"
+        "audio_id": kw.get("audio_id") or kw["audio_track_id"],
+        "video_ids": kw["video_ids"],
+        "settings": settings,
+    }
+
+
 GlobalTaskManager.register_worker(
     "auto_edit",
     AutoEditWorker,
     "Auto-Edit",
-    mapper=lambda kw: {
-        # register_actions.py emittiert "audio_track_id"; AutoEditWorker erwartet "audio_id"
-        "audio_id": kw.get("audio_id") or kw["audio_track_id"],
-        "video_ids": kw["video_ids"],
-        "settings": kw.get("settings") or AdvancedPacingSettings(),
-    },
+    mapper=_map_auto_edit,
 )
 
 GlobalTaskManager.register_worker(

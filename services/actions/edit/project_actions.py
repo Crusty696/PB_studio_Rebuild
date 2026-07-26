@@ -3,6 +3,7 @@
 from services.action_registry import action_registry
 from services.actions.edit._common import (
     _logger,
+    _get_main_window,
     _get_project_manager,
     _run_on_main_thread,
 )
@@ -119,11 +120,41 @@ def open_project(path: str) -> dict:
     param_schema={"type": "object", "properties": {}}
 )
 def save_project() -> dict:
-    return {
-        "status": "ok",
-        "action": "save_project",
-        "message": "Projekt erfolgreich gespeichert.",
-    }
+    """Ruft den echten Save-Pfad der UI auf.
+
+    Vorher gab die Action hart ``status: ok`` zurueck ohne irgendetwas zu
+    speichern — der ChatDock markierte das Projekt danach als sauber.
+    Der reale Speicherpfad ist ``ProjectManagementController._save_project``
+    (Fenster-State + _mark_clean); er muss im Main-Thread laufen.
+    """
+    def _save():
+        mw = _get_main_window()
+        if mw is None:
+            return {"error": "Hauptfenster nicht verfügbar."}
+
+        controller = getattr(mw, "project_management", None)
+        if controller is None or not hasattr(controller, "_save_project"):
+            return {"error": "Speicherfunktion nicht verfügbar (ProjectManagementController fehlt)."}
+
+        pm = _get_project_manager()
+        project_path = getattr(pm, "current_project_path", None) if pm else None
+        if project_path is None:
+            return {"error": "Kein Projekt geöffnet — es gibt nichts zu speichern."}
+
+        try:
+            controller._save_project()
+        except Exception as e:
+            _logger.exception("Fehler in save_project-Aktion")
+            return {"error": f"Fehler beim Speichern: {e}"}
+
+        return {
+            "status": "ok",
+            "action": "save_project",
+            "path": str(project_path),
+            "message": f"Projekt unter '{project_path}' gespeichert.",
+        }
+
+    return _run_on_main_thread(_save)
 
 
 @action_registry.register(
@@ -132,7 +163,7 @@ def save_project() -> dict:
     param_schema={"type": "object", "properties": {}}
 )
 def get_project_info() -> dict:
-    from database import nullpool_session, TimelineEntry, AudioTrack, VideoClip
+    from database import nullpool_session, Project, TimelineEntry, AudioTrack, VideoClip
     from database.session import get_active_project_id
 
     project_id = get_active_project_id()
@@ -140,19 +171,25 @@ def get_project_info() -> dict:
         return {"error": "Kein aktives Projekt geladen."}
 
     try:
+        # ProjectManager hat kein ``_current_project`` — die reale API ist
+        # ``current_project_path``; Name/Resolution/FPS stehen in der
+        # projects-Tabelle des aktiven Projekts.
         pm = _get_project_manager()
-        meta = {}
-        if pm and hasattr(pm, "_current_project"):
-            proj = pm._current_project
-            if proj:
-                meta = {
-                    "name": getattr(proj, "name", "Unbekannt"),
-                    "path": str(getattr(proj, "path", "")),
-                    "resolution": getattr(proj, "resolution", ""),
-                    "fps": getattr(proj, "fps", 30.0),
-                }
+        project_path = getattr(pm, "current_project_path", None) if pm else None
 
+        meta = {}
         with nullpool_session() as session:
+            proj = session.get(Project, project_id)
+            if proj is not None:
+                meta = {
+                    "name": proj.name or "Unbekannt",
+                    "path": str(project_path) if project_path else (proj.path or ""),
+                    "resolution": proj.resolution or "",
+                    "fps": float(proj.fps) if proj.fps is not None else 30.0,
+                }
+            elif project_path is not None:
+                meta = {"path": str(project_path)}
+
             audio_count = session.query(AudioTrack).filter_by(project_id=project_id).filter(AudioTrack.deleted_at.is_(None)).count()
             video_count = session.query(VideoClip).filter_by(project_id=project_id).filter(VideoClip.deleted_at.is_(None)).count()
             timeline_count = session.query(TimelineEntry).filter_by(project_id=project_id).count()
@@ -218,9 +255,12 @@ def save_project_as(target_path: str, name: str | None = None) -> dict:
 )
 def list_projects() -> dict:
     try:
+        from pathlib import Path
         from services.recent_projects import RecentProjectsManager
-        projects = RecentProjectsManager.list()
-        items = [{"path": str(p), "name": p.name} for p in projects]
+        # RecentProjectsManager hat kein ``list()`` — die API ist ``get_all()``
+        # und liefert Pfad-Strings, keine Objekte mit ``.name``.
+        projects = RecentProjectsManager.get_all()
+        items = [{"path": str(p), "name": Path(p).name} for p in projects]
         return {
             "total": len(items),
             "projects": items,
@@ -239,12 +279,15 @@ def list_projects() -> dict:
 )
 def get_settings() -> dict:
     try:
-        from PySide6.QtCore import QSettings
-        settings = QSettings("PB_Studio", "PB_Studio")
+        # Der echte Settings-Store ist services/settings_store.py (JSON) —
+        # QSettings("PB_Studio","PB_Studio") war ein Phantom-Store und lieferte
+        # immer die Defaults.
+        from services.settings_store import get_ollama_settings
+        ollama = get_ollama_settings()
         result = {
-            "ollama_enabled": settings.value("ollama/enabled", False, type=bool),
-            "ollama_url": settings.value("ollama/url", "http://localhost:11434"),
-            "ollama_model": settings.value("ollama/model", "llama3.2"),
+            "ollama_enabled": bool(ollama.get("enabled", True)),
+            "ollama_url": ollama.get("url", "http://localhost:11434"),
+            "ollama_model": ollama.get("model", ""),
         }
 
         # GPU-Info hinzufügen
@@ -253,7 +296,10 @@ def get_settings() -> dict:
             result["cuda_available"] = torch.cuda.is_available()
             if torch.cuda.is_available():
                 result["gpu_name"] = torch.cuda.get_device_name(0)
-                result["gpu_memory_total_mb"] = round(torch.cuda.get_device_properties(0).total_mem / 1024**2)
+                # torch-API heisst total_memory, nicht total_mem
+                result["gpu_memory_total_mb"] = round(
+                    torch.cuda.get_device_properties(0).total_memory / 1024**2
+                )
         except ImportError:
             result["cuda_available"] = False
 
