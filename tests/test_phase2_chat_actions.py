@@ -128,7 +128,15 @@ def test_rl_feedback_no_project():
     assert "error" in result
 
 
-def test_save_project_still_works():
-    """Regression: save_project aus Phase 1 funktioniert weiterhin."""
+def test_save_project_reports_honestly_without_window():
+    """save_project darf ohne Hauptfenster keinen Erfolg melden.
+
+    Statusaufnahme 2026-07-26: die Action gab hart ``status: ok`` zurueck,
+    egal ob gespeichert wurde — hier lief sie ohne jedes Fenster durch und
+    meldete trotzdem Erfolg. Der echte Speicherpfad
+    (``ProjectManagementController._save_project``) wird in
+    ``tests/test_new_chat_actions.py::test_save_project_action`` geprueft.
+    """
     res = action_registry.execute("save_project", {})
-    assert res["status"] == "ok"
+    assert res.get("status") != "ok"
+    assert "error" in res

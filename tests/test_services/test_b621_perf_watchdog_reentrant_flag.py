@@ -109,7 +109,13 @@ def test_call_stack_balanced_after_nested_calls(qapp):
 
     try:
         hook._profiled_notify(receiver, outer_event)
-        assert hook._call_stack == []
+        # Der Reentrancy-Stack liegt seit der Statusaufnahme 2026-07-26
+        # THREAD-LOKAL (``_ProfilerThreadState.call_stack``, erreichbar ueber
+        # ``_state()``): ``notify()`` laeuft in jedem Thread mit Event-Loop,
+        # ein geteilter Stack lieferte vertauschte Frames und konnte beim
+        # ``pop()`` einen IndexError werfen. Die gepruefte Invariante bleibt
+        # dieselbe — nach dem Top-Level-Aufruf muss der Stack leer sein.
+        assert hook._state().call_stack == []
     finally:
         hook._timer.stop()
         del qapp.notify

@@ -255,9 +255,11 @@ def test_assign_mode_without_reducer_file_single_bucket(monkeypatch, tmp_path):
     with engine.begin() as conn:
         conn.execute(
             text(
+                # `energy` = Motion-Score (siehe video_analysis_service);
+                # der Enrichment-Worker liest die Spalte seit 2026-07-26 aus.
                 "CREATE TABLE scenes ("
                 "id INTEGER PRIMARY KEY, video_clip_id INTEGER, start_time REAL, "
-                "end_time REAL, ai_caption TEXT, ai_mood TEXT)"
+                "end_time REAL, ai_caption TEXT, ai_mood TEXT, energy REAL)"
             )
         )
         conn.execute(

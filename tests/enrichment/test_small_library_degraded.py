@@ -27,9 +27,13 @@ def test_structure_enrichment_small_library_finishes_degraded(monkeypatch, caplo
     with engine.begin() as conn:
         conn.execute(
             text(
+                # `energy` traegt den Motion-Score (video_analysis_service
+                # schreibt SceneInfo.motion_score dorthin). Der Enrichment-
+                # Worker liest die Spalte seit der Statusaufnahme 2026-07-26
+                # wirklich aus, statt motion hart auf 0.5 zu setzen.
                 "CREATE TABLE scenes ("
                 "id INTEGER PRIMARY KEY, video_clip_id INTEGER, start_time REAL, "
-                "end_time REAL, ai_caption TEXT, ai_mood TEXT)"
+                "end_time REAL, ai_caption TEXT, ai_mood TEXT, energy REAL)"
             )
         )
         conn.execute(
