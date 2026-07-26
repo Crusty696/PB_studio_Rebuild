@@ -12,6 +12,7 @@ Unterstützte Modell-Typen:
 
 import gc
 import logging
+import os
 import threading
 import time
 import psutil
@@ -39,6 +40,23 @@ GPU_EXECUTION_LOCK = threading.RLock()
 
 _GPU_EXECUTION_HOLDER_LOCK = threading.Lock()
 _GPU_EXECUTION_HOLDER: dict[str, Any] | None = None
+
+
+def force_cpu_requested() -> bool:
+    """True wenn der User beim Start "Mit CPU starten" gewaehlt hat.
+
+    ``ui/dialogs/gpu_recovery_dialog._on_cpu_fallback`` setzt
+    ``PB_STUDIO_FORCE_CPU=1``. Bis dato hat diese Variable NIEMAND gelesen —
+    der Button erzwang also gar nichts. Dass die App danach trotzdem auf CPU
+    lief, war Zufall: bei PnP-Fehlercode 47 liefert ``torch.cuda.is_available()``
+    ohnehin False. Bei halb-lebender GPU startete sie gegen die Wahl des Users
+    auf CUDA.
+
+    Absichtlich pro Aufruf aus ``os.environ`` gelesen (nicht gecached): der
+    Dialog setzt die Variable erst zur Laufzeit, vor der ersten
+    ModelManager-Instanziierung.
+    """
+    return os.environ.get("PB_STUDIO_FORCE_CPU", "").strip() not in ("", "0", "false", "False")
 
 
 @contextmanager
@@ -320,9 +338,18 @@ class ModelManager:
         # torch lazy laden (spart ~11s wenn ModelManager erst spät gebraucht wird)
         _ensure_torch()
 
-        # GPU-ZWANG: Wenn CUDA da ist, wird CUDA erzwungen — kein stiller CPU-Fallback
+        # User-Wille schlaegt GPU-ZWANG: hat der GPU-Recovery-Dialog
+        # "Mit CPU starten" gesetzt, wird CUDA nicht angefasst.
         cuda_available = torch.cuda.is_available()
-        if cuda_available:
+        if force_cpu_requested():
+            self.device = "cpu"
+            logger.warning(
+                "PB_STUDIO_FORCE_CPU gesetzt (User waehlte 'Mit CPU starten') — "
+                "Device fest auf 'cpu', CUDA wird ignoriert (torch.cuda.is_available()=%s).",
+                cuda_available,
+            )
+        # GPU-ZWANG: Wenn CUDA da ist, wird CUDA erzwungen — kein stiller CPU-Fallback
+        elif cuda_available:
             self.device = "cuda"
             if device and device != "cuda":
                 logger.info(
@@ -427,6 +454,10 @@ class ModelManager:
         """
         with self._swap_lock:
             if self.device != "cuda":
+                # PB_STUDIO_FORCE_CPU: der User hat CPU gewaehlt — dann darf
+                # der Re-Dock-Pfad das Device NICHT wieder auf cuda heben.
+                if force_cpu_requested():
+                    return
                 # Schon auf CPU — pruefe ob CUDA wieder da ist (Re-Dock).
                 if self._cuda_suspect_stale or torch.cuda.is_available():
                     self._cuda_suspect_stale = False

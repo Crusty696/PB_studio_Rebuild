@@ -5,6 +5,7 @@ from PySide6.QtCore import Qt
 from database import get_active_project_id
 from services.task_manager import TaskManagerProxy
 from services.export_service import get_timeline_summary, estimate_render_time
+from services.export.ffmpeg_runner import set_export_preset
 from workers import ExportWorker, PreviewExportWorker
 from workers.base import BaseWorker, run_worker
 from ui.base_component import PBComponent
@@ -122,11 +123,35 @@ class ExportController(PBComponent):
         (FREEZE-Fix 2026-07-10: vorher synchrone DB-Reads im Main-Thread)."""
         self._refresh_production_info()
 
+    def _apply_export_preset(self) -> str:
+        """Uebertraegt die Preset-Wahl der Combo an den Encoder.
+
+        Die Combo war bisher eine Attrappe: der Wert landete nur im
+        Renderzeit-Label, waehrend Bitrate/Qualitaet in
+        ``services/export/ffmpeg_runner._video_encode_args`` hart verdrahtet
+        waren ("Draft" und "Hohe Qualitaet" ergaben dieselbe Datei).
+
+        Gesetzt wird hier im GUI-Thread VOR dem Worker-Start; der Worker liest
+        den Wert beim Bauen der ffmpeg-Kommandos. Ein Durchreichen als
+        Parameter (Controller -> ExportWorker -> export_timeline) wuerde
+        ``workers/import_export.py`` beruehren und war fuer diese Aenderung
+        nicht freigegeben.
+
+        Returns: den effektiv gesetzten Preset-Key.
+        """
+        try:
+            key = self.window.preset_combo.currentData()
+        except AttributeError:
+            key = None
+        return set_export_preset(key)
+
     def _start_export(self):
         summary = get_timeline_summary(get_active_project_id())
         if summary["total_entries"] == 0:
             self.window.export_log.append("[Fehler] Keine Clips auf der Timeline!")
             return
+
+        preset_key = self._apply_export_preset()
 
         output_name = self.window.export_name_input.text().strip() or "output.mp4"
         if not output_name.endswith(".mp4"):
@@ -140,7 +165,10 @@ class ExportController(PBComponent):
         self.window.btn_export.setText("Exportiere...")
         self.window.export_progress.setVisible(True)
         self.window.export_progress.setRange(0, 0)
-        self.window.export_log.append(f"[Export] Starte Export: {output_name} ({resolution} @ {fps}fps)")
+        self.window.export_log.append(
+            f"[Export] Starte Export: {output_name} ({resolution} @ {fps}fps, "
+            f"Preset: {preset_key})"
+        )
 
         worker = ExportWorker(project_id=get_active_project_id(), output_name=output_name,
                               resolution=resolution, fps=fps)
@@ -193,6 +221,7 @@ class ExportController(PBComponent):
 
         resolution = self.window.resolution_combo.currentText()
         fps = float(self.window.fps_combo.currentText())
+        self._apply_export_preset()
 
         self.window.btn_preview.setEnabled(False)
         self.window.btn_preview.setText("Rendere Vorschau...")

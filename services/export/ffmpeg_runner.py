@@ -23,14 +23,89 @@ from services.video_encode_args import nvenc_video_args, libx264_fallback_args
 logger = logging.getLogger("services.export_service")
 
 
-def _video_encode_args() -> list[str]:
+# 10-bit-Schutz: h264_nvenc auf Pascal (GTX 1060) ist 8-bit-only — eine
+# 10-bit-Quelle (yuv420p10le / p010le / HEVC Main10) laesst den NVENC-Init
+# mit "10 bit encode not supported" scheitern. Der Convert-Pfad erzwingt
+# deshalb seit B-584 ``-pix_fmt yuv420p`` (services/convert_service.py).
+# Der Export hatte diesen Schutz nie. Hier wird er unkonditional an JEDEN
+# Export-Re-Encode gehaengt (nicht an Stream-Copy — ``_video_encode_args``
+# wird ausschliesslich auf echten Re-Encode-Pfaden benutzt):
+#   * 8-bit yuv420p-Quelle  -> No-Op (Ziel == Ist)
+#   * 10-bit / 422 / 444    -> Downconvert auf 8-bit 4:2:0
+# Das entspricht ausserdem ``_CONCAT_TARGET_PIX_FMT`` ("yuv420p") aus
+# services/export/_common.py — nur so bleibt der anschliessende
+# ``-c:v copy``-Concat pixelformat-konsistent (auch im libx264-CPU-Fallback,
+# der sonst je nach Quelle einen 10-bit-Temp erzeugen wuerde).
+_PIX_FMT_ARGS = ["-pix_fmt", "yuv420p"]
+
+
+# Export-Presets: bis dato war die UI-Combo eine Attrappe — Bitrate/Qualitaet
+# waren hart auf "p4 / cq 18 / 15M" verdrahtet, "Draft" und "Hohe Qualitaet"
+# erzeugten dieselbe Datei. Die Keys entsprechen der ``userData`` der
+# ``preset_combo`` in ui/workspaces/deliver_workspace.py.
+#
+# "standard" traegt bewusst EXAKT die bisherigen Werte (p4/cq18/15M bzw.
+# libx264 fast/crf23) — Default-Verhalten bleibt damit unveraendert.
+_EXPORT_PRESETS: dict[str, dict] = {
+    "standard": {
+        "nvenc_preset": "p4", "cq": 18, "bitrate": "15M",
+        "x264_preset": "fast", "crf": 23,
+    },
+    "high": {
+        "nvenc_preset": "p6", "cq": 16, "bitrate": "25M",
+        "x264_preset": "slow", "crf": 18,
+    },
+    "draft": {
+        "nvenc_preset": "p1", "cq": 28, "bitrate": "6M",
+        "x264_preset": "veryfast", "crf": 28,
+    },
+}
+_DEFAULT_EXPORT_PRESET = "standard"
+
+# Modul-globaler aktiver Preset-Key. Wird vom ExportController unmittelbar
+# VOR dem Worker-Start gesetzt (GUI-Thread) und im Worker-Thread beim Bauen
+# der ffmpeg-Kommandos gelesen. Ein sauberes Durchreichen als Parameter
+# (Controller -> ExportWorker -> export_timeline) wuerde workers/import_export.py
+# beruehren; das steht fuer diese Aufgabe nicht zur Verfuegung.
+_active_export_preset = _DEFAULT_EXPORT_PRESET
+
+
+def set_export_preset(preset_key: str | None) -> str:
+    """Setzt den aktiven Export-Preset-Key. Unbekannt/None -> "standard"."""
+    global _active_export_preset
+    key = (preset_key or "").strip().lower()
+    if key not in _EXPORT_PRESETS:
+        if key:
+            logger.warning(
+                "Unbekanntes Export-Preset '%s' — falle auf '%s' zurueck.",
+                preset_key, _DEFAULT_EXPORT_PRESET,
+            )
+        key = _DEFAULT_EXPORT_PRESET
+    _active_export_preset = key
+    return key
+
+
+def get_export_preset() -> str:
+    """Liefert den aktuell aktiven Export-Preset-Key."""
+    return _active_export_preset
+
+
+def _video_encode_args(preset_key: str | None = None) -> list[str]:
     """Video-Codec-Args fuer Export-Re-Encodes (F-7 / B-339).
 
     Bevorzugt ``h264_nvenc`` gemaess GPU-Hartregel (GTX 1060), faellt auf
     ``libx264`` (CPU) zurueck wenn NVENC nicht verfuegbar ist — so bleibt der
     Export ueberall lauffaehig. NVENC-Parameter spiegeln das erprobte
     ``master``-Preset aus ``convert_service``.
+
+    ``preset_key`` waehlt die Qualitaetsstufe (siehe ``_EXPORT_PRESETS``);
+    ohne Angabe gilt der via ``set_export_preset`` gesetzte aktive Key.
+    Haengt in jedem Fall ``-pix_fmt yuv420p`` an (10-bit-Schutz, s.o.).
     """
+    params = _EXPORT_PRESETS.get(
+        (preset_key or _active_export_preset), _EXPORT_PRESETS[_DEFAULT_EXPORT_PRESET],
+    )
+
     try:
         from services.convert_service import detect_nvenc
         nvenc_available = bool(detect_nvenc().get("h264_nvenc"))
@@ -38,7 +113,9 @@ def _video_encode_args() -> list[str]:
         nvenc_available = False
 
     if nvenc_available:
-        return nvenc_video_args("p4", 18, bitrate="15M")
+        return nvenc_video_args(
+            params["nvenc_preset"], params["cq"], bitrate=params["bitrate"],
+        ) + _PIX_FMT_ARGS
 
     logger.warning("NVENC (h264_nvenc) nicht verfuegbar! Timeline-Export weicht auf CPU (libx264) aus.")
 
@@ -46,7 +123,7 @@ def _video_encode_args() -> list[str]:
         raise RuntimeError(
             required_message("h264_nvenc nicht verfuegbar; Export-CPU-Fallback verboten")
         )
-    return libx264_fallback_args("fast", 23)
+    return libx264_fallback_args(params["x264_preset"], params["crf"]) + _PIX_FMT_ARGS
 
 
 def _run_subprocess_cancellable(

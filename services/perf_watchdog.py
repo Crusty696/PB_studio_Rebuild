@@ -66,6 +66,27 @@ class EventProfiler(QObject):
         return result
 
 
+class _ProfilerThreadState:
+    """Pro-Thread-Zustand eines ``_profiled_notify``-Aufrufs.
+
+    ``QCoreApplication::notify`` laeuft in JEDEM Thread mit Event-Loop, also
+    auch in allen QThread-Workern. Vorher lagen ``_call_stack`` /
+    ``_current_event_start`` / ``_current_event_name`` /
+    ``_current_receiver_name`` ungeschuetzt als geteilte Instanzfelder: Frames
+    vertauschten sich zwischen Threads, Freeze-Zeiten wurden verfaelscht und
+    ``_call_stack.pop()`` konnte auf einem leeren Stack laufen (IndexError,
+    Kandidat fuer die absurden SLOW-EVENT-Dauern, vgl. B-621).
+    """
+
+    __slots__ = ("call_stack", "event_start", "event_name", "receiver_name")
+
+    def __init__(self) -> None:
+        self.call_stack: list[bool] = []
+        self.event_start: float = 0.0
+        self.event_name: str = ""
+        self.receiver_name: str = ""
+
+
 class SlowEventHook:
     """Patch fuer QApplication.notify() — misst die tatsaechliche Event-Dauer."""
 
@@ -78,10 +99,17 @@ class SlowEventHook:
         self._slow_count = 0
         self._main_thread_id = threading.current_thread().ident
 
+        # Profiler-Zustand ist THREAD-LOKAL (siehe _ProfilerThreadState).
+        # ``_main_state`` ist die Instanz des GUI-Threads — der Sampler-Thread
+        # unten liest ausschliesslich sie und behaelt damit exakt seine
+        # bisherige Semantik ("beobachte nur den GUI-Thread"), jetzt aber ohne
+        # dass Worker-Threads ihm dazwischenschreiben koennen.
+        # ``__init__`` laeuft im GUI-Thread (install_watchdog aus main.py).
+        self._tls = threading.local()
+        self._main_state = _ProfilerThreadState()
+        self._tls.state = self._main_state
+
         # Background-Thread der den Main-Thread-Stack sampelt bei langen Events
-        self._current_event_start = 0.0
-        self._current_event_name = ""
-        self._current_receiver_name = ""
         self._sampled_stacks: list[tuple[float, str]] = []
         self._stack_lock = threading.Lock()
         self._running = True
@@ -99,8 +127,8 @@ class SlowEventHook:
         # sich pro notify()-Frame, ob WAEHREND seiner Laufzeit ein
         # verschachtelter notify()-Aufruf stattfand, und kennzeichnet den
         # Log-Eintrag entsprechend statt ihn unkommentiert als Freeze
-        # auszuweisen.
-        self._call_stack: list[bool] = []
+        # auszuweisen. Dieser Stack liegt pro Thread in
+        # ``_ProfilerThreadState.call_stack``.
 
         # Monkey-patch notify
         app.notify = self._profiled_notify
@@ -113,11 +141,25 @@ class SlowEventHook:
 
         logger.info("[PerfWatchdog] Installiert. Threshold: %dms", threshold_ms)
 
+    def _state(self) -> "_ProfilerThreadState":
+        """Thread-lokalen Profiler-Zustand holen (bei Bedarf anlegen)."""
+        state = getattr(self._tls, "state", None)
+        if state is None:
+            state = (
+                self._main_state
+                if threading.current_thread().ident == self._main_thread_id
+                else _ProfilerThreadState()
+            )
+            self._tls.state = state
+        return state
+
     def _watchdog_loop(self) -> None:
         """Laeuft in einem Background-Thread und sampelt den Main-Thread-Stack alle 200ms bei langen Events."""
         while self._running:
             time.sleep(0.2)
-            start_time = self._current_event_start
+            # Nur der GUI-Thread-Zustand wird beobachtet (unveraenderte
+            # Semantik, jetzt garantiert statt zufaellig).
+            start_time = self._main_state.event_start
             if start_time > 0.0:
                 elapsed = time.perf_counter() - start_time
                 if elapsed > 1.0:  # Event dauert schon laenger als 1s
@@ -134,6 +176,7 @@ class SlowEventHook:
             # monkey-patched notify hook.
             return False
 
+        state = self._state()
         self._count += 1
         t0 = time.perf_counter()
 
@@ -150,25 +193,27 @@ class SlowEventHook:
         # Aktiviert das Sampling fuer dieses Event
         with self._stack_lock:
             self._sampled_stacks.clear()
-        self._current_event_name = event_name
-        self._current_receiver_name = receiver_name
-        self._current_event_start = t0
+        state.event_name = event_name
+        state.receiver_name = receiver_name
+        state.event_start = t0
 
         # B-621-FIX: dieser Aufruf ist verschachtelt in einem laufenden
         # aeusseren notify() -> markiere den aeusseren Frame als "hatte
         # verschachtelten Event-Loop" (Modal-Dialog-Verdacht).
-        if self._call_stack:
-            self._call_stack[-1] = True
-        self._call_stack.append(False)
+        if state.call_stack:
+            state.call_stack[-1] = True
+        state.call_stack.append(False)
 
         try:
             result = self._original_notify(receiver, event)
         except Exception:
             raise
         finally:
-            self._current_event_start = 0.0
+            state.event_start = 0.0
             elapsed = time.perf_counter() - t0
-            had_nested_loop = self._call_stack.pop()
+            # Defensiv: pop() auf leerem Stack (theoretisch bei Reentranz
+            # ueber Thread-Wechsel/Exception-Pfaden) darf nie IndexError werfen.
+            had_nested_loop = state.call_stack.pop() if state.call_stack else False
 
             if elapsed > self._threshold:
                 self._slow_count += 1

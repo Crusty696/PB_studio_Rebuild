@@ -111,7 +111,14 @@ class DeliverWorkspace(QWidget):
         row2.addWidget(self.fps_combo, stretch=1)
         row2.addWidget(QLabel("Preset:"))
         self.preset_combo = QComboBox()
-        self.preset_combo.addItems(["Standard (H.264 fast)", "Hohe Qualitaet (H.264 slow)", "Draft (schnell)"])
+        # Die Item-TEXTE bleiben unveraendert (scripts/diag/e2e_render_test.py
+        # sucht per findText). Neu ist die userData: ein stabiler Preset-Key,
+        # den der ExportController an services/export/ffmpeg_runner weiterreicht.
+        # Vorher war die Combo eine Attrappe — der Wert landete nur im
+        # Renderzeit-Label, Bitrate/Qualitaet waren hart verdrahtet.
+        self.preset_combo.addItem("Standard (H.264 fast)", "standard")
+        self.preset_combo.addItem("Hohe Qualitaet (H.264 slow)", "high")
+        self.preset_combo.addItem("Draft (schnell)", "draft")
         self.preset_combo.setFixedHeight(22)
         self.preset_combo.setAccessibleName("Export Preset")
         self.preset_combo.setToolTip(
