@@ -6,7 +6,9 @@ Zugriff auf die echte pb_studio.db.
 """
 
 import os
+import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -71,6 +73,60 @@ def pytest_collection_modifyitems(config, items):
             continue
         if "PySide6" in src or any(p in src for p in qt_dependent_prefixes):
             item.add_marker(skip_marker)
+
+
+# ---------------------------------------------------------------------------
+# B-727 — Schutz der realen Projekt-Datenbank (autouse, session-scoped)
+# ---------------------------------------------------------------------------
+# Die Default-Suite hat am 2026-07-26 nachweislich in die reale
+# ``pb_studio.db`` im Repo-Root geschrieben: der ``AudioPipelineV2Worker``
+# legt ueber den AnalysisStatusService Statuszeilen an (dort landeten
+# audio_track_id 99 und 5 samt Fehlertext "demucs kaputt"). Der zugehoerige
+# Test patchte zwar Storage- und Checkpoint-Pfade, aber nicht die globale
+# DB-Engine. Die ``test_engine``-Fixture unten schuetzt nur Tests, die sie
+# explizit anfordern — sie ist kein autouse und war damit kein Schutz.
+#
+# Dieser Guard schwenkt die globale Engine EINMAL pro Testsession auf eine
+# temporaere Datei-DB um. ``database.session._get_cached_nullpool_engine()``
+# leitet seine URL aus ``engine.url`` ab und folgt dem Swap automatisch —
+# damit landen auch Worker-Writes ueber ``nullpool_session()`` in der Temp-DB
+# statt in der Datei im Repo-Root.
+#
+# ``APP_ROOT`` bleibt bewusst unveraendert: Tests, die Repo-Dateien
+# (config/, resources/, docs/) darueber aufloesen, sollen weiter
+# funktionieren. Geschuetzt wird gezielt der DB-Schreibpfad.
+#
+# Tests, die selbst ``set_project()`` oder ``test_engine`` nutzen, swappen
+# danach auf ihre eigene DB — das bleibt unveraendert gueltig.
+
+@pytest.fixture(autouse=True, scope="session")
+def _protect_real_database():
+    """Globale DB-Engine fuer die gesamte Testsession auf eine Temp-DB legen."""
+    import database.session as _session_mod
+    from database.session import _make_engine
+
+    tmp_dir = tempfile.mkdtemp(prefix="pb_studio_testdb_")
+    tmp_db = Path(tmp_dir) / "pb_studio.db"
+
+    session_engine = _make_engine(tmp_db)
+    database.Base.metadata.create_all(session_engine)
+
+    # EngineProxy.swap() disposed die alte (reale) Engine. Ab hier hat kein
+    # Test mehr eine Verbindung zur Datei im Repo-Root.
+    database.engine.swap(session_engine)
+
+    # NullPool-Cache invalidieren, damit er die neue URL zieht statt die
+    # zwischengespeicherte Engine auf der realen DB weiterzureichen.
+    with _session_mod._NULLPOOL_ENGINE_CACHE_LOCK:
+        _session_mod._nullpool_engine_cache = None
+
+    yield tmp_db
+
+    try:
+        session_engine.dispose()
+    except Exception:  # pragma: no cover - Aufraeumen darf nie den Lauf kippen
+        pass
+    shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 # ---------------------------------------------------------------------------
