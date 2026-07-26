@@ -200,8 +200,12 @@ class StructureEnrichmentWorker(QObject):
         if self.clip_id is not None:
             rows = session.execute(
                 text(
+                    # ``energy`` = Motion-Score (0.0-1.0), geschrieben in
+                    # services/video_analysis_service.py:1193 aus
+                    # SceneInfo.motion_score. Fehlte in der Selektion, weshalb
+                    # der Role-Classifier mit hartem 0.5 lief.
                     "SELECT id, video_clip_id, start_time, end_time, "
-                    "ai_caption, ai_mood FROM scenes WHERE video_clip_id = :cid"
+                    "ai_caption, ai_mood, energy FROM scenes WHERE video_clip_id = :cid"
                 ),
                 {"cid": self.clip_id},
             ).fetchall()
@@ -209,7 +213,7 @@ class StructureEnrichmentWorker(QObject):
             rows = session.execute(
                 text(
                     "SELECT id, video_clip_id, start_time, end_time, "
-                    "ai_caption, ai_mood FROM scenes"
+                    "ai_caption, ai_mood, energy FROM scenes"
                 )
             ).fetchall()
 
@@ -228,7 +232,10 @@ class StructureEnrichmentWorker(QObject):
 
         scenes: list[dict[str, Any]] = []
         for r in rows:
-            scene_id, clip_id, start_time, end_time, ai_caption_raw, ai_mood = r
+            (
+                scene_id, clip_id, start_time, end_time,
+                ai_caption_raw, ai_mood, energy_raw,
+            ) = r
             ai_caption: dict[str, Any] = {}
             if ai_caption_raw is not None:
                 if isinstance(ai_caption_raw, str):
@@ -246,6 +253,13 @@ class StructureEnrichmentWorker(QObject):
                     "end_time": end_time,
                     "ai_caption": ai_caption,
                     "ai_mood": ai_mood,
+                    # scenes.energy haelt den normalisierten Motion-Score
+                    # (0.0-1.0, siehe _normalize_motion). NULL = nie eine
+                    # Motion-Analyse gelaufen -> neutraler Default 0.5 wie
+                    # bisher.
+                    "motion": (
+                        float(energy_raw) if energy_raw is not None else 0.5
+                    ),
                 }
             )
 
@@ -320,9 +334,13 @@ class StructureEnrichmentWorker(QObject):
             tags: set[str] = set(
                 s["ai_caption"].get("tags", []) if s["ai_caption"] else []
             )
-            # motion_score is not stored on the Scene model; fall back to 0.5
+            # FIX: der Motion-Score IST persistiert — als ``scenes.energy``
+            # (video_analysis_service.py:1193, Wertebereich 0.0-1.0 via
+            # _normalize_motion). Das frueher hart gesetzte 0.5 machte alle
+            # motion_gte/motion_lt-Regeln in config/enrichment_rules.yaml
+            # wirkungslos.
             role, role_conf = classify_role(
-                motion=0.5,
+                motion=s["motion"],
                 duration=duration,
                 tags=tags,
             )

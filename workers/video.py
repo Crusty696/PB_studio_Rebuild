@@ -10,6 +10,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal
 from sqlalchemy import select  # B-090: column-select statt eager ORM-Voll-Laden
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session as DBSession
 
 from database import engine, VideoClip
@@ -412,13 +413,35 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                             analysis_status_service.mark_started(
                                 "video", clip_id, "metadata_extract"
                             )
-                            from services.video_service import VideoService
-                            VideoService().analyze_and_store(clip_id, create_proxy=False)
+                            # FIX: ``services.video_service.VideoService`` existiert
+                            # nicht (repo-weit 0 Treffer) — der Import warf
+                            # ImportError, wurde vom breiten ``except`` unten
+                            # verschluckt und liess ``metadata_extract`` dauerhaft
+                            # auf ``running`` stehen (UI klebte bei 8/9 = 88 %).
+                            # Realer Einstiegspunkt ist
+                            # ``VideoAnalyzer.analyze_and_store``
+                            # (services/video_service.py:399); die Methode setzt
+                            # mark_done/mark_error selbst.
+                            VideoAnalyzer().analyze_and_store(clip_id, create_proxy=False)
                     except Exception as _meta_exc:  # broad: Pipeline darf nicht durch Meta-Fehler kippen
                         logger.warning(
                             "B-287: metadata_extract for clip %s failed: %s",
                             clip_id, _meta_exc,
                         )
+                        # FIX: ehrlich fehlschlagen statt still ``running`` zu
+                        # hinterlassen. Ein Fehler VOR dem mark_started/mark_error
+                        # in analyze_and_store (z.B. Clip nicht gefunden) liesse
+                        # den Schritt sonst fuer immer auf ``running``.
+                        try:
+                            from services import analysis_status_service as _ass
+                            _ass.mark_error(
+                                "video", clip_id, "metadata_extract", str(_meta_exc)
+                            )
+                        except Exception as _mark_exc:  # broad: Status-Write darf nie killen
+                            logger.warning(
+                                "metadata_extract mark_error for clip %s failed: %s",
+                                clip_id, _mark_exc,
+                            )
                     # B-071: bei >100 Videos lieferte ``int(100/total_videos)``
                     # exakt 0 — der Sub-Progress eines Videos wurde komplett
                     # auf eine einzige Prozent-Zahl kollabiert. Fix: rechne
@@ -498,7 +521,17 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                                     raise RuntimeError(f"VideoClip {clip_id}: Original-Pfad nicht verfuegbar")
                         except (RuntimeError, OSError) as fallback_err:
                             raise RuntimeError(f"Clip {clip_id}: Proxy + Original fehlgeschlagen — {fallback_err}") from fallback_err
-                    except (RuntimeError, OSError, ValueError) as e:
+                    except (ValueError, RuntimeError, OSError, FFmpegError,
+                            subprocess.TimeoutExpired, SQLAlchemyError) as e:
+                        # B-674-Muster (siehe VideoBatchAnalysisWorker oben):
+                        # FFmpegError erbt von PBStudioError -> Exception, NICHT
+                        # von RuntimeError/OSError; ebenso subprocess.TimeoutExpired
+                        # (Proxy-Timeout) und SQLAlchemyError (Re-raise aus
+                        # store_scenes_in_db via run_full_pipeline Schritt 7/7).
+                        # Alle entkamen dem alten Tupel und schlugen im aeusseren
+                        # ``except Exception`` auf — EIN kaputtes Video riss damit
+                        # die ganze Batch ab. Jetzt per-Clip isoliert, restliche
+                        # Clips laufen weiter.
                         logging.error("VideoAnalysisPipelineWorker[%s] video %d/%d '%s' crashed: %s\n%s",
                                       clip_id, idx, total_videos, label, e, traceback.format_exc())
                         # C-04 Fix: Einzelner Fehler bricht nicht mehr die ganze Pipeline ab
