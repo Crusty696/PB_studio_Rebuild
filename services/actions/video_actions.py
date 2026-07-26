@@ -253,12 +253,19 @@ def detect_scenes_action(clip_id: int, use_proxy: bool = True, threshold: float 
     """Erkennt Szenen in einem Video (nutzt Proxy wenn verfügbar und gewünscht)."""
     from sqlalchemy.orm import Session as SASession
     from database import engine, VideoClip
-    from services.video_analysis_service import detect_scenes, store_scenes_in_db
+    from services.video_analysis_service import (
+        _current_db_url, detect_scenes, store_scenes_in_db,
+    )
 
     tm = _get_task_manager()
     task = tm.create_task(f"Szenen #{clip_id}", "PySceneDetect") if tm else None
 
     try:
+        # B-490 Followup (CRF-005): Projekt-Token VOR der Analyse festhalten.
+        # Muster wie services/video_analysis_service.py:1655 — ohne diesen Guard
+        # konnte ein Projektwechsel mid-run die Szenen in die falsche Projekt-DB
+        # schreiben.
+        expected_db_url = _current_db_url()
         with SASession(engine) as session:
             clip = _get_active_video_clip(session, VideoClip, clip_id)
             if clip is None:
@@ -270,7 +277,19 @@ def detect_scenes_action(clip_id: int, use_proxy: bool = True, threshold: float 
         if task and tm:
             tm.update_task(task.task_id, 20, message="Szenen-Erkennung...")
         scenes = detect_scenes(video_path, threshold=threshold)
-        store_scenes_in_db(clip_id, scenes)
+        stored = store_scenes_in_db(clip_id, scenes, expected_db_url=expected_db_url)
+        if not stored:
+            # Skip ist KEIN Erfolg (B-490-Followup-Konvention): ohne diesen
+            # Zweig meldete die Action "N Szenen erkannt", obwohl nichts in der
+            # DB landete.
+            reason = (
+                f"Szenen fuer VideoClip {clip_id} NICHT gespeichert: Clip fehlt "
+                "in der aktiven DB oder das Projekt wurde waehrend des Laufs "
+                "gewechselt (Projekt-Token-Mismatch)."
+            )
+            if task and tm:
+                tm.finish_task(task.task_id, "error", reason)
+            return {"error": reason}
 
         if task and tm:
             tm.finish_task(task.task_id, "finished", f"{len(scenes)} Szenen")
@@ -309,12 +328,17 @@ def analyze_motion_action(clip_id: int, use_proxy: bool = True) -> dict:
     """Berechnet Motion-Scores via RAFT für alle Szenen eines Videos."""
     from sqlalchemy.orm import Session as SASession
     from database import engine, VideoClip, Scene
-    from services.video_analysis_service import compute_motion_scores, SceneInfo, store_scenes_in_db
+    from services.video_analysis_service import (
+        _current_db_url, compute_motion_scores, SceneInfo, store_scenes_in_db,
+    )
 
     tm = _get_task_manager()
     task = tm.create_task(f"Motion #{clip_id}", "RAFT Optical Flow") if tm else None
 
     try:
+        # B-490 Followup (CRF-005): Projekt-Token VOR der Analyse festhalten
+        # (Muster wie services/video_analysis_service.py:1655).
+        expected_db_url = _current_db_url()
         with SASession(engine) as session:
             clip = _get_active_video_clip(session, VideoClip, clip_id)
             if clip is None:
@@ -329,15 +353,37 @@ def analyze_motion_action(clip_id: int, use_proxy: bool = True) -> dict:
                     tm.finish_task(task.task_id, "error", "Keine Szenen")
                 return {"error": f"Keine Szenen für VideoClip {clip_id}. Führe zuerst 'detect_scenes' aus."}
 
+            # FIX: store_scenes_in_db loescht ALLE Szenen des Clips und schreibt
+            # sie aus diesen SceneInfo-Objekten neu. Ohne die Anreicherungs-
+            # Felder hier 1:1 mitzunehmen, vernichtete ein reines Motion-Update
+            # die komplette VLM-Caption-/Mood-/Tag-Anreicherung des Clips.
+            # Szenen-Grenzen bleiben identisch (aus denselben DB-Zeilen), die
+            # Zuordnung Caption->Szene ist also unveraendert korrekt.
             scenes = [
-                SceneInfo(index=i, start_time=s.start_time, end_time=s.end_time)
+                SceneInfo(
+                    index=i,
+                    start_time=s.start_time,
+                    end_time=s.end_time,
+                    ai_caption=s.ai_caption,
+                    ai_mood=s.ai_mood,
+                    ai_tags=s.ai_tags,
+                )
                 for i, s in enumerate(db_scenes)
             ]
 
         if task and tm:
             tm.update_task(task.task_id, 20, message="RAFT Motion berechnen...")
         scenes = compute_motion_scores(video_path, scenes)
-        store_scenes_in_db(clip_id, scenes)
+        stored = store_scenes_in_db(clip_id, scenes, expected_db_url=expected_db_url)
+        if not stored:
+            reason = (
+                f"Motion-Scores fuer VideoClip {clip_id} NICHT gespeichert: Clip "
+                "fehlt in der aktiven DB oder das Projekt wurde waehrend des "
+                "Laufs gewechselt (Projekt-Token-Mismatch)."
+            )
+            if task and tm:
+                tm.finish_task(task.task_id, "error", reason)
+            return {"error": reason}
 
         if task and tm:
             tm.finish_task(task.task_id, "finished",
