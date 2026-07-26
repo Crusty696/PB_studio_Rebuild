@@ -31,7 +31,16 @@ def test_video_encode_args_falls_back_to_libx264(monkeypatch):
         lambda: {"h264_nvenc": False, "hevc_nvenc": False},
     )
     args = es._video_encode_args()
-    assert args == ["-c:v", "libx264", "-preset", "fast", "-crf", "23"]
+    # Statusaufnahme 2026-07-26: der Export setzte anders als convert_service
+    # (B-584) kein -pix_fmt. Auf Pascal ist h264_nvenc 8-bit-only, und ein
+    # libx264-Fallback konnte ein 10-bit-Temp erzeugen, das den
+    # anschliessenden `-c:v copy`-Concat inkonsistent macht. yuv420p ist
+    # ohnehin _CONCAT_TARGET_PIX_FMT (services/export/_common.py) und fuer
+    # 8-bit-4:2:0-Quellen ein No-Op.
+    assert args == [
+        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+        "-pix_fmt", "yuv420p",
+    ]
     _reset_cache()
 
 

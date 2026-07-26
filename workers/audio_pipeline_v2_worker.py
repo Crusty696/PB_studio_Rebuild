@@ -69,6 +69,10 @@ class AudioPipelineV2Worker(QObject, CancellableMixin):
             pipeline = AudioAnalysisPipeline(stages)
 
             done = {"n": 0}
+            # Box statt direkter Closure-Referenz: ``ctx`` wird erst weiter
+            # unten gebaut (es braucht _on_sub_progress), die Handler werden
+            # aber vorher definiert. Gleiches Muster wie ``done``.
+            ctx_box: dict[str, object] = {}
 
             def _on_started(name: str) -> None:
                 self._current_stage = name
@@ -101,7 +105,21 @@ class AudioPipelineV2Worker(QObject, CancellableMixin):
                             val_summary["is_dj_mix"] = _payload.get("is_dj_mix")
                         elif name == "waveform":
                             val_summary["num_samples"] = _payload.get("num_samples")
-                    mark_done("audio", self.audio_track_id, step_key, val_summary)
+                    # B-066/V2: hat die Stage ein Rate-/Fallback-Ergebnis
+                    # geliefert, wurde es NICHT persistiert (siehe
+                    # services/audio_pipeline/stages.py _guard_no_fallback_persist).
+                    # Dann darf der Schritt nicht als fertig gruen werden.
+                    _ctx = ctx_box.get("ctx")
+                    reason = getattr(_ctx, "degraded", {}).get(name) if _ctx else None
+                    if reason:
+                        from services.analysis_status_service import mark_degraded
+                        mark_degraded(
+                            "audio", self.audio_track_id, step_key, reason,
+                            val_summary,
+                        )
+                        self.progress.emit(pct, f"Audio-V2: {name} geraten ({reason})")
+                    else:
+                        mark_done("audio", self.audio_track_id, step_key, val_summary)
 
             def _on_sub_progress(stage_pct: int, message: str) -> None:
                 stage_idx = done["n"]
@@ -114,6 +132,7 @@ class AudioPipelineV2Worker(QObject, CancellableMixin):
                 should_stop=self.should_stop,
                 on_progress=_on_sub_progress,
             )
+            ctx_box["ctx"] = ctx
 
             pipeline.stage_started.connect(_on_started)
             pipeline.stage_done.connect(_on_done)

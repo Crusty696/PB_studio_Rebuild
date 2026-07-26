@@ -2238,7 +2238,7 @@ def main():
             # ausgefuehrt ("Alembic-Migrationen abgeschlossen (head)." stand
             # zweimal im Log). Der synchrone Pfad muss bleiben, weil PBWindow
             # und die Media-Tabelle sofort ORM-Queries fahren; der Worker-Call
-            # ist der ueberfluessige. Siehe _SystemCheckOnlyWorker unten.
+            # ist der ueberfluessige — daher unten init_database=False.
             # 1. KI-Engine (Gemma 4 Arbeitsplan)
             try:
                 OllamaService.get().start_background()
@@ -2253,29 +2253,11 @@ def main():
             # FIX C-4: Store worker refs on window to prevent GC while thread runs
             from workers.startup import StartupCheckWorker
 
-            class _SystemCheckOnlyWorker(StartupCheckWorker):
-                """StartupCheckWorker ohne den doppelten init_db()-Aufruf.
-
-                ``StartupCheckWorker.run`` ruft ``init_db()`` (workers/startup.py:19)
-                — das ist nach ``run_database_bootstrap()`` der zweite Durchlauf
-                derselben Alembic-Migrationen, im Hintergrund-Thread und parallel
-                zu den ersten UI-DB-Zugriffen. Hier bleibt nur der System-Check.
-                """
-
-                def run(self):
-                    from services.startup_checks import check_system, SystemStatus
-                    try:
-                        self.progress.emit("Initialisiere KI-Umgebung (torch)...")
-                        self.finished.emit(check_system())
-                    except Exception as exc:  # noqa: BLE001 — 1:1 wie im Basis-Worker
-                        logger.error(
-                            "Kritischer Fehler bei Systempruefung: %s", exc, exc_info=True
-                        )
-                        err_status = SystemStatus()
-                        err_status.errors.append(f"Systemcheck abgestuerzt: {exc}")
-                        self.finished.emit(err_status)
-
-            window._startup_check_worker = _SystemCheckOnlyWorker()
+            # init_database=False: run_database_bootstrap() hat oben bereits
+            # synchron migriert. Ohne das Flag liefen die Alembic-Migrationen
+            # ein zweites Mal im Hintergrund-Thread, parallel zu den ersten
+            # UI-DB-Zugriffen.
+            window._startup_check_worker = StartupCheckWorker(init_database=False)
             window._startup_check_thread = QThread(window)
             window._startup_check_worker.moveToThread(window._startup_check_thread)
 

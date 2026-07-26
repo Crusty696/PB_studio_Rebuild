@@ -55,6 +55,7 @@ class PipelineContext:
     save_lock: threading.RLock = field(default_factory=threading.RLock)
     should_stop: Callable[[], bool] | None = None
     on_progress: Callable[[int, str], None] | None = None  # Feinkoerniger Fortschritt
+    degraded: dict[str, str] = field(default_factory=dict)
 
     def set_result(self, stage_name: str, value: Any) -> None:
         """Setze Stage-Result. Raised bei Tensor-Guard-Verletzung (A-5)."""
@@ -65,3 +66,18 @@ class PipelineContext:
             )
         with self.save_lock:
             self.results[stage_name] = value
+
+    def mark_degraded(self, stage_name: str, reason: str) -> None:
+        """B-066/V2: Stage lieferte ein Rate-/Fallback-Ergebnis.
+
+        Der Wert wurde NICHT als Messwert persistiert. Der Vermerk wird vom
+        ``AudioPipelineV2Worker`` ausgelesen, der daraufhin ``mark_degraded``
+        statt ``mark_done`` in den ``analysis_status`` schreibt — der Schritt
+        erscheint in der UI als "geraten" statt faelschlich als fertig.
+        """
+        with self.save_lock:
+            self.degraded[stage_name] = reason
+
+    def is_degraded(self, stage_name: str) -> bool:
+        with self.save_lock:
+            return stage_name in self.degraded

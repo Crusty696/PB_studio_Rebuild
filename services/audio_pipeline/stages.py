@@ -148,7 +148,9 @@ def _fallback_reason(result: Any) -> str:
     return "kein Grund verfuegbar"
 
 
-def _guard_no_fallback_persist(result: Any, stage_name: str) -> None:
+def _guard_no_fallback_persist(
+    result: Any, stage_name: str, context: Any = None
+) -> bool:
     """Blockt das Persistieren von Fallback-/Rate-Ergebnissen (B-066 fuer V2).
 
     V1 macht das in ``BaseAnalysisWorker.run`` (workers/audio_analysis.py:108
@@ -157,18 +159,46 @@ def _guard_no_fallback_persist(result: Any, stage_name: str) -> None:
     Key ``Am``/``8A`` mit confidence 0.0, Spektral-Baender mit lauter 0.0 und
     LUFS ``-14.0`` als scheinbar gueltige Messwerte in ``audio_tracks``.
 
-    Hier wird derselbe Weg gegangen: Exception statt Fake-Persistenz. Der
-    Orchestrator ist fail-fast (A-1) und meldet die Stage als failed, der
-    ``AudioPipelineV2Worker`` schreibt daraufhin ``mark_error`` fuer den
-    zugehoerigen Step.
+    Unterschied zu V1 — bewusst: V1 hat pro Analyse-Schritt einen eigenen
+    Worker, dort beendet die Exception nur diesen einen Schritt. V2 ist eine
+    strikt sequentielle Pipeline mit fail-fast (Orchestrator A-1); eine
+    Exception hier wuerde alle FOLGENDEN Stages mitreissen — ein
+    LUFS-Fallback in Stage 6 hiesse: kein Classify, keine Waveform, kein
+    AV-Pacing. Das waere ein Rueckschritt gegenueber dem alten Verhalten.
+
+    Deshalb: nicht werfen. Die Stage persistiert das Rate-Ergebnis nicht,
+    vermerkt den Grund im Context und laeuft weiter. Der
+    ``AudioPipelineV2Worker`` liest den Vermerk aus dem Stage-Payload und
+    setzt ``mark_degraded`` statt ``mark_done`` — der Schritt ist damit in
+    der UI sichtbar geraten statt faelschlich gruen.
+
+    Returns:
+        ``True`` wenn persistiert werden darf, ``False`` bei erkanntem
+        Fallback.
     """
     if not _is_fallback_result(result):
-        return
+        return True
     reason = _fallback_reason(result)
     logger.error(
         "B-066/V2 %s: Fallback-Result erkannt — NICHT persistiert (%s)",
         stage_name, reason,
     )
+    if context is not None:
+        try:
+            context.mark_degraded(stage_name, reason)
+        except AttributeError:  # aeltere/gemockte Contexte in Tests
+            logger.debug(
+                "Context ohne mark_degraded — Stage '%s' bleibt ungemarkt",
+                stage_name,
+            )
+    return False
+
+
+def _legacy_guard_raise(result: Any, stage_name: str) -> None:
+    """Alt-Verhalten (Exception) — nur fuer Aufrufer ohne Context erhalten."""
+    if not _is_fallback_result(result):
+        return
+    reason = _fallback_reason(result)
     raise RuntimeError(
         f"Analyse-Fallback in Stage '{stage_name}' erkannt — Result wurde "
         f"NICHT als gueltig persistiert: {reason}"
@@ -641,16 +671,16 @@ class KeyStage(Stage):
         # result = KeyResult dataclass. OTK-018: an AudioTrack persistieren.
         # B-066/V2: Fallback ("Am"/"8A", confidence 0.0, method="fallback")
         # darf NICHT als Messwert in die DB.
-        _guard_no_fallback_persist(result, self.name)
-        conf = getattr(result, "confidence", None)
-        if conf is not None:
-            conf = max(0.0, min(1.0, float(conf)))
-        _persist_to_track(context.track_id, {
-            "key": getattr(result, "key", None),
-            "key_confidence": conf,
-            "key_modulation_data": getattr(result, "modulation_segments", None) or None,
-            "harmonic_tension_curve": getattr(result, "harmonic_tension_curve", None) or None,
-        })
+        if _guard_no_fallback_persist(result, self.name, context):
+            conf = getattr(result, "confidence", None)
+            if conf is not None:
+                conf = max(0.0, min(1.0, float(conf)))
+            _persist_to_track(context.track_id, {
+                "key": getattr(result, "key", None),
+                "key_confidence": conf,
+                "key_modulation_data": getattr(result, "modulation_segments", None) or None,
+                "harmonic_tension_curve": getattr(result, "harmonic_tension_curve", None) or None,
+            })
         context.set_result(self.name, {
             "key": getattr(result, "key", None),
             "camelot": getattr(result, "camelot", None),
@@ -710,11 +740,11 @@ class LUFSStage(Stage):
         # OTK-018: LUFS an AudioTrack persistieren (Worker-konform: result.integrated).
         # B-066/V2: LUFSService setzt is_fallback bei -14.0-Default korrekt —
         # hier wird es jetzt auch ausgewertet statt blind zu persistieren.
-        _guard_no_fallback_persist(result, self.name)
         integrated = getattr(result, "integrated", None)
         if integrated is None:
             integrated = getattr(result, "integrated_lufs", None)
-        _persist_to_track(context.track_id, {"lufs": integrated})
+        if _guard_no_fallback_persist(result, self.name, context):
+            _persist_to_track(context.track_id, {"lufs": integrated})
         context.set_result(self.name, {
             "integrated_lufs": integrated,
             "true_peak": getattr(result, "true_peak", None),
@@ -739,12 +769,12 @@ class SpectralStage(Stage):
         # OTK-018: Spektral-Baender an AudioTrack persistieren (Worker-konform).
         # B-066/V2: 8 Baender mit energy 0.0 aus dem Fehlerpfad sind ein
         # Rate-Ergebnis (SpectralResult.is_fallback) — nicht persistieren.
-        _guard_no_fallback_persist(result, self.name)
-        try:
-            bands_json = svc.get_bands_json(result)
-        except Exception:  # noqa: BLE001
-            bands_json = None
-        _persist_to_track(context.track_id, {"spectral_bands": bands_json})
+        if _guard_no_fallback_persist(result, self.name, context):
+            try:
+                bands_json = svc.get_bands_json(result)
+            except Exception:  # noqa: BLE001
+                bands_json = None
+            _persist_to_track(context.track_id, {"spectral_bands": bands_json})
         context.set_result(self.name, {
             "dominant_band": getattr(result, "dominant_band", None),
             "centroid_mean": getattr(result, "spectral_centroid_mean", None),
@@ -793,14 +823,13 @@ class ClassifyStage(Stage):
         _raise_if_cancelled(context, "classify")
         # B-066/V2: ClassifyResult-Fallback ("Klassifikation nicht moeglich",
         # confidence 0.0) nicht als Mood/Genre in die DB schreiben.
-        _guard_no_fallback_persist(result, self.name)
-        fields = {
-            "mood": result.mood,
-            "genre": result.genre,
-            "sub_genre": result.sub_genre,
-            "is_dj_mix": result.is_dj_mix,
-        }
-        _persist_to_track(context.track_id, fields)
+        if _guard_no_fallback_persist(result, self.name, context):
+            _persist_to_track(context.track_id, {
+                "mood": result.mood,
+                "genre": result.genre,
+                "sub_genre": result.sub_genre,
+                "is_dj_mix": result.is_dj_mix,
+            })
         context.set_result(self.name, {
             "mood": result.mood,
             "genre": result.genre,
