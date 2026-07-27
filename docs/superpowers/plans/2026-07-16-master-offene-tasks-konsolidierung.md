@@ -616,4 +616,7 @@ Decision: Vault
   Source Dirty 0 vor/nach, 13/13 reale DBs byte-/logisch identisch,
   13× quick_check ok, 0 Prozessreste.
 - B-739 bleibt `code-fix-pending-live-verification`; kein `fixed`.
-- Genau nächste Task: `STAB-1 / Import-/Syntax-Smokes`.
+- Syntax/Import-Evidenz `20260728T0226-stab1-syntax-import`: pass;
+  1120 Python-Dateien kompiliert, 10 Kernmodule importiert, 13/13 reale DBs
+  unverändert, 0 Prozessreste.
+- Genau nächste Task: `STAB-1 / Current-Ruff`.
