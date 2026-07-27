@@ -26,10 +26,19 @@ def _reset_global_action_registry():
     every test in this module starts from a known-good state.
     """
     from services.action_registry import ActionRegistry, action_registry
+    # Zustand sichern, BEVOR geleert wird.
+    saved = dict(action_registry._actions)
     # Clear all registered actions from the global singleton
     action_registry._actions.clear()
     yield
-    # No teardown needed — next test will clear again
+    # Teardown ist zwingend: "next test will clear again" galt nur INNERHALB
+    # dieses Moduls. Nach dem letzten Test hier blieb die globale Registry
+    # leer — jedes spaeter laufende Modul sah dann 0 Aktionen. Im Vollauf
+    # fielen dadurch 22 Tests (test_brain_actions, test_llm_sees_actions),
+    # die isoliert gruen sind. Ein Testmodul darf globalen Zustand nicht
+    # ueber seine eigene Grenze hinaus veraendern.
+    action_registry._actions.clear()
+    action_registry._actions.update(saved)
 
 
 # ---------------------------------------------------------------------------
