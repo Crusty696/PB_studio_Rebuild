@@ -3,8 +3,41 @@
 Brueckt asyncio-basierte EmbeddingJobQueue in den synchronen Qt-Welt:
 - Eigener QThread hostet asyncio-Loop + EmbeddingJobQueue
 - `submit_path()` ist thread-safe + nicht-blockierend fuer den UI-Thread
-- Cache-Check vor Embedding (EmbeddingCache.lookup) → Cache-Hit-Skip
 - Qt-Signal `job_progress` fuer Status-Updates an UI
+
+Cache-Lookup (B-707)
+--------------------
+Der Cache wird an ZWEI Stellen gelesen, beide ueber ``_cache_lookup()``:
+
+1. ``submit_path()`` — synchron auf dem Aufrufer-Thread (SQLite-Read auf WAL,
+   sub-ms). Bei Hit wird KEIN Job eingereiht: ``job_skipped`` wird emittiert
+   und ``None`` zurueckgegeben (``ui/controllers/import_media.py`` loggt das
+   bereits als "Embedding-Cache-Hit").
+2. ``_execute_embedding()`` — erneut direkt vor dem Executor-Dispatch. Deckt
+   das Fenster ab, in dem mehrere identische Dateien eingereiht wurden, bevor
+   die erste fertig gerechnet war.
+
+Der Cache-Key ist ``(media_hash, model_name, model_version)``. Der
+``media_hash`` ist ein sha256 ueber den KOMPLETTEN Datei-Inhalt
+(``services/brain/hashing.py``), berechnet bei jedem Import neu
+(``MediaHashRegistry.register``) — geaenderter Inhalt ergibt daher zwangs-
+laeufig einen anderen Key und damit einen Miss.
+
+Invalidierung (ein Treffer wird VERWORFEN und neu gerechnet, wenn):
+- der Hash nicht in der Index-Tabelle steht (anderer Inhalt),
+- Modell-Name/-Version nicht exakt passen (Teil des Primary Key,
+  Migration 003) — d.h. ein Modell-Upgrade macht alte Eintraege still
+  unsichtbar statt sie faelschlich wiederzuverwenden,
+- die referenzierte ``.npy``-Datei fehlt oder nicht ladbar ist,
+- die Dimension des gespeicherten Vektors nicht der erwarteten Modell-
+  Dimension entspricht (``CLAP_DIM`` / ``SIGLIP2_DIM``).
+Verworfene Eintraege werden NICHT geloescht — der naechste ``store()``
+ueberschreibt die Zeile per ``ON CONFLICT DO UPDATE`` (self-healing).
+
+Die erwartete Modell-Identitaet liefert ``model_identity_resolver``
+(Default: ``_default_model_identity``, lazy Import der Embedder-Konstanten,
+kein torch noetig). Tests mit gemockter ``embedder_factory`` muessen einen
+passenden Resolver mitgeben, sonst greift der Cache nie.
 
 Lifecycle:
 - `start()` beim App-Boot (PBWindow.__init__ via QTimer.singleShot)
@@ -45,6 +78,94 @@ class EmbeddingTask:
 class SkipEmbeddingError(Exception):
     """Signalisiert, dass ein Video/Audio-Medium unlesbar ist und uebersprungen werden soll."""
     pass
+
+
+@dataclass(frozen=True)
+class ModelIdentity:
+    """B-707: Modell-Identitaet, gegen die der Cache geprueft wird.
+
+    ``model_name``/``model_version`` bilden zusammen mit dem ``media_hash``
+    den Cache-Key (Primary Key der ``media_embedding_index``, Migration 003).
+    ``dim`` ist die erwartete Vektor-Laenge — ein gespeicherter Vektor mit
+    abweichender Dimension wird verworfen statt weiterverwendet.
+    """
+    model_name: str
+    model_version: str
+    dim: int
+
+
+def _default_model_identity(media_type: str) -> Optional[ModelIdentity]:
+    """Liefert die Modell-Identitaet, die der Default-Embedder produzieren wuerde.
+
+    Lazy Import der Konstanten-Module. Beide Embedder-Module importieren auf
+    Modul-Ebene nur ``numpy`` + ``gpu_serializer`` (torch/transformers erst in
+    den Methoden) — der Aufruf ist daher auch auf dem UI-Thread billig.
+    Unbekannter ``media_type`` -> ``None`` (= kein Cache-Check, Job laeuft).
+    """
+    try:
+        if media_type == "audio":
+            from services.brain.audio.audio_embedder import (
+                CLAP_MODEL_ID, CLAP_MODEL_VERSION, CLAP_DIM,
+            )
+            return ModelIdentity(CLAP_MODEL_ID, CLAP_MODEL_VERSION, CLAP_DIM)
+        if media_type == "video":
+            from services.brain.video.video_embedder import (
+                SIGLIP2_MODEL_ID, SIGLIP2_MODEL_VERSION, SIGLIP2_DIM,
+            )
+            return ModelIdentity(SIGLIP2_MODEL_ID, SIGLIP2_MODEL_VERSION, SIGLIP2_DIM)
+    except Exception as exc:  # Import-Fehler darf den Submit nie brechen
+        logger.warning(
+            "B-707: Modell-Identitaet fuer media_type=%s nicht aufloesbar "
+            "(kein Cache-Check, Job wird gerechnet): %s", media_type, exc,
+        )
+    return None
+
+
+ModelIdentityResolver = Callable[[str], Optional[ModelIdentity]]
+
+
+def _cache_lookup(
+    cache: Optional[EmbeddingCache],
+    task: EmbeddingTask,
+    identity: Optional[ModelIdentity],
+) -> Optional["object"]:
+    """B-707: Liefert das gecachte Embedding oder ``None`` (= neu rechnen).
+
+    Verwirft einen vorhandenen Index-Eintrag, wenn das ``.npy`` fehlt/kaputt
+    ist oder die Dimension nicht zur erwarteten Modell-Dimension passt.
+    Wirft NIE — jeder Fehler bedeutet "Miss", damit ein defekter Cache den
+    Embedding-Pfad nicht blockiert.
+    """
+    if cache is None or identity is None:
+        return None
+    try:
+        entry = cache.lookup(
+            task.media_hash, identity.model_name, identity.model_version
+        )
+        if entry is None:
+            return None
+        embedding = entry.load_embedding()
+        if embedding.shape[-1] != identity.dim:
+            logger.warning(
+                "B-707: Cache-Eintrag verworfen (Dimension %s != erwartet %d) "
+                "hash=%s model=%s/%s",
+                embedding.shape, identity.dim, task.media_hash[:8],
+                identity.model_name, identity.model_version,
+            )
+            return None
+        return embedding
+    except FileNotFoundError as exc:
+        logger.warning(
+            "B-707: Cache-Eintrag verworfen (Embedding-File fehlt) hash=%s: %s",
+            task.media_hash[:8], exc,
+        )
+        return None
+    except Exception as exc:  # defekter Cache darf nie blockieren
+        logger.warning(
+            "B-707: Cache-Lookup fehlgeschlagen (rechne neu) hash=%s: %s",
+            task.media_hash[:8], exc,
+        )
+        return None
 
 
 # Embedder-Fabrik: liefert Callable[[EmbeddingTask, ProgressCb], np.ndarray].
@@ -147,12 +268,16 @@ class EmbeddingScheduler(QObject):
         cache: Optional[EmbeddingCache] = None,
         embedder_factory: EmbedderFactory = _default_embedder_factory,
         serializer: Optional[GpuSerializer] = None,
+        model_identity_resolver: ModelIdentityResolver = _default_model_identity,
     ) -> None:
         super().__init__()
         self.n_workers = n_workers
         self._cache = cache
         self._embedder_factory = embedder_factory
         self._serializer = serializer
+        # B-707: muss zur ``embedder_factory`` passen — sonst greift der Cache nie
+        # (bzw. bei falschem Resolver wuerde ein fremdes Embedding geliefert).
+        self._model_identity_resolver = model_identity_resolver
         self._thread: Optional[_SchedulerThread] = None
 
     # ------------------------------------------------------------------
@@ -162,12 +287,16 @@ class EmbeddingScheduler(QObject):
         if self._thread is not None and self._thread.isRunning():
             return
         cache = self._cache or EmbeddingCache()
+        # B-707: die aufgeloeste Cache-Instanz festhalten, damit submit_path()
+        # denselben Cache liest wie der Scheduler-Thread schreibt.
+        self._cache = cache
         serializer = self._serializer or get_default_serializer()
         self._thread = _SchedulerThread(
             n_workers=self.n_workers,
             cache=cache,
             embedder_factory=self._embedder_factory,
             serializer=serializer,
+            model_identity_resolver=self._model_identity_resolver,
         )
         self._thread.progress_bridge.connect(self.job_progress)
         self._thread.skipped_bridge.connect(self.job_skipped)
@@ -231,8 +360,10 @@ class EmbeddingScheduler(QObject):
     ) -> Optional[str]:
         """Schickt Embedding-Task in die Queue. Liefert job_id oder None bei Cache-Hit.
 
-        Cache-Check passiert hier (synchron, schnell). Bei Hit: Signal `job_skipped`
-        + return None. Bei Miss: Job in EmbeddingJobQueue.
+        B-707: Der Cache-Check passiert hier wirklich (synchron, SQLite-Read auf
+        WAL + kleines ``.npy`` — sub-ms, kein GUI-Freeze, siehe B-627). Bei Hit:
+        Signal ``job_skipped`` + ``return None``, es wird KEIN Job eingereiht und
+        keine GPU-Arbeit gestartet. Bei Miss: Job in EmbeddingJobQueue.
         """
         if self._thread is None or not self._thread.isRunning():
             raise RuntimeError("EmbeddingScheduler ist nicht gestartet.")
@@ -241,6 +372,18 @@ class EmbeddingScheduler(QObject):
             media_type=media_type,
             source_path=Path(source_path),
         )
+        identity = self._model_identity_resolver(media_type) if self._model_identity_resolver else None
+        if _cache_lookup(self._cache, task, identity) is not None:
+            logger.info(
+                "B-707 Cache-Hit (kein Embedding-Job) hash=%s type=%s model=%s/%s",
+                media_hash[:8], media_type,
+                identity.model_name, identity.model_version,
+            )
+            self.job_skipped.emit(
+                media_hash,
+                f"cache-hit ({identity.model_name}/{identity.model_version})",
+            )
+            return None
         return self._thread.submit_task(task)
 
 
@@ -260,12 +403,14 @@ class _SchedulerThread(QThread):
         cache: EmbeddingCache,
         embedder_factory: EmbedderFactory,
         serializer: GpuSerializer,
+        model_identity_resolver: ModelIdentityResolver = _default_model_identity,
     ) -> None:
         super().__init__()
         self._n_workers = n_workers
         self._cache = cache
         self._embedder_factory = embedder_factory
         self._serializer = serializer
+        self._model_identity_resolver = model_identity_resolver
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._queue: Optional[EmbeddingJobQueue] = None
         self._ready_event = threading.Event()
@@ -383,6 +528,36 @@ class _SchedulerThread(QThread):
             progress_cb(1.0, "paused-stop")
             return None
         loop = asyncio.get_running_loop()
+
+        # B-707: zweiter Cache-Gate direkt vor dem Executor-Dispatch. Deckt das
+        # Fenster ab, in dem mehrere identische Dateien eingereiht wurden, bevor
+        # die erste fertig gerechnet war (submit_path sah dort noch einen Miss).
+        # Laeuft im Scheduler-Thread, haelt KEINEN GPU-Lock.
+        identity = (
+            self._model_identity_resolver(task.media_type)
+            if self._model_identity_resolver else None
+        )
+        cached = await loop.run_in_executor(
+            None, _cache_lookup, self._cache, task, identity
+        )
+        if cached is not None:
+            logger.info(
+                "B-707 Cache-Hit im Job (GPU-Arbeit uebersprungen) hash=%s "
+                "type=%s model=%s/%s",
+                task.media_hash[:8], task.media_type,
+                identity.model_name, identity.model_version,
+            )
+            self.skipped_bridge.emit(
+                task.media_hash,
+                f"cache-hit ({identity.model_name}/{identity.model_version})",
+            )
+            progress_cb(1.0, "cache-hit")
+            return {
+                "media_hash": task.media_hash,
+                "model_name": identity.model_name,
+                "model_version": identity.model_version,
+                "cache_hit": True,
+            }
 
         def _blocking_embed():
             from services.brain.video.video_embedder import InvalidVideoError
