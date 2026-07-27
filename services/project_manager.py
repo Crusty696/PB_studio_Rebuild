@@ -500,10 +500,57 @@ class ProjectManager(QObject):
                 self._cleanup_failed_save_as(source, target_path)
             raise
 
+        # Die kopierte DB traegt in ``projects.path`` noch den Pfad des
+        # ORIGINALS — ``Project.path`` wird ausser in create_project nirgends
+        # geschrieben. Folge: ``record_manifest_job`` dedupt seine Eintraege im
+        # globalen by_sha-Manifest ueber (normalisierter project_path, step_id);
+        # Original und Kopie liefern denselben Key und ueberschreiben sich
+        # gegenseitig. Deshalb VOR dem Oeffnen umschreiben (raw sqlite3, die
+        # Kopie ist noch nicht die aktive Engine).
+        self._rewrite_project_path(
+            target_path / "pb_studio.db", old_root=source, new_root=target_path
+        )
+
         # Open the copy as the new active project
         self.open_project(target_path, task_id=task_id)
         logger.info("Projekt gespeichert unter: %s", target_path)
         return target_path
+
+    @staticmethod
+    def _rewrite_project_path(db_file: Path, *, old_root: Path, new_root: Path) -> None:
+        """Save-As: ``projects.path`` der Kopie auf den neuen Ordner ziehen.
+
+        Aktualisiert ausschliesslich Zeilen, die noch exakt auf den
+        Quellordner zeigen — fremde/abweichende Pfade bleiben unangetastet.
+        Best-effort: ein Fehler hier darf Save-As nicht kippen, die Kopie ist
+        auch mit altem Pfad benutzbar (nur Dedup/Reuse leidet).
+        """
+        try:
+            with sqlite3.connect(str(db_file)) as conn:
+                cur = conn.execute(
+                    "UPDATE projects SET path = ? WHERE path = ?",
+                    (str(new_root), str(old_root)),
+                )
+                changed = cur.rowcount
+                if changed == 0:
+                    # Der gespeicherte Pfad kann sich in Schreibweise/Trenner
+                    # vom aktuellen APP_ROOT unterscheiden. Per-Projekt-DBs
+                    # haben genau eine projects-Zeile (open_project liest sie
+                    # mit LIMIT 1) — dann ist die Zuordnung eindeutig.
+                    total = conn.execute("SELECT COUNT(*) FROM projects").fetchone()[0]
+                    if total == 1:
+                        changed = conn.execute(
+                            "UPDATE projects SET path = ?", (str(new_root),)
+                        ).rowcount
+                logger.info(
+                    "Save-As: projects.path auf %s umgeschrieben (%d Zeile(n))",
+                    new_root, changed,
+                )
+        except (OSError, sqlite3.Error) as exc:
+            logger.warning(
+                "Save-As: projects.path konnte in %s nicht umgeschrieben "
+                "werden: %s", db_file, exc,
+            )
 
     @staticmethod
     def _cleanup_failed_save_as(source: Path, target_path: Path) -> None:

@@ -16,6 +16,9 @@ PROVENANCE_TO_ANALYSIS_STEPS: dict[str, tuple[str, ...]] = {
     "video.plan_a.outputs": ("motion_scores", "siglip_embeddings"),
 }
 
+# Manifest artifact roles that are NOT evidence for any analysis step.
+_NON_ANALYSIS_ARTIFACT_ROLES = frozenset({"proxy"})
+
 
 @dataclass(frozen=True)
 class ReuseStep:
@@ -390,6 +393,21 @@ def _global_stem_paths(
     return paths
 
 
+def _analysis_backing_artifacts(artifacts) -> dict | None:
+    """Drop manifest roles that back no analysis step.
+
+    ``video.plan_a.outputs`` maps to ``motion_scores`` + ``siglip_embeddings``,
+    but the same manifest job also records the ``proxy`` role. A proxy file is
+    a transcode of the source — it proves nothing about motion data or SigLIP
+    embeddings. Counting it as evidence let a proxy-only project mark both
+    analysis steps done in the importing project (panel/percentage showed
+    green while neither motion data nor VectorDB embeddings existed there).
+    """
+    if not isinstance(artifacts, dict):
+        return artifacts
+    return {k: v for k, v in artifacts.items() if k not in _NON_ANALYSIS_ARTIFACT_ROLES}
+
+
 def _video_outputs_reachable(
     storage_root: str | Path | None,
     source_sha: str,
@@ -397,8 +415,14 @@ def _video_outputs_reachable(
 ) -> bool:
     """B-579 (ST-3): True if the reused video outputs are actually reachable —
     either via the real paths recorded in the manifest or via a real file in the
-    by_sha source dir. Never mark a video step done on a dangling reference."""
-    if _manifest_artifacts_exist(manifest_artifacts):
+    by_sha source dir. Never mark a video step done on a dangling reference.
+
+    The manifest half ignores the ``proxy`` role (see
+    ``_analysis_backing_artifacts``); the by_sha half is unchanged, because
+    ``_migrate_video_clip`` links no proxy into the by_sha source dir — a real
+    file there is an actual analysis output.
+    """
+    if _manifest_artifacts_exist(_analysis_backing_artifacts(manifest_artifacts)):
         return True
     return _source_root_has_artifacts(_resolved_storage_root(storage_root), source_sha)
 

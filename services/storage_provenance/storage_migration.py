@@ -298,8 +298,16 @@ class StorageMigrationService:
                 path=rel_path,
             )
             self.session.add(row)
-        row.bytes = file_path.stat().st_size
-        row.sha256 = _file_sha256(file_path)
+        size = file_path.stat().st_size
+        # ``migrate_existing_outputs`` laeuft bei JEDEM Projekt-Open. Vorher
+        # wurde hier jedes Artefakt (Proxys, Stems) bedingungslos komplett neu
+        # gehasht — im groessten real vorhandenen Projekt 0,65 GB pro Open —
+        # und ausserdem jede Row unnoetig dirty markiert (UPDATE-Flut +
+        # DB-Busy waehrend des Opens). Unveraenderte Groesse bei bereits
+        # gespeichertem Hash => nichts neu lesen, nichts schreiben.
+        if row.sha256 is None or row.bytes != size:
+            row.bytes = size
+            row.sha256 = _file_sha256(file_path)
         return row
 
     def _progress(self, phase: str, index: int, total: int) -> None:

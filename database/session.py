@@ -2,6 +2,7 @@ import logging
 import os
 import sys
 import threading
+import time
 from pathlib import Path
 
 from sqlalchemy import create_engine, event
@@ -42,9 +43,19 @@ class EngineProxy:
     waehrend eines swap() nicht die alte (disposed) Engine erwischen.
     """
 
+    #: Obergrenze, wie lange ``swap()`` auf noch laufende ``connect()``/
+    #: ``begin()``-Aufrufe der alten Engine wartet, bevor es trotzdem
+    #: disposed. Bounded — vorher konnte swap() unbegrenzt am Lock haengen.
+    SWAP_DRAIN_TIMEOUT_SEC = 5.0
+
     def __init__(self, real_engine):
         object.__setattr__(self, '_engine', real_engine)
-        object.__setattr__(self, '_lock', threading.RLock())
+        lock = threading.RLock()
+        object.__setattr__(self, '_lock', lock)
+        # id(engine) -> Anzahl Threads, die gerade in connect()/begin() dieser
+        # Engine stehen. Solange >0 darf swap() sie nicht disposen.
+        object.__setattr__(self, '_inflight', {})
+        object.__setattr__(self, '_inflight_cv', threading.Condition(lock))
 
     def __getattr__(self, name):
         with object.__getattribute__(self, '_lock'):
@@ -57,23 +68,77 @@ class EngineProxy:
 
     def swap(self, new_engine):
         """Atomically replace the wrapped engine; dispose the old one."""
-        with object.__getattribute__(self, '_lock'):
+        cv = object.__getattribute__(self, '_inflight_cv')
+        with cv:
             old = object.__getattribute__(self, '_engine')
             object.__setattr__(self, '_engine', new_engine)
+            # Kein dispose(), solange ein Thread noch mitten in
+            # old.connect()/old.begin() steckt. Frueher garantierte das der
+            # ueber den ganzen connect() gehaltene Lock; der ist weg (siehe
+            # _checkout_engine), die Garantie bleibt ueber den Zaehler.
+            inflight = object.__getattribute__(self, '_inflight')
+            deadline = time.monotonic() + EngineProxy.SWAP_DRAIN_TIMEOUT_SEC
+            while inflight.get(id(old), 0) > 0:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    logger.warning(
+                        "EngineProxy.swap() — %d laufende connect()/begin() der "
+                        "alten Engine nach %.1fs nicht beendet; dispose trotzdem.",
+                        inflight.get(id(old), 0), EngineProxy.SWAP_DRAIN_TIMEOUT_SEC,
+                    )
+                    break
+                cv.wait(remaining)
         # dispose() ausserhalb des Locks — kann langsam sein und braucht keinen Lock
         try:
             old.dispose()
         except Exception as e:  # broad catch intentional — dispose() can raise various engine errors
             logger.warning("EngineProxy.swap() — old.dispose() fehlgeschlagen: %s", e)
 
+    # ------------------------------------------------------------------
+    # In-flight-Buchhaltung fuer connect()/begin()
+    # ------------------------------------------------------------------
+    # Frueher lief der komplette ``engine.connect()`` INNERHALB des Proxy-
+    # Locks. SQLAlchemy macht dort einen eager Pool-Checkout: Pool-Wait,
+    # physischer sqlite3.connect und der connect-Event-Listener (4 PRAGMAs,
+    # u.a. journal_mode=WAL) laufen alle im Lock. Solange ein Thread dort
+    # steht, serialisiert der Proxy JEDEN Engine-Zugriff aller anderen
+    # Threads — auch reine Attribut-Lesungen wie ``engine.url`` und die
+    # Reads des Qt-Main-Threads. In logs/freeze_stacks.log ist genau das
+    # aufgezeichnet (Main-Thread mit oberstem Frame ``session.py`` in
+    # ``connect``, ohne tiefere Frames = blockiert am ``with _lock``).
+    # Jetzt wird nur noch die Engine-Referenz unter dem Lock geschnappt.
+    def _checkout_engine(self):
+        with object.__getattribute__(self, '_lock'):
+            eng = object.__getattribute__(self, '_engine')
+            inflight = object.__getattribute__(self, '_inflight')
+            inflight[id(eng)] = inflight.get(id(eng), 0) + 1
+            return eng
+
+    def _checkin_engine(self, eng):
+        cv = object.__getattribute__(self, '_inflight_cv')
+        with cv:
+            inflight = object.__getattribute__(self, '_inflight')
+            left = inflight.get(id(eng), 0) - 1
+            if left > 0:
+                inflight[id(eng)] = left
+            else:
+                inflight.pop(id(eng), None)
+                cv.notify_all()
+
     # Explicit delegates needed for SQLAlchemy internals that bypass __getattr__:
     def connect(self, *a, **kw):
-        with object.__getattribute__(self, '_lock'):
-            return object.__getattribute__(self, '_engine').connect(*a, **kw)
+        eng = self._checkout_engine()
+        try:
+            return eng.connect(*a, **kw)
+        finally:
+            self._checkin_engine(eng)
 
     def begin(self, *a, **kw):
-        with object.__getattribute__(self, '_lock'):
-            return object.__getattribute__(self, '_engine').begin(*a, **kw)
+        eng = self._checkout_engine()
+        try:
+            return eng.begin(*a, **kw)
+        finally:
+            self._checkin_engine(eng)
 
     def dispose(self, *a, **kw):
         with object.__getattribute__(self, '_lock'):

@@ -55,6 +55,42 @@ def _resume_embeddings(sched) -> None:
         logger.warning("B-686: Embedding-Resume fehlgeschlagen: %s", exc)
 
 
+def _release_batch_raft(raft_model_device) -> None:
+    """Batch-RAFT freigeben — ueber den ModelManager, nicht am Objekt vorbei.
+
+    Der Batch-Preload holt RAFT via ``ModelManager.load_raft()``; das
+    zurueckgegebene Modell IST ``ModelManager._aux_model``. Das fruehere
+    Cleanup rief ``raft_m.cpu()`` + ``del raft_m`` direkt auf dem Objekt —
+    das verschob die Parameter in-place auf CPU, liess aber
+    ``_aux_model``/``_aux_model_type='raft'`` gesetzt. Der naechste
+    ``load_raft()`` traf damit auf einen Cache-Hit und lieferte ein
+    CPU-Modell zusammen mit ``device='cuda'`` zurueck -> Mixed-Device-
+    RuntimeError in ``_raft_motion_score``, der still auf den billigen
+    Frame-Diff-Score zurueckfaellt.
+
+    ``unload_raft()`` raeumt denselben Slot, den ``load_raft()`` befuellt
+    (``.cpu()`` + ``empty_cache()`` inklusive), und setzt die Slot-Marker
+    zurueck. Keine neue Lock-Reihenfolge: ``unload_raft()`` nimmt nur den
+    ``_swap_lock``, genau wie das direkt daneben stehende ``unload()``.
+    """
+    if raft_model_device is None:
+        return
+    from services.model_manager import ModelManager
+
+    manager = ModelManager()
+    unload_raft = getattr(manager, "unload_raft", None)
+    if unload_raft is not None:
+        unload_raft()
+    else:
+        # Nur fuer ModelManager-Doubles, die ausschliesslich load_raft
+        # abbilden (tests/test_services/test_gpu_pipeline_stability.py).
+        # Der Produktiv-ModelManager hat unload_raft seit B-194.
+        raft_m, _ = raft_model_device
+        if raft_m is not None:
+            raft_m.cpu()
+    gc.collect()
+
+
 def _existing_path(value: str | None) -> bool:
     if not value:
         return False
@@ -552,14 +588,7 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                 # ── BATCH-CLEANUP: SigLIP + RAFT am Ende der gesamten Batch entladen ──
                 if raft_model_device is not None:
                     try:
-                        import torch
-                        raft_m, _ = raft_model_device
-                        if raft_m is not None:
-                            raft_m.cpu()
-                            del raft_m
-                        gc.collect()
-                        if torch.cuda.is_available():
-                            torch.cuda.empty_cache()
+                        _release_batch_raft(raft_model_device)
                         logger.info("[BATCH] RAFT nach Batch-Verarbeitung entladen")
                     except (RuntimeError, AttributeError) as e:
                         logger.warning("[BATCH] RAFT Entladen fehlgeschlagen: %s", e)
@@ -630,14 +659,7 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
             # RAFT + SigLIP Cleanup auch bei unerwarteten Exceptions
             if raft_model_device is not None:
                 try:
-                    import torch
-                    raft_m, _ = raft_model_device
-                    if raft_m is not None:
-                        raft_m.cpu()
-                        del raft_m
-                    gc.collect()
-                    if torch.cuda.is_available():
-                        torch.cuda.empty_cache()
+                    _release_batch_raft(raft_model_device)
                 except (RuntimeError, AttributeError) as e:
                     logger.warning("RAFT cleanup failed during finally block: %s", e)
             if siglip_model_processor is not None:

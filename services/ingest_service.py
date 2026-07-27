@@ -71,6 +71,19 @@ def ingest_audio(
                 # "undeleten" wir sie (deleted_at=None) statt zu skippen.
                 if existing.deleted_at is not None:
                     existing.deleted_at = None
+                    # B-706/M1 Folgefix (Asymmetrie zu ingest_video, dort seit
+                    # 7e156fe): der Re-Import hebt den Soft-Delete auf, ohne die
+                    # Timeline-Platzierung wiederherzustellen. Das zugehoerige
+                    # Backup ist damit verbraucht. Blieb es liegen, legte ein
+                    # spaeterer Delete-ohne-Entries + Restore die ALTEN
+                    # TimelineEntries erneut an — der Track tauchte an einer
+                    # Position auf, die der User nie gesetzt hat.
+                    # Strikt nur die Zeile dieses Mediums.
+                    from database import SoftDeleteTimelineBackup
+                    session.query(SoftDeleteTimelineBackup).filter(
+                        SoftDeleteTimelineBackup.media_type == "audio",
+                        SoftDeleteTimelineBackup.media_id == existing.id,
+                    ).delete(synchronize_session=False)
                     session.commit()
                     _apply_cross_project_reuse_after_ingest(
                         session,
