@@ -1,6 +1,7 @@
 # STAB-1 Command-Evidenzrunner — 2026-07-28
 
-Status: B-739 `in_progress`; Runner-Beweissicherheit nicht erfüllt.
+Status: B-739 `code-fix-pending-live-verification`; Runnervertrag belegt,
+Current-App-Gates offen.
 
 ## Umfang
 
@@ -39,7 +40,7 @@ Nächste einzige Task:
 - Syntax und fokussiertes Ruff: grün.
 - Frühes Manifest-Skeleton, Source-Status und Post-CIM-Exception zusätzlich
   abgesichert.
-- Commit und unabhängiges Re-Review: offen.
+- Historischer Runde-1-Stand; durch Runde 2, Commit und Finalreview superseded.
 
 Genau nächste Task: B-739 committen, adversarial re-reviewen, Findings einzeln
 schließen. Danach Syntax-/Import-Gates neu starten.
@@ -56,5 +57,10 @@ schließen. Danach Syntax-/Import-Gates neu starten.
 - Fokus: `30 passed in 36.38s`.
 - D-077 reduziert weitere Wiederholung: kein zweites Review.
 
-Offen: Syntax/Ruff nach Finalreview-Fixes, Commit, Post-Commit-Runner.
-Danach einmalige STAB-1-Current-Gates.
+Syntax/Ruff grün. Commit `c068169`.
+Post-Commit-Evidenz `20260728T0214-b739-postcommit-0968eed`: pass,
+Source vor/nach sauber, 13/13 existierende DBs byte-/logisch identisch,
+13× quick_check ok, 0 Descendants, 0 neue command-owned Prozesse.
+
+B-739: `code-fix-pending-live-verification`, kein `fixed`.
+Nächste einzige Task: `STAB-1 / Import-/Syntax-Smokes`.

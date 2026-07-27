@@ -1,15 +1,15 @@
 # PB Studio Stabilitätsstatus — Current
 
-Letztes Update: 2026-07-28 01:58 Europe/Zurich
+Letztes Update: 2026-07-28 02:17 Europe/Zurich
 
 Gesamtfortschritt: **ca. 12–15 %**  
 Risikobasierte Pflichtgates: **2/9 abgeschlossen**
-Aktiv: **STAB-1 / B-739 Evidenzrunner-False-Pass**
+Aktiv: **STAB-1 / Import-/Syntax-Smokes**
 
 | Phase | Stand | Zustand |
 |---|---:|---|
 | STAB-0 Governance/Wahrheit | **100 %** | abgeschlossen |
-| STAB-1 Testfundament | **ca. 40 %** | aktiv; B-739 commit-/runner-beweisoffen |
+| STAB-1 Testfundament | **ca. 45 %** | aktiv; Import-/Syntax-Smokes |
 | STAB-2 Acht Live-Workflows | **0 %** | blockiert durch STAB-1 |
 | STAB-3 Brain/Lernen A/B | **0 %** | blockiert durch STAB-2 |
 | STAB-4 GPU/Threads/Soak | **0 %** | blockiert durch STAB-3 |
@@ -24,6 +24,9 @@ Aktiv: **STAB-1 / B-739 Evidenzrunner-False-Pass**
 - B-727 Negativkontrollen bestanden; kein `fixed`, Livebeweis offen.
 - B-739 Fokus nach Finalreview-Fixes 30/30 grün.
 - Finalreview abgeschlossen; keine weitere Reviewrunde.
+- B-739 Commit `c068169`; Post-Commit-Runner pass auf HEAD `0968eed`.
+- 13/13 existierende DBs byte-/logisch identisch, quick_check ok;
+  0 Prozessreste.
 - D-077 Minimalprogramm: eine Current-Suite, einmalige Livepfade,
   30-Minuten-Soak.
 - Selbstreview-Restverträge für frühes Skeleton, Source-Status und
@@ -32,6 +35,6 @@ Aktiv: **STAB-1 / B-739 Evidenzrunner-False-Pass**
 
 ## Nächste einzige Task
 
-B-739 Syntax/Ruff, Dokumentation und Commit → Current Syntax/Import starten.
+Import-/Syntax-Smokes einmal über Evidenzrunner.
 
 Diese Datei nach jedem Gate, Blocker, Bugstatus oder Phasenwechsel aktualisieren.

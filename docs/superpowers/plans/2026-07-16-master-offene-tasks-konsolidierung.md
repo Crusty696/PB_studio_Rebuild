@@ -610,3 +610,10 @@ Decision: Vault
 - Genau nächste Task: `STAB-1 / B-739 Evidenzrunner-False-Pass`.
 - B-739 Code-Follow-up 2026-07-28: Fokus 19/19, echter detached Child,
   Syntax und fokussiertes Ruff grün. Commit/Re-Review offen.
+- B-739 Runde 2: Fokus 30/30, Syntax/Ruff grün, Commits `c068169` und
+  D-077-Governance `0968eed`.
+- Post-Commit-Evidenz `20260728T0214-b739-postcommit-0968eed`: pass,
+  Source Dirty 0 vor/nach, 13/13 reale DBs byte-/logisch identisch,
+  13× quick_check ok, 0 Prozessreste.
+- B-739 bleibt `code-fix-pending-live-verification`; kein `fixed`.
+- Genau nächste Task: `STAB-1 / Import-/Syntax-Smokes`.
