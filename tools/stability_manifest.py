@@ -298,11 +298,13 @@ def capture_database(database: Path, *, backup_root: Path) -> dict[str, Any]:
 
 def snapshot_relevant_processes() -> dict[str, Any]:
     script = (
-        "Get-CimInstance Win32_Process | "
-        "Where-Object {$_.Name -match "
-        "'^(python|pythonw|pb_studio|ffmpeg|ffprobe|ollama)'} | "
-        "Select-Object ProcessId,ParentProcessId,Name,ExecutablePath,CommandLine,CreationDate | "
-        "ConvertTo-Json -Compress"
+        "$probePid=$PID; "
+        "$probe=Get-CimInstance Win32_Process -Filter \"ProcessId=$probePid\"; "
+        "$processes=@(Get-CimInstance Win32_Process | "
+        "Where-Object {$_.ProcessId -ne $probePid} | "
+        "Select-Object ProcessId,ParentProcessId,Name,ExecutablePath,CommandLine,CreationDate); "
+        "[PSCustomObject]@{ProbePid=$probePid;ProbeCreationDate=$probe.CreationDate;Processes=$processes} | "
+        "ConvertTo-Json -Depth 4 -Compress"
     )
     result = subprocess.run(
         ["powershell", "-NoProfile", "-Command", script],
@@ -311,11 +313,22 @@ def snapshot_relevant_processes() -> dict[str, Any]:
         check=False,
     )
     processes: list[dict[str, Any]] = []
+    probe_pid: int | None = None
+    probe_creation_date: str | None = None
     if result.returncode == 0 and result.stdout.strip():
         payload = json.loads(result.stdout)
-        processes = payload if isinstance(payload, list) else [payload]
+        probe_pid = int(payload["ProbePid"])
+        if payload.get("ProbeCreationDate") is not None:
+            probe_creation_date = str(payload["ProbeCreationDate"])
+        raw_processes = payload.get("Processes") or []
+        processes = (
+            raw_processes if isinstance(raw_processes, list) else [raw_processes]
+        )
     return {
         "capture_exit_code": result.returncode,
+        "inventory_scope": "all",
+        "probe_pid": probe_pid,
+        "probe_creation_date": probe_creation_date,
         "processes": processes,
         "limits": [] if result.returncode == 0 else [result.stderr.strip()],
     }
@@ -448,6 +461,104 @@ def _descendant_processes(
     return descendants
 
 
+def _process_identity(process: dict[str, Any]) -> tuple[int, str]:
+    return (
+        int(process.get("ProcessId", -1)),
+        str(process.get("CreationDate") or ""),
+    )
+
+
+def _new_processes(
+    process_before: dict[str, Any],
+    process_after: dict[str, Any],
+    command_pid: int | None = None,
+) -> list[dict[str, Any]]:
+    if (
+        process_before.get("inventory_scope") != "all"
+        or process_after.get("inventory_scope") != "all"
+    ):
+        return []
+    before_identities = {
+        _process_identity(process)
+        for process in process_before.get("processes", [])
+    }
+    probe_identities = {
+        (int(probe_pid), str(probe_creation_date))
+        for probe_pid, probe_creation_date in (
+            (
+                process_before.get("probe_pid"),
+                process_before.get("probe_creation_date"),
+            ),
+            (
+                process_after.get("probe_pid"),
+                process_after.get("probe_creation_date"),
+            ),
+        )
+        if probe_pid is not None and probe_creation_date is not None
+    }
+    after_processes = process_after.get("processes", [])
+    probe_tree_ids = {
+        int(process["ProcessId"])
+        for process in after_processes
+        if _process_identity(process) in probe_identities
+    }
+    while probe_tree_ids:
+        expanded_ids = probe_tree_ids | {
+            int(process["ProcessId"])
+            for process in after_processes
+            if process.get("ParentProcessId") in probe_tree_ids
+            and process.get("ProcessId") is not None
+        }
+        if expanded_ids == probe_tree_ids:
+            break
+        probe_tree_ids = expanded_ids
+    candidates = [
+        process
+        for process in after_processes
+        if _process_identity(process) not in before_identities
+        and process.get("ProcessId") not in probe_tree_ids
+    ]
+    after_identities = {
+        _process_identity(process)
+        for process in after_processes
+    }
+    stable_before_pids = {
+        identity[0]
+        for identity in before_identities
+        if identity in after_identities
+    }
+    candidates_by_pid = {
+        int(process["ProcessId"]): process
+        for process in candidates
+        if process.get("ProcessId") is not None
+    }
+
+    def is_command_owned_or_parent_vanished(process: dict[str, Any]) -> bool:
+        parent_pid = process.get("ParentProcessId")
+        seen: set[int] = set()
+        while parent_pid is not None:
+            parent_pid = int(parent_pid)
+            if command_pid is not None and parent_pid == command_pid:
+                return True
+            if parent_pid in seen:
+                return True
+            seen.add(parent_pid)
+            parent = candidates_by_pid.get(parent_pid)
+            if parent is not None:
+                parent_pid = parent.get("ParentProcessId")
+                continue
+            if parent_pid in stable_before_pids:
+                return False
+            return True
+        return True
+
+    return [
+        process
+        for process in candidates
+        if is_command_owned_or_parent_vanished(process)
+    ]
+
+
 def write_baseline_manifest(
     *,
     run_id: str,
@@ -531,6 +642,7 @@ def run_evidenced_command(
     database_discovery: Callable[[], Iterable[Path]] | None = None,
     process_snapshotter: Callable[[], dict[str, Any]] | None = None,
     source_status: dict[str, Any] | None = None,
+    source_validator: Callable[[], dict[str, Any]] | None = None,
 ) -> Path:
     """Run one gate while proving protected DB bytes and contents unchanged."""
     started_at = _utc_now()
@@ -628,6 +740,23 @@ def run_evidenced_command(
             "limits": [],
         }
     surviving_descendants = _descendant_processes(command_pid, process_after)
+    new_processes = _new_processes(
+        process_status,
+        process_after,
+        command_pid=command_pid,
+    )
+    source_status_after = source_status
+    if command_started and source_validator is not None:
+        try:
+            source_status_after = source_validator()
+        except Exception as exc:
+            errors.append(
+                f"post source validation: {type(exc).__name__}: {exc}"
+            )
+            source_status_after = {
+                "verdict": "blocked",
+                "limits": [f"{type(exc).__name__}: {exc}"],
+            }
 
     final_paths = dict(initial_paths)
     if database_discovery is not None:
@@ -680,6 +809,10 @@ def run_evidenced_command(
     )
     bytes_unchanged = db_before == db_after
     logical_unchanged = analysis_before == analysis_after
+    quick_check_ok = all(
+        analysis is None or analysis.get("quick_check") == "ok"
+        for analysis in [*analysis_before.values(), *analysis_after.values()]
+    )
     limits = [
         "Original SQLite databases were never opened; logical analysis used raw copies."
     ]
@@ -692,6 +825,14 @@ def run_evidenced_command(
         limits.append("Post-command process snapshot failed")
     if surviving_descendants:
         limits.append("Command left relevant descendant processes running")
+    if new_processes:
+        limits.append("New processes survived the gate command")
+    if (
+        source_status_after is not None
+        and source_status_after.get("verdict") != "pass"
+    ):
+        limits.extend(source_status_after.get("limits", []))
+        limits.append("Git source changed during gate command")
     if set(final_paths) != set(initial_paths):
         limits.append("Protected database set changed")
     if not captures_stable:
@@ -700,6 +841,8 @@ def run_evidenced_command(
         limits.append("Protected database bytes changed")
     if not logical_unchanged:
         limits.append("Protected database logical content changed")
+    if not quick_check_ok:
+        limits.append("Protected database quick_check failed")
     passed = (
         command_exit_code == 0
         and command_started
@@ -707,9 +850,15 @@ def run_evidenced_command(
         and process_before_ok
         and process_after.get("capture_exit_code", 0) == 0
         and not surviving_descendants
+        and not new_processes
+        and (
+            source_status_after is None
+            or source_status_after.get("verdict") == "pass"
+        )
         and captures_stable
         and bytes_unchanged
         and logical_unchanged
+        and quick_check_ok
     )
     artifacts = [
         path
@@ -727,11 +876,13 @@ def run_evidenced_command(
         "exit_code": command_exit_code,
         "verdict": "pass" if passed else "fail",
         "source_status": source_status,
+        "source_status_after": source_status_after,
         "process_status": {
             "before": process_status,
             "after": process_after,
             "command_pid": command_pid,
             "surviving_descendants": surviving_descendants,
+            "new_processes": new_processes,
         },
         "db_before": db_before,
         "db_after": db_after,

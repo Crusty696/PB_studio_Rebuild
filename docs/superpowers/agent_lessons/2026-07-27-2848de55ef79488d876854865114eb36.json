@@ -1,0 +1,10 @@
+{
+  "lesson_id": "2848de55ef79488d876854865114eb36",
+  "recorded_at": "2026-07-27T23:37:05+00:00",
+  "session_id": "8979144485d9418981b1e5109153cb58",
+  "head_at_start": "d60c3e15885d91e6aa01ae3e425f87e07f31df91",
+  "problem": "Globaler Vorher/Nachher-Prozessvergleich meldete fremde Hostprozesse als Gate-Zombies und PID-only-Ausschluss erlaubte Reuse-False-Pass.",
+  "cause": "Prozessbesitz wurde aus Executable-Namen bzw. rohen PIDs statt Command-Abstammung und PID+CreationDate-Identität abgeleitet.",
+  "rule": "Bei Windows-Gate-Evidenz vollständige Inventur erfassen, aber nur Command-/Vanished-Parent-Ketten blockieren; Prozessidentität stets PID plus CreationDate, stabile Fremdowner nur bei identischer Vorher/Nachher-Identität anerkennen.",
+  "applies_to": "tools/stability_manifest.py, Windows Prozess-/Zombie-Gates"
+}

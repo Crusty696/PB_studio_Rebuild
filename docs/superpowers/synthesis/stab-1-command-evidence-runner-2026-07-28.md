@@ -43,3 +43,18 @@ Nächste einzige Task:
 
 Genau nächste Task: B-739 committen, adversarial re-reviewen, Findings einzeln
 schließen. Danach Syntax-/Import-Gates neu starten.
+
+## B-739 Runde 2 / Finalreview — 2026-07-28
+
+- Post-Command-Gitvalidierung.
+- Vollständige Prozessinventur ohne Executable-Allowlist.
+- Command-/Vanished-Parent-Prozessbesitz statt globalem Umgebungsrauschen.
+- Probe- und Parent-PID-Reuse per CreationDate abgesichert.
+- DB-`quick_check` verdictwirksam.
+- Initial-Discovery schreibt blocked Manifest.
+- Evidenzroot exakt extern; LOCALAPPDATA innerhalb Repo schreibt nichts.
+- Fokus: `30 passed in 36.38s`.
+- D-077 reduziert weitere Wiederholung: kein zweites Review.
+
+Offen: Syntax/Ruff nach Finalreview-Fixes, Commit, Post-Commit-Runner.
+Danach einmalige STAB-1-Current-Gates.

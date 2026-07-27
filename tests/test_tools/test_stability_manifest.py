@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import sqlite3
 import subprocess
@@ -40,6 +41,14 @@ def _init_git_repo(repo: Path) -> str:
         cwd=repo,
         text=True,
     ).strip()
+
+
+def _cli_evidence(tmp_path: Path, run_id: str) -> tuple[Path, dict[str, str]]:
+    localappdata = tmp_path / "localappdata"
+    output = localappdata / "PBStudioStability" / run_id
+    env = dict(os.environ)
+    env["LOCALAPPDATA"] = str(localappdata)
+    return output, env
 
 
 def test_discover_protected_databases_without_importing_product_modules(tmp_path):
@@ -235,7 +244,7 @@ def test_stability_run_cli_executes_gate_and_writes_manifest(tmp_path):
         cwd=repo,
         text=True,
     ).strip()
-    output = tmp_path / "evidence"
+    output, env = _cli_evidence(tmp_path, "cli-run")
 
     result = subprocess.run(
         [
@@ -259,6 +268,7 @@ def test_stability_run_cli_executes_gate_and_writes_manifest(tmp_path):
             "-c",
             "print('cli-ok')",
         ],
+        env=env,
         capture_output=True,
         text=True,
         check=False,
@@ -387,7 +397,7 @@ def test_cli_blocks_before_command_on_head_mismatch(tmp_path):
     repo = tmp_path / "repo"
     _init_git_repo(repo)
     marker = tmp_path / "command-ran"
-    output = tmp_path / "evidence"
+    output, env = _cli_evidence(tmp_path, "wrong-head")
 
     result = subprocess.run(
         [
@@ -411,6 +421,7 @@ def test_cli_blocks_before_command_on_head_mismatch(tmp_path):
             "-c",
             f"from pathlib import Path; Path({str(marker)!r}).touch()",
         ],
+        env=env,
         capture_output=True,
         text=True,
         check=False,
@@ -427,7 +438,7 @@ def test_cli_fails_when_new_outputs_database_appears(tmp_path):
     repo = tmp_path / "repo"
     head = _init_git_repo(repo)
     source = repo / "outputs" / "new-project" / "pb_studio.db"
-    output = tmp_path / "evidence"
+    output, env = _cli_evidence(tmp_path, "new-output-db")
     mutation = (
         "import pathlib, sqlite3; "
         f"p=pathlib.Path({str(source)!r}); p.parent.mkdir(parents=True); "
@@ -457,6 +468,7 @@ def test_cli_fails_when_new_outputs_database_appears(tmp_path):
             "-c",
             mutation,
         ],
+        env=env,
         capture_output=True,
         text=True,
         check=False,
@@ -565,7 +577,7 @@ def test_cli_blocks_before_command_on_dirty_tracked_source(tmp_path):
     head = _init_git_repo(repo)
     (repo / "tracked.py").write_text("VALUE = 2\n", encoding="utf-8")
     marker = tmp_path / "command-ran"
-    output = tmp_path / "evidence"
+    output, env = _cli_evidence(tmp_path, "dirty-source")
 
     result = subprocess.run(
         [
@@ -589,6 +601,7 @@ def test_cli_blocks_before_command_on_dirty_tracked_source(tmp_path):
             "-c",
             f"from pathlib import Path; Path({str(marker)!r}).touch()",
         ],
+        env=env,
         capture_output=True,
         text=True,
         check=False,
@@ -670,20 +683,33 @@ def test_runner_preserves_manifest_when_post_process_snapshot_raises(tmp_path):
     assert any("post process snapshot" in limit for limit in manifest["limits"])
 
 
-def test_snapshot_query_includes_ollama(monkeypatch):
+def test_snapshot_preserves_ollama_in_all_process_inventory(monkeypatch):
     import tools.stability_manifest as stability_manifest
 
-    seen_script: list[str] = []
+    payload = json.dumps(
+        {
+            "ProbePid": 99,
+            "ProbeCreationDate": "probe-now",
+            "Processes": [
+                {
+                    "ProcessId": 42,
+                    "ParentProcessId": 1,
+                    "Name": "ollama.exe",
+                    "CreationDate": "now",
+                }
+            ],
+        }
+    )
 
     def fake_run(command, **kwargs):
-        seen_script.append(command[-1])
-        return subprocess.CompletedProcess(command, 0, "[]", "")
+        return subprocess.CompletedProcess(command, 0, payload, "")
 
     monkeypatch.setattr(stability_manifest.subprocess, "run", fake_run)
     result = stability_manifest.snapshot_relevant_processes()
 
     assert result["capture_exit_code"] == 0
-    assert "ollama" in seen_script[0]
+    assert result["inventory_scope"] == "all"
+    assert result["processes"][0]["Name"] == "ollama.exe"
 
 
 def test_runner_fails_on_real_detached_python_child(tmp_path):
@@ -752,3 +778,431 @@ def test_runner_fails_on_real_detached_python_child(tmp_path):
         while not exited.exists() and time.time() < deadline:
             time.sleep(0.05)
         assert exited.exists(), "detached test child did not exit cooperatively"
+
+
+def test_cli_fails_if_command_dirties_tracked_source(tmp_path):
+    repo = tmp_path / "repo"
+    head = _init_git_repo(repo)
+    output, env = _cli_evidence(tmp_path, "post-command-dirty")
+    mutation = (
+        "from pathlib import Path; "
+        f"Path({str(repo / 'tracked.py')!r}).write_text('VALUE = 3\\n')"
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(Path(__file__).parents[2] / "tools" / "stability_run.py"),
+            "--run-id",
+            "post-command-dirty",
+            "--baseline-commit",
+            head,
+            "--phase",
+            "STAB-1",
+            "--repo-root",
+            str(repo),
+            "--appdata",
+            str(tmp_path / "appdata"),
+            "--output-root",
+            str(output),
+            "--confirmed-no-pb-db-writer",
+            "--",
+            sys.executable,
+            "-c",
+            mutation,
+        ],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["verdict"] == "fail"
+    assert manifest["source_status_after"]["verdict"] == "blocked"
+    assert "tracked.py" in manifest["source_status_after"]["dirty_paths"]
+
+
+def test_runner_fails_when_quick_check_is_not_ok(tmp_path, monkeypatch):
+    import tools.stability_manifest as stability_manifest
+
+    source = (tmp_path / "project" / "pb_studio.db").resolve()
+    absent = stability_manifest._absent_snapshot(source)
+
+    def corrupt_capture(database, *, backup_root):
+        return {
+            "source": str(source),
+            "stable": True,
+            "source_before": absent,
+            "source_after": absent,
+            "backup": {},
+            "analysis": {
+                "quick_check": "database disk image is malformed",
+                "logical_content_sha256": "same",
+            },
+        }
+
+    monkeypatch.setattr(stability_manifest, "capture_database", corrupt_capture)
+    manifest_path = stability_manifest.run_evidenced_command(
+        run_id="corrupt-unchanged",
+        baseline_commit="4" * 40,
+        phase="STAB-1",
+        command=[sys.executable, "-c", "print('command-ok')"],
+        cwd=tmp_path,
+        databases=[source],
+        output_root=tmp_path / "evidence",
+        process_status={"capture_exit_code": 0, "processes": [], "limits": []},
+        process_snapshotter=lambda: {
+            "capture_exit_code": 0,
+            "processes": [],
+            "limits": [],
+        },
+    )
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["verdict"] == "fail"
+    assert "Protected database quick_check failed" in manifest["limits"]
+
+
+def test_runner_fails_on_new_process_with_vanished_intermediate(tmp_path):
+    import tools.stability_manifest as stability_manifest
+
+    process_before = {
+        "capture_exit_code": 0,
+        "inventory_scope": "all",
+        "processes": [
+            {
+                "ProcessId": 100,
+                "ParentProcessId": 1,
+                "Name": "existing.exe",
+                "CreationDate": "before",
+            }
+        ],
+        "limits": [],
+    }
+
+    def post_snapshot():
+        return {
+            "capture_exit_code": 0,
+            "inventory_scope": "all",
+            "processes": [
+                *process_before["processes"],
+                {
+                    "ProcessId": 300,
+                    "ParentProcessId": 200,
+                    "Name": "cmd.exe",
+                    "CreationDate": "after",
+                },
+            ],
+            "limits": [],
+        }
+
+    manifest_path = stability_manifest.run_evidenced_command(
+        run_id="vanished-intermediate",
+        baseline_commit="3" * 40,
+        phase="STAB-1",
+        command=[sys.executable, "-c", "print('parent-done')"],
+        cwd=tmp_path,
+        databases=[],
+        output_root=tmp_path / "evidence",
+        process_status=process_before,
+        process_snapshotter=post_snapshot,
+    )
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["verdict"] == "fail"
+    assert "New processes survived the gate command" in manifest["limits"]
+    assert manifest["process_status"]["new_processes"][0]["ProcessId"] == 300
+
+
+def test_new_process_diff_excludes_only_known_probe_tree():
+    from tools.stability_manifest import _new_processes
+
+    before = {
+        "inventory_scope": "all",
+        "probe_pid": 200,
+        "probe_creation_date": "probe",
+        "processes": [
+            {
+                "ProcessId": 100,
+                "ParentProcessId": 1,
+                "Name": "existing.exe",
+                "CreationDate": "before",
+            }
+        ],
+    }
+    after = {
+        "inventory_scope": "all",
+        "probe_pid": 400,
+        "probe_creation_date": "after-probe",
+        "processes": [
+            *before["processes"],
+            {
+                "ProcessId": 200,
+                "ParentProcessId": 10,
+                "Name": "powershell.exe",
+                "CreationDate": "probe",
+            },
+            {
+                "ProcessId": 300,
+                "ParentProcessId": 200,
+                "Name": "conhost.exe",
+                "CreationDate": "probe-child",
+            },
+            {
+                "ProcessId": 500,
+                "ParentProcessId": 999,
+                "Name": "cmd.exe",
+                "CreationDate": "unrelated",
+            },
+        ],
+    }
+
+    assert [process["ProcessId"] for process in _new_processes(before, after)] == [
+        500
+    ]
+
+
+def test_new_process_diff_ignores_tree_owned_by_preexisting_process():
+    from tools.stability_manifest import _new_processes
+
+    existing = {
+        "ProcessId": 100,
+        "ParentProcessId": 1,
+        "Name": "test-host.exe",
+        "CreationDate": "before",
+    }
+    before = {
+        "inventory_scope": "all",
+        "processes": [existing],
+    }
+    after = {
+        "inventory_scope": "all",
+        "processes": [
+            existing,
+            {
+                "ProcessId": 200,
+                "ParentProcessId": 100,
+                "Name": "powershell.exe",
+                "CreationDate": "ambient",
+            },
+            {
+                "ProcessId": 300,
+                "ParentProcessId": 200,
+                "Name": "conhost.exe",
+                "CreationDate": "ambient-child",
+            },
+        ],
+    }
+
+    assert _new_processes(before, after, command_pid=999) == []
+
+
+def test_new_process_diff_does_not_hide_reused_probe_pid():
+    from tools.stability_manifest import _new_processes
+
+    before = {
+        "inventory_scope": "all",
+        "probe_pid": 200,
+        "probe_creation_date": "old-probe",
+        "processes": [],
+    }
+    reused = {
+        "ProcessId": 200,
+        "ParentProcessId": 999,
+        "Name": "cmd.exe",
+        "CreationDate": "new-command-process",
+    }
+    after = {
+        "inventory_scope": "all",
+        "probe_pid": 400,
+        "probe_creation_date": "new-probe",
+        "processes": [reused],
+    }
+
+    assert _new_processes(before, after, command_pid=999) == [reused]
+
+
+def test_new_process_diff_fails_closed_if_before_parent_vanished():
+    from tools.stability_manifest import _new_processes
+
+    before = {
+        "inventory_scope": "all",
+        "processes": [
+            {
+                "ProcessId": 200,
+                "ParentProcessId": 1,
+                "Name": "old.exe",
+                "CreationDate": "old-parent",
+            }
+        ],
+    }
+    child = {
+        "ProcessId": 300,
+        "ParentProcessId": 200,
+        "Name": "cmd.exe",
+        "CreationDate": "survivor",
+    }
+    after = {
+        "inventory_scope": "all",
+        "processes": [child],
+    }
+
+    assert _new_processes(before, after, command_pid=999) == [child]
+
+
+def test_snapshot_query_has_no_executable_allowlist(monkeypatch):
+    import tools.stability_manifest as stability_manifest
+
+    seen_script: list[str] = []
+
+    def fake_run(command, **kwargs):
+        seen_script.append(command[-1])
+        payload = json.dumps(
+            {
+                "ProbePid": 99,
+                "ProbeCreationDate": "probe-now",
+                "Processes": [],
+            }
+        )
+        return subprocess.CompletedProcess(command, 0, payload, "")
+
+    monkeypatch.setattr(stability_manifest.subprocess, "run", fake_run)
+    stability_manifest.snapshot_relevant_processes()
+
+    assert ".Name -match" not in seen_script[0]
+    assert "python|pythonw" not in seen_script[0]
+
+
+def test_cli_writes_blocked_manifest_if_initial_discovery_raises(tmp_path):
+    repo = tmp_path / "repo"
+    head = _init_git_repo(repo)
+    appdata = tmp_path / "appdata"
+    settings = appdata / "PBStudio" / "settings.json"
+    settings.parent.mkdir(parents=True)
+    settings.write_text("{invalid", encoding="utf-8")
+    output, env = _cli_evidence(tmp_path, "discovery-error")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(Path(__file__).parents[2] / "tools" / "stability_run.py"),
+            "--run-id",
+            "discovery-error",
+            "--baseline-commit",
+            head,
+            "--phase",
+            "STAB-1",
+            "--repo-root",
+            str(repo),
+            "--appdata",
+            str(appdata),
+            "--output-root",
+            str(output),
+            "--confirmed-no-pb-db-writer",
+            "--",
+            sys.executable,
+            "-c",
+            "print('must-not-run')",
+        ],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["verdict"] == "blocked"
+    assert any("database discovery" in limit for limit in manifest["limits"])
+
+
+def test_cli_rejects_repo_internal_evidence_root(tmp_path):
+    repo = tmp_path / "repo"
+    head = _init_git_repo(repo)
+    run_id = "invalid-evidence-root"
+    localappdata = tmp_path / "localappdata"
+    expected_output = localappdata / "PBStudioStability" / run_id
+    rejected_output = repo / "evidence"
+    env = dict(os.environ)
+    env["LOCALAPPDATA"] = str(localappdata)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(Path(__file__).parents[2] / "tools" / "stability_run.py"),
+            "--run-id",
+            run_id,
+            "--baseline-commit",
+            head,
+            "--phase",
+            "STAB-1",
+            "--repo-root",
+            str(repo),
+            "--appdata",
+            str(tmp_path / "appdata"),
+            "--output-root",
+            str(rejected_output),
+            "--confirmed-no-pb-db-writer",
+            "--",
+            sys.executable,
+            "-c",
+            "print('must-not-run')",
+        ],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert not rejected_output.exists()
+    manifest = json.loads(
+        (expected_output / "manifest.json").read_text(encoding="utf-8")
+    )
+    assert manifest["verdict"] == "blocked"
+    assert "Evidence root must be external PBStudioStability run directory" in (
+        manifest["limits"]
+    )
+
+
+def test_cli_rejects_localappdata_inside_repo_without_writing(tmp_path):
+    repo = tmp_path / "repo"
+    head = _init_git_repo(repo)
+    run_id = "repo-localappdata"
+    output = repo / "PBStudioStability" / run_id
+    env = dict(os.environ)
+    env["LOCALAPPDATA"] = str(repo)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(Path(__file__).parents[2] / "tools" / "stability_run.py"),
+            "--run-id",
+            run_id,
+            "--baseline-commit",
+            head,
+            "--phase",
+            "STAB-1",
+            "--repo-root",
+            str(repo),
+            "--appdata",
+            str(tmp_path / "appdata"),
+            "--output-root",
+            str(output),
+            "--confirmed-no-pb-db-writer",
+            "--",
+            sys.executable,
+            "-c",
+            "print('must-not-run')",
+        ],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "LOCALAPPDATA resolves inside repository" in result.stderr
+    assert not output.exists()
