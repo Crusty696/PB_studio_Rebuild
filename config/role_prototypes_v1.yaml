@@ -1,0 +1,62 @@
+# Studio Brain — Role-Prototyp-Prompts v1
+#
+# Ersetzt die reine Wortlisten-Logik aus config/enrichment_rules.yaml als
+# PRIMAERPFAD der Rollenbestimmung. Grund (Befund 2026-07-26): die Regeln
+# verlangen Tags wie crowd/landscape/closeup/face, das VLM liefert aber
+# jungle/bioluminescent/dancer/mystical — Schnittmenge leer, also fiel jede
+# der 27 realen Szenen auf `fallback: filler` zurueck. role_fit/tension_fit
+# waren damit ueber alle Kandidaten konstant und wirkungslos.
+#
+# Hier: pro Rolle ein Prompt-Ensemble (Muster von
+# services/pacing/shot_type_classifier.py SHOT_PROMPTS). Die Prompts werden
+# per SigLIP-Text-Tower embedded, pro Rolle gemittelt und L2-normiert nach
+# config/role_prototypes.npz geschrieben:
+#
+#     python scripts/generate_role_prototypes.py
+#
+# Modell MUSS google/siglip-so400m-patch14-384 sein (1152-d) — identisch zu
+# dem Modell, mit dem services/vector_db_service.py die Szenen-Embeddings
+# erzeugt hat. Sonst schlaegt der Dim-Guard im Classifier an.
+#
+# Wenn tests/enrichment/test_role_prototype_orthogonality.py fehlschlaegt:
+# Prompts hier editieren, .npz neu erzeugen, YAML + .npz zusammen committen.
+
+roles:
+  establishing:
+    - "wide establishing shot of a landscape or environment, no people, sense of place"
+    - "atmospheric scenery with deep background, forest or city seen as a whole"
+    - "aerial or panoramic view over terrain, horizon line, open space"
+    - "empty location shot showing where the story takes place, unpopulated setting"
+
+  action:
+    - "fast dynamic movement, dancer mid-jump, energetic motion"
+    - "crowd surging at a festival, arms raised, kinetic energy"
+    - "explosive burst of sparks and debris in motion"
+    - "running chase with strong camera movement and motion blur"
+
+  detail:
+    - "extreme macro close-up of surface texture, fine detail"
+    - "tight close-up of a small object filling the frame"
+    - "abstract pattern detail, shallow depth of field, isolated element"
+    - "intricate ornament photographed up close"
+
+  hero:
+    - "portrait of a single person, face clearly visible, centered subject"
+    - "close-up of a performer looking into the camera"
+    - "one dominant character in frame, background out of focus"
+    - "expressive human face lit as the main subject"
+
+  transition:
+    - "whip pan motion blur streak, smeared colours"
+    - "light leak flare wiping across the frame"
+    - "defocused abstract blur with no readable subject"
+    - "rapid zoom smear, unreadable transitional frame"
+
+  # Bewusst eng gefasst: "filler" darf KEIN Auffangbecken sein, sonst zieht
+  # es alles an, was zu keiner anderen Rolle perfekt passt (genau der Fehler
+  # der alten YAML-Regel-Fallback-Logik). Nur wirklich inhaltsarme Frames.
+  filler:
+    - "flat blank wall filling the entire frame, no content"
+    - "uniform grey overcast sky, featureless, nothing visible"
+    - "underexposed nearly black frame with no discernible subject"
+    - "plain single-colour surface, no texture, no depth"

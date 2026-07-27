@@ -27,9 +27,13 @@ def test_structure_enrichment_small_library_finishes_degraded(monkeypatch, caplo
     with engine.begin() as conn:
         conn.execute(
             text(
+                # scene_index / keyframe_paths spiegeln database/models.py
+                # (Revision d4e5f6a7b8c9) — der Worker liest beide fuer die
+                # Keyframe-Aufloesung der Bildmetriken.
                 "CREATE TABLE scenes ("
                 "id INTEGER PRIMARY KEY, video_clip_id INTEGER, start_time REAL, "
-                "end_time REAL, ai_caption TEXT, ai_mood TEXT)"
+                "end_time REAL, ai_caption TEXT, ai_mood TEXT, "
+                "scene_index INTEGER, keyframe_paths TEXT)"
             )
         )
         conn.execute(
@@ -90,7 +94,7 @@ def test_structure_enrichment_small_library_finishes_degraded(monkeypatch, caplo
     worker = StructureEnrichmentWorker(clip_id=None, session_factory=_session_factory)
     result = worker._do_enrich(
         session=_session_factory(),
-        classify_role=lambda **_kwargs: ("texture", 1.0),
+        classify_role_detail=lambda **_kwargs: ("texture", 1.0, True),
         MoodAnchorMatcher=_FakeMoodMatcher,
         StyleBucketClusterer=__import__(
             "services.enrichment.style_bucket_clusterer",
