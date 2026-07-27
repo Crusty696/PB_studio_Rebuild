@@ -578,6 +578,7 @@ class StemGenStage(Stage):
             from database import AudioTrack
         except ImportError:
             return
+        mapping: dict[str, str | None] = {}
         try:
             with nullpool_session() as sess:
                 track = sess.query(AudioTrack).filter(AudioTrack.id == context.track_id).first()
@@ -589,11 +590,36 @@ class StemGenStage(Stage):
                     "vocals": getattr(track, "stem_vocals_path", None),
                     "other": getattr(track, "stem_other_path", None),
                 }
-                for name, path in mapping.items():
-                    if path:
-                        context.stem_paths[name] = path
         except Exception as e:  # noqa: BLE001
             logger.warning("StemGenStage.rehydrate DB-Fallback fehlgeschlagen: %s", e)
+            return
+        for name, path in mapping.items():
+            if path:
+                context.stem_paths[name] = path
+        # Die Pfade werden bewusst auch dann gesetzt, wenn die Dateien fehlen:
+        # sonst wirft _require_stems StageInputMissingError und der Orchestrator
+        # bricht fail-fast ab — es gaebe dann gar keine Key/Structure/LUFS-Werte
+        # mehr (OTK-018, tests/test_services/test_pipeline_resume_after_crash.py).
+        # Fehlt die Datei aber, laeuft z.B. KeyStage ueber den stem-losen
+        # Legacy-Pfad (key_detection_service.py:235 faengt den Mix-Fehler). Das
+        # Ergebnis ist echt, das Stem-Routing fand aber nicht statt — deshalb
+        # nicht gruen melden, sondern wie bei _guard_no_fallback_persist als
+        # degradiert vermerken.
+        missing = sorted(
+            name for name, path in mapping.items()
+            if path and not Path(path).is_file()
+        )
+        if missing:
+            reason = (
+                "Stem-Dateien aus der DB fehlen auf der Platte: "
+                + ", ".join(missing)
+                + " — Analyse laeuft ohne Stem-Routing weiter"
+            )
+            logger.error("StemGenStage.rehydrate track=%s: %s", context.track_id, reason)
+            try:
+                context.mark_degraded(self.name, reason)
+            except AttributeError:  # aeltere/gemockte Contexte in Tests
+                logger.debug("Context ohne mark_degraded — stem_gen bleibt ungemarkt")
 
 
 class BeatGridStage(Stage):
@@ -793,7 +819,17 @@ class AVPacingStage(Stage):
             from services.av_pacing_service import AVPacingService
             self._service_cls = AVPacingService
         svc = self._service_cls()
-        result = svc.analyze(context.original_path)
+        # AVPacingService.analyze prueft should_stop pro Stream-Chunk
+        # (av_pacing_service.py:120). Ohne Durchreichen greift der Abbruch erst
+        # an der Stage-Grenze — bei einem langen Mix laeuft HPSS danach noch
+        # minutenlang weiter und die Batch-Restliste steht. Analog zu
+        # StemGenStage/BeatGridStage, die should_stop bereits durchreichen.
+        # Verzweigt wie der progress_cb-Pfad in StemGenStage: ohne Cancel-
+        # Callback bleibt der Aufruf unveraendert.
+        if context.should_stop:
+            result = svc.analyze(context.original_path, should_stop=context.should_stop)
+        else:
+            result = svc.analyze(context.original_path)
         _raise_if_cancelled(context, "av_pacing")
         # Frueher wurde hier nur len(times_sec) behalten und das Ergebnis
         # verworfen — die HPSS-Rechnung lief also fuer nichts. Jetzt werden die
