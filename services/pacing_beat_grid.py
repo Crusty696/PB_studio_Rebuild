@@ -392,6 +392,46 @@ _get_bpm.cache_clear = _get_bpm_cached.cache_clear
 _get_bpm.cache_info = _get_bpm_cached.cache_info
 
 
+# B-728 (Bestand) + B-734/B-735 (neu): Spalten aus ``struct_clip_tags``, die
+# das Pacing braucht. Die ersten drei existieren seit b5d5adc80d3a, der Rest
+# seit f2a3b4c5d6e7 bzw. (role_confidence) ebenfalls seit b5d5adc80d3a.
+_STRUCT_TAG_WANTED: tuple[str, ...] = (
+    "role", "mood_refined", "style_bucket_id",
+    "role_confidence", "role_source",
+    "avg_brightness", "avg_saturation", "color_temp",
+)
+# Minimum, das der B-728-Fix braucht — auch ohne jede spaetere Migration.
+_STRUCT_TAG_REQUIRED: tuple[str, ...] = ("role", "mood_refined", "style_bucket_id")
+
+
+@lru_cache(maxsize=8)
+def _struct_clip_tag_columns_cached(
+    engine_identity: tuple[int, str],
+) -> tuple[str, ...]:
+    """Vorhandene Wunsch-Spalten von ``struct_clip_tags`` (PRAGMA, 1x pro Engine)."""
+    try:
+        with Session(engine) as session:
+            present = {
+                row[1]
+                for row in session.execute(
+                    text("PRAGMA table_info(struct_clip_tags)")
+                ).all()
+            }
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("PRAGMA struct_clip_tags fehlgeschlagen (%s) — "
+                     "nutze Minimalspalten.", exc)
+        return _STRUCT_TAG_REQUIRED
+    cols = tuple(c for c in _STRUCT_TAG_WANTED if c in present)
+    return cols or _STRUCT_TAG_REQUIRED
+
+
+def _struct_clip_tag_columns() -> tuple[str, ...]:
+    return _struct_clip_tag_columns_cached(_engine_cache_identity())
+
+
+_struct_clip_tag_columns.cache_clear = _struct_clip_tag_columns_cached.cache_clear
+
+
 def _get_video_info(video_ids: list[int]) -> dict[int, dict]:
     """Holt Video-Metadaten (Dauer, Pfad) fuer alle IDs. Cached intern."""
     import copy
@@ -466,16 +506,28 @@ def _get_video_info_cached(
         if scene_ids:
             tags_by_scene: dict[int, dict] = {}
             try:
+                # B-734/B-735: Bildmetriken (Migration f2a3b4c5d6e7) und
+                # role_confidence/role_source zusaetzlich holen. Welche Spalten
+                # es gibt, wird pro Engine EINMAL per PRAGMA ermittelt — eine
+                # Alt-DB ohne die Visual-Metrics-Migration wuerde sonst am
+                # SELECT scheitern und dabei AUCH role/mood_refined/
+                # style_bucket_id verlieren, also den B-728-Fix mitreissen.
+                cols = _struct_clip_tag_columns()
                 tag_rows = session.execute(
                     text(
-                        "SELECT scene_id, role, mood_refined, style_bucket_id "
+                        f"SELECT scene_id, {', '.join(cols)} "
                         "FROM struct_clip_tags WHERE scene_id IN :ids"
                     ).bindparams(bindparam("ids", expanding=True)),
                     {"ids": scene_ids},
                 ).all()
                 tags_by_scene = {
-                    int(r[0]): {"role": r[1], "mood_refined": r[2],
-                                "style_bucket_id": r[3]}
+                    int(r[0]): {
+                        name: val for name, val in zip(cols, r[1:])
+                        # NULL = nie gemessen. Den Key weglassen statt None
+                        # einzutragen, damit downstream nichts einen
+                        # 0.5-Default daraus macht.
+                        if val is not None
+                    }
                     for r in tag_rows
                 }
             except Exception as exc:
