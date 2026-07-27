@@ -621,4 +621,9 @@ Decision: Vault
   unverändert, 0 Prozessreste.
 - Current-Ruff-Evidenz `20260728T0232-stab1-ruff`: pass; Repo-Ruff Exit 0,
   13/13 reale DBs unverändert, 0 Prozessreste.
-- Genau nächste Task: `STAB-1 / Alembic Single-Head und Fresh-Upgrade`.
+- Alembic-Evidenz `20260728T0241-stab1-alembic`: ein Head
+  `f2a3b4c5d6e7`, frische Temp-DB bis Head, quick_check ok; reale DBs
+  unverändert, 0 Prozessreste.
+- B-727-Beleg 33/33 + 3/3 wird gemäß D-077 nicht wiederholt:
+  Guard-/Testpfade seit `321dc31` unverändert; Runner nur verschärft.
+- Genau nächste Task: `STAB-1 / eine Current-Vollsuite`.
