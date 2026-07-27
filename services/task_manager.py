@@ -215,6 +215,39 @@ class GlobalTaskManager(QObject):
     # THREAD-SAFE: Kann aus Main-Thread UND Background-Threads aufgerufen werden
     # ------------------------------------------------------------------
 
+    def _register_unstarted_task(
+        self,
+        task_id: str,
+        name: str,
+        description: str,
+        status: str,
+        message: str,
+    ) -> TaskInfo:
+        """B-713: Registriert einen Task, der gar nicht erst gestartet wurde.
+
+        Frueher gaben die beiden Abbruchpfade (moveToThread-Fehlschlag in
+        ``start_task`` und der Shutdown-Guard in ``_start_in_main_thread``)
+        eine ``task_id`` bzw. eine Dummy-``TaskInfo`` zurueck, die NIE in
+        ``self._tasks`` landete. Jeder nachfolgende ``update_task``/
+        ``finish_task``/``get_task``-Aufruf des Aufrufers war damit ein
+        stiller No-Op — der Aufrufer hielt eine tote ID (z.B.
+        ``services/actions/video_actions.py`` reicht diese ID an den Agenten
+        weiter).
+
+        Der Task wird deshalb registriert und sofort terminal gesetzt, damit
+        die ID nachschlagbar ist und der Zustand sichtbar wird. Es wird
+        KEIN Thread und KEIN Worker angehaengt (``task.thread``/``task.worker``
+        bleiben ``None``) — der B-002-Shutdown-Guard bleibt damit erhalten.
+        """
+        task = TaskInfo(task_id, name, description)
+        task.status = status
+        task.message = message
+        with self._tasks_lock:
+            self._tasks[task_id] = task
+        self.task_added.emit(task_id)
+        self.task_finished.emit(task_id)
+        return task
+
     def start_task(
         self,
         name: str,
@@ -261,6 +294,11 @@ class GlobalTaskManager(QObject):
                     worker.deleteLater()
                 except RuntimeError:
                     pass
+                # B-713: ID registrieren statt tot zurueckgeben.
+                self._register_unstarted_task(
+                    task_id, name, description, "error",
+                    "Thread-Uebergabe fehlgeschlagen — Task nicht gestartet",
+                )
                 return task_id
             self._cross_thread_request.emit(
                 task_id, name, description, worker, on_finish, on_error
@@ -271,6 +309,36 @@ class GlobalTaskManager(QObject):
             return self._start_in_main_thread(
                 task_id, name, description, worker, on_finish, on_error
             )
+
+    def _handle_worker_error(self, task_id: str, name: str, args: tuple):
+        """Slot-Logik fuer das ``error``-Signal eines Workers.
+
+        B-724: Ein kooperativer Abbruch ist terminal. Nach ``cancel_task()``
+        bricht der Worker seine Arbeitsschleife ab und meldet den Abbruch
+        haeufig noch als ``error`` (z.B. "Abgebrochen", Teardown-Fehler nach
+        should_stop()). Dieser spaet eintreffende Worker-Fehler darf den
+        bereits gesetzten ``cancelled``-Status NICHT ueberschreiben — sonst
+        zeigt das TASKS-Panel "Fehler" statt "Abgebrochen". Semantik analog
+        zum B-466-Vorrang in ``finish_task``.
+
+        Abgrenzung zu B-466: geblockt wird ausschliesslich der Worker-
+        Signal-Pfad. Ein expliziter ``finish_task(..., "error", ...)`` aus
+        Controller-Code bleibt unveraendert wirksam.
+        """
+        err_msg = extract_worker_error_message(args)
+        logging.error(
+            "[TaskEngine] Worker-Fehler '%s' (task_id=%s): %s",
+            name, task_id, err_msg,
+        )
+        existing = self.get_task(task_id)
+        if existing is not None and existing.status == "cancelled":
+            logging.info(
+                "[TaskEngine] B-724: Task %s ist bereits 'cancelled' — "
+                "spaeter Worker-Fehler wird nicht als Status uebernommen (%s)",
+                task_id, err_msg,
+            )
+            return
+        self.finish_task(task_id, status="error", message=err_msg)
 
     def _start_in_main_thread(
         self,
@@ -296,7 +364,13 @@ class GlobalTaskManager(QObject):
                 worker.deleteLater()
             except RuntimeError as exc:
                 logger.warning("worker.deleteLater() failed in _start_in_main_thread: %s", exc)
-            return TaskInfo(task_id, name, description)  # Dummy, nie zu _tasks hinzugefügt
+            # B-713: frueher eine Dummy-TaskInfo, die nie in _tasks landete.
+            # Jetzt registriert + terminal ("cancelled"), damit der Aufrufer
+            # keine tote ID haelt. Es wird weiterhin KEIN Thread gestartet.
+            return self._register_unstarted_task(
+                task_id, name, description, "cancelled",
+                "Shutdown — Task nicht mehr gestartet",
+            )
 
         task = TaskInfo(task_id, name, description)
 
@@ -327,12 +401,7 @@ class GlobalTaskManager(QObject):
         # Error-Signal: IMMER Task als Error markieren + optional custom callback.
         if hasattr(worker, "error"):
             def _task_error_handler(*args, _tid=task_id, _name=name, _tm=self):
-                err_msg = extract_worker_error_message(args)
-                logging.error(
-                    "[TaskEngine] Worker-Fehler '%s' (task_id=%s): %s",
-                    _name, _tid, err_msg,
-                )
-                _tm.finish_task(_tid, status="error", message=err_msg)
+                _tm._handle_worker_error(_tid, _name, args)
             worker.error.connect(
                 _task_error_handler,
                 Qt.ConnectionType.QueuedConnection,

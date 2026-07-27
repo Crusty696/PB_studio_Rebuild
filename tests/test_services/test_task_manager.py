@@ -380,6 +380,13 @@ class TestShutdownGuard:
             "shutdown_test", "Shutdown Test", "", worker, None, None
         )
 
-        # Should return a dummy TaskInfo not added to _tasks
+        # B-002: es darf KEIN Thread/Worker gestartet werden.
         assert result.name == "Shutdown Test"
-        assert mgr.get_task("shutdown_test") is None
+        assert result.thread is None
+        assert result.worker is None
+        # B-713: der Task wird jetzt registriert (vorher: Dummy, tote ID),
+        # aber sofort terminal — er zaehlt nicht als laufend.
+        registered = mgr.get_task("shutdown_test")
+        assert registered is not None
+        assert registered.status == "cancelled"
+        assert registered not in mgr.get_shutdown_tasks()
