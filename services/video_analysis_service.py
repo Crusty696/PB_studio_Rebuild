@@ -1081,6 +1081,39 @@ def store_embeddings(
     """
     from services.vector_db_service import VectorDBService
 
+    # Ersatz-Daten ZUERST aufbauen. Vorher wurde unbedingt geloescht und
+    # erst danach geprueft, ob ueberhaupt Embeddings existieren: schlug
+    # ``generate_embeddings`` still fehl (kein Keyframe / SigLIP-Load-Fehler
+    # -> stiller ``return scenes``), loeschte eine Re-Analyse die bereits
+    # vorhandenen Vektoren des Clips und schrieb nichts zurueck. Ergebnis:
+    # semantische Suche und structure_enrichment finden den Clip nicht mehr,
+    # ohne dass ein Fehler sichtbar wird.
+    entries = []
+    for scene in scenes:
+        if scene.embedding is None:
+            continue
+
+        entries.append({
+            "video_path": video_path,
+            "scene_index": scene.index,
+            "scene_start": scene.start_time,
+            "scene_end": scene.end_time,
+            "motion_score": scene.motion_score,
+            "description": "",
+            "embedding": scene.embedding.tolist(),
+        })
+
+    if not entries:
+        # Kein Ersatz vorhanden -> NICHT loeschen. Lieber (moeglicherweise)
+        # veraltete Vektoren behalten als den Clip aus der Vektorsuche
+        # verlieren. Caller erkennt den Fall am Rueckgabewert 0.
+        logger.warning(
+            "[VectorDB] Keine Embeddings fuer Clip %d (%s) — bestehende Vektoren "
+            "bleiben unangetastet (kein Delete ohne Ersatz).",
+            video_clip_id, Path(video_path).name,
+        )
+        return 0
+
     vdb = VectorDBService()
     logger.info("[VectorDB] count=%d", vdb.count())
 
@@ -1100,25 +1133,9 @@ def store_embeddings(
             f"VectorDB cleanup failed for clip {video_clip_id}; embeddings not stored."
         ) from e
 
-    entries = []
-    for scene in scenes:
-        if scene.embedding is None:
-            continue
-
-        entries.append({
-            "video_path": video_path,
-            "scene_index": scene.index,
-            "scene_start": scene.start_time,
-            "scene_end": scene.end_time,
-            "motion_score": scene.motion_score,
-            "description": "",
-            "embedding": scene.embedding.tolist(),
-        })
-
-    if entries:
-        logger.info("[VectorDB] add_embeddings_batch (%d entries) fuer Clip %d...", len(entries), video_clip_id)
-        vdb.add_embeddings_batch(video_clip_id, entries)
-        logger.info("[VectorDB] %d Embeddings gespeichert fuer %s", len(entries), Path(video_path).name)
+    logger.info("[VectorDB] add_embeddings_batch (%d entries) fuer Clip %d...", len(entries), video_clip_id)
+    vdb.add_embeddings_batch(video_clip_id, entries)
+    logger.info("[VectorDB] %d Embeddings gespeichert fuer %s", len(entries), Path(video_path).name)
 
     return len(entries)
 
@@ -1610,10 +1627,23 @@ def run_full_pipeline(
         scenes = generate_embeddings(scenes, siglip_model_processor=siglip_model_processor)
         logger.info("[PIPELINE] SigLIP Embeddings FERTIG")
         embedding_count = sum(1 for s in scenes if s.embedding is not None)
-        analysis_status_service.mark_done("video", video_clip_id, "siglip_embeddings", {
-            "dimension": 1152,
-            "embeddings": embedding_count,
-        })
+        if scenes and embedding_count == 0:
+            # ``generate_embeddings`` kehrt bei fehlenden Keyframes und bei
+            # SigLIP-Ladefehlern OHNE Exception zurueck. mark_done haette
+            # den Schritt gruen gemeldet und ``get_completion_percent`` haette
+            # den Clip als fertig analysiert gezaehlt, obwohl kein einziger
+            # Vektor existiert. ``degraded`` zaehlt nicht als done.
+            analysis_status_service.mark_degraded(
+                "video", video_clip_id, "siglip_embeddings",
+                "Keine SigLIP-Embeddings erzeugt (keine Keyframes oder "
+                "SigLIP konnte nicht geladen werden).",
+                {"dimension": 1152, "embeddings": 0},
+            )
+        else:
+            analysis_status_service.mark_done("video", video_clip_id, "siglip_embeddings", {
+                "dimension": 1152,
+                "embeddings": embedding_count,
+            })
     except Exception as e:
         analysis_status_service.mark_error("video", video_clip_id, "siglip_embeddings", str(e))
         raise
@@ -1695,9 +1725,20 @@ def run_full_pipeline(
         # DB-Fehlern keine VectorDB-Orphans entstehen.
         result.embeddings_stored = store_embeddings(original_video_path, scenes, video_clip_id)
         logger.info("[PIPELINE] LanceDB FERTIG: %d Embeddings", result.embeddings_stored)
-        analysis_status_service.mark_done("video", video_clip_id, "vector_db_storage", {
-            "vectors": result.embeddings_stored,
-        })
+        if scenes and result.embeddings_stored == 0:
+            # 0 geschriebene Vektoren ist kein Erfolg: der Clip ist ueber die
+            # semantische Suche nicht auffindbar und structure_enrichment
+            # ueberspringt ihn. Vorher stand hier mark_done({"vectors": 0}).
+            analysis_status_service.mark_degraded(
+                "video", video_clip_id, "vector_db_storage",
+                "Keine Vektoren geschrieben (keine SigLIP-Embeddings vorhanden); "
+                "bestehende Vektoren des Clips wurden nicht geloescht.",
+                {"vectors": 0},
+            )
+        else:
+            analysis_status_service.mark_done("video", video_clip_id, "vector_db_storage", {
+                "vectors": result.embeddings_stored,
+            })
     except Exception as e:
         analysis_status_service.mark_error("video", video_clip_id, "vector_db_storage", str(e))
         raise
